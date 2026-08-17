@@ -1573,30 +1573,36 @@ type WindowStats struct {
 	ProcessCPULoad            []ProcessCPULoadSummary  `json:"process_cpu_load,omitempty"`
 	RunnableContext           []RunnableContextSummary `json:"runnable_context,omitempty"`
 	IOLatencies               []IOLatencySummary       `json:"io_latencies,omitempty"`
-	CPUFrequencyLimits        []CPUFrequencyLimit      `json:"cpu_frequency_limits,omitempty"`
-	SubsystemEvents           []SubsystemEventSummary  `json:"subsystem_events,omitempty"`
-	BlockIssueCount           int                      `json:"block_issue_count,omitempty"`
-	BlockRemapCount           int                      `json:"block_remap_count,omitempty"`
-	BlockCompleteCount        int                      `json:"block_complete_count,omitempty"`
-	BinderCount               int                      `json:"binder_count,omitempty"`
-	BinderReceivedCount       int                      `json:"binder_received_count,omitempty"`
-	BinderAuxCount            int                      `json:"binder_aux_count,omitempty"`
-	IRQCount                  int                      `json:"irq_count,omitempty"`
-	SoftIRQCount              int                      `json:"softirq_count,omitempty"`
-	MemoryEventCount          int                      `json:"memory_event_count,omitempty"`
-	StorageEventCount         int                      `json:"storage_event_count,omitempty"`
-	FilesystemEventCount      int                      `json:"filesystem_event_count,omitempty"`
-	PowerEventCount           int                      `json:"power_event_count,omitempty"`
-	AbilityEventCount         int                      `json:"ability_event_count,omitempty"`
-	XPowerEventCount          int                      `json:"xpower_event_count,omitempty"`
-	HiSystemEventCount        int                      `json:"hi_sysevent_event_count,omitempty"`
-	WorkqueueEventCount       int                      `json:"workqueue_event_count,omitempty"`
-	DMAFenceEventCount        int                      `json:"dma_fence_event_count,omitempty"`
-	BlockedReasonCount        int                      `json:"blocked_reason_count,omitempty"`
-	SchedStatCount            int                      `json:"sched_stat_count,omitempty"`
-	IPICount                  int                      `json:"ipi_count,omitempty"`
-	IOWaitBlockedCount        int                      `json:"io_wait_blocked_count,omitempty"`
-	BlockedReasons            []BlockedReasonSummary   `json:"blocked_reasons,omitempty"`
+	// IOLatencyOverflow* discloses the block-request pairs beyond the public
+	// Top-8 view.  Root-cause, blocking and evidence consumers recover every
+	// strict completion→issuer-wake member from the full census below; a
+	// display cap must never become a causal cap.
+	IOLatencyOverflowCount     int                     `json:"io_latency_overflow_count,omitempty"`
+	IOLatencyOverflowRequestMs float64                 `json:"io_latency_overflow_request_ms,omitempty"`
+	CPUFrequencyLimits         []CPUFrequencyLimit     `json:"cpu_frequency_limits,omitempty"`
+	SubsystemEvents            []SubsystemEventSummary `json:"subsystem_events,omitempty"`
+	BlockIssueCount            int                     `json:"block_issue_count,omitempty"`
+	BlockRemapCount            int                     `json:"block_remap_count,omitempty"`
+	BlockCompleteCount         int                     `json:"block_complete_count,omitempty"`
+	BinderCount                int                     `json:"binder_count,omitempty"`
+	BinderReceivedCount        int                     `json:"binder_received_count,omitempty"`
+	BinderAuxCount             int                     `json:"binder_aux_count,omitempty"`
+	IRQCount                   int                     `json:"irq_count,omitempty"`
+	SoftIRQCount               int                     `json:"softirq_count,omitempty"`
+	MemoryEventCount           int                     `json:"memory_event_count,omitempty"`
+	StorageEventCount          int                     `json:"storage_event_count,omitempty"`
+	FilesystemEventCount       int                     `json:"filesystem_event_count,omitempty"`
+	PowerEventCount            int                     `json:"power_event_count,omitempty"`
+	AbilityEventCount          int                     `json:"ability_event_count,omitempty"`
+	XPowerEventCount           int                     `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount         int                     `json:"hi_sysevent_event_count,omitempty"`
+	WorkqueueEventCount        int                     `json:"workqueue_event_count,omitempty"`
+	DMAFenceEventCount         int                     `json:"dma_fence_event_count,omitempty"`
+	BlockedReasonCount         int                     `json:"blocked_reason_count,omitempty"`
+	SchedStatCount             int                     `json:"sched_stat_count,omitempty"`
+	IPICount                   int                     `json:"ipi_count,omitempty"`
+	IOWaitBlockedCount         int                     `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons             []BlockedReasonSummary  `json:"blocked_reasons,omitempty"`
 	// BlockedReasonCensus (件1 census 根修, 2026-07-13): the per-pid FULL
 	// blocked_reason census on the wire face — per-caller 符号×count×Σms off
 	// the full pre-truncation accumulator (never the top-8 display view),
@@ -1638,6 +1644,11 @@ type WindowStats struct {
 	// same-CPU correctness consumers must not lose a verified on-chain segment
 	// merely because eight larger intervals occupied that public view.
 	runnableContextCensus []RunnableContextSummary
+	// ioLatencyCensus is the complete exact-pair block-request ledger behind
+	// IOLatencies.  The public slice remains bounded for prompt capacity, while
+	// chain relevance and evidence selection must see a short strictly-closed
+	// causal request even when eight longer background requests exist.
+	ioLatencyCensus []IOLatencySummary
 	// cpuPressureCensus is the uncapped per-CPU accounting ledger. The public
 	// CPUPressure slice is a display top-N only; arithmetic, CAP, state churn,
 	// and same-CPU lookup must never treat that display cap as full coverage.
@@ -1665,7 +1676,8 @@ type WindowStats struct {
 	// because anchored==0 would be indistinguishable from "never measured".
 	chainAnchorsByPID map[int][]TimeWindow
 	// anchoredDIOWakeups (RSPA M-IO closure lane): the wakeup-closed anchored
-	// D/IO segment ends of chain threads — (waker pid, wakeup ts) pairs
+	// D/IO segment ends of chain threads — source-scoped
+	// (waker pid, wakee pid, wakeup ts/line) records
 	// recorded when a sched_wakeup terminated a D/IO segment whose anchored
 	// overlap is positive. The per-IO completion-closure check reads these
 	// (io_latency completion thread + ts window); bounded by
@@ -2868,8 +2880,19 @@ type IOLatencySummary struct {
 	IssueTs        float64   `json:"issue_ts,omitempty"`
 	CompleteTs     float64   `json:"complete_ts,omitempty"`
 	DurationMs     float64   `json:"duration_ms,omitempty"`
-	IssueLine      int       `json:"issue_line,omitempty"`
-	CompleteLine   int       `json:"complete_line,omitempty"`
+	// WaitCaliber makes DurationMs explicit: this is physical block-request
+	// residence from issue to completion, not a sched_switch D/IO interval.
+	// The two may overlap and must never be added without interval union.
+	WaitCaliber string `json:"wait_caliber,omitempty"`
+	// CompletionWokeIssuer is a strict directed proof: the same physical
+	// completion emitter issued a later sched_wakeup/sched_waking for the
+	// request's IssueThread within the bounded handler slack.  It is false on
+	// absence/ambiguity; no temporal-proximity guess is emitted.
+	CompletionWokeIssuer bool    `json:"completion_woke_issuer,omitempty"`
+	WakeupTs             float64 `json:"wakeup_ts,omitempty"`
+	WakeupLine           int     `json:"wakeup_line,omitempty"`
+	IssueLine            int     `json:"issue_line,omitempty"`
+	CompleteLine         int     `json:"complete_line,omitempty"`
 }
 
 type FileIOSummary struct {
@@ -5502,6 +5525,11 @@ type CriticalBlockingCandidate struct {
 	SyncLike          *bool          `json:"sync_like,omitempty"`
 	BlockingCandidate *bool          `json:"blocking_candidate,omitempty"`
 	ChainRelevance    string         `json:"chain_relevance,omitempty"`
+	// ResourceCompletionClosure is the strict block-completion→issuer wake
+	// credential for an io_latency row. issue→complete alone is request
+	// residence, not proof that the issuer waited; only this directed,
+	// source-scoped edge admits the row to the target-self causal lane.
+	ResourceCompletionClosure bool `json:"resource_completion_closure,omitempty"`
 	// ChainCredentialLaneDemoted (RNB-1 B-4, §29.88 R4, 2026-07-14): the
 	// interval-less chain-lane D/IO VIEW row of a non-target chain pid whose
 	// census family account proves ZERO anchored credential (D-IO decision

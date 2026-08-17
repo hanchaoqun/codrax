@@ -3325,7 +3325,18 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.Caveats = append(stats.Caveats, caveat)
 	}
 	blockPairing := computeBlockIOLatencies(idx, q, 8, durationPairingIntegrities[durationOrderBlockIO])
+	stats.ioLatencyCensus = blockPairing.census
+	stampBlockIOCompletionWakeups(idx, stats.ioLatencyCensus, pidIdentity.allows)
 	stats.IOLatencies = blockPairing.latencies
+	if len(stats.ioLatencyCensus) > len(stats.IOLatencies) {
+		stats.IOLatencyOverflowCount = len(stats.ioLatencyCensus) - len(stats.IOLatencies)
+		for _, io := range stats.ioLatencyCensus[len(stats.IOLatencies):] {
+			stats.IOLatencyOverflowRequestMs += io.DurationMs
+		}
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
+			"io_latency display shows %d of %d exact request pair(s); %d pair(s) with %.3f request·ms sum (non-wall-clock; requests may overlap) sit beyond the display cap — target/chain ranking and blocking recover strict completion-to-issuer wake requests from the full census; generic evidence and other requests remain bounded display/context",
+			len(stats.IOLatencies), len(stats.ioLatencyCensus), stats.IOLatencyOverflowCount, stats.IOLatencyOverflowRequestMs))
+	}
 	stats.Caveats = append(stats.Caveats, blockPairing.caveats...)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -5963,11 +5974,21 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 	// RSPA M-IO closure lane: record the (waker, ts) identity of a wakeup
 	// that ended an ANCHORED D/IO segment of a chain thread — the typed
 	// directed record the per-IO completion-closure credential reads.
-	recordAnchoredDIOWakeup := func(anchoredOverlap float64, wakerPID int, ts float64) {
-		if anchoredOverlap <= 0 || !identity.allows(wakerPID) || len(anchoredDIOWakeups) >= anchoredDIOWakeupCap {
+	recordAnchoredDIOWakeup := func(anchoredOverlap float64, ev Event) {
+		if anchoredOverlap <= 0 || !identity.allows(ev.PID) || !identity.allows(ev.WakeePID) || len(anchoredDIOWakeups) >= anchoredDIOWakeupCap {
 			return
 		}
-		anchoredDIOWakeups = append(anchoredDIOWakeups, anchoredDIOWakeupRecord{wakerPID: wakerPID, ts: ts})
+		sourcePath, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			return
+		}
+		anchoredDIOWakeups = append(anchoredDIOWakeups, anchoredDIOWakeupRecord{
+			sourcePath: sourcePath,
+			wakerPID:   ev.PID,
+			wakeePID:   ev.WakeePID,
+			ts:         ev.Ts,
+			line:       ev.Line,
+		})
 	}
 	// DSTATE-REFINE arm a (件③): stamp the D-ledger coverage verdict onto the
 	// aggregated duration (same key/clamp derivation as addDuration; a
@@ -6067,7 +6088,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 				case StateDSleep, StateIOWait:
 					if io, marked, caller, ambiguous := offCPUDStateVerdictForQuery(idx, start, ev.Ts, blockedReasons, q, true); io {
 						anchored := addDurationCause(iowait, start, ev.Ts, ev.Line, offCPUCauseSymbol(caller), true)
-						recordAnchoredDIOWakeup(anchored, ev.PID, ev.Ts)
+						recordAnchoredDIOWakeup(anchored, ev)
 					} else {
 						if ambiguous {
 							blockedReasonAmbiguousIntervals++
@@ -6077,7 +6098,7 @@ func computeOffCPUStats(idx *Index, q Query, freqTimelineFor func(int) []Event, 
 							cause = offCPUCauseSymbol(caller)
 						}
 						anchored := addDurationCause(dstate, start, ev.Ts, ev.Line, cause, true)
-						recordAnchoredDIOWakeup(anchored, ev.PID, ev.Ts)
+						recordAnchoredDIOWakeup(anchored, ev)
 						markDStateCoverage(start, ev.Ts, marked, caller)
 					}
 				}
@@ -6635,6 +6656,40 @@ func cpuPressureAccounting(stats WindowStats) []CPUPressureStats {
 		return stats.cpuPressureCensus
 	}
 	return stats.CPUPressure
+}
+
+func ioLatencyAccounting(stats WindowStats) []IOLatencySummary {
+	return stats.IOLatencies
+}
+
+// ioLatencyCausalAccounting preserves the bounded display population and adds
+// only full-census requests whose issuer is an allowed target/chain member AND
+// whose completion carries the strict completion→issuer wake proof. This
+// closes causal Top-N loss without flooding rank/blocking surfaces with short
+// asynchronous or off-chain background requests in a busy storage window.
+func ioLatencyCausalAccounting(stats WindowStats, allowedIssuerPIDs map[int]bool) []IOLatencySummary {
+	if stats.ioLatencyCensus == nil || len(stats.ioLatencyCensus) <= len(stats.IOLatencies) {
+		return stats.IOLatencies
+	}
+	if len(allowedIssuerPIDs) == 0 {
+		return stats.IOLatencies
+	}
+	out := append([]IOLatencySummary(nil), stats.IOLatencies...)
+	seen := make(map[string]bool, len(out))
+	key := func(io IOLatencySummary) string {
+		return encodePairingKey(io.SourcePath, strconv.Itoa(io.IssueLine), strconv.Itoa(io.CompleteLine))
+	}
+	for _, io := range out {
+		seen[key(io)] = true
+	}
+	for _, io := range stats.ioLatencyCensus {
+		if !io.CompletionWokeIssuer || !allowedIssuerPIDs[io.IssueThread.PID] || seen[key(io)] {
+			continue
+		}
+		out = append(out, io)
+		seen[key(io)] = true
+	}
+	return out
 }
 
 func capCPUConstraintDisplay(in []CPUConstraintSummary, max int) []CPUConstraintSummary {
@@ -13076,7 +13131,7 @@ func storageLatencyAccumulator(accs map[string]*storageLatencyAcc, key, source, 
 
 func computeIOPressureSummary(stats WindowStats) *IOPressureSummary {
 	var blockMax float64
-	for _, io := range stats.IOLatencies {
+	for _, io := range ioLatencyAccounting(stats) {
 		if io.DurationMs > blockMax {
 			blockMax = io.DurationMs
 		}
@@ -13259,7 +13314,7 @@ func computeBlockIOByInode(stats WindowStats, max int) []BlockIOByInodeSummary {
 			acc.item.StorageMaxLatencyMs = storage.MaxLatencyMs
 		}
 	}
-	for _, io := range stats.IOLatencies {
+	for _, io := range ioLatencyAccounting(stats) {
 		acc := nearestBlockInodeForThread(accs, io.IssueThread, io.IssueTs, io.CompleteTs)
 		if acc == nil {
 			continue
@@ -15752,7 +15807,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		items = append(items, item)
 	}
-	for _, io := range stats.IOLatencies {
+	for _, io := range ioLatencyCausalAccounting(stats, chainThreads) {
 		projectedStart, projectedEnd := io.IssueTs, io.CompleteTs
 		projectedMs := io.DurationMs
 		if q.TimeEnd > q.TimeStart && io.CompleteTs > io.IssueTs {
@@ -15766,17 +15821,19 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		if projectedMs <= 0 {
 			continue
 		}
-		onChain := threadInSet(chainThreads, io.IssueThread) || threadInSet(chainThreads, io.CompleteThread)
-		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d projected %.3fms inside the selected window (physical %.3fms)", io.Dev, io.Op, io.Sector, io.Len, projectedMs, io.DurationMs))
+		// The request belongs to the issuing business thread.  An IRQ completer
+		// being present elsewhere on the chain never makes this request causal.
+		onChain := threadInSet(chainThreads, io.IssueThread) && io.CompletionWokeIssuer
+		item := rootCauseItem("io_latency", io.IssueThread, backgroundImpactMs(q, projectedMs, hasCausalChain, onChain), 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d request_wait(issue_to_complete) projected %.3fms inside the selected window (physical %.3fms)", io.Dev, io.Op, io.Sector, io.Len, projectedMs, io.DurationMs))
 		// RSPA M-IO (§29.61.10c): the per-IO completion-closure credential —
 		// computable only with the anchor basis; the enrich resource arm then
 		// requires it for the on-chain lane (pure overlap demotes to ◇).
+		item.ResourceCompletionClosure = io.CompletionWokeIssuer
 		if stats.chainAnchorsByPID != nil {
 			item.resourceClosureEvaluated = true
-			item.ResourceCompletionClosure = resourceCompletionClosureProven(stats, io.CompleteThread.PID, io.IssueTs, io.CompleteTs)
-			if item.ResourceCompletionClosure {
-				item.Summary = appendRootCauseSummaryDetail(item.Summary, "completion woke an anchored D/IO wait of a chain thread (typed completion-closure credential)")
-			}
+		}
+		if item.ResourceCompletionClosure {
+			item.Summary = appendRootCauseSummaryDetail(item.Summary, "the physical completion directly woke the issuing chain thread (source-scoped typed completion-closure credential)")
 		}
 		item.PhysicalSourcePath = io.SourcePath
 		item.ProjectedImpactMs = projectedMs
@@ -15792,7 +15849,7 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 		}
 		// RCM §24.7.1 typed member identity (never a Summary re-parse).
 		item.Dev = io.Dev
-		item.MemberKey = fmt.Sprintf("dev=%s op=%s sector=%d", io.Dev, io.Op, io.Sector)
+		item.MemberKey = fmt.Sprintf("dev=%s op=%s sector=%d len=%d", io.Dev, io.Op, io.Sector, io.Len)
 		items = append(items, item)
 	}
 	for _, file := range stats.FileIOByInode {
@@ -19353,6 +19410,7 @@ func enrichRootCauseItemsWithChainContext(chain ChainResult, items []RootCauseRa
 		// as its own proof lane (SELF-ALL M3 两把尺禁混折), never rewritten
 		// to the self basis.
 		if ctx.relevance == "adjacent" && rootCauseItemIsSelfWallClockSeat(items[i]) &&
+			(strings.TrimSpace(items[i].Type) != "io_latency" || items[i].ResourceCompletionClosure) &&
 			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
 			ctx.relevance = "on_chain"
 			ctx.overlapMs = 0
@@ -19602,12 +19660,13 @@ func rootCauseChainContextForItem(item RootCauseRankItem, ctx chainCandidateCont
 	// the anchored host thread's own wait/work occupying its dependency
 	// window (the semantic-span 宿主关系 credential form, §3.1 — 现状合规),
 	// and their double-seat risk is already owned by B4 recon + the Q4-B
-	// material gate. The analysis target's own rows are self-causality and
-	// keep the legacy lane; anchor-less builds never set the evaluated bit.
+	// material gate. Target identity does not change request residence into
+	// task wait: target rows require the same directed completion credential.
+	// Anchor-less builds never set the evaluated bit.
 	if ctx.relevance == "on_chain" && item.Type == "io_latency" &&
-		item.resourceClosureEvaluated && !item.ResourceCompletionClosure &&
-		!(target.PID > 0 && item.Thread.PID == target.PID) {
+		item.resourceClosureEvaluated && !item.ResourceCompletionClosure {
 		ctx.relevance = "adjacent"
+		ctx.overlapMs = 0
 		return ctx
 	}
 	// RSPA-HYG 件③ (§29.77 立案③, 2026-07-14) — EVOLUTION RECORD: the "§3.1
@@ -22602,18 +22661,27 @@ func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats,
 			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%s caller=%s count=%d", threadLabel(br.Thread), blockedReasonIOWaitText(br.IOWaitKnown, br.IOWait), firstNonEmpty(br.Reason, "unknown"), br.Count),
 		})
 	}
-	for _, io := range stats.IOLatencies {
+	allowedIOIssuers := map[int]bool{}
+	if chainForContext != nil {
+		allowedIOIssuers = wakeupChainThreadSet(*chainForContext)
+	}
+	for _, io := range ioLatencyCausalAccounting(stats, allowedIOIssuers) {
+		wakeDetail := ""
+		if io.CompletionWokeIssuer {
+			wakeDetail = fmt.Sprintf("; completion directly woke issuer at %.6f line %d", io.WakeupTs, io.WakeupLine)
+		}
 		add(CriticalBlockingCandidate{
-			Type:       "io_latency",
-			Thread:     io.IssueThread,
-			Peer:       io.CompleteThread,
-			DurationMs: io.DurationMs,
-			StartTs:    io.IssueTs,
-			EndTs:      io.CompleteTs,
-			LineStart:  io.IssueLine,
-			LineEnd:    io.CompleteLine,
-			Confidence: 0.86,
-			Summary:    fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs),
+			Type:                      "io_latency",
+			Thread:                    io.IssueThread,
+			Peer:                      io.CompleteThread,
+			DurationMs:                io.DurationMs,
+			StartTs:                   io.IssueTs,
+			EndTs:                     io.CompleteTs,
+			LineStart:                 io.IssueLine,
+			LineEnd:                   io.CompleteLine,
+			Confidence:                0.86,
+			ResourceCompletionClosure: io.CompletionWokeIssuer,
+			Summary:                   fmt.Sprintf("block IO %s %s sector=%d len=%d request_wait(issue_to_complete)=%.3fms%s", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, wakeDetail),
 		})
 	}
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
@@ -23262,6 +23330,13 @@ func peerChainStepSummary(step *PeerChainStep) string {
 func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalBlockingCandidate) []CriticalBlockingCandidate {
 	for i := range items {
 		ctx := chainContextForCandidate(chain, items[i].Thread, items[i].StartTs, items[i].EndTs)
+		if ctx.relevance == "on_chain" && strings.TrimSpace(items[i].Type) == "io_latency" && !items[i].ResourceCompletionClosure {
+			// issue→complete is a request-residence interval. Even for the
+			// analysis target, temporal overlap alone cannot turn it into a
+			// directed dependency; only completion→issuer wake can do so.
+			ctx.relevance = "adjacent"
+			ctx.overlapMs = 0
+		}
 		// SELF-ALL (§29.61.2): the critical_blocking face is a witness feeder
 		// for the display's self/◇ stanzas — the target's own wall-clock seat
 		// rows (D/IO family, IO facet rows) take the SAME self-basis on-chain
@@ -23269,6 +23344,7 @@ func enrichCriticalBlockingWithChainContext(chain ChainResult, items []CriticalB
 		// Wait-on-counterpart tokens (binder_wait / blocking_span — registry
 		// symptom lanes) and interval-less rows keep their lane byte-identically.
 		if ctx.relevance == "adjacent" && selfWallClockSeatTokenIsSeatFamily(items[i].Type) &&
+			(strings.TrimSpace(items[i].Type) != "io_latency" || items[i].ResourceCompletionClosure) &&
 			selfWallClockSeatLane(&chain, items[i].Thread, items[i].StartTs, items[i].EndTs) {
 			ctx.relevance = "on_chain"
 			ctx.overlapMs = 0
@@ -26374,12 +26450,16 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			break
 		}
 	}
-	for _, io := range stats.IOLatencies {
+	for _, io := range ioLatencyAccounting(stats) {
+		wakeDetail := ""
+		if io.CompletionWokeIssuer {
+			wakeDetail = fmt.Sprintf("; completion directly woke issuer at %.6f line %d", io.WakeupTs, io.WakeupLine)
+		}
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(io.IssueThread),
 			Predicate:  "io_latency",
 			Object:     threadLabel(io.CompleteThread),
-			Summary:    fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3f ms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs),
+			Summary:    fmt.Sprintf("block IO %s %s sector=%d len=%d request wait (issue→complete) %.3f ms%s", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, wakeDetail),
 			LineStart:  io.IssueLine,
 			LineEnd:    io.CompleteLine,
 			StartTs:    io.IssueTs,

@@ -7,13 +7,13 @@ package tool
 // projection compile → zh render):
 //
 //   - donghu 17267 flagship board (this harness's query shape: wakeup_chain +
-//     root_cause_rank, MinDurationMs 0.5, Limit 12): the recovered INTERSECT-FIX
-//     live pair (running × 6-member io_latency family, overlap 0.230ms) is
-//     4.99% of the smaller seat's published eff (4.611ms) — below the relative
-//     de-minimis floor — so the mutual sentences, the ·∩ chips and the ◎ ∩
-//     footnote are all SILENT now (negative arm; the typed undisclosed record
-//     stays engine-side, pinned by rank_direction_axiom_live_pin_test.go).
-//     The published values stay untouched (disclosure-only gate).
+//     root_cause_rank, MinDurationMs 0.5, Limit 12): BIO-WAKE-1 recovers the
+//     complete strict completion→issuer-wake request census. The formerly
+//     visible 0.230/0.043ms pairs remain below the relative de-minimis floor,
+//     while the recovered 45-member request family has a real 1.440ms overlap
+//     with the running-supply seat and therefore publishes the mutual
+//     sentences, ·∩ chips and ◎ ∩ footnote. The gate remains disclosure-only;
+//     both published values are untouched.
 //   - tieba 61839 W-A board: the nested full-containment pair (0.705ms = 100%
 //     of the smaller seat) sits far above the floor and must KEEP the full
 //     mutual sentence face, and the ∩ legend entry must teach the floor
@@ -40,23 +40,21 @@ func TestIntersectFixMutualClauseDonghuFlagship(t *testing.T) {
 	}
 	md := elimSemanticRealMarkdown(t, elimSemanticDonghuTrace, 17267, 13762.791708, 13763.024898)
 
-	// INTERFLOOR-1 negative arm: every live pair on this board sits below the
-	// relative floor (0.230ms = 4.99% / 0.043ms = 1.09% of the smaller seat)
-	// — no mutual sentence, no ∩ chip, no ◎ ∩ footnote, no ∩ legend rows.
-	for _, banned := range []string{
-		// INTERFLOOR-1 复核收编(P2-1,2026-07-19):0.230ms 对居 4.988%=距 5% 地板仅
-		// 0.55µs——本负臂被刻意保留为「界骑 tripwire」:任何使 overlap 数学漂移
-		// 亚 µs 的改动都会经 ·∩[E 禁令翻红,强制漂移者显式面对地板边界;非误报。
-		"同段重叠 0.230ms", "同段重叠 0.043ms", "·∩[E", "∩ 跨方向重叠对(",
-	} {
+	// INTERFLOOR-1 negative arm: the old boundary-riding pairs remain silent.
+	for _, banned := range []string{"同段重叠 0.230ms", "同段重叠 0.043ms"} {
 		if strings.Contains(md, banned) {
 			t.Fatalf("de-minimis 降道: %q must not render on the flagship board:\n%s", banned, md)
 		}
 	}
-	// 值面零动: the demote is disclosure-only — the published values stay
-	// (the running 折算席 58.320 and the io family 合计 4.611 of this
-	// harness's shape).
-	if !strings.Contains(md, "58.320ms") || !strings.Contains(md, "4.611ms") {
+	// BIO-WAKE-1 positive arm: full-census exact recovery makes this larger
+	// typed pair significant. Both sides and the overview carry one source.
+	if got := strings.Count(md, "同段重叠 1.440ms"); got < 2 ||
+		!strings.Contains(md, "·∩[E5]") ||
+		!strings.Contains(md, "∩ 重叠对    [E1]∩[E5] 1.440ms") {
+		t.Fatalf("full-census significant overlap must publish the mutual typed pair, got=%d:\n%s", got, md)
+	}
+	// 值面零动: overlap disclosure does not subtract or rewrite either seat.
+	if !strings.Contains(md, "58.320ms") || !strings.Contains(md, "12.208ms") {
 		t.Fatalf("published values must stay untouched by the disclosure gate:\n%s", md)
 	}
 }

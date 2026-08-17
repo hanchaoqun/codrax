@@ -221,10 +221,12 @@ func TestSelfAllCrossChannelPointerBidirectionalOrNone(t *testing.T) {
 //   - F1 佩序席折叠豁免: the promotion's +1 pushed seat #7 past the compile
 //     positional cap → row invisible + ordinal hole #6→#8. Every seated row
 //     now renders; the rendered ordinal set is CONTIGUOUS.
-//   - F2 IOFAM-SELF 显示折叠 basis 维: the overlap-proven 1.347ms seat (#12)
-//     folded into the self-basis family's 「同段IO另有」 note although the
-//     segments are pairwise disjoint (同段 false claim + seat invisible).
-//     Mixed-basis seats now render as separate rows.
+//   - F2 IOFAM-SELF 显示折叠 basis 维: an overlap-proven seat folded into the
+//     self-basis family's 「同段IO另有」 note although the segments are
+//     pairwise disjoint (同段 false claim + seat invisible). The exact
+//     overlap-family amount is deliberately not pinned: exact block request
+//     pairing may recover additional members without changing this display
+//     invariant. Mixed-basis seats still render as separate rows.
 func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 	idx, err := tracequery.BuildIndex(context.Background(), "../../eval/fixtures/real_traces/donghu.ftrace")
 	if err != nil {
@@ -290,7 +292,7 @@ func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 		if token != "io_latency" {
 			continue
 		}
-		if row.Node.OnChainBasis == "" && row.Node.ImpactMS > 1.3 && row.Node.ImpactMS < 1.4 {
+		if row.Node.OnChainBasis == "" && row.Node.ImpactMS > 0 {
 			overlapSeat = true
 		}
 		if row.Node.OnChainBasis == "self_wall_clock_interval" {

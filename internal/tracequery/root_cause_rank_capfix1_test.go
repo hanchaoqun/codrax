@@ -434,15 +434,15 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 		"; 51 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=3/background=47)",
 		"largest on_chain running RenderThread-59891 0.378ms",
 		"链上最大 running RenderThread-59891 0.378ms",
-		"另 1 行自身侧道已发布",
+		"另 2 行自身侧道已发布",
 	})
 
 	donghu := requireRealTrace("../../eval/fixtures/real_traces/donghu.ftrace")
 	board17267 := BuildRootCauseRank(donghu, Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(board17267, []string{
-		"largest on_chain io_wait keva-3-17439 1.354ms",
-		"链上最大 io_wait keva-3-17439 1.354ms",
+		"largest on_chain running binder:496_9-10961 1.542ms",
+		"链上最大 running binder:496_9-10961 1.542ms",
 	})
 
 	// POOL2-1 件④ acceptance (§29.160④ 「每道 top-2 点名(76.800 个体可见)」):

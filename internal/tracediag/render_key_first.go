@@ -856,7 +856,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// ClockSetRateEventCount are independent scalar censuses. They remain in
 	// generic detail (bulk arrays cannot displace scalars), with no duplicate
 	// key-first owner or priority/ranking semantics.
-	reflect.TypeOf(tracequery.WindowStats{}):                "9025fb9c4e0b62b4e514215ff351e864ee7a3b8d8b73eb33f7a5dceb916cc92c",
+	// BIO-WAKE-1 (2026-08-16) schema review: IOLatencyOverflowCount and
+	// IOLatencyOverflowRequestMs disclose the exact request-latency census
+	// hidden behind the bounded public Top-N detail. They are small scalar
+	// facts owned by the generic detail lane; they neither replace the public
+	// rows nor establish task scheduling wait/causality. No skip, priority, or
+	// duplicate key-first owner is required; hash re-pinned after review.
+	reflect.TypeOf(tracequery.WindowStats{}):                "7cdb171a3e2887e4a910b13eb1c477b1d3bd6f2dec05874e0013c1df5721439f",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	// PERF raw quality disclosure: ParserCaveats is rendered once in the

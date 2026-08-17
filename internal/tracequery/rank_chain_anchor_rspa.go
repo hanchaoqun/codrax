@@ -91,8 +91,11 @@ const rspaIOCompletionClosureTolS = 0.0005
 // waker identity + wakeup timestamp (the typed directed edge the M-IO
 // completion-closure credential reads).
 type anchoredDIOWakeupRecord struct {
-	wakerPID int
-	ts       float64
+	sourcePath string
+	wakerPID   int
+	wakeePID   int
+	ts         float64
+	line       int
 }
 
 // chainAnchorWindowsByPID collects the typed wakeup-dependency jump windows
@@ -1554,16 +1557,19 @@ func stampResourceClosureEvaluation(stats WindowStats, items []RootCauseRankItem
 
 // resourceCompletionClosureProven is the M-IO per-IO credential check: some
 // wakeup-closed ANCHORED D/IO segment end of a chain thread was performed by
-// this IO's completion thread within the IO's lifetime (+µs handler slack).
-func resourceCompletionClosureProven(stats WindowStats, completePID int, issueTs, completeTs float64) bool {
-	if completePID <= 0 || completeTs <= issueTs {
+// this IO's completion thread, directed to this IO's issuing thread, after the
+// physical completion row and within the bounded handler slack.  Source and
+// physical line order are part of the credential; timestamp proximity alone
+// never joins artifacts or unrelated wakees.
+func resourceCompletionClosureProven(stats WindowStats, sourcePath string, issuePID, completePID int, issueTs, completeTs float64, completeLine int) bool {
+	if strings.TrimSpace(sourcePath) == "" || issuePID <= 0 || completePID <= 0 || completeTs <= issueTs || completeLine <= 0 {
 		return false
 	}
 	for _, record := range stats.anchoredDIOWakeups {
-		if record.wakerPID != completePID {
+		if record.sourcePath != sourcePath || record.wakerPID != completePID || record.wakeePID != issuePID {
 			continue
 		}
-		if record.ts >= issueTs && record.ts <= completeTs+rspaIOCompletionClosureTolS {
+		if record.line > completeLine && record.ts >= completeTs && record.ts <= completeTs+rspaIOCompletionClosureTolS {
 			return true
 		}
 	}

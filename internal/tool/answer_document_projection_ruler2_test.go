@@ -214,9 +214,11 @@ func TestRuler2Donghu17267WitnessVerbatim(t *testing.T) {
 	if got := strings.Count(squashed, partsplitSquash(ruler2WitnessSentenceZH)); got != 1 {
 		t.Fatalf("witness sentence must render VERBATIM exactly once, got %d:\n%s", got, md)
 	}
-	// The sentence hangs under the LEAD seat row (三席中首席行下披露行): the
-	// #5 seat row precedes it, and the sentence sits inside the self stanza.
-	leadAt := strings.Index(squashed, partsplitSquash("➎ ⧖ 自身·runnable 合计3.956ms [E6]"))
+	// The sentence hangs under the LEAD seat row (三席中首席行下披露行).
+	// Evidence IDs and board ordinals are intentionally not part of this pin:
+	// recovery of another independently proven causal family may shift both
+	// without changing the two-ruler ownership relation.
+	leadAt := strings.Index(squashed, partsplitSquash("⧖ 自身·runnable 合计3.956ms"))
 	sentenceAt := strings.Index(squashed, partsplitSquash(ruler2WitnessSentenceZH))
 	if leadAt < 0 || sentenceAt < leadAt {
 		t.Fatalf("the sentence must render under the lead seat row (lead@%d sentence@%d):\n%s", leadAt, sentenceAt, md)

@@ -1538,3 +1538,67 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - **连带定谳**:`periodic_idle` 潜伏未注册因果 token 按 §7.2.1 协议注册(wakeup_chain 车道,ContextOnly 臂原已双 token);XLANE3 donghu 真迹值演化=9163 板 18.933ms 节拍睡眠段外移分母(239.820−18.933=220.887 精确,诚实披露句正臂新钉)。
 - **NEXTINFO-V1(ices_boost 语义颠倒值通道)=用户裁定记做遗留,不动代码**;重开先读 cpu_busy_zero 审计 §13.9.2 硬伤A+§13.10 范围裁定。
 - 验证回执:`go test ./internal/... -count=1` 全绿两轮(复核前+复核修后);`go build ./...` EXIT=0。
+
+## 2026-08-16 追加：BIO-WAKE-1 block 请求等待与完成唤醒闭环
+
+### 客户证据与旧实现 GAP
+
+- 外部客户回传 `/Users/han/opt/customlogs/io_problem.txt` 包含同一发起线程的一组精确请求：
+  `923339560+136` 为 `0.179ms`、`923339704+8` 为 `0.201ms`、
+  `923339720+16` 为 `0.233ms`、`923339752+64` 为 `0.275ms`。这些值均为
+  `block_rq_issue.ts → block_rq_complete.ts`，不是线程 D/IO scheduler 状态的墙钟和。
+- 东湖真迹还给出完整闭环：`.ugc.aweme.lite-17267` 在 `13762.796654`
+  发出 sector `134165536` 请求，`13762.796752` 切入 `S`，IRQ 线程在
+  `13762.797519` 完成请求并于 `13762.797534` 唤醒同一发起线程。因此该请求的
+  request residence 为 `0.865ms`，completion→wake handler gap 为 `0.015ms`；
+  后者只是关联约束，不另计为 IO 等待。
+- 旧实现虽然已经按物理来源、endpoint family、dev、op、sector、len 做精确
+  issue/complete 配对，但存在四个系统 GAP：
+  1. `IOLatencies` 的 Top-8 展示切片被下游误当完整事实集，短但真正链上的请求可能被
+     八个更长背景请求吞掉；
+  2. 仅凭 issue/complete 区间与链窗重叠，或 completer PID 恰好在链中，就可能把异步
+     请求 residence 冒充发起线程的链上等待；
+  3. 旧 completion closure 只看 waker PID 与时间邻近，未绑定物理来源、wakee、物理
+     行序，跨 artifact/错 wakee 都可能误连；
+  4. 一次 `sched_wakeup` 可被同一 burst 内多个早先 completion 重复借用，夸大链上请求数。
+
+### 施工后的单一判定逻辑
+
+1. 所有精确 `block_rq_issue → block_rq_complete` 配对都进入完整 request census，
+   `wait_caliber=block_rq_issue_to_complete`；其 `DurationMs` 是请求驻留时间。公开明细仍
+   Top-8，但额外披露 overflow pair 数与 overflow `request·ms`。`request·ms` 明确为可
+   重叠请求之和，不是墙钟。
+2. 请求进入链上 IO 根因/critical-blocking 必须同时满足：同一物理来源；complete
+   线程就是后续 wake 的 waker；wakee 就是 issue 发起线程；发起线程在 issue 后、
+   complete 前确实切入非 runnable 状态；complete < wake ≤ complete+0.5ms；物理行序
+   严格递增。
+3. 同一 `(source, completer/waker PID, issuer/wakee PID)` burst 的一次 wake 只归给该
+   wake 之前最后一个满足条件的 completion。更早完成的并发请求继续保留 request-wait
+   统计，但不会借同一次 wake 铸造多条因果边；`sched_waking`/`sched_wakeup` 双记录也不
+   重复消费请求。
+4. Top-8 之外只补回“发起线程属于最终 target/wakeup-chain 且拥有上述严格闭环”的请求；
+   generic evidence、IO pressure、inode 汇总仍使用有界展示集，避免繁忙存储窗污染模型
+   上下文。
+5. 标准 `sched_wakeup` 仍是唤醒链的第一类 directed edge；block 请求闭环把同一 wake 行
+   与精确 issue/complete 请求绑定并提供 IO 根因席。系统只发布 typed 事实、口径与关联，
+   不代写模型结论。
+
+### 不变量与状态
+
+- request residence 与 scheduler `D`/`IOWait` 是两把尺，可能重叠，禁止直接相加；线程
+  实际 D/IO 等待仍由 sched_switch/blocked-reason 账负责。
+- sector 不是单独的全局 join key；必须与物理来源、family、dev、op、len 和行序共同使用，
+  防止跨设备、跨 trace、同 sector 复用误配。
+- `block_rq_complete` 后没有精确唤醒同一 issuer、issuer 未在请求期间阻塞、或只有时间邻近
+  时，请求只能作为统计/背景事实，不得进入链上主因。
+- 状态：BIO-WAKE-1 **已修（本提交）**。新增合成回归覆盖 Top-8 下沉恢复、真实 wakeup-chain
+  edge、错 wakee/complete 前 wake、缺 issuer blocking transition、burst 一 wake 只归最后
+  completion；东湖真迹数值与跨包成文/schema 契约同步复核。
+
+### 验证回执
+
+- `go test ./internal/tracequery -count=1`：通过（`75.986s`）。
+- `go test ./internal/tool -count=1`：通过（`185.648s`）；真实东湖投影、显著交集、两尺关系及
+  自动成文全链均在完整包内复核。
+- `go test ./internal/tracediag ./cmd -count=1`：通过（`5.449s` / `9.605s`）。
+- `git diff --check`：通过。

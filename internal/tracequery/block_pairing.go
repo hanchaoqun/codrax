@@ -18,6 +18,10 @@ const (
 	blockEndpointFamilyRQ  = "block_rq"
 	blockEndpointFamilyBIO = "block_bio"
 	maxBlockSectorCount    = int64(1<<32 - 1)
+	// BlockIOWaitCaliberIssueToComplete is the physical request-residence
+	// ruler.  It deliberately does not claim that the issuing task stayed
+	// scheduler-blocked for the whole interval.
+	BlockIOWaitCaliberIssueToComplete = "block_rq_issue_to_complete"
 )
 
 // blockLatencyEndpoint is the single closed-set admission gate for elapsed
@@ -312,8 +316,120 @@ type blockPairingAccumulator struct {
 
 type blockPairingResult struct {
 	latencies []IOLatencySummary
+	census    []IOLatencySummary
 	summaries []StorageLatencySummary
 	caveats   []string
+}
+
+// stampBlockIOCompletionWakeups adds the strict block-completion → issuing
+// thread wake credential to exact-paired requests. The join key includes the
+// physical artifact and both directed endpoint PIDs; the issuer must have
+// switched into a non-runnable state after issue and before completion; and
+// the last eligible completion before a wake is the batch release point in
+// that directed physical-line cohort. Each wake is consumed once. Earlier
+// completions remain request-wait observations but do not each borrow the one
+// wake. This prevents one sched_wakeup from blessing a burst of concurrent
+// requests while retaining the real final-completion→wake edge.
+func stampBlockIOCompletionWakeups(idx *Index, latencies []IOLatencySummary, pidAllowed func(int) bool) {
+	if idx == nil || len(latencies) == 0 {
+		return
+	}
+	type directedKey struct {
+		source             string
+		wakerPID, wakeePID int
+	}
+	type issuerKey struct {
+		source string
+		pid    int
+	}
+	candidates := make(map[directedKey][]int)
+	for i := range latencies {
+		io := &latencies[i]
+		if strings.TrimSpace(io.SourcePath) == "" || io.IssueThread.PID <= 0 || io.CompleteThread.PID <= 0 || io.CompleteLine <= 0 || io.CompleteTs <= io.IssueTs {
+			continue
+		}
+		if pidAllowed != nil && (!pidAllowed(io.IssueThread.PID) || !pidAllowed(io.CompleteThread.PID)) {
+			continue
+		}
+		key := directedKey{source: io.SourcePath, wakerPID: io.CompleteThread.PID, wakeePID: io.IssueThread.PID}
+		candidates[key] = append(candidates[key], i)
+	}
+	for key := range candidates {
+		sort.SliceStable(candidates[key], func(i, j int) bool {
+			left, right := latencies[candidates[key][i]], latencies[candidates[key][j]]
+			if left.CompleteLine != right.CompleteLine {
+				return left.CompleteLine < right.CompleteLine
+			}
+			return left.CompleteTs < right.CompleteTs
+		})
+	}
+	wakeups := make(map[directedKey][]Event)
+	blockedSwitches := make(map[issuerKey][]Event)
+	for _, ev := range idx.Events {
+		source, sourceOK := tracePairingSourceIdentity(idx, ev)
+		if !sourceOK {
+			continue
+		}
+		switch ev.Type {
+		case EventSchedWakeup, EventSchedWaking:
+			if pidAllowed == nil || (pidAllowed(ev.PID) && pidAllowed(ev.WakeePID)) {
+				key := directedKey{source: source, wakerPID: ev.PID, wakeePID: ev.WakeePID}
+				wakeups[key] = append(wakeups[key], ev)
+			}
+		case EventSchedSwitch:
+			if ev.PrevPID > 0 && stateFromPrevState(ev.PrevState) != StateRunnable &&
+				(pidAllowed == nil || pidAllowed(ev.PrevPID)) {
+				key := issuerKey{source: source, pid: ev.PrevPID}
+				blockedSwitches[key] = append(blockedSwitches[key], ev)
+			}
+		}
+	}
+	for key := range blockedSwitches {
+		sort.SliceStable(blockedSwitches[key], func(i, j int) bool {
+			if blockedSwitches[key][i].Line != blockedSwitches[key][j].Line {
+				return blockedSwitches[key][i].Line < blockedSwitches[key][j].Line
+			}
+			return blockedSwitches[key][i].Ts < blockedSwitches[key][j].Ts
+		})
+	}
+	issuerBlockedForRequest := func(io IOLatencySummary) bool {
+		rows := blockedSwitches[issuerKey{source: io.SourcePath, pid: io.IssueThread.PID}]
+		start := sort.Search(len(rows), func(i int) bool { return rows[i].Line > io.IssueLine })
+		return start < len(rows) && rows[start].Line < io.CompleteLine && rows[start].Ts >= io.IssueTs && rows[start].Ts <= io.CompleteTs
+	}
+	for key, rows := range wakeups {
+		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i].Line != rows[j].Line {
+				return rows[i].Line < rows[j].Line
+			}
+			return rows[i].Ts < rows[j].Ts
+		})
+		candidateRows := candidates[key]
+		cursor := 0
+		previousWakeLine := 0
+		for _, wake := range rows {
+			eligible := -1
+			for cursor < len(candidateRows) && latencies[candidateRows[cursor]].CompleteLine <= previousWakeLine {
+				cursor++
+			}
+			for j := cursor; j < len(candidateRows); j++ {
+				io := latencies[candidateRows[j]]
+				if io.CompleteLine >= wake.Line {
+					break
+				}
+				if wake.Ts >= io.CompleteTs && wake.Ts <= io.CompleteTs+rspaIOCompletionClosureTolS && issuerBlockedForRequest(io) {
+					eligible = candidateRows[j]
+				}
+			}
+			if eligible >= 0 {
+				io := &latencies[eligible]
+				io.CompletionWokeIssuer = true
+				io.WakeupTs = wake.Ts
+				io.WakeupLine = wake.Line
+			}
+			previousWakeLine = wake.Line
+		}
+	}
 }
 
 // blockPairingReplayIndexes returns the complete endpoint topology in the
@@ -455,6 +571,9 @@ func computeBlockIOLatencies(idx *Index, q Query, max int, providedIntegrity ...
 		}
 		return out.latencies[i].IssueLine < out.latencies[j].IssueLine
 	})
+	// Keep the complete exact-pair ledger before applying the public display
+	// cap.  Downstream causal/rank consumers read census, never the Top-N view.
+	out.census = out.latencies
 	if max > 0 && len(out.latencies) > max {
 		out.latencies = out.latencies[:max]
 	}
@@ -574,6 +693,7 @@ func accountBlockPairingTransition(out *blockPairingResult, accs map[string]*blo
 		IssueTs:        start.Ts,
 		CompleteTs:     done.Ts,
 		DurationMs:     durationMs,
+		WaitCaliber:    BlockIOWaitCaliberIssueToComplete,
 		IssueLine:      start.Line,
 		CompleteLine:   done.Line,
 	})

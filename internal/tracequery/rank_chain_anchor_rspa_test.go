@@ -130,25 +130,36 @@ func TestRSPAIdentityGateFailsOpenOnDivergence(t *testing.T) {
 }
 
 func TestRSPACompletionClosureToleranceBounds(t *testing.T) {
-	stats := WindowStats{anchoredDIOWakeups: []anchoredDIOWakeupRecord{{wakerPID: 92, ts: 10.0005}}}
-	if !resourceCompletionClosureProven(stats, 92, 10.0000, 10.0004) {
+	stats := WindowStats{anchoredDIOWakeups: []anchoredDIOWakeupRecord{{
+		sourcePath: "/trace/a.systrace", wakerPID: 92, wakeePID: 200, ts: 10.0005, line: 12,
+	}}}
+	if !resourceCompletionClosureProven(stats, "/trace/a.systrace", 200, 92, 10.0000, 10.0004, 10) {
 		t.Fatal("wakeup within the µs handler slack after completion must prove closure")
 	}
-	if resourceCompletionClosureProven(stats, 92, 10.0000, 9.9990) {
+	if resourceCompletionClosureProven(stats, "/trace/a.systrace", 200, 92, 10.0000, 9.9990, 10) {
 		t.Fatal("degenerate interval must never prove closure")
 	}
-	if resourceCompletionClosureProven(stats, 93, 10.0000, 10.0004) {
+	if resourceCompletionClosureProven(stats, "/trace/a.systrace", 200, 93, 10.0000, 10.0004, 10) {
 		t.Fatal("a different waker pid is not this IO's completion")
 	}
-	if resourceCompletionClosureProven(stats, 92, 10.0010, 10.0020) {
-		t.Fatal("a wakeup before the IO issue is not its completion closure")
+	if resourceCompletionClosureProven(stats, "/trace/a.systrace", 201, 92, 10.0000, 10.0004, 10) {
+		t.Fatal("a wakeup directed to another task is not this issuer's completion closure")
+	}
+	if resourceCompletionClosureProven(stats, "/trace/b.systrace", 200, 92, 10.0000, 10.0004, 10) {
+		t.Fatal("a wakeup from another physical artifact must never cross-join")
+	}
+	if resourceCompletionClosureProven(stats, "/trace/a.systrace", 200, 92, 10.0000, 10.0006, 10) {
+		t.Fatal("a wakeup before the completion timestamp is not completion closure")
+	}
+	if resourceCompletionClosureProven(stats, "/trace/a.systrace", 200, 92, 10.0000, 10.0004, 12) {
+		t.Fatal("a wakeup at or before the physical completion line must not prove closure")
 	}
 }
 
 // TestRSPAResourceLaneClosureArm — M-IO (10c 判据: 证据面非类别面): with the
-// anchor basis present, a NON-target io_latency row's on-chain verdict needs
-// the typed completion-closure credential; pure overlap demotes to ◇. The
-// target's own rows and anchor-less builds keep the legacy lane.
+// anchor basis present, every io_latency row's on-chain verdict needs the
+// typed completion-closure credential; pure overlap demotes to ◇ even for
+// the target because request residence is not automatically task wait.
 func TestRSPAResourceLaneClosureArm(t *testing.T) {
 	target := ThreadRef{PID: 100}
 	base := RootCauseRankItem{Type: "io_latency", Thread: ThreadRef{PID: 200}, StartTs: 1, EndTs: 2}
@@ -166,8 +177,8 @@ func TestRSPAResourceLaneClosureArm(t *testing.T) {
 	}
 	self := evaluated
 	self.Thread = target
-	if got := rootCauseChainContextForItem(self, ctx, target); got.relevance != "on_chain" {
-		t.Fatalf("the target's own row is self-causality exempt: %+v", got)
+	if got := rootCauseChainContextForItem(self, ctx, target); got.relevance != "adjacent" {
+		t.Fatalf("target identity cannot replace a completion-wake credential: %+v", got)
 	}
 	if got := rootCauseChainContextForItem(base, ctx, target); got.relevance != "on_chain" {
 		t.Fatalf("anchor-less (unevaluated) rows keep the legacy overlap lane: %+v", got)
@@ -579,8 +590,8 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		// B829 frees one candidate slot by removing relation-only semantic
 		// work from the priced election; the next legitimate off-chain D-state
 		// disclosure now survives the fixed cap.
-		"hmfs_get_dnode": {0.171, false, true},
-		"hmfs_read":      {0.145, false, false},
+		"hmfs_get_dnode": {0.171, false, false},
+		"hmfs_read":      {0.172, false, true},
 	}
 	sum := 0.0
 	for cause, expect := range want {
@@ -595,8 +606,8 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 		}
 		sum += dioByCause[cause]
 	}
-	if math.Abs(sum-18.135) > 0.002 {
-		t.Fatalf("partition Σ must reconstruct the full window truth 18.135, got %.3f", sum)
+	if math.Abs(sum-18.162) > 0.002 {
+		t.Fatalf("partition Σ must reconstruct the full scheduler-state truth 18.162, got %.3f", sum)
 	}
 	// ONCHAIN-3c live-trace witness pins (SCAN-3 61839 判例正收): the io seat
 	// converts whole (3.550 fully pre-edge, no bipartition trio), the runnable

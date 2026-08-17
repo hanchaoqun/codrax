@@ -171,21 +171,45 @@ func TestG1DisplayEndToEndOpendirShape(t *testing.T) {
 const g1DisplayHuadongTrace = `
         hmfs-600   (  600) [002] .... 20.010000: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.100000: block_rq_issue: 12,48 RS 4096 () 2000 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.100100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-0-81   (    2) [000] .... 20.102000: block_rq_complete: 12,48 RS () 2000 + 8 [0]
+      udk-irq-0-81   (    2) [000] .... 20.102015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.102020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.110000: block_rq_issue: 12,48 RS 4096 () 2008 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.110100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-1-82   (    2) [000] .... 20.112000: block_rq_complete: 12,48 RS () 2008 + 8 [0]
+      udk-irq-1-82   (    2) [000] .... 20.112015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.112020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.120000: block_rq_issue: 12,48 RS 4096 () 2016 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.120100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-2-83   (    2) [000] .... 20.122000: block_rq_complete: 12,48 RS () 2016 + 8 [0]
+      udk-irq-2-83   (    2) [000] .... 20.122015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.122020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.130000: block_rq_issue: 12,48 RS 4096 () 2024 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.130100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-3-84   (    2) [000] .... 20.132000: block_rq_complete: 12,48 RS () 2024 + 8 [0]
+      udk-irq-3-84   (    2) [000] .... 20.132015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.132020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.140000: block_rq_issue: 12,48 RS 4096 () 2032 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.140100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-4-85   (    2) [000] .... 20.142000: block_rq_complete: 12,48 RS () 2032 + 8 [0]
+      udk-irq-4-85   (    2) [000] .... 20.142015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.142020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.150000: block_rq_issue: 12,48 RS 4096 () 2040 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.150100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-0-81   (    2) [000] .... 20.152000: block_rq_complete: 12,48 RS () 2040 + 8 [0]
+      udk-irq-0-81   (    2) [000] .... 20.152015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.152020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.160000: block_rq_issue: 12,48 RS 4096 () 2048 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.160100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-1-82   (    2) [000] .... 20.162000: block_rq_complete: 12,48 RS () 2048 + 8 [0]
+      udk-irq-1-82   (    2) [000] .... 20.162015: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.162020: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.170000: block_rq_issue: 12,48 RS 4096 () 2056 + 8 [hmfs]
+        hmfs-600   (  600) [002] .... 20.170100: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
       udk-irq-2-83   (    2) [000] .... 20.171156: block_rq_complete: 12,48 RS () 2056 + 8 [0]
+      udk-irq-2-83   (    2) [000] .... 20.171171: sched_wakeup: comm=hmfs pid=600 prio=100 target_cpu=002
+        hmfs-600   (  600) [002] .... 20.171176: sched_switch: prev_comm=idle/2 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=hmfs next_pid=600 next_prio=100
         hmfs-600   (  600) [002] .... 20.900000: sched_switch: prev_comm=hmfs prev_pid=600 prev_prio=100 prev_state=S ==> next_comm=idle/2 next_pid=0 next_prio=120
 `
 
@@ -205,14 +229,17 @@ func TestG1DisplayEndToEndHuadongShape(t *testing.T) {
 		t.Fatalf("expected one projection, got %d", len(set.Projections))
 	}
 	projection := set.Projections[0]
-	// EVOLUTION RECORD (SELF-ALL §29.61.2, 2026-07-13): pre-SELF-ALL the
+	// EVOLUTION RECORD (SELF-ALL §29.61.2, 2026-07-13; BIO-WAKE-1 fixture
+	// strengthening 2026-08-16): pre-SELF-ALL the
 	// target's own ×8 io_latency family sat on the ◇ adjacent channel, where
 	// ONE critical publication same-fact-folded into the family node as its
 	// native carrier (7 relocated + 1 folded). The family now takes the
 	// on-chain channel on the typed self wall-clock basis (the target's own IO
 	// seat may be crowned the ranked root cause), so all EIGHT chain
 	// publications relocate into the absorbed audit lane beside the seated
-	// family row — 观测照发不删, the disclosure note counts all eight.
+	// family row — 观测照发不删, the disclosure note counts all eight. Every
+	// member now carries an actual issue→blocking-switch→completion→issuer-
+	// wake closure; target identity/request overlap alone is no longer enough.
 	if len(projection.AbsorbedChainRows) != 8 {
 		t.Fatalf("huadong shape must relocate all 8 chain publications beside the on-chain family row, got %d", len(projection.AbsorbedChainRows))
 	}
@@ -229,17 +256,22 @@ func TestG1DisplayEndToEndHuadongShape(t *testing.T) {
 	if family == nil || family.Node.FamilyMemberCount != 8 || len(family.AbsorbedChainPeers) != 8 {
 		t.Fatalf("huadong family row must render ×8 with 8 absorbed peers: %+v", family)
 	}
-	// SELF-ALL lane pin: the family's on-chain identity is the typed self
-	// basis — never a fabricated overlap claim.
-	if family.Node.ChainRelevance != "on_chain" || family.Node.OnChainBasis != "self_wall_clock_interval" {
-		t.Fatalf("huadong family must ride the on-chain channel on the self wall-clock basis: %+v", family.Node)
+	// BIO-WAKE-1 lane pin: the family's on-chain identity is the typed
+	// completion→issuer wake closure, not a fabricated target-self interval
+	// basis. The old SELF-ALL fallback is intentionally absent when the
+	// stronger directed credential exists.
+	if family.Node.ChainRelevance != "on_chain" || !family.Node.ResourceCompletionClosure || family.Node.OnChainBasis != "" {
+		t.Fatalf("huadong family must ride the on-chain channel on the strict completion-wake basis: %+v", family.Node)
 	}
 	detail := runtimeTraceProjDetailFullText(model, true)
 	if !strings.Contains(detail, "链上通道 8 条同源观测已并入本行(") {
 		t.Fatalf("huadong family stanza must disclose the 8 relocated peers:\n%s", detail)
 	}
-	if strings.Contains(runtimeTraceProjTreeFence(model, true), "udk-irq-") {
-		t.Fatal("huadong fence must not seat absorbed peer rows")
+	// The real sched_wakeup closures add legitimate IRQ wakeup-chain nodes.
+	// Do not confuse those first-class causal nodes with the absorbed duplicate
+	// critical publications guarded by the row-level checks above.
+	if !strings.Contains(runtimeTraceProjTreeFence(model, true), "udk-irq-") {
+		t.Fatal("huadong fence must retain the completion IRQ wakeup-chain nodes")
 	}
 }
 

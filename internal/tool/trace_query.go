@@ -5011,8 +5011,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			writeTraceVsyncGeneratorCensus(&b, result.WindowStats.VsyncGeneratorCensus)
 		}
 		for _, io := range result.WindowStats.IOLatencies {
-			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d duration=%.3fms issue=%s complete=%s source=%s lines=%d-%d\n",
-				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
+			wake := ""
+			if io.CompletionWokeIssuer {
+				wake = fmt.Sprintf(" completion_woke_issuer=true wakeup_ts=%.6f wakeup_line=%d", io.WakeupTs, io.WakeupLine)
+			}
+			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d request_wait=%.3fms wait_caliber=%s issue=%s complete=%s%s source=%s lines=%d-%d\n",
+				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, sanitizeForBanner(firstNonEmpty(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)), traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), wake, traceQuerySourceBasename(io.SourcePath), io.IssueLine, io.CompleteLine)
+		}
+		if result.WindowStats.IOLatencyOverflowCount > 0 {
+			fmt.Fprintf(&b, "- io_latency_overflow pairs=%d request_ms_sum=%.3frequest·ms (non-wall-clock; requests may overlap; beyond the display cap; target/chain ranking and blocking recover strict completion-to-issuer wake requests from the full census; generic evidence and other requests remain bounded context)\n",
+				result.WindowStats.IOLatencyOverflowCount, result.WindowStats.IOLatencyOverflowRequestMs)
 		}
 		for _, limit := range result.WindowStats.CPUFrequencyLimits {
 			fmt.Fprintf(&b, "- cpu_frequency_limit cpu=%d min=%dkHz max=%dkHz count=%d line=%d\n",

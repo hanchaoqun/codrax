@@ -158,7 +158,11 @@ func buildDrillSubjectUniverse(chain *ChainResult, stats *WindowStats) drillSubj
 		for _, span := range stats.TraceSpans {
 			u.add(span.Thread)
 		}
-		for _, io := range stats.IOLatencies {
+		allowedIOIssuers := map[int]bool{}
+		if chain != nil {
+			allowedIOIssuers = wakeupChainThreadSet(*chain)
+		}
+		for _, io := range ioLatencyCausalAccounting(*stats, allowedIOIssuers) {
 			// The issuer's wait is the row's own conduct; the completer is
 			// that row's COUNTERPART lane (P3-5), never auto-drilled here.
 			u.add(io.IssueThread)
@@ -261,7 +265,7 @@ func stampCriticalBlockingDrillStatus(idx *Index, items []CriticalBlockingCandid
 //     critical_blocking face, criticalBlockingDrillCounterpart): the binder
 //     peer / IO completer is the counterpart. Rank rows do not carry those
 //     peers as typed fields, so the stamp re-joins the row to its backing
-//     chain.BinderWaits / stats.IOLatencies record through the EXACT
+//     chain.BinderWaits / full stats IO-latency census record through the EXACT
 //     construction-time values (thread PID + line span) — a deterministic
 //     replay of the producer join, never a fuzzy match; rows without a
 //     backing record keep the empty no-claim verdict.
@@ -318,16 +322,23 @@ func rankBinderWaitCounterparts(chain *ChainResult) map[string]ThreadRef {
 	return out
 }
 
-// rankIOLatencyCounterparts indexes stats.IOLatencies by the SAME key shape
+// rankIOLatencyCounterparts indexes the full IO-latency census by the SAME key shape
 // the rank builder used (LineStart=IssueLine, LineEnd=CompleteLine); the
 // counterpart is the completer (P3-5 — mirror of the critical_blocking face,
 // which publishes io.CompleteThread as the row Peer).
 func rankIOLatencyCounterparts(stats *WindowStats) map[string]ThreadRef {
-	if stats == nil || len(stats.IOLatencies) == 0 {
+	if stats == nil {
+		return nil
+	}
+	latencies := stats.ioLatencyCensus
+	if latencies == nil {
+		latencies = stats.IOLatencies
+	}
+	if len(latencies) == 0 {
 		return nil
 	}
 	out := map[string]ThreadRef{}
-	for _, io := range stats.IOLatencies {
+	for _, io := range latencies {
 		key := rankDrillJoinKey(io.IssueThread, io.IssueLine, io.CompleteLine)
 		if _, exists := out[key]; !exists {
 			out[key] = io.CompleteThread

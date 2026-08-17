@@ -75,11 +75,9 @@ func selfAllDonghuIndex(t *testing.T) *Index {
 
 // TestSelfAllDonghuIOSeatEntersOnChainChannel is the positive witness pin
 // (production-minted, the 133136 window verbatim): the target's own io_latency
-// wall-clock family — pre-ruling a ◇ adjacent seat — rides the on-chain
-// channel on the typed self basis with a chain-channel ordinal, the ordinary
-// election ladder and the unmodified D/IO wall-clock effective (§29.61.2a
-// 同一阶梯: published effective == the window-clipped wall-clock union, no
-// re-pricing, no boost, no fabricated overlap).
+// wall-clock family rides the on-chain channel only for exact requests whose
+// completion directly woke the blocked issuer. The full exact-pair census,
+// rather than the public Top-8, supplies that causal family.
 func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	rank := BuildRootCauseRank(selfAllDonghuIndex(t), selfAllDonghuQuery())
 	var seat *RootCauseRankItem
@@ -104,13 +102,14 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	if seat.OverlapMs != 0 {
 		t.Fatalf("self basis must not fabricate a chain-window overlap: %+v", seat)
 	}
-	// §29.61.2a 同一阶梯: the family's published effective IS the wall-clock
-	// window union the ladder gives every on-chain D/IO row (no special lane).
-	if got := fmt.Sprintf("%.3f", rootCauseEffectiveImpactMs(*seat)); got != "3.264" {
-		t.Fatalf("published effective must be the 3.264ms wall-clock union: %s (%+v)", got, seat)
+	// The old 3.264ms/5-member value was the accidental public Top-8 slice.
+	// The complete strict completion-wake account is 49 disjoint request waits
+	// totalling 16.136ms in this fixed fixture.
+	if got := fmt.Sprintf("%.3f", rootCauseEffectiveImpactMs(*seat)); got != "16.136" {
+		t.Fatalf("published effective must use the full strict request-wait census: %s (%+v)", got, seat)
 	}
-	if seat.EffectiveImpactMs != seat.CumulativeImpactMs || seat.MemberCount != 5 {
-		t.Fatalf("witness family shape drifted (5 member IOs, eff==cum): %+v", seat)
+	if seat.EffectiveImpactMs != seat.CumulativeImpactMs || seat.MemberCount != 49 || !seat.ResourceCompletionClosure {
+		t.Fatalf("witness family shape drifted (49 direct completion-wake IOs, eff==cum): %+v", seat)
 	}
 	// 佩序数 (witness acceptance): a chain-channel ordinal on the ordinary
 	// election ladder — never the ◇ adjacent ordinal space, never Rank=0.
@@ -131,23 +130,16 @@ func TestSelfAllDonghuIOSeatEntersOnChainChannel(t *testing.T) {
 	// window running, deficit 58.320ms on the R5 global-max basis) now mints
 	// and ranks #1 on the same window, shifting every seat below it by one.
 	// The IO seat's own value/basis/tier are untouched.
-	if seat.Rank != 8 || seat.Tier != "tertiary" || seat.BackgroundRank != 0 {
-		t.Fatalf("witness seat drifted (根因排序#8 · tertiary · no background seat): rank=%d tier=%s bg=%d",
+	if seat.Rank != 2 || seat.Tier != "secondary" || seat.BackgroundRank != 0 {
+		t.Fatalf("witness seat drifted (根因排序#2 · secondary · no background seat): rank=%d tier=%s bg=%d",
 			seat.Rank, seat.Tier, seat.BackgroundRank)
 	}
 }
 
-// TestSelfAllChainBudgetDefaultTierSingleRulerFold — EVOLUTION RECORD
-// (CHAIN-BUDGET, 2026-07-18): under the NEW default chain caps this window's
-// chain walks the target's full qualifying segment set, every one of the six
-// target io_latency member IOs genuinely overlaps the target's own node
-// windows at fold time, and the candidate fold merges them into ONE
-// overlap-ruler family: 4.611ms = the former five-member self-basis union
-// 3.264 + the former separate overlap-proven 1.347 — a SINGLE-ruler fold, so
-// M3 (两把尺禁混折) is untouched: no self-basis value ever mixes into an
-// overlap-ruler value, the self-basis lane is simply unoccupied in this
-// window's new board.
-func TestSelfAllChainBudgetDefaultTierSingleRulerFold(t *testing.T) {
+// The default chain budget obeys the same completion-closure ruler: public
+// Top-N and temporal overlap never define task wait. Its smaller chain shape
+// admits 45 exact release-point requests totalling 12.208ms.
+func TestSelfAllChainBudgetDefaultTierUsesCompletionClosureRuler(t *testing.T) {
 	q := selfAllDonghuQuery()
 	q.MaxBranches = 0   // default (capacity table)
 	q.MaxChainNodes = 0 // default (capacity table)
@@ -159,18 +151,15 @@ func TestSelfAllChainBudgetDefaultTierSingleRulerFold(t *testing.T) {
 		if item.Type != "io_latency" || !item.SubjectIsAnalysisTarget {
 			continue
 		}
-		if item.OnChainBasis != "" {
-			t.Fatalf("no self-basis io_latency seat exists on the default-tier board (all members ride the overlap ruler): %+v", item)
-		}
-		if item.MemberCount == 6 {
+		if item.OnChainBasis == RootCauseOnChainBasisSelfWallClockInterval && item.ResourceCompletionClosure {
 			fold = item
 		}
 	}
 	if fold == nil {
-		t.Fatalf("fixture drifted: expected the six-member single-ruler io_latency fold: %+v", rows)
+		t.Fatalf("fixture drifted: expected the strict completion-closure io_latency fold: %+v", rows)
 	}
-	if got := fmt.Sprintf("%.3f", fold.EffectiveImpactMs); got != "4.611" {
-		t.Fatalf("single-ruler fold value must be the six-member window union 4.611 (= 3.264 + 1.347), got %s", got)
+	if got := fmt.Sprintf("%.3f", fold.EffectiveImpactMs); got != "12.208" || fold.MemberCount != 45 {
+		t.Fatalf("completion-closure fold must hold 45 exact waits totalling 12.208ms, got %s x%d", got, fold.MemberCount)
 	}
 	if fold.ChainRelevance != "on_chain" {
 		t.Fatalf("the overlap-ruler family rides the on-chain channel: %+v", fold)
@@ -212,8 +201,8 @@ func TestSelfAllOverlapProvenSeatStaysASeparateSeat(t *testing.T) {
 	if family == nil {
 		t.Fatalf("fixture drifted: no self-basis io_latency family: %+v", rank.Items)
 	}
-	if got := fmt.Sprintf("%.3f", family.EffectiveImpactMs); got != "3.264" || family.MemberCount != 5 {
-		t.Fatalf("M3 两把尺禁混折: the self family must hold exactly the five self-basis IOs (union 3.264) — the 1.347 overlap row never folds in: eff=%s members=%d",
+	if got := fmt.Sprintf("%.3f", family.EffectiveImpactMs); got != "16.136" || family.MemberCount != 49 || !family.ResourceCompletionClosure {
+		t.Fatalf("M3 两把尺禁混折: the self family must hold only the 49 strict completion-wake IOs; non-credential overlap rows stay out: eff=%s members=%d",
 			got, family.MemberCount)
 	}
 }
@@ -383,20 +372,26 @@ func TestSelfAllCriticalBlockingFaceMirrorsTheVerdict(t *testing.T) {
 	q := selfAllDonghuQuery()
 	q.Limit = 24 // the 12-row cap tail-cuts two of the five witness IO rows
 	blocking := BuildCriticalBlockingCalls(selfAllDonghuIndex(t), q)
-	promoted := 0
+	promoted, contextual := 0, 0
 	for _, cand := range blocking.Items {
 		if cand.Thread.PID != 17267 {
 			continue
 		}
 		switch cand.Type {
 		case "io_latency":
-			if cand.ChainRelevance != "on_chain" {
-				t.Fatalf("target io_latency candidate must ride on_chain: %+v", cand)
-			}
-			if cand.OnChainBasis == RootCauseOnChainBasisSelfWallClockInterval {
+			if cand.ResourceCompletionClosure {
+				if cand.ChainRelevance != "on_chain" ||
+					(cand.OnChainBasis != RootCauseOnChainBasisSelfWallClockInterval && cand.OverlapMs <= 0) {
+					t.Fatalf("direct completion-wake IO must ride either its genuine overlap lane or the typed self lane: %+v", cand)
+				}
 				promoted++
-				if cand.OverlapMs != 0 {
+				if cand.OnChainBasis == RootCauseOnChainBasisSelfWallClockInterval && cand.OverlapMs != 0 {
 					t.Fatalf("self-basis candidate must not fabricate overlap: %+v", cand)
+				}
+			} else {
+				contextual++
+				if cand.ChainRelevance == "on_chain" || cand.OnChainBasis != "" {
+					t.Fatalf("request residence without completion-wake proof must stay context: %+v", cand)
 				}
 			}
 		case "binder_wait":
@@ -405,11 +400,8 @@ func TestSelfAllCriticalBlockingFaceMirrorsTheVerdict(t *testing.T) {
 			}
 		}
 	}
-	// The 133136 witness carries FIVE adjacent-era target io_latency rows
-	// (1.248/1.058/1.056/0.884/0.865); the 1.347 row was already
-	// overlap-proven and keeps its empty basis.
-	if promoted != 5 {
-		t.Fatalf("witness drifted: want 5 self-basis io_latency candidates, got %d", promoted)
+	if promoted == 0 || contextual == 0 {
+		t.Fatalf("witness must exercise both direct-causal and request-only IO lanes: promoted=%d contextual=%d", promoted, contextual)
 	}
 }
 
@@ -425,6 +417,7 @@ func TestSelfAllKeepArmHoldsLaneOnReEnrich(t *testing.T) {
 		Nodes:  []ChainNode{{Thread: target, Window: TimeWindow{StartTs: 5.05, EndTs: 5.08}}},
 	}
 	item := rootCauseItem("io_latency", target, 1.0, 0.86, 3, 4, "window_stats", "probe")
+	item.ResourceCompletionClosure = true
 	item.StartTs, item.EndTs = 5.01, 5.02 // in window, no chain-node overlap
 	items := enrichRootCauseItemsWithChainContext(chain, []RootCauseRankItem{item})
 	if items[0].ChainRelevance != "on_chain" || items[0].OnChainBasis != RootCauseOnChainBasisSelfWallClockInterval {

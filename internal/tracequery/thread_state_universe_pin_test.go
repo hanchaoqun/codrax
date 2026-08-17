@@ -579,6 +579,9 @@ type threadStateComparisonSite struct {
 // doc-comment line, TSH F8); tampering one member or adding/removing a
 // comparison is a drift that must be reviewed against §7.11 B-1 semantics.
 var threadStateComparisonSiteGolden = map[string]string{
+	// IO-WAKE: a request gains completion→issuer causality only when the
+	// issuer switched to a non-runnable state between issue and completion.
+	"block_pairing.go:stampBlockIOCompletionWakeups": "runnable#1",
 	"cpu_occupancy.go:computeIdleRunnableMismatchMs": "runnable#1",
 	// §29.27② (COV-4, 2026-07-11): the four-state account's deterministic-
 	// running intersection selects the target's RUNNING intervals only —

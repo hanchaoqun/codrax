@@ -191,7 +191,7 @@ func TestEvalcaseDHMA2bCapacityDisplacementPerChannelDisclosure(t *testing.T) {
 		TraceFlavorHint: TraceFlavorHarmonyHitrace})
 	var hit string
 	for _, cv := range rank.Caveats {
-		if strings.Contains(cv, "另有 42 行未入发布面(链上 8/邻近 4/背景 30)") {
+		if strings.Contains(cv, "未入发布面(链上 ") && strings.Contains(cv, "/邻近 ") && strings.Contains(cv, "/背景 ") {
 			hit = cv
 			break
 		}

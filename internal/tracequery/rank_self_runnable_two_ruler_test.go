@@ -50,11 +50,11 @@ func TestRuler2Donghu17267WitnessRecord(t *testing.T) {
 		}
 		return out
 	}
-	if got := fmtSeats(record.WallSeats); got != "#5=3.956;#14=1.193;" {
-		t.Fatalf("self wall-clock ruler seats drifted (want 3.956 #5 + 1.193 #14): %s", got)
+	if got := fmtSeats(record.WallSeats); got != "#6=3.956;#15=1.193;" {
+		t.Fatalf("self wall-clock ruler seats drifted (want 3.956 #6 + 1.193 #15 after the full causal IO seat): %s", got)
 	}
-	if got := fmtSeats(record.EdgeSeats); got != "#11=1.648;" {
-		t.Fatalf("wakeup-edge ruler seat drifted (want 1.648 #11): %s", got)
+	if got := fmtSeats(record.EdgeSeats); got != "#13=1.648;" {
+		t.Fatalf("wakeup-edge ruler seat drifted (want 1.648 #13 after the full causal IO seat): %s", got)
 	}
 	// 同尺小计 µs 恒等 (spec 定形1): 3.956+1.193=5.149 — the subtotal IS the
 	// sum of the published seat values (identity by construction, asserted

@@ -505,7 +505,7 @@ func TestDisplayWrapWitnessRegressionSweep(t *testing.T) {
 		t.Fatalf("件④(c): the count family's detail 单段 range must drop the ms suit:\n%s", md)
 	}
 	// …and the wall-clock families keep their ms ranges byte-identically.
-	if !strings.Contains(md, "单段 0.865~1.248ms") {
+	if !strings.Contains(md, "单段 0.081~1.248ms") {
 		t.Fatalf("件④(c) negative arm: wall-clock 单段 ranges keep the ms suit:\n%s", md)
 	}
 }
