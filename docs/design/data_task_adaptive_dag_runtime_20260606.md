@@ -4272,6 +4272,27 @@ Remaining architecture items:
 - [x] Expose deferred-queue length in REPL/CLI data workflow progress with low
       noise, e.g. "deferred ranks: 2".
 
+#### 2026-08-17 audit correction: scripted suffixes are not deferred actions
+
+The production strict-JSON replay exposed a contract mismatch left between
+Batch 72 and Batch 110. A stage prefix could enqueue a scripted
+`custom_transform`; deferred dispatch intentionally refused to replay that
+model-authored script, while queue lifecycle retained `stage_not_allowed`
+forever. The ledger could therefore advertise the same node as a final answer
+producer that the scheduler would never execute.
+
+- [x] Keep only replay-safe, script-free typed actions before the first
+      scripted suffix in a deferred queue.
+- [x] Mark the retained typed prefix as intermediate and request replanning
+      from newly materialized artifact schemas after it completes.
+- [x] Drop actions after the scripted boundary because they may depend on the
+      discarded script output.
+- [x] Classify scripted actions found in old checkpoints or defensive queue
+      paths as `script_requires_replan` and discard the stale queue instead of
+      retaining it as a stage wait.
+- [x] Preserve direct terminal `custom_transform` authority when it is emitted
+      fresh in the final stage; this correction changes deferred replay only.
+
 ### Batch 111: Field Contract And Filter Diagnostics For Typed Contributions
 
 The real procurement-style data run proved that deferred typed ranks work: the

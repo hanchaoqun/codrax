@@ -55,6 +55,28 @@ func TestInitialRankPrefixFallbackMarksPrefixIntermediateAndPreservesTerminalSuf
 	}
 }
 
+func TestInitialRankPrefixFallbackKeepsTypedSuffixButReplansScript(t *testing.T) {
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{
+		{ID: "extract", Kind: dataquery.DataActionExtractRecords, InputPaths: []string{"users.json"}, OutputArtifact: "users"},
+		{ID: "filter", Kind: dataquery.DataActionFilterRecords, InputPaths: []string{"users"}, OutputArtifact: "active"},
+		{ID: "project", Kind: dataquery.DataActionCustomTransform, Script: "emit_result(json_records('active'))"},
+		{ID: "after_script", Kind: dataquery.DataActionAssembleAnswer, InputPaths: []string{"project"}},
+	}}
+	prefix, remainder, ok := InitialRankPrefixFallback(InitialRankPrefixFallbackInput{Plan: plan})
+	if !ok || len(prefix.Actions) != 2 || prefix.Actions[0].ID != "extract" || prefix.Actions[1].ID != "filter" {
+		t.Fatalf("prefix=%+v ok=%v, want replay-safe typed prefix", prefix, ok)
+	}
+	if len(remainder.Actions) != 0 {
+		t.Fatalf("remainder=%+v, actions after scripted boundary must be replanned", remainder)
+	}
+	if !prefix.ContinueAfter || !remainder.ContinueAfter {
+		t.Fatalf("continue flags prefix=%v remainder=%v, want replan continuation", prefix.ContinueAfter, remainder.ContinueAfter)
+	}
+	if prefix.NextBatch != deferredScriptReplanInstruction || remainder.NextBatch != deferredScriptReplanInstruction {
+		t.Fatalf("next_batch prefix=%q remainder=%q, want scripted replan instruction", prefix.NextBatch, remainder.NextBatch)
+	}
+}
+
 func TestIntraBatchDependencyPrefixFallbackPreservesExplicitContinuation(t *testing.T) {
 	plan := dataquery.TaskPlan{ContinueAfter: true, Actions: []dataquery.DataAction{{
 		ID:             "extract",
@@ -68,6 +90,24 @@ func TestIntraBatchDependencyPrefixFallbackPreservesExplicitContinuation(t *test
 	prefix, remainder, ok := IntraBatchDependencyPrefixFallback(plan)
 	if !ok || !prefix.ContinueAfter || !remainder.ContinueAfter {
 		t.Fatalf("prefix=%+v remainder=%+v ok=%v, want explicit continuation preserved", prefix, remainder, ok)
+	}
+}
+
+func TestIntraBatchDependencyPrefixFallbackReplansScriptAfterTypedRemainder(t *testing.T) {
+	plan := dataquery.TaskPlan{Actions: []dataquery.DataAction{
+		{ID: "extract", Kind: dataquery.DataActionExtractRecords, OutputArtifact: "users"},
+		{ID: "filter", Kind: dataquery.DataActionFilterRecords, InputPaths: []string{"users"}, OutputArtifact: "active"},
+		{ID: "project", Kind: dataquery.DataActionCustomTransform, Script: "emit_result(json_records('active'))"},
+	}}
+	prefix, remainder, ok := IntraBatchDependencyPrefixFallback(plan)
+	if !ok || len(prefix.Actions) != 1 || prefix.Actions[0].ID != "extract" {
+		t.Fatalf("prefix=%+v ok=%v, want producer prefix", prefix, ok)
+	}
+	if len(remainder.Actions) != 1 || remainder.Actions[0].ID != "filter" {
+		t.Fatalf("remainder=%+v, want typed action before scripted boundary", remainder)
+	}
+	if !prefix.ContinueAfter || !remainder.ContinueAfter || remainder.NextBatch != deferredScriptReplanInstruction {
+		t.Fatalf("prefix=%+v remainder=%+v, want continuation into replanning", prefix, remainder)
 	}
 }
 

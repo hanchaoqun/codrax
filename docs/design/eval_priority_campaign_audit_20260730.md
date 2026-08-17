@@ -35852,12 +35852,19 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 6. 修复只消费结构化 action kind/script carrier、阶段 enum 和工件 readiness，不扫描用户原文、模型解释
    或最终答案，不替模型计算业务值。严格 JSON 仍由 output contract 验证；关系图仍由模型从 typed 源证据
    编写。Trace 本批未触达，显式时间窗、因果投影、系统补齐与链上-only 主因均保持。
+7. B1015 已按上述两层施工。三个 prefix fallback 共用 `deferredTypedActionSuffix`：只保留首个脚本边界前
+   的无脚本 typed action；若丢弃脚本及其后依赖，prefix 与保留 suffix 都强制 `continue_after=true`，并
+   发布“依据新工件 schema 重规划”的下一批说明。防御层新增 `script_requires_replan`；历史 checkpoint
+   或其他漏网队列里的脚本优先于 readiness/stage 判定被识别，生命周期必须 discard，不能继续 retain。
+   正向 pin 覆盖 extract/filter/script/after-script，证明 typed 前缀保留、脚本及其后依赖不重放；旧队列
+   pin 证明即使输入未就绪也进入精确重规划而非 `input_unavailable` 循环。`internal/dataworkflow` 全包与
+   REPL deferred/prefix 接线测试均通过。
 
 状态：
 
 `r644=runner-2/2+human-2/2`；
 `B1014-RELATIONRECIPECOMPOSITIONLOAD1=not-reproduced/direct-type-relation-production-positive-r644`；
-`B1015-DEFERREDSCRIPTSTAGECONTRACT1=confirmed/P1/pending-two-layer-fix`；
+`B1015-DEFERREDSCRIPTSTAGECONTRACT1=implemented/two-layer-typed-queue+legacy-discard/pending-production-replay`；
 `strict-json-visible-output=correct/workflow-contract-churn`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `system-answer/conclusion/relation/diagram-authorship=none`；

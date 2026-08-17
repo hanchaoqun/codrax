@@ -33,6 +33,16 @@ func InitialRankPrefixFallback(input InitialRankPrefixFallbackInput) (dataquery.
 	if !split || len(prefix) == 0 || len(rest) == 0 {
 		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
 	}
+	prefix, prefixScriptNeedsReplan := deferredTypedActionSuffix(prefix)
+	if len(prefix) == 0 {
+		return dataquery.TaskPlan{}, dataquery.TaskPlan{}, false
+	}
+	if prefixScriptNeedsReplan {
+		// Everything after the first script may depend on its output. Keep the
+		// executable typed prefix and let the planner rebuild the discarded
+		// suffix from the materialized artifact schemas.
+		rest = nil
+	}
 	out := plan
 	out.Actions = prefix
 	out.Script = ""
@@ -49,9 +59,15 @@ func InitialRankPrefixFallback(input InitialRankPrefixFallbackInput) (dataquery.
 		out.NextBatch = "continue with the deferred typed data action ranks after this batch materializes artifacts"
 	}
 	remainder := plan
-	remainder.Actions = rest
+	var remainderScriptNeedsReplan bool
+	remainder.Actions, remainderScriptNeedsReplan = deferredTypedActionSuffix(rest)
 	remainder.Script = ""
-	remainder.ContinueAfter = plan.ContinueAfter
+	scriptNeedsReplan := prefixScriptNeedsReplan || remainderScriptNeedsReplan
+	remainder.ContinueAfter = plan.ContinueAfter || scriptNeedsReplan
+	if scriptNeedsReplan {
+		out.NextBatch = deferredScriptReplanInstruction
+		remainder.NextBatch = deferredScriptReplanInstruction
+	}
 	return out, remainder, true
 }
 
@@ -73,9 +89,14 @@ func IntraBatchDependencyPrefixFallback(plan dataquery.TaskPlan) (dataquery.Task
 		out.NextBatch = "continue with the deferred dependent action after real artifact fields are available"
 	}
 	remainder := plan
-	remainder.Actions = append([]dataquery.DataAction(nil), plan.Actions[dependencyIndex:]...)
+	var scriptNeedsReplan bool
+	remainder.Actions, scriptNeedsReplan = deferredTypedActionSuffix(plan.Actions[dependencyIndex:])
 	remainder.Script = ""
-	remainder.ContinueAfter = plan.ContinueAfter
+	remainder.ContinueAfter = plan.ContinueAfter || scriptNeedsReplan
+	if scriptNeedsReplan {
+		out.NextBatch = deferredScriptReplanInstruction
+		remainder.NextBatch = deferredScriptReplanInstruction
+	}
 	return out, remainder, true
 }
 
@@ -125,10 +146,34 @@ func StagePrefixFallbackWithRemainder(input StagePrefixFallbackInput) (dataquery
 		out.NextBatch = "continue with the remaining data workflow stages after this prefix produces reusable artifacts"
 	}
 	remainder := plan
-	remainder.Actions = rest
+	var scriptNeedsReplan bool
+	remainder.Actions, scriptNeedsReplan = deferredTypedActionSuffix(rest)
 	remainder.Script = ""
-	remainder.ContinueAfter = plan.ContinueAfter
+	remainder.ContinueAfter = plan.ContinueAfter || scriptNeedsReplan
+	if scriptNeedsReplan {
+		out.NextBatch = deferredScriptReplanInstruction
+		remainder.NextBatch = deferredScriptReplanInstruction
+	}
 	return out, remainder, true
+}
+
+const deferredScriptReplanInstruction = "replan the scripted suffix from newly materialized artifact schemas before final projection"
+
+// deferredTypedActionSuffix keeps only the replay-safe typed prefix of a
+// deferred suffix. Model-authored scripts are intentionally not replayed from
+// the queue: the producer rank can change available aliases and field
+// contracts, so the script must be planned again from materialized artifacts.
+// Actions after the script are dropped with it because they may depend on the
+// discarded node.
+func deferredTypedActionSuffix(actions []dataquery.DataAction) ([]dataquery.DataAction, bool) {
+	out := make([]dataquery.DataAction, 0, len(actions))
+	for _, action := range actions {
+		if NormalizeActionKind(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
+			return out, true
+		}
+		out = append(out, action)
+	}
+	return out, false
 }
 
 func ExecutablePrefixFallback(input ExecutablePrefixFallbackInput) (dataquery.TaskPlan, bool) {

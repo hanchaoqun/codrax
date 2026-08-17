@@ -40,6 +40,7 @@ const (
 	DeferredBlockInputUnavailable  = "input_unavailable"
 	DeferredBlockFieldContract     = "field_contract_violation"
 	DeferredBlockStageNotAllowed   = "stage_not_allowed"
+	DeferredBlockScriptNeedsReplan = "script_requires_replan"
 	DeferredBlockAdmissionRejected = "admission_rejected"
 	DeferredBlockNotReady          = "not_ready"
 	DeferredQueueLifecycleNone     = "none"
@@ -199,6 +200,8 @@ func DecideDeferredQueueLifecycle(status DeferredDispatchStatus) DeferredQueueLi
 	switch code {
 	case DeferredBlockNoAllowedActions, DeferredBlockInputUnavailable, DeferredBlockFieldContract, DeferredBlockStageNotAllowed, DeferredBlockNotReady:
 		return DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleRetain, ReasonCode: code, Reason: status.Reason}
+	case DeferredBlockScriptNeedsReplan:
+		return DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleDiscard, ReasonCode: code, Reason: status.Reason}
 	default:
 		return DeferredQueueLifecycleDecision{Action: DeferredQueueLifecycleDiscard, ReasonCode: code, Reason: status.Reason}
 	}
@@ -250,6 +253,13 @@ func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []Deferr
 		if strings.TrimSpace(string(action.Kind)) == "" {
 			action = actions[i]
 		}
+		if deferredActionHasScript(action) {
+			if firstBlockedReason == "" {
+				firstBlockedCode = DeferredBlockScriptNeedsReplan
+				firstBlockedReason = deferredBlockedReason(action, "scripted action must be replanned from the newly materialized artifact schemas")
+			}
+			continue
+		}
 		if !candidate.Ready {
 			if firstBlockedReason == "" {
 				firstBlockedCode = firstNonEmpty(candidate.BlockedCode, DeferredBlockNotReady)
@@ -276,7 +286,7 @@ func selectDeferredReadyRank(actions []dataquery.DataAction, candidates []Deferr
 			if strings.TrimSpace(string(next.Kind)) == "" {
 				next = actions[j]
 			}
-			if !nextCandidate.Ready || !deferredActionAllowed(next, allowed) {
+			if !nextCandidate.Ready || deferredActionHasScript(next) || !deferredActionAllowed(next, allowed) {
 				break
 			}
 			nextRank := actionDependencyRank(next)
@@ -303,10 +313,11 @@ func deferredActionAllowed(action dataquery.DataAction, allowed map[string]bool)
 	if kind == "" || !allowed[kind] {
 		return false
 	}
-	if NormalizeActionKind(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != "" {
-		return false
-	}
 	return true
+}
+
+func deferredActionHasScript(action dataquery.DataAction) bool {
+	return NormalizeActionKind(action.Kind) == dataquery.DataActionCustomTransform && strings.TrimSpace(action.Script) != ""
 }
 
 func actionDependencyRank(action dataquery.DataAction) int {

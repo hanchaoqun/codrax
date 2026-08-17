@@ -207,6 +207,35 @@ func TestDecideDeferredQueueLifecycleDiscardsAdmissionRejectedQueue(t *testing.T
 	}
 }
 
+func TestDeferredScriptRequiresReplanAndIsDiscarded(t *testing.T) {
+	deferred := dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+		ID:     "project",
+		Kind:   dataquery.DataActionCustomTransform,
+		Script: "emit_result(json_records('active'))",
+	}}}
+	_, _, status, ok := BuildDeferredDispatchPlan(DeferredDispatchInput{
+		Plan:               deferred,
+		AllowedNextActions: []string{string(dataquery.DataActionCustomTransform)},
+		Candidates: []DeferredActionCandidate{{
+			Index:         0,
+			Action:        deferred.Actions[0],
+			Ready:         false,
+			BlockedCode:   DeferredBlockInputUnavailable,
+			BlockedReason: "generated input is not materialized",
+		}},
+	})
+	if ok || status.Ready {
+		t.Fatalf("ok/status=%v/%+v, scripted deferred action must not replay", ok, status)
+	}
+	if status.ReasonCode != DeferredBlockScriptNeedsReplan {
+		t.Fatalf("ReasonCode=%q, want %q", status.ReasonCode, DeferredBlockScriptNeedsReplan)
+	}
+	decision := DecideDeferredQueueLifecycle(status)
+	if decision.Action != DeferredQueueLifecycleDiscard {
+		t.Fatalf("decision=%+v, stale scripted queue must be discarded for replanning", decision)
+	}
+}
+
 func TestDeferredQueueSnapshotCarriesStatusAndLifecycle(t *testing.T) {
 	status := DeferredDispatchStatus{
 		Actions:         2,
