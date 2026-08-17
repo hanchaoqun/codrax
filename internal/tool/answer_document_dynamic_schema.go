@@ -141,6 +141,7 @@ func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimCo
 	parts := []string{
 		"Allowed for this dispatch: " + strings.Join(values, ", ") + ".",
 		TraceCausalClaimPrincipalSummaryShape(contract.Allowed),
+		types.AnswerControlMetadataVisibilityGuide,
 	}
 	if allowed[types.TraceCausalClaimNoConclusion] {
 		parts = append(parts, "Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.")
@@ -154,7 +155,7 @@ func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimCo
 	if allowed[types.TraceCausalClaimTypedFrame] {
 		parts = append(parts, "Use typed_frame_cause only when typed frame/deadline causality supports that claim.")
 	}
-	parts = append(parts, "Evidence-status values such as unproven are not enum values for this field. You choose the conclusion and caliber; the value is checked only against the provided typed Trace evidence ceiling and neither choice is derived from prose.")
+	parts = append(parts, "Evidence-status values such as unproven are not enum values for this field. The selected literal stays only in the JSON field; user-facing prose states its meaning in the answer language. You choose the conclusion and caliber; the value is checked only against the provided typed Trace evidence ceiling and neither choice is derived from prose.")
 	return strings.Join(parts, " ")
 }
 

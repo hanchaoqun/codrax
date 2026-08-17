@@ -567,7 +567,7 @@ func renderTraceCausalClaimCaliberMapping(contract *types.TraceCausalClaimContra
 	if len(parts) == 0 {
 		return ""
 	}
-	return "- trace_causal_claim_caliber_mapping: " + strings.Join(parts, "; ") + ". Evidence-status values such as `unproven` are not JSON enum values for this field.\n"
+	return "- trace_causal_claim_caliber_mapping: " + strings.Join(parts, "; ") + ". Evidence-status values such as `unproven` are not JSON enum values for this field. " + types.AnswerControlMetadataVisibilityGuide + "\n"
 }
 
 // renderTraceFinalSelectedWindowAuthority prevents attachment previews and

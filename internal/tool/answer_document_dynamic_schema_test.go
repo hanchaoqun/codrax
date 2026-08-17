@@ -675,6 +675,9 @@ func TestBuildAnswerDocumentParametersForProjectsTraceCausalClaimCaliberOnlyWhen
 		"Use no_causal_conclusion only when the principal summary makes no cause or candidate attribution.",
 		"Use bounded_window_candidate when the summary names or ranks selected-window candidates",
 		"Evidence-status values such as unproven are not enum values for this field.",
+		"raw enum literals are control metadata only",
+		"selected literal stays only in the JSON field",
+		"user-facing prose states its meaning in the answer language",
 		"You choose the conclusion and caliber",
 	} {
 		if !strings.Contains(description, want) {

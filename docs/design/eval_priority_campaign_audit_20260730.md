@@ -35844,6 +35844,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.986 r610/B967：carrier 优先级仍压过真实跨参与者关系；Trace 控制枚举泄漏（2026-08-17）
+
+1. 在已推送 `main@f9913ed38` 严格并发恰好两个案例：`qf_logic_view_read_pipeline` 与显式窗
+   `trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工均为 partial；详见
+   `eval/parallel_selected_summary_evalcampaign_navigation_trace_r610_20260817.md` 及 `_manual_audit.md`。
+2. Trace 路径本身稳定：三次查询都在用户窗，因果投影、窗内可消除量、链上/邻近/背景三通道、根因排序和
+   typed frame/chain 边界完整。系统没有把背景晋升主因，也没有在活跃流 4ms 无完整 answer 时降级。
+3. 但 B965 再次出现：模型把没有 holder/waiter 同步对象证明的
+   `measured_lower_priority_dependency_supply_candidate` 写成“主要阻塞原因/典型优先级反转/低优先级线程阻塞
+   高优先级线程”。final context 已精确给出候选口径与禁宣称项，因此仍归模型对上下文的服从问题；不扫描最终
+   prose，不删除模型判断，不由系统替换为预期结论。
+4. 新确认 `B967-CONTROLMETADATALEAK1/P1`：模型在中文 principal summary 末尾写
+   “归因为 `bounded_window_candidate`”。这是 `trace_causal_claim_caliber` 的 JSON wire literal，用户无法理解；
+   首稿还把同一字段复制到 3 个 section，结构门虽正确拒绝，却只修了字段位置，没有阻止正文泄漏。
+5. 根修不增加答案词面硬门。新增所有 answer_document 共用的 JSON 控制元数据教学：field name/raw enum literal
+   只放 projected JSON field，不得复制进可见正文、标题、表、列表或图；同一含义必须用当前答案语言自然表达，例如
+   “仅是所选窗口内候选，尚未证明帧/截止时间级因果”。该教学明确 framework 不扫描、删除、翻译或改写模型正文/
+   结论。Trace 动态 schema、共享 block contract 与最终 decision boundary 同源消费，避免一处说“必须填 enum”而
+   另一处让模型误以为要向用户展示 enum。
+6. B966 首版在生产回放失败。它只给“typed carrier argument 且 caller/callee 命中另一 participant”的候选加 rank，
+   但全局排序仍先比较 `carrierRank`；因此 `answer_document_evaluator.go` 的无关 BusContext 参数继续压过
+   `extractorEvaluator -> ctx.Mutable.TurnAArtifacts` 这类普通 parser relation。后者其实同时命中 extractor 与 Mutable，
+   却因不是完整 carrier argument 永远排在后面。
+7. 修正为 operation-level `participantTouchRank`：对普通 relation 统计 parser from/to 命中的独立 participant group；
+   对 carrier argument 再把 exact declared binding 所属 group 加入同一计数。先按 group 数排序，再按 carrier、跨 owner、
+   identity 精度排序。这样真实 extractor+Mutable operation 优先于只携 BusContext 的无关 helper，同时单 participant
+   任务仍保留原 carrier 优先策略。新增“普通双 participant operation 对无关 carrier”红转绿 pin，原跨语言矩阵不变。
+   全过程只是软 read coordinate，不创建 evidence/edge/diagram/conclusion。
+8. QF 第二个 explorer 批最终收集 41 条结构证据，终图 stage precedence 真实、Mutable/BusContext 可见断开且
+   unproven；但正文仍宣称完整跨阶段字段流，图使用大量内部函数名和隐式节点，关系表达/业务语言仍 partial。上下文
+   已明确 unproven，故不以系统代写或 prose gate 修；下一轮先验证补读是否从源头增加真实关系证据，再决定是否仍有
+   通用 typed handoff gap。
+
+状态：
+
+`r610 runner=2/2-pass/human=2-partial`；
+`B966-TYPEDCARRIERNAVIGATIONOWNER1=production-failed-r610/revised-operation-touch-rank/pins-pass`；
+`B967-CONTROLMETADATALEAK1=implemented/global-soft-json-teaching/pins-pass/pending-replay`；
+`B965-MODELBOUNDARYADHERENCE1=observed-again/context-sufficient/no-prose-hard-gate`；
+`Trace explicit-window causal projection/auto-supplement=pass-r610`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

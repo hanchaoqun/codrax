@@ -568,19 +568,17 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	type rankedTarget struct {
-		target      flowOperationRepairReadTarget
-		carrierRank int
-		// participantJoinRank is a navigation-only preference for an
-		// operation whose parser-owned caller/callee identity touches a
-		// second requested participant in addition to the typed carrier
-		// argument. It prevents a ubiquitous context parameter from steering
-		// the repair into an unrelated helper merely because that helper also
-		// accepts the same context object.
-		participantJoinRank int
-		handoffRank         int
-		matchRank           int
-		kindRank            int
-		line                int
+		target flowOperationRepairReadTarget
+		// participantTouchRank counts distinct requested participant groups
+		// touched by this one parser-owned operation coordinate. It ranks a
+		// real cross-participant receiver/caller site ahead of a ubiquitous
+		// context argument used by an unrelated helper.
+		participantTouchRank int
+		carrierRank          int
+		handoffRank          int
+		matchRank            int
+		kindRank             int
+		line                 int
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
@@ -619,6 +617,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				file:      file,
 				lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 			},
+			participantTouchRank: flowNavigationRequestedParticipantTouchRank(
+				relation, flowDeclaredBindingSite{}, participantSurfaceGroups,
+			),
 			matchRank: matchRank,
 			kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
 			line:      line,
@@ -675,10 +676,10 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					file:      binding.file,
 					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 				},
-				carrierRank: 1,
-				participantJoinRank: flowNavigationRequestedParticipantJoinRank(
+				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 					relation, binding, participantSurfaceGroups,
 				),
+				carrierRank: 1,
 				handoffRank: flowNavigationCarrierHandoffRank(relation, binding.alias),
 				matchRank:   argumentRank,
 				kindRank:    flowOperationRepairRelationKindRank(relation.Kind),
@@ -690,11 +691,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
+			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
+		}
 		if candidates[i].carrierRank != candidates[j].carrierRank {
 			return candidates[i].carrierRank > candidates[j].carrierRank
-		}
-		if candidates[i].participantJoinRank != candidates[j].participantJoinRank {
-			return candidates[i].participantJoinRank > candidates[j].participantJoinRank
 		}
 		if candidates[i].handoffRank != candidates[j].handoffRank {
 			return candidates[i].handoffRank > candidates[j].handoffRank
@@ -713,22 +714,22 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	return candidates[0].target, true
 }
 
-// flowNavigationRequestedParticipantJoinRank prefers a typed carrier argument
-// at an operation owned by another requested participant. The carrier's
-// declaration and the parser relation are both exact, but the result is still
-// only a SOFT read coordinate: it neither proves that the callee consumes the
-// carrier nor creates an answer/diagram edge.
+// flowNavigationRequestedParticipantTouchRank prefers one parser operation
+// that touches multiple independently requested participant groups. For a
+// typed carrier-argument candidate, the exact declaration contributes its
+// participant group; caller/callee endpoints may contribute other groups. For
+// an ordinary relation candidate, only parser endpoints contribute.
 //
-// Participant groups are kept separate so one carrier cannot count itself as
-// the second endpoint. This remains language-neutral: it uses the repository
-// parser's receiver/name identities and the shared code-identity comparator,
-// not request or answer prose.
-func flowNavigationRequestedParticipantJoinRank(
+// The rank remains only a SOFT read coordinate: it neither proves that a
+// callee consumes a carrier nor creates evidence, an answer relation, or a
+// diagram edge. Participant groups stay separate so spelling aliases of one
+// participant cannot masquerade as a cross-component join.
+func flowNavigationRequestedParticipantTouchRank(
 	relation *repotypes.Relation,
 	binding flowDeclaredBindingSite,
 	participantSurfaceGroups [][]string,
 ) int {
-	if relation == nil || len(participantSurfaceGroups) < 2 {
+	if relation == nil || len(participantSurfaceGroups) == 0 {
 		return 0
 	}
 	bindingSymbol := repotypes.Symbol{Name: binding.alias, DeclaredType: binding.declaredType}
@@ -736,16 +737,17 @@ func flowNavigationRequestedParticipantJoinRank(
 		flowRepairRelationEndpointSurfaces(relation.FromEP),
 		flowRepairRelationEndpointSurfaces(relation.ToEP)...,
 	)
-	joined := 0
+	touched := 0
 	for _, group := range participantSurfaceGroups {
-		if len(group) == 0 || flowRepairSymbolMatchesAnySurface(bindingSymbol, group) {
+		if len(group) == 0 {
 			continue
 		}
-		if flowRepairPlanningSurfaceMatchRank(group, endpoints) > 0 {
-			joined++
+		bindingMatches := binding.alias != "" && flowRepairSymbolMatchesAnySurface(bindingSymbol, group)
+		if bindingMatches || flowRepairPlanningSurfaceMatchRank(group, endpoints) > 0 {
+			touched++
 		}
 	}
-	return joined
+	return touched
 }
 
 // flowNavigationCarrierHandoffRank is a SOFT ordering signal for complete

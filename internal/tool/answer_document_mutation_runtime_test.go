@@ -2512,6 +2512,9 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 		"surface_role: \"principal\"",
 		"trace_causal_claim_caliber",
 		"invalid on every other block kind, including `section`",
+		"raw enum literals are control metadata only",
+		"never copy them into user-visible text",
+		"framework does not scan, delete, translate, or rewrite your prose or conclusion",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("shared Trace JSON-shape teaching missing %q:\n%s", want, body)

@@ -977,6 +977,80 @@ func TestFlowOperationNavigationPrefersCarrierHandoffOwnedByAnotherMissingPartic
 	}
 }
 
+func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrelatedCarrierArgument(t *testing.T) {
+	repo := t.TempDir()
+	files := map[string]string{
+		"internal/agent/answer_document_evaluator.go": strings.Join([]string{
+			"package agent",
+			"func (e *answerDocumentEvaluator) run(ctx *BusContext) {",
+			"builder.Check(ctx)",
+			"}",
+		}, "\n"),
+		"internal/agent/extractor.go": strings.Join([]string{
+			"package agent",
+			"func (e *extractorEvaluator) run(ctx *BusContext) {",
+			"ctx.Mutable.TurnAArtifacts()",
+			"}",
+		}, "\n"),
+	}
+	for path, body := range files {
+		absolute := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx := flowOperationCompletionContext(nil)
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "extractor", ResolvedAs: "extractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "Mutable", ResolvedAs: "Mutable", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"internal/agent/answer_document_evaluator.go": {
+			RelPath: "internal/agent/answer_document_evaluator.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "ctx", Kind: "parameter", Parent: "answerDocumentEvaluator.run", DeclaredType: "*BusContext", Line: 2}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/agent/answer_document_evaluator.go", Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "answerDocumentEvaluator", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "Check", Receiver: "builder", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+			}},
+		},
+		"internal/agent/extractor.go": {
+			RelPath: "internal/agent/extractor.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{{Name: "ctx", Kind: "parameter", Parent: "extractorEvaluator.run", DeclaredType: "*BusContext", Line: 2}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: "internal/agent/extractor.go", Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "extractorEvaluator", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "TurnAArtifacts", Receiver: "ctx.Mutable", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
+			}},
+		},
+	}))
+
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"extractor", "Mutable", "BusContext"})
+	if !ok || target.file != "internal/agent/extractor.go" ||
+		target.lineRange != (types.LineRange{Start: 1, End: 15}) {
+		t.Fatalf("direct operation touching two requested participants must outrank an unrelated carrier argument: ok=%t target=%+v", ok, target)
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Fatal("multi-participant navigation rank must not manufacture relation evidence")
+	}
+}
+
 func TestFlowOperationNavigationDoesNotTreatQuotedCarrierAsArgumentBinding(t *testing.T) {
 	repo := t.TempDir()
 	const path = "src/pipeline.go"
