@@ -36528,6 +36528,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.978 r603/B955：有限影响分流生产闭环；载体实参导航区分本地使用与组件交接（2026-08-16）
+
+1. 在 `main@6c2c8e911` 重建后严格并发恰好两个 case：有限 Trace 影响判定
+   `real_trace_h4_supply_thermal_witness` 与源码逻辑图 `qf_logic_view_read_pipeline`。Runner 为
+   `1 PASS / 1 FAIL`；人工为 H4 pass-with-caveat、逻辑图 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_carrier_effect_r603_20260816.md` 与同名 `_manual_audit.md`。
+2. H4 为 B953 生产正证。Analyzer 首稿把 required `target_effect_verdict` 与 `bounded_fact_set` 混发，精确
+   schema 门只要求改成 `bounded_effect_verdict`；第二稿保留三个用户维度后通过，没有扩成 root-cause roster、
+   唤醒链或完整 Trace 因果投影。终稿精确复制 running=157.248ms、runnable=5.604ms、sleep=70.338ms、
+   D/io=0、total=233.190ms，并由模型给出“策略上限存在；目标绑定未证实”。Runner FAIL 是旧 limit-row
+   词序 regex 不接受等价表达，不能据此放宽业务校验或反向拟合答案。
+3. H4 有一个次级模型措辞偏差：正文称 CPU4 的 35.960ms 运行“无同窗口频率记录”，而 typed 矩阵与系统
+   中性并置均已发布 CPU4 窗内 558/640MHz；真正缺的是 target running slice 与频点/policy 的精确重叠绑定。
+   现有 Finalizer 提示已逐字区分“CPU-owned window frequency present”与“target-slice binding unproven”，因此
+   单次偏差先记观察，不新增最终原文扫描、强制措辞门或系统代写。若异构复现再查上下文显著性，不以 H4 句式
+   硬补。
+4. QF 中 B954 有明显收益：read 22→11、mid-loop 17→7，最终保留 3 条阶段 precedence 与 3 条真实局部
+   call。但 `Mutable`/`BusContext` 仍是断开边界，正文继续过度概括完整共享状态流；7 次 Finalizer reject 说明
+   runner 的“至少一边+参与者名”仍是假绿。系统没有造边，未证边界本身诚实，但补证导航仍未把模型优先带到
+   最可能的组件交接处。
+5. 新确认 B955：B954 把所有“精确 declared carrier 作为完整 call argument”统一提到最高 rank，未区分
+   `answerDocumentPatchBaseAvailable(ctx, e.mu)` 这类同 owner 裸 helper 使用与
+   `ctxbuilder.BuildAgentContext(o.busCtx, ...)` 这类带不同 qualified receiver 的潜在交接。前者真实但通常只
+   增加本地事实，不能连接两个请求 participant；按文件字典序领先会再次耗尽补证轮次。
+6. B955 根修仍只作用于 SOFT read-coordinate 排序。候选首先必须通过 B954 的精确静态类型 binding、同文件
+   parser-owned call 和完整实参解析；其后以 parser endpoint 判别：不同 qualified receiver 优先，裸 helper、
+   `this/self/super`、当前 owner 或包含 carrier binding 的 receiver 保持本地 rank。该 rank 不进入 EvidenceItem、
+   participant coverage、关系方向、图或答案；模型仍须读取源码并提交精确 argument row，找不到可证桥时继续
+   显示 unproven。
+7. 回归把“本地 receiver call + 裸 helper argument + qualified handoff argument”放入全部 15 种
+   `SupportedReadLanguages`（含 ArkTS、仓颉）同一矩阵，明确最后一类获得下一次手术式 read；quoted literal
+   负 pin、缓存/权限/证据所有权与既有单参与者行为不变。该方案不按语言、case、函数名或用户/模型文字拟合。
+8. 本批不改 Trace 查询、因果投影构造、系统补齐、JSON breadth 合同或答案渲染。完整 causal diagnosis 仍保留
+   显式窗投影、链上-only 主因、优先级反转/调度延迟/算力供给/D-IO/确定性语义/业务线索，以及实际占时与规则
+   可消除量双轴；邻近/背景只作额外排查。活跃字节流不因 4ms/4s/4m/总年龄降级。
+
+状态：
+
+`B953-PASSIVETARGETEFFECTSALIENCE1=production-closed-r603`；
+`B954-CARRIERARGNAV1=production-partial-r603/read+midloop-reduced`；
+`B955-CARRIERHANDOFFRANK1=implemented/soft-parser-rank/all-language-matrix/pending-replay`；
+`H4-SAMEWINDOW-FREQ-WORDING=model-deviation-watch/existing-typed-guidance-present/no-prose-gate`；
+`Trace finite bounded effect=no-full-projection-required/production-positive-r603`；
+`Trace causal diagnosis explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

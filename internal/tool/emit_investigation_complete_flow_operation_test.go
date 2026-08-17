@@ -846,12 +846,15 @@ func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossL
 			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			source := strings.Join([]string{
-				"run pipeline",
-				"this.busContext.reset()",
-				"prepare stage",
-				"const agentContext = builder.build(this.busContext, stage)",
-			}, "\n")
+			lines := make([]string, 30)
+			lines[0] = "run pipeline"
+			lines[1] = "this.busContext.reset()"
+			// A bare same-owner helper also receives the complete carrier,
+			// but it is not the best bounded coordinate for a component
+			// handoff investigation.
+			lines[9] = "inspect(this.busContext)"
+			lines[29] = "const agentContext = builder.build(this.busContext, stage)"
+			source := strings.Join(lines, "\n")
 			if err := os.WriteFile(absolute, []byte(source), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -878,9 +881,15 @@ func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossL
 							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
 						},
 						{
-							Kind: "call", File: path, Line: 4,
-							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 4},
-							ToEP:       repotypes.RelationEndpoint{Name: "build", Receiver: "builder", Line: 4},
+							Kind: "call", File: path, Line: 10,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 10},
+							ToEP:       repotypes.RelationEndpoint{Name: "inspect", Line: 10},
+							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
+						},
+						{
+							Kind: "call", File: path, Line: 30,
+							FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 30},
+							ToEP:       repotypes.RelationEndpoint{Name: "build", Receiver: "builder", Line: 30},
 							Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: language + "_call",
 						},
 					},
@@ -888,8 +897,8 @@ func TestFlowOperationNavigationPrefersTypedCarrierAsCompleteCallArgumentAcrossL
 			}))
 
 			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
-			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 1, End: 16}) {
-				t.Fatalf("%s typed carrier handoff must outrank the local receiver call: ok=%t target=%+v", language, ok, target)
+			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s cross-owner typed carrier handoff must outrank local receiver/helper calls: ok=%t target=%+v", language, ok, target)
 			}
 			if len(ctx.Mutable.EmittedEvidence()) != 0 {
 				t.Fatal("carrier navigation must not manufacture argument evidence")

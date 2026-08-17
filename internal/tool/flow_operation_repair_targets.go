@@ -565,6 +565,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	type rankedTarget struct {
 		target      flowOperationRepairReadTarget
 		carrierRank int
+		handoffRank int
 		matchRank   int
 		kindRank    int
 		line        int
@@ -663,6 +664,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 				},
 				carrierRank: 1,
+				handoffRank: flowNavigationCarrierHandoffRank(relation, binding.alias),
 				matchRank:   argumentRank,
 				kindRank:    flowOperationRepairRelationKindRank(relation.Kind),
 				line:        line,
@@ -676,6 +678,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		if candidates[i].carrierRank != candidates[j].carrierRank {
 			return candidates[i].carrierRank > candidates[j].carrierRank
 		}
+		if candidates[i].handoffRank != candidates[j].handoffRank {
+			return candidates[i].handoffRank > candidates[j].handoffRank
+		}
 		if candidates[i].matchRank != candidates[j].matchRank {
 			return candidates[i].matchRank > candidates[j].matchRank
 		}
@@ -688,6 +693,43 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return candidates[i].line < candidates[j].line
 	})
 	return candidates[0].target, true
+}
+
+// flowNavigationCarrierHandoffRank is a SOFT ordering signal for complete
+// carrier arguments. A carrier passed to a differently-qualified receiving
+// API is a better place to inspect a component handoff than the same carrier
+// passed to a bare helper in its current owner. The rank never creates an
+// EvidenceItem, relation edge, participant match, or completion authority;
+// the explorer still has to read the line and emit the exact syntax-owned
+// operation, and an absent bridge remains explicitly unproven.
+//
+// This intentionally uses parser-owned call endpoints instead of source/prose
+// keywords. `this` / `self`, the current owner, and a receiver containing the
+// carrier binding are local-use shapes. A distinct qualified receiver is only
+// a navigation preference, not proof that the callee stores or propagates the
+// argument.
+func flowNavigationCarrierHandoffRank(relation *repotypes.Relation, binding string) int {
+	if relation == nil || strings.TrimSpace(relation.Kind) != "call" {
+		return 0
+	}
+	target := strings.TrimSpace(relation.ToEP.Receiver)
+	if target == "" {
+		return 0
+	}
+	plainTarget := strings.ToLower(strings.Trim(strings.TrimSpace(target), "*&()"))
+	if plainTarget == "this" || plainTarget == "self" || plainTarget == "super" {
+		return 0
+	}
+	if strings.TrimSpace(binding) != "" &&
+		types.AnswerCodeIdentitySurfacesCompatible(binding, target) {
+		return 0
+	}
+	owner := strings.TrimSpace(relation.FromEP.Receiver)
+	if owner != "" && (types.AnswerCodeIdentitySurfacesEquivalent(owner, target) ||
+		types.AnswerCodeIdentitySurfacesCompatible(owner, target)) {
+		return 0
+	}
+	return 1
 }
 
 // flowRepairPlanningSurfaceMatchRank orders parser-owned navigation sites by
