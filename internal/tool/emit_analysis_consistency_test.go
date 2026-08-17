@@ -103,14 +103,14 @@ func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence
 		t.Fatalf("decode schema: %v", err)
 	}
 	runtimeProfile := parsed.Properties["runtime_question_profile"].(map[string]any)
-	if got := runtimeProfile["description"].(string); strings.Count(got, skill.AnalysisRuntimeCausalAttributionTeaching) != 0 || strings.Count(got, skill.AnalysisRuntimeScopeFromDimensionTeaching) != 1 {
-		t.Fatalf("runtime profile schema must carry only the one-way scope consequence: %q", got)
+	if got := runtimeProfile["description"].(string); strings.Count(got, skill.AnalysisRuntimeScopeSchemaTeaching) != 1 || strings.Contains(got, skill.AnalysisRuntimeScopeFromDimensionTeaching) {
+		t.Fatalf("runtime profile schema must carry one compact scope tuple, not duplicate the workflow: %q", got)
 	}
 	dimensions := parsed.Properties["requested_answer_dimensions"].(map[string]any)
 	dimensionItems := dimensions["properties"].(map[string]any)["dimensions"].(map[string]any)["items"].(map[string]any)
 	roleDescription := dimensionItems["properties"].(map[string]any)["role"].(map[string]any)["description"].(string)
-	if strings.Count(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) != 1 {
-		t.Fatalf("dimension-role schema must own the causal decision table exactly once: %q", roleDescription)
+	if strings.Count(roleDescription, skill.AnalysisRuntimeDimensionSchemaTeaching) != 1 || strings.Contains(roleDescription, skill.AnalysisRuntimeCausalAttributionTeaching) {
+		t.Fatalf("dimension-role schema must carry one compact role reminder, not duplicate the workflow: %q", roleDescription)
 	}
 	if strings.Contains(roleDescription, skill.AnalysisRuntimeScopeFromDimensionTeaching) {
 		t.Fatalf("dimension-role schema must not repeat the runtime scope consequence: %q", roleDescription)

@@ -1250,6 +1250,7 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"suppressing chain/ranking evidence would make that declared goal unanswerable",
 		"`bounded_fact_set` = non-empty fact_families + no required verdict/causal role + non-root-cause intent/scenario",
 		"`causal_attribution` and `causal_contributor_set` are forbidden in this finite scope",
+		"This finite effect assessment is not the open-ended cause/remediation/current-risk diagnostic predicate",
 		"`bounded_effect_verdict` = non-empty fact_families + one required target_effect_verdict + no causal_attribution/causal_contributor_set + non-root-cause intent + all diagnostic predicate/profile flags false",
 		"Its canonical breadth tuple is only: fact_families omitted + one required causal dimension",
 		"do not need to repeat that decision",
@@ -1260,6 +1261,16 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 	} {
 		if !strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, want) {
 			t.Fatalf("runtime scope teaching missing one-way consequence %q", want)
+		}
+	}
+	for _, want := range []string{
+		"A finite question asking whether one specified condition affected one specified target is `bounded_effect_verdict`",
+		"A finite target-effect verdict alone keeps this false",
+		"the same object MUST contain `exclusion_kind=explicit_user_exclusion` and `current_source_exclusion_quote`",
+		"Do not place that source-exclusion phrase only in `artifact_citation_quotes`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("analysis workflow missing low-mind runtime JSON guidance %q", want)
 		}
 	}
 	if strings.Contains(AnalysisRuntimeScopeFromDimensionTeaching, "intent/scenario/diagnostic flags continue to describe the current request") {

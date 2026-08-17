@@ -36409,6 +36409,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.975 B952：runtime breadth JSON 去重与 finite-effect / full-diagnosis 消歧（2026-08-16）
+
+1. r600 的 Analyzer 三次 emit 不是单纯随机波动。第一稿把“精确四态 + 频率是否约束目标”写成
+   `causal_diagnosis + fact_families`；第二稿降成 `bounded_fact_set`，仍把有限 target-effect 写成
+   `observed_value`，同时因通用 diagnostic 教学把 `is_diagnostic=true`，与 non-root intent 冲突；第三稿靠清空
+   diagnostic flags 过门，却永久丢掉 `target_effect_verdict`。同一轮还把“只分析 trace、不分析代码”的源码排除句
+   只放进 `artifact_citation_quotes`，导致专用 `current_source_exclusion_quote` 缺席并安全软化为 allow。
+2. 冷读确认存在教学层重复与歧义，而不是 validator 需要放松：完整 runtime dimension/scope 决策表同时出现在
+   analyzer workflow 和 tool schema 字段描述，一次 LLM 请求重复灌入长合同；通用 diagnostic 描述又没有先区分
+   “一个条件是否影响一个目标”的有限效果裁决与开放式原因/修复/当前风险诊断。后者使模型诚实地称其为“性能诊断”后
+   被既有 precise tuple 拒绝。
+3. B952 保留详细决策表作为 workflow 唯一完整教学；tool schema 改用两个共享短 tuple：measurement / finite effect /
+   single cause / cause roster / proof-origin 的 role 速查，以及 bounded facts / bounded effect / causal diagnosis 的三形
+   合取。测试负钉 schema 不再复制完整 workflow，仍由同一 skill package 输出，避免将来两边漂移。
+4. 通用 diagnostic 教学与 schema 同步收窄为开放式 cause/remediation/current-risk/regression；单一 named condition →
+   named target 的有限问题明确使用 `bounded_effect_verdict + required target_effect_verdict`，本身不置 full-diagnosis
+   flags。若同一请求另问开放式根因/修复，才进入 `causal_diagnosis`。这只是帮助模型一次提交一致 typed tuple，未修改
+   validator、未扫描原问句/答案原文，也未预判 yes/no/mixed/unproven。
+5. source exclusion 教学改成同对象最小三字段形：`current_source_mode=exclude`、
+   `exclusion_kind=explicit_user_exclusion`、逐字 `current_source_exclusion_quote`；明确
+   `artifact_citation_quotes` 永不激活源码排除。缺失/无锚仍按既有逻辑安全软化，不新增 hard retry。
+6. 旧 pin 首轮指出两个需要保留的语义短语（similar-problem current risk、source-vs-candidate exclusion），已合并回短
+   schema，而非删除测试。`go test ./internal/skill ./internal/tool -count=1` 最终全绿（tool 173.245s）。
+7. 本批零生产裁决逻辑、零答案 mutation、零关系/图生成。有限效果仍不强制 Trace 因果投影；明确根因/贡献者/机制问题
+   仍保留显式窗因果投影、自动补齐、链上-only 主因、实际占时/业务线索与规则可消双轴。
+
+状态：
+
+`B952-RUNTIMEANALYSISJSONSHAPE1=implemented/full-skill+tool-tests-pass/pending-production-replay`；
+`runtime detailed breadth teaching=workflow-single-site`；
+`runtime tool schema=compact-shape-reminder`；
+`finite target effect=typed verdict/model-owned/no-full-projection`；
+`Trace causal diagnosis explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
