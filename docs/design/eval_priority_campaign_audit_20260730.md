@@ -36301,6 +36301,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.972 r598：B947 单一成员载体生产闭环；写模式静态证明边界复证（2026-08-16）
+
+1. 在 `main@cb463a716` 的同一 binary snapshot 上严格并发恰好两个异构 case：读模式
+   `cangjie_repomap` 与写模式 `github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`；人工为
+   Cangjie pass、write partial/正确补丁但诚实未验证。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_cangjie_write_r598_20260816.md` 与同名
+   `_manual_audit.md`。
+2. Cangjie Analyzer 明确发出 `has_per_member_table=true`，本轮真实命中 B947 typed 分支。终稿只有一份
+   12 行 principal table：2 个 `extend`、2 个 `foreign func`、8 个 public-class-family；类别、package、
+   path、line、说明完整，optional sections 没有复制 roster。至此 required table 作为唯一结构化成员载体已获
+   生产正证，B947 收账。
+3. Cangjie 两次成文拒绝分别因首稿遗漏 member label、修补稿仍漏两个存在多候选的 exact
+   `source_inventory_row_id`。既有 prompt 已一致要求可见身份和歧义时 exact row ID，validator 拒绝的是精确信号；
+   终稿全部保留且没有系统代写成员、关系或结论。这是模型执行成本，不新增按成员名、语言名或答案文本的硬拟合。
+4. Write 补丁经人工 diff 审计正确：生产条件改为 `"_prefault" in result.schema`，保留 `default ??=`，新增
+   false/0/空字符串三条回归并保留 truthy、output mode、existing default 合同。`make check` exit 0，但 fixture
+   只由 Python 脚本检查 TypeScript 源码形状，两条 changed path 的 typed capability 都是 `source_static`，不能证明
+   JS/TS 运行时行为。
+5. Controller 上下文已明确展示 `source_static` 不等于 target behavior，模型仍选择 `all_verified`；确定性完成器
+   正确归一为 `accept_unverified / production_verification_source_static_only`。本轮没有 replan、重复 verify 或 proof
+   loop，交付也未假绿。单次模型选择波动已被现有 typed 边界安全吸收，不为 eval 变绿而降低验证杆或扫描模型原文。
+6. 两案均在活跃字节流下正常完成，没有 4ms、4s 或固定总年龄降级，没有空答案或系统答案替换。Read/Trace
+   路径未改；显式窗、因果投影、自动补齐、链上-only 主因、实际占时/业务线索与规则可消双轴均保持，背景仍只作支持。
+
+状态：
+
+`B947-PRINCIPALMEMBERSINGLECARRIER1=production-closed-r598`；
+`Cangjie row-identity retries=model-adherence-cost/no-hard-fit`；
+`Zod write=patch-correct/source-static-only/honest-unverified`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
