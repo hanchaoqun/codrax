@@ -1814,6 +1814,18 @@ func BuildAnswerSurfacePlan(
 		emitted = mutable.EmittedEvidence()
 	}
 	plan.SurfaceEvidence = ExactResolutionSurfaceEvidencePool(emitted, evidence, answerChains)
+	// Evidence is monotonic: a later grounded positive source occurrence can
+	// invalidate an earlier bounded-absence closure, while the inverse is not
+	// true. MutableState intentionally preserves the original handoff for
+	// audit, but the effective answer plan must not publish that stale negative
+	// disposition after positive proof arrived through another evidence lane.
+	if plan.StableAbsent && exactResolutionEvidencePoolBlocksAbsence(plan.ExactResolution, plan.SurfaceEvidence) {
+		plan.StableAbsent = false
+		// Invalidate the stale negative; do not synthesize a replacement
+		// positive conclusion on the model's behalf.
+		plan.StableInvestigationResultKind = ""
+		plan.StableAbsenceJustification = ""
+	}
 	ApplyEvidenceStepBackbone(plan, ir, plan.SurfaceEvidence)
 	applyRequestedEnumerationBoundaryStepBackbone(plan, ir)
 	ApplyEvidenceExplanationAnchorBackbone(plan, ir, plan.SurfaceEvidence)
@@ -1971,6 +1983,18 @@ func BuildAnswerSurfacePlan(
 	plan.SummarySurfaceMode = preferredAnswerSummarySurfaceMode(plan, ir.RequestModel)
 
 	return plan
+}
+
+func exactResolutionEvidencePoolBlocksAbsence(contract *ExactResolutionContract, evidence []EvidenceItem) bool {
+	if contract == nil {
+		return false
+	}
+	for _, item := range evidence {
+		if ExactResolutionEvidenceBlocksAbsence(contract, item) {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildAnswerSurfacePlanForAgentContext compiles the current

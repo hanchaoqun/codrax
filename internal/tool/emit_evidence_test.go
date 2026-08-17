@@ -4759,7 +4759,7 @@ func TestEmitEvidence_KeepsFreeformExactMentionAsRelatedContextWithoutAnchoredTa
 	}
 }
 
-func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t *testing.T) {
+func TestEmitEvidence_PositiveAnchoredWindowDoesNotMintAbsenceSupport(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
@@ -4818,17 +4818,17 @@ func TestEmitEvidence_PromotesAbsenceSupportWhenAnchoredWindowNamesExactTarget(t
 	if len(got) != 1 {
 		t.Fatalf("want 1 item in buffer, got %d", len(got))
 	}
-	if got[0].ContextRole != types.EvidenceContextRoleAbsenceSupport {
-		t.Fatalf("context role = %q, want absence_support", got[0].ContextRole)
+	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("context role = %q, want related_context", got[0].ContextRole)
 	}
-	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "absence support") {
-		t.Fatalf("anchored exact mention should be promoted to absence_support, got: %q", got[0].GroundingNote)
+	if strings.Contains(strings.ToLower(got[0].GroundingNote), "absence support") {
+		t.Fatalf("positive anchored target mention must not be relabelled as absence support, got: %q", got[0].GroundingNote)
 	}
-	if strings.Contains(strings.ToLower(got[0].Summary), "absence support") {
-		t.Fatalf("evidence summary should stay semantic; absence-support guidance belongs in grounding_note, got: %q", got[0].Summary)
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "positive related context") {
+		t.Fatalf("grounding note should preserve the positive-occurrence boundary, got: %q", got[0].GroundingNote)
 	}
-	if !strings.Contains(strings.ToLower(res.Summary), "absence support") {
-		t.Fatalf("tool summary should still surface absence-support guidance, got: %q", res.Summary)
+	if strings.Contains(strings.ToLower(res.Summary), "absence support") {
+		t.Fatalf("tool summary must not teach an absence conclusion from a positive source occurrence, got: %q", res.Summary)
 	}
 }
 

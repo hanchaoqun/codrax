@@ -6810,6 +6810,43 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsRelatedContextThatKeepsTar
 	}
 }
 
+func TestNormalizeExactAbsenceCompletion_PositiveGroundedSourceOccurrenceKeepsResolved(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"pipeline_max_steps"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+	}
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("q"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{ExactResolution: contract},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "cmd/root.go",
+		LineStart:       2591,
+		Scope:           types.ScopeLine,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "mergedMaxSteps",
+		Snippet:         "mergedMaxSteps = *rs.PipelineMaxSteps",
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}}
+
+	kind, justification := normalizeExactAbsenceCompletionWithEvidence(ctx, "resolved", "", evidence)
+	if kind != "resolved" || justification != "" {
+		t.Fatalf("positive exact source occurrence was rewritten as absence: kind=%q justification=%q", kind, justification)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceAllowsClosureReadyMixedContextRoles(t *testing.T) {
 	missingKey := "zz_absent_config_mixed_roles"
 	mut := types.NewMutableState("q")

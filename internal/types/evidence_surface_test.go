@@ -261,6 +261,51 @@ func TestBuildAnswerSurfacePlan_SplitsCitationGradeAndProseOnlyContext(t *testin
 	}
 }
 
+func TestBuildAnswerSurfacePlan_PositiveSourceEvidenceSupersedesStaleAbsence(t *testing.T) {
+	mut := NewMutableState("")
+	mut.SetInvestigationResultKind("absence")
+	mut.SetAbsenceJustification("earlier bounded search did not resolve the key")
+	mut.AppendEvidence([]EvidenceItem{{
+		Kind:            EvidenceDirect,
+		Source:          "cmd/root.go",
+		LineStart:       2591,
+		Scope:           ScopeLine,
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "mergedMaxSteps",
+		Snippet:         "mergedMaxSteps = *rs.PipelineMaxSteps",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	}})
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Scenario:      ScenarioConfigTrace,
+			AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+		},
+		AnswerContract: AnswerContract{ExactResolution: &ExactResolutionContract{
+			TargetKind:   SubjectConfigKey,
+			TargetLabel:  "config key",
+			Targets:      []string{"pipeline_max_steps"},
+			AllowAbsence: true,
+		}},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if plan.StableAbsent || plan.PreferredExactResolution != nil {
+		t.Fatalf("positive grounded source occurrence must supersede stale exact absence: %+v", plan.PreferredExactResolution)
+	}
+	if plan.StableInvestigationResultKind != "" || plan.StableAbsenceJustification != "" {
+		t.Fatalf("effective answer plan retained stale absence text: kind=%q justification=%q", plan.StableInvestigationResultKind, plan.StableAbsenceJustification)
+	}
+	view := BuildAnswerSemanticView(ir, plan)
+	if view == nil || !view.SuppressExactResolutionAnswerSurface {
+		t.Fatalf("positive non-scalar config mapping must not force a visible not-found carrier: %+v", view)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_CompilesCapabilitySurfaceAuthority(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{

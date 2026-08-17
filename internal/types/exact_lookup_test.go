@@ -913,6 +913,38 @@ func TestExactResolutionEvidenceBlocksAbsence_IgnoresSummaryOnlyTargetMention(t 
 	}
 }
 
+func TestExactResolutionEvidenceBlocksAbsence_RelatedContextGroundedSourceOccurrence(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:   SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"pipeline_max_steps"},
+		AllowAbsence: true,
+	}
+	item := EvidenceItem{
+		Source:          "cmd/root.go",
+		LineStart:       2591,
+		Scope:           ScopeLine,
+		Subject:         "mergedMaxSteps",
+		Predicate:       "reads",
+		Object:          "runtime config field",
+		AnchorKind:      AnchorAssignment,
+		AnchorSymbol:    "mergedMaxSteps",
+		Snippet:         "mergedMaxSteps = *rs.PipelineMaxSteps",
+		ContextRole:     EvidenceContextRoleRelatedContext,
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	}
+	if !ExactResolutionEvidenceBlocksAbsence(contract, item) {
+		t.Fatal("a grounded source line that reads the exact config target must veto global absence even when it remains related context")
+	}
+
+	item.Snippet = "mergedMaxSteps = defaultMaxSteps"
+	item.Subject = "pipeline_max_steps"
+	if ExactResolutionEvidenceBlocksAbsence(contract, item) {
+		t.Fatal("a model-authored subject mention without a source-local target occurrence must remain compatible with absence")
+	}
+}
+
 func TestExactResolutionEvidenceCanSatisfyRelatedContext_IgnoresSummaryOnlyTermMatches(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

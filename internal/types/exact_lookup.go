@@ -1469,9 +1469,16 @@ func ExactResolutionRelatedContextProofAllowedInFiles(c *ExactResolutionContract
 
 // ExactResolutionEvidenceBlocksAbsence reports whether one structured
 // evidence item disproves an exact-absence closure for the current
-// target lane. Illustrative and absence-support items are ignored;
-// grounded/recovered items that explicitly mention the exact target on
-// a non-contextual lane block absence.
+// target lane. Illustrative and absence-support items are ignored.
+//
+// A related-context item normally cannot prove the target's definition:
+// models often retain the requested token in Subject while citing a nearby
+// symbol. It can, however, disprove *absence* when its grounded source-local
+// anchor contains the target itself. That distinction is important for
+// config readers such as `rs.PipelineMaxSteps`: the assignment may be
+// contextual rather than the YAML field's definition, but the source line is
+// still positive proof that the key exists. Stale "unverified" state must not
+// turn that positive occurrence into a not-found answer.
 func ExactResolutionEvidenceBlocksAbsence(c *ExactResolutionContract, item EvidenceItem) bool {
 	switch item.GroundingStatus {
 	case GroundingGrounded, GroundingRecovered, "":
@@ -1493,9 +1500,28 @@ func ExactResolutionEvidenceBlocksAbsence(c *ExactResolutionContract, item Evide
 		return false
 	}
 	if item.ContextRole == EvidenceContextRoleRelatedContext {
-		return false
+		if item.GroundingStatus == "" {
+			return false
+		}
+		return exactResolutionRelatedContextHasSourceTarget(c, item)
 	}
 	return true
+}
+
+// exactResolutionRelatedContextHasSourceTarget deliberately excludes
+// Subject/Object/Summary. Those fields can carry model-authored explanatory
+// prose about a missing target. AnchorSymbol, Condition and a line-grounded
+// Snippet are tied to the cited source operation and therefore are precise
+// enough to veto a global absence conclusion without promoting the item into
+// defining proof.
+func exactResolutionRelatedContextHasSourceTarget(c *ExactResolutionContract, item EvidenceItem) bool {
+	if ExactResolutionTextsMentionAnyTarget(c, item.AnchorSymbol) {
+		return true
+	}
+	if item.Scope != "" && item.Scope != ScopeLine {
+		return false
+	}
+	return ExactResolutionTextsMentionAnyTarget(c, item.Condition, item.Snippet)
 }
 
 // exactResolutionEvidenceHasProofGradeAnchor reports whether an

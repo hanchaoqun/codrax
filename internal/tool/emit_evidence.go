@@ -7176,18 +7176,15 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, gc *ground.Context
 			"this item names the requested exact %s only in explanatory context, not as a defining anchor. Treat it as nearby context only; do NOT repair this item.",
 			exactResolutionTargetLabel(contract),
 		)
-		if groundedWindowMention {
-			if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport {
-				ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
-				changed = true
-			}
-			note = fmt.Sprintf(
-				"this item names the requested exact %s in the anchored code/config window but not as a defining anchor. Treat it as absence support only; do NOT repair this item.",
-				exactResolutionTargetLabel(contract),
-			)
-		} else if ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining {
+		if ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining {
 			ev.ContextRole = types.EvidenceContextRoleRelatedContext
 			changed = true
+		}
+		if groundedWindowMention {
+			note = fmt.Sprintf(
+				"this item names the requested exact %s in the grounded code/config window but not as its defining anchor. Keep it as positive related context; it disproves a global not-found conclusion but does not by itself prove the target's definition.",
+				exactResolutionTargetLabel(contract),
+			)
 		}
 		if appendGroundingNoteOnce(ev, note) {
 			changed = true

@@ -35958,6 +35958,60 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1016 r647：配置主值复正，但正向源码被误铸 absence 并污染答案头行（2026-08-17）
+
+1. 在 `main@3ae628138` 严格并发恰好两个异构案例：
+   `read_combo_config_two_knobs_precedence + trace_query_wakeup_causal_io_chain`。Runner `2/2 PASS`，
+   人工为 `1 PASS / 1 PARTIAL`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_config_trace_r647_20260817_manual_audit.md`。
+2. B1016 的核心值口径生产转正：Config 正确区分 `pipeline_max_steps` 的代码默认 50、
+   `pipeline_max_retries_per_stage` 的代码默认 3、sample 注释 50/2 与 CLI 注册 0 的 inherit sentinel，
+   并正确给出 code default < yaml < explicit CLI。模型仍用两个 `member_set` 携带值，未完全采用建议的
+   per-default `scalar_value(layer=code_default)` 交接；因此值正确性可记正证，结构化交接纪律仍观察。
+3. Runner 的 PASS 不是答案全绿：系统在正确正文之前发布“未找到完全一致的精确目标，但已验证
+   等价/别名锚点”，与两个 key 已被直接定位的正文冲突。初始 Explorer semantic view 明确为
+   `exact_resolution_present=true, answer_surface=false`，Finalizer 却变为
+   `answer_surface=true, summary_mode=follow_on_grounded_context_only`，排除“合同一开始就丢失”。
+4. 新根因 B1019（P1）是正负证据单调性反转。Explorer 已读 `internal/config/runtime.go` 的 YAML tag
+   及 `cmd/root.go` 的生产 consumer；模型提交的 consumer 行因 `anchor_symbol` 是赋值左值而不是 exact
+   key，被 `stabilizeExactResolutionEvidence` 从 defining 改标为 `absence_support`。随后
+   `normalizeExactAbsenceCompletionWithEvidence` 把模型明确提交的 `result_kind=resolved` 自动改成
+   `absence`；旧否定状态再迫使 Finalizer 发布 exact carrier，形成 alias 伪降级。这里既有系统改写模型
+   typed 结论，也有“正向源码出现→缺失支持”的语义反转，属于确定性系统 gap。
+5. 根修不扫描用户原文或模型答案，也不为两个 key 做特判：
+   - 只有 typed negative predicate/probe 才能铸 `absence_support`；grounded 源码窗口里的正向 exact
+     occurrence 保持 `related_context`，说明它否定全局 not-found、但不等于定义证明；
+   - `ExactResolutionEvidenceBlocksAbsence` 对 related-context 只读取 grounded source-local
+     `AnchorSymbol/Condition/Snippet`，明确排除可由模型随写的 Subject/Object/Summary；
+   - AnswerSurfacePlan 增加单调性防线：若旧 stable absence 与后来 grounded 正证冲突，只清除旧否定，
+     不替模型合成新的 positive/resolved 结论。
+6. 回归覆盖四个层次：正向 grounded window 不再铸 absence-support；真实 negative predicate 仍保留
+   absence 车道；related-context 的源码精确出现阻止 resolved→absence 归一；陈旧 stable absence 在答案
+   计划中被正证撤销且非 scalar config 不再强发 not-found 头行。`internal/types`、`internal/tool`、
+   `internal/agent`、`internal/orchestrator` 全包通过。
+7. B1018 在 r647 的初始接线上没有复现：多 key exact contract 正常进入 Explorer；r646 的
+   `exact_resolution_present=false` 暂记上下文形相关观察，不再把 helper 当根因。B1017 本轮所有 grep
+   成功，typed failed-grep 恢复臂未获生产触发，仅保持代码 pin。
+8. Trace 人工通过：用户窗 2.000..2.020s、四节点三边唤醒链、链上 11ms IO 首席、三席 1ms 调度
+   供给与背景/邻近分权均保留；模型明确说明 frame/deadline 因果未证。系统没有接管模型结论，因果投影
+   与自动补齐未受本批影响，也没有固定 4ms/4s 活跃流降级。
+9. B1020（P2 观察）：Config 终稿在模型主表后又出现空说明表与两块“清单完整性补充”，信息重复且
+   展示质量差。当前只出现一次，先记录为 aggregate/table composition 债，不用该 case 的词面做删除门；
+   后续异构复现后再从 typed block ownership/aggregate role 做通用收敛。
+
+状态：
+
+`r647=runner-2/2+human-1-pass/1-partial`；
+`B1016-CONFIGDEFAULTPROVENANCE1=production-value-positive/structured-scalar-handoff-partial`；
+`B1017-FAILEDGREPNOTABSENCE1=code-pinned/not-triggered-r647`；
+`B1018-MULTIKEYEXACTCARRIERDRIFT1=not-reproduced-r647/context-shape-watch`；
+`B1019-POSITIVEEVIDENCEABSENCEMONOTONICITY1=implemented/typed-source-local-pins-pass/pending-production-replay`；
+`B1020-CONFIGAGGREGATETABLEDUPLICATION1=observed-once/P2-watch`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r647`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：
