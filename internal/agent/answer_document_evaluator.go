@@ -5204,6 +5204,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceValueOccurrenceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
+	if authority := renderAnswerDocBoundedRuntimeFactAuthority(ctx, promptLedger); authority != "" {
+		b.WriteString(authority)
+	}
 	if authority := renderAnswerDocTraceBlockingWallClockAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
@@ -5623,6 +5626,198 @@ func renderAnswerDocTraceValueOccurrenceAuthority(ctx *types.AgentContext, ledge
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// renderAnswerDocBoundedRuntimeFactAuthority gives a finite runtime question
+// a compact, lossless view of the exact typed families selected by the
+// analyzer.  It reads the full accepted ledger rather than the generic 10/32
+// row prompt budget, so a long same-target CPU/state roster cannot hide an IO
+// pair, its coverage row, or a separately requested pressure caliber.  This is
+// evidence handoff only: it neither edits the answer nor elects a root cause.
+func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	profile := rm.RuntimeQuestionProfile
+	if profile == nil || !profile.CarriesBoundedFactFamilies() {
+		return ""
+	}
+	groups := make(map[types.RuntimeQuestionFactFamily][]types.ObservationRecord)
+	for _, record := range ledger.Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+			record.GroundingPolicy != types.ClaimGroundingHard {
+			continue
+		}
+		for _, family := range types.RuntimeObservationRecordFactFamilies(record) {
+			if profile.RequestsFactFamily(family) {
+				groups[family] = append(groups[family], record)
+			}
+		}
+	}
+	if len(groups) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Requested Runtime Fact Authority\n\n")
+	b.WriteString("- These rows are the exact finite fact families requested for this answer. They bypass only the generic prompt display budget; they do not widen the question into root-cause ranking, alter a Trace causal projection, or decide the model-owned conclusion.\n")
+	b.WriteString("- Keep measurement rulers separate. One block request's issue-to-complete residence is elapsed wall clock for that request, but it is not target-thread blocking time. A completion-closed issuer-blocked interval is target blocking wall clock even when the scheduler state is interruptible `S`. Only an explicitly typed closure permits that attribution. Cross-request `request·ms` and composite pressure scores are non-wall-clock/non-additive.\n")
+	b.WriteString("- `selected_window_context` rows describe the selected window but are not attributed to the named target unless the row itself has `owner_scope=target_owned`. Use context rows only as comparison/background evidence. Translate metadata into natural reader-facing language; do not expose family/status enums as the conclusion.\n")
+	seenFamily := map[types.RuntimeQuestionFactFamily]bool{}
+	for _, family := range profile.FactFamilies {
+		if seenFamily[family] || len(groups[family]) == 0 {
+			continue
+		}
+		seenFamily[family] = true
+		rows := answerDocBoundedRuntimeFactAuthorityRows(groups[family], family, rm)
+		fmt.Fprintf(&b, "- requested_family=`%s`; exact_rows=%d; rendered_rows=%d\n", family, len(groups[family]), len(rows))
+		if family == types.RuntimeQuestionFactIOLatency {
+			targetRows := 0
+			for _, record := range rows {
+				if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) &&
+					strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") &&
+					traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIORequestResidenceCaliber) != "" {
+					targetRows++
+				}
+			}
+			fmt.Fprintf(&b, "  - target_owned_request_rows_rendered=`%d`; this is a bounded witness count, not a target request total unless a target-scoped complete census explicitly says so. A selected-window/global `io_latency_coverage` row's emitted/total/overflow values MUST NOT be attributed to the named target.\n", targetRows)
+		}
+		for _, row := range rows {
+			fmt.Fprintf(&b, "  - %s\n", answerDocBoundedRuntimeFactAuthorityRow(row, rm))
+		}
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func answerDocBoundedRuntimeFactAuthorityRows(records []types.ObservationRecord, family types.RuntimeQuestionFactFamily, rm *types.RequestModel) []types.ObservationRecord {
+	const familyCap = 10
+	// Requested-family ranking is typed and stable. It keeps target-owned
+	// values ahead of context rows while ResultCount set/coverage records stay
+	// visible near their leaf rows.
+	prioritized := types.PrioritizeObservationRecords(records, rm, nil, len(records))
+	selected := make([]types.ObservationRecord, 0, familyCap)
+	seenPhysical := make(map[string]bool, familyCap)
+	add := func(record types.ObservationRecord) {
+		if len(selected) >= familyCap {
+			return
+		}
+		key := answerDocBoundedRuntimeFactPhysicalKey(record)
+		if seenPhysical[key] {
+			return
+		}
+		seenPhysical[key] = true
+		selected = append(selected, record)
+	}
+	// For IO latency, reserve the coverage/caliber rows before filling exact
+	// pairs. Eight target pairs must not hide the total/overflow boundary or a
+	// separately requested storage/inode layer.
+	if family == types.RuntimeQuestionFactIOLatency {
+		for _, predicate := range []string{"io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode"} {
+			for _, record := range prioritized {
+				if strings.EqualFold(strings.TrimSpace(record.Predicate), predicate) {
+					add(record)
+					break
+				}
+			}
+		}
+	}
+	for _, record := range prioritized {
+		add(record)
+	}
+	return selected
+}
+
+// answerDocBoundedRuntimeFactPhysicalKey removes duplicate typed witnesses
+// produced when the explorer asks the same deterministic view more than once.
+// A block request's producer-owned endpoint identity is stable across tool
+// calls, while record.ID intentionally contains the per-call result id.  Do
+// not use fuzzy text or proximity: an incomplete identity falls back to the
+// exact record id and remains separately visible.
+func answerDocBoundedRuntimeFactPhysicalKey(record types.ObservationRecord) string {
+	if strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") {
+		artifact := strings.TrimSpace(record.SourceRef.ArtifactID)
+		if artifact == "" {
+			artifact = types.RuntimeArtifactCaptureIdentityPath(record.SourceRef)
+		}
+		parts := []string{
+			artifact,
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOEndpointFamily),
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyDev),
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOSector),
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOLength),
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOIssueTS),
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOCompleteTS),
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOIssueThread),
+		}
+		complete := true
+		for _, part := range parts {
+			complete = complete && part != ""
+		}
+		if complete {
+			return "io_request\x00" + strings.Join(parts, "\x00")
+		}
+	}
+	return "record\x00" + strings.TrimSpace(record.ID)
+}
+
+func answerDocBoundedRuntimeFactAuthorityRow(record types.ObservationRecord, rm *types.RequestModel) string {
+	ownerScope := "selected_window_context"
+	if types.ObservationRecordMatchesUserRuntimeTarget(record, rm) {
+		ownerScope = "target_owned"
+	}
+	predicate := strings.TrimSpace(record.Predicate)
+	parts := []string{
+		fmt.Sprintf("id=`%s`", strings.TrimSpace(record.ID)),
+		fmt.Sprintf("owner_scope=`%s`", ownerScope),
+		fmt.Sprintf("subject=`%s`", strings.TrimSpace(record.Subject)),
+		fmt.Sprintf("predicate=`%s`", predicate),
+	}
+	if object := strings.TrimSpace(record.Object); object != "" {
+		parts = append(parts, fmt.Sprintf("object=`%s`", object))
+	}
+	if value := strings.TrimSpace(record.Value); value != "" {
+		parts = append(parts, fmt.Sprintf("value=`%s%s`", value, strings.TrimSpace(record.Unit)))
+	}
+	if record.Span.EndTs > record.Span.StartTs {
+		parts = append(parts, fmt.Sprintf("interval=`%.6f..%.6f`", record.Span.StartTs, record.Span.EndTs))
+	}
+	appendNote := func(label, key string) {
+		if value := traceQueryObservationSupplementNoteValue(record, key); value != "" {
+			parts = append(parts, fmt.Sprintf("%s=`%s`", label, value))
+		}
+	}
+	if strings.EqualFold(predicate, "io_latency") {
+		appendNote("request_residence", types.TraceNoteKeyIORequestResidence)
+		appendNote("request_residence_caliber", types.TraceNoteKeyIORequestResidenceCaliber)
+		appendNote("request_clock_scope", types.TraceNoteKeyIORequestResidenceClock)
+		appendNote("completion_woke_issuer", types.TraceNoteKeyIOCompletionWokeIssuer)
+		appendNote("complete_thread", types.TraceNoteKeyIOCompleteThread)
+		appendNote("issuer_blocked_state", types.TraceNoteKeyIOIssuerBlockedState)
+		appendNote("issuer_blocked_start", types.TraceNoteKeyIOIssuerBlockedStart)
+		appendNote("issuer_blocked_end", types.TraceNoteKeyIOIssuerBlockedEnd)
+		appendNote("issuer_blocked", types.TraceNoteKeyIOIssuerBlocked)
+		appendNote("issuer_blocked_caliber", types.TraceNoteKeyIOCausalWaitCaliber)
+		appendNote("issuer_blocked_clock_scope", types.TraceNoteKeyIOTargetBlockingClock)
+		parts = append(parts, "cross_ruler_addition=`forbidden`")
+	} else if strings.EqualFold(predicate, "io_latency_coverage") {
+		appendNote("emitted", types.TraceNoteKeyIOCoverageEmitted)
+		appendNote("total", types.TraceNoteKeyTotal)
+		appendNote("coverage_status", types.TraceNoteKeyIOCoverageStatus)
+		appendNote("overflow_pairs", types.TraceNoteKeyIOOverflowPairs)
+		appendNote("overflow_request_ms", types.TraceNoteKeyIOOverflowRequestMS)
+		appendNote("overflow_sum_caliber", types.TraceNoteKeyIOOverflowSumCaliber)
+	} else {
+		for _, key := range []string{
+			types.TraceNoteKeyDev, types.TraceNoteKeyInode,
+			types.TraceNoteKeyIOPressureSignal, types.TraceNoteKeyIOPressureEvidenceQuality,
+			types.TraceNoteKeyIOPressureScoreCaliber,
+		} {
+			appendNote(key, key)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderAnswerDocTraceBlockingWallClockAuthority(ctx *types.AgentContext, ledger types.ObservationLedger) string {

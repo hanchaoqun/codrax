@@ -36117,6 +36117,72 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.992 r616–r620/B975–B979：有限 IO 事实从 family 选择到量纲/所有权闭环（2026-08-17）
+
+1. 三轮均严格并发恰好两个案例，逐轮人工记录见：
+   `eval/parallel_selected_summary_evalcampaign_carrier_blockio_r616_20260817_manual_audit.md`、
+   `eval/parallel_selected_summary_evalcampaign_iofamily_traceguard_r617_20260817_manual_audit.md`、
+   `eval/parallel_selected_summary_evalcampaign_ioauthority_traceguard_r618_20260817_manual_audit.md`。
+2. r616 证明 B973 的 engine/ledger producer 在场，但 Analyzer 未选 `io_latency`；r617 加入 analyzer/schema 共用 ontology 后，
+   已正确选择该 family，最终却仍被 10 行紧凑 prompt 中同目标的 per-CPU roster 挤出。说明“目标相关”与“当前请求维度”
+   是两条独立优先轴，不能用 target matching 替代 requested-family matching。
+3. `B975-REQUESTEDFACTPROMPTSURVIVAL1` 将已接受 deterministic runtime records 按 typed
+   `runtime_question_profile.fact_families` 做 prompt-only 优先。它不改变 ledger acceptance、事实值、causal rank、链成员、
+   补采或答案门；纯状态/关系查询也不会得到未请求 IO 卡。
+4. `B976-IOLATENCYCALIBERAUTHORITY1` 为有限 fact/effect scope 增加一段有界、只读的最终上下文：从完整 accepted ledger
+   取用户选择的 family，绕开的只有通用显示预算。单请求 issue→complete 是该请求自身 elapsed wall clock；严格
+   completion→issuer wake 闭合的 S/D interval 才是目标线程 blocking wall clock；跨请求 `request·ms` 与复合压力可重叠、
+   非墙钟、不可相加。registry 将这些 key 纳入发射/消费/Golden tripwire，避免 typo 静默断链。
+5. completion-closed issuer wait 同时进入既有 target blocking authority：只接受 deterministic query、hard grounding、
+   user-source exact target、同 selected window、`completion_woke_issuer=true`、合法 caliber 及 start/end/value 三者复算一致；
+   区间按 union 计，S 状态不再因为 D/io_wait=0 被漏掉。request residence 绝不作替代值。
+6. r618 终稿首次正确给出 1.347ms 单请求墙钟、1.337ms 对应目标阻塞墙钟、4 条 union=4.384ms 下界、目标调度
+   D/io_wait=0 与 S sleep=70.338ms，以及 198/8/190、41.329 request·ms 的覆盖边界；Trace 因果对照仍 PASS。
+7. r618 又确认 `B977-IOLATENCYCOVERAGEOWNERSCOPE1`：`io_latency_coverage emitted=8,total=198` 是 selected-window/global
+   覆盖，模型却说成目标自身 8 条请求。新 authority 明示 global coverage 数不得归目标；目标 leaf 只报
+   `target_owned_request_rows_rendered` 有界 witness 数，缺 target-scoped complete census 时禁止宣称目标总数。
+8. H3 旧 oracle 的 `完成端到端·IO延迟（io_latency）/块设备IO(inode)/综合评分,非墙钟` 是旧系统投影专有词，强迫一个
+   target-self 有限事实请求携带背景压力/固定席位，违反模型结论权。oracle 改钉物理量、量纲与 scope；仍硬要求
+   1.347、1.337、41.329、零 D/io-wait 及 trace_query，不以新固定答案布局替代旧布局。
+9. 完整 `causal_diagnosis` 没有被有限 authority 收窄：显式窗投影、自动补齐、优先级反转/调度延迟/算力供给/D/IO/
+   确定性语义/业务线索双轴仍在；主因只来自 typed on-chain，背景只能支撑额外排查。系统没有修改 answer_document，
+   不扫描用户/模型 prose，不生成结论。
+10. r619 在新语义 oracle 下 `2/2 PASS, flagged=0`。H3 已明确 41.329 request·ms 非墙钟且不可相加，并把
+    storage/inode/page-cache 归为系统上下文；但同一物理请求由两次 window_stats 产生不同 result ID，ID 去重把 6 个
+    不同请求计成 7 个 witness，正文出现 7 vs 6。详见
+    `eval/parallel_selected_summary_evalcampaign_iotargetscope_traceguard_r619_20260817_manual_audit.md`。
+11. 新立并施工 `B978-RUNTIMEFACTPHYSICALDEDUP1`：exact IO 用
+    `artifact+endpoint+dev+sector+len+issue_ts+complete_ts+issuer` 的 producer-owned identity 去重；任一字段缺失按 record ID
+    fail-open。它只消除 prompt 重复，不合并近邻事件、不动 ledger/查询/因果/答案。r620 负责生产复放。
+12. r620 给出 B978 生产正证：authority 与终稿请求表均只剩 6 个不同物理请求，r619 的 7/6 矛盾消失。H3 仍把
+    selected-window/global 的 198/8/190 归到目标、未明确 41.329 request·ms 非墙钟，并把 scheduler D/io_wait=0 扩大成
+    “没有 IO 阻塞”，与同文 4.384ms completion-closed S-state wait 矛盾。r619 曾在相同 typed authority 下正确消费，故先判
+    模型消费波动/软教学残余；禁止用答案 prose 门或系统改写模型正文拟合。
+13. r620 的 Trace 对照暴露独立 `B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1`：Dispatcher 已知 runtime trace
+    附件在场，却把 `raw_route=operation` 归一为 data；data planner 又把内部 trace_query 当仓内工具寻找，绕开 Trace 预处理、
+    查询、因果投影和自动补齐。最优方案从已加载附件 kind/capability 与 typed route/operation enums 做一致性判定，冲突时
+    fail-loud 重试或进入 repo Trace pipeline；不得扫描用户原文或工具名关键词。详见
+    `eval/parallel_selected_summary_evalcampaign_iophysicaldedup_traceguard_r620_20260817_manual_audit.md`。
+14. r620 两案均未出现 active-stream 固定 4ms 降级；失败来自完整流结束后的路由和模型语义消费。
+
+状态：
+
+`r616=qf-runner-pass/human-major-partial+h3-fail`；
+`r617=h3-fail+causal-trace-pass`；
+`r618=h3-runner-fail-old-oracle/human-major-partial+causal-trace-pass`；
+`r619=runner-2/2-pass/human=h3-major-partial+trace-pass`；
+`r620=runner-0/2/human=h3-partial+trace-route-fail`；
+`B975-REQUESTEDFACTPROMPTSURVIVAL1=implemented+production-positive-r618`；
+`B976-IOLATENCYCALIBERAUTHORITY1=implemented+production-positive-r618`；
+`B977-IOLATENCYCOVERAGEOWNERSCOPE1=production-mixed/r619-positive+r620-model-consumption-negative`；
+`B978-RUNTIMEFACTPHYSICALDEDUP1=production-positive-r620`；
+`B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=open/next-batch`；
+`H3-oracle=system-projection-fixed-words-retired/physical-calibers-preserved`；
+`B974-CARRIERNAVIGATIONRANKDILUTION1=open/next-independent-batch`；
+`Trace explicit-window causal projection/auto-supplement=pass-r616-r618`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

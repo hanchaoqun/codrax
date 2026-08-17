@@ -407,6 +407,35 @@ const (
 const (
 	TraceNoteKeyInode = "inode"
 	TraceNoteKeyDev   = "dev"
+	// Exact block-request latency caliber and completion-closed issuer wait.
+	// These keys are parsed by finite fact and target-blocking authority
+	// consumers; keeping them registry-backed prevents a producer typo from
+	// silently turning a proven S-state IO wait into an untyped note.
+	TraceNoteKeyIORequestResidence        = "request_residence"
+	TraceNoteKeyIORequestResidenceCaliber = "request_residence_caliber"
+	TraceNoteKeyIORequestResidenceClock   = "request_residence_clock_scope"
+	TraceNoteKeyIOEndpointFamily          = "io_endpoint_family"
+	TraceNoteKeyIOSector                  = "io_sector"
+	TraceNoteKeyIOLength                  = "io_len"
+	TraceNoteKeyIOIssueThread             = "io_issue_thread"
+	TraceNoteKeyIOIssueTS                 = "io_issue_ts"
+	TraceNoteKeyIOCompleteTS              = "io_complete_ts"
+	TraceNoteKeyIOCompletionWokeIssuer    = "completion_woke_issuer"
+	TraceNoteKeyIOCompleteThread          = "complete_thread"
+	TraceNoteKeyIOIssuerBlockedState      = "issuer_blocked_state"
+	TraceNoteKeyIOIssuerBlockedStart      = "issuer_blocked_start"
+	TraceNoteKeyIOIssuerBlockedEnd        = "issuer_blocked_end"
+	TraceNoteKeyIOIssuerBlocked           = "issuer_blocked"
+	TraceNoteKeyIOCausalWaitCaliber       = "causal_wait_caliber"
+	TraceNoteKeyIOTargetBlockingClock     = "issuer_blocked_clock_scope"
+	TraceNoteKeyIONonAdditiveWithBlocked  = "non_additive_with_issuer_blocked"
+	TraceNoteKeyIOCoverageEmitted         = "io_latency_emitted"
+	TraceNoteKeyIOCoverageComplete        = "io_latency_complete"
+	TraceNoteKeyIOCoverageStatus          = "io_latency_coverage_status"
+	TraceNoteKeyIOOverflowPairs           = "io_latency_overflow_pairs"
+	TraceNoteKeyIOOverflowRequestMS       = "io_latency_overflow_request_ms"
+	TraceNoteKeyIOOverflowSumCaliber      = "overflow_sum_caliber"
+	TraceNoteKeyIOWakeupLine              = "io_wakeup_line"
 )
 
 // IO pressure caliber family (CBZ-B2-IO-CALIBER, 2026-07-23). These notes
@@ -2219,6 +2248,31 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// Summary prose and every display face dropped them).
 	{TraceNoteKeyInode, "io", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyDev, "io", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIORequestResidence, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIORequestResidenceCaliber, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIORequestResidenceClock, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOEndpointFamily, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOSector, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOLength, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOIssueThread, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOIssueTS, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOCompleteTS, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOCompletionWokeIssuer, "io_latency", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOCompleteThread, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOIssuerBlockedState, "io_latency", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOIssuerBlockedStart, "io_latency", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOIssuerBlockedEnd, "io_latency", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOIssuerBlocked, "io_latency", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOCausalWaitCaliber, "io_latency", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOTargetBlockingClock, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIONonAdditiveWithBlocked, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOCoverageEmitted, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOCoverageComplete, "io_latency", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyIOCoverageStatus, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOOverflowPairs, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOOverflowRequestMS, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOOverflowSumCaliber, "io_latency", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyIOWakeupLine, "io_latency", TraceNoteCarrierDisplayOnly},
 	{"name", "io", TraceNoteCarrierDisplayOnly},
 	{"op", "io", TraceNoteCarrierDisplayOnly},
 	{"count", "io", TraceNoteCarrierDisplayOnly},

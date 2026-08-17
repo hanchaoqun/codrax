@@ -472,3 +472,41 @@ func TestProjectObservationPromptRecords_LiteralValueSurvives(t *testing.T) {
 		t.Fatalf("literal value must survive projection (handoff fidelity), got Value=%q in %+v", got[0].Value, got[0])
 	}
 }
+
+func TestProjectObservationPromptRecords_BoundedRequestedFamilySurvivesTargetRosterBudget(t *testing.T) {
+	rm := RequestModel{
+		RuntimeTargets: []RuntimeTarget{{PID: 17267, Thread: ".ugc.aweme.lite-17267", Source: "user_explicit"}},
+		RuntimeQuestionProfile: &RuntimeQuestionProfile{
+			Scope: RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []RuntimeQuestionFactFamily{
+				RuntimeQuestionFactTargetWaitOccurrences,
+				RuntimeQuestionFactIOLatency,
+				RuntimeQuestionFactResourcePressure,
+			},
+		},
+	}
+	var records []ObservationRecord
+	for cpu := 0; cpu < 14; cpu++ {
+		records = append(records, ObservationRecord{
+			ID: fmt.Sprintf("cpu-%d", cpu), Origin: AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", Subject: ".ugc.aweme.lite-17267", Predicate: "target_cpu_running",
+			Role: AnswerAggregateRoleSupportingCoverage,
+		})
+	}
+	records = append(records,
+		ObservationRecord{ID: "wait", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Subject: ".ugc.aweme.lite-17267", Predicate: "target_window_wait_occurrences"},
+		ObservationRecord{ID: "io", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Subject: ".ugc.aweme.lite-17267", Predicate: "io_latency", Value: "1.347", Unit: "ms"},
+		ObservationRecord{ID: "trace#io_pressure:1", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", Predicate: "scheduler_iowait_with_storage_latency", Value: "4340", Unit: "score", RichNotes: []string{"type=io_pressure"}},
+	)
+
+	got := ProjectObservationPromptRecords(records, &rm, nil, DefaultObservationPromptProjectionOptions(3))
+	ids := map[string]bool{}
+	for _, record := range got {
+		ids[record.ID] = true
+	}
+	for _, want := range []string{"wait", "io", "trace#io_pressure:1"} {
+		if !ids[want] {
+			t.Fatalf("typed requested family %q was crowded by an incidental target roster: %+v", want, got)
+		}
+	}
+}

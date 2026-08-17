@@ -934,6 +934,15 @@ func TestEmitAnalysisSchemaIncludesRuntimeQuestionProfile(t *testing.T) {
 	if families.Items == nil || !reflect.DeepEqual(families.Items.Enum, wantFamilies) {
 		t.Fatalf("runtime_question_profile fact_families enum=%v want=%v", families.Items, wantFamilies)
 	}
+	for _, want := range []string{
+		"Choose the most specific semantic fact family before a generic unit family",
+		"`count_or_duration` is only the generic count/duration family when no named family above owns that measurement",
+		"both `target_wait_occurrences` and `io_latency`",
+	} {
+		if !strings.Contains(string(propRaw), want) {
+			t.Fatalf("runtime_question_profile fact-family schema teaching missing %q", want)
+		}
+	}
 	for _, required := range []string{"scope", "confidence"} {
 		if !slices.Contains(prop.Required, required) {
 			t.Fatalf("runtime_question_profile.required=%v missing %s", prop.Required, required)

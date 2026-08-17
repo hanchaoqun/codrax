@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // RuntimeQuestionScope is the analyzer's typed declaration of what kind of
 // answer a runtime artifact question requests. It is intentionally orthogonal
 // to artifact range, target identity, relation shape, and legacy labels:
@@ -138,6 +140,78 @@ func (p *RuntimeQuestionProfile) RequestsFactFamily(want RuntimeQuestionFactFami
 	}
 	for _, family := range p.FactFamilies {
 		if family == want {
+			return true
+		}
+	}
+	return false
+}
+
+// RuntimeObservationRecordFactFamilies maps deterministic trace-query record
+// shapes to the finite semantic fact families they can directly carry.  This
+// is a typed prompt-projection index only: it never changes ledger truth,
+// causal rank, wakeup-chain membership, or a model-owned verdict.  Keeping the
+// mapping here gives every bounded prompt consumer one source of truth instead
+// of re-deriving relevance from request/answer prose or tool-view names.
+func RuntimeObservationRecordFactFamilies(record ObservationRecord) []RuntimeQuestionFactFamily {
+	predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
+	add := func(out []RuntimeQuestionFactFamily, family RuntimeQuestionFactFamily) []RuntimeQuestionFactFamily {
+		for _, existing := range out {
+			if existing == family {
+				return out
+			}
+		}
+		return append(out, family)
+	}
+	var out []RuntimeQuestionFactFamily
+	switch predicate {
+	case "target_window_states", "state_churn", "state_drilldown":
+		out = add(out, RuntimeQuestionFactTargetSchedulerState)
+	case "target_window_wait_occurrences":
+		out = add(out, RuntimeQuestionFactTargetWaitOccurrences)
+		out = add(out, RuntimeQuestionFactCountOrDuration)
+	case "target_window_wait_occurrence":
+		out = add(out, RuntimeQuestionFactTargetWaitOccurrences)
+		out = add(out, RuntimeQuestionFactOccurrenceTime)
+		out = add(out, RuntimeQuestionFactCountOrDuration)
+	case "blocked_reason_census":
+		out = add(out, RuntimeQuestionFactRecordedReason)
+		out = add(out, RuntimeQuestionFactCountOrDuration)
+	case "io_latency", "io_latency_coverage", "storage_latency_by_layer", "block_io_by_inode":
+		out = add(out, RuntimeQuestionFactIOLatency)
+	case "cpu_frequency_limit", "frequency_tier_census":
+		out = add(out, RuntimeQuestionFactFrequencyResidency)
+	case "ipc_request_census":
+		out = add(out, RuntimeQuestionFactCountOrDuration)
+	case "ipc_request_edge":
+		out = add(out, RuntimeQuestionFactRelationPeer)
+		out = add(out, RuntimeQuestionFactTransactionID)
+	case "wakeup_edge_census", "wakeup_chain_edge":
+		out = add(out, RuntimeQuestionFactRelationPeer)
+		out = add(out, RuntimeQuestionFactDirectWaker)
+	}
+	// The typed IO-pressure producer deliberately keeps its signal token in
+	// Predicate for historical projection compatibility.  The exact type note
+	// and producer-owned row ID identify that family without inspecting prose.
+	if traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyType) == "io_pressure" &&
+		strings.Contains(strings.ToLower(strings.TrimSpace(record.ID)), "#io_pressure:") {
+		out = add(out, RuntimeQuestionFactResourcePressure)
+	}
+	if traceObservationDimension(record) == TraceObservationDimensionResourcePressure {
+		out = add(out, RuntimeQuestionFactResourcePressure)
+	}
+	return out
+}
+
+// RuntimeObservationRecordMatchesRequestedFactFamily reports whether a
+// deterministic observation is a direct carrier for at least one fact family
+// selected by a finite runtime-question profile.  It is suitable only for
+// soft prompt ordering/presentation; it is not an answer or completion gate.
+func RuntimeObservationRecordMatchesRequestedFactFamily(record ObservationRecord, profile *RuntimeQuestionProfile) bool {
+	if profile == nil || !profile.CarriesBoundedFactFamilies() {
+		return false
+	}
+	for _, family := range RuntimeObservationRecordFactFamilies(record) {
+		if profile.RequestsFactFamily(family) {
 			return true
 		}
 	}

@@ -167,6 +167,87 @@ func TestAnswerDocBoundedNamedTargetIOLatencyUsesDedicatedTypedFamily(t *testing
 	}
 }
 
+func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGenericBudget(t *testing.T) {
+	rm := types.RequestModel{
+		RuntimeTargets: []types.RuntimeTarget{{PID: 17267, Thread: ".ugc.aweme.lite-17267", Source: "user_explicit"}},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeBoundedFactSet,
+			FactFamilies: []types.RuntimeQuestionFactFamily{
+				types.RuntimeQuestionFactTargetWaitOccurrences,
+				types.RuntimeQuestionFactIOLatency,
+				types.RuntimeQuestionFactResourcePressure,
+			},
+		},
+	}
+	record := func(id, subject, predicate, value, unit string, notes ...string) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			GroundingPolicy: types.ClaimGroundingHard, Subject: subject, Predicate: predicate,
+			Value: value, Unit: unit, RichNotes: notes,
+		}
+	}
+	pair := record("trace#io_latency:1", ".ugc.aweme.lite-17267", "io_latency", "1.347", "ms",
+		"io_endpoint_family=block_rq",
+		"dev=12,80",
+		"io_sector=923339752",
+		"io_len=64",
+		"io_issue_ts=13762.872568",
+		"io_complete_ts=13762.873915",
+		"io_issue_thread=.ugc.aweme.lite-17267",
+		"request_residence=1.347",
+		"request_residence_caliber=block_rq_issue_to_complete",
+		"request_residence_clock_scope=single_request_elapsed_wall_clock_not_target_blocking",
+		"complete_thread=udk-irq-12-92",
+		"completion_woke_issuer=true",
+		"issuer_blocked_state=s_sleep",
+		"issuer_blocked_start=13762.872578",
+		"issuer_blocked_end=13762.873915",
+		"issuer_blocked=1.337",
+		"causal_wait_caliber=completion_closed_issuer_blocked",
+		"issuer_blocked_clock_scope=target_blocking_elapsed_wall_clock",
+	)
+	pair.SourceRef.ArtifactID = "runtime_artifact:donghu"
+	pair.Span = types.ObservationSpan{StartTs: 13762.872568, EndTs: 13762.873915}
+	duplicatePair := pair
+	duplicatePair.ID = "trace-second-call#io_latency:1"
+	records := []types.ObservationRecord{
+		record("wait", ".ugc.aweme.lite-17267", "target_window_wait_occurrences", "0", "occurrences"),
+		pair,
+		duplicatePair,
+		record("trace#io_latency_coverage", "block_request_pairs", "io_latency_coverage", "198", "requests",
+			"io_latency_emitted=8", "total=198", "io_latency_coverage_status=capacity_truncated",
+			"io_latency_overflow_pairs=190", "io_latency_overflow_request_ms=41.329",
+			"overflow_sum_caliber=request_ms_non_wall_clock_non_additive"),
+		record("storage", "block", "storage_latency_by_layer", "1.347", "ms", "dev=12,80"),
+		record("inode", "inode=0x14088d", "block_io_by_inode", "2.694", types.TraceObservationUnitCompositeScore, "inode=0x14088d", "dev=12,80"),
+		record("trace#io_pressure:1", "", "scheduler_iowait_with_storage_latency", "4340", types.TraceObservationUnitCompositeScore,
+			"type=io_pressure", "io_pressure_signal=scheduler_iowait_with_storage_latency", "io_pressure_score_caliber=cross_unit_activity_index"),
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	got := renderAnswerDocBoundedRuntimeFactAuthority(ctx, types.ObservationLedger{Records: records})
+	for _, want := range []string{
+		"### Requested Runtime Fact Authority",
+		"requested_family=`io_latency`",
+		"target_owned_request_rows_rendered=`1`",
+		"global `io_latency_coverage` row's emitted/total/overflow values MUST NOT be attributed to the named target",
+		"request_residence=`1.347`",
+		"request_clock_scope=`single_request_elapsed_wall_clock_not_target_blocking`",
+		"issuer_blocked=`1.337`",
+		"issuer_blocked_clock_scope=`target_blocking_elapsed_wall_clock`",
+		"overflow_request_ms=`41.329`",
+		"owner_scope=`selected_window_context`; subject=`block`",
+		"requested_family=`resource_pressure`",
+		"value=`4340composite_score`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("requested finite IO authority missing %q:\n%s", want, got)
+		}
+	}
+	if count := strings.Count(got, "request_residence=`1.347`"); count != 1 {
+		t.Fatalf("same physical request from two deterministic calls must render once, got %d:\n%s", count, got)
+	}
+}
+
 func TestAnswerDocBoundedNamedTargetPromptAcceptsTypedDiagnosticPIDSuffix(t *testing.T) {
 	record := func(id, subject, predicate string) types.ObservationRecord {
 		return types.ObservationRecord{

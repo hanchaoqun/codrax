@@ -64,6 +64,41 @@ func TestBuildTraceBlockingWallClockAuthoritiesUnionsOverlapsAndMarksTruncation(
 	}
 }
 
+func TestBuildTraceBlockingWallClockAuthoritiesAdmitsCompletionClosedSStateIOWait(t *testing.T) {
+	rm := traceValueOccurrenceAuthorityRequest()
+	record := traceValueOccurrenceAuthorityRecord("io-pair", "block_rq", 1.347, 13762.872568, 13762.873915)
+	record.Predicate = "io_latency"
+	record.ClaimKey = "io_latency:block_rq:12,80:480914568:128"
+	record.RichNotes = []string{
+		"selected_window=13762.791708..13763.024898",
+		"complete_thread=udk-irq-12-92",
+		"completion_woke_issuer=true",
+		"issuer_blocked_state=s_sleep",
+		"issuer_blocked_start=13762.872578",
+		"issuer_blocked_end=13762.873915",
+		"issuer_blocked=1.337",
+		"causal_wait_caliber=completion_closed_issuer_blocked",
+		"issuer_blocked_clock_scope=target_blocking_elapsed_wall_clock",
+		"capacity_truncated=true",
+	}
+
+	got := BuildTraceBlockingWallClockAuthorities(ObservationLedger{Records: []ObservationRecord{record}}, &rm)
+	if len(got) != 1 {
+		t.Fatalf("completion-closed IO pair must publish target blocking wall clock: %+v", got)
+	}
+	authority := got[0]
+	if authority.Type != "block_io_completion_closed_issuer_wait" ||
+		authority.ObservedMS < 1.3369 || authority.ObservedMS > 1.3371 ||
+		authority.CoverageStatus != "lower_bound_capacity_truncated" || len(authority.Occurrences) != 1 {
+		t.Fatalf("completion-closed IO authority caliber drifted: %+v", authority)
+	}
+	occurrence := authority.Occurrences[0]
+	if occurrence.Peer != "udk-irq-12-92" || occurrence.StartTs != 13762.872578 ||
+		occurrence.EndTs != 13762.873915 || occurrence.Flags != "state=s_sleep;caliber=completion_closed_issuer_blocked" {
+		t.Fatalf("completion-closed IO occurrence lost endpoints/state: %+v", occurrence)
+	}
+}
+
 func TestBuildTraceBlockingWallClockAuthoritiesAdmitsExactTargetSelfStateWhenCriticalEnvelopeIsWider(t *testing.T) {
 	rm := traceValueOccurrenceAuthorityRequest()
 	critical := traceBlockingWallClockAuthorityRecord(

@@ -175,14 +175,41 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 	targetSelfState := dimension == TraceObservationDimensionRootCauseRank &&
 		strings.EqualFold(strings.TrimSpace(record.Predicate), "root_cause_target_self_state") &&
 		strings.EqualFold(strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyTier)), TraceCausalTierTargetSelfState)
-	if !criticalBlocking && !targetSelfState {
+	completionClosedIO := strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") &&
+		traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyIOCompletionWokeIssuer) &&
+		strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOCausalWaitCaliber)) != ""
+	if !criticalBlocking && !targetSelfState && !completionClosedIO {
 		return traceBlockingWallClockCandidate{}, false
 	}
-	valueMS, err := strconv.ParseFloat(strings.TrimSpace(record.Value), 64)
+	valueText := strings.TrimSpace(record.Value)
+	startTs, endTs := record.Span.StartTs, record.Span.EndTs
+	typ := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyType))
+	peer := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyPeer))
+	flags := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, "flags"))
+	if completionClosedIO {
+		valueText = traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOIssuerBlocked)
+		startText := traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOIssuerBlockedStart)
+		endText := traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOIssuerBlockedEnd)
+		var err error
+		startTs, err = strconv.ParseFloat(strings.TrimSpace(startText), 64)
+		if err != nil {
+			return traceBlockingWallClockCandidate{}, false
+		}
+		endTs, err = strconv.ParseFloat(strings.TrimSpace(endText), 64)
+		if err != nil {
+			return traceBlockingWallClockCandidate{}, false
+		}
+		typ = "block_io_completion_closed_issuer_wait"
+		peer = strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOCompleteThread))
+		flags = strings.Join([]string{
+			"state=" + strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOIssuerBlockedState)),
+			"caliber=" + strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyIOCausalWaitCaliber)),
+		}, ";")
+	}
+	valueMS, err := strconv.ParseFloat(valueText, 64)
 	if err != nil || valueMS <= 0 || math.IsNaN(valueMS) || math.IsInf(valueMS, 0) {
 		return traceBlockingWallClockCandidate{}, false
 	}
-	startTs, endTs := record.Span.StartTs, record.Span.EndTs
 	if endTs <= startTs || math.IsNaN(startTs) || math.IsNaN(endTs) ||
 		math.IsInf(startTs, 0) || math.IsInf(endTs, 0) {
 		return traceBlockingWallClockCandidate{}, false
@@ -198,7 +225,6 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 	}
 	selectedWindow := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeySelectedWindow))
 	subject := strings.TrimSpace(record.Subject)
-	typ := strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyType))
 	if typ == "" {
 		typ = traceValueOccurrenceType(record)
 	}
@@ -212,8 +238,8 @@ func traceBlockingWallClockCandidateFromRecord(record ObservationRecord, rm *Req
 		typ:            typ,
 		startTs:        startTs,
 		endTs:          endTs,
-		peer:           strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, TraceNoteKeyPeer)),
-		flags:          strings.TrimSpace(traceObservationRichNoteValue(record.RichNotes, "flags")),
+		peer:           peer,
+		flags:          flags,
 		recordID:       strings.TrimSpace(record.ID),
 		truncated:      traceObservationRichNoteBool(record.RichNotes, TraceNoteKeyCapacityTruncated),
 	}, true

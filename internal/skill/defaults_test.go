@@ -1208,6 +1208,18 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 	if got := strings.Count(out, AnalysisRuntimeScopeFromDimensionTeaching); got != 1 {
 		t.Fatalf("runtime scope consequence occurrences=%d, want one one-way scope site", got)
 	}
+	if got := strings.Count(out, AnalysisRuntimeFactFamilyTeaching); got != 1 {
+		t.Fatalf("runtime fact-family ontology occurrences=%d, want one classification site", got)
+	}
+	for _, want := range []string{
+		"Choose the most specific semantic fact family before a generic unit family",
+		"`count_or_duration` is only the generic count/duration family when no named family above owns that measurement",
+		"A request for scheduler wait and storage-request latency therefore needs both `target_wait_occurrences` and `io_latency`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("runtime fact-family ontology missing %q", want)
+		}
+	}
 	for _, stale := range []string{
 		"Use `causal_attribution` for every required dimension that asks for root-cause/bottleneck attribution or a ranking of causes/contributors.",
 		"Use `causal_attribution` for root-cause/bottleneck attribution or ranked causes/contributors",

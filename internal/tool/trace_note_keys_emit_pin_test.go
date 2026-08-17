@@ -168,6 +168,21 @@ func traceNoteKeysEmitFixtureResult() tracequery.Result {
 		SleepTop:  []tracequery.ThreadDuration{{Thread: tracequery.ThreadRef{Comm: "sleeper", PID: 33}, DurationMs: 9, LineStart: 17, LineEnd: 18}},
 		DStateTop: []tracequery.ThreadDuration{{Thread: tracequery.ThreadRef{Comm: "dwait", PID: 34}, DurationMs: 8, LineStart: 19, LineEnd: 20}},
 		IOWaitTop: []tracequery.ThreadDuration{{Thread: tracequery.ThreadRef{Comm: "iowait", PID: 35}, DurationMs: 7, LineStart: 21, LineEnd: 22}},
+		IOLatencies: []tracequery.IOLatencySummary{{
+			EndpointFamily: "block_rq", Dev: "12,80", Op: "R", Sector: 923339752, Len: 64,
+			IssueThread:    tracequery.ThreadRef{Comm: "io-issuer", PID: 36},
+			CompleteThread: tracequery.ThreadRef{Comm: "udk-irq-4-80", PID: 2},
+			IssueTs:        1.100000, CompleteTs: 1.101347, DurationMs: 1.347,
+			WaitCaliber:          tracequery.BlockIOWaitCaliberIssueToComplete,
+			CompletionWokeIssuer: true,
+			IssuerBlockedStartTs: 1.100010, IssuerBlockedEndTs: 1.101347, IssuerBlockedMs: 1.337,
+			IssuerBlockedLine: 29, IssuerBlockedState: "s_sleep",
+			CausalWaitCaliber: tracequery.BlockIOCausalWaitCaliberCompletionClosedIssuerBlocked,
+			WakeupTs:          1.101347, WakeupLine: 31,
+			IssueLine: 28, CompleteLine: 30,
+		}},
+		IOLatencyOverflowCount:     2,
+		IOLatencyOverflowRequestMs: 0.625,
 		// 件1 census 根修 (2026-07-13): the pid-keyed per-caller census pair
 		// (blocked_reason_census + its caller-overflow note).
 		BlockedReasonCensus: []tracequery.BlockedReasonPIDCensus{{

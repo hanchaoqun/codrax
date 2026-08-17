@@ -293,6 +293,16 @@ func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel,
 // the same provenance rule as causal anchor election.
 func observationRecordRankForRequest(record ObservationRecord, intent *AnswerIntentContract, rm *RequestModel) int {
 	rank := observationRecordRank(record, intent)
+	// A finite runtime request names the semantic cards it needs through the
+	// typed RuntimeQuestionProfile.  Give those direct carriers a prompt-only
+	// survival preference before generic rows from the same target.  Without
+	// this, a complete per-CPU roster can consume a compact 10/32-row budget
+	// before an exact IO pair, wait census, or pressure-caliber row appears.
+	// This does not promote a record into causal rank or principal truth; it
+	// merely orders already accepted typed observations.
+	if rm != nil && RuntimeObservationRecordMatchesRequestedFactFamily(record, rm.RuntimeQuestionProfile) {
+		rank -= 650
+	}
 	if observationRecordMatchesUserRuntimeTarget(record, rm) {
 		rank -= 500
 		// A typed ResultCount marks a compact target set/census authority.

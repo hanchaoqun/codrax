@@ -12694,35 +12694,40 @@ func traceQueryTypedIOLatencyObservations(stats tracequery.WindowStats, ref type
 		}
 		caliber := firstNonEmptyTraceString(io.WaitCaliber, tracequery.BlockIOWaitCaliberIssueToComplete)
 		notes := [][2]string{
-			{"endpoint_family", io.EndpointFamily},
-			{"dev", io.Dev},
+			{types.TraceNoteKeyIOEndpointFamily, io.EndpointFamily},
+			{types.TraceNoteKeyDev, io.Dev},
 			{"op", io.Op},
-			{"sector", traceQueryTypedInt64(io.Sector)},
-			{"len", traceQueryTypedInt64(io.Len)},
-			{"issue_thread", issuer},
-			{"complete_thread", traceThreadLabel(io.CompleteThread)},
-			{"issue_ts", traceQueryTimestampValue(io.IssueTs)},
-			{"complete_ts", traceQueryTimestampValue(io.CompleteTs)},
-			{"request_residence", traceQueryObservationMSValue(io.DurationMs)},
-			{"request_residence_caliber", caliber},
-			{"completion_woke_issuer", strconv.FormatBool(io.CompletionWokeIssuer)},
-			{"non_additive_with_issuer_blocked", "true"},
+			{types.TraceNoteKeyIOSector, traceQueryTypedInt64(io.Sector)},
+			{types.TraceNoteKeyIOLength, traceQueryTypedInt64(io.Len)},
+			{types.TraceNoteKeyIOIssueThread, issuer},
+			{types.TraceNoteKeyIOCompleteThread, traceThreadLabel(io.CompleteThread)},
+			{types.TraceNoteKeyIOIssueTS, traceQueryTimestampValue(io.IssueTs)},
+			{types.TraceNoteKeyIOCompleteTS, traceQueryTimestampValue(io.CompleteTs)},
+			{types.TraceNoteKeyIORequestResidence, traceQueryObservationMSValue(io.DurationMs)},
+			{types.TraceNoteKeyIORequestResidenceCaliber, caliber},
+			{types.TraceNoteKeyIORequestResidenceClock, "single_request_elapsed_wall_clock_not_target_blocking"},
+			{types.TraceNoteKeyIOCompletionWokeIssuer, strconv.FormatBool(io.CompletionWokeIssuer)},
+			{types.TraceNoteKeyIONonAdditiveWithBlocked, "true"},
 			{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
+		}
+		if stats.IOLatencyOverflowCount > 0 {
+			notes = append(notes, [2]string{types.TraceNoteKeyCapacityTruncated, "true"})
 		}
 		summary := fmt.Sprintf("block IO %s %s %s sector=%d len=%d request_residence(%s)=%.3fms; issue=%s; complete=%s",
 			io.EndpointFamily, io.Dev, io.Op, io.Sector, io.Len, caliber, io.DurationMs,
 			issuer, traceThreadLabel(io.CompleteThread))
 		if io.CompletionWokeIssuer && io.IssuerBlockedMs > 0 && io.WakeupTs >= io.IssuerBlockedStartTs {
 			notes = append(notes,
-				[2]string{"issuer_blocked_state", io.IssuerBlockedState},
-				[2]string{"issuer_blocked_start", traceQueryTimestampValue(io.IssuerBlockedStartTs)},
-				[2]string{"issuer_blocked_end", traceQueryTimestampValue(io.IssuerBlockedEndTs)},
-				[2]string{"issuer_blocked", traceQueryObservationMSValue(io.IssuerBlockedMs)},
-				[2]string{"causal_wait_caliber", io.CausalWaitCaliber},
+				[2]string{types.TraceNoteKeyIOIssuerBlockedState, io.IssuerBlockedState},
+				[2]string{types.TraceNoteKeyIOIssuerBlockedStart, traceQueryTimestampValue(io.IssuerBlockedStartTs)},
+				[2]string{types.TraceNoteKeyIOIssuerBlockedEnd, traceQueryTimestampValue(io.IssuerBlockedEndTs)},
+				[2]string{types.TraceNoteKeyIOIssuerBlocked, traceQueryObservationMSValue(io.IssuerBlockedMs)},
+				[2]string{types.TraceNoteKeyIOCausalWaitCaliber, io.CausalWaitCaliber},
+				[2]string{types.TraceNoteKeyIOTargetBlockingClock, "target_blocking_elapsed_wall_clock"},
 				[2]string{"wakeup_ts", traceQueryTimestampValue(io.WakeupTs)},
-				[2]string{"wakeup_line", traceQueryTypedCount(io.WakeupLine)},
+				[2]string{types.TraceNoteKeyIOWakeupLine, traceQueryTypedCount(io.WakeupLine)},
 			)
-			summary += fmt.Sprintf("; completion_woke_issuer=true; response_blocked(%s,%s)=%.3fms; request_residence is mechanism evidence and is not additive",
+			summary += fmt.Sprintf("; completion_woke_issuer=true; response_blocked(%s,%s)=%.3fms target-blocking wall clock; request_residence is one request's elapsed wall clock, not target blocking, and the two rulers are not additive",
 				io.IssuerBlockedState, io.CausalWaitCaliber, io.IssuerBlockedMs)
 		}
 		out = append(out, types.ObservationRecord{
@@ -12779,13 +12784,13 @@ func traceQueryTypedIOLatencyObservations(stats tracequery.WindowStats, ref type
 			Summary: fmt.Sprintf("io latency exact-pair coverage emitted=%d total=%d status=%s; overflow request residence sum=%.3f request·ms is non-wall-clock and non-additive because requests may overlap",
 				len(stats.IOLatencies), total, status, stats.IOLatencyOverflowRequestMs),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
-				{"emitted", strconv.Itoa(len(stats.IOLatencies))},
-				{"total", strconv.Itoa(total)},
-				{"complete", strconv.FormatBool(complete)},
-				{"coverage_status", status},
-				{"overflow_pairs", traceQueryTypedCount(stats.IOLatencyOverflowCount)},
-				{"overflow_request_ms", traceQueryObservationMSValue(stats.IOLatencyOverflowRequestMs)},
-				{"overflow_sum_caliber", "request_ms_non_wall_clock_non_additive"},
+				{types.TraceNoteKeyIOCoverageEmitted, strconv.Itoa(len(stats.IOLatencies))},
+				{types.TraceNoteKeyTotal, strconv.Itoa(total)},
+				{types.TraceNoteKeyIOCoverageComplete, strconv.FormatBool(complete)},
+				{types.TraceNoteKeyIOCoverageStatus, status},
+				{types.TraceNoteKeyIOOverflowPairs, traceQueryTypedCount(stats.IOLatencyOverflowCount)},
+				{types.TraceNoteKeyIOOverflowRequestMS, traceQueryObservationMSValue(stats.IOLatencyOverflowRequestMs)},
+				{types.TraceNoteKeyIOOverflowSumCaliber, "request_ms_non_wall_clock_non_additive"},
 				{types.TraceNoteKeySelectedWindow, traceQuerySelectedWindowNoteValue(stats.Window)},
 			}),
 			ObservedAt: at,
