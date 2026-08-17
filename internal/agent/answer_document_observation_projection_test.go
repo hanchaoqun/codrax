@@ -205,13 +205,22 @@ func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGe
 		"issuer_blocked=1.337",
 		"causal_wait_caliber=completion_closed_issuer_blocked",
 		"issuer_blocked_clock_scope=target_blocking_elapsed_wall_clock",
+		"selected_window=13762.791708..13763.024898",
+		"capacity_truncated=true",
 	)
 	pair.SourceRef.ArtifactID = "runtime_artifact:donghu"
 	pair.Span = types.ObservationSpan{StartTs: 13762.872568, EndTs: 13762.873915}
 	duplicatePair := pair
 	duplicatePair.ID = "trace-second-call#io_latency:1"
+	waitTotal := 0
+	waitRoster := record("wait", ".ugc.aweme.lite-17267", "target_window_wait_occurrences", "0", "occurrences",
+		"target_wait_occurrence_prompt=status=complete,emitted=0,total=0",
+		"target_wait_occurrence_prompt_sum_ms=0.000",
+	)
+	waitRoster.Object = "complete"
+	waitRoster.ResultCount = &waitTotal
 	records := []types.ObservationRecord{
-		record("wait", ".ugc.aweme.lite-17267", "target_window_wait_occurrences", "0", "occurrences"),
+		waitRoster,
 		pair,
 		duplicatePair,
 		record("trace#io_latency_coverage", "block_request_pairs", "io_latency_coverage", "198", "requests",
@@ -235,6 +244,14 @@ func TestRenderAnswerDocBoundedRuntimeFactAuthorityKeepsExactIOCalibersOutsideGe
 		"issuer_blocked=`1.337`",
 		"issuer_blocked_clock_scope=`target_blocking_elapsed_wall_clock`",
 		"overflow_request_ms=`41.329`",
+		"IO measurement relation bridge",
+		"Single-request device elapsed time: 1 target-owned request witness(es), largest visible 1.347ms",
+		"IS elapsed wall clock for that one request",
+		"MUST NOT be labelled non-wall-clock",
+		"Target completion-closed blocking time: 1 proven interval(s), union=1.337ms, including interruptible S-state waits",
+		"Scheduler-marked IO-wait roster: 0 occurrence(s), sum=0.000ms",
+		"does NOT include or refute separately proven completion-closed waits",
+		"hidden-request duration sum is 41.329 request·ms; this aggregate IS non-wall-clock and non-additive",
 		"owner_scope=`selected_window_context`; subject=`block`",
 		"requested_family=`resource_pressure`",
 		"value=`4340composite_score`",

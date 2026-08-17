@@ -5663,7 +5663,10 @@ func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger 
 	b.WriteString("### Requested Runtime Fact Authority\n\n")
 	b.WriteString("- These rows are the exact finite fact families requested for this answer. They bypass only the generic prompt display budget; they do not widen the question into root-cause ranking, alter a Trace causal projection, or decide the model-owned conclusion.\n")
 	b.WriteString("- Keep measurement rulers separate. One block request's issue-to-complete residence is elapsed wall clock for that request, but it is not target-thread blocking time. A completion-closed issuer-blocked interval is target blocking wall clock even when the scheduler state is interruptible `S`. Only an explicitly typed closure permits that attribution. Cross-request `request·ms` and composite pressure scores are non-wall-clock/non-additive.\n")
-	b.WriteString("- `selected_window_context` rows describe the selected window but are not attributed to the named target unless the row itself has `owner_scope=target_owned`. Use context rows only as comparison/background evidence. Translate metadata into natural reader-facing language; do not expose family/status enums as the conclusion.\n")
+	b.WriteString("- `selected_window_context` rows describe the selected window but are not attributed to the named target unless the row itself has `owner_scope=target_owned`. Use context rows only as comparison/background evidence. The raw rows below are audit metadata, not reader-facing vocabulary: translate their meaning into natural language and do not copy family/status/caliber enums into the visible answer.\n")
+	if bridge := renderAnswerDocIOMeasurementRelationBridge(ctx, ledger, groups[types.RuntimeQuestionFactIOLatency]); bridge != "" {
+		b.WriteString(bridge)
+	}
 	seenFamily := map[types.RuntimeQuestionFactFamily]bool{}
 	for _, family := range profile.FactFamilies {
 		if seenFamily[family] || len(groups[family]) == 0 {
@@ -5688,6 +5691,126 @@ func renderAnswerDocBoundedRuntimeFactAuthority(ctx *types.AgentContext, ledger 
 		}
 	}
 	b.WriteByte('\n')
+	return b.String()
+}
+
+// renderAnswerDocIOMeasurementRelationBridge places the exact IO rulers next
+// to one another before their audit rows.  The underlying producers publish
+// several individually precise views whose wire names overlap in ordinary
+// language ("wait", "latency", "duration").  Leaving those views in distant
+// prompt sections caused models to negate a proven completion-closed S wait
+// with a zero D/io-wait roster, or to call a single request's elapsed duration
+// non-wall-clock because a different cross-request aggregate was non-additive.
+//
+// This bridge only restates typed ledger facts and set relationships. It does
+// not edit answer_document, choose a cause, rank a candidate, or inspect user
+// or model prose.
+func renderAnswerDocIOMeasurementRelationBridge(
+	ctx *types.AgentContext,
+	ledger types.ObservationLedger,
+	ioRecords []types.ObservationRecord,
+) string {
+	if ctx == nil || ctx.AnalysisIR == nil || len(ioRecords) == 0 {
+		return ""
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	profile := rm.RuntimeQuestionProfile
+	if profile == nil || !profile.RequestsFactFamily(types.RuntimeQuestionFactIOLatency) {
+		return ""
+	}
+
+	rows := answerDocBoundedRuntimeFactAuthorityRows(ioRecords, types.RuntimeQuestionFactIOLatency, rm)
+	requestWitnesses := 0
+	requestMaxMS := 0.0
+	for _, record := range rows {
+		if !types.ObservationRecordMatchesUserRuntimeTarget(record, rm) ||
+			!strings.EqualFold(strings.TrimSpace(record.Predicate), "io_latency") ||
+			traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIORequestResidenceCaliber) == "" {
+			continue
+		}
+		value, err := strconv.ParseFloat(strings.TrimSpace(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIORequestResidence)), 64)
+		if err != nil || value < 0 {
+			continue
+		}
+		requestWitnesses++
+		if value > requestMaxMS {
+			requestMaxMS = value
+		}
+	}
+
+	var completionClosed *types.TraceBlockingWallClockAuthority
+	for _, authority := range types.BuildTraceBlockingWallClockAuthorities(ledger, rm) {
+		if authority.Type != "block_io_completion_closed_issuer_wait" {
+			continue
+		}
+		copy := authority
+		completionClosed = &copy
+		break
+	}
+
+	var schedulerWait *types.TargetWaitOccurrenceAuthority
+	for _, authority := range types.BuildTargetWaitOccurrenceAuthorities(ledger, rm) {
+		copy := authority
+		schedulerWait = &copy
+		break
+	}
+
+	var coverage *types.ObservationRecord
+	for i := range ioRecords {
+		if strings.EqualFold(strings.TrimSpace(ioRecords[i].Predicate), "io_latency_coverage") {
+			coverage = &ioRecords[i]
+			break
+		}
+	}
+
+	if requestWitnesses == 0 && completionClosed == nil && schedulerWait == nil && coverage == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("  - IO measurement relation bridge (reader-facing meanings; use these meanings instead of wire enums):\n")
+	if requestWitnesses > 0 {
+		fmt.Fprintf(&b,
+			"    - Single-request device elapsed time: %d target-owned request witness(es), largest visible %.3fms. Every issue-to-complete value IS elapsed wall clock for that one request; it is NOT target-thread blocking time, and it MUST NOT be labelled non-wall-clock.\n",
+			requestWitnesses, requestMaxMS,
+		)
+	}
+	if completionClosed != nil {
+		coverageMeaning := "the interval union is complete for this typed set"
+		if completionClosed.CoverageStatus != "complete" {
+			coverageMeaning = "only the observed interval union is proven, so this is a lower bound"
+		}
+		stateMeaning := "with their scheduler states preserved on the audit rows"
+		for _, occurrence := range completionClosed.Occurrences {
+			if strings.Contains(occurrence.Flags, "state=s_sleep") {
+				stateMeaning = "including interruptible S-state waits"
+				break
+			}
+		}
+		fmt.Fprintf(&b,
+			"    - Target completion-closed blocking time: %d proven interval(s), union=%.3fms, %s; this IS target-thread blocking wall clock; %s.\n",
+			len(completionClosed.Occurrences), completionClosed.ObservedMS, stateMeaning, coverageMeaning,
+		)
+	}
+	if schedulerWait != nil {
+		fmt.Fprintf(&b,
+			"    - Scheduler-marked IO-wait roster: %d occurrence(s), sum=%.3fms. This roster covers D/io_wait intervals plus S intervals only when blocked_reason carries iowait=1. A zero here does NOT include or refute separately proven completion-closed waits above.\n",
+			schedulerWait.Count, schedulerWait.SumMS,
+		)
+	}
+	if coverage != nil {
+		emitted := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyIOCoverageEmitted)
+		total := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyTotal)
+		overflow := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyIOOverflowPairs)
+		overflowMS := traceQueryObservationSupplementNoteValue(*coverage, types.TraceNoteKeyIOOverflowRequestMS)
+		fmt.Fprintf(&b,
+			"    - Global selected-window block-request coverage: emitted=%s, total=%s, hidden=%s. The hidden-request duration sum is %s request·ms; this aggregate IS non-wall-clock and non-additive, is not a target request count, and cannot be added to either wall-clock ruler above.\n",
+			firstNonEmptyAnswerDocString(emitted, "unknown"),
+			firstNonEmptyAnswerDocString(total, "unknown"),
+			firstNonEmptyAnswerDocString(overflow, "unknown"),
+			firstNonEmptyAnswerDocString(overflowMS, "unknown"),
+		)
+	}
+	b.WriteString("    - Selected-window storage/inode/pressure rows are background unless their own row is target-owned; per-slice maxima are elapsed-duration statistics, not target blocking totals, and overlapping slices are not additive.\n")
 	return b.String()
 }
 

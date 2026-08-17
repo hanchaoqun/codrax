@@ -36178,6 +36178,12 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
     并置“单请求 elapsed wall clock / completion-closed 目标阻塞 wall clock / scheduler D/io-wait roster / 全窗 request·ms”，
     明示零 roster 不否定 separately proven S wait；只降低模型心智，不改 answer_document、不加 prose 门。逐案见
     `eval/parallel_selected_summary_evalcampaign_attachmentroute_io_r621_20260817_manual_audit.md`。
+18. B980 已施工为 finalizer 只读 typed context：在有限 IO family 的 raw audit rows 之前，生成一张有界 measurement
+    relation bridge。它明确：单请求 issue→complete 是该请求的 elapsed wall clock、不是 target blocking；completion-closed
+    interval union 是 target blocking wall clock，S 态也成立；scheduler wait roster 只含 D/io_wait 及带 blocked_reason
+    iowait=1 的 S，零值不否定前者；全窗 overflow duration sum 的单位是 request·ms，非墙钟且不可相加，也不是目标请求数。
+    关系桥的值全部来自既有 exact records、complete wait roster 与 blocking authority，不扫描问句/答案，不发射结论或修改正文；
+    raw rows 同时明确降格为 audit metadata，要求用自然语言而非 wire enum 成文。r622 负责生产复放。
 
 状态：
 
@@ -36192,7 +36198,7 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
 `B977-IOLATENCYCOVERAGEOWNERSCOPE1=production-mixed/r619-positive+r620-model-consumption-negative`；
 `B978-RUNTIMEFACTPHYSICALDEDUP1=production-positive-r620`；
 `B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=production-closed-r621`；
-`B980-IOMEASUREMENTRELATIONBRIDGE1=open/next-batch`；
+`B980-IOMEASUREMENTRELATIONBRIDGE1=implemented/typed-read-only-context+pinned/pending-r622`；
 `H3-oracle=system-projection-fixed-words-retired/physical-calibers-preserved`；
 `B974-CARRIERNAVIGATIONRANKDILUTION1=open/next-independent-batch`；
 `Trace explicit-window causal projection/auto-supplement=pass-r616-r618`；
