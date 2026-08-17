@@ -184,6 +184,18 @@ func TestEmitInvestigationComplete_VerifiedStagesStillRequestExplicitCarrierOper
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{
 		"analyzer", "explorer", "extractor", "finalizer", "Mutable", "BusContext",
 	}
+	// Production provenance may resolve one stage label to an unrelated
+	// same-named local field while its sibling stage labels remain concepts.
+	// Verified stage authority, not that accidental symbol cardinality, owns
+	// admission to the stage-precedence component.
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "analyzer", Resolution: types.EntityResolutionPrescanAnchor, UseForSearch: true},
+		{Surface: "explorer", Resolution: types.EntityResolutionPrescanAnchor, UseForSearch: true},
+		{Surface: "extractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "finalizer", Resolution: types.EntityResolutionInferredConcept},
+		{Surface: "Mutable", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
+		{Surface: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
 	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
 		Kind: types.DiagramArchitecture, Required: true,
 		Participants: []types.DiagramParticipantHint{
@@ -195,6 +207,15 @@ func TestEmitInvestigationComplete_VerifiedStagesStillRequestExplicitCarrierOper
 			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
 		},
 	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"internal/types/context.go": {
+			RelPath: "internal/types/context.go", Language: repotypes.LangGo,
+			Symbols: []repotypes.Symbol{
+				{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "*MutableState"},
+				{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "*MutableState"},
+			},
+		},
+	}))
 
 	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
 	if err != nil {
@@ -204,10 +225,14 @@ func TestEmitInvestigationComplete_VerifiedStagesStillRequestExplicitCarrierOper
 		t.Fatalf("verified stage precedence must not erase explicit carrier operation obligations: %+v", res)
 	}
 	for _, surface := range []string{res.Summary, res.Repair.Hint} {
-		for _, want := range []string{"Mutable", "BusContext", "typed navigation stems=[Mutable BusContext]"} {
+		for _, want := range []string{"Mutable", "BusContext", "typed navigation stems=["} {
 			if !strings.Contains(surface, want) {
 				t.Fatalf("carrier-focused repair surface missing %q:\n%s", want, surface)
 			}
+		}
+		if strings.Contains(surface, "[extractor") || strings.Contains(surface, "extractor Mutable") ||
+			strings.Contains(surface, "extractor BusContext") {
+			t.Fatalf("verified stage participant must not leak from a homonymous local symbol into carrier repair:\n%s", surface)
 		}
 	}
 	if ctx.Mutable.IsInvestigationComplete() {

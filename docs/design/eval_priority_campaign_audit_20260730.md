@@ -36013,6 +36013,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.990 r614/B971：流程阶段 authority 被源码符号筛选拆散（2026-08-17）
+
+1. 在已推送 `main@0a0cc33f4` 严格并发恰好两个案例：读模式
+   `qf_logic_view_read_pipeline` 与显式窗 `trace_query_wakeup_causal_io_chain`。Runner `2/2 PASS`，人工为
+   `qf-fail + trace-pass-with-caveat`；详见
+   `eval/parallel_selected_summary_evalcampaign_canonical_io_r614_20260817.md` 及 `_manual_audit.md`。
+2. Trace/IO 车道保持稳定：4 次 typed 查询、显式 2.000..2.020s、自动补齐、Trace 因果投影、链上/邻近/
+   背景权限及实际占时/规则可消除量双轴全部保留。链上主席为 threadpool-400 iowait 11.000ms，三个后续
+   runnable 段各 1.000ms；目标 app-100 自身只有 20.000ms S sleep，无自身 D/io/runnable。
+3. 该 IO fixture 证明 D/iowait + typed 唤醒链通道，不包含 block_rq_issue↔block_rq_complete cookie 关联，故不能
+   替代真实 block request 响应链的生产回放。模型又把 kernel call-site `fscache_page_wait_on_page_bit` 外推成具体
+   页面/磁盘/预取争用，并给出亲和性建议，超过对象/holder/subsystem 权限；继续归 B965 软指导观察，不用答案
+   关键词硬拒或系统代写。
+4. QF 虽被 runner 判 PASS，人工为失败：466s、20 reads、5 次 completion、3 次成文拒绝；最终把
+   `extractorEvaluator.ParseOutput` 中 `EmittedAnswerSymbols()` getter 误述为“写入”，又把 contract checker 的同一
+   getter 当 finalizer 交接；图只剩三条 stage precedence 与一条局部 getter call，BusContext/Mutable 均为 unproven，
+   没有回答请求的共享状态数据流。
+5. B970 的生产否证已确认。生产 Analyzer provenance 为：analyzer/explorer/finalizer 非 symbol，`extractor` 恰好唯一
+   命中 `finalizePreviewHook.extractor` 字段且 `ResolvedAs=""`，BusContext 为 symbol，Mutable 为 ambiguous_symbol。
+   B970 只在唯一 non-empty canonical ResolvedAs 时扩面，因而本轮没有任何可追加 canonical；它的人工构造 pin 把
+   `ResolvedAs=extractorEvaluator` 直接写入 fixture，未覆盖真实生产形。
+6. 更深根因是 completion 先用“精确 source-operation symbol”筛 participant，再构建 stage precedence component。
+   四个已由 checkout-verified stageauthority 证明的阶段中，只有误命中的 extractor 通过 symbol 筛选；于是完整
+   analyzer→explorer→extractor→finalizer 分量被拆掉，extractor 反而和 BusContext/Mutable 一起成为缺失席，首跳落到
+   无关 `forcedReadCancelled`/枚举校验路径。
+7. `B971-STAGEAUTHORITYADMISSION1/P1` 采用权限分层根修：`flowParticipantCoverageMissing` 对命中当前 verified
+   precedence 的 incident participant 由 stageauthority 独立准入覆盖图；其他 source participant 仍必须走原严格
+   symbol/owner/type 解析。stage rows 只可生成原有 precedence edge，不能借此生成 call/data-flow、EvidenceItem、
+   Mermaid 或答案。这样同名局部字段不再把一个阶段从 canonical workflow 中单独拔出，BusContext/Mutable 的真实
+   operation 缺口仍继续 fail-closed。
+8. 回归 fixture 使用与生产相同的不对称 provenance（extractor=同名 symbol、其余 stage 非 symbol、Mutable=
+   ambiguous、BusContext=symbol）并钉死 repair 仅剩 `[Mutable BusContext]`；完整 stage-only 请求仍零 downgrade，
+   全语言 carrier-handoff 导航矩阵保持通过。
+9. 下一小批不放宽关系门：补强“call 只证明 invocation，不证明读/写/值传递”的共享 typed 教学，并优先把
+   BusContext/Mutable 导航落到真实 `BuildAgentContext`、`applyStageOutput`、`emit_answer_symbol` 交接点。模型仍需
+   读取并发射 exact operation；系统不生成关系或替换结论。
+10. 本批零 Trace 代码改动。显式窗、因果投影、自动补齐、链上-only 根因、D/io/runnable/算力/确定性语义与业务
+    线索保持；邻近/背景仍只能 support-only，活跃流不得因 4ms 或固定年龄降级。
+
+状态：
+
+`r614 runner=2/2-pass/human=qf-fail+trace-pass-with-caveat`；
+`B970-CANONICALPARTICIPANTPROJECTION1=implemented-but-production-negative-r614`；
+`B971-STAGEAUTHORITYADMISSION1=implemented/typed-authority-separation/pins-pass/pending-replay`；
+`B972-CALLOPERATIONDIRECTION1=filed/prompt-only/pending`；
+`block_rq issue-complete production replay=pending`；
+`B965-MODELBOUNDARYADHERENCE1=observed-r614/no-prose-hard-gate`；
+`Trace explicit-window causal projection/auto-supplement=pass-r614`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

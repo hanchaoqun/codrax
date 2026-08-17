@@ -3638,6 +3638,19 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 		}
 		seen[key] = true
 		resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+		stageAuthorized := stageauthority.ParticipantHasIncidentPrecedence(rm, participant, stagePrecedence)
+		if len(resolved.surfaces) == 0 && stageAuthorized {
+			// A checkout-verified workflow stage is already a precise typed
+			// identity for the precedence component. Do not require it to also
+			// resolve as an unrelated repository symbol: a request-visible stage
+			// label such as `extractor` may have a homonymous local field while
+			// its sibling stages have no symbol declaration at all. Admitting the
+			// whole verified stage component here keeps that local homonym from
+			// becoming the only source participant and falsely appearing missing.
+			// This adds no source-operation authority; stage precedence remains
+			// the sole edge type that may consume these surfaces below.
+			resolved.surfaces = types.DiagramParticipantIdentitySurfaces(rm, participant)
+		}
 		if len(resolved.surfaces) == 0 {
 			// The participant remains a request-visible coverage obligation,
 			// but a scope/concept/ambiguous symbol with no unique parser-owned
