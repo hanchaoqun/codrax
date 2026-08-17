@@ -76,6 +76,90 @@ type traceMarkCarryDiscovery struct {
 	budgetStopped      bool
 	poolTruncated      bool
 	identityIncomplete bool
+	// spanSelector is an internal, typed narrowing lane used by the streaming
+	// span locator.  It is deliberately not part of WindowDiscoveryRequest's
+	// public wire surface: ordinary discovery keeps its historical all-family
+	// census, while span location may retain only one requested identity without
+	// teaching or parsing user prose.  The complete per-emitter stack is still
+	// tracked for matching lanes, so unnamed synchronous E endpoints retain LIFO
+	// semantics.
+	spanSelector *traceMarkCarrySpanSelector
+	// Exact emitter TIDs whose lifecycle boundary intersects the selector's
+	// parent or cuts an open selected lane.  The streaming span publisher uses
+	// this typed set to withhold only the affected member (important for process
+	// scope) instead of poisoning unrelated process members.
+	spanSelectorLifecycleConflicts map[int]Event
+}
+
+type traceMarkCarrySpanSelector struct {
+	name        string
+	targetScope string
+	pid         int
+}
+
+func (s *traceMarkCarrySpanSelector) coarseEventMatches(family WindowDiscoveryFamily, ev Event) bool {
+	if s == nil || s.pid <= 0 {
+		return true
+	}
+	if s.targetScope == TargetScopeProcess {
+		return ev.TGID == s.pid || ev.SpanPID == s.pid
+	}
+	// A thread selector is the physical row emitter.  This also preserves
+	// namespace separation: SpanPID remains the trace-marker payload process id
+	// and is never substituted for the host/emitter TID.
+	return ev.PID == s.pid
+}
+
+func (s *traceMarkCarrySpanSelector) startMatches(ev Event) bool {
+	if s == nil {
+		return true
+	}
+	if name := strings.TrimSpace(s.name); name != "" &&
+		!strings.Contains(strings.ToLower(ev.SpanName), strings.ToLower(name)) {
+		return false
+	}
+	return s.coarseEventMatches(WindowDiscoveryFamilyTraceSync, ev)
+}
+
+func (d *traceMarkCarryDiscovery) spanIssueRelevant(start, end Event) bool {
+	if d.spanSelector == nil {
+		return true
+	}
+	if start.Line > 0 {
+		return d.spanSelector.startMatches(start)
+	}
+	if end.Line > 0 {
+		// An unnamed sync E cannot be name-filtered, but its typed emitter can.
+		// Retain it when the emitter/process selector matches because it may be
+		// the missing counterpart of the requested named B.
+		family, _, ok := traceMarkCarryFamily(end.SpanAction)
+		if !ok {
+			family = WindowDiscoveryFamilyTraceSync
+		}
+		return d.spanSelector.coarseEventMatches(family, end)
+	}
+	return true
+}
+
+func (d *traceMarkCarryDiscovery) spanEndpointRelevant(source string, family WindowDiscoveryFamily, ev Event) bool {
+	if d.spanSelector == nil {
+		return true
+	}
+	if family != WindowDiscoveryFamilyTraceSync {
+		// Async S/F endpoints repeat their typed name/cookie identity, so they
+		// can be narrowed before consuming the endpoint budget.
+		return d.spanSelector.startMatches(ev)
+	}
+	// A bare sync E never repeats the B name and, in a pid namespace, need not
+	// repeat B's payload process id.  Start a lane only from a selected named B;
+	// once open, retain every nested B/E on that exact physical emitter until
+	// the stack closes.  This preserves LIFO while preventing unrelated marker
+	// traffic from exhausting the streaming endpoint budget.
+	key := traceMarkCarrySyncKey(strings.TrimSpace(source), ev.PID, d.generation(strings.TrimSpace(source), ev.PID))
+	if d.syncLanes[key] != nil {
+		return true
+	}
+	return ev.SpanAction == "B" && d.spanSelector.startMatches(ev)
 }
 
 func newTraceMarkCarryDiscovery(req WindowDiscoveryRequest, source string) *traceMarkCarryDiscovery {
@@ -221,6 +305,9 @@ func (d *traceMarkCarryDiscovery) observe(source string, ev Event) bool {
 	if !recognized || !d.families[family] {
 		return true
 	}
+	if !d.spanEndpointRelevant(source, family, ev) {
+		return true
+	}
 	if !d.reserveEndpoint(family) {
 		return false
 	}
@@ -249,6 +336,9 @@ func (d *traceMarkCarryDiscovery) observe(source string, ev Event) bool {
 func (d *traceMarkCarryDiscovery) observeCompletedAsyncInterval(source string, ev Event) bool {
 	const family = WindowDiscoveryFamilyTraceAsync
 	if !d.families[family] {
+		return true
+	}
+	if d.spanSelector != nil && !d.spanSelector.startMatches(ev) {
 		return true
 	}
 	if !d.reserveEndpoint(family) {
@@ -480,6 +570,13 @@ func (d *traceMarkCarryDiscovery) observeLifecycleBoundary(source string, pid in
 	if !d.ownerSeen[generationKey] {
 		return
 	}
+	if d.spanSelector != nil && pairingEventInsideQuery(boundary, d.scope) {
+		if d.spanSelectorLifecycleConflicts == nil {
+			d.spanSelectorLifecycleConflicts = map[int]Event{}
+		}
+		d.spanSelectorLifecycleConflicts[pid] = boundary
+		d.identityIncomplete = true
+	}
 	for key, lane := range d.syncLanes {
 		if lane.source != source || lane.emitterPID != pid {
 			continue
@@ -502,6 +599,12 @@ func (d *traceMarkCarryDiscovery) observeLifecycleBoundary(source string, pid in
 		if relevant {
 			d.stats[WindowDiscoveryFamilyTraceSync].LifecycleResetLaneCount++
 			d.identityIncomplete = true
+			if d.spanSelector != nil {
+				if d.spanSelectorLifecycleConflicts == nil {
+					d.spanSelectorLifecycleConflicts = map[int]Event{}
+				}
+				d.spanSelectorLifecycleConflicts[pid] = boundary
+			}
 		}
 		delete(d.syncLanes, key)
 	}
@@ -520,6 +623,12 @@ func (d *traceMarkCarryDiscovery) observeLifecycleBoundary(source string, pid in
 			}
 			d.stats[lane.family].LifecycleResetLaneCount++
 			d.identityIncomplete = true
+			if d.spanSelector != nil {
+				if d.spanSelectorLifecycleConflicts == nil {
+					d.spanSelectorLifecycleConflicts = map[int]Event{}
+				}
+				d.spanSelectorLifecycleConflicts[pid] = boundary
+			}
 			d.recordIssue(lane.family, status, transition.first, boundary, source, lane.generation, lane.identity, reason)
 		}
 		delete(d.cohortLanes, key)
@@ -533,6 +642,9 @@ func (d *traceMarkCarryDiscovery) recordExactPair(family WindowDiscoveryFamily, 
 		return
 	}
 	if !pairingIntervalIntersectsQuery(start, end, d.scope) {
+		return
+	}
+	if d.spanSelector != nil && !d.spanSelector.startMatches(start) {
 		return
 	}
 	d.stats[family].CompletedPairCount++
@@ -606,6 +718,9 @@ func buildTraceMarkCarryWindows(candidate *WindowDiscoveryCandidate, req WindowD
 }
 
 func (d *traceMarkCarryDiscovery) recordIssue(family WindowDiscoveryFamily, status WindowDiscoveryPairingStatus, start, end Event, source string, generation int, identity, reason string) {
+	if !d.spanIssueRelevant(start, end) {
+		return
+	}
 	if start.Line > 0 && end.Line > 0 && !pairingIntervalIntersectsQuery(start, end, d.scope) {
 		return
 	}
@@ -636,6 +751,9 @@ func (d *traceMarkCarryDiscovery) recordIssue(family WindowDiscoveryFamily, stat
 }
 
 func (d *traceMarkCarryDiscovery) recordRollback(family WindowDiscoveryFamily, start, end Event, source string, generation int, reason string) {
+	if !d.spanIssueRelevant(start, end) {
+		return
+	}
 	d.stats[family].TimestampRollbackCount++
 	d.identityIncomplete = true
 	d.setFamilyUnsafe(family, WindowDiscoveryPairingTimestampRollback)
@@ -656,6 +774,10 @@ func (d *traceMarkCarryDiscovery) recordSourceUnresolved(family WindowDiscoveryF
 func (d *traceMarkCarryDiscovery) recordMalformedFailure(failure traceMarkIntegrityFailure) {
 	family, _, recognized := traceMarkCarryFamily(failure.Action)
 	if !recognized || !d.families[family] || !traceMarkIntegrityFailureRelevantToQuery(failure, d.scope) {
+		return
+	}
+	if d.spanSelector != nil && d.spanSelector.targetScope != TargetScopeProcess &&
+		d.spanSelector.pid > 0 && failure.EmitterKnown && failure.RowPID != d.spanSelector.pid {
 		return
 	}
 	key := strings.Join([]string{failure.SourcePath, strconv.Itoa(failure.Line), failure.Action, failure.Reason}, "\x00")

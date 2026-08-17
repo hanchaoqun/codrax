@@ -36575,6 +36575,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.979 B956：长 Span 精确端点续扫，不以固定尾窗充当时长上限（2026-08-16）
+
+1. `repl_log.txt/repl_log2.txt` 的指定标记不是缺 B：原始 trace 已有
+   `B|21690|Choreographer#doFrame 8002384`，行头 emitter TID 为 `25827`。旧 `span_window` 在大文件上只构建
+   局部索引；B780 的非对称重试虽保住 `500ms` after-padding，却仍把固定尾窗事实上变成可发现 span 的最长
+   时长。真实 E 晚于 500ms 时，局部索引看不见结束端，工具只能诚实返回 unmatched B，模型随后容易转向
+   邻近宽窗。该问题是系统证据完备性 gap，不是模型波动，也不能靠继续增大 padding 或把单端猜成长耗时解决。
+2. B956 复用既有 `trace_mark_carry` 全文件流式端点状态机，为大文件的显式 `span_window` 与
+   `recipe=span_locate` 增加 typed 定向续扫。父时间/行窗只负责选中与其相交的命名 span；扫描针对同一不可变
+   物理工件完成一次，内存只保留有界端点状态，远端 E/F 不再受固定时间 padding 限制。只有
+   `complete_exact` B/E 或 S/F 对能够铸造 start/end/duration；单端、错序、格式错误、容量失败和生命周期切断
+   均 fail-closed，不生成时长或因果窗。
+3. selector 不靠用户原文或模型散文：thread scope 精确绑定行头 TID；process scope 使用 typed TGID 或
+   trace-marker payload PID 证明成员，并在结果记录 `thread_tgid`/`trace_mark_span_pid` 来源。同步栈仍按
+   `physical source + row TID` 做 LIFO，因而支持东湖 namespace PID 下“B 带 payload PID、嵌套 B、裸 E”形，
+   不把 payload PID 与 emitter TID 粗暴等同。生命周期边界按受影响 emitter TID 局部撤销；未知全局污染继续
+   保守拒绝。
+4. 路由只覆盖单一物理大 trace、完整父窗和命名 span；复合工件仍走索引以保留 source/clock-domain provenance，
+   小文件保持既有完整索引车道，name-only thread selector 交回索引身份解析。续扫位于 trace-query 的纯 memo
+   核心内，重复精确查询可复用结果；没有新增第二套 parser/pairing 逻辑，也没有新增公共 Result schema 字段。
+5. 唯一 span 时，工具只把父窗与精确 span 窗取并集，供后续模型探索和 typed 补采；多个同名完整 span 保留
+   父窗并要求选择精确实例。该批不运行 root-cause rank、不生成唤醒链、不加冕主因，也不把邻近背景晋升为
+   链上证据。显式窗 Trace 因果投影仍由后续 typed 查询构造；优先级反转、调度延迟/供给、算力供给、D/IO、
+   确定性语义工作、业务线索及实际占时/规则可消除量双轴的权限均未改变。
+6. 新 pin 覆盖：结束端远于父窗 3.25s、同名异 TID 噪声、嵌套同步 LIFO、东湖 namespace process membership、
+   lifecycle 中途切断、父窗跨 incarnation 时撤销旧实例、recipe typed endpoint handoff，以及工具层“大文件走续扫/
+   小文件留在索引”两臂。专项测试通过：
+   `go test ./internal/tracequery -run 'TestStreamSpanLocate|TestTraceMarkCarryDiscovery'` 与
+   `go test ./internal/tool -run 'TestTraceQuery(LargeExplicitSpanWindowStreamsRemoteEnd|SmallExplicitSpanWindowKeepsIndexedLane)'`；
+   完整相关包 `go test ./internal/tracequery ./internal/tool ./internal/tracediag ./internal/agent` 及
+   `go build ./...` 亦全绿。
+7. 该“流式”是本地 trace 文件扫描，不是 LLM 输出流的降级计时器。活跃模型输出仍不得因 4ms、4s、4m 或总
+   年龄降级；只有 typed completion/cancel/stall/failure 能改变回答车道。JSON 教学仅说明精确 span 查询的输入与
+   返回权限，不新增互斥必填项，不扫描 request/thinking/final prose，也不由系统改写答案。
+
+状态：
+
+`B956-LONGSPANENDPOINTCONTINUATION1=implemented/unit+tool-e2e-pins-pass/pending-production-customer-replay`；
+`B780 fixed-after-padding ceiling=closed-by-B956`；
+`unmatched endpoint duration/causal inference=forbidden`；
+`Donghu namespace process membership=typed`；
+`Trace explicit-window causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-introduced`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条
@@ -42906,13 +42951,13 @@ systrace、目标 `com.tencent.mm [25827]` 与 `Choreographer#doFrame 8002384`�
 
 专项验证：`go test ./internal/agent -run 'Test(IsolatedFinalizerProseFallbackPromptCarriesRuntimeLedgerFacts|TypedTraceAuthoritySelectsCompactExactGuidance|.*RuntimeTrace.*)'`、
 `go test ./internal/tool -run TestTraceQueryReducedPadding`、
-`go test ./internal/tracequery -run 'TestSpanWindow(Discloses|DoesNotDisclose)'` 全绿。剩余边界诚实保留：
-结束端晚于原视图 `500ms` after-padding 时仍需未来的定向 endpoint continuation；本批不以无界扫描换取
-偶然闭合，也不把另一个宽窗的 rank 借给未闭合目标 span。
+`go test ./internal/tracequery -run 'TestSpanWindow(Discloses|DoesNotDisclose)'` 全绿。该批当时诚实保留的
+“结束端晚于原视图 `500ms` after-padding”边界，已由 §123.979 的 B956 定向 endpoint continuation
+闭环；B780 自身仍只负责非对称局部索引与单端披露，不把另一个宽窗的 rank 借给未闭合目标 span。
 
 状态：`B778-STREAMACTIVITYCALIBER1=implemented/passive-display-only/tests-pass`；
 `B779-RUNTIMEFALLBACKEVIDENCE1=implemented/shared-ledger-projection+degraded-fact-appendix/tests-pass`；
-`B780-EXACTSPANWINDOWAUTHORITY1=implemented/asymmetric-retry+unpaired-begin-disclosure/pending-production-replay`；
+`B780-EXACTSPANWINDOWAUTHORITY1=implemented/asymmetric-retry+unpaired-begin-disclosure/superseded-at-long-endpoint-by-B956`；
 `B781-PICANDIDATESEMANTICS1=covered/current-typed-authority+fallback-boundary-pinned`；
 `RL-05-selector-token-duration=implemented/soft-guidance-only`；`active-stream-fixed-age-degrade=forbidden`；
 `system answer/conclusion authorship=none`。

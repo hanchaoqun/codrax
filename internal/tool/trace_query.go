@@ -230,9 +230,9 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, sched_stat, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_rq_complete, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, ipi, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Official formatter aliases such as sched_wakeup_new, sched_stat_wait, sched_stat_sleep, sched_stat_iowait, sched_stat_blocked, sched_stat_runtime, ipi_raise, ipi_entry, ipi_exit, block_rq_insert, block_getrq, block_bio_queue, block_bio_complete, block_rq_remap, print, tracing_mark_write_xacct, and xacct_tracing_mark_write are accepted and mapped to the matching structured event type. Use trace_mark for B/E/C/S/F/G/H/N/I marker rows; G/H publish isolated trace_track_spans and N/I publish zero-duration trace_instants, while B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use sched_stat/sched_stat_accounting as kernel accounting corroboration for wait/iowait/blocked/runtime, not as a replacement for sched_switch interval timing when both exist. Use ipi/ipi_activity as interrupt/scheduler-reschedule pressure context; ipi_raise target_mask is an instant signal unless paired ipi_entry/exit gives active_ms. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, symbolization_status, callchain_status, clock_confidence, or cpu_known> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads plus perf_quality as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback, symbolization_status=unsymbolized, and callchain_status=ip_only; OpenHarmony hiperf proto rows may have cpu_known=false because sample CPU is unavailable. Result caveats may also carry tracebundle perf/profiler/trace conversion quality provenance such as lost_records/lost_events, lost_sample_records/lost_samples, throttle_records/unthrottle_records, aux_records/aux_bytes, ftrace-plugin structured metadata, profiler plugin metadata, dropped_events, overrun, commit_overrun, overwrite, trace_clock, clock_details, symbol_examples, tracebundle_perf_capability, tracebundle_perf_clock_alignment, tracebundle_trace_provider, tracebundle_trace_db_coverage, tracebundle_trace_coverage, and tracebundle_trace_tool_gate; use them to qualify sample/capture/conversion reliability, coverage, and converter guardrail state, not as direct runtime root causes. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/ices_boost evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, ipi_activity, sched_stat_accounting, and block_io_by_inode are accepted and mapped to the matching event types."},
 	    "trace_mark_actions": {"type":"array","items":{"type":"string","enum":["B","E","C","S","F","G","H","N","I"],"x-codrax-enum-aliases":{"b":"B","e":"E","c":"C","s":"S","f":"F","g":"G","h":"H","n":"N","i":"I"}},"x-codrax-split-string-array":true,"description":"For view=event_search only: exact closed filter over the parser-validated trace marker action (B/E/C/S/F/G/H/N/I). This is an AND filter with window/line, pattern and pid/thread. event_types may be omitted or exactly [trace_mark]; other/mixed event types fail loud. Unlike pattern, action matching never treats a marker name containing S| or F| as an async endpoint, and malformed marker payloads are not re-admitted by their raw prefix."},
     "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
-    "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
+    "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. On a large single physical trace, a bounded parent time/line window around the named B is enough: trace_query streams the immutable artifact to find the exact remote E without treating fixed index padding as a duration ceiling. An unmatched B still proves no duration. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
-    "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply","span_locate"],"x-codrax-enum-style-alias":true,"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed. span_locate turns a span label (span_name or bare pattern, no event_types needed) into its start/end time and line window in one call: a bare-pattern locate step followed by span_window resolution - use it before heavy views when the span's window is unknown."},
+    "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply","span_locate"],"x-codrax-enum-style-alias":true,"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed. span_locate turns a span label (span_name or bare pattern, no event_types needed) into its start/end time and line window in one call. On a large single physical trace, pass a bounded parent time/line window around the known marker; exact endpoint pairing may safely extend beyond that parent. Use the returned exact span window before heavy views."},
 	    "max_depth": {"type":"integer","maximum":__WAKEUP_MAX_DEPTH__,"description":"wakeup_chain recursion limit; default __WAKEUP_MAX_DEPTH__ and hard maximum __WAKEUP_MAX_DEPTH__. The engine also clamps legacy or schema-bypassed larger values and discloses the effective value in result caveats."},
 	    "max_branches": {"type":"integer","maximum":__WAKEUP_MAX_BRANCHES__,"description":"Maximum branches to report; default __WAKEUP_MAX_BRANCHES__ and hard maximum __WAKEUP_MAX_BRANCHES__. Also caps per-node segment expansions at every chain depth (the guaranteed most-interesting segment plus budget-ranked extra sleep segments). The engine also clamps legacy or schema-bypassed larger values and discloses the effective value in result caveats."},
 	    "max_chain_nodes": {"type":"integer","maximum":__WAKEUP_MAX_CHAIN_NODES__,"description":"wakeup_chain global node budget; default __WAKEUP_MAX_CHAIN_NODES__ and hard maximum __WAKEUP_MAX_CHAIN_NODES__. Beyond each node's guaranteed most-interesting segment, additional sleep segments expand in wall-clock value order only while the chain node count stays below this budget; a chain_expansion_budget_reached caveat honestly counts candidates left unexpanded. Lower it toward 1 for the minimal single-segment-per-node chain. The engine also clamps larger values and discloses the effective value in result caveats."},
@@ -409,6 +409,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 	// escape lanes (kill switch / no MutableState / supplement in flight /
 	// stat failure); those calls execute directly, exactly as before.
 	runPureTraceQueryCore := func() (types.ToolResult, error) {
+		// LSPAN-1: an explicit micro-window around a named B marker is a parent
+		// selector, not a maximum-duration claim.  On large single-artifact
+		// traces, resolve the remote unnamed E with the immutable whole-artifact
+		// streaming state machine before the local fixed-padding index can hide
+		// it.  This lane stays inside the pure/memoized core and publishes only
+		// complete typed endpoint pairs; it neither runs nor modifies causal/rank
+		// views.
+		if streamed, ok := t.maybeStreamSpanLocate(ctx, p, path, sourceLabel, callCaveat); ok {
+			return streamed, nil
+		}
 		buildStart := time.Now()
 		logging.Debug("[trace_query] phase=build_index view=%s source=%s path=%s start time_start=%.6f time_end=%.6f line_start=%d line_end=%d",
 			p.View, sourceLabel, path, window.RequestedStart, window.RequestedEnd, p.LineStart.Int(), p.LineEnd.Int())
@@ -1493,6 +1503,85 @@ func traceQueryShouldAutoWindowFromPattern(p traceQueryParams) bool {
 		return false
 	}
 	return traceQueryPatternWindowableHeavyView(p.View)
+}
+
+func traceQuerySpanLocateRecipe(p traceQueryParams) bool {
+	if tracequery.CanonicalViewName(p.View) != "recipe" {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(p.RecipeName))
+	name = strings.ReplaceAll(name, "-", "_")
+	return name == "span_locate" || name == "locate_span" || name == "span_locator"
+}
+
+func traceQueryShouldStreamSpanLocate(p traceQueryParams, path string) bool {
+	view := tracequery.CanonicalViewName(p.View)
+	if view != "span_window" && !traceQuerySpanLocateRecipe(p) {
+		return false
+	}
+	if strings.TrimSpace(firstNonEmptyTraceString(p.SpanName, p.Pattern)) == "" {
+		return false
+	}
+	boundedTime := p.TimeStart.Set() && p.TimeEnd.Set()
+	boundedLines := p.LineStart.Int() > 0 && p.LineEnd.Int() > 0
+	if !boundedTime && !boundedLines {
+		return false
+	}
+	// Name-only thread selectors require the indexed lifecycle/alias resolver.
+	// A numeric TID, process PID, or no target is exact in the streaming lane.
+	if p.PID.Int() <= 0 && strings.TrimSpace(p.Thread) != "" {
+		return false
+	}
+	if tracequery.TracePathRequiresCompositeIndex(path) {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Size() >= traceQueryWindowedIndexMinBytes
+}
+
+func (t *TraceQuery) maybeStreamSpanLocate(ctx *types.BusContext, p traceQueryParams, path, sourceLabel, callCaveat string) (types.ToolResult, bool) {
+	if !traceQueryShouldStreamSpanLocate(p, path) {
+		return types.ToolResult{}, false
+	}
+	q := traceQueryBuildQuery(ctx, p, sourceLabel, path, p.TimeStart.Seconds(), p.TimeEnd.Seconds())
+	if strings.TrimSpace(q.SpanName) == "" && traceQuerySpanLocateRecipe(p) {
+		q.SpanName = strings.TrimSpace(q.Pattern)
+	}
+	start := time.Now()
+	logging.Debug("[trace_query] phase=stream_span_locate view=%s path=%s start span_name=%q pid=%d target_scope=%s", q.View, path, q.SpanName, q.PID, q.TargetScope)
+	result, err := tracequery.StreamSpanLocate(contextFromBus(ctx), path, q.TraceFlavorHint, q)
+	if err != nil {
+		logging.Debug("[trace_query] phase=stream_span_locate view=%s path=%s failed elapsed=%s err=%v", q.View, path, time.Since(start), err)
+		return types.ToolResult{
+			ToolName: t.Name(), Success: false,
+			Summary:   fmt.Sprintf("trace_query failed to locate the named span across %s: %v", path, err),
+			Timestamp: time.Now(),
+		}, true
+	}
+	logging.Debug("[trace_query] phase=stream_span_locate view=%s path=%s done elapsed=%s scanned_lines=%d spans=%d", q.View, path, time.Since(start), result.ScannedLineCount, len(result.SpanWindows))
+	traceQueryAppendCallCaveats(&result, callCaveat)
+	result.Caveats = append(result.Caveats, traceQueryObjectiveExactTokenCaveats(ctx, p, result)...)
+	result = traceQueryPriorityResultForPublication(result)
+	payload, marshalFailure := traceQueryMarshalPayload(t.Name(), result)
+	if marshalFailure != nil {
+		return *marshalFailure, true
+	}
+	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
+	summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	if rawRef == "" {
+		rawRef = payloadRef
+	}
+	now := time.Now()
+	return types.ToolResult{
+		ToolName: t.Name(), Success: true, Summary: preview, RawRef: rawRef,
+		Refinement:             traceQueryRefinement(result, q, p, sourceLabel),
+		Observations:           traceQueryTypedObservations(result, sourceLabel, payloadRef, rawRef, "", now),
+		TraceViewCancellation:  traceQueryToolViewCancellation(result),
+		TraceEvidenceAuthority: traceQueryEvidenceAuthority(result),
+		EnumerationAuthority:   traceQueryEnumerationAuthority(result),
+		Timestamp:              now,
+	}, true
 }
 
 func traceQueryPatternWindowableHeavyView(view string) bool {
