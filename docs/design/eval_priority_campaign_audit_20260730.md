@@ -36102,6 +36102,55 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1019 r650：exact carrier 已贯通但配置层覆盖仍错误跨键复用；关系图通过但载体数据流仍缺（2026-08-17）
+
+1. 在 `main@ee154fda2` 严格并发恰好两个案例：
+   `read_combo_config_two_knobs_precedence + qf_logic_view_read_pipeline`。Runner 为 `1 PASS / 1 FAIL`，
+   人工为 Config fail、Diagram partial；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_config_diagram_r650_20260817_manual_audit.md`。
+2. B1024 获生产正证：Config semantic view 首次出现 `exact_resolution_present=true`，两个当前请求命名键
+   均进入 exact target lane，说明 finite named set 前门已闭环。但终稿仍把
+   `pipeline_max_retries_per_stage` 的示例注释值 2 当成实际代码默认，未读取生产初始化
+   `cmd/root.go:3147 MaxRetriesPerStage: 3`。
+3. 新根因 B1025（P1）不是 exact target 再次丢失，而是配置层覆盖按**角色全局集合**计算：一条
+   `defaultMaxSteps=50` 已足以把 `default` 标成 covered，第二个 sibling key 不再欠 default 证据。
+   这会系统性伤害所有“多个精确配置项 × 多个来源层”的比较，不是数字 3 或 pipeline 单例问题。
+4. 已施工通用矩阵修复：finite multi-key `config_mapping + per-member table` 若省略 optional
+   `exact_targets`，系统只可从已通过当前请求来源验证的 typed `MentionedEntities` 恢复；若模型显式给了错误
+   exact target，仍按原合同丢弃，系统不得暗换目标。该形必须携带 `exact_context_roles`，否则 analyzer
+   fail-loud 要求模型声明用户所问的 default/config/runtime/override 子集。
+5. resolved completion 新增 `target × requested role` 精确覆盖检查。一键的 default/config/override 不再替
+   sibling key 交账；snake/kebab 外部键与 CamelCase 代码成员只通过 exact normalization 或至少两个
+   target-specific identifier segments 的结构匹配关联，裸 family root（如 `pipeline`）不能确权。该门只读
+   typed targets、typed roles、grounded evidence 与 validated diagram role，不扫描请求/答案 prose，也不根据
+   数值正确与否裁决。
+6. 新 pin 固定 witness：只有 `defaultMaxSteps` 时，缺口必须恰为
+   `pipeline_max_retries_per_stage/default`；加入 `MaxRetriesPerStage` initializer 后矩阵才闭合。普通多符号、
+   宽类别、显式错误 exact target、单目标与 exact-absence 的 nearby-family role 语义保持原样。四核心包
+   `internal/types ./internal/tool ./internal/agent ./internal/orchestrator` 全绿。
+7. Diagram runner PASS 但人工仅 partial：最终 Mermaid 语法有效，Analyzer→Explorer→Extractor→Finalizer
+   三条顺序边有 typed precedence 证据，两个 validator 拒绝也正确移除了未证边；然而用户明确要求的
+   Mutable/BusContext 数据流只剩孤立分组与“未证关系边界”，431 秒调查仍未形成载体读写/交接边。
+8. 日志给出更深的 B1026 witness：六个 incident-required participant 中，系统只把 extractor/BusContext
+   映射为 source_operation_required，却把 analyzer/explorer/finalizer/Mutable 降成
+   request_visible_boundary_only。后续应在 B1011 统一解决 participant identity（大小写/阶段别名/类型成员）
+   到 parser-owned operation 的解析及 producer→carrier→consumer handoff；不能按本图硬补边、放宽证据门或
+   由系统代画关系。
+9. 本批未触碰 Trace 路由、显式时间窗、因果投影、自动补齐、链上根因与背景边界；无用户/模型原文
+   关键词硬门，无系统答案/结论代写，也无活跃流固定 4ms 降级。
+
+状态：
+
+`r650=runner-1/2+human-config-fail/diagram-partial`；
+`B1021/B1024=exact-carrier-production-positive-r650`；
+`B1025-CONFIGTARGETROLEMATRIX1=implemented/typed-matrix-pins+four-core-suites-pass/pending-production-replay`；
+`B1011-ENCLOSINGCALLABLERELATIONNAV1=partial`；
+`B1026-DIAGRAMPARTICIPANTOPIDENTITY1=confirmed/P1/open`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：

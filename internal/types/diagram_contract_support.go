@@ -426,6 +426,70 @@ func ConfigTraceMissingRequestedDiagramRoles(contract *ExactResolutionContract, 
 	return missing
 }
 
+// ConfigTraceTargetRoleGap identifies one missing cell in a positive,
+// multi-target config mapping.  The ordinary requested-role coverage above is
+// intentionally role-global because exact-absence answers use nearby
+// same-family lineage as context.  A resolved comparison is different: one
+// default row for key A must not silently satisfy the requested default column
+// for key B.
+type ConfigTraceTargetRoleGap struct {
+	Target string
+	Role   EvidenceDiagramRole
+}
+
+// ConfigTraceMissingRequestedTargetRoles returns the per-target × per-role
+// holes in grounded config precedence evidence.  It consumes only the exact
+// target/role contract and typed evidence fields.  It does not inspect the
+// user's prose or the final answer.
+func ConfigTraceMissingRequestedTargetRoles(contract *ExactResolutionContract, requiredFiles []string, evidence []EvidenceItem) []ConfigTraceTargetRoleGap {
+	if contract == nil || len(contract.Targets) == 0 {
+		return nil
+	}
+	requested := ConfigTraceRequestedDiagramRoles(contract)
+	if len(requested) == 0 {
+		return nil
+	}
+	var missing []ConfigTraceTargetRoleGap
+	for _, target := range contract.Targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			continue
+		}
+		for _, role := range requested {
+			covered := false
+			for _, item := range evidence {
+				if ConfigTraceCoverageRoleInFiles(contract, requiredFiles, item) != role {
+					continue
+				}
+				if configTraceEvidenceMatchesExactTarget(contract, item, target) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				missing = append(missing, ConfigTraceTargetRoleGap{Target: target, Role: role})
+			}
+		}
+	}
+	return missing
+}
+
+func configTraceEvidenceMatchesExactTarget(contract *ExactResolutionContract, item EvidenceItem, target string) bool {
+	if contract == nil || strings.TrimSpace(target) == "" {
+		return false
+	}
+	single := *contract
+	single.Targets = []string{target}
+	if ExactResolutionEvidenceMentionsAnyTarget(&single, item) {
+		return true
+	}
+	// Config keys commonly cross a spelling boundary between the external
+	// snake/kebab form and a code member/flag form.  Require a target-specific
+	// multi-segment compound match; the family root alone (for example
+	// "pipeline") is deliberately insufficient.
+	return ExactResolutionSpecificStructureMatchScore(&single, exactResolutionEvidenceSurface(item)) > 0
+}
+
 // ConfigTraceRequestedRoleLabels projects QuestionStructure bucket
 // labels onto the requested precedence roles in order. This preserves
 // the user-facing naming (`CLI`, `codrax.yaml`, `env file`, ...)

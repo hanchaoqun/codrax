@@ -2851,6 +2851,28 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			}, nil
 		}
 	}
+	// A positive multi-key config comparison is a matrix, not a role-global
+	// checklist.  Seeing a default for key A must not let key B close without
+	// its requested default.  This gate is deliberately outside the generic
+	// low-delta convergence chain: every missing cell is derived from precise
+	// typed targets, requested roles, and grounded evidence, so accepting it
+	// after repeated retries would knowingly publish a wrong comparison.
+	if downgrade := configTraceResolvedTargetRoleCoverageDowngrade(ctx, resultKind, justification, preflight.Evidence); downgrade != "" {
+		recordToolRuntimeTiming(&runtimeTimings, "pre_complete_config_target_role_matrix", preCompleteStart, len(preflight.Evidence))
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary:  downgrade,
+			Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
+				Code: "config_target_role_coverage",
+				Hint: "Read the production/config source for each named target-role cell listed in the message, emit one grounded evidence row with the matching diagram_role_hint, then retry completion.",
+				Metadata: map[string]string{
+					"repair_origin": "emit_investigation_complete.config_target_role_matrix",
+				},
+			}),
+			Success:   true,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	// Low-delta convergence boundary (gap 1): each gate, when it fires, checks
 	// whether the model has re-attempted emit_investigation_complete with the
 	// SAME lane + SAME typed blocker (pending reads / unverified findings /
@@ -3060,6 +3082,32 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func configTraceResolvedTargetRoleCoverageDowngrade(ctx *types.BusContext, resultKind, justification string, evidence []types.EvidenceItem) string {
+	if ctx == nil || ctx.AnalysisIR == nil || resultKind != "resolved" || strings.TrimSpace(justification) != "" {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Scenario != types.ScenarioConfigTrace {
+		return ""
+	}
+	contract := exactResolutionContractForCompletion(ctx)
+	if contract == nil || contract.TargetKind != types.SubjectConfigKey || len(contract.Targets) < 2 || len(contract.RequestedContextRoles) == 0 {
+		return ""
+	}
+	requiredFiles := types.ExactResolutionRequiredContextFiles(contract, ctx.Mutable)
+	gaps := types.ConfigTraceMissingRequestedTargetRoles(contract, requiredFiles, evidence)
+	if len(gaps) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(gaps))
+	for _, gap := range gaps {
+		parts = append(parts, fmt.Sprintf("%s/%s", gap.Target, gap.Role))
+	}
+	return "emit_investigation_complete downgraded: this resolved multi-key config comparison is still missing grounded per-key precedence evidence for: " +
+		strings.Join(parts, ", ") + ". One key's layer evidence cannot satisfy the same requested layer for a sibling key. " +
+		"Read and emit the missing target-role cells, preserving the corresponding diagram_role_hint, then retry completion."
 }
 
 func pendingBlockingEmitEvidenceItemValidationRepair(ctx *types.BusContext) *types.ToolRepair {

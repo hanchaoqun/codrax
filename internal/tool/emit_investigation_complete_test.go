@@ -6927,6 +6927,48 @@ func TestEmitInvestigationComplete_ConfigAbsenceAllowsClosureReadyMixedContextRo
 	}
 }
 
+func TestConfigTraceResolvedTargetRoleCoverageDowngrade_IsPerKeyNotRoleGlobal(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:            types.SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"},
+		AllowAbsence:          true,
+		RelatedContextPolicy:  types.ExactContextSameFamilyGrounded,
+		RequestedContextRoles: []types.EvidenceDiagramRole{types.EvidenceDiagramRoleDefault},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetExactContextRequiredFiles([]string{"cmd/root.go"})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{ExactResolution: contract},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		Source: "cmd/root.go", LineStart: 88, Scope: types.ScopeLine,
+		Subject: "defaultMaxSteps", AnchorSymbol: "defaultMaxSteps",
+		AnchorKind: types.AnchorDefinition, DiagramRole: types.EvidenceDiagramRoleDefault,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	got := configTraceResolvedTargetRoleCoverageDowngrade(ctx, "resolved", "", evidence)
+	if !strings.Contains(got, "pipeline_max_retries_per_stage/default") || strings.Contains(got, "pipeline_max_steps/default") {
+		t.Fatalf("downgrade = %q, want only sibling's missing default cell", got)
+	}
+	evidence = append(evidence, types.EvidenceItem{
+		Source: "cmd/root.go", LineStart: 3147, Scope: types.ScopeLine,
+		Subject: "MaxRetriesPerStage", AnchorSymbol: "MaxRetriesPerStage",
+		AnchorKind: types.AnchorInitializer, DiagramRole: types.EvidenceDiagramRoleDefault,
+		GroundingStatus: types.GroundingGrounded,
+	})
+	if got := configTraceResolvedTargetRoleCoverageDowngrade(ctx, "resolved", "", evidence); got != "" {
+		t.Fatalf("complete per-target matrix should close, got %q", got)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceRejectsUngroundedRequiredContext(t *testing.T) {
 	missingKey := "explore_mid_loop_missing_knob"
 	mut := types.NewMutableState("q")

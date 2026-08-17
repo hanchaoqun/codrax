@@ -543,7 +543,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"exact_context_roles": map[string]any{
 				"type":        "array",
-				"description": "Optional abstract nearby-context roles the user explicitly asked to see for an exact-target precedence / lineage answer. Use only alongside exact_targets when the request names conceptual layers such as code defaults, repo/user config files, runtime state, or override channels. Use enum values default / config / runtime / override; omit when unsure.",
+				"description": "Abstract nearby-context roles the user explicitly asked to see for an exact-target precedence / lineage answer. Use enum values default / config / runtime / override. This is optional for ordinary questions, but REQUIRED for a config_mapping comparison that names multiple exact config keys and asks for a per-key table; include only the requested layers. exact_targets should also contain those named keys, although the system can recover a finite request-mentioned key set before validating these roles.",
 				"items": map[string]any{
 					"type": "string",
 					"enum": skill.AnalysisExactContextRoleValues(),
@@ -1985,6 +1985,30 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	// A finite named config comparison has enough precise provenance to recover
+	// exact targets even when the analyzer omitted the optional exact_targets
+	// field.  Do this before exact_context_roles are sanitized so a correctly
+	// emitted role list is not discarded merely because its companion target
+	// list was omitted.  The recovery consumes only typed config shape plus
+	// current-request-validated MentionedEntities.
+	if len(p.ExactTargets) == 0 && len(exactTargets) == 0 &&
+		(strings.EqualFold(strings.TrimSpace(kind), "config_mapping") || scenario == types.ScenarioConfigTrace) {
+		candidateRM := types.RequestModel{
+			RawRequest: raw,
+			Scenario:   scenario,
+			Predicates: predicates,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              kind,
+				PrimaryEntities:   append([]string(nil), entities...),
+				MentionedEntities: append([]string(nil), mentionedEntities...),
+			},
+			AnswerSubject: answerSubject,
+		}
+		if inferred := types.ExactResolutionTargets(candidateRM); len(inferred) > 0 {
+			exactTargets = inferred
+			val.Warnings = append(val.Warnings, "recovered finite named config exact_targets from current-request mentioned entities")
+		}
+	}
 	if normalizedAxis, warning, issue := reconcileSourceCallChainAxis(
 		kind,
 		axis,
@@ -2144,6 +2168,18 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		kind,
 		p.ExactContextRoles,
 	)
+	if len(exactTargets) > 1 && predicates.HasPerMemberTable &&
+		(strings.EqualFold(strings.TrimSpace(kind), "config_mapping") || scenario == types.ScenarioConfigTrace) &&
+		len(exactContextRoles) == 0 {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: "emit_analysis rejected: a multi-key config_mapping with a per-key table must emit exact_context_roles " +
+				"for the precedence layers the user asked to compare (default / config / runtime / override). " +
+				"This keeps every named key's requested layers independently verifiable; do not collapse them into generic source_attribute columns.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if exactContextWarn != "" {
 		val.Warnings = append(val.Warnings, exactContextWarn)
 	}

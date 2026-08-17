@@ -1441,6 +1441,40 @@ func TestExactResolutionAbsenceClosureReady_ConfigTraceRequiresRequestedRoles(t 
 	}
 }
 
+func TestConfigTraceMissingRequestedTargetRoles_DoesNotLetOneKeyCoverItsSibling(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:            SubjectConfigKey,
+		TargetLabel:           "config key",
+		Targets:               []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"},
+		RelatedContextPolicy:  ExactContextSameFamilyGrounded,
+		RequestedContextRoles: []EvidenceDiagramRole{EvidenceDiagramRoleDefault, EvidenceDiagramRoleConfig, EvidenceDiagramRoleOverride},
+	}
+	evidence := []EvidenceItem{
+		{Source: "cmd/root.go", LineStart: 88, Scope: ScopeLine, Subject: "defaultMaxSteps", AnchorSymbol: "defaultMaxSteps", AnchorKind: AnchorDefinition, DiagramRole: EvidenceDiagramRoleDefault, GroundingStatus: GroundingGrounded},
+		{Source: "codrax.yaml", LineStart: 10, Scope: ScopeLine, Subject: "pipeline_max_steps", AnchorSymbol: "pipeline_max_steps", AnchorKind: AnchorAssignment, DiagramRole: EvidenceDiagramRoleConfig, GroundingStatus: GroundingGrounded},
+		{Source: "codrax.yaml", LineStart: 11, Scope: ScopeLine, Subject: "pipeline_max_retries_per_stage", AnchorSymbol: "pipeline_max_retries_per_stage", AnchorKind: AnchorAssignment, DiagramRole: EvidenceDiagramRoleConfig, GroundingStatus: GroundingGrounded},
+		{Source: "cmd/root.go", LineStart: 653, Scope: ScopeLine, Subject: "pipeline-max-steps", AnchorSymbol: "IntVar", AnchorKind: AnchorCall, DiagramRole: EvidenceDiagramRoleOverride, GroundingStatus: GroundingGrounded},
+		{Source: "cmd/root.go", LineStart: 678, Scope: ScopeLine, Subject: "pipeline-max-retries", AnchorSymbol: "IntVar", AnchorKind: AnchorCall, DiagramRole: EvidenceDiagramRoleOverride, GroundingStatus: GroundingGrounded},
+	}
+
+	requiredFiles := []string{"cmd/root.go", "codrax.yaml"}
+	got := ConfigTraceMissingRequestedTargetRoles(contract, requiredFiles, evidence)
+	want := []ConfigTraceTargetRoleGap{{Target: "pipeline_max_retries_per_stage", Role: EvidenceDiagramRoleDefault}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("missing target-role cells = %+v, want %+v", got, want)
+	}
+
+	evidence = append(evidence, EvidenceItem{
+		Source: "cmd/root.go", LineStart: 3147, Scope: ScopeLine,
+		Subject: "MaxRetriesPerStage", AnchorSymbol: "MaxRetriesPerStage",
+		AnchorKind: AnchorInitializer, DiagramRole: EvidenceDiagramRoleDefault,
+		GroundingStatus: GroundingGrounded,
+	})
+	if got := ConfigTraceMissingRequestedTargetRoles(contract, requiredFiles, evidence); len(got) != 0 {
+		t.Fatalf("all per-target roles should be covered, got %+v", got)
+	}
+}
+
 func TestConfigTraceRelatedContextCitationCandidates_DedupesAndOrdersByPrecedenceRole(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
