@@ -35724,12 +35724,22 @@ Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-
    系统只交付源码候选和下一读区间，不自铸边、不强制完整图，也不扫描用户或模型原文作硬门。
 7. 本批没有引入 4ms 累计时长降级。活跃字节流仍只受 caller cancel/deadline、无首字节、
    byte-stall、transport/decode failure 控制；模型草稿恢复也不允许被系统证据改写为新答案。
+8. B1011 已按上述结构施工：关系缺口已经有局部操作时不再退回宽泛 grep 提示，仍排队
+   parser-owned 精确读点；若已读 carrier call 同时产生局部结果，则在同一 enclosing callable
+   内最多沿四段“赋值结果被后续完整参数消费”的源码链寻找第一个未读 consumer。典型路径可依次
+   打开 `BuildContext(...) -> agent.Execute(context) -> applyOutput(output)`，但每个读点仍只是导航，
+   必须由模型读源码并逐条 `emit_evidence` 才能成为关系权威。
+9. 多结果赋值只在 navigation lane 暴露 exact LHS roster；复杂/链式/二元 RHS fail-close，不能
+   进入答案或图边权威。Go/Python/JavaScript/TypeScript/Java/Kotlin/Rust/C/C++/Ruby/Swift/Lua/
+   Proto/ArkTS/Cangjie 全部走同一实现与矩阵测试。共享教学同步要求调度/管线函数覆盖构造、消费、
+   回写/返回，并明确一个 `lhs = Callee(arg)` 源码行可携带三个相互独立的候选关系，不再让模型把
+   首个 call 或 argument row 误当整条数据流已经完成。
 
 状态：
 
 `r640=runner-2/2/human=trace-partial+qf-partial`；
 `B1010-APPENDIXEXPLORATIONWINDOWLEAK1=implemented/shared-selected-scope-authority+pin-pass`；
-`B1011-ENCLOSINGCALLABLERELATIONNAV1=confirmed/high-ROI/next-batch`；
+`B1011-ENCLOSINGCALLABLERELATIONNAV1=implemented/exact-read-queue+result-consumer-chain+15-language-pins`；
 `B1007/B1008=production-positive-r640`；
 `Trace explicit-window/causal projection/auto-supplement=preserved`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

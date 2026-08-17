@@ -41,6 +41,44 @@ func AssignmentEvidenceEndpoints(item EvidenceItem) (receiver, value string, ok 
 	return receiver, value, true
 }
 
+// AssignmentNavigationReceiverCandidates returns the exact receiver surfaces
+// written by one simple assignment/initializer source line.  Unlike
+// AssignmentEvidenceEndpoints it may return every receiver of a tuple/multi-
+// result assignment because navigation can safely follow each candidate to a
+// later source operation; callers MUST NOT treat this roster as relation or
+// answer authority.  Unsupported/destructured/chained syntax fails closed.
+func AssignmentNavigationReceiverCandidates(item EvidenceItem) []string {
+	if item.AnchorKind != AnchorAssignment && item.AnchorKind != AnchorInitializer {
+		return nil
+	}
+	lhs, rhs, ok := assignmentEvidenceSourceSides(item)
+	if !ok {
+		return nil
+	}
+	if _, parsed := assignmentPrimaryValueSurface(rhs); !parsed {
+		return nil
+	}
+	if receiver, parsed := assignmentReceiverSurface(lhs); parsed {
+		return []string{receiver}
+	}
+	lhs = assignmentUnwrapOuterTuple(strings.TrimSpace(lhs))
+	parts, ok := assignmentSplitTopLevelComma(lhs)
+	if !ok || len(parts) < 2 {
+		return nil
+	}
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		receiver, parsed := assignmentReceiverSurface(part)
+		if !parsed || seen[receiver] {
+			return nil
+		}
+		seen[receiver] = true
+		out = append(out, receiver)
+	}
+	return out
+}
+
 func assignmentSelectedTupleReceiver(item EvidenceItem, lhs string) (string, bool) {
 	lhs = assignmentUnwrapOuterTuple(strings.TrimSpace(lhs))
 	parts, ok := assignmentSplitTopLevelComma(lhs)

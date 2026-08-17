@@ -1393,6 +1393,106 @@ func TestFlowOperationNavigationPrefersCarrierHandoffOwnedByAnotherMissingPartic
 	}
 }
 
+func TestFlowOperationNavigationAdvancesThroughSameCallableResultConsumersAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			path := filepath.ToSlash(filepath.Join("src", language, "dispatcher.src"))
+			lines := make([]string, 70)
+			lines[0] = "run dispatcher"
+			lines[9] = "agentContext := builder.Build(this.busContext, stage)"
+			lines[29] = "output, err := agent.Execute(agentContext, skill)"
+			lines[49] = "pipeline.Apply(output)"
+			absolute := filepath.Join(repo, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{{
+					Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+				}},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				path: {
+					RelPath: path, Language: language,
+					Symbols: []repotypes.Symbol{
+						{Name: "busContext", Parent: "Pipeline", DeclaredType: "BusContext", Line: 2},
+						{Name: "run", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 70},
+					},
+					Relations: []repotypes.Relation{
+						{
+							Kind: "call", File: path, Line: 10,
+							FromEP: repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 10},
+							ToEP:   repotypes.RelationEndpoint{Name: "Build", Receiver: "builder", Line: 10},
+						},
+						{
+							Kind: "call", File: path, Line: 30,
+							FromEP: repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 30},
+							ToEP:   repotypes.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 30},
+						},
+						{
+							Kind: "call", File: path, Line: 50,
+							FromEP: repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 50},
+							ToEP:   repotypes.RelationEndpoint{Name: "Apply", Receiver: "pipeline", Line: 50},
+						},
+					},
+				},
+			}))
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{path: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				path: {{Start: 1, End: 22}},
+			})
+			ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+				flowOperationEvidence(types.AnchorCall, "BusContext", "helper.Read", 5),
+			})
+			files, keywords := flowOperationRepairTargets(ctx, []string{"BusContext"}, ctx.Mutable.EmittedEvidence())
+			hint := flowParticipantCoverageNavigationHint(
+				ctx, []string{"BusContext"}, ctx.Mutable.EmittedEvidence(), files, keywords,
+			)
+			if !strings.Contains(hint, "Exact next navigation step") ||
+				!strings.Contains(hint, "lines 18-42") {
+				t.Fatalf("%s participant repair must retain the exact continuation read:\n%s", language, hint)
+			}
+			queueFlowParticipantCoverageRepair(ctx, []string{"BusContext"}, ctx.Mutable.EmittedEvidence())
+			var queued bool
+			for _, repair := range ctx.Mutable.EvidenceClosure().ActiveRepairs() {
+				if repair.Kind == types.RepairReadFile && strings.Contains(repair.Origin, types.RepairOriginFlowNavigationPrefix) &&
+					len(repair.LineRanges) == 1 && repair.LineRanges[0] == (types.LineRange{Start: 18, End: 42}) {
+					queued = true
+				}
+			}
+			if !queued {
+				t.Fatalf("%s participant repair did not queue the exact result consumer: %+v", language, ctx.Mutable.EvidenceClosure().ActiveRepairs())
+			}
+
+			first, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || first.file != path || first.lineRange != (types.LineRange{Start: 18, End: 42}) || first.alreadyRead {
+				t.Fatalf("%s first continuation must read the exact result consumer: ok=%t target=%+v", language, ok, first)
+			}
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				path: {{Start: 18, End: 42}},
+			})
+			second, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || second.file != path || second.lineRange != (types.LineRange{Start: 38, End: 62}) || second.alreadyRead {
+				t.Fatalf("%s second continuation must read result application: ok=%t target=%+v", language, ok, second)
+			}
+			if got := ctx.Mutable.EmittedEvidence(); len(got) != 1 || got[0].Subject != "BusContext" {
+				t.Fatalf("same-callable continuation navigation must not manufacture evidence: %+v", got)
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrelatedCarrierArgument(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{

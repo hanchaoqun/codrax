@@ -1,6 +1,7 @@
 package types
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -100,6 +101,38 @@ func TestAssignmentEvidenceEndpointsSelectsExactReceiverFromMultiResultAssignmen
 				t.Fatalf("endpoints=(%q,%q,%t), want (%q,%q,true)", receiver, value, ok, tc.wantReceiver, tc.wantValue)
 			}
 		})
+	}
+}
+
+func TestAssignmentNavigationReceiverCandidatesPreservesSimpleAndMultiResultReceivers(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		anchor  AnchorKind
+		snippet string
+		want    []string
+	}{
+		{name: "go simple", anchor: AnchorAssignment, snippet: "agentCtx := BuildAgentContext(busCtx, stage)", want: []string{"agentCtx"}},
+		{name: "go multi result", anchor: AnchorAssignment, snippet: "output, err := agent.Execute(agentCtx, skill)", want: []string{"output", "err"}},
+		{name: "python tuple", anchor: AnchorAssignment, snippet: "output, err = agent.execute(agent_ctx)", want: []string{"output", "err"}},
+		{name: "arkts property", anchor: AnchorAssignment, snippet: "this.output = agent.execute(agentContext)", want: []string{"this.output"}},
+		{name: "cangjie simple", anchor: AnchorAssignment, snippet: "let output = agent.execute(agentContext)", want: []string{"output"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := AssignmentNavigationReceiverCandidates(EvidenceItem{AnchorKind: tc.anchor, Snippet: tc.snippet})
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("receiver candidates=%v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	for _, snippet := range []string{
+		"left = right = build()",
+		"{left, right} = build()",
+		"output = first() + second()",
+	} {
+		if got := AssignmentNavigationReceiverCandidates(EvidenceItem{AnchorKind: AnchorAssignment, Snippet: snippet}); len(got) != 0 {
+			t.Fatalf("unsupported assignment must fail closed, snippet=%q got=%v", snippet, got)
+		}
 	}
 }
 

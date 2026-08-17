@@ -3703,7 +3703,11 @@ func flowParticipantCoverageNavigationHint(
 	if !flowMissingParticipantsHaveLocalOperations(ctx, evidence, missing) {
 		return flowOperationNavigationHintForMissing(ctx, missing, files, keywords)
 	}
-	base := flowOperationNavigationHint(files, keywords)
+	// Local operations prove that each participant exists, not that the
+	// requested path between them has been investigated. Keep using the exact
+	// parser-owned next coordinate here; falling back to a broad stem search at
+	// this point made completion repeatedly revisit the first local operation.
+	base := flowOperationNavigationHintForMissing(ctx, missing, files, keywords)
 	relationFocus := "Relation-focused navigation: every missing participant already has a separate typed local operation, so do not collect another local member call/return merely for coverage. Inspect the typed surrounding-context stems and shared exact operation endpoints for one direct or multi-hop component joining different requested participants; emit only a verified connecting operation. If no such bridge is proved in this bounded pass, keep the requested relation unproven."
 	if base == "" {
 		return relationFocus
@@ -3724,11 +3728,9 @@ func queueFlowParticipantCoverageRepair(ctx *types.BusContext, missing []string,
 	}
 	rationale := flowParticipantCoverageRepairHintForMissing(ctx, missing, evidence,
 		flowParticipantCoverageRepairBase(missing), files, keywords)
-	if !flowMissingParticipantsHaveLocalOperations(ctx, evidence, missing) {
-		queueFlowOperationNavigationRead(ctx, missing,
-			fmt.Sprintf("Read this bounded parser-owned occurrence for typed participant(s) %v, then emit only the exact verified operation or keep the requested relation unproven; the navigation row itself is not relation evidence.", missing),
-			"participant", types.DowngradeLaneFlowParticipantCoverage)
-	}
+	queueFlowOperationNavigationRead(ctx, missing,
+		fmt.Sprintf("Read this bounded parser-owned occurrence for typed participant(s) %v, then follow any exact result consumer in the same enclosing callable; emit only verified operations or keep the requested relation unproven. Navigation rows are not relation evidence.", missing),
+		"participant", types.DowngradeLaneFlowParticipantCoverage)
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 		Kind:          types.RepairExpandSearch,
 		Files:         files,
@@ -3831,12 +3833,12 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 	}
 	if target.alreadyRead {
 		return fmt.Sprintf(
-			"Exact operation extraction step (not relation evidence): the bounded source window path=%q lines=%d-%d is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call, then emit only the exact syntax-owned operation you verify; if it proves no requested relation, keep the relation unproven.",
+			"Exact operation extraction step (not relation evidence): the bounded source window path=%q lines=%d-%d is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call. If the operation creates a local result, continue through its later consumer/result-application operations in the same enclosing callable instead of stopping at this first occurrence. Emit only exact syntax-owned operations you verify; if they prove no requested relation, keep the relation unproven.",
 			target.file, target.lineRange.Start, target.lineRange.End,
 		)
 	}
 	return fmt.Sprintf(
-		"Exact next navigation step (not relation evidence): call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d). Do not run a broad repo_map/grep first. Inspect that bounded source window, then emit only the exact syntax-owned operation you verify; if it proves no requested relation, keep the relation unproven.",
+		"Exact next navigation step (not relation evidence): call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d). Do not run a broad repo_map/grep first. Inspect that bounded source window and, when it consumes a prior local result, preserve that handoff as its own candidate relation before following any newly created result to its later consumer/result application. Emit only exact syntax-owned operations you verify; if they prove no requested relation, keep the relation unproven.",
 		target.file, target.lineRange.Start-1, limit, target.lineRange.Start, target.lineRange.End,
 	)
 }
