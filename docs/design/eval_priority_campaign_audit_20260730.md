@@ -35927,6 +35927,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.988 r612/B969：真实调用 owner 在 parser 图中存在却未进入关系导航（2026-08-17）
+
+1. 在已推送 `main@4c803413e` 严格并发恰好两个案例：读模式 `qf_logic_view_read_pipeline` 与写模式
+   `github_issue_zod_prefault`。Runner `1 PASS / 1 honest-unverified`；人工为 `qf-partial + write-pass-with-caveat`。
+   详见 `eval/parallel_selected_summary_evalcampaign_readclosure_write_r612_20260817.md` 及 `_manual_audit.md`。
+2. 写案例的两处变更正确且无重复：`_prefault` truthiness 改为字段存在性判断，新增 false、0、空串三条回归测试。
+   当前环境没有 Node，行为 probe 为 `runner_missing`，`make check` 仅给两个 TypeScript path
+   `capability=source_static`；最终 deterministic verdict 诚实为 `unverified/proof_weak`。Controller 明知静态覆盖不等于
+   行为仍选 `all_verified` 是模型服从问题，后置 typed 兜底正常；不为 eval 变绿降低验证杆。
+3. QF 反而从 r611 的 319s/13 reads/4 次 completion attempt 退到 371s/16 reads/6 attempts。首次和第二次 exact
+   repair 均进入 `answer_document_pre_emit_check.go` 的系统校验路径；模型把 `ctx.Mutable.EmittedEvidence()` 局部读取
+   误述为 extractor→finalizer 交接，并引用 `two_turn_e2e_test.go` mock 补生产关系。最终 typed validator 正确只保留三条
+   stage precedence，Mutable/BusContext 仍显式 unproven；正文继续越界，归 `B965`。
+4. `B968` 的“已读≠已提取”修复没有获得生产正证，因为更早的候选身份排序已选错。对真实 repomap 图亲验发现：
+   `extractor.go:262 ctx.Mutable.TurnAArtifacts()` 的 call relation `FromEP` 为空；但同一 `FileInfo.Symbols` 精确包含
+   `extractorEvaluator.BuildInitialInstruction line=241..631`。导航器只读 relation endpoint，没有利用 parser 已有的最小
+   enclosing callable，导致真实 operation 只命中 Mutable 一组，与任意通用 BusContext use 同分，再被 carrierRank 压过。
+5. 新确认并施工 `B969-PARSERENCLOSINGOWNER1/P1`。构建 run-local flow navigation index 时，复用既有
+   `lookupEnclosingFunction` 从 universal `function|method + Line..EndLine` 恢复 operation owner；owner surfaces 同时进入
+   relation 索引与 participant-touch 排序。于是 `extractorEvaluator.BuildInitialInstruction + ctx.Mutable.TurnAArtifacts`
+   命中两个独立 participant group，优先于校验器只命中 BusContext/Mutable 的局部 use。
+6. 对请求中的短 stage/component label，新增严格 lexical-token 辅助索引：只有请求 surface 自身恰为单 token 且长度≥4
+   时，才可匹配 enclosing callable 的同一 camel/snake/separator token（`extractor`→`extractorEvaluator`）；
+   `BusContext` 等复合身份不会拆成 `context` 扩搜。它只提供有界 read coordinate，不升级 source identity，不生成
+   EvidenceItem、关系边、图或答案。
+7. 索引 cache key 升为 v3，避免同 run 旧衍生索引复用。新增两类 pin：空 FromEP + enclosing method 对无关 carrier，
+   以及全部支持读语言（含 ArkTS/Cangjie）的 universal graph contract 矩阵；真实关系仍必须由模型读源码并发射，找不到时
+   继续 unproven。
+8. Trace 零改动。显式窗、因果投影、自动补齐、链上-only 主因、实际占时/业务线索与规则可消除量双轴保持；邻近/
+   背景不能晋升主因，活跃字节流不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`r612 runner=1-pass+1-honest-unverified/human=qf-partial+write-pass-with-caveat`；
+`B968-READCLOSUREEXTRACTION1=implemented/pending-production-positive`；
+`B969-PARSERENCLOSINGOWNER1=implemented/universal-symbol-range+token-index/pins-pass/pending-replay`；
+`B965-MODELBOUNDARYADHERENCE1=observed-r612/context-precise/no-prose-hard-gate`；
+`write-source-static-boundary=honest-unverified`；
+`Trace explicit-window causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

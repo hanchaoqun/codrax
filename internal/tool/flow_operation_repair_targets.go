@@ -17,7 +17,7 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
-	flowNavigationIndexCacheKey    = "flow_navigation_index:v2"
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v3"
 )
 
 type flowOperationRepairReadTarget struct {
@@ -31,8 +31,9 @@ type flowOperationRepairReadTarget struct {
 }
 
 type flowParserRelationSite struct {
-	file     string
-	relation *repotypes.Relation
+	file          string
+	relation      *repotypes.Relation
+	ownerSurfaces []string
 }
 
 type flowParserSymbolSite struct {
@@ -46,6 +47,14 @@ type flowDeclaredBindingSite struct {
 	declaredType string
 }
 
+type flowNavigationCallableOwner struct {
+	name         string
+	receiver     string
+	line         int
+	endLine      int
+	prefixMaxEnd int
+}
+
 // flowNavigationIndex is a graph-derived, navigation-only index. It replaces
 // repeated whole-repository symbol/relation scans during completion retries.
 // Candidate lookup is exact after language-neutral case/separator folding;
@@ -56,6 +65,7 @@ type flowDeclaredBindingSite struct {
 type flowNavigationIndex struct {
 	symbolsByKey         map[string][]flowParserSymbolSite
 	relationsByKey       map[string][]flowParserRelationSite
+	relationsByToken     map[string][]flowParserRelationSite
 	relationsByFile      map[string][]flowParserRelationSite
 	sourceLinesMu        sync.Mutex
 	sourceLinesByFile    map[string]map[int]string
@@ -76,6 +86,7 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 	index := &flowNavigationIndex{
 		symbolsByKey:         make(map[string][]flowParserSymbolSite),
 		relationsByKey:       make(map[string][]flowParserRelationSite),
+		relationsByToken:     make(map[string][]flowParserRelationSite),
 		relationsByFile:      make(map[string][]flowParserRelationSite),
 		sourceLinesByFile:    make(map[string]map[int]string),
 		sourceLinesAttempted: make(map[string]bool),
@@ -100,6 +111,7 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 				index.symbolsByKey[key] = append(index.symbolsByKey[key], site)
 			}
 		}
+		callableOwners := flowNavigationCallableOwners(file.Symbols)
 		for i := range file.Relations {
 			relation := &file.Relations[i]
 			switch relation.Kind {
@@ -107,22 +119,40 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 			default:
 				continue
 			}
+			line := relation.Line
+			if line <= 0 {
+				line = max(relation.FromEP.Line, relation.ToEP.Line)
+			}
 			site := flowParserRelationSite{
-				file:     canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, file.RelPath, path)),
-				relation: relation,
+				file:          canonicalRelationSourcePath(firstNonEmptyFlowRepairString(relation.File, file.RelPath, path)),
+				relation:      relation,
+				ownerSurfaces: flowNavigationEnclosingCallableSurfaces(callableOwners, line),
 			}
 			if site.file != "" {
 				index.relationsByFile[site.file] = append(index.relationsByFile[site.file], site)
 			}
 			seenKeys := make(map[string]bool)
-			for _, key := range flowNavigationSurfaceKeys(
-				append(flowRepairRelationEndpointSurfaces(relation.FromEP), flowRepairRelationEndpointSurfaces(relation.ToEP)...)...,
-			) {
+			operationSurfaces := append(
+				flowRepairRelationEndpointSurfaces(relation.FromEP),
+				flowRepairRelationEndpointSurfaces(relation.ToEP)...,
+			)
+			operationSurfaces = append(operationSurfaces, site.ownerSurfaces...)
+			for _, key := range flowNavigationSurfaceKeys(operationSurfaces...) {
 				if seenKeys[key] {
 					continue
 				}
 				seenKeys[key] = true
 				index.relationsByKey[key] = append(index.relationsByKey[key], site)
+			}
+			seenTokens := make(map[string]bool)
+			for _, surface := range site.ownerSurfaces {
+				for _, token := range flowNavigationIdentityTokens(surface) {
+					if len(token) < 4 || seenTokens[token] {
+						continue
+					}
+					seenTokens[token] = true
+					index.relationsByToken[token] = append(index.relationsByToken[token], site)
+				}
 			}
 		}
 	}
@@ -175,7 +205,116 @@ func flowNavigationRelationSites(index *flowNavigationIndex, surfaces []string) 
 			out = append(out, site)
 		}
 	}
+	// A request-visible stage/component label may be a whole lexical token
+	// inside its implementation type (`extractor` -> `extractorEvaluator`).
+	// Query only when the requested surface itself is exactly one token; a
+	// compound identity such as BusContext never fans out through `context`.
+	// This is a bounded navigation alias, not identity or relation authority.
+	for _, surface := range surfaces {
+		tokens := flowNavigationIdentityTokens(surface)
+		if len(tokens) != 1 || len(tokens[0]) < 4 || flowRepairPlanningKey(surface) != tokens[0] {
+			continue
+		}
+		for _, site := range index.relationsByToken[tokens[0]] {
+			if site.relation == nil || seen[site.relation] {
+				continue
+			}
+			seen[site.relation] = true
+			out = append(out, site)
+		}
+	}
 	return out
+}
+
+// flowNavigationCallableOwners builds a per-file interval index for the
+// universal function/method symbols emitted by every supported parser.
+func flowNavigationCallableOwners(symbols []repotypes.Symbol) []flowNavigationCallableOwner {
+	owners := make([]flowNavigationCallableOwner, 0, len(symbols))
+	for _, symbol := range symbols {
+		if (symbol.Kind != "function" && symbol.Kind != "method") || symbol.Line <= 0 || symbol.EndLine < symbol.Line {
+			continue
+		}
+		owners = append(owners, flowNavigationCallableOwner{
+			name: strings.TrimSpace(symbol.Name), receiver: strings.TrimSpace(symbol.Receiver),
+			line: symbol.Line, endLine: symbol.EndLine,
+		})
+	}
+	sort.SliceStable(owners, func(i, j int) bool {
+		if owners[i].line != owners[j].line {
+			return owners[i].line < owners[j].line
+		}
+		return owners[i].endLine > owners[j].endLine
+	})
+	prefixMaxEnd := 0
+	for i := range owners {
+		prefixMaxEnd = max(prefixMaxEnd, owners[i].endLine)
+		owners[i].prefixMaxEnd = prefixMaxEnd
+	}
+	return owners
+}
+
+// flowNavigationEnclosingCallableSurfaces recovers the parser-owned operation
+// owner when a language extractor leaves Relation.FromEP empty. The innermost
+// enclosing function/method range wins; no filename, request prose, or model
+// answer text participates. These surfaces guide source navigation only.
+func flowNavigationEnclosingCallableSurfaces(owners []flowNavigationCallableOwner, line int) []string {
+	if line <= 0 || len(owners) == 0 {
+		return nil
+	}
+	idx := sort.Search(len(owners), func(i int) bool { return owners[i].line > line }) - 1
+	var selected flowNavigationCallableOwner
+	for idx >= 0 {
+		candidate := owners[idx]
+		if candidate.endLine >= line {
+			selected = candidate
+			break
+		}
+		if candidate.prefixMaxEnd < line {
+			break
+		}
+		idx--
+	}
+	if selected.name == "" {
+		return nil
+	}
+	owner := selected.name
+	if selected.receiver != "" {
+		owner = selected.receiver + "." + selected.name
+	}
+	out := []string{owner, selected.receiver, selected.name}
+	return appendUniqueBounded(nil, out, maxFlowOperationRepairKeywords)
+}
+
+// flowNavigationIdentityTokens splits language-neutral identifier boundaries
+// for the SOFT relation index. It handles separators plus lower/digit→upper
+// camel transitions; exact compound identities remain queried by their full
+// key and are never broadened to individual tokens.
+func flowNavigationIdentityTokens(raw string) []string {
+	var tokens []string
+	var current []rune
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		token := strings.ToLower(string(current))
+		tokens = appendUniqueBounded(tokens, []string{token}, maxFlowOperationRepairKeywords)
+		current = current[:0]
+	}
+	var previous rune
+	for _, r := range strings.TrimSpace(raw) {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			previous = 0
+			continue
+		}
+		if len(current) > 0 && unicode.IsUpper(r) && (unicode.IsLower(previous) || unicode.IsDigit(previous)) {
+			flush()
+		}
+		current = append(current, r)
+		previous = r
+	}
+	flush()
+	return tokens
 }
 
 // flowNavigationSourceLines loads one parser-indexed source file only after a
@@ -594,7 +733,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			continue
 		}
 		relation := site.relation
-		from := flowRepairRelationEndpointSurfaces(relation.FromEP)
+		from := append(flowRepairRelationEndpointSurfaces(relation.FromEP), site.ownerSurfaces...)
 		to := flowRepairRelationEndpointSurfaces(relation.ToEP)
 		matchRank := max(
 			flowRepairPlanningSurfaceMatchRank(surfaces, from),
@@ -625,7 +764,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				alreadyRead: closure.HasReadLine(file, line),
 			},
 			participantTouchRank: flowNavigationRequestedParticipantTouchRank(
-				relation, flowDeclaredBindingSite{}, participantSurfaceGroups,
+				relation, flowDeclaredBindingSite{}, site.ownerSurfaces, participantSurfaceGroups,
 			),
 			matchRank: matchRank,
 			kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
@@ -685,7 +824,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					alreadyRead: closure.HasReadLine(binding.file, line),
 				},
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
-					relation, binding, participantSurfaceGroups,
+					relation, binding, site.ownerSurfaces, participantSurfaceGroups,
 				),
 				carrierRank: 1,
 				handoffRank: flowNavigationCarrierHandoffRank(relation, binding.alias),
@@ -742,6 +881,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 func flowNavigationRequestedParticipantTouchRank(
 	relation *repotypes.Relation,
 	binding flowDeclaredBindingSite,
+	ownerSurfaces []string,
 	participantSurfaceGroups [][]string,
 ) int {
 	if relation == nil || len(participantSurfaceGroups) == 0 {
@@ -752,6 +892,7 @@ func flowNavigationRequestedParticipantTouchRank(
 		flowRepairRelationEndpointSurfaces(relation.FromEP),
 		flowRepairRelationEndpointSurfaces(relation.ToEP)...,
 	)
+	endpoints = append(endpoints, ownerSurfaces...)
 	touched := 0
 	for _, group := range participantSurfaceGroups {
 		if len(group) == 0 {
@@ -873,7 +1014,7 @@ func flowRepairParserRelationTargets(ctx *types.BusContext, rm types.RequestMode
 			continue
 		}
 		relation := site.relation
-		from := flowRepairRelationEndpointSurfaces(relation.FromEP)
+		from := append(flowRepairRelationEndpointSurfaces(relation.FromEP), site.ownerSurfaces...)
 		to := flowRepairRelationEndpointSurfaces(relation.ToEP)
 		if !flowRepairAnyPlanningSurfaceMatches(surfaces, from) &&
 			!flowRepairAnyPlanningSurfaceMatches(surfaces, to) {

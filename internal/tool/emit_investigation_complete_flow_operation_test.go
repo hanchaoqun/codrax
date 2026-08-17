@@ -1031,10 +1031,15 @@ func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrela
 		},
 		"internal/agent/extractor.go": {
 			RelPath: "internal/agent/extractor.go", Language: repotypes.LangGo,
-			Symbols: []repotypes.Symbol{{Name: "ctx", Kind: "parameter", Parent: "extractorEvaluator.run", DeclaredType: "*BusContext", Line: 2}},
+			Symbols: []repotypes.Symbol{
+				{Name: "run", Kind: "method", Receiver: "extractorEvaluator", Line: 2, EndLine: 4},
+				{Name: "ctx", Kind: "parameter", Parent: "extractorEvaluator.run", DeclaredType: "*BusContext", Line: 2},
+			},
 			Relations: []repotypes.Relation{{
 				Kind: "call", File: "internal/agent/extractor.go", Line: 3,
-				FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "extractorEvaluator", Line: 3},
+				// Several language extractors leave FromEP empty on member calls;
+				// the exact enclosing method range is the parser-owned owner.
+				FromEP:     repotypes.RelationEndpoint{Line: 3},
 				ToEP:       repotypes.RelationEndpoint{Name: "TurnAArtifacts", Receiver: "ctx.Mutable", Line: 3},
 				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_call",
 			}},
@@ -1048,6 +1053,44 @@ func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrela
 	}
 	if len(ctx.Mutable.EmittedEvidence()) != 0 {
 		t.Fatal("multi-participant navigation rank must not manufacture relation evidence")
+	}
+}
+
+func TestFlowOperationNavigationFindsSingleTokenComponentThroughEnclosingCallable(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			ctx := flowOperationCompletionContext(nil)
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "extractor", ResolvedAs: "extractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			path := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				path: {
+					RelPath: path, Language: language,
+					Symbols: []repotypes.Symbol{{Name: "Build", Kind: "method", Receiver: "extractorEvaluator", Line: 10, EndLine: 30}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: path, Line: 20,
+						FromEP:     repotypes.RelationEndpoint{Line: 20},
+						ToEP:       repotypes.RelationEndpoint{Name: "Load", Receiver: "snapshot", Line: 20},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "parser_call",
+					}},
+				},
+			}))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"extractor"})
+			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 8, End: 32}) {
+				t.Fatalf("single-token participant should navigate through parser-owned enclosing callable: ok=%t target=%+v", ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("enclosing-callable navigation must not manufacture relation evidence")
+			}
+		})
 	}
 }
 
