@@ -214,6 +214,57 @@ func TestBuildExactResolutionContract_MultiKeyConfigComparisonKeepsExplicitTarge
 	}
 }
 
+func TestBuildExactResolutionContract_MultiKeyConfigComparisonKeepsMentionedTargets(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "比较 pipeline_max_steps 和 pipeline_max_retries_per_stage 的配置优先级；PipelineMaxSteps 只是实现提示。",
+		Intent:     IntentConfigQuery,
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqConfigMapping),
+			PrimaryEntities: []string{
+				"pipeline_max_steps",
+				"pipeline_max_retries_per_stage",
+				"PipelineMaxSteps",
+			},
+			MentionedEntities: []string{
+				"pipeline_max_steps",
+				"pipeline_max_retries_per_stage",
+				"PipelineMaxSteps",
+			},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want mentioned multi-key config contract")
+	}
+	// The implementation spelling is a normalized alias of the first key,
+	// not a third user-visible setting.
+	want := []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"}
+	if !reflect.DeepEqual(got.Targets, want) {
+		t.Fatalf("Targets = %v, want all current-request-mentioned config targets %v", got.Targets, want)
+	}
+}
+
+func TestBuildExactResolutionContract_MultipleMentionedSymbolsRemainAmbiguous(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "比较 BuildExactResolutionContract 和 ExactResolutionTargets",
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqMechanism),
+			PrimaryEntities:   []string{"BuildExactResolutionContract", "ExactResolutionTargets"},
+			MentionedEntities: []string{"BuildExactResolutionContract", "ExactResolutionTargets"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+	}
+
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("non-config multi-symbol lookup must remain opt-in via exact_targets, got %+v", got)
+	}
+}
+
 func TestBuildExactResolutionContract_ConfigTraceFiltersPathLikeExactTargetsEvenWhenAnswerSubjectDrifts(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",

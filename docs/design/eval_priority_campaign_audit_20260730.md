@@ -36012,6 +36012,55 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1017 r648：多配置键被“歧义”清空 exact carrier；静态写验证诚实降级（2026-08-17）
+
+1. 在 `main@d1a24b06d` 严格并发恰好两个异构案例：
+   `read_combo_config_two_knobs_precedence + github_issue_zod_prefault`。Runner `0/2 PASS`；人工为
+   Config fail、Write pass（带诚实 unverified 边界）。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_config_write_r648_20260817_manual_audit.md`。
+2. B1019 获生产闭环正证：Config 不再发射 alias/not-found 伪头行，日志也没有把模型的
+   `resolved` 自动改成 `absence`。正向源码证据覆盖旧否定状态的单调性修复有效。
+3. Config 的新失败不是答案措辞波动：`pipeline_max_steps` 正确给出 50，
+   `pipeline_max_retries_per_stage` 却把下游 `dynamicAnalyzeRetries(base<1)=1` 当成代码默认值，漏掉
+   `cmd/root.go:3147` 的生产初始化 `MaxRetriesPerStage: 3`。Explorer 已收到“默认值必须来自生产
+   initializer/constructor/constant”的软纪律，但多次窄正则仍未读取真正初始化点，随后三个 completion
+   尝试均用三层 `member_set` 代替逐键 `scalar_value(layer=code_default)`，错误进入终稿。
+4. 根因 B1021（P1）与 B1018 合流：Analyzer 的 typed 输出包含两个当前请求明确命名的 snake-case
+   配置键和四个展示维度，却未发 `exact_targets/exact_context_roles`；旧
+   `ExactResolutionTargets` 对隐式 mentioned lane 只接受恰好一个候选，两个用户键会被当成一般符号
+   歧义整体清空。因此 semantic view 为 `exact_resolution_present=false`，单键已有的精确补齐能力在
+   有限多键比较中反而消失。
+5. 第一批根修只消费 typed/provenance 载体：当 question family 是 `config_mapping/config_trace` 时，
+   允许保留多个已经过 `MentionedEntities` 当前请求来源验证、且通过 config-key 结构筛选的目标；普通
+   多符号 lookup 仍要求 analyzer 显式 `exact_targets`。CamelCase 实现别名继续按同一 config key
+   规范去重，不扩成第三个配置项。
+6. 同批修正角色接线时序：`emit_analysis` 不再因为 scenario 尚为 generic 而提前丢弃
+   `exact_context_roles`；typed `question_kind=config_mapping + request-grounded exact_targets` 已足以保留
+   角色，随后编译器既有 `intent=config_query → scenario=config_trace` 推导再决定消费。没有从用户原文、
+   模型推理或答案正文扫描“默认/CLI”等关键词，也没有由系统编造角色、数值或结论。
+7. Zod 写案例的源码、测试与 `make check` 均正确。最终 unverified 的精确原因是 changed production
+   path 只有 `capability=source_static`，且当前 eval 进程的 PATH 中没有 Node；已有 direct-runtime
+   proof follow-up 因真实运行时不可用而不应触发。这里 runner 的 all-verified 期望与环境能力不一致，
+   不能以降低验证杆、脚本包装别的编译器或伪造 target execution 修复。
+8. B1020 再次出现：模型主表后有空说明表和两块清单补充，属于 typed aggregate/block ownership 的
+   重复展示债。本轮不按具体 label/text 做删除硬门，继续等异构复现后处理。
+9. 新专项 pin 覆盖：多 mentioned config key 保留、CamelCase alias 去重、普通多 symbol 仍歧义关闭，
+   以及 generic 阶段的 config_mapping context roles 不被提前丢弃。显式时间窗、Trace 因果投影、系统
+   自动补齐、链上-only 主因、背景 support-only 与模型结论权均未修改；活跃流无固定 4ms 降级。
+
+状态：
+
+`r648=runner-0/2+human-config-fail/write-pass-unverified`；
+`B1019-POSITIVEEVIDENCEABSENCEMONOTONICITY1=production-closed-r648`；
+`B1018-MULTIKEYEXACTCARRIERDRIFT1=confirmed/rooted-in-implicit-multitarget-ambiguity`；
+`B1021-CONFIGMULTITARGETEXACTRESOLUTION1=implemented/typed-provenance-pins-pass/pending-production-replay`；
+`B1020-CONFIGAGGREGATETABLEDUPLICATION1=reproduced/P2-open`；
+`WRITE-SOURCE-STATIC-WITHOUT-RUNTIME=expected-honest-unverified/no-code-change`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：

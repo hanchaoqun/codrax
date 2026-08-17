@@ -104,6 +104,19 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	case 1:
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), candidates)
 	default:
+		// A finite config comparison legitimately has more than one exact
+		// target.  Unlike a general symbol lookup, every candidate in this
+		// lane was already copied from the current request into
+		// MentionedEntities and filtered through the config-key subject
+		// matcher above.  Treating that precise set as "ambiguous" disables
+		// exact-resolution and its source-completion path exactly when the
+		// user asks to compare two or more knobs.  Keep the conservative
+		// single-target rule for every other subject family.
+		if exactResolutionSubjectLabel(rm) == "config key" &&
+			(strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") ||
+				rm.Scenario == ScenarioConfigTrace) {
+			return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), candidates)
+		}
 		// Multiple raw-request-mentioned entities is ambiguous unless the
 		// analyzer explicitly disambiguated via exact_targets.
 		return nil

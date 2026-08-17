@@ -4136,6 +4136,47 @@ func TestEmitAnalysis_ConfigTraceProductionTextHitDoesNotMarkTargetUnverified(t 
 	}
 }
 
+func TestEmitAnalysis_ConfigMappingPreservesContextRolesBeforeScenarioInference(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	key := "pipeline_max_retries_per_stage"
+	mu := types.NewMutableState("比较 " + key + " 的默认配置和覆盖层")
+	payload := `{
+		"intent": "config_query",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["pipeline", "retries", "config"],
+		"entities": ["` + key + `"],
+		"question_kind": "config_mapping",
+		"answer_subject": {"kind": "config_key"},
+		"exact_targets": ["` + key + `"],
+		"exact_context_roles": ["default", "config", "override"]
+	}`
+
+	tool := &EmitAnalysis{}
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	want := []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleDefault,
+		types.EvidenceDiagramRoleConfig,
+		types.EvidenceDiagramRoleOverride,
+	}
+	if !reflect.DeepEqual(rm.AnalyzerHints.ExactContextRoles, want) {
+		t.Fatalf("ExactContextRoles = %v, want %v", rm.AnalyzerHints.ExactContextRoles, want)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
 	mu := types.NewMutableState("trace Dispatch to Handler path")
 	payload := `{

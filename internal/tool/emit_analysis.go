@@ -6467,7 +6467,13 @@ func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSu
 	if len(exactTargets) == 0 {
 		return nil, "dropped exact_context_roles because exact_targets were absent or ambiguous"
 	}
-	if scenario != types.ScenarioConfigTrace {
+	// The analyzer compiler deterministically infers config_trace from the
+	// typed config_query/config_mapping lane after this tool returns.  Do not
+	// discard roles before that inference merely because the model left the
+	// optional scenario enum at generic.  Exact targets are still mandatory
+	// and request-provenance validated, so this widens no raw-text authority.
+	if scenario != types.ScenarioConfigTrace &&
+		!strings.EqualFold(strings.TrimSpace(analyzerKind), "config_mapping") {
 		return nil, "dropped exact_context_roles because this request is not a config-trace exact-target question"
 	}
 	if subjectKind != types.SubjectUnknown &&
