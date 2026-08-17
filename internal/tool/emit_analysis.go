@@ -6100,7 +6100,10 @@ func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, r
 	probePolicy.CurrentSourceMode = types.ExternalObservationCurrentSourceDefault
 	probePolicy.ExclusionKind = types.ExternalObservationSourceExclusionNone
 	probe.ExternalObservationPolicy = &probePolicy
-	if probe.CurrentSourceLaneDecision().RequiresCurrentSource() {
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
+		RequestModel: &probe,
+	})
+	if authority.CurrentSourceRequired {
 		return ""
 	}
 

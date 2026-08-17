@@ -1133,7 +1133,7 @@ func turnPolicyResp(payload string) llm.Response {
 func TestClassifyPolicy_LocalTransform(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"local","needs_repo_access":false,"operation":"transform","source":"last_answer","confidence":0.92,"reason":"transformation of previous answer","presentation_directive":"mermaid 流程图","requires_diagram":true}`),
+			turnPolicyResp(`{"route":"local","needs_repo_access":false,"operation":"transform","source":"last_answer","confidence":0.92,"reason":"transformation of previous answer","presentation_directive":"mermaid 图例","requires_diagram":true}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1148,7 +1148,7 @@ func TestClassifyPolicy_LocalTransform(t *testing.T) {
 	if policy.Operation != "transform" {
 		t.Errorf("Operation: got %q, want transform", policy.Operation)
 	}
-	if policy.PresentationDirective != "mermaid 流程图" {
+	if policy.PresentationDirective != "mermaid 图例" {
 		t.Errorf("PresentationDirective: got %q", policy.PresentationDirective)
 	}
 	if !policy.RequiresDiagram {
@@ -1186,8 +1186,8 @@ func TestClassifyPolicy_LocalTransform(t *testing.T) {
 func TestClassifyPolicy_RepairsMissingDiagramAuthorityOnce(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"Mermaid sequenceDiagram"}`),
-			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"Mermaid sequenceDiagram","requires_diagram":true}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"required visual"}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.9,"reason":"source investigation","presentation_directive":"required visual","requires_diagram":true}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1207,6 +1207,28 @@ func TestClassifyPolicy_RepairsMissingDiagramAuthorityOnce(t *testing.T) {
 		if !strings.Contains(repairUser, want) {
 			t.Fatalf("compact structural repair omitted %q: %s", want, repairUser)
 		}
+	}
+}
+
+func TestClassifyPolicy_DropsUnanchoredInventedPresentationAuthority(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","operation":"investigate","source":"artifact","confidence":0.9,"reason":"analyze attached trace","presentation_directive":"时间线视图 + 调度状态表格 + 唤醒关系链表","requires_diagram":true}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(),
+		"请结合窗口内调度状态和唤醒关系判断主要阻塞原因，并给出证据。", "attachment=true", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.PresentationDirective != "" || policy.RequiresDiagram {
+		t.Fatalf("unanchored classifier suggestion became user authority: directive=%q required=%t",
+			policy.PresentationDirective, policy.RequiresDiagram)
+	}
+	if policy.Route != RouteRepo || policy.Source != "artifact" {
+		t.Fatalf("presentation provenance normalization must not change evidence routing: %+v", policy)
 	}
 }
 

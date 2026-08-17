@@ -35701,6 +35701,58 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.983 r607/B962：Data 与 Trace 双闭环；展示硬权限必须有当前轮逐字来源（2026-08-17）
+
+1. 在 `main@3f6931b88` 重建后严格并发恰好两个案例：Data/JSON 的
+   `data_multifile_reference_projection` 与显式窗 Trace 的
+   `trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`。原始汇总和人工审计冻结在
+   `eval/parallel_selected_summary_evalcampaign_data_trace_r607_20260817.md` 及对应
+   `_manual_audit.md`。
+2. `B959-DATASTRUCTPROGRESS1` 获生产闭环：首稿串行结构错误经一次实际修补后进入执行，参数与 typed
+   failure 均持续前进；10 个执行 batch 最终形成 4/4 材料覆盖、9 条规则、14 条决策、5 条实体解析、3 条
+   contribution、`reconcile=pass`，答案严格为 `17,0,5`。未出现重复参数、重复 failure 或开放循环。242s/10
+   batch 仍是 P2 效率观察项；不得通过放宽 schema、猜业务字段、跨 rank 偷跑或跳过 reconcile 换取速度。
+3. `B960-UNBACKEDALLOW1` 同样获生产闭环：日志明确显示
+   `external_observation_policy=default`，并两次记录 runtime artifact 的 current-source navigation 为 optional，
+   因而跳过源码图；不再构建 4,187 文件 repomap。三次 trace_query 均在用户精确窗内，链上
+   `worker-200 priority_inversion_candidate` 有效归因 8.300ms、累计 9.000ms，目标 sleep 10.000ms；3.500ms
+   调度压力仍为背景。Trace 因果投影、系统补采、实际占时/规则可消双轴完整，无 4ms/固定年龄降级。
+4. `B961-RUNNABLEINTERVALCONTEXT1` 的旧区间误绑本轮未复现：正文、状态表和投影均把 8.300ms 绑定到
+   worker 的 runnable 等待，把 0.500ms 绑定到 running。正文仍先称“典型的优先级反转”，后文才回到
+   `priority_inversion_candidate`；而 final handoff 已逐字段给出
+   `not_authorized_mechanisms=priority_inversion_occurrence`、无 holder/waiter 权限。这是模型没有遵守准确上下文
+   的措辞波动，继续观察；不扫描模型原文做硬拒，不由系统改写结论。
+5. 新确认 `B962-PRESENTATIONPROVENANCE1/P1`：Router 把用户要求**分析的内容维度**“调度状态和唤醒关系”
+   自行改写成**展示要求**“时间线视图 + 调度状态表格 + 唤醒关系链表”，并置
+   `requires_diagram=true`。Analyzer 随后把这份 router 建议当 current-turn typed authority，制造 required
+   sequence 合同、虚构三个展示维度并触发一次 analysis repair。用户原文没有要求图、时间线视图或表格；这不是
+   diagram 能否渲染的问题，而是嘈声分类器输出越权铸成硬合同。
+6. B962 根修不解析任何展示关键词，也不扫描模型 thinking/答案：`presentation_directive` 现在必须是用户当前
+   消息中的一个连续逐字片段。Classifier 的 `requires_diagram` boolean 仍负责展示模态判断；系统只对 directive
+   做 exact-span provenance 校验。无法逐字回指的合成/翻译/推断 directive 连同 diagram hard bit 一起降为空；
+   route、source、current-source 权限不受影响。显式 `false` 不会被系统从原文反推成 `true`。Prompt/schema 同步
+   要求“内容维度不是展示模态”，避免 JSON 教学自相矛盾；新增客户同形负 pin 与显式逐字图请求正 pin。
+7. 该方案仍遵守精确信号红线：exact contiguous span 是来源校验，不是关键词/语义分类；系统不判断“关系/时间”
+   是否等于图，也不生成 diagram、关系或模型结论。显式图请求仍由模型 typed boolean + 用户逐字载体共同授权；
+   非图 Trace 继续可用表/列表/正文回答，不承担多余 hard diagram 合同。
+8. 本批全仓回归同时击中上一批 B960 的结构 tripwire：新 normalize helper 直接调用 legacy
+   `CurrentSourceLaneDecision`，行为测试虽绿，但违反 runtime/source authority 单入口。修复不是给 lint 加白名单，而是
+   把“移除 allow 后是否仍有独立 source obligation”的 probe 送入
+   `BuildRuntimeSourceAnswerAuthoritySnapshot`，读取统一 `CurrentSourceRequired`。该 probe 刻意不携 route override：
+   外层已单独处理 route=required，此处只询问 RequestModel 内是否仍有独立、已校验的 source 权威；因此显式
+   current-source explanation 仍保留 allow，孤立 allow 仍回落 default。结构 pin 与两条行为臂共同通过。
+
+状态：
+
+`r607 runner=2/2-pass/human=data-pass+trace-core-pass-context-partial`；
+`B959-DATASTRUCTPROGRESS1=production-closed-r607`；
+`B960-UNBACKEDALLOW1=production-closed-r607/authority-chokepoint-restored`；
+`B961-RUNNABLEINTERVALCONTEXT1=old-interval-drift-not-reproduced/model-caliber-watch/no-prose-hard-gate`；
+`B962-PRESENTATIONPROVENANCE1=implemented/exact-current-turn-span/pins-pass/pending-replay`；
+`Trace explicit-window causal projection/auto-supplement=pass-r607`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.957 r584：因果广度与关系零锚生产闭环；成文尾部口径和跨语言同名身份新 GAP（2026-08-16）
 
 1. 在 `main@640ba0fa1` 重建后严格并发恰好两个案例：

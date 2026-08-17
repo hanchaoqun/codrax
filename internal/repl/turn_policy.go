@@ -425,7 +425,7 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "presentation_directive": {
       "type": "string",
-      "description": "Optional. Free-form directive describing the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed verbatim into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. Preserve the user's wording and language when deriving it from the current message; do not translate Chinese user phrasing into English. It must not be prepended to or rewrite the user request body. Omit when not applicable."
+      "description": "Optional. A contiguous verbatim current-message span that explicitly requests the desired final-answer form ('mermaid', 'markdown table', 'brief 3-bullet summary', 'logic flow diagram'). Echoed into the local responder's system prompt when local, or carried as typed pipeline metadata when repo/hybrid. Do not paraphrase, translate, synthesize, or infer a display form from evidence dimensions such as requested relations, states, ordering, or timing. The dispatcher drops a value that is not an exact current-message span. It must not be prepended to or rewrite the user request body. Omit when not applicable."
     },
     "requires_diagram": {
       "type": "boolean",
@@ -697,15 +697,21 @@ repo because the cost of being wrong is higher for local / hybrid
 (may choose a side-effecting route) than for repo (merely wastes cycles
 re-reading).
 
-presentation_directive: free-form text echoed verbatim into the
+presentation_directive: a contiguous verbatim span from the CURRENT
+message, echoed into the
 local responder's system prompt (when route=local) OR carried as
 typed pipeline metadata (when route=repo/hybrid). Use it for any
 current-turn display request, including fresh investigations that ask
 for a logic view / table / diagram. Preserve the user's original
-wording and language when possible: if the current message says
+wording and language exactly: if the current message says
 "详细的设计文档", emit "详细的设计文档", not "detailed design
-document". Do NOT rewrite or prepend the user request with this
-directive. Examples:
+document". Do not synthesize a preferred presentation from requested
+evidence dimensions: asking to inspect relations, state, order, or timing
+does not itself request a relation view, state table, sequence diagram, or
+timeline. The dispatcher verifies only exact span provenance; it does not
+scan the message for presentation keywords. An unanchored directive is
+dropped to avoid turning a classifier suggestion into user authority. Do
+NOT rewrite or prepend the user request with this directive. Examples:
   "mermaid sequence diagram"
   "markdown table with columns: file, function, behaviour"
   "brief 3-bullet summary"
@@ -1069,6 +1075,11 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 	if operationKind == "" && isOperationLikeOperation(operation) {
 		operationKind = operation
 	}
+	presentationDirective, requiresDiagram := bindTurnPresentationAuthority(
+		userLine,
+		strings.TrimSpace(parsed.PresentationDirective),
+		bool(parsed.RequiresDiagram),
+	)
 	return TurnPolicy{
 		Route:                route,
 		NeedsRepoAccess:      bool(parsed.NeedsRepoAccess),
@@ -1088,9 +1099,28 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		RequiresConfirmation:  bool(parsed.RequiresConfirmation),
 		Confidence:            float64(parsed.Confidence),
 		Reason:                strings.TrimSpace(parsed.Reason),
-		PresentationDirective: strings.TrimSpace(parsed.PresentationDirective),
-		RequiresDiagram:       bool(parsed.RequiresDiagram),
+		PresentationDirective: presentationDirective,
+		RequiresDiagram:       requiresDiagram,
 	}, nil
+}
+
+// bindTurnPresentationAuthority prevents an LLM-generated display suggestion
+// from becoming current-turn user authority. A non-empty directive must be a
+// contiguous verbatim span of the current message. This is exact provenance
+// validation, not a keyword/semantic scan: Codrax neither decides whether a
+// word means "diagram" nor upgrades an explicit false. The classifier-owned
+// typed boolean still supplies the modality decision, while the byte-backed
+// span proves that the associated request actually came from the user.
+func bindTurnPresentationAuthority(userLine, directive string, requiresDiagram bool) (string, bool) {
+	directive = strings.TrimSpace(directive)
+	if directive == "" {
+		return "", false
+	}
+	if !strings.Contains(userLine, directive) {
+		logging.Warning("[repl/turn_policy] dropped unanchored presentation directive; display authority must be a verbatim current-turn span")
+		return "", false
+	}
+	return directive, requiresDiagram
 }
 
 type turnPolicyParams struct {
