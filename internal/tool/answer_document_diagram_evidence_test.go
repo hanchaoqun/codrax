@@ -3048,6 +3048,80 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresenceFailsLoudWithoutReadin
 	}
 }
 
+func TestPreCheckStandaloneCallChainPrincipalPathFacetRequiresSameBlockRelationOwner(t *testing.T) {
+	base := types.AnswerBlock{
+		ID:          "principal-path",
+		Kind:        types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetCurrentCodePath), string(types.FacetPrincipalPathEdge)},
+		Items: []types.AnswerBlockItem{{
+			Label: "visible hop prose is deliberately irrelevant",
+			Text:  "neither this text nor the request can satisfy the typed relation owner",
+		}},
+	}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+		newPreEmitCheckContext(),
+	)
+	if len(hints) != 1 || hints[0].ForceHard ||
+		hints[0].HardSignal != preEmitHardSignalTypedCallEdgeEvidence ||
+		!strings.Contains(hints[0].Field, `.claim_uses`) ||
+		!strings.Contains(hints[0].Field, `.edge_anchors`) ||
+		!strings.Contains(hints[0].ExpectedShape, "remove facet_id") ||
+		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandalonePrincipalPathMissingOwner}) {
+		t.Fatalf("principal path facet without a same-block relation owner must fail through the typed hard lane: %+v", hints)
+	}
+	tagged := tagPreEmitHints(types.ViolDiagramCallEdgeUnproven, hints)
+	hard, advisory := splitPreEmitHintsByGate(tagged)
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("typed facet/owner contradiction must never degrade to advisory: hard=%+v advisory=%+v", hard, advisory)
+	}
+
+	// Definition facts are descriptive and cannot own a directed-path facet.
+	base.ClaimUses = []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact, FacetID: string(types.FacetPrincipalPathEdge)}}
+	if got := preCheckStandaloneCallChainRelationAnchorPresence(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+	); len(got) != 1 || got[0].DiagramRelationFailureIssues[0] != diagramStandalonePrincipalPathMissingOwner {
+		t.Fatalf("definition-only carrier must not masquerade as directed relation ownership: %+v", got)
+	}
+
+	// A model-authored directed claim plus its endpoint owner proceeds to the
+	// ordinary evidence validator; this presence gate adds no extra demand.
+	base.ClaimUses = []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge)}}
+	base.EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "entry", ToNode: "worker",
+		FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+		RelationKind: types.DiagramRelCall,
+	}}
+	if got := preCheckStandaloneCallChainRelationAnchorPresence(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+	); len(got) != 0 {
+		t.Fatalf("complete same-block relation ownership must pass the presence gate: %+v", got)
+	}
+
+	// Supporting blocks and other families remain outside this QFCallChain
+	// principal-path invariant even if they reuse the same display facet.
+	base.ClaimUses = nil
+	base.EdgeAnchors = nil
+	base.SurfaceRole = ""
+	if got := preCheckStandaloneCallChainRelationAnchorPresence(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+	); len(got) != 0 {
+		t.Fatalf("supporting block must remain model-owned and outside the principal gate: %+v", got)
+	}
+	base.SurfaceRole = types.SurfacePrincipal
+	if got := preCheckStandaloneCallChainRelationAnchorPresence(
+		&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{base}},
+		&types.AnswerSemanticView{Family: types.QFGeneric},
+	); len(got) != 0 {
+		t.Fatalf("other answer families must remain outside the call-chain gate: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentSchemaProjectsStandaloneCallChainRelationOwnership(t *testing.T) {
 	schema := string((&EmitAnswerDocument{}).canonicalParameters())
 	if !strings.Contains(schema, types.GroundedStandaloneCallChainRelationOwnershipContract) {

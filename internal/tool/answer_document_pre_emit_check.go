@@ -4454,8 +4454,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 }
 
 const (
-	diagramStandaloneRelationClaimHasNoAnchor = "standalone_relation_claim_has_no_anchor"
-	diagramStandaloneSemanticHandoffMissing   = "standalone_semantic_handoff_missing"
+	diagramStandalonePrincipalPathMissingOwner = "standalone_principal_path_missing_relation_owner"
+	diagramStandaloneRelationClaimHasNoAnchor  = "standalone_relation_claim_has_no_anchor"
+	diagramStandaloneSemanticHandoffMissing    = "standalone_semantic_handoff_missing"
 )
 
 // preCheckStandaloneCallChainRelationAnchorPresence closes the empty-set
@@ -4471,7 +4472,7 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 	}
 	var hints []emitFixHint
 	for _, block := range doc.Blocks {
-		if block.SurfaceRole != types.SurfacePrincipal || len(block.EdgeAnchors) > 0 {
+		if block.SurfaceRole != types.SurfacePrincipal {
 			continue
 		}
 		switch block.Kind {
@@ -4485,7 +4486,32 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 				relationForms = append(relationForms, string(use.ClaimForm))
 			}
 		}
+		// principal_path_edge is itself a typed assertion that this block owns
+		// the answer's directed path. A retry patch must not be able to preserve
+		// that facet while clearing both relation claim_uses and edge_anchors:
+		// doing so leaves the visible hop list in place but removes the only
+		// machine-checkable relation ownership. This conjunction is entirely
+		// schema-derived; item text, labels, request text and final prose never
+		// participate. Do not auto-inherit stale relation metadata from the
+		// previous draft — require the model to re-author the relation it keeps.
+		if containsBlockFacet(block, types.FacetPrincipalPathEdge) && len(relationForms) == 0 {
+			hints = append(hints, emitFixHint{
+				Field:               fmt.Sprintf("blocks[id=%q].claim_uses AND blocks[id=%q].edge_anchors", block.ID, block.ID),
+				HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+				OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
+				ExpectedShape: fmt.Sprintf(
+					"block=%q declares facet_id=%q, so preserve at least one model-authored directed claim_use (call_edge, callback_handoff, or registration_edge) and the matching complete edge_anchors row(s). If this block is descriptive rather than a directed path, remove facet_id=%q instead of inventing a relation. No Mermaid block is required",
+					block.ID, types.FacetPrincipalPathEdge, types.FacetPrincipalPathEdge,
+				),
+				Reason:                       "a principal_path_edge facet cannot outlive the same block's model-authored directed relation ownership. The check reads only schema-validated family, block kind, surface role, facet ids, claim forms, and anchors; it never infers or writes a relation.",
+				DiagramRelationFailureIssues: []string{diagramStandalonePrincipalPathMissingOwner},
+			})
+			continue
+		}
 		if len(relationForms) == 0 {
+			continue
+		}
+		if len(block.EdgeAnchors) > 0 {
 			continue
 		}
 		sort.Strings(relationForms)

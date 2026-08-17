@@ -36335,6 +36335,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.973 r599：主路径 typed 所有权被 patch 清空；频率修向词面过权（2026-08-16）
+
+1. 在 `main@a11ce07dd` 严格并发恰好两个高优先级异构 case：多语言源码关系
+   `mr_poly_binding_chain` 与显式窗真 Trace `real_trace_h4_supply_thermal_witness`。Runner `2/2 PASS`，人工为
+   Poly fail、Trace partial。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_poly_trace_r599_20260816.md` 与同名 `_manual_audit.md`。
+2. Poly 的共享关系证据核连续三轮正确拒绝无权/错向 Mermaid 边；模型随后删除可选图，这一步合法。真正逃逸发生在 sibling principal
+   `hop1`：一次 patch 保留 `principal_path_edge` 和可见六步“完整链”，却清空 `claim_uses`/`edge_anchors`。通用
+   `principal_claim_use_missing` 只作 soft advisory，文档级 sibling coverage 又签绿，导致错误关系叙述脱离 typed owner 发布。
+3. 本批新增同块合取 B948：仅当 `QFCallChain + surface_role=principal + structured block + principal_path_edge` 精确成立时，要求同块至少一个
+   directed call/callback/register claim 及其完整 anchors；否则走 typed relation hard lane。它不读 request/item/model/final prose，不按语言或 case
+   拟合，不自动继承陈腐锚，也不生成关系。definition/support/Generic/RootCauseTrace 全负臂；模型完整提交后仍由既有同向 evidence kernel 验真。
+4. Patch e2e pin 复现“旧块有 owner → replacement 保留 facet/visible hops 但清空 owner”，现已同轮拒绝并返回精确
+   `claim_uses AND edge_anchors` 修补位置；正臂和跨 family 负臂同批覆盖。该修复不要求 Mermaid，模型可撤回路径 facet 或重新提交自己选择的真实边。
+5. Trace 模型正文正确区分 policy ceiling、target binding 与 supply-fold headroom；四态守恒、完整 Trace 因果投影、链上-only 主因、实际占时/业务线索与
+   规则可消双轴全部正常。但系统 next-step 把 `frequency_thermal` 固定写成“解除运行频点限制”，在目标绑定未证时过度主张。登记
+   B949，下一独立小批只改确定性修向词面为“提升运行算力供给/相对理想基准可提升空间”，不改模型结论或投影值。
+6. 同一 Poly 终稿还暴露 citation append 闭包缺口：正确 import 位于 `tokenizer.py:2`，patch 却提交不存在于真实行的
+   `__init__.py:2 / import _fastlex`，错误 citation 与文件归属声明仍发布。登记 B950，后批按当前 checkout 的 exact
+   file+line+quote 同源校验根修，不扫描答案 prose。
+7. 两案均没有空答案、系统答案替换或固定 4ms/4s/总年龄降级；Trace 路径未被 B948 触及，邻近/background 仍 support-only。
+
+状态：
+
+`B948-PRINCIPALPATHFACETOWNER1=implemented/full-tool+types+skill-tests-pass/pending-production-replay`；
+`B949-FREQUENCYNEXTSTEPCALIBER1=confirmed/pending-next-batch`；
+`B950-PATCHCITATIONROWCLOSURE1=confirmed/pending-later-batch`；
+`Trace explicit-window/causal projection/auto-supplement=preserved-r599`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

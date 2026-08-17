@@ -432,7 +432,7 @@ func TestEmitAnswerDocumentPatch_InheritsOmittedCarrierMetadataForStableReplacem
 		Blocks: []types.AnswerBlock{{
 			ID: "path", Kind: types.BlockOrderedList,
 			SurfaceRole: types.SurfacePrincipal,
-			FacetIDs:    []string{"current_code_path", "principal_path_edge"},
+			FacetIDs:    []string{"current_code_path"},
 			Items:       []types.AnswerBlockItem{{ID: "hop-1", Text: "old"}},
 		}},
 	})
@@ -452,12 +452,61 @@ func TestEmitAnswerDocumentPatch_InheritsOmittedCarrierMetadataForStableReplacem
 		t.Fatalf("missing patched document: %+v", doc)
 	}
 	got := doc.Blocks[0]
-	if got.SurfaceRole != types.SurfacePrincipal || len(got.FacetIDs) != 2 ||
-		got.FacetIDs[0] != "current_code_path" || got.FacetIDs[1] != "principal_path_edge" {
+	if got.SurfaceRole != types.SurfacePrincipal || len(got.FacetIDs) != 1 ||
+		got.FacetIDs[0] != "current_code_path" {
 		t.Fatalf("omitted stable carrier metadata was lost: %+v", got)
 	}
 	if len(got.Items) != 1 || got.Items[0].Text != "repaired" {
 		t.Fatalf("replacement content must remain model-authored: %+v", got.Items)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RejectsPrincipalPathFacetAfterRelationMetadataStripped(t *testing.T) {
+	mut := types.NewMutableState("trace the call chain")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "model-authored chain summary"},
+			{
+				ID: "path", Kind: types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetCurrentCodePath), string(types.FacetPrincipalPathEdge)},
+				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge)}},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "entry", ToNode: "worker",
+					FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+					RelationKind: types.DiagramRelCall,
+				}},
+				Items: []types.AnswerBlockItem{{ID: "hop-1", Text: "old model-authored hop"}},
+			},
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+	res, _ := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"replace_blocks":[{
+			"id":"path",
+			"kind":"ordered_list",
+			"surface_role":"principal",
+			"facet_ids":["current_code_path","principal_path_edge"],
+			"items":[{"id":"hop-1","text":"repaired visible hop but relation metadata omitted"}]
+		}]
+	}`))
+	if res.Success || res.Repair == nil {
+		t.Fatalf("patch must not ship a principal path after stripping its typed relation owner: %+v", res)
+	}
+	if res.Repair.Code != "answer_doc_pre_emit_contract" ||
+		!strings.Contains(res.Summary, `blocks[id="path"].claim_uses`) ||
+		!strings.Contains(res.Summary, `blocks[id="path"].edge_anchors`) ||
+		res.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues] != diagramStandalonePrincipalPathMissingOwner {
+		t.Fatalf("patch rejection lost its precise same-block repair contract: summary=%s repair=%+v", res.Summary, res.Repair)
 	}
 }
 
