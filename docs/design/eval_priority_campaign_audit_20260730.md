@@ -36185,6 +36185,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 `system-answer/conclusion/relation-authorship=none`。
 
+### §123.969 r595：ArkTS section-label 维度误判根修；B943 保持待生产命中（2026-08-16）
+
+1. 在 `main@d6c0dcede` 重建后严格并发恰好两个异构 case：读模式 `arkts_repomap` 与写模式
+   `github_issue_chrono_duration_min_symptom`。Runner 为 `1 PASS / 1 FAIL`；人工为 ArkTS pass、Rust
+   fail/honest-unverified。记录见 `eval/parallel_selected_summary_evalcampaign_arkts_write_r595_20260816.md`
+   与同名 `_manual_audit.md`。
+2. ArkTS 值面正确：4 个 `@Entry` 页面类型、2 个 `@Builder` 函数、每行文件路径及引用均完整，无额外成员。
+   但首个文件路径修补完成后，两个 principal block 已用 `kind=section + Items[].label` 明确显示全部成员名，
+   requested-dimension evaluator 仍发“第 2 维：函数名缺失”，迫使模型再次把相同名字写入 `cells`。
+3. 新确认 `B946-SECTIONITEMMEMBERDIMENSION1/P1`。根因不是 ArkTS extractor 或 JSON，而是 renderer 与维度
+   evaluator 的 typed block 枚举漂移：共享 renderer 谓词认可 section/list/table 的逐项 Items；维度覆盖只数
+   ordered-list/bullet-list/table，因此合法 `section` 永远漏记。
+4. 根修让 member-set payload 复用 `types.AnswerBlockRendersStructuredItems`，并从
+   `AnswerBlockItemVisibleSurface(label/text/cells)` 判断是否存在真实可见行。canonical Markdown table 只按可见表体
+   计席，隐藏 citation sidecar 不再冒充 member row。它只读 block kind/items/facet 与 Markdown 结构，不读用户输入、
+   模型推理或答案词义；系统不补成员、不改答案、不代写结论。
+5. 新增 production-shape pin：`BlockSection` 中 label-only 的 `Index/defaultHeader` 已覆盖单一 member-set 维度，
+   evaluator 必须直接 stop，不能请求 duplicate cells patch；另钉 Markdown table 可见正臂与无行 prose 负臂。
+   专项与完整 `go test ./internal/agent -count=1` 均通过。
+6. Rust 写案只形成一个最终 ChangePlan；planner 曾提交 Go inline probe，被 changed-target language 精确门拒绝后
+   删除。`make check` 的 Python source-shape oracle 35ms 通过，但两个 Rust path 都是
+   `capability=source_static`；controller 把模型的 `all_verified` 规范化为
+   `accept_unverified:production_verification_source_static_only`，最终披露诚实。补丁没有 Rust 编译/行为证明，不能
+   判可合并，也不能为 runner PASS 降杆。
+7. 该写案没有真实 verify failure/replan，所以 B943 本轮为 `not-exercised-r595`，不能以 672s→288s 的时长
+   下降宣称生产闭环；保留后续带真实验证失败的回放义务。本批无 malformed JSON、空答案或固定 4ms/总年龄降级。
+8. Read/Trace 数据、根因矩阵和投影编译零改动。显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因、
+   邻近/background support-only、实际占时/业务线索与规则计价可消双轴均保持。
+
+状态：
+
+`B946-SECTIONITEMMEMBERDIMENSION1=implemented/full-agent-tests-pass/pending-production-replay`；
+`B943-VERIFYFAILSOFTCONTRACTGENERATION1=implemented/not-exercised-r595`；
+`Rust write final=honest-unverified/source-static-only/not-merge-proven`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation-authorship=none`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

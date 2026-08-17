@@ -14337,16 +14337,23 @@ func answerDocumentMemberSetPayloadBlockCount(doc *types.AnswerDocumentV2, requi
 		if requireExplicitFacet && !answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) {
 			continue
 		}
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		if types.AnswerBlockRendersStructuredItems(block) {
 			for _, item := range block.Items {
-				if strings.TrimSpace(item.Label) != "" ||
-					strings.TrimSpace(item.Text) != "" ||
-					len(item.Cells) > 0 {
+				if strings.TrimSpace(types.AnswerBlockItemVisibleSurface(item)) != "" {
 					count++
 					break
 				}
 			}
+			continue
+		}
+		// A canonical Markdown table is also a visible structured member
+		// carrier even though its optional Items are citation sidecars and are
+		// deliberately not rendered. Count the table shape, never the hidden
+		// sidecars. This remains schema/structure-only and does not inspect
+		// request wording or infer members from answer prose.
+		if block.Kind == types.BlockTable &&
+			strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) != "" {
+			count++
 		}
 	}
 	return count

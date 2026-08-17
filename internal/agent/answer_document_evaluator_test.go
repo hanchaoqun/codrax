@@ -462,6 +462,56 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenEvidenceSourceDimensionHasTyped
 	}
 }
 
+func TestAnswerDocumentEvaluator_ObserveStopsWhenMemberSetNamesAreVisibleInSectionItemLabels(t *testing.T) {
+	mut := types.NewMutableState("列出页面入口和函数名")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "函数名", Role: types.RequestedAnswerDimensionMemberSet,
+					Required: true, Index: 1,
+				}},
+			},
+		}},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "entries", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{
+				{ID: "index", Label: "Index", Text: "页面入口"},
+				{ID: "builder", Label: "defaultHeader", Text: "复用片段"},
+			},
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("visible section item labels already carry the member names; no duplicate cells patch is needed: %+v", sig)
+	}
+}
+
+func TestAnswerDocumentMemberSetPayloadCountsVisibleMarkdownTableNotHiddenSidecars(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind:  types.BlockTable,
+		Text:  "| 函数名 | 文件 |\n| --- | --- |\n| run | src/run.ets |",
+		Items: []types.AnswerBlockItem{{Label: "hidden-citation-sidecar"}},
+	}}}
+	if got := answerDocumentMemberSetPayloadBlockCount(doc, false); got != 1 {
+		t.Fatalf("visible canonical Markdown table count=%d want 1", got)
+	}
+
+	doc.Blocks[0].Text = "说明"
+	doc.Blocks[0].Items = nil
+	if got := answerDocumentMemberSetPayloadBlockCount(doc, false); got != 0 {
+		t.Fatalf("plain table prose without visible rows count=%d want 0", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ObserveHintsMissingEvidenceSourceCarrier(t *testing.T) {
 	mut := types.NewMutableState("说明证据边界说明")
 	ctx := &types.AgentContext{
