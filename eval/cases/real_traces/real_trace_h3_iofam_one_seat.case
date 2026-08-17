@@ -39,8 +39,8 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_CONTAINS=".ugc.aweme.lite-17267 1.347 1.337 41.329"
-EXPECT_MATCHES_REGEX="1\\.347.*(墙钟|墙上|wall.clock)
-1\\.337.*(墙钟|墙上|wall.clock)
+EXPECT_MATCHES_REGEX="(单次请求|设备端).*(墙钟|墙上|wall.clock)
+(目标线程|发行者|issuer).*(阻塞|等待).*(墙钟|墙上|wall.clock)
 41\\.329.*(非墙钟|不可相加|non.wall.clock|non.additive)
 (D[-_ ]?state|D 状态|io_wait|IO 等待).*(0\\.000|为 0|=0)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

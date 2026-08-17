@@ -36184,6 +36184,29 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
     iowait=1 的 S，零值不否定前者；全窗 overflow duration sum 的单位是 request·ms，非墙钟且不可相加，也不是目标请求数。
     关系桥的值全部来自既有 exact records、complete wait roster 与 blocking authority，不扫描问句/答案，不发射结论或修改正文；
     raw rows 同时明确降格为 audit metadata，要求用自然语言而非 wire enum 成文。r622 负责生产复放。
+19. r622 `1/2 PASS`，人工 `Trace pass / H3 fail`。Trace 对照继续完整保留显式窗、typed 唤醒链、8.300ms 链上调度等待、
+    因果投影和自动补齐。H3 的 finalizer 日志确认 B980 关系桥已到达，并正确写出 4 段 S-state completion-closed union≥4.384ms、
+    D/io_wait=0 与 41.329 request·ms 非墙钟；但终稿漏 1.337ms 单次 target-blocking witness，并继续把 1.347ms
+    issue→complete elapsed 标作“非墙钟”。
+20. 深审确认不是 finalizer 接线缺失，而是跨阶段精确冲突：explorer 在 B980 之前已经把同一个 1.347ms request residence
+    铸成 `unit=non_wall_clock_ms`，把“跨请求可重叠、不可求和”误扩成“单请求经过时间不是墙钟”；该错误 aggregate fact 与后置
+    正确 authority 并存。新立并施工 `B981-IOCLOCKSCOPECROSSSTAGE1`：把两把物理量尺前移到 explorer 首次消费的
+    `trace_query` 文本行，与 ledger 共用 scope——单请求 issue→complete 是 elapsed wall clock 但非 target blocking；
+    completion-closed issuer interval 是 target blocking wall clock；只有跨请求 request·ms 是非墙钟。修复不读问题/答案 prose、
+    不改答案、因果或排名，`b1eb11121` 已通过 tool/agent/types 套件，r623 负责生产回放。逐轮见
+    `eval/parallel_selected_summary_evalcampaign_iorelation_trace_r622_20260817_manual_audit.md`。
+21. r622 终稿仍复制 `request_residence/completion_closed_issuer_wait/coverage=lower_bound` 等 wire 词。先立
+    `B982-RUNTIMEFACTREADERFACE1` 观察 r623；若统一事实源后仍复现，按 typed family 生成 reader-facing 卡并把 raw row留在机器审计
+    载荷，不做答案关键词删除或系统代写。
+22. r623 runner 仍为 `1/2 PASS`，但人工为 `Trace pass / H3 partial`。H3 终稿已经正确区分 1.347ms 单请求设备端
+    elapsed wall clock、1.337ms 单次 target-blocking S wait、4 次 union≥4.384ms、scheduler D/io_wait=0 与
+    41.329 request·ms 非墙钟不可相加；B981 获生产正证。Runner 只因旧 regex 要求数字与“墙钟”位于同一物理行而失败，
+    oracle 已改为“数值集合 + 两种墙钟语义 + request·ms 非墙钟”独立 pin，不固定 Markdown 布局。
+23. H3 仍有模型整理残余：两个子区间请求数写反、把 selected-window/global 198 描述成 issued，以及复制
+    `request_residence/completion_closed_issuer_blocked/target_wait_occurrence_prompt/io_latency_coverage` 等 wire 词。
+    前两项先按模型波动观察，不做输出修写；后者将 `B982` 升为 confirmed，后续应建设全有限 runtime-family 共用的 typed
+    reader-label 层，机器 audit payload 继续保留，禁止答案关键词删除与系统结论代写。逐案见
+    `eval/parallel_selected_summary_evalcampaign_iorelation_trace_r623_20260817_manual_audit.md`。
 
 状态：
 
@@ -36193,12 +36216,16 @@ adjacent/background=`support-only`；`system-answer/conclusion/relation/diagram-
 `r619=runner-2/2-pass/human=h3-major-partial+trace-pass`；
 `r620=runner-0/2/human=h3-partial+trace-route-fail`；
 `r621=runner-1/2/human=trace-pass+h3-fail`；
+`r622=runner-1/2/human=trace-pass+h3-fail`；
+`r623=runner-1/2/human=trace-pass+h3-partial/oracle-layout-false-negative`；
 `B975-REQUESTEDFACTPROMPTSURVIVAL1=implemented+production-positive-r618`；
 `B976-IOLATENCYCALIBERAUTHORITY1=implemented+production-positive-r618`；
 `B977-IOLATENCYCOVERAGEOWNERSCOPE1=production-mixed/r619-positive+r620-model-consumption-negative`；
 `B978-RUNTIMEFACTPHYSICALDEDUP1=production-positive-r620`；
 `B979-RUNTIMEATTACHMENTINTERNALTOOLROUTECONSISTENCY1=production-closed-r621`；
-`B980-IOMEASUREMENTRELATIONBRIDGE1=implemented/typed-read-only-context+pinned/pending-r622`；
+`B980-IOMEASUREMENTRELATIONBRIDGE1=production-delivered-r622/insufficient-alone`；
+`B981-IOCLOCKSCOPECROSSSTAGE1=production-positive-r623`；
+`B982-RUNTIMEFACTREADERFACE1=confirmed/open-general-registry`；
 `H3-oracle=system-projection-fixed-words-retired/physical-calibers-preserved`；
 `B974-CARRIERNAVIGATIONRANKDILUTION1=open/next-independent-batch`；
 `Trace explicit-window causal projection/auto-supplement=pass-r616-r618`；
