@@ -36677,6 +36677,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
 
+### §123.981 r605/B958：Data 串行结构错误有界收敛；关系图诚实 partial（2026-08-16）
+
+1. 在 `main@ea77a4d42` 严格并行恰好两个异构案例：read/diagram 的
+   `qf_logic_view_read_pipeline` 与 Data/JSON 的 `data_multifile_reference_projection`。runner 为
+   `1 PASS / 1 FAIL`；人工为 diagram `fail-safe-partial`、Data fail。汇总与人工审计冻结在
+   `eval/parallel_selected_summary_evalcampaign_logic_data_r605_20260816.md` 和
+   `eval/parallel_selected_summary_evalcampaign_logic_data_r605_20260816_manual_audit.md`。
+2. Diagram 的自动 PASS 仍是假阳性。最终图保留三条真实阶段 precedence，以及
+   `BuildInitialInstruction→TurnAArtifacts`、`dispatchStage→applyStageOutput` 两条局部 call；无证
+   `BusContext/Mutable` 保持断开并由模型明确披露，系统没有补边或替换结论。这是安全且诚实的 partial，
+   但没有完成用户要求的四 Agent 与两个状态载体之间的数据流，正文仍把局部事实概括成共享传递。B955 的
+   qualified-receiver handoff 软排序只获生产 partial 正证；完整关系载体仍归入统一 flow completeness gap，
+   不能用节点名、任意边数、用户/答案关键词或系统自铸关系硬拟合本例。
+3. Data 失败发生在执行前。Planner 首稿存在多个独立结构错误；精确 schema 校验先报告
+   `$.actions[7].script missing`。唯一 compact repair 正确给 actions 7/8 补上 script 后，plan admission 才
+   暴露较早 join action 中 `left_fields` 与 `left_key` 对同一含义给出不同值。旧框架至此直接返回
+   `compact tool-param repair also failed`，没有给第二个 typed locus 任何修补机会；因此没有 terminal ledger、
+   contributions、reconcile 或最终 CSV。该项是结构修复调度 gap，不是 `17,0,5` 的计算错误。
+4. 新确认并实现 `B958-DATASTRUCTMULTIPASS1/P1`：Data planner/evaluator/result-patch 共用同一有界结构修复
+   循环。fail-closed validator 每次仍只发布当前精确错误；下一轮接收上一版完整 model-authored 参数和最新
+   typed locus，保留先前修正，最多两次结构修补。达到上限仍 fail-loud，不放宽 schema、不猜 alias、不执行
+   半合法计划，也不由系统填写业务规则、数值或答案。
+5. JSON 教学同步减少模型心智：参数别名是替代拼法而非多份声明；已有 canonical/alias 时保留原名和值，
+   除非最新 locus 指向它；第二轮代表前一错误已被修好，只修新暴露的独立错误。该指导只进入 compact repair
+   prompt，不扫描用户请求、模型推理或终稿，不形成答案硬门。
+6. 新回归用一份 plan 同时携 `custom_transform.script` 缺失和非对象 projection 携 `output_field` 两个串行错误：
+   第一修补补 script，第二修补移除冲突字段；最终 plan 必须保留第一修正。既有单错误仍只用一次 repair，
+   narrowed-rank schema 两轮保持同一工具权威。
+7. 本批不改 Trace 查询、显式时间窗、因果投影或系统补采；链上-only 根因、优先级反转/调度与算力供给、
+   D/IO、确定性语义、业务线索，以及实际占时/规则可消除量双轴权限不变。活跃输出仍不因 4ms/4s/4m/
+   总年龄降级，系统不生成模型答案、图、节点、边、关系或结论。
+
+状态：
+
+`r605 runner=1/2-pass/human=0-full+1-safe-partial`；
+`B955-CARRIERHANDOFFRANK1=production-partial-r605/flow-completeness-open`；
+`B958-DATASTRUCTMULTIPASS1=implemented/bounded-2/schema-still-fail-closed/pending-replay`；
+`data answer/value authorship=model+typed-executor-only`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；`active-stream-4ms-degrade=forbidden/not-observed`。
+
 ### §123.956 S37bo：结构化主关系的零锚逃逸闭环（2026-08-16）
 
 1. B932 的根因不是关系 parser 或某一种语言漏识别，而是集合边界：B929 已能用统一证据核验证明每一条

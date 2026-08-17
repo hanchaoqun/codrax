@@ -414,6 +414,42 @@ func TestDataTaskInitialPlannerRepairsProjectionOutputFormatConflict(t *testing.
 	}
 }
 
+func TestDataTaskInitialPlannerConvergesTwoIndependentStructuredErrors(t *testing.T) {
+	initial := `{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"id":"compute","kind":"custom_transform","input_paths":["records.json"],"output_artifact":"counts"},{"id":"publish","kind":"assemble_answer","input_paths":["counts"],"output_artifact":"answer","params":{"projection":"values","output_field":"count"}}]}`
+	firstRepair := `{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"id":"compute","kind":"custom_transform","input_paths":["records.json"],"output_artifact":"counts","script":"emit_result(1)"},{"id":"publish","kind":"assemble_answer","input_paths":["counts"],"output_artifact":"answer","params":{"projection":"values","output_field":"count"}}]}`
+	secondRepair := `{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"id":"compute","kind":"custom_transform","input_paths":["records.json"],"output_artifact":"counts","script":"emit_result(1)"},{"id":"publish","kind":"assemble_answer","input_paths":["counts"],"output_artifact":"answer","params":{"projection":"values"}}]}`
+	adapter := &scriptedChatAdapter{responses: []llm.Response{
+		dataTaskPlanResp(initial),
+		dataTaskPlanResp(firstRepair),
+		dataTaskPlanResp(secondRepair),
+	}}
+	planner := NewDataTaskPlanner(adapter)
+	plan, err := planner.PlanDataTask(context.Background(), "aggregate records", t.TempDir(), TurnPolicy{Route: RouteData}, nil)
+	if err != nil {
+		t.Fatalf("PlanDataTask: %v", err)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("calls=%d, want planner plus two bounded structured repairs", len(adapter.calls))
+	}
+	if len(plan.Actions) != 2 || plan.Actions[0].Script == "" {
+		t.Fatalf("first structured correction did not survive the second pass: %+v", plan.Actions)
+	}
+	if _, exists := plan.Actions[1].Params["output_field"]; exists {
+		t.Fatalf("second structured correction did not remove the incompatible output_field: %+v", plan.Actions[1])
+	}
+	secondPrompt := adapter.calls[2].messages[1].Content
+	for _, want := range []string{
+		"## previous_tool_params",
+		`"script":"emit_result(1)"`,
+		"output_field",
+		"preserve every unrelated valid field",
+	} {
+		if !strings.Contains(secondPrompt, want) {
+			t.Fatalf("second repair prompt lost prior correction or latest typed locus %q:\n%s", want, secondPrompt)
+		}
+	}
+}
+
 func TestDataTaskToolTeachesAssembleOutputFieldFromRuntimeContract(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal(dataTaskPlanTool.Parameters, &schema); err != nil {
