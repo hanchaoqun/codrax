@@ -179,6 +179,41 @@ func TestBuildExactResolutionContract_ConfigKeyUsesExplicitExactTargets(t *testi
 	}
 }
 
+func TestBuildExactResolutionContract_MultiKeyConfigComparisonKeepsExplicitTargets(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioConfigTrace,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:         string(ReqConfigMapping),
+			ExactTargets: []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"},
+			ExactContextRoles: []EvidenceDiagramRole{
+				EvidenceDiagramRoleDefault,
+				EvidenceDiagramRoleConfig,
+				EvidenceDiagramRoleOverride,
+			},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want multi-key config contract")
+	}
+	if !reflect.DeepEqual(got.Targets, []string{"pipeline_max_steps", "pipeline_max_retries_per_stage"}) {
+		t.Fatalf("Targets = %v, want both explicit config keys", got.Targets)
+	}
+	if !reflect.DeepEqual(got.RequestedContextRoles, []EvidenceDiagramRole{
+		EvidenceDiagramRoleDefault,
+		EvidenceDiagramRoleConfig,
+		EvidenceDiagramRoleOverride,
+	}) {
+		t.Fatalf("RequestedContextRoles = %v, want default/config/override", got.RequestedContextRoles)
+	}
+}
+
 func TestBuildExactResolutionContract_ConfigTraceFiltersPathLikeExactTargetsEvenWhenAnswerSubjectDrifts(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",

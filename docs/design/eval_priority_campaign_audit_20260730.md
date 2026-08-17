@@ -35916,6 +35916,48 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1015 r646：失败检索被误当覆盖；配置身份锚携带无支撑数值（2026-08-17）
+
+1. 在 `main@8c4011614` 严格并发恰好两个异构案例：
+   `read_combo_config_two_knobs_precedence + logtri_goroutine_dump`。Runner `1/2 PASS`，人工同为
+   `1 PASS / 1 FAIL`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_config_log_r646_20260817_manual_audit.md`。
+2. Log 案例真实通过：答案从附件列出 goroutine 15/87/120、共同的 `main.writeSession` 与
+   `fatal error: concurrent map writes`，同时诚实披露附件栈帧无法映射当前 checkout；没有仓库读取、
+   当前源码借权或系统代写结论。
+3. Config 案例证明 B1016 只完成了“口径教学”，生产仍失败。模型已把 sample config 的 2 和 CLI
+   注册的 0 分别标成示例值与 inherit sentinel，却仍以 `internal/types/config.go:21` 的无初始化器字段
+   声明为锚，宣称 `pipeline_max_retries_per_stage` 的代码默认值为 2；真实生产初始化在
+   `cmd/root.go:3147`，值为 3。
+4. 新根因 B1017（P1）是通用执行状态丢失：模型针对 production initializer 发出的关键 `grep`
+   含未转义 `{`，工具返回 `Success=false`；中环没有把“调用失败”与“成功零命中”区分为待修复分支，
+   后续 generic close-ready 仍允许收口。修复仅消费 typed `ToolResult.ToolName/Success/Repair`，在任意
+   非结构化 grep 失败后发一次软恢复：该调用不证明零命中/absence，改正 regex 或使用
+   `fixed_string=true` 后重跑一个有界查询。它不扫描用户原文、模型推理或工具错误文本，不构造硬门。
+5. B1016 同批加固为已有 carrier 的精确用法：字段/类型声明若没有 initializer，只证明 identity/type；
+   不能在 `member_notes` 携带默认数值。每个已解析 code default 应独立交接为
+   `aggregate_facts(kind="scalar_value")`，带 `dimensions.layer=code_default` 及 visibly value-bearing 的
+   production `support_ref`；member roster 不能替代数值证明。缺席仍由模型写“未核实”，系统不代算、
+   不改写答案。
+6. B1018（P2 观察）是生产 exact carrier 接线不一致：Analyzer 日志保留两个 exact target 与
+   default/config/override 角色，但本轮 `trace/sv` 报 `exact_resolution_present=false`。新增单元 pin 证明
+   `BuildExactResolutionContract` 本身可保留多 key config 合同；因此尚不能归咎 helper，也不能为了单案
+   强开答案硬门。后续应沿 AnalysisIR → AgentContext → semantic-view cache 继续找消失点。该观察不是
+   错误默认值的直接根因。
+7. `internal/agent`、`internal/types` 全包通过。修复没有触达 Trace、写模式、JSON/图关系合同或答案
+   mutation；显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因及背景 support-only 保持。
+   活跃字节流没有固定 4ms/4s 超时降级。
+
+状态：
+
+`r646=runner-1/2+human-1/2`；
+`B1016-CONFIGDEFAULTPROVENANCE1=reinforced/value-bearing-scalar-handoff/pending-production-replay`；
+`B1017-FAILEDGREPNOTABSENCE1=implemented/typed-one-shot-soft-repair/pending-production-replay`；
+`B1018-MULTIKEYEXACTCARRIERDRIFT1=observed/helper-positive/production-handoff-pending`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1009 r640/B1010/B1011：系统附录借错探索宽窗；关系导航停在首个局部载体（2026-08-17）
 
 1. 在 `main@5edb1d624` 严格并发恰好两个案例：

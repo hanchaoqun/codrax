@@ -142,6 +142,7 @@ type explorerEvaluator struct {
 	// independent budgets (read_file, grep, repo_map, list_files)
 	// each fire their own one-shot.
 	midLoopBudgetExhaustedSent           map[string]bool
+	midLoopFailedGrepRepairSent          bool // one-shot: a failed grep call must be rerun successfully before its branch can support closure
 	midLoopEvidenceRepairSent            bool // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopEvidenceRepairResultsLen      int  // allResults length when the current emit_evidence repair hint fired
 	midLoopEvidenceRepairEmitOnly        bool // repair target windows are already covered; allow only evidence materialization/closure
@@ -610,6 +611,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopSymbolRefInjected = false
 		e.midLoopPostPrimaryInjected = false
 		e.midLoopBudgetExhaustedSent = nil
+		e.midLoopFailedGrepRepairSent = false
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopEvidenceRepairResultsLen = 0
 		e.midLoopEvidenceRepairClosureOnlySent = false
@@ -765,6 +767,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopSymbolRefInjected = false
 	e.midLoopPostPrimaryInjected = false
 	e.midLoopBudgetExhaustedSent = nil
+	e.midLoopFailedGrepRepairSent = false
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopEvidenceRepairResultsLen = 0
 	e.midLoopEvidenceRepairClosureOnlySent = false
@@ -1037,8 +1040,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("### Config Value Provenance Discipline\n\n")
 		b.WriteString("For every requested config bucket, investigate the value and precedence roles independently; do not copy one bucket's value or source into another bucket. Keep these source roles distinct:\n")
 		b.WriteString("- The runtime code default must be grounded in the production initializer, constructor, or constant that seeds the resolved setting before overrides. Search both the external config key and its owning field/symbol, and read the production initialization region even when an earlier broad file read was truncated.\n")
+		b.WriteString("- A field or type declaration without an initializer proves the setting's identity/type only; it does not prove any numeric or string default. Never put an ungrounded default value into that member's note.\n")
 		b.WriteString("- A sample config value or documentation comment describes an example/configuration surface. It is not proof of the runtime code default unless the production baseline source establishes the same value.\n")
 		b.WriteString("- A CLI flag registration default such as zero may be an inherit/unset sentinel. Verify the explicit-flag/changed guard and override assignment before calling it a user-visible default.\n")
+		b.WriteString("- For each requested key whose code-default value is resolved, hand it off as its own `aggregate_facts` `scalar_value` with `dimensions` containing `layer=code_default` and a `support_ref` to the production line that visibly carries the value. A `member_set` may list the layer roster, but cannot substitute for the scalar value proof.\n")
 		b.WriteString("- Close with an explicit unresolved value/source for any missing role instead of borrowing a nearby number or emitting a high-confidence aggregate. Carry the separately grounded code-default, config, CLI, and runtime roles into the completion handoff.\n\n")
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.EnumerationBoundary != nil {
@@ -5841,6 +5846,42 @@ func (e *explorerEvaluator) postBudgetExhaustedSignal(obs LoopObservation) LoopS
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.budget_exhausted.%s", tool),
 		Hint:           hint,
+		Progress:       false,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+// postFailedGrepRepairSignal turns the grep tool's precise unsuccessful
+// outcome into a one-shot soft recovery instruction. A failed invocation is
+// neither a zero-match result nor absence evidence. Keeping this signal on the
+// typed ToolResult status avoids parsing either the user's request or the
+// model/tool prose, while preventing a later generic close-ready nudge from
+// treating an unexecuted load-bearing search as covered.
+func (e *explorerEvaluator) postFailedGrepRepairSignal(obs LoopObservation) LoopSignal {
+	if e == nil || e.midLoopFailedGrepRepairSent {
+		return LoopSignal{}
+	}
+	var failed bool
+	for i := len(obs.CurrentToolResults) - 1; i >= 0; i-- {
+		result := obs.CurrentToolResults[i]
+		if result.ToolName == "grep" && !result.Success && result.Repair == nil {
+			failed = true
+			break
+		}
+	}
+	if !failed && obs.LastToolResult != nil && obs.LastToolResult.ToolName == "grep" &&
+		!obs.LastToolResult.Success && obs.LastToolResult.Repair == nil {
+		failed = true
+	}
+	if !failed {
+		return LoopSignal{}
+	}
+	e.midLoopFailedGrepRepairSent = true
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.failed-grep-repair",
+		Hint:           "The last built-in `grep` invocation failed; it did not establish zero matches or absence and cannot close that investigation branch. Correct the invocation and run one bounded search again. Use `fixed_string=true` for a literal containing punctuation, otherwise correct the regex; set a focused `path` when known. If the exact source location is already known, use one focused `read_file` instead. Only a successful tool result may support the branch or its completion handoff.",
 		Progress:       false,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -11461,6 +11502,9 @@ func (e *explorerEvaluator) observeMidLoopWithContext(ctx *types.AgentContext, o
 	// re-call the exhausted tool; the budget hint corrects the
 	// misplan in the same iter.
 	if sig := e.postBudgetExhaustedSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postFailedGrepRepairSignal(obs); sig.HintRequested {
 		return sig
 	}
 	if sig := e.postRestrictedToolSurfaceSignal(obs); sig.HintRequested {

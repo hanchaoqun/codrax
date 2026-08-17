@@ -1195,8 +1195,11 @@ func TestBuildInitialInstruction_ConfigPrecedenceSeparatesValueProvenance(t *tes
 	for _, want := range []string{
 		"Config Value Provenance Discipline",
 		"production initializer, constructor, or constant",
+		"field or type declaration without an initializer",
 		"sample config value or documentation comment",
 		"inherit/unset sentinel",
+		"`scalar_value`",
+		"layer=code_default",
 		"every requested config bucket",
 		"explicit unresolved value/source",
 	} {
@@ -1215,6 +1218,46 @@ func TestBuildInitialInstruction_ConfigPrecedenceSeparatesValueProvenance(t *tes
 	}, nil)
 	if strings.Contains(nonConfigPrompt, "Config Value Provenance Discipline") {
 		t.Fatalf("config provenance guidance leaked into a non-config family:\n%s", nonConfigPrompt)
+	}
+}
+
+func TestObserveMidLoop_FailedGrepGetsTypedOneShotRepairBeforeClosure(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		midLoopCompletionReadySent: false,
+	}
+	failed := types.ToolResult{ToolName: "grep", Success: false, Summary: "arbitrary backend prose"}
+	obs := LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		LastToolResult:     &failed,
+		AllToolResults:     []types.ToolResult{failed},
+		CurrentToolResults: []types.ToolResult{failed},
+	}
+
+	sig := eval.observeMidLoop(obs)
+	if !sig.HintRequested || sig.HintKey != "explorer.failed-grep-repair" {
+		t.Fatalf("failed grep should receive its typed repair first, got %+v", sig)
+	}
+	for _, want := range []string{"did not establish zero matches or absence", "fixed_string=true", "successful tool result"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("failed-grep repair missing %q: %s", want, sig.Hint)
+		}
+	}
+	if !sig.BypassThrottle || !sig.BypassBudget {
+		t.Fatalf("failed-grep repair should not lose to ordinary hint pressure, got %+v", sig)
+	}
+
+	again := eval.observeMidLoop(obs)
+	if again.HintKey == "explorer.failed-grep-repair" {
+		t.Fatalf("failed-grep repair must be one-shot, got %+v", again)
+	}
+
+	structured := failed
+	structured.Repair = &types.ToolRepair{Code: exploreBudgetExhaustedRepairCode}
+	if got := (&explorerEvaluator{}).postFailedGrepRepairSignal(LoopObservation{LastToolResult: &structured}); got.HintRequested {
+		t.Fatalf("structured failures belong to their dedicated repair lane, got %+v", got)
 	}
 }
 
