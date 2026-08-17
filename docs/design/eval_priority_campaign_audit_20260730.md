@@ -35692,6 +35692,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`。
 
+### §123.1004 r635/B1001/B1002：控制枚举退出后机理仍越界；typed 图候选缺端点映射（2026-08-17）
+
+1. 在 `main@a8fcaa930` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   `Trace fail / QF partial`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_reader_carriers_r635_20260817_manual_audit.md`。
+2. Trace 的确定性面保持正确：显式 `1.000000..1.010000` 主窗只选 worker-200 链上
+   `#1=8.300ms`，目标状态、邻近/背景分权、因果投影和自动补齐均未退化；客户正文也不再出现
+   `bounded_window_candidate` / `priority_inversion_candidate`。但模型仍把 worker 的 runnable 等待说成
+   “持有 CPU 导致高优先级目标无法获得调度”，把目标 sleeping 写成“正常等待 worker 完成”，并声称
+   唤醒依赖证明“工作完成/直接阻塞”。这些机理与 typed 状态、阶段语义和既有 not-authorized 边界冲突。
+3. 新确认 B1001：这不是再缺一条查询证据，而是最后读者 handoff 只给自然 cause label，没有把同一 exact
+   cause family 的“可说机理/未证机理”贴在该标签旁。最优解是从 typed cause token 派生紧凑自然语言
+   mechanism scope，统一覆盖 runnable/调度供给、running/算力供给、D/IO、语义工作等家族；它只提醒
+   模型证据边界，不选择根因、不扫描 request/final prose、不拒绝或改写模型答案。
+4. QF 首轮上下文已经给出 stage 业务边标签和 copy-ready 无箭头 grouping，终图也保留阶段顺序、
+   `BusContext` 包含 `Mutable` 与 `Mutable` 未证边界。但 finalizer 经历 `6 reject / 6 patch`；关键 repair
+   candidate 只有 `participant_endpoint_side=from` 与技术端点 `o.busCtx.Mutable`，模型反复猜测该字段
+   如何映射为 exact participant `BusContext`，直至第六轮才过。
+5. 新确认 B1002：候选 carrier 应明确发布 `participant_node_id`、映射侧、技术 identity 只留
+   `edge_anchor`、以及由 immutable relation kind 派生的自然语言 `visible_arrow_label`。这是复制语法和
+   读者措辞，不替模型选择哪条候选、不增加/反转任何边。终图当前仍重复显示两份 BusContext，并把 raw
+   `argument_flow` 当可见边标签，说明该修复需做生产回放而不能只签单测。
+6. 两案活跃字节流均远超 4ms 并正常结束；没有固定年龄降级。后续施工不修改 Trace 查询、投影、自动
+   补齐或链上根因权限；邻近/背景仍只作支撑和额外排查方向。
+
+状态：
+
+`r635=runner-2/2/human=trace-fail+qf-partial`；
+`B997-TRACECONTROLENUMCUSTOMERLANGUAGE1=production-closed-r635`；
+`B1000-NOARROWGROUPINGCOPYSKELETON1=production-positive-r635`；
+`B1001-TRACECAUSEMECHANISMSCOPE1=confirmed/open/prompt-only`；
+`B1002-DIAGRAMCANDIDATEENDPOINTREADERLABEL1=confirmed/open/no-edge-authorship`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-selected-window-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`。
+
 ### §123.1003 r634/B997/B998/B1000：末端词典未压过 raw 重复源；无箭头 grouping 缺可复制身份形（2026-08-17）
 
 1. 在 `main@e50567fea` 严格并发恰好两个案例：
