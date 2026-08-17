@@ -1603,6 +1603,79 @@ direct RMQ子批`348ed8709`与structured/text/container子批`00ab87a62`均在�
 - `go test ./internal/tracediag ./cmd -count=1`：通过（`5.449s` / `9.605s`）。
 - `git diff --check`：通过。
 
+## 2026-08-17 追加：HCONV-IO-VIS-R1 官方 raw page 块请求文本恢复
+
+### 深审结论：丢失发生在 DB 之前，不能只补 SQL renderer
+
+- 客户诊断中源 raw page 的格式清册明确存在 `block_rq_issue=7961`、
+  `block_rq_complete=7952`、`block_bio_remap=7942`，但 trace_streamer 导出的 `raw`
+  表缺少 `argset/argsetid`，原 `exportTraceDBRawFtraceFamilies` 因此一条块事件也不能安全发布。
+  O2 `sql_text_fidelity` 虽能逐表逐单元格保存 DB，却无法恢复根本没有进入 DB 行的 raw
+  record，也不会被通用 systrace 查看器渲染成泳道。
+- 官方 SmartPerf 当前源码进一步证明这不是 Codrax 猜测：
+  `trace_streamer/src/table/ftrace/raw_table.cpp` 的 `raw` 表只声明
+  `cpu_idle/sched_wakeup/sched_waking` 三个 name；BIO/FileSystem eBPF 信息则由
+  `bio_latency_sample`、`file_system_sample` 等专表和官方查看器 SQL 面板消费。因此“从
+  SQLite raw 表枚举所有内核事件”在当前官方 schema 上本身不可成立。
+- 结论：客户的 block 证据必须从同一份不可变二进制输入的 `events_format + raw page`
+  恢复；禁止从聚合 `not_match`、附近线程、DB 时间戳或 O2 单元格反推原事件。
+
+### R1 实现与权限边界
+
+1. strict raw target 闭集新增七个 byte-exact 事件：`block_rq_issue/insert/complete/remap` 与
+   `block_bio_queue/complete/remap`。每条记录必须通过既有唯一 direct block descriptor
+   decoder、common envelope、单物理行和 canonical payload 检查；四个 elapsed endpoint 还
+   必须与 `tracequery.DecodePairingEndpoint` 的 dev/op/sector/len 硬键完全一致。
+2. 完整物理 census、body-admitted census、retained census 三者相等且零 capture failure 时，
+   才授予 `source_rawtrace_block` 发布权。任一 descriptor/body/预算/retention 缺口整族
+   fail-close；非 endpoint 的 insert/remap 仍按真实点事件保留，但永不自铸 duration。
+3. 发布行保留源纳秒 timestamp、raw page CPU、`common_pid/common_flags/
+   common_preempt_count`。`common_pid` 是 namespace/物理 header 值，原样输出；cmdline 只作
+   display name，TGID 未知显示 `-----`，不做 `TGID=TID`、host PID 或 incarnation 猜测。
+4. issue 与 complete 可由不同 emitter 发出（业务提交线程→IRQ 完成线程）；请求身份不含
+   emitter。标准文本行进入既有 tracequery 后，才按同 artifact、family、dev、op、sector、len
+   和物理顺序构造 request residence；S/D response wait 仍必须再满足 IO-CAL-1 的
+   completion-closed issuer sleep→wake 合同。
+5. source family 完整时，在 SQLite raw 发布前抑制 DB `block_storage` 行，由 source 单一权威
+   替代；source 不完整时保持原 DB 路径，不用半份 raw family 覆盖可用 DB 行。若任何 DB block
+   行已先发布，source recovery 整族拒绝，避免双发。
+6. retained 总预算仍固定 768 MiB；为 block family 分配 16 MiB（客户量级约 2.4 万行），并将
+   marker family 从 480 MiB 校准为 464 MiB。超过独立 family 上限只撤销该 family recovery，
+   raw 物理 census 仍继续完成并披露。
+
+### 回归证据与当前仍开放项
+
+- 合成复刻客户行：`com.tencent.mm-25827` 发出
+  `12,80 RCVHS 32768 () 923339752 + 64`，`udk-irq-4-80-2` 完成；标准输出恰好两行，
+  namespace `common_pid`、CPU、flags 均保持，tracequery 构造唯一 `0.275ms`
+  `block_rq_issue_to_complete` request residence。不同 emitter 不拆 lane。
+- 负臂覆盖：重复 physical ordinal 原子拒绝、DB/source overlap 拒绝、完整 converter wiring、
+  非官方 envelope typed not-applicable、family retention budget 独立撤权。
+- **HCONV-IO-VIS-R1：本批关闭 block RQ/BIO 源 raw 文本缺失。** 以下仍开放，不能借 R1
+  宣称“所有事件/所有查看器已完全兼容”：
+  - **R2（P1）**：HMFS/F2FS/page-cache/workqueue 等源 raw 族逐族复用严格 descriptor decoder；
+    HMFS 不得套 F2FS profile，未知厂商 payload 只能 typed opaque/background，不能进入根因。
+  - **R3（P1）**：其余 admitted source raw record 的有界 spill-backed 可见性；既要让文本不再
+    贫乏，也必须阻止 generic fallback 猜字段、猜身份或绕过 pair barrier。
+  - **EBPF-VIS（P1）**：官方 `bio_latency_sample/file_system_sample/paged_memory_sample`
+    当前由 Codrax typed comment 保真，但通用查看器不显示为泳道；这些表没有真实 CPU，兼容
+    投影必须设计明确的非调度 carrier，禁止伪造 CPU0 后又被 tracequery 当调度/因果权威。
+  - **VIEWER-PARITY（P1）**：plain systrace 无法原样复制官方查看器的 DB-native 专属面板；需按
+    “标准通用行 + 可忽略 typed extension”双载体逐表对账，而不是假称 O2 comment 已等价可见。
+
+### 验证回执
+
+- focused source decode/publisher/converter/预算/receipt 回归通过。
+- `go test ./internal/tracequery ./internal/tracediag ./cmd/... -count=1`：通过
+  （`77.884s / 4.962s / 9.013s`）。
+- `go test ./internal/hitraceconv -count=1` 首轮仅命中预期 receipt 新 coverage 哈希与固定预算
+  清册；预算总额恢复为 768 MiB，receipt 按新增 `source_rawtrace_block` 明示处置重钉后，完整
+  转换包在 source/DB 优先级硬化及其回归补齐后再次完整复跑通过（`77.513s`）。
+- `go test ./... -p 4 -count=1`：全仓通过；其中 `internal/hitraceconv=90.096s`、
+  `internal/tracequery=83.441s`、`internal/tool=197.090s`，Trace 因果投影、成文/JSON、
+  Mermaid 自愈、REPL 流式与 read/write 回归均未被本批转换修复破坏。
+- `git diff --check`：通过。
+
 ## 2026-08-17 追加：IO-XGRAPH-1a 跨层关系权限收窄（inode/块请求去邻近洗白）
 
 ### 新确认的系统 GAP

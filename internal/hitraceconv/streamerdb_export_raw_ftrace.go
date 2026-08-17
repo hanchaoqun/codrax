@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 type traceDBRawEvent struct {
@@ -141,6 +143,11 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	classSkipped := map[string]map[string]int{}
 	schemaSkipped := map[string]int{}
 	unsupported := TraceDBCoverage{Family: "raw_ftrace", Table: "unsupported", Role: "unsupported_input", Found: true, Skipped: "unsupported raw ftrace event family"}
+	sourceBlockSupersedesDB := traceDBRawBlockFamilyAuthorityEligible(tdb.sourceNameInventory)
+	if sourceBlockSupersedesDB {
+		schemaCoverage.FieldSources["block_source_precedence"] =
+			"complete exact official source raw block family supersedes normalized SQLite raw block rows before publication"
+	}
 	globalStageBudget := ""
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -271,6 +278,8 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 
 		rowReason := ""
 		switch {
+		case sourceBlockSupersedesDB && class == "block_storage":
+			rowReason = "superseded_complete_source_raw_block_family"
 		case argsetReason != "":
 			rowReason = argsetReason
 		case !requiredArgsKnown:
@@ -302,11 +311,20 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			line = rendered.line
 		}
 
+		observationVerdict, observationLaneKey := verdict, laneKey
+		if sourceBlockSupersedesDB && class == "block_storage" {
+			// The complete source family owns these physical block events. Keep
+			// the DB row in bounded physical accounting, but do not let a
+			// deliberately non-publishable duplicate poison the independent DB
+			// pairing stage or consume its lane-key budget.
+			observationVerdict = tracequery.PairingEndpointVerdict{}
+			observationLaneKey = ""
+		}
 		observation := traceDBRawPairingObservation{
 			StableID: raw.StableID, StableKnown: stableKnown,
 			Timestamp: raw.TS, TimestampKnown: timestampKnown,
 			Class: class, Line: line, Publishable: publishable,
-			Verdict: verdict, LaneKey: laneKey, HeaderOwnerKnown: headerOwnerKnown,
+			Verdict: observationVerdict, LaneKey: observationLaneKey, HeaderOwnerKnown: headerOwnerKnown,
 			CanonicalITID: canonicalITID, CanonicalITIDKnown: canonicalITIDKnown,
 			EndpointAdmitted: verdict.Recognized && endpointAdmitted && publishable,
 		}

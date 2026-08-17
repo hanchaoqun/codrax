@@ -30,17 +30,19 @@ const (
 	traceDBRawRetentionWakeupName     = "sched_wakeup_new_name"
 	traceDBRawRetentionDMAWait        = "dma_wait"
 	traceDBRawRetentionDMALifecycle   = "dma_lifecycle"
+	traceDBRawRetentionBlock          = "block_storage"
 	traceDBRawRetentionFamilyComplete = "complete"
 )
 
 var traceDBRawRetentionFamilyBudgets = map[string]int64{
-	traceDBRawRetentionMarker:       480 << 20,
+	traceDBRawRetentionMarker:       464 << 20,
 	traceDBRawRetentionBlocked:      56 << 20,
 	traceDBRawRetentionSwitchLite:   128 << 20,
 	traceDBRawRetentionWakeupLite:   72 << 20,
 	traceDBRawRetentionWakeupName:   16 << 20,
 	traceDBRawRetentionDMAWait:      8 << 20,
 	traceDBRawRetentionDMALifecycle: 8 << 20,
+	traceDBRawRetentionBlock:        16 << 20,
 }
 
 type traceDBRawDecodeFormatStats struct {
@@ -77,6 +79,22 @@ type traceDBRawDMAWaitRecord struct {
 	Timeline     string
 	Context      uint64
 	Seqno        uint64
+}
+
+// traceDBRawBlockRecord is one byte-exact block request/BIO event recovered
+// from the immutable official raw page. HeaderPID remains the physical
+// common_pid namespace value; it is not rewritten to a host PID or TGID.
+// Body is the output of the sole governed direct block decoder and excludes
+// the stable event-name prefix.
+type traceDBRawBlockRecord struct {
+	PhysicalOrdinal int64
+	TimestampNS     uint64
+	CPU             int
+	HeaderPID       int64
+	Flags           int64
+	PreemptCount    int64
+	Name            string
+	Body            string
 }
 
 // traceDBRawDMALifecycleRecord is an exact official point event. It is kept
@@ -131,6 +149,7 @@ type traceDBSourceRawDecodeAccumulator struct {
 	blockedRecords    []traceDBRawBlockedRecord
 	dmaWaitRecords    []traceDBRawDMAWaitRecord
 	dmaLifecycle      []traceDBRawDMALifecycleRecord
+	blockRecords      []traceDBRawBlockRecord
 	markerRecords     []traceDBRawMarkerRecord
 	switchLiteRecords []traceDBRawSchedSwitchLiteRecord
 	wakeupLiteRecords []traceDBRawSchedWakeupLiteRecord
@@ -156,13 +175,13 @@ func newTraceDBSourceRawDecodeCoverage() TraceDBCoverage {
 		Role:   "diagnostic_ledger",
 		FieldSources: map[string]string{
 			"authority":      "same immutable official input generation, admitted event-format catalog, and structurally validated page/record geometry as source_rawtrace_profile",
-			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, DMA wait endpoints, and official DMA lifecycle point events; generic/legacy fallback renderers never gain RPD authority",
+			"body_decode":    "closed strict decoders only: sched core, exact sched_switch, exact sched_switch_lite/sched_wakeup_lite, tracing marker, exact block request/BIO events, DMA wait endpoints, and official DMA lifecycle point events; generic/legacy fallback renderers never gain RPD authority",
 			"geometry":       "bounded exact descriptor field name/offset/size/signed witnesses for closed target formats; field types and print-fmt text are not surfaced",
 			"effect":         "this ledger is bounded independent raw-record accounting and RowsEmitted is always zero; retained typed records remain inert unless a separate family-specific census/deduplication/wire gate publishes them",
 			"identity":       "strict common_pid/common_flags/common_preempt_count envelope is required per decoded target record; namespace and TGID are not inferred",
 			"marker_sync":    "print and tracing_mark_write share tracequery.DecodeTraceMarkEndpointPayload as the sole complete-payload endpoint grammar; exact B/E payloads, admitted S/F payloads, and localized rejected carrier rows are retained without publication, while payload PID remains namespace data",
 			"scheduler_lite": "sched_switch_lite retains exact prev/next PID, signed-16 priority, state and the full packed uint64 next_info; known bits render the stable current prefix while nonzero unknown high bits are counted and never guessed as future fields; sched_wakeup_lite retains exact target PID, signed-16 priority and target CPU; both remain internal until a separate DB join proves one-to-one publication authority",
-			"limits":         "all structurally scanned target records receive strict body decoding; retained typed recovery records have a conservative 768 MiB in-memory byte budget, at most 64 sorted format/count witnesses and at most 32 fields per target geometry witness are surfaced; retention/format caps withdraw completion while field overflow is explicitly counted",
+			"limits":         "all structurally scanned target records receive strict body decoding; retained typed recovery records have conservative per-family budgets totaling at most 768 MiB, at most 64 sorted format/count witnesses and at most 32 fields per target geometry witness are surfaced; retention/format caps withdraw completion while field overflow is explicitly counted",
 		},
 		Metadata: map[string]string{
 			"decode_state":          "unavailable",
@@ -255,6 +274,8 @@ func traceDBRawRetentionFamily(name string) string {
 		return traceDBRawRetentionDMAWait
 	case traceDBRawDMALifecycleName(name):
 		return traceDBRawRetentionDMALifecycle
+	case directBlockNameGoverned(name):
+		return traceDBRawRetentionBlock
 	default:
 		return traceDBRawDecodeReasonMetric(name)
 	}
@@ -444,6 +465,31 @@ func (a *traceDBSourceRawDecodeAccumulator) observeRecord(
 				return
 			}
 			a.blockedRecords = append(a.blockedRecords, record)
+		} else if directBlockNameGoverned(format.Name) {
+			if directBlockPairEndpointName(format.Name) {
+				verdict := tracequery.DecodePairingEndpoint(
+					format.Name, body, int64(headerPID))
+				if !verdict.Recognized ||
+					verdict.Family != tracequery.PairingEndpointBlock ||
+					!verdict.KeyKnown || !verdict.PayloadAdmitted ||
+					!verdict.EmitterKnown || !verdict.EmitterAdmitted {
+					traceDBAddCoverageMetric(&a.coverage,
+						"target_block_storage_record_capture_failed", 1)
+					return
+				}
+			}
+			record := traceDBRawBlockRecord{
+				PhysicalOrdinal: int64(a.coverage.RowsRead),
+				TimestampNS:     timestampNS, CPU: cpu, HeaderPID: int64(headerPID),
+				Flags: flags, PreemptCount: preemptCount,
+				Name: format.Name, Body: body,
+			}
+			if !a.reserveRetained(format.Name, 112, record.Name, record.Body) {
+				return
+			}
+			a.blockRecords = append(a.blockRecords, record)
+			traceDBAddCoverageMetric(&a.coverage,
+				"target_block_storage_records_retained", 1)
 		} else if format.Name == "sched_switch_lite" {
 			lite, liteReason := decodeTraceDBRawSchedSwitchLite(event)
 			if liteReason != "" {
@@ -747,6 +793,9 @@ func traceDBRawDecodeStrictTarget(name string) bool {
 	if directMarkerNameGoverned(name) {
 		return true
 	}
+	if directBlockNameGoverned(name) {
+		return true
+	}
 	return name == "dma_fence_wait_start" || name == "dma_fence_wait_end" ||
 		traceDBRawDMALifecycleName(name)
 }
@@ -761,11 +810,25 @@ func traceDBRawDMALifecycleName(name string) bool {
 	}
 }
 
+func traceDBRawBlockTargetNames() []string {
+	return []string{
+		"block_bio_complete",
+		"block_bio_queue",
+		"block_bio_remap",
+		"block_rq_complete",
+		"block_rq_insert",
+		"block_rq_issue",
+		"block_rq_remap",
+	}
+}
+
 func traceDBRawDecodeMetricName(name string) string {
 	switch name {
 	case "print", "sched_switch", "sched_switch_lite", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",
 		"sched_wakeup_lite",
 		"sched_wakeup", "sched_wakeup_new", "sched_waking",
+		"block_bio_complete", "block_bio_queue", "block_bio_remap",
+		"block_rq_complete", "block_rq_insert", "block_rq_issue", "block_rq_remap",
 		"dma_fence_destroy", "dma_fence_emit", "dma_fence_enable_signal",
 		"dma_fence_init", "dma_fence_signaled", "dma_fence_wait_start", "dma_fence_wait_end":
 		return name
@@ -797,7 +860,7 @@ func traceDBRawDecodeReasonMetric(reason string) string {
 }
 
 func traceDBRawDecodeTargetNames() []string {
-	return []string{
+	return append(traceDBRawBlockTargetNames(),
 		"dma_fence_destroy",
 		"dma_fence_emit",
 		"dma_fence_enable_signal",
@@ -815,7 +878,7 @@ func traceDBRawDecodeTargetNames() []string {
 		"sched_waking",
 		"trace_vsync",
 		"tracing_mark_write",
-	}
+	)
 }
 
 func traceDBRawDecodeTargetGeometryWitnesses(catalog eventFormatCatalog) ([]string, int) {

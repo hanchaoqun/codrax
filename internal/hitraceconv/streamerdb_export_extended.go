@@ -57,6 +57,14 @@ func exportTraceDBExtendedFamilies(ctx context.Context, tdb *traceDB, sink *trac
 		return coverage, err
 	}
 	stageStart = time.Now()
+	rawBlockCoverage, err := publishTraceDBRawBlockRecovery(
+		ctx, tdb.sourceNameInventory, sink, rawCoverage)
+	traceDBSetCoverageElapsed(&rawBlockCoverage, stageStart)
+	coverage = append(coverage, rawBlockCoverage)
+	if err != nil {
+		return coverage, err
+	}
+	stageStart = time.Now()
 	rawDMAWaitCoverage, err := publishTraceDBRawDMAWaitRecovery(
 		ctx, tdb.sourceNameInventory, sink, authority, rawCoverage)
 	traceDBSetCoverageElapsed(&rawDMAWaitCoverage, stageStart)
