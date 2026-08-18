@@ -8274,8 +8274,25 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		}
 		if dc := answerDocDiagramContract(ctx); dc != nil {
 			if boundaries, _ := answerDocDiagramUnprovenParticipantBoundaries(ctx, dc); len(boundaries) > 0 {
-				if payload, err := json.Marshal(boundaries); err == nil {
-					fmt.Fprintf(&b, "- participant_boundaries_json=`%s`; copy these exact rows into the diagram block's block-level `participant_boundaries` sibling when retaining the copy-ready relation skeleton. These rows bound the still-unproved requested relation; the independently proved local arrows neither replace nor contradict them. Do not display the JSON or validator vocabulary in reader-facing prose.\n", payload)
+				// The copy-ready body and edge anchors used to be followed by a
+				// separate participant-boundary recipe. A model could correctly
+				// copy the first carrier and miss the second, then be rejected by
+				// the participant gate even though both values came from the same
+				// typed coverage decision. Publish one atomic block-sibling object
+				// instead. It remains authoring input only: it creates no visible
+				// edge, node, wording, or conclusion.
+				anchors := make([]types.DiagramEdgeAnchor, 0, len(receipts.relationAnchors)+len(receipts.semanticHandoffAnchors))
+				anchors = append(anchors, receipts.relationAnchors...)
+				anchors = append(anchors, receipts.semanticHandoffAnchors...)
+				payload, err := json.Marshal(struct {
+					EdgeAnchors           []types.DiagramEdgeAnchor          `json:"edge_anchors"`
+					ParticipantBoundaries []types.DiagramParticipantBoundary `json:"participant_boundaries"`
+				}{
+					EdgeAnchors:           anchors,
+					ParticipantBoundaries: boundaries,
+				})
+				if err == nil {
+					fmt.Fprintf(&b, "- diagram_block_sibling_fields_json=`%s`; this single object is the complete block-level metadata carrier for the copy-ready diagram. Copy both arrays together into the same model-authored diagram block; do not reconstruct or selectively omit one array. The boundary rows constrain only the still-unproved requested relation, while independently proved local arrows remain unchanged. Do not display this JSON, boundary status, or validator vocabulary in reader-facing prose.\n", payload)
 				}
 			}
 		}

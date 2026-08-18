@@ -2257,11 +2257,16 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 		"Source existence: a source-grounded call edge directly references this endpoint",
 		"Requested-sink existence: a source-grounded call edge directly references this endpoint",
 		"Grounded requested-sink-side path: `gate.Run` -> `gate.RunWith`",
-		"participant_boundaries_json=`[{\"participant\":\"buildAnalysisIR\",\"status\":\"unproven\"},{\"participant\":\"gate.Run\",\"status\":\"unproven\"}]`",
+		"diagram_block_sibling_fields_json=`{\"edge_anchors\":[",
+		"\"participant_boundaries\":[{\"participant\":\"buildAnalysisIR\",\"status\":\"unproven\"},{\"participant\":\"gate.Run\",\"status\":\"unproven\"}]}`",
+		"Copy both arrays together into the same model-authored diagram block",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("finalizer prompt lost owner-qualified endpoint existence %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "- participant_boundaries_json=`") {
+		t.Fatalf("copy-ready diagram must publish anchors and boundaries as one atomic sibling-field object:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "requested sink has definition evidence only") ||
 		strings.Contains(prompt, "requested_sink_existence_proof=") {

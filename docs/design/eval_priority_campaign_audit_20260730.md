@@ -35823,6 +35823,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1093 r700 与 B1104/B1105：图元数据载体原子性与读者语言投影（2026-08-18）
+
+1. `main@d571858ba` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
+   `trace_query_wakeup_causal_io_chain`；共同不可变二进制、`PARALLEL=2`，runner `2/2 PASS`，人工为
+   call-chain fail、Trace partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_boundary_io_replay_r700_20260818_manual_audit.md`。
+2. Trace 跨域回归通过核心不变量：精确窗 `2.000000..2.020000`；app-100 20ms S 态仅为目标症状；
+   threadpool-400 的 fscache IO 等待 11ms 为链上 #1，三个 1ms runnable 席为调度供给次级；邻近 sleep/
+   背景 IO pressure 未晋升主因。`Trace 因果投影`、自动补采、主要占用/规则可消双轴均完整，无固定
+   4ms 降级，系统没有代写模型结论。
+3. B1103 仅获部分生产正证：初始 Finalizer 已有精确 participant boundary rows，r699 的 2 次同类拒绝
+   降到 1 次；但 copy-ready Mermaid/anchors 与 boundary rows 仍是两个复制动作。模型复制第一载体而漏
+   第二载体，participant gate 正确拒绝；修补后模型又把“未证关系边界”审计词显示给读者。根因不是
+   hard gate 过严，而是同一 typed coverage 决策被拆成可部分复制的载体。
+4. `B1104-DIAGRAMSIBLINGATOMICCARRIER1` 根修不放宽门、不注入图、不扫描模型 prose。同一 typed producer
+   将完整 `edge_anchors` 与 `participant_boundaries` 合并为一个
+   `diagram_block_sibling_fields_json` 对象，要求两数组一次复制到同一模型自写 diagram block；局部已证
+   箭头与请求级未证边界仍可共存，JSON/status/validator 词明确不得进入读者正文。原独立 boundary
+   复制载体退役，避免“复制一半即硬拒”的可构造状态。
+5. 新确认 `B1105-TYPEDREADERLANGUAGEPROJECTION1/P1`：同一 Trace 答案正文泄露
+   `status=complete`、`*_authority=not_provided`、`target_window_wait_occurrences`，系统证据索引/补充又
+   发布 `tier/causality/predicate/origin` 等内部 token；与此前 `bounded_window_candidate`、
+   “覆盖状态为 complete”同属一类。最优方案是给 typed enum/field 建统一 locale-aware display
+   projection，读者面只消费业务句/显示标签，原 token 只留机器诊断工件；不得靠扫描/替换模型最终文字。
+6. Call 最终箭头保持真实 shared-callee 形，但模型摘要仍把它称为“完整调用顺序/汇入 gate.Run”，说明
+   上下文负担与模型结论仍有 partial；系统不得改写该结论。B1104 先减少一次结构修补心智，后续复放再
+   判断是否仍需把 no-directed-path typed verdict 提升为更紧邻、业务语言的软指引。
+
+状态：
+
+`r700=2/2 runner PASS + manual fail/partial`；
+`B1103-BOUNDARYRECIPEAXISPARITY1=production-partial`；
+`B1104-DIAGRAMSIBLINGATOMICCARRIER1=implemented/focused-pins-pass`；
+`B1105-TYPEDREADERLANGUAGEPROJECTION1=confirmed/P1/open`；
+`system-relation/diagram/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
