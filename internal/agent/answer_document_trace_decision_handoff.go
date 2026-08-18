@@ -1197,15 +1197,7 @@ func traceDecisionNodeQueryWindow(node types.TraceCausalProjectionNode) (float64
 }
 
 func traceDecisionSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
-	return absFloat(aStart-bStart) <= types.TraceCausalProjectionSameWindowToleranceS &&
-		absFloat(aEnd-bEnd) <= types.TraceCausalProjectionSameWindowToleranceS
-}
-
-func absFloat(value float64) float64 {
-	if value < 0 {
-		return -value
-	}
-	return value
+	return types.TraceCausalProjectionPrincipalValueSameWindow(aStart, aEnd, bStart, bEnd)
 }
 
 type traceDecisionContextRow struct {

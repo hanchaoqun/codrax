@@ -6941,13 +6941,6 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
 }
 
-// The causal projector's ±1ms same-window tolerance deliberately groups query
-// windows that are effectively the same analysis request. It is too wide for
-// containment: a 0.020ms post-boundary interval would become principal evidence
-// for a window that already ended. This epsilon absorbs only float parsing
-// noise when enforcing the user-owned boundary.
-const answerDocSelectedWindowContainmentEpsilonS = 1e-9
-
 // answerDocSelectedWindowObservationRecords keeps deterministic trace-query
 // rows whose own typed selected_window is fully contained by the user's
 // explicit requested window on the Finalizer prompt surface. Wider, later, or
@@ -6979,8 +6972,9 @@ func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records 
 			out = append(out, record)
 			continue
 		}
-		if start < requestedStart-answerDocSelectedWindowContainmentEpsilonS ||
-			end > requestedEnd+answerDocSelectedWindowContainmentEpsilonS {
+		if !types.TraceCausalProjectionPrincipalValueWindowContains(
+			requestedStart, requestedEnd, start, end,
+		) {
 			omitted++
 			continue
 		}

@@ -20,7 +20,6 @@ package context
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -252,8 +251,7 @@ func traceBoardHasSeatedRequestedWindow(records []types.ObservationRecord, reque
 }
 
 func traceBoardSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
-	return math.Abs(aStart-bStart) <= types.TraceCausalProjectionSameWindowToleranceS &&
-		math.Abs(aEnd-bEnd) <= types.TraceCausalProjectionSameWindowToleranceS
+	return types.TraceCausalProjectionPrincipalValueSameWindow(aStart, aEnd, bStart, bEnd)
 }
 
 func traceBoardRowIdentity(row traceBoardRow) string {

@@ -3161,6 +3161,19 @@ func TraceCausalProjectionPrincipalValueSameWindow(aStart, aEnd, bStart, bEnd fl
 		math.Abs(aEnd-bEnd) <= TraceCausalProjectionPrincipalValueWindowToleranceS
 }
 
+// TraceCausalProjectionPrincipalValueWindowContains reports whether inner is
+// wholly contained by the user-owned principal window. It deliberately shares
+// the narrow two-microsecond representation tolerance used by exact principal
+// window identity. The historical ±1ms grouping tolerance is appropriate for
+// disclosure dedupe, but would admit a genuinely post-boundary measurement
+// into the selected-window value surface.
+func TraceCausalProjectionPrincipalValueWindowContains(outerStart, outerEnd, innerStart, innerEnd float64) bool {
+	return TraceCausalProjectionWindowPresent(outerStart, outerEnd) &&
+		TraceCausalProjectionWindowPresent(innerStart, innerEnd) &&
+		innerStart >= outerStart-TraceCausalProjectionPrincipalValueWindowToleranceS &&
+		innerEnd <= outerEnd+TraceCausalProjectionPrincipalValueWindowToleranceS
+}
+
 // TraceCausalProjectionNodeMatchesPrincipalWindow reports whether a ranked
 // node may participate in the selected-window principal rank/value surfaces.
 // A typed rank-board window is authoritative when present and must match the
@@ -3529,11 +3542,11 @@ func traceCausalProjectionAnchorWindow(records []ObservationRecord, requestedSco
 				source := strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyWindowSource))
 				if source == "query_window" || source == "explicit_query_union_previous_frame_end_to_current_frame_end" {
 					start, end, ok := traceCausalProjectionWindow(record.RichNotes)
-					match = ok && traceCausalProjectionSameWindow(start, end, requestedStart, requestedEnd)
+					match = ok && TraceCausalProjectionPrincipalValueSameWindow(start, end, requestedStart, requestedEnd)
 				}
 			} else if traceCausalProjectionSelectedWindowAnchorFamily(record) {
 				start, end, ok := traceCausalProjectionSelectedWindowNote(record.RichNotes)
-				match = ok && traceCausalProjectionSameWindow(start, end, requestedStart, requestedEnd)
+				match = ok && TraceCausalProjectionPrincipalValueSameWindow(start, end, requestedStart, requestedEnd)
 			}
 			if match {
 				return requestedStart, requestedEnd, true
@@ -3614,7 +3627,7 @@ func traceCausalProjectionPreferRequestedWindowWakeupPaths(candidates []traceCau
 	}
 	matching := make([]traceCausalProjectionWakeupPathCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if traceCausalProjectionSameWindow(candidate.windowStart, candidate.windowEnd, start, end) {
+		if TraceCausalProjectionPrincipalValueSameWindow(candidate.windowStart, candidate.windowEnd, start, end) {
 			matching = append(matching, candidate)
 		}
 	}

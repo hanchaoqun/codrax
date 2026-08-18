@@ -4563,11 +4563,11 @@ func runtimeTraceCoverageTargetStates(
 		return nil
 	}
 	if analysisWindowKnown {
-		toleranceS := types.TraceCausalProjectionSameWindowToleranceS
 		for _, item := range candidates {
 			if item.selectedKnown &&
-				math.Abs(item.selectedStart-analysisWindowStart) <= toleranceS &&
-				math.Abs(item.selectedEnd-analysisWindowEnd) <= toleranceS {
+				types.TraceCausalProjectionPrincipalValueSameWindow(
+					item.selectedStart, item.selectedEnd, analysisWindowStart, analysisWindowEnd,
+				) {
 				// Exact typed window identity outranks width. This is the
 				// ordinary explicit-window + wider exploratory-probe shape.
 				return []runtimeTraceCoverageTargetState{item.state}
@@ -4587,7 +4587,7 @@ func runtimeTraceCoverageTargetStates(
 			return nil
 		}
 		analysisWindowMS := (analysisWindowEnd - analysisWindowStart) * 1000
-		toleranceMS := toleranceS * 1000
+		toleranceMS := types.TraceCausalProjectionPrincipalValueWindowToleranceS * 1000
 		for _, item := range candidates {
 			if math.Abs(item.state.windowMS-analysisWindowMS) <= toleranceMS {
 				// Legacy typed records may predate selected_window while still

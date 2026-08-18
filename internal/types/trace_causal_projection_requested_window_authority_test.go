@@ -75,6 +75,21 @@ func requestedWindowAuthorityProfile() *RuntimeArtifactScopeProfile {
 	}
 }
 
+func TestTraceCausalProjectionPrincipalWindowToleranceIsNotDisplayGroupingTolerance(t *testing.T) {
+	if !TraceCausalProjectionPrincipalValueSameWindow(1, 1.01, 1.000001, 1.010001) {
+		t.Fatal("one-microsecond timestamp representation drift must remain the same principal window")
+	}
+	if TraceCausalProjectionPrincipalValueSameWindow(1, 1.01, 1, 1.010020) {
+		t.Fatal("twenty-microsecond post-boundary window must not become the same principal window")
+	}
+	if !TraceCausalProjectionPrincipalValueWindowContains(1, 1.01, 1.000001, 1.010001) {
+		t.Fatal("contained window with representation drift must survive")
+	}
+	if TraceCausalProjectionPrincipalValueWindowContains(1, 1.01, 1, 1.010020) {
+		t.Fatal("post-boundary observation must not enter the principal answer pool")
+	}
+}
+
 func TestTraceProjectionExplicitUserWindowOutranksInteriorFrameProbe(t *testing.T) {
 	projection := CompileTraceCausalProjection(ObservationLedger{
 		Records:                     requestedWindowAuthorityFixture(true),

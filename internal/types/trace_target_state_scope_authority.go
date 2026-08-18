@@ -141,7 +141,7 @@ func BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger ObservationLedger) [
 			continue
 		}
 		candidate, ok := traceCausalProjectionTargetStateCandidateFromRecord(record)
-		if !ok || !traceCausalProjectionSameWindow(
+		if !ok || !TraceCausalProjectionPrincipalValueSameWindow(
 			candidate.WindowStart, candidate.WindowEnd, requestedStart, requestedEnd,
 		) {
 			continue

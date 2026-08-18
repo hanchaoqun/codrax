@@ -35699,6 +35699,90 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1086 B1095/B1096：精确窗权威与关系锚 schema 合同统一施工（2026-08-18）
+
+1. `B1096` 根修不再新造第三个窗容差。新增
+   `TraceCausalProjectionPrincipalValueWindowContains`，与既有 principal-value exact-window helper 共用
+   2μs 的生产时间戳表示容差；明确把 ±1ms 留在 disclosure grouping/dedupe，不得再参与用户精确窗的
+   主值、主排序或主目标状态归属。
+2. explicit requested-window 的五个权威消费面统一改用该精确语义：投影 anchor、请求窗 wakeup path
+   优选、Finalizer deterministic observation containment、Runtime Root-Cause Board 选席、principal decision
+   handoff/target-state scope 与发布覆盖状态选择。完整 Observation Ledger、跨窗背景证据、聚类去重和
+   自动补齐均不删不改。
+3. 新增生产形回归：请求窗 `1.000000..1.010000` 下，精确窗根因席保留，而结束于
+   `1.010020`（仅越界 20μs）的正 rank 席不得进入 requested-window board；1μs 表示漂移继续接纳，
+   20μs 越界同时被 same-window 与 containment 拒绝。该测试直接覆盖 r695 的 0.020ms/#2 事故形。
+4. `B1095` 根修通用关系 JSON 教学：`from_node/to_node/relation_kind` 是三个 required core fields；
+   schema 另外支持成对 `from_identity/to_identity` 与 `visible_label`。通用关系锚可选，grounded
+   standalone call-chain typed contract 明确提升为必需。有图时 node 字段复用精确图 node id；无图时
+   使用读者端点标签。删除“EXACTLY three fields”冲突句，validator、同向 typed 证据门和不造边红线
+   均未放松。
+5. 新增 prompt 漂移 pin：必须同时出现 core/identity/visible-label/通用可选与严格家族必需的区别；
+   禁止旧“EXACTLY three fields”回流。关系事实仍由模型依据 typed evidence 表达，系统没有补边、删边、
+   替换图或改写结论。
+6. 验证：`go test ./internal/types ./internal/context ./internal/skill ./internal/agent -count=1` 全绿；
+   `go test ./internal/tool -count=1` 全绿（178.406s）；`git diff --check` 全绿。下一步仅用同一 Trace/
+   call-chain 两案并发恰好两个做生产回放，Trace 验收 root board 不再输出越窗 #2，关系案验收首稿不再因
+   schema 自冲突漏 identity/visible_label；不得以降低 hard typed 证据门换取重试减少。
+
+状态：
+
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=implemented-await-production-replay`；
+`B1096-EXPLICITWINDOWTOLERANCESEMANTICS1=implemented/typed-unit-green`；
+`B1094-RELATIONBLOCKANCHORTEACHING1=implemented-await-production-replay`；
+`B1095-RELATIONANCHORSCHEMADRIFT1=implemented/prompt-pins-green`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1085 r695：主提示投影生效但 root-board 容差旁路；关系 JSON 旧教学仍自冲突（2026-08-18）
+
+1. 在 `main@3db1ac191` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + trace_query_wakeup_causal_runnable`。Runner `2 PASS / 2`，人工
+   `2 fail`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_relation_context_r695_20260818_manual_audit.md`。
+   Trace 236s/1 次 final reject，调用关系 414s/4 次 reject+patch；没有第三个 eval。
+2. B1093 第一层生产正证成立。Finalizer 明确披露 40 条越窗 deterministic observation 已退出
+   answer-writing view，Tool Handoff 同步投影，旧 runtime Investigation Narrative 未重放；8.300ms
+   worker runnable 实测/有效归因、9.000ms 链累计、链上 #1、背景 support-only 与完整 Trace 因果投影
+   均保留。这证明本批没有删证据、摘投影或系统代写结论。
+3. B1093 仍失败于第二个高显著面：`Runtime Trace Root-Cause Board` 把查询窗
+   `1.000000..1.011000` 的 app-100 0.020ms 行列成所选 `1.000000..1.010000` 的 `#2 root-cause seat`。
+   Final typed boundary 同时把该行正确标成 `unranked_context_row/supporting_context_only/ordinal
+   forbidden`，形成 prompt 内自相矛盾；模型遂在正文三处写 #2/窗内 runnable。
+4. 新确认 `B1096-EXPLICITWINDOWTOLERANCESEMANTICS1`。根因是 root-board 的“请求窗精确身份”复用
+   `TraceCausalProjectionSameWindowToleranceS=±1ms`；该容差本用于重复披露聚类，1.011 与 1.010 的差值
+   恰好 1ms，因 `<=` 被错误接纳。系统已有更窄的 principal-value window tolerance（2μs）；最优方案是
+   把 explicit requested-window authority、principal decision/board/state 选择统一到该精确语义，保留
+   聚类/去重/跨窗披露的 ±1ms 原行为。
+5. B1094 只获 partial。新共享 call-chain 合同已出现在 Submission Checklist，但更早的通用 Diagram
+   文档仍教 `edge_anchors` “EXACTLY three fields: from_node/to_node/relation_kind”，随后共享合同与 validator
+   又要求 `from_identity/to_identity + visible_label`。模型首稿按旧教学漏三字段被拒；这是确定性合同冲突，
+   不是模型 JSON 波动。
+6. 新确认 `B1095-RELATIONANCHORSCHEMADRIFT1`。应把通用关系 JSON 教学改为：三个 core 字段必需，
+   identity pair/visible_label 是 schema 支持的扩展；在 grounded principal call-chain relation row 上由
+   共享合同提升为必需。有图时 node id 复用图端点，无图时用读者端点标签。禁止继续说“恰好三个字段”，
+   但不得放松同向 typed edge、identity 或可见图边校验，也不得由系统补边。
+7. 调用关系终图语法与图边边界正确，但终稿文字仍把源码真实 `Run -> RunWith` 说反成
+   `RunWith` 包装 `Run/gate.Run`，并把同一 caller 内按源码顺序出现的调用混成 callee 间链。当前 typed
+   no-directed-path 胶囊已明确无到 `gate.Run` 的路径，validator 也阻止了假边；可见 prose 仍错误，人工
+   不能签 pass。先消除结构教学自冲突，再异构回放判断剩余是否模型波动/证据标签错绑；不得对终稿词串
+   做删除或系统改写。
+8. Trace 唯一成文拒绝是模型把 citations 发成不可恢复的 JSON 字符串，第二轮原生数组成功；不是系统
+   合同冲突。两案均无旧稿降级、空答案、系统结论或 active-stream 4ms 固定年龄降级。
+
+状态：
+
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=production-failed-r695/principal-pool-positive+root-board-bypass-open`；
+`B1096-EXPLICITWINDOWTOLERANCESEMANTICS1=confirmed/P0-P1`；
+`B1094-RELATIONBLOCKANCHORTEACHING1=production-partial-r695`；
+`B1095-RELATIONANCHORSCHEMADRIFT1=confirmed/P1`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1084 B1093/B1094：显式窗主证据投影与关系合同单源施工（2026-08-18）
 
 1. 对 r694 的 Finalizer 输入做逐面追踪后确认，B1093 不是单纯“模型忽略边界提示”。越窗

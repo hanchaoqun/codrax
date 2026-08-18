@@ -68,8 +68,10 @@ func TestBuildDiagramEdgeLabelVocabularyDoc_SST(t *testing.T) {
 func TestBuildDiagramRelationContractDoc_UsesRelationKindAsSoleTypedAuthority(t *testing.T) {
 	got := BuildDiagramRelationContractDoc()
 	for _, want := range []string{
-		"requires `{from_node, to_node, relation_kind}`",
-		"`from_identity` / `to_identity` are optional exact endpoint selectors",
+		"three required core fields `{from_node, to_node, relation_kind}`",
+		"`from_identity` / `to_identity` are exact endpoint selectors",
+		"`visible_label` is the reader-facing edge wording",
+		"required by the grounded standalone call-chain contract",
 		"`relation_kind`: the sole typed relation authority",
 		types.GroundedStandaloneCallChainRelationOwnershipContract,
 		`{"edge_anchors":[{"from_node":"Auth","to_node":"Worker","relation_kind":"call"}]}`,
@@ -80,6 +82,26 @@ func TestBuildDiagramRelationContractDoc_UsesRelationKindAsSoleTypedAuthority(t 
 	}
 	if strings.Contains(got, "claim_form") {
 		t.Fatalf("diagram edge teaching must not expose redundant claim_form:\n%s", got)
+	}
+}
+
+func TestBuildDiagramEdgeAnchorWorkflowRule_UsesSchemaCompatibleCoreAndStrictFields(t *testing.T) {
+	got := BuildDiagramEdgeAnchorWorkflowRule()
+	for _, want := range []string{
+		"three required core fields",
+		"from_identity: string",
+		"to_identity: string",
+		"visible_label: string",
+		"optional on generic anchors",
+		"required when the grounded standalone call-chain contract says so",
+		"Without a diagram, use the reader endpoint labels required by the standalone call-chain contract",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("workflow relation teaching missing schema-compatible rule %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "EXACTLY three fields") {
+		t.Fatalf("workflow relation teaching must not contradict stricter typed family fields:\n%s", got)
 	}
 }
 

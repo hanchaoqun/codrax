@@ -269,6 +269,35 @@ func TestTraceRootCauseBoardSummaryPrefersExplicitRequestedWindow(t *testing.T) 
 	}
 }
 
+// B1096 production shape: the historical display-grouping tolerance was 1ms,
+// so a board ending only 20us after the user boundary could be printed as a
+// second root-cause seat for the requested window. Principal ordering uses the
+// narrow typed window identity instead; the row stays in the ledger only.
+func TestTraceRootCauseBoardSummaryRejectsPostBoundaryPrincipalSeat(t *testing.T) {
+	start, end := 1.0, 1.01
+	ledger := traceBoardTestLedger()
+	ledger.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start,
+		TimeEnd:        &end,
+		SourceQuote:    "1.000000..1.010000",
+	}
+	ledger.Records[0].RichNotes = append(ledger.Records[0].RichNotes,
+		"selected_window=1.000000..1.010000")
+	ledger.Records[1].RichNotes = append(ledger.Records[1].RichNotes,
+		"selected_window=1.000000..1.010020")
+	ledger.Records[4].RichNotes = append(ledger.Records[4].RichNotes,
+		"selected_window=1.000000..1.010000")
+
+	summary := formatTraceRootCauseBoardFromLedger(ledger)
+	if !strings.Contains(summary, "CompThread_0-2955") {
+		t.Fatalf("exact requested-window seat must survive:\n%s", summary)
+	}
+	if strings.Contains(summary, "keva-1-17437") {
+		t.Fatalf("20us post-boundary seat must not enter requested-window ordering:\n%s", summary)
+	}
+}
+
 func TestTraceRootCauseBoardSummaryPreservesEvidenceWhenRequestedWindowWasNotMeasured(t *testing.T) {
 	start, end := 10.0, 11.0
 	ledger := traceBoardTestLedger()
