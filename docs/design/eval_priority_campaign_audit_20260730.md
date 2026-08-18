@@ -36067,6 +36067,46 @@ endpoint、typed call edge、selected body、directed reachability/no-path 等�
 
 生产回放待下一轮严格并发 2 个案例执行。
 
+### §123.1058 r679：关系同轮反馈与调用链分流生产覆盖；成员局部支持权威再现（2026-08-18）
+
+1. 在 `main@c5415ba90` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + read_combo_loose_multi_question_units`；Runner
+   `2/2 PASS`，人工均 partial。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_callchain_mechanism_replay_r679_20260818_manual_audit.md`。
+2. B1066 生产覆盖。QF 相对 r678 从 641s、45 Explorer 轮、30 read、13 completion
+   降至 253s、12 Explorer 轮、4 read、3 completion；日志不再出现每轮 4 个
+   mechanism semantic-descent helper 读需求。剩余 completion 在澄清真实拓扑：
+   `buildAnalysisIR -> RunWith <- Run`，不存在 `buildAnalysisIR -> gate.Run` 的有向路径。
+3. 调用链专属证据未被削弱：模型仍读取 analyzer 与 gate 定义/调用点，最终 Mermaid
+   只画两条已证边，未系统补边或伪造路径，并保留关键内部检查函数。终稿不足是开头
+   仍用“从 A 到 B 所经过”而未用一句用户语言明确 no-directed-path，判 partial，不把
+   该模型表达波动升级为硬门。
+4. B1065 生产覆盖。首次 QF 成文拒绝已在同一回合同时列出 endpoint-boundary
+   coverage、standalone claim/anchor ownership/identity 与 diagram body/anchor 修复；
+   后两次拒绝分别来自模型错误修改 citation 和同一 `replace_blocks` id 重复，不再是
+   validator 提示串行隐藏。
+5. 真正 mechanism 守护案完整运行 197s、9 read，两个独立子题均被探索，证明 B1066
+   未全局关闭机制调查。但人工只判 partial：配置答案只讲定位/decode，未追默认值→
+   YAML→CLI 的实际应用链；Mermaid 摘要称三个非 LibraryRejected outcome 均保留原文，
+   与正文中 Rendered/FallbackRune 生成 ASCII 自相矛盾。
+6. B1064 扩大为通用成员局部 composite support gap。该轮 outcome member notes 的
+   typed authority 已明确为 `definition_site_only/executable_body=unproven`，模型仍将
+   行为语义写入 principal prose；系统只有模糊“前后表述不一致”附注，缺少每个成员
+   的定义/分支/调用/返回多事实支持集合。不得用 outcome 名或答案词句做硬门，应让
+   handoff 提供 member-local body-backed support set，由模型基于精确信号作结论。
+
+状态：
+
+`B1065-RELATIONVALIDATIONBATCHFEEDBACK1=covered-r679`；
+`B1066-CALLCHAINMECHANISMDESCENTFRONTIER1=covered-r679`；
+`B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=reproduced-cross-domain/P1-design-next`；
+`r679-QF=runner-pass/human-partial/correct-graph+missing-plain-no-path-lead`；
+`r679-mechanism=runner-pass/human-partial/coverage-preserved+support-authority-gap`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r679`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
