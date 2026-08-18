@@ -1357,6 +1357,149 @@ func TestFlowOperationNavigationContinuesGroundedHandoffIntoReceivingCallableBod
 	}
 }
 
+func TestFlowOperationNavigationWalksGroundedReceivingBodyBackToExactCallerHandoffAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			callerPath := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			calleePath := filepath.ToSlash(filepath.Join("src", language, "builder.src"))
+			callerLines := make([]string, 24)
+			callerLines[0] = "package pipeline"
+			callerLines[9] = "result := builder.BuildAgentContext(pipeline.busContext, stage)"
+			calleeLines := make([]string, 44)
+			calleeLines[0] = "package builder"
+			calleeLines[29] = "Mutable: bus.Mutable"
+			for path, lines := range map[string][]string{callerPath: callerLines, calleePath: calleeLines} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			calleeInfo := &repotypes.FileInfo{
+				RelPath: calleePath, Language: language, Package: "builder",
+				Symbols: []repotypes.Symbol{
+					{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
+					{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 30},
+				},
+			}
+			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				callerPath: {
+					RelPath: callerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "run", Kind: "method", Receiver: "Pipeline", Line: 2, EndLine: 20},
+						{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "*BusContext", Line: 1},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: callerPath, Line: 10,
+						FromEP:     repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 10},
+						ToEP:       repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+				calleePath: calleeInfo,
+			})
+			graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+				callerPath: {{
+					Import:  repotypes.Import{Alias: "builder", Path: "builder", File: callerPath, Line: 1},
+					Targets: []string{calleePath},
+				}},
+			}
+			bodyOperation := flowOperationEvidence(types.AnchorInitializer, "Mutable", "bus.Mutable", 30)
+			bodyOperation.Source = calleePath
+			bodyOperation.Snippet = "Mutable: bus.Mutable"
+			bodyOperation.OwnerIdentity = qualifiedEvidenceSymbolNameInFile(calleeInfo, &calleeInfo.Symbols[0])
+
+			ctx := flowOperationCompletionContext([]types.EvidenceItem{bodyOperation})
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", ResolvedAs: "Mutable", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(graph)
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{callerPath: true, calleePath: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				callerPath: {{Start: 1, End: 24}}, calleePath: {{Start: 20, End: 40}},
+			})
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != callerPath || target.lineRange != (types.LineRange{Start: 1, End: 22}) ||
+				!target.alreadyRead || !target.callerHandoff {
+				t.Fatalf("%s grounded body operation must reverse-navigate to the unique caller handoff: ok=%t target=%+v", language, ok, target)
+			}
+			hint := flowOperationNavigationHintForMissing(ctx, []string{"BusContext"}, nil, nil)
+			for _, want := range []string{"Exact caller-handoff extraction step", callerPath, "complete source argument"} {
+				if !strings.Contains(hint, want) {
+					t.Fatalf("%s caller-handoff hint missing %q:\n%s", language, want, hint)
+				}
+			}
+			if got := ctx.Mutable.EmittedEvidence(); len(got) != 1 || got[0].LineStart != 30 {
+				t.Fatalf("%s reverse navigation must not manufacture a caller edge: %+v", language, got)
+			}
+		})
+	}
+}
+
+func TestFlowOperationNavigationGroundedBodyAmbiguousCallerTargetFailsClosed(t *testing.T) {
+	repo := t.TempDir()
+	callerPath := "src/pipeline.go"
+	for path, body := range map[string]string{
+		callerPath:       "package pipeline\nfunc run() {\n builder.BuildAgentContext(pipeline.busContext, stage)\n}\n",
+		"src/a/build.go": "package builder\nfunc BuildAgentContext() {}\n",
+		"src/b/build.go": "package builder\nfunc BuildAgentContext() {}\n",
+	} {
+		absolute := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bodyOperation := flowOperationEvidence(types.AnchorInitializer, "Mutable", "bus.Mutable", 2)
+	bodyOperation.Source = "src/a/build.go"
+	bodyOperation.OwnerIdentity = "builder.BuildAgentContext"
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{bodyOperation})
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		callerPath: {
+			RelPath: callerPath, Language: repotypes.LangGo, Package: "pipeline",
+			Symbols:   []repotypes.Symbol{{Name: "run", Kind: "function", Line: 2, EndLine: 4}, {Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "*BusContext", Line: 1}},
+			Relations: []repotypes.Relation{{Kind: "call", File: callerPath, Line: 3, ToEP: repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 3}}},
+		},
+		"src/a/build.go": {RelPath: "src/a/build.go", Language: repotypes.LangGo, Package: "builder", Symbols: []repotypes.Symbol{{Name: "BuildAgentContext", Kind: "function", Line: 1, EndLine: 2}}},
+		"src/b/build.go": {RelPath: "src/b/build.go", Language: repotypes.LangGo, Package: "builder", Symbols: []repotypes.Symbol{{Name: "BuildAgentContext", Kind: "function", Line: 1, EndLine: 2}}},
+	})
+	graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+		callerPath: {{Import: repotypes.Import{Alias: "builder", Path: "builder", File: callerPath}, Targets: []string{"src/a/build.go", "src/b/build.go"}}},
+	}
+	ctx.Mutable.SetSearchGraph(graph)
+	index := flowNavigationIndexForContext(ctx)
+	participants := [][]string{{"BusContext"}, {"Mutable"}}
+	if target, ok := flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
+		ctx, index, participants, [][]string{{"BusContext"}}, ctx.Mutable.EmittedEvidence(),
+	); ok || target.callerHandoff {
+		t.Fatalf("ambiguous namespace target must fail closed without caller-handoff authority: ok=%t target=%+v", ok, target)
+	}
+}
+
 func TestFlowOperationNavigationGroundedHandoffAmbiguousReceiverFailsClosed(t *testing.T) {
 	callerPath := "src/pipeline.go"
 	targetA := "src/a/builder.go"

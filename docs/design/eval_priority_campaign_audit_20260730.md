@@ -36128,12 +36128,22 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
    background 隔离及因果投影均保留；活跃流未走固定 4ms fallback。模型正文仍泄漏 raw enum，并把
    CPU2 worker→CPU1 target 的依赖表述成偏强的“调度阻塞”；系统 typed note 已明确跨核边不证明同核
    占用/抢占/直接竞争。后续应增强模型可消费的 typed caliber 与客户语言，不得系统改写结论。
+7. B1033 已按双向前沿施工。导航索引新增 exact resolved-target→caller 反向表；repair 从 citable body
+   operation 的 typed `OwnerIdentity` 唯一绑定 enclosing callable，再遍历该 exact symbol 的 parser caller，
+   在源码行枚举 complete arguments，并只接受与仍缺 participant 的静态声明 binding 相符的坐标。桥头
+   使用全部请求参与者，目标参数使用仍缺参与者，避免 body 内 `Mutable` 已被覆盖后看不见通往
+   `BusContext` 的反向入口。已发 argument-flow 会跳过该反向步并交给 B1032 正向 body 前沿；系统全程
+   不生成 evidence、parameter binding、关系或图。
+8. 全部支持语言矩阵已验证“已覆盖 body participant + 仅缺 caller carrier”的真实形；同名 namespace
+   导入解析到两个目标时严格 fail-closed。already-read caller 只发精确 extraction guidance，未读 caller
+   只排一个有界 read。`tool/types/agent/orchestrator/stageauthority/repomap` 完整相关回归通过，待 r656
+   生产回放验证双向前沿能否减少三次 final reject 并形成同一关系分量。
 
 状态：
 
 `r655=runner-2/2; human-trace-partial; human-diagram-partial`；
 `B1032-CALLEEBODYRELATIONFRONTIER1=implemented/pinned/not-exercised-r655/pending-production-replay`；
-`B1033-CALLEEBODYREVERSECALLFRONTIER1=confirmed/design-frozen/pending-implementation`；
+`B1033-CALLEEBODYREVERSECALLFRONTIER1=implemented/all-language+ambiguity-pins/pending-production-replay`；
 `B756-RUNTIMEENUMCUSTOMERLANGUAGE1=production-partial/open-followup`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r655`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；

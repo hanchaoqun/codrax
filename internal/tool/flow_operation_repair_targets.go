@@ -18,7 +18,7 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
-	flowNavigationIndexCacheKey    = "flow_navigation_index:v5"
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v6"
 )
 
 type flowOperationRepairReadTarget struct {
@@ -33,6 +33,10 @@ type flowOperationRepairReadTarget struct {
 	// argument handoff into the uniquely resolved receiving callable. It changes
 	// only the SOFT extraction hint; it never authorizes an evidence row or edge.
 	receivingCallableBody bool
+	// callerHandoff means this coordinate was reached by walking backward from
+	// a grounded callee-body operation to an exact parser caller. It affects
+	// guidance only; the model still owns the argument-flow evidence.
+	callerHandoff bool
 }
 
 type flowParserRelationSite struct {
@@ -80,6 +84,7 @@ type flowNavigationIndex struct {
 	relationsByToken     map[string][]flowParserRelationSite
 	relationsByFile      map[string][]flowParserRelationSite
 	relationsByOwnerKey  map[string][]flowParserRelationSite
+	relationsByTarget    map[*repotypes.Symbol][]flowParserRelationSite
 	sourceLinesMu        sync.Mutex
 	sourceLinesByFile    map[string]map[int]string
 	sourceLinesAttempted map[string]bool
@@ -102,6 +107,7 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 		relationsByToken:     make(map[string][]flowParserRelationSite),
 		relationsByFile:      make(map[string][]flowParserRelationSite),
 		relationsByOwnerKey:  make(map[string][]flowParserRelationSite),
+		relationsByTarget:    make(map[*repotypes.Symbol][]flowParserRelationSite),
 		sourceLinesByFile:    make(map[string]map[int]string),
 		sourceLinesAttempted: make(map[string]bool),
 	}
@@ -144,6 +150,11 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 			}
 			if site.file != "" {
 				index.relationsByFile[site.file] = append(index.relationsByFile[site.file], site)
+			}
+			if relation.Kind == "call" {
+				if target := graph.ResolveCallTarget(file, *relation); target != nil {
+					index.relationsByTarget[target] = append(index.relationsByTarget[target], site)
+				}
 			}
 			for _, key := range flowNavigationSurfaceKeys(site.ownerSurfaces...) {
 				index.relationsByOwnerKey[key] = append(index.relationsByOwnerKey[key], site)
@@ -757,8 +768,14 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	if index == nil {
 		return flowOperationRepairReadTarget{}, false
 	}
+	evidence := ctx.Mutable.EmittedEvidence()
+	if target, ok := flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
+		ctx, index, participantSurfaceGroups, missingParticipantSurfaceGroups, evidence,
+	); ok {
+		return target, true
+	}
 	if target, ok := flowNavigationGroundedHandoffCalleeOperationReadTarget(
-		ctx, index, missingParticipantSurfaceGroups, ctx.Mutable.EmittedEvidence(),
+		ctx, index, missingParticipantSurfaceGroups, evidence,
 	); ok {
 		return target, true
 	}
@@ -976,6 +993,243 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 	}
 	return selected.target, true
+}
+
+// flowNavigationGroundedBodyOperationCallerHandoffReadTarget is the reverse
+// half of the relation frontier. A model may first discover a precise
+// assignment/member call inside a receiving callable (for example a context
+// builder copying one carrier field) without having emitted the call-site
+// argument that brought the outer carrier into that callable. Starting a new
+// repository-wide search at that point loses the proven component.
+//
+// This helper walks only parser identities: the grounded item's stamped
+// enclosing callable, graph-resolved callers of that exact symbol, complete
+// source arguments, and parser declarations whose static type matches a still
+// missing participant. It chooses a bounded extraction coordinate but does
+// not infer formal-parameter binding, create evidence, or authorize an edge.
+// A caller handoff already present in evidence is skipped so the forward
+// handoff->callee-body frontier can take the next step.
+func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
+	ctx *types.BusContext,
+	index *flowNavigationIndex,
+	participantSurfaceGroups [][]string,
+	missingParticipantSurfaceGroups [][]string,
+	evidence []types.EvidenceItem,
+) (flowOperationRepairReadTarget, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || index == nil ||
+		len(participantSurfaceGroups) == 0 || len(missingParticipantSurfaceGroups) == 0 || len(evidence) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return flowOperationRepairReadTarget{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	type candidate struct {
+		target     flowOperationRepairReadTarget
+		bodyRank   int
+		matchRank  int
+		callerLine int
+	}
+	var candidates []candidate
+	seen := make(map[string]bool)
+	closure := ctx.Mutable.EvidenceClosure()
+	for _, bodyItem := range evidence {
+		if !bodyItem.IsCitable() || strings.TrimSpace(bodyItem.OwnerIdentity) == "" || bodyItem.LineStart <= 0 ||
+			!relationSourceInRequestedScope(bodyItem.Source, rm) {
+			continue
+		}
+		bodyRank := 0
+		switch types.ClaimFormOf(bodyItem) {
+		case types.ClaimAssignmentFact, types.ClaimReturnFact, types.ClaimArgumentFlow:
+			bodyRank = 3
+		case types.ClaimCallEdge, types.ClaimCallbackHandoff:
+			bodyRank = 2
+		default:
+			continue
+		}
+		bodyTouchesRequestedParticipant := false
+		for _, group := range participantSurfaceGroups {
+			for _, endpoint := range []string{bodyItem.Subject, bodyItem.Object} {
+				if diagramParticipantCandidateEndpointMatches(group, endpoint, bodyItem, evidence) {
+					bodyTouchesRequestedParticipant = true
+					break
+				}
+			}
+			if bodyTouchesRequestedParticipant {
+				break
+			}
+		}
+		if !bodyTouchesRequestedParticipant {
+			continue
+		}
+		callable := flowNavigationExactEvidenceOwnerCallable(graph, bodyItem)
+		if callable == nil {
+			continue
+		}
+		for _, site := range index.relationsByTarget[callable] {
+			relation := site.relation
+			if relation == nil || strings.TrimSpace(relation.Kind) != "call" ||
+				!relationSourceInRequestedScope(site.file, rm) {
+				continue
+			}
+			line := max(relation.Line, relation.FromEP.Line, relation.ToEP.Line)
+			if line <= 0 {
+				continue
+			}
+			lines := flowNavigationSourceLines(ctx, index, site.file)
+			callee := flowNavigationCallReceiver(relation)
+			if len(lines) == 0 || callee == "" {
+				continue
+			}
+			callerInfo := graph.FileIndex[site.file]
+			if callerInfo == nil {
+				continue
+			}
+			gc := &ground.Context{
+				Graph: graph, RepoRoot: ctx.RepoRoot,
+				LineIndex: map[string]map[int]string{site.file: lines},
+			}
+			for _, argument := range ground.DetectArgumentFlowsAtLine(gc, site.file, line, callee) {
+				argumentMatchRank := 0
+				for _, group := range missingParticipantSurfaceGroups {
+					for _, binding := range flowRepairDeclaredBindingSites(index, rm, group) {
+						if !flowNavigationBindingCanOwnCallerArgument(graph, callerInfo, site, binding) ||
+							!flowNavigationArgumentMatchesBinding(argument.Argument, binding.alias) {
+							continue
+						}
+						argumentMatchRank = max(argumentMatchRank, flowRepairPlanningSurfaceMatchRank(
+							[]string{binding.alias}, []string{argument.Argument},
+						))
+					}
+				}
+				if argumentMatchRank == 0 || flowNavigationArgumentFlowAlreadyEmitted(
+					evidence, site.file, line, argument.Argument, callRelationTargetName(graph, callerInfo, relation),
+				) {
+					continue
+				}
+				key := strings.ToLower(site.file + "\x00" + strconv.Itoa(line) + "\x00" + argument.Argument)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				start := line - flowOperationRepairReadRadius
+				if start < 1 {
+					start = 1
+				}
+				candidates = append(candidates, candidate{
+					target: flowOperationRepairReadTarget{
+						file: site.file, lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+						alreadyRead: closure.HasReadLine(site.file, line), callerHandoff: true,
+					},
+					bodyRank: bodyRank, matchRank: argumentMatchRank, callerLine: line,
+				})
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].bodyRank != candidates[j].bodyRank {
+			return candidates[i].bodyRank > candidates[j].bodyRank
+		}
+		if candidates[i].matchRank != candidates[j].matchRank {
+			return candidates[i].matchRank > candidates[j].matchRank
+		}
+		if candidates[i].target.alreadyRead != candidates[j].target.alreadyRead {
+			return candidates[i].target.alreadyRead
+		}
+		if candidates[i].target.file != candidates[j].target.file {
+			return candidates[i].target.file < candidates[j].target.file
+		}
+		return candidates[i].callerLine < candidates[j].callerLine
+	})
+	return candidates[0].target, true
+}
+
+func flowNavigationExactEvidenceOwnerCallable(graph *repotypes.Graph, item types.EvidenceItem) *repotypes.Symbol {
+	if graph == nil || strings.TrimSpace(item.OwnerIdentity) == "" || item.LineStart <= 0 {
+		return nil
+	}
+	path := canonicalRelationSourcePath(item.Source)
+	file := graph.FileIndex[path]
+	if file == nil {
+		return nil
+	}
+	var matched *repotypes.Symbol
+	for index := range file.Symbols {
+		symbol := &file.Symbols[index]
+		if (symbol.Kind != "function" && symbol.Kind != "method") || symbol.Line <= 0 ||
+			symbol.EndLine < item.LineStart || symbol.Line > item.LineStart {
+			continue
+		}
+		qualified := qualifiedEvidenceSymbolNameInFile(file, symbol)
+		if !types.AnswerCodeIdentitySurfacesEquivalent(item.OwnerIdentity, qualified) &&
+			!types.AnswerCodeIdentitySurfacesCompatible(item.OwnerIdentity, qualified) {
+			continue
+		}
+		if matched != nil {
+			return nil
+		}
+		matched = symbol
+	}
+	return matched
+}
+
+func flowNavigationBindingCanOwnCallerArgument(
+	graph *repotypes.Graph,
+	callerInfo *repotypes.FileInfo,
+	callerSite flowParserRelationSite,
+	binding flowDeclaredBindingSite,
+) bool {
+	if graph == nil || callerInfo == nil || strings.TrimSpace(binding.alias) == "" {
+		return false
+	}
+	bindingInfo := graph.FileIndex[binding.file]
+	if bindingInfo == nil || callerInfo.Language != bindingInfo.Language {
+		return false
+	}
+	samePackage := strings.TrimSpace(callerInfo.Package) != "" &&
+		strings.TrimSpace(callerInfo.Package) == strings.TrimSpace(bindingInfo.Package)
+	sameDirectory := filepath.ToSlash(filepath.Dir(callerInfo.RelPath)) ==
+		filepath.ToSlash(filepath.Dir(bindingInfo.RelPath))
+	if !samePackage && !sameDirectory {
+		return false
+	}
+	owner := strings.TrimSpace(binding.owner)
+	if owner == "" {
+		return true
+	}
+	for _, callerOwner := range callerSite.ownerSurfaces {
+		if types.AnswerCodeIdentityOwnsEndpoint(owner, callerOwner) ||
+			types.AnswerCodeIdentitySurfacesCompatible(owner, callerOwner) {
+			return true
+		}
+	}
+	return false
+}
+
+func flowNavigationArgumentFlowAlreadyEmitted(
+	evidence []types.EvidenceItem,
+	source string,
+	line int,
+	argument string,
+	callee string,
+) bool {
+	source = canonicalRelationSourcePath(source)
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimArgumentFlow ||
+			canonicalRelationSourcePath(item.Source) != source || item.LineStart != line {
+			continue
+		}
+		if types.AnswerCodeIdentitySurfacesCompatible(item.Subject, argument) &&
+			(types.AnswerCodeIdentitySurfacesCompatible(item.Object, callee) ||
+				types.AnswerCodeIdentitySurfacesEquivalent(item.Object, callee)) {
+			return true
+		}
+	}
+	return false
 }
 
 // flowNavigationGroundedHandoffCalleeOperationReadTarget continues an exact,
