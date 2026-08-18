@@ -36263,6 +36263,53 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1027 r658：参与方局部边自冲突闭环；逐点 incidence 不能证明全体关系 spine 完整（2026-08-17）
+
+1. 在 `main@a3df6756b` 重建后严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`。Runner `2/2 PASS`；人工 Trace pass、代码图
+   fail，逐轮记录见 `eval/parallel_selected_summary_evalcampaign_trace_diagram_r658_20260817_manual_audit.md`。
+2. B1037 获生产正证。代码图不再出现
+   `missing_unproven_boundary ↔ unproven_boundary_has_visible_incident_edge` 往返，没有恢复旧稿、跳过结构检查
+   或丢失整份答案。Finalizer 三次拒绝分别删除无证 call/retarget，并最终正常接受；说明 request-scope/local
+   incidence 正交修复生效，关系证据门仍在。
+3. 但 runner 绿不等于用户目标闭环。最终图存在三个互不相连的 typed 分量：
+   `Analyzer→Explorer→Extractor→Finalizer`、`Mutable.Objective→objective`、
+   `BusContext→BuildAgentContext/Orchestrator`。六个 requested incident participant 各自“有一条边”，却没有
+   一个贯通的数据流 spine；模型 prose 说共享状态贯穿各阶段，图没有证据边表达该关系。人工因此判 fail。
+4. 新确认 `B1038-DIAGRAMREQUESTEDRELATIONCOMPONENTS1`（P1）：当前
+   `flowParticipantRelationScope.participantCovered` 对多参与方请求只要求某连通分量含至少两个参与方；两两
+   或小组局部边即可让全部参与方各自通过。`diagramParticipantRequestedGraphConnected` 虽能算全 roster
+   连通性，却只用于 local-boundary 判定，没有进入探索续接或最终完整性披露。逐点 incidence 是必要条件，
+   不是全体 requested relation 已证的充分条件。
+5. 最优形不能让系统补边或硬逼一张连通图。应给 typed relation scope 增加“分量清单 + 全 roster 是否同一
+   分量”权威；探索完成前以该精确信号触发 soft bounded frontier，复用 B1032/B1033 从已有分量端点寻找
+   唯一 caller/callee/body/value handoff，仍由模型读取并 emit。若真实关系就是断开的或证据不足，Finalizer
+   必须收到精确分量清单并由模型明确画出/解释未证桥；系统不选择桥、不生成 relation、不改写答案。
+   是否需要新增 graph-level relation boundary 载体，须先审计现有 schema，避免把所有局部已证参与方都
+   错标成 unproven。
+6. 新确认 `B1039-COMPLETIONLOWDELTAAUTHORITY1`（P1）：Explorer 的 member-set support_ref 修复连续两次
+   无进展后，`completion_form` low-delta lane 直接 force-complete，并清除一个 repair directive；无效 member
+   grounding 没有成为最终证据，但 `result_kind=resolved` 对外过强。应审计该 lane 只能降级/舍弃非主干
+   aggregate，不能清除 diagram relation spine、enumeration completeness、write verify 或 Trace 因果债；
+   precise unresolved obligation 必须保留到 Finalizer typed context，不能用“模型没改对”证明任务已解决。
+7. Trace 继续生产通过：精确窗、自动补采、角色绑定、零原因边界、worker 链上首席、实际占用与规则可消
+   双轴、因果投影均在；邻近和背景只作支撑。相同角色胶囊仍跨三个 query scope 重复，B1036 保持 P2，
+   不与 B1038/P1 混批。
+8. 活跃流在 542s 代码图和 261s Trace 中均持续等待完整结构，没有固定 4ms 降级。耗时主要来自 21 次
+   read、completion form 往返与三次 final repair；不得通过缩短活跃等待或放松关系门优化。
+
+状态：
+
+`r658=runner-2/2; human-trace-pass; human-diagram-fail`；
+`B1037-DIAGRAMPARTICIPANTLOCALINCIDENCECONTRACT1=production-positive-r658`；
+`B1038-DIAGRAMREQUESTEDRELATIONCOMPONENTS1=P1-confirmed/design-frozen-for-schema-audit`；
+`B1039-COMPLETIONLOWDELTAAUTHORITY1=P1-confirmed/pending-authority-audit`；
+`B1036-TRACEWAKEUPROLECAPSULEFOLD1=P2-confirmed/pending`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r658`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
