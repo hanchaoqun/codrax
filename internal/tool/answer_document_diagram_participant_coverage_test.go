@@ -323,6 +323,49 @@ func TestDiagramParticipantCoverageDoesNotPromoteLocalCarrierCallIntoRequestedSt
 	}
 }
 
+func TestDiagramParticipantCoverageKeepsRequestedBoundaryOrthogonalToExactLocalEndpoint(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"Analyzer", "Mutable"}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n Analyzer[\"Analyzer\"]\n writer[\"local writer\"] --> Mutable[\"Mutable\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "writer", ToNode: "Mutable", FromIdentity: "appendStageOutputEvidenceToMutable",
+			ToIdentity: "MutableState.AppendEvidence", RelationKind: types.DiagramRelCall,
+		}},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"appendStageOutputEvidenceToMutable", "MutableState.AppendEvidence",
+	)}
+
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("an exact local technical endpoint must remain orthogonal to the unproved requested relation: %+v", got)
+	}
+
+	doc.Blocks[0].ParticipantBoundaries = doc.Blocks[0].ParticipantBoundaries[:1]
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	if len(got) != 1 || got[0].Participant != "Mutable" || got[0].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("local technical incidence must not discharge requested-relation coverage: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageDoesNotPromotePerParticipantLocalFactsIntoRequestedRelation(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,

@@ -36238,6 +36238,18 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
    最终收敛；暂记模型/教学负担观察项，尚无证据证明存在第二个确定性合同矛盾，不用关键词硬门修补。
 8. 活跃流没有固定 4ms 降级。代码图最终降级发生在六次确定性 validator 自冲突之后，必须通过 B1037
    根修减少无效重试，而不是缩短活跃等待、删除结构门或让系统代写模型答案。
+9. B1037 已施工。原实现已经计算了 request-scoped relation coverage 与
+   `independentLocalIncidenceAllowed` 的前身，却只在 stale-boundary/typed-candidate 两条分支消费；最后的
+   boundary-connected 分支又退回“任意兼容 endpoint 可见”判断，因而制造自冲突。本批把同一 typed
+   request-scope 判定贯穿三条分支：只有完整请求关系仍未证且该参与方没有 request-scoped candidate 时，
+   独立 local edge 才与 unproven boundary 正交；删除 boundary 仍报 missing，存在真 candidate、单参与方
+   伪边及未锚边继续 fail-closed。提示同步改为“未证边不得冒充请求关系，但独立 local edge 可共存”，
+   不再给模型相反指令。
+10. 新 pin 使用抽象 `Analyzer + Mutable + local writer`，先红复现
+    `unproven_boundary_has_visible_incident_edge`，转绿后再删除 Mutable boundary 验证仍为
+    `missing_unproven_boundary`。既有 no-arrow ownership、local carrier、per-participant local fact、typed
+    candidate、单参与方 collision 全部随完整 `internal/tool` 套件通过；实现不读语言、不读用户/答案
+    prose，因此对全部支持语言共用，不含 Mutable 或单 case 生产特判。
 
 状态：
 
@@ -36245,7 +36257,7 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `B1034-TRACEWAKEUPROLECAPSULE1=production-positive-r657`；
 `B1035-WAITABSENCEMECHANISMBOUNDARY1=production-positive-r657`；
 `B1036-TRACEWAKEUPROLECAPSULEFOLD1=P2-confirmed/planned-after-P0`；
-`B1037-DIAGRAMPARTICIPANTLOCALINCIDENCECONTRACT1=P0-confirmed/frozen-for-root-fix`；
+`B1037-DIAGRAMPARTICIPANTLOCALINCIDENCECONTRACT1=implemented/typed-request-scope-single-source+pinned/pending-r658`；
 `Trace explicit-window/query/projection/auto-supplement=production-positive-r657`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；
