@@ -173,6 +173,49 @@ func TestRenderStructuredAggregateFactsDoesNotInventCompositeSupportForDefinitio
 	}
 }
 
+func TestRenderStructuredAggregateFactsCompositeSupportUsesCompleteMutableEvidence(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "platform clocks",
+		Value:       "3",
+		Members:     []string{"clock", "clock", "clock"},
+		MemberNotes: []string{"Windows", "macOS", "POSIX"},
+		SupportRefs: []string{"src/clock.c:11", "src/clock.c:25", "src/clock.c:37"},
+	}}
+	grounded := types.GroundingGrounded
+	allEvidence := []types.EvidenceItem{
+		{Source: "src/clock.c", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, OwnerSymbol: "clock", GroundingStatus: grounded},
+		{Source: "src/clock.c", LineStart: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "clock", GroundingStatus: grounded},
+		{Source: "src/clock.c", LineStart: 25, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, OwnerSymbol: "clock", GroundingStatus: grounded},
+		{Source: "src/clock.c", LineStart: 28, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "clock", GroundingStatus: grounded},
+		{Source: "src/clock.c", LineStart: 37, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, OwnerSymbol: "clock", GroundingStatus: grounded},
+		{Source: "src/clock.c", LineStart: 39, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "clock", GroundingStatus: grounded},
+	}
+	mut := types.NewMutableState("platform clocks")
+	mut.AppendEvidence(allEvidence)
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		// Simulate the curated stage view that omitted the third definition
+		// while retaining its later call. Mutable still owns the complete
+		// accepted evidence snapshot.
+		EvidenceItems: append(append([]types.EvidenceItem(nil), allEvidence[:4]...), allEvidence[5]),
+		Mutable:       mut,
+	}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, want := range []string{
+		"2:{definition_fact@src/clock.c:25, call_edge@src/clock.c:28}",
+		"3:{definition_fact@src/clock.c:37, call_edge@src/clock.c:39}",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("complete accepted evidence was not used for %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "2:{definition_fact@src/clock.c:25, call_edge@src/clock.c:28, call_edge@src/clock.c:39}") {
+		t.Fatalf("a pruned definition must not merge the following incarnation:\n%s", got)
+	}
+}
+
 func TestRenderStructuredAggregateFactsCapsSupportingMemberNotes(t *testing.T) {
 	var members, notes []string
 	for i := 0; i < 30; i++ {

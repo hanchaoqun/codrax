@@ -36,10 +36,55 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 }
 
 func aggregateFactRenderSupportEvidence(ctx *types.AgentContext) []types.EvidenceItem {
-	if ctx == nil || len(ctx.EvidenceItems) == 0 {
+	if ctx == nil {
 		return nil
 	}
-	return ctx.EvidenceItems
+	// AgentContext.EvidenceItems is a curated stage view and can be shorter
+	// than the accepted evidence retained by Mutable (for example a later
+	// conditional-compilation definition can rank below the prompt slice while
+	// its body call remains visible). Composite member support must use the
+	// complete accepted carrier or it can merge two definition incarnations.
+	// Merge by stable evidence identity, with the later accepted Mutable
+	// snapshot winning amendments. Rendering remains bounded per member.
+	evidence := append([]types.EvidenceItem(nil), ctx.EvidenceItems...)
+	if ctx.Mutable != nil {
+		if turnA := ctx.Mutable.TurnAArtifacts(); turnA != nil {
+			evidence = aggregateFactMergeSupportEvidence(evidence, turnA.EvidenceItems)
+		}
+		evidence = aggregateFactMergeSupportEvidence(evidence, ctx.Mutable.EmittedEvidence())
+	}
+	return evidence
+}
+
+func aggregateFactMergeSupportEvidence(base, extra []types.EvidenceItem) []types.EvidenceItem {
+	if len(extra) == 0 {
+		return base
+	}
+	indexByID := make(map[string]int, len(base)+len(extra))
+	for i, item := range base {
+		if id := aggregateFactSupportEvidenceID(item); id != "" {
+			indexByID[id] = i
+		}
+	}
+	for _, item := range extra {
+		id := aggregateFactSupportEvidenceID(item)
+		if at, ok := indexByID[id]; ok && id != "" {
+			base[at] = item
+			continue
+		}
+		if id != "" {
+			indexByID[id] = len(base)
+		}
+		base = append(base, item)
+	}
+	return base
+}
+
+func aggregateFactSupportEvidenceID(item types.EvidenceItem) string {
+	if id := strings.TrimSpace(item.ID); id != "" {
+		return id
+	}
+	return types.StableEvidenceID(item)
 }
 
 func structuredAggregatePromptFactLimit(ctx *types.AgentContext, facts []types.AnswerAggregateFact) int {

@@ -36135,10 +36135,21 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 本批未改 Trace、关系图验证、JSON 恢复或流式生命周期。显式时间窗、Trace 因果投影、自动补齐、
    链上-only 主因与实际占用/规则可消除量双轴保持；邻近/背景仍仅作支持。活跃流无固定 4ms
    累计年龄降级。
+8. r680 首轮生产回放暴露了载体第二层断层：Finalizer 的 `ctx.EvidenceItems` 是下游排序/容量裁剪后的
+   可见切片，不等于本轮完整 accepted evidence。macOS 成员因此看见定义 25 和调用 28/30，却看不见
+   POSIX 定义 37；旧分组便把后续 39 行错误留在 macOS incarnation，而 POSIX 没有组合行。这个问题
+   不是 owner/definition 算法失效，而是算法消费了不完整证据视图。
+9. composite support 的唯一证据入口现合并当前可见切片、Turn-A artifacts 与 Mutable 已接纳证据，
+   以稳定 evidence ID 去重且让后到的 Mutable accepted snapshot 覆盖旧 metadata。它不扩大证据
+   接纳、grounding 或答案权限；只恢复此前已接纳但被展示容量裁掉的位置。新增回归刻意让 curated
+   slice 缺少第三个同名定义，证明完整 Mutable 视图仍把 39 行归到 POSIX，且 macOS 不再借证。
+10. 完整 `go test ./internal/agent -count=1`（11.601s）、`make` 与 `git diff --check` 通过。r680 的
+    另一条独立故障是重复 caller/callee 调用点在跨轮修补时被错误收敛，另立 B1067，不与本成员投影
+    混修。
 
 状态：
 
-`B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=implemented/typed-owner+definition-incarnation+pinned/replay-next`；
+`B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=implemented/full-accepted-evidence-view+pinned/replay-next`；
 `member-note-authority=unchanged/no-system-conclusion`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
