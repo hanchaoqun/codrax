@@ -1314,8 +1314,15 @@ const (
 	// scheduler-state wall account into proven-lower and everything else. The
 	// additive *_artifact_source(s) keys carry physical artifact:N identities;
 	// compatibility caliber fields are deliberately not renamed.
-	TraceNoteKeyWakeupTs                    = "wakeup_ts"
-	TraceNoteKeyWakeupLatencyCaliber        = "wakeup_latency_caliber"
+	TraceNoteKeyWakeupTs             = "wakeup_ts"
+	TraceNoteKeyWakeupLatencyCaliber = "wakeup_latency_caliber"
+	// TraceNoteKeyWakerPriority / TraceNoteKeyWakeePriority are role-bound
+	// display pairs ("priority/class") on one exact wakeup edge. B1034
+	// promotes them from unparsed display literals because the compact final
+	// handoff must preserve which endpoint owns each value; an unordered list
+	// of priority semantics allowed the model to swap waker and wakee.
+	TraceNoteKeyWakerPriority               = "waker_priority"
+	TraceNoteKeyWakeePriority               = "wakee_priority"
 	TraceNoteKeyWakerPrioritySource         = "waker_priority_source"
 	TraceNoteKeyWakerPriorityArtifactSource = "waker_priority_artifact_source"
 	TraceNoteKeyWakeePrioritySource         = "wakee_priority_source"
@@ -2053,13 +2060,16 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	// dependency/target source, relation caliber, and two-sided coverage keys
 	// are parsed back through the legacy observation/projection compile lane;
 	// they therefore graduate display_only -> hard_consumer under the NKR
-	// protocol. The edge-local waker/wakee provenance keys remain honest
-	// display-only audit context: no projection gate reads them back.
-	{TraceNoteKeyWakerPrioritySource, "gating", TraceNoteCarrierDisplayOnly},
+	// protocol. B1034 promotes the edge-local endpoint/value/source/CPU fields
+	// to soft-consumer context for one role-bound finalizer capsule; they still
+	// drive no projection, rank, answer gate, or conclusion.
+	{TraceNoteKeyWakerPriority, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakeePriority, "chain_path", TraceNoteCarrierSoftConsumer},
+	{TraceNoteKeyWakerPrioritySource, "gating", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakerPriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
-	{TraceNoteKeyWakeePrioritySource, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeePrioritySource, "gating", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeePriorityArtifactSource, "gating", TraceNoteCarrierDisplayOnly},
-	{TraceNoteKeyWakeePriorityAuthority, "gating", TraceNoteCarrierDisplayOnly},
+	{TraceNoteKeyWakeePriorityAuthority, "gating", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupWakerCPU, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupWakeeTargetCPU, "chain_path", TraceNoteCarrierSoftConsumer},
 	{TraceNoteKeyWakeupCPURelation, "chain_path", TraceNoteCarrierSoftConsumer},
@@ -2120,8 +2130,6 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyWakeupTs, "chain_path", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyWakeupLatencyCaliber, "chain_path", TraceNoteCarrierSoftConsumer},
 	{"latency", "chain_path", TraceNoteCarrierDisplayOnly},
-	{"waker_priority", "chain_path", TraceNoteCarrierDisplayOnly},
-	{"wakee_priority", "chain_path", TraceNoteCarrierDisplayOnly},
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census notes — the model evidence feed (internal/context wait-object
 	// summary) is the consumer; a miss is a feed omission, never a gate

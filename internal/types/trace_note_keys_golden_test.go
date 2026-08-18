@@ -714,15 +714,15 @@ var traceNoteKeyGoldenRows = []string{
 	"vsync_generator_census_woken|vsync_census|display_only",
 	"wait_object|blocking|display_only",
 	"waiters|blocking|hard_consumer",
-	"wakee_priority|chain_path|display_only",
+	"wakee_priority|chain_path|soft_consumer",
 	"wakee_priority_artifact_source|gating|display_only",
-	"wakee_priority_authority|gating|display_only",
-	"wakee_priority_source|gating|display_only",
+	"wakee_priority_authority|gating|soft_consumer",
+	"wakee_priority_source|gating|soft_consumer",
 	"wakee_target_cpu|chain_path|soft_consumer",
 	"waker_cpu|chain_path|soft_consumer",
-	"waker_priority|chain_path|display_only",
+	"waker_priority|chain_path|soft_consumer",
 	"waker_priority_artifact_source|gating|display_only",
-	"waker_priority_source|gating|display_only",
+	"waker_priority_source|gating|soft_consumer",
 	// WAKE-CENSUS (§29.58, 2026-07-13): per-pair whole-inventory wakeup-edge
 	// census (count folds pre-cap; overflow discloses the pair-cap trim).
 	// WAKE-CENSUS-D 2A (§29.58.4, 2026-07-13): typed exit-state split trio.

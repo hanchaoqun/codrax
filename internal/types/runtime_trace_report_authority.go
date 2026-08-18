@@ -135,6 +135,18 @@ func RuntimeTraceTargetWaitMaterializationAllowed(rm *RequestModel, set TraceCau
 	)
 }
 
+// RuntimeTraceWakeupEdgeMaterializationAllowed authorizes the exact endpoint
+// role capsule for causal reports and bounded direct-waker lookups. It does
+// not widen a finite scheduler-state/wait/count question into a wakeup report.
+func RuntimeTraceWakeupEdgeMaterializationAllowed(rm *RequestModel, set TraceCausalProjectionSet) bool {
+	return runtimeTraceBoundedFactFamilyMaterializationAllowed(
+		rm,
+		set,
+		RuntimeQuestionFactDirectWaker,
+		RuntimeQuestionFactRelationPeer,
+	)
+}
+
 // RuntimeTraceBlockedReasonCensusMaterializationAllowed authorizes the exact
 // record inventory either as part of a full trace report or as the two
 // explicitly requested bounded axes (recorded reason + count/duration).

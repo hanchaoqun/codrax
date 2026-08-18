@@ -36175,18 +36175,29 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
    typed absence 权限。零行只证明该 roster 未捕获原因，不能区分 voluntary/cooperative、syscall、锁、
    dependency 或其他 S-state 机制。应在通用 Trace 证据口径中给出负边界；只有独立 typed syscall/span/
    reason/dependency 才能命名机制。该提示不修改正文、不建立枚举值→结论硬映射。
-6. 确定性系统注仍显示 exact worker 排名，但没有替模型补写主因，符合结论权红线。下一批只增强模型
-   输入的角色绑定与 absence caliber；显式窗因果投影、自动补齐、链上-only 主因、实际占用/业务线索与
-   规则可消除量双轴均不改，邻近/背景继续仅作排查支撑。
-7. 活跃流没有畸形 JSON、旧稿恢复、空答案或固定 4ms 降级；只要字节仍活跃，就继续等待完整结构。
+6. B1034/B1035 已施工。新 `TraceWakeupEdgeRoleAuthority` 只接收 runtime-artifact、deterministic
+   `trace_query`、hard-grounded `wakeup_chain_edge`，并把 Object 临时映射为 wakee 后复用唯一 typed
+   用户目标匹配器；只保留指向用户目标的边。同一工件/scope/waker/wakee/timestamp 若值冲突则整边
+   fail-closed，完全相同重放去重；若用户给出显式时间窗，还必须由同一工件、同一 query scope 的
+   selected-window typed carrier 精确匹配该窗，早期粗窗/无窗边不得混入。`waker_priority` /
+   `wakee_priority` 依 NKR 协议从 display-only 升格为
+   soft-consumer，生产者和消费者共用常量；来源、CPU、role binding 一并有界回顾，最多 8 行，超量明确
+   标为未在紧凑回顾中评估。该 authority 不生成 relation/seat/rank/impact/answer。
+7. 有限 direct-waker/relation-peer 仅授权上述 endpoint role lane，不继承 state/wait/root-cause 报告；完整
+   causal scope 保留同一胶囊。主值回顾新增通用 absence 边界：零 target-wait/blocked-reason row 只表示
+   roster 未捕获匹配原因，禁止据此命名 voluntary/cooperative、sleep/nanosleep、syscall 或 dependency。
+   正向角色绑定、非目标边过滤、冲突重复 fail-closed、有限 scope 不扩域和零原因边界均有 pin。
+8. 确定性系统注仍显示 exact worker 排名，但没有替模型补写主因，符合结论权红线。显式窗因果投影、
+   自动补齐、链上-only 主因、实际占用/业务线索与规则可消除量双轴均不改，邻近/背景继续仅作排查支撑。
+9. 活跃流没有畸形 JSON、旧稿恢复、空答案或固定 4ms 降级；只要字节仍活跃，就继续等待完整结构。
 
 状态：
 
 `r656=runner-1/2; human-trace-fail; human-diagram-pass`；
 `B1032-CALLEEBODYRELATIONFRONTIER1=production-positive-r656`；
 `B1033-CALLEEBODYREVERSECALLFRONTIER1=implemented+pinned/pending-production-trigger`；
-`B1034-TRACEWAKEUPROLECAPSULE1=confirmed-P1/planned`；
-`B1035-WAITABSENCEMECHANISMBOUNDARY1=confirmed-P1/planned`；
+`B1034-TRACEWAKEUPROLECAPSULE1=implemented/typed-target-bound+conflict-fail-closed+pinned`；
+`B1035-WAITABSENCEMECHANISMBOUNDARY1=implemented/generic-soft-caliber+pinned`；
 `Trace explicit-window/query/projection/auto-supplement=production-positive-r656`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `system-answer/conclusion/relation/diagram-authorship=none`；

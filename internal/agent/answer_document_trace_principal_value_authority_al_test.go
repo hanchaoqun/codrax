@@ -409,6 +409,96 @@ func TestRenderAnswerDocTracePrincipalValueAuthoritySeparatesWaitAndStateFamilie
 	}
 }
 
+func TestRenderAnswerDocTracePrincipalValueAuthorityBindsWakeupEndpointRolesAL(t *testing.T) {
+	const subject = "app-100"
+	record := types.ObservationRecord{
+		ID: "trace_query:window#wakeup_chain_edge:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace",
+		},
+		Predicate: "wakeup_chain_edge", Subject: "worker-200", Object: subject,
+		RichNotes: []string{
+			types.TraceNoteKeyWakeupTs + "=1.010000",
+			types.TraceNoteKeyWakerPriority + "=20/ohos_cfs",
+			types.TraceNoteKeyWakeePriority + "=52/ohos_rt",
+			types.TraceNoteKeyWakerPrioritySource + "=closed_range_stable",
+			types.TraceNoteKeyWakeePriorityAuthority + "=exact_at_point",
+			types.TraceNoteKeyWakeupWakerCPU + "=2",
+			types.TraceNoteKeyWakeupWakeeTargetCPU + "=1",
+			types.TraceNoteKeyWakeupCPURelation + "=cross_cpu",
+		},
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 100, []types.ObservationRecord{record})
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactDirectWaker},
+	}
+	ctx.Mutable.SetRequestModel(*rm)
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	for _, want := range []string{
+		"principal_wakeup_edge_roles:",
+		"waker=`worker-200`; wakee=`app-100`",
+		"waker_priority=`20/ohos_cfs`",
+		"wakee_priority=`52/ohos_rt`",
+		"waker_cpu=2; wakee_target_cpu=1",
+		"role_binding=`exact_row_local`",
+		"Never swap a waker's priority/class/CPU with the wakee's values",
+		"conclusion_owner=`model`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("role-bound wakeup recap missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "principal_state:") || strings.Contains(got, "principal_wait_occurrences:") {
+		t.Fatalf("bounded direct-waker lookup widened into state/wait authority:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocTracePrincipalValueAuthorityStatesZeroReasonBoundaryAL(t *testing.T) {
+	const subject = "app-100"
+	state := types.ObservationRecord{
+		ID: "state", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace",
+		},
+		Predicate: "target_window_states", ClaimKey: "target_window_states:" + subject,
+		Subject: subject, Object: "state_partition",
+		Span: types.ObservationSpan{StartTs: 1, EndTs: 1.01}, Value: "10", Unit: "ms",
+		RichNotes: []string{
+			"selected_window=1.000000..1.010000", "running=0", "runnable=0",
+			"sleep=10", "d_state=0", "io_wait=0", "total=10",
+		},
+	}
+	root := types.ObservationRecord{
+		ID: "root", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: state.SourceRef, Predicate: "root_cause_primary", ClaimKey: "root_cause_primary:" + subject,
+		Subject: subject, Object: "runnable", Value: "1", Unit: "ms",
+		RichNotes: []string{
+			"rank=1", "tier=primary", "chain_relevance=on_chain",
+			"effective_impact_ms=1", "selected_window=1.000000..1.010000",
+		},
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 100, []types.ObservationRecord{root, state})
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	for _, want := range []string{
+		"target_window_wait_occurrences=0",
+		"means only that no matching typed wait-reason occurrence was captured",
+		"does not classify an S interval as cooperative/voluntary sleep",
+		"prove a `sleep`/`nanosleep` syscall",
+		"Name a mechanism only from a separate typed syscall, span, blocked-reason, wakeup, or dependency relation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("zero-reason mechanism boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func tracePrincipalValueAuthorityTestContext(subject string, pid int, observations []types.ObservationRecord) *types.AgentContext {
 	mut := types.NewMutableState("typed trace authority test")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{

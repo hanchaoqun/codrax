@@ -92,6 +92,9 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	if !RuntimeTraceTargetWaitMaterializationAllowed(&boundedWait, withRoot) {
 		t.Fatal("a target-wait roster must retain only its own principal-value lane")
 	}
+	if !RuntimeTraceWakeupEdgeMaterializationAllowed(&boundedWait, withRoot) {
+		t.Fatal("a bounded direct-waker family must retain its exact endpoint-role lane")
+	}
 	boundedWaitClosure := boundedState
 	boundedWaitClosure.RuntimeQuestionProfile = &RuntimeQuestionProfile{
 		Scope: RuntimeQuestionScopeBoundedFactSet,
@@ -114,6 +117,9 @@ func TestRuntimeTraceReportMaterializationAuthorityMatrix(t *testing.T) {
 	}
 	if RuntimeTraceTargetWaitMaterializationAllowed(&boundedStateAndCount, withRoot) {
 		t.Fatal("state + count/duration without a typed reason/time axis must not invent a wait-roster request")
+	}
+	if RuntimeTraceWakeupEdgeMaterializationAllowed(&boundedStateAndCount, withRoot) {
+		t.Fatal("state + count/duration must not invent a wakeup endpoint-role lane")
 	}
 	if !RuntimeTraceBlockedReasonCensusMaterializationAllowed(&boundedWaitClosure, withRoot) {
 		t.Fatal("recorded reason + count/duration must retain the exact blocked-reason census")

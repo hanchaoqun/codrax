@@ -28,7 +28,8 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
 	stateAllowed := types.RuntimeTraceTargetStateMaterializationAllowed(authorityRM, projectionSet)
 	waitAllowed := types.RuntimeTraceTargetWaitMaterializationAllowed(authorityRM, projectionSet)
-	if !stateAllowed && !waitAllowed {
+	wakeupAllowed := types.RuntimeTraceWakeupEdgeMaterializationAllowed(authorityRM, projectionSet)
+	if !stateAllowed && !waitAllowed && !wakeupAllowed {
 		return ""
 	}
 	var states []types.TraceTargetStateScopeAuthority
@@ -41,8 +42,12 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		waits = types.BuildTraceTargetWaitSummaryAuthorities(ledger, authorityRM)
 		blocking = types.BuildTraceBlockingWallClockAuthorities(ledger, authorityRM)
 	}
+	var wakeupEdges []types.TraceWakeupEdgeRoleAuthority
+	if wakeupAllowed {
+		wakeupEdges = types.BuildTraceWakeupEdgeRoleAuthorities(ledger, authorityRM)
+	}
 	stateRosterTruncated := stateAllowed && len(projectionSet.OmittedArtifactLabels) > 0
-	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 && !stateRosterTruncated {
+	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 && len(wakeupEdges) == 0 && !stateRosterTruncated {
 		return ""
 	}
 
@@ -55,7 +60,9 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	b.WriteString("- A complete target-wait row authorizes its exact occurrence count and wall-clock sum. A capacity-truncated blocking row authorizes only the displayed observed lower bound (`>=`); never turn it into an exact total, a unique/only occurrence, or a claim that every other request caused no blocking.\n\n")
 	b.WriteString("- Complete target-wait rows below are compiled from the uncapped typed per-occurrence leaves. An earlier `target_wait_occurrence_prompt=status=incomplete,emitted=N,total=M` row describes only that compact prompt preview, not an incomplete engine roster. When this recap publishes `permission=exact_complete_rowset`, use its full count/sum/rows and never call the underlying roster incomplete or reconcile its preview-prefix sum with another measurement.\n\n")
 	b.WriteString("- Target wait state kinds remain separate: `d_state_occurrences`, `io_wait_occurrences`, and `sleep_iowait_occurrences` are separately reported typed counts. Do not rename an `io_wait` row to D-state when the same authority reports `d_state_occurrences=0`.\n\n")
+	b.WriteString("- Absence boundary: `target_window_wait_occurrences=0`, zero blocked-reason rows, or an empty typed reason roster means only that no matching typed wait-reason occurrence was captured by that roster. It does not classify an S interval as cooperative/voluntary sleep, prove a `sleep`/`nanosleep` syscall, rule out a syscall or dependency, or establish the wait mechanism. Name a mechanism only from a separate typed syscall, span, blocked-reason, wakeup, or dependency relation.\n\n")
 	b.WriteString("- `sched_blocked_reason.caller` is the kernel-reported wait call-site/symbol associated with that target interval. It can describe where the target blocked, but it is not a typed resource identity, lock owner, or holder thread. Only a separate typed holder/owner relation may authorize holder language.\n\n")
+	b.WriteString("- Wakeup endpoint values are role-bound. Never swap a waker's priority/class/CPU with the wakee's values, and do not compare or strengthen the relation beyond its row-local caliber.\n\n")
 	if zh {
 		b.WriteString("- 不同 authority 行的数值差本身不是关系证据；除非另有 explicit typed relation 证明，不得把 record/occurrence/partition 的差值解释成窗口边界、重叠、精度误差或缺失闭合。\n\n")
 	} else {
@@ -201,6 +208,48 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 				"  - principal_conclusion_en=`For %s, the current evidence confirms at least %d occurrence(s) and at least %.3fms for %s in %s. Coverage is truncated, so the full-window count and total are unknown; do not say only/unique/total or claim that every other request caused no blocking.`\n",
 				block.Type, len(block.Occurrences), block.ObservedMS, block.Subject, block.SelectedWindow)
 		}
+	}
+	const wakeupEdgeLimit = 8
+	wakeupEdgeCount := len(wakeupEdges)
+	if wakeupEdgeCount > wakeupEdgeLimit {
+		wakeupEdgeCount = wakeupEdgeLimit
+	}
+	for _, edge := range wakeupEdges[:wakeupEdgeCount] {
+		fmt.Fprintf(&b,
+			"- principal_wakeup_edge_roles: artifact=`%s`; scope=`%s`; waker=`%s`; wakee=`%s`",
+			edge.ArtifactLabel, edge.Scope, edge.Waker, edge.Wakee,
+		)
+		if edge.WakeupTimestamp != "" {
+			fmt.Fprintf(&b, "; wakeup_ts=%s", edge.WakeupTimestamp)
+		}
+		if edge.WakerPriority != "" {
+			fmt.Fprintf(&b, "; waker_priority=`%s`", edge.WakerPriority)
+			if edge.WakerPrioritySource != "" {
+				fmt.Fprintf(&b, "; waker_priority_source=`%s`", edge.WakerPrioritySource)
+			}
+		}
+		if edge.WakeePriority != "" {
+			fmt.Fprintf(&b, "; wakee_priority=`%s`", edge.WakeePriority)
+			if edge.WakeePrioritySource != "" {
+				fmt.Fprintf(&b, "; wakee_priority_source=`%s`", edge.WakeePrioritySource)
+			}
+			if edge.WakeePriorityAuthority != "" {
+				fmt.Fprintf(&b, "; wakee_priority_authority=`%s`", edge.WakeePriorityAuthority)
+			}
+		}
+		if edge.WakerCPU != "" {
+			fmt.Fprintf(&b, "; waker_cpu=%s", edge.WakerCPU)
+		}
+		if edge.WakeeTargetCPU != "" {
+			fmt.Fprintf(&b, "; wakee_target_cpu=%s", edge.WakeeTargetCPU)
+		}
+		if edge.CPURelation != "" {
+			fmt.Fprintf(&b, "; cpu_relation=`%s`", edge.CPURelation)
+		}
+		b.WriteString("; role_binding=`exact_row_local`; conclusion_owner=`model`\n")
+	}
+	if len(wakeupEdges) > wakeupEdgeCount {
+		fmt.Fprintf(&b, "- principal_wakeup_edge_role_coverage: emitted=%d; total=%d; complete=false; omitted_rows=`not_evaluated_in_this_compact_recap`\n", wakeupEdgeCount, len(wakeupEdges))
 	}
 	b.WriteByte('\n')
 	return b.String()
