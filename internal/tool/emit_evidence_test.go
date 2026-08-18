@@ -7343,12 +7343,25 @@ func TestAutoPairSelectedDefinitionBodyCallEvidence_MechanismFunctionDimension(t
 		t.Fatalf("typed exact mechanism target should survive member-set dimension drift: %+v", got)
 	}
 
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = nil
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = []string{"monotonic_now_ns", "cmd_sleep"}
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 1 {
+		t.Fatalf("typed primary mechanism entity should survive omitted exact-target lane: %+v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = nil
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = []string{"another_clock"}
 	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
 		t.Fatalf("another typed exact target must not admit this definition body: %+v", got)
 	}
 
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = nil
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"monotonic_now_ns"}
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("breadth-expanded entities alone must not admit mechanism body facts: %+v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = nil
 	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
 		t.Fatalf("plain mechanism kind without typed dimension or exact target must remain unchanged: %+v", got)
 	}

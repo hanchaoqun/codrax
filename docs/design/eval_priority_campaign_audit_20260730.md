@@ -35726,11 +35726,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B1055-MECHANISMSELECTEDBODYOPERATION1=v2-implemented/exact-target-typed-compatibility/pending-production-replay`；
+`B1055-MECHANISMSELECTEDBODYOPERATION1=v2-production-failed-r672/exact-target-omitted/superseded-by-primary-entity-arm`；
 `r671-C-platform-mechanism=runner-pass/human-partial/initial-B1055-not-fired`；
 `r671-Trace-IO-chain=runner-pass/human-partial/projection+on-chain-root-correct/model-causal-wording-overclaim`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r671`；
 `Trace explicit-window/query/projection/auto-supplement=production-positive-r671`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1051 r672/B1055-v3：ExactTargets 也会缺席；机制精确符号候选统一与 shared-callee 时序审计（2026-08-18）
+
+1. 在 `main@fc29ce894` 严格并发恰好两个案例：
+   `sr_c_platform_fork + qf_sequence_analyzer_gate`。Runner `2 PASS / 0 FAIL`；人工为 `1 partial / 1 pass`，
+   逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_mechanism_sequence_r672_20260818_manual_audit.md`。
+2. C 案再次否证 B1055-v2 的 production 充分性。本轮 analyzer 的同一问题仍为 `mechanism`，但
+   `requested_answer_dimensions` 变为非维度答案、`exact_targets` 完全缺席，只保留 analyzer 主实体
+   `monotonic_now_ns` 与 `cmd_sleep`。因此 v2 兼容臂仍不触发。模型本轮自行发出 `cmd_sleep` 的守卫/采样
+   调用行，使 handler 部分改善；三个平台 API 表仍只引用 `monotonic_now_ns` 定义首行，平台实现体权限未闭环。
+3. B1055-v3 把机制类的精确符号候选统一为 typed `ExactTargets ∪ PrimaryEntities`。这里使用的是 analyzer
+   初始主实体快照，不使用随后由日志、perf、子主题或 implementer 扩张的宽 `Entities`；selected definition
+   的规范化符号尾部必须与候选完全相等。其余边界不变：模型先选中可引用 definition、callable 唯一、调用行
+   已读、关系来自 AST/Cangjie parser，并排除 related/absence/illustrative 定义。系统只补事实，不选成员或结论。
+4. 专项 pin 新增两条：`PrimaryEntities` 在 exact-target 缺席时可触发；只有 breadth-expanded `Entities` 时不得
+   触发。原 function-dimension、exact-target、不同目标、无目标、背景定义和 15 语言矩阵继续保留。v3 必须再做
+   production replay，看到 producer 行进入 evidence pool 且最终成文真实消费后方可闭环。
+5. 时序图案人工通过。源码不存在用户字面假定的 `buildAnalysisIR -> gate.Run` 单向链；真实关系是
+   `buildAnalysisIR -> RunWith` 与 `gate.Run -> RunWith` 两条 shared-callee 边。最终答案和合法 Mermaid 均保留
+   两条同向 typed recipe，中间函数另列支持块，并没有为了满足问题字面虚构关系，也无系统代写结论。
+6. 时序案耗时 362s，发生 analyzer quote-provenance 1 次重试、Explorer 多次 member/端点形修补、finalizer
+   主边与支持项拆块 1 次。它们体现低心智合同仍可整合，但各 gate 最终没有互相矛盾；后续应按 provenance、
+   member identity、endpoint topology、block facet 四类做异构归因，不能为本例函数名添加专用硬规则。
+7. 本批未修改 Trace 查询、显式窗、链上-only 根因、因果投影、自动补齐或流式发布。系统没有扫描 raw request、
+   reasoning 或 final prose 作语义硬门，也没有替换模型答案；活跃流固定 4ms 无完整答案即降级仍为禁止项。
+
+状态：
+
+`B1055-MECHANISMSELECTEDBODYOPERATION1=v3-implemented/exact-target+primary-entity-symbol-equality/pending-production-replay`；
+`r672-C-platform-mechanism=runner-pass/human-partial/v2-not-fired`；
+`r672-sequence-shared-callee=runner-pass/human-pass/valid-mermaid+typed-directions`；
+`B1056-SEQUENCELOWMINDCHURN1=observed/typed-contract-integration-candidate/no-case-hard-rule`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r672`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
