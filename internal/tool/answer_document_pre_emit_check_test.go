@@ -9882,6 +9882,80 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotDowngradeExactCod
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotDowngradeUniqueQualifiedDefinitionToCallsite(t *testing.T) {
+	mu := types.NewMutableState("explain the native and fallback call paths")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "fallback-call", Kind: types.EvidenceRelationship,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "_tokenize_slow",
+			Subject: "FastTokenizer.tokenize", Object: "self._tokenize_slow",
+			Source: "bindings-py/fastlex/tokenizer.py", LineStart: 22,
+			Snippet:         "return self._tokenize_slow(data)",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "fallback-definition", Kind: types.EvidenceDirect,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "_tokenize_slow",
+			Source: "bindings-py/fastlex/tokenizer.py", LineStart: 24, LineEnd: 37,
+			Snippet:         "def _tokenize_slow(self, data: bytes):",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "bindings-py/fastlex/tokenizer.py", Line: 22, Quote: "return self._tokenize_slow(data)"},
+			{File: "bindings-py/fastlex/tokenizer.py", Line: 24, LineEnd: 37, Quote: "def _tokenize_slow(self, data: bytes):"},
+			{File: "bindings-py/fastlex/tokenizer.py", Line: 28, Quote: "rank = self._rank.get((ids[i], ids[i + 1]))"},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID: "fallback", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{{
+				ID: "fallback-implementation", Label: "FastTokenizer._tokenize_slow",
+				Text:        "纯 Python 实现逐字节处理输入，并用 `self._rank.get` 循环合并。",
+				CitationRef: 1,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuoteWithContext(doc, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("body token must not move a unique definition to an implementation detail, fixed=%d doc=%+v", fixed, doc)
+	}
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("unique exact definition must not be rewritten to a same-name callsite, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want unique exact definition 1", got)
+	}
+}
+
+func TestPreEmitCitationOwnsUniqueTypedDefinitionForLabel_FailsClosedOnAmbiguousUnownedMember(t *testing.T) {
+	mu := types.NewMutableState("compare two implementations")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "first", Kind: types.EvidenceDirect,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "run",
+			Source: "a/worker.py", LineStart: 10,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "second", Kind: types.EvidenceDirect,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "run",
+			Source: "b/worker.py", LineStart: 20,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mu})
+	if preEmitCitationOwnsUniqueTypedDefinitionForLabel(
+		pctx,
+		"AlphaWorker.run",
+		types.Citation{File: "a/worker.py", Line: 10},
+	) {
+		t.Fatal("unowned same-member definitions must remain ambiguous")
+	}
+}
+
 // === preEmitDisplaySurfaceAppears typographic normalisation ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer

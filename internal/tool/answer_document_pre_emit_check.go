@@ -3167,6 +3167,19 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				) {
 				continue
 			}
+			// A unique typed definition is stronger than every later
+			// label-only or context alignment candidate. In particular, a
+			// method implementation row may share its member token with a
+			// nearby invocation. Once the model has selected the unique
+			// definition coordinate for that qualified label, citation repair
+			// must be monotone: never rewrite it to the invocation merely
+			// because the enclosing block also carries call-edge claims. This
+			// consumes only typed definition evidence plus source coordinates;
+			// it neither interprets item prose nor invents a citation.
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationOwnsUniqueTypedDefinitionForLabel(pctx, label, doc.Citations[item.CitationRef]) {
+				continue
+			}
 			if match, ok := preEmitUniqueCallableLineLabelCitationIndex(doc, pctx, label); ok {
 				if item.CitationRef != match {
 					item.CitationRef = match
@@ -10520,6 +10533,10 @@ func normalizeItemCitationRefsByUniqueBacktickCitationQuoteWithContext(doc *type
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitCitationOwnsUniqueTypedDefinitionForLabel(pctx, item.Label, doc.Citations[item.CitationRef]) {
+				continue
+			}
 			// The structured label is the row's primary identity. If the current
 			// quote or typed evidence at the current coordinate already carries
 			// that exact code surface, body backticks naming helpers/callees/peers
@@ -10809,6 +10826,48 @@ func preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx *preEm
 		return types.Citation{}, false
 	}
 	return best[0], true
+}
+
+// preEmitCitationOwnsUniqueTypedDefinitionForLabel protects a stronger,
+// model-selected definition coordinate from two weaker mechanical repair
+// passes: body-token quote matching and label-only endpoint alignment. The
+// fully-qualified lookup is preferred. When an evidence producer did not
+// stamp the owner, a qualified display label may fall back to its member only
+// if the evidence pool contains exactly one grounded definition start for
+// that member and the current citation names that exact start. This is a
+// monotone preservation rule: it never selects a new citation or concludes
+// that an unproved owner exists.
+func preEmitCitationOwnsUniqueTypedDefinitionForLabel(pctx *preEmitCheckContext, label string, cit types.Citation) bool {
+	if pctx == nil || strings.TrimSpace(label) == "" || strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+		return false
+	}
+	if definition, ok := preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx, label); ok &&
+		preEmitCitationSameLocation(cit, definition) {
+		return true
+	}
+	_, member, qualified := preEmitQualifiedCodeSurfaceParts(preEmitDefinitionCitationLabelBase(label))
+	if !qualified || preEmitCodeIdentityKey(member) == "" {
+		return false
+	}
+	type location struct {
+		cit types.Citation
+	}
+	var candidates []location
+	seen := map[string]bool{}
+	for _, ev := range pctx.evidenceItems() {
+		if ev.GroundingStatus == types.GroundingUngrounded || ev.AnchorKind != types.AnchorDefinition ||
+			ev.Source == "" || ev.LineStart <= 0 || !preEmitEvidenceEndpointSupportsToken(ev, member) {
+			continue
+		}
+		candidate := pctx.canonicalCitation(types.Citation{File: ev.Source, Line: ev.LineStart})
+		key := preEmitCitationLocationKey(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		candidates = append(candidates, location{cit: candidate})
+	}
+	return len(candidates) == 1 && preEmitCitationSameLocation(cit, candidates[0].cit)
 }
 
 // preEmitEvidenceEndpointMatchesDefinitionLabel compares already-typed code

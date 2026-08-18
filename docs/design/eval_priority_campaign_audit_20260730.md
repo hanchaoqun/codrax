@@ -36736,6 +36736,72 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1041 r665：关系合同根修生产生效；定义引用被系统降级，分支与可见关系仍不闭合（2026-08-18）
+
+1. 在 `main@fc53a18ac` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + github_issue_zod_prefault`。Runner `1 PASS / 1 FAIL`；人工裁定为 Poly fail、
+   Zod pass-with-unverified-boundary。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_write_r665_20260818_manual_audit.md`。
+2. B1045/B1046 获生产正证。Poly 不再记录 `normalizeOrphanDiagramEdgeAnchors`，混合 call/register 锚缺 claim 时
+   一次精确提示补齐，而非删后再索取；最终维度补充只显示“完整调用链/回退行为”，不再泄漏
+   `member_set/source_location/function_or_purpose`。运行时间从同案例上一轮 356s 降为 184s；三次拒绝分别是
+   真缺锚、错误注册端点和可选图未证边，均不是合同自冲突。
+3. 新确认 `B1047-CITATIONDEFINITIONDOWNGRADE1/P0-redline`。模型第一稿为
+   `FastTokenizer._tokenize_slow` 正确选择定义起点 `tokenizer.py:24`；第一道正文反引号归一化先按
+   `self._rank.get` 等实现细节移走引用，第二道标签归一化又把它改为同名调用点 line 21。终稿于是用原生
+   fast-path call 证明纯 Python fallback 实现。系统把较强正确证据改成较弱错误证据，不能归因于模型波动。
+4. 新确认 `B1048-REQUESTEDBRANCHREACHABILITY1/P1-high`。用户显式要求回退行为，B1043 只保证 fallback
+   callable 实现体，不保证 guard、selected effect、branch-state producer/exception handler 同时闭合。探索只发
+   `import _fastlex` 和 `_HAVE_NATIVE=True` 的单行证据，没发 `except ImportError` 与 `_HAVE_NATIVE=False`；
+   模型最终错误声称源码没有显式捕获且 flag 不会更新，并与前文“可以回退”自相矛盾。根修必须是 typed
+   requested branch-behavior closure，不按 Python、fallback 词或题面关键词拟合。
+5. 新确认 `B1049-STANDALONERELATIONVISIBILITY1/P1-high`。精确
+   `_fastlex.tokenize_bytes -> py.tokenize_bytes` register anchor 已通过验证；模型删除含未证边的可选图后，
+   该关系只剩隐藏 metadata，最终列表没有明确显示这条跨语言交接。长期方案应让模型在结构化关系载体中同时
+   提交可见关系表面与 exact identity，renderer 只机械呈现模型字段；禁止系统从 hidden anchor 自行代写边或结论。
+6. Zod runner 因 `production_verification_source_static_only` 判 FAIL，但人工通过。补丁正确覆盖 false/0/空串，
+   `make check` 通过；该项目检查器只做静态源码形状验证，因此 controller 将模型的 `all_verified` 收窄成
+   `accept_unverified` 是诚实边界。不能为了 eval 绿把 source-static 冒充生产行为验证。
+7. 本轮未发生 active-stream 固定 4ms 降级，也未改 Trace 查询/投影/自动补齐。显式窗因果诊断、链上-only
+   主因、背景 support-only、实际占用与规则可消除双轴以及模型结论权均保持。
+
+状态：
+
+`B1045-STANDALONERELATIONNORMALIZERCONTRADICTION1=production-closed/r665`；
+`B1046-REQUESTEDDIMENSIONROLELANGUAGE1=production-closed/r665`；
+`B1047-CITATIONDEFINITIONDOWNGRADE1=confirmed/P0/implement-now`；
+`B1048-REQUESTEDBRANCHREACHABILITY1=confirmed/P1/high/next-batch`；
+`B1049-STANDALONERELATIONVISIBILITY1=confirmed/P1/high/design-next`；
+`WRITE-STATIC-VERIFY=honest-unverified/not-a-gap`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
+### §123.1042 B1047：精确定义引用对弱机械修复保持单调（2026-08-18）
+
+1. 两个可能改写 item citation 的机械 pass 现在共享同一 typed definition ownership 判定，并在正文 token、标签、
+   上下文等弱匹配之前执行。当前引用若正好落在该标签唯一 grounded definition 的起始坐标，就保持模型选择；
+   不会再从定义起点移到函数体 helper、同名 callsite 或 registration site。
+2. 优先使用完整 qualified identity。部分 evidence producer 没有 owner stamp 时，只允许退到 member identity，并要求
+   整个 evidence pool 中该 grounded definition 起点唯一且当前引用就是该起点。两个无 owner 的同名定义会
+   fail-closed，不获得保护；该规则只保留当前模型引用，不选择新引用、不声明未证 owner。
+3. 回归覆盖 production 同形：`FastTokenizer._tokenize_slow` 当前引用 line 24，item body 同时出现唯一
+   `self._rank.get` 细节引用，旁边还有 line 22 同名调用点；两道 normalizer 均必须零改动。另有两个不同文件的
+   `run` 定义负例，禁止把 qualified owner 猜成唯一。
+4. 实现不读用户问题、模型推理或最终 prose，不以 Python 声明语法/fixture path/case id 建门；硬条件只消费
+   grounded `AnchorDefinition`、typed endpoint 和 exact source coordinate。它修复证据所有权，不替模型写事实。
+5. 本批不碰 relation visibility 与 branch closure；后二者分别按 B1048/B1049 独立施工，避免把证据引用、调查
+   breadth 和渲染 schema 混成一个大改动。Trace 与 write controller 路径零改动。
+
+状态：
+
+`B1047-CITATIONDEFINITIONDOWNGRADE1=implemented/dual-normalizer+ambiguity-pin-pass`；
+`B1048-REQUESTEDBRANCHREACHABILITY1=next-batch`；
+`B1049-STANDALONERELATIONVISIBILITY1=design-next`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
