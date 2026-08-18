@@ -36180,8 +36180,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 5. 新确认 `B1111-TRACESTATESUBSETRULERQUALIFIER1/P1`：全量状态分区中目标 sleep 为 118.586ms，
    “关键路径候选”表中的目标 self sleep 为 78.630ms。两者都由精确 typed 数据产生，前者是全窗状态
    账户，后者只是投影中已发布链上片段的累计；但当前行仍笼统标成“等待症状/关键路径占用”，读者会把
-   子集误读成另一份全窗合计。下一批只用 typed subject、state class 与全窗账户比较，在子集行追加
-   “本表已展开片段的累计，非该状态全窗合计；全窗值见上方状态分区”的中英文口径；不得改数值、排序、
+   子集误读成另一份全窗合计。本批只用 typed subject、state class 与全窗账户比较，在子集行追加
+   “本表所列相关片段的累计，非该状态全窗合计；全窗值见上方状态分区”的中英文口径；不得改数值、排序、
    加冕、因果投影或模型结论，也不得扫描答案原文。
 6. 源码逻辑图最终 Mermaid 合法，四阶段 precedence、调用与参数流锚准确，BusContext 包含 Mutable 也
    正确用无箭头分组表达。两次拒绝分别命中“把包含关系写成 precedence”和“BusContext 端点未映射”这
@@ -36191,13 +36191,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    合成关系；既有 B630 包含/精确端点能力也没有回归。单次见证不足以建立“必须全图连通”的硬门，且
    无 typed bridge 时强连通会逼系统造边；继续异构回放，若复现则优先改善 request-scoped 证据规划与
    patch 保留教学，仍由模型决定最终图。
+8. B1111 已按上述边界落地：path/self 候选用原始 typed `Subject` 与闭集 `StateKind` 映射到同一目标的
+   running/runnable/sleep/D-state/io_wait 全窗账户；仅当全窗车道为正且三位显示值不同时追加中英文
+   口径。全窗同值、异主体、无账户、零车道和未知状态均不触发。状态枚举消费点已纳入既有 AST golden，
+   未来新增状态若未明确映射会由看护报红。专项矩阵和完整 `go test ./internal/tool -count=1`
+   （175.667s）全绿；根因数值、排序、加冕、投影、自动补采与模型正文均未改。
 
 状态：
 
 `r705=2/2 runner PASS + manual partial/partial`；
 `B1110a-wakeup-reader-language=production-positive`；
 `B1110-other-cause-enums=still-observed/no-prose-gate`；
-`B1111-trace-state-subset-ruler-qualifier=confirmed/P1/next-batch`；
+`B1111-trace-state-subset-ruler-qualifier=implemented/zh+en+pinned`；
 `B1112-diagram-repair-collateral-selection=single-witness/soft-only`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `Trace explicit-window/query/projection/auto-supplement=preserved`；

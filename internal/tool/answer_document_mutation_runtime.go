@@ -1961,7 +1961,7 @@ func runtimeTraceCausalProjectionOccupancyBlock(
 	facets []string,
 ) *types.AnswerBlock {
 	var rows []runtimeTraceOccupancyCandidate
-	rows = append(rows, runtimeTraceOccupancyPathCandidates(model, zh)...)
+	rows = append(rows, runtimeTraceOccupancyPathCandidates(model, projection.TargetStateAccount, zh)...)
 	rows = append(rows, runtimeTraceOccupancySemanticCandidates(model, zh)...)
 	rows = append(rows, runtimeTraceOccupancyBusinessSpanCandidates(projection, zh)...)
 	rows = append(rows, runtimeTraceOccupancyCPUCandidates(projection, zh)...)
@@ -2055,6 +2055,7 @@ func runtimeTraceOccupancyTargetStateText(
 
 func runtimeTraceOccupancyPathCandidates(
 	model runtimeTraceProjTreeModel,
+	account *types.TraceCausalProjectionTargetStateAccount,
 	zh bool,
 ) []runtimeTraceOccupancyCandidate {
 	seen := map[string]bool{}
@@ -2163,6 +2164,13 @@ func runtimeTraceOccupancyPathCandidates(
 				caliber = fmt.Sprintf("actual occupancy; %.3fms is separately priced by existing rules on the eliminable board", node.EffectiveImpactMS)
 			}
 		}
+		if qualifier := runtimeTraceOccupancyPathStateRulerQualifier(node, account, zh); qualifier != "" {
+			if zh {
+				caliber += "；" + qualifier
+			} else {
+				caliber += "; " + qualifier
+			}
+		}
 		out = append(out, runtimeTraceOccupancyCandidate{
 			group:    runtimeTraceOccupancyGroupLabel("path", zh),
 			subject:  subject,
@@ -2179,6 +2187,48 @@ func runtimeTraceOccupancyPathCandidates(
 		out = out[:runtimeTraceOccupancyPathLimit]
 	}
 	return out
+}
+
+// runtimeTraceOccupancyPathStateRulerQualifier distinguishes one published
+// path/self seat from the focused thread's whole-window state partition.
+// Both inputs are typed projection carriers: identity comes from Subject and
+// the lane comes from the closed StateKind enum.  The helper never reads or
+// rewrites model/user prose, and it never changes either value, rank, or
+// causal authority.  A display-equal value needs no qualifier; an absent or
+// zero whole-window lane fails open because there is no positive ruler to
+// compare against.
+func runtimeTraceOccupancyPathStateRulerQualifier(
+	node types.TraceCausalProjectionNode,
+	account *types.TraceCausalProjectionTargetStateAccount,
+	zh bool,
+) string {
+	if account == nil || account.TotalMS <= 0 ||
+		runtimeTraceCausalProjectionCanonicalNode(node.Subject) == "" ||
+		runtimeTraceCausalProjectionCanonicalNode(node.Subject) != runtimeTraceCausalProjectionCanonicalNode(account.Subject) {
+		return ""
+	}
+	var wholeWindowMS float64
+	switch strings.ToLower(strings.TrimSpace(node.StateKind)) {
+	case "running":
+		wholeWindowMS = account.RunningMS
+	case "runnable":
+		wholeWindowMS = account.RunnableMS
+	case "sleep", "s_sleep", "sleep_wait":
+		wholeWindowMS = account.SleepMS
+	case "d_sleep", "d_state", "uninterruptible_sleep":
+		wholeWindowMS = account.DStateMS
+	case "io_wait":
+		wholeWindowMS = account.IOWaitMS
+	default:
+		return ""
+	}
+	if wholeWindowMS <= 0 || fmt.Sprintf("%.3f", node.ImpactMS) == fmt.Sprintf("%.3f", wholeWindowMS) {
+		return ""
+	}
+	if zh {
+		return "本表所列相关片段的累计，非该状态全窗合计；全窗值见上方状态分区"
+	}
+	return "cumulative value of the relevant segments listed in this table, not the whole-window total for this state; see the state partition above for the whole-window value"
 }
 
 func runtimeTraceOccupancyPathNodeAdmitted(row runtimeTraceProjTreeRow) bool {

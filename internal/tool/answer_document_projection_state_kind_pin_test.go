@@ -104,7 +104,11 @@ var runtimeStateKindSwitchSiteGolden = map[string]string{
 	// PTV6-D (b): ImpactShapeCell → ImpactShapeCellTyped rename only (the
 	// typed generic-arm second return) — the case set is byte-identical.
 	"answer_document_mutation_runtime.go:runtimeTraceCausalProjectionImpactShapeCellTyped#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep",
-	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":          "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
+	// B1111: path/self state rows are compared to the same typed lane in the
+	// focused thread's whole-window account. The explicit default rejects
+	// absent/future words until their accounting lane is deliberately mapped.
+	"answer_document_mutation_runtime.go:runtimeTraceOccupancyPathStateRulerQualifier#1": "running,runnable,sleep,s_sleep,sleep_wait,d_sleep,d_state,io_wait,uninterruptible_sleep|default",
+	"answer_document_mutation_runtime_tree.go:runtimeTraceProjNoDominantStateRow#1":      "running,runnable,d_sleep,d_state,io_wait,uninterruptible_sleep",
 	// PTV8-RCR-A §24.3 EVOLUTION RECORD: runtimeTraceProjStateIcon's switch
 	// moved into the single-source impact-form classifier (rcr.go) — same
 	// case set, no default arm (the classifier falls through to the typed

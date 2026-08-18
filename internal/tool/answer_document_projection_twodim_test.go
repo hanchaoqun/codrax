@@ -222,7 +222,7 @@ func TestTwoDimOccupancyDedupesPhysicalStateAcrossPublicationLanes(t *testing.T)
 		SelfRows: []runtimeTraceProjTreeRow{{
 			Node: self, Kind: runtimeTraceProjTreeRowSelf, HasData: true,
 		}},
-	}, true)
+	}, nil, true)
 	if len(rows) != 1 {
 		t.Fatalf("one physical runnable interval published through two lanes must render once, got %+v", rows)
 	}
@@ -246,9 +246,52 @@ func TestTwoDimOccupancyJoinsKeyedAndUnkeyedExactStatePublication(t *testing.T) 
 	rows := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{
 		TreeRows: []runtimeTraceProjTreeRow{{Node: keyed, Kind: runtimeTraceProjTreeRowChain, HasData: true}},
 		SelfRows: []runtimeTraceProjTreeRow{{Node: unkeyed, Kind: runtimeTraceProjTreeRowSelf, HasData: true}},
-	}, true)
+	}, nil, true)
 	if len(rows) != 1 || rows[0].totalMS != 20 || rows[0].location != "2.000000..2.020000；行 3–15" {
 		t.Fatalf("one keyed/unkeyed publication of the exact sleep interval must render once: %+v", rows)
+	}
+}
+
+func TestTwoDimOccupancyQualifiesTargetStateSubsetAgainstWholeWindowAccount(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		EvidenceID: "target-sleep-subset", Subject: "app-100", Predicate: "wakeup_causal_aggregate",
+		StateKind: types.TraceStateKindSSleep, ImpactMS: 78.630,
+	}
+	model := runtimeTraceProjTreeModel{TreeRows: []runtimeTraceProjTreeRow{{
+		Node: node, Kind: runtimeTraceProjTreeRowChain, HasData: true,
+	}}}
+	account := &types.TraceCausalProjectionTargetStateAccount{
+		Subject: "APP-100", RunningMS: 60, RunnableMS: 1.5, SleepMS: 118.586,
+		DStateMS: 18, IOWaitMS: 2, TotalMS: 200.086,
+	}
+	rows := runtimeTraceOccupancyPathCandidates(model, account, true)
+	if len(rows) != 1 || !strings.Contains(rows[0].caliber, "本表所列相关片段的累计，非该状态全窗合计；全窗值见上方状态分区") {
+		t.Fatalf("target-state subset must carry a reader-visible ruler qualifier: %+v", rows)
+	}
+	rows = runtimeTraceOccupancyPathCandidates(model, account, false)
+	if len(rows) != 1 || !strings.Contains(rows[0].caliber, "not the whole-window total for this state") {
+		t.Fatalf("english target-state subset must carry the same ruler qualifier: %+v", rows)
+	}
+
+	// Display-equal values are the whole-window lane at the published ruler;
+	// a foreign target and an absent account are unrelated. None may be
+	// mislabeled as a subset.
+	equal := node
+	equal.ImpactMS = account.SleepMS
+	for name, tc := range map[string]struct {
+		node    types.TraceCausalProjectionNode
+		account *types.TraceCausalProjectionTargetStateAccount
+	}{
+		"equal whole-window lane": {node: equal, account: account},
+		"foreign subject":         {node: node, account: &types.TraceCausalProjectionTargetStateAccount{Subject: "other-200", SleepMS: 118.586, TotalMS: 118.586}},
+		"absent account":          {node: node, account: nil},
+	} {
+		got := runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{TreeRows: []runtimeTraceProjTreeRow{{
+			Node: tc.node, Kind: runtimeTraceProjTreeRowChain, HasData: true,
+		}}}, tc.account, true)
+		if len(got) != 1 || strings.Contains(got[0].caliber, "非该状态全窗合计") {
+			t.Fatalf("%s must not receive the target-state subset qualifier: %+v", name, got)
+		}
 	}
 }
 
@@ -269,7 +312,7 @@ func TestTwoDimOccupancyExactEnvelopeFailsOpenOnConflictingAccountsOrValue(t *te
 		{Node: base, Kind: runtimeTraceProjTreeRowChain, HasData: true},
 		{Node: conflict, Kind: runtimeTraceProjTreeRowChain, HasData: true},
 		{Node: unkeyed, Kind: runtimeTraceProjTreeRowChain, HasData: true},
-	}}, true)
+	}}, nil, true)
 	if len(rows) != 3 {
 		t.Fatalf("two conflicting producer accounts make the shared envelope ambiguous and must fail open: %+v", rows)
 	}
@@ -280,7 +323,7 @@ func TestTwoDimOccupancyExactEnvelopeFailsOpenOnConflictingAccountsOrValue(t *te
 	rows = runtimeTraceOccupancyPathCandidates(runtimeTraceProjTreeModel{TreeRows: []runtimeTraceProjTreeRow{
 		{Node: unkeyed, Kind: runtimeTraceProjTreeRowChain, HasData: true},
 		{Node: valueMismatch, Kind: runtimeTraceProjTreeRowChain, HasData: true},
-	}}, true)
+	}}, nil, true)
 	if len(rows) != 2 {
 		t.Fatalf("same hull with a different physical value is not one exact interval: %+v", rows)
 	}
@@ -306,7 +349,7 @@ func TestTwoDimOccupancyUsesExactStateAccountAcrossDifferentViewEnvelopes(t *tes
 			{Node: rank, Kind: runtimeTraceProjTreeRowCause, HasData: true},
 			{Node: impact, Kind: runtimeTraceProjTreeRowChain, HasData: true},
 		},
-	}, true)
+	}, nil, true)
 	if len(rows) != 1 || rows[0].totalMS != 11 {
 		t.Fatalf("one exact IO account published through different view envelopes must render once: %+v", rows)
 	}
@@ -317,7 +360,7 @@ func TestTwoDimOccupancyUsesExactStateAccountAcrossDifferentViewEnvelopes(t *tes
 			{Node: rank, Kind: runtimeTraceProjTreeRowCause, HasData: true},
 			{Node: impact, Kind: runtimeTraceProjTreeRowChain, HasData: true},
 		},
-	}, true)
+	}, nil, true)
 	if len(rows) != 2 {
 		t.Fatalf("different exact IO accounts must fail open even when scalars match: %+v", rows)
 	}
@@ -359,7 +402,7 @@ func TestTwoDimOccupancyExcludesNonWallClockCaliberRows(t *testing.T) {
 			{Node: composite, Kind: runtimeTraceProjTreeRowSelf, HasData: true},
 			{Node: running, Kind: runtimeTraceProjTreeRowSelf, HasData: true},
 		},
-	}, true)
+	}, nil, true)
 	if len(rows) != 1 || rows[0].subject != "app-100" || rows[0].totalMS != 12.5 || rows[0].unit != "ms" {
 		t.Fatalf("only genuine wall-clock state may enter occupancy rows: %+v", rows)
 	}
