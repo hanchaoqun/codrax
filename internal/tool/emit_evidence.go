@@ -3956,18 +3956,28 @@ const autoPairedSelectedDefinitionBodyCallLimit = 24
 
 // autoPairSelectedDefinitionBodyCallEvidence projects exact parser relations
 // out of model-selected callable definitions. Admission is entirely typed:
-// QFCallChain + active endpoint profile, a citable definition row, a unique
-// parser callable at that source location, parser provenance, and exact
-// read-line coverage. It never reads request/reasoning/summary/final prose and
-// does not require the model to include a diagram.
+// either QFCallChain + active endpoint profile, or a mechanism question with
+// one required function/purpose answer dimension; plus a citable definition
+// row, a unique parser callable at that source location, parser provenance,
+// and exact read-line coverage. The mechanism lane excludes definitions that
+// the model explicitly classified as related/absence/illustrative context, so
+// a nearby helper cannot acquire principal-looking body facts merely because
+// it was read. This helper never reads request/reasoning/summary/final prose
+// and does not require the model to include a diagram.
 func autoPairSelectedDefinitionBodyCallEvidence(
 	ctx *types.BusContext,
 	built []types.EvidenceItem,
 	gc *ground.Context,
 ) []types.EvidenceItem {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || gc == nil || len(built) == 0 ||
-		types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFCallChain ||
-		!ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Active() {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || gc == nil || len(built) == 0 {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	callChainLane := types.ResolveQuestionFamily(rm) == types.QFCallChain &&
+		rm.CallChainEndpointProfile.Active()
+	mechanismLane := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqMechanism &&
+		requestedFunctionOrPurposeDimensionRequired(rm.RequestedAnswerDimensions)
+	if !callChainLane && !mechanismLane {
 		return nil
 	}
 	seenCallable := make(map[string]bool)
@@ -3979,6 +3989,14 @@ func autoPairSelectedDefinitionBodyCallEvidence(
 		if selected.AnchorKind != types.AnchorDefinition || !selected.IsCitable() ||
 			(selected.Scope != types.ScopeLine && selected.Scope != types.ScopeLineRange) {
 			continue
+		}
+		if mechanismLane && !callChainLane {
+			switch selected.ContextRole {
+			case types.EvidenceContextRoleRelatedContext,
+				types.EvidenceContextRoleAbsenceSupport,
+				types.EvidenceContextRoleIllustrativeOnly:
+				continue
+			}
 		}
 		graph, fi, _, visibleSource, ok := ground.ResolveSourceGraphFile(gc, selected.Source)
 		if !ok || graph == nil || fi == nil {
@@ -4058,6 +4076,22 @@ func autoPairSelectedDefinitionBodyCallEvidence(
 		}
 	}
 	return out
+}
+
+// requestedFunctionOrPurposeDimensionRequired consumes only the normalized
+// closed-enum presentation carrier. It is deliberately an enrichment signal:
+// it can expose parser-proved operation facts from a model-selected definition
+// but cannot reject completion, choose a principal member, or alter an answer.
+func requestedFunctionOrPurposeDimensionRequired(profile *types.RequestedAnswerDimensionProfile) bool {
+	if profile == nil || !profile.Active() {
+		return false
+	}
+	for _, dimension := range profile.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionFunctionOrPurpose {
+			return true
+		}
+	}
+	return false
 }
 
 func registrationBindingCallOnLine(line, endpoint string) (string, string, string, int, bool) {

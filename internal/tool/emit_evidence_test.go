@@ -7285,6 +7285,64 @@ func TestAutoPairSelectedDefinitionBodyCallEvidence_PolyglotParserMatrix(t *test
 	}
 }
 
+func TestAutoPairSelectedDefinitionBodyCallEvidence_MechanismFunctionDimension(t *testing.T) {
+	const source = "src/clock.c"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangC,
+		Symbols: []repomap.Symbol{{Name: "monotonic_now_ns", Kind: "function", File: source, Line: 11, EndLine: 19}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 17,
+			FromEP:     repomap.RelationEndpoint{Name: "monotonic_now_ns"},
+			ToEP:       repomap.RelationEndpoint{Name: "QueryPerformanceCounter"},
+			Confidence: repomap.ConfidenceAST, Provenance: repomap.ProvenanceTreeSitter,
+			ResolvedBy: "c_ast_call",
+		}},
+	}
+	gc := &ground.Context{
+		Graph: &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: fi}},
+		LineIndex: map[string]map[int]string{
+			source: {11: "uint64_t monotonic_now_ns(void) {", 17: "QueryPerformanceCounter(&counter);"},
+		},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Label: "平台实现方式", Role: types.RequestedAnswerDimensionFunctionOrPurpose,
+				Required: true, Index: 1,
+			}},
+		},
+	}}
+	selected := types.EvidenceItem{
+		ID: "selected", Kind: types.EvidenceMechanism, Subject: "monotonic_now_ns",
+		Source: source, LineStart: 11, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "monotonic_now_ns",
+		ContextRole:     types.EvidenceContextRoleDefining,
+		GroundingStatus: types.GroundingGrounded,
+	}
+
+	got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc)
+	if len(got) != 1 || got[0].Subject != "monotonic_now_ns" || got[0].Object != "QueryPerformanceCounter" ||
+		got[0].LineStart != 17 || got[0].Producer != types.EvidenceProducerRepoMapSelectedCallableBodyCall ||
+		types.ClaimFormOf(got[0]) != types.ClaimCallEdge || !got[0].IsCitable() {
+		t.Fatalf("typed mechanism function dimension should expose exact selected-body call: %+v", got)
+	}
+
+	selected.ContextRole = types.EvidenceContextRoleRelatedContext
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("related mechanism definition must not mint body-call facts: %+v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = nil
+	selected.ContextRole = types.EvidenceContextRoleDefining
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("plain mechanism kind without typed function dimension must remain unchanged: %+v", got)
+	}
+}
+
 func TestEmitEvidence_SelectedDefinitionAutoPairsExactParserBodyCall(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

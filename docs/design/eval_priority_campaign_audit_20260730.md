@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
+
+1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
+   `sr_c_platform_fork + github_issue_nlohmann_long_double_symptom`。Runner `2 PASS / 0 FAIL`；人工为
+   `1 partial / 1 pass`。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_cbranch_cppwrite_r670_20260818_manual_audit.md`。
+2. C 机制答案的业务结论完全正确：Windows 使用 `QueryPerformanceFrequency/QueryPerformanceCounter`，
+   macOS 使用 `mach_timebase_info/mach_absolute_time`，POSIX 使用
+   `clock_gettime(CLOCK_MONOTONIC)`；唯一命令处理函数是 `cmd_sleep`，且存在三处调用。但三个平台行
+   都引用函数定义首行 11/25/37，typed handoff 明确标为
+   `definition_site_only/executable_body=unproven`；API 调用和换算操作只存在于模型 summary，最终用户
+   无法从引用复核。这不是未读源码：Explorer 已完整读到对应实现体。
+3. 根因是共享的 exact-fact producer 接线窄化。`autoPairSelectedDefinitionBodyCallEvidence` 已能把
+   “模型选中的定义 + 已读调用行 + AST/Cangjie parser relation”转成独立、可引用的 body-call 事实，
+   但旧 admission 只允许 `QFCallChain + active endpoint profile`。本例是 schema-valid
+   `question_kind=mechanism + required function_or_purpose`，因此精确能力存在却未启用，最终被
+   模型整理层的 definition summary 替代。
+4. B1055 将同一生产 seam 扩到上述 typed 机制形。新入口只消费 closed enum/boolean，不扫描用户请求、
+   Explorer reasoning/summary、完成 reason 或最终答案；仍要求模型先选择一个 citable definition、
+   parser 唯一解析 callable、调用关系拥有 AST/Cangjie provenance、且调用行已经进入 read closure。
+   系统只补发真实 call facts，不选择平台成员、路径、图、关系主次或结论。
+5. 防扩域边界：机制车道明确排除 model-typed `related_context/absence_support/illustrative_only` 定义，
+   所以同轮为了排除误候选而读取的 `cmd_stat` 不会因邻近出现 `printf` 就获得主证据外观；未知/defining
+   定义保持可用。原 QFCallChain 车道字节语义不变。专项 pin 覆盖机制正向、related 负向、无 required
+   function dimension 负向，以及原 15 语言调用链矩阵。
+6. C++ 写案例正确改动两份发布头的 `%.*lg -> %.*Lg`，未改测试，`make check` 通过，changed-path
+   coverage 完整，隔离工作树干净并签 `verified`。11 次 controller dispatch 和两次 unavailable tool
+   属于效率债；模型把 printf 参数描述成指针是 reasoning 瑕疵，均不授权系统重写其结论或增加答案
+   关键词硬门。
+7. JSON `blocks` 字符串形在 C 案触发一次 bounded recovery，完整答案未丢，证明当前 JSON 自愈有效。
+   本批不调整 Trace 查询、投影、补采或根因排序；显式时间窗因果诊断继续生成 Trace 因果投影，主因
+   只能来自 typed on-chain 证据，邻近/背景只作额外排查，模型继续拥有结论。活跃字节流也不得因 4ms
+   尚无完整 answer/JSON 而降级。
+
+状态：
+
+`B1055-MECHANISMSELECTEDBODYOPERATION1=implemented/typed-mechanism-admission+context-negative-pins`；
+`r670-C-platform-mechanism=functionally-correct/citation-authority-partial/pre-fix-witness`；
+`r670-C++-write=pass/two-artifacts-synced+verified`；
+`JSON-blocks-string-recovery=production-positive-r670`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r670`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
