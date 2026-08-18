@@ -36267,6 +36267,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 
+### §123.1063 r682：多主题 completion 生产闭环；扁平证据池导致跨机制串线（2026-08-18）
+
+1. 在 `main@4c7a0d0a3` 严格并发恰好两个案例：`sr_c_platform_fork +
+   read_combo_loose_multi_question_units`。Runner `2/2 PASS`，人工为 `platform partial / combo fail`；
+   完整记录见
+   `eval/parallel_selected_summary_evalcampaign_multitopic_scope_replay_r682_20260818_manual_audit.md`。
+2. B1068 获生产闭环：组合案的 probe completion 被明确限定为当前 window，随后
+   `n1_evidence_t0/t1` 以 `parallelism=2` 同时派发，最后才进入 validate/reconcile。配置加载和 Mermaid
+   渲染两题均得到自己的源码读取与 evidence，Runner 的旧跨行 regex 假阴性也自然消失。
+3. 人工答案仍失败。终稿把 YAML `SetMermaidGateMode` 接线写成 CLI 覆盖；把 Finalizer 内部的
+   `proseFallbackRequested`、`diagramRelationFailurePairStrikes` 拼入 REPL 渲染失败链；又把“窄字符仍渲染”
+   的 `OutcomeFallbackRune` 写成保留原始围栏。源码与 typed evidence 都已在场，错误发生在扁平
+   evidence-to-final 组合，不是模型缺少读取机会。
+4. 新确认 P1 `B1069-MULTITOPICEVIDENCEOWNERSHIP1`。系统已有完整精确信号：Analyzer `SubTopics`、
+   `CompileInvestigationPlan`、topic evidence node ID，以及 `NodeArtifactLedger` 的
+   `ProducerNodeID -> EvidenceID`。Finalizer 却只展示主题标题和一个全局扁平证据池，丢掉归属，模型因此把
+   “同一主题附近的定义事实”误当成“同一机制链上的步骤”。
+5. 根修冻结为软上下文分区：按 typed producer lineage 将已接纳 evidence 渲染到对应调查单元；共享 probe
+   与无法唯一归属的行单列为 shared context；明确跨单元证据、以及没有 typed call/flow/guard/dataflow
+   连通的定义行，只能支撑上下文，不能自行构成机制步骤。该层不得硬拒模型答案，不读 request/reasoning/
+   final prose，不铸证据、边、图、关系或结论。
+6. 平台案主事实正确，但 POSIX 项引用 Apple return 行，记 P2
+   `B1070-CITATIONITEMBINDING1=observe`。先用异构案例判断是否是稳定的 citation item-binding 类缺陷，禁止
+   为单一 `clock.c` 行号增加特判或答案字符串门。
+7. 599s 耗时同时包含两个真实 evidence lane 与一次无首字节恢复；正确性增加后的 probe/topic 重复读属于
+   P2 复用债，不能把全部增量归咎于 scheduler。无畸形 JSON、空答案、旧稿降级或固定 4ms 活跃流降级。
+8. 本批不改 Trace。显式时间窗因果投影、系统自动补齐、链上-only 主因、背景 support-only，以及优先级
+   反转、调度/算力供给、D/IO、确定性语义工作、业务线索和实际占用/规则可消双轴均保持。
+
+状态：
+
+`B1068-MULTITOPICPROBECOMPLETIONSCOPE1=production-closed-r682`；
+`B1069-MULTITOPICEVIDENCEOWNERSHIP1=confirmed/P1/typed-soft-context-next`；
+`B1070-CITATIONITEMBINDING1=P2-observe/no-case-fit`；
+`runner=2/2 PASS`；`human=platform-partial/combo-fail`；
+`raw-prose-hard-gate=none`；`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r682`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
