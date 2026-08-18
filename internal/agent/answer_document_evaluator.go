@@ -4378,7 +4378,11 @@ func answerDocDiagramUnprovenParticipantBoundaries(
 	ctx *types.AgentContext,
 	dc *types.DiagramContract,
 ) ([]types.DiagramParticipantBoundary, bool) {
-	if !answerDocDiagramBoundaryRecipesApply(ctx) || dc == nil || !dc.Required || len(dc.Participants) == 0 {
+	if !answerDocDiagramBoundaryRecipesApply(ctx) || dc == nil || !dc.Required || ctx == nil || ctx.AnalysisIR == nil {
+		return nil, false
+	}
+	obligations := answerDocDiagramParticipantCoverageObligations(ctx, dc)
+	if len(obligations) == 0 {
 		return nil, false
 	}
 	evidence, edges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
@@ -4387,14 +4391,14 @@ func answerDocDiagramUnprovenParticipantBoundaries(
 	if coverageRM.DiagramHint != nil {
 		coverageHint = *coverageRM.DiagramHint
 	}
-	coverageHint.Participants = dc.Participants
+	coverageHint.Participants = obligations
 	coverageRM.DiagramHint = &coverageHint
 	coverage := answerDocResolveFlowParticipantCoverage(
 		coverageRM, edges, evidence, answerDocVerifiedReadModeStagePrecedenceForRequest(ctx),
 	)
-	participants := coverage.boundaryParticipants()
-	boundaries := make([]types.DiagramParticipantBoundary, 0, len(participants))
-	for _, participant := range participants {
+	boundaryParticipants := coverage.boundaryParticipants()
+	boundaries := make([]types.DiagramParticipantBoundary, 0, len(boundaryParticipants))
+	for _, participant := range boundaryParticipants {
 		participant = strings.TrimSpace(participant)
 		if participant == "" {
 			continue
@@ -4405,6 +4409,37 @@ func answerDocDiagramUnprovenParticipantBoundaries(
 		})
 	}
 	return boundaries, coverage.requestScopedSubsetIncomplete
+}
+
+// answerDocDiagramParticipantCoverageObligations keeps the prompt-side
+// boundary carrier on the exact participant slate consumed by the hard
+// coverage gate. The compiled AnswerSurfacePlan deliberately describes
+// presentation shape and may omit DiagramContract.Participants; treating that
+// omission as "no participant obligations" made the first-pass diagram omit
+// the very block-level rows that the semantic-view gate later required.
+//
+// Prefer the compiled semantic-view obligations because they have already
+// passed the analyzer provenance checks (including SourceQuote). The contract
+// and request-model fallbacks keep narrow compatibility/unit contexts useful,
+// but neither path reads request prose or creates a relation.
+func answerDocDiagramParticipantCoverageObligations(
+	ctx *types.AgentContext,
+	dc *types.DiagramContract,
+) []types.DiagramParticipantHint {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil &&
+		view.DiagramPlan != nil && view.DiagramPlan.Required {
+		return append([]types.DiagramParticipantHint(nil), view.DiagramParticipantObligations...)
+	}
+	if dc != nil && len(dc.Participants) > 0 {
+		return append([]types.DiagramParticipantHint(nil), dc.Participants...)
+	}
+	if hint := ctx.AnalysisIR.RequestModel.DiagramHint; hint != nil {
+		return append([]types.DiagramParticipantHint(nil), hint.Participants...)
+	}
+	return nil
 }
 
 func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContract) string {

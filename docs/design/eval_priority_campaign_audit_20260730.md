@@ -35897,6 +35897,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1095 r701 与 B1106：参与者覆盖清单跨接线单一权威（2026-08-18）
+
+1. 在 `main@4779925f4` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
+   `trace_query_wakeup_causal_io_chain`；共同不可变二进制、`PARALLEL=2`，runner `2/2 PASS`，人工均为
+   partial。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_reader_atomic_replay_r701_20260818_manual_audit.md`。
+2. Trace 核心结论保持正确：精确窗 `2.000000..2.020000s`，目标 app-100 的 20ms S 态只作症状；
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 链完整，fscache IO 等待 11ms 是链上第 1
+   位，三个 1ms runnable 是调度供给次级。邻近 sleep 与背景 IO pressure 未晋升主因；因果投影、
+   自动补采、实际占用/规则可消双轴均在，无固定 4ms 降级。
+3. B1105a 获系统索引面生产正证：链上/排序/置信度/补采出处已用读者语言显示，raw
+   `tier/causality/predicate/origin/member/same_value` 不再从该面泄漏。仍有第二系统面「系统补充：
+   trace_query 关键观测核对」显示 `source/causality/chain_depth/recommended_views`，以及模型自行复制
+   `*_authority=not_provided/on_wakeup_chain/caliber`；前者立 B1105b，后者不得以终稿扫描/替换处理。
+4. Call 最终正确呈现 shared-callee 图 `buildAnalysisIR -> gate.RunWith <- gate.Run`，七项函数与引用
+   完整；但首稿仍漏两个 unproven participant boundary，触发 1 次正确拒绝与 2 次 patch。日志亲证
+   Finalizer 有 copy-ready Mermaid/anchors 和 typed participant coverage，却没有 B1104 的
+   `diagram_block_sibling_fields_json`，所以不是模型随机漏抄一个已经出现的原子载体。
+5. `B1106-DIAGRAMPARTICIPANTSLATESINGLEOWNER1` 根因是跨接线双权威：hard gate 与 coverage 指引读
+   `AnswerSemanticView.DiagramParticipantObligations`；B1104 原子载体读取展示用
+   `AnswerSurfacePlan.Diagram` 的 `DiagramContract.Participants`。生产 plan 保留 required kind/scope，
+   却可合法不携参与者；后一个消费者便把同一 typed 义务误判为空。
+6. 根修让 Diagram Contract、Current-Source authority 和原子 sibling carrier 都优先消费 semantic-view
+   清单。该清单已经过 analyzer `SourceQuote` 来源校验，且正是 hard participant gate 的输入；只在没有
+   compiled required DiagramPlan 的窄兼容/单元上下文才回退显式 contract。测试改为真实生产形：
+   RequestModel 有两条带来源的参与者、AnswerContract 的 Diagram 参与者为空，初始 Finalizer 仍必须
+   一次发布完整 `edge_anchors + participant_boundaries`。
+7. 本批不放宽 hard gate、不扫描 request/model/final prose、不创建或改写图、关系、业务措辞、答案或
+   结论。局部已证 call 边与请求级未证边界继续共存；runtime Trace 图仍走独立因果权威。
+
+状态：
+
+`r701=2/2 runner PASS + manual partial/partial`；
+`B1105a=production-positive/system-index-lane`；
+`B1105b-TRACESYSTEMAPPENDIXREADERPROJECTION1=confirmed/P1/next`；
+`B1106-DIAGRAMPARTICIPANTSLATESINGLEOWNER1=implemented/production-shaped-pin-pass`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/relation/diagram/conclusion-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

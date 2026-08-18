@@ -2216,18 +2216,18 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 				DiagramHint: &types.DiagramHint{
 					Kind: types.DiagramSequence, Required: true,
 					Participants: []types.DiagramParticipantHint{
-						{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired},
-						{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired},
+						{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "buildAnalysisIR"},
+						{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "gate.Run"},
 					},
 				},
 			},
 			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
 				Required: true, RequiredKind: types.DiagramSequence,
 				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
-				Participants: []types.DiagramParticipantHint{
-					{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired},
-					{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired},
-				},
+				// Production AnswerSurfacePlan compilation keeps the required
+				// presentation shape but may not carry the analyzer participant
+				// slate here. The finalizer must reuse the semantic-view slate
+				// consumed by the hard participant gate instead of dropping it.
 			}},
 		},
 	}
@@ -5250,9 +5250,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_DropsUnrelatedPathSurfa
 }
 
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractAndSeeds(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Pipeline::Analyzer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "Pipeline::Analyzer"},
+		{Identity: "SharedContext", Role: types.DiagramParticipantContextOnly, SourceQuote: "SharedContext"},
+	}
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{Intent: types.IntentTrace},
+			RequestModel: types.RequestModel{Intent: types.IntentTrace, DiagramHint: &types.DiagramHint{
+				Kind: types.DiagramCallDAG, Required: true, Participants: participants,
+			}},
 			AnswerContract: types.AnswerContract{
 				Diagram: &types.DiagramContract{
 					Required:       true,
@@ -5261,10 +5267,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 					PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
 					ScopeHint:      types.DiagramScopeOverall,
 					Reasons:        []string{"axis_call"},
-					Participants: []types.DiagramParticipantHint{
-						{Identity: "Pipeline::Analyzer", Role: types.DiagramParticipantIncidentRequired},
-						{Identity: "SharedContext", Role: types.DiagramParticipantContextOnly},
-					},
+					Participants:   participants,
 				},
 			},
 		},
@@ -5371,16 +5374,18 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 }
 
 func TestRenderAnswerDocDiagramContractPublishesTypedUncoveredParticipantRecipesForFlow(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "analyzer"},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "BusContext"},
+		{Identity: "surrounding system", Role: types.DiagramParticipantContextOnly, SourceQuote: "surrounding system"},
+	}
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
 	}}}
 	dc := &types.DiagramContract{
 		Required: true, RequiredKind: types.DiagramFlow,
-		Participants: []types.DiagramParticipantHint{
-			{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired},
-			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
-			{Identity: "surrounding system", Role: types.DiagramParticipantContextOnly},
-		},
+		Participants: participants,
 	}
 	got := renderAnswerDocDiagramContract(ctx, dc)
 	for _, want := range []string{
@@ -5402,8 +5407,8 @@ func TestRenderAnswerDocDiagramContractPublishesTypedUncoveredParticipantRecipes
 
 func TestRenderAnswerDocDiagramContractPublishesTypedUnprovenRecipesForCallChainIntentTrace(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
-		{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired},
-		{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "buildAnalysisIR"},
+		{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "gate.Run"},
 	}
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		// Source call-chain classification legitimately uses IntentTrace. It is
