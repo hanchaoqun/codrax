@@ -25,6 +25,10 @@ EXPECT_CONTAINS="threadpool-400 network-300 cookie-200 app-100 iowait"
 EXPECT_MATCHES_REGEX="threadpool-400.*(主因|primary|root cause|根因|rank)|((主因|primary|root cause|根因|rank).*)threadpool-400
 (D/IO|D 状态|D-state|io_wait|iowait|不可中断|Uninterruptible).*(threadpool-400|fscache_page_wait_on_page_bit)|(threadpool-400|fscache_page_wait_on_page_bit).*(D/IO|D 状态|D-state|io_wait|iowait|不可中断|Uninterruptible)
 threadpool-400.*network-300.*cookie-200.*app-100
-(低优先级|lower.priority|priority inversion|优先级反转|prio)
-(中间|传递|链路|path|intermediate|仅传递).*(network|cookie)|(network|cookie).*(中间|传递|链路|path|intermediate|仅传递)"
+(低优先级|lower.priority|priority inversion|优先级反转|prio)"
+# Relationship completeness is pinned by the ordered four-node path above;
+# requiring one preferred prose synonym such as “中间/传递/intermediate” made
+# a structurally complete “相关链路” answer fail.  The typed projection-count
+# oracle separately ensures the deterministic causal projection survived.
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS=1
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"

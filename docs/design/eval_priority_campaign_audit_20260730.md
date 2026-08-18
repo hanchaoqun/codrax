@@ -36064,6 +36064,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `threadpool→network→cookie→app`、三段互斥 1ms 调度供给、实际占用/规则计价双轴、因果投影与背景
    降格均保留，零 final reject。Runner 只因末条正则强求 network/cookie 附近额外出现“中间/传递/path”
    同义词而失败；答案已有「相关链路」和完整有序路径，判为 eval oracle 过拟合，禁止修改模型答案迎合。
+   看护已改为结构形：保留四节点有序 path oracle，并新增 typed 最终因果投影块计数；删除偏好同义词
+   条件。该约束只在 eval runner 生效，不进入生产 prompt、validator 或答案变更链。
 3. 模型正文把两个相邻时点融合为“threadpool 在 2.016 被 irq 唤醒”：typed 事实实际为 irq 在 2.014
    唤醒 threadpool，threadpool 在 2.016 唤醒 network。Finalizer 已获得精确边和时间，系统附注也正确，
    因此暂判模型波动；不加正文扫描/改写门，继续异构观察。
@@ -36079,7 +36081,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `r703=0/2 runner PASS + manual partial/partial`；
 `B1108b-default-thread-scope=implemented/pins-pass`；
-`trace-runner-intermediate-word-regex=overfit/oracle-debt`；
+`trace-runner-intermediate-word-regex=retired/ordered-path+typed-projection-oracles`；
 `write-source-static-without-js-runtime=honest-unverified/not-system-gap`；
 `raw-request/model/final-prose-hard-gate=none`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
