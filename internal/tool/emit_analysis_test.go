@@ -2140,12 +2140,12 @@ func TestEmitAnalysis_SourceCallChainEnumRepairDoesNotMintUnprovenEndpointAuthor
 	}
 }
 
-func TestEmitAnalysis_SourceCallChainRejectsDiscoverPathWithCandidateEndpoints(t *testing.T) {
+func TestEmitAnalysis_SourceCallChainNormalizesDiscoverPathWithNamedSourceToDiscoverTerminal(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
 
-	objective := "解释从命令入口到网络发送的调用路径"
+	objective := "解释从 main 到网络发送的调用路径"
 	payload := `{
 		"intent":"trace",
 		"scenario":"architecture_explain",
@@ -2157,11 +2157,49 @@ func TestEmitAnalysis_SourceCallChainRejectsDiscoverPathWithCandidateEndpoints(t
 		"call_chain_endpoints":{"source":"main","sink":"","sink_mode":"discover_path"}
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
-	if res.Success || !strings.Contains(res.Summary, `discover_path requires source="" and sink=""`) {
-		t.Fatalf("discover_path candidate identity must fail loud: success=%t summary=%q", res.Success, res.Summary)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("one named request source must survive a discover_path enum mismatch: success=%t summary=%q", res.Success, res.Summary)
 	}
-	if mu.RequestModel() != nil {
-		t.Fatalf("rejected discover_path shape must not persist: %+v", mu.RequestModel())
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverTerminalActive() || profile.Source != "main" || profile.Sink != "" {
+		t.Fatalf("named-source conceptual-terminal request must use discover_terminal: %+v", profile)
+	}
+	if !strings.Contains(res.Summary, "normalized call_chain_endpoints sink_mode from discover_path to discover_terminal") {
+		t.Fatalf("one-source enum repair must remain auditable: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_SourceCallChainDiscoverPathNamedSourceRepairDoesNotMintUnprovenAuthority(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "解释命令入口到网络发送的调用路径"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["entry","network","call path"],
+		"entities":["Invented.entry"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"Invented.entry","sink":"","sink_mode":"discover_path"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("unproven one-source candidate should normalize without becoming authority: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverPathActive() || profile.Source != "" || profile.Sink != "" {
+		t.Fatalf("provenance authority must demote the repaired unproven source: %+v", profile)
+	}
+	for _, want := range []string{
+		"normalized call_chain_endpoints sink_mode from discover_path to discover_terminal",
+		"normalized to discover_path",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("enum repair and authority demotion must both remain auditable; missing %q in %q", want, res.Summary)
+		}
 	}
 }
 

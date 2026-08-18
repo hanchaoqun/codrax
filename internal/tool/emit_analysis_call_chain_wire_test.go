@@ -7,6 +7,35 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestNormalizeCallChainEndpointWireShapePreservesSingleNamedSource(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		runtimeSelection bool
+		wantMode         types.CallChainSinkResolutionMode
+	}{
+		{name: "static conceptual terminal", wantMode: types.CallChainSinkResolutionDiscoverTerminal},
+		{name: "runtime-selected destination", runtimeSelection: true, wantMode: types.CallChainSinkResolutionDiscover},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := &types.CallChainEndpointProfile{
+				Source:                   "FastTokenizer.tokenize",
+				SinkMode:                 types.CallChainSinkResolutionDiscoverPath,
+				RuntimeSelectionRequired: tc.runtimeSelection,
+			}
+			got, warning := normalizeCallChainEndpointWireShape(profile)
+			if got == nil || got.Source != profile.Source || got.Sink != "" || got.SinkMode != tc.wantMode {
+				t.Fatalf("single named source was not normalized to the typed discovery lane: %+v", got)
+			}
+			if !strings.Contains(warning, "structured carrier preserves one named source") {
+				t.Fatalf("normalization must remain auditable: %q", warning)
+			}
+			if profile.SinkMode != types.CallChainSinkResolutionDiscoverPath {
+				t.Fatalf("normalization mutated the caller-owned profile: %+v", profile)
+			}
+		})
+	}
+}
+
 func TestNormalizeCallChainEndpointFromRequiredDiagramParticipantsUsesUniqueOtherParticipant(t *testing.T) {
 	profile := &types.CallChainEndpointProfile{
 		Source:   "buildAnalysisIR",

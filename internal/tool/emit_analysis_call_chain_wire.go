@@ -77,18 +77,37 @@ func legacyCallChainRuntimeSelectionFieldsPresent(raw []byte) bool {
 }
 
 // normalizeCallChainEndpointWireShape repairs endpoint-mode mismatches whose
-// intended schema shape is fully determined by the structured fields: both
-// discover, discover_terminal, and discover_path exclude a preselected ordered
-// pair, while two named endpoint fields are an exact pair. It does not decide whether either
-// identity came from the current request; NormalizeCallChainEndpointProfile
-// remains the provenance authority and will demote unproven candidates after
-// this local enum repair.
+// intended schema shape is fully determined by the structured fields:
+//
+//   - two named endpoint fields are an exact pair;
+//   - one named source plus an empty sink is discover for an explicitly typed
+//     runtime-selection question, otherwise discover_terminal;
+//   - discover_path remains the authority-free shape only when both endpoints
+//     are empty.
+//
+// It does not decide whether either identity came from the current request;
+// NormalizeCallChainEndpointProfile remains the provenance authority and will
+// demote unproven candidates after this local enum repair.
 func normalizeCallChainEndpointWireShape(profile *types.CallChainEndpointProfile) (*types.CallChainEndpointProfile, string) {
-	if profile == nil ||
-		(profile.SinkMode != types.CallChainSinkResolutionDiscover &&
-			profile.SinkMode != types.CallChainSinkResolutionDiscoverTerminal &&
-			profile.SinkMode != types.CallChainSinkResolutionDiscoverPath) ||
-		strings.TrimSpace(profile.Source) == "" || strings.TrimSpace(profile.Sink) == "" {
+	if profile == nil {
+		return profile, ""
+	}
+	source := strings.TrimSpace(profile.Source)
+	sink := strings.TrimSpace(profile.Sink)
+	if profile.SinkMode == types.CallChainSinkResolutionDiscoverPath && source != "" && sink == "" {
+		normalized := *profile
+		if normalized.RuntimeSelectionRequired {
+			normalized.SinkMode = types.CallChainSinkResolutionDiscover
+		} else {
+			normalized.SinkMode = types.CallChainSinkResolutionDiscoverTerminal
+		}
+		return &normalized, "normalized call_chain_endpoints sink_mode from discover_path to " + string(normalized.SinkMode) +
+			" because the structured carrier preserves one named source and leaves the destination for grounded exploration; current-request provenance checks still apply"
+	}
+	if (profile.SinkMode != types.CallChainSinkResolutionDiscover &&
+		profile.SinkMode != types.CallChainSinkResolutionDiscoverTerminal &&
+		profile.SinkMode != types.CallChainSinkResolutionDiscoverPath) ||
+		source == "" || sink == "" {
 		return profile, ""
 	}
 	normalized := *profile

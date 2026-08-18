@@ -36481,6 +36481,40 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`。
 
+### §123.1033 r661 / B1041：写验证诚实降级；跨语言链的已知起点被错误清空（2026-08-18）
+
+1. 在 `main@f2460b162` 重建后严格并发恰好两个案例：
+   `github_issue_zod_prefault + mr_poly_binding_chain`。Runner `1 PASS / 1 FAIL`；人工为写交付
+   pass-with-unverified-boundary、跨语言关系 partial。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_write_poly_r661_20260818_manual_audit.md`。
+2. Zod 改动和三组 falsy 回归均正确落地，`make check` 通过；但该命令只是 Python source-static checker，宿主
+   无 Node，因此最终 `unverified` 正确，不能为 runner 变绿把静态检查冒充 TypeScript 行为执行。Controller 模型
+   曾选择 all_verified，后置 typed aggregate 仍正确降级。用户面裸露
+   `production_verification_source_static_only`，并入 B756 客户语言债，后续按 typed reason-code 映射处理。
+3. Polyglot 从 r600 的 458s/5 次成文拒绝降到 216s/1 次；入口、native module、注册、wrapper/core、fallback
+   均已读。最终 principal blocks 只提交三条 typed anchor，却在正文叙述更多关系跳，故 runner PASS 只证明
+   字符串 oracle，不代表整条关系图结构化闭环。另有把 `_fastlex` 注册面说成 `fastlex` 包名、无测量宣称吞吐
+   显著下降的模型措辞越界；上下文已有精确信号，不加 prose 关键词硬门或系统代写。
+4. 新确认 B1041。Analyzer 第一轮已从当前请求复制 exact source=`FastTokenizer.tokenize`，终点“Rust 实现”是
+   概念边界，却误填 `sink_mode=discover_path`。旧 wire 合同把该组合硬拒，只允许模型清空 source；这与已有
+   `discover_terminal` 的设计目的冲突，也使后续 endpoint/path 完备约束失去已知起点。
+5. 修复将可由结构字段唯一判定的 enum mismatch 前置归一：`discover_path + one named source + empty sink` 在
+   runtime-selection obligation 为真时变 `discover`，否则变 `discover_terminal`；之后继续经过当前请求
+   provenance 门，伪造/文件路径/非请求 source 会降回空端点 `discover_path`。双端点仍变 exact，单 sink、歧义
+   或无 provenance 均不获权。测试覆盖静态/运行时两臂、合法请求 source、伪 source fail-closed 与既有双端点。
+6. 该方案不读取用户/模型/最终答案 prose，不按语言或案例分支，不创建关系、图或答案；只是保留模型已经在
+   typed carrier 中选择且由当前请求证明的 source。Trace 查询、投影、系统补齐和答案所有权均不在改动面。
+
+状态：
+
+`B1041-CALLCHAINSINGLESOURCEWIRE1=implemented/schema-only-normalization+provenance-fail-closed+pinned/pending-r662`；
+`B1040-SYSTEMSOURCESUPPLEMENTTABLE1=production-pending`；
+`B756-RUNTIMEENUMCUSTOMERLANGUAGE1=recurrent/write-reason-witness-r661`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
