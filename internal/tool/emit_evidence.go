@@ -3039,6 +3039,7 @@ func exactCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) (str
 	candidates := emitPreferredCallTargetNames(it)
 	caller := enclosingCallableSymbolName(fi, it.LineStart)
 	callee := ""
+	sourceCallee, sourceCalleeFound := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates)
 	// Prefer a graph-resolved semantic target (for example a Java field
 	// receiver `service.schedule` resolved to `VisitService.schedule`) over the
 	// byte-exact source expression. The source expression remains the fallback
@@ -3047,11 +3048,23 @@ func exactCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) (str
 	if rel, found := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); found {
 		if target := graph.ResolveCallTarget(fi, *rel); target != nil {
 			callee = qualifiedEvidenceSymbolName(target)
+			// Some extractor targets resolve only to an unowned method/function
+			// tail (Evaluate, Plan, run), while the already-read expression keeps
+			// the exact receiver/module identity (risk.Evaluate, hdp.Plan,
+			// service->run). Preserve that strictly richer source identity when
+			// it is compatible with the resolved tail. A fully qualified semantic
+			// target still wins, so VisitService.schedule is not degraded back to
+			// the local variable spelling service.schedule.
+			if sourceCalleeFound && callEndpointIsUnqualified(callee) &&
+				callEndpointHasConcreteQualifier(sourceCallee) &&
+				types.AnswerCodeIdentitySurfacesCompatible(sourceCallee, callee) {
+				callee = sourceCallee
+			}
 		}
 	}
 	if callee == "" {
-		if exact, found := sourceLineCallTargetForCandidates(gc, source, it.LineStart, candidates); found {
-			callee = exact
+		if sourceCalleeFound {
+			callee = sourceCallee
 		} else if rel, found := findCallRelationAtLineForCandidates(fi, it.LineStart, candidates); found {
 			callee = callRelationTargetName(graph, fi, rel)
 		}
@@ -3060,6 +3073,28 @@ func exactCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) (str
 		return "", "", false
 	}
 	return caller, callee, true
+}
+
+func callEndpointIsUnqualified(endpoint string) bool {
+	endpoint = strings.Trim(strings.TrimSpace(endpoint), "`'\"")
+	return endpoint != "" && !strings.ContainsAny(endpoint, ".:/#") && !strings.Contains(endpoint, "->")
+}
+
+func callEndpointHasConcreteQualifier(endpoint string) bool {
+	endpoint = strings.Trim(strings.TrimSpace(endpoint), "`'\"")
+	if callEndpointIsUnqualified(endpoint) {
+		return false
+	}
+	normalized := strings.NewReplacer("::", ".", "->", ".", "/", ".", "#", ".").Replace(endpoint)
+	first := strings.ToLower(strings.TrimSpace(strings.Split(normalized, ".")[0]))
+	// Rust relative-path qualifiers locate the callee but do not identify its
+	// semantic owner. Keep the graph-resolved target for those spellings.
+	switch first {
+	case "self", "super", "crate":
+		return false
+	default:
+		return first != ""
+	}
 }
 
 // exactUniqueCallEvidenceDirectionAtLine resolves a call tuple without using

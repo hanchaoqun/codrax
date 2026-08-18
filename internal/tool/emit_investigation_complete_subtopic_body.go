@@ -32,7 +32,10 @@ type requestedSubTopicCallableBodyDebt struct {
 //   - an Explorer-authored grounded call row must already select the callable;
 //   - ambiguous, external, conceptual, file, and scope entities fail open;
 //   - the system queues a bounded read/evidence repair only. It never creates
-//     evidence, an answer claim, or a relation on the model's behalf.
+//     an answer claim or relation on the model's behalf. An exact parser-owned
+//     body-call companion that was derived from a model-selected definition
+//     may close the body-inspection debt because its producer already proves
+//     both model selection and read coverage.
 //
 // Raw request text, model prose, completion rationale, and final-answer text
 // are not inspected.
@@ -208,7 +211,7 @@ func requestedSubTopicCallableHasBodyEvidence(evidence []types.EvidenceItem, fil
 		end = sym.Line
 	}
 	for _, item := range evidence {
-		if item.Producer != types.EvidenceProducerExplorerEmitEvidence || !item.IsCitable() ||
+		if !requestedSubTopicCallableBodyEvidenceProducer(item) || !item.IsCitable() ||
 			item.LineStart < sym.Line || item.LineStart > end ||
 			!callChainSourcePathEquivalent(canonicalRelationSourcePath(item.Source), canonicalRelationSourcePath(file)) {
 			continue
@@ -222,6 +225,24 @@ func requestedSubTopicCallableHasBodyEvidence(evidence []types.EvidenceItem, fil
 		}
 	}
 	return false
+}
+
+// requestedSubTopicCallableBodyEvidenceProducer admits exactly two ownership
+// lanes. Explorer evidence keeps the model-authored path. The parser companion
+// is narrower: autoPairSelectedDefinitionBodyCallEvidence can stamp it only
+// for a definition the Explorer selected and only for an invocation line that
+// is already in the read closure. Broad repo-map/navigation rows remain
+// ineligible, so repository-wide graph discovery cannot silently satisfy a
+// requested implementation inspection.
+func requestedSubTopicCallableBodyEvidenceProducer(item types.EvidenceItem) bool {
+	switch item.Producer {
+	case types.EvidenceProducerExplorerEmitEvidence:
+		return true
+	case types.EvidenceProducerRepoMapSelectedCallableBodyCall:
+		return item.AnchorKind == types.AnchorCall && len(item.DerivedFrom) > 0
+	default:
+		return false
+	}
 }
 
 func requestedSubTopicCallableHasCallEvidence(evidence []types.EvidenceItem, sym *repotypes.Symbol, fi *repotypes.FileInfo) bool {

@@ -28,6 +28,28 @@ func TestRenderAnswerDocumentRendersModelAuthoredStandaloneRelation(t *testing.T
 	}
 }
 
+func TestRenderAnswerDocumentDoesNotDuplicateVisibleStructuredRelationItem(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "calls", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{{
+			Label: "buildAnalysisIR -> risk.Evaluate", Text: "评估请求风险矩阵",
+		}},
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "buildAnalysisIR", ToNode: "Evaluate",
+			FromIdentity: "agent.buildAnalysisIR", ToIdentity: "risk.Evaluate",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "调用",
+		}},
+	}}}
+	got := RenderAnswerDocument(doc, "zh")
+	if strings.Count(got, "buildAnalysisIR -> risk.Evaluate") != 1 {
+		t.Fatalf("model-authored visible item was not preserved exactly once:\n%s", got)
+	}
+	if strings.Contains(got, "**buildAnalysisIR → Evaluate** — 调用") {
+		t.Fatalf("authority anchor was duplicated as a second system-rendered relation:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocumentDoesNotDuplicateDiagramAnchorLabel(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "diagram", Kind: types.BlockDiagram,

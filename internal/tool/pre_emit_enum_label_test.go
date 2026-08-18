@@ -977,6 +977,54 @@ func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsShiftedSibling
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsQualifiedSiblingCallEdges(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items: []types.AnswerBlockItem{
+				{ID: "risk", Label: "buildAnalysisIR -> risk.Evaluate", CitationRef: 1},
+				{ID: "plan", Label: "buildAnalysisIR -> hdp.Plan", CitationRef: 2},
+				{ID: "budget", Label: "buildAnalysisIR -> compiler.RecomputeBudget", CitationRef: 2},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 2538},
+			{File: "internal/agent/analyzer.go", Line: 2539},
+			{File: "internal/agent/analyzer.go", Line: 2543},
+		},
+	}
+	mut := types.NewMutableState("qualified sibling call citation shift")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2538,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "risk.Evaluate",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2539,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "hdp.Plan",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2543,
+			AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", Object: "compiler.RecomputeBudget",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx))
+	if fixed != 2 {
+		t.Fatalf("qualified shifted call edges repaired=%d, want 2: %+v", fixed, doc.Blocks[0].Items)
+	}
+	for i, item := range doc.Blocks[0].Items {
+		if item.CitationRef != i {
+			t.Fatalf("item %q citation_ref=%d, want %d", item.ID, item.CitationRef, i)
+		}
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsEndpointOnlyLabelToUniqueCallsite(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

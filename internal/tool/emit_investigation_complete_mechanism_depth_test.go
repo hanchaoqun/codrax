@@ -473,6 +473,45 @@ func TestRequestedSubTopicCallableBody_CallSiteOnlyRequiresAlreadyReadBodyEviden
 	}
 }
 
+func TestRequestedSubTopicCallableBody_SelectedDefinitionParserCallClosesDebt(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 12, nil)
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{
+			Summary: "entry routing", Entities: []string{"Render"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("Render")},
+		},
+		{
+			Summary: "fallback behavior", Entities: []string{"rewrite"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("rewrite")},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			ID: "selected-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			AnchorSymbol: "rewrite", Subject: "Render", Object: "rewrite",
+			Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+			Producer: types.EvidenceProducerExplorerEmitEvidence, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "parser-body-call", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			AnchorSymbol: "trim", Subject: "rewrite", Object: "trim",
+			Source: "src/pipeline.go", LineStart: 7, Scope: types.ScopeLine,
+			Producer:    types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+			DerivedFrom: []string{"selected-definition"}, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	if got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence); got != "" {
+		t.Fatalf("exact parser-owned call from a model-selected, already-read body must close debt, got %q", got)
+	}
+
+	evidence[1].Producer = types.EvidenceProducerRepoMapStructuralRelation
+	if got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence); got == "" {
+		t.Fatal("broad repo-map navigation evidence must not close model-owned body inspection")
+	}
+}
+
 func TestRequestedSubTopicCallableBody_PreCompleteWirePin(t *testing.T) {
 	graph, _ := mechanismSemanticDescentFixture()
 	ctx := mechanismSemanticDescentContext(t, graph, 12, nil)

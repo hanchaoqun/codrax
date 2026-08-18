@@ -210,12 +210,41 @@ func renderV2StandaloneTypedRelations(b *strings.Builder, blk types.AnswerBlock,
 		if from == "" || to == "" || label == "" {
 			continue
 		}
+		// A structured item can already carry the same model-authored relation
+		// as a visible `source -> target` row. In that shape the anchor is
+		// authority metadata, not a request for a second prose bullet. Keep the
+		// fallback only for anchors whose relation is otherwise invisible.
+		if standaloneRelationAlreadyVisibleInItems(blk, anchor) {
+			continue
+		}
 		fmt.Fprintf(b, "- **%s → %s** — %s\n", from, to, label)
 		rendered++
 	}
 	if rendered > 0 {
 		b.WriteString("\n")
 	}
+}
+
+func standaloneRelationAlreadyVisibleInItems(blk types.AnswerBlock, anchor types.DiagramEdgeAnchor) bool {
+	for _, item := range blk.Items {
+		surfaces := make([]string, 0, 1+len(item.Cells))
+		surfaces = append(surfaces, item.Label)
+		surfaces = append(surfaces, item.Cells...)
+		for _, surface := range surfaces {
+			left, right, ok := types.AnswerAggregateMemberRelationParts(surface)
+			if !ok {
+				continue
+			}
+			fromMatches := types.AnswerCodeIdentitySurfacesCompatible(left, anchor.FromIdentity) ||
+				types.AnswerCodeIdentitySurfacesCompatible(left, anchor.FromNode)
+			toMatches := types.AnswerCodeIdentitySurfacesCompatible(right, anchor.ToIdentity) ||
+				types.AnswerCodeIdentitySurfacesCompatible(right, anchor.ToNode)
+			if fromMatches && toMatches {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // standaloneRelationReaderEndpoints replaces diagram-local aliases on a

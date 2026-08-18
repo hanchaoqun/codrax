@@ -289,6 +289,37 @@ func TestNormalizeCallEvidenceDirectionKeepsSourceExpressionWhenGraphTargetUnres
 	}
 }
 
+func TestNormalizeCallEvidenceDirectionPreservesSourceQualifierForResolvedTail(t *testing.T) {
+	caller := &repomap.FileInfo{
+		RelPath: "analyzer.go", Language: repomap.LangGo, Package: "agent",
+		Symbols: []repomap.Symbol{{Name: "buildAnalysisIR", Kind: "function", File: "analyzer.go", Line: 1, EndLine: 20}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: "analyzer.go", Line: 8,
+			ToEP:       repomap.RelationEndpoint{Name: "Evaluate", File: "risk.go", Line: 3},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_call_expression",
+		}},
+	}
+	target := &repomap.FileInfo{
+		RelPath: "risk.go", Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{{Name: "Evaluate", Kind: "function", File: "risk.go", Line: 3, EndLine: 5}},
+	}
+	gc := &ground.Context{
+		Graph:     callTargetTestGraph(caller, target),
+		LineIndex: map[string]map[int]string{"analyzer.go": {8: "rm.Risk = risk.Evaluate(rm)"}},
+	}
+	ev := types.EvidenceItem{
+		AnchorKind: types.AnchorCall, AnchorSymbol: "Evaluate",
+		Subject: "buildAnalysisIR", Predicate: "calls", Object: "risk.Evaluate",
+		Source: "analyzer.go", LineStart: 8,
+	}
+	if !normalizeCallEvidenceDirection(&ev, gc) {
+		t.Fatal("expected call identity normalization")
+	}
+	if ev.Subject != "buildAnalysisIR" || ev.Object != "risk.Evaluate" || ev.AnchorSymbol != "risk.Evaluate" {
+		t.Fatalf("normalized edge=%q -> %q anchor=%q, want exact source-qualified risk.Evaluate", ev.Subject, ev.Object, ev.AnchorSymbol)
+	}
+}
+
 func TestNormalizeCallEvidenceDirectionKeepsRustInlineWrapperAndCoreDistinct(t *testing.T) {
 	fi := &repomap.FileInfo{
 		RelPath: "src/lib.rs", Language: repomap.LangRust, Package: "core",

@@ -35730,6 +35730,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/conclusion-authorship=none`。
 
+### §123.1089 r697：写模式小改正确；调用体重复补证、限定名丢失与可见关系重复（2026-08-18）
+
+1. 在 `main@e781d00b9` 严格并发恰好两个案例：`qf_sequence_analyzer_gate + patch_go_typo`。
+   Runner `2/2 PASS`，人工为 write pass、call-chain fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_patch_write_r697_20260818_manual_audit.md`。没有运行第三案。
+2. Write 案只生成并应用 `main.go` 的单行 `retrun -> return`，`main_test.go` 不变；项目原生
+   `go test -json ./...` 真实执行并通过，changed-path coverage 与 worktree audit 均闭合。日志保留 worktree
+   是 eval 的 keep-on-success oracle 配置，不是 L5 产品清理旁路。该案人工 pass。
+3. Call-chain 案最终正确识别真实有向图：`buildAnalysisIR -> gate.RunWith` 与
+   `gate.Run -> gate.RunWith` 独立汇聚，二者之间无有向路径；Mermaid 方向也正确。但整个调查耗时 565 秒，
+   Explorer 30 轮、completion 9 次、midloop 注入 12 次，Runner 的宽松字符串 oracle 掩盖了三项系统问题。
+4. 新确认 `B1098-CALLABLEBODYAUTOPAIRCONSUMPTION1/P1-high`。系统已从模型选中的定义与已读正文行生成
+   `repomap_selected_callable_body_call`，grounding note 明确是 parser-owned call；B1043 的完成门却只认可
+   `explorer.emit_evidence`，反复要求模型重新抄 `Compile`/`Amplify` 正文。根修只额外接纳这一精确 producer，
+   且要求 `AnchorCall + DerivedFrom + citable + exact body range`；普通 repo-map/navigation 仍不算实现审计，未读
+   callable 仍必须精确补读。系统不据此生成答案、关系或结论。
+5. 新确认 `B1099-CALLENDPOINTQUALIFIERLOSS1/P0-P1`。`exactCallEvidenceDirection` 在 parser 能解析到同名
+   定义但缺 owner 时，优先把已读源码表达式 `risk.Evaluate`、`hdp.Plan` 压成 `Evaluate`、`Plan`。随后引用
+   repair 无法将 model-authored qualified edge 唯一对齐，终稿把 risk 错绑到 hdp 行、hdp 错绑到 budget 行。
+   根修保留兼容且更精确的已读 source receiver/module；已有完整 semantic owner（如
+   `VisitService.schedule`）继续优先，Rust `self/super/crate` 相对限定不冒充 semantic owner。Go/Java/C/C++/
+   Rust/Python/ArkTS/Cangjie 等共享同一结构判据。
+6. 新确认 `B1100-STANDALONERELATIONDUPLICATEVISIBLE1/P1`。模型 principal list 已逐行显示
+   `caller -> callee`，renderer 又把同块 anchors 全部追加为第二套 bullet；最终出现 12+2 条重复关系，属于
+   系统扩写模型答案。根修保持 anchors 的 authority 与 fallback 职能：若 exact structured item/cell 已显示同向
+   endpoint，跳过该 anchor 的第二次呈现；没有可见 relation row 的旧 standalone carrier 仍机械呈现模型给定的
+   endpoints/visible_label。判定只读结构字段，不扫描请求、推理或答案 prose，也不删除 metadata。
+7. `counterfactual.Expand` 在摘要中出现、结构列表遗漏，记为模型成文遗漏；本批不按函数名或答案关键词建立
+   新硬门。B1097 的生产旁路本轮没有同形触发：模型明确提交了 `surface_role=principal`，因此只能维持 unit-closed、
+   production replay 尚未形成反例的判断。
+8. 本批不改 Trace 查询/显式窗/因果投影/自动补齐/根因排序，不改写模型结论或图。链上-only 主因、背景
+   support-only、实际占用与规则可消除双轴均保持；活跃流固定 4ms 降级继续禁止。
+
+状态：
+
+`B1098-CALLABLEBODYAUTOPAIRCONSUMPTION1=implemented/typed-producer+negative-nav-pin`；
+`B1099-CALLENDPOINTQUALIFIERLOSS1=implemented/source-qualified+semantic-owner-precedence+pinned`；
+`B1100-STANDALONERELATIONDUPLICATEVISIBLE1=implemented/structure-only-dedup+fallback-preserved`；
+`B1097-PATCHNORMALIZEDCARRIERESCAPE1=unit-closed/production-replay-inconclusive-r697`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1087 r696：精确窗生产闭环、关系事实复正，patch 完整重校验旁路暴露（2026-08-18）
 
 1. `main@9513b2176` 重建后严格并发恰好两个：

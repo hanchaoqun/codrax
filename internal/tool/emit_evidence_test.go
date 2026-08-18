@@ -4477,7 +4477,7 @@ func TestEmitEvidence_RequiredFlowCallRepairsCarrierAndVerifiedStageArgumentsTog
 	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "call_argument_flow_pair" {
 		t.Fatalf("expected exact argument repair, got %+v", res.Repair)
 	}
-	for _, want := range []string{`subject="o.busCtx"`, `subject="types.AgentExtractor"`, `object="BuildAgentContext"`} {
+	for _, want := range []string{`subject="o.busCtx"`, `subject="types.AgentExtractor"`, `object="ctxbuilder.BuildAgentContext"`} {
 		if !strings.Contains(res.Repair.Hint, want) {
 			t.Fatalf("combined carrier/stage repair missing %q: %s", want, res.Repair.Hint)
 		}
@@ -4486,8 +4486,8 @@ func TestEmitEvidence_RequiredFlowCallRepairsCarrierAndVerifiedStageArgumentsTog
 		t.Fatalf("one verified stage participant should produce one exact argument repair: %s", res.Repair.Hint)
 	}
 	got := ctx.Mutable.EmittedEvidence()
-	if len(got) != 1 || got[0].Object != "BuildAgentContext" {
-		t.Fatalf("resolved import alias must canonicalize the call target: %+v", got)
+	if len(got) != 1 || got[0].Object != "ctxbuilder.BuildAgentContext" {
+		t.Fatalf("exact already-read source qualifier must survive a tail-only resolved target: %+v", got)
 	}
 }
 
