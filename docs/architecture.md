@@ -1176,17 +1176,17 @@ CitationRef 在 render 时解析；-1 = 无 cite。`MissingRequestedRoles` 渲�
 
 renderer **永不 mutate 文档**也永不修复 block id / 缺失字段——按"系统只读"红线，输出是字符串 markdown。语言敏感（中英 preamble + section title）。
 
-### 6.9 系统降级披露 footer — typed degradation ledger（EVALFIX-2E CLASS 5）
+### 6.9 证据边界说明 footer — typed degradation ledger（EVALFIX-2E CLASS 5）
 
 设计上的 fail-open 车道（系统确定性软化 / 重写 / 降级了某个承诺面，只发 WARN、用户面零披露）有了统一记账点：`internal/types/degradation_ledger.go`。三件套 = per-Run 收集器（`MutableState.AppendDegradation / DegradationLedger / ResetDegradationLedger`，生命周期边界 = pipeline start，S12/S13 唯一边界裁定）+ 闭集车道注册表（`DegradationLaneRegistry`，**分类的单一事实源**）+ 单一渲染出口（`renderDegradationDisclosureFooter`，仅注入在 `renderAnswerDocumentWithLastMileSupplements` 咽喉内，TRUNC 家族结构测试钉死）。
 
 **三档在案裁定**（凡施修必披露的适用边界）：
 
-1. **answer_semantics 必披露**——v1 名册三条：`citation_quote_rewrite`（current-source 引文确定性重写，写者 = emit/persist 三处健康车道调用点旁 1 行）、`richness_facet_softened`（必答面硬转软，从既有 `RichnessTelemetry` 通道单向投影）、`completeness_downgraded`（完整性降档下界，从既有 `AnalyzerDecisions` 通道单向投影）。投影是**单向读侧折算**（`BuildDegradationLedgerView`）——既有 typed 通道保持唯一写点，禁双写（五表手抄教训）、禁通道合并（FileReadCoverageStore 教训）。
-2. **plumbing 永不披露**——tool_param_compat / structured_payload_compat / llm_json_repair / repl_param_repair / classifier_fallback / multirepo_focus_fallback 六条登记在册（分类是显式 review 过的决定）但永久 log-only：把管道整形推上用户面就是把披露行变成垃圾桶（噪音红线），诚实分类的另一半是诚实地不披露。负向 pin 钉死。
+1. **answer_semantics 必披露**——`richness_facet_softened`（原定内容因证据不足只能作为建议，从既有 `RichnessTelemetry` 通道单向投影）与 `completeness_downgraded`（清单只能确认下界、尚不能确认完整性，从既有 `AnalyzerDecisions` 通道单向投影）。投影是**单向读侧折算**（`BuildDegradationLedgerView`）——既有 typed 通道保持唯一写点，禁双写（五表手抄教训）、禁通道合并（FileReadCoverageStore 教训）。
+2. **plumbing 永不披露**——`citation_quote_rewrite`（current-source 引文确定性对齐）以及 tool_param_compat / structured_payload_compat / llm_json_repair / repl_param_repair / classifier_fallback / multirepo_focus_fallback 登记在册（分类是显式 review 过的决定）但永久 log-only：把管道整形推上用户面就是把披露行变成垃圾桶（噪音红线），诚实分类的另一半是诚实地不披露。负向 pin 钉死。
 3. **self_disclosing 不重复入账**——degraded 交付车道（含其上的引文回填,`citation_quote_backfill` 词条）、authority hedging、Tier2 词面、L7 mermaid、runtime citation detach、补充采集披露：已各自拥有用户面出口，入账即双披露；degraded_export 调用点显式注释不入账。F9（预算未尽欠探索）按完成门权属模型零触碰。
 
-**渲染规则（全确定性）**：仅 `Class==answer_semantics` 且 `Count>0` 参与；分组聚合**至多一行**（`系统降级披露：引用摘录回填 ×17、必答面硬转软 ×1（完整明细见运行日志）`），绝不逐事件；0 条 → **0 字节**（健康路径字节恒等）；显示词只出自注册表 ZH/EN 对，未注册 lane fail-open 到 generic 词（internal token never rides a user surface，`degradedSectionDisplayNames` 同款纪律）；顺序 = 注册表声明序；账本不携带 detail 散文（明细留 WARN 日志，结构性防渗漏）。配置逃逸 `pipeline_degradation_footer`（默认 true,关 footer 不关账本与 WARN）。运维侧镜像：run 结束 `emitCGECSummary` 邻位一条 `[degrade] ledger: lane=N ...` 聚合 INFO（0 条不打印）。新增第 N+1 条静默降级车道的成本 = 注册表 1 行 +（写者 1 行 Append ｜ 或既有 typed 通道 1 条投影臂）。
+**渲染规则（全确定性）**：仅 `Class==answer_semantics` 且 `Count>0` 参与；分组聚合**至多一行**（例如 `证据边界说明：因证据不足改为建议项的原定内容 1 项（具体原因见运行日志）`），绝不逐事件；0 条 → **0 字节**（健康路径字节恒等）；显示词只出自注册表 ZH/EN 对，且必须用客户可理解的证据边界语言，禁止发布 hard/soft、facet、lane 或内部枚举；未注册 lane fail-open 到 generic 词（internal token never rides a user surface，`degradedSectionDisplayNames` 同款纪律）；顺序 = 注册表声明序；账本不携带 detail 散文（明细留 WARN 日志，结构性防渗漏）。配置逃逸 `pipeline_degradation_footer`（默认 true,关 footer 不关账本与 WARN）。运维侧镜像：run 结束 `emitCGECSummary` 邻位一条 `[degrade] ledger: lane=N ...` 聚合 INFO（0 条不打印）。新增第 N+1 条静默降级车道的成本 = 注册表 1 行 +（写者 1 行 Append ｜ 或既有 typed 通道 1 条投影臂）。
 
 ---
 

@@ -35799,6 +35799,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-answer/conclusion/diagram/edge=none`。
 
+### §123.1074 B1083：降级 footer 改为客户可读的证据边界说明（2026-08-18）
+
+1. typed ledger、answer-semantics/plumbing 分类、计数、单行聚合、健康路径零字节与 operator 日志全部保留；
+   只改用户面词源。`richness_facet_softened` 显示为“因证据不足改为建议项的原定内容”，
+   `completeness_downgraded` 显示为“只能确认下界、尚不能确认完整性的清单”。内部 lane ID 不上用户面。
+2. footer 从“系统降级披露：必答面硬转软 ×N”改为自然计数的
+   “证据边界说明：因证据不足改为建议项的原定内容 N 项（具体原因见运行日志）”；英文同步使用
+   `Evidence boundary` 与自然证据说明。未注册 lane 也只显示“未能完整呈现的内容”，不发明内部分类。
+3. 这仍是 typed system disclosure，不是系统答案：它不补事实、不改模型段落、不影响结论，只诚实说明
+   已发生的证据降级。hard/soft、facet、lane 等术语继续保留在日志和代码合同中，不再直接面向客户。
+4. 自披露抑制仍锚定系统 caveat 的 position-0 prefix + registry 单源词面；引用性模型 caveat 不能误抑制，
+   被拒降级稿也不能让后续干净稿丢披露。中英文、未注册、plumbing-only、健康零字节、同稿/跨稿 pin 已
+   随新词面重钉。当前架构文档 §6.9 同步修正 citation quote 已归 plumbing 的既有事实。
+5. 本批不读 request/reasoning/final prose 做 gate，不修改 B1084 图合同，也不触碰 Trace 查询、因果投影、
+   自动补采或链上根因逻辑。
+
+状态：
+
+`B1083-DEGRADATIONFOOTERINTERNALLEXICON1=implemented/customer-language+typed-count-preserved`；
+`degradation-operator-ledger=unchanged`；`healthy-footer=zero-bytes`；
+`B1084-DIAGRAMSIBLINGSURFACEPARTICIPANT1=open/design-next`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

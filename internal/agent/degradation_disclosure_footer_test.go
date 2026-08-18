@@ -41,8 +41,8 @@ func seededDegradationMutable() *types.MutableState {
 func TestDegradationFooterRendersExactlyOneGroupedLine(t *testing.T) {
 	ctxZH := &types.AgentContext{Mutable: seededDegradationMutable()}
 	gotZH := RenderAnswerDocumentWithLastMileSupplements(ctxZH, degradationFooterTestDoc(), nil, "zh")
-	wantZH := "系统降级披露：必答面硬转软 ×1（完整明细见运行日志）"
-	if n := strings.Count(gotZH, "系统降级披露："); n != 1 {
+	wantZH := "证据边界说明：因证据不足改为建议项的原定内容 1 项（具体原因见运行日志）"
+	if n := strings.Count(gotZH, "证据边界说明："); n != 1 {
 		t.Fatalf("footer prefix must appear EXACTLY once, got %d:\n%s", n, gotZH)
 	}
 	if !strings.Contains(gotZH, wantZH) {
@@ -54,8 +54,8 @@ func TestDegradationFooterRendersExactlyOneGroupedLine(t *testing.T) {
 
 	ctxEN := &types.AgentContext{Mutable: seededDegradationMutable()}
 	gotEN := RenderAnswerDocumentWithLastMileSupplements(ctxEN, degradationFooterTestDoc(), nil, "en")
-	wantEN := "System degradation disclosure: required-facet softened ×1 (full detail in run logs)"
-	if n := strings.Count(gotEN, "System degradation disclosure:"); n != 1 {
+	wantEN := "Evidence boundary: requested content treated as advisory because evidence was insufficient: 1 (details are available in the run logs)"
+	if n := strings.Count(gotEN, "Evidence boundary:"); n != 1 {
 		t.Fatalf("EN footer prefix must appear EXACTLY once, got %d:\n%s", n, gotEN)
 	}
 	if !strings.Contains(gotEN, wantEN) {
@@ -78,7 +78,7 @@ func TestDegradationFooterRendersExactlyOneGroupedLine(t *testing.T) {
 func TestDegradationFooterCleanRunZeroBytes(t *testing.T) {
 	clean := &types.AgentContext{Mutable: types.NewMutableState("q")}
 	got := RenderAnswerDocumentWithLastMileSupplements(clean, degradationFooterTestDoc(), nil, "zh")
-	if strings.Contains(got, "系统降级披露") || strings.Contains(got, "System degradation disclosure") {
+	if strings.Contains(got, "证据边界说明") || strings.Contains(got, "Evidence boundary") {
 		t.Fatalf("clean run must not carry a degradation footer:\n%s", got)
 	}
 	// And byte-identity: with the knob off (footer arm fully inert) the
@@ -107,7 +107,7 @@ func TestDegradationFooterKnobOffRestoresByteIdenticalOutput(t *testing.T) {
 	SetDegradationFooterEnabled(false)
 	defer SetDegradationFooterEnabled(true)
 	off := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
-	if strings.Contains(off, "系统降级披露") {
+	if strings.Contains(off, "证据边界说明") {
 		t.Fatalf("knob off must remove the footer:\n%s", off)
 	}
 	// Byte-level relation pinned exactly: on == trimRight(off) + "\n\n" + footer + "\n"
@@ -137,7 +137,7 @@ func TestDegradationFooterPlumbingLanesNeverDisclose(t *testing.T) {
 		t.Fatalf("plumbing-only ledger must render ZERO footer bytes, got %q", footer)
 	}
 	got := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
-	if strings.Contains(got, "系统降级披露") {
+	if strings.Contains(got, "证据边界说明") {
 		t.Fatalf("plumbing lanes must never disclose on the user surface:\n%s", got)
 	}
 	for lane, spec := range types.DegradationLaneRegistry {
@@ -159,14 +159,14 @@ func TestDegradationFooterUnregisteredLaneFailsOpenToGenericWord(t *testing.T) {
 	mu.AppendDegradation(types.DegradationLaneID("mystery_future_lane"), 3)
 	ctx := &types.AgentContext{Mutable: mu}
 	zh := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "zh")
-	if !strings.Contains(zh, "确定性降级处理 ×3") {
+	if !strings.Contains(zh, "未能完整呈现的内容 3 项") {
 		t.Fatalf("unregistered lane must fail open to the generic zh word with count kept, got %q", zh)
 	}
 	if strings.Contains(zh, "mystery_future_lane") {
 		t.Fatalf("internal token rode the user surface: %q", zh)
 	}
 	en := renderDegradationDisclosureFooter(ctx, degradationFooterTestDoc(), "en")
-	if !strings.Contains(en, "deterministic degradation ×3") {
+	if !strings.Contains(en, "content not fully presented: 3") {
 		t.Fatalf("unregistered lane must fail open to the generic en word, got %q", en)
 	}
 }
@@ -212,7 +212,7 @@ func TestDegradationFooterConsumptionSetEqualsAnswerSemanticsSet(t *testing.T) {
 		switch spec.Class {
 		case types.ClassAnswerSemantics:
 			answerSemantics++
-			if !strings.Contains(footer, spec.ZH+" ×1") {
+			if !strings.Contains(footer, spec.ZH+" 1 项") {
 				t.Errorf("answer-semantics lane %q (%s) missing from footer: %q", lane, spec.ZH, footer)
 			}
 		case types.ClassPlumbing:
@@ -221,7 +221,7 @@ func TestDegradationFooterConsumptionSetEqualsAnswerSemanticsSet(t *testing.T) {
 			}
 		}
 	}
-	if groups := strings.Count(footer, "×"); groups != answerSemantics {
+	if groups := strings.Count(footer, " 项"); groups != answerSemantics {
 		t.Fatalf("footer group count = %d, want %d (== |ClassAnswerSemantics| — consumption set equality, both directions): %q",
 			groups, answerSemantics, footer)
 	}
@@ -253,7 +253,7 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 	if strings.Contains(footer, "引用摘录回填") {
 		t.Fatalf("plumbing citation lane must not disclose on the footer: %q", footer)
 	}
-	if !strings.Contains(footer, "必答面硬转软 ×1") {
+	if !strings.Contains(footer, "因证据不足改为建议项的原定内容 1 项") {
 		t.Fatalf("other lanes must keep rendering: %q", footer)
 	}
 	// End-to-end on the degraded doc: the caveat wording appears exactly
@@ -286,7 +286,7 @@ func TestDegradationFooterSelfDisclosedLaneSuppressed(t *testing.T) {
 	noBackfill := degradationFooterTestDoc()
 	noBackfill.Caveats = append(noBackfill.Caveats,
 		degradedDeterministicSectionsCaveat("zh", []string{"observation_board"}))
-	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: seededDegradationMutable()}, noBackfill, "zh"); strings.Contains(footer, "引用摘录回填") || !strings.Contains(footer, "必答面硬转软 ×1") {
+	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: seededDegradationMutable()}, noBackfill, "zh"); strings.Contains(footer, "引用摘录回填") || !strings.Contains(footer, "因证据不足改为建议项的原定内容 1 项") {
 		t.Fatalf("plumbing citation lane must stay hidden while semantic lane renders: %q", footer)
 	}
 }
@@ -306,24 +306,24 @@ func TestDegradationFooterQuotingCaveatDoesNotSuppress(t *testing.T) {
 	ctx := &types.AgentContext{Mutable: seededDegradationMutable()} // plumbing citation ×17 + semantic facet ×1
 	quoting := degradationFooterTestDoc()
 	quoting.Caveats = append(quoting.Caveats,
-		"注意：上游批次日志中曾出现「降级出厂说明：必答面硬转软」字样，本稿不受其影响。")
+		"注意：上游批次日志中曾出现「降级出厂说明：因证据不足改为建议项的原定内容」字样，本稿不受其影响。")
 	footer := renderDegradationDisclosureFooter(ctx, quoting, "zh")
-	if !strings.Contains(footer, "必答面硬转软 ×1") {
+	if !strings.Contains(footer, "因证据不足改为建议项的原定内容 1 项") {
 		t.Fatalf("a caveat QUOTING the degraded leader mid-text must not suppress the footer disclosure: %q", footer)
 	}
 	// EN face: same shape, quoted mid-text.
 	quotingEN := degradationFooterTestDoc()
 	quotingEN.Caveats = append(quotingEN.Caveats,
-		`Note: an upstream batch printed "Degraded delivery: required-facet softened"; this answer is unaffected.`)
-	if footer := renderDegradationDisclosureFooter(ctx, quotingEN, "en"); !strings.Contains(footer, "required-facet softened ×1") {
+		`Note: an upstream batch printed "Degraded delivery: requested content treated as advisory because evidence was insufficient"; this answer is unaffected.`)
+	if footer := renderDegradationDisclosureFooter(ctx, quotingEN, "en"); !strings.Contains(footer, "requested content treated as advisory because evidence was insufficient: 1") {
 		t.Fatalf("EN quoting caveat must not suppress the footer disclosure: %q", footer)
 	}
 	// Discriminator: the genuine system caveat (leader at position 0 of
 	// the entry) still suppresses — kills an over-broad fix that stops
 	// suppressing altogether.
 	genuine := degradationFooterTestDoc()
-	genuine.Caveats = append(genuine.Caveats, degradedSectionsCaveatPrefixZH+"必答面硬转软")
-	if footer := renderDegradationDisclosureFooter(ctx, genuine, "zh"); strings.Contains(footer, "必答面硬转软") {
+	genuine.Caveats = append(genuine.Caveats, degradedSectionsCaveatPrefixZH+"因证据不足改为建议项的原定内容")
+	if footer := renderDegradationDisclosureFooter(ctx, genuine, "zh"); strings.Contains(footer, "因证据不足改为建议项的原定内容") {
 		t.Fatalf("the genuine system-authored degraded caveat must still suppress the semantic lane: %q", footer)
 	}
 }
@@ -346,16 +346,16 @@ func TestDegradationFooterRejectedRecoveryThenCleanRetryDiscloses(t *testing.T) 
 	// the semantic lane on ITS OWN render) — then it is rejected and never
 	// ships.
 	rejected := degradationFooterTestDoc()
-	rejected.Caveats = append(rejected.Caveats, degradedSectionsCaveatPrefixZH+"必答面硬转软")
+	rejected.Caveats = append(rejected.Caveats, degradedSectionsCaveatPrefixZH+"因证据不足改为建议项的原定内容")
 	draft := RenderAnswerDocumentWithLastMileSupplements(ctx, rejected, nil, "zh")
-	if n := strings.Count(draft, "必答面硬转软"); n != 1 {
+	if n := strings.Count(draft, "因证据不足改为建议项的原定内容"); n != 1 {
 		t.Fatalf("degraded draft must self-disclose the semantic lane exactly once, got %d:\n%s", n, draft)
 	}
 	// Later attempt on the SAME run state: a clean re-emitted answer
 	// document renders. Nothing in THIS document self-discloses, so the
 	// footer is the disclosure of record and must carry the semantic lane.
 	got := RenderAnswerDocumentWithLastMileSupplements(ctx, degradationFooterTestDoc(), nil, "zh")
-	if !strings.Contains(got, "必答面硬转软 ×1") || strings.Contains(got, "引用摘录回填") {
+	if !strings.Contains(got, "因证据不足改为建议项的原定内容 1 项") || strings.Contains(got, "引用摘录回填") {
 		t.Fatalf("clean retry must disclose the semantic lane while citation plumbing stays hidden:\n%s", got)
 	}
 }

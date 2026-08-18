@@ -47,8 +47,8 @@ func SetDegradationFooterEnabled(enabled bool) {
 // renderer never invents a specific name for an unknown lane — the
 // count is kept, the wording falls open to the generic pair below.
 const (
-	degradationLaneGenericZH = "确定性降级处理"
-	degradationLaneGenericEN = "deterministic degradation"
+	degradationLaneGenericZH = "未能完整呈现的内容"
+	degradationLaneGenericEN = "content not fully presented"
 )
 
 // degradationLaneSelfDisclosedInDoc — R7-1 (round-7 sweep), superseding
@@ -167,10 +167,14 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, doc *types.Answe
 	}
 	parts := make([]string, 0, len(groups))
 	for _, g := range groups {
-		parts = append(parts, fmt.Sprintf("%s ×%d", g.label, g.count))
+		if en {
+			parts = append(parts, fmt.Sprintf("%s: %d", g.label, g.count))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s %d 项", g.label, g.count))
+		}
 	}
 	if en {
-		return "System degradation disclosure: " + strings.Join(parts, ", ") + " (full detail in run logs)"
+		return "Evidence boundary: " + strings.Join(parts, "; ") + " (details are available in the run logs)"
 	}
-	return "系统降级披露：" + strings.Join(parts, "、") + "（完整明细见运行日志）"
+	return "证据边界说明：" + strings.Join(parts, "；") + "（具体原因见运行日志）"
 }

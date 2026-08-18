@@ -86,8 +86,8 @@ type DegradationLaneSpec struct {
 // specific name.
 var DegradationLaneRegistry = map[DegradationLaneID]DegradationLaneSpec{
 	DegradeLaneCitationQuoteRewrite:   {ClassPlumbing, "引用摘录回填", "citation quote backfill"},
-	DegradeLaneRichnessFacetSoftened:  {ClassAnswerSemantics, "必答面硬转软", "required-facet softened"},
-	DegradeLaneCompletenessDowngraded: {ClassAnswerSemantics, "完整性降档为下界", "completeness downgraded to lower-bound"},
+	DegradeLaneRichnessFacetSoftened:  {ClassAnswerSemantics, "因证据不足改为建议项的原定内容", "requested content treated as advisory because evidence was insufficient"},
+	DegradeLaneCompletenessDowngraded: {ClassAnswerSemantics, "只能确认下界、尚不能确认完整性的清单", "lists confirmed only as a lower bound"},
 
 	DegradeLaneToolParamCompat:         {ClassPlumbing, "工具参数归一", "tool parameter compat"},
 	DegradeLaneStructuredPayloadCompat: {ClassPlumbing, "结构化载荷修复", "structured payload compat"},
