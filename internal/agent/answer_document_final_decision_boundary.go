@@ -369,7 +369,7 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			}
 		}
 
-		actual := traceDecisionActualOccupancyCandidates(projection, 6)
+		actual := traceFinalReaderActualOccupancyCandidates(projection, 6)
 		if len(actual) > 0 {
 			if zh {
 				b.WriteString("- 真实耗时集中（已测墙钟占用，用于发现新的优化方向）：\n")
@@ -530,6 +530,47 @@ func traceFinalReaderActualCauseLabel(node types.TraceCausalProjectionNode, zh b
 		return "已测链上耗时"
 	}
 	return "measured on-chain time"
+}
+
+// traceFinalReaderActualOccupancyCandidates removes the focused thread's
+// unpriced self-state symptom from the reader-ready root-cause population.
+// Some wakeup causal-impact rows live in OnChainCauses even though they are
+// the target's rank-0/effective-0 sleep symptom and therefore do not satisfy
+// TraceCausalProjectionNode.IsTargetSelfStateRow's narrower rank-row shape.
+// Positive ranked target runnable/D/IO/compute-supply rows and typed semantic
+// work remain eligible. The decision consumes only typed target identity,
+// numeric authority, and semantic/span carriers.
+func traceFinalReaderActualOccupancyCandidates(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
+	pool := traceDecisionActualOccupancyCandidates(projection, 0)
+	out := make([]types.TraceCausalProjectionNode, 0, len(pool))
+	for _, node := range pool {
+		if traceFinalReaderTargetSelfStateSymptom(projection, node) {
+			continue
+		}
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func traceFinalReaderTargetSelfStateSymptom(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode) bool {
+	if node.IsTargetSelfStateRow() {
+		return true
+	}
+	account := projection.TargetStateAccount
+	if account == nil || strings.TrimSpace(account.Subject) == "" ||
+		strings.TrimSpace(node.Subject) != strings.TrimSpace(account.Subject) {
+		return false
+	}
+	if node.Rank > 0 || node.EffectiveImpactMS > 0 {
+		return false
+	}
+	if strings.TrimSpace(node.SemanticClass) != "" || strings.TrimSpace(node.SpanName) != "" || strings.TrimSpace(node.SpanKind) != "" {
+		return false
+	}
+	return strings.TrimSpace(node.StateKind) != "" || strings.TrimSpace(node.Object) != ""
 }
 
 func traceFinalReaderContextLabel(node types.TraceCausalProjectionNode, zh bool) string {

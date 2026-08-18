@@ -132,6 +132,11 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
 		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
 	}
+	targetSymptom := types.TraceCausalProjectionNode{
+		EvidenceID: "target-sleep", Subject: "app-100", Object: "s_sleep", StateKind: "s_sleep",
+		ImpactMS: 10, CumulativeImpactMS: 10, ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+		QueryWindowStartTs: 1, QueryWindowEndTs: 1.010,
+	}
 	projection := types.TraceCausalProjection{
 		ArtifactLabel: "customer.systrace", WindowStartTs: 1, WindowEndTs: 1.010,
 		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
@@ -139,7 +144,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 			WindowStartTs: 1, WindowEndTs: 1.010, EvidenceID: "target-state",
 		},
 		RankedSeats:   []types.TraceCausalProjectionNode{principal},
-		OnChainCauses: []types.TraceCausalProjectionNode{principal},
+		OnChainCauses: []types.TraceCausalProjectionNode{targetSymptom, principal},
 		SemanticSpans: []types.TraceCausalProjectionNode{{
 			EvidenceID: "off-chain-jit", Subject: "compiler-300", SemanticClass: "jit_compile",
 			ImpactMS: 4.5, ChainRelevance: "background", WithinRequestedWindow: &inWindow,
@@ -185,10 +190,26 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 	for _, forbidden := range []string{
 		"bounded_window_candidate", "priority_inversion_candidate", "on_chain",
 		"state_occupancy", "effective_attribution", "priority_or_dependency_supply", "complete",
+		"app-100：睡眠等待，已测 10.000 毫秒",
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("reader-ready Trace card leaked internal control token %q:\n%s", forbidden, got)
 		}
+	}
+}
+
+func TestTraceFinalReaderActualOccupancyCandidatesOnlyDropsUnpricedTargetStateSymptom(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{Subject: "target-100", TotalMS: 10},
+		OnChainCauses: []types.TraceCausalProjectionNode{
+			{EvidenceID: "symptom", Subject: "target-100", Object: "s_sleep", StateKind: "s_sleep", ImpactMS: 10},
+			{EvidenceID: "ranked-target", Subject: "target-100", Object: "runnable", StateKind: "runnable", ImpactMS: 4, EffectiveImpactMS: 3, Rank: 1},
+			{EvidenceID: "semantic-target", Subject: "target-100", Object: "jit_compile", SemanticClass: "jit_compile", SpanName: "JitCompile", ImpactMS: 2},
+		},
+	}
+	got := traceFinalReaderActualOccupancyCandidates(projection, 8)
+	if len(got) != 2 || got[0].EvidenceID != "ranked-target" || got[1].EvidenceID != "semantic-target" {
+		t.Fatalf("reader actual-axis filter must drop only the unpriced target state symptom, got %+v", got)
 	}
 }
 

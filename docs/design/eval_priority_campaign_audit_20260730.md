@@ -36945,6 +36945,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1047 r668/B1052：目标自身零计价状态是症状，不因处于 causal bucket 获得主因资格（2026-08-18）
+
+1. 在 `main@25d77b8fc` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工均为 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_patch_trace_reader_r668_20260818_manual_audit.md`。
+2. B1051 的 last-seam 事实卡生产接线成立：中文窗口、目标状态、“覆盖完整”、worker-200 调度延迟、8.300ms
+   规则可消值、背景权限全部自然显示，旧的整串 snake_case 泄漏消失。模型 caveat 仍主动括号补了一次 raw cause token；
+   这不能用答案字符串扫描、硬拒或系统替换来修，先排除本轮下述系统精确信号错误，再复放判断是否为模型波动。
+3. 新确认 `B1052-TARGETSELFSYMPTOMREADERCARD1/P1-high`：projection 的 `OnChainCauses` 同时容纳路径 causal-impact
+   与可竞争根因行。app-100 自身 sleep 10.000ms 是 rank=0/effective=0 的目标症状，系统投影正文正确写“症状而非根因”；
+   新事实卡却只看 bucket，把它写成“已证位于依赖链上，可参与主因推理”。模型随后原样写“两者均计入链上主因”，
+   所以这不是模型波动而是上下文权限铸错。
+4. 根修在 reader-card Axis A 构造点增加 typed 目标症状过滤：主体等于 `TargetStateAccount.Subject`、无 rank、无正
+   effective、且没有 semantic class/span carrier 的目标自状态不进入主因候选表；完整五态仍在目标状态行保留，零信息
+   丢失。`IsTargetSelfStateRow` 继续作为优先信号，并补上 wakeup causal-impact 非 rank-row 的精确窄差。
+5. 负向边界同时钉住：目标自身有正 rank/effective 的 runnable、D/IO、running 算力供给项仍保留；目标自身 JIT/
+   class verification/GC 等确定性语义工作即便未计价也保留为真实耗时与新优化方向。未动投影 bucket、排名或公式。
+6. Poly 本轮完整八步关系首稿、0 reject，证明 B1050 无回归但 sparse patch 没有触发，不能提前收账。另有已读
+   tokenizer.py import branch 未成 typed evidence、末尾 caveat 反称初始化未覆盖的 B1048 触发覆盖债；继续软教学与异构
+   eval，不通过题面/答案关键词铸 role。
+7. 显式时间窗、Trace 因果投影、自动补采、双轴、链外背景 support-only 与模型结论所有权不变；活跃流没有固定
+   4ms 降级。
+
+状态：
+
+`B1050-SPARSERELATIONPATCHCONTENTLOSS1=implemented/not-triggered-r668`；
+`B1051-TRACETYPEDREADERLANGUAGE1=production-partial/raw-parenthetical-model-echo-observed`；
+`B1052-TARGETSELFSYMPTOMREADERCARD1=implemented/typed-target+rank+semantic-carveout-pins-pass`；
+`B1048-REQUESTEDBRANCHREACHABILITY1=implemented/not-triggered-r668`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/recommendation-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=preserved-r668`；
+`Trace root=typed-on-chain-only; target-self-unpriced-state=symptom; adjacent/background=support-only`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r668`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
