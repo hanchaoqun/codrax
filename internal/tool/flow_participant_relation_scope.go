@@ -81,6 +81,17 @@ type flowParticipantRelationEdge struct {
 	index     int
 }
 
+type flowParticipantRelationNode struct {
+	endpoint string
+	// A returned value is an output of one exact returning operation, not a
+	// globally shared actor merely because another function returns the same
+	// spelling (for example nil, false, an empty value, or a common type name).
+	// Keep that sink local to its edge. The edge can still directly cover a
+	// requested participant on either endpoint; it just cannot become an
+	// evidence-free bridge between otherwise unrelated operations.
+	returnSink bool
+}
+
 func buildFlowParticipantRelationScope(
 	rm types.RequestModel,
 	participants []types.DiagramParticipantHint,
@@ -133,15 +144,22 @@ func buildFlowParticipantRelationScope(
 	// incidence. Complete typed identities may differ only by presentation
 	// separators; short-tail compatibility is not allowed to join two otherwise
 	// unrelated operation components.
-	nodes := make([]string, 0, len(edges)*2)
-	nodeFor := func(endpoint string) int {
+	nodes := make([]flowParticipantRelationNode, 0, len(edges)*2)
+	nodeFor := func(endpoint string, returnSink bool) int {
+		if returnSink {
+			nodes = append(nodes, flowParticipantRelationNode{endpoint: endpoint, returnSink: true})
+			return len(nodes) - 1
+		}
 		for i, current := range nodes {
-			if types.AnswerCodeIdentitySurfacesEquivalent(current, endpoint) ||
-				strings.EqualFold(strings.TrimSpace(current), strings.TrimSpace(endpoint)) {
+			if current.returnSink {
+				continue
+			}
+			if types.AnswerCodeIdentitySurfacesEquivalent(current.endpoint, endpoint) ||
+				strings.EqualFold(strings.TrimSpace(current.endpoint), strings.TrimSpace(endpoint)) {
 				return i
 			}
 		}
-		nodes = append(nodes, endpoint)
+		nodes = append(nodes, flowParticipantRelationNode{endpoint: endpoint})
 		return len(nodes) - 1
 	}
 	parent := make([]int, 0, len(edges)*2)
@@ -165,7 +183,8 @@ func buildFlowParticipantRelationScope(
 	}
 	edgeNodes := make([][2]int, len(edges))
 	for i, edge := range edges {
-		from, to := nodeFor(edge.from), nodeFor(edge.to)
+		returnSink := edge.operation != nil && edge.operation.AnchorKind == types.AnchorReturn
+		from, to := nodeFor(edge.from, false), nodeFor(edge.to, returnSink)
 		ensureParent()
 		union(from, to)
 		edgeNodes[i] = [2]int{from, to}

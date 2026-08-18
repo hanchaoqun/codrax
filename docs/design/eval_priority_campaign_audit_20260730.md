@@ -36451,6 +36451,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-answer/conclusion/diagram/edge=none`。
 
+### §123.1067 r686：图族合同复绿；return 终值跨操作误连铸出伪关系（2026-08-18）
+
+1. 在 `main@b7e4c8c9d` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner `2 PASS / 0 FAIL`，
+   人工 `0 PASS / 2 FAIL`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_required_seed_replay_r686_20260818_manual_audit.md`。
+2. `B1075` 获生产闭环：Pipeline 的 Diagram Contract、First-Pass Diagram Reference 和最终可见载体均为
+   sequence，reference 只含离散 participants，没有跨族 flowchart 或系统自铸关系。r685 的确定性图族
+   自冲突已消失。
+3. 但 Finalizer 拒绝从 4 次升到 6 次，并暴露更高危 P0 `B1078-TERMINALRETURNCOMPONENTJOIN1`。Analyzer
+   违反已有软教学，把只在 sibling table 状态载体示例中出现的 `AnalysisIR` 作为 incident participant；
+   关系 scope 算法又按 endpoint 字面量全局合并操作，把多个不相关函数共同 `return nil` 的 `nil` 当中转
+   节点，误判为多参与者连通组件，向模型发布 `AnalysisIR.MarkHypothesis -> nil` repair candidate。终稿遂把
+   该技术 return 显示成 `AnalysisIR -> BusContext`，形成用户可见伪关系。Runner 的宽 oracle 仍未捕获。
+4. 根修不依赖 `nil` 词面，也不扫描请求、推理、答案或 Mermaid message。对 parser-owned
+   `AnchorReturn`，returned endpoint 成为该 exact returning operation 的局部 sink，不再因为另一函数返回
+   相同拼写而跨操作 union。该 return 仍可直接覆盖其两端明确请求参与者；若返回值再流入消费者，必须由
+   独立 assignment/argument/data-flow 证据证明，不能用同名终值推断同一实例。共享 return sink 负 pin 与
+   直接 requested return 正 pin 均已加入。
+5. `B1079-DIAGRAMPARTICIPANTSURFACEPROVENANCE1` 继续开放。analysis skill 已明确“sibling table 的 row/
+   column/example/state carrier 不得进入 diagram participants”，但 tool 当前只能核验 exact source quote，
+   无 per-surface typed provenance，不能区分合法的前置实体+后置 anaphoric relation 与本次后置表格示例。
+   暂不以词序、标点或关键词作硬排除；B1078 先保证错误 roster 只能诚实 disconnected/unproven，不能获伪边。
+6. 六次 patch 中模型多次在 reasoning 正确说要删除 `Run->runTaskGraph`、`runReadSchedulerLoop->dispatchStage`，
+   随后的结构化 payload 却仍保留原边，记 `B1080-PATCHPAYLOADSTALEEDGECHURN1=observe`。typed 关系门拒绝
+   正确，不为降重试放松；先回放 B1078 后判断是候选噪声级联还是稳定的 patch payload gap。
+7. 组合案 B1076 仍开放：分区已正确，Explorer 仍未交付六级 settings discovery，终稿错误简化为工作目录
+   `codrax.yaml`，并过宽描述 CLI override 与 Mermaid retry。r685 的 B1077 本轮未复现：用户要的
+   analyze→finalizer 四主阶段表完整，条件预阶段不在该区间，因此 B1077 降为非 gap，不造六行硬合同。
+8. 两案均无畸形 JSON、空答案、旧稿恢复、stream 误停或固定 4ms 降级。无 Trace 输入；显式时间窗、Trace
+   因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、实际占用/业务线索与规则可消除双轴均未改，
+   系统不接管模型答案、图、关系或结论。
+
+状态：
+
+`B1075-REQUIREDDIAGRAMSEEDKIND1=production-closed-r686`；
+`B1076-MULTITOPICMECHANISMCLOSURE1=open/high-ROI-soft-completion`；
+`B1077-STAGEWORKFLOWTABLECOMPLETENESS1=not-reproduced/not-gap-r686`；
+`B1078-TERMINALRETURNCOMPONENTJOIN1=implemented/typed-return-sink-isolation+pinned/replay-next`；
+`B1079-DIAGRAMPARTICIPANTSURFACEPROVENANCE1=open/design-required`；
+`B1080-PATCHPAYLOADSTALEEDGECHURN1=observe-after-B1078`；
+`R684/R685/R686-RUNNER-FINAL-ANSWER-BOUNDARY=false-positive-open`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r686`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

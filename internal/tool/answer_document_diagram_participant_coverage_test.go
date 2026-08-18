@@ -413,6 +413,53 @@ func TestDiagramParticipantCoverageDoesNotPromotePerParticipantLocalFactsIntoReq
 	}
 }
 
+func TestFlowParticipantRelationScopeDoesNotJoinSharedReturnSinkAcrossOperations(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: participants},
+	}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("ToolA.Check", "nil"),
+		diagramEvidenceTestCall("ToolB.Check", "nil"),
+	}
+	for i := range evidence {
+		evidence[i].AnchorKind = types.AnchorReturn
+		evidence[i].Predicate = "returns"
+	}
+	scope := buildFlowParticipantRelationScope(rm, participants, [][]string{{"ToolA"}, {"ToolB"}}, evidence, nil)
+	if scope.participantCovered[0] || scope.participantCovered[1] ||
+		scope.operationRelevant[0] || scope.operationRelevant[1] {
+		t.Fatalf("equal terminal return values must not join unrelated returning operations: %+v", scope)
+	}
+	for _, participant := range participants {
+		if got := diagramParticipantTypedIncidentCandidates(rm, participant, evidence, nil, 3); len(got) != 0 {
+			t.Fatalf("shared terminal return sink must not become a requested-relation repair candidate for %s: %v", participant.Identity, got)
+		}
+	}
+}
+
+func TestFlowParticipantRelationScopeKeepsDirectRequestedReturnEdge(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Payload", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: participants},
+	}
+	returned := diagramEvidenceTestCall("ToolA.Load", "Payload")
+	returned.AnchorKind = types.AnchorReturn
+	returned.Predicate = "returns"
+	scope := buildFlowParticipantRelationScope(rm, participants, [][]string{{"ToolA"}, {"Payload"}}, []types.EvidenceItem{returned}, nil)
+	if !scope.participantCovered[0] || !scope.participantCovered[1] || !scope.operationRelevant[0] {
+		t.Fatalf("one direct typed return must still cover its two requested endpoints: %+v", scope)
+	}
+}
+
 func TestDiagramParticipantCoverageAcceptsMultiHopTypedRequestedRelation(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
