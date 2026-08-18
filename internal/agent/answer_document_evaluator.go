@@ -5236,6 +5236,24 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	b.WriteString("- `authority_ceiling` caps how strongly a binding may be turned into a current-source or causal claim. `historical` runtime/VCS bindings may state what was observed or changed, but they do not prove the current checkout's root cause unless a separate exact `current_source` binding supports that claim.\n")
 	b.WriteString("- `hard` means the principal claim itself must be exact; `repairable` / `soft` defects should be locally repaired or disclosed in a localized supplement rather than forcing a broad rewrite.\n")
 	ledger := answerDocObservationLedger(ctx)
+	visibleLedgerRecords, _ := answerDocFinalizerObservationRecords(ctx, ledger.Records)
+	visibleLedgerIDs := make(map[string]bool, len(visibleLedgerRecords))
+	for _, record := range visibleLedgerRecords {
+		if id := strings.TrimSpace(record.ID); id != "" {
+			visibleLedgerIDs[id] = true
+		}
+	}
+	visibleBindings := make([]types.AnswerClaimBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if answerDocClaimBindingSupersededPreTriageNavigation(binding, ledger, visibleLedgerIDs) {
+			continue
+		}
+		visibleBindings = append(visibleBindings, binding)
+	}
+	bindings = visibleBindings
+	if len(bindings) == 0 {
+		return ""
+	}
 	limit := len(bindings)
 	if limit > 12 {
 		limit = 12
@@ -5283,6 +5301,47 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// answerDocClaimBindingSupersededPreTriageNavigation keeps the claim-binding
+// view aligned with the Finalizer's observation view. A model-extracted perf
+// observation or stall remains a display-only navigation binding when no
+// deterministic query covers its capture. Once the exact same typed ledger
+// record is hidden by same-capture deterministic-query precedence, its
+// model-authored subject must not leak back into the causal material through
+// this parallel binding surface. Matching uses only source enum,
+// authority/policy enums, compiler-owned record IDs, and exact typed
+// ClaimKey/Subject equality; no request or answer prose is inspected.
+func answerDocClaimBindingSupersededPreTriageNavigation(
+	binding types.AnswerClaimBinding,
+	ledger types.ObservationLedger,
+	visibleLedgerIDs map[string]bool,
+) bool {
+	if strings.TrimSpace(binding.Source) != "perf_trace" ||
+		binding.GroundingPolicy != types.ClaimGroundingDisplayOnly ||
+		binding.AuthorityCeiling != types.AuthorityIllustrative {
+		return false
+	}
+	target := strings.TrimSpace(binding.TargetRef)
+	if target == "" {
+		return false
+	}
+	matched := false
+	for _, record := range ledger.Records {
+		recordID := strings.TrimSpace(record.ID)
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			(!strings.HasPrefix(recordID, "perf:observation:") &&
+				!strings.HasPrefix(recordID, "perf:stall:")) ||
+			(!strings.EqualFold(strings.TrimSpace(record.ClaimKey), target) &&
+				!strings.EqualFold(strings.TrimSpace(record.Subject), target)) {
+			continue
+		}
+		matched = true
+		if visibleLedgerIDs[recordID] {
+			return false
+		}
+	}
+	return matched
 }
 
 func answerDocClaimBindingLedgerRecordIDs(binding types.AnswerClaimBinding, ledger types.ObservationLedger) []string {
@@ -7003,7 +7062,7 @@ func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []typ
 	}
 	preTriageIDs := make(map[string]bool)
 	for i, observation := range perf.Observations {
-		if observation.Authority == types.PerfObservationAuthorityPreTriageModelExtraction {
+		if observation.IsNavigationOnly() {
 			preTriageIDs[fmt.Sprintf("perf:observation:%d", i)] = true
 		}
 	}
@@ -7027,8 +7086,10 @@ func answerDocFinalizerObservationRecords(ctx *types.AgentContext, records []typ
 	}
 	out := make([]types.ObservationRecord, 0, len(records))
 	omitted := 0
+	allowAttachedTraceIDJoin := answerDocHasSingleAttachedTraceIdentity(ctx)
 	for _, record := range records {
-		if preTriageIDs[strings.TrimSpace(record.ID)] && answerDocRecordHasSameCaptureQuery(record, deterministic) {
+		if preTriageIDs[strings.TrimSpace(record.ID)] &&
+			answerDocRecordHasSameCaptureQuery(record, deterministic, allowAttachedTraceIDJoin) {
 			omitted++
 			continue
 		}
@@ -7180,7 +7241,11 @@ func answerDocObservationLedgerPerfBundle(ctx *types.AgentContext) *types.PerfBu
 	return nil
 }
 
-func answerDocRecordHasSameCaptureQuery(record types.ObservationRecord, deterministic []types.ObservationRecord) bool {
+func answerDocRecordHasSameCaptureQuery(
+	record types.ObservationRecord,
+	deterministic []types.ObservationRecord,
+	allowAttachedTraceIDJoin bool,
+) bool {
 	wantPath := strings.TrimSpace(types.RuntimeArtifactCaptureIdentityPath(record.SourceRef))
 	wantID := strings.TrimSpace(record.SourceRef.ArtifactID)
 	for _, query := range deterministic {
@@ -7189,11 +7254,42 @@ func answerDocRecordHasSameCaptureQuery(record types.ObservationRecord, determin
 			return true
 		}
 		queryID := strings.TrimSpace(query.SourceRef.ArtifactID)
+		if allowAttachedTraceIDJoin &&
+			strings.EqualFold(wantID, "attached_trace") &&
+			strings.EqualFold(queryID, "attached_trace") {
+			return true
+		}
 		if wantPath == "" && queryPath == "" && answerDocExplicitRuntimeArtifactID(wantID) && wantID == queryID {
 			return true
 		}
 	}
 	return false
+}
+
+// answerDocHasSingleAttachedTraceIdentity authorizes the reserved
+// artifact_id=attached_trace join only when run-entry typed state proves there
+// is one attached trace. Inline attachments have no addressable source path,
+// while trace_query legitimately reads their reserved materialized blob; the
+// shared typed ID is therefore the only stable physical-capture identity.
+// Multiple attached traces fail closed so the generic ID cannot collapse two
+// captures. Raw attachment bytes and user/model prose are never inspected.
+func answerDocHasSingleAttachedTraceIdentity(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	profile := types.NormalizeRuntimeArtifactPreflightProfile(ctx.RuntimeArtifactPreflight)
+	if len(profile.Artifacts) > 0 {
+		count := 0
+		for _, artifact := range profile.Artifacts {
+			if strings.EqualFold(strings.TrimSpace(artifact.Carrier), "attachment") &&
+				artifact.RuntimeArtifactKind() == "trace" {
+				count++
+			}
+		}
+		return count == 1
+	}
+	return strings.TrimSpace(ctx.AttachedHitrace) != "" ||
+		strings.TrimSpace(ctx.AttachedHitraceSource) != ""
 }
 
 func answerDocExplicitRuntimeArtifactID(id string) bool {

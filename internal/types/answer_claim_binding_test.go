@@ -423,6 +423,37 @@ func TestPerfBundleClaimBindings_PreTriageStallIsIllustrativeCandidate(t *testin
 	}
 }
 
+func TestPerfBundleClaimBindings_ObservationAuthorityControlsFactCeiling(t *testing.T) {
+	bindings := perfBundleClaimBindings(&PerfBundle{Observations: []PerfObservation{
+		{
+			// Zero authority is the legacy/pre-triage shape and must fail
+			// closed to navigation-only.
+			Subject:    "model dependency candidate",
+			Summary:    "waited for peer completion",
+			LineStart:  7,
+			DurationMs: 8.5,
+		},
+		{
+			Authority:  PerfObservationAuthorityDeterministicValidator,
+			Subject:    "typed priority semantics",
+			Summary:    "larger numeric priority is higher",
+			LineStart:  1,
+			DurationMs: 0,
+		},
+	}}, []AnswerRequestedOutput{AnswerRequestedOutputDiagnostic})
+	if len(bindings) != 2 {
+		t.Fatalf("bindings=%+v", bindings)
+	}
+	if bindings[0].AuthorityCeiling != AuthorityIllustrative ||
+		bindings[0].GroundingPolicy != ClaimGroundingDisplayOnly {
+		t.Fatalf("zero-authority model observation must remain navigation/display-only: %+v", bindings[0])
+	}
+	if bindings[1].AuthorityCeiling != AuthorityHistorical ||
+		bindings[1].GroundingPolicy != ClaimGroundingRepairable {
+		t.Fatalf("validator-owned observation should retain runtime-fact authority: %+v", bindings[1])
+	}
+}
+
 func assertClaimBinding(t *testing.T, bindings []AnswerClaimBinding, origin AnswerEvidenceOrigin, policy ClaimGroundingPolicy, output AnswerRequestedOutput) AnswerClaimBinding {
 	t.Helper()
 	for _, binding := range bindings {

@@ -462,7 +462,10 @@ func TestAnswerDocObservationPromptRecords_DefaultBudgetUnchanged(t *testing.T) 
 func TestAnswerDocObservationPromptRecords_SameCaptureQuerySuppressesOnlyPreTriageCandidates(t *testing.T) {
 	perf := &types.PerfBundle{
 		Observations: []types.PerfObservation{
-			{Authority: types.PerfObservationAuthorityPreTriageModelExtraction, Subject: "navigation"},
+			// The tool schema cannot set Authority; zero is the production
+			// pre-triage shape and IsNavigationOnly must own that fail-closed
+			// classification consistently across ledger and Finalizer views.
+			{Subject: "navigation"},
 			{Authority: types.PerfObservationAuthorityDeterministicValidator, Subject: "validated"},
 		},
 		Stalls: []types.PerfStall{
@@ -519,6 +522,65 @@ func TestAnswerDocObservationPromptRecords_SameCaptureQuerySuppressesOnlyPreTria
 	}
 	if strings.Contains(joined, "perf:observation:0") || strings.Contains(joined, "perf:stall:0") {
 		t.Fatalf("pre-triage narrative leaked after same-capture query: %s", joined)
+	}
+}
+
+func TestAnswerDocObservationPromptRecords_SingleInlineAttachmentJoinsReservedMaterialization(t *testing.T) {
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind: "trace", Source: "(inline)", Carrier: "attachment",
+		}}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{PerfTrace: &types.PerfBundle{
+			Observations: []types.PerfObservation{{Subject: "model dependency candidate"}},
+		}}},
+	}
+	records := []types.ObservationRecord{
+		{
+			ID: "perf:observation:0", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{ArtifactID: "attached_trace"}, Subject: "model dependency candidate",
+		},
+		{
+			ID: "trace_query:q#root_cause:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			SourceRef: types.ObservationSourceRef{
+				Path: "/repo/.codrax/blob/run/attached_trace.txt", ArtifactID: "attached_trace",
+			}, Subject: "typed on-chain cause",
+		},
+	}
+
+	got, omitted := answerDocFinalizerObservationRecords(ctx, records)
+	if omitted != 1 || len(got) != 1 || got[0].ID != "trace_query:q#root_cause:1" {
+		t.Fatalf("single inline attachment should join its reserved query materialization, omitted=%d got=%+v", omitted, got)
+	}
+}
+
+func TestAnswerDocObservationPromptRecords_MultipleAttachedTraceIDsFailClosed(t *testing.T) {
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{Artifacts: []types.RuntimeArtifactPreflightArtifact{
+			{Kind: "trace", Source: "/captures/a.systrace", Carrier: "attachment"},
+			{Kind: "trace", Source: "/captures/b.systrace", Carrier: "attachment"},
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{PerfTrace: &types.PerfBundle{
+			Observations: []types.PerfObservation{{Subject: "ambiguous navigation"}},
+		}}},
+	}
+	records := []types.ObservationRecord{
+		{
+			ID: "perf:observation:0", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "perf_trace",
+			SourceRef: types.ObservationSourceRef{ArtifactID: "attached_trace"}, Subject: "ambiguous navigation",
+		},
+		{
+			ID: "trace_query:q#root_cause:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query",
+			SourceRef: types.ObservationSourceRef{Path: "/captures/a.systrace", ArtifactID: "attached_trace"},
+		},
+	}
+
+	got, omitted := answerDocFinalizerObservationRecords(ctx, records)
+	if omitted != 0 || len(got) != len(records) {
+		t.Fatalf("generic attached_trace ID must not collapse multiple attachments, omitted=%d got=%+v", omitted, got)
 	}
 }
 

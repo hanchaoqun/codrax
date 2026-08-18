@@ -224,6 +224,102 @@ func TestRenderAnswerDocClaimBindings_RuntimeArtifactWithoutAggregateFacts(t *te
 	}
 }
 
+func TestRenderAnswerDocClaimBindings_SameCaptureQueryShadowsLegacyPreTriageObservation(t *testing.T) {
+	const materializedCapture = "/repo/.codrax/blob/run/attached_trace.txt"
+	perf := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{
+			{
+				// Production emit_perf_trace cannot set Authority; zero must be
+				// treated as model-extracted navigation, not causal material.
+				Subject:    "model dependency candidate",
+				Summary:    "target waited for peer completion",
+				LineStart:  5,
+				LineEnd:    7,
+				DurationMs: 8.5,
+			},
+			{
+				Authority: types.PerfObservationAuthorityDeterministicValidator,
+				Subject:   "typed priority semantics",
+				Summary:   "larger numeric priority is higher",
+				LineStart: 1,
+			},
+		},
+		Stalls: []types.PerfStall{
+			{
+				// Legacy emit_perf_trace rows also carry zero authority.
+				// Their model-selected symbol must not survive through the
+				// parallel claim-binding surface after an exact same-capture query.
+				Symbol:     "model stall candidate",
+				Kind:       "io",
+				StartTsMs:  2,
+				DurationMs: 4,
+			},
+			{
+				Authority:  types.PerfObservationAuthorityDeterministicValidator,
+				Symbol:     "typed validator stall",
+				Kind:       "io",
+				StartTsMs:  3,
+				DurationMs: 5,
+			},
+		},
+	}
+	validatorObservation := perf.Observations[len(perf.Observations)-1]
+	perf.Observations = perf.Observations[:len(perf.Observations)-1]
+	for i := 0; i < 12; i++ {
+		perf.Observations = append(perf.Observations, types.PerfObservation{
+			Subject: fmt.Sprintf("shadowed navigation %02d", i),
+		})
+	}
+	// Keep the validator row after more than the prompt cap's worth of
+	// shadowed candidates. Filtering must happen before the cap is applied.
+	perf.Observations = append(perf.Observations, validatorObservation)
+	mut := types.NewMutableState("analyze trace")
+	mut.SetPerfTrace(perf)
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query",
+		Success:  true,
+		Observations: []types.ObservationRecord{{
+			ID:       "trace-query:window#root_cause_primary:1",
+			Origin:   types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query",
+			SourceRef: types.ObservationSourceRef{
+				Kind:         types.ObservationSourceRuntimeArtifact,
+				Path:         materializedCapture,
+				ArtifactID:   "attached_trace",
+				ArtifactKind: "trace",
+			},
+			Subject:   "worker-200",
+			Predicate: "root_cause_primary",
+			Summary:   "typed on-chain candidate",
+		}},
+	})
+	ctx := &types.AgentContext{
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
+		Mutable:   mut,
+		RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{Artifacts: []types.RuntimeArtifactPreflightArtifact{{
+			Kind: "trace", Source: "(inline)", Carrier: "attachment",
+		}}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			PerfTrace: perf,
+		}},
+	}
+
+	got := renderAnswerDocClaimBindings(ctx)
+	if strings.Contains(got, "model dependency candidate") ||
+		strings.Contains(got, "target waited for peer completion") ||
+		strings.Contains(got, "model stall candidate") {
+		t.Fatalf("same-capture deterministic query must shadow legacy pre-triage claim material:\n%s", got)
+	}
+	if !strings.Contains(got, "typed priority semantics") ||
+		!strings.Contains(got, "typed validator stall") ||
+		!strings.Contains(got, "policy=`repairable`") {
+		t.Fatalf("validator-owned perf observation should remain available:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_RendersLegacyVCSNarrativeAsAuditOnly(t *testing.T) {
 	mut := types.NewMutableState("latest feature")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{

@@ -35823,6 +35823,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1091 B1102：前置 Trace 模型候选不再越过确定性查询回流成文（2026-08-18）
+
+1. r698 的 Finalizer 同时收到 deterministic `trace_query` 链上根因和前置 `perf_triage` 的模型抽取
+   `kind=dependency` 行。虽然 PerfObservation 合同已规定零 authority/模型 authority 只能导航，两个
+   平行消费面仍漏权：Finalizer observation 遮蔽器只认显式 `pretriage_model_extraction`，不认生产工具
+   无法填写的零值；Claim Binding 又把所有 PerfObservation 无条件铸成 `repairable/historical`，并暴露
+   模型自拟 subject。结果是被精确查询取代的“等待完成”候选从另一上下文面回流。
+2. `B1102-PRETRIAGECAUSALSHADOW1` 根修统一消费 `PerfObservation.IsNavigationOnly()`：显式模型 authority
+   与 legacy/生产零 authority 都 fail-closed 为 navigation；只有 validator-owned 行保留 runtime-fact
+   authority。Claim Binding 同步把导航观察降为 `display_only/illustrative`，不再把候选当 repairable
+   因果材料。
+3. Finalizer 的 Observation Ledger 和 Claim Binding 现在共用同一 same-capture shadow。精确同工件
+   `trace_query` 已落地时，模型抽取 observation/stall 只留在完整审计 ledger，不进入答案成文材料；
+   frame 的实测时长、validator-owned observation/stall 和 deterministic rows 全部保留。没有确定性
+   查询时，display-only locator 仍可导航，不会被永久删除。Claim Binding 在计算 12 席 prompt 上限前
+   先过滤已遮蔽候选，避免隐藏候选占席挤掉后续的确定性事实，省略计数也只针对真实可见绑定。
+4. 内联附件补齐 typed identity：pre-triage 只有保留 ID `attached_trace`，查询读取的是私有 blob 快照，
+   两侧没有相同 addressable path。仅当 run-entry `RuntimeArtifactPreflight` 证明“恰好一个 trace attachment”
+   时，允许相同保留 ID 对齐；多个 attachment、不同 capture path/ID 均 fail-closed。该判据不读附件
+   内容、用户请求、模型推理、观察 summary 或最终答案。
+5. Pin 覆盖：零 authority 观察的 illustrative/display-only；显式 validator authority 的
+   historical/repairable；单个 addressable capture；单个 inline attachment→reserved materialization；
+   多附件不合并；不同 capture 不合并；Claim Binding 不回流被遮蔽 subject 且 validator subject 保留。
+   `go test ./internal/agent ./internal/types ./internal/context ./internal/orchestrator -count=1` 全绿，
+   `git diff --check` 全绿。
+6. 该批只收窄给模型的上下文，不改模型正文、系统投影、Trace 查询/根因排序/自动补齐或 Mermaid；
+   显式窗、链上-only 主因、邻近/背景 support-only、优先级反转/调度延迟/算力/D/IO/确定性语义/业务
+   线索与实际占用/可消双轴均保持。活跃字节流仍不因 4ms 内未形成答案而降级。
+
+状态：
+
+`B1102-PRETRIAGECAUSALSHADOW1=implemented/zero-authority+inline-single-capture+pinned`；
+`pretriage-navigation-without-deterministic-query=preserved/display-only`；
+`validator-owned-perf-observation=preserved/repairable`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1087 r696：精确窗生产闭环、关系事实复正，patch 完整重校验旁路暴露（2026-08-18）
 
 1. `main@9513b2176` 重建后严格并发恰好两个：

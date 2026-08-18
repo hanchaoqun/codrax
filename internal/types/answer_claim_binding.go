@@ -515,7 +515,16 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 		if len(parts) > 0 {
 			support = append(support, strings.Join(parts, " "))
 		}
+		before := len(out)
 		add(target, support)
+		if obs.IsNavigationOnly() && len(out) > before {
+			// Pre-triage observations (including legacy zero-authority rows)
+			// retain locator value but cannot become repairable runtime-fact or
+			// causal bindings. The Finalizer may hide this display-only binding
+			// entirely when a deterministic query covers the same capture.
+			out[len(out)-1].AuthorityCeiling = AuthorityIllustrative
+			out[len(out)-1].GroundingPolicy = ClaimGroundingDisplayOnly
+		}
 	}
 	if bundle.Startup != nil {
 		add("startup "+bundle.Startup.Mode, []string{fmt.Sprintf("app_launch_ms=%.3f ability_init_ms=%.3f first_frame_ms=%.3f", bundle.Startup.AppLaunchMs, bundle.Startup.AbilityInitMs, bundle.Startup.FirstFrameMs)})
