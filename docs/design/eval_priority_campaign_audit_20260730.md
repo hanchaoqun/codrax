@@ -36203,6 +36203,54 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1026 r657：Trace 角色/零原因边界生产闭环；参与方边界与局部技术边形成确定性 P0 自冲突（2026-08-17）
+
+1. 在 `main@12cb5635e` 重建后严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，人工同判；逐轮
+   记录见 `eval/parallel_selected_summary_evalcampaign_trace_diagram_r657_20260817_manual_audit.md`。
+2. B1034/B1035 获生产正证。Finalizer 收到逐角色绑定的
+   `worker-200=20/ohos_cfs/cpu2 -> app-100=52/ohos_rt/cpu1`，模型终稿没有再交换 waker/wakee
+   priority/class；零 wait/blocked-reason 只被解释为原因 roster 未命中，没有越权命名 cooperative sleep、
+   nanosleep 或 syscall。精确 10ms 主窗、系统补采、链上 worker 首席、8.300ms 有效归因、跨 CPU 边界和
+   Trace 因果投影全部保留，邻近/背景没有升格为主因。
+3. 新记 `B1036-TRACEWAKEUPROLECAPSULEFOLD1`（P2）：同一工件、选定窗、waker/wakee、wakeup_ts 和逐值
+   完全相同的角色胶囊，因查询 scope 不同在 finalizer 上下文重复三次。它不改变事实，却消耗 token 并
+   增加模型心智。后续应按事实主键跨 scope 折叠并披露 source/query count；任一逐值冲突仍整组
+   fail-closed。该压缩不得跨工件、跨选定窗或合并不同角色边。
+4. 代码图失败是新确认 `B1037-DIAGRAMPARTICIPANTLOCALINCIDENCECONTRACT1`（P0），不是模型波动。模型
+   已有 no-arrow ownership `BusContext owns Mutable`，也有真实局部技术边
+   `bus.Mutable -> Mutable`，但没有 requested-scope 的 BusContext↔Mutable 关系。它按教学保留两个
+   `unproven` 边界时，validator 仅因局部边 technical identity 含 `Mutable` 就报
+   `unproven_boundary_has_visible_incident_edge`；模型移除 Mutable 边界后，同一 validator 又报
+   `missing_unproven_boundary`。六次 final reject 在这两个错误间往返，最终只能恢复旧稿并跳过结构化
+   answer checks。这是同一声明同时必带/必拒的不可满足合同，属于红线问题。
+5. 根修冻结为统一 participant resolution 状态机：requested-scope 关系覆盖与 independent local technical
+   incidence 是正交轴。每个 required participant 只能由 typed candidate authority 归入
+   `proved_request_incidence`、`unproved_with_boundary`、`missing_boundary` 或
+   `available_candidate_not_rendered`；局部技术边不得因 endpoint identity/label 词面相等而切换该状态。
+   只有被 typed request-scoped candidate 精确消费的可见边，才可证明 participant incidence 或与
+   unproven boundary 冲突。不得扫描用户问题、模型 prose、Mermaid 标签或为 Mutable 写特例。
+6. 验收面须包含：(a) no-arrow owner/member + 独立局部技术边 + unproven boundary 合法；(b) 同一局部边
+   无 boundary 仍报 missing；(c) 真正 request-scoped candidate 已渲染却保留 boundary 才报 connected；
+   (d) candidate 可用但未渲染仍 fail-closed；(e) Java/C/C++/Go/Rust/Python/JS/TS/ArkTS/Cangjie 等语言
+   共用状态模型，不按语言或 case 分叉。系统仍不补 evidence、关系或图，只给模型可满足的精确合同。
+7. Analyzer 本轮早期多次出现 `causal_diagnosis` 与 fact-family/scope 不一致，精确 validator 正确拒绝并
+   最终收敛；暂记模型/教学负担观察项，尚无证据证明存在第二个确定性合同矛盾，不用关键词硬门修补。
+8. 活跃流没有固定 4ms 降级。代码图最终降级发生在六次确定性 validator 自冲突之后，必须通过 B1037
+   根修减少无效重试，而不是缩短活跃等待、删除结构门或让系统代写模型答案。
+
+状态：
+
+`r657=runner-1/2; human-trace-pass; human-diagram-fail`；
+`B1034-TRACEWAKEUPROLECAPSULE1=production-positive-r657`；
+`B1035-WAITABSENCEMECHANISMBOUNDARY1=production-positive-r657`；
+`B1036-TRACEWAKEUPROLECAPSULEFOLD1=P2-confirmed/planned-after-P0`；
+`B1037-DIAGRAMPARTICIPANTLOCALINCIDENCECONTRACT1=P0-confirmed/frozen-for-root-fix`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r657`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
