@@ -36039,6 +36039,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. 三组 pin 覆盖：(a) Harmony 平台/格式别名与冗余 flavor 命中同一 memo，refs/observations 原样复用；
    (b) wakeup `8/32` 与默认 `16/96` 坚持 fresh execution；(c) `tool_param` 与 `attached_source` 同值仍分离。
    该优化只减少已经证明等价的只读重算；每次调用的窗口登记照常发生，因果补齐与探索覆盖不变。
+5. r703 生产回放补出第二个同类漂移：第一 explorer 省略 `target_scope`，第二显式写 `thread`；两者经
+   验证和 `normalizeQuery` 后都严格为线程身份，却让 window/wakeup/rank/blocking 四视图再次建索引。
+   key 现同步规范空值为 typed 默认 `thread`；显式 `process` 继续分 key，绝不猜测或扩大进程成员。
+   新正负 pin 同时证明 default/thread 合并与 process 隔离。
 
 状态：
 
@@ -36048,6 +36052,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model/final-prose-hard-gate=none`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
+### §123.1099 r703：Trace 默认 scope 的 memo 漂移；写案例诚实受限于本机运行时（2026-08-18）
+
+1. 在 `main@e610414c6` 重建后严格并发恰好两个：`trace_query_wakeup_causal_io_chain` 与
+   `github_issue_zod_prefault`。Runner `0/2 PASS`，人工均为 partial；完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_memo_write_r703_20260818_manual_audit.md`。
+2. Trace 实质答案完整：20ms 显式窗、threadpool IO 链上 #1=11ms、
+   `threadpool→network→cookie→app`、三段互斥 1ms 调度供给、实际占用/规则计价双轴、因果投影与背景
+   降格均保留，零 final reject。Runner 只因末条正则强求 network/cookie 附近额外出现“中间/传递/path”
+   同义词而失败；答案已有「相关链路」和完整有序路径，判为 eval oracle 过拟合，禁止修改模型答案迎合。
+3. 模型正文把两个相邻时点融合为“threadpool 在 2.016 被 irq 唤醒”：typed 事实实际为 irq 在 2.014
+   唤醒 threadpool，threadpool 在 2.016 唤醒 network。Finalizer 已获得精确边和时间，系统附注也正确，
+   因此暂判模型波动；不加正文扫描/改写门，继续异构观察。
+4. B1108b 获生产失败见证：第二 explorer 仅比第一多 `target_scope=thread`，却让四个相同视图全部重建。
+   空 scope 是引擎验证后的 typed 线程默认，现纳入 memo 规范化；`process` 仍严格分离。专项与
+   tool/types/agent/orchestrator 回归全绿。
+5. 写案例补丁和六条 falsy/default 测试正确，`make check` 通过；但生产 TypeScript 路径只有
+   `source_static`，本机也没有 Node/JavaScript runtime。系统已把模型的 `all_verified` 精确降为
+   `accept_unverified`，并按可用性边界不生成必然无法执行的 probe。这是环境证明能力不足，不是新的
+   补证路由 GAP；不得以 Python 包装、静态绿冒充行为绿或降低 proof bar 让 runner 通过。
+
+状态：
+
+`r703=0/2 runner PASS + manual partial/partial`；
+`B1108b-default-thread-scope=implemented/pins-pass`；
+`trace-runner-intermediate-word-regex=overfit/oracle-debt`；
+`write-source-static-without-js-runtime=honest-unverified/not-system-gap`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=preserved`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 

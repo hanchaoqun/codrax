@@ -220,6 +220,31 @@ func TestTraceQueryRunMemo_PlatformFlavorProvenanceSplitsKeys(t *testing.T) {
 	}
 }
 
+// B1108 production replay: the first explorer omitted target_scope while the
+// second wrote the validated default "thread".  Both produce the same query;
+// process remains a different membership contract.
+func TestTraceQueryRunMemo_DefaultThreadScopeReusesAndProcessSplits(t *testing.T) {
+	ctx, tracePath := pureMemoFixtureCtx(t)
+	pDefault := traceQueryParams{View: "window_stats", PID: FlexInt(100)}
+	pThread := pDefault
+	pThread.TargetScope = "thread"
+	pProcess := pDefault
+	pProcess.TargetScope = "process"
+
+	kDefault, okDefault := traceQueryMemoKey(ctx, pDefault, tracePath, "path", "")
+	kThread, okThread := traceQueryMemoKey(ctx, pThread, tracePath, "path", "")
+	kProcess, okProcess := traceQueryMemoKey(ctx, pProcess, tracePath, "path", "")
+	if !okDefault || !okThread || !okProcess {
+		t.Fatalf("healthy keys expected: default=%v thread=%v process=%v", okDefault, okThread, okProcess)
+	}
+	if kDefault != kThread {
+		t.Fatal("omitted target_scope and explicit thread must share the effective memo identity")
+	}
+	if kDefault == kProcess {
+		t.Fatal("process target membership must never collapse onto thread scope")
+	}
+}
+
 // Pin 3 (spec 类2 §7.3): a memo hit is byte-equivalent to a fresh run for
 // the run-scoped side-effect registries — the SUPP-CORE call-window
 // registry keeps one entry per call ("duplicates kept, call order is the

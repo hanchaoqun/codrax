@@ -573,6 +573,12 @@ func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLa
 	platform, platformSource := tracePlatformHintForQuery(ctx, p, sourceLabel, path)
 	flavor, flavorSource := traceFlavorHintForQuery(ctx, p, sourceLabel, path, platform, platformSource)
 	memoParams := p
+	// Empty target_scope and explicit thread are the same validated engine
+	// contract: normalizeQuery defaults the former to thread.  Keep process
+	// distinct; it changes target membership and is never inferred here.
+	if strings.TrimSpace(memoParams.TargetScope) == "" {
+		memoParams.TargetScope = tracequery.TargetScopeThread
+	}
 	memoParams.Platform = string(platform)
 	memoParams.TraceFlavor = string(flavor)
 	paramsJSON, err := json.Marshal(memoParams)
