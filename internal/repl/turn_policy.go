@@ -1039,6 +1039,7 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		return zero, fmt.Errorf("turn-policy classifier: unexpected tool %q", call.Name)
 	}
 	var parsed turnPolicyParams
+	structuralRepairUsed := false
 	if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
 		// A load-bearing structured field must never disappear into its Go zero
 		// value. Give the classifier exactly one same-schema repair round. The
@@ -1062,7 +1063,38 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 		if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
 			return zero, fmt.Errorf("turn-policy classifier: repaired tool params remain invalid: %w", err)
 		}
+		structuralRepairUsed = true
 		logging.Info("[repl/turn_policy] recovered one malformed structured classification with the exact emit_turn_policy schema")
+	}
+	// A true requires_diagram bit is precise only when its sibling display
+	// span is byte-backed by the current message.  Previously an otherwise
+	// valid tool call with a paraphrased span was silently demoted to optional,
+	// even though the classifier had already selected the hard visual modality.
+	// Give that exact provenance mismatch one same-schema repair opportunity.
+	// This does not scan the request for diagram words or reconstruct the
+	// boolean: the model must re-emit both fields, and bindTurnPresentationAuthority
+	// still performs the byte-exact final check.
+	if bool(parsed.RequiresDiagram) &&
+		!turnPresentationDirectiveAnchored(userLine, string(parsed.PresentationDirective)) &&
+		!structuralRepairUsed {
+		repairMessages := append([]llm.Message(nil), messages...)
+		repairMessages = append(repairMessages, llm.Message{Role: "user", Content: turnPolicyPresentationProvenanceRepairPrompt()})
+		repairedResp, repairErr := chatWithClassifierHardTimeout(ctx, c.adapter, repairMessages, tools, llm.ChatOptions{ToolChoice: "required"}, chatGuard)
+		c.lastTrace = traceFromLLMResponse("turn_policy_classifier", repairedResp)
+		if repairErr != nil {
+			return zero, fmt.Errorf("turn-policy classifier presentation provenance repair llm call: %w", repairErr)
+		}
+		if len(repairedResp.ToolCalls) == 0 {
+			return zero, fmt.Errorf("turn-policy classifier presentation provenance repair: LLM returned no tool_call")
+		}
+		call = repairedResp.ToolCalls[0]
+		if call.Name != turnPolicyTool.Name {
+			return zero, fmt.Errorf("turn-policy classifier presentation provenance repair: unexpected tool %q", call.Name)
+		}
+		if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
+			return zero, fmt.Errorf("turn-policy classifier: presentation provenance repair params invalid: %w", err)
+		}
+		logging.Info("[repl/turn_policy] repaired one unanchored hard-presentation span with the exact emit_turn_policy schema")
 	}
 	route := TurnRoute(parsed.Route)
 	switch route {
@@ -1113,14 +1145,23 @@ func (c *llmChitchatClassifier) classifyPolicyLLM(ctx context.Context, userLine,
 // span proves that the associated request actually came from the user.
 func bindTurnPresentationAuthority(userLine, directive string, requiresDiagram bool) (string, bool) {
 	directive = strings.TrimSpace(directive)
-	if directive == "" {
-		return "", false
-	}
-	if !strings.Contains(userLine, directive) {
+	if !turnPresentationDirectiveAnchored(userLine, directive) {
+		if directive == "" {
+			return "", false
+		}
 		logging.Warning("[repl/turn_policy] dropped unanchored presentation directive; display authority must be a verbatim current-turn span")
 		return "", false
 	}
 	return directive, requiresDiagram
+}
+
+func turnPresentationDirectiveAnchored(userLine, directive string) bool {
+	directive = strings.TrimSpace(directive)
+	return directive != "" && strings.Contains(userLine, directive)
+}
+
+func turnPolicyPresentationProvenanceRepairPrompt() string {
+	return "Your prior emit_turn_policy call set requires_diagram=true but presentation_directive was not one contiguous verbatim span of the CURRENT message. Re-emit one complete emit_turn_policy call using the exact same JSON schema. If the current message explicitly requires a visual, keep requires_diagram=true and copy one shortest contiguous verbatim current-message span into presentation_directive; do not translate, paraphrase, concatenate disjoint clauses, or add words. If it does not, set requires_diagram=false and presentation_directive to an empty string. Preserve the independently classified route, source, operation, risk, and access fields. Return only the tool call, no prose."
 }
 
 type turnPolicyParams struct {
@@ -1148,7 +1189,8 @@ func turnPolicyStructuralRepairPrompt(cause error) string {
 	return "The previous emit_turn_policy call was rejected only because its structured JSON did not satisfy the exact tool schema. " +
 		"Preserve the classification intent after re-reading the current turn already supplied above, and emit exactly one corrected emit_turn_policy call with no prose. " +
 		"Include every schema-required field. In particular, requires_diagram must be an explicit JSON boolean: true only for an explicitly required visual and false otherwise. " +
-		"Do not infer or copy a value from presentation_directive; classify it from the current turn. Schema error: " + oneLinePolicyRepairError(cause)
+		"Do not infer the boolean from presentation_directive; classify it from the current turn. When true, presentation_directive must be one shortest contiguous verbatim span copied from the current message; when false it must be empty. " +
+		"Schema error: " + oneLinePolicyRepairError(cause)
 }
 
 func oneLinePolicyRepairError(err error) string {

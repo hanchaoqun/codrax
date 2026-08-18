@@ -1271,6 +1271,7 @@ func TestClassifyPolicy_DropsUnanchoredInventedPresentationAuthority(t *testing.
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
 			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","operation":"investigate","source":"artifact","confidence":0.9,"reason":"analyze attached trace","presentation_directive":"时间线视图 + 调度状态表格 + 唤醒关系链表","requires_diagram":true}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"current_source_evidence_mode":"optional","operation":"investigate","source":"artifact","confidence":0.9,"reason":"analyze attached trace","presentation_directive":"","requires_diagram":false}`),
 		},
 	}
 	c := &llmChitchatClassifier{adapter: adapter}
@@ -1286,6 +1287,40 @@ func TestClassifyPolicy_DropsUnanchoredInventedPresentationAuthority(t *testing.
 	}
 	if policy.Route != RouteRepo || policy.Source != "artifact" {
 		t.Fatalf("presentation provenance normalization must not change evidence routing: %+v", policy)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("unanchored hard authority must receive exactly one bounded repair: calls=%d", len(adapter.calls))
+	}
+}
+
+func TestClassifyPolicy_RepairsUnanchoredRequiredDiagramWithVerbatimCurrentSpan(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.94,"reason":"explain repository pipeline","presentation_directive":"must provide a Mermaid sequence diagram","requires_diagram":true}`),
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"operation":"investigate","source":"repo","confidence":0.94,"reason":"explain repository pipeline","presentation_directive":"必须给 Mermaid sequenceDiagram","requires_diagram":true}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(),
+		"解释完整处理链，必须给 Mermaid sequenceDiagram，并列出阶段表。", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if !policy.RequiresDiagram || policy.PresentationDirective != "必须给 Mermaid sequenceDiagram" {
+		t.Fatalf("bounded provenance repair lost hard user presentation authority: %+v", policy)
+	}
+	if policy.Route != RouteRepo || policy.Source != "repo" {
+		t.Fatalf("presentation provenance repair changed evidence routing: %+v", policy)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("unanchored hard authority must receive exactly one repair: calls=%d", len(adapter.calls))
+	}
+	repairUser := adapter.calls[1].messages[len(adapter.calls[1].messages)-1].Content
+	for _, want := range []string{"same JSON schema", "contiguous verbatim", "requires_diagram=true", "Return only the tool call"} {
+		if !strings.Contains(repairUser, want) {
+			t.Fatalf("presentation provenance repair omitted %q: %s", want, repairUser)
+		}
 	}
 }
 
