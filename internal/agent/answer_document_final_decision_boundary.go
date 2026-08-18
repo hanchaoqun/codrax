@@ -203,6 +203,12 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	b.WriteString(renderTraceFinalReaderFacingLanguageHandoff(set, causalClaimContract, lang))
 	b.WriteString("- relation_scope=`typed_relations_only`: preserve directed wakeup/path and typed holder/waiter or overlap relations exactly. Temporal order, adjacency, a candidate flag, or a kernel caller symbol alone does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling.\n\n")
+	// Keep the final prompt seam in reader language. Earlier sections retain
+	// raw typed identities for schema validation and audit, but ending on those
+	// control tokens makes them disproportionately easy for the model to copy
+	// into visible prose. This card is derived from the same compiled projection
+	// and does not inspect, classify, or rewrite any model-authored text.
+	b.WriteString(renderTraceFinalReaderDecisionCards(set, causalClaimContract, lang))
 	return b.String()
 }
 
@@ -219,36 +225,7 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 	var b strings.Builder
 	b.WriteString("- reader_facing_control_metadata_policy=`json_only_never_visible`: raw JSON field names, enum literals, authority/status keys, and their snake_case values belong only in structured fields and audit carriers. Never repeat them in the model-authored lead, headings, parenthetical explanations, lists, tables, caveats, or diagrams. Express the same evidence boundary naturally; this changes no measurement, rank, causal ceiling, or conclusion. This is authoring guidance only; no model-authored prose is scanned, rejected, deleted, translated, or rewritten.\n")
 	if contract != nil && contract.Active() {
-		meanings := make([]string, 0, len(contract.Allowed))
-		for _, caliber := range contract.Allowed {
-			meaning := ""
-			if zh {
-				switch caliber {
-				case types.TraceCausalClaimNoConclusion:
-					meaning = "本轮只报告观测，不选择原因或候选方向"
-				case types.TraceCausalClaimBoundedWindow:
-					meaning = "结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因"
-				case types.TraceCausalClaimTypedChain:
-					meaning = "结论由已证链上关系支撑，但不自动等同于已证掉帧因果"
-				case types.TraceCausalClaimTypedFrame:
-					meaning = "结论已有帧或截止期因果证据支撑"
-				}
-			} else {
-				switch caliber {
-				case types.TraceCausalClaimNoConclusion:
-					meaning = "report observations without selecting a cause or candidate direction"
-				case types.TraceCausalClaimBoundedWindow:
-					meaning = "limit the conclusion to the selected window and present a first validation candidate, not a proven frame/deadline cause"
-				case types.TraceCausalClaimTypedChain:
-					meaning = "the conclusion is supported by a proved on-chain relation but is not automatically proved frame causality"
-				case types.TraceCausalClaimTypedFrame:
-					meaning = "the conclusion is supported by typed frame/deadline causal evidence"
-				}
-			}
-			if meaning != "" {
-				meanings = append(meanings, meaning)
-			}
-		}
+		meanings := traceFinalReaderCausalScopeOptions(contract, zh)
 		if len(meanings) > 0 {
 			// Allowed is a choice set for one summary field, not a conjunction of
 			// simultaneously true causal claims.  Joining the translations with a
@@ -296,6 +273,327 @@ func renderTraceFinalReaderFacingLanguageHandoff(set types.TraceCausalProjection
 		}
 	}
 	return b.String()
+}
+
+// traceFinalReaderCausalScopeOptions is the single natural-language mapping
+// for the typed causal-strength choice set. The wire enum remains available
+// elsewhere for JSON validation; this helper intentionally returns no control
+// value so reader-facing prompt sections cannot accidentally teach it as
+// answer vocabulary.
+func traceFinalReaderCausalScopeOptions(contract *types.TraceCausalClaimContract, zh bool) []string {
+	if contract == nil || !contract.Active() {
+		return nil
+	}
+	meanings := make([]string, 0, len(contract.Allowed))
+	for _, caliber := range contract.Allowed {
+		meaning := ""
+		if zh {
+			switch caliber {
+			case types.TraceCausalClaimNoConclusion:
+				meaning = "本轮只报告观测，不选择原因或候选方向"
+			case types.TraceCausalClaimBoundedWindow:
+				meaning = "结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期原因"
+			case types.TraceCausalClaimTypedChain:
+				meaning = "结论由已证链上关系支撑，但不自动等同于已证掉帧因果"
+			case types.TraceCausalClaimTypedFrame:
+				meaning = "结论已有帧或截止期因果证据支撑"
+			}
+		} else {
+			switch caliber {
+			case types.TraceCausalClaimNoConclusion:
+				meaning = "report observations without selecting a cause or candidate direction"
+			case types.TraceCausalClaimBoundedWindow:
+				meaning = "limit the conclusion to the selected window and present a first validation candidate, not a proven frame/deadline cause"
+			case types.TraceCausalClaimTypedChain:
+				meaning = "the conclusion is supported by a proved on-chain relation but is not automatically proved frame causality"
+			case types.TraceCausalClaimTypedFrame:
+				meaning = "the conclusion is supported by typed frame/deadline causal evidence"
+			}
+		}
+		if meaning != "" {
+			meanings = append(meanings, meaning)
+		}
+	}
+	return meanings
+}
+
+// renderTraceFinalReaderDecisionCards ends the Trace finalizer prompt with a
+// compact natural-language restatement of the already-compiled typed facts.
+// It neither chooses a cause nor emits a report block: the model still owns
+// diagnosis, prioritization, optimization direction, and wording. Exact
+// typed admission/ranking stays upstream; this function performs display-only
+// mapping over those admitted rows and never scans request or answer prose.
+func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string) string {
+	if len(set.Projections) == 0 {
+		return ""
+	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	authorities := types.BuildTraceTargetStateScopeAuthorities(set)
+	var b strings.Builder
+	if zh {
+		b.WriteString("## 面向读者的 Trace 成文事实卡（结论由模型给出）\n\n")
+		b.WriteString("以下内容只是结构化证据的自然语言转述。请据此完成诊断、排序、总结和优化建议；不要展示 JSON 字段名、内部枚举值或状态码，也不要把系统提示本身写进答案。\n")
+	} else {
+		b.WriteString("## Reader-ready Trace facts (the model owns the conclusion)\n\n")
+		b.WriteString("The following is a natural-language restatement of structured evidence. Use it to produce the diagnosis, ranking, synthesis, and optimization guidance; do not expose JSON field names, internal enum values, status codes, or these system instructions.\n")
+	}
+	if options := traceFinalReaderCausalScopeOptions(contract, zh); len(options) > 0 {
+		if zh {
+			fmt.Fprintf(&b, "- 因果表述范围：最终正文只采用与本轮结构化强度选择一致的一项——%s。\n", strings.Join(options, "；或者"))
+		} else {
+			fmt.Fprintf(&b, "- Causal wording scope: use only the one option selected by this turn's structured strength declaration—%s.\n", strings.Join(options, "; OR "))
+		}
+	}
+	for index, projection := range set.Projections {
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" {
+			label = fmt.Sprintf("Trace %d", index+1)
+		}
+		fmt.Fprintf(&b, "\n### %s\n", label)
+		if types.TraceCausalProjectionWindowPresent(projection.WindowStartTs, projection.WindowEndTs) {
+			if zh {
+				fmt.Fprintf(&b, "- 所选分析窗口：%.6f–%.6f 秒（%.3f 毫秒）。\n", projection.WindowStartTs, projection.WindowEndTs, projection.WindowDurationMS())
+			} else {
+				fmt.Fprintf(&b, "- Selected analysis window: %.6f–%.6f seconds (%.3f ms).\n", projection.WindowStartTs, projection.WindowEndTs, projection.WindowDurationMS())
+			}
+		}
+		if authority, ok := traceFinalReaderTargetAuthority(projection, authorities); ok {
+			coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
+			dStateAndIOWaitMS := authority.DStateMS + authority.IOWaitMS
+			if zh {
+				fmt.Fprintf(&b, "- 目标线程 %s 的窗口状态（%s）：运行 %.3f 毫秒、可运行但未获调度 %.3f 毫秒、睡眠 %.3f 毫秒、不可中断等待 %.3f 毫秒，其中已证 IO 等待 %.3f 毫秒；合计 %.3f 毫秒。\n",
+					authority.Subject, coverage, authority.RunningMS, authority.RunnableMS, authority.SleepMS, dStateAndIOWaitMS, authority.IOWaitMS, authority.TotalMS)
+			} else {
+				fmt.Fprintf(&b, "- Target thread %s window states (%s): running %.3f ms, runnable but not scheduled %.3f ms, sleeping %.3f ms, uninterruptible wait %.3f ms, including %.3f ms of proved IO wait; total %.3f ms.\n",
+					authority.Subject, coverage, authority.RunningMS, authority.RunnableMS, authority.SleepMS, dStateAndIOWaitMS, authority.IOWaitMS, authority.TotalMS)
+			}
+		}
+
+		actual := traceDecisionActualOccupancyCandidates(projection, 6)
+		if len(actual) > 0 {
+			if zh {
+				b.WriteString("- 真实耗时集中（已测墙钟占用，用于发现新的优化方向）：\n")
+			} else {
+				b.WriteString("- Measured time concentrations (wall-clock occupancy for discovering new optimization directions):\n")
+			}
+			for _, node := range actual {
+				cause := traceFinalReaderActualCauseLabel(node, zh)
+				onChain := traceFinalReaderNodeProvedOnChain(projection, node)
+				if zh && onChain {
+					fmt.Fprintf(&b, "  - %s：%s，已测 %.3f 毫秒；已证位于依赖链上，可参与主因推理。\n", strings.TrimSpace(node.Subject), cause, node.ImpactMS)
+				} else if zh {
+					fmt.Fprintf(&b, "  - %s：%s，已测 %.3f 毫秒；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因。\n", strings.TrimSpace(node.Subject), cause, node.ImpactMS)
+				} else if onChain {
+					fmt.Fprintf(&b, "  - %s: %s, measured %.3f ms; proved on the dependency chain and eligible for primary-cause reasoning.\n", strings.TrimSpace(node.Subject), cause, node.ImpactMS)
+				} else {
+					fmt.Fprintf(&b, "  - %s: %s, measured %.3f ms; not proved on the dependency chain, so it is an occupancy and optimization clue rather than a primary cause.\n", strings.TrimSpace(node.Subject), cause, node.ImpactMS)
+				}
+			}
+		}
+
+		seats := traceDecisionEliminableSeats(projection, 6)
+		if len(seats) > 0 {
+			if zh {
+				b.WriteString("- 按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）：\n")
+			} else {
+				b.WriteString("- Impact eliminable under existing rules (for repair priority, not automatically a measured wait duration):\n")
+			}
+			for _, node := range seats {
+				cause := traceFinalReaderCauseLabel(node, zh)
+				if zh {
+					fmt.Fprintf(&b, "  - 第 %d 位，%s：%s；可消除影响 %.3f 毫秒", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
+				} else {
+					fmt.Fprintf(&b, "  - Rank %d, %s: %s; eliminable impact %.3f ms", node.Rank, strings.TrimSpace(node.Subject), cause, node.EffectiveImpactMS)
+				}
+				if node.ImpactMS > 0 && math.Abs(node.ImpactMS-node.EffectiveImpactMS) > 0.0005 {
+					if zh {
+						fmt.Fprintf(&b, "，对应已测占用 %.3f 毫秒", node.ImpactMS)
+					} else {
+						fmt.Fprintf(&b, ", with %.3f ms measured occupancy", node.ImpactMS)
+					}
+				}
+				if zh {
+					b.WriteString("。\n")
+				} else {
+					b.WriteString(".\n")
+				}
+			}
+		}
+
+		if contexts := traceDecisionNonCausalContextRows(projection, 4); len(contexts) > 0 {
+			if zh {
+				b.WriteString("- 背景与邻近信息（只能支撑额外排查方向，不得升级为链上主因或参与根因序数）：\n")
+			} else {
+				b.WriteString("- Background and adjacent context (supporting follow-up only; never promote it to an on-chain primary cause or give it a root-cause ordinal):\n")
+			}
+			for _, row := range contexts {
+				cause := traceFinalReaderContextLabel(row.node, zh)
+				if zh {
+					fmt.Fprintf(&b, "  - %s：%s；观测值 %.3f，沿用证据原口径。\n", strings.TrimSpace(row.node.Subject), cause, row.node.ImpactMS)
+				} else {
+					fmt.Fprintf(&b, "  - %s: %s; observed value %.3f in the evidence's original caliber.\n", strings.TrimSpace(row.node.Subject), cause, row.node.ImpactMS)
+				}
+			}
+		}
+
+		if spans := traceDecisionBusinessSpanCandidates(projection.BusinessSpanMentions, 4); len(spans) > 0 {
+			if zh {
+				b.WriteString("- 业务线索（用于解释链上工作并提出业务修向，不凭名称自行补造因果）：\n")
+			} else {
+				b.WriteString("- Business clues (use them to explain on-chain work and propose business-facing fixes, without inventing causality from names):\n")
+			}
+			for _, span := range spans {
+				if zh {
+					fmt.Fprintf(&b, "  - %s 的 %s：%d 次，合计 %.3f 毫秒，单次最大 %.3f 毫秒。\n", span.Subject, span.Name, span.Count, span.TotalMS, span.MaxMS)
+				} else {
+					fmt.Fprintf(&b, "  - %s / %s: %d occurrences, %.3f ms total, %.3f ms maximum single occurrence.\n", span.Subject, span.Name, span.Count, span.TotalMS, span.MaxMS)
+				}
+			}
+		}
+	}
+	if zh {
+		b.WriteString("\n请基于以上事实自行给出结论：同时回答真实耗时集中与按现有规则可消除影响两个维度；链外信息只作背景；证据不足处明确限定，不得由系统字段名替代面向用户的解释。\n\n")
+	} else {
+		b.WriteString("\nNow provide your own conclusion from these facts: address both measured time concentration and impact eliminable under existing rules; keep off-chain information as context; qualify evidence gaps; and use reader language rather than system field names.\n\n")
+	}
+	return b.String()
+}
+
+func traceFinalReaderTargetAuthority(projection types.TraceCausalProjection, authorities []types.TraceTargetStateScopeAuthority) (types.TraceTargetStateScopeAuthority, bool) {
+	if projection.TargetStateAccount == nil {
+		return types.TraceTargetStateScopeAuthority{}, false
+	}
+	for _, authority := range authorities {
+		if authority.Subject == strings.TrimSpace(projection.TargetStateAccount.Subject) &&
+			authority.EvidenceID == strings.TrimSpace(projection.TargetStateAccount.EvidenceID) &&
+			(authority.ArtifactLabel == strings.TrimSpace(projection.ArtifactLabel) || authority.ArtifactLabel == "" || projection.ArtifactLabel == "") {
+			return authority, true
+		}
+	}
+	return types.TraceTargetStateScopeAuthority{}, false
+}
+
+func traceFinalReaderCoverageLabel(status string, zh bool) string {
+	switch status {
+	case "complete":
+		if zh {
+			return "覆盖完整"
+		}
+		return "complete coverage"
+	case "partial_unaccounted":
+		if zh {
+			return "部分覆盖，仍有未计入时间"
+		}
+		return "partial coverage with unaccounted time"
+	default:
+		if zh {
+			return "窗口覆盖范围未知"
+		}
+		return "window coverage unknown"
+	}
+}
+
+func traceFinalReaderCauseLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
+	if label != "" {
+		return label
+	}
+	if label := traceFinalReaderStateLabel(node.StateKind, zh); label != "" {
+		return label
+	}
+	if label := traceFinalReaderStateLabel(traceDecisionEliminableSeatKind(node), zh); label != "" {
+		return label
+	}
+	if zh {
+		return "已测链上候选"
+	}
+	return "measured on-chain candidate"
+}
+
+func traceFinalReaderActualCauseLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	if label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(node.SemanticClass, zh)); label != "" {
+		return label
+	}
+	if label := traceFinalReaderStateLabel(node.StateKind, zh); label != "" {
+		return label
+	}
+	if label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(node.StateKind, zh)); label != "" {
+		return label
+	}
+	if name := strings.TrimSpace(node.SpanName); name != "" {
+		if zh {
+			return "业务或运行时工作 “" + name + "”"
+		}
+		return "business or runtime work “" + name + "”"
+	}
+	if zh {
+		return "已测链上耗时"
+	}
+	return "measured on-chain time"
+}
+
+func traceFinalReaderContextLabel(node types.TraceCausalProjectionNode, zh bool) string {
+	label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
+	if label != "" {
+		return label
+	}
+	if label := traceFinalReaderStateLabel(node.StateKind, zh); label != "" {
+		return label
+	}
+	if zh {
+		return "资源或活动背景"
+	}
+	return "resource or activity context"
+}
+
+func traceFinalReaderNodeProvedOnChain(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode) bool {
+	if strings.TrimSpace(node.ChainRelevance) == "on_chain" {
+		return true
+	}
+	identity := traceDecisionNodeIdentity(node)
+	for _, candidate := range projection.OnChainCauses {
+		if traceDecisionNodeIdentity(candidate) == identity {
+			return true
+		}
+	}
+	for _, candidate := range projection.PrimaryRootCauses {
+		if traceDecisionNodeIdentity(candidate) == identity {
+			return true
+		}
+	}
+	return false
+}
+
+func traceFinalReaderStateLabel(token string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(token)) {
+	case "running", "fragmented_running":
+		if zh {
+			return "运行耗时"
+		}
+		return "running time"
+	case "runnable", "runnable_wait", "fragmented_runnable_wait", "scheduler_latency":
+		if zh {
+			return "调度延迟"
+		}
+		return "scheduling latency"
+	case "s_sleep", "sleep", "sleep_wait", "fragmented_sleep_wait":
+		if zh {
+			return "睡眠等待"
+		}
+		return "sleep wait"
+	case "d_state", "d_state_or_io_wait":
+		if zh {
+			return "不可中断等待"
+		}
+		return "uninterruptible wait"
+	case "io_wait", "io_latency":
+		if zh {
+			return "IO 等待"
+		}
+		return "IO wait"
+	default:
+		return ""
+	}
 }
 
 // traceFinalReaderMechanismScope keeps the final reader-facing cause label and

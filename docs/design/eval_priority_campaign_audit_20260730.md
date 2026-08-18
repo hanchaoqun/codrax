@@ -36911,6 +36911,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace root=typed-on-chain-only; adjacent/background=support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r667`。
 
+### §123.1046 B1051：最终成文缝增加纯读者语言事实卡，typed 原值仍只作结构校验（2026-08-18）
+
+1. 根因确认不是 `bounded_window_candidate` 一个词的漏映射，而是 Finalizer 的最后高显著上下文仍反复发射
+   `on_chain/effective_attribution/state_occupancy/complete` 等控制元数据；较早位置虽已有“正文勿复制”教学，模型仍
+   容易把机器词带入中文答案。禁止以答案关键词扫描、拒绝、删除、翻译或系统改写结论处理。
+2. 新增一个位于 raw relation/authority 元数据之后的 `reader decision card`。输入只有已经编译的
+   `TraceCausalProjectionSet`、typed 因果强度 choice set 和语言；输出只包含自然语言窗口、目标状态、两个决策轴、
+   背景权限与业务 span 线索。它是 prompt-only 事实转述，不创建 report block，不选择根因、不排序新席位、不生成
+   建议或因果关系，诊断、总结与修向仍由模型给出。
+3. 因果强度的自然语言解释抽为一个单源函数，结构 JSON 继续使用原 enum 做 schema 校验；事实卡不回显 enum。
+   `complete` 在中文卡只写“覆盖完整”；链上权限写“已证位于依赖链上”；规则计价写“按现有规则可消除的影响”；
+   实测值写“真实耗时集中/已测墙钟占用”。这不改变 typed authority，更不靠原始问题或模型正文分类。
+4. 双轴保持独立：Axis A 保留规则尚未计价的高耗时工作，用于探索新优化方向；Axis B 保留既有规则的严格 rank 与
+   可消除影响，并在值不同处同时给出对应实测占用。目标状态 D 口径按 typed 五分区自然展示为
+   `非 IO D + IO wait` 的不可中断等待合计，并单列其中已证 IO 等待，避免把两个互斥成员误写成包含关系。
+5. 根因权限由 typed bucket/字段直接决定。Axis A 中已证链上行明确可参与主因推理；未证链上语义 span 仍保留为
+   耗时/业务优化线索，但明确不能作为主因。Adjacent/background 使用独立自然语言兜底，绝不把未知背景类型叫作
+   “链上候选”，也不授予根因序数。
+6. 回归覆盖中文完整窗口、目标状态、优先级反转、9.000ms 实测/8.300ms 规则可消双值、背景 CPU 压力、业务 span、
+   未证链上 JIT 线索，中英文 reader label，以及生产 `BuildInitialInstruction` 中事实卡必须位于 raw control metadata
+   之后的最后成文缝。负 pin 禁止事实卡出现已知 snake_case 控制值；既有 JSON/schema/audit carrier 不删除。
+7. 本批不改 Trace 查询、显式时间窗选举、因果投影、系统自动补齐、排名、可消量公式、关系证据或最终答案 mutation；
+   没有 raw request/model/final prose 硬门。活跃字节流终止逻辑未改，仍禁止固定 4ms 总年龄降级。
+
+状态：
+
+`B1051-TRACETYPEDREADERLANGUAGE1=implemented/last-seam-reader-card+zh-en-pins-pass`；
+`typed-enum/schema/audit-authority=preserved`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/recommendation-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

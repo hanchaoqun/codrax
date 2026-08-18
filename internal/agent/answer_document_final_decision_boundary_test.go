@@ -124,6 +124,104 @@ func TestTraceFinalReaderFacingLanguageHandoffUsesEnglishDisplayLexicon(t *testi
 	}
 }
 
+func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *testing.T) {
+	inWindow := true
+	principal := types.TraceCausalProjectionNode{
+		EvidenceID: "principal", Subject: "worker-200", TypeToken: "priority_inversion_candidate",
+		StateKind: "runnable", Rank: 1, ImpactMS: 9, EffectiveImpactMS: 8.3,
+		ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
+	}
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.systrace", WindowStartTs: 1, WindowEndTs: 1.010,
+		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "app-100", RunnableMS: 1, SleepMS: 8, DStateMS: 0.5, IOWaitMS: 0.5, TotalMS: 10,
+			WindowStartTs: 1, WindowEndTs: 1.010, EvidenceID: "target-state",
+		},
+		RankedSeats:   []types.TraceCausalProjectionNode{principal},
+		OnChainCauses: []types.TraceCausalProjectionNode{principal},
+		SemanticSpans: []types.TraceCausalProjectionNode{{
+			EvidenceID: "off-chain-jit", Subject: "compiler-300", SemanticClass: "jit_compile",
+			ImpactMS: 4.5, ChainRelevance: "background", WithinRequestedWindow: &inWindow,
+			QueryWindowStartTs: 1, QueryWindowEndTs: 1.010,
+		}},
+		BackgroundCauses: []types.TraceCausalProjectionNode{{
+			EvidenceID: "background", Subject: "system-load", TypeToken: "cpu_pressure",
+			ImpactMS: 3.5, ChainRelevance: "background", WithinRequestedWindow: &inWindow,
+			QueryWindowStartTs: 1, QueryWindowEndTs: 1.010,
+		}},
+		BusinessSpanMentions: []types.TraceCausalProjectionBusinessSpanMention{{
+			Subject: "worker-200", Name: "BuildFeedCards", Count: 3, TotalMS: 4.2, MaxMS: 2.1,
+		}},
+	}
+	contract := &types.TraceCausalClaimContract{
+		Allowed: []types.TraceCausalClaimCaliber{types.TraceCausalClaimBoundedWindow},
+		Ceiling: types.TraceCausalClaimBoundedWindow,
+	}
+	got := renderTraceFinalReaderDecisionCards(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, contract, "zh-CN",
+	)
+	for _, want := range []string{
+		"## 面向读者的 Trace 成文事实卡（结论由模型给出）",
+		"结论仅限所选窗口：这是优先验证的候选方向",
+		"所选分析窗口：1.000000–1.010000 秒（10.000 毫秒）",
+		"目标线程 app-100 的窗口状态（覆盖完整）",
+		"不可中断等待 1.000 毫秒，其中已证 IO 等待 0.500 毫秒",
+		"真实耗时集中（已测墙钟占用，用于发现新的优化方向）",
+		"worker-200：调度延迟，已测 9.000 毫秒",
+		"compiler-300：JIT编译，已测 4.500 毫秒；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因",
+		"按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）",
+		"第 1 位，worker-200：优先级反转候选；可消除影响 8.300 毫秒，对应已测占用 9.000 毫秒",
+		"背景与邻近信息（只能支撑额外排查方向，不得升级为链上主因或参与根因序数）",
+		"system-load：CPU竞争压力",
+		"业务线索（用于解释链上工作并提出业务修向，不凭名称自行补造因果）",
+		"worker-200 的 BuildFeedCards：3 次，合计 4.200 毫秒，单次最大 2.100 毫秒",
+		"同时回答真实耗时集中与按现有规则可消除影响两个维度",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("reader-ready Trace card missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"bounded_window_candidate", "priority_inversion_candidate", "on_chain",
+		"state_occupancy", "effective_attribution", "priority_or_dependency_supply", "complete",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("reader-ready Trace card leaked internal control token %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
+	inWindow := true
+	node := types.TraceCausalProjectionNode{
+		EvidenceID: "io", Subject: "storage-worker", TypeToken: "d_state_or_io_wait",
+		StateKind: "io_wait", Rank: 1, ImpactMS: 7, EffectiveImpactMS: 6,
+		ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+	}
+	got := renderTraceFinalReaderDecisionCards(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		ArtifactLabel: "customer.systrace", RankedSeats: []types.TraceCausalProjectionNode{node},
+		OnChainCauses: []types.TraceCausalProjectionNode{node},
+	}}}, nil, "en")
+	for _, want := range []string{
+		"## Reader-ready Trace facts (the model owns the conclusion)",
+		"Measured time concentrations",
+		"storage-worker: IO wait, measured 7.000 ms",
+		"Impact eliminable under existing rules",
+		"Rank 1, storage-worker: D-state/iowait; eliminable impact 6.000 ms, with 7.000 ms measured occupancy",
+		"address both measured time concentration and impact eliminable under existing rules",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("English reader-ready Trace card missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"d_state_or_io_wait", "io_wait", "on_chain", "effective_attribution"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("English reader-ready Trace card leaked internal control token %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutUpgradingItsSemantics(t *testing.T) {
 	ctx := &types.AgentContext{
 		Mutable: types.NewMutableState("opaque"),
@@ -330,6 +428,9 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"out_of_window_marker_role=`navigation_only`",
 		"does not prove physical independence",
 		"does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling",
+		"## Reader-ready Trace facts (the model owns the conclusion)",
+		"do not expose JSON field names, internal enum values, status codes",
+		"address both measured time concentration and impact eliminable under existing rules",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("trace final boundary missing %q:\n%s", want, prompt)
@@ -337,6 +438,9 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	}
 	if strings.LastIndex(prompt, "## Final Trace Decision Boundary") < strings.LastIndex(prompt, "## Submission Checklist") {
 		t.Fatalf("trace decision boundary must follow generic structure guidance:\n%s", prompt)
+	}
+	if strings.LastIndex(prompt, "## Reader-ready Trace facts") < strings.LastIndex(prompt, "relation_scope=`typed_relations_only`") {
+		t.Fatalf("reader-ready Trace facts must be the final synthesis seam after raw control metadata:\n%s", prompt)
 	}
 	for _, forbidden := range []string{"the root cause is", "the primary cause is", "system-authored conclusion"} {
 		if strings.Contains(strings.ToLower(renderAnswerDocTraceFinalDecisionBoundary(ctx)), forbidden) {
