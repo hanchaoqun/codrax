@@ -35649,6 +35649,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1083 r694：空 optional 图与时长角色生产闭环；窗外观测、内部词与关系 JSON 教学仍未闭环（2026-08-18）
+
+1. 在 `main@89a459c8c` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + trace_query_wakeup_causal_runnable`。Runner `2 PASS / 2`；人工为
+   `1 pass / 1 fail`，逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_trace_roles_r694_20260818_manual_audit.md`。本轮没有启动
+   第三个 eval，也没有 active-stream 4ms 固定年龄降级。
+2. B1090 获生产正证。Provider 仍可在非图 block 发出空 `diagram:{}`，共享 normalizer 已把严格零值
+   optional composite 折叠为 absent；首稿没有再因 `diagram.body is empty` 被误拒。真实 diagram 的
+   language/kind/body/edge anchors 仍完整保留，非零畸形形状继续 fail-loud。
+3. B1092 获生产正证。模型主段、系统“主要时间占用”表、Trace 因果投影与指标表均把 worker-200 的
+   runnable 实测占用和有效归因写为 8.300ms；9.000ms 只以“链上累计”独立出现，没有再称作
+   “9.000ms runnable”。producer-side state occupancy 不再默认读取 cumulative value。
+4. B1093 仅获上下文正证、成文仍失败。Finalizer 确实收到自然语言边界卡：所选窗止于 1.010000，
+   窗后的切入运行属于另一区间，不能据此声称本窗醒后立即运行或把未测延迟写成零。模型却仍在三处
+   正文写 `app-100` 1.010000..1.010020 runnable，并称其与 worker 同 CPU、是 `secondary rank=2`；
+   typed roster 同时明确该行查询窗为 1.000000..1.020000、所选窗序数 forbidden。最终 caveat 又说
+   窗外行为未纳入，形成同页自相矛盾。不得靠扫描最终 prose 的时间戳/关键词硬删；下一步应让
+   Finalizer 的 principal selected-window evidence pool 不再混入窗外 observation，窗外行只进入明确的
+   supporting/out-of-window carrier。
+5. B1091 同样仅 partial。自然语言机制边界在场，两个重复 authority key 已退出专用 handoff，但
+   模型正文仍从其他 raw typed 面复制 `priority_inversion_candidate`、`target_self_state`、`rank #1`。
+   这证明“追加读者卡”不能抵消同一 prompt 里的 raw wire vocabulary。最优修复是按 Finalizer audience
+   在结构化观测渲染层同时提供 reader label/role，并把 raw enum 留在 machine/audit carrier；不能对模型
+   成文做关键词删除、翻译或系统改写。
+6. 调用图最终正确：两条真边为 `buildAnalysisIR -> RunWith` 与 `gate.Run -> RunWith`，图诚实表达扇入，
+   没有虚构端点间串联。但过程发生两次拒绝。首稿 ordered_list 严格遵循 Submission Checklist 发
+   `claim_uses(call_edge)`，却没发同块 `edge_anchors`；硬合同要求两者共存。第一次 patch 又把 item 的
+   显示标签误作 node id，第二次读取 copy-ready skeleton 才成功。这是新确认
+   `B1094-RELATIONBLOCKANCHORTEACHING1`：合同要求与 JSON 教学未使用同一来源，不是证据门过严或空图回归。
+7. B1094 的根修不得放松 call-edge 方向/identity 验证，也不得由系统给模型补造关系。应从同一
+   typed relation contract 生成 schema description、Submission Checklist 和 retry hint，明确所有声明
+   `principal_path_edge + directed claim_use` 的 principal block 都必须携与其可见关系同向的完整
+   `edge_anchors`；示例直接使用 copy-ready node ids/identities，而非显示标签。再用 list/diagram/patch
+   三载体和异构 relation kinds 做正负 pin，避免只拟合本用例。
+8. 系统仍只提供 typed 事实、上下文与校验；没有删除、替换或代写模型结论。显式时间窗 Trace 因果投影、
+   自动补齐、链上-only 主因、邻近/背景 support-only、真实占用/业务线索与规则可消量双轴均保留。
+
+状态：
+
+`B1090-EMPTYOPTIONALCOMPOSITENORMALIZE1=production-closed-r694`；
+`B1092-TRACEVALUECOLUMNROLE1=production-closed-r694`；
+`B1091-TRACECONTROLVOCABREADERSURFACE1=production-partial/raw-observation-context-open`；
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=production-partial/principal-pool-window-mixing-open`；
+`B1094-RELATIONBLOCKANCHORTEACHING1=confirmed/P1`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1070 r688：业务身份排序生产正证；自动枚举表与单表合同形成 P0 自冲突（2026-08-18）
 
 1. 在 `main@e4d20e425` 严格并发恰好两个案例：
