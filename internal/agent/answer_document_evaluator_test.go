@@ -1589,20 +1589,20 @@ func TestRenderAnswerDocMultiTopicEvidenceOwnership_PreservesUnitAndConnectivity
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{SubTopics: []types.SubTopic{
-			{Summary: "configuration loading"},
-			{Summary: "terminal diagram rendering"},
+			{Summary: "configuration loading", Entities: []string{"config.go", "cmd/root.go"}},
+			{Summary: "terminal diagram rendering", Entities: []string{"repl.go", "finalizer.go"}},
 		}}},
 		EvidenceItems: evidence,
 	}
 
 	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
 	for _, want := range []string{
-		"## Evidence ownership by investigation unit (prompt-only)",
+		"## Evidence partition hints by investigation unit (prompt-only)",
 		"### Unit 1: configuration loading",
-		"E-config-call` connectivity=`explicit_typed_relation`",
+		"E-config-call` association=`exact_source_scope` connectivity=`explicit_typed_relation`",
 		"### Unit 2: terminal diagram rendering",
-		"E-render` connectivity=`explicit_typed_relation`",
-		"E-finalizer-state` connectivity=`standalone_fact`",
+		"E-render` association=`exact_source_scope` connectivity=`explicit_typed_relation`",
+		"E-finalizer-state` association=`exact_source_scope` connectivity=`standalone_fact`",
 		"cannot by themselves become a transition in a mechanism chain",
 	} {
 		if !strings.Contains(got, want) {
@@ -1611,6 +1611,29 @@ func TestRenderAnswerDocMultiTopicEvidenceOwnership_PreservesUnitAndConnectivity
 	}
 	if strings.Index(got, "E-config-call") > strings.Index(got, "### Unit 2:") {
 		t.Fatalf("configuration evidence crossed into unit 2:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocMultiTopicEvidenceOwnership_ExactSourceScopeOverridesProducerLane(t *testing.T) {
+	mut := types.NewMutableState("answer two source-scoped questions")
+	item := types.EvidenceItem{ID: "E-render", Kind: types.EvidenceRelationship, Subject: "render", Object: "fallback", Source: "internal/render/mermaid_render.go", LineStart: 90, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded}
+	mut.EvidenceClosure().SetNodeArtifactLedger(types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{
+		ProducerNodeID: "n1_evidence_t0", EvidenceID: item.ID,
+		Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: item.ID},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{SubTopics: []types.SubTopic{
+			{Summary: "configuration", Entities: []string{"runtime.go"}},
+			{Summary: "diagram rendering", Entities: []string{"mermaid_render.go"}},
+		}}},
+		EvidenceItems: []types.EvidenceItem{item},
+	}
+	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
+	unit2 := strings.Index(got, "### Unit 2: diagram rendering")
+	evidencePos := strings.Index(got, "E-render` association=`exact_source_scope`")
+	if unit2 < 0 || evidencePos < unit2 || strings.Contains(got, "### Unit 1: configuration") {
+		t.Fatalf("exact source scope must override the producer lane:\n%s", got)
 	}
 }
 
@@ -1645,7 +1668,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstructionIncludesTypedMultiTopicE
 		EvidenceItems: []types.EvidenceItem{item},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "## Evidence ownership by investigation unit (prompt-only)") || !strings.Contains(prompt, "E-owned") {
+	if !strings.Contains(prompt, "## Evidence partition hints by investigation unit (prompt-only)") || !strings.Contains(prompt, "E-owned") {
 		t.Fatalf("finalizer prompt lost typed multi-topic evidence ownership:\n%s", prompt)
 	}
 }

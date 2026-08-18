@@ -14,8 +14,10 @@ const (
 )
 
 type answerDocInvestigationEvidenceOwner struct {
-	unitIDs map[string]bool
-	item    types.EvidenceItem
+	producerUnitIDs map[string]bool
+	unitIDs         map[string]bool
+	association     string
+	item            types.EvidenceItem
 }
 
 // renderAnswerDocMultiTopicEvidenceOwnership preserves the typed producer
@@ -50,8 +52,9 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 			continue
 		}
 		byID[id] = &answerDocInvestigationEvidenceOwner{
-			unitIDs: map[string]bool{},
-			item:    item,
+			producerUnitIDs: map[string]bool{},
+			unitIDs:         map[string]bool{},
+			item:            item,
 		}
 	}
 	for _, record := range ledger.RecordsByKind(types.RuntimeArtifactEvidenceItem) {
@@ -67,7 +70,38 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 		if !ok {
 			continue
 		}
-		owned.unitIDs[unit.ID] = true
+		owned.producerUnitIDs[unit.ID] = true
+	}
+
+	// A topic node is an execution producer, not semantic ownership: one
+	// focused Explorer call can legitimately inspect a neighboring topic too.
+	// Prefer exact analyzer-authored file/directory scopes. Producer lineage is
+	// only a soft fallback when that unit has no exact source match at all.
+	unitHasExactSource := make(map[string]bool, len(plan.Units))
+	for _, owned := range byID {
+		for _, unit := range plan.Units {
+			if answerDocEvidenceMatchesInvestigationUnitSource(owned.item, unit) {
+				owned.unitIDs[unit.ID] = true
+				owned.association = "exact_source_scope"
+				unitHasExactSource[unit.ID] = true
+			}
+		}
+	}
+	for _, owned := range byID {
+		if len(owned.unitIDs) > 0 {
+			continue
+		}
+		if len(owned.producerUnitIDs) == 1 {
+			for unitID := range owned.producerUnitIDs {
+				if !unitHasExactSource[unitID] {
+					owned.unitIDs[unitID] = true
+					owned.association = "producer_lane_fallback"
+				}
+			}
+		}
+		if len(owned.unitIDs) == 0 {
+			owned.association = "shared_or_unassigned"
+		}
 	}
 
 	unitRows := make(map[string][]answerDocInvestigationEvidenceOwner, len(plan.Units))
@@ -97,14 +131,19 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 
 	sortEvidenceOwners := func(rows []answerDocInvestigationEvidenceOwner) {
 		sort.SliceStable(rows, func(i, j int) bool {
+			leftScore := answerDocInvestigationEvidenceDisplayScore(rows[i].item)
+			rightScore := answerDocInvestigationEvidenceDisplayScore(rows[j].item)
+			if leftScore != rightScore {
+				return leftScore > rightScore
+			}
 			return types.RuntimeArtifactIDForEvidenceItem(rows[i].item) < types.RuntimeArtifactIDForEvidenceItem(rows[j].item)
 		})
 	}
 
 	var b strings.Builder
-	b.WriteString("## Evidence ownership by investigation unit (prompt-only)\n\n")
-	b.WriteString("- The grouping below comes from typed task-node artifact lineage. Use it to keep facts with the investigation unit that produced them; do not echo this heading, unit IDs, evidence IDs, or connectivity labels in the user-facing answer.\n")
-	b.WriteString("- Unit ownership is not a call, causal, precedence, fallback, or failure-path edge. Join facts into one mechanism only when an explicit typed relation row supplies the exact endpoints and direction.\n")
+	b.WriteString("## Evidence partition hints by investigation unit (prompt-only)\n\n")
+	b.WriteString("- The grouping below prefers exact file/directory scopes declared on typed investigation units; task-node producer lineage is used only as a fallback when a unit has no exact source-scope match. It is a writing partition, not semantic ownership. Do not echo this heading, unit IDs, evidence IDs, association labels, or connectivity labels in the user-facing answer.\n")
+	b.WriteString("- A unit association is not a call, causal, precedence, fallback, or failure-path edge. Join facts into one mechanism only when an explicit typed relation row supplies the exact endpoints and direction.\n")
 	b.WriteString("- `connectivity=standalone_fact` rows may explain a definition, state, option, or local behavior, but they cannot by themselves become a transition in a mechanism chain. `connectivity=explicit_typed_relation` authorizes only the displayed subject-to-object relation, not a broader category or neighboring step.\n")
 	b.WriteString("- Evidence assigned to another unit, shared probe evidence, and disconnected standalone facts remain supporting context unless a typed relation independently connects them to the current section.\n\n")
 
@@ -120,7 +159,7 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 			limit = answerDocMultiTopicEvidencePerUnitLimit
 		}
 		for _, owned := range rows[:limit] {
-			b.WriteString(renderAnswerDocInvestigationEvidenceOwnerRow(owned.item))
+			b.WriteString(renderAnswerDocInvestigationEvidenceOwnerRow(owned))
 		}
 		if len(rows) > limit {
 			fmt.Fprintf(&b, "- ... %d additional owned evidence rows remain available in the main Evidence Items section.\n", len(rows)-limit)
@@ -136,7 +175,7 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 			limit = answerDocMultiTopicSharedEvidenceLimit
 		}
 		for _, owned := range shared[:limit] {
-			b.WriteString(renderAnswerDocInvestigationEvidenceOwnerRow(owned.item))
+			b.WriteString(renderAnswerDocInvestigationEvidenceOwnerRow(owned))
 		}
 		if len(shared) > limit {
 			fmt.Fprintf(&b, "- ... %d additional shared evidence rows remain available in the main Evidence Items section.\n", len(shared)-limit)
@@ -156,7 +195,8 @@ func firstNonEmptyAnswerDocUnitLabel(unit types.InvestigationUnit) string {
 	return fmt.Sprintf("unit-%d", unit.Index)
 }
 
-func renderAnswerDocInvestigationEvidenceOwnerRow(item types.EvidenceItem) string {
+func renderAnswerDocInvestigationEvidenceOwnerRow(owned answerDocInvestigationEvidenceOwner) string {
+	item := owned.item
 	id := types.RuntimeArtifactIDForEvidenceItem(item)
 	connectivity := "standalone_fact"
 	if answerDocEvidenceHasExplicitTypedRelation(item) {
@@ -169,9 +209,56 @@ func renderAnswerDocInvestigationEvidenceOwnerRow(item types.EvidenceItem) strin
 	surface = answerDocInlineClip(surface, 240)
 	loc := item.DisplayLocation(true)
 	if loc != "" {
-		return fmt.Sprintf("- evidence_id=`%s` connectivity=`%s` @ %s: %s\n", id, connectivity, loc, surface)
+		return fmt.Sprintf("- evidence_id=`%s` association=`%s` connectivity=`%s` @ %s: %s\n", id, owned.association, connectivity, loc, surface)
 	}
-	return fmt.Sprintf("- evidence_id=`%s` connectivity=`%s`: %s\n", id, connectivity, surface)
+	return fmt.Sprintf("- evidence_id=`%s` association=`%s` connectivity=`%s`: %s\n", id, owned.association, connectivity, surface)
+}
+
+func answerDocEvidenceMatchesInvestigationUnitSource(item types.EvidenceItem, unit types.InvestigationUnit) bool {
+	source := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(item.Source, "\\", "/")))
+	if source == "" {
+		return false
+	}
+	candidates := append(append([]string(nil), unit.Scopes...), unit.Entities...)
+	for _, candidate := range candidates {
+		candidate = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(candidate, "\\", "/")))
+		candidate = strings.TrimPrefix(candidate, "./")
+		if candidate == "" {
+			continue
+		}
+		if strings.Contains(candidate, "/") {
+			if source == candidate || strings.HasPrefix(source, strings.TrimSuffix(candidate, "/")+"/") || strings.HasSuffix(source, "/"+candidate) {
+				return true
+			}
+			continue
+		}
+		// Bare analyzer entities are accepted as source scopes only when they
+		// are exact filenames, not broad symbols such as REPL or Config.
+		if strings.Contains(candidate, ".") {
+			parts := strings.Split(source, "/")
+			if parts[len(parts)-1] == candidate {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func answerDocInvestigationEvidenceDisplayScore(item types.EvidenceItem) int {
+	score := 0
+	if answerDocEvidenceHasExplicitTypedRelation(item) {
+		score += 100
+	}
+	if strings.TrimSpace(item.Producer) == types.EvidenceProducerExplorerEmitEvidence {
+		score += 50
+	}
+	if item.Salience != "" {
+		score += 20
+	}
+	if item.LoadBearingSummary {
+		score += 10
+	}
+	return score
 }
 
 func firstNonEmptyAnswerDocEvidenceLabel(values ...string) string {

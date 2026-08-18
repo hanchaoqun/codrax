@@ -36304,11 +36304,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 状态：
 
 `B1068-MULTITOPICPROBECOMPLETIONSCOPE1=production-closed-r682`；
-`B1069-MULTITOPICEVIDENCEOWNERSHIP1=implemented/typed-soft-context/full-agent-pass/replay-next`；
+`B1069-MULTITOPICEVIDENCEOWNERSHIP1=implemented-r682/superseded-by-B1071-after-production-overclaim`；
 `B1070-CITATIONITEMBINDING1=P2-observe/no-case-fit`；
 `runner=2/2 PASS`；`human=platform-partial/combo-fail`；
 `raw-prose-hard-gate=none`；`system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r682`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.1064 r683：主题 producer 不是语义 owner；workflow sequence 连续四次拒绝（2026-08-18）
+
+1. 在 `main@96dbd46fd` 严格并发恰好两个案例：`read_combo_loose_multi_question_units +
+   read_combo_pipeline_sequence_table`。Runner `1 PASS / 1 FAIL`，人工均 partial；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_evidence_ownership_replay_r683_20260818_manual_audit.md`。
+2. 组合案的 FAIL 仍是第三条同线 regex 假阴性。终稿完整分成配置/Mermaid 两节，r682 的 Finalizer 内部状态
+   串入 REPL 机制已消失，B1069 方向获正证；但 lookup 路径漏/错、RuntimeSettings“所有字段均指针”和
+   `SanitizeDegradedMermaidBlocks` 职能仍有事实误述，人工只能 partial。
+3. 日志同时否证 B1069 第一版的过强语义：`ProducerNodeID=evidence_tN` 只证明执行收集 provenance，不证明
+   EvidenceItem 属于该主题。t0 同时产出配置和 Mermaid 行，t1 还带入通用 REPL/repomap 行；按 producer 直接
+   命名 ownership 会把系统给模型的上下文本身分错。
+4. B1071 已施工：分区优先读取 typed SubTopic `Entities/Scopes`，只用 exact 文件名、路径/目录匹配
+   `EvidenceItem.Source`；producer 仅在一个 unit 完全没有 exact source 命中时做软后备，多命中/无命中行归
+   shared。shared 以 typed relation、Explorer 明确选择与 salience 排序，标题降为 partition hints，并明确
+   不是语义所有权。全程不读 request/reasoning/final prose，不参与 validator、不改答案。
+5. pipeline 图案最终保留合法 sequenceDiagram 与三条真实 precedence 边，但连续经历 4 次成文拒绝：未证
+   Orchestrator→stage call、typed precedence metadata 无可见边、stage self-loop call、陈旧 participant
+   boundary。拒绝判断本身正确；P1 `B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1` 在于 prompt/repair 合同把
+   “逻辑顺序 vs 调用边、可见边 vs metadata、participant identity”同时交给模型，认知负担过高。
+6. B1072 最优形不是降低关系证据门或系统代画：首稿给基于现有 typed ordering candidates 的紧凑 workflow
+   recipe；修补只返回失败 edge 的结构化 remove/replace 动作；sequence/flowchart/class 等图族共享同一
+   relation-kind→可见表达规则，禁止再按某一 case 的节点名/箭头文本拟合。
+7. 组合 303s，pipeline 389s；没有 JSON 畸形、空答案、旧稿降级或固定 4ms 活跃流降级。本批未改 Trace，
+   显式窗因果投影、自动补齐、链上-only 主因与背景 support-only 保持。
+
+状态：
+
+`B1069=production-direction-positive/producer-semantic-owner-overclaim-corrected`；
+`B1071-MULTITOPICSOURCEASSOCIATION1=implemented/exact-source-first+producer-fallback/full-agent-pass/replay-next`；
+`B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1=confirmed/P1/next`；
+`B1070-CITATIONITEMBINDING1=broadened-observation/no-case-fit`；
+`runner=1 PASS/1 regex-false-negative`；`human=2 partial`；
+`raw-prose-hard-gate=none`；`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r683`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 
