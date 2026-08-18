@@ -35978,6 +35978,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1097 r702 与 B1107：观测行标题服从 typed 因果位置，不以生产族名加冕（2026-08-18）
+
+1. 在 `main@9a827e7fa` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
+   `trace_query_wakeup_causal_io_chain`；共同不可变二进制、`PARALLEL=2`，runner `2/2 PASS`，人工均为
+   partial。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_reader_appendix_replay_r702_20260818_manual_audit.md`。
+2. B1105b 获生产正证。Trace 系统逐条观测块保留 threadpool-400 的 11ms 链上 IO 第一席、完整
+   `threadpool -> network -> cookie -> app` 唤醒链、三段 1ms 调度延迟、目标状态、坐标和下钻建议；
+   raw `source=/causality=/chain_depth=/recommended_views=` 不再进入该客户面。因果投影、自动补采、
+   实际占用/规则可消双轴、链上-only 主因和背景降格均在，零成文拒绝，无固定 4ms 降级。
+3. 新确认 `B1107-TRACEAPPENDIXCAUSALPOSITIONLABEL1/P1`：生产者的 `root_cause_*` family 同时承载
+   真正 on-chain 排名席、目标自身墙钟状态、邻近观测和同窗背景。B1105b 初版只翻译 ClaimKey 前缀，
+   因而把 app sleep 的 `self_wall_clock`、cookie/network sleep 的 `adjacent_to_wakeup_chain` 和 IO pressure
+   的 `background` 均称为「根因观测」，虽同行 note 诚实写了因果边界，行首却先完成了错误加冕。
+4. 根修仍只读 typed note，不扫描请求或任何模型正文：`background` 显示「背景支撑观测」，
+   `adjacent/self_caliber_side` 显示「邻近支撑观测」，`self_wall_clock` 显示「目标状态观测（待沿链
+   下钻）」，`unproven` 显示「待核实候选观测」；只有未被这些精确信号降格的 primary/secondary/
+   generic on-chain cause 才保留根因称谓。若 stale primary key 与 background/adjacent note 冲突，展示
+   fail-closed 服从 typed 因果位置，底层 record 和排序仍不变。
+5. 中英文正负矩阵覆盖 on-chain、自身墙钟、邻近、背景、未证和冲突六臂。该变更不删除任何时长、
+   坐标、下钻线索或 raw 诊断信息，不改变席位准入、因果投影、可消除量或模型的主结论。
+6. B1106 同轮生产闭环：初始 Finalizer 已收到同时包含 edge anchors 与 participant boundaries 的唯一
+   `diagram_block_sibling_fields_json`。模型首稿仍选择性漏 boundaries 并把非端点项混入
+   `principal_path_edge`，所以 1 reject/2 patch 属于模型结构服从失败，不再是系统接线缺失。最终
+   shared-callee 图和 15 个中间函数正确；不放宽关系门、不由系统代画。
+7. 次级开放项 `B1108-TRACEQUERYSEMANTICDUPLICATION1/P2`：两个 explorer 车道对同一附件、目标、
+   窗口分别执行 window/wakeup/rank 三视图，共 6 次；参数仅有 platform alias/default option 表面差异。
+   后续先建立 canonical call identity 与只读结果复用审计，禁止直接删车道或减少因果视图。模型正文
+   的 NFS/CIFS 猜测和「3ms 合计但不可相加」自相矛盾也已记录，但不得靠终稿关键词扫描或系统改写。
+
+状态：
+
+`r702=2/2 runner PASS + manual partial/partial`；
+`B1105b=production-positive/system-appendix-reader-face`；
+`B1106=production-positive/carrier-wiring-closed`；
+`B1107-TRACEAPPENDIXCAUSALPOSITIONLABEL1=implemented/typed-matrix-pass`；
+`B1108-TRACEQUERYSEMANTICDUPLICATION1=confirmed/P2/open`；
+`model-prose-scan/rewrite=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

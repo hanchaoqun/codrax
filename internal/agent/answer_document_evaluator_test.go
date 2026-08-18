@@ -12373,6 +12373,69 @@ func TestTraceQueryObservationSupplementReaderProjectionHidesWireEnums(t *testin
 	}
 }
 
+func TestTraceQueryObservationSupplementRootLabelFollowsTypedCausalPosition(t *testing.T) {
+	tests := []struct {
+		name  string
+		notes []string
+		zh    string
+		en    string
+	}{
+		{
+			name:  "on-chain rank remains a root cause",
+			notes: []string{"chain_relevance=on_chain", "causality=on_wakeup_chain"},
+			zh:    "首要根因观测",
+			en:    "primary root-cause observation",
+		},
+		{
+			name:  "target wall clock is a symptom",
+			notes: []string{"causality=self_wall_clock"},
+			zh:    "目标状态观测（待沿链下钻）",
+			en:    "target-state observation (follow the chain for cause)",
+		},
+		{
+			name:  "adjacent is supporting only",
+			notes: []string{"chain_relevance=adjacent", "causality=adjacent_to_wakeup_chain"},
+			zh:    "邻近支撑观测",
+			en:    "adjacent supporting observation",
+		},
+		{
+			name:  "background is supporting only",
+			notes: []string{"chain_relevance=background", "causality=background"},
+			zh:    "背景支撑观测",
+			en:    "background supporting observation",
+		},
+		{
+			name:  "unproved is not crowned",
+			notes: []string{"causality=unproven"},
+			zh:    "待核实候选观测",
+			en:    "unproved candidate observation",
+		},
+		{
+			name:  "background wins over stale primary key",
+			notes: []string{"chain_relevance=on_chain", "causality=background"},
+			zh:    "背景支撑观测",
+			en:    "background supporting observation",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			record := types.ObservationRecord{
+				ClaimKey:  "root_cause_primary:worker-200",
+				Predicate: "root_cause_primary",
+				Subject:   "worker-200",
+				Object:    "runnable_wait",
+				RichNotes: tc.notes,
+			}
+			if got := traceQueryObservationSupplementClaimLabel(record, true); got != tc.zh {
+				t.Fatalf("ZH label = %q, want %q", got, tc.zh)
+			}
+			if got := traceQueryObservationSupplementClaimLabel(record, false); got != tc.en {
+				t.Fatalf("EN label = %q, want %q", got, tc.en)
+			}
+		})
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpandsBeyondOldEightRowCap(t *testing.T) {
 	observations := make([]types.ObservationRecord, 0, 32)
 	for i := 1; i <= 32; i++ {

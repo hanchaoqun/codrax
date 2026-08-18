@@ -21027,6 +21027,16 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 		}
 		return enLabel
 	}
+	// A root-cause producer family contains both ranked on-chain causes and
+	// explicitly non-causal target/adjacent/background observations. The
+	// reader label must follow the row's typed causal position rather than the
+	// historical ClaimKey prefix; otherwise a symptom row is visually crowned
+	// as a root cause even though the value and admission logic remain honest.
+	if strings.HasPrefix(claim, "root_cause") {
+		if scoped := traceQueryObservationSupplementNonCauseLabel(record, zh); scoped != "" {
+			return scoped
+		}
+	}
 	switch {
 	case strings.HasPrefix(claim, "root_cause_primary"):
 		return label("首要根因观测", "primary root-cause observation")
@@ -21053,6 +21063,33 @@ func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, z
 	default:
 		return label("Trace 观测", "Trace observation")
 	}
+}
+
+func traceQueryObservationSupplementNonCauseLabel(record types.ObservationRecord, zh bool) string {
+	relevance := strings.ToLower(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyChainRelevance))
+	causality := strings.ToLower(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyCausality))
+	label := func(zhLabel, enLabel string) string {
+		if zh {
+			return zhLabel
+		}
+		return enLabel
+	}
+	// Conflict handling is deliberately fail-closed on the display face: an
+	// explicit background/adjacent marker wins over a stale cause-family key.
+	if relevance == "background" || causality == "background" {
+		return label("背景支撑观测", "background supporting observation")
+	}
+	if relevance == "adjacent" || relevance == "self_caliber_side" ||
+		causality == "adjacent_to_wakeup_chain" || causality == "adjacent_to_chain" {
+		return label("邻近支撑观测", "adjacent supporting observation")
+	}
+	if causality == "self_wall_clock" {
+		return label("目标状态观测（待沿链下钻）", "target-state observation (follow the chain for cause)")
+	}
+	if causality == "unproven" {
+		return label("待核实候选观测", "unproved candidate observation")
+	}
+	return ""
 }
 
 func traceQueryObservationSupplementEntityLabel(raw string, zh bool) string {
