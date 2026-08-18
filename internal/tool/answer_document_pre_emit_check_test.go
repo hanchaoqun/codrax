@@ -5463,6 +5463,46 @@ func TestPreCheckSourceInventoryRowIDBindings_MixedBlockAcceptsGroundedSiblingPa
 	}
 }
 
+func TestPrincipalEnumerationItemCoversExactUncitedTypedRow(t *testing.T) {
+	row := types.EnumerationDisplayRow{
+		RowID:        "config-retry-default",
+		Member:       "代码默认值: 3",
+		DisplayLabel: "代码默认值: 3",
+		HasCitation:  false,
+	}
+	item := types.AnswerBlockItem{
+		Label:                "代码默认值: 3",
+		SourceInventoryRowID: "config-retry-default",
+		CitationRef:          -1,
+	}
+	if !principalEnumerationItemCoversAnySourceInventoryScopedRow(item, &types.AnswerDocumentV2{}, []types.EnumerationDisplayRow{row}) {
+		t.Fatal("an exact typed row with no compiler-owned citation must remain renderable without inventing a citation")
+	}
+}
+
+func TestNormalizeItemCitationRefsBySourceInventoryRowID_DetachesCitationFromUncitedTypedRow(t *testing.T) {
+	rowID := "config-retry-default"
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "wrong.cj", Line: 9}},
+		Blocks: []types.AnswerBlock{{
+			ID: "mixed", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID: "extend", Label: "extend String", SourceInventoryRowID: rowID, CitationRef: 0,
+			}},
+		}},
+	}
+	rows := map[string]types.EnumerationDisplayRow{rowID: {
+		RowID: rowID, Member: "extend String", DisplayLabel: "extend String", HasCitation: false,
+	}}
+	if fixed := normalizeItemCitationRefsBySourceInventoryRows(doc, rows); fixed != 1 {
+		t.Fatalf("fixed=%d, want stale citation detached; doc=%+v", fixed, doc)
+	}
+	if refs := types.AnswerBlockItemCitationRefs(doc.Blocks[0].Items[0]); len(refs) != 0 {
+		t.Fatalf("uncited typed row retained invented refs: %v", refs)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueSourceInventoryDisplayRow_MixedBlockUsesGroundedSiblingUnion(t *testing.T) {
 	ctx, _ := sourceInventoryGroundedSiblingPartitionTestContext(t, true)
 	doc := &types.AnswerDocumentV2{

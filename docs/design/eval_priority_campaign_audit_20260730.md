@@ -36102,6 +36102,52 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1020 r651：配置值矩阵谓词失真并引发补丁合同死循环；链上主因被投影层错误降为背景（2026-08-17）
+
+1. 在 `main@f88c9fe64` 严格并发恰好两个案例：
+   `read_combo_config_two_knobs_precedence + trace_query_wakeup_causal_runnable`。Runner 为 Trace PASS、
+   Config FAIL；人工为 Trace partial、Config fail。完整逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_config_trace_r651_20260817_manual_audit.md`。
+2. Config 的 exact target carrier 已存在，但 Analyzer 同时发出 active `source_inventory_profile`、
+   `target_type=config_key`、`requested_fields=name+values`、两个有限精确目标和逐键层维度，却错误给出
+   `has_per_member_table=false`。因此 B1025 的 target×role 精确覆盖矩阵没有启动；Explorer 未读取
+   `cmd/root.go:3147 MaxRetriesPerStage: 3`，最终把 CLI sentinel `0` 当成代码默认值。这不是数值 3 的
+   单例问题，而是 typed IR 内部相互矛盾时缺少结构规范化。
+3. B1027 的通用修复只消费 typed 载体：family 为 `config_mapping/config_trace`、至少两个已经验证的
+   exact target、active source inventory 以 `config_key` 为成员且请求 `values` 时，规范化为逐成员表，
+   继而复用既有 exact-context-role fail-loud 和 target×role completion。没有扫描请求/答案原文，也没有
+   由系统猜默认值、层级或结论；普通单目标、开放枚举和非配置问题不受影响。
+4. 本轮 987 秒、14 次 final reject 暴露 B1028：精确 `source_inventory_row_id` 在 mixed/family-less
+   carrier 内会被同名 label 的弱绑定覆盖；无源码引用的 typed inventory row 又落入不可满足形——无
+   citation 时 coverage 不认，擅自引用时 provenance 拒绝。修复把精确 row identity 提到弱标签之前；
+   精确无引用行可以 row identity 交账并主动清除陈腐引用，精确有引用行则只绑定自己的坐标。
+5. 同期确认 B1029：每轮 patch 将同一个 citation 坐标重新 append 到继承池，导致降级稿出现巨大的
+   重复引用列表。append-only 补丁现按规范化文件/行坐标与继承池、同批新增池统一去重，并把 item refs
+   稳定 remap；引用正文差异不能再制造同坐标副本。
+6. 新专项 pin 覆盖：typed finite config value matrix 从 false 规范化且缺角色 fail-loud、精确 uncited row
+   覆盖、精确 row_id 在 mixed carrier 中优先于同名 label、补丁 citation 幂等去重与 remap。定向测试、
+   `internal/tool` 整包及 `internal/types ./internal/agent ./internal/orchestrator` 保护套件均通过；生产回放待
+   本批提交后执行。
+7. Trace runner PASS 不能掩盖新的 B1030：模型基于 typed evidence 正确给出 worker-200 链上依赖/
+   优先级反转候选；Evidence Index 同样标注 `root_cause_primary`、`causality=on_wakeup_chain`，但系统
+   `Trace 因果投影` 却同时发射“窗口内未定位到链上主根因”并把 worker-200 放入背景。显式用户窗、
+   自动补齐均存在，因此不是 4ms 降级或因果投影缺席，而是投影编译阶段的 tier/causality 分类矛盾。
+8. B1030 下一批必须沿 typed row 的选举载体定位，保持“根因只来自链上、背景不得晋升”及模型结论权；
+   不能按 worker-200、某个 label 或答案正文做硬拟合，也不能由系统重写模型结论。本配置/成文批未修改
+   Trace 计算、窗口选举、投影触发或自动补齐。
+
+状态：
+
+`r651=runner-trace-pass/config-fail+human-trace-partial/config-fail`；
+`B1027-CONFIGVALUEMATRIXPREDICATE1=implemented/typed-pins+four-core-suites-pass/pending-replay`；
+`B1028-ROWIDPATCHAUTHORITY1=implemented/exact-cited+uncited-pins+four-core-suites-pass/pending-replay`；
+`B1029-PATCHCITATIONIDEMPOTENCE1=implemented/dedup+remap-pin+four-core-suites-pass/pending-replay`；
+`B1030-TRACECHAINROOTCLASSIFICATION1=confirmed/P1/open-next-batch`；
+`Trace explicit-window/causal projection/auto-supplement=present-but-root-classification-partial-r651`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1019 r650：exact carrier 已贯通但配置层覆盖仍错误跨键复用；关系图通过但载体数据流仍缺（2026-08-17）
 
 1. 在 `main@ee154fda2` 严格并发恰好两个案例：

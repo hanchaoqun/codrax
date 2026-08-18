@@ -925,6 +925,37 @@ func normalizeAnswerDocumentPatchCitationOps(prev *types.AnswerDocumentV2, patch
 			fields = append(fields, "append_citations duplicate of replace_citations dropped")
 		}
 	}
+	if patch.ReplaceCitations == nil && len(patch.AppendCitations) > 0 {
+		// append_citations addresses the inherited document pool. Repeating
+		// the same repair must therefore be idempotent: otherwise every failed
+		// patch round appends the same source coordinates again and a degraded
+		// answer can expose dozens of duplicate references. Deduplicate by the
+		// same exact-location identity used by the citation binder and remap
+		// only refs that pointed into the old appended suffix. Existing refs and
+		// citations with distinct coordinates remain untouched.
+		pool := append([]types.Citation(nil), prev.Citations...)
+		kept := make([]types.Citation, 0, len(patch.AppendCitations))
+		remap := make(map[int]int, len(patch.AppendCitations))
+		for i, cit := range patch.AppendCitations {
+			oldIndex := len(prev.Citations) + i
+			idx := answerDocumentPatchCitationIndex(pool, cit)
+			if idx < 0 {
+				pool = append(pool, cit)
+				kept = append(kept, cit)
+				idx = len(pool) - 1
+			}
+			remap[oldIndex] = idx
+		}
+		remapped := remapPatchBlockCitationRefs(patch.ReplaceBlocks, remap) +
+			remapPatchBlockCitationRefs(patch.AddBlocks, remap)
+		if len(kept) != len(patch.AppendCitations) {
+			fields = append(fields, fmt.Sprintf("append_citations deduplicated=%d", len(patch.AppendCitations)-len(kept)))
+		}
+		if remapped > 0 {
+			fields = append(fields, fmt.Sprintf("items[].citation_ref remapped=%d", remapped))
+		}
+		patch.AppendCitations = kept
+	}
 	if patch.ReplaceCitations == nil {
 		return len(fields) > 0, fields
 	}
@@ -1055,6 +1086,36 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 			}
 			for ii := range block.Items {
 				item := &block.Items[ii]
+				// source_inventory_row_id is the exact compiler-owned row
+				// selector and therefore outranks every label/evidence candidate,
+				// including in a family-less mixed table. If that exact typed row
+				// intentionally has no citation, detach any stale/model-supplied
+				// reference and do not let a weaker label binder invent one.
+				if row, ok := preEmitPatchSourceInventoryRowForItem(*block, *item, sourceInventorySets); ok {
+					if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+						if len(types.AnswerBlockItemCitationRefs(*item)) > 0 {
+							types.SetAnswerBlockItemCitationRefs(item, nil)
+							fields = append(fields, fmt.Sprintf("%s[%q].items[%q]→uncited-row", field, block.ID, item.ID))
+						}
+						continue
+					}
+					cit := types.Citation{File: row.Source, Line: row.LineStart, LineEnd: row.LineEnd}
+					target := answerDocumentPatchCitationIndex(pool, cit)
+					if target < 0 {
+						if replacePool {
+							patch.ReplaceCitations = append(patch.ReplaceCitations, cit)
+						} else {
+							patch.AppendCitations = append(patch.AppendCitations, cit)
+						}
+						pool = append(pool, cit)
+						target = len(pool) - 1
+					}
+					if target != item.CitationRef || len(item.CitationRefs) > 0 {
+						types.SetAnswerBlockItemCitationRefs(item, []int{target})
+						fields = append(fields, fmt.Sprintf("%s[%q].items[%q]→%d", field, block.ID, item.ID, target))
+					}
+					continue
+				}
 				label := strings.TrimSpace(item.Label)
 				text := preEmitItemNonLabelSurface(*item)
 				if label == "" ||
@@ -1115,6 +1176,26 @@ func normalizeAnswerDocumentPatchCitationRefs(prev *types.AnswerDocumentV2, patc
 	rebindBlocks("replace_blocks", patch.ReplaceBlocks)
 	rebindBlocks("add_blocks", patch.AddBlocks)
 	return len(fields) > 0, fields
+}
+
+func preEmitPatchSourceInventoryRowForItem(
+	block types.AnswerBlock,
+	item types.AnswerBlockItem,
+	sets []types.EnumerationDisplaySet,
+) (types.EnumerationDisplayRow, bool) {
+	rowID := strings.TrimSpace(item.SourceInventoryRowID)
+	if rowID == "" || len(sets) == 0 {
+		return types.EnumerationDisplayRow{}, false
+	}
+	row, ok := preEmitSourceInventoryRowsByIDFromSets(sets)[rowID]
+	if !ok {
+		return types.EnumerationDisplayRow{}, false
+	}
+	allowed, invalidFamily := preEmitSourceInventoryBindingRowsForBlock(block, sets)
+	if invalidFamily || !preEmitSourceInventoryRowsContainAliasIdentity(allowed, row) {
+		return types.EnumerationDisplayRow{}, false
+	}
+	return row, true
 }
 
 func preEmitPatchSourceInventoryCitationForItem(

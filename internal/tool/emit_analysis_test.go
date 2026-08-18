@@ -13023,6 +13023,39 @@ func TestEmitAnalysis_Execute_RecoversMultiKeyConfigTargetsBeforeRoleValidation(
 	}
 }
 
+func TestEmitAnalysis_Execute_NormalizesFiniteMultiKeyConfigValueInventoryToPerMemberMatrix(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	request := "比较 pipeline_max_steps 和 pipeline_max_retries_per_stage，分别列出默认值、配置文件和 CLI 覆盖层。"
+	tool := &EmitAnalysis{}
+	base := `{
+		"intent":"config_query","scenario":"config_trace","complexity":"moderate",
+		"keywords":["pipeline_max_steps","pipeline_max_retries_per_stage"],
+		"entities":["pipeline_max_steps","pipeline_max_retries_per_stage"],
+		"question_kind":"config_mapping","predicate_axis":"configure",
+		"intent_confidence":0.9,"complexity_confidence":0.8,"kind_confidence":0.9,
+		"predicates":{"is_scalar_answer":false,"is_role_locate_lookup":false,"is_count_question":false,"is_cross_component":false,"is_relational_lookup":false,"is_category_enumeration":true,"is_history_lookup":false,"is_diagnostic_question":false,"has_per_member_table":false},
+		"diagnostic_profile":{"is_diagnostic":false,"current_risk":false,"historical_regression":false,"current_version_check":false,"confidence":0.9},
+		"source_inventory_profile":{"is_source_inventory":true,"target_roles":["config_key"],"requested_fields":["name","values"],"source_quotes":["pipeline_max_steps","pipeline_max_retries_per_stage"],"confidence":0.9}`
+
+	mu := types.NewMutableState(request)
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(base+`}`)))
+	if res.Success || !strings.Contains(res.Summary, "must emit exact_context_roles") {
+		t.Fatalf("typed multi-key value inventory should normalize to a matrix and require roles, success=%t summary=%q", res.Success, res.Summary)
+	}
+
+	mu = types.NewMutableState(request)
+	res, _ = tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(base+`,"exact_context_roles":["default","config","override"]}`)))
+	if !res.Success {
+		t.Fatalf("typed precedence roles should close normalized matrix analysis, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || !rm.Predicates.HasPerMemberTable {
+		t.Fatalf("finite config value inventory did not persist per-member matrix shape: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNumeric(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

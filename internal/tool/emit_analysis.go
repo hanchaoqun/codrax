@@ -571,7 +571,7 @@ func buildEmitAnalysisSchema() {
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering/selecting/counting members of source set X by a relationship to target Y, such as functions that return Z, callers that reach service Y, or role/category members that can invoke capability Y. Pair concrete member-name relation answers with is_category_enumeration=true; pair pure relation counts with is_count_question=true."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist' or asking for concrete members of a closed/structural set, including relation-qualified members when is_relational_lookup=true."},
-					"has_per_member_table":    map[string]any{"type": "boolean", "description": "True when the request demands a per-member table / per-member rows over a bounded set (\"每个 X 一行\" / \"one row per X from A to B\"), even when the overall intent is an explanation. The member set becomes a completion obligation."},
+					"has_per_member_table":    map[string]any{"type": "boolean", "description": "True when the request demands a per-member table / per-member rows over a bounded set (\"每个 X 一行\" / \"one row per X from A to B\"), even when the overall intent is an explanation. A finite comparison of multiple named config keys that asks for each key's values/layers is also per-member. The member set becomes a completion obligation."},
 					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the authoritative evidence source is repository history / authorship metadata (git log / blame / commit history), not a repo file:line. This is an evidence-source flag, not an answer-shape flag: pair it with is_scalar_answer=true only when the principal answer is one literal such as a commit hash/date/author/count; leave is_scalar_answer=false for feature summaries, recent-commit lists, commit comparisons, locating the changed code, explaining the code behind a commit, drawing logic/sequence diagrams from a commit, or history-backed diagnostics."},
 					"is_diagnostic_question":  map[string]any{"type": "boolean", "description": "True only for open-ended cause / current-risk / remediation analysis or regression diagnosis, including whether a similar problem still exists. A finite question asking whether one specified condition affected one specified target uses runtime scope bounded_effect_verdict and keeps this full-diagnosis flag false unless broader diagnosis is separately requested. Applies with or without an attached runtime artifact. False for ordinary architecture tours, code walkthroughs, or log/trace parser mechanism questions."},
 				},
@@ -2008,6 +2008,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			exactTargets = inferred
 			val.Warnings = append(val.Warnings, "recovered finite named config exact_targets from current-request mentioned entities")
 		}
+	}
+	if normalizeFiniteConfigValueMatrixPredicate(
+		kind,
+		scenario,
+		exactTargets,
+		sourceInventoryProfile,
+		&predicates,
+	) {
+		val.Warnings = append(val.Warnings, "normalized has_per_member_table=true from finite multi-key config value inventory")
 	}
 	if normalizedAxis, warning, issue := reconcileSourceCallChainAxis(
 		kind,
@@ -6550,6 +6559,31 @@ func sanitizeExactContextRoles(exactTargets []string, subjectKind types.AnswerSu
 		"ignored exact_context_roles outside the validated precedence-role enum: %s",
 		strings.Join(dropped, ", "),
 	)
+}
+
+// normalizeFiniteConfigValueMatrixPredicate repairs one typed analyzer
+// contradiction without inspecting the request or answer prose. A finite set
+// of multiple exact config keys plus a config-key source inventory that asks
+// for values is necessarily per target: evidence for key A cannot satisfy key
+// B. Keeping HasPerMemberTable=false would disable both per-member completion
+// and the target x precedence-role matrix even though the analyzer emitted all
+// of their structural inputs.
+func normalizeFiniteConfigValueMatrixPredicate(
+	analyzerKind string,
+	scenario types.Scenario,
+	exactTargets []string,
+	profile *types.SourceInventoryProfile,
+	predicates *types.SemanticPredicates,
+) bool {
+	if predicates == nil || predicates.HasPerMemberTable || len(exactTargets) < 2 ||
+		(!strings.EqualFold(strings.TrimSpace(analyzerKind), "config_mapping") && scenario != types.ScenarioConfigTrace) ||
+		profile == nil || !profile.Active() ||
+		!profile.RequiresRole(types.AnswerCandidateRoleConfigKey) ||
+		!profile.RequestsField(types.SourceInventoryFieldValues) {
+		return false
+	}
+	predicates.HasPerMemberTable = true
+	return true
 }
 
 // validateConfidenceRange enforces the [0, 1] domain on every

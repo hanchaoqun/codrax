@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1251,6 +1252,62 @@ func TestEmitAnswerDocumentPatch_MergesAppendCitationsIntoReplaceCitations(t *te
 	}
 	if doc.Citations[0].File != "a.go" || doc.Citations[1].File != "b.go" {
 		t.Fatalf("unexpected merged citation pool: %+v", doc.Citations)
+	}
+}
+
+func TestNormalizeAnswerDocumentPatchCitationOps_DeduplicatesInheritedAppendPoolAndRemaps(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Citations: []types.Citation{{File: "a.go", Line: 10, Quote: "richer quote"}}}
+	patch := &types.AnswerDocumentV2Patch{
+		AppendCitations: []types.Citation{
+			{File: "a.go", Line: 10, Quote: "short quote"},
+			{File: "b.go", Line: 20},
+			{File: "b.go", Line: 20, Quote: "duplicate coordinate"},
+		},
+		ReplaceBlocks: []types.AnswerBlock{{
+			ID: "table", Kind: types.BlockTable,
+			Items: []types.AnswerBlockItem{
+				{ID: "old", Label: "A", CitationRef: 1},
+				{ID: "new", Label: "B", CitationRef: 2},
+				{ID: "dup", Label: "B2", CitationRef: 3},
+			},
+		}},
+	}
+	changed, fields := normalizeAnswerDocumentPatchCitationOps(prev, patch)
+	if !changed || len(fields) == 0 {
+		t.Fatalf("duplicate append citations were not normalized: changed=%v fields=%v", changed, fields)
+	}
+	if len(patch.AppendCitations) != 1 || patch.AppendCitations[0].File != "b.go" {
+		t.Fatalf("append pool=%+v, want one new coordinate", patch.AppendCitations)
+	}
+	refs := []int{
+		patch.ReplaceBlocks[0].Items[0].CitationRef,
+		patch.ReplaceBlocks[0].Items[1].CitationRef,
+		patch.ReplaceBlocks[0].Items[2].CitationRef,
+	}
+	if !reflect.DeepEqual(refs, []int{0, 1, 1}) {
+		t.Fatalf("citation refs=%v, want inherited/new/new remap", refs)
+	}
+}
+
+func TestNormalizeAnswerDocumentPatchCitationRefs_MixedCarrierExactRowIDOutranksLabel(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	prev := &types.AnswerDocumentV2{Citations: []types.Citation{
+		{File: "cart/Cart.cj", Line: 30},
+		{File: "cart/Cart.cj", Line: 14},
+	}}
+	patch := &types.AnswerDocumentV2Patch{ReplaceBlocks: []types.AnswerBlock{{
+		ID: "mixed", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+		Items: []types.AnswerBlockItem{{
+			ID: "cart", Label: "Cart", SourceInventoryRowID: classID, CitationRef: 0,
+		}},
+	}}}
+	changed, fields := normalizeAnswerDocumentPatchCitationRefs(prev, patch, ctx)
+	if !changed || len(fields) == 0 {
+		t.Fatalf("exact row id did not drive patch citation binding: changed=%v fields=%v", changed, fields)
+	}
+	if got := patch.ReplaceBlocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("mixed carrier exact row id bound citation_ref=%d, want class row index 1", got)
 	}
 }
 

@@ -2035,6 +2035,13 @@ func normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc *types.Answe
 	if len(rows) == 0 {
 		return 0
 	}
+	return normalizeItemCitationRefsBySourceInventoryRows(doc, rows)
+}
+
+func normalizeItemCitationRefsBySourceInventoryRows(doc *types.AnswerDocumentV2, rows map[string]types.EnumerationDisplayRow) int {
+	if doc == nil || len(rows) == 0 {
+		return 0
+	}
 	fixed := 0
 	for bi := range doc.Blocks {
 		block := &doc.Blocks[bi]
@@ -2048,7 +2055,14 @@ func normalizeItemCitationRefsBySourceInventoryRowIDWithContext(doc *types.Answe
 				continue
 			}
 			row, ok := rows[rowID]
-			if !ok || !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+			if !ok {
+				continue
+			}
+			if !row.HasCitation || strings.TrimSpace(row.Source) == "" || row.LineStart <= 0 {
+				if len(types.AnswerBlockItemCitationRefs(*item)) > 0 {
+					types.SetAnswerBlockItemCitationRefs(item, nil)
+					fixed++
+				}
 				continue
 			}
 			ref := appendOrReusePreEmitCitation(doc, types.Citation{File: row.Source, Line: row.LineStart, LineEnd: row.LineEnd})

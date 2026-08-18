@@ -483,6 +483,16 @@ func principalEnumerationItemCoversAnySourceInventoryScopedRow(item types.Answer
 			!principalEnumerationItemStronglyIdentifiesRow(item, row) {
 			continue
 		}
+		// An exact prompt-visible row id is the strongest member/family
+		// identity. Some legitimate aggregate members have no independently
+		// aligned support_ref, so their typed display row intentionally carries
+		// HasCitation=false. Requiring a citation for such a row creates an
+		// impossible contract: the row is mandatory, but no citation exists for
+		// it. Accept only the exact id + exact visible identity in that case. A
+		// cited row still has to bind its exact source coordinate below.
+		if strings.TrimSpace(item.SourceInventoryRowID) == strings.TrimSpace(row.RowID) && !row.HasCitation {
+			return true
+		}
 		if item.CitationRef >= 0 {
 			if principalEnumerationItemCitationCompatible(item, doc, row) {
 				return true
