@@ -47,7 +47,10 @@ This scaffold is for human review. The runner records typed metrics and declared
    只含失败 edge 的结构化删除/替换动作，不能放松边权威或由系统代画。
 7. 最终图使用 `analyze -> explorer -> extractor -> finalizer` 三条 precedence，格式合法、关系未丢，说明不需
    新增基于 diagram.body 原文的硬门。最优方案应复用 typed relation candidate/edge identity，统一 sequence、
-   flowchart、class 等图族的关系教学，减少模型自行把逻辑顺序画成 call。
+   flowchart、class 等图族的关系教学，减少模型自行把逻辑顺序画成 call。审计后已先施工 stage-workflow 的
+   通用首稿 recipe：一个 ordering candidate 对应一个 forward message + 一个同节点对 precedence anchor；
+   明确禁止无独立 recipe 的 fan-out/self-message/activation/reply/artifact arrow，并给 unowned edge 与
+   metadata-only edge 各自的单动作修法。只改提示，不放松 validator、不代写图。
 8. 本轮未触发 Trace。显式窗因果投影、自动补齐、链上-only 主因、背景 support-only，以及优先级反转、
    调度/算力供给、D/IO、确定性语义工作、业务线索、实际占用/规则可消双轴均保持。
 
@@ -55,7 +58,7 @@ This scaffold is for human review. The runner records typed metrics and declared
 
 - `B1069=production-direction-positive/producer-semantic-owner-overclaim-corrected`
 - `B1071-MULTITOPICSOURCEASSOCIATION1=implemented/exact-source-first+producer-fallback/replay-next`
-- `B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1=confirmed/P1/next`
+- `B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1=implemented/prompt-recipe/replay-next`
 - `B1070-CITATIONITEMBINDING1=broadened-observation/no-case-fit`
 - `runner=1 PASS/1 regex-false-negative; human=2 partial`
 - `active-stream-fixed-4ms-degrade=forbidden/not-observed`

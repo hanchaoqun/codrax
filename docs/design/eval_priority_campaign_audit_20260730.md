@@ -36334,14 +36334,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 6. B1072 最优形不是降低关系证据门或系统代画：首稿给基于现有 typed ordering candidates 的紧凑 workflow
    recipe；修补只返回失败 edge 的结构化 remove/replace 动作；sequence/flowchart/class 等图族共享同一
    relation-kind→可见表达规则，禁止再按某一 case 的节点名/箭头文本拟合。
-7. 组合 303s，pipeline 389s；没有 JSON 畸形、空答案、旧稿降级或固定 4ms 活跃流降级。本批未改 Trace，
+7. B1072 首稿层已施工：在既有 checkout-verified stage precedence recipe 上补一份通用 body/JSON 配对教学。
+   sequence 的一个 ordering recipe 只能对应一个 forward message 和一个同节点对的
+   `relation_kind=precedence` anchor；dispatcher fan-out、自环、activation/reply、artifact transfer 均不能为
+   “图更完整”而自行添加。修补教学明确 unowned edge 只删除该边、metadata-only 只恢复同 recipe 的可见边或
+   删除陈旧 anchor，禁止用自环/桥补 metadata。它只改变 prompt，不改 validator、不生成 diagram.body。
+8. 组合 303s，pipeline 389s；没有 JSON 畸形、空答案、旧稿降级或固定 4ms 活跃流降级。本批未改 Trace，
    显式窗因果投影、自动补齐、链上-only 主因与背景 support-only 保持。
 
 状态：
 
 `B1069=production-direction-positive/producer-semantic-owner-overclaim-corrected`；
 `B1071-MULTITOPICSOURCEASSOCIATION1=implemented/exact-source-first+producer-fallback/full-agent-pass/replay-next`；
-`B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1=confirmed/P1/next`；
+`B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1=implemented/prompt-recipe/full-agent-pass/replay-next`；
 `B1070-CITATIONITEMBINDING1=broadened-observation/no-case-fit`；
 `runner=1 PASS/1 regex-false-negative`；`human=2 partial`；
 `raw-prose-hard-gate=none`；`system-answer/conclusion/relation/diagram-authorship=none`；
