@@ -2130,7 +2130,8 @@ func (rm RequestModel) hasRequiredRuntimeCurrentSourceMechanismDimension() bool 
 			continue
 		}
 		switch dim.Role {
-		case RequestedAnswerDimensionFunctionOrPurpose:
+		case RequestedAnswerDimensionFunctionOrPurpose,
+			RequestedAnswerDimensionBranchBehavior:
 			if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 				return true
 			}

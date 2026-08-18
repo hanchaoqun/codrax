@@ -36802,6 +36802,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1043 B1048：requested branch behavior 建立 typed 状态/效果闭包（2026-08-18）
+
+1. 新增 `requested_answer_dimensions.role=branch_behavior`，把“某个条件、重试、fallback、异常处理、默认分支
+   如何/何时被选择以及该分支做什么”与普通 `function_or_purpose` 分离。该 role 只是 schema enum 形的调查
+   需求，不预判分支可达性、结果或最终结论；Analyzer 教学明确普通职责说明仍使用旧 role。
+2. pre-complete 新闭包只在四个 typed 条件同时成立时介入：当前请求具有 required `branch_behavior`；repomap
+   parser 已给出 guard→arm→effect 所有权；模型已用 grounded evidence 选择该 guard 与 exact branch effect；
+   当前唯一 grounded 布尔状态写入恰好证明相反 arm。此时只要求模型补发同一 guard 的 initializer/assignment
+   与 handler/input producer，找不到则把 reachability 保持为 unproven；系统不创建证据、不宣布分支可达/不可达、
+   不改答案或关系。
+3. 判定不读取用户问题、模型推理、答案正文、fallback/Python 等词面。复合 guard、switch/match selector、参数
+   状态、未知值、多状态、多文件歧义或 effect identity 不唯一均 fail-open，避免 noisy 推断成为硬门。已有 true/false
+   两种 grounded 状态时也不再以“唯一相反状态”阻塞，但这只撤销矛盾，不自行证明运行时路径。
+4. 复用现有跨语言 `FileInfo.ControlFlowBranches`，没有另造语言特例。13 个 tree-sitter 可执行语言与 Cangjie
+   共享同一 consumer；ArkTS/Cangjie 都在矩阵 pin 内。Cangjie 将 alternative 的 `GuardLine` 记在 `else` 行，
+   consumer 只通过 parser 输出中紧邻且 condition 相同的 consequence/alternative 记录对回接原 guard，禁止按源码
+   行邻近猜 ownership。C++ `->`/template、Rust turbofish、C function pointer 与普通 qualified call identity 另有
+   exact endpoint pin。
+5. 生产接线 pin 直接经过 `preCompleteContractCheckWithEvidence`，避免只测 helper 却漏挂点；role schema 解析、
+   单状态矛盾、多状态闭合、普通 purpose 负例、复合 guard 负例和 14 语言消费矩阵均通过。该批只补 investigation
+   evidence closure，不影响模型结论所有权或 standalone relation 可见性；B1049 继续独立施工。
+6. Trace 查询、显式时间窗、因果投影、确定性补齐、链上-only 主因、背景 support-only、实际占用与规则可消除
+   双轴均未修改；write controller 与活跃流终止逻辑也未修改，固定 4ms 降级继续禁止。
+
+状态：
+
+`B1047-CITATIONDEFINITIONDOWNGRADE1=implemented/pushed-824b10a68`；
+`B1048-REQUESTEDBRANCHREACHABILITY1=implemented/typed-role+parser-ownership+wire-pins-pass`；
+`B1049-STANDALONERELATIONVISIBILITY1=next-batch`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

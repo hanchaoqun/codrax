@@ -2628,6 +2628,7 @@ func principalEnumerationVerifiedNoteSupplementAllowed(ctx *types.BusContext) bo
 		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
 			switch dim.Role {
 			case types.RequestedAnswerDimensionFunctionOrPurpose,
+				types.RequestedAnswerDimensionBranchBehavior,
 				types.RequestedAnswerDimensionImpact,
 				types.RequestedAnswerDimensionComparisonAxis:
 				return true

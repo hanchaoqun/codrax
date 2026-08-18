@@ -1141,6 +1141,10 @@ func TestParseRequestedAnswerDimensionRoleSeparatesDisplayRoleFromRuntimeFactFam
 	if errText != "" || warning != "" || role != types.RequestedAnswerDimensionTargetEffectVerdict {
 		t.Fatalf("valid finite-verdict role changed: role=%q warning=%q err=%q", role, warning, errText)
 	}
+	role, warning, errText = parseRequestedAnswerDimensionRole("branch_behavior")
+	if errText != "" || warning != "" || role != types.RequestedAnswerDimensionBranchBehavior {
+		t.Fatalf("valid branch-behavior role changed: role=%q warning=%q err=%q", role, warning, errText)
+	}
 	if _, _, errText = parseRequestedAnswerDimensionRole("made_up_runtime_role"); !strings.Contains(errText, "is invalid") {
 		t.Fatalf("unknown role must fail loud instead of silently becoming other: %q", errText)
 	}

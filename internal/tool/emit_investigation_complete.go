@@ -4205,6 +4205,9 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		if downgrade := requestedSubTopicCallableBodyDowngrade(ctx, closure, evidence); downgrade != "" {
 			return downgrade
 		}
+		if downgrade := requestedBranchBehaviorStateDowngrade(ctx, closure, evidence); downgrade != "" {
+			return downgrade
+		}
 		if genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence) {
 			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded model-owned completion boundary")
 		} else {

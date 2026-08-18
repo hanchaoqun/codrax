@@ -19,10 +19,16 @@ const (
 	RequestedAnswerDimensionDiffClue          RequestedAnswerDimensionRole = "diff_clue"
 	RequestedAnswerDimensionCurrentKeyCode    RequestedAnswerDimensionRole = "current_key_code"
 	RequestedAnswerDimensionFunctionOrPurpose RequestedAnswerDimensionRole = "function_or_purpose"
-	RequestedAnswerDimensionImpact            RequestedAnswerDimensionRole = "impact"
-	RequestedAnswerDimensionComparisonAxis    RequestedAnswerDimensionRole = "comparison_axis"
-	RequestedAnswerDimensionCount             RequestedAnswerDimensionRole = "count"
-	RequestedAnswerDimensionMemberSet         RequestedAnswerDimensionRole = "member_set"
+	// RequestedAnswerDimensionBranchBehavior identifies a visible explanation
+	// of how or when one conditional/retry/fallback/handler/default branch is
+	// selected and what that branch does. It is distinct from a generic
+	// function purpose: downstream may require guard, branch-effect, and state
+	// provenance evidence without inspecting the user request or final prose.
+	RequestedAnswerDimensionBranchBehavior RequestedAnswerDimensionRole = "branch_behavior"
+	RequestedAnswerDimensionImpact         RequestedAnswerDimensionRole = "impact"
+	RequestedAnswerDimensionComparisonAxis RequestedAnswerDimensionRole = "comparison_axis"
+	RequestedAnswerDimensionCount          RequestedAnswerDimensionRole = "count"
+	RequestedAnswerDimensionMemberSet      RequestedAnswerDimensionRole = "member_set"
 	// RequestedAnswerDimensionSourceLocation identifies a user-visible,
 	// per-subject source/file location column. It is deliberately distinct
 	// from EvidenceSource: a citation can prove a row without making the file
@@ -75,6 +81,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionDiffClue,
 		RequestedAnswerDimensionCurrentKeyCode,
 		RequestedAnswerDimensionFunctionOrPurpose,
+		RequestedAnswerDimensionBranchBehavior,
 		RequestedAnswerDimensionImpact,
 		RequestedAnswerDimensionComparisonAxis,
 		RequestedAnswerDimensionCount,
@@ -171,6 +178,7 @@ func RequestedAnswerDimensionRoleCarriesCurrentSourceObligation(role RequestedAn
 	switch role {
 	case RequestedAnswerDimensionCurrentKeyCode,
 		RequestedAnswerDimensionFunctionOrPurpose,
+		RequestedAnswerDimensionBranchBehavior,
 		RequestedAnswerDimensionSourceLocation:
 		return true
 	default:

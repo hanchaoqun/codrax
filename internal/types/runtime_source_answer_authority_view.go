@@ -508,7 +508,8 @@ func runtimeSourceAuthorityPreciseCurrentSourceRequirement(rm *RequestModel) boo
 				if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 					return true
 				}
-			case RequestedAnswerDimensionFunctionOrPurpose:
+			case RequestedAnswerDimensionFunctionOrPurpose,
+				RequestedAnswerDimensionBranchBehavior:
 				if rm.dimensionHasPreciseCurrentSourceAnchor(dim) {
 					return true
 				}
