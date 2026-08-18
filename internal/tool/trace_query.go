@@ -529,8 +529,10 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 //   - the effective params fail to re-marshal (cannot normalize ⇒ no claim).
 //
 // Key composition: sha256 over the strict-decoded, inheritance/adaptation-
-// completed params (canonical re-marshal absorbs field-order/whitespace
-// noise), the two TraceSecond window bounds' full fingerprints (TraceSecond
+// completed params after canonicalizing the EFFECTIVE platform/flavor hints
+// and recording their provenance (so harmony_hitrace+harmony_hitrace and
+// harmony+derived-harmony-hitrace share a key only when both resolve through
+// the same typed source), the two TraceSecond window bounds' full fingerprints (TraceSecond
 // has no exported fields, so the re-marshal alone would erase the window —
 // deviation note in the design ledger 类2 §10), the resolved path + source
 // label, the artifact's (size, mtime) stat fingerprint, AND the call's
@@ -559,7 +561,21 @@ func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLa
 	if err != nil || info.IsDir() {
 		return "", false
 	}
-	paramsJSON, err := json.Marshal(p)
+	// B1108 (2026-08-18): platform and trace-flavor are enum-style aliases,
+	// and an explicit platform also deterministically supplies its flavor.
+	// Hashing their raw spellings made semantically identical read-only calls
+	// rebuild the same index in separate explorer lanes.  Canonicalize exactly
+	// the values consumed by traceQueryBuildQuery, but retain their typed source:
+	// tool_param and attached_source can produce different confidence/caveat
+	// faces and therefore must never collide.  Every capacity/filter/window
+	// field remains in p unchanged; in particular explicit wakeup budgets do not
+	// collapse onto engine defaults.
+	platform, platformSource := tracePlatformHintForQuery(ctx, p, sourceLabel, path)
+	flavor, flavorSource := traceFlavorHintForQuery(ctx, p, sourceLabel, path, platform, platformSource)
+	memoParams := p
+	memoParams.Platform = string(platform)
+	memoParams.TraceFlavor = string(flavor)
+	paramsJSON, err := json.Marshal(memoParams)
 	if err != nil {
 		return "", false
 	}
@@ -570,6 +586,8 @@ func traceQueryMemoKey(ctx *types.BusContext, p traceQueryParams, path, sourceLa
 		[]byte(traceSecondMemoFingerprint(p.TimeEnd)),
 		[]byte(path),
 		[]byte(sourceLabel),
+		[]byte(platformSource),
+		[]byte(flavorSource),
 		[]byte(strconv.FormatInt(info.Size(), 10)),
 		[]byte(strconv.FormatInt(info.ModTime().UnixNano(), 10)),
 		[]byte(callCaveat),

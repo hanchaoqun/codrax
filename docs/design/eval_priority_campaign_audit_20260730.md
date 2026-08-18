@@ -36021,6 +36021,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1098 B1108：Trace 只读 memo 采用有效平台/格式身份，容量差异不误合并（2026-08-18）
+
+1. 对 r702 的 6 次 `trace_query` 逐参数冷审后，纠正“3 组都是完全重复”的初步判断：两条
+   `wakeup_chain` 并不等价。第一条显式 `max_branches=8/max_chain_nodes=32/include_window_stats=true`，
+   第二条走引擎默认 `16/96/true`，可枚举的分支与节点前沿不同，必须分别执行。真正重复的是
+   `window_stats` 与 `root_cause_rank` 两组；它们只差 `platform=harmony_hitrace +
+   trace_flavor=harmony_hitrace` 和 `platform=harmony` 的别名/冗余写法，进入引擎后都成为
+   `platform=harmony, flavor=harmony_hitrace, source=tool_param`。
+2. 系统已有 per-task 纯工具 memo，且 fork/merge、成功结果 first-writer-wins、观察账本引用去重均已齐全；
+   GAP 在 memo key 仍哈希 strict-decode 后的原始 enum 写法，早于引擎有效提示身份。此次不新增 Agent
+   缓存、不删任一 explorer，也不减少 window/wakeup/rank 视图，只把 key 中 platform/flavor 改为与
+   `traceQueryBuildQuery` 同源的规范值，并把 `tool_param/attached_source` 来源一并纳入 key。
+3. 来源必须保留：显式工具参数与附件来源即使解析成同一枚举，也可能产生不同置信度和 caveat，因此
+   仍分 key。所有窗口、过滤器、目标、视图、`max_depth/max_branches/max_chain_nodes`、
+   `include_window_stats` 等字段继续原样进入 key；没有把未显式值猜成默认，也没有扩大纯度声明。
+4. 三组 pin 覆盖：(a) Harmony 平台/格式别名与冗余 flavor 命中同一 memo，refs/observations 原样复用；
+   (b) wakeup `8/32` 与默认 `16/96` 坚持 fresh execution；(c) `tool_param` 与 `attached_source` 同值仍分离。
+   该优化只减少已经证明等价的只读重算；每次调用的窗口登记照常发生，因果补齐与探索覆盖不变。
+
+状态：
+
+`B1108-TRACEQUERYSEMANTICDUPLICATION1=implemented/effective-enum-identity`；
+`wakeup-capacity-variation=preserved/not-duplicate`；
+`explorer-lanes/views=unchanged`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

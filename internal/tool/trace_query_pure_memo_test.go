@@ -147,6 +147,79 @@ func TestTraceQueryRunMemo_ParamVariationExecutesFresh(t *testing.T) {
 	}
 }
 
+// B1108: enum aliases and a flavor redundantly restated beside an explicit
+// platform are presentation differences, not different trace computations.
+// The memo identity follows the same typed normalization as the engine.
+func TestTraceQueryRunMemo_EffectivePlatformFlavorAliasesReuse(t *testing.T) {
+	ctx, _ := pureMemoFixtureCtx(t)
+	tool := &TraceQuery{}
+
+	first, err := tool.Execute(ctx, pureMemoFixtureParams(t, map[string]any{
+		"platform":     "harmony_hitrace",
+		"trace_flavor": "harmony_hitrace",
+	}))
+	if err != nil || !first.Success || first.ReusedFromRunMemo {
+		t.Fatalf("seed: err=%v success=%v reused=%v", err, first.Success, first.ReusedFromRunMemo)
+	}
+	second, err := tool.Execute(ctx, pureMemoFixtureParams(t, map[string]any{
+		"platform": "harmony",
+	}))
+	if err != nil || !second.Success || !second.ReusedFromRunMemo {
+		t.Fatalf("normalized alias call: err=%v success=%v reused=%v", err, second.Success, second.ReusedFromRunMemo)
+	}
+	if second.RawRef != first.RawRef || !reflect.DeepEqual(second.Observations, first.Observations) {
+		t.Fatal("effective-alias memo hit must preserve the original deterministic witness verbatim")
+	}
+}
+
+// B1108 negative arm: the two production wakeup calls looked similar, but
+// max_branches=8/max_chain_nodes=32 and the engine defaults 16/96 enumerate
+// different evidence frontiers.  Alias normalization must not erase those
+// effective capacity differences (nor an explicit/default stats distinction).
+func TestTraceQueryRunMemo_WakeupCapacityVariationStaysFresh(t *testing.T) {
+	ctx, _ := pureMemoFixtureCtx(t)
+	tool := &TraceQuery{}
+	firstParams := pureMemoFixtureParams(t, map[string]any{
+		"view":                 "wakeup_chain",
+		"platform":             "harmony_hitrace",
+		"trace_flavor":         "harmony_hitrace",
+		"max_branches":         8,
+		"max_chain_nodes":      32,
+		"include_window_stats": true,
+	})
+	if first, err := tool.Execute(ctx, firstParams); err != nil || !first.Success || first.ReusedFromRunMemo {
+		t.Fatalf("seed: err=%v success=%v reused=%v", err, first.Success, first.ReusedFromRunMemo)
+	}
+	second, err := tool.Execute(ctx, pureMemoFixtureParams(t, map[string]any{
+		"view":     "wakeup_chain",
+		"platform": "harmony",
+	}))
+	if err != nil || !second.Success {
+		t.Fatalf("default-capacity call: err=%v success=%v", err, second.Success)
+	}
+	if second.ReusedFromRunMemo {
+		t.Fatal("different wakeup enumeration budgets must execute independently")
+	}
+}
+
+// Equal enum values from different typed provenance can produce different
+// confidence/caveat faces.  Keep the source in the key instead of collapsing
+// an attached-source hint onto an explicit tool parameter.
+func TestTraceQueryRunMemo_PlatformFlavorProvenanceSplitsKeys(t *testing.T) {
+	ctx, tracePath := pureMemoFixtureCtx(t)
+	ctx.AttachedHitraceSource = "harmony"
+	pExplicit := traceQueryParams{Platform: "harmony"}
+	pAttached := traceQueryParams{}
+	k1, ok1 := traceQueryMemoKey(ctx, pExplicit, tracePath, "attached_trace", "")
+	k2, ok2 := traceQueryMemoKey(ctx, pAttached, tracePath, "attached_trace", "")
+	if !ok1 || !ok2 {
+		t.Fatalf("healthy keys expected: explicit=%v attached=%v", ok1, ok2)
+	}
+	if k1 == k2 {
+		t.Fatal("tool_param and attached_source hint provenance must not share a memo key")
+	}
+}
+
 // Pin 3 (spec 类2 §7.3): a memo hit is byte-equivalent to a fresh run for
 // the run-scoped side-effect registries — the SUPP-CORE call-window
 // registry keeps one entry per call ("duplicates kept, call order is the
