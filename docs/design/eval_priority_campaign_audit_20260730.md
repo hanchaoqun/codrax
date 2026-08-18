@@ -35999,6 +35999,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-4ms-degrade=forbidden`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`。
 
+### §123.1080 r693：B1088 双面生产正证；空 optional composite 与 Trace reader role 新断层（2026-08-18）
+
+1. 在 `main@ea4ab31c4` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + trace_query_wakeup_causal_runnable`。Runner `2 PASS / 0 FAIL`，人工均为
+   partial；完整记录见 `eval/parallel_selected_summary_evalcampaign_reader_enum_r693_20260818_manual_audit.md`。
+2. B1088 两种处理形均获 production-positive。普通 call Finalizer 收到中文 shared-callee reader fact，终稿
+   不再出现 `shared_callee_boundary`，两条真实 inward call 与合法 sequence diagram 均保留；Trace 模型仍在
+   principal summary 的 JSON 字段选择 `bounded_window_candidate`，但客户正文不再复制该值，且零成文拒绝。
+   这证明“非回填状态不进 prompt、必填控制值只留一次 schema 面”没有破坏 typed authority。
+3. Trace 不变量均在：显式 1.000000..1.010000 主窗、三次 typed query、确定性补采、Trace 因果投影、
+   worker-200 链上 #1、邻近/背景降格、实际占用与规则可消除量双轴。没有系统删改模型结论、主根因或图，
+   活跃流 215s 等到完整答案，没有 4ms 固定年龄降级。
+4. 新确认 `B1090-EMPTYOPTIONALCOMPOSITENORMALIZE1`。call 案首轮畸形 blocks-string 会丢 ordered_list，
+   系统正确拒绝；第二轮已是 native JSON，却在 summary/list/caveat 上携带 schema-default `diagram:{}`。
+   Go 解码将空对象铸成非 nil pointer，通用 validator 随即把非图 summary 当 diagram 检查并报
+   `diagram.body is empty`，尽管真正 diagram block 的 body 完整。最优修复是 decode/canonicalization seam
+   仅把严格零值、与 block kind 不匹配的 optional composite 归一为 absent；任一可见/语义字段非空继续
+   fail-closed。它不扫描 prose，也不修或代画 Mermaid。
+5. 新登记 `B1091-TRACECONTROLVOCABREADERSURFACE1`：Trace 正文虽不再泄漏 caliber，却仍复制
+   `dominant_state`、`synchronous_blocker_authority=not_provided`、`holder_waiter_authority=not_provided`。
+   后续要在 typed producer/serializer 扩展 raw field + locale reader fact 分层，不能靠最终答案关键词门。
+6. Trace 人工语义仍有两项：把 worker 的 9.000ms 链上累计误称 9.000ms runnable（实测 runnable
+   8.300ms），记 `B1092-TRACEVALUECOLUMNROLE1`；把窗尾 1.010000 唤醒后的 1.010020 sched-in 描述成
+   窗内“立即运行、无额外 runnable”，记 `B1093-SELECTEDWINDOWPOSTBOUNDARY1`。系统表/投影的主窗与字段值
+   正确，错误发生在模型综合，修向应是更短更精确的 typed value-role/post-window handoff，不得系统改答案。
+7. call 终稿仍把同一 `buildAnalysisIR` 内的 18 条 supporting sibling calls 称为“到 RunWith 之间的中间
+   函数”；关系 validator 已正确把它们移出 principal relation carrier，但成文角色未跟随，B1089 继续开放。
+
+状态：
+
+`B1088-INTERNALENUMCUSTOMERSURFACE1=production-positive-two-shapes-r693/specific-witnesses-closed`；
+`B1090-EMPTYOPTIONALCOMPOSITENORMALIZE1=production-confirmed-r693/fix-next`；
+`B1091-TRACECONTROLVOCABREADERSURFACE1=open`；
+`B1092-TRACEVALUECOLUMNROLE1=open`；
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=open`；
+`B1089-STAGEEVIDENCEROLETOFINAL1=open`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r693`；
+`Trace explicit-window/query/projection/auto-supplement=production-preserved-r693`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
