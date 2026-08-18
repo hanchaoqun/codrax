@@ -35857,6 +35857,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1076 r691：sibling surface 首层生产正证；endpoint span 与 carrier flow 仍失真（2026-08-18）
+
+1. 在 `main@bd4966cb3` 严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + qf_logic_view_read_pipeline`。Runner `2 PASS / 0 FAIL`，
+   人工 `2 fail`；逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_diagram_surface_scope_r691_20260818_manual_audit.md`。
+2. B1084 第一层获生产正证。sibling table 案最终 Analyzer participant roster 只有
+   `analyze/finalizer`，五个输入/输出/载体名仍完整进入表格与实体上下文；显式数据流案把
+   `Mutable/BusContext` 写在 relation scope 内，二者都保留为图参与者。闭域规则既没有吞 sibling
+   答案维度，也没有误删真正关系 actor。
+3. 但 sibling 案仍经历 4 次 finalizer reject、51 次 read，终图膨胀成 17 个参与者，混入 mode normalize、
+   graph state、auto verdict、contract check、answer reviewer 等次级实现。根因新记
+   `B1085-STAGEENDPOINTSPANCOMPLETENESS1`：typed provider 已由 `analyze/finalizer` 选出完整四阶段 span，
+   旧 complete 判据却要求四个 stage 全部逐项出现在 participant roster。端点式“从 A 到 D”因此被误判
+   supporting-only，repair 注入 24KB 全关系池，模型把候选当绘图清单。
+4. 最优根修是 provider-owned endpoint-span completeness：当 selected span 由两个 distinct typed endpoint
+   唯一界定，且每条相邻 precedence 均来自 checkout authority 时，span 本身就是 principal relation set；
+   中间 stage 是已证路径成员，不要求用户逐个点名。任何额外 incident participant 不匹配 span 仍使其不完整。
+   修补时只重复 principal rows，不暴露 generic full pool。只读 typed participant/selection rows，禁止扫 request、
+   reasoning、final prose，禁止系统画图。
+5. 显式 carrier 案证明兼容但仍人工 fail：4 次 reject 后，图只交付四阶段顺序与局部 append/call，
+   `Mutable` 保留 unproven，未形成请求所需的组件→共享载体数据流；可见箭头还直接显示 `data_flow/call`
+   内部枚举。分别记 `B1087-REQUESTSCOPEDCARRIERFLOWSET1` 与
+   `B1086-DIAGRAMBUSINESSDISPLAYENFORCEMENT1`。B1086 不能靠扫描终稿词面硬拒；B1087 不能靠系统补边，
+   后续先审 typed operation projection/participant candidate set，再决定最小结构化合同。
+6. 两案没有空答案、畸形 JSON 恢复、固定 4ms 活跃流降级或系统替换模型结论。均为 source read case；
+   Trace 显式窗、因果投影、自动补采、链上-only 主因、实际占用/业务线索与规则可消除量双轴未改。
+
+状态：
+
+`B1084-DIAGRAMSIBLINGSURFACEPARTICIPANT1=production-positive-first-layer-r691`；
+`B1085-STAGEENDPOINTSPANCOMPLETENESS1=production-confirmed-r691/fix-next`；
+`B1086-DIAGRAMBUSINESSDISPLAYENFORCEMENT1=production-confirmed-r691/design-needed`；
+`B1087-REQUESTSCOPEDCARRIERFLOWSET1=production-confirmed-r691/audit-needed`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r691`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
