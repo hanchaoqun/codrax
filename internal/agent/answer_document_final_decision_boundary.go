@@ -152,13 +152,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)\n\n")
 	b.WriteString("- You own the diagnosis, prioritization, optimization direction, and wording. The system supplies measurements and authority ceilings only; do not merely restate the projection rows.\n")
 	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil && view.TraceCausalClaimContract.Active() {
-		allowed := make([]string, 0, len(view.TraceCausalClaimContract.Allowed))
-		for _, caliber := range view.TraceCausalClaimContract.Allowed {
-			allowed = append(allowed, string(caliber))
-		}
-		fmt.Fprintf(&b, "- principal_trace_summary_contract: %s Keep the lead/detail wording within the declared `%s` scope. This is your causal-strength declaration; it does not choose the cause. No conclusion is inferred from prose or written for you.\n",
-			tool.TraceCausalClaimPrincipalSummaryShape(view.TraceCausalClaimContract.Allowed), strings.Join(allowed, "|"))
-		b.WriteString(renderTraceCausalClaimCaliberMapping(view.TraceCausalClaimContract))
+		b.WriteString("- Principal Trace summary contract: emit one principal summary block and fill its causal-strength JSON control field with exactly one value allowed by the dispatch-local tool schema. Keep the visible lead/detail within the matching natural-language scope supplied in the reader handoff below, but never repeat the field name or its machine value in visible prose. This declaration does not choose the cause. No conclusion is inferred from prose or written for you.\n")
 	}
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: the strongest supported synthesis is a bounded candidate or first validation direction, not a proven dropped-frame/frame-deadline cause.\n")
@@ -1117,37 +1111,6 @@ func renderTraceFinalTimeRoleAuthority(set types.TraceCausalProjectionSet) strin
 		b.WriteString("  - duration_selection_rule=`use_the_value_whose_typed_role_matches_the_sentence`; do not replace selected-window sleep/total with whole-attachment extent, and do not extend sleep to a later sched-in after the selected window. A post-wakeup runnable/dispatch duration requires its own typed interval.\n")
 	}
 	return b.String()
-}
-
-// renderTraceCausalClaimCaliberMapping keeps the report-local JSON enum and
-// its evidence-status vocabulary visibly distinct. The model still chooses
-// both the diagnosis and the declaration; this text only explains the exact
-// wire values already projected by the typed contract.
-func renderTraceCausalClaimCaliberMapping(contract *types.TraceCausalClaimContract) string {
-	if contract == nil || !contract.Active() {
-		return ""
-	}
-	allowed := make(map[types.TraceCausalClaimCaliber]bool, len(contract.Allowed))
-	for _, caliber := range contract.Allowed {
-		allowed[caliber] = true
-	}
-	var parts []string
-	if allowed[types.TraceCausalClaimNoConclusion] {
-		parts = append(parts, "`no_causal_conclusion` only when the lead makes no cause or candidate attribution")
-	}
-	if allowed[types.TraceCausalClaimBoundedWindow] {
-		parts = append(parts, "`bounded_window_candidate` when the lead names or ranks selected-window candidates while keeping frame/deadline causality unproven")
-	}
-	if allowed[types.TraceCausalClaimTypedChain] {
-		parts = append(parts, "`typed_chain_cause` only when the lead's causal attribution is bounded by a typed causal chain")
-	}
-	if allowed[types.TraceCausalClaimTypedFrame] {
-		parts = append(parts, "`typed_frame_cause` only when typed frame/deadline causality supports that claim")
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "- trace_causal_claim_caliber_mapping: " + strings.Join(parts, "; ") + ". Evidence-status values such as `unproven` are not JSON enum values for this field. " + types.AnswerControlMetadataVisibilityGuide + "\n"
 }
 
 // renderTraceFinalSelectedWindowAuthority prevents attachment previews and

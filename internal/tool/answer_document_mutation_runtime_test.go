@@ -2520,6 +2520,13 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 			t.Fatalf("shared Trace JSON-shape teaching missing %q:\n%s", want, body)
 		}
 	}
+	for _, forbidden := range []string{
+		"no_causal_conclusion", "bounded_window_candidate", "typed_chain_cause", "typed_frame_cause",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("shared prose contract must leave dispatch-local Trace wire value %q to the projected field schema:\n%s", forbidden, body)
+		}
+	}
 	full := (&EmitAnswerDocument{}).Description()
 	patch := (&EmitAnswerDocumentPatch{}).Description()
 	if !strings.Contains(full, body) {

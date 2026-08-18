@@ -1318,23 +1318,22 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Typed Call-Chain Endpoint Boundary",
-		"disposition=`no_directed_path`",
 		"source_endpoint=`buildAnalysisIR`",
 		"requested_sink=`gate.Run`",
-		"call_graph_status=`shared_callee_boundary`",
-		"grounded_call_edge_count=`3`",
-		"source_endpoint_existence_proof=`call_edge`",
-		"requested_sink_existence_proof=`call_edge`",
-		"shared_callee=`gate.RunWith`",
-		"directed_topology_shape=`buildAnalysisIR -> ... -> gate.RunWith <- ... <- gate.Run`",
-		"each have a grounded same-direction call path ending at the same callee",
-		"source_path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
-		"requested_sink_path: `gate.Run` -> `gate.RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
+		"Evidence boundary: the accepted call evidence does not prove a directed call path",
+		"Graph finding: the source and requested sink each follow same-direction calls to one common callee",
+		"current evidence capsule contains 3 source-grounded call edges",
+		"Source existence: a source-grounded call edge directly references this endpoint",
+		"Requested-sink existence: a source-grounded call edge directly references this endpoint",
+		"callee reached independently from both sides is `gate.RunWith`",
+		"Exact directed topology: `buildAnalysisIR -> ... -> gate.RunWith <- ... <- gate.Run`",
+		"Grounded source-side path: `buildAnalysisIR` -> `gate.RunWith` [E-call-source] @ internal/agent/analyzer.go:2666",
+		"Grounded requested-sink-side path: `gate.Run` -> `gate.RunWith` [E-call-sink] @ internal/analysis/gate/gate.go:134",
 		"not a reachable-chain member declaration",
 		"reverse or shared-callee typed calls",
 		"both arrowheads end at the same callee",
 		"do not prove parallel execution, convergence, a join",
-		"Never rewrite `source -> ... -> shared_callee <- ... <- requested_sink`",
+		"Never turn the two inward-pointing paths into a source-to-sink chain",
 		"principal_relation_scope=`typed_endpoint_boundary`",
 		"supporting_directed_relations_outside_boundary=`1`",
 		"separate supporting item/block",
@@ -1342,6 +1341,13 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTypedCallChainEn
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("typed endpoint-boundary prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"no_directed_path", "shared_callee_boundary", "call_graph_status=", "source_endpoint_existence_proof=", "requested_sink_existence_proof=",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("machine topology enum leaked into finalizer prose as %q:\n%s", forbidden, prompt)
 		}
 	}
 	if strings.Contains(prompt, "node_alias[n4]=`RunWith`") {
@@ -2067,10 +2073,10 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DefinitionOnlyDoesNotClaimLeaf
 			SourceFrontier:     []types.CallChainEvidenceEdge{{From: "buildAnalysisIR", To: "gate.RunWith", EvidenceID: "E1", Source: "analyzer.go", LineStart: 10}},
 		},
 	}}
-	got := renderAnswerDocCallChainEndpointBoundary(view)
+	got := renderAnswerDocCallChainEndpointBoundary(view, "en")
 	for _, want := range []string{
-		"requested_sink_existence_proof=`definition_only`",
-		"requested_sink_incident_call_evidence=`not_emitted`",
+		"Requested-sink existence: only an exact definition site proves it",
+		"requested sink has definition evidence only",
 		"does not prove the endpoint is a leaf",
 		"Keep that local topology unproven",
 		"not as the last hop of the principal directed ordered_list",
@@ -2112,9 +2118,9 @@ func TestAnswerDocumentEvaluator_CallChainBoundaryUsesExplorerHandoffDefinition(
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"call_graph_status=`endpoint_unresolved`",
-		"requested_sink_existence_proof=`definition_only`",
-		"requested_sink_incident_call_evidence=`not_emitted`",
+		"Graph finding: at least one endpoint is not uniquely resolved in the call-edge graph",
+		"Requested-sink existence: only an exact definition site proves it",
+		"requested sink has definition evidence only",
 		"describes only resolution inside the grounded call-edge graph",
 		"Do not extend it to the requested sink",
 	} {
@@ -2122,8 +2128,10 @@ func TestAnswerDocumentEvaluator_CallChainBoundaryUsesExplorerHandoffDefinition(
 			t.Fatalf("finalizer prompt lost explorer handoff authority %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "requested_sink_existence_proof=`unproven`") {
-		t.Fatalf("finalizer prompt must not regress accepted endpoint existence to unproven:\n%s", prompt)
+	for _, forbidden := range []string{"endpoint_unresolved", "definition_only", "incident_call_evidence", "call_graph_status="} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("finalizer prompt must keep topology control token %q out of reader guidance:\n%s", forbidden, prompt)
+		}
 	}
 	if strings.Contains(prompt, "source_frontier: `buildAnalysisIR` -> `gate.RunWith`") {
 		t.Fatalf("definition-only endpoint must not promote the source frontier into the principal prompt:\n%s", prompt)
@@ -2188,16 +2196,16 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"source_endpoint_existence_proof=`call_edge`",
-		"requested_sink_existence_proof=`call_edge`",
-		"requested_sink_path: `gate.Run` -> `gate.RunWith`",
+		"Source existence: a source-grounded call edge directly references this endpoint",
+		"Requested-sink existence: a source-grounded call edge directly references this endpoint",
+		"Grounded requested-sink-side path: `gate.Run` -> `gate.RunWith`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("finalizer prompt lost owner-qualified endpoint existence %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "requested_sink_incident_call_evidence=`not_emitted`") ||
-		strings.Contains(prompt, "requested_sink_existence_proof=`definition_only`") {
+	if strings.Contains(prompt, "requested sink has definition evidence only") ||
+		strings.Contains(prompt, "requested_sink_existence_proof=") {
 		t.Fatalf("one prompt must not deny the requested-sink call edge published by its own capsule:\n%s", prompt)
 	}
 }
@@ -2213,14 +2221,43 @@ func TestRenderAnswerDocCallChainEndpointBoundary_DirectedEvidenceDisclosesState
 			SourcePath: []types.CallChainEvidenceEdge{{From: "Source.run", To: "Sink.run", EvidenceID: "E1", Source: "main.go", LineStart: 9}},
 		},
 	}}
-	got := renderAnswerDocCallChainEndpointBoundary(view)
-	for _, want := range []string{"call_graph_status=`directed_path_present`", "conflicts with the retained no-directed-path boundary", "model owns the conclusion"} {
+	got := renderAnswerDocCallChainEndpointBoundary(view, "en")
+	for _, want := range []string{"Graph finding: the grounded call edges form a directed path", "conflicts with the retained no-directed-path boundary", "model owns the conclusion"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("conflicting typed carriers must be disclosed with model ownership (%q):\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "accepted investigation did not prove") {
 		t.Fatalf("renderer must not state a no-path fact beside a grounded directed path:\n%s", got)
+	}
+	if strings.Contains(got, "directed_path_present") || strings.Contains(got, "no_directed_path") {
+		t.Fatalf("machine topology enum must stay in the typed view:\n%s", got)
+	}
+}
+
+func TestAnswerDocCallChainStatusReaderFact_CoversEveryWireStatusWithoutLeakingIt(t *testing.T) {
+	statuses := []types.CallChainEndpointEvidenceStatus{
+		types.CallChainEndpointEvidenceNoEdges,
+		types.CallChainEndpointEvidenceEndpointUnresolved,
+		types.CallChainEndpointEvidenceEndpointAmbiguous,
+		types.CallChainEndpointEvidenceDirectedPathPresent,
+		types.CallChainEndpointEvidenceReversePath,
+		types.CallChainEndpointEvidenceSharedCalleeBoundary,
+		types.CallChainEndpointEvidenceDisjointFrontiers,
+	}
+	for _, status := range statuses {
+		for _, tc := range []struct {
+			lang string
+			zh   bool
+		}{{lang: "en", zh: false}, {lang: "zh-CN", zh: true}} {
+			got := answerDocCallChainStatusReaderFact(status, tc.zh)
+			if strings.TrimSpace(got) == "" {
+				t.Fatalf("status %q lang=%s has no reader fact", status, tc.lang)
+			}
+			if strings.Contains(got, string(status)) {
+				t.Fatalf("status %q lang=%s leaked its wire token: %q", status, tc.lang, got)
+			}
+		}
 	}
 }
 

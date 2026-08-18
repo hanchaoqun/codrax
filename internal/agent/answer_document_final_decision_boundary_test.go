@@ -394,18 +394,9 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	for _, want := range []string{
 		"## Final Trace Decision Boundary (Typed Facts; Model-Owned Conclusion)",
 		"You own the diagnosis, prioritization, optimization direction, and wording",
-		"principal_trace_summary_contract",
-		"kind: \"summary\"",
-		"surface_role: \"principal\"",
-		"invalid on every other block kind, including `section`",
-		"`trace_causal_claim_caliber`",
-		"`no_causal_conclusion|bounded_window_candidate`",
-		"trace_causal_claim_caliber_mapping",
-		"`bounded_window_candidate` when the lead names or ranks selected-window candidates",
-		"Evidence-status values such as `unproven` are not JSON enum values",
-		"raw enum literals are control metadata only",
-		"never copy them into user-visible text",
-		"framework does not scan, delete, translate, or rewrite your prose or conclusion",
+		"Principal Trace summary contract",
+		"exactly one value allowed by the dispatch-local tool schema",
+		"never repeat the field name or its machine value in visible prose",
 		"No conclusion is inferred from prose or written for you",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
@@ -455,6 +446,14 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("trace final boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	decisionBoundary := renderAnswerDocTraceFinalDecisionBoundary(ctx)
+	for _, forbidden := range []string{
+		"bounded_window_candidate", "no_causal_conclusion", "typed_chain_cause", "typed_frame_cause", "trace_causal_claim_caliber_mapping",
+	} {
+		if strings.Contains(decisionBoundary, forbidden) {
+			t.Fatalf("final Trace synthesis boundary repeated JSON control enum %q:\n%s", forbidden, decisionBoundary)
 		}
 	}
 	if strings.LastIndex(prompt, "## Final Trace Decision Boundary") < strings.LastIndex(prompt, "## Submission Checklist") {

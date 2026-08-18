@@ -35965,6 +35965,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r692`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`。
 
+### §123.1079 B1088：机器枚举与客户语言分层，移除非必需 raw status 暴露（2026-08-18）
+
+1. 代码复核确认 `shared_callee_boundary` 与 `bounded_window_candidate` 属于同一展示债，但不能用同一
+   删除手段处理。前者只是 `CallChainEndpointEvidenceStatus` 内部状态，Finalizer 不需要回填；旧
+   `renderAnswerDocCallChainEndpointBoundary` 却同时发出 `call_graph_status=<raw>`、existence proof raw、
+   topology raw 与英文解释，模型在 r692 合理地把高显著裸值抄进中文正文。后者则是模型必须填写的
+   `trace_causal_claim_caliber` JSON 控制字段，不能删除、代填，也不能从正文反推。
+2. 对不需要模型回填的 call-graph 状态，本批建立一对一 reader fact：七种 closed typed status 均在
+   Finalizer seam 转为精确的中/英文自然语言图形事实；source/sink existence、共同 callee、路径标签与
+   omitted-edge 也改为 reader wording。raw enum 仍完整保留在 `AnswerSemanticView` 供编译、validator、
+   repair 与图方向判断消费，但不再进入成文上下文。该映射只读 typed enum 与配置语言，不扫描请求、
+   reasoning、模型 JSON 或最终答案。
+3. 对必须由模型选择的 Trace caliber，dispatch-local tool schema 仍保留唯一机器值选择面与精确语义，
+   因而不会削弱 causal ceiling。共享块合同和 Final Trace Decision Boundary 不再第二、第三次复述四个
+   wire literal；最终综合尾部继续只给互斥自然语言 scope，并明确机器值只进 JSON 字段。系统不替模型
+   选择 caliber，不翻译/删除/重写其正文，也不新增答案关键词硬拒。
+4. Pin 覆盖七种 call-graph status × zh/en 非空映射且不得含自身 wire token；shared-callee、endpoint-
+   unresolved、definition-only、directed-path conflict 都改钉同精度 reader fact；最终 Trace 决策边界和
+   shared semantic contract 负钉四个 caliber literal，动态字段 schema 与非法 caliber 修补合同保持原测。
+5. 本批不改调用边生产、participant 选举、relation validator、Trace 查询/投影/补采或答案 renderer。
+   显式时间窗、链上-only 主因、邻近/背景 support-only、实际占用与规则可消除量双轴均保持；活跃流
+   不能因 4ms 尚无完整 answer/JSON 而降级，系统也没有代写结论、关系或图。
+
+状态：
+
+`B1088-INTERNALENUMCUSTOMERSURFACE1=implemented/nonfillable-status-reader-facts+single-schema-caliber-surface+pinned`；
+`B1085-STAGEENDPOINTSPANCOMPLETENESS1=production-closed-r692`；
+`B1086-DIAGRAMBUSINESSDISPLAYENFORCEMENT1=open`；
+`B1087-REQUESTSCOPEDCARRIERFLOWSET1=open`；
+`B1089-STAGEEVIDENCEROLETOFINAL1=open`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`active-stream-fixed-4ms-degrade=forbidden`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

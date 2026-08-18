@@ -494,7 +494,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		return b.String()
 	}
 	if !trace.appendSection(&b, "call_chain_endpoint_boundary", func() string {
-		return renderAnswerDocCallChainEndpointBoundary(view)
+		return renderAnswerDocCallChainEndpointBoundary(view, extractAnswerDocLang(ctx))
 	}) {
 		return b.String()
 	}
@@ -3779,67 +3779,89 @@ func firstNonEmptyAnswerDocString(values ...string) string {
 	return ""
 }
 
-func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) string {
+func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView, lang string) string {
 	if view == nil || view.CallChainEndpointBoundary == nil || !view.CallChainEndpointBoundary.Active() {
 		return ""
 	}
 	boundary := view.CallChainEndpointBoundary
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 	var b strings.Builder
 	b.WriteString("## Typed Call-Chain Endpoint Boundary\n\n")
-	fmt.Fprintf(&b, "- disposition=`%s`\n", boundary.Disposition)
 	fmt.Fprintf(&b, "- source_endpoint=`%s`\n", answerDocCallChainInline(boundary.SourceEndpoint))
 	fmt.Fprintf(&b, "- requested_sink=`%s`\n", answerDocCallChainInline(boundary.RequestedSink))
+	if boundary.EvidenceCapsule == nil || boundary.EvidenceCapsule.Status != types.CallChainEndpointEvidenceDirectedPathPresent {
+		if zh {
+			b.WriteString("- 证据边界：当前已接纳的调用证据没有证明从起点到用户所问终点的有向调用路径。\n")
+		} else {
+			b.WriteString("- Evidence boundary: the accepted call evidence does not prove a directed call path from the source to the requested sink.\n")
+		}
+	}
 	if capsule := boundary.EvidenceCapsule; capsule != nil {
-		fmt.Fprintf(&b, "- call_graph_status=`%s`\n", capsule.Status)
-		fmt.Fprintf(&b, "- grounded_call_edge_count=`%d`\n", capsule.EdgeCount)
+		fmt.Fprintf(&b, "- %s\n", answerDocCallChainStatusReaderFact(capsule.Status, zh))
+		if zh {
+			fmt.Fprintf(&b, "- 当前证据胶囊包含 %d 条已落到源码的调用边。\n", capsule.EdgeCount)
+		} else {
+			fmt.Fprintf(&b, "- The current evidence capsule contains %d source-grounded call edges.\n", capsule.EdgeCount)
+		}
 		if capsule.SourceProof != "" {
-			fmt.Fprintf(&b, "- source_endpoint_existence_proof=`%s`\n", capsule.SourceProof)
+			fmt.Fprintf(&b, "- %s\n", answerDocCallChainExistenceReaderFact("source", capsule.SourceProof, zh))
 		}
 		if capsule.RequestedSinkProof != "" {
-			fmt.Fprintf(&b, "- requested_sink_existence_proof=`%s`\n", capsule.RequestedSinkProof)
+			fmt.Fprintf(&b, "- %s\n", answerDocCallChainExistenceReaderFact("requested sink", capsule.RequestedSinkProof, zh))
 		}
 		if capsule.SourceProof == types.CallChainEndpointExistenceDefinitionOnly {
-			b.WriteString("- source_endpoint_incident_call_evidence=`not_emitted`\n")
+			if zh {
+				b.WriteString("- 起点只有定义证据；当前胶囊没有给出与它相连的调用边。\n")
+			} else {
+				b.WriteString("- The source has definition evidence only; this capsule does not emit an incident call edge for it.\n")
+			}
 		}
 		if capsule.RequestedSinkProof == types.CallChainEndpointExistenceDefinitionOnly {
-			b.WriteString("- requested_sink_incident_call_evidence=`not_emitted`\n")
+			if zh {
+				b.WriteString("- 用户所问终点只有定义证据；当前胶囊没有给出与它相连的调用边。\n")
+			} else {
+				b.WriteString("- The requested sink has definition evidence only; this capsule does not emit an incident call edge for it.\n")
+			}
 		}
 		if capsule.SharedFrontier != "" {
-			fmt.Fprintf(&b, "- shared_callee=`%s`\n", answerDocCallChainInline(capsule.SharedFrontier))
+			if zh {
+				fmt.Fprintf(&b, "- 两侧路径共同到达的被调用函数是 `%s`。\n", answerDocCallChainInline(capsule.SharedFrontier))
+			} else {
+				fmt.Fprintf(&b, "- The callee reached independently from both sides is `%s`.\n", answerDocCallChainInline(capsule.SharedFrontier))
+			}
 		}
 		if capsule.Status == types.CallChainEndpointEvidenceSharedCalleeBoundary && capsule.SharedFrontier != "" {
-			fmt.Fprintf(&b, "- directed_topology_shape=`%s -> ... -> %s <- ... <- %s`\n",
+			fmt.Fprintf(&b, "- Exact directed topology: `%s -> ... -> %s <- ... <- %s`\n",
 				answerDocCallChainInline(boundary.SourceEndpoint),
 				answerDocCallChainInline(capsule.SharedFrontier),
 				answerDocCallChainInline(boundary.RequestedSink))
-			b.WriteString("- topology_semantics=`the source and requested sink each have a grounded same-direction call path ending at the same callee; neither path reaches the other endpoint`\n")
 		}
 		b.WriteString("\n### Grounded endpoint evidence capsule\n\n")
 		principalEdges := types.CallChainEndpointBoundaryPrincipalEdges(capsule)
 		switch capsule.Status {
 		case types.CallChainEndpointEvidenceDirectedPathPresent:
-			renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
+			renderAnswerDocCallChainEvidencePath(&b, answerDocCallChainPathLabel("source", zh), capsule.SourcePath)
 		case types.CallChainEndpointEvidenceSharedCalleeBoundary:
-			renderAnswerDocCallChainEvidencePath(&b, "source_path", capsule.SourcePath)
-			renderAnswerDocCallChainEvidencePath(&b, "requested_sink_path", capsule.SinkPath)
+			renderAnswerDocCallChainEvidencePath(&b, answerDocCallChainPathLabel("source", zh), capsule.SourcePath)
+			renderAnswerDocCallChainEvidencePath(&b, answerDocCallChainPathLabel("sink", zh), capsule.SinkPath)
 		case types.CallChainEndpointEvidenceReversePath:
-			renderAnswerDocCallChainEvidencePath(&b, "requested_sink_path", capsule.SinkPath)
+			renderAnswerDocCallChainEvidencePath(&b, answerDocCallChainPathLabel("sink", zh), capsule.SinkPath)
 		case types.CallChainEndpointEvidenceDisjointFrontiers:
-			renderAnswerDocCallChainEvidencePath(&b, "source_frontier", capsule.SourceFrontier)
-			renderAnswerDocCallChainEvidencePath(&b, "requested_sink_boundary", capsule.RequestedBoundary)
+			renderAnswerDocCallChainEvidencePath(&b, answerDocCallChainPathLabel("source frontier", zh), capsule.SourceFrontier)
+			renderAnswerDocCallChainEvidencePath(&b, answerDocCallChainPathLabel("sink boundary", zh), capsule.RequestedBoundary)
 		}
 		if capsule.SourcePathOmitted > 0 {
-			fmt.Fprintf(&b, "- source_path_omitted_edges=`%d` (middle edges omitted from this bounded prompt capsule)\n", capsule.SourcePathOmitted)
+			fmt.Fprintf(&b, "- %d middle source-side path edges are omitted from this bounded prompt capsule.\n", capsule.SourcePathOmitted)
 		}
 		if capsule.SinkPathOmitted > 0 {
-			fmt.Fprintf(&b, "- requested_sink_path_omitted_edges=`%d` (middle edges omitted from this bounded prompt capsule)\n", capsule.SinkPathOmitted)
+			fmt.Fprintf(&b, "- %d middle requested-sink-side path edges are omitted from this bounded prompt capsule.\n", capsule.SinkPathOmitted)
 		}
 		if len(principalEdges) == 0 {
 			b.WriteString("- No principal endpoint-boundary call edge is available. Other accepted call facts remain audit/support evidence only and are not intermediate hops for this exact endpoint question.\n")
 		} else {
 			b.WriteString("- A structured list/table block that declares `principal_path_edge` is reserved for the endpoint-boundary edges above. Put other grounded local calls in a separate supporting block without that facet; do not mix sibling calls into the principal endpoint carrier.\n")
 		}
-		b.WriteString("- `call_graph_status` describes only resolution inside the grounded call-edge graph; endpoint existence is reported separately by the two `*_existence_proof` fields and is not contradicted by a definition-only endpoint being absent from that graph.\n")
+		b.WriteString("- The graph finding describes only resolution inside the grounded call-edge graph. Endpoint existence is separate evidence, and a definition-only endpoint may legitimately be absent from that graph.\n")
 	}
 	b.WriteString("\n")
 	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceDirectedPathPresent {
@@ -3850,15 +3872,114 @@ func renderAnswerDocCallChainEndpointBoundary(view *types.AnswerSemanticView) st
 	b.WriteString("The accepted investigation did not prove a directed source-to-sink call path. This is an endpoint boundary, not a reachable-chain member declaration.\n\n")
 	b.WriteString("- Treat the capsule rows as grounded facts, not system-authored answer prose. Use them to synthesize the explanation and conclusion yourself.\n")
 	b.WriteString("- Keep the nearest proven directed path from the typed call-edge rows above. Do not extend it to the requested sink through definition proximity, source order, or a prefix sibling.\n")
-	b.WriteString("- `definition_only` proves that exact endpoint exists, but `incident_call_evidence=not_emitted` does not prove the endpoint is a leaf or has no callers/callees. Keep that local topology unproven unless an explicit typed call edge above establishes it.\n")
+	b.WriteString("- An exact definition-site proof establishes that endpoint's existence. The absence of an incident call edge in this bounded capsule does not prove the endpoint is a leaf or has no callers/callees. Keep that local topology unproven unless an explicit typed call edge above establishes it.\n")
 	b.WriteString("- Keep reverse or shared-callee typed calls as separate relationships in their real direction; never flip one to close the requested path.\n")
 	if boundary.EvidenceCapsule != nil && boundary.EvidenceCapsule.Status == types.CallChainEndpointEvidenceSharedCalleeBoundary {
-		b.WriteString("- For `shared_callee_boundary`, read the displayed topology literally: both arrowheads end at the same callee. Keep the two call facts separate; call edges alone do not prove parallel execution, convergence, a join, or a source-to-sink sequence. Never rewrite `source -> ... -> shared_callee <- ... <- requested_sink` as `source -> shared_callee -> requested_sink`.\n")
+		b.WriteString("- Read the displayed topology literally: both arrowheads end at the same callee. Keep the two call facts separate; call edges alone do not prove parallel execution, convergence, a join, or a source-to-sink sequence. Never turn the two inward-pointing paths into a source-to-sink chain.\n")
 	}
 	b.WriteString("- Preserve the exact requested sink in a structured boundary/caveat/list item so the user's endpoint remains visible, but do not describe it as called by the reachable frontier.\n")
 	b.WriteString("- Keep that requested-sink boundary in a separate supporting item/block, not as the last hop of the principal directed ordered_list. A definition-only boundary is visible context, not an extra path member.\n")
 	b.WriteString("- The summary, principal member roster, and diagram must share this disposition. The model owns the conclusion; this typed context supplies the evidence boundary only.\n\n")
 	return b.String()
+}
+
+// answerDocCallChainStatusReaderFact keeps machine topology enums inside the
+// typed semantic view. The finalizer needs their exact meaning, not their wire
+// spelling; omitting the raw token lowers copy pressure without changing any
+// validator, relation direction, evidence edge, or model-owned conclusion.
+func answerDocCallChainStatusReaderFact(status types.CallChainEndpointEvidenceStatus, zh bool) string {
+	if zh {
+		switch status {
+		case types.CallChainEndpointEvidenceNoEdges:
+			return "图形结论：没有可用于判断两个端点关系的已落地调用边。"
+		case types.CallChainEndpointEvidenceEndpointUnresolved:
+			return "图形结论：至少一个端点尚未在调用边图中唯一解析。"
+		case types.CallChainEndpointEvidenceEndpointAmbiguous:
+			return "图形结论：至少一个端点对应多个调用图节点，方向关系仍有歧义。"
+		case types.CallChainEndpointEvidenceDirectedPathPresent:
+			return "图形结论：已落地调用边构成从起点到用户所问终点的有向路径。"
+		case types.CallChainEndpointEvidenceReversePath:
+			return "图形结论：只证明了从用户所问终点指向起点的反向调用路径。"
+		case types.CallChainEndpointEvidenceSharedCalleeBoundary:
+			return "图形结论：起点与用户所问终点各自沿同一方向调用到同一个函数，但两侧都没有到达对方。"
+		case types.CallChainEndpointEvidenceDisjointFrontiers:
+			return "图形结论：两侧只形成彼此分离的已证调用前沿，没有连接成同一条路径。"
+		default:
+			return "图形结论：当前调用边证据不足以确定两个端点之间的有向关系。"
+		}
+	}
+	switch status {
+	case types.CallChainEndpointEvidenceNoEdges:
+		return "Graph finding: no grounded call edge is available to determine the relation between the endpoints."
+	case types.CallChainEndpointEvidenceEndpointUnresolved:
+		return "Graph finding: at least one endpoint is not uniquely resolved in the call-edge graph."
+	case types.CallChainEndpointEvidenceEndpointAmbiguous:
+		return "Graph finding: at least one endpoint maps to multiple call-graph nodes, so the direction remains ambiguous."
+	case types.CallChainEndpointEvidenceDirectedPathPresent:
+		return "Graph finding: the grounded call edges form a directed path from the source to the requested sink."
+	case types.CallChainEndpointEvidenceReversePath:
+		return "Graph finding: only a reverse path from the requested sink toward the source is proved."
+	case types.CallChainEndpointEvidenceSharedCalleeBoundary:
+		return "Graph finding: the source and requested sink each follow same-direction calls to one common callee, but neither side reaches the other."
+	case types.CallChainEndpointEvidenceDisjointFrontiers:
+		return "Graph finding: the two sides have separate proved call frontiers and do not form one connected path."
+	default:
+		return "Graph finding: the current call-edge evidence does not determine a directed relation between the endpoints."
+	}
+}
+
+func answerDocCallChainExistenceReaderFact(side string, proof types.CallChainEndpointExistenceProof, zh bool) string {
+	if zh {
+		label := "起点"
+		if side != "source" {
+			label = "用户所问终点"
+		}
+		switch proof {
+		case types.CallChainEndpointExistenceCallEdge:
+			return label + "存在性：已有落到源码的调用边直接引用这个端点。"
+		case types.CallChainEndpointExistenceDefinitionOnly:
+			return label + "存在性：只由精确定义位置证明，尚无与它相连的调用边。"
+		default:
+			return label + "存在性：当前证据尚不能唯一确认。"
+		}
+	}
+	label := "Source"
+	if side != "source" {
+		label = "Requested-sink"
+	}
+	switch proof {
+	case types.CallChainEndpointExistenceCallEdge:
+		return label + " existence: a source-grounded call edge directly references this endpoint."
+	case types.CallChainEndpointExistenceDefinitionOnly:
+		return label + " existence: only an exact definition site proves it; no incident call edge is available."
+	default:
+		return label + " existence: the current evidence does not uniquely establish it."
+	}
+}
+
+func answerDocCallChainPathLabel(kind string, zh bool) string {
+	if zh {
+		switch kind {
+		case "source":
+			return "起点侧已证路径"
+		case "sink":
+			return "终点侧已证路径"
+		case "source frontier":
+			return "起点侧已证前沿"
+		default:
+			return "终点侧已证边界"
+		}
+	}
+	switch kind {
+	case "source":
+		return "Grounded source-side path"
+	case "sink":
+		return "Grounded requested-sink-side path"
+	case "source frontier":
+		return "Grounded source-side frontier"
+	default:
+		return "Grounded requested-sink-side boundary"
+	}
 }
 
 func renderAnswerDocCallChainEvidencePath(b *strings.Builder, label string, edges []types.CallChainEvidenceEdge) {
