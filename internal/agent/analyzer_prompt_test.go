@@ -941,6 +941,20 @@ func TestAnalysisSkill_PromptKeepsSourceInventoryRequiredFilesSoft(t *testing.T)
 	}
 }
 
+func TestAnalysisSkill_PromptSeparatesSubTopicIdentityFromPrescanPaths(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"sub_topics[].entities list limited to component/symbol/concept identities stated by the CURRENT request",
+		"discovered only by pre-scan is a navigation candidate and belongs in required_files",
+		"Use sub_topics[].scopes for a path only when the CURRENT request itself names that path",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis-skill prompt must separate unit identity from pre-scan paths; missing %q in:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestAnalysisSkill_PromptDocumentsDirectHistoryClassification(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
 	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")

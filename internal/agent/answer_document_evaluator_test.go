@@ -1594,7 +1594,6 @@ func TestRenderAnswerDocMultiTopicEvidenceOwnership_PreservesUnitAndConnectivity
 		}}},
 		EvidenceItems: evidence,
 	}
-
 	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
 	for _, want := range []string{
 		"## Evidence partition hints by investigation unit (prompt-only)",
@@ -1672,7 +1671,6 @@ func TestRenderAnswerDocMultiTopicEvidenceOwnership_RanksBeforePerUnitLimitAndRe
 		}}},
 		EvidenceItems: evidence,
 	}
-
 	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
 	for _, want := range []string{
 		"E-late-render` association=`exact_source_scope`",
@@ -1685,6 +1683,60 @@ func TestRenderAnswerDocMultiTopicEvidenceOwnership_RanksBeforePerUnitLimitAndRe
 	}
 	if strings.Index(got, "E-late-render") > strings.Index(got, "E-broad-0000") {
 		t.Fatalf("typed topic affinity did not rank the late relevant exact-source row first:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocMultiTopicEvidenceOwnership_NamedComponentOutranksPathCandidateFlood(t *testing.T) {
+	mut := types.NewMutableState("answer two typed investigation units")
+	evidence := make([]types.EvidenceItem, 0, answerDocMultiTopicEvidencePerUnitLimit+8)
+	for i := 0; i < answerDocMultiTopicEvidencePerUnitLimit+6; i++ {
+		evidence = append(evidence, types.EvidenceItem{
+			ID: fmt.Sprintf("E-preview-%02d", i), Kind: types.EvidenceRelationship,
+			Subject: "Server.servePreview", Predicate: "calls", Object: fmt.Sprintf("PreviewStep%d", i),
+			Summary: "Mermaid fallback preview rendering failure", Source: "internal/preview/server.go", LineStart: i + 1,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		})
+	}
+	repl := types.EvidenceItem{
+		ID: "E-repl-render", Kind: types.EvidenceRelationship,
+		Subject: "REPL.renderRichResponse", Predicate: "calls", Object: "RenderMermaidBlocks",
+		Summary: "REPL Mermaid ASCII fallback", Source: "internal/repl/repl.go", LineStart: 7732,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}
+	evidence = append(evidence, repl)
+	mut.EvidenceClosure().SetNodeArtifactLedger(types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{
+		ProducerNodeID: "n1_evidence_t1", EvidenceID: repl.ID,
+		Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: repl.ID},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{SubTopics: []types.SubTopic{
+			{Summary: "runtime configuration", Entities: []string{"runtime"}},
+			{Summary: "REPL Mermaid fallback rendering", Entities: []string{"Mermaid", "REPL", "internal/repl/repl.go", "internal/preview"}},
+		}}},
+		EvidenceItems: evidence,
+	}
+	plan := types.CompileInvestigationPlan(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+	tokens, frequency := answerDocInvestigationUnitAffinityTokens(plan.Units)
+	identities := answerDocInvestigationUnitIdentityTokens(plan.Units)
+	if len(plan.Units) != 2 {
+		t.Fatalf("investigation units = %d, want 2", len(plan.Units))
+	}
+	unitID := plan.Units[1].ID
+	previewScore := answerDocInvestigationEvidenceAffinityScore(evidence[0], tokens[unitID], identities[unitID], frequency)
+	replScore := answerDocInvestigationEvidenceAffinityScore(repl, tokens[unitID], identities[unitID], frequency)
+	if replScore <= previewScore {
+		t.Fatalf("named component affinity score=%d must exceed path candidate score=%d", replScore, previewScore)
+	}
+
+	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
+	replPos := strings.Index(got, "E-repl-render` association=`exact_source_scope`")
+	previewPos := strings.Index(got, "E-preview-")
+	if replPos < 0 || previewPos < 0 || replPos > previewPos {
+		t.Fatalf("named component relation must remain ahead of path-candidate flood:\n%s", got)
+	}
+	if !strings.Contains(got, "bare typed component/entity receives priority") {
+		t.Fatalf("prompt must disclose identity-vs-path affinity as soft ordering:\n%s", got)
 	}
 }
 

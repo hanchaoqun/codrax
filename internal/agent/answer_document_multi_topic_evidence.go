@@ -96,13 +96,14 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 		}
 	}
 	unitAffinityTokens, tokenUnitFrequency := answerDocInvestigationUnitAffinityTokens(plan.Units)
+	unitIdentityTokens := answerDocInvestigationUnitIdentityTokens(plan.Units)
 	for _, owned := range byID {
 		if len(owned.unitIDs) > 0 {
 			continue
 		}
 		bestUnitID, bestScore, bestCount := "", 0, 0
 		for _, unit := range plan.Units {
-			score := answerDocInvestigationEvidenceAffinityScore(owned.item, unitAffinityTokens[unit.ID], tokenUnitFrequency)
+			score := answerDocInvestigationEvidenceAffinityScore(owned.item, unitAffinityTokens[unit.ID], unitIdentityTokens[unit.ID], tokenUnitFrequency)
 			if score > bestScore {
 				bestUnitID, bestScore, bestCount = unit.ID, score, 1
 			} else if score > 0 && score == bestScore {
@@ -143,7 +144,7 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 			for unitID := range owned.unitIDs {
 				row := *owned
 				if row.affinityScore == 0 {
-					row.affinityScore = answerDocInvestigationEvidenceAffinityScore(row.item, unitAffinityTokens[unitID], tokenUnitFrequency)
+					row.affinityScore = answerDocInvestigationEvidenceAffinityScore(row.item, unitAffinityTokens[unitID], unitIdentityTokens[unitID], tokenUnitFrequency)
 				}
 				unitRows[unitID] = append(unitRows[unitID], row)
 			}
@@ -180,6 +181,7 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 	b.WriteString("## Evidence partition hints by investigation unit (prompt-only)\n\n")
 	b.WriteString("- The grouping below prefers exact file/directory scopes declared on typed investigation units; task-node producer lineage is used only as a fallback when a unit has no exact source-scope match. It is a writing partition, not semantic ownership. Do not echo this heading, unit IDs, evidence IDs, association labels, or connectivity labels in the user-facing answer.\n")
 	b.WriteString("- `topic_affinity_hint` and affinity ordering use only typed unit summaries/entities/scopes plus structured evidence fields. They are noisy prompt-selection guidance only: they do not prove ownership, relevance, an edge, or a conclusion and never drive validation or rejection.\n")
+	b.WriteString("- Within that soft ordering, a structured evidence row that names a bare typed component/entity receives priority over rows matching only a file/directory candidate. This keeps the named component's mechanism visible before the per-unit display cap; it still does not prove that the row answers the unit.\n")
 	b.WriteString("- A unit association is not a call, causal, precedence, fallback, or failure-path edge. Join facts into one mechanism only when an explicit typed relation row supplies the exact endpoints and direction.\n")
 	b.WriteString("- `connectivity=standalone_fact` rows may explain a definition, state, option, or local behavior, but they cannot by themselves become a transition in a mechanism chain. `connectivity=explicit_typed_relation` authorizes only the displayed subject-to-object relation, not a broader category or neighboring step.\n")
 	b.WriteString("- Evidence assigned to another unit, shared probe evidence, and disconnected standalone facts remain supporting context unless a typed relation independently connects them to the current section.\n\n")
@@ -257,7 +259,31 @@ func answerDocInvestigationUnitAffinityTokens(units []types.InvestigationUnit) (
 	return byUnit, frequency
 }
 
-func answerDocInvestigationEvidenceAffinityScore(item types.EvidenceItem, unitTokens map[string]bool, frequency map[string]int) int {
+// answerDocInvestigationUnitIdentityTokens keeps analyzer-authored business /
+// component identities distinct from path-shaped navigation candidates. Both
+// remain soft prompt-ranking inputs, but a bare identity such as REPL,
+// Scheduler, or ConfigStore is more specific to the requested owner than a
+// neighboring directory found during pre-scan. Explicit path authority belongs
+// in InvestigationUnit.Scopes; this helper deliberately does not promote it.
+func answerDocInvestigationUnitIdentityTokens(units []types.InvestigationUnit) map[string]map[string]bool {
+	byUnit := make(map[string]map[string]bool, len(units))
+	for _, unit := range units {
+		tokens := map[string]bool{}
+		for _, value := range unit.Entities {
+			value = strings.TrimSpace(value)
+			if value == "" || strings.ContainsAny(value, `/\\.`) {
+				continue
+			}
+			for token := range answerDocAffinityTokens(value) {
+				tokens[token] = true
+			}
+		}
+		byUnit[unit.ID] = tokens
+	}
+	return byUnit
+}
+
+func answerDocInvestigationEvidenceAffinityScore(item types.EvidenceItem, unitTokens, identityTokens map[string]bool, frequency map[string]int) int {
 	if len(unitTokens) == 0 {
 		return 0
 	}
@@ -280,6 +306,13 @@ func answerDocInvestigationEvidenceAffinityScore(item types.EvidenceItem, unitTo
 			score += 4
 		} else {
 			score++
+		}
+		if identityTokens[token] {
+			// Prompt-only owner affinity. This is intentionally stronger than a
+			// collection of path/summary tokens so one neighboring directory
+			// cannot consume the bounded prefix ahead of the named component.
+			// It never feeds validation or completion gates.
+			score += 32
 		}
 	}
 	return score

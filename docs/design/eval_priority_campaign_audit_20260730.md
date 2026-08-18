@@ -36545,6 +36545,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-answer/conclusion/diagram/edge=none`。
 
+### §123.1069 B1076 第一批：业务实体优先于预扫描路径；多问题上下文不再由 sibling 子系统占满（2026-08-18）
+
+1. r687 进一步证明正确 REPL 证据并未缺失：Explorer 已铸出
+   `REPL.renderRichResponse -> RenderMermaidBlocks` 与 `-> r.renderer.RenderMarkdown` 两条 grounded call。
+   错答发生在 Finalizer prompt：Analyzer 把预扫描候选 `internal/repl/repl.go`、`internal/preview` 混入
+   `sub_topics[].entities`；Unit 2 每单元最多展示 16 行时，preview 的关系/定义行占满前缀，正确 REPL
+   关系落入“另有 88 行”。这是上下文选择丢失，不是模型没探索、证据没采到或关系 validator 拒绝。
+2. Analyzer 软教学现明确区分两种 typed 载体：`sub_topics[].entities` 只承载当前请求声明的组件/符号/概念
+   身份；仅由 pre-scan 发现的文件/目录只能进 `required_files` 作导航候选。只有当前请求本身把路径声明为
+   调查边界时才可放 `sub_topics[].scopes`。该规则不扫描终稿、不改模型分类、不把候选文件升级为事实。
+3. Finalizer 的多单元证据 ranker 增加业务身份优先级：bare typed component/entity（如 REPL、Scheduler、
+   ConfigStore）与 EvidenceItem 的 source/subject/object/owner/summary 精确 token 相交时，在 per-unit 截断前
+   高于只匹配目录/文件候选的行。含 `/`、`\\` 或 `.` 的 path/file entity 不获该身份加权；显式 scopes、
+   exact source association、producer lineage 和关系类型原样保留。
+4. 这是纯 prompt 排序，不是 ownership/结论/关系证明，更不进入 completion、validator 或 hard reject。
+   Prompt 明示 sibling scope 仍仅为对照上下文，只有 exact typed relation 才能连接机制。模型仍负责选择哪条
+   证据回答哪个 unit，系统不删除答案、不代写机制、不强制具体文件。
+5. 回归用超过 per-unit cap 的 preview 关系洪泛复现生产形，并证明唯一 REPL 关系仍排在首个 preview 行前；
+   旧的 rank-before-global-cap、exact-source-over-producer、connectivity boundary 与 affinity-only 回归保持。
+   `go test ./internal/agent -count=1`、`make`、`git diff --check` 全绿。
+6. 本批先修“证据已存在却被 bounded prompt 隐藏”的确定性层；配置六级 lookup 尚可能需要第二批
+   unit-level mechanism completion 软补采，待 r688 同案回放后按日志判断，不预先增加硬门。Trace、Read 答案、
+   显式时间窗、因果投影、自动补齐和活跃流 4ms 行为均未改。
+
+状态：
+
+`B1076-MULTITOPICMECHANISMCLOSURE1=batch1-implemented/entity-over-path-soft-ranking+analyzer-teaching/replay-next`；
+`B1078-TERMINALRETURNCOMPONENTJOIN1=production-closed-r687`；
+`B1079-DIAGRAMPARTICIPANTSURFACEPROVENANCE1=open/design-required`；
+`active-stream-fixed-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
