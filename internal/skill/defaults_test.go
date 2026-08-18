@@ -546,9 +546,10 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		"background_rank<=3",
 		// WO-P1 (SMR-1 批 S9-AWEME): the IO type-word single-source soft
 		// directive (答案侧一致性走 eval 观察, 本 pin 只保指令在场).
-		"TRACE IO TYPE-WORD SINGLE SOURCE",
-		"ONE IO type word per physical IO episode",
-		"lead with io_wait when present, else io_latency, else io_burst_episode",
+		"TRACE IO CAUSE-LABEL SINGLE SOURCE",
+		"ONE reader-language cause label per physical IO episode",
+		"The raw `type` token remains audit metadata and must not be copied into visible prose",
+		"lead with scheduler wait when present, else request latency, else burst activity",
 		"never as additional causes and never added together",
 		"PERF SAMPLE PROVENANCE",
 		// 修补轮 件1 (值词库教学批, 2026-07-17): the projection-key sentence

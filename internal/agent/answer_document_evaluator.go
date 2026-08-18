@@ -5527,7 +5527,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceTargetStateScopeAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceRankAuthority(promptLedger); authority != "" {
+	if authority := renderAnswerDocTraceRankAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
 		b.WriteString(authority)
 	}
 	if authority := renderAnswerDocTraceWakeupCensusAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
@@ -6360,12 +6360,13 @@ func renderAnswerDocTraceIPCRequestCensusAuthority(ctx *types.AgentContext, ledg
 	return b.String()
 }
 
-func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
+func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger, lang string) string {
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	authorities := types.BuildTraceRankRosterAuthorities(set)
 	if len(authorities) == 0 {
 		return ""
 	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 	var b strings.Builder
 	written := 0
 	for _, authority := range authorities {
@@ -6373,68 +6374,95 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 			continue
 		}
 		if written == 0 {
-			b.WriteString("### Trace Rank Arithmetic And Supply Authority\n\n")
-			b.WriteString("- This is a typed soft handoff for answer wording; it does not change the ranked board, causal projection, automatic supplementation, or any measured value.\n")
-			b.WriteString("- The ordered roster below is the only authority for `#N` ordinals. A measured component, context-only row, target symptom, data gap, caliber side rail, or absorbed row that is absent from the roster has no rank seat and must not be assigned one. Do not infer an ordinal from its duration or its position in another table.\n")
+			if zh {
+				b.WriteString("### 面向答案的 Trace 排名与算力供给口径\n\n")
+				b.WriteString("- 这是由结构化证据生成的写作参考；不改变根因排名、因果投影、自动补采或任何测量值，结论仍由模型给出。\n")
+				b.WriteString("- 下方清单是第 N 位名次的唯一依据。没有出现在清单中的测量分量、背景项、目标症状、数据缺口或已并入项没有独立名次；不得按时长或其他表格中的位置补排名。原因名称已经使用面向读者的单源词表，正文不得改抄原始类型、层级、通道或修向枚举。\n")
+			} else {
+				b.WriteString("### Reader-ready Trace ranking and compute-supply basis\n\n")
+				b.WriteString("- This is a structured-evidence writing reference. It does not change the root ranking, causal projection, automatic supplementation, or any measured value; the model still owns the conclusion.\n")
+				b.WriteString("- The list below is the only authority for Rank N ordinals. A measured component, background item, target symptom, data gap, or absorbed item absent from it has no independent rank. Do not infer one from duration or another table's position. Cause names already use the single-source reader lexicon; never copy raw type, tier, channel, or repair-bucket enums into visible prose.\n")
+			}
 		}
 		written++
 		top := authority.Seats[0]
 		label := strings.TrimSpace(authority.ArtifactLabel)
 		if label == "" {
-			label = fmt.Sprintf("board-%d", written)
-		}
-		fmt.Fprintf(&b,
-			"- artifact=`%s`; ranked_seats=%d; roster_status=`%s`; top_rank=`#%d %s %s %.3fms`",
-			label,
-			len(authority.Seats),
-			authority.Status,
-			top.Rank,
-			top.Type,
-			strings.TrimSpace(top.Subject),
-			top.EffectiveImpactMS,
-		)
-		if authority.BoardTarget != "" {
-			fmt.Fprintf(&b, "; board_target=`%s`", authority.BoardTarget)
-		}
-		fmt.Fprintf(&b, "; board_channel=`%s`", authority.BoardChannel)
-		if authority.WindowEndTs > authority.WindowStartTs {
-			fmt.Fprintf(&b, "; board_window=`%.6f..%.6f`", authority.WindowStartTs, authority.WindowEndTs)
-		}
-		if authority.BoardParamsFingerprint != "" {
-			fmt.Fprintf(&b, "; board_params=`%s`", authority.BoardParamsFingerprint)
-		}
-		b.WriteString("; cross_row_additivity=`forbidden` — ranked effective impacts are comparable only inside this board channel and may overlap across rows, threads, segments, and fix directions. Never compare `#N` ordinals across channels. Never add several seats into a new total; only a total already published inside one merged row is additive under that row's typed fold caliber.\n")
-		if !authority.Complete {
-			b.WriteString("  - roster is incomplete or ambiguous; preserve the listed typed ordinals, do not invent missing seats, and do not claim this is the complete board.\n")
-		}
-		b.WriteString("  - ordered_ranked_roster:\n")
-		for _, seat := range authority.Seats {
-			fmt.Fprintf(&b, "    - `#%d`; type=`%s`; subject=`%s`; effective=%.3fms; tier=`%s`; channel=`%s`",
-				seat.Rank,
-				seat.Type,
-				seat.Subject,
-				seat.EffectiveImpactMS,
-				seat.Tier,
-				seat.ChainRelevance,
-			)
-			if seat.FixDirection != "" {
-				fmt.Fprintf(&b, "; fix_direction=`%s`", seat.FixDirection)
+			if zh {
+				label = fmt.Sprintf("第 %d 份 trace", written)
+			} else {
+				label = fmt.Sprintf("trace %d", written)
 			}
-			b.WriteByte('\n')
+		}
+		topCause := answerDocTraceRankReaderCauseLabel(top.Type, zh)
+		boardScope := answerDocTraceRankReaderBoardScope(authority.BoardChannel, zh)
+		if zh {
+			fmt.Fprintf(&b, "- 排名清单 %d；trace：%s；排序范围：%s；清单%s；第一位：#%d %s，%s，按现有规则可消除影响 %.3fms",
+				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
+				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
+			if authority.BoardTarget != "" {
+				fmt.Fprintf(&b, "；分析目标：%s", authority.BoardTarget)
+			}
+		} else {
+			fmt.Fprintf(&b, "- ranking list %d; trace: %s; ranking scope: %s; roster %s; first: #%d %s, %s, %.3fms eliminable under existing rules",
+				written, label, boardScope, answerDocTraceRankReaderCoverage(authority.Complete, zh), top.Rank,
+				strings.TrimSpace(top.Subject), topCause, top.EffectiveImpactMS)
+			if authority.BoardTarget != "" {
+				fmt.Fprintf(&b, "; analysis target: %s", authority.BoardTarget)
+			}
+		}
+		if authority.WindowEndTs > authority.WindowStartTs {
+			if zh {
+				fmt.Fprintf(&b, "；窗口：%.6f..%.6f 秒", authority.WindowStartTs, authority.WindowEndTs)
+			} else {
+				fmt.Fprintf(&b, "; window: %.6f..%.6f seconds", authority.WindowStartTs, authority.WindowEndTs)
+			}
+		}
+		if zh {
+			b.WriteString("。同一排序范围内可比较各行的可消除影响，但各行可能在时间、线程或因果片段上重叠，不得相加；不同排序范围的名次也不得互相比较。只有证据在一条合并行内明确发布的合计才可作为该行总量。\n")
+		} else {
+			b.WriteString(". Eliminable impacts are comparable only within this ranking scope, but rows may overlap in time, thread, or causal segments and must not be added. Ranks from different scopes are not comparable. Only a total explicitly published within one merged evidence row is additive as that row's total.\n")
+		}
+		if !authority.Complete {
+			if zh {
+				b.WriteString("  - 当前清单不完整或存在名次歧义；保留已经发布的名次，不补造缺失项，也不要声称已经覆盖全部原因。\n")
+			} else {
+				b.WriteString("  - The current roster is incomplete or rank-ambiguous. Preserve published ranks, invent no missing entries, and do not claim complete cause coverage.\n")
+			}
+		}
+		if zh {
+			b.WriteString("  - 按名次排列的原因清单：\n")
+		} else {
+			b.WriteString("  - Causes in rank order:\n")
+		}
+		for _, seat := range authority.Seats {
+			cause := answerDocTraceRankReaderCauseLabel(seat.Type, zh)
+			if zh {
+				fmt.Fprintf(&b, "    - #%d %s：%s；按现有规则可消除影响 %.3fms\n",
+					seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
+			} else {
+				fmt.Fprintf(&b, "    - #%d %s: %s; %.3fms eliminable under existing rules\n",
+					seat.Rank, seat.Subject, cause, seat.EffectiveImpactMS)
+			}
 		}
 		if supply, ok := answerDocTraceRankAuthorityTopSupplySeat(authority.Seats); ok {
-			relation := "secondary_bounded_candidate"
-			if authority.Complete && supply.Rank == top.Rank {
-				relation = "primary"
+			primary := authority.Complete && supply.Rank == top.Rank
+			cause := answerDocTraceRankReaderCauseLabel(supply.Type, zh)
+			if zh {
+				relation := "次要候选"
+				if primary {
+					relation = "第一位"
+				}
+				fmt.Fprintf(&b, "  - 算力供给补充：#%d %s 的“%s”计入 %.3fms，当前为%s。这说明存在已测算力供给提升空间，但不单独证明热限频、调频策略限制或绑错核；若其他方向领先，只能说算力供给不是首要方向，不能说它不存在或已被排除。\n",
+					supply.Rank, strings.TrimSpace(supply.Subject), cause, supply.EffectiveImpactMS, relation)
+			} else {
+				relation := "a secondary candidate"
+				if primary {
+					relation = "ranked first"
+				}
+				fmt.Fprintf(&b, "  - Compute-supply note: #%d %s has %.3fms under “%s” and is %s. This measures compute-delivery headroom but does not by itself prove thermal throttling, governor limiting, or wrong-core placement. If another direction leads, say compute supply is not primary, never that it is absent or ruled out.\n",
+					supply.Rank, strings.TrimSpace(supply.Subject), supply.EffectiveImpactMS, cause, relation)
 			}
-			fmt.Fprintf(&b,
-				"  - compute_delivery_positive=true; relation_to_top=`%s`; seat=`#%d %s %s %.3fms`; fix_direction_role=`remedy_bucket`; mechanism_authority=`separate_positive_typed_observation_required`; authority: a positive `frequency_thermal` seat means compute-delivery head-room is measured, but the bucket does not by itself prove thermal throttling, governor limiting, or wrong-core placement. If another direction leads, describe supply as secondary/not the main cause, but never as absent, eliminated, or disproven.\n",
-				relation,
-				supply.Rank,
-				supply.Type,
-				strings.TrimSpace(supply.Subject),
-				supply.EffectiveImpactMS,
-			)
 		}
 	}
 	if written == 0 {
@@ -6442,6 +6470,54 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocTraceRankReaderCauseLabel(raw string, zh bool) string {
+	if label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(raw, zh)); label != "" {
+		return label
+	}
+	if zh {
+		return "未分类的已测原因"
+	}
+	return "unclassified measured cause"
+}
+
+func answerDocTraceRankReaderBoardScope(raw string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "on_chain":
+		if zh {
+			return "唤醒/依赖链上"
+		}
+		return "on the wakeup/dependency chain"
+	case "adjacent":
+		if zh {
+			return "邻近区域（仅支撑额外排查，不属于链上主因）"
+		}
+		return "adjacent context (follow-up support only, not an on-chain primary cause)"
+	case "background":
+		if zh {
+			return "背景信息（仅支撑额外排查，不属于链上主因）"
+		}
+		return "background context (follow-up support only, not an on-chain primary cause)"
+	default:
+		if zh {
+			return "独立排序范围"
+		}
+		return "an independent ranking scope"
+	}
+}
+
+func answerDocTraceRankReaderCoverage(complete bool, zh bool) string {
+	if zh {
+		if complete {
+			return "完整"
+		}
+		return "不完整或存在名次歧义"
+	}
+	if complete {
+		return "complete"
+	}
+	return "incomplete or rank-ambiguous"
 }
 
 func renderAnswerDocTraceWakeupCensusAuthority(ledger types.ObservationLedger, lang string) string {

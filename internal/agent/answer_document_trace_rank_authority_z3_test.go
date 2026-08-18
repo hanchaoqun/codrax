@@ -56,45 +56,78 @@ func TestRenderAnswerDocObservationLedgerCarriesTraceRankAuthorityZ3(t *testing.
 		Observations: observations,
 	}}})
 	ctx := &types.AgentContext{
-		Mutable: mut,
+		Mutable:  mut,
+		Language: "zh-CN",
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Intent: types.IntentRootCause},
 		},
 	}
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
-		"### Trace Rank Arithmetic And Supply Authority",
-		"cross_row_additivity=`forbidden`",
-		"Never add several seats into a new total",
-		"roster_status=`complete`",
-		"board_channel=`on_chain`",
-		"board_channel=`adjacent`",
-		"ordered_ranked_roster",
-		"`#1`; type=`priority_inversion_candidate`; subject=`CookieMonsterCl-59843`; effective=23.994ms",
-		"`#2`; type=`d_state_or_io_wait`; subject=`ThreadPoolForeg-60555`; effective=10.433ms",
-		"`#3`; type=`runnable_wait`; subject=`RenderThread-60666`; effective=10.400ms",
-		"`#4`; type=`running`; subject=`com.baidu.tieba-59566`; effective=10.331ms",
-		"compute_delivery_positive=true",
-		"relation_to_top=`secondary_bounded_candidate`",
-		"#4 running com.baidu.tieba-59566 10.331ms",
-		"fix_direction_role=`remedy_bucket`",
-		"mechanism_authority=`separate_positive_typed_observation_required`",
-		"does not by itself prove thermal throttling, governor limiting, or wrong-core placement",
-		"never as absent, eliminated, or disproven",
+		"### 面向答案的 Trace 排名与算力供给口径",
+		"清单完整",
+		"排序范围：唤醒/依赖链上",
+		"排序范围：邻近区域（仅支撑额外排查，不属于链上主因）",
+		"按名次排列的原因清单",
+		"#1 CookieMonsterCl-59843：优先级反转候选；按现有规则可消除影响 23.994ms",
+		"#2 ThreadPoolForeg-60555：D-state/iowait；按现有规则可消除影响 10.433ms",
+		"#3 RenderThread-60666：runnable；按现有规则可消除影响 10.400ms",
+		"#4 com.baidu.tieba-59566：running；按现有规则可消除影响 10.331ms",
+		"算力供给补充：#4 com.baidu.tieba-59566",
+		"已测算力供给提升空间",
+		"不单独证明热限频、调频策略限制或绑错核",
+		"不能说它不存在或已被排除",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed trace-rank authority missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Count(got, "roster_status=`complete`") != 2 || strings.Contains(got, "roster_status=`duplicate_rank`") {
+	if strings.Count(got, "清单完整") != 2 {
 		t.Fatalf("on-chain and adjacent ordinals must publish as two complete boards:\n%s", got)
 	}
-	authorityStart := strings.Index(got, "### Trace Rank Arithmetic And Supply Authority")
+	authorityStart := strings.Index(got, "### 面向答案的 Trace 排名与算力供给口径")
 	if authorityStart < 0 {
 		t.Fatal("trace rank authority block missing")
 	}
 	authority := got[authorityStart:]
-	if strings.Contains(authority, "`#0`") || strings.Contains(authority, "type=`binder_wait`; subject=`binder:496_9-10961`") {
+	if end := strings.Index(authority, "\n- `rank:1`"); end > 0 {
+		authority = authority[:end]
+	}
+	if strings.Contains(authority, "#0") || strings.Contains(authority, "binder:496_9-10961") {
 		t.Fatalf("unranked binder context must not acquire an ordinal in the rank authority:\n%s", authority)
+	}
+	for _, forbidden := range []string{
+		"priority_inversion_candidate", "d_state_or_io_wait", "runnable_wait",
+		"type=`", "tier=`", "channel=`", "fix_direction", "roster_status", "board_channel",
+	} {
+		if strings.Contains(authority, forbidden) {
+			t.Fatalf("reader-ready rank authority leaked internal token %q:\n%s", forbidden, authority)
+		}
+	}
+
+	ctx.Language = "en"
+	en := renderAnswerDocObservationLedger(ctx)
+	enStart := strings.Index(en, "### Reader-ready Trace ranking and compute-supply basis")
+	if enStart < 0 {
+		t.Fatalf("english reader-ready rank authority missing:\n%s", en)
+	}
+	en = en[enStart:]
+	if end := strings.Index(en, "\n- `rank:1`"); end > 0 {
+		en = en[:end]
+	}
+	for _, want := range []string{
+		"ranking scope: on the wakeup/dependency chain",
+		"#1 CookieMonsterCl-59843: priority inversion (candidate); 23.994ms eliminable under existing rules",
+		"#2 ThreadPoolForeg-60555: D-state/iowait; 10.433ms eliminable under existing rules",
+		"Compute-supply note: #4 com.baidu.tieba-59566",
+	} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("english reader-ready rank authority missing %q:\n%s", want, en)
+		}
+	}
+	for _, forbidden := range []string{"priority_inversion_candidate", "d_state_or_io_wait", "runnable_wait", "fix_direction", "roster_status", "board_channel"} {
+		if strings.Contains(en, forbidden) {
+			t.Fatalf("english reader-ready rank authority leaked internal token %q:\n%s", forbidden, en)
+		}
 	}
 }

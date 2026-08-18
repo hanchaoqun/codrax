@@ -36209,6 +36209,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1103 B1110b：排名教学与读者语言合同冲突闭环（2026-08-18）
+
+1. r705 中 `d_state_or_io_wait`、`io_latency`、`runnable_wait` 进入中文正文不是单纯模型波动。Finalizer
+   同一上下文存在可执行的相反指令：旧 `TRACE ORDERED RANK ROSTER AUTHORITY` 要求模型把排名行的
+   `type` 原样复制，末尾读者语言合同又要求原始 type/tier/channel/fix 枚举不得进入可见正文；旧 IO
+   教学还要求正文使用 `io_wait/io_latency/io_burst_episode` 原始类型词。模型遵循任一侧都会违反另一侧，
+   是 `B1110b-RANKREADERCONTRACTCONFLICT1/P0`，不是可留待波动的措辞问题。
+2. 根修没有扫描、拒绝、删除、翻译或替换模型/用户正文。`TraceRankRosterAuthority` 的 typed builder 与
+   原始 Observation Ledger 保持不变；只把给模型写答案的排名 handoff 改为语言感知的读者投影。中文/
+   英文面现在只提供名次、主体、按现有规则可消除值、自然语言排序范围、清单完整性和单源原因标签；
+   `type/tier/channel/fix_direction/roster_status/board_channel` 不再作为可抄写的排名词面。
+3. 原始 cause token 通过已有 `TraceRootCauseTypeDisplayLabel` 单源映射，覆盖 D-state/iowait、IO延迟、
+   runnable、running、优先级反转候选、算力供给及确定性语义工作等闭集。未知 future token 不回退展示
+   snake_case，而写成“未分类的已测原因 / unclassified measured cause”；原始值仍完整保留在 typed 审计
+   记录，避免为了可读性破坏证据身份。
+4. 链上、邻近与背景排名范围仍严格分域；邻近/背景自然标签明确“只支撑额外排查，不属于链上主因”。
+   行间仍禁止相加，窗口、目标、完整/不完整边界与正向算力供给提示均保留。算力供给提示也退出
+   `frequency_thermal/relation_to_top/mechanism_authority` 协议词，只陈述已测提升空间及“不单独证明热限频、
+   调频策略或绑错核”的证据边界。
+5. 两处 explore/finalize 镜像排名教学同步改为：精确复制名次、主体、值和排序范围，使用 handoff 给出的
+   读者标签；raw type/tier/channel/repair bucket 只作审计元数据。IO 教学同步改为读者原因名，并继续保持
+   scheduler wait、request latency、burst activity 三种口径不相加、不冒充多个物理原因。
+6. 中英文正向 pin 覆盖四个排名原因、链上/邻近分域和算力供给补充；负 pin 覆盖上述内部字段及三种
+   r705 泄漏 token。`go test ./internal/agent ./internal/skill -count=1` 全绿。该批只降低模型心智与自相矛盾
+   指令，不改变根因选举、值、链、投影、自动补齐或模型结论所有权。
+
+状态：
+
+`B1110b-rank-reader-contract-conflict=implemented/zh+en+pinned`；
+`rank/type/audit-identity=typed-ledger-preserved`；
+`visible-cause-word=single-source-reader-label`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=preserved`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

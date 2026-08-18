@@ -154,12 +154,12 @@ func TestFinalizerSkillOrderedRankRosterAuthorityAB3(t *testing.T) {
 		t.Fatalf("the ordered-rank-roster rule is trace-gated; AppliesTo=%+v", item.AppliesTo)
 	}
 	for _, want := range []string{
-		"ordered_ranked_roster",
+		"reader-ready Trace ranking reference",
 		"only ordinal authority",
 		"absent from it has no rank seat",
 		"never infer a rank from duration",
-		"roster_status",
-		"not `complete`",
+		"Raw type/tier/channel/repair-bucket tokens are audit metadata",
+		"incomplete or rank-ambiguous",
 		"Ranked rows remain non-additive",
 	} {
 		if !strings.Contains(item.Body, want) {
