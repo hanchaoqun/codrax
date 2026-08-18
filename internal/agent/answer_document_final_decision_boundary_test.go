@@ -128,7 +128,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 	inWindow := true
 	principal := types.TraceCausalProjectionNode{
 		EvidenceID: "principal", Subject: "worker-200", TypeToken: "priority_inversion_candidate",
-		StateKind: "runnable", Rank: 1, ImpactMS: 9, EffectiveImpactMS: 8.3,
+		StateKind: "runnable", Rank: 1, ImpactMS: 8.3, CumulativeImpactMS: 9, RunnableMS: 8.3, EffectiveImpactMS: 8.3,
 		ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
 		RankQueryWindowStartTs: 1, RankQueryWindowEndTs: 1.010,
 	}
@@ -172,11 +172,16 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		"所选分析窗口：1.000000–1.010000 秒（10.000 毫秒）",
 		"目标线程 app-100 的窗口状态（覆盖完整）",
 		"不可中断等待 1.000 毫秒，其中已证 IO 等待 0.500 毫秒",
+		"窗口结束后的切入运行属于另一区间",
+		"不能把本窗口内未测得的醒后调度延迟写成零",
 		"真实耗时集中（已测墙钟占用，用于发现新的优化方向）",
-		"worker-200：调度延迟，已测 9.000 毫秒",
+		"worker-200：调度延迟，已测 8.300 毫秒",
+		"另有链上累计 9.000 毫秒，这是不同的链路累计口径，不能改称为该状态的实测占用",
 		"compiler-300：JIT编译，已测 4.500 毫秒；未证位于依赖链上，只能作为耗时与优化线索，不能作为主因",
 		"按现有规则可消除的影响（用于修复优先级，不等同于实测等待时长）",
-		"第 1 位，worker-200：优先级反转候选；可消除影响 8.300 毫秒，对应已测占用 9.000 毫秒",
+		"第 1 位，worker-200：优先级反转候选；可消除影响 8.300 毫秒；另有链上累计 9.000 毫秒",
+		"证据允许的表述：只陈述证据行实际计入的链上低优先级依赖方贡献",
+		"尚未证明：候选标签或唤醒先后本身不证明该线程持有 CPU、锁或资源",
 		"背景与邻近信息（只能支撑额外排查方向，不得升级为链上主因或参与根因序数）",
 		"system-load：CPU竞争压力",
 		"业务线索（用于解释链上工作并提出业务修向，不凭名称自行补造因果）",
@@ -229,7 +234,7 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 		"Measured time concentrations",
 		"storage-worker: IO wait, measured 7.000 ms",
 		"Impact eliminable under existing rules",
-		"Rank 1, storage-worker: D-state/iowait; eliminable impact 6.000 ms, with 7.000 ms measured occupancy",
+		"Rank 1, storage-worker: D-state/iowait; eliminable impact 6.000 ms, with 7.000 ms measured state occupancy",
 		"address both measured time concentration and impact eliminable under existing rules",
 	} {
 		if !strings.Contains(got, want) {
@@ -669,8 +674,10 @@ func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAtt
 	for _, want := range []string{
 		"subject=`logger-900`",
 		"state_kind=`d_sleep`",
-		"measured_state_occupancy=19.500ms",
+		"measured_state_occupancy=7.000ms",
 		"effective_attribution=7.000ms",
+		"chain_cumulative=19.500ms",
+		"chain_cumulative_role=`node_or_subchain_account_not_state_occupancy`",
 		"relation=`distinct_do_not_substitute`",
 		"occurrence_interval=`2.000500..2.020000`",
 	} {
@@ -679,9 +686,9 @@ func TestTraceFinalStateValueAuthoritySeparatesMeasuredOccupancyFromEffectiveAtt
 		}
 	}
 
-	projection.BackgroundCauses[0].EffectiveImpactMS = 19.5
+	projection.BackgroundCauses[0].CumulativeImpactMS = 7
 	if got := renderTraceFinalStateValueAuthority(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}); got != "" {
-		t.Fatalf("equal measured/effective values need no distinction row: %s", got)
+		t.Fatalf("equal measured/cumulative/effective values need no distinction row: %s", got)
 	}
 }
 
@@ -1238,7 +1245,7 @@ func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t 
 		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
 		"allowed_mechanism_scope=`measured_dependency_scheduler_supply_before_downstream_wakeup`",
 		"not_authorized_mechanisms=`priority_inversion_occurrence,post_wakeup_delay,lock_or_holder_waiter,synchronous_blocking`",
-		"holder_waiter_authority=`not_provided_by_candidate_seat`",
+		"this seat does not establish a synchronous blocker, a lock or resource holder, or a holder/waiter relation",
 		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
 		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
 		"frame_evidence_status=`absent`",
@@ -1251,6 +1258,11 @@ func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t 
 	}
 	if strings.Contains(got, "background-7") || strings.Contains(got, "99.000") || strings.Contains(got, "lock_priority") {
 		t.Fatalf("adjacent seat or uncalibrated registry direction leaked into final scope:\n%s", got)
+	}
+	for _, forbidden := range []string{"synchronous_blocker_authority=", "holder_waiter_authority="} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("final synthesis scope leaked retired model-facing authority key %q:\n%s", forbidden, got)
+		}
 	}
 }
 

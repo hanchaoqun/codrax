@@ -36069,6 +36069,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-4ms-degrade=forbidden`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`。
 
+### §123.1082 B1091/B1092/B1093：Trace 成文卡统一三种时长角色、窗界与自然语言机制边界（2026-08-18）
+
+1. r693 的 `9.000ms runnable` 不是单纯模型算术波动。typed 行同时发布
+   `impact=8.300ms / cumulative=9.000ms / effective=8.300ms / runnable=8.300ms`，但
+   `traceFinalMeasuredStateOccupancy` 旧实现无条件优先取 cumulative，随后又把它标成
+   `leader_measured_state_occupancy=9.000ms`。系统先把链上累计错标为状态占用，模型才把它写成
+   “9.000ms runnable”。这是 B1092 的 producer-side 角色错误。
+2. 根修把状态占用固定到行内 selected-window 状态/跨度投影；runnable 行存在专用 typed split 时优先
+   使用该 split。`CumulativeImpactMS` 只作为“节点/子链累计”独立并列，值不同时明确禁止改称为该状态的
+   实测占用。Final compact authority、Axis A、Axis B 和中英文 reader card 共用同一 helper；不改原值、
+   rank、选举、有效归因或投影附录。
+3. B1093 的边界并非 trace 缺证。所选窗口止于 `1.010000`，`1.010020 sched-in` 属于窗外；旧 raw
+   authority 虽有控制词，但最终自然语言卡没有同等显著的读者说明。现每个 typed selected window 都在
+   reader card 明确：窗后切入属于另一区间，不能据此宣称本窗醒后立即运行，也不能把本窗未测得的醒后
+   调度延迟写成零。它是软成文事实卡，不扫描/拒绝/修写模型答案；若另有 typed 跨窗关系，原关系通道仍可用。
+4. B1091 的两个候选机制缺证事实原先在三个高显著面重复发射
+   `synchronous_blocker_authority=...` 与 `holder_waiter_authority=...`，r693 因而原样泄漏到正文。二者没有
+   machine consumer，现从 prompt 发射面退役，改为一句自然语言证据边界；final reader card 还按当前语言
+   同位给出“允许表述/尚未证明”。通用 trace guidance 也改为要求用读者语言表达主导调度状态与链上累计，
+   不再教学这两个字段名。raw typed ledger 继续保留供审计/验证，不删除底层证据。
+5. 防回归覆盖：r693 同形 pin 明确验证 runnable=8.300、链上累计=9.000、有效归因=8.300 三角色并存；
+   中英文卡均验证窗界；priority candidate 验证自然语言机制边界且两个旧 authority key 在 handoff/final
+   synthesis 均不再出现；state-value authority 验证本地状态占用、链上累计、有效归因三列不能互相替代。
+   `go test ./internal/agent -count=1`、`go test ./internal/types ./internal/tool -count=1` 全绿。
+6. 该批只提供准确 typed 事实和自然语言解释边界，模型仍负责诊断、主因选择、总结与修向；没有关键词扫描
+   用户输入/模型 reasoning/最终正文，没有 system-authored answer/conclusion。显式时间窗 Trace 因果投影、
+   自动补采、typed on-chain-only 主因、邻近/背景 support-only、真实耗时/业务线索与规则可消除量双轴保持。
+
+状态：
+
+`B1091-TRACECONTROLVOCABREADERSURFACE1=implemented/retired-duplicate-authority-keys+localized-reader-boundary`；
+`B1092-TRACEVALUECOLUMNROLE1=implemented/state-projection-vs-chain-cumulative-vs-effective-single-role-source`；
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=implemented/localized-reader-window-boundary`；
+`production-replay=pending-r694`；
+`B1090-EMPTYOPTIONALCOMPOSITENORMALIZE1=pending-production-r694`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`active-stream-fixed-4ms-degrade=forbidden`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

@@ -130,10 +130,9 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"direct_blocking_authority=`not_provided_by_this_seat`",
 		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
 		"candidate_mechanism_authority=`lower_priority_dependency_only`",
-		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
+		"this seat does not establish a synchronous blocker, a lock or resource holder, or a holder/waiter relation",
 		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
 		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
-		"holder_waiter_authority=`not_provided_by_candidate_seat`",
 		"conclusion_caliber=`validation_candidate`",
 		"rank=#2; subject=`target-100`; kind=`running`; effective_attribution=10.331ms; fix_direction=`frequency_thermal`",
 		"source_lane=`deterministic_system_supplement`",
@@ -209,8 +208,7 @@ func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShape
 		"validation_direction=`priority_or_dependency_supply`",
 		"claim_envelope=`measured_lower_priority_dependency_supply_candidate`",
 		"candidate_mechanism_authority=`lower_priority_dependency_only`",
-		"synchronous_blocker_authority=`not_provided_by_candidate_seat`",
-		"holder_waiter_authority=`not_provided_by_candidate_seat`",
+		"this seat does not establish a synchronous blocker, a lock or resource holder, or a holder/waiter relation",
 		"conclusion_caliber=`validation_candidate`",
 		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
 		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
@@ -226,6 +224,11 @@ func TestTraceDecisionHandoffKeepsTypedPriorityCandidateCaliberOnProductionShape
 	}
 	if !strings.Contains(ordinary, "fix_direction=`lock_priority`") {
 		t.Fatalf("ordinary non-candidate direction must remain verbatim:\n%s", ordinary)
+	}
+	for _, forbidden := range []string{"synchronous_blocker_authority=", "holder_waiter_authority="} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("candidate handoff leaked retired model-facing authority key %q:\n%s", forbidden, got)
+		}
 	}
 }
 

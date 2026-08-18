@@ -1398,8 +1398,13 @@ func traceDecisionWritePriorityCandidateClaimEnvelope(b *strings.Builder, node t
 	b.WriteString("; candidate_mechanism_authority=`lower_priority_dependency_only`")
 	b.WriteString("; allowed_mechanism_scope=`measured_dependency_scheduler_supply_before_downstream_wakeup`")
 	b.WriteString("; not_authorized_mechanisms=`priority_inversion_occurrence,post_wakeup_delay,lock_or_holder_waiter,synchronous_blocking`")
-	b.WriteString("; synchronous_blocker_authority=`not_provided_by_candidate_seat`")
-	b.WriteString("; holder_waiter_authority=`not_provided_by_candidate_seat`")
+	// These two absence facts used to be repeated as raw authority keys on
+	// every candidate row. They are prompt-only, have no machine consumer, and
+	// were consequently copied verbatim into customer prose. Keep the exact
+	// evidence ceiling, but state it as reader language rather than teaching
+	// another pair of control-field spellings. The final reader card repeats the
+	// same boundary in the requested locale.
+	b.WriteString("; this seat does not establish a synchronous blocker, a lock or resource holder, or a holder/waiter relation")
 	b.WriteString("; conclusion_caliber=`validation_candidate`")
 	if traceDecisionNodePhase(node) == "pre_wakeup_dependency" {
 		b.WriteString("; priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`")
