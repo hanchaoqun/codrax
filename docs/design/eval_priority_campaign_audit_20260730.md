@@ -35649,6 +35649,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1070 r688：业务身份排序生产正证；自动枚举表与单表合同形成 P0 自冲突（2026-08-18）
+
+1. 在 `main@e4d20e425` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner 为
+   `0 PASS / 1 FAIL / 1 TIMEOUT`，人工 `2 fail`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_named_unit_evidence_replay_r688_20260818_manual_audit.md`。
+2. B1076 第一批获得生产正证：REPL unit 的有界 prompt 首屏从 browser preview 的同主题 path 洪泛切回
+   `REPL.renderRichResponse -> RenderMermaidBlocks/RenderMarkdown`；终稿不再声称 HTTP 500 且无回退，
+   正确交付开关关闭透传、失败保留源码及 text 围栏降级。该变化只来自 typed unit/entity evidence rank，
+   未扫描请求/推理/终稿，未新增 hard gate，也没有系统代写结论。
+3. B1076 第二批仍开放。配置 unit 仍把 `codrax.yaml` 简化成仓库根/工作目录查找，遗漏六级 lookup、
+   first-hit-wins 与 CLI 精确 override 子集，并把 strict decode 误当成优先级层。最优修向仍是按 typed unit
+   补齐 owner/load-bearing mechanism evidence；不能硬编码某个 case 的文件名或答案句式。
+4. Pipeline 暴露新 P0 `B1081-AUTOSUPPLEMENTTABLECARDINALITY1`：模型初稿只有一个 principal table，
+   `appendPrincipalEnumerationTypedSupplements` 在 pre-check 前追加第二个系统 table；同一 compiled
+   `AnswerSemanticView` 又声明 per-member table `MaxCount=1`。模型后续删除/合并补充表时，系统每轮重新
+   追加，19 次拒绝后 1200s 超时。关系门同时拒绝未证/错向边是正确行为，不是该合同冲突的修向。
+5. 根修采用 typed cap-aware yield。自动补充在新增 carrier 前用
+   `BuildAnswerSemanticViewForBusContext + AnswerBlockCountsForRequirement` 检查所有 required MaxCount；
+   候选若会让已达上限的载体超限，则保持 model table 字节不变，不追加、不合并、不系统补写行；重试
+   草稿若已携带旧轮 supplement，只删除造成上限溢出的 system-owned enumeration carrier。缺行仍由既有
+   typed completeness 检查提示模型补入原表。无上限枚举与合法的同 set 系统 supplement 原位幂等合并
+   不变。专项 pin 证明首轮单表不扩成双表、旧补充可恢复，既有普通枚举补充正向测试保持。
+6. 这批根修的是系统自身制造的不可满足合同，不降低 table/diagram/edge/citation 校验。下一步仍原样
+   并发两案回放，再区分 B1076 unit 机制闭合与图关系 authoring；不得用系统答案重写换取通过。
+7. Read/Trace 其他路径零改动。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际占用/
+   业务语义与规则可消除量双轴保持；邻近/背景仅作支持。活跃字节流没有固定 4ms 年龄降级。
+
+状态：
+
+`B1076-MULTITOPICMECHANISMCLOSURE1=batch1-production-positive-r688/batch2-open`；
+`B1081-AUTOSUPPLEMENTTABLECARDINALITY1=implemented/typed-cap-aware-yield/pins-pass`；
+`B1079-DIAGRAMPARTICIPANTSURFACEPROVENANCE1=open/design-required`；
+`B1080-PATCHPAYLOADSTALEEDGECHURN1=not-reproduced-r687/observe`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r688`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

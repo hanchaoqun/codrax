@@ -132,6 +132,12 @@ func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx
 	if plan == nil {
 		return 0
 	}
+	// A rejected draft can re-enter through the patch lane with a supplement
+	// produced by an older pre-emit pass. Remove only system-owned enumeration
+	// carriers that now overflow a typed MaxCount contract; otherwise the stale
+	// block survives before missing-row calculation and the model can never get
+	// back to a satisfiable one-carrier shape.
+	removePrincipalEnumerationSupplementsOverCappedContract(doc, ctx)
 	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
 	if len(sets) == 0 {
 		return 0
@@ -152,11 +158,111 @@ func appendPrincipalEnumerationTypedSupplements(doc *types.AnswerDocumentV2, ctx
 		if len(rows) == 0 {
 			continue
 		}
+		// The supplement compiler and the answer-shape validator consume the
+		// same typed semantic view.  If the model has already filled a capped
+		// carrier (most importantly the single per-member table), appending a
+		// second system table would make the document impossible to repair: the
+		// model can delete the supplement only for this pass to add it back before
+		// the MaxCount check.  In that shape keep the missing rows available to
+		// the existing completeness validator and let the model add them to its
+		// carrier.  Do not merge them into model-authored content here.
+		if !principalEnumerationTypedSupplementFitsBlockContract(doc, ctx, set, rows, zh) {
+			continue
+		}
 		if appendOrMergePrincipalEnumerationMissingSupplement(doc, set, rows, zh) {
 			appended++
 		}
 	}
 	return appended
+}
+
+// removePrincipalEnumerationSupplementsOverCappedContract removes the minimum
+// number of system-owned principal-enumeration carriers needed for each typed
+// required-block upper bound. Model-authored blocks are never candidates. If
+// model blocks alone exceed a bound, the ordinary validator remains solely
+// responsible for asking the model to repair them.
+func removePrincipalEnumerationSupplementsOverCappedContract(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || len(doc.Blocks) == 0 {
+		return 0
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil {
+		return 0
+	}
+	drop := make(map[int]bool)
+	for _, req := range view.RequiredBlocks {
+		if !req.Required || req.MaxCount <= 0 {
+			continue
+		}
+		count := 0
+		for i, block := range doc.Blocks {
+			if !drop[i] && types.AnswerBlockCountsForRequirement(block, req) {
+				count++
+			}
+		}
+		for i := len(doc.Blocks) - 1; count > req.MaxCount && i >= 0; i-- {
+			block := doc.Blocks[i]
+			if drop[i] || !block.SystemGeneratedKind.IsPrincipalEnumerationSupplement() ||
+				!types.AnswerBlockCountsForRequirement(block, req) {
+				continue
+			}
+			drop[i] = true
+			count--
+		}
+	}
+	if len(drop) == 0 {
+		return 0
+	}
+	out := doc.Blocks[:0]
+	for i, block := range doc.Blocks {
+		if !drop[i] {
+			out = append(out, block)
+		}
+	}
+	doc.Blocks = out
+	return len(drop)
+}
+
+// principalEnumerationTypedSupplementFitsBlockContract checks only the
+// compiled typed block-cardinality contract. It never reads request prose,
+// answer text, labels, or retry messages. Existing system supplements for the
+// same display set remain mergeable in place because that operation does not
+// add another carrier.
+func principalEnumerationTypedSupplementFitsBlockContract(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	set types.EnumerationDisplaySet,
+	rows []types.EnumerationDisplayRow,
+	zh bool,
+) bool {
+	if doc == nil || ctx == nil || len(rows) == 0 {
+		return false
+	}
+	baseID := principalEnumerationSupplementBaseID(set.ID)
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind == types.AnswerSystemGeneratedPrincipalEnumerationMissing &&
+			principalEnumerationSupplementIDMatchesSet(block.ID, baseID) {
+			return true
+		}
+	}
+
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil {
+		return true
+	}
+	candidate := buildPrincipalEnumerationRowsBlock(
+		doc, set, rows, zh, principalEnumerationSupplementMissing,
+	)
+	for _, req := range view.RequiredBlocks {
+		if !req.Required || req.MaxCount <= 0 ||
+			!types.AnswerBlockCountsForRequirement(candidate, req) {
+			continue
+		}
+		if types.CountAnswerBlocksForRequirement(doc.Blocks, req) >= req.MaxCount {
+			return false
+		}
+	}
+	return true
 }
 
 func principalEnumerationDisplaySetAuthorizesSystemCarrier(ctx *types.BusContext, set types.EnumerationDisplaySet) bool {

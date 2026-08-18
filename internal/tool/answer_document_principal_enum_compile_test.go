@@ -105,6 +105,85 @@ func TestAppendPrincipalEnumerationTypedSupplements_AppendsOnlyMissingRowsWithou
 	}
 }
 
+func TestAppendPrincipalEnumerationTypedSupplements_DoesNotExceedSinglePerMemberTableContract(t *testing.T) {
+	mu := types.NewMutableState("比较 analyze 与 finalizer，并用一张表列出每个 stage")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("analyze", "analyze", "internal/orchestrator/orchestrator.go", 2442, "analyze stage"),
+		enumEvidence("finalizer", "finalizer", "internal/orchestrator/orchestrator.go", 5605, "finalizer stage"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "read mode stages",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"analyze", "finalizer"},
+		SupportRefs: []string{"analyze @ internal/orchestrator/orchestrator.go:2442", "finalizer @ internal/orchestrator/orchestrator.go:5605"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				HasPerMemberTable: true,
+				IsCrossComponent:  true,
+			},
+			Buckets: []types.QuestionBucket{{Label: "analyze"}, {Label: "finalizer"}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "比较 analyze 与 finalizer。"},
+		{
+			ID:          "model-table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{
+				string(types.FacetEnumerationItem),
+				string(types.FacetBucketLabel),
+				string(types.FacetComponentRelation),
+			},
+			Columns: []string{"stage", "input", "output"},
+			Items: []types.AnswerBlockItem{{
+				ID: "analyze", Cells: []string{"analyze", "request", "AnalysisIR"}, CitationRef: 0,
+			}},
+		},
+	}}
+
+	before, err := json.Marshal(doc.Blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the patch base of a previously rejected pre-emit pass. The
+	// system-owned table must be removed before missing-row coverage is
+	// calculated, then the cap-aware append must not recreate it.
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:                  "stale-system-table",
+		Kind:                types.BlockTable,
+		SurfaceRole:         types.SurfacePrincipal,
+		SystemGeneratedKind: types.AnswerSystemGeneratedPrincipalEnumerationMissing,
+		FacetIDs:            []string{string(types.FacetEnumerationItem)},
+		Items: []types.AnswerBlockItem{{
+			ID: "finalizer", Label: "finalizer", CitationRef: 1,
+		}},
+	})
+	if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed != 0 {
+		t.Fatalf("system supplement must yield to the single-table contract, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	after, err := json.Marshal(doc.Blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("capped model table was changed or supplemented:\nbefore=%s\nafter=%s", before, after)
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if hints := preCheckRequiredBlocks(doc, view); len(hints) != 0 {
+		t.Fatalf("one model-authored table should satisfy block cardinality after supplement suppression: %+v", hints)
+	}
+}
+
 func TestAppendOrMergePrincipalEnumerationMissingSupplement_CoalescesComplementaryPasses(t *testing.T) {
 	set := types.EnumerationDisplaySet{
 		ID:    "jsonplugin-mro",
