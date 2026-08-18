@@ -36,11 +36,14 @@ This scaffold is for human review. The runner records typed metrics and declared
 4. `OutcomeFallbackRune` 的源码注释明确表示仍以窄字符 fallback 成功渲染；真正将围栏改为 `text` 并保留
    源码的是 `OutcomeUnsupportedKind`。终稿把两者都说成“保留原始围栏源码”，再次说明“同主题”不能代替
    typed relation connectivity。
-5. 新确认 `B1069-MULTITOPICEVIDENCEOWNERSHIP1=P1`：Finalizer 只渲染 SubTopic 标题和全局扁平 Evidence /
+5. 新确认并在审计后施工 `B1069-MULTITOPICEVIDENCEOWNERSHIP1=P1`：Finalizer 原先只渲染 SubTopic 标题和全局扁平 Evidence /
    enrichment rows，丢弃了已存在于 `NodeArtifactLedger` 的 `producer evidence_tN -> EvidenceID` 归属。
    最优方案是用 `CompileInvestigationPlan + NodeArtifactLedger` 生成仅提示的按调查单元证据视图；跨单元或同单元
-   但无 typed relation 连通的事实只能作为上下文，不能被描述成同一调用/失败机制。不得据此硬拒答案，也不得
-   由系统写结论、关系或图。
+   但无 typed relation 连通的事实只能作为上下文，不能被描述成同一调用/失败机制。实现已增加 prompt-only
+   ownership section：逐 unit 有界列出 exact EvidenceID/位置，将多 owner 或无唯一 owner 的行只显示一次为
+   shared；关系型行只授权精确 subject→object，独立定义行明确不授权机制 transition。该 section 只在既有
+   multi-topic answer-structure 车道启用，Trace/call-chain 专用 support-plan 车道不被扩域；它不参与 validator，
+   不由系统写结论、关系或图。
 6. 平台案另保留 `B1070-CITATIONITEMBINDING1=P2-observe`：事实结论正确，但 POSIX 项借用了 Apple return
    行。先随异构回放判断是否为既有 citation selector 的稳定类问题，不为单个行号增加答案扫描或特判。
 7. 组合案 599s 包含两个真实 evidence lane 和一次无首字节恢复，不能把全部增量误记为 B1068 性能回归；
@@ -52,7 +55,7 @@ This scaffold is for human review. The runner records typed metrics and declared
 ## Decision
 
 - `B1068-MULTITOPICPROBECOMPLETIONSCOPE1=production-closed-r682`
-- `B1069-MULTITOPICEVIDENCEOWNERSHIP1=confirmed/P1/typed-soft-context-next`
+- `B1069-MULTITOPICEVIDENCEOWNERSHIP1=implemented/typed-soft-context/replay-next`
 - `B1070-CITATIONITEMBINDING1=P2-observe/no-case-fit`
 - `runner=2/2 PASS; human=0 pass/1 partial/1 fail`
 - `active-stream-fixed-4ms-degrade=forbidden/not-observed`

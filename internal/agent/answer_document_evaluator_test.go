@@ -1574,6 +1574,82 @@ func TestRenderAnswerDocTypedExplorationEnrichment_ReturnKeepsExpressionAndForm(
 	}
 }
 
+func TestRenderAnswerDocMultiTopicEvidenceOwnership_PreservesUnitAndConnectivityBoundaries(t *testing.T) {
+	mut := types.NewMutableState("explain two independent mechanisms")
+	evidence := []types.EvidenceItem{
+		{ID: "E-config-call", Kind: types.EvidenceRelationship, Subject: "initApp", Object: "SetGateMode", Source: "cmd/root.go", LineStart: 20, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded},
+		{ID: "E-render", Kind: types.EvidenceRelationship, Subject: "renderRichResponse", Object: "RenderBlocks", Source: "internal/repl/repl.go", LineStart: 30, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded},
+		{ID: "E-finalizer-state", Kind: types.EvidenceDirect, Subject: "fallbackRequested", Object: "bool", Source: "internal/agent/finalizer.go", LineStart: 40, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded},
+	}
+	mut.EvidenceClosure().SetNodeArtifactLedger(types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{
+		{ProducerNodeID: "n1_evidence_t0", EvidenceID: "E-config-call", Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "E-config-call"}},
+		{ProducerNodeID: "n1_evidence_t1", EvidenceID: "E-render", Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "E-render"}},
+		{ProducerNodeID: "n1_evidence_t1", EvidenceID: "E-finalizer-state", Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: "E-finalizer-state"}},
+	}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{SubTopics: []types.SubTopic{
+			{Summary: "configuration loading"},
+			{Summary: "terminal diagram rendering"},
+		}}},
+		EvidenceItems: evidence,
+	}
+
+	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
+	for _, want := range []string{
+		"## Evidence ownership by investigation unit (prompt-only)",
+		"### Unit 1: configuration loading",
+		"E-config-call` connectivity=`explicit_typed_relation`",
+		"### Unit 2: terminal diagram rendering",
+		"E-render` connectivity=`explicit_typed_relation`",
+		"E-finalizer-state` connectivity=`standalone_fact`",
+		"cannot by themselves become a transition in a mechanism chain",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ownership prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, "E-config-call") > strings.Index(got, "### Unit 2:") {
+		t.Fatalf("configuration evidence crossed into unit 2:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocMultiTopicEvidenceOwnership_MultiOwnerBecomesSharedContext(t *testing.T) {
+	mut := types.NewMutableState("compare two units")
+	item := types.EvidenceItem{ID: "E-shared", Kind: types.EvidenceDirect, Subject: "SharedConfig", Source: "config.go", LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded}
+	mut.EvidenceClosure().SetNodeArtifactLedger(types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{
+		{ProducerNodeID: "n1_evidence_t0", EvidenceID: item.ID, Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: item.ID}},
+		{ProducerNodeID: "n1_evidence_t1", EvidenceID: item.ID, Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: item.ID}},
+	}})
+	ctx := &types.AgentContext{
+		Mutable:       mut,
+		AnalysisIR:    &types.AnalysisIR{RequestModel: types.RequestModel{SubTopics: []types.SubTopic{{Summary: "first"}, {Summary: "second"}}}},
+		EvidenceItems: []types.EvidenceItem{item},
+	}
+	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
+	if !strings.Contains(got, "### Shared or not uniquely assigned evidence") || strings.Count(got, "E-shared") != 1 {
+		t.Fatalf("multi-owner evidence must render once as shared context:\n%s", got)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstructionIncludesTypedMultiTopicEvidenceOwnership(t *testing.T) {
+	mut := types.NewMutableState("answer both questions")
+	item := types.EvidenceItem{ID: "E-owned", Kind: types.EvidenceDirect, Subject: "Config", Source: "config.go", LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded}
+	mut.EvidenceClosure().SetNodeArtifactLedger(types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{
+		ProducerNodeID: "n1_evidence_t0", EvidenceID: item.ID,
+		Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: item.ID},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable:       mut,
+		AnalysisIR:    &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain, SubTopics: []types.SubTopic{{Summary: "first"}, {Summary: "second"}}}},
+		EvidenceItems: []types.EvidenceItem{item},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "## Evidence ownership by investigation unit (prompt-only)") || !strings.Contains(prompt, "E-owned") {
+		t.Fatalf("finalizer prompt lost typed multi-topic evidence ownership:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicDispatchComposition(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

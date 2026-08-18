@@ -914,6 +914,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}) {
 			return b.String()
 		}
+		if !trace.appendSection(&b, "multi_topic_evidence_ownership", func() string {
+			return renderAnswerDocMultiTopicEvidenceOwnership(ctx)
+		}) {
+			return b.String()
+		}
 	}
 	// The initial prompt can be large. Re-state exact no-arrow ownership at the
 	// tail so a later directed-relation boundary cannot accidentally flatten a

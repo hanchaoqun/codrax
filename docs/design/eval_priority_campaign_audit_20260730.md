@@ -36288,18 +36288,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
    与无法唯一归属的行单列为 shared context；明确跨单元证据、以及没有 typed call/flow/guard/dataflow
    连通的定义行，只能支撑上下文，不能自行构成机制步骤。该层不得硬拒模型答案，不读 request/reasoning/
    final prose，不铸证据、边、图、关系或结论。
-6. 平台案主事实正确，但 POSIX 项引用 Apple return 行，记 P2
+6. B1069 已按该形施工。新增 prompt-only ownership section 复用
+   `CompileInvestigationPlan + NodeArtifactLedger + RuntimeArtifactIDForEvidenceItem`：每个 unit 有界列出其 exact
+   producer evidence；多 owner/无唯一 owner 的行只显示一次为 shared；`explicit_typed_relation` 只授权该行
+   已有 subject→object，`standalone_fact` 明确不得自升为机制 transition。它不进入 Finalizer validator，且只
+   挂在既有 multi-topic answer-structure 车道，Trace/call-chain 的 typed support-plan 专用路径不被扩域。
+7. 平台案主事实正确，但 POSIX 项引用 Apple return 行，记 P2
    `B1070-CITATIONITEMBINDING1=observe`。先用异构案例判断是否是稳定的 citation item-binding 类缺陷，禁止
    为单一 `clock.c` 行号增加特判或答案字符串门。
-7. 599s 耗时同时包含两个真实 evidence lane 与一次无首字节恢复；正确性增加后的 probe/topic 重复读属于
+8. 599s 耗时同时包含两个真实 evidence lane 与一次无首字节恢复；正确性增加后的 probe/topic 重复读属于
    P2 复用债，不能把全部增量归咎于 scheduler。无畸形 JSON、空答案、旧稿降级或固定 4ms 活跃流降级。
-8. 本批不改 Trace。显式时间窗因果投影、系统自动补齐、链上-only 主因、背景 support-only，以及优先级
+9. 本批不改 Trace。显式时间窗因果投影、系统自动补齐、链上-only 主因、背景 support-only，以及优先级
    反转、调度/算力供给、D/IO、确定性语义工作、业务线索和实际占用/规则可消双轴均保持。
 
 状态：
 
 `B1068-MULTITOPICPROBECOMPLETIONSCOPE1=production-closed-r682`；
-`B1069-MULTITOPICEVIDENCEOWNERSHIP1=confirmed/P1/typed-soft-context-next`；
+`B1069-MULTITOPICEVIDENCEOWNERSHIP1=implemented/typed-soft-context/full-agent-pass/replay-next`；
 `B1070-CITATIONITEMBINDING1=P2-observe/no-case-fit`；
 `runner=2/2 PASS`；`human=platform-partial/combo-fail`；
 `raw-prose-hard-gate=none`；`system-answer/conclusion/relation/diagram-authorship=none`；
