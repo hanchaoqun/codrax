@@ -35896,6 +35896,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1055 r676/B1062：限定调用名生产闭环；结构化多坐标引用集合根修（2026-08-18）
+
+1. 在 `main@4cf729d6f` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + sr_c_platform_fork`。Runner `2/2 PASS`；人工为
+   `QF pass / C partial`。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_qualified_citation_replay_r676_20260818_manual_audit.md`。
+2. B1061 获生产闭环。相同 QF case 的 explorer 从 25 降到 12 轮、completion 从 6 降到 3 次、墙钟
+   从 351 秒降到 258 秒；`normalizer.Normalize`/`compiler.Compile` 等完整限定调用名不再因 caller 文件
+   路径不含 receiver 被拒。最终仍准确表达 `buildAnalysisIR → RunWith ← gate.Run`，没有虚构直达路径。
+3. QF 另见 P2 B1063：第一次 patch 只补既有 principal list 的 `edge_anchors`，却因 `replace_blocks` 是完整
+   替换而漏掉原 `claim_uses`，触发第二次同类拒绝。后续优先让 typed repair payload 携“完整旧块 + 唯一新增
+   字段”或设计字段级 delta；不能把 replace 全局静默改为 merge，否则模型无法可靠删除旧字段。
+4. B1062 在 C 案稳定复现。模型提交 14 个真实 citation，结构化表格的位置 cell 也明确写出
+   `src/clock.c:15, 17`、`:28, 30`、`:39` 与 `src/handlers.c:32, 34, 38`；旧单位置解析却把非连续列表
+   压成第一坐标，generic repair 随后把 Apple/POSIX/negative-handler 行迁到 guard、定义或普通 body 行。
+   最终 7 条引用没有覆盖模型自己声明的 8 个实际调用坐标。
+5. 根修新增精确结构化位置集合 binder。它只读 `items[].cells[]` 中整个 cell 均符合
+   `code-or-config-file:line[, line...]` 的语法，逐坐标选择同一 document 已有 citation，并写入既有
+   `citation_ref + citation_refs` 集合。它不扫描 request、summary、item prose、API 名或最终答案，不读文件、
+   不追加引用、不铸事实；若池中缺某坐标，只保留精确匹配并清掉 generic repair 猜出的邻近行。
+6. 专项 pin 覆盖 Windows 两行、Apple 两行、`cmd_sleep` 三行完整绑定；同时覆盖位置缺失不得借普通 body
+   行、free-form prose 里的坐标不得驱动该 binder、混合文本 cell 必须 fail-open。下一批用同一 C case
+   production replay，验收实际调用 citation 全保留且不再发错误的相邻 guard/body 来源。
+7. 本批不触碰 Trace 查询、显式窗、因果投影、自动补齐、链上-only 主因或流式发布。活跃流固定 4ms
+   无完整答案即降级仍禁止；两案均持续生成并正常完成，系统没有代写模型结论。
+
+状态：
+
+`B1061-QUALIFIEDIDENTITYCOMPACTRELATION1=production-closed-r676`；
+`B1062-MULTIOPERATIONCITATIONCOVERAGE1=implemented/exact-structured-location-set/pending-production-replay`；
+`B1063-PATCHREPLACEMENTFIELDRETENTION1=observed/P2-pending-design`；
+`r676-QF-sequence=runner-pass/human-pass/B1061-positive`；
+`r676-C-platform=runner-pass/human-partial/B1062-reproduced`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r676`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

@@ -836,6 +836,14 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeScalarLiteralCitationRefsWithContext", fixed)
 		logging.Warning("[%s] normalized %d scalar literal citation_ref value(s) by typed value-bearing source authority", toolName, fixed)
 	}
+	// An exact structured source-location cell is the model's strongest
+	// presentation selector. Apply it after generic label/claim repairs and
+	// before invalid-ref disposal so weaker definition/guard candidates cannot
+	// replace a row-local `file:line[, line...]` citation set.
+	if fixed := normalizeItemCitationRefsByExactStructuredSourceLocationCells(doc); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByExactStructuredSourceLocationCells", fixed)
+		logging.Warning("[%s] aligned %d structured item citation set(s) to exact source-location cells", toolName, fixed)
+	}
 	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("detachInvalidItemCitationRefsWithoutSafeCandidateWithContext", fixed)
 		logging.Warning("[%s] detached %d invalid item citation_ref value(s) with no safe replacement candidate", toolName, fixed)

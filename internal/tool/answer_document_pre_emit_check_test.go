@@ -10215,3 +10215,68 @@ func TestPreEmitEvidenceIndexIncludesLosslessStageOutputEvidence(t *testing.T) {
 		t.Fatalf("stage-output/Turn-A transport duplicate must collapse, got %+v", got)
 	}
 }
+
+func TestNormalizeItemCitationRefsByExactStructuredSourceLocationCells_BindsCompleteSameFileLists(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "platforms", Kind: types.BlockTable,
+			Items: []types.AnswerBlockItem{
+				{ID: "windows", Cells: []string{"Windows", "src/clock.c:15, 17"}, CitationRef: 4},
+				{ID: "apple", Cells: []string{"Apple", "src/clock.c:28, 30"}, CitationRef: 2},
+				{ID: "sleep", Cells: []string{"cmd_sleep", "src/handlers.c:32, 34, 38"}, CitationRef: 6},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "src/clock.c", Line: 15},
+			{File: "src/clock.c", Line: 17},
+			{File: "src/clock.c", Line: 21}, // weaker branch guard
+			{File: "src/clock.c", Line: 28},
+			{File: "src/clock.c", Line: 30},
+			{File: "src/handlers.c", Line: 32},
+			{File: "src/handlers.c", Line: 34},
+			{File: "src/handlers.c", Line: 38},
+		},
+	}
+	if got := normalizeItemCitationRefsByExactStructuredSourceLocationCells(doc); got != 3 {
+		t.Fatalf("fixed=%d, want one complete citation-set repair per row", got)
+	}
+	for i, want := range [][]int{{0, 1}, {3, 4}, {5, 6, 7}} {
+		if got := types.AnswerBlockItemCitationRefs(doc.Blocks[0].Items[i]); !reflect.DeepEqual(got, want) {
+			t.Fatalf("row %d refs=%v, want exact declared location set %v", i, got, want)
+		}
+	}
+}
+
+func TestNormalizeItemCitationRefsByExactStructuredSourceLocationCells_DoesNotGuessMissingOrProseLocations(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "locations", Kind: types.BlockTable,
+			Items: []types.AnswerBlockItem{
+				// The row selected line 7, while the only pool entry is a nearby
+				// body line. The normalizer must remove that weaker guess.
+				{ID: "missing", Cells: []string{"cmd_ping", "src/handlers.c:7"}, CitationRef: 0},
+				// Prose is intentionally outside the exact structured-cell lane.
+				{ID: "prose", Text: "see src/clock.c:15, 17", Cells: []string{"Windows"}, CitationRef: 1},
+				// A malformed mixed cell is not a source-location list.
+				{ID: "mixed", Cells: []string{"src/clock.c:15, QueryPerformanceCounter"}, CitationRef: 1},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "src/handlers.c", Line: 10},
+			{File: "src/clock.c", Line: 15},
+			{File: "src/clock.c", Line: 17},
+		},
+	}
+	if got := normalizeItemCitationRefsByExactStructuredSourceLocationCells(doc); got != 1 {
+		t.Fatalf("fixed=%d, want only exact missing-coordinate row repaired", got)
+	}
+	if got := types.AnswerBlockItemCitationRefs(doc.Blocks[0].Items[0]); len(got) != 0 {
+		t.Fatalf("missing exact coordinate borrowed nearby citation: %v", got)
+	}
+	if got := types.AnswerBlockItemCitationRefs(doc.Blocks[0].Items[1]); !reflect.DeepEqual(got, []int{1}) {
+		t.Fatalf("free-form prose must not drive location-set binding: %v", got)
+	}
+	if got := types.AnswerBlockItemCitationRefs(doc.Blocks[0].Items[2]); !reflect.DeepEqual(got, []int{1}) {
+		t.Fatalf("malformed mixed cell must fail open without rewriting refs: %v", got)
+	}
+}

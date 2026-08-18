@@ -10643,6 +10643,161 @@ func preEmitItemHasAlignedUniqueExplicitSourceLocation(item types.AnswerBlockIte
 	return len(surfaces) == 1 && types.AnswerSourceLocationSurfaceMatchesCitation(surfaces[0], cit)
 }
 
+// normalizeItemCitationRefsByExactStructuredSourceLocationCells keeps a
+// model-authored table/list row's explicit source-location cell and its
+// citation set on one identity. A row such as `src/clock.c:15, 17` already
+// selects two exact coordinates; reducing it to one citation or moving it to
+// a nearby definition/guard line weakens the model's own evidence choice.
+//
+// This is deliberately a presentation-binding repair, not a claim checker:
+// it reads only cells whose ENTIRE value parses as a source location or a
+// same-file location list, and it can select only citations already present
+// in the current document pool. It never scans request/prose, opens source,
+// appends a citation, or infers a fact from a path. When the pool is partial,
+// exact matches survive and mechanically guessed non-matching refs are
+// removed; ordinary validation may then leave the row honestly uncited.
+func normalizeItemCitationRefsByExactStructuredSourceLocationCells(doc *types.AnswerDocumentV2) int {
+	if doc == nil || len(doc.Citations) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			surfaces := preEmitExactStructuredSourceLocationCellSurfaces(*item)
+			if len(surfaces) == 0 {
+				continue
+			}
+			refs := make([]int, 0, len(surfaces))
+			for _, surface := range surfaces {
+				if ref, ok := preEmitUniqueCitationRefForSourceLocationSurface(doc.Citations, surface); ok {
+					refs = append(refs, ref)
+				}
+			}
+			refs = dedupPreEmitCitationRefs(refs)
+			if preEmitCitationRefSetsEqual(types.AnswerBlockItemCitationRefs(*item), refs) {
+				continue
+			}
+			types.SetAnswerBlockItemCitationRefs(item, refs)
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitExactStructuredSourceLocationCellSurfaces(item types.AnswerBlockItem) []types.AnswerSourceLocationSurface {
+	var out []types.AnswerSourceLocationSurface
+	seen := map[string]bool{}
+	for _, cell := range item.Cells {
+		for _, surface := range preEmitExactSourceLocationCellList(cell) {
+			key := strings.ToLower(strings.ReplaceAll(surface.File, `\`, `/`)) + ":" + strconv.Itoa(surface.LineStart)
+			if surface.LineEnd > 0 && surface.LineEnd != surface.LineStart {
+				key += "-" + strconv.Itoa(surface.LineEnd)
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, surface)
+		}
+	}
+	return out
+}
+
+func preEmitExactSourceLocationCellList(raw string) []types.AnswerSourceLocationSurface {
+	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
+	if raw == "" || strings.ContainsAny(raw, "\n\r") {
+		return nil
+	}
+	// Parse a comma/semicolon list before the legacy single-surface parser.
+	// That parser intentionally compresses a non-contiguous line list to its
+	// first coordinate for backward-compatible display matching; citation-set
+	// binding must retain every explicitly selected coordinate instead.
+	if !strings.ContainsAny(raw, ",，、;；") {
+		if surface, ok := types.ParseAnswerSourceLocationSurface(raw); ok {
+			return []types.AnswerSourceLocationSurface{surface}
+		}
+		return nil
+	}
+	normalized := strings.ReplaceAll(raw, `\`, `/`)
+	colon := strings.LastIndex(normalized, ":")
+	if colon <= 0 || colon >= len(normalized)-1 {
+		return nil
+	}
+	file := strings.TrimSpace(normalized[:colon])
+	if !types.HasCodeOrConfigPathSuffix(file) {
+		return nil
+	}
+	parts := strings.FieldsFunc(normalized[colon+1:], func(r rune) bool {
+		return r == ',' || r == '，' || r == '、' || r == ';' || r == '；'
+	})
+	if len(parts) < 2 {
+		return nil
+	}
+	out := make([]types.AnswerSourceLocationSurface, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil
+		}
+		surface, ok := types.ParseAnswerSourceLocationSurface(file + ":" + part)
+		if !ok {
+			return nil
+		}
+		out = append(out, surface)
+	}
+	return out
+}
+
+func preEmitUniqueCitationRefForSourceLocationSurface(citations []types.Citation, surface types.AnswerSourceLocationSurface) (int, bool) {
+	match := -1
+	matchKey := ""
+	for i, cit := range citations {
+		if !types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" {
+			continue
+		}
+		if match >= 0 && key != matchKey {
+			return -1, false
+		}
+		if match < 0 {
+			match = i
+			matchKey = key
+		}
+	}
+	return match, match >= 0
+}
+
+func dedupPreEmitCitationRefs(refs []int) []int {
+	out := make([]int, 0, len(refs))
+	seen := map[int]bool{}
+	for _, ref := range refs {
+		if ref < 0 || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		out = append(out, ref)
+	}
+	return out
+}
+
+func preEmitCitationRefSetsEqual(a, b []int) bool {
+	a = dedupPreEmitCitationRefs(a)
+	b = dedupPreEmitCitationRefs(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func preEmitExplicitCodeSurfacesFromItem(item types.AnswerBlockItem) []string {
 	var out []string
 	for _, surface := range []string{item.Label, item.Text} {
