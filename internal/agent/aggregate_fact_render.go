@@ -230,6 +230,9 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 		if authority := aggregateMemberNoteSupportAuthority(fact, opts.supportEvidence); authority != "" {
 			fmt.Fprintf(&b, ", member_note_support_authority=[%s]", authority)
 		}
+		if support := aggregateMemberNoteCompositeSupport(fact, opts.supportEvidence); support != "" {
+			fmt.Fprintf(&b, ", member_note_composite_support=[%s]", support)
+		}
 		b.WriteString("\n")
 	}
 	if len(facts) > maxFacts {
@@ -252,6 +255,8 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 }
 
 const aggregateMemberNoteSupportAuthorityLimit = 12
+
+const aggregateMemberNoteCompositeSupportAnchorLimit = 8
 
 // aggregateMemberNoteSupportAuthority binds each model-authored member note
 // to the deterministic ClaimForm of its positional support ref. A source
@@ -328,6 +333,180 @@ func aggregateSupportLocationMatchesEvidence(location types.AnswerSourceLocation
 	}
 	evidenceLocation, ok := types.ParseAnswerSourceLocationSurface(surfaceText)
 	return ok && types.AnswerSourceLocationSurfaceMatchesCitation(evidenceLocation, types.Citation{File: location.File, Line: location.LineStart})
+}
+
+// aggregateMemberNoteCompositeSupport gives the finalizer a member-local set
+// of accepted source anchors when one positional support ref alone cannot
+// support the member note's composite description. The grouping is derived
+// only from typed evidence identity and source locations. It does not inspect
+// the request or answer prose, mint a relation/order, or change the authority
+// ceiling emitted by aggregateMemberNoteSupportAuthority.
+//
+// Same-named definitions in one file (for example conditional C platform
+// implementations) are separate incarnations: anchors are bounded by the
+// nearest preceding exact-owner definition and the next such definition.
+// Ambiguous owner identity fails closed rather than borrowing a nearby row.
+func aggregateMemberNoteCompositeSupport(fact types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
+	if len(fact.MemberNotes) == 0 || len(fact.SupportRefs) == 0 || len(evidence) == 0 {
+		return ""
+	}
+	limit := len(fact.SupportRefs)
+	if len(fact.MemberNotes) < limit {
+		limit = len(fact.MemberNotes)
+	}
+	if limit > aggregateMemberNoteSupportAuthorityLimit {
+		limit = aggregateMemberNoteSupportAuthorityLimit
+	}
+	entries := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		_, location, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[i])
+		if !ok {
+			continue
+		}
+		owner, ok := aggregateCompositeSupportOwnerAtLocation(location, evidence)
+		if !ok {
+			continue
+		}
+		anchors := aggregateCompositeSupportAnchors(location, owner, evidence)
+		if len(anchors) < 2 {
+			continue
+		}
+		entries = append(entries, fmt.Sprintf("`%d:{%s}`", i+1, strings.Join(anchors, ", ")))
+	}
+	return strings.Join(entries, ", ")
+}
+
+func aggregateCompositeSupportOwnerAtLocation(location types.AnswerSourceLocationSurface, evidence []types.EvidenceItem) (string, bool) {
+	owners := map[string]string{}
+	for _, item := range evidence {
+		if !aggregateCompositeSupportEvidenceAccepted(item) || !aggregateSupportLocationMatchesEvidence(location, item) {
+			continue
+		}
+		owner := aggregateCompositeSupportOwner(item)
+		if owner == "" {
+			continue
+		}
+		owners[strings.ToLower(owner)] = owner
+	}
+	if len(owners) != 1 {
+		return "", false
+	}
+	for _, owner := range owners {
+		return owner, true
+	}
+	return "", false
+}
+
+func aggregateCompositeSupportAnchors(location types.AnswerSourceLocationSurface, owner string, evidence []types.EvidenceItem) []string {
+	ownerKey := strings.ToLower(strings.TrimSpace(owner))
+	sourceKey := aggregateCompositeSupportSourceKey(location.File)
+	if ownerKey == "" || sourceKey == "" {
+		return nil
+	}
+
+	definitionLines := make([]int, 0, 2)
+	for _, item := range evidence {
+		if !aggregateCompositeSupportEvidenceAccepted(item) ||
+			aggregateCompositeSupportSourceKey(item.Source) != sourceKey ||
+			strings.ToLower(aggregateCompositeSupportOwner(item)) != ownerKey ||
+			types.ClaimFormOf(item) != types.ClaimDefinitionFact {
+			continue
+		}
+		definitionLines = append(definitionLines, item.LineStart)
+	}
+	sort.Ints(definitionLines)
+	definitionLines = aggregateCompositeSupportUniqueInts(definitionLines)
+
+	startLine := 0
+	endLine := 0
+	for _, line := range definitionLines {
+		if line <= location.LineStart {
+			startLine = line
+			continue
+		}
+		if startLine > 0 {
+			endLine = line
+		}
+		break
+	}
+
+	type compositeAnchor struct {
+		line int
+		form types.ClaimForm
+	}
+	anchors := make([]compositeAnchor, 0, aggregateMemberNoteCompositeSupportAnchorLimit)
+	seen := map[string]bool{}
+	for _, item := range evidence {
+		if !aggregateCompositeSupportEvidenceAccepted(item) ||
+			aggregateCompositeSupportSourceKey(item.Source) != sourceKey ||
+			strings.ToLower(aggregateCompositeSupportOwner(item)) != ownerKey {
+			continue
+		}
+		if startLine > 0 && item.LineStart < startLine {
+			continue
+		}
+		if endLine > 0 && item.LineStart >= endLine {
+			continue
+		}
+		form := types.ClaimFormOf(item)
+		if form == types.ClaimUnknown {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d", form, item.LineStart)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		anchors = append(anchors, compositeAnchor{line: item.LineStart, form: form})
+	}
+	sort.SliceStable(anchors, func(i, j int) bool {
+		if anchors[i].line != anchors[j].line {
+			return anchors[i].line < anchors[j].line
+		}
+		return anchors[i].form < anchors[j].form
+	})
+	if len(anchors) > aggregateMemberNoteCompositeSupportAnchorLimit {
+		anchors = anchors[:aggregateMemberNoteCompositeSupportAnchorLimit]
+	}
+	out := make([]string, 0, len(anchors))
+	for _, anchor := range anchors {
+		out = append(out, fmt.Sprintf("%s@%s:%d", anchor.form, location.File, anchor.line))
+	}
+	return out
+}
+
+func aggregateCompositeSupportEvidenceAccepted(item types.EvidenceItem) bool {
+	return (item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered) &&
+		strings.TrimSpace(item.Source) != "" && item.LineStart > 0
+}
+
+func aggregateCompositeSupportOwner(item types.EvidenceItem) string {
+	for _, owner := range []string{item.OwnerIdentity, item.OwnerSymbol, item.Subject} {
+		if owner = strings.TrimSpace(owner); owner != "" {
+			return owner
+		}
+	}
+	if types.ClaimFormOf(item) == types.ClaimDefinitionFact {
+		return strings.TrimSpace(item.AnchorSymbol)
+	}
+	return ""
+}
+
+func aggregateCompositeSupportSourceKey(source string) string {
+	return strings.ToLower(strings.TrimSpace(strings.ReplaceAll(source, `\`, "/")))
+}
+
+func aggregateCompositeSupportUniqueInts(values []int) []int {
+	if len(values) < 2 {
+		return values
+	}
+	out := values[:1]
+	for _, value := range values[1:] {
+		if value != out[len(out)-1] {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func aggregateFactRuntimeAdvisoryNumericMustOmitValue(rm *types.RequestModel, fact types.AnswerAggregateFact) bool {

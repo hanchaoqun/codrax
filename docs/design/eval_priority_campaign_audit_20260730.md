@@ -36107,6 +36107,44 @@ endpoint、typed call edge、selected body、directed reachability/no-path 等�
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1059 B1064：成员局部复合证据集按 typed owner 与定义代次收敛（2026-08-18）
+
+1. 对 r677/r678 的 C 条件编译实现与 r679 的 Mermaid outcome 两个异构见证冷读后，确认
+   B1064 的共同根因：`member_set` 的 `support_refs` 是逐成员单位置载体，既有
+   `member_note_support_authority` 只能声明该位置的单一 claim form。即使证据池已含同一成员的
+   定义、调用、条件、赋值和返回，Finalizer 仍拿不到“这些位置属于同一成员局部实现”的 typed
+   组合视图；模型容易借错相邻 citation，或把 definition-site-only 的成员说明写成已证行为。
+2. 新增 prompt-only `member_note_composite_support`。它只消费已 accepted 的
+   `GroundingGrounded/GroundingRecovered` evidence、结构化 `support_refs` 位置、typed
+   `OwnerIdentity/OwnerSymbol/Subject/AnchorSymbol` 和 `ClaimFormOf`，不读用户请求、模型草稿、
+   最终答案、成员说明文字或关键词。无法得到唯一 owner 时 fail-closed，不产生组合行。
+3. 同文件同 owner 若存在多个同名定义，按“最近的前置 exact-owner definition 到下一定义之前”
+   划分 incarnation。由此 Windows/macOS/POSIX 三段实现分别只得到各自定义与 API 调用位置，
+   不会跨 `#if/#elif/#else` 借证；没有定义行但 owner 精确一致的 `cmd_sleep` 调用点可组成
+   32/34/38 三位置集合。每成员最多 8 个锚、最多 12 个成员，保持上下文有界。
+4. 新投影不铸造关系、顺序、分支等价、可达性或行为结论，也不改变
+   `member_note_support_authority` 的权限上限。Finalizer 教学明确：模型可按具体子断言选择组合
+   锚；缺少组合字段的成员继续按单位置上限处理。系统不改写模型答案、不自动挂 citation、
+   不把定义升级为函数体行为。
+5. 新 pin 覆盖三个同名 C 定义代次不串线、单 owner 三调用点成组、definition-only enum 不生成
+   composite 且继续显示 `definition_site_only/executable_body=unproven`。定向测试、完整
+   `go test ./internal/agent -count=1`（11.105s）、`git diff --check` 与 `make` 均通过。
+6. 下一步严格并发 2 个生产回放：`sr_c_platform_fork` 验证平台成员的局部引用集合；
+   `read_combo_loose_multi_question_units` 验证 outcome 定义席不会因本修复被虚假升级，并继续观察
+   默认值→YAML→CLI 机制链表达。不得为了回放通过而加平台名/outcome 名或答案词面硬门。
+7. 本批未改 Trace、关系图验证、JSON 恢复或流式生命周期。显式时间窗、Trace 因果投影、自动补齐、
+   链上-only 主因与实际占用/规则可消除量双轴保持；邻近/背景仍仅作支持。活跃流无固定 4ms
+   累计年龄降级。
+
+状态：
+
+`B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=implemented/typed-owner+definition-incarnation+pinned/replay-next`；
+`member-note-authority=unchanged/no-system-conclusion`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

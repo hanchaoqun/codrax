@@ -96,6 +96,83 @@ func TestRenderStructuredAggregateFactsBindsMemberNotesToSupportClaimForms(t *te
 	}
 }
 
+func TestRenderStructuredAggregateFactsGroupsMemberLocalCompositeSupportByDefinitionIncarnation(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "platform clocks and command",
+		Value:       "4",
+		Role:        types.AnswerAggregateRoleSupportingCoverage,
+		Members:     []string{"Windows clock", "macOS clock", "POSIX clock", "cmd_sleep"},
+		MemberNotes: []string{"uses Windows clock calls", "uses macOS clock calls", "uses POSIX clock call", "dispatches all sleep calls"},
+		SupportRefs: []string{
+			"Windows clock @ src/clock.c:11",
+			"macOS clock @ src/clock.c:25",
+			"POSIX clock @ src/clock.c:37",
+			"cmd_sleep @ src/handlers.c:32",
+		},
+	}}
+	grounded := types.GroundingGrounded
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "src/clock.c", LineStart: 11, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 17, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 25, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 28, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 30, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 37, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/clock.c", LineStart: 39, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "monotonic_now_ns", GroundingStatus: grounded},
+			{Source: "src/handlers.c", LineStart: 32, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "cmd_sleep", GroundingStatus: grounded},
+			{Source: "src/handlers.c", LineStart: 34, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "cmd_sleep", GroundingStatus: grounded},
+			{Source: "src/handlers.c", LineStart: 38, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, OwnerSymbol: "cmd_sleep", GroundingStatus: grounded},
+		},
+	}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, want := range []string{
+		"member_note_composite_support=[",
+		"1:{definition_fact@src/clock.c:11, call_edge@src/clock.c:15, call_edge@src/clock.c:17}",
+		"2:{definition_fact@src/clock.c:25, call_edge@src/clock.c:28, call_edge@src/clock.c:30}",
+		"3:{definition_fact@src/clock.c:37, call_edge@src/clock.c:39}",
+		"4:{call_edge@src/handlers.c:32, call_edge@src/handlers.c:34, call_edge@src/handlers.c:38}",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("member-local composite support missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "1:{definition_fact@src/clock.c:11, call_edge@src/clock.c:28") ||
+		strings.Contains(got, "2:{definition_fact@src/clock.c:25, call_edge@src/clock.c:15") {
+		t.Fatalf("same-name definition incarnations must not borrow each other's anchors:\n%s", got)
+	}
+}
+
+func TestRenderStructuredAggregateFactsDoesNotInventCompositeSupportForDefinitionOnlyMember(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "outcomes",
+		Value:       "1",
+		Members:     []string{"Rendered"},
+		MemberNotes: []string{"preserves the original source"},
+		SupportRefs: []string{"Rendered @ outcome.go:10"},
+	}}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		EvidenceItems: []types.EvidenceItem{{
+			Source: "outcome.go", LineStart: 10, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, OwnerSymbol: "Rendered", GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	if strings.Contains(got, "member_note_composite_support") {
+		t.Fatalf("one definition site must not become composite behavior authority:\n%s", got)
+	}
+	if !strings.Contains(got, "definition_site_only executable_body=unproven") {
+		t.Fatalf("definition-only authority ceiling must remain visible:\n%s", got)
+	}
+}
+
 func TestRenderStructuredAggregateFactsCapsSupportingMemberNotes(t *testing.T) {
 	var members, notes []string
 	for i := 0; i < 30; i++ {
