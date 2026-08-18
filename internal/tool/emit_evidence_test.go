@@ -5789,6 +5789,91 @@ func TestEmitEvidence_RealignsExplicitDirectedCallBeforeLineNormalization(t *tes
 	}
 }
 
+func TestEmitEvidence_PreservesTwoExactSameEndpointCallSites(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "cmd/root.go", 650,
+		`f.StringVar(&a, "a", "", "a")`,
+		`f.StringVar(&b, "b", "", "b")`,
+		`f.StringVar(&c, "c", "", "c")`,
+		`f.IntVar(&first, "first", 0, "first")`,
+		``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``, ``,
+		`f.IntVar(&second, "second", 0, "second")`,
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"cmd/root.go": {
+			RelPath: "cmd/root.go", Language: "go",
+			Symbols: []repomap.Symbol{{Name: "init", Kind: "function", Line: 647, EndLine: 722}},
+			Relations: []repomap.Relation{
+				{Kind: "call", Line: 653, ToEP: repomap.RelationEndpoint{Name: "IntVar"}},
+				{Kind: "call", Line: 678, ToEP: repomap.RelationEndpoint{Name: "IntVar"}},
+			},
+		},
+	}})
+	params := json.RawMessage(`{"items":[
+		{"kind":"relationship","subject":"init","predicate":"calls","object":"IntVar","source":"cmd/root.go","line_start":653,"summary":"first binding","anchor_kind":"call","anchor_symbol":"IntVar"},
+		{"kind":"relationship","subject":"init","predicate":"calls","object":"IntVar","source":"cmd/root.go","line_start":678,"summary":"second binding","anchor_kind":"call","anchor_symbol":"IntVar"}
+	]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("two exact callsites rejected, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 || got[0].LineStart != 653 || got[1].LineStart != 678 {
+		t.Fatalf("same endpoint calls at distinct exact lines were collapsed or moved: %+v\n%s", got, res.Summary)
+	}
+	for _, item := range got {
+		if item.GroundingStatus != types.GroundingGrounded || types.ClaimFormOf(item) != types.ClaimCallEdge {
+			t.Fatalf("exact repeated callsite lost authority: %+v", item)
+		}
+	}
+}
+
+func TestEmitEvidence_DoesNotRealignUnreadRepeatedCallsiteToVisibleSibling(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	// Only the first callsite is visible. The graph also knows about a second
+	// same-endpoint call, but that is not authority to move an observation from
+	// the unread second line onto the visible first sibling.
+	seedReadFileHistory(ctx, "cmd/root.go", 653,
+		`f.IntVar(&first, "first", 0, "first")`,
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"cmd/root.go": {
+			RelPath: "cmd/root.go", Language: "go",
+			Symbols: []repomap.Symbol{{Name: "init", Kind: "function", Line: 647, EndLine: 722}},
+			Relations: []repomap.Relation{
+				{Kind: "call", Line: 653, ToEP: repomap.RelationEndpoint{Name: "IntVar"}},
+				{Kind: "call", Line: 678, ToEP: repomap.RelationEndpoint{Name: "IntVar"}},
+			},
+		},
+	}})
+	params := json.RawMessage(`{"items":[
+		{"kind":"relationship","subject":"init","predicate":"calls","object":"IntVar","source":"cmd/root.go","line_start":653,"summary":"first binding","anchor_kind":"call","anchor_symbol":"IntVar"},
+		{"kind":"relationship","subject":"init","predicate":"calls","object":"IntVar","source":"cmd/root.go","line_start":678,"summary":"second binding","anchor_kind":"call","anchor_symbol":"IntVar"}
+	]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("mixed visible/unread callsites rejected, err=%v summary=%s", err, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 {
+		t.Fatalf("unread sibling was collapsed into the visible callsite: %+v\n%s", got, res.Summary)
+	}
+	if got[0].LineStart != 653 || got[1].LineStart != 678 {
+		t.Fatalf("exact submitted source identities were not preserved: %+v\n%s", got, res.Summary)
+	}
+	if got[0].GroundingStatus != types.GroundingGrounded || got[0].GroundingTier != types.TierLineText {
+		t.Fatalf("the visible callsite must retain exact line authority: %+v", got)
+	}
+	if got[1].GroundingTier == types.TierLineText {
+		t.Fatalf("the unread callsite must not inherit the sibling's line-text authority: %+v", got)
+	}
+	if strings.Contains(got[1].GroundingNote, "realigned from line 678") || strings.Contains(res.Summary, "realigned from line 678") {
+		t.Fatalf("unread repeated callsite must request a read, not steal a visible sibling:\n%s", res.Summary)
+	}
+}
+
 func TestQualifiedCallEndpointEqualDoesNotCollapseDistinctQualifiedOwners(t *testing.T) {
 	for _, tc := range []struct {
 		a, b string

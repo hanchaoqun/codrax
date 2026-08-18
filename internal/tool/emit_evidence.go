@@ -3124,6 +3124,16 @@ func realignExplicitCallEvidenceLine(it *types.EvidenceItem, gc *ground.Context)
 	if !ok {
 		return false
 	}
+	// A graph relation at the submitted coordinate is navigation, not proof
+	// that the model inspected that exact occurrence. Without the original
+	// source line in the strict read history, a repeated caller/callee pair can
+	// make the nearest visible sibling look like a safe correction and collapse
+	// two distinct callsites. Keep the unread coordinate intact so grounding
+	// asks for that line; bounded realignment is only authorized after both the
+	// submitted surface and the replacement surface are visible.
+	if evidenceVisibleLineText(gc, source, it.LineStart) == "" {
+		return false
+	}
 	if explicitDirectedCallMatchesLine(gc, fi, source, it.LineStart, caller, callee) {
 		return false
 	}

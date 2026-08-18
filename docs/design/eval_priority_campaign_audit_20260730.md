@@ -36156,6 +36156,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1060 B1067：重复调用点纠偏不得借用已读兄弟位置（2026-08-18）
+
+1. r680 的组合配置案例在 Explorer 已精确提交 `init -> IntVar` 两个调用点
+   `cmd/root.go:653` 与 `cmd/root.go:678`，但严格 `read_file` 只覆盖 649–663。旧
+   `realignExplicitCallEvidenceLine` 发现 678 本身没有 line-text 证明后，继续在 ±40 行内寻找同一
+   caller/callee，并把第二条静默搬到已读的 653；随后正常 stable-ID 去重把两条合成一行。completion
+   ledger 仍要求原始 678，模型便在“重发→搬家→判 duplicate→completion 仍缺 678”之间循环。
+2. 这是 typed 纠偏权限过宽，不是模型波动，也不是 `StableEvidenceID` 漏 line：稳定 ID 与 revision key
+   均已包含 exact source line。简单同批提交两个已读调用点本来就能保留；真正缺陷是行号在计算 ID
+   之前被错误改写。
+3. 根修要求 submitted source line 本身先出现在严格 read history，才允许 bounded realignment。
+   replacement line 仍须同时满足同文件、±40、parser call relation、exact caller/callee 与已读 source
+   surface。原位置未读时保持坐标不动，让 grounding 使用 parser/symbol-table 的实际权限或明确要求
+   读取该位置，禁止借用兄弟调用点的 line-text authority。
+4. 新红转绿 fixture 同时给图中 653/678 两个 `init -> IntVar`，但只让 653 可见；旧实现确定性把
+   678 搬到 653 并合并，修复后两个 source identity 均保留，未读行不会继承 653 的 line-text tier。
+   既有“模型把 `collect_files -> walk` 写到已读递归调用行、而正确 wrapper 调用行也已读”的 fixture
+   继续纠偏到正确位置，证明没有整体关闭安全修复。
+5. 定向三 fixture、完整 `go test ./internal/tool -count=1`（181.525s）、`make` 与
+   `git diff --check` 全绿。实现不读用户请求、模型 thinking/summary/final prose，不按函数名、case、
+   语言或答案关键词特判，也不改变证据关系、答案或图；它只约束一个 typed source-coordinate 修复器。
+6. Trace 查询、显式窗因果投影、自动补齐、链上-only 主因、实际占用/规则可消双轴和 active-stream
+   生命周期均未进入本路径；邻近/背景仍只能提供额外排查方向，活跃流不得按固定 4ms 累计年龄降级。
+
+状态：
+
+`B1067-REPEATEDCALLSITEREALIGNMENT1=implemented/original-line-read-authority+pinned/replay-next`；
+`stable-evidence-id=already-line-distinct/unchanged`；
+`safe-two-visible-lines-realignment=preserved`；
+`raw-prose-hard-gate=none`；`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
