@@ -35685,12 +35685,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B1055-MECHANISMSELECTEDBODYOPERATION1=implemented/typed-mechanism-admission+context-negative-pins`；
+`B1055-MECHANISMSELECTEDBODYOPERATION1=production-failed-r671/function-role-drift/superseded-by-exact-target-arm`；
 `r670-C-platform-mechanism=functionally-correct/citation-authority-partial/pre-fix-witness`；
 `r670-C++-write=pass/two-artifacts-synced+verified`；
 `JSON-blocks-string-recovery=production-positive-r670`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r670`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1050 r671/B1055-v2：机制维度角色漂移使实现体事实通道失效；精确目标兼容臂与 Trace IO 链复核（2026-08-18）
+
+1. 在 `main@84d2126f5` 严格并发恰好两个案例：
+   `sr_c_platform_fork + trace_query_wakeup_causal_io_chain`。Runner `2 PASS / 0 FAIL`；人工为
+   `2 partial`，逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_mechanism_io_replay_r671_20260818_manual_audit.md`。
+2. r671 证明 B1055 首版未获得 production 闭环。Analyzer 正确铸造 `question_kind=mechanism` 和精确目标
+   `monotonic_now_ns`，但把“平台实现方式”“调用的命令处理函数”两个维度都归为 `member_set`，并未给出
+   `function_or_purpose`。因此 selected-body producer 没有触发；Explorer 虽已读取实现体并正确识别 API/调用，
+   最终平台表仍只剩函数定义首行权限，Windows 被降为 `[illustrative]`，macOS/POSIX 操作说明没有正文引用，
+   3 条未消费引用被清理。根因是 typed schema 的等价角色漂移，不是模型未探索源码。
+3. B1055-v2 不再把单个 presentation role 当作机制问题的唯一 admission。机制车道现在接受两种精确信号：
+   required `function_or_purpose`，或 analyzer 当前请求已规范化的 `exact_targets`。第二臂仍须模型先选中可引用
+   definition，且 definition 的 `anchor_symbol/subject` 规范化符号尾部与 exact target 完全相等，才补发该
+   callable 内已读、AST/Cangjie parser-authored 的 call 行；不同目标、无精确目标、related/absence/illustrative
+   定义均保持不触发。该修复不扫描用户原文、reasoning、summary、final prose，不选平台成员、不生成图或结论。
+4. 专项 pin 覆盖：机制 function-role 正向、member-set 漂移但 exact-target 正向、不同 exact target 负向、
+   无 dimension/target 负向、related-context 负向，以及原 15 语言 parser relation 矩阵。B1055-v2 仍需下一批
+   生产回放确认 call facts 确实进入 evidence pool 并被最终答案引用，不能仅凭单测宣称交付闭环。
+5. Trace IO 案的主结论和结构正确：显式窗 `2.000..2.020s` 内，目标 `app-100` 的 20ms sleep 保持为症状；
+   已证链 `threadpool-400 -> network-300 -> cookie-200 -> app-100` 完整，`threadpool-400` 的 11ms iowait
+   被选为链上最大单项，三个 1ms runnable 段、实际占用与可消除维度、业务链线索均保留；相邻 sleep 与全局
+   IO 压力只作背景。Trace 因果投影和自动补齐都存在，系统没有替换模型答案。
+6. Trace 模型正文仍把唤醒时序说成上游线程依次“完成工作”，并把普通 sleep 推测为计时器/同步对象；typed
+   证据只证明唤醒/调度先后和状态，不证明具体完成语义或等待对象类别。该项作为跨 Trace 案的 causal-ceiling
+   软教学债继续观察，不增加 raw prose 硬门，也不授权系统 normalizer 改写答案。
+7. 本批未修改 Trace 查询、根因排序、投影或补齐逻辑。显式窗继续只允许 typed on-chain 根因参与加冕，
+   优先级反转、调度/算力供给、D/IO、确定性语义工作和链上业务线索不得丢失；邻近与背景只能支撑额外排查。
+   活跃字节流不得因固定 4ms 尚未形成完整 JSON/answer 而降级，本轮未观察该回归。
+
+状态：
+
+`B1055-MECHANISMSELECTEDBODYOPERATION1=v2-implemented/exact-target-typed-compatibility/pending-production-replay`；
+`r671-C-platform-mechanism=runner-pass/human-partial/initial-B1055-not-fired`；
+`r671-Trace-IO-chain=runner-pass/human-partial/projection+on-chain-root-correct/model-causal-wording-overclaim`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r671`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r671`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 

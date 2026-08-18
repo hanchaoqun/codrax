@@ -7337,9 +7337,20 @@ func TestAutoPairSelectedDefinitionBodyCallEvidence_MechanismFunctionDimension(t
 	}
 
 	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = nil
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = []string{"monotonic_now_ns"}
 	selected.ContextRole = types.EvidenceContextRoleDefining
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 1 {
+		t.Fatalf("typed exact mechanism target should survive member-set dimension drift: %+v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = []string{"another_clock"}
 	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
-		t.Fatalf("plain mechanism kind without typed function dimension must remain unchanged: %+v", got)
+		t.Fatalf("another typed exact target must not admit this definition body: %+v", got)
+	}
+
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.ExactTargets = nil
+	if got := autoPairSelectedDefinitionBodyCallEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("plain mechanism kind without typed dimension or exact target must remain unchanged: %+v", got)
 	}
 }
 

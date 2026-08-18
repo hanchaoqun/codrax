@@ -3957,9 +3957,10 @@ const autoPairedSelectedDefinitionBodyCallLimit = 24
 // autoPairSelectedDefinitionBodyCallEvidence projects exact parser relations
 // out of model-selected callable definitions. Admission is entirely typed:
 // either QFCallChain + active endpoint profile, or a mechanism question with
-// one required function/purpose answer dimension; plus a citable definition
-// row, a unique parser callable at that source location, parser provenance,
-// and exact read-line coverage. The mechanism lane excludes definitions that
+// one required function/purpose answer dimension (or an exact symbol target
+// that matches the selected definition); plus a citable definition row, a
+// unique parser callable at that source location, parser provenance, and exact
+// read-line coverage. The mechanism lane excludes definitions that
 // the model explicitly classified as related/absence/illustrative context, so
 // a nearby helper cannot acquire principal-looking body facts merely because
 // it was read. This helper never reads request/reasoning/summary/final prose
@@ -3975,8 +3976,11 @@ func autoPairSelectedDefinitionBodyCallEvidence(
 	rm := ctx.AnalysisIR.RequestModel
 	callChainLane := types.ResolveQuestionFamily(rm) == types.QFCallChain &&
 		rm.CallChainEndpointProfile.Active()
-	mechanismLane := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqMechanism &&
+	mechanismQuestion := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqMechanism
+	mechanismDimensionLane := mechanismQuestion &&
 		requestedFunctionOrPurposeDimensionRequired(rm.RequestedAnswerDimensions)
+	mechanismExactTargetLane := mechanismQuestion && len(rm.AnalyzerHints.ExactTargets) > 0
+	mechanismLane := mechanismDimensionLane || mechanismExactTargetLane
 	if !callChainLane && !mechanismLane {
 		return nil
 	}
@@ -3995,6 +3999,10 @@ func autoPairSelectedDefinitionBodyCallEvidence(
 			case types.EvidenceContextRoleRelatedContext,
 				types.EvidenceContextRoleAbsenceSupport,
 				types.EvidenceContextRoleIllustrativeOnly:
+				continue
+			}
+			if !mechanismDimensionLane &&
+				!selectedDefinitionMatchesTypedExactTarget(selected, rm.AnalyzerHints.ExactTargets) {
 				continue
 			}
 		}
@@ -4088,6 +4096,25 @@ func requestedFunctionOrPurposeDimensionRequired(profile *types.RequestedAnswerD
 	}
 	for _, dimension := range profile.Dimensions {
 		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionFunctionOrPurpose {
+			return true
+		}
+	}
+	return false
+}
+
+// selectedDefinitionMatchesTypedExactTarget is the conservative compatibility
+// lane for analyzer versions that classify a mechanism's implementation rows
+// as member_set rather than function_or_purpose. ExactTargets were already
+// current-request provenance-validated by emit_analysis normalization. The
+// comparison is exact after shared source-symbol tail normalization; no
+// substring, request prose, model summary, or answer text participates.
+func selectedDefinitionMatchesTypedExactTarget(selected types.EvidenceItem, targets []string) bool {
+	selectedTail := types.NormalizedSurfaceSymbolTail(firstNonEmptyString([]string{selected.AnchorSymbol, selected.Subject}))
+	if selectedTail == "" {
+		return false
+	}
+	for _, target := range targets {
+		if targetTail := types.NormalizedSurfaceSymbolTail(target); targetTail != "" && targetTail == selectedTail {
 			return true
 		}
 	}
