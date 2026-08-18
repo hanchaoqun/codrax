@@ -52,13 +52,13 @@ func TestTopIOInodeSupplementRowRenders(t *testing.T) {
 		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
 	}}}
 	out := renderTraceQueryObservationSupplement(ptv7SpnSupplementContext([]types.ObservationRecord{topIOInodeSupplementRecord(0)}), doc, "zh")
-	if !strings.Contains(out, "top_io_inode:0xa0") {
+	if !strings.Contains(out, "IO 热点对象：hot0.db -> 259:1") {
 		t.Fatalf("top_io_inode row must render in the supplement:\n%s", out)
 	}
 	if !strings.Contains(out, "值=20events") {
 		t.Fatalf("frequency value must render with its unit:\n%s", out)
 	}
-	if !strings.Contains(out, "groups_total=12") {
+	if !strings.Contains(out, "对象总数：12") {
 		t.Fatalf("the truncation-honesty note must reach the panel:\n%s", out)
 	}
 }
@@ -80,10 +80,13 @@ func TestTopIOInodeSupplementLaneSurvivesFlood(t *testing.T) {
 		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
 	}}}
 	out := renderTraceQueryObservationSupplement(ptv7SpnSupplementContext(records), doc, "zh")
+	if got := strings.Count(out, "IO 热点对象："); got != 4 {
+		t.Fatalf("the IO hotspot bucket must retain four floor seats, got %d:\n%s", got, out)
+	}
 	for i := 0; i < 4; i++ {
-		key := fmt.Sprintf("top_io_inode:0xa%d", i)
-		if !strings.Contains(out, key) {
-			t.Fatalf("top_io_inode floor seat %q must survive the flood:\n%s", key, out)
+		subject := fmt.Sprintf("IO 热点对象：hot%d.db", i)
+		if !strings.Contains(out, subject) {
+			t.Fatalf("top_io_inode floor seat %q must survive the flood:\n%s", subject, out)
 		}
 	}
 }

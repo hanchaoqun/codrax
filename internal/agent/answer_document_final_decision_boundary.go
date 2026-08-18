@@ -652,7 +652,7 @@ func traceFinalReaderStateLabel(token string, zh bool) string {
 			return "睡眠等待"
 		}
 		return "sleep wait"
-	case "d_state", "d_state_or_io_wait":
+	case "d", "d_sleep", "d_state", "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
 		if zh {
 			return "不可中断等待"
 		}

@@ -52,7 +52,7 @@ func TestG20SameValueBackgroundRowsFoldToOneRowWithNote(t *testing.T) {
 	if out == "" {
 		t.Fatalf("supplement did not render")
 	}
-	if got := strings.Count(out, "root_cause_background"); got != 1 {
+	if got := strings.Count(out, "背景观测："); got != 1 {
 		t.Fatalf("same-value duplicate must fold to ONE displayed row, got %d:\n%s", got, out)
 	}
 	if !strings.Contains(out, "另 1 条同值") {
@@ -83,7 +83,7 @@ func TestG20CrossArtifactSameValueRowsDoNotFold(t *testing.T) {
 	}
 	ctx := ptv7SpnSupplementContext(records)
 	out := renderTraceQueryObservationSupplement(ctx, g20SupplementDoc(), "zh")
-	if got := strings.Count(out, "root_cause_background"); got != 2 {
+	if got := strings.Count(out, "背景观测："); got != 2 {
 		t.Fatalf("cross-artifact same-value rows must BOTH render, got %d:\n%s", got, out)
 	}
 	if strings.Contains(out, "同值") {
@@ -98,7 +98,7 @@ func TestG20DifferentValueBackgroundRowsDoNotFold(t *testing.T) {
 	}
 	ctx := ptv7SpnSupplementContext(records)
 	out := renderTraceQueryObservationSupplement(ctx, g20SupplementDoc(), "zh")
-	if got := strings.Count(out, "root_cause_background"); got != 2 {
+	if got := strings.Count(out, "背景观测："); got != 2 {
 		t.Fatalf("different-value rows must BOTH render, got %d:\n%s", got, out)
 	}
 	if strings.Contains(out, "同值") {

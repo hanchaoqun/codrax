@@ -1,7 +1,7 @@
 package orchestrator
 
 // TRUNC 批 (P1, §29.10-1, 2026-07-09) — huadong_792 witness pins,损失②:
-// 「系统补充：trace_query 关键观测核对」整块丢失。
+// 「系统补充：Trace 关键观测核对」整块丢失。
 //
 // 机理:finalizer parseOutputV2 产出的 FinalAnswer 携带 last-mile 系统补充
 // (renderAnswerDocumentWithLastMileSupplements);orchestrator 的重渲染路径
@@ -87,7 +87,7 @@ func TestTRUNCAttachFirstDraftReferencePreservesLastMileSupplements(t *testing.T
 			Mutable:  mut,
 		},
 	}
-	out := &agent.StageOutput{FinalAnswer: "最终稿主体。\n\n---\n\n> **系统补充：trace_query 关键观测核对**\n>\n> (seeded)"}
+	out := &agent.StageOutput{FinalAnswer: "最终稿主体。\n\n---\n\n> **系统补充：Trace 关键观测核对**\n>\n> (seeded)"}
 	o.attachFirstDraftReference(out, truncOrchDraftBody(40000), []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
 
 	// P3-1 加固:Contains 对补充块/面板双重追加形不敏感——升级为恰一次
@@ -110,7 +110,7 @@ func TestTRUNCAttachFirstDraftReferencePreservesLastMileSupplements(t *testing.T
 }
 
 const (
-	truncSupplementTitle = "系统补充：trace_query 关键观测核对"
+	truncSupplementTitle = "系统补充：Trace 关键观测核对"
 	truncDraftPanelTitle = "第一稿答案（校验前参考）"
 )
 

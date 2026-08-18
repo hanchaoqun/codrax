@@ -43,7 +43,11 @@ func TestP3MeasureNotesNeverReachSupplementFace(t *testing.T) {
 		if strings.Contains(face, "p3m_") {
 			t.Fatalf("the supplement model face (zh=%v) leaked a silent-measurement note: %q", zh, face)
 		}
-		if !strings.Contains(face, "chain_relevance=on_chain") {
+		want := "causal position: on the proved chain"
+		if zh {
+			want = "因果位置：链上"
+		}
+		if !strings.Contains(face, want) {
 			t.Fatalf("fixture: the ordinary notes must still fill the window (zh=%v): %q", zh, face)
 		}
 	}

@@ -20439,11 +20439,11 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 	var b strings.Builder
 	if zh {
 		b.WriteString("---\n\n")
-		b.WriteString("> **系统补充：trace_query 关键观测核对**\n>\n")
+		b.WriteString("> **系统补充：Trace 关键观测核对**\n>\n")
 		// PTV8-RCR-B (UXA 域C #17 + verify 微调, 2026-07-08). EVOLUTION
 		// RECORD: 「发布的结构化运行时观测/工件内的本地观测」内部管线话 →
 		// 两件客户需知的事:逐条原始记录、坐标指 trace 非源码.
-		b.WriteString("> 以下为 trace_query 输出的逐条观测记录(字段 token 保留原文)，可对照 trace 原文核对；所有坐标都指向 trace 文件本身，不是源码位置。\n")
+		b.WriteString("> 以下是系统从 Trace 中确定性提取的逐条观测，已转换为读者语言，可对照 Trace 原文核对；所有坐标都指向 Trace 文件本身，不是源码位置。原始字段和值完整保留在诊断记录中。\n")
 		if groupedBase {
 			b.WriteString("> 本块全部坐标位于 `" + sharedBase + "`，各条只标注行号或时间区间。\n")
 		}
@@ -20463,8 +20463,8 @@ func renderTraceQueryObservationSupplement(ctx *types.AgentContext, doc *types.A
 		return strings.TrimRight(b.String(), "\n")
 	}
 	b.WriteString("---\n\n")
-	b.WriteString("> **System supplement: trace_query observation check**\n>\n")
-	b.WriteString("> These are trace_query's per-row observation records (field tokens kept verbatim), cross-checkable against the raw trace; every coordinate points into the trace file itself, not repository source.\n")
+	b.WriteString("> **System supplement: Trace observation check**\n>\n")
+	b.WriteString("> These observations were extracted deterministically from the Trace and translated into reader language. They can be checked against the raw Trace; every coordinate points into the Trace file itself, not repository source. Original fields and values remain intact in diagnostic records.\n")
 	if groupedBase {
 		b.WriteString("> Every coordinate in this block sits in `" + sharedBase + "`; rows carry only a line or time span.\n")
 	}
@@ -20721,13 +20721,13 @@ func traceQueryObservationZeroBlockedFoldText(count int, subjects []string, zh b
 		if joined == "" {
 			joined = "未解析线程"
 		}
-		return fmt.Sprintf("critical_blocking:blocked_reason：共 %d 条零时长观测(无时长值,已折叠;线程: %s%s)", count, joined, repeatNote)
+		return fmt.Sprintf("阻塞原因记录：共 %d 条未携带时长的观测(已合并；线程：%s%s)", count, joined, repeatNote)
 	}
 	joined := strings.Join(subjects, ", ")
 	if joined == "" {
 		joined = "unresolved threads"
 	}
-	return fmt.Sprintf("critical_blocking:blocked_reason: %d zero-duration observation(s) (no duration value, folded; threads: %s%s)", count, joined, repeatNote)
+	return fmt.Sprintf("blocked-reason records: %d observation(s) without a duration (folded; threads: %s%s)", count, joined, repeatNote)
 }
 
 // traceQueryObservationSameValueDup carries one folded duplicate row's trace
@@ -20974,32 +20974,15 @@ func answerDocumentOptionalFloatKey(value *float64) string {
 
 func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool) string {
 	parts := []string{}
-	label := strings.TrimSpace(record.ClaimKey)
-	if label == "" {
-		label = strings.TrimSpace(record.Predicate)
-	}
-	if label == "" {
-		label = "trace_query"
-	}
-	subject := strings.TrimSpace(record.Subject)
-	object := strings.TrimSpace(record.Object)
-	// Renderer-invented labels and separators follow the answer language
-	// (§7.30 裁定5); the raw key=value note pairs below stay verbatim — they are
-	// the 裁定6 audit carrier, never localized.
+	label := traceQueryObservationSupplementClaimLabel(record, zh)
+	subject := traceQueryObservationSupplementEntityLabel(record.Subject, zh)
+	object := traceQueryObservationSupplementEntityLabel(record.Object, zh)
+	// Renderer-invented labels and separators follow the answer language.
+	// Raw claim/note tokens remain byte-preserved in the observation ledger and
+	// diagnostics; only this customer-facing projection is localized.
 	labelSep, partSep := ": ", "; "
 	if zh {
 		labelSep, partSep = "：", "；"
-	}
-	// PTV8-RCR-B (UXA 域C #18 REVISE, 2026-07-08). EVOLUTION RECORD: a
-	// claimKey like "state_drilldown:HeapTaskDaemon-16561:running" followed by
-	// "HeapTaskDaemon-16561 -> running" printed the same thread and state
-	// twice per line — when BOTH subject and object each equal a complete
-	// ":"-separated claimKey segment (exact segment match, never a substring),
-	// the redundant arrow half is omitted. Display-only; the typed record and
-	// the claimKey itself stay verbatim.
-	keySegments := map[string]bool{}
-	for _, segment := range strings.Split(label, ":") {
-		keySegments[strings.TrimSpace(segment)] = true
 	}
 	switch {
 	case strings.TrimSpace(record.Predicate) == "wakeup_chain" && object != "":
@@ -21008,8 +20991,6 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 		// "subject -> object" rendering prepended the target a second time and
 		// minted a false cycle such as app -> worker -> app in the audit block.
 		parts = append(parts, label+labelSep+object)
-	case subject != "" && object != "" && keySegments[subject] && keySegments[object]:
-		parts = append(parts, label)
 	case subject != "" && object != "":
 		parts = append(parts, fmt.Sprintf("%s%s%s -> %s", label, labelSep, subject, object))
 	case subject != "":
@@ -21029,6 +21010,109 @@ func traceQueryObservationSupplementText(record types.ObservationRecord, zh bool
 		parts = append(parts, notes)
 	}
 	return strings.Join(parts, partSep)
+}
+
+// traceQueryObservationSupplementClaimLabel projects the closed typed claim
+// family into reader language. ClaimKey remains untouched in the observation
+// ledger and diagnostic artifacts; this last-mile appendix must not make
+// users decode internal enum prefixes.
+func traceQueryObservationSupplementClaimLabel(record types.ObservationRecord, zh bool) string {
+	claim := strings.TrimSpace(record.ClaimKey)
+	if claim == "" {
+		claim = strings.TrimSpace(record.Predicate)
+	}
+	label := func(zhLabel, enLabel string) string {
+		if zh {
+			return zhLabel
+		}
+		return enLabel
+	}
+	switch {
+	case strings.HasPrefix(claim, "root_cause_primary"):
+		return label("首要根因观测", "primary root-cause observation")
+	case strings.HasPrefix(claim, "root_cause_secondary"):
+		return label("次级根因观测", "secondary root-cause observation")
+	case strings.HasPrefix(claim, "root_cause_background"):
+		return label("背景观测", "background observation")
+	case strings.HasPrefix(claim, "root_cause"):
+		return label("根因观测", "root-cause observation")
+	case strings.HasPrefix(claim, "critical_blocking"):
+		return label("关键阻塞", "critical blocking")
+	case strings.HasPrefix(claim, "state_drilldown"):
+		return label("线程状态下钻", "thread-state drilldown")
+	case strings.HasPrefix(claim, "wakeup_chain"):
+		return label("唤醒链", "wakeup chain")
+	case strings.HasPrefix(claim, "wakeup_causal_impact"):
+		return label("唤醒链影响", "wakeup-chain impact")
+	case strings.HasPrefix(claim, "wakeup_causal_aggregate"):
+		return label("唤醒链聚合", "wakeup-chain aggregate")
+	case strings.HasPrefix(claim, "root_evidence"):
+		return label("根因证据", "root-cause evidence")
+	case strings.HasPrefix(claim, "top_io_inode"):
+		return label("IO 热点对象", "IO hotspot object")
+	default:
+		return label("Trace 观测", "Trace observation")
+	}
+}
+
+func traceQueryObservationSupplementEntityLabel(raw string, zh bool) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.EqualFold(raw, "unknown-thread") {
+		if zh {
+			return "对端线程未解析"
+		}
+		return "unresolved peer thread"
+	}
+	if display := traceFinalReaderStateLabel(raw, zh); display != "" {
+		return display
+	}
+	if display := traceQueryObservationSupplementTypeLabel(raw, zh); display != "" {
+		return display
+	}
+	switch strings.ToLower(raw) {
+	case "s":
+		if zh {
+			return "睡眠等待"
+		}
+		return "sleep wait"
+	case "d":
+		if zh {
+			return "不可中断等待"
+		}
+		return "uninterruptible wait"
+	case "r", "r+":
+		if zh {
+			return "可运行"
+		}
+		return "runnable"
+	}
+	return raw
+}
+
+func traceQueryObservationSupplementTypeLabel(raw string, zh bool) string {
+	label := func(zhLabel, enLabel string) string {
+		if zh {
+			return zhLabel
+		}
+		return enLabel
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "blocked_reason":
+		return label("阻塞原因", "blocked reason")
+	case "binder_wait":
+		return label("Binder 等待", "Binder wait")
+	case "monitor_contention":
+		return label("监视器竞争", "monitor contention")
+	case "lock_contention":
+		return label("锁竞争", "lock contention")
+	}
+	if display := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(raw, zh)); display != "" {
+		return display
+	}
+	return ""
 }
 
 func traceQueryObservationValue(record types.ObservationRecord, zh bool) string {
@@ -21443,7 +21527,13 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 			break
 		}
 	}
-	if len(notes) == 0 {
+	readerNotes := make([]string, 0, len(notes)+1)
+	for _, note := range notes {
+		if display, ok := traceQueryObservationSupplementNoteDisplay(note, zh); ok {
+			readerNotes = append(readerNotes, display)
+		}
+	}
+	if len(readerNotes) == 0 && !traceQueryObservationHasActualWindowNote(record) {
 		return ""
 	}
 	// §7.30 裁定6: the displayed values are all selected-window/projected-family
@@ -21451,9 +21541,9 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 	// basis must be labeled so the two windows cannot be read as one (the S1
 	// customer report published a 119%-of-window sum without any basis label).
 	if traceQueryObservationHasActualWindowNote(record) {
-		basis := "window_basis=selected_window"
+		basis := "window basis: selected window"
 		if zh {
-			basis = "窗口基准=查询窗"
+			basis = "窗口基准：查询窗"
 		}
 		// NEW-8 (账本 §7.6): this basis token is renderer-invented (the note
 		// pairs above stay verbatim) — when the record's OWN typed
@@ -21464,14 +21554,360 @@ func traceQueryObservationSupplementNotes(record types.ObservationRecord, zh boo
 		if start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes); ok {
 			basis += fmt.Sprintf(" %.3fs~%.3fs", start, end)
 		}
-		notes = append(notes, basis)
+		readerNotes = append(readerNotes, basis)
 	}
-	// The list label is renderer-invented and follows the answer language; the
-	// note pairs themselves are the raw typed audit carrier and stay verbatim.
+	if len(readerNotes) == 0 {
+		return ""
+	}
 	if zh {
-		return "备注=" + strings.Join(notes, ", ")
+		return "补充信息：" + strings.Join(readerNotes, "；")
 	}
-	return "notes=" + strings.Join(notes, ", ")
+	return "details: " + strings.Join(readerNotes, "; ")
+}
+
+// traceQueryObservationSupplementNoteDisplay translates one registry-backed
+// typed note into reader copy. Unknown keys are intentionally omitted from
+// this customer-facing appendix while remaining losslessly available in the
+// observation ledger and diagnostics. This is display-only: it cannot affect
+// ranking, causal admission, values, windows, or model conclusions.
+func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, bool) {
+	key, value, ok := strings.Cut(strings.TrimSpace(note), "=")
+	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+	if !ok || key == "" || value == "" {
+		return "", false
+	}
+	line := func(zhLabel, enLabel, displayValue string) (string, bool) {
+		if strings.TrimSpace(displayValue) == "" {
+			return "", false
+		}
+		if zh {
+			return zhLabel + "：" + displayValue, true
+		}
+		return enLabel + ": " + displayValue, true
+	}
+	boolValue := func(v string) string {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true":
+			if zh {
+				return "是"
+			}
+			return "yes"
+		case "false":
+			if zh {
+				return "否"
+			}
+			return "no"
+		default:
+			return ""
+		}
+	}
+	state := func(v string) string {
+		if display := traceFinalReaderStateLabel(v, zh); display != "" {
+			return display
+		}
+		if display := traceQueryObservationSupplementTypeLabel(v, zh); display != "" {
+			return display
+		}
+		return v
+	}
+	switch key {
+	case types.TraceNoteKeyType:
+		return line("观测类型", "observation type", state(value))
+	case types.TraceNoteKeyPeer:
+		return line("关联线程", "related thread", traceQueryObservationSupplementEntityLabel(value, zh))
+	case types.TraceNoteKeyChainRelevance:
+		return line("因果位置", "causal position", traceQueryObservationSupplementCausalPosition(value, zh))
+	case "nearest_chain_thread":
+		return line("最近链上线程", "nearest on-chain thread", value)
+	case "edge_count":
+		return line("已证关系数", "proved relation count", value)
+	case types.TraceNoteKeyBlockingKind:
+		return line("阻塞类型", "blocking type", state(value))
+	case types.TraceNoteKeyHolderSite:
+		return line("持有方位置", "holder site", value)
+	case types.TraceNoteKeyWaiters:
+		return line("等待线程数", "waiting thread count", value)
+	case types.TraceNoteKeyCausality:
+		return line("因果依据", "causal basis", traceQueryObservationSupplementCausalBasis(value, zh))
+	case types.TraceNoteKeyChainDepth:
+		return line("链路深度", "chain depth", value)
+	case "priority_relation":
+		return line("优先级关系", "priority relation", traceQueryObservationSupplementPriorityRelation(value, zh))
+	case "priority_inversion_candidate":
+		return line("优先级反转候选", "priority-inversion candidate", boolValue(value))
+	case types.TraceNoteKeyOccurrenceWindows:
+		return line("发生窗口", "occurrence windows", traceQueryObservationSupplementOccurrenceWindows(value, zh))
+	case types.TraceNoteKeySpanName:
+		return line("业务片段", "business span", value)
+	case types.TraceNoteKeySemanticClass:
+		return line("语义类型", "semantic class", traceQueryObservationSupplementTypeLabel(value, zh))
+	case "prio":
+		return line("线程优先级", "thread priority", value)
+	case "target_prio":
+		return line("目标线程优先级", "target priority", value)
+	case types.TraceNoteKeyDominantState:
+		return line("主导状态", "dominant state", state(value))
+	case types.TraceNoteKeyImpact, types.TraceNoteKeyImpactMS:
+		return line("影响时长", "impact", value)
+	case types.TraceNoteKeyImpactScore:
+		return line("影响评分", "impact score", value)
+	case types.TraceNoteKeyCumulativeImpactMS:
+		return line("累计影响时长", "cumulative impact", value)
+	case types.TraceNoteKeyCumulativeImpactScore:
+		return line("累计影响评分", "cumulative impact score", value)
+	case types.TraceNoteKeyEffectiveImpactMS:
+		return line("折算后影响时长", "discounted impact", value)
+	case types.TraceNoteKeyPeriodicSource:
+		return line("周期性来源", "periodic source", boolValue(value))
+	case types.TraceNoteKeyDetectedPeriodMS:
+		return line("检测到的周期", "detected period", value)
+	case types.TraceNoteKeyLatenessMS:
+		return line("周期超时", "period lateness", value)
+	case "target_impact":
+		return line("目标受影响时长", "target impact", value)
+	case types.TraceNoteKeyPath:
+		return line("依赖路径", "dependency path", value)
+	case "occurrences":
+		return line("发生次数", "occurrences", value)
+	case types.TraceNoteKeyTotal:
+		return line("合计", "total", value)
+	case types.TraceNoteKeyFragments:
+		return line("片段数", "fragment count", value)
+	case types.TraceNoteKeySwitches:
+		return line("状态切换次数", "state-switch count", value)
+	case types.TraceNoteKeySource:
+		return line("下钻来源", "drilldown source", traceQueryObservationSupplementSource(value, zh))
+	case types.TraceNoteKeyRecommendedViews:
+		return line("建议继续核对", "recommended follow-up", traceQueryObservationSupplementViews(value, zh))
+	case types.TraceNoteKeyChainRequired:
+		return line("需要沿依赖链核对", "dependency-chain follow-up needed", boolValue(value))
+	case types.TraceNoteKeyRecursive:
+		return line("需要继续向上追溯", "recursive follow-up needed", boolValue(value))
+	case types.TraceNoteKeyWindow:
+		return line("观测窗口", "observation window", value)
+	case types.TraceNoteKeyRunning:
+		return line("运行耗时", "running time", value)
+	case types.TraceNoteKeyRunnable:
+		return line("可运行等待", "runnable wait", value)
+	case types.TraceNoteKeySleep:
+		return line("睡眠等待", "sleep wait", value)
+	case types.TraceNoteKeyDState:
+		return line("不可中断等待", "uninterruptible wait", value)
+	case types.TraceNoteKeyIOWait:
+		return line("IO 等待", "IO wait", value)
+	case "peer_state_dominant":
+		return line("关联线程主导状态", "related-thread dominant state", state(value))
+	case "peer_state_total":
+		return line("关联线程状态合计", "related-thread state total", value)
+	case "peer_state_running":
+		return line("关联线程运行耗时", "related-thread running time", value)
+	case "peer_state_runnable":
+		return line("关联线程可运行等待", "related-thread runnable wait", value)
+	case "peer_state_sleep":
+		return line("关联线程睡眠等待", "related-thread sleep wait", value)
+	case "peer_state_d_state":
+		return line("关联线程不可中断等待", "related-thread uninterruptible wait", value)
+	case "peer_state_io_wait":
+		return line("关联线程 IO 等待", "related-thread IO wait", value)
+	case "peer_state_fragments":
+		return line("关联线程状态片段数", "related-thread state fragments", value)
+	case "subject_state_dominant":
+		return line("当前线程主导状态", "current-thread dominant state", state(value))
+	case "subject_state_total":
+		return line("当前线程状态合计", "current-thread state total", value)
+	case "subject_state_running":
+		return line("当前线程运行耗时", "current-thread running time", value)
+	case "subject_state_runnable":
+		return line("当前线程可运行等待", "current-thread runnable wait", value)
+	case "subject_state_sleep":
+		return line("当前线程睡眠等待", "current-thread sleep wait", value)
+	case "subject_state_d_state":
+		return line("当前线程不可中断等待", "current-thread uninterruptible wait", value)
+	case "subject_state_io_wait":
+		return line("当前线程 IO 等待", "current-thread IO wait", value)
+	case "subject_state_fragments":
+		return line("当前线程状态片段数", "current-thread state fragments", value)
+	case "groups_total":
+		return line("对象总数", "total objects", value)
+	case "max_latency":
+		return line("最大单次延迟", "largest single latency", value)
+	case "reads":
+		return line("读请求数", "read requests", value)
+	case "writes":
+		return line("写请求数", "write requests", value)
+	case "top_threads":
+		return line("主要线程", "top threads", value)
+	default:
+		return "", false
+	}
+}
+
+func traceQueryObservationSupplementCausalPosition(value string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "on_chain":
+		if zh {
+			return "链上"
+		}
+		return "on the proved chain"
+	case "adjacent", "self_caliber_side":
+		if zh {
+			return "链旁相邻"
+		}
+		return "adjacent to the chain"
+	case "background":
+		if zh {
+			return "背景"
+		}
+		return "background"
+	default:
+		return ""
+	}
+}
+
+func traceQueryObservationSupplementCausalBasis(value string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "on_wakeup_chain":
+		if zh {
+			return "已证唤醒链"
+		}
+		return "proved wakeup chain"
+	case "self_deterministic":
+		if zh {
+			return "目标自身的确定性语义工作"
+		}
+		return "target's own deterministic semantic work"
+	case "self_wall_clock":
+		if zh {
+			return "目标自身的墙钟状态"
+		}
+		return "target's own wall-clock state"
+	case "adjacent_to_wakeup_chain", "adjacent_to_chain":
+		if zh {
+			return "时间相邻，未证链上因果"
+		}
+		return "temporally adjacent; on-chain causality unproved"
+	case "background":
+		if zh {
+			return "同窗背景"
+		}
+		return "same-window background"
+	case "unproven":
+		if zh {
+			return "未证"
+		}
+		return "unproved"
+	default:
+		return ""
+	}
+}
+
+func traceQueryObservationSupplementPriorityRelation(value string, zh bool) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "lower_wakes_higher", "lower_priority_waker", "lower_priority_dependency":
+		if zh {
+			return "低优先级依赖方影响更高优先级目标"
+		}
+		return "a lower-priority dependency affects a higher-priority target"
+	default:
+		return ""
+	}
+}
+
+func traceQueryObservationSupplementOccurrenceWindows(value string, zh bool) string {
+	clauses := strings.Split(value, ";")
+	out := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		parts := strings.Split(clause, ",")
+		if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+			continue
+		}
+		window := strings.TrimSpace(parts[0])
+		var details []string
+		for _, part := range parts[1:] {
+			key, raw, ok := strings.Cut(strings.TrimSpace(part), "=")
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(key) {
+			case "state":
+				if label := traceQueryObservationSupplementEntityLabel(raw, zh); label != "" {
+					if zh {
+						details = append(details, "状态："+label)
+					} else {
+						details = append(details, "state: "+label)
+					}
+				}
+			case "total":
+				if zh {
+					details = append(details, "合计："+strings.TrimSpace(raw))
+				} else {
+					details = append(details, "total: "+strings.TrimSpace(raw))
+				}
+			}
+		}
+		if len(details) > 0 {
+			if zh {
+				window += "（" + strings.Join(details, "，") + "）"
+			} else {
+				window += " (" + strings.Join(details, ", ") + ")"
+			}
+		}
+		out = append(out, window)
+	}
+	if zh {
+		return strings.Join(out, "；")
+	}
+	return strings.Join(out, "; ")
+}
+
+func traceQueryObservationSupplementSource(value string, zh bool) string {
+	labels := map[string][2]string{
+		"top_sleep":       {"主要睡眠段", "top sleep interval"},
+		"top_runnable":    {"主要调度等待段", "top runnable interval"},
+		"top_d_state":     {"主要不可中断等待段", "top uninterruptible interval"},
+		"state_churn":     {"状态频繁切换", "state churn"},
+		"window_stats":    {"窗口统计", "window statistics"},
+		"wakeup_chain":    {"唤醒链", "wakeup chain"},
+		"query_window":    {"查询窗口", "query window"},
+		"wakeup_edge":     {"唤醒关系", "wakeup relation"},
+		"matched_receive": {"已匹配的接收事件", "matched receive event"},
+	}
+	pair, ok := labels[strings.ToLower(strings.TrimSpace(value))]
+	if !ok {
+		return ""
+	}
+	if zh {
+		return pair[0]
+	}
+	return pair[1]
+}
+
+func traceQueryObservationSupplementViews(value string, zh bool) string {
+	labels := map[string][2]string{
+		"wakeup_chain":            {"唤醒链", "wakeup chain"},
+		"root_cause_rank":         {"根因排序", "root-cause ranking"},
+		"thread_timeline":         {"线程时间线", "thread timeline"},
+		"interaction_stats":       {"线程交互统计", "thread interaction statistics"},
+		"window_stats":            {"窗口统计", "window statistics"},
+		"scheduler_latency_stats": {"调度延迟统计", "scheduler-latency statistics"},
+		"critical_blocking_calls": {"关键阻塞调用", "critical blocking calls"},
+	}
+	var out []string
+	for _, raw := range strings.Split(value, ",") {
+		pair, ok := labels[strings.ToLower(strings.TrimSpace(raw))]
+		if !ok {
+			continue
+		}
+		if zh {
+			out = append(out, pair[0])
+		} else {
+			out = append(out, pair[1])
+		}
+	}
+	if zh {
+		return strings.Join(out, "、")
+	}
+	return strings.Join(out, ", ")
 }
 
 // traceQueryObservationSupplementSameNumber reports whether two value strings

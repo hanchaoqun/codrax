@@ -77,11 +77,11 @@ func TestPTV7SpnSupplementPerOrderFloor(t *testing.T) {
 		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
 	}}}
 	out := renderTraceQueryObservationSupplement(ptv7SpnSupplementContext(records), doc, "zh")
-	if !strings.Contains(out, "root_cause_tertiary") {
+	if !strings.Contains(out, "根因观测：oney.hmn.berlin-42591 -> trace span") {
 		t.Fatalf("the order-40 tertiary row must survive the floored selection:\n%s", out)
 	}
 	// F3②+③ ride the same row: span_name= must reach the rendered notes.
-	if !strings.Contains(out, "span_name=H:ReceiveVsync") {
+	if !strings.Contains(out, "业务片段：H:ReceiveVsync") {
 		t.Fatalf("the tertiary row's span_name note must reach the dump:\n%s", out)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: floored disclosure
@@ -133,7 +133,7 @@ func TestTraceQueryObservationSupplementUsesFocusedRuntimeFactAuthority(t *testi
 		TimeEnd:        &windowEnd,
 		SourceQuote:    "3.0..3.2",
 	}
-	if got := renderTraceQueryObservationSupplement(diagnostic, doc, "zh"); !strings.Contains(got, "state_drilldown") {
+	if got := renderTraceQueryObservationSupplement(diagnostic, doc, "zh"); !strings.Contains(got, "线程状态下钻") {
 		t.Fatalf("explicit-window diagnostic runtime question must retain the raw observation supplement:\n%s", got)
 	}
 
@@ -141,12 +141,12 @@ func TestTraceQueryObservationSupplementUsesFocusedRuntimeFactAuthority(t *testi
 	call.AnalysisIR = &types.AnalysisIR{RequestModel: focused.AnalysisIR.RequestModel}
 	call.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
 	call.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
-	if got := renderTraceQueryObservationSupplement(call, doc, "zh"); !strings.Contains(got, "state_drilldown") {
+	if got := renderTraceQueryObservationSupplement(call, doc, "zh"); !strings.Contains(got, "线程状态下钻") {
 		t.Fatalf("explicit runtime call relation must retain the raw observation supplement:\n%s", got)
 	}
 
 	legacy := ptv7SpnSupplementContext([]types.ObservationRecord{record})
-	if got := renderTraceQueryObservationSupplement(legacy, doc, "zh"); !strings.Contains(got, "state_drilldown") {
+	if got := renderTraceQueryObservationSupplement(legacy, doc, "zh"); !strings.Contains(got, "线程状态下钻") {
 		t.Fatalf("nil AnalysisIR must preserve legacy supplement behavior:\n%s", got)
 	}
 }
@@ -195,7 +195,7 @@ func TestPTV7SpnSupplementTraceSpanPriority(t *testing.T) {
 		"chain_relevance=adjacent", "span_name=H:ReceiveVsync",
 	}}
 	got := traceQueryObservationSupplementNotes(record, false)
-	want := "notes=span_name=H:ReceiveVsync, type=trace_span, source=wakeup_chain, causality=adjacent_to_wakeup_chain"
+	want := "details: business span: H:ReceiveVsync; observation type: trace span; drilldown source: wakeup chain; causal basis: temporally adjacent; on-chain causality unproved"
 	if got != want {
 		t.Fatalf("trace_span priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -204,7 +204,7 @@ func TestPTV7SpnSupplementTraceSpanPriority(t *testing.T) {
 		"type=io_latency", "source=window_stats", "causality=background",
 		"chain_relevance=background", "span_name=phantom",
 	}}
-	if got := traceQueryObservationSupplementNotes(control, false); strings.HasPrefix(got, "notes=span_name=") {
+	if got := traceQueryObservationSupplementNotes(control, false); strings.HasPrefix(got, "details: business span:") {
 		t.Fatalf("non-span families must not front span_name: %q", got)
 	}
 }

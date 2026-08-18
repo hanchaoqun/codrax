@@ -35938,6 +35938,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1096 B1105b：Trace 逐条观测补充改为读者语言，raw wire 留在诊断面（2026-08-18）
+
+1. r701 确认 B1105a 只关闭了系统证据索引一面；同一答案尾部的独立确定性块「系统补充：
+   trace_query 关键观测核对」仍直接展示 `root_cause_primary/state_drilldown/critical_blocking`、
+   `source/causality/chain_depth/chain_relevance/recommended_views`、`notes/window_basis` 等控制键。
+   这些值对回放和硬合同有用，但客户无法由 `bounded_window_candidate`、`on_chain` 或
+   `top_sleep` 自行推导准确含义，属于确定的系统展示 GAP，不是模型波动。
+2. `B1105b-TRACESYSTEMAPPENDIXREADERPROJECTION1` 保留原 observation record、ClaimKey、RichNotes、
+   locator、value/unit 和顺序/配额/折叠算法不动，仅在最终 appendix 的唯一渲染咽喉增加
+   locale-aware typed→reader 投影。标题改为「Trace 关键观测核对」；根因席、关键阻塞、唤醒链、
+   状态下钻、IO 热点对象分别使用自然语言，`running/runnable/S/D/io_wait/compute_supply` 等状态与
+   原因类型复用既有双语词典。
+3. 四槽 note 选择仍按原 typed family 与优先表执行，选择后才翻译为「因果位置：链上」「因果依据：
+   已证唤醒链」「链路深度」「下钻来源：主要睡眠段」「建议继续核对：唤醒链、根因排序」等。周期
+   折算、锁持有位置、关联/当前线程状态、发生窗口、IO 请求数和最大单次延迟均保留；未知展示键只在
+   客户 appendix 省略，完整 raw 值继续无损位于 observation ledger 与诊断工件。
+4. 同批补正三个易误读点：`unknown-thread` 改为「对端线程未解析」；`S/D/R/R+` 与 `d_sleep` 映射为
+   睡眠等待/不可中断等待/可运行；`subject_state_*` 与 `peer_state_*` 分别称「当前线程」和「关联
+   线程」，不再把锁持有方自身状态误称为对端状态。英文发生窗口使用英文标点，不混入中文括号。
+5. 正负 pin 覆盖中英文：可见面必须含自然语言的根因席、调度延迟、链上位置、状态下钻和来源；不得
+   出现 `root_cause_primary/state_drilldown/causality=/chain_depth=/chain_relevance=/source=/
+   recommended_views=/notes=/window_basis=/bounded_window_candidate`。既有配额、同值折叠、跨工件不
+   折叠、缺失唤醒定位、span 名、IO inode、周期折算、四轮重渲染恰一次等测试全部重钉到读者面，
+   ledger 保留 raw 双行的 pin 未改。
+6. 验证通过：`go test ./internal/agent -count=1`、`go test ./internal/types -count=1`、
+   `go test ./internal/tool -count=1`、`go test ./internal/orchestrator -count=1`。本批不读取或扫描用户
+   原始输入、模型回答或最终正文，不改 JSON causal-caliber enum，不替模型写结论，不改变 Trace
+   查询、显式窗、席位准入、根因排序、自动补齐、窗内可消除量或因果投影。
+
+状态：
+
+`B1105-TYPEDREADERLANGUAGEPROJECTION1=system-visible-lanes-implemented`；
+`B1105b-TRACESYSTEMAPPENDIXREADERPROJECTION1=implemented/full-relevant-tests-pass`；
+`trace-wire-values=diagnostic-preserved/customer-face-localized`；
+`model-prose-scan/rewrite=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

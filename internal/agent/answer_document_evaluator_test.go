@@ -11905,15 +11905,15 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	// blocks now hoist the basename into the grouped intro line
 	// (本块全部坐标位于 `<base>`) and per-row locators show 行 X–Y (en-dash).
 	for _, want := range []string{
-		"系统补充：trace_query 关键观测核对",
+		"系统补充：Trace 关键观测核对",
 		"本块全部坐标位于 `attached_trace.txt`",
-		"root_cause_primary：CookieMonsterCl-59843 -> runnable",
-		"occurrence_windows=34579.525319..34579.534164",
-		"cumulative_impact_ms=25.847",
-		"critical_blocking:binder_wait：com.baidu.tieba-59566 -> Binder:43397_19-23088",
+		"首要根因观测：CookieMonsterCl-59843 -> 调度延迟",
+		"发生窗口：34579.525319..34579.534164",
+		"累计影响时长：25.847",
+		"关键阻塞：com.baidu.tieba-59566 -> Binder:43397_19-23088",
 		"行 11666–11670",
-		"chain_relevance=on_chain",
-		"wakeup_chain:path：ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
+		"因果位置：链上",
+		"唤醒链：ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing trace_query supplement fragment %q:\n%s", want, out.FinalAnswer)
@@ -11922,7 +11922,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceQueryObservationSupplem
 	if strings.Contains(out.FinalAnswer, "not_enough_evidence") {
 		t.Fatalf("trace_query runtime supplement must not introduce source-status verdicts:\n%s", out.FinalAnswer)
 	}
-	if got := strings.Count(out.FinalAnswer, "root_cause_primary：CookieMonsterCl-59843 -> runnable"); got != 1 {
+	if got := strings.Count(out.FinalAnswer, "首要根因观测：CookieMonsterCl-59843 -> 调度延迟"); got != 1 {
 		t.Fatalf("trace_query supplement should content-dedupe repeated typed rows, got %d occurrences:\n%s", got, out.FinalAnswer)
 	}
 }
@@ -11978,11 +11978,11 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementNormalizesLocatorAndWindowB
 	// skipped as a 值= duplicate (impact_ms=≡值 dedupe) — the magnitude stays on
 	// the rendered 值= field.
 	for _, want := range []string{
-		"系统补充：trace_query 关键观测核对",
+		"系统补充：Trace 关键观测核对",
 		"本块全部坐标位于 `berlin.systrace`",
 		"[6793222.031~6793225.370s]",
 		"值=2029.609ms",
-		"窗口基准=查询窗",
+		"窗口基准：查询窗",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("supplement missing %q:\n%s", want, out.FinalAnswer)
@@ -11998,7 +11998,7 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementNormalizesLocatorAndWindowB
 // TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints pins
 // NEW-8 (账本 §7.6): when the record's own typed selected_window note parses,
 // the renderer-invented window-basis token names the endpoints inline
-// ("窗口基准=选定窗 X.XXXs–Y.YYYs"); the observation data itself stays
+// ("窗口基准：查询窗 X.XXXs–Y.YYYs"); the observation data itself stays
 // untouched and the note-less legacy token is pinned by the test above.
 func TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints(t *testing.T) {
 	mu := types.NewMutableState("")
@@ -12047,7 +12047,7 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementWindowBasisEndpoints(t *tes
 		t.Fatalf("ParseOutput err: %v", err)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 选定窗→查询窗 (窗族).
-	if !strings.Contains(out.FinalAnswer, "窗口基准=查询窗 6793222.031s~6793225.370s") {
+	if !strings.Contains(out.FinalAnswer, "窗口基准：查询窗 6793222.031s~6793225.370s") {
 		t.Fatalf("supplement window-basis token must render the selected-window endpoints:\n%s", out.FinalAnswer)
 	}
 }
@@ -12064,19 +12064,19 @@ func TestTraceQueryObservationSupplementNotes_SelectedWindowEndpoints(t *testing
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: zh 选定窗→查询窗
 	// (EN token unchanged).
-	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准=查询窗 6793222.031s~6793225.370s") {
+	if zh := traceQueryObservationSupplementNotes(record, true); !strings.Contains(zh, "窗口基准：查询窗 6793222.031s~6793225.370s") {
 		t.Fatalf("ZH supplement token must carry endpoints: %s", zh)
 	}
-	if en := traceQueryObservationSupplementNotes(record, false); !strings.Contains(en, "window_basis=selected_window 6793222.031s~6793225.370s") {
+	if en := traceQueryObservationSupplementNotes(record, false); !strings.Contains(en, "window basis: selected window 6793222.031s~6793225.370s") {
 		t.Fatalf("EN supplement token must carry endpoints: %s", en)
 	}
 	record.RichNotes[3] = "selected_window=..6793225.370000"
 	zh := traceQueryObservationSupplementNotes(record, true)
-	if !strings.Contains(zh, "窗口基准=查询窗") || strings.Contains(zh, "窗口基准=查询窗 ") {
+	if !strings.Contains(zh, "窗口基准：查询窗") || strings.Contains(zh, "窗口基准：查询窗 ") {
 		t.Fatalf("malformed note must fall back to the bare ZH token: %s", zh)
 	}
 	en := traceQueryObservationSupplementNotes(record, false)
-	if !strings.Contains(en, "window_basis=selected_window") || strings.Contains(en, "window_basis=selected_window ") {
+	if !strings.Contains(en, "window basis: selected window") || strings.Contains(en, "window basis: selected window ") {
 		t.Fatalf("malformed note must fall back to the bare EN token: %s", en)
 	}
 }
@@ -12099,7 +12099,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"peer_state_dominant=sleep", "peer_state_sleep=31.600ms",
 	}}
 	got := notesOf(binder)
-	want := "notes=peer_state_dominant=sleep, peer_state_sleep=31.600ms, type=binder_wait, peer=OS_IPC_peer-43722"
+	want := "details: related-thread dominant state: sleep wait; related-thread sleep wait: 31.600ms; observation type: Binder wait; related thread: OS_IPC_peer-43722"
 	if got != want {
 		t.Fatalf("binder_wait priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -12110,7 +12110,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"holder_site=SomeManager.list(SomeManager.java:1258)", "waiters=2", "chain_relevance=on_chain",
 	}}
 	got = notesOf(blocking)
-	want = "notes=blocking_kind=monitor_contention, holder_site=SomeManager.list(SomeManager.java:1258), type=blocking_span, peer=Holder_Operate_0-42067"
+	want = "details: blocking type: monitor contention; holder site: SomeManager.list(SomeManager.java:1258); observation type: lock-holder blocking; related thread: Holder_Operate_0-42067"
 	if got != want {
 		t.Fatalf("blocking_span priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -12120,7 +12120,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"peer_state_dominant=running", "peer_state_sleep=0.000ms",
 	}}
 	got = notesOf(blockingNoPayload)
-	want = "notes=peer_state_dominant=running, peer_state_sleep=0.000ms, type=blocking_span, peer=unknown-thread"
+	want = "details: related-thread dominant state: running time; related-thread sleep wait: 0.000ms; observation type: lock-holder blocking; related thread: unresolved peer thread"
 	if got != want {
 		t.Fatalf("payload-less blocking_span priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -12134,7 +12134,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"subject_state_dominant=running", "subject_state_sleep=0.000ms",
 	}}
 	got = notesOf(holderSubjectRank)
-	want = "notes=subject_state_dominant=running, subject_state_sleep=0.000ms, type=blocking_span, peer=Waiter-99"
+	want = "details: current-thread dominant state: running time; current-thread sleep wait: 0.000ms; observation type: lock-holder blocking; related thread: Waiter-99"
 	if got != want {
 		t.Fatalf("holder-subject subject_state priority selection (BLK-2):\n got %q\nwant %q", got, want)
 	}
@@ -12147,7 +12147,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"chain_relevance=on_chain", "subject_state_dominant=running", "subject_state_sleep=0.000ms",
 	}}
 	got = notesOf(holderSubjectFolded)
-	want = "notes=blocking_kind=monitor_contention, subject_state_dominant=running, type=blocking_span, peer=Waiter-99"
+	want = "details: blocking type: monitor contention; current-thread dominant state: running time; observation type: lock-holder blocking; related thread: Waiter-99"
 	if got != want {
 		t.Fatalf("folded holder-subject rank row priority selection (BLK-2):\n got %q\nwant %q", got, want)
 	}
@@ -12158,7 +12158,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"periodic_source=true", "detected_period_ms=16.667", "lateness_ms=0.208", "effective_impact_ms=0.208",
 	}}
 	got = notesOf(periodic)
-	want = "notes=effective_impact_ms=0.208, periodic_source=true, impact_ms=42.600, dominant_state=sleep"
+	want = "details: discounted impact: 0.208; periodic source: yes; impact: 42.600; dominant state: sleep wait"
 	if got != want {
 		t.Fatalf("periodic-source priority selection:\n got %q\nwant %q", got, want)
 	}
@@ -12170,7 +12170,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"dominant_state=runnable", "occurrences=2", "prio=120",
 	}}
 	got = notesOf(legacy)
-	want = "notes=type=runnable_wait, impact_ms=10.000, dominant_state=runnable, occurrences=2"
+	want = "details: observation type: scheduling latency; impact: 10.000; dominant state: scheduling latency; occurrences: 2"
 	if got != want {
 		t.Fatalf("unclassified row must keep the legacy selection:\n got %q\nwant %q", got, want)
 	}
@@ -12180,7 +12180,7 @@ func TestTraceQueryObservationSupplementNotes_PerTypePriority(t *testing.T) {
 		"type=priority_inversion_runnable_wait", "peer=some-peer-7", "waiters=3", "impact_ms=5.000",
 	}}
 	got = notesOf(waiters)
-	want = "notes=type=priority_inversion_runnable_wait, peer=some-peer-7, waiters=3, impact_ms=5.000"
+	want = "details: observation type: priority-inversion runnable wait; related thread: some-peer-7; waiting thread count: 3; impact: 5.000"
 	if got != want {
 		t.Fatalf("waiters must pass the allowed table:\n got %q\nwant %q", got, want)
 	}
@@ -12256,26 +12256,23 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: intro sentence
-	// "以下条目来自 trace_query 发布的结构化运行时观测…" → "以下为 trace_query 输出的
-	// 逐条观测记录(字段 token 保留原文)，可对照 trace 原文核对…"; the "main-1 -> S"
-	// half is now claimKey-echo-suppressed (subject/object are both full
-	// claimKey segments).
+	// Customer-facing copy translates the typed wire while the observation
+	// ledger keeps the raw claim keys and notes for diagnostics.
 	for _, want := range []string{
-		"系统补充：trace_query 关键观测核对",
-		"以下为 trace_query 输出的逐条观测记录(字段 token 保留原文)，可对照 trace 原文核对；所有坐标都指向 trace 文件本身，不是源码位置。",
-		"state_drilldown:main-1:S；值=21.000ms",
+		"系统补充：Trace 关键观测核对",
+		"已转换为读者语言",
+		"线程状态下钻：main-1 -> 睡眠等待；值=21.000ms",
 		"值=21.000ms",
-		"source=top_sleep",
-		"recommended_views=wakeup_chain,root_cause_rank",
-		"chain_required=true",
-		"recursive=true",
-		"state_drilldown:main-1:S:fragmented；值=18.000ms",
+		"下钻来源：主要睡眠段",
+		"建议继续核对：唤醒链、根因排序",
+		"需要沿依赖链核对：是",
+		"需要继续向上追溯：是",
+		"线程状态下钻：main-1 -> 睡眠等待；值=18.000ms",
 		"值=18.000ms",
-		"source=state_churn",
-		"recommended_views=thread_timeline,interaction_stats,window_stats",
-		"chain_required=false",
-		"recursive=false",
+		"下钻来源：状态频繁切换",
+		"建议继续核对：线程时间线、线程交互统计、窗口统计",
+		"需要沿依赖链核对：否",
+		"需要继续向上追溯：否",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
 			t.Fatalf("final answer missing trace state-drilldown supplement fragment %q:\n%s", want, out.FinalAnswer)
@@ -12284,7 +12281,10 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsTraceStateDrilldownSupplemen
 	// §7.30 裁定5 review follow-up: renderer-invented labels and the guide
 	// sentence are all-Chinese on the ZH face; only the raw key=value note
 	// pairs (the 裁定6 audit carrier) stay verbatim.
-	for _, banned := range []string{"value=21.000ms", "notes=", "结构化 runtime observation", "artifact-local"} {
+	for _, banned := range []string{
+		"value=21.000ms", "notes=", "结构化 runtime observation", "artifact-local",
+		"state_drilldown", "source=", "recommended_views=", "chain_required=", "recursive=",
+	} {
 		if strings.Contains(out.FinalAnswer, banned) {
 			t.Fatalf("ZH supplement must not carry mixed-language renderer label %q:\n%s", banned, out.FinalAnswer)
 		}
@@ -12306,8 +12306,8 @@ func TestTraceQueryObservationSupplementWakeupPathDoesNotPrependTarget(t *testin
 		zh   bool
 		want string
 	}{
-		{zh: true, want: "wakeup_chain:path#1：worker-200 -> app-100"},
-		{zh: false, want: "wakeup_chain:path#1: worker-200 -> app-100"},
+		{zh: true, want: "唤醒链：worker-200 -> app-100"},
+		{zh: false, want: "wakeup chain: worker-200 -> app-100"},
 	} {
 		got := traceQueryObservationSupplementText(record, tc.zh)
 		if !strings.HasPrefix(got, tc.want) {
@@ -12315,6 +12315,60 @@ func TestTraceQueryObservationSupplementWakeupPathDoesNotPrependTarget(t *testin
 		}
 		if strings.Contains(got, "app-100 -> worker-200 -> app-100") {
 			t.Fatalf("target was prepended to an already complete path, zh=%t got=%q", tc.zh, got)
+		}
+	}
+}
+
+func TestTraceQueryObservationSupplementReaderProjectionHidesWireEnums(t *testing.T) {
+	records := []types.ObservationRecord{
+		{
+			ClaimKey:  "root_cause_primary:worker-200",
+			Subject:   "worker-200",
+			Predicate: "root_cause_primary",
+			Object:    "runnable_wait",
+			RichNotes: []string{
+				"causality=on_wakeup_chain",
+				"chain_depth=2",
+				"chain_relevance=on_chain",
+				"recommended_views=wakeup_chain,root_cause_rank",
+			},
+		},
+		{
+			ClaimKey:  "state_drilldown:app-100:S",
+			Subject:   "app-100",
+			Predicate: "state_drilldown",
+			Object:    "S",
+			RichNotes: []string{
+				"source=top_sleep",
+				"chain_required=true",
+				"recursive=false",
+			},
+		},
+	}
+	for _, zh := range []bool{true, false} {
+		face := traceQueryObservationSupplementText(records[0], zh) + "\n" +
+			traceQueryObservationSupplementText(records[1], zh)
+		for _, banned := range []string{
+			"root_cause_primary", "state_drilldown", "causality=", "chain_depth=",
+			"chain_relevance=", "recommended_views=", "source=", "chain_required=",
+			"recursive=", "notes=", "window_basis=", "bounded_window_candidate",
+		} {
+			if strings.Contains(face, banned) {
+				t.Fatalf("reader projection leaked wire token %q, zh=%t: %s", banned, zh, face)
+			}
+		}
+		if zh {
+			for _, want := range []string{"首要根因观测", "调度延迟", "因果位置：链上", "线程状态下钻", "下钻来源：主要睡眠段"} {
+				if !strings.Contains(face, want) {
+					t.Fatalf("ZH reader projection missing %q: %s", want, face)
+				}
+			}
+		} else {
+			for _, want := range []string{"primary root-cause observation", "scheduling latency", "causal position: on the proved chain", "thread-state drilldown", "drilldown source: top sleep interval"} {
+				if !strings.Contains(face, want) {
+					t.Fatalf("EN reader projection missing %q: %s", want, face)
+				}
+			}
 		}
 	}
 }
@@ -12365,10 +12419,10 @@ func TestAnswerDocumentEvaluator_ParseOutput_TraceQueryObservationSupplementExpa
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: single-artifact
 	// locator "attached_trace.txt:132" → grouped intro + per-row "行 132".
 	for _, want := range []string{
-		"系统补充：trace_query 关键观测核对",
+		"系统补充：Trace 关键观测核对",
 		"本块全部坐标位于 `attached_trace.txt`",
-		"root_cause_primary:thread-01：thread-01 -> runnable",
-		"root_cause_primary:thread-32：thread-32 -> runnable",
+		"首要根因观测：thread-01 -> 调度延迟",
+		"首要根因观测：thread-32 -> 调度延迟",
 		"行 132；",
 	} {
 		if !strings.Contains(out.FinalAnswer, want) {
@@ -12440,8 +12494,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_PrioritizesTraceQueryOccurrenceWind
 		t.Fatalf("ParseOutput err: %v", err)
 	}
 	for _, want := range []string{
-		"wakeup_causal_aggregate:ThreadPoolForeg-60555",
-		"occurrence_windows=34579.525319..34579.534164",
+		"唤醒链聚合：ThreadPoolForeg-60555 -> 不可中断等待",
+		"发生窗口：34579.525319..34579.534164",
 		"34579.546416..34579.553415",
 		"34579.576702..34579.587805",
 	} {

@@ -75,7 +75,7 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementSharesFullReportAuthority(t
 		},
 	}
 	final := cmpbSupplementParseForRequestModel(t, observations, genericComparison)
-	if strings.Contains(final, "trace_query 关键观测核对") {
+	if strings.Contains(final, "Trace 关键观测核对") {
 		t.Fatalf("generic artifact comparison without causal rows inherited the raw trace report supplement:\n%s", final)
 	}
 
@@ -88,14 +88,14 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementSharesFullReportAuthority(t
 		SourceQuote:    "10.0..10.1",
 	}
 	final = cmpbSupplementParseForRequestModel(t, observations, &explicitWindow)
-	if !strings.Contains(final, "trace_query 关键观测核对") {
+	if !strings.Contains(final, "Trace 关键观测核对") {
 		t.Fatalf("explicit typed window lost its last-mile observation supplement:\n%s", final)
 	}
 
 	rootCause := *genericComparison
 	rootCause.Intent = types.IntentRootCause
 	final = cmpbSupplementParseForRequestModel(t, observations, &rootCause)
-	if !strings.Contains(final, "trace_query 关键观测核对") {
+	if !strings.Contains(final, "Trace 关键观测核对") {
 		t.Fatalf("typed root-cause request lost its last-mile observation supplement:\n%s", final)
 	}
 }
@@ -126,20 +126,20 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementFoldsZeroValueBlockedReason
 		},
 	}
 	final := cmpbSupplementParse(t, observations)
-	if !strings.Contains(final, "系统补充：trace_query 关键观测核对") {
+	if !strings.Contains(final, "系统补充：Trace 关键观测核对") {
 		t.Fatalf("supplement missing:\n%s", final)
 	}
-	if !strings.Contains(final, "critical_blocking:blocked_reason：共 3 条零时长观测") {
+	if !strings.Contains(final, "阻塞原因记录：共 3 条未携带时长的观测") {
 		t.Fatalf("zero-value blocked_reason rows must fold into one counted line:\n%s", final)
 	}
 	if !strings.Contains(final, "t1-1、t2-2、t3-3") {
 		t.Fatalf("fold line must list the first thread names:\n%s", final)
 	}
-	if strings.Contains(final, "t1-1 -> unknown-thread") {
+	if strings.Contains(final, "t1-1 -> 对端线程未解析") {
 		t.Fatalf("individual zero-value rows must not render next to the fold line:\n%s", final)
 	}
 	// The valued observation never folds and keeps its duration.
-	if !strings.Contains(final, "critical_blocking:d_state_or_io_wait：AsyncSeq-11306 -> unknown-thread") ||
+	if !strings.Contains(final, "关键阻塞：AsyncSeq-11306 -> 对端线程未解析") ||
 		!strings.Contains(final, "值=159.921ms") {
 		t.Fatalf("valued critical_blocking row must keep its full rendering:\n%s", final)
 	}
@@ -151,10 +151,10 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementKeepsSingleZeroValueRow(t *
 	final := cmpbSupplementParse(t, []types.ObservationRecord{
 		cmpbZeroBlockedReason("zb1", "t1-1", "seven.systrace:32017"),
 	})
-	if !strings.Contains(final, "critical_blocking:blocked_reason：t1-1 -> unknown-thread") {
+	if !strings.Contains(final, "关键阻塞：t1-1 -> 对端线程未解析") {
 		t.Fatalf("single zero-value row must keep the per-row rendering:\n%s", final)
 	}
-	if strings.Contains(final, "条零时长观测") {
+	if strings.Contains(final, "共 1 条未携带时长") {
 		t.Fatalf("single zero-value row must not fold:\n%s", final)
 	}
 }
@@ -293,7 +293,7 @@ func TestAnswerDocumentEvaluator_TraceQuerySupplementDropsSyntheticMissingWakeup
 		SupportRefs:     []string{"seven.systrace:44"},
 		Summary:         "sleep interval has no matching sched_wakeup row in the selected trace window",
 	}})
-	if !strings.Contains(final, "root_evidence:missing_wakeup") || !strings.Contains(final, "seven.systrace") {
+	if !strings.Contains(final, "根因证据：OS_FFRT_2_6-18695") || !strings.Contains(final, "seven.systrace") {
 		t.Fatalf("missing_wakeup supplement row must render with its artifact name:\n%s", final)
 	}
 	if strings.Contains(final, "seven.systrace:44") {

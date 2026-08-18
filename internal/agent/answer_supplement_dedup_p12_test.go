@@ -15,7 +15,7 @@ import (
 )
 
 func p12ObservationBlock() string {
-	lines := []string{"---", "", "> **系统补充：trace_query 关键观测核对**", ">"}
+	lines := []string{"---", "", "> **系统补充：Trace 关键观测核对**", ">"}
 	for i := 0; i < 12; i++ {
 		lines = append(lines, "> - 观测行 "+strings.Repeat("x", i+1))
 	}
@@ -28,11 +28,11 @@ func p12ObservationBlock() string {
 func TestAnswerSupplementDedup_SecondVerbatimCopySuppressed(t *testing.T) {
 	block := p12ObservationBlock()
 	prose := appendAnswerSupplementDeduped("正文回答。", block, "zh")
-	if strings.Count(prose, "trace_query 关键观测核对") != 1 {
+	if strings.Count(prose, "Trace 关键观测核对") != 1 {
 		t.Fatalf("first append must render the block:\n%s", prose)
 	}
 	prose = appendAnswerSupplementDeduped(prose, block, "zh")
-	if got := strings.Count(prose, "trace_query 关键观测核对"); got != 1 {
+	if got := strings.Count(prose, "Trace 关键观测核对"); got != 1 {
 		t.Fatalf("second verbatim copy must be suppressed, block appears %d times:\n%s", got, prose)
 	}
 	if !strings.Contains(prose, "同上略") {
@@ -72,7 +72,7 @@ func TestAnswerSupplementDedup_DistinctBlocksBothRender(t *testing.T) {
 	if strings.Contains(prose, "同上略") {
 		t.Fatalf("distinct blocks must both render:\n%s", prose)
 	}
-	if strings.Count(prose, "trace_query 关键观测核对") != 2 {
+	if strings.Count(prose, "Trace 关键观测核对") != 2 {
 		t.Fatalf("both distinct blocks must be present:\n%s", prose)
 	}
 }
@@ -126,7 +126,7 @@ func TestAnswerSupplementDedup_NoteItselfDeduped(t *testing.T) {
 	if got := strings.Count(prose, "同上略"); got != 1 {
 		t.Fatalf("the dedup note must not duplicate itself, got %d notes:\n%s", got, prose)
 	}
-	if strings.Count(prose, "trace_query 关键观测核对") != 1 {
+	if strings.Count(prose, "Trace 关键观测核对") != 1 {
 		t.Fatalf("the block still renders exactly once:\n%s", prose)
 	}
 }

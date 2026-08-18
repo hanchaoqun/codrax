@@ -58,11 +58,10 @@ func TestPSGSupplementQuotaAggregateBucketSurvivesFlood(t *testing.T) {
 		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "结论。",
 	}}}
 	out := renderTraceQueryObservationSupplement(ptv7SpnSupplementContext(records), doc, "zh")
+	if got := strings.Count(out, "唤醒链聚合：VSyncGenerator-2270"); got != 3 {
+		t.Fatalf("all three order-55 aggregate rows must keep their floor seats, got %d:\n%s", got, out)
+	}
 	for i := 0; i < 3; i++ {
-		key := fmt.Sprintf("wakeup_causal_aggregate:VSyncGenerator-2270:w%d", i)
-		if !strings.Contains(out, key) {
-			t.Fatalf("order-55 aggregate row %q must keep its floor seat under the 112-row flood:\n%s", key, out)
-		}
 		value := fmt.Sprintf("30.98%d", i)
 		if !strings.Contains(out, value) {
 			t.Fatalf("the aggregate row's value %q must be visible in the dump:\n%s", value, out)

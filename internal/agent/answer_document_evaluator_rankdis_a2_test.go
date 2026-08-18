@@ -45,14 +45,14 @@ func TestRankdisA2SupplementOrderServesNewAndLegacyBranchKeys(t *testing.T) {
 	}
 }
 
-func TestRankdisA2SupplementTextRendersBranchKeyVerbatim(t *testing.T) {
+func TestRankdisA2SupplementTextHidesBranchWireKeyFromReaders(t *testing.T) {
 	record := rankdisA2SupplementRecord("wakeup_chain:branch=1")
 	for _, tc := range []struct {
 		zh   bool
 		want string
 	}{
-		{zh: true, want: "wakeup_chain:branch=1：worker-200 -> app-100"},
-		{zh: false, want: "wakeup_chain:branch=1: worker-200 -> app-100"},
+		{zh: true, want: "唤醒链：worker-200 -> app-100"},
+		{zh: false, want: "wakeup chain: worker-200 -> app-100"},
 	} {
 		got := traceQueryObservationSupplementText(record, tc.zh)
 		if !strings.HasPrefix(got, tc.want) {
@@ -60,6 +60,9 @@ func TestRankdisA2SupplementTextRendersBranchKeyVerbatim(t *testing.T) {
 		}
 		if strings.Contains(got, "path#") {
 			t.Fatalf("the supplement face must not resurrect the retired path#N glyph, zh=%t got=%q", tc.zh, got)
+		}
+		if strings.Contains(got, "branch=") {
+			t.Fatalf("the reader face must not expose the branch wire key, zh=%t got=%q", tc.zh, got)
 		}
 	}
 }
