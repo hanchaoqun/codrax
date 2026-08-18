@@ -36089,6 +36089,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1100 r704：C++ 继承关系完整；Trace 内部字段仍偶发进入客户正文（2026-08-18）
+
+1. 在 `main@615b22b8a` 重建后严格并发恰好两个：`trace_query_wakeup_causal_io_chain` 与
+   `sr_cpp_sink_impls`。Runner `2/2 PASS`；人工 C++ 为 pass-with-caveat、Trace 为 partial。完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_memo_cpp_relation_r704_20260818_manual_audit.md`。
+2. C++ parser/typed inventory 正确交付三个具体实现与三条定义证据，最终表格完整表达
+   `ConsoleSink -> Sink`、`FileSink -> Sink`、`RotatingSink -> FileSink`，并用两跳链解释
+   RotatingSink 间接继承 Sink。问题没有要求图，清晰表格加链式文字已经充分；系统不得为了统一格式
+   强制 Mermaid。首稿因 table 同时提交 `cells[]` 与 `label/text` 被精确 shape gate 拒绝，第二稿漏隐藏
+   `member_set` 后由 patch 补齐；合同并不矛盾，但两次可避免的修补说明 schema 心智仍需继续观察。
+3. Trace 实质能力完整：显式 20ms 窗、目标 sleep=20ms、
+   `threadpool -> network -> cookie -> app`、链上 IO #1=11ms、三个互斥 1ms 调度供给席、实测占用/规则
+   可消双轴、因果投影、邻近/背景降格均保留，零成文拒绝，活跃流没有因固定 4ms 降级。
+4. 本轮不能作为 B1108b 生产命中证据。九次 Trace 调用中，后续请求分别改变了 PID/thread selector、
+   显式平台来源、view 或 wakeup depth；这些字段会改变身份解析、权限或枚举前沿，重复建索引是正确的。
+   不得为了制造命中而把它们误合并。default/thread 与平台别名的等价性继续由专项正负 pin 保卫。
+5. 新的同类显示 witness 是模型正文复制了 `typed reason`、`window_total`、
+   `pre_wakeup_exit_split` 等内部字段；与 2026-08-17 的 `bounded_window_candidate` 泄漏同属
+   `B1110-TRACEREADERLANGUAGECOMPLIANCE1`。事实与因果边界没有因此改变，但客户不应理解内部协议。
+   现有 Finalizer 已在最后提供自然语言事实卡并明确禁止复制控制字段，说明仅靠末尾软提醒不能保证所有
+   模型稳定服从。后续只允许减少原始控制 token 的成文上下文暴露、扩充 typed→读者语言的单源映射；
+   禁止扫描/拒绝/删除模型或最终答案原文，也禁止系统重写结论。
+6. r704 不为上述词串加生产关键词补丁。下一轮优先以异构 Trace + write/read 回放继续观察具体泄漏来源，
+   再对共享 authority renderer 做一批通用收敛；模型单次措辞波动在没有精确信号前允许留档，不以硬门
+   牺牲答案交付。
+
+状态：
+
+`r704=2/2 runner PASS + manual pass-with-caveat/partial`；
+`B1108/B1108b=not-exercised-by-equivalent-production-calls/unit-pins-remain-green`；
+`B1110-TRACEREADERLANGUAGECOMPLIANCE1=confirmed/intermittent/P1/no-prose-gate`；
+`C++ inheritance relation=complete/text+table-sufficient`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=preserved`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
