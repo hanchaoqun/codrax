@@ -36160,6 +36160,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1102 r705：唤醒统计自然化生效；全窗状态与链上片段缺少口径限定（2026-08-18）
+
+1. 在 `main@e610414c6` 后严格并发恰好两个：`real_trace_h7_self_seat_full_spectrum` 与
+   `qf_logic_view_read_pipeline`。Runner `2/2 PASS`；人工均为 partial。完整逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_reader_logic_r705_20260818_manual_audit.md`。
+2. Trace 获得 B1110a 生产正证：唤醒概览已直接写成“共被唤醒 29 次，其中从睡眠离开 17 次、从
+   D/IO 离开 11 次、其他 1 次”，没有再向读者展示 `total_wakeups` 或
+   `pre_wakeup_exit_split`。显式 `13762.791708..13763.024898` 窗、目标线程全量状态分区、链上根因
+   排序、实际占用与规则可消双轴、Trace 因果投影、业务 span 及邻近背景降格均完整；零 final reject，
+   活跃流没有因固定 4ms 降级。
+3. 再次核对原始 fixture 后纠正一项中间判断：TID 18130/18132 的原始 comm 本来就是
+   `ransmitThread`，并非 Codrax 截掉首字母。Explorer 过程文字曾把它擅自补成 `transmitThread`，终稿
+   与系统投影恢复了原始真值。不得为了“看起来更像单词”改写 trace 身份。
+4. 模型正文仍复制了 `d_state_or_io_wait`、`io_latency`、`runnable_wait` 等内部 cause 枚举，并把按数值
+   降序的表称作“从小到大”。前者说明 B1110 仍有其他 authority renderer 暴露机器词，后者是模型措辞
+   波动；本轮不扫描/拒绝/替换最终正文，也不通过硬排序词门拟合。后续只能继续把 typed cause 映射为
+   单源读者语言并保留机器值于结构字段。
+5. 新确认 `B1111-TRACESTATESUBSETRULERQUALIFIER1/P1`：全量状态分区中目标 sleep 为 118.586ms，
+   “关键路径候选”表中的目标 self sleep 为 78.630ms。两者都由精确 typed 数据产生，前者是全窗状态
+   账户，后者只是投影中已发布链上片段的累计；但当前行仍笼统标成“等待症状/关键路径占用”，读者会把
+   子集误读成另一份全窗合计。下一批只用 typed subject、state class 与全窗账户比较，在子集行追加
+   “本表已展开片段的累计，非该状态全窗合计；全窗值见上方状态分区”的中英文口径；不得改数值、排序、
+   加冕、因果投影或模型结论，也不得扫描答案原文。
+6. 源码逻辑图最终 Mermaid 合法，四阶段 precedence、调用与参数流锚准确，BusContext 包含 Mutable 也
+   正确用无箭头分组表达。两次拒绝分别命中“把包含关系写成 precedence”和“BusContext 端点未映射”这
+   两个精确错误，合同没有自相矛盾。但模型修补单边时删除了其他已证关系，最终把阶段主链、共享上下文、
+   Orchestrator 调用和 Finalizer 初始化拆成多个孤立子图；信息表达仍不完整。
+7. 上述图缺口暂记 `B1112-DIAGRAMREPAIRCOLLATERALSELECTION1=observed/soft-only`。系统没有删除、替换或
+   合成关系；既有 B630 包含/精确端点能力也没有回归。单次见证不足以建立“必须全图连通”的硬门，且
+   无 typed bridge 时强连通会逼系统造边；继续异构回放，若复现则优先改善 request-scoped 证据规划与
+   patch 保留教学，仍由模型决定最终图。
+
+状态：
+
+`r705=2/2 runner PASS + manual partial/partial`；
+`B1110a-wakeup-reader-language=production-positive`；
+`B1110-other-cause-enums=still-observed/no-prose-gate`；
+`B1111-trace-state-subset-ruler-qualifier=confirmed/P1/next-batch`；
+`B1112-diagram-repair-collateral-selection=single-witness/soft-only`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`Trace explicit-window/query/projection/auto-supplement=preserved`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
