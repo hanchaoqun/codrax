@@ -22,6 +22,7 @@ func TestShippingAnswerPathsDoNotCallVisibleModelContentMutators(t *testing.T) {
 		"materializeRequiredModelSurfaceTerms":                  true,
 		"materializeRequiredModelSurfaceTermsIntoMarkdownTable": true,
 		"materializeSurfaceTermsIntoItem":                       true,
+		"normalizePrincipalSupportSurfaceTermSupplement":        true,
 		"normalizeRuntimeObservationOnlyDecisionBlocks":         true,
 		"normalizeRuntimeArtifactVisibleCitationSentinels":      true,
 		"normalizeExternalObservationVisibleCitationSentinels":  true,

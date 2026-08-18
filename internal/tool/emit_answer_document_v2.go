@@ -887,10 +887,6 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 				logging.Warning("[%s] materialized %d principal aggregate member row(s) from accepted exhaustive enumeration handoff", toolName, fixed)
 			}
 		}
-		if fixed := normalizePrincipalSupportSurfaceTermSupplement(doc, types.BuildAnswerSupportPlanForBusContext(ctx), ctx); fixed > 0 {
-			pctx.recordPreEmitRepair("normalizePrincipalSupportSurfaceTermSupplement", fixed)
-			logging.Warning("[%s] materialized %d principal support surface-term row(s) from accepted evidence handoff", toolName, fixed)
-		}
 	}
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeViewCompatibleAnswerDocument", fixed)

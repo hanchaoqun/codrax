@@ -412,6 +412,25 @@ func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableRemainsModelOwned(t *
 		!strings.Contains(formatEmitFixHints(hints), "@Component") {
 		t.Fatalf("missing terms must remain model-actionable advisory facts: %+v", hints)
 	}
+
+	// B1082: the full/patch/persist shared pre-emit seam must not turn the
+	// same advisory into a visible system-authored principal table. Repeating
+	// the seam models a rejected full emit followed by a patch retry; neither
+	// pass may create principal-support-surface-terms(-N).
+	for i := 0; i < 2; i++ {
+		normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{}, ctx, newPreEmitCheckContext(ctx))
+	}
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind == types.AnswerSystemGeneratedPrincipalEnumerationFields ||
+			strings.HasPrefix(block.ID, "principal-support-surface-terms") {
+			t.Fatalf("shipping pre-emit must keep surface terms model-owned, got %+v", doc.Blocks)
+		}
+	}
+	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) == 0 ||
+		!strings.Contains(formatEmitFixHints(hints), "@Entry") ||
+		!strings.Contains(formatEmitFixHints(hints), "@Component") {
+		t.Fatalf("shipping pre-emit must preserve the typed soft advisory: %+v", hints)
+	}
 }
 
 func TestMaterializeRequiredModelSurfaceTerms_MarkdownTableAmbiguousRowStaysAdvisory(t *testing.T) {

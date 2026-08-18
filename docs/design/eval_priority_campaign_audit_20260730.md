@@ -35730,6 +35730,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-conclusion/diagram/edge=none`；`source-answer-visible-supplement=red-line-open-B1082`。
 
+### §123.1072 B1082：surface term 回归补表退役；模型成文权与 typed guidance 重新分离（2026-08-18）
+
+1. shipping 共用 pre-emit seam 已断开 `normalizePrincipalSupportSurfaceTermSupplement`。full emit、patch
+   emit 与后续 persist 都不再把 accepted evidence `surface_terms` 铸成 `SurfacePrincipal` 可见表，也不再
+   生成 `principal-support-surface-terms-2/-3` 等跨重试重复块；模型已有 block 不删除、不合并、不改写。
+2. typed 信息没有丢失。Finalizer prompt 仍有 exact `surface_terms` roster，full/patch 两条车道继续调用
+   `preCheckModelSurfaceTerms`，把模型已引用成员缺少的相关标签作为 soft advisory 返回。该 advisory 不触发
+   hard reject，不读取原始用户请求、thinking 或终稿 prose 来做关键词判断，是否写入答案仍由模型决定。
+3. authorship AST tripwire 新增该补表器；即便将来保留兼容 helper，也禁止它重新接入
+   `executeAnswerDocumentV2`、`normalizeAnswerDocumentForPreEmit`、patch、persist 或 recovery shipping
+   函数。行为 pin 让同一缺标签文档连续经过两次 pre-emit，断言零 system surface-term block，同时
+   `@Entry/@Component` typed advisory 两次后仍可用。
+4. 这项修改只收回 source-code answer 的系统可见成文权；没有按 ArkTS、Cangjie、Java 或某个 eval
+   文案分支。Trace runtime projection 使用独立 `AnswerSystemGeneratedRuntimeTrace` owner，本批未改其查询、
+   显式窗补采、因果投影、链上根因或可消除量构造。
+5. 验证：两项 focused pin 通过；`go test ./internal/tool -count=1` 全绿（177.560s）；`make` 与
+   `git diff --check` 通过。下一步原样恰好并发两案生产回放，确认 pipeline 终稿不再出现内部补表，并继续
+   区分模型 diagram/table authoring 波动与确定性系统 GAP。
+
+状态：
+
+`B1082-SURFACETERMSYSTEMAUTHORSHIP1=implemented/shipping-disconnected+AST+persistence-shape-pinned`；
+`surface_terms=typed-soft-guidance/model-authored-visible-answer`；
+`system-source-answer-visible-supplement=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
