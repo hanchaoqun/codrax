@@ -31,10 +31,11 @@
 #   · Compaction/enumeration authority supersedes the old RNB-5B requirement
 #     that one visible micro-seat fold spell a fixed 0.105ms. The current board
 #     keeps small on-chain seats in detail and must disclose a non-zero `未入榜
-#     ⛓ N 行` plus `enumeration_status=incomplete`; a bounded view must not
-#     impersonate exhaustive enumeration. The question's small contributors
-#     remain available to the model and evidence index without pinning a stale
-#     presentation grouping.
+#     ⛓ N 行` plus the reader-facing `枚举未完整`; a bounded view must not
+#     impersonate exhaustive enumeration. The wire value remains available in
+#     typed diagnostics but must not leak into the customer-facing answer. The
+#     question's small contributors remain available to the model and evidence
+#     index without pinning a stale presentation grouping.
 # SOFT oracle (verdict-judged):
 #   · the fold row keeps credential semantics (仍属⛓链上通道 family wording)
 #     and the folded members stay reachable through their ◇ twin bisection
@@ -52,9 +53,9 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # greps/reads cannot echo oracle witness strings (these .case files,
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
-EXPECT_CONTAINS="65.912 36.757 dma_fence_default_w 49.623 0.033 按全域最大核最高频 enumeration_status=incomplete 未计价占用"
+EXPECT_CONTAINS="65.912 36.757 dma_fence_default_w 49.623 0.033 按全域最大核最高频 枚举未完整 未计价占用"
 EXPECT_MATCHES_REGEX="供给折算缺口 65\\.912ms
 同源二分:全窗49\\.656ms=锚定0\\.033ms\\(锚定席未上本榜,见明细\\)\\+本行其余49\\.623ms\\(无链上凭证\\)
 未入榜 +⛓ [1-9][0-9]* 行"
-EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
+EXPECT_NOT_CONTAINS="still_present not_enough_evidence enumeration_status=incomplete"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
