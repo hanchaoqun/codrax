@@ -36008,7 +36008,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1063-PATCHREPLACEMENTFIELDRETENTION1=production-no-field-loss-r678/teaching-not-sole-owner`；
 `B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=reproduced-r678/P1-pending-design`；
 `B1065-RELATIONVALIDATIONBATCHFEEDBACK1=implemented/targeted+internal-tool-full-pass/replay-next`；
-`B1066-CALLCHAINMECHANISMDESCENTFRONTIER1=confirmed/P1-next-separate-batch`；
+`B1066-CALLCHAINMECHANISMDESCENTFRONTIER1=implemented/targeted+internal-tool-full-pass/replay-next`；
 `r678-QF=runner-pass/human-partial/correct-final+641s-system-churn`；
 `r678-C=runner-pass/human-partial/correct-facts+wrong-row-citations`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r678`；
@@ -36039,6 +36039,33 @@ temporal 和 semantic handoff 车道保持原判据与修复语义，未放宽�
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+#### B1066：调用链从机制语义下钻中精确分流（2026-08-18）
+
+已完成独立策略批。修点只位于
+`raiseMechanismSemanticDescentPendingReads`：当规范化的 typed requirement kind
+为 `ReqCallChain` 时不进入 mechanism semantic descent。共享的
+`genericForcedReadBoundaryCanUseModelPrincipalSet` 未改，因此调用链既有 exact
+endpoint、typed call edge、selected body、directed reachability/no-path 等专属
+闭环仍保留；`ReqMechanism/ReqConditional/ReqRegistration` 的局部实现体下钻、
+深度 2 与每轮最多 4 个读需求也未改。
+
+这是 schema enum 路由，不读取 RawRequest、模型 thinking、答案文本或 Mermaid
+标签。系统没有缩短模型答案、降低引用门、合成路径或改变“无有向路径”的模型
+结论；仅阻止调用链探索中任意 executable evidence 把所有 helper 递归扩成新的
+机制读前沿。
+
+新增反事实 pin 同时断言：typed `ReqCallChain + IntentTrace` 仍通过共享 forced-read
+资格，但 mechanism descent 返回 0 且不创建 pending read。既有真正机制正向用例
+继续要求 unread callback/helper body，防止误伤机制解释。
+
+验证：
+
+- call-chain exclusion 与 mechanism 正向定向组：通过；
+- `go test ./internal/tool -count=1`：通过，180.473s；
+- `git diff --check`：通过。
+
+生产回放待下一轮严格并发 2 个案例执行。
 
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 

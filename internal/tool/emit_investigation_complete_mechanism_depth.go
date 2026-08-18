@@ -57,6 +57,17 @@ func raiseMechanismSemanticDescentPendingReads(
 	if !genericForcedReadBoundaryCanUseModelPrincipalSet(rm) {
 		return 0
 	}
+	// A typed call-chain request has its own exact endpoint, call-edge,
+	// selected-body, directed-reachability, and no-path completion gates. It may
+	// share the generic forced-read eligibility used by those gates, but it is
+	// not a mechanism narrative: recursively following every executable helper
+	// selected during chain discovery expands beyond the model-selected path and
+	// can continually mint a new pending-read frontier. Keep this exclusion local
+	// to semantic descent so the call-chain evidence gates retain their existing
+	// authority. No request or answer prose participates.
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqCallChain {
+		return 0
+	}
 	graph, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	if !ok || graph == nil || len(graph.FileIndex) == 0 {
 		return 0

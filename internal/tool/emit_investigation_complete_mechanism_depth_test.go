@@ -167,6 +167,26 @@ func TestMechanismSemanticDescent_QueuesUniqueReturnedCallbackBodyThenDirectHelp
 	}
 }
 
+func TestMechanismSemanticDescent_CallChainUsesItsDedicatedClosureGates(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind = string(types.ReqCallChain)
+	fact := mechanismSemanticDescentFact()
+
+	if !genericForcedReadBoundaryCanUseModelPrincipalSet(ctx.AnalysisIR.RequestModel) {
+		t.Fatal("call-chain request must retain the shared forced-read eligibility used by its dedicated closure gates")
+	}
+	if got := raiseMechanismSemanticDescentPendingReads(
+		ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil,
+	); got != 0 {
+		t.Fatalf("typed call-chain request entered mechanism semantic descent: demands=%d pending=%+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+	}
+	if pending := ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("call-chain mechanism exclusion must not mint pending reads: %+v", pending)
+	}
+}
+
 func TestMechanismSemanticDescent_EnumRosterContinuesFromExplorerAuthoredOperationLeaf(t *testing.T) {
 	graph, fi := mechanismSemanticDescentFixture()
 	// Add a parser-owned direct call next to the callback-bearing Transform
