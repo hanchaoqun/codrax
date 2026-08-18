@@ -1428,6 +1428,17 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				"Do NOT add an enumeration anchor skeleton block unless the prompt explicitly attached an Anchor skeleton section for a multi-topic explanation.",
 			)
 		}
+		if view.Family == types.QFCallChain {
+			// B1094: keep the submission checklist on the same exact ownership
+			// sentence as the schema and validator. The old checklist taught only
+			// claim_uses while the hard contract also required edge_anchors on the
+			// principal relation carrier. With a sibling diagram, a second prompt
+			// surface then told the model to use Mermaid node ids, contradicting the
+			// standalone-label wording. This shared contract distinguishes the two
+			// carriers without reading request or answer prose and without minting a
+			// relation for the model.
+			items = append(items, types.GroundedStandaloneCallChainRelationOwnershipContract)
+		}
 	}
 	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.AnswerContract.ExactResolution != nil {
 		items = append(items,
@@ -5338,6 +5349,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		return ""
 	}
 	promptLedgerRecords, supersededPreTriageNarratives := answerDocFinalizerObservationRecords(ctx, ledger.Records)
+	promptLedgerRecords, outsideSelectedWindowRecords := answerDocSelectedWindowObservationRecords(ctx, promptLedgerRecords)
 	promptLedger := ledger
 	promptLedger.Records = promptLedgerRecords
 	records := answerDocObservationPromptRecords(ctx, promptLedgerRecords, answerDocObservationLedgerPromptLimit)
@@ -5353,6 +5365,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString("- Copy path-like, date-like, URL-like, commit-like, row/line/span, and connector/resource ID literals only from exact typed detail, raw payload, or row-set references. Do not expand abbreviated display strings such as git `--stat` paths containing `...`; if exact detail is unavailable, describe the scope without inventing the literal.\n\n")
 	if supersededPreTriageNarratives > 0 {
 		fmt.Fprintf(&b, "- Same-artifact deterministic runtime queries supersede %d pre-triage free-form navigation observation(s) in this answer-writing view. Their audit records remain in the full ledger; measured perf frame/jank/stall rows and deterministic observations remain available.\n\n", supersededPreTriageNarratives)
+	}
+	if outsideSelectedWindowRecords > 0 {
+		fmt.Fprintf(&b, "- The user-selected explicit trace window is the principal answer scope. %d deterministic query observation(s) whose own typed query windows extend outside it are omitted from this answer-writing view; they remain in the full ledger, causal projection inputs, report appendix, and audit trail as other-window context. Fully contained drilldown rows remain available.\n\n", outsideSelectedWindowRecords)
 	}
 	if authority := renderAnswerDocRuntimeSourceAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
@@ -6513,6 +6528,37 @@ func answerDocToolHandoffCarriersForFinalizer(ctx *types.AgentContext, carriers 
 	if len(carriers) == 0 {
 		return carriers
 	}
+	// Keep handoff observation refs on the same explicit-window projection as
+	// the Observation Ledger prompt. The carrier remains intact for repair,
+	// supported-JSON, and accepted-evidence duties; only refs whose producer-
+	// owned selected_window crosses the user's typed explicit window leave the
+	// Finalizer prompt. Full tool results and the audit ledger are unchanged.
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile != nil {
+		ledger := answerDocObservationLedger(ctx)
+		projected, omitted := answerDocSelectedWindowObservationRecords(ctx, ledger.Records)
+		if omitted > 0 {
+			allowed := make(map[string]bool, len(projected))
+			known := make(map[string]bool, len(ledger.Records))
+			for _, record := range ledger.Records {
+				known[strings.TrimSpace(record.ID)] = true
+			}
+			for _, record := range projected {
+				allowed[strings.TrimSpace(record.ID)] = true
+			}
+			for i := range carriers {
+				refs := make([]types.ToolObservationRef, 0, len(carriers[i].ObservationRefs))
+				for _, ref := range carriers[i].ObservationRefs {
+					id := strings.TrimSpace(ref.ID)
+					if known[id] && !allowed[id] {
+						continue
+					}
+					refs = append(refs, ref)
+				}
+				carriers[i].ObservationRefs = refs
+			}
+			carriers = types.NormalizeToolHandoffCarriers(carriers)
+		}
+	}
 	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
 		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.SuppressesRootCauseRankingPrompt() {
 		projected := make([]types.ToolHandoffCarrier, 0, len(carriers))
@@ -6890,8 +6936,60 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
 	records, _ = answerDocFinalizerObservationRecords(ctx, records)
+	records, _ = answerDocSelectedWindowObservationRecords(ctx, records)
 	ledger := types.ObservationLedger{Records: records}
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
+}
+
+// The causal projector's ±1ms same-window tolerance deliberately groups query
+// windows that are effectively the same analysis request. It is too wide for
+// containment: a 0.020ms post-boundary interval would become principal evidence
+// for a window that already ended. This epsilon absorbs only float parsing
+// noise when enforcing the user-owned boundary.
+const answerDocSelectedWindowContainmentEpsilonS = 1e-9
+
+// answerDocSelectedWindowObservationRecords keeps deterministic trace-query
+// rows whose own typed selected_window is fully contained by the user's
+// explicit requested window on the Finalizer prompt surface. Wider, later, or
+// otherwise crossing query windows remain losslessly available in the full
+// observation ledger, causal projection, report appendix, and audit output;
+// they are removed only from the principal answer-writing pool so a broad
+// drilldown cannot masquerade as selected-window evidence. Records without a
+// typed selected_window fail open, as do non-runtime/non-deterministic rows.
+// No request text, model narrative, or final prose is inspected.
+func answerDocSelectedWindowObservationRecords(ctx *types.AgentContext, records []types.ObservationRecord) ([]types.ObservationRecord, int) {
+	if ctx == nil || (ctx.AgentName != types.AgentFinalizer && ctx.Stage != types.StageFinalize) ||
+		ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile == nil || len(records) == 0 {
+		return records, 0
+	}
+	requestedStart, requestedEnd, ok := ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile.ExplicitTimeWindow()
+	if !ok {
+		return records, 0
+	}
+	out := make([]types.ObservationRecord, 0, len(records))
+	omitted := 0
+	for _, record := range records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			out = append(out, record)
+			continue
+		}
+		start, end, present := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+		if !present {
+			out = append(out, record)
+			continue
+		}
+		if start < requestedStart-answerDocSelectedWindowContainmentEpsilonS ||
+			end > requestedEnd+answerDocSelectedWindowContainmentEpsilonS {
+			omitted++
+			continue
+		}
+		out = append(out, record)
+	}
+	if omitted == 0 {
+		return records, 0
+	}
+	return out, omitted
 }
 
 // answerDocFinalizerObservationRecords removes model-extracted
@@ -7415,6 +7513,15 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		// model-authored investigation prose beside it creates a second, noisier
 		// relation authority. Keep those notes in TurnAArtifacts for audit and
 		// give the finalizer only the typed bundle/ledger and the tail boundary.
+		return ""
+	}
+	if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocHasDeterministicRuntimeQueryObservation(ctx) {
+		// Deterministic runtime queries already provide the answer-grade fact,
+		// window, value, and relation lanes. Replaying an earlier model-authored
+		// investigation narrative beside them creates a second, stale authority
+		// that can reintroduce a broad probe window or raw control vocabulary.
+		// Keep the notes in TurnAArtifacts for audit; the Finalizer receives the
+		// typed ledger/projection and reader-ready decision cards instead.
 		return ""
 	}
 	ta := ctx.Mutable.TurnAArtifacts()

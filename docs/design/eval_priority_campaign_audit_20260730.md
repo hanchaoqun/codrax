@@ -35699,6 +35699,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1084 B1093/B1094：显式窗主证据投影与关系合同单源施工（2026-08-18）
+
+1. 对 r694 的 Finalizer 输入做逐面追踪后确认，B1093 不是单纯“模型忽略边界提示”。越窗
+   `1.010000..1.010020` 事实同时经 Observation Ledger、Tool Handoff 引用和旧 Investigation Narrative
+   三条旁路重新进入主成文上下文；其中 ledger 行还带 `role=principal_answer/policy=hard`。读者边界卡
+   虽正确，却无法抵消同一 prompt 中更像权威的越窗记录，因而模型把窗外 sched-in 写成所选窗内的
+   “立即运行”和次席根因。
+2. 新增 Finalizer-only 的 typed 窗口投影：仅当 Analyzer 已给出结构化
+   `RuntimeArtifactScopeProfile=explicit_time_window`，且 deterministic runtime observation 自带可解析
+   `selected_window` 时，要求该查询窗完全包含在用户窗内。更宽、跨界或位于窗后的查询行只退出
+   Finalizer principal prompt；没有 typed window 的记录 fail-open，非 deterministic/non-runtime 记录
+   不受影响，Explorer 证据池不受影响。
+3. 包含关系没有复用因果投影的 ±1ms “同窗等价”容差。新增测试先复现：若共享该容差，窗后
+   `0.020ms` 仍会被当作窗内。现在使用仅吸收浮点解析误差的 `1e-9s` epsilon，明确分离“两个查询窗
+   是否可视作同窗”和“某条事实是否真的位于用户窗内”两种语义。
+4. Tool Handoff 对已知 observation ref 使用同一投影，越窗引用不再从第二通道回灌；未知引用和 carrier
+   上的 repair、supported JSON、accepted evidence 等职责保持。完整 ToolResult、Observation Ledger、
+   Trace 因果投影输入、报告附录及审计记录均不删除，因此系统自动补齐与后续审计仍可消费其他窗口
+   上下文。
+5. observation-only Trace 已有 deterministic query 时，不再向 Finalizer 重放早期模型探索叙述。原
+   `TurnAArtifacts.InvestigationNotes` 原样留在审计工件；这避免旧粗窗结论和 raw enum 成为第二权威，
+   但没有扫描、删除或改写模型终稿，更没有由系统生成根因。无 deterministic query、代码解释或跨仓
+   调查等车道继续保留原叙述交接。
+6. B1094 根修为合同单源，而非降低关系证据门。共享关系合同现在明确区分两种载体：有 diagram 时，
+   principal list/table 的 `edge_anchors.from_node/to_node` 必须复用 Mermaid 的 exact node id；没有图时
+   才使用读者可见 endpoint label。`from_identity/to_identity` 与模型撰写的 visible label 均保持必需。
+   Submission Checklist 直接发同一常量，schema/skill/validator 不再一面教显示标签、一面硬验 node id；
+   系统仍不补造关系边。
+7. 新增测试覆盖：exact/contained/post/wider/no-window/non-deterministic/non-runtime 七形，非 Finalizer
+   证据池无损，handoff 仅删除已知越窗 ref，旧叙述审计保留，以及 call-chain checklist 与共享合同
+   字节同源。`go test ./internal/types ./internal/skill ./internal/agent -count=1` 与
+   `go test ./internal/tool -count=1` 全绿（tool 177.402s）。
+8. 下一步仍按严格并发恰好两个案例回放 `qf_sequence_analyzer_gate +
+   trace_query_wakeup_causal_runnable`：验证调用关系首稿不再被自相矛盾教学拒绝；验证 Trace 最终正文
+   不再把窗后 0.020ms、`secondary rank=2` 或旧 raw state 作为所选窗事实，同时确保 8.300ms 实测/
+   有效归因、9.000ms 链累计、Trace 因果投影和链上根因均保留。
+
+状态：
+
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=implemented/finalizer-principal-window-projection+handoff-sync/pending-production-r695`；
+`B1091-TRACECONTROLVOCABREADERSURFACE1=partial/stale-runtime-narrative-path-closed/pending-production-r695`；
+`B1094-RELATIONBLOCKANCHORTEACHING1=implemented/shared-contract+checklist-pin/pending-production-r695`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1070 r688：业务身份排序生产正证；自动枚举表与单表合同形成 P0 自冲突（2026-08-18）
 
 1. 在 `main@e4d20e425` 严格并发恰好两个案例：
