@@ -36360,6 +36360,59 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1114-REQUIREDFLOWFRONTIER1=implemented/targeted-pins+full-tool-pass(175.898s)/pending-production-replay`；
 `red-lines=no-prose-hard-gate+no-system-edge-authoring+unproven-fail-closed+trace-path-untouched`。
 
+### §123.1108 r708：写模式回归 oracle 被改写洗绿；流关系前沿生效但 callable 身份断裂（2026-08-18）
+
+1. 严格并发恰好两个：`qf_logic_view_read_pipeline` 与
+   `github_issue_tokenizers_newline_run_multirepo_py`，共同不可变二进制、`PARALLEL=2`；runner 均 PASS，
+   人工均 FAIL。前者 1000s/74 次读取、45 次中段迭代、2 次成文拒绝；后者 647s、三代计划后表面 verify 通过。
+2. 写案例不是单纯模型算错。用户要求连续换行整体折叠为一个 rank，并明确五换行回归输入不可缩减；仓库原断言
+   对五换行为仅 `[300]`。写前分析同时产出“任意长度整体折叠”、回归 baseline `[300]` 与“奇数余一个 10”三组
+   互相冲突的 typed 文字，但更关键的是它已经正确选择 `constraint.kind=preserve_regression_test`，却把 target 写成
+   `tests/test_tokenizer.py 中的 5 个连续换行输入字符串`。现有保护器只接受精确 repo path，因此该约束静默失效。
+3. 第一代计划随后同时改生产实现和测试断言，把 `[300]` 改成 `[10,300]`；后两代只继续调整实现来迎合已经漂移的
+   oracle，最终真实 `make check` 虽绿，却只证明测试与实现一起漂移。这里 runner PASS 不能代表用户合同满足，属于
+   典型 oracle laundering 红线。
+4. 逻辑图证明 B1114 的 parser 前沿身份确实进入生产提示：系统从 caller 导向
+   `internal/context/builder.go:17-41`，并在已读后切换到 extraction step，没有把同一坐标继续当第一次导航。
+   但 coverage 仍未闭合：已证边使用 `o.busCtx -> ctxbuilder.BuildAgentContext`，接收体边使用
+   `BuildAgentContext -> bus.Mutable.Objective`；同一 callable 的 qualified/bare spelling 被当两个图节点，真实两跳组件
+   被拆断。于是系统围绕 Mutable 重复恢复，最终低增量退出，图只剩阶段 precedence 和 helper 调用，未表达
+   TurnAArtifacts/AnswerSymbols 载体流。
+5. 两项均是 typed 结构问题：写侧根修 `preserve_regression_test.target` 的精确路径合同；读侧根修 graph-local
+   qualified/bare callable 的唯一尾身份等价。都不得扫描 raw request、计划/答案 prose，不得由系统改写测试、实现、图边
+   或模型结论。
+
+状态：
+
+`r708 runner=2/2 PASS/human=0/2`；
+`B1114-REQUIREDFLOWFRONTIER1=production-partial/frontier-advanced-but-component-not-closed`；
+`B1115-PROTECTEDREGRESSIONTARGET1=confirmed-P0`；
+`B1116-FLOWCALLABLEIDENTITYJOIN1=confirmed-P1`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
+### §123.1109 B1115：保护回归测试的 typed target 必须是精确文件路径（2026-08-18）
+
+1. 根修放在 `emit_write_analysis` 的结构化铸造边界：只有 schema-selected
+   `constraint.kind=preserve_regression_test` 触发；其 target 必须通过统一 repo-relative canonical path 且必须是 test path。
+   路径后拼方法名、输入说明、自然语言，或把生产源码作为保护测试目标，均 fail-loud，并提示把细节留在 note。
+2. 合法 `./tests/test_tokenizer.py` 归一为 `tests/test_tokenizer.py`。后续既有 controller critic 因而能在 apply 前比较
+   protected file 的前后像：删除、缩减、替换原回归输入/断言会先定向 replan，再进入 source-only repair，持续违反则阻断；
+   只新增独立覆盖且保留原行仍可通过。
+3. 该门不搜索用户原话，不解析 constraint.note、计划 summary/rationale、测试名或语言语义；硬信号仅为 typed kind、
+   typed target 和统一 path/test-role 判定。系统不推导正确期望值，也不替模型改实现或测试，只保证已经声明的保护约束
+   不会因载体格式漂移而静默失权。
+4. 正负 pin 覆盖“路径+中文说明”、仅方法名、生产源码路径拒绝，以及 dot-relative 精确测试路径归一；既有
+   protected-test source-only/retry/block 集成测试继续作为下游接线 pin。
+
+状态：
+
+`B1115-PROTECTEDREGRESSIONTARGET1=implemented/targeted+controller-pins/full-tool-pass(176.715s)`；
+`raw-request/model/final-prose-hard-gate=none`；
+`oracle-rewrite=blocked-before-apply-when-typed-protection-is-declared`；
+`Trace/read-mode=unchanged`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

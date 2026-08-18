@@ -83,6 +83,64 @@ func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEmitWriteAnalysis_PreserveRegressionTestRequiresExactTestPath(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	for _, target := range []string{
+		"tests/test_tokenizer.py 中的 5 个连续换行输入字符串",
+		"TokenizerTest::test_consecutive_newline_run_uses_pair_merge_token",
+		"src/tokenizer.py",
+	} {
+		t.Run(target, func(t *testing.T) {
+			bus := newTestBusForWriteAnalysis()
+			params, err := json.Marshal(map[string]any{
+				"raw_request": "preserve the existing regression input",
+				"task":        map[string]any{"kind": "bugfix", "scope": "micro", "summary": "fix tokenizer fallback"},
+				"risk":        map[string]any{"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+				"constraints": []map[string]any{{
+					"kind":   "preserve_regression_test",
+					"target": target,
+					"note":   "the five-newline input is intentional",
+				}},
+			})
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			res, err := tool.Execute(bus, params)
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if res.Success || !strings.Contains(res.Summary, "one exact repo-relative test file path") {
+				t.Fatalf("target %q should be rejected, success=%v summary=%q", target, res.Success, res.Summary)
+			}
+			if bus.Mutable.WriteAnalysisIR() != nil {
+				t.Fatal("rejected malformed protected-test target must not store an IR")
+			}
+		})
+	}
+}
+
+func TestEmitWriteAnalysis_PreserveRegressionTestCanonicalizesExactTestPath(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "preserve the existing regression input",
+		"task": {"kind": "bugfix", "scope": "micro", "summary": "fix tokenizer fallback"},
+		"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"},
+		"constraints": [{"kind": "preserve_regression_test", "target": "./tests/test_tokenizer.py", "note": "the five-newline input is intentional"}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("exact test path should be accepted: %s", res.Summary)
+	}
+	constraints := bus.Mutable.WriteAnalysisIR().Request.Constraints
+	if len(constraints) != 1 || constraints[0].Target != "tests/test_tokenizer.py" {
+		t.Fatalf("protected-test target was not canonicalized: %+v", constraints)
+	}
+}
+
 func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 	tool := &EmitWriteAnalysis{}
 	bus := newTestBusForWriteAnalysis()

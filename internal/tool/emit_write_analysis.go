@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -194,13 +195,24 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	// LLM occasionally emits placeholder rows when no real constraint
 	// applies; let those go cleanly.
 	constraints := make([]types.WriteConstraint, 0, len(p.Constraints))
-	for _, c := range p.Constraints {
+	for i, c := range p.Constraints {
 		if strings.TrimSpace(c.Kind) == "" {
 			continue
 		}
+		kind := strings.TrimSpace(c.Kind)
+		target := strings.TrimSpace(c.Target)
+		if kind == "preserve_regression_test" {
+			canonical, ok := canonpath.CanonicalRepoRelativeIdentity(target)
+			if !ok || !types.LooksLikeTestFilePath(canonical) {
+				return errResult(t.Name(), fmt.Sprintf(
+					"emit_write_analysis rejected: constraints[%d] kind=preserve_regression_test requires target to be one exact repo-relative test file path (for example tests/test_widget.py), got %q; keep symbol/input details in note instead",
+					i, target)), nil
+			}
+			target = canonical
+		}
 		constraints = append(constraints, types.WriteConstraint{
-			Kind:   strings.TrimSpace(c.Kind),
-			Target: strings.TrimSpace(c.Target),
+			Kind:   kind,
+			Target: target,
 			Note:   strings.TrimSpace(c.Note),
 		})
 	}
@@ -371,7 +383,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					"required": []string{"kind"},
 					"properties": map[string]any{
 						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test/input must be kept. Pick the closest fit; free string is fine."},
-						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global."},
+						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global. For kind=preserve_regression_test this MUST be one exact repo-relative test file path such as tests/test_widget.py; keep the protected method/input details in note and never append prose to target."},
 						"note":   map[string]any{"type": "string", "description": "Short quote of the user's wording, when applicable."},
 					},
 				},
