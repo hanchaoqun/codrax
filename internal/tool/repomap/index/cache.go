@@ -242,8 +242,8 @@ var extractorVersions = map[string]int{
 	types.LangLua:        6,  // parser-owned lexical control branches
 	types.LangProto:      3,  // message fields carry parser-owned declared types
 	types.LangRust:       9,  // parser-owned lexical control branches
-	types.LangC:          7,  // parser-owned lexical control branches
-	types.LangCpp:        8,  // parser-owned lexical control branches
+	types.LangC:          8,  // preprocessor-branch declarations + parser-owned lexical control branches
+	types.LangCpp:        9,  // preprocessor-branch declarations + parser-owned lexical control branches
 }
 
 type cacheFileInfosManifest struct {

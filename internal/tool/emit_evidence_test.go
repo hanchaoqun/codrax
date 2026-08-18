@@ -7289,7 +7289,11 @@ func TestAutoPairSelectedDefinitionBodyCallEvidence_MechanismFunctionDimension(t
 	const source = "src/clock.c"
 	fi := &repomap.FileInfo{
 		RelPath: source, Language: repomap.LangC,
-		Symbols: []repomap.Symbol{{Name: "monotonic_now_ns", Kind: "function", File: source, Line: 11, EndLine: 19}},
+		Symbols: []repomap.Symbol{
+			{Name: "monotonic_now_ns", Kind: "function", File: source, Line: 11, EndLine: 19},
+			{Name: "monotonic_now_ns", Kind: "function", File: source, Line: 25, EndLine: 32},
+			{Name: "monotonic_now_ns", Kind: "function", File: source, Line: 37, EndLine: 41},
+		},
 		Relations: []repomap.Relation{{
 			Kind: "call", File: source, Line: 17,
 			FromEP:     repomap.RelationEndpoint{Name: "monotonic_now_ns"},

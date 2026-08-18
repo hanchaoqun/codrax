@@ -35762,11 +35762,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B1055-MECHANISMSELECTEDBODYOPERATION1=v3-implemented/exact-target+primary-entity-symbol-equality/pending-production-replay`；
+`B1055-MECHANISMSELECTEDBODYOPERATION1=v3-admission-production-positive-r673/preprocessor-owner-gap-remains`；
 `r672-C-platform-mechanism=runner-pass/human-partial/v2-not-fired`；
 `r672-sequence-shared-callee=runner-pass/human-pass/valid-mermaid+typed-directions`；
 `B1056-SEQUENCELOWMINDCHURN1=observed/typed-contract-integration-candidate/no-case-hard-rule`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r672`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1052 r673/B1057：机制补证入口生效但条件编译函数无 owner；Rust 高风险错误计划被安全门挡住（2026-08-18）
+
+1. 在 `main@62f56c3fb` 严格并发恰好两个案例：
+   `sr_c_platform_fork + github_issue_chrono_duration_min_symptom`。Runner `1 PASS / 1 FAIL`；人工为
+   `C partial / Rust fail`。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_mechanism_rustwrite_r673_20260818_manual_audit.md`。
+2. B1055-v3 的 admission 已获生产实证：C 案日志明确自动补发 2 条
+   `repomap_selected_callable_body_call`，但只来自 `cmd_sleep` 的 `strtol/printf`。三个条件编译分支里的
+   `monotonic_now_ns` API calls 仍未补出；最终平台表正确，却继续只引用 11/25/37 三个定义首行。
+3. 深查确认新根因 B1057：C/C++ extractor 只枚举 root 直属 declaration/function，tree-sitter 将
+   `#if/#elif/#else` 分支函数置于 preprocessor container，导致三个同名平台函数 symbol 全部缺失；另一方面
+   `cExtractCalls` 全树递归，API call 关系实际存在。结果是“call 有行、callable owner 无 symbol”，任何严格
+   selected-body producer 都必须 fail closed。这影响所有 C/C++ 条件编译函数，不只是时钟样例。
+4. B1057 改为 declaration-only 递归：进入 `preproc_if/preproc_ifdef/preproc_ifndef/preproc_elif/preproc_else`
+   与 namespace 容器提取声明，每个分支同名函数保留自己的 line/end range；ordinary calls 只在完整 root
+   收集一次，避免递归关系重复。专项真实形覆盖三分支同名函数和 5 条 API call；tool 层 pin 也覆盖同名函数
+   按 selected definition 行范围唯一归属。
+5. C 与 C++ 共享该 extractor，输出语义同步改变，因此 extractor version 分别 `7->8`、`8->9`，确保暖缓存
+   不会继续服务缺 symbol 的旧图。B1057 需下一批生产回放确认三个分支 API call 真正进入 evidence pool；
+   在此之前 B1055 只关闭 admission，不关闭最终平台机制引用。
+6. Rust write 案在 apply 前因公开 API/high risk 进入人工审批，安全门行为正确，不能为 eval 绿灯降级。
+   人工同时判定计划不可批准：余数常量手算错误，`-milliseconds` 对 `i64::MIN` 溢出，floor 商仍与负 remainder
+   混用，且无证据扩改 `checked_sub`。系统没有执行错误 patch，正是风险门的价值。
+7. Rust 暴露两项泛化候选而非当前硬修：边界算术应软引导优先 checked/euclidean 原语并运行可执行 oracle，
+   不允许手算常量成为证明；eval runner 应区分 expected-approval 与产品失败，并提供显式隔离审批车道，不能
+   通过自动批准或修改产品高风险门实现。系统仍不得替模型编写算法或结论。
+8. 本批未触碰 Trace 查询、显式窗、链上-only 根因、因果投影、自动补齐或流式发布；活跃流固定 4ms
+   无完整答案即降级仍禁止，未观察相关回归。
+
+状态：
+
+`B1055-MECHANISMSELECTEDBODYOPERATION1=admission-production-closed/platform-owner-pending-B1057-replay`；
+`B1057-CPPREPROCESSORCALLABLEOWNER1=implemented/C+C++-extractor-version-bumped/pending-production-replay`；
+`B1058-WRITEBOUNDARYARITHMETICPROOF1=observed/model-plan-invalid/safety-gate-protected/soft-guidance+probe-candidate`；
+`B1059-EVALAPPROVALSEMANTICS1=observed/apply-case-cannot-distinguish-expected-approval/pending-design`；
+`r673-C-platform=runner-pass/human-partial/v3-admission-positive`；
+`r673-Rust-write=runner-fail/human-fail/no-apply/high-risk-pause-correct`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r673`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。

@@ -10,6 +10,21 @@ import (
 )
 
 func extractCCpp(root *sitter.Node, src []byte, file, lang string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
+	pkg, syms, imps, rels = extractCCppDeclarations(root, src, file, lang)
+	// Calls are collected once from the full root. Declaration recursion below
+	// enters preprocessor branches and namespaces, so collecting calls in each
+	// recursive frame would duplicate every nested relation.
+	rels = append(rels, cExtractCalls(root, src, file)...)
+	return
+}
+
+// extractCCppDeclarations walks declaration-bearing lexical containers without
+// collecting ordinary calls. Tree-sitter represents #if/#elif/#else bodies as
+// preprocessor nodes rather than root-level declarations; ignoring those nodes
+// drops every platform-conditional function symbol even though cExtractCalls
+// can still see its body calls. Preserve each branch as its own line-bounded
+// symbol so duplicate same-name platform implementations remain distinguishable.
+func extractCCppDeclarations(root *sitter.Node, src []byte, file, lang string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
 	isCpp := lang == types.LangCpp
 	isHeader := strings.HasSuffix(file, ".h") || strings.HasSuffix(file, ".hpp") || strings.HasSuffix(file, ".hh")
 
@@ -66,16 +81,23 @@ func extractCCpp(root *sitter.Node, src []byte, file, lang string) (pkg string, 
 				}
 				// recurse into namespace body
 				if body := ch.ChildByFieldName("body"); body != nil {
-					_, innerSyms, innerImps, innerRels := extractCCpp(body, src, file, lang)
+					_, innerSyms, innerImps, innerRels := extractCCppDeclarations(body, src, file, lang)
 					syms = append(syms, innerSyms...)
 					imps = append(imps, innerImps...)
 					rels = append(rels, innerRels...)
 				}
 			}
+
+		case "preproc_if", "preproc_ifdef", "preproc_ifndef", "preproc_elif", "preproc_else":
+			innerPkg, innerSyms, innerImps, innerRels := extractCCppDeclarations(ch, src, file, lang)
+			if pkg == "" {
+				pkg = innerPkg
+			}
+			syms = append(syms, innerSyms...)
+			imps = append(imps, innerImps...)
+			rels = append(rels, innerRels...)
 		}
 	}
-
-	rels = append(rels, cExtractCalls(root, src, file)...)
 	return
 }
 
