@@ -35758,6 +35758,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1073 r690：surface-term 成文权生产闭环；降级词面与 sibling 图面串线（2026-08-18）
+
+1. 在 `main@5545618a5` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner `2 PASS / 0 FAIL`，
+   人工 `2 fail`；详细审计见
+   `eval/parallel_selected_summary_evalcampaign_surface_authorship_replay_r690_20260818_manual_audit.md`。
+2. B1082 获生产闭环。两份终稿、full emit、三轮 patch 与 mutation 日志均无
+   `principal-support-surface-terms(-N)` 或“系统按已验证证据补充可见标签”；模型自己的正文、四阶段表与
+   diagram 正常落盘，typed surface-term prompt/advisory 未丢。系统不再借精确事实接管源码答案成文。
+3. Combo 人工仍 fail：把 runtime config 路径错写为 `.codrax/codrax.yaml`，优先级把进程内 Mermaid 开关
+   当作 YAML 覆盖层并遗漏 CLI 精确 override，strict decode 语义也有误。六级 lookup 在 r689 曾正确，
+   本轮精确证据已到 Finalizer，先判模型波动；继续异构观察，不以答案关键词门或系统改文拟合。
+4. 新确认 `B1083-DEGRADATIONFOOTERINTERNALLEXICON1`。最后一跳系统 footer 发布
+   “系统降级披露：必答面硬转软 ×1（完整明细见运行日志）”。typed 降级事实应诚实披露，但“必答面硬转软”
+   是内部合同分类，不是客户语言。根修保留 typed lane/count，只把 registry/footer 词面改为证据边界句：
+   哪些原定内容因证据不足只能作为建议、共几项、细节在哪里；健康路径仍零字节，operator ledger 不变。
+5. Pipeline 的四阶段 table 基本正确，Mermaid 却从首稿 7 个业务参与者膨胀为 22 个节点，混入
+   `dispatchExploreWindowsParallelWithHintKind`、`recordFinalizeRepairDraft` 等内部实现细节，并发布四个
+   “未证关系边界”。首稿的 21 条无 anchor 可见边被拒是正确行为；不能靠放松关系权威解决。
+6. 深因记 `B1084-DIAGRAMSIBLINGSURFACEPARTICIPANT1`：Analyzer 教学已经说独立 table 的示例/状态载体
+   不得成为 diagram participant，模型仍把 `AnalysisIR/EvidenceItems/AnswerDocument/BusContext` 发成
+   `incident_required`，现有 schema 只验证 identity/source_quote 而接受。participant gate 随后必须要求
+   unproven boundaries；repair prompt 的完整 typed recipe roster 又被模型当成应全部画出的清单。
+7. B1084 的泛化设计冻结为 presentation-surface-scoped authority：diagram/table/list 分别有 typed surface
+   ID，participant 只能绑定自己的关系 surface；sibling table dimension 不进入 diagram incidence。修补上下文
+   只给满足失败 participant/edge 的最小候选，不把全关系池作为 copy-ready 图。禁止扫描原始 request、
+   thinking、final prose，禁止按本案函数名删边，禁止系统生成或改写图。
+8. 两案均没有固定 4ms 活跃流降级、旧稿恢复、畸形 JSON 降级或空答案。Trace 显式窗、因果投影、自动
+   补采、链上-only 主因、实际占用/业务线索与规则可消除量双轴未改。
+
+状态：
+
+`B1082-SURFACETERMSYSTEMAUTHORSHIP1=production-closed-r690`；
+`B1083-DEGRADATIONFOOTERINTERNALLEXICON1=production-confirmed-r690/fix-next`；
+`B1084-DIAGRAMSIBLINGSURFACEPARTICIPANT1=production-confirmed-r690/design-required`；
+`B1076-MULTITOPICMECHANISMCLOSURE1=core-positive/model-answer-fluctuation-observed-r690`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r690`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
