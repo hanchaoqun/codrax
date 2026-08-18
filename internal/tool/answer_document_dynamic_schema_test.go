@@ -136,6 +136,9 @@ func TestEmitAnswerDocumentSchema_ClaimAndDiagramEnumsMatchTypes(t *testing.T) {
 			t.Fatalf("edge_anchors must expose optional typed endpoint selector %q: %v", identityField, edgeProps)
 		}
 	}
+	if _, ok := edgeProps["visible_label"]; !ok {
+		t.Fatalf("edge_anchors must expose the model-authored standalone visibility field: %v", edgeProps)
+	}
 	required := edgeItem["required"].([]any)
 	for _, want := range []string{"from_node", "to_node", "relation_kind"} {
 		found := false

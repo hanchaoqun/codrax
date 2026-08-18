@@ -1511,7 +1511,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 				EdgeAnchors: []types.DiagramEdgeAnchor{{
 					FromNode: "slowpath", ToNode: "freelist",
 					FromIdentity: "__alloc_pages_slowpath", ToIdentity: "get_page_from_freelist",
-					RelationKind: types.DiagramRelCall,
+					RelationKind: types.DiagramRelCall, VisibleLabel: "慢速路径调用快速分配尝试",
 				}},
 				Items: []types.AnswerBlockItem{
 					{ID: "fast", Label: "get_page_from_freelist (快速路径)", Text: "快速路径核心函数。", CitationRef: 2},
@@ -1533,7 +1533,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 			"surface_role": "principal",
 			"facet_ids": ["current_code_path", "principal_path_edge"],
 			"claim_uses": [{"claim_form": "call_edge", "facet_id": "principal_path_edge"}],
-			"edge_anchors": [{"from_node":"slowpath", "to_node":"freelist", "from_identity":"__alloc_pages_slowpath", "to_identity":"get_page_from_freelist", "relation_kind":"call"}],
+			"edge_anchors": [{"from_node":"slowpath", "to_node":"freelist", "visible_label":"慢速路径调用快速分配尝试", "from_identity":"__alloc_pages_slowpath", "to_identity":"get_page_from_freelist", "relation_kind":"call"}],
 			"items": [
 				{"id":"fast", "label":"get_page_from_freelist (快速路径)", "text":"快速路径核心函数。", "citation_ref":3},
 				{"id":"slow", "label":"__alloc_pages_slowpath (慢速路径)", "text":"慢速路径主入口。", "citation_ref":0},

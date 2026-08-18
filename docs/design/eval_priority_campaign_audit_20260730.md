@@ -36836,6 +36836,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1044 B1049：standalone typed relation 获得模型所有的可见表面（2026-08-18）
+
+1. 根因不是关系证据缺失，而是 carrier/render 合同错误：非图 principal list/table 已能保存 model-authored
+   `edge_anchors + claim_uses`，validator 也把它称为 visible relation surface，但 renderer 完全不消费 anchors。
+   模型因未证边撤掉 optional Mermaid 图后，已验证的 register/call/data-flow 等关系只留在隐藏 JSON，用户看不到。
+2. `DiagramEdgeAnchor` 新增 optional `visible_label`。在无图 principal relation carrier 上，每条保留 anchor 必须由
+   模型填写答案语言的简洁关系词，并把 `from_node/to_node` 作为读者可见端点，把精确技术身份继续放在
+   `from_identity/to_identity`。有 Mermaid body 的 anchor 可省略，因为图中的 arrow/message 已是模型可见表面；
+   sibling diagram 已精确显示同一 pair 时也不重复索取。
+3. renderer 只做固定 Markdown 排版：`model from_node → model to_node — model visible_label`。它不从
+   `relation_kind` 翻译词语、不读取 evidence 生成端点、不补边、不改模型 item/prose/diagram，也不会发射
+   `register/call/...` 内部 enum。关系、方向和可见措辞三者都来自同一个模型结构载体；typed identity/evidence
+   仍只负责验证真值。
+4. pre-emit 只检查结构化字段是否存在：principal block kind、typed claim form、既有 anchor、`visible_label`
+   非空。它不扫描用户输入、item 文案、模型推理或最终输出，也不判断 label 说了什么。缺 label 与缺 anchor/
+   claim owner 可在同一轮一起提示；模型可以补自己的 label，或删除自己不再选择的 anchor/claim，系统不替它裁图。
+5. full emit、patch、camelCase JSON 自愈与字段 quarantine 均接入该字段。回归覆盖无图缺 label、补 label 闭合、
+   production pre-emit 挂点、sibling diagram 免重复、中文可见关系渲染、内部 enum 不泄漏、diagram 不重复渲染，
+   以及旧 patch citation repair 与 optional-diagram subset 兼容。
+6. 本批不改变 typed relation evidence 标准、关系完备性或 Mermaid 语法门；更不把 metadata 自动升格成模型未选
+   的关系。Trace 查询/显式窗/因果投影/自动补齐、链上-only 主因、背景 support-only、双轴根因解释与活跃流
+   终止逻辑均未修改。
+
+状态：
+
+`B1048-REQUESTEDBRANCHREACHABILITY1=implemented/pushed-b89b98479`；
+`B1049-STANDALONERELATIONVISIBILITY1=implemented/model-visible-label+renderer+wire-pins-pass`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

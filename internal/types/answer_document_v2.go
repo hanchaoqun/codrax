@@ -514,6 +514,15 @@ func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[str
 type DiagramEdgeAnchor struct {
 	FromNode string `json:"from_node"`
 	ToNode   string `json:"to_node"`
+	// VisibleLabel is model-authored reader-facing wording for this exact
+	// structured relation when the anchor lives on a non-diagram principal
+	// list/table. The renderer mechanically presents the model's FromNode and
+	// ToNode reader labels with this label; exact FromIdentity/ToIdentity remain
+	// validation-only. It never derives wording from RelationKind or evidence.
+	// Diagram blocks already have a visible
+	// arrow/message in Diagram.Body, so the field remains optional there.
+	// VisibleLabel has no evidence or relation authority.
+	VisibleLabel string `json:"visible_label,omitempty"`
 	// FromIdentity and ToIdentity preserve the exact typed endpoint pair behind
 	// presentation aliases. They are identity selectors only: RelationKind and
 	// the matching citable EvidenceItem still own whether the directed edge is

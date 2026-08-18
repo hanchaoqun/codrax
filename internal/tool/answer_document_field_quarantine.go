@@ -108,6 +108,7 @@ var (
 	answerDocumentEdgeAnchorAllowedFields = stringSet(
 		"from_node",
 		"to_node",
+		"visible_label",
 		"from_identity",
 		"to_identity",
 		"relation_kind",

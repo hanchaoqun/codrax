@@ -4252,8 +4252,11 @@ func preCheckCallChainItemCitationRoleAlignmentWithContext(doc *types.AnswerDocu
 const diagramRelationSurgicalRepairInstruction = " Only edge pairs listed by the relation-gate hints for this draft failed this relation gate; preserve every visible edge and anchor not listed by any of those hints. Correct or remove only the listed edge pairs."
 
 func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
-	if hints := preCheckStandaloneCallChainRelationAnchorPresence(doc, view); len(hints) > 0 {
-		return hints
+	var standaloneHints []emitFixHint
+	standaloneHints = append(standaloneHints, preCheckStandaloneCallChainRelationAnchorPresence(doc, view)...)
+	standaloneHints = append(standaloneHints, preCheckStandaloneTypedRelationVisibility(doc)...)
+	if len(standaloneHints) > 0 {
+		return standaloneHints
 	}
 	if pctx == nil {
 		return nil
@@ -4541,11 +4544,59 @@ func diagramMismatchesWithoutExactSemanticHandoffReceipts(
 }
 
 const (
-	diagramStandalonePrincipalPathMissingOwner = "standalone_principal_path_missing_relation_owner"
-	diagramStandaloneRelationClaimHasNoAnchor  = "standalone_relation_claim_has_no_anchor"
-	diagramStandaloneRelationAnchorHasNoClaim  = "standalone_relation_anchor_has_no_claim"
-	diagramStandaloneSemanticHandoffMissing    = "standalone_semantic_handoff_missing"
+	diagramStandalonePrincipalPathMissingOwner   = "standalone_principal_path_missing_relation_owner"
+	diagramStandaloneRelationClaimHasNoAnchor    = "standalone_relation_claim_has_no_anchor"
+	diagramStandaloneRelationAnchorHasNoClaim    = "standalone_relation_anchor_has_no_claim"
+	diagramStandaloneRelationMissingVisibleLabel = "standalone_relation_missing_visible_label"
+	diagramStandaloneSemanticHandoffMissing      = "standalone_semantic_handoff_missing"
 )
+
+// preCheckStandaloneTypedRelationVisibility keeps a model-authored relation
+// visible when no Mermaid block exists. It checks only structured carrier
+// presence: principal block kind, typed relation claim, existing anchor, and a
+// non-empty model-authored visible_label. It never scans list text, labels,
+// request prose, or rendered output, and it does not derive wording from the
+// relation enum.
+func preCheckStandaloneTypedRelationVisibility(doc *types.AnswerDocumentV2) []emitFixHint {
+	if doc == nil {
+		return nil
+	}
+	var hints []emitFixHint
+	for _, block := range doc.Blocks {
+		if !answerBlockCanCarryStandaloneTypedRelations(block) ||
+			len(answerBlockStandaloneRelationClaimForms(block)) == 0 {
+			continue
+		}
+		var missing []string
+		for i, anchor := range block.EdgeAnchors {
+			if _, _, visibleInDiagram := diagramUniqueVisibleAliasPair(doc, anchor.FromNode, anchor.ToNode); visibleInDiagram {
+				continue
+			}
+			if strings.TrimSpace(anchor.VisibleLabel) != "" {
+				continue
+			}
+			missing = append(missing, fmt.Sprintf(
+				"edge_anchors[%d]=%s -> %s (%s)", i,
+				strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(anchor.ToIdentity), anchor.RelationKind,
+			))
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		hints = append(hints, emitFixHint{
+			Field:               fmt.Sprintf("blocks[id=%q].edge_anchors[].visible_label", block.ID),
+			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
+			ExpectedShape: fmt.Sprintf(
+				"block=%q keeps typed relation anchors without a diagram. For every kept anchor, add visible_label with concise reader-facing wording in the answer language; the renderer will show the model-authored from_node -> to_node plus this label. If an anchor is not part of the intended visible relation graph, remove that anchor and its matching relation claim instead. Missing: %s",
+				block.ID, strings.Join(missing, "; "),
+			),
+			Reason:                       "typed relation metadata is not itself user-visible. This presence check reads only block kind/role, typed claim forms, anchors, and visible_label emptiness; it never inspects or rewrites item prose, chooses an endpoint, translates relation_kind, or authors a relation.",
+			DiagramRelationFailureIssues: []string{diagramStandaloneRelationMissingVisibleLabel},
+		})
+	}
+	return hints
+}
 
 // preCheckStandaloneCallChainRelationAnchorPresence closes the empty-set
 // escape in the shared relation authority. B929 validates every submitted

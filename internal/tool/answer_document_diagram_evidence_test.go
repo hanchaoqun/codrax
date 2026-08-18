@@ -3247,7 +3247,7 @@ func TestPreCheckStandaloneCallChainSemanticHandoffPassesThroughSharedEvidenceGa
 	handoff := types.DiagramEdgeAnchor{
 		FromNode: "native", ToNode: "wrapper",
 		FromIdentity: "_fastlex.tokenize_bytes", ToIdentity: "py::tokenize_bytes",
-		RelationKind: types.DiagramRelRegister,
+		RelationKind: types.DiagramRelRegister, VisibleLabel: "registers the fallback wrapper",
 	}
 	mut.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{handoff})
 	mut.AppendEvidence([]types.EvidenceItem{
@@ -3259,9 +3259,9 @@ func TestPreCheckStandaloneCallChainSemanticHandoffPassesThroughSharedEvidenceGa
 		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
 		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}, {ClaimForm: types.ClaimRegistrationEdge}},
 		EdgeAnchors: []types.DiagramEdgeAnchor{
-			{FromNode: "entry", ToNode: "native", FromIdentity: "FastTokenizer.tokenize", ToIdentity: "_fastlex.tokenize_bytes", RelationKind: types.DiagramRelCall},
+			{FromNode: "entry", ToNode: "native", FromIdentity: "FastTokenizer.tokenize", ToIdentity: "_fastlex.tokenize_bytes", RelationKind: types.DiagramRelCall, VisibleLabel: "calls the native entry"},
 			handoff,
-			{FromNode: "wrapper", ToNode: "core", FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes", RelationKind: types.DiagramRelCall},
+			{FromNode: "wrapper", ToNode: "core", FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes", RelationKind: types.DiagramRelCall, VisibleLabel: "calls the Python core"},
 		},
 	}}}
 
@@ -3640,7 +3640,7 @@ func TestRunPreEmitChecks_OptionalDiagramSubsetDoesNotCreateHardCompletenessGate
 			EdgeAnchors: []types.DiagramEdgeAnchor{{
 				FromNode: "service", ToNode: "repository",
 				FromIdentity: "Service.handle", ToIdentity: "Repository.insert",
-				RelationKind: types.DiagramRelCall,
+				RelationKind: types.DiagramRelCall, VisibleLabel: "calls the repository",
 			}},
 			Items: []types.AnswerBlockItem{{
 				Label: "Service.handle → Repository.insert", CitationRef: 0,

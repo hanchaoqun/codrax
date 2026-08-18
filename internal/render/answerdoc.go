@@ -172,6 +172,47 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 	case types.BlockCaveat:
 		renderV2BlockCaveat(b, blk, lang)
 	}
+	renderV2StandaloneTypedRelations(b, blk)
+}
+
+// renderV2StandaloneTypedRelations makes model-authored relation metadata
+// visible when it intentionally lives on a principal list/table without a
+// Mermaid block. The system contributes only fixed Markdown punctuation. Both
+// endpoints and the reader-facing label are copied from the model carrier;
+// RelationKind is checked for ownership but never translated into prose.
+func renderV2StandaloneTypedRelations(b *strings.Builder, blk types.AnswerBlock) {
+	if b == nil || blk.SurfaceRole != types.SurfacePrincipal || blk.Diagram != nil {
+		return
+	}
+	switch blk.Kind {
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+	default:
+		return
+	}
+	forms := make(map[types.ClaimForm]bool, len(blk.ClaimUses))
+	for _, use := range blk.ClaimUses {
+		if use.ClaimForm != types.ClaimUnknown {
+			forms[use.ClaimForm] = true
+		}
+	}
+	rendered := 0
+	for _, anchor := range blk.EdgeAnchors {
+		form := types.ClaimFormForRelation(anchor.RelationKind)
+		if form == types.ClaimUnknown || !forms[form] {
+			continue
+		}
+		from := renderUserSurfaceText(anchor.FromNode)
+		to := renderUserSurfaceText(anchor.ToNode)
+		label := renderUserSurfaceText(anchor.VisibleLabel)
+		if from == "" || to == "" || label == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- **%s → %s** — %s\n", from, to, label)
+		rendered++
+	}
+	if rendered > 0 {
+		b.WriteString("\n")
+	}
 }
 
 func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {

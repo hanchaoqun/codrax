@@ -31,6 +31,7 @@ var answerEdgeAnchorFieldAliases = []jsonFieldAlias{
 	{Alias: "toNode", Canonical: "to_node"},
 	{Alias: "fromIdentity", Canonical: "from_identity"},
 	{Alias: "toIdentity", Canonical: "to_identity"},
+	{Alias: "visibleLabel", Canonical: "visible_label"},
 	{Alias: "relationKind", Canonical: "relation_kind"},
 	{Alias: "claimForm", Canonical: "claim_form"},
 }
