@@ -36392,6 +36392,43 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1030 B1039：accepted closure 与“全部关系已证”解耦（2026-08-18）
+
+1. 对 r659 的 `result_kind=resolved + flow_participant_coverage caveat` 做全消费者冷读后，修正原方案：
+   `emit_investigation_complete.result_kind` 的闭集只有 `resolved|absence`，其中 `resolved` 是“当前证据足以
+   诚实形成正向/可引用答案并结束调查”，不是“用户要求的每条关系均已证明”。新增 `partial` 会让
+   loopkernel/orchestrator/extractor/finalizer 重复携带一份已经由 `CompletionCaveat` 精确表达的状态，扩大
+   状态机而没有增加事实，因此不采用。
+2. 真 gap 是模型上下文歧义。旧 Finalizer、Extractor、提取阶段报告和工具历史裁剪 checkpoint 都会在
+   实质 completion caveat 旁裸露 `result_kind: resolved`；模型可能把内部闭环状态误读为“全题解决”，
+   从而忽略同一上下文里的 requested-relation boundary。修复保持机器 enum 和耐久状态字节语义不变，
+   但在这些模型可见面统一投影为：证据足以形成有边界的答案，同时一个或多个结构化证据边界仍未证；
+   不得把 closure 理解为所有 relation/participant/source/optional detail 已建立。
+3. 判据只读 `EvidenceClosure.CompletionCaveats()` 的 typed lane。`completion_form` 仅表示落地格式收敛，
+   不改变证据语义，继续显示普通 resolved；其他非空 lane 才启用有边界的自然语言投影。它不扫描
+   completion reason、用户原文、模型推理/草稿/答案，也不由系统选择边、补图、改写正文或结论。
+4. Explorer 的 completion 教学与工具 schema 同步澄清：resolved 表示“可以诚实作答并收尾”，有界未证
+   部分由结构化 completion caveat 继续传递，模型不得为了看起来完整而发明 bridge。glossary 回归同时
+   阻止 `system-owned` 等内部实现词进入工具 schema/教学。
+5. 新 pin 覆盖四个消费面：Finalizer 与 Extractor prompt、Extractor stage report、pruned tool-history
+   checkpoint；另有反例证明仅 `completion_form` 不触发语义降级，无 caveat 的普通正向答案仍保留原
+   `resolved` 机器态。定向 agent/skill/schema hygiene 均通过，完整相关包回归只发现并修正上述
+   glossary 词汇，types/orchestrator/stageauthority 保持全绿；词汇修正后完整
+   `go test ./internal/tool -count=1` 通过（175.793s），`make` 成功。
+6. 该批不修改 Trace 查询、选窗、根因席位、投影编译、系统补齐或最终答案正文。显式窗因果投影、
+   链上-only 主因、邻近/背景 support-only、实际占用/业务线索和规则可消除量双轴全部保持；活跃流
+   仍不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B1039-COMPLETIONLOWDELTAAUTHORITY1=implemented/machine-state-preserved+all-model-context-consumers-naturalized+pinned/pending-r660`；
+`B1038-DIAGRAMREQUESTEDRELATIONCOMPONENTS1=production-positive-r659`；
+`B967-CONTROLMETADATALEAK1=production-closed-r611/no-new-prose-gate`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

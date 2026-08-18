@@ -1674,7 +1674,7 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	if reason != "" || resultKind != "" {
 		b.WriteString("\nAccepted investigation closure:\n")
 		if resultKind != "" {
-			fmt.Fprintf(&b, "- result_kind: `%s`\n", resultKind)
+			renderAcceptedInvestigationDisposition(&b, ctx, resultKind)
 		}
 		if reason != "" {
 			fmt.Fprintf(&b, "- reason: %s\n", logging.Truncate(reason, 700))

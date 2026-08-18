@@ -97,7 +97,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"result_kind": {
 				"type": "string",
 				"enum": ["resolved", "absence"],
-				"description": "Structured terminal disposition for this investigation. Use 'resolved' for ordinary positive/citable answers. Use 'absence' only when the honest terminal answer is zero / no-such-target / nothing found and you are also providing absence_justification."
+				"description": "Structured terminal disposition for this investigation. Use 'resolved' when the collected evidence is sufficient to write an honest positive/citable answer. It means the investigation can close; it does NOT claim that every requested relation, participant, source, or optional detail was proved. Structured completion caveats recorded after bounded convergence carry any still-unproven boundary downstream; do not invent a bridge to make 'resolved' look exhaustive. Use 'absence' only when the honest terminal answer is zero / no-such-target / nothing found and you are also providing absence_justification."
 			},
 			"absence_justification": {
 				"type": "string",

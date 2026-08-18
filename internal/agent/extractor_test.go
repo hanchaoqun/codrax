@@ -1171,6 +1171,49 @@ func TestExtractor_BuildPrompt_RendersAcceptedClosureAsStructuredHandoff(t *test
 	}
 }
 
+func TestExtractor_BuildPrompt_NaturalizesResolvedClosureWithTypedBoundary(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason: "verified the grounded stage edges; the carrier relation remains unproven",
+		AcceptedResultKind:    "resolved",
+	})
+	mu.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneFlowParticipantCoverage,
+		ReasonCode: types.ProgressReasonConverged,
+	})
+	ctx := &types.AgentContext{Objective: "explain the data flow", Mutable: mu}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Accepted exploration closure",
+		"sufficient to write an evidence-bounded answer",
+		"Do not interpret closure as proof that every requested relation",
+	} {
+		if !contains(prompt, want) {
+			t.Fatalf("extractor prompt missing bounded resolved-closure guidance %q:\n%s", want, prompt)
+		}
+	}
+	if contains(prompt, "result_kind: `resolved`") {
+		t.Fatalf("extractor must not expose an ambiguous raw resolved enum beside a typed boundary:\n%s", prompt)
+	}
+}
+
+func TestRenderExtractorStageReportNaturalizesResolvedWithTypedBoundary(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{AcceptedResultKind: "resolved"})
+	mu.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneFlowParticipantCoverage,
+		ReasonCode: types.ProgressReasonConverged,
+	})
+	got := renderExtractorStageReport(&types.AgentContext{Mutable: mu})
+	if !strings.Contains(got, "sufficient to write an evidence-bounded answer") {
+		t.Fatalf("extractor stage report lost bounded closure semantics:\n%s", got)
+	}
+	if strings.Contains(got, "accepted_result_kind: resolved") || strings.Contains(got, "result_kind: `resolved`") {
+		t.Fatalf("extractor stage report exposed ambiguous raw resolved enum beside a typed boundary:\n%s", got)
+	}
+}
+
 func TestExtractor_BuildPrompt_EnumerationBoundaryOverridesDisplayedFloor(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{TerminalEvidenceCount: 15})

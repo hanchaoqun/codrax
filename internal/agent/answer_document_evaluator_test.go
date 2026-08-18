@@ -6341,6 +6341,51 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_NaturalizesResolvedClosureWithTypedBoundary(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetInvestigationComplete("verified stage precedence; the shared-carrier relation remains bounded")
+	mu.SetInvestigationResultKind("resolved")
+	mu.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneFlowParticipantCoverage,
+		ReasonCode: types.ProgressReasonConverged,
+	})
+	ctx := &types.AgentContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{}}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Accepted Closure Status",
+		"sufficient to write an evidence-bounded answer",
+		"Do not interpret closure as proof that every requested relation",
+		"preserve the specific boundary guidance below",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing bounded resolved-closure guidance %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "result_kind: `resolved`") {
+		t.Fatalf("raw internal resolved enum must not teach exhaustive proof when a typed boundary survives:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_CompletionFormCaveatDoesNotDowngradeResolvedSemantics(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetInvestigationComplete("the evidence is complete; only the landing form converged")
+	mu.SetInvestigationResultKind("resolved")
+	mu.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneCompletionForm,
+		ReasonCode: types.ProgressReasonConverged,
+	})
+	ctx := &types.AgentContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{}}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "result_kind: `resolved`") {
+		t.Fatalf("completion-form-only debt must not change the semantic closure projection:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "one or more structured evidence boundaries remain unproven") {
+		t.Fatalf("completion-form-only debt was misclassified as an evidence boundary:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSanitizedInvestigationNarrativeHandoff(t *testing.T) {
 	mu := types.NewMutableState("compare repos")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

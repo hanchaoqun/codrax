@@ -752,7 +752,7 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	var b strings.Builder
 	b.WriteString("### Accepted exploration closure\n\n")
 	if resultKind != "" {
-		fmt.Fprintf(&b, "- result_kind: `%s`\n", resultKind)
+		renderAcceptedInvestigationDisposition(&b, ctx, resultKind)
 	}
 	if reason != "" {
 		if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
@@ -2089,7 +2089,7 @@ func renderExtractorStageReport(ctx *types.AgentContext) string {
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			fmt.Fprintf(&b, "- runtime_observation_only_completion: %v\n", ta.RuntimeObservationOnlyCompletion)
 			if kind := strings.TrimSpace(ta.AcceptedResultKind); kind != "" {
-				fmt.Fprintf(&b, "- accepted_result_kind: %s\n", kind)
+				renderAcceptedInvestigationDisposition(&b, ctx, kind)
 			}
 			if len(ta.AcceptedAggregateFacts) > 0 {
 				fmt.Fprintf(&b, "- accepted_aggregate_facts: %d\n", len(ta.AcceptedAggregateFacts))

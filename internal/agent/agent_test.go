@@ -823,6 +823,25 @@ func TestBuildToolHistoryPruneCheckpointEmptyWithoutAcceptedState(t *testing.T) 
 	}
 }
 
+func TestBuildToolHistoryPruneCheckpointNaturalizesResolvedWithTypedBoundary(t *testing.T) {
+	mut := types.NewMutableState("question")
+	mut.SetInvestigationResultKind("resolved")
+	mut.SetInvestigationComplete("verified stage edges with an explicit unproven carrier boundary")
+	mut.EvidenceClosure().AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       types.DowngradeLaneFlowParticipantCoverage,
+		ReasonCode: types.ProgressReasonConverged,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+
+	got := buildToolHistoryPruneCheckpoint(ctx)
+	if !strings.Contains(got, "sufficient to write an evidence-bounded answer") {
+		t.Fatalf("prune checkpoint lost bounded closure semantics:\n%s", got)
+	}
+	if strings.Contains(got, "result_kind: `resolved`") {
+		t.Fatalf("prune checkpoint exposed ambiguous raw resolved enum beside a typed boundary:\n%s", got)
+	}
+}
+
 func TestBuildToolHistoryPruneCheckpointCarriesDispatchCommandMeasurement(t *testing.T) {
 	mut := types.NewMutableState("count files")
 	mut.AppendDispatchToolResult(types.ToolResult{

@@ -4943,7 +4943,7 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		b.WriteString("- The stable state currently remains an accepted bounded absence / no-hit result for the exact target under the explored scope.\n")
 	}
 	if strings.TrimSpace(plan.StableInvestigationResultKind) != "" {
-		fmt.Fprintf(&b, "- result_kind: `%s`\n", strings.TrimSpace(plan.StableInvestigationResultKind))
+		renderAcceptedInvestigationDisposition(&b, ctx, plan.StableInvestigationResultKind)
 	}
 	if reason := strings.TrimSpace(plan.StableInvestigationReason); reason != "" {
 		if runtimeObservationOnlyForAnswerDoc(ctx) {
@@ -4984,6 +4984,40 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- Rebuild the user-visible prose yourself inside `emit_answer_document`; do not invent facts beyond the closure/evidence boundary.\n\n")
 	return b.String()
+}
+
+// renderAcceptedInvestigationDisposition keeps the internal completion enum
+// from teaching the answer model that an accepted closure proved every
+// requested relation.  The exact machine state remains unchanged; only the
+// prompt projection is clarified when a producer-owned typed caveat says a
+// substantive boundary survived bounded convergence.
+func renderAcceptedInvestigationDisposition(b *strings.Builder, ctx *types.AgentContext, resultKind string) {
+	if b == nil {
+		return
+	}
+	resultKind = strings.TrimSpace(resultKind)
+	if resultKind == "" {
+		return
+	}
+	if strings.EqualFold(resultKind, "resolved") && acceptedClosureHasTypedUnresolvedBoundary(ctx) {
+		b.WriteString("- accepted closure: the collected evidence is sufficient to write an evidence-bounded answer, while one or more structured evidence boundaries remain unproven. Do not interpret closure as proof that every requested relation, participant, source, or optional detail was established; preserve the specific boundary guidance below.\n")
+		return
+	}
+	fmt.Fprintf(b, "- result_kind: `%s`\n", resultKind)
+}
+
+func acceptedClosureHasTypedUnresolvedBoundary(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return false
+	}
+	for _, caveat := range ctx.Mutable.EvidenceClosure().CompletionCaveats() {
+		// completion_form is landing-shape debt, not evidence/coverage debt.
+		// It must not by itself downgrade the semantic closure description.
+		if caveat.Lane != "" && caveat.Lane != types.DowngradeLaneCompletionForm {
+			return true
+		}
+	}
+	return false
 }
 
 // suppressUnstructuredClosureReasonForTypedMechanism keeps stage-local prose
