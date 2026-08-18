@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -8637,6 +8638,19 @@ func TestNormalizeCurrentSourceCitationSupplement_MaterializesDroppedCitationPoo
 	}
 	if got := doc.Blocks[len(doc.Blocks)-1].SystemGeneratedKind; got != types.AnswerSystemGeneratedEvidenceSupplement {
 		t.Fatalf("current-source supplement owner=%q, want evidence_supplement", got)
+	}
+	supplement := doc.Blocks[len(doc.Blocks)-1]
+	if !reflect.DeepEqual(supplement.Columns, []string{"位置", "源码锚点"}) {
+		t.Fatalf("source supplement must use one exact reader-facing two-column schema, got %+v", supplement.Columns)
+	}
+	for _, item := range supplement.Items {
+		if item.Label != "" || item.Text != "" || len(item.Cells) != len(supplement.Columns) {
+			t.Fatalf("source supplement row must have cells-only column parity without duplicate label/text carriers: %+v", item)
+		}
+	}
+	rendered := render.RenderAnswerDocument(doc, "zh")
+	if strings.Contains(rendered, "列 3") || strings.Contains(rendered, "列 4") || strings.Contains(rendered, "列 5") {
+		t.Fatalf("system-generated source supplement leaked synthetic table headers:\n%s", rendered)
 	}
 }
 

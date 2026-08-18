@@ -36429,6 +36429,58 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1031 r660：bounded closure 生产闭环；模型正文仍越过未证关系边界（2026-08-18）
+
+1. 在 `main@a59d817e9` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`；人工为
+   代码关系 fail、Trace pass-with-caveat。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r660_20260818_manual_audit.md`。
+2. B1039 获生产正证。Explorer 的 `flow_participant_coverage` 三次无进展后按原机器态 resolved 有界结束，
+   caveat 保留；Finalizer 不再看到容易误解的裸 `result_kind: resolved`，而是明确收到“证据足以形成有边界
+   的答案，但一个或多个结构化证据边界仍未证”，并同时收到
+   `requested_relation_spine_status=unproven`。因此 completion machine state 与 evidence completeness 已解耦。
+3. 代码终图保持三个已证 stage precedence，BusContext/Mutable 以 no-arrow grouping 和两个可见未证边界
+   存在；一次成文拒绝正确删除了五条无 typed authority 的 stage→carrier 边。模型正文仍宣称
+   BusContext/Mutable 已完整传递各阶段产物，与同页边界冲突。Finalizer 已有精确、靠后的禁越界上下文，
+   故暂归 B999 模型服从观察；不增加 raw prose 关键词门、不强制删除文字、不由系统补画完整 flow。
+4. Trace 181s 一次成文通过：精确窗、目标五态、跨 CPU 唤醒、worker-200 链上 #1=8.300ms、实际占时与
+   规则可消双轴、因果投影、邻近/背景权限均完整。正文仍复制多项 wire/audit token，尽管 reader policy
+   已明确禁止；作为长上下文下的模型展示波动留档，不以 renderer 改写模型段落。
+5. 两案分别 380s/181s，持续活跃且等待完整结果；没有固定 4ms/累计年龄降级、空答案、畸形 JSON 或旧稿恢复。
+
+状态：
+
+`B1039-COMPLETIONLOWDELTAAUTHORITY1=production-closed-r660`；
+`B1038-DIAGRAMREQUESTEDRELATIONCOMPONENTS1=production-positive-r660`；
+`B999-QFPROSETRANSFEROVERCLAIM1=recurrent/context-sufficient/model-adherence-watch`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r660`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
+### §123.1032 B1040：系统源码锚点补充表不再自造“列 N”与空洞说明（2026-08-18）
+
+1. r660 代码答案尾部的系统生成块出现 `项目/位置/锚点/说明/列 5`，并有
+   `Mutable documents Mutable` 等机械说明。亲验根因是 `normalizeCurrentSourceCitationSupplement`
+   同时写 Label、Text 和重复 Cells；后续结构化表路径看到 row 宽度大于 columns，renderer 合成 `列 5`。
+   这是确定性系统输出 gap，不是模型 JSON/成文波动，也是既有 B419 在 system-generated block 的独立形。
+2. 修复把该系统补充块冻结为严格两列：中文 `位置/源码锚点`，英文 `Location/Source anchor`。每行只携
+   等长 Cells 与 CitationRef，不再重复 Label/Text；引用池、源码位置和锚点身份完整保留。去掉的说明是
+   自动拼出的低信息旁白，不是模型正文、证据行或结论。
+3. 新渲染 pin 在真实 supplement normalization 后检查 columns/row parity，并通过
+   `render.RenderAnswerDocument` 证明不会出现 `列 3/4/5`。判据不读用户/模型 prose，不影响普通模型表格
+   或全局 renderer fallback，也不改变 source evidence 选择与引用门。定向 render 测试、完整
+   `go test ./internal/tool -count=1`（184.851s）及 `make` 均通过。
+4. Trace/关系路径不在改动面：显式时间窗、因果投影、自动补齐、链上-only 根因、邻近/背景 support-only、
+   双轴计价和模型答案/图/结论所有权保持。
+
+状态：
+
+`B1040-SYSTEMSOURCESUPPLEMENTTABLE1=implemented/strict-two-column-cells-only+pinned/full-tool-pass`；
+`B419-STRUCTUREDTABLEHEADERLOSS1=system-supplement-form-closed/model-authored-table-contract-unchanged`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

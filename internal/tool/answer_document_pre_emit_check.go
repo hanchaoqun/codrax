@@ -1179,8 +1179,6 @@ func normalizeCurrentSourceCitationSupplement(doc *types.AnswerDocumentV2, ctx *
 		}
 		block.Items = append(block.Items, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("source_anchor_%d", i+1),
-			Label:       currentSourceCitationSupplementLabel(row.ev),
-			Text:        currentSourceCitationSupplementNote(row.ev),
 			Cells:       currentSourceCitationSupplementCells(row.ev, zh),
 			CitationRef: ref,
 		})
@@ -1383,16 +1381,15 @@ func currentSourceCitationSupplementTitle(zh bool, n int) string {
 
 func currentSourceCitationSupplementColumns(zh bool) []string {
 	if zh {
-		return []string{"位置", "锚点", "说明"}
+		return []string{"位置", "源码锚点"}
 	}
-	return []string{"Location", "Anchor", "Note"}
+	return []string{"Location", "Source anchor"}
 }
 
 func currentSourceCitationSupplementCells(ev types.EvidenceItem, zh bool) []string {
 	return []string{
 		currentSourceEvidenceLocation(ev),
 		currentSourceCitationSupplementLabel(ev),
-		currentSourceCitationSupplementNote(ev),
 	}
 }
 
