@@ -35774,6 +35774,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1090 r698：关系修复生产正证；单成员维度被无关列表冒名（2026-08-18）
+
+1. 在 `main@59c42eea3` 重建后严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工为
+   call-chain fail、Trace partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_qualified_trace_replay_r698_20260818_manual_audit.md`。
+   没有运行第三案。
+2. 调用关系结论已正确：`buildAnalysisIR` 与 `gate.Run` 不存在相互到达路径，二者分别调用
+   `gate.RunWith`。Mermaid 方向、两条 endpoint-boundary 边和源码行均正确。B1098 获生产正证：
+   Explorer 从 r697 的 30 轮降到 13 轮，精确 parser-owned selected-callable body 不再被要求手工
+   重抄；B1100 获生产正证：模型列表已有的关系不再由 renderer 从 anchors 重复发射。B1099 本轮
+   未再次覆盖 `risk.Evaluate/hdp.Plan` 限定名，只能保持单测闭环。
+3. Runner 假绿来自新确认 `B1101-REQUESTEDMEMBERSETCARRIERALIAS1/P1-high`。首稿有 11 项
+   “关键中间函数”列表，三轮 patch 后列表消失，只剩两项 `principal_path_edge` 端点边界。旧覆盖
+   收据对单个 `member_set` 维度接受任意非空 list/table，因此端点列表冒充了用户要求的函数 roster，
+   终验没有请求修复。
+4. 根修不扫描请求、模型推理、可见标题或最终答案文字。每个 required member-set 维度现在都必须
+   由模型在真正承载该 roster 的结构块上声明隐藏 `facet_ids:["member_set"]`；一个 endpoint、关系、
+   证据或边界清单没有这个精确 ownership marker 就不能冒名。系统不选择/推断/补写成员，标记不进入
+   可见标题或正文。初始教学和 patch hint 只说明该 schema 元数据，继续要求保留已有模型内容。
+5. 新 pin 同时覆盖：单个 roster 的显式 carrier 正向形；标题即使含“关键中间函数”但只有
+   `principal_path_edge` 的反向形；count+member-set 共存；多 roster 必须有等量显式 carrier；提示中
+   internal token 只能出现在隐藏 JSON 指令而不得被要求写入可见答案。`go test ./internal/agent -count=1`
+   全绿，后续联合包测试见本批提交记录。
+6. Trace 精确面保持：1.000..1.010s、app-100 sleep 10.000ms 症状、链上 worker-200
+   priority-inversion candidate 8.300ms 有效归因/9.000ms 链累计、邻近 0.200ms、背景 3.500ms 与
+   `Trace 因果投影` 均正确。人工 partial 是因为模型正文仍把候选扩写成“持有资源/等待完成/CFS 抢 RT”，
+   与同页 typed holder/waiter 未证边界冲突；系统投影没有替换模型结论。
+7. 上下文审计另确认 `B1102-PRETRIAGECAUSALSHADOW1/P1`：`perf_triage` 在 deterministic
+   `trace_query` 前产生的 model-extracted dependency 候选，在精确查询已覆盖同一窗/主体后仍进入
+   Finalizer observation/support 面。提示虽称 navigation-only，模型仍可把它升级成等待完成机理。
+   最优方向是按 typed producer/subject/window/mechanism-family 建立 authority shadow：确定性查询覆盖
+   时，旧 pre-triage 候选降到定位来源/不进入因果材料；无确定性覆盖时仍保留导航价值。不得扫描最终
+   词句、不得删除模型答案、不得由系统造因果。
+8. 本批不改 Trace 查询/投影/补采或 active-stream。4ms 内没有完整 answer 仍不授权降级；只有 caller
+   cancel/deadline、无首字节、byte-stall、transport/decode failure 可终止或进入披露恢复。
+
+状态：
+
+`B1098-CALLABLEBODYAUTOPAIRCONSUMPTION1=production-positive-r698`；
+`B1099-CALLENDPOINTQUALIFIERLOSS1=unit-closed/production-inconclusive-r698`；
+`B1100-STANDALONERELATIONDUPLICATEVISIBLE1=production-positive-r698`；
+`B1101-REQUESTEDMEMBERSETCARRIERALIAS1=implemented/typed-explicit-carrier+pinned`；
+`B1102-PRETRIAGECAUSALSHADOW1=confirmed/P1/open`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1087 r696：精确窗生产闭环、关系事实复正，patch 完整重校验旁路暴露（2026-08-18）
 
 1. `main@9513b2176` 重建后严格并发恰好两个：

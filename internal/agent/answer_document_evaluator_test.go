@@ -482,6 +482,7 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenMemberSetNamesAreVisibleInSecti
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			ID: "entries", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
 			Items: []types.AnswerBlockItem{
 				{ID: "index", Label: "Index", Text: "页面入口"},
 				{ID: "builder", Label: "defaultHeader", Text: "复用片段"},
@@ -618,9 +619,10 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenTypedCountAndMemberSetShapesPre
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
 			{
-				ID:    "members",
-				Kind:  types.BlockOrderedList,
-				Items: []types.AnswerBlockItem{{ID: "explorer", Label: "explorer"}},
+				ID:       "members",
+				Kind:     types.BlockOrderedList,
+				FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+				Items:    []types.AnswerBlockItem{{ID: "explorer", Label: "explorer"}},
 			},
 			{ID: "count", Kind: types.BlockScalar, Text: "1"},
 		},
@@ -632,7 +634,7 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenTypedCountAndMemberSetShapesPre
 	}
 }
 
-func TestAnswerDocumentEvaluator_ObserveStopsWhenSingleMemberSetDimensionUsesStructuredRelationList(t *testing.T) {
+func TestAnswerDocumentEvaluator_ObserveStopsWhenSingleMemberSetDimensionUsesExplicitStructuredRoster(t *testing.T) {
 	mut := types.NewMutableState("explain the cross-language route")
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
@@ -659,6 +661,7 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenSingleMemberSetDimensionUsesStr
 			ID:          "native-path",
 			Kind:        types.BlockOrderedList,
 			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.RequestedAnswerDimensionMemberSet)},
 			Items: []types.AnswerBlockItem{{
 				ID:    "native-module",
 				Label: "_fastlex.tokenize_bytes",
@@ -669,7 +672,51 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenSingleMemberSetDimensionUsesStr
 
 	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
 	if !sig.StopRequested || sig.HintRequested {
-		t.Fatalf("a single typed member-set dimension should accept one structured relation list without an enumerate intent, got %+v", sig)
+		t.Fatalf("a single typed member-set dimension should accept its explicitly owned structured roster without an enumerate intent, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveDoesNotLetEndpointBoundaryListMasqueradeAsSingleMemberSet(t *testing.T) {
+	mut := types.NewMutableState("show the route and list key intermediate functions")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentTrace,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{{
+						Label:    "关键中间函数",
+						Role:     types.RequestedAnswerDimensionMemberSet,
+						Required: true,
+						Index:    1,
+					}},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "endpoint-boundary",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetPrincipalPathEdge)},
+			Title:       "关键中间函数与有向路径边界",
+			Items: []types.AnswerBlockItem{
+				{ID: "edge-1", Label: "buildAnalysisIR -> gate.RunWith"},
+				{ID: "edge-2", Label: "gate.Run -> gate.RunWith"},
+			},
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.HintRequested || sig.HintKey != "answer_doc.requested_dimensions" {
+		t.Fatalf("an endpoint/path list must not satisfy a separately requested member roster, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, `facet_ids:["member_set"]`) {
+		t.Fatalf("repair hint must name the exact hidden carrier without choosing members:\n%s", sig.Hint)
 	}
 }
 
@@ -7098,6 +7145,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerD
 						{Label: "diff 线索", Role: types.RequestedAnswerDimensionDiffClue, SourceQuote: "diff 线索", Required: true, Index: 1},
 						{Label: "当前关键代码", Role: types.RequestedAnswerDimensionCurrentKeyCode, SourceQuote: "当前关键代码", Required: true, Index: 2},
 						{Label: "作用和影响", Role: types.RequestedAnswerDimensionImpact, SourceQuote: "作用和影响", Required: true, Index: 3},
+						{Label: "关键中间函数", Role: types.RequestedAnswerDimensionMemberSet, SourceQuote: "关键中间函数", Required: true, Index: 4},
 					},
 				},
 			},
@@ -7111,10 +7159,13 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerD
 		"diff 线索",
 		"当前关键代码",
 		"作用和影响",
+		"关键中间函数",
 		"展示契约，不是新的证据来源",
 		"每个主体下面都应尽量显式保留这些维度标签",
 		"不要为了套表格而删除、替换或压扁更丰富的说明",
 		"不要在可见答案中追加系统内部角色或枚举名",
+		`facet_ids:["member_set"]`,
+		"不要把 `member_set` 写进可见标题或正文",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -7144,7 +7195,10 @@ func TestRequestedAnswerDimensionCoverageHint_UsesOnlyUserFacingLabels(t *testin
 				t.Fatalf("lang=%s hint missing user-facing label %q:\n%s", lang, label, hint)
 			}
 		}
-		for _, internal := range []string{"member_set", "source_location", "function_or_purpose"} {
+		if !strings.Contains(hint, `facet_ids:["member_set"]`) {
+			t.Fatalf("lang=%s hint missing exact hidden member-set carrier:\n%s", lang, hint)
+		}
+		for _, internal := range []string{"source_location", "function_or_purpose"} {
 			if strings.Contains(hint, internal) {
 				t.Fatalf("lang=%s hint exposed internal dimension role %q:\n%s", lang, internal, hint)
 			}

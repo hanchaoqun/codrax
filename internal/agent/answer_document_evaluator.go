@@ -7360,6 +7360,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, " — source quote: %q", dim.SourceQuote)
 		}
 		b.WriteString("\n")
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionMemberSet {
+			if lang == "zh" {
+				b.WriteString("  - 在真正承载这组成员的可见列表/表格块上设置隐藏元数据 `facet_ids:[\"member_set\"]`；不要把 `member_set` 写进可见标题或正文，也不要把别的关系/边界清单标成这组成员。\n")
+			} else {
+				b.WriteString("  - On the visible list/table block that actually carries this roster, set hidden metadata `facet_ids:[\"member_set\"]`. Do not print `member_set` in the visible title/body, and do not tag a different relation/boundary list as this roster.\n")
+			}
+		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionSourceLocation {
 			if lang == "zh" {
 				b.WriteString("  - 对逐成员源码答案，把每个成员已验证的源码路径或 file:line 放在该成员自己的可见行/单元格中；引用只负责证明，不能代替用户要求看到的文件位置。\n")
@@ -14605,6 +14612,16 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 		if requestedDimensionCoveredByTypedDocumentShape(ctx, dim, doc) {
 			continue
 		}
+		// A member roster has an exact hidden carrier. Do not let a heading,
+		// endpoint-boundary list, relation list, or another structured payload
+		// satisfy it merely because visible prose happens to resemble the
+		// requested label. The model chooses the owning block by declaring the
+		// typed marker; the system neither reads answer wording nor chooses or
+		// writes members on the model's behalf.
+		if dim.Role == types.RequestedAnswerDimensionMemberSet {
+			missing = append(missing, dim)
+			continue
+		}
 		if requestedDimensionCoveredByVisibleText(dim, visible) {
 			continue
 		}
@@ -14935,23 +14952,18 @@ func answerDocumentHasScalarPayload(doc *types.AnswerDocumentV2) bool {
 	return false
 }
 
-func answerDocumentHasMemberSetPayload(doc *types.AnswerDocumentV2) bool {
-	return answerDocumentMemberSetPayloadBlockCount(doc, false) > 0
-}
-
 // answerDocumentCoversRequestedMemberSetDimensions treats the analyzer's
-// schema-validated member_set role as the presentation authority. A relation,
-// architecture, runtime, or comparison answer can legitimately request one
-// visible member set without also being an IntentEnumerate turn; coupling the
-// shape receipt to that unrelated intent caused an already-present structured
-// list to trigger a redundant patch round.
+// schema-validated member_set role as the presentation authority. Every
+// requested roster needs one structured block explicitly carrying the hidden
+// facet_id=member_set marker. Requiring the marker even for one roster prevents
+// an unrelated endpoint-boundary, relation, or evidence list from silently
+// satisfying the user's requested member set after a patch replaces or drops
+// the real roster block.
 //
-// One requested member-set dimension is unambiguous and may consume one
-// ordinary list/table payload. Multiple member-set dimensions need at least
-// the same number of blocks explicitly carrying facet_id=member_set, so one
-// generic relation list cannot silently satisfy several independent rosters.
-// This is deliberately shape-only: it does not inspect the raw request, block
-// prose, model reasoning, member names, or final rendered text.
+// This is deliberately typed and shape-only: it does not inspect the raw
+// request, block prose, model reasoning, member names, or final rendered text.
+// The marker records the model's ownership decision; it does not authorize the
+// system to infer, select, or write roster members.
 func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
 	if ctx == nil || doc == nil {
 		return false
@@ -14968,9 +14980,6 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 	}
 	if requested == 0 {
 		return false
-	}
-	if requested == 1 {
-		return answerDocumentHasMemberSetPayload(doc)
 	}
 	return answerDocumentMemberSetPayloadBlockCount(doc, true) >= requested
 }
@@ -15287,6 +15296,9 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 			}
 			fmt.Fprintf(&b, "- 第 %d 维：%s", index, strings.TrimSpace(dim.Label))
 			b.WriteByte('\n')
+			if dim.Role == types.RequestedAnswerDimensionMemberSet {
+				b.WriteString("  - 请在真正承载该成员清单的可见列表/表格块上补隐藏元数据 `facet_ids:[\"member_set\"]`；不要把这个内部标记写进可见标题/正文，也不要标到别的关系或边界清单上。\n")
+			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
 		return b.String()
@@ -15303,6 +15315,9 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 		}
 		fmt.Fprintf(&b, "- Dimension %d: %s", index, strings.TrimSpace(dim.Label))
 		b.WriteByte('\n')
+		if dim.Role == types.RequestedAnswerDimensionMemberSet {
+			b.WriteString("  - Add hidden metadata `facet_ids:[\"member_set\"]` to the visible list/table block that actually carries this roster. Do not print the marker in the visible title/body or attach it to another relation/boundary list.\n")
+		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")
 	return b.String()
