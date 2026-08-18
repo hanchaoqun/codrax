@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,68 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	// Recorded answer should land on Mutable.Result.
 	if result := busCtx.Mutable.Result(); !strings.Contains(result, "Foo") {
 		t.Errorf("task result not recorded: %q", result)
+	}
+}
+
+func TestRunTaskGraph_ProbeCompletionCannotEraseRequiredMultiTopicEvidence(t *testing.T) {
+	ir := dagIR(types.AnswerContract{Language: "en"})
+	ir.RequestModel.SubTopics = []types.SubTopic{
+		{Summary: "explain runtime configuration precedence", Entities: []string{"RuntimeSettings"}},
+		{Summary: "explain diagram render fallback", Entities: []string{"RenderMermaidBlocks"}},
+	}
+	ir.TaskGraph.Nodes = []types.TaskNode{
+		{ID: "n0_probe", Type: types.NodeProbe, Objective: "locate entry points"},
+		{ID: "n1_evidence_t0", Type: types.NodeEvidence, Objective: ir.RequestModel.SubTopics[0].Summary},
+		{ID: "n1_evidence_t1", Type: types.NodeEvidence, Objective: ir.RequestModel.SubTopics[1].Summary},
+		{ID: "n2_validate", Type: types.NodeValidate, Objective: "validate both topics"},
+		{ID: "n3_finalize", Type: types.NodeFinalize, Objective: "render answer"},
+	}
+	ir.TaskGraph.Edges = []types.TaskEdge{
+		{From: "n0_probe", To: "n1_evidence_t0", EdgeType: types.EdgeHardDependency},
+		{From: "n0_probe", To: "n1_evidence_t1", EdgeType: types.EdgeHardDependency},
+		{From: "n1_evidence_t0", To: "n2_validate", EdgeType: types.EdgeHardDependency},
+		{From: "n1_evidence_t1", To: "n2_validate", EdgeType: types.EdgeHardDependency},
+		{From: "n2_validate", To: "n3_finalize", EdgeType: types.EdgeHardDependency},
+	}
+	ir.TaskGraph.ExecutionPolicy.MaxParallelism = 1
+	ir.TaskGraph.ExecutionPolicy.CriticalPath = []string{"n0_probe", "n1_evidence_t0", "n2_validate", "n3_finalize"}
+
+	var explorerKeys []string
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerKeys = append(explorerKeys, ctx.ExploreDispatchKey)
+			if ctx.ExploreDispatchKey == "n0_probe" {
+				ctx.Mutable.SetInvestigationComplete("probe located candidate entry points")
+			}
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				EvidenceItems: []types.EvidenceItem{{
+					ID:        "ev-" + ctx.ExploreDispatchKey,
+					Source:    ctx.ExploreDispatchKey + ".go",
+					LineStart: 1,
+				}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "Both requested mechanisms are covered."}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{MaxParallelism: 1}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain two independent mechanisms", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !busCtx.TaskState.IsTerminal {
+		t.Fatal("want terminal")
+	}
+	want := []string{"n0_probe", "n1_evidence_t0", "n1_evidence_t1"}
+	if !reflect.DeepEqual(explorerKeys, want) {
+		t.Fatalf("explorer dispatch keys = %v, want %v; probe completion must remain window-scoped while required topic evidence is pending", explorerKeys, want)
 	}
 }
 

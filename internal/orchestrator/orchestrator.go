@@ -4609,11 +4609,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	var pendingStageRetry string
 	var pendingStageRetryKind types.RetryHintKind
 	var pendingValidationTargets []string
-	// pendingCompletionReset (§29.60): whether the NEXT explore-window
-	// dispatch may clear the model's accepted completion. Set only by the
-	// zero-witness retry, FallbackBackToExplore contract backtracks, and
-	// template-SC requeues (post-completion reachable only under strict
-	// policy); quality-class floor detections disclose and never set it.
+	// pendingCompletionReset (§29.60): Set only by the zero-witness retry, FallbackBackToExplore contract backtracks,
+	// template-SC requeues, or window-scoped completion while multi-topic evidence remains; quality-class floor detections disclose and never set it.
 	pendingCompletionReset := false
 	lowGroundingWarned := false
 
@@ -4870,13 +4867,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.busCtx.TaskState.LastError = cerr.Error()
 			return stepsUsed
 		}
+		if pendingCompletionReset {
+			o.busCtx.Mutable.ResetInvestigationComplete()
+			pendingCompletionReset = false
+		}
 		stopLocal := o.startSchedulerLocalWork(types.StageExplore, "build_env")
 		env := buildEnv("", 0)
 		if o.finishSchedulerLocalWork(stopLocal, "build_env", stepsUsed) {
 			return stepsUsed
 		}
 
-		if !forceFinalizeTriggered {
+		if !forceFinalizeTriggered && !state.hasPendingRequiredMultiTopicEvidence(ir) {
 			// Shape-gate: stopcond.ShouldStop is a pure function over
 			// criterion.Env; identical envShape → identical verdict.
 			// Skip re-evaluation when the Env cursor has not advanced
@@ -4935,7 +4936,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				o.applyWindowHint("", "")
 				continue
 			}
-			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+			multiTopicEvidencePending := state.hasPendingRequiredMultiTopicEvidence(ir)
+			if !multiTopicEvidencePending && o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
 				if len(pendingValidationTargets) > 0 || strings.TrimSpace(pendingViolation) != "" || strings.TrimSpace(pendingStageRetry) != "" {
 					logging.Info("[orchestrator] ignored stale explore retry carry-over because accepted investigation closure leaves only non-blocking debt")
 					pendingValidationTargets = nil
@@ -4945,7 +4947,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					o.emitAcceptedClosureAdvisoryDebtSkippedNotice()
 				}
 			}
-			if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets, pendingViolation, pendingStageRetry) {
+			if !multiTopicEvidencePending && o.shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets, pendingViolation, pendingStageRetry) {
 				if o.busCtx != nil {
 					o.busCtx.Signals.HasEnoughFacts = true
 				}
@@ -5073,13 +5075,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 
 			o.busCtx.PipelineStage = types.StageExplore
 			o.busCtx.TaskState.Stage = types.StageExplore
-			// §29.60: accepted completion is terminal — clear it only when
-			// the requeue lane carries a completion reset (see the
-			// pendingCompletionReset declaration for the lane list).
-			if pendingCompletionReset {
-				o.busCtx.Mutable.ResetInvestigationComplete()
-			}
-			pendingCompletionReset = false
 			o.resetTraceSupplementOnExploreReopen()
 			if eb := o.busCtx.Mutable.ExploreBudget(); eb != nil {
 				o.busCtx.Mutable.SetExploreBudget(&types.ExploreBudget{
@@ -5187,7 +5182,6 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// the opt-in mode for deployments that still want template
 				// SuccessCriteria to reopen exploration after completion.
 				if icComplete && (icPolicy == types.ICPolicySoft || icPolicy == types.ICPolicyOverride) {
-					o.busCtx.Signals.HasEnoughFacts = true
 					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "accepted_closure_validation_boundary")
 					envAfterClosure := buildEnv("", 0)
 					o.recordAcceptedClosureValidationBoundaries(window, envAfterClosure, "post_dispatch_accept")
@@ -5198,7 +5192,13 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 						state.markDone(n.ID)
 						o.emitNodeEnd(n.ID, true, "")
 					}
-					investigationReadyNoticePending = true
+					windowScoped := o.acceptedCompletionMustRemainWindowScoped(state, ir)
+					if windowScoped {
+						// windowScoped: required multi-topic sibling evidence remains.
+						pendingCompletionReset = true
+					}
+					o.busCtx.Signals.HasEnoughFacts = !windowScoped
+					investigationReadyNoticePending = !windowScoped
 					stopLocal = o.startSchedulerLocalWork(types.StageExplore, "auto_verdicts")
 					o.runAutoVerdicts()
 					if o.finishSchedulerLocalWork(stopLocal, "auto_verdicts", stepsUsed) {

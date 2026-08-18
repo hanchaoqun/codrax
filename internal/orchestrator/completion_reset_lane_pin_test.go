@@ -4,7 +4,7 @@ package orchestrator
 // structural enum pin for the §29.60/.1 completion-gate Reset narrowing.
 //
 // The §29.60.2 as-built keeps accepted completion TERMINAL except for exactly
-// THREE typed lanes that may clear it on the next explore-window dispatch
+// FOUR typed lanes that may clear it on the next scheduler iteration
 // (via the pendingCompletionReset latch):
 //
 //	1. template-SC requeues  — post-completion reachable only under strict
@@ -15,6 +15,8 @@ package orchestrator
 //	   regardless of who is right);
 //	3. FallbackBackToExplore contract backtracks (the answer slate was
 //	   cleared; fresh evidence will reshape the closure).
+//	4. a window-scoped completion while required multi-topic evidence nodes
+//	   remain (the current node closed; sibling topic lanes did not).
 //
 // Quality-class floor detections DISCLOSE and never set the latch. Before
 // this pin the closed set lived only in comments + scenario tests: a new
@@ -43,6 +45,7 @@ var completionResetLaneMarkers = []string{
 	"strict policy",      // template-SC requeue lanes (both sites)
 	"zero-witness retry", // fatal-class structurally-empty retry (§29.60)
 	"Contract backtrack", // FallbackBackToExplore
+	"windowScoped",       // required multi-topic sibling evidence remains
 }
 
 func TestCompletionResetSetSitesStayInTypedLanes(t *testing.T) {
@@ -75,12 +78,12 @@ func TestCompletionResetSetSitesStayInTypedLanes(t *testing.T) {
 		}
 	}
 	// Exactly two template-SC sites + one zero-witness site + one contract
-	// backtrack site. A new set site is a NEW completion-reset lane: extend
+	// backtrack site + one multi-topic window-scope site. A new set site is a NEW completion-reset lane: extend
 	// completionResetLaneMarkers, the declaration comment and this count in
 	// the same commit, with a §29.60 lane justification (typed carrier,
 	// fatal-class argument) — never silently.
-	if len(sites) != 4 {
-		t.Fatalf("pendingCompletionReset set-site count drifted: want the 4 adjudicated lane sites, got %d at lines %v",
+	if len(sites) != 5 {
+		t.Fatalf("pendingCompletionReset set-site count drifted: want the 5 adjudicated lane sites, got %d at lines %v",
 			len(sites), sitesToHuman(sites))
 	}
 	seen := map[string]bool{}

@@ -158,3 +158,30 @@ func (s *graphState) nodeStatus(id string) nodeStatus {
 		return nodePending
 	}
 }
+
+// hasPendingRequiredMultiTopicEvidence reports whether the typed DAG still
+// carries a required evidence lane for one of the analyzer-authored
+// sub-topics. An accepted completion emitted while such a lane remains is a
+// completion of the CURRENT explore window, not proof that the sibling topic
+// was investigated.
+//
+// This is deliberately structural: it reads RequestModel.SubTopics,
+// TaskNode.Type/Optional/IsCounterfactual, and the node execution authority.
+// It never infers scope from the user request, model prose, evidence text, or
+// final answer.
+func (s *graphState) hasPendingRequiredMultiTopicEvidence(ir *types.AnalysisIR) bool {
+	if s == nil || ir == nil || len(ir.RequestModel.SubTopics) < 2 {
+		return false
+	}
+	for i := range s.graph.Nodes {
+		n := &s.graph.Nodes[i]
+		if n.Type != types.NodeEvidence || n.Optional || n.IsCounterfactual {
+			continue
+		}
+		switch s.nodeStatus(n.ID) {
+		case nodePending, nodeRunning, nodeRequeued:
+			return true
+		}
+	}
+	return false
+}

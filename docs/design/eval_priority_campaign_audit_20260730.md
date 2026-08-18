@@ -36220,6 +36220,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 
+### §123.1062 r681/B1068：probe 完成错误关闭多主题证据 DAG（2026-08-18）
+
+1. 在 `main@2c0bf0fee` 严格并发恰好两个案例：`sr_c_platform_fork +
+   read_combo_loose_multi_question_units`。Runner `1 PASS / 1 FAIL`，人工 `platform partial / combo fail`；
+   完整记录见
+   `eval/parallel_selected_summary_evalcampaign_member_composite_replay_r681_20260818_manual_audit.md`。
+2. B1067 获生产闭环：组合案从 r680 的 545s、27 Explorer 轮、3 次 prune 降到 193s、7 轮、零 prune；
+   653/678 两个 `init -> IntVar` 调用点不再被搬到同一坐标，也没有“重发→duplicate→仍缺原坐标”循环。
+   Runner FAIL 仍是跨行 regex 假阴性，终稿实际含配置与 Mermaid 两部分。
+3. 平台案的 Windows/Apple/POSIX API 与 `cmd_sleep` 主结论、引用均正确，未再出现同名定义代次串线。
+   但该轮 principal set 改成 5 个 API 文本成员，三个平台定义未直接成为 member rows；只有 `cmd_sleep`
+   得到 `definition@29 + call@32` composite。因此 B1064 获无回归正证，三平台 composite 分支仍由 unit pin
+   保证，不能虚报全部生产触发。表头“列2/列3/列4”和泛化弱证据说明使人工记 partial。
+4. 组合案确认新的 P1 `B1068-MULTITOPICPROBECOMPLETIONSCOPE1`。Analyzer 已发两个 `SubTopics`，编译器
+   已生成 `probe -> evidence_t0/evidence_t1 -> validate -> reconcile`。首个 ready window 只有 probe；
+   Explorer 在该窗读取部分两题证据后调用 completion，默认 soft policy 随即把后续 3 个 explore 节点、
+   validate 与 reconcile 全部 auto-complete。于是配置真实加载/覆盖实现和 Mermaid 降级函数体从未得到主题
+   evidence dispatch，终稿把一行注释误称 `merge` 函数，并诚实但错误地说降级实现未定位。
+5. 根修只读 typed `RequestModel.SubTopics`、`TaskNode.Type/Optional/IsCounterfactual` 与唯一
+   `NodeExecStatus` 权威。只要仍有必需的多主题 evidence 节点处于 pending/running/requeued，当前窗成功
+   completion 只关闭该窗：保留已接纳 evidence/reason，但下一 scheduler iteration 在 build-env 之前经
+   唯一 reset 喉口清除 active terminal flag；全局 stopcond 与 accepted-closure auto-complete 在这些主题
+   证据节点完成前均不得越过 DAG。最后一个主题 evidence 已完成后，既有快速收敛、validate/reconcile
+   自动完成与 stable handoff 恢复，不强制额外空轮。
+6. completion-reset 闭集从三类扩为四类并同步更新结构 pin：strict template-SC、fatal zero-witness、
+   contract backtrack、required multi-topic window scope；生产 `ResetInvestigationComplete` 仍恰好一个调用点。
+   新 e2e fixture 让 probe 先 accepted completion，精确断言实际 dispatch 仍为
+   `probe -> evidence_t0 -> evidence_t1`。单主题 happy path、reset 喉口、hot-file ratchet 与完整
+   `go test ./internal/orchestrator -count=1`（12.224s）通过。
+7. 该方案不扫描用户请求、模型 reasoning/completion reason/final prose，不按配置、Mermaid、标题或 case
+   特判，不生成证据、关系、图或结论。系统仅让已存在的 typed DAG 真正执行；每个主题的事实选择与最终
+   结论继续属于模型。下一步严格并发同两案验证两个 evidence dispatch 与答案完整性。
+8. 本批未改 Trace 查询、投影编译或补采。显式时间窗因果投影与自动补齐保持；主因仍只能来自 typed
+   on-chain 证据，邻近/背景仅作额外排查；优先级反转、调度/算力供给、D/IO、确定性语义工作、业务线索及
+   实际占用/规则可消双轴均未丢失。活跃字节流不得因固定 4ms 或累计年龄降级。
+
+状态：
+
+`B1064=production-no-regression/unit-authority-retained`；
+`B1067=production-closed-r681`；
+`B1068-MULTITOPICPROBECOMPLETIONSCOPE1=implemented/full-orchestrator-pass/replay-next`；
+`combo-multiline-oracle=false-negative/low-priority`；
+`raw-prose-hard-gate=none`；`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r681`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
