@@ -21361,9 +21361,11 @@ func answerDocVerifiedReadModeStagePrecedenceForRequest(ctx *types.AgentContext)
 
 // answerDocVerifiedReadModeStagePrecedenceCoversRequestedScope distinguishes a
 // truthful stage-order subset from a complete answer to the typed requested
-// relation. The provider may legitimately return stage precedence when the
-// request also names carriers or context participants; those extra
-// participants must not disappear merely because all main stages matched.
+// relation. Exact first/last participants cover their provider-selected
+// contiguous span even when canonical intermediate stages were not repeated
+// in the request. The provider may also legitimately return stage precedence
+// when the request names carriers or other participants; those extras must not
+// disappear merely because a stage span was selected.
 func answerDocVerifiedReadModeStagePrecedenceCoversRequestedScope(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil || (ctx.Mode != "" && ctx.Mode != types.ModeRead) {
 		return false

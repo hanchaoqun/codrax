@@ -35896,6 +35896,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 
+### §123.1077 B1085：用 typed endpoint span 收敛 principal 图与修补上下文（2026-08-18）
+
+1. 共享 `stageauthority.CoversAllRequiredIncidentParticipants` 从“selected span 每个 stage 必须逐个出现在
+   participant roster”修正为“所有 incident participant 都唯一映射到 selected stage row，且 selected span
+   的首尾端点均被覆盖”。因此 `Analyzer→Finalizer`、`Explorer→Finalizer` 等端点式请求可把 checkout
+   验证的 contiguous intermediate rows 当作完整路径成员，无需用户机械枚举中间 stage。
+2. fail-closed 边界保持：少于两个端点、重复 participant alias 映射同一 row、首/尾任一缺失、任何额外
+   incident carrier/context/非 stage identity 均不能加冕 complete spine。`context_only` 不改变 directed scope；
+   Trace、非 flow、optional diagram 与缺少 grounded current-pipeline authority 的场景仍完全不进入 provider。
+3. Finalizer 现可把 endpoint-selected precedence rows 标记为唯一 `requested_relation_spine`，抑制竞争的 generic
+   first-pass skeleton；required-diagram repair 只重复三条 principal edge recipe，不再把 disconnected helper call
+   或完整关系池作为 copy-ready 绘图清单。模型仍自行决定可见标签、图和结论，supporting facts 仍可在 prose
+   或独立 visual 中使用。
+4. 新 pin 将原 full-slate 场景收窄为仅 `Analyzer/Finalizer` 两端点，并断言 principal recipe 仍完整包含
+   `Analyzer→explorer→extractor→Finalizer`、supporting call 不进入 principal repair、首轮 generic skeleton
+   为空。共享层另钉 full slate、partial span、extra carrier、duplicate alias、one endpoint 正反矩阵。
+5. 验证：focused stage/agent pin 通过；
+   `go test ./internal/stageauthority ./internal/agent ./internal/tool -count=1` 全绿，其中 tool 182.417s。
+   本批不扫描 request/reasoning/final prose，不按 case/function 名删边，不放松 evidence gate，不系统代画。
+6. B1086 visible enum wording 与 B1087 carrier-flow request-scoped set 仍开放，不能借本批 stage precedence
+   authority掩盖；下一次恰好两案生产回放先验证成文拒绝次数和主图规模是否下降，再决定后续高 ROI 顺序。
+
+状态：
+
+`B1085-STAGEENDPOINTSPANCOMPLETENESS1=implemented/shared-endpoint-span+principal-only-repair-pins`；
+`B1084-DIAGRAMSIBLINGSURFACEPARTICIPANT1=production-positive-first-layer-r691`；
+`B1086-DIAGRAMBUSINESSDISPLAYENFORCEMENT1=open`；
+`B1087-REQUESTSCOPEDCARRIERFLOWSET1=open`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

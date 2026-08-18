@@ -138,10 +138,13 @@ func MatchesRequiredMainStageParticipantSlate(rm types.RequestModel, main []Stag
 // consumer wants to call that subset the complete requested relation spine.
 //
 // Every incident_required participant must resolve to exactly one distinct
-// selected stage row, and every selected row must be represented. A named
-// carrier, context object, or other non-stage participant therefore keeps the
-// verified stage order as supporting evidence instead of being silently
-// treated as covered by it. No request prose or display label is inspected.
+// selected stage row, and the first and last rows of the selected span must be
+// represented. Canonical intermediate rows need not be repeated in the
+// participant slate: a typed endpoint request such as analyze -> finalizer
+// already selects their checkout-verified contiguous path. A named carrier,
+// context object, or other non-stage participant still keeps the verified
+// stage order as supporting evidence instead of being silently covered. No
+// request prose or display label is inspected.
 func CoversAllRequiredIncidentParticipants(rm types.RequestModel, main []StageRow) bool {
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required ||
@@ -154,7 +157,7 @@ func CoversAllRequiredIncidentParticipants(rm types.RequestModel, main []StageRo
 			participants = append(participants, participant)
 		}
 	}
-	if len(participants) != len(main) {
+	if len(participants) < 2 {
 		return false
 	}
 	usedRows := make(map[int]bool, len(main))
@@ -170,7 +173,7 @@ func CoversAllRequiredIncidentParticipants(rm types.RequestModel, main []StageRo
 		}
 		usedRows[matches[0]] = true
 	}
-	return len(usedRows) == len(main)
+	return usedRows[0] && usedRows[len(main)-1]
 }
 
 // RelevantToRequiredReadModeWorkflow is the shared authority-admission rule

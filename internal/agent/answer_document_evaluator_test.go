@@ -10195,13 +10195,11 @@ func TestVerifiedStageAuthorityFeedsRelationCapsuleAndOnlyLeavesRealBoundaries(t
 	}
 }
 
-func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t *testing.T) {
+func TestVerifiedStageEndpointSpanMarksRequestedSpineApartFromDisconnectedSupport(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
 	participants := []types.DiagramParticipantHint{
 		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
-		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
-		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
 		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
 	}
 	ctx := &types.AgentContext{
@@ -10232,8 +10230,8 @@ func TestVerifiedStageAuthorityMarksRequestedSpineApartFromDisconnectedSupport(t
 		"principal_node_alias[n4]=`Finalizer`",
 		"principal_edge_recipe[1]=`n1 -> n2`; relation_kind=`precedence`",
 		"principal_edge_recipe[3]=`n3 -> n4`; relation_kind=`precedence`",
-		"edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"Analyzer\",\"to_identity\":\"Explorer\",\"relation_kind\":\"precedence\"}`",
-		"edge_anchor_json=`{\"from_node\":\"n3\",\"to_node\":\"n4\",\"from_identity\":\"Extractor\",\"to_identity\":\"Finalizer\",\"relation_kind\":\"precedence\"}`",
+		"edge_anchor_json=`{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"Analyzer\",\"to_identity\":\"explorer\",\"relation_kind\":\"precedence\"}`",
+		"edge_anchor_json=`{\"from_node\":\"n3\",\"to_node\":\"n4\",\"from_identity\":\"extractor\",\"to_identity\":\"Finalizer\",\"relation_kind\":\"precedence\"}`",
 		"supporting_recipe_policy=`optional_prose_or_separate_visual`",
 		"make the `requested_relation_spine` component the principal visual",
 		"additional evidence, not a missing hop",

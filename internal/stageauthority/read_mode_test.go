@@ -182,6 +182,26 @@ func TestCoversAllRequiredIncidentParticipantsDistinguishesStageSpineFromSubset(
 		t.Fatal("the exact four-stage incident slate should cover the selected stage spine")
 	}
 
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	if !CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("two exact endpoint participants should cover their checkout-verified contiguous span")
+	}
+
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	if !CoversAllRequiredIncidentParticipants(rm, authority.Main[1:]) {
+		t.Fatal("partial-lane endpoints should cover the selected partial contiguous span")
+	}
+	if CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("participants that do not cover the passed span's first endpoint must stay incomplete")
+	}
+
+	rm.DiagramHint.Participants = append([]types.DiagramParticipantHint(nil), stageParticipants...)
 	rm.DiagramHint.Participants = append(rm.DiagramHint.Participants,
 		types.DiagramParticipantHint{Identity: "BusContext", Role: types.DiagramParticipantContextOnly})
 	if !CoversAllRequiredIncidentParticipants(rm, authority.Main) {
@@ -196,6 +216,22 @@ func TestCoversAllRequiredIncidentParticipantsDistinguishesStageSpineFromSubset(
 		types.DiagramParticipantHint{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired})
 	if CoversAllRequiredIncidentParticipants(rm, authority.Main) {
 		t.Fatal("multiple non-stage carriers must not be silently covered by stage precedence")
+	}
+
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	if CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("two participant rows that alias one endpoint must fail closed")
+	}
+
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	if CoversAllRequiredIncidentParticipants(rm, authority.Main) {
+		t.Fatal("one endpoint cannot make a selected span complete")
 	}
 }
 
