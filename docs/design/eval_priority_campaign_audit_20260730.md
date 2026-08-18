@@ -36498,6 +36498,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-answer/conclusion/diagram/edge=none`。
 
+### §123.1068 r687：return 伪关系生产闭环；多问题机制归属仍会误入 sibling 子系统（2026-08-18）
+
+1. 在 `main@f55ca9df1` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner `1 PASS / 1 FAIL`，
+   人工 `0 PASS / 2 FAIL`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_return_scope_replay_r687_20260818_manual_audit.md`。
+2. `B1078` 获生产闭环。Pipeline 的 typed participant coverage 明确为 `incident=[]`，不再发布
+   `AnalysisIR.MarkHypothesis -> nil` 或任何由共享 return 终值拼出的跨操作候选；最终图也没有 r686 的
+   `AnalysisIR -> BusContext` 伪边。模型只保留 analyze→explore→extract→finalize 三条 stage precedence，
+   并把 `AnalysisIR/AnswerDocument` 作为诚实断开节点。说明 return sink 局部化既阻断伪连接，也没有诱导
+   系统替模型补边。
+3. Pipeline 仍人工 fail：表格漏用户明确列出的 `Mutable`，并把
+   `RenderAnswerDocumentWithLastMileSupplements` 错归为 AgentFinalizer 调用；真实 owner 是 Orchestrator 在
+   Finalizer 结构化文档之后执行的 last-mile 渲染。`B1079` 也仍开放：Analyzer 继续把 sibling table 示例的
+   `AnalysisIR/AnswerDocument` 纳入图 participant roster，系统只能要求可见断开节点，尚无 typed
+   per-presentation-surface provenance 在 roster 铸造前排除它们。
+4. 4 次 Finalizer 拒绝逐项审计为：outer diagram block 漏 `kind`；模型自造/错标 call、assignment、return；
+   edge anchor 与可见边不一致；未证 participant 尚未作为可见断开节点。它们不是同一声明同时“必带/必拒”
+   的互斥合同，关系门均在阻止伪边。r686 的“reasoning 明说删除、patch 仍保留”稳定形本轮未复现，
+   `B1080` 降为继续观察；不得为减重试放松 typed gate。JSON-string tolerance 被触发两次，但当前没有证据
+   证明 schema 自相矛盾，先作为结构化成文教学/心智负担观察。
+5. 组合案确认 `B1076` 的更深层机制：两个 unit 的 evidence ownership 与终稿分栏都正确，Explorer 却把
+   “REPL Mermaid 渲染失败”导向主题相似的 `internal/preview` 浏览器服务，终稿错误声称 HTTP 500 且没有
+   降级，遗漏真实 REPL `renderRichResponse -> RenderMermaidBlocks` 文本/ASCII 路径。配置部分也仍只写
+   项目根 `codrax.yaml`、遗漏六级 first-hit lookup，并把 CLI 覆写泛化为全部 flags。故根因不是证据串题，
+   而是每个 typed investigation unit 缺少 named owner/mechanism closure。
+6. `B1076` 的最优修向冻结为软补采：只消费 Analyzer 已验证的 unit/entity/scope 与 evidence source/operation
+   provenance；当命名 owner 没有 exact definition/producer/consumer mechanism coverage 时，引导 Explorer
+   继续导航该 unit，不能因 sibling subsystem 主题相似就签 complete。该信号只增加探索 checklist/补采，
+   不硬拒答案，不扫描用户原文、模型推理或终稿关键词，不强制具体文件名，也不由系统写结论。
+7. 两案均无空答案、旧稿恢复、stream 误停或固定 4ms 降级。无 Trace 输入；显式时间窗、Trace 因果投影、
+   自动补齐、链上-only 主因、邻近/背景 support-only、实际占用/业务线索与规则可消除双轴均未改，系统不
+   接管模型答案、图、关系或结论。
+
+状态：
+
+`B1076-MULTITOPICMECHANISMCLOSURE1=production-confirmed-r687/next-high-ROI-soft-completion`；
+`B1078-TERMINALRETURNCOMPONENTJOIN1=production-closed-r687`；
+`B1079-DIAGRAMPARTICIPANTSURFACEPROVENANCE1=open/design-required`；
+`B1080-PATCHPAYLOADSTALEEDGECHURN1=not-reproduced-r687/observe`；
+`R687-STRUCTUREDPAYLOADMENTALLOAD=observe/no-contract-conflict-proven`；
+`R684/R685/R686/R687-RUNNER-FINAL-ANSWER-BOUNDARY=false-positive-open`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r687`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
