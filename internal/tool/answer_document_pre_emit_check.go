@@ -4255,14 +4255,11 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	var standaloneHints []emitFixHint
 	standaloneHints = append(standaloneHints, preCheckStandaloneCallChainRelationAnchorPresence(doc, view)...)
 	standaloneHints = append(standaloneHints, preCheckStandaloneTypedRelationVisibility(doc)...)
-	if len(standaloneHints) > 0 {
+	if pctx == nil {
 		return standaloneHints
 	}
-	if pctx == nil {
-		return nil
-	}
 	if hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, view, pctx); len(hints) > 0 {
-		return hints
+		return append(standaloneHints, hints...)
 	}
 	// Runtime temporal frame diagrams and source-code relation diagrams may
 	// coexist in one answer. Route only the blocks whose visible endpoint
@@ -4272,7 +4269,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	// legitimately have Family=generic + AxisFlow without becoming source code.
 	runtimeOwned, runtimeHints := preCheckReportLocalRuntimeTemporalDiagramAuthority(doc, pctx)
 	if len(runtimeHints) > 0 {
-		return runtimeHints
+		return append(standaloneHints, runtimeHints...)
 	}
 	if len(runtimeOwned) > 0 {
 		copyDoc := *doc
@@ -4285,7 +4282,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		doc = &copyDoc
 	}
 	if hints := preCheckRuntimeTraceTemporalDiagramAuthority(doc, view, pctx); len(hints) > 0 {
-		return hints
+		return append(standaloneHints, hints...)
 	}
 	// Exact registered-export handoffs are non-call semantic bindings. When the
 	// model copies one into a standalone principal relation carrier, the typed
@@ -4323,7 +4320,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		mismatches = DiagramRequestedStagePrecedenceSpineMismatches(doc, view, stagePrecedence)
 	}
 	if len(mismatches) == 0 {
-		return nil
+		return standaloneHints
 	}
 	failurePairs := diagramRelationFailurePairFingerprints(mismatches)
 	failureIssues := diagramRelationFailureIssueValues(mismatches)
@@ -4333,7 +4330,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		for _, mismatch := range mismatches {
 			parts = append(parts, fmt.Sprintf("%s -> %s", mismatch.FromSymbol, mismatch.ToSymbol))
 		}
-		return []emitFixHint{{
+		return append(standaloneHints, emitFixHint{
 			Field:               "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[relation_kind=precedence]",
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
@@ -4341,7 +4338,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 				strings.Join(parts, "; "),
 			Reason:                      "checkout-verified requested stage relations are principal answer scope. Supporting call or implementation-detail diagrams may accompany that scope but cannot replace it; this check reads only the model-authored visible relation spine and never inserts or rewrites an edge.",
 			DiagramRelationFailurePairs: failurePairs,
-		}}
+		})
 	}
 	if mismatches[0].Issue == diagramCallEdgeIssueDuplicateParticipant {
 		parts := make([]string, 0, len(mismatches))
@@ -4351,7 +4348,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 				mismatch.BlockID, mismatch.FromSymbol, mismatch.FromNode, mismatch.ToNode,
 			))
 		}
-		return []emitFixHint{{
+		return append(standaloneHints, emitFixHint{
 			Field:               "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[]",
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
@@ -4359,10 +4356,11 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 				strings.Join(parts, "; ") + diagramRelationSurgicalRepairInstruction,
 			Reason:                      "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
 			DiagramRelationFailurePairs: failurePairs,
-		}}
+		})
 	}
 	standaloneMismatches, diagramMismatches := preEmitPartitionStandaloneStructuredRelationMismatches(doc, mismatches)
-	hints := make([]emitFixHint, 0, 6)
+	hints := make([]emitFixHint, 0, len(standaloneHints)+6)
+	hints = append(hints, standaloneHints...)
 	if len(standaloneMismatches) > 0 {
 		parts := make([]string, 0, len(standaloneMismatches))
 		for _, mismatch := range standaloneMismatches {

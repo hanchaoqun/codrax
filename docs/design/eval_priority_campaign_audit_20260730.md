@@ -35976,6 +35976,70 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1057 r678：整块字段未再丢失；关系错误串行反馈与调用链语义下钻失控（2026-08-18）
+
+1. 在 `main@25f366f8f` 严格并发恰好两个案例：
+   `qf_sequence_analyzer_gate + sr_c_platform_fork`。Runner `2/2 PASS`，人工均为 partial；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_patch_composite_replay_r678_20260818_manual_audit.md`。
+2. B1063 的生产行为边界通过：两案的 patch 最终都没有丢失原 `items/claim_uses/facets/text`。QF 第一 patch
+   复制了完整 replacement block，但仍把 `replace_blocks` 包成 JSON string，由既有兼容层恢复；C 第一 patch
+   只提交 `id + edge_anchors`，由既有“typed relation-metadata-only replacement”保留器恢复旧块。因此本轮证明
+   字段安全结果成立，也证明 prompt 教学不是唯一安全 owner；不得删除结构保留器或字符串容错。
+3. C 的最终事实正确、12 条 citation 也全部在池中，但 Windows/macOS/POSIX 三行分别错误引用
+   `handlers.c:30/32/34`；`cmd_sleep` 引用 38 行正确。B1064 稳定复现：有证据池不等于有成员局部多事实权威，
+   仍需 typed member-local composite support set，不能靠 API 名、答案文字或文件名扫描修复。
+4. 新确认 P1 B1065。C 的 standalone anchors 同时缺 `visible_label` 和 `from_identity/to_identity`；当前
+   `preCheckDiagramCallEdgeEvidenceAlignment` 一见 visibility hint 就立即 return，身份错误只能下一轮报告。
+   QF 同样先报 standalone 可见性/owner，后轮才报告未变 diagram body 的缺锚。所有信号均来自同一个
+   schema-valid draft 和 typed relation evidence，可在一轮并置；修复不得放宽证据门或由系统补关系。
+5. 新确认高 ROI P1 B1066。QF 最终答案正确表达 `buildAnalysisIR → RunWith ← gate.Run`，图合法且七个
+   关键内部函数带精确引用；但过程用时 641 秒、45 Explorer 轮、13 次 completion、30 次 read、4 次
+   Finalizer patch。主因是 typed `ReqCallChain + IntentTrace` 被放进机制语义下钻：Explorer executable
+   evidence 触发 `followAllCalls`，每次 completion 最多新排 4 个 helper body，读完后下一次又向下一层展开；
+   Explorer 重派后 pending read 仍在而新 dispatch 的 scanned-set 重新开始，又出现“已读但未扫描”的重复。
+6. 最优分层：call-chain 请求由现有 exact endpoint、typed call edge、selected body-call 与 no-directed-path
+   gates 收口，不再进入面向 mechanism/conditional explanation 的 semantic descent；真正机制解释仍保留
+   深度 2/每轮 4 个的局部实现体下钻。判据只用 schema enum/typed intent，不扫描请求或答案原文。
+7. 两案的 malformed array 都由现有兼容层尽力恢复并明确记录，没有空答案、旧稿降级或系统改写结论。
+   本批不改 Trace 查询/投影/自动补齐；固定 4ms 的活跃流年龄仍不得触发降级。
+
+状态：
+
+`B1063-PATCHREPLACEMENTFIELDRETENTION1=production-no-field-loss-r678/teaching-not-sole-owner`；
+`B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=reproduced-r678/P1-pending-design`；
+`B1065-RELATIONVALIDATIONBATCHFEEDBACK1=implemented/targeted+internal-tool-full-pass/replay-next`；
+`B1066-CALLCHAINMECHANISMDESCENTFRONTIER1=confirmed/P1-next-separate-batch`；
+`r678-QF=runner-pass/human-partial/correct-final+641s-system-churn`；
+`r678-C=runner-pass/human-partial/correct-facts+wrong-row-citations`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r678`；
+
+#### B1065：同一草稿的独立 typed 关系错误一次反馈（2026-08-18）
+
+已完成小批根修。`preCheckDiagramCallEdgeEvidenceAlignment` 不再因为
+standalone 关系载体缺 `visible_label` 就跳过同一草稿后续可确定的关系检查；
+standalone claim/anchor 所有权、可见标签、端点 identity、图 body/anchor
+一致性以及既有源码/运行时权威门仍分别独立判定，只把同轮已经计算出的
+`emitFixHint` 合并返回。特殊的 precedence、duplicate participant、运行时
+temporal 和 semantic handoff 车道保持原判据与修复语义，未放宽证据要求、
+未替模型生成或删除关系。
+
+新增 production-wire pin 用一个草稿同时制造三项独立精确信号：standalone
+关系缺可见标签、缺端点 identity、diagram 缺已证 call anchor；必须一轮同时
+返回三类 issue，禁止再串行消耗三轮。`pctx=nil` 的原 standalone 单门行为仍
+保持。
+
+验证：
+
+- 定向 standalone 聚合 pin：通过；
+- `go test ./internal/tool -count=1`：通过，180.773s；
+- `git diff --check`：通过。
+
+该批只改善失败反馈完整性，不扫描 request/answer prose，不改变 Trace 因果
+投影、自动补齐、Mermaid 自愈、模型结论或答案发布降级策略。
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

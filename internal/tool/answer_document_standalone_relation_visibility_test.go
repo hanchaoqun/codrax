@@ -46,6 +46,51 @@ func TestStandaloneTypedRelationVisibilityPreEmitWirePin(t *testing.T) {
 	}
 }
 
+func TestStandaloneRelationHintsDoNotSerializeIndependentDiagramRepairs(t *testing.T) {
+	doc, view := standaloneRelationVisibilityFixture("")
+	// The standalone carrier independently lacks exact endpoint identities.
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = ""
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "requested-sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n" +
+				"  participant A as Alpha.Run\n" +
+				"  participant B as Beta.Run\n" +
+				"  participant C as Gamma.Run\n" +
+				"  A->>B: first\n" +
+				"  B->>C: second\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+		}},
+	})
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Alpha.Run", "Beta.Run"),
+		diagramEvidenceTestCall("Beta.Run", "Gamma.Run"),
+	}
+	evidence[1].ID = "ev-beta-gamma"
+	evidence[1].LineStart = 11
+	mut := types.NewMutableState("show the selected relations")
+	mut.AppendEvidence(evidence)
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mut, EvidenceItems: evidence})
+
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx)
+	var issues []string
+	for _, hint := range hints {
+		issues = append(issues, hint.DiagramRelationFailureIssues...)
+	}
+	for _, want := range []string{
+		diagramStandaloneRelationMissingVisibleLabel,
+		diagramStandaloneRelationIdentityMissing,
+		types.DiagramRelationFailureMissingGroundedCallAnchor,
+	} {
+		if !containsString(issues, want) {
+			t.Fatalf("one draft must report every independent precise relation repair; missing %q in hints=%+v", want, hints)
+		}
+	}
+}
+
 func TestStandaloneTypedRelationVisibilityDoesNotApplyToDiagram(t *testing.T) {
 	doc, _ := standaloneRelationVisibilityFixture("")
 	doc.Blocks[0].Kind = types.BlockDiagram
