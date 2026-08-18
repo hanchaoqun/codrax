@@ -46,10 +46,10 @@ func TestTraceProjectionNonEmptyBackgroundStillPublishesAuthority(t *testing.T) 
 		t.Fatalf("non-empty projection swallowed authority block: %+v", doc.Blocks)
 	}
 	for _, want := range []string{
-		"frame_causality=unproven",
-		"frame_evidence_status=absent",
-		"enumeration_status=incomplete",
-		"event_search/events:emitted=8,total=unknown",
+		"帧级因果尚未证明",
+		"未找到可绑定到目标的帧或截止期证据",
+		"枚举未完整",
+		"事件检索的事件已展示 8 项，总数未知",
 	} {
 		if !strings.Contains(coverage.Text, want) {
 			t.Fatalf("authority block missing %q:\n%s", want, coverage.Text)
@@ -83,8 +83,8 @@ func TestTraceProjectionReadsAuthorityFromSystemSupplementResults(t *testing.T) 
 	}
 	coverage := projectionClusterBlock(doc.Blocks, runtimeTraceCausalProjectionCoverageBlockID)
 	if coverage == nil ||
-		!strings.Contains(coverage.Text, "frame_causality=unproven") ||
-		!strings.Contains(coverage.Text, "frame_evidence_status=unavailable") ||
+		!strings.Contains(coverage.Text, "Frame-level causality is not yet proven") ||
+		!strings.Contains(coverage.Text, "target-bound frame evidence is unavailable under the current evidence boundary") ||
 		!strings.Contains(coverage.Text, "do not prove a specific frame-drop cause") {
 		t.Fatalf("system-supplement authority did not reach EN production block: %+v", coverage)
 	}

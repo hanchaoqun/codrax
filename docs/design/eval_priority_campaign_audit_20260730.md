@@ -36246,6 +36246,75 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1104 r706：排名/状态口径生产正证；写模式在缺少 Node 时诚实未验证（2026-08-18）
+
+1. 在 `main@4e558d24a` 重建后严格并发恰好两个案例：显式窗
+   `real_trace_h7_self_seat_full_spectrum` 与写模式
+   `github_issue_napi_force_wasi_env_symptom`；共享同一不可变二进制、`PARALLEL=2`。Runner 为
+   `1 PASS / 1 FAIL(unverified)`，人工均为 `pass-with-caveat`；详见
+   `eval/parallel_selected_summary_evalcampaign_trace_reader_tswrite_r706_20260818_manual_audit.md`。
+2. Trace 获 B1110b 生产正证。Finalizer 的排名直接交接使用读者原因标签，模型可见正文没有再复制
+   `d_state_or_io_wait/io_latency/runnable_wait/priority_inversion_candidate` 等 wire cause token；客户此前
+   指出的 `bounded_window_candidate` 仅保留在隐藏 JSON 字段和诊断日志，不进入读者正文。链上/邻近/
+   背景排名域、值和完整性仍由原 typed roster 决定，系统没有重写模型结论。
+3. Trace 同时获得 B1111 生产正证：全窗状态账 sleep=118.586ms，主要占用表的相关 sleep 片段
+   78.630ms；后者明确显示“本表所列相关片段的累计，非该状态全窗合计；全窗值见上方状态分区”。
+   running 74.915ms/折算 65.912ms、D-state 36.757ms、业务 span、链上小额依赖及链外背景仍分账。
+4. 显式窗、`Trace 因果投影`、自动补采、链上-only 主因、主要时间占用/规则可消除量双轴和业务线索均
+   完整；Finalizer 0 reject。225s 活跃流正常完成，没有因 4ms 或固定累计年龄降级。一次 unavailable
+   tool attempt 没有改变 perf_triage+trace_query 权威路径或最终结论。
+5. 写案例只把模板条件从任意非空环境变量触发 WASI 改为仅 `'true'|'error'` 触发，未修改测试期望；
+   `make check` 成功。当前机器没有 Node，JavaScript 行为探针为 `runner_missing`，changed path 只有
+   `source_static` 证明，因此 deterministic 终验诚实给出 `impact_targets_unverified`，客户面写“未完全
+   验证”。这是正确证明边界，不把 Python 静态 oracle 冒充 JavaScript 行为，也不为 runner 变绿降低杆。
+6. Controller 在 finish 决策中仍一度把 report `status=passed` 口头解读为可选 `all_verified`，但已知
+   capability 上下文和后置 typed 终验正确阻止误签。缺少 Node 的相同 fixture 无法靠重复补证产生行为
+   证明，本轮归已知模型服从观察，不新增代码 hard gate。
+
+状态：
+
+`r706 runner=1-pass+1-honest-unverified/human=2-pass-with-caveat`；
+`B1110b-rank-reader-contract-conflict=production-positive-r706`；
+`B1111-trace-state-subset-ruler-qualifier=production-positive-r706`；
+`B967-control-metadata-soft-teaching=production-stable-r706`；
+`write-source-static-boundary=honest-unverified`；
+`Trace explicit-window/query/projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
+### §123.1105 B1113：Trace 覆盖权威四类分支统一退出机器字段（2026-08-18）
+
+1. r706 新确认 `B1113-TRACECOVERAGEAUTHORITYREADER1/P1`：系统自有的「Trace 因果投影覆盖边界」
+   仍直接显示 `enumeration_status=incomplete/compacted_views/boundaries/emitted/total`。同一 renderer 冷读
+   还发现生命周期、目标身份、帧证据三个分支会发射 `suppression_reason/boundary_line/affected_lanes/
+   requested_pid/routing/frame_causality/frame_evidence_status/relation/edges`。这是 B1105 系统展示族尚未
+   覆盖的最后一个集中咽喉，不是模型波动，也不能靠扫描/替换最终答案解决。
+2. 根修只改 `runtimeTraceCoverageAuthorityText` 的读者投影，typed authority、Observation Ledger、
+   JSON causal caliber、因果席位编译和模型正文均不变。生命周期分支现在说明线程号多生命周期边界、
+   trace 行/时间、窗内外关系、受影响/保留的证据通道、目标 selector 与可执行查询；目标身份分支说明
+   请求 PID/名称、实际选择和同名候选；帧分支说明证据 absent/unavailable 或仅时间相邻 flow；枚举分支
+   说明哪个读者视图展示多少项、总数已知/未知及禁止全称/总量/极值结论。
+3. 已知 scope/lane/dimension/status 使用闭集双语显示词；未知 future 值不回退 snake_case，而显示“其他/
+   未确定范围”，完整 raw token 继续保留在诊断工件。`pid=...,line_start/end=...` 等可执行 selector/query
+   是客户操作参数而非内部状态，原样保留；排序名次、总数、窗别、边界计数和因果限制零损。
+4. 同一无因果行降级说明也退出 `trace_query/root_cause/wakeup_chain/semantic/reason_code/repair_code`
+   管线词，改为根因、唤醒链、确定性工作阶段和证据受限原因；未知原因只提示诊断记录，不把 wire code
+   当客户解释。该变更不读取用户请求、模型草稿或最终正文，不增加成文拒绝、删除、翻译或系统代答。
+5. 中英文正向矩阵覆盖：帧流时间邻接、帧证据 absent/unavailable、typed 链保留、枚举总数已知/未知、
+   生命周期去重与窗内/窗外折叠、selector mismatch 及公开分页范围。负 pin 覆盖上述 raw key/value；
+   完整 `go test ./internal/tool -count=1` 通过（173.660s）。
+
+状态：
+
+`B1113-trace-coverage-authority-reader=implemented/zh+en+full-tool-pass/pending-production-replay`；
+`trace-wire-values=diagnostic-preserved/customer-face-localized`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-4ms-degrade=forbidden`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

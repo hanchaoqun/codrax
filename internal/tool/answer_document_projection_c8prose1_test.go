@@ -133,9 +133,9 @@ func TestC8Prose1PartitionCaveatRegime(t *testing.T) {
 // already spoke the full-width ；and is pinned unchanged.
 func TestC8Prose1CoverageTextRegime(t *testing.T) {
 	got := runtimeTraceCausalProjectionCoverageText([]string{"原因A", "原因B"}, true)
-	want := "本报告已获得 trace_query 的结构化执行记录，但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行，因此未生成分层因果表。" +
-		" 结构化原因: 原因A；原因B。" +
-		" 这不是“没有背景影响”的结论；只表示当前证据没有给出可审计的因果/背景统计，可追问一次根因/窗口/交互统计分析(root_cause_rank、window_stats 或 interaction_stats)补齐。"
+	want := "本报告已完成 Trace 查询，但没有获得可支撑根因、唤醒链或确定性工作阶段的观测，因此未生成分层因果表。" +
+		" 证据受限原因：原因A；原因B。" +
+		" 这不是“没有背景影响”的结论；只表示当前证据没有给出可审计的因果或背景统计，可重新执行根因排序、窗口统计或交互统计来补齐。"
 	if got != want {
 		t.Fatalf("faces F/G: coverage prose must speak the C8 regime:\n got %q\nwant %q", got, want)
 	}
@@ -147,7 +147,7 @@ func TestC8Prose1CoverageTextRegime(t *testing.T) {
 			t.Fatalf("faces F/G: legacy mixed-mark bytes %q must be gone", banned)
 		}
 	}
-	if en := runtimeTraceCausalProjectionCoverageText([]string{"r1"}, false); !strings.HasPrefix(en, "This report has structured trace_query execution records, ") {
+	if en := runtimeTraceCausalProjectionCoverageText([]string{"r1"}, false); !strings.HasPrefix(en, "Trace queries completed, ") {
 		t.Fatalf("faces F/G: EN coverage must keep its native form: %q", en)
 	}
 }

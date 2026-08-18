@@ -1002,7 +1002,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionCoverageBoundaryWhenGuarde
 	if coverage == nil || coverage.Kind != types.BlockCaveat {
 		t.Fatalf("guarded trace_query without causal rows should render coverage caveat: %+v", got.Blocks)
 	}
-	for _, want := range []string{"未生成分层因果表", "没有产出有数据支撑的", "重量级视图查询需要限定", "不是“没有背景影响”的结论"} {
+	for _, want := range []string{"未生成分层因果表", "没有获得可支撑根因", "复杂查询需要限定", "不是“没有背景影响”的结论"} {
 		if !strings.Contains(coverage.Text, want) {
 			t.Fatalf("coverage caveat missing %q:\n%s", want, coverage.Text)
 		}

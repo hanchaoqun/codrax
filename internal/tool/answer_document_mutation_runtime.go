@@ -4778,27 +4778,27 @@ func runtimeTraceLifecycleWindowRelationOrder(relation string) int {
 func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBoundary, zh, typedChainRowsPresent bool) string {
 	var parts []string
 	if runtimeTraceCoverageHasLifecycle(authority) {
-		boundaries := runtimeTraceLifecycleBoundariesText(authority)
+		boundaries := runtimeTraceLifecycleBoundariesReaderText(authority, zh)
 		if zh {
-			parts = append(parts, "生命周期抑制: suppression_reason=thread_incarnation_conflict，"+boundaries+"；这些是身份审计边界，不是目标线程销毁、重建或重复 incarnation 的证明；应按给出的 boundary/selector/process-scope 建议恢复证据，不能把同窗重复探索或通用限流当成首要原因")
+			parts = append(parts, "线程身份边界限制了部分分析：同一线程号在 trace 中对应多个生命周期，"+boundaries+"；这些是身份审计边界，不证明目标线程曾被销毁、重建或反复重生；应按给出的边界、目标选择和进程范围建议恢复证据，不能把同窗重复探索或通用限流当成首要原因")
 		} else {
-			parts = append(parts, "Lifecycle suppression: suppression_reason=thread_incarnation_conflict, "+boundaries+"; these are identity-audit boundaries, not proof that the target thread was destroyed, recreated, or repeatedly reincarnated; recover evidence with the published boundary/selector/process-scope remedies rather than treating same-window exploration or generic limits as the primary cause")
+			parts = append(parts, "Thread-identity boundaries limited part of the analysis: one thread ID maps to multiple lifetimes in the trace; "+boundaries+". These are identity-audit boundaries, not proof that the target thread was destroyed, recreated, or repeatedly reincarnated. Recover evidence with the listed boundary, target-selection, and process-scope remedies rather than treating same-window exploration or generic limits as the primary cause")
 		}
 	}
 	for _, identity := range authority.targetIdentities {
 		if zh {
-			parts = append(parts, fmt.Sprintf("目标身份: requested_pid=%s，requested_name=%s，selected_thread=%s，routing=%s，name_candidates=%s；exact PID 路由未改变，名字候选仅用于诊断且不具备角色权限",
+			parts = append(parts, fmt.Sprintf("目标身份：请求的 PID/TID 为 %s，请求的线程名为 %s，实际选中 %s；%s；同名候选为 %s，仅用于提示重新选择目标，不能据此认定线程角色",
 				firstNonEmpty(identity.requestedPID, "unknown"),
 				firstNonEmpty(identity.requestedName, "unknown"),
 				firstNonEmpty(identity.selectedThread, "unknown"),
-				firstNonEmpty(identity.routing, "unknown"),
+				runtimeTraceTargetRoutingReaderLabel(identity.routing, true),
 				firstNonEmpty(identity.nameCandidates, "none")))
 		} else {
-			parts = append(parts, fmt.Sprintf("Target identity: requested_pid=%s, requested_name=%s, selected_thread=%s, routing=%s, name_candidates=%s; exact-PID routing is unchanged, and name candidates are diagnostic only with no role authority",
+			parts = append(parts, fmt.Sprintf("Target identity: requested PID/TID %s, requested thread name %s, selected %s; %s; same-name candidates %s are target-selection hints only and do not establish a thread role",
 				firstNonEmpty(identity.requestedPID, "unknown"),
 				firstNonEmpty(identity.requestedName, "unknown"),
 				firstNonEmpty(identity.selectedThread, "unknown"),
-				firstNonEmpty(identity.routing, "unknown"),
+				runtimeTraceTargetRoutingReaderLabel(identity.routing, false),
 				firstNonEmpty(identity.nameCandidates, "none")))
 		}
 	}
@@ -4823,40 +4823,39 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 	if authority.causalUnproven {
 		if zh {
 			if authority.frameFlowUnproven {
-				parts = append(parts, fmt.Sprintf("帧边权限: frame_flow_causality=unproven，relation=%s，edges=%d；这些边只表示完整 span 按时间排序后的相邻关系，没有 async cookie、调度/IPC 边或官方 flow 标识时，不能升级为已确认的跨线程因果 flow",
-					firstNonEmpty(authority.frameFlowRelation, tracequery.FrameFlowRelationTemporalSequence), authority.frameFlowEdgeCount))
+				parts = append(parts, fmt.Sprintf("帧关系证据尚不足：已找到 %d 条%s；这些边只表示完整 span 按时间排序后的相邻关系，没有异步 cookie、调度/IPC 边或官方 flow 标识时，不能升级为已确认的跨线程因果流",
+					authority.frameFlowEdgeCount, runtimeTraceFrameFlowRelationReaderLabel(authority.frameFlowRelation, true)))
 			} else if authority.frameUnproven {
+				status := runtimeTraceFrameEvidenceReaderLabel(authority.frameEvidenceStatus, true)
 				if typedChainRowsPresent {
-					parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据；已发布的 typed 唤醒/阻塞链只支持所选窗口内的链上候选与可消除量，不证明具体丢帧因果；无链上凭证的调度、IO、频率观察仍只能作为邻近或背景")
+					parts = append(parts, "帧级因果尚未证明："+status+"；已发布的唤醒/阻塞链只支持所选窗口内的链上候选与可消除量，不证明具体丢帧因果；无链上凭证的调度、IO、频率观察仍只能作为邻近或背景")
 				} else {
-					parts = append(parts, "证据权限: frame_causality=unproven，frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"；未获得可绑定到目标的 frame/deadline 证据或 typed causal row，调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
+					parts = append(parts, "帧级因果尚未证明："+status+"，且没有可用的链上因果观测；调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
 				}
 			} else {
-				parts = append(parts, "证据权限: causal_conclusion=unproven；当前没有 typed causal row，背景观察不能升级为确定根因")
+				parts = append(parts, "因果证据尚不足：当前没有可用的链上因果观测，背景观察不能升级为确定根因")
 			}
 		} else if authority.frameFlowUnproven {
-			parts = append(parts, fmt.Sprintf("Frame-edge authority: frame_flow_causality=unproven, relation=%s, edges=%d; these edges only describe adjacency among complete time-sorted spans and cannot be promoted to a proven cross-thread causal flow without an async cookie, scheduler/IPC edge, or official flow identifier",
-				firstNonEmpty(authority.frameFlowRelation, tracequery.FrameFlowRelationTemporalSequence), authority.frameFlowEdgeCount))
+			parts = append(parts, fmt.Sprintf("Frame-flow causality is not yet proven: %d %s were found. They only describe adjacency among complete time-sorted spans and cannot be promoted to a proven cross-thread causal flow without an async cookie, scheduler/IPC edge, or official flow identifier",
+				authority.frameFlowEdgeCount, runtimeTraceFrameFlowRelationReaderLabel(authority.frameFlowRelation, false)))
 		} else if authority.frameUnproven {
+			status := runtimeTraceFrameEvidenceReaderLabel(authority.frameEvidenceStatus, false)
 			if typedChainRowsPresent {
-				parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence was produced; published typed wakeup/blocking chains support only selected-window on-chain candidates and eliminable amounts, not a specific frame-drop cause; scheduler, IO, and frequency observations without an on-chain credential remain adjacent or background context")
+				parts = append(parts, "Frame-level causality is not yet proven: "+status+". Published wakeup/blocking chains support only selected-window on-chain candidates and eliminable amounts, not a specific frame-drop cause; scheduler, IO, and frequency observations without an on-chain credential remain adjacent or background context")
 			} else {
-				parts = append(parts, "Evidence authority: frame_causality=unproven, frame_evidence_status="+firstNonEmpty(authority.frameEvidenceStatus, "absent")+"; no target-bound frame/deadline evidence or typed causal row was produced, so scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
+				parts = append(parts, "Frame-level causality is not yet proven: "+status+", and no usable on-chain causal observation was produced. Scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
 			}
 		} else {
-			parts = append(parts, "Evidence authority: causal_conclusion=unproven; without a typed causal row, background observations cannot be promoted to a definite root cause")
+			parts = append(parts, "Causal evidence is insufficient: without a usable on-chain causal observation, background observations cannot be promoted to a definite root cause")
 		}
 	}
 	if authority.enumerationIncomplete {
-		views := strings.Join(authority.compactedViews, ",")
-		if views == "" {
-			views = "unknown"
-		}
-		boundaries := runtimeTraceEnumerationBoundariesText(authority.enumerationBoundaries)
+		views := runtimeTraceEnumerationScopeListReaderText(authority.compactedViews, zh)
+		boundaries := runtimeTraceEnumerationBoundariesReaderText(authority.enumerationBoundaries, zh)
 		if zh {
-			parts = append(parts, "枚举权限: enumeration_status=incomplete，compacted_views="+views+"，boundaries="+boundaries+"；达到上限或分页只返回的行只能作为样本或下界，不能支撑“全部/仅有/总计/共N/最大/最小”结论")
+			parts = append(parts, "枚举未完整：受展示上限或分页影响的范围为"+views+"；"+boundaries+"；当前返回项只能作为样本或下界，不能支撑“全部/仅有/总计/共N/最大/最小”结论")
 		} else {
-			parts = append(parts, "Enumeration authority: enumeration_status=incomplete, compacted_views="+views+", boundaries="+boundaries+"; capped or paged rows are examples or lower bounds and cannot support all/only/total/exact-count/max/min claims")
+			parts = append(parts, "Enumeration is incomplete: the capped or paged scopes are "+views+"; "+boundaries+". Returned rows are examples or lower bounds and cannot support all/only/total/exact-count/max/min claims")
 		}
 	}
 	if len(parts) == 0 {
@@ -4865,49 +4864,312 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 	return " " + strings.Join(parts, "。") + "。"
 }
 
-func runtimeTraceLifecycleBoundariesText(authority runtimeTraceCoverageAuthorityBoundary) string {
-	parts := make([]string, 0, len(authority.lifecycleBoundaries)+2)
-	for _, boundary := range authority.lifecycleBoundaries {
-		parts = append(parts, fmt.Sprintf("tid=%d boundary_line=%d boundary_ts=%.6f window_relation=%s scope=%s affects_target=%t affected_lanes=%s preserved_lanes=%s frame_ownership_status=%s candidate_selectors=%s suggested_queries=%s",
-			boundary.ConflictTID, boundary.BoundaryLine, boundary.BoundaryTs,
-			runtimeTraceLifecycleWindowRelation(boundary, authority),
-			firstNonEmpty(strings.TrimSpace(boundary.Scope), "unknown"),
-			boundary.AffectsTarget, strings.Join(boundary.AffectedLanes, ","),
-			strings.Join(boundary.PreservedLanes, ","),
-			firstNonEmpty(strings.TrimSpace(boundary.FrameOwnershipStatus), "not_applicable"),
-			strings.Join(boundary.CandidateSelectors, ","),
-			strings.Join(boundary.SuggestedQueries, "|")))
+func runtimeTraceTargetRoutingReaderLabel(raw string, zh bool) string {
+	switch strings.TrimSpace(raw) {
+	case "exact_tid_preserved", "exact_pid_preserved":
+		if zh {
+			return "仍按精确 PID/TID 选择目标"
+		}
+		return "the exact PID/TID remains the selected target"
+	default:
+		if zh {
+			return "目标选择方式未明确"
+		}
+		return "the target-selection method is unspecified"
 	}
-	if authority.lifecycleOmitted > 0 {
-		parts = append(parts, fmt.Sprintf("omitted_unique_boundaries=%d", authority.lifecycleOmitted))
-	}
-	if authority.lifecycleOutside > 0 {
-		parts = append(parts, fmt.Sprintf("outside_window_boundaries=%d", authority.lifecycleOutside))
-	}
-	if len(parts) == 0 {
-		return "none"
-	}
-	return strings.Join(parts, ";")
 }
 
-func runtimeTraceEnumerationBoundariesText(boundaries []types.ToolEnumerationBoundary) string {
+func runtimeTraceFrameEvidenceReaderLabel(raw string, zh bool) string {
+	switch strings.TrimSpace(raw) {
+	case "unavailable":
+		if zh {
+			return "目标帧证据受当前证据边界影响而不可用"
+		}
+		return "target-bound frame evidence is unavailable under the current evidence boundary"
+	case "absent", "":
+		if zh {
+			return "未找到可绑定到目标的帧或截止期证据"
+		}
+		return "no target-bound frame or deadline evidence was found"
+	default:
+		if zh {
+			return "目标帧证据状态未能确定"
+		}
+		return "the target-bound frame evidence status is undetermined"
+	}
+}
+
+func runtimeTraceFrameFlowRelationReaderLabel(raw string, zh bool) string {
+	switch strings.TrimSpace(raw) {
+	case tracequery.FrameFlowRelationTemporalSequence, "":
+		if zh {
+			return "按时间先后相邻的 span 边"
+		}
+		return "time-adjacent span edge(s)"
+	default:
+		if zh {
+			return "尚未分类的 span 关系边"
+		}
+		return "unclassified span relation edge(s)"
+	}
+}
+
+func runtimeTraceLifecycleBoundariesReaderText(authority runtimeTraceCoverageAuthorityBoundary, zh bool) string {
+	parts := make([]string, 0, len(authority.lifecycleBoundaries)+2)
+	for _, boundary := range authority.lifecycleBoundaries {
+		windowRelation := runtimeTraceLifecycleWindowRelationReaderLabel(
+			runtimeTraceLifecycleWindowRelation(boundary, authority), zh,
+		)
+		affected := runtimeTraceLifecycleLaneListReaderText(boundary.AffectedLanes, zh)
+		preserved := runtimeTraceLifecycleLaneListReaderText(boundary.PreservedLanes, zh)
+		selectors := runtimeTraceReaderList(boundary.CandidateSelectors, zh)
+		queries := runtimeTraceReaderList(boundary.SuggestedQueries, zh)
+		if zh {
+			line := fmt.Sprintf("线程 %d 在 trace 第 %d 行（%.6f 秒，%s）出现身份边界；影响 %s；不影响 %s",
+				boundary.ConflictTID, boundary.BoundaryLine, boundary.BoundaryTs, windowRelation, affected, preserved)
+			if boundary.AffectsTarget {
+				line += "；该边界影响本次分析目标"
+			}
+			if strings.TrimSpace(boundary.FrameOwnershipStatus) == "unavailable" {
+				line += "；帧归属证据不可用"
+			}
+			if selectors != "" {
+				line += "；可尝试的目标选择为 " + selectors
+			}
+			if queries != "" {
+				line += "；建议查询为 " + queries
+			}
+			parts = append(parts, line)
+		} else {
+			line := fmt.Sprintf("thread %d has an identity boundary at trace line %d (%.6f seconds, %s); affected evidence lanes: %s; preserved lanes: %s",
+				boundary.ConflictTID, boundary.BoundaryLine, boundary.BoundaryTs, windowRelation, affected, preserved)
+			if boundary.AffectsTarget {
+				line += "; this boundary affects the selected analysis target"
+			}
+			if strings.TrimSpace(boundary.FrameOwnershipStatus) == "unavailable" {
+				line += "; frame-ownership evidence is unavailable"
+			}
+			if selectors != "" {
+				line += "; candidate target selectors: " + selectors
+			}
+			if queries != "" {
+				line += "; suggested queries: " + queries
+			}
+			parts = append(parts, line)
+		}
+	}
+	if authority.lifecycleOmitted > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("另有 %d 个不同身份边界未逐条展示", authority.lifecycleOmitted))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d additional distinct identity boundary/boundaries are not listed individually", authority.lifecycleOmitted))
+		}
+	}
+	if authority.lifecycleOutside > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("另有 %d 个身份边界确定在分析窗外，仅计数、不混入窗内明细", authority.lifecycleOutside))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d additional identity boundary/boundaries are proven outside the analysis window and are counted without being mixed into in-window details", authority.lifecycleOutside))
+		}
+	}
+	if len(parts) == 0 {
+		if zh {
+			return "没有可展示的边界明细"
+		}
+		return "no boundary details are available"
+	}
+	if zh {
+		return strings.Join(parts, "；")
+	}
+	return strings.Join(parts, "; ")
+}
+
+func runtimeTraceLifecycleWindowRelationReaderLabel(raw string, zh bool) string {
+	switch strings.TrimSpace(raw) {
+	case "in_window":
+		if zh {
+			return "位于分析窗内"
+		}
+		return "inside the analysis window"
+	case "window_before":
+		if zh {
+			return "位于分析窗前"
+		}
+		return "before the analysis window"
+	case "window_after":
+		if zh {
+			return "位于分析窗后"
+		}
+		return "after the analysis window"
+	default:
+		if zh {
+			return "与分析窗的关系未知"
+		}
+		return "window relation unknown"
+	}
+}
+
+func runtimeTraceLifecycleLaneListReaderText(lanes []string, zh bool) string {
+	if len(lanes) == 0 {
+		if zh {
+			return "未指明的证据通道"
+		}
+		return "unspecified evidence lanes"
+	}
+	labels := make([]string, 0, len(lanes))
+	seen := make(map[string]bool)
+	for _, lane := range lanes {
+		var label string
+		switch strings.TrimSpace(lane) {
+		case "thread_timeline":
+			label = map[bool]string{true: "线程时间线", false: "thread timeline"}[zh]
+		case "wakeup_chain":
+			label = map[bool]string{true: "唤醒链", false: "wakeup chain"}[zh]
+		case "frame_ownership":
+			label = map[bool]string{true: "帧归属", false: "frame ownership"}[zh]
+		case "cpu_busy_idle":
+			label = map[bool]string{true: "CPU 忙闲统计", false: "CPU busy/idle accounting"}[zh]
+		default:
+			label = map[bool]string{true: "其他证据通道", false: "another evidence lane"}[zh]
+		}
+		if !seen[label] {
+			seen[label] = true
+			labels = append(labels, label)
+		}
+	}
+	if zh {
+		return strings.Join(labels, "、")
+	}
+	return strings.Join(labels, ", ")
+}
+
+func runtimeTraceReaderList(items []string, zh bool) string {
+	clean := make([]string, 0, len(items))
+	for _, item := range items {
+		if item = strings.TrimSpace(item); item != "" {
+			clean = append(clean, item)
+		}
+	}
+	if zh {
+		return strings.Join(clean, "、")
+	}
+	return strings.Join(clean, ", ")
+}
+
+func runtimeTraceEnumerationScopeReaderLabel(raw string, zh bool) string {
+	switch strings.TrimSpace(raw) {
+	case "root_cause_rank":
+		if zh {
+			return tracefence.SeatChannelChainZH
+		}
+		return "root-cause ranking"
+	case "critical_blocking_calls":
+		if zh {
+			return "关键阻塞调用"
+		}
+		return "critical blocking calls"
+	case "event_search":
+		if zh {
+			return "事件检索"
+		}
+		return "event search"
+	case "trace_query_result_page":
+		if zh {
+			return "Trace 查询结果页"
+		}
+		return "Trace query result page"
+	case "window_stats":
+		if zh {
+			return "窗口统计"
+		}
+		return "window statistics"
+	case "wakeup_chain":
+		if zh {
+			return "唤醒链"
+		}
+		return "wakeup chain"
+	default:
+		if zh {
+			return "其他结果范围"
+		}
+		return "another result scope"
+	}
+}
+
+func runtimeTraceEnumerationDimensionReaderLabel(raw string, zh bool) string {
+	switch strings.TrimSpace(raw) {
+	case "candidates":
+		if zh {
+			return "候选项"
+		}
+		return "candidate rows"
+	case "events":
+		if zh {
+			return "事件"
+		}
+		return "events"
+	case "lines":
+		if zh {
+			return "行"
+		}
+		return "lines"
+	default:
+		if zh {
+			return "条目"
+		}
+		return "rows"
+	}
+}
+
+func runtimeTraceEnumerationScopeListReaderText(scopes []string, zh bool) string {
+	labels := make([]string, 0, len(scopes))
+	seen := make(map[string]bool)
+	for _, scope := range scopes {
+		label := runtimeTraceEnumerationScopeReaderLabel(scope, zh)
+		if !seen[label] {
+			seen[label] = true
+			labels = append(labels, label)
+		}
+	}
+	if len(labels) == 0 {
+		if zh {
+			return "未能确定的结果范围"
+		}
+		return "an undetermined result scope"
+	}
+	if zh {
+		return strings.Join(labels, "、")
+	}
+	return strings.Join(labels, ", ")
+}
+
+func runtimeTraceEnumerationBoundariesReaderText(boundaries []types.ToolEnumerationBoundary, zh bool) string {
 	if len(boundaries) == 0 {
-		return "unknown"
+		if zh {
+			return "具体展示边界未知"
+		}
+		return "the exact display boundary is unknown"
 	}
 	parts := make([]string, 0, len(boundaries))
 	for _, boundary := range boundaries {
-		scope := strings.TrimSpace(boundary.Scope)
-		if scope == "" {
-			scope = "unknown"
+		scope := runtimeTraceEnumerationScopeReaderLabel(boundary.Scope, zh)
+		dimension := runtimeTraceEnumerationDimensionReaderLabel(boundary.Dimension, zh)
+		if zh {
+			if boundary.TotalKnown {
+				parts = append(parts, fmt.Sprintf("%s的%s已展示 %d 项，共 %d 项", scope, dimension, boundary.Emitted, boundary.Total))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s的%s已展示 %d 项，总数未知", scope, dimension, boundary.Emitted))
+			}
+		} else if boundary.TotalKnown {
+			parts = append(parts, fmt.Sprintf("%s shows %d of %d %s", scope, boundary.Emitted, boundary.Total, dimension))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s shows %d %s; the total is unknown", scope, boundary.Emitted, dimension))
 		}
-		total := "unknown"
-		if boundary.TotalKnown {
-			total = strconv.Itoa(boundary.Total)
-		}
-		parts = append(parts, fmt.Sprintf("%s/%s:emitted=%d,total=%s",
-			scope, firstNonEmpty(strings.TrimSpace(boundary.Dimension), "rows"), boundary.Emitted, total))
 	}
-	return strings.Join(parts, "|")
+	if zh {
+		return strings.Join(parts, "；")
+	}
+	return strings.Join(parts, "; ")
 }
 
 func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh bool) []string {
@@ -4937,9 +5199,9 @@ func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh 
 		if result.Repair != nil {
 			code := strings.TrimSpace(result.Repair.Code)
 			if code != "" {
-				reason := "repair_code=" + code
+				reason := "a query recovery condition limited the available evidence; details remain in diagnostics"
 				if zh {
-					reason = "修复码=" + code
+					reason = "查询恢复条件限制了当前可用证据，具体原因保留在诊断记录中"
 				}
 				if !seen[reason] {
 					seen[reason] = true
@@ -4957,48 +5219,49 @@ func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh 
 func runtimeTraceCausalProjectionCoverageReasonLabel(code string, zh bool) string {
 	switch strings.TrimSpace(code) {
 	case "trace_query_heavy_view_requires_scope":
-		// PTV5 C37 (#68): zh 面不夹 heavy view/bounded 工程词;view 名与参数名
-		// (span/pattern) 保留=操作指引。
 		if zh {
-			return "大 trace 的重量级视图查询需要限定时间/行/span/pattern 范围"
+			return "大 Trace 的复杂查询需要限定时间、行号、片段或事件模式范围"
 		}
-		return "heavy trace view requires a bounded time/line/span/pattern scope"
+		return "a complex query over a large Trace needs a bounded time, line, span, or event-pattern scope"
 	case "trace_query_index_event_limit":
 		if zh {
-			return "trace 索引事件预算触顶"
+			return "Trace 索引达到事件处理上限"
 		}
-		return "trace index event budget was reached"
+		return "the Trace index reached its event-processing limit"
 	case "trace_query_result_compacted":
 		if zh {
-			return "trace_query 结果已压缩"
+			return "查询结果因展示上限而省略了尾部条目"
 		}
-		return "trace_query result was compacted"
+		return "the query result omitted tail rows at its display limit"
 	case "trace_query_event_search_limit_reached":
 		if zh {
-			return "event_search 结果达到条数上限"
+			return "事件检索结果达到条数上限"
 		}
-		return "event_search reached its result limit"
+		return "event search reached its row limit"
 	case "trace_query_recipe_discovery_needs_scope":
 		if zh {
-			return "recipe discovery 需要更精确范围"
+			return "事件类型发现需要更精确的范围"
 		}
-		return "recipe discovery needs a narrower scope"
+		return "event-family discovery needs a narrower scope"
 	case "trace_query_recipe_discovery_marker_window":
 		if zh {
-			return "recipe discovery 建议使用 marker 附近窗口"
+			return "事件类型发现建议使用标记点附近的窗口"
 		}
-		return "recipe discovery recommends a marker-local window"
+		return "event-family discovery recommends a marker-local window"
 	case "trace_query_auto_window_candidate":
 		if zh {
-			return "trace_query 已给出候选自动窗口"
+			return "Trace 查询已给出一个候选分析窗口"
 		}
-		return "trace_query produced an auto-window candidate"
+		return "the Trace query produced a candidate analysis window"
 	default:
 		code = strings.TrimSpace(code)
 		if code == "" {
 			return ""
 		}
-		return "reason_code=" + code
+		if zh {
+			return "查询范围或证据条件受限，具体原因保留在诊断记录中"
+		}
+		return "the query scope or evidence conditions were limited; details remain in diagnostics"
 	}
 }
 
@@ -5011,18 +5274,18 @@ func runtimeTraceCausalProjectionCoverageText(reasons []string, zh bool) string 
 		// the C8 regime — depth-0 clause marks full-width (the 结构化原因
 		// roster joint already spoke the full-width ；and stays; parenthetical
 		// tool-token interiors keep half-width).
-		text := "本报告已获得 trace_query 的结构化执行记录，但没有产出有数据支撑的 root_cause/wakeup_chain/semantic 行，因此未生成分层因果表。"
+		text := "本报告已完成 Trace 查询，但没有获得可支撑根因、唤醒链或确定性工作阶段的观测，因此未生成分层因果表。"
 		if len(reasons) > 0 {
-			text += " 结构化原因: " + strings.Join(reasons, "；") + "。"
+			text += " 证据受限原因：" + strings.Join(reasons, "；") + "。"
 		}
-		text += " 这不是“没有背景影响”的结论；只表示当前证据没有给出可审计的因果/背景统计，可追问一次根因/窗口/交互统计分析(root_cause_rank、window_stats 或 interaction_stats)补齐。"
+		text += " 这不是“没有背景影响”的结论；只表示当前证据没有给出可审计的因果或背景统计，可重新执行" + tracefence.SeatChannelChainZH + "、窗口统计或交互统计来补齐。"
 		return text
 	}
-	text := "This report has structured trace_query execution records, but no data-backed root_cause/wakeup_chain/semantic rows were produced, so the layered causal table was not generated."
+	text := "Trace queries completed, but no observations supporting a root cause, wakeup chain, or deterministic work stage were produced, so the layered causal table was not generated."
 	if len(reasons) > 0 {
-		text += " Typed reason: " + strings.Join(reasons, "; ") + "."
+		text += " Evidence limitation: " + strings.Join(reasons, "; ") + "."
 	}
-	text += " This does not prove there was no background influence; it only means this report lacks auditable causal/background statistics. Ask a follow-up root-cause/window/interaction statistics analysis (root_cause_rank, window_stats or interaction_stats) to fill it in."
+	text += " This does not prove there was no background influence; it only means this report lacks auditable causal or background statistics. Rerun root-cause ranking, window statistics, or interaction statistics to fill the gap."
 	return text
 }
 

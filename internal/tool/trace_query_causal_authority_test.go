@@ -73,13 +73,17 @@ func TestTraceCausalCoveragePublishesTemporalFrameEdgeCeiling(t *testing.T) {
 		t.Fatal("typed temporal frame-edge ceiling must create a deterministic coverage block")
 	}
 	for _, want := range []string{
-		"frame_flow_causality=unproven",
-		"relation=temporal_sequence",
-		"edges=3",
-		"不能升级为已确认的跨线程因果 flow",
+		"帧关系证据尚不足",
+		"已找到 3 条按时间先后相邻的 span 边",
+		"不能升级为已确认的跨线程因果流",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("coverage block missing %q:\n%s", want, block.Text)
+		}
+	}
+	for _, raw := range []string{"frame_flow_causality=", "relation=temporal_sequence", "edges=3"} {
+		if strings.Contains(block.Text, raw) {
+			t.Fatalf("reader-facing frame boundary leaked control metadata %q:\n%s", raw, block.Text)
 		}
 	}
 }
@@ -106,7 +110,8 @@ func TestTraceCausalCoverageDoesNotSumRepeatedFrameViewEdgeCounts(t *testing.T) 
 		t.Fatalf("repeated per-view frame census was summed: edges=%d, want most complete view=3", got.frameFlowEdgeCount)
 	}
 	block := runtimeTraceCausalProjectionCoverageBlock(input, "zh")
-	if block == nil || !strings.Contains(block.Text, "edges=3") || strings.Contains(block.Text, "edges=8") {
+	if block == nil || !strings.Contains(block.Text, "已找到 3 条按时间先后相邻的 span 边") ||
+		strings.Contains(block.Text, "已找到 8 条") {
 		t.Fatalf("coverage block must publish the most complete single-view census:\n%+v", block)
 	}
 }
@@ -126,12 +131,17 @@ func TestTraceCausalCoverageBlockPublishesAuthorityCeiling(t *testing.T) {
 		t.Fatal("typed authority boundary must create a deterministic coverage block")
 	}
 	for _, want := range []string{
-		"frame_causality=unproven",
-		"frame_evidence_status=unavailable",
+		"帧级因果尚未证明",
+		"目标帧证据受当前证据边界影响而不可用",
 		"不能证明具体丢帧因果",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("coverage block missing %q:\n%s", want, block.Text)
+		}
+	}
+	for _, raw := range []string{"frame_causality=", "frame_evidence_status="} {
+		if strings.Contains(block.Text, raw) {
+			t.Fatalf("reader-facing frame authority leaked control metadata %q:\n%s", raw, block.Text)
 		}
 	}
 }
@@ -164,8 +174,8 @@ func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySe
 		t.Fatal("frame authority must remain visible beside a typed chain projection")
 	}
 	for _, want := range []string{
-		"frame_causality=unproven",
-		"typed 唤醒/阻塞链只支持所选窗口内的链上候选与可消除量",
+		"帧级因果尚未证明",
+		"唤醒/阻塞链只支持所选窗口内的链上候选与可消除量",
 		"无链上凭证的调度、IO、频率观察仍只能作为邻近或背景",
 		"不证明具体丢帧因果",
 	} {
@@ -173,7 +183,7 @@ func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySe
 			t.Fatalf("typed chain/frame boundary missing %q:\n%s", want, block.Text)
 		}
 	}
-	if strings.Contains(block.Text, "未获得可绑定到目标的 frame/deadline 证据或 typed causal row") ||
+	if strings.Contains(block.Text, "未找到可绑定到目标的帧或截止期证据，且没有可用的链上因果观测") ||
 		strings.Contains(block.Text, "调度、IO、频率观察只能描述窗口背景") {
 		t.Fatalf("typed chain rows were demoted by the no-chain wording:\n%s", block.Text)
 	}

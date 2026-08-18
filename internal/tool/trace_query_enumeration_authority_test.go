@@ -41,13 +41,18 @@ func TestTraceCausalCoverageBlockPublishesEnumerationCeiling(t *testing.T) {
 		t.Fatal("typed enumeration boundary must create a deterministic coverage block")
 	}
 	for _, want := range []string{
-		"enumeration_status=incomplete",
-		"event_search/events:emitted=8,total=unknown",
+		"枚举未完整",
+		"事件检索的事件已展示 8 项，总数未知",
 		"只能作为样本或下界",
 		"全部/仅有/总计/共N/最大/最小",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("coverage block missing %q:\n%s", want, block.Text)
+		}
+	}
+	for _, raw := range []string{"enumeration_status=", "compacted_views=", "boundaries=", "emitted=", "total="} {
+		if strings.Contains(block.Text, raw) {
+			t.Fatalf("reader-facing enumeration boundary leaked control metadata %q:\n%s", raw, block.Text)
 		}
 	}
 }
@@ -73,9 +78,9 @@ func TestRuntimeArtifactReadEnumerationAuthorityIsNotACompleteCensus(t *testing.
 		t.Fatal("partial runtime-artifact read must publish an enumeration boundary")
 	}
 	for _, want := range []string{
-		"enumeration_status=incomplete",
-		"customer@trace.sys/lines:emitted=3,total=10",
-		"分页只返回",
+		"枚举未完整",
+		"其他结果范围的行已展示 3 项，共 10 项",
+		"展示上限或分页",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("runtime read coverage block missing %q:\n%s", want, block.Text)
@@ -95,7 +100,7 @@ func TestTraceQueryBlobPageCoverageUsesTypedPublicScope(t *testing.T) {
 			EnumerationAuthority: readFileEnumerationAuthority(privatePath, 1, 66, 332, true),
 		}},
 	}, "zh")
-	if block == nil || !strings.Contains(block.Text, "trace_query_result_page/lines:emitted=66,total=332") {
+	if block == nil || !strings.Contains(block.Text, "Trace 查询结果页的行已展示 66 项，共 332 项") {
 		t.Fatalf("trace query page lost its exact public boundary: %+v", block)
 	}
 	if strings.Contains(block.Text, privatePath) || strings.Contains(block.Text, ".codrax/blob") {

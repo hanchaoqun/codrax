@@ -33,7 +33,6 @@ func TestTraceQueryPublishesLifecycleSuppressionAuthorityAndObservation(t *testi
 			t.Fatalf("summary missing %q:\n%s", want, summary)
 		}
 	}
-
 	observations := traceQueryTypedObservations(result, "customer.systrace", "payload", "raw", "", time.Unix(0, 0).UTC())
 	found := false
 	for _, observation := range observations {
@@ -74,19 +73,24 @@ func TestTraceCoverageLeadsWithLifecycleCauseAndExecutableRemedy(t *testing.T) {
 		t.Fatal("lifecycle suppression must create a deterministic coverage block")
 	}
 	for _, want := range []string{
-		"suppression_reason=thread_incarnation_conflict",
-		"boundary_line=20",
-		"affected_lanes=thread_timeline,wakeup_chain,frame_ownership",
-		"preserved_lanes=cpu_busy_idle",
-		"suggested_queries=pid=42,line_end=19|pid=42,line_start=20",
+		"线程身份边界限制了部分分析",
+		"线程 42 在 trace 第 20 行",
+		"影响 线程时间线、唤醒链、帧归属",
+		"不影响 CPU 忙闲统计",
+		"建议查询为 pid=42,line_end=19、pid=42,line_start=20",
 		"不能把同窗重复探索或通用限流当成首要原因",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("coverage block missing %q:\n%s", want, block.Text)
 		}
 	}
-	lifecycleAt := strings.Index(block.Text, "suppression_reason=thread_incarnation_conflict")
-	genericAt := strings.Index(block.Text, "reason_code=generic_refinement_limit")
+	for _, raw := range []string{"suppression_reason=", "boundary_line=", "affected_lanes=", "preserved_lanes=", "frame_ownership_status="} {
+		if strings.Contains(block.Text, raw) {
+			t.Fatalf("reader-facing lifecycle boundary leaked control metadata %q:\n%s", raw, block.Text)
+		}
+	}
+	lifecycleAt := strings.Index(block.Text, "线程身份边界限制了部分分析")
+	genericAt := strings.Index(block.Text, "查询范围或证据条件受限")
 	if lifecycleAt < 0 || genericAt < 0 || lifecycleAt > genericAt {
 		t.Fatalf("precise lifecycle cause must precede generic reason:\n%s", block.Text)
 	}
@@ -165,24 +169,24 @@ func TestTraceCoverageDeduplicatesMergesAndWindowScopesLifecycleBoundaries(t *te
 	if block == nil {
 		t.Fatal("lifecycle authority must create a coverage block")
 	}
-	if got := strings.Count(block.Text, "boundary_line=20 "); got != 1 {
+	if got := strings.Count(block.Text, "线程 42 在 trace 第 20 行"); got != 1 {
 		t.Fatalf("one physical boundary must render once, got %d:\n%s", got, block.Text)
 	}
 	for _, want := range []string{
-		"window_relation=in_window",
-		"affects_target=true",
-		"frame_ownership_status=unavailable",
-		"candidate_selectors=pid=42,pid=33410",
-		"suggested_queries=pid=42,line_end=19|pid=42,line_start=20",
-		"omitted_unique_boundaries=3",
-		"outside_window_boundaries=1",
-		"身份审计边界，不是目标线程销毁、重建或重复 incarnation 的证明",
+		"位于分析窗内",
+		"该边界影响本次分析目标",
+		"帧归属证据不可用",
+		"可尝试的目标选择为 pid=42、pid=33410",
+		"建议查询为 pid=42,line_end=19、pid=42,line_start=20",
+		"另有 3 个不同身份边界未逐条展示",
+		"另有 1 个身份边界确定在分析窗外",
+		"身份审计边界，不证明目标线程曾被销毁、重建或反复重生",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("coverage block missing %q:\n%s", want, block.Text)
 		}
 	}
-	if strings.Contains(block.Text, "boundary_line=500 ") {
+	if strings.Contains(block.Text, "线程 500 在 trace 第 500 行") {
 		t.Fatalf("out-of-window boundary detail must fold into the typed count:\n%s", block.Text)
 	}
 }
@@ -216,16 +220,20 @@ func TestTraceCoveragePublishesTypedSelectorMismatchWithoutChangingRouting(t *te
 		t.Fatal("typed selector mismatch must have a deterministic answer channel")
 	}
 	for _, want := range []string{
-		"requested_pid=32788",
-		"requested_name=ss.hm.ugc.aweme",
-		"selected_thread=unknown-32788",
-		"routing=exact_tid_preserved",
-		"name_candidates=[ss.hm.ugc.aweme-33410,ss.hm.ugc.aweme-33411]",
-		"exact PID 路由未改变",
-		"名字候选仅用于诊断且不具备角色权限",
+		"请求的 PID/TID 为 32788",
+		"请求的线程名为 ss.hm.ugc.aweme",
+		"实际选中 unknown-32788",
+		"仍按精确 PID/TID 选择目标",
+		"同名候选为 [ss.hm.ugc.aweme-33410,ss.hm.ugc.aweme-33411]",
+		"仅用于提示重新选择目标，不能据此认定线程角色",
 	} {
 		if !strings.Contains(block.Text, want) {
 			t.Fatalf("selector mismatch block missing %q:\n%s", want, block.Text)
+		}
+	}
+	for _, raw := range []string{"requested_pid=", "requested_name=", "selected_thread=", "routing=", "name_candidates="} {
+		if strings.Contains(block.Text, raw) {
+			t.Fatalf("reader-facing target identity leaked control metadata %q:\n%s", raw, block.Text)
 		}
 	}
 	if strings.Contains(block.Text, "没有产出有数据支撑的") {
