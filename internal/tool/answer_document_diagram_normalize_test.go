@@ -76,6 +76,51 @@ func TestNormalizeDiagramEdgeAnchorMetadata_RewritesExactSiblingCarrierAfterMerm
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorMetadata_PreservesStandaloneReaderLabels(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "relations", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "py.tokenize_bytes", ToNode: "tokenize_bytes (Rust)",
+				FromIdentity: "py.tokenize_bytes", ToIdentity: "tokenize_bytes",
+				RelationKind: types.DiagramRelCall, VisibleLabel: "转发调用",
+			}},
+		},
+		{
+			ID: "diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+				"sequenceDiagram",
+				"  participant Wr as py.tokenize_bytes",
+				"  participant Fn as tokenize_bytes (Rust)",
+				"  Wr->>Fn: tokenize_bytes(...) ",
+			}, "\n")},
+		},
+	}}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 0 {
+		t.Fatalf("fixed=%d, standalone reader labels must not be rewritten", fixed)
+	}
+	got := doc.Blocks[0].EdgeAnchors[0]
+	if got.FromNode != "py.tokenize_bytes" || got.ToNode != "tokenize_bytes (Rust)" {
+		t.Fatalf("standalone reader labels leaked Mermaid aliases: %+v", got)
+	}
+	counts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	effective := diagramEvidenceEffectiveAnchorsForBlock(doc, 1, counts)
+	if len(effective) != 1 || effective[0].FromNode != "Wr" || effective[0].ToNode != "Fn" {
+		t.Fatalf("diagram validation did not receive ephemeral aliases: %+v", effective)
+	}
+	// Removing the optional visual must leave the reader-facing relation
+	// exactly as the model authored it.
+	doc.Blocks = doc.Blocks[:1]
+	if removed := normalizeOrphanDiagramEdgeAnchors(doc, &types.AnswerSemanticView{Family: types.QFCallChain}); removed != 0 {
+		t.Fatalf("standalone relation removed with optional diagram: %d", removed)
+	}
+	got = doc.Blocks[0].EdgeAnchors[0]
+	if got.FromNode != "py.tokenize_bytes" || got.ToNode != "tokenize_bytes (Rust)" {
+		t.Fatalf("reader labels changed after optional diagram removal: %+v", got)
+	}
+}
+
 func TestNormalizeDiagramEdgeAnchorMetadata_LeavesAmbiguousSiblingAliasUnchanged(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "relations", Kind: types.BlockOrderedList,

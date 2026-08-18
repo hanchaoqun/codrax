@@ -135,6 +135,15 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 	// ownership gate; no edge, direction, relation kind, or evidence is minted.
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
+		// A principal structured relation carrier owns a reader-facing relation
+		// surface independently of an optional sibling diagram. Its FromNode and
+		// ToNode values are model-authored display labels, not Mermaid aliases.
+		// Rewriting them to short diagram-local IDs makes those IDs leak after a
+		// later patch removes the optional diagram. Diagram validation resolves a
+		// temporary alias copy in diagramEvidenceEffectiveAnchorsForBlock instead.
+		if block.Kind != types.BlockDiagram && answerBlockCarriesStandaloneTypedRelations(*block) {
+			continue
+		}
 		for j := range block.EdgeAnchors {
 			anchor := &block.EdgeAnchors[j]
 			from, to, ok := diagramUniqueVisibleAliasPair(doc, anchor.FromNode, anchor.ToNode)

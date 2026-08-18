@@ -36980,6 +36980,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace root=typed-on-chain-only; target-self-unpriced-state=symptom; adjacent/background=support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r668`。
 
+### §123.1048 r669/B1053：稀疏关系补丁生产闭环；图内短别名不得污染独立关系列表（2026-08-18）
+
+1. 在 `main@7be3a36fb` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + mr_poly_binding_chain`。Runner `2/2 PASS`，人工均为 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_symptom_branch_r669_20260818_manual_audit.md`。
+2. B1052 获得生产正证。末尾读者事实卡把 app-100 的 sleep 10.000ms 只放在“目标线程窗口状态”，真实耗时候选
+   和现规则可消席都只列 worker-200，邻近/background 继续独立且无根因序数。系统 Trace 投影正文同样写明目标
+   sleep 是症状、根因沿唤醒链下钻；显式窗、补采、worker #1、9.000/8.300ms 双值、CPU2→CPU1 拓扑均未丢。
+3. 模型仍自行复制 `bounded_window_candidate`、`dominant_state=runnable`，并写出“worker 完成工作”“占用调度资源”
+   “直接拉长目标等待”。最终事实卡及其前一段 typed ceiling 已逐项禁止 work completion、同步阻塞、holder/waiter、
+   same-CPU 占用和 direct blocker 推断；系统 appendix 也未采纳这些越界句。因此该残余按模型服从性/上下文负担
+   观察，不以答案字符串扫描、成文硬拒、删除替换或系统接管结论处理。较早 raw authority 与末尾自然语言卡重复造成的
+   60k finalizer 上下文记为 `B1054-TRACECONTEXTPROGRESSIVEDISCLOSURE1/P2`：后续只可在保留 schema/audit 原值和
+   精确 authority 的前提下做 typed progressive disclosure，不能删除因果投影或自动补齐。
+4. Poly 首次给出带完整 items 的 principal 关系列表但漏 anchors；第一轮 sparse patch 仅提交
+   `{id,edge_anchors}`。B1050 生产接线正确继承 kind/role/items/claim/facets/citations，四条 call/register 关系进入
+   standalone carrier。第二轮只删除未证边过多的 optional diagram，四个正文块和上一轮关系元数据继续保留；
+   B1050 与 B1049 至此获得生产闭环，而不是只靠 helper pin。
+5. 新确认 `B1053-STANDALONERELATIONALIASLEAK1/P1-high`：第一轮预校验为了让 sibling Mermaid 消费列表 anchors，
+   把列表的 `py.tokenize_bytes -> tokenize_bytes (Rust)` 原地改成图内 alias `Wr -> Fn`。下一 patch 删除图后，独立列表
+   仍显示 `Wr → Fn`。这是确定性系统展示污染，不是模型选词，也不是证据门正确拒绝图中未证边的问题。
+6. 根修把展示与校验分层：principal standalone relation carrier 的 `from_node/to_node` 是模型所有的读者标签，
+   normalizer 不再原地改写；diagram validator 仅在该标签对唯一映射到一个图的一条同向可见边时，构造一次性 alias
+   copy 做证据校验。映射歧义、复用 pair、无可见边仍 fail-closed；不创建 edge/identity/relation/label，也不放松
+   typed call/register 权威。optional diagram 删除后，读者标签保持逐字不变。
+7. 专项 pin 覆盖同页 sequence 的 `Wr/Fn` 映射只存在于 validation copy，以及删图后 standalone labels 原样保留；
+   原 sibling-only carrier、歧义和 orphan 行为均保留。`internal/tool` 整包通过。活跃流未发生固定 4ms 降级；本批
+   未修改 Trace 查询、窗口选举、投影、自动补采、排名/公式或模型答案正文。
+
+状态：
+
+`B1050-SPARSERELATIONPATCHCONTENTLOSS1=production-closed-r669`；
+`B1049-STANDALONERELATIONVISIBILITY1=production-closed-r669`；
+`B1052-TARGETSELFSYMPTOMREADERCARD1=production-closed-r669`；
+`B1053-STANDALONERELATIONALIASLEAK1=implemented/ephemeral-validation-alias+tool-suite-pass`；
+`B1054-TRACECONTEXTPROGRESSIVEDISCLOSURE1=confirmed/P2/soft-context-debt`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/recommendation/relation-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=preserved-r669`；
+`Trace root=typed-on-chain-only; target-self-state=symptom; adjacent/background=support-only`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r669`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

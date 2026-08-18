@@ -1234,7 +1234,29 @@ func diagramEvidenceEffectiveAnchorsForBlock(doc *types.AnswerDocumentV2, blockI
 			key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
 			if bodyKeys[key] && edgeBlockCounts[key] == 1 {
 				out = append(out, anchor)
+				continue
 			}
+			// A standalone relation carrier keeps reader-facing endpoint labels,
+			// while an optional sibling diagram may use short Mermaid aliases for
+			// those exact visible labels. Resolve an ephemeral validation copy only
+			// when that label pair maps to one visible directed edge in exactly one
+			// diagram. Never mutate the carrier: if the diagram is later removed,
+			// the final relation list must retain the model-authored labels.
+			if !answerBlockCarriesStandaloneTypedRelations(doc.Blocks[i]) {
+				continue
+			}
+			from, to, ok := diagramUniqueVisibleAliasPair(doc, anchor.FromNode, anchor.ToNode)
+			if !ok {
+				continue
+			}
+			key = diagramEvidenceEdgeKey(from, to)
+			if !bodyKeys[key] || edgeBlockCounts[key] != 1 {
+				continue
+			}
+			resolved := anchor
+			resolved.FromNode = from
+			resolved.ToNode = to
+			out = append(out, resolved)
 		}
 	}
 	return out
