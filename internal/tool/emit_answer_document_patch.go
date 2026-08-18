@@ -326,6 +326,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
 			strings.Join(fields, ", "))
 	}
+	// Operation recovery can move an existing id from add_blocks into
+	// replace_blocks. The raw replacement-carrier inheritance above runs before
+	// that recovery and therefore cannot see the moved block. Reapply the same
+	// narrow omitted-field rule over the normalized typed replacement set so a
+	// misfiled add cannot silently shed principal/facet ownership and escape the
+	// merged-document relation checks. Explicit empty/value fields remain
+	// model-owned because this pass still consults their raw JSON presence.
+	if changed, fields := inheritMissingNormalizedPatchReplacementCarrierMetadata(prev, params, patch.ReplaceBlocks); changed {
+		logging.Warning("[emit_answer_document_patch] inherited omitted stable carrier metadata after block-op normalization: %s",
+			strings.Join(fields, ", "))
+	}
 	if changed, fields := normalizeAnswerDocumentPatchCitationOps(prev, patch); changed {
 		logging.Warning("[emit_answer_document_patch] citation op(s) normalized via preserved-pool tolerance: %s",
 			strings.Join(fields, ", "))
@@ -567,6 +578,98 @@ func inheritMissingPatchReplacementCarrierMetadata(prev *types.AnswerDocumentV2,
 }
 
 func patchReplacementHasUniqueStableItemOverlap(previous []types.AnswerBlockItem, replacement []emitAnswerBlockItemV2) bool {
+	previousCounts := make(map[string]int, len(previous))
+	replacementCounts := make(map[string]int, len(replacement))
+	for _, item := range previous {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			previousCounts[id]++
+		}
+	}
+	for _, item := range replacement {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			replacementCounts[id]++
+		}
+	}
+	for id, count := range previousCounts {
+		if count == 1 && replacementCounts[id] == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// inheritMissingNormalizedPatchReplacementCarrierMetadata mirrors
+// inheritMissingPatchReplacementCarrierMetadata after add/replace operation
+// recovery. A model may put an existing id under add_blocks; normalization
+// correctly recovers it as a replacement, but must not change whether omitted
+// facet_ids/surface_role inherit from the previous block. This helper reads
+// schema fields only and never inherits visible content, relation claims,
+// anchors, citations, diagrams, or conclusions.
+func inheritMissingNormalizedPatchReplacementCarrierMetadata(prev *types.AnswerDocumentV2, raw json.RawMessage, blocks []types.AnswerBlock) (bool, []string) {
+	if prev == nil || len(blocks) == 0 || len(raw) == 0 {
+		return false, nil
+	}
+	var envelope struct {
+		ReplaceBlocks []map[string]json.RawMessage `json:"replace_blocks"`
+		AddBlocks     []map[string]json.RawMessage `json:"add_blocks"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return false, nil
+	}
+	declared := make(map[string]map[string]json.RawMessage)
+	ambiguousDeclared := make(map[string]bool)
+	for _, candidates := range [][]map[string]json.RawMessage{envelope.ReplaceBlocks, envelope.AddBlocks} {
+		for _, candidate := range candidates {
+			var id string
+			if idRaw, ok := candidate["id"]; ok {
+				_ = json.Unmarshal(idRaw, &id)
+			}
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, exists := declared[id]; exists {
+				ambiguousDeclared[id] = true
+				continue
+			}
+			declared[id] = candidate
+		}
+	}
+	previous := make(map[string]types.AnswerBlock, len(prev.Blocks))
+	ambiguousPrevious := make(map[string]bool)
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := previous[id]; exists {
+			ambiguousPrevious[id] = true
+			continue
+		}
+		previous[id] = block
+	}
+	var fields []string
+	for i := range blocks {
+		id := strings.TrimSpace(blocks[i].ID)
+		old, ok := previous[id]
+		shape := declared[id]
+		if !ok || shape == nil || id == "" || ambiguousPrevious[id] || ambiguousDeclared[id] ||
+			old.Kind != blocks[i].Kind || !patchTypedReplacementHasUniqueStableItemOverlap(old.Items, blocks[i].Items) {
+			continue
+		}
+		if _, present := shape["facet_ids"]; !present {
+			blocks[i].FacetIDs = append([]string(nil), old.FacetIDs...)
+			fields = append(fields, fmt.Sprintf("replace_blocks[%q].facet_ids", id))
+		}
+		if _, present := shape["surface_role"]; !present {
+			blocks[i].SurfaceRole = old.SurfaceRole
+			fields = append(fields, fmt.Sprintf("replace_blocks[%q].surface_role", id))
+		}
+	}
+	return len(fields) > 0, fields
+}
+
+func patchTypedReplacementHasUniqueStableItemOverlap(previous, replacement []types.AnswerBlockItem) bool {
 	previousCounts := make(map[string]int, len(previous))
 	replacementCounts := make(map[string]int, len(replacement))
 	for _, item := range previous {

@@ -35699,6 +35699,72 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1088 B1097：patch 归一化后 carrier 继承与完整重校验对齐（2026-08-18）
+
+1. r696 的 call-chain 首稿正确携带 diagram identities，终稿事实/图方向也正确；但 retry patch 把既有
+   `ordered-list-2` 误放 `add_blocks`，保留 `call_edge` 却漏 `edge_anchors` 与 `surface_role`。系统随后把
+   existing-id add 自动归一成 replace，却在归一化前已完成 omitted-carrier inheritance；故 principal 身份
+   静默丢失，同一个 empty-anchor hard gate 不再触发，终验只记录一个 soft violation 即发射。
+2. 新确认 `B1097-PATCHNORMALIZEDCARRIERESCAPE1`。这是 patch 工具“merged document fully
+   revalidated”承诺的结构旁路，不是可见答案造边，也不是模型 JSON 格式波动。根修必须只读 schema：
+   existing block id/kind、唯一稳定 item-id overlap、原始 JSON 中字段是否存在；禁止读列表文字、请求或
+   终稿 prose。
+3. 在 `normalizeAnswerDocumentPatchBlockOps` 后重新执行同一个窄 carrier omission 规则：对被
+   add→replace/remove+add→replace 恢复的块，仅当原始 `facet_ids/surface_role` 真正省略时继承旧值；显式
+   empty/value 仍归模型所有。绝不继承 claim_uses、edge_anchors、可见内容、图、引用或结论。
+4. 新增生产形 pin：既有 principal call-edge list 被误放 add_blocks，复用同一稳定 item id，漏
+   surface_role 且保留 call_edge/漏 anchors；归一后仍须以精确
+   `diagramStandaloneRelationClaimHasNoAnchor` 拒绝，并保持旧文档不变。该 pin 先红后绿；聚焦 patch
+   tests 已绿；`go test ./internal/tool -count=1` 全绿（176.674s），`git diff --check` 全绿。
+5. r696 Trace 的精确窗修复已生产闭环，但模型三处把 sleep/唤醒先后扩写成“等待上游工作完成”。同一
+   typed Finalizer 输入已明确 `target_wait_for_work_authority/work_completion_dependency_authority=
+   not_provided` 及 sleep 不证明等待谁/工作完成，未发现相反系统教学；先作为模型波动观察，不新增终稿
+   关键词硬门，不由系统删除或改写结论。
+
+状态：
+
+`B1097-PATCHNORMALIZEDCARRIERESCAPE1=implemented/full-tool-green`；
+`B1093/B1096=production-closed-r696`；
+`B1095=production-closed-r696`；
+`trace-mechanism-boundary-model-variance=observed/no-prose-hard-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/conclusion-authorship=none`。
+
+### §123.1087 r696：精确窗生产闭环、关系事实复正，patch 完整重校验旁路暴露（2026-08-18）
+
+1. `main@9513b2176` 重建后严格并发恰好两个：
+   `qf_sequence_analyzer_gate + trace_query_wakeup_causal_runnable`；Runner `2 PASS / 2`，人工
+   `call=pass / Trace=fail`，没有第三案。逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_trace_relation_contract_r696_20260818_manual_audit.md`。
+2. Trace 162s/零成文拒绝。B1093/B1096 获生产正证：越窗 0.020ms 与 #2 从 Runtime Root-Cause
+   Board 和终稿完全退出，请求窗只保留 worker-200 链上 #1；8.300ms 有效归因、9.000ms 链累计、
+   10.000ms 目标状态、完整 Trace 因果投影、实际占用/可消双轴、邻近/背景 support-only 均保留。
+3. Trace 人工仍 fail：模型把 sleep 与唤醒先后扩写为“协作式等待上游工作完成”。Finalizer typed 输入
+   已两面明确未提供 target-waits-for-work/work-completion authority，且逐字教 sleep 不证明等待谁或工作
+   完成；正文后段自己也承认未证，形成同页机理强弱冲突。因无系统反向教学，暂记模型波动观察；禁止
+   通过扫描终稿词串硬拒或让系统代写结论。
+4. Call 361s/一次成文拒绝，人工 pass。最终答案正确说明无 `buildAnalysisIR -> gate.Run` 有向路径，
+   图中只画已证 `ParseOutput -> buildAnalysisIR -> RunWith` 与 `gate.Run -> RunWith`，上一轮错误的
+   `RunWith -> gate.Run` 和 callee-to-callee 假链均消失。B1095 的 JSON 教学自冲突不再复现，重试从
+   4 降为 1。
+5. 唯一重试来自模型把 relational claim 贴到描述性列表且漏相应 anchors，以及 principal facet 混入
+   off-facet ParseOutput。校验首次正确拒绝；patch 推理已认识应删除描述性列表 claim，却在 JSON 中继续
+   保留，并触发 B1097 add→replace carrier 旁路。最终可见图/关系仍正确，但系统结构合同不得因“读者看
+   不见”而放过。
+6. 两案均无系统补边/删边/改图/改结论、旧稿降级、空答案或 active-stream 4ms 固定年龄降级。
+
+状态：
+
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=production-closed-r696`；
+`B1096-EXPLICITWINDOWTOLERANCESEMANTICS1=production-closed-r696`；
+`B1094/B1095=production-closed-r696`；
+`B1097-PATCHNORMALIZEDCARRIERESCAPE1=confirmed/P0-P1`；
+`trace-mechanism-boundary-model-variance=observed`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1086 B1095/B1096：精确窗权威与关系锚 schema 合同统一施工（2026-08-18）
 
 1. `B1096` 根修不再新造第三个窗容差。新增

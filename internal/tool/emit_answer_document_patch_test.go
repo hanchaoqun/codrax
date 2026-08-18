@@ -907,6 +907,48 @@ func TestEmitAnswerDocumentPatch_NormalizesAddExistingBlockToReplace(t *testing.
 	}
 }
 
+// B1097 production shape: a retry put an existing principal relation list in
+// add_blocks and omitted surface_role. The add->replace recovery ran after the
+// omission-inheritance pass, silently demoting the list to supporting and
+// allowing its retained call_edge claim to escape the empty-anchor hard gate.
+func TestEmitAnswerDocumentPatch_NormalizedAddExistingPreservesPrincipalRelationGate(t *testing.T) {
+	bus := newPatchTestBusContext()
+	prev := bus.Mutable.AnswerDocumentV2()
+	prev.Blocks[1].SurfaceRole = types.SurfacePrincipal
+	prev.Blocks[1].FacetIDs = []string{string(types.FacetCurrentCodePath)}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+	}}
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"add_blocks":[{
+			"id":"list1",
+			"kind":"ordered_list",
+			"claim_uses":[{"claim_form":"call_edge","facet_id":"current_code_path"}],
+			"facet_ids":["current_code_path"],
+			"items":[{"id":"i1","label":"A","text":"descriptive row","citation_ref":0}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success || res.Repair == nil {
+		t.Fatalf("normalized existing principal relation block must remain subject to the empty-anchor hard gate: %+v", res)
+	}
+	if !strings.Contains(res.Summary, `blocks[id="list1"].edge_anchors`) ||
+		res.Repair.Metadata[types.ToolRepairMetaDiagramRelationFailureIssues] != diagramStandaloneRelationClaimHasNoAnchor {
+		t.Fatalf("normalized retry lost the precise relation-owner repair: summary=%s repair=%+v", res.Summary, res.Repair)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || got.Blocks[1].SurfaceRole != types.SurfacePrincipal || len(got.Blocks[1].EdgeAnchors) != 0 {
+		t.Fatalf("rejected normalized patch must leave the previous principal block intact: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_NormalizesRemoveThenAddSameExistingBlockToReplace(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}
