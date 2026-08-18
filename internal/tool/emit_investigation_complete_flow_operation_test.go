@@ -2537,6 +2537,53 @@ func TestFlowParticipantCoverageAcceptsTypedMultiHopRelationComponent(t *testing
 	}
 }
 
+func TestFlowParticipantCoverageJoinsUniqueQualifiedAndBareCallableEndpoint(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		flowOperationEvidence(types.AnchorArgument, "o.busCtx", "ctxbuilder.BuildAgentContext", 15),
+		flowOperationEvidence(types.AnchorCall, "BuildAgentContext", "bus.Mutable.Objective", 29),
+	}
+	participants := []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	scope := buildFlowParticipantRelationScope(
+		types.RequestModel{},
+		participants,
+		[][]string{{"o.busCtx"}, {"bus.Mutable.Objective"}},
+		evidence,
+		nil,
+	)
+	for i, participant := range participants {
+		if i >= len(scope.participantCovered) || !scope.participantCovered[i] {
+			t.Fatalf("unique qualified/bare callable spelling should join %s into one typed component: %+v", participant.Identity, scope)
+		}
+	}
+}
+
+func TestFlowParticipantCoverageDoesNotJoinAmbiguousCallableTail(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		flowOperationEvidence(types.AnchorArgument, "o.busCtx", "ctxbuilder.BuildAgentContext", 15),
+		flowOperationEvidence(types.AnchorCall, "BuildAgentContext", "bus.Mutable.Objective", 29),
+		flowOperationEvidence(types.AnchorCall, "otherpkg.BuildAgentContext", "Other.Execute", 40),
+	}
+	participants := []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	scope := buildFlowParticipantRelationScope(
+		types.RequestModel{},
+		participants,
+		[][]string{{"o.busCtx"}, {"bus.Mutable.Objective"}},
+		evidence,
+		nil,
+	)
+	for i, participant := range participants {
+		if i < len(scope.participantCovered) && scope.participantCovered[i] {
+			t.Fatalf("ambiguous qualified callable tail must not join %s across packages: %+v", participant.Identity, scope)
+		}
+	}
+}
+
 func TestFlowParticipantCoverageLateResolvedMemberQueuesExactRepairCoordinates(t *testing.T) {
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),

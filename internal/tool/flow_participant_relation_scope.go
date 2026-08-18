@@ -73,16 +73,19 @@ func (s flowParticipantRelationScope) effectiveParticipantCovered(participantInd
 }
 
 type flowParticipantRelationEdge struct {
-	from      string
-	to        string
-	operation *types.EvidenceItem
-	stageFrom *stageauthority.StageRow
-	stageTo   *stageauthority.StageRow
-	index     int
+	from         string
+	to           string
+	fromCallable bool
+	toCallable   bool
+	operation    *types.EvidenceItem
+	stageFrom    *stageauthority.StageRow
+	stageTo      *stageauthority.StageRow
+	index        int
 }
 
 type flowParticipantRelationNode struct {
 	endpoint string
+	callable bool
 	// A returned value is an output of one exact returning operation, not a
 	// globally shared actor merely because another function returns the same
 	// spelling (for example nil, false, an empty value, or a common type name).
@@ -122,8 +125,10 @@ func buildFlowParticipantRelationScope(
 		if from == "" || to == "" {
 			continue
 		}
+		fromCallable, toCallable := flowRelationOperationCallableEndpoints(*operation)
 		edges = append(edges, flowParticipantRelationEdge{
-			from: from, to: to, operation: operation, index: i,
+			from: from, to: to, fromCallable: fromCallable, toCallable: toCallable,
+			operation: operation, index: i,
 		})
 	}
 	for i := range stagePrecedence {
@@ -139,15 +144,17 @@ func buildFlowParticipantRelationScope(
 	if len(edges) == 0 {
 		return scope
 	}
+	callableTailAuthority := flowRelationUniqueQualifiedCallableTails(edges)
 
 	// Endpoint equivalence is deliberately stricter than participant-to-endpoint
-	// incidence. Complete typed identities may differ only by presentation
-	// separators; short-tail compatibility is not allowed to join two otherwise
-	// unrelated operation components.
+	// incidence. Complete typed identities may differ by presentation separators.
+	// A qualified/bare callable tail may also join only under the graph-local
+	// single-owner authority above; general short-tail compatibility remains
+	// forbidden for values, fields, ambiguous callables, and unrelated components.
 	nodes := make([]flowParticipantRelationNode, 0, len(edges)*2)
-	nodeFor := func(endpoint string, returnSink bool) int {
+	nodeFor := func(endpoint string, returnSink, callable bool) int {
 		if returnSink {
-			nodes = append(nodes, flowParticipantRelationNode{endpoint: endpoint, returnSink: true})
+			nodes = append(nodes, flowParticipantRelationNode{endpoint: endpoint, callable: callable, returnSink: true})
 			return len(nodes) - 1
 		}
 		for i, current := range nodes {
@@ -155,11 +162,14 @@ func buildFlowParticipantRelationScope(
 				continue
 			}
 			if types.AnswerCodeIdentitySurfacesEquivalent(current.endpoint, endpoint) ||
-				strings.EqualFold(strings.TrimSpace(current.endpoint), strings.TrimSpace(endpoint)) {
+				strings.EqualFold(strings.TrimSpace(current.endpoint), strings.TrimSpace(endpoint)) ||
+				(current.callable && callable && flowRelationUniqueCallableTailEquivalent(
+					current.endpoint, endpoint, callableTailAuthority)) {
+				nodes[i].callable = current.callable || callable
 				return i
 			}
 		}
-		nodes = append(nodes, flowParticipantRelationNode{endpoint: endpoint})
+		nodes = append(nodes, flowParticipantRelationNode{endpoint: endpoint, callable: callable})
 		return len(nodes) - 1
 	}
 	parent := make([]int, 0, len(edges)*2)
@@ -184,7 +194,7 @@ func buildFlowParticipantRelationScope(
 	edgeNodes := make([][2]int, len(edges))
 	for i, edge := range edges {
 		returnSink := edge.operation != nil && edge.operation.AnchorKind == types.AnchorReturn
-		from, to := nodeFor(edge.from, false), nodeFor(edge.to, returnSink)
+		from, to := nodeFor(edge.from, false, edge.fromCallable), nodeFor(edge.to, returnSink, edge.toCallable)
 		ensureParent()
 		union(from, to)
 		edgeNodes[i] = [2]int{from, to}
@@ -323,6 +333,101 @@ func buildFlowParticipantRelationScope(
 		}
 	}
 	return scope
+}
+
+func flowRelationOperationCallableEndpoints(operation types.EvidenceItem) (bool, bool) {
+	switch operation.AnchorKind {
+	case types.AnchorCall, types.AnchorCallback:
+		return true, true
+	case types.AnchorArgument:
+		// The complete source argument is a value. The receiving API is a
+		// callable. Keeping those roles distinct prevents a field/value tail
+		// from being joined merely because it happens to share a method name.
+		return false, true
+	case types.AnchorReturn:
+		return true, false
+	default:
+		return false, false
+	}
+}
+
+// flowRelationUniqueQualifiedCallableTails records graph-local authority for
+// joining one qualified callable spelling (ctxbuilder.BuildAgentContext) with
+// its bare spelling (BuildAgentContext). Parser providers legitimately expose
+// those two surfaces at a caller boundary and inside the callee body. The tail
+// is usable only when exactly one qualified callable owns it in this evidence
+// graph; two packages with the same method/function tail remain ambiguous and
+// fail closed.
+func flowRelationUniqueQualifiedCallableTails(edges []flowParticipantRelationEdge) map[string]string {
+	qualified := make(map[string]map[string]bool)
+	add := func(endpoint string, callable bool) {
+		if !callable {
+			return
+		}
+		full, tail, isQualified, ok := flowRelationCallableIdentity(endpoint)
+		if !ok || !isQualified {
+			return
+		}
+		if qualified[tail] == nil {
+			qualified[tail] = make(map[string]bool)
+		}
+		qualified[tail][full] = true
+	}
+	for _, edge := range edges {
+		add(edge.from, edge.fromCallable)
+		add(edge.to, edge.toCallable)
+	}
+	out := make(map[string]string)
+	for tail, owners := range qualified {
+		if len(owners) != 1 {
+			continue
+		}
+		for owner := range owners {
+			out[tail] = owner
+		}
+	}
+	return out
+}
+
+func flowRelationUniqueCallableTailEquivalent(left, right string, authority map[string]string) bool {
+	leftFull, leftTail, leftQualified, leftOK := flowRelationCallableIdentity(left)
+	rightFull, rightTail, rightQualified, rightOK := flowRelationCallableIdentity(right)
+	if !leftOK || !rightOK || leftTail != rightTail || leftQualified == rightQualified {
+		return false
+	}
+	qualifiedFull := leftFull
+	if rightQualified {
+		qualifiedFull = rightFull
+	}
+	return authority[leftTail] != "" && authority[leftTail] == qualifiedFull
+}
+
+func flowRelationCallableIdentity(raw string) (full, tail string, qualified, ok bool) {
+	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
+	raw = strings.TrimSuffix(raw, "()")
+	if raw == "" || strings.ContainsAny(raw, "\n\r\t ") {
+		return "", "", false, false
+	}
+	raw = strings.NewReplacer(
+		"::", ".",
+		"->", ".",
+		"#", ".",
+		"/", ".",
+		`\`, ".",
+	).Replace(raw)
+	parts := strings.Split(raw, ".")
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.ToLower(strings.Trim(strings.TrimSpace(part), "*&( )"))
+		if part == "" || !types.IsCodeIdentitySurface(part) {
+			return "", "", false, false
+		}
+		segments = append(segments, part)
+	}
+	if len(segments) == 0 {
+		return "", "", false, false
+	}
+	return strings.Join(segments, "."), segments[len(segments)-1], len(segments) > 1, true
 }
 
 // flowMissingParticipantsHaveLocalOperations distinguishes a relation-only

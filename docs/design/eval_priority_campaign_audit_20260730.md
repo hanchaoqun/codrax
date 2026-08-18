@@ -36413,6 +36413,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `oracle-rewrite=blocked-before-apply-when-typed-protection-is-declared`；
 `Trace/read-mode=unchanged`。
 
+### §123.1110 B1116：关系组件统一 graph-local callable 身份，不按短名猜边（2026-08-18）
+
+1. r708 的断点是 parser provider surface 差异，不是缺源码：caller argument row 的接收端为
+   `ctxbuilder.BuildAgentContext`，callee body call row 的发起端为 `BuildAgentContext`。旧 relation union 只接受全段相等，
+   因而把同一 callable 拆成两个节点，使 `BusContext -> helper -> Mutable` 的已证两跳组件失联。
+2. 根修只对 typed operation 已明确标成 callable 的端点建立 graph-local alias：call/callback 两端、argument 的 receiving API、
+   return 的 returning callable。值参数、字段、assignment/initializer 两端、stage precedence 和 return value 不参与短尾合并，
+   防止同名数据字段借 callable 规则串图。
+3. qualified/bare 仅在当前证据图里该 callable 尾名恰好只有一个 qualified owner 时等价；一旦同时出现
+   `ctxbuilder.BuildAgentContext` 与 `otherpkg.BuildAgentContext`，两条组件保持分离。完整身份相等和既有 stage provider 规则不变。
+   该算法不读请求原文、模型总结、答案正文或 Mermaid，不生成 EvidenceItem，也不选择/绘制边。
+4. 正向 pin 复现生产两跳；反向 pin 加入第二个同尾包，必须 fail-closed；既有 multi-hop、请求 sibling argument、
+   15 语言 caller handoff 继续回归。B1114 的 parser 前沿和本批的 endpoint union 分工明确：前者保证找得到下一块源码，
+   后者保证同一 callable 的两种 parser spelling 能在无歧义时连接。
+
+状态：
+
+`B1116-FLOWCALLABLEIDENTITYJOIN1=implemented/targeted-pins/full-tool-pass(177.203s)`；
+`B1114-REQUIREDFLOWFRONTIER1=implemented+production-diagnosed`；
+`system-edge/diagram/answer-authorship=none`；
+`Trace/write-mode=unchanged`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
