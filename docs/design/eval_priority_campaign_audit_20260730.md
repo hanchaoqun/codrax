@@ -36102,6 +36102,44 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1024 r655：初始化器真证据仍未接回主关系分量；Trace 核心保护通过（2026-08-17）
+
+1. 在 `main@594386668` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`，runner `2/2 PASS`；人工两项均为
+   partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r655_20260817_manual_audit.md`。
+2. 代码图本轮走了与 r654 不同的精确轨迹：模型没有先发 caller argument-flow，因此 B1032 新前沿没有
+   触发；它直接读取并三次修正 `internal/context/builder.go:59`，最终得到 grounded initializer
+   `Mutable: bus.Mutable`，又发出 `ctx.Mutable.TurnAArtifacts/EmittedAnswerSymbols/
+   EmittedHypothesisVerdicts/EmittedEvidence` 等真实 reader call。这否证“缺关系只是模型不读代码”。
+3. 新确认 `B1033-CALLEEBODYREVERSECALLFRONTIER1`（P1）：已有 receiving callable body 内精确
+   initializer/argument/member operation 时，repair 只能继续搜同名局部 operation，不能借 parser formal
+   parameter 身份反向定位该 callable 的唯一 caller argument handoff。于是初始化器与多个 reader 都是真
+   证据，却没有接回 `BusContext -> BuildAgentContext -> Mutable` 同一关系分量；终图仍把
+   `BusContext/Mutable` 标 unproven，prose 又声称共享同一实例，形成“事实充分、拓扑断裂”的用户体验。
+4. B1033 最优形与 B1032 对称：从 grounded body operation 的 enclosing callable 出发，只读取 parser
+   formal parameter/static type、graph callers 与 source-line exact complete arguments；唯一/有界时优先给
+   caller handoff extraction coordinate，多 caller/多参数/动态调用歧义 fail-closed。系统仍不发 evidence、
+   不合成 parameter binding edge、不代画图；模型必须读取调用点并 emit exact argument-flow。
+5. 三次 final reject 均在阻止无证边或 participant endpoint collision，门本身方向正确；但 419s 与最终
+   断图说明修复上下文没有给出可收敛的双向 frontier。不得通过放松 relation gate、把 containment 当
+   data-flow、或用请求/答案关键词匹配来缩短重试。
+6. Trace 保护继续通过：精确 10ms 主窗、系统补采、链上 worker-200 首席 8.300ms、sleep 症状、邻近/
+   background 隔离及因果投影均保留；活跃流未走固定 4ms fallback。模型正文仍泄漏 raw enum，并把
+   CPU2 worker→CPU1 target 的依赖表述成偏强的“调度阻塞”；系统 typed note 已明确跨核边不证明同核
+   占用/抢占/直接竞争。后续应增强模型可消费的 typed caliber 与客户语言，不得系统改写结论。
+
+状态：
+
+`r655=runner-2/2; human-trace-partial; human-diagram-partial`；
+`B1032-CALLEEBODYRELATIONFRONTIER1=implemented/pinned/not-exercised-r655/pending-production-replay`；
+`B1033-CALLEEBODYREVERSECALLFRONTIER1=confirmed/design-frozen/pending-implementation`；
+`B756-RUNTIMEENUMCUSTOMERLANGUAGE1=production-partial/open-followup`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r655`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
