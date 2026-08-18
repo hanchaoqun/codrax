@@ -343,13 +343,14 @@ func TestRuntimeTraceProjFlatFallback_NoOnChainLabelAndSyntheticLocator(t *testi
 	if strings.Contains(rendered, "on-chain · 重点关注") || strings.Contains(rendered, "因果位置: 链上") {
 		t.Fatalf("flat render must not claim on-chain in the causal-position line:\n%s", rendered)
 	}
-	// CMP-7a: the audit summary swaps the on-chain causality claim for the
-	// typed flat token (raw record keeps the verbatim causality note).
+	// B1105a: the visible evidence explanation swaps the on-chain claim for
+	// reader-facing flat wording (raw diagnostics keep the causality token).
 	if strings.Contains(rendered, "causality=on_wakeup_chain") {
 		t.Fatalf("flat render must not claim on-chain causality in the audit summary:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "chain_shape=flat_untraceable") {
-		t.Fatalf("flat render audit summary must carry the typed flat token:\n%s", rendered)
+	if strings.Contains(rendered, "chain_shape=flat_untraceable") ||
+		!strings.Contains(rendered, "证据说明: 因果位置：平铺(链不可上溯)") {
+		t.Fatalf("flat render evidence explanation must carry the reader-facing flat meaning:\n%s", rendered)
 	}
 	// CMP-7b: the absence observation's synthetic ":44" never renders; the
 	// artifact name stays.
@@ -383,9 +384,11 @@ func TestRuntimeTraceProjResolvedChain_KeepsOnChainLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	rendered := render.RenderAnswerDocument(bus.Mutable.AnswerDocumentV2(), "zh")
-	// PTV5 C30 (#68): the raw causality token stays in the audit lane.
+	// B1105a: the raw causality token stays only in diagnostics; visible output
+	// uses reader-facing causal-position wording.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 链上 · 重点关注 → merged 因果位置 vocab; this fixture's rows are the target thread itself → 因果位置: 关注线程自身 (根因族/明细块)
-	if !strings.Contains(rendered, "causality=on_wakeup_chain") ||
+	if strings.Contains(rendered, "causality=on_wakeup_chain") ||
+		!strings.Contains(rendered, "证据说明: 因果位置：链上") ||
 		!strings.Contains(rendered, "因果位置: 关注线程自身") {
 		t.Fatalf("resolved-chain render keeps the on-chain labels:\n%s", rendered)
 	}

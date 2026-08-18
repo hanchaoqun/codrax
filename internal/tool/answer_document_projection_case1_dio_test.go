@@ -118,14 +118,16 @@ func TestCase1DisplayDIOAbsorptionEndToEnd(t *testing.T) {
 			t.Fatalf("链上并入 note must cite %s:\n%s", tag, detail)
 		}
 	}
-	// Audit face: the absorbed_into token stays on the evidence index.
+	// Reader face: the family-absorption fact stays visible without exposing
+	// the internal absorbed_into key/family identity.
 	evidenceIntro, evidenceItems := runtimeTraceProjEvidenceBlockParts(evidence, true)
 	var evidenceText strings.Builder
 	evidenceText.WriteString(evidenceIntro)
 	for _, item := range evidenceItems {
 		evidenceText.WriteString("\n" + item.Label + " " + item.Text)
 	}
-	if !strings.Contains(evidenceText.String(), "absorbed_into=") {
-		t.Fatalf("evidence index must carry the absorbed_into audit token:\n%s", evidenceText.String())
+	if !strings.Contains(evidenceText.String(), "已并入同一根因族，避免重复计数") ||
+		strings.Contains(evidenceText.String(), "absorbed_into=") {
+		t.Fatalf("evidence index must carry reader-facing absorption without the raw key:\n%s", evidenceText.String())
 	}
 }

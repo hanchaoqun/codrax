@@ -563,7 +563,7 @@ func TestPTV5EvidenceIntroExplainsMergedNotation(t *testing.T) {
 		t.Fatalf("fixture must render the evidence index")
 	}
 	// C8PROSE-1 (§29.164, 2026-07-20). EVOLUTION RECORD: depth-0 半角 , → 全角 ，.
-	if !strings.Contains(evidence.Text, "E#(+N) 表示该行另合并了 N 条同类观测，合并明细见对应条目的审计 merged_ids。") {
+	if !strings.Contains(evidence.Text, "E#(+N) 表示该行另合并了 N 条同类观测，精确编号保留在诊断记录中。") {
 		t.Fatalf("merged notation must be explained in the intro:\n%s", evidence.Text)
 	}
 	// 突变形态: no merged evidence anywhere → intro byte-identical (no half-sentence).

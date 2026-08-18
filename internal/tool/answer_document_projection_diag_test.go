@@ -61,22 +61,20 @@ func TestDiagSameValueAuditTokensOnEvidenceIndex(t *testing.T) {
 		t.Fatalf("expected one index item, got %d", len(items))
 	}
 	text := items[0].Text
-	if !strings.Contains(text, "same_value_members=hmfs_discard-1234,com.example.app-42") {
-		t.Fatalf("audit face must carry the µs-tie member subjects:\n%s", text)
+	if !strings.Contains(text, "取最大值时并列的同值成员：hmfs_discard-1234、com.example.app-42") {
+		t.Fatalf("evidence explanation must carry the µs-tie member subjects:\n%s", text)
 	}
-	if !strings.Contains(text, "same_value_lines=5001-5040,6100-6180") {
-		t.Fatalf("audit face must carry the per-member line intervals:\n%s", text)
+	if !strings.Contains(text, "行 5001–5040、6100–6180") {
+		t.Fatalf("evidence explanation must carry the per-member line intervals:\n%s", text)
 	}
 	// The merged accounting family keeps its seat beside the new tokens.
-	if !strings.Contains(text, "merged_count=2") {
-		t.Fatalf("merged_count token must survive beside the tie tokens:\n%s", text)
+	if !strings.Contains(text, "合并 2 条同类观测") {
+		t.Fatalf("merged observation count must survive beside the tie detail:\n%s", text)
 	}
-	// Legend closure: the intro sentence teaches the same_value_* family.
-	if intro := runtimeTraceCausalProjectionEvidenceText(true); !strings.Contains(intro, "same_value_*=") {
-		t.Fatalf("zh audit-token legend must name the same_value_* family:\n%s", intro)
-	}
-	if intro := runtimeTraceCausalProjectionEvidenceText(false); !strings.Contains(intro, "same_value_*") {
-		t.Fatalf("EN audit-token legend must name the same_value_* family:\n%s", intro)
+	for _, raw := range []string{"same_value_members=", "same_value_lines=", "merged_count="} {
+		if strings.Contains(text, raw) {
+			t.Fatalf("visible evidence explanation leaked raw metadata %q:\n%s", raw, text)
+		}
 	}
 }
 
@@ -96,9 +94,9 @@ func TestDiagSameValueAuditWorstCasePrefix(t *testing.T) {
 	idx.add(node, true)
 	_, items := runtimeTraceProjEvidenceBlockParts(idx, true)
 	text := items[0].Text
-	if !strings.Contains(text, "same_value_members=com.example.superlongapp:render-4310789,hmfs_discard_worker_pool-9876543") ||
-		!strings.Contains(text, "same_value_lines=9999901-9999940,8888801-8888840") {
-		t.Fatalf("worst-case prefix must not push the tie tokens off the audit ceiling:\n%s", text)
+	if !strings.Contains(text, "com.example.superlongapp:render-4310789、hmfs_discard_worker_pool-9876543") ||
+		!strings.Contains(text, "9999901–9999940、8888801–8888840") {
+		t.Fatalf("worst-case prefix must not push the tie detail off the evidence ceiling:\n%s", text)
 	}
 }
 
@@ -114,8 +112,8 @@ func TestDiagSameValueAuditTokensAbsentWithoutTie(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected one index item, got %d", len(items))
 	}
-	if strings.Contains(items[0].Text, "same_value_") {
-		t.Fatalf("no tie → no same_value tokens:\n%s", items[0].Text)
+	if strings.Contains(items[0].Text, "取最大值时并列的同值成员") || strings.Contains(items[0].Text, "same_value_") {
+		t.Fatalf("no tie → no same-value disclosure:\n%s", items[0].Text)
 	}
 }
 

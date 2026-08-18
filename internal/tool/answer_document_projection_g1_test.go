@@ -140,15 +140,17 @@ func TestG1DisplayEndToEndOpendirShape(t *testing.T) {
 			t.Fatalf("链上并入 note must cite %s:\n%s", tag, detail)
 		}
 	}
-	// The evidence index (audit face) keeps the absorbed rows' family pointer.
+	// The evidence index keeps the absorption meaning, while the exact family
+	// pointer remains in diagnostics rather than the customer panel.
 	evidenceIntro, evidenceItems := runtimeTraceProjEvidenceBlockParts(evidence, true)
 	var evidenceText strings.Builder
 	evidenceText.WriteString(evidenceIntro)
 	for _, item := range evidenceItems {
 		evidenceText.WriteString("\n" + item.Label + " " + item.Text)
 	}
-	if !strings.Contains(evidenceText.String(), "absorbed_into=") {
-		t.Fatalf("evidence index must carry the absorbed_into audit token:\n%s", evidenceText.String())
+	if !strings.Contains(evidenceText.String(), "已并入同一根因族，避免重复计数") ||
+		strings.Contains(evidenceText.String(), "absorbed_into=") {
+		t.Fatalf("evidence index must carry reader-facing absorption without the raw key:\n%s", evidenceText.String())
 	}
 	// The fence renders the family row once; no absorbed peer row beside it.
 	fence := runtimeTraceProjTreeFence(model, true)

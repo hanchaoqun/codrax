@@ -895,7 +895,7 @@ func TestPTV6CSpecimen1KeyRowsAfter(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: trace 源坐标 →
 	// 每条证据在 trace 中的位置(行号或时间区间) (证据索引导语 结构⑥).
 	intro, items := runtimeTraceProjEvidenceBlockParts(evidence, true)
-	if !strings.Contains(intro, "本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。") {
+	if !strings.Contains(intro, "本索引给出每条证据在 trace 中的位置(行号或时间区间)、因果位置、排序与证据说明。") {
 		t.Fatalf("evidence intro must declare the coordinate caliber: %s", intro)
 	}
 	for _, item := range items {

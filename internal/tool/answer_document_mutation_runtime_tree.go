@@ -20391,9 +20391,9 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 	// depth-0 clause marks go full-width with it; token/backtick faces stay.
 	if evidence.hasMergedEvidence {
 		if zh {
-			intro += "E#(+N) 表示该行另合并了 N 条同类观测，合并明细见对应条目的审计 merged_ids。"
+			intro += "E#(+N) 表示该行另合并了 N 条同类观测，精确编号保留在诊断记录中。"
 		} else {
-			intro += " E#(+N) means the row absorbed N more same-kind observations; the merge detail lives in that entry's audit merged_ids."
+			intro += " E#(+N) means the row absorbed N more same-kind observations; exact IDs remain in diagnostic records."
 		}
 	}
 	if uniform && sharedFile != "" && len(entries) > 1 {
@@ -20459,27 +20459,28 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 			}
 		}
 		if locator == "" {
-			locator = "trace_query"
+			if zh {
+				locator = "Trace 观测(未提供单独坐标)"
+			} else {
+				locator = "Trace observation (no standalone coordinate provided)"
+			}
 		}
-		// F2 (§22 PTV7-SPN): part-boundary cut at the 96-rune audit ceiling —
+		// F2 (§22 PTV7-SPN): part-boundary cut at the 96-rune detail ceiling —
 		// see runtimeTraceCausalProjectionAuditCellText for the two-half
 		// rationale (the 72-rune mid-token cut lost confidence + predicate).
-		// RCM-2 D4: a family entry's ceiling widens — its member_count/
-		// member_fold_caliber tokens are load-bearing (the E# stands for N
-		// members; a cut here would hide the merge from the audit face).
+		// RCM-2 D4/B1105a: a family entry's ceiling widens — its member count and
+		// fold-caliber wording are load-bearing (the E# stands for N members).
 		auditCeiling := 96
 		if entry.FamilyAudit {
 			auditCeiling = 160
 		}
-		// SELF-ALL rider (2026-07-13): an absorbed chain-lane entry's
-		// absorbed_into=<family key> pointer is load-bearing (G1 第三面无损)
-		// and the family key now carries the typed proof-basis lane dimension —
-		// widen exactly like FamilyAudit so the pointer never drops.
+		// SELF-ALL/B1105a: an absorbed chain-lane entry's reader-facing
+		// no-double-counting disclosure is load-bearing; widen like FamilyAudit.
 		if entry.AbsorbedAudit {
 			auditCeiling = 160
 		}
-		// 修复轮 件5 (2026-07-14): the origin=system_supplement provenance
-		// token must never part-boundary-drop — widen like FamilyAudit.
+		// B1105a: deterministic-supplement provenance must never drop — widen
+		// like FamilyAudit.
 		if entry.SupplementAudit && auditCeiling < 160 {
 			auditCeiling = 160
 		}
@@ -20496,7 +20497,7 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		if entry.SameValueAudit {
 			auditCeiling = 280
 		}
-		audit := runtimeTraceCausalProjectionAuditCellText(entry.Details, auditCeiling)
+		detail := runtimeTraceCausalProjectionAuditCellText(entry.Details, auditCeiling)
 		// PTV6-C ruling C (#73, 用户裁定 2026-07-06): the former "完整定位见原始
 		// trace_query 记录" deflection tail is retired — when the display
 		// locator actually dropped the entry's line range (window-preferred
@@ -20510,9 +20511,9 @@ func runtimeTraceProjEvidenceBlockParts(evidence *runtimeTraceCausalProjectionEv
 		// half-width (等宽对齐).
 		var text string
 		if zh {
-			text = fmt.Sprintf("定位: %s; 审计: %s", locator, runtimeTraceCausalProjectionMarkdownSafe(audit))
+			text = fmt.Sprintf("定位: %s; 证据说明: %s", locator, runtimeTraceCausalProjectionMarkdownSafe(detail))
 		} else {
-			text = fmt.Sprintf("locator: %s; audit: %s", locator, runtimeTraceCausalProjectionMarkdownSafe(audit))
+			text = fmt.Sprintf("locator: %s; evidence: %s", locator, runtimeTraceCausalProjectionMarkdownSafe(detail))
 		}
 		text += runtimeTraceProjEvidenceCoordinateTail(entry, locator, grouped, zh)
 		items = append(items, types.AnswerBlockItem{

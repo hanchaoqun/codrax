@@ -127,9 +127,9 @@ func TestRNBSameSegmentTwinFoldSiblingChainFormZH(t *testing.T) {
 		t.Fatalf("行1 must merge the folded rank row's E# ([E#+E#]):\n%s", md)
 	}
 	// The rank row's E# stays reachable: its evidence-index entry carries the
-	// rank-lane audit detail; the lossless block carries the 根因排序 line.
-	if !strings.Contains(md, "rank=2") {
-		t.Fatalf("the folded rank row's audit detail must stay on the evidence index:\n%s", md)
+	// reader-facing rank detail; the lossless block carries the 根因排序 line.
+	if !strings.Contains(md, "根因排序第 2 位") || strings.Contains(md, "rank=2") {
+		t.Fatalf("the folded rank row's reader-facing detail must stay on the evidence index:\n%s", md)
 	}
 	if !strings.Contains(despaced, "已并入本行,数值不重复计入") {
 		t.Fatalf("the lossless block must carry the folded rank row's seat line:\n%s", md)

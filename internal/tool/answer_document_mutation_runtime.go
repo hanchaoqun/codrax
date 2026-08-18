@@ -5006,31 +5006,25 @@ type runtimeTraceCausalProjectionEvidenceEntry struct {
 	// audit 2026-07-03 §7: "…systrace:44" read as a real row); the raw record
 	// keeps the interval lines untouched.
 	SyntheticLine bool
-	// FamilyAudit (RCM-2 D4, 2026-07-08) marks an entry standing for an engine
-	// family merge: its member_count/member_fold_caliber audit tokens are
-	// load-bearing (the E# stands for N members), so the display's audit
+	// FamilyAudit marks an entry standing for an engine family merge: its
+	// reader-facing member count/fold caliber are load-bearing (the E# stands
+	// for N members), so the display's detail
 	// ceiling widens for exactly these entries instead of cutting the family
 	// accounting at the 96-rune boundary. Typed flag from the node, never a
 	// substring probe on the composed details.
 	FamilyAudit bool
-	// SameValueAudit (DIAG A1, §28.11-3(a), 2026-07-09) marks an entry whose
-	// node carries the µs-tie fold-member disclosure: its
-	// same_value_members/same_value_lines tokens are the double-attribution
-	// witness the customer verifies line ranges from, so the ceiling widens
+	// SameValueAudit marks an entry whose node carries the µs-tie fold-member
+	// disclosure: member names and line intervals are the double-attribution
+	// witness the customer verifies, so the ceiling widens
 	// exactly like FamilyAudit. Typed flag from the node.
 	SameValueAudit bool
-	// AbsorbedAudit (SELF-ALL rider, 2026-07-13) marks an absorbed chain-lane
-	// entry (G1 §27.2-G1): its absorbed_into=<family key> pointer token is
-	// load-bearing (信息守恒第三面 — the E# is only self-explaining through the
-	// family pointer), and the family key grew a typed proof-basis lane
-	// dimension (rootCauseFamilyFoldLaneKey "on_chain|<basis>"), so the 96-rune
-	// ceiling would part-boundary-drop the pointer. Widens exactly like
-	// FamilyAudit. Typed flag from the node.
+	// AbsorbedAudit marks an absorbed chain-lane entry. Its reader-facing
+	// no-double-counting disclosure is load-bearing; the exact family pointer
+	// remains in diagnostics. Widens like FamilyAudit. Typed flag from the node.
 	AbsorbedAudit bool
-	// SupplementAudit (修复轮 件5, 2026-07-14): the entry's record was
-	// minted by the SUPP-CORE system supplement — its
-	// origin=system_supplement provenance token is load-bearing on the
-	// audit face, so the ceiling widens exactly like FamilyAudit.
+	// SupplementAudit marks a record minted by the deterministic system
+	// supplement. Its reader-facing provenance sentence is load-bearing, so the
+	// ceiling widens exactly like FamilyAudit.
 	SupplementAudit bool
 }
 
@@ -5082,7 +5076,7 @@ func (idx *runtimeTraceCausalProjectionEvidenceIndex) add(node types.TraceCausal
 		ID:              id,
 		Ref:             strings.TrimSpace(ref),
 		Window:          window,
-		Details:         runtimeTraceCausalProjectionAuditDetail(node, zh, idx.flatChain),
+		Details:         runtimeTraceCausalProjectionEvidenceDisplayDetail(node, zh, idx.flatChain),
 		SyntheticLine:   node.Undrillable(),
 		FamilyAudit:     node.FamilyMemberCount > 1,
 		SameValueAudit:  len(node.SameValueMembers) > 0,
@@ -5097,29 +5091,17 @@ func runtimeTraceCausalProjectionEvidenceText(zh bool) string {
 	// record file is no longer a user-facing locator authority — the index
 	// itself carries the trace source coordinates (line/time spans of the
 	// user's persistent trace artifact).
-	// PTV8-RCR-B (UXA 域C #1 + #2 verify 修正稿, 2026-07-08). EVOLUTION
-	// RECORD: 「主表/短证据 ID/结构化审计摘要」内部口径词 → 自解释;审计
-	// token 七词得图例句闭环(token 本身零改动,§22.2.1 审计车道原文保留).
-	// RCM-2 D4 (2026-07-08). EVOLUTION RECORD: the audit-token legend sentence
-	// gains the member_* family tokens (引 §24.10/§24.22 — family entries now
-	// carry member_count/member_fold_caliber; token 本身零改动).
-	// DIAG A1 (§28.11-3(a), 2026-07-09). EVOLUTION RECORD: the audit-token
-	// legend sentence gains the same_value_* pair — a cross-thread take-MAX
-	// fold whose members tie the published MAX to the µs names those members
-	// and their line intervals (token 本身零改动,§22.2.1 审计车道原文保留).
-	// WF-2 件④ (2026-07-14). EVOLUTION RECORD: the sentence gains the
-	// origin=system_supplement token (SUPP-CORE 修复轮 件5 provenance face) —
-	// the member_*/same_value_* extension precedent; token 本身零改动.
-	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): depth-0 clause marks go
-	// full-width per the C8 regime; the audit k=v token faces, their 、-joined
-	// roster and every parenthetical interior keep half-width byte-identically
-	// (共享词面 token 单点纪律 — the tokens mirror the trace_query wire).
+	// B1105a (2026-08-18). EVOLUTION RECORD: the customer-visible evidence
+	// index no longer publishes trace_query wire enums (`tier=primary`,
+	// `causality=on_wakeup_chain`, `origin=system_supplement`, ...). Those exact
+	// values remain byte-preserved in the observation ledger and diagnostic
+	// records; this panel is a typed-to-reader projection of the same facts.
+	// This is a deterministic display change only: it cannot admit, rank,
+	// suppress, rewrite, or elect a causal row, and it never scans model prose.
 	if zh {
-		return "正文用 E1、E2 等编号引用证据；本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
-			"审计字段为 trace_query 原文 token，便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段)、origin=记录出处(system_supplement=成文前确定性补采所得,非模型查询)；其余字段同为原文 token。"
+		return "正文用 E1、E2 等编号引用证据；本索引给出每条证据在 trace 中的位置(行号或时间区间)、因果位置、排序与证据说明。底层结构化值保留在诊断记录中，此处仅展示面向读者的含义。"
 	}
-	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's location in the trace (line or time span) and its audit fields. " +
-		"Audit fields are raw trace_query tokens kept for cross-checking: tier = evidence tier, causality = causal position, rank = root-cause rank, confidence = confidence, predicate = judgment kind, span = span name, merged_* = merge detail, member_* = same-thread family-merge detail, same_value_* = members of a cross-thread take-MAX fold whose values tie to the µs, with each member's own line interval (to check whether they are one segment), origin = record provenance (system_supplement = collected by the deterministic pre-report supplement, not a model query); any other field is likewise a raw token."
+	return "The answer cites evidence by the E1/E2 numbers; this index gives each entry's trace location (line or time span), causal position, rank, and evidence explanation. Exact structured values remain in diagnostic records; this panel shows only their reader-facing meaning."
 }
 
 func runtimeTraceCausalProjectionPriorityCell(node types.TraceCausalProjectionNode, zh bool) string {
@@ -5660,6 +5642,134 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 			return "结构化 trace_query 观测"
 		}
 		return "structured trace_query observation"
+	}
+	return strings.Join(parts, " · ")
+}
+
+// runtimeTraceCausalProjectionEvidenceDisplayDetail is the sole reader-facing
+// projection of evidence-index metadata. runtimeTraceCausalProjectionAuditDetail
+// above deliberately remains the lossless wire-token form for diagnostics and
+// regression pins. Keeping the two functions separate prevents presentation
+// cleanup from weakening typed authority or teaching internal enums as answer
+// vocabulary.
+func runtimeTraceCausalProjectionEvidenceDisplayDetail(node types.TraceCausalProjectionNode, zh bool, flatChain bool) string {
+	parts := make([]string, 0, 10)
+	position := runtimeTraceProjCausalPositionLayerCell(node, zh, flatChain)
+	if position != "" {
+		if zh {
+			parts = append(parts, "因果位置："+position)
+		} else {
+			parts = append(parts, "causal position: "+position)
+		}
+	}
+	if node.Rank > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("根因排序第 %d 位", node.Rank))
+		} else {
+			parts = append(parts, fmt.Sprintf("root-cause rank %d", node.Rank))
+		}
+	}
+	if node.Confidence > 0 {
+		level := runtimeTraceProjConfidenceTier(node.Confidence, zh)
+		if zh {
+			parts = append(parts, fmt.Sprintf("置信度：%s(%.2f)", level, node.Confidence))
+		} else {
+			parts = append(parts, fmt.Sprintf("confidence: %s (%.2f)", level, node.Confidence))
+		}
+	}
+
+	// Show a cause/type word only when the closed display lexicon recognizes a
+	// typed token. Unknown wire values stay available in diagnostics but never
+	// leak into this customer-facing panel by fallback.
+	for _, token := range []string{node.TypeToken, node.SemanticClass, node.Object, node.Predicate} {
+		label := strings.TrimSpace(TraceRootCauseTypeDisplayLabel(token, zh))
+		if label == "" || strings.EqualFold(label, strings.TrimSpace(token)) {
+			continue
+		}
+		if zh {
+			parts = append(parts, "证据类型："+label)
+		} else {
+			parts = append(parts, "evidence type: "+label)
+		}
+		break
+	}
+	if node.SystemSupplement {
+		if zh {
+			parts = append(parts, "由系统在成文前确定性补采")
+		} else {
+			parts = append(parts, "collected by the deterministic pre-report supplement")
+		}
+	}
+	if node.FamilyMemberCount > 1 {
+		if caliber, _, ok := runtimeTraceProjFamilyCaliberWord(node, zh); ok {
+			parts = append(parts, caliber)
+		} else if zh {
+			parts = append(parts, fmt.Sprintf("合并 %d 个同线程成员", node.FamilyMemberCount))
+		} else {
+			parts = append(parts, fmt.Sprintf("merged %d same-thread members", node.FamilyMemberCount))
+		}
+	}
+	if len(node.SameValueMembers) > 0 {
+		members := make([]string, 0, len(node.SameValueMembers))
+		lines := make([]string, 0, len(node.SameValueMembers))
+		for _, member := range node.SameValueMembers {
+			members = append(members, member.Subject)
+			lines = append(lines, fmt.Sprintf("%d–%d", member.LineStart, member.LineEnd))
+		}
+		if zh {
+			parts = append(parts, "取最大值时并列的同值成员："+strings.Join(members, "、")+"(行 "+strings.Join(lines, "、")+")")
+		} else {
+			parts = append(parts, "equal-valued members in the maximum fold: "+strings.Join(members, ", ")+" (lines "+strings.Join(lines, ", ")+")")
+		}
+	}
+	if node.AbsorbedByRankFamily {
+		if zh {
+			parts = append(parts, "已并入同一根因族，避免重复计数")
+		} else {
+			parts = append(parts, "folded into the same cause family to avoid double counting")
+		}
+	}
+	if name := strings.TrimSpace(node.SpanName); name != "" {
+		if zh {
+			parts = append(parts, "span 名称："+name)
+		} else {
+			parts = append(parts, "span name: "+name)
+		}
+	}
+	if node.MergedCount > 1 {
+		if zh {
+			part := fmt.Sprintf("合并 %d 条同类观测", node.MergedCount)
+			if node.MergedValuelessCount > 0 {
+				part += fmt.Sprintf("，其中 %d 条未提供时长", node.MergedValuelessCount)
+			}
+			parts = append(parts, part)
+		} else {
+			part := fmt.Sprintf("merged %d same-kind observations", node.MergedCount)
+			if node.MergedValuelessCount > 0 {
+				part += fmt.Sprintf(", including %d without a duration", node.MergedValuelessCount)
+			}
+			parts = append(parts, part)
+		}
+	}
+	if node.DuplicatePublications > 1 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("同一测量重复发布 %d 次，已去重", node.DuplicatePublications))
+		} else {
+			parts = append(parts, fmt.Sprintf("the same measurement was published %d times and deduplicated", node.DuplicatePublications))
+		}
+	}
+	if len(node.MergedEvidenceIDs) > 0 {
+		if zh {
+			parts = append(parts, fmt.Sprintf("另合并 %d 条同类证据(精确编号保留在诊断记录中)", len(node.MergedEvidenceIDs)))
+		} else {
+			parts = append(parts, fmt.Sprintf("merged %d additional same-kind evidence records (exact IDs remain in diagnostics)", len(node.MergedEvidenceIDs)))
+		}
+	}
+	if len(parts) == 0 {
+		if zh {
+			return "结构化 Trace 观测"
+		}
+		return "structured Trace observation"
 	}
 	return strings.Join(parts, " · ")
 }

@@ -156,7 +156,7 @@ func TestCov4AccountEvidenceIDClosesThroughSharedIndex(t *testing.T) {
 	}
 	var accountTag string
 	for _, item := range evidence.Items {
-		if strings.Contains(item.Text, "predicate=target_window_states") {
+		if strings.Contains(item.Text, "行 31–32") {
 			accountTag = item.Label
 			break
 		}

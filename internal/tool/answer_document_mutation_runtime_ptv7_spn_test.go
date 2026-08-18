@@ -220,8 +220,13 @@ func TestPTV7SpnEvidenceIndexUsesPartBoundaryCut(t *testing.T) {
 	if strings.Contains(text, "confidenc…") {
 		t.Fatalf("evidence index leaked the mid-token cut: %q", text)
 	}
-	if !strings.Contains(text, "confidence=0.75") {
-		t.Fatalf("evidence index must keep the confidence part whole: %q", text)
+	if !strings.Contains(text, "置信度：中(0.75)") {
+		t.Fatalf("evidence index must keep the reader-facing confidence part whole: %q", text)
+	}
+	for _, raw := range []string{"tier=", "causality=", "predicate="} {
+		if strings.Contains(text, raw) {
+			t.Fatalf("evidence index must not expose raw metadata %q: %q", raw, text)
+		}
 	}
 }
 

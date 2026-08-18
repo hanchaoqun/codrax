@@ -507,8 +507,13 @@ func TestUXAEvidenceIndexGroupedLocatorForms(t *testing.T) {
 	if !strings.Contains(intro, "全部证据位于 `record_trace.sys.ftrace`，各条只标注行号或时间区间。") {
 		t.Fatalf("grouped intro must declare the artifact once: %q", intro)
 	}
-	if !strings.Contains(intro, "tier=证据层级、causality=因果位置、rank=根因排序") {
-		t.Fatalf("audit-token legend sentence missing from the intro: %q", intro)
+	if !strings.Contains(intro, "因果位置、排序与证据说明") {
+		t.Fatalf("reader-facing evidence explanation missing from the intro: %q", intro)
+	}
+	for _, raw := range []string{"tier=", "causality=", "rank="} {
+		if strings.Contains(intro, raw) {
+			t.Fatalf("visible evidence intro leaked raw metadata %q: %q", raw, intro)
+		}
 	}
 	found := false
 	for _, item := range items {

@@ -35863,6 +35863,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1094 B1105a：Trace typed 元数据与客户可见语言分层（2026-08-18）
+
+1. 客户产物出现「归因为 `bounded_window_candidate`」。这是 `trace_causal_claim_caliber`
+   的隐藏 JSON enum，含义是「结论仅限所选窗口：这是优先验证的候选方向，尚未证明为掉帧或截止期
+   原因」。它是模型声明因果强度、供 schema 与 typed 证据上限校验的机器载体，不能删除、改名或翻译
+   wire 值，但绝不是客户词汇。
+2. 冷读区分出两条通道。模型通道当前已有终局 reader card、JSON-only 教学及枚举不可见负 pin；仍可能
+   有模型抄写波动，但不得扫描、替换或硬拒模型正文。另有一条确定的系统 GAP：系统生成的证据索引仍把
+   `tier=primary`、`causality=on_wakeup_chain`、`predicate=*`、
+   `origin=system_supplement`、`member_*`、`same_value_*` 直接展示给客户。
+3. `B1105a-TYPEDREADERDISPLAY1` 建立双面分层：`runtimeTraceCausalProjectionAuditDetail`
+   继续保留完整 raw token，只供诊断、回放和结构 pin；客户可见索引改读唯一 typed→reader 投影，输出
+   「因果位置：链上」「根因排序第 N 位」「置信度：高/中/低」「由系统在成文前确定性补采」、同线程
+   合并口径、同值成员与行区间等自解释文字。未进入闭集 display lexicon 的未知 wire 值在可见面省略，
+   底层诊断记录仍零损保留。
+4. 合并、去重、跨线程取 MAX 并列、补采出处、根因族吸收等信息没有删除，只从 `key=value` 转成可读
+   句子；原值仍在 observation ledger/诊断工件。因此不改变因果席准入、排序、补采、窗内可消除量、
+   引用坐标或完整性复算。
+5. 回归同时锁定平铺链不冒充链上、完整唤醒链保留链上语义，且 span 名、序数、置信度、补采来源、
+   family 口径、同值成员/行区间均不丢。可见面负 pin 拒绝 raw `tier/causality/predicate/origin/member/
+   same_value` 词族；这些 pin 只检查系统自有渲染函数，不检查模型原文。
+6. 本批不改 causal-claim enum、动态 schema、pre-emit 强度校验、Trace 席位选举或模型结论。显式时间窗、
+   因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则可消除双轴均保持，邻近/背景仍仅作
+   额外排查方向。
+
+状态：
+
+`B1105-TYPEDREADERLANGUAGEPROJECTION1=partial/system-visible-lane-implemented+full-relevant-tests-pass`；
+`trace-wire-values=diagnostic-preserved`；
+`model-prose-scan/rewrite=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

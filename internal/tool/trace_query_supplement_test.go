@@ -1643,21 +1643,24 @@ func TestTraceSupplementAuditOriginToken(t *testing.T) {
 		}
 		return b.String()
 	}
-	// Supplemented run: token present.
+	// Supplemented run: provenance meaning is present in reader language; the
+	// raw wire token remains diagnostic-only.
 	ctx := suppCoreContext(t)
 	suppCoreH2FlatShape(t, ctx)
 	if out := RunTraceQuerySystemSupplement(ctx); len(out.Executed) == 0 {
 		t.Fatalf("supplement must execute: %+v", out)
 	}
-	if detail := renderDetail(ctx); !strings.Contains(detail, "origin=system_supplement") {
-		t.Fatalf("supplemented rows must carry the origin audit token:\n%s", detail)
+	if detail := renderDetail(ctx); !strings.Contains(detail, "由系统在成文前确定性补采") ||
+		strings.Contains(detail, "origin=system_supplement") {
+		t.Fatalf("supplemented rows must carry reader-facing provenance without the raw token:\n%s", detail)
 	}
 	// Model-dispatched run: token absent everywhere.
 	ctrl := suppCoreContext(t)
 	suppCoreModelCall(t, ctrl, `{"view":"root_cause_rank","pid":200,"time_start":3.0,"time_end":3.2}`)
 	suppCoreModelCall(t, ctrl, `{"view":"critical_blocking_calls","pid":200,"time_start":3.0,"time_end":3.2}`)
-	if detail := renderDetail(ctrl); strings.Contains(detail, "origin=system_supplement") {
-		t.Fatalf("model-minted rows must not carry the origin audit token:\n%s", detail)
+	if detail := renderDetail(ctrl); strings.Contains(detail, "由系统在成文前确定性补采") ||
+		strings.Contains(detail, "origin=system_supplement") {
+		t.Fatalf("model-minted rows must not carry system-supplement provenance:\n%s", detail)
 	}
 }
 

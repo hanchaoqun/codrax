@@ -529,13 +529,14 @@ func TestRCM2EvidenceIndexFamilyAuditTokens(t *testing.T) {
 	for _, item := range evidence.Items {
 		joined += "\n" + item.Text
 	}
-	for _, want := range []string{
-		"member_count=14",
-		"member_fold_caliber=sum_disjoint",
-		"member_*=同线程家族合并明细",
-	} {
+	for _, want := range []string{"合计(共14段,同线程)"} {
 		if !strings.Contains(joined, want) {
-			t.Fatalf("evidence index must carry %q:\n%s", want, joined)
+			t.Fatalf("evidence index must carry reader-facing family caliber %q:\n%s", want, joined)
+		}
+	}
+	for _, raw := range []string{"member_count=", "member_fold_caliber=", "member_*="} {
+		if strings.Contains(joined, raw) {
+			t.Fatalf("evidence index must not expose raw family metadata %q:\n%s", raw, joined)
 		}
 	}
 }

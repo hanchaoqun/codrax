@@ -78,30 +78,24 @@ func TestC8Prose1DetailAndEvidenceIntroRegime(t *testing.T) {
 	}
 }
 
-// Face H: the evidence-index intro sentences — full-width top-level joints,
-// half-width audit k=v token roster and parenthetical interiors untouched
-// (共享词面 token 单点纪律: the tokens mirror the trace_query wire bytes).
+// Face H: the evidence-index intro is reader-facing; exact wire values remain
+// in diagnostic records rather than being taught as customer vocabulary.
 func TestC8Prose1EvidenceIndexIntroRegime(t *testing.T) {
 	got := runtimeTraceCausalProjectionEvidenceText(true)
-	want := "正文用 E1、E2 等编号引用证据；本索引给出每条证据在 trace 中的位置(行号或时间区间)与审计字段。" +
-		"审计字段为 trace_query 原文 token，便于回溯核对:tier=证据层级、causality=因果位置、rank=根因排序、confidence=置信度、predicate=判定类型、span=span 名、merged_*=合并明细、member_*=同线程家族合并明细、same_value_*=跨线程取最大折叠中同值到微秒的成员及各自行区间(供核对是否同段)、origin=记录出处(system_supplement=成文前确定性补采所得,非模型查询)；其余字段同为原文 token。"
+	want := "正文用 E1、E2 等编号引用证据；本索引给出每条证据在 trace 中的位置(行号或时间区间)、因果位置、排序与证据说明。底层结构化值保留在诊断记录中，此处仅展示面向读者的含义。"
 	if got != want {
 		t.Fatalf("face H: evidence intro must speak the C8 regime:\n got %q\nwant %q", got, want)
 	}
 	if n := disphyg3DepthZeroHalfClauseMarks(got); n != 0 {
 		t.Fatalf("face H: %d depth-0 half-width clause marks survived: %q", n, got)
 	}
-	// Parenthetical interior keeps the wire-shared half-width comma.
-	if !strings.Contains(got, "(system_supplement=成文前确定性补采所得,非模型查询)") {
-		t.Fatalf("face H: the parenthetical token interior must keep half-width: %q", got)
-	}
-	for _, banned := range []string{"证据;本索引", "token,便于", ");其余"} {
+	for _, banned := range []string{"证据;本索引", "tier=", "causality=", "system_supplement"} {
 		if strings.Contains(got, banned) {
 			t.Fatalf("face H: legacy mixed-mark bytes %q must be gone", banned)
 		}
 	}
 	if en := runtimeTraceCausalProjectionEvidenceText(false); !strings.HasPrefix(en, "The answer cites evidence by the E1/E2 numbers; ") ||
-		!strings.Contains(en, "any other field is likewise a raw token.") {
+		!strings.Contains(en, "Exact structured values remain in diagnostic records") {
 		t.Fatalf("face H: EN intro must keep its native form: %q", en)
 	}
 }

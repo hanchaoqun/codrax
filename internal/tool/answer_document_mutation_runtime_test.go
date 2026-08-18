@@ -951,7 +951,7 @@ func TestApplyAndPersistMutation_TraceCausalProjectionSleepDrilldownAndTriad(t *
 	}
 	// gap e: the undrillable sleep is explicitly flagged with the typed reason
 	// inline (self row ⛔) and stays auditable via the evidence locator.
-	for _, want := range []string{"⊘链止", "missing_wakeup", "lines=88-96"} {
+	for _, want := range []string{"⊘链止", "窗内未找到匹配唤醒记录", "行 88–96"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("undrillable sleep must render (gap e): missing %q:\n%s", want, rendered)
 		}
