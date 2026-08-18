@@ -36150,6 +36150,48 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1025 r656：调用体前沿生产闭环；Trace 终稿缺角色绑定并越权解释“零原因”（2026-08-17）
+
+1. 在 `main@6c7f2538b` 重建后严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，人工为代码图
+   pass、Trace fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r656_20260817_manual_audit.md`。
+2. B1032 获生产正证。模型先发 `o.busCtx -> BuildAgentContext` 等 exact caller argument-flow，导航器随后
+   给出 receiving callable 精确行窗，模型读取并发出 `BuildAgentContext -> bus.Mutable.Objective` 真 call。
+   终图保留四阶段 pipeline，并将 `BusContext -> BuildAgentContext -> Mutable` 接成同一分量；图上关系使用
+   客户语言。B1033 反向分支因本轮先有 caller handoff 而未触发，继续等待异构生产证据。成文从 r655
+   419s/3 reject 降至 265s/2 reject；两次拒绝均在剔除 retarget/unsupported relation，不能为降耗放杆。
+3. Trace 精确主窗、四次查询、系统补采、worker-200 链上第一席 8.300ms、waker/wakee priority/class 与
+   跨 CPU 边全部存在。失败首先来自 Analyzer 本轮把“主要阻塞原因”分类为 `bounded_fact_set`；有限
+   scope 提示因而要求不用 root-cause/rank 语言，模型终稿没有形成主因句。相同输入在 r655 成功进入
+   causal diagnosis，故先按模型波动记录，不用请求/答案关键词硬门把它拟合成固定 scope。
+4. 新确认 `B1034-TRACEWAKEUPROLECAPSULE1`（P1）：Finalizer 紧凑主值回顾只列
+   `prio=20/ohos_cfs` 与 `prio=52/ohos_rt`，没有绑定 waker=worker-200、wakee=app-100。原始 typed
+   query/ledger 的角色是准确的，但最终上下文丢失 role join，模型遂把 app 写成 20/CFS、worker 写成
+   52/RT。最优形是从最终消费的 exact `wakeup_chain_edge` typed record 构造有界角色胶囊，逐值附
+   waker/wakee、priority/class、CPU 与 relation caliber；缺一项就不发该项，不从 prose 猜值。
+5. 新确认 `B1035-WAITABSENCEMECHANISMBOUNDARY1`（P1）：模型把
+   `target_window_wait_occurrences=0` / 无 blocked_reason row 解释成“协作式 sleep/nanosleep”。这超出
+   typed absence 权限。零行只证明该 roster 未捕获原因，不能区分 voluntary/cooperative、syscall、锁、
+   dependency 或其他 S-state 机制。应在通用 Trace 证据口径中给出负边界；只有独立 typed syscall/span/
+   reason/dependency 才能命名机制。该提示不修改正文、不建立枚举值→结论硬映射。
+6. 确定性系统注仍显示 exact worker 排名，但没有替模型补写主因，符合结论权红线。下一批只增强模型
+   输入的角色绑定与 absence caliber；显式窗因果投影、自动补齐、链上-only 主因、实际占用/业务线索与
+   规则可消除量双轴均不改，邻近/背景继续仅作排查支撑。
+7. 活跃流没有畸形 JSON、旧稿恢复、空答案或固定 4ms 降级；只要字节仍活跃，就继续等待完整结构。
+
+状态：
+
+`r656=runner-1/2; human-trace-fail; human-diagram-pass`；
+`B1032-CALLEEBODYRELATIONFRONTIER1=production-positive-r656`；
+`B1033-CALLEEBODYREVERSECALLFRONTIER1=implemented+pinned/pending-production-trigger`；
+`B1034-TRACEWAKEUPROLECAPSULE1=confirmed-P1/planned`；
+`B1035-WAITABSENCEMECHANISMBOUNDARY1=confirmed-P1/planned`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r656`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
