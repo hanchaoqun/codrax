@@ -3505,6 +3505,8 @@ func (m *MutableState) FinalizerTypedRelationRecipeAnchors() []DiagramEdgeAnchor
 // SetFinalizerTypedRelationSemanticHandoffAnchors stores exact non-call
 // registered-export handoffs delivered in the current finalizer prompt. The
 // producer must already have joined both endpoints from typed support rows.
+// A model may own the same receipt in a standalone carrier or on a visible
+// Mermaid binding edge; it never turns the handoff into invocation evidence.
 func (m *MutableState) SetFinalizerTypedRelationSemanticHandoffAnchors(in []DiagramEdgeAnchor) {
 	if m == nil {
 		return
@@ -3515,7 +3517,7 @@ func (m *MutableState) SetFinalizerTypedRelationSemanticHandoffAnchors(in []Diag
 }
 
 // FinalizerTypedRelationSemanticHandoffAnchors returns a defensive copy of
-// the exact standalone handoff receipt for the current finalizer dispatch.
+// the exact handoff receipt for the current finalizer dispatch.
 func (m *MutableState) FinalizerTypedRelationSemanticHandoffAnchors() []DiagramEdgeAnchor {
 	if m == nil {
 		return nil

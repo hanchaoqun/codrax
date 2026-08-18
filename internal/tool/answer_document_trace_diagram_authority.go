@@ -65,6 +65,11 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 		// gate-eligible provider rows; it never adds or rewrites a visible edge.
 		evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
 		mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
+		if ctx != nil && ctx.Mutable != nil {
+			mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(
+				doc, mismatches, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors(),
+			)
+		}
 		if len(mismatches) == 0 {
 			mismatches = DiagramRequestedStagePrecedenceSpineMismatches(doc, view, stagePrecedence)
 		}
@@ -79,6 +84,11 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	}
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(&copyDoc, ctx, evidence)
 	mismatches := DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence, stagePrecedence)
+	if ctx != nil && ctx.Mutable != nil {
+		mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(
+			&copyDoc, mismatches, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors(),
+		)
+	}
 	if len(mismatches) == 0 {
 		mismatches = DiagramRequestedStagePrecedenceSpineMismatches(&copyDoc, view, stagePrecedence)
 	}

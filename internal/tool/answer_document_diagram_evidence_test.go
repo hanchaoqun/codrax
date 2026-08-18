@@ -3200,7 +3200,7 @@ func TestPreCheckStandaloneCallChainSemanticHandoffRequiresSelectedExactBridge(t
 	if len(hints) != 1 || hints[0].HardSignal != preEmitHardSignalTypedCallEdgeEvidence ||
 		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneSemanticHandoffMissing}) ||
 		!strings.Contains(hints[0].ExpectedShape, "registration_edge") ||
-		!strings.Contains(hints[0].ExpectedShape, "no Mermaid block or arrow is required") {
+		!strings.Contains(hints[0].ExpectedShape, "no Mermaid block is required") {
 		t.Fatalf("selected principal endpoints did not require their exact typed handoff: %+v", hints)
 	}
 
@@ -3248,6 +3248,67 @@ func TestPreCheckStandaloneCallChainSemanticHandoffPassesThroughSharedEvidenceGa
 	if hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, pctx); len(hints) != 1 ||
 		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneSemanticHandoffMissing}) {
 		t.Fatalf("collapsed endpoint nodes must not satisfy the exact handoff receipt: %+v", hints)
+	}
+}
+
+func TestVisibleRegisteredExportHandoffUsesExactDispatchReceipt(t *testing.T) {
+	mut := types.NewMutableState("trace a cross-language binding")
+	handoff := types.DiagramEdgeAnchor{
+		FromNode: "native", ToNode: "wrapper",
+		FromIdentity: "_fastlex.tokenize_bytes", ToIdentity: "py::tokenize_bytes",
+		RelationKind: types.DiagramRelRegister,
+	}
+	mut.SetFinalizerTypedRelationSemanticHandoffAnchors([]types.DiagramEdgeAnchor{handoff})
+	ctx := &types.BusContext{Mutable: mut}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "binding", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant native as Native export",
+			"  participant wrapper as Rust wrapper",
+			"  native->>wrapper: registered binding",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{handoff},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("exact visible semantic handoff receipt was rejected pre-emit: %+v", hints)
+	}
+	if got := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, doc, view, nil); len(got) != 0 {
+		t.Fatalf("post-finalizer validator disagreed with exact visible semantic handoff receipt: %+v", got)
+	}
+
+	// Direction remains owned by the exact typed receipt. Reversing both the
+	// visible edge and its model-authored metadata must not pass.
+	reversed := *doc
+	reversed.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+	reversed.Blocks[0].Diagram = &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+		"sequenceDiagram",
+		"  participant native as Native export",
+		"  participant wrapper as Rust wrapper",
+		"  wrapper->>native: registered binding",
+	}, "\n")}
+	reversed.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "wrapper", ToNode: "native",
+		FromIdentity: handoff.ToIdentity, ToIdentity: handoff.FromIdentity,
+		RelationKind: types.DiagramRelRegister,
+	}}
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(&reversed, view, newPreEmitCheckContext(ctx)); len(hints) == 0 {
+		t.Fatal("reversed visible binding escaped the exact receipt authority")
+	}
+
+	// A receipt is never a metadata-only graph. Removing the body edge while
+	// keeping its anchor must retain the ordinary hidden-anchor rejection.
+	hidden := *doc
+	hidden.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+	hidden.Blocks[0].Diagram = &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+		"sequenceDiagram",
+		"  participant native as Native export",
+		"  participant wrapper as Rust wrapper",
+	}, "\n")}
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(&hidden, view, newPreEmitCheckContext(ctx)); len(hints) == 0 {
+		t.Fatal("semantic handoff receipt authorized a hidden metadata-only edge")
 	}
 }
 

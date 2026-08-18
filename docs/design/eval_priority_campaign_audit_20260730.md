@@ -36607,6 +36607,36 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1037 B1044：跨语言注册/绑定关系从隐藏 metadata 升为可见一等边（2026-08-18）
+
+1. r663 深审确认合同自冲突：通用图证据门允许 `relation_kind=register` 的非 call 边，typed handoff capsule
+   也已铸出 exact `_fastlex.tokenize_bytes -> py::tokenize_bytes` receipt；但同一 finalizer 提示又写死该
+   handoff“只能 Note、永远不能画 Mermaid arrow”。模型最终只能提交隐藏 list anchor 与跨节点 Note，用户看到的
+   sequence graph 仍是两个断开的调用分量。
+2. 根修按关系类型而非 Python/Rust 硬编码。任何语言只要已有 citable call + registration + unique callable-owner
+   join 形成 dispatch-scoped semantic handoff，模型即可把它画成一条同向、可见、业务词标注的
+   `relation_kind=register` 边；call/callback/data-flow/return/execution-order 权限均不会由该 receipt 派生。
+   Java/C/C++/Cangjie/ArkTS/Rust/Python 等走同一枚举与端点验证，不增加语言分支。
+3. Copy-ready sequence/flow skeleton 现把 exact handoff 同时放入可见 body 和完整 `edge_anchors_json`；组件式
+   composition recipe 也给出同一 binding edge owner，不再教模型用 Note 隐藏关系。可见 label 仍由模型按业务
+   语言编写，系统不发射最终图、不决定是否选图，也不替模型下结论。
+4. Pre-emit 与 post-finalizer 共用 exact receipt 豁免：只有模型提交的可见边、distinct nodes、同向 exact
+   endpoint identities、`relation_kind=register` 全部匹配才接受。反向、collapsed self-edge、无 receipt、无 body
+   的 metadata-only 图以及普通注册/调用边继续走原 evidence gate 并 fail-closed；receipt 绝不冒充 source call。
+5. 新 pin 覆盖 copy-ready body/anchor parity、sequence register 能力矩阵、pre/post 同判、反向拒绝和隐藏 anchor
+   拒绝。完整 `internal/agent`、`internal/tool`、`internal/types`、`internal/orchestrator` 套件与构建均通过。
+6. 本批不扫描请求、模型推理、图 label 或最终 prose，不改写模型答案。Trace 显式窗、因果投影、自动补齐、
+   链上-only 主因、背景 support-only 与实际占时/规则可消双轴均不在改动面。
+
+状态：
+
+`B1044-VISIBLENONCALLHANDOFF1=implemented/language-neutral-register-edge+exact-receipt+pinned/full-core-pass`；
+`diagram-call-vs-register-authority=preserved`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

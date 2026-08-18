@@ -58,6 +58,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -4295,6 +4296,13 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, pctx.ctx, evidence)
 	stagePrecedence := diagramVerifiedReadModeStagePrecedence(pctx.ctx, view)
 	mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
+	var semanticHandoffs []types.DiagramEdgeAnchor
+	if pctx.ctx != nil && pctx.ctx.Mutable != nil {
+		semanticHandoffs = pctx.ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()
+	}
+	mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(
+		doc, mismatches, semanticHandoffs,
+	)
 	if len(mismatches) == 0 {
 		mismatches = DiagramRequestedStagePrecedenceSpineMismatches(doc, view, stagePrecedence)
 	}
@@ -4464,6 +4472,61 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	return hints
 }
 
+// diagramMismatchesWithoutExactSemanticHandoffReceipts accepts only the
+// model-authored visible registration edge that exactly matches a typed
+// registered-export handoff delivered in this finalizer dispatch. The receipt
+// was derived from citable call + registration + callable-owner evidence; it
+// is not a source-level call. Missing/reversed/collapsed anchors and hidden
+// metadata continue through the ordinary validator unchanged.
+func diagramMismatchesWithoutExactSemanticHandoffReceipts(
+	doc *types.AnswerDocumentV2,
+	mismatches []DiagramCallEdgeEvidenceMismatch,
+	receipts []types.DiagramEdgeAnchor,
+) []DiagramCallEdgeEvidenceMismatch {
+	if doc == nil || len(mismatches) == 0 || len(receipts) == 0 {
+		return mismatches
+	}
+	owned := make(map[string]bool)
+	for _, block := range doc.Blocks {
+		if block.Diagram == nil || block.Kind != types.BlockDiagram {
+			continue
+		}
+		visible := make(map[string]bool)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		}
+		for _, anchor := range block.EdgeAnchors {
+			if !visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				continue
+			}
+			for _, receipt := range receipts {
+				if standaloneSemanticHandoffAnchorMatches(anchor, receipt) {
+					owned[strings.TrimSpace(block.ID)+"\x00"+
+						diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)+"\x00"+
+						strings.TrimSpace(anchor.FromIdentity)+"\x00"+strings.TrimSpace(anchor.ToIdentity)] = true
+				}
+			}
+		}
+	}
+	if len(owned) == 0 {
+		return mismatches
+	}
+	kept := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		if mismatch.Issue == diagramRegistrationEdgeIssueNoEvidence ||
+			(mismatch.Issue == diagramSemanticRelationIssueNoEvidence && mismatch.Relation == types.DiagramRelRegister) {
+			key := strings.TrimSpace(mismatch.BlockID) + "\x00" +
+				diagramEvidenceEdgeKey(mismatch.FromNode, mismatch.ToNode) + "\x00" +
+				strings.TrimSpace(mismatch.FromSymbol) + "\x00" + strings.TrimSpace(mismatch.ToSymbol)
+			if owned[key] {
+				continue
+			}
+		}
+		kept = append(kept, mismatch)
+	}
+	return kept
+}
+
 const (
 	diagramStandalonePrincipalPathMissingOwner = "standalone_principal_path_missing_relation_owner"
 	diagramStandaloneRelationClaimHasNoAnchor  = "standalone_relation_claim_has_no_anchor"
@@ -4603,7 +4666,7 @@ func preCheckStandaloneCallChainSemanticHandoffCoverage(
 			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
 			ExpectedShape: fmt.Sprintf(
-				"block=%q already selects both endpoints of exact registered-export handoff(s) [%s]. Keep the selected principal relation graph honest by adding claim_form=registration_edge and copying each matching standalone_edge_anchor_json from the typed authoring capsule. This is a non-call binding row on the existing ordered_list/bullet_list/table; no Mermaid block or arrow is required. Alternatively, keep genuinely disconnected components in separate bounded supporting carriers instead of presenting both endpoint components as one principal relation graph",
+				"block=%q already selects both endpoints of exact registered-export handoff(s) [%s]. Keep the selected principal relation graph honest by adding claim_form=registration_edge and copying each matching edge_anchor_json from the typed authoring capsule. This is a non-call binding row on the existing ordered_list/bullet_list/table; no Mermaid block is required. Alternatively, keep genuinely disconnected components in separate bounded supporting carriers instead of presenting both endpoint components as one principal relation graph",
 				block.ID, strings.Join(parts, "; "),
 			),
 			Reason:                       "the model selected both exact endpoint identities in one principal structured relation graph, and the current dispatch supplied their exact typed registered-export handoff. Requiring that already-selected bridge prevents a silent hole between two chosen components without reading or rewriting answer prose, forcing a diagram, or creating an edge on the model's behalf.",

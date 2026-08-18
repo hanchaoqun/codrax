@@ -956,7 +956,7 @@ func TestMechanismRelationRegistrationOwnerReferenceJoinFailsClosedAA3(t *testin
 	})
 }
 
-func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
+func TestRegisteredExportHandoffMapsToVisibleSequenceBindingEndpointsAA3(t *testing.T) {
 	aliases := []answerDocMechanismAliasRow{
 		{alias: "n1", identity: "FastTokenizer.tokenize"},
 		{alias: "n2", identity: "_fastlex.tokenize_bytes"},
@@ -978,8 +978,9 @@ func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
 		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
 	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence, types.DiagramSequence)
 	for _, want := range []string{
-		"Note over n2,n3: Export binding is verified; describe the runtime boundary in business language, not as a call",
+		"n2->>n3: Export binding is verified; describe the binding in business language, not as a call",
 		`edge_anchors_json=`,
+		`{"from_node":"n2","to_node":"n3","from_identity":"_fastlex.tokenize_bytes","to_identity":"py::tokenize_bytes","relation_kind":"register"}`,
 	} {
 		if !strings.Contains(rendered.String(), want) {
 			t.Fatalf("copy-ready sequence lost exact non-call export handoff %q:\n%s", want, rendered.String())
@@ -992,8 +993,9 @@ func TestRegisteredExportHandoffMapsToSequenceNoteEndpointsAA3(t *testing.T) {
 		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
 	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramNone, types.DiagramSequence)
 	for _, want := range []string{
-		"Source-level arrows remain local to their fragments",
-		"handoff_aware_composition_recipe[1]=`n2,n3`",
+		"Source-level call arrows remain local to their fragments",
+		"handoff_aware_composition_recipe[1]=`n2 -> n3`",
+		"relation_kind=register",
 	} {
 		if !strings.Contains(fragmented.String(), want) {
 			t.Fatalf("withheld whole skeleton lost exact handoff-aware composition recipe %q:\n%s", want, fragmented.String())
@@ -1059,13 +1061,13 @@ func TestRegistrationOwnerReferenceHandoffIsWiredIntoFinalizerPromptAA3(t *testi
 		"registered_export=`_fastlex.tokenize_bytes`",
 		"registered_callable=`py::tokenize_bytes`",
 		"binding_endpoint_status=`exact_owner_reference_join`",
-		"semantic_handoff_note[1]=`n2,n5`",
+		"semantic_handoff_edge_recipe[1]=`n2 -> n5`",
 		"inter_component_bridge_status=`registered_export_binding_between_components`",
 		"cross_component_registered_export_handoff_count=1",
 		"cross_component_registered_export_handoff[1]=`n2,n5`",
 		"semantic_handoff_relation[1]=`n2 -> n5`",
-		`standalone_edge_anchor_json=` + "`" + `{"from_node":"n2","to_node":"n5","from_identity":"_fastlex.tokenize_bytes","to_identity":"py::tokenize_bytes","relation_kind":"register"}` + "`",
-		"never draw it as a Mermaid arrow",
+		`edge_anchor_json=` + "`" + `{"from_node":"n2","to_node":"n5","from_identity":"_fastlex.tokenize_bytes","to_identity":"py::tokenize_bytes","relation_kind":"register"}` + "`",
+		"visible, explicitly labelled binding edge",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("finalizer prompt lost exact registration handoff %q:\n%s", want, got)
@@ -1915,6 +1917,7 @@ func TestMechanismRelationCopyReadyMatrixIsClosedAndCompleteAA3(t *testing.T) {
 		types.DiagramSequence: {
 			types.DiagramRelCall:     true,
 			types.DiagramRelCallback: true,
+			types.DiagramRelRegister: true,
 		},
 		types.DiagramCallDAG: {
 			types.DiagramRelCall: true,
