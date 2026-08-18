@@ -2071,9 +2071,26 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// The ordered endpoint carrier may preserve a method-qualified identity
+	// while the analyzer's general entity roster legitimately splits that same
+	// current-request surface into owner/member tokens (for example
+	// FastTokenizer + tokenize). Validate the already-typed endpoint candidates
+	// themselves against the exact current-request identifier boundary before
+	// provenance normalization. This is not request classification or keyword
+	// inference: candidates come only from the schema fields, and a pre-scan or
+	// invented identity that is not present verbatim still fails closed.
+	callChainRequestMentioned := append(append([]string(nil), exactTargets...), mentionedEntities...)
+	if p.CallChainEndpoints != nil {
+		callChainRequestMentioned = append(callChainRequestMentioned,
+			types.MentionedEntitiesFromRawRequest(raw, []string{
+				p.CallChainEndpoints.Source,
+				p.CallChainEndpoints.Sink,
+			})...,
+		)
+	}
 	callChainEndpointProfile, callChainEndpointWarning := types.NormalizeCallChainEndpointProfile(
 		p.CallChainEndpoints,
-		append(append([]string(nil), exactTargets...), mentionedEntities...),
+		callChainRequestMentioned,
 	)
 	if normalizedKind, warning := reconcileSourceCallChainKindFromEndpointProfile(
 		kind,
@@ -2081,7 +2098,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		runtimeArtifactCarrier,
 		predicates,
 		callChainEndpointProfile,
-		append(append([]string(nil), exactTargets...), mentionedEntities...),
+		callChainRequestMentioned,
 	); warning != "" {
 		kind = normalizedKind
 		val.Warnings = append(val.Warnings, warning)

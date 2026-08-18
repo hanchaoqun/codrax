@@ -2169,6 +2169,35 @@ func TestEmitAnalysis_SourceCallChainNormalizesDiscoverPathWithNamedSourceToDisc
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainNamedSourceProvenanceSurvivesSplitEntityRoster(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "FastTokenizer.tokenize 最终如何调用 Rust 实现"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["FastTokenizer","tokenize","Rust","call path"],
+		"entities":["FastTokenizer","tokenize","Rust"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"FastTokenizer.tokenize","sink":"","sink_mode":"discover_path"}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("verbatim method-qualified source must survive a split entity roster: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverTerminalActive() || profile.Source != "FastTokenizer.tokenize" {
+		t.Fatalf("verbatim typed endpoint candidate did not retain source authority: %+v", profile)
+	}
+	if strings.Contains(res.Summary, "discover source was not an exact current-request code identity") {
+		t.Fatalf("verbatim endpoint was falsely demoted after entity splitting: %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainDiscoverPathNamedSourceRepairDoesNotMintUnprovenAuthority(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

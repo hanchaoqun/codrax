@@ -36507,12 +36507,44 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 
 状态：
 
-`B1041-CALLCHAINSINGLESOURCEWIRE1=implemented/schema-only-normalization+provenance-fail-closed+pinned/pending-r662`；
+`B1041-CALLCHAINSINGLESOURCEWIRE1=phase1-enum-normalization-implemented/pending-provenance-seam-r662`；
 `B1040-SYSTEMSOURCESUPPLEMENTTABLE1=production-pending`；
 `B756-RUNTIMEENUMCUSTOMERLANGUAGE1=recurrent/write-reason-witness-r661`；
 `raw-request/model/final-prose-hard-gate=none`；
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
+### §123.1034 r662 / B1041-2：端点 enum 修复生效，但完整 source 被拆分 entity roster 二次降权（2026-08-18）
+
+1. 在 `main@cfea5f498` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + trace_query_wakeup_causal_runnable`，runner `2/2 PASS`；人工为 Poly partial、Trace
+   pass-with-model-caveat。详见
+   `eval/parallel_selected_summary_evalcampaign_poly_trace_r662_20260818_manual_audit.md`。
+2. B1041 phase 1 获精确生产 witness：Analyzer 首轮仍发
+   `discover_path + source=FastTokenizer.tokenize + empty sink`，系统已确定性归一为 `discover_terminal`，不再
+   同轮硬拒。但紧接着旧 provenance 只以 `exact_targets + mentionedEntities` 为候选；该轮 entities 是
+   `FastTokenizer` 与 `tokenize` 两项，完整方法 identity 不在 roster，因而再次降为 authority-free
+   `discover_path`。116s 低耗时不能掩盖这条双 warning 的事实。
+3. 第二层修复不增加 schema 字段或模型心智：把已经由 analyzer 放入 typed endpoint carrier 的 source/sink
+   本身作为候选，调用既有 `MentionedEntitiesFromRawRequest` 做完整标识符、词法边界、当前请求逐字 provenance
+   校验，再送入 `NormalizeCallChainEndpointProfile`。这不是 request/answer keyword 分类；候选来源是单一 typed
+   字段，`buildAnalysisIR` 不会因请求只含 `AnalysisIR` 获权，预扫描/虚构/路径候选仍降回 discover_path。
+4. 新回归完全复刻生产形：当前请求逐字含 `FastTokenizer.tokenize`，generic entities 刻意拆成 owner/member，
+   仍须保留 discover_terminal source；另有不存在于请求的 `Invented.entry` 反例继续空端点 fail-closed。既有
+   exact-target 与双端点模式不变。
+5. Poly 最终虽列出 wrapper→core→best_merge，但 native export→wrapper 仍缺独立 typed bridge，且 fallback 已读
+   却被模型写成“需进一步查找”；继续等待 phase 2 生产回放，不系统补边或扫描正文。Trace 对照完整保留 10ms
+   用户窗、系统补采、8.300ms 链上首席、双轴、因果投影和 background-only 权限。模型把 target CPU1 说成
+   CPU2、把候选说成已确认，精确信息已在上下文/投影，归 B999 模型服从观察，不改写其答案。
+
+状态：
+
+`B1041-CALLCHAINSINGLESOURCEWIRE1=phase2-implemented/typed-endpoint-exact-current-request-boundary+pinned/pending-r663`；
+`B999-TRACECPUCANDIDATEWORDING1=context-sufficient/model-adherence-watch`；
+`raw-request-keyword-classifier/model-output-scan-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r662`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
