@@ -492,6 +492,116 @@ func TestEmitAnswerDocumentPatch_InheritsOmittedCarrierMetadataForStableReplacem
 	}
 }
 
+func TestNormalizeSparsePatchRelationMetadataEdits_PreservesVisiblePrincipalCarrier(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID: "path", Kind: types.BlockOrderedList, Title: "完整调用链",
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetCurrentCodePath), string(types.FacetPrincipalPathEdge)},
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge)}},
+			Items: []types.AnswerBlockItem{{
+				ID: "hop-1", Label: "FastTokenizer.tokenize", Text: "model-authored visible hop", CitationRef: 3,
+			}},
+		},
+	}}
+	patch := &types.AnswerDocumentV2Patch{ReplaceBlocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList,
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "FastTokenizer.tokenize", ToNode: "_fastlex.tokenize_bytes",
+			FromIdentity: "FastTokenizer.tokenize", ToIdentity: "_fastlex.tokenize_bytes",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "调用原生分词入口",
+		}},
+	}}}
+	raw := json.RawMessage(`{"replace_blocks":[{"id":"path","edge_anchors":[{"from_node":"FastTokenizer.tokenize","to_node":"_fastlex.tokenize_bytes","from_identity":"FastTokenizer.tokenize","to_identity":"_fastlex.tokenize_bytes","relation_kind":"call","visible_label":"调用原生分词入口"}]}]}`)
+	changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, raw, patch)
+	if !changed || len(fields) != 1 {
+		t.Fatalf("sparse typed relation edit was not absorbed: changed=%t fields=%v", changed, fields)
+	}
+	got := patch.ReplaceBlocks[0]
+	if got.Kind != types.BlockOrderedList || got.Title != "完整调用链" || got.SurfaceRole != types.SurfacePrincipal ||
+		len(got.FacetIDs) != 2 || len(got.ClaimUses) != 1 || len(got.Items) != 1 ||
+		got.Items[0].Text != "model-authored visible hop" || got.Items[0].CitationRef != 3 {
+		t.Fatalf("previous model-authored carrier content was not preserved: %+v", got)
+	}
+	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].VisibleLabel != "调用原生分词入口" {
+		t.Fatalf("model-authored typed relation delta was not retained: %+v", got.EdgeAnchors)
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{got}}
+	if removed := normalizeOrphanDiagramEdgeAnchors(doc, &types.AnswerSemanticView{Family: types.QFCallChain}); removed != 0 {
+		t.Fatalf("standalone carrier was reclassified as orphan after sparse repair: removed=%d doc=%+v", removed, doc)
+	}
+}
+
+func TestNormalizeSparsePatchRelationMetadataEdits_DoesNotMergeVisibleContentOrDeletion(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		Items:     []types.AnswerBlockItem{{ID: "hop-1", Text: "old"}},
+	}}}
+	for _, tc := range []struct {
+		name string
+		raw  json.RawMessage
+		blk  types.AnswerBlock
+	}{
+		{
+			name: "visible content edit keeps full replacement semantics",
+			raw:  json.RawMessage(`{"replace_blocks":[{"id":"path","text":"new","edge_anchors":[{"from_node":"A","to_node":"B","relation_kind":"call"}]}]}`),
+			blk: types.AnswerBlock{ID: "path", Kind: types.BlockOrderedList, Text: "new", EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall,
+			}}},
+		},
+		{
+			name: "explicit relation deletion keeps full replacement semantics",
+			raw:  json.RawMessage(`{"replace_blocks":[{"id":"path","edge_anchors":[]}]}`),
+			blk:  types.AnswerBlock{ID: "path", Kind: types.BlockOrderedList},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			patch := &types.AnswerDocumentV2Patch{ReplaceBlocks: []types.AnswerBlock{tc.blk}}
+			changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, tc.raw, patch)
+			if changed || len(fields) != 0 {
+				t.Fatalf("non-annotation-only replacement was merged: changed=%t fields=%v block=%+v", changed, fields, patch.ReplaceBlocks[0])
+			}
+		})
+	}
+}
+
+func TestEmitAnswerDocumentPatchProductionWiresSparseRelationMetadataEdit(t *testing.T) {
+	bus := newPatchTestBusContext()
+	prev := bus.Mutable.AnswerDocumentV2()
+	prev.Blocks[1].SurfaceRole = types.SurfacePrincipal
+	prev.Blocks[1].FacetIDs = []string{string(types.FacetPrincipalPathEdge)}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	params := json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"replace_blocks":[{
+			"id":"list1",
+			"edge_anchors":[{
+				"from_node":"入口",
+				"to_node":"工作线程",
+				"visible_label":"调用",
+				"from_identity":"A",
+				"to_identity":"B",
+				"relation_kind":"call"
+			}]
+		}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("production sparse relation metadata patch failed: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("production patch lost document: %+v", doc)
+	}
+	got := doc.Blocks[1]
+	if got.Kind != types.BlockOrderedList || got.SurfaceRole != types.SurfacePrincipal ||
+		len(got.Items) != 1 || got.Items[0].Label != "A" || len(got.ClaimUses) != 1 ||
+		len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].VisibleLabel != "调用" {
+		t.Fatalf("production path did not preserve content plus relation delta: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RejectsPrincipalPathFacetAfterRelationMetadataStripped(t *testing.T) {
 	mut := types.NewMutableState("trace the call chain")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

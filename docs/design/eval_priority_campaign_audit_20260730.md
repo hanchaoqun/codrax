@@ -36868,6 +36868,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1045 r667/B1050：关系元数据补丁不得清空模型正文；Trace typed 值缺读者语言层（2026-08-18）
+
+1. 在 `main@39c0bee56` 严格并发恰好两个案例：
+   `mr_poly_binding_chain + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工均为 partial；
+   逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_branch_relation_trace_r667_20260818_manual_audit.md`。
+2. Trace 的计算与权限均守住：精确 1.000..1.010s、worker-200 链上 #1、9.000ms 累计/8.300ms
+   有效归因、CPU2→CPU1 跨核拓扑、app-100 sleep 10.000ms、背景 supply pressure 不晋升、实际占用与
+   规则可消双轴、Trace 因果投影和确定性补采全部在场；0 次成文拒绝，也没有活跃流 4ms 降级。
+3. 新确认 `B1051-TRACETYPEDREADERLANGUAGE1/P1-high`：模型正文直接复制 `on_chain`、
+   `state_occupancy`、`effective_attribution`、`dominant_state`、`priority_inversion_candidate`、
+   `priority_or_dependency_supply`、`complete` 等内部 token。这与客户报告的
+   `bounded_window_candidate` 是一个系统族，不是单词遗漏。最优方案是在 typed context/render 构造点建立
+   enum→reader-facing label 单源投影，raw token 只留审计索引；不得扫描或替换模型最终答案原文，也不得改变
+   根因排序、链上权限、数值或模型结论。
+4. Poly 的源证据与模型结论基本正确：guard、native/fallback、PyO3 wrapper→Rust core→best_merge 与精确定义
+   引用均保留。但 B1049 生产路径被 patch 协议抵消。validator 要求只补 `edge_anchors`，模型自然提交
+   `{id,edge_anchors}`；旧 `replace_blocks` 将它当完整块替换，清空原 items/kind/claim/role。模型随后删除坏图时，
+   orphan normalizer 又诚实删除失去 owner 的 anchors，最终 3 次拒绝并把关系退化成普通列表。
+5. `B1050-SPARSERELATIONPATCHCONTENTLOSS1/P1-high` 的根修不是放松关系证据门，也不是自动画图。patch runtime
+   只吸收一个精确 annotation-only shape：已存在且唯一的 block id，raw replacement 仅含 `id`、optional same
+   `kind`、nonempty `edge_anchors`、optional `claim_uses`。系统保留上一稿模型可见内容与 carrier，覆盖的仅是模型
+   本轮明确提交的 typed relation metadata。任何 text/items/title 等可见编辑、空 anchors 删除、未知 id、kind
+   改变或 fused payload 都维持 full-replace 语义。
+6. 回归钉住 helper 正臂、visible edit/explicit deletion 负臂、production `Execute` 挂点，以及 sparse repair 后
+   standalone carrier 不被 orphan normalizer 再删。系统没有生成 endpoint、visible_label、relation_kind、证据或
+   结论，只避免协议误删模型上一稿。
+7. B1048 本轮没有生产触发：Analyzer 仍发普通“回退行为”维度，未选择新 `branch_behavior` role；模型靠已有
+   证据仍正确说明 ImportError→False→slow path。暂记 implemented/not-triggered，继续异构回放，不通过题面或答案
+   关键词强制 role，不把单次选择波动升级为硬门。
+
+状态：
+
+`B1048-REQUESTEDBRANCHREACHABILITY1=implemented/not-triggered-r667`；
+`B1049-STANDALONERELATIONVISIBILITY1=implementation-present/production-blocked-by-B1050`；
+`B1050-SPARSERELATIONPATCHCONTENTLOSS1=implemented/exact-metadata-shape+production-wire-pins-pass`；
+`B1051-TRACETYPEDREADERLANGUAGE1=confirmed/P1/high/next-independent-batch`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=preserved-r667`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r667`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

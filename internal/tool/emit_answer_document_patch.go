@@ -310,6 +310,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
+	if changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, params, patch); changed {
+		logging.Warning("[emit_answer_document_patch] preserved prior model-authored block content for typed relation-metadata-only replacement(s): %s",
+			strings.Join(fields, ", "))
+	}
 	if changed, fields := normalizeAnswerDocumentPatchIDSurface(patch); changed {
 		logging.Warning("[emit_answer_document_patch] id/op duplicate(s) normalized via transactional tolerance: %s",
 			strings.Join(fields, ", "))
@@ -391,6 +395,84 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// normalizeSparsePatchRelationMetadataEdits absorbs one precise retry shape
+// that otherwise destroys the answer it is trying to repair. A relation
+// validator often asks the model only to add edge_anchors (and sometimes the
+// matching claim_uses) to an existing principal block. Models then naturally
+// emit {id, edge_anchors} even though replace_blocks is normally a full-block
+// replacement. Treating that exact annotation-only object as a full
+// replacement erases the model's visible items, kind, role, and facets; the
+// later orphan-anchor normalizer then deletes the newly supplied anchors too.
+//
+// This is deliberately not a general merge operation. The raw replacement may
+// contain only id, optional kind, edge_anchors, and optional claim_uses;
+// edge_anchors must be explicitly present and non-empty; the id must uniquely
+// select an existing block. All visible content remains byte-for-byte from the
+// model's previous draft, while the only model-authored delta is copied from
+// the typed replacement. Explicit content edits, relation deletion, unknown
+// ids, fused blocks, and every other sparse shape keep the normal full-replace
+// semantics. No request text, answer prose, or heuristic signal is read.
+func normalizeSparsePatchRelationMetadataEdits(prev *types.AnswerDocumentV2, raw json.RawMessage, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if prev == nil || patch == nil || len(patch.ReplaceBlocks) == 0 || len(raw) == 0 {
+		return false, nil
+	}
+	var envelope struct {
+		ReplaceBlocks []map[string]json.RawMessage `json:"replace_blocks"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil || len(envelope.ReplaceBlocks) != len(patch.ReplaceBlocks) {
+		return false, nil
+	}
+	previous := make(map[string]types.AnswerBlock, len(prev.Blocks))
+	ambiguous := make(map[string]bool)
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := previous[id]; exists {
+			ambiguous[id] = true
+			continue
+		}
+		previous[id] = block
+	}
+	allowed := map[string]bool{
+		"id": true, "kind": true, "edge_anchors": true, "claim_uses": true,
+	}
+	var fields []string
+	for i := range patch.ReplaceBlocks {
+		declared := envelope.ReplaceBlocks[i]
+		if _, ok := declared["edge_anchors"]; !ok || len(patch.ReplaceBlocks[i].EdgeAnchors) == 0 {
+			continue
+		}
+		exact := true
+		for key := range declared {
+			if !allowed[key] {
+				exact = false
+				break
+			}
+		}
+		id := strings.TrimSpace(patch.ReplaceBlocks[i].ID)
+		old, ok := previous[id]
+		if !exact || !ok || id == "" || ambiguous[id] {
+			continue
+		}
+		if declaredKind, present := declared["kind"]; present {
+			var kind string
+			if json.Unmarshal(declaredKind, &kind) != nil || strings.TrimSpace(kind) != string(old.Kind) {
+				continue
+			}
+		}
+		replacement := old
+		replacement.EdgeAnchors = append([]types.DiagramEdgeAnchor(nil), patch.ReplaceBlocks[i].EdgeAnchors...)
+		if _, present := declared["claim_uses"]; present {
+			replacement.ClaimUses = append([]types.RenderedClaimUse(nil), patch.ReplaceBlocks[i].ClaimUses...)
+		}
+		patch.ReplaceBlocks[i] = replacement
+		fields = append(fields, fmt.Sprintf("replace_blocks[%q].edge_anchors", id))
+	}
+	return len(fields) > 0, fields
 }
 
 // inheritMissingPatchReplacementKinds removes one recurrent retry-only JSON
