@@ -35823,6 +35823,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
+
+1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
+   `trace_query_wakeup_causal_runnable`；共同不可变二进制，`PARALLEL=2`，均 runner PASS，并逐份审计
+   日志、Finalizer 上下文和最终答案。
+2. Trace 获 B1102 生产正证：前置 `emit_perf_trace` 确实发出零 authority dependency/blocking 候选，
+   但 Finalizer 的 Observation/Claim Binding 成文视图只剩 deterministic validator 的优先级语义和
+   时间单位；模型最终未再断言持锁、等待 work 完成或 CFS 抢占 RT。精确窗、worker-200 链上 #1、
+   8.300/9.000ms 双口径、实际占用/规则可消双轴、`Trace 因果投影` 与自动补齐完整，无 4ms 降级。
+3. Call 获 B1101 生产正证：两轮 patch 后 5 项关键中间函数清单仍完整，端点关系列表不再冒名
+   `member_set`；图正确保持 `buildAnalysisIR -> gate.RunWith <- gate.Run`。
+4. 新确认 `B1103-BOUNDARYRECIPEAXISPARITY1`：首稿完整照抄系统 copy-ready 两条局部 call 边和 anchors，
+   仍被 participant completeness gate 要求给两个请求端点增加请求级 unproven boundary；模型第二轮
+   未获初始 exact recipe，再次同错。根因不是模型波动，而是硬门适用于全部 required 非
+   `QFRootCauseTrace` 图，初始 `boundary_recipe` 却仅在 `AxisFlow && Intent!=Trace` 发布；源码 call-chain
+   合法的 `IntentTrace + AxisCall` 被排除，形成教学/校验合同不一致。
+5. 根修将 exact boundary recipe 的适用域与 hard gate 同源：只排除独立的 runtime
+   `QFRootCauseTrace`，不再按 overloaded Intent 或 relation axis 分叉。Diagram Contract 与 Current-
+   Source relation capsule 共用一个 typed coverage producer；copy-ready skeleton 后紧邻发布精确
+   block-level `participant_boundaries_json`，明确局部已证箭头与请求级未证 relation boundary 可并存，
+   且 JSON/validator 词不进入读者正文。
+6. Pins 覆盖：旧 AxisFlow recipe 不回归；`IntentTrace+AxisCall+QFCallChain` 初始即发布两个 exact rows；
+   no-directed-path shared-callee carrier同时发布两条 call anchors 与两个 boundary rows。该批不读
+   user/final prose、不新增关键词硬门，不创建/删除/反转关系，不改模型图、清单或结论。
+
+状态：
+
+`r699=2/2 runner PASS + manual pass/partial`；
+`B1101=production-confirmed`；
+`B1102=production-confirmed`；
+`B1103-BOUNDARYRECIPEAXISPARITY1=implemented/pinned`；
+`diagram-validator/initial-teaching-scope=aligned`；
+`system-relation/diagram/conclusion-authorship=none`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1091 B1102：前置 Trace 模型候选不再越过确定性查询回流成文（2026-08-18）
 
 1. r698 的 Finalizer 同时收到 deterministic `trace_query` 链上根因和前置 `perf_triage` 的模型抽取

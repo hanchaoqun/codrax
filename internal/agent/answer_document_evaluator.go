@@ -4321,27 +4321,16 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 		}
 		b.WriteString("- Participant obligations guide investigation and honest coverage; they are not source evidence and cannot mint an edge. `incident_required` needs a grounded incident relation or an explicit unproven disclosure. `context_only` must not be forced into a path.\n")
 		if answerDocDiagramBoundaryRecipesApply(ctx) {
-			evidence, edges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
-			coverageRM := ctx.AnalysisIR.RequestModel
-			coverageHint := types.DiagramHint{}
-			if coverageRM.DiagramHint != nil {
-				coverageHint = *coverageRM.DiagramHint
-			}
-			coverageHint.Participants = dc.Participants
-			coverageRM.DiagramHint = &coverageHint
-			coverage := answerDocResolveFlowParticipantCoverage(
-				coverageRM, edges, evidence, answerDocVerifiedReadModeStagePrecedenceForRequest(ctx),
-			)
-			boundaryParticipants := coverage.boundaryParticipants()
-			if len(boundaryParticipants) > 0 {
-				if coverage.requestScopedSubsetIncomplete {
+			boundaries, requestScopedSubsetIncomplete := answerDocDiagramUnprovenParticipantBoundaries(ctx, dc)
+			if len(boundaries) > 0 {
+				if requestScopedSubsetIncomplete {
 					b.WriteString("- Typed unproven requested-relation recipes (a participant can retain this boundary even when an independently grounded local technical operation exists):\n")
 				} else {
 					b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
 				}
-				for recipeIndex, identity := range boundaryParticipants {
-					quotedIdentity := strconv.Quote(identity)
-					boundaryRow := fmt.Sprintf(`{"participant":%s,"status":"unproven"}`, quotedIdentity)
+				for recipeIndex, boundary := range boundaries {
+					quotedIdentity := strconv.Quote(boundary.Participant)
+					boundaryRow, _ := json.Marshal(boundary)
 					fmt.Fprintf(&b, "  - boundary_recipe[%d]: participant_identity=%s; visible_disconnected_node_first_line_identity=%s; boundary_row=%s; edge_action=`none`\n",
 						recipeIndex+1, quotedIdentity, quotedIdentity, boundaryRow)
 				}
@@ -4370,10 +4359,52 @@ func answerDocDiagramBoundaryRecipesApply(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	return rm.Intent != types.IntentTrace &&
-		types.ResolveQuestionFamily(rm) != types.QFRootCauseTrace &&
-		rm.PredicateAxis == types.AxisFlow
+	// The pre-emit participant coverage gate applies to every required
+	// non-runtime-causal diagram family, not only AxisFlow. Source call-chain
+	// analyzers legitimately use IntentTrace + AxisCall; withholding recipes
+	// there made the initial prompt omit metadata that the same dispatch later
+	// hard-required. Keep this predicate aligned with
+	// DiagramParticipantCoverageMismatches instead of reinterpreting intent or
+	// relation axis locally.
+	return types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) != types.QFRootCauseTrace
+}
+
+// answerDocDiagramUnprovenParticipantBoundaries is the single initial-prompt
+// producer for the exact model-authored boundary rows that the pre-emit
+// participant coverage gate may require. It consumes the analyzer's typed
+// participant slate and the same source-relation projection as the gate; it
+// reads no request/final prose and creates no edge or visible conclusion.
+func answerDocDiagramUnprovenParticipantBoundaries(
+	ctx *types.AgentContext,
+	dc *types.DiagramContract,
+) ([]types.DiagramParticipantBoundary, bool) {
+	if !answerDocDiagramBoundaryRecipesApply(ctx) || dc == nil || !dc.Required || len(dc.Participants) == 0 {
+		return nil, false
+	}
+	evidence, edges, _, _ := answerDocCurrentSourceMechanismRelations(ctx)
+	coverageRM := ctx.AnalysisIR.RequestModel
+	coverageHint := types.DiagramHint{}
+	if coverageRM.DiagramHint != nil {
+		coverageHint = *coverageRM.DiagramHint
+	}
+	coverageHint.Participants = dc.Participants
+	coverageRM.DiagramHint = &coverageHint
+	coverage := answerDocResolveFlowParticipantCoverage(
+		coverageRM, edges, evidence, answerDocVerifiedReadModeStagePrecedenceForRequest(ctx),
+	)
+	participants := coverage.boundaryParticipants()
+	boundaries := make([]types.DiagramParticipantBoundary, 0, len(participants))
+	for _, participant := range participants {
+		participant = strings.TrimSpace(participant)
+		if participant == "" {
+			continue
+		}
+		boundaries = append(boundaries, types.DiagramParticipantBoundary{
+			Participant: participant,
+			Status:      types.DiagramParticipantBoundaryUnproven,
+		})
+	}
+	return boundaries, coverage.requestScopedSubsetIncomplete
 }
 
 func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContract) string {
@@ -8240,6 +8271,13 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		if ctx.Mutable != nil {
 			ctx.Mutable.SetFinalizerTypedRelationRecipeAnchors(receipts.relationAnchors)
 			ctx.Mutable.SetFinalizerTypedRelationSemanticHandoffAnchors(receipts.semanticHandoffAnchors)
+		}
+		if dc := answerDocDiagramContract(ctx); dc != nil {
+			if boundaries, _ := answerDocDiagramUnprovenParticipantBoundaries(ctx, dc); len(boundaries) > 0 {
+				if payload, err := json.Marshal(boundaries); err == nil {
+					fmt.Fprintf(&b, "- participant_boundaries_json=`%s`; copy these exact rows into the diagram block's block-level `participant_boundaries` sibling when retaining the copy-ready relation skeleton. These rows bound the still-unproved requested relation; the independently proved local arrows neither replace nor contradict them. Do not display the JSON or validator vocabulary in reader-facing prose.\n", payload)
+				}
+			}
 		}
 	}
 	for i, path := range typedPaths {

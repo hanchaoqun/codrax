@@ -2213,10 +2213,21 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 				Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
 				CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "buildAnalysisIR", Sink: "gate.Run"},
 				AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain), ExactTargets: []string{"buildAnalysisIR", "gate.Run"}},
+				DiagramHint: &types.DiagramHint{
+					Kind: types.DiagramSequence, Required: true,
+					Participants: []types.DiagramParticipantHint{
+						{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired},
+						{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired},
+					},
+				},
 			},
 			AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
 				Required: true, RequiredKind: types.DiagramSequence,
 				PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired},
+				},
 			}},
 		},
 	}
@@ -2246,6 +2257,7 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 		"Source existence: a source-grounded call edge directly references this endpoint",
 		"Requested-sink existence: a source-grounded call edge directly references this endpoint",
 		"Grounded requested-sink-side path: `gate.Run` -> `gate.RunWith`",
+		"participant_boundaries_json=`[{\"participant\":\"buildAnalysisIR\",\"status\":\"unproven\"},{\"participant\":\"gate.Run\",\"status\":\"unproven\"}]`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("finalizer prompt lost owner-qualified endpoint existence %q:\n%s", want, prompt)
@@ -5337,8 +5349,16 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "boundary_recipe[") {
-		t.Fatalf("Trace lane must not receive non-runtime participant-boundary recipes:\n%s", prompt)
+	for _, want := range []string{
+		"Typed uncovered-participant recipes",
+		`boundary_row={"participant":"Pipeline::Analyzer","status":"unproven"}`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("required non-root-cause diagram must receive the same boundary recipe as its hard gate (%q):\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, `boundary_row={"participant":"SharedContext"`) {
+		t.Fatalf("context-only participant must not receive an incident boundary recipe:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "Dispatch -> Handler") {
 		t.Fatalf("unlinked flow finding must not widen the visible artifact support floor:\n%s", prompt)
@@ -5372,6 +5392,62 @@ func TestRenderAnswerDocDiagramContractPublishesTypedUncoveredParticipantRecipes
 	}
 	if strings.Contains(got, "participant_identity=\"surrounding system\"") {
 		t.Fatalf("context_only participant must not receive an unproven boundary recipe:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocDiagramContractPublishesTypedUnprovenRecipesForCallChainIntentTrace(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "gate.Run", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		// Source call-chain classification legitimately uses IntentTrace. It is
+		// not the runtime QFRootCauseTrace lane.
+		Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		DiagramHint: &types.DiagramHint{
+			Kind: types.DiagramSequence, Required: true, Participants: participants,
+		},
+	}}}
+	dc := &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramSequence, Participants: participants,
+	}
+
+	got := renderAnswerDocDiagramContract(ctx, dc)
+	for _, want := range []string{
+		"Typed uncovered-participant recipes",
+		`boundary_row={"participant":"buildAnalysisIR","status":"unproven"}`,
+		`boundary_row={"participant":"gate.Run","status":"unproven"}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("call-chain diagram contract withheld validator-required boundary recipe %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocDiagramContractKeepsRootCauseTraceBoundaryRecipesIndependent(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "worker-200", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent:        types.IntentRootCause,
+		Scenario:      types.ScenarioRootCause,
+		PredicateAxis: types.AxisCall,
+		DiagramHint: &types.DiagramHint{
+			Kind: types.DiagramSequence, Required: true, Participants: participants,
+		},
+	}
+	if got := types.ResolveQuestionFamily(rm); got != types.QFRootCauseTrace {
+		t.Fatalf("fixture resolved to %s, want %s", got, types.QFRootCauseTrace)
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	dc := &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramSequence, Participants: participants,
+	}
+
+	got := renderAnswerDocDiagramContract(ctx, dc)
+	if strings.Contains(got, "boundary_recipe[") || strings.Contains(got, "Typed uncovered-participant recipes") {
+		t.Fatalf("runtime root-cause trace must keep its causal-projection boundary lane independent:\n%s", got)
 	}
 }
 
