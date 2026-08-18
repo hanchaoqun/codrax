@@ -143,6 +143,25 @@ func TestMatchesRequiredMainStageParticipantSlate(t *testing.T) {
 	}
 }
 
+func TestParticipantMatchesStageEndpointRequiresVerifiedExactIdentity(t *testing.T) {
+	authority, ok := LoadReadMode("../..")
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	rm := types.RequestModel{DiagramHint: &types.DiagramHint{Participants: []types.DiagramParticipantHint{{
+		Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired,
+	}}}}
+	participant := rm.DiagramHint.Participants[0]
+	if !ParticipantMatchesStageEndpoint(rm, participant, "types.AgentExtractor", authority.Precedence) {
+		t.Fatal("exact agent enum argument must map to its verified stage participant")
+	}
+	for _, endpoint := range []string{"types.AgentExplorer", "extractorCandidate", "Extractor stage"} {
+		if ParticipantMatchesStageEndpoint(rm, participant, endpoint, authority.Precedence) {
+			t.Fatalf("non-exact or wrong endpoint %q must stay fail closed", endpoint)
+		}
+	}
+}
+
 func TestCoversAllRequiredIncidentParticipantsDistinguishesStageSpineFromSubset(t *testing.T) {
 	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
 	if !ok {

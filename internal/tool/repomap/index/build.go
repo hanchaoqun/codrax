@@ -46,16 +46,17 @@ func BuildGraphWithProgress(repoRoot string, files []*types.FileInfo, relationPr
 
 func buildGraphIndexOnly(repoRoot string, files []*types.FileInfo) *types.Graph {
 	g := &types.Graph{
-		Root:           repoRoot,
-		Files:          files,
-		FileIndex:      make(map[string]*types.FileInfo, len(files)),
-		SymbolDefs:     make(map[string][]*types.Symbol),
-		SymbolByID:     make(map[types.SymbolID]*types.Symbol),
-		MethodIndex:    make(map[types.MethodKey]*types.Symbol),
-		ImportGraph:    make(map[string][]string),
-		ReverseImports: make(map[string][]string),
-		Scores:         make(map[string]float64),
-		QueryScores:    make(map[string]float64),
+		Root:            repoRoot,
+		Files:           files,
+		FileIndex:       make(map[string]*types.FileInfo, len(files)),
+		SymbolDefs:      make(map[string][]*types.Symbol),
+		SymbolByID:      make(map[types.SymbolID]*types.Symbol),
+		MethodIndex:     make(map[types.MethodKey]*types.Symbol),
+		ImportGraph:     make(map[string][]string),
+		ReverseImports:  make(map[string][]string),
+		ResolvedImports: make(map[string][]types.ResolvedImportBinding),
+		Scores:          make(map[string]float64),
+		QueryScores:     make(map[string]float64),
 	}
 
 	langs := make(map[string]int)
@@ -443,6 +444,9 @@ func resolveImportGraph(g *types.Graph) {
 				}
 				continue
 			}
+			g.ResolvedImports[fi.RelPath] = append(g.ResolvedImports[fi.RelPath], types.ResolvedImportBinding{
+				Import: imp, Targets: append([]string(nil), targets...),
+			})
 			for _, t := range targets {
 				addEdge(g.ImportGraph, importSeen, fi.RelPath, t)
 				addEdge(g.ReverseImports, reverseSeen, t, fi.RelPath)

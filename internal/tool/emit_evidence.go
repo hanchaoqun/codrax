@@ -17,6 +17,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -4724,10 +4725,10 @@ func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Conte
 		changed = true
 	}
 	if it.AnchorKind != types.AnchorDefinition {
-		_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+		graph, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
 		var bindings []types.EvidenceDeclaredIdentityBinding
 		if ok && fi != nil {
-			bindings = parserDeclaredIdentityBindingsForOperation(fi, *it)
+			bindings = parserDeclaredIdentityBindingsForOperation(graph, fi, *it)
 		}
 		if !sameEvidenceDeclaredIdentityBindings(it.DeclaredIdentityBindings, bindings) {
 			it.DeclaredIdentityBindings = bindings
@@ -4782,27 +4783,39 @@ func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Conte
 	return changed
 }
 
-func parserDeclaredIdentityBindingsForOperation(fi *repomap.FileInfo, it types.EvidenceItem) []types.EvidenceDeclaredIdentityBinding {
+func parserDeclaredIdentityBindingsForOperation(graph *repomap.Graph, fi *repomap.FileInfo, it types.EvidenceItem) []types.EvidenceDeclaredIdentityBinding {
 	if fi == nil || strings.TrimSpace(it.OwnerIdentity) == "" ||
 		(strings.TrimSpace(it.Subject) == "" && strings.TrimSpace(it.Object) == "") {
 		return nil
 	}
 	byBinding := make(map[string]types.EvidenceDeclaredIdentityBinding)
 	ambiguous := make(map[string]bool)
-	for idx := range fi.Symbols {
-		sym := fi.Symbols[idx]
+	seenDeclarations := make(map[string]bool)
+	add := func(sym repomap.Symbol, local bool) {
 		name := strings.TrimSpace(sym.Name)
 		owner := strings.TrimSpace(sym.Parent)
 		declaredType := strings.TrimSpace(sym.DeclaredType)
 		if name == "" || owner == "" || declaredType == "" ||
+			(!local && !parserDeclarationSharesOperationNamespace(graph, fi, sym)) ||
 			(!types.AnswerCodeIdentityOwnsEndpoint(owner, it.OwnerIdentity) &&
 				!types.AnswerCodeIdentitySurfacesCompatible(owner, it.OwnerIdentity)) {
-			continue
+			return
 		}
 		if !types.AnswerCodeIdentityContainsExactSegment(it.Subject, name) &&
 			!types.AnswerCodeIdentityContainsExactSegment(it.Object, name) {
-			continue
+			return
 		}
+		declarationPath := strings.TrimSpace(strings.ReplaceAll(sym.File, `\`, "/"))
+		if declarationPath == "" && local {
+			declarationPath = strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, "/"))
+		}
+		declarationKey := strings.Join([]string{
+			declarationPath, owner, name, declaredType,
+		}, "\x00")
+		if seenDeclarations[declarationKey] {
+			return
+		}
+		seenDeclarations[declarationKey] = true
 		binding := types.EvidenceDeclaredIdentityBinding{
 			Binding: owner + "." + name,
 			Type:    declaredType,
@@ -4812,9 +4825,27 @@ func parserDeclaredIdentityBindingsForOperation(fi *repomap.FileInfo, it types.E
 			if prior.Type != binding.Type || prior.Owner != binding.Owner {
 				ambiguous[binding.Binding] = true
 			}
-			continue
+			return
 		}
 		byBinding[binding.Binding] = binding
+	}
+	for idx := range fi.Symbols {
+		add(fi.Symbols[idx], true)
+	}
+	// Methods and their receiver fields commonly live in different source
+	// files (Go package receivers are the production witness).  Once the
+	// operation owner is parser-stamped, consult only exact endpoint segments
+	// in the graph's name index and admit declarations from the same language
+	// namespace.  This is an identity bridge only: the independently grounded
+	// argument/assignment remains the sole relation authority.
+	if graph != nil {
+		for _, name := range parserOperationEndpointIdentifiers(it.Subject, it.Object) {
+			for _, candidate := range graph.SymbolDefs[name] {
+				if candidate != nil {
+					add(*candidate, false)
+				}
+			}
+		}
 	}
 	bindings := make([]types.EvidenceDeclaredIdentityBinding, 0, len(byBinding))
 	for key, binding := range byBinding {
@@ -4832,6 +4863,54 @@ func parserDeclaredIdentityBindingsForOperation(fi *repomap.FileInfo, it types.E
 		return bindings[i].Owner < bindings[j].Owner
 	})
 	return bindings
+}
+
+func parserOperationEndpointIdentifiers(values ...string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, value := range values {
+		for _, token := range strings.FieldsFunc(value, func(r rune) bool {
+			return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		}) {
+			token = strings.TrimSpace(token)
+			if token == "" || seen[token] {
+				continue
+			}
+			seen[token] = true
+			out = append(out, token)
+		}
+	}
+	return out
+}
+
+func parserDeclarationSharesOperationNamespace(graph *repomap.Graph, operationFile *repomap.FileInfo, declaration repomap.Symbol) bool {
+	if operationFile == nil {
+		return false
+	}
+	operationPath := strings.TrimSpace(strings.ReplaceAll(operationFile.RelPath, `\`, "/"))
+	declarationPath := strings.TrimSpace(strings.ReplaceAll(declaration.File, `\`, "/"))
+	if declarationPath == "" {
+		return false
+	}
+	if declarationPath == operationPath {
+		return true
+	}
+	if graph == nil {
+		return false
+	}
+	declarationFile := graph.FileIndex[declarationPath]
+	if declarationFile == nil || declarationFile.Language != operationFile.Language {
+		return false
+	}
+	operationPackage := strings.TrimSpace(operationFile.Package)
+	declarationPackage := strings.TrimSpace(declarationFile.Package)
+	if operationPackage != "" || declarationPackage != "" {
+		return operationPackage != "" && operationPackage == declarationPackage
+	}
+	// Languages without a parser-owned package/module identity remain bounded
+	// to one directory.  A same-named class in another directory cannot become
+	// a hard carrier identity merely because the whole repository is indexed.
+	return path.Clean(path.Dir(operationPath)) == path.Clean(path.Dir(declarationPath))
 }
 
 func sameEvidenceDeclaredIdentityBindings(left, right []types.EvidenceDeclaredIdentityBinding) bool {
@@ -6165,6 +6244,8 @@ func emitEvidenceArgumentFlowRepairsForExactCall(
 		return nil
 	}
 	out := make([]emitEvidenceArgumentFlowRepair, 0, len(flows))
+	seenStageParticipant := make(map[string]bool)
+	stagePrecedence := emitEvidenceVerifiedStageArgumentPrecedence(ctx, rm)
 	for _, flow := range flows {
 		candidate := item
 		candidate.Kind = types.EvidenceRelationship
@@ -6172,25 +6253,69 @@ func emitEvidenceArgumentFlowRepairsForExactCall(
 		candidate.AnchorSymbol = flow.Argument
 		candidate.Subject = flow.Argument
 		candidate.Predicate = "passes argument"
-		candidate.Object = flow.Receiver
+		candidate.Object = callee
 		candidate.DeclaredBinding = ""
 		candidate.DeclaredType = ""
 		candidate.DeclaredOwner = ""
 		candidate.DeclaredIdentityBindings = nil
 		stampEvidenceTypedIdentityBindings(&candidate, gc)
-		if !argumentFlowCandidateTouchesIncidentParticipant(rm, candidate) {
+		declaredParticipant := argumentFlowCandidateTouchesIncidentParticipant(rm, candidate)
+		stageParticipant := argumentFlowCandidateVerifiedStageParticipant(rm, candidate.Subject, stagePrecedence)
+		if !declaredParticipant && stageParticipant == "" {
 			continue
+		}
+		if !declaredParticipant && seenStageParticipant[stageParticipant] {
+			continue
+		}
+		if stageParticipant != "" {
+			seenStageParticipant[stageParticipant] = true
 		}
 		out = append(out, emitEvidenceArgumentFlowRepair{
 			itemIndex:               itemIndex,
 			argument:                flow.Argument,
-			receiver:                flow.Receiver,
+			receiver:                callee,
 			source:                  item.Source,
 			line:                    item.LineStart,
 			assignmentCallCompanion: assignmentCallCompanion,
 		})
 	}
 	return out
+}
+
+func emitEvidenceVerifiedStageArgumentPrecedence(ctx *types.BusContext, rm types.RequestModel) []stageauthority.PrecedenceRelation {
+	if ctx == nil || rm.DiagramHint == nil {
+		return nil
+	}
+	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
+	if !ok {
+		return nil
+	}
+	var evidence []types.EvidenceItem
+	if ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return stageauthority.SelectRequiredReadModeWorkflow(rm, evidence, authority).Precedence
+}
+
+func argumentFlowCandidateVerifiedStageParticipant(
+	rm types.RequestModel,
+	endpoint string,
+	precedence []stageauthority.PrecedenceRelation,
+) string {
+	if rm.DiagramHint == nil || len(precedence) == 0 {
+		return ""
+	}
+	matched := ""
+	for _, participant := range rm.DiagramHint.Participants {
+		if stageauthority.ParticipantMatchesStageEndpoint(rm, participant, endpoint, precedence) {
+			identity := strings.ToLower(strings.TrimSpace(participant.Identity))
+			if identity == "" || (matched != "" && matched != identity) {
+				return ""
+			}
+			matched = identity
+		}
+	}
+	return matched
 }
 
 func argumentFlowCandidateTouchesIncidentParticipant(rm types.RequestModel, candidate types.EvidenceItem) bool {

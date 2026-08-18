@@ -36102,6 +36102,49 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1022 r653：精确窗 rank 生产闭环；跨文件载体与阶段参数未形成同一关系分量（2026-08-17）
+
+1. 在 `main@b713edfc6` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`，runner `2/2 PASS`；人工为 Trace
+   核心事实通过但展示 partial、代码图 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r653_20260817_manual_audit.md`。
+2. B1030 获生产闭环。模型先查宽窗 `1.000000..1.010100`，系统补采精确请求窗
+   `1.000000..1.010000`；最终 selected-window roster 仍保留精确窗 `worker-200 #1`，链上累计
+   9.000ms、有效归因 8.300ms。唤醒链、优先级反转候选、背景-only 调度压力和未证 frame 边界均
+   保留，证明 exact-window survivor 不是只在 fixture 中成立。
+3. Trace 人工只能签 usability partial：中文正文继续泄漏 `state_partition_coverage=complete`、
+   `priority_inversion_candidate`、`tier=primary`、`chain_relevance=on_chain` 等内部 key/enum，且单一 inline
+   trace 被追加大幅跨工件关系边界。这是 B756 的生产残余；不得用扫描/删除模型输出、系统改写结论
+   或放松因果投影解决，后续只从 typed presentation metadata 与软教学收敛。
+4. 代码图最终语法合法，三条 verified stage precedence 与两条 grounded call 均保留，但
+   `BusContext/Mutable` 仍只能断开披露。Explorer 已读取
+   `ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)`，却只发 call；完成门三次
+   追证后仍拿不到参数流。这不是模型随机漏画，而是 B1031 三段 typed identity 断层：receiver 字段声明
+   位于同 package 的另一文件；导入别名 `ctxbuilder` 未解析到真实 package-level function；阶段枚举参数
+   未通过 checkout-verified stage table 对齐请求参与者。
+5. B1031 根修不造边：operation identity binding 在 parser 已给出 owner 后，可查同语言、同 package/module
+   的跨文件 exact field declaration；resolved-import graph 保留“某条 import declaration→其 resolved files”
+   映射，显式/默认 namespace 唯一时才把调用 target 归一到真实函数；完整参数 roster 中的精确
+   `Agent*/Stage*` 参数只有在 checkout authority 唯一映射某个 required stage participant 时才生成补发行
+   债，同一阶段只要求一条。最终 relation authority 仍是模型明确 emit 的 grounded argument row。
+6. 歧义全部 fail-closed：跨 package 同名字段、多个 imported definition、错误 stage、近似名称、文本标签、
+   客户仓没有匹配的 verified authority、Trace 请求均不能激活。该桥只减少正确关系证据遗漏和无效追证，
+   不扩大调用/数据流语义，不让系统代画图或代下结论。
+7. 新增正负 pin 覆盖跨文件唯一字段/跨 package 同名、导入别名唯一解析/多定义歧义、精确阶段 enum/
+   错误及近似 endpoint、载体参数与阶段参数同轮补发、一个阶段只出一个参数行；全包回归覆盖
+   `repomap types/index + stageauthority + tool + types + agent + orchestrator`。
+
+状态：
+
+`r653=runner-2/2; human-trace-core-pass+presentation-partial; human-diagram-partial`；
+`B1030-TRACECHAINROOTCLASSIFICATION1=production-closed-r653`；
+`B1031-CROSSFILECARRIERARGUMENTFLOW1=implemented/pinned/pending-production-replay`；
+`B756-RUNTIMEENUMCUSTOMERLANGUAGE1=production-partial/open-followup`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r653`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1021 r652：配置批生产闭环；显式窗精确 rank 事实被宽窗同事实先来顺序吞没（2026-08-17）
 
 1. 在 `main@c431f9826` 严格并发恰好两个案例：

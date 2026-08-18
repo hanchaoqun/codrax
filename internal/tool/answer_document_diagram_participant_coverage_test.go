@@ -409,6 +409,59 @@ func TestFlowParticipantRelationScopeFailsClosedOnAmbiguousParticipantEndpoint(t
 	}
 }
 
+func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *testing.T) {
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+		{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"},
+	}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1]}, {From: rows[1], To: rows[2]}, {From: rows[2], To: rows[3]},
+	}
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	surfaces := make([][]string, len(participants))
+	for i := range participants {
+		surfaces[i] = []string{participants[i].Identity}
+	}
+	argument := func(subject string) types.EvidenceItem {
+		return types.EvidenceItem{ID: "arg-" + subject, Kind: types.EvidenceRelationship,
+			Subject: subject, Predicate: "passes argument", Object: "BuildAgentContext",
+			Source: "internal/orchestrator/extract_work.go", LineStart: 15,
+			AnchorKind: types.AnchorArgument, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			OwnerIdentity: "Orchestrator.extractStageHasRequiredWork"}
+	}
+	carrier := argument("o.busCtx")
+	carrier.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+	}}
+	evidence := []types.EvidenceItem{
+		carrier,
+		argument("types.AgentExtractor"),
+		diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective"),
+	}
+	scope := buildFlowParticipantRelationScope(rm, participants, surfaces, evidence, precedence)
+	for i, covered := range scope.participantCovered {
+		if !covered {
+			t.Fatalf("participant %s should join a verified relation component: %+v", participants[i].Identity, scope)
+		}
+	}
+	for i, relevant := range scope.operationRelevant {
+		if !relevant {
+			t.Fatalf("operation %d should contribute to a requested relation component: %+v", i, scope)
+		}
+	}
+}
+
 func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"理解请求\"] --> E[\"收集证据\"]\n M[\"MutableState\"]"

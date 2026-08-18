@@ -137,10 +137,12 @@ func buildFlowParticipantRelationScope(
 				continue
 			}
 			if edge.operation != nil {
-				if diagramParticipantCandidateEndpointMatches(participantSurfaces[participantIndex], edge.from, *edge.operation, evidence) {
+				if diagramParticipantCandidateEndpointMatches(participantSurfaces[participantIndex], edge.from, *edge.operation, evidence) ||
+					stageauthority.ParticipantMatchesStageEndpoint(rm, participant, edge.from, stagePrecedence) {
 					fromMatches = append(fromMatches, participantIndex)
 				}
-				if diagramParticipantCandidateEndpointMatches(participantSurfaces[participantIndex], edge.to, *edge.operation, evidence) {
+				if diagramParticipantCandidateEndpointMatches(participantSurfaces[participantIndex], edge.to, *edge.operation, evidence) ||
+					stageauthority.ParticipantMatchesStageEndpoint(rm, participant, edge.to, stagePrecedence) {
 					toMatches = append(toMatches, participantIndex)
 				}
 			} else if edge.stageFrom != nil && edge.stageTo != nil {

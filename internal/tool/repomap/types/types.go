@@ -167,6 +167,17 @@ type Import struct {
 	Line  int    `json:"line"`
 }
 
+// ResolvedImportBinding preserves which parser-owned import declaration
+// resolved to which repository files. ImportGraph intentionally collapses
+// those rows to file -> file adjacency for ranking; call identity resolution
+// also needs the declaration-level alias/path boundary so two imports from one
+// file cannot be confused with each other. This index is rebuilt with Graph
+// and is never persisted in the cache.
+type ResolvedImportBinding struct {
+	Import  Import
+	Targets []string
+}
+
 // RelationEndpoint is the canonical endpoint of a Relation. `ID` is
 // populated when the endpoint resolves to a single SymbolID; empty
 // when unresolved (external calls, unknown receiver variables,
@@ -549,18 +560,19 @@ type MethodKey struct {
 
 // Graph is the complete repository index.
 type Graph struct {
-	Root           string                `json:"root"`
-	Files          []*FileInfo           `json:"-"`
-	FileIndex      map[string]*FileInfo  `json:"-"` // rel path → FileInfo
-	SymbolDefs     map[string][]*Symbol  `json:"-"` // symbol name → all definitions (legacy; kept while consumers migrate)
-	SymbolByID     map[SymbolID]*Symbol  `json:"-"` // canonical drift-proof index: one SymbolID → one definition
-	MethodIndex    map[MethodKey]*Symbol `json:"-"` // (pkg, receiver, name) → method def; used by the receiver-aware call resolver
-	ImportGraph    map[string][]string   `json:"-"` // file → imported file paths
-	ReverseImports map[string][]string   `json:"-"` // file → files that import it
-	RankIndex      *RankIndex            `json:"-"` // derived structural ranking index; rebuilt from Files/graph edges
-	Scores         map[string]float64    `json:"-"` // key → importance score
-	QueryScores    map[string]float64    `json:"-"` // key → query match score (>0 only for files matching the query)
-	Metadata       Metadata              `json:"metadata"`
+	Root            string                             `json:"root"`
+	Files           []*FileInfo                        `json:"-"`
+	FileIndex       map[string]*FileInfo               `json:"-"` // rel path → FileInfo
+	SymbolDefs      map[string][]*Symbol               `json:"-"` // symbol name → all definitions (legacy; kept while consumers migrate)
+	SymbolByID      map[SymbolID]*Symbol               `json:"-"` // canonical drift-proof index: one SymbolID → one definition
+	MethodIndex     map[MethodKey]*Symbol              `json:"-"` // (pkg, receiver, name) → method def; used by the receiver-aware call resolver
+	ImportGraph     map[string][]string                `json:"-"` // file → imported file paths
+	ReverseImports  map[string][]string                `json:"-"` // file → files that import it
+	ResolvedImports map[string][]ResolvedImportBinding `json:"-"` // file → exact import declaration + resolved target files
+	RankIndex       *RankIndex                         `json:"-"` // derived structural ranking index; rebuilt from Files/graph edges
+	Scores          map[string]float64                 `json:"-"` // key → importance score
+	QueryScores     map[string]float64                 `json:"-"` // key → query match score (>0 only for files matching the query)
+	Metadata        Metadata                           `json:"metadata"`
 
 	// flatSymbolOnce / flatSymbolIndex memoize the flattened-identifier
 	// lookup table at the GRAPH level. Oracles are constructed per

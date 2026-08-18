@@ -402,6 +402,43 @@ func ParticipantMatchesStageRow(rm types.RequestModel, participant types.Diagram
 	return false
 }
 
+// ParticipantMatchesStageEndpoint joins a source endpoint to a requested
+// stage participant only through the checkout-verified stage table. The
+// endpoint must contain one exact declared stage/agent identity segment and
+// resolve to exactly one distinct stage row. Display prose and fuzzy aliases
+// cannot activate this bridge.
+func ParticipantMatchesStageEndpoint(
+	rm types.RequestModel,
+	participant types.DiagramParticipantHint,
+	endpoint string,
+	relations []PrecedenceRelation,
+) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" || participant.Role != types.DiagramParticipantIncidentRequired {
+		return false
+	}
+	matched := make(map[string]StageRow)
+	add := func(row StageRow) {
+		endpointMatch := false
+		for _, alias := range row.IdentityAliases() {
+			if types.AnswerCodeIdentitySurfacesEquivalent(endpoint, alias) ||
+				types.AnswerCodeIdentityContainsExactSegment(endpoint, alias) {
+				endpointMatch = true
+				break
+			}
+		}
+		if !endpointMatch || !ParticipantMatchesStageRow(rm, participant, row) {
+			return
+		}
+		matched[row.StageIdent+"\x00"+row.AgentIdent] = row
+	}
+	for _, relation := range relations {
+		add(relation.From)
+		add(relation.To)
+	}
+	return len(matched) == 1
+}
+
 // ParticipantHasIncidentPrecedence reports whether one typed incident
 // participant is an endpoint of the checkout-verified precedence component.
 // It does not inspect Mermaid labels, request prose, or model output.

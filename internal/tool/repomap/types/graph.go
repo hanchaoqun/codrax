@@ -335,6 +335,16 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 	if s, ok := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: recv, Name: name}]; ok {
 		return s
 	}
+	// A package/module import alias is a namespace, not a receiver type. The
+	// declaration-level resolved-import index keeps that distinction exact:
+	// `ctxbuilder.BuildAgentContext` may resolve to the package-level
+	// `BuildAgentContext`, while an unrelated type named ctxbuilder cannot.
+	// Ambiguous imports/definitions fail closed rather than picking by order.
+	if recv != "" {
+		if target, resolvedNamespace := g.resolveImportedNamespaceCall(fi, recv, name); resolvedNamespace {
+			return target
+		}
+	}
 	// Rust scoped paths (`self::`, `super::`, `crate::`) name lexical
 	// modules, not receiver types. Resolve them against the parser-owned caller
 	// scope carried by FromEP. This keeps a same-named inline-module wrapper and
@@ -360,6 +370,57 @@ func (g *Graph) ResolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
 		}
 	}
 	return nil
+}
+
+func (g *Graph) resolveImportedNamespaceCall(fi *FileInfo, receiver, name string) (*Symbol, bool) {
+	if g == nil || fi == nil || receiver == "" || name == "" {
+		return nil, false
+	}
+	var matched *Symbol
+	namespaceMatched := false
+	seen := make(map[*Symbol]bool)
+	for _, binding := range g.ResolvedImports[fi.RelPath] {
+		for _, targetPath := range binding.Targets {
+			targetFile := g.FileIndex[targetPath]
+			if targetFile == nil || !resolvedImportReceiverMatches(binding.Import, targetFile, receiver) {
+				continue
+			}
+			namespaceMatched = true
+			for i := range targetFile.Symbols {
+				candidate := &targetFile.Symbols[i]
+				if candidate.Name != name || candidate.Receiver != "" || candidate.Parent != "" {
+					continue
+				}
+				if seen[candidate] {
+					continue
+				}
+				seen[candidate] = true
+				if matched != nil {
+					return nil, true
+				}
+				matched = candidate
+			}
+		}
+	}
+	return matched, namespaceMatched
+}
+
+func resolvedImportReceiverMatches(imp Import, target *FileInfo, receiver string) bool {
+	alias := strings.TrimSpace(imp.Alias)
+	if alias == "_" || alias == "." {
+		return false
+	}
+	if alias != "" {
+		return alias == receiver
+	}
+	if target != nil && strings.TrimSpace(target.Package) != "" {
+		return strings.TrimSpace(target.Package) == receiver
+	}
+	path := strings.Trim(strings.TrimSpace(imp.Path), "/\\")
+	if path == "" {
+		return false
+	}
+	return filepath.Base(path) == receiver
 }
 
 func rustScopedCallTargetScope(callerScope, receiver string) (string, bool) {

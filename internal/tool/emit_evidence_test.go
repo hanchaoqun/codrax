@@ -4357,6 +4357,140 @@ func TestEmitEvidence_RequiredFlowCallPublishesTypedArgumentSiblingRepairAcrossL
 	}
 }
 
+func TestEmitEvidence_RequiredFlowCallFindsUniqueReceiverFieldAcrossFiles(t *testing.T) {
+	const (
+		callSource = "internal/orchestrator/extract_work.go"
+		declSource = "internal/orchestrator/orchestrator.go"
+		line       = "ac := ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)"
+	)
+	callFile := &repomap.FileInfo{
+		RelPath: callSource, Language: repomap.LangGo, Package: "orchestrator",
+		Symbols: []repomap.Symbol{
+			{Name: "extractStageHasRequiredWork", Kind: "method", Receiver: "Orchestrator", Line: 10, EndLine: 35},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: callSource, Line: 15,
+			FromEP:     repomap.RelationEndpoint{Name: "extractStageHasRequiredWork", Receiver: "Orchestrator", File: callSource, Line: 15},
+			ToEP:       repomap.RelationEndpoint{Name: "BuildAgentContext", Receiver: "ctxbuilder", File: callSource, Line: 15},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_call",
+		}},
+	}
+	declarationFile := &repomap.FileInfo{
+		RelPath: declSource, Language: repomap.LangGo, Package: "orchestrator",
+		Symbols: []repomap.Symbol{{
+			Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", File: declSource, Line: 55, EndLine: 55,
+		}},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}}},
+	}}
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(callFile, declarationFile))
+	seedReadFileHistory(ctx, callSource, 15, line)
+
+	payload := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"Orchestrator.extractStageHasRequiredWork","predicate":"calls","object":"ctxbuilder.BuildAgentContext","source":%q,"line_start":15,"summary":"builds the stage context","anchor_kind":"call","anchor_symbol":"ctxbuilder.BuildAgentContext","snippet":%q}]}`,
+		callSource, line))
+	res, err := (&EmitEvidence{}).Execute(ctx, payload)
+	if err != nil || !res.Success {
+		t.Fatalf("cross-file operation evidence failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "call_argument_flow_pair" ||
+		!strings.Contains(res.Repair.Hint, `subject="o.busCtx"`) ||
+		!strings.Contains(res.Repair.Hint, `object="ctxbuilder.BuildAgentContext"`) {
+		t.Fatalf("unique same-package receiver field must expose the exact argument sibling: %+v", res.Repair)
+	}
+
+	// A same-named receiver field from another namespace is not an identity
+	// bridge, even when it is the only other declaration in the repository.
+	declarationFile.Package = "other"
+	ctx = newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}}},
+	}}
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(callFile, declarationFile))
+	seedReadFileHistory(ctx, callSource, 15, line)
+	res, err = (&EmitEvidence{}).Execute(ctx, payload)
+	if err != nil || !res.Success {
+		t.Fatalf("cross-package negative evidence failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_scope"] == "call_argument_flow_pair" {
+		t.Fatalf("cross-package homonym must stay fail-closed: %+v", res.Repair)
+	}
+}
+
+func TestEmitEvidence_RequiredFlowCallRepairsCarrierAndVerifiedStageArgumentsTogether(t *testing.T) {
+	const (
+		callSource  = "internal/orchestrator/extract_work.go"
+		declSource  = "internal/orchestrator/orchestrator.go"
+		buildSource = "internal/context/builder.go"
+		line        = "ac := ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)"
+	)
+	callFile := &repomap.FileInfo{
+		RelPath: callSource, Language: repomap.LangGo, Package: "orchestrator",
+		Imports: []repomap.Import{{Path: "github.com/hanchaoqun/codrax/internal/context", Alias: "ctxbuilder"}},
+		Symbols: []repomap.Symbol{{Name: "extractStageHasRequiredWork", Kind: "method", Receiver: "Orchestrator", Line: 10, EndLine: 35}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: callSource, Line: 15,
+			FromEP:     repomap.RelationEndpoint{Name: "extractStageHasRequiredWork", Receiver: "Orchestrator", File: callSource, Line: 15},
+			ToEP:       repomap.RelationEndpoint{Name: "BuildAgentContext", Receiver: "ctxbuilder", File: callSource, Line: 15},
+			Confidence: 1, Provenance: "tree_sitter", ResolvedBy: "go_call",
+		}},
+	}
+	declarationFile := &repomap.FileInfo{
+		RelPath: declSource, Language: repomap.LangGo, Package: "orchestrator",
+		Symbols: []repomap.Symbol{{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", File: declSource, Line: 55, EndLine: 55}},
+	}
+	buildFile := &repomap.FileInfo{
+		RelPath: buildSource, Language: repomap.LangGo, Package: "context",
+		Symbols: []repomap.Symbol{{Name: "BuildAgentContext", Kind: "function", File: buildSource, Line: 26, EndLine: 80}},
+	}
+	graph := callTargetTestGraph(callFile, declarationFile, buildFile)
+	graph.ResolvedImports = map[string][]repomap.ResolvedImportBinding{
+		callSource: {{Import: callFile.Imports[0], Targets: []string{buildSource}}},
+	}
+	ctx := newEmitCtx()
+	ctx.RepoRoot = "../.."
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}}
+	ctx.Mutable.SetSearchGraph(graph)
+	seedReadFileHistory(ctx, callSource, 15, line)
+	payload := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"Orchestrator.extractStageHasRequiredWork","predicate":"calls","object":"ctxbuilder.BuildAgentContext","source":%q,"line_start":15,"summary":"builds the extractor context","anchor_kind":"call","anchor_symbol":"ctxbuilder.BuildAgentContext","snippet":%q}]}`,
+		callSource, line))
+	res, err := (&EmitEvidence{}).Execute(ctx, payload)
+	if err != nil || !res.Success {
+		t.Fatalf("flow call failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "call_argument_flow_pair" {
+		t.Fatalf("expected exact argument repair, got %+v", res.Repair)
+	}
+	for _, want := range []string{`subject="o.busCtx"`, `subject="types.AgentExtractor"`, `object="BuildAgentContext"`} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("combined carrier/stage repair missing %q: %s", want, res.Repair.Hint)
+		}
+	}
+	if strings.Contains(res.Repair.Hint, `subject="types.StageExtract"`) {
+		t.Fatalf("one verified stage participant should produce one exact argument repair: %s", res.Repair.Hint)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Object != "BuildAgentContext" {
+		t.Fatalf("resolved import alias must canonicalize the call target: %+v", got)
+	}
+}
+
 func TestRequiredCallArgumentFlowRepairIsTypedParticipantAndTraceIsolated(t *testing.T) {
 	const source = "pipeline.go"
 	fi := &repomap.FileInfo{
