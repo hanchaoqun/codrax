@@ -36102,6 +36102,42 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1021 r652：配置批生产闭环；显式窗精确 rank 事实被宽窗同事实先来顺序吞没（2026-08-17）
+
+1. 在 `main@c431f9826` 严格并发恰好两个案例：
+   `read_combo_config_two_knobs_precedence + trace_query_wakeup_causal_runnable`，runner 与人工均 `2/2 PASS`；
+   逐轮证据见 `eval/parallel_selected_summary_evalcampaign_config_trace_r652_20260817_manual_audit.md`。
+2. 配置批获得生产闭环：终稿逐键给出 YAML 字段、CLI flag、真实代码默认值 50/3 和覆盖条件；Explorer
+   实际读取 `cmd/root.go:3147`。相较 r651，耗时从 987s 降至 158s，final reject 从 14 降至 0，patch
+   从 13 降至 0，重复 citation 池也消失。因此 B1027/B1028/B1029 同时获得正证，而非只在单测通过。
+3. Trace 本轮正确保留显式 10ms 用户窗、自动补采、worker-200 链上 #1、8.300ms 可消量和背景-only
+   调度压力。但该正证没有关闭 B1030：本轮模型三路 trace_query 全部直接使用精确
+   `1.000000..1.010000`，没有触发 r651 的跨窗同事实合并形。
+4. r651/r652 差分把 B1030 收窄为确定性编译缺陷。r651 模型先发布
+   `1.000000..1.010020` 的 root-cause rank 行，系统又补采精确用户窗
+   `1.000000..1.010000` 的同一 `worker-200/8.300ms/行4–8` 事实。R1 按发布先后保留宽窗 survivor 并
+   吸收精确行；随后 selected-window roster 正确拒绝宽窗，却因此得到零席位，最终把 typed
+   `root_cause_primary/on_wakeup_chain` 错降为背景。故这是“正确硬门消费了错误合并 donor”，不是模型波动。
+5. B1030 根修采用显式请求窗的 typed survivor 优先级：只有 validated
+   `RuntimeArtifactScopeProfile=explicit_time_window` 且节点自身 typed query/rank window 在 2μs 主值容差内
+   精确匹配时，才在 R1 同事实折叠前稳定前置；无显式 scope、无精确 carrier 或仅落入宽 F-2 去重容差时
+   均保持旧序。系统不新造 rank、数值、链关系或结论，只决定两个已发布同事实载体谁保留自己的窗身份。
+6. 新生产形 pin 固定“20μs 宽窗先发布、精确系统补采后发布”：最终
+   `TraceAnswerDecisionEliminableSeats` 必须只保留精确窗 worker-200 #1；既有“扩窗不得进入主 roster”和
+   “请求窗无 exact trace coverage 不得凭意图铸证”负 pin 同跑，避免用 fail-open 或放宽窗口容差修复。
+7. 安全边界不变：显式窗、因果投影触发、系统补采、链上-only 根因、背景 support-only 与模型结论权
+   均保留；没有用户/模型原文关键词硬门，没有固定 4ms 活跃流降级。
+
+状态：
+
+`r652=runner-2/2+human-2/2`；
+`B1027/B1028/B1029=production-closed-r652`；
+`B1030-TRACECHAINROOTCLASSIFICATION1=implemented/production-shape-pin+four-core-suites-pass/pending-replay`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r652`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1020 r651：配置值矩阵谓词失真并引发补丁合同死循环；链上主因被投影层错误降为背景（2026-08-17）
 
 1. 在 `main@f88c9fe64` 严格并发恰好两个案例：

@@ -2214,10 +2214,12 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 		return traceCausalProjectionPrimaryLess(primary[i], primary[j], pathIndex)
 	})
 	primary = traceCausalProjectionDedupeNodes(primary)
+	primary = traceCausalProjectionPrioritizeRequestedWindowNodes(primary, requestedScope)
 	sort.SliceStable(hops, func(i, j int) bool {
 		return traceCausalProjectionHopLess(hops[i], hops[j], pathIndex)
 	})
 	hops = traceCausalProjectionDedupeNodes(hops)
+	hops = traceCausalProjectionPrioritizeRequestedWindowNodes(hops, requestedScope)
 	// PTV6 (PTS 连带, 永不静默丢): the former silent hops[:limit] discard is
 	// gone — the hop surface caps by folding with a count AFTER aggregation
 	// (below), where the count is the post-merge truth (复核 P1 同型).
@@ -2227,12 +2229,14 @@ func traceCausalProjectionFromObservationRecords(records []ObservationRecord, us
 	classified = traceCausalProjectionDedupeSemanticAliasPublications(classified)
 	classified = traceCausalProjectionConvergeSemanticPhysicalSeats(classified)
 	classified = traceCausalProjectionDedupeNodes(classified)
+	classified = traceCausalProjectionPrioritizeRequestedWindowNodes(classified, requestedScope)
 	sort.SliceStable(semantic, func(i, j int) bool {
 		return traceCausalProjectionClassifiedLess(semantic[i], semantic[j], pathIndex)
 	})
 	semantic = traceCausalProjectionDedupeSemanticAliasPublications(semantic)
 	semantic = traceCausalProjectionConvergeSemanticPhysicalSeats(semantic)
 	semantic = traceCausalProjectionDedupeNodes(semantic)
+	semantic = traceCausalProjectionPrioritizeRequestedWindowNodes(semantic, requestedScope)
 	out := TraceCausalProjection{
 		PrimaryRootCauses: traceCausalProjectionLimitNodes(primary, traceCausalProjectionPrimaryLimit),
 		// PTS (#68 用户裁定 2026-07-05): the on-chain bucket enters aggregation
@@ -3618,6 +3622,45 @@ func traceCausalProjectionPreferRequestedWindowWakeupPaths(candidates []traceCau
 		return candidates
 	}
 	return matching
+}
+
+// traceCausalProjectionPrioritizeRequestedWindowNodes makes the validated
+// explicit user window the deterministic survivor of later same-fact folding.
+// The model may first inspect a slightly expanded window and the system may
+// later supplement the exact requested window. R1 intentionally merges those
+// duplicate publications by physical fact; without this stable typed-window
+// preference, whichever query happened to be published first donated the
+// rank-window identity, so an exact-window ranked row could be absorbed by an
+// expanded exploratory twin and then rejected from the principal roster.
+//
+// This does not promote a row or create a rank/value: it only moves already
+// published nodes whose own typed query window exactly matches the explicit
+// requested scope ahead of non-matching twins. If there is no explicit scope
+// or no exact typed carrier, order stays byte-identical. The narrow principal
+// value tolerance is deliberate; the broader F-2 grouping tolerance is for
+// disclosure dedupe and must not authorize a different principal window.
+func traceCausalProjectionPrioritizeRequestedWindowNodes(nodes []TraceCausalProjectionNode, requestedScope *RuntimeArtifactScopeProfile) []TraceCausalProjectionNode {
+	start, end, ok := requestedScope.ExplicitTimeWindow()
+	if !ok || len(nodes) < 2 {
+		return nodes
+	}
+	matching := make([]TraceCausalProjectionNode, 0, len(nodes))
+	remainder := make([]TraceCausalProjectionNode, 0, len(nodes))
+	for _, node := range nodes {
+		nodeStart, nodeEnd := node.QueryWindowStartTs, node.QueryWindowEndTs
+		if TraceCausalProjectionWindowPresent(node.RankQueryWindowStartTs, node.RankQueryWindowEndTs) {
+			nodeStart, nodeEnd = node.RankQueryWindowStartTs, node.RankQueryWindowEndTs
+		}
+		if TraceCausalProjectionPrincipalValueSameWindow(nodeStart, nodeEnd, start, end) {
+			matching = append(matching, node)
+		} else {
+			remainder = append(remainder, node)
+		}
+	}
+	if len(matching) == 0 || len(remainder) == 0 {
+		return nodes
+	}
+	return append(matching, remainder...)
 }
 
 // traceCausalProjectionSelectedWindowAnchorFamily reports whether a record
