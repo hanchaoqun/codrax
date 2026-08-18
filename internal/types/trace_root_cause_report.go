@@ -1,0 +1,231 @@
+package types
+
+import (
+	"fmt"
+	"math"
+	"strings"
+	"unicode/utf8"
+)
+
+// TraceRootCauseReportSchemaVersion is the user-facing JSON sidecar schema.
+//
+// Version 2 replaces the fixed root_cause_1/root_cause_2 pair with an
+// evidence-sized root_causes array and adds a required impact_seconds value
+// to every emitted cause.
+const TraceRootCauseReportSchemaVersion = 2
+
+// TraceRootCauseCategory is the closed, stable root-cause vocabulary exposed
+// in the JSON sidecar. Evidence remains concise free text and is deliberately
+// not constrained to this vocabulary.
+type TraceRootCauseCategory string
+
+const (
+	TraceRootCauseIOBlocking            TraceRootCauseCategory = "io_blocking"
+	TraceRootCauseLockContention        TraceRootCauseCategory = "lock_contention"
+	TraceRootCauseSynchronousBinder     TraceRootCauseCategory = "synchronous_binder"
+	TraceRootCausePriorityInversion     TraceRootCauseCategory = "priority_inversion"
+	TraceRootCauseGCLongPause           TraceRootCauseCategory = "gc_long_pause"
+	TraceRootCauseCPUSchedulingDelay    TraceRootCauseCategory = "cpu_scheduling_delay"
+	TraceRootCausePhaseHighLoad         TraceRootCauseCategory = "phase_high_load"
+	TraceRootCauseJITCompilation        TraceRootCauseCategory = "jit_compilation"
+	TraceRootCauseShaderCompilation     TraceRootCauseCategory = "shader_compilation"
+	TraceRootCauseSleepBlocking         TraceRootCauseCategory = "sleep_blocking"
+	TraceRootCauseComputeSupplyShortage TraceRootCauseCategory = "compute_supply_shortage"
+)
+
+func AllTraceRootCauseCategories() []TraceRootCauseCategory {
+	return []TraceRootCauseCategory{
+		TraceRootCauseIOBlocking,
+		TraceRootCauseLockContention,
+		TraceRootCauseSynchronousBinder,
+		TraceRootCausePriorityInversion,
+		TraceRootCauseGCLongPause,
+		TraceRootCauseCPUSchedulingDelay,
+		TraceRootCausePhaseHighLoad,
+		TraceRootCauseJITCompilation,
+		TraceRootCauseShaderCompilation,
+		TraceRootCauseSleepBlocking,
+		TraceRootCauseComputeSupplyShortage,
+	}
+}
+
+// TraceRootCauseItemV2 is one structured conclusion plus its corresponding
+// concise evidence. Summary is normalized by the runtime from Category and
+// the relevant identity field so the wire format stays consistent. Rank is
+// also runtime-owned: array order is the model's strongest-to-weakest order,
+// and normalization writes contiguous 1-based ranks.
+type TraceRootCauseItemV2 struct {
+	Rank          int                    `json:"rank"`
+	Category      TraceRootCauseCategory `json:"category"`
+	ThreadName    string                 `json:"thread_name,omitempty"`
+	ResourceName  string                 `json:"resource_name,omitempty"`
+	PhaseName     string                 `json:"phase_name,omitempty"`
+	ImpactSeconds *float64               `json:"impact_seconds"`
+	Summary       string                 `json:"summary"`
+	Evidence      []string               `json:"evidence"`
+}
+
+// TraceRootCauseReportV2 is written next to the full Markdown/HTML answer.
+// RootCauses is evidence-sized: the finalizer emits every independently
+// supported, quantitatively grounded cause in strongest-to-weakest order.
+// An empty array is the honest representation when no such cause exists.
+type TraceRootCauseReportV2 struct {
+	SchemaVersion int                     `json:"schema_version"`
+	RootCauses    []*TraceRootCauseItemV2 `json:"root_causes"`
+}
+
+// NormalizeAndValidateTraceRootCauseReport validates model-authored semantic
+// choices, compacts evidence whitespace, and owns the fixed Chinese summary
+// spelling. It never derives a cause from the long answer prose.
+func NormalizeAndValidateTraceRootCauseReport(in *TraceRootCauseReportV2) (*TraceRootCauseReportV2, error) {
+	if in == nil {
+		return nil, fmt.Errorf("trace_root_causes is required")
+	}
+	if in.SchemaVersion != TraceRootCauseReportSchemaVersion {
+		return nil, fmt.Errorf("trace_root_causes schema_version=%d, want %d", in.SchemaVersion, TraceRootCauseReportSchemaVersion)
+	}
+	out := &TraceRootCauseReportV2{
+		SchemaVersion: TraceRootCauseReportSchemaVersion,
+		RootCauses:    make([]*TraceRootCauseItemV2, 0, len(in.RootCauses)),
+	}
+	seenSummaries := make(map[string]int, len(in.RootCauses))
+	for index, cause := range in.RootCauses {
+		field := fmt.Sprintf("root_causes[%d]", index)
+		normalized, err := normalizeTraceRootCauseItem(cause, field)
+		if err != nil {
+			return nil, err
+		}
+		normalized.Rank = index + 1
+		if previous, duplicate := seenSummaries[normalized.Summary]; duplicate {
+			return nil, fmt.Errorf("trace_root_causes.%s duplicates root_causes[%d]", field, previous)
+		}
+		seenSummaries[normalized.Summary] = index
+		out.RootCauses = append(out.RootCauses, normalized)
+	}
+	return out, nil
+}
+
+func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*TraceRootCauseItemV2, error) {
+	if in == nil {
+		return nil, fmt.Errorf("trace_root_causes.%s is null", field)
+	}
+	out := &TraceRootCauseItemV2{
+		Category:     in.Category,
+		ThreadName:   compactTraceRootCauseField(in.ThreadName),
+		ResourceName: compactTraceRootCauseField(in.ResourceName),
+		PhaseName:    compactTraceRootCauseField(in.PhaseName),
+	}
+	if !validTraceRootCauseCategory(out.Category) {
+		return nil, fmt.Errorf("trace_root_causes.%s.category=%q is unsupported", field, out.Category)
+	}
+	if traceRootCauseNeedsThread(out.Category) && out.ThreadName == "" {
+		return nil, fmt.Errorf("trace_root_causes.%s.thread_name is required for category %q", field, out.Category)
+	}
+	if out.Category == TraceRootCauseLockContention && out.ResourceName == "" {
+		return nil, fmt.Errorf("trace_root_causes.%s.resource_name is required for lock_contention", field)
+	}
+	if out.Category == TraceRootCausePhaseHighLoad && out.PhaseName == "" {
+		return nil, fmt.Errorf("trace_root_causes.%s.phase_name is required for phase_high_load", field)
+	}
+	if in.ImpactSeconds == nil {
+		return nil, fmt.Errorf("trace_root_causes.%s.impact_seconds is required", field)
+	}
+	impactSeconds := *in.ImpactSeconds
+	if math.IsNaN(impactSeconds) || math.IsInf(impactSeconds, 0) || impactSeconds <= 0 {
+		return nil, fmt.Errorf("trace_root_causes.%s.impact_seconds must be a finite positive number", field)
+	}
+	out.ImpactSeconds = &impactSeconds
+	if len(in.Evidence) == 0 || len(in.Evidence) > 4 {
+		return nil, fmt.Errorf("trace_root_causes.%s.evidence must contain 1 to 4 concise entries", field)
+	}
+	for index, evidence := range in.Evidence {
+		evidence = compactTraceRootCauseField(evidence)
+		if evidence == "" {
+			return nil, fmt.Errorf("trace_root_causes.%s.evidence[%d] is empty", field, index)
+		}
+		if utf8.RuneCountInString(evidence) > 240 {
+			return nil, fmt.Errorf("trace_root_causes.%s.evidence[%d] exceeds 240 characters", field, index)
+		}
+		out.Evidence = append(out.Evidence, evidence)
+	}
+	out.Summary = traceRootCauseSummary(*out)
+	return out, nil
+}
+
+func validTraceRootCauseCategory(category TraceRootCauseCategory) bool {
+	for _, candidate := range AllTraceRootCauseCategories() {
+		if category == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func traceRootCauseNeedsThread(category TraceRootCauseCategory) bool {
+	switch category {
+	case TraceRootCauseIOBlocking,
+		TraceRootCauseSynchronousBinder,
+		TraceRootCausePriorityInversion,
+		TraceRootCauseCPUSchedulingDelay,
+		TraceRootCauseJITCompilation,
+		TraceRootCauseShaderCompilation,
+		TraceRootCauseSleepBlocking:
+		return true
+	default:
+		return false
+	}
+}
+
+func traceRootCauseSummary(item TraceRootCauseItemV2) string {
+	switch item.Category {
+	case TraceRootCauseIOBlocking:
+		return item.ThreadName + "线程IO阻塞"
+	case TraceRootCauseLockContention:
+		return item.ResourceName + "锁竞争"
+	case TraceRootCauseSynchronousBinder:
+		return item.ThreadName + "线程同步binder"
+	case TraceRootCausePriorityInversion:
+		return item.ThreadName + "线程优先级反转"
+	case TraceRootCauseGCLongPause:
+		return "GC耗时长"
+	case TraceRootCauseCPUSchedulingDelay:
+		return item.ThreadName + "线程CPU调度延迟"
+	case TraceRootCausePhaseHighLoad:
+		return item.PhaseName + "阶段高负载"
+	case TraceRootCauseJITCompilation:
+		return item.ThreadName + "线程JIT编译耗时"
+	case TraceRootCauseShaderCompilation:
+		return item.ThreadName + "线程Shader编译"
+	case TraceRootCauseSleepBlocking:
+		return item.ThreadName + "线程阻塞"
+	case TraceRootCauseComputeSupplyShortage:
+		return "供给不足"
+	default:
+		return ""
+	}
+}
+
+func compactTraceRootCauseField(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func cloneTraceRootCauseReportV2(in *TraceRootCauseReportV2) *TraceRootCauseReportV2 {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.RootCauses = make([]*TraceRootCauseItemV2, len(in.RootCauses))
+	for index, item := range in.RootCauses {
+		if item == nil {
+			continue
+		}
+		cause := *item
+		cause.Evidence = append([]string(nil), item.Evidence...)
+		if item.ImpactSeconds != nil {
+			impactSeconds := *item.ImpactSeconds
+			cause.ImpactSeconds = &impactSeconds
+		}
+		out.RootCauses[index] = &cause
+	}
+	return &out
+}

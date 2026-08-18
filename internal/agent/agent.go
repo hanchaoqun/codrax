@@ -2136,6 +2136,11 @@ func compactEvidenceCheckpointLabel(item types.EvidenceItem) string {
 // debug-gated logging so the same trace can be reproduced on demand by
 // running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
+	if b.name == types.AgentFinalizer {
+		if err := prepareTraceFindingContract(ctx); err != nil {
+			return nil, err
+		}
+	}
 	// Pre-flight watchdog around the first schema build — kept here
 	// so the diag trace's tool_schemas phase remains observable from
 	// outside the loop. The actual schemas used in each iter are
@@ -3144,6 +3149,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				b.escalateMidLoopCapSaturation(ctx, i, result.CapSaturatedHintKey, result.Reason)
 			}
 		}
+	}
+
+	if b.name == types.AgentFinalizer {
+		// The answer document has already been accepted at this point. Build the
+		// optional trace sidecar now, after model mutation, so it cannot be
+		// cleared by answer replacement and cannot influence model generation.
+		finalizeDeterministicTraceFinding(ctx)
 	}
 
 	// Parse final output. This phase is local CPU work, not an LLM
