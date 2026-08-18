@@ -36190,6 +36190,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 
+### §123.1061 r680：成员复合载体第二层断层与重复调用点修补死循环（2026-08-18）
+
+1. 在 `main@ff7129fd7` 严格并发恰好两个案例：`sr_c_platform_fork +
+   read_combo_loose_multi_question_units`。Runner `1 PASS / 1 FAIL`，人工均 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_member_composite_replay_r680_20260818_manual_audit.md`。
+2. C 平台案主结论正确且 87s/零 Finalizer reject，但 B1064 第一层只在裁剪后的
+   `ctx.EvidenceItems` 上分代：macOS 组合行错误带入 POSIX call 39，POSIX 组合行缺席；模型终稿又把
+   `cmd_sleep` start/duration 引用挂到不对应的平台实现。B1064 已在 `e591b8316` 扩到完整 accepted
+   evidence 视图，权限仍为 prompt-only support，不自动挂引用或生成结论。
+3. 组合问 runner FAIL 是跨行 regex 假阴性，终稿确有配置和 Mermaid 两个独立章节；人工 partial
+   来自配置默认值误述和 Mermaid fallback 语义简化。该 oracle 记低优先测试债，不用生产标题/答案
+   关键词拟合。
+4. 组合问 545s/27 Explorer/3 prune 的确定性主因是 B1067：模型按提示重发 653/678 两个
+   `init -> IntVar`，旧 realign 把未读 678 搬到已读 653，去重后 completion 仍等待 678。修复
+   `92b773d51` 要求原坐标也具严格 read authority，保留真正两处均已读的安全纠偏。
+5. 两次 Finalizer reject 不是系统矛盾合同：第一稿有两个 summary；第一 patch 只新增 section、未删
+   旧 summary；第二 patch 用 exact block id 删除后通过。无 malformed JSON、旧稿恢复、空答案或
+   active-stream 固定 4ms 降级。
+6. 下一步在两修复后的 main 上严格并发同两案。先验证 macOS/POSIX 不串线与 653/678 不合并；若
+   配置语义在证据修补环消失后仍错误，再审 typed context 是否准确，不能直接把模型波动硬化为门。
+
+状态：runner=`1/2`；human=`0 pass/2 partial`；
+`B1064=second-layer-fixed/replay-next`；`B1067=fixed/replay-next`；
+`combo-multiline-oracle=false-negative/low-priority`；
+`finalizer-summary-contract=coherent/model-patch-omission`；
+`raw-prose-hard-gate=none`；`system-answer/conclusion-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r680`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
