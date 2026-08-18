@@ -3880,9 +3880,21 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 		return flowOperationNavigationHint(files, keywords)
 	}
 	if target.alreadyRead {
+		if target.receivingCallableBody {
+			return fmt.Sprintf(
+				"Exact receiving-callable extraction step (not relation evidence): an existing grounded argument handoff uniquely reaches this callable, and its bounded body window path=%q lines=%d-%d is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call and emit one exact parser-owned operation incident to the still-missing participant(s) %v. This continues the existing relation component; do not substitute an unrelated local operation with the same type/name. If the body proves no such operation, keep the relation unproven.",
+				target.file, target.lineRange.Start, target.lineRange.End, missing,
+			)
+		}
 		return fmt.Sprintf(
 			"Exact operation extraction step (not relation evidence): the bounded source window path=%q lines=%d-%d is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call. If the operation creates a local result, continue through its later consumer/result-application operations in the same enclosing callable instead of stopping at this first occurrence. Emit only exact syntax-owned operations you verify; if they prove no requested relation, keep the relation unproven.",
 			target.file, target.lineRange.Start, target.lineRange.End,
+		)
+	}
+	if target.receivingCallableBody {
+		return fmt.Sprintf(
+			"Exact receiving-callable navigation step (not relation evidence): an existing grounded argument handoff uniquely reaches this callable. Call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d), then emit one exact parser-owned body operation incident to the still-missing participant(s) %v. This continues the existing relation component; do not substitute an unrelated local operation with the same type/name. If the body proves no such operation, keep the relation unproven.",
+			target.file, target.lineRange.Start-1, limit, target.lineRange.Start, target.lineRange.End, missing,
 		)
 	}
 	return fmt.Sprintf(

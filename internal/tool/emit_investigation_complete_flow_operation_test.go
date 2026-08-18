@@ -1271,6 +1271,132 @@ func TestFlowOperationNavigationFollowsReadCarrierHandoffToCalleeMutationAcrossL
 	}
 }
 
+func TestFlowOperationNavigationContinuesGroundedHandoffIntoReceivingCallableBodyAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			callerPath := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			calleePath := filepath.ToSlash(filepath.Join("src", language, "builder.src"))
+			unrelatedPath := filepath.ToSlash(filepath.Join("src", language, "unrelated.src"))
+			handoff := flowOperationEvidence(types.AnchorArgument, "pipeline.busContext", "BuildAgentContext", 10)
+			handoff.Source = callerPath
+			handoff.AnchorSymbol = "pipeline.busContext"
+
+			ctx := flowOperationCompletionContext([]types.EvidenceItem{handoff})
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				callerPath: {
+					RelPath: callerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{Name: "run", Kind: "function", Line: 1, EndLine: 20}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: callerPath, Line: 10,
+						FromEP:     repotypes.RelationEndpoint{Name: "run", Line: 10},
+						ToEP:       repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+				calleePath: {
+					RelPath: calleePath, Language: language, Package: "builder",
+					Symbols: []repotypes.Symbol{
+						{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
+						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 5},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: calleePath, Line: 29,
+						FromEP:     repotypes.RelationEndpoint{Name: "BuildAgentContext", Line: 29},
+						ToEP:       repotypes.RelationEndpoint{Name: "Objective", Receiver: "bus.Mutable", Line: 29},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+				unrelatedPath: {
+					RelPath: unrelatedPath, Language: language, Package: "other",
+					Symbols: []repotypes.Symbol{{Name: "inspect", Kind: "function", Line: 1, EndLine: 10}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: unrelatedPath, Line: 3,
+						FromEP: repotypes.RelationEndpoint{Name: "inspect", Line: 3},
+						ToEP:   repotypes.RelationEndpoint{Name: "Snapshot", Receiver: "state.Mutable", Line: 3},
+					}},
+				},
+			})
+			graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+				callerPath: {{
+					Import:  repotypes.Import{Alias: "builder", Path: "builder", File: callerPath, Line: 1},
+					Targets: []string{calleePath},
+				}},
+			}
+			ctx.Mutable.SetSearchGraph(graph)
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{callerPath: true, calleePath: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				callerPath: {{Start: 1, End: 20}},
+				calleePath: {{Start: 20, End: 40}},
+			})
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable"})
+			if !ok || target.file != calleePath || target.lineRange != (types.LineRange{Start: 17, End: 41}) ||
+				!target.alreadyRead || !target.receivingCallableBody {
+				t.Fatalf("%s grounded handoff must continue inside the unique receiver body: ok=%t target=%+v", language, ok, target)
+			}
+			hint := flowOperationNavigationHintForMissing(ctx, []string{"Mutable"}, nil, nil)
+			if !strings.Contains(hint, "Exact receiving-callable extraction step") ||
+				!strings.Contains(hint, calleePath) || strings.Contains(hint, unrelatedPath) {
+				t.Fatalf("%s repair hint must name the existing receiving-callable frontier:\n%s", language, hint)
+			}
+			if got := ctx.Mutable.EmittedEvidence(); len(got) != 1 || types.ClaimFormOf(got[0]) != types.ClaimArgumentFlow {
+				t.Fatalf("%s receiving-body navigation must not manufacture evidence: %+v", language, got)
+			}
+		})
+	}
+}
+
+func TestFlowOperationNavigationGroundedHandoffAmbiguousReceiverFailsClosed(t *testing.T) {
+	callerPath := "src/pipeline.go"
+	targetA := "src/a/builder.go"
+	targetB := "src/b/builder.go"
+	handoff := flowOperationEvidence(types.AnchorArgument, "pipeline.busContext", "BuildAgentContext", 10)
+	handoff.Source = callerPath
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{handoff})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Mutable", ResolvedAs: "Mutable", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired}},
+	}
+	graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		callerPath: {
+			RelPath: callerPath, Language: repotypes.LangGo, Package: "pipeline",
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: callerPath, Line: 10,
+				ToEP: repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10},
+			}},
+		},
+		targetA: {RelPath: targetA, Language: repotypes.LangGo, Package: "builder", Symbols: []repotypes.Symbol{{Name: "BuildAgentContext", Kind: "function", Line: 1, EndLine: 5}}},
+		targetB: {RelPath: targetB, Language: repotypes.LangGo, Package: "builder", Symbols: []repotypes.Symbol{{Name: "BuildAgentContext", Kind: "function", Line: 1, EndLine: 5}}},
+	})
+	graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+		callerPath: {{
+			Import:  repotypes.Import{Alias: "builder", Path: "builder", File: callerPath, Line: 1},
+			Targets: []string{targetA, targetB},
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(graph)
+	index := flowNavigationIndexForContext(ctx)
+	if _, ok := flowNavigationGroundedHandoffCalleeOperationReadTarget(
+		ctx, index, [][]string{{"Mutable"}}, ctx.Mutable.EmittedEvidence(),
+	); ok {
+		t.Fatal("ambiguous imported receiver definitions must not choose a callable body frontier")
+	}
+}
+
 func TestFlowOperationNavigationResolvesAmbiguousMemberFromProjectedFileIndexAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {

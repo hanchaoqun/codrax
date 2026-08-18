@@ -36102,6 +36102,54 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
+
+1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`，runner `2/2 PASS`；人工为 Trace
+   核心事实通过但展示 partial、代码图 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r654_20260817_manual_audit.md`。
+2. B1031 获得生产正证。Explorer 读取
+   `ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)` 后，先发精确
+   `Orchestrator.extractStageHasRequiredWork -> BuildAgentContext` call，再按 action-required companion
+   发出 `o.busCtx -> BuildAgentContext` 与 `types.AgentExtractor -> BuildAgentContext` 两条 argument-flow。
+   最终图可合法画出 `BusContext -> BuildAgentContext`；证明跨文件字段、import namespace、stage enum
+   三段桥均进入真实模型证据通道，且系统没有制造 evidence/edge。
+3. 关系仍未闭环的根因不是单次模型波动。`internal/context/builder.go:29` 已在 read closure，精确源码为
+   `objective = bus.Mutable.Objective()`；但 `Mutable` 缺席触发后，repair planner 没有沿已经证实的
+   `... -> BuildAgentContext` 前沿进入这个唯一被调函数体，而是跳到无关的
+   `validateEnumerationItemLabelExtractorMatch -> MutableState.EmittedAnswerSymbols` 局部边。该边真实但不
+   续接现有关系分量，三次 final reject 后只能把 `Mutable` 标为 unproven，耗时 397s。
+4. 新立 `B1032-CALLEEBODYRELATIONFRONTIER1`（P1）：当已有 grounded call/argument handoff 到达一个
+   parser 唯一解析的 callable，且其 body 已读或可做一次有界读取时，缺席参与者 repair 应先检查该 body
+   内精确 parser operation，选择与仍缺参与者 incident 的一条作为下一 extraction coordinate；只有该
+   前沿不存在或歧义时才退回 repo-wide local occurrence。模型仍须读并 emit 精确 call/assignment/return；
+   系统不自动发证、不画边、不替模型解释语义。
+5. 该方案是语言中立的 graph/read-closure 合取：`grounded handoff + source/line exact call relation + unique
+   ResolveCallTarget + callable body range + missing-participant exact identity incidence`。多 target、未读且超出
+   有界窗、同名歧义、只有字符串/注释提及、Trace 请求全部 fail-closed；不得使用用户问题、推理或答案
+   原文关键词。
+6. Trace 对照继续保护：精确 10ms 用户窗、系统补采、worker-200 唤醒链首席、8.300ms 有效归因、目标
+   sleep 症状以及 background-only 调度压力全部保留；没有固定 4ms fallback，也没有系统接管结论。
+7. B756 仍有生产 witness：证据/核对区继续显示 `tier=primary`、`causality=on_wakeup_chain`、
+   `priority_inversion_candidate`、`chain_relevance=background` 等 raw enum。该项与关系引擎分批处理：保留
+   审计原值，在 typed presentation 层提供客户语言，不通过扫描/替换模型输出修补。
+8. B1032 已按上述冻结形施工：participant repair 在 repo-wide 候选排序前，先从模型已发的 citable
+   argument-flow 回查同 source/line 的 parser call，经 `ResolveCallTarget` 唯一定位 receiving callable，再在
+   其 body span 中选择命中缺席参与者的 parser call 坐标。already-read body 直接给“重新提取、不要重搜”的
+   精确提示；未读 body 只排一个有界 lazy read。新增全部支持语言正向矩阵与 imported target 多定义歧义
+   fail-closed pin；`tool/types/agent/orchestrator/stageauthority/repomap` 全回归通过。
+
+状态：
+
+`r654=runner-2/2; human-trace-core-pass+presentation-partial; human-diagram-partial`；
+`B1031-CROSSFILECARRIERARGUMENTFLOW1=production-positive-r654`；
+`B1032-CALLEEBODYRELATIONFRONTIER1=implemented/pinned/pending-production-replay`；
+`B756-RUNTIMEENUMCUSTOMERLANGUAGE1=production-partial/open-followup`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r654`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1022 r653：精确窗 rank 生产闭环；跨文件载体与阶段参数未形成同一关系分量（2026-08-17）
 
 1. 在 `main@b713edfc6` 严格并发恰好两个案例：

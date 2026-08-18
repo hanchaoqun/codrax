@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -28,6 +29,10 @@ type flowOperationRepairReadTarget struct {
 	// high-quality already-read cross-participant site must not disappear from
 	// navigation merely because the model has not emitted its relation row yet.
 	alreadyRead bool
+	// receivingCallableBody means this coordinate continues an already-grounded
+	// argument handoff into the uniquely resolved receiving callable. It changes
+	// only the SOFT extraction hint; it never authorizes an evidence row or edge.
+	receivingCallableBody bool
 }
 
 type flowParserRelationSite struct {
@@ -752,6 +757,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	if index == nil {
 		return flowOperationRepairReadTarget{}, false
 	}
+	if target, ok := flowNavigationGroundedHandoffCalleeOperationReadTarget(
+		ctx, index, missingParticipantSurfaceGroups, ctx.Mutable.EmittedEvidence(),
+	); ok {
+		return target, true
+	}
 	type rankedTarget struct {
 		target        flowOperationRepairReadTarget
 		relation      *repotypes.Relation
@@ -966,6 +976,142 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 	}
 	return selected.target, true
+}
+
+// flowNavigationGroundedHandoffCalleeOperationReadTarget continues an exact,
+// model-authored argument handoff into the body of its uniquely graph-resolved
+// receiver. This closes a common relation-frontier gap: after proving
+// `carrier -> BuildContext`, a participant repair must inspect
+// `BuildContext`'s already-read body before restarting at an unrelated local
+// operation that merely shares the participant's type/name.
+//
+// Every input to this preference is precise and typed: one citable
+// argument-flow row, the parser call relation at the same source/line, one
+// ResolveCallTarget result, the target callable span, read-closure coverage,
+// and a parser-owned body call incident to a still-missing participant. The
+// returned coordinate remains navigation only. The model must inspect the
+// source and emit the exact operation; this function never creates evidence,
+// a diagram edge, or a conclusion. Ambiguous or unresolved callees fail
+// closed and fall back to the ordinary bounded repair search.
+func flowNavigationGroundedHandoffCalleeOperationReadTarget(
+	ctx *types.BusContext,
+	index *flowNavigationIndex,
+	missingParticipantSurfaceGroups [][]string,
+	evidence []types.EvidenceItem,
+) (flowOperationRepairReadTarget, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || index == nil ||
+		len(missingParticipantSurfaceGroups) == 0 || len(evidence) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return flowOperationRepairReadTarget{}, false
+	}
+	type candidate struct {
+		target    flowOperationRepairReadTarget
+		matchRank int
+		line      int
+	}
+	var candidates []candidate
+	seen := make(map[string]bool)
+	closure := ctx.Mutable.EvidenceClosure()
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimArgumentFlow || item.LineStart <= 0 ||
+			!relationSourceInRequestedScope(item.Source, ctx.AnalysisIR.RequestModel) {
+			continue
+		}
+		callerFile := canonicalRelationSourcePath(item.Source)
+		callerInfo := graph.FileIndex[callerFile]
+		if callerInfo == nil {
+			continue
+		}
+		var resolved *repotypes.Symbol
+		ambiguous := false
+		for _, site := range index.relationsByFile[callerFile] {
+			relation := site.relation
+			if relation == nil || strings.TrimSpace(relation.Kind) != "call" ||
+				max(relation.Line, relation.FromEP.Line, relation.ToEP.Line) != item.LineStart {
+				continue
+			}
+			visibleTarget := callRelationTargetName(graph, callerInfo, relation)
+			if !flowAnyIdentitySurfaceMatches([]string{item.Object, item.AnchorSymbol}, visibleTarget) &&
+				!flowAnyIdentitySurfaceMatches([]string{item.Object, item.AnchorSymbol}, flowNavigationCallReceiver(relation)) {
+				continue
+			}
+			target := graph.ResolveCallTarget(callerInfo, *relation)
+			if target == nil {
+				continue
+			}
+			if resolved != nil && resolved != target {
+				ambiguous = true
+				break
+			}
+			resolved = target
+		}
+		if ambiguous || resolved == nil || resolved.Line <= 0 || resolved.EndLine < resolved.Line {
+			continue
+		}
+		calleeFile := canonicalRelationSourcePath(resolved.File)
+		calleeInfo := graph.FileIndex[calleeFile]
+		if calleeInfo == nil || !relationSourceInRequestedScope(calleeFile, ctx.AnalysisIR.RequestModel) {
+			continue
+		}
+		for _, site := range index.relationsByFile[calleeFile] {
+			relation := site.relation
+			if relation == nil || strings.TrimSpace(relation.Kind) != "call" {
+				continue
+			}
+			line := max(relation.Line, relation.FromEP.Line, relation.ToEP.Line)
+			if line < resolved.Line || line > resolved.EndLine {
+				continue
+			}
+			surfaces := append(flowRepairRelationEndpointSurfaces(relation.FromEP),
+				flowRepairRelationEndpointSurfaces(relation.ToEP)...)
+			surfaces = append(surfaces, site.ownerSurfaces...)
+			matchRank := 0
+			for _, group := range missingParticipantSurfaceGroups {
+				// Rank 1 is planning-only substring affinity. Continuing a
+				// grounded frontier requires at least a typed-compatible endpoint.
+				matchRank = max(matchRank, flowRepairPlanningSurfaceMatchRank(group, surfaces))
+			}
+			if matchRank < 2 {
+				continue
+			}
+			key := strings.ToLower(calleeFile + "\x00" + strings.TrimSpace(resolved.Name) + "\x00" + strconv.Itoa(line))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			start := line - flowOperationRepairReadRadius
+			if start < 1 {
+				start = 1
+			}
+			candidates = append(candidates, candidate{
+				target: flowOperationRepairReadTarget{
+					file: calleeFile, lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+					alreadyRead: closure.HasReadLine(calleeFile, line), receivingCallableBody: true,
+				},
+				matchRank: matchRank,
+				line:      line,
+			})
+		}
+	}
+	if len(candidates) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].matchRank != candidates[j].matchRank {
+			return candidates[i].matchRank > candidates[j].matchRank
+		}
+		if candidates[i].target.alreadyRead != candidates[j].target.alreadyRead {
+			return candidates[i].target.alreadyRead
+		}
+		if candidates[i].target.file != candidates[j].target.file {
+			return candidates[i].target.file < candidates[j].target.file
+		}
+		return candidates[i].line < candidates[j].line
+	})
+	return candidates[0].target, true
 }
 
 // flowNavigationCarrierArgumentValueRank is a SOFT preference among already
