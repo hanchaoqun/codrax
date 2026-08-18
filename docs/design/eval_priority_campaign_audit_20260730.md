@@ -35928,6 +35928,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1078 r692：endpoint span 生产闭环；内部枚举与证据角色漂移（2026-08-18）
+
+1. 在 `main@8af0c3b32` 严格并发恰好两个案例：
+   `read_combo_pipeline_sequence_table + qf_sequence_analyzer_gate`。Runner `2 PASS / 0 FAIL`，
+   人工 `1 fail / 1 partial`；详细审计见
+   `eval/parallel_selected_summary_evalcampaign_stage_endpoint_span_r692_20260818_manual_audit.md`。
+2. B1085 获生产闭环正证。pipeline Analyzer roster 仅有 `analyze/finalizer`，Finalizer 初始 authority
+   发出 exact 3-edge principal spine；首拒 repair 明确记录 complete principal-only lane。终图从 r691 的
+   17 participant 收敛成 Analyzer→Explorer→Extractor→Finalizer 四节点三边，supporting helper call 不再入图；
+   read 51→27、context 54%→42%、finalizer reject 4→3。
+3. 仍有三次拒绝，但原因已变成模型补丁继续保留 principal recipe 外的无证 precedence/return/reply 边；
+   validator 正确拒绝，第四稿最终删净。不能为了压 reject 数放松关系 gate；后续若继续优化，应缩短 patch
+   指令并确保 failed-edge list 与 principal recipe 同屏，而不是系统改图。
+4. 非 stage 精确调用时序对照 0 reject，正确交付 `buildAnalysisIR→gate.RunWith` 与
+   `gate.Run→gate.RunWith` 两条真实边，证明 stage endpoint 完整性未污染普通 call contract。
+5. 对照案新确认 `B1088-INTERNALENUMCUSTOMERSURFACE1`：模型把 `shared_callee_boundary` 原样放入正文；
+   客户此前报告的 `bounded_window_candidate` 是同类。最优方案不是扫描终稿替换，而是每个 user-visible typed
+   status producer 同时提供 locale-aware reader label/description，Finalizer 只把 raw enum 当 metadata，并以
+   prompt/schema ownership pin 防止 reader surface 直接引用 raw token。
+6. pipeline 正文仍人工 fail：把同名 `internal/analysis/dataflow.Analyze` supporting subsystem 晋升为 StageAnalyze
+   主过程，把 `emit_investigation_complete` 错归 StageExtract，称 MutableState 写 AnalysisIR，并重复
+   `StageExplore`。记 `B1089-STAGEEVIDENCEROLETOFINAL1`，后续审计 request-spine/supporting 结构角色是否真正
+   到达 Finalizer；禁止按本案函数名过滤或系统改结论。
+7. 没有空答案、畸形 JSON 恢复、固定 4ms 活跃流降级或系统代画。Trace 显式窗、因果投影、自动补采、
+   链上-only 主因与双轴根因表达未改。
+
+状态：
+
+`B1085-STAGEENDPOINTSPANCOMPLETENESS1=production-closed-r692`；
+`B1088-INTERNALENUMCUSTOMERSURFACE1=production-confirmed-r692/fix-next`；
+`B1089-STAGEEVIDENCEROLETOFINAL1=production-confirmed-r692/audit-needed`；
+`B1086-DIAGRAMBUSINESSDISPLAYENFORCEMENT1=open`；
+`B1087-REQUESTSCOPEDCARRIERFLOWSET1=open`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r692`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
