@@ -17308,7 +17308,10 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 		}
 		if plan := answerSurfacePlan(ctx); plan != nil {
 			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
-				return fence
+				if dc := answerDocDiagramContract(ctx); dc == nil || !dc.Required || dc.RequiredKind == types.DiagramNone ||
+					types.DiagramKindAllowsMermaidSyntax(dc.RequiredKind, types.MermaidBodySyntaxFamily(fence)) {
+					return fence
+				}
 			}
 		}
 	}
@@ -17341,13 +17344,11 @@ func extractFirstFencedBlock(text string) string {
 func retryDiagramKinds(ctx *types.AgentContext) []types.DiagramKind {
 	dc := answerDocDiagramContract(ctx)
 	if dc != nil && dc.Required && dc.RequiredKind != types.DiagramNone && dc.RequiredKind.IsValid() {
-		kinds := []types.DiagramKind{dc.RequiredKind}
-		for _, kind := range dc.PreferredKinds {
-			if kind != dc.RequiredKind {
-				kinds = append(kinds, kind)
-			}
-		}
-		return kinds
+		// A required semantic family is authoritative. Falling through to a
+		// merely preferred family when its seed is richer made one prompt say
+		// "Required kind: sequence" while showing a flowchart reference. An
+		// absent same-family seed is safer than contradictory teaching.
+		return []types.DiagramKind{dc.RequiredKind}
 	}
 	if dc != nil && len(dc.PreferredKinds) > 0 {
 		return append([]types.DiagramKind(nil), dc.PreferredKinds...)
@@ -17652,6 +17653,12 @@ func buildRetrySupportLaneSeed(ctx *types.AgentContext, kind types.DiagramKind) 
 	switch kind {
 	case types.DiagramSequence:
 		fence = types.RenderEvidenceSequenceDiagramFence(items)
+		if fence == "" {
+			// Definitions and ownership rows ground participants, not messages.
+			// Keep that exact no-edge boundary in the requested sequence family
+			// instead of falling through to a flowchart-shaped node set.
+			fence = types.RenderSequenceDiagramNodeSetFence(labels, retryDiagramSeedNodeCap)
+		}
 	case types.DiagramCallDAG:
 		fence = types.RenderEvidenceCallDiagramFence(items)
 	case types.DiagramArchitecture:

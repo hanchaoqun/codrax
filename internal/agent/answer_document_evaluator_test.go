@@ -8535,6 +8535,41 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequenceFallbackKeepsSequenceSynta
 	}
 }
 
+func TestRenderRetryDiagramSeedFenceForRepair_RequiredSequenceRejectsCompiledFlowFallback(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Scenario: types.ScenarioArchitectureExplain},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					RequiredKind:   types.DiagramSequence,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow, types.DiagramArchitecture},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Source: "internal/orchestrator/topology.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageFinalize", Source: "internal/orchestrator/topology.go", LineStart: 20, GroundingStatus: types.GroundingGrounded},
+		},
+	}
+
+	got := renderRetryDiagramSeedFenceForRepair(ctx, nil)
+	firstPass := renderAnswerDocFirstPassDiagramSkeleton(ctx)
+	for name, text := range map[string]string{"retry seed": got, "first-pass reference": firstPass} {
+		if !strings.Contains(text, "sequenceDiagram") {
+			t.Fatalf("%s must stay in the required sequence family:\n%s", name, text)
+		}
+		if strings.Contains(text, "flowchart") {
+			t.Fatalf("%s must not teach a preferred flow family when sequence is required:\n%s", name, text)
+		}
+		for _, want := range []string{"StageAnalyze", "StageFinalize"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing grounded participant %q:\n%s", name, want, text)
+			}
+		}
+	}
+}
+
 func TestRenderRetryDiagramSeedFence_UsesEvidenceSeedForArchitecture(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{

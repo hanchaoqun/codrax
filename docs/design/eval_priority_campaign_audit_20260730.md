@@ -36405,6 +36405,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-answer/conclusion/diagram/edge=none`。
 
+### §123.1066 r685：必需图权威与证据排序生产生效；首轮参考图跨族自冲突（2026-08-18）
+
+1. 在 `main@717772b3e` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner `2 PASS / 0 FAIL`，
+   人工仍为 `0 PASS / 2 FAIL`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_source_partition_sequence_replay_r685_20260818_manual_audit.md`。
+2. `B1073` 获生产正证。Pipeline 路由日志保留 `diagram_required=true` 和当前消息逐字 presentation span，
+   Analyzer/Finalizer 收到 `Required kind: sequence` 及 canonical read stage-lane authority；最终可见图确为
+   `sequenceDiagram`。这证明一次同 schema provenance repair 没有再静默清空显式载体权威。
+3. `B1074` 获生产正证。组合案 Finalizer prompt 分别为两个 typed unit 发布 config/render 的高相关事实，
+   其中 late evidence 不再被全局 1024 cap 饿死；`topic_affinity_hint` 保持 noisy prompt-only，不铸 ownership、
+   relation、conclusion，也不进入硬门。终稿已不再声称 `RuntimeSettings` 全部字段都是指针。
+4. 组合案仍不完整：Explorer 没有读取并交付 `cmd/root.go` 中六级 settings discovery 顺序，终稿只写
+   default<YAML<CLI 的值覆盖，遗漏 `$CODRAX_SETTINGS`、两个 exeDir 形和三个 legacy path 的文件发现链；
+   两个标题还是空壳，随后列表没有归入各自章节。根因已从证据分区迁移到 typed unit/dimension 的机制闭包
+   不足，记 `B1076-MULTITOPICMECHANISMCLOSURE1`。后续只可根据结构化 unit/dimension 与证据 coverage
+   做补采软引导，不得扫描请求/答案原文或系统代写缺失结论。
+5. 新确认 P0 `B1075-REQUIREDDIAGRAMSEEDKIND1`。同一 Pipeline Finalizer prompt 在 Diagram Contract 写
+   `Required kind: sequence`，但 First-Pass Diagram Reference 却展示 `flowchart TD`。原因是 seed 生成器在
+   required family 无丰富关系 seed 时继续尝试 preferred family，并无条件复用 compiled flow fence；模型
+   因而先照错误教学画未证调用边，关系门连续拒绝四次。这是确定性系统合同自冲突，不是模型波动。
+6. 根修统一收口在 typed 图族：有效 `RequiredKind` 存在时，retry/first-pass seed 只尝试该族；缓存/编译 fence
+   只有 `DiagramKindAllowsMermaidSyntax(required, MermaidBodySyntaxFamily(fence))` 为真才可复用；只有定义或
+   ownership 节点、没有已证时序消息边时，发同族离散 participants，不退为 flowchart、不虚构箭头。跨层 pin
+   同时覆盖 retry seed 与 First-Pass reference。该改动只修 prompt 自洽，最终 diagram.body、关系与结论仍由
+   模型撰写。
+7. Pipeline 终稿仍写“完整序列 6 节点”但表格仅 5 行、漏 `StagePerfTriage`，暂记
+   `B1077-STAGEWORKFLOWTABLECOMPLETENESS1=observe-after-B1075`。先消除系统自冲突与重试噪声再异构回放，
+   不以正文词面计数硬门或系统改表；Runner 从整份 transcript 命中已拒绝草稿的假绿边界仍开放。
+8. 本轮无畸形 JSON、空答案、旧稿恢复、stream 结束误判或固定 4ms 活跃流降级。两案均无 Trace 输入；
+   Read/Trace 显式时间窗、因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、实际占用/业务线索
+   与规则计价可消除量双轴均未改，系统不接管模型答案、图、关系或结论。
+
+状态：
+
+`B1073-PRESENTATIONPROVENANCEREPAIR1=production-closed-r685`；
+`B1074-MULTITOPICAFFINITYRANK1=production-closed-r685`；
+`B1075-REQUIREDDIAGRAMSEEDKIND1=implemented/required-family-only+compiled-family-check+pinned/replay-next`；
+`B1076-MULTITOPICMECHANISMCLOSURE1=open/high-ROI-soft-completion`；
+`B1077-STAGEWORKFLOWTABLECOMPLETENESS1=observe-after-B1075`；
+`R684/R685-RUNNER-FINAL-ANSWER-BOUNDARY=false-positive-open`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r685`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
