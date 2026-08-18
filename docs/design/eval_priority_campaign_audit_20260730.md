@@ -36039,6 +36039,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-fixed-4ms-degrade=forbidden/not-observed-r693`；
 `Trace explicit-window/query/projection/auto-supplement=production-preserved-r693`。
 
+### §123.1081 B1090：零值 optional diagram 在唯一 block normalizer 折叠为 absent（2026-08-18）
+
+1. 根因位于 `NormalizeEmitAnswerBlock` 的 discriminator repair，而非 Mermaid parser。public schema 的
+   `diagram` 是 optional object；部分 provider 会在每个 block 上补 `{}`。JSON decoder 把它铸为 non-nil
+   `*emitAnswerDiagramV2`，旧 normalizer 只检查 pointer presence，先把 summary 改成 diagram，再因 body 空
+   拒绝。r693 真正的 diagram block 完整合法，报错却错误指向 `blocks[0]` summary。
+2. 修复放在 full emit 与 patch 共用的唯一 normalizer：只有 declared kind 明确不是 diagram，且 diagram 的
+   kind/language/body 三字段 trim 后全部为空时，才把该 placeholder 视为 absent。它没有可见字节、关系、节点、
+   语义或结论，因此这是 wire canonicalization，不是答案改写。
+3. Fail-closed 边界保持：kind=diagram + `{}` 继续报 body empty；非 diagram 上只要 kind、language、body 任一
+   非空，也继续进入原有 discriminator/split/严格验证路径；participant boundaries、edge anchors 与正文完全
+   不参与该判据。系统不会从 text 推断 diagram，不修 Mermaid，不补图、不删图。
+4. Pin 覆盖 direct normalizer 三臂（严格零值正向、部分非空负向、diagram-kind 负向），并分别经过真实
+   `emit_answer_document` 与 `emit_answer_document_patch` 证明 summary 文本、kind、ID 和已有其他 block
+   字节语义保持，最终 typed `Diagram=nil`。该统一 seam 覆盖 full/patch 两条生产路径，无 case 名、模型、语言
+   或答案词面分支。
+5. 本批不触碰 Trace、关系证据、participant、Mermaid compatibility、成文结论或活跃流策略。显式时间窗
+   因果投影、自动补采、链上-only 主因、邻近/背景 support-only、实际占用/规则可消除量双轴均保持。
+
+状态：
+
+`B1090-EMPTYOPTIONALCOMPOSITENORMALIZE1=implemented/shared-normalizer+full/patch-pins`；
+`B1088-INTERNALENUMCUSTOMERSURFACE1=production-positive-two-shapes-r693`；
+`B1091-TRACECONTROLVOCABREADERSURFACE1=open`；
+`B1092-TRACEVALUECOLUMNROLE1=open`；
+`B1093-SELECTEDWINDOWPOSTBOUNDARY1=open`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`active-stream-fixed-4ms-degrade=forbidden`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

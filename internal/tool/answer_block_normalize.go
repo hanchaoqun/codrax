@@ -57,6 +57,18 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=%q is not a valid block kind; allowed values: %v",
 			fieldPath, raw.Kind, types.AllAnswerBlockKinds())
 	}
+	// Some tool providers materialize every optional object from the schema as
+	// an empty `{}`. For a non-diagram block that placeholder contains no model-
+	// authored visible or semantic payload, but JSON decoding turns it into a
+	// non-nil pointer and the legacy discriminator repair then promotes the
+	// block to diagram before rejecting its empty body. Canonicalize only the
+	// exact zero object on a kind that does not own it. Any kind/language/body
+	// byte keeps the existing strict diagram path, and kind=diagram still fails
+	// closed when its required payload is empty.
+	if kind != types.BlockDiagram && emitAnswerDiagramV2IsZero(raw.Diagram) {
+		logging.Debug("[answer_block_normalize] ignored empty optional diagram placeholder at %s on kind=%s", fieldPath, kind)
+		raw.Diagram = nil
+	}
 	if caveat := strings.TrimSpace(raw.Caveat); caveat != "" {
 		if kind != types.BlockCaveat {
 			return types.AnswerBlock{}, fmt.Errorf("%s: caveat is only accepted as a local-model compatibility alias on kind=caveat blocks; use block.text for the visible prose",
@@ -214,6 +226,13 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+func emitAnswerDiagramV2IsZero(diagram *emitAnswerDiagramV2) bool {
+	return diagram != nil &&
+		strings.TrimSpace(diagram.Kind) == "" &&
+		strings.TrimSpace(diagram.Language) == "" &&
+		strings.TrimSpace(diagram.Body) == ""
 }
 
 func normalizeClassDiagramTypeRelationAnchorDirections(body string, anchors []types.DiagramEdgeAnchor) []types.DiagramEdgeAnchor {

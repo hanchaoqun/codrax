@@ -120,6 +120,30 @@ func TestEmitAnswerDocumentV2_SplitsFusedProseAndDiagramWithoutDroppingEither(t 
 	}
 }
 
+func TestEmitAnswerDocumentV2_EmptyOptionalDiagramObjectOnProseBlockIsAbsent(t *testing.T) {
+	bus := newV2TestBusContext()
+	raw := json.RawMessage(`{
+		"blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "model-authored business conclusion",
+			"diagram": {}
+		}]
+	}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("empty optional object must not turn prose into an invalid diagram: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 || doc.Blocks[0].Kind != types.BlockSummary ||
+		doc.Blocks[0].Text != "model-authored business conclusion" || doc.Blocks[0].Diagram != nil {
+		t.Fatalf("prose block changed during empty-object canonicalization: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentV2_RejectsTopLevelRelationClaimsWithExactCarrierPath(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

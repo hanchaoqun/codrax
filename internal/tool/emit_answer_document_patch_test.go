@@ -143,6 +143,32 @@ func TestEmitAnswerDocumentPatch_SplitsFusedProseAndDiagramWithoutDroppingEither
 	}
 }
 
+func TestEmitAnswerDocumentPatch_EmptyOptionalDiagramObjectOnProseBlockIsAbsent(t *testing.T) {
+	bus := newPatchTestBusContext()
+	raw := json.RawMessage(`{
+		"unchanged_block_ids": ["list1"],
+		"replace_blocks": [{
+			"id": "s1",
+			"kind": "summary",
+			"text": "updated model conclusion",
+			"diagram": {}
+		}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("empty optional object must not invalidate a prose patch: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || doc.Blocks[0].ID != "s1" ||
+		doc.Blocks[0].Kind != types.BlockSummary || doc.Blocks[0].Text != "updated model conclusion" ||
+		doc.Blocks[0].Diagram != nil {
+		t.Fatalf("patched prose block changed during empty-object canonicalization: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_DropsUniqueNestedItemIDsFromUnchangedBlockList(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}

@@ -557,6 +557,46 @@ func TestNormalizeEmitAnswerBlock_DiagramPayloadNormalizesDiagramKind(t *testing
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_DropsZeroDiagramPlaceholderFromNonDiagramKind(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:      "s1",
+		Kind:    string(types.BlockSummary),
+		Text:    "model-authored conclusion",
+		Diagram: &emitAnswerDiagramV2{},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("zero optional diagram placeholder should be absent on summary: %v", err)
+	}
+	if got.Kind != types.BlockSummary || got.Text != "model-authored conclusion" || got.Diagram != nil {
+		t.Fatalf("summary payload changed while removing empty optional diagram: %+v", got)
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_DoesNotDropPartiallyPopulatedDiagramPlaceholder(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "s1",
+		Kind: string(types.BlockSummary),
+		Text: "model-authored conclusion",
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow),
+		},
+	}, "blocks[0]")
+	if err == nil || !strings.Contains(err.Error(), "diagram.body is empty") {
+		t.Fatalf("non-empty diagram metadata must keep strict validation, got %v", err)
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_DiagramKindStillRejectsZeroDiagramPayload(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:      "d1",
+		Kind:    string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{},
+	}, "blocks[0]")
+	if err == nil || !strings.Contains(err.Error(), "diagram.body is empty") {
+		t.Fatalf("kind=diagram must not accept an empty required payload, got %v", err)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_DoesNotInferDiagramKindFromText(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "b1",
