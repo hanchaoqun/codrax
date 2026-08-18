@@ -8851,12 +8851,13 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 	// location per member.
 	if loc, ok := aggregateMemberSetPositionalSupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok {
 		receiverOperationMatch := aggregateSupportLocationMatchesReceiverOperation(loc, member, support)
-		if !aggregateSupportLocationCompatibleWithMember(member, loc) && !receiverOperationMatch {
+		qualifiedIdentityMatch := aggregateSupportLocationMatchesQualifiedCodeIdentity(loc, member, support)
+		if !aggregateSupportLocationCompatibleWithMember(member, loc) && !receiverOperationMatch && !qualifiedIdentityMatch {
 			return false
 		}
 		return aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
 			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support) ||
-			receiverOperationMatch
+			receiverOperationMatch || qualifiedIdentityMatch
 	}
 	// SUPPREF-TOL rework (P0-A): a positional location that only exists via
 	// the decoration-strip retry is consumed SUCCESS-ONLY. In the baseline
@@ -8868,10 +8869,11 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 	// positional arm: accept on match, otherwise keep falling through.
 	if loc, ok := aggregateMemberSetPositionalStripRetrySupportLocation(fact, memberIndexInAggregateFact(fact, member), labels); ok {
 		receiverOperationMatch := aggregateSupportLocationMatchesReceiverOperation(loc, member, support)
-		if (aggregateSupportLocationCompatibleWithMember(member, loc) || receiverOperationMatch) &&
+		qualifiedIdentityMatch := aggregateSupportLocationMatchesQualifiedCodeIdentity(loc, member, support)
+		if (aggregateSupportLocationCompatibleWithMember(member, loc) || receiverOperationMatch || qualifiedIdentityMatch) &&
 			(aggregateSupportLocationMatchesMemberLabels(loc, labels, support) ||
 				aggregateSupportLocationNearbyToolValueMatchesLabels(loc, labels, support) ||
-				receiverOperationMatch) {
+				receiverOperationMatch || qualifiedIdentityMatch) {
 			return true
 		}
 	}
@@ -8905,6 +8907,42 @@ func aggregateMemberSetSupportRefsResolveMember(fact types.AnswerAggregateFact, 
 			aggregateSourceInventoryLocationMatchesLabels(loc, refLabels, support.sourceInventoryLabelsByLocation) ||
 			aggregateSupportLocationNearbyToolValueMatchesLabels(loc, refLabels, support) ||
 			receiverOperationMatch {
+			return true
+		}
+	}
+	return false
+}
+
+// aggregateSupportLocationMatchesQualifiedCodeIdentity resolves the one
+// structural ambiguity where a language-qualified code identity such as
+// `normalizer.Normalize` is also parseable as a compact aggregate relation.
+// The relation file-axis guard cannot require the qualifier to appear in the
+// caller's file path. This carve-out speaks only when the complete qualified
+// identity appears on the exact grounded support line/snippet. It never uses
+// a short tail alone, a nearby line, an explicit A->B display relation, request
+// text, or answer prose, so same-named operations owned by another receiver do
+// not become interchangeable.
+func aggregateSupportLocationMatchesQualifiedCodeIdentity(location, member string, support aggregateMemberSupportIndex) bool {
+	member = strings.TrimSpace(member)
+	if location == "" || member == "" || strings.ContainsAny(member, "\n\r\t ") ||
+		strings.Contains(member, "→") || strings.Contains(member, "=>") || strings.Contains(member, "->") ||
+		!types.IsCodeIdentitySurface(member) {
+		return false
+	}
+	if !strings.ContainsAny(member, ".:#/\\") {
+		return false
+	}
+	for _, ev := range support.byLocation[strings.TrimSpace(location)] {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if types.AnswerCodeSurfaceAppearsInText(ev.Snippet, member) ||
+			(ev.LoadBearingSummary && types.AnswerCodeSurfaceAppearsInText(ev.Summary, member)) {
+			return true
+		}
+	}
+	for _, line := range support.toolLinesByLocation[strings.TrimSpace(location)] {
+		if types.AnswerCodeSurfaceAppearsInText(line, member) {
 			return true
 		}
 	}

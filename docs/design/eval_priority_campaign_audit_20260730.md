@@ -35854,6 +35854,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1054 r675/B1061：图外关系业务标签生产闭环；限定调用名与紧凑关系歧义根修（2026-08-18）
+
+1. 在 `main@87ee94783` 严格并发恰好两个案例：
+   `sr_c_platform_fork + qf_sequence_analyzer_gate`。Runner `2/2 PASS`；人工为
+   `C partial / QF pass`。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_alias_sequence_replay_r675_20260818_manual_audit.md`。
+2. B1060 获生产闭环。QF 时序图内部使用 `buildIR/RW/GR` alias，但可见标签是
+   `buildAnalysisIR/RunWith/gate.Run`；同文 standalone relation carrier 继续携 alias，最终却准确显示
+   `buildAnalysisIR → RunWith` 与 `gate.Run → RunWith`。系统没有改 endpoint identity、图、关系类型或结论，
+   也没有虚构 `buildAnalysisIR → gate.Run`；这验证了“同文唯一可见真边”显示解析的生产形。
+3. QF 的一次 finalizer 拒绝是合理分层：只让两条 endpoint-boundary edge 留在 principal facet，把 15 条
+   本地 supporting call 移到支持块；修补保留图和关系。可是 Explorer 消耗 25 轮、6 次 completion、351 秒，
+   多次拒绝已经精确读取的 `normalizer.Normalize`、`compiler.Compile` 等限定调用名。
+4. 新确认 B1061：限定代码 identity 同时可被 compact-relation parser 拆成左右端，旧 validator 随后错误套用
+   relation file-axis，要求调用方 `internal/agent/analyzer.go` 的路径包含 receiver `normalizer`。证据其实位于同一
+   精确行，问题是合同歧义，不是模型波动或证据缺失。
+5. 根修只增加一个严格结构臂：member 必须是无空白/换行的 code identity、含语言限定分隔符、不是显式
+   `→/=>/->` 关系，并且完整 identity 必须出现在同一 exact grounded snippet/load-bearing summary 或 exact
+   read-file line。满足时只绕过错误的 relation file-axis；短尾、近邻行、同名其他 receiver、请求文本、答案
+   正文全部不可授权。该臂不铸 evidence、关系、图或结论。
+6. 专项 pin 覆盖 `normalizer.Normalize`/`compiler.Compile` 在真实 caller 文件的正形，以及
+   `other.Normalize` 和 `normalizer → Normalize` 不得借证的负形。下一批仍用 QF 生产回放检查 completion
+   从 6 次明显下降且两条真关系完整保留。
+7. C 案继续证明 B1055/B1057 的七条平台 body call 在场，但暴露独立 B1062：13 条 citation pool 最终只保留
+   4 条，多 API 行常引用定义而非实际调用，Windows 行没有来源，且正文的 `handlers.c:38` 被引用修补错绑
+   到 `:34`。先作为 P1 多操作机制 citation coverage/repair integrity 立案；不得用系统重写事实句或按答案
+   原文关键词强门解决。
+8. 本批不触碰 Trace 查询、显式窗、因果投影、自动补齐、链上-only 主因或流式发布。活跃流固定 4ms
+   无完整答案即降级仍禁止，两案均未观察此类退化；系统没有替模型生成结论。
+
+状态：
+
+`B1060-STANDALONERELATIONALIASDISPLAY1=production-closed-r675/sequenceDiagram`；
+`B1061-QUALIFIEDIDENTITYCOMPACTRELATION1=implemented/exact-grounded-line-pins-pass/pending-production-replay`；
+`B1062-MULTIOPERATIONCITATIONCOVERAGE1=observed/P1-pending-design`；
+`r675-C-platform=runner-pass/human-partial/citation-coverage-gap`；
+`r675-QF-sequence=runner-pass/human-pass/shared-sink+business-labels`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r675`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

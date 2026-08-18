@@ -8852,6 +8852,52 @@ func TestValidateAggregateMemberSetSupportRefs_AcceptsAlignedCurrentSourceRespon
 	}
 }
 
+func TestValidateAggregateMemberSetSupportRefs_AcceptsQualifiedMemberAtNormalizedCallEvidenceLocation(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	fact := types.AnswerAggregateFact{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "pipeline calls",
+		Role:       types.AnswerAggregateRoleSupportingCoverage,
+		Provenance: "demoted:mechanism_narrative_support_member_set",
+		Members:    []string{"normalizer.Normalize", "compiler.Compile"},
+		MemberNotes: []string{
+			"normalizes the request graph",
+			"compiles the task graph",
+		},
+		SupportRefs: []string{
+			"internal/agent/analyzer.go:2323",
+			"internal/agent/analyzer.go:2530",
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{ID: "E1", Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2323, Subject: "buildAnalysisIR", Object: "Normalize", AnchorSymbol: "Normalize", Snippet: "rm.TermGraph = normalizer.Normalize()", GroundingStatus: types.GroundingGrounded},
+		{ID: "E2", Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2530, Subject: "buildAnalysisIR", Object: "Compile", AnchorSymbol: "Compile", Snippet: "out := compiler.Compile(rm, sig)", GroundingStatus: types.GroundingGrounded},
+	}
+	if err := validateAggregateMemberSetSupportRefs(ctx, []types.AnswerAggregateFact{fact}, evidence); err != nil {
+		t.Fatalf("qualified member and normalized call endpoint at the same exact location should resolve: %v", err)
+	}
+}
+
+func TestValidateAggregateMemberSetSupportRefs_QualifiedIdentityDoesNotCollapseReceiverOrRelation(t *testing.T) {
+	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
+	evidence := []types.EvidenceItem{{
+		ID: "E1", Kind: types.EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 2323,
+		Subject: "buildAnalysisIR", Object: "Normalize", AnchorSymbol: "Normalize",
+		Snippet: "rm.TermGraph = normalizer.Normalize()", GroundingStatus: types.GroundingGrounded,
+	}}
+	for _, member := range []string{"other.Normalize", "normalizer → Normalize"} {
+		fact := types.AnswerAggregateFact{
+			Kind: types.AnswerAggregateMemberSet, Label: "pipeline calls",
+			Role: types.AnswerAggregateRoleSupportingCoverage, Provenance: "demoted:mechanism_narrative_support_member_set",
+			Members: []string{member}, MemberNotes: []string{"normalizes the request graph"},
+			SupportRefs: []string{"internal/agent/analyzer.go:2323"},
+		}
+		if err := validateAggregateMemberSetSupportRefs(ctx, []types.AnswerAggregateFact{fact}, evidence); err == nil {
+			t.Fatalf("member %q must not borrow another receiver or an explicit relation's support", member)
+		}
+	}
+}
+
 func TestValidateAggregateMemberSetSupportRefs_ReportsAllInvalidRowsInOneReject(t *testing.T) {
 	ctx := &types.BusContext{Mutable: types.NewMutableState("q"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{}}}
 	fact := types.AnswerAggregateFact{
