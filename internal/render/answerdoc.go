@@ -172,15 +172,17 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 	case types.BlockCaveat:
 		renderV2BlockCaveat(b, blk, lang)
 	}
-	renderV2StandaloneTypedRelations(b, blk)
+	renderV2StandaloneTypedRelations(b, blk, doc)
 }
 
 // renderV2StandaloneTypedRelations makes model-authored relation metadata
 // visible when it intentionally lives on a principal list/table without a
 // Mermaid block. The system contributes only fixed Markdown punctuation. Both
-// endpoints and the reader-facing label are copied from the model carrier;
-// RelationKind is checked for ownership but never translated into prose.
-func renderV2StandaloneTypedRelations(b *strings.Builder, blk types.AnswerBlock) {
+// endpoints and the reader-facing label are copied from model-authored
+// surfaces; an exact sibling-diagram alias may resolve to that diagram's
+// unique visible label. RelationKind is checked for ownership but never
+// translated into prose.
+func renderV2StandaloneTypedRelations(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2) {
 	if b == nil || blk.SurfaceRole != types.SurfacePrincipal || blk.Diagram != nil {
 		return
 	}
@@ -201,8 +203,9 @@ func renderV2StandaloneTypedRelations(b *strings.Builder, blk types.AnswerBlock)
 		if form == types.ClaimUnknown || !forms[form] {
 			continue
 		}
-		from := renderUserSurfaceText(anchor.FromNode)
-		to := renderUserSurfaceText(anchor.ToNode)
+		fromNode, toNode := standaloneRelationReaderEndpoints(doc, anchor)
+		from := renderUserSurfaceText(fromNode)
+		to := renderUserSurfaceText(toNode)
 		label := renderUserSurfaceText(anchor.VisibleLabel)
 		if from == "" || to == "" || label == "" {
 			continue
@@ -213,6 +216,103 @@ func renderV2StandaloneTypedRelations(b *strings.Builder, blk types.AnswerBlock)
 	if rendered > 0 {
 		b.WriteString("\n")
 	}
+}
+
+// standaloneRelationReaderEndpoints replaces diagram-local aliases on a
+// sibling structured relation carrier with the model-authored labels already
+// visible in that exact diagram. Resolution is deliberately structural: both
+// aliases must form one visible directed edge, and each alias must have one
+// unambiguous label in that same diagram. It never guesses from alias spelling,
+// endpoint identities, request text, or answer prose, and it never mutates the
+// typed carrier. Ambiguous/missing mappings preserve the authored endpoints.
+func standaloneRelationReaderEndpoints(doc *types.AnswerDocumentV2, anchor types.DiagramEdgeAnchor) (string, string) {
+	fromNode := strings.TrimSpace(anchor.FromNode)
+	toNode := strings.TrimSpace(anchor.ToNode)
+	if doc == nil || fromNode == "" || toNode == "" {
+		return fromNode, toNode
+	}
+
+	var resolvedFrom, resolvedTo string
+	matches := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		if !mermaidBodyHasDirectedEdge(block.Diagram.Body, fromNode, toNode) {
+			continue
+		}
+		labels := mermaidUniqueReaderLabels(block.Diagram.Body)
+		fromLabel := strings.TrimSpace(labels[strings.ToLower(fromNode)])
+		toLabel := strings.TrimSpace(labels[strings.ToLower(toNode)])
+		if fromLabel == "" || toLabel == "" {
+			continue
+		}
+		matches++
+		if matches > 1 {
+			return fromNode, toNode
+		}
+		resolvedFrom, resolvedTo = fromLabel, toLabel
+	}
+	if matches == 1 {
+		return resolvedFrom, resolvedTo
+	}
+	return fromNode, toNode
+}
+
+func mermaidBodyHasDirectedEdge(body, from, to string) bool {
+	for _, edge := range mermaidcompat.ParseEdges(body) {
+		if strings.EqualFold(strings.TrimSpace(edge.From), strings.TrimSpace(from)) &&
+			strings.EqualFold(strings.TrimSpace(edge.To), strings.TrimSpace(to)) {
+			return true
+		}
+	}
+	return false
+}
+
+func mermaidUniqueReaderLabels(body string) map[string]string {
+	candidates := make(map[string]map[string]bool)
+	add := func(decl mermaidcompat.NodeDecl) {
+		id := strings.ToLower(strings.TrimSpace(decl.Ident))
+		label := strings.TrimSpace(decl.Label)
+		if id == "" || label == "" {
+			return
+		}
+		if candidates[id] == nil {
+			candidates[id] = make(map[string]bool)
+		}
+		candidates[id][label] = true
+	}
+	sequence := false
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		sequence = mermaidcompat.FirstKeywordIn(line) == "sequenceDiagram"
+		break
+	}
+	for _, line := range strings.Split(body, "\n") {
+		for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
+			add(decl)
+		}
+		if sequence {
+			continue
+		}
+		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+			add(decl)
+		}
+	}
+	out := make(map[string]string)
+	for id, labels := range candidates {
+		if len(labels) != 1 {
+			continue
+		}
+		for label := range labels {
+			out[id] = label
+		}
+	}
+	return out
 }
 
 func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {

@@ -35813,6 +35813,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1053 r674/B1060：条件编译 owner 生产闭环；关系清单内部 Mermaid alias 泄漏根修（2026-08-18）
+
+1. 在 `main@66de2c06e` 严格并发恰好两个案例：
+   `sr_c_platform_fork + trace_query_frame_semantic_span_optimization`。Runner `2/2 PASS`；人工为
+   `C partial / Trace pass`。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_preproc_trace_semantic_r674_20260818_manual_audit.md`。
+2. B1057 获生产闭环。C 案自动补发 7 条 parser-owned selected-definition body calls，三个条件编译
+   `monotonic_now_ns` 分支的 `QueryPerformanceFrequency/QueryPerformanceCounter`、
+   `mach_timebase_info/mach_absolute_time`、`clock_gettime` 与 `cmd_sleep` 的 `strtol/printf` 均携实际
+   调用行进入 evidence pool；最终平台表与图保留全部平台 API，不再只靠函数定义首行说明机制。
+3. 唯一成文拒绝是诚实的关系粒度不匹配：首稿把 Windows/macOS 的两个 API 合成一个图节点，typed
+   call edge 却按具体 API 分列。模型消费系统给出的逐 API skeleton 后只替换图块，终图 9 节点/8 真边
+   均合法，未删主关系，也没有由系统代画新结论。
+4. 新确认 B1060：同一模型首稿的 principal 平台列表已经携带完整 typed endpoint identity，却把 skeleton
+   的 `n1..n7` 同时用作 standalone carrier 的可见 from_node/to_node；后续 patch 只替换 diagram，列表
+   保留 alias，renderer 遂在图外发出 `n1 -> n2`。这是内部 presentation ID 泄漏，不是证据缺失。
+5. 根修不扫描 `n[0-9]+`、用户请求、模型正文或最终答案，也不拿 `from_identity/to_identity` 直接代写
+   业务显示名。renderer 只在同一 document 中找到该 alias 对的一条真实同向可见 Mermaid edge，且
+   两端 node declaration 各有唯一模型可见 label 时，临时显示那两个 label；文档 carrier、typed identity、
+   relation kind、图体和模型结论均不修改。无图、无边、缺 label 或多图歧义全部 fail-open 保留原文。
+6. Trace 案形成完整显式窗因果投影与自动补采：`worker-200 -> app-100` typed 唤醒边、目标 7ms 五态闭合、
+   0.800ms runnable 调度供给席、worker 4.000ms running 与 5.000ms `VerifyClass` 语义 span 均保留。
+   sleep 明示为症状，邻近/背景不进主因；正文并列真实占时/新修向与现规则可消除量，没有用 0 可消覆盖
+   5ms 真实工作。frame 因果未证只作限定，不摘除已证链上席。
+7. Trace 最终系统区只并置五态、唤醒拓扑和席位 typed 对账，没有替换模型总结、根因或业务修向；两次
+   成文修补最终未触发空答案/旧稿降级。活跃流也未因固定 4ms 缺少完整 answer_document 而降级。
+8. B1060 专项覆盖 exact alias->unique visible label 正向，以及无关图不得改写 reader-authored endpoint
+   负向；render 包全测通过。下一批用异构关系图 production replay 验证图外关系清单不再泄漏内部 alias。
+
+状态：
+
+`B1055-MECHANISMSELECTEDBODYOPERATION1=production-closed-r674`；
+`B1057-CPPREPROCESSORCALLABLEOWNER1=production-closed-r674`；
+`B1060-STANDALONERELATIONALIASDISPLAY1=implemented/exact-visible-edge+unique-label/pending-production-replay`；
+`r674-C-platform=runner-pass/human-partial/internal-alias-display-only`；
+`r674-Trace-semantic=runner-pass/human-pass/dual-axis+projection-positive`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r674`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r674`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：
