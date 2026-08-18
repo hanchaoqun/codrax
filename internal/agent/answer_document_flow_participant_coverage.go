@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -39,7 +41,12 @@ func answerDocParticipantIncidentToMechanismEdge(participant string, edge answer
 //
 // This helper projects identity only. It cannot add an edge, change endpoint
 // direction, or turn a participant obligation into relation evidence.
-func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answerDocMechanismRelationEdge, evidence []types.EvidenceItem) answerDocFlowParticipantCoverage {
+func answerDocResolveFlowParticipantCoverage(
+	rm types.RequestModel,
+	edges []answerDocMechanismRelationEdge,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) answerDocFlowParticipantCoverage {
 	result := answerDocFlowParticipantCoverage{}
 	requestScopedRelations := 0
 	requestSpineRelations := 0
@@ -51,9 +58,10 @@ func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answ
 			requestSpineRelations++
 		}
 	}
-	result.requestScopedSubsetIncomplete = requestScopedRelations > 0 && requestSpineRelations == 0
 	typed := rm.DiagramHint != nil && len(rm.DiagramHint.Participants) > 0
 	candidates := make([]string, 0, 12)
+	typedParticipants := make([]types.DiagramParticipantHint, 0, 12)
+	typedParticipantSurfaces := make([][]string, 0, 12)
 	seen := map[string]bool{}
 	if typed {
 		for _, obligation := range rm.DiagramHint.Participants {
@@ -68,6 +76,14 @@ func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answ
 				continue
 			}
 			candidates = append(candidates, participant)
+			typedParticipants = append(typedParticipants, obligation)
+			surfaces := []string{participant}
+			for _, surface := range types.DiagramParticipantIdentitySurfaces(rm, obligation) {
+				if strings.TrimSpace(surface) != "" {
+					surfaces = append(surfaces, surface)
+				}
+			}
+			typedParticipantSurfaces = append(typedParticipantSurfaces, surfaces)
 		}
 	} else {
 		for _, raw := range rm.AnalyzerHints.PrimaryEntities {
@@ -84,7 +100,16 @@ func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answ
 			}
 		}
 	}
-	for _, participant := range candidates {
+	sharedCoverage := tool.FlowParticipantRelationCoverage{}
+	if typed {
+		sharedCoverage = tool.ResolveFlowParticipantRelationCoverage(
+			rm, typedParticipants, typedParticipantSurfaces, evidence, stagePrecedence,
+		)
+		result.requestScopedSubsetIncomplete = sharedCoverage.RequestScopedSubsetIncomplete
+	} else {
+		result.requestScopedSubsetIncomplete = requestScopedRelations > 0 && requestSpineRelations == 0
+	}
+	for participantIndex, participant := range candidates {
 		requestScopedCovered := false
 		localCovered := types.AnswerCodeParticipantHasFlowOperation(participant, evidence)
 		for _, edge := range edges {
@@ -97,11 +122,18 @@ func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answ
 				localCovered = true
 			}
 		}
+		generalCovered := requestScopedCovered || localCovered
+		if typed {
+			requestScopedCovered = participantIndex < len(sharedCoverage.ParticipantRequestScopedCovered) &&
+				sharedCoverage.ParticipantRequestScopedCovered[participantIndex]
+			generalCovered = participantIndex < len(sharedCoverage.ParticipantCovered) &&
+				sharedCoverage.ParticipantCovered[participantIndex]
+		}
 		if result.requestScopedSubsetIncomplete && requestScopedCovered {
 			result.incident = append(result.incident, participant)
 		} else if result.requestScopedSubsetIncomplete && localCovered {
 			result.localOnly = append(result.localOnly, participant)
-		} else if !result.requestScopedSubsetIncomplete && (requestScopedCovered || localCovered) {
+		} else if !result.requestScopedSubsetIncomplete && generalCovered {
 			result.incident = append(result.incident, participant)
 		} else {
 			result.unproved = append(result.unproved, participant)
@@ -119,14 +151,25 @@ func answerDocResolveFlowParticipantCoverage(rm types.RequestModel, edges []answ
 // the legacy helper name, typed diagram participants apply to every required
 // source-relation diagram (call, flow, registration, etc.); only runtime
 // root-cause trace diagrams keep their independent causal authority.
-func renderAnswerDocFlowParticipantCoverageGuidance(b *strings.Builder, rm types.RequestModel, edges []answerDocMechanismRelationEdge, evidence []types.EvidenceItem) {
+func renderAnswerDocFlowParticipantCoverageGuidance(
+	b *strings.Builder,
+	ctx *types.AgentContext,
+	edges []answerDocMechanismRelationEdge,
+	evidence []types.EvidenceItem,
+) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	rm := ctx.AnalysisIR.RequestModel
 	typedDiagramRequired := rm.DiagramHint != nil && rm.DiagramHint.Required
 	if b == nil || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		(!typedDiagramRequired && rm.PredicateAxis != types.AxisFlow) {
 		return
 	}
 	typed := rm.DiagramHint != nil && len(rm.DiagramHint.Participants) > 0
-	coverage := answerDocResolveFlowParticipantCoverage(rm, edges, evidence)
+	coverage := answerDocResolveFlowParticipantCoverage(
+		rm, edges, evidence, answerDocVerifiedReadModeStagePrecedenceForRequest(ctx),
+	)
 	if len(coverage.incident) == 0 && len(coverage.localOnly) == 0 && len(coverage.unproved) == 0 && len(coverage.contextOnly) == 0 {
 		return
 	}

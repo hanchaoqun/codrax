@@ -497,11 +497,77 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 		if !covered {
 			t.Fatalf("participant %s should join a verified relation component: %+v", participants[i].Identity, scope)
 		}
+		if !scope.participantRequestScopedCovered[i] {
+			t.Fatalf("participant %s should inherit request-scoped authority through the exact carrier bridge: %+v", participants[i].Identity, scope)
+		}
+	}
+	if scope.requestScopedSubsetIncomplete {
+		t.Fatalf("one exact component joining the provider and all requested carriers should be complete: %+v", scope)
 	}
 	for i, relevant := range scope.operationRelevant {
 		if !relevant {
 			t.Fatalf("operation %d should contribute to a requested relation component: %+v", i, scope)
 		}
+	}
+}
+
+func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScopedProvider(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), participants...),
+	}
+	precedence := []stageauthority.PrecedenceRelation{{
+		From: stageauthority.StageRow{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		To:   stageauthority.StageRow{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall("BusContext.SetMutable", "Mutable.Load")}
+	surfaces := [][]string{{"Analyzer"}, {"Explorer"}, {"BusContext"}, {"Mutable"}}
+	scope := buildFlowParticipantRelationScope(rm, participants, surfaces, evidence, precedence)
+	for i, covered := range scope.participantCovered {
+		if !covered {
+			t.Fatalf("both independently proved pairs remain valid typed components; participant %s was lost: %+v", participants[i].Identity, scope)
+		}
+	}
+	if !scope.requestScopedSubsetIncomplete ||
+		!scope.effectiveParticipantCovered(0, false) || !scope.effectiveParticipantCovered(1, false) ||
+		scope.effectiveParticipantCovered(2, false) || scope.effectiveParticipantCovered(3, false) {
+		t.Fatalf("only the provider-connected stage pair should close request-scoped coverage before a full authored graph exists: %+v", scope)
+	}
+
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart LR\n Analyzer[\"Analyzer\"] --> Explorer[\"Explorer\"]\n BusContext[\"BusContext\"] --> Mutable[\"Mutable\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "BusContext", ToNode: "Mutable", FromIdentity: "BusContext.SetMutable", ToIdentity: "Mutable.Load", RelationKind: types.DiagramRelCall},
+		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
+		t.Fatalf("a truthful provider subset plus disconnected local pair should retain local facts and requested-relation boundaries: %+v", got)
+	}
+	if got := diagramParticipantTypedIncidentCandidates(rm, participants[2], evidence, precedence, 3); len(got) != 0 {
+		t.Fatalf("a disconnected local carrier edge must not be offered as request-scoped repair authority: %v", got)
+	}
+
+	doc.Blocks[0].ParticipantBoundaries = nil
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...)
+	if len(got) != 2 || got[0].Issue != DiagramParticipantCoverageMissingBoundary ||
+		got[1].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("both local-only participants need explicit requested-relation boundaries: %+v", got)
 	}
 }
 

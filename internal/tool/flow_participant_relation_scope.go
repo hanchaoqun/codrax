@@ -19,9 +19,57 @@ import (
 // relation. Multi-hop evidence remains valid: A -> helper -> B places both
 // participants in one component without requiring a direct edge.
 type flowParticipantRelationScope struct {
-	participantCovered        []bool
-	participantLocalOperation []bool
-	operationRelevant         []bool
+	participantCovered              []bool
+	participantRequestScopedCovered []bool
+	participantLocalOperation       []bool
+	operationRelevant               []bool
+	requestScopedSubsetIncomplete   bool
+}
+
+// FlowParticipantRelationCoverage is the package-boundary projection consumed
+// by both exploration/validation and the finalizer's authoring context.  It
+// carries coverage decisions only; operation relevance and candidate choice
+// remain private to the tool package.
+type FlowParticipantRelationCoverage struct {
+	ParticipantCovered              []bool
+	ParticipantRequestScopedCovered []bool
+	RequestScopedSubsetIncomplete   bool
+}
+
+// ResolveFlowParticipantRelationCoverage exposes the one typed relation-scope
+// computation to downstream prompt construction. Returning copies prevents a
+// consumer from mutating validator authority.
+func ResolveFlowParticipantRelationCoverage(
+	rm types.RequestModel,
+	participants []types.DiagramParticipantHint,
+	participantSurfaces [][]string,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) FlowParticipantRelationCoverage {
+	scope := buildFlowParticipantRelationScope(rm, participants, participantSurfaces, evidence, stagePrecedence)
+	return FlowParticipantRelationCoverage{
+		ParticipantCovered:              append([]bool(nil), scope.participantCovered...),
+		ParticipantRequestScopedCovered: append([]bool(nil), scope.participantRequestScopedCovered...),
+		RequestScopedSubsetIncomplete:   scope.requestScopedSubsetIncomplete,
+	}
+}
+
+// effectiveParticipantCovered keeps a request-scoped typed provider from
+// being silently widened by disconnected local operations.  Before the model
+// has authored one fully anchored requested-participant graph, a strict
+// provider subset covers only the participants that provider itself names.
+// Once the authored graph is genuinely complete, the ordinary typed
+// component result is sufficient.  This is identity/coverage authority only;
+// it never creates an edge or decides the requested relation for the model.
+func (s flowParticipantRelationScope) effectiveParticipantCovered(participantIndex int, authoredRequestedGraphComplete bool) bool {
+	if participantIndex < 0 || participantIndex >= len(s.participantCovered) {
+		return false
+	}
+	if s.requestScopedSubsetIncomplete && !authoredRequestedGraphComplete {
+		return participantIndex < len(s.participantRequestScopedCovered) &&
+			s.participantRequestScopedCovered[participantIndex]
+	}
+	return s.participantCovered[participantIndex]
 }
 
 type flowParticipantRelationEdge struct {
@@ -41,8 +89,9 @@ func buildFlowParticipantRelationScope(
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) flowParticipantRelationScope {
 	scope := flowParticipantRelationScope{
-		participantCovered:        make([]bool, len(participants)),
-		participantLocalOperation: make([]bool, len(participants)),
+		participantCovered:              make([]bool, len(participants)),
+		participantRequestScopedCovered: make([]bool, len(participants)),
+		participantLocalOperation:       make([]bool, len(participants)),
 	}
 	operations := types.FlowOperationEvidenceForRequest(evidence, rm)
 	scope.operationRelevant = make([]bool, len(operations))
@@ -123,12 +172,16 @@ func buildFlowParticipantRelationScope(
 	}
 
 	componentParticipants := make(map[int]map[int]bool)
+	componentRequestScoped := make(map[int]bool)
 	participantComponents := make([]map[int]bool, len(participants))
 	for i := range participants {
 		participantComponents[i] = make(map[int]bool)
 	}
 	for edgeIndex, edge := range edges {
 		root := find(edgeNodes[edgeIndex][0])
+		if edge.stageFrom != nil && edge.stageTo != nil {
+			componentRequestScoped[root] = true
+		}
 		fromMatches := make([]int, 0, 1)
 		toMatches := make([]int, 0, 1)
 		for participantIndex, participant := range participants {
@@ -184,14 +237,64 @@ func buildFlowParticipantRelationScope(
 	if len(participants) == 1 {
 		minimumParticipants = 1
 	}
+	// A uniquely resolved requested participant is itself a typed identity
+	// bridge between its provider endpoint and its local technical endpoint.
+	// Propagate request scope only through that exact alternating
+	// component/participant graph. This admits a real carrier joined through a
+	// verified stage participant, without promoting an unrelated local pair.
+	for changed := true; changed; {
+		changed = false
+		for participantIndex, components := range participantComponents {
+			if scope.participantRequestScopedCovered[participantIndex] {
+				continue
+			}
+			for root := range components {
+				if componentRequestScoped[root] {
+					scope.participantRequestScopedCovered[participantIndex] = true
+					changed = true
+					break
+				}
+			}
+		}
+		for root, members := range componentParticipants {
+			if componentRequestScoped[root] {
+				continue
+			}
+			for participantIndex := range members {
+				if scope.participantRequestScopedCovered[participantIndex] {
+					componentRequestScoped[root] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
 	for participantIndex, components := range participantComponents {
 		for root := range components {
 			if len(componentParticipants[root]) >= minimumParticipants {
 				scope.participantCovered[participantIndex] = true
-				break
+				// Verified stage precedence is currently the precise
+				// request-scoped provider. Propagate that role through the same
+				// exact typed component so a real carrier bridge may close the
+				// request, while disconnected local pairs cannot inherit it.
+				if componentRequestScoped[root] {
+					scope.participantRequestScopedCovered[participantIndex] = true
+				}
 			}
 		}
 	}
+	requestScopedCovered, incidentParticipants := 0, 0
+	for i, participant := range participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		incidentParticipants++
+		if i < len(scope.participantRequestScopedCovered) && scope.participantRequestScopedCovered[i] {
+			requestScopedCovered++
+		}
+	}
+	scope.requestScopedSubsetIncomplete = requestScopedCovered > 0 &&
+		requestScopedCovered < incidentParticipants
 	for edgeIndex, edge := range edges {
 		if edge.operation == nil || edge.index < 0 || edge.index >= len(scope.operationRelevant) {
 			continue

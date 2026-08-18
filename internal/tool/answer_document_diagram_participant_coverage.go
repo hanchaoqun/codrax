@@ -350,7 +350,7 @@ func DiagramParticipantCoverageMismatches(
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
 	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, evidence)
 	for i := range states {
-		requestScopedEdgeAvailable := i < len(relationScope.participantCovered) && relationScope.participantCovered[i]
+		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i, requestedParticipantGraphComplete)
 		states[i].typedEdgeAvailable = requestScopedEdgeAvailable
 		// Requested-relation coverage and local technical incidence are
 		// orthogonal. When the complete requested graph remains unproved and
@@ -698,7 +698,7 @@ func diagramParticipantTypedIncidentCandidates(
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
 	if len(obligations) > 1 && (obligationIndex < 0 ||
-		obligationIndex >= len(relationScope.participantCovered) || !relationScope.participantCovered[obligationIndex]) {
+		!relationScope.effectiveParticipantCovered(obligationIndex, false)) {
 		// Local operations remain valid evidence, but are not repair candidates
 		// for a relationship that no typed component currently proves.
 		return nil

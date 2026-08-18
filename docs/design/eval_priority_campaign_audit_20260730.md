@@ -36310,6 +36310,48 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1028 B1038：请求作用域 provider 与局部关系分量统一确权（2026-08-18）
+
+1. 冷读确认无需新增 graph-level schema。现有 block-level `participant_boundaries` 已能精确表达“该参与方
+   有真实局部技术边，但用户请求的跨参与方关系仍未证”，renderer 也会展示“未证关系边界”。真正 gap 是
+   三个消费者没有读取同一 coverage authority：Explorer completion 与 strict validator 只看任意弱连通
+   分量；Finalizer 已区分 `request_scoped_incident` 与 `local_typed_incident_only`。r658 因此出现提示要求保留
+   BusContext/Mutable 边界、校验器又把局部 pair 当成已覆盖并删除边界的漂移。
+2. 新增唯一 `ResolveFlowParticipantRelationCoverage` 投影，Explorer completion、typed candidate guidance、
+   strict diagram validator 与 Finalizer coverage/边界 recipe 共用。投影保留三层事实：普通 typed component
+   incidence、request-scoped provider-connected incidence、provider 是否只覆盖严格子集。当前精确 provider
+   是 checkout-verified stage precedence；其 authority 只沿 exact endpoint component 或同一个唯一解析
+   participant 的技术端点传播，不跨 disconnected local pair 扩散。
+3. 对 `Analyzer→Explorer→Extractor→Finalizer` 与独立 `BusContext→Mutable`，后者两端仍是可引用局部事实，
+   但 completion 继续寻找真实桥、Finalizer 同时给两者 local-only + boundary recipe、strict validator 接受
+   局部边与两个 `unproven` boundary 共存；删除任一 boundary 会精确报 missing。局部边不会再冒充完整请求
+   spine，也不会因边界而被删。
+4. 若真实 call/argument/data edge 通过同一唯一解析参与者把 carrier component 接入 provider component，
+   request scope 会沿该 exact alternating component/participant graph 传播，所有参与方可正常闭环。若模型
+   最终确实提交一张由 typed anchors 覆盖、全 roster 连通的图，strict validator 同样接受，不强制继续
+   unproven。这避免把“必须全部一张图”误制成通用硬门；纯 source-only、多组独立关系而无 request-scoped
+   provider 的泛型问题继续走既有软拓扑披露，等待将来有 typed grouping/intent 才可升级。
+5. 同批修正文档/schema 的过时绝对句：“bounded participant 不得成为任何 visible directed endpoint”改为
+   “独立已证 local technical edge 可以共存，但不得充当缺失 requested relation”。系统仍不选择边、方向、
+   label、bridge、diagram 或结论；所有硬判断只读 schema participant、parser evidence、verified stage rows、
+   typed anchors 与 Mermaid AST，不扫描用户/模型/最终答案 prose。
+6. 新增 language-neutral pins 覆盖：provider stage pair + disconnected carrier pair；local pair 两端普通
+   incidence 保真但 request-scoped coverage 为 false；边界存在通过、删除边界失败、candidate map 不把局部
+   edge 推给请求关系；真实 carrier bridge 可把全部参与方纳入 provider scope。完整
+   `go test ./internal/tool -count=1`（181.851s）、agent/types/orchestrator/stageauthority 与 `make` 全绿。
+7. 本批不改 Trace、JSON 容错、streaming 或模型成文。显式时间窗、因果投影、系统自动补齐、链上-only
+   根因、实际占用/业务线索与规则可消除量双轴保持；邻近/背景仍只作支持。活跃流固定 4ms 降级继续禁止。
+
+状态：
+
+`B1038-DIAGRAMREQUESTEDRELATIONCOMPONENTS1=implemented/shared-typed-authority+pinned/pending-r659`；
+`B1039-COMPLETIONLOWDELTAAUTHORITY1=P1-confirmed/next-batch`；
+`B1036-TRACEWAKEUPROLECAPSULEFOLD1=P2-confirmed/pending`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

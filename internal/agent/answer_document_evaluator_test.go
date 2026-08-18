@@ -10096,6 +10096,62 @@ func TestVerifiedStageAuthorityKeepsLocalCarrierOperationAndRequestedBoundarySep
 	}
 }
 
+func TestVerifiedStageAuthorityKeepsDisconnectedCarrierPairOutsideRequestScope(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead, RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqMechanism),
+				Entities: []string{"Analyzer", "Explorer", "Extractor", "Finalizer", "BusContext", "Mutable"},
+			},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "carrier-local-pair", Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Kind: types.EvidenceRelationship, Subject: "BusContext.SetMutable", Predicate: "calls",
+			Object: "Mutable.Load", Source: "internal/types/context.go", LineStart: 96,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "Mutable.Load",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"request_scoped_incident=[Analyzer Explorer Extractor Finalizer]",
+		"local_typed_incident_only=[BusContext Mutable]",
+		"requested_relation_spine_status=`unproven`",
+		"retain_participant_boundary=true",
+	} {
+		if !strings.Contains(authority, want) {
+			t.Fatalf("finalizer must consume the same request-scope classification as strict validation, missing %q:\n%s", want, authority)
+		}
+	}
+	contract := renderAnswerDocDiagramContract(ctx, &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramFlow, Participants: participants,
+	})
+	for _, participant := range []string{"BusContext", "Mutable"} {
+		if strings.Count(contract, `participant_identity="`+participant+`"`) != 1 {
+			t.Fatalf("disconnected local participant %s must retain exactly one boundary recipe:\n%s", participant, contract)
+		}
+	}
+	for _, participant := range []string{"Analyzer", "Explorer", "Extractor", "Finalizer"} {
+		if strings.Contains(contract, `participant_identity="`+participant+`"`) {
+			t.Fatalf("request-scoped stage participant %s received a false boundary:\n%s", participant, contract)
+		}
+	}
+}
+
 func TestBuildInitialInstructionResetsTypedRelationRecipeReceiptWhenNoRecipeEmitted(t *testing.T) {
 	mut := types.NewMutableState("summarize the repository")
 	mut.SetFinalizerTypedRelationRecipeAvailable(true)

@@ -3713,7 +3713,7 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 	relationScope := buildFlowParticipantRelationScope(rm, participants, participantSurfaces, evidence, stagePrecedence)
 	missing := make([]string, 0, len(participants))
 	for i, participant := range participants {
-		if i >= len(relationScope.participantCovered) || !relationScope.participantCovered[i] {
+		if !relationScope.effectiveParticipantCovered(i, false) {
 			missing = append(missing, strings.TrimSpace(participant.Identity))
 		}
 	}

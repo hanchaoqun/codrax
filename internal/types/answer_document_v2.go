@@ -320,9 +320,10 @@ type AnswerBlock struct {
 	// ParticipantBoundaries are model-authored typed disclosures for
 	// incident_required diagram participants whose requested directed relation
 	// remains unproved. Independently proved containment or local technical
-	// facts may coexist, but the participant cannot be used as a visible directed
-	// edge endpoint under this boundary. Boundaries never authorize an edge;
-	// validators require exact agreement with analyzer participant obligations.
+	// facts may coexist, including a directed local technical edge incident to
+	// the participant. Such a local edge does not prove the requested relation
+	// or make its boundary stale. Boundaries never authorize an edge; validators
+	// require exact agreement with analyzer participant obligations.
 	ParticipantBoundaries []DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
 
 	// RelationClaims are model-authored declarations that bind value

@@ -4192,7 +4192,9 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 			}
 			coverageHint.Participants = dc.Participants
 			coverageRM.DiagramHint = &coverageHint
-			coverage := answerDocResolveFlowParticipantCoverage(coverageRM, edges, evidence)
+			coverage := answerDocResolveFlowParticipantCoverage(
+				coverageRM, edges, evidence, answerDocVerifiedReadModeStagePrecedenceForRequest(ctx),
+			)
 			boundaryParticipants := coverage.boundaryParticipants()
 			if len(boundaryParticipants) > 0 {
 				if coverage.requestScopedSubsetIncomplete {
@@ -7839,7 +7841,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	if len(edges) < len(allEdges) {
 		fmt.Fprintf(&b, "- principal_relation_scope=`typed_endpoint_boundary`; supporting_directed_relations_outside_boundary=`%d`. The omitted relations remain grounded support facts, but they are not principal intermediate hops or principal diagram edges for this exact endpoint answer.\n", len(allEdges)-len(edges))
 	}
-	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx.AnalysisIR.RequestModel, edges, evidence)
+	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx, edges, evidence)
 	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
 		fmt.Fprintf(&b,
 			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",
