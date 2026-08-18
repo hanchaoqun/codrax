@@ -36547,6 +36547,66 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `Trace explicit-window/query/projection/auto-supplement=production-positive-r662`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1035 r663：已知 source 生产闭环；请求子题证据与非 call 桥仍在可见图中丢失（2026-08-18）
+
+1. 在 `main@d5dd03190` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + github_issue_zod_prefault`。Runner 为 `1 PASS / 1 FAIL`；人工为 Poly partial、
+   Zod pass-with-unverified-boundary。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_poly_write_r663_20260818_manual_audit.md`。
+2. B1041 获生产闭环。Analyzer 发 `source=FastTokenizer.tokenize + sink=tokenize_bytes + mode=discover`；系统先
+   归一为 exact，再因 conceptual sink 未经当前请求证明而诚实降为 `discover_terminal`。完整 source 通过
+   schema-selected candidate 的当前请求精确边界验证，没有再次被拆分 entity roster 清空。Finalizer 最终收到
+   `grounded source endpoint=FastTokenizer.tokenize`，证明修复贯穿真实生产链，不只是单测。
+3. Poly 仍有两个新的独立 P1。其一，Analyzer 明确拆出 fallback-behavior 子题，repo-map/pre-read 已展示
+   `FastTokenizer._tokenize_slow` 定义在 lines 24–36；Explorer 却只提交 line 22 调用点，Finalizer 最终反称
+   “本仓库未找到实现”。记 `B1043-REQUESTEDSUBTOPICEVIDENCECLOSURE1`：完成门应按 typed requested subtopic ×
+   grounded definition/body 交账，不能按 Python 或 `_tokenize_slow` 单点拟合，也不能靠扫描最终错误句子拦截。
+4. 其二，系统已提供 exact registered-export handoff
+   `_fastlex.tokenize_bytes -> py.tokenize_bytes`。三次成文拒绝后，principal list 终于携带隐藏 register anchor，
+   但可见 sequence diagram 仍只用 `Note over` 表示该桥，用户看到的图仍是两个断开的调用分量。记
+   `B1044-VISIBLENONCALLHANDOFF1`：typed registration/binding/callback/data-flow 等非 call 关系必须成为一等可见
+   关系；只在模型已选择两端与关系时要求其可见表达，不得把它伪装成 call，也不得由系统代画。
+5. Zod 源码修复、false/0/empty-string 回归与 `make check` 均正确；终态 unverified 是因为 fixture 只有 Python
+   source-static checker 且宿主无 Node，不能冒充 TypeScript 行为执行。用户面仍裸露
+   `production_verification_source_static_only`，再次确认 B756 的 typed terminal reason 展示 gap。
+6. 两案均无空答案、畸形 JSON 恢复或固定 4ms 活跃流降级。本轮不修改 Trace；显式窗、系统补采、因果投影、
+   链上-only 主因、背景 support-only、双轴与模型结论权保持。
+
+状态：
+
+`B1041-CALLCHAINSINGLESOURCEWIRE1=production-closed/r663`；
+`B1042-WRITETERMINALREASONLANGUAGE1=confirmed/P1`；
+`B1043-REQUESTEDSUBTOPICEVIDENCECLOSURE1=confirmed/P1`；
+`B1044-VISIBLENONCALLHANDOFF1=confirmed/P1`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
+### §123.1036 B1042：写工作流终态原因码退出客户主叙事（2026-08-18）
+
+1. `renderWriteWorkflowTerminalStatus` 是 typed workflow 终态的唯一确定性发射缝。旧实现直接输出
+   `verified`、`accepted_failed` 与每个 batch 的原始 `ReasonCode`，导致中文答案出现
+   `production_verification_source_static_only` 一类协议值；这不是模型波动。
+2. 修复保留 JSON plan/report/run 中的原始码与 machine semantics，只在用户终态卡映射为中英文含义。
+   当前常见 proof-incomplete、source-static、runner/parser/incomplete、no-tests、test-failed 均有明确读者词；
+   未知未来码不回显，而是提示到结构化报告查看详情。verified/accepted-failed 的反引号枚举也从正文退出。
+3. 映射只消费 `WriteWorkflowCompletion.ReasonCode` 与 locale，不读取用户请求、模型推理、答案草稿或最终 prose，
+   不触发重试，也不改变验证裁决。中英文、未知码 fail-closed 和 verdict token 负 pin 均已覆盖；完整
+   `go test ./internal/orchestrator -count=1` 通过。
+4. `bounded_window_candidate` 属于模型必须填写的 typed JSON caliber，不是系统终态 ReasonCode；当前工具 schema
+   已明确其只能留在 JSON field、正文须用答案语言表达。遵守“禁止扫描/改写模型正文”的红线，本批不通过
+   renderer 搜索替换该词；继续以简化 dispatch-local JSON 教学和异构回放观察其是否复现。
+
+状态：
+
+`B1042-WRITETERMINALREASONLANGUAGE1=implemented/localized-known+unknown-safe-fallback+pinned/full-orchestrator-pass`；
+`B756-RUNTIMEENUMCUSTOMERLANGUAGE1=write-terminal-deterministic-surface-closed/model-authored-trace-wording-soft-guidance-only`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

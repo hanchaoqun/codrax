@@ -380,7 +380,7 @@ func TestPublishWriteWorkflowCompletionResultAppendsUnverifiedAfterPassedCard(t 
 	for _, want := range []string{
 		"## 测试通过",
 		"## 最终交付状态：未完全验证",
-		"`batch-1-cumulative-review` (`verification_proof_incomplete`)",
+		"`batch-1-cumulative-review`（行为或影响证明尚未闭合）",
 		"测试结果可能已经通过，但声明的行为或影响证明仍未完全闭合",
 	} {
 		if !strings.Contains(result, want) {
@@ -412,11 +412,68 @@ func TestRenderWriteWorkflowTerminalStatusEnglishRunnerUnavailable(t *testing.T)
 	got := renderWriteWorkflowTerminalStatus(run, "en")
 	for _, want := range []string{
 		"Final delivery status: unverified",
-		"`batch-2` (`runner_missing`)",
+		"`batch-2` (the local test runner was unavailable)",
 		"test runner, dependencies, or result parser were unavailable",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("English terminal status missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderWriteWorkflowTerminalStatusLocalizesReasonCodesWithoutLeakingProtocolTokens(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		Status: types.WriteWorkflowRunComplete,
+		Batches: []types.WriteWorkflowBatch{
+			{ID: "batch-1", Status: types.WriteWorkflowBatchComplete, Completion: &types.WriteWorkflowCompletion{
+				Verdict: types.WriteWorkflowCompletionUnverified, ReasonCode: "production_verification_source_static_only",
+			}},
+			{ID: "batch-future", Status: types.WriteWorkflowBatchComplete, Completion: &types.WriteWorkflowCompletion{
+				Verdict: types.WriteWorkflowCompletionUnverified, ReasonCode: "future_internal_reason_code",
+			}},
+		},
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict: types.WriteWorkflowCompletionUnverified, ReasonCode: "production_verification_source_static_only",
+		},
+	}
+
+	for _, tc := range []struct {
+		lang string
+		want string
+	}{
+		{lang: "zh", want: "生产验证目前只有静态证据"},
+		{lang: "en", want: "production verification currently has static evidence only"},
+	} {
+		got := renderWriteWorkflowTerminalStatus(run, tc.lang)
+		if !strings.Contains(got, tc.want) {
+			t.Fatalf("localized terminal status missing %q:\n%s", tc.want, got)
+		}
+		for _, leaked := range []string{
+			"production_verification_source_static_only",
+			"future_internal_reason_code",
+		} {
+			if strings.Contains(got, leaked) {
+				t.Fatalf("terminal status leaked internal reason code %q:\n%s", leaked, got)
+			}
+		}
+	}
+}
+
+func TestRenderWriteWorkflowTerminalStatusHidesVerdictProtocolTokens(t *testing.T) {
+	for _, tc := range []struct {
+		verdict types.WriteWorkflowCompletionVerdict
+		leaked  string
+	}{
+		{verdict: types.WriteWorkflowCompletionVerified, leaked: "`verified`"},
+		{verdict: types.WriteWorkflowCompletionAcceptedFailed, leaked: "`accepted_failed`"},
+	} {
+		run := types.WriteWorkflowRun{
+			Status:     types.WriteWorkflowRunComplete,
+			Completion: &types.WriteWorkflowCompletion{Verdict: tc.verdict, ReasonCode: "verification_failed"},
+		}
+		got := renderWriteWorkflowTerminalStatus(run, "zh")
+		if strings.Contains(got, tc.leaked) || strings.Contains(got, "`verification_failed`") {
+			t.Fatalf("terminal status leaked internal verdict or reason token:\n%s", got)
 		}
 	}
 }

@@ -22,9 +22,9 @@ func renderWriteWorkflowTerminalStatus(run types.WriteWorkflowRun, lang string) 
 	switch run.Completion.Verdict {
 	case types.WriteWorkflowCompletionVerified:
 		if zh {
-			return "\n\n## 最终交付状态：已验证\n\n所有批次均已完成验证，最终状态为 `verified`。\n"
+			return "\n\n## 最终交付状态：已验证\n\n所有批次均已完成验证。\n"
 		}
-		return "\n\n## Final delivery status: verified\n\nAll batches completed recorded verification; the final status is `verified`.\n"
+		return "\n\n## Final delivery status: verified\n\nAll batches completed recorded verification.\n"
 	case types.WriteWorkflowCompletionUnverified:
 		details := writeWorkflowTerminalUnverifiedDetails(run, zh)
 		if zh {
@@ -34,14 +34,10 @@ func renderWriteWorkflowTerminalStatus(run types.WriteWorkflowRun, lang string) 
 		return "\n\n## Final delivery status: unverified\n\nThe delivery artifacts were preserved, but the final workflow cannot be marked verified. " + details +
 			"This is not a confirmed code failure; complete the missing verification before merging.\n"
 	case types.WriteWorkflowCompletionAcceptedFailed:
-		reason := strings.TrimSpace(run.Completion.ReasonCode)
-		if reason == "" {
-			reason = "verification_failed"
-		}
 		if zh {
-			return fmt.Sprintf("\n\n## 最终交付状态：已接受验证失败\n\n工作流以 `accepted_failed` 结束（`%s`）；合并前必须人工审查失败证据。\n", reason)
+			return "\n\n## 最终交付状态：已接受验证失败\n\n验证失败已被明确接受；合并前必须人工审查结构化报告中的失败证据。\n"
 		}
-		return fmt.Sprintf("\n\n## Final delivery status: verification failure accepted\n\nThe workflow ended as `accepted_failed` (`%s`); review the failure evidence before merging.\n", reason)
+		return "\n\n## Final delivery status: verification failure accepted\n\nThe verification failure was explicitly accepted; review the failure evidence in the structured report before merging.\n"
 	default:
 		return ""
 	}
@@ -57,18 +53,15 @@ func writeWorkflowTerminalUnverifiedDetails(run types.WriteWorkflowRun, zh bool)
 		if batchID == "" {
 			batchID = "batch"
 		}
-		reason := strings.TrimSpace(batch.Completion.ReasonCode)
-		if reason == "" {
-			reason = "unverified"
+		reason := writeWorkflowTerminalReasonLabel(batch.Completion.ReasonCode, zh)
+		if zh {
+			rows = append(rows, fmt.Sprintf("`%s`（%s）", batchID, reason))
+		} else {
+			rows = append(rows, fmt.Sprintf("`%s` (%s)", batchID, reason))
 		}
-		rows = append(rows, fmt.Sprintf("`%s` (`%s`)", batchID, reason))
 	}
 	if len(rows) == 0 {
-		reason := strings.TrimSpace(run.Completion.ReasonCode)
-		if reason == "" {
-			reason = "unverified"
-		}
-		rows = append(rows, "`"+reason+"`")
+		rows = append(rows, writeWorkflowTerminalReasonLabel(run.Completion.ReasonCode, zh))
 	}
 	reasonClass := writeWorkflowTerminalUnverifiedReasonClass(run)
 	if zh {
@@ -93,6 +86,52 @@ func writeWorkflowTerminalUnverifiedDetails(run types.WriteWorkflowRun, zh bool)
 		explanation = "The local test runner, dependencies, or result parser were unavailable. "
 	}
 	return "Open batch(es): " + strings.Join(rows, ", ") + ". " + explanation
+}
+
+// writeWorkflowTerminalReasonLabel keeps workflow reason codes in typed audit
+// artifacts while presenting only their reader-facing meaning in the terminal
+// status card. Unknown future codes fail closed to a generic explanation rather
+// than leaking a protocol token into user-facing prose.
+func writeWorkflowTerminalReasonLabel(reasonCode string, zh bool) string {
+	code := strings.TrimSpace(reasonCode)
+	if zh {
+		switch code {
+		case "production_verification_source_static_only":
+			return "生产验证目前只有静态证据"
+		case "verification_proof_incomplete":
+			return "行为或影响证明尚未闭合"
+		case "runner_missing":
+			return "本地测试运行器不可用"
+		case "parser_error":
+			return "测试结果无法可靠解析"
+		case "verification_incomplete":
+			return "本地验证未完整执行"
+		case "no_tests":
+			return "没有测试实际执行"
+		case "tests_failed", "verification_failed":
+			return "测试或验证失败"
+		default:
+			return "验证未闭合，具体原因见结构化报告"
+		}
+	}
+	switch code {
+	case "production_verification_source_static_only":
+		return "production verification currently has static evidence only"
+	case "verification_proof_incomplete":
+		return "behavior or impact proof remains incomplete"
+	case "runner_missing":
+		return "the local test runner was unavailable"
+	case "parser_error":
+		return "the test result could not be parsed reliably"
+	case "verification_incomplete":
+		return "local verification did not complete"
+	case "no_tests":
+		return "no tests actually ran"
+	case "tests_failed", "verification_failed":
+		return "tests or verification failed"
+	default:
+		return "verification remains incomplete; see the structured report for details"
+	}
 }
 
 func writeWorkflowTerminalUnverifiedReasonClass(run types.WriteWorkflowRun) string {
