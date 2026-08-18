@@ -36354,6 +36354,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 
+### §123.1065 r684：必需图权威被 provenance 静默清空；多主题证据先截断后分区（2026-08-18）
+
+1. 在 `main@53a1e6131` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner `2 PASS / 0 FAIL`，
+   人工 `0 PASS / 2 FAIL`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_source_partition_sequence_replay_r684_20260818_manual_audit.md`。
+2. 组合配置/Mermaid 案虽分成两节，却产生三项可核错误：把 `RuntimeSettings` 说成“所有字段均为指针”；
+   配置发现顺序遗漏 `<exeDir>/codrax/codrax.yaml` 与三个 legacy 路径；把仅用于 rejected/recovered
+   answer document 的 `SanitizeDegradedMermaidBlocks` 混入正常 REPL 渲染链。Runner 的宽 regex/contains
+   只验证主题词出现，因此假绿。
+3. B1071 的 exact-source-first 已阻止 producer lane 直接越权，但仍有第二层容量断层：多主题分区先调用
+   通用 enrichment 的全局前 1024 条池，再做 unit 分配。Unit 2 的宽 `internal/repl/repl.go` scope 带入
+   83+ 普通赋值/状态行，真正的 Mermaid/config 行落到 shared 或在全局 cap 后消失。即使模型已读准实现，
+   Finalizer 仍先看到低相关宽文件行。
+4. Pipeline 案的最终答案不是用户明确要求的 `sequenceDiagram`，而是 `flowchart TD`、
+   `diagram.kind=architecture`。首稿 sequence 含 20+ 未证调用边，被关系门正确拒绝；patch 因合同已是
+   optional，合法撤换成另一种图。Runner 从含已拒绝草稿的整份 `run-1.out` 命中 `sequenceDiagram`，再次
+   假绿，说明最终答案 oracle 必须与过程 transcript 分离。
+5. 确定性根因位于路由 provenance：classifier 已发 `requires_diagram=true`，却把用户的中文原句改写为
+   英文/摘要式 `presentation_directive`。旧 `bindTurnPresentationAuthority` 发现非当前消息连续逐字 span 后，
+   只写 warning 并把 directive 与 typed true 一并清零；Analyzer 随后把自身 required diagram_hint 正规化
+   为 optional。于是 Finalizer 没有 required sequence contract，现有 checkout-verified stage-lane recipe
+   也未进入首稿提示。这不是模型随机波动。
+6. `B1073-PRESENTATIONPROVENANCEREPAIR1` 给该精确冲突一次同 schema 有界修复：模型必须重发完整
+   `emit_turn_policy`，若当前消息确实要求视觉载体，就复制最短连续 verbatim span 并保持 true；否则显式
+   false+空串。系统不扫描用户关键词、不从 directive 推导 boolean，最终仍由 byte-exact 检查确权；若同轮
+   已消耗结构修复预算则不追加第三次调用。正/负/一次预算 pin 已覆盖。
+7. `B1074-MULTITOPICAFFINITYRANK1` 改为在完整 accepted typed evidence 集合上先合并再按 unit 排序，
+   然后才执行每题 16 条/shared 12 条展示上限。排序只读 Analyzer typed unit 的 Summary/Entities/Scopes
+   与 EvidenceItem 的 source/subject/object/anchor/authoritative surface；camel/path/普通词形使用通用 token
+   归一化。唯一 unit 的高分行可标 `topic_affinity_hint`，但该标签明确只是 prompt selection：不证明语义
+   ownership、relevance、关系或结论，不进入 validator、拒答或答案改写。1024 以后晚到的相关行有正 pin。
+8. 同批纠正源码自描述：`RuntimeSettings` 只有需要 omitted/explicit-zero 三态的 scalar override 使用指针，
+   collections/maps/value payload 与 loader-owned `UnknownKeys` 并非 pointer；`LoadRuntimeSettings` 的 strict
+   KnownFields 会让 unknown-only 保留合法字段并记录键，syntax/type mismatch 继续 fail-loud。
+9. 本轮无畸形 JSON 降级、空答案、旧稿恢复、stream 结束误判或固定 4ms 降级。两案均非 Trace；Read/Trace
+   查询、显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则可消除量双轴均未改，
+   邻近/背景仍只能 support，答案/图/关系继续由模型形成。
+
+状态：
+
+`B1071-MULTITOPICSOURCEASSOCIATION1=production-partial-r684/superseded-by-B1074-ranking`；
+`B1072-SEQUENCEWORKFLOWRELATIONREPAIRSTORM1=production-not-reached-r684/presentation-authority-lost-upstream`；
+`B1073-PRESENTATIONPROVENANCEREPAIR1=implemented/same-schema-one-repair+pinned/replay-next`；
+`B1074-MULTITOPICAFFINITYRANK1=implemented/full-pool-before-cap+soft-only+pinned/replay-next`；
+`R684-RUNNER-FINAL-ANSWER-BOUNDARY=false-positive-open`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r684`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-answer/conclusion/diagram/edge=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

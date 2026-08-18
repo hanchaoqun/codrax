@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -17,6 +19,7 @@ type answerDocInvestigationEvidenceOwner struct {
 	producerUnitIDs map[string]bool
 	unitIDs         map[string]bool
 	association     string
+	affinityScore   int
 	item            types.EvidenceItem
 }
 
@@ -41,7 +44,12 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 		return ""
 	}
 
-	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	// Multi-topic partitioning selects only a handful of rows per unit, so it
+	// must rank before truncating. Reusing the general enrichment pool's global
+	// 1024-row cap let one broad file monopolize the prefix and starve a later,
+	// directly relevant row. The pool below remains the already-accepted typed
+	// evidence set; only this prompt-only ranker sees its full reconciled shape.
+	evidence := answerDocMultiTopicEvidencePool(ctx)
 	byID := make(map[string]*answerDocInvestigationEvidenceOwner, len(evidence))
 	for _, item := range evidence {
 		if item.GroundingStatus == types.GroundingUngrounded {
@@ -87,7 +95,28 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 			}
 		}
 	}
+	unitAffinityTokens, tokenUnitFrequency := answerDocInvestigationUnitAffinityTokens(plan.Units)
 	for _, owned := range byID {
+		if len(owned.unitIDs) > 0 {
+			continue
+		}
+		bestUnitID, bestScore, bestCount := "", 0, 0
+		for _, unit := range plan.Units {
+			score := answerDocInvestigationEvidenceAffinityScore(owned.item, unitAffinityTokens[unit.ID], tokenUnitFrequency)
+			if score > bestScore {
+				bestUnitID, bestScore, bestCount = unit.ID, score, 1
+			} else if score > 0 && score == bestScore {
+				bestCount++
+			}
+		}
+		// A unique unit-only token is worth four points. Requiring that floor
+		// keeps broad shared words from manufacturing ownership. This remains a
+		// soft writing hint and is disclosed as such in the prompt.
+		if bestScore >= 4 && bestCount == 1 {
+			owned.unitIDs[bestUnitID] = true
+			owned.association = "topic_affinity_hint"
+			owned.affinityScore = bestScore
+		}
 		if len(owned.unitIDs) > 0 {
 			continue
 		}
@@ -112,7 +141,11 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 			shared = append(shared, *owned)
 		case 1:
 			for unitID := range owned.unitIDs {
-				unitRows[unitID] = append(unitRows[unitID], *owned)
+				row := *owned
+				if row.affinityScore == 0 {
+					row.affinityScore = answerDocInvestigationEvidenceAffinityScore(row.item, unitAffinityTokens[unitID], tokenUnitFrequency)
+				}
+				unitRows[unitID] = append(unitRows[unitID], row)
 			}
 		default:
 			shared = append(shared, *owned)
@@ -131,6 +164,9 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 
 	sortEvidenceOwners := func(rows []answerDocInvestigationEvidenceOwner) {
 		sort.SliceStable(rows, func(i, j int) bool {
+			if rows[i].affinityScore != rows[j].affinityScore {
+				return rows[i].affinityScore > rows[j].affinityScore
+			}
 			leftScore := answerDocInvestigationEvidenceDisplayScore(rows[i].item)
 			rightScore := answerDocInvestigationEvidenceDisplayScore(rows[j].item)
 			if leftScore != rightScore {
@@ -143,6 +179,7 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 	var b strings.Builder
 	b.WriteString("## Evidence partition hints by investigation unit (prompt-only)\n\n")
 	b.WriteString("- The grouping below prefers exact file/directory scopes declared on typed investigation units; task-node producer lineage is used only as a fallback when a unit has no exact source-scope match. It is a writing partition, not semantic ownership. Do not echo this heading, unit IDs, evidence IDs, association labels, or connectivity labels in the user-facing answer.\n")
+	b.WriteString("- `topic_affinity_hint` and affinity ordering use only typed unit summaries/entities/scopes plus structured evidence fields. They are noisy prompt-selection guidance only: they do not prove ownership, relevance, an edge, or a conclusion and never drive validation or rejection.\n")
 	b.WriteString("- A unit association is not a call, causal, precedence, fallback, or failure-path edge. Join facts into one mechanism only when an explicit typed relation row supplies the exact endpoints and direction.\n")
 	b.WriteString("- `connectivity=standalone_fact` rows may explain a definition, state, option, or local behavior, but they cannot by themselves become a transition in a mechanism chain. `connectivity=explicit_typed_relation` authorizes only the displayed subject-to-object relation, not a broader category or neighboring step.\n")
 	b.WriteString("- Evidence assigned to another unit, shared probe evidence, and disconnected standalone facts remain supporting context unless a typed relation independently connects them to the current section.\n\n")
@@ -183,6 +220,98 @@ func renderAnswerDocMultiTopicEvidenceOwnership(ctx *types.AgentContext) string 
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func answerDocMultiTopicEvidencePool(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	limit := len(ctx.EvidenceItems)
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			limit += len(ta.EvidenceItems)
+		}
+		limit += len(ctx.Mutable.EmittedEvidence())
+	}
+	if limit <= 0 {
+		return nil
+	}
+	return answerDocTypedEnrichmentEvidencePool(ctx, limit)
+}
+
+func answerDocInvestigationUnitAffinityTokens(units []types.InvestigationUnit) (map[string]map[string]bool, map[string]int) {
+	byUnit := make(map[string]map[string]bool, len(units))
+	frequency := map[string]int{}
+	for _, unit := range units {
+		tokens := map[string]bool{}
+		for _, value := range append(append([]string{unit.Summary, unit.Label}, unit.Entities...), unit.Scopes...) {
+			for token := range answerDocAffinityTokens(value) {
+				tokens[token] = true
+			}
+		}
+		byUnit[unit.ID] = tokens
+		for token := range tokens {
+			frequency[token]++
+		}
+	}
+	return byUnit, frequency
+}
+
+func answerDocInvestigationEvidenceAffinityScore(item types.EvidenceItem, unitTokens map[string]bool, frequency map[string]int) int {
+	if len(unitTokens) == 0 {
+		return 0
+	}
+	evidenceTokens := map[string]bool{}
+	for _, value := range []string{
+		item.Source, item.Subject, item.Predicate, item.Object, item.Summary,
+		item.AnchorSymbol, item.OwnerSymbol, item.DeclaredBinding, item.DeclaredType,
+		item.DeclaredOwner, types.EvidenceAuthoritativeSurfaceText(item, false),
+	} {
+		for token := range answerDocAffinityTokens(value) {
+			evidenceTokens[token] = true
+		}
+	}
+	score := 0
+	for token := range unitTokens {
+		if !evidenceTokens[token] {
+			continue
+		}
+		if frequency[token] == 1 {
+			score += 4
+		} else {
+			score++
+		}
+	}
+	return score
+}
+
+func answerDocAffinityTokens(value string) map[string]bool {
+	out := map[string]bool{}
+	var separated strings.Builder
+	var previous rune
+	for index, current := range value {
+		if index > 0 && (unicode.IsLower(previous) || unicode.IsDigit(previous)) && unicode.IsUpper(current) {
+			separated.WriteByte(' ')
+		}
+		separated.WriteRune(current)
+		previous = current
+	}
+	for _, token := range strings.FieldsFunc(strings.ToLower(separated.String()), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		token = strings.TrimSpace(token)
+		if utf8.RuneCountInString(token) < 3 {
+			continue
+		}
+		out[token] = true
+		// A short ASCII prefix lets ordinary inflections such as render /
+		// rendering and config / configuration meet without a language- or
+		// product-specific synonym table. It remains soft ranking only.
+		if len(token) >= 6 && len(token) == utf8.RuneCountInString(token) {
+			out["prefix:"+token[:5]] = true
+		}
+	}
+	return out
 }
 
 func firstNonEmptyAnswerDocUnitLabel(unit types.InvestigationUnit) string {

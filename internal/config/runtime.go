@@ -27,12 +27,12 @@ import (
 // The pipeline topology (4 stages × 4 agents) is hardcoded in
 // internal/orchestrator/topology.go and has no YAML counterpart.
 //
-// Every field is a pointer so the merge logic in cmd/root.go can tell
-// "user omitted this key in the YAML file" (nil) from "user set it
-// to the zero value" (non-nil pointer to the zero value). This matters
-// for LogStdout in particular: a default of false and a config file
-// with `log_stdout: false` must both be allowed to override each
-// other based on precedence.
+// Scalar override knobs are pointers so the merge logic in cmd/root.go can
+// distinguish "user omitted this key" (nil) from "user explicitly set its
+// zero value" (non-nil pointer). Collection/configuration payloads whose
+// omitted and empty forms intentionally share semantics remain value-typed
+// slices or maps. UnknownKeys is loader-owned diagnostic state and is never
+// decoded from YAML.
 type RuntimeSettings struct {
 	// Log + memory + language (per-process UX).
 	LogDir    *string `yaml:"log_dir"`
@@ -1094,29 +1094,29 @@ type RuntimeSettings struct {
 	// default (3).
 	AgentFinalizerMemberSetBreakerMaxStrikes *int  `yaml:"agent_finalizer_member_set_breaker_max_strikes"`
 	AgentFinalizerPreservePriorProse         *bool `yaml:"agent_finalizer_preserve_prior_prose"`
-	AgentFinalizerShrinkageMinProseLen        *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
-	AgentFinalizerShrinkageRatio              *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
-	AgentExtractorMaxCorrectionRetries        *int     `yaml:"agent_extractor_max_correction_retries"`
-	AgentSubTopicPrescanExtra                 *int     `yaml:"agent_subtopic_prescan_extra"`
-	AgentSubTopicExplorerExtra                *int     `yaml:"agent_subtopic_explorer_extra"`
-	AgentSubTopicPlannerExtra                 *int     `yaml:"agent_subtopic_planner_extra"`
-	AgentPlannerComplexityExtra               *int     `yaml:"agent_planner_complexity_extra"`
-	AgentSubTopicPipelineExtra                *int     `yaml:"agent_subtopic_pipeline_extra"`
-	AgentSubTopicRetryExtra                   *int     `yaml:"agent_subtopic_retry_extra"`
-	AgentSubTopicExtractorExtra               *int     `yaml:"agent_subtopic_extractor_extra"`
-	AgentExtractorComplexityExtra             *int     `yaml:"agent_extractor_complexity_extra"`
-	AgentTargetPathsVerifierExtra             *int     `yaml:"agent_target_paths_verifier_extra"`
-	AgentPrescanRoundsCeil                    *int     `yaml:"agent_prescan_rounds_ceil"`
-	AgentExplorerScaledIterMax                *int     `yaml:"agent_explorer_scaled_iter_max"`
-	AgentPlannerScaledIterMax                 *int     `yaml:"agent_planner_scaled_iter_max"`
-	AgentExtractorScaledIterMax               *int     `yaml:"agent_extractor_scaled_iter_max"`
-	AgentVerifierScaledIterMax                *int     `yaml:"agent_verifier_scaled_iter_max"`
-	AgentMaxRetryBudgetCeil                   *int     `yaml:"agent_max_retry_budget_ceil"`
-	AgentPerfTriagerIterCap                   *int     `yaml:"agent_perf_triager_iter_cap"`
-	AgentDowngradeConvergenceHard             *int     `yaml:"agent_downgrade_convergence_hard"`
-	AgentLogTriagerIterCap                    *int     `yaml:"agent_log_triager_iter_cap"`
-	AgentInvestigationCompletePolicy          *string  `yaml:"agent_investigation_complete_policy"`
-	AgentPriorConvPolicy                      *string  `yaml:"agent_prior_conversation_policy"`
+	AgentFinalizerShrinkageMinProseLen       *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
+	AgentFinalizerShrinkageRatio             *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
+	AgentExtractorMaxCorrectionRetries       *int     `yaml:"agent_extractor_max_correction_retries"`
+	AgentSubTopicPrescanExtra                *int     `yaml:"agent_subtopic_prescan_extra"`
+	AgentSubTopicExplorerExtra               *int     `yaml:"agent_subtopic_explorer_extra"`
+	AgentSubTopicPlannerExtra                *int     `yaml:"agent_subtopic_planner_extra"`
+	AgentPlannerComplexityExtra              *int     `yaml:"agent_planner_complexity_extra"`
+	AgentSubTopicPipelineExtra               *int     `yaml:"agent_subtopic_pipeline_extra"`
+	AgentSubTopicRetryExtra                  *int     `yaml:"agent_subtopic_retry_extra"`
+	AgentSubTopicExtractorExtra              *int     `yaml:"agent_subtopic_extractor_extra"`
+	AgentExtractorComplexityExtra            *int     `yaml:"agent_extractor_complexity_extra"`
+	AgentTargetPathsVerifierExtra            *int     `yaml:"agent_target_paths_verifier_extra"`
+	AgentPrescanRoundsCeil                   *int     `yaml:"agent_prescan_rounds_ceil"`
+	AgentExplorerScaledIterMax               *int     `yaml:"agent_explorer_scaled_iter_max"`
+	AgentPlannerScaledIterMax                *int     `yaml:"agent_planner_scaled_iter_max"`
+	AgentExtractorScaledIterMax              *int     `yaml:"agent_extractor_scaled_iter_max"`
+	AgentVerifierScaledIterMax               *int     `yaml:"agent_verifier_scaled_iter_max"`
+	AgentMaxRetryBudgetCeil                  *int     `yaml:"agent_max_retry_budget_ceil"`
+	AgentPerfTriagerIterCap                  *int     `yaml:"agent_perf_triager_iter_cap"`
+	AgentDowngradeConvergenceHard            *int     `yaml:"agent_downgrade_convergence_hard"`
+	AgentLogTriagerIterCap                   *int     `yaml:"agent_log_triager_iter_cap"`
+	AgentInvestigationCompletePolicy         *string  `yaml:"agent_investigation_complete_policy"`
+	AgentPriorConvPolicy                     *string  `yaml:"agent_prior_conversation_policy"`
 
 	// Per-evaluator iteration caps (soft / hard pair) — gates the
 	// two-stage stop machinery in iterationCapShouldStop. Each pair
@@ -1614,9 +1614,10 @@ type TraceSemanticSpanPattern struct {
 // keys (e.g. T4 renamed pipeline_max_verify_retries →
 // pipeline_write_retry_budget), LoadRuntimeSettings prints a single
 // stderr line per recognised legacy key naming the new name. The
-// load itself still succeeds — yaml.Unmarshal silently drops
-// unknown keys — so the user gets a helpful warning instead of a
-// silent ignore.
+// load itself still succeeds for unknown-key-only errors: strict
+// KnownFields decoding preserves the accepted fields and records the stray
+// keys in UnknownKeys so callers can warn (and protect sensitive kill-switch
+// typos). Syntax errors and value-type mismatches remain fatal.
 func LoadRuntimeSettings(path string) (*RuntimeSettings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

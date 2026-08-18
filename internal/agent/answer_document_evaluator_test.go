@@ -1637,6 +1637,57 @@ func TestRenderAnswerDocMultiTopicEvidenceOwnership_ExactSourceScopeOverridesPro
 	}
 }
 
+func TestRenderAnswerDocMultiTopicEvidenceOwnership_RanksBeforePerUnitLimitAndRecoversUniqueTypedAffinity(t *testing.T) {
+	mut := types.NewMutableState("answer two typed investigation units")
+	evidence := make([]types.EvidenceItem, 0, answerDocMaxEnrichmentCandidateFacts+4)
+	for i := 0; i < answerDocMaxEnrichmentCandidateFacts+2; i++ {
+		evidence = append(evidence, types.EvidenceItem{
+			ID: fmt.Sprintf("E-broad-%04d", i), Kind: types.EvidenceDirect,
+			Subject: "sessionState", Source: "internal/repl/repl.go", LineStart: i + 1,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		})
+	}
+	lateExact := types.EvidenceItem{
+		ID: "E-late-render", Kind: types.EvidenceRelationship,
+		Subject: "renderMermaid", Predicate: "calls", Object: "renderDiagram",
+		Source: "internal/repl/repl.go", LineStart: 5000,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}
+	affinityOnly := types.EvidenceItem{
+		ID: "E-affinity-render", Kind: types.EvidenceDirect,
+		Subject: "renderMermaid", Summary: "diagram rendering fallback",
+		Source: "internal/render/mermaid_render.go", LineStart: 70,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+	}
+	evidence = append(evidence, lateExact, affinityOnly)
+	mut.EvidenceClosure().SetNodeArtifactLedger(types.NodeArtifactLedger{Records: []types.NodeArtifactRecord{{
+		ProducerNodeID: "n1_evidence_t1", EvidenceID: lateExact.ID,
+		Artifact: types.RuntimeArtifactRef{Kind: types.RuntimeArtifactEvidenceItem, ID: lateExact.ID},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{SubTopics: []types.SubTopic{
+			{Summary: "configuration loading", Entities: []string{"runtime.go"}},
+			{Summary: "terminal diagram rendering", Entities: []string{"repl.go"}},
+		}}},
+		EvidenceItems: evidence,
+	}
+
+	got := renderAnswerDocMultiTopicEvidenceOwnership(ctx)
+	for _, want := range []string{
+		"E-late-render` association=`exact_source_scope`",
+		"E-affinity-render` association=`topic_affinity_hint`",
+		"noisy prompt-selection guidance only",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rank-before-limit multi-topic prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, "E-late-render") > strings.Index(got, "E-broad-0000") {
+		t.Fatalf("typed topic affinity did not rank the late relevant exact-source row first:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocMultiTopicEvidenceOwnership_MultiOwnerBecomesSharedContext(t *testing.T) {
 	mut := types.NewMutableState("compare two units")
 	item := types.EvidenceItem{ID: "E-shared", Kind: types.EvidenceDirect, Subject: "SharedConfig", Source: "config.go", LineStart: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded}
