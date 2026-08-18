@@ -35934,6 +35934,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1056 r677：结构化多坐标回放未命中输入形；成员组合支持断层与 Trace 双轴回归（2026-08-18）
+
+1. 在 `main@e128e39b1` 严格并发恰好两个案例：
+   `sr_c_platform_fork + trace_query_frame_semantic_span_optimization`。Runner `2/2 PASS`；人工为
+   `C partial / Trace pass`。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_citation_trace_replay_r677_20260818_manual_audit.md`。
+2. B1062 本轮既不能签生产闭环，也不是负证。C 模型改用三个 `section`，没有输出完整等于
+   `file:line[, line...]` 的结构化位置 cell；因此精确位置集合 binder 没有可消费输入。模型只提交
+   declaration、两个平台实现定义和 handler 定义共 4 个 citation，修复后平台三项全部脱锚，终稿仅余
+   `src/handlers.c:29`，第 32/34/38 行调用体也没有逐项覆盖。实现与专项 pin 保持，状态继续为
+   `pending-production-replay`，不得把这次输入形缺席误记为 binder 失败或成功。
+3. 新确认 P1 B1064：Principal Enumeration Rows 已正确交付 Windows/macOS/POSIX/`cmd_sleep` 四成员，
+   但一个成员目前通常只有单个 `citation_key`；本题每个平台可见结论同时依赖“分支定义/guard + 该分支
+   选择的 API 调用体”，`cmd_sleep` 则依赖定义 + 三个调用位置。探索证据池中各行都在，但缺少 typed
+   member-local composite support set，模型必须自行从大池重组，波动时就只留定义锚。最优方案应让已证
+   evidence identity 在 handoff 中按成员携多个有角色的支持锚；系统只绑定模型已选择的事实，不扫描请求、
+   item prose、API 关键词或终稿，也不生成答案/结论。
+4. Trace 回归完整通过。主窗固定为 `5.000000..5.007000`，两次窗内 `trace_query` 和一次最终
+   Trace 因果投影均在；四态对账 running 1.200ms + runnable 0.800ms + sleep 5.000ms + D/IO 0
+   = 7.000ms。0.800ms runnable 作为链上调度供给规则可消席；worker-200 的 4.000ms running 与
+   5.000ms `VerifyClass` 同时作为真实占时、链上业务线索和确定性语义优化方向保留，但没有被虚构成
+   已计价帧根因；邻近 sleep 和背景压力只作支持。
+5. 终稿明确 `frame_causality=unproven` 的读者语言边界：没有 frame/deadline 绑定证据，不宣称已经证明
+   具体掉帧因果；这不摘除已证窗内链上席。系统没有覆盖模型结论，没有空答案或旧稿降级，活跃流也没有
+   因固定 4ms 等待完整 JSON/答案而终止。
+6. 同批关闭 B1063。设计复核确认它是共享教学断层：canonical patch teaching 说明四类 operation，却没有
+   直接说明 `replace_blocks` 是整个 block 的替换、遗漏字段即删除。修复保持 patch 结构语义不变，只在唯一
+   共享 teaching 中补这一句，并以 skill/retry 两面 pin；没有把 replace 偷改成字段 merge，也没有为单一图例
+   硬编码。`internal/agent` 全包、`internal/types + internal/skill` 全包及构建均通过。
+
+状态：
+
+`B1062-MULTIOPERATIONCITATIONCOVERAGE1=implemented/pins-pass/pending-production-replay-input-shape-absent-r677`；
+`B1064-PRINCIPALMEMBERCOMPOSITESUPPORT1=confirmed/P1-pending-design`；
+`B1063-PATCHREPLACEMENTFIELDRETENTION1=implemented/shared-teaching+two-surface-pins/pending-production-replay`；
+`r677-C-platform=runner-pass/human-partial/composite-citation-authority-gap`；
+`r677-Trace-semantic-span=runner-pass/human-pass/dual-axis+projection-preserved`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r677`；
+`Trace explicit-window/query/projection/auto-supplement=preserved-r677`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1000 r631/B992/B993：receipt 单消费闭环；外层载体导航与扩窗根因污染（2026-08-17）
 
 1. 在 `main@933e66a91` 严格并发恰好两个案例：

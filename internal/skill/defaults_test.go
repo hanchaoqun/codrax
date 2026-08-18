@@ -845,6 +845,8 @@ func TestFinalizerSkillPatchTeachingUsesCanonicalFourOperationSemantics(t *testi
 	for _, want := range []string{
 		"`remove_block_ids`",
 		"omitting a previous block id from all four operations does not delete it",
+		"replaces the whole existing block rather than merging fields",
+		"an omitted field is deleted",
 		"never wrap an array or object payload in a JSON string",
 	} {
 		if !strings.Contains(sk.OutputFormat, want) {
