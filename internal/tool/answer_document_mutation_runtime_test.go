@@ -2514,7 +2514,9 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 		"invalid on every other block kind, including `section`",
 		"raw enum literals are control metadata only",
 		"never copy them into user-visible text",
-		"framework does not scan, delete, translate, or rewrite your prose or conclusion",
+		"Do not narrate which machine value you selected",
+		"never write 'classified as <enum>' or 'the status is <enum>'",
+		"framework does not scan, reject, delete, translate, or rewrite your prose or conclusion",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("shared Trace JSON-shape teaching missing %q:\n%s", want, body)

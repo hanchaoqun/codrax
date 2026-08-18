@@ -487,15 +487,33 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityStatesZeroReasonBoundaryAL(t
 	ctx := tracePrincipalValueAuthorityTestContext(subject, 100, []types.ObservationRecord{root, state})
 	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
 	for _, want := range []string{
-		"target_window_wait_occurrences=0",
-		"means only that no matching typed wait-reason occurrence was captured",
-		"does not classify an S interval as cooperative/voluntary sleep",
-		"prove a `sleep`/`nanosleep` syscall",
-		"Name a mechanism only from a separate typed syscall, span, blocked-reason, wakeup, or dependency relation",
+		"no matching target-window wait-reason records means only that this roster captured no such occurrence",
+		"does not classify an S interval as cooperative or voluntary sleep",
+		"prove a sleep/nanosleep syscall",
+		"Name a mechanism only from separate syscall, span, blocked-reason, wakeup, or dependency evidence",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("zero-reason mechanism boundary missing %q:\n%s", want, got)
 		}
+	}
+	for _, forbidden := range []string{"target_window_wait_occurrences=0", "typed reason roster"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("reader-facing absence boundary leaked control vocabulary %q:\n%s", forbidden, got)
+		}
+	}
+	ctx.Language = "zh"
+	zh := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	for _, want := range []string{
+		"缺失边界：目标窗口内没有匹配的等待原因记录",
+		"不能据此把 S 状态判成主动休眠",
+		"只有独立的系统调用、业务片段、阻塞原因、唤醒或依赖关系证据才能命名具体等待机制",
+	} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese reader-facing absence boundary missing %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, "typed reason") || strings.Contains(zh, "target_window_wait_occurrences") {
+		t.Fatalf("Chinese reader-facing absence boundary leaked control vocabulary:\n%s", zh)
 	}
 }
 

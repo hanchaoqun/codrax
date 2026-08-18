@@ -5530,7 +5530,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceRankAuthority(promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceWakeupCensusAuthority(promptLedger); authority != "" {
+	if authority := renderAnswerDocTraceWakeupCensusAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
 		b.WriteString(authority)
 	}
 	if len(promptLedger.Records) > len(records) {
@@ -6444,45 +6444,93 @@ func renderAnswerDocTraceRankAuthority(ledger types.ObservationLedger) string {
 	return b.String()
 }
 
-func renderAnswerDocTraceWakeupCensusAuthority(ledger types.ObservationLedger) string {
+func renderAnswerDocTraceWakeupCensusAuthority(ledger types.ObservationLedger, lang string) string {
 	authorities := types.BuildTraceTargetWakeupCensusAuthorities(ledger)
 	if len(authorities) == 0 {
 		return ""
 	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	terminator := ".\n"
+	if zh {
+		terminator = "。\n"
+	}
 	var b strings.Builder
-	b.WriteString("### Trace Target Wakeup Census Authority\n\n")
-	b.WriteString("- This is a typed wording authority over `wakeup_edge_census`; it does not change wakeup-chain construction, root ranking, causal projection, automatic supplementation, or measured values.\n")
-	b.WriteString("- Direction is `waker -> target`. Each `*_exit` count classifies the scheduler state the target LEFT when the wakeup occurred (the pre-wakeup state), never the state entered after the wakeup. A wakeup makes the target runnable; switch-in, execution, preemption, and the later switch-out state are separate facts. Therefore `sleep_exit=N` cannot support “woke and immediately slept N times”; that post-wakeup claim requires a separately complete paired scheduler-transition census.\n")
+	if zh {
+		b.WriteString("### 面向答案的目标线程唤醒统计\n\n")
+		b.WriteString("- 以下统计只转述已解析的唤醒记录，不改变唤醒链、根因排序、因果投影、自动补采或任何测量值。\n")
+		b.WriteString("- 方向均为“唤醒方 → 目标线程”。状态计数描述唤醒发生前目标线程离开的状态，而不是唤醒后进入的状态。唤醒只使目标线程变为可运行；何时真正切入 CPU、是否随后被抢占或再次睡眠，需要独立且完整的调度切换证据。\n")
+	} else {
+		b.WriteString("### Reader-ready target-thread wakeup counts\n\n")
+		b.WriteString("- These counts restate parsed wakeup records only; they do not change wakeup-chain construction, root ranking, causal projection, automatic supplementation, or any measured value.\n")
+		b.WriteString("- Every direction is waker → target. State counts describe the state the target left when the wakeup occurred, not a state entered afterward. A wakeup only makes the target runnable; switch-in, execution, preemption, or a later sleep requires separate complete scheduler-transition evidence.\n")
+	}
 	for i, authority := range authorities {
 		if i >= 4 {
-			fmt.Fprintf(&b, "- (%d additional target census set(s) omitted from this compact wording view)\n", len(authorities)-i)
+			if zh {
+				fmt.Fprintf(&b, "- 另有 %d 组目标线程统计未在此紧凑视图中展开。\n", len(authorities)-i)
+			} else {
+				fmt.Fprintf(&b, "- %d additional target count set(s) are omitted from this compact view.\n", len(authorities)-i)
+			}
 			break
 		}
-		status := "complete"
+		coverage := "complete"
+		if zh {
+			coverage = "覆盖完整"
+		}
 		if !authority.Complete {
-			status = "inconsistent"
+			coverage = "coverage is internally inconsistent"
+			if zh {
+				coverage = "统计内部不一致，不能宣称完整"
+			}
 		}
-		fmt.Fprintf(&b, "- target=`%s`; window=`%s`; status=`%s`; total_wakeups=%d",
-			authority.Target, authority.Window, status, authority.TotalCount)
+		if zh {
+			fmt.Fprintf(&b, "- 目标线程 %s；窗口 %s；共记录 %d 次唤醒（%s）",
+				authority.Target, authority.Window, authority.TotalCount, coverage)
+		} else {
+			fmt.Fprintf(&b, "- Target %s; window %s; %d wakeup(s) recorded (%s)",
+				authority.Target, authority.Window, authority.TotalCount, coverage)
+		}
 		if authority.SplitAvailable {
-			fmt.Fprintf(&b, "; pre_wakeup_exit_split=`sleep:%d d_or_io:%d other_or_unclassified:%d`",
-				authority.SleepExitCount, authority.DExitCount, authority.OtherExitCount)
+			if zh {
+				fmt.Fprintf(&b, "；唤醒发生前离开的状态：睡眠 %d 次、D/IO 等待 %d 次、其他或未分类 %d 次",
+					authority.SleepExitCount, authority.DExitCount, authority.OtherExitCount)
+			} else {
+				fmt.Fprintf(&b, "; state left before wakeup: sleep %d, D/IO wait %d, other or unclassified %d",
+					authority.SleepExitCount, authority.DExitCount, authority.OtherExitCount)
+			}
 		}
-		b.WriteString("\n")
+		b.WriteString(terminator)
 		for j, pair := range authority.Pairs {
 			if j >= 8 {
-				fmt.Fprintf(&b, "  - (%d additional waker pair(s) omitted from this compact view)\n", len(authority.Pairs)-j)
+				if zh {
+					fmt.Fprintf(&b, "  - 另有 %d 个唤醒方未在此紧凑视图中展开。\n", len(authority.Pairs)-j)
+				} else {
+					fmt.Fprintf(&b, "  - %d additional waker pair(s) are omitted from this compact view.\n", len(authority.Pairs)-j)
+				}
 				break
 			}
-			fmt.Fprintf(&b, "  - waker=`%s`; count=%d", pair.Waker, pair.Count)
+			if zh {
+				fmt.Fprintf(&b, "  - 唤醒方 %s → 目标线程：%d 次", pair.Waker, pair.Count)
+			} else {
+				fmt.Fprintf(&b, "  - Waker %s → target: %d time(s)", pair.Waker, pair.Count)
+			}
 			if pair.SplitAvailable {
-				fmt.Fprintf(&b, "; pre_wakeup_exit_split=`sleep:%d d_or_io:%d other_or_unclassified:%d`",
-					pair.SleepExitCount, pair.DExitCount, pair.OtherExitCount)
+				if zh {
+					fmt.Fprintf(&b, "；此前目标线程离开睡眠 %d 次、D/IO 等待 %d 次、其他或未分类 %d 次",
+						pair.SleepExitCount, pair.DExitCount, pair.OtherExitCount)
+				} else {
+					fmt.Fprintf(&b, "; target state left beforehand: sleep %d, D/IO wait %d, other or unclassified %d",
+						pair.SleepExitCount, pair.DExitCount, pair.OtherExitCount)
+				}
 			}
 			if pair.FirstTimestamp != "" || pair.LastTimestamp != "" {
-				fmt.Fprintf(&b, "; first=`%s`; last=`%s`", pair.FirstTimestamp, pair.LastTimestamp)
+				if zh {
+					fmt.Fprintf(&b, "；首次 %s 秒，末次 %s 秒", pair.FirstTimestamp, pair.LastTimestamp)
+				} else {
+					fmt.Fprintf(&b, "; first at %s seconds, last at %s seconds", pair.FirstTimestamp, pair.LastTimestamp)
+				}
 			}
-			b.WriteString("\n")
+			b.WriteString(terminator)
 		}
 	}
 	b.WriteString("\n")

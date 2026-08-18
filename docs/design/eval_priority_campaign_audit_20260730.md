@@ -36127,6 +36127,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1101 B1110a：唤醒统计权威退出机器协议词；控制枚举只留结构字段（2026-08-18）
+
+1. r704 证实自然语言事实卡虽位于 Finalizer 最后，前部 Observation Ledger 的唤醒统计仍直接教学
+   `target=.../status=.../total_wakeups=.../pre_wakeup_exit_split=.../waker=...`。模型随后把同一协议改写成
+   `window_total=1、pre_wakeup_exit_split:sleep=1` 放进客户正文；这不是 renderer 误打印隐藏字段，而是
+   成文上下文把机器载体同时当成了写作词库。
+2. B1110a 不扫描用户请求、模型草稿或最终答案，也不增加成文拒绝/删除/替换。共享控制元数据教学仅
+   加强一条通用原则：字段名和枚举只写在 JSON 字段，正文不得叙述“选中了哪个机器值”，必须直接说
+   读者含义；框架明确不扫描、拒绝、翻译或改写模型结论。
+3. `TraceTargetWakeupCensusAuthority` 的成文面改为语言感知的 typed→reader 投影。中文直接表达
+   “目标线程、窗口、共记录 N 次唤醒、覆盖是否完整、唤醒前离开睡眠/D或IO/其他状态的次数、每个
+   唤醒方的次数与首次/末次时间”；英文使用同义自然语言。底层 builder、完整性、计数、pair、时间和
+   诊断 ledger 原值零改动，唤醒链、根因排序、投影与自动补采也零改动。
+4. 同源清理了 principal value absence guidance 中的 `typed reason roster` 和
+   `target_window_wait_occurrences=0` 写作教学，改为“清单没有捕获到匹配的等待原因不能证明主动休眠、
+   不能排除 syscall/依赖”的自然边界。具体机制仍只允许来自独立 syscall/span/blocked-reason/wakeup/
+   dependency 证据，证据杆未降低。
+5. 正负 pin 覆盖中英文唤醒统计、中文/英文零等待原因边界、旧 raw token 不再出现在该读者权威面，
+   以及共享 full/patch tool 的同一控制字段教学。`go test ./internal/agent ./internal/types`、完整
+   `go test ./internal/tool`（177.419s）与 `git diff --check` 全绿。
+6. 该批降低的是模型上下文心智与复制诱因，不保证用硬门消灭任意模型措辞波动；若模型仍偶发复制
+   其他 ledger token，只能继续收敛对应共享 authority renderer，不能违反红线去扫描/改写正文。
+
+状态：
+
+`B1110a-TRACEWAKEUPCENSUSREADERLANGUAGE1=implemented/zh+en+pinned`；
+`control-enum-visible-narration=soft-forbidden/shared-tool-guidance`；
+`model/final-prose-scan-or-rewrite=none`；
+`Trace measurements/rank/query/projection/auto-supplement=unchanged`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

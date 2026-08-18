@@ -44,7 +44,8 @@ func TestRenderAnswerDocObservationLedgerCarriesTargetWakeupCensusSemanticsZ4(t 
 		},
 	}}})
 	ctx := &types.AgentContext{
-		Mutable: mut,
+		Language: "zh",
+		Mutable:  mut,
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{Intent: types.IntentRootCause},
 		},
@@ -52,17 +53,40 @@ func TestRenderAnswerDocObservationLedgerCarriesTargetWakeupCensusSemanticsZ4(t 
 
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
-		"### Trace Target Wakeup Census Authority",
-		"target=`com.baidu.tieba-59566`",
-		"status=`complete`; total_wakeups=36",
-		"waker=`CookieMonsterCl-59843`; count=34",
-		"pre_wakeup_exit_split=`sleep:36 d_or_io:0 other_or_unclassified:0`",
-		"classifies the scheduler state the target LEFT",
-		"cannot support “woke and immediately slept N times”",
-		"requires a separately complete paired scheduler-transition census",
+		"### 面向答案的目标线程唤醒统计",
+		"目标线程 com.baidu.tieba-59566；窗口 34579.472865..34579.587805；共记录 36 次唤醒（覆盖完整）",
+		"唤醒发生前离开的状态：睡眠 36 次、D/IO 等待 0 次、其他或未分类 0 次",
+		"唤醒方 CookieMonsterCl-59843 → 目标线程：34 次",
+		"状态计数描述唤醒发生前目标线程离开的状态",
+		"何时真正切入 CPU、是否随后被抢占或再次睡眠，需要独立且完整的调度切换证据",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("typed target wakeup authority missing %q:\n%s", want, got)
+			t.Fatalf("reader-ready target wakeup authority missing %q:\n%s", want, got)
+		}
+	}
+	authority := got[strings.Index(got, "### 面向答案的目标线程唤醒统计"):]
+	if end := strings.Index(authority, "*(showing "); end >= 0 {
+		authority = authority[:end]
+	}
+	if end := strings.Index(authority, "\n- `trace_query:"); end >= 0 {
+		authority = authority[:end]
+	}
+	for _, forbidden := range []string{"wakeup_edge_census", "target=`", "status=`complete`", "total_wakeups=", "pre_wakeup_exit_split=", "waker=`"} {
+		if strings.Contains(authority, forbidden) {
+			t.Fatalf("reader-ready target wakeup authority leaked control token %q:\n%s", forbidden, got)
+		}
+	}
+
+	ctx.Language = "en"
+	english := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"### Reader-ready target-thread wakeup counts",
+		"Target com.baidu.tieba-59566; window 34579.472865..34579.587805; 36 wakeup(s) recorded (complete)",
+		"state left before wakeup: sleep 36, D/IO wait 0, other or unclassified 0",
+		"Waker CookieMonsterCl-59843 → target: 34 time(s)",
+	} {
+		if !strings.Contains(english, want) {
+			t.Fatalf("English reader-ready wakeup authority missing %q:\n%s", want, english)
 		}
 	}
 }
