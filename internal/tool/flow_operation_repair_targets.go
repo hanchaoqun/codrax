@@ -24,6 +24,11 @@ const (
 type flowOperationRepairReadTarget struct {
 	file      string
 	lineRange types.LineRange
+	// focusIdentity is one parser-owned operation surface at this coordinate
+	// (for example the exact complete argument that remains to be emitted).
+	// It is navigation/progress identity only: it never becomes evidence or an
+	// answer edge without a later grounded model-authored emit_evidence row.
+	focusIdentity string
 	// alreadyRead distinguishes "open this source" from "extract the typed
 	// operation from source that is already present in the read closure". A
 	// high-quality already-read cross-participant site must not disappear from
@@ -836,6 +841,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				file:        file,
 				lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 				alreadyRead: closure.HasReadLine(file, line),
+				focusIdentity: firstNonEmptyFlowRepairString(
+					relation.ToEP.Name, relation.ToEP.Receiver, relation.FromEP.Name, relation.FromEP.Receiver,
+				),
 			},
 			relation:      relation,
 			ownerSurfaces: append([]string(nil), site.ownerSurfaces...),
@@ -916,9 +924,10 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			}
 			candidates = append(candidates, rankedTarget{
 				target: flowOperationRepairReadTarget{
-					file:        site.file,
-					lineRange:   types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
-					alreadyRead: closure.HasReadLine(site.file, line),
+					file:          site.file,
+					lineRange:     types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+					alreadyRead:   closure.HasReadLine(site.file, line),
+					focusIdentity: binding.alias,
 				},
 				relation:      relation,
 				ownerSurfaces: append([]string(nil), site.ownerSurfaces...),
@@ -1026,10 +1035,11 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	type candidate struct {
-		target     flowOperationRepairReadTarget
-		bodyRank   int
-		matchRank  int
-		callerLine int
+		target          flowOperationRepairReadTarget
+		bodyRank        int
+		missingRank     int
+		participantRank int
+		callerLine      int
 	}
 	var candidates []candidate
 	seen := make(map[string]bool)
@@ -1091,19 +1101,33 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 				LineIndex: map[string]map[int]string{site.file: lines},
 			}
 			for _, argument := range ground.DetectArgumentFlowsAtLine(gc, site.file, line, callee) {
-				argumentMatchRank := 0
+				missingRank := 0
 				for _, group := range missingParticipantSurfaceGroups {
 					for _, binding := range flowRepairDeclaredBindingSites(index, rm, group) {
 						if !flowNavigationBindingCanOwnCallerArgument(graph, callerInfo, site, binding) ||
 							!flowNavigationArgumentMatchesBinding(argument.Argument, binding.alias) {
 							continue
 						}
-						argumentMatchRank = max(argumentMatchRank, flowRepairPlanningSurfaceMatchRank(
+						missingRank = max(missingRank, flowRepairPlanningSurfaceMatchRank(
 							[]string{binding.alias}, []string{argument.Argument},
 						))
 					}
 				}
-				if argumentMatchRank == 0 || flowNavigationArgumentFlowAlreadyEmitted(
+				participantRank := 0
+				for _, group := range participantSurfaceGroups {
+					participantRank = max(participantRank, flowRepairPlanningSurfaceMatchRank(
+						group, []string{argument.Argument},
+					))
+				}
+				// The missing carrier may already have been emitted at this exact
+				// call. Continue across a different request-owned sibling argument
+				// instead of restarting at another local carrier use. This is the
+				// precise bridge for generic dispatch APIs whose component/stage is
+				// selected by an enum argument rather than the callee name.
+				if missingRank == 0 && participantRank == 0 {
+					continue
+				}
+				if flowNavigationArgumentFlowAlreadyEmitted(
 					evidence, site.file, line, argument.Argument, callRelationTargetName(graph, callerInfo, relation),
 				) {
 					continue
@@ -1121,8 +1145,9 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 					target: flowOperationRepairReadTarget{
 						file: site.file, lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 						alreadyRead: closure.HasReadLine(site.file, line), callerHandoff: true,
+						focusIdentity: argument.Argument,
 					},
-					bodyRank: bodyRank, matchRank: argumentMatchRank, callerLine: line,
+					bodyRank: bodyRank, missingRank: missingRank, participantRank: participantRank, callerLine: line,
 				})
 			}
 		}
@@ -1134,8 +1159,11 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 		if candidates[i].bodyRank != candidates[j].bodyRank {
 			return candidates[i].bodyRank > candidates[j].bodyRank
 		}
-		if candidates[i].matchRank != candidates[j].matchRank {
-			return candidates[i].matchRank > candidates[j].matchRank
+		if candidates[i].missingRank != candidates[j].missingRank {
+			return candidates[i].missingRank > candidates[j].missingRank
+		}
+		if candidates[i].participantRank != candidates[j].participantRank {
+			return candidates[i].participantRank > candidates[j].participantRank
 		}
 		if candidates[i].target.alreadyRead != candidates[j].target.alreadyRead {
 			return candidates[i].target.alreadyRead

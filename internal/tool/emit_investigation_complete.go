@@ -2242,13 +2242,13 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		repairHint := flowParticipantCoverageRepairHintForMissing(ctx, missingFlowParticipants, evidenceSnapshot,
 			flowParticipantCoverageRepairBase(missingFlowParticipants), files, keywords)
 		navigationHint := flowParticipantCoverageNavigationHint(ctx, missingFlowParticipants, evidenceSnapshot, files, keywords)
-		participantBlockerKey := types.ComputeDowngradeTypedIdentifierSetKey(
-			string(types.DowngradeLaneFlowParticipantCoverage), missingFlowParticipants,
+		participantBlockerKey, hasExactParticipantFrontier := flowParticipantCoverageBlockerKey(
+			ctx, missingFlowParticipants,
 		)
 		relationOnlyDeficit := flowMissingParticipantsHaveLocalOperations(ctx, evidenceSnapshot, missingFlowParticipants)
 		recordToolRuntimeTiming(&runtimeTimings, "flow_participant_repair_plan", participantRepairStart, len(files)+len(keywords))
 		var converged bool
-		if relationOnlyDeficit {
+		if relationOnlyDeficit && !hasExactParticipantFrontier {
 			converged = preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(
 				ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey, 2,
 			)
@@ -3882,8 +3882,8 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 	if target.alreadyRead {
 		if target.callerHandoff {
 			return fmt.Sprintf(
-				"Exact caller-handoff extraction step (not relation evidence): a grounded operation inside one uniquely owned receiving callable resolves back to this exact caller window path=%q lines=%d-%d, which is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call and emit the complete source argument that carries a still-missing participant into the receiving callable. This reconnects the existing relation component; do not substitute an unrelated local operation. The coordinate does not prove parameter binding or a relation, so if the call has no such complete argument, keep the relation unproven.",
-				target.file, target.lineRange.Start, target.lineRange.End,
+				"Exact caller-handoff extraction step (not relation evidence): a grounded operation inside one uniquely owned receiving callable resolves back to this exact caller window path=%q lines=%d-%d, which is already present in the read closure. Re-inspect that existing source context without another read_file/repo_map/grep call and emit the exact complete source argument %q when the visible call confirms it. The argument carries either a still-missing participant or another requested participant into the same receiver, allowing the existing component to be joined without inventing a bridge. Inspect request-relevant sibling arguments on that same call before leaving the coordinate; do not substitute an unrelated local operation. The coordinate does not prove parameter binding or a relation, so if the call has no such complete argument, keep the relation unproven.",
+				target.file, target.lineRange.Start, target.lineRange.End, target.focusIdentity,
 			)
 		}
 		if target.receivingCallableBody {
@@ -3899,8 +3899,8 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 	}
 	if target.callerHandoff {
 		return fmt.Sprintf(
-			"Exact caller-handoff navigation step (not relation evidence): a grounded operation inside one uniquely owned receiving callable resolves back to this exact caller. Call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d), then emit the complete source argument that carries a still-missing participant into the receiving callable. This reconnects the existing relation component; do not substitute an unrelated local operation. The coordinate does not prove parameter binding or a relation, so if the call has no such complete argument, keep the relation unproven.",
-			target.file, target.lineRange.Start-1, limit, target.lineRange.Start, target.lineRange.End,
+			"Exact caller-handoff navigation step (not relation evidence): a grounded operation inside one uniquely owned receiving callable resolves back to this exact caller. Call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d), then emit the exact complete source argument %q when the visible call confirms it. The argument carries either a still-missing participant or another requested participant into the same receiver, allowing the existing component to be joined without inventing a bridge. Inspect request-relevant sibling arguments on that same call before leaving the coordinate; do not substitute an unrelated local operation. The coordinate does not prove parameter binding or a relation, so if the call has no such complete argument, keep the relation unproven.",
+			target.file, target.lineRange.Start-1, limit, target.lineRange.Start, target.lineRange.End, target.focusIdentity,
 		)
 	}
 	if target.receivingCallableBody {
@@ -3913,6 +3913,29 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 		"Exact next navigation step (not relation evidence): call read_file directly with path=%q line_offset=%d limit=%d (covers lines %d-%d). Do not run a broad repo_map/grep first. Inspect that bounded source window and, when it consumes a prior local result, preserve that handoff as its own candidate relation before following any newly created result to its later consumer/result application. Emit only exact syntax-owned operations you verify; if they prove no requested relation, keep the relation unproven.",
 		target.file, target.lineRange.Start-1, limit, target.lineRange.Start, target.lineRange.End,
 	)
+}
+
+// flowParticipantCoverageBlockerKey distinguishes a genuinely repeated
+// participant deficit from forward progress through parser-owned recovery
+// coordinates. Missing participant names alone are not enough: the same set
+// can remain while the exact frontier advances from a carrier call to its
+// receiving body and then to a request-owned sibling argument. Hash only
+// typed coordinates/flags; no request prose, model output, hint text, or
+// answer text participates. The frontier remains navigation-only authority.
+func flowParticipantCoverageBlockerKey(ctx *types.BusContext, missing []string) (uint32, bool) {
+	identifiers := append([]string(nil), missing...)
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
+	if ok {
+		identifiers = append(identifiers, fmt.Sprintf(
+			"frontier:%s:%d-%d:focus=%s:read=%t:body=%t:caller=%t",
+			canonicalRelationSourcePath(target.file), target.lineRange.Start, target.lineRange.End,
+			strings.TrimSpace(target.focusIdentity), target.alreadyRead,
+			target.receivingCallableBody, target.callerHandoff,
+		))
+	}
+	return types.ComputeDowngradeTypedIdentifierSetKey(
+		string(types.DowngradeLaneFlowParticipantCoverage), identifiers,
+	), ok
 }
 
 func preCompleteDowngradeSummary(summary string) string {

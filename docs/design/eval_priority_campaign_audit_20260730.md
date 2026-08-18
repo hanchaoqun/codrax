@@ -36315,6 +36315,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1106 r707：B1113 生产闭环与 Trace 口径复现（2026-08-18）
+
+1. exactly-2 批次：`real_trace_h7_self_seat_full_spectrum` 与 `qf_logic_view_read_pipeline`，runner 均 PASS；
+   人工审计均判 fail，原因分别为模型口径错误与请求关系图缺边，不能用 runner 的结构 oracle 代替答案正确性。
+2. Trace 正向验收：显式 233.190ms 窗、链上根因排序、实际占用/规则可消除双轴、业务 span、邻近/背景分层和
+   `Trace 因果投影` 均保留；finalizer reject=0，活跃字节流 222s，未受固定 4ms 降级。系统覆盖块已显示
+   `枚举未完整：受展示上限或分页影响...`，不再向中文用户泄漏 `enumeration_status=incomplete`。据此 B1113 生产关闭。
+3. Trace 仍复现 B933 的模型合规误差：主状态卡正确给出 D-state 11 段/36.757ms，但模型强制表把独立的
+   blocked_reason census 12 行/39.157ms 当作同尺，并编造“其余 2.400ms”解释。系统 typed footer 已明确两者是
+   不同观测域、不能逐条配对、不能以 census 求和替代 D-state 墙钟；因此当前不是信息缺口，不新增答案原文硬门，
+   不由系统替写模型结论。另有 `holder_authority=not_provided` 被模型照抄，归入 reader-language 观察债。
+
+状态：
+
+`B1113-TRACECOVERAGEAUTHORITYREADER1=production-closed-r707`；
+`B933-BLOCKEDREASONCALLSITEFINALCALIBER1=typed-context-correct/model-nonsubstitution-noncompliance-reproduced-r707`。
+
+### §123.1107 B1114：请求流关系的 parser 前沿被误判为无进展（2026-08-18）
+
+1. r707 的逻辑图结构合法，但只保留四阶段 precedence、`o.busCtx -> BuildAgentContext` 与
+   `BuildAgentContext -> bus.Mutable.Objective`；模型第一稿里的 Explorer/Extractor/Finalizer→BusContext 边因无 typed
+   锚被 validator 正确拒绝。最终正文仍声称这些写入/读取关系，图与正文权威不一致。
+2. 深层根因不是 Mermaid validator，而是 `flow_participant_coverage` 的恢复/收敛组合：blocker 只哈希未覆盖参与者
+   名单 `[BusContext Mutable]`，即使精确导航已从 `extract_work.go` 推进到 `builder.go`，仍累计为 no-progress；接收体
+   反向回 caller 时又只寻找“仍缺参与者”的参数，漏掉同一 `BuildAgentContext(o.busCtx, types.AgentExtractor, ...)`
+   调用中可把载体组件接回阶段组件的 `types.AgentExtractor` 兄弟参数。关系型缺口的低增量阈值遂提前接受
+   unproven boundary。
+3. 最优泛化形冻结并施工：
+   - blocker 纳入 parser-owned `file + line range + exact focus identity + read/body/caller frontier flags`，不读取用户、模型、
+     最终答案原文；精确前沿变化即真实进展，不能继续累计同一 no-progress；
+   - 已有 grounded 接收体操作时，唯一 caller 的完整参数搜索从 missing-only 扩为全部请求参与者，并优先未发出的
+     missing 参数，再找能接回已有请求组件的兄弟参数；
+   - 精确前沿存在时不启用 relation-only 的两次快速收敛；无 graph/无新坐标的真实静止形仍保持有界退出；
+   - parser 坐标和兄弟参数只进入软导航/进展身份。模型必须重新检查可见源码并 `emit_evidence`，系统不铸证据、
+     不补边、不修改 Mermaid 或正文；未证仍 fail-closed。
+4. 新共享 pin 构造 generic dispatcher/callee：已有 `o.busCtx -> BuildAgentContext` 与接收体内
+   `BuildAgentContext -> Mutable` 后，导航必须回到同一 caller 并聚焦未发出的 `types.AgentExtractor`；只有测试显式追加
+   model-authored sibling argument evidence 后，三参与者组件才闭合。既有 15 语言（含 ArkTS/Cangjie）caller-handoff、
+   same-callable result continuation 和无 graph relation-only 收敛 pin 保持。
+
+状态：
+
+`B1114-REQUIREDFLOWFRONTIER1=implemented/targeted-pins+full-tool-pass(175.898s)/pending-production-replay`；
+`red-lines=no-prose-hard-gate+no-system-edge-authoring+unproven-fail-closed+trace-path-untouched`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

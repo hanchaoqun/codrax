@@ -1762,6 +1762,131 @@ func TestFlowOperationNavigationAdvancesThroughSameCallableResultConsumersAcross
 	}
 }
 
+func TestFlowOperationNavigationReturnsToRequestedSiblingArgumentAfterCalleeBodyEvidence(t *testing.T) {
+	repo := t.TempDir()
+	const dispatcherPath = "internal/orchestrator/dispatcher.go"
+	const builderPath = "internal/context/builder.go"
+	for path, body := range map[string]string{
+		dispatcherPath: strings.Join([]string{
+			"package orchestrator",
+			"func (o *Orchestrator) dispatch() {",
+			"ac := ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)",
+			"_ = ac",
+			"}",
+		}, "\n"),
+		builderPath: strings.Join([]string{
+			"package context",
+			"func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage types.PipelineStage) *types.AgentContext {",
+			"objective := bus.Mutable.Objective()",
+			"return &types.AgentContext{Objective: objective}",
+			"}",
+		}, "\n"),
+	} {
+		absolute := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	busHandoff := flowOperationEvidence(types.AnchorArgument, "o.busCtx", "BuildAgentContext", 3)
+	busHandoff.Source = dispatcherPath
+	busHandoff.OwnerIdentity = "Orchestrator.dispatch"
+	busHandoff.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "o.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+	}}
+	bodyOperation := flowOperationEvidence(types.AnchorCall, "BuildAgentContext", "bus.Mutable.Objective", 3)
+	bodyOperation.Source = builderPath
+	bodyOperation.OwnerIdentity = "context.BuildAgentContext"
+	bodyOperation.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "bus.Mutable", Type: "*MutableState", Owner: "BuildAgentContext",
+	}}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{busHandoff, bodyOperation})
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "Extractor", ResolvedAs: "types.AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "BusContext", ResolvedAs: "types.BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		dispatcherPath: {
+			RelPath: dispatcherPath, Language: repotypes.LangGo, Package: "orchestrator",
+			Symbols: []repotypes.Symbol{
+				{Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext", Line: 1},
+				{Name: "dispatch", Kind: "method", Receiver: "Orchestrator", Line: 2, EndLine: 5},
+			},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: dispatcherPath, Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Orchestrator", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "ctxbuilder", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+			}},
+		},
+		builderPath: {
+			RelPath: builderPath, Language: repotypes.LangGo, Package: "context",
+			Symbols: []repotypes.Symbol{{Name: "BuildAgentContext", Kind: "function", Line: 2, EndLine: 5}},
+			Relations: []repotypes.Relation{{
+				Kind: "call", File: builderPath, Line: 3,
+				FromEP:     repotypes.RelationEndpoint{Name: "BuildAgentContext", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "Objective", Receiver: "bus.Mutable", Line: 3},
+				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+			}},
+		},
+	})
+	graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+		dispatcherPath: {{
+			Import:  repotypes.Import{Alias: "ctxbuilder", Path: "context", File: dispatcherPath, Line: 1},
+			Targets: []string{builderPath},
+		}},
+	}
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{dispatcherPath: true, builderPath: true})
+	ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+		dispatcherPath: {{Start: 1, End: 5}}, builderPath: {{Start: 1, End: 5}},
+	})
+
+	target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext", "Mutable"})
+	if !ok || !target.callerHandoff || !target.alreadyRead || target.file != dispatcherPath ||
+		target.focusIdentity != "types.AgentExtractor" {
+		t.Fatalf("callee-body frontier must return to the un-emitted requested sibling argument: ok=%t target=%+v", ok, target)
+	}
+	hint := flowOperationNavigationHintForMissing(ctx, []string{"BusContext", "Mutable"}, nil, nil)
+	for _, want := range []string{`exact complete source argument "types.AgentExtractor"`, "request-relevant sibling arguments"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("sibling-argument extraction guidance missing %q:\n%s", want, hint)
+		}
+	}
+	keyWithSiblingFrontier, hasFrontier := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"})
+	if !hasFrontier {
+		t.Fatal("parser-owned sibling argument must participate in the typed progress frontier")
+	}
+
+	siblingHandoff := flowOperationEvidence(types.AnchorArgument, "types.AgentExtractor", "BuildAgentContext", 3)
+	siblingHandoff.Source = dispatcherPath
+	siblingHandoff.OwnerIdentity = "Orchestrator.dispatch"
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{siblingHandoff})
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("model-authored sibling argument should join the requested carrier component: %v", got)
+	}
+	keyAfterJoin, _ := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"})
+	if keyAfterJoin == keyWithSiblingFrontier {
+		t.Fatal("typed frontier identity must change after the exact sibling handoff is emitted")
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 3 {
+		t.Fatal("navigation must not manufacture the sibling evidence row")
+	}
+}
+
 func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrelatedCarrierArgument(t *testing.T) {
 	repo := t.TempDir()
 	files := map[string]string{
