@@ -35688,6 +35688,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-authored-answer/conclusion/diagram/edge=none`。
 
+### §123.1071 r689：枚举上限自冲突生产闭环；surface term 补表回归系统成文红线（2026-08-18）
+
+1. 在 `main@673766bd5` 严格并发恰好两个案例：
+   `read_combo_loose_multi_question_units + read_combo_pipeline_sequence_table`。Runner `2 PASS / 0 FAIL`，
+   人工 `2 fail`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_enum_cap_replay_r689_20260818_manual_audit.md`。
+2. B1081 获生产闭环。pipeline 从 r688 的 `TIMEOUT/1200s/19 rejects` 降为 `PASS/482s/2 rejects`，
+   不再出现系统 typed enumeration supplement 与同一 semantic view `MaxCount=1` 的自冲突。两次剩余
+   拒绝分别是模型自画未证/错向关系，以及 patch 替换 table 时遗漏可见行，validator 均正确，不能为
+   降重试而放松。活跃流一直有语义字节与工具进展，没有固定 4ms 年龄降级或静默 fallback。
+3. B1076 两批核心补采获得生产正证。组合答案分节交付六级 settings lookup、环境变量优先、first-hit、
+   `initApp -> LoadRuntimeSettings`，以及 REPL `renderRichResponse -> RenderMermaidBlocks`。剩余缺口是模型
+   把确定性 ASCII 错写成 SVG、把四类 typed outcome 笼统成“原块或友好文本”，并只说泛化 CLI flags。
+   精确证据已进入 Finalizer，因此前两项记模型成文波动；CLI override 子集作为低一级 dimension closure
+   继续软补采，不以用户/答案关键词硬门，也不由系统改写。
+4. pipeline 终稿暴露 P0 `B1082-SURFACETERMSYSTEMAUTHORSHIP1`：首稿 pre-emit 追加
+   `principal-support-surface-terms`，patch pre-emit 又追加 `principal-support-surface-terms-2`，最终出现两张
+   “系统按已验证证据补充可见标签”主展示表。它们把 `Terminal`、`RequestModel`、`MutableState` 等内部
+   support labels 强行放入用户答案；`nextPrincipalSupportSurfaceTermBlockID` 的递增 ID 证明该路径跨
+   patch 轮次不幂等。
+5. 这是既裁 `EVAL-B54-SURFACETERMAUTHOR1` 的接线回归，不是模型波动。
+   `SystemGeneratedKind` 只能标识系统块来源，不能把“精确事实”升级成“系统拥有成文权”。既有
+   `preCheckModelSurfaceTerms` 已能将缺失标签作为 typed soft advisory 交给模型，Finalizer prompt 也携带
+   exact `surface_terms`；shipping normalization 不应再追加任何可见 surface-term 表。
+6. 根修冻结：断开 full/patch/persist 共用 shipping path 对
+   `normalizePrincipalSupportSurfaceTermSupplement` 的调用，并把该函数加入 AST authorship tripwire；
+   保留 typed prompt/advisory，禁止删除、重写、合并模型 blocks。回归必须证明 repeated pre-emit 不生成
+   `principal-support-surface-terms(-N)`，而缺失标签提示仍到达模型。不得扫描 request、thinking 或 final
+   prose 作为硬门。
+7. 本件与 Trace runtime projection owner 隔离。显式时间窗、Trace 因果投影、系统补采、链上-only 主因、
+   实际占用/业务线索与规则可消除量双轴保持；邻近/背景仍只能作为支持排查方向。
+
+状态：
+
+`B1081-AUTOSUPPLEMENTTABLECARDINALITY1=production-closed-r689`；
+`B1076-MULTITOPICMECHANISMCLOSURE1=core-production-positive-r689/model-rendering-fluctuation+cli-dimension-open-low`；
+`B1082-SURFACETERMSYSTEMAUTHORSHIP1=production-confirmed-r689/root-fix-next`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed-r689`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-authored-conclusion/diagram/edge=none`；`source-answer-visible-supplement=red-line-open-B1082`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：
