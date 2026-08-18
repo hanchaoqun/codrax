@@ -3048,6 +3048,36 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresenceFailsLoudWithoutReadin
 	}
 }
 
+func TestPreCheckStandaloneCallChainRelationAnchorPresenceRejectsOnlyUnownedTypedKind(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "entry", ToNode: "native", FromIdentity: "Entry.run", ToIdentity: "native.run", RelationKind: types.DiagramRelCall},
+			{FromNode: "native", ToNode: "binding", FromIdentity: "native.run", ToIdentity: "binding.run", RelationKind: types.DiagramRelRegister},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if removed := normalizeOrphanDiagramEdgeAnchors(doc, view); removed != 0 || len(doc.Blocks[0].EdgeAnchors) != 2 {
+		t.Fatalf("pre-emit normalizer must preserve a converging model-authored relation set: removed=%d doc=%+v", removed, doc)
+	}
+	hints := preCheckStandaloneCallChainRelationAnchorPresence(doc, view)
+	if len(hints) != 1 ||
+		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneRelationAnchorHasNoClaim}) ||
+		!strings.Contains(hints[0].ExpectedShape, string(types.ClaimRegistrationEdge)) ||
+		!strings.Contains(hints[0].ExpectedShape, "Preserve the other model-authored anchors") {
+		t.Fatalf("mixed carrier did not receive the precise ownership repair: %+v", hints)
+	}
+	if len(doc.Blocks[0].EdgeAnchors) != 2 {
+		t.Fatalf("typed ownership check mutated model-authored relations: %+v", doc.Blocks[0].EdgeAnchors)
+	}
+
+	doc.Blocks[0].ClaimUses = append(doc.Blocks[0].ClaimUses, types.RenderedClaimUse{ClaimForm: types.ClaimRegistrationEdge})
+	if hints := preCheckStandaloneCallChainRelationAnchorPresence(doc, view); len(hints) != 0 {
+		t.Fatalf("matching explicit claim must close the relation ownership contract: %+v", hints)
+	}
+}
+
 func TestPreCheckStandaloneCallChainPrincipalPathFacetRequiresSameBlockRelationOwner(t *testing.T) {
 	base := types.AnswerBlock{
 		ID:          "principal-path",

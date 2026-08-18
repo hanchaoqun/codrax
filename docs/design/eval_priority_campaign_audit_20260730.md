@@ -36674,6 +36674,68 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1039 r664：子题补证与可见绑定边生产闭环；关系 normalizer 形成不可满足合同（2026-08-18）
+
+1. 在 `main@7e50c51d7` 重建后严格并发恰好两个案例：
+   `mr_poly_binding_chain + trace_query_wakeup_causal_runnable`。Runner `2/2 PASS`，人工 `2/2 pass`，但 Poly
+   有严重成文 churn；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_subtopic_trace_r664_20260818_manual_audit.md`。
+2. B1043 获生产闭环。第一次 completion 因 `_tokenize_slow` 只有调用点、没有实现体证据被准确拦下；函数体
+   已在 read closure，Explorer 按精确 24–36 行重发 mechanism evidence 后即通过。最终答案完整说明纯 Python
+   byte→ID 与 merge 循环，不再声称仓库没有实现。该闭环来自 typed subtopic × unique callable body，不是
+   Python/fallback 关键词拟合。
+3. B1044 获生产闭环。最终 sequence diagram 明确显示
+   `_fastlex.tokenize_bytes -> py.tokenize_bytes` 的“注册绑定桥接”，并以 `relation_kind=register` 与 exact receipt
+   通过；没有伪装为 source call，也没有由系统代画。
+4. 同轮确认 `B1045-STANDALONERELATIONNORMALIZERCONTRADICTION1/P0-redline`。模型在 principal ordered-list
+   同时提交三条 call anchor 和一条 register anchor，但 claim_uses 当时只有 call。旧
+   `normalizeOrphanDiagramEdgeAnchors` 以“任一 anchor 无同类 claim”为由把四条全部删除；紧随其后的
+   `preCheckStandaloneCallChainRelationAnchorPresence` 又要求该 call claim 必须携 anchor，产生“提供即删、删后必拒”
+   的不可满足合同。日志连续两轮明确记录 `normalizeOrphanDiagramEdgeAnchors×4` 后
+   `edge_anchors is empty`；不是模型波动。
+5. 另确认 `B1046-REQUESTEDDIMENSIONROLELANGUAGE1/P1`。系统补维度提示直接发
+   `调用链 (member_set)`、`原生模块名 (source_location)`、`回退行为 (function_or_purpose)` 的可照抄形，模型
+   因而逐字放入最终标题。内部 role 是结构化覆盖校验字段，不是客户语言；根因在教学面，不能靠扫描/替换最终
+   prose 消毒。
+6. Trace 对照完整通过：精确用户窗、系统补采、8.300ms worker-200 链上首席、10ms target sleep 症状、双轴、
+   因果投影及背景权限均保留；无 fixed-4ms active-stream 降级。正文和长审计附录仍有少量 raw trace enum，继续
+   归 B756 typed presentation 债，不能通过答案关键词硬门处理。
+
+状态：
+
+`B1043-REQUESTEDSUBTOPICEVIDENCECLOSURE1=production-closed/r664`；
+`B1044-VISIBLENONCALLHANDOFF1=production-closed/r664`；
+`B1045-STANDALONERELATIONNORMALIZERCONTRADICTION1=confirmed/P0/implement-now`；
+`B1046-REQUESTEDDIMENSIONROLELANGUAGE1=confirmed/P1/implement-now`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r664`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
+### §123.1040 B1045/B1046：关系元数据不再被系统删后索取；维度 role 退出可复制教学（2026-08-18）
+
+1. B1045 根修不放宽任何证据门。没有 typed diagram 时，非关系块的孤儿 anchor 仍可机械清理；Trace 的
+   非图 relation carrier 仍按既有独立权限删除。但 QFCallChain principal structured carrier 一旦已有至少一个
+   model-authored directed claim，normalizer 必须保留其完整 anchor 集，不得因混合关系种类覆盖模型选择。
+2. 新增同块 typed ownership 检查：每条 standalone anchor 的 relation kind 必须有匹配的 model-authored
+   claim_use。混合 call/register 形不再先删四条再报 empty，而是一次精确指出缺
+   `registration_edge`；模型可补 claim，或只删除自己不再选择的那条 anchor。检查只读 block kind、surface role、
+   claim enum 与 relation enum，不读列表文案、用户问题、模型推理或最终答案，也不创建/删除边。
+3. B1046 将 `RequestedAnswerDimension.Role` 完整保留在 IR、typed coverage 与 patch 决策中，但从初始 Finalizer
+   维度清单和缺维度 retry 的可照抄行删除。提示只给用户原始 label，并明确可见答案不得附内部 role/enum；中英文
+   同源。系统不扫描或改写已生成标题，不把 role 翻译成新的模型结论。
+4. 回归覆盖混合 call/register carrier 的“不删除、精确缺 claim、补 claim 后闭环”，以及中英文初始/重试提示
+   均保留三个用户标签却不出现 `member_set/source_location/function_or_purpose`。关系证据、方向、可见绑定边与
+   模型图所有权保持；Trace 路径零改动。
+
+状态：
+
+`B1045-STANDALONERELATIONNORMALIZERCONTRADICTION1=implemented/typed-owner-retry+pinned`；
+`B1046-REQUESTEDDIMENSIONROLELANGUAGE1=implemented/user-label-only+pinned`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

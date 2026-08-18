@@ -7116,12 +7116,14 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	if lang == "zh" {
 		b.WriteString("## 用户要求的答案维度\n\n")
 		b.WriteString("- 当前问题显式要求最终答案保留下面这些可见维度。请把它们自然地呈现为小标题、表格列、列表标签或紧凑段落标签。\n")
+		b.WriteString("- 下列冒号后的文字就是面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
 		b.WriteString("- 如果答案按多个主体逐项展开（例如逐提交、逐日志事件、逐 trace span、逐组件、逐文件），每个主体下面都应尽量显式保留这些维度标签；某一维没有证据时，在该主体下说明边界，不要补编。\n")
 		b.WriteString("- 这些维度是展示契约，不是新的证据来源；不要为没有证据支撑的维度编造内容，证据不足时在边界说明中说清楚。\n")
 		b.WriteString("- 保留模型已经写好的内容；不要为了套表格而删除、替换或压扁更丰富的说明。\n\n")
 	} else {
 		b.WriteString("## User-Requested Answer Dimensions\n\n")
 		b.WriteString("- The current request explicitly asks the final answer to preserve the visible dimensions below. Render them naturally as headings, table columns, list labels, or compact paragraph labels.\n")
+		b.WriteString("- The text after each colon is the user-facing label. Do not append internal system roles or enum names to the visible answer.\n")
 		b.WriteString("- When the answer is organized by multiple subjects (for example per commit, log event, trace span, component, or file), preserve these dimension labels under each subject where possible; if a dimension lacks evidence, state that boundary under that subject instead of inventing content.\n")
 		b.WriteString("- These dimensions are presentation guidance, not new evidence origins. Do not invent unsupported content; disclose missing evidence in a boundary note or caveat.\n")
 		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
@@ -7135,9 +7137,6 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "- 第 %d 维：%s", dim.Index, label)
 		} else {
 			fmt.Fprintf(&b, "- Dimension %d: %s", dim.Index, label)
-		}
-		if dim.Role != "" && dim.Role != types.RequestedAnswerDimensionOther {
-			fmt.Fprintf(&b, " (`%s`)", dim.Role)
 		}
 		if dim.SourceQuote != "" && dim.SourceQuote != label {
 			fmt.Fprintf(&b, " — source quote: %q", dim.SourceQuote)
@@ -15051,6 +15050,7 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
 		b.WriteString("请只修订答案展示面，不要重新搜索或编造没有证据的内容。")
 		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
+		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
 		b.WriteString("缺失维度：\n")
 		for _, dim := range missing {
 			index := dim.Index
@@ -15058,9 +15058,6 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 				index = 1
 			}
 			fmt.Fprintf(&b, "- 第 %d 维：%s", index, strings.TrimSpace(dim.Label))
-			if dim.Role != "" && dim.Role != types.RequestedAnswerDimensionOther {
-				fmt.Fprintf(&b, " (`%s`)", dim.Role)
-			}
 			b.WriteByte('\n')
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
@@ -15069,6 +15066,7 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 	b.WriteString("Your `emit_answer_document` call landed, but the visible final answer omitted user-requested answer dimensions for this turn. ")
 	b.WriteString("Repair only the answer surface; do not re-open searches or invent unsupported content. ")
 	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
+	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
 	b.WriteString("Missing dimensions:\n")
 	for _, dim := range missing {
 		index := dim.Index
@@ -15076,9 +15074,6 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 			index = 1
 		}
 		fmt.Fprintf(&b, "- Dimension %d: %s", index, strings.TrimSpace(dim.Label))
-		if dim.Role != "" && dim.Role != types.RequestedAnswerDimensionOther {
-			fmt.Fprintf(&b, " (`%s`)", dim.Role)
-		}
 		b.WriteByte('\n')
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")

@@ -6875,9 +6875,40 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerD
 		"展示契约，不是新的证据来源",
 		"每个主体下面都应尽量显式保留这些维度标签",
 		"不要为了套表格而删除、替换或压扁更丰富的说明",
+		"不要在可见答案中追加系统内部角色或枚举名",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, internal := range []string{
+		string(types.RequestedAnswerDimensionDiffClue),
+		string(types.RequestedAnswerDimensionCurrentKeyCode),
+		string(types.RequestedAnswerDimensionImpact),
+	} {
+		if strings.Contains(prompt, "(`"+internal+"`)") {
+			t.Fatalf("prompt exposed copy-ready internal dimension role %q:\n%s", internal, prompt)
+		}
+	}
+}
+
+func TestRequestedAnswerDimensionCoverageHint_UsesOnlyUserFacingLabels(t *testing.T) {
+	dims := []types.RequestedAnswerDimension{
+		{Label: "调用链", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 1},
+		{Label: "原生模块名", Role: types.RequestedAnswerDimensionSourceLocation, Required: true, Index: 2},
+		{Label: "回退行为", Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true, Index: 3},
+	}
+	for _, lang := range []string{"zh", "en"} {
+		hint := requestedAnswerDimensionCoverageHint(dims, lang)
+		for _, label := range []string{"调用链", "原生模块名", "回退行为"} {
+			if !strings.Contains(hint, label) {
+				t.Fatalf("lang=%s hint missing user-facing label %q:\n%s", lang, label, hint)
+			}
+		}
+		for _, internal := range []string{"member_set", "source_location", "function_or_purpose"} {
+			if strings.Contains(hint, internal) {
+				t.Fatalf("lang=%s hint exposed internal dimension role %q:\n%s", lang, internal, hint)
+			}
 		}
 	}
 }

@@ -33,16 +33,26 @@ func normalizeOrphanDiagramEdgeAnchors(doc *types.AnswerDocumentV2, viewOpt ...*
 	// non-diagram Trace list.
 	removed := 0
 	for i := range doc.Blocks {
-		if preserveStandalone && answerBlockCarriesStandaloneTypedRelations(doc.Blocks[i]) {
-			continue
+		block := &doc.Blocks[i]
+		if preserveStandalone && answerBlockCanCarryStandaloneTypedRelations(*block) {
+			// A structured carrier can legitimately mix relation kinds while a
+			// patch is still converging. Once the model has authored any directed
+			// relation claim, preserve all of its anchors and let the typed
+			// ownership check require a matching claim for each one. Deleting the
+			// whole set (or an unmatched registration/callback row) here would
+			// overwrite model-authored relation metadata and can create an
+			// impossible later "edge_anchors is empty" contract.
+			if len(answerBlockStandaloneRelationClaimForms(*block)) > 0 {
+				continue
+			}
 		}
-		removed += len(doc.Blocks[i].EdgeAnchors)
-		doc.Blocks[i].EdgeAnchors = nil
+		removed += len(block.EdgeAnchors)
+		block.EdgeAnchors = nil
 	}
 	return removed
 }
 
-func answerBlockCarriesStandaloneTypedRelations(block types.AnswerBlock) bool {
+func answerBlockCanCarryStandaloneTypedRelations(block types.AnswerBlock) bool {
 	if block.SurfaceRole != types.SurfacePrincipal || len(block.EdgeAnchors) == 0 {
 		return false
 	}
@@ -51,12 +61,24 @@ func answerBlockCarriesStandaloneTypedRelations(block types.AnswerBlock) bool {
 	default:
 		return false
 	}
+	return true
+}
+
+func answerBlockStandaloneRelationClaimForms(block types.AnswerBlock) map[types.ClaimForm]bool {
 	forms := make(map[types.ClaimForm]bool, len(block.ClaimUses))
 	for _, use := range block.ClaimUses {
-		if use.ClaimForm != types.ClaimUnknown {
+		if use.ClaimForm != types.ClaimUnknown && types.RelationForClaimForm(use.ClaimForm).IsValid() {
 			forms[use.ClaimForm] = true
 		}
 	}
+	return forms
+}
+
+func answerBlockCarriesStandaloneTypedRelations(block types.AnswerBlock) bool {
+	if !answerBlockCanCarryStandaloneTypedRelations(block) {
+		return false
+	}
+	forms := answerBlockStandaloneRelationClaimForms(block)
 	for _, anchor := range block.EdgeAnchors {
 		form := types.ClaimFormForRelation(anchor.RelationKind)
 		if form == types.ClaimUnknown || !forms[form] {

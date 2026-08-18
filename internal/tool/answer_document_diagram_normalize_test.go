@@ -611,6 +611,36 @@ func TestNormalizeOrphanDiagramEdgeAnchors_PreservesStandalonePrincipalRelationC
 	}
 }
 
+func TestNormalizeOrphanDiagramEdgeAnchors_MixedStandaloneCarrierPreservesModelRelations(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		Items:     []types.AnswerBlockItem{{ID: "hop", Label: "业务调用"}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{
+				FromNode: "entry", ToNode: "worker",
+				FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+				RelationKind: types.DiagramRelCall,
+			},
+			{
+				FromNode: "native", ToNode: "binding",
+				FromIdentity: "native.entry", ToIdentity: "binding.entry",
+				RelationKind: types.DiagramRelRegister,
+			},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	if removed := normalizeOrphanDiagramEdgeAnchors(doc, view); removed != 0 {
+		t.Fatalf("mixed carrier removed=%d, want no system-authored relation deletion: %+v", removed, doc.Blocks)
+	}
+	if got := doc.Blocks[0].EdgeAnchors; len(got) != 2 {
+		t.Fatalf("mixed standalone carrier lost model-authored relation anchors: %+v", got)
+	}
+	if answerBlockCarriesStandaloneTypedRelations(doc.Blocks[0]) {
+		t.Fatalf("mixed carrier must await an explicit registration claim: %+v", doc.Blocks[0])
+	}
+}
+
 func TestNormalizeOrphanDiagramEdgeAnchors_StandaloneCarrierNeedsMatchingTypedClaim(t *testing.T) {
 	for _, tc := range []struct {
 		name string

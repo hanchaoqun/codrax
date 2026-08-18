@@ -4530,6 +4530,7 @@ func diagramMismatchesWithoutExactSemanticHandoffReceipts(
 const (
 	diagramStandalonePrincipalPathMissingOwner = "standalone_principal_path_missing_relation_owner"
 	diagramStandaloneRelationClaimHasNoAnchor  = "standalone_relation_claim_has_no_anchor"
+	diagramStandaloneRelationAnchorHasNoClaim  = "standalone_relation_anchor_has_no_claim"
 	diagramStandaloneSemanticHandoffMissing    = "standalone_semantic_handoff_missing"
 )
 
@@ -4555,9 +4556,11 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 			continue
 		}
 		var relationForms []string
+		relationFormSet := make(map[types.ClaimForm]bool)
 		for _, use := range block.ClaimUses {
 			if types.IsCallChainPrincipalRelationClaimForm(use.ClaimForm) {
 				relationForms = append(relationForms, string(use.ClaimForm))
+				relationFormSet[use.ClaimForm] = true
 			}
 		}
 		// principal_path_edge is itself a typed assertion that this block owns
@@ -4583,6 +4586,30 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 			continue
 		}
 		if len(relationForms) == 0 {
+			continue
+		}
+		var unownedAnchorForms []string
+		for _, anchor := range block.EdgeAnchors {
+			form := types.ClaimFormForRelation(anchor.RelationKind)
+			if form == types.ClaimUnknown || relationFormSet[form] {
+				continue
+			}
+			unownedAnchorForms = append(unownedAnchorForms, string(form))
+		}
+		if len(unownedAnchorForms) > 0 {
+			sort.Strings(unownedAnchorForms)
+			unownedAnchorForms = dedupPreEmitStringCandidates(unownedAnchorForms)
+			hints = append(hints, emitFixHint{
+				Field:               fmt.Sprintf("blocks[id=%q].claim_uses AND blocks[id=%q].edge_anchors", block.ID, block.ID),
+				HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+				OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
+				ExpectedShape: fmt.Sprintf(
+					"block=%q carries relation anchor kind(s) [%s] without the matching typed claim_use. If each relation remains part of the model-selected visible relation graph, add its matching claim_form; otherwise remove only that unselected anchor. Preserve the other model-authored anchors. No Mermaid block is required",
+					block.ID, strings.Join(unownedAnchorForms, ", "),
+				),
+				Reason:                       "a standalone relation anchor and its visible claim must have the same model-authored typed owner. The check reads only schema-validated block role, claim form, and relation kind; it neither deletes nor creates a relation.",
+				DiagramRelationFailureIssues: []string{diagramStandaloneRelationAnchorHasNoClaim},
+			})
 			continue
 		}
 		if len(block.EdgeAnchors) > 0 {
