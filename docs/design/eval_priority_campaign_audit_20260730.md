@@ -36352,6 +36352,46 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `system-answer/conclusion/relation/diagram-authorship=none`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1029 r659：请求作用域分类生产统一；未证关系仍以 resolved 收尾（2026-08-18）
+
+1. 在 `main@dd656c0ab` 重建后严格并发恰好两个案例：
+   `trace_query_wakeup_causal_runnable + qf_logic_view_read_pipeline`，runner `2/2 PASS`；人工 Trace pass、
+   代码图 partial/uncertain。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r659_20260818_manual_audit.md`。
+2. B1038 获生产正证。Finalizer 精确收到
+   `request_scoped_incident=[analyzer explorer extractor finalizer]`、
+   `local_typed_incident_only=[Mutable BusContext]` 与 `requested_relation_spine_status=unproven`；Diagram
+   Contract 同时给 Mutable/BusContext 各一条 boundary recipe。strict validator 不再把 local pair 误升为
+   完整 requested flow，也不再与 Finalizer 发出相反修补指令。
+3. 第一稿的未证 `Orchestrator→Analyzer`、无锚 ownership 箭头和 metadata/body 错绑仍被关系门正确拒绝；
+   一次 patch 后保留三条 verified stage precedence、BusContext/Mutable no-arrow group 与两个可见“未证关系
+   边界”，零第二轮拒绝。361s 相比 r658 的 542s 下降，但不把单次耗时当性能承诺。
+4. 人工仍不判代码图完全通过：用户要求阶段与共享载体之间的数据流，最终图诚实披露 carrier bridge
+   未证，却没有保留已有 local operation，也没有贯通共享载体；责任说明有用但图只证明阶段顺序。当前
+   prompt 已给 exact local binding，repair 中由模型主动删去；先归 authoring variability 观察，不以答案
+   文本/节点关键词硬门、不强制留可选边、更不由系统补图或改写结论。
+5. B1039 被进一步收窄而未关闭。Explorer 在 `flow_participant_coverage` 三次无进展后 force-complete，
+   `result_kind=resolved` 与“required source-flow participant relation remains unproven”并存，并清掉一条 stale
+   repair。此次 precise debt 没丢，已进入 Finalizer 并成为可见边界；gap 是 completion status 把“有界未证”
+   表成 resolved，未来消费者可能把它误读为全题解决。下一批应先审计 typed completion result enum/caveat
+   所有消费者：要么新增/复用 partial-with-boundary typed 状态，要么保证 resolved 只表示“可诚实作答”且
+   所有下游都强制携带 downgrade lane，不能只改显示词或扫描 reason prose。
+6. Trace 继续实质通过：精确窗、角色 CPU/prio、sleep/wakeup、链上 worker 8.300ms、实际占用与规则可消
+   双轴、因果投影均在；邻近 sleep 与背景 supply pressure 没有晋升主因。模型思维里一度过强推断，最终
+   成文被 typed caliber 正确约束为候选且明确无锁持有证据，无需干预模型原文。
+7. 两案活跃流分别 346s/361s，均等待完整模型结果；无固定 4ms 降级、空答案、畸形 JSON 或旧稿恢复。
+
+状态：
+
+`r659=runner-2/2; human-trace-pass; human-diagram-partial`；
+`B1038-DIAGRAMREQUESTEDRELATIONCOMPONENTS1=production-positive-r659`；
+`B1039-COMPLETIONLOWDELTAAUTHORITY1=P1-confirmed/narrowed-to-status+durable-debt-consumers`；
+`B1036-TRACEWAKEUPROLECAPSULEFOLD1=P2-confirmed/pending`；
+`Trace explicit-window/query/projection/auto-supplement=production-positive-r659`；
+`Trace root=typed-on-chain-only; adjacent/background=support-only`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：
