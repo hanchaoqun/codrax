@@ -36637,6 +36637,43 @@ Trace root=`typed-exact-window-on-chain-only`；adjacent/background=`support-onl
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1038 B1043：请求子题的调用点不再冒充实现证据（2026-08-18）
+
+1. r663 的失败链已按真实载体复核：Analyzer 明确把 `FastTokenizer._tokenize_slow` 放进独立
+   fallback 子题；实体 provenance 为当前源码唯一 symbol；repo graph/pre-read 已知道定义与函数体；
+   Explorer 却只发了 `FastTokenizer.tokenize -> _tokenize_slow` 的 line 22 call row。旧
+   `CompileExplanationAnchorBackbone` 把该 call row 当作“子题已有 anchor”，完成门因此放行，Finalizer
+   最后反向声称仓库没有实现。这不是最终文案的单次波动，而是“被调用”与“实现已检查”被压成同一覆盖位。
+2. 新增 `requestedSubTopicCallableBodyDowngrade`，只在以下 typed 合取同时成立时施工：至少两个独立
+   `SubTopics`；当前请求属于既有 mechanism/call-chain 可闭环形；对应 `EntityProvenance` 是
+   `resolution=symbol + resolved + use_for_shape`；repo graph 将实体唯一解析到 parser-owned callable；
+   Explorer 已提交可引用的真实 call edge；但该 callable 的定义体内没有 Explorer-authored grounded
+   evidence。外部、概念、文件、scope、多义 symbol、无 call selection、非 AST 文件全部 fail-open。
+3. 两种修复车道均保持模型所有权。函数体未读时，只排队该唯一 callable 的精确 `[definition,end]`
+   行窗；函数体已读时，只发 `RepairEmitEvidence`，要求模型从已读范围提交证据。系统不铸 EvidenceItem、
+   不宣称实现存在/缺失、不生成关系、不修改答案。多行 callable 的声明行只证明存在，不能单独证明行为；
+   必须有正文行或跨入正文的 line-range。单行 callable 则按 parser-owned 单行范围诚实闭环。
+4. 预算和泛化边界：单次最多四个唯一 callable，重复出现在多个子题只形成一个债；判断不读取 raw request、
+   子题 summary 语义、completion reason、模型推理或最终答案原文。Go/Java/C/C++/Rust/Python/ArkTS/
+   Cangjie 八语言矩阵共享同一 symbol/provenance/AST 判据，未增加 Python 名称或 fallback 关键词特判。
+5. 接线 pin 直接穿过 `preCompleteContractCheckWithEvidence`，防止只测 helper 却漏挂生产 seam；正向覆盖
+   已读体→emit-evidence、未读体→bounded pending-read、正文证据闭环；负向覆盖 ambiguous/concept
+   provenance fail-open。`internal/tool` 完整包、`internal/types + internal/agent + internal/orchestrator`
+   均已通过；最终全量构建在提交前再次执行。
+6. 本批不改 Answer renderer 与 Trace。`bounded_window_candidate` 等模型结构字段不得靠扫描/替换最终文本
+   硬消毒，继续走 JSON 教学简化和异构回放观察；确定性系统枚举的用户面本地化由 B1042 单独负责。
+   显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、双轴分析与模型结论权
+   均保持；活跃字节流不按固定 4ms 降级。
+
+状态：
+
+`B1043-REQUESTEDSUBTOPICEVIDENCECLOSURE1=implemented/typed-unique-callable+wire-pin-pass`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-evidence/answer/conclusion/relation-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1023 r654：跨文件/阶段参数桥生产生效；唯一被调函数体未成为关系续接前沿（2026-08-17）
 
 1. 在 `main@81fbf66c5` 严格并发恰好两个案例：

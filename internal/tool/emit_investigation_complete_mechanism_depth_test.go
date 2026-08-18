@@ -384,6 +384,218 @@ func TestMechanismSemanticDescent_SelectedDefinitionQueuesOwnBodyWithoutLineFeat
 	}
 }
 
+func requestedSubTopicSymbolProvenance(surface string) types.EntityProvenance {
+	return types.EntityProvenance{
+		Surface: surface, Origin: types.EntityOriginSubTopicEntity,
+		Resolution: types.EntityResolutionSymbol, Resolved: true,
+		UseForSearch: true, UseForShape: true,
+	}
+}
+
+func TestRequestedSubTopicCallableBody_CallSiteOnlyRequiresAlreadyReadBodyEvidence(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 12, nil)
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{
+			Summary: "entry routing", Entities: []string{"Render"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("Render")},
+		},
+		{
+			Summary: "fallback behavior", Entities: []string{"rewrite"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("rewrite")},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceMechanism, AnchorKind: types.AnchorReturn,
+			AnchorSymbol: "Render", Source: "src/pipeline.go", LineStart: 3,
+			Scope: types.ScopeLine, Producer: types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			AnchorSymbol: "rewrite", Subject: "Render", Object: "rewrite",
+			Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+			Producer:        types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence)
+	if !strings.Contains(got, "call-site evidence but no implementation-body evidence") ||
+		!strings.Contains(got, "src/pipeline.go:6-8") {
+		t.Fatalf("downgrade=%q, want bounded already-read rewrite body repair", got)
+	}
+	repairs := ctx.Mutable.EvidenceClosure().ActiveRepairs()
+	if len(repairs) != 1 || repairs[0].Kind != types.RepairEmitEvidence ||
+		len(repairs[0].Files) != 1 || repairs[0].Files[0] != "src/pipeline.go" ||
+		len(repairs[0].LineRanges) != 1 || repairs[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
+		t.Fatalf("repairs=%+v, want surgical emit-evidence repair for rewrite body", repairs)
+	}
+
+	evidence = append(evidence, types.EvidenceItem{
+		Kind: types.EvidenceMechanism, AnchorKind: types.AnchorDefinition,
+		AnchorSymbol: "rewrite", Subject: "rewrite", Source: "src/pipeline.go", LineStart: 6,
+		Scope: types.ScopeLine, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	})
+	if got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence); got == "" {
+		t.Fatal("multi-line callable declaration alone must not prove implementation behavior")
+	}
+	evidence = append(evidence, types.EvidenceItem{
+		Kind: types.EvidenceMechanism, AnchorKind: types.AnchorReturn,
+		AnchorSymbol: "rewrite", Subject: "rewrite", Source: "src/pipeline.go", LineStart: 7,
+		Scope: types.ScopeLine, Producer: types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	})
+	if got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence); got != "" {
+		t.Fatalf("body evidence must close requested sub-topic debt, got %q", got)
+	}
+}
+
+func TestRequestedSubTopicCallableBody_PreCompleteWirePin(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 12, nil)
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{
+			Summary: "entry routing", Entities: []string{"Render"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("Render")},
+		},
+		{
+			Summary: "fallback behavior", Entities: []string{"rewrite"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("rewrite")},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceMechanism, AnchorKind: types.AnchorReturn,
+			AnchorSymbol: "Render", Source: "src/pipeline.go", LineStart: 3,
+			Scope: types.ScopeLine, Producer: types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			AnchorSymbol: "rewrite", Subject: "Render", Object: "rewrite",
+			Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+			Producer:        types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	got := preCompleteContractCheckWithEvidence(ctx, "", evidence)
+	if !strings.Contains(got, "call-site evidence but no implementation-body evidence") ||
+		!strings.Contains(got, "src/pipeline.go:6-8") {
+		t.Fatalf("pre-complete wire output=%q, want requested sub-topic body downgrade", got)
+	}
+}
+
+func TestRequestedSubTopicCallableBody_UnreadUniqueBodyQueuesBoundedRead(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{
+			Summary: "entry routing", Entities: []string{"Render"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("Render")},
+		},
+		{
+			Summary: "fallback behavior", Entities: []string{"rewrite"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("rewrite")},
+		},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceMechanism, AnchorKind: types.AnchorReturn,
+			AnchorSymbol: "Render", Source: "src/pipeline.go", LineStart: 3,
+			Scope: types.ScopeLine, Producer: types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			AnchorSymbol: "rewrite", Subject: "Render", Object: "rewrite",
+			Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+			Producer:        types.EvidenceProducerExplorerEmitEvidence,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	if got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence); got != "" {
+		t.Fatalf("unread body should route through pending-read surface, got %q", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || pending[0].File != "src/pipeline.go" ||
+		len(pending[0].LineRanges) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
+		t.Fatalf("pending=%+v, want bounded rewrite body read", pending)
+	}
+}
+
+func TestRequestedSubTopicCallableBody_AmbiguousOrConceptEntityFailsOpen(t *testing.T) {
+	graph, _ := mechanismSemanticDescentFixture()
+	ctx := mechanismSemanticDescentContext(t, graph, 12, nil)
+	ctx.AnalysisIR.RequestModel.SubTopics = []types.SubTopic{
+		{
+			Summary: "entry routing", Entities: []string{"Render"},
+			EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("Render")},
+		},
+		{
+			Summary: "external fallback", Entities: []string{"rewrite"},
+			EntityProvenance: []types.EntityProvenance{{
+				Surface: "rewrite", Origin: types.EntityOriginSubTopicEntity,
+				Resolution: types.EntityResolutionAmbiguousSymbol, UseForSearch: true,
+			}},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+		AnchorSymbol: "rewrite", Subject: "Render", Object: "rewrite",
+		Source: "src/pipeline.go", LineStart: 3, Scope: types.ScopeLine,
+		Producer:        types.EvidenceProducerExplorerEmitEvidence,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+
+	if got := requestedSubTopicCallableBodyDowngrade(ctx, ctx.Mutable.EvidenceClosure(), evidence); got != "" {
+		t.Fatalf("ambiguous typed entity must fail open, got %q", got)
+	}
+	if pending := ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("ambiguous entity queued reads: %+v", pending)
+	}
+}
+
+func TestRequestedSubTopicCallableBody_LanguageNeutralTypedResolution(t *testing.T) {
+	tests := []struct {
+		name, file, language, provenance string
+	}{
+		{"go", "src/pipeline.go", repotypes.LangGo, repotypes.ProvenanceTreeSitter},
+		{"java", "src/Pipeline.java", repotypes.LangJava, repotypes.ProvenanceTreeSitter},
+		{"c", "src/pipeline.c", repotypes.LangC, repotypes.ProvenanceTreeSitter},
+		{"cpp", "src/pipeline.cpp", repotypes.LangCpp, repotypes.ProvenanceTreeSitter},
+		{"rust", "src/pipeline.rs", repotypes.LangRust, repotypes.ProvenanceTreeSitter},
+		{"python", "src/pipeline.py", repotypes.LangPython, repotypes.ProvenanceTreeSitter},
+		{"arkts", "src/pipeline.ets", repotypes.LangArkTS, repotypes.ProvenanceTreeSitter},
+		{"cangjie", "src/pipeline.cj", repotypes.LangCangjie, repotypes.ProvenanceCangjieParser},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			graph, _ := mechanismSemanticDescentFixture()
+			mechanismSemanticDescentRetargetFixture(graph, tc.file, tc.language, tc.provenance)
+			topics := []types.SubTopic{{
+				Summary: "fallback behavior", Entities: []string{"rewrite"},
+				EntityProvenance: []types.EntityProvenance{requestedSubTopicSymbolProvenance("rewrite")},
+			}}
+			evidence := []types.EvidenceItem{{
+				Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+				AnchorSymbol: "rewrite", Subject: "Render", Object: "rewrite",
+				Source: tc.file, LineStart: 3, Scope: types.ScopeLine,
+				Producer:        types.EvidenceProducerExplorerEmitEvidence,
+				GroundingStatus: types.GroundingGrounded,
+			}}
+			debts := requestedSubTopicCallableBodyDebts(topics, graph, evidence)
+			if len(debts) != 1 || debts[0].file != tc.file || debts[0].sym == nil || debts[0].sym.Name != "rewrite" {
+				t.Fatalf("%s debts=%+v, want exact local rewrite callable", tc.language, debts)
+			}
+		})
+	}
+}
+
 func TestMechanismSemanticDescent_SelectedDefinitionSurvivesSupportingRosterDemotion(t *testing.T) {
 	graph, _ := mechanismSemanticDescentFixture()
 	ctx := mechanismSemanticDescentContext(t, graph, 1, nil)

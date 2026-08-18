@@ -4202,6 +4202,9 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		// conclusions and is intentionally outside the generic breadth origins
 		// that a model-owned boundary may demote.
 		raiseMechanismSemanticDescentPendingReads(ctx, closure, aggregateFacts, evidence)
+		if downgrade := requestedSubTopicCallableBodyDowngrade(ctx, closure, evidence); downgrade != "" {
+			return downgrade
+		}
 		if genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence) {
 			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded model-owned completion boundary")
 		} else {
