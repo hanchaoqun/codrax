@@ -35823,6 +35823,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=unchanged`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1075 B1084 第一批：关闭 sibling presentation surface 的图参与者串线（2026-08-18）
+
+1. r690 深审确认问题不在 Mermaid validator，而在更早的 Analyzer typed 合同：
+   `relation_scope_quote` 已精确限定“从 analyze 到 finalizer 的时序”，但解析器只用该字段过滤
+   `context_only`，对模型误标为 `incident_required` 的
+   `AnalysisIR/EvidenceItems/AnswerDocument/BusContext` 全部放行。后续 participant coverage、
+   unproven boundary 与 repair roster 只是忠实消费了错误的硬参与者集合。
+2. 本批把既有两个精确信号合成为通用闭域规则：当 required relation scope 自身已经逐字命中至少两个
+   proposed actor 时，该短句成为闭合 diagram relation surface；任何 identity 只出现在其外部 sibling
+   table/list/example 片段的 participant 均逐行丢弃，不论模型把它标成 `incident_required` 还是
+   `context_only`。丢弃会进入 Analyzer warning，diagram kind/required 保留，identity 仍保留在
+   `AnalyzerHints.Entities` 和其他答案维度中，因而表格调查与成文不丢。
+3. 为避免把常见指代请求误杀，关系短句只命中零个或一个 actor 时不闭域。例如先写“A 与 B”，后写
+   “画出它们的关系”，仍由各 participant 的 exact `source_quote` 独立授权；明确写在关系短句内的
+   State/Context carrier 也继续作为 `incident_required`。这不是相似度、分词或关键词打分，而是已有
+   verbatim quote × typed role × required bit 的确定性交叉验证。
+4. Analyzer 教学同步说明闭域例外；新增 r690 原形 pin，断言四个 sibling table carrier 不进入图合同但
+   仍留在实体上下文；既有 context-only 越界、split-clause 指代、关系内 carrier 三类正反 pin 同时通过。
+5. 验证：`go test ./internal/skill ./internal/agent ./internal/tool -count=1` 全绿，其中
+   `internal/tool` 184.691s；`git diff --check` 通过。没有放松任何 edge evidence gate，没有按函数名删边，
+   没有读取模型 reasoning/final prose，也没有由系统生成、修改或替换图和答案。
+6. 该规则位于非 Trace 的 source diagram planning seam；Trace 合同本来就不复制这些 participant hints。
+   显式时间窗、因果投影、自动补采、链上-only 主因、实际占用/业务线索与规则可消除量双轴均未改。
+
+状态：
+
+`B1084-DIAGRAMSIBLINGSURFACEPARTICIPANT1=implemented/typed-closed-surface+compatibility-pins`；
+`diagram-edge-authority=unchanged/fail-closed`；
+`system-authored-answer/conclusion/diagram/edge=none`；
+`production-replay=pending-r691`；
+`Trace explicit-window/query/projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1049 r670/B1055：机制答案已读实现体却只交付定义引用；typed selected-body 事实通道扩域（2026-08-18）
 
 1. 在 `main@f7e8105aa` 严格并发恰好两个案例：

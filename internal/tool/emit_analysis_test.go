@@ -4788,6 +4788,57 @@ func TestEmitAnalysis_Execute_DropsContextOnlyParticipantOutsideTypedDiagramRela
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsIncidentParticipantsFromSiblingPresentationSurface(t *testing.T) {
+	raw := "解释 codrax read mode 一次请求从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并再给一张表列出每个 stage 的输入、输出和主要状态载体（例如 AnalysisIR、EvidenceItems、AnswerDocument、Mutable/BusContext）。"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["read mode","analyze","finalizer","sequenceDiagram","AnalysisIR","BusContext"],
+		"entities":["analyze","finalizer","AnalysisIR","EvidenceItems","AnswerDocument","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"codrax read mode 一次请求从 analyze 到 finalizer 的时序","participants":[
+			{"identity":"analyze","role":"incident_required","source_quote":"从 analyze 到 finalizer 的时序"},
+			{"identity":"finalizer","role":"incident_required","source_quote":"到 finalizer 的时序"},
+			{"identity":"AnalysisIR","role":"incident_required","source_quote":"AnalysisIR、EvidenceItems、AnswerDocument"},
+			{"identity":"EvidenceItems","role":"incident_required","source_quote":"EvidenceItems、AnswerDocument"},
+			{"identity":"AnswerDocument","role":"incident_required","source_quote":"AnswerDocument"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"Mermaid sequenceDiagram","role":"diagram","source_quote":"Mermaid sequenceDiagram","required":true},
+			{"index":2,"label":"输入、输出和主要状态载体","role":"stage_or_workflow","source_quote":"输入、输出和主要状态载体","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute rejected: %s", res.Summary)
+	}
+	hint := mu.RequestModel().DiagramHint
+	want := []types.DiagramParticipantHint{
+		{Identity: "analyze", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "从 analyze 到 finalizer 的时序"},
+		{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "到 finalizer 的时序"},
+	}
+	if hint == nil || !reflect.DeepEqual(hint.Participants, want) {
+		t.Fatalf("participants=%+v, want closed relation surface %+v", hint, want)
+	}
+	joined := res.Summary
+	for _, identity := range []string{"AnalysisIR", "EvidenceItems", "AnswerDocument", "BusContext"} {
+		if !strings.Contains(joined, `dropped incident_required diagram participant "`+identity+`"`) {
+			t.Fatalf("missing auditable sibling-surface drop for %q: %s", identity, joined)
+		}
+		if !slices.Contains(mu.RequestModel().AnalyzerHints.Entities, identity) {
+			t.Fatalf("sibling table identity %q must remain available outside the diagram: %v", identity, mu.RequestModel().AnalyzerHints.Entities)
+		}
+	}
+}
+
 func TestEmitAnalysis_Execute_PreservesSplitClauseIncidentParticipants(t *testing.T) {
 	raw := "对比 emit_answer_document 和 emit_answer_document_patch 的失败恢复能力、输入结构和适用时机，并用 Mermaid 小流程图说明它们在 finalizer 里的关系"
 	mu := types.NewMutableState(raw)

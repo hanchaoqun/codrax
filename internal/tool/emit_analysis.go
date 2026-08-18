@@ -6684,6 +6684,21 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 	rawParticipants := *p.Participants
 	participants := make([]types.DiagramParticipantHint, 0, len(rawParticipants))
 	seen := make(map[string]bool, len(rawParticipants))
+	// A relation_scope_quote that itself names at least two proposed actors is
+	// a precise, closed presentation surface. In that shape, an identity named
+	// only by a sibling table/list/example clause must not become a hard diagram
+	// participant merely because the analyzer marked it incident_required. Keep
+	// split-clause/anaphoric requests compatible: when the relation phrase says
+	// only "their relationship" (and therefore names fewer than two actors),
+	// participant-local source_quote remains the independent authority.
+	relationScopeNamedParticipants := 0
+	for _, raw := range rawParticipants {
+		identity := strings.TrimSpace(raw.Identity)
+		if identity != "" && sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, identity) {
+			relationScopeNamedParticipants++
+		}
+	}
+	relationScopeClosesParticipantSurface := required && relationScopeNamedParticipants >= 2
 	relationScopeExcluded := 0
 	for i, raw := range rawParticipants {
 		identity := strings.TrimSpace(raw.Identity)
@@ -6758,12 +6773,19 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		// impossible and silently erase the principal actors. Context-only
 		// nodes stay stricter so a name from a sibling table/example cannot
 		// leak into the requested diagram.
-		if required && role == types.DiagramParticipantContextOnly &&
-			!sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote) {
+		participantInsideRelationScope :=
+			sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, identity) ||
+				sourceQuoteAnchoredInCurrentRequest(relationScopeQuote, sourceQuote)
+		if required && !participantInsideRelationScope &&
+			(role == types.DiagramParticipantContextOnly || relationScopeClosesParticipantSurface) {
 			relationScopeExcluded++
+			reason := "its source_quote is outside diagram_hint.relation_scope_quote"
+			if role == types.DiagramParticipantIncidentRequired {
+				reason = "the relation_scope_quote already names a closed participant surface and this identity occurs only outside it"
+			}
 			warnings = append(warnings, fmt.Sprintf(
-				"dropped context-only diagram participant %q because its source_quote is outside diagram_hint.relation_scope_quote; preserved diagram_hint kind=%s required=%t",
-				identity, kind, required,
+				"dropped %s diagram participant %q because %s; preserved diagram_hint kind=%s required=%t",
+				role, identity, reason, kind, required,
 			))
 			continue
 		}
