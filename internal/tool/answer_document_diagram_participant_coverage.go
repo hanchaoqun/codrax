@@ -23,6 +23,7 @@ const (
 	DiagramParticipantCoverageIdentityMissing    DiagramParticipantCoverageIssue = "required_participant_identity_not_visible"
 	DiagramParticipantCoverageBoundaryConnected  DiagramParticipantCoverageIssue = "unproven_boundary_has_visible_incident_edge"
 	DiagramParticipantCoverageEndpointRetargeted DiagramParticipantCoverageIssue = "participant_visible_on_nonincident_endpoint"
+	DiagramParticipantCoverageComponentSplit     DiagramParticipantCoverageIssue = "typed_requested_component_not_connected"
 )
 
 // DiagramParticipantCoverageMismatch is derived only from the analyzer's
@@ -82,7 +83,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		expected += ". Typed repair actions (apply only the row for each failed participant; these actions preserve model ownership of the visible diagram): " + actions
 	}
 	if candidates != "" {
-		expected += ". Existing typed candidate map (choose one relevant candidate per failed participant; this list is not a requirement to render every candidate and does not create an edge). Each candidate's edge_anchor_identity_fields are the exact schema fields to copy alongside model-authored from_node/to_node IDs; never replace those exact identities with the broader participant name: " + candidates
+		expected += ". Existing typed candidate map (choose only the relevant candidate edges needed for the failed participant or its typed join frontier; this list is not a requirement to render every candidate and does not create an edge). Each candidate's edge_anchor_identity_fields are the exact schema fields to copy alongside model-authored from_node/to_node IDs; never replace those exact identities with the broader participant name: " + candidates
 	}
 	return []emitFixHint{{
 		Field:               "blocks[kind=diagram].participant_boundaries AND blocks[kind=diagram].diagram.body",
@@ -288,6 +289,10 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 			edgeAction = "keep_the_existing_typed_edge_and_anchor_direction_but_remove_the_requested_participant_identity_from_the_nonincident_endpoint"
 			identityAction = "map_each_requested_participant_only_to_an_endpoint_that_is_typed_incident_to_it_or_keep_it_in_an_honest_unproven_group"
 			boundaryAction = "recompute_from_the_corrected_visible_incidence_without_inventing_an_edge"
+		case DiagramParticipantCoverageComponentSplit:
+			edgeAction = "retain_every_valid_visible_edge_and_reuse_existing_typed_candidate_edges_that_join_the_current_visible_components"
+			identityAction = "keep_each_requested_participant_on_its_typed_incident_endpoint_and_keep_shared_technical_handoff_nodes_visible"
+			boundaryAction = "omit_unproven_boundary_because_the_typed_evidence_graph_already_proves_the_join"
 		case DiagramParticipantCoverageUnknownBoundary:
 			edgeAction = "none"
 			identityAction = "none"
@@ -351,10 +356,14 @@ func DiagramParticipantCoverageMismatches(
 		})
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
-	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, evidence)
+	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, evidence, stagePrecedence)
+	evidenceParticipantGraphComplete := len(obligations) > 1
 	for i := range states {
 		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i, requestedParticipantGraphComplete)
 		states[i].typedEdgeAvailable = requestScopedEdgeAvailable
+		if !requestScopedEdgeAvailable || !relationScope.completionParticipantConnectedCovered(i) {
+			evidenceParticipantGraphComplete = false
+		}
 		// Requested-relation coverage and local technical incidence are
 		// orthogonal. When the complete requested graph remains unproved and
 		// this participant has no request-scoped candidate, an independently
@@ -467,6 +476,29 @@ func DiagramParticipantCoverageMismatches(
 			Participant: current.obligation.Identity,
 			Issue:       issue,
 		})
+	}
+	// Per-participant incidence is insufficient when the exact typed evidence
+	// graph already proves one connected requested flow: a finalizer can choose
+	// one valid local edge per participant and accidentally re-split that graph
+	// into several reader-visible islands. Require a visible join only under the
+	// precise evidence-complete signal. If source evidence itself is split or
+	// unavailable, explicit unproven boundaries remain the valid fallback.
+	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete {
+		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, evidence, stagePrecedence)
+		existing := make(map[string]bool, len(out))
+		for _, mismatch := range out {
+			existing[strings.ToLower(strings.TrimSpace(mismatch.Participant))] = true
+		}
+		for i, current := range states {
+			participant := strings.TrimSpace(current.obligation.Identity)
+			if i < len(principal) && principal[i] || existing[strings.ToLower(participant)] {
+				continue
+			}
+			out = append(out, DiagramParticipantCoverageMismatch{
+				Participant: participant,
+				Issue:       DiagramParticipantCoverageComponentSplit,
+			})
+		}
 	}
 	out = append(out, diagramParticipantVisibleEndpointRetargetMismatches(
 		doc, obligations, allSurfaces, evidence,
@@ -612,25 +644,52 @@ func diagramParticipantRequestedGraphConnected(
 	doc *types.AnswerDocumentV2,
 	participantSurfaces [][]string,
 	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
 ) bool {
-	if doc == nil || len(participantSurfaces) < 2 {
+	principal := diagramParticipantRequestedGraphPrincipalCovered(doc, participantSurfaces, evidence, stagePrecedence)
+	if len(principal) < 2 {
 		return false
 	}
-	parent := make([]int, len(participantSurfaces))
-	for i := range parent {
-		parent[i] = i
-	}
-	var find func(int) int
-	find = func(v int) int {
-		if parent[v] != v {
-			parent[v] = find(parent[v])
+	for _, covered := range principal {
+		if !covered {
+			return false
 		}
-		return parent[v]
 	}
-	union := func(a, b int) {
-		a, b = find(a), find(b)
+	return true
+}
+
+// diagramParticipantRequestedGraphPrincipalCovered computes weak connectivity
+// over model-authored visible edges that already carry typed anchors. Unlike a
+// direct participant-pair check, it keeps shared technical handoff nodes in
+// the graph, so A -> builder <- B is recognized as one reader-visible
+// component without pretending that builder is itself a requested component.
+// It returns only the largest stable participant group; callers may request a
+// missing bridge but never synthesize one.
+func diagramParticipantRequestedGraphPrincipalCovered(
+	doc *types.AnswerDocumentV2,
+	participantSurfaces [][]string,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) []bool {
+	covered := make([]bool, len(participantSurfaces))
+	if doc == nil || len(participantSurfaces) == 0 {
+		return covered
+	}
+	participantParent := make([]int, len(participantSurfaces))
+	for i := range participantParent {
+		participantParent[i] = i
+	}
+	var participantFind func(int) int
+	participantFind = func(v int) int {
+		if participantParent[v] != v {
+			participantParent[v] = participantFind(participantParent[v])
+		}
+		return participantParent[v]
+	}
+	participantUnion := func(a, b int) {
+		a, b = participantFind(a), participantFind(b)
 		if a != b {
-			parent[b] = a
+			participantParent[b] = a
 		}
 	}
 
@@ -639,6 +698,39 @@ func diagramParticipantRequestedGraphConnected(
 		if block.Kind != types.BlockDiagram || block.Diagram == nil {
 			continue
 		}
+		type visibleNode struct {
+			parent       int
+			participants map[int]bool
+		}
+		nodes := make(map[string]*visibleNode)
+		nodeIndex := make(map[string]int)
+		ordered := make([]string, 0)
+		ensureNode := func(raw string) int {
+			key := strings.ToLower(strings.TrimSpace(raw))
+			if index, ok := nodeIndex[key]; ok {
+				return index
+			}
+			index := len(ordered)
+			nodeIndex[key] = index
+			ordered = append(ordered, key)
+			nodes[key] = &visibleNode{parent: index, participants: make(map[int]bool)}
+			return index
+		}
+		var nodeFind func(int) int
+		nodeFind = func(v int) int {
+			key := ordered[v]
+			if nodes[key].parent != v {
+				nodes[key].parent = nodeFind(nodes[key].parent)
+			}
+			return nodes[key].parent
+		}
+		nodeUnion := func(a, b int) {
+			a, b = nodeFind(a), nodeFind(b)
+			if a != b {
+				nodes[ordered[b]].parent = a
+			}
+		}
+
 		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
 		typedRelations := diagramTypedAnchorRelationSet(anchors)
@@ -646,21 +738,127 @@ func diagramParticipantRequestedGraphConnected(
 			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
 				continue
 			}
+			fromIndex, toIndex := ensureNode(edge.From), ensureNode(edge.To)
+			nodeUnion(fromIndex, toIndex)
 			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
 			fromParticipants := diagramParticipantEndpointRosterMatches(block, edge.From, from, labels, participantSurfaces, evidence)
 			toParticipants := diagramParticipantEndpointRosterMatches(block, edge.To, to, labels, participantSurfaces, evidence)
-			if len(fromParticipants) == 1 && len(toParticipants) == 1 && fromParticipants[0] != toParticipants[0] {
-				union(fromParticipants[0], toParticipants[0])
+			if typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)][types.DiagramRelPrecedence] {
+				stageFrom, stageTo := diagramParticipantVerifiedStageEndpointRosterMatches(
+					diagramParticipantVisibleEndpoint(edge.From, labels),
+					diagramParticipantVisibleEndpoint(edge.To, labels),
+					participantSurfaces,
+					stagePrecedence,
+				)
+				fromParticipants = appendUniqueParticipantIndexes(fromParticipants, stageFrom...)
+				toParticipants = appendUniqueParticipantIndexes(toParticipants, stageTo...)
+			}
+			if len(fromParticipants) == 1 {
+				nodes[ordered[fromIndex]].participants[fromParticipants[0]] = true
+			}
+			if len(toParticipants) == 1 {
+				nodes[ordered[toIndex]].participants[toParticipants[0]] = true
+			}
+		}
+		componentParticipants := make(map[int]map[int]bool)
+		for i, key := range ordered {
+			root := nodeFind(i)
+			if componentParticipants[root] == nil {
+				componentParticipants[root] = make(map[int]bool)
+			}
+			for participantIndex := range nodes[key].participants {
+				componentParticipants[root][participantIndex] = true
+			}
+		}
+		for _, members := range componentParticipants {
+			first := -1
+			for participantIndex := range members {
+				if first < 0 {
+					first = participantIndex
+					continue
+				}
+				participantUnion(first, participantIndex)
 			}
 		}
 	}
-	root := find(0)
-	for i := 1; i < len(parent); i++ {
-		if find(i) != root {
-			return false
+
+	type participantGroup struct {
+		members  []int
+		earliest int
+	}
+	groups := make(map[int]*participantGroup)
+	for i := range participantSurfaces {
+		root := participantFind(i)
+		group := groups[root]
+		if group == nil {
+			group = &participantGroup{earliest: i}
+			groups[root] = group
+		}
+		group.members = append(group.members, i)
+		if i < group.earliest {
+			group.earliest = i
 		}
 	}
-	return true
+	var principal *participantGroup
+	for _, group := range groups {
+		if principal == nil || len(group.members) > len(principal.members) ||
+			(len(group.members) == len(principal.members) && group.earliest < principal.earliest) {
+			principal = group
+		}
+	}
+	if principal != nil {
+		for _, participantIndex := range principal.members {
+			covered[participantIndex] = true
+		}
+	}
+	return covered
+}
+
+func diagramParticipantVerifiedStageEndpointRosterMatches(
+	from, to string,
+	participantSurfaces [][]string,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) (fromParticipants, toParticipants []int) {
+	matched := make([]stageauthority.PrecedenceRelation, 0, 1)
+	for _, relation := range stagePrecedence {
+		if diagramStageRowIdentityMatches(relation.From, from) && diagramStageRowIdentityMatches(relation.To, to) {
+			matched = append(matched, relation)
+		}
+	}
+	if len(matched) != 1 {
+		return nil, nil
+	}
+	for participantIndex, surfaces := range participantSurfaces {
+		for _, alias := range matched[0].From.IdentityAliases() {
+			if diagramParticipantSurfaceMatches(surfaces, alias) {
+				fromParticipants = append(fromParticipants, participantIndex)
+				break
+			}
+		}
+		for _, alias := range matched[0].To.IdentityAliases() {
+			if diagramParticipantSurfaceMatches(surfaces, alias) {
+				toParticipants = append(toParticipants, participantIndex)
+				break
+			}
+		}
+	}
+	return fromParticipants, toParticipants
+}
+
+func appendUniqueParticipantIndexes(dst []int, values ...int) []int {
+	for _, value := range values {
+		found := false
+		for _, existing := range dst {
+			if existing == value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst = append(dst, value)
+		}
+	}
+	return dst
 }
 
 func diagramParticipantEndpointRosterMatches(
@@ -769,15 +967,25 @@ func diagramParticipantCoverageCandidateGuidance(
 		return ""
 	}
 	failed := make(map[string]bool)
+	componentSplit := false
 	for _, mismatch := range mismatches {
 		if mismatch.Issue == DiagramParticipantCoverageTypedEdgeMissing ||
 			mismatch.Issue == DiagramParticipantCoverageIdentityMissing ||
-			mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+			mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted ||
+			mismatch.Issue == DiagramParticipantCoverageComponentSplit {
 			failed[strings.ToLower(strings.TrimSpace(mismatch.Participant))] = true
 		}
+		componentSplit = componentSplit || mismatch.Issue == DiagramParticipantCoverageComponentSplit
 	}
 	if len(failed) == 0 {
 		return ""
+	}
+	if componentSplit {
+		// A bridge can be incident to the already-visible principal component
+		// rather than to the participants reported outside it. Publish the same
+		// bounded typed roster for the whole requested frontier so the model can
+		// select that existing bridge; this still creates no edge or wording.
+		failed = nil
 	}
 	return flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 3)
 }

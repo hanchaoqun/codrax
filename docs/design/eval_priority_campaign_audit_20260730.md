@@ -36006,6 +36006,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1149 r726：逐参与者合法仍可重组为关系孤岛；typed 连通性双层闭环（2026-08-19）
+
+1. 在 `main@79f6424c7` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_frame_semantic_span_optimization`。Runner `2 PASS / 2`；
+   人工均为 partial。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_frontier_trace_replay_r726_20260819_manual_audit.md`。
+2. B1156 获生产闭环。QF 的有界导航不再被同类型局部 binding 截断，直接命中
+   `internal/orchestrator/extract_work.go:15`；模型发出 `types.AgentExtractor -> BuildAgentContext` 与
+   `o.busCtx -> BuildAgentContext` 两条同调用点参数流，成文 recipe 也完整携带。B1155 本轮仍未触发：
+   模型没有发出 call-result assignment 行，窄门按设计不能替模型选择该值路径。
+3. 新确认 B1157/P1。最终图每条边均有 typed anchor、每个参与者也各有 incident edge，却形成
+   `{Analyzer, Explorer, Extractor, Finalizer}` 与 `{BusContext, Mutable}` 两个孤岛。根因是旧合同只验证
+   “每个参与者属于某个至少双参与者组件”，没有验证 required flow 的全体关系连通；edge-count oracle
+   因此把语义不完整图签成 PASS。
+4. 根修分两层且共享 typed 弱连通语义。completion 在普通参与者覆盖全部成立后，才计算 requested
+   participant 组件，稳定保留最大组件并对其余参与者给一次 bounded bridge 导航；相同大小按原请求最早
+   参与者稳定决胜。finalizer 只在完整 typed evidence 已经证明全体 requested participant 连通时，拒绝
+   模型把已证图重新选成多岛，并发布全体 join frontier 的现有 typed candidate roster；共享的技术 handoff
+   节点可连接多个业务参与者，不要求伪造参与者直连边。
+5. 若 typed evidence 自身仍分岛、端点多义或找不到 bridge，finalizer 原有明确 `unproven` boundary
+   继续是合法收口；本批不创建 EvidenceItem、不选择/生成边、不改 Mermaid、不代写模型答案。新增正负臂
+   覆盖“两岛仍开→模型发出 typed bridge 后关闭”、stage 四节点+carrier 两节点、共享技术节点连接、
+   stage alias、局部事实/明确边界和既有多跳关系。
+6. Trace 回放保留 5.000–5.007s 显式窗、`Trace 因果投影`、链上 0.800ms runnable 席、实际占时与
+   规则计价双轴、VerifyClass 业务线索和背景隔离。模型在 typed `frame causality unproven` 下仍把候选写成
+   “直接瓶颈”，并复制少量协议字段；现有上下文已经给出准确 authority 与读者语言指导，故记录为模型
+   措辞波动/软教学观察，不增加 raw request/model/answer 关键词硬门，也不由系统改写结论。
+7. `go test ./internal/tool -count=1` 全绿（189.155s），`go test ./internal/types -count=1` 全绿
+   （29.315s），`make` 通过。活跃流未按 4ms 或固定 age 降级；本批不改 Trace 查询、因果投影、
+   自动补齐、JSON 恢复或流式 liveness。
+
+状态：
+
+`B1156-SAMEPARTICIPANTBINDINGSTARVATION1=production-closed-r726`；
+`B1157-REQUIREDPARTICIPANTCOMPONENTCONNECTIVITY1=implemented/completion+finalizer-typed-connectivity+pinned/pending-replay`；
+`B1155-CALLRESULTCONSUMERVALUEPATH1=implemented/no-production-trigger-r726`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace

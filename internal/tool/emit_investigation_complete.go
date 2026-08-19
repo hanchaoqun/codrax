@@ -3788,6 +3788,20 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 			missing = append(missing, strings.TrimSpace(participant.Identity))
 		}
 	}
+	if len(missing) > 0 || len(participants) < 2 {
+		return missing
+	}
+	// Ordinary incident coverage can be satisfied by several disconnected
+	// two-party islands. For a required source-flow diagram, completion gets one
+	// bounded chance to investigate a typed bridge into the largest stable
+	// participant component. This is navigation authority only: final answer
+	// validation still accepts explicit unproven boundaries and no edge is
+	// synthesized here.
+	for i, participant := range participants {
+		if !relationScope.completionParticipantConnectedCovered(i) {
+			missing = append(missing, strings.TrimSpace(participant.Identity))
+		}
+	}
 	return missing
 }
 

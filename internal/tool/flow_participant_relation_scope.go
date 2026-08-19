@@ -21,9 +21,16 @@ import (
 type flowParticipantRelationScope struct {
 	participantCovered              []bool
 	participantRequestScopedCovered []bool
-	participantLocalOperation       []bool
-	operationRelevant               []bool
-	requestScopedSubsetIncomplete   bool
+	// participantPrincipalComponentCovered is completion-navigation
+	// authority only. It identifies the largest typed connected group of
+	// requested participants after ordinary per-participant coverage succeeds.
+	// Final answer validation deliberately keeps participantCovered plus
+	// explicit unproven boundaries, so an honest disconnected diagram can
+	// still converge without the system inventing a bridge.
+	participantPrincipalComponentCovered []bool
+	participantLocalOperation            []bool
+	operationRelevant                    []bool
+	requestScopedSubsetIncomplete        bool
 }
 
 // FlowParticipantRelationCoverage is the package-boundary projection consumed
@@ -72,6 +79,18 @@ func (s flowParticipantRelationScope) effectiveParticipantCovered(participantInd
 	return s.participantCovered[participantIndex]
 }
 
+// completionParticipantConnectedCovered is stricter than ordinary incident
+// coverage only for the completion navigator. A required multi-participant
+// flow is not fully investigated merely because every participant belongs to
+// some two-party island. The largest stable typed component remains the
+// explored frontier and participants outside it receive one bounded bridge
+// pass. This method never creates relation evidence and is not consumed by the
+// final answer validator.
+func (s flowParticipantRelationScope) completionParticipantConnectedCovered(participantIndex int) bool {
+	return participantIndex >= 0 && participantIndex < len(s.participantPrincipalComponentCovered) &&
+		s.participantPrincipalComponentCovered[participantIndex]
+}
+
 type flowParticipantRelationEdge struct {
 	from         string
 	to           string
@@ -103,9 +122,10 @@ func buildFlowParticipantRelationScope(
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) flowParticipantRelationScope {
 	scope := flowParticipantRelationScope{
-		participantCovered:              make([]bool, len(participants)),
-		participantRequestScopedCovered: make([]bool, len(participants)),
-		participantLocalOperation:       make([]bool, len(participants)),
+		participantCovered:                   make([]bool, len(participants)),
+		participantRequestScopedCovered:      make([]bool, len(participants)),
+		participantPrincipalComponentCovered: make([]bool, len(participants)),
+		participantLocalOperation:            make([]bool, len(participants)),
 	}
 	operations := types.FlowOperationEvidenceForRequest(evidence, rm)
 	scope.operationRelevant = make([]bool, len(operations))
@@ -324,6 +344,80 @@ func buildFlowParticipantRelationScope(
 	}
 	scope.requestScopedSubsetIncomplete = requestScopedCovered > 0 &&
 		requestScopedCovered < incidentParticipants
+
+	// Build a second, participant-level connectivity view. A uniquely matched
+	// participant may legitimately bridge multiple technical endpoint
+	// components, so union participant identities that occur in the same typed
+	// relation component. Keep only the largest group as the stable explored
+	// frontier; ties resolve to the earliest request participant. The caller
+	// uses this only after ordinary coverage is complete.
+	participantParent := make([]int, len(participants))
+	for i := range participantParent {
+		participantParent[i] = i
+	}
+	var participantFind func(int) int
+	participantFind = func(v int) int {
+		if participantParent[v] != v {
+			participantParent[v] = participantFind(participantParent[v])
+		}
+		return participantParent[v]
+	}
+	participantUnion := func(a, b int) {
+		a, b = participantFind(a), participantFind(b)
+		if a != b {
+			participantParent[b] = a
+		}
+	}
+	for _, members := range componentParticipants {
+		if len(members) < minimumParticipants {
+			continue
+		}
+		first := -1
+		for participantIndex := range members {
+			if participantIndex < 0 || participantIndex >= len(scope.participantCovered) ||
+				!scope.participantCovered[participantIndex] {
+				continue
+			}
+			if first < 0 {
+				first = participantIndex
+				continue
+			}
+			participantUnion(first, participantIndex)
+		}
+	}
+	type participantGroup struct {
+		members  []int
+		earliest int
+	}
+	groups := make(map[int]*participantGroup)
+	for i, participant := range participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired ||
+			i >= len(scope.participantCovered) || !scope.participantCovered[i] {
+			continue
+		}
+		root := participantFind(i)
+		group := groups[root]
+		if group == nil {
+			group = &participantGroup{earliest: i}
+			groups[root] = group
+		}
+		group.members = append(group.members, i)
+		if i < group.earliest {
+			group.earliest = i
+		}
+	}
+	var principal *participantGroup
+	for _, group := range groups {
+		if principal == nil || len(group.members) > len(principal.members) ||
+			(len(group.members) == len(principal.members) && group.earliest < principal.earliest) {
+			principal = group
+		}
+	}
+	if principal != nil {
+		for _, participantIndex := range principal.members {
+			scope.participantPrincipalComponentCovered[participantIndex] = true
+		}
+	}
 	for edgeIndex, edge := range edges {
 		if edge.operation == nil || edge.index < 0 || edge.index >= len(scope.operationRelevant) {
 			continue

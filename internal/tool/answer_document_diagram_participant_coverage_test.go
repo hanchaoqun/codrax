@@ -562,6 +562,10 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 	}
 	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
 		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	rm.AnalyzerHints.EntityProvenance = []types.EntityProvenance{{
+		Surface: "Extractor", ResolvedAs: "types.AgentExtractor",
+		Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true,
+	}}
 	surfaces := make([][]string, len(participants))
 	for i := range participants {
 		surfaces[i] = []string{participants[i].Identity}
@@ -582,6 +586,20 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 		argument("types.AgentExtractor"),
 		diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective"),
 	}
+	splitScope := buildFlowParticipantRelationScope(rm, participants, surfaces, []types.EvidenceItem{
+		carrier,
+		diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective"),
+	}, precedence)
+	for i := 0; i < 4; i++ {
+		if !splitScope.participantCovered[i] || !splitScope.completionParticipantConnectedCovered(i) {
+			t.Fatalf("verified stage participant %s should remain in the principal completion component: %+v", participants[i].Identity, splitScope)
+		}
+	}
+	for i := 4; i < len(participants); i++ {
+		if !splitScope.participantCovered[i] || splitScope.completionParticipantConnectedCovered(i) {
+			t.Fatalf("disconnected carrier participant %s must stay open for a typed bridge pass: %+v", participants[i].Identity, splitScope)
+		}
+	}
 	scope := buildFlowParticipantRelationScope(rm, participants, surfaces, evidence, precedence)
 	for i, covered := range scope.participantCovered {
 		if !covered {
@@ -589,6 +607,9 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 		}
 		if !scope.participantRequestScopedCovered[i] {
 			t.Fatalf("participant %s should inherit request-scoped authority through the exact carrier bridge: %+v", participants[i].Identity, scope)
+		}
+		if !scope.completionParticipantConnectedCovered(i) {
+			t.Fatalf("participant %s should join the one connected completion component: %+v", participants[i].Identity, scope)
 		}
 	}
 	if scope.requestScopedSubsetIncomplete {
@@ -598,6 +619,53 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 		if !relevant {
 			t.Fatalf("operation %d should contribute to a requested relation component: %+v", i, scope)
 		}
+	}
+
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart LR",
+			" Analyzer[\"Analyzer\"] --> Explorer[\"Explorer\"] --> Extractor[\"Extractor\"] --> Finalizer[\"Finalizer\"]",
+			" BusContext[\"BusContext\"] --> BuildAgentContext[\"构造阶段上下文\"] --> Mutable[\"Mutable\"]",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "Explorer", ToNode: "Extractor", FromIdentity: "explorer", ToIdentity: "extractor", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "Extractor", ToNode: "Finalizer", FromIdentity: "extractor", ToIdentity: "finalizer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "BusContext", ToNode: "BuildAgentContext", FromIdentity: "o.busCtx", ToIdentity: "BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+			{FromNode: "BuildAgentContext", ToNode: "Mutable", FromIdentity: "BuildAgentContext", ToIdentity: "bus.Mutable.Objective", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	mismatches := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...)
+	if len(mismatches) != 2 || mismatches[0].Issue != DiagramParticipantCoverageComponentSplit ||
+		mismatches[1].Issue != DiagramParticipantCoverageComponentSplit ||
+		!((mismatches[0].Participant == "BusContext" && mismatches[1].Participant == "Mutable") ||
+			(mismatches[0].Participant == "Mutable" && mismatches[1].Participant == "BusContext")) {
+		t.Fatalf("typed-complete evidence must not allow the final diagram to re-split into participant islands: %+v", mismatches)
+	}
+	guidance := diagramParticipantCoverageCandidateGuidance(rm, mismatches, evidence, precedence)
+	for _, want := range []string{"typed_candidate[Extractor]", `from_identity:"types.AgentExtractor"`, `to_identity:"BuildAgentContext"`} {
+		if !strings.Contains(guidance, want) {
+			t.Fatalf("component-join repair must publish the already-proved principal-side bridge %q:\n%s", want, guidance)
+		}
+	}
+
+	// Rendering the already-proved Extractor argument edge through the shared
+	// technical handoff node joins both islands. No system-authored edge or
+	// participant retarget is needed.
+	doc.Blocks[0].Diagram.Body += "\n Extractor --> BuildAgentContext"
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, types.DiagramEdgeAnchor{
+		FromNode: "Extractor", ToNode: "BuildAgentContext",
+		FromIdentity: "types.AgentExtractor", ToIdentity: "BuildAgentContext",
+		RelationKind: types.DiagramRelArgumentFlow,
+	})
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
+		t.Fatalf("one model-authored typed bridge through a shared technical node should close the visible graph: %+v", got)
 	}
 }
 

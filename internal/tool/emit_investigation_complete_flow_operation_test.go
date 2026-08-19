@@ -2834,6 +2834,38 @@ func TestFlowParticipantCoverageAcceptsTypedMultiHopRelationComponent(t *testing
 	}
 }
 
+func TestFlowParticipantCompletionKeepsDisconnectedTypedIslandsOpen(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "ToolA.Execute", "ToolB.Accept", 40),
+		flowOperationEvidence(types.AnchorCall, "ToolC.Execute", "ToolD.Accept", 41),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"ToolA", "ToolB", "ToolC", "ToolD"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolB", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolC", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "ToolD", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+
+	missing := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence())
+	if flowTestSliceContains(missing, "ToolA") || flowTestSliceContains(missing, "ToolB") ||
+		!flowTestSliceContains(missing, "ToolC") || !flowTestSliceContains(missing, "ToolD") {
+		t.Fatalf("completion should retain the earliest equal-sized typed island and request a bridge for the other: %v", missing)
+	}
+
+	// One model-authored typed bridge joins the two already valid islands. The
+	// completion gate observes it but never synthesizes it.
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "ToolB.Accept", "ToolC.Execute", 42),
+	})
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("one typed bridge should close connected participant coverage: %v", got)
+	}
+}
+
 func TestFlowSelectedCallResultRequiresExactWholeValueConsumer(t *testing.T) {
 	repo := t.TempDir()
 	const source = "src/pipeline.go"
