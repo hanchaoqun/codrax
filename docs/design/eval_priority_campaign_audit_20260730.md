@@ -35715,6 +35715,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1153 B1161：关系图组件门补齐 executable typed join frontier（2026-08-19）
+
+1. r728 QF 的 8 次 finalizer 拒绝不是单一模型波动。前五次依次修正未证 Orchestrator→stage 边、缺 relation
+   anchor、参与者身份不可见、candidate exact identity 丢失、stale boundary；后续三次稳定停在
+   `typed_requested_component_not_connected`。此时 Analyzer→Explorer→Extractor→Finalizer 是一岛，
+   BusContext→BuildAgentContext→Mutable 是另一岛。
+2. “参与者已有 typed incident edge，所以 unproven boundary 已 stale”与“全图仍有两个组件”语义上可以同时
+   为真，并非必带/必拒的自相矛盾。真正 gap 是修复出口：component-split 硬门复用每参与者通用 top-3
+   incident roster；它可能全是岛内边或把真正 bridge 排在截断之后。模型收到“补 join”却看不到哪个 typed
+   row 跨岛，只能在技术 node id、业务 participant id 与 boundary 空/非空之间反复切换。
+3. B1161 将 typed incident candidate 保留为结构值，先从完整内部候选池计算当前 model-authored visible graph
+   的弱连通组件，再以 exact participant surface、edge anchor `from_identity/to_identity` 和 typed relation
+   选择真正跨两个组件的 frontier，最多发布 4 条 `typed_join_candidate`。候选排序截断只发生在 crossing
+   过滤之后，因此局部高排名边不再挤掉桥。
+4. component-split 硬拒现在还要求至少存在一个 executable typed join candidate。若 provider 只有隐式
+   participant-level 连通、却没有任何可复制的跨组件 relation row，则该信号只能作为探索/软指导，不能逼模型
+   猜边。这个 fail-open 不把局部边升级为完整关系，也不创建关系权威；它只是遵守“精确信号硬门必须有 typed
+   escape lane”的红线。
+5. 系统不自动选候选、不生成 Mermaid edge、不修改 answer block，也不替模型作结论。Finalizer 仍决定是否及
+   如何使用已证候选；所有已有 edge evidence gate、方向、relation kind、identity 与 Mermaid syntax 校验保持。
+   新 pin 覆盖：跨岛 Extractor→BuildAgentContext 候选优先发布并可闭图；只有岛内局部候选时不发 join frontier、
+   不触发 component-split 硬门。
+6. 本批不改 Trace/JSON/stream。显式时间窗、因果投影、自动补齐、链上-only 主因与双轴根因信息保持；活跃流
+   不按 4ms 或固定累计 age 降级。
+
+状态：
+
+`B1161-QFFINALIZERREJECTIONCHURN1=implemented/executable-typed-join-frontier+hard-gate-escape-pin/pending-replay`；
+`B1158-EXACTREADMATERIALIZATIONCONTRACT1=pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1141 r721：有限事实读者卡生产正证；耦合关系题被错误拆成独立调查车道（2026-08-18）
 
 1. 在 `main@00a89c600` 构建后严格并发恰好两个案例：

@@ -38,3 +38,11 @@ This scaffold is for human review. The runner records typed metrics and declared
    核对拒绝是否一致、提示是否可执行、patch 是否被旧关系状态反复污染。
 5. 两案都没有 active-stream 4ms/固定 age 降级，也没有系统代写结论。Read/Trace 显式窗口、因果投影、自动
    补齐和链上-only 主因路径未改。
+6. QF 八次拒绝逐轮拆解后，前五次分别是未证 Orchestrator→stage 边、参与者身份不可见、候选 exact identity
+   未复制、技术标签未呈现参与者身份、已连参与者仍保留 stale boundary；这些拒绝各自有精确信号。后续三次
+   才暴露通用 B1161：局部 incident edge 已让 boundary 变 stale，但整张图仍分成 stage 岛和 carrier 岛；
+   component-split 门要求补 join，却只重复发布每参与者前三条普通 candidate，没有发布“确实跨当前两个可见
+   组件”的 typed frontier。两条合同语义不矛盾，修复出口却不完备，导致模型在等价 node-id 形之间往返。
+7. B1161 根修从完整 typed candidate 池计算 current-visible-component crossing，最多发布 4 条
+   `typed_join_candidate`；本地 incident candidate 不得冒充 join。只有至少一个这种精确、可复制候选存在时，
+   component-split 才可硬拒绝；没有可执行出口时不得逼模型猜桥。系统仍不自动选边、加边、改图或写结论。

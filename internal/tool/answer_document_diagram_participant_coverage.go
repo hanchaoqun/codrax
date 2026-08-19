@@ -36,6 +36,21 @@ type DiagramParticipantCoverageMismatch struct {
 	Issue       DiagramParticipantCoverageIssue
 }
 
+// diagramParticipantTypedIncidentCandidate is an already-grounded relation
+// row plus the one requested-participant endpoint it may display. Keeping the
+// typed value separate from its retry-string rendering lets the component
+// gate select an executable join frontier without parsing its own prose.
+type diagramParticipantTypedIncidentCandidate struct {
+	participant             string
+	relation                types.DiagramRelationKind
+	anchor                  types.AnchorKind
+	from                    string
+	to                      string
+	location                string
+	participantEndpointSide string
+	stageAuthority          bool
+}
+
 func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
 		return nil
@@ -58,6 +73,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		parts = append(parts, "participant="+strings.TrimSpace(mismatch.Participant)+" issue="+string(mismatch.Issue))
 	}
 	candidates := diagramParticipantCoverageCandidateGuidance(
+		doc,
 		pctx.ctx.AnalysisIR.RequestModel,
 		mismatches,
 		evidence,
@@ -483,7 +499,15 @@ func DiagramParticipantCoverageMismatches(
 	// into several reader-visible islands. Require a visible join only under the
 	// precise evidence-complete signal. If source evidence itself is split or
 	// unavailable, explicit unproven boundaries remain the valid fallback.
-	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete {
+	// A component-split hard reject is actionable only when the same typed
+	// provider can publish at least one exact candidate that crosses two of the
+	// model's current visible components. Participant-level connectivity may be
+	// proved through an identity shared by several technical components; that
+	// is useful exploration authority but is not itself a copyable diagram edge.
+	// Without a crossing candidate, keep the split as an honest bounded result
+	// instead of forcing the model to guess a bridge through repeated retries.
+	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 1)
+	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete && len(joinCandidates) > 0 {
 		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, evidence, stagePrecedence)
 		existing := make(map[string]bool, len(out))
 		for _, mismatch := range out {
@@ -958,6 +982,7 @@ func diagramParticipantBlockHasVisibleSubgraph(block types.AnswerBlock, surfaces
 }
 
 func diagramParticipantCoverageCandidateGuidance(
+	doc *types.AnswerDocumentV2,
 	rm types.RequestModel,
 	mismatches []DiagramParticipantCoverageMismatch,
 	evidence []types.EvidenceItem,
@@ -980,14 +1005,260 @@ func diagramParticipantCoverageCandidateGuidance(
 	if len(failed) == 0 {
 		return ""
 	}
+	joinGuidance := ""
 	if componentSplit {
 		// A bridge can be incident to the already-visible principal component
 		// rather than to the participants reported outside it. Publish the same
-		// bounded typed roster for the whole requested frontier so the model can
-		// select that existing bridge; this still creates no edge or wording.
+		// bounded typed roster for the whole requested frontier, but lead with the
+		// subset that actually crosses two current visible components. This still
+		// creates no edge or wording.
+		joinGuidance = diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4)
 		failed = nil
 	}
-	return flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 3)
+	incidentGuidance := flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 3)
+	if joinGuidance == "" {
+		return incidentGuidance
+	}
+	if incidentGuidance == "" {
+		return joinGuidance
+	}
+	return joinGuidance + "; " + incidentGuidance
+}
+
+type diagramParticipantVisibleComponentIndex struct {
+	blockID       string
+	nodeComponent map[string]int
+	labels        map[string]string
+	anchors       []types.DiagramEdgeAnchor
+}
+
+// diagramParticipantTypedJoinCandidateGuidance publishes only candidates that
+// cross two components already visible in the current model-authored diagram.
+// The crossing predicate is computed from parsed node IDs, typed anchor
+// identities, and the analyzer's typed participant surfaces; it never reads
+// labels or prose as relation authority and never chooses an edge for the
+// model.
+func diagramParticipantTypedJoinCandidateGuidance(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	limit int,
+) string {
+	candidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, limit)
+	rows := make([]string, 0, len(candidates))
+	for i, candidate := range candidates {
+		rows = append(rows, fmt.Sprintf("typed_join_candidate[%d]=%s", i+1,
+			renderDiagramParticipantTypedIncidentCandidate(candidate, rm.Language)))
+	}
+	return strings.Join(rows, "; ")
+}
+
+func diagramParticipantTypedJoinCandidates(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	limit int,
+) []diagramParticipantTypedIncidentCandidate {
+	if doc == nil || rm.DiagramHint == nil || limit <= 0 {
+		return nil
+	}
+	obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+	if len(obligations) < 2 {
+		return nil
+	}
+	indexes := diagramParticipantVisibleComponentIndexes(doc)
+	if len(indexes) == 0 {
+		return nil
+	}
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	// Build the complete internal candidate pool, then bound only the exact
+	// crossing rows published to the model. This avoids hiding a useful bridge
+	// behind three higher-ranked local incident edges.
+	poolLimit := len(evidence) + len(stagePrecedence) + 1
+	if poolLimit < 8 {
+		poolLimit = 8
+	}
+	seen := make(map[string]bool)
+	out := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
+	for obligationIndex, obligation := range obligations {
+		candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+			rm, obligation, evidence, stagePrecedence, poolLimit,
+			obligations, allSurfaces, obligationIndex, relationScope,
+		)
+		for _, candidate := range candidates {
+			if !diagramParticipantTypedCandidateCrossesVisibleComponents(candidate, allSurfaces[obligationIndex], indexes) {
+				continue
+			}
+			key := strings.ToLower(candidate.participant + "\x00" + string(candidate.relation) + "\x00" +
+				candidate.from + "\x00" + candidate.to + "\x00" + candidate.participantEndpointSide)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, candidate)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func diagramParticipantVisibleComponentIndexes(doc *types.AnswerDocumentV2) []diagramParticipantVisibleComponentIndex {
+	if doc == nil {
+		return nil
+	}
+	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	out := make([]diagramParticipantVisibleComponentIndex, 0)
+	for blockIndex := range doc.Blocks {
+		block := &doc.Blocks[blockIndex]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
+		typedRelations := diagramTypedAnchorRelationSet(anchors)
+		nodeIndex := make(map[string]int)
+		ordered := make([]string, 0)
+		parent := make([]int, 0)
+		ensureNode := func(raw string) int {
+			key := strings.ToLower(strings.TrimSpace(raw))
+			if index, ok := nodeIndex[key]; ok {
+				return index
+			}
+			index := len(ordered)
+			nodeIndex[key] = index
+			ordered = append(ordered, key)
+			parent = append(parent, index)
+			return index
+		}
+		var find func(int) int
+		find = func(v int) int {
+			if parent[v] != v {
+				parent[v] = find(parent[v])
+			}
+			return parent[v]
+		}
+		union := func(a, b int) {
+			a, b = find(a), find(b)
+			if a != b {
+				parent[b] = a
+			}
+		}
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
+				continue
+			}
+			union(ensureNode(edge.From), ensureNode(edge.To))
+		}
+		if len(ordered) == 0 {
+			continue
+		}
+		components := make(map[string]int, len(ordered))
+		for i, node := range ordered {
+			components[node] = find(i)
+		}
+		out = append(out, diagramParticipantVisibleComponentIndex{
+			blockID: strings.TrimSpace(block.ID), nodeComponent: components,
+			labels: diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind), anchors: anchors,
+		})
+	}
+	return out
+}
+
+func diagramParticipantTypedCandidateCrossesVisibleComponents(
+	candidate diagramParticipantTypedIncidentCandidate,
+	participantSurfaces []string,
+	indexes []diagramParticipantVisibleComponentIndex,
+) bool {
+	for _, index := range indexes {
+		participantComponents := diagramParticipantVisibleComponentsForParticipant(index, participantSurfaces)
+		if len(participantComponents) == 0 {
+			continue
+		}
+		fromComponents := diagramParticipantVisibleComponentsForIdentity(index, candidate.from)
+		toComponents := diagramParticipantVisibleComponentsForIdentity(index, candidate.to)
+		switch candidate.participantEndpointSide {
+		case "from":
+			fromComponents = participantComponents
+		case "to":
+			toComponents = participantComponents
+		case "from_or_to":
+			if diagramParticipantComponentSetsDiffer(participantComponents, toComponents) ||
+				diagramParticipantComponentSetsDiffer(fromComponents, participantComponents) {
+				return true
+			}
+			continue
+		default:
+			continue
+		}
+		if diagramParticipantComponentSetsDiffer(fromComponents, toComponents) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramParticipantVisibleComponentsForParticipant(
+	index diagramParticipantVisibleComponentIndex,
+	surfaces []string,
+) map[int]bool {
+	out := make(map[int]bool)
+	for node, component := range index.nodeComponent {
+		if diagramParticipantEndpointExplicitlyDisplaysIdentity(surfaces, node, index.labels) {
+			out[component] = true
+		}
+	}
+	return out
+}
+
+func diagramParticipantVisibleComponentsForIdentity(
+	index diagramParticipantVisibleComponentIndex,
+	identity string,
+) map[int]bool {
+	out := make(map[int]bool)
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return out
+	}
+	add := func(node string) {
+		if component, ok := index.nodeComponent[strings.ToLower(strings.TrimSpace(node))]; ok {
+			out[component] = true
+		}
+	}
+	for _, anchor := range index.anchors {
+		if diagramParticipantTypedIdentityEquivalent(identity, anchor.FromIdentity) {
+			add(anchor.FromNode)
+		}
+		if diagramParticipantTypedIdentityEquivalent(identity, anchor.ToIdentity) {
+			add(anchor.ToNode)
+		}
+	}
+	for node := range index.nodeComponent {
+		if diagramParticipantTypedIdentityEquivalent(identity, node) ||
+			diagramParticipantTypedIdentityEquivalent(identity, index.labels[node]) {
+			add(node)
+		}
+	}
+	return out
+}
+
+func diagramParticipantTypedIdentityEquivalent(left, right string) bool {
+	left, right = strings.TrimSpace(left), strings.TrimSpace(right)
+	return left != "" && right != "" &&
+		(strings.EqualFold(left, right) || types.AnswerCodeIdentitySurfacesEquivalent(left, right))
+}
+
+func diagramParticipantComponentSetsDiffer(left, right map[int]bool) bool {
+	for leftComponent := range left {
+		for rightComponent := range right {
+			if leftComponent != rightComponent {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // FlowParticipantTypedIncidentCandidateGuidance publishes the same bounded,
@@ -1094,6 +1365,28 @@ func diagramParticipantTypedIncidentCandidatesWithScope(
 	obligationIndex int,
 	relationScope flowParticipantRelationScope,
 ) []string {
+	candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+		rm, obligation, evidence, stagePrecedence, limit,
+		obligations, allSurfaces, obligationIndex, relationScope,
+	)
+	rows := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		rows = append(rows, renderDiagramParticipantTypedIncidentCandidate(candidate, rm.Language))
+	}
+	return rows
+}
+
+func diagramParticipantTypedIncidentCandidateValuesWithScope(
+	rm types.RequestModel,
+	obligation types.DiagramParticipantHint,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	limit int,
+	obligations []types.DiagramParticipantHint,
+	allSurfaces [][]string,
+	obligationIndex int,
+	relationScope flowParticipantRelationScope,
+) []diagramParticipantTypedIncidentCandidate {
 	if limit <= 0 {
 		return nil
 	}
@@ -1111,16 +1404,7 @@ func diagramParticipantTypedIncidentCandidatesWithScope(
 		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, obligation)...)
 	}
 	seen := make(map[string]bool)
-	type typedIncidentCandidate struct {
-		relation                types.DiagramRelationKind
-		anchor                  types.AnchorKind
-		from                    string
-		to                      string
-		location                string
-		participantEndpointSide string
-		stageAuthority          bool
-	}
-	candidates := make([]typedIncidentCandidate, 0, limit)
+	candidates := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
 	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide string, stageAuthority bool) {
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 		participantEndpointSide = strings.TrimSpace(participantEndpointSide)
@@ -1132,8 +1416,9 @@ func diagramParticipantTypedIncidentCandidatesWithScope(
 			return
 		}
 		seen[key] = true
-		candidates = append(candidates, typedIncidentCandidate{
-			relation: relation, anchor: anchor, from: from, to: to, location: location,
+		candidates = append(candidates, diagramParticipantTypedIncidentCandidate{
+			participant: strings.TrimSpace(obligation.Identity),
+			relation:    relation, anchor: anchor, from: from, to: to, location: location,
 			participantEndpointSide: participantEndpointSide, stageAuthority: stageAuthority,
 		})
 	}
@@ -1197,13 +1482,13 @@ func diagramParticipantTypedIncidentCandidatesWithScope(
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
 	}
-	rows := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		rows = append(rows, fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
-			strconv.Quote(string(candidate.relation)), strconv.Quote(diagramParticipantReaderArrowLabel(candidate.relation, rm.Language)), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(strings.TrimSpace(obligation.Identity)), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.location),
-			strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(string(candidate.relation))))
-	}
-	return rows
+	return candidates
+}
+
+func renderDiagramParticipantTypedIncidentCandidate(candidate diagramParticipantTypedIncidentCandidate, language string) string {
+	return fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+		strconv.Quote(string(candidate.relation)), strconv.Quote(diagramParticipantReaderArrowLabel(candidate.relation, language)), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.participant), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.location),
+		strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(string(candidate.relation)))
 }
 
 // diagramParticipantTypedCandidateRank orders only already-grounded typed

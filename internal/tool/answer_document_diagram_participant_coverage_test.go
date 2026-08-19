@@ -641,6 +641,18 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 			{FromNode: "BuildAgentContext", ToNode: "Mutable", FromIdentity: "BuildAgentContext", ToIdentity: "bus.Mutable.Objective", RelationKind: types.DiagramRelCall},
 		},
 	}}}
+	noBridgeEvidence := []types.EvidenceItem{
+		carrier,
+		diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective"),
+	}
+	if got := diagramParticipantTypedJoinCandidates(doc, rm, noBridgeEvidence, precedence, 4); len(got) != 0 {
+		t.Fatalf("local incident candidates must not be published as a cross-component repair frontier: %+v", got)
+	}
+	for _, mismatch := range DiagramParticipantCoverageMismatches(doc, view, rm, noBridgeEvidence, precedence...) {
+		if mismatch.Issue == DiagramParticipantCoverageComponentSplit {
+			t.Fatalf("component hard gate must not fire without an executable typed join candidate: %+v", mismatch)
+		}
+	}
 	mismatches := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...)
 	if len(mismatches) != 2 || mismatches[0].Issue != DiagramParticipantCoverageComponentSplit ||
 		mismatches[1].Issue != DiagramParticipantCoverageComponentSplit ||
@@ -648,8 +660,8 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 			(mismatches[0].Participant == "Mutable" && mismatches[1].Participant == "BusContext")) {
 		t.Fatalf("typed-complete evidence must not allow the final diagram to re-split into participant islands: %+v", mismatches)
 	}
-	guidance := diagramParticipantCoverageCandidateGuidance(rm, mismatches, evidence, precedence)
-	for _, want := range []string{"typed_candidate[Extractor]", `from_identity:"types.AgentExtractor"`, `to_identity:"BuildAgentContext"`} {
+	guidance := diagramParticipantCoverageCandidateGuidance(doc, rm, mismatches, evidence, precedence)
+	for _, want := range []string{"typed_join_candidate[1]", `participant_node_id:"Extractor"`, `from_identity:"types.AgentExtractor"`, `to_identity:"BuildAgentContext"`} {
 		if !strings.Contains(guidance, want) {
 			t.Fatalf("component-join repair must publish the already-proved principal-side bridge %q:\n%s", want, guidance)
 		}
