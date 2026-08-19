@@ -7097,6 +7097,60 @@ func TestImpactObligationRepairFollowupDoesNotLetTargetBehaviorBlanketSignFallba
 	}
 }
 
+func TestNormalizeControllerTypedStateDecisionPassedReplanDoesNotLetStaleFailureHandoffSuppressProofFollowup(t *testing.T) {
+	mu := types.NewMutableState("passed replan with retained failure handoff")
+	plan := &types.ChangePlan{
+		ID:          "plan-repair-2",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"fastlex/tokenizer.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-newline-collapse",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "newline run reaches the pair merge token",
+			Required: true,
+			Source:   types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+		}},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults:      []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-test", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{Runner: "make", Suite: "check", Outcome: "executed", ExitCode: 0}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "fastlex/tokenizer.py", Status: types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationProjectRunner, Capability: types.VerificationCapabilityTargetBehavior,
+		}},
+	}
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{BatchID: "batch-1", Attempt: 1})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-replan-proof", Status: types.WriteWorkflowRunInProgress, ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{
+				{Kind: "apply", Status: "applied", PlanID: "plan-repair-1"},
+				{Kind: "verify", Status: "failed", ReasonCode: "tests_failed", PlanID: "plan-repair-1"},
+				{Kind: "apply", Status: "applied", PlanID: plan.ID},
+				{Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID},
+			},
+		}},
+	}
+
+	got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, ReasonCode: "batch_complete_and_verified",
+	}, run)
+	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil || got.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("new passed generation must schedule missing typed proof despite the retired failure handoff: %+v", got)
+	}
+	if !strings.Contains(strings.Join(got.Batch.SuccessCriteria, "\n"), "contract_ref=outcome-newline-collapse") {
+		t.Fatalf("proof follow-up lost the new generation contract identity: %+v", got.Batch.SuccessCriteria)
+	}
+}
+
 func TestNewImpactRepairFollowupBatchKeepsSourceStaticLaneAcrossDiscoveryEntrypoints(t *testing.T) {
 	items := []impactRepairQueueItem{{
 		Code:          "production_path_source_static_only",

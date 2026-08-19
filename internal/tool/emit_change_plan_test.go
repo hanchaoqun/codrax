@@ -190,6 +190,26 @@ func TestEnrichVerificationProbeRefsUsesUniqueImportedChangedPath(t *testing.T) 
 	}
 }
 
+func TestEnrichVerificationProbeRefsAppendsUniqueImportedPathBesideExistingSymbols(t *testing.T) {
+	plan := &types.ChangePlan{
+		TargetPaths: []string{"fastlex/tokenizer.py"},
+		Changes:     []types.FileChange{{Path: "fastlex/tokenizer.py", Kind: "patch"}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "tokenizer-probe",
+			Language:          "python",
+			Code:              "from fastlex.tokenizer import FastTokenizer\nassert FastTokenizer is not None",
+			ChangedSymbolRefs: []string{"fastlex.tokenizer", "FastTokenizer._tokenize_slow"},
+		}},
+	}
+
+	enrichVerificationProbeRefs("", plan)
+	got := plan.VerificationProbes[0].ChangedSymbolRefs
+	want := []string{"fastlex.tokenizer", "FastTokenizer._tokenize_slow", "path:fastlex/tokenizer.py"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unique imported path should supplement existing symbol refs: got %#v, want %#v", got, want)
+	}
+}
+
 func TestEnrichVerificationProbeRefsDoesNotGuessAmbiguousImportedPaths(t *testing.T) {
 	plan := &types.ChangePlan{
 		TargetPaths: []string{"fastlex/tokenizer.py", "fastlex/encoder.py"},
@@ -211,6 +231,28 @@ func TestEnrichVerificationProbeRefsDoesNotGuessAmbiguousImportedPaths(t *testin
 	enrichVerificationProbeRefs("", plan)
 	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 0 {
 		t.Fatalf("ambiguous package import must not mint a changed target identity, got %#v", got)
+	}
+}
+
+func TestEnrichVerificationProbeRefsPreservesExistingSymbolsForAmbiguousImports(t *testing.T) {
+	plan := &types.ChangePlan{
+		TargetPaths: []string{"fastlex/tokenizer.py", "fastlex/encoder.py"},
+		Changes: []types.FileChange{
+			{Path: "fastlex/tokenizer.py", Kind: "patch"},
+			{Path: "fastlex/encoder.py", Kind: "patch"},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "package-probe",
+			Language:          "python",
+			Code:              "import fastlex\nassert fastlex is not None",
+			ChangedSymbolRefs: []string{"FastTokenizer._tokenize_slow"},
+		}},
+	}
+
+	enrichVerificationProbeRefs("", plan)
+	got := plan.VerificationProbes[0].ChangedSymbolRefs
+	if len(got) != 1 || got[0] != "FastTokenizer._tokenize_slow" {
+		t.Fatalf("ambiguous import must preserve symbols without minting a path: %#v", got)
 	}
 }
 
@@ -718,7 +760,8 @@ func TestEmitChangePlan_MergesChangeLocalVerificationProbes(t *testing.T) {
 		t.Fatalf("change-local verification probes were not merged: %+v", plan.VerificationProbes)
 	}
 	probe := plan.VerificationProbes[0]
-	if probe.ID != "value_contract" || len(probe.ChangedSymbolRefs) != 1 || probe.ChangedSymbolRefs[0] != "widget.VALUE" {
+	if probe.ID != "value_contract" ||
+		strings.Join(probe.ChangedSymbolRefs, "\x00") != "widget.VALUE\x00path:widget.py" {
 		t.Fatalf("unexpected merged probe: %+v", probe)
 	}
 }
@@ -934,7 +977,7 @@ func TestEmitChangePlan_PersistsBehaviorContractsAndProbeRefs(t *testing.T) {
 	if len(probe.PlacementRefs) != 1 || probe.PlacementRefs[0] != "widget-value" {
 		t.Fatalf("placement refs not preserved: %+v", probe)
 	}
-	if len(probe.ChangedSymbolRefs) != 1 || probe.ChangedSymbolRefs[0] != "widget.VALUE" || !probe.ExpectsBaselineFailure {
+	if strings.Join(probe.ChangedSymbolRefs, "\x00") != "widget.VALUE\x00path:widget.py" || !probe.ExpectsBaselineFailure {
 		t.Fatalf("changed-symbol/baseline metadata not preserved: %+v", probe)
 	}
 }

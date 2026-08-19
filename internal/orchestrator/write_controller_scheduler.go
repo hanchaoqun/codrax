@@ -6438,7 +6438,7 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	}
 	if activeBatchProofFollowupPurpose(run) &&
 		activeBatchCompletedWithUnverifiedVerdict(run) &&
-		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
+		!activeBatchHasCurrentVerifyFailureHandoff(o.busCtx.Mutable, run, batchID) &&
 		(decision.Action == writeflow.ActionFinish ||
 			decision.Action == writeflow.ActionReplanBatch ||
 			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
@@ -6467,7 +6467,7 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		repairBatch = nil
 	}
 	if activeBatchCompletedWithNonFailedVerifierVerdict(run) &&
-		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
+		!activeBatchHasCurrentVerifyFailureHandoff(o.busCtx.Mutable, run, batchID) &&
 		repairBatch != nil &&
 		(decision.Action == writeflow.ActionFinish ||
 			decision.Action == writeflow.ActionReplanBatch ||
@@ -6497,7 +6497,7 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	}
 	if decision.Action == writeflow.ActionReplanBatch &&
 		activeBatchCompletedWithUnverifiedVerdict(run) &&
-		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) {
+		!activeBatchHasCurrentVerifyFailureHandoff(o.busCtx.Mutable, run, batchID) {
 		appendControllerProgress(run, batchID, "replan_without_failure_evidence_overridden",
 			"controller replan_batch suppressed because the active batch completed with a typed unverified verdict and no failed-verification handoff")
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
@@ -6508,7 +6508,7 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		})
 	}
 	if activeBatchCompletedWithUnverifiedVerdict(run) &&
-		!activeBatchHasVerifyFailureHandoff(o.busCtx.Mutable, batchID) &&
+		!activeBatchHasCurrentVerifyFailureHandoff(o.busCtx.Mutable, run, batchID) &&
 		controllerActionInterruptsUnverifiedCompletion(decision.Action) &&
 		o.busCtx.Mode != types.ModeVerify {
 		appendControllerProgress(run, batchID, "unverified_action_overridden",
@@ -9572,6 +9572,20 @@ func activeBatchHasVerifyFailureHandoff(mu *types.MutableState, batchID string) 
 		return strings.TrimSpace(handoff.BatchID) != ""
 	}
 	return strings.TrimSpace(handoff.BatchID) == batchID
+}
+
+// activeBatchHasCurrentVerifyFailureHandoff distinguishes an actionable
+// failed-verification generation from a stale carrier retained while a replan
+// is being verified. The Mutable handoff deliberately survives replanning so
+// the repair plan can consume it, but once the same batch has a newer passed or
+// unverified verdict it must no longer suppress typed proof follow-ups or
+// authorize further repair. The latest typed attempt owns recency; no prose or
+// heuristic signal participates.
+func activeBatchHasCurrentVerifyFailureHandoff(mu *types.MutableState, run *types.WriteWorkflowRun, batchID string) bool {
+	if !activeBatchHasVerifyFailureHandoff(mu, batchID) {
+		return false
+	}
+	return activeBatchLatestVerifyStatus(run, batchID) == "failed"
 }
 
 func (o *Orchestrator) writePlanCanProceedWithoutApprovalPause(plan *types.ChangePlan) bool {

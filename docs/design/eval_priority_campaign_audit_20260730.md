@@ -35649,6 +35649,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1185 r742：所有权方向闭环；重规划补证代际与关系候选多样性断层（2026-08-19）
+
+1. 在 `main@093a0566a` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner
+   `1 PASS / 1 FAIL`；人工读模式 partial、写模式 fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_ownership_probe_replay_r742_20260819_manual_audit.md`。
+2. B1183 获生产正证：终稿以 `BusContext` 为 subgraph、`Mutable` 为嵌套节点，旧的反向包含没有再通过。
+   该门只消费 declaration-backed owner/member 与 Mermaid hierarchy；没有系统移节点、补边或替模型写结论。
+3. 新确认 B1185/P0。写案例首补丁被真实断言击中，checkpoint restore、typed verify-failure handoff、二次
+   replan/apply 均正确；第二轮 bounded probe、`make check`、changed-path target_behavior、slice observe
+   全部通过。但终局仍为 `behavior_contract_observation_missing`。第一层根因是 probe 已从代码精确导入唯一
+   changed Python 模块，却因 planner 同时给了两个无法解析为 path 的 symbol ref，既有 enrich 只处理空 refs，
+   没追加已确定的 `path:fastlex/tokenizer.py`，通过的 probe 因而没有铸出 contract/symbol confidence rows。
+4. B1185 的第二层是合同代际：verify-failure rebase 正确退役旧 planning-only/fallback 合同，但保留 probe
+   仍只引用旧 ID；新 acceptance fallback 形成新 required ID，现有 report 无法逐 ID 覆盖。更严重的是成功
+   slice 之后已有 proof-followup 没在 finish 前接管，terminal cumulative seam 只能把 verified batch 后置降为
+   unverified。最优修复不是让 aggregate 绿测试 blanket-sign 合同，而是：(a) 唯一 import coupling 即使已有
+   unresolved refs 也追加 path identity；歧义仍 fail-closed；(b) 在 finish normalization 复用 typed proof ledger，
+   把新代次的 uncovered contract 路由到现有 bounded proof-followup，让 planner 按 exact contract_ref 重绑。
+5. 新确认 B1186/P1。读案例的最终图只保留 analyzer→explorer→extractor→finalizer 三条 precedence，
+   `Extractor/Mutable` 的真实交互被删。证据中已有
+   `extractorEvaluator.BuildInitialInstruction -> ctx.Mutable.TurnAArtifacts`，两端都可唯一归属到用户点名的
+   `extractor` 与 `Mutable`；但每参与者候选 cap=2 被两个 stage edge 占满，双端业务关系未进入首轮/修补
+   候选。模型自行提升业务节点后被 nonincident gate 拒绝，六次成文拒绝、1194s 才以缩水图通过。
+6. B1186 采用有界多样性而非扩大 prompt：候选仍保持 cap；有 stage 与非-stage 精确关系时至少各保留一条，
+   再按既有 typed rank 填充。若同一 evidence edge 的两端分别唯一 incident 于两个 requested participants，
+   两侧候选共享 exact from/to/relation/direction，模型可选择同一可见边同时满足两席；歧义不映射，系统不选边、
+   不代画、不改答案。
+7. 本轮没有改动或执行 Trace。显式时间窗、因果投影、自动补齐、链上-only 主因、优先级反转/调度供给/
+   算力供给/D/IO/确定性语义等 typed 根因、实际占用与业务线索、规则计价可消除量双轴均保持。邻近/背景
+   仍只能支撑排查方向。两个案例都有持续 semantic bytes 远超 4ms，未发生 fixed-age 降级。
+8. B1185 已完成第一批根修。probe coupling 不再把“已有 symbol refs”误当成“无需 exact path”：唯一
+   language-aware import 命中时保留原 symbol refs 并追加去重后的 `path:<changed-production-file>`；多 changed
+   target 的 package import 仍不铸 path。另将 verify-failure handoff 的阻断语义收窄到同 batch **最新 typed
+   verify 仍为 failed**；失败后 replan 的新一代 passed/unverified verdict 不再被旧 carrier 压制，finish 会先复用
+   既有 proof ledger 生成 exact `contract_ref` 的 bounded proof-followup。没有让 project-runner/target_behavior
+   blanket-sign required contracts，也没有把旧 failure 当作新代码修复权限。唯一/歧义 coupling 与“failed→新
+   passed + 新 required contract + 陈旧 handoff”生产等形回归已钉；`internal/orchestrator` 全包通过，tool 首轮
+   完整测试仅暴露两条旧断言仍期待单 symbol ref，已按新的附加 path 合同重钉后复跑。
+
+状态：
+
+`B1183-DIAGRAMNOARROWOWNERSHIPDIRECTION1=production-positive-r742`；
+`B1185-REPLANPROBEGENERATIONAUTHORITY1=implemented/unique+ambiguous-pins-pass`；
+`B1185-PREFINISHPROOFFOLLOWUPORDER1=implemented/stale-handoff-generation-pin-pass/pending-production-replay`；
+`B1186-DIAGRAMCANDIDATEDIVERSITY1=confirmed/P1/queued-after-B1185`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1177 r738：join 优先级生产生效；空参与者让无关 helper 图形式过关（2026-08-19）
 
 1. 在 `main@020fe2f88` 重建后严格并发恰好两个案例：

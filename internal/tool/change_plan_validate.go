@@ -3564,9 +3564,6 @@ func enrichVerificationProbeChangedTargetRefsFromCoupling(repoRoot string, chang
 	}
 	out := append([]types.VerificationProbe(nil), probes...)
 	for i := range out {
-		if len(out[i].ChangedSymbolRefs) != 0 {
-			continue
-		}
 		language, ok := normalizeVerificationProbeLanguage(out[i].Language)
 		if !ok {
 			continue
@@ -3598,7 +3595,15 @@ func enrichVerificationProbeChangedTargetRefsFromCoupling(repoRoot string, chang
 			}
 		}
 		if len(matched) == 1 {
-			out[i].ChangedSymbolRefs = []string{"path:" + matched[0]}
+			// Preserve planner-authored symbol identities. A uniquely resolved
+			// import is an additional exact file identity, not a replacement for
+			// those symbols. This matters after a verify-failure replan: retained
+			// probes often already have useful symbol refs, and skipping them here
+			// would discard exact path authority the same probe code proves.
+			out[i].ChangedSymbolRefs = dedupStrings(append(
+				append([]string(nil), out[i].ChangedSymbolRefs...),
+				"path:"+matched[0],
+			))
 		}
 	}
 	return out
