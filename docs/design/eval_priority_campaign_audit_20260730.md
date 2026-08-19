@@ -35649,6 +35649,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1163 r732：断言证明保持 fail-closed，但 string-wrapper 静默丢 sibling；图标签闭环而值流仍断裂（2026-08-19）
+
+1. 在 `main@f5b98ed15` 重建后严格并发恰好两个案例：
+   `github_issue_nlohmann_long_double_symptom + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，人工均为
+   partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_assertion_reader_label_r732_20260819_manual_audit.md`。
+2. C++ 修向本轮完全正确：两份发布头均把 `%.*lg` 改成上游期望的通用格式 `%.*Lg`，实际 diff 无额外改动，
+   `make check` 通过。其唯一结果行由 Make parser 铸为 `observation_scope=aggregate, suite=check,
+   assertion_id=make-test`；Controller 两次尝试 `all_verified` 均未越过确定性终验，最终保持
+   `unverified/verification_proof_incomplete`。这证明 B1165 的 fail-closed 下界生效，但还不能给 assertion-level
+   exact join 记生产正证。
+3. 新确认 `B1168/P0`：Planner 实际把 `acceptance_tests` 和三条 `project_test_observations` 塞进
+   string-wrapped `changes` 的尾部。`repairSelectedStringWrappedArrayFields` 能从该字符串解析完整 sibling object，
+   但回写时只复制最初选中的 `changes`，把同时恢复出的两个 schema-owned sibling 数组静默丢弃；日志随即显示
+   `tests=0 probes=0`，持久化 ChangePlan 也完全没有 observation。它违反 compatibility 层“结构修复不得删模型字段”
+   红线。最优根修是在 selected allowlist 内无损合并同一次恢复得到的 sibling keys；外层已存在值继续优先，冲突或
+   非 allowlist 形 fail-loud，不得只恢复一个前缀数组后把尾部当垃圾。
+4. B1166 获真实生产正证。QF 第一稿同时在 anchor/body 显示 raw `precedence`，exact 一对一 typed equality 门拒绝；
+   最终边标签全部由模型改成“顺序进入/调用/传入参数/派发”。系统没有翻译、写入、删除、反转或重连任何边，
+   Trace 图仍显式退出。因此“内部 relation enum 不直出”与“模型拥有可见文案”两条边界同时成立。
+5. QF 的语义闭环仍为 partial：终图包含四阶段 precedence、`BuildInitialInstruction -> Mutable`、
+   `BusContext -> BuildAgentContext` 和两条 orchestrator dispatch，但四组仍是孤岛；正文所说“阶段经共享状态传递”
+   没有图上 typed cross-component value-flow。B1167 继续按 assignment/argument/data-flow/return/call/precedence 的
+   跨语言组合证据解决，禁止系统根据正文或节点名补桥、代画或替模型得出数据流结论。
+6. 新确认 `B1169/P1`：QF 用时 727s、7 次 finalizer reject、24 次 midloop，最大上下文 128,562 tokens
+   （64%）。一次 patch-local 失败会重复注入约 28KB 的全量关系合同/候选；模型依次修 Mutable、analyzer、
+   BusContext 的 endpoint mapping，前一轮完整说明又进入下一轮，形成合同认知负担和级联试错。应把 repair handoff
+   收敛成 schema-native 最小 delta：仅失败 edge/participant、一个或有界候选、精确 endpoint-side mapping、必须保留的
+   boundary 与不可变字段；通用长解释首轮单源一次，后续不重复。不能以放松 typed evidence gate、自动画图或扫描答案
+   文字换取少重试。
+7. r732 没有 Trace 查询、因果投影、JSON 答案降级或 active-stream timeout。QF 流持续活跃到最终结构化 patch，系统
+   没有因 4ms/固定累计 age 取旧稿；显式窗、Trace 自动补齐、链上-only 根因、实际耗时/业务线索与规则可消除量双轴
+   及模型结论权均保持。
+
+状态：
+
+`B1165-PROJECTTESTASSERTIONAUTHORITY1=fail-closed-production-positive/exact-assertion-join-replay-blocked-by-B1168`；
+`B1166-DIAGRAMTYPEDRECIPEVISIBLELABEL1=production-positive/closed`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=production-reconfirmed/P1/open`；
+`B1168-SELECTEDSTRINGWRAPPEDSIBLINGLOSS1=confirmed/P0/next`；
+`B1169-DIAGRAMREPAIRDELTA1=confirmed/P1/after-B1168`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1162 B1166：图显示标签禁止复刻 raw relation enum（2026-08-19）
 
 1. r731 说明“anchor 与 Mermaid label 字节一致”只能消除结构矛盾，不能阻止模型把
