@@ -35649,6 +35649,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1125 r712：探索预算闭环生产正证；单侧 typed identity 与多行 edit 修补断层（2026-08-18）
+
+1. 在 `main@55507a96a` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `0 PASS / 2 FAIL`，
+   人工均 fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_write_replay_r712_20260818_manual_audit.md`。
+2. B1127 获生产正证：首个 Explore dispatch 耗尽 typed tool 配额后，没有再向模型发布不可调用的
+   schema，也没有重复同一失败工具；已收集 evidence 被保留并进入下一有界调查窗。预算与 schema
+   已同源，completion obligation 仍有独立 emit-only 小预算。
+3. Read 新确认 B1130。Finalizer 收到含完整 `from_identity/to_identity/relation_kind` 的 typed recipe，
+   模型也画对可见边、方向和 participant node，但连续 patch 只复制 `to_identity`、遗漏
+   `from_identity`。旧 normalizer 只修“两侧都缺”，把所有单侧形无差别当冲突；validator 随后退回
+   broad participant identity，20 次拒绝后降级恢复旧稿。这不是关系证据缺失，也不是纯模型波动：
+   系统持有同轮唯一精确信号却未消费。
+4. B1130 冻结的安全修向只补 metadata：已有可见边、anchor 与合法 relation 必须由模型先写；已填
+   一侧须与同 relation 的唯一 typed receipt 精确等价，才补另一侧。多候选、方向冲突、未知 relation、
+   无可见边全部 fail-closed。禁止创建/删除边、换方向、改 node/label、选择关系或扫描用户/模型 prose。
+5. Write 新确认 B1129：planner 为多行 `old_text` 只给 `start_line=24`，漏 `end_line`。structured edit
+   编译器按既定安全合同把省略值解释成单行并拒绝，不能自动扩大修改范围；但 repair pack 没把已经
+   唯一匹配出的区间终点直接作为 typed 修补参数告诉模型，导致重复失败。最优方案是仅在 supplied
+   bytes 从 declared start 唯一连续匹配时披露精确 `end_line`，不自动改计划；歧义/陈旧内容继续拒绝。
+6. B1126 教学确实到达 planner，但模型提出的 probe 仍未覆盖最小触发、奇偶/相邻混合等边界，状态
+   只能记 `prompt-delivered/production-non-adherent`，不得据此新增 newline/type/case 关键词硬门。
+7. 同轮确认 B1128：Write Analyzer 在活跃字节持续到达时生成约 150k assistant bytes、耗时约
+   11m17s，随后 900s 全局墙钟在 plan repair 阶段耗尽。不能用 4ms、固定累计年龄或活跃流强杀修复；
+   后续设计只能从 typed remaining-run budget / stage reservation 分配入手，保留 caller cancel、
+   no-first-byte、byte-stall、transport/decode failure 的既有终止权。
+8. 本批审计不改 Trace 查询/投影。显式时间窗、完整 causal-diagnosis 自动补齐、链上-only 主因、
+   优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索双轴均保持；邻近/背景只能支撑额外排查，
+   系统不代写模型答案、关系或结论。
+
+状态：
+
+`B1127-EXPLOREAVAILABLESCHEMABUDGET1=production-positive-r712`；
+`B1126-WRITEBOUNDARYPARTITIONGUIDANCE1=prompt-delivered/production-non-adherent-r712`；
+`B1125-MERMAIDONESIDEDNODEREF1=production-no-regression-r712`；
+`B1130-ONESIDEDTYPEDRECEIPTIDENTITY1=confirmed/P1`；
+`B1129-STRUCTUREDEDITEXACTENDLINEREPAIR1=confirmed/P1`；
+`B1128-WRITERUNBUDGETRESERVATION1=confirmed/design-required/no-fixed-age-kill`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1083 r694：空 optional 图与时长角色生产闭环；窗外观测、内部词与关系 JSON 教学仍未闭环（2026-08-18）
 
 1. 在 `main@89a459c8c` 重建后严格并发恰好两个案例：
