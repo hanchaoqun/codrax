@@ -1691,10 +1691,73 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 		}
 		return left.participantEndpointSide < right.participantEndpointSide
 	})
-	if len(candidates) > limit {
-		candidates = candidates[:limit]
+	return boundDiagramParticipantTypedIncidentCandidates(candidates, limit)
+}
+
+// boundDiagramParticipantTypedIncidentCandidates preserves the existing hard
+// roster cap while preventing one typed authority family from consuming every
+// slot. Stage precedence and source-observed operations answer different
+// reader questions; when both exist and at least two slots are available, the
+// bounded roster retains at least one of each. Selection remains in the
+// already-established typed rank order and never creates or chooses a visible
+// edge for the model.
+func boundDiagramParticipantTypedIncidentCandidates(
+	candidates []diagramParticipantTypedIncidentCandidate,
+	limit int,
+) []diagramParticipantTypedIncidentCandidate {
+	if limit <= 0 || len(candidates) == 0 {
+		return nil
 	}
-	return candidates
+	if len(candidates) <= limit {
+		return candidates
+	}
+	if limit == 1 {
+		return candidates[:1]
+	}
+	selected := make([]bool, len(candidates))
+	stageSelected, operationSelected := false, false
+	for i := 0; i < limit; i++ {
+		selected[i] = true
+		if candidates[i].stageAuthority {
+			stageSelected = true
+		} else {
+			operationSelected = true
+		}
+	}
+	wantStage := -1
+	wantOperation := -1
+	for i, candidate := range candidates {
+		if candidate.stageAuthority && wantStage < 0 {
+			wantStage = i
+		}
+		if !candidate.stageAuthority && wantOperation < 0 {
+			wantOperation = i
+		}
+	}
+	replaceLast := func(want int) {
+		if want < 0 || selected[want] {
+			return
+		}
+		for i := len(selected) - 1; i >= 0; i-- {
+			if selected[i] {
+				selected[i] = false
+				selected[want] = true
+				return
+			}
+		}
+	}
+	if !stageSelected && wantStage >= 0 {
+		replaceLast(wantStage)
+	} else if !operationSelected && wantOperation >= 0 {
+		replaceLast(wantOperation)
+	}
+	out := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
+	for i, candidate := range candidates {
+		if selected[i] {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func renderDiagramParticipantTypedIncidentCandidate(candidate diagramParticipantTypedIncidentCandidate, language string) string {

@@ -35688,13 +35688,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    blanket-sign required contracts，也没有把旧 failure 当作新代码修复权限。唯一/歧义 coupling 与“failed→新
    passed + 新 required contract + 陈旧 handoff”生产等形回归已钉；`internal/orchestrator` 全包通过，tool 首轮
    完整测试仅暴露两条旧断言仍期待单 symbol ref，已按新的附加 path 合同重钉后复跑。
+9. B1186 已完成第二批根修。候选生成仍先按既有 typed stage authority、predicate axis、relation、location 与
+   endpoint 排序，且 `limitPerParticipant` 字节不变；仅在 cap≥2 且排序全集同时含 stage precedence 与
+   explorer-grounded operation 时，确保截断后至少各留一席。没有扩大 prompt、扫描请求/答案、提升猜测关系，
+   也没有选择或绘制边。回归以 Extractor 的两条 stage 边加
+   `Extractor.BuildInitialInstruction -> Mutable.TurnAArtifacts` 构造生产等形：Extractor 的 cap=2 保留一条
+   stage 与该 operation，Mutable 获得同一 immutable from/to/relation 的 `to` 侧候选；两个 participant 因而可由
+   模型自行选择一条业务边同时覆盖，而不是系统合成桥边。
 
 状态：
 
 `B1183-DIAGRAMNOARROWOWNERSHIPDIRECTION1=production-positive-r742`；
 `B1185-REPLANPROBEGENERATIONAUTHORITY1=implemented/unique+ambiguous-pins-pass`；
 `B1185-PREFINISHPROOFFOLLOWUPORDER1=implemented/stale-handoff-generation-pin-pass/pending-production-replay`；
-`B1186-DIAGRAMCANDIDATEDIVERSITY1=confirmed/P1/queued-after-B1185`；
+`B1186-DIAGRAMCANDIDATEDIVERSITY1=implemented/stage+operation+dual-endpoint-pin-pass/pending-production-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

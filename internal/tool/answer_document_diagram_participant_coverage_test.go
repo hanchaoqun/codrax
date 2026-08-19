@@ -457,6 +457,50 @@ func TestDiagramParticipantTypedIncidentCandidatesRankByTypedAxisBeforeBound(t *
 	}
 }
 
+func TestDiagramParticipantTypedIncidentCandidatesRetainStageAndOperationDiversityWithinCap(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants},
+	}
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+		{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"},
+	}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1], SourceFile: "internal/orchestrator/topology.go", LineStart: 10, LineEnd: 11},
+		{From: rows[1], To: rows[2], SourceFile: "internal/orchestrator/topology.go", LineStart: 11, LineEnd: 12},
+	}
+	operation := diagramEvidenceTestCall("Extractor.BuildInitialInstruction", "Mutable.TurnAArtifacts")
+	operation.Source, operation.LineStart = "internal/agent/extractor.go", 262
+	evidence := []types.EvidenceItem{operation}
+	obligations, surfaces := diagramParticipantCandidateObligations(rm)
+	scope := buildFlowParticipantRelationScope(rm, obligations, surfaces, evidence, precedence)
+
+	extractor := diagramParticipantTypedIncidentCandidateValuesWithScope(
+		rm, obligations[0], evidence, precedence, 2, obligations, surfaces, 0, scope,
+	)
+	if len(extractor) != 2 || !extractor[0].stageAuthority || extractor[1].stageAuthority {
+		t.Fatalf("bounded Extractor roster must retain one stage and one operation candidate: %+v", extractor)
+	}
+	if extractor[1].from != "Extractor.BuildInitialInstruction" || extractor[1].to != "Mutable.TurnAArtifacts" ||
+		extractor[1].participantEndpointSide != "from" {
+		t.Fatalf("operation candidate lost exact Extractor endpoint authority: %+v", extractor[1])
+	}
+
+	mutable := diagramParticipantTypedIncidentCandidateValuesWithScope(
+		rm, obligations[1], evidence, precedence, 2, obligations, surfaces, 1, scope,
+	)
+	if len(mutable) != 1 || mutable[0].from != extractor[1].from || mutable[0].to != extractor[1].to ||
+		mutable[0].relation != extractor[1].relation || mutable[0].participantEndpointSide != "to" {
+		t.Fatalf("the opposite participant must receive the same exact typed edge on its own side: %+v", mutable)
+	}
+}
+
 func TestFlowParticipantRelationScopeDoesNotJoinSharedReturnSinkAcrossOperations(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
 		{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
