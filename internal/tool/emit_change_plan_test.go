@@ -148,6 +148,94 @@ func TestNewChangePlanNormalizesVerificationProbeModuleIdentity(t *testing.T) {
 	}
 }
 
+func TestEnrichVerificationProbeRefsUsesUniqueImportedChangedPath(t *testing.T) {
+	plan := &types.ChangePlan{
+		TargetPaths: []string{"fastlex/tokenizer.py"},
+		Changes: []types.FileChange{{
+			Path: "fastlex/tokenizer.py",
+			Kind: "patch",
+		}},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "newline-collapse", Kind: types.WriteBehaviorObservable, Operator: types.WriteBehaviorOpEquals, Expected: "collapsed", Required: true, Subject: "FastTokenizer._tokenize_slow"},
+			{ID: "normal-merge", Kind: types.WriteBehaviorObservable, Operator: types.WriteBehaviorOpEquals, Expected: "unchanged", Required: true, Subject: "FastTokenizer.tokenize"},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:           "tokenizer-probe",
+			Language:     "python",
+			Code:         "from fastlex import FastTokenizer\nassert FastTokenizer is not None",
+			ContractRefs: []string{"newline-collapse", "normal-merge"},
+		}},
+	}
+
+	enrichVerificationProbeRefs("", plan)
+	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 1 || got[0] != "path:fastlex/tokenizer.py" {
+		t.Fatalf("unique imported production target should become a typed path ref, got %#v", got)
+	}
+	records := verificationConfidenceRecordsFromReport(plan, &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{{
+			AssertionID: "tokenizer-probe",
+			Suite:       "verification_probe/python",
+			Passed:      true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner:   "verification_probe",
+			Outcome:  "executed",
+			ExitCode: 0,
+		}},
+	})
+	if !verificationConfidenceContains(records, "probe_contract_refs", "satisfied", "verification_probe_contract_ref_covered") ||
+		!verificationConfidenceContains(records, "probe_changed_symbol", "satisfied", "verification_probe_changed_symbol_coupled") {
+		t.Fatalf("the passed uniquely coupled probe should retain contract and changed-target authority: %+v", records)
+	}
+}
+
+func TestEnrichVerificationProbeRefsDoesNotGuessAmbiguousImportedPaths(t *testing.T) {
+	plan := &types.ChangePlan{
+		TargetPaths: []string{"fastlex/tokenizer.py", "fastlex/encoder.py"},
+		Changes: []types.FileChange{
+			{Path: "fastlex/tokenizer.py", Kind: "patch"},
+			{Path: "fastlex/encoder.py", Kind: "patch"},
+		},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "tokenizer", Required: true, Subject: "FastTokenizer"},
+			{ID: "encoder", Required: true, Subject: "FastEncoder"},
+		},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:       "package-probe",
+			Language: "python",
+			Code:     "import fastlex\nassert fastlex is not None",
+		}},
+	}
+
+	enrichVerificationProbeRefs("", plan)
+	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 0 {
+		t.Fatalf("ambiguous package import must not mint a changed target identity, got %#v", got)
+	}
+}
+
+func TestEnrichVerificationProbeRefsBindsEachProbeToItsUniqueImportedPath(t *testing.T) {
+	plan := &types.ChangePlan{
+		TargetPaths: []string{"alpha/widget.py", "beta/codec.py"},
+		Changes: []types.FileChange{
+			{Path: "alpha/widget.py", Kind: "patch"},
+			{Path: "beta/codec.py", Kind: "patch"},
+		},
+		VerificationProbes: []types.VerificationProbe{
+			{ID: "widget-probe", Language: "python", Code: "from alpha import widget\nassert widget is not None"},
+			{ID: "codec-probe", Language: "python", Code: "from beta import codec\nassert codec is not None"},
+		},
+	}
+
+	enrichVerificationProbeRefs("", plan)
+	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 1 || got[0] != "path:alpha/widget.py" {
+		t.Fatalf("first probe identity = %#v", got)
+	}
+	if got := plan.VerificationProbes[1].ChangedSymbolRefs; len(got) != 1 || got[0] != "path:beta/codec.py" {
+		t.Fatalf("second probe identity = %#v", got)
+	}
+}
+
 // TestEmitChangePlan_HappyPath locks the canonical success path:
 // valid params in → ChangePlan installed on Mutable + PendingApply
 // entries enqueued on WriteClosure + ToolResult.Success == true.
@@ -1157,7 +1245,7 @@ func TestAttachWriteBehaviorContractsVerifyFailureWithoutAcceptanceTestsStillRet
 	}
 }
 
-func TestEmitChangePlan_DoesNotGuessProbeRefsWhenMultipleRequiredContracts(t *testing.T) {
+func TestEmitChangePlan_DoesNotGuessContractRefsWhenMultipleRequiredContracts(t *testing.T) {
 	tool := &EmitChangePlan{}
 	ctx := newTestBusCtx()
 	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
@@ -1202,8 +1290,11 @@ func TestEmitChangePlan_DoesNotGuessProbeRefsWhenMultipleRequiredContracts(t *te
 	if plan == nil || len(plan.VerificationProbes) != 1 {
 		t.Fatalf("expected ChangePlan with one probe installed: %+v", plan)
 	}
-	if len(plan.VerificationProbes[0].ContractRefs) != 0 || len(plan.VerificationProbes[0].ChangedSymbolRefs) != 0 {
+	if len(plan.VerificationProbes[0].ContractRefs) != 0 {
 		t.Fatalf("multiple required contracts should not be guessed into one probe: %+v", plan.VerificationProbes[0])
+	}
+	if got := plan.VerificationProbes[0].ChangedSymbolRefs; len(got) != 1 || got[0] != "path:widget.py" {
+		t.Fatalf("the uniquely imported changed file should retain typed identity independently of contract selection: %+v", plan.VerificationProbes[0])
 	}
 }
 

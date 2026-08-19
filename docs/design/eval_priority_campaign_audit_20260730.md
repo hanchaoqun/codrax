@@ -35828,6 +35828,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/edge/conclusion-authorship=none`。
 
+### §123.1182 r741：请求关系权限生产正证；写验证身份在前后两账本断裂（2026-08-19）
+
+1. 在 `main@b991b1104` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`，
+   人工为 read partial、write fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_requestscope_write_replay_r741_20260819_manual_audit.md`。
+2. B1182 获生产正证。r740 的自动扩展假脊柱 `renderExplorerToolBudgetPlan -> append -> BusContext` 不再进入
+   请求关系 scope/candidate/visible connectivity。模型首稿自拟 stage→Mutable、BusContext→Mutable 与
+   Orchestrator→agent 调用边均被精确拒绝；修补后只保留 checkout-verified
+   `Analyzer -> Explorer -> Extractor -> Finalizer` 阶段顺序。repo/parser 局部真边仍在背景证据通道，没有被删除。
+3. 新确认 B1183/P1：typed no-arrow recipe 明确给出 `BusContext contains Mutable`，模型最后却用
+   `subgraph Mutable[...]` 包住 BusContext，视觉语义变成 Mutable 拥有 BusContext。现有门只校验 node/arrow/boundary，
+   把 subgraph nesting 当纯排版，因此反向 ownership 仍通过。根修应从模型已选择的 group 结构读取 owner/member，
+   与同席 typed containment recipe 比较；只能拒绝并给精确修补信息，不能由系统代建/重排分组。无 recipe、歧义或
+   纯视觉 group 必须 fail-open，禁止按本 case 的符号或答案词面硬拟合。
+4. 写案例补丁正确，`newline-collapse-probe` 与 `make check` 均通过，却最终
+   `missing_terminal_verify_verdict`。根因 B1184/P0 是前后 typed 权威断裂：plan admission 已用 Python import
+   declaration 确认 probe 直接导入唯一修改模块 `fastlex/tokenizer.py`；proof ledger 却只认模型是否另外填写
+   `changed_symbol_refs`。该字段为空后，所有已引用合同被视为 unbound，系统重复跑 suite、创建 cumulative
+   proof-followup，并把模型的 `finish all_verified` 改写成 explore，直到预算耗尽。这不是模型波动或测试失败。
+5. B1184 根修复用 admission 的五类语言级 import/require/package 解析器。仅当一个 probe 与恰好一个修改中的
+   production file 精确匹配时，计划归一化补 `path:<repo-relative-file>`；同包多文件、多个匹配、无匹配、未支持
+   runtime 与 test-only path 均不授予身份。合同选择仍完全来自模型显式 `contract_refs`，系统不猜合同、不读
+   probe/assertion prose、不扫描用户请求/计划摘要/最终答案，也不把 aggregate project runner 绿灯提升为具体断言。
+6. 专项回归覆盖 r741 的“一个 Python 修改文件 + 多合同 + probe import 唯一模块”正臂，以及同包两个生产文件的
+   歧义反臂；旧“多合同不自动选择 contract refs”不变量保留。B1179 本轮未走 verify-failure 分支，因为首次 verify
+   已真实通过，只能记生产无回归，不能虚报该分支闭环。
+7. 两路模型活跃字节均持续超过 4ms，write analyzer 单轮流式超过两分钟也未发生固定年龄降级。本批不修改 Trace；
+   显式窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴均保持，邻近/背景仍
+   不能晋升主因，系统不代替模型形成答案、图边或结论。
+
+状态：
+
+`B1182-REQUESTRELATIONLOCALLEDGEBRIDGE1=production-positive-r741/closed`；
+`B1184-PROBESCOPEIDENTITYLEDGERBREAK1=implemented/unique-language-coupling+pinned/pending-production-replay`；
+`B1183-NOARROWCONTAINMENTDIRECTION1=confirmed-r741/P1-next`；
+`B1179-WRITEREPLANACTIVESTREAMMINDLOAD1=production-no-regression/direct-verify-failure-arm-unit-pinned`；
+`active-stream-4ms-degrade=forbidden/production-not-observed-r741`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1178 B1178：模型显式证据替换闭环（2026-08-19）
 
 1. r738 的 `extractor` 误绑定不是“补一条正确证据”即可自然消失。旧工具只支持同一 StableEvidenceID 的

@@ -216,7 +216,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 			VerificationProbes: p.VerificationProbes,
 		}, probes); plan != nil {
 			attachWriteBehaviorContracts(ctx, plan)
-			enrichVerificationProbeRefs(plan)
+			enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 			if rej := validateVerificationProbeTargetPathLanguageCompatibility(plan.TargetPaths, plan.VerificationProbes); rej != "" {
 				pack := planRepairPackFromReason(t.Name(), "verification_probe_target_language_mismatch", rej, []string{"$.verification_probes[].language"}, plan.TargetPaths)
 				return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, pack), nil
@@ -320,7 +320,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
 			planRepairPackFromReason(t.Name(), "project_test_observation_contract_refs_failed", rej, []string{"$.project_test_observations[].contract_refs"}, nil)), nil
 	}
-	enrichVerificationProbeRefs(plan)
+	enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 	ctx.Mutable.ResetChangePlan()
 	ctx.Mutable.SetPartialChangePlan(plan)
 

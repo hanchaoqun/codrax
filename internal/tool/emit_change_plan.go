@@ -376,7 +376,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, p, probes); plan != nil {
 			attachWriteBehaviorContracts(ctx, plan)
-			enrichVerificationProbeRefs(plan)
+			enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 			if rej := validateVerificationProbeTargetPathLanguageCompatibility(plan.TargetPaths, plan.VerificationProbes); rej != "" {
 				pack := planRepairPackFromReason(t.Name(), "verification_probe_target_language_mismatch", rej, []string{"$.verification_probes[].language"}, plan.TargetPaths)
 				return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, pack), nil
@@ -505,7 +505,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
 			planRepairPackFromReason(t.Name(), "project_test_observation_contract_refs_failed", rej, []string{"$.project_test_observations[].contract_refs"}, nil)), nil
 	}
-	enrichVerificationProbeRefs(plan)
+	enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 
 	// Drain any per-language "unvalidated" reasons collected by the
 	// dry-build helpers (commit 7 P1-E gap-fix) into the finalised

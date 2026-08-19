@@ -3530,21 +3530,78 @@ func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan)
 	plan.BehaviorContracts = contracts
 }
 
-func enrichVerificationProbeRefs(plan *types.ChangePlan) {
-	if plan == nil || len(plan.VerificationProbes) != 1 {
+func enrichVerificationProbeRefs(repoRoot string, plan *types.ChangePlan) {
+	if plan == nil || len(plan.VerificationProbes) == 0 {
 		return
 	}
-	probe := &plan.VerificationProbes[0]
-	contracts := probeCoverageContractRefs(plan.BehaviorContracts)
-	if len(probe.ContractRefs) == 0 && len(contracts) == 1 {
-		probe.ContractRefs = []string{contracts[0].ID}
-	}
-	if len(probe.ChangedSymbolRefs) == 0 {
-		if refs := probeCoverageChangedSymbolRefs(plan, contracts); len(refs) > 0 {
-			probe.ChangedSymbolRefs = refs
+	if len(plan.VerificationProbes) == 1 {
+		probe := &plan.VerificationProbes[0]
+		contracts := probeCoverageContractRefs(plan.BehaviorContracts)
+		if len(probe.ContractRefs) == 0 && len(contracts) == 1 {
+			probe.ContractRefs = []string{contracts[0].ID}
+		}
+		if len(probe.ChangedSymbolRefs) == 0 {
+			if refs := probeCoverageChangedSymbolRefs(plan, contracts); len(refs) > 0 {
+				probe.ChangedSymbolRefs = refs
+			}
 		}
 	}
+	plan.VerificationProbes = enrichVerificationProbeChangedTargetRefsFromCoupling(repoRoot, plan.Changes, plan.VerificationProbes)
 	plan.VerificationProbes = normalizeVerificationProbeChangedTargetRefs(plan.VerificationProbes, plan.TargetPaths)
+}
+
+// enrichVerificationProbeChangedTargetRefsFromCoupling reuses the same
+// language-aware import/require declarations that guard probe coupling at
+// plan admission. When one probe resolves to exactly one changed production
+// file, that identity is already precise enough to carry forward as a path
+// ref; requiring the planner to repeat it in changed_symbol_refs would make a
+// successfully admitted probe lose authority only after apply. Ambiguous or
+// unsupported bindings remain unmodified and therefore fail closed in the
+// downstream proof ledger.
+func enrichVerificationProbeChangedTargetRefsFromCoupling(repoRoot string, changes []types.FileChange, probes []types.VerificationProbe) []types.VerificationProbe {
+	if len(changes) == 0 || len(probes) == 0 {
+		return probes
+	}
+	out := append([]types.VerificationProbe(nil), probes...)
+	for i := range out {
+		if len(out[i].ChangedSymbolRefs) != 0 {
+			continue
+		}
+		language, ok := normalizeVerificationProbeLanguage(out[i].Language)
+		if !ok {
+			continue
+		}
+		var provider *verificationProbeCouplingProvider
+		for j := range verificationProbeCouplingProviders {
+			if verificationProbeCouplingProviders[j].Language == language {
+				provider = &verificationProbeCouplingProviders[j]
+				break
+			}
+		}
+		if provider == nil || provider.TargetProducer == nil || provider.ProbeRefs == nil || provider.Covers == nil {
+			continue
+		}
+		refs := provider.ProbeRefs(out[i])
+		var matched []string
+		for _, change := range changes {
+			path := filepath.ToSlash(strings.TrimSpace(change.Path))
+			if path == "" || strings.TrimSpace(change.Kind) == "delete" || types.LooksLikeTestFilePath(path) {
+				continue
+			}
+			targets := provider.TargetProducer(repoRoot, []types.FileChange{change})
+			covered := probeRefsCoverAnyTarget(refs, targets, provider.Covers)
+			if language == "go" && !covered {
+				covered = goSamePackageTestProbeCoversChangedPackage(repoRoot, []types.FileChange{change}, out[i])
+			}
+			if covered {
+				matched = appendUniqueRepoPath(matched, path)
+			}
+		}
+		if len(matched) == 1 {
+			out[i].ChangedSymbolRefs = []string{"path:" + matched[0]}
+		}
+	}
+	return out
 }
 
 func probeCoverageContractRefs(contracts []types.WriteBehaviorContract) []types.WriteBehaviorContract {
