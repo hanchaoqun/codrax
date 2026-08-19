@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
-	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -16,12 +15,11 @@ const (
 )
 
 type mechanismSemanticDescentNode struct {
-	file           string
-	fi             *repotypes.FileInfo
-	sym            *repotypes.Symbol
-	depth          int
-	root           string
-	followAllCalls bool
+	file  string
+	fi    *repotypes.FileInfo
+	sym   *repotypes.Symbol
+	depth int
+	root  string
 }
 
 // raiseMechanismSemanticDescentPendingReads closes a narrow but important
@@ -34,10 +32,9 @@ type mechanismSemanticDescentNode struct {
 //   - the model must have emitted an aligned current-source member_set and
 //     either a non-empty responsibility note or an exact Explorer-authored
 //     mechanism-definition row for the supported member;
-//   - every traversed edge must be on a parser-owned return+call line;
-//   - a direct callee must resolve through the repository graph; a callable
-//     argument must resolve to exactly one repository callable and be proved by
-//     the existing line-local callback parser;
+//   - every traversed edge must be a direct parser-owned call on a return line;
+//   - the direct callee must resolve through the repository graph; a callable
+//     argument handoff is not execution and never creates a child read;
 //   - only declaration bodies are requested. No EvidenceItem, relation,
 //     conclusion, or answer text is synthesized here.
 //
@@ -72,11 +69,6 @@ func raiseMechanismSemanticDescentPendingReads(
 	if !ok || graph == nil || len(graph.FileIndex) == 0 {
 		return 0
 	}
-	gc := ground.BuildContext(ctx)
-	if gc == nil || len(gc.LineIndex) == 0 {
-		return 0
-	}
-
 	frontier := make([]mechanismSemanticDescentNode, 0, 4)
 	seen := make(map[string]bool)
 	behavioralRoster := false
@@ -117,9 +109,9 @@ func raiseMechanismSemanticDescentPendingReads(
 	// B879d: an exact executable row selected by the Explorer is already a
 	// precise statement that this operation participates in the requested
 	// mechanism. Seed its enclosing callable even when the final aggregate is
-	// an enum/state roster rather than a callable roster. Unlike the older
-	// wrapper lane, this lane may follow any parser-owned local call in the
-	// selected callable; the shared depth/demand cap keeps that closure bounded.
+	// an enum/state roster rather than a callable roster. The exact row owns only
+	// that enclosing body; sibling calls need their own parser-owned operation
+	// row and enter through mechanismSemanticDescentOperationLeafSeeds.
 	// Definition/text-reference evidence cannot enter this lane.
 	for _, node := range mechanismSemanticDescentExecutionSeeds(ctx, graph, aggregateFacts, evidence) {
 		addSeed(node)
@@ -163,7 +155,7 @@ func raiseMechanismSemanticDescentPendingReads(
 		}
 		body := types.LineRange{Start: node.sym.Line, End: end}
 		if !callChainDemandRangeFullyRead(closure, node.file, body) {
-			mechanismSemanticDescentAddPendingRead(closure, node.file, node.sym, node.root, body)
+			mechanismSemanticDescentAddSelectedBodyPendingRead(closure, node.file, node.sym, node.root, body)
 			demands++
 			continue
 		}
@@ -173,8 +165,7 @@ func raiseMechanismSemanticDescentPendingReads(
 
 		for line := node.sym.Line; line <= end && demands < mechanismSemanticDescentMaxDemands; line++ {
 			if !closure.HasReadLine(node.file, line) ||
-				(!node.followAllCalls && !mechanismReturnCallLine(node.fi, line)) ||
-				(node.followAllCalls && !mechanismCallLine(node.fi, line)) {
+				!mechanismReturnCallLine(node.fi, line) {
 				continue
 			}
 			for relIdx := range node.fi.Relations {
@@ -182,7 +173,7 @@ func raiseMechanismSemanticDescentPendingReads(
 				if !mechanismSemanticDescentCallRelation(rel, line) {
 					continue
 				}
-				children := mechanismReturnCallChildren(graph, gc, node.file, node.fi, node.sym, rel)
+				children := mechanismReturnCallChildren(graph, node.fi, node.sym, rel)
 				for _, child := range children {
 					key := mechanismSemanticDescentSymbolKey(child.file, child.sym)
 					if key == "" || seen[key] {
@@ -191,7 +182,6 @@ func raiseMechanismSemanticDescentPendingReads(
 					seen[key] = true
 					child.depth = node.depth + 1
 					child.root = node.root
-					child.followAllCalls = node.followAllCalls
 					childEnd := child.sym.EndLine
 					if childEnd < child.sym.Line {
 						childEnd = child.sym.Line
@@ -262,7 +252,7 @@ func mechanismSemanticDescentExecutionSeeds(
 			root = strings.TrimSpace(sym.Name)
 		}
 		seeds = append(seeds, mechanismSemanticDescentNode{
-			file: file, fi: fi, sym: sym, root: root, followAllCalls: true,
+			file: file, fi: fi, sym: sym, root: root, depth: mechanismSemanticDescentMaxDepth,
 		})
 	}
 	return seeds
@@ -277,7 +267,6 @@ func mechanismSemanticDescentSelectedDefinitionSeeds(
 	if ctx == nil || ctx.AnalysisIR == nil || graph == nil || len(evidence) == 0 {
 		return nil
 	}
-	principalScopeSelected := mechanismCompletionHasCurrentSourcePrincipalFact(ctx, aggregateFacts, evidence)
 	principalScope := types.PrincipalSourceScope(ctx.AnalysisIR.RequestModel.SourceScopeProfile)
 	seeds := make([]mechanismSemanticDescentNode, 0, mechanismSemanticDescentMaxDemands)
 	seenFiles := make(map[string]bool)
@@ -308,14 +297,12 @@ func mechanismSemanticDescentSelectedDefinitionSeeds(
 		}
 		seenFiles[fileKey] = true
 		node := mechanismSemanticDescentNode{
-			file: file, fi: fi, sym: sym, root: strings.TrimSpace(item.AnchorSymbol), followAllCalls: true,
+			file: file, fi: fi, sym: sym, root: strings.TrimSpace(item.AnchorSymbol),
 		}
-		if !principalScopeSelected {
-			// A supporting roster cannot authorize traversal into additional
-			// callables, but it also must not erase the model's exact selection
-			// of this definition. Read the selected body and stop there.
-			node.depth = mechanismSemanticDescentMaxDepth
-		}
+		// A selected definition proves only its own body regardless of whether
+		// another principal fact exists elsewhere in the dispatch. Exact call
+		// operations, not global principal presence, own child traversal.
+		node.depth = mechanismSemanticDescentMaxDepth
 		seeds = append(seeds, node)
 		if len(seeds) >= mechanismSemanticDescentMaxDemands {
 			break
@@ -554,18 +541,6 @@ func mechanismReturnCallLine(fi *repotypes.FileInfo, line int) bool {
 	return hasReturn && hasCall
 }
 
-func mechanismCallLine(fi *repotypes.FileInfo, line int) bool {
-	if fi == nil || line <= 0 {
-		return false
-	}
-	for _, feature := range fi.LineFeatures[line] {
-		if feature == repotypes.LineFeatureCallExpression {
-			return true
-		}
-	}
-	return false
-}
-
 func mechanismSemanticDescentCallRelation(rel *repotypes.Relation, line int) bool {
 	return rel != nil && rel.Kind == "call" && rel.Line == line &&
 		(rel.Provenance == repotypes.ProvenanceTreeSitter || rel.Provenance == repotypes.ProvenanceCangjieParser)
@@ -573,8 +548,6 @@ func mechanismSemanticDescentCallRelation(rel *repotypes.Relation, line int) boo
 
 func mechanismReturnCallChildren(
 	graph *repotypes.Graph,
-	gc *ground.Context,
-	file string,
 	fi *repotypes.FileInfo,
 	owner *repotypes.Symbol,
 	rel *repotypes.Relation,
@@ -598,55 +571,7 @@ func mechanismReturnCallChildren(
 	if graph != nil && fi != nil && rel != nil {
 		add(graph.ResolveCallTarget(fi, *rel))
 	}
-	receiver := callRelationTargetName(graph, fi, rel)
-	for _, flow := range ground.DetectArgumentFlowsAtLine(gc, file, rel.Line, receiver) {
-		callable, ok := mechanismUniqueCallableArgumentSymbol(graph, flow.Argument)
-		if !ok {
-			continue
-		}
-		detectedReceiver, detectedCallable, detected := ground.DetectCallbackHandoffAtLine(gc, file, rel.Line, flow.Argument)
-		if !detected || !types.AnswerCodeIdentitySurfacesCompatible(receiver, detectedReceiver) ||
-			!types.AnswerCodeIdentitySurfacesCompatible(flow.Argument, detectedCallable) {
-			continue
-		}
-		add(callable)
-	}
 	return children
-}
-
-func mechanismUniqueCallableArgumentSymbol(graph *repotypes.Graph, argument string) (*repotypes.Symbol, bool) {
-	if graph == nil {
-		return nil, false
-	}
-	argument = strings.Trim(strings.TrimSpace(argument), "()&* ")
-	tail := types.NormalizedSurfaceSymbolTail(argument)
-	if argument == "" || tail == "" {
-		return nil, false
-	}
-	var match *repotypes.Symbol
-	for name, defs := range graph.SymbolDefs {
-		if !strings.EqualFold(types.NormalizedSurfaceSymbolTail(name), tail) {
-			continue
-		}
-		for _, sym := range defs {
-			if !mechanismSemanticDescentCallable(sym) {
-				continue
-			}
-			_, fi := mechanismSemanticDescentGraphFile(graph, sym.File)
-			if fi == nil || !mechanismSemanticDescentASTFile(fi) {
-				continue
-			}
-			qualified := qualifiedEvidenceSymbolNameInFile(fi, sym)
-			if !mechanismSemanticDescentIdentityMatches(argument, sym.Name, qualified) {
-				continue
-			}
-			if match != nil && mechanismSemanticDescentSymbolKey(match.File, match) != mechanismSemanticDescentSymbolKey(sym.File, sym) {
-				return nil, false
-			}
-			match = sym
-		}
-	}
-	return match, match != nil
 }
 
 func mechanismSemanticDescentIdentityMatches(candidate, name, qualified string) bool {
@@ -725,6 +650,28 @@ func mechanismSemanticDescentAddPendingRead(
 		File: file,
 		Rationale: fmt.Sprintf(
 			"the explained entry %q returns or delegates through local callable %q; read that exact implementation body before closing so the answer can distinguish wrapper behavior from the delegated behavior",
+			strings.TrimSpace(root), qualifiedEvidenceSymbolName(sym),
+		),
+		Origin:     fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
+		LineRanges: []types.LineRange{body},
+		Stage:      string(types.StageExplore),
+	})
+}
+
+func mechanismSemanticDescentAddSelectedBodyPendingRead(
+	closure *types.EvidenceClosure,
+	file string,
+	sym *repotypes.Symbol,
+	root string,
+	body types.LineRange,
+) {
+	if closure == nil || sym == nil || file == "" || body.Start <= 0 || body.End < body.Start {
+		return
+	}
+	closure.AddPendingRead(types.PendingRead{
+		File: file,
+		Rationale: fmt.Sprintf(
+			"the typed mechanism selection %q resolves inside local callable %q; read only that exact implementation body before closing, while sibling calls require their own typed operation evidence",
 			strings.TrimSpace(root), qualifiedEvidenceSymbolName(sym),
 		),
 		Origin:     fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),

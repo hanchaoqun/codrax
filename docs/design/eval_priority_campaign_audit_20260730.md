@@ -36522,6 +36522,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1114 B1119：精确操作只拥有所在实现体，参数传递不冒充执行（2026-08-18）
+
+1. r709 的 646 条证据/32 轮扩散不是正常的“深挖”：旧语义下，一条精确 guard、赋值、return 或选中定义会给整个
+   enclosing callable 铸出 `followAllCalls` 权限，任意兄弟 call 都可继续下钻。更危险的是普通 call argument 只要与
+   仓库某函数短名相同，就可能被标点形 handoff 探测猜成回调执行；局部值 `rm` 可误连到无关函数 `rm`。
+2. 根修删除函数级 `followAllCalls` 扩权。Explorer 选中的精确 executable row 或 mechanism definition 只授权读取其
+   exact declaration body，读完即止；是否还存在其他 principal fact 不再扩大这个所有权。待读理由也明确说明“只读该
+   实现体，兄弟调用必须拥有自己的 typed operation evidence”，不再把纯选择谎称为 return/delegation。
+3. 子调用遍历只保留解析器确认的 `return + direct call` 关系，并继续经 repository graph 解析 exact target。普通参数
+   handoff、callback-looking 标点、仓库短名碰撞均不代表执行，不创建 child read；需要继续追踪的回调必须由独立、精确的
+   operation leaf 进入，而不是从参数字符串猜造。
+4. 正向 pin 保留 wrapper→直接 returned callee→其直接 helper 的有界下钻；负向 pin 覆盖 `Transform(input, rm)` 与仓库
+   无关 `rm` 同名、已读 guard owner 的兄弟调用、已读 selected definition 的 child call。既有 Go/Java/C/C++/Rust/
+   Python/ArkTS/Cangjie own-body 语言中立矩阵继续通过，没有增加语言名、函数名或案例关键词分支。
+5. `go test ./internal/tool -run TestMechanismSemanticDescent -count=1` 与完整
+   `go test ./internal/tool -count=1` 全绿。系统仍只补读证据，不创建 relation、不替模型画图或写结论；Read/Trace、
+   显式时间窗、因果投影和自动补齐均未改动。
+
+状态：
+
+`B1119-MECHANISMDESCENTOPERATIONOWNERSHIP1=implemented/body-only+direct-return-call+pinned`；
+`argument-handoff=non-execution/no-name-guess`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

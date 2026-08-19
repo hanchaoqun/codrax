@@ -22,7 +22,7 @@ func mechanismSemanticDescentFixture() (*repotypes.Graph, *repotypes.FileInfo) {
 			{
 				Kind: "call", File: "src/pipeline.go", Line: 3,
 				FromEP:     repotypes.RelationEndpoint{Name: "Render", File: "src/pipeline.go", Line: 3},
-				ToEP:       repotypes.RelationEndpoint{Name: "Transform", File: "src/pipeline.go", Line: 3},
+				ToEP:       repotypes.RelationEndpoint{Name: "rewrite", File: "src/pipeline.go", Line: 3},
 				Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter, ResolvedBy: "go_ast_call",
 			},
 			{
@@ -81,7 +81,7 @@ func mechanismSemanticDescentContext(
 	lines := []string{
 		"package fixture",
 		"func Render(input string) string {",
-		"    return Transform(input, rewrite)",
+		"    return rewrite(input)",
 		"}",
 		"",
 		"func rewrite(input string) string {",
@@ -135,7 +135,7 @@ func mechanismSemanticDescentFact() types.AnswerAggregateFact {
 	}
 }
 
-func TestMechanismSemanticDescent_QueuesUniqueReturnedCallbackBodyThenDirectHelper(t *testing.T) {
+func TestMechanismSemanticDescent_QueuesDirectReturnedCalleeBodyThenDirectHelper(t *testing.T) {
 	graph, _ := mechanismSemanticDescentFixture()
 	fact := mechanismSemanticDescentFact()
 
@@ -164,6 +164,30 @@ func TestMechanismSemanticDescent_QueuesUniqueReturnedCallbackBodyThenDirectHelp
 	}
 	if pending = ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
 		t.Fatalf("fully read bounded frontier left pending=%+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_DoesNotResolveCallArgumentByRepositoryName(t *testing.T) {
+	graph, fi := mechanismSemanticDescentFixture()
+	// The direct parser call is Transform. The ordinary argument `rm` happens
+	// to share a name with an unrelated repository function. Punctuation proves
+	// only that rm is handed to Transform; it does not bind that expression to
+	// the repository callable or prove that the callable executes.
+	fi.Relations[0].ToEP = repotypes.RelationEndpoint{Name: "Transform", File: "src/pipeline.go", Line: 3}
+	rm := repotypes.Symbol{Name: "rm", Kind: "function", File: "src/pipeline.go", Line: 14, EndLine: 16}
+	rm.ID = repotypes.DeriveSymbolID(fi, &rm)
+	fi.Symbols = append(fi.Symbols, rm)
+	graph.SymbolDefs["rm"] = []*repotypes.Symbol{&fi.Symbols[len(fi.Symbols)-1]}
+	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	seedReadFileHistory(ctx, "src/pipeline.go", 3, "    return Transform(input, rm)")
+
+	if got := raiseMechanismSemanticDescentPendingReads(
+		ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{mechanismSemanticDescentFact()}, nil,
+	); got != 0 {
+		t.Fatalf("ordinary argument was guessed as repository callable: demands=%d pending=%+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+	}
+	if pending := ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("argument-name collision created a semantic child read: %+v", pending)
 	}
 }
 
@@ -250,7 +274,7 @@ func TestMechanismSemanticDescent_MechanismDefinitionSeedsWithoutMemberNotes(t *
 	}
 }
 
-func TestMechanismSemanticDescent_ExecutableGuardSeedsOwnerAndFollowsNonReturnLocalCalls(t *testing.T) {
+func TestMechanismSemanticDescent_ExecutableGuardReadsOnlySelectedOwnerBody(t *testing.T) {
 	graph, _ := mechanismSemanticDescentFixture()
 	fact := mechanismSemanticDescentFact()
 	fact.Members = []string{"OutcomeRendered"}
@@ -268,24 +292,24 @@ func TestMechanismSemanticDescent_ExecutableGuardSeedsOwnerAndFollowsNonReturnLo
 		3: {repotypes.LineFeatureCallExpression},
 		7: {repotypes.LineFeatureCallExpression},
 	})
-	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
-		t.Fatalf("executable-guard descent demands=%d, want unread callback body", got)
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 0 {
+		t.Fatalf("already-read executable owner must not authorize sibling call descent, got=%d", got)
 	}
 	pending := ctx.Mutable.EvidenceClosure().PendingReads()
-	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
-		t.Fatalf("executable-guard pending=%+v, want rewrite body 6..8", pending)
+	if len(pending) != 0 {
+		t.Fatalf("executable guard leaked sibling call reads: %+v", pending)
 	}
 
 	ctx = mechanismSemanticDescentContext(t, graph, 8, map[int][]repotypes.LineFeature{
 		3: {repotypes.LineFeatureCallExpression},
 		7: {repotypes.LineFeatureCallExpression},
 	})
-	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
-		t.Fatalf("executable-guard second descent demands=%d, want fallback body", got)
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 0 {
+		t.Fatalf("reading unrelated sibling body must not extend executable-owner authority, got=%d", got)
 	}
 	pending = ctx.Mutable.EvidenceClosure().PendingReads()
-	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 10, End: 12}) {
-		t.Fatalf("executable-guard second pending=%+v, want fallback body 10..12", pending)
+	if len(pending) != 0 {
+		t.Fatalf("executable guard leaked second-depth sibling reads: %+v", pending)
 	}
 }
 
@@ -354,12 +378,12 @@ func TestMechanismSemanticDescent_SelectedCallableDefinitionSeedsEnumRosterWitho
 		},
 	}
 
-	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 1 {
-		t.Fatalf("selected callable definition demands=%d, want rewrite body", got)
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, evidence); got != 0 {
+		t.Fatalf("already-read selected definition must not authorize child traversal, got=%d", got)
 	}
 	pending := ctx.Mutable.EvidenceClosure().PendingReads()
-	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) {
-		t.Fatalf("selected callable definition pending=%+v, want rewrite body 6..8", pending)
+	if len(pending) != 0 {
+		t.Fatalf("selected definition leaked child reads: %+v", pending)
 	}
 }
 
@@ -958,17 +982,6 @@ func TestMechanismSemanticDescent_PreciseNoTriggerBoundaries(t *testing.T) {
 				ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
 			},
 		},
-		{
-			name: "ambiguous callable identity fails open",
-			mutate: func(_ *types.BusContext, _ *types.AnswerAggregateFact, graph *repotypes.Graph) {
-				other := &repotypes.Symbol{Name: "rewrite", Kind: "function", File: "src/other.go", Line: 1, EndLine: 2}
-				graph.SymbolDefs["rewrite"] = append(graph.SymbolDefs["rewrite"], other)
-				graph.FileIndex["src/other.go"] = &repotypes.FileInfo{
-					RelPath: "src/other.go", Language: repotypes.LangGo, Package: "other",
-					Symbols: []repotypes.Symbol{*other}, LineFeatures: map[int][]repotypes.LineFeature{2: {repotypes.LineFeatureReturnStmt}},
-				}
-			},
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1086,7 +1099,7 @@ func TestMechanismSemanticDescent_PreCompleteWiringConsumesTypedMechanismDefinit
 
 func TestMechanismSemanticDescent_PreCompleteWiringConsumesTypedExecutableOwner(t *testing.T) {
 	graph, _ := mechanismSemanticDescentFixture()
-	ctx := mechanismSemanticDescentContext(t, graph, 4, map[int][]repotypes.LineFeature{
+	ctx := mechanismSemanticDescentContext(t, graph, 1, map[int][]repotypes.LineFeature{
 		3: {repotypes.LineFeatureCallExpression},
 	})
 	fact := mechanismSemanticDescentFact()
@@ -1105,19 +1118,22 @@ func TestMechanismSemanticDescent_PreCompleteWiringConsumesTypedExecutableOwner(
 		Evidence: evidence, EffectiveAggregateFacts: []types.AnswerAggregateFact{fact},
 	})
 	if !strings.Contains(downgrade, "pending forced reads block the closure") ||
-		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "rewrite") {
+		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "Render") {
 		t.Fatalf("pre-complete executable owner was not wired as a blocking read: %s", downgrade)
 	}
 	pending := ctx.Mutable.EvidenceClosure().PendingReads()
-	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 2, End: 4}) ||
 		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
 		t.Fatalf("typed executable owner pending read lost its exact citation-class contract: %+v", pending)
+	}
+	if strings.Contains(pending[0].Rationale, "returns or delegates") || !strings.Contains(pending[0].Rationale, "sibling calls require their own typed operation evidence") {
+		t.Fatalf("selected owner read must not claim an unproved delegation: %+v", pending[0])
 	}
 }
 
 func TestMechanismSemanticDescent_PreCompleteWiringConsumesSelectedCallableDefinition(t *testing.T) {
 	graph, _ := mechanismSemanticDescentFixture()
-	ctx := mechanismSemanticDescentContext(t, graph, 4, nil)
+	ctx := mechanismSemanticDescentContext(t, graph, 1, nil)
 	fact := types.AnswerAggregateFact{
 		Kind: types.AnswerAggregateMemberSet, Value: "1", Members: []string{"OutcomeRendered"},
 	}
@@ -1132,11 +1148,11 @@ func TestMechanismSemanticDescent_PreCompleteWiringConsumesSelectedCallableDefin
 		Evidence: evidence, EffectiveAggregateFacts: []types.AnswerAggregateFact{fact},
 	})
 	if !strings.Contains(downgrade, "pending forced reads block the closure") ||
-		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "rewrite") {
+		!strings.Contains(downgrade, "src/pipeline.go") || !strings.Contains(downgrade, "Render") {
 		t.Fatalf("pre-complete selected callable definition was not wired as a blocking read: %s", downgrade)
 	}
 	pending := ctx.Mutable.EvidenceClosure().PendingReads()
-	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 6, End: 8}) ||
+	if len(pending) != 1 || pending[0].LineRanges[0] != (types.LineRange{Start: 2, End: 4}) ||
 		!types.PendingReadBlocksAcceptedClosure(pending[0]) || types.IsGenericForcedReadOrigin(pending[0].Origin) {
 		t.Fatalf("selected callable definition pending read lost its exact citation-class contract: %+v", pending)
 	}
