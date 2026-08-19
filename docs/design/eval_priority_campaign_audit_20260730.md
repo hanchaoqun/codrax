@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1134 r715：首轮参与者候选生产正证；关系搜索前沿伪进展与 blocked_reason 越权归因（2026-08-18）
+
+1. 在 `main@1dd1187af` 用同一不可变二进制严格并发两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner 为 `1 PASS / 1 FAIL`；人工均为
+   partial。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_guard_r715_20260818_manual_audit.md`。
+2. B1134 获生产正证：首轮成文 prompt 已发布与 hard gate 同源的参与者级候选，明确给出
+   `BusContext` 对应 `o.busCtx -> BuildAgentContext` 的 from 端及“作为参数传递”，`Mutable` 对应
+   `context.BuildAgentContext -> bus.Mutable.Objective` 的 to 端及“调用”。终稿形成真实四阶段顺序和两条
+   业务标签边；系统没有代画、代写或放松证据门。
+3. 但重试并未闭环。读案例仍运行 511s、Explorer 43 轮、28 次 `read_file`、21 次 mid-loop 注入、
+   4 次 Finalizer 拒绝。新确认 B1135/P1：`flowParticipantCoverageBlockerKey` 把下一处 parser-owned
+   导航坐标与缺失参与者集合一起哈希。carrier call、callee body、caller handoff、sibling argument 坐标变化
+   会不断重置收敛计数，即使 missing participant set 没有缩小。系统把搜索移动误作关系证明进展。
+4. B1135 冻结方案：收敛键只绑定 typed 缺失参与者集合；精确导航坐标仍用于下一次有界读取与软提示，
+   但不增加无限重试额度。只有真实关系证据使 missing set 缩小时才重置；第三次同集合关闭后携 typed
+   unproven boundary 成文。不降低关系 hard gate，不从请求/模型/答案原文取信号。
+5. 新确认 P2：终稿存在两个可见标签同为 `Mutable` 的节点，其中一个是未连接幽灵节点。后续从 requested
+   participant typed identity 审计节点去重；禁止系统删除整图或重画关系。
+6. Trace 案是有限窗状态/CPU 供给问题，不要求因果诊断；没有强行发射 Trace 因果投影是正确的。
+   `target_window_states` 的 Running 157.248ms、Runnable 5.604ms、Sleep 70.338ms、D-state 0 及各 CPU
+   running 和均正确；policy 行存在但 target-running-slice overlap 未证的结论也正确。Runner 只因 regex
+   未接受“policy 上限”同义形误报，oracle 应窄补该字面，不放宽任何数值或绑定要求。
+7. 新确认 B1136/P1：模型把未做 interval join 的 50 条 blocked_reason、Σ16.358ms 说成 70.338ms Sleep
+   的主要来源，并从 `fscache_*` 名称推导磁盘/网络缓存页机理；同页系统附注却正确说不能逐段配对。
+   有限窗 hint 还写成“separately typed, interval-joined subset”，与最终 typed
+   `unjoined_distinct_observation_domains` 自相矛盾。应在成文前统一为：没有 typed join 时 census 对任一
+   Sleep/D/IO 段的来源解释权限均为 unproven，只可按调用点记录口径并置；不扫描或改写模型正文。
+8. 活跃流本轮持续 127s/511s，未因 4ms 或固定累计年龄降级。显式窗、因果投影、自动补齐、链上-only
+   主因、实际占用/业务线索与规则可消除量双轴均保持；背景不能晋升主因。
+
+状态：
+
+`B1134-DIAGRAMPARTICIPANTCANDIDATEFIRSTPASS1=production-positive-r715`；
+`B1135-FLOWPARTICIPANTFRONTIERPROGRESS1=confirmed/P1/next`；
+`B1136-BLOCKEDREASONSTATEATTRIBUTION1=confirmed/P1/planned`；
+`B1137-DIAGRAMVISIBLEPARTICIPANTDEDUP1=confirmed/P2/planned`；
+`r715-trace-oracle-policy-ceiling-synonym=confirmed/eval-only`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1133 B1134：参与者级 typed 端点选择前置到首轮作者上下文（2026-08-18）
 
 1. 根修复用 `answer_document_diagram_participant_coverage` 的唯一 candidate resolver。首轮 Finalizer
