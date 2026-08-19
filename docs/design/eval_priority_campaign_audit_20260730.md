@@ -35649,6 +35649,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1169 H4 eval：实测资源可插入“实际…运行”读者词形（2026-08-19）
+
+1. r734 的 H4 主答案同时包含精确 `157.248ms` 与语义明确的“实际 CPU 运行”，却被只接受连续
+   “实际运行/运行占/运行时间”的 regex 判为 FAIL。失败发生在 eval principal-answer oracle，不在 Trace 查询、状态聚合、
+   deterministic supplement 或模型答案生成。
+2. oracle 现在只增加一个有界的工程读者等价形：`实际 + optional CPU + 运行`。数值、principal-only 域、120 字符邻接、
+   runnable/sleep/D-state 四条独立断言和 CPU4 policy-limit 证据杆全部保持；system footer 仍不能代替模型主答案。
+3. 使用 r734 已有 principal answer 逐条重放全部 H4 regex，结果全绿；`eval/runner_lib_test.sh` 全绿。该修复不改变
+   production 代码、Trace scope 路由或答案，不要求有限事实查询生成因果投影，也不扫描模型答案作生产硬门。
+
+状态：
+
+`H4-RUNTIME-LEXEME-ORACLE=fixed/bounded-reader-equivalence+existing-principal-replay-pass`；
+`Trace finite-fact scope=unchanged/no-forced-causal-projection`；
+`Trace causal scope=projection-preserved`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1168 r734：关系修补显著收敛；跨阶段共享状态值流仍缺 typed 组合配方（2026-08-19）
 
 1. 在 `main@6cca5d812` 重建后严格并发恰好两个案例：

@@ -36,7 +36,10 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
 EXPECT_PRINCIPAL_CONTAINS="157.248 5.604 70.338"
-EXPECT_PRINCIPAL_MATCHES_REGEX="(([Rr]unning|实际运行|运行占|运行时间).{0,120}157\\.248|157\\.248.{0,120}([Rr]unning|实际运行|运行占|运行时间))
+# Reader wording may naturally insert the measured resource between “实际”
+# and “运行” (for example “实际 CPU 运行”). Keep the semantic observation
+# exact without requiring one contiguous Chinese phrase.
+EXPECT_PRINCIPAL_MATCHES_REGEX="(([Rr]unning|实际([[:space:]]*CPU[[:space:]]*)?运行|运行占|运行时间).{0,120}157\\.248|157\\.248.{0,120}([Rr]unning|实际([[:space:]]*CPU[[:space:]]*)?运行|运行占|运行时间))
 (([Rr]unnable|可运行).{0,120}5\\.604|5\\.604.{0,120}([Rr]unnable|可运行))
 (([Ss]_[Ss]leep|[Ss]leep|睡眠).{0,120}70\\.338|70\\.338.{0,120}([Ss]_[Ss]leep|[Ss]leep|睡眠))
 (([Dd][-_ ][Ss]tate|D 状态|不可中断).{0,120}(0\\.000|0 ?ms)|(^|[^0-9])(0\\.000|0 ?ms).{0,120}([Dd][-_ ][Ss]tate|D 状态|不可中断))"
