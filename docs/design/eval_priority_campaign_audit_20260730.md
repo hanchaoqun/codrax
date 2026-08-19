@@ -36574,6 +36574,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `system-answer/diagram/conclusion-authorship=none`。
 
+### §123.1116 r710：runner 双绿而人工双失败；回归 oracle 自洽伪绿与复合赋值端点丢失（2026-08-18）
+
+1. 在 `main@92b61fab1` 重建后严格并发恰好两个：`qf_logic_view_read_pipeline` 与
+   `github_issue_tokenizers_newline_run_multirepo_py`。Runner 2/2 PASS，人工 0/2 PASS；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_write_r710_20260818_manual_audit.md`。
+2. B1119 获明显生产正证：逻辑图案从 r709 的 995s/53 dispatch 降至 396s/2 dispatch，没有再从精确 guard
+   扩散到全函数兄弟调用。B1120 也守住已画边的 participant 端点侧，没有再出现
+   `o.busCtx -> BuildAgentContext` 被展示成 `BusContext -> Analyzer`。但终稿只画
+   `BusContext -> BuildAgentContext -> bus.Mutable.Objective`，题目要求的 Mutable/BusContext 与四阶段数据流缺失。
+3. 新确认 `B1123-COMPOSITELITERALRECEIVER1`：源码 `AgentContext{ Mutable: bus.Mutable }` 虽被 parser 铸成
+   `assignment_fact`，目标端点只剩裸字段名 `Mutable`，没有构造对象/声明类型 `AgentContext.Mutable`。它因此与
+   stage precedence、BusContext argument handoff 分属不同 typed component；Finalizer 无法从精确信息表达共享状态注入。
+4. 新确认 `B1124-FLOWCANDIDATERANK1`：participant repair guidance 对候选按 evidence 到达顺序截前 3 条；在最终
+   `AxisFlow` 下仍优先给 Mutable 的 `Objective()`/Emitted* 局部 call，而不是 assignment/data-flow。硬门没有造错边，
+   但系统给出的 copy choice 语义弱，迫使模型删去未获 anchor 的主数据流、改画无关局部调用。根修应先补 typed receiver，
+   再按最终 relation axis 稳定排序；不得放宽证据门或由系统画图。
+5. 写案暴露 P0 `B1121-PROTECTEDORACLECARRIER1`。用户明确现有五换行 odd-run 回归输入不可删减，且目标行为是
+   整段连续换行折叠成单个 rank token；write analyzer 却发成“输入保留、期望值按实际行为更新”，没有发出已有
+   `preserve_regression_test target=tests/test_tokenizer.py`。首计划把基线 `[300]` 改成 `[300,10]`，真实 suite 报红；
+   replan 再把 oracle 改成实现输出 `[300,300,10]`，最终 `make check` 绿只是实现与被改测试自洽，行为仍错。
+6. 这不是 B1115 下游 critic 失效：它只在 typed protection 已声明时才有权限阻断，本轮上游载体缺席。最优第一批是
+   在 write-analysis 的结构化教学中明确：现有 regression test/input/fixture 被声明 intentional、must-keep 或不可删改时，
+   必须发 exact-path `preserve_regression_test`，保护整条既有断言/oracle，而不是只保留输入字节；不得在 expected outcome
+   中自行授权更新期望。随后用同案例生产回放验证 typed constraint 是否稳定出现，不能扫描 raw request 作系统硬门。
+7. 独立 P1 `B1122-MAKEEMBEDDEDFAILLOC1`：`make check` 包裹 unittest 时，Make composite parser 只保留
+   `AssertionError: Lists differ...`，丢弃 traceback file:line，现有 `preserve_failed_test_assertion` 无法定位失败测试。
+   应从 executor-owned 完整输出保留嵌套 runner 的 exact location/assertion identity；它只能补强失败后的保护，不能取代
+   B1121 对原始 baseline oracle 的前置 authority。
+8. B1117 的 typed handoff 正确保留 unlabeled operands，模型仍口头猜反 expected/actual，属于模型推理波动，不把
+   左右展示顺序硬化为角色。B1118 的安全目标成立：replan 后真实 `make check` 再次执行并以 exact pass 覆盖旧失败；本轮
+   没有先过局部 probe，不作为 `cumulative_verification_scope` 精确车道生产 pin。
+9. Planner 一次把 `changes[]` 发成 quoted JSON，既有 shape-first 合同 fail-loud 后恢复 native array；无空答案、旧稿降级
+   或活跃流 4ms 降级，暂记模型载体波动。该批不触碰 Trace 查询、显式窗因果投影、自动补齐、链上-only 主因、邻近背景
+   support-only，以及真实占时/规则可消双轴；系统仍不修改模型答案、图或结论。
+
+状态：
+
+`r710 runner=2/2 PASS/human=0/2 PASS`；
+`B1119=production-positive/performance+scope`；
+`B1120=production-no-regression/endpoint-retarget-not-observed`；
+`B1121-PROTECTEDORACLECARRIER1=P0-next`；
+`B1122-MAKEEMBEDDEDFAILLOC1=P1-after-B1121`；
+`B1123-COMPOSITELITERALRECEIVER1=P1-confirmed`；
+`B1124-FLOWCANDIDATERANK1=P1-after-B1123`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
