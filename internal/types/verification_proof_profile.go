@@ -174,6 +174,9 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 		if len(HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan))) > 0 && out.TargetBehaviorPaths == 0 {
 			addReason("target_behavior_verification_missing")
 		}
+		if missing := missingRequiredWriteBehaviorContractObservationIDs(plan, report); len(missing) > 0 {
+			addReason("behavior_contract_observation_missing")
+		}
 		if plan.PatchReview != nil {
 			coverage := SummarizePatchReviewCoverage(*plan.PatchReview)
 			out.PatchReviewVerdict = coverage.Verdict
@@ -337,6 +340,11 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 	out.Cumulative = true
 	out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, confidenceReasonCodes...)
 	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, confidence)
+	if len(missingCumulativeRequiredWriteBehaviorContractObservationIDs(unique)) == 0 {
+		out.ReasonCodes = removeVerificationProofReason(out.ReasonCodes, "behavior_contract_observation_missing")
+	} else {
+		out.ReasonCodes = append(out.ReasonCodes, "behavior_contract_observation_missing")
+	}
 	if out.TargetBehaviorPaths > 0 {
 		out.ReasonCodes = removeVerificationProofReason(out.ReasonCodes, "target_behavior_verification_missing")
 	} else if verificationProofArtifactsHaveHardBehaviorContracts(unique) {
@@ -382,17 +390,15 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		out.addPatchReviewLedgerItems(artifact.Plan)
 		out.addImpactLedgerItems(artifact.Plan)
 	}
-	// A hard behavior contract is itself a verification obligation. The
-	// profile has always kept source-static checks below target-behavior
-	// authority, but without a corresponding ledger row the controller had
-	// nothing typed to schedule for a proof-only follow-up. Keep the existing
-	// cumulative capability policy: any target-behavior path in the coherent
-	// delivery chain satisfies this generic bridge, while exact contract-ref
-	// probe rows continue to resolve individual missing obligations below.
-	if profile.TargetBehaviorPaths == 0 {
-		for _, artifact := range unique {
-			out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
-		}
+	// Path execution capability and behavior-contract observation are
+	// orthogonal proof axes. A project runner may prove that changed bytes were
+	// exercised without proving every independently declared expected outcome.
+	// Keep every required contract (including expected-outcome fallbacks) as an
+	// exact-ref obligation; only a typed executed observation carrying the same
+	// contract_ref may resolve it below. Never let one target_behavior path
+	// blanket-sign all contracts in the plan.
+	for _, artifact := range unique {
+		out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
 	}
 	out.resolveHistoricalVerificationFailures(primaryReport)
 	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
@@ -759,7 +765,7 @@ func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(pl
 	if ledger == nil || plan == nil {
 		return
 	}
-	ids := HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan))
+	ids := RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan), true)
 	ordered := make([]string, 0, len(ids))
 	for id := range ids {
 		if id = strings.TrimSpace(id); id != "" {
@@ -774,11 +780,81 @@ func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(pl
 			Status:      VerificationProofLedgerItemMissing,
 			Source:      "change_plan_behavior_contract",
 			PlanID:      strings.TrimSpace(plan.ID),
-			ReasonCode:  "target_behavior_verification_missing",
+			ReasonCode:  "behavior_contract_observation_missing",
 			ContractRef: id,
-			Detail:      "hard behavior contract has no typed target-behavior verification capability",
+			Detail:      "required behavior contract has no typed executed observation carrying this exact contract_ref",
 		})
 	}
+}
+
+func missingRequiredWriteBehaviorContractObservationIDs(plan *ChangePlan, report *ChangeReport) []string {
+	if plan == nil {
+		return nil
+	}
+	required := RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan), true)
+	if len(required) == 0 {
+		return nil
+	}
+	covered := map[string]struct{}{}
+	if report != nil {
+		for _, rec := range report.VerificationConfidence {
+			if strings.TrimSpace(rec.Status) != "satisfied" {
+				continue
+			}
+			switch strings.TrimSpace(rec.Category) {
+			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						covered[ref] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	missing := make([]string, 0, len(required))
+	for id := range required {
+		if _, ok := covered[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func missingCumulativeRequiredWriteBehaviorContractObservationIDs(artifacts []VerificationProofArtifact) []string {
+	required := map[string]struct{}{}
+	covered := map[string]struct{}{}
+	for _, artifact := range artifacts {
+		if artifact.Plan != nil {
+			for id := range RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(artifact.Plan), true) {
+				required[id] = struct{}{}
+			}
+		}
+		if artifact.Report == nil {
+			continue
+		}
+		for _, rec := range artifact.Report.VerificationConfidence {
+			if strings.TrimSpace(rec.Status) != "satisfied" {
+				continue
+			}
+			switch strings.TrimSpace(rec.Category) {
+			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						covered[ref] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	missing := make([]string, 0, len(required))
+	for id := range required {
+		if _, ok := covered[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func (ledger *VerificationProofLedger) addPatchReviewLedgerItems(plan *ChangePlan) {

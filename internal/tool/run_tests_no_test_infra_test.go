@@ -1661,8 +1661,8 @@ func TestRunTestsVerificationProbePassUsesDeclaredCrossLanguageMakeCoverageBefor
 	if !foundMake {
 		t.Fatalf("declared Make surface was not executed: %+v", report.ExecutedCommands)
 	}
-	if changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
-		t.Fatalf("independent project suite should avoid a probe-only contract-proof false negative: %+v", report.VerificationConfidence)
+	if !changeReportHasVerificationConfidence(report, "probe_contract_refs", "missing", "verification_probe_missing_required_contract_ref") {
+		t.Fatalf("independent project execution must not erase the probe's missing exact contract receipt: %+v", report.VerificationConfidence)
 	}
 }
 
@@ -3959,9 +3959,10 @@ func TestVerificationConfidenceRecordsFromProbeReport(t *testing.T) {
 			Source:    "pre_suite_verification_probe",
 			Outcome:   "executed",
 		}, {
-			Runner:  "python",
-			Source:  "probe_primary_suite_skipped",
-			Outcome: "suite_skipped",
+			Runner:   "python",
+			Source:   "auto_detect",
+			Outcome:  "executed",
+			ExitCode: 0,
 		}},
 	}
 	records := verificationConfidenceRecordsFromReport(plan, report)

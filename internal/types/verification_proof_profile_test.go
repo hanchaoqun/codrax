@@ -103,7 +103,7 @@ func TestBuildVerificationProofProfileDoesNotPromoteSourceStaticToBehaviorProof(
 		if item.Kind == "behavior_contract" &&
 			item.Status == VerificationProofLedgerItemMissing &&
 			item.ContractRef == "ascii-boundary" &&
-			item.ReasonCode == "target_behavior_verification_missing" &&
+			item.ReasonCode == "behavior_contract_observation_missing" &&
 			item.Source == "change_plan_behavior_contract" {
 			foundMissingContract = true
 		}
@@ -113,7 +113,7 @@ func TestBuildVerificationProofProfileDoesNotPromoteSourceStaticToBehaviorProof(
 	}
 }
 
-func TestBuildVerificationProofProfileAcceptsTypedTargetBehaviorCapability(t *testing.T) {
+func TestBuildVerificationProofProfileTargetBehaviorDoesNotBlanketSignContracts(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-behavior",
 		BehaviorContracts: NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
@@ -131,15 +131,78 @@ func TestBuildVerificationProofProfileAcceptsTypedTargetBehaviorCapability(t *te
 	}
 
 	got := BuildVerificationProofProfile(plan, report)
-	if got.Status != VerificationProofStrong || got.TargetBehaviorPaths != 1 ||
-		verificationProofHasReason(got, "target_behavior_verification_missing") {
-		t.Fatalf("typed target behavior should support strong proof: %+v", got)
+	if got.Status != VerificationProofWeak || got.TargetBehaviorPaths != 1 ||
+		!verificationProofHasReason(got, "behavior_contract_observation_missing") {
+		t.Fatalf("path behavior capability must not blanket-sign an independent contract: %+v", got)
 	}
 	ledger := BuildVerificationProofLedger(plan, report, nil)
+	foundMissing := false
 	for _, item := range ledger.Obligations {
 		if item.Source == "change_plan_behavior_contract" && item.Status == VerificationProofLedgerItemMissing {
-			t.Fatalf("typed target behavior must not leave a generic contract gap: %+v", ledger.Obligations)
+			foundMissing = true
 		}
+	}
+	if !foundMissing {
+		t.Fatalf("exact contract observation debt was not retained: %+v", ledger.Obligations)
+	}
+
+	report.VerificationConfidence = []VerificationConfidenceRecord{{
+		Source:       "verification_probe",
+		Category:     "probe_contract_refs",
+		Status:       "satisfied",
+		ReasonCode:   "verification_probe_contract_ref_covered",
+		ContractRefs: []string{"contract"},
+	}}
+	got = BuildVerificationProofProfile(plan, report)
+	if got.Status != VerificationProofStrong || verificationProofHasReason(got, "behavior_contract_observation_missing") {
+		t.Fatalf("exact executed contract receipt should restore strong proof: %+v", got)
+	}
+	ledger = BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
+		t.Fatalf("exact contract receipt did not close ledger: %+v", ledger)
+	}
+}
+
+func TestBuildVerificationProofLedgerExpectedOutcomeFallbackNeedsExactObservation(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-fallback-observation",
+		BehaviorContracts: []WriteBehaviorContract{{
+			ID:       "outcome-1",
+			Kind:     WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected,
+			Operator: WriteBehaviorOpSatisfies,
+			Expected: "ordinary floating point remains unchanged",
+			Required: true,
+			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
+		}},
+	}
+	report := &ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "make", Suite: "check", Outcome: "executed"}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "serializer.hpp", Status: ChangedPathVerificationCovered,
+			Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+		}},
+	}
+
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerLowConfidence || ledger.UncoveredCount != 1 {
+		t.Fatalf("aggregate project pass blanket-signed expected-outcome fallback: %+v", ledger)
+	}
+	if !verificationProofLedgerHasItem(ledger, "behavior_contract", VerificationProofLedgerItemMissing, "behavior_contract_observation_missing") {
+		t.Fatalf("fallback contract was omitted from exact observation ledger: %+v", ledger.Obligations)
+	}
+
+	report.VerificationConfidence = []VerificationConfidenceRecord{{
+		Source:       "verification_probe",
+		Category:     "probe_soft_contract_refs",
+		Status:       "satisfied",
+		ReasonCode:   "verification_probe_soft_contract_ref_covered",
+		ContractRefs: []string{"outcome-1"},
+	}}
+	ledger = BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
+		t.Fatalf("matching executed fallback receipt did not close proof ledger: %+v", ledger)
 	}
 }
 

@@ -3273,7 +3273,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 	for _, cmd := range report.ExecutedCommands {
 		out = append(out, verificationConfidenceFromCommand(cmd, status)...)
 	}
-	if plan != nil && reportPassedOnlyByVerificationProbes(report) {
+	if plan != nil && reportHasPassedVerificationProbeObservation(report) {
 		contracts := types.ChangePlanVerificationBehaviorContracts(plan)
 		required := types.HardRequiredWriteBehaviorContractIDs(contracts)
 		placementRequired := types.PlacementRequiredWriteBehaviorContractIDs(contracts)
@@ -3557,31 +3557,33 @@ func verificationConfidenceFromCommand(cmd types.ExecutedCommand, status types.V
 	return out
 }
 
-func reportPassedOnlyByVerificationProbes(report *types.ChangeReport) bool {
+// reportHasPassedVerificationProbeObservation is deliberately broader than
+// the former probe-only gate: an exact contract-ref receipt does not become
+// less authoritative merely because run_tests also executed an independent
+// project suite in the same report. It reads only typed command and TestResult
+// identities; runner output and model prose are not inspected.
+func reportHasPassedVerificationProbeObservation(report *types.ChangeReport) bool {
 	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
 		return false
 	}
-	probeCommand := false
-	for _, cmd := range report.ExecutedCommands {
-		runner := strings.TrimSpace(cmd.Runner)
-		outcome := strings.TrimSpace(cmd.Outcome)
-		if runner == "verification_probe" {
-			probeCommand = true
-			continue
-		}
-		if outcome == "executed" && cmd.ExitCode == 0 {
-			return false
+	passedResult := false
+	for _, row := range report.TestResults {
+		if row.Passed && strings.HasPrefix(strings.TrimSpace(row.Suite), "verification_probe/") &&
+			strings.TrimSpace(row.AssertionID) != "" {
+			passedResult = true
+			break
 		}
 	}
-	if !probeCommand || len(report.TestResults) == 0 {
+	if !passedResult {
 		return false
 	}
-	for _, row := range report.TestResults {
-		if !strings.HasPrefix(strings.TrimSpace(row.Suite), "verification_probe/") {
-			return false
+	for _, cmd := range report.ExecutedCommands {
+		if strings.TrimSpace(cmd.Runner) == "verification_probe" &&
+			strings.TrimSpace(cmd.Outcome) == "executed" && cmd.ExitCode == 0 {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func mergeVerificationConfidenceRecords(existing, next []types.VerificationConfidenceRecord) []types.VerificationConfidenceRecord {

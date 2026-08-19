@@ -35715,6 +35715,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1155 B1159-B1：路径执行能力不得代签逐合同观察（2026-08-19）
+
+1. r729 C++ 生产回放把 gap 定位到唯一真值铸点：`ChangedPathCoverage=covered/project_runner/target_behavior`
+   只证明 runner 执行到了目标路径；`BuildVerificationProofLedger` 却在任一 target-behavior path 存在时完全不创建
+   behavior-contract obligations。因此 `make check` 覆盖两份 header 后，严格编译、long-double 非空、两 header
+   同步、普通 float/double 非回归四个独立 outcome 被一次性代签，哪怕测试里没有普通浮点断言。
+2. B1159-B1 把两条 proof 轴正交拆开。所有 `required=true` 且非 observed/planning-only 的合同（包含
+   `expected_outcome_fallback` 与 `operator=satisfies`）始终进入 proof ledger；每项以 exact `contract_ref` 单独记债。
+   `target_behavior`/`target_execution` 仍保留路径能力价值，但不再消除任何合同债务。
+3. 合同只能由实际执行的 typed observation 消债。当前 authority 是通过
+   `VerificationConfidenceRecord{status=satisfied, category=probe_contract_refs|probe_soft_contract_refs,
+   contract_refs=[...]}` 到达；同一报告即使还执行 project suite，也不会再丢掉 probe 的精确回执。系统不解析
+   probe code、测试源码、测试名、runner 输出、request、plan summary 或终稿 prose 来猜合同语义。
+4. 单报告和 cumulative 报告使用同一 exact-ref 集合算法：后续/前序相干批次中的匹配回执可以消除同 ID 债务；
+   无回执则保留 `behavior_contract_observation_missing`。Proof ledger 由 verified 降为 low-confidence，controller
+   进入既有 bounded proof-followup；无可执行证明能力时可以诚实以 unverified 交付，但不得显示 all_verified。
+5. 新 pin 覆盖三臂：项目 runner 有 target-behavior、无 exact ref 时仍 weak；匹配硬合同 probe receipt 恢复
+   strong；expected-outcome fallback 同样必须 exact ref，匹配 soft receipt 后才闭账。另有 controller pin 证明
+   project runner 总绿仍会为缺失 fallback 生成逐合同 proof criteria。
+6. B1159-B2 仍开放：C/C++/Rust/Cangjie 等 native 项目需要“合同→实际测试表面→已执行命令”的结构化回执，
+   不能永久依赖 inline probe。下一批将设计 project-test observation binding；规划器只能绑定已核验的具体测试
+   表面，run_tests 只有实际执行匹配表面后才能铸造 receipt，禁止把声明本身当执行证据。
+7. 本批不改 Read/Trace/diagram/JSON/stream。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际耗时/
+   业务线索与规则可消除量双轴均保持；背景仍只作支持，活跃流不按 4ms/固定 age 降级，系统不代写答案。
+
+状态：
+
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A-implemented/B1-exact-contract-observation-ledger-implemented+pinned/B2-native-project-receipt-open`；
+`B1158-EXACTREADMATERIALIZATIONCONTRACT1=production-positive-r729/closed`；
+`B1160-WRITEOUTCOMEINDEPENDENTDIMENSIONLOSS1=production-positive-r729/closed`；
+`B1161-QFFINALIZERREJECTIONCHURN1=production-positive-r729/closed`；
+`B1162-DIAGRAMPARTICIPANTTECHNICALIDENTITYBINDING1=confirmed/P1/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1154 r729：typed 物化与独立 outcome 获生产正证；逐合同执行回执、关系身份绑定仍开放（2026-08-19）
 
 1. 在包含 B1158-B/B1160/B1161 的同一提交二进制上严格并发恰好两个案例：

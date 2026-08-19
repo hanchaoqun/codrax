@@ -7052,11 +7052,47 @@ func TestImpactObligationRepairFollowupSchedulesHardContractAfterSourceStaticOnl
 	for _, want := range []string{
 		"kind=behavior_contract",
 		"contract_ref=post-search-request",
-		"target_behavior_verification_missing",
+		"behavior_contract_observation_missing",
 		"source=verification_proof_ledger",
 	} {
 		if !strings.Contains(criteria, want) {
 			t.Fatalf("proof criteria missing %q:\n%s", want, criteria)
+		}
+	}
+}
+
+func TestImpactObligationRepairFollowupDoesNotLetTargetBehaviorBlanketSignFallback(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-target-behavior-fallback",
+		TargetPaths: []string{"include/serializer.hpp"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "outcome-ordinary-float",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "ordinary float serialization remains unchanged",
+			Required: true,
+			Source:   types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+		}},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults:      []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{Runner: "make", Suite: "check", Outcome: "executed"}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "include/serializer.hpp", Status: types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationProjectRunner, Capability: types.VerificationCapabilityTargetBehavior,
+		}},
+	}
+
+	batch, suppressed := impactObligationRepairFollowupDecision(nil, "batch-1", plan, report)
+	if suppressed || batch == nil || batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("missing fallback observation did not schedule proof follow-up: batch=%+v suppressed=%v", batch, suppressed)
+	}
+	criteria := strings.Join(batch.SuccessCriteria, "\n")
+	for _, want := range []string{"contract_ref=outcome-ordinary-float", "behavior_contract_observation_missing", "verification_probe_required=true"} {
+		if !strings.Contains(criteria, want) {
+			t.Fatalf("fallback proof criteria missing %q:\n%s", want, criteria)
 		}
 	}
 }
