@@ -35649,6 +35649,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1174 r737：跨快路径值流生效，但 join 候选被局部修复压住；补证 planner 无 API 上下文（2026-08-19）
+
+1. 在 `main@e0aead217` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `0 PASS / 2 FAIL`；
+   QF 1200s timeout、写模式 602s unverified。人工逐轮审计见
+   `eval/parallel_selected_summary_evalcampaign_callsite_write_r737_20260819_manual_audit.md`。
+2. B1171 扩臂获得生产正向中间证据：修复不再停在 builder 定义，依次补出
+   `o.busCtx -> BuildAgentContext -> ac -> ExtractStageHasRequiredWork`，且已读源码仍须 model-authored
+   `ClaimArgumentFlow` 才向下一 consumer 前进。系统没有铸 EvidenceItem、图边或结论。但下游合同使终稿缺席，
+   所以只记 production-partial。
+3. 新 P0/P1 `B1175` 是 typed repair 的优先级反转。evidence participant graph 已有完整连接、模型当前图仍分裂时，
+   `TypedEdgeMissing/IdentityMissing` 先进入 mismatch；ComponentSplit 逻辑因同一参与者已有 mismatch 跳过，
+   candidate guidance 因而不发布能跨当前可见 component 的 join，只给 `Mutable -> len/Emitted*` 等局部 incident
+   边。模型画这些边既不能回答请求关系，又会触发 endpoint/边界校验，六次成文 patch 后超时。
+4. 同一错误文本还包含内部矛盾：总则说局部 operation 可与 requested-relation `unproven` boundary 共存，
+   但 `available_typed_incident_edge_not_rendered` 的 repair_action 固定要求 `omit_unproven_boundary`。最优修复是
+   typed join frontier 优先：只要已有可执行 crossing candidate，就先发布它并把修复 issue 收敛为 component join；
+   无 join 时局部边只作可选事实并保留诚实边界。系统仍只发布 typed choice，不选择/绘制边或改答案。
+5. B1174 第一层本轮获生产正证：普通 append/split 不再绕过 controller，纯 proof batch 保持
+   `changes=[] + verification_probes[] + DependsOn`，没有制造无意义生产补丁；第二层也正确拒绝用 2/5 通过
+   结清前驱。最终 unverified 是真实坏探针，不是旧状态黏滞。
+6. 新 P1 `B1176`：proof materialization batch 被确定性设为 `NeedsCodeExploration=false/ready_to_plan`，planner
+   尝试 `read_file` 时工具不可用，且其上下文未携带上一代已通过 probe 的构造器、方法归属和调用形状。
+   模型于是猜出零参 `FastTokenizer()`、模块级 `_tokenize_slow` 与 `inspect.getsource` token 检查，3 个 probe
+   真实失败。最优方案不是降 proof 杆，而是给 exact ExpectedPaths 一次 bounded 源码探索，并把 typed prior
+   passing probes 作为只读 authoring template；contract_ref 是否被新断言覆盖仍由 planner 明确声明和执行结果证明。
+7. QF `blocks` string carrier 首次被无损恢复，patch 的畸形内层 JSON 继续 fail-closed；它是次级模型波动，
+   不是本轮主根因。两案均无 active-stream 4ms/固定 age 降级；QF 由 eval 外层 1200s 上限终止。
+8. 本批施工不得读取用户/模型/答案 prose 作硬门，不改模型结论；显式窗 Trace 因果投影、自动补齐、链上主因、
+   实际占用/业务线索与规则计价可消除量双轴保持，邻近/背景只作支持。
+
+状态：
+
+`B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=production-partial-r737/value-chain-emitted/downstream-blocked`；
+`B1175-DIAGRAMJOINCANDIDATEPRIORITY1=confirmed/P0-P1/high/next`；
+`B1176-PROOFFOLLOWUPSOURCECONTEXT1=confirmed/P1/high/after-B1175`；
+`B1174-WRITEPROOFFOLLOWUPTERMINALRESOLUTION1=production-positive-routing+honest-fail-r737`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1173 r736：调用点软排序未覆盖抢先返回；补证后继无法结清前驱（2026-08-19）
 
 1. 在 `main@a15803840` 重建后严格并发恰好两个案例：
