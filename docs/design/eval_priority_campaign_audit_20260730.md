@@ -35649,6 +35649,60 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1141 r721：有限事实读者卡生产正证；耦合关系题被错误拆成独立调查车道（2026-08-18）
+
+1. 在 `main@00a89c600` 构建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_reader_handoff_logic_r721_20260818_manual_audit.md`。
+2. H4 的 runner FAIL 主要是旧 oracle 假阴性：终稿用中文自然语言给出“运行占 157.248ms、可运行
+   5.604ms”，case 却只接受英文 `Running/Runnable`；频率边界也已明确写出 policy limit rows 与“缺乏
+   目标切片重叠绑定证据，无法确认限制”，但旧正则要求过窄的词序与距离。应更新中英双语语义 oracle，
+   继续钉住精确数值和“不以 policy presence 冒充 target binding”的权限边界，不能降低产品证据杆。
+3. B1139 获生产正证：Finalizer 收到自然状态值、scheduler-marked D/IO 零值窄边界、独立
+   completion-closed S-state IO 尺（4 次、区间并集 4.384ms）、完整目标等待清单和自然频率 policy witness；
+   `bounded_window_candidate`、`target_window_*`、`complete/unproven/full_window_all_cpu` 等旧机器协议词均未再
+   进入模型正文。有限事实题继续正确地不生成完整 Trace 因果投影。
+4. 新确认 B1146/P1：目标 CPU running/frequency 的 raw typed join 仍以
+   `cpu_scope=dominant_state_slice_representative_not_exclusive` 发布，现有读者卡只自然化 policy witness，
+   没有自然化 per-target CPU running row 与 same-CPU frequency representative。模型因此仍复制一次缩短枚举
+   `dominant_state_slice_representative`。最优修复是在同一 final reader handoff 内投影自然联接行，明确
+   “目标在 CPU N 运行 Xms”“同 CPU 频率为 CPU-owned 代表值”“同 CPU 出现不等于已证明目标切片与 policy
+   重叠或性能影响”；不扫描、删除或替写终稿。
+5. 逻辑图 runner 虽 PASS，人工为 partial 且耗时 940s：116 次 explorer iteration、54 次 read_file、
+   33 次 investigation_complete、29 次 midloop。终图保留四阶段 precedence 与部分 Mutable/BusContext 关系，
+   但缺少阶段到共享上下文的关键数据流，并画出一条正文随后声明未证的 Mutable 虚线，未完整回答关系题。
+6. 新确认 B1147/P0：该请求是一个耦合关系/逻辑图面，Analyzer 的多实体是同一机制的参与者；R2
+   `typed_name_parity_subtopics` 却按 `Analyzer*`、`Stage*` 等名称家族从 0 扩成 6 个独立 subtopic，导致
+   compiler 为同一关系问题建立 6 条 evidence lane。修复应复用 schema-only
+   `IsArchitectureNarrativeExplanation`：无显式枚举义务的 architecture narrative/required relation diagram
+   不做名称家族 subtopic 放大，参与者只作为共享搜索与关系上下文。真正的显式集合、多 bucket、用户 subtopic
+   与 cross-component 枚举保持原行为；禁止按案例实体名或原始问题文字拟合。
+7. 新确认 B1148/P0：`NodeProbe` 的职责是定位证据入口，却与每条局部 evidence worker 一样执行全请求
+   `flowOperationEvidenceRequired/flowParticipantCoverageMissing`。并行 worker 使用独立 closure，单 closure 的
+   typed blocker 收敛阈值无法跨车道去重，于是每条车道重复追同一 `[Mutable]` 缺口。先将全局 flow/participant
+   完成门从精确 `ExploreDispatchKind=NodeProbe` 排除，probe 只做定位；结合 B1147 让该类题只保留一条共享
+   evidence lane，最终 relation hard gate 与有证据才画边的合同不降级。后续多 topic 关系题再以 lane-owned
+   participant scope 或 merged reconciliation 承担全局闭合，不能把全请求门复制进局部 worker。
+8. 施工批次冻结：N1=`B1146 + H4 bilingual semantic oracle`；N2=`B1147 R2 typed carve-out +
+   B1148 probe completion scope`。每批专项测试、提交、推送后再严格并发 2 案回放。全程不扫描 raw request、
+   thinking 或 final prose，不让系统代画图、代写答案或确权结论。
+9. 本轮未观察 active-stream 4ms 降级、畸形 JSON 恢复或系统答案替换。真正 causal-diagnosis 的显式窗、
+   Trace 因果投影与自动补齐保持；根因只来自 typed 链上证据，邻近/背景只能支撑额外排查；优先级反转、
+   调度供给、算力供给、D/IO、确定性语义耗时、业务线索和规则计价可消除量继续保留。
+
+状态：
+
+`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-positive-r721/per-cpu-join-residual-open`；
+`B1146-RUNTIMECPUJOINREADERLANGUAGE1=confirmed/P1/N1`；
+`B1147-COUPLEDRELATIONSUBTOPICAMPLIFICATION1=confirmed/P0/N2`；
+`B1148-PROBEGLOBALFLOWCOMPLETIONGATE1=confirmed/P0/N2`；
+`H4-BILINGUAL-SEMANTIC-ORACLE=false-negative/N1`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace
