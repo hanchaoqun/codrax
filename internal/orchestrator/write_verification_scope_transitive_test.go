@@ -155,6 +155,80 @@ func TestStampCumulativeVerificationScopePreservesControllerScopeOnExactPlanRest
 	}
 }
 
+func TestStampCumulativeVerificationScopeCarriesLivePriorControllerClosureIntoProofReplan(t *testing.T) {
+	t0 := time.Date(2026, 8, 19, 16, 0, 0, 0, time.UTC)
+	prior := &types.ChangePlan{
+		ID:          "plan-proof-1",
+		Status:      types.PlanStatusNoChangeRequired,
+		TargetPaths: []string{"source.py"},
+		CumulativeVerificationScope: &types.CumulativeVerificationScope{
+			SourcePlanIDs:      []string{"plan-source"},
+			TargetPaths:        []string{"source.py", "tests/test_source.py"},
+			BehaviorContracts:  []types.WriteBehaviorContract{{ID: "contract-source"}},
+			VerificationProbes: []types.VerificationProbe{{ID: "probe-source"}},
+			ProjectTestObservations: []types.ProjectTestObservation{{
+				ID: "observation-source", TestPath: "tests/test_source.py",
+			}},
+		},
+	}
+	active := &types.ChangePlan{
+		ID:          "plan-proof-2",
+		Status:      types.PlanStatusNoChangeRequired,
+		TargetPaths: []string{"source.py"},
+	}
+	run := &types.WriteWorkflowRun{Batches: []types.WriteWorkflowBatch{{
+		ID: "batch-source",
+		Attempts: []types.WriteWorkflowAttempt{{
+			Kind: "apply", Status: "applied", PlanID: "plan-source", FinishedAt: t0,
+		}},
+	}}}
+
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.stampCumulativeVerificationScope(active, run, prior)
+
+	got := active.CumulativeVerificationScope
+	if got == nil || !reflect.DeepEqual(got.SourcePlanIDs, []string{"plan-source"}) ||
+		!reflect.DeepEqual(got.TargetPaths, []string{"source.py", "tests/test_source.py"}) ||
+		!reflect.DeepEqual(behaviorContractIDs(got.BehaviorContracts), []string{"contract-source"}) ||
+		!reflect.DeepEqual(verificationProbeIDs(got.VerificationProbes), []string{"probe-source"}) ||
+		len(got.ProjectTestObservations) != 1 || got.ProjectTestObservations[0].ID != "observation-source" {
+		t.Fatalf("live prior controller closure was not retained: %+v", got)
+	}
+	if len(active.Changes) != 0 || !reflect.DeepEqual(active.TargetPaths, []string{"source.py"}) {
+		t.Fatalf("verification closure changed proof-only plan scope: changes=%+v targets=%+v", active.Changes, active.TargetPaths)
+	}
+}
+
+func TestStampCumulativeVerificationScopeRejectsPriorClosureAfterSourceRestore(t *testing.T) {
+	t0 := time.Date(2026, 8, 19, 17, 0, 0, 0, time.UTC)
+	prior := &types.ChangePlan{
+		ID: "plan-proof-1",
+		CumulativeVerificationScope: &types.CumulativeVerificationScope{
+			SourcePlanIDs:           []string{"plan-rolled-back"},
+			TargetPaths:             []string{"rolled_back.py"},
+			ProjectTestObservations: []types.ProjectTestObservation{{ID: "stale-observation"}},
+		},
+	}
+	active := &types.ChangePlan{ID: "plan-proof-2", Status: types.PlanStatusNoChangeRequired}
+	run := &types.WriteWorkflowRun{
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1",
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "apply", Status: "applied", PlanID: "plan-rolled-back", FinishedAt: t0,
+			}},
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-1", ReasonCode: "checkpoint_restored_before_replan", At: t0.Add(time.Minute),
+		}},
+	}
+
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.stampCumulativeVerificationScope(active, run, prior)
+	if active.CumulativeVerificationScope != nil {
+		t.Fatalf("rolled-back prior closure was resurrected: %+v", active.CumulativeVerificationScope)
+	}
+}
+
 func TestStampCumulativeVerificationScopeActiveGenerationShadowsSameIDRetainedRows(t *testing.T) {
 	t0 := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	retained := &types.ChangePlan{

@@ -423,6 +423,69 @@ func runnerPlanFromSurfaceCandidate(repoRoot string, cand types.TestSurfaceCandi
 	}
 }
 
+// scopedSuiteForSurfaceEscalation carries one exact typed impact/observation
+// target across a runner/framework substitution. It does not copy the prior
+// runner's selector blindly: the old selector must first round-trip through
+// one filesystem-backed TestSurface candidate and one active typed target,
+// then the new candidate's own selector compiler rebuilds the suite. Multiple
+// possible rebuilt suites fail open to the candidate default and therefore
+// cannot mint an assertion-level receipt.
+func scopedSuiteForSurfaceEscalation(
+	repoRoot string,
+	surface types.TestSurface,
+	plan *types.ChangePlan,
+	prior runnerPlan,
+	next types.TestSurfaceCandidate,
+) string {
+	priorSuite := strings.TrimSpace(prior.Suite)
+	if strings.TrimSpace(repoRoot) == "" || plan == nil || priorSuite == "" {
+		return ""
+	}
+	priorWorkingDir := normalizeRunTestsWorkingDir(runnerPlanRel(repoRoot, prior))
+	var priorCandidate *types.TestSurfaceCandidate
+	for i := range surface.Candidates {
+		candidate := surface.Candidates[i]
+		if candidate.Runner != prior.Runner || candidate.Framework != prior.Framework ||
+			normalizeRunTestsWorkingDir(candidate.WorkingDir) != priorWorkingDir {
+			continue
+		}
+		if priorCandidate != nil {
+			return ""
+		}
+		copyCandidate := candidate
+		priorCandidate = &copyCandidate
+	}
+	if priorCandidate == nil {
+		return ""
+	}
+	nextSuites := make(map[string]bool)
+	for _, target := range impactVerificationTargetsFromChangePlan(plan) {
+		if strings.TrimSpace(target.Kind) != "test_surface" {
+			continue
+		}
+		related := safeImpactRelatedPath(repoRoot, target.RelatedPath)
+		if related == "" || !testSurfaceWorkingDirContainsPath(priorCandidate.WorkingDir, related) ||
+			!testSurfaceWorkingDirContainsPath(next.WorkingDir, related) {
+			continue
+		}
+		if impactSuiteForVerificationTarget(*priorCandidate, target, related) != priorSuite {
+			continue
+		}
+		nextSuite := impactSuiteForVerificationTarget(next, target, related)
+		if nextSuite == "" || validateRunTestsSuiteSelector(nextSuite) != "" {
+			continue
+		}
+		nextSuites[nextSuite] = true
+	}
+	if len(nextSuites) != 1 {
+		return ""
+	}
+	for suite := range nextSuites {
+		return suite
+	}
+	return ""
+}
+
 // defaultRunnerPlansFromTestSurface builds the system-owned verify queue for a
 // run_tests call with no explicit runner. It consumes typed filesystem surface
 // data, typed impact-priority runner plans, and an optional plan-touched runner

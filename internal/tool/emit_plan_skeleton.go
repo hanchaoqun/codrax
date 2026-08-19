@@ -127,8 +127,8 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	        "properties": {
 	          "id": {"type": "string"},
 	          "test_path": {"type": "string"},
-	          "assertion_suite": {"type": "string", "description": "Assertion suite/class identity; a structured runner may qualify it with the exact file, module, or package namespace."},
-	          "assertion_id": {"type": "string"},
+	          "assertion_suite": {"type": "string", "description": "Exact containing suite/class/module/file identity expected in TestResult.suite from the project runner. Do not append the individual test method unless that runner itself includes it in the suite field (for Python unittest, use the containing class/module such as ValueTest or tests.test_value.ValueTest)."},
+	          "assertion_id": {"type": "string", "description": "Exact TestResult.assertion_id expected from the project runner: normally the framework-reported test function, method, case, or example identity (for example test_value), never source assertion code such as assertEqual(...), an expected-value expression, or explanatory prose."},
 	          "contract_refs": {"type": "array", "items": {"type": "string"}}
 	        },
 	        "required": ["id", "test_path", "assertion_suite", "assertion_id", "contract_refs"]

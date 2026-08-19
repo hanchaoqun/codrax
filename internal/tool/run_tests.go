@@ -731,7 +731,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// elsewhere. The model's explicit runner choice always runs first;
 	// this only adds candidates after prior choices produced no real
 	// verification.
-	escalateToSurfaceCandidate := func(source string) *runnerPlan {
+	escalateToSurfaceCandidate := func(source string, priorPlans ...runnerPlan) *runnerPlan {
 		if surfaceEscalations >= maxTestSurfaceEscalations {
 			return nil
 		}
@@ -745,9 +745,16 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		surfaceEscalations++
 		next := runnerPlanFromSurfaceCandidate(ctx.RepoRoot, *cand)
+		if len(priorPlans) == 1 {
+			if suite := scopedSuiteForSurfaceEscalation(
+				ctx.RepoRoot, surface, ctx.Mutable.ChangePlan(), priorPlans[0], *cand,
+			); suite != "" {
+				next.Suite = suite
+			}
+		}
 		planSources[testSurfaceCandidateKey(next.Runner, next.Framework, runnerPlanRel(ctx.RepoRoot, next))] = source
-		logging.Info("[run_tests] test-surface escalation (%s): queueing %s after current candidate produced no real verification",
-			source, cand.ID)
+		logging.Info("[run_tests] test-surface escalation (%s): queueing %s suite=%q after current candidate produced no real verification",
+			source, cand.ID, next.Suite)
 		return &next
 	}
 	planSourceFor := func(plan runnerPlan) string {
@@ -789,7 +796,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, direct.Output))
 			projectReports = append(projectReports, qualifyChangeReport(direct.Report, plan, ctx.RepoRoot))
 			if direct.Report != nil && direct.Report.FailureKind == types.FailureKindRunnerMissing {
-				if next := escalateToSurfaceCandidate("runner_missing_escalation"); next != nil {
+				if next := escalateToSurfaceCandidate("runner_missing_escalation", plan); next != nil {
 					plans = append(plans, *next)
 				}
 			}
@@ -864,7 +871,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 						// candidate so fallback success cannot prematurely
 						// stand in for package/test verification.
 						if report != nil && report.Passed {
-							if next := escalateToSurfaceCandidate("syntax_check_fallback_escalation"); next != nil {
+							if next := escalateToSurfaceCandidate("syntax_check_fallback_escalation", plan); next != nil {
 								combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
 									fmt.Sprintf("[run_tests: %s] syntax-check fallback passed, but typed test surface still has runnable work — continuing with %s",
 										label, runnerPlanLabel(ctx.RepoRoot, *next))))
@@ -897,7 +904,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// surface still holds an unexecuted candidate with real test
 			// work, queue it so a zero-test outcome never stands as the
 			// whole verification while a runnable contract exists.
-			if next := escalateToSurfaceCandidate("no_tests_escalation"); next != nil {
+			if next := escalateToSurfaceCandidate("no_tests_escalation", plan); next != nil {
 				plans = append(plans, *next)
 			}
 			continue
@@ -1176,7 +1183,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				// dead end — queue the next runnable candidate when the
 				// surface has one, so the warning pass never stands
 				// alone while a real test contract exists elsewhere.
-				if next := escalateToSurfaceCandidate("runner_missing_escalation"); next != nil {
+				if next := escalateToSurfaceCandidate("runner_missing_escalation", plan); next != nil {
 					plans = append(plans, *next)
 				}
 				continue
@@ -1188,7 +1195,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			// evidence and continue with the escalation candidate instead
 			// of failing the whole verification on an uninstallable tool.
 			setLastExecOutcome("runner_missing")
-			if next := escalateToSurfaceCandidate("runner_missing_escalation"); next != nil {
+			if next := escalateToSurfaceCandidate("runner_missing_escalation", plan); next != nil {
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
 					fmt.Sprintf("[run_tests: %s] runner binary %q missing (%s, exit=%d) — continuing with %s",
 						label, missingBinary, missingReason, execExit, next.Runner)))
@@ -1354,7 +1361,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 				continue
 			}
-			if next := escalateToSurfaceCandidate("zero_tests_escalation"); next != nil {
+			if next := escalateToSurfaceCandidate("zero_tests_escalation", plan); next != nil {
 				projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
 					fmt.Sprintf("[run_tests: %s] runner reported zero tests despite typed test signal — continuing with %s",
@@ -1374,7 +1381,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// still missing. No command/prose inspection participates here.
 		provisional := finishReport(mergeChangeReports(projectReports))
 		if changeReportHasExecutionCapabilityDebt(provisional) {
-			if next := escalateToSurfaceCandidate("execution_capability_escalation"); next != nil {
+			if next := escalateToSurfaceCandidate("execution_capability_escalation", plan); next != nil {
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,
 					fmt.Sprintf("[run_tests: %s] typed changed-path coverage is static/syntax-only; continuing with independent %s behavior surface",
 						runnerPlanLabel(ctx.RepoRoot, plan), runnerPlanLabel(ctx.RepoRoot, *next))))

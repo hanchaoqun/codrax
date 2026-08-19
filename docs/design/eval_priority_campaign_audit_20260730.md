@@ -35690,14 +35690,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    原证据解析器，真正不同 tuple 的多条边正常通过。新增 r746 四边复现、单边正臂、不同 tuple 正臂；
    定向测试及 `go test ./internal/tool -count=1` 全绿（179.264s）。Trace family 仍在该 source validator
    入口前返回，runtime 因果投影未进入新门。
+9. B1194 已施工。framework/runner 候选替换不再直接复制旧 suite：先用旧 candidate
+   的 runner/framework/working-dir 与唯一 typed impact/observation target 反解 exact 选择器，再交给新
+   candidate 自己的 selector compiler 重建。只有唯一 round-trip 结果才保留窄化；无结果或多解
+   时回到候选默认面，不猜 suite、不铸 assertion receipt。新增 pytest 缺失后 unittest
+   仍只执行原 exact test path 的端到端 pin，且证明不再运行 broad discover。
+10. B1195 已从 schema 教学根修：`assertion_suite` 是 runner 回执中的 containing
+    suite/class/module/file，`assertion_id` 是 framework 报告的 test function/method/case/example，
+    不得填源码 `assertEqual(...)`、期望值表达式或解释 prose。这是软教学，不从源码/
+    请求/模型答案文本建立新硬门。
+11. B1196 已确认为系统 gap，并非模型波动。r746 第一份 proof-only plan 仍有 controller
+    盖章的 `source_plan_ids + project_test_observations`；第二次 replan 只持有前一 proof plan，旧
+    累计器不读该对象的传递闭包，且 active blob root 找不到更早 durable artifact，因而把
+    observation 静默归空。根修只继承上一计划中已由控制器铸造、且所有 source plan id 仍在
+    restore-aware workflow ledger 中为 applied 的完整 scope；任一来源已回滚则整份不继承。该 scope
+    仅供 verification consumer，不更改 `changes/target_paths`、不扩大 apply 面。
+12. 同时消除 r746 实际触发的 JSON 矛盾合同：通用教学不再无条件要求“字段绝不可
+    删除”，而是保留当前 typed plan shape 合法的所有条目；精确 repair 指明某字段在 source-free
+    proof plan 中非法时，只省略该字段，更早 applied plan 的证据由控制器闭包保留，禁止模型
+    重铸。正向传递与回滚负向 pin 均通过。
 
 状态：
 
 `B1192-ENDPOINTRETARGETREPAIRFOCUS1=implemented/full-tool-pass/pending-production-trigger`；
 `B1193-PROJECTASSERTIONCANDIDATEEXEC1=production-queue-positive/r746-framework-fallback-gap-open`；
-`B1194-TESTFRAMEWORKESCALATIONSCOPE1=confirmed/P0/next`；
-`B1195-PROJECTASSERTIONJSONTEACHING1=confirmed/P1/planned`；
-`B1196-PROOFONLYCUMULATIVEOBSERVATION1=under-audit/not-yet-filed`；
+`B1194-TESTFRAMEWORKESCALATIONSCOPE1=implemented/exact-roundtrip+pinned/pending-production-replay`；
+`B1195-PROJECTASSERTIONJSONTEACHING1=implemented/schema-teaching/pending-production-replay`；
+`B1196-PROOFONLYCUMULATIVEOBSERVATION1=confirmed+implemented/live-source-transitive-scope+pinned/pending-production-replay`；
 `B1197-DIAGRAMRELATIONTUPLECARDINALITY1=implemented/full-tool-pass/pending-production-replay`；
 `active-stream-4m-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

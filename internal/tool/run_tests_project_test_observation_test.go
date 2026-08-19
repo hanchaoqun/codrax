@@ -77,6 +77,69 @@ func TestRunTestsExecutesDeclaredProjectTestObservationPath(t *testing.T) {
 	}
 }
 
+func TestRunTestsPreservesExactObservationPathAcrossPytestToUnittestEscalation(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	fakePytestUnavailable(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "tests"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.pytest.ini_options]\ntestpaths=['tests']\n"), 0o644); err != nil {
+		t.Fatalf("write pyproject: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "value.py"), []byte("VALUE = 1\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	testBody := "import unittest\n\nclass ValueTest(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(1, 1)\n"
+	if err := os.WriteFile(filepath.Join(root, "tests", "test_value.py"), []byte(testBody), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	mu := types.NewMutableState("project observation fallback")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID: "plan-project-observation-fallback", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"pkg/value.py"}, Changes: []types.FileChange{{Path: "pkg/value.py", Kind: "patch"}},
+		BehaviorContracts: []types.WriteBehaviorContract{{ID: "value-contract", Required: true}},
+		ProjectTestObservations: []types.ProjectTestObservation{{
+			ID: "value-observation", TestPath: "tests/test_value.py",
+			AssertionSuite: "ValueTest", AssertionID: "test_value", ContractRefs: []string{"value-contract"},
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mu, Mode: types.ModeApply, PipelineStage: types.StageVerify, RepoRoot: root, MainRepoRoot: root}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("exact unittest fallback should close the observation: %+v report=%+v", result, mu.ChangeReport())
+	}
+	report := mu.ChangeReport()
+	if report == nil {
+		t.Fatal("missing change report")
+	}
+	var sawPytestMissing, sawExactUnittest bool
+	for _, command := range report.ExecutedCommands {
+		if command.Runner == "python" && command.Framework == pythonFrameworkPytest && command.Outcome == "runner_missing" {
+			sawPytestMissing = true
+		}
+		if command.Runner == "python" && command.Framework == pythonFrameworkUnittest && command.Outcome == "executed" {
+			sawExactUnittest = command.Suite == "tests/test_value.py" && strings.Contains(command.Command, `-m unittest "tests/test_value.py" -v`) && !strings.Contains(command.Command, "discover -s")
+		}
+	}
+	if !sawPytestMissing || !sawExactUnittest {
+		t.Fatalf("expected missing pytest then exact unittest file: %+v", report.ExecutedCommands)
+	}
+	records := verificationConfidenceRecordsFromReport(mu.ChangePlan(), report)
+	if !verificationConfidenceContains(records, "project_test_contract_refs", "satisfied", "project_test_contract_ref_observed") ||
+		verificationConfidenceContains(records, "project_test_contract_refs", "missing", "project_test_assertion_not_observed") {
+		t.Fatalf("exact fallback assertion did not close observation debt: %+v", records)
+	}
+}
+
 func TestVerificationConfidenceRequiresExactProjectTestCandidateExecution(t *testing.T) {
 	plan := &types.ChangePlan{
 		BehaviorContracts: []types.WriteBehaviorContract{{

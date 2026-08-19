@@ -20,6 +20,13 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	// insufficient: a newly emitted planner plan may reuse an ID and its
 	// cumulative field remains untrusted.
 	var restoredScope *types.CumulativeVerificationScope
+	var priorControllerScopes []*types.CumulativeVerificationScope
+	liveAppliedPlanIDs := map[string]bool{}
+	for _, id := range o.writeFinalReportAppliedPlanIDs(run) {
+		if id = strings.TrimSpace(id); id != "" {
+			liveAppliedPlanIDs[id] = true
+		}
+	}
 	for _, candidate := range candidates {
 		if candidate == plan && plan.CumulativeVerificationScope != nil {
 			prior := plan.CumulativeVerificationScope
@@ -31,6 +38,31 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 				ProjectTestObservations: append([]types.ProjectTestObservation(nil), prior.ProjectTestObservations...),
 			}
 			break
+		}
+		// A newly emitted proof-only plan is a different object from its
+		// predecessor. The predecessor's cumulative scope was nevertheless
+		// controller-authored and is the only in-memory carrier for transitive
+		// verification rows when older durable artifacts live outside the
+		// active blob root. Carry it only when every named source plan remains
+		// live according to the restore-aware workflow ledger. This cannot
+		// resurrect rolled-back work and never changes the active apply scope.
+		if candidate == nil || candidate.CumulativeVerificationScope == nil {
+			continue
+		}
+		prior := candidate.CumulativeVerificationScope
+		if len(prior.SourcePlanIDs) == 0 {
+			continue
+		}
+		allSourcesLive := true
+		for _, rawID := range prior.SourcePlanIDs {
+			id := strings.TrimSpace(rawID)
+			if id == "" || !liveAppliedPlanIDs[id] {
+				allSourcesLive = false
+				break
+			}
+		}
+		if allSourcesLive {
+			priorControllerScopes = append(priorControllerScopes, prior)
 		}
 	}
 	// Discard any planner-provided value before rebuilding controller
@@ -77,10 +109,14 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			projectObservationIDs[id] = true
 		}
 	}
+	trustedScopes := priorControllerScopes
 	if restoredScope != nil {
-		scope.SourcePlanIDs = append(scope.SourcePlanIDs, restoredScope.SourcePlanIDs...)
-		scope.TargetPaths = append(scope.TargetPaths, restoredScope.TargetPaths...)
-		for _, contract := range restoredScope.BehaviorContracts {
+		trustedScopes = append(trustedScopes, restoredScope)
+	}
+	for _, trustedScope := range trustedScopes {
+		scope.SourcePlanIDs = append(scope.SourcePlanIDs, trustedScope.SourcePlanIDs...)
+		scope.TargetPaths = append(scope.TargetPaths, trustedScope.TargetPaths...)
+		for _, contract := range trustedScope.BehaviorContracts {
 			if activeRebasedFallbackGeneration && types.IsExpectedOutcomeFallbackWriteBehaviorContract(contract) {
 				continue
 			}
@@ -91,7 +127,7 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			contractIDs[id] = true
 			scope.BehaviorContracts = append(scope.BehaviorContracts, contract)
 		}
-		for _, probe := range restoredScope.VerificationProbes {
+		for _, probe := range trustedScope.VerificationProbes {
 			id := strings.TrimSpace(probe.ID)
 			if id == "" || probeIDs[id] {
 				continue
@@ -99,7 +135,7 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			probeIDs[id] = true
 			scope.VerificationProbes = append(scope.VerificationProbes, probe)
 		}
-		for _, observation := range restoredScope.ProjectTestObservations {
+		for _, observation := range trustedScope.ProjectTestObservations {
 			id := strings.TrimSpace(observation.ID)
 			if id == "" || projectObservationIDs[id] {
 				continue
@@ -111,6 +147,12 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	for _, planID := range o.writeFinalReportAppliedPlanIDs(run) {
 		planID = strings.TrimSpace(planID)
 		if planID == "" || planID == currentID {
+			continue
+		}
+		// A trusted transitive scope already contains the complete verify-only
+		// projection for this live source plan. Do not require the older plan
+		// artifact to be reachable from the active blob root as well.
+		if cumulativeScopeContainsSourcePlanID(scope.SourcePlanIDs, planID) {
 			continue
 		}
 		retained := byID[planID]
@@ -165,4 +207,17 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 		return
 	}
 	plan.CumulativeVerificationScope = &scope
+}
+
+func cumulativeScopeContainsSourcePlanID(values []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == want {
+			return true
+		}
+	}
+	return false
 }

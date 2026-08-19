@@ -105,6 +105,42 @@ func TestImpactRunnerPlansPreferPytestFileSelectorOverUnittestFallback(t *testin
 	}
 }
 
+func TestScopedSuiteForSurfaceEscalationRecompilesExactObservationForFallbackFramework(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[tool.pytest.ini_options]\ntestpaths=['tests']\n")
+	writeImpactSurfaceFixture(t, root, "pkg/a.py", "def value():\n    return 1\n")
+	writeImpactSurfaceFixture(t, root, "tests/test_a.py", "import unittest\n\nclass ValueTest(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(1, 1)\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{ProjectTestObservations: []types.ProjectTestObservation{{
+		ID: "value-observation", TestPath: "tests/test_a.py",
+		AssertionSuite: "ValueTest", AssertionID: "test_value",
+	}}}
+	var pytestCandidate, unittestCandidate *types.TestSurfaceCandidate
+	for i := range surface.Candidates {
+		candidate := &surface.Candidates[i]
+		if candidate.Runner == "python" && candidate.Framework == pythonFrameworkPytest {
+			pytestCandidate = candidate
+		}
+		if candidate.Runner == "python" && candidate.Framework == pythonFrameworkUnittest {
+			unittestCandidate = candidate
+		}
+	}
+	if pytestCandidate == nil || unittestCandidate == nil {
+		t.Fatalf("fixture needs both python framework candidates: %+v", surface.Candidates)
+	}
+	prior := runnerPlanFromSurfaceCandidate(root, *pytestCandidate)
+	prior.Suite = "tests/test_a.py"
+	if got := scopedSuiteForSurfaceEscalation(root, surface, plan, prior, *unittestCandidate); got != "tests/test_a.py" {
+		t.Fatalf("exact observation target was not recompiled for unittest: %q", got)
+	}
+
+	prior.Suite = "tests"
+	if got := scopedSuiteForSurfaceEscalation(root, surface, plan, prior, *unittestCandidate); got != "" {
+		t.Fatalf("a broad/non-roundtripping prior suite must not be inherited: %q", got)
+	}
+}
+
 func TestImpactRunnerPlansNormalizeDjangoRelatedTestSelectors(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "setup.py", "from setuptools import setup\n")
