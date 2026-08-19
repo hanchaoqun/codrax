@@ -62,6 +62,9 @@ func TestExtractTestFailureSignal_ExpectedGotPair(t *testing.T) {
 	if got.Expected != "42" || got.Actual != "7" {
 		t.Fatalf("expected/actual = %q/%q", got.Expected, got.Actual)
 	}
+	if got.LeftOperand != "" || got.RightOperand != "" || got.OperandRoles != "" {
+		t.Fatalf("explicit expected/got must not also mint unlabeled operands: %+v", got)
+	}
 }
 
 func TestExtractTestFailureSignal_PythonTracebackLocation(t *testing.T) {
@@ -77,5 +80,43 @@ AssertionError: None != 'id_name_0'`,
 
 	if got.Location != "/tmp/repo/tests/forms_tests/tests/test_forms.py:723" {
 		t.Fatalf("Location = %q", got.Location)
+	}
+	if got.Expected != "" || got.Actual != "" {
+		t.Fatalf("bare Python comparison has no expected/actual role authority: %+v", got)
+	}
+	if got.ComparisonOperator != "!=" || got.LeftOperand != "None" || got.RightOperand != "id_name_0" ||
+		got.OperandRoles != TestFailureOperandRolesUnlabeled {
+		t.Fatalf("unlabeled comparison projection wrong: %+v", got)
+	}
+	rendered := RenderTestFailureSignal(got)
+	for _, want := range []string{
+		`comparison_operator="!="`,
+		`left_operand="None"`,
+		`right_operand="id_name_0"`,
+		`operand_roles=unlabeled`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered unlabeled comparison missing %q: %s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "expected=") || strings.Contains(rendered, "actual=") {
+		t.Fatalf("unlabeled comparison was mislabeled in rendered guidance: %s", rendered)
+	}
+}
+
+func TestExtractTestFailureSignal_UnittestListsDifferPreservesOrderedOperandsWithoutRoles(t *testing.T) {
+	detail := `AssertionError: Lists differ: [300, 300, 10] != [300]`
+	got := ExtractTestFailureSignal(TestResult{
+		AssertionID:   "test_newline_run",
+		Suite:         "tests/test_tokenizer.py",
+		FailureDetail: detail,
+	}, 400)
+
+	if got.Expected != "" || got.Actual != "" {
+		t.Fatalf("unittest operand order must not be relabeled expected/actual: %+v", got)
+	}
+	if got.ComparisonOperator != "!=" || got.LeftOperand != "Lists differ: [300, 300, 10]" ||
+		got.RightOperand != "[300]" || got.OperandRoles != TestFailureOperandRolesUnlabeled {
+		t.Fatalf("ordered operands lost: %+v", got)
 	}
 }

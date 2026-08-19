@@ -36475,6 +36475,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1112 B1117：无标签比较只保留左右操作数，不伪造 expected/actual（2026-08-18）
+
+1. `TestFailureSignal` 新增 typed `comparison_operator/left_operand/right_operand/operand_roles`。裸
+   `AssertionError: X != Y` 或 `X == Y` 只铸成 ordered operands，`operand_roles=unlabeled`；不再依据 runner 的
+   展示顺序猜哪一侧是期望值。Planner/Controller 看到的是明确无角色的软引导，仍需结合失败测试源码判断修向。
+2. 只有 runner 明示 `expected ... got ...` 或 `want ... got ...` 时才填原有 `Expected/Actual`。两类载体互斥；render
+   对无标签形输出 comparison/left/right/roles，禁止同时出现 `expected=`/`actual=`。该判断只解析 executor-owned
+   `TestResult.FailureDetail`，不读取用户请求、模型推理、计划、patch 或答案，也不参与硬 workflow verdict。
+3. 正向 pin 覆盖 Go 风格 expected/got；反向 pin 覆盖 Python traceback `None != 'id_name_0'` 和本次生产 witness
+   `Lists differ: [...300,300,10] != [...300]`；VerifyFailureHandoff 必须原样携带无标签角色，不能在跨阶段时反转。
+4. 联合回归先暴露一条 B1116 后的过期测试 oracle：唯一 callable tail join 已正确把 `gate.RunWith/RunWith` 合为
+   共享被调端，两个请求参与者都有 typed incident，旧 pin 却仍要求 stale `participant_boundaries=unproven`。这与
+   validator 的“已覆盖必须移除 stale boundary”合同冲突；仅更新该测试为不得发布 stale boundary，生产代码未改。
+5. `go test ./internal/types ./internal/agent ./internal/orchestrator -count=1` 全绿。本批不降低失败证明杆、不替模型判断
+   哪个值正确，也不触碰 Read/Trace、Mermaid 关系、显式窗因果投影或答案结论权。
+
+状态：
+
+`B1117-FAILURECOMPARISONOPERANDROLE1=implemented/typed-unlabeled-operands+pinned`；
+`B1116-shared-callee-boundary-pin=stale-oracle-corrected/production-unchanged`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

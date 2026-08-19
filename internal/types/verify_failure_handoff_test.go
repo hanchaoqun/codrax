@@ -115,6 +115,32 @@ func TestBuildVerifyFailureHandoff_BoundsModelAuthoredProbeComparator(t *testing
 	}
 }
 
+func TestBuildVerifyFailureHandoff_DoesNotInvertUnlabeledComparisonRoles(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:      "plan-unittest",
+		Passed:      false,
+		FailureKind: FailureKindTestsFailed,
+		TestResults: []TestResult{{
+			AssertionID:   "test_newline_run",
+			Suite:         "tests/test_tokenizer.py",
+			Passed:        false,
+			FailureDetail: "AssertionError: Lists differ: [300, 300, 10] != [300]",
+		}},
+	}
+	h := BuildVerifyFailureHandoff(report, "batch", 2, "", "")
+	if h == nil || len(h.FailureSignals) != 1 {
+		t.Fatalf("failure signal missing: %+v", h)
+	}
+	signal := h.FailureSignals[0]
+	if signal.Expected != "" || signal.Actual != "" {
+		t.Fatalf("handoff invented expected/actual roles: %+v", signal)
+	}
+	if signal.LeftOperand != "Lists differ: [300, 300, 10]" || signal.RightOperand != "[300]" ||
+		signal.ComparisonOperator != "!=" || signal.OperandRoles != TestFailureOperandRolesUnlabeled {
+		t.Fatalf("handoff did not preserve unlabeled comparison: %+v", signal)
+	}
+}
+
 func TestBuildVerifyFailureHandoffWithoutReport_PreservesOnlyAttemptAuthority(t *testing.T) {
 	h := BuildVerifyFailureHandoffWithoutReport(
 		" plan-1 ", " batch-1 ", 2, " tests_failed ",

@@ -13,21 +13,32 @@ var (
 	pythonTracebackLocationRE = regexp.MustCompile(`(?m)File "([^"]+)", line ([0-9]+)`)
 	expectedGotRE             = regexp.MustCompile(`(?i)\bexpected\s+(.+?)(?:,\s*(?:but\s+)?|\s+)got\s+(.+)`)
 	wantGotRE                 = regexp.MustCompile(`(?i)\bwant(?:ed)?\s+(.+?)(?:,\s*|\s+)got\s+(.+)`)
-	assertionEqualsRE         = regexp.MustCompile(`(?i)AssertionError:\s*(.+?)\s*(?:==|!=)\s*(.+)`)
-	pytestAssertionLine       = regexp.MustCompile(`(?m)^\s*E\s+AssertionError:\s*(.+)$`)
+	assertionComparisonRE     = regexp.MustCompile(`(?i)AssertionError:\s*(.+?)\s*(==|!=)\s*(.+)`)
+)
+
+type TestFailureOperandRoles string
+
+const (
+	// TestFailureOperandRolesUnlabeled means the runner exposed an ordered
+	// comparison, but did not identify either operand as expected or actual.
+	TestFailureOperandRolesUnlabeled TestFailureOperandRoles = "unlabeled"
 )
 
 // TestFailureSignal is a compact, typed projection of a failed unit-test row.
 // It is soft guidance for replan and handoff consumers: hard workflow gates
 // continue to read ChangeReport.Passed / VerificationStatus / FailureKind.
 type TestFailureSignal struct {
-	AssertionID string         `json:"assertion_id,omitempty"`
-	Suite       string         `json:"suite,omitempty"`
-	Kind        TestResultKind `json:"kind,omitempty"`
-	Location    string         `json:"location,omitempty"`
-	Signal      string         `json:"signal,omitempty"`
-	Expected    string         `json:"expected,omitempty"`
-	Actual      string         `json:"actual,omitempty"`
+	AssertionID        string                  `json:"assertion_id,omitempty"`
+	Suite              string                  `json:"suite,omitempty"`
+	Kind               TestResultKind          `json:"kind,omitempty"`
+	Location           string                  `json:"location,omitempty"`
+	Signal             string                  `json:"signal,omitempty"`
+	Expected           string                  `json:"expected,omitempty"`
+	Actual             string                  `json:"actual,omitempty"`
+	ComparisonOperator string                  `json:"comparison_operator,omitempty"`
+	LeftOperand        string                  `json:"left_operand,omitempty"`
+	RightOperand       string                  `json:"right_operand,omitempty"`
+	OperandRoles       TestFailureOperandRoles `json:"operand_roles,omitempty"`
 }
 
 // ExtractTestFailureSignal projects a TestResult into a bounded replan signal.
@@ -50,6 +61,12 @@ func ExtractTestFailureSignal(result TestResult, maxChars int) TestFailureSignal
 		out.Kind = TestResultKindUnit
 	}
 	out.Expected, out.Actual = extractExpectedActual(result.FailureDetail)
+	if out.Expected == "" && out.Actual == "" {
+		out.ComparisonOperator, out.LeftOperand, out.RightOperand = extractUnlabeledComparison(result.FailureDetail)
+		if out.LeftOperand != "" || out.RightOperand != "" {
+			out.OperandRoles = TestFailureOperandRolesUnlabeled
+		}
+	}
 	return out
 }
 
@@ -66,6 +83,15 @@ func RenderTestFailureSignal(signal TestFailureSignal) string {
 	}
 	if signal.Expected != "" || signal.Actual != "" {
 		parts = append(parts, fmt.Sprintf("expected=%q actual=%q", signal.Expected, signal.Actual))
+	}
+	if signal.LeftOperand != "" || signal.RightOperand != "" {
+		parts = append(parts, fmt.Sprintf(
+			"comparison_operator=%q left_operand=%q right_operand=%q operand_roles=%s",
+			signal.ComparisonOperator,
+			signal.LeftOperand,
+			signal.RightOperand,
+			signal.OperandRoles,
+		))
 	}
 	if signal.Signal != "" {
 		parts = append(parts, "signal="+signal.Signal)
@@ -89,7 +115,7 @@ func extractFailureLocation(detail string) string {
 }
 
 func extractExpectedActual(detail string) (string, string) {
-	for _, re := range []*regexp.Regexp{expectedGotRE, wantGotRE, assertionEqualsRE, pytestAssertionLine} {
+	for _, re := range []*regexp.Regexp{expectedGotRE, wantGotRE} {
 		match := re.FindStringSubmatch(detail)
 		if len(match) < 3 {
 			continue
@@ -101,6 +127,19 @@ func extractExpectedActual(detail string) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func extractUnlabeledComparison(detail string) (operator, left, right string) {
+	match := assertionComparisonRE.FindStringSubmatch(detail)
+	if len(match) < 4 {
+		return "", "", ""
+	}
+	left = cleanFailureValue(match[1])
+	right = cleanFailureValue(match[3])
+	if left == "" && right == "" {
+		return "", "", ""
+	}
+	return strings.TrimSpace(match[2]), left, right
 }
 
 func cleanFailureValue(raw string) string {
