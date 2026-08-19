@@ -665,6 +665,29 @@ func TestCompileCallChain_HasOrderedListRequiredAndDiagramOptionalByDefault(t *t
 	}
 }
 
+func TestCompileCallChain_SeparatesRequestedMemberRosterFromPrincipalEndpointEdges(t *testing.T) {
+	ir := irForCallChain()
+	ir.RequestModel.RequestedAnswerDimensions = &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []RequestedAnswerDimension{{
+			Index: 2, Label: "key functions", Role: RequestedAnswerDimensionMemberSet, Required: true,
+		}},
+	}
+	view := BuildAnswerSemanticView(ir, nil)
+	var rationale string
+	for _, requirement := range view.RequiredBlocks {
+		if requirement.Kind == BlockOrderedList && containsString(requirement.FacetIDs, string(FacetPrincipalPathEdge)) {
+			rationale = requirement.Rationale
+			break
+		}
+	}
+	for _, want := range []string{"separate block responsibility", "without principal_path_edge", "ordinary key-function/member rows"} {
+		if !strings.Contains(rationale, want) {
+			t.Fatalf("call-chain/member-set ownership teaching missing %q: %q", want, rationale)
+		}
+	}
+}
+
 func TestCallChainPrincipalClaimFormsKeepCompilerAndRelationPresenceGateOnOneRoster(t *testing.T) {
 	view := BuildAnswerSemanticView(irForCallChain(), nil)
 	var got []ClaimForm

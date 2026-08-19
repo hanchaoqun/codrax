@@ -7276,6 +7276,34 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerD
 	}
 }
 
+func TestAnswerDocumentEvaluator_CallChainMemberRosterDoesNotInheritEndpointEdgeOwnership(t *testing.T) {
+	ctx := &types.AgentContext{
+		Language: "zh",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Label: "Mermaid 时序图", Role: types.RequestedAnswerDimensionDiagram, Required: true, Index: 1},
+					{Label: "关键中间函数", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 2},
+				},
+			},
+		}},
+	}
+	prompt := renderAnswerDocRequestedAnswerDimensions(ctx)
+	for _, want := range []string{
+		"成员清单与调用链端点边是两个独立的 typed 责任",
+		"普通关键函数/成员清单块只设置 `facet_ids:[\"member_set\"]`",
+		"不要同时设置 `principal_path_edge`",
+		"精确端点边另用独立块承载",
+		"在第一稿就分块",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("call-chain member roster ownership prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestRequestedAnswerDimensionCoverageHint_UsesOnlyUserFacingLabels(t *testing.T) {
 	dims := []types.RequestedAnswerDimension{
 		{Label: "调用链", Role: types.RequestedAnswerDimensionMemberSet, Required: true, Index: 1},

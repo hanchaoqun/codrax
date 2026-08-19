@@ -35733,12 +35733,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1142-IWAITCALIBERWORDING1=production-improved-r719/still-partial/absent-completion-ruler-not-visible`；
 `B1143-SCHEDULERSTATEMECHANISMAUTHORITY1=production-positive-r719`；
 `B1144-MULTISURFACEDIMENSIONORDER1=analyzer-carrier-production-positive/content-preserved/layout-order-partial`；
-`B1145-MEMBERSETENDPOINTFACETCOLLISION1=confirmed/P1/three-finalizer-rejects/general-typed-root-fix-next`；
+`B1145-MEMBERSETENDPOINTFACETCOLLISION1=implemented/call-chain-compiler+finalizer-typed-ownership-teaching/first-draft-separation/pending-replay`；
 `B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-reconfirmed-r719/P2/no-prose-keyword-gate`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+7. B1145 已按 call-chain family 的 typed block ownership 根修。Call-chain compiler 在发现 required
+   `member_set` 维度时，明确把 principal endpoint-edge ordered list 与 descriptive member roster 定义为两个
+   block 责任；Finalizer 同源补充第一稿 blueprint：普通成员/关键函数 roster 仅挂 `member_set`，不继承
+   `principal_path_edge`、directed `claim_uses` 或 `edge_anchors`，精确端点边另块承载；只有 roster 每一行本身
+   就是一条 exact endpoint edge 时才允许合并。该规则只消费 schema-valid family/dimension role，不扫描用户或
+   答案原文，不按语言、函数名或样例拟合，不删除模型选择的关系。compiler 与 Finalizer 目标 pin 已绿，待生产回放
+   检验 reject 是否从 3 次降为 0，并继续观察 diagram-before-roster 的软顺序合同。
 
 ### §123.1136 r717：D/IO 零清单闭环；scheduler-marked 与 completion-closed IO 等待同名冲突（2026-08-18）
 

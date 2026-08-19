@@ -55,6 +55,11 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 	if ir != nil && ir.AnswerContract.ExactResolution != nil {
 		view.ExactResolution = ir.AnswerContract.ExactResolution
 	}
+	principalListRationale := "List only grounded directed hops. Within each connected typed segment, order items by the proved control flow and include file:line in the list citation. " +
+		"When evidence forms disconnected segments, keep them visibly separate and do not imply an execution order, value handoff, or bridge between them."
+	if callChainHasRequiredMemberRoster(ir) {
+		principalListRationale += " The user also requested a visible member roster. That descriptive member_set is a separate block responsibility: do not put member names/responsibilities in this principal_path_edge carrier unless each row is itself one exact grounded endpoint edge. Emit a sibling member_set block without principal_path_edge or directed claim ownership for ordinary key-function/member rows."
+	}
 	view.RequiredBlocks = []BlockRequirement{
 		requireSummaryBlock(
 			"Summarize the grounded directed segment or segments and their verified entry/terminal points. " +
@@ -70,9 +75,8 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 				string(FacetPrincipalPathEdge),
 			},
 			AcceptableClaimForms: CallChainPrincipalClaimForms(),
-			Rationale: "List only grounded directed hops. Within each connected typed segment, order items by the proved control flow and include file:line in the list citation. " +
-				"When evidence forms disconnected segments, keep them visibly separate and do not imply an execution order, value handoff, or bridge between them.",
-			SurfaceRoleHint: SurfacePrincipal,
+			Rationale:            principalListRationale,
+			SurfaceRoleHint:      SurfacePrincipal,
 		},
 	}
 	if diagramRequiredByUserIntent(plan) {
@@ -116,4 +120,16 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 	// principal_path_edge typed evidence when present.
 	markGlaringFacets(view, FacetBranchGuard, FacetPrincipalPathEdge)
 	return view
+}
+
+func callChainHasRequiredMemberRoster(ir *AnalysisIR) bool {
+	if ir == nil || ir.RequestModel.RequestedAnswerDimensions == nil {
+		return false
+	}
+	for _, dimension := range ir.RequestModel.RequestedAnswerDimensions.Dimensions {
+		if dimension.Required && dimension.Role == RequestedAnswerDimensionMemberSet {
+			return true
+		}
+	}
+	return false
 }

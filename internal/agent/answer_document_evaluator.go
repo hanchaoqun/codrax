@@ -7619,6 +7619,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		return ""
 	}
 	lang := extractAnswerDocLang(ctx)
+	callChainMemberRoster := view.Family == types.QFCallChain && answerDocHasRequiredDimensionRole(view.Presentation.RequestedDimensions, types.RequestedAnswerDimensionMemberSet)
 	var b strings.Builder
 	if lang == "zh" {
 		b.WriteString("## 用户要求的答案维度\n\n")
@@ -7627,6 +7628,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		b.WriteString("- 如果答案按多个主体逐项展开（例如逐提交、逐日志事件、逐 trace span、逐组件、逐文件），每个主体下面都应尽量显式保留这些维度标签；某一维没有证据时，在该主体下说明边界，不要补编。\n")
 		b.WriteString("- 这些维度是展示契约，不是新的证据来源；不要为没有证据支撑的维度编造内容，证据不足时在边界说明中说清楚。\n")
 		b.WriteString("- 每一行都是独立的可见输出面；即使共用证据，图也不能吞掉用户另行要求的清单、表格或解释。按“第 N 维”的顺序安排这些输出面；如果图在清单之前，先给图，再在图后给清单。\n")
+		if callChainMemberRoster {
+			b.WriteString("- 本轮的成员清单与调用链端点边是两个独立的 typed 责任。普通关键函数/成员清单块只设置 `facet_ids:[\"member_set\"]`，不要同时设置 `principal_path_edge`、directed `claim_uses` 或 `edge_anchors`；精确端点边另用独立块承载。只有清单的每一行本身就是一条精确端点边时才能合并。请在第一稿就分块，不要等校验修补。\n")
+		}
 		b.WriteString("- 保留模型已经写好的内容；不要为了套表格而删除、替换或压扁更丰富的说明。\n\n")
 	} else {
 		b.WriteString("## User-Requested Answer Dimensions\n\n")
@@ -7635,6 +7639,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		b.WriteString("- When the answer is organized by multiple subjects (for example per commit, log event, trace span, component, or file), preserve these dimension labels under each subject where possible; if a dimension lacks evidence, state that boundary under that subject instead of inventing content.\n")
 		b.WriteString("- These dimensions are presentation guidance, not new evidence origins. Do not invent unsupported content; disclose missing evidence in a boundary note or caveat.\n")
 		b.WriteString("- Every row is an independent visible output surface. Even when surfaces share evidence, a diagram must not absorb a separately requested list, table, or explanation. Follow Dimension N as visible output order; when the diagram precedes a roster, render the roster after the diagram.\n")
+		if callChainMemberRoster {
+			b.WriteString("- The requested member roster and the call-chain endpoint edges are two independent typed responsibilities. An ordinary key-function/member roster block uses only `facet_ids:[\"member_set\"]`; do not also attach `principal_path_edge`, directed `claim_uses`, or `edge_anchors`. Put the exact endpoint edges in a separate block. Merge them only when every roster row is itself one exact endpoint edge. Separate these blocks in the first draft instead of relying on repair.\n")
+		}
 		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
 	}
 	for _, dim := range view.Presentation.RequestedDimensions {
@@ -7682,6 +7689,15 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocHasRequiredDimensionRole(dimensions []types.RequestedAnswerDimension, role types.RequestedAnswerDimensionRole) bool {
+	for _, dimension := range dimensions {
+		if dimension.Required && dimension.Role == role {
+			return true
+		}
+	}
+	return false
 }
 
 func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) string {
