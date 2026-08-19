@@ -460,6 +460,36 @@ func TestPlannerWriteExplorationRequest_RendersBeforeHandoff(t *testing.T) {
 	}
 }
 
+func TestPlannerVerifyFailureReplanOmitsPriorGenerationExplorationRequest(t *testing.T) {
+	mu := types.NewMutableState("repair current applied generation")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Summary: "preserve the original requested outcome"},
+	}})
+	mu.SetWriteWorkflowRun(&types.WriteWorkflowRun{ActiveBatchID: "batch-1"})
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID: "batch-1", Goal: "stale proposed implementation from the pre-apply generation",
+		CandidatePaths: []string{"pkg/current.py"},
+	})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID: "plan-failed", BatchID: "batch-1", FailureKind: types.FailureKindTestsFailed,
+		FailureSummary: "the applied implementation failed its typed assertion",
+	})
+	got := (&plannerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mu}, nil)
+	if strings.Contains(got, "## Targeted source exploration request") ||
+		strings.Contains(got, "stale proposed implementation") {
+		t.Fatalf("generation-stale exploration request leaked into verify-failure replan:\n%s", got)
+	}
+	for _, want := range []string{
+		"## Latest verification failure (authoritative)",
+		"preserve the original requested outcome",
+		"the applied implementation failed its typed assertion",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("replan lost current authority %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestPlannerWriteExplorationHandoff_AbsentWhenUnset(t *testing.T) {
 	mu := types.NewMutableState("the user request")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{

@@ -10084,9 +10084,9 @@ func verifyFailureRepairSourceCandidates(repoRoot string, h *types.VerifyFailure
 		out = append(out, verifyFailureRepairSourceCandidate{path: path, line: line, reasonCode: reason})
 	}
 	if plan != nil {
-		for path, lines := range planEditOwnerPatchEffectLineCandidates(plan.PatchEffect) {
+		for path, lines := range verifyFailurePatchEffectHunkLineCandidates(plan.PatchEffect) {
 			for _, line := range lines {
-				add(path, line, "patch_effect_added_line")
+				add(path, line, "patch_effect_added_hunk")
 			}
 		}
 	}
@@ -10104,6 +10104,54 @@ func verifyFailureRepairSourceCandidates(repoRoot string, h *types.VerifyFailure
 		for _, path := range plan.TargetPaths {
 			add(path, 1, "target_path_current_source")
 		}
+	}
+	return out
+}
+
+// verifyFailurePatchEffectHunkLineCandidates selects one current-source
+// coordinate per applied diff hunk. The older per-added-line projection made
+// a multi-line edit produce many nearly identical radius windows, crowding the
+// replan prompt with repeated bytes. One hunk coordinate preserves every
+// distinct edit region; exact current bytes remain available through the
+// immutable current-path hash and read_file when a wider region is needed.
+func verifyFailurePatchEffectHunkLineCandidates(effect *types.PatchEffectRecord) map[string][]int {
+	out := map[string][]int{}
+	if effect == nil {
+		return out
+	}
+	seen := map[string]map[int]struct{}{}
+	add := func(path string, line int) {
+		path = normalizeControllerPath(path)
+		if path == "" || line <= 0 {
+			return
+		}
+		if seen[path] == nil {
+			seen[path] = map[int]struct{}{}
+		}
+		if _, ok := seen[path][line]; ok {
+			return
+		}
+		seen[path][line] = struct{}{}
+		out[path] = append(out[path], line)
+	}
+	for _, file := range effect.Files {
+		path := strings.TrimSpace(file.Path)
+		if path == "" {
+			path = strings.TrimSpace(file.OldPath)
+		}
+		for _, hunk := range file.Hunks {
+			line := hunk.NewStart
+			for _, added := range hunk.AddedLineNumbers {
+				if added > 0 {
+					line = added
+					break
+				}
+			}
+			add(path, line)
+		}
+	}
+	for path := range out {
+		sort.Ints(out[path])
 	}
 	return out
 }

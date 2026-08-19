@@ -117,6 +117,15 @@ type plannerEvaluator struct {
 	verifyFailureRepairActive    bool
 	verifyFailureRepairReadCalls int
 
+	// verifyFailureProbeBatchComplete records that, after the already-bounded
+	// handoff read window, the planner completed one typed run_tests probe
+	// batch. The NEXT model turn can then focus on structured materialization
+	// instead of reopening the same read/probe decision surface. This state is
+	// advanced only between completed tool turns; it never interrupts an active
+	// model byte stream and never inspects reasoning or answer prose.
+	verifyFailureProbeBatchComplete bool
+	verifyFailureProbeHintPending   bool
+
 	// materializationSurfaceViolations counts typed unavailable-tool-surface
 	// read attempts while the planner is in materialization-only mode. The
 	// first violation gets a corrective hint; the second force-stops the dirty
@@ -171,6 +180,8 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	e.handoffSynthesisReadCalls = 0
 	e.structuredEmitRepairReadCalls = 0
 	e.verifyFailureRepairReadCalls = 0
+	e.verifyFailureProbeBatchComplete = false
+	e.verifyFailureProbeHintPending = false
 	e.materializationSurfaceViolations = 0
 	if ctx != nil {
 		e.mu = ctx.Mutable
@@ -222,8 +233,14 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if proof := e.buildProofFollowupMaterializationSection(ctx); proof != "" {
 		sections = append(sections, proof)
 	}
-	if req := e.buildWriteExplorationRequestSection(ctx); req != "" {
-		sections = append(sections, req)
+	// A pre-apply exploration request is generation-scoped planning context.
+	// Once typed post-apply verification has failed, current worktree bytes and
+	// the failure handoff supersede that old proposed approach. Keeping it here
+	// can make a rejected implementation strategy look like current authority.
+	if !plannerContextHasCurrentVerifyFailureHandoff(ctx) {
+		if req := e.buildWriteExplorationRequestSection(ctx); req != "" {
+			sections = append(sections, req)
+		}
 	}
 	if pack := buildWriteContextPackPromptSection(ctx, types.WriteConsumerPlanner, "Priority write context pack", 14); pack != "" {
 		sections = append(sections, pack)
@@ -1228,7 +1245,7 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if plannerResponseCallsAny(resp, plannerStructuredEmitTools()...) {
 		return false
 	}
-	if e.materializationOnlySurfaceActive() && plannerResponseCallsAny(resp, "run_tests") {
+	if e.materializationOnlySurfaceActive() && !e.verifyFailureProbeBatchComplete && plannerResponseCallsAny(resp, "run_tests") {
 		return false
 	}
 	handoffReadAllowed := e.handoffSynthesisActive && !e.proofFollowupMaterializationOnly && !e.handoffSynthesisReadBudgetExhausted()
@@ -1272,7 +1289,7 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 			return schemas
 		}
 	} else if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
-		if !e.verifyFailureRepairReadBudgetExhausted() {
+		if !e.verifyFailureProbeBatchComplete && !e.verifyFailureRepairReadBudgetExhausted() {
 			return schemas
 		}
 	} else if !e.handoffSynthesisReadBudgetExhausted() {
@@ -1281,6 +1298,12 @@ func (e *plannerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []
 	allowed := plannerHandoffSynthesisMaterializationToolNames()
 	if e.proofFollowupMaterializationOnly {
 		allowed = plannerProofFollowupMaterializationToolNames()
+	}
+	if e.verifyFailureProbeBatchComplete {
+		// The completed typed probe batch remains in tool history. Repeating it
+		// here adds no new decision surface; leave only model-authored structured
+		// plan emits for the next turn.
+		delete(allowed, "run_tests")
 	}
 	if requiresReplacementPatch {
 		delete(allowed, "run_tests")
@@ -1438,6 +1461,9 @@ func (e *plannerEvaluator) materializationOnlySurfaceActive() bool {
 		return e.structuredEmitRepairReadBudgetExhausted()
 	}
 	if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() {
+		if e.verifyFailureProbeBatchComplete {
+			return true
+		}
 		return e.verifyFailureRepairReadBudgetExhausted()
 	}
 	return e.handoffSynthesisReadBudgetExhausted()
@@ -1581,6 +1607,15 @@ func plannerToolResultsContainSuccessfulStructuredEmit(results []types.ToolResul
 	return false
 }
 
+func plannerToolResultsContainCompletedProbeBatch(results []types.ToolResult) bool {
+	for _, result := range results {
+		if result.Success && strings.TrimSpace(result.ToolName) == "run_tests" {
+			return true
+		}
+	}
+	return false
+}
+
 func plannerContextHasWriteHandoffMaterial(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
@@ -1614,6 +1649,21 @@ func plannerContextHasVerifyFailureRepairMaterial(ctx *types.AgentContext) bool 
 		return false
 	}
 	return ctx.Mutable.VerifyFailureHandoff() != nil
+}
+
+func plannerContextHasCurrentVerifyFailureHandoff(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	handoff := ctx.Mutable.VerifyFailureHandoff()
+	if handoff == nil {
+		return false
+	}
+	run := ctx.Mutable.WriteWorkflowRun()
+	if run == nil || strings.TrimSpace(handoff.BatchID) == "" || strings.TrimSpace(run.ActiveBatchID) == "" {
+		return true
+	}
+	return strings.TrimSpace(handoff.BatchID) == strings.TrimSpace(run.ActiveBatchID)
 }
 
 func plannerWorkflowSeedLocalizationCount(ctx *types.AgentContext) int {
@@ -1756,6 +1806,11 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 			e.handoffSynthesisReadCalls += readAttempts
 		}
 	}
+	if e.verifyFailureRepairActive && e.handoffSynthesisReadBudgetExhausted() &&
+		plannerToolResultsContainCompletedProbeBatch(obs.CurrentToolResults) {
+		e.verifyFailureProbeBatchComplete = true
+		e.verifyFailureProbeHintPending = true
+	}
 	if plannerToolResultsContainSuccessfulStructuredEmit(obs.CurrentToolResults) {
 		e.structuredEmitRepairActive = false
 		e.structuredEmitRepairReadCalls = 0
@@ -1777,7 +1832,20 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 // availability, and ToolRepair.Code values. It does not inspect request text,
 // model rationale, or natural-language summaries.
 func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
-	if obs.Phase != PhaseMidLoop || e == nil || !e.materializationOnlySurfaceActive() {
+	if obs.Phase != PhaseMidLoop || e == nil {
+		return LoopSignal{}
+	}
+	if e.verifyFailureProbeHintPending && e.materializationOnlySurfaceActive() {
+		e.verifyFailureProbeHintPending = false
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        "planner.verify-failure-probe-materialization",
+			BypassThrottle: true,
+			BypassBudget:   true,
+			Hint:           "The bounded source-read phase and one typed verification-probe batch are complete for this verify-failure replan. On the next turn, use the current worktree snapshots, authoritative failure rows, and probe results already in context to emit the smallest structured replacement ChangePlan. Do not rerun the same probes or reopen repository exploration; a no-change/probe-only plan remains valid only when those typed results prove source repair is unnecessary.",
+		}
+	}
+	if !e.materializationOnlySurfaceActive() {
 		return LoopSignal{}
 	}
 	if !plannerToolResultsContainUnavailableReadTool(obs.CurrentToolResults) {

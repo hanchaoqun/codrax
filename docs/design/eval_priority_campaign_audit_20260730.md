@@ -35737,6 +35737,58 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/edge/conclusion-authorship=none`。
 
+### §123.1180 r740：关系遍历性能生产闭环；局部真边被拼成请求级假脊柱（2026-08-19）
+
+1. 在 `main@a8735f0fb` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `2 PASS / 2`；人工
+   为 QF partial、Trace pass。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_flowperf_trace_r740_20260819_manual_audit.md`。
+2. B1180 获生产正证。QF 同类 completion 在 r739 曾长期占用约 119% CPU、2.4GB RSS；本轮
+   `flow_participant_coverage/repair_plan` 两次主要耗时分别约 42/61ms，完整工具分别约 61/102ms，
+   后续较大 evidence 集合也在 127–149ms 返回。精确 owner 反向 DP 缓存消除了递归全 owner 扫描，
+   participant、语言/type、证据行和既有 4-hop 语义均未裁剪。
+3. QF 同时新确认 B1182/P1：关系补齐仍把“真实局部边”当成“请求级关系候选”。最终图为覆盖
+   BusContext/Mutable，画出错误分支的 `runReadSchedulerLoop -> Mutable.SetResult`、Explorer 内部
+   `renderExplorerToolBudgetPlan -> append`，再接 `append -> BusContext`。三条各自可由源码锚定，
+   但不处于用户所问 read-mode 主数据流的同一 owner/value-flow component；拼在一张图里会让读者
+   误以为它们是 Analyzer→Explorer→Extractor→Finalizer 的共享状态脊柱。
+4. 这不是 Mermaid 语法问题或单次模型波动：Explorer 为 participant incidence 累计 488 条 evidence、
+   7 次 completion，Finalizer 又被 typed candidate/participant gate 连拒 4 次，系统最后明确提供了
+   上述局部候选。最优根修是让 requested-relation candidate 必须与已证请求主脊柱处于同一 typed
+   operation component（同 owner 连通或 exact value handoff 连通）；否则只可保留独立局部事实与
+   `unproven` 边界。禁止跨 owner/跨值流组件拼桥，也不得按本 case 的符号或答案原文硬补。
+5. Trace 有限影响案例生产通过：13762.791708..13763.024898s 的 233.190ms 窗口四态闭合，
+   running=157.248ms、runnable=5.604ms、sleep=70.338ms、D=0，目标 per-CPU running 枚举齐全。
+   CPU0/4 policy-limit 仅作为窗口背景；缺少目标 running slice×policy 的同 CPU 时间重叠时，模型
+   正确判定“无法证明目标受到频率限制”。背景没有晋升主因，也没有把有限事实/单一影响问题扩成
+   root-cause 或强制完整 Trace 因果投影。
+6. B1179 同批完成通用根修但尚待生产回放。verify-failure replan 若已完成有界 current-source 读取和
+   一批 typed `run_tests`，系统只在完整工具回合结束后把下一轮工具面收敛为三个 structured plan
+   emitter，并给一次软 materialization 提示；活跃模型字节流永不因累计年龄、4ms 或输出长度中断。
+   structured emitter 仍保留 soft→hard repair 窗口，probe-only/no-change 仍须 typed 结果证明。
+7. 同时删除两类过期心智负担：当前 batch 已有 verify-failure handoff 时不再重复注入 pre-apply
+   targeted exploration request；一个多行 patch hunk 只投影一个 current-source radius snapshot，
+   不再按每个 added line 复制近似窗口。原始任务、authoritative failure、current path/hash 与按需
+   `read_file` 精确字节均保留，不删失败事实，不替模型选择修向或生成计划。
+8. B1179 判据只读 typed handoff/batch id、已完成工具名/成功位和既有读预算状态，不扫描用户请求、
+   reasoning、计划 prose 或最终答案；收敛发生在两次模型调用之间。专项 planner/orchestrator 测试覆盖
+   stale generation request、先读后 probe、probe 过早不收窄、单次提示、仅计划 emitter、structured
+   recovery 与多行 hunk compaction。`go test ./... -count=1` 全绿（agent 18.323s、orchestrator
+   20.807s、tool 193.593s、tracequery 85.322s、hitraceconv 99.953s）。
+9. 本批没有修改 Trace 查询、投影编译、自动补齐或 Finalizer 结论权。真正 causal diagnosis 仍保留
+   链上优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义与业务线索双轴；邻近/背景只作支持。
+
+状态：
+
+`B1180-FLOWCONTINUATIONRANKEXPLOSION1=production-positive-r740/closed`；
+`B1179-WRITEREPLANACTIVESTREAMMINDLOAD1=implemented/typed-between-turn-convergence+pinned/pending-production-replay`；
+`B1182-REQUESTRELATIONLOCALLEDGEBRIDGE1=confirmed-r740/P1-next`；
+`active-stream-4ms-degrade=forbidden/production-not-observed-r740`；
+`Trace bounded-effect/full-causal breadth=production-positive-r740`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1178 B1178：模型显式证据替换闭环（2026-08-19）
 
 1. r738 的 `extractor` 误绑定不是“补一条正确证据”即可自然消失。旧工具只支持同一 StableEvidenceID 的

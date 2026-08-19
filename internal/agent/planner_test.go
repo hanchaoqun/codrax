@@ -798,6 +798,68 @@ func TestPlannerFilterToolSchemas_VerifyFailureRepairReadBudgetNarrows(t *testin
 	}
 }
 
+func TestPlannerVerifyFailureCompletedProbeNarrowsNextTurnToPlanEmission(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("verify failure probe convergence")
+	mu.SetWriteContextPack(&types.WriteContextPack{Items: []types.WriteContextItem{{
+		Priority: types.WriteContextP1, Kind: "target_file", Text: "pkg/fix.py", SourceStage: "explore",
+	}}})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID: "plan-prev", BatchID: "batch-1", FailureKind: types.FailureKindTestsFailed,
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	for i := 0; i < e.handoffSynthesisReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{CurrentToolResults: []types.ToolResult{{ToolName: "read_file", Success: true}}})
+	}
+	probeObs := LoopObservation{
+		Phase:              PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{{ToolName: "run_tests", Success: true}},
+	}
+	e.ObserveToolResults(ctx, probeObs)
+	signal := e.Observe(ctx, probeObs)
+	if !signal.HintRequested || signal.HintKey != "planner.verify-failure-probe-materialization" || signal.StopRequested {
+		t.Fatalf("completed probe batch should request one plan-materialization hint, got %+v", signal)
+	}
+	if repeated := e.Observe(ctx, probeObs); repeated.HintRequested || repeated.StopRequested {
+		t.Fatalf("probe materialization hint must be single-shot, got %+v", repeated)
+	}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"}, {Name: "grep"}, {Name: "run_tests"},
+		{Name: emitChangePlanToolName}, {Name: emitPlanSkeletonToolName}, {Name: emitPlanChangeToolName},
+	}
+	got := e.FilterToolSchemas(ctx, schemas)
+	if names := strings.Join(toolSchemaNamesForTest(got), ","); names != "emit_change_plan,emit_plan_skeleton,emit_plan_change" {
+		t.Fatalf("post-probe materialization surface = %s", names)
+	}
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "run_tests"}}}, e.effectiveSoftCap()) {
+		t.Fatalf("a consumed probe batch must not extend the planner past its soft cap")
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, e.effectiveSoftCap()) {
+		t.Fatalf("structured plan emission must retain the recovery window")
+	}
+}
+
+func TestPlannerVerifyFailureProbeBeforeSourceReadBudgetDoesNotPrematurelyNarrow(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	mu := types.NewMutableState("probe before source reads")
+	mu.SetWriteContextPack(&types.WriteContextPack{Items: []types.WriteContextItem{{
+		Priority: types.WriteContextP1, Kind: "target_file", Text: "pkg/fix.py", SourceStage: "explore",
+	}}})
+	mu.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-prev", BatchID: "batch-1"})
+	ctx := &types.AgentContext{Mutable: mu}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	obs := LoopObservation{Phase: PhaseMidLoop, CurrentToolResults: []types.ToolResult{{ToolName: "run_tests", Success: true}}}
+	e.ObserveToolResults(ctx, obs)
+	if signal := e.Observe(ctx, obs); signal.HintRequested || signal.StopRequested {
+		t.Fatalf("probe before bounded source reads must not close the repair surface: %+v", signal)
+	}
+	schemas := []llm.ToolSchema{{Name: "read_file"}, {Name: "run_tests"}, {Name: emitChangePlanToolName}}
+	if names := strings.Join(toolSchemaNamesForTest(e.FilterToolSchemas(ctx, schemas)), ","); names != "read_file,run_tests,emit_change_plan" {
+		t.Fatalf("prematurely narrowed pre-read surface: %s", names)
+	}
+}
+
 func TestPlannerObserve_MaterializationOnlyUnavailableReadHintsThenStops(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 	mu := types.NewMutableState("handoff synthesis")

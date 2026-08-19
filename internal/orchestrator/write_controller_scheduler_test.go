@@ -10249,10 +10249,42 @@ func TestResolveVerifyFailureHandoffArtifactsAttachesRepairSourceSnapshots(t *te
 	}
 	got := handoff.RepairSourceSnapshots[0]
 	if got.Path != "pkg/formatting.py" ||
-		got.ReasonCode != "patch_effect_added_line" ||
+		got.ReasonCode != "patch_effect_added_hunk" ||
 		got.OwnerSymbol != "summarize_variable" ||
 		!strings.Contains(got.Snippet, "units = var.attrs.get") {
 		t.Fatalf("unexpected repair source snapshot: %+v", got)
+	}
+}
+
+func TestResolveVerifyFailureHandoffArtifactsCompactsMultiLineHunkSnapshot(t *testing.T) {
+	worktreeRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "pkg"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	var lines []string
+	for i := 1; i <= 80; i++ {
+		lines = append(lines, fmt.Sprintf("value_%d = %d", i, i))
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "pkg", "values.py"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	added := make([]int, 24)
+	for i := range added {
+		added[i] = 20 + i
+	}
+	mu := types.NewMutableState("compact repair source")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID: "plan-hunk", PatchEffect: &types.PatchEffectRecord{Files: []types.PatchEffectFile{{
+			Path: "pkg/values.py", Hunks: []types.PatchEffectHunk{{NewStart: 20, AddedLineNumbers: added}},
+		}}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, WorktreePath: worktreeRoot, Mode: types.ModeApply}, reportDir: t.TempDir()}
+	handoff := o.resolveVerifyFailureHandoffArtifacts(&types.VerifyFailureHandoff{PlanID: "plan-hunk", BatchID: "batch-1", Attempt: 1})
+	if handoff == nil || len(handoff.RepairSourceSnapshots) != 1 {
+		t.Fatalf("one multi-line hunk must yield one current-source window, got %+v", handoff)
+	}
+	if got := handoff.RepairSourceSnapshots[0]; got.LineStart > 20 || got.LineEnd < 20 || got.ReasonCode != "patch_effect_added_hunk" {
+		t.Fatalf("unexpected compact hunk snapshot: %+v", got)
 	}
 }
 
