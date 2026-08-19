@@ -36706,6 +36706,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-relation/diagram/answer/conclusion-authorship=none`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`。
 
+### §123.1120 B1124：participant 候选先按 typed relation axis 排序、再有界截断（2026-08-18）
+
+1. r710 的 participant repair guidance 原来按 evidence 到达顺序边遍历边截前 3 条；即使最终请求轴是
+   `AxisFlow`，两个较早的局部 call 也会把稍后的精确 initializer/data-flow 挤出候选表。B1123 已恢复
+   `bus.Mutable -> AgentContext.Mutable` 的 typed 端点，但若继续先截断，模型仍看不到这条更贴近数据流问题的
+   已证关系；这是候选交付排序 gap，不是关系证据缺失。
+2. 根修先完整收集通过现有 citable/request-scope/participant-incidence/relation-component 门的候选并按原 tuple
+   去重，再按 analyzer 已有的 `RequestModel.PredicateAxis`、候选的 `AnchorKind`、
+   `DiagramRelationKind` 与 verified stage-authority 排序，最后才执行既有 limit。`AxisFlow` 优先精确
+   data-flow/assignment，再到 argument/return/callback/call；`AxisCall` 仍优先 call；register/return/configure/
+   condition/implement 也各自只按相应 typed enum 对齐。verified stage precedence 对真实 stage participant 保持首位。
+3. 同一 typed 优先级使用 source location、relation enum 和 canonical endpoint 做确定性 tie-break，候选结果不再依赖
+   evidence 到达顺序。这里的字符串只作为已接纳 typed tuple 的稳定键和展示值，不解析用户问题、模型推理、答案正文或
+   Mermaid label，也不根据 endpoint 名字推断业务语义。
+4. 排序仅影响给模型的候选建议顺序：不创建、删除、反转、合并或改写任何关系，不改变 participant hard gate、关系组件
+   完整性和模型最终选边/画图权。limit、端点方向、source、edge-anchor identity fields 与读者可见业务标签合同均保持。
+5. 新 pin 用同一 call/call/initializer 候选池验证：evidence 正序与逆序在 limit=2 时字节一致；`AxisFlow` 第一条为
+   `bus.Mutable -> AgentContext.Mutable` 的 `data_flow`，切换 `AxisCall` 后第一条仍为已经存在的 call。定向测试及
+   `go test ./internal/tool -count=1` 全绿（177.485s），`git diff --check` 全绿。
+6. 本批没有触碰 Trace 查询、显式时间窗、因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、实际占用与规则
+   可消双轴，也没有系统改写答案、图或结论；活跃流仍不因 4ms 内尚未形成答案而降级。
+
+状态：
+
+`B1124-FLOWCANDIDATERANK1=implemented/typed-axis-stable-before-bound+pinned/replay-next`；
+`candidate-admission/tuple/direction/limit=unchanged`；
+`raw-request/model-reasoning/final-prose/diagram-label-hard-gate=none`；
+`system-relation/diagram/answer/conclusion-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`active-stream-fixed-4ms-degrade=forbidden`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

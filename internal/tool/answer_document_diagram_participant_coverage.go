@@ -832,11 +832,20 @@ func diagramParticipantTypedIncidentCandidates(
 	surfaces := []string{strings.TrimSpace(obligation.Identity)}
 	surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, obligation)...)
 	seen := make(map[string]bool)
-	rows := make([]string, 0, limit)
-	add := func(relation types.DiagramRelationKind, from, to, location, participantEndpointSide string) {
+	type typedIncidentCandidate struct {
+		relation                types.DiagramRelationKind
+		anchor                  types.AnchorKind
+		from                    string
+		to                      string
+		location                string
+		participantEndpointSide string
+		stageAuthority          bool
+	}
+	candidates := make([]typedIncidentCandidate, 0, limit)
+	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide string, stageAuthority bool) {
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 		participantEndpointSide = strings.TrimSpace(participantEndpointSide)
-		if len(rows) >= limit || !relation.IsValid() || from == "" || to == "" || participantEndpointSide == "" {
+		if !relation.IsValid() || from == "" || to == "" || participantEndpointSide == "" {
 			return
 		}
 		key := strings.ToLower(string(relation) + "\x00" + from + "\x00" + to + "\x00" + location)
@@ -844,17 +853,18 @@ func diagramParticipantTypedIncidentCandidates(
 			return
 		}
 		seen[key] = true
-		rows = append(rows, fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
-			strconv.Quote(string(relation)), strconv.Quote(diagramParticipantReaderArrowLabel(relation, rm.Language)), strconv.Quote(from), strconv.Quote(to), strconv.Quote(participantEndpointSide), strconv.Quote(strings.TrimSpace(obligation.Identity)), strconv.Quote(participantEndpointSide), strconv.Quote(location),
-			strconv.Quote(from), strconv.Quote(to), strconv.Quote(string(relation))))
+		candidates = append(candidates, typedIncidentCandidate{
+			relation: relation, anchor: anchor, from: from, to: to, location: location,
+			participantEndpointSide: participantEndpointSide, stageAuthority: stageAuthority,
+		})
 	}
 	for _, relation := range stagePrecedence {
 		fromIncident := stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.From)
 		toIncident := stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.To)
 		if fromIncident || toIncident {
-			add(types.DiagramRelPrecedence, relation.From.AgentValue, relation.To.AgentValue,
+			add(types.DiagramRelPrecedence, types.AnchorPrecedence, relation.From.AgentValue, relation.To.AgentValue,
 				fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd),
-				diagramParticipantCandidateEndpointSide(fromIncident, toIncident))
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), true)
 		}
 	}
 	for operationIndex, operation := range types.FlowOperationEvidenceForRequest(evidence, rm) {
@@ -874,11 +884,133 @@ func diagramParticipantTypedIncidentCandidates(
 		fromIncident := diagramParticipantCandidateEndpointMatches(surfaces, from, operation, evidence)
 		toIncident := diagramParticipantCandidateEndpointMatches(surfaces, to, operation, evidence)
 		if fromIncident || toIncident {
-			add(relation, from, to, operation.DisplayLocation(true),
-				diagramParticipantCandidateEndpointSide(fromIncident, toIncident))
+			add(relation, operation.AnchorKind, from, to, operation.DisplayLocation(true),
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), false)
 		}
 	}
+	// Candidate ordering is selection guidance only: it never creates, removes,
+	// reverses, or rewrites a typed relation. Prefer a verified stage edge when
+	// the participant is itself a verified stage, then rank the already-typed
+	// operations by the analyzer's typed predicate axis. Deterministic typed
+	// endpoint/location keys make the bounded roster independent of evidence
+	// arrival order; no request or answer prose participates in the ranking.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		leftRank := diagramParticipantTypedCandidateRank(rm.PredicateAxis, left.relation, left.anchor, left.stageAuthority)
+		rightRank := diagramParticipantTypedCandidateRank(rm.PredicateAxis, right.relation, right.anchor, right.stageAuthority)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if left.location != right.location {
+			return left.location < right.location
+		}
+		if left.relation != right.relation {
+			return left.relation < right.relation
+		}
+		if left.from != right.from {
+			return left.from < right.from
+		}
+		if left.to != right.to {
+			return left.to < right.to
+		}
+		return left.participantEndpointSide < right.participantEndpointSide
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	rows := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		rows = append(rows, fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+			strconv.Quote(string(candidate.relation)), strconv.Quote(diagramParticipantReaderArrowLabel(candidate.relation, rm.Language)), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(strings.TrimSpace(obligation.Identity)), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.location),
+			strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(string(candidate.relation))))
+	}
 	return rows
+}
+
+// diagramParticipantTypedCandidateRank orders only already-grounded typed
+// candidates. The tens digit represents predicate-axis affinity; the units
+// digit is a stable relation-family preference within that axis. It is not a
+// proof score and never decides whether a candidate exists.
+func diagramParticipantTypedCandidateRank(
+	axis types.PredicateAxis,
+	relation types.DiagramRelationKind,
+	anchor types.AnchorKind,
+	stageAuthority bool,
+) int {
+	if stageAuthority {
+		return 0
+	}
+	axisMatch := 1
+	for _, allowed := range types.PredicateAxisToAnchorKinds(axis) {
+		if allowed == anchor {
+			axisMatch = 0
+			break
+		}
+	}
+	relationRank := 8
+	switch axis {
+	case types.AxisCall:
+		switch relation {
+		case types.DiagramRelCall:
+			relationRank = 0
+		case types.DiagramRelCallback, types.DiagramRelArgumentFlow:
+			relationRank = 1
+		case types.DiagramRelReturn:
+			relationRank = 2
+		}
+	case types.AxisRegister:
+		switch relation {
+		case types.DiagramRelRegister:
+			relationRank = 0
+		case types.DiagramRelDataFlow, types.DiagramRelAssignment:
+			relationRank = 1
+		case types.DiagramRelCall:
+			relationRank = 2
+		}
+	case types.AxisReturn:
+		if relation == types.DiagramRelReturn {
+			relationRank = 0
+		}
+	case types.AxisConfigure:
+		switch relation {
+		case types.DiagramRelDataFlow, types.DiagramRelAssignment:
+			relationRank = 0
+		case types.DiagramRelCall:
+			relationRank = 1
+		}
+	case types.AxisCondition:
+		switch relation {
+		case types.DiagramRelGuard, types.DiagramRelControlFlow:
+			relationRank = 0
+		}
+	case types.AxisImplement:
+		if relation == types.DiagramRelTypeRelation {
+			relationRank = 0
+		}
+	case types.AxisFlow:
+		switch relation {
+		case types.DiagramRelDataFlow, types.DiagramRelAssignment:
+			relationRank = 0
+		case types.DiagramRelArgumentFlow:
+			relationRank = 1
+		case types.DiagramRelReturn, types.DiagramRelCallback:
+			relationRank = 2
+		case types.DiagramRelCall:
+			relationRank = 3
+		case types.DiagramRelPrecedence:
+			relationRank = 4
+		}
+	default:
+		switch relation {
+		case types.DiagramRelCall:
+			relationRank = 0
+		case types.DiagramRelDataFlow, types.DiagramRelAssignment, types.DiagramRelArgumentFlow:
+			relationRank = 1
+		case types.DiagramRelReturn, types.DiagramRelCallback, types.DiagramRelPrecedence:
+			relationRank = 2
+		}
+	}
+	return 10 + axisMatch*10 + relationRank
 }
 
 // diagramParticipantReaderArrowLabel supplies reader wording for an already

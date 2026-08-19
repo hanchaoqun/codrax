@@ -413,6 +413,48 @@ func TestDiagramParticipantCoverageDoesNotPromotePerParticipantLocalFactsIntoReq
 	}
 }
 
+func TestDiagramParticipantTypedIncidentCandidatesRankByTypedAxisBeforeBound(t *testing.T) {
+	participant := types.DiagramParticipantHint{
+		Identity: "AgentContext.Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: []types.DiagramParticipantHint{participant}},
+	}
+	firstCall := diagramEvidenceTestCall("AgentContext.Mutable.Load", "consumer.Apply")
+	firstCall.Source, firstCall.LineStart = "internal/context/read.go", 20
+	secondCall := diagramEvidenceTestCall("producer.Build", "AgentContext.Mutable.Store")
+	secondCall.Source, secondCall.LineStart = "internal/context/write.go", 30
+	initializer := diagramEvidenceTestCall("AgentContext.Mutable", "bus.Mutable")
+	initializer.ID = "ev-agent-context-mutable-initializer"
+	initializer.Predicate = "assigns"
+	initializer.AnchorKind = types.AnchorInitializer
+	initializer.AnchorSymbol = "Mutable"
+	initializer.InitializerContainer = "AgentContext"
+	initializer.Snippet = "Mutable: bus.Mutable,"
+	initializer.Source, initializer.LineStart = "internal/context/builder.go", 59
+
+	ordered := []types.EvidenceItem{firstCall, secondCall, initializer}
+	reversed := []types.EvidenceItem{initializer, secondCall, firstCall}
+	flowRows := diagramParticipantTypedIncidentCandidates(rm, participant, ordered, nil, 2)
+	flowRowsReversed := diagramParticipantTypedIncidentCandidates(rm, participant, reversed, nil, 2)
+	if len(flowRows) != 2 || strings.Join(flowRows, "\n") != strings.Join(flowRowsReversed, "\n") {
+		t.Fatalf("bounded typed candidates must be stable across evidence arrival order:\nordered=%v\nreversed=%v", flowRows, flowRowsReversed)
+	}
+	if !strings.Contains(flowRows[0], `relation_kind:"data_flow"`) ||
+		!strings.Contains(flowRows[0], `from_identity:"bus.Mutable"`) ||
+		!strings.Contains(flowRows[0], `to_identity:"AgentContext.Mutable"`) {
+		t.Fatalf("flow axis must retain the exact typed initializer/data-flow before weaker incident calls: %v", flowRows)
+	}
+
+	rm.PredicateAxis = types.AxisCall
+	callRows := diagramParticipantTypedIncidentCandidates(rm, participant, ordered, nil, 1)
+	if len(callRows) != 1 || !strings.Contains(callRows[0], `relation_kind:"call"`) {
+		t.Fatalf("call axis must prefer an already-typed call without changing the candidate pool: %v", callRows)
+	}
+}
+
 func TestFlowParticipantRelationScopeDoesNotJoinSharedReturnSinkAcrossOperations(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
 		{Identity: "ToolA", Role: types.DiagramParticipantIncidentRequired},
