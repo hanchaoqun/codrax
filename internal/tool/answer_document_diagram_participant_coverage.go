@@ -99,6 +99,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		doc,
 		pctx.ctx.AnalysisIR.RequestModel,
 		mismatches,
+		evidence,
 	)
 	compactDelta := diagramParticipantRepairDeltaJSON(
 		doc, pctx.ctx.AnalysisIR.RequestModel, mismatches, evidence,
@@ -185,11 +186,13 @@ func diagramParticipantEndpointConflictGuidance(
 	doc *types.AnswerDocumentV2,
 	rm types.RequestModel,
 	mismatches []DiagramParticipantCoverageMismatch,
+	evidence []types.EvidenceItem,
 ) string {
 	if doc == nil || rm.DiagramHint == nil || len(mismatches) == 0 {
 		return ""
 	}
 	participantSurfaces := make(map[string][]string)
+	allParticipantSurfaces := make([][]string, 0, len(rm.DiagramHint.Participants))
 	for _, participant := range rm.DiagramHint.Participants {
 		identity := strings.TrimSpace(participant.Identity)
 		if identity == "" || participant.Role != types.DiagramParticipantIncidentRequired {
@@ -202,12 +205,15 @@ func diagramParticipantEndpointConflictGuidance(
 			}
 		}
 		participantSurfaces[strings.ToLower(identity)] = surfaces
+		allParticipantSurfaces = append(allParticipantSurfaces, surfaces)
 	}
+	requestedRelationEvidence := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
 	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	rows := make([]string, 0)
 	seen := make(map[string]bool)
 	for _, mismatch := range mismatches {
-		if mismatch.Issue != DiagramParticipantCoverageBoundaryConnected {
+		if mismatch.Issue != DiagramParticipantCoverageBoundaryConnected &&
+			mismatch.Issue != DiagramParticipantCoverageEndpointRetargeted {
 			continue
 		}
 		participant := strings.TrimSpace(mismatch.Participant)
@@ -251,6 +257,27 @@ func diagramParticipantEndpointConflictGuidance(
 				if len(exact) != 1 {
 					continue
 				}
+				// Endpoint-retarget mismatches may coexist with valid edges for the
+				// same participant (for example a valid analyzer->explorer stage
+				// edge plus an invalid analyzer-labelled local method edge). Name
+				// only the exact non-incident edge that caused the mismatch. This
+				// mirrors the hard gate's same-side incidence plus independently
+				// aligned opposite-side predicate; it does not select a replacement
+				// node, label, relation, or edge for the model.
+				if mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+					conflictIdentity := exact[0].ToIdentity
+					oppositeNode, oppositeIdentity := edge.From, exact[0].FromIdentity
+					if fromConflict {
+						conflictIdentity = exact[0].FromIdentity
+						oppositeNode, oppositeIdentity = edge.To, exact[0].ToIdentity
+					}
+					if diagramParticipantIncidentEndpointMatches(surfaces, conflictIdentity, requestedRelationEvidence) ||
+						!diagramParticipantEndpointHasAlignedRequestedParticipant(
+							allParticipantSurfaces, oppositeNode, oppositeIdentity, labels, requestedRelationEvidence,
+						) {
+						continue
+					}
+				}
 				side := "to"
 				conflictSurface := toSurface
 				visibleLabelConflict := toLabelConflict
@@ -287,6 +314,22 @@ func diagramParticipantEndpointConflictGuidance(
 		))
 	}
 	return strings.Join(rows, "; ")
+}
+
+func diagramParticipantEndpointHasAlignedRequestedParticipant(
+	participantSurfaces [][]string,
+	node string,
+	typedIdentity string,
+	labels map[string]string,
+	evidence []types.EvidenceItem,
+) bool {
+	for _, surfaces := range participantSurfaces {
+		if diagramParticipantEndpointExplicitlyDisplaysIdentity(surfaces, node, labels) &&
+			diagramParticipantIncidentEndpointMatches(surfaces, typedIdentity, evidence) {
+			return true
+		}
+	}
+	return false
 }
 
 // diagramParticipantEndpointConflictSurface uses the same two precise Mermaid

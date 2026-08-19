@@ -243,13 +243,13 @@ func TestDiagramParticipantEndpointCollisionGuidanceFailsOpenWhenAmbiguous(t *te
 	mismatches := []DiagramParticipantCoverageMismatch{{
 		BlockID: "flow", Participant: "Mutable", Issue: DiagramParticipantCoverageBoundaryConnected,
 	}}
-	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches); got != "" {
+	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches, nil); got != "" {
 		t.Fatalf("ambiguous body edges must retain generic fail-open guidance, got %s", got)
 	}
 
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n W1 --> Mutable"
 	doc.Blocks[0].EdgeAnchors[1].FromNode = "W1"
-	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches); got != "" {
+	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches, nil); got != "" {
 		t.Fatalf("ambiguous anchors for one body edge must retain generic fail-open guidance, got %s", got)
 	}
 }
@@ -982,7 +982,11 @@ func TestDiagramParticipantCoverageRejectsRequestedParticipantOnNonincidentCandi
 	}})
 	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "participant=Analyzer issue=participant_visible_on_nonincident_endpoint") ||
 		!strings.Contains(hints[0].ExpectedShape, "opposite typed endpoint is independently incident to it") ||
-		!strings.Contains(hints[0].ExpectedShape, "remove_the_requested_participant_identity_from_the_nonincident_endpoint") {
+		!strings.Contains(hints[0].ExpectedShape, "remove_the_requested_participant_identity_from_the_nonincident_endpoint") ||
+		!strings.Contains(hints[0].ExpectedShape, `typed_endpoint_collision["Analyzer"]`) ||
+		!strings.Contains(hints[0].ExpectedShape, `body_edge:{from_node:"BusContext",to_node:"Analyzer"}`) ||
+		!strings.Contains(hints[0].ExpectedShape, `conflict_endpoint_side:"to"`) ||
+		!strings.Contains(hints[0].ExpectedShape, `node_fields_to_change:"body.to_node+edge_anchor.to_node"`) {
 		t.Fatalf("retarget repair lost its side-specific typed contract: %+v", hints)
 	}
 
@@ -995,6 +999,41 @@ func TestDiagramParticipantCoverageRejectsRequestedParticipantOnNonincidentCandi
 		if mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
 			t.Fatalf("neutral business wording was incorrectly treated as a participant retarget: %+v", mismatch)
 		}
+	}
+}
+
+func TestDiagramParticipantEndpointRetargetGuidanceNamesOnlyConflictingLocalEdge(t *testing.T) {
+	rm, _, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n Analyzer --> Explorer\n Analyzer --> Mutable"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "Analyzer", ToNode: "Mutable", FromIdentity: "analyzerEvaluator.BuildInitialInstruction", ToIdentity: "ctx.Mutable.ResetPrescanSummary", RelationKind: types.DiagramRelCall},
+	}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall(
+		"analyzerEvaluator.BuildInitialInstruction", "ctx.Mutable.ResetPrescanSummary",
+	)}
+	mismatches := []DiagramParticipantCoverageMismatch{{
+		BlockID: "flow", Participant: "Analyzer", Issue: DiagramParticipantCoverageEndpointRetargeted,
+	}}
+	got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches, evidence)
+	for _, want := range []string{
+		`typed_endpoint_collision["Analyzer"]`,
+		`body_edge:{from_node:"Analyzer",to_node:"Mutable"}`,
+		`conflict_endpoint_side:"from"`,
+		`from_identity:"analyzerEvaluator.BuildInitialInstruction"`,
+		`to_identity:"ctx.Mutable.ResetPrescanSummary"`,
+		`node_fields_to_change:"body.from_node+edge_anchor.from_node"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("endpoint-retarget guidance missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `body_edge:{from_node:"Analyzer",to_node:"Explorer"}`) {
+		t.Fatalf("valid stage edge must not be named as the retarget conflict: %s", got)
 	}
 }
 

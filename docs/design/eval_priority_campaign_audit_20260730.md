@@ -35683,14 +35683,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 本批不改 Trace。显式时间窗、因果投影、自动补齐、链上-only 主因，以及真实占用/业务线索与规则计价
    可消除量双轴均保持；邻近与背景不得晋升主因。系统仍只提供 typed 精确信息和修补上下文，不替模型
    写图、答案或结论。
+8. B1192 已按上述边界施工并完成工具层全回归。`preCheckDiagramParticipantCoverage` 现在把当前请求的
+   typed relation evidence 传入同一冲突诊断器；当 issue 是 endpoint-retarget 时，只有在 body edge、
+   edge anchor、冲突侧及其反侧的 requested-participant incidence 均唯一可证时，才发布
+   `body_edge + conflict_endpoint_side + exact from/to identity + node_fields_to_change`。同一参与者已有的合法
+   stage precedence 边不会进入修补 tuple；任一歧义继续 fail-open 到既有通用提示。新增多边 pin 证明
+   `Analyzer→Explorer` 合法阶段边保留，只命中 `Analyzer→Mutable` 的本地技术调用端点；既有 boundary
+   collision、ambiguous edge/anchor 和 nonincident gate pin 同时通过。定向回归与
+   `go test ./internal/tool -count=1` 全套 PASS（176.576s）。系统没有给出替换 ID/label/relation，也没有
+   创建、删除或反转模型关系。
 
 状态：
 
 `B1189-SLASHJOINEDPARTICIPANTBYPASS1=production-positive-r745`；
 `B1190-WRITEEVALSTEPBUDGET1=production-positive-fourth-repair+tests-pass-r745`；
 `B1191-ACTIVESEMANTICLONGSTREAM1=reconfirmed/no-fixed-age-cutoff`；
-`B1192-ENDPOINTRETARGETREPAIRFOCUS1=confirmed/P0/next`；
-`B1193-PROJECTASSERTIONCANDIDATEEXEC1=confirmed/P0/after-B1192`；
+`B1192-ENDPOINTRETARGETREPAIRFOCUS1=implemented/full-tool-pass/pending-production-replay`；
+`B1193-PROJECTASSERTIONCANDIDATEEXEC1=confirmed/P0/next`；
 `active-stream-4m-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
