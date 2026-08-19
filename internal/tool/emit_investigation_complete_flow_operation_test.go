@@ -1879,11 +1879,40 @@ func TestFlowOperationNavigationReturnsToRequestedSiblingArgumentAfterCalleeBody
 		t.Fatalf("model-authored sibling argument should join the requested carrier component: %v", got)
 	}
 	keyAfterJoin, _ := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"})
-	if keyAfterJoin == keyWithSiblingFrontier {
-		t.Fatal("typed frontier identity must change after the exact sibling handoff is emitted")
+	if keyAfterJoin != keyWithSiblingFrontier {
+		t.Fatal("navigation cursor changes must not reset convergence while the typed missing set is unchanged")
 	}
 	if len(ctx.Mutable.EmittedEvidence()) != 3 {
 		t.Fatal("navigation must not manufacture the sibling evidence row")
+	}
+}
+
+func TestFlowParticipantCoverageBlockerKeyIgnoresAdvancingNavigationCursor(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "Dispatch", "BuildContext", 42),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Analyzer"}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}
+	missing := []string{"Analyzer"}
+	before, _ := flowParticipantCoverageBlockerKey(ctx, missing)
+
+	// An unrelated but precise source operation can advance the parser-owned
+	// repair cursor. It does not cover Analyzer and therefore is not progress on
+	// this gate's proof debt.
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "BuildContext", "local.Load", 43),
+	})
+	after, _ := flowParticipantCoverageBlockerKey(ctx, missing)
+	if before != after {
+		t.Fatalf("same typed missing set must keep one convergence identity: before=%d after=%d", before, after)
+	}
+	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); !flowTestSliceContains(got, "Analyzer") {
+		t.Fatalf("fixture accidentally resolved the requested participant: %v", got)
 	}
 }
 

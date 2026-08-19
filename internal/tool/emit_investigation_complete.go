@@ -3915,26 +3915,18 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 	)
 }
 
-// flowParticipantCoverageBlockerKey distinguishes a genuinely repeated
-// participant deficit from forward progress through parser-owned recovery
-// coordinates. Missing participant names alone are not enough: the same set
-// can remain while the exact frontier advances from a carrier call to its
-// receiving body and then to a request-owned sibling argument. Hash only
-// typed coordinates/flags; no request prose, model output, hint text, or
-// answer text participates. The frontier remains navigation-only authority.
+// flowParticipantCoverageBlockerKey identifies the unresolved proof debt, not
+// the search cursor used to investigate it. A new parser-owned coordinate is a
+// better next read, but it is not relation proof: allowing carrier/callee/
+// caller navigation churn to change this key grants an unbounded retry budget
+// while the same requested participants remain disconnected. Only a genuine
+// change in the typed missing-participant set resets convergence. The exact
+// frontier is still returned as a boolean so the caller can retain the larger
+// locate-then-read allowance; it remains navigation-only authority.
 func flowParticipantCoverageBlockerKey(ctx *types.BusContext, missing []string) (uint32, bool) {
-	identifiers := append([]string(nil), missing...)
-	target, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
-	if ok {
-		identifiers = append(identifiers, fmt.Sprintf(
-			"frontier:%s:%d-%d:focus=%s:read=%t:body=%t:caller=%t",
-			canonicalRelationSourcePath(target.file), target.lineRange.Start, target.lineRange.End,
-			strings.TrimSpace(target.focusIdentity), target.alreadyRead,
-			target.receivingCallableBody, target.callerHandoff,
-		))
-	}
+	_, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
 	return types.ComputeDowngradeTypedIdentifierSetKey(
-		string(types.DowngradeLaneFlowParticipantCoverage), identifiers,
+		string(types.DowngradeLaneFlowParticipantCoverage), missing,
 	), ok
 }
 
