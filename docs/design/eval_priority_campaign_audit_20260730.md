@@ -35649,6 +35649,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1128 r713：单侧 identity 生产闭环；写重试删权威上下文与图显示身份丢失（2026-08-18）
+
+1. 在 `main@153b49c75` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner
+   `1 PASS / 1 FAIL`，人工 `1 partial / 1 fail`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_identity_endline_replay_r713_20260818_manual_audit.md`。
+2. B1130 获生产正证：Finalizer 日志明确记录恢复 2 对唯一单侧 exact relation identity，r712 的
+   单侧 metadata 循环没有重现；模型最终保留 analyzer→explorer→extractor→finalizer、BusContext
+   data flow 和 finalizer 构造调用。4 次剩余拒绝来自 participant incidence/未锚边，不是 B1130。
+3. 写案例确认 B1131/P0。探索已完成，Controller 首轮正文准确识别 `ready_to_plan` 并准备
+   `plan_batch`，但漏发工具调用。`writeControllerEvaluator` 的 correction signal 设置
+   `IsolateNextPrompt=true`；BaseAgent 随即把下一轮替换成唯一 hint。该 hint 又要求“只使用当前
+   typed workflow state”，而 state/task 已被隔离删除，模型只能发
+   `ask_user(reason_code=missing_task_input)`，最终 `plan_not_written/apply_not_run`。根修必须保留初始
+   typed task/workflow/action instruction，只把被拒绝的普通 reasoning 压成有界 protocol marker；禁止
+   重建、采信或复制丢弃的模型草稿。
+4. 同轮确认 B1132/P1：用户与测试只证明五换行连续段折成一个 rank token、普通 merge 不变；Write
+   Analyzer 却额外自铸“单换行→一个 rank token”“四换行→两个 rank token”为 schema-valid
+   `behavior_contracts`，后者还与“连续 run 折成一个”冲突。问题不是 newline 特判，而是模型新造的
+   边界例没有 provenance/caliber 就进入 typed controller 上下文。后续需把 request/test/tool 已证合同与
+   model-proposed planning example 分轨；未证例只能软建议，不能获得 verification authority。
+5. Read 确认 B1133/P1。用户显示身份是 `Mutable`，仓库代码实体是 `MutableState`；Analyzer 把后者同时
+   当 participant identity/source_quote。现有 exact provenance 校验正确发现它不在当前请求，却在 required
+   diagram 上只 warning 后删除该 participant，导致后续覆盖门完全不知道 `Mutable`，最终图缺项但 runner
+   因正文偶然出现该词而误签 PASS。根修应将 user-visible identity 与 grounded source endpoint/owner 分层；
+   required incident participant 的 provenance 无效时不得静默消失。系统不得据映射创建边、选择关系或改模型
+   结论，歧义继续 unproven/fail-loud。
+6. Read 共 19 次 explore、5 次 finalize、4 次成文拒绝；最终图仍把 `call/data_flow/precedence` raw enum
+   当可见箭头标签，且尾部系统维度补充重复已满足的“组件责任”。二者记低优先展示债，不用答案关键词删除门
+   修补。B1129 本轮未到达 structured edit 编译面，需在 B1131 后再验生产正臂。
+7. 两案均无 malformed JSON、空答案恢复或 active-stream 固定年龄降级。流已活跃时，4ms、4s 或任意
+   累计时长仍不授权降级；只有 caller cancel/deadline、无首字节、byte-stall、transport/decode failure
+   可终止或进入明确披露的恢复。
+8. 本批只审计，不改 Trace。显式时间窗、完整 causal-diagnosis 的 Trace 因果投影与自动补齐、链上-only
+   主因、优先级反转/调度延迟/算力供给/D/IO/确定性语义/业务线索双轴全部保持；邻近/背景只作额外排查，
+   系统不代写模型答案、关系或结论。
+
+状态：
+
+`B1130-ONESIDEDTYPEDRECEIPTIDENTITY1=production-positive-r713`；
+`B1129-STRUCTUREDEDITEXACTENDLINEREPAIR1=implemented/pending-production-positive`；
+`B1131-WRITECONTROLLERRETRYCONTEXT1=confirmed/P0/next`；
+`B1132-WRITECONTRACTPROVENANCE1=confirmed/P1`；
+`B1133-DIAGRAMDISPLAYIDENTITY1=confirmed/P1`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1127 B1129：多行 structured edit 省略 end_line 的 typed 修补参数（2026-08-18）
 
 1. r712 写案例中，模型已经提供从 line 24 开始的完整多行 `old_text`，但漏写 `end_line`。安全编译器
