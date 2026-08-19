@@ -198,8 +198,15 @@ type explorerEvaluator struct {
 	primaryReadSeen                         bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter                         int  // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead                   int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete                   bool // set when emit_investigation_complete tool was observed in MidLoop
-	mergedEmittedEvidenceLen                int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
+	// flowNavigationMaterializationActive latches the bounded relation-repair
+	// surface for the remainder of the current explorer dispatch. The exact
+	// typed PendingRead is drained as soon as read_file covers it, but that read
+	// is only the navigation step: the model must still materialize grounded
+	// evidence or close with an honest limitation before broad search reopens.
+	// BuildInitialInstruction resets the latch at every dispatch boundary.
+	flowNavigationMaterializationActive bool
+	investigationComplete               bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen            int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -673,6 +680,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.mutable = nil
 		e.investigationComplete = false
 		e.mergedEmittedEvidenceLen = 0
+		e.flowNavigationMaterializationActive = false
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -809,6 +817,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
 	e.mergedEmittedEvidenceLen = 0
+	e.flowNavigationMaterializationActive = false
 	e.declarativeAnchorFiles = nil
 	e.declarativeCandidateFiles = nil
 	// Per-dispatch reset of the completion flag. Without this, a
@@ -7274,6 +7283,10 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 	// This is driven solely by structured repair origin + file/range data; it
 	// never scans request or answer prose and never creates relation authority.
 	if explorerHasPendingFlowNavigationRead(ctx) {
+		e.flowNavigationMaterializationActive = true
+		return evidenceRepairToolNames
+	}
+	if e.flowNavigationMaterializationActive {
 		return evidenceRepairToolNames
 	}
 	if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {

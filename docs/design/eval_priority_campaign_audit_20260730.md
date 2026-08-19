@@ -36047,6 +36047,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1150 r727：精确桥接补读后的工具面生命周期；写验收维度不可由路径覆盖代签（2026-08-19）
+
+1. 在 `main@ba9640e78` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_nlohmann_long_double_symptom`。Runner `2 PASS / 2`；人工均为
+   partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_connected_flow_write_r727_20260819_manual_audit.md`。
+2. B1157 获生产安全边界正证：QF 终稿没有再把 stage 四节点与 BusContext/Mutable 两岛伪装成完整关系图，
+   typed evidence 尚未证明 bridge 时保留明确未证边界；系统没有合成边、改图或代写结论。尚缺模型实际消费
+   typed bridge 后成一张连通图的生产正臂，故不虚报全闭环。
+3. 新确认并施工 B1158/P1。completion 已从 parser-owned operation 精确选择
+   `internal/orchestrator/extract_work.go:3-27`；模型成功读到 line 15 的
+   `ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)`，但 mid-loop coverage
+   清掉已满足 PendingRead 后，旧 `restrictedToolSurface` 同时恢复 14-tool broad surface。模型随即转做
+   grep/repo_map，没有先把桥接操作落成 typed evidence，最终只能降级成未证边界。
+4. 根修只由 `RepairOriginFlowNavigationPrefix + exact file/range` 置位当前 explorer dispatch 的
+   materialization latch。精确补读清债后，工具面仍只保留 `read_file + emit_evidence +
+   emit_investigation_complete`，允许继续读下一个精确窗口、落证据或诚实收口；新 dispatch 自动清零。
+   generic expand-search 不置位，不扫描 request/model/final prose，不创建 EvidenceItem、关系边、图或答案。
+5. 写案例补丁本身正确：两份发布头同步 `%.*lg -> %.*Lg`，`make check` 用 C++17、`-Wall -Wextra
+   -Wformat -Werror` 编译并运行两条 long-double helper。但用户和计划均明确要求“普通 double 格式化不受
+   影响”，测试没有调用任何 double path；Controller 仍凭两条 changed path 的
+   `covered/project_runner/target_behavior` 签 `all_verified`。新立 B1159/P1：路径级行为覆盖不能代替逐项
+   acceptance semantic coverage。后续应建立 typed criterion→executed observation 账，不按测试名、验收
+   prose 或模型输出关键词猜语义。
+6. B1158 新增 pin 覆盖：typed 精确 flow read 启动 bounded lane、读完并清债后仍不重开 broad navigation、
+   generic flow expand-search 不误锁、同问题重试和跨任务边界均清 latch。专项测试全绿；
+   `go test ./internal/agent -count=1` 全绿（11.670s），`make` 通过。
+7. 本批不改 Trace query、显式窗、因果投影、自动补齐、JSON 恢复或 stream liveness。Trace 主因仍仅来自
+   typed 链上席，实际占用/业务线索与规则计价可消除量双轴不丢，邻近/背景只作支持；活跃流不按 4ms 降级。
+
+状态：
+
+`B1157-REQUIREDPARTICIPANTCOMPONENTCONNECTIVITY1=production-safe-boundary-r727/pending-positive-join-replay`；
+`B1158-FLOWNAVIGATIONPOSTREADMATERIALIZATION1=implemented/typed-dispatch-latch+pinned/pending-replay`；
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=confirmed/P1/pending`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace

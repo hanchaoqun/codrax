@@ -2150,6 +2150,7 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		// this struct too; they moved to LoopPolicy and are rebuilt
 		// per dispatch, so there is nothing to stuff into the fixture.
 	}
+	eval.flowNavigationMaterializationActive = true
 
 	// Simulate next REPL turn with a completely different question.
 	// ctx.CurrentTaskKeywords is empty so BuildInitialInstruction's
@@ -2231,7 +2232,7 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		eval.kindConfidence != 0 {
 		t.Error("answer subject / predicate-axis cache not reset")
 	}
-	if eval.investigationComplete || eval.mergedEmittedEvidenceLen != 0 {
+	if eval.flowNavigationMaterializationActive || eval.investigationComplete || eval.mergedEmittedEvidenceLen != 0 {
 		t.Error("completion counters not reset")
 	}
 	// New userQuestion should reflect the new task.
@@ -2260,6 +2261,7 @@ func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 		predicateAxis:                   types.AxisCall,
 		kindConfidence:                  0.9,
 	}
+	eval.flowNavigationMaterializationActive = true
 	ctx := &types.AgentContext{Objective: "investigate strategies"}
 	prompt := eval.BuildInitialInstruction(ctx, nil)
 
@@ -2278,6 +2280,9 @@ func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 		eval.midLoopCompletionReadyEscalated ||
 		eval.midLoopCompletionReadyIter != 0 {
 		t.Error("dispatch-scoped mid-loop latches must reset even on same-question retries")
+	}
+	if eval.flowNavigationMaterializationActive {
+		t.Error("flow-navigation materialization latch must reset at the dispatch boundary")
 	}
 	if eval.answerSubject.Kind != types.SubjectUnknown ||
 		eval.predicateAxis != types.AxisUnknown ||
@@ -4683,6 +4688,70 @@ func TestExplorer_FilterToolSchemas_PendingFlowNavigationStaysOnBoundedMateriali
 	got := (&explorerEvaluator{}).FilterToolSchemas(ctx, schemas)
 	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
 		t.Fatalf("typed flow-navigation repair must hide broad navigation, got %v", gotNames)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_FlowNavigationSurfacePersistsAfterExactReadDrains(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:       types.RepairReadFile,
+		Files:      []string{"cmd/root.go"},
+		LineRanges: []types.LineRange{{Start: 4303, End: 4327}},
+		Origin:     types.RepairOriginFlowNavigationPrefix + "participant",
+		Stage:      string(types.StageExplore),
+		Advisory:   true,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"}, {Name: "grep"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+	eval := &explorerEvaluator{}
+
+	first := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(first); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("typed flow-navigation repair must start bounded materialization, got %v", gotNames)
+	}
+	eval.refreshMidLoopReadCoverage(ctx, LoopObservation{
+		Phase: PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: "read_file", Success: true,
+			ReadCoverage: &types.ToolReadCoverage{
+				Path: "cmd/root.go", LineStart: 4303, LineEnd: 4327, TotalLines: 5000,
+			},
+		}},
+	})
+	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("exact read should drain its navigation debt: %+v", pending)
+	}
+
+	second := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(second); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("broad navigation reopened before evidence materialization or honest closure: %v", gotNames)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_GenericFlowRepairDoesNotLatchBoundedNavigation(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddRepair(types.RepairDirective{
+		Kind:     types.RepairExpandSearch,
+		Keywords: []string{"BuildAgentContext"},
+		Origin:   "emit_investigation_complete.flow_participant_coverage",
+		Stage:    string(types.StageExplore),
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"}, {Name: "grep"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+	eval := &explorerEvaluator{}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("generic flow search without an exact typed read must remain broad, got %v", gotNames)
+	}
+	if eval.flowNavigationMaterializationActive {
+		t.Fatal("generic flow repair must not activate the exact-read materialization latch")
 	}
 }
 
