@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1135 r716：关系收敛键生产正证；窄口径等待清单被扩写为“无阻塞”（2026-08-18）
+
+1. 在 `main@8f6fb21e6` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `2 PASS / 2`；人工代码图
+   pass、Trace partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_trace_caliber_r716_20260818_manual_audit.md`。
+2. B1135 获生产正证。相对 r715，代码图 Explorer 轮次从 43 降至 28、源码读取从 28 降至 14、
+   Finalizer 拒绝从 4 降至 2。typed 缺失集合只从 `[Mutable BusContext]` 真正收缩一次为 `[Mutable]`，
+   因此仅发生一次合法重置；parser 导航坐标变化没有再冒充证明进展。终稿保留 BusContext 的精确参数
+   数据流，并把 Mutable 作为关系未证的可见断开节点，旧重复 Mutable ghost 未复现。
+3. B1136 同样获生产正证。最终成文前明确发布同目标、同窗、同物理附件下的
+   `unjoined_distinct_observation_domains`：50 条 blocked_reason 记录没有 record→state occurrence 映射，
+   调用点拼写也没有机制权限。终稿不再把该 census 归成 70.338ms Sleep 的来源；四态
+   Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、D/IO=0ms 及 CPU policy 对目标影响未证均正确。
+4. 新确认 B1138/P1。`target_window_wait_occurrences` producer 的实际集合只有 D/`io_wait` 以及携
+   `iowait=1` 的 S interval；普通 S 和其他 sleep/wait/blocking 机理不在集合中。终稿却把完整零清单写成
+   “不存在等待类型调度事件、没有阻塞”，与同页 Sleep=70.338ms 直接冲突。零值只证明窄 typed roster
+   中没有 occurrence，不能证明没有 sleep、等待或阻塞。
+5. B1138 根修冻结为 typed 上下文校准，不做答案扫描/替写：wire predicate 保留兼容；preview、observation
+   summary、成文 authority 与 skill 全部将可见名称收窄为“目标 D/IO-wait occurrence 清单”，明确唯一
+   纳入式和排除普通 S；零清单必须同时说明其不能反证其他等待。模型继续拥有诊断与措辞。
+6. 新记 B1139/P2：`coverage=complete`、`target_effect_unproven_no_slice_binding`、
+   `authority=direct_in_window_policy_limit` 与 raw predicate 仍泄漏到中文正文。只通过各 typed authority
+   附近的自然语言释义与软教学逐步消除，禁止用最终答案关键词删改。
+7. 新记 B1140/P1：Analyzer 为有限事实加单一 target-effect 问题先后提交两种不相容
+   `causal_diagnosis` JSON，第三次才选 `bounded_effect_verdict`；后续又执行 12 次 trace_query、读取 6 次
+   payload。Schema fail-loud 正确，但教学需要通用判别表，降低 JSON 心智与重复探索，不得从原始请求
+   关键词硬路由。
+8. 该 Trace 问题是有限事实/有界影响判定，不要求完整 Trace 因果投影；未生成投影是正确 scope，不能
+   为追求固定版式强补。真正 root-cause/causal-diagnosis 请求仍保留显式时间窗、自动补齐、typed
+   on-chain-only 主因、实际占用/业务线索与规则可消除量双轴；邻近/背景只能作为额外排查支撑。
+
+状态：
+
+`B1135-FLOWPARTICIPANTFRONTIERPROGRESS1=production-positive-r716`；
+`B1136-BLOCKEDREASONSTATEATTRIBUTION1=production-positive-r716`；
+`B1137-DIAGRAMVISIBLEPARTICIPANTDEDUP1=not-reproduced-r716/P2-observe`；
+`B1138-TARGETWAITROSTERSCOPE1=confirmed/P1/next`；
+`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=confirmed/P2/planned`；
+`B1140-RUNTIMEQUESTIONJSONTEACHING1=confirmed/P1/after-B1138`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1134 r715：首轮参与者候选生产正证；关系搜索前沿伪进展与 blocked_reason 越权归因（2026-08-18）
 
 1. 在 `main@1dd1187af` 用同一不可变二进制严格并发两个案例：
