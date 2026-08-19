@@ -13502,7 +13502,79 @@ func renderAnswerDocRuntimeFiniteTargetStateCaliberHint(ctx *types.AgentContext)
 		!profile.RequestsFactFamily(types.RuntimeQuestionFactTargetSchedulerState) {
 		return ""
 	}
-	return "- Runtime finite target-state caliber hint: the selected `target_window_states` account is the principal authority for the requested target-thread state partition. Copy its published running/runnable/sleep/D-state/IO-wait/total values at their displayed precision instead of reconstructing them from rounded prose, subtraction, another window, or a blocked-reason count. These values prove scheduler states, not the mechanism inside every interval: a blocked-reason caller/census names only a separately typed, interval-joined subset and cannot label the whole sleep/D/IO duration. CPU-frequency records are CPU-owned; without a typed target-running-slice-to-CPU/frequency overlap, say that target binding is unproven rather than describing a frequency field as an absent property of the thread. This is evidence-caliber guidance only; the bounded conclusion remains model-owned.\n"
+	var b strings.Builder
+	b.WriteString("- Runtime finite target-state caliber hint: the selected `target_window_states` account is the principal authority for the requested target-thread state partition. Copy its published running/runnable/sleep/D-state/IO-wait/total values at their displayed precision instead of reconstructing them from rounded prose, subtraction, another window, or a blocked-reason count. These values prove scheduler states, not the mechanism inside every interval: a blocked-reason caller/census is a separately typed record inventory and, unless an explicit typed interval join is published, has no authority to attribute any Sleep/D-state/IO-wait segment or duration to that caller. CPU-frequency records are CPU-owned; without a typed target-running-slice-to-CPU/frequency overlap, say that target binding is unproven rather than describing a frequency field as an absent property of the thread. This is evidence-caliber guidance only; the bounded conclusion remains model-owned.\n")
+	b.WriteString(renderAnswerDocRuntimeFiniteBlockedReasonAttributionBoundary(ctx))
+	return b.String()
+}
+
+// renderAnswerDocRuntimeFiniteBlockedReasonAttributionBoundary carries the
+// same typed ruler used by the post-answer data-boundary block into the finite
+// question's authoring context. Finite state queries intentionally do not need
+// a causal projection seat, so a projection-only handoff would arrive too
+// late. Matching is exact on deterministic producer, target, requested window
+// and physical artifact. The line is soft composition guidance: it does not
+// inspect, reject or rewrite model prose and it never supplies a diagnosis.
+func renderAnswerDocRuntimeFiniteBlockedReasonAttributionBoundary(ctx *types.AgentContext) string {
+	ledger := answerDocObservationLedger(ctx)
+	authorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
+	if len(authorities) == 0 {
+		return ""
+	}
+	stateRecords := make(map[string]types.ObservationRecord, len(authorities))
+	for _, record := range ledger.Records {
+		stateRecords[strings.TrimSpace(record.ID)] = record
+	}
+	var b strings.Builder
+	seen := map[string]bool{}
+	for _, authority := range authorities {
+		stateRecord, ok := stateRecords[strings.TrimSpace(authority.EvidenceID)]
+		if !ok {
+			continue
+		}
+		for _, record := range ledger.Records {
+			if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+				!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
+				record.GroundingPolicy != types.ClaimGroundingHard ||
+				strings.TrimSpace(record.Predicate) != "blocked_reason_census" ||
+				!strings.EqualFold(strings.TrimSpace(record.Subject), strings.TrimSpace(authority.Subject)) ||
+				!answerDocRuntimeObservationSamePhysicalArtifact(stateRecord.SourceRef, record.SourceRef) {
+				continue
+			}
+			start, end, ok := types.TraceCausalProjectionSelectedWindowNote(record.RichNotes)
+			if !ok || !types.TraceCausalProjectionPrincipalValueSameWindow(
+				start, end, authority.WindowStartTs, authority.WindowEndTs,
+			) {
+				continue
+			}
+			count, err := strconv.Atoi(strings.TrimSpace(record.Value))
+			if err != nil || count <= 0 || record.ResultCount == nil || *record.ResultCount != count {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(authority.Subject)) + "\x00" +
+				fmt.Sprintf("%.6f\x00%.6f\x00%d", start, end, count)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			fmt.Fprintf(&b, "- Runtime finite blocked-reason attribution authority: subject=`%s`; selected_window=`%.6f..%.6f`; blocked_reason_records=%d; relation=`unjoined_distinct_observation_domains`; record_to_state_occurrence_mapping=`not_provided`; state_source_attribution=`unproven`; callsite_name_mechanism_authority=`none`. Report the record census separately from the scheduler-state wall-clock partition. Without a separate typed interval/dependency join, the census does not establish the source, main source, explanation, or mechanism of any Sleep/D-state/IO-wait bucket; a call-site symbol's spelling is only a search clue. The diagnosis and wording remain model-owned.\n",
+				traceDecisionPromptScalar(authority.Subject), start, end, count)
+		}
+	}
+	return b.String()
+}
+
+func answerDocRuntimeObservationSamePhysicalArtifact(a, b types.ObservationSourceRef) bool {
+	if left, right := strings.TrimSpace(a.ArtifactID), strings.TrimSpace(b.ArtifactID); left != "" && right != "" {
+		return left == right
+	}
+	if left, right := strings.TrimSpace(a.CaptureIdentityPath), strings.TrimSpace(b.CaptureIdentityPath); left != "" && right != "" {
+		return left == right
+	}
+	if left, right := strings.TrimSpace(a.Path), strings.TrimSpace(b.Path); left != "" && right != "" {
+		return left == right
+	}
+	return false
 }
 
 // answerDocRuntimeTracePresentationScope keeps trace composition aligned with

@@ -183,7 +183,8 @@ func TestTypedFiniteTraceScopeDoesNotPromoteExploratoryRootCausePopulation(t *te
 				"Runtime finite target-state caliber hint",
 				"selected `target_window_states` account is the principal authority",
 				"Copy its published running/runnable/sleep/D-state/IO-wait/total values",
-				"a blocked-reason caller/census names only a separately typed, interval-joined subset",
+				"a blocked-reason caller/census is a separately typed record inventory",
+				"unless an explicit typed interval join is published",
 				"target-running-slice-to-CPU/frequency overlap",
 				"bounded conclusion remains model-owned",
 			} {
@@ -195,6 +196,108 @@ func TestTypedFiniteTraceScopeDoesNotPromoteExploratoryRootCausePopulation(t *te
 				t.Fatalf("finite typed scope retained full causal-population instruction:\n%s", got)
 			}
 		})
+	}
+}
+
+func TestTypedFiniteTracePublishesUnjoinedBlockedReasonAttributionBoundaryBeforeAuthoring(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(false)
+	start, end := 10.0, 10.1
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState},
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: 100, Thread: "main-100", Source: "user_explicit",
+	}}
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start, TimeEnd: &end, SourceQuote: "10.0..10.1",
+	}
+	ref := types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "trace-a", Path: "/tmp/a.ftrace",
+	}
+	count := 12
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{View: "window_stats"},
+		Observations: []types.ObservationRecord{
+			{
+				ID: "state-requested", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				Predicate: "target_window_states", Subject: "main-100", Object: "state_partition",
+				Value: "100.000", Unit: "ms", RichNotes: []string{
+					"selected_window=10.000000..10.100000", "running=20.000", "runnable=10.000",
+					"sleep=70.000", "d_state=0.000", "io_wait=0.000", "total=100.000",
+				},
+			},
+			{
+				ID: "blocked-census", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				Predicate: "blocked_reason_census", Subject: "main-100", Object: "blocked_reason",
+				Value: "12", ResultCount: &count, RichNotes: []string{
+					"selected_window=10.000000..10.100000", "blocked_reason_census=fscache_page_wait_o×12(Σ7.000ms)",
+				},
+			},
+		},
+	})
+
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	for _, want := range []string{
+		"Runtime finite blocked-reason attribution authority",
+		"subject=`main-100`",
+		"blocked_reason_records=12",
+		"relation=`unjoined_distinct_observation_domains`",
+		"record_to_state_occurrence_mapping=`not_provided`",
+		"state_source_attribution=`unproven`",
+		"does not establish the source, main source, explanation, or mechanism",
+		"diagnosis and wording remain model-owned",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("finite blocked-reason attribution boundary missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTypedFiniteTraceBlockedReasonBoundaryFailsClosedAcrossArtifacts(t *testing.T) {
+	ctx := answerDocCausalCeilingTestContext(false)
+	start, end := 10.0, 10.1
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState},
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeTargets = []types.RuntimeTarget{{
+		Kind: types.RuntimeTargetKindThread, PID: 100, Thread: "main-100", Source: "user_explicit",
+	}}
+	ctx.AnalysisIR.RequestModel.RuntimeArtifactScopeProfile = &types.RuntimeArtifactScopeProfile{
+		RequestedScope: types.RuntimeArtifactScopeExplicitWindow,
+		TimeStart:      &start, TimeEnd: &end, SourceQuote: "10.0..10.1",
+	}
+	count := 1
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{View: "window_stats"},
+		Observations: []types.ObservationRecord{
+			{
+				ID: "state-requested", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "trace-a"},
+				Predicate: "target_window_states", Subject: "main-100", Value: "100.000", RichNotes: []string{
+					"selected_window=10.000000..10.100000", "running=20.000", "sleep=80.000", "total=100.000",
+				},
+			},
+			{
+				ID: "blocked-other", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+				SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "trace-b"},
+				Predicate: "blocked_reason_census", Subject: "main-100", Value: "1", ResultCount: &count,
+				RichNotes: []string{"selected_window=10.000000..10.100000", "blocked_reason_census=caller×1(Σ1.000ms)"},
+			},
+		},
+	})
+	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	if strings.Contains(got, "Runtime finite blocked-reason attribution authority") {
+		t.Fatalf("cross-artifact census must not bind to the target state account:\n%s", got)
 	}
 }
 

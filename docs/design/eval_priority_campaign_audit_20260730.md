@@ -35684,9 +35684,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B1134-DIAGRAMPARTICIPANTCANDIDATEFIRSTPASS1=production-positive-r715`；
 `B1135-FLOWPARTICIPANTFRONTIERPROGRESS1=implemented/missing-set-key+cursor-churn-pin+tool-suite-pass/pending-production-replay`；
-`B1136-BLOCKEDREASONSTATEATTRIBUTION1=confirmed/P1/planned`；
+`B1136-BLOCKEDREASONSTATEATTRIBUTION1=implemented/pre-authoring-typed-boundary+cross-artifact-failclose+agent-suite-pass/pending-production-replay`；
 `B1137-DIAGRAMVISIBLEPARTICIPANTDEDUP1=confirmed/P2/planned`；
-`r715-trace-oracle-policy-ceiling-synonym=confirmed/eval-only`；
+`r715-trace-oracle-policy-ceiling-synonym=fixed/policy-ceiling-equivalent-only`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
