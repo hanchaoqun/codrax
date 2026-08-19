@@ -35720,6 +35720,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1142 r722：有限 CPU 事实自然语言生产闭环；耦合关系调查降噪后仍缺参数—成员闭包（2026-08-19）
+
+1. 在 `main@e017db918` 严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_logic_view_read_pipeline`。Runner `2 PASS / 2`；
+   人工为 H4 pass、关系题 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_finite_cpu_coupled_relation_r722_20260819_manual_audit.md`。
+2. B1146 获生产正证。H4 终稿发布 Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、
+   D/IO=0.000ms；把 completion-closed IO 尺单列为至少 4 次/4.384ms，没有与 scheduler ruler
+   混算。CPU0/4 策略区间、转换数、目标 CPU12/4 running bucket 与代表频率均已从内部 typed
+   join 转为读者语言，并明确共位/代表频率不证明目标切片重叠或限频；最终保持“策略存在、目标
+   绑定未证”，无内部枚举泄漏、无投影误注入、零成文拒绝。
+3. 新记 B1149/P2：两个次级列表在 HTML/Markdown 只显示 item label，模型结构化草稿携带的
+   attributes/values 没有随列表项渲染。主叙述和表格已完整保留关键数值，所以本轮不降正确性；
+   后续应统一审计结构化 list-row 载体和渲染器，而不是按该题文字补答案或增加关键词硬门。
+4. B1147/B1148 同获生产正证。关系题从 r721 的 `subtopics=6、explorer=116、read_file=54、
+   wall=940s` 降至 `subtopics=0、explorer=12、read_file=5、wall=283s`；NodeProbe 不再承担
+   全请求完备门，共享调查没有再被放大。首稿两条无 typed 支持的可见箭头仍被 validator 正确拒绝，
+   说明本批没有靠降低证据杆换速度。
+5. 新确认 B1150/P1：终稿能解释四阶段和多个有证调用，但 BusContext/Mutable 只剩无箭头
+   containment，并诚实披露指定关系未证。调查 ledger 已出现
+   `extractStageHasRequiredWork -> BuildAgentContext` 与
+   `BuildAgentContext -> bus.Mutable.Objective` 的局部 operation；缺口位于 exact argument、声明身份
+   或关系组件闭包中的某一层。最优修法是让 parser-owned 参数/成员身份贯穿同一 typed component，
+   供模型选择业务箭头；禁止直接铸造 `BusContext -> Mutable`、禁止放宽关系 gate、禁止系统代画图。
+6. 两案均未观察到活跃流按 4ms 或固定累计年龄降级。显式时间窗、Trace 因果投影、系统自动补齐、
+   链上-only 主因、实际占用/业务线索与规则可消除量双轴均未改动；有限事实题保持有限，邻近与背景
+   不能晋升主因。
+
+状态：
+
+`B1146-RUNTIMECPUJOINREADERLANGUAGE1=production-closed-r722`；
+`B1147-COUPLEDRELATIONSUBTOPICAMPLIFICATION1=production-closed-r722`；
+`B1148-PROBEGLOBALFLOWCOMPLETIONGATE1=production-closed-r722`；
+`B1149-STRUCTUREDLISTROWATTRIBUTERENDER1=confirmed/P2`；
+`B1150-PARTICIPANTARGUMENTMEMBERCOMPONENT1=confirmed/P1/investigating`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace
