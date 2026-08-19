@@ -35649,6 +35649,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1192 r745：端点重定向修补失焦；断言级证明候选未执行（2026-08-19）
+
+1. 在 `main@8c662bf44` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner 为 `0 PASS / 2 FAIL`，
+   人工两案均为 partial；逐案记录见
+   `eval/parallel_selected_summary_evalcampaign_participant_budget_replay_r745_20260819_manual_audit.md`。
+2. B1189 获得生产正证：Analyzer 不再把 `Mutable/BusContext` 当一个实体交付，后续 typed participant slate
+   明确包含独立 `Mutable` 与 `BusContext`。系统没有替模型造节点、边或答案，Trace 路径仍绕过此 source-flow
+   合同。读案最终恢复稿实际已包含四阶段顺序边与三条 Mutable 本地调用边，说明关系不是“完全没生成”。
+3. 新确认 B1192/P0。六次成文拒绝的精确病灶是：模型让同一个 `analyzer`/`explorer`/`extractor`
+   可见节点既承载已证 stage precedence，又承载 `analyzerEvaluator.BuildInitialInstruction` 等本地技术调用端点；
+   后者缺少 component-owner typed binding，故 `participant_visible_on_nonincident_endpoint` fail-closed 本身有依据。
+   但修补包只报 participant，不报是哪一条 body edge、哪一侧及其 exact anchor 冲突；现有
+   `diagramParticipantEndpointConflictGuidance` 恰好只服务 `unproven_boundary_has_visible_incident_edge`，跳过
+   endpoint-retarget issue。结果系统同时发布无关的 precedence candidate，模型连续误改正确 stage 边和 boundary，
+   648s 后降级。最优根修是把同一个“唯一现有 edge+anchor+side”精确诊断扩给 endpoint-retarget，系统只指出
+   模型已写错的端点，不选择新 ID/词面、不创建/删除/反转边；并加多边场景 pin，确保只命中冲突边。
+4. B1190 获生产正证但案例仍未闭环。24-step apply 车道允许真实第四次修复：最终删除覆盖 folded ids 的
+   重置行；`newline_fold_5_returns_300` 探针和仓库 `make check` 均通过，changed path 获
+   `target_behavior` coverage。预算提升没有放宽 verify，也没有把前三次坏补丁签绿。
+5. 新确认 B1193/P0。最终 report 同时包含 probe pass、Make pass、changed-path covered，却仍保留
+   `project_test_assertion_not_observed`。这不是该 warning 本身过严：aggregate Make 行确实不能冒充 assertion
+   receipt；真正 gap 是计划已声明 exact `test_path + assertion_suite + assertion_id`，TestSurface 也有 Python
+   assertion-capable candidate，但执行队列只优先跑跨语言 Make，`directTestSurfaceTargetsFromChangePlan` 又完全
+   不消费 `ProjectTestObservations`，所以这份义务按构造永远无法闭合。随后 cumulative-review 重跑同一 probe/Make，
+   再新建 proof-probe batch，最终耗尽探索预算并以 `missing_terminal_verify_verdict` 失败。最优根修：把 observation
+   test_path 作为 precise typed test-surface target 加入执行队列；非 Make 候选仍必须 exact suite selector、成功
+   command、assertion-scoped result 与 assertion id 对齐后才铸 receipt，aggregate pass 继续不得升级。
+6. 本轮读案第三次 patch 生成持续 3m30s、约 220KB transport bytes；系统按 semantic byte activity 等待并收到
+   tool call，没有在 4 分钟总龄降级。B1191 再次证明 fixed-age cutoff 不可取；真正 ROI 在缩小精确修补 delta，
+   不是截断活跃答案。
+7. 本批不改 Trace。显式时间窗、因果投影、自动补齐、链上-only 主因，以及真实占用/业务线索与规则计价
+   可消除量双轴均保持；邻近与背景不得晋升主因。系统仍只提供 typed 精确信息和修补上下文，不替模型
+   写图、答案或结论。
+
+状态：
+
+`B1189-SLASHJOINEDPARTICIPANTBYPASS1=production-positive-r745`；
+`B1190-WRITEEVALSTEPBUDGET1=production-positive-fourth-repair+tests-pass-r745`；
+`B1191-ACTIVESEMANTICLONGSTREAM1=reconfirmed/no-fixed-age-cutoff`；
+`B1192-ENDPOINTRETARGETREPAIRFOCUS1=confirmed/P0/next`；
+`B1193-PROJECTASSERTIONCANDIDATEEXEC1=confirmed/P0/after-B1192`；
+`active-stream-4m-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1189 r744：合并参与者绕过关系覆盖；真实写失败与活跃长流分界（2026-08-19）
 
 1. 在 `main@807f24a37` 重建后严格并发恰好两个案例：
