@@ -35760,6 +35760,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1143 B1150：自动配对 call 与独立 argument-flow 补证合同接线（2026-08-19）
+
+1. r722 逐行复核确认了精确断点。模型在 `extract_work.go:11` 选择函数定义后，系统从已读函数体
+   parser-owned relation 自动配对出
+   `Orchestrator.extractStageHasRequiredWork -> BuildAgentContext @ line 15`；但普通 call row 的
+   argument sibling 检查早在 auto-pair 之前完成，因此同一行的完整实参 `o.busCtx` 没有形成
+   `o.busCtx -> BuildAgentContext` 补证义务。BusContext 遂保持 `no_incident_typed_relation`，而
+   `BuildAgentContext -> bus.Mutable.Objective` 只能成为 Mutable 的局部组件；这是确定性接线缺口，
+   不是模型波动，也不是 Finalizer 关系 gate 过严。
+2. 根修没有制造 `BusContext -> Mutable` 抽象边，也没有把 parser argument 直接写入证据池。自动配对
+   body call 现在复用普通模型 call 的同一 typed join：required flow diagram + 非 Trace + 完整 parser
+   实参 + 静态声明唯一映射到 incident participant 时，返回 durable、completion-blocking 的精确
+   `argument -> receiving API` re-emit obligation。模型提交该独立行后，既有组件算法自然连接
+   `o.busCtx -> BuildAgentContext -> bus.Mutable.Objective`，再由模型选择业务图边和结论。
+3. 该接线不依赖 Go 函数名或样例文字。selected-body call 投影已由 15 种 read language matrix（含
+   ArkTS/Cangjie）覆盖；完整实参探测与 typed participant join 由跨语言 argument matrix 覆盖；新增
+   Execute seam 正臂钉住 definition-only 输入会收到精确补证、系统不自铸 argument edge、模型补交后
+   durable repair 关闭。既有 scope test 已钉住同一两行证据能把 BusContext/Mutable 与 stage provider
+   闭到一个 request-scoped component，歧义 callable tail 继续 fail-closed。
+4. `go test ./internal/tool -count=1` 全绿（176.799s）。Finalizer 关系校验、图渲染、Read/Write 路由和
+   Trace 查询/投影均未修改；不扫描 raw request、模型 reasoning 或最终答案，不替模型作图/作答。
+
+状态：
+
+`B1150-PARTICIPANTARGUMENTMEMBERCOMPONENT1=implemented/auto-paired-call-repair-seam+pinned/pending-replay`；
+`B1149-STRUCTUREDLISTROWATTRIBUTERENDER1=confirmed/P2/pending`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace

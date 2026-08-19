@@ -7532,6 +7532,93 @@ func TestEmitEvidence_SelectedDefinitionAutoPairsExactParserBodyCall(t *testing.
 	}
 }
 
+func TestEmitEvidence_SelectedDefinitionAutoPairedCallPublishesCarrierArgumentRepair(t *testing.T) {
+	const (
+		callSource = "internal/orchestrator/extract_work.go"
+		declSource = "internal/orchestrator/orchestrator.go"
+		callLine   = "ac := ctxbuilder.BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)"
+	)
+	callFile := &repomap.FileInfo{
+		RelPath: callSource, Language: repomap.LangGo, Package: "orchestrator",
+		Symbols: []repomap.Symbol{{
+			Name: "extractStageHasRequiredWork", Kind: "method", Receiver: "Orchestrator",
+			File: callSource, Line: 11, EndLine: 17,
+		}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: callSource, Line: 15,
+			FromEP: repomap.RelationEndpoint{
+				Name: "extractStageHasRequiredWork", Receiver: "Orchestrator", File: callSource, Line: 15,
+			},
+			ToEP: repomap.RelationEndpoint{
+				Name: "BuildAgentContext", Receiver: "ctxbuilder", File: callSource, Line: 15,
+			},
+			Confidence: repomap.ConfidenceAST, Provenance: repomap.ProvenanceTreeSitter,
+			ResolvedBy: "go_ast_call",
+		}},
+	}
+	declarationFile := &repomap.FileInfo{
+		RelPath: declSource, Language: repomap.LangGo, Package: "orchestrator",
+		Symbols: []repomap.Symbol{{
+			Name: "busCtx", Kind: "field", Parent: "Orchestrator", DeclaredType: "*types.BusContext",
+			File: declSource, Line: 55, EndLine: 55,
+		}},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqMechanism), ExactTargets: []string{"extractStageHasRequiredWork"},
+		},
+		DiagramHint: &types.DiagramHint{
+			Kind: types.DiagramArchitecture, Required: true,
+			Participants: []types.DiagramParticipantHint{{
+				Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+			}},
+		},
+	}}
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(callFile, declarationFile))
+	seedReadFileHistory(ctx, callSource, 11,
+		"func (o *Orchestrator) extractStageHasRequiredWork() bool {",
+		"if o == nil || o.busCtx == nil {",
+		"return true",
+		"}",
+		callLine,
+		"return agent.ExtractStageHasRequiredWork(ac)",
+		"}",
+	)
+
+	definitionPayload := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"mechanism","subject":"extractStageHasRequiredWork","predicate":"implements","object":"stage readiness","source":%q,"line_start":11,"summary":"selected stage readiness callable","anchor_kind":"definition","anchor_symbol":"extractStageHasRequiredWork"}]}`, callSource))
+	res, err := (&EmitEvidence{}).Execute(ctx, definitionPayload)
+	if err != nil || !res.Success {
+		t.Fatalf("selected definition failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || res.Repair.Metadata["repair_scope"] != "call_argument_flow_pair" ||
+		res.Repair.Metadata["completion_blocking"] != "true" ||
+		!strings.Contains(res.Repair.Hint, "parser-owned direct call projected from the accepted model-selected callable") ||
+		!strings.Contains(res.Repair.Hint, `subject="o.busCtx"`) ||
+		!strings.Contains(res.Repair.Hint, `object="ctxbuilder.BuildAgentContext"`) {
+		t.Fatalf("auto-paired call must expose its exact carrier argument sibling: %+v", res.Repair)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) < 2 {
+		t.Fatalf("definition and parser-owned call should be accepted before repair: %+v", got)
+	}
+	for _, item := range got {
+		if item.AnchorKind == types.AnchorArgument {
+			t.Fatalf("system must not mint the argument relation: %+v", got)
+		}
+	}
+
+	argumentPayload := json.RawMessage(fmt.Sprintf(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"o.busCtx","predicate":"passes argument","object":"ctxbuilder.BuildAgentContext","source":%q,"line_start":15,"summary":"the bus context enters stage context construction","anchor_kind":"argument","anchor_symbol":"o.busCtx","snippet":%q}]}`, callSource, callLine))
+	res, err = (&EmitEvidence{}).Execute(ctx, argumentPayload)
+	if err != nil || !res.Success {
+		t.Fatalf("exact argument sibling failed, err=%v result=%+v", err, res)
+	}
+	if res.Repair != nil && res.Repair.Metadata["repair_status"] == types.ToolRepairStatusActionRequired {
+		t.Fatalf("model-authored argument sibling must close the durable repair: %+v", res.Repair)
+	}
+}
+
 func TestAutoPairSelectedDefinitionBodyCallEvidence_DoesNotDuplicateExactModelCall(t *testing.T) {
 	const source = "src/chain.go"
 	fi := &repomap.FileInfo{

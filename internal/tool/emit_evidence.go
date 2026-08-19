@@ -1028,6 +1028,30 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			selectedBodyCalls[i].DriftReason = proj.DriftReason
 		}
 		built = append(built, selectedBodyCalls...)
+		// The ordinary argument sibling check runs while processing model rows.
+		// Selected-body calls are projected later, so without this seam an exact
+		// carrier argument on the same already-read call line is invisible to the
+		// repair contract. Reuse the identical typed join after projection and ask
+		// the model to emit the independent argument row; do not auto-create it.
+		autoPairedArgumentFlowRepairs := make([]emitEvidenceArgumentFlowRepair, 0)
+		for i := range selectedBodyCalls {
+			rows := emitEvidenceRequiredCallArgumentFlowRepairs(ctx, selectedBodyCalls[i], 0, gc)
+			for j := range rows {
+				rows[j].autoPairedCallCompanion = true
+			}
+			autoPairedArgumentFlowRepairs = append(autoPairedArgumentFlowRepairs, rows...)
+		}
+		autoPairedRepairEvidence := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
+		autoPairedRepairEvidence = append(autoPairedRepairEvidence, built...)
+		autoPairedArgumentFlowRepairs = filterSatisfiedArgumentFlowRepairs(
+			autoPairedArgumentFlowRepairs, autoPairedRepairEvidence,
+		)
+		if autoPairedArgumentFlowRepair := buildEmitEvidenceArgumentFlowRepair(autoPairedArgumentFlowRepairs); autoPairedArgumentFlowRepair != nil {
+			relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
+				relationEndpointRepair, autoPairedArgumentFlowRepair,
+			)
+			validationRepairFields = append(validationRepairFields, autoPairedArgumentFlowRepair.Fields...)
+		}
 		for _, call := range selectedBodyCalls {
 			reports = append(reports, ground.Report{
 				ItemID: call.ID, Status: call.GroundingStatus, Tier: call.GroundingTier,
@@ -5817,6 +5841,12 @@ type emitEvidenceArgumentFlowRepair struct {
 	receiver  string
 	source    string
 	line      int
+	// autoPairedCallCompanion records that the accepted direct-call row was
+	// parser-owned evidence projected from a model-selected callable body. The
+	// call is authoritative, but its independently useful complete argument
+	// still belongs to the model re-emit contract rather than being minted as a
+	// second directed edge by the system.
+	autoPairedCallCompanion bool
 	// assignmentCallCompanion records that the exact argument was recovered
 	// from a unique call nested in an accepted assignment/initializer row,
 	// rather than from a separately submitted AnchorCall row.
@@ -6543,6 +6573,9 @@ func buildEmitEvidenceArgumentFlowRepair(in []emitEvidenceArgumentFlowRepair) *t
 			loc = fmt.Sprintf("%s:%d", row.source, row.line)
 		}
 		origin := fmt.Sprintf("the direct call from items[%d] @ %s is accepted", row.itemIndex, loc)
+		if row.autoPairedCallCompanion {
+			origin = fmt.Sprintf("the parser-owned direct call projected from the accepted model-selected callable @ %s is accepted", loc)
+		}
 		if row.assignmentCallCompanion {
 			assignmentCompanionCount++
 			origin = fmt.Sprintf("the assignment/initializer from items[%d] @ %s contains one unique parser-owned call", row.itemIndex, loc)
