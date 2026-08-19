@@ -8033,6 +8033,128 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofExploresB
 	}
 }
 
+func TestVerificationProofProbePlanningRebindsOnlyNonAuthoritativeFailedProbe(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-python-proof-rebind",
+		Status:      types.PlanStatusUnverified,
+		TargetPaths: []string{"fastlex/tokenizer.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "newline-collapse-output", Kind: types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "the changed tokenizer behavior is directly observed", Required: true,
+			Source: "write_analyzer",
+		}},
+	}
+	baseReport := types.ChangeReport{
+		PlanID: plan.ID, Channel: types.ChangeReportChannelPostApplyVerify,
+		Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, Suite: "check", AssertionID: "make-test", Passed: true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "verification_probe", Framework: "python", WorkingDir: ".",
+			Source: "pre_suite_verification_probe", Outcome: "executed", ExitCode: 1,
+		}, {
+			Runner: "make", WorkingDir: ".", Suite: "check", Source: "probe_primary_suite_continued",
+			Outcome: "suite_continued", ReasonCode: "probe_non_authoritative", ExitCode: 0,
+		}, {
+			Runner: "make", WorkingDir: ".", Suite: "check", Source: "declared_coverage_test_surface",
+			Outcome: "executed", ExitCode: 0, CoveredPaths: []string{"fastlex/tokenizer.py"},
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "fastlex/tokenizer.py", Status: types.ChangedPathVerificationCovered,
+			Caliber:    types.ChangedPathVerificationDeclaredProjectCheck,
+			Capability: types.VerificationCapabilityTargetBehavior,
+		}},
+	}
+	newRun := func() *types.WriteWorkflowRun {
+		return &types.WriteWorkflowRun{
+			RunID: "wf-python-proof-rebind", Status: types.WriteWorkflowRunInProgress,
+			ActiveBatchID: "batch-1-cumulative-review",
+			Batches: []types.WriteWorkflowBatch{{
+				ID: "batch-1-cumulative-review", Purpose: "verification_proof_followup",
+				ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+				Status:        types.WriteWorkflowBatchComplete, ExpectedPaths: []string{"fastlex/tokenizer.py"},
+				SuccessCriteria: []string{
+					"impact_obligation=newline kind=behavior_contract contract_ref=newline-collapse-output verification_probe_required=true source=verification_proof_ledger",
+				},
+				Attempts: []types.WriteWorkflowAttempt{{
+					Kind: "verify", Status: "unverified", ReasonCode: "verification_proof_incomplete", PlanID: plan.ID,
+				}},
+			}},
+		}
+	}
+
+	ledger := types.BuildVerificationProofLedger(plan, &baseReport, nil)
+	if ledger.State != types.VerificationProofLedgerFailed || ledger.CapabilityFailedCount != 1 || ledger.UncoveredCount == 0 {
+		t.Fatalf("fixture must isolate one failed probe capability plus uncovered proof: %+v", ledger)
+	}
+	got, ok := verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
+		newRun(), plan, &baseReport, func(string) bool { return true })
+	if !ok || got == nil || got.Purpose != "verification_proof_followup" ||
+		got.Status != writeflow.BatchNeedsExploration || !got.NeedsCodeExploration {
+		t.Fatalf("non-authoritative failed probe should route to bounded proof rebinding: %+v ok=%v", got, ok)
+	}
+	if len(got.DependsOn) != 1 || got.DependsOn[0] != "batch-1-cumulative-review" ||
+		len(got.SuccessCriteria) != 1 || !strings.Contains(got.SuccessCriteria[0], "verification_probe_required=true") {
+		t.Fatalf("proof rebinding lost typed batch authority: %+v", got)
+	}
+	mu := types.NewMutableState("rebind a non-authoritative failed proof probe")
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(&baseReport)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+	run := newRun()
+	decision := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAcceptUnverified,
+	}, run)
+	if decision.Action != writeflow.ActionExploreCode || decision.Batch == nil ||
+		decision.ExplorationRequest == nil || decision.Batch.Purpose != "verification_proof_followup" {
+		t.Fatalf("terminal normalization did not wire failed-probe rebinding: %+v", decision)
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "verification_proof_probe_plan_requested") {
+		t.Fatalf("failed-probe rebinding did not leave a durable request receipt: %+v", run.ProgressLedger)
+	}
+
+	t.Run("missing explicit non-authoritative continuation", func(t *testing.T) {
+		report := baseReport
+		report.ExecutedCommands = append([]types.ExecutedCommand(nil), baseReport.ExecutedCommands...)
+		report.ExecutedCommands[1].ReasonCode = ""
+		if got, ok := verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
+			newRun(), plan, &report, func(string) bool { return true }); ok || got != nil {
+			t.Fatalf("unclassified probe failure authorized rebinding: %+v", got)
+		}
+	})
+
+	t.Run("project verification failed", func(t *testing.T) {
+		report := baseReport
+		report.Passed = false
+		report.VerificationStatus = types.VerificationStatusFailed
+		if got, ok := verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
+			newRun(), plan, &report, func(string) bool { return true }); ok || got != nil {
+			t.Fatalf("failed project verification authorized proof-only rebinding: %+v", got)
+		}
+	})
+
+	t.Run("another failed capability", func(t *testing.T) {
+		report := baseReport
+		report.ExecutedCommands = append(append([]types.ExecutedCommand(nil), baseReport.ExecutedCommands...),
+			types.ExecutedCommand{Runner: "make", Source: "declared_coverage_test_surface", Outcome: "executed", ExitCode: 1})
+		if got, ok := verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
+			newRun(), plan, &report, func(string) bool { return true }); ok || got != nil {
+			t.Fatalf("mixed project/probe failure authorized proof-only rebinding: %+v", got)
+		}
+	})
+
+	t.Run("no uncovered proof obligation", func(t *testing.T) {
+		closedPlan := *plan
+		closedPlan.BehaviorContracts = nil
+		if got, ok := verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
+			newRun(), &closedPlan, &baseReport, func(string) bool { return true }); ok || got != nil {
+			t.Fatalf("failed probe without an uncovered obligation created a retry loop: %+v", got)
+		}
+	})
+}
+
 func TestRenderPriorPassingVerificationProbeTemplatesExcludesFailedAndBoundsRoster(t *testing.T) {
 	plan := &types.ChangePlan{VerificationProbes: []types.VerificationProbe{
 		{ID: "passed-a", Language: "python", Code: "Tokenizer([(1, 1, 1)]).tokenize('a')"},

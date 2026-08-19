@@ -1584,6 +1584,14 @@ func executedCommandFailed(cmd ExecutedCommand) bool {
 	}
 }
 
+// ExecutedCommandFailed exposes the same typed execution-outcome classifier
+// used by ChangeReport proof normalization. Workflow policy uses it to
+// distinguish an auxiliary verification-probe failure from a failed project
+// runner without re-parsing command text or diagnostic prose.
+func ExecutedCommandFailed(cmd ExecutedCommand) bool {
+	return executedCommandFailed(cmd)
+}
+
 func (r *ChangeReport) testResultFailureIsVerificationUnavailable(result TestResult) bool {
 	if result.Passed {
 		return true

@@ -35649,6 +35649,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1187 r743：补证前置接管生产正证；非权威探针失败反向阻断纠偏（2026-08-19）
+
+1. 在 `main@09f68be15` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner
+   `1 PASS / 1 FAIL`；人工两案均 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_proof_relation_replay_r743_20260819_manual_audit.md`。
+2. B1185 获生产正证。写案例首批源码与项目原生 `make check` 均通过，changed path 获
+   `target_behavior`；旧失败 handoff 没再让 finish 越过新一代证明缺口。Controller 明确追加
+   `verification_proof_followup`、以 `verify_only` 执行累计补证，并把 batch completion 保持为
+   `verification_proof_incomplete`，证明 pre-finish 接管与代际判断已生效。
+3. 新确认 B1188/P0。模型生成的辅助 Python probe 把普通 BPE 的 `hi` 错误期望为两个 byte token，
+   因而 exit=1；同一 report 以 typed `probe_primary_suite_continued + probe_non_authoritative` 明确该
+   comparator 不足以判定源码错误，随后真实项目 runner exit=0。旧 proof ledger 仍把这一个 probe
+   command 记为 `capability_failed`，而 proof-planning bridge 要求失败数严格为零；系统遂禁止本来专门
+   用于修正 probe/重绑 exact contract_ref 的 bounded lane，最终五个 required contract 保持 missing。
+   这是验证合同自阻断，不是项目代码失败，也不能通过 aggregate 绿测试 blanket-sign 合同。
+4. B1188 根修只放行一个精确 typed 形：report/status 均 passed；存在真实 non-probe project execution；
+   verifier 明确发出 `probe_non_authoritative` continuation；所有 failed ledger capability 都必须是当前 report
+   的 `pre_suite_verification_probe` executed command；obligation 侧没有 failed/unavailable 混入，且仍存在
+   非 unavailable 的 uncovered required proof。满足时只进入既有 exact-path、单轮
+   `verification_proof_followup` exploration/planning，后继仍须重新执行并以 exact contract refs 闭合。
+5. 任一 project runner/build/test 失败、local verification 失败、其他 capability 失败、probe runner
+   unavailable、缺少明确 non-authoritative receipt、没有剩余 obligation 或目标 runtime 不可用，均保持
+   fail-closed/诚实 unverified。该 lane 不把失败 probe 升格为证据，不授权生产源码改动，也不读取 command
+   文本、用户请求、模型 rationale 或最终答案；typed execution outcome 通过 types 层唯一分类器复用。
+6. 读案例从 r742 的 6 次成文拒绝/1194s 降为 2 次/469s，但 B1186 只能记单元闭环、不能记生产正证：
+   第一轮候选池根本没有 `Extractor.BuildInitialInstruction -> Mutable.TurnAArtifacts` operation carrier，
+   所以有界多样性没有素材可保留。Explorer 的导航仍停在 wrapper/context-builder 文件，最终图只有四阶段
+   precedence 与 BusContext argument-flow。新立 B1187/P1：stage↔state-carrier 的 typed relation navigation
+   没有从 wrapper 沿精确 evaluator/state access 闭包到 operation evidence。最优方向是补 typed relation
+   navigation/evidence closure，而不是扩大候选 cap、按名字扫描源码或由系统合成边。
+7. 本批不改 Read/Trace 结论路径。显式时间窗、Trace 因果投影、系统自动补齐、链上-only 主因，优先级
+   反转/调度供给/算力供给/D/IO/确定性语义等 typed 根因，以及实际占用与链上业务线索、规则计价可消除量
+   双轴均保持。邻近/背景仍只能支撑额外排查。两个案例都有持续 semantic bytes 远超 4ms，没有 fixed-age
+   降级；系统没有代写答案、图边或结论。
+
+状态：
+
+`B1185-PREFINISHPROOFFOLLOWUPORDER1=production-positive-r743`；
+`B1185-REPLANPROBEGENERATIONAUTHORITY1=production-positive-r743`；
+`B1186-DIAGRAMCANDIDATEDIVERSITY1=unit-pinned/not-production-exercised-r743`；
+`B1187-STAGESTATEOPERATIONNAVIGATION1=confirmed/P1/pending`；
+`B1188-NONAUTHORITATIVEPROBEREBIND1=implemented/exact-typed-positive+negative+wiring-pins-pass/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1185 r742：所有权方向闭环；重规划补证代际与关系候选多样性断层（2026-08-19）
 
 1. 在 `main@093a0566a` 重建后严格并发恰好两个案例：

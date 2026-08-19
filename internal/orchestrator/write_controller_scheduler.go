@@ -9045,8 +9045,12 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 	}
 
 	ledger := types.BuildVerificationProofLedger(plan, report, nil)
-	if ledger.State != types.VerificationProofLedgerLowConfidence ||
-		ledger.FailedCount > 0 || ledger.CapabilityFailedCount > 0 ||
+	lowConfidence := ledger.State == types.VerificationProofLedgerLowConfidence &&
+		ledger.FailedCount == 0 && ledger.CapabilityFailedCount == 0
+	probeComparatorNeedsRebinding := ledger.State == types.VerificationProofLedgerFailed &&
+		ledger.FailedCount == 0 &&
+		verificationProofFailuresAreOnlyNonAuthoritativeProbeCommands(ledger, report)
+	if (!lowConfidence && !probeComparatorNeedsRebinding) ||
 		ledger.UncoveredCount <= ledger.UnavailableCount {
 		return nil, false
 	}
@@ -9084,6 +9088,63 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 		SuccessCriteria:      criteria,
 		DependsOn:            []string{active.ID},
 	}, true
+}
+
+// verificationProofFailuresAreOnlyNonAuthoritativeProbeCommands recognizes a
+// narrow proof-correction shape: the project report is a concrete pass, the
+// verifier explicitly continued after treating a model-authored probe as
+// non-authoritative, and every failed ledger capability belongs to that probe
+// surface. This may authorize one proof-only probe rebind; it never converts
+// the failed probe to evidence and never authorizes production edits. Any
+// project runner/build/test failure, local-verification failure, unavailable
+// capability, or other failed capability remains fail-closed.
+func verificationProofFailuresAreOnlyNonAuthoritativeProbeCommands(
+	ledger types.VerificationProofLedger,
+	report *types.ChangeReport,
+) bool {
+	if report == nil || !changeReportHasConcretePassedTestResult(report) ||
+		ledger.FailedCount != 0 || ledger.CapabilityFailedCount == 0 ||
+		ledger.CapabilityUnavailableCount != 0 {
+		return false
+	}
+
+	hasNonAuthoritativeContinuation := false
+	hasFailedProbeCommand := false
+	for _, command := range report.ExecutedCommands {
+		if strings.TrimSpace(command.Source) == "probe_primary_suite_continued" &&
+			strings.TrimSpace(command.Outcome) == "suite_continued" &&
+			strings.TrimSpace(command.ReasonCode) == "probe_non_authoritative" &&
+			command.ExitCode == 0 {
+			hasNonAuthoritativeContinuation = true
+		}
+		if !types.ExecutedCommandFailed(command) {
+			continue
+		}
+		if strings.TrimSpace(command.Runner) != "verification_probe" ||
+			strings.TrimSpace(command.Source) != "pre_suite_verification_probe" ||
+			strings.TrimSpace(command.Outcome) != "executed" {
+			return false
+		}
+		hasFailedProbeCommand = true
+	}
+	if !hasNonAuthoritativeContinuation || !hasFailedProbeCommand {
+		return false
+	}
+
+	failedCapabilities := 0
+	for _, capability := range ledger.Capabilities {
+		if capability.Status != types.VerificationProofLedgerItemFailed {
+			continue
+		}
+		failedCapabilities++
+		if capability.Kind != "executed_command" ||
+			capability.Category != string(types.VerificationProofRunnerVerificationProbe) ||
+			strings.TrimSpace(capability.Source) != "pre_suite_verification_probe" ||
+			strings.TrimSpace(capability.ReportPlanID) != strings.TrimSpace(report.PlanID) {
+			return false
+		}
+	}
+	return failedCapabilities == ledger.CapabilityFailedCount
 }
 
 func proofPlanningTargetsHaveAvailableRuntime(paths []string, runtimeAvailable func(string) bool) bool {
