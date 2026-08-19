@@ -4310,6 +4310,14 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 	if batch.Purpose != "" {
 		fmt.Fprintf(&b, "Purpose: %s\n\n", batch.Purpose)
 	}
+	if proofFollowupPurpose(batch.Purpose) {
+		if templates := renderPriorPassingVerificationProbeTemplates(
+			o.busCtx.Mutable.ChangePlan(), o.busCtx.Mutable.ChangeReport(), 2,
+		); templates != "" {
+			b.WriteString(templates)
+			b.WriteString("\n\n")
+		}
+	}
 	// PIB-W W-1: a pending /revise carries the operator's verbatim
 	// feedback into this planning dispatch.
 	appendOperatorRevisionHint(&b, pendingActiveBatchRevision(o.busCtx.Mutable.WriteWorkflowRun()))
@@ -4343,6 +4351,56 @@ func (o *Orchestrator) seedControllerBatchPlanningHint(batch writeflow.WriteBatc
 		}
 	}
 	o.busCtx.Mutable.SetPlanningHint(strings.TrimSpace(b.String()))
+}
+
+// renderPriorPassingVerificationProbeTemplates carries only executable probes
+// that have an exact passing verification_probe/* TestResult in the current
+// typed report. It is soft authoring context: the prior invocation shape helps
+// a follow-up avoid guessing constructors or method ownership, but it neither
+// binds a new contract_ref nor proves any uncovered criterion. No command
+// output, task prose, source scan, rationale, or final answer is inspected.
+func renderPriorPassingVerificationProbeTemplates(plan *types.ChangePlan, report *types.ChangeReport, limit int) string {
+	if plan == nil || report == nil || limit <= 0 || len(plan.VerificationProbes) == 0 {
+		return ""
+	}
+	passed := make(map[string]bool)
+	for _, result := range report.TestResults {
+		if !result.Passed || !strings.HasPrefix(strings.TrimSpace(result.Suite), "verification_probe/") {
+			continue
+		}
+		if id := strings.TrimSpace(result.AssertionID); id != "" {
+			passed[id] = true
+		}
+	}
+	var b strings.Builder
+	emitted := 0
+	for _, probe := range plan.VerificationProbes {
+		id := strings.TrimSpace(probe.ID)
+		code := strings.TrimSpace(probe.Code)
+		if id == "" || code == "" || !passed[id] {
+			continue
+		}
+		if emitted == 0 {
+			b.WriteString("Prior passing verification probe templates (soft API-shape context only; reuse imports/construction/invocation where still valid, but author new assertions and exact contract_refs for the uncovered criteria):\n")
+		}
+		if len(code) > 1600 {
+			code = code[:1600] + "\n[typed probe code truncated]"
+		}
+		fmt.Fprintf(&b, "- probe_id=%s language=%s working_dir=%s changed_symbol_refs=%s prior_contract_refs=%s\n  code=%s\n",
+			strconv.Quote(id), strconv.Quote(strings.TrimSpace(probe.Language)),
+			strconv.Quote(strings.TrimSpace(probe.WorkingDir)),
+			strconv.Quote(strings.Join(probe.ChangedSymbolRefs, ",")),
+			strconv.Quote(strings.Join(probe.ContractRefs, ",")),
+			strconv.Quote(code))
+		emitted++
+		if emitted >= limit {
+			break
+		}
+	}
+	if emitted == 0 {
+		return ""
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (o *Orchestrator) seedControllerBatchExplorationContext(batch writeflow.WriteBatchPlan) {
@@ -6311,12 +6369,19 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 			decision.Action == writeflow.ActionReplanBatch ||
 			controllerActionInterruptsUnverifiedCompletion(decision.Action)) {
 		appendControllerProgress(run, batchID, "verification_proof_probe_plan_requested",
-			"typed cumulative verification left required non-unavailable proof obligations uncovered; appending one bounded probe-planning batch without authorizing production edits")
+			"typed cumulative verification left required non-unavailable proof obligations uncovered; routing one bounded exact-path exploration before probe-only planning without authorizing production edits")
 		return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
-			Action:     writeflow.ActionAppendBatch,
+			Action:     writeflow.ActionExploreCode,
 			ReasonCode: "verification_proof_probe_plan_required",
-			Reason:     "required typed proof obligations remain uncovered after cumulative verification; author one bounded executable probe against the current worktree",
+			Reason:     "required typed proof obligations remain uncovered after cumulative verification; inspect the exact target paths before authoring one bounded executable probe against the current worktree",
 			Batch:      batch,
+			ExplorationRequest: &types.WriteExplorationRequest{
+				BatchID:              batch.ID,
+				Goal:                 batch.Goal,
+				CandidatePaths:       append([]string(nil), batch.ExpectedPaths...),
+				EvidenceRequirements: append([]string(nil), batch.SuccessCriteria...),
+				MaxRounds:            1,
+			},
 		})
 	}
 	if activeBatchAppliedPlanPendingVerify(run, plan) {
@@ -9012,8 +9077,9 @@ func verificationProofProbePlanningFollowupDecisionWithRuntimeAvailability(
 		ID:                   id,
 		Goal:                 "Author one bounded executable verification probe for the remaining typed proof obligations against the already-applied worktree; keep changes empty unless a later typed probe failure proves a production repair is needed.",
 		Purpose:              "verification_proof_followup",
-		Status:               writeflow.BatchReadyForChangePlan,
-		NeedsCodeExploration: false,
+		Status:               writeflow.BatchNeedsExploration,
+		NeedsCodeExploration: true,
+		ExploreTargets:       append([]string(nil), active.ExpectedPaths...),
 		ExpectedPaths:        append([]string(nil), active.ExpectedPaths...),
 		SuccessCriteria:      criteria,
 		DependsOn:            []string{active.ID},

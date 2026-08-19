@@ -35649,6 +35649,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1176 B1176：proof follow-up 先精确探索，再携带已通过 API 模板规划（2026-08-19）
+
+1. 已把 cumulative verify 后仍有非 unavailable typed proof 缺口的直接补证批，从
+   `ready_to_plan/NeedsCodeExploration=false` 改为 controller-owned `needs_exploration`。只读 exploration request
+   绑定新 batch ID、上一批 `ExpectedPaths`、proof criteria，且 `MaxRounds=1`；planner 不再在无源码工具的
+   materialization 阶段猜构造器、方法归属或模块 API。
+2. `ActionExploreCode` 现在可携带并落盘同一 controller-owned batch 的 purpose、exact paths、success criteria 与
+   `DependsOn`，避免探索创建 durable batch 时丢掉 proof-only 权限。transition 只允许 in-progress rolling workflow
+   从已完成批次探索一个不同 typed batch ID；同 ID 重开仍 fail-closed，已完成 workflow 也不放开。
+3. planner 规划前增加 bounded prior-passing probe template。来源严格为上一代 `ChangePlan.VerificationProbes[]`
+   与 `ChangeReport.TestResults[]` 的 exact ID join，并要求 `Passed=true + suite=verification_probe/*`；最多两条、
+   单条 code 有界。失败探针、project check、命令输出、用户/模型/答案 prose 都不进入该选择。
+4. 模板仅作 soft API-shape context，明确只复用仍有效的 import/constructor/invocation；新 assertion 与
+   exact contract_refs 必须由 planner 自行声明并经真实执行证明。系统不扩写 contract_ref、不把旧通过等同于新
+   合同通过，也不把源码 token/`inspect.getsource` 字符串扫描提升为行为证明。
+5. 新 pin 覆盖：(a) exact-path exploration request 与单轮上限；(b) explore action 不丢 purpose/dependency；
+   (c) 完成批次只可转移到 distinct batch，不能自重开；(d) passing probe 入模板，failed/over-limit probe 不入；
+   (e) 后继仍须 exact ledger 全绿才能结清前驱。定向与 `internal/writeflow + orchestrator + agent` 绿，`make test`
+   全仓绿。
+6. 本批不改 read/Trace/answer 生产路径，不读取原文作硬门、不修改模型答案。显式窗 Trace 因果投影、自动补齐、
+   链上主因、实际占用/业务线索与规则计价可消除量双轴保持；active byte stream 无 4ms/固定 age 降级。
+
+状态：
+
+`B1176-PROOFFOLLOWUPSOURCECONTEXT1=implemented/unit+cross-module+full-suite-green/awaiting-r738`；
+`B1174-WRITEPROOFFOLLOWUPTERMINALRESOLUTION1=preserved`；
+`model-plan/contract/authorship=preserved`；`raw-prose-hard-gate=none`；
+`active-stream-4ms-degrade=forbidden/not-added`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1175 B1175：typed join frontier 优先于局部参与者症状，边界合同统一（2026-08-19）
 
 1. 已在 `answer_document_diagram_participant_coverage.go` 根修 mismatch 优先级。只有当 typed evidence

@@ -75,6 +75,37 @@ func TestValidateWorkflowTransitionObserveRequiredBlocksPlanning(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflowTransitionCompleteBatchAllowsOnlyDistinctTypedExplorationFollowup(t *testing.T) {
+	view := WorkflowExecutionView{
+		Mode: types.ModeApply, State: WorkflowExecutionComplete,
+		RunStatus: types.WriteWorkflowRunInProgress, BatchID: "batch-complete",
+	}
+	newBatch := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionExploreCode,
+		Batch: &WriteBatchPlan{
+			ID: "batch-proof", Goal: "inspect exact target before proof planning",
+		},
+		ExplorationRequest: &types.WriteExplorationRequest{
+			BatchID: "batch-proof", Goal: "inspect exact target before proof planning",
+		},
+	})
+	if !newBatch.Allowed {
+		t.Fatalf("an in-progress rolling workflow must allow exact exploration for a distinct next batch: %+v", newBatch)
+	}
+	reopen := ValidateWorkflowTransition(view, WriteWorkflowDecision{
+		Action: ActionExploreCode,
+		Batch: &WriteBatchPlan{
+			ID: "batch-complete", Goal: "reopen completed batch",
+		},
+		ExplorationRequest: &types.WriteExplorationRequest{
+			BatchID: "batch-complete", Goal: "reopen completed batch",
+		},
+	})
+	if reopen.Allowed || reopen.ReasonCode != "workflow_already_complete" {
+		t.Fatalf("typed exploration must not reopen the same completed batch: %+v", reopen)
+	}
+}
+
 func TestValidateWorkflowTransitionWeakLocalizationRequiresFirstExplore(t *testing.T) {
 	view := WorkflowExecutionView{
 		Mode:                     types.ModeApply,

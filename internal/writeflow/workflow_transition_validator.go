@@ -47,7 +47,7 @@ func ValidateWorkflowTransition(view WorkflowExecutionView, decision WriteWorkfl
 	case WorkflowExecutionNeedsReplan:
 		return validateNeedsReplanTransition(view, decision)
 	case WorkflowExecutionComplete:
-		return validateCompleteTransition(view, decision.Action)
+		return validateCompleteTransition(view, decision)
 	case WorkflowExecutionBlocked:
 		return validateBlockedTransition(decision.Action)
 	default:
@@ -198,11 +198,20 @@ func workflowTransitionTargetsNewBatch(view WorkflowExecutionView, decision Writ
 	return active == "" || target != active
 }
 
-func validateCompleteTransition(view WorkflowExecutionView, action WorkflowAction) WorkflowTransitionValidation {
+func validateCompleteTransition(view WorkflowExecutionView, decision WriteWorkflowDecision) WorkflowTransitionValidation {
+	action := decision.Action
 	if view.RunStatus == "" || view.RunStatus == types.WriteWorkflowRunInProgress {
 		switch action {
 		case ActionAppendBatch, ActionSplitBatch, ActionFinish, ActionBlock:
 			return WorkflowTransitionValidation{Allowed: true}
+		case ActionExploreCode:
+			// A completed active batch does not make an in-progress rolling
+			// workflow terminal. Permit exploration only when the typed decision
+			// names a distinct next batch; this mirrors append/split without
+			// allowing an already-complete batch to reopen itself.
+			if workflowTransitionTargetsNewBatch(view, decision) {
+				return WorkflowTransitionValidation{Allowed: true}
+			}
 		}
 	}
 	switch action {

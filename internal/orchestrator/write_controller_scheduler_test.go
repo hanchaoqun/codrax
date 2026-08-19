@@ -7813,7 +7813,7 @@ func TestPromoteActiveProofProbeOnlyBatchToVerifyOnly(t *testing.T) {
 	}
 }
 
-func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsProbePlanningBatch(t *testing.T) {
+func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofExploresBeforeProbePlanning(t *testing.T) {
 	binDir := t.TempDir()
 	nodePath := filepath.Join(binDir, "node")
 	if err := os.WriteFile(nodePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -7834,6 +7834,11 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 			Required: true,
 			Source:   "write_analyzer",
 		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID: "existing-api-shape", Language: "javascript", WorkingDir: ".",
+			Code:              "const tok = new FastTokenizer([[10, 10, 300]]); tok.tokenize('stable');",
+			ChangedSymbolRefs: []string{"path:src/duration.ts"},
+		}},
 		PatchReview: &types.PatchReviewRecord{Findings: []types.PatchReviewFinding{{
 			Code:           "behavior_contract_without_verify_coverage",
 			Severity:       types.PatchReviewSeverityWarning,
@@ -7852,6 +7857,11 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 		TestResults: []types.TestResult{{
 			Kind:        types.TestResultKindUnit,
 			AssertionID: "source-static-check",
+			Passed:      true,
+		}, {
+			Kind:        types.TestResultKindUnit,
+			Suite:       "verification_probe/javascript",
+			AssertionID: "existing-api-shape",
 			Passed:      true,
 		}},
 		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
@@ -7891,12 +7901,17 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 		Action:     writeflow.ActionReplanBatch,
 		ReasonCode: "model_requested_repair",
 	}, run)
-	if got.Action != writeflow.ActionAppendBatch || got.Batch == nil {
-		t.Fatalf("uncovered required proof should append a probe-planning batch, got %+v", got)
+	if got.Action != writeflow.ActionExploreCode || got.Batch == nil || got.ExplorationRequest == nil {
+		t.Fatalf("uncovered required proof should explore exact paths before probe planning, got %+v", got)
 	}
-	if got.Batch.ExecutionMode != "" || got.Batch.Status != writeflow.BatchReadyForChangePlan ||
-		got.Batch.Purpose != "verification_proof_followup" {
+	if got.Batch.ExecutionMode != "" || got.Batch.Status != writeflow.BatchNeedsExploration ||
+		!got.Batch.NeedsCodeExploration || got.Batch.Purpose != "verification_proof_followup" {
 		t.Fatalf("probe-planning batch authority is wrong: %+v", got.Batch)
+	}
+	if got.ExplorationRequest.MaxRounds != 1 ||
+		!containsString(got.ExplorationRequest.CandidatePaths, "src/duration.ts") ||
+		got.ExplorationRequest.BatchID != got.Batch.ID {
+		t.Fatalf("proof exploration must stay bounded to exact typed target paths: %+v", got.ExplorationRequest)
 	}
 	if len(got.Batch.SuccessCriteria) != 1 ||
 		!strings.Contains(got.Batch.SuccessCriteria[0], "verification_probe_required=true") ||
@@ -7912,20 +7927,35 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 	repeated := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
 		Action: writeflow.ActionReplanBatch,
 	}, run)
-	if repeated.Action == writeflow.ActionAppendBatch {
+	if repeated.Action == writeflow.ActionAppendBatch || repeated.Action == writeflow.ActionExploreCode {
 		t.Fatalf("the same incomplete cumulative proof must not append a second probe-planning batch: %+v", repeated)
 	}
 
 	view := writeflow.DeriveWorkflowExecutionViewWithReport(types.ModeApply, *run, plan, report)
 	if validation := writeflow.ValidateWorkflowTransition(view, got); !validation.Allowed {
-		t.Fatalf("completed verify-only batch must be allowed to append its bounded probe plan: %+v", validation)
+		t.Fatalf("completed verify-only batch must be allowed to explore for its bounded probe plan: %+v", validation)
 	}
 	next, err := writeflow.ApplyWorkflowDecisionToRun(*run, got)
 	if err != nil {
-		t.Fatalf("append probe-planning batch: %v", err)
+		t.Fatalf("start proof-planning exploration batch: %v", err)
 	}
-	if next.ActiveBatchID != got.Batch.ID || next.Batches[len(next.Batches)-1].Status != types.WriteWorkflowBatchReadyToPlan {
-		t.Fatalf("probe-planning batch did not become active/ready: %+v", next)
+	last := next.Batches[len(next.Batches)-1]
+	if next.ActiveBatchID != got.Batch.ID || last.Status != types.WriteWorkflowBatchNeedsExploration ||
+		last.Purpose != "verification_proof_followup" || len(last.DependsOn) != 1 || last.DependsOn[0] != run.ActiveBatchID {
+		t.Fatalf("proof exploration lost durable batch authority: %+v", next)
+	}
+	o.seedControllerBatchPlanningHint(*got.Batch)
+	planningHint := mu.PlanningHint()
+	for _, want := range []string{
+		"Prior passing verification probe templates",
+		`probe_id="existing-api-shape"`,
+		`FastTokenizer([[10, 10, 300]])`,
+		`tok.tokenize('stable')`,
+		"soft API-shape context only",
+	} {
+		if !strings.Contains(planningHint, want) {
+			t.Fatalf("proof planner lost passing probe template %q:\n%s", want, planningHint)
+		}
 	}
 
 	// Model-authored append/split decisions must not bypass the same
@@ -7941,10 +7971,32 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 				Purpose: "ordinary verification",
 			},
 		}, &candidateRun)
-		if got.Action != writeflow.ActionAppendBatch || got.Batch == nil ||
+		if got.Action != writeflow.ActionExploreCode || got.Batch == nil || got.ExplorationRequest == nil ||
 			got.Batch.Purpose != "verification_proof_followup" ||
 			len(got.Batch.DependsOn) != 1 || got.Batch.DependsOn[0] != candidateRun.ActiveBatchID {
 			t.Fatalf("%s bypassed controller proof authority: %+v", action, got)
+		}
+	}
+}
+
+func TestRenderPriorPassingVerificationProbeTemplatesExcludesFailedAndBoundsRoster(t *testing.T) {
+	plan := &types.ChangePlan{VerificationProbes: []types.VerificationProbe{
+		{ID: "passed-a", Language: "python", Code: "Tokenizer([(1, 1, 1)]).tokenize('a')"},
+		{ID: "failed", Language: "python", Code: "WrongTokenizer().guess_api()"},
+		{ID: "passed-b", Language: "python", Code: "Tokenizer([(2, 2, 2)]).tokenize('b')"},
+	}}
+	report := &types.ChangeReport{TestResults: []types.TestResult{
+		{Suite: "verification_probe/python", AssertionID: "passed-a", Passed: true},
+		{Suite: "verification_probe/python", AssertionID: "failed", Passed: false},
+		{Suite: "verification_probe/python", AssertionID: "passed-b", Passed: true},
+	}}
+	got := renderPriorPassingVerificationProbeTemplates(plan, report, 1)
+	if !strings.Contains(got, "passed-a") || !strings.Contains(got, "Tokenizer([(1, 1, 1)])") {
+		t.Fatalf("first exact passing probe missing:\n%s", got)
+	}
+	for _, forbidden := range []string{"WrongTokenizer", "passed-b"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("failed or over-limit probe %q leaked into soft template:\n%s", forbidden, got)
 		}
 	}
 }

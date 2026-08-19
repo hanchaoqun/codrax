@@ -46,6 +46,12 @@ func ApplyWorkflowDecisionToRun(run types.WriteWorkflowRun, decision WriteWorkfl
 		if added {
 			run.Budget.BatchesUsed++
 		}
+		// A deterministic controller may mint a follow-up that requires one
+		// read-only exploration round before planning. Preserve that batch's
+		// purpose, exact paths, success criteria, and dependency edge on the same
+		// explore action; otherwise the exploration-created durable batch loses
+		// the authority that later keeps proof-only planning from editing source.
+		applyWorkflowBatchPlanMetadata(&run, batchID, decision.Batch)
 		run.ActiveBatchID = batchID
 		run.Status = types.WriteWorkflowRunInProgress
 		run.Budget.ExplorationRoundsUsed++

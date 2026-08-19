@@ -183,6 +183,48 @@ func TestApplyWorkflowDecisionToRunPreservesControllerOwnedDirectProofBatchRouti
 	}
 }
 
+func TestApplyWorkflowDecisionToRunExplorePreservesControllerOwnedProofBatchMetadata(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		RunID: "wf-proof-explore", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Status: types.WriteWorkflowBatchComplete,
+		}},
+		ProgressLedger: []types.WriteWorkflowProgress{{
+			BatchID: "batch-1", ReasonCode: "verification_proof_followup_requested",
+		}},
+	}
+	decision := WriteWorkflowDecision{
+		Action: ActionExploreCode,
+		Batch: &WriteBatchPlan{
+			ID: "batch-1-proof", Goal: "inspect exact API before authoring a probe",
+			Purpose: "verification_proof_followup", Status: BatchNeedsExploration,
+			NeedsCodeExploration: true,
+			ExpectedPaths:        []string{"pkg/tokenizer.py"},
+			SuccessCriteria:      []string{"contract_ref=negative-boundary verification_probe_required=true"},
+			DependsOn:            []string{"batch-1"},
+		},
+		ExplorationRequest: &types.WriteExplorationRequest{
+			BatchID: "batch-1-proof", Goal: "inspect exact API before authoring a probe",
+			CandidatePaths: []string{"pkg/tokenizer.py"}, MaxRounds: 1,
+		},
+	}
+	got, err := ApplyWorkflowDecisionToRun(run, decision)
+	if err != nil {
+		t.Fatalf("apply proof exploration: %v", err)
+	}
+	if got.ActiveBatchID != "batch-1-proof" || len(got.Batches) != 2 {
+		t.Fatalf("proof exploration batch missing: %+v", got)
+	}
+	batch := got.Batches[1]
+	if batch.Status != types.WriteWorkflowBatchNeedsExploration ||
+		batch.Purpose != "verification_proof_followup" ||
+		len(batch.ExpectedPaths) != 1 || batch.ExpectedPaths[0] != "pkg/tokenizer.py" ||
+		len(batch.SuccessCriteria) != 1 || len(batch.DependsOn) != 1 || batch.DependsOn[0] != "batch-1" {
+		t.Fatalf("explore action lost controller-owned proof metadata: %+v", batch)
+	}
+}
+
 func TestApplyWorkflowDecisionToRunAllowsOrdinaryBatchMetadataRefinement(t *testing.T) {
 	run := types.WriteWorkflowRun{
 		RunID:         "wf-ordinary",
