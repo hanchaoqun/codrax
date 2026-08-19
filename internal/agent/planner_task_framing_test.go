@@ -145,7 +145,7 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 		"each required or fallback behavior-contract id",
 		"include that test file in the bounded plan",
 		"project_test_observations[]",
-		"exact test_path and contract_refs",
+		"exact test_path, assertion_suite, assertion_id, and contract_refs",
 		"inspect the concrete assertion first",
 		"exact typed test-surface candidate",
 		"contract_refs names that exact id",

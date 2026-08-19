@@ -112,7 +112,7 @@ func TestEmitChangePlanRejectsPythonCompilerWrapperForCppOnlyChange(t *testing.T
 		"verification_probes[0].language=\"python\" cannot directly execute any changed source target main.cpp",
 		"not command wrappers",
 		"project_test_observations[]",
-		"exact test_path and contract_refs",
+		"exact test_path, assertion_suite, assertion_id, and contract_refs",
 		"acceptance_tests only as a planning statement",
 		"alone does not prove the contract",
 		"acceptance_tests",

@@ -75,7 +75,7 @@ var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,contract_refs[]}]}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,assertion_suite,assertion_id,contract_refs[]}]}. " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
@@ -120,16 +120,18 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	    },
 	    "project_test_observations": {
 	      "type": "array",
-	      "description": "Optional exact bindings from an inspected or newly added repository test file to behavior_contract ids. The declaration gains authority only after the exact typed test-surface candidate succeeds.",
+	      "description": "Optional exact bindings from one concrete project-test assertion to behavior_contract ids. Authority requires a successful exact test-surface candidate plus the same passed assertion_suite/assertion_id from an assertion-scoped runner result; aggregate runner rows do not qualify.",
 	      "items": {
 	        "type": "object",
 	        "additionalProperties": false,
 	        "properties": {
 	          "id": {"type": "string"},
 	          "test_path": {"type": "string"},
+	          "assertion_suite": {"type": "string"},
+	          "assertion_id": {"type": "string"},
 	          "contract_refs": {"type": "array", "items": {"type": "string"}}
 	        },
-	        "required": ["id", "test_path", "contract_refs"]
+	        "required": ["id", "test_path", "assertion_suite", "assertion_id", "contract_refs"]
 	      }
 	    },
 	    "verification_probes": {

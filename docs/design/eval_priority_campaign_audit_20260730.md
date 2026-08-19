@@ -35649,6 +35649,80 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1161 B1165：项目测试合同权威收窄到 assertion 级回执（2026-08-19）
+
+1. `ProjectTestObservation` 从 `test_path + contract_refs` 扩展为
+   `test_path + assertion_suite + assertion_id + contract_refs`。一行只声明一个具体框架断言与若干合同的对应关系；
+   suite 与 assertion ID 都进入 ChangePlan 指纹、累计验证 scope 和 schema，缺任一字段直接 typed reject。
+2. `TestResult` 新增 producer-owned `observation_scope=assertion|aggregate`。Go test JSON、unittest、Swift XCTest、
+   Jest/Vitest、pytest JSON/text case、Cargo/CJPM case、JUnit XML、RSpec 等真正解析到逐 case 身份的分支铸
+   `assertion`；npm script、Make target、无 case 的 unittest/pytest 汇总行铸 `aggregate`。消费端禁止根据
+   `AssertionID` 字符串长相猜层级，未升级 parser 的空 scope 同样 fail-closed。
+3. 合同消债现在要求四重精确 join：test path 属于 typed TestSurface candidate；同 runner/framework/working-dir/
+   suite 的命令成功执行；ChangeReport 中存在相同 `assertion_suite + assertion_id`；该行 passed 且 scope=assertion。
+   任一条件缺失只发 `project_test_assertion_not_observed`，不会产生 `project_test_contract_ref_observed`。
+4. r731 的 `make check/check::make-test` 即使模型再次绑定三个合同，也只能保留 project-runner/path coverage；它是
+   aggregate，不再替“非空”“包含 1.25”等独立合同签字。新正 pin 证明 exact assertion 可消债，负 pin 覆盖
+   aggregate、path mismatch、target mismatch；schema/fingerprint 与共享 planner/skill/recovery 教学同步更新。
+5. 这是所有语言共享的证明层修复，不解析测试源码、runner stdout、请求、计划摘要或最终答案，不按 C++ 文件名或
+   合同措辞拟合。没有结构化逐断言报告的 native runner 继续诚实 unverified；后续可增加系统所有权的 native
+   bounded probe 或原生结构化 reporter，但不能恢复路径级代签。
+6. 本批不改 Read/Trace/diagram/finalizer/stream。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、实际
+   耗时/业务线索与规则计价可消除量双轴保持；背景只作支持，活跃字节流不因 4ms/固定 age 降级，系统不代写答案。
+
+状态：
+
+`B1165-PROJECTTESTASSERTIONAUTHORITY1=implemented/producer-owned-scope+four-way-exact-join+pinned`；
+`B1166-DIAGRAMTYPEDRECIPEVISIBLELABEL1=confirmed/P1/next`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=confirmed/P1/heterogeneous-replay-needed`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1160 r731：项目测试路径回执粒度不足；图标签一致但仍泄漏枚举（2026-08-19）
+
+1. 在 `main@d9c336a49` 重建后严格并发恰好两个案例：
+   `github_issue_nlohmann_long_double_symptom + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`；人工
+   C++ fail、QF partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_contract_label_replay_r731_20260819_manual_audit.md`。
+2. B1163 获生产正证：C++ planner 不再删除 long-double 类型或改弱测试，且确实发射
+   `project_test_observations[]`。终态仍为 `unverified/verification_proof_incomplete`，所以验证杆没有被整体降低。
+   但补丁选择 `%.*Lf`，会把上游通用 `%.*Lg` 的表示策略改成固定小数；真实正确修向仍是两入口同步 `%.*Lg`。
+3. 新确认 B1165/P0 权威粒度 gap。现有 `ProjectTestObservation` 只有 `test_path + contract_refs`；
+   `make check` 的 TestSurface 只证明该文件被一个成功命令覆盖。fixture 中测试源码仅检查两个入口输出非空，模型却把
+   同一文件绑定给 `long_double_value_contains` 和 `single_include_long_double_value`；run_tests 随即把三条合同都铸成
+   `project_test_contract_ref_observed`。本轮只是因为另六条合同未绑定才没有误签 all_verified；若任务只含这三条合同，
+   路径级声明可能把不存在的断言当成执行证明。
+4. B1165 最优根修不能扫描测试源码或 runner prose 猜语义，也不能继续信任 path-level 自声明。项目测试合同只能由
+   runner 产出的 exact passed assertion identity 与 planner 的 typed assertion→contract 映射逐项 join；只提供
+   Make 顶层 `make-test`/文件覆盖的候选最多是 project-runner/path confidence，不得消除独立 behavior-contract 债务。
+   无 assertion-level receipt 的 native runner 继续诚实 unverified，后续再扩系统所有权的 C/C++/Rust 等 bounded
+   native probe 或结构化测试报告，不用脚本包装或答案文字降杆。
+5. B1164 获生产正向但未闭环：QF 最终关系保留，finalizer rejects `6→4`、耗时 `689s→368s`，模型自己填写的
+   anchor label 与 Mermaid label 已保持一致。残余 B1166/P1 是两面同时写 raw `precedence/argument_flow`；首轮
+   typed recipe 已精确提供“随后进入/作为参数传递”。应仅在 exact one-to-one recipe join 时要求模型复用该
+   `visible_arrow_label`，歧义 fail-open；不扫用户/答案词、不由系统翻译或改图。
+6. QF 终图仍由两个关系孤岛组成：四阶段 precedence 与 BusContext→BuildAgentContext→Mutable 局部链没有连到一起，
+   但正文声称各阶段读写共享状态。这是 parser-owned 跨阶段数据流证据/首轮 authoring context 不足，不允许系统根据
+   正文补画关系；先记 B1167/P1，后续异构关系案例统一审计 assignment/data-flow/call/return/precedence，而不是按本例
+   节点名硬补。
+7. r731 无 Trace、JSON 恢复或 active-stream 降级。显式窗、Trace 因果投影、自动补齐、链上-only 主因、实际耗时/
+   业务线索与规则计价可消除量双轴保持；邻近/背景不能晋升主因。活跃流不因 4ms 或固定累计 age 降级，系统不代写
+   模型答案、图或结论。
+
+状态：
+
+`B1163-WRITECONTRACTOBSERVATIONTEACHINGDRIFT1=production-positive/closed`；
+`B1165-PROJECTTESTASSERTIONAUTHORITY1=confirmed/P0/next`；
+`B1164-DIAGRAMVISIBLELABELCONSISTENCY1=production-positive/structural-consistency-closed`；
+`B1166-DIAGRAMTYPEDRECIPEVISIBLELABEL1=confirmed/P1/after-B1165`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=confirmed/P1/heterogeneous-replay-needed`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1151 r728：精确补读物化合同从 origin 猜测收敛到 producer-owned typed bit（2026-08-19）
 
 1. 在 `main@196aeefe3` 重建后严格并发恰好两个案例：

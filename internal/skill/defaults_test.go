@@ -199,7 +199,7 @@ func TestChangePlanSkillUsesSharedBehaviorContractObservationTeaching(t *testing
 	}
 	for _, want := range []string{
 		"project_test_observations[]",
-		"exact test_path and contract_refs",
+		"exact test_path, assertion_suite, assertion_id, and contract_refs",
 		"exact typed test-surface candidate",
 		"natural-language acceptance test as if it were execution evidence",
 	} {

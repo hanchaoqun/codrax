@@ -509,7 +509,7 @@ func TestEmitChangePlanPersistsExactProjectTestObservationInFingerprint(t *testi
 			{"path": "tests/widget_test.py", "kind": "modify", "new_content": "def test_value():\n    assert 42 == 42\n", "rationale": "retain the direct behavior assertion"}
 		],
 		"project_test_observations": [
-			{"id": "widget-value-test", "test_path": "tests/widget_test.py", "contract_refs": ["widget-value"]}
+			{"id": "widget-value-test", "test_path": "tests/widget_test.py", "assertion_suite": "tests/widget_test.py", "assertion_id": "test_value", "contract_refs": ["widget-value"]}
 		]
 	}`)
 
@@ -544,7 +544,7 @@ func TestEmitChangePlanRejectsUnknownProjectTestContractRef(t *testing.T) {
 		"request": "fix behavior",
 		"summary": "Update a concrete project test while preserving exact behavior-contract authority.",
 		"changes": [{"path":"widget_test.py","kind":"modify","new_content":"assert True\n","rationale":"keep the assertion"}],
-		"project_test_observations": [{"id":"widget-test","test_path":"widget_test.py","contract_refs":["unknown"]}]
+		"project_test_observations": [{"id":"widget-test","test_path":"widget_test.py","assertion_suite":"widget_test.py","assertion_id":"test_value","contract_refs":["unknown"]}]
 	}`)
 	res, err := (&EmitChangePlan{}).Execute(ctx, params)
 	if err != nil {

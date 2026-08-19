@@ -96,11 +96,12 @@ func parseNodeScriptExitStatus(stdout string, runErr error) *types.ChangeReport 
 	}
 	report := &types.ChangeReport{
 		TestResults: []types.TestResult{{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   "npm-test-script",
-			Suite:         "npm-test-script",
-			Passed:        passed,
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAggregate,
+			AssertionID:      "npm-test-script",
+			Suite:            "npm-test-script",
+			Passed:           passed,
+			FailureDetail:    detail,
 		}},
 		Passed: passed,
 	}
@@ -143,11 +144,12 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 			loaderFailures++
 		}
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   name,
-			Suite:         suite,
-			Passed:        passed,
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      name,
+			Suite:            suite,
+			Passed:           passed,
+			FailureDetail:    detail,
 		})
 	}
 	total := len(results)
@@ -174,11 +176,12 @@ func parseUnittestOutput(stdout string, runErr error) (*types.ChangeReport, erro
 			failed = countFailed(results)
 		} else {
 			report.TestResults = []types.TestResult{{
-				Kind:          types.TestResultKindUnit,
-				AssertionID:   "unittest",
-				Suite:         "unittest",
-				Passed:        passed,
-				FailureDetail: unittestAggregateFailureDetail(stdout),
+				Kind:             types.TestResultKindUnit,
+				ObservationScope: types.TestObservationScopeAggregate,
+				AssertionID:      "unittest",
+				Suite:            "unittest",
+				Passed:           passed,
+				FailureDetail:    unittestAggregateFailureDetail(stdout),
 			}}
 			if !passed {
 				failed = 1
@@ -235,11 +238,12 @@ func unittestResultsFromFailureBlocks(stdout string) ([]types.TestResult, int) {
 			detail += "\n\n" + tail
 		}
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   name,
-			Suite:         suite,
-			Passed:        false,
-			FailureDetail: truncateDetail(detail, 4000),
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      name,
+			Suite:            suite,
+			Passed:           false,
+			FailureDetail:    truncateDetail(detail, 4000),
 		})
 	}
 	return results, loaderFailures
@@ -418,11 +422,12 @@ func parseMakeOutput(target, stdout string, runErr error) (*types.ChangeReport, 
 	}
 	report := &types.ChangeReport{
 		TestResults: []types.TestResult{{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   "make-test",
-			Suite:         suite,
-			Passed:        passed,
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAggregate,
+			AssertionID:      "make-test",
+			Suite:            suite,
+			Passed:           passed,
+			FailureDetail:    detail,
 		}},
 		Passed:         passed,
 		FailureSummary: failSummary,
@@ -479,10 +484,11 @@ func parseSwiftOutput(stdout string, runErr error) (*types.ChangeReport, error) 
 		// m: [full, suite, name, status]
 		passed := m[3] == "passed"
 		results = append(results, types.TestResult{
-			Kind:        types.TestResultKindUnit,
-			AssertionID: m[2],
-			Suite:       m[1],
-			Passed:      passed,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      m[2],
+			Suite:            m[1],
+			Passed:           passed,
 		})
 	}
 	allPassed := runErr == nil
@@ -690,12 +696,13 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			}
 		}
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   a.name,
-			Suite:         a.suite,
-			Passed:        a.passed,
-			Duration:      a.elapsed,
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      a.name,
+			Suite:            a.suite,
+			Passed:           a.passed,
+			Duration:         a.elapsed,
+			FailureDetail:    detail,
 		})
 		if a.suite != "" {
 			packageHasResult[a.suite] = true
@@ -930,12 +937,13 @@ func parseJestJSON(stdout string) (*types.ChangeReport, error) {
 				}
 			}
 			results = append(results, types.TestResult{
-				Kind:          types.TestResultKindUnit,
-				AssertionID:   id,
-				Suite:         tr.Name,
-				Passed:        passed,
-				Duration:      time.Duration(ar.Duration) * time.Millisecond,
-				FailureDetail: detail,
+				Kind:             types.TestResultKindUnit,
+				ObservationScope: types.TestObservationScopeAssertion,
+				AssertionID:      id,
+				Suite:            tr.Name,
+				Passed:           passed,
+				Duration:         time.Duration(ar.Duration) * time.Millisecond,
+				FailureDetail:    detail,
 			})
 		}
 	}
@@ -1033,12 +1041,13 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 			}
 		}
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   name,
-			Suite:         suite,
-			Passed:        passed,
-			Duration:      time.Duration(tt.Duration * float64(time.Second)),
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      name,
+			Suite:            suite,
+			Passed:           passed,
+			Duration:         time.Duration(tt.Duration * float64(time.Second)),
+			FailureDetail:    detail,
 		})
 	}
 
@@ -1133,11 +1142,12 @@ func parsePytestTextOutput(stdout, cmdStr string, runErr error) (*types.ChangeRe
 	}
 	if len(report.TestResults) == 0 {
 		report.TestResults = []types.TestResult{{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   "pytest",
-			Suite:         "pytest",
-			Passed:        passed,
-			FailureDetail: failureDetailIfNeeded(stdout, passed),
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAggregate,
+			AssertionID:      "pytest",
+			Suite:            "pytest",
+			Passed:           passed,
+			FailureDetail:    failureDetailIfNeeded(stdout, passed),
 		}}
 	}
 	if !report.Passed {
@@ -1258,11 +1268,12 @@ func parsePytestTextCaseRows(stdout string) []types.TestResult {
 		}
 		passed := outcome == "PASSED" || outcome == "SKIPPED" || outcome == "XFAIL"
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   name,
-			Suite:         suite,
-			Passed:        passed,
-			FailureDetail: failureDetailIfNeeded(stdout, passed),
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      name,
+			Suite:            suite,
+			Passed:           passed,
+			FailureDetail:    failureDetailIfNeeded(stdout, passed),
 		})
 	}
 	return results
@@ -1347,11 +1358,12 @@ func parseCargoTestText(runnerLabel, stdout string) (*types.ChangeReport, error)
 			detail = failureDetails[t.name]
 		}
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   t.name,
-			Suite:         "cargo",
-			Passed:        t.passed,
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      t.name,
+			Suite:            "cargo",
+			Passed:           t.passed,
+			FailureDetail:    detail,
 		})
 	}
 
@@ -2000,12 +2012,13 @@ func junitCasesToResults(s junitTestSuite) []types.TestResult {
 			dur = time.Duration(secs * float64(time.Second))
 		}
 		out = append(out, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   id,
-			Suite:         s.Name,
-			Passed:        passed,
-			Duration:      dur,
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      id,
+			Suite:            s.Name,
+			Passed:           passed,
+			Duration:         dur,
+			FailureDetail:    detail,
 		})
 	}
 	return out
@@ -2100,12 +2113,13 @@ func parseRSpecJSON(stdout string) (*types.ChangeReport, error) {
 			}
 		}
 		results = append(results, types.TestResult{
-			Kind:          types.TestResultKindUnit,
-			AssertionID:   ex.FullDescription,
-			Suite:         ex.FilePath,
-			Passed:        passed,
-			Duration:      time.Duration(ex.RunTime * float64(time.Second)),
-			FailureDetail: detail,
+			Kind:             types.TestResultKindUnit,
+			ObservationScope: types.TestObservationScopeAssertion,
+			AssertionID:      ex.FullDescription,
+			Suite:            ex.FilePath,
+			Passed:           passed,
+			Duration:         time.Duration(ex.RunTime * float64(time.Second)),
+			FailureDetail:    detail,
 		})
 	}
 

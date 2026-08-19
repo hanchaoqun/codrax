@@ -35,7 +35,7 @@ const emitChangePlanSchemaReminder = types.ChangePlanJSONShapeFirstTeaching + " 
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
-	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, contract_refs[]} declarations. " +
+	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, assertion_suite, assertion_id, contract_refs[]} declarations. " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
@@ -245,16 +245,18 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "project_test_observations": {
       "type": "array",
-      "description": "Optional exact bindings from a concrete repository test file to behavior_contract ids. Emit only after inspecting or adding that test and confirming it directly asserts every listed contract. This declaration is not proof: run_tests grants authority only when the exact typed test-surface candidate containing test_path succeeds.",
+      "description": "Optional exact bindings from one concrete project-test assertion to behavior_contract ids. Authority requires a successful exact test-surface candidate plus the same passed assertion_suite/assertion_id from an assertion-scoped runner result; aggregate runner rows do not qualify.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "description": "Stable unique observation id."},
           "test_path": {"type": "string", "description": "Exact repo-relative test file path."},
-          "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Behavior-contract ids directly asserted by this exact test file."}
+          "assertion_suite": {"type": "string", "description": "Exact suite identity expected from the project runner."},
+          "assertion_id": {"type": "string", "description": "Exact concrete assertion identity expected from the project runner."},
+          "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Behavior-contract ids directly asserted by this exact test assertion."}
         },
-        "required": ["id", "test_path", "contract_refs"]
+        "required": ["id", "test_path", "assertion_suite", "assertion_id", "contract_refs"]
       }
     },
     "verification_probes": {

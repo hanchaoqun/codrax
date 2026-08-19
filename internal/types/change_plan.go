@@ -22,12 +22,12 @@ const ChangePlanJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSO
 // shared by the always-on change-plan skill and the typed-contract planner
 // framing. It is deliberately soft guidance: execution grants authority only
 // through exact typed joins, never through planner prose or filenames.
-const WriteBehaviorContractObservationTeaching = "When changing an existing guard, comparison, status check, selector, or lifecycle condition, preserve its pre-edit true/false partition except for the exact partition a typed behavior contract explicitly changes. Treat current tests as sampled witnesses, not the domain definition. A passing aggregate project runner proves that the selected suite passed; it does not by itself prove that every independent behavior contract was exercised. For each required or fallback behavior-contract id, choose a direct executable witness: inspect or add the corresponding assertion in a native project test, include that test file in the bounded plan, and emit project_test_observations[] with its exact test_path and contract_refs; or use a supported verification_probe whose contract_refs names that exact id and whose changed_symbol_refs binds the changed implementation. Never bind a contract to a test file merely because the filename sounds relevant: inspect the concrete assertion first. The project-test declaration is not proof; run_tests grants it authority only after an exact typed test-surface candidate containing that path succeeds. Before emitting, compare the old and proposed conditions and cover the applicable boundary classes through native project tests or verification evidence: negative/zero/positive, false/true, null/non-null, empty/non-empty, sentinel/ordinary, enum variants, or pre/post state. Do not list a natural-language acceptance test as if it were execution evidence. Do not narrow or widen a neighboring condition merely because the failing example exercises one class. The same rule applies across every supported source language. This is language-neutral soft guidance; no prose keyword or operator heuristic authorizes a hard gate."
+const WriteBehaviorContractObservationTeaching = "When changing an existing guard, comparison, status check, selector, or lifecycle condition, preserve its pre-edit true/false partition except for the exact partition a typed behavior contract explicitly changes. Treat current tests as sampled witnesses, not the domain definition. A passing aggregate project runner proves that the selected suite passed; it does not by itself prove that every independent behavior contract was exercised. For each required or fallback behavior-contract id, choose a direct executable witness: inspect or add the corresponding assertion in a native project test, include that test file in the bounded plan, and emit one project_test_observations[] row per concrete assertion with its exact test_path, assertion_suite, assertion_id, and contract_refs; or use a supported verification_probe whose contract_refs names that exact id and whose changed_symbol_refs binds the changed implementation. Never bind a contract to a test file merely because the filename sounds relevant: inspect the concrete assertion first. The project-test declaration is not proof; run_tests grants it authority only after an exact typed test-surface candidate containing that path succeeds and the runner emits the same passed assertion identity with assertion-level scope. Aggregate rows such as a top-level Make target cannot discharge a behavior contract. Before emitting, compare the old and proposed conditions and cover the applicable boundary classes through native project tests or verification evidence: negative/zero/positive, false/true, null/non-null, empty/non-empty, sentinel/ordinary, enum variants, or pre/post state. Do not list a natural-language acceptance test as if it were execution evidence. Do not narrow or widen a neighboring condition merely because the failing example exercises one class. The same rule applies across every supported source language. This is language-neutral soft guidance; no prose keyword or operator heuristic authorizes a hard gate."
 
 // NativeProjectTestObservationRecoveryTeaching is emitted by the precise
 // source-language mismatch validator. It tells the planner how to replace an
 // invalid wrapper without falsely implying that acceptance prose is proof.
-const NativeProjectTestObservationRecoveryTeaching = "remove this mismatched probe. When a behavior contract needs proof, inspect or add its exact assertion in a native project test, include that test file in the bounded plan, and bind it through project_test_observations[] with the exact test_path and contract_refs; keep the native build/test command in acceptance_tests only as a planning statement, because that entry alone does not prove the contract. Otherwise use a probe runtime that directly matches a changed source target"
+const NativeProjectTestObservationRecoveryTeaching = "remove this mismatched probe. When a behavior contract needs proof, inspect or add its exact assertion in a native project test, include that test file in the bounded plan, and bind one concrete assertion through project_test_observations[] with the exact test_path, assertion_suite, assertion_id, and contract_refs; keep the native build/test command in acceptance_tests only as a planning statement, because that entry alone does not prove the contract. Aggregate runner rows cannot discharge a behavior contract. Otherwise use a probe runtime that directly matches a changed source target"
 
 // Plan status enum — legal values of ChangePlan.Status. The plan
 // moves through these monotonically during a single apply Run;
@@ -732,16 +732,18 @@ type VerificationProbe struct {
 }
 
 // ProjectTestObservation is a planner-authored, typed claim that one concrete
-// project test file directly observes the listed behavior contracts. It keeps
-// the semantic claim separate from execution authority: the verifier still
-// requires an exact filesystem-derived test-surface membership edge and a
-// successful matching command before any contract_ref is marked satisfied.
-// No test source, runner output, task prose, or model answer is scanned to
-// infer this relation.
+// project-test assertion directly observes the listed behavior contracts. It
+// keeps the semantic claim separate from execution authority: the verifier
+// requires an exact filesystem-derived test-surface membership edge, a
+// successful matching command, and the same assertion-scoped result identity
+// before any contract_ref is marked satisfied. No test source, runner prose,
+// task prose, or model answer is scanned to infer this relation.
 type ProjectTestObservation struct {
-	ID           string   `json:"id"`
-	TestPath     string   `json:"test_path"`
-	ContractRefs []string `json:"contract_refs"`
+	ID             string   `json:"id"`
+	TestPath       string   `json:"test_path"`
+	AssertionSuite string   `json:"assertion_suite"`
+	AssertionID    string   `json:"assertion_id"`
+	ContractRefs   []string `json:"contract_refs"`
 }
 
 // CumulativeVerificationScope carries only verification inputs retained from
@@ -1769,6 +1771,16 @@ type BuildError struct {
 	Message string `json:"message"`          // the compiler's error text (single line)
 }
 
+// TestObservationScope states whether a TestResult identifies one concrete
+// framework assertion or only an aggregate runner/build outcome. The value is
+// producer-owned: consumers must not infer it from AssertionID spelling.
+type TestObservationScope string
+
+const (
+	TestObservationScopeAssertion TestObservationScope = "assertion"
+	TestObservationScopeAggregate TestObservationScope = "aggregate"
+)
+
 // TestResult is one row in ChangeReport.TestResults. Mirrors the
 // shape common test harnesses (go test -json, pytest json-report,
 // mocha --reporter json) expose so the B3 parser surface is
@@ -1778,6 +1790,11 @@ type TestResult struct {
 	// normal test outcomes; TestResultKindBuildError for synthetic
 	// rows describing a pre-test build failure.
 	Kind TestResultKind `json:"kind,omitempty"`
+
+	// ObservationScope is assertion only when the runner parser emitted one
+	// concrete test-case identity. Empty and aggregate rows cannot discharge a
+	// behavior-contract obligation.
+	ObservationScope TestObservationScope `json:"observation_scope,omitempty"`
 
 	// AssertionID is the canonical identifier used for matching
 	// against ChangePlan.AcceptanceTests. Format is framework-

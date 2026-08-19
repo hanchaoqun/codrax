@@ -3522,9 +3522,9 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 			Category:     "project_test_contract_refs",
 			Status:       "missing",
 			Severity:     "warning",
-			ReasonCode:   "project_test_observation_not_executed",
+			ReasonCode:   "project_test_assertion_not_observed",
 			ContractRefs: refs,
-			Detail:       "declared project-test observations did not have a successful exact typed candidate execution",
+			Detail:       "declared project-test observations did not have both a successful exact typed candidate execution and the same passed assertion-scoped result identity",
 		})
 	}
 	return out
@@ -3536,6 +3536,25 @@ func projectTestObservationExecuted(observation types.ProjectTestObservation, re
 	}
 	testPath := strings.ToLower(cleanRepoRelPath(observation.TestPath))
 	if testPath == "" {
+		return false
+	}
+	assertionSuite := strings.TrimSpace(observation.AssertionSuite)
+	assertionID := strings.TrimSpace(observation.AssertionID)
+	if assertionSuite == "" || assertionID == "" {
+		return false
+	}
+	assertionPassed := false
+	for _, result := range report.TestResults {
+		if result.Kind == types.TestResultKindBuildError || !result.Passed ||
+			result.ObservationScope != types.TestObservationScopeAssertion {
+			continue
+		}
+		if strings.TrimSpace(result.Suite) == assertionSuite && strings.TrimSpace(result.AssertionID) == assertionID {
+			assertionPassed = true
+			break
+		}
+	}
+	if !assertionPassed {
 		return false
 	}
 	for _, candidate := range report.TestSurface.Candidates {

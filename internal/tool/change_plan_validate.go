@@ -3634,9 +3634,37 @@ func normalizeProjectTestObservations(repoRoot string, in []types.ProjectTestObs
 		if len(refs) == 0 {
 			return nil, fmt.Sprintf("project_test_observations[%d].contract_refs must name at least one behavior_contract id", i)
 		}
-		out = append(out, types.ProjectTestObservation{ID: id, TestPath: filepath.ToSlash(testPath), ContractRefs: refs})
+		assertionSuite, rej := normalizeProjectTestAssertionIdentity(observation.AssertionSuite, fmt.Sprintf("project_test_observations[%d].assertion_suite", i))
+		if rej != "" {
+			return nil, rej
+		}
+		assertionID, rej := normalizeProjectTestAssertionIdentity(observation.AssertionID, fmt.Sprintf("project_test_observations[%d].assertion_id", i))
+		if rej != "" {
+			return nil, rej
+		}
+		out = append(out, types.ProjectTestObservation{
+			ID:             id,
+			TestPath:       filepath.ToSlash(testPath),
+			AssertionSuite: assertionSuite,
+			AssertionID:    assertionID,
+			ContractRefs:   refs,
+		})
 	}
 	return out, ""
+}
+
+func normalizeProjectTestAssertionIdentity(raw, field string) (string, string) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", field + " is required"
+	}
+	if len(value) > 512 {
+		return "", fmt.Sprintf("%s is too long; maximum is 512 bytes", field)
+	}
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return "", field + " must be a single non-NUL line"
+	}
+	return value, ""
 }
 
 func validateProjectTestObservationContractRefs(contracts []types.WriteBehaviorContract, observations []types.ProjectTestObservation) string {
