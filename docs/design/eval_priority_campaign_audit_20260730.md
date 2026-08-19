@@ -36435,6 +36435,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-edge/diagram/answer-authorship=none`；
 `Trace/write-mode=unchanged`。
 
+### §123.1111 r709：局部修复正确但验证链未闭环；精确 guard 扩散为全函数关系（2026-08-18）
+
+1. 在 `main@3e4457e54` 重建后严格并发恰好两个：`qf_logic_view_read_pipeline` 与
+   `github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`；人工为逻辑图 fail、写案例
+   partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_flow_write_r709_20260818_manual_audit.md`。
+2. B1115 获生产正证：写分析发出精确 `preserve_regression_test target=tests/test_tokenizer.py`，三代计划均未改
+   原五换行输入与 `[300]` 断言。首版实现错误地叠加第二个 `_tokenize_slow`，真实 `make check` 正确报
+   `[...300,300,10] != [...300]`；末版工作树已收敛为单方法并实现整段换行折叠，局部行为探针通过。
+3. 新确认 B1117：Python unittest 的裸 `AssertionError: left != right` 没有 expected/actual 角色合同，现有解析器
+   却固定把左侧铸成 expected、右侧铸成 actual。Controller 首轮人工推理本来正确，replan planner 收到反向 typed
+   字段后先错误反转修向。通用修复必须保留 `operator + left/right + operand_roles=unlabeled`；只有 runner 文本明确
+   标注 expected/want 与 actual/got 时才能填 expected/actual。该字段只作失败软引导，不能据 prose 建硬门。
+4. 新确认 B1118：第二代计划携带 controller-owned `CumulativeVerificationScope.SourcePlanIDs`，末版局部探针通过后
+   却以 `probe_primary_suite_skipped` 跳过项目套件。旧 `make check` 失败因此不能被 exact pass supersede，最终
+   `unverified:verification_proof_failed` 是正确 fail-closed。根修是在累计 replan 且项目套件可用时由通过的局部探针
+   继续执行项目套件；不得清空历史失败或降低验证杆。
+5. 逻辑案暴露 B1119：一个可引用 `bus.Mutable != nil` guard 被 fallback execution seed 赋予
+   `followAllCalls=true`，从而把 enclosing callable 的所有兄弟调用都当成必须深挖。探索扩成 646 条证据、32 轮，进入
+   无关 observation/Trace helper，甚至把作为普通实参的局部变量 `rm` 猜成测试文件同名函数。最优通用边界是
+   guard/assignment/return fallback seed 只读本体；只有 parser-owned exact call/flow operation seed 才能打开子调用。
+6. B1116 的 qualified/bare callable join 生效，却新增 B1120 可见端点语义 gap：typed 候选为
+   `o.busCtx -> ctxbuilder.BuildAgentContext` argument flow，模型最终把图画成 `BusContext -> Analyzer`。候选只授权
+   participant 的 from-side reader alias，另一端却未强制保持 exact/canonical identity；metadata 正确而读者图改义。
+   后续应在统一 diagram body/edge-anchor 对齐层约束“只可替换声明 side”，不按组件名或案例字符串硬补，系统仍不造边。
+7. 两案均无固定 4ms 累计年龄降级。本批未改 Trace 查询、显式窗因果投影、自动补齐、链上-only 主因、邻近/背景
+   support-only、实际占时/规则可消双轴，也未授权系统改写模型答案、关系或结论。
+
+状态：
+
+`r709 runner=1/2 PASS/human=0 pass + 1 partial + 1 fail`；
+`B1115-PROTECTEDREGRESSIONTARGET1=production-positive-r709`；
+`B1117-FAILURECOMPARISONOPERANDROLE1=confirmed-P1/next`；
+`B1118-CUMULATIVEREPLANPROJECTSUITE1=confirmed-P1/next`；
+`B1119-MECHANISMDESCENTOPERATIONOWNERSHIP1=confirmed-P1/next`；
+`B1120-DIAGRAMVISIBLEENDPOINTIDENTITY1=confirmed-P1/queued-after-B1119`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/relation/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
