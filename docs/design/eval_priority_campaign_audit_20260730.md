@@ -35683,6 +35683,13 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. B1192 的 exact endpoint-retarget guidance 本轮未生产触发，因此维持 implemented/full-tool-pass，
    不虚报 production closed。读案 536s 的持续活跃输出没有固定 4 分钟降级；本批也不修改 Trace
    查询、显式窗因果投影、自动补齐、链上-only 主因或“真实占用/业务线索 + 规则计价可消除量”双轴。
+8. B1197 已按单图 exact tuple 基数门施工。validator 在已有 source relation authority 内，只对同时携带
+   `relation_kind + from_identity + to_identity` 且确有可见 body edge 的 anchor 建账；同一 tuple 映射到
+   两个以上不同 endpoint pair 时，把全部冲突映射交还模型选择，不默认保留第一条，也不系统删边。
+   同一 body pair 的重复 operation 继续由既有 call-site occurrence budget 管，缺 identity 的旧图继续走
+   原证据解析器，真正不同 tuple 的多条边正常通过。新增 r746 四边复现、单边正臂、不同 tuple 正臂；
+   定向测试及 `go test ./internal/tool -count=1` 全绿（179.264s）。Trace family 仍在该 source validator
+   入口前返回，runtime 因果投影未进入新门。
 
 状态：
 
@@ -35691,7 +35698,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1194-TESTFRAMEWORKESCALATIONSCOPE1=confirmed/P0/next`；
 `B1195-PROJECTASSERTIONJSONTEACHING1=confirmed/P1/planned`；
 `B1196-PROOFONLYCUMULATIVEOBSERVATION1=under-audit/not-yet-filed`；
-`B1197-DIAGRAMRELATIONTUPLECARDINALITY1=confirmed/P0/next`；
+`B1197-DIAGRAMRELATIONTUPLECARDINALITY1=implemented/full-tool-pass/pending-production-replay`；
 `active-stream-4m-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

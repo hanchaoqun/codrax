@@ -257,6 +257,68 @@ func TestDiagramCallEdgeEvidenceMismatches_ArgumentFlowNeedsExactTypedDirection(
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ExactTypedTupleCannotAuthorizeSeveralVisibleEndpointPairs(t *testing.T) {
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorArgument,
+		Subject: "o.busCtx", Object: "ctxbuilder.BuildAgentContext", AnchorSymbol: "o.busCtx",
+		Source: "internal/orchestrator/extract_work.go", LineStart: 15,
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart LR",
+			"  BC[BusContext] --> A[Analyzer]",
+			"  BC --> E[Explorer]",
+			"  BC --> X[Extractor]",
+			"  BC --> F[Finalizer]",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "BC", ToNode: "A", FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+			{FromNode: "BC", ToNode: "E", FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+			{FromNode: "BC", ToNode: "X", FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+			{FromNode: "BC", ToNode: "F", FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	if len(got) != 4 {
+		t.Fatalf("every conflicting visible mapping must be surfaced without choosing one for the model: %+v", got)
+	}
+	for _, mismatch := range got {
+		if mismatch.Issue != diagramTypedRelationTupleEndpointReused ||
+			mismatch.FromSymbol != "o.busCtx" || mismatch.ToSymbol != "ctxbuilder.BuildAgentContext" {
+			t.Fatalf("unexpected tuple-reuse diagnosis: %+v", got)
+		}
+	}
+
+	// A single model-authored mapping of that fact is valid.
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n  BC[BusContext] --> X[Extractor]"
+	doc.Blocks[0].EdgeAnchors = doc.Blocks[0].EdgeAnchors[2:3]
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("one exact tuple-to-visible-pair mapping must remain legal: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_DifferentTypedTuplesMayUseDifferentVisibleEndpointPairs(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorArgument, Subject: "ctx", Object: "BuildAnalyzer", Source: "pipeline.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorArgument, Subject: "ctx", Object: "BuildExplorer", Source: "pipeline.go", LineStart: 11, GroundingStatus: types.GroundingGrounded},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  BC --> A\n  BC --> E"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "BC", ToNode: "A", FromIdentity: "ctx", ToIdentity: "BuildAnalyzer", RelationKind: types.DiagramRelArgumentFlow},
+			{FromNode: "BC", ToNode: "E", FromIdentity: "ctx", ToIdentity: "BuildExplorer", RelationKind: types.DiagramRelArgumentFlow},
+		},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("distinct typed relation tuples must retain their independent visible edges: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_SequenceCallbackUsesCallbackAuthority(t *testing.T) {
 	evidence := []types.EvidenceItem{{
 		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCallback,

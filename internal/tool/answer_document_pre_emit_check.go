@@ -4606,6 +4606,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			if mismatch.Issue == diagramCallEdgeIssueOccurrenceUnproven {
 				occurrenceBoundary = " Repeated visible call occurrences consume distinct grounded call-site rows; one typed call row cannot be replayed as several arrows. Collapse repeated endpoint pairs to one arrow, or provide one distinct citable call-site EvidenceItem per retained occurrence."
 			}
+			if mismatch.Issue == diagramTypedRelationTupleEndpointReused {
+				occurrenceBoundary = " One exact typed relation tuple may map to only one distinct reader-visible endpoint pair inside a diagram. If that tuple has independent evidence, keep at most one existing mapping; otherwise remove it. Other visible edges need genuinely different typed endpoint identities. Do not clone one tuple across several business/component destinations."
+			}
 			if mismatch.Issue == diagramCallEdgeIssueReplyOperatorConflict || mismatch.Issue == diagramSequenceRelationReplyConflict {
 				sequenceOperatorBoundary = " In a sequenceDiagram, -->> is a response/return operator. An edge owned by relation_kind=" + string(mismatch.Relation) + " must use a compatible forward operator such as ->> (or, for an invocation, a Mermaid async/lost invocation operator); only relation_kind=return or an unanchored reverse reply structurally paired with a visible forward invocation may use -->>. Change the operator, not the evidence-backed endpoints or relation."
 			}

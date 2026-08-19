@@ -44,6 +44,7 @@ const (
 	diagramStandaloneRelationIdentityMissing  = "standalone_relation_endpoint_identity_missing"
 	diagramCallEdgeIssueNoEvidence            = "call_edge_unproven"
 	diagramCallEdgeIssueOccurrenceUnproven    = "call_edge_occurrence_unproven"
+	diagramTypedRelationTupleEndpointReused   = "typed_relation_tuple_reused_across_visible_endpoints"
 	diagramCallEdgeIssueReplyOperatorConflict = "call_reply_operator_conflict"
 	diagramSequenceRelationReplyConflict      = "sequence_relation_reply_operator_conflict"
 	diagramRegistrationEdgeIssueNoEvidence    = "registration_edge_unproven"
@@ -169,6 +170,17 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			for _, edge := range parsedEdges {
 				visibleBodyEdgeKeys[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
 			}
+			// A typed endpoint tuple describes one exact relation. It may own
+			// repeated occurrences on the same visible actor pair (whose separate
+			// occurrence budget is checked below), but it cannot be cloned onto
+			// several different reader-visible endpoint pairs. Otherwise one
+			// o.busCtx -> BuildAgentContext fact can be displayed as BusContext
+			// feeding Analyzer, Explorer, Extractor, and Finalizer at once. This
+			// exact schema-to-Mermaid cardinality check reads no request, message
+			// label, reasoning, or answer prose.
+			out = append(out, diagramTypedRelationTupleEndpointReuseMismatches(
+				block.ID, effectiveAnchors, visibleBodyEdgeKeys,
+			)...)
 		}
 		if strictBodyCoverage {
 			// The same visible actor/component pair may legitimately carry
@@ -454,6 +466,63 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				FromSymbol: fromSymbol,
 				ToSymbol:   toSymbol,
 				Relation:   relation,
+			})
+		}
+	}
+	return out
+}
+
+// diagramTypedRelationTupleEndpointReuseMismatches rejects only an exact typed
+// identity tuple that the model mapped to more than one distinct visible
+// endpoint pair in the same diagram. Repeated metadata for the same body pair
+// stays in the existing occurrence/identity lanes. Anchors without both exact
+// identities also stay in their existing evidence resolver, where display
+// labels cannot mint this new authority.
+func diagramTypedRelationTupleEndpointReuseMismatches(
+	blockID string,
+	anchors []types.DiagramEdgeAnchor,
+	visibleBodyEdgeKeys map[string]bool,
+) []DiagramCallEdgeEvidenceMismatch {
+	type tupleUse struct {
+		anchor  types.DiagramEdgeAnchor
+		edgeKey string
+	}
+	usesByTuple := make(map[string][]tupleUse)
+	var tupleOrder []string
+	for _, anchor := range anchors {
+		relation := diagramAnchorRelation(anchor)
+		edgeKey := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+		if !relation.IsValid() || !anchor.HasEndpointIdentityPair() || !visibleBodyEdgeKeys[edgeKey] {
+			continue
+		}
+		tupleKey := string(relation) + "\x00" + strings.TrimSpace(anchor.FromIdentity) + "\x00" + strings.TrimSpace(anchor.ToIdentity)
+		if _, seen := usesByTuple[tupleKey]; !seen {
+			tupleOrder = append(tupleOrder, tupleKey)
+		}
+		seenEdge := false
+		for _, existing := range usesByTuple[tupleKey] {
+			if existing.edgeKey == edgeKey {
+				seenEdge = true
+				break
+			}
+		}
+		if !seenEdge {
+			usesByTuple[tupleKey] = append(usesByTuple[tupleKey], tupleUse{anchor: anchor, edgeKey: edgeKey})
+		}
+	}
+	var out []DiagramCallEdgeEvidenceMismatch
+	for _, tupleKey := range tupleOrder {
+		uses := usesByTuple[tupleKey]
+		if len(uses) < 2 {
+			continue
+		}
+		for _, use := range uses {
+			anchor := use.anchor
+			out = append(out, DiagramCallEdgeEvidenceMismatch{
+				BlockID: blockID, Issue: diagramTypedRelationTupleEndpointReused,
+				FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+				FromSymbol: strings.TrimSpace(anchor.FromIdentity), ToSymbol: strings.TrimSpace(anchor.ToIdentity),
+				Relation: diagramAnchorRelation(anchor),
 			})
 		}
 	}
