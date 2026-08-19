@@ -35649,6 +35649,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1168 r734：关系修补显著收敛；跨阶段共享状态值流仍缺 typed 组合配方（2026-08-19）
+
+1. 在 `main@6cca5d812` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h4_supply_thermal_witness`。Runner `1 PASS / 1 FAIL`；人工为 QF partial、
+   H4 pass-with-wording-residual。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_relation_delta_trace_r734_20260819_manual_audit.md`。
+2. B1169 获生产正证。QF 的 Finalizer reject 从 r733 的 5 次降到 1 次；首次工具错误仍完整解释 8 条未证边和两个
+   participant mismatch，随后 midloop 只注入 3,295-byte producer-owned delta，而非约 28KB 全量关系合同。模型自己
+   选择 BusContext 的 data-flow candidate、删除未证边、增加 Mutable boundary 并提交 patch；系统未选边、改图或写结论。
+   最大上下文从 103,070 降到 80,151 tokens，墙钟从 753s 降到 508s。
+3. B1170 同样获得生产正证：同一 exact relation item 不再无限重放，第三次后按 blocker key 收敛成 scoped unproven
+   caveat 并继续调查。Explorer 从 r733 的 49 iterations/12 completion calls 降到 39/6，但仍重开一次 Explorer、读取
+   33 次、11 次 midloop；因此“无界锁死”已闭，“调查值流获取成本高”仍不能收账。
+4. B1167 被再次确认且边界更清晰。最终图只保留四阶段 precedence 和 `Explorer→ToolResults` 局部写入，BusContext
+   其余字段没有连接到 Analyzer/Extractor/Finalizer，Mutable 只显示未证边界；这不满足用户要求的共享状态数据流。
+   真实架构关系分散在五类原子事实：table/topology 选择 stage role、generic dispatch、BusContext→AgentContext 参数与
+   字段复制、StageOutput→BusContext 字段合并、EvidenceItems→Mutable append。现有 gate 能逐条验证，却没有把共享
+   value identity 上的 assignment/argument/return/consumer 步骤编译成 typed composed recipe 给模型。
+5. B1167 最优方向不是根据 QF 节点名补桥，也不是放松“每条可见边有证据”。应由 producer 在已有 exact atomic rows
+   上做有限 typed composition：端到端值身份/字段族一致、相邻 endpoint 唯一、每段 source coordinate 与 relation kind
+   保留，跨 table-dispatch role 只消费 schema-valid stage/agent mapping；歧义或缺段保持 unproven。组合结果只是模型可选
+   recipe，Mermaid 节点、边、业务标签和结论仍由模型发射，并以 Java/C/C++/Python/Rust/ArkTS/Cangjie 等异构载体 pin。
+6. H4 runner FAIL 是 eval oracle 假红：答案写“实际 CPU 运行 157.248ms”，旧正则只接受“实际运行/运行占/运行时间”。
+   四态 157.248/5.604/70.338/0.000ms、CPU4 2.10GHz policy row、CPU4 target runtime 35.960ms、显式窗和确定性补采
+   均在。该问题是有限状态/频率事实，不请求根因或唤醒链，因此 `final_projection=0` 是正确 scope，不得为了用例绿强塞
+   因果投影。模型把“切片与 policy 时间重叠未证”写宽成“目标绑定未建立”记软质量残余，禁止答案 prose 硬门。
+7. r734 全程没有固定 4ms/累计 age 降级。H4 在 101s 输出完整答案，QF 活跃流持续 508s 仍等待最新结构化 patch；
+   Trace 因果投影能力本身未改，根因查询仍须链上-only，邻近/背景 support-only，实际耗时/业务线索和规则可消双轴保持。
+
+状态：
+
+`B1169-DIAGRAMREPAIRDELTA1=production-positive-r734/closed`；
+`B1170-REQUIREDRELATIONITEMREPAIRCONVERGENCE1=production-positive-r734/bounded-lock-closed`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=production-reconfirmed/P1/high/next-design`；
+`H4-RUNTIME-LEXEME-ORACLE=false-negative/fix-generic-reader-phrase`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-4ms-degrade=forbidden/not-observed-r734`；
+`Trace finite-fact scope=explicit-window+typed-values+supplement/no-forced-causal-projection`；
+`Trace causal scope=projection-preserved; root=typed-on-chain-only; adjacent/background=support-only`。
+
 ### §123.1167 B1169：关系图局部修补只重放 producer-owned 精确差量（2026-08-19）
 
 1. r733 的 5 次 Finalizer reject 并非都需要重讲整份关系合同。participant/组件连通性失败已经由 pre-emit
