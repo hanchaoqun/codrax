@@ -3512,14 +3512,56 @@ func repairSelectedStringWrappedArrayFields(raw json.RawMessage, fields ...strin
 	if err := json.Unmarshal(repairedSubset, &repairedMap); err != nil {
 		return raw, nil, false
 	}
-	var repaired []string
+	allowed := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			allowed[field] = struct{}{}
+		}
+	}
+	// A string-wrapped selected array may contain the rest of the outer
+	// document after its closing bracket. repairStringWrappedArrayFields
+	// recovers those sibling keys into repairedMap as one lossless object.
+	// Do not copy only the originally selected carrier and silently discard
+	// recovered schema-owned siblings. Conversely, an unexpected inner key
+	// that is absent from the real outer object is ambiguous: abandon the
+	// compatibility repair so strict decoding can fail loudly.
+	for key, val := range repairedMap {
+		if _, ok := allowed[key]; ok {
+			continue
+		}
+		outer, exists := probe[key]
+		if !exists || !bytes.Equal(bytes.TrimSpace(outer), bytes.TrimSpace(val)) {
+			return raw, nil, false
+		}
+	}
+	repairedSet := make(map[string]struct{}, len(repairedFields))
 	for _, field := range repairedFields {
-		if field == "<outer-normalisation>" {
+		if field != "<outer-normalisation>" {
+			repairedSet[field] = struct{}{}
+		}
+	}
+	var repaired []string
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
 			continue
 		}
 		val, ok := repairedMap[field]
 		if !ok {
 			continue
+		}
+		_, explicitlyRepaired := repairedSet[field]
+		_, existedInSelectedSubset := subset[field]
+		recoveredSibling := !existedInSelectedSubset
+		if !explicitlyRepaired && !recoveredSibling {
+			continue
+		}
+		trimmed := bytes.TrimSpace(val)
+		if len(trimmed) == 0 || trimmed[0] != '[' {
+			// Selected fields are array-typed by construction. Refuse a
+			// partial recovery rather than reintroducing a string carrier.
+			return raw, nil, false
 		}
 		probe[field] = val
 		repaired = append(repaired, field)

@@ -3656,6 +3656,38 @@ func TestRepairStringWrappedArrayFields_TopLevelSingletonShapes(t *testing.T) {
 	}
 }
 
+func TestRepairSelectedStringWrappedArrayFieldsPreservesRecoveredAllowedSiblings(t *testing.T) {
+	wrapped := `[{"id":"c1"}],"acceptance_tests":["check"],"project_test_observations":[{"id":"o1"}]`
+	raw := json.RawMessage(`{"request":"fix","changes":` + jsonString(wrapped) + `}`)
+	patched, paths, ok := repairSelectedStringWrappedArrayFields(raw, "changes", "acceptance_tests", "project_test_observations")
+	if !ok {
+		t.Fatal("selected whole-document string recovery must preserve allowed sibling arrays")
+	}
+	for _, want := range []string{"changes", "acceptance_tests", "project_test_observations"} {
+		if !slices.Contains(paths, want) {
+			t.Fatalf("repair paths missing %q in %v; patched=%s", want, paths, patched)
+		}
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(patched, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"changes", "acceptance_tests", "project_test_observations"} {
+		if rawField := bytes.TrimSpace(decoded[field]); len(rawField) == 0 || rawField[0] != '[' {
+			t.Fatalf("%s was not recovered as a native array: %s", field, patched)
+		}
+	}
+}
+
+func TestRepairSelectedStringWrappedArrayFieldsRefusesUnknownRecoveredSibling(t *testing.T) {
+	wrapped := `[{"id":"c1"}],"unknown_sibling":["must not disappear"]`
+	raw := json.RawMessage(`{"request":"fix","changes":` + jsonString(wrapped) + `}`)
+	patched, paths, ok := repairSelectedStringWrappedArrayFields(raw, "changes")
+	if ok || len(paths) != 0 || !bytes.Equal(patched, raw) {
+		t.Fatalf("ambiguous unknown sibling must pass through for strict failure: ok=%v paths=%v patched=%s", ok, paths, patched)
+	}
+}
+
 func TestRepairStringWrappedArrayFields_RepairsUnescapedQuotesInsideSnippet(t *testing.T) {
 	raw := json.RawMessage(`{
 		"items": "[{\"anchor_kind\":\"definition\",\"anchor_symbol\":\"slotFor\",\"snippet\":\"focus = \"default\"\\nif prefix == \"\" {\",\"source\":\"internal/agent/explorer.go\",\"line_start\":15760}]"

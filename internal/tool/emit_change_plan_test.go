@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -526,6 +527,46 @@ func TestEmitChangePlanPersistsExactProjectTestObservationInFingerprint(t *testi
 	withoutObservation := types.PlanFingerprint(plan)
 	if withObservation == "" || withObservation == withoutObservation {
 		t.Fatalf("plan fingerprint must include project test observations: with=%q without=%q", withObservation, withoutObservation)
+	}
+}
+
+func TestEmitChangePlanRecoversSelectedStringWrappedSiblingArraysWithoutLoss(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "tests", "widget_test.py"), []byte("def test_value():\n    assert 42 == 42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = repo
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "keep the value contract"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "widget-value", Kind: types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpEquals, Expected: "42", Required: true,
+		}},
+	}})
+	wrapped := `[{"path":"tests/widget_test.py","kind":"modify","new_content":"def test_value():\n    assert 42 == 42\n","rationale":"retain the direct assertion"}],` +
+		`"acceptance_tests":["the project test remains green"],` +
+		`"project_test_observations":[{"id":"widget-value-test","test_path":"tests/widget_test.py","assertion_suite":"tests/widget_test.py","assertion_id":"test_value","contract_refs":["widget-value"]}]`
+	params := json.RawMessage(`{
+		"request":"keep the value contract",
+		"summary":"Update the concrete project test while preserving every sibling field recovered from one malformed string-wrapped carrier.",
+		"changes":` + jsonString(wrapped) + `
+	}`)
+
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("lossless selected sibling recovery rejected: success=%v err=%v summary=%s", res.Success, err, res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.Changes) != 1 || len(plan.AcceptanceTests) != 1 || len(plan.ProjectTestObservations) != 1 {
+		t.Fatalf("recovered selected siblings were lost: %+v", plan)
+	}
+	observation := plan.ProjectTestObservations[0]
+	if observation.AssertionSuite != "tests/widget_test.py" || observation.AssertionID != "test_value" || !slices.Equal(observation.ContractRefs, []string{"widget-value"}) {
+		t.Fatalf("recovered project-test observation changed: %+v", observation)
 	}
 }
 

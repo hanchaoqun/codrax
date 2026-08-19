@@ -35649,6 +35649,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1164 B1168：selected string-wrapper 恢复保留同载体 schema sibling（2026-08-19）
+
+1. 根因不在 `emit_change_plan` 字段定义或 assertion verifier，而在共享
+   `repairSelectedStringWrappedArrayFields` 的回写边界。底层 whole-document repair 已经把
+   `changes + acceptance_tests + project_test_observations` 解析成一个完整 object；selected wrapper 却只遍历
+   底层报告的最初 repaired key=`changes`，从未把同一次解析新增的 allowlisted sibling 拷回真实外层对象。
+2. 根修保留 selected allowlist 的安全边界，同时合并该次结构恢复得到的**全部 allowlisted native array**：生产形三数组
+   现在一起进入严格解码、ChangePlan 与 fingerprint，repair report 也逐项列出三者。外层原有键仍按既有 authority 优先；
+   内层若带一个 allowlist 外、外层又不存在或值不同的 key，则整次兼容修复退出，由 strict decoder fail-loud，禁止只救
+   前缀数组后静默扔掉未知尾部。
+3. 该逻辑不读取请求、代码、测试源码、模型思考或答案 prose，也不推断数组语义；tool 调用点显式传入的 schema-owned
+   array allowlist 是唯一恢复权限。恢复出的 selected field 若不是 native JSON array，同样整体退出，不重新引入 string carrier。
+4. 三类 pin 覆盖：共享 helper 同时保留三个 sibling 数组；未知 sibling 原样交回 strict failure；完整
+   `emit_change_plan` 生产形确认 change、acceptance test 与 exact assertion observation 全部落入计划且合同引用字节不变。
+   首轮 `go test ./internal/tool -count=1` 全绿（177.615s）；随后 `make test` 全仓全绿（其中 tool
+   203.676s、tracequery 93.331s、hitraceconv 105.086s）。
+5. 本批不改 planner 内容、验证杆、Read/Trace/finalizer/diagram/stream。B1165 仍要求 runner 产生 assertion-level exact
+   identity 才能消债；aggregate Make 行不会因 observation 成功持久化而获得更高 authority。Trace 显式窗、因果投影、自动
+   补齐、链上-only 根因、实际耗时/业务线索与规则可消除量双轴保持，系统不代写答案。
+
+状态：
+
+`B1168-SELECTEDSTRINGWRAPPEDSIBLINGLOSS1=implemented/lossless-allowlisted-merge+unknown-fail-loud/internal-tool-pass`；
+`B1165-PROJECTTESTASSERTIONAUTHORITY1=pending-exact-two-production-replay`；
+`B1169-DIAGRAMREPAIRDELTA1=confirmed/P1/after-B1168-replay`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=confirmed/P1/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1163 r732：断言证明保持 fail-closed，但 string-wrapper 静默丢 sibling；图标签闭环而值流仍断裂（2026-08-19）
 
 1. 在 `main@f5b98ed15` 重建后严格并发恰好两个案例：
