@@ -35649,6 +35649,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
+
+1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace
+   数值/解析错误，而是有限查询的最后成文上下文缺口。完整 causal-diagnosis 会在 prompt 尾部收到
+   自然语言 Trace 决策卡；`bounded_fact_set` / `bounded_effect_verdict` 正确地不物化完整因果投影，
+   却因此结束在 raw observation / authority 行附近。模型虽收到“请翻译”软提示，仍会复制
+   `bounded_window_candidate`、`target_window_wait_occurrences=0,status=complete`、
+   `full_window_all_cpu`、`unproven` 等机器协议词。
+2. 根修增加 `renderAnswerDocBoundedRuntimeFinalReaderHandoff`，只由 schema-valid
+   `RuntimeQuestionProfile` 与 hard deterministic observation ledger 触发，并接在最终成文 prompt 尾部。
+   它不扫描 raw request、模型 reasoning 或最终答案，不增加关键词拒绝，不创建/修改 answer block，
+   也不选择结论；仅把同一 typed 事实重新投影为当前答案语言的读者卡。
+3. 读者卡覆盖全部有限 fact family 的自然名称，并为当前高风险面提供精确值卡：目标线程
+   running/runnable/S/D/io_wait 状态分布、完整的调度器标记等待清单、CPU policy limit witness。
+   `bounded_window_candidate` 等 causal caliber 仍只在 JSON 控制字段中使用；客户正文应写成“仅限所选
+   窗口的优先验证方向，尚未证明为帧/截止期原因”等自然含义。
+4. IO 双尺边界同批补齐：scheduler-marked D/io_wait 为零只说明本目标/本窗没有匹配到窄分类器；
+   completion-closed issuer-blocked S-state ruler 若不存在，明确写成“本状态分布未评估，不能当成零”。
+   若存在则自然语言并列其 occurrence/interval-union，继续禁止两把尺相加或互相否定。普通 S 仍不是
+   自动 IO、锁、yield 或 preemption 机制。
+5. 旧的 runtime language hint 曾允许“必要时把 raw key=value 放在审计括注”，与不泄漏目标相冲突；
+   现收窄为客户可见正文/标题/表格/括注/图均不复制机器字段或 enum。数值、窗口、覆盖、因果权限、
+   链上/邻近/背景位置与模型结论不变，系统也不检查、删除、翻译或替换模型正文。
+6. 代码提交 `0e8013d86` 已推送。新增 direct pin 覆盖中英文 reader label、状态精确值、零清单、
+   completion-closed 缺席、频率 witness 与机器 token 负面集合；另有 BuildInitialInstruction M4 接线 pin，
+   确认 reader card 在 raw Observation Ledger 之后且只出现一次。
+   `go test ./internal/agent -count=1` 与
+   `go test ./internal/tool ./internal/types ./internal/skill ./internal/context -count=1` 全绿。
+7. 本批没有改 trace_query、投影编译、自动补采、排名或落盘渲染。有限事实/影响问答仍不会被扩成完整
+   因果投影；真正 causal-diagnosis 继续保留显式窗、typed on-chain-only 主因、实际占用/业务线索与规则
+   可消除量双轴，邻近/背景只能作支持排查方向。下一步严格并行 2 案生产回放：H4 验证有限卡与双尺，
+   另一异构 read 验证无非 Trace 回归。
+
+状态：
+
+`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=implemented/final-reader-handoff+pinned/pending-production-replay`；
+`B1142-IWAITCALIBERWORDING1=implemented/absent-completion-ruler-reader-fact/pending-production-replay`；
+`bounded-runtime/full-causal-projection=separate/unchanged`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1137 r718：IO 双尺生产仍被泛化；图后中间函数维度丢失（2026-08-18）
 
 1. 在 `main@089bb7bbd` 重建后严格并发恰好两个案例：
