@@ -186,6 +186,29 @@ func TestChangePlanSkillKeepsVerificationProbeAnOptionalDirectRuntime(t *testing
 	}
 }
 
+func TestChangePlanSkillUsesSharedBehaviorContractObservationTeaching(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	body := allWorkflowBodies(sk)
+	if got := strings.Count(body, types.WriteBehaviorContractObservationTeaching); got != 1 {
+		t.Fatalf("shared behavior-contract observation teaching count = %d, want 1", got)
+	}
+	for _, want := range []string{
+		"project_test_observations[]",
+		"exact test_path and contract_refs",
+		"exact typed test-surface candidate",
+		"natural-language acceptance test as if it were execution evidence",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("change-plan skill missing shared behavior-contract guidance %q", want)
+		}
+	}
+}
+
 func TestChangePlanSkillFrontLoadsCanonicalJSONShapeFirstTeaching(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

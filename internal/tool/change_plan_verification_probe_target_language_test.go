@@ -111,11 +111,18 @@ func TestEmitChangePlanRejectsPythonCompilerWrapperForCppOnlyChange(t *testing.T
 	for _, want := range []string{
 		"verification_probes[0].language=\"python\" cannot directly execute any changed source target main.cpp",
 		"not command wrappers",
+		"project_test_observations[]",
+		"exact test_path and contract_refs",
+		"acceptance_tests only as a planning statement",
+		"alone does not prove the contract",
 		"acceptance_tests",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("typed repair guidance missing %q: %s", want, res.Summary)
 		}
+	}
+	if strings.Contains(res.Summary, "remove this probe and keep the native build/test command in acceptance_tests") {
+		t.Fatalf("repair must not imply that acceptance_tests alone proves behavior: %s", res.Summary)
 	}
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
 		t.Fatalf("rejected wrapper must not install a plan: %+v", plan)

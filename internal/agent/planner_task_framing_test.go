@@ -133,6 +133,9 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 	ctx := &types.AgentContext{Mutable: mu}
 	eval := &plannerEvaluator{}
 	got := eval.BuildInitialInstruction(ctx, nil)
+	if count := strings.Count(got, types.WriteBehaviorContractObservationTeaching); count != 1 {
+		t.Fatalf("shared behavior-contract observation teaching count = %d, want 1", count)
+	}
 	for _, want := range []string{
 		"## Existing behavior-domain preservation",
 		"typed behavior contracts",

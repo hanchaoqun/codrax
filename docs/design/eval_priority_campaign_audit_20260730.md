@@ -35756,6 +35756,76 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1157 r730：项目测试回执正确 fail-closed；原生证明教学自冲突与图业务标签泄漏（2026-08-19）
+
+1. 在 `main@323cc132e` 重建后严格并发恰好两个案例：
+   `github_issue_nlohmann_long_double_symptom + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`；人工
+   C++ fail、QF partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_project_observation_identity_r730_20260819_manual_audit.md`。
+2. B1159-B2 获得生产 fail-closed 正证。C++ 的 `make check` 执行成功，三条 changed path 均为
+   `covered/project_runner/target_behavior`；但计划没有 `project_test_observations[]`，proof ledger 保留
+   `behavior_contract_observation_missing`，controller 最终交付 `unverified/verification_proof_incomplete`，没有再用
+   一次聚合绿代签十条独立合同。该 FAIL 是正确提高验证杆，而非基础设施误报。
+3. 人工补丁审计仍为 fail。模型把两份 `snprintf_float` 从 `long double/%.*lg` 改成 `double/%.*g`，还把测试
+   `1.25L` 改成 `1.25`；这绕掉了用户明确要求保留的 long-double 行为。正确语义方向应保留
+   `long double` 并使用 `%.*Lg`，同时新增普通 float/double 非回归断言。`make check` 只证明被模型同步改弱后的
+   测试通过，不能证明真实请求。
+4. 新确认 B1163/P1：系统给 planner 的 typed-contract section 已明确要求先检查/新增原生断言并填写
+   `project_test_observations[]`；但 always-on change-plan skill 仍是旧版，只说 native test 或 probe 二选一，不含
+   observation carrier。更严重的是语言不匹配精确报错直接要求“删掉 probe，只保留 acceptance_tests”；模型逐字
+   执行后认为 `make check` 足够。这是系统自相矛盾增加模型心智，不是模型随机遗漏。
+5. QF 最终正文基本准确，图保留四阶段 precedence、BusContext 参数流、BuildAgentContext→Mutable 调用和
+   Mutable→AgentContext.Mutable 数据流；B1162 的“业务参与者与技术 endpoint 拆成重复身份”本轮未重现。
+   但运行仍有 `6 finalizer rejects / 7 Mermaid repairs / 689s`。首轮已经发布 typed participant candidates，模型仍
+   依次选择 unproven boundary、反向 call、stale boundary 和 split component，说明当前字段化 recipe 对模型的
+   操作负担仍高，暂记 B1162 为 production-partial，继续异构回放而不强制系统画图。
+6. 新立 B1164/P1 展示一致性 gap：终图可见箭头直接写 `precedence/argument_flow/data_flow` 内部枚举，而同一
+   `edge_anchors[]` 已有模型自己填写的中文 `visible_label`。当前 validator 精确校验 endpoint/direction/kind，却
+   不校验 Mermaid 可见标签与 sibling `visible_label` 一致，导致同一结构化对象内部自相矛盾并向用户泄漏术语。
+   最优方案是解析 Mermaid edge 后做 exact structured-field consistency：非空 visible label 必须由可见边采用；
+   仍由模型同时作者化 diagram 与 label，不扫描用户/答案 prose、不翻译、不由系统改图。
+7. r730 无 Trace、JSON 恢复或 active-stream 降级。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、
+   实际耗时/业务线索与规则计价可消除量双轴均保持；邻近/背景不能晋升主因，4ms 或固定累计 age 不触发降级。
+
+状态：
+
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A+B1+B2-implemented/production-fail-closed-positive/authoring-open`；
+`B1163-WRITECONTRACTOBSERVATIONTEACHINGDRIFT1=confirmed/P1/next`；
+`B1162-DIAGRAMPARTICIPANTTECHNICALIDENTITYBINDING1=production-partial/no-duplicate-identity-r730/churn-open`；
+`B1164-DIAGRAMVISIBLELABELCONSISTENCY1=confirmed/P1/after-B1163`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1158 B1163：原生项目测试观察教学与语言错配修复单源（2026-08-19）
+
+1. 新增 `types.WriteBehaviorContractObservationTeaching` 作为唯一软教学源，由 always-on
+   `change-plan-skill` 与仅在 typed behavior contracts 存在时出现的 planner section 共同消费。两面现在一致要求：
+   先读取或新增具体原生断言、把测试文件放入 bounded plan、发射 exact `project_test_observations[].test_path +
+   contract_refs`；项目总绿与 acceptance prose 都不是逐合同执行证据。
+2. 语言不匹配 validator 的精确 repair 改为同一语义：删除不匹配 wrapper 后，若仍有行为合同证明义务，必须
+   选择匹配源码语言的 inline probe，或检查/新增 native test 并绑定 observation carrier；原生 build/test 命令
+   可以继续留在 `acceptance_tests` 作为计划说明，但该字段本身不证明合同。旧“删 probe、只留 acceptance”
+   诱导文案退役并加负 pin。
+3. 这批不强制 planner 一定发 observation，也不因缺字段拒绝语义正确的计划；权威仍由 B1159-B2 的 exact
+   TestSurface candidate × runner/framework/working-dir/suite × executed success join 产生。教学只降低模型心智，
+   缺精确回执时继续诚实 unverified，禁止解析测试源码、输出、request、plan 或答案文字猜覆盖。
+4. M4 pin 覆盖 skill/planner 对共享常量的单次字节包含、语言错配提示的 observation carrier/acceptance 非证明
+   语义，以及旧错误文案负断言。专项 `types/skill/agent/tool` 测试与全仓 `make test` 均通过。
+5. 本批不改 Read/Trace/diagram/finalizer/stream。显式时间窗、Trace 因果投影和自动补齐不受影响；根因仍只能
+   来自 typed 链上证据，实际占用/业务线索与规则可消除量双轴保留，背景仅供额外排查；系统不代写答案或图。
+
+状态：
+
+`B1163-WRITECONTRACTOBSERVATIONTEACHINGDRIFT1=implemented/shared-soft-source+precise-repair+pinned/pending-replay`；
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=production-fail-closed-positive/authoring-replay-pending`；
+`B1164-DIAGRAMVISIBLELABELCONSISTENCY1=confirmed/P1/next`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1155 B1159-B1：路径执行能力不得代签逐合同观察（2026-08-19）
 
 1. r729 C++ 生产回放把 gap 定位到唯一真值铸点：`ChangedPathCoverage=covered/project_runner/target_behavior`

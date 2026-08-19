@@ -469,8 +469,8 @@ func validateVerificationProbeTargetPathLanguageCompatibility(paths []string, pr
 			continue
 		}
 		return fmt.Sprintf(
-			"verification_probes[%d].language=%q cannot directly execute any changed source target %s (changed language families: %s). Inline verification probes are source-level programs, not command wrappers: remove this probe and keep the native build/test command in acceptance_tests, or use a probe runtime that matches a changed source target",
-			i, language, strings.Join(targets, ", "), verificationLanguageFamilyList(allFamilies))
+			"verification_probes[%d].language=%q cannot directly execute any changed source target %s (changed language families: %s). Inline verification probes are source-level programs, not command wrappers: %s",
+			i, language, strings.Join(targets, ", "), verificationLanguageFamilyList(allFamilies), types.NativeProjectTestObservationRecoveryTeaching)
 	}
 	return ""
 }
