@@ -35927,6 +35927,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1147 B1155：模型已选调用结果的整值消费者补证（2026-08-19）
+
+1. r724 的三个断开图组不是单纯的 authoring 波动。旧完成门只检查“每个 required participant 是否
+   进入某个 typed relation component”；`o.busCtx -> BuildAgentContext`、
+   `BuildAgentContext -> ac` 与 `BuildAgentContext -> bus.Mutable.Objective` 足以让 BusContext/Mutable
+   局部覆盖签绿，即使返回值 `ac` 后续进入哪个真实消费者完全没有证据。已有导航器能跟随 call-result，
+   但只在 participant 仍 missing 时运行；participant 一旦局部覆盖便失去补采入口。
+2. 根修没有把 required participant 改成“全图必须强连通”，也没有系统合成
+   `BusContext -> Extractor/Finalizer` 业务边。新增独立 `flow_value_consumer_coverage` typed lane，只在
+   required source-flow diagram 下，对模型已选择且 citable 的 call-result assignment 检查一次真实
+   值流续接：该 assignment 必须与 requested participant 的 citable operation 位于同一精确 source
+   line，RHS 必须唯一对应 parser call，且同一 parser-owned enclosing callable 中存在把完整 LHS
+   变量作为参数传入的明确后续 call。
+3. 成立时系统只发布 bounded read/extraction coordinate 与 exact
+   `argument -> receiving API` JSON 字段，模型仍需读取源码并通过 `emit_evidence` 发出 grounded 行；
+   系统不创建 EvidenceItem、不画图、不修改答案、不解释业务含义。后续只使用 `local.Field` 的成员投影
+   不算整值消费；同一行多个可能 consumer、RHS call 多义、赋值语法不受支持、找不到消费者均
+   fail-closed，不触发硬门。
+4. 为避免把每个局部赋值变成穷举合同，每次关系调查只选择一个最早的、满足全部精确信号的
+   participant-relevant producer path；其 exact consumer handoff 一旦已有 grounded argument row 即关闭。
+   同一 blocker 连续无进展仍走 typed convergence caveat，不会形成无限“成文校验未通过”循环。
+5. 新正臂覆盖 `builder.Build(p.bus, AgentExtractor) -> ctx -> agent.Execute(ctx)`：首次 completion 只给
+   `ctx -> agent.Execute` 补证指令，模型行加入后欠账消失；同一行 `left.Use(ctx); right.Use(ctx)` 负臂
+   证明多消费者歧义不猜。既有 `SupportedReadLanguages()` 全矩阵 call-result continuation 测试继续通过，
+   因新实现复用同一跨语言 assignment/complete-argument grounder，ArkTS、Cangjie、Rust、C/C++ 等
+   不分叉实现。
+6. `go test ./internal/tool -count=1` 全绿（179.092s）。本批未改 Trace 查询、投影编译、自动补齐、
+   模型答案正文或流式 liveness；显式时间窗与 causal-diagnosis 仍按原 typed 权威工作，有限事实查询
+   也不会进入该源码流门。
+
+状态：
+
+`B1155-CALLRESULTCONSUMERVALUEPATH1=implemented/typed-selected-path+exact-consumer+pinned/pending-replay`；
+`B1154-PARTICIPANTCOVERAGEEVIDENCEPARITY1=implemented/pending-replay`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace

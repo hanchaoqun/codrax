@@ -44,6 +44,19 @@ type flowOperationRepairReadTarget struct {
 	callerHandoff bool
 }
 
+// flowValueConsumerRepair is one parser-owned continuation coordinate for a
+// model-selected call-result assignment.  It is repair/navigation state only:
+// the exact argument handoff still has to be inspected and emitted by the
+// model before it can become relation or diagram authority.
+type flowValueConsumerRepair struct {
+	target         flowOperationRepairReadTarget
+	argument       string
+	receiver       string
+	producerSource string
+	producerLine   int
+	consumerLine   int
+}
+
 type flowParserRelationSite struct {
 	file          string
 	relation      *repotypes.Relation
@@ -1559,6 +1572,211 @@ func flowNavigationCallResultContinuationReadTarget(
 		}
 	}
 	return flowOperationRepairReadTarget{}, false
+}
+
+// flowOperationMissingSelectedResultConsumer detects the narrow gap between
+// "a requested carrier reached a builder/factory" and "the returned local
+// value reached an actual consumer".  Participant coverage alone cannot close
+// that gap: it can be satisfied by the producer-side argument and assignment
+// while leaving the consumer absent from the final relation component.
+//
+// The detector is deliberately conservative and language-neutral:
+//   - the request must carry a required source-flow diagram;
+//   - the assignment must already be citable/model-selected and share its exact
+//     source line with a citable operation incident to a requested participant;
+//   - its RHS must resolve to exactly one parser call on that line;
+//   - a later call in the same parser-owned callable must consume the exact
+//     whole LHS value (member projections do not count); and
+//   - an already-grounded exact argument row closes the obligation.
+//
+// Source order chooses only one bounded extraction coordinate.  It does not
+// assert runtime order, create evidence, or force the final diagram to draw the
+// edge.  Ambiguous call sites and unsupported assignment syntax fail closed.
+func flowOperationMissingSelectedResultConsumer(
+	ctx *types.BusContext,
+	evidence []types.EvidenceItem,
+) (flowValueConsumerRepair, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil ||
+		!flowOperationEvidenceRequired(ctx) {
+		return flowValueConsumerRepair{}, false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) == 0 {
+		return flowValueConsumerRepair{}, false
+	}
+	index := flowNavigationIndexForContext(ctx)
+	if index == nil {
+		return flowValueConsumerRepair{}, false
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return flowValueConsumerRepair{}, false
+	}
+
+	var participantGroups [][]string
+	for _, participant := range flowOperationPlanningParticipants(rm) {
+		if participant.Role != types.DiagramParticipantIncidentRequired {
+			continue
+		}
+		if resolved := flowResolveParticipantIdentity(ctx, rm, participant); len(resolved.surfaces) > 0 {
+			participantGroups = append(participantGroups, resolved.surfaces)
+		}
+	}
+	if len(participantGroups) == 0 {
+		return flowValueConsumerRepair{}, false
+	}
+
+	type producer struct {
+		item     types.EvidenceItem
+		receiver string
+		value    string
+		site     flowParserRelationSite
+	}
+	var producers []producer
+	for _, item := range types.FlowOperationEvidenceForRequest(evidence, rm) {
+		if item.AnchorKind != types.AnchorAssignment && item.AnchorKind != types.AnchorInitializer {
+			continue
+		}
+		receiver, value, ok := types.AssignmentEvidenceEndpoints(item)
+		if !ok || receiver == "" || value == "" || item.LineStart <= 0 {
+			continue
+		}
+		source := canonicalRelationSourcePath(item.Source)
+		participantIncident := false
+		for _, sibling := range evidence {
+			if !sibling.IsCitable() || canonicalRelationSourcePath(sibling.Source) != source ||
+				sibling.LineStart != item.LineStart {
+				continue
+			}
+			for _, group := range participantGroups {
+				for _, endpoint := range []string{sibling.Subject, sibling.Object} {
+					if diagramParticipantCandidateEndpointMatches(group, endpoint, sibling, evidence) {
+						participantIncident = true
+						break
+					}
+				}
+				if participantIncident {
+					break
+				}
+			}
+			if participantIncident {
+				break
+			}
+		}
+		if !participantIncident {
+			continue
+		}
+		var matching []flowParserRelationSite
+		for _, site := range index.relationsByFile[source] {
+			relation := site.relation
+			if relation == nil || strings.TrimSpace(relation.Kind) != "call" ||
+				max(relation.Line, relation.FromEP.Line, relation.ToEP.Line) != item.LineStart ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(value, flowNavigationCallReceiver(relation)) {
+				continue
+			}
+			matching = append(matching, site)
+		}
+		if len(matching) == 1 {
+			producers = append(producers, producer{item: item, receiver: receiver, value: value, site: matching[0]})
+		}
+	}
+	if len(producers) == 0 {
+		return flowValueConsumerRepair{}, false
+	}
+	sort.SliceStable(producers, func(i, j int) bool {
+		left, right := canonicalRelationSourcePath(producers[i].item.Source), canonicalRelationSourcePath(producers[j].item.Source)
+		if left != right {
+			return left < right
+		}
+		return producers[i].item.LineStart < producers[j].item.LineStart
+	})
+
+	// One selected path is enough to prove the producer→local→consumer shape;
+	// do not turn every incidental call-result assignment into a completion
+	// checklist.  If this first precise path is already covered, the lane closes.
+	selected := producers[0]
+	source := canonicalRelationSourcePath(selected.item.Source)
+	lines := flowNavigationSourceLines(ctx, index, source)
+	if len(lines) == 0 {
+		return flowValueConsumerRepair{}, false
+	}
+	gc := &ground.Context{Graph: graph, RepoRoot: ctx.RepoRoot, LineIndex: map[string]map[int]string{source: lines}}
+	producerOwners := selected.site.ownerSurfaces
+	type consumer struct {
+		line     int
+		argument string
+		receiver string
+	}
+	var consumers []consumer
+	seen := make(map[string]bool)
+	for _, site := range index.relationsByFile[source] {
+		relation := site.relation
+		if relation == nil || strings.TrimSpace(relation.Kind) != "call" ||
+			flowRepairPlanningSurfaceMatchRank(producerOwners, site.ownerSurfaces) == 0 {
+			continue
+		}
+		line := max(relation.Line, relation.FromEP.Line, relation.ToEP.Line)
+		if line <= selected.item.LineStart {
+			continue
+		}
+		callee := flowNavigationCallReceiver(relation)
+		if callee == "" {
+			continue
+		}
+		for _, flow := range ground.DetectArgumentFlowsAtLine(gc, source, line, callee) {
+			// Whole-value consumption only. A diagnostic read of local.Field is
+			// real evidence but does not establish that the constructed carrier
+			// itself reached the downstream API.
+			if !types.AnswerCodeIdentitySurfacesEquivalent(selected.receiver, flow.Argument) {
+				continue
+			}
+			key := strings.ToLower(strconv.Itoa(line) + "\x00" + flow.Argument + "\x00" + flow.Receiver)
+			if !seen[key] {
+				seen[key] = true
+				consumers = append(consumers, consumer{line: line, argument: flow.Argument, receiver: flow.Receiver})
+			}
+		}
+	}
+	if len(consumers) == 0 {
+		return flowValueConsumerRepair{}, false
+	}
+	sort.SliceStable(consumers, func(i, j int) bool {
+		if consumers[i].line != consumers[j].line {
+			return consumers[i].line < consumers[j].line
+		}
+		if consumers[i].receiver != consumers[j].receiver {
+			return consumers[i].receiver < consumers[j].receiver
+		}
+		return consumers[i].argument < consumers[j].argument
+	})
+	selectedConsumer := consumers[0]
+	// Multiple calls consuming the same value on one source line are not a
+	// unique evidence coordinate; DetectArgumentFlowsAtLine already rejects
+	// duplicate same-receiver invocations, and this final guard rejects distinct
+	// receivers tied at the selected line.
+	if len(consumers) > 1 && consumers[1].line == selectedConsumer.line {
+		return flowValueConsumerRepair{}, false
+	}
+	for _, item := range types.FlowOperationEvidenceForRequest(evidence, rm) {
+		if item.AnchorKind == types.AnchorArgument && canonicalRelationSourcePath(item.Source) == source &&
+			item.LineStart == selectedConsumer.line && strings.TrimSpace(item.Subject) == selectedConsumer.argument &&
+			types.AnswerCodeIdentitySurfacesEquivalent(item.Object, selectedConsumer.receiver) {
+			return flowValueConsumerRepair{}, false
+		}
+	}
+	start := selectedConsumer.line - flowOperationRepairReadRadius
+	if start < 1 {
+		start = 1
+	}
+	return flowValueConsumerRepair{
+		target: flowOperationRepairReadTarget{
+			file: source, lineRange: types.LineRange{Start: start, End: selectedConsumer.line + flowOperationRepairReadRadius},
+			focusIdentity: selectedConsumer.argument,
+			alreadyRead:   ctx.Mutable.EvidenceClosure().HasReadLine(source, selectedConsumer.line),
+		},
+		argument: selectedConsumer.argument, receiver: selectedConsumer.receiver,
+		producerSource: source, producerLine: selected.item.LineStart, consumerLine: selectedConsumer.line,
+	}, true
 }
 
 // flowNavigationBindingRelationSites keeps complete-argument discovery on the

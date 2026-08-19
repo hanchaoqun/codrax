@@ -93,6 +93,14 @@ const (
 	// participants, then converges with an explicit boundary instead of forcing
 	// invented bridges.
 	DowngradeLaneFlowParticipantCoverage DowngradeLane = "flow_participant_coverage"
+	// DowngradeLaneFlowValueConsumerCoverage is the selected-value continuation
+	// lane.  It applies only after the model has grounded a participant-relevant
+	// call-result assignment and the parser can point to one exact later call
+	// that consumes that whole local result.  The lane gives Explorer a bounded
+	// chance to materialize the missing argument handoff; ambiguous/missing
+	// consumers never enter the lane, and repeated no-progress attempts converge
+	// with an explicit boundary instead of creating an infinite completion loop.
+	DowngradeLaneFlowValueConsumerCoverage DowngradeLane = "flow_value_consumer_coverage"
 )
 
 // DowngradeFingerprint is the typed, comparable identity of a single pre-complete

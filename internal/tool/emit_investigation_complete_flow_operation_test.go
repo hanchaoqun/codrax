@@ -2679,6 +2679,138 @@ func TestFlowParticipantCoverageAcceptsTypedMultiHopRelationComponent(t *testing
 	}
 }
 
+func TestFlowSelectedCallResultRequiresExactWholeValueConsumer(t *testing.T) {
+	repo := t.TempDir()
+	const source = "src/pipeline.go"
+	body := strings.Join([]string{
+		"package pipeline",
+		"func (p *Pipeline) run() {",
+		"ctx := builder.Build(p.bus, types.AgentExtractor)",
+		"return agent.Execute(ctx)",
+		"}",
+	}, "\n")
+	absolute := filepath.Join(repo, filepath.FromSlash(source))
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	assignment := flowOperationEvidence(types.AnchorAssignment, "ctx", "builder.Build", 3)
+	assignment.Source = source
+	assignment.Snippet = "ctx := builder.Build(p.bus, types.AgentExtractor)"
+	assignment.AnchorSymbol = "ctx"
+	busArgument := flowOperationEvidence(types.AnchorArgument, "p.bus", "builder.Build", 3)
+	busArgument.Source = source
+	busArgument.Snippet = assignment.Snippet
+	busArgument.AnchorSymbol = "p.bus"
+	busArgument.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "p.bus", Type: "BusContext",
+	}}
+	agentArgument := flowOperationEvidence(types.AnchorArgument, "types.AgentExtractor", "builder.Build", 3)
+	agentArgument.Source = source
+	agentArgument.Snippet = assignment.Snippet
+	agentArgument.AnchorSymbol = "types.AgentExtractor"
+	evidence := []types.EvidenceItem{assignment, busArgument, agentArgument}
+	ctx := flowOperationCompletionContext(evidence)
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "Extractor", ResolvedAs: "types.AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		source: {
+			RelPath: source, Language: repotypes.LangGo, Package: "pipeline",
+			Symbols: []repotypes.Symbol{
+				{Name: "bus", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+				{Name: "AgentExtractor", Kind: "const", DeclaredType: "AgentName", Line: 1},
+				{Name: "run", Kind: "method", Receiver: "Pipeline", Line: 2, EndLine: 5},
+			},
+			Relations: []repotypes.Relation{
+				{Kind: "call", File: source, Line: 3,
+					FromEP: repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 3},
+					ToEP:   repotypes.RelationEndpoint{Name: "Build", Receiver: "builder", Line: 3}},
+				{Kind: "call", File: source, Line: 4,
+					FromEP: repotypes.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 4},
+					ToEP:   repotypes.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 4}},
+			},
+		},
+	}))
+	ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{source: true})
+	ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{source: {{Start: 1, End: 5}}})
+
+	repair, missing := flowOperationMissingSelectedResultConsumer(ctx, evidence)
+	if !missing || repair.argument != "ctx" || repair.receiver != "agent.Execute" ||
+		repair.consumerLine != 4 || !repair.target.alreadyRead {
+		t.Fatalf("exact whole-value consumer should be the bounded missing handoff: missing=%t repair=%+v", missing, repair)
+	}
+
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || res.Repair == nil || res.Repair.Code != "flow_value_consumer_evidence" ||
+		res.Repair.Metadata["lane"] != string(types.DowngradeLaneFlowValueConsumerCoverage) ||
+		!strings.Contains(res.Repair.Hint, `subject="ctx"`) ||
+		!strings.Contains(res.Repair.Hint, `object="agent.Execute"`) {
+		t.Fatalf("completion must expose the exact consumer repair without minting it: %+v", res)
+	}
+	if ctx.Mutable.IsInvestigationComplete() {
+		t.Fatal("missing exact consumer handoff must not silently mark investigation complete")
+	}
+
+	consumer := flowOperationEvidence(types.AnchorArgument, "ctx", "agent.Execute", 4)
+	consumer.Source = source
+	consumer.Snippet = "return agent.Execute(ctx)"
+	consumer.AnchorSymbol = "ctx"
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{consumer})
+	if got, stillMissing := flowOperationMissingSelectedResultConsumer(ctx, ctx.Mutable.EmittedEvidence()); stillMissing {
+		t.Fatalf("model-authored exact consumer must close the value continuation, got %+v", got)
+	}
+}
+
+func TestFlowSelectedCallResultConsumerFailsClosedOnSameLineAmbiguity(t *testing.T) {
+	repo := t.TempDir()
+	const source = "src/pipeline.go"
+	body := "package pipeline\nfunc run() {\nctx := builder.Build(bus)\nleft.Use(ctx); right.Use(ctx)\n}\n"
+	absolute := filepath.Join(repo, filepath.FromSlash(source))
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assignment := flowOperationEvidence(types.AnchorAssignment, "ctx", "builder.Build", 3)
+	assignment.Source, assignment.Snippet, assignment.AnchorSymbol = source, "ctx := builder.Build(bus)", "ctx"
+	argument := flowOperationEvidence(types.AnchorArgument, "bus", "builder.Build", 3)
+	argument.Source, argument.Snippet, argument.AnchorSymbol = source, assignment.Snippet, "bus"
+	argument.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{Binding: "bus", Type: "BusContext", Owner: "run"}}
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{assignment, argument})
+	ctx.RepoRoot = repo
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true}}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired}}}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{source: {
+		RelPath: source, Language: repotypes.LangGo, Package: "pipeline",
+		Symbols: []repotypes.Symbol{{Name: "bus", Kind: "field", DeclaredType: "BusContext", Line: 1}, {Name: "run", Kind: "function", Line: 2, EndLine: 5}},
+		Relations: []repotypes.Relation{
+			{Kind: "call", File: source, Line: 3, FromEP: repotypes.RelationEndpoint{Name: "run", Line: 3}, ToEP: repotypes.RelationEndpoint{Name: "Build", Receiver: "builder", Line: 3}},
+			{Kind: "call", File: source, Line: 4, FromEP: repotypes.RelationEndpoint{Name: "run", Line: 4}, ToEP: repotypes.RelationEndpoint{Name: "Use", Receiver: "left", Line: 4}},
+			{Kind: "call", File: source, Line: 4, FromEP: repotypes.RelationEndpoint{Name: "run", Line: 4}, ToEP: repotypes.RelationEndpoint{Name: "Use", Receiver: "right", Line: 4}},
+		},
+	}}))
+	if got, missing := flowOperationMissingSelectedResultConsumer(ctx, ctx.Mutable.EmittedEvidence()); missing {
+		t.Fatalf("ambiguous same-line consumers must fail closed, got %+v", got)
+	}
+}
+
 func TestFlowParticipantCoverageJoinsUniqueQualifiedAndBareCallableEndpoint(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		flowOperationEvidence(types.AnchorArgument, "o.busCtx", "ctxbuilder.BuildAgentContext", 15),

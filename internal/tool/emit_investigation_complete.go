@@ -2282,6 +2282,67 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			"required source-flow participant relation remains unproven for %v: existing grounded local operation rows may still be summarized, but the model must not connect these participants or claim a complete requested flow without a typed operation component joining the requested identities",
 			missingFlowParticipants))
 	}
+	consumerCoverageStart := time.Now()
+	missingValueConsumer, valueConsumerMissing := flowOperationMissingSelectedResultConsumer(ctx, evidenceSnapshot)
+	valueConsumerMissingCount := 0
+	if valueConsumerMissing {
+		valueConsumerMissingCount = 1
+	}
+	recordToolRuntimeTiming(&runtimeTimings, "flow_value_consumer_coverage", consumerCoverageStart, valueConsumerMissingCount)
+	if !valueConsumerMissing && ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowValueConsumerCoverage)
+		ctx.Mutable.EvidenceClosure().ClearRepairsByDowngradeLane(types.DowngradeLaneFlowValueConsumerCoverage)
+	}
+	if !flowOperationMissing && len(missingFlowParticipants) == 0 && valueConsumerMissing {
+		consumerID := fmt.Sprintf("%s:%d:%s->%s", missingValueConsumer.target.file,
+			missingValueConsumer.consumerLine,
+			missingValueConsumer.argument, missingValueConsumer.receiver)
+		blockerKey := types.ComputeDowngradeTypedIdentifierSetKey(
+			string(types.DowngradeLaneFlowValueConsumerCoverage), []string{consumerID},
+		)
+		if !preCompleteDowngradeConvergesWithTypedBlockerKey(ctx, types.DowngradeLaneFlowValueConsumerCoverage, blockerKey) {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			if !missingValueConsumer.target.alreadyRead {
+				ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
+					Kind: types.RepairReadFile, Files: []string{missingValueConsumer.target.file},
+					LineRanges:    []types.LineRange{missingValueConsumer.target.lineRange},
+					Subject:       "flow_value_consumer:" + consumerID,
+					Rationale:     "Read the exact parser-owned consumer and emit its whole-value argument handoff; this navigation coordinate is not relation evidence.",
+					Origin:        types.RepairOriginFlowNavigationPrefix + "value_consumer",
+					DowngradeLane: types.DowngradeLaneFlowValueConsumerCoverage, Stage: string(types.StageExplore), Advisory: true,
+				})
+			}
+			readStep := fmt.Sprintf("The consumer window %q lines %d-%d is already in the read closure; re-inspect it without another broad search.",
+				missingValueConsumer.target.file, missingValueConsumer.target.lineRange.Start, missingValueConsumer.target.lineRange.End)
+			if !missingValueConsumer.target.alreadyRead {
+				limit := missingValueConsumer.target.lineRange.End - missingValueConsumer.target.lineRange.Start + 1
+				readStep = fmt.Sprintf("Call read_file directly with path=%q line_offset=%d limit=%d (lines %d-%d).",
+					missingValueConsumer.target.file, missingValueConsumer.target.lineRange.Start-1, limit,
+					missingValueConsumer.target.lineRange.Start, missingValueConsumer.target.lineRange.End)
+			}
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: preCompleteDowngradeSummary(fmt.Sprintf(
+					"emit_investigation_complete rejected: a participant-relevant call result is grounded at %s:%d, but its parser-proved whole-value consumer is still absent from the typed relation handoff. %s Emit one exact argument row %q -> %q from the visible consumer line; do not infer callee-side storage or rewrite the final answer.",
+					missingValueConsumer.producerSource, missingValueConsumer.producerLine, readStep,
+					missingValueConsumer.argument, missingValueConsumer.receiver)),
+				Repair: attachToolJSONSurfaceMetadata(t.Name(), &types.ToolRepair{
+					Code: "flow_value_consumer_evidence",
+					Hint: fmt.Sprintf("Emit one additional item with scope=%q, evidence_kind=%q, source=%q, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, object=%q after inspecting the exact line. The system has not created evidence or an answer edge.",
+						string(types.ScopeLine), string(types.EvidenceRelationship), missingValueConsumer.target.file,
+						string(types.AnchorArgument), missingValueConsumer.argument, missingValueConsumer.argument,
+						"passes argument", missingValueConsumer.receiver),
+					Fields:   []string{"items[].anchor_kind", "items[].subject", "items[].object", "items[].source", "items[].line_start"},
+					Metadata: map[string]string{"repair_origin": "emit_investigation_complete.flow_value_consumer_coverage", "lane": string(types.DowngradeLaneFlowValueConsumerCoverage)},
+				}),
+				Success: true, Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
+		ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
+			"the selected call result at %s:%d has a parser-located whole-value consumer, but no model-authored grounded argument row proved that final handoff; keep the consumer boundary unproven",
+			missingValueConsumer.producerSource, missingValueConsumer.producerLine))
+	}
 	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
 	if evidenceWaiverReject != nil {
 		return *evidenceWaiverReject, nil

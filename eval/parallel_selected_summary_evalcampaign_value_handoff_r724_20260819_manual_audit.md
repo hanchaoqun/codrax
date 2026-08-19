@@ -28,3 +28,13 @@ This scaffold is for human review. The runner records typed metrics and declared
 - 新记 B1154/P0：participant coverage 的 pre-emit 与 post-finalizer 必须消费同一 lossless evidence pool 和同一 request-scoped component 判定；不能让同一 boundary 在前门必带、后门必拒。
 - 新记 B1155/P1：完整参数传递只是值流第一跳。关系型调查还需继续采集 call result assignment/return/consumer 的 parser-owned typed 路径，允许模型画真实多跳技术路径；系统不得直接合成 BusContext→Extractor 等抽象业务边。
 - 两案都未出现 active-stream 4ms/固定总年龄降级，也没有 Trace 路径或模型答案所有权变化。
+
+## Post-audit implementation closure
+
+- B1153 已由 `b1f5eb527` 关闭：关系行只在 exact typed edge anchor 唯一落到一个 evidence location 时
+  重绑引用；重复 callsite/别名歧义 fail-closed。
+- B1154 已由 `71eea24e8` 关闭：pre-emit 与 post-finalizer participant coverage 共享同一个 lossless
+  typed evidence provider；没有放松关系证据，也没有系统补图。
+- B1155 已实现待生产回放：新增独立 typed call-result consumer lane，只对模型已选、participant-relevant、
+  唯一 parser call assignment 追一个明确的完整局部值消费者，并要求模型补发 exact argument row。
+  系统只给源码坐标，不创建证据/图/结论；多义与无消费者均 fail-closed。
