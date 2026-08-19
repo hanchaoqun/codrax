@@ -414,6 +414,11 @@ type emitFixHint struct {
 	// grounded and only lack metadata. It never contains or changes Mermaid
 	// body text.
 	DiagramGroundedAnchorPatchJSON string
+	// DiagramParticipantRepairDeltaJSON is a producer-owned compact projection
+	// of only the participant mismatches in this hint plus bounded candidate
+	// choices. It prevents patch retries from rebuilding the full relation
+	// authority prompt while preserving model ownership of the visible graph.
+	DiagramParticipantRepairDeltaJSON string
 }
 
 type preEmitBlockCardinalityRelation string
@@ -15048,6 +15053,7 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	diagramRelationFailurePairs := map[string]struct{}{}
 	diagramRelationFailureIssues := map[string]struct{}{}
 	diagramGroundedAnchorPatchJSON := ""
+	diagramParticipantRepairDeltaJSON := ""
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -15103,12 +15109,18 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		if diagramGroundedAnchorPatchJSON == "" {
 			diagramGroundedAnchorPatchJSON = strings.TrimSpace(h.DiagramGroundedAnchorPatchJSON)
 		}
+		if diagramParticipantRepairDeltaJSON == "" {
+			diagramParticipantRepairDeltaJSON = strings.TrimSpace(h.DiagramParticipantRepairDeltaJSON)
+		}
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
 	}
 	if diagramGroundedAnchorPatchJSON != "" {
 		meta[types.ToolRepairMetaDiagramGroundedAnchorPatchJSON] = diagramGroundedAnchorPatchJSON
+	}
+	if diagramParticipantRepairDeltaJSON != "" {
+		meta[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON] = diagramParticipantRepairDeltaJSON
 	}
 	for _, h := range hints {
 		if fp := strings.TrimSpace(h.SameCauseFingerprint); fp != "" {

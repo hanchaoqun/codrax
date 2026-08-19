@@ -16724,6 +16724,18 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			BypassBudget:   true,
 		}
 	}
+	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramParticipantRepair(obs.LastToolResult) {
+		if hint, ok := answerDocRequiredDiagramParticipantDeltaPatchHint(obs.LastToolResult, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested: true, HintKey: "answer_doc.patch_required_diagram_relation_boundary",
+				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+			}
+		}
+	}
 	// Required diagrams cannot take the optional block-removal escape, but
 	// leaving them on the generic correction lane made the model repeatedly
 	// reconstruct aliases and edge_anchors that the system had already
@@ -16769,7 +16781,11 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 				}
 			}
 		}
-		if hint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, true); ok {
+		hint, ok := answerDocRequiredDiagramParticipantDeltaPatchHint(obs.LastToolResult, true)
+		if !ok {
+			hint, ok = answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, true)
+		}
+		if ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
 			hint = e.appendDiagramRelationRepeatGuidance(hint)
@@ -16984,6 +17000,29 @@ func answerDocumentRejectIsRequiredDiagramTypedRelationRepair(result *types.Tool
 	return hasRelationAuthorityFailure
 }
 
+func answerDocumentRejectIsRequiredDiagramParticipantRepair(result *types.ToolResult) bool {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil ||
+		strings.TrimSpace(result.Repair.Code) != "answer_doc_pre_emit_contract" {
+		return false
+	}
+	offendingKinds := answerDocNonEmptyCSV(result.Repair.Metadata[types.ToolRepairMetaOffendingBlockKinds])
+	if len(offendingKinds) != 1 || offendingKinds[0] != string(types.BlockDiagram) {
+		return false
+	}
+	kinds := answerDocNonEmptyCSV(result.Repair.Metadata["violation_kinds"])
+	hasParticipant := false
+	for _, kind := range kinds {
+		switch types.ViolationKind(kind) {
+		case types.ViolDiagramParticipantCoverage:
+			hasParticipant = true
+		case types.ViolDiagramCallEdgeUnproven, types.ViolRequiredDiagramEdgeAbsent:
+		default:
+			return false
+		}
+	}
+	return hasParticipant
+}
+
 func answerDocNonEmptyCSV(raw string) []string {
 	parts := strings.Split(strings.TrimSpace(raw), ",")
 	out := make([]string, 0, len(parts))
@@ -17136,6 +17175,58 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		payload + "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
 		answerDocDiagramBusinessDisplayRepairGuidance() +
 		" The system supplies only the verified diagram carrier and does not rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
+}
+
+type answerDocDiagramParticipantRepairDelta struct {
+	Version    int `json:"version"`
+	Mismatches []struct {
+		BlockID     string `json:"block_id,omitempty"`
+		Participant string `json:"participant"`
+		Issue       string `json:"issue"`
+	} `json:"mismatches"`
+	Actions           string `json:"actions,omitempty"`
+	Candidates        string `json:"candidates,omitempty"`
+	EndpointConflicts string `json:"endpoint_conflicts,omitempty"`
+}
+
+// answerDocRequiredDiagramParticipantDeltaPatchHint consumes the exact local
+// mismatch projection emitted by the participant gate. It deliberately does
+// not re-render the full relation authority, generic handbook, or every
+// participant candidate on each patch retry. The JSON remains guidance only:
+// the model chooses any candidate and authors every visible node/edge/label.
+func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return "", false
+	}
+	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON])
+	if raw == "" || len(raw) > 32*1024 {
+		return "", false
+	}
+	var delta answerDocDiagramParticipantRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil || delta.Version != 1 || len(delta.Mismatches) == 0 {
+		return "", false
+	}
+	for _, mismatch := range delta.Mismatches {
+		if strings.TrimSpace(mismatch.Participant) == "" || strings.TrimSpace(mismatch.Issue) == "" {
+			return "", false
+		}
+	}
+	prefix := "Your last `emit_answer_document` call was rejected"
+	action := "Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+		action = "Keep using `emit_answer_document_patch`"
+	}
+	var b strings.Builder
+	b.WriteString(prefix)
+	b.WriteString(" by a local required-diagram participant/edge mismatch. ")
+	b.WriteString(action)
+	b.WriteString("; replace only the rejected diagram block, retain unrelated blocks through `unchanged_block_ids`, and preserve inherited citations. Apply only the producer-owned delta below. Preserve every visible edge and anchor not named by the immediately preceding tool error; that error remains the authority for any separately listed failing edge pair. A candidate is an existing typed choice, not a required edge: select at most one candidate needed for each failed participant, copy its canonical identities/relation kind/direction unchanged, and author the visible business wording yourself. If no candidate applies, keep the participant visible and use the delta's unproven-boundary action instead of inventing a bridge. Action names, issue values, recipe indexes, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	b.WriteString(raw)
+	b.WriteString("\n```\n\n")
+	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
+	b.WriteString(" The system has not selected, added, removed, relabelled, or reconnected any model-authored edge. Do not reopen files or write free-form prose outside the tool call.")
+	return b.String(), true
 }
 
 // answerDocRequiredDiagramRelationBoundaryPatchHint handles a required source
@@ -17450,6 +17541,15 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		diagramCallEdgePatchRecovery = true
 		e.preferPatchNext = true
 	}
+	if !diagramCallEdgePatchRecovery && hasPatchBase && e.diagramRequired &&
+		answerDocumentRejectIsRequiredDiagramParticipantRepair(obs.LastToolResult) {
+		if deltaHint, ok := answerDocRequiredDiagramParticipantDeltaPatchHint(obs.LastToolResult, false); ok {
+			hint = deltaHint
+			reasonKey = "required-diagram-participant-delta"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		}
+	}
 	// A required diagram cannot be removed. If the first rejected document is
 	// otherwise valid and the remaining typed violation is diagram call-edge
 	// authority, put the exact evidence-derived carrier in this repair turn
@@ -17471,7 +17571,11 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			}
 		}
 		if !diagramCallEdgePatchRecovery {
-			if boundaryHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false); ok {
+			boundaryHint, ok := answerDocRequiredDiagramParticipantDeltaPatchHint(obs.LastToolResult, false)
+			if !ok {
+				boundaryHint, ok = answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false)
+			}
+			if ok {
 				hint = boundaryHint
 				reasonKey = "required-diagram-relation-boundary"
 				diagramCallEdgePatchRecovery = true

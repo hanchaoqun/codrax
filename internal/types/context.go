@@ -6770,6 +6770,12 @@ const (
 	// only defect is missing relation metadata. It contains no Mermaid body,
 	// visible labels, prose, ordering, or conclusion.
 	ToolRepairMetaDiagramGroundedAnchorPatchJSON = "diagram_grounded_anchor_patch_json"
+	// ToolRepairMetaDiagramParticipantRepairDeltaJSON carries only the exact
+	// participant mismatches, bounded producer-owned actions, and bounded typed
+	// candidates from the rejected diagram. Finalizer retry routing uses it to
+	// avoid re-sending the full relation handbook on every local patch attempt.
+	// It is guidance metadata, never edge evidence or answer content.
+	ToolRepairMetaDiagramParticipantRepairDeltaJSON = "diagram_participant_repair_delta_json"
 	// DiagramRelationFailureMissingGroundedCallAnchor is the producer-owned
 	// closed issue value for a visible call edge whose direction/endpoints are
 	// already supported by accepted typed evidence and whose only defect is a

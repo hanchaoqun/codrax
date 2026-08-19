@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1067,6 +1068,28 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		if !strings.Contains(hints[0].ExpectedShape, want) {
 			t.Fatalf("candidate-map hint missing %q: %s", want, hints[0].ExpectedShape)
 		}
+	}
+	repair := emitFixHintsRepair(hints)
+	if repair == nil || repair.Metadata == nil {
+		t.Fatal("participant mismatch must publish compact retry metadata")
+	}
+	raw := repair.Metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON]
+	var delta diagramParticipantRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("compact participant delta must be valid JSON: %v raw=%s", err, raw)
+	}
+	if delta.Version != 1 || len(delta.Mismatches) != 1 ||
+		delta.Mismatches[0].Participant != "BusContext" ||
+		delta.Mismatches[0].Issue != DiagramParticipantCoverageTypedEdgeMissing {
+		t.Fatalf("compact delta lost exact mismatch identity: %+v", delta)
+	}
+	if strings.Count(delta.Candidates, "typed_candidate[BusContext]") != 1 ||
+		!strings.Contains(delta.Candidates, `from_identity:"output.EvidenceItems"`) {
+		t.Fatalf("patch delta must carry one bounded executable candidate: %+v", delta)
+	}
+	if strings.Contains(raw, "For every typed incident_required participant") || len(raw) >= len(hints[0].ExpectedShape) {
+		t.Fatalf("patch delta must not repeat the full participant handbook: delta=%d full=%d raw=%s",
+			len(raw), len(hints[0].ExpectedShape), raw)
 	}
 }
 

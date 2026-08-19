@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -34,6 +35,20 @@ type DiagramParticipantCoverageMismatch struct {
 	BlockID     string
 	Participant string
 	Issue       DiagramParticipantCoverageIssue
+}
+
+type diagramParticipantRepairDelta struct {
+	Version           int                                     `json:"version"`
+	Mismatches        []diagramParticipantRepairDeltaMismatch `json:"mismatches"`
+	Actions           string                                  `json:"actions,omitempty"`
+	Candidates        string                                  `json:"candidates,omitempty"`
+	EndpointConflicts string                                  `json:"endpoint_conflicts,omitempty"`
+}
+
+type diagramParticipantRepairDeltaMismatch struct {
+	BlockID     string                          `json:"block_id,omitempty"`
+	Participant string                          `json:"participant"`
+	Issue       DiagramParticipantCoverageIssue `json:"issue"`
 }
 
 // diagramParticipantTypedIncidentCandidate is an already-grounded relation
@@ -85,6 +100,10 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		pctx.ctx.AnalysisIR.RequestModel,
 		mismatches,
 	)
+	compactDelta := diagramParticipantRepairDeltaJSON(
+		doc, pctx.ctx.AnalysisIR.RequestModel, mismatches, evidence,
+		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view), actions, endpointConflicts,
+	)
 	// This precheck runs only after the document has already parsed into the
 	// block-level ParticipantBoundaries field. Do not prepend a generic JSON
 	// placement warning here: doing so falsely tells a model with valid JSON to
@@ -102,12 +121,58 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		expected += ". Existing typed candidate map (choose only the relevant candidate edges needed for the failed participant or its typed join frontier; this list is not a requirement to render every candidate and does not create an edge). Each candidate's edge_anchor_identity_fields are the exact schema fields to copy alongside model-authored from_node/to_node IDs; never replace those exact identities with the broader participant name: " + candidates
 	}
 	return []emitFixHint{{
-		Field:               "blocks[kind=diagram].participant_boundaries AND blocks[kind=diagram].diagram.body",
-		HardSignal:          preEmitHardSignalTypedDiagramParticipantCoverage,
-		OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
-		ExpectedShape:       expected,
-		Reason:              "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
+		Field:                             "blocks[kind=diagram].participant_boundaries AND blocks[kind=diagram].diagram.body",
+		HardSignal:                        preEmitHardSignalTypedDiagramParticipantCoverage,
+		OffendingBlockKinds:               []types.AnswerBlockKind{types.BlockDiagram},
+		ExpectedShape:                     expected,
+		Reason:                            "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
+		DiagramParticipantRepairDeltaJSON: compactDelta,
 	}}
+}
+
+func diagramParticipantRepairDeltaJSON(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	mismatches []DiagramParticipantCoverageMismatch,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	actions string,
+	endpointConflicts string,
+) string {
+	if len(mismatches) == 0 {
+		return ""
+	}
+	rows := make([]diagramParticipantRepairDeltaMismatch, 0, len(mismatches))
+	seen := make(map[string]bool, len(mismatches))
+	for _, mismatch := range mismatches {
+		participant := strings.TrimSpace(mismatch.Participant)
+		if participant == "" {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(mismatch.BlockID)) + "\x00" +
+			strings.ToLower(participant) + "\x00" + string(mismatch.Issue)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, diagramParticipantRepairDeltaMismatch{
+			BlockID: strings.TrimSpace(mismatch.BlockID), Participant: participant, Issue: mismatch.Issue,
+		})
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	compactCandidates := diagramParticipantCoverageCompactCandidateGuidance(
+		doc, rm, mismatches, evidence, stagePrecedence,
+	)
+	raw, err := json.Marshal(diagramParticipantRepairDelta{
+		Version: 1, Mismatches: rows, Actions: strings.TrimSpace(actions),
+		Candidates: strings.TrimSpace(compactCandidates), EndpointConflicts: strings.TrimSpace(endpointConflicts),
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // diagramParticipantEndpointConflictGuidance publishes the exact already
@@ -1023,6 +1088,42 @@ func diagramParticipantCoverageCandidateGuidance(
 		return joinGuidance
 	}
 	return joinGuidance + "; " + incidentGuidance
+}
+
+// diagramParticipantCoverageCompactCandidateGuidance publishes only the
+// smallest executable candidate frontier for a local patch retry. The initial
+// authoring prompt and first reject may retain the wider teaching roster; a
+// retry needs at most two component-joining choices or one incident choice per
+// currently failed participant. The model still selects whether to use one.
+func diagramParticipantCoverageCompactCandidateGuidance(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	mismatches []DiagramParticipantCoverageMismatch,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) string {
+	if rm.DiagramHint == nil || len(mismatches) == 0 {
+		return ""
+	}
+	failed := make(map[string]bool)
+	componentSplit := false
+	for _, mismatch := range mismatches {
+		switch mismatch.Issue {
+		case DiagramParticipantCoverageTypedEdgeMissing,
+			DiagramParticipantCoverageIdentityMissing,
+			DiagramParticipantCoverageEndpointRetargeted:
+			failed[strings.ToLower(strings.TrimSpace(mismatch.Participant))] = true
+		case DiagramParticipantCoverageComponentSplit:
+			componentSplit = true
+		}
+	}
+	if componentSplit {
+		return diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 2)
+	}
+	if len(failed) == 0 {
+		return ""
+	}
+	return flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 1)
 }
 
 type diagramParticipantVisibleComponentIndex struct {

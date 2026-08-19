@@ -35649,6 +35649,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1167 B1169：关系图局部修补只重放 producer-owned 精确差量（2026-08-19）
+
+1. r733 的 5 次 Finalizer reject 并非都需要重讲整份关系合同。participant/组件连通性失败已经由 pre-emit
+   producer 铸成精确 issue，但旧 retry 每轮仍重放约 28KB 的完整 relation authority、通用 handbook 和候选全集；
+   这会把一次局部图修补放大成高上下文重写，并增加模型在无关边、别名和内部术语上再次出错的机会。
+2. participant gate 现在随首次完整拒绝附带版本化 compact delta：只含当前失败的
+   `block_id + participant + typed issue`、producer-owned action、endpoint conflict，以及有界的既有 typed
+   candidate。普通 participant 失败每个主体最多给 1 个 incident candidate；跨组件断裂最多给 2 个 join
+   candidate。首次拒绝的完整 ExpectedShape 仍保留，确保可解释性；进入 patch 后不再重复整本教学。
+3. Finalizer 只在 repair code、offending block kind 与 violation kind 都精确落入 required-diagram participant/
+   edge 子集时消费该 delta。模型必须只替换被拒 diagram block，通过 `unchanged_block_ids` 保留其他块、引用与边；
+   patch 与 full-emit 两条拒绝车道共享同一 typed delta。元数据非法、超 32KB、版本未知、主体或 issue 为空时
+   fail-closed 回到既有完整关系边界提示，不以启发式猜测修补范围。
+4. candidate 只是已经 grounded 的可选关系行，不是必须显示的边。系统不选择 candidate、不把 action/issue/source
+   写进可见图、不创建/删除/改向/重命名任何节点或边；若没有合适 candidate，模型只能按 producer action 保留
+   participant 并披露未证边界。所有可见业务措辞、关系和结论继续由模型发射。
+5. pin 覆盖 tool 生产元数据和 agent full/patch 两个挂点：delta 可解析、失败主体与 issue 精确、candidate 数量有界；
+   retry 不再包含完整组件 roster、全量 handbook 或 `node_alias` 教学，提示总量受限；既有 whole-diagram relation
+   authority fallback 和其他 schema reject 保持原语义。专项 `internal/agent` 全绿（12.675s）、`internal/tool`
+   全绿（184.398s）；随后 `make test` 全仓全绿（agent 41.748s、tool 220.370s、hitraceconv 114.259s、
+   tracequery 101.963s、types 44.850s）。
+6. 本批只改变 validator→Finalizer 的 repair transport，不改 diagram evidence gate、关系真值、答案 renderer、
+   Trace 查询/转换/投影、Write controller 或流式终止。显式 Trace 窗、因果投影、自动补齐、链上-only 根因、
+   实际耗时/业务线索与规则可消除量双轴均保持；活跃字节流仍不得因 4ms 或固定累计年龄降级。
+
+状态：
+
+`B1169-DIAGRAMREPAIRDELTA1=implemented/producer-owned-compact-delta+pinned`；
+`B1170-REQUIREDRELATIONITEMREPAIRCONVERGENCE1=implemented/pushed-3cc655ffc`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=production-partial/P1/open`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1166 B1170：精确关系行修复按 typed blocker 有界收敛（2026-08-19）
 
 1. 根因是 `pendingBlockingEmitEvidenceItemValidationRepair` 对所有 completion 直接 replay 最新 exact relation

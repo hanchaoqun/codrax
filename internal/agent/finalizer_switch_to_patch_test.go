@@ -927,6 +927,62 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredFlowUsesTypedRelationBoundaryW
 	}
 }
 
+func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRejects(t *testing.T) {
+	const delta = `{"version":1,"mismatches":[{"block_id":"diagram-flow-1","participant":"BusContext","issue":"available_typed_incident_edge_not_rendered"}],"actions":"repair_action[BusContext]=reuse_one_existing_typed_candidate","candidates":"typed_candidate[BusContext][1]={relation_kind:\"argument_flow\",from_identity:\"o.busCtx\",to_identity:\"BuildAgentContext\",participant_endpoint_side:\"from\",participant_node_id:\"BusContext\"}"}`
+	result := func(toolName string) *types.ToolResult {
+		return &types.ToolResult{
+			ToolName: toolName, Success: false,
+			Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					"violation_kinds":                                     string(types.ViolDiagramParticipantCoverage),
+					types.ToolRepairMetaOffendingBlockKinds:               string(types.BlockDiagram),
+					types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: delta,
+				},
+			},
+		}
+	}
+	assertCompact := func(t *testing.T, hint string) {
+		t.Helper()
+		for _, want := range []string{
+			"producer-owned delta", `"participant":"BusContext"`,
+			`typed_candidate[BusContext][1]`, "select at most one candidate",
+			"must not become visible diagram wording", "system has not selected",
+		} {
+			if !strings.Contains(hint, want) {
+				t.Fatalf("compact retry missing %q:\n%s", want, hint)
+			}
+		}
+		for _, forbidden := range []string{
+			"Verified component fragment", "For every typed incident_required participant",
+			"node_alias[n1]", "Copy-ready verified component fragments",
+		} {
+			if strings.Contains(hint, forbidden) {
+				t.Fatalf("compact retry repeated full authority payload %q:\n%s", forbidden, hint)
+			}
+		}
+		if len(hint) > 6000 {
+			t.Fatalf("compact participant patch hint unexpectedly large: %d bytes", len(hint))
+		}
+	}
+
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	patchEvaluator := &answerDocumentEvaluator{diagramRequired: true}
+	patchSignal := patchEvaluator.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result("emit_answer_document_patch")})
+	if !patchSignal.HintRequested || patchSignal.HintKey != "answer_doc.patch_required_diagram_relation_boundary" {
+		t.Fatalf("patch reject must route through the compact required-diagram lane: %+v", patchSignal)
+	}
+	assertCompact(t, patchSignal.Hint)
+
+	fullEvaluator := &answerDocumentEvaluator{diagramRequired: true}
+	fullSignal := fullEvaluator.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result("emit_answer_document")})
+	if !fullSignal.HintRequested || !fullEvaluator.preferPatchNext {
+		t.Fatalf("full reject must switch to compact patch recovery: %+v", fullSignal)
+	}
+	assertCompact(t, fullSignal.Hint)
+}
+
 func TestEmitAnswerDocumentRejectSignal_RequiredFlowUsesTypedRelationBoundaryWhenWholeDiagramWithheld(t *testing.T) {
 	e := &answerDocumentEvaluator{diagramRequired: true}
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
