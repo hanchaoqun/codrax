@@ -35649,6 +35649,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1194 r746：一条关系证据被复制成四条图边；测试框架降级丢精确目标（2026-08-19）
+
+1. 在 `main@c2c453e62` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`，
+   人工 `0 PASS / 2 FAIL`；完整逐案记录见
+   `eval/parallel_selected_summary_evalcampaign_participant_observation_replay_r746_20260819_manual_audit.md`。
+2. 读案 runner PASS 是弱 oracle 假绿。终稿有四条 `BC -> A/Ev/X/F` 可见边，但四个 edge anchor
+   都复用同一 exact tuple：`argument_flow / o.busCtx -> ctxbuilder.BuildAgentContext`。唯一 citable row
+   来自 `extract_work.go:15` 的 extractor context 构造，不能证明 analyzer/explorer/finalizer 三个目的节点。
+   现有 validator 按每条边独立查“证据池中是否存在 tuple”，没有约束同一 tuple 被重定向到多少个
+   不同 Mermaid endpoint pair，因而把一条事实放大成四条读者关系。新立
+   `B1197-DIAGRAMRELATIONTUPLECARDINALITY1/P0`。
+3. B1197 最优根修是单图 exact tuple 基数门：同一
+   `(relation_kind, from_identity, to_identity)` 只可对应一个 distinct body endpoint pair；相同 body pair
+   的既有 operation-occurrence 规则继续独立处理，真正不同 identity tuple 正常通过。判据只读
+   schema-valid edge anchors 与 Mermaid node ids，不扫描 request、message label、模型 reasoning 或最终
+   prose；runtime Trace diagram 保持独立 authority。失败提示只指出重复 tuple 与冲突 body pairs，要求
+   模型保留至多一个已有证据映射或提供不同 typed identity，不由系统选择/创建/删除边。
+4. 写案证明 B1193 的队列接线已生产生效：实际尝试了 exact
+   `python3 -m pytest tests/test_tokenizer.py ...`。但环境没有 pytest 后，runner_missing escalation 切到
+   unittest 时丢掉 suite，执行成 `python3 -m unittest discover -v`，所以仍只能诚实保留
+   `project_test_assertion_not_observed`。新立 `B1194-TESTFRAMEWORKESCALATIONSCOPE1/P0`：候选替换必须从
+   前一 runner plan 反解唯一 typed observation/impact target，再用后一 candidate 的 suite 编译器重建
+   exact selector；多目标或反解歧义时不得猜测，也不得铸 assertion receipt。
+5. 同轮确认 `B1195-PROJECTASSERTIONJSONTEACHING1/P1`：planner 把 assertion suite 写成
+   `Class.test_method`，把 assertion id 写成源码 `assertEqual(...)` 表达式；而 runner receipt 使用
+   containing suite/class/module 与 framework-reported test function/method identity。schema 教学需用
+   语言中性定义加少量框架示例澄清，不从源文本或测试名建立新硬门。
+6. 第三个 source-free proof follow-up 删除 `project_test_observations` 后，累计 observation 义务也从计划
+   消失。先审计 controller-owned cumulative scope 的跨 sentinel 持久性；在确认构造链前只记观察项，
+   不把模型自删字段直接定性成系统 gap。
+7. B1192 的 exact endpoint-retarget guidance 本轮未生产触发，因此维持 implemented/full-tool-pass，
+   不虚报 production closed。读案 536s 的持续活跃输出没有固定 4 分钟降级；本批也不修改 Trace
+   查询、显式窗因果投影、自动补齐、链上-only 主因或“真实占用/业务线索 + 规则计价可消除量”双轴。
+
+状态：
+
+`B1192-ENDPOINTRETARGETREPAIRFOCUS1=implemented/full-tool-pass/pending-production-trigger`；
+`B1193-PROJECTASSERTIONCANDIDATEEXEC1=production-queue-positive/r746-framework-fallback-gap-open`；
+`B1194-TESTFRAMEWORKESCALATIONSCOPE1=confirmed/P0/next`；
+`B1195-PROJECTASSERTIONJSONTEACHING1=confirmed/P1/planned`；
+`B1196-PROOFONLYCUMULATIVEOBSERVATION1=under-audit/not-yet-filed`；
+`B1197-DIAGRAMRELATIONTUPLECARDINALITY1=confirmed/P0/next`；
+`active-stream-4m-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1192 r745：端点重定向修补失焦；断言级证明候选未执行（2026-08-19）
 
 1. 在 `main@8c662bf44` 重建后严格并发恰好两个案例：
