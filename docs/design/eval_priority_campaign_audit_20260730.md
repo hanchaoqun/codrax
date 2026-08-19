@@ -35681,6 +35681,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `causal_diagnosis` JSON，第三次才选 `bounded_effect_verdict`；后续又执行 12 次 trace_query、读取 6 次
    payload。Schema fail-loud 正确，但教学需要通用判别表，降低 JSON 心智与重复探索，不得从原始请求
    关键词硬路由。
+   已实施 typed-role 优先的低心智修复：教学明确“恰好一个 required target_effect_verdict 且无 causal role”
+   唯一选择有限影响 tuple，额外 state/duration/frequency/evidence 维度和 performance_bottleneck 场景标签
+   不扩域；required causal role 则唯一保留 causal_diagnosis。更关键的是，runtime profile 局部校验现在
+   消费同一 payload 已解析的 dimension enum：冲突时返回唯一 partial JSON 字段目标，当前对象仍 fail-loud，
+   不自动改写或接受；缺少精确 role 时仍给中性多出口提示。有限/因果双向生产入口 pin、JSON 目标字节 pin、
+   内部术语 lint 及 `tool/skill` 全包通过。
 8. 该 Trace 问题是有限事实/有界影响判定，不要求完整 Trace 因果投影；未生成投影是正确 scope，不能
    为追求固定版式强补。真正 root-cause/causal-diagnosis 请求仍保留显式时间窗、自动补齐、typed
    on-chain-only 主因、实际占用/业务线索与规则可消除量双轴；邻近/背景只能作为额外排查支撑。
@@ -35692,7 +35698,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1137-DIAGRAMVISIBLEPARTICIPANTDEDUP1=not-reproduced-r716/P2-observe`；
 `B1138-TARGETWAITROSTERSCOPE1=implemented/narrow-preview+zero-boundary+pinned/five-package-pass/pending-production-replay`；
 `B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=confirmed/P2/planned`；
-`B1140-RUNTIMEQUESTIONJSONTEACHING1=confirmed/P1/after-B1138`；
+`B1140-RUNTIMEQUESTIONJSONTEACHING1=implemented/typed-role-precedence+unique-field-target+no-auto-rewrite/tool-skill-pass/pending-production-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

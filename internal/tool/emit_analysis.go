@@ -1806,7 +1806,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		raw,
 		runtimeArtifactCarrier,
 		p.RuntimeQuestionProfile,
-		types.NormalizeRequirementKind(kind) == types.ReqCallChain || axis == types.AxisCall || predicates.IsRelationalLookup,
+		requestedAnswerDimensions,
 	)
 	// MERGE-AUDIT T6-2: these profiles are independent request-authority
 	// declarations. Returning after the first bad declaration made a single
@@ -4775,7 +4775,7 @@ func parseRuntimeTargetProfile(raw string, runtimeArtifactCarrier bool, p *emitR
 	return profile, "", nil
 }
 
-func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, _ bool) (*types.RuntimeQuestionProfile, string, []string) {
+func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emitRuntimeQuestionProfileParam, dimensions *types.RequestedAnswerDimensionProfile) (*types.RuntimeQuestionProfile, string, []string) {
 	if p == nil {
 		if runtimeArtifactCarrier {
 			return nil, "runtime_question_profile object missing — declare bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified; intent/scenario labels do not substitute for runtime answer breadth", nil
@@ -4820,10 +4820,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		Confidence: *p.Confidence,
 		Rationale:  strings.TrimSpace(p.Rationale),
 	}
-	if scope == types.RuntimeQuestionScopeBoundedFactSet || scope == types.RuntimeQuestionScopeBoundedEffectVerdict {
-		if len(p.FactFamilies) == 0 {
-			return nil, fmt.Sprintf("runtime_question_profile %s requires one or more fact_families; declare the requested observed value families instead of leaving principal-value publication ambiguous", scope), nil
-		}
+	if len(p.FactFamilies) > 0 {
 		seen := make(map[types.RuntimeQuestionFactFamily]bool, len(p.FactFamilies))
 		for _, rawFamily := range p.FactFamilies {
 			family := types.RuntimeQuestionFactFamily(strings.TrimSpace(rawFamily))
@@ -4835,8 +4832,24 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 				profile.FactFamilies = append(profile.FactFamilies, family)
 			}
 		}
-	} else if len(p.FactFamilies) > 0 {
-		return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
+	}
+	bounded := scope == types.RuntimeQuestionScopeBoundedFactSet || scope == types.RuntimeQuestionScopeBoundedEffectVerdict
+	if bounded && len(profile.FactFamilies) == 0 {
+		return nil, fmt.Sprintf("runtime_question_profile %s requires one or more fact_families; declare the requested observed value families instead of leaving principal-value publication ambiguous", scope), nil
+	}
+	if !bounded && len(profile.FactFamilies) > 0 {
+		switch {
+		case requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions) &&
+			!requestedAnswerDimensionsRequireCausalDimension(dimensions):
+			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeBoundedEffectVerdict, profile.FactFamilies)
+			return nil, "runtime_question_profile.fact_families conflicts with the non-bounded scope, while the already-typed required target_effect_verdict uniquely selects the finite target-effect tuple. Preserve that dimension and all observed families; do not widen because state/duration/frequency/evidence dimensions are also present. bounded_effect_verdict_canonical_field_target=" + target + "; apply only these runtime_question_profile fields to the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", nil
+		case requestedAnswerDimensionsRequireCausalDimension(dimensions) &&
+			!requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions):
+			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeCausalDiagnosis, nil)
+			return nil, "runtime_question_profile.fact_families conflicts with causal_diagnosis, while the already-typed required causal dimension uniquely preserves full causal breadth. causal_diagnosis_canonical_field_target=" + target + "; omit fact_families and preserve every required causal_attribution/causal_contributor_set dimension in the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", nil
+		default:
+			return nil, "runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. Re-emit the complete object without asking the system to rewrite the model-owned scope", nil
+		}
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {
 		return profile, "", nil
@@ -4850,6 +4863,18 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	}
 	profile.SourceQuote = quote
 	return profile, "", nil
+}
+
+func runtimeQuestionProfileFieldTarget(scope types.RuntimeQuestionScope, families []types.RuntimeQuestionFactFamily) string {
+	target := map[string]any{"scope": scope}
+	if len(families) > 0 {
+		target["fact_families"] = families
+	}
+	payload, err := json.Marshal(target)
+	if err != nil {
+		return "{}"
+	}
+	return string(payload)
 }
 
 // validateRuntimeQuestionProfileConsistency keeps the dedicated runtime

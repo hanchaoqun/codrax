@@ -463,7 +463,7 @@ func TestParseRuntimeTargetProfileRequiresDeclaredNamedTarget(t *testing.T) {
 
 func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *testing.T) {
 	confidence := 0.95
-	if _, errText, _ := parseRuntimeQuestionProfile("分析这份 trace", true, nil, false); errText == "" {
+	if _, errText, _ := parseRuntimeQuestionProfile("分析这份 trace", true, nil, nil); errText == "" {
 		t.Fatal("runtime artifact analysis must fail loud when runtime_question_profile is missing")
 	}
 	bounded := &emitRuntimeQuestionProfileParam{
@@ -476,7 +476,7 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 		"这份 trace 里有没有进入过不可中断等待，时间、记录原因和总量是什么",
 		true,
 		bounded,
-		false,
+		nil,
 	)
 	if errText != "" || len(warnings) != 0 || profile == nil || !profile.BoundedFactSet() {
 		t.Fatalf("bounded runtime fact profile rejected: profile=%+v err=%q warnings=%v", profile, errText, warnings)
@@ -486,21 +486,21 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	}
 	emptyFamilies := *bounded
 	emptyFamilies.FactFamilies = nil
-	if _, errText, _ := parseRuntimeQuestionProfile("有没有进入过不可中断等待", true, &emptyFamilies, false); !strings.Contains(errText, "requires one or more fact_families") {
+	if _, errText, _ := parseRuntimeQuestionProfile("有没有进入过不可中断等待", true, &emptyFamilies, nil); !strings.Contains(errText, "requires one or more fact_families") {
 		t.Fatalf("bounded fact set without fact families must fail loud, got %q", errText)
 	}
 	relationProfile, errText, relationWarnings := parseRuntimeQuestionProfile(
 		"有没有进入过不可中断等待",
 		true,
 		bounded,
-		true,
+		nil,
 	)
 	if errText != "" || len(relationWarnings) != 0 || relationProfile == nil || !relationProfile.BoundedFactSet() {
 		t.Fatalf("finite typed relation facts must retain bounded breadth: profile=%+v err=%q warnings=%v", relationProfile, errText, relationWarnings)
 	}
 	badQuote := *bounded
 	badQuote.SourceQuote = "paraphrased quote"
-	gotProfile, errText, gotWarnings := parseRuntimeQuestionProfile("analyze this trace", true, &badQuote, false)
+	gotProfile, errText, gotWarnings := parseRuntimeQuestionProfile("analyze this trace", true, &badQuote, nil)
 	if errText != "" || gotProfile == nil || !gotProfile.BoundedFactSet() ||
 		len(gotWarnings) != 1 || !strings.Contains(gotWarnings[0], "ignored unanchored source_quote") {
 		t.Fatalf("unanchored audit quote must warn without dropping typed scope: profile=%+v err=%q warnings=%v", gotProfile, errText, gotWarnings)
@@ -508,7 +508,7 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	notApplicable := &emitRuntimeQuestionProfileParam{
 		Scope: "not_applicable", Confidence: &confidence,
 	}
-	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, notApplicable, false); !strings.Contains(errText, "conflicts") {
+	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, notApplicable, nil); !strings.Contains(errText, "conflicts") {
 		t.Fatalf("runtime not_applicable must conflict with an attached artifact, got %q", errText)
 	}
 }
@@ -988,6 +988,34 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		t.Fatalf("bounded effect profile not persisted at finite breadth: %+v", effectProfile)
 	}
 
+	// A model that already emitted the exact target-effect dimension and
+	// observed families but chose causal_diagnosis must receive one unique
+	// typed field target on the first rejection. Do not make it choose among
+	// three generic breadth examples or silently rewrite the object.
+	causalAliasedEffect := strings.Replace(
+		boundedEffect,
+		`"scope":"bounded_effect_verdict"`,
+		`"scope":"causal_diagnosis"`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(effectObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"cpu_frequency_limits"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalAliasedEffect))
+	if err != nil {
+		t.Fatalf("causal-aliased bounded-effect Execute: %v", err)
+	}
+	for _, want := range []string{
+		"fact_families conflicts with the non-bounded scope",
+		"already-typed required target_effect_verdict uniquely selects",
+		`bounded_effect_verdict_canonical_field_target={"fact_families":["frequency_residency"],"scope":"bounded_effect_verdict"}`,
+		"next COMPLETE model-owned object",
+		"no automatic rewrite or acceptance occurs for this rejected object",
+	} {
+		if res.Success || !strings.Contains(res.Summary, want) {
+			t.Fatalf("finite target-effect conflict did not return unique repair target %q: success=%t summary=%q", want, res.Success, res.Summary)
+		}
+	}
+
 	causalObjective := "请按重要程度给出根因排序，并说明目标进程、transaction 编号和直接唤醒者"
 	boundedWithCausalDimension := strings.Replace(
 		bounded,
@@ -1031,6 +1059,29 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		t.Fatalf("causal contributor role/scope not persisted: %+v", gotRM)
 	}
 
+	causalRosterWithRedundantFamilies := strings.Replace(
+		causalRoster,
+		`"scope":"causal_diagnosis"`,
+		`"scope":"causal_diagnosis","fact_families":["relation_peer","transaction_id","direct_waker"]`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalRosterWithRedundantFamilies))
+	if err != nil {
+		t.Fatalf("causal roster with redundant families Execute: %v", err)
+	}
+	for _, want := range []string{
+		"fact_families conflicts with causal_diagnosis",
+		`causal_diagnosis_canonical_field_target={"scope":"causal_diagnosis"}`,
+		"preserve every required causal_attribution/causal_contributor_set dimension",
+		"no automatic rewrite or acceptance occurs",
+	} {
+		if res.Success || !strings.Contains(res.Summary, want) {
+			t.Fatalf("causal breadth conflict did not return unique repair target %q: success=%t summary=%q", want, res.Success, res.Summary)
+		}
+	}
+
 	causalWithRedundantFamilies := strings.Replace(payload, `"scenario":"generic"`, `"scenario":"performance_bottleneck"`, 1)
 	causalWithRedundantFamilies = strings.Replace(
 		causalWithRedundantFamilies,
@@ -1044,7 +1095,8 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	if err != nil {
 		t.Fatalf("causal compat Execute: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "fact_families conflicts") || !strings.Contains(res.Summary, "will not be silently discarded") {
+	if res.Success || !strings.Contains(res.Summary, "fact_families conflicts") ||
+		!strings.Contains(res.Summary, "will not be silently discarded") {
 		t.Fatalf("contradictory non-bounded fact families must fail loud for a coherent model retry: success=%t summary=%q", res.Success, res.Summary)
 	}
 }
@@ -1059,7 +1111,7 @@ func TestParseRuntimeQuestionProfileUnanchoredQuoteIsAuditWarningNotRetry(t *tes
 			SourceQuote: "分析卡顿原因", // non-contiguous paraphrase
 			Confidence:  &confidence,
 		},
-		false,
+		nil,
 	)
 	if errText != "" {
 		t.Fatalf("audit-only quote must not reject typed scope: %q", errText)
@@ -1085,7 +1137,7 @@ func TestParseRuntimeQuestionProfileExactQuoteRemainsForAudit(t *testing.T) {
 			SourceQuote: "卡顿原因",
 			Confidence:  &confidence,
 		},
-		false,
+		nil,
 	)
 	if errText != "" || len(warnings) != 0 {
 		t.Fatalf("exact audit quote rejected or warned: err=%q warnings=%v", errText, warnings)

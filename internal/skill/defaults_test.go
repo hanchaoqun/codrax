@@ -1326,6 +1326,9 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 	for _, want := range []string{
 		"`bounded_effect_verdict`",
 		"`causal_diagnosis`",
+		"Low-mind precedence shortcut",
+		"exactly one required `target_effect_verdict` and no required causal role ALWAYS selects `bounded_effect_verdict`",
+		"additional duration/state/frequency/evidence dimensions and `scenario=performance_bottleneck` do not widen it",
 		"does not request cause discovery, a root-cause roster, wakeup chain, or full Trace causal projection",
 		"condition may be explicitly named or may remain an unresolved typed condition class",
 		"`target_effect_verdict` is forbidden in this full scope",
