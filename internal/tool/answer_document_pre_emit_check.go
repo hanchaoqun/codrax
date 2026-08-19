@@ -828,7 +828,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// EvidenceItem Subject/Object direction are the complete input. Every
 	// explicit typed call edge is checked; QFCallChain also receives strict body
 	// and principal-path coverage. A function definition cannot prove a call.
-	if h := preCheckDiagramVisibleLabelConsistency(doc, view); len(h) > 0 {
+	if h := preCheckDiagramVisibleLabelConsistency(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
 	}
 	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
@@ -4678,6 +4678,7 @@ const (
 	diagramStandaloneRelationMissingVisibleLabel = "standalone_relation_missing_visible_label"
 	diagramStandaloneSemanticHandoffMissing      = "standalone_semantic_handoff_missing"
 	diagramVisibleLabelMismatch                  = "diagram_visible_label_mismatch"
+	diagramVisibleLabelRawRelationKind           = "diagram_visible_label_raw_relation_kind"
 )
 
 // preCheckDiagramVisibleLabelConsistency compares only two model-authored
@@ -4686,7 +4687,7 @@ const (
 // reads request/final prose, derives wording from relation_kind, or rewrites a
 // diagram. Ambiguous compound/repeated pairings fail open. Runtime root-cause
 // diagrams retain their independent causal projection contract.
-func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
 		return nil
 	}
@@ -4706,6 +4707,7 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 			anchorsByPair[key] = append(anchorsByPair[key], anchor)
 		}
 		var mismatches []string
+		issues := make(map[string]bool)
 		for key, anchors := range anchorsByPair {
 			edges := edgesByPair[key]
 			// Multiple semantic owners may intentionally share one visible edge.
@@ -4720,27 +4722,44 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 					continue
 				}
 				got := strings.TrimSpace(edges[i].Label)
-				if got == want {
+				if got != want {
+					mismatches = append(mismatches, fmt.Sprintf(
+						"%s -> %s occurrence=%d diagram_label=%q visible_label=%q",
+						strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, got, want,
+					))
+					issues[diagramVisibleLabelMismatch] = true
 					continue
 				}
-				mismatches = append(mismatches, fmt.Sprintf(
-					"%s -> %s occurrence=%d diagram_label=%q visible_label=%q",
-					strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, got, want,
-				))
+				if want == string(anchor.RelationKind) {
+					lang := ""
+					if pctx != nil && pctx.ctx != nil && pctx.ctx.AnalysisIR != nil {
+						lang = pctx.ctx.AnalysisIR.RequestModel.Language
+					}
+					suggested := diagramParticipantReaderArrowLabel(anchor.RelationKind, lang)
+					mismatches = append(mismatches, fmt.Sprintf(
+						"%s -> %s occurrence=%d visible_label repeats raw relation_kind=%q suggested_reader_label=%q",
+						strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, want, suggested,
+					))
+					issues[diagramVisibleLabelRawRelationKind] = true
+				}
 			}
 		}
 		if len(mismatches) == 0 {
 			continue
 		}
+		failureIssues := make([]string, 0, len(issues))
+		for _, issue := range []string{diagramVisibleLabelMismatch, diagramVisibleLabelRawRelationKind} {
+			if issues[issue] {
+				failureIssues = append(failureIssues, issue)
+			}
+		}
 		hints = append(hints, emitFixHint{
-			Field:               fmt.Sprintf("blocks[id=%q].diagram.body AND edge_anchors[].visible_label", block.ID),
-			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
-			ExpectedShape:       types.DiagramVisibleLabelConsistencyContract + " Mismatches: " + strings.Join(mismatches, "; "),
-			Reason:              "the same model-authored structured block gives one visible edge two different reader labels. This exact parsed-edge/anchor consistency check does not inspect request or answer prose, choose wording, translate relation_kind, or change relation authority.",
-			DiagramRelationFailureIssues: []string{
-				diagramVisibleLabelMismatch,
-			},
+			Field:                        fmt.Sprintf("blocks[id=%q].diagram.body AND edge_anchors[].visible_label", block.ID),
+			HardSignal:                   preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:          []types.AnswerBlockKind{types.BlockDiagram},
+			ExpectedShape:                types.DiagramVisibleLabelConsistencyContract + " Mismatches: " + strings.Join(mismatches, "; "),
+			Reason:                       "the same model-authored structured block must keep one reader label per edge and must not expose its raw typed relation enum as display copy. This exact field/parsed-edge check does not inspect request or answer prose, choose final wording, translate relation_kind, rewrite the diagram, or change relation authority.",
+			DiagramRelationFailureIssues: failureIssues,
 		})
 	}
 	return hints

@@ -1083,6 +1083,9 @@ func TestDiagramParticipantReaderArrowLabelCoversEveryEdgeRelationWithoutRawEnum
 		if zh == "" || en == "" {
 			t.Fatalf("edge relation %q lacks reader labels: zh=%q en=%q", relation, zh, en)
 		}
+		if zh == string(relation) || en == string(relation) {
+			t.Fatalf("reader label for %q repeated the raw relation enum: zh=%q en=%q", relation, zh, en)
+		}
 		if strings.Contains(zh, "_") || strings.Contains(en, "_") {
 			t.Fatalf("reader label for %q leaked a snake_case control token: zh=%q en=%q", relation, zh, en)
 		}

@@ -35649,6 +35649,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1162 B1166：图显示标签禁止复刻 raw relation enum（2026-08-19）
+
+1. r731 说明“anchor 与 Mermaid label 字节一致”只能消除结构矛盾，不能阻止模型把
+   `precedence/argument_flow/data_flow` 同时写进两面。若直接强制模型逐字复制系统生成的业务标签，会让系统实际
+   接管可见文案，违反图与答案作者权；因此施工方案比 §123.1160 的初稿更收敛。
+2. 硬信号只使用同一 schema-valid anchor 内的 exact typed equality：非 Trace 图若
+   `trim(visible_label) == string(relation_kind)`，且该 anchor 与 Mermaid edge 是唯一一对一 occurrence，则拒绝这条
+   display copy。它不扫描 raw request、thinking、正文、列表或最终渲染文字，也不做关键词/相似度分类；重复 pair、
+   compound semantic owner 继续 fail-open 给既有关系权威门。
+3. 修复提示可以附带既有 typed recipe 的 `visible_arrow_label` 作为安全起点，但模型仍可自行写任意准确的仓库/
+   业务动作措辞。系统不自动翻译、不改 `visible_label`、不改 Mermaid body、不新增/删除/反转/重连边；测试明确验证
+   rejected document 保持字节不变。英文 recipe 中原先与 enum 相同的 `call/return` 同步改为 `invoke/return value to`，
+   全 relation enum 的中英文 recipe 均加“不等于 raw token”矩阵 pin。
+4. B1164 与 B1166 现在形成两层正交合同：先保证同一模型对象的 anchor/body 显示标签一致，再阻止这一致值直接泄漏
+   内部 relation enum。`flow/architecture/call_dag/sequence` 共用，无源码语言分支，Java、C/C++、Python、Rust、
+   ArkTS、Cangjie 等关系图统一受益。
+5. `QFRootCauseTrace` 保持显式退出，两项展示门都不能触碰 runtime temporal/causal authority。本批不改 Trace query、
+   因果投影、自动补齐、链上根因选举、实际耗时/业务线索与规则可消除量双轴；背景仍只作支持。活跃流不因 4ms/
+   固定 age 降级，系统不代写模型答案或结论。
+
+状态：
+
+`B1166-DIAGRAMTYPEDRECIPEVISIBLELABEL1=implemented/exact-raw-enum-equality-gate+model-authored-repair+pinned/pending-replay`；
+`B1164-DIAGRAMVISIBLELABELCONSISTENCY1=production-positive/closed`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=confirmed/P1/heterogeneous-replay-needed`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1161 B1165：项目测试合同权威收窄到 assertion 级回执（2026-08-19）
 
 1. `ProjectTestObservation` 从 `test_path + contract_refs` 扩展为

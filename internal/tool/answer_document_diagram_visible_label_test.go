@@ -38,7 +38,7 @@ func TestDiagramVisibleLabelConsistencyRejectsModelAuthoredDisplayConflictAcross
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := diagramVisibleLabelTestDocument(tc.kind, tc.body, "调用业务能力")
-			hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric})
+			hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil)
 			if len(hints) != 1 {
 				t.Fatalf("hints=%d want 1: %+v", len(hints), hints)
 			}
@@ -57,8 +57,27 @@ func TestDiagramVisibleLabelConsistencyAcceptsExactModelAuthoredWording(t *testi
 		"flowchart TD\n  A -->|调用业务能力| B",
 		"调用业务能力",
 	)
-	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}); len(hints) != 0 {
+	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(hints) != 0 {
 		t.Fatalf("matching model-authored labels must pass: %+v", hints)
+	}
+}
+
+func TestDiagramVisibleLabelConsistencyRejectsRawRelationEnumWithoutChoosingFinalCopy(t *testing.T) {
+	doc := diagramVisibleLabelTestDocument(
+		types.DiagramFlow,
+		"flowchart TD\n  A -->|call| B",
+		"call",
+	)
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Language: "zh-CN"}}}}
+	hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, pctx)
+	if len(hints) != 1 ||
+		!strings.Contains(hints[0].ExpectedShape, `visible_label repeats raw relation_kind="call" suggested_reader_label="调用"`) ||
+		len(hints[0].DiagramRelationFailureIssues) != 1 ||
+		hints[0].DiagramRelationFailureIssues[0] != diagramVisibleLabelRawRelationKind {
+		t.Fatalf("raw relation enum did not receive exact structured-field repair guidance: %+v", hints)
+	}
+	if doc.Blocks[0].EdgeAnchors[0].VisibleLabel != "call" || !strings.Contains(doc.Blocks[0].Diagram.Body, "|call|") {
+		t.Fatalf("display gate rewrote model-authored diagram instead of rejecting: %+v", doc.Blocks[0])
 	}
 }
 
@@ -94,7 +113,7 @@ func TestDiagramVisibleLabelConsistencyFailsOpenWithoutUniqueStructuredJoin(t *t
 		RelationKind: types.DiagramRelGuard,
 		VisibleLabel: "条件成立",
 	})
-	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}); len(hints) != 0 {
+	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(hints) != 0 {
 		t.Fatalf("compound edge with no one-to-one display join must fail open: %+v", hints)
 	}
 }
@@ -105,7 +124,7 @@ func TestDiagramVisibleLabelConsistencyDoesNotEnterRootCauseTraceAuthority(t *te
 		"sequenceDiagram\n  participant A\n  participant B\n  A->>B: temporal adjacency",
 		"不同显示",
 	)
-	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}); len(hints) != 0 {
+	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFRootCauseTrace}, nil); len(hints) != 0 {
 		t.Fatalf("runtime root-cause trace diagram must retain independent authority: %+v", hints)
 	}
 }

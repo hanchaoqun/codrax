@@ -1618,7 +1618,7 @@ func diagramParticipantReaderArrowLabel(relation types.DiagramRelationKind, lang
 	}
 	switch relation {
 	case types.DiagramRelCall:
-		return "call"
+		return "invoke"
 	case types.DiagramRelCallback:
 		return "pass callback (execution not proven)"
 	case types.DiagramRelArgumentFlow:
@@ -1642,7 +1642,7 @@ func diagramParticipantReaderArrowLabel(relation types.DiagramRelationKind, lang
 	case types.DiagramRelDataFlow:
 		return "write data to"
 	case types.DiagramRelReturn:
-		return "return"
+		return "return value to"
 	case types.DiagramRelTemporal:
 		return "occur before (causality unproven)"
 	default:

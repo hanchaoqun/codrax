@@ -42,7 +42,7 @@ const GroundedStandaloneCallChainRelationOwnershipContract = "In a grounded call
 // DiagramVisibleLabelConsistencyContract keeps the two model-authored display
 // carriers byte-consistent. It never derives wording from RelationKind and is
 // intentionally independent from relation/evidence authority.
-const DiagramVisibleLabelConsistencyContract = "When a diagram edge_anchors row includes a non-empty visible_label, the matching Mermaid edge/message must use exactly that same reader-facing wording. Change either model-authored display field to the intended wording, but preserve node ids, direction, relation_kind, and exact endpoint identities. visible_label never creates relation evidence and the system never translates or writes it."
+const DiagramVisibleLabelConsistencyContract = "When a diagram edge_anchors row includes a non-empty visible_label, the matching Mermaid edge/message must use exactly that same reader-facing wording. A non-runtime diagram's model-authored visible_label must not merely repeat its raw relation_kind enum token; use concise repository/domain action wording, with the published typed recipe visible_arrow_label as a safe starting point when available. Change only the model-authored display wording while preserving node ids, direction, relation_kind, and exact endpoint identities. visible_label never creates relation evidence and the system never translates, writes, or silently repairs it."
 
 // GroundedSourceDiagramRelationEvidenceContract is the single-source authoring
 // rule for explicit logical non-call edges in every non-runtime diagram family.
