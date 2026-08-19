@@ -1173,6 +1173,22 @@ func TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere(t *testing.T) {
 	}
 }
 
+func TestAnalysisSkill_MultiSurfaceDimensionsRemainIndependentAndOrdered(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	prompt := strings.Join(sk.Workflow, "\n") + "\n" + sk.OutputFormat
+	for _, want := range []string{
+		"every explicitly requested visible output surface as an independent",
+		"A diagram never absorbs a sibling list, table, or prose explanation",
+		"role=`member_set` for a requested roster",
+		"Preserve the requested visible order with `index`",
+		"presentation planning only",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("analysis prompt missing multi-surface teaching %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnalysisToolSuggestions_IsTheSingleSourceOfTruth verifies
 // that BuildAnalysisSkill uses the exported AnalysisToolSuggestions
 // slice rather than a separate literal. Two sources would be the

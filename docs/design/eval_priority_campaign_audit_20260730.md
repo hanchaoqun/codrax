@@ -35686,12 +35686,22 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1142-IWAITCALIBERWORDING1=implemented-v2/absent-second-ruler-is-not-assessed+copy-ready-label/no-answer-scan/five-package-pass/pending-replay`；
 `B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-reconfirmed-r718/P2/no-prose-keyword-gate`；
 `B1143-SCHEDULERSTATEMECHANISMAUTHORITY1=implemented/s-state-only+mechanism-unproven/pinned/pending-replay`；
-`B1144-MULTISURFACEDIMENSIONORDER1=confirmed/P1/general-typed-design-next`；
+`B1144-MULTISURFACEDIMENSIONORDER1=implemented/shared-analyzer+schema+finalizer-soft-teaching/diagram+roster-independent/index-order/no-prose-scan/pending-replay`；
 `QF-SEQUENCE-MERMAID=syntax-pass+source-repair-positive/directed-boundary-correct`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+9. B1144 已按跨语言、跨图种的 typed 展示面合同施工。Analyzer 与 `emit_analysis` schema 共用单一
+   multi-surface 教学源：每个用户显式要求的可见输出面各占一条
+   `requested_answer_dimensions.dimensions[]`；即使消费同一组证据，diagram 也不能吞掉 sibling
+   member list/table/prose。`diagram`、`member_set`、`function_or_purpose` 分别表达图、成员清单和解释，
+   `index` 只保留用户要求的可见顺序（例如先图、图后清单）。Finalizer 只消费 schema-valid typed 行给模型
+   软提示，不扫描 raw request/final prose，不据此创造 participant/edge/结论，也不改写模型答案。
+10. 新增三层 pin：Analyzer workflow 必须携带独立展示面与顺序教学；tool schema 必须复用同一教学源；
+    Finalizer 中文提示必须把 diagram 与 member_set 分成第 4/5 维并明确“先图、图后清单”。目标测试均绿；
+    仍需生产回放确认 Analyzer 实际铸出两条维度并由模型完成图后关键函数清单，未提前虚报闭环。
 
 ### §123.1136 r717：D/IO 零清单闭环；scheduler-marked 与 completion-closed IO 等待同名冲突（2026-08-18）
 

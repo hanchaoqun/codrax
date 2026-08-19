@@ -7626,6 +7626,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		b.WriteString("- 下列冒号后的文字就是面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
 		b.WriteString("- 如果答案按多个主体逐项展开（例如逐提交、逐日志事件、逐 trace span、逐组件、逐文件），每个主体下面都应尽量显式保留这些维度标签；某一维没有证据时，在该主体下说明边界，不要补编。\n")
 		b.WriteString("- 这些维度是展示契约，不是新的证据来源；不要为没有证据支撑的维度编造内容，证据不足时在边界说明中说清楚。\n")
+		b.WriteString("- 每一行都是独立的可见输出面；即使共用证据，图也不能吞掉用户另行要求的清单、表格或解释。按“第 N 维”的顺序安排这些输出面；如果图在清单之前，先给图，再在图后给清单。\n")
 		b.WriteString("- 保留模型已经写好的内容；不要为了套表格而删除、替换或压扁更丰富的说明。\n\n")
 	} else {
 		b.WriteString("## User-Requested Answer Dimensions\n\n")
@@ -7633,6 +7634,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		b.WriteString("- The text after each colon is the user-facing label. Do not append internal system roles or enum names to the visible answer.\n")
 		b.WriteString("- When the answer is organized by multiple subjects (for example per commit, log event, trace span, component, or file), preserve these dimension labels under each subject where possible; if a dimension lacks evidence, state that boundary under that subject instead of inventing content.\n")
 		b.WriteString("- These dimensions are presentation guidance, not new evidence origins. Do not invent unsupported content; disclose missing evidence in a boundary note or caveat.\n")
+		b.WriteString("- Every row is an independent visible output surface. Even when surfaces share evidence, a diagram must not absorb a separately requested list, table, or explanation. Follow Dimension N as visible output order; when the diagram precedes a roster, render the roster after the diagram.\n")
 		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
 	}
 	for _, dim := range view.Presentation.RequestedDimensions {
@@ -7654,6 +7656,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 				b.WriteString("  - 在真正承载这组成员的可见列表/表格块上设置隐藏元数据 `facet_ids:[\"member_set\"]`；不要把 `member_set` 写进可见标题或正文，也不要把别的关系/边界清单标成这组成员。\n")
 			} else {
 				b.WriteString("  - On the visible list/table block that actually carries this roster, set hidden metadata `facet_ids:[\"member_set\"]`. Do not print `member_set` in the visible title/body, and do not tag a different relation/boundary list as this roster.\n")
+			}
+		}
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
+			if lang == "zh" {
+				b.WriteString("  - 在这个维度的位置呈现请求的图；图只承载有证据的关系，不替代相邻维度要求的清单、表格或文字解释。\n")
+			} else {
+				b.WriteString("  - Render the requested visual at this dimension's position. The diagram carries only grounded relations and does not replace a sibling roster, table, or prose explanation.\n")
 			}
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionSourceLocation {
@@ -15671,6 +15680,7 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 	if zh {
 		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
 		b.WriteString("请只修订答案展示面，不要重新搜索或编造没有证据的内容。")
+		b.WriteString("按维度序号恢复独立输出面；图不能替代另行要求的清单、表格或解释。")
 		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
 		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
 		b.WriteString("缺失维度：\n")
@@ -15690,6 +15700,7 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 	}
 	b.WriteString("Your `emit_answer_document` call landed, but the visible final answer omitted user-requested answer dimensions for this turn. ")
 	b.WriteString("Repair only the answer surface; do not re-open searches or invent unsupported content. ")
+	b.WriteString("Restore independent output surfaces in dimension order; a diagram does not replace a separately requested roster, table, or explanation. ")
 	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
 	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
 	b.WriteString("Missing dimensions:\n")

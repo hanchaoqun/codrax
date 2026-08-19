@@ -11711,6 +11711,12 @@ func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers
 		}
 	}
 	dimensions, _ := properties["requested_answer_dimensions"].(map[string]any)
+	dimensionDescription, _ := dimensions["description"].(string)
+	for _, want := range []string{"independent `requested_answer_dimensions.dimensions[]` row", "A diagram never absorbs a sibling list", "Preserve the requested visible order with `index`"} {
+		if !strings.Contains(dimensionDescription, want) {
+			t.Fatalf("requested_answer_dimensions multi-surface teaching missing %q: %q", want, dimensionDescription)
+		}
+	}
 	dimensionProperties, _ := dimensions["properties"].(map[string]any)
 	dimensionList, _ := dimensionProperties["dimensions"].(map[string]any)
 	items, _ := dimensionList["items"].(map[string]any)

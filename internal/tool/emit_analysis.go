@@ -836,12 +836,12 @@ func buildEmitAnalysisSchema() {
 			},
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension, when independently paired with the current-turn out-of-band visual authority, requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge.",
+				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension, when independently paired with the current-turn out-of-band visual authority, requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge. " + skill.AnalysisMultiSurfaceDimensionTeaching,
 				"properties": map[string]any{
 					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
 					"dimensions": map[string]any{
 						"type":        "array",
-						"description": "Requested answer dimensions in the order they appear in the current request. Use the user's own label when possible.",
+						"description": "Requested visible answer surfaces in user-requested order. Use the user's own label when possible. Shared evidence does not merge a diagram with a sibling list, table, or explanation. " + skill.AnalysisMultiSurfaceDimensionTeaching,
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
