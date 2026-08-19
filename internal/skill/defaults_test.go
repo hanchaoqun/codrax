@@ -292,6 +292,29 @@ func TestWriteAnalysisSkillTeachesOneGroundingLaneBeforeExactContracts(t *testin
 	}
 }
 
+func TestWriteAnalysisSkillPreservesEveryIndependentExplicitOutcome(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill) returned error: %v", err)
+	}
+	corpus := allWorkflowBodies(sk) + "\n" + sk.OutputFormat
+	for _, want := range []string{
+		"every independent success or non-regression dimension",
+		"do not merge or omit a dimension to fit an item-count target",
+		"constraint that protects observable behavior",
+		"when the request has more independent dimensions, preserve them all",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("write-analysis independent-outcome teaching missing %q:\n%s", want, corpus)
+		}
+	}
+	if strings.Contains(corpus, "Write 2-4 expected_outcomes") || strings.Contains(corpus, "2-4 short success signals") {
+		t.Fatalf("write-analysis still teaches a lossy four-item outcome cap:\n%s", corpus)
+	}
+}
+
 func TestWriteAnalysisSkillTeachesProtectedRegressionOracleCarrier(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

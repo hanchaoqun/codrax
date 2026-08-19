@@ -402,7 +402,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 			"expected_outcomes": map[string]any{
 				"type":        "array",
 				"items":       map[string]any{"type": "string"},
-				"description": "2-4 short concrete signals that the change is correctly done. The reflector reads these to judge whether retries are moving toward the goal.",
+				"description": types.WriteAnalysisIndependentOutcomeTeaching + " The reflector reads these to judge whether retries are moving toward the goal.",
 			},
 			"behavior_contracts": map[string]any{
 				"type": "array",

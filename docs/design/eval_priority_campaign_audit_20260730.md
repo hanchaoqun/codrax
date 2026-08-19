@@ -35687,6 +35687,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1152 B1160：写分析结果维度从四项配额改为完整 typed 独立合同（2026-08-19）
+
+1. r728 的 C++ case 证明遗漏发生在 planner 之前：用户显式要求 long-double 修复、两份 header 一致、普通
+   float/double 非回归等独立维度；Write Analyzer 按“2-4 expected outcomes”只发四项，把普通浮点保留留在
+   workflow `known_constraints` prose，未进入 `ExpectedOutcomes/BehaviorContracts`。因此 B1159-A 即使正确要求
+   “逐合同有执行见证”，也没有该合同可以执行；这不是 planner 忽略了已有 typed 输入。
+2. 根修单源新增 `WriteAnalysisIndependentOutcomeTeaching`，同时供 write-analysis workflow 与
+   `emit_write_analysis.expected_outcomes` schema 描述消费：每个用户显式独立成功或非回归维度各有一条短
+   outcome；不得为满足数量目标而合并/丢弃。保护可观察行为的 constraint 仍须有对应 outcome 或 grounded
+   behavior contract，避免“边界被记住、验证目标却消失”。
+3. “通常 2-8”仅作为模型降低心智与控制常见任务体积的软形，不是 `maxItems` 硬上限。若请求确有更多独立
+   维度则全部保留；schema 明确没有 `maxItems`，emit/normalize/context 下游也不截断。新增九维 round-trip pin
+   同时验证 9 条 outcome 与 9 条 fallback typed contract 全部到达 IR。
+4. 本批不解析 raw request、constraint note、计划、测试名、断言或答案文字来判完备性，也没有系统侧补造
+   outcome。语义拆分仍由模型负责；系统只提供无矛盾 JSON 教学并忠实承载其 typed 输出。B1159-B 的
+   criterion→native test observation 回执仍独立开放，不能因本批信息面完整就虚报执行证明闭环。
+5. 本批不改 Read/Trace/diagram/finalizer/stream。显式时间窗、Trace 因果投影与自动补齐保持；链上-only 主因、
+   实际耗时/业务线索与规则计价可消除量双轴不丢，背景只作支持。活跃流不按 4ms 或固定 age 降级。
+
+状态：
+
+`B1160-WRITEOUTCOMEINDEPENDENTDIMENSIONLOSS1=implemented/shared-soft-teaching+uncapped-schema+9-dimension-pin/pending-replay`；
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A-implemented/B-structured-receipt-open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1141 r721：有限事实读者卡生产正证；耦合关系题被错误拆成独立调查车道（2026-08-18）
 
 1. 在 `main@00a89c600` 构建后严格并发恰好两个案例：

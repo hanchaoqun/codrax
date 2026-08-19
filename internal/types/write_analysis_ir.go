@@ -6,6 +6,13 @@ package types
 // behavior_contracts and sibling structured fields are arrays or strings.
 const WriteAnalysisJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. scope_anchors[], constraints[], expected_outcomes[], behavior_contracts[], applicable_pitfalls[], and phase_proposal.phases[] are native JSON arrays, never quoted or escaped JSON strings. task, risk, phase_proposal, constraints[] entries, behavior_contracts[] entries, and phase_proposal.phases[] entries are native JSON objects; scope_anchors[], expected_outcomes[], and applicable_pitfalls[] entries are strings. Preserve every intended entry when repairing shape; do not delete a field merely to make decoding pass."
 
+// WriteAnalysisIndependentOutcomeTeaching keeps the write-analyzer skill and
+// emit schema aligned on outcome completeness. It is model-facing guidance,
+// not a prose parser or a deterministic completeness gate: the analyzer owns
+// the semantic decomposition and emits the typed dimensions downstream agents
+// can verify.
+const WriteAnalysisIndependentOutcomeTeaching = "Emit one short expected_outcomes[] entry for every independent success or non-regression dimension that the user explicitly requires; do not merge or omit a dimension to fit an item-count target. A constraint that protects observable behavior still needs a corresponding expected outcome or grounded behavior contract so downstream verification can witness it. Most tasks need 2-8 entries; when the request has more independent dimensions, preserve them all."
+
 // WriteAnalysisIR is the write-mode peer to AnalysisIR. It captures
 // what the user wants to do as a code-modification task, framed in
 // write-task vocabulary (kind / scope / risk / constraints) rather
@@ -49,10 +56,10 @@ type WriteAnalysisIR struct {
 //   - Constraints: must-keep / must-not-touch the user mentioned. The LLM
 //     extracts these from the request body; the planner renders them
 //     verbatim into its prompt.
-//   - ExpectedOutcomes: 2-4 short concrete signals that the change is
-//     done correctly. The reflector reads these so its critique can
-//     judge "does the plan move toward the goal" not just "did tests
-//     pass".
+//   - ExpectedOutcomes: one short concrete signal per independent explicit
+//     success or non-regression dimension. The reflector reads these so its
+//     critique can judge "does the plan move toward the goal" not just "did
+//     tests pass".
 //   - BehaviorContracts: optional typed observables that downstream plan and
 //     verify artifacts can reference by ID. They may carry typed comparator
 //     baselines when the request or light repo inspection gives a working

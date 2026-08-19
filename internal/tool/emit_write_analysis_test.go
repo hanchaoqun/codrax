@@ -22,6 +22,43 @@ func TestEmitWriteAnalysis_DescriptionSharesJSONShapeFirstTeaching(t *testing.T)
 	}
 }
 
+func TestEmitWriteAnalysis_ExpectedOutcomeSchemaSharesIndependentDimensionTeachingWithoutCap(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal((&EmitWriteAnalysis{}).Parameters(), &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	outcomes, _ := properties["expected_outcomes"].(map[string]any)
+	description, _ := outcomes["description"].(string)
+	if !strings.Contains(description, types.WriteAnalysisIndependentOutcomeTeaching) {
+		t.Fatalf("expected_outcomes schema drifted from shared completeness teaching: %q", description)
+	}
+	if _, capped := outcomes["maxItems"]; capped {
+		t.Fatalf("expected_outcomes schema must not drop explicit dimensions behind maxItems: %#v", outcomes)
+	}
+}
+
+func TestEmitWriteAnalysis_PreservesMoreThanEightIndependentOutcomes(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"task":{"kind":"bugfix","scope":"package","summary":"preserve independent behavior dimensions"},
+		"risk":{"affects_public_api":false,"changes_persistence":false,"changes_build_system":false,"overall":"medium"},
+		"expected_outcomes":["dimension 1","dimension 2","dimension 3","dimension 4","dimension 5","dimension 6","dimension 7","dimension 8","dimension 9"]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute failed: err=%v summary=%s", err, res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir == nil || len(ir.Request.ExpectedOutcomes) != 9 {
+		t.Fatalf("independent expected outcomes were truncated: %+v", ir)
+	}
+	if len(ir.Request.BehaviorContracts) != 9 {
+		t.Fatalf("fallback typed contracts were truncated: %+v", ir.Request.BehaviorContracts)
+	}
+}
+
 // TestEmitWriteAnalysis_HappyPath verifies a fully-populated emit
 // stores a normalised IR with all enums canonicalised.
 func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
