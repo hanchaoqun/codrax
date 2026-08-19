@@ -35649,6 +35649,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1136 r717：D/IO 零清单闭环；scheduler-marked 与 completion-closed IO 等待同名冲突（2026-08-18）
+
+1. 在 `main@9ed080a18` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`；
+   人工 Trace partial、write pass。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_wait_json_write_r717_20260818_manual_audit.md`。
+2. Trace runner FAIL 为 oracle 假阴性。终稿明确说 CPU4 的 2.10GHz policy ceiling 无法与目标 running slice
+   建立绑定、因此不足以证明性能受限；旧正则只接受“影响/性能/binding”等词，漏了中文精确等价词“绑定”。
+   只增加该同义词，CPU4、2.10GHz、policy-limit 与未证关系四项杆均保留。
+3. B1138 获生产正证。preview 明确 `includes=D|io_wait|S_with_iowait_1`、排除普通 S；终稿保留
+   Sleep=70.338ms，没有再把 complete-zero 清单扩写为“没有等待/阻塞”。
+4. B1140 的三轮 breadth 摆动未复现：Analyzer 没有再进入 causal_diagnosis，trace_query 从 12 降至 5、
+   payload read 从 6 降至 0、墙钟从 296s 降至 143s。唯一分析重试是模型把附件里的 `(17267)` 拼入
+   current-request target source_quote，逐字门正确拒绝。模型本轮把有限影响维度标成 observed_value，故唯一
+   target-effect JSON 修复臂未被生产触发，只记无回归，不虚报直接闭环。
+5. 新确认 B1142/P1：终稿把 scheduler state account 的 `io_wait=0` 写成泛化“IO 等待为 0”，但同一 typed
+   prompt 又发布 completion-closed issuer-blocked S-state IO wait：至少 4 次、至少 4.384ms。两者可兼容，
+   但必须显式命名两把尺：前者仅是 scheduler-marked D/io_wait，后者是由 block issue→complete 与 issuer
+   blocked interval 证明的 S-state IO 因果等待下界。读者面裸称“IO 等待=0”会形成事实矛盾。
+6. B1142 最优解仍是 typed caliber 教学/authority 对齐：`target_window_states.io_wait` 的 model-facing summary、
+   state authority 和 skill 统一加 scheduler-marked 限定；当 completion-closed relation 同在时并置两把尺，
+   禁止互相覆盖或相加。不得扫描/替换最终答案，也不得把普通 S 无条件改成 IO。
+7. write 案人工通过。第一计划误把单换行也折叠，行为 probe 失败而 project suite 通过；controller 未用绿 suite
+   掩盖 probe，replan 后加 2+ guard，保留五换行回归，单/偶/奇/无规则四 probe 与 `make check` 全绿，
+   changed path 具 target_behavior coverage，最终 `verified/all_batches_verified`。这是正确的验证与 replan，
+   不为 672s 单例增加硬捷径。
+8. 本批不改 Trace root 权限。有限状态/供给问答不强制完整因果投影；真正因果诊断仍由 typed on-chain
+   根因、自动补齐、实际占用/业务线索与规则可消除量双轴构成，邻近/背景只能提供额外排查方向。
+
+状态：
+
+`B1138-TARGETWAITROSTERSCOPE1=production-positive-r717`；
+`B1140-RUNTIMEQUESTIONJSONTEACHING1=production-no-regression-r717/direct-unique-repair-arm-pending`；
+`B1141-RUNTIMETARGETSOURCEQUOTEARTIFACTCONTAMINATION1=observed-once/P3/model-variance-watch`；
+`B1142-IWAITCALIBERWORDING1=confirmed/P1/next`；
+`H4-LIMIT-SEMANTIC-ORACLE=binding-synonym-added/numeric+relation-bars-preserved`；
+`WRITE-NEWLINE-RUN=human-pass/replan-after-probe-failure/all-batches-verified`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1135 r716：关系收敛键生产正证；窄口径等待清单被扩写为“无阻塞”（2026-08-18）
 
 1. 在 `main@8f6fb21e6` 重建后严格并发恰好两个案例：

@@ -41,6 +41,6 @@ EXPECT_PRINCIPAL_MATCHES_REGEX="([Rr]unning.{0,120}157\\.248|157\\.248.{0,120}[R
 (([Ss]_[Ss]leep|[Ss]leep|睡眠).{0,120}70\\.338|70\\.338.{0,120}([Ss]_[Ss]leep|[Ss]leep|睡眠))
 (([Dd][-_ ][Ss]tate|D 状态|不可中断).{0,120}(0\\.000|0 ?ms)|(^|[^0-9])(0\\.000|0 ?ms).{0,120}([Dd][-_ ][Ss]tate|D 状态|不可中断))"
 EXPECT_PRINCIPAL_MATCHES_TEXT_REGEX="((CPU ?=? ?4|cpu ?=? ?4).{0,240}(2\\.10 ?GHz|2\\.1 ?GHz|2100 ?MHz|2100000 ?kHz).{0,160}(上限|限制|限频|policy|limit|cap|maximum)|(CPU ?=? ?4|cpu ?=? ?4).{0,240}(上限|限制|限频|policy|limit|cap|maximum).{0,160}(2\\.10 ?GHz|2\\.1 ?GHz|2100 ?MHz|2100000 ?kHz))
-((limit row|policy limit|policy 上限|策略上限|限制记录|限频记录).{0,160}(不能|不足以|无法|未证|unproven|requires).{0,120}(触顶|性能|影响|瓶颈|binding)|(触顶|性能|影响|瓶颈|binding).{0,160}(不能|不足以|无法|未证|unproven|requires).{0,120}(limit row|policy limit|policy 上限|策略上限|限制记录|限频记录))"
+((limit row|policy limit|policy 上限|策略上限|限制记录|限频记录).{0,160}(不能|不足以|无法|未证|unproven|requires).{0,120}(触顶|性能|影响|瓶颈|绑定|binding)|(触顶|性能|影响|瓶颈|绑定|binding).{0,160}(不能|不足以|无法|未证|unproven|requires).{0,120}(limit row|policy limit|policy 上限|策略上限|限制记录|限频记录))"
 EXPECT_NOT_CONTAINS="132.041 still_present not_enough_evidence"
 EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
