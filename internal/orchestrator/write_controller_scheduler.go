@@ -10610,6 +10610,9 @@ func renderPlanRepairPackRetryHint(pack types.PlanRepairPack) string {
 			if entry.StartLine > 0 || entry.EndLine > 0 {
 				parts = append(parts, fmt.Sprintf("lines=%d-%d", entry.StartLine, entry.EndLine))
 			}
+			if entry.SuggestedEndLine > 0 {
+				parts = append(parts, fmt.Sprintf("suggested_end_line=%d", entry.SuggestedEndLine))
+			}
 			if entry.AnchorLine > 0 {
 				parts = append(parts, fmt.Sprintf("anchor_line=%d", entry.AnchorLine))
 			}

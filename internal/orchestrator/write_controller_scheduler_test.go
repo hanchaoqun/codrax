@@ -12323,6 +12323,30 @@ func TestLastPlanEmitRejectionView_PrefersTypedRepairPackMetadata(t *testing.T) 
 	}
 }
 
+func TestLastPlanEmitRejectionView_RendersSuggestedStructuredEditEndLine(t *testing.T) {
+	pack := types.PlanRepairPack{
+		ToolName: "emit_change_plan", ReasonCode: "multiline_old_text_requires_end_line",
+		FailingFieldPaths: []string{"$.changes[0].edits[0].end_line"},
+		CurrentBytes: []types.PlanRepairCurrentBytes{{
+			Path: "tests/test_tokenizer.py", StartLine: 24, EndLine: 24, SuggestedEndLine: 37,
+			ExpectedOldText: "def test_newlines():\n    pass\n",
+		}},
+		RetryInstruction: "resend this same edit with start_line=24 and end_line=37",
+	}
+	results := []types.ToolResult{{
+		ToolName: "emit_change_plan", Success: false,
+		Repair: &types.ToolRepair{Code: types.PlanRepairToolCode, Metadata: map[string]string{
+			types.PlanRepairMetadataKey: types.PlanRepairPackJSON(pack),
+		}},
+	}}
+	hint := lastPlanEmitRejectionView(results).RenderHint()
+	for _, want := range []string{"reason_code: multiline_old_text_requires_end_line", "lines=24-24", "suggested_end_line=37", "start_line=24 and end_line=37"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("typed planner hint missing %q:\n%s", want, hint)
+		}
+	}
+}
+
 // G1: a resumed run must rebuild retry counts, the active plan, and the
 // verify-failure carrier from typed records + durable artifacts.
 func TestRunWriteControllerWorkflow_ResumeMissingDurablePlanFailsClosedBeforeController(t *testing.T) {

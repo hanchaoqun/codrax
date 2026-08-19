@@ -30,6 +30,7 @@ type structuredEditDiagnostic struct {
 	FileLineCount        int                                   `json:"file_line_count,omitempty"`
 	StartLine            int                                   `json:"start_line,omitempty"`
 	EndLine              int                                   `json:"end_line,omitempty"`
+	SuggestedEndLine     int                                   `json:"suggested_end_line,omitempty"`
 	AnchorLine           int                                   `json:"anchor_line,omitempty"`
 	CurrentBytes         string                                `json:"current_bytes,omitempty"`
 	SuppliedOldText      string                                `json:"supplied_old_text,omitempty"`
@@ -160,6 +161,7 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 		}
 		switch kind {
 		case "replace", "delete":
+			endLineWasOmitted := edit.EndLine == 0
 			endLine := edit.EndLine
 			// Omitted end_line means a single-line edit. The schema
 			// documents the default so the model never has to copy
@@ -212,6 +214,39 @@ func normalizeStructuredEdits(path string, lines []string, edits []types.Structu
 						}
 					}
 					if !relocated {
+						// A multiline old_text that uniquely matches the current file at
+						// the declared start is a precise diagnosis of one common schema
+						// omission: end_line was omitted and therefore safely defaulted to
+						// the single start line. Report the exact inclusive end line for
+						// the model's next plan emit, but never widen the edit here.
+						if endLineWasOmitted {
+							needleLines := splitContentLines(edit.OldText)
+							matchedStart := declaredStartLine - 1
+							matchedEnd := matchedStart + len(needleLines)
+							if len(needleLines) > 1 && matchedStart >= 0 && matchedEnd <= len(lines) &&
+								structuredEditOldTextMatches(strings.Join(lines[matchedStart:matchedEnd], ""), edit.OldText) {
+								currentRange := strings.Join(lines[matchedStart:matchedEnd], "")
+								msg := fmt.Sprintf(
+									"structured edit builder: change %q edits[%d] old_text uniquely spans lines %d-%d, but omitted end_line defaults to the single start line; resend the model-authored edit with end_line=%d",
+									path, i, declaredStartLine, matchedEnd, matchedEnd)
+								return nil, newStructuredEditDiagnosticError(msg, structuredEditDiagnostic{
+									ReasonCode:       "multiline_old_text_requires_end_line",
+									Path:             path,
+									EditIndex:        i,
+									FileLineCount:    lineCount,
+									StartLine:        declaredStartLine,
+									EndLine:          endLine,
+									SuggestedEndLine: matchedEnd,
+									CurrentBytes:     currentRange,
+									SuppliedOldText:  edit.OldText,
+									ExpectedOldText:  currentRange,
+									CurrentByteLen:   len(currentRange),
+									SuppliedByteLen:  len(edit.OldText),
+									RetryInstruction: fmt.Sprintf("resend this same replace/delete edit with start_line=%d and end_line=%d; preserve the supplied old_text and content exactly, or re-read before changing either", declaredStartLine, matchedEnd),
+									SafeEditKinds:    structuredEditSafeInsertKinds(path, lines),
+								})
+							}
+						}
 						msg := fmt.Sprintf(
 							"structured edit builder: change %q edits[%d] old_text mismatch at lines %d-%d; current bytes are %s — copy diagnostic.expected_old_text exactly into old_text and resend the same bounded edit",
 							path, i, edit.StartLine, endLine, boundedByteQuote(got, 160))

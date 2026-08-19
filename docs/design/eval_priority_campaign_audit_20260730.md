@@ -35649,6 +35649,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1127 B1129：多行 structured edit 省略 end_line 的 typed 修补参数（2026-08-18）
+
+1. r712 写案例中，模型已经提供从 line 24 开始的完整多行 `old_text`，但漏写 `end_line`。安全编译器
+   按 schema 将省略值解释为单行并拒绝，这是正确 fail-closed；旧诊断却只回显该单行当前字节和泛化
+   提示，没有利用“supplied bytes 在 declared start 精确覆盖多行”的结构事实告诉模型终点。
+2. 新诊断仅在 `replace/delete + end_line omitted + old_text 至少两行 + 从 declared start 到计算终点逐字
+   匹配当前文件` 时发出 `reason_code=multiline_old_text_requires_end_line`，并携带原始 `start_line`、安全
+   单行解释的 `end_line`、精确 `suggested_end_line`、完整 current/expected/supplied bytes 与 byte lengths。
+3. PlanRepairPack 将失败字段收窄到 `$.changes[].edits[].end_line`；Controller 的 typed hint 明示
+   `suggested_end_line=N` 和 `resend ... start_line=X and end_line=N`。模型仍必须重发计划；编译器不修改
+   `StructuredEdit`，不自动扩大 patch，也不代写 content/old_text。
+4. 如果 supplied bytes 不从 declared start 匹配，仍走普通 `old_text_mismatch` 且不产生 suggestion；
+   显式 end_line、单行 old_text、越界/陈旧内容也不进入该车道。原有“省略 end_line=单行”、span-preserving
+   relocation、no-op 与 overlap 安全合同均未放松。
+5. 完整 `go test ./internal/tool ./internal/orchestrator ./internal/types -count=1` 全绿。该批不触碰 Read/Trace、
+   Mermaid、模型结论或 active-stream timeout。
+
+状态：
+
+`B1129-STRUCTUREDEDITEXACTENDLINEREPAIR1=implemented/typed-suggestion-no-auto-widen+pinned`；
+`B1130-ONESIDEDTYPEDRECEIPTIDENTITY1=implemented`；
+`B1128-WRITERUNBUDGETRESERVATION1=open/design-required/no-fixed-age-kill`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1126 B1130：单侧 typed-recipe endpoint identity 唯一补齐（2026-08-18）
 
 1. r712 的每次失败 patch 都已有模型 authored 可见边、方向、合法 `relation_kind` 与精确

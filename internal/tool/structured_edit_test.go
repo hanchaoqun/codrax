@@ -475,6 +475,64 @@ func TestCompileStructuredEdits_OldTextTrailingNewlineTolerated(t *testing.T) {
 	}
 }
 
+func TestCompileStructuredEdits_MultilineOldTextWithOmittedEndLineReportsExactTypedRepair(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\nthree\nfour\n")
+	change := &types.FileChange{
+		Path: "src/a.txt",
+		Kind: "patch",
+		Edits: []types.StructuredEdit{{
+			Kind: "replace", StartLine: 2,
+			OldText: "two\nthree\n", Content: "TWO\nTHREE\n",
+		}},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("multiline old_text with omitted end_line must remain fail-closed")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("error should carry structured diagnostic: %v", err)
+	}
+	got := diag.diagnostic
+	if got.ReasonCode != "multiline_old_text_requires_end_line" || got.StartLine != 2 || got.EndLine != 2 ||
+		got.SuggestedEndLine != 3 || got.ExpectedOldText != "two\nthree\n" ||
+		!strings.Contains(got.RetryInstruction, "start_line=2 and end_line=3") {
+		t.Fatalf("unexpected exact end-line repair diagnostic: %+v", got)
+	}
+	if !strings.Contains(err.Error(), `"suggested_end_line":3`) {
+		t.Fatalf("typed diagnostic must expose suggested_end_line: %v", err)
+	}
+	if change.Edits[0].EndLine != 0 {
+		t.Fatalf("compiler must not mutate or widen the model-authored edit: %+v", change.Edits[0])
+	}
+	pack := planRepairPackFromStructuredEditDiagnostic("emit_change_plan", err.Error(), got)
+	if pack == nil || len(pack.FailingFieldPaths) != 1 || pack.FailingFieldPaths[0] != "$.changes[].edits[].end_line" ||
+		len(pack.CurrentBytes) != 1 || pack.CurrentBytes[0].SuggestedEndLine != 3 {
+		t.Fatalf("plan repair pack lost the exact typed end-line correction: %+v", pack)
+	}
+}
+
+func TestCompileStructuredEdits_MultilineOldTextEndLineSuggestionFailsClosedAtStaleStart(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "src/a.txt", "zero\none\ntwo\nthree\n")
+	change := &types.FileChange{
+		Path: "src/a.txt", Kind: "patch",
+		Edits: []types.StructuredEdit{{Kind: "replace", StartLine: 2, OldText: "two\nthree\n", Content: "TWO\nTHREE\n"}},
+	}
+	_, err := compileStructuredEditsToPatch(root, change)
+	if err == nil {
+		t.Fatal("multiline old_text at a stale start must reject")
+	}
+	var diag *structuredEditDiagnosticError
+	if !errors.As(err, &diag) {
+		t.Fatalf("error should carry structured diagnostic: %v", err)
+	}
+	if diag.diagnostic.ReasonCode != "old_text_mismatch" || diag.diagnostic.SuggestedEndLine != 0 {
+		t.Fatalf("bytes that do not match at the declared start must not mint an end-line suggestion: %+v", diag.diagnostic)
+	}
+}
+
 func TestCompileStructuredEdits_OldTextMismatchEchoesCurrentBytes(t *testing.T) {
 	root := t.TempDir()
 	writeSurfaceFile(t, root, "src/a.txt", "one\ntwo\nthree\n")

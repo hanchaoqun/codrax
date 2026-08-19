@@ -87,26 +87,31 @@ func planRepairPackFromStructuredEditDiagnostic(toolName, message string, diagno
 	if reason == "" {
 		reason = "structured_edit_rejected"
 	}
+	failingFields := []string{"$.changes[].edits"}
+	if reason == "multiline_old_text_requires_end_line" {
+		failingFields = []string{"$.changes[].edits[].end_line"}
+	}
 	pack := &types.PlanRepairPack{
 		ToolName:          toolName,
 		ReasonCode:        reason,
 		Message:           message,
-		FailingFieldPaths: []string{"$.changes[].edits"},
+		FailingFieldPaths: failingFields,
 		FailingPaths:      []string{diagnostic.Path},
 		RetryInstruction:  diagnostic.RetryInstruction,
 		CurrentBytes: []types.PlanRepairCurrentBytes{{
-			Path:            diagnostic.Path,
-			EditIndex:       diagnostic.EditIndex,
-			FileLineCount:   diagnostic.FileLineCount,
-			StartLine:       diagnostic.StartLine,
-			EndLine:         diagnostic.EndLine,
-			AnchorLine:      diagnostic.AnchorLine,
-			CurrentBytes:    diagnostic.CurrentBytes,
-			SuppliedOldText: diagnostic.SuppliedOldText,
-			ExpectedOldText: diagnostic.ExpectedOldText,
-			CurrentByteLen:  diagnostic.CurrentByteLen,
-			SuppliedByteLen: diagnostic.SuppliedByteLen,
-			SafeEditKinds:   append([]string(nil), diagnostic.SafeEditKinds...),
+			Path:             diagnostic.Path,
+			EditIndex:        diagnostic.EditIndex,
+			FileLineCount:    diagnostic.FileLineCount,
+			StartLine:        diagnostic.StartLine,
+			EndLine:          diagnostic.EndLine,
+			SuggestedEndLine: diagnostic.SuggestedEndLine,
+			AnchorLine:       diagnostic.AnchorLine,
+			CurrentBytes:     diagnostic.CurrentBytes,
+			SuppliedOldText:  diagnostic.SuppliedOldText,
+			ExpectedOldText:  diagnostic.ExpectedOldText,
+			CurrentByteLen:   diagnostic.CurrentByteLen,
+			SuppliedByteLen:  diagnostic.SuppliedByteLen,
+			SafeEditKinds:    append([]string(nil), diagnostic.SafeEditKinds...),
 			RelocationCandidates: append([]types.PlanRepairRelocationCandidate(nil),
 				diagnostic.RelocationCandidates...),
 		}},

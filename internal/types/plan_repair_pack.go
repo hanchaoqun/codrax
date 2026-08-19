@@ -35,6 +35,7 @@ type PlanRepairCurrentBytes struct {
 	FileLineCount        int                             `json:"file_line_count,omitempty"`
 	StartLine            int                             `json:"start_line,omitempty"`
 	EndLine              int                             `json:"end_line,omitempty"`
+	SuggestedEndLine     int                             `json:"suggested_end_line,omitempty"`
 	AnchorLine           int                             `json:"anchor_line,omitempty"`
 	CurrentBytes         string                          `json:"current_bytes,omitempty"`
 	SuppliedOldText      string                          `json:"supplied_old_text,omitempty"`
