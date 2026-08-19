@@ -5501,10 +5501,12 @@ func writeTraceFrameRootCauseBundleSummary(b *strings.Builder, bundle *tracequer
 	writeTraceFrameBundleSkeleton(b, bundle)
 	// §29.27② (COV-4): the focused thread's full-window state partition rides
 	// the head region so the model sees the four-state wall clock next to the
-	// spine (io_wait is the IO refinement inside the D-state wall clock, never
-	// a fifth addend; total==window only when the timeline covered the window).
+	// spine (io_wait is the scheduler-marked IO refinement inside the D-state
+	// wall clock, never a fifth addend; completion-closed S-state IO waits use a
+	// separate typed ruler; total==window only when the timeline covered the
+	// window).
 	if account := bundle.TargetWindowStates; account != nil && account.TotalMs > 0 {
-		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
+		fmt.Fprintf(b, "- target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only completion_closed_s_io_wait=separate_typed_ruler total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f lines=%d-%d\n",
 			traceThreadLabel(account.Thread), account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs, account.LineStart, account.LineEnd)
 		writeTraceTargetCPURunningRoster(b, account)
 	}
@@ -8792,7 +8794,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Object:    "state_partition",
 				Value:     traceQueryObservationMSValue(account.TotalMs),
 				Unit:      "ms",
-				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f",
+				Summary: fmt.Sprintf("target_window_states %s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms sleep_io_wait=%.3fms io_wait_caliber=scheduler_marked_only completion_closed_s_io_wait=separate_typed_ruler total=%.3fms deterministic_running=%.3fms%s window=%.6f..%.6f window_ms=%.3f",
 					subject, account.RunningMs, account.RunnableMs, account.SleepMs, account.DStateMs, account.IOWaitMs, account.SleepIOWaitMs, account.TotalMs, account.DeterministicRunningMs, traceQueryWindowStateBoundaryFoldSuffix(account), account.Window.StartTs, account.Window.EndTs, account.WindowMs),
 				RichNotes:   notes,
 				SupportRefs: traceQueryObservationSupportRefs(ref, account.LineStart, account.LineEnd),

@@ -90,6 +90,11 @@ func TestRenderAnswerDocObservationLedgerSeparatesTargetStateFromCPUWideScopeAA1
 		"state_partition_coverage=`complete`",
 		"unaccounted=0.000ms",
 		"blocked-reason caller/count inventory",
+		"scheduler-marked classifier only",
+		"completion-closed issuer-blocked IO interval",
+		"never summarize their combination as bare `IO wait is zero`",
+		"io_wait_caliber=`scheduler_marked_only`",
+		"completion_closed_s_io_wait=`separate_typed_ruler`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed target-state scope authority missing %q:\n%s", want, got)
@@ -132,6 +137,7 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteExplicitWindowStateWitho
 		"target=`main-100`",
 		"running=20.000ms; runnable=10.000ms; sleep=70.000ms; d_state=0.000ms",
 		"io_wait=0.000ms; sleep_io_wait=3.000ms",
+		"io_wait_caliber=`scheduler_marked_only`",
 		"state_partition_coverage=`complete`",
 	} {
 		if !strings.Contains(got, want) {

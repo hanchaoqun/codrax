@@ -35668,14 +35668,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    prompt 又发布 completion-closed issuer-blocked S-state IO wait：至少 4 次、至少 4.384ms。两者可兼容，
    但必须显式命名两把尺：前者仅是 scheduler-marked D/io_wait，后者是由 block issue→complete 与 issuer
    blocked interval 证明的 S-state IO 因果等待下界。读者面裸称“IO 等待=0”会形成事实矛盾。
-6. B1142 最优解仍是 typed caliber 教学/authority 对齐：`target_window_states.io_wait` 的 model-facing summary、
-   state authority 和 skill 统一加 scheduler-marked 限定；当 completion-closed relation 同在时并置两把尺，
-   禁止互相覆盖或相加。不得扫描/替换最终答案，也不得把普通 S 无条件改成 IO。
-7. write 案人工通过。第一计划误把单换行也折叠，行为 probe 失败而 project suite 通过；controller 未用绿 suite
+6. B1142 已按 typed caliber 单源完成：保留 `target_window_states.io_wait/sleep_io_wait` 的 wire 字段和值不变，
+   在 trace head preview、typed observation summary、Target-State Scope Authority、有限问题提示和 skill 中统一
+   标记为 scheduler-marked-only；其集合只含 D/显式 io_wait，以及有 paired blocked_reason iowait=1 的 S。
+   completion-closed issuer-blocked S-state IO wait 保持独立 typed ruler；两者同在时要求分别表述，窄尺为零不得
+   扩写成裸“IO 等待为 0”，也不得互相覆盖或相加。普通 S 没有因此被改成 IO。
+7. 该修复不读取 request/final prose，不扫描或替换模型答案，不选举根因、不改变投影/补齐/数值；模型仍拥有
+   结论。新增 observation summary、有限提示、authority 双尺边界 pin；`tool/agent/skill/context/types` 全套通过。
+8. write 案人工通过。第一计划误把单换行也折叠，行为 probe 失败而 project suite 通过；controller 未用绿 suite
    掩盖 probe，replan 后加 2+ guard，保留五换行回归，单/偶/奇/无规则四 probe 与 `make check` 全绿，
    changed path 具 target_behavior coverage，最终 `verified/all_batches_verified`。这是正确的验证与 replan，
    不为 672s 单例增加硬捷径。
-8. 本批不改 Trace root 权限。有限状态/供给问答不强制完整因果投影；真正因果诊断仍由 typed on-chain
+9. 本批不改 Trace root 权限。有限状态/供给问答不强制完整因果投影；真正因果诊断仍由 typed on-chain
    根因、自动补齐、实际占用/业务线索与规则可消除量双轴构成，邻近/背景只能提供额外排查方向。
 
 状态：
@@ -35683,7 +35687,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1138-TARGETWAITROSTERSCOPE1=production-positive-r717`；
 `B1140-RUNTIMEQUESTIONJSONTEACHING1=production-no-regression-r717/direct-unique-repair-arm-pending`；
 `B1141-RUNTIMETARGETSOURCEQUOTEARTIFACTCONTAMINATION1=observed-once/P3/model-variance-watch`；
-`B1142-IWAITCALIBERWORDING1=confirmed/P1/next`；
+`B1142-IWAITCALIBERWORDING1=implemented/scheduler-marked-vs-completion-closed-two-rulers/no-final-rewrite/five-package-pass/pending-production-replay`；
 `H4-LIMIT-SEMANTIC-ORACLE=binding-synonym-added/numeric+relation-bars-preserved`；
 `WRITE-NEWLINE-RUN=human-pass/replan-after-probe-failure/all-batches-verified`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

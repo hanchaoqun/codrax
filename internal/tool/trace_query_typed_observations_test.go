@@ -112,6 +112,14 @@ func TestTraceQueryPublishesTargetOwnedCompletePerCPURunningRows(t *testing.T) {
 	if !strings.Contains(accountNotes, "target_cpu_running_roster_status=complete") {
 		t.Fatalf("parent target account must carry roster authority: %+v", accountRow.RichNotes)
 	}
+	for _, want := range []string{
+		"io_wait_caliber=scheduler_marked_only",
+		"completion_closed_s_io_wait=separate_typed_ruler",
+	} {
+		if !strings.Contains(accountRow.Summary, want) {
+			t.Fatalf("target account summary missing IO caliber %q: %q", want, accountRow.Summary)
+		}
+	}
 }
 
 // TestTraceQueryTypedObservationsCoverTypedProductBeyondSummaryCaps pins the
