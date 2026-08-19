@@ -36790,6 +36790,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `active-stream-fixed-4ms-degrade=forbidden/not-observed`。
 
+### §123.1122 B1125：Mermaid 修复后唯一单侧 edge-anchor node ref 同源对齐（2026-08-18）
+
+1. r711 的真边不是 evidence/identity/relation 缺失：模型已提交 body
+   `Mutable -> AgentContext.Mutable` 和 exact typed anchor
+   `bus.Mutable -> AgentContext.Mutable, relation_kind=data_flow`。Mermaid compatibility 先把 dotted target
+   改为内部安全 node id，既有 alias normalizer 同步了 target anchor；source body node `Mutable` 与模型误填的 technical
+   identity node ref `bus.Mutable` 仍不同，才产生一对互补的 missing/orphan 错误。
+2. 根修扩展既有 metadata normalizer，但判据严格限定：anchor 必须已有 complete typed identity pair 和 valid relation；
+   一个 node ref 已与可见有向边同侧 exact match；另一个 node ref 必须与该侧 typed identity 精确等价，证明只是把
+   identity 误填进 node field；候选可见边必须只有一条、未被其它 anchor 拥有，且没有第二个 orphan anchor 竞争。
+3. 修复只把单个 `from_node` 或 `to_node` 对齐到已经存在的可见 node id。Mermaid body、from/to identity、relation kind、
+   direction、visible label、evidence、participant 和正文全部字节不动；不解析可见 label 或 relation words，不读取用户问题、
+   模型 reasoning/答案正文，也不创建、选择、删除、反转或合并边。
+4. 任一零共享端、两个可见候选、重复 edge occurrence、候选已被其它 anchor 占用、不完整 identity pair、无 valid relation、
+   或错误 node ref 并非对应 technical identity 拷贝，均保持原样交给既有 fail-closed validator；禁止用 node/label 相似度猜映射。
+5. 正形 pin 复现 r711：target alias 先变 `codraxNode1`，随后 source 仅从 `bus.Mutable` 对齐为 `Mutable`；exact
+   `bus.Mutable -> AgentContext.Mutable` data-flow identity 仍在，并直接通过原 relation/evidence gate。三组歧义/占用/
+   非 identity 拷贝负形全不修；定向测试及 `go test ./internal/tool -count=1` 全绿（177.841s），`git diff --check` 全绿。
+6. 本批没有新增 Mermaid 教学、答案关键词门或系统图形作者权；它只让既有 source-repair 与既有 edge-anchor metadata
+   使用同一 model-authored topology。Trace 显式窗、因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、
+   实际占用/规则可消双轴及 active-stream 行为均未触碰。
+
+状态：
+
+`B1125-ONESIDEDANCHORNODEREF1=implemented/unique-metadata-only+pinned/replay-next`；
+`body/identity/relation/direction/label/evidence=byte-preserved`；
+`ambiguous/occupied/zero-sided/nonidentity-copy=fail-closed`；
+`raw-request/model-reasoning/final-prose/diagram-label-semantic-gate=none`；
+`system-relation/diagram/answer/conclusion-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

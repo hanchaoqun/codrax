@@ -47,6 +47,95 @@ func TestNormalizeDiagramEdgeAnchorMetadata_NormalizesOnlyTypedMetadata(t *testi
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorMetadata_RepairsUniqueOneSidedCopiedIdentityNodeRef(t *testing.T) {
+	body := strings.Join([]string{
+		"flowchart TD",
+		`  Mutable["Mutable"] -->|data_flow| codraxNode1["AgentContext.Mutable"]`,
+	}, "\n")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: body},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "bus.Mutable", ToNode: "AgentContext.Mutable",
+			FromIdentity: "bus.Mutable", ToIdentity: "AgentContext.Mutable",
+			RelationKind: types.DiagramRelDataFlow, ClaimForm: types.ClaimAssignmentFact,
+		}},
+	}}}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 2 {
+		t.Fatalf("fixed=%d, want target alias plus one-sided source node repair: %+v", fixed, doc.Blocks[0].EdgeAnchors)
+	}
+	anchor := doc.Blocks[0].EdgeAnchors[0]
+	if anchor.FromNode != "Mutable" || anchor.ToNode != "codraxNode1" {
+		t.Fatalf("one-sided node refs not aligned to the unchanged visible edge: %+v", anchor)
+	}
+	if anchor.FromIdentity != "bus.Mutable" || anchor.ToIdentity != "AgentContext.Mutable" ||
+		anchor.RelationKind != types.DiagramRelDataFlow || doc.Blocks[0].Diagram.Body != body {
+		t.Fatalf("metadata-only repair changed relation authority or Mermaid source: anchor=%+v body=%q", anchor, doc.Blocks[0].Diagram.Body)
+	}
+	initializer := diagramEvidenceTestCall("AgentContext.Mutable", "bus.Mutable")
+	initializer.AnchorKind = types.AnchorInitializer
+	initializer.Predicate = "assigns"
+	initializer.AnchorSymbol = "Mutable"
+	initializer.InitializerContainer = "AgentContext"
+	initializer.Snippet = "Mutable: bus.Mutable,"
+	if mismatches := DiagramCallEdgeEvidenceMismatches(doc,
+		&types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow},
+		[]types.EvidenceItem{initializer},
+	); len(mismatches) != 0 {
+		t.Fatalf("one-sided node-ref repair must preserve the exact typed data-flow through the relation gate: %+v", mismatches)
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorMetadata_OneSidedRepairFailsClosedOnAmbiguousOrOccupiedEdge(t *testing.T) {
+	baseAnchor := types.DiagramEdgeAnchor{
+		FromNode: "bus.Mutable", ToNode: "T",
+		FromIdentity: "bus.Mutable", ToIdentity: "AgentContext.Mutable",
+		RelationKind: types.DiagramRelDataFlow, ClaimForm: types.ClaimAssignmentFact,
+	}
+	for _, tc := range []struct {
+		name    string
+		body    string
+		anchors []types.DiagramEdgeAnchor
+	}{
+		{
+			name:    "two visible sources share the matched target",
+			body:    "flowchart TD\n  A --> T\n  B --> T",
+			anchors: []types.DiagramEdgeAnchor{baseAnchor},
+		},
+		{
+			name: "the only visible edge is already owned",
+			body: "flowchart TD\n  A --> T",
+			anchors: []types.DiagramEdgeAnchor{baseAnchor, {
+				FromNode: "A", ToNode: "T", FromIdentity: "producer.A", ToIdentity: "consumer.T",
+				RelationKind: types.DiagramRelDataFlow, ClaimForm: types.ClaimAssignmentFact,
+			}},
+		},
+		{
+			name: "mismatching node is not a copied typed identity",
+			body: "flowchart TD\n  A --> T",
+			anchors: []types.DiagramEdgeAnchor{{
+				FromNode: "wrong-node", ToNode: "T", FromIdentity: "bus.Mutable", ToIdentity: "AgentContext.Mutable",
+				RelationKind: types.DiagramRelDataFlow, ClaimForm: types.ClaimAssignmentFact,
+			}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "flow", Kind: types.BlockDiagram,
+				Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: tc.body},
+				EdgeAnchors: append([]types.DiagramEdgeAnchor(nil), tc.anchors...),
+			}}}
+			before := doc.Blocks[0].EdgeAnchors[0]
+			if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 0 {
+				t.Fatalf("fixed=%d, ambiguous/non-owned shape must fail closed: %+v", fixed, doc.Blocks[0].EdgeAnchors)
+			}
+			if got := doc.Blocks[0].EdgeAnchors[0]; got != before {
+				t.Fatalf("orphan anchor changed without unique structural authority: before=%+v after=%+v", before, got)
+			}
+		})
+	}
+}
+
 func TestNormalizeDiagramEdgeAnchorMetadata_RewritesExactSiblingCarrierAfterMermaidAliasing(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{

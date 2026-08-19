@@ -125,6 +125,7 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 				}
 			}
 		}
+		fixed += normalizeDiagramEdgeAnchorNodeRefsByUniqueOneSidedBodyEdge(block)
 	}
 	// Edge anchors may intentionally live on a sibling prose/list block. The
 	// Mermaid syntax normalizer can replace a nonportable code identity in the
@@ -159,6 +160,100 @@ func normalizeDiagramEdgeAnchorMetadata(doc *types.AnswerDocumentV2) int {
 				fixed++
 			}
 		}
+	}
+	return fixed
+}
+
+// normalizeDiagramEdgeAnchorNodeRefsByUniqueOneSidedBodyEdge repairs one
+// model-authored metadata reference when Mermaid source compatibility has left
+// an otherwise exact typed anchor attached to only one endpoint of its visible
+// edge. It is intentionally narrower than label/identity aliasing:
+//
+//   - the anchor already carries a complete typed identity pair and relation;
+//   - exactly one endpoint node already matches the visible directed edge;
+//   - the mismatching node field is merely a copy of that side's typed identity;
+//   - exactly one unowned visible edge is eligible, and no other orphan anchor
+//     competes for it.
+//
+// The function never reads visible labels or relation words and never changes
+// diagram source, endpoint identities, relation kind, direction, or evidence.
+// Zero-sided, ambiguous, duplicate, and already-owned shapes fail closed.
+func normalizeDiagramEdgeAnchorNodeRefsByUniqueOneSidedBodyEdge(block *types.AnswerBlock) int {
+	if block == nil || block.Kind != types.BlockDiagram || block.Diagram == nil || len(block.EdgeAnchors) == 0 {
+		return 0
+	}
+	type edgePair struct{ from, to string }
+	visibleCounts := make(map[edgePair]int)
+	for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+		pair := edgePair{from: strings.TrimSpace(edge.From), to: strings.TrimSpace(edge.To)}
+		if pair.from != "" && pair.to != "" {
+			visibleCounts[pair]++
+		}
+	}
+	if len(visibleCounts) == 0 {
+		return 0
+	}
+	owned := make(map[edgePair]bool)
+	for i := range block.EdgeAnchors {
+		anchor := &block.EdgeAnchors[i]
+		pair := edgePair{from: strings.TrimSpace(anchor.FromNode), to: strings.TrimSpace(anchor.ToNode)}
+		if visibleCounts[pair] == 1 {
+			owned[pair] = true
+		}
+	}
+	type repairCandidate struct {
+		pair    edgePair
+		fixFrom bool
+		fixTo   bool
+	}
+	candidates := make(map[int][]repairCandidate)
+	demand := make(map[edgePair]int)
+	for i := range block.EdgeAnchors {
+		anchor := &block.EdgeAnchors[i]
+		current := edgePair{from: strings.TrimSpace(anchor.FromNode), to: strings.TrimSpace(anchor.ToNode)}
+		if owned[current] || !anchor.RelationKind.IsValid() || !anchor.HasEndpointIdentityPair() {
+			continue
+		}
+		fromCopiedIdentity := types.AnswerCodeIdentitySurfacesEquivalent(anchor.FromNode, anchor.FromIdentity)
+		toCopiedIdentity := types.AnswerCodeIdentitySurfacesEquivalent(anchor.ToNode, anchor.ToIdentity)
+		seen := make(map[edgePair]bool)
+		for pair, count := range visibleCounts {
+			if count != 1 || owned[pair] {
+				continue
+			}
+			sameFrom := pair.from == current.from
+			sameTo := pair.to == current.to
+			if sameFrom == sameTo || (!sameFrom && !fromCopiedIdentity) || (!sameTo && !toCopiedIdentity) || seen[pair] {
+				continue
+			}
+			seen[pair] = true
+			candidates[i] = append(candidates[i], repairCandidate{
+				pair: pair, fixFrom: !sameFrom, fixTo: !sameTo,
+			})
+		}
+		if len(candidates[i]) == 1 {
+			demand[candidates[i][0].pair]++
+		}
+	}
+	fixed := 0
+	for i := range block.EdgeAnchors {
+		if len(candidates[i]) != 1 {
+			continue
+		}
+		candidate := candidates[i][0]
+		if demand[candidate.pair] != 1 {
+			continue
+		}
+		anchor := &block.EdgeAnchors[i]
+		if candidate.fixFrom && anchor.FromNode != candidate.pair.from {
+			anchor.FromNode = candidate.pair.from
+			fixed++
+		}
+		if candidate.fixTo && anchor.ToNode != candidate.pair.to {
+			anchor.ToNode = candidate.pair.to
+			fixed++
+		}
+		owned[candidate.pair] = true
 	}
 	return fixed
 }
