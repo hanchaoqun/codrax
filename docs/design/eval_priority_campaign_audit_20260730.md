@@ -35649,6 +35649,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1189 r744：合并参与者绕过关系覆盖；真实写失败与活跃长流分界（2026-08-19）
+
+1. 在 `main@807f24a37` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner 为
+   `1 PASS / 1 FAIL`，人工为 `0 PASS / 2 FAIL`；完整记录见
+   `eval/parallel_selected_summary_evalcampaign_proof_relation_replay_r744_20260819_manual_audit.md`。
+2. 读案例的 runner PASS 是弱 oracle 假绿：它只钉 Mermaid 至少一条边。终稿虽有四阶段 precedence，
+   `BusContext` 与 `MutableState` 却只剩孤立节点；用户明确请求的 stage↔state-carrier 数据流没有画出。
+   首稿其实画过这些关系，但关系 hard gate 正确拒绝未绑定 typed edge 后，连续四轮修补把它们删成
+   `Mutable/BusContext` 未证边界。模型正文同时断言共享状态总线，图与正文因此不一致。
+3. 新确认 B1189/P0。Analyzer 最后一轮把用户原话中的 `Mutable/BusContext` 同时写成一个 participant
+   和一个 entity。现有 `validateRequiredFlowDiagramParticipantProvenance` 只有在 entities 已分别含
+   `Mutable`、`BusContext` 时才能识别复合 participant；模型把两个载体一起合并后即可绕过，
+   `emit_investigation_complete` 的 `flow_participant_coverage` 因而是 0。源码证据并不缺：本轮已读到
+   `BuildAgentContext(o.busCtx,...)`、`TurnAArtifacts()` 与 `applyStageOutput`。最优根修是在
+   `emit_analysis` 的 provenance 校验前复用既有 slash-pair mention normalizer：只从 verbatim 当前请求
+   和 typed entities 做成对补全，再让现有 composite validator 要求模型分别发 participant；系统不造节点、
+   不造边、不写答案。Trace intent 继续完全绕过该 source-flow 合同。
+4. B1187 本轮没有获得生产正臂。模型没有调用 r743 的三文件 exact-source relation_map，而走 read_file/
+   其他 repo_map 路径；因此只能维持 direction/source/operation-diverse 单测和当前仓只读探针已通过，
+   不虚报 production closed。B1189 修复后，分开的 state-carrier obligations 应能让既有 repair target
+   真正请求缺失的 argument/data-flow operations，再回放验证 B1187。
+5. 写案例的三次失败均被真实 project suite 复现：第一版在 `ids` 赋值前使用；第二版把五换行折成
+   `[300,300,10]`；第三版错误删除全部换行。故这轮不是 B1188 的 non-authoritative probe 反向阻断，
+   scheduler 正确进入生产修复，B1188 的精确资格没有成立也没有触发。系统最终 fail-closed，未把坏补丁
+   签绿；B1188 继续只记 exact typed unit/wiring pins，等待真正的 probe-only 生产形。
+6. 新确认 B1190/P1（eval 基础设施）。所有写 eval 被 `eval/run.sh` 固定压到 15 steps，而生产默认是 50；
+   一个 plan/apply/verify/replan 周期会消耗多步，三次诚实 verify 后无第四轮空间。应给全部 write lane 一个
+   统一、显式、低于生产默认的较高预算（建议 24），read lane 保持 15；这是按执行拓扑分档，不按案例名、
+   语言或输出文字特判。预算只允许继续修复，不降低 verify、不把失败改绿。
+7. 第二次 planner 重规划出现约 9 分钟、约 57k 字的反复语义输出。上游期间持续有 semantic bytes，系统
+   正确没有在 4 分钟静态阈值降级；随后仍收到结构化 plan。该现象记为 B1191/P2 模型/效率观察项：不能
+   用固定总龄截断活跃正确输出，也不能从半截 prose 自铸计划或答案。后续先观察异构模型复现率；若需要
+   治理，应使用 provider/token 层明确完成界限或软提示，不能违背 byte-stall/cancel/deadline 权威。
+8. 本批不改 Trace。显式时间窗、因果投影、自动补齐、链上-only 主因，以及真实占用/业务线索与规则计价
+   可消除量双轴均保持；邻近与背景不得晋升主因。系统仍只提供 typed 精确信息和修补上下文，不替模型
+   写图、答案或结论。
+
+状态：
+
+`B1187-STAGESTATEOPERATIONNAVIGATION1=implemented+pinned/not-production-exercised-r744`；
+`B1188-NONAUTHORITATIVEPROBEREBIND1=implemented+pinned/not-eligible-r744`；
+`B1189-SLASHJOINEDPARTICIPANTBYPASS1=confirmed/P0/next`；
+`B1190-WRITEEVALSTEPBUDGET1=confirmed/P1/next`；
+`B1191-ACTIVESEMANTICLONGSTREAM1=observed/P2/no-fixed-age-cutoff`；
+`active-stream-4m-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1187 r743：补证前置接管生产正证；非权威探针失败反向阻断纠偏（2026-08-19）
 
 1. 在 `main@09f68be15` 重建后严格并发恰好两个案例：
