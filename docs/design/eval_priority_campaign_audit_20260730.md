@@ -35748,6 +35748,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    答案原文，不按语言、函数名或样例拟合，不删除模型选择的关系。compiler 与 Finalizer 目标 pin 已绿，待生产回放
    检验 reject 是否从 3 次降为 0，并继续观察 diagram-before-roster 的软顺序合同。
 
+### §123.1139 r720：图后清单与 facet ownership 闭环；跨语言静态检查诚实 fail-safe（2026-08-18）
+
+1. 在 `main@02f1c397e` 重建后严格并发恰好两个异构案例：读模式
+   `qf_sequence_analyzer_gate` 与写模式 `github_issue_napi_force_wasi_env_symptom`。Runner
+   `1 PASS / 1 FAIL`；人工为 read pass、write pass-fail-safe。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_memberedge_write_r720_20260818_manual_audit.md`。
+2. B1144 获生产闭环：Analyzer 继续铸出 `① Mermaid 时序图`、`② 关键中间函数`，终稿首次按该顺序先图后
+   roster；系统未重排或改写 block。18 项函数来自模型选择与 grounded citations，虽然偏长，但没有因 layout
+   修复丢失事实。
+3. B1145 获生产闭环：第一稿已把 exact endpoint-edge carrier 与 descriptive `member_set` roster 分块，
+   没再把关键函数行挂进 `principal_path_edge/call_edge`。成文拒绝从 3 次降为 1 次；唯一拒绝是模型给独立
+   endpoint-edge list 声明 call_edge 却漏 edge_anchors，单次 patch 补齐既有两条边后通过，未删图、删清单或造边。
+4. 最终 Mermaid 严格保持 `buildAnalysisIR -> gate.RunWith <- gate.Run`，明确没有
+   `buildAnalysisIR -> gate.Run` 有向路径。Explorer 中曾把 wrapper 与 RunWith 口头等价，completion gate 正确
+   fail-closed，最终答案没有继承该错误推断。
+5. TypeScript write 的首计划只新增显式 `true/error` 变量和新分支，却漏删旧 truthiness if；真实
+   `make check` 抓住失败并触发 replan。第二计划只删除旧行，累计 diff 正确保留 true/error 强制语义与
+   false/0/空/undefined 正常 fallback，随后 `make check` 通过。验证失败没有被绿的后续命令掩盖。
+6. Runner 最终 FAIL 是正确 fail-safe，不是 capability gap。Make 的 Python checker会解析模板和 TS 测试源码、
+   能抓 source/test-shape 回归，但没有执行 `renderNativeBinding`；Makefile 也没有运行 `.ts` 测试。因此 exact
+   cross-language declared project check 保持 `source_static`，最终诚实 unverified。不得仅因 checker 很强、
+   曾抓到错误或项目命令为绿就升级 `target_behavior`；只有独立 typed target runtime/probe 才有该权限。
+7. 两案无畸形 JSON、空答案、旧稿降级、系统代写结论或 active-stream 固定年龄降级。本批不改 Trace；显式窗、
+   因果投影、自动补齐、typed on-chain-only 主因、实际占用/业务线索与规则可消除量双轴继续保持。
+
+状态：
+
+`B1144-MULTISURFACEDIMENSIONORDER1=production-closed-r720/analyzer-typed+model-authored-order`；
+`B1145-MEMBERSETENDPOINTFACETCOLLISION1=production-closed-r720/three-rejects-to-zero-for-ownership`；
+`QF-SEQUENCE-ENDPOINT-ANCHOR-OMISSION=observed-once/P3/one-surgical-repair/no-content-loss`；
+`NAPI-WRITE=correct-cumulative-fix+verify-failure-replan-positive/final-honest-unverified`；
+`cross-language-declared-project-check=source_static-by-design/no-false-promotion`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1136 r717：D/IO 零清单闭环；scheduler-marked 与 completion-closed IO 等待同名冲突（2026-08-18）
 
 1. 在 `main@9ed080a18` 重建后严格并发恰好两个案例：
