@@ -43,6 +43,39 @@ func TestImpactRunnerPlansFromChangePlanTargetsPythonRelatedTest(t *testing.T) {
 	}
 }
 
+func TestImpactRunnerPlansFromChangePlanQueuesDeclaredProjectTestObservation(t *testing.T) {
+	root := t.TempDir()
+	writeImpactSurfaceFixture(t, root, "pkg/a.py", "def value():\n    return 1\n")
+	writeImpactSurfaceFixture(t, root, "tests/test_a.py", "import unittest\n\nclass ValueTest(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(1, 1)\n")
+
+	surface := BuildTestSurface(root, "")
+	plan := &types.ChangePlan{
+		ID:          "plan-project-test-observation",
+		TargetPaths: []string{"pkg/a.py"},
+		Changes:     []types.FileChange{{Path: "pkg/a.py", Kind: "patch"}},
+		ProjectTestObservations: []types.ProjectTestObservation{{
+			ID: "value-observation", TestPath: "tests/test_a.py",
+			AssertionSuite: "ValueTest", AssertionID: "test_value",
+			ContractRefs: []string{"value-contract"},
+		}},
+	}
+
+	plans := impactRunnerPlansFromChangePlan(root, surface, plan)
+	if len(plans) != 1 {
+		t.Fatalf("declared observation should queue one exact runner plan, got %+v surface=%+v", plans, surface.Candidates)
+	}
+	if plans[0].Runner != "python" || plans[0].Framework != pythonFrameworkUnittest || plans[0].Suite != "tests/test_a.py" {
+		t.Fatalf("observation path did not become the exact unittest file selector: %+v", plans[0])
+	}
+	command, rej := buildRunCommandForPlan(plans[0], plans[0].Suite, "")
+	if rej != "" {
+		t.Fatalf("render exact observation command: %s", rej)
+	}
+	if !strings.Contains(command, `-m unittest "tests/test_a.py" -v`) || strings.Contains(command, "discover -s") {
+		t.Fatalf("exact unittest observation must execute the file, got %q", command)
+	}
+}
+
 func TestImpactRunnerPlansPreferPytestFileSelectorOverUnittestFallback(t *testing.T) {
 	root := t.TempDir()
 	writeImpactSurfaceFixture(t, root, "pyproject.toml", "[tool.pytest.ini_options]\ntestpaths=['tests']\n")

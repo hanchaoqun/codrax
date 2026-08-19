@@ -612,7 +612,7 @@ func impactRunnerPlansFromChangePlan(repoRoot string, surface types.TestSurface,
 		if cand == nil {
 			continue
 		}
-		suite := impactSuiteForCandidate(*cand, related)
+		suite := impactSuiteForVerificationTarget(*cand, target, related)
 		if suite == "" {
 			continue
 		}
@@ -725,7 +725,7 @@ func directTestSurfaceTargetsFromChangePlan(plan *types.ChangePlan) []types.Impa
 	}
 	var out []types.ImpactVerificationTarget
 	seen := map[string]bool{}
-	addPath := func(raw string) {
+	addPath := func(raw, source string) {
 		rel := cleanRepoRelPath(raw)
 		if rel == "" || seen[rel] || !types.LooksLikeTestFilePath(rel) {
 			return
@@ -737,21 +737,50 @@ func directTestSurfaceTargetsFromChangePlan(plan *types.ChangePlan) []types.Impa
 			RelatedPath:    rel,
 			Priority:       100,
 			Strength:       "precise",
-			Source:         "direct_plan_test_path",
+			Source:         source,
 			CoverageStatus: "unverified",
 			EvidenceRef:    rel,
 		})
 	}
+	// A project-test observation is a typed declaration that verification must
+	// observe one concrete assertion in this exact repository test file. Queue
+	// it before ordinary touched test paths so its narrower execution intent is
+	// retained when the same file also appears in Changes/TargetPaths. This does
+	// not mint proof: run_tests still requires a successful exact candidate
+	// command and a matching assertion-scoped result.
+	for _, observation := range types.ChangePlanVerificationProjectTestObservations(plan) {
+		addPath(observation.TestPath, "project_test_observation")
+	}
 	for _, path := range plan.TargetPaths {
-		addPath(path)
+		addPath(path, "direct_plan_test_path")
 	}
 	for _, path := range plan.AppliedPaths {
-		addPath(path)
+		addPath(path, "direct_plan_test_path")
 	}
 	for _, change := range plan.Changes {
-		addPath(change.Path)
+		addPath(change.Path, "direct_plan_test_path")
 	}
 	return out
+}
+
+func impactSuiteForVerificationTarget(
+	cand types.TestSurfaceCandidate,
+	target types.ImpactVerificationTarget,
+	related string,
+) string {
+	// unittest's ordinary impact lane intentionally scopes discovery to a
+	// directory. A ProjectTestObservation is narrower: its authority names one
+	// exact file and assertion, so execute that file directly. Other runner
+	// families already derive their narrowest supported selector from the file.
+	if strings.TrimSpace(target.Source) == "project_test_observation" &&
+		cand.Runner == "python" && cand.Framework == pythonFrameworkUnittest {
+		rel := relatedPathInsideWorkingDir(cand.WorkingDir, related)
+		if path.Ext(rel) == ".py" && path.Base(rel) != "__init__.py" {
+			return rel
+		}
+		return ""
+	}
+	return impactSuiteForCandidate(cand, related)
 }
 
 func safeImpactRelatedPath(repoRoot, related string) string {

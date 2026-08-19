@@ -3534,7 +3534,7 @@ func projectTestObservationExecuted(observation types.ProjectTestObservation, re
 	if report == nil || report.TestSurface == nil {
 		return false
 	}
-	testPath := strings.ToLower(cleanRepoRelPath(observation.TestPath))
+	testPath := cleanRepoRelPath(observation.TestPath)
 	if testPath == "" {
 		return false
 	}
@@ -3543,25 +3543,13 @@ func projectTestObservationExecuted(observation types.ProjectTestObservation, re
 	if assertionSuite == "" || assertionID == "" {
 		return false
 	}
-	assertionPassed := false
-	for _, result := range report.TestResults {
-		if result.Kind == types.TestResultKindBuildError || !result.Passed ||
-			result.ObservationScope != types.TestObservationScopeAssertion {
-			continue
-		}
-		if strings.TrimSpace(result.Suite) == assertionSuite && strings.TrimSpace(result.AssertionID) == assertionID {
-			assertionPassed = true
-			break
-		}
-	}
-	if !assertionPassed {
-		return false
-	}
 	for _, candidate := range report.TestSurface.Candidates {
-		if !candidate.HasTestSignal || !declaredCoveragePathContains(candidate.DeclaredCoveragePaths, testPath) {
+		expectedSuite, ok := projectTestObservationCandidateSuite(candidate, testPath)
+		if !ok {
 			continue
 		}
 		candidateKey := testSurfaceCandidateKey(candidate.Runner, candidate.Framework, candidate.WorkingDir)
+		executed := false
 		for _, cmd := range report.ExecutedCommands {
 			if strings.TrimSpace(cmd.Outcome) != "executed" || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
 				continue
@@ -3569,20 +3557,111 @@ func projectTestObservationExecuted(observation types.ProjectTestObservation, re
 			if testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir) != candidateKey {
 				continue
 			}
-			target := strings.TrimSpace(candidate.MakeTarget)
-			if target != "" {
-				if strings.TrimSpace(cmd.Suite) != target {
-					continue
-				}
-			} else if strings.ToLower(cleanRepoRelPath(cmd.Suite)) != testPath {
-				// A non-Make candidate needs an exact typed suite selector until
-				// its runner exposes an equally precise declared test roster.
+			if strings.TrimSpace(cmd.Suite) != expectedSuite {
+				continue
+			}
+			executed = true
+			break
+		}
+		if !executed {
+			continue
+		}
+		for _, result := range report.TestResults {
+			if result.Kind == types.TestResultKindBuildError || !result.Passed ||
+				result.ObservationScope != types.TestObservationScopeAssertion ||
+				strings.TrimSpace(result.AssertionID) != assertionID ||
+				!projectTestAssertionSuiteMatches(strings.TrimSpace(result.Suite), assertionSuite) ||
+				!projectTestResultSuiteBelongsToPath(candidate, testPath, expectedSuite, strings.TrimSpace(result.Suite)) {
 				continue
 			}
 			return true
 		}
 	}
 	return false
+}
+
+func projectTestObservationCandidateSuite(candidate types.TestSurfaceCandidate, testPath string) (string, bool) {
+	if !candidate.HasTestSignal {
+		return "", false
+	}
+	if target := strings.TrimSpace(candidate.MakeTarget); candidate.Runner == "make" || target != "" {
+		if target == "" || !declaredCoveragePathContains(candidate.DeclaredCoveragePaths, strings.ToLower(testPath)) {
+			return "", false
+		}
+		return target, true
+	}
+	if !impactCandidateSupportsSuite(candidate) || !testSurfaceWorkingDirContainsPath(candidate.WorkingDir, testPath) {
+		return "", false
+	}
+	suite := impactSuiteForVerificationTarget(candidate, types.ImpactVerificationTarget{
+		Source: "project_test_observation",
+	}, testPath)
+	if suite == "" || validateRunTestsSuiteSelector(suite) != "" {
+		return "", false
+	}
+	return suite, true
+}
+
+// Project-test suite declarations name the assertion suite itself. Structured
+// runners may qualify that identity with a module, file, package, or class
+// prefix. Only exact equality or a boundary-qualified suffix is accepted; an
+// arbitrary substring never gains proof authority.
+func projectTestAssertionSuiteMatches(observed, declared string) bool {
+	observed = strings.TrimSpace(observed)
+	declared = strings.TrimSpace(declared)
+	if observed == "" || declared == "" {
+		return false
+	}
+	if observed == declared {
+		return true
+	}
+	for _, boundary := range []string{"::", ".", "/"} {
+		if strings.HasSuffix(observed, boundary+declared) {
+			return true
+		}
+	}
+	return false
+}
+
+func projectTestResultSuiteBelongsToPath(
+	candidate types.TestSurfaceCandidate,
+	testPath string,
+	executedSuite string,
+	observedSuite string,
+) bool {
+	if candidate.Runner == "make" {
+		// The bounded Make roster is the path-membership proof. Its parser may
+		// expose a nested framework suite or only the target-local identity.
+		return true
+	}
+	rel := relatedPathInsideWorkingDir(candidate.WorkingDir, testPath)
+	if rel == "" || observedSuite == "" {
+		return false
+	}
+	switch candidate.Runner {
+	case "python":
+		switch candidate.Framework {
+		case pythonFrameworkPytest, "":
+			return observedSuite == rel || strings.HasPrefix(observedSuite, rel+"::")
+		case pythonFrameworkUnittest:
+			module := strings.TrimSuffix(strings.ReplaceAll(rel, "/", "."), ".py")
+			baseModule := strings.TrimSuffix(path.Base(rel), ".py")
+			return observedSuite == module || strings.HasPrefix(observedSuite, module+".") ||
+				observedSuite == baseModule || strings.HasPrefix(observedSuite, baseModule+".")
+		case pythonFrameworkDjango:
+			selector := djangoSuiteSelector(rel)
+			return selector != "" && (observedSuite == selector || strings.HasPrefix(observedSuite, selector+"."))
+		}
+	case "go":
+		want := strings.TrimPrefix(executedSuite, "./")
+		return want == "." || want == "" || observedSuite == want || strings.HasSuffix(observedSuite, "/"+want)
+	case "java":
+		return observedSuite == executedSuite || strings.HasSuffix(observedSuite, "."+executedSuite)
+	}
+	// These runners already execute the file/class/filter selector derived
+	// from testPath. Their structured result formats do not all repeat the
+	// source path, so the exact successful command is the membership proof.
+	return true
 }
 
 func declaredCoveragePathContains(paths []string, wantLower string) bool {
@@ -6850,7 +6929,13 @@ func buildRunCommandWithFramework(runner, framework, suite, repoRoot, mainRoot s
 			if pythonUnittestSuiteIsDirectory(repoRoot, filter) {
 				return fmt.Sprintf("%s -m unittest discover -s %q -v", interp, filter), ""
 			}
-			if strings.HasSuffix(filter, ".py") || strings.Contains(filter, "/") {
+			// An exact observation target is a concrete test file. unittest
+			// accepts repo-relative .py paths as an exact module selector; using
+			// `discover -s <file>` is invalid because -s requires a directory.
+			if strings.HasSuffix(filter, ".py") {
+				return fmt.Sprintf("%s -m unittest %q -v", interp, filter), ""
+			}
+			if strings.Contains(filter, "/") {
 				return fmt.Sprintf("%s -m unittest discover -s %q -v", interp, filter), ""
 			}
 			return fmt.Sprintf("%s -m unittest %q -v", interp, filter), ""

@@ -35692,6 +35692,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    collision、ambiguous edge/anchor 和 nonincident gate pin 同时通过。定向回归与
    `go test ./internal/tool -count=1` 全套 PASS（176.576s）。系统没有给出替换 ID/label/relation，也没有
    创建、删除或反转模型关系。
+9. B1193 已按“执行接线与证明权限分离”施工。`ProjectTestObservations` 的 exact `test_path` 现在先于普通
+   changed test path 进入 direct TestSurface target，因此即使测试文件未改，也会排入 assertion-capable
+   runner；Python unittest observation 使用具体 `.py` 文件命令，不再把目录 discovery 当精确 selector。
+   receipt 分两类守权：Make/元 runner 仍须 exact `DeclaredCoveragePaths + MakeTarget`；Python/Go/Java/Node/
+   Ruby/Rust/Swift 普通 runner 不再被错误要求 Make 清册，而须由 test_path 派生的精确 suite、成功的同 candidate
+   命令、assertion-scoped result、exact assertion id，以及 exact/边界限定的 suite identity 同时成立。
+   聚合结果、目录级 unittest 命令、相似但非边界 suite 与错误文件模块均不能铸 receipt。端到端 pin 证明
+   “只改源码、声明既有 Python 测试 observation”会实际执行该文件并关闭 contract；队列 pin、正负权限 pin、
+   JSON schema 教学同步通过。定向回归与 `go test ./internal/tool -count=1` 全套 PASS（182.450s）。
 
 状态：
 
@@ -35699,7 +35708,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1190-WRITEEVALSTEPBUDGET1=production-positive-fourth-repair+tests-pass-r745`；
 `B1191-ACTIVESEMANTICLONGSTREAM1=reconfirmed/no-fixed-age-cutoff`；
 `B1192-ENDPOINTRETARGETREPAIRFOCUS1=implemented/full-tool-pass/pending-production-replay`；
-`B1193-PROJECTASSERTIONCANDIDATEEXEC1=confirmed/P0/next`；
+`B1193-PROJECTASSERTIONCANDIDATEEXEC1=implemented/e2e+full-tool-pass/pending-production-replay`；
 `active-stream-4m-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

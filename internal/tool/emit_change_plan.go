@@ -252,7 +252,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
         "properties": {
           "id": {"type": "string", "description": "Stable unique observation id."},
           "test_path": {"type": "string", "description": "Exact repo-relative test file path."},
-          "assertion_suite": {"type": "string", "description": "Exact suite identity expected from the project runner."},
+          "assertion_suite": {"type": "string", "description": "Assertion suite identity expected from the project runner. Use the suite/class identity itself; a structured runner may qualify it with the exact file, module, or package namespace."},
           "assertion_id": {"type": "string", "description": "Exact concrete assertion identity expected from the project runner."},
           "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Behavior-contract ids directly asserted by this exact test assertion."}
         },

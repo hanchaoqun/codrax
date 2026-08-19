@@ -127,7 +127,7 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	        "properties": {
 	          "id": {"type": "string"},
 	          "test_path": {"type": "string"},
-	          "assertion_suite": {"type": "string"},
+	          "assertion_suite": {"type": "string", "description": "Assertion suite/class identity; a structured runner may qualify it with the exact file, module, or package namespace."},
 	          "assertion_id": {"type": "string"},
 	          "contract_refs": {"type": "array", "items": {"type": "string"}}
 	        },
