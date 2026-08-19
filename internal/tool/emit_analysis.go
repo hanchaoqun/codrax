@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/prescan"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -1677,6 +1678,21 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		diagramHint = reconciled
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
+	}
+	// Required source-flow diagrams need one typed participant obligation per
+	// user-authored identity. Canonicalize only the analyzer's entity roster
+	// here, before participant provenance is checked: an emitted A/B entity is
+	// the same exact current-request pair already handled by the analyzer's
+	// mention normalizer, not one actor. If the model also emitted a joined
+	// participant, the existing composite-participant validator now sees both
+	// typed halves and asks the model to resend separate rows. This neither
+	// creates a participant nor authorizes an edge. Runtime Trace deliberately
+	// stays outside this source-flow contract.
+	if intent != types.IntentTrace && axis == types.AxisFlow && diagramHint != nil && diagramHint.Required {
+		if normalized := normalizer.CanonicalizeSlashPairEntities(raw, entities); !reflect.DeepEqual(normalized, entities) {
+			entities = normalized
+			val.Warnings = append(val.Warnings, "canonicalized exact slash-joined source-flow entities before participant provenance validation")
+		}
 	}
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the

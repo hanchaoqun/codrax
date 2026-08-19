@@ -35659,14 +35659,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `BusContext` 与 `MutableState` 却只剩孤立节点；用户明确请求的 stage↔state-carrier 数据流没有画出。
    首稿其实画过这些关系，但关系 hard gate 正确拒绝未绑定 typed edge 后，连续四轮修补把它们删成
    `Mutable/BusContext` 未证边界。模型正文同时断言共享状态总线，图与正文因此不一致。
-3. 新确认 B1189/P0。Analyzer 最后一轮把用户原话中的 `Mutable/BusContext` 同时写成一个 participant
+3. B1189/P0 已施工。Analyzer 最后一轮把用户原话中的 `Mutable/BusContext` 同时写成一个 participant
    和一个 entity。现有 `validateRequiredFlowDiagramParticipantProvenance` 只有在 entities 已分别含
    `Mutable`、`BusContext` 时才能识别复合 participant；模型把两个载体一起合并后即可绕过，
    `emit_investigation_complete` 的 `flow_participant_coverage` 因而是 0。源码证据并不缺：本轮已读到
    `BuildAgentContext(o.busCtx,...)`、`TurnAArtifacts()` 与 `applyStageOutput`。最优根修是在
    `emit_analysis` 的 provenance 校验前复用既有 slash-pair mention normalizer：只从 verbatim 当前请求
    和 typed entities 做成对补全，再让现有 composite validator 要求模型分别发 participant；系统不造节点、
-   不造边、不写答案。Trace intent 继续完全绕过该 source-flow 合同。
+   不造边、不写答案。实现把既有 slash-pair mention 逻辑下沉为共享 normalizer；普通 missing-half
+   行为字节语义不变，required source-flow 入口额外把 joined entity 规范成两个 verbatim identity，随后仍由
+   既有 provenance validator 要求模型重发 participant。路径、URL、小写 `client/server` 不拆，Trace intent
+   继续完全绕过该 source-flow 合同。normalizer/agent/tool 定向与整包测试均通过。
 4. B1187 本轮没有获得生产正臂。模型没有调用 r743 的三文件 exact-source relation_map，而走 read_file/
    其他 repo_map 路径；因此只能维持 direction/source/operation-diverse 单测和当前仓只读探针已通过，
    不虚报 production closed。B1189 修复后，分开的 state-carrier obligations 应能让既有 repair target
@@ -35691,7 +35694,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B1187-STAGESTATEOPERATIONNAVIGATION1=implemented+pinned/not-production-exercised-r744`；
 `B1188-NONAUTHORITATIVEPROBEREBIND1=implemented+pinned/not-eligible-r744`；
-`B1189-SLASHJOINEDPARTICIPANTBYPASS1=confirmed/P0/next`；
+`B1189-SLASHJOINEDPARTICIPANTBYPASS1=implemented/shared-normalizer+source-flow-only+trace-bypass+pinned`；
 `B1190-WRITEEVALSTEPBUDGET1=confirmed/P1/next`；
 `B1191-ACTIVESEMANTICLONGSTREAM1=observed/P2/no-fixed-age-cutoff`；
 `active-stream-4m-degrade=forbidden/not-observed`；

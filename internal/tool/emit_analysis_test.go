@@ -4817,6 +4817,42 @@ func TestEmitAnalysis_Execute_RequiredDiagramPreservesRequestedDisplayIdentityAc
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsJoinedSlashParticipantWhenEntityRosterIsAlsoJoined(t *testing.T) {
+	raw := "请用 Mermaid 架构图画出 analyzer、Mutable/BusContext 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","Mutable","BusContext","数据流"],
+		"entities":["analyzer","Mutable/BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"analyzer、Mutable/BusContext 之间的数据流","participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"Mutable/BusContext","role":"incident_required","source_quote":"Mutable/BusContext"}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid architecture", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("joined entity+participant must not bypass per-identity flow coverage: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	}
+	for _, want := range []string{
+		`identity="Mutable/BusContext" collapses distinct typed entities [Mutable BusContext]`,
+		"emit one participant row per entity",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("joined participant repair missing %q: %s", want, res.Summary)
+		}
+	}
+}
+
 func TestEmitAnalysis_Execute_RequiredDiagramDimensionPreventsSiblingHintDowngrade(t *testing.T) {
 	raw := "解释 read mode 从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并给 stage 表"
 	mu := types.NewMutableState(raw)
