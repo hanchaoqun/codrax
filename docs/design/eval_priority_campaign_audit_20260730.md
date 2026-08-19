@@ -35649,6 +35649,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1137 r718：IO 双尺生产仍被泛化；图后中间函数维度丢失（2026-08-18）
+
+1. 在 `main@089bb7bbd` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_sequence_analyzer_gate`。Runner `2 PASS / 2`，人工均为
+   partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_io_caliber_sequence_r718_20260818_manual_audit.md`。
+2. H4 的数值与频率证据继续正确：Running=157.248ms、Runnable=5.604ms、Sleep=70.338ms、
+   D/scheduler-marked IO=0；CPU4 的 2.10GHz policy row 与目标 running slice 绑定仍明确未证。
+   有限影响问题不要求完整 Trace 因果投影，本轮 `root_cause_views=0/projection_blocks=0` 是正确 scope。
+3. B1142 尚不能生产收账。新 head summary、state authority、有限提示和 skill 均已到达 Finalizer，
+   明确 `io_wait_caliber=scheduler_marked_only`，但终稿仍写“证明未发生磁盘或内核不可中断阻塞”。
+   本轮有限问题没有发布 completion-closed 具体行，模型把“第二把尺未调查/未出现”错误扩成“第二把尺为零”。
+   下一修必须把无第二尺时的 reader meaning 明确为“该状态分区未评估”，并提供可直接采用的自然语言标签；
+   仍不得扫描/拒绝/改写答案，也不得把普通 S 自动认作 IO。
+4. 同轮生产复确 B1139/P2：中文终稿泄漏 `target_window_states`、`complete`、
+   `target_window_wait_occurrences`、`unproven`、`full_window_all_cpu` 等内部键/枚举。已有软本地化教学未充分
+   降低心智，但禁止改成答案原文关键词硬门；应从 model-facing typed card 的读者标签与信息预算根修。
+5. 新记 B1143/P2：终稿把 Sleep 解释成“主动让出或被抢占后的睡眠等待”。调度器 S 只证明可中断睡眠状态，
+   不证明 voluntary yield、idle、preemption 或具体等待机制；抢占通常回到 runnable。需在 state-caliber
+   typed context 增加无机理授权边界，不替模型写原因。
+6. sequence 案的有向边界正确：源码只有 `buildAnalysisIR→gate.RunWith` 与 `gate.Run→gate.RunWith`，系统未
+   为迎合问题伪造 `buildAnalysisIR→gate.Run`。最终 Mermaid 合法且兼容修复生效，两个 grounded edge 汇聚
+   到 RunWith，系统没有代画关系或改写结论。
+7. 新确认 B1144/P1：当前请求明确要求“并在图后列出关键中间函数”，Analyzer 的 typed dimensions 却只保留
+   “调用顺序”。最终两条边列表出现在图前，且已探索到的 normalizer/compiler/risk/plan/binder 等关键阶段
+   没有作为独立列表输出。最优解是让 diagram surface、sibling member list 和相对顺序成为互不吞并的 typed
+   answer dimensions/layout relation；不按案例函数名、语言或终稿文本补丁硬拟合。
+8. 两案没有 active-stream 4ms 降级、畸形 JSON 最终恢复、空答案、成文重试风暴或系统结论替换。真正
+   causal-diagnosis 仍保留显式窗、自动补齐、typed on-chain-only 主因，以及实际占用/业务线索与规则可消除量
+   双轴；邻近/背景继续只能作额外排查支撑。
+
+状态：
+
+`B1142-IWAITCALIBERWORDING1=unit-complete/production-partial-r718/absent-second-ruler-boundary-next`；
+`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-reconfirmed-r718/P2/no-prose-keyword-gate`；
+`B1143-SCHEDULERSTATEMECHANISMAUTHORITY1=confirmed/P2/typed-soft-boundary`；
+`B1144-MULTISURFACEDIMENSIONORDER1=confirmed/P1/general-typed-design-next`；
+`QF-SEQUENCE-MERMAID=syntax-pass+source-repair-positive/directed-boundary-correct`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1136 r717：D/IO 零清单闭环；scheduler-marked 与 completion-closed IO 等待同名冲突（2026-08-18）
 
 1. 在 `main@9ed080a18` 重建后严格并发恰好两个案例：
