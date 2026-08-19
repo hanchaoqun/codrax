@@ -191,6 +191,13 @@ func renderAnswerDocFlowParticipantCoverageGuidance(
 		b.WriteString("- These schema-validated participant roles are planning/coverage guidance, not relation evidence and not permission to add an edge. Inspect a real operation only for each uniquely resolved `source_operation_missing` participant. A `request_visible_boundary_only` label has no unique typed source identity: keep it independent/unproven when useful, and do not search for or connect a homonymous operation merely for visual completeness. Keep `context_only` participants outside the path unless independent evidence proves a relation.\n")
 		b.WriteString("- A typed call/member endpoint may be incident to its exact receiver/owner participant (for example `ctx.Mutable.Reset` is incident to `Mutable`). Keep the model-authored participant as the visible business/component label while preserving the exact operation endpoint in `edge_anchors.from_identity/to_identity`; this owner projection changes no relation kind, direction, or evidence authority.\n")
 		b.WriteString("- A parser-stamped static declaration may also align its declared type participant with the exact binding inside an operation endpoint (for example `state *RequestState` plus `handler.state.Items = value`). The declaration is identity-only; keep the operation's exact endpoint and do not turn the declaration into an edge. Untyped, ambiguous, or differently-owned bindings remain unproven.\n")
+		candidateGuidance := tool.FlowParticipantTypedIncidentCandidateGuidance(
+			rm, evidence, answerDocVerifiedReadModeStagePrecedenceForRequest(ctx), 2,
+		)
+		if candidateGuidance != "" {
+			b.WriteString("- First-pass typed participant endpoint choices (bounded authoring input, not a system-authored graph): " + candidateGuidance + "\n")
+			b.WriteString("- For every incident-required participant that has first-pass choices, select one relevant existing candidate when representing that participant's directed relation. One edge may satisfy two participants when its declared sides match both. In `diagram.body`, map only `participant_endpoint_side` to the exact `participant_node_id`; in the sibling edge anchor keep `edge_anchor_identity_fields` byte-for-byte and use `visible_arrow_label` as reader-facing relationship wording. Do not render every candidate, join candidates into a new path, or add a bridge. Participants with no candidate keep the separately published honest boundary. The model still authors every visible node, edge, label, diagram, and conclusion.\n")
+		}
 		return
 	}
 	fmt.Fprintf(b, "- soft_named_participant_relation_coverage: incident=%v; no_incident_typed_relation=%v.\n", coverage.incident, coverage.unproved)

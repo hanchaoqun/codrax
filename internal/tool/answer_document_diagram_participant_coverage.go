@@ -781,18 +781,75 @@ func diagramParticipantCoverageCandidateGuidance(
 	if len(failed) == 0 {
 		return ""
 	}
-	rows := make([]string, 0, len(failed)*2)
-	for _, obligation := range rm.DiagramHint.Participants {
+	return flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 3)
+}
+
+// FlowParticipantTypedIncidentCandidateGuidance publishes the same bounded,
+// typed participant-to-endpoint choices used by the hard participant gate,
+// but early enough for first-pass authoring. It is deliberately a candidate
+// roster: it does not choose a row, create a visible edge, assign Mermaid node
+// IDs on the model's behalf, or change the relation/boundary decision.
+//
+// Keeping this exported seam in the tool package prevents prompt construction
+// from growing a second language-specific endpoint matcher that can drift from
+// validation. No request prose or answer text participates.
+func FlowParticipantTypedIncidentCandidateGuidance(
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	limitPerParticipant int,
+) string {
+	return flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, nil, limitPerParticipant)
+}
+
+func flowParticipantTypedIncidentCandidateGuidance(
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	participants map[string]bool,
+	limitPerParticipant int,
+) string {
+	if rm.DiagramHint == nil || limitPerParticipant <= 0 {
+		return ""
+	}
+	obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+	if len(obligations) == 0 {
+		return ""
+	}
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	rows := make([]string, 0, len(rm.DiagramHint.Participants)*limitPerParticipant)
+	for obligationIndex, obligation := range obligations {
 		participant := strings.TrimSpace(obligation.Identity)
-		if !failed[strings.ToLower(participant)] || obligation.Role != types.DiagramParticipantIncidentRequired {
+		if participants != nil && !participants[strings.ToLower(participant)] {
 			continue
 		}
-		candidates := diagramParticipantTypedIncidentCandidates(rm, obligation, evidence, stagePrecedence, 3)
+		candidates := diagramParticipantTypedIncidentCandidatesWithScope(
+			rm, obligation, evidence, stagePrecedence, limitPerParticipant,
+			obligations, allSurfaces, obligationIndex, relationScope,
+		)
 		for i, candidate := range candidates {
 			rows = append(rows, fmt.Sprintf("typed_candidate[%s][%d]=%s", participant, i+1, candidate))
 		}
 	}
 	return strings.Join(rows, "; ")
+}
+
+func diagramParticipantCandidateObligations(rm types.RequestModel) ([]types.DiagramParticipantHint, [][]string) {
+	if rm.DiagramHint == nil {
+		return nil, nil
+	}
+	obligations := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
+	allSurfaces := make([][]string, 0, len(rm.DiagramHint.Participants))
+	for _, participant := range rm.DiagramHint.Participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(participant.Identity) == "" {
+			continue
+		}
+		obligations = append(obligations, participant)
+		surfaces := []string{strings.TrimSpace(participant.Identity)}
+		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
+		allSurfaces = append(allSurfaces, surfaces)
+	}
+	return obligations, allSurfaces
 }
 
 func diagramParticipantTypedIncidentCandidates(
@@ -805,32 +862,48 @@ func diagramParticipantTypedIncidentCandidates(
 	if limit <= 0 {
 		return nil
 	}
-	obligations := make([]types.DiagramParticipantHint, 0)
-	allSurfaces := make([][]string, 0)
+	obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
 	obligationIndex := -1
-	if rm.DiagramHint != nil {
-		for _, participant := range rm.DiagramHint.Participants {
-			if participant.Role != types.DiagramParticipantIncidentRequired || strings.TrimSpace(participant.Identity) == "" {
-				continue
-			}
-			if strings.EqualFold(strings.TrimSpace(participant.Identity), strings.TrimSpace(obligation.Identity)) {
-				obligationIndex = len(obligations)
-			}
-			obligations = append(obligations, participant)
-			participantIdentitySurfaces := []string{strings.TrimSpace(participant.Identity)}
-			participantIdentitySurfaces = append(participantIdentitySurfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
-			allSurfaces = append(allSurfaces, participantIdentitySurfaces)
+	for i, participant := range obligations {
+		if strings.EqualFold(strings.TrimSpace(participant.Identity), strings.TrimSpace(obligation.Identity)) {
+			obligationIndex = i
+			break
 		}
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	return diagramParticipantTypedIncidentCandidatesWithScope(
+		rm, obligation, evidence, stagePrecedence, limit,
+		obligations, allSurfaces, obligationIndex, relationScope,
+	)
+}
+
+func diagramParticipantTypedIncidentCandidatesWithScope(
+	rm types.RequestModel,
+	obligation types.DiagramParticipantHint,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	limit int,
+	obligations []types.DiagramParticipantHint,
+	allSurfaces [][]string,
+	obligationIndex int,
+	relationScope flowParticipantRelationScope,
+) []string {
+	if limit <= 0 {
+		return nil
+	}
 	if len(obligations) > 1 && (obligationIndex < 0 ||
 		!relationScope.effectiveParticipantCovered(obligationIndex, false)) {
 		// Local operations remain valid evidence, but are not repair candidates
 		// for a relationship that no typed component currently proves.
 		return nil
 	}
-	surfaces := []string{strings.TrimSpace(obligation.Identity)}
-	surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, obligation)...)
+	var surfaces []string
+	if obligationIndex >= 0 && obligationIndex < len(allSurfaces) {
+		surfaces = allSurfaces[obligationIndex]
+	} else {
+		surfaces = []string{strings.TrimSpace(obligation.Identity)}
+		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, obligation)...)
+	}
 	seen := make(map[string]bool)
 	type typedIncidentCandidate struct {
 		relation                types.DiagramRelationKind

@@ -571,6 +571,97 @@ func TestMechanismRelationAuthorityMapsExactStaticBindingToTypedParticipantAA3(t
 	}
 }
 
+func TestMechanismRelationAuthorityPublishesFirstPassParticipantEndpointChoicesAA3(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow, Language: "zh",
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint: &types.DiagramHint{
+				Kind: types.DiagramArchitecture, Required: true, Participants: participants,
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID: "bus-argument", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "o.busCtx", Predicate: "passes_argument_to", Object: "BuildAgentContext",
+				Source: "internal/orchestrator/extract_work.go", LineStart: 15,
+				AnchorKind: types.AnchorArgument, AnchorSymbol: "BuildAgentContext", Scope: types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded,
+				DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+					Binding: "o.busCtx", Type: "*types.BusContext",
+				}},
+			},
+			{
+				ID: "mutable-call", Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Kind: types.EvidenceRelationship, Subject: "BuildAgentContext", Predicate: "calls", Object: "bus.Mutable.Objective",
+				Source: "internal/context/builder.go", LineStart: 29,
+				AnchorKind: types.AnchorCall, AnchorSymbol: "bus.Mutable.Objective", Scope: types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"typed_named_participant_relation_coverage: incident=[BusContext Mutable]",
+		"First-pass typed participant endpoint choices",
+		`typed_candidate[BusContext][1]={relation_kind:"argument_flow",visible_arrow_label:"作为参数传递",from_identity:"o.busCtx",to_identity:"BuildAgentContext",participant_endpoint_side:"from",participant_node_id:"BusContext"`,
+		`typed_candidate[Mutable][1]={relation_kind:"call",visible_arrow_label:"调用",from_identity:"BuildAgentContext",to_identity:"bus.Mutable.Objective",participant_endpoint_side:"to",participant_node_id:"Mutable"`,
+		"map only `participant_endpoint_side` to the exact `participant_node_id`",
+		"keep `edge_anchor_identity_fields` byte-for-byte",
+		"The model still authors every visible node, edge, label, diagram, and conclusion",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("first-pass participant endpoint guidance missing %q:\n%s", want, got)
+		}
+	}
+	contract := renderAnswerDocDiagramContract(ctx, &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramArchitecture, Participants: participants,
+	})
+	if strings.Contains(contract, "boundary_recipe[") {
+		t.Fatalf("participants with a shared typed component must not receive contradictory boundary recipes:\n%s", contract)
+	}
+}
+
+func TestMechanismRelationAuthorityDoesNotPublishLocalOnlyCandidateAsRequestedRelationAA3(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "mutable-local", Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Kind: types.EvidenceRelationship, Subject: "BuildAgentContext", Predicate: "calls", Object: "bus.Mutable.Objective",
+			Source: "internal/context/builder.go", LineStart: 29,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "bus.Mutable.Objective", Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderAnswerDocMechanismRelationAuthority(ctx)
+	if strings.Contains(got, "typed_candidate[Mutable]") {
+		t.Fatalf("a disconnected local operation must not be promoted into a first-pass requested-relation candidate:\n%s", got)
+	}
+	contract := renderAnswerDocDiagramContract(ctx, &types.DiagramContract{
+		Required: true, RequiredKind: types.DiagramArchitecture, Participants: participants,
+	})
+	if !strings.Contains(contract, `participant_identity="Mutable"`) {
+		t.Fatalf("a disconnected local operation must retain the honest requested-relation boundary:\n%s", contract)
+	}
+}
+
 func TestMechanismRelationAuthorityBroadSupportPlanCannotOutrankExplorerOperationScopeAA3(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{

@@ -35649,6 +35649,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1133 B1134：参与者级 typed 端点选择前置到首轮作者上下文（2026-08-18）
+
+1. 根修复用 `answer_document_diagram_participant_coverage` 的唯一 candidate resolver。首轮 Finalizer
+   现在得到有界 `typed_candidate[participant][1..2]`：immutable relation kind、业务化
+   `visible_arrow_label`、精确 from/to identity、可映射的 participant endpoint side、指定显示 node id、
+   来源与应原样复制的 edge-anchor identity fields。失败提示继续调用同一 resolver，不再有两套端点谓词。
+2. 该载体是 authoring input，不是系统图：它不选择 candidate、不生成 Mermaid node/edge/label、不连接
+   候选、不形成结论。模型仍决定选哪条既有关系以及如何表达；hard relation/participant gates 字节不放松。
+   一条 typed 边两侧分别命中两个参与者时可共同覆盖，避免为了逐参与者要求重复画边。
+3. 无 requested-relation authority 的 disconnected local operation 不会进入首轮候选；它继续作为局部支持
+   事实，并保留 honest unproven boundary。候选、覆盖和边界都只消费 schema typed participant、citable
+   EvidenceItem、parser-owned binding 与 verified stage precedence，不扫描用户/模型/答案原文。
+4. 为避免提示增强反而拖慢成文，所有参与者共享一次 relation-scope/operation relevance 计算，不再逐个
+   参与者重扫证据。新增正 pin 覆盖 BusContext argument-flow + Mutable owner call 的生产同构形，负 pin
+   覆盖 disconnected local operation 不得晋升 requested relation；同时 pin 无矛盾 boundary 和模型作者权。
+5. 全包验证：`go test ./internal/agent ./internal/tool -count=1` 通过（agent 14.500s、tool 192.465s）。
+   下一步用严格并发 2 回放相同读案例并配一个高优先异构案例，人工核验拒绝数、业务标签和图关系；
+   runner PASS 不单独作为闭环。
+6. 本批不改 Trace、写模式或流式终止。显式窗、因果投影、自动补齐、链上-only 主因及实际占用/业务线索
+   与规则可消除量双轴保持；活跃字节跨 4ms 不降级，系统不接管模型答案或结论。
+
+状态：
+
+`B1134-DIAGRAMPARTICIPANTCANDIDATEFIRSTPASS1=implemented/shared-resolver+positive-negative-pins`；
+`B1134-PRODUCTION-REPLAY=pending-r715`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1131 B1132：模型自拟边界样例降为待验证设想，请求权威改由系统绑定（2026-08-18）
 
 1. r713 的矛盾不是特定于换行符：Write Analyzer 在 reasoning 中自行举出“单个换行”和“四个换行”后，
