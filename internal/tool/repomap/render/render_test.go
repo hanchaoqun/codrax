@@ -715,3 +715,93 @@ func TestGenerateViewDataRelationMapEmptyRowsAdvisesTargetedFallback(t *testing.
 		}
 	}
 }
+
+func TestBoundRelationMapRowsPreservesExactSourceDirectionsWithinCap(t *testing.T) {
+	rows := []relationMapRow{
+		{Kind: "call", Source: "CallerA", SourceFile: "a.go", Target: "Build", TargetFile: "target.go", ObservedFile: "a.go", ObservedLine: 10},
+		{Kind: "call", Source: "CallerB", SourceFile: "b.go", Target: "Build", TargetFile: "target.go", ObservedFile: "b.go", ObservedLine: 20},
+		{Kind: "import", Source: "target.go", SourceFile: "target.go", Target: "types", TargetFile: "types/context.go", ObservedFile: "target.go", ObservedLine: 3},
+		{Kind: "call", Source: "Evaluator.Build", SourceFile: "target.go", Target: "Mutable.Read", TargetFile: "types/context.go", ObservedFile: "target.go", ObservedLine: 40},
+	}
+	sources := []relationMapSource{{Name: "target.go", File: "target.go", Kind: "file"}}
+
+	got := boundRelationMapRowsBySourceDirection(rows, sources, []string{"call", "import"}, 2)
+	if len(got) != 2 {
+		t.Fatalf("bounded rows=%d, want 2: %+v", len(got), got)
+	}
+	if got[0].Source != "CallerA" || got[0].Target != "Build" {
+		t.Fatalf("existing deterministic inbound order was not preserved: %+v", got)
+	}
+	if got[1].Source != "Evaluator.Build" || got[1].Target != "Mutable.Read" {
+		t.Fatalf("exact-source outbound operation was truncated behind inbound references: %+v", got)
+	}
+	for _, row := range got {
+		if row.Kind == "import" {
+			t.Fatalf("requested call priority lost to an import from the same source: %+v", got)
+		}
+	}
+}
+
+func TestGenerateViewDataRelationMapExactFilePreservesOutboundOperationAfterInboundFlood(t *testing.T) {
+	files := []*types.FileInfo{
+		{
+			RelPath: "a.go", Language: types.LangGo,
+			Symbols: []types.Symbol{{Name: "CallerA", Kind: "function", File: "a.go", Line: 1}},
+			Relations: []types.Relation{{
+				Kind: "call", File: "a.go", Line: 2,
+				ToEP:       types.RelationEndpoint{Name: "Build", File: "target.go", Line: 10},
+				Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "fixture",
+			}},
+		},
+		{
+			RelPath: "b.go", Language: types.LangGo,
+			Symbols: []types.Symbol{{Name: "CallerB", Kind: "function", File: "b.go", Line: 1}},
+			Relations: []types.Relation{{
+				Kind: "call", File: "b.go", Line: 2,
+				ToEP:       types.RelationEndpoint{Name: "Build", File: "target.go", Line: 10},
+				Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "fixture",
+			}},
+		},
+		{
+			RelPath: "target.go", Language: types.LangGo,
+			Symbols: []types.Symbol{{Name: "Build", Kind: "function", File: "target.go", Line: 10}},
+			Relations: []types.Relation{{
+				Kind: "call", File: "target.go", Line: 12,
+				ToEP:       types.RelationEndpoint{Name: "Mutable.Read", File: "state.go", Line: 5},
+				Confidence: types.ConfidenceAST, Provenance: types.ProvenanceTreeSitter, ResolvedBy: "fixture",
+			}},
+		},
+		{RelPath: "state.go", Language: types.LangGo, Symbols: []types.Symbol{{Name: "Read", Receiver: "Mutable", Kind: "method", File: "state.go", Line: 5}}},
+	}
+	d := GenerateViewData(index.BuildGraph(t.TempDir(), files), "relation_map", types.ViewParams{
+		Sources: []string{"target.go"}, RelationKinds: []string{"call"}, TopN: 2,
+	})
+	if d == nil || len(d.RelationRows) != 2 {
+		t.Fatalf("relation_map rows=%+v", d)
+	}
+	foundOutbound := false
+	for _, row := range d.RelationRows {
+		if row.SourceFile == "target.go" && row.ObservedFile == "target.go" && row.TargetFile == "state.go" {
+			foundOutbound = true
+		}
+	}
+	if !foundOutbound {
+		t.Fatalf("exact file's outbound operation was truncated behind inbound callers: %+v", d.RelationRows)
+	}
+}
+
+func TestBoundRelationMapRowsSharesCapAcrossSelectedSources(t *testing.T) {
+	rows := []relationMapRow{
+		{Kind: "call", Source: "Inbound", SourceFile: "a.go", Target: "One", TargetFile: "one.go", ObservedFile: "a.go", ObservedLine: 1},
+		{Kind: "call", Source: "One", SourceFile: "one.go", Target: "State.Read", TargetFile: "state.go", ObservedFile: "one.go", ObservedLine: 10},
+		{Kind: "call", Source: "Two", SourceFile: "two.go", Target: "State.Write", TargetFile: "state.go", ObservedFile: "two.go", ObservedLine: 20},
+	}
+	sources := []relationMapSource{
+		{Name: "one.go", File: "one.go", Kind: "file"},
+		{Name: "two.go", File: "two.go", Kind: "file"},
+	}
+	got := boundRelationMapRowsBySourceDirection(rows, sources, []string{"call"}, 2)
+	if len(got) != 2 || got[0].Source != "One" || got[1].Source != "Two" {
+		t.Fatalf("selected-source round robin did not preserve one outbound row per source: %+v", got)
+	}
+}

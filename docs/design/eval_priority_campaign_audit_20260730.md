@@ -35684,13 +35684,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    反转/调度供给/算力供给/D/IO/确定性语义等 typed 根因，以及实际占用与链上业务线索、规则计价可消除量
    双轴均保持。邻近/背景仍只能支撑额外排查。两个案例都有持续 semantic bytes 远超 4ms，没有 fixed-age
    降级；系统没有代写答案、图边或结论。
+8. B1187 已完成独立批次根修。`relation_map` 过去对 exact file sources 只做“任一端碰到 source”过滤，随后
+   按 `ObservedFile/line` 全局排序截断；热门文件的大量反向 importer/caller 会占满 topN，source 文件自己
+   发出的 operation 全部消失。现在保持 topN 字节不变，先用至多三分之二席位按 selected source 做 outbound
+   round-robin；file source 再按不同 enclosing operation 去重采样，避免一个大函数的几十个 helper call 独占。
+   余下席位先各保留一条 inbound，再按旧顺序填充。关系种类优先级严格沿用调用者 typed
+   `relation_kinds` 顺序；symbol-level source 因为调用者已明确点名 operation，不强制 owner 去重。
+9. 该策略只改变 advisory navigation lens 的有界抽样，不扩大结果、不铸造 evidence edge、不升级 graph
+   authority，也不按用户/模型/答案 prose 或某个组件名排序。通用回归覆盖 inbound flood 下 exact source
+   outbound operation 不丢、多个 source 公平获得 outbound 席位、请求 call 优先于同文件 import；并用当前
+   生产仓 exact 三文件参数做只读核验，30 行内已出现
+   `extractorEvaluator.BuildInitialInstruction -> ctx.Mutable.TurnAArtifacts`。是否选入最终图仍完全由模型决定，
+   hard relation gate 保持不放松。
 
 状态：
 
 `B1185-PREFINISHPROOFFOLLOWUPORDER1=production-positive-r743`；
 `B1185-REPLANPROBEGENERATIONAUTHORITY1=production-positive-r743`；
 `B1186-DIAGRAMCANDIDATEDIVERSITY1=unit-pinned/not-production-exercised-r743`；
-`B1187-STAGESTATEOPERATIONNAVIGATION1=confirmed/P1/pending`；
+`B1187-STAGESTATEOPERATIONNAVIGATION1=implemented/direction+source+operation-diverse-cap+pinned/pending-production-replay`；
 `B1188-NONAUTHORITATIVEPROBEREBIND1=implemented/exact-typed-positive+negative+wiring-pins-pass/pending-production-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

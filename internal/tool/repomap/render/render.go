@@ -761,9 +761,131 @@ func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds 
 		return relationMapRowText(out[i]) < relationMapRowText(out[j])
 	})
 	if topN > 0 && len(out) > topN {
-		out = out[:topN]
+		out = boundRelationMapRowsBySourceDirection(out, sources, kinds, topN)
 	}
 	return out
+}
+
+// boundRelationMapRowsBySourceDirection keeps an exact-source relation lens
+// useful when a popular file has many inbound references. The legacy global
+// file/line truncation could spend the whole cap on lexicographically earlier
+// callers/importers and omit every operation originating inside the selected
+// source. Reserve a bounded two-thirds outbound roster round-robin across
+// selected files and distinct enclosing operations, then (when capacity
+// permits) one inbound row per source. Prefer the caller-requested
+// relation-kind order and fill remaining seats in the existing deterministic
+// row order. Symbol-level sources stay eligible for multiple edges from the
+// same operation because the caller selected that operation explicitly.
+// Selection only affects this advisory navigation lens. It does not mint an
+// edge, change evidence authority, or expand the caller's fixed topN budget.
+func boundRelationMapRowsBySourceDirection(rows []relationMapRow, sources []relationMapSource, kinds []string, limit int) []relationMapRow {
+	if limit <= 0 || len(rows) <= limit || len(sources) == 0 {
+		return rows
+	}
+	selected := make(map[int]bool, limit)
+	outboundOwners := make(map[string]bool, limit)
+	outboundBudget := (limit * 2) / 3
+	if outboundBudget < len(sources) {
+		outboundBudget = len(sources)
+	}
+	if outboundBudget > limit {
+		outboundBudget = limit
+	}
+	for len(selected) < outboundBudget {
+		progress := false
+		for _, source := range sources {
+			if len(selected) >= outboundBudget {
+				break
+			}
+			idx := bestRelationMapDirectionalRow(rows, source, kinds, true, selected, outboundOwners)
+			if idx >= 0 {
+				selected[idx] = true
+				if owner := relationMapDirectionalOwnerKey(rows[idx], source, true); owner != "" {
+					outboundOwners[owner] = true
+				}
+				progress = true
+			}
+		}
+		if !progress {
+			break
+		}
+	}
+	for _, source := range sources {
+		if len(selected) >= limit {
+			break
+		}
+		if idx := bestRelationMapDirectionalRow(rows, source, kinds, false, selected, nil); idx >= 0 {
+			selected[idx] = true
+		}
+	}
+	for idx := range rows {
+		if len(selected) >= limit {
+			break
+		}
+		selected[idx] = true
+	}
+	out := make([]relationMapRow, 0, limit)
+	for idx, row := range rows {
+		if selected[idx] {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func bestRelationMapDirectionalRow(rows []relationMapRow, source relationMapSource, kinds []string, outbound bool, selected map[int]bool, excludedOwners map[string]bool) int {
+	best := -1
+	bestKind := len(kinds) + 1
+	for idx, row := range rows {
+		if selected[idx] || !relationMapRowMatchesSourceDirection(row, source, outbound) {
+			continue
+		}
+		if owner := relationMapDirectionalOwnerKey(row, source, outbound); owner != "" && excludedOwners[owner] {
+			continue
+		}
+		kindRank := relationMapRequestedKindRank(row.Kind, kinds)
+		if best < 0 || kindRank < bestKind {
+			best = idx
+			bestKind = kindRank
+		}
+	}
+	return best
+}
+
+func relationMapDirectionalOwnerKey(row relationMapRow, source relationMapSource, outbound bool) string {
+	if !outbound || source.Kind != "file" {
+		return ""
+	}
+	owner := strings.TrimSpace(row.Source)
+	if owner == "" {
+		owner = strings.TrimSpace(row.SourceFile)
+	}
+	return strings.TrimSpace(source.File) + "\x00" + owner
+}
+
+func relationMapRowMatchesSourceDirection(row relationMapRow, source relationMapSource, outbound bool) bool {
+	rowName, rowFile := row.Target, row.TargetFile
+	if outbound {
+		rowName, rowFile = row.Source, row.SourceFile
+	}
+	if source.File != "" && strings.TrimSpace(rowFile) == strings.TrimSpace(source.File) {
+		return true
+	}
+	if source.Kind != "file" && strings.TrimSpace(source.Name) != "" {
+		return strings.EqualFold(strings.TrimSpace(rowName), strings.TrimSpace(source.Name))
+	}
+	return false
+}
+
+func relationMapRequestedKindRank(kind string, requested []string) int {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	for idx, requestedKind := range requested {
+		requestedKind = strings.ToLower(strings.TrimSpace(requestedKind))
+		if kind == requestedKind || (kind == "embedding" && requestedKind == "inheritance") {
+			return idx
+		}
+	}
+	return len(requested)
 }
 
 type relationMapIndex struct {
