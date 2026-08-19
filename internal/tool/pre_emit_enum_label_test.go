@@ -977,6 +977,84 @@ func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsShiftedSibling
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_BindsQualifiedVisibleRowsThroughTypedAnchors(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{
+				{FromNode: "run", ToNode: "walker::collect_files", FromIdentity: "run", ToIdentity: "collect_files", RelationKind: types.DiagramRelCall},
+				{FromNode: "walker::collect_files", ToNode: "walk", FromIdentity: "collect_files", ToIdentity: "walk", RelationKind: types.DiagramRelCall},
+				{FromNode: "run", ToNode: "index_file", FromIdentity: "run", ToIdentity: "index_file", RelationKind: types.DiagramRelCall},
+			},
+			Items: []types.AnswerBlockItem{
+				{ID: "collect", Label: "run -> walker::collect_files", CitationRef: 0},
+				{ID: "walk", Label: "walker::collect_files -> walk", CitationRef: 1},
+				{ID: "index", Label: "run -> index_file", CitationRef: 2},
+			},
+		}},
+		Citations: []types.Citation{
+			{File: "src/main.rs", Line: 23},
+			{File: "src/main.rs", Line: 20},
+			{File: "src/walker.rs", Line: 6},
+		},
+	}
+	mut := types.NewMutableState("rust branching call chain")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, Source: "src/main.rs", LineStart: 20, AnchorKind: types.AnchorCall, Subject: "run", Object: "collect_files", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, Source: "src/walker.rs", LineStart: 6, AnchorKind: types.AnchorCall, Subject: "collect_files", Object: "walk", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, Source: "src/main.rs", LineStart: 23, AnchorKind: types.AnchorCall, Subject: "run", Object: "index_file", GroundingStatus: types.GroundingGrounded},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 3 {
+		t.Fatalf("qualified visible relation rows repaired=%d, want 3: %+v", fixed, doc.Blocks[0].Items)
+	}
+	want := []int{1, 2, 0}
+	for i, item := range doc.Blocks[0].Items {
+		if item.CitationRef != want[i] {
+			t.Fatalf("item %q citation_ref=%d, want %d", item.ID, item.CitationRef, want[i])
+		}
+	}
+
+	// M4 wiring pin: the production normalization chokepoint must preserve
+	// the same typed-anchor binding after a patch reorders visible rows.
+	doc.Blocks[0].Items[0].CitationRef = 0
+	doc.Blocks[0].Items[1].CitationRef = 1
+	doc.Blocks[0].Items[2].CitationRef = 2
+	normalizeAnswerDocumentForPreEmit("test", doc, &types.AnswerSemanticView{Family: types.QFCallChain}, ctx, newPreEmitCheckContext(ctx))
+	for i, item := range doc.Blocks[0].Items {
+		if item.CitationRef != want[i] {
+			t.Fatalf("production item %q citation_ref=%d, want %d; block=%+v citations=%+v", item.ID, item.CitationRef, want[i], doc.Blocks[0], doc.Citations)
+		}
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_TypedAnchorDuplicateCallsitesFailClosed(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "worker::run", ToNode: "sink", FromIdentity: "run", ToIdentity: "sink", RelationKind: types.DiagramRelCall}},
+			Items:       []types.AnswerBlockItem{{ID: "edge", Label: "worker::run -> sink", CitationRef: 0}},
+		}},
+		Citations: []types.Citation{{File: "src/worker.rs", Line: 10}},
+	}
+	mut := types.NewMutableState("duplicate callsite boundary")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{Kind: types.EvidenceRelationship, Source: "src/worker.rs", LineStart: 10, AnchorKind: types.AnchorCall, Subject: "run", Object: "sink", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceRelationship, Source: "src/worker.rs", LineStart: 20, AnchorKind: types.AnchorCall, Subject: "run", Object: "sink", GroundingStatus: types.GroundingGrounded},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("ambiguous duplicate callsites must not be rebound, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("ambiguous model citation changed to %d", got)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniquePreEmitCandidate_RebindsQualifiedSiblingCallEdges(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

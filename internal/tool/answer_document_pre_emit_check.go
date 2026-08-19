@@ -3345,6 +3345,24 @@ func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.Ans
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
+			// A standalone relation carrier already owns an exact typed edge
+			// identity in edge_anchors[]. Bind its visible row to that same edge
+			// before falling back to label-only claim-role matching. This closes
+			// the common branching-path failure where the model emits the right
+			// relations but assigns citation_ref values in visible path order while
+			// citations[] remains in source/evidence order. The repair is allowed
+			// only when one model-authored row surface selects one model-authored
+			// anchor and that anchor selects one grounded evidence location.
+			// Ambiguous aliases or duplicate callsites remain untouched.
+			if cit, ok := preEmitUniqueTypedEdgeAnchorCitationForItemWithContext(
+				pctx, *block, *item, preEmitBlockCitationRoleForms(*block, view)); ok {
+				target := appendOrReusePreEmitCitation(doc, cit)
+				if target >= 0 && target != item.CitationRef {
+					item.CitationRef = target
+					fixed++
+				}
+				continue
+			}
 			// A typed relation carried by the block's claim_uses is more
 			// specific than a symbol-label lookup. Repair it first so a sibling
 			// edge sharing the same caller cannot make the correct citation look
@@ -3380,6 +3398,115 @@ func normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc *types.Ans
 		}
 	}
 	return fixed
+}
+
+func preEmitUniqueTypedEdgeAnchorCitationForItemWithContext(
+	pctx *preEmitCheckContext,
+	block types.AnswerBlock,
+	item types.AnswerBlockItem,
+	forms []types.ClaimForm,
+) (types.Citation, bool) {
+	if pctx == nil || len(block.EdgeAnchors) == 0 || len(forms) == 0 {
+		return types.Citation{}, false
+	}
+	allowed := make(map[types.ClaimForm]bool, len(forms))
+	for _, form := range forms {
+		if form.SupportsCitationRoleAlignment() {
+			allowed[form] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return types.Citation{}, false
+	}
+
+	type candidate struct {
+		anchorKey string
+		citation  types.Citation
+	}
+	seen := map[string]bool{}
+	var candidates []candidate
+	for _, anchor := range block.EdgeAnchors {
+		form := types.ClaimFormForRelation(anchor.RelationKind)
+		if !allowed[form] || !preEmitItemSurfaceSelectsTypedEdgeAnchor(item, anchor, form) {
+			continue
+		}
+		anchorKey := strings.Join([]string{
+			string(form), strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(anchor.ToIdentity),
+		}, "\x00")
+		for _, ev := range pctx.evidenceItems() {
+			if !ev.IsCitable() || types.ClaimFormOf(ev) != form ||
+				!preEmitEvidenceMatchesTypedEdgeAnchor(ev, anchor) {
+				continue
+			}
+			cit := pctx.canonicalCitation(types.Citation{
+				File:          ev.Source,
+				Line:          ev.LineStart,
+				LineEnd:       ev.LineEnd,
+				Scope:         ev.Scope,
+				SectionPath:   ev.SectionPath,
+				FileRoleLabel: ev.FileRoleLabel,
+			})
+			locationKey := preEmitCitationLocationKey(cit)
+			if locationKey == "" {
+				continue
+			}
+			key := anchorKey + "\x00" + locationKey
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			candidates = append(candidates, candidate{anchorKey: anchorKey, citation: cit})
+		}
+	}
+	if len(candidates) != 1 {
+		return types.Citation{}, false
+	}
+	return candidates[0].citation, true
+}
+
+func preEmitItemSurfaceSelectsTypedEdgeAnchor(
+	item types.AnswerBlockItem,
+	anchor types.DiagramEdgeAnchor,
+	form types.ClaimForm,
+) bool {
+	from := strings.TrimSpace(anchor.FromNode)
+	to := strings.TrimSpace(anchor.ToNode)
+	if from == "" || to == "" {
+		return false
+	}
+	probe := types.EvidenceItem{
+		GroundingStatus: types.GroundingGrounded,
+		Subject:         from,
+		Object:          to,
+	}
+	switch form {
+	case types.ClaimCallEdge:
+		probe.AnchorKind = types.AnchorCall
+	case types.ClaimCallbackHandoff:
+		probe.AnchorKind = types.AnchorCallback
+	case types.ClaimArgumentFlow:
+		probe.AnchorKind = types.AnchorArgument
+	case types.ClaimImportEdge:
+		probe.AnchorKind = types.AnchorImport
+	case types.ClaimRegistrationEdge:
+		probe.Kind = types.EvidenceRegistration
+	default:
+		return false
+	}
+	return types.EvidenceClaimRoleAssertedByAnswerSurface(
+		probe, []types.ClaimForm{form}, item.Label, preEmitItemNonLabelSurface(item),
+	)
+}
+
+func preEmitEvidenceMatchesTypedEdgeAnchor(ev types.EvidenceItem, anchor types.DiagramEdgeAnchor) bool {
+	from := strings.TrimSpace(anchor.FromIdentity)
+	to := strings.TrimSpace(anchor.ToIdentity)
+	if from == "" || to == "" {
+		return false
+	}
+	return diagramRelationEndpointCandidateMatches(ev.Subject, from) &&
+		(diagramRelationEndpointCandidateMatches(ev.Object, to) ||
+			diagramRelationEndpointCandidateMatches(ev.AnchorSymbol, to))
 }
 
 func preEmitUniqueTypedClaimRoleCitationForItemWithContext(pctx *preEmitCheckContext, item types.AnswerBlockItem, forms []types.ClaimForm) (types.Citation, bool) {

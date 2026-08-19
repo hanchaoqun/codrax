@@ -828,6 +828,17 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsBySourceInventoryRowIDWithContext", fixed)
 		logging.Warning("[%s] bound %d item citation_ref value(s) by exact source_inventory_row_id", toolName, fixed)
 	}
+	// A row-local typed relation edge is more specific than aggregate member
+	// support: the latter may legitimately point at an endpoint definition while
+	// the visible row asserts a call/handoff at a different line. Re-apply the
+	// unique typed-edge binding after aggregate/source-inventory lanes so those
+	// weaker selectors cannot move a relation row back to a definition or a
+	// sibling callsite. Exact source_inventory_row_id rows do not match this
+	// relation-only normalizer and therefore retain their stronger ownership.
+	if fixed := normalizeItemCitationRefsByUniquePreEmitCandidateWithContext(doc, view, ctx, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniquePreEmitCandidateWithContext.final", fixed)
+		logging.Warning("[%s] restored %d relation-row citation_ref value(s) from exact typed edge anchors", toolName, fixed)
+	}
 	if fixed := normalizeScalarCodeIdentityCitationRefsWithContext(doc, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeScalarCodeIdentityCitationRefsWithContext", fixed)
 		logging.Warning("[%s] normalized %d scalar code-identity citation_ref value(s) by typed evidence endpoints", toolName, fixed)

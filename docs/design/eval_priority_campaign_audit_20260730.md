@@ -35847,6 +35847,56 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1145 r724：carrier 导航与恢复图闭环；关系行引用错位及 participant 合同分叉（2026-08-19）
+
+1. 在 `main@6f3bc53df` 重建后严格并发恰好两个关系案例：
+   `qf_logic_view_read_pipeline + sr_rust_cross_module_chain`。Runner `2 PASS / 2`，人工均为 partial；
+   完整记录见 `eval/parallel_selected_summary_evalcampaign_value_handoff_r724_20260819_manual_audit.md`。
+2. B1151 获生产正证。QF 导航不再停在多 participant 词面的 type occurrence，而是读取
+   `extract_work.go:15` 的 parser-owned `BuildAgentContext(o.busCtx, AgentExtractor, StageExtract)`；
+   completion repair 随后取得 grounded `o.busCtx -> BuildAgentContext` argument_flow，B1150 component
+   join 也发布了 stage/BusContext/Mutable 的 typed relation recipes。该结果证明上一批 relation-kind-first
+   排序方向正确，且没有制造任何证据或答案边。
+3. B1152 同样获得生产正证。Rust 终稿只有一份合法 sequence diagram，没有 JSON sibling 尾片、重复
+   recovery attachment 或协议碎片；首轮缺 endpoint identity 及把递归 self-call 画成 reply 的拒绝正确，
+   patch 后六条 typed call 边闭合。
+4. 新确认 B1153/P1。Rust principal relation list 的第 3、5 行分别引用了相邻但不同的 callsite；模型把
+   `citation_ref` 按可见列表顺序递增，而 `citations[]` 按证据产生顺序排列。块级 edge anchors 已准确，
+   旧 validator 只验证边本身，没有把每个可见行的 citation 绑定到同一边，所以错误引用静默通过。
+5. B1153 已按通用结构形施工：对于 standalone typed relation carrier，只有当一个可见行精确选择一个
+   模型已提交 edge anchor，且该 anchor 唯一选择一个 grounded evidence location 时，机械重绑
+   `citation_ref`。qualified reader label 与 exact technical identity 通过同一 typed anchor 对齐；重复
+   callsite/别名歧义不猜测。该修复不扫描 request、自由正文或结论，不改模型文字、关系、图和判断。
+   直接 helper、生产 normalize chokepoint、qualified alias、分支顺序错位与 duplicate fail-closed pin
+   均通过；`go test ./internal/tool -count=1` 全绿（176.865s）。
+6. 新确认 B1154/P0。QF 同一草稿在 pre-emit 被要求/允许给 `Mutable` 保留 unproven boundary，持久化后
+   post-finalizer 却以 `available_typed_incident_edge_not_rendered` 拒绝，最终耗尽重试。模型没有改变
+   同一关系判断；这是两个 participant coverage 消费面使用不同证据池/请求域 component 口径造成的
+   “前门必带、后门必拒”合同分叉。下一批必须把两面收敛到同一 lossless typed evidence provider，
+   不能放松关系证据，也不能让系统补画边。
+7. 新确认 B1155/P1。完整 argument handoff 只证明 `o.busCtx -> BuildAgentContext`；要回答“状态如何进入
+   Extractor/Finalizer”，还需继续证明 call result assignment、return 与 consumer 的多跳值流。当前终稿
+   因缺这段路径，把 stage、registration、context building 画成三个断开子图。最优方案是继续发布
+   parser-owned technical path recipe 供模型选择，不是系统合成 `BusContext -> Extractor` 抽象边。
+8. Rust 摘要把真实分支拓扑压成 `walk -> index_file` 的线性相邻叙述，而图与逐边列表本身正确。先作为
+   软教学/异构回放观察；禁止扫描最终 prose 强改摘要或让系统替模型下结论。
+9. 两案均无 active-stream 4ms/固定总年龄降级。Read/Write 路由与 Trace 查询/投影未修改；显式窗、
+   因果投影、自动补齐、链上-only 根因、实际占用/业务线索与规则可消除量双轴全部保持，背景仍不能
+   晋升主因。
+
+状态：
+
+`B1150-PARTICIPANTARGUMENTMEMBERCOMPONENT1=production-positive-r724/value-path-still-partial`；
+`B1151-CARRIERHANDOFFNAVIGATIONQUALITY1=production-closed-r724`；
+`B1152-RECOVEREDDIAGRAMJSONTAILDEDUP1=production-closed-r724`；
+`B1153-STANDALONERELATIONROWCITATIONBINDING1=implemented/typed-anchor-unique-location+pinned`；
+`B1154-PARTICIPANTCOVERAGEEVIDENCEPARITY1=confirmed/P0/next`；
+`B1155-CALLRESULTCONSUMERVALUEPATH1=confirmed/P1/pending`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace
