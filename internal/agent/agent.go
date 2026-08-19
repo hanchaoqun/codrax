@@ -2308,10 +2308,30 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if filter, ok := b.eval.(ToolSchemaFilter); ok {
 			effectiveTools = filter.FilterToolSchemas(ctx, iterToolSchemas)
 		}
+		// Keep the schema shown to the model and the execution-time explore
+		// budget on one authority. Before this projection an emit-only repair
+		// turn could advertise `emit_investigation_complete` after the same
+		// MutableState budget had reached zero. The model then had no legal
+		// action: the schema required the sole tool while executeTool rejected it,
+		// so every remaining ReAct iteration repeated an impossible call.
+		//
+		// This is a typed tool-name/counter projection only. It does not inspect
+		// the request, reasoning, or answer text, and it does not decide whether
+		// the investigation is semantically complete. If every currently
+		// admitted tool is exhausted, preserve the accumulated tool results and
+		// let ParseOutput close or caveat the dispatch instead of asking the model
+		// to satisfy a contradictory contract.
+		var budgetExhaustedTools []string
+		effectiveTools, budgetExhaustedTools = filterExploreToolSchemasByBudget(ctx, effectiveTools)
 		if disableToolsThisTurn {
 			logging.Debug("[diag %s] iter=%d phase=isolated_no_tool tools disabled for this fallback turn",
 				b.name, i)
 			effectiveTools = nil
+		}
+		if !disableToolsThisTurn && len(effectiveTools) == 0 && len(budgetExhaustedTools) > 0 {
+			logging.Warning("[diag %s] iter=%d phase=tool_surface stop: every admitted explore tool is budget-exhausted (%s); preserving accumulated results",
+				b.name, i, strings.Join(budgetExhaustedTools, ","))
+			break
 		}
 		effectiveToolNames := toolSchemaNameSet(effectiveTools)
 
@@ -6683,6 +6703,32 @@ func toolSchemaNameSet(schemas []llm.ToolSchema) map[string]bool {
 		}
 	}
 	return out
+}
+
+// filterExploreToolSchemasByBudget projects the execution-time ExploreBudget
+// onto the exact schema surface that would otherwise be sent to the model.
+// The returned exhausted names are canonical, sorted, and de-duplicated so the
+// caller can distinguish "the evaluator intentionally exposed no tools" from
+// "the runtime budget made every admitted tool uncallable" without scanning
+// any prompt or model text.
+func filterExploreToolSchemasByBudget(ctx *types.AgentContext, schemas []llm.ToolSchema) ([]llm.ToolSchema, []string) {
+	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil || len(schemas) == 0 {
+		return schemas, nil
+	}
+	if ctx.Mutable.ExploreBudget() == nil {
+		return schemas, nil
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	exhaustedSet := make(map[string]bool)
+	for _, schema := range schemas {
+		canonical := types.CanonicalToolName(schema.Name)
+		if canonical != "" && ctx.Mutable.BudgetRemaining(canonical) <= 0 {
+			exhaustedSet[canonical] = true
+			continue
+		}
+		out = append(out, schema)
+	}
+	return out, sortedToolNames(exhaustedSet)
 }
 
 func unavailableToolCallNames(calls []llm.ToolCall, available map[string]bool) []string {

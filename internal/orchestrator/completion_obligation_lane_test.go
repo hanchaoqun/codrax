@@ -68,6 +68,27 @@ func TestCompletionObligationLaneHint(t *testing.T) {
 	}
 }
 
+func TestCompletionObligationLaneUsesFreshBoundedEmitBudget(t *testing.T) {
+	budget := completionObligationLaneExploreBudget()
+	if budget == nil {
+		t.Fatal("completion lane budget is nil")
+	}
+	if budget.OverallCap != completionObligationLaneMaxIters || budget.OverallUsed != 0 {
+		t.Fatalf("completion budget cap/used = %d/%d, want %d/0",
+			budget.OverallCap, budget.OverallUsed, completionObligationLaneMaxIters)
+	}
+	for _, name := range []string{"emit_evidence", "emit_investigation_complete"} {
+		if got := budget.PerToolCap[name]; got != completionObligationLaneMaxIters {
+			t.Fatalf("%s cap = %d, want %d", name, got, completionObligationLaneMaxIters)
+		}
+	}
+	for name := range budget.PerToolCap {
+		if name != "emit_evidence" && name != "emit_investigation_complete" {
+			t.Fatalf("non-completion tool leaked into completion budget: %s", name)
+		}
+	}
+}
+
 // The lane never fires twice, never fires on an accepted completion,
 // and never fires without a pending obligation — the three guards
 // that keep stable scenarios byte-identical.

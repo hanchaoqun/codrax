@@ -1982,6 +1982,93 @@ func (s *stubEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOut
 	return types.MissingNone
 }
 
+func TestFilterExploreToolSchemasByBudgetKeepsSchemaAndExecutionAuthorityAligned(t *testing.T) {
+	mut := types.NewMutableState("budget/schema authority")
+	mut.SetExploreBudget(&types.ExploreBudget{
+		PerToolCap: map[string]int{
+			"read_file":                   1,
+			"emit_investigation_complete": 2,
+		},
+		PerToolUsed: map[string]int{
+			"read_file":                   1,
+			"emit_investigation_complete": 1,
+		},
+		OverallCap:  4,
+		OverallUsed: 2,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got, exhausted := filterExploreToolSchemasByBudget(ctx, schemas)
+	if names := strings.Join(sortedToolSchemaNames(got), ","); names != "emit_investigation_complete" {
+		t.Fatalf("callable schemas = %q, want emit_investigation_complete", names)
+	}
+	if names := strings.Join(exhausted, ","); names != "read_file" {
+		t.Fatalf("exhausted schemas = %q, want read_file", names)
+	}
+
+	mut.RecordToolCall("emit_investigation_complete")
+	got, exhausted = filterExploreToolSchemasByBudget(ctx, schemas)
+	if len(got) != 0 {
+		t.Fatalf("all exhausted surface must be empty, got %+v", got)
+	}
+	if names := strings.Join(exhausted, ","); names != "emit_investigation_complete,read_file" {
+		t.Fatalf("all exhausted names = %q", names)
+	}
+}
+
+type neverCalledBudgetExhaustedLLM struct {
+	calls int
+}
+
+func (l *neverCalledBudgetExhaustedLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	return llm.Response{Content: "must not be called"}, nil
+}
+
+func (*neverCalledBudgetExhaustedLLM) ModelID() string               { return "budget-exhausted" }
+func (*neverCalledBudgetExhaustedLLM) MaxContextTokens() int         { return 128000 }
+func (*neverCalledBudgetExhaustedLLM) MaxOutputTokens() int          { return 4096 }
+func (*neverCalledBudgetExhaustedLLM) RequestTimeout() time.Duration { return 0 }
+func (*neverCalledBudgetExhaustedLLM) RetryMaxAttempts() int         { return 0 }
+
+func TestBaseAgentDoesNotAskModelToCallOnlyBudgetExhaustedTool(t *testing.T) {
+	registry := tool.NewRegistry()
+	registry.Register(traceTool{})
+	llmAdapter := &neverCalledBudgetExhaustedLLM{}
+	eval := &stubEvaluator{}
+	mut := types.NewMutableState("impossible tool surface")
+	mut.SetExploreBudget(&types.ExploreBudget{
+		PerToolCap:  map[string]int{"trace_tool": 1},
+		PerToolUsed: map[string]int{"trace_tool": 1},
+		OverallCap:  1,
+		OverallUsed: 1,
+	})
+	b := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		LLM:           llmAdapter,
+		Tools:         registry,
+		MaxIterations: 4,
+	}, eval)
+
+	out, err := b.Execute(&types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Mutable:   mut,
+	}, &skill.Config{ToolSuggestions: []string{"trace_tool"}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil || eval.parseCalls != 1 {
+		t.Fatalf("accumulated dispatch must still parse once, out=%+v parse_calls=%d", out, eval.parseCalls)
+	}
+	if llmAdapter.calls != 0 {
+		t.Fatalf("model must not receive a contradictory exhausted-only schema, calls=%d", llmAdapter.calls)
+	}
+}
+
 func TestSalvagePartialDispatch_RunsParseOutput(t *testing.T) {
 	eval := &stubEvaluator{}
 	b := &BaseAgent{name: types.AgentExplorer, deps: &Dependencies{}, eval: eval}

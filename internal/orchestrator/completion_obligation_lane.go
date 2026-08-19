@@ -29,6 +29,24 @@ import (
 // "compose member_set → emit completion" plus one repair round.
 const completionObligationLaneMaxIters = 4
 
+// completionObligationLaneExploreBudget is deliberately independent from the
+// source-acquisition budget that the main explore window may already have
+// spent. This lane exists specifically "past the ceiling" to land one typed
+// handoff; reusing an exhausted source budget would advertise an emit-only
+// schema whose sole tool the execution gate rejects. The dedicated counter is
+// still strictly bounded by the lane's own iteration ceiling and admits only
+// the two structured progress tools exposed by CompletionOnlySurface.
+func completionObligationLaneExploreBudget() *types.ExploreBudget {
+	return &types.ExploreBudget{
+		PerToolCap: map[string]int{
+			"emit_evidence":               completionObligationLaneMaxIters,
+			"emit_investigation_complete": completionObligationLaneMaxIters,
+		},
+		PerToolUsed: map[string]int{},
+		OverallCap:  completionObligationLaneMaxIters,
+	}
+}
+
 // pendingCompletionObligations reports the typed completion
 // obligations the investigation has not yet satisfied. One entry per
 // obligation; extend here when a new typed completion contract lands
@@ -98,15 +116,18 @@ func (o *Orchestrator) runCompletionObligationLane(laneFired *bool, stepsUsed *i
 	prevHintKind := o.busCtx.TaskState.RetryHintKind
 	prevHintStage := o.busCtx.TaskState.RetryHintStage
 	prevSurface := o.busCtx.CompletionOnlySurface
+	prevBudget := o.busCtx.Mutable.ExploreBudget()
 	o.busCtx.TaskState.RetryHint = completionObligationLaneHint(pending)
 	o.busCtx.TaskState.RetryHintKind = types.RetryHintKindUnknown
 	o.busCtx.TaskState.RetryHintStage = types.StageExplore
 	o.busCtx.CompletionOnlySurface = true
+	o.busCtx.Mutable.SetExploreBudget(completionObligationLaneExploreBudget())
 	out, err := o.dispatchStage(types.StageExplore)
 	o.busCtx.TaskState.RetryHint = prevHint
 	o.busCtx.TaskState.RetryHintKind = prevHintKind
 	o.busCtx.TaskState.RetryHintStage = prevHintStage
 	o.busCtx.CompletionOnlySurface = prevSurface
+	o.busCtx.Mutable.SetExploreBudget(prevBudget)
 	if stepsUsed != nil {
 		*stepsUsed++
 	}

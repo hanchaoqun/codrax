@@ -36821,6 +36821,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-relation/diagram/answer/conclusion-authorship=none`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`。
 
+### §123.1123 B1127：探索预算与可调用 schema 同源，收口车道独立有界（2026-08-18）
+
+1. r711 的反例是确定性合同冲突，不是模型波动：同一 dispatch 的工具面连续只发布
+   `emit_investigation_complete`，而执行层已因 `ExploreBudget` 返回 0 永久拒绝该工具。模型先尝试被撤权的
+   `emit_evidence`，随后又反复调用 schema 唯一工具直至耗尽 ReAct 轮次；“必须调用”和“调用必拒”同时为真。
+2. 根因是 schema filter 只消费 repair/completion 状态，运行时预算只在 `executeTool` 内消费，二者没有同源投影；并且
+   completion-obligation 明确设计为“past the ceiling”，却继承了主探索窗口已经耗尽的 source-acquisition counter。
+3. 根修在每次 LLM 请求之前，把当前 `ExploreBudget` 按 canonical typed tool name 投影到 evaluator 已收窄的精确 schema。
+   额度为零的工具不再发给模型；若全部当前允许工具均耗尽，BaseAgent 不再请求新一轮模型，而是保留已有 tool results，
+   正常执行 `ParseOutput`，让已有 typed closure/caveat 决定后续。该判据不读取 request、reasoning、答案正文、工具参数或标签。
+4. completion-obligation 车道改用全新且严格有界的专用预算：只允许
+   `emit_evidence` / `emit_investigation_complete`，overall cap 与 per-tool cap 均为 4，并继续受该车道
+   `MaxIterOverride=4` 限制。它不借此重开 grep/read/repo_map/trace_query，也不会变成无限表单重试；车道结束后恢复原预算。
+5. Pins 覆盖部分耗尽时只保留仍可调用 schema、整体耗尽时 canonical 名称稳定且 schema 为空、BaseAgent 在“唯一工具已耗尽”
+   的四轮配置下 LLM 调用次数精确为 0 且仍执行一次 ParseOutput，以及 completion lane 仅含两种结构化工具且 4/0 fresh counter。
+   专项与完整 `go test ./internal/agent ./internal/orchestrator -count=1` 全绿，`git diff --check` 全绿。
+6. 本批只修工具协议可满足性，不增加答案词串门、不改变证据/结论权、不放宽任何 grounding validator。显式时间窗 Trace 查询、
+   因果投影、自动补齐、链上-only 主因、实际占用/规则可消双轴、业务线索及邻近/背景 support-only 均未触碰；活跃 stream
+   仍不以 4ms、4s 或固定累计年龄降级，终止权仍属于 caller cancel/deadline、无首字节、byte-stall、transport/decode failure。
+
+状态：
+
+`B1127-EXHAUSTEDTOOLSCHEMA1=implemented/schema-budget-single-authority+pinned/replay-next`；
+`completion-obligation=fresh-emit-only-budget/max-4/restored-after-dispatch`；
+`exhausted-only-surface=no-LLM-call/accumulated-results-preserved`；
+`raw-request/model-reasoning/final-prose-hard-gate=none`；
+`system-answer/diagram/relation/conclusion-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
