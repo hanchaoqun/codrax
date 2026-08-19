@@ -667,6 +667,43 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 			t.Fatalf("component-join repair must publish the already-proved principal-side bridge %q:\n%s", want, guidance)
 		}
 	}
+	if strings.Contains(guidance, "typed_candidate[") {
+		t.Fatalf("component repair must publish the crossing frontier without lower-value local incident noise:\n%s", guidance)
+	}
+
+	// A missing reader-facing identity can be reported before the complete
+	// graph check. It must not suppress the same executable crossing frontier.
+	// The component repair is higher value; after the model authors that join,
+	// a later check may surface any still-missing local identity separately.
+	identityGapDoc := *doc
+	identityGapDoc.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+	identityGapBlock := identityGapDoc.Blocks[0]
+	identityGapBlock.Diagram = &types.AnswerDiagramBlock{
+		Kind: doc.Blocks[0].Diagram.Kind, Language: doc.Blocks[0].Diagram.Language,
+		Body: strings.ReplaceAll(doc.Blocks[0].Diagram.Body, `BusContext["BusContext"]`, `B["上下文载体"]`),
+	}
+	identityGapBlock.EdgeAnchors = append([]types.DiagramEdgeAnchor(nil), doc.Blocks[0].EdgeAnchors...)
+	for i := range identityGapBlock.EdgeAnchors {
+		if identityGapBlock.EdgeAnchors[i].FromNode == "BusContext" {
+			identityGapBlock.EdgeAnchors[i].FromNode = "B"
+		}
+	}
+	identityGapDoc.Blocks[0] = identityGapBlock
+	identityGapMismatches := DiagramParticipantCoverageMismatches(&identityGapDoc, view, rm, evidence, precedence...)
+	componentSeen := false
+	for _, mismatch := range identityGapMismatches {
+		if mismatch.Participant == "BusContext" && mismatch.Issue == DiagramParticipantCoverageIdentityMissing {
+			t.Fatalf("a local identity symptom must not hide an executable component join: %+v", identityGapMismatches)
+		}
+		componentSeen = componentSeen || mismatch.Issue == DiagramParticipantCoverageComponentSplit
+	}
+	if !componentSeen {
+		t.Fatalf("typed-complete split graph must retain the component repair frontier: %+v", identityGapMismatches)
+	}
+	identityGapGuidance := diagramParticipantCoverageCandidateGuidance(&identityGapDoc, rm, identityGapMismatches, evidence, precedence)
+	if !strings.HasPrefix(identityGapGuidance, "typed_join_candidate[1]") || strings.Contains(identityGapGuidance, "typed_candidate[") {
+		t.Fatalf("crossing candidates must lead and remain undiluted when a local mismatch was found first:\n%s", identityGapGuidance)
+	}
 
 	// Rendering the already-proved Extractor argument edge through the shared
 	// technical handoff node joins both islands. No system-authored edge or
@@ -1060,7 +1097,7 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		`edge_anchor_identity_fields:{from_identity:"output.EvidenceItems",to_identity:"o.busCtx.EvidenceItems",relation_kind:"data_flow"}`,
 		`edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
 		`identity_action:"use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"`,
-		`boundary_action:"omit_unproven_boundary"`,
+		`boundary_action:"recompute_from_the_complete_requested_relation_authority_omit_only_when_complete_otherwise_retain_exactly_one_unproven_requested_relation_boundary"`,
 		"never replace those exact identities with the broader participant name",
 		"not a requirement to render every candidate",
 		"does not create an edge",
@@ -1130,7 +1167,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 	got := diagramParticipantCoverageRepairActions(mismatches)
 	for _, want := range []string{
 		`repair_action["BusContext"]={issue:"available_typed_incident_edge_not_rendered",edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
-		`repair_action["Mutable"]={issue:"required_participant_identity_not_visible",edge_action:"retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate",identity_action:"add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints",boundary_action:"omit_unproven_boundary"}`,
+		`repair_action["Mutable"]={issue:"required_participant_identity_not_visible",edge_action:"retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate",identity_action:"add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints",boundary_action:"recompute_from_the_complete_requested_relation_authority_omit_only_when_complete_otherwise_retain_exactly_one_unproven_requested_relation_boundary"}`,
 		`repair_action["analyzer"]={issue:"stale_boundary_for_connected_participant",edge_action:"retain_existing_typed_incident_edge",identity_action:"retain_existing_visible_participant_identity",boundary_action:"remove_stale_boundary"}`,
 		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any",identity_action:"ensure_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping",boundary_action:"add_exactly_one_unproven_boundary"}`,
 		`repair_action["DetachedStore"]={issue:"unproven_boundary_has_visible_incident_edge",edge_action:"move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_out_of_that_directed_edge",identity_action:"retain_exact_visible_participant_and_preserve_any_existing_grounded_no_arrow_grouping",boundary_action:"retain_exactly_one_unproven_boundary"}`,

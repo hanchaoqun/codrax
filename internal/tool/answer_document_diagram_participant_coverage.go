@@ -341,11 +341,11 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 		case DiagramParticipantCoverageTypedEdgeMissing:
 			edgeAction = "reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"
 			identityAction = "use_the_exact_participant_as_that_edge_endpoint_node_id_with_a_business_label_or_group_the_exact_technical_endpoint_inside_it"
-			boundaryAction = "omit_unproven_boundary"
+			boundaryAction = "recompute_from_the_complete_requested_relation_authority_omit_only_when_complete_otherwise_retain_exactly_one_unproven_requested_relation_boundary"
 		case DiagramParticipantCoverageIdentityMissing:
 			edgeAction = "retain_an_already_rendered_valid_candidate_or_select_one_existing_typed_candidate"
 			identityAction = "add_only_the_missing_visible_participant_label_or_group_without_retargeting_canonical_endpoints"
-			boundaryAction = "omit_unproven_boundary"
+			boundaryAction = "recompute_from_the_complete_requested_relation_authority_omit_only_when_complete_otherwise_retain_exactly_one_unproven_requested_relation_boundary"
 		case DiagramParticipantCoverageStaleBoundary:
 			edgeAction = "retain_existing_typed_incident_edge"
 			identityAction = "retain_existing_visible_participant_identity"
@@ -574,13 +574,39 @@ func DiagramParticipantCoverageMismatches(
 	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 1)
 	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete && len(joinCandidates) > 0 {
 		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, evidence, stagePrecedence)
-		existing := make(map[string]bool, len(out))
+		outsidePrincipal := make(map[string]bool, len(states))
+		for i, current := range states {
+			if i < len(principal) && principal[i] {
+				continue
+			}
+			outsidePrincipal[strings.ToLower(strings.TrimSpace(current.obligation.Identity))] = true
+		}
+		// A crossing candidate is a more complete repair frontier than a local
+		// incidence/identity candidate for the same participant.  Collapse those
+		// local symptoms into the component-level issue so retry guidance cannot
+		// hide the executable join behind a lower-value edge.  Other precise
+		// issues (unknown boundary, duplicate row, endpoint retargeting) remain
+		// independent and are not erased.
+		filtered := out[:0]
 		for _, mismatch := range out {
-			existing[strings.ToLower(strings.TrimSpace(mismatch.Participant))] = true
+			participant := strings.ToLower(strings.TrimSpace(mismatch.Participant))
+			if outsidePrincipal[participant] &&
+				(mismatch.Issue == DiagramParticipantCoverageTypedEdgeMissing ||
+					mismatch.Issue == DiagramParticipantCoverageIdentityMissing) {
+				continue
+			}
+			filtered = append(filtered, mismatch)
+		}
+		out = filtered
+		existingComponent := make(map[string]bool, len(out))
+		for _, mismatch := range out {
+			if mismatch.Issue == DiagramParticipantCoverageComponentSplit {
+				existingComponent[strings.ToLower(strings.TrimSpace(mismatch.Participant))] = true
+			}
 		}
 		for i, current := range states {
 			participant := strings.TrimSpace(current.obligation.Identity)
-			if i < len(principal) && principal[i] || existing[strings.ToLower(participant)] {
+			if i < len(principal) && principal[i] || existingComponent[strings.ToLower(participant)] {
 				continue
 			}
 			out = append(out, DiagramParticipantCoverageMismatch{
@@ -1078,16 +1104,17 @@ func diagramParticipantCoverageCandidateGuidance(
 		// subset that actually crosses two current visible components. This still
 		// creates no edge or wording.
 		joinGuidance = diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4)
-		failed = nil
+		if joinGuidance != "" {
+			// The exact crossing frontier is the smallest actionable repair for a
+			// split requested graph. Publishing every local incident candidate in
+			// the same turn dilutes that choice and caused repeated non-joining
+			// patches. The next deterministic check will publish any remaining local
+			// issue after the model-authored join is present.
+			return joinGuidance
+		}
 	}
 	incidentGuidance := flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 3)
-	if joinGuidance == "" {
-		return incidentGuidance
-	}
-	if incidentGuidance == "" {
-		return joinGuidance
-	}
-	return joinGuidance + "; " + incidentGuidance
+	return incidentGuidance
 }
 
 // diagramParticipantCoverageCompactCandidateGuidance publishes only the

@@ -35649,6 +35649,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1175 B1175：typed join frontier 优先于局部参与者症状，边界合同统一（2026-08-19）
+
+1. 已在 `answer_document_diagram_participant_coverage.go` 根修 mismatch 优先级。只有当 typed evidence
+   participant graph 已完整、model-authored reader graph 仍分裂、且 provider 能给出至少一条跨当前可见
+   component 的精确候选时，才进入 component repair；对同一非 principal 参与者先出现的
+   `TypedEdgeMissing/IdentityMissing` 局部症状收敛为 `ComponentSplit`，不再因 `existing mismatch` 跳过。
+2. component repair 的初次与 compact retry 现在都只发布 bounded `typed_join_candidate` frontier，不再同轮追加
+   每个参与者的局部 `typed_candidate` roster。模型仍自行选择是否使用候选、自行决定业务标签/布局/边；系统不
+   画边、不铸 relation、不改答案。join 落地后若仍有局部身份问题，下一次 deterministic check 才单独发布。
+3. `TypedEdgeMissing/IdentityMissing` 的 boundary action 已从无条件 `omit_unproven_boundary` 改为读取完整请求关系
+   权威后的条件动作：整体已证才删除，整体仍未证则保留恰好一个诚实 requested-relation boundary。由此消除
+   “总则允许独立局部事实与未证边界共存、action 却强制删边界”的同轮矛盾。
+4. 新 pin 覆盖“局部 reader identity mismatch 先出现、但 typed crossing candidate 可执行”的复现形：最终 issue
+   必须是 component repair，guidance 必须以 join candidate 开头且不得混入局部 roster；既有“无可执行 join
+   不得硬拒 split”继续通过。所有关系输入只来自 typed evidence、parsed Mermaid 与 typed participant slate，
+   没有读取用户/模型/答案 prose 作硬门。
+5. 验证：定向 participant/precheck tests 绿；`internal/tool + internal/orchestrator + internal/agent` 绿；
+   `make test` 全仓绿（含 Mermaid/JSON、Trace projection、tracequery/tracediag）。显式窗 Trace 因果投影、自动补齐、
+   链上主因、实际占用/业务线索与规则计价可消除量双轴均未改；active stream 无 4ms/固定 age 降级。
+
+状态：
+
+`B1175-DIAGRAMJOINCANDIDATEPRIORITY1=implemented/unit+cross-module+full-suite-green/awaiting-r738`；
+`precise-signal-hard-gate=preserved`；`model-edge/answer/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/not-added`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1174 r737：跨快路径值流生效，但 join 候选被局部修复压住；补证 planner 无 API 上下文（2026-08-19）
 
 1. 在 `main@e0aead217` 重建后严格并发恰好两个案例：
