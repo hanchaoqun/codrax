@@ -7927,6 +7927,114 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofAppendsPr
 	if next.ActiveBatchID != got.Batch.ID || next.Batches[len(next.Batches)-1].Status != types.WriteWorkflowBatchReadyToPlan {
 		t.Fatalf("probe-planning batch did not become active/ready: %+v", next)
 	}
+
+	// Model-authored append/split decisions must not bypass the same
+	// controller-owned proof batch and lose its purpose/dependency authority.
+	for _, action := range []writeflow.WorkflowAction{writeflow.ActionAppendBatch, writeflow.ActionSplitBatch} {
+		candidateRun := types.CloneWriteWorkflowRun(*run)
+		candidateRun.ProgressLedger = candidateRun.ProgressLedger[:1]
+		got := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+			Action: action,
+			Batch: &writeflow.WriteBatchPlan{
+				ID:      "model-proof-batch",
+				Goal:    "model-authored proof retry",
+				Purpose: "ordinary verification",
+			},
+		}, &candidateRun)
+		if got.Action != writeflow.ActionAppendBatch || got.Batch == nil ||
+			got.Batch.Purpose != "verification_proof_followup" ||
+			len(got.Batch.DependsOn) != 1 || got.Batch.DependsOn[0] != candidateRun.ActiveBatchID {
+			t.Fatalf("%s bypassed controller proof authority: %+v", action, got)
+		}
+	}
+}
+
+func TestResolveVerifiedProofFollowupDependencies_RequiresExactTypedClosure(t *testing.T) {
+	strongPlan := &types.ChangePlan{
+		ID:     "plan-proof-closed",
+		Status: types.PlanStatusApplied,
+		VerificationProbes: []types.VerificationProbe{{
+			ID: "probe-contract", ContractRefs: []string{"contract-a"},
+		}},
+	}
+	strongReport := &types.ChangeReport{
+		PlanID: strongPlan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, Suite: "verification_probe/probe-contract",
+			AssertionID: "probe-contract", Passed: true,
+		}},
+	}
+	newRun := func() *types.WriteWorkflowRun {
+		return &types.WriteWorkflowRun{
+			RunID: "wf-proof-resolution", Status: types.WriteWorkflowRunInProgress,
+			ActiveBatchID: "batch-proof-2",
+			Batches: []types.WriteWorkflowBatch{{
+				ID: "batch-proof-1", Purpose: "verification_proof_followup",
+				ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+				Status:        types.WriteWorkflowBatchComplete,
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict: types.WriteWorkflowCompletionUnverified, ReasonCode: "verification_proof_incomplete",
+				},
+			}, {
+				ID: "batch-proof-2", Purpose: "verification_proof_followup",
+				ExecutionMode: types.WriteWorkflowBatchExecutionVerifyOnly,
+				Status:        types.WriteWorkflowBatchComplete, PlanID: strongPlan.ID,
+				DependsOn: []string{"batch-proof-1"},
+				Completion: &types.WriteWorkflowCompletion{
+					Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "tests_passed",
+				},
+			}},
+		}
+	}
+	mu := types.NewMutableState("close exact proof dependency")
+	mu.SetChangePlan(strongPlan)
+	mu.SetChangeReport(strongReport)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	run := newRun()
+	o.resolveVerifiedProofFollowupDependencies(run)
+	if got := run.Batches[0].Completion; got == nil ||
+		got.Verdict != types.WriteWorkflowCompletionVerified ||
+		got.ReasonCode != "superseded_by_verified_proof_followup" {
+		t.Fatalf("closed dependent proof did not settle predecessor: %+v", run.Batches[0])
+	}
+	if !workflowProgressHasReason(run.ProgressLedger, "proof_followup_dependency_resolved") {
+		t.Fatalf("proof resolution progress missing: %+v", run.ProgressLedger)
+	}
+
+	for name, mutate := range map[string]func(*types.WriteWorkflowRun, *types.ChangeReport){
+		"no dependency": func(run *types.WriteWorkflowRun, _ *types.ChangeReport) {
+			run.Batches[1].DependsOn = nil
+		},
+		"ordinary successor": func(run *types.WriteWorkflowRun, _ *types.ChangeReport) {
+			run.Batches[1].Purpose = "implementation"
+		},
+		"ordinary predecessor": func(run *types.WriteWorkflowRun, _ *types.ChangeReport) {
+			run.Batches[0].ExecutionMode = ""
+		},
+		"different prior reason": func(run *types.WriteWorkflowRun, _ *types.ChangeReport) {
+			run.Batches[0].Completion.ReasonCode = "tests_failed"
+		},
+		"weak current ledger": func(_ *types.WriteWorkflowRun, report *types.ChangeReport) {
+			report.TestResults = nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			run := newRun()
+			report := *strongReport
+			report.TestResults = append([]types.TestResult(nil), strongReport.TestResults...)
+			mutate(run, &report)
+			mu := types.NewMutableState(name)
+			mu.SetChangePlan(strongPlan)
+			mu.SetChangeReport(&report)
+			(&Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}).
+				resolveVerifiedProofFollowupDependencies(run)
+			if run.Batches[0].Completion == nil ||
+				run.Batches[0].Completion.Verdict != types.WriteWorkflowCompletionUnverified {
+				t.Fatalf("unsafe proof predecessor was settled: %+v", run.Batches[0])
+			}
+		})
+	}
 }
 
 func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofMissingRuntimeFinishesUnverified(t *testing.T) {

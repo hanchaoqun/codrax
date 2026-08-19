@@ -35680,11 +35680,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 两案均未发生 active-stream 4ms 或固定累计 age 降级。Read/Write 施工不得触碰 Trace 查询结果、
    显式时间窗、因果投影或自动补齐；Trace 主因继续限于 typed on-chain，实际占用/业务线索与规则
    计价可消除量双轴保持，邻近/背景只能作支持，结论继续由模型形成。
+8. `B1174` 已分两层施工。所有会中断未闭合补证的 typed 动作现在包含 append/split；当精确
+   proof-planning decision 已成立时，模型自拟批次不能绕过 controller-owned purpose、DependsOn 与
+   zero-change 权威。终局新增直接依赖结清：只接受 verified proof-followup 后继、exact plan/report
+   identity、完整 proof ledger 零缺失/零不可用/零失败，并逐一确认计划探针确有 passing typed receipt；
+   仅项目套件绿、无依赖、普通批、不同前驱原因或未执行探针均由负例 pin 保持 unverified。
+9. 专项 `orchestrator/writeflow/types` 与 `make test` 全绿。该修复不降低普通 mutation 的 durable ref、
+   post-apply verify 或行为证明门；它只允许一个明确的补证代次结清其直接 proof 前驱，不修改用户
+   可见模型答案内容。
 
 状态：
 
 `B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=unit-covered/production-failed-r736/early-fast-path-open`；
-`B1174-WRITEPROOFFOLLOWUPTERMINALRESOLUTION1=confirmed/P0-P1/next`；
+`B1174-WRITEPROOFFOLLOWUPTERMINALRESOLUTION1=implemented/typed-routing+exact-dependent-closure+pinned`；
 `B1172-RUNTIMEFACETMEMBERSHIPAUTHORITY1=confirmed/P1/queued`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

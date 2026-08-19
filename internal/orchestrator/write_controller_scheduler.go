@@ -6655,6 +6655,12 @@ func (o *Orchestrator) enforceTerminalCumulativeProofAuthority(run *types.WriteW
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil || len(run.Batches) == 0 {
 		return
 	}
+	// A later controller-owned proof batch is a new observation generation for
+	// the exact verify-only batch it depends on. Settle that direct predecessor
+	// only after the new generation closes its own typed proof ledger. This is
+	// deliberately narrower than "a later test passed": ordinary batches and
+	// unrelated green suites cannot launder an earlier weak proof.
+	o.resolveVerifiedProofFollowupDependencies(run)
 	for _, batch := range run.Batches {
 		if batch.Status != types.WriteWorkflowBatchComplete || batch.Completion == nil ||
 			batch.Completion.Verdict != types.WriteWorkflowCompletionVerified {
@@ -6711,6 +6717,57 @@ func (o *Orchestrator) enforceTerminalCumulativeProofAuthority(run *types.WriteW
 	markActiveBatchProofUnverified(run, reasonCode, "cumulative_proof_ledger")
 	appendControllerProgress(run, run.ActiveBatchID, "terminal_cumulative_proof_unverified",
 		"terminal completion retained typed cumulative proof authority as unverified (reason="+reasonCode+")")
+}
+
+func (o *Orchestrator) resolveVerifiedProofFollowupDependencies(run *types.WriteWorkflowRun) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || run == nil {
+		return
+	}
+	active, ok := activeWorkflowBatch(run)
+	if !ok || active.Status != types.WriteWorkflowBatchComplete ||
+		!proofFollowupPurpose(active.Purpose) || len(active.DependsOn) == 0 ||
+		active.Completion == nil || active.Completion.Verdict != types.WriteWorkflowCompletionVerified {
+		return
+	}
+	plan := o.busCtx.Mutable.ChangePlan()
+	report := o.busCtx.Mutable.ChangeReport()
+	if plan == nil || report == nil || strings.TrimSpace(plan.ID) == "" ||
+		strings.TrimSpace(active.PlanID) != strings.TrimSpace(plan.ID) ||
+		strings.TrimSpace(report.PlanID) != strings.TrimSpace(plan.ID) {
+		return
+	}
+	ledger := types.NormalizeVerificationProofLedger(types.BuildVerificationProofLedger(plan, report, nil))
+	if !proofFollowupPlannedProbesPassed(plan, report) ||
+		ledger.State != types.VerificationProofLedgerVerified || ledger.UncoveredCount != 0 ||
+		ledger.UnavailableCount != 0 || ledger.FailedCount != 0 ||
+		ledger.CapabilityUnavailableCount != 0 || ledger.CapabilityFailedCount != 0 {
+		return
+	}
+	deps := map[string]bool{}
+	for _, raw := range active.DependsOn {
+		if id := strings.TrimSpace(raw); id != "" {
+			deps[id] = true
+		}
+	}
+	for i := range run.Batches {
+		batch := &run.Batches[i]
+		if !deps[strings.TrimSpace(batch.ID)] ||
+			batch.ExecutionMode != types.WriteWorkflowBatchExecutionVerifyOnly ||
+			!proofFollowupPurpose(batch.Purpose) || batch.Status != types.WriteWorkflowBatchComplete ||
+			batch.Completion == nil || batch.Completion.Verdict != types.WriteWorkflowCompletionUnverified ||
+			strings.TrimSpace(batch.Completion.ReasonCode) != "verification_proof_incomplete" {
+			continue
+		}
+		batch.Completion = &types.WriteWorkflowCompletion{
+			Verdict:    types.WriteWorkflowCompletionVerified,
+			ReasonCode: "superseded_by_verified_proof_followup",
+			Source:     "proof_followup_dependency",
+			At:         time.Now(),
+		}
+		batch.UpdatedAt = time.Now()
+		appendControllerProgress(run, batch.ID, "proof_followup_dependency_resolved",
+			"a directly dependent controller-owned proof generation closed the exact typed proof ledger")
+	}
 }
 
 func controllerTruthLedgerDecisionFromView(decision writeflow.WriteWorkflowDecision, view writeflow.WorkflowExecutionView, ledger types.TruthLedger, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
@@ -7456,8 +7513,8 @@ func controllerActionDelaysPostApplyVerify(action writeflow.WorkflowAction) bool
 func controllerActionInterruptsUnverifiedCompletion(action writeflow.WorkflowAction) bool {
 	switch action {
 	case writeflow.ActionExploreCode, writeflow.ActionPlanBatch, writeflow.ActionApplyPlan,
-		writeflow.ActionVerifyBatch, writeflow.ActionReplanBatch, writeflow.ActionAskUser,
-		writeflow.ActionBlock:
+		writeflow.ActionVerifyBatch, writeflow.ActionReplanBatch, writeflow.ActionAppendBatch,
+		writeflow.ActionSplitBatch, writeflow.ActionAskUser, writeflow.ActionBlock:
 		return true
 	default:
 		return false
