@@ -35649,6 +35649,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1165 r733：无损 sibling 恢复获生产正证；精确关系修复锁存器无有界退出（2026-08-19）
+
+1. 在 `main@c55bbea89` 重建后严格并发恰好两个案例：
+   `github_issue_nlohmann_long_double_symptom + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`；人工
+   C++ pass、QF partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_lossless_assertion_replay_r733_20260819_manual_audit.md`。
+2. B1168 获生产正证。C++ Planner 再次把 `changes` 发成 string-wrapped object，但本轮兼容报告明确同时恢复
+   `changes, acceptance_tests, verification_probes, project_test_observations`；持久化计划保留 2 个 change、4 个
+   acceptance test 和 exact `test_path/suite/assertion_id/contract_refs`，没有再只救 `changes` 后静默丢 sibling。
+3. B1165 获 exact 负向生产 join。模型声明的项目观察是
+   `tests/long_double_format.cpp / long_double_format_cpp / snprintf_float_produces_nonempty_output`；真实执行回执只有
+   Make 聚合行 `observation_scope=aggregate, suite=check, assertion_id=make-test`。`make check` 虽通过，终验仍保持
+   `unverified/verification_proof_incomplete`，没有把 aggregate receipt 冒充指定断言。代码改动仍是正确的两处
+   `%.*Lg`，所以此 FAIL 是证据粒度 fail-closed，不是修向失败。
+4. QF 最终有完整答案和合法 Mermaid，四阶段顺序、`Mutable -> objective`、
+   `BusContext -> BuildAgentContext`、`BuildAgentContext -> Mutable` 都由模型发射并保留业务化标签；B1166 无回归。
+   但最后一条是把 exact technical endpoint 映射到组件节点后的可读抽象，不能据此宣称一条完整共享状态数据流已经
+   全链证明，人工仍记 partial；B1167 继续要求跨组件 assignment/argument/return/consumer 的 typed 组合证据。
+5. 新确认 `B1170/P0`。`emit_evidence` 在 `internal/orchestrator/extract_work.go:15` 生成一个 parser-owned exact
+   argument sibling repair，明确要求 `subject=anchor_symbol=types.AgentExtractor`、
+   `object=ctxbuilder.BuildAgentContext`。模型连续漏掉 `subject`；`pendingBlockingEmitEvidenceItemValidationRepair`
+   每次 completion 都直接返回同一 repair，并有意绕开所有 downgrade convergence。结果同一字节级 blocker 被拒 6 次，
+   Explorer 到 49 iterations、12 次 completion，并重开一次广搜。结构债没有进 evidence buffer 本身是正确的，但
+   “永远可修”不是合法终态：同一 exact repair 在有界次数后必须保留为 typed `unproven` boundary，让 51 条已 grounded
+   事实继续成文；系统不得自动补 `subject`、铸证据、画边或代写结论。
+6. B1169 再次亲验且与 B1170 叠加：QF 用时 753s、5 次 finalizer reject、17 次 midloop，最大上下文
+   103,070 tokens。成文修复依次追打 `typed_anchor_without_visible_edge -> required_participant_identity_not_visible ->
+   typed_requested_component_not_connected`，每轮重复约 28KB 的全量关系规则/候选。最优方案仍是 producer-owned
+   schema-native delta：只携失败 issue、失败 edge/participant、一个或有界候选、endpoint-side mapping 与必须保留项；
+   通用教学只在首轮出现。不得通过放松 typed gate 或系统改图降 churn。
+7. 本批没有 Trace 调用、JSON 答案降级、旧稿替换或空答案。活跃模型流持续 753s 仍等到最终结构化答案，没有因
+   4ms/固定累计年龄降级。显式 Trace 窗、因果投影、自动补齐、链上-only 根因、实际占用/业务线索与规则可消除量
+   双轴均未改；背景仍不能晋升主因，模型保持答案与图的作者权。
+
+状态：
+
+`B1168-SELECTEDSTRINGWRAPPEDSIBLINGLOSS1=production-positive-r733/closed`；
+`B1165-PROJECTTESTASSERTIONAUTHORITY1=production-negative-exact-join-r733/fail-closed`；
+`B1170-REQUIREDRELATIONITEMREPAIRCONVERGENCE1=confirmed/P0/next`；
+`B1169-DIAGRAMREPAIRDELTA1=production-reconfirmed/P1/after-B1170`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=production-partial/P1/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1164 B1168：selected string-wrapper 恢复保留同载体 schema sibling（2026-08-19）
 
 1. 根因不在 `emit_change_plan` 字段定义或 assertion verifier，而在共享
