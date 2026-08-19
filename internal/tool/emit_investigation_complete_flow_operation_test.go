@@ -2208,6 +2208,161 @@ func TestFlowOperationNavigationBalancesBindingBudgetAcrossMissingParticipantsAc
 	}
 }
 
+func TestFlowOperationNavigationPrefersMissingToCoveredParticipantJoinAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			localPath := filepath.ToSlash(filepath.Join("src", language, "a_local.src"))
+			handoffPath := filepath.ToSlash(filepath.Join("src", language, "z_extract.src"))
+			localLines := make([]string, 20)
+			localLines[9] = "env.Value = this.busContext.Mutable.Read()"
+			handoffLines := make([]string, 40)
+			handoffLines[29] = "agentContext := builder.BuildAgentContext(this.busContext, AgentExtractor, stage)"
+			for path, body := range map[string]string{
+				localPath: strings.Join(localLines, "\n"), handoffPath: strings.Join(handoffLines, "\n"),
+			} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "extractor", ResolvedAs: "extractorToolObligationView", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", ResolvedAs: "MutableState", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				localPath: {
+					RelPath: localPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+						{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 1},
+						{Name: "buildEnv", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 20},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: localPath, Line: 10,
+						FromEP: repotypes.RelationEndpoint{Name: "buildEnv", Receiver: "Pipeline", Line: 10},
+						ToEP:   repotypes.RelationEndpoint{Name: "Read", Receiver: "this.busContext.Mutable", Line: 10},
+					}},
+				},
+				handoffPath: {
+					RelPath: handoffPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "extractStageHasRequiredWork", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 40},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: handoffPath, Line: 30,
+						FromEP: repotypes.RelationEndpoint{Name: "extractStageHasRequiredWork", Receiver: "Pipeline", Line: 30},
+						ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30},
+					}},
+				},
+			}))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable", "BusContext"})
+			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s join from missing carriers to the covered stage must outrank a disconnected local read: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("connection-gain navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
+func TestFlowOperationNavigationDoesNotLexicallyStarveHighGainBindingWithinParticipantAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			files := make(map[string]*repotypes.FileInfo)
+			for i := 0; i < maxFlowOperationRepairFiles+2; i++ {
+				path := filepath.ToSlash(filepath.Join("src", language, "a_local_"+string(rune('a'+i))+".src"))
+				alias := "localBus" + string(rune('A'+i))
+				lines := make([]string, 15)
+				lines[9] = alias + ".Read()"
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				files[path] = &repotypes.FileInfo{
+					RelPath: path, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: alias, Kind: "field", Parent: "Local" + string(rune('A'+i)), DeclaredType: "BusContext", Line: 1},
+						{Name: "inspect", Kind: "method", Receiver: "Local" + string(rune('A'+i)), Line: 1, EndLine: 15},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: path, Line: 10,
+						FromEP: repotypes.RelationEndpoint{Name: "inspect", Receiver: "Local" + string(rune('A'+i)), Line: 10},
+						ToEP:   repotypes.RelationEndpoint{Name: "Read", Receiver: alias, Line: 10},
+					}},
+				}
+			}
+
+			handoffPath := filepath.ToSlash(filepath.Join("src", language, "z_dispatch.src"))
+			handoffLines := make([]string, 40)
+			handoffLines[29] = "agentContext := builder.BuildAgentContext(this.busContext, AgentExtractor, stage)"
+			absolute := filepath.Join(repo, filepath.FromSlash(handoffPath))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(absolute, []byte(strings.Join(handoffLines, "\n")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			files[handoffPath] = &repotypes.FileInfo{
+				RelPath: handoffPath, Language: language, Package: "pipeline",
+				Symbols: []repotypes.Symbol{
+					{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+					{Name: "extractorDispatch", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 40},
+				},
+				Relations: []repotypes.Relation{{
+					Kind: "call", File: handoffPath, Line: 30,
+					FromEP: repotypes.RelationEndpoint{Name: "extractorDispatch", Receiver: "Pipeline", Line: 30},
+					ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30},
+				}},
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "extractor", ResolvedAs: "extractorToolObligationView", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(files))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s high-gain binding must survive same-participant lexical file caps: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("binding prioritization must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationUsesCanonicalTypedParticipantResolution(t *testing.T) {
 	ctx := flowOperationCompletionContext(nil)
 	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Extractor", "Mutable", "BusContext"}

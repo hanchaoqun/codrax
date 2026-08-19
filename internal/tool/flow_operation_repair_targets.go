@@ -753,6 +753,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	}
 	var surfaces []string
 	var participantSurfaceGroups [][]string
+	var participantSurfaceGroupMissing []bool
 	var missingParticipantSurfaceGroups [][]string
 	if rm.DiagramHint != nil {
 		for _, participant := range flowOperationPlanningParticipants(rm) {
@@ -763,6 +764,8 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			planningSurfaces := resolved.softNavigationSurfaces()
 			if len(planningSurfaces) > 0 {
 				participantSurfaceGroups = append(participantSurfaceGroups, planningSurfaces)
+				participantSurfaceGroupMissing = append(participantSurfaceGroupMissing,
+					len(wanted) == 0 || wanted[strings.ToLower(strings.TrimSpace(participant.Identity))])
 			}
 			// Candidate discovery remains scoped to the participant(s) that
 			// still lack incidence. Candidate QUALITY, however, must compare
@@ -801,6 +804,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		target        flowOperationRepairReadTarget
 		relation      *repotypes.Relation
 		ownerSurfaces []string
+		// connectionGainRank distinguishes an operation that joins at
+		// least one still-missing participant to an already-covered
+		// requested participant from an equally broad local operation
+		// whose touched participants are all still disconnected.
+		connectionGainRank int
 		// participantTouchRank counts distinct requested participant groups
 		// touched by this one parser-owned operation coordinate. It ranks a
 		// real cross-participant receiver/caller site ahead of a ubiquitous
@@ -860,6 +868,10 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			},
 			relation:      relation,
 			ownerSurfaces: append([]string(nil), site.ownerSurfaces...),
+			connectionGainRank: flowNavigationRequestedParticipantConnectionGainRank(
+				relation, flowDeclaredBindingSite{}, site.ownerSurfaces,
+				participantSurfaceGroups, participantSurfaceGroupMissing,
+			),
 			participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 				relation, flowDeclaredBindingSite{}, site.ownerSurfaces, participantSurfaceGroups,
 			),
@@ -885,8 +897,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	// while preventing cross-participant starvation.
 	var bindingSites []flowDeclaredBindingSite
 	seenBindingSites := make(map[string]bool)
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	for _, group := range missingParticipantSurfaceGroups {
-		for _, binding := range flowRepairDeclaredBindingSites(index, rm, group) {
+		for _, binding := range flowNavigationDeclaredBindingSitesForRepair(
+			index, graph, rm, group, participantSurfaceGroups,
+		) {
 			key := strings.ToLower(binding.file + "\x00" + binding.alias + "\x00" + binding.owner)
 			if seenBindingSites[key] {
 				continue
@@ -896,7 +911,6 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 	}
 	for _, binding := range bindingSites {
-		graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 		for _, site := range flowNavigationBindingRelationSites(index, graph, binding) {
 			lines := flowNavigationSourceLines(ctx, index, site.file)
 			if len(lines) == 0 {
@@ -944,6 +958,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				},
 				relation:      relation,
 				ownerSurfaces: append([]string(nil), site.ownerSurfaces...),
+				connectionGainRank: flowNavigationRequestedParticipantConnectionGainRank(
+					relation, binding,
+					append(append(append([]string(nil), site.ownerSurfaces...), binding.owner), argumentSurfaces...),
+					participantSurfaceGroups, participantSurfaceGroupMissing,
+				),
 				participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 					relation, binding,
 					append(append(append([]string(nil), site.ownerSurfaces...), binding.owner), argumentSurfaces...),
@@ -974,6 +993,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		// multi-participant and whole-carrier ranks retain their ordering.
 		if candidates[i].kindRank != candidates[j].kindRank {
 			return candidates[i].kindRank > candidates[j].kindRank
+		}
+		if candidates[i].connectionGainRank != candidates[j].connectionGainRank {
+			return candidates[i].connectionGainRank > candidates[j].connectionGainRank
 		}
 		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
 			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
@@ -2018,6 +2040,54 @@ func flowNavigationRequestedParticipantTouchRank(
 	return touched
 }
 
+// flowNavigationRequestedParticipantConnectionGainRank is a SOFT frontier
+// preference layered above the raw participant count.  Touching two requested
+// participants is not always progress: both may already be in the same still-
+// disconnected state-only island.  A candidate that touches at least one
+// missing group and at least one already-covered group can join that island to
+// the requested flow and is therefore the more useful next source coordinate.
+//
+// All inputs are parser/analyzer typed.  The rank never closes participant
+// coverage, creates evidence, or requires the model to draw an edge.
+func flowNavigationRequestedParticipantConnectionGainRank(
+	relation *repotypes.Relation,
+	binding flowDeclaredBindingSite,
+	ownerSurfaces []string,
+	participantSurfaceGroups [][]string,
+	participantGroupMissing []bool,
+) int {
+	if relation == nil || len(participantSurfaceGroups) == 0 ||
+		len(participantSurfaceGroups) != len(participantGroupMissing) {
+		return 0
+	}
+	bindingSymbol := repotypes.Symbol{Name: binding.alias, DeclaredType: binding.declaredType}
+	endpoints := append(
+		flowRepairRelationEndpointSurfaces(relation.FromEP),
+		flowRepairRelationEndpointSurfaces(relation.ToEP)...,
+	)
+	endpoints = append(endpoints, ownerSurfaces...)
+	touchesMissing, touchesCovered := false, false
+	for i, group := range participantSurfaceGroups {
+		if len(group) == 0 {
+			continue
+		}
+		touched := (binding.alias != "" && flowRepairSymbolMatchesAnySurface(bindingSymbol, group)) ||
+			flowRepairPlanningSurfaceMatchRank(group, endpoints) > 0
+		if !touched {
+			continue
+		}
+		if participantGroupMissing[i] {
+			touchesMissing = true
+		} else {
+			touchesCovered = true
+		}
+	}
+	if touchesMissing && touchesCovered {
+		return 1
+	}
+	return 0
+}
+
 // flowNavigationCarrierHandoffRank is a SOFT ordering signal for complete
 // carrier arguments. A carrier passed to a differently-qualified receiving
 // API is a better place to inspect a component handoff than the same carrier
@@ -2201,7 +2271,7 @@ func flowRepairDeclaredBindingTargets(ctx *types.BusContext, rm types.RequestMod
 	return files, aliases
 }
 
-func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.RequestModel, surfaces []string) []flowDeclaredBindingSite {
+func flowRepairAllDeclaredBindingSites(index *flowNavigationIndex, rm types.RequestModel, surfaces []string) []flowDeclaredBindingSite {
 	if index == nil || len(surfaces) == 0 {
 		return nil
 	}
@@ -2233,6 +2303,10 @@ func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.Request
 		}
 		return out[i].alias < out[j].alias
 	})
+	return out
+}
+
+func flowRepairBoundDeclaredBindingSites(out []flowDeclaredBindingSite) []flowDeclaredBindingSite {
 	bounded := make([]flowDeclaredBindingSite, 0, min(len(out), maxFlowOperationRepairFiles*maxFlowOperationRepairKeywords))
 	files := make(map[string]bool)
 	aliases := make(map[string]bool)
@@ -2248,6 +2322,88 @@ func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.Request
 		bounded = append(bounded, site)
 	}
 	return bounded
+}
+
+func flowRepairDeclaredBindingSites(index *flowNavigationIndex, rm types.RequestModel, surfaces []string) []flowDeclaredBindingSite {
+	return flowRepairBoundDeclaredBindingSites(flowRepairAllDeclaredBindingSites(index, rm, surfaces))
+}
+
+// flowNavigationDeclaredBindingSitesForRepair applies the normal bounded
+// binding budget only after parser-owned connection potential has been
+// compared.  The ordinary declaration helper sorts lexically before applying
+// its six-file cap, which is appropriate for a compact search roster but can
+// starve a high-value owner when a common context type has many parameters or
+// fields.  Here we inspect only graph metadata first: a binding whose owning
+// callable has an operation incident to another requested participant, or
+// hands the carrier to a distinct qualified receiver, is retained ahead of
+// isolated local bindings.  Source text is still read only for the bounded
+// survivors, and later model-authored evidence remains mandatory.
+func flowNavigationDeclaredBindingSitesForRepair(
+	index *flowNavigationIndex,
+	graph *repotypes.Graph,
+	rm types.RequestModel,
+	currentSurfaces []string,
+	participantSurfaceGroups [][]string,
+) []flowDeclaredBindingSite {
+	all := flowRepairAllDeclaredBindingSites(index, rm, currentSurfaces)
+	if len(all) <= 1 {
+		return all
+	}
+	type rankedBinding struct {
+		site             flowDeclaredBindingSite
+		connectionRank   int
+		externalCallRank int
+		bridgeRank       int
+	}
+	ranked := make([]rankedBinding, 0, len(all))
+	for _, binding := range all {
+		entry := rankedBinding{site: binding}
+		bindingSymbol := repotypes.Symbol{Name: binding.alias, DeclaredType: binding.declaredType}
+		for _, relationSite := range flowNavigationBindingRelationSites(index, graph, binding) {
+			relation := relationSite.relation
+			if relation == nil || strings.TrimSpace(relation.Kind) != "call" {
+				continue
+			}
+			endpoints := append(
+				flowRepairRelationEndpointSurfaces(relation.FromEP),
+				flowRepairRelationEndpointSurfaces(relation.ToEP)...,
+			)
+			endpoints = append(endpoints, relationSite.ownerSurfaces...)
+			for _, group := range participantSurfaceGroups {
+				if len(group) == 0 || flowRepairSymbolMatchesAnySurface(bindingSymbol, group) {
+					continue
+				}
+				if flowRepairPlanningSurfaceMatchRank(group, endpoints) > 0 {
+					entry.connectionRank = 1
+					break
+				}
+			}
+			entry.externalCallRank = max(entry.externalCallRank,
+				flowNavigationCarrierHandoffRank(relation, binding.alias))
+			entry.bridgeRank = max(entry.bridgeRank, relationSite.carrierOwnerBridgeRank)
+		}
+		ranked = append(ranked, entry)
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].connectionRank != ranked[j].connectionRank {
+			return ranked[i].connectionRank > ranked[j].connectionRank
+		}
+		if ranked[i].externalCallRank != ranked[j].externalCallRank {
+			return ranked[i].externalCallRank > ranked[j].externalCallRank
+		}
+		if ranked[i].bridgeRank != ranked[j].bridgeRank {
+			return ranked[i].bridgeRank > ranked[j].bridgeRank
+		}
+		if ranked[i].site.file != ranked[j].site.file {
+			return ranked[i].site.file < ranked[j].site.file
+		}
+		return ranked[i].site.alias < ranked[j].site.alias
+	})
+	ordered := make([]flowDeclaredBindingSite, 0, len(ranked))
+	for _, entry := range ranked {
+		ordered = append(ordered, entry.site)
+	}
+	return flowRepairBoundDeclaredBindingSites(ordered)
 }
 
 func flowRepairSymbolMatchesAnySurface(symbol repotypes.Symbol, surfaces []string) bool {

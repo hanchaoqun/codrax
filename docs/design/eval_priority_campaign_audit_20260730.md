@@ -35966,6 +35966,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1148 r725：关系引用闭环；同参与者 binding 词法截断制造导航漂移（2026-08-19）
+
+1. 在 `main@ef018c606` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + sr_rust_cross_module_chain`。Runner `2 PASS / 2`；人工为
+   Rust pass、QF partial。完整记录见
+   `eval/parallel_selected_summary_evalcampaign_value_consumer_replay_r725_20260819_manual_audit.md`。
+2. B1153 获生产闭环：Rust 五条 principal relation list 引用逐条绑定到对应 typed call edge，
+   不再引用相邻错误 callsite；一次 finalizer 拒绝只因列表未携带 edge_anchors，按同一 typed roster
+   补齐后图/列表/引用一致。B1154 同获生产正证：QF 未再出现 pre-emit 允许、post-finalizer 拒绝
+   同一 participant boundary 的合同分叉。
+3. B1155 本轮没有触发，不可误报为失败。模型没有先选择 participant-relevant call-result assignment，
+   `flow_value_consumer_coverage=0`；其窄门按设计不能从未选择的源码路径合成生产者或消费者。
+4. 新确认并施工 B1156/P1。QF 两次 repair 分别导航到 `WriteClosure()` 与
+   `EmittedEvidence()/StableInvestigationResultKind()`；这些局部 Mutable 读取真实但不能连接请求组件，
+   最终三块图仍断开。根因是同一 participant 的 exact static bindings 先按文件名排序，再受 6 文件
+   上限截断；BusContext 这类高频类型的参数/字段可在真正跨组件 handoff 进入评分前耗尽预算。
+5. 根修拆成两层 parser-only SOFT 排序。第一层对该 participant 的全部 exact binding 只看 parser
+   callable/call endpoint，优先保留具备“接触另一 requested participant”或“传给不同 qualified receiver”
+   潜力的 binding，然后才应用原文件/别名上限；源码行仍只读取有界幸存者。第二层在最终 operation
+   candidate 上增加 connection gain：`still-missing -> already-covered requested participant` 优先于
+   `still-missing <-> still-missing` 的局部岛内操作。两层都不关闭 coverage、不生成 evidence/edge、
+   不画图、不代写答案；模糊信号只决定下一 read coordinate。
+6. 新红转绿覆盖全部 `SupportedReadLanguages()`，包含超过六个同类型 binding 后的高收益 handoff；
+   同调用结果连续消费、跨参与者预算、already-read 高质量 join 与歧义 fail-closed 回归均保持。
+   `go test ./internal/tool -count=1` 全绿（187.932s），`go test ./internal/types -count=1` 全绿
+   （26.611s），`make` 通过。
+7. 本批不改 Trace 查询/投影/自动补齐或流式 liveness。显式窗与因果问题仍只允许 typed 链上根因，
+   保留实际占用/业务线索和规则计价可消除量双轴；邻近/背景不能晋升主因；活跃流不按 4ms 降级。
+
+状态：
+
+`B1153-STANDALONERELATIONROWCITATIONBINDING1=production-closed-r725`；
+`B1154-PARTICIPANTCOVERAGEEVIDENCEPARITY1=production-closed-r725`；
+`B1155-CALLRESULTCONSUMERVALUEPATH1=implemented/no-production-trigger-r725`；
+`B1156-SAMEPARTICIPANTBINDINGSTARVATION1=implemented/parser-connection-gain-before-cap+pinned/pending-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace
