@@ -36737,6 +36737,59 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `active-stream-fixed-4ms-degrade=forbidden`。
 
+### §123.1121 r711：typed initializer 到达生产，但 Mermaid node-ref 单侧漂移删真边；序列边界验证漏检（2026-08-18）
+
+1. 在 `main@c67a05a96` 重建后严格并发恰好两个：`qf_logic_view_read_pipeline` 与
+   `github_issue_tokenizers_newline_run_multirepo_py`，共同不可变二进制、`PARALLEL=2`、每案 1800s。Runner
+   2/2 PASS，人工 0/2 PASS；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_endpoint_write_replay_r711_20260818_manual_audit.md`。
+2. B1121 获生产正证：write analyzer 发出 exact-path
+   `preserve_regression_test target=tests/test_tokenizer.py`，controller/context pack 保留该 P0，计划和 applied diff
+   没有修改五换行输入或 `[...300]` baseline oracle，r710 的“改测试后自洽绿”已消失。B1122 本轮无真实 Make
+   内层失败，只能记未触发；不得虚记生产闭环。
+3. 写案仍人工失败。实现把每段 newline（包括长度 1）都直接替换为 rank，`count % 2` 两臂完全相同；注释却声称 odd
+   count 会留下一个 10。现有 suite 只有普通 `hi`（没有 newline rule）和五换行正例，没有 feature 已启用时的
+   below-threshold/no-op 边界，因此 `make check` 绿未证明“普通 merge 行为保持”。新立案
+   `B1126-SEQUENCEBOUNDARYPARTITIONVERIFY1`：ChangePlan 对 cardinality/range/sequence 变换需要通用软教学，检查
+   below-threshold、minimum-trigger、代表性奇偶/更长及 mixed-neighbor 分区；不扫描 raw task 作硬门，不由系统选实现或期望。
+4. B1123 获生产正证：读案第一稿和第一轮 patch 均带
+   `bus.Mutable -> AgentContext.Mutable, relation_kind=data_flow` exact identity，成员 initializer 的显式容器已进入
+   Finalizer。B1124 本轮未走 participant 候选截断形，只有 extractor precedence candidate 触发，故只记
+   no-regression/await exact production witness。
+5. 新确认 `B1125-ONESIDEDANCHORNODEREF1`。第一轮 patch 的 body 为
+   `Mutable -> AgentContext.Mutable`；Mermaid shim 将 dotted target 改为 `codraxNode1`，target anchor 同步成功，但
+   source anchor 仍是技术 identity `bus.Mutable`，可见 node id 则是 `Mutable`。关系门把同一真关系拆成
+   `missing_relation_anchor Mutable->codraxNode1` 与
+   `typed_anchor_without_visible_edge bus.Mutable->codraxNode1`。模型第三轮删掉 data-flow 才通过，终图再次失去共享状态主干。
+6. B1125 最优根修严格是 metadata-only：仅当一个 orphan anchor 与一个尚未被 anchor 拥有的可见有向边共享同一端，
+   且另一端存在唯一结构匹配时，把该 anchor 的单个 `from_node` 或 `to_node` 改成可见 node id；body、from/to identity、
+   relation、direction、label、evidence 全不动。零共享端、多个候选、已被其他 anchor 占用均 fail-closed。它不读取节点
+   label、用户问题、模型 reasoning 或正文，也不创建/选择/删除关系。
+7. 新确认 `B1127-EXHAUSTEDTOOLSCHEMA1`：读案累计 500 evidence、27 reads、23 midloop、18 次
+   investigation_complete/6 reject、95k Finalizer context。日志明确出现 schema 只允许
+   `emit_investigation_complete`，但 runtime 同时称该工具 budget exhausted；模型随后尝试已撤下的 emit_evidence。
+   可调用 schema 必须与 typed budget 同源，耗尽动作应撤权并提供明确 stop/close 出口，不能制造不可满足合同。
+8. 最终图虽保留四阶段 precedence 与若干局部真边，仍缺题目要求的 BusContext/Mutable 共享数据流；正文还把
+   `ctx.Mutable.EmittedAnswerSymbols()` getter 误写为 Extractor“写入”，图文/读写语义均不能签 pass。该 prose 误判先作为
+   typed context 精度观察，不通过扫描终稿词串硬拒，也不由系统代写答案。
+9. 两案均无畸形 JSON 降级、旧稿恢复、空答案或 active-stream 4ms 固定年龄降级。Read/Write 修复不触碰 Trace
+   查询、显式窗、因果投影、自动补齐、链上-only 主因、邻近/背景 support-only、实际占用/规则可消双轴或模型结论权。
+
+状态：
+
+`r711 runner=2/2 PASS/human=0/2 PASS`；
+`B1121=production-closed-r711`；
+`B1122=implemented/not-triggered-r711`；
+`B1123=production-positive/exact-data-flow-reached-finalizer`；
+`B1124=implemented/no-regression/await-exact-candidate-witness`；
+`B1125-ONESIDEDANCHORNODEREF1=P0-P1-next`；
+`B1127-EXHAUSTEDTOOLSCHEMA1=P1-after-B1125`；
+`B1126-SEQUENCEBOUNDARYPARTITIONVERIFY1=P1-soft-guidance`；
+`raw-request/model-reasoning/final-prose-hard-gate=none`；
+`system-relation/diagram/answer/conclusion-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`active-stream-fixed-4ms-degrade=forbidden/not-observed`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
