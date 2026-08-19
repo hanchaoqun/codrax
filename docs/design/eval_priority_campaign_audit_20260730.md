@@ -35649,6 +35649,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1126 B1130：单侧 typed-recipe endpoint identity 唯一补齐（2026-08-18）
+
+1. r712 的每次失败 patch 都已有模型 authored 可见边、方向、合法 `relation_kind` 与精确
+   `to_identity`；缺的只有 `from_identity`。同一 Finalizer dispatch 的 typed-recipe receipt 包含完整
+   pair，但旧恢复器把“单侧已填”统一退出，导致 relation gate 回退到 broad participant label 并循环拒绝。
+2. 根修新增单侧 receipt completion：仅检查结构化 diagram/standalone relation carrier、可见同向 edge、
+   schema-valid relation 与已填 exact identity；它们必须在同 relation receipt 集中唯一选中一个完整 pair，
+   且整个文档只能有一个 anchor 消费该 receipt，才补唯一缺失字段。
+3. 该 normalizer 不创建 edge/anchor/relation，不改变 `from_node/to_node`、方向、relation、label、正文或
+   结论。已填错误、多候选歧义、重复 consumer、缺可见边、未知 relation 都保持原样交给既有 validator
+   fail-closed；因此不是根据显示文字猜关系，也不是系统替模型补图。
+4. 正向 pin 复刻生产形：业务可见 `buildInit -> Mutable`、唯一 typed
+   `to_identity=ctx.Mutable.SetPrescanRoundLimit` 可补回
+   `from_identity=analyzerEvaluator.BuildInitialInstruction`，可见 body 字节不变。负 pin 覆盖同一 caller
+   对应多个 target，以及同一 receipt 被两个可见 anchor 竞争，两形均零修复。
+5. `go test ./internal/tool -count=1` 全绿。Read/Trace/Write 调度、显式窗 Trace 因果投影与自动补齐、
+   链上-only 主因以及模型答案/关系/结论所有权均未改。
+
+状态：
+
+`B1130-ONESIDEDTYPEDRECEIPTIDENTITY1=implemented/unique-structured-receipt+pinned`；
+`B1129-STRUCTUREDEDITEXACTENDLINEREPAIR1=next`；
+`B1128-WRITERUNBUDGETRESERVATION1=design-required/no-fixed-age-kill`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1125 r712：探索预算闭环生产正证；单侧 typed identity 与多行 edit 修补断层（2026-08-18）
 
 1. 在 `main@55507a96a` 重建后严格并发恰好两个案例：

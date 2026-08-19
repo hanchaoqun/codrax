@@ -288,6 +288,76 @@ func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesPreservesBusinessLa
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesCompletesUniqueOneSidedReceipt(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "business", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			`  buildInit["准备分析"] -->|call| Mutable["可变调查状态"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "buildInit", ToNode: "Mutable",
+			ToIdentity: "ctx.Mutable.SetPrescanRoundLimit", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromIdentity: "analyzerEvaluator.BuildInitialInstruction", ToIdentity: "ctx.Mutable.SetPrescanRoundLimit", RelationKind: types.DiagramRelCall},
+		{FromIdentity: "analyzerEvaluator.BuildInitialInstruction", ToIdentity: "ctx.Mutable.SetSearchGraph", RelationKind: types.DiagramRelCall},
+	}
+	originalBody := doc.Blocks[0].Diagram.Body
+	if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 1 {
+		t.Fatalf("fixed=%d, want one unique one-sided receipt completion", fixed)
+	}
+	got := doc.Blocks[0].EdgeAnchors[0]
+	if got.FromIdentity != recipes[0].FromIdentity || got.ToIdentity != recipes[0].ToIdentity {
+		t.Fatalf("one-sided receipt was not completed exactly: %+v", got)
+	}
+	if got.FromNode != "buildInit" || got.ToNode != "Mutable" || got.RelationKind != types.DiagramRelCall || doc.Blocks[0].Diagram.Body != originalBody {
+		t.Fatalf("identity completion changed model-authored topology or relation: anchor=%+v body=%q", got, doc.Blocks[0].Diagram.Body)
+	}
+}
+
+func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesKeepsAmbiguousOrReplayedOneSidedRowsFailClosed(t *testing.T) {
+	newDoc := func() *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "business", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+				"flowchart TD", `  A -->|call| B`, `  C -->|call| D`,
+			}, "\n")},
+			EdgeAnchors: []types.DiagramEdgeAnchor{
+				{FromNode: "A", ToNode: "B", FromIdentity: "Caller", RelationKind: types.DiagramRelCall},
+				{FromNode: "C", ToNode: "D", ToIdentity: "Unique.Target", RelationKind: types.DiagramRelCall},
+			},
+		}}}
+	}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromIdentity: "Caller", ToIdentity: "First.Target", RelationKind: types.DiagramRelCall},
+		{FromIdentity: "Caller", ToIdentity: "Second.Target", RelationKind: types.DiagramRelCall},
+		{FromIdentity: "Unique.Caller", ToIdentity: "Unique.Target", RelationKind: types.DiagramRelCall},
+	}
+
+	t.Run("ambiguous populated side", func(t *testing.T) {
+		doc := newDoc()
+		doc.Blocks[0].EdgeAnchors = doc.Blocks[0].EdgeAnchors[:1]
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 || doc.Blocks[0].EdgeAnchors[0].ToIdentity != "" {
+			t.Fatalf("ambiguous one-sided receipt must stay untouched: fixed=%d anchor=%+v", fixed, doc.Blocks[0].EdgeAnchors[0])
+		}
+	})
+
+	t.Run("one receipt cannot authorize duplicate visible consumers", func(t *testing.T) {
+		doc := newDoc()
+		doc.Blocks[0].EdgeAnchors[0] = types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", ToIdentity: "Unique.Target", RelationKind: types.DiagramRelCall}
+		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed != 0 {
+			t.Fatalf("duplicated one-sided consumers must not replay one receipt: fixed=%d anchors=%+v", fixed, doc.Blocks[0].EdgeAnchors)
+		}
+		for _, anchor := range doc.Blocks[0].EdgeAnchors {
+			if anchor.FromIdentity != "" {
+				t.Fatalf("receipt was replayed onto duplicate consumer: %+v", anchor)
+			}
+		}
+	})
+}
+
 func TestNormalizeDiagramEdgeAnchorIdentitiesFromTypedRecipesRemovesUniqueDisplayQualifierFromStructuredCarrier(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "path", Kind: types.BlockOrderedList,

@@ -264,9 +264,11 @@ func normalizeDiagramEdgeAnchorNodeRefsByUniqueOneSidedBodyEdge(block *types.Ans
 // with the same direction and relation kind. The fast path uses the recipe's
 // stable node IDs directly. A second path permits business-facing node IDs only
 // when the complete model-authored connected component has a unique
-// relation-labelled graph mapping onto one typed recipe component. Ambiguity,
-// a partial model identity pair, or any topology/relation mismatch stays
-// fail-closed for the ordinary validator.
+// relation-labelled graph mapping onto one typed recipe component. A
+// one-sided pair is completed only when its populated side exactly selects one
+// typed recipe and no second model anchor competes for that same receipt.
+// Ambiguity, conflicting partial metadata, or any topology/relation mismatch
+// stays fail-closed for the ordinary validator.
 //
 // This repair never reads visible labels and never creates an edge, anchor, or
 // relation. Business-facing labels therefore cannot overwrite typed identity,
@@ -294,7 +296,7 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 			to:   strings.TrimSpace(recipe.ToIdentity),
 		}] = true
 	}
-	fixed := 0
+	fixed := normalizeUniqueOneSidedDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes)
 	for i := range doc.Blocks {
 		block := &doc.Blocks[i]
 		visible := make(map[string]bool)
@@ -335,6 +337,91 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 	}
 	fixed += normalizeDiagramEdgeAnchorIdentitiesByUniqueTypedTopology(doc, recipes)
 	fixed += normalizeDisplayQualifiedEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes)
+	return fixed
+}
+
+// normalizeUniqueOneSidedDiagramEdgeAnchorIdentitiesFromTypedRecipes repairs
+// the narrow copy omission where a model-authored anchor preserved exactly
+// one endpoint identity from a dispatch-scoped typed recipe and omitted the
+// other. The populated identity, relation kind, and visible directed edge are
+// all precise structured signals. They must select one exact recipe pair, and
+// that receipt may be consumed by only one anchor in the document.
+//
+// This function never creates topology or relation authority: it does not add
+// an edge/anchor, change a node, direction, relation, label, or prose. A wrong
+// identity, several eligible recipes, a duplicated consumer, or a missing
+// visible edge remains untouched for the ordinary fail-closed validator.
+func normalizeUniqueOneSidedDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocumentV2, recipes []types.DiagramEdgeAnchor) int {
+	if doc == nil || len(recipes) == 0 {
+		return 0
+	}
+	type recipePair struct {
+		from, to string
+		relation types.DiagramRelationKind
+	}
+	type anchorRef struct{ block, anchor int }
+	selected := make(map[anchorRef]recipePair)
+	demand := make(map[recipePair]int)
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		visible := make(map[string]bool)
+		switch {
+		case block.Kind == types.BlockDiagram && block.Diagram != nil:
+			for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+				visible[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+			}
+		case answerBlockCarriesStandaloneTypedRelations(*block):
+			for _, anchor := range block.EdgeAnchors {
+				visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] = true
+			}
+		default:
+			continue
+		}
+		for ai := range block.EdgeAnchors {
+			anchor := &block.EdgeAnchors[ai]
+			from := strings.TrimSpace(anchor.FromIdentity)
+			to := strings.TrimSpace(anchor.ToIdentity)
+			if (from == "") == (to == "") || !anchor.RelationKind.IsValid() ||
+				!visible[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				continue
+			}
+			matches := make(map[recipePair]bool)
+			for _, recipe := range recipes {
+				if recipe.RelationKind != anchor.RelationKind || !recipe.HasEndpointIdentityPair() {
+					continue
+				}
+				candidate := recipePair{
+					from: strings.TrimSpace(recipe.FromIdentity),
+					to:   strings.TrimSpace(recipe.ToIdentity), relation: recipe.RelationKind,
+				}
+				if (from != "" && from != candidate.from) || (to != "" && to != candidate.to) {
+					continue
+				}
+				matches[candidate] = true
+			}
+			if len(matches) != 1 {
+				continue
+			}
+			ref := anchorRef{block: bi, anchor: ai}
+			for candidate := range matches {
+				selected[ref] = candidate
+				demand[candidate]++
+			}
+		}
+	}
+	fixed := 0
+	for ref, candidate := range selected {
+		if demand[candidate] != 1 {
+			continue
+		}
+		anchor := &doc.Blocks[ref.block].EdgeAnchors[ref.anchor]
+		if strings.TrimSpace(anchor.FromIdentity) == "" {
+			anchor.FromIdentity = candidate.from
+		} else {
+			anchor.ToIdentity = candidate.to
+		}
+		fixed++
+	}
 	return fixed
 }
 
