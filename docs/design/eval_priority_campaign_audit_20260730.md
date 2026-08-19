@@ -35678,10 +35678,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `[300,300,10]`；第三版错误删除全部换行。故这轮不是 B1188 的 non-authoritative probe 反向阻断，
    scheduler 正确进入生产修复，B1188 的精确资格没有成立也没有触发。系统最终 fail-closed，未把坏补丁
    签绿；B1188 继续只记 exact typed unit/wiring pins，等待真正的 probe-only 生产形。
-6. 新确认 B1190/P1（eval 基础设施）。所有写 eval 被 `eval/run.sh` 固定压到 15 steps，而生产默认是 50；
+6. B1190/P1（eval 基础设施）已施工。所有写 eval 原先被 `eval/run.sh` 固定压到 15 steps，而生产默认是 50；
    一个 plan/apply/verify/replan 周期会消耗多步，三次诚实 verify 后无第四轮空间。应给全部 write lane 一个
-   统一、显式、低于生产默认的较高预算（建议 24），read lane 保持 15；这是按执行拓扑分档，不按案例名、
-   语言或输出文字特判。预算只允许继续修复，不降低 verify、不把失败改绿。
+   统一、显式、低于生产默认的较高预算。实现新增单一 `WRITE_APPLY_PIPELINE_MAX_STEPS=24`，只供 imported-plan
+   apply 与 commandless Auto Pilot 四个调用点消费；read 与 plan 的六个调用点仍保持 15。这是按执行拓扑分档，
+   不按案例名、语言或输出文字特判。预算只允许继续修复，不降低 verify、不把失败改绿；runner contract 同时
+   钉住 `24 × 4` 与 `15 × 6`，防止后续机械改写再次把两类车道混成一个预算。
 7. 第二次 planner 重规划出现约 9 分钟、约 57k 字的反复语义输出。上游期间持续有 semantic bytes，系统
    正确没有在 4 分钟静态阈值降级；随后仍收到结构化 plan。该现象记为 B1191/P2 模型/效率观察项：不能
    用固定总龄截断活跃正确输出，也不能从半截 prose 自铸计划或答案。后续先观察异构模型复现率；若需要
@@ -35695,7 +35697,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1187-STAGESTATEOPERATIONNAVIGATION1=implemented+pinned/not-production-exercised-r744`；
 `B1188-NONAUTHORITATIVEPROBEREBIND1=implemented+pinned/not-eligible-r744`；
 `B1189-SLASHJOINEDPARTICIPANTBYPASS1=implemented/shared-normalizer+source-flow-only+trace-bypass+pinned`；
-`B1190-WRITEEVALSTEPBUDGET1=confirmed/P1/next`；
+`B1190-WRITEEVALSTEPBUDGET1=implemented/apply-only-24+read-plan-15+pinned/replay-next`；
 `B1191-ACTIVESEMANTICLONGSTREAM1=observed/P2/no-fixed-age-cutoff`；
 `active-stream-4m-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

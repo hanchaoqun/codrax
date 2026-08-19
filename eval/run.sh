@@ -75,6 +75,12 @@ codrax_bin_abs() {
 }
 CODRAX_PROVIDER_ARGS_RAW_FROM_ENV="${CODRAX_PROVIDER_ARGS_RAW:-}"
 
+# Write apply drives a controller loop (apply -> verify -> replan), so it needs
+# room for several honest verification failures and repairs. Keep this below
+# the production default (50) and separate from the 15-step read/plan budget;
+# the larger budget never relaxes verification or turns a failed patch green.
+WRITE_APPLY_PIPELINE_MAX_STEPS=24
+
 if [[ $# -lt 1 ]]; then
   echo "usage: $0 <case-file> [N]" >&2
   exit 2
@@ -665,7 +671,7 @@ run_apply_step() {
   if [[ -n "$FOCUS" ]]; then
     (
       cd "$scratch_abs" &&
-        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps "$WRITE_APPLY_PIPELINE_MAX_STEPS" \
           --mode=write --write-phase=apply --plan-file "$plan_abs" --auto-apply \
           --log-level debug \
           --log-dir "$logdir_abs" \
@@ -675,7 +681,7 @@ run_apply_step() {
   else
     (
       cd "$scratch_abs" &&
-        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps "$WRITE_APPLY_PIPELINE_MAX_STEPS" \
           --mode=write --write-phase=apply --plan-file "$plan_abs" --auto-apply \
           --log-level debug \
           --log-dir "$logdir_abs" \
@@ -696,7 +702,7 @@ run_commandless_apply_step() {
   if [[ -n "$FOCUS" ]]; then
     (
       cd "$scratch_abs" &&
-        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps "$WRITE_APPLY_PIPELINE_MAX_STEPS" \
           --mode=write \
           --log-level debug \
           --log-dir "$logdir_abs" \
@@ -706,7 +712,7 @@ run_commandless_apply_step() {
   else
     (
       cd "$scratch_abs" &&
-        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps 15 \
+        "$(codrax_bin_abs)" ${CODRAX_PROVIDER_ARGS[@]+"${CODRAX_PROVIDER_ARGS[@]}"} --repo "$scratch_abs" --branch main --pipeline-max-steps "$WRITE_APPLY_PIPELINE_MAX_STEPS" \
           --mode=write \
           --log-level debug \
           --log-dir "$logdir_abs" \

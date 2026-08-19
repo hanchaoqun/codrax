@@ -2202,4 +2202,26 @@ assert_eq "$(n_resolve 5 2)" "5" "CLI N must win over case N_DEFAULT"
 assert_eq "$(n_resolve "" 2)" "2" "case N_DEFAULT must win when CLI N absent"
 assert_eq "$(n_resolve "" "")" "3" "builtin 3 must be the final fallback"
 
+# Write apply/Auto Pilot needs multiple apply -> verify -> replan cycles, while
+# read and plan remain on the historical 15-step eval budget. Pin the topology
+# split so a future mechanical rewrite cannot silently starve write recovery or
+# inflate every read case. This is eval scheduling only; project verification
+# remains authoritative.
+assert_eq "$(grep -c '^WRITE_APPLY_PIPELINE_MAX_STEPS=24$' eval/run.sh)" "1" \
+  "write apply eval budget declaration"
+assert_eq "$(grep -c -- '--pipeline-max-steps \"\$WRITE_APPLY_PIPELINE_MAX_STEPS\"' eval/run.sh)" "4" \
+  "write apply and commandless apply must use the expanded budget"
+assert_eq "$(grep -c -- '--pipeline-max-steps 15' eval/run.sh)" "6" \
+  "read and plan eval lanes must retain the 15-step budget"
+runner_function_body() {
+  local function_name="$1"
+  sed -n "/^${function_name}() {\$/,/^}\$/p" eval/run.sh
+}
+assert_eq "$(runner_function_body run_plan_step | grep -c -- '--pipeline-max-steps 15')" "2" \
+  "plan eval lane must retain the 15-step budget"
+assert_eq "$(runner_function_body run_apply_step | grep -c -- '--pipeline-max-steps \"\$WRITE_APPLY_PIPELINE_MAX_STEPS\"')" "2" \
+  "imported-plan apply must use the expanded budget"
+assert_eq "$(runner_function_body run_commandless_apply_step | grep -c -- '--pipeline-max-steps \"\$WRITE_APPLY_PIPELINE_MAX_STEPS\"')" "2" \
+  "commandless Auto Pilot must use the expanded budget"
+
 echo "ok eval runner contracts"
