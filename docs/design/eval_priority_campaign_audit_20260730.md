@@ -35649,6 +35649,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1171 r735：assignment 正臂生效但调用点选到预检查；运行时口径成员仍可成文丢失（2026-08-19）
+
+1. 在 `main@c69385c63` 严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + real_trace_h3_iofam_one_seat`。Runner `1 PASS / 1 FAIL`；人工为代码图 partial、
+   Trace fail。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_value_path_trace_r735_20260819_manual_audit.md`。
+2. B1167 新增的 inverse companion 获生产正证。模型在 `extract_work.go:15` 发出
+   `o.busCtx -> ctxbuilder.BuildAgentContext` 完整实参后，工具精确要求额外提交
+   `ctxbuilder.BuildAgentContext result -> ac` assignment；模型自行发出该行，durable obligation 关闭，系统没有铸造
+   EvidenceItem、图边或答案。全部关系都来自 parser-owned line feature/unique call/exact endpoints。
+3. 但 B1167 尚未闭环。最终 Mermaid 由四阶段 precedence 与
+   `BusContext -> BuildAgentContext -> Mutable` 两个局部子图组成，仍未展示阶段经共享上下文读写的业务数据流。
+   本轮选中的 `extractStageHasRequiredWork` 是 liveness/precheck：`ac` 之后只读取成员，没有作为完整值传给下游；真实
+   `dispatchStage` 才有 `BuildAgentContext -> agentCtx -> ag.Execute -> output -> applyStageOutput` 的连续 handoff。
+   同一 callee 多调用点旧排序不计 parser-proved downstream whole-value continuation，文件/行稳定顺序把预检查排在主路径前。
+4. 新立 B1171/P1/high。对同一 parser call 候选，增加有界 continuation depth 软排序：调用结果必须来自精确
+   assignment/initializer，随后作为完整 argument 进入同一 callable 的 parser-owned call；若该 call 又有精确 result，可继续到
+   既有 hop cap。深度只选择读取坐标，不解释运行时顺序、不确权 transfer；歧义或成员投影不计。需全语言矩阵与 Trace/写隔离 pin。
+5. QF 机器 PASS 是表面假绿：25 reads 低于 r734 的 33，但 Explorer 仍 39 iter，Finalizer reject 由 1 增至 3，墙钟
+   508→636s、最大上下文约 80k→99k。最终图合法、组件职责文字可用，但最小名词/边数 oracle 不能证明请求关系完整。
+6. Trace 查询侧完整且 scope 正确：1.347ms 单请求 issue→complete 是单请求墙钟；4 个 completion-closed S-state
+   issuer wait 并集下界 4.384ms 是目标阻塞墙钟；scheduler-marked D/io_wait 为 0；selected-window coverage 是
+   emitted=8/total=198/hidden=190，hidden sum=41.329 request·ms，非墙钟、不可相加且不是目标请求总数。有限事实问题
+   `final_projection=0` 正确，不应强塞因果投影。
+7. 失败发生在模型成文：终稿漏 41.329，把 6 条 target-owned 可见 witness 写成目标“共发起 6 个请求”，还把
+   scheduler-marked IO-wait 在“非墙钟”标题与“是墙钟”表格间自相矛盾，并把 selected-window storage latency maximum
+   错标非墙钟。Finalizer compact handoff 已逐字带齐 8/198/190/41.329 及 caliber，故不是上下文缺失。
+8. 新立 B1172/P1/high：`facet_ids=[member_set]` 只证明模型声明某块承载成员集合，不证明它覆盖 producer-owned runtime
+   measurement facet roster；Explorer 甚至可自选三个口径并把 overflow 塞进 member note，另一支还把非目标 keva witness
+   混进 target member set。最优方向是 producer 铸稳定 facet IDs（owner scope/caliber/evidence refs），模型在结构化 block/item
+   上声明引用，validator 只核精确 ID 覆盖。禁止扫描可见答案文字，也禁止系统把清册渲染成答案或代写结论。
+9. 两案均有完整模型答案，无畸形 JSON 恢复、旧稿降级或固定 4ms/累计 age 降级；Trace 显式窗、自动补齐、链上-only
+   主因合同未改。实际耗时/业务线索与规则计价可消除量双轴仍保留，邻近/背景只能 support-only。
+
+状态：
+
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=implementation-positive/production-partial-r735`；
+`B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=confirmed/P1/high/next`；
+`B1172-RUNTIMEFACETMEMBERSHIPAUTHORITY1=confirmed/P1/high/after-B1171`；
+`H3 finite IO scope=typed-query-positive/model-answer-failed-r735/no-forced-causal-projection`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-4ms-degrade=forbidden/not-observed-r735`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1170 B1167：跨组件值流按精确 assignment/argument 交替续链（2026-08-19）
 
 1. r734 已证明关系 gate 能拒绝未证桥、局部 retry 也已收敛，但 producer 只交付了彼此分离的原子事实。
