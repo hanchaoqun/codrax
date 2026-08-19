@@ -453,8 +453,48 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 			}
 			b.WriteByte('\n')
 		}
+		requiredIDs := types.RequiredWriteBehaviorContractIDs(ir.Request.BehaviorContracts, true)
+		if len(requiredIDs) > 0 {
+			orderedRequired := make([]string, 0, len(requiredIDs))
+			for id := range requiredIDs {
+				if id = strings.TrimSpace(id); id != "" {
+					orderedRequired = append(orderedRequired, id)
+				}
+			}
+			sort.Strings(orderedRequired)
+			var planningOnly []string
+			for _, contract := range ir.Request.BehaviorContracts {
+				if types.IsPlanningOnlyWriteBehaviorContract(contract) {
+					if id := strings.TrimSpace(contract.ID); id != "" {
+						planningOnly = append(planningOnly, id)
+					}
+				}
+			}
+			planningOnly = dedupSortedPlannerStrings(planningOnly)
+			b.WriteString("- verification proof carrier map (typed soft guidance; plan emission may remain partial):\n")
+			fmt.Fprintf(&b, "  - required contract_refs for a verified close: %s\n", strings.Join(orderedRequired, ", "))
+			if len(planningOnly) > 0 {
+				fmt.Fprintf(&b, "  - planning-only context ids (these refs alone close no required proof): %s\n", strings.Join(planningOnly, ", "))
+			}
+			b.WriteString("  - one exact project assertion or verification probe may reference multiple required ids only when it directly proves each one; partial mappings are legal but leave every omitted required id explicitly unverified.\n")
+		}
 	}
 	return b.String()
+}
+
+func dedupSortedPlannerStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (e *plannerEvaluator) buildCompatibilityRiskGuidanceSection(ctx *types.AgentContext) string {

@@ -175,6 +175,38 @@ func TestPlannerBehaviorDomainPreservation_RendersOnlyFromTypedContracts(t *test
 	}
 }
 
+func TestPlannerTaskFramingSeparatesRequiredProofRefsFromPlanningOnlyContext(t *testing.T) {
+	mu := types.NewMutableState("fix a boundary without losing proof authority")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "specific-planning-shape", Kind: types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpSatisfies, Expected: "planning context",
+			Source: "write_analyzer;quality_repaired:planning_only_ungrounded",
+		}, {
+			ID: "outcome-2", Kind: types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpSatisfies, Expected: "second required outcome",
+			Required: true, Source: types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+		}, {
+			ID: "outcome-1", Kind: types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpSatisfies, Expected: "first required outcome",
+			Required: true, Source: types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+		}},
+	}})
+
+	got := (&plannerEvaluator{}).buildTaskFramingSection(&types.AgentContext{Mutable: mu})
+	for _, want := range []string{
+		"verification proof carrier map (typed soft guidance; plan emission may remain partial)",
+		"required contract_refs for a verified close: outcome-1, outcome-2",
+		"planning-only context ids (these refs alone close no required proof): specific-planning-shape",
+		"partial mappings are legal but leave every omitted required id explicitly unverified",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed proof carrier guidance missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestPlannerTaskFraming_NoIRReturnsEmpty pins the degraded path:
 // when WriteAnalysisIR is absent (write_analyzer didn't run or
 // degraded), the planner falls through with no task-framing

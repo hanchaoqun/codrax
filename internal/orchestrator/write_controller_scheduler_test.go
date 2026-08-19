@@ -7998,6 +7998,25 @@ func TestNormalizeControllerTypedStateDecisionIncompleteVerifyOnlyProofExploresB
 		last.Purpose != "verification_proof_followup" || len(last.DependsOn) != 1 || last.DependsOn[0] != run.ActiveBatchID {
 		t.Fatalf("proof exploration lost durable batch authority: %+v", next)
 	}
+	// Production r747: after this bounded exploration completed, the model
+	// claimed ordinary project-test success was enough and emitted finish.
+	// The typed proof batch is still ready_to_plan with no plan, so finish must
+	// route to the promised probe-only planning turn instead of producing a
+	// missing_terminal_verify_verdict.
+	next.Batches[len(next.Batches)-1].Status = types.WriteWorkflowBatchReadyToPlan
+	finish := o.normalizeControllerTypedStateDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAllVerified,
+	}, &next)
+	if finish.Action != writeflow.ActionPlanBatch || finish.ReasonCode != "verification_proof_probe_plan_pending" || finish.Batch == nil {
+		t.Fatalf("pending proof plan finish was not routed to plan_batch: %+v", finish)
+	}
+	if finish.Batch.ID != last.ID || finish.Batch.Purpose != "verification_proof_followup" ||
+		len(finish.Batch.SuccessCriteria) != 1 || len(finish.Batch.DependsOn) != 1 {
+		t.Fatalf("pending proof plan lost controller batch authority: %+v", finish.Batch)
+	}
+	if !workflowProgressHasReason(next.ProgressLedger, "verification_proof_probe_plan_pending") {
+		t.Fatalf("pending proof plan override receipt missing: %+v", next.ProgressLedger)
+	}
 	o.seedControllerBatchPlanningHint(*got.Batch)
 	planningHint := mu.PlanningHint()
 	for _, want := range []string{

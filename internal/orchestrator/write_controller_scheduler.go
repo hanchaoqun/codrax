@@ -6364,6 +6364,10 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 	if next, ok := o.controllerVerifyOnlyDecision(decision, run); ok {
 		return next
 	}
+	if next, ok := controllerPendingProofPlanDecision(decision, run); ok {
+		appendControllerProgress(run, batchID, next.ReasonCode, next.Reason)
+		return next
+	}
 	if batch, ok := verificationProofProbePlanningFollowupDecision(run, plan, o.busCtx.Mutable.ChangeReport()); ok &&
 		(decision.Action == writeflow.ActionFinish ||
 			decision.Action == writeflow.ActionReplanBatch ||
@@ -6588,6 +6592,55 @@ func (o *Orchestrator) normalizeControllerTypedStateDecision(decision writeflow.
 		}
 	}
 	return decision
+}
+
+// controllerPendingProofPlanDecision prevents an aggregate project-test pass
+// from skipping the exact probe-authoring batch that the proof ledger already
+// requested. The discriminator is entirely controller-owned: an active
+// proof-followup batch, ready_to_plan after bounded exploration, with no plan
+// artifact and at least one typed verification_probe_required criterion.
+// It does not inspect model rationale, commands, source, request, or answer
+// text, and it still permits an explicit block rather than fabricating proof.
+func controllerPendingProofPlanDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {
+	if decision.Action != writeflow.ActionFinish || run == nil {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	batch, ok := activeWorkflowBatch(run)
+	if !ok || batch.Status != types.WriteWorkflowBatchReadyToPlan ||
+		batch.ExecutionMode != "" || !proofFollowupPurpose(batch.Purpose) ||
+		strings.TrimSpace(batch.PlanID) != "" {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	proofRequired := false
+	for _, criterion := range batch.SuccessCriteria {
+		for _, field := range strings.Fields(criterion) {
+			if field == "verification_probe_required=true" {
+				proofRequired = true
+				break
+			}
+		}
+		if proofRequired {
+			break
+		}
+	}
+	if !proofRequired {
+		return writeflow.WriteWorkflowDecision{}, false
+	}
+	return writeflow.NormalizeWriteWorkflowDecision(writeflow.WriteWorkflowDecision{
+		Action:     writeflow.ActionPlanBatch,
+		ReasonCode: "verification_proof_probe_plan_pending",
+		Reason:     "the controller-owned proof batch completed bounded exploration and still requires one typed probe-only ChangePlan before a terminal verdict",
+		Batch: &writeflow.WriteBatchPlan{
+			ID:              batch.ID,
+			Goal:            batch.Goal,
+			Purpose:         batch.Purpose,
+			ExecutionMode:   batch.ExecutionMode,
+			Status:          writeflow.BatchReadyForChangePlan,
+			ExpectedPaths:   append([]string(nil), batch.ExpectedPaths...),
+			SuccessCriteria: append([]string(nil), batch.SuccessCriteria...),
+			DependsOn:       append([]string(nil), batch.DependsOn...),
+		},
+	}), true
 }
 
 func (o *Orchestrator) controllerVerifyOnlyDecision(decision writeflow.WriteWorkflowDecision, run *types.WriteWorkflowRun) (writeflow.WriteWorkflowDecision, bool) {

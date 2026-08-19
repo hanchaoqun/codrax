@@ -35723,6 +35723,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1198 r747：精确测试降级生效；证明 ID 权威与 proof-plan 终态跳转（2026-08-19）
+
+1. 在 `main@4efe3a74a` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；逐案记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_testfallback_replay_r747_20260819_manual_audit.md`。
+2. B1197 获生产正证：终图不再将同一
+   `argument_flow / o.busCtx -> ctxbuilder.BuildAgentContext` 克隆到四个可见 endpoint pair，仅保留
+   一条对应的局部参数边。但用户要求的阶段↔`BusContext/Mutable` 数据流仍没有 parser-owned
+   真边，终稿以 Mutable unproven boundary 诚实收束，不可为绿 oracle 补画。
+3. B1194/B1195 获生产正证。Planner 发出 containing suite=`TokenizerTest` 与 framework method id；
+   pytest 缺失后系统保留 exact `tests/test_tokenizer.py`，实际执行
+   `python3 -m unittest "tests/test_tokenizer.py" -v`，两条声明断言都有 assertion-level 回执，没有 broad discover。
+4. 写案代码与测试实质正确，runner FAIL 来自证明权威漏绑定：两个 observation 只引用
+   `planning_only c1..c4`，完全未引用真正进入 required ledger 的 `soft_required outcome-1..4`。新立
+   `B1198-REQUIREDPROOFCARRIERAUTHORITY1/P0`。根修不要求每份计划一次硬覆盖全部 ID，而是从 typed
+   `Required + planning_only` flags 生成单独有序映射：哪些 contract refs 能关闭 verified，哪些只是规划
+   上下文。一条断言可同时绑定它确实证明的多个 required id；部分映射仍合法，但遗漏 id
+   明确保持 unverified。这是 planner soft guidance，不扫描请求/模型/答案原文，不代替模型判断语义映射。
+5. 新立 `B1199-PENDINGPROOFPLANFINISH1/P0`。旧状态机已创建 proof-probe batch 并完成窄探索，
+   其 typed 状态为 `ready_to_plan + plan_id="" + verification_probe_required=true`，模型仍可用普通测试绿
+   发 `finish/all_verified`。工作流因此没有 plan/verify attempt，终态只能诚实标
+   `missing_terminal_verify_verdict`。根修只在上述 controller-owned 精确形状完整命中时把 finish 收窄为
+   `plan_batch`，保留 batch id/goal/purpose/paths/criteria/dependency；不从模型理由或测试命令推断。
+6. B1196 本轮没有产生第二份 proof-only plan，所以仍为 implemented/unit-pinned/pending
+   production trigger，不虚报关闭。读案 391s 持续活跃，未见 4ms/4m/fixed-age 降级。
+7. 本批不修改 Trace 查询、显式时窗、因果投影、自动补齐或答案正文。主因仍只来自
+   typed on-chain 证据，邻近/背景仅作排查支撑；真实占用/业务线索与规则计价可消除量双轴保持。
+
+状态：
+
+`B1194-TESTFRAMEWORKESCALATIONSCOPE1=production-positive-r747`；
+`B1195-PROJECTASSERTIONJSONTEACHING1=production-positive-r747`；
+`B1196-PROOFONLYCUMULATIVEOBSERVATION1=implemented+pinned/pending-production-trigger`；
+`B1197-DIAGRAMRELATIONTUPLECARDINALITY1=production-positive-r747/read-answer-still-partial`；
+`B1198-REQUIREDPROOFCARRIERAUTHORITY1=implemented/typed-soft-map+pinned/pending-production-replay`；
+`B1199-PENDINGPROOFPLANFINISH1=implemented/typed-state-override+pinned/pending-production-replay`；
+`active-stream-4m-degrade=forbidden/production-reconfirmed-r747`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1192 r745：端点重定向修补失焦；断言级证明候选未执行（2026-08-19）
 
 1. 在 `main@8c662bf44` 重建后严格并发恰好两个案例：
