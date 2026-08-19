@@ -35688,10 +35688,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 9. 专项 `orchestrator/writeflow/types` 与 `make test` 全绿。该修复不降低普通 mutation 的 durable ref、
    post-apply verify 或行为证明门；它只允许一个明确的补证代次结清其直接 proof 前驱，不修改用户
    可见模型答案内容。
+10. `B1171` 的早期 fast path 已统一接入同一 continuation quality。reverse caller-handoff 与 forward
+    receiving-body 候选在自身更高口径 rank 不变的前提下，用 parser-owned whole-value continuation depth
+    作次级软排序；已有精确 argument-flow 证据时，先在原 caller 内恢复 assignment-result → next call
+    的连续值流，再允许跳入另一个 callee body 或同名调用点。这解决的是所有语言共享的调用结果传递类，
+    不是 QF 专名或单 case 拟合。
+11. 新增的恢复臂只从 model-authored、citable、同文件同精确行的 `ClaimArgumentFlow` 起步，并重新核对
+    parser call 与完整参数；它只返回下一处有界源码坐标。read closure 已包含该行时仍要求模型发出精确
+    argument row，禁止把“源码已读”冒充“关系已证”；只有 row 已存在才沿 assignment receiver 前进到
+    下一 consumer。系统不铸 EvidenceItem、关系、图边、执行顺序或结论。
+12. 全部 `SupportedReadLanguages()` 新矩阵覆盖：两个同 callee 调用点中，局部 member projection 不能抢过
+    `Build → Execute → Apply` 连续值流；首次回到 dispatcher，发出 Build 参数后在已读 Execute 坐标补证，
+    发出 Execute 参数后再推进 Apply。既有同 callable consumer 用例同时加钉“已读未发证不得前进”，歧义
+    receiver 继续 fail-closed。`internal/tool` 全包及 agent/types/orchestrator/tracequery/tracediag/
+    hitraceconv/mermaidcompat 交叉回归全绿；生产 replay 前仍不宣称闭环。
+13. 本批不读取用户/模型/答案 prose 作硬门，不改 JSON 教学、AnswerDocument、Trace 或 write controller。
+    显式窗 Trace 因果投影与系统补齐保持；链上主因、实际占用/业务线索和规则计价可消除量双轴均不因
+    图关系补证而被邻近背景取代。活跃流不因 4ms 或固定 age 降级。
 
 状态：
 
-`B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=unit-covered/production-failed-r736/early-fast-path-open`；
+`B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=implemented/all-fast-paths+all-language+evidence-before-advance-pins/pending-r737-production-replay`；
 `B1174-WRITEPROOFFOLLOWUPTERMINALRESOLUTION1=implemented/typed-routing+exact-dependent-closure+pinned`；
 `B1172-RUNTIMEFACETMEMBERSHIPAUTHORITY1=confirmed/P1/queued`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

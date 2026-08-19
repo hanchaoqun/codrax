@@ -790,6 +790,11 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	evidence := ctx.Mutable.EmittedEvidence()
+	if target, ok := flowNavigationGroundedCallResultContinuationReadTarget(
+		ctx, index, participantSurfaceGroups, evidence,
+	); ok {
+		return target, true
+	}
 	if target, ok := flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 		ctx, index, participantSurfaceGroups, missingParticipantSurfaceGroups, evidence,
 	); ok {
@@ -1047,7 +1052,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		// that exact source-owned result/argument chain before diving into the
 		// callee body. This only chooses the next read coordinate.
 		if next, ok := flowNavigationCallResultContinuationReadTarget(
-			ctx, index, selected.relation, selected.ownerSurfaces,
+			ctx, index, selected.relation, selected.ownerSurfaces, evidence,
 		); ok {
 			return next, true
 		}
@@ -1091,11 +1096,12 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	type candidate struct {
-		target          flowOperationRepairReadTarget
-		bodyRank        int
-		missingRank     int
-		participantRank int
-		callerLine      int
+		target                 flowOperationRepairReadTarget
+		bodyRank               int
+		resultContinuationRank int
+		missingRank            int
+		participantRank        int
+		callerLine             int
 	}
 	var candidates []candidate
 	seen := make(map[string]bool)
@@ -1203,7 +1209,11 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 						alreadyRead: closure.HasReadLine(site.file, line), callerHandoff: true,
 						focusIdentity: argument.Argument,
 					},
-					bodyRank: bodyRank, missingRank: missingRank, participantRank: participantRank, callerLine: line,
+					bodyRank: bodyRank,
+					resultContinuationRank: flowNavigationCallResultContinuationDepth(
+						ctx, index, relation, site.ownerSurfaces,
+					),
+					missingRank: missingRank, participantRank: participantRank, callerLine: line,
 				})
 			}
 		}
@@ -1214,6 +1224,9 @@ func flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].bodyRank != candidates[j].bodyRank {
 			return candidates[i].bodyRank > candidates[j].bodyRank
+		}
+		if candidates[i].resultContinuationRank != candidates[j].resultContinuationRank {
+			return candidates[i].resultContinuationRank > candidates[j].resultContinuationRank
 		}
 		if candidates[i].missingRank != candidates[j].missingRank {
 			return candidates[i].missingRank > candidates[j].missingRank
@@ -1346,9 +1359,10 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 		return flowOperationRepairReadTarget{}, false
 	}
 	type candidate struct {
-		target    flowOperationRepairReadTarget
-		matchRank int
-		line      int
+		target                 flowOperationRepairReadTarget
+		matchRank              int
+		resultContinuationRank int
+		line                   int
 	}
 	var candidates []candidate
 	seen := make(map[string]bool)
@@ -1430,7 +1444,10 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 					alreadyRead: closure.HasReadLine(calleeFile, line), receivingCallableBody: true,
 				},
 				matchRank: matchRank,
-				line:      line,
+				resultContinuationRank: flowNavigationCallResultContinuationDepth(
+					ctx, index, relation, site.ownerSurfaces,
+				),
+				line: line,
 			})
 		}
 	}
@@ -1440,6 +1457,9 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].matchRank != candidates[j].matchRank {
 			return candidates[i].matchRank > candidates[j].matchRank
+		}
+		if candidates[i].resultContinuationRank != candidates[j].resultContinuationRank {
+			return candidates[i].resultContinuationRank > candidates[j].resultContinuationRank
 		}
 		if candidates[i].target.alreadyRead != candidates[j].target.alreadyRead {
 			return candidates[i].target.alreadyRead
@@ -1599,6 +1619,123 @@ func flowNavigationCallResultContinuationDepth(
 	return depth(line, receivers, flowNavigationCallResultContinuationMaxHops)
 }
 
+// flowNavigationGroundedCallResultContinuationReadTarget resumes a
+// model-authored exact argument handoff on the caller side before another
+// reverse/receiver-body search can move to a different call site. The starting
+// row, call coordinate, complete argument, assignment receiver and every later
+// consumer are parser/typed facts. The helper still returns only an extraction
+// coordinate; it authors no assignment, argument, call, edge, or conclusion.
+func flowNavigationGroundedCallResultContinuationReadTarget(
+	ctx *types.BusContext,
+	index *flowNavigationIndex,
+	participantSurfaceGroups [][]string,
+	evidence []types.EvidenceItem,
+) (flowOperationRepairReadTarget, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || index == nil || len(participantSurfaceGroups) == 0 || len(evidence) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	type candidate struct {
+		relation      *repotypes.Relation
+		ownerSurfaces []string
+		depth         int
+		file          string
+		line          int
+	}
+	var candidates []candidate
+	seen := map[*repotypes.Relation]bool{}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return flowOperationRepairReadTarget{}, false
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimArgumentFlow || item.LineStart <= 0 ||
+			!relationSourceInRequestedScope(item.Source, ctx.AnalysisIR.RequestModel) {
+			continue
+		}
+		touchesRequested := false
+		for _, group := range participantSurfaceGroups {
+			for _, endpoint := range []string{item.Subject, item.Object} {
+				if diagramParticipantCandidateEndpointMatches(group, endpoint, item, evidence) {
+					touchesRequested = true
+					break
+				}
+			}
+			if touchesRequested {
+				break
+			}
+		}
+		if !touchesRequested {
+			continue
+		}
+		file := canonicalRelationSourcePath(item.Source)
+		info := graph.FileIndex[file]
+		if info == nil {
+			continue
+		}
+		lines := flowNavigationSourceLines(ctx, index, file)
+		if len(lines) == 0 {
+			continue
+		}
+		gc := &ground.Context{
+			Graph: graph, RepoRoot: ctx.RepoRoot,
+			LineIndex: map[string]map[int]string{file: lines},
+		}
+		for _, site := range index.relationsByFile[file] {
+			relation := site.relation
+			if relation == nil || seen[relation] || strings.TrimSpace(relation.Kind) != "call" ||
+				max(relation.Line, relation.FromEP.Line, relation.ToEP.Line) != item.LineStart {
+				continue
+			}
+			callee := flowNavigationCallReceiver(relation)
+			visibleTarget := callRelationTargetName(graph, info, relation)
+			if callee == "" || (!flowAnyIdentitySurfaceMatches([]string{item.Object, item.AnchorSymbol}, visibleTarget) &&
+				!flowAnyIdentitySurfaceMatches([]string{item.Object, item.AnchorSymbol}, callee)) {
+				continue
+			}
+			exactArgument := false
+			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, file, item.LineStart, callee) {
+				if types.AnswerCodeIdentitySurfacesEquivalent(item.Subject, flow.Argument) ||
+					types.AnswerCodeIdentitySurfacesCompatible(item.Subject, flow.Argument) {
+					exactArgument = true
+					break
+				}
+			}
+			if !exactArgument {
+				continue
+			}
+			depth := flowNavigationCallResultContinuationDepth(ctx, index, relation, site.ownerSurfaces)
+			if depth <= 0 {
+				continue
+			}
+			seen[relation] = true
+			candidates = append(candidates, candidate{
+				relation: relation, ownerSurfaces: append([]string(nil), site.ownerSurfaces...),
+				depth: depth, file: file, line: item.LineStart,
+			})
+		}
+	}
+	if len(candidates) == 0 {
+		return flowOperationRepairReadTarget{}, false
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].depth != candidates[j].depth {
+			return candidates[i].depth > candidates[j].depth
+		}
+		if candidates[i].file != candidates[j].file {
+			return candidates[i].file < candidates[j].file
+		}
+		return candidates[i].line < candidates[j].line
+	})
+	for _, candidate := range candidates {
+		if target, ok := flowNavigationCallResultContinuationReadTarget(
+			ctx, index, candidate.relation, candidate.ownerSurfaces, evidence,
+		); ok {
+			return target, true
+		}
+	}
+	return flowOperationRepairReadTarget{}, false
+}
+
 // flowNavigationCallResultContinuationReadTarget follows an already-read
 // call-assignment result to a later call that consumes that exact receiver in
 // the same parser-owned enclosing callable. Repeating the step covers common
@@ -1616,6 +1753,7 @@ func flowNavigationCallResultContinuationReadTarget(
 	index *flowNavigationIndex,
 	relation *repotypes.Relation,
 	ownerSurfaces []string,
+	evidence []types.EvidenceItem,
 ) (flowOperationRepairReadTarget, bool) {
 	if ctx == nil || ctx.Mutable == nil || index == nil || relation == nil ||
 		strings.TrimSpace(relation.Kind) != "call" {
@@ -1665,6 +1803,8 @@ func flowNavigationCallResultContinuationReadTarget(
 			line         int
 			continuation int
 			handoffRank  int
+			receiver     string
+			callee       string
 		}
 		var candidates []continuation
 		seenLine := map[int]bool{}
@@ -1682,19 +1822,19 @@ func flowNavigationCallResultContinuationReadTarget(
 			if callee == "" {
 				continue
 			}
-			matched := false
+			matchedReceiver := ""
 			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, file, nextLine, callee) {
 				for _, receiver := range receivers {
 					if flowNavigationArgumentMatchesBinding(flow.Argument, receiver) {
-						matched = true
+						matchedReceiver = receiver
 						break
 					}
 				}
-				if matched {
+				if matchedReceiver != "" {
 					break
 				}
 			}
-			if matched {
+			if matchedReceiver != "" {
 				seenLine[nextLine] = true
 				candidates = append(candidates, continuation{
 					site: site, line: nextLine,
@@ -1702,6 +1842,8 @@ func flowNavigationCallResultContinuationReadTarget(
 						ctx, index, next, site.ownerSurfaces,
 					),
 					handoffRank: flowNavigationCarrierHandoffRank(next, receivers[0]),
+					receiver:    matchedReceiver,
+					callee:      callee,
 				})
 			}
 		}
@@ -1719,13 +1861,22 @@ func flowNavigationCallResultContinuationReadTarget(
 		})
 		advanced := false
 		for _, candidate := range candidates {
-			if !closure.HasReadLine(file, candidate.line) {
+			calleeIdentity := candidate.callee
+			if info := graph.FileIndex[file]; info != nil {
+				calleeIdentity = firstNonEmptyFlowRepairString(
+					callRelationTargetName(graph, info, candidate.site.relation), candidate.callee,
+				)
+			}
+			if !flowNavigationArgumentFlowAlreadyEmitted(
+				evidence, file, candidate.line, candidate.receiver, calleeIdentity,
+			) {
 				start := candidate.line - flowOperationRepairReadRadius
 				if start < 1 {
 					start = 1
 				}
 				return flowOperationRepairReadTarget{
 					file: file, lineRange: types.LineRange{Start: start, End: candidate.line + flowOperationRepairReadRadius},
+					alreadyRead: closure.HasReadLine(file, candidate.line),
 				}, true
 			}
 			nextReceivers := types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{

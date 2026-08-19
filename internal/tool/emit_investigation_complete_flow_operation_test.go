@@ -1786,11 +1786,21 @@ func TestFlowOperationNavigationAdvancesThroughSameCallableResultConsumersAcross
 			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
 				path: {{Start: 18, End: 42}},
 			})
+			// Reading the coordinate is not proof that the value was handed off.
+			// Keep the frontier at Execute until the model emits the exact
+			// source-owned argument row, then advance to Apply.
+			pending, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || pending.file != path || pending.lineRange != (types.LineRange{Start: 18, End: 42}) || !pending.alreadyRead {
+				t.Fatalf("%s read closure must not impersonate argument evidence: ok=%t target=%+v", language, ok, pending)
+			}
+			executeHandoff := flowOperationEvidence(types.AnchorArgument, "agentContext", "Execute", 30)
+			executeHandoff.Source = path
+			ctx.Mutable.AppendEvidence([]types.EvidenceItem{executeHandoff})
 			second, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
 			if !ok || second.file != path || second.lineRange != (types.LineRange{Start: 38, End: 62}) || second.alreadyRead {
 				t.Fatalf("%s second continuation must read result application: ok=%t target=%+v", language, ok, second)
 			}
-			if got := ctx.Mutable.EmittedEvidence(); len(got) != 1 || got[0].Subject != "BusContext" {
+			if got := ctx.Mutable.EmittedEvidence(); len(got) != 2 || got[0].Subject != "BusContext" || got[1].Subject != "agentContext" {
 				t.Fatalf("same-callable continuation navigation must not manufacture evidence: %+v", got)
 			}
 		})
@@ -2363,6 +2373,125 @@ func TestFlowOperationNavigationPrefersCallSiteWithWholeValueContinuationAcrossL
 			}
 			if len(ctx.Mutable.EmittedEvidence()) != 0 {
 				t.Fatal("continuation-depth navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
+func TestFlowOperationNavigationCarriesContinuationRankAcrossGroundedFastPathsAllLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			callerPath := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			calleePath := filepath.ToSlash(filepath.Join("src", language, "builder.src"))
+			callerLines := make([]string, 45)
+			callerLines[9] = "probe = builder.BuildAgentContext(this.busContext, AgentExtractor, stage)"
+			callerLines[10] = "count = len(probe.Rows)"
+			callerLines[29] = "agentContext = builder.BuildAgentContext(this.busContext, AgentExtractor, stage)"
+			callerLines[30] = "output = agent.Execute(agentContext)"
+			callerLines[31] = "pipeline.Apply(output)"
+			calleeLines := make([]string, 45)
+			calleeLines[29] = "Mutable: bus.Mutable"
+			for path, lines := range map[string][]string{callerPath: callerLines, calleePath: calleeLines} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			calleeInfo := &repotypes.FileInfo{
+				RelPath: calleePath, Language: language, Package: "builder",
+				Symbols: []repotypes.Symbol{
+					{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
+					{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 30},
+				},
+			}
+			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				callerPath: {
+					RelPath: callerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+						{Name: "probeStage", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 20},
+						{Name: "dispatch", Kind: "method", Receiver: "Pipeline", Line: 21, EndLine: 40},
+					},
+					Relations: []repotypes.Relation{
+						{Kind: "call", File: callerPath, Line: 10,
+							FromEP: repotypes.RelationEndpoint{Name: "probeStage", Receiver: "Pipeline", Line: 10},
+							ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10}},
+						{Kind: "call", File: callerPath, Line: 11,
+							FromEP: repotypes.RelationEndpoint{Name: "probeStage", Receiver: "Pipeline", Line: 11},
+							ToEP:   repotypes.RelationEndpoint{Name: "len", Line: 11}},
+						{Kind: "call", File: callerPath, Line: 30,
+							FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 30},
+							ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30}},
+						{Kind: "call", File: callerPath, Line: 31,
+							FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 31},
+							ToEP:   repotypes.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 31}},
+						{Kind: "call", File: callerPath, Line: 32,
+							FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 32},
+							ToEP:   repotypes.RelationEndpoint{Name: "Apply", Receiver: "pipeline", Line: 32}},
+					},
+				},
+				calleePath: calleeInfo,
+			})
+			graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+				callerPath: {{
+					Import:  repotypes.Import{Alias: "builder", Path: "builder", File: callerPath, Line: 1},
+					Targets: []string{calleePath},
+				}},
+			}
+			bodyOperation := flowOperationEvidence(types.AnchorInitializer, "Mutable", "bus.Mutable", 30)
+			bodyOperation.Source = calleePath
+			bodyOperation.Snippet = "Mutable: bus.Mutable"
+			bodyOperation.OwnerIdentity = qualifiedEvidenceSymbolNameInFile(calleeInfo, &calleeInfo.Symbols[0])
+
+			ctx := flowOperationCompletionContext([]types.EvidenceItem{bodyOperation})
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", ResolvedAs: "Mutable", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(graph)
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{callerPath: true, calleePath: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				callerPath: {{Start: 1, End: 45}}, calleePath: {{Start: 20, End: 40}},
+			})
+
+			first, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || first.file != callerPath || first.lineRange != (types.LineRange{Start: 18, End: 42}) ||
+				!first.callerHandoff {
+				t.Fatalf("%s grounded caller fast path selected the probe instead of dispatcher: ok=%t target=%+v", language, ok, first)
+			}
+
+			buildHandoff := flowOperationEvidence(types.AnchorArgument, "this.busContext", "BuildAgentContext", 30)
+			buildHandoff.Source = callerPath
+			ctx.Mutable.AppendEvidence([]types.EvidenceItem{buildHandoff})
+			second, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable"})
+			if !ok || second.file != callerPath || second.lineRange != (types.LineRange{Start: 19, End: 43}) ||
+				second.callerHandoff || !second.alreadyRead {
+				t.Fatalf("%s grounded handoff did not resume at Execute: ok=%t target=%+v", language, ok, second)
+			}
+
+			executeHandoff := flowOperationEvidence(types.AnchorArgument, "agentContext", "Execute", 31)
+			executeHandoff.Source = callerPath
+			ctx.Mutable.AppendEvidence([]types.EvidenceItem{executeHandoff})
+			third, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable"})
+			if !ok || third.file != callerPath || third.lineRange != (types.LineRange{Start: 20, End: 44}) ||
+				third.callerHandoff || !third.alreadyRead {
+				t.Fatalf("%s grounded continuation did not advance to Apply: ok=%t target=%+v", language, ok, third)
+			}
+			if got := ctx.Mutable.EmittedEvidence(); len(got) != 3 {
+				t.Fatalf("navigation manufactured evidence instead of preserving three model rows: %+v", got)
 			}
 		})
 	}
