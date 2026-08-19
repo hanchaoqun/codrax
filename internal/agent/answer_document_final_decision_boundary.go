@@ -862,6 +862,208 @@ func renderTraceFinalSemanticRelationOnlyAuthority(set types.TraceCausalProjecti
 	return ""
 }
 
+// renderAnswerDocBoundedRuntimeFinalReaderHandoff ends a finite runtime
+// question on reader language rather than on the raw observation ledger. The
+// analyzer's typed RuntimeQuestionProfile selects the dimensions and the hard
+// deterministic ledger supplies every value. Raw predicates/enums remain in
+// the preceding audit carriers for validation, but this final prompt seam does
+// not repeat them. It never scans request/model/final prose, never creates an
+// answer block, and never chooses or rewrites the model-owned verdict.
+func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	profile := rm.RuntimeQuestionProfile
+	if profile == nil || !profile.CarriesBoundedFactFamilies() {
+		return ""
+	}
+	ledger := answerDocObservationLedger(ctx)
+	if ledger.Empty() {
+		return ""
+	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
+
+	requestedLabels := make([]string, 0, len(profile.FactFamilies))
+	seenLabels := make(map[string]bool, len(profile.FactFamilies))
+	for _, family := range profile.FactFamilies {
+		label := answerDocBoundedRuntimeFactFamilyReaderLabel(family, zh)
+		if label == "" || seenLabels[label] {
+			continue
+		}
+		seenLabels[label] = true
+		requestedLabels = append(requestedLabels, label)
+	}
+
+	var b strings.Builder
+	if zh {
+		b.WriteString("## 有限窗口查询的读者事实卡（结论由模型给出）\n\n")
+		b.WriteString("- 这是成文前的最后一张自然语言事实卡。此前结构化行中的字段名、枚举值、状态码和机器键值只用于校验，不得出现在面向客户的正文、标题、表格、括注或图中；精确数值、窗口、覆盖边界和证据强度保持不变。系统不检查或修改模型正文，也不代替模型给结论。\n")
+		if len(requestedLabels) > 0 {
+			fmt.Fprintf(&b, "- 本次请求的可见事实维度：%s。\n", strings.Join(requestedLabels, "、"))
+		}
+	} else {
+		b.WriteString("## Reader-ready finite-window facts (the model owns the conclusion)\n\n")
+		b.WriteString("- This is the final natural-language fact card before authoring. Field names, enum values, status codes, and machine key/value pairs in earlier structured rows are validation metadata and must not appear in customer prose, headings, tables, parentheses, or diagrams. Preserve exact values, windows, coverage boundaries, and evidence strength. The system neither checks nor rewrites model prose and does not choose the conclusion.\n")
+		if len(requestedLabels) > 0 {
+			fmt.Fprintf(&b, "- Requested visible fact dimensions: %s.\n", strings.Join(requestedLabels, ", "))
+		}
+	}
+
+	stateAuthorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
+	if profile.RequestsFactFamily(types.RuntimeQuestionFactTargetSchedulerState) {
+		for _, authority := range stateAuthorities {
+			coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
+			if zh {
+				fmt.Fprintf(&b, "- 目标线程 %s 在 %.6f–%.6f 秒窗口内的状态分布（%s）：运行 %.3f 毫秒、可运行但尚未获调度 %.3f 毫秒、可中断睡眠 %.3f 毫秒、不可中断等待 %.3f 毫秒、其中由调度器标记的 IO 等待 %.3f 毫秒；合计 %.3f 毫秒。\n",
+					authority.Subject, authority.WindowStartTs, authority.WindowEndTs, coverage,
+					authority.RunningMS, authority.RunnableMS, authority.SleepMS,
+					authority.DStateMS, authority.IOWaitMS, authority.TotalMS)
+			} else {
+				fmt.Fprintf(&b, "- Target thread %s in %.6f–%.6f seconds (%s): running %.3f ms, runnable but not yet scheduled %.3f ms, interruptible sleep %.3f ms, uninterruptible wait %.3f ms, including %.3f ms marked by the scheduler as IO wait; total %.3f ms.\n",
+					authority.Subject, authority.WindowStartTs, authority.WindowEndTs, coverage,
+					authority.RunningMS, authority.RunnableMS, authority.SleepMS,
+					authority.DStateMS, authority.IOWaitMS, authority.TotalMS)
+			}
+			if authority.DStateMS == 0 && authority.IOWaitMS == 0 && authority.SleepIOWaitMS == 0 {
+				if zh {
+					b.WriteString("  - 窄口径结论：该目标与窗口内没有匹配到由调度器标记的 D 状态或 IO 等待；这不等于没有普通睡眠、没有 IO 活动，也不等于没有由其他证据证明的等待或阻塞。\n")
+				} else {
+					b.WriteString("  - Narrow finding: no scheduler-marked D-state or IO-wait occurrence matched this target and window. This does not mean there was no ordinary sleep, IO activity, or wait/blocking proved by another evidence family.\n")
+				}
+			}
+			b.WriteString(renderAnswerDocBoundedRuntimeCompletionClosedReaderFact(ledger, rm, authority, zh))
+		}
+	}
+
+	waitRequested := false
+	for _, record := range ledger.Records {
+		if strings.TrimSpace(record.Predicate) != "target_window_wait_occurrences" {
+			continue
+		}
+		for _, family := range types.RuntimeObservationRecordFactFamilies(record) {
+			if profile.RequestsFactFamily(family) {
+				waitRequested = true
+				break
+			}
+		}
+	}
+	if waitRequested {
+		for _, authority := range types.BuildTargetWaitOccurrenceAuthorities(ledger, rm) {
+			if zh {
+				fmt.Fprintf(&b, "- %s 的调度器标记等待清单已完整覆盖所选窗口：共 %d 次，合计 %.3f 毫秒。该清单只包含 D 状态、明确的 IO 等待，以及带有 IO 等待标记的 S 状态。\n", authority.Subject, authority.Count, authority.SumMS)
+			} else {
+				fmt.Fprintf(&b, "- The scheduler-marked wait roster for %s completely covers the selected window: %d occurrence(s), totaling %.3f ms. It includes only D-state, explicit IO wait, and S-state carrying an IO-wait marker.\n", authority.Subject, authority.Count, authority.SumMS)
+			}
+		}
+	}
+
+	if profile.RequestsFactFamily(types.RuntimeQuestionFactFrequencyResidency) {
+		for _, witness := range answerDocRuntimeTraceGuidanceView(ctx).FrequencyLimitWitnesses {
+			if zh {
+				fmt.Fprintf(&b, "- CPU %d 在 %.6f–%.6f 秒窗口内出现 %d 条频率策略上限记录，策略范围为 %d–%d kHz。这只证明该 CPU 的策略上限在窗口内存在；是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠或其他目标绑定证据。\n",
+					witness.CPU, witness.WindowStartTs, witness.WindowEndTs, witness.LimitRowCount,
+					witness.MinFrequencyKHz, witness.MaxFrequencyKHz)
+			} else {
+				fmt.Fprintf(&b, "- CPU %d has %d frequency-policy limit record(s) in %.6f–%.6f seconds, with a policy range of %d–%d kHz. This proves only that the CPU policy ceiling existed in the window; showing that it constrained the target still requires same-CPU target-slice overlap or another target-binding witness.\n",
+					witness.CPU, witness.LimitRowCount, witness.WindowStartTs, witness.WindowEndTs,
+					witness.MinFrequencyKHz, witness.MaxFrequencyKHz)
+			}
+		}
+	}
+
+	if zh {
+		b.WriteString("- 其余请求事实沿用此前结构化事实行中的精确值与区间，但正文只使用本卡中的读者维度名称和自然语言边界。\n\n")
+	} else {
+		b.WriteString("- For any other requested fact, preserve the exact value and interval from the preceding structured fact row, but use only the reader dimension names and natural-language boundaries from this card in visible prose.\n\n")
+	}
+	return b.String()
+}
+
+func answerDocBoundedRuntimeFactFamilyReaderLabel(family types.RuntimeQuestionFactFamily, zh bool) string {
+	if zh {
+		switch family {
+		case types.RuntimeQuestionFactTargetSchedulerState:
+			return "目标线程状态分布"
+		case types.RuntimeQuestionFactTargetWaitOccurrences:
+			return "目标线程的调度器标记等待清单"
+		case types.RuntimeQuestionFactRecordedReason:
+			return "已记录的内核或工具原因"
+		case types.RuntimeQuestionFactOccurrenceTime:
+			return "事件发生时间"
+		case types.RuntimeQuestionFactCountOrDuration:
+			return "次数或持续时间"
+		case types.RuntimeQuestionFactRelationPeer:
+			return "关系对端"
+		case types.RuntimeQuestionFactTransactionID:
+			return "事务标识"
+		case types.RuntimeQuestionFactDirectWaker:
+			return "直接唤醒方"
+		case types.RuntimeQuestionFactIOLatency:
+			return "IO 请求时延与已证线程等待（分尺呈现）"
+		case types.RuntimeQuestionFactResourcePressure:
+			return "资源压力（不与墙钟时长相加）"
+		case types.RuntimeQuestionFactFrequencyResidency:
+			return "CPU 频率驻留与策略上限"
+		case types.RuntimeQuestionFactOtherObservedValue:
+			return "其他已观测数值"
+		}
+		return ""
+	}
+	switch family {
+	case types.RuntimeQuestionFactTargetSchedulerState:
+		return "target-thread state distribution"
+	case types.RuntimeQuestionFactTargetWaitOccurrences:
+		return "target scheduler-marked wait roster"
+	case types.RuntimeQuestionFactRecordedReason:
+		return "recorded kernel/tool reason"
+	case types.RuntimeQuestionFactOccurrenceTime:
+		return "occurrence time"
+	case types.RuntimeQuestionFactCountOrDuration:
+		return "count or duration"
+	case types.RuntimeQuestionFactRelationPeer:
+		return "relation peer"
+	case types.RuntimeQuestionFactTransactionID:
+		return "transaction identifier"
+	case types.RuntimeQuestionFactDirectWaker:
+		return "direct waker"
+	case types.RuntimeQuestionFactIOLatency:
+		return "IO request latency and proved thread wait (separate rulers)"
+	case types.RuntimeQuestionFactResourcePressure:
+		return "resource pressure (not additive with wall clock)"
+	case types.RuntimeQuestionFactFrequencyResidency:
+		return "CPU frequency residency and policy ceiling"
+	case types.RuntimeQuestionFactOtherObservedValue:
+		return "other observed value"
+	}
+	return ""
+}
+
+func renderAnswerDocBoundedRuntimeCompletionClosedReaderFact(
+	ledger types.ObservationLedger,
+	rm *types.RequestModel,
+	state types.TraceTargetStateScopeAuthority,
+	zh bool,
+) string {
+	wantWindow := fmt.Sprintf("%.6f..%.6f", state.WindowStartTs, state.WindowEndTs)
+	for _, authority := range types.BuildTraceBlockingWallClockAuthorities(ledger, rm) {
+		if authority.Type != "block_io_completion_closed_issuer_wait" ||
+			!strings.EqualFold(strings.TrimSpace(authority.Subject), strings.TrimSpace(state.Subject)) ||
+			strings.TrimSpace(authority.SelectedWindow) != wantWindow {
+			continue
+		}
+		coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
+		if zh {
+			return fmt.Sprintf("  - 独立 IO 完成闭合口径（%s）：已证目标线程等待 %d 次，区间并集 %.3f 毫秒。它与调度器标记的 D/IO 等待是两把尺，不能相加或互相否定。\n", coverage, len(authority.Occurrences), authority.ObservedMS)
+		}
+		return fmt.Sprintf("  - Separate completion-closed IO ruler (%s): %d proved target-thread wait occurrence(s), interval union %.3f ms. This and scheduler-marked D/IO wait are different rulers and must neither be added nor used to negate one another.\n", coverage, len(authority.Occurrences), authority.ObservedMS)
+	}
+	if zh {
+		return "  - 本次状态分布没有评估由 IO 完成事件闭合的 S 状态等待；该口径缺席表示未评估，不是测得为零。\n"
+	}
+	return "  - This state distribution did not assess S-state waits closed by IO completion events. An absent ruler means not assessed, not measured zero.\n"
+}
+
 // renderAnswerDocLogPeerFinalDecisionBoundary replays the precise LogBundle
 // relation ceiling after the large generic finalizer prompt. It neither reads
 // user/model/answer prose nor chooses the answer: the model may identify and
