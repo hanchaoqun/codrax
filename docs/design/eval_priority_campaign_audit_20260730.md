@@ -36076,12 +36076,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `go test ./internal/agent -count=1` 全绿（11.670s），`make` 通过。
 7. 本批不改 Trace query、显式窗、因果投影、自动补齐、JSON 恢复或 stream liveness。Trace 主因仍仅来自
    typed 链上席，实际占用/业务线索与规则计价可消除量双轴不丢，邻近/背景只作支持；活跃流不按 4ms 降级。
+8. B1159-A 已施工信息面根修。Planner 的 typed behavior-contract 提示现在明确区分“所选项目套件通过”和
+   “每个独立行为合同已被执行”：前者不能自动证明后者。每个 required/fallback contract id 必须选择一个
+   直接可执行见证；原生项目测试路线要先检查或补上对应断言，并把该测试文件纳入 bounded plan；支持的
+   inline runtime 才可用绑定 exact `contract_refs + changed_symbol_refs` 的 verification probe。仅写一条
+   `acceptance_tests` 自然语言不再被教学成执行证据。该规则由 typed contract 列表启用，语言无关，既不读取
+   request/summary/patch/model/final prose，也没有新增硬拒绝。B1159-B 仍开放：project-native runner 尚无
+   结构化 criterion→test-observation 回执，不能在当前证据下把路径级 target_behavior 桥直接升级为逐合同
+   精确证明；后续需设计可审计映射，不能扫描测试名或断言文本猜语义，也不能把所有项目 runner 一刀切降级。
 
 状态：
 
 `B1157-REQUIREDPARTICIPANTCOMPONENTCONNECTIVITY1=production-safe-boundary-r727/pending-positive-join-replay`；
 `B1158-FLOWNAVIGATIONPOSTREADMATERIALIZATION1=implemented/typed-dispatch-latch+pinned/pending-replay`；
-`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=confirmed/P1/pending`；
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A-implemented/typed-soft-witness-guidance+pinned/B-structured-receipt-open`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
