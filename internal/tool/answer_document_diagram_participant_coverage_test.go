@@ -2,6 +2,7 @@ package tool
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1282,5 +1283,56 @@ func TestDiagramParticipantCoverageConsumesVerifiedStageAliasesInBothValidationP
 	got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil)
 	if len(got) != 1 || got[0].Issue != DiagramParticipantCoverageStaleBoundary {
 		t.Fatalf("a boundary on an authority-covered stage must be rejected as stale: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoveragePreAndPostValidationUseSameLosslessEvidencePool(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Producer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Consumer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n Producer[\"Producer\"]\n Consumer[\"Consumer\"]"},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "Producer", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "Consumer", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	relation := diagramEvidenceTestCall("Producer", "Consumer")
+	relation.ID = "lossless-bus-relation"
+	mut := types.NewMutableState("participant coverage evidence parity")
+	ctx := &types.BusContext{
+		Mutable:       mut,
+		AnalysisIR:    &types.AnalysisIR{RequestModel: rm},
+		EvidenceItems: []types.EvidenceItem{relation},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	prePool := pctx.evidenceItems()
+	want := DiagramParticipantCoverageMismatches(doc, view, rm, prePool)
+	if len(want) == 0 {
+		t.Fatal("lossless typed relation should make disconnected unproven boundaries stale")
+	}
+
+	postPool := DiagramEvidenceForValidation(ctx, doc, view, mut.EmittedEvidence())
+	got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, postPool)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pre/post participant evidence authority diverged:\npre=%+v\npost=%+v\npool=%+v", want, got, postPool)
+	}
+
+	// M4 wiring pin: the actual first-pass precheck must report the same
+	// contradiction instead of accepting a boundary that post-finalizer rejects.
+	if hints := preCheckDiagramParticipantCoverage(doc, view, pctx); len(hints) != 1 {
+		t.Fatalf("pre-emit participant gate did not consume the shared pool: %+v", hints)
 	}
 }

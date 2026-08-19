@@ -35897,6 +35897,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1146 B1154：participant coverage 前后证据权威单源（2026-08-19）
+
+1. r724 的“同一 Mutable boundary 在 pre-emit 必带、post-finalizer 必拒”已定位到证据 provider
+   分叉，而非 participant 算法本身。pre-emit 的 `preEmitCheckContext` 使用
+   `BusContext.EvidenceItems + TurnAArtifacts.EvidenceItems + Mutable.EmittedEvidence` 的 lossless
+   union；post-finalizer 从 `Mutable.EmittedEvidence` 起步。前者能看到完整 request-scoped component，
+   后者可能只看到一条局部 call，导致相同输入在 `independentLocalIncidenceAllowed` 上得出相反结果。
+2. 根修把 `DiagramEvidenceForValidation` 提升为唯一 lossless typed pool provider：按与 pre-emit 相同的
+   三个来源聚合，以 Evidence ID/StableEvidenceID 去重，再附加 document-local checkout-verified
+   precedence。`preCheckDiagramParticipantCoverage` 与
+   `DiagramParticipantCoverageMismatchesWithRuntimeContext` 均经过该函数；调用者即使只传 emitted 子集，
+   也不会再改变关系真值。
+3. 这不是把较宽 evidence pool 当答案，也不补图。所有 row 仍需 citable、typed、同方向并通过既有
+   request-scoped component 与 relation validator；完整池只让两个阶段看到同一组精确信号。无证据时
+   仍要求 honest unproven boundary，歧义仍 fail-closed，模型继续选择是否画边及如何解释。
+4. 新 parity pin 将唯一 call relation 只放在 `BusContext.EvidenceItems`，证明 emit-time 与 post-time
+   对两个 disconnected boundary 产生完全相同 mismatch；M4 还钉住真实 precheck 接线。既有 local
+   carrier 不晋升请求关系、stage alias、边界独立性测试均绿。
+5. `go test ./internal/tool ./internal/orchestrator -count=1` 全绿（tool 178.974s，orchestrator
+   12.334s）。本批未修改 Finalizer 文本、答案草稿、图关系、Read/Write/Trace 路由或流式超时。
+
+状态：
+
+`B1154-PARTICIPANTCOVERAGEEVIDENCEPARITY1=implemented/single-lossless-provider+pre-post-parity-pinned/pending-replay`；
+`B1155-CALLRESULTCONSUMERVALUEPATH1=confirmed/P1/next`；
+`active-stream-4ms-degrade=forbidden/not-touched`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace

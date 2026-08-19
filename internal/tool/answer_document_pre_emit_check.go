@@ -5394,7 +5394,38 @@ func DiagramEvidenceForValidation(ctx *types.BusContext, doc *types.AnswerDocume
 	if ctx == nil {
 		return evidence
 	}
-	return preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, ground.BuildContext(ctx))
+	// Use the same lossless typed pool as preEmitCheckContext.evidenceItems.
+	// The caller-provided slice may be only Mutable.EmittedEvidence (the
+	// post-finalizer path) or an already-composed pool (the emit-time path).
+	// Rebuilding the union here makes both validation stages monotone and keeps
+	// the 24-row TurnA prompt cap from changing relation truth.
+	var raw []types.EvidenceItem
+	if len(ctx.EvidenceItems) > 0 {
+		raw = append(raw, ctx.EvidenceItems...)
+	}
+	if ctx.Mutable != nil {
+		if artifacts := ctx.Mutable.TurnAArtifacts(); artifacts != nil && len(artifacts.EvidenceItems) > 0 {
+			raw = append(raw, artifacts.EvidenceItems...)
+		}
+		if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
+			raw = append(raw, emitted...)
+		}
+	}
+	raw = append(raw, evidence...)
+	combined := make([]types.EvidenceItem, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, item := range raw {
+		key := strings.TrimSpace(item.ID)
+		if key == "" {
+			key = types.StableEvidenceID(item)
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		combined = append(combined, item)
+	}
+	return preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, combined, ground.BuildContext(ctx))
 }
 
 func preEmitDiagramMismatchBlockKinds(doc *types.AnswerDocumentV2, mismatches []DiagramCallEdgeEvidenceMismatch) []types.AnswerBlockKind {

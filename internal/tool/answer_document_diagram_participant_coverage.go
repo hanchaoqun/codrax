@@ -8,7 +8,6 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/stageauthority"
-	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -40,16 +39,15 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
 		return nil
 	}
-	evidence := pctx.evidenceItems()
-	if view != nil && view.RelationAxis == types.AxisFlow {
-		if pctx.groundCtx == nil {
-			pctx.groundCtx = ground.BuildContext(pctx.ctx)
-		}
-		evidence = preEmitEvidenceWithGroundedDiagramPrecedence(doc, view, evidence, pctx.groundCtx)
-	}
-	mismatches := DiagramParticipantCoverageMismatches(
-		doc, view, pctx.ctx.AnalysisIR.RequestModel, evidence,
-		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view)...,
+	// Keep the first emit-time gate and the later orchestrator contract on one
+	// evidence provider. In particular, BusContext.EvidenceItems may contain
+	// lossless deterministic relation rows that are intentionally wider than
+	// Mutable.EmittedEvidence/TurnA prompt caps. Letting only the later gate see
+	// that pool creates an impossible contract where one unproven boundary is
+	// required here and rejected after persistence.
+	evidence := DiagramEvidenceForValidation(pctx.ctx, doc, view, pctx.evidenceItems())
+	mismatches := DiagramParticipantCoverageMismatchesWithRuntimeContext(
+		pctx.ctx, doc, view, evidence,
 	)
 	if len(mismatches) == 0 {
 		return nil
@@ -1484,6 +1482,7 @@ func DiagramParticipantCoverageMismatchesWithRuntimeContext(
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
+	evidence = DiagramEvidenceForValidation(ctx, doc, view, evidence)
 	return DiagramParticipantCoverageMismatches(
 		doc, view, ctx.AnalysisIR.RequestModel, evidence,
 		diagramVerifiedReadModeStagePrecedence(ctx, view)...,
