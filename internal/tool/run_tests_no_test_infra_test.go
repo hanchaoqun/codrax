@@ -1902,6 +1902,105 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanTouchesTests(
 	}
 }
 
+func TestRunTestsVerificationProbePassContinuesProjectSuiteForCumulativeReplan(t *testing.T) {
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no usable python on PATH; skip")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make unavailable")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "widget.py"), []byte("VALUE = 42\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check:\n\t@python3 -c \"import widget; assert widget.VALUE == 42\"\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("cumulative replan must rerun project suite")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-repair",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"widget.py"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID:       "widget-value",
+			Kind:     types.WriteBehaviorObservable,
+			Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpEquals,
+			Expected: "42",
+			Required: true,
+		}},
+		VerificationProbes: []types.VerificationProbe{{
+			ID:                "widget-value-probe",
+			Language:          "python",
+			Code:              "import widget\nassert widget.VALUE == 42\n",
+			ContractRefs:      []string{"widget-value"},
+			ChangedSymbolRefs: []string{"path:widget.py"},
+		}},
+		CumulativeVerificationScope: &types.CumulativeVerificationScope{
+			SourcePlanIDs: []string{"plan-original"},
+			TargetPaths:   []string{"widget.py"},
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{
+		"runner": "make",
+	}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("passing probe and project suite should verify cumulative replan: %+v", result)
+	}
+	report := mu.ChangeReport()
+	if report == nil || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
+		t.Fatalf("expected passed cumulative report: %+v", report)
+	}
+	foundContinuation := false
+	foundMake := false
+	for _, cmd := range report.ExecutedCommands {
+		if cmd.Source == verificationProbeContinuationSourceProbeSuiteContinued &&
+			cmd.Outcome == "suite_continued" &&
+			cmd.ReasonCode == verificationProbeContinuationCumulativeScope {
+			foundContinuation = true
+		}
+		if cmd.Runner == "make" && cmd.Outcome == "executed" && cmd.ExitCode == 0 {
+			foundMake = true
+		}
+		if cmd.Source == "probe_primary_suite_skipped" {
+			t.Fatalf("cumulative replan must not skip the project suite: %+v", report.ExecutedCommands)
+		}
+	}
+	if !foundContinuation || !foundMake {
+		t.Fatalf("cumulative continuation or make execution missing: %+v", report.ExecutedCommands)
+	}
+}
+
+func TestChangePlanHasCumulativeVerificationProvenanceRequiresNonEmptySourcePlanID(t *testing.T) {
+	for _, plan := range []*types.ChangePlan{
+		nil,
+		{},
+		{CumulativeVerificationScope: &types.CumulativeVerificationScope{}},
+		{CumulativeVerificationScope: &types.CumulativeVerificationScope{SourcePlanIDs: []string{"  "}}},
+	} {
+		if changePlanHasCumulativeVerificationProvenance(plan) {
+			t.Fatalf("empty cumulative provenance must not force project-suite continuation: %+v", plan)
+		}
+	}
+	if !changePlanHasCumulativeVerificationProvenance(&types.ChangePlan{
+		CumulativeVerificationScope: &types.CumulativeVerificationScope{SourcePlanIDs: []string{" plan-1 "}},
+	}) {
+		t.Fatal("controller-owned source plan id must force cumulative project-suite continuation")
+	}
+}
+
 func TestRunTestsVerificationProbePassLeavesTimeoutNonPassWhenChangedPathsUncovered(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")

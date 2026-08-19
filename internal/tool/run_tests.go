@@ -68,6 +68,7 @@ const (
 	verificationProbeContinuationImpactRelatedTestSurface  = "impact_related_test_surface"
 	verificationProbeContinuationChangedPathUncovered      = "verification_probe_changed_path_uncovered"
 	verificationProbeContinuationMissingPlanContractRef    = "verification_probe_missing_plan_contract_ref"
+	verificationProbeContinuationCumulativeScope           = "cumulative_verification_scope"
 	verificationProbeContinuationSourceImpactTestSurface   = "impact_test_surface"
 	verificationProbeContinuationSourceDeclaredCoverage    = "declared_coverage_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
@@ -1718,6 +1719,16 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 	if ctx != nil && ctx.Mutable != nil {
 		plan = ctx.Mutable.ChangePlan()
 	}
+	// A cumulative replan is verifying changes that remain applied from one or
+	// more earlier plans. A passing bounded probe for the active repair cannot
+	// supersede an earlier exact project-suite failure, even when it covers the
+	// active changed path and contract. Continue into the already-detected
+	// project suite so the proof ledger receives an independently executable
+	// result for the whole retained scope. SourcePlanIDs are controller-owned
+	// typed provenance; no plan prose or failure text is inspected here.
+	if changePlanHasCumulativeVerificationProvenance(plan) {
+		return verificationProbeContinuationCumulativeScope
+	}
 	if hasRunnerPlanWithSource(ctxRepoRoot(ctx), plans, planSources, verificationProbeContinuationSourceImpactTestSurface) {
 		return verificationProbeContinuationImpactRelatedTestSurface
 	}
@@ -1745,6 +1756,18 @@ func verificationProbePassProjectSuiteContinuationReason(ctx *types.BusContext, 
 		return verificationProbeContinuationMissingChangedSymbolRef
 	}
 	return ""
+}
+
+func changePlanHasCumulativeVerificationProvenance(plan *types.ChangePlan) bool {
+	if plan == nil || plan.CumulativeVerificationScope == nil {
+		return false
+	}
+	for _, id := range plan.CumulativeVerificationScope.SourcePlanIDs {
+		if strings.TrimSpace(id) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func verificationProbeHasUncoveredChangedPathWithMatchingRunner(ctx *types.BusContext, probeReport *types.ChangeReport, plans []runnerPlan) bool {

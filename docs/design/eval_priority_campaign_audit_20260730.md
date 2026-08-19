@@ -36499,6 +36499,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1113 B1118：累计 replan 的局部探针通过后继续执行项目套件（2026-08-18）
+
+1. `verificationProbePassProjectSuiteContinuationReason` 新增 typed `cumulative_verification_scope` 车道。只有当前
+   `ChangePlan.CumulativeVerificationScope.SourcePlanIDs` 含非空 controller-owned plan id，且 TestSurface 已有真实
+   test signal，局部探针通过后才继续项目套件。nil/空 scope、只有空白 id 的兼容计划保持原 skip 决策。
+2. 该顺序先于 changed-path/contract/symbol 覆盖判断：这些判断能证明 active repair 的局部行为，却不能证明此前仍应用
+   的计划已经从旧 suite failure 恢复。项目套件的 exact pass 才能按既有 ledger 规则 supersede 同命令旧失败；系统不清空
+   历史记录、不把局部 probe 冒充全套件、不降低 `verification_proof_failed` 杆。
+3. 集成 pin 构造 source-only repair：probe 覆盖当前 path、required contract 和 changed symbol，旧逻辑会直接
+   `probe_primary_suite_skipped`；加入累计来源后必须发 `suite_continued reason=cumulative_verification_scope` 并真实执行
+   `make check`。既有 test-path、missing-contract、changed-path 和 declared-Make continuation 回归保持。
+4. 判据不读取失败文本、用户请求、计划 summary/rationale、patch、模型推理或答案；它只消费 typed plan provenance 和
+   已检测 TestSurface。没有项目套件时继续诚实依赖局部证据，不虚构 runner。
+5. 本批不触碰 Read/Trace、关系图、显式窗因果投影、自动补齐或模型结论权。
+
+状态：
+
+`B1118-CUMULATIVEREPLANPROJECTSUITE1=implemented/controller-provenance+project-suite-continuation+pinned`；
+`historical-verification-failure=preserved-until-exact-project-pass`；
+`raw-request/model/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
