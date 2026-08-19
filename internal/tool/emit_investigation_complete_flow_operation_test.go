@@ -2964,6 +2964,74 @@ func TestFlowSelectedCallResultRequiresExactWholeValueConsumer(t *testing.T) {
 	}
 }
 
+func TestFlowSelectedCallResultConsumerContinuesAcrossAuthoredAssignmentsForAllLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(string(language), func(t *testing.T) {
+			repo := t.TempDir()
+			const source = "src/pipeline.source"
+			body := strings.Join([]string{
+				"run pipeline",
+				"func run() {",
+				"ctx = builder.Build(bus)",
+				"output = agent.Execute(ctx)",
+				"pipeline.Apply(output)",
+				"}",
+			}, "\n")
+			absolute := filepath.Join(repo, filepath.FromSlash(source))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			ctxAssignment := flowOperationEvidence(types.AnchorAssignment, "ctx", "builder.Build", 3)
+			ctxAssignment.Source, ctxAssignment.Snippet, ctxAssignment.AnchorSymbol = source, "ctx = builder.Build(bus)", "ctx"
+			busArgument := flowOperationEvidence(types.AnchorArgument, "bus", "builder.Build", 3)
+			busArgument.Source, busArgument.Snippet, busArgument.AnchorSymbol = source, ctxAssignment.Snippet, "bus"
+			busArgument.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{Binding: "bus", Type: "BusContext"}}
+			executeArgument := flowOperationEvidence(types.AnchorArgument, "ctx", "agent.Execute", 4)
+			executeArgument.Source, executeArgument.Snippet, executeArgument.AnchorSymbol = source, "output = agent.Execute(ctx)", "ctx"
+			outputAssignment := flowOperationEvidence(types.AnchorAssignment, "output", "agent.Execute", 4)
+			outputAssignment.Source, outputAssignment.Snippet, outputAssignment.AnchorSymbol = source, executeArgument.Snippet, "output"
+			evidence := []types.EvidenceItem{ctxAssignment, busArgument, executeArgument, outputAssignment}
+
+			ctx := flowOperationCompletionContext(evidence)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{{
+				Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol,
+				Resolved: true, UseForSearch: true, UseForShape: true,
+			}}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired}},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{source: {
+				RelPath: source, Language: language,
+				Symbols: []repotypes.Symbol{{Name: "bus", Kind: "field", DeclaredType: "BusContext", Line: 1}, {Name: "run", Kind: "function", Line: 2, EndLine: 6}},
+				Relations: []repotypes.Relation{
+					{Kind: "call", File: source, Line: 3, FromEP: repotypes.RelationEndpoint{Name: "run", Line: 3}, ToEP: repotypes.RelationEndpoint{Name: "Build", Receiver: "builder", Line: 3}},
+					{Kind: "call", File: source, Line: 4, FromEP: repotypes.RelationEndpoint{Name: "run", Line: 4}, ToEP: repotypes.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 4}},
+					{Kind: "call", File: source, Line: 5, FromEP: repotypes.RelationEndpoint{Name: "run", Line: 5}, ToEP: repotypes.RelationEndpoint{Name: "Apply", Receiver: "pipeline", Line: 5}},
+				},
+			}}))
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{source: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{source: {{Start: 1, End: 6}}})
+
+			repair, missing := flowOperationMissingSelectedResultConsumer(ctx, evidence)
+			if !missing || repair.argument != "output" || repair.receiver != "pipeline.Apply" ||
+				repair.producerLine != 4 || repair.consumerLine != 5 {
+				t.Fatalf("selected chain must advance past covered ctx consumer: missing=%t repair=%+v", missing, repair)
+			}
+			applyArgument := flowOperationEvidence(types.AnchorArgument, "output", "pipeline.Apply", 5)
+			applyArgument.Source, applyArgument.Snippet, applyArgument.AnchorSymbol = source, "pipeline.Apply(output)", "output"
+			if got, stillMissing := flowOperationMissingSelectedResultConsumer(ctx, append(evidence, applyArgument)); stillMissing {
+				t.Fatalf("model-authored final whole-value consumer must close selected chain: %+v", got)
+			}
+		})
+	}
+}
+
 func TestFlowSelectedCallResultConsumerFailsClosedOnSameLineAmbiguity(t *testing.T) {
 	repo := t.TempDir()
 	const source = "src/pipeline.go"

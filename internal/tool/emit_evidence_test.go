@@ -4636,6 +4636,176 @@ func TestRequiredAssignmentCallArgumentFlowRepairUsesUniqueParserCall(t *testing
 	}
 }
 
+func TestRequiredCallResultAssignmentRepairContinuesSelectedValuePathAcrossLanguages(t *testing.T) {
+	for _, language := range repomap.SupportedReadLanguages() {
+		t.Run(string(language), func(t *testing.T) {
+			const source = "src/dispatcher.source"
+			const buildLine = "ctx = builder.Build(bus)"
+			const executeLine = "output = agent.Execute(ctx)"
+			fi := &repomap.FileInfo{
+				RelPath: source, Language: language,
+				Symbols: []repomap.Symbol{
+					{Name: "bus", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 2},
+					{Name: "run", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 30},
+				},
+				Relations: []repomap.Relation{
+					{Kind: "call", File: source, Line: 10,
+						FromEP: repomap.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 10},
+						ToEP:   repomap.RelationEndpoint{Name: "Build", Receiver: "builder", Line: 10}},
+					{Kind: "call", File: source, Line: 20,
+						FromEP: repomap.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: 20},
+						ToEP:   repomap.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 20}},
+				},
+				LineFeatures: map[int][]repomap.LineFeature{
+					10: {repomap.LineFeatureAssignment},
+					20: {repomap.LineFeatureAssignment},
+				},
+			}
+			graph := callTargetTestGraph(fi)
+			gc := &ground.Context{Graph: graph, LineIndex: map[string]map[int]string{
+				source: {10: buildLine, 20: executeLine},
+			}}
+			ctx := newEmitCtx()
+			ctx.Mutable.SetSearchGraph(graph)
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+				AnalyzerHints: types.AnalyzerHints{EntityProvenance: []types.EntityProvenance{{
+					Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol,
+					Resolved: true, UseForSearch: true, UseForShape: true,
+				}}},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+					Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+				}}},
+			}}
+			busArgument := types.EvidenceItem{
+				Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 10,
+				AnchorKind: types.AnchorArgument, AnchorSymbol: "bus", Subject: "bus", Predicate: "passes argument", Object: "builder.Build",
+				Snippet: buildLine, GroundingStatus: types.GroundingGrounded, Producer: EmitEvidenceProducer,
+				DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{Binding: "bus", Type: "BusContext"}},
+			}
+
+			first := emitEvidenceRequiredCallResultAssignmentFlowRepairs(
+				ctx, []types.EvidenceItem{busArgument}, []int{4}, []types.EvidenceItem{busArgument}, gc,
+			)
+			if len(first) != 1 || first[0].receiver != "ctx" || first[0].value != "builder.Build" ||
+				first[0].anchor != types.AnchorAssignment || first[0].itemIndex != 4 {
+				t.Fatalf("participant-selected call result repair=%+v", first)
+			}
+
+			ctxAssignment := types.EvidenceItem{
+				Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 10,
+				AnchorKind: types.AnchorAssignment, AnchorSymbol: "ctx", Subject: "ctx", Predicate: "assigns", Object: "builder.Build",
+				Snippet: buildLine, GroundingStatus: types.GroundingGrounded, Producer: EmitEvidenceProducer,
+			}
+			executeArgument := types.EvidenceItem{
+				Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 20,
+				AnchorKind: types.AnchorArgument, AnchorSymbol: "ctx", Subject: "ctx", Predicate: "passes argument", Object: "agent.Execute",
+				Snippet: executeLine, GroundingStatus: types.GroundingGrounded, Producer: EmitEvidenceProducer,
+			}
+			evidence := []types.EvidenceItem{busArgument, ctxAssignment, executeArgument}
+			second := emitEvidenceRequiredCallResultAssignmentFlowRepairs(
+				ctx, []types.EvidenceItem{executeArgument}, []int{7}, evidence, gc,
+			)
+			if len(second) != 1 || second[0].receiver != "output" || second[0].value != "agent.Execute" ||
+				second[0].itemIndex != 7 {
+				t.Fatalf("selected consumer result repair=%+v", second)
+			}
+
+			outputAssignment := types.EvidenceItem{
+				Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 20,
+				AnchorKind: types.AnchorAssignment, AnchorSymbol: "output", Subject: "output", Predicate: "assigns", Object: "agent.Execute",
+				Snippet: executeLine, GroundingStatus: types.GroundingGrounded, Producer: EmitEvidenceProducer,
+			}
+			if got := filterSatisfiedCallResultAssignmentRepairs(second, append(evidence, outputAssignment)); len(got) != 0 {
+				t.Fatalf("model-authored exact assignment must satisfy companion debt: %+v", got)
+			}
+			contract := buildEmitEvidenceCallResultAssignmentRepair(second)
+			if contract == nil || contract.Metadata["repair_scope"] != "selected_call_result_assignment_pair" ||
+				!strings.Contains(contract.Hint, `subject="output"`) {
+				t.Fatalf("call-result companion contract=%+v", contract)
+			}
+		})
+	}
+}
+
+func TestRequiredCallResultAssignmentRepairKeepsTraceLaneIsolated(t *testing.T) {
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Required: true},
+	}}
+	if got := emitEvidenceRequiredCallResultAssignmentFlowRepairs(
+		ctx, []types.EvidenceItem{{}}, []int{0}, nil, &ground.Context{},
+	); len(got) != 0 {
+		t.Fatalf("Trace causal lane must remain isolated: %+v", got)
+	}
+}
+
+func TestEmitEvidencePublishesCallResultAssignmentCompanionWithoutMintingEdge(t *testing.T) {
+	const source = "internal/pipeline.go"
+	const lineNumber = 10
+	const line = "ctx := builder.Build(bus)"
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo,
+		Symbols: []repomap.Symbol{
+			{Name: "bus", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 2},
+			{Name: "run", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 20},
+		},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: lineNumber,
+			FromEP: repomap.RelationEndpoint{Name: "run", Receiver: "Pipeline", Line: lineNumber},
+			ToEP:   repomap.RelationEndpoint{Name: "Build", Receiver: "builder", Line: lineNumber},
+		}},
+		LineFeatures: map[int][]repomap.LineFeature{lineNumber: {repomap.LineFeatureAssignment}},
+	}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetSearchGraph(callTargetTestGraph(fi))
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{EntityProvenance: []types.EntityProvenance{{
+			Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol,
+			Resolved: true, UseForSearch: true, UseForShape: true,
+		}}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}}},
+	}}
+	seedReadFileHistory(ctx, source, lineNumber, line)
+	params := json.RawMessage(fmt.Sprintf(`{"items":[{
+		"scope":"line","evidence_kind":"relationship","subject":"bus","predicate":"passes argument",
+		"object":"builder.Build","source":%q,"line_start":%d,"summary":"pass shared context",
+		"anchor_kind":"argument","anchor_symbol":"bus"}]}`, source, lineNumber))
+	res, err := (&EmitEvidence{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("emit evidence failed: err=%v result=%+v", err, res)
+	}
+	if res.Repair == nil || !strings.Contains(res.Repair.Hint, `subject="ctx"`) ||
+		!strings.Contains(res.Repair.Hint, `object="builder.Build"`) {
+		t.Fatalf("tool must publish exact additional assignment recipe: %+v", res.Repair)
+	}
+	obligations, ok := decodeEmitEvidenceRelationRepairObligations(
+		res.Repair.Metadata[emitEvidenceRelationRepairObligationsMetadataKey],
+	)
+	if !ok {
+		t.Fatalf("missing durable companion obligation: %+v", res.Repair.Metadata)
+	}
+	found := false
+	for _, obligation := range obligations {
+		if obligation.AnchorKind == types.AnchorAssignment && obligation.Subject == "ctx" &&
+			obligation.Object == "builder.Build" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("assignment companion obligation not wired: %+v", obligations)
+	}
+	for _, item := range ctx.Mutable.EmittedEvidence() {
+		if item.AnchorKind == types.AnchorAssignment && item.Subject == "ctx" {
+			t.Fatalf("system must not mint the missing edge: %+v", item)
+		}
+	}
+}
+
 func TestEmitEvidence_RequiredFlowRepairsMultiResultAssignmentAndNestedArgumentTogether(t *testing.T) {
 	const source = "pipeline.go"
 	line := "o.busCtx.EvidenceItems, changed = agent.MergeEvidenceItemsIfChanged(o.busCtx.EvidenceItems, output.EvidenceItems)"

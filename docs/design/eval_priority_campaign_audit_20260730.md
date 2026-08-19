@@ -35649,6 +35649,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1170 B1167：跨组件值流按精确 assignment/argument 交替续链（2026-08-19）
+
+1. r734 已证明关系 gate 能拒绝未证桥、局部 retry 也已收敛，但 producer 只交付了彼此分离的原子事实。
+   `BuildAgentContext(busCtx) -> agentCtx -> Execute(agentCtx) -> output -> applyStageOutput(output)` 这类真实值流在
+   “调用参数”与“调用结果赋值”之间交替；旧 completion 看见第一段已覆盖的 consumer 后就停止，模型无法从首轮
+   typed context 恢复后续值身份，只能猜桥或删边。这不是 Mermaid 渲染丢边，也不是模型单次波动。
+2. 新增精确的 call-result assignment companion：仅当当前请求是 required `AxisFlow` 图、源码索引在同一行给出
+   唯一 parser-owned call 和 assignment/initializer、且该行连接 incident-required participant 或消费此前已选中的
+   exact receiver 时，要求模型额外提交 `callee-result -> local receiver` 的 assignment 证据行。已提交的精确行会关闭
+   obligation；歧义调用、缺少 AST 特征、成员投影或身份不连续均 fail closed。
+3. completion 同时从“第一段 consumer 已覆盖即退出”改为有限的交替续链：首段必须与请求参与者精确相接；后续赋值
+   只能通过同一 callable 内已提交的 whole-value argument 消费前一 receiver 才可加入。每轮仍只返回一个读取/补证
+   坐标，最多沿既有 hop cap 前进；qualified 跨 receiver handoff 仅在 parser 已证明的候选间优先，源码顺序只作稳定
+   tie-break，不被解释为运行时顺序或因果。
+4. 该批覆盖全部 `SupportedReadLanguages()`，包含 Go/Java/C/C++/Python/Rust/ArkTS/Cangjie 等；测试证明
+   `Build(bus)->ctx` 后能继续到 `Execute(ctx)->output`，再要求 `Apply(output)`，而模型已提交 final consumer 后完整关闭。
+   独立集成 pin 通过真实 `EmitEvidence.Execute` 验证 durable obligation 已接线，并确认 Mutable evidence 中没有系统自铸
+   assignment 边。Trace/root-cause Trace 明确隔离，写控制器和答案渲染均未改。
+5. 全部判断只消费 schema enum、parser line feature、唯一 call、exact assignment/argument endpoint 与参与者 typed identity；
+   不扫描 raw request、模型 thinking 或 final prose，不按 QF 文件名/节点名拟合，不放松每条可见关系必须有证据的 gate。
+   组合结果仍只是模型可选的证据坐标，节点、边、业务标签、图和结论均由模型形成。
+6. 专项、`internal/types + internal/agent + internal/orchestrator` 联动套件及 `make test` 全绿；全仓测试包含
+   `hitraceconv`、`mermaidcompat`、`tracequery`、`tracediag` 与 writeflow，未发现 Trace 转换、图渲染、查询或写模式回归。
+7. 本批只能记为 implemented，必须用 QF 加一个异构高优先案例严格并发 2 回放后再决定是否关闭 B1167。验收不仅看
+   Mermaid 可渲染，还要人工确认 BusContext/Mutable 的值流是否真实保留、内部术语是否减少、上下文与拒绝次数是否下降；
+   若仍稀疏，下一步只可在 producer-owned exact anchors 上发布紧凑 atomic path recipe，禁止系统合成桥或代画图。
+8. Trace 显式时间窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则计价可消除量双轴均保持；邻近与
+   背景仍仅作支持方向。活跃字节流没有固定 4ms/累计年龄降级，答案恢复仍只由真实 transport/decode/结构失败触发。
+
+状态：
+
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=implemented/exact-alternating-value-path+pinned/pending-production-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1169 H4 eval：实测资源可插入“实际…运行”读者词形（2026-08-19）
 
 1. r734 的 H4 主答案同时包含精确 `157.248ms` 与语义明确的“实际 CPU 运行”，却被只接受连续

@@ -957,13 +957,19 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	assignmentEndpointRepair := buildEmitEvidenceAssignmentEndpointRepair(assignmentEndpointRepairs)
 	repairEvidence := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
 	repairEvidence = append(repairEvidence, built...)
+	callResultAssignmentRepairs := emitEvidenceRequiredCallResultAssignmentFlowRepairs(
+		ctx, built, builtParamIndexes, repairEvidence, gc,
+	)
 	callEndpointRepairs = filterSatisfiedCallbackReceiverCallRepairs(callEndpointRepairs, repairEvidence)
 	argumentFlowRepairs = filterSatisfiedArgumentFlowRepairs(argumentFlowRepairs, repairEvidence)
+	callResultAssignmentRepairs = filterSatisfiedCallResultAssignmentRepairs(callResultAssignmentRepairs, repairEvidence)
 	registrationBindingRepairs = filterSatisfiedRegistrationBindingRepairs(registrationBindingRepairs, repairEvidence)
 	callEndpointRepair := buildEmitEvidenceCallEndpointRepair(callEndpointRepairs)
 	relationEndpointRepair := mergeEmitEvidenceRelationEndpointRepairs(assignmentEndpointRepair, callEndpointRepair)
 	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
 		relationEndpointRepair, buildEmitEvidenceArgumentFlowRepair(argumentFlowRepairs))
+	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
+		relationEndpointRepair, buildEmitEvidenceCallResultAssignmentRepair(callResultAssignmentRepairs))
 	relationEndpointRepair = mergeEmitEvidenceRelationEndpointRepairs(
 		relationEndpointRepair, buildEmitEvidenceRegistrationBindingRepair(registrationBindingRepairs))
 	relationEndpointRepair = mergeEmitEvidenceValueTransferRepair(valueTransferClassificationRepair, relationEndpointRepair)
@@ -5853,6 +5859,21 @@ type emitEvidenceArgumentFlowRepair struct {
 	assignmentCallCompanion bool
 }
 
+// emitEvidenceCallResultAssignmentRepair is the inverse companion of
+// emitEvidenceArgumentFlowRepair. A model may correctly select the call or
+// complete argument on a line such as `ctx := build(bus)` while omitting the
+// independently useful call-result assignment. The parser-owned assignment
+// tuple is exposed as model re-emit debt only; the accepted call/argument row
+// stays unchanged and the system never mints the data-flow edge.
+type emitEvidenceCallResultAssignmentRepair struct {
+	itemIndex int
+	anchor    types.AnchorKind
+	receiver  string
+	value     string
+	source    string
+	line      int
+}
+
 const emitEvidenceRelationRepairObligationsMetadataKey = "relation_repair_obligations_v1"
 
 // emitEvidenceRelationRepairObligation is the durable, syntax-owned identity
@@ -5936,6 +5957,21 @@ func argumentFlowRepairObligations(in []emitEvidenceArgumentFlowRepair) []emitEv
 			Line:         row.line,
 			Subject:      row.argument,
 			Object:       row.receiver,
+		})
+	}
+	return out
+}
+
+func callResultAssignmentRepairObligations(in []emitEvidenceCallResultAssignmentRepair) []emitEvidenceRelationRepairObligation {
+	out := make([]emitEvidenceRelationRepairObligation, 0, len(in))
+	for _, row := range in {
+		out = append(out, emitEvidenceRelationRepairObligation{
+			EvidenceKind: types.EvidenceRelationship,
+			AnchorKind:   row.anchor,
+			Source:       row.source,
+			Line:         row.line,
+			Subject:      row.receiver,
+			Object:       row.value,
 		})
 	}
 	return out
@@ -6533,6 +6569,207 @@ func filterSatisfiedArgumentFlowRepairs(
 		out = append(out, row)
 	}
 	return out
+}
+
+// emitEvidenceRequiredCallResultAssignmentFlowRepairs keeps a selected value
+// path closed across alternating call-result assignments and whole-value
+// consumers. It is deliberately language-neutral and precise:
+//   - the request schema must require a current-source flow diagram;
+//   - the source index must publish one exact assignment/initializer feature
+//     and one exact call on the selected line;
+//   - the line must either touch an incident-required participant through an
+//     already-grounded operation, or consume the exact receiver of an earlier
+//     selected assignment in the same typed evidence component; and
+//   - an already-authored exact assignment row satisfies the obligation.
+//
+// This function only returns a repair recipe. It never appends evidence,
+// chooses an answer relation, or inspects request/model/final prose.
+func emitEvidenceRequiredCallResultAssignmentFlowRepairs(
+	ctx *types.BusContext,
+	batch []types.EvidenceItem,
+	itemIndexes []int,
+	evidence []types.EvidenceItem,
+	gc *ground.Context,
+) []emitEvidenceCallResultAssignmentRepair {
+	if ctx == nil || ctx.AnalysisIR == nil || gc == nil || len(batch) == 0 {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return nil
+	}
+
+	type lineKey struct {
+		source string
+		line   int
+	}
+	lineItems := make(map[lineKey][]types.EvidenceItem)
+	for _, item := range evidence {
+		if !item.IsCitable() || item.LineStart <= 0 {
+			continue
+		}
+		key := lineKey{source: canonicalRelationSourcePath(item.Source), line: item.LineStart}
+		lineItems[key] = append(lineItems[key], item)
+	}
+
+	lineTouchesParticipant := func(items []types.EvidenceItem) bool {
+		for _, item := range items {
+			for _, participant := range flowOperationPlanningParticipants(rm) {
+				if participant.Role != types.DiagramParticipantIncidentRequired {
+					continue
+				}
+				resolved := flowResolveParticipantIdentity(ctx, rm, participant)
+				for _, endpoint := range []string{item.Subject, item.Object} {
+					if diagramParticipantCandidateEndpointMatches(resolved.surfaces, endpoint, item, evidence) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+
+	// Seed selected receivers only from an authored assignment whose own line
+	// already has participant incidence. Then propagate selection across an
+	// authored whole-value argument on a later assignment line. This bounded
+	// fixed point follows exact evidence identities, not lexical similarity.
+	selectedReceiverKeys := make(map[string]bool)
+	selectedReceivers := make([]string, 0, flowNavigationCallResultContinuationMaxHops)
+	for changed := true; changed; {
+		changed = false
+		for _, item := range types.FlowOperationEvidenceForRequest(evidence, rm) {
+			if item.AnchorKind != types.AnchorAssignment && item.AnchorKind != types.AnchorInitializer {
+				continue
+			}
+			receiver, _, ok := types.AssignmentEvidenceEndpoints(item)
+			keyReceiver := strings.ToLower(strings.TrimSpace(receiver))
+			if !ok || keyReceiver == "" || selectedReceiverKeys[keyReceiver] {
+				continue
+			}
+			key := lineKey{source: canonicalRelationSourcePath(item.Source), line: item.LineStart}
+			items := lineItems[key]
+			selected := lineTouchesParticipant(items)
+			if !selected {
+				for _, sibling := range items {
+					if sibling.AnchorKind != types.AnchorArgument {
+						continue
+					}
+					for _, prior := range selectedReceivers {
+						if types.AnswerCodeIdentitySurfacesEquivalent(prior, sibling.Subject) {
+							selected = true
+							break
+						}
+					}
+					if selected {
+						break
+					}
+				}
+			}
+			if selected {
+				selectedReceiverKeys[keyReceiver] = true
+				selectedReceivers = append(selectedReceivers, receiver)
+				changed = true
+			}
+		}
+	}
+
+	seen := make(map[string]bool)
+	out := make([]emitEvidenceCallResultAssignmentRepair, 0, 2)
+	for i, item := range batch {
+		if !item.IsCitable() || item.Scope != types.ScopeLine || item.LineStart <= 0 ||
+			(item.AnchorKind != types.AnchorCall && item.AnchorKind != types.AnchorArgument && item.AnchorKind != types.AnchorCallback) {
+			continue
+		}
+		lineText := strings.TrimSpace(evidenceVisibleLineText(gc, item.Source, item.LineStart))
+		anchor, receiver, value, ok := exactASTValueTransferTuple(gc, item.Source, item.LineStart, lineText)
+		if !ok {
+			continue
+		}
+		_, callee, exactCall := exactUniqueCallEvidenceDirectionAtLine(item, gc)
+		if !exactCall || !types.AnswerCodeIdentitySurfacesEquivalent(value, callee) {
+			continue
+		}
+		key := lineKey{source: canonicalRelationSourcePath(item.Source), line: item.LineStart}
+		selected := lineTouchesParticipant(lineItems[key])
+		if !selected && item.AnchorKind == types.AnchorArgument {
+			for _, prior := range selectedReceivers {
+				if types.AnswerCodeIdentitySurfacesEquivalent(prior, item.Subject) {
+					selected = true
+					break
+				}
+			}
+		}
+		if !selected {
+			continue
+		}
+		repairKey := strings.ToLower(key.source + "\x00" + strconv.Itoa(key.line) + "\x00" + receiver + "\x00" + value)
+		if seen[repairKey] {
+			continue
+		}
+		seen[repairKey] = true
+		itemIndex := i
+		if i < len(itemIndexes) {
+			itemIndex = itemIndexes[i]
+		}
+		out = append(out, emitEvidenceCallResultAssignmentRepair{
+			itemIndex: itemIndex, anchor: anchor, receiver: receiver, value: value,
+			source: item.Source, line: item.LineStart,
+		})
+		if len(out) >= flowNavigationCallResultContinuationMaxHops {
+			break
+		}
+	}
+	return out
+}
+
+func filterSatisfiedCallResultAssignmentRepairs(
+	in []emitEvidenceCallResultAssignmentRepair,
+	evidence []types.EvidenceItem,
+) []emitEvidenceCallResultAssignmentRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]emitEvidenceCallResultAssignmentRepair, 0, len(in))
+	for _, row := range in {
+		if emitEvidenceRelationRepairObligationsSatisfied(
+			callResultAssignmentRepairObligations([]emitEvidenceCallResultAssignmentRepair{row}), evidence,
+		) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func buildEmitEvidenceCallResultAssignmentRepair(in []emitEvidenceCallResultAssignmentRepair) *types.ToolRepair {
+	if len(in) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(in))
+	rows := make([]string, 0, len(in))
+	for _, row := range in {
+		fields = append(fields, "items")
+		loc := fmt.Sprintf("%s:%d", row.source, row.line)
+		rows = append(rows, fmt.Sprintf(
+			"the call/argument from items[%d] @ %s is accepted; emit one additional item with scope=%q, evidence_kind=%q, source=%q, line_start=%d, anchor_kind=%q, anchor_symbol=%q, subject=%q, predicate=%q, and object=%q",
+			row.itemIndex, loc, string(types.ScopeLine), string(types.EvidenceRelationship), row.source, row.line,
+			string(row.anchor), row.receiver, row.receiver, "assigns", row.value,
+		))
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeEvidenceItemValidation,
+		Hint:   "An exact selected operation line both invokes a receiving API and stores its result. Preserve that independent call-result -> receiver transfer by emitting only the additional assignment/initializer row(s) below. This keeps a multi-step value path composable without changing the accepted call/argument, and the system has not created evidence or drawn an edge: " + strings.Join(rows, "; "),
+		Fields: uniqueEmitEvidenceRepairFields(fields),
+		Metadata: map[string]string{
+			"repair_status":       types.ToolRepairStatusActionRequired,
+			"repair_scope":        "selected_call_result_assignment_pair",
+			"repair_stage":        "explorer",
+			"completion_blocking": "true",
+			emitEvidenceRelationRepairObligationsMetadataKey: encodeEmitEvidenceRelationRepairObligations(
+				callResultAssignmentRepairObligations(in)),
+		},
+	}
 }
 
 // filterSatisfiedRegistrationBindingRepairs keeps a citable container row
