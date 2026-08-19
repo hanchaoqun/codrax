@@ -13293,17 +13293,29 @@ func (e *explorerEvaluator) mergeEmittedEvidenceDelta(ctx *types.AgentContext) {
 	if e == nil || ctx == nil || ctx.Mutable == nil {
 		return
 	}
-	delta, total := ctx.Mutable.EmittedEvidenceSince(e.mergedEmittedEvidenceLen)
-	if total == 0 {
-		e.mergedEmittedEvidenceLen = 0
-		return
+	// Refresh the model-owned slice from its compact authoritative snapshot.
+	// The historical append-tail optimization could add and amend rows, but it
+	// could not represent an explicit wrong-fact supersession: the stale row
+	// remained in structuredEvidence even after Mutable removed it. Preserve
+	// parser/deterministic rows already accumulated by the evaluator, remove
+	// only explorer.emit_evidence rows absent from the current snapshot, then
+	// merge the live model-owned rows. Evidence counts are bounded, so this
+	// exact resync is cheap and avoids inventing a second tombstone protocol.
+	live := ctx.Mutable.EmittedEvidence()
+	liveKeys := make(map[string]bool, len(live))
+	for _, item := range live {
+		liveKeys[types.EvidenceStableMergeKey(item)] = true
 	}
-	if len(delta) == 0 {
-		e.mergedEmittedEvidenceLen = total
-		return
+	kept := make([]types.EvidenceItem, 0, len(e.structuredEvidence)+len(live))
+	for _, item := range e.structuredEvidence {
+		if strings.TrimSpace(item.Producer) == types.EvidenceProducerExplorerEmitEvidence &&
+			!liveKeys[types.EvidenceStableMergeKey(item)] {
+			continue
+		}
+		kept = append(kept, item)
 	}
-	e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, delta)
-	e.mergedEmittedEvidenceLen = total
+	e.structuredEvidence = mergeEvidenceItems(kept, live)
+	e.mergedEmittedEvidenceLen = len(live)
 }
 
 func (e *explorerEvaluator) refreshExactContextFiles(ctx *types.AgentContext) {

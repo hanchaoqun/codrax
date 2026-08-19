@@ -192,6 +192,12 @@ type MutableState struct {
 	requestModel            *RequestModel
 	multiRepoFocusDecision  *MultiRepoFocusDecision
 	emittedEvidence         []EvidenceItem
+	// emittedEvidenceSuperseded* are per-fork mutation events, not a second
+	// evidence store. They let MergeExploreFork apply explicit model-owned
+	// wrong-fact replacements to the parent before unioning the fork snapshot;
+	// otherwise the parent's stale row would be resurrected by append-only merge.
+	emittedEvidenceSupersededMergeKeys []string
+	emittedEvidenceSupersededIDs       []string
 	// answerSurfaceRevision is bumped by mutators that can affect
 	// BuildAnswerSurfacePlan. BusContext-level answer-plan caches use
 	// it as a cheap freshness boundary so finalizer validators can
@@ -1365,6 +1371,8 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	fork.mu.RLock()
 	emitted := append([]EvidenceItem(nil), fork.emittedEvidence...)
+	supersededMergeKeys := append([]string(nil), fork.emittedEvidenceSupersededMergeKeys...)
+	supersededIDs := append([]string(nil), fork.emittedEvidenceSupersededIDs...)
 	turnA := cloneTurnAArtifactsPtr(fork.turnAArtifacts)
 	turnABase := turnAArtifactsMergeBase{
 		NotesLen:              fork.exploreForkTurnABaseNotesLen,
@@ -1403,6 +1411,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	fork.mu.RUnlock()
 
 	m.mu.Lock()
+	if len(supersededMergeKeys) > 0 {
+		m.emittedEvidence = filterEvidenceByStableMergeKeys(m.emittedEvidence, supersededMergeKeys)
+	}
 	m.emittedEvidence = mergeEvidenceByStableID(m.emittedEvidence, emitted)
 	if turnA != nil {
 		merged := mergeTurnAArtifactsForMutable(m.turnAArtifacts, *turnA, turnABase)
@@ -1516,6 +1527,12 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	m.bumpAnswerSurfaceRevisionLocked()
 	m.mu.Unlock()
 
+	if len(supersededIDs) > 0 {
+		m.EvidenceClosure().IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:                     EvidenceReducerInputStageEvidenceSnapshot,
+			RemoveAcceptedEvidenceIDs: supersededIDs,
+		}, m.repoRoot)
+	}
 	if closure != nil {
 		m.EvidenceClosure().IngestEvidenceReducerInput(EvidenceReducerInput{
 			Class:       EvidenceReducerInputForkClosureDelta,
@@ -2958,6 +2975,118 @@ func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 	}
 }
 
+// SupersedeEmittedEvidence atomically removes exact answer-grade evidence rows
+// and appends their already-validated replacements. Targets are matched by the
+// normal stable merge key rather than source proximity or summary similarity.
+// The method fails without mutation unless every requested target is still
+// present. Callers must enforce producer ownership and replacement grounding.
+func (m *MutableState) SupersedeEmittedEvidence(targets, replacements []EvidenceItem) bool {
+	if m == nil || len(targets) == 0 {
+		return false
+	}
+	replacements = normalizeEvidenceItemsForMutableStorage(replacements, m.RepoRoot())
+	if proj := loadEvidenceProjector(); proj != nil && len(replacements) > 0 {
+		replacements = proj(replacements, m)
+		replacements = normalizeEvidenceItemsForMutableStorage(replacements, m.RepoRoot())
+	}
+	targetKeys := make(map[string]bool, len(targets))
+	targetIDs := make([]string, 0, len(targets))
+	for _, target := range targets {
+		key := EvidenceStableMergeKey(target)
+		id := strings.TrimSpace(target.ID)
+		if key == "" || id == "" || targetKeys[key] {
+			return false
+		}
+		targetKeys[key] = true
+		targetIDs = append(targetIDs, id)
+	}
+
+	m.mu.Lock()
+	found := make(map[string]bool, len(targetKeys))
+	for _, item := range m.emittedEvidence {
+		if targetKeys[EvidenceStableMergeKey(item)] {
+			found[EvidenceStableMergeKey(item)] = true
+		}
+	}
+	if len(found) != len(targetKeys) {
+		m.mu.Unlock()
+		return false
+	}
+	m.emittedEvidence = filterEvidenceByStableMergeKeySet(m.emittedEvidence, targetKeys)
+	m.emittedEvidence = append(m.emittedEvidence, replacements...)
+	m.emittedEvidenceSupersededMergeKeys = appendUniqueEvidenceMutationStrings(
+		m.emittedEvidenceSupersededMergeKeys, mapKeysSorted(targetKeys)...)
+	m.emittedEvidenceSupersededIDs = appendUniqueEvidenceMutationStrings(m.emittedEvidenceSupersededIDs, targetIDs...)
+	if m.evidenceClosure == nil {
+		m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
+	}
+	closure := m.evidenceClosure
+	m.bumpAnswerSurfaceRevisionLocked()
+	m.mu.Unlock()
+
+	if closure != nil {
+		closure.IngestEvidenceReducerInput(EvidenceReducerInput{
+			Class:                     EvidenceReducerInputStageEvidenceSnapshot,
+			EvidenceItems:             replacements,
+			RemoveAcceptedEvidenceIDs: targetIDs,
+		}, m.repoRoot)
+	}
+	return true
+}
+
+func filterEvidenceByStableMergeKeys(items []EvidenceItem, keys []string) []EvidenceItem {
+	if len(keys) == 0 {
+		return append([]EvidenceItem(nil), items...)
+	}
+	set := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if key = strings.TrimSpace(key); key != "" {
+			set[key] = true
+		}
+	}
+	return filterEvidenceByStableMergeKeySet(items, set)
+}
+
+func filterEvidenceByStableMergeKeySet(items []EvidenceItem, keys map[string]bool) []EvidenceItem {
+	if len(items) == 0 || len(keys) == 0 {
+		return append([]EvidenceItem(nil), items...)
+	}
+	out := make([]EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if keys[EvidenceStableMergeKey(item)] {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func mapKeysSorted(in map[string]bool) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for key := range in {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func appendUniqueEvidenceMutationStrings(existing []string, incoming ...string) []string {
+	seen := make(map[string]bool, len(existing)+len(incoming))
+	out := make([]string, 0, len(existing)+len(incoming))
+	for _, value := range append(append([]string(nil), existing...), incoming...) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
 func normalizeEvidenceItemsForMutableStorage(items []EvidenceItem, repoRoot string) []EvidenceItem {
 	if len(items) == 0 {
 		return nil
@@ -3132,6 +3261,8 @@ func (m *MutableState) ResetEmittedEvidence() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedEvidence = nil
+	m.emittedEvidenceSupersededMergeKeys = nil
+	m.emittedEvidenceSupersededIDs = nil
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 

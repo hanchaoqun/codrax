@@ -127,7 +127,18 @@ func emitEvidenceSalienceNames() []string {
 }
 
 type emitEvidenceParams struct {
-	Items []emitEvidenceItem `json:"items"`
+	Items         []emitEvidenceItem         `json:"items"`
+	Supersessions []emitEvidenceSupersession `json:"supersessions,omitempty"`
+}
+
+// emitEvidenceSupersession is an explicit, model-owned correction of one
+// previously accepted evidence fact.  The stable evidence ID comes from an
+// earlier emit_evidence result, while ReplacementItemIndex points into the
+// current call's items array.  Keeping this carrier ID-based prevents the
+// system from guessing retractions from summary similarity or nearby symbols.
+type emitEvidenceSupersession struct {
+	EvidenceID           string `json:"evidence_id"`
+	ReplacementItemIndex int    `json:"replacement_item_index"`
 }
 
 type emitEvidenceItem struct {
@@ -291,6 +302,12 @@ func (t *EmitEvidence) Description() string {
 		"anchor_symbol, owner, snippet, salience, or surface_terms), re-emit the SAME source/line/fact " +
 		"with corrected non-empty fields. The system merges same StableEvidenceID rows as an amendment " +
 		"instead of duplicating answer-grade evidence. Exact same rows remain a no-progress duplicate no-op.\n\n" +
+		"If a previously accepted item identifies the WRONG fact (for example wrong source, line, symbol, " +
+		"or semantic subject), do not merely add a competing row. Emit the grounded correct fact in `items` " +
+		"and add `supersessions:[{\"evidence_id\":\"<id shown by the earlier tool result>\",\"replacement_item_index\":0}]`. " +
+		"The replacement index is zero-based. Supersession is fail-closed: the ID must resolve to exactly one " +
+		"model-emitted row, the replacement must ground exactly, and system/parser evidence cannot be removed. " +
+		"Use ordinary same-ID amendment for metadata-only corrections.\n\n" +
 		"The emit_evidence tool grounds every item synchronously and returns per-item feedback " +
 		"(grounded / recovered / ungrounded) in the same turn, so you can correct line numbers or " +
 		"anchor_symbols on the next call without waiting for a later stage. Unknown evidence_kind / anchor_kind values and " +
@@ -313,6 +330,25 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
+			"supersessions": map[string]any{
+				"type":        "array",
+				"description": "Optional explicit correction of previously accepted WRONG-fact evidence. Each evidence_id must be copied exactly from an earlier emit_evidence result and replacement_item_index is a zero-based index into this call's items array. The replacement must ground exactly. This cannot remove parser/system evidence and never infers a target from prose or similarity. For metadata-only corrections of the same fact, re-emit the same item instead.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"evidence_id": map[string]any{
+							"type":        "string",
+							"description": "Exact stable evidence ID shown by a previous emit_evidence result.",
+						},
+						"replacement_item_index": map[string]any{
+							"type":        "integer",
+							"minimum":     0,
+							"description": "Zero-based index of the grounded replacement in this call's items array.",
+						},
+					},
+					"required": []string{"evidence_id", "replacement_item_index"},
+				},
+			},
 			"items": map[string]any{
 				"type":        "array",
 				"description": "Batch of evidence items extracted from one or more files. This must be one native JSON array, never a quoted/escaped JSON string. Send the full batch in one call — do not invoke the tool per item. Every item uses only the item properties declared below; support_refs is not an item property and belongs to aggregate_facts on emit_investigation_complete.",
@@ -979,6 +1015,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	if len(surfaceAlignmentRejects) > 0 {
 		filteredBuilt := make([]types.EvidenceItem, 0, len(built)-len(surfaceAlignmentRejected))
 		filteredReports := make([]ground.Report, 0, len(reports)-len(surfaceAlignmentRejected))
+		filteredParamIndexes := make([]int, 0, len(builtParamIndexes)-len(surfaceAlignmentRejected))
 		for i := range built {
 			if surfaceAlignmentRejected[i] {
 				continue
@@ -987,9 +1024,13 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			if i < len(reports) {
 				filteredReports = append(filteredReports, reports[i])
 			}
+			if i < len(builtParamIndexes) {
+				filteredParamIndexes = append(filteredParamIndexes, builtParamIndexes[i])
+			}
 		}
 		built = filteredBuilt
 		reports = filteredReports
+		builtParamIndexes = filteredParamIndexes
 		rejectedItems = append(rejectedItems, surfaceAlignmentRejects...)
 		if len(built) == 0 {
 			return failEmit(t.Name(), now,
@@ -1016,6 +1057,19 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		built[i].Authority = proj.Authority
 		built[i].AuthorityReason = proj.Reason
 		built[i].DriftReason = proj.DriftReason
+	}
+
+	// Wrong-fact correction is model-owned and exact. Resolve every requested
+	// supersession only after the replacement has passed schema validation,
+	// grounding, surface alignment, and authority projection, but before any
+	// parser-authored companion rows are appended. This keeps the zero-based
+	// replacement index bound to the model's own current-call item slate.
+	priorEvidence := ctx.Mutable.EmittedEvidence()
+	supersededTargets, supersessionNotes, supersessionErr := resolveEmitEvidenceSupersessions(
+		p.Supersessions, priorEvidence, built, builtParamIndexes,
+	)
+	if supersessionErr != nil {
+		return failEmit(t.Name(), now, "invalid evidence supersession: %v", supersessionErr)
 	}
 
 	// A model-selected definition can carry exact parser-authored calls in its
@@ -1095,11 +1149,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	}
 
 	mergeStart := time.Now()
-	priorEvidence := ctx.Mutable.EmittedEvidence()
 	var duplicateItems []types.EvidenceItem
 	built, reports, duplicateItems = filterNoopDuplicateEmitEvidence(priorEvidence, built, reports)
 	amendedItems := emitEvidenceAmendedItems(priorEvidence, built)
-	if len(built) > 0 {
+	if len(supersededTargets) > 0 {
+		if ok := ctx.Mutable.SupersedeEmittedEvidence(supersededTargets, built); !ok {
+			return failEmit(t.Name(), now, "evidence supersession target changed before commit; no evidence was replaced")
+		}
+	} else if len(built) > 0 {
 		ctx.Mutable.AppendEvidence(built)
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "duplicate_amendment_merge", mergeStart, len(built)+len(duplicateItems)+len(amendedItems))
@@ -1110,6 +1167,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	summary := ""
 	if len(built) > 0 {
 		summary = renderEmitSummary(ctx, built, reports, allEvidence, validationRepairFields...)
+	} else if len(duplicateItems) > 0 && len(supersededTargets) > 0 {
+		summary = fmt.Sprintf("emit_evidence accepted no new rows because the indexed replacement already existed; committed %d explicit supersession(s) against that grounded replacement.\n", len(supersededTargets))
 	} else if len(duplicateItems) > 0 {
 		summary = renderEmitEvidenceDuplicateNoopSummary(duplicateItems, allEvidence)
 	}
@@ -1120,6 +1179,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	if len(amendedItems) > 0 {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" +
 			renderEmitEvidenceAmendmentNote(amendedItems)
+	}
+	if len(supersessionNotes) > 0 {
+		summary = strings.TrimRight(summary, "\n") + "\n\n" +
+			"Explicit evidence supersession committed:\n  - " + strings.Join(supersessionNotes, "\n  - ") + "\n"
 	}
 	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
@@ -1191,7 +1254,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			repair = surfaceReview
 		}
 	}
-	if len(built) == 0 && len(duplicateItems) > 0 {
+	if len(built) == 0 && len(duplicateItems) > 0 && len(supersededTargets) == 0 {
 		repair = emitEvidenceDuplicateNoopRepair(len(duplicateItems))
 	}
 	// ToolRepair is a typed cross-stage carrier, but the same-turn model only
@@ -5711,11 +5774,11 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		// that Object="explore-skill" (the literal answer).
 		semantic := evidenceSemantic(it)
 		if semantic != "" {
-			fmt.Fprintf(&b, "  [%d] %s %s @ %s:%d — %s\n",
-				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line, semantic)
+			fmt.Fprintf(&b, "  [%d] id=%s %s %s @ %s:%d — %s\n",
+				i+1, it.ID, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line, semantic)
 		} else {
-			fmt.Fprintf(&b, "  [%d] %s %s @ %s:%d\n",
-				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
+			fmt.Fprintf(&b, "  [%d] id=%s %s %s @ %s:%d\n",
+				i+1, it.ID, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
 		}
 		if it.Salience.IsSet() {
 			fmt.Fprintf(&b, "      salience: %s\n", it.Salience)
@@ -7239,6 +7302,85 @@ func evidenceGroundingTally(items []types.EvidenceItem) emitEvidenceGroundingTal
 		}
 	}
 	return tally
+}
+
+// resolveEmitEvidenceSupersessions validates model-authored wrong-fact
+// replacements without inferring any target. A stable ID must select exactly
+// one current answer-grade row, that row must have been authored through this
+// tool, and the indexed replacement must be an exactly grounded, distinct
+// stable fact from the current call. The caller commits the returned targets
+// atomically with the accepted replacement batch.
+func resolveEmitEvidenceSupersessions(
+	specs []emitEvidenceSupersession,
+	prior, replacements []types.EvidenceItem,
+	replacementParamIndexes []int,
+) ([]types.EvidenceItem, []string, error) {
+	if len(specs) == 0 {
+		return nil, nil, nil
+	}
+	replacementByParam := make(map[int]types.EvidenceItem, len(replacements))
+	for i, item := range replacements {
+		if i >= len(replacementParamIndexes) {
+			return nil, nil, fmt.Errorf("internal replacement-index alignment is incomplete")
+		}
+		replacementByParam[replacementParamIndexes[i]] = item
+	}
+	seenTargets := make(map[string]bool, len(specs))
+	targets := make([]types.EvidenceItem, 0, len(specs))
+	notes := make([]string, 0, len(specs))
+	for i, spec := range specs {
+		id := strings.TrimSpace(spec.EvidenceID)
+		if id == "" {
+			return nil, nil, fmt.Errorf("supersessions[%d].evidence_id is empty", i)
+		}
+		if spec.ReplacementItemIndex < 0 {
+			return nil, nil, fmt.Errorf("supersessions[%d].replacement_item_index must be >= 0", i)
+		}
+		var matches []types.EvidenceItem
+		for _, item := range prior {
+			itemID := strings.TrimSpace(item.ID)
+			if itemID == "" {
+				itemID = types.StableEvidenceID(item)
+			}
+			if itemID == id {
+				matches = append(matches, item)
+			}
+		}
+		if len(matches) == 0 {
+			return nil, nil, fmt.Errorf("supersessions[%d].evidence_id %q is not present in the accepted evidence buffer", i, id)
+		}
+		if len(matches) != 1 {
+			return nil, nil, fmt.Errorf("supersessions[%d].evidence_id %q resolves to %d rows; ambiguous IDs cannot be removed", i, id, len(matches))
+		}
+		target := matches[0]
+		if strings.TrimSpace(target.Producer) != types.EvidenceProducerExplorerEmitEvidence {
+			return nil, nil, fmt.Errorf("supersessions[%d].evidence_id %q belongs to producer %q; only model-emitted evidence can be superseded", i, id, target.Producer)
+		}
+		targetKey := types.EvidenceStableMergeKey(target)
+		if seenTargets[targetKey] {
+			return nil, nil, fmt.Errorf("supersessions[%d].evidence_id %q repeats an earlier target", i, id)
+		}
+		replacement, ok := replacementByParam[spec.ReplacementItemIndex]
+		if !ok {
+			return nil, nil, fmt.Errorf("supersessions[%d].replacement_item_index=%d does not name a surviving current-call item", i, spec.ReplacementItemIndex)
+		}
+		if replacement.GroundingStatus != types.GroundingGrounded {
+			return nil, nil, fmt.Errorf("supersessions[%d] replacement items[%d] is %s; wrong-fact replacement requires exact grounded evidence", i, spec.ReplacementItemIndex, replacement.GroundingStatus)
+		}
+		replacementID := strings.TrimSpace(replacement.ID)
+		if replacementID == "" {
+			replacementID = types.StableEvidenceID(replacement)
+		}
+		if replacementID == id {
+			return nil, nil, fmt.Errorf("supersessions[%d] replacement items[%d] has the same stable ID %q; use ordinary re-emit amendment for metadata-only corrections", i, spec.ReplacementItemIndex, id)
+		}
+		seenTargets[targetKey] = true
+		targets = append(targets, target)
+		notes = append(notes, fmt.Sprintf("%s (%s:%d %s) -> items[%d] %s (%s:%d %s)",
+			id, target.Source, target.LineStart, target.AnchorSymbol,
+			spec.ReplacementItemIndex, replacementID, replacement.Source, replacement.LineStart, replacement.AnchorSymbol))
+	}
+	return targets, notes, nil
 }
 
 func emitEvidenceSourceCount(items []types.EvidenceItem) int {

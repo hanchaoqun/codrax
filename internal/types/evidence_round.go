@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 type EvidenceReducerInputClass string
 
 const (
@@ -26,6 +28,7 @@ type EvidenceReducerInput struct {
 	ReplaceReadRanges          bool
 	ReplaceFileTotalLines      bool
 	AcceptedEvidence           []AcceptedEvidenceRef
+	RemoveAcceptedEvidenceIDs  []string
 	NodeStatuses               map[string]NodeExecStatus
 	NodeAttempts               map[string]int
 	NodeArtifacts              []NodeArtifactRecord
@@ -47,6 +50,7 @@ type EvidenceRoundDelta struct {
 	ReplaceReadRanges          bool                       `json:"replace_read_ranges,omitempty"`
 	ReplaceFileTotalLines      bool                       `json:"replace_file_total_lines,omitempty"`
 	AcceptedEvidence           []AcceptedEvidenceRef      `json:"accepted_evidence,omitempty"`
+	RemoveAcceptedEvidenceIDs  []string                   `json:"remove_accepted_evidence_ids,omitempty"`
 	NodeStatuses               map[string]NodeExecStatus  `json:"node_statuses,omitempty"`
 	NodeAttempts               map[string]int             `json:"node_attempts,omitempty"`
 	NodeArtifacts              []NodeArtifactRecord       `json:"node_artifacts,omitempty"`
@@ -60,6 +64,7 @@ func (d EvidenceRoundDelta) Empty() bool {
 		len(d.ReadRanges) == 0 &&
 		len(d.FileTotalLines) == 0 &&
 		len(d.AcceptedEvidence) == 0 &&
+		len(d.RemoveAcceptedEvidenceIDs) == 0 &&
 		len(d.NodeStatuses) == 0 &&
 		len(d.NodeAttempts) == 0 &&
 		len(d.NodeArtifacts) == 0 &&
@@ -83,7 +88,8 @@ func EvidenceRoundDeltaFromReducerInput(input EvidenceReducerInput, repoRoot str
 		return EvidenceRoundDeltaFromToolResults(input.ToolResults, repoRoot)
 	case EvidenceReducerInputStageEvidenceSnapshot:
 		return EvidenceRoundDelta{
-			AcceptedEvidence: acceptedEvidenceRefsFromEvidenceItems(input.EvidenceItems),
+			AcceptedEvidence:          acceptedEvidenceRefsFromEvidenceItems(input.EvidenceItems),
+			RemoveAcceptedEvidenceIDs: normalizeEvidenceReducerIDs(input.RemoveAcceptedEvidenceIDs),
 		}
 	case EvidenceReducerInputReadCoverageDelta:
 		return EvidenceRoundDelta{
@@ -186,6 +192,9 @@ func (c *EvidenceClosure) IngestEvidenceReducerInput(input EvidenceReducerInput,
 			}
 		}
 	}
+	if len(delta.RemoveAcceptedEvidenceIDs) > 0 {
+		c.RemoveAcceptedEvidenceIDs(delta.RemoveAcceptedEvidenceIDs)
+	}
 	if len(delta.AcceptedEvidence) > 0 {
 		c.AppendAcceptedEvidenceRefs(delta.AcceptedEvidence)
 	}
@@ -205,6 +214,23 @@ func (c *EvidenceClosure) IngestEvidenceReducerInput(input EvidenceReducerInput,
 		c.RecordSourceInventoryObservation(delta.SourceInventoryObservation)
 	}
 	return delta
+}
+
+func normalizeEvidenceReducerIDs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, id := range in {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 func acceptedEvidenceRefsFromToolResults(results []ToolResult) []AcceptedEvidenceRef {

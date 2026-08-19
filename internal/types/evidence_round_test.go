@@ -56,6 +56,28 @@ func TestEvidenceClosureIngestRoundReadCoverageAndAcceptedEvidence(t *testing.T)
 	}
 }
 
+func TestEvidenceClosureStageSnapshotRemovesSupersededAcceptedEvidenceID(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class: EvidenceReducerInputStageEvidenceSnapshot,
+		EvidenceItems: []EvidenceItem{
+			{ID: "ev-old", Kind: EvidenceDirect, Scope: ScopeLine, Source: "old.go", LineStart: 1, LineEnd: 1},
+			{ID: "ev-keep", Kind: EvidenceDirect, Scope: ScopeLine, Source: "keep.go", LineStart: 2, LineEnd: 2},
+		},
+	}, "")
+	c.IngestEvidenceReducerInput(EvidenceReducerInput{
+		Class:                     EvidenceReducerInputStageEvidenceSnapshot,
+		RemoveAcceptedEvidenceIDs: []string{" ev-old ", "ev-old"},
+		EvidenceItems: []EvidenceItem{
+			{ID: "ev-new", Kind: EvidenceDirect, Scope: ScopeLine, Source: "new.go", LineStart: 3, LineEnd: 3},
+		},
+	}, "")
+	refs := c.AcceptedEvidenceRefs()
+	if len(refs) != 2 || refs[0].ID != "ev-keep" || refs[1].ID != "ev-new" {
+		t.Fatalf("typed removal/replacement refs=%+v, want ev-keep + ev-new", refs)
+	}
+}
+
 func TestEvidenceClosureIngestReducerInputTurnAHandoffSnapshot(t *testing.T) {
 	c := NewEvidenceClosure("")
 	observation := evidenceRoundTestSourceInventoryObservation("Run")

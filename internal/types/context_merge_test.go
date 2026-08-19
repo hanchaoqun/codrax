@@ -41,6 +41,41 @@ func TestMutableStateMergeExploreForkPreservesDistinctSameAnchorSummaries(t *tes
 	}
 }
 
+func TestMutableStateMergeExploreForkPropagatesExplicitEvidenceSupersession(t *testing.T) {
+	parent := NewMutableState("correct evidence")
+	wrong := EvidenceItem{
+		Kind: EvidenceDirect, Scope: ScopeLine, Subject: "Wrong", Predicate: "direct",
+		Source: "wrong.go", LineStart: 1, LineEnd: 1,
+		AnchorKind: AnchorDefinition, AnchorSymbol: "Wrong",
+		GroundingStatus: GroundingRecovered, Producer: EvidenceProducerExplorerEmitEvidence,
+	}
+	wrong.ID = StableEvidenceID(wrong)
+	parent.AppendEvidence([]EvidenceItem{wrong})
+	wrong = parent.EmittedEvidence()[0]
+
+	fork := parent.ForkForExploreDispatch()
+	right := EvidenceItem{
+		Kind: EvidenceDirect, Scope: ScopeLine, Subject: "Right", Predicate: "direct",
+		Source: "right.go", LineStart: 2, LineEnd: 2,
+		AnchorKind: AnchorDefinition, AnchorSymbol: "Right",
+		GroundingStatus: GroundingGrounded, Producer: EvidenceProducerExplorerEmitEvidence,
+	}
+	right.ID = StableEvidenceID(right)
+	if ok := fork.SupersedeEmittedEvidence([]EvidenceItem{wrong}, []EvidenceItem{right}); !ok {
+		t.Fatal("fork supersession should commit")
+	}
+	parent.MergeExploreFork(fork)
+
+	got := parent.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorSymbol != "Right" || got[0].ID == wrong.ID {
+		t.Fatalf("fork merge resurrected superseded evidence: %+v", got)
+	}
+	refs := parent.EvidenceClosure().AcceptedEvidenceRefs()
+	if len(refs) != 1 || refs[0].ID != got[0].ID {
+		t.Fatalf("fork closure merge resurrected stale accepted ref: %+v", refs)
+	}
+}
+
 func TestMutableStateOutputTranscriptRequestIsRunScopedAndForked(t *testing.T) {
 	mu := NewMutableState("## Prior conversation\nold\n\n## Current request\nfolded")
 	mu.SetOutputTranscriptRequest("当前展开问题\n第一行\n第二行")

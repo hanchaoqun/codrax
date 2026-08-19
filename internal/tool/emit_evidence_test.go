@@ -6779,6 +6779,164 @@ func TestEmitEvidence_ResetEmittedEvidence(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_ExplicitSupersessionReplacesWrongModelFact(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	wrong := types.EvidenceItem{
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Subject:         "SummaryExtractor",
+		Predicate:       "direct",
+		Source:          "internal/demo.go",
+		LineStart:       1,
+		LineEnd:         1,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "SummaryExtractor",
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.TierSnippetFuzzy,
+		Producer:        types.EvidenceProducerExplorerEmitEvidence,
+	}
+	wrong.ID = types.StableEvidenceID(wrong)
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{wrong})
+	acceptedBefore := ctx.Mutable.EmittedEvidence()
+	if len(acceptedBefore) != 1 {
+		t.Fatalf("seed evidence=%+v", acceptedBefore)
+	}
+	wrongID := acceptedBefore[0].ID
+	seedReadFileHistory(ctx, "internal/demo.go", 1,
+		"type SummaryExtractor struct{}",
+		"func Extractor() {}",
+	)
+
+	params := json.RawMessage(fmt.Sprintf(`{
+        "items": [
+          {"scope":"line","evidence_kind":"direct","subject":"Extractor","source":"internal/demo.go","line_start":2,"anchor_kind":"definition","anchor_symbol":"Extractor","summary":"actual extractor stage"}
+        ],
+        "supersessions": [
+          {"evidence_id":%q,"replacement_item_index":0}
+        ]
+    }`, wrongID))
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("supersession failed: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].AnchorSymbol != "Extractor" || got[0].ID == wrongID {
+		t.Fatalf("wrong fact must be removed and grounded replacement retained: %+v", got)
+	}
+	if !strings.Contains(res.Summary, "Explicit evidence supersession committed") ||
+		!strings.Contains(res.Summary, wrongID) || !strings.Contains(res.Summary, "id="+got[0].ID) {
+		t.Fatalf("summary must expose stable IDs and committed replacement:\n%s", res.Summary)
+	}
+	refs := ctx.Mutable.EvidenceClosure().AcceptedEvidenceRefs()
+	if len(refs) != 1 || refs[0].ID != got[0].ID {
+		t.Fatalf("closure must drop stale accepted ref and retain replacement: %+v", refs)
+	}
+}
+
+func TestEmitEvidence_ExplicitSupersessionCannotRemoveSystemEvidence(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	systemFact := types.EvidenceItem{
+		Kind:            types.EvidenceRelationship,
+		Scope:           types.ScopeLine,
+		Subject:         "A",
+		Predicate:       "calls",
+		Object:          "B",
+		Source:          "internal/demo.go",
+		LineStart:       1,
+		LineEnd:         1,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "B",
+		GroundingStatus: types.GroundingGrounded,
+		Producer:        types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+	}
+	systemFact.ID = types.StableEvidenceID(systemFact)
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{systemFact})
+	seedReadFileHistory(ctx, "internal/demo.go", 1, "func Replacement() {}")
+
+	params := json.RawMessage(fmt.Sprintf(`{
+        "items": [
+          {"scope":"line","evidence_kind":"direct","subject":"Replacement","source":"internal/demo.go","line_start":1,"anchor_kind":"definition","anchor_symbol":"Replacement"}
+        ],
+        "supersessions": [
+          {"evidence_id":%q,"replacement_item_index":0}
+        ]
+    }`, ctx.Mutable.EmittedEvidence()[0].ID))
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "only model-emitted evidence can be superseded") {
+		t.Fatalf("system evidence removal must fail closed: %+v", res)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Producer != types.EvidenceProducerRepoMapSelectedCallableBodyCall {
+		t.Fatalf("failed supersession must not append replacement or remove target: %+v", got)
+	}
+}
+
+func TestEmitEvidence_ExplicitSupersessionRequiresExactlyGroundedReplacement(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	wrong := types.EvidenceItem{
+		Kind: types.EvidenceDirect, Scope: types.ScopeLine, Subject: "Wrong", Predicate: "direct",
+		Source: "internal/demo.go", LineStart: 1, LineEnd: 1,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Wrong",
+		GroundingStatus: types.GroundingRecovered, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}
+	wrong.ID = types.StableEvidenceID(wrong)
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{wrong})
+	wrongID := ctx.Mutable.EmittedEvidence()[0].ID
+	seedReadFileHistory(ctx, "internal/demo.go", 1, "func Wrong() {}")
+
+	params := json.RawMessage(fmt.Sprintf(`{
+        "items": [
+          {"scope":"line","evidence_kind":"direct","subject":"NeverRead","source":"internal/missing.go","line_start":99,"anchor_kind":"definition","anchor_symbol":"NeverRead"}
+        ],
+        "supersessions": [
+          {"evidence_id":%q,"replacement_item_index":0}
+        ]
+    }`, wrongID))
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "requires exact grounded evidence") {
+		t.Fatalf("ungrounded replacement must fail closed: %+v", res)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].ID != wrongID {
+		t.Fatalf("failed replacement must preserve original buffer: %+v", got)
+	}
+}
+
+func TestResolveEmitEvidenceSupersessions_AmbiguousStableIDFailsClosed(t *testing.T) {
+	base := types.EvidenceItem{
+		ID: "ev-shared", Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		Subject: "Thing", Predicate: "direct", Source: "x.go", LineStart: 1, LineEnd: 1,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Thing",
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}
+	sibling := base
+	sibling.AnchorSymbol = "OtherThing"
+	replacement := base
+	replacement.ID = "ev-new"
+	replacement.Source = "y.go"
+	_, _, err := resolveEmitEvidenceSupersessions(
+		[]emitEvidenceSupersession{{EvidenceID: "ev-shared", ReplacementItemIndex: 0}},
+		[]types.EvidenceItem{base, sibling},
+		[]types.EvidenceItem{replacement},
+		[]int{0},
+	)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous IDs cannot be removed") {
+		t.Fatalf("ambiguous ID must fail closed, got %v", err)
+	}
+}
+
 // TestEmitEvidence_AcceptsExplicitLineScope pins the 2026-05+ scope
 // migration: when the LLM explicitly sets scope=line on a line-shaped
 // emit, the tool accepts it without redirect. The transitional

@@ -35693,6 +35693,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/edge/conclusion-authorship=none`。
 
+### §123.1178 B1178：模型显式证据替换闭环（2026-08-19）
+
+1. r738 的 `extractor` 误绑定不是“补一条正确证据”即可自然消失。旧工具只支持同一 StableEvidenceID 的
+   metadata amendment；当错误行与正确行分属不同 source/symbol/semantic identity 时，两行会同时留在 answer-grade
+   evidence buffer。模型已经明确识别旧 recovered 行过时，仍没有合法删除通道，遂反复补读与 completion。
+2. 本批增加 `emit_evidence.supersessions[]`，每项只包含先前工具结果公开的稳定 `evidence_id` 和当前调用
+   `items[]` 的零基 `replacement_item_index`。它是 wrong-fact correction，不是自由删除：同一事实的 anchor/snippet/
+   salience 等 metadata 修正继续走既有 same-ID amendment。
+3. 提交门全部读取 typed/精确信号：旧 ID 在当前 compact buffer 必须唯一；旧行 producer 必须严格等于
+   `explorer.emit_evidence`；替代项必须是本调用中经过 schema、grounding、surface alignment、authority projection 后
+   仍存活的 `grounded` 行；新旧稳定 ID 必须不同。未知 ID、歧义 ID、recovered/ungrounded replacement、重复 target、
+   system/parser row 或 same-ID metadata correction 均整次 fail-closed，且失败不追加新行、不删除旧行。
+4. 工具逐行反馈现在公开 `id=ev-*`，让模型复制精确句柄；成功替换明确列出旧 ID/source/line/anchor 到新
+   item/ID 的映射。系统不扫描 summary 相似度，不根据符号邻近猜 target，也不自行选择“更正确”的证据。
+5. Mutable 提供一次原子 supersede：先确认所有 stable merge key 仍存在，再移除旧 raw amendment 族并追加已经
+   验证的当前 batch。EvidenceClosure 同步移除旧 accepted-evidence ID（含 repair snapshot）并加入 replacement；
+   fork 记录 exact tombstone，在 `MergeExploreFork` union 前先应用，防父分支把旧行复活。
+6. Explorer 的同轮证据刷新改为仅对 `Producer=explorer.emit_evidence` 的模型证据片做 authoritative snapshot
+   重同步：不在 live snapshot 的旧模型行删除，当前模型行合并；parser/dataflow/机制扫描/Trace 等非模型来源原样
+   保留。这样无需从 prose 重建 tombstone，也不会误删系统自动补齐或 typed 因果证据。
+7. 回归覆盖：成功替换并同步 closure；系统证据不可删；未 grounded replacement 不生效；歧义 stable ID 拒绝；
+   fork merge 不复活旧证据；Explorer 重同步只删除旧模型行并保留 deterministic row；reducer typed remove+append。
+   `go test ./internal/tool ./internal/types ./internal/agent -count=1` 全绿（tool 179.348s）；首次全仓回归仅命中
+   `evidence_closure.go` 热文件行数护栏，未抬预算而把 supersession concern 拆到独立文件，随后
+   `go test ./... -count=1` 全绿（tool 194.592s、tracequery 87.384s、hitraceconv 96.704s）。
+8. 本批不改 Finalizer/Trace 结论权。显式窗 Trace 因果投影、自动补齐、链上-only 主因、实际占用与链上业务
+   线索、规则计价可消除量双轴保持；邻近/背景仍只作支持。活跃流不按 4ms/固定累计年龄降级，系统仍不代替模型
+   画边、成文或下结论。
+
+状态：
+
+`B1178-EVIDENCEEXPLICITRETRACTION1=implemented/exact-id+grounded-replacement+fork-closure-pins-pass/pending-production-replay`；
+`B1179-WRITEREPLANACTIVESTREAMMINDLOAD1=confirmed-observation/next-heterogeneous-replay`；
+`B1176-PROOFFOLLOWUPSOURCECONTEXT1=not-exercised-r738/unit-pinned`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1176 B1176：proof follow-up 先精确探索，再携带已通过 API 模板规划（2026-08-19）
 
 1. 已把 cumulative verify 后仍有非 unavailable typed proof 缺口的直接补证批，从

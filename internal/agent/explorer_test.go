@@ -60,7 +60,7 @@ func TestIsNoisePathUsesCrossLanguageTestClassifier(t *testing.T) {
 	}
 }
 
-func TestExplorerMergeEmittedEvidenceDeltaOnlyAddsNewRows(t *testing.T) {
+func TestExplorerMergeEmittedEvidenceSnapshotAddsNewRowsWithoutDuplicates(t *testing.T) {
 	mut := types.NewMutableState("q")
 	first := types.EvidenceItem{
 		ID:           "first",
@@ -102,6 +102,46 @@ func TestExplorerMergeEmittedEvidenceDeltaOnlyAddsNewRows(t *testing.T) {
 	}
 	if eval.mergedEmittedEvidenceLen != 2 {
 		t.Fatalf("merged emitted cursor = %d, want 2", eval.mergedEmittedEvidenceLen)
+	}
+}
+
+func TestExplorerMergeEmittedEvidenceSnapshotDropsOnlySupersededModelRow(t *testing.T) {
+	mut := types.NewMutableState("q")
+	wrong := types.EvidenceItem{
+		Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		Subject: "Wrong", Predicate: "direct", Source: "a.go", LineStart: 1, LineEnd: 1,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Wrong",
+		GroundingStatus: types.GroundingRecovered, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}
+	wrong.ID = types.StableEvidenceID(wrong)
+	mut.AppendEvidence([]types.EvidenceItem{wrong})
+	wrong = mut.EmittedEvidence()[0]
+	deterministic := types.EvidenceItem{
+		ID: "parser-row", Kind: types.EvidenceControlFlow, Producer: types.EvidenceProducerDataflowLowererPrefix + "go",
+		Subject: "Guard", Predicate: types.ControlFlowPredicateConsequence, Object: "Effect",
+	}
+	eval := &explorerEvaluator{structuredEvidence: []types.EvidenceItem{deterministic}}
+	ctx := &types.AgentContext{Mutable: mut}
+	eval.mergeEmittedEvidenceDelta(ctx)
+
+	right := types.EvidenceItem{
+		Kind: types.EvidenceDirect, Scope: types.ScopeLine,
+		Subject: "Right", Predicate: "direct", Source: "b.go", LineStart: 2, LineEnd: 2,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Right",
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}
+	right.ID = types.StableEvidenceID(right)
+	if ok := mut.SupersedeEmittedEvidence([]types.EvidenceItem{wrong}, []types.EvidenceItem{right}); !ok {
+		t.Fatal("supersession failed")
+	}
+	eval.mergeEmittedEvidenceDelta(ctx)
+
+	seen := map[string]bool{}
+	for _, item := range eval.structuredEvidence {
+		seen[item.ID] = true
+	}
+	if seen[wrong.ID] || !seen[right.ID] || !seen[deterministic.ID] {
+		t.Fatalf("snapshot resync must drop only stale model row: %+v", eval.structuredEvidence)
 	}
 }
 
