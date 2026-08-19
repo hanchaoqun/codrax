@@ -39,6 +39,11 @@ const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a
 // list labels, prose, or the request text.
 const GroundedStandaloneCallChainRelationOwnershipContract = "In a grounded call-chain answer, a principal ordered_list, bullet_list, or table that selects a directed relation claim form must include at least one model-authored edge_anchors row. Every row must preserve both exact from_identity and to_identity values from one typed recipe and carry a concise model-authored visible_label in the answer language. When the answer also contains a diagram, reuse that diagram's exact from_node/to_node identifiers for the same edge; when no diagram exists, use reader-facing endpoint labels as from_node/to_node and no Mermaid block is required. A descriptive block can omit edge_anchors only when it does not declare a directed relation claim form."
 
+// DiagramVisibleLabelConsistencyContract keeps the two model-authored display
+// carriers byte-consistent. It never derives wording from RelationKind and is
+// intentionally independent from relation/evidence authority.
+const DiagramVisibleLabelConsistencyContract = "When a diagram edge_anchors row includes a non-empty visible_label, the matching Mermaid edge/message must use exactly that same reader-facing wording. Change either model-authored display field to the intended wording, but preserve node ids, direction, relation_kind, and exact endpoint identities. visible_label never creates relation evidence and the system never translates or writes it."
+
 // GroundedSourceDiagramRelationEvidenceContract is the single-source authoring
 // rule for explicit logical non-call edges in every non-runtime diagram family.
 // Keep this separate from the body-ownership sentence: relation_kind records

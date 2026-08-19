@@ -35826,6 +35826,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1159 B1164：图内模型可见关系标签与 typed anchor 单值一致（2026-08-19）
+
+1. r730 QF 终图的 `edge_anchors[].visible_label` 已由模型填写为“随后进入/作为参数传递/调用”等读者语言，
+   Mermaid body 却继续显示 `precedence/argument_flow/call/data_flow`。两面都来自同一模型、同一 block、同一
+   endpoint pair，当前 validator 只检查拓扑/方向/关系权威，没有检查两个显示字段是否一致；因此内部 enum
+   泄漏不是渲染器翻译问题，而是结构化对象内部矛盾。
+2. 新增单源 `DiagramVisibleLabelConsistencyContract` 并进入 tool schema：diagram anchor 的
+   `visible_label` 保持 optional；一旦模型选择填写，唯一同向、同 occurrence 的 Mermaid edge/message 必须使用
+   完全相同的可见文案。模型可改任一显示面为它认为合适的业务语言，但 node id、方向、`relation_kind`、
+   `from_identity/to_identity` 不得随显示修补改变。
+3. Pre-emit 新门只消费 `BlockDiagram + ParseEdges(body) + edge_anchors[].from_node/to_node/visible_label`。它不读取
+   raw request、模型推理、列表/正文或最终渲染文字，不把 relation enum 翻译成标签，也不新增、删除、反转、
+   重连任何边。重复 pair 或一个可见边承载多个 semantic owner 时无法一一配对，严格 fail-open 给既有关系权威门，
+   避免为了本案硬拟合复合图。
+4. 该规则跨 `flow/architecture/call_dag/sequence` 四个家族，与源码语言无关，因此覆盖 Go、Java、C/C++、
+   Python、Rust、ArkTS、Cangjie 等所有 parser 生产的图关系。正/反/复合歧义/schema placeholder/M4 chokepoint
+   测试均已落地；它约束模型自己给出的两个 display 字段，不接管模型结论或图作者权。
+5. `QFRootCauseTrace` 明确退出该门，继续使用独立 runtime temporal/causal authority；本批不改 trace query、
+   因果投影编译、自动补齐或链上选举。显式窗根因、优先级反转、调度/算力供给、D/IO、确定性语义与业务线索
+   双轴不受影响，背景仍不能晋升主因。活跃字节流也不按 4ms/固定 age 降级。
+
+状态：
+
+`B1164-DIAGRAMVISIBLELABELCONSISTENCY1=implemented/exact-structured-display-join+pinned/pending-replay`；
+`B1162-DIAGRAMPARTICIPANTTECHNICALIDENTITYBINDING1=production-partial/churn-observation-open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1155 B1159-B1：路径执行能力不得代签逐合同观察（2026-08-19）
 
 1. r729 C++ 生产回放把 gap 定位到唯一真值铸点：`ChangedPathCoverage=covered/project_runner/target_behavior`

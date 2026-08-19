@@ -828,6 +828,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// EvidenceItem Subject/Object direction are the complete input. Every
 	// explicit typed call edge is checked; QFCallChain also receives strict body
 	// and principal-path coverage. A function definition cannot prove a call.
+	if h := preCheckDiagramVisibleLabelConsistency(doc, view); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
+	}
 	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
 	}
@@ -4674,7 +4677,74 @@ const (
 	diagramStandaloneRelationAnchorHasNoClaim    = "standalone_relation_anchor_has_no_claim"
 	diagramStandaloneRelationMissingVisibleLabel = "standalone_relation_missing_visible_label"
 	diagramStandaloneSemanticHandoffMissing      = "standalone_semantic_handoff_missing"
+	diagramVisibleLabelMismatch                  = "diagram_visible_label_mismatch"
 )
+
+// preCheckDiagramVisibleLabelConsistency compares only two model-authored
+// structured display surfaces: a diagram anchor's optional visible_label and
+// the parsed Mermaid edge/message label for the same occurrence. It never
+// reads request/final prose, derives wording from relation_kind, or rewrites a
+// diagram. Ambiguous compound/repeated pairings fail open. Runtime root-cause
+// diagrams retain their independent causal projection contract.
+func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
+		return nil
+	}
+	var hints []emitFixHint
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		edgesByPair := make(map[string][]mermaidcompat.Edge)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			key := diagramEvidenceEdgeKey(edge.From, edge.To)
+			edgesByPair[key] = append(edgesByPair[key], edge)
+		}
+		anchorsByPair := make(map[string][]types.DiagramEdgeAnchor)
+		for _, anchor := range block.EdgeAnchors {
+			key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+			anchorsByPair[key] = append(anchorsByPair[key], anchor)
+		}
+		var mismatches []string
+		for key, anchors := range anchorsByPair {
+			edges := edgesByPair[key]
+			// Multiple semantic owners may intentionally share one visible edge.
+			// Without a one-to-one occurrence join there is no precise display row
+			// to compare, so retain the existing relation validator's authority.
+			if len(edges) == 0 || len(edges) != len(anchors) {
+				continue
+			}
+			for i, anchor := range anchors {
+				want := strings.TrimSpace(anchor.VisibleLabel)
+				if want == "" {
+					continue
+				}
+				got := strings.TrimSpace(edges[i].Label)
+				if got == want {
+					continue
+				}
+				mismatches = append(mismatches, fmt.Sprintf(
+					"%s -> %s occurrence=%d diagram_label=%q visible_label=%q",
+					strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, got, want,
+				))
+			}
+		}
+		if len(mismatches) == 0 {
+			continue
+		}
+		hints = append(hints, emitFixHint{
+			Field:               fmt.Sprintf("blocks[id=%q].diagram.body AND edge_anchors[].visible_label", block.ID),
+			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
+			ExpectedShape:       types.DiagramVisibleLabelConsistencyContract + " Mismatches: " + strings.Join(mismatches, "; "),
+			Reason:              "the same model-authored structured block gives one visible edge two different reader labels. This exact parsed-edge/anchor consistency check does not inspect request or answer prose, choose wording, translate relation_kind, or change relation authority.",
+			DiagramRelationFailureIssues: []string{
+				diagramVisibleLabelMismatch,
+			},
+		})
+	}
+	return hints
+}
 
 // preCheckStandaloneTypedRelationVisibility keeps a model-authored relation
 // visible when no Mermaid block exists. It checks only structured carrier

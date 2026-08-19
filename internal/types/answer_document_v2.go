@@ -519,8 +519,10 @@ type DiagramEdgeAnchor struct {
 	// list/table. The renderer mechanically presents the model's FromNode and
 	// ToNode reader labels with this label; exact FromIdentity/ToIdentity remain
 	// validation-only. It never derives wording from RelationKind or evidence.
-	// Diagram blocks already have a visible
-	// arrow/message in Diagram.Body, so the field remains optional there.
+	// Diagram blocks already have a visible arrow/message in Diagram.Body, so
+	// the field remains optional there. When present on a diagram anchor it must
+	// equal that matching body edge/message label; both surfaces remain authored
+	// by the model.
 	// VisibleLabel has no evidence or relation authority.
 	VisibleLabel string `json:"visible_label,omitempty"`
 	// FromIdentity and ToIdentity preserve the exact typed endpoint pair behind
