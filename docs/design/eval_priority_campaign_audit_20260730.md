@@ -35649,6 +35649,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1130 B1133：required 图的用户显示身份不再被源码符号静默替换（2026-08-18）
+
+1. r713 的 `Mutable` 丢失发生在 Analyzer emit 边界：模型从 repo navigation 得到 `MutableState` 后，
+   把它同时写成 participant identity 与 source_quote；现有 exact provenance 校验发现两者均不在当前请求，
+   却只 warning+drop 该行并接受 required diagram。后续 evidence/Finalizer 从未收到 `Mutable` obligation，
+   因而不是关系证据不足或最终模型随机删图。
+2. required 与 optional 车道现分轨。optional diagram 继续可以逐行丢弃无当前请求权威的推断 participant，
+   防止附近代码符号制造硬展示义务；required diagram 只要携带这种行就 fail-loud，要求 Analyzer 删除真正
+   推断项，或用用户原样 visible identity + verbatim source_quote 重发完整 `diagram_hint`。required kind 与
+   presentation intent 不会被系统静默降级。
+3. 教学明确 display/source 双身份：用户点名的 spelling 是可见 participant identity；后来发现的 repository
+   type/method/owner/normalized symbol 只能作为 evidence endpoint/owner，不得替换显示身份。系统不从二者
+   相似度推断别名、不自动改名、不创建 edge/relation，也不读取最终答案 prose。
+4. 该门复用原有 model-declared exact source_quote 的逐字 provenance 校验，不用关键词、rank、相似度或答案
+   扫描判断语义。生产同形 pin 先以 `MutableState` 失败且不落 RequestModel，再改为 `Mutable` 成功并精确
+   保留 `analyzer/Mutable/BusContext` 三项；无权威 `Orchestrator` required 行也必须 fail-loud。
+5. closed relation surface 排除 sibling table/list/example participant、split-clause anaphora、context-only 边界与
+   optional invalid-row drop 的原行为均通过。完整 `go test ./internal/skill -count=1` 与
+   `go test ./internal/tool -count=1` 全绿（tool 188.990s）。
+6. 本批只改变 Analyze required-participant 失败语义，不改变模型最终图/答案、关系证据门、Trace 显式窗、
+   因果投影、自动补齐或链上主因权限；活跃流不按 4ms 或固定累计年龄降级。
+
+状态：
+
+`B1133-DIAGRAMDISPLAYIDENTITY1=implemented/full-skill+tool-pass/pending-production-replay`；
+`B1131-WRITECONTROLLERRETRYCONTEXT1=implemented/pending-production-replay`；
+`B1132-WRITECONTRACTPROVENANCE1=next`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1129 B1131：写控制器无工具重试保留 typed 状态、丢弃未执行 reasoning（2026-08-18）
 
 1. 根因不是 Controller 缺任务理解，而是 correction signal 的 `IsolateNextPrompt=true` 让 BaseAgent 把

@@ -6711,6 +6711,9 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		sourceQuote := strings.TrimSpace(raw.SourceQuote)
 		if sourceQuote == "" {
 			if !sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
+				if required {
+					return nil, fmt.Sprintf("diagram_hint.participants[%d] names %q without CURRENT-request provenance — remove this inferred row, or resend it with the exact user-authored visible identity and a verbatim source_quote; do not substitute a repository symbol for the requested display identity", i, identity), warnings
+				}
 				warnings = append(warnings, fmt.Sprintf(
 					"dropped diagram participant %q because neither its identity nor source_quote is anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
 					identity, kind, required,
@@ -6736,6 +6739,9 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 					continue
 				}
 				return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request and contain identity %q", i, identity), warnings
+			}
+			if required {
+				return nil, fmt.Sprintf("diagram_hint.participants[%d] names %q with a source_quote that has no CURRENT-request provenance — remove this inferred row, or resend it with the exact user-authored visible identity and a verbatim source_quote; do not substitute a repository symbol for the requested display identity", i, identity), warnings
 			}
 			// Participant rows are planning guidance, not diagram-shape
 			// authority. An inferred participant without current-request

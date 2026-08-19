@@ -4641,7 +4641,7 @@ func TestValidateRequiredDiagramEmptyParticipantSlateDoesNotGuessSingleScopeOrEn
 	}
 }
 
-func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLackCurrentRequestAuthority(t *testing.T) {
+func TestEmitAnalysis_Execute_RejectsRequiredDiagramWhenInferredParticipantLacksCurrentRequestAuthority(t *testing.T) {
 	mu := types.NewMutableState("explain analyze to finalizer; require a Mermaid sequenceDiagram; show BusContext")
 	payload := `{
 		"intent": "explain",
@@ -4660,23 +4660,63 @@ func TestEmitAnalysis_Execute_PreservesRequiredDiagramWhenInferredParticipantsLa
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("an inferred participant must not erase a valid required diagram contract: %s", res.Summary)
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("required diagram must fail loud instead of silently dropping an unauthorized participant: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
-	hint := mu.RequestModel().DiagramHint
-	if hint == nil || !hint.Required || hint.Kind != types.DiagramSequence {
-		t.Fatalf("DiagramHint=%+v, want required sequence contract preserved", hint)
+	for _, want := range []string{"diagram_hint.participants[0]", "exact user-authored visible identity", "do not substitute a repository symbol"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("required participant repair missing %q: %s", want, res.Summary)
+		}
 	}
-	want := []types.DiagramParticipantHint{{
-		Identity:    "BusContext",
-		Role:        types.DiagramParticipantIncidentRequired,
-		SourceQuote: "BusContext",
-	}}
-	if !reflect.DeepEqual(hint.Participants, want) {
-		t.Fatalf("participants=%+v, want only current-request-authorized rows %+v", hint.Participants, want)
+}
+
+func TestEmitAnalysis_Execute_RequiredDiagramPreservesRequestedDisplayIdentityAcrossSourceSymbolDiscovery(t *testing.T) {
+	raw := "用 Mermaid 架构图画出 analyzer、Mutable/BusContext 之间的数据流"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["analyzer","MutableState","BusContext"],
+		"entities":["analyzer","MutableState","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"analyzer、Mutable/BusContext 之间的数据流","participants":[
+			{"identity":"analyzer","role":"incident_required","source_quote":"analyzer"},
+			{"identity":"MutableState","role":"incident_required","source_quote":"MutableState"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]}
+	}`
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid architecture", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(res.Summary, "dropped diagram participant") {
-		t.Fatalf("summary must disclose the row-local participant repair: %q", res.Summary)
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("repository symbol substitution must not silently erase the requested display participant: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	}
+	if !strings.Contains(res.Summary, "exact user-authored visible identity") {
+		t.Fatalf("repair must direct the analyzer back to the requested visible identity: %s", res.Summary)
+	}
+
+	corrected := strings.ReplaceAll(payload, `"identity":"MutableState","role":"incident_required","source_quote":"MutableState"`, `"identity":"Mutable","role":"incident_required","source_quote":"Mutable"`)
+	res, err = (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid architecture", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(corrected)))
+	if err != nil {
+		t.Fatalf("corrected Execute: %v", err)
+	}
+	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
+		t.Fatalf("corrected user-visible participant should be accepted: success=%t summary=%q", res.Success, res.Summary)
+	}
+	want := []types.DiagramParticipantHint{
+		{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "analyzer"},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "Mutable"},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "BusContext"},
+	}
+	if got := mu.RequestModel().DiagramHint.Participants; !reflect.DeepEqual(got, want) {
+		t.Fatalf("corrected participants=%+v, want exact requested display identities %+v", got, want)
 	}
 }
 

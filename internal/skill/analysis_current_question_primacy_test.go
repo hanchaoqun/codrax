@@ -201,7 +201,7 @@ func TestAnalysisSkill_PresentationDirectiveRequiresDiagramHint(t *testing.T) {
 		"out-of-band typed Presentation Directive requiring a visual",
 		"Explicit presentation modality outranks topic inference",
 		"MUST use `sequence` even when predicate_axis=call",
-		"remove only that participant row",
+		"required diagram call containing such an unauthorized row is rejected",
 		"never omit an explicitly required diagram",
 		"Never use a visual hint to turn binding, registration, return, inheritance, containment, or method-owner relations into call arrows",
 	} {
