@@ -35715,6 +35715,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1154 r729：typed 物化与独立 outcome 获生产正证；逐合同执行回执、关系身份绑定仍开放（2026-08-19）
+
+1. 在包含 B1158-B/B1160/B1161 的同一提交二进制上严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_nlohmann_long_double_symptom`。Runner `2 PASS / 2`；人工均为
+   partial。逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_join_outcome_replay_r729_20260819_manual_audit.md`。
+2. B1158-B 获生产正证。QF 的机制语义精确补读不再依赖 flow origin；读取后连续多个 dispatch 只暴露
+   `read_file + emit_evidence + emit_investigation_complete` 三工具 closure 面，未恢复 broad navigation。
+   模型最终物化证据并诚实收口。尚有 19 explorer 迭代/8 次 completion 的心智成本，但旧生命周期错误关闭。
+3. B1160 获生产正证。C++ 首次 Write Analyzer 发射严格编译、long-double 非空、两 header 同步、普通
+   float/double 非回归四个独立 outcome；四项全部到达 planner/controller，没有再被“2-4”教学挤出 typed
+   carrier。
+4. 同一 C++ 回放确认 B1159-B/P1。补丁与 long-double native test 正确，`make check` 总绿；但测试源没有
+   普通 float/double 断言，controller 仍以一次 project-runner/path-level target_behavior 覆盖给四个合同全部
+   签绿。下一批必须建立 criterion→executed observation 的结构化回执；不得解析测试名、测试源码或终稿 prose
+   猜测语义覆盖，也不得把 runner 总绿复制给每项独立合同。
+5. B1161 获生产正证并关闭本轮目标。QF 从 r728 的 8 reject/7 patch/最终降级失败降至 2 reject/2 patch/
+   正常答案；前两次仍精确拒绝无证边、stale anchor 与错误 endpoint 映射，说明证据门没有降杆。当前 typed
+   provider 无 executable crossing join 时，component-split 不再强迫模型猜桥。
+6. QF 人工仍为 partial，另立 B1162/P1。终稿图合法并保留 stage precedence、BusContext 参数流及 Mutable
+   未证边界，但把用户参与者 `Extractor` 与技术 endpoint `types.AgentExtractor` 画为两个节点，业务 stage 岛
+   与 carrier 岛未合并。根因不是 Mermaid syntax 或 B1161 escape，而是 producer 没有 typed
+   participant↔technical endpoint identity-binding/ownership row。后续应补结构化绑定证据，让模型选择展示；
+   禁止字符串相似硬拼、request/output 原文扫描或系统自动补边。
+7. 本批审计不改 Trace/JSON/stream。显式时间窗、Trace 因果投影与自动补齐保持；主因只来自 typed 链上席，
+   实际耗时/链上业务线索和规则可消除量双轴保留，邻近/背景只作支持。活跃流未按 4ms 或固定 age 降级，
+   系统未代写模型结论或图。
+
+状态：
+
+`B1158-EXACTREADMATERIALIZATIONCONTRACT1=production-positive-r729/closed`；
+`B1160-WRITEOUTCOMEINDEPENDENTDIMENSIONLOSS1=production-positive-r729/closed`；
+`B1161-QFFINALIZERREJECTIONCHURN1=production-positive-r729/closed`；
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A-implemented/B-production-confirmed/P1-next`；
+`B1162-DIAGRAMPARTICIPANTTECHNICALIDENTITYBINDING1=confirmed/P1/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1153 B1161：关系图组件门补齐 executable typed join frontier（2026-08-19）
 
 1. r728 QF 的 8 次 finalizer 拒绝不是单一模型波动。前五次依次修正未证 Orchestrator→stage 边、缺 relation
