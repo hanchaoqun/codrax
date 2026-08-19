@@ -372,6 +372,14 @@ type PendingRead struct {
 	Origin     string
 	LineRanges []LineRange
 
+	// MaterializationRequired marks an exact, producer-selected source window
+	// whose read is only the navigation half of a completion repair. After the
+	// range is read, the same explorer dispatch must stay on the bounded
+	// read/emit/complete surface long enough for the model to materialize typed
+	// evidence or close with an honest boundary. The producer owns this bit;
+	// consumers must not infer it from request/model prose.
+	MaterializationRequired bool
+
 	// Stage (A.1+E.1, 2026-05-02) is the explicit stage attribution for
 	// this pending read. When non-empty, AddPendingRead bumps
 	// stats.PerStage[Stage].PendingReads directly so StageHealthSnapshot
@@ -1266,6 +1274,9 @@ func (c *EvidenceClosure) addPendingReadLocked(p PendingRead) {
 				c.pendingReads[i].Rationale = p.Rationale
 			}
 		}
+		if p.MaterializationRequired {
+			c.pendingReads[i].MaterializationRequired = true
+		}
 		// A.1+E.1 stage attribution refresh: if the incoming carries
 		// an explicit Stage and the existing entry didn't, fill it in.
 		// Bumping PerStage stays one-shot (no double-count on refresh).
@@ -1301,6 +1312,9 @@ func (c *EvidenceClosure) mergePendingReadLocked(p PendingRead) {
 			if p.Rationale != "" {
 				c.pendingReads[i].Rationale = p.Rationale
 			}
+		}
+		if p.MaterializationRequired {
+			c.pendingReads[i].MaterializationRequired = true
 		}
 		if p.Stage != "" && existing.Stage == "" {
 			c.pendingReads[i].Stage = p.Stage
@@ -2000,11 +2014,12 @@ func (c *EvidenceClosure) addRepairLocked(r RepairDirective) {
 			// PendingRead's PerStage bump matches the originating
 			// directive's stage attribution.
 			c.addPendingReadLocked(PendingRead{
-				File:       f,
-				Rationale:  r.Rationale,
-				Origin:     origin,
-				LineRanges: append([]LineRange(nil), r.LineRanges...),
-				Stage:      r.Stage,
+				File:                    f,
+				Rationale:               r.Rationale,
+				Origin:                  origin,
+				LineRanges:              append([]LineRange(nil), r.LineRanges...),
+				MaterializationRequired: r.MaterializationRequired,
+				Stage:                   r.Stage,
 			})
 		}
 	case RepairEmitEvidence:

@@ -2150,7 +2150,7 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		// this struct too; they moved to LoopPolicy and are rebuilt
 		// per dispatch, so there is nothing to stuff into the fixture.
 	}
-	eval.flowNavigationMaterializationActive = true
+	eval.exactReadMaterializationActive = true
 
 	// Simulate next REPL turn with a completely different question.
 	// ctx.CurrentTaskKeywords is empty so BuildInitialInstruction's
@@ -2232,7 +2232,7 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		eval.kindConfidence != 0 {
 		t.Error("answer subject / predicate-axis cache not reset")
 	}
-	if eval.flowNavigationMaterializationActive || eval.investigationComplete || eval.mergedEmittedEvidenceLen != 0 {
+	if eval.exactReadMaterializationActive || eval.investigationComplete || eval.mergedEmittedEvidenceLen != 0 {
 		t.Error("completion counters not reset")
 	}
 	// New userQuestion should reflect the new task.
@@ -2261,7 +2261,7 @@ func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 		predicateAxis:                   types.AxisCall,
 		kindConfidence:                  0.9,
 	}
-	eval.flowNavigationMaterializationActive = true
+	eval.exactReadMaterializationActive = true
 	ctx := &types.AgentContext{Objective: "investigate strategies"}
 	prompt := eval.BuildInitialInstruction(ctx, nil)
 
@@ -2281,7 +2281,7 @@ func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 		eval.midLoopCompletionReadyIter != 0 {
 		t.Error("dispatch-scoped mid-loop latches must reset even on same-question retries")
 	}
-	if eval.flowNavigationMaterializationActive {
+	if eval.exactReadMaterializationActive {
 		t.Error("flow-navigation materialization latch must reset at the dispatch boundary")
 	}
 	if eval.answerSubject.Kind != types.SubjectUnknown ||
@@ -4731,6 +4731,43 @@ func TestExplorer_FilterToolSchemas_FlowNavigationSurfacePersistsAfterExactReadD
 	}
 }
 
+func TestExplorer_FilterToolSchemas_ProducerSelectedMechanismReadPersistsAfterDrain(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddPendingRead(types.PendingRead{
+		File: "internal/context/builder.go", Origin: "pre_complete.mechanism_semantic_descent.26",
+		LineRanges:              []types.LineRange{{Start: 26, End: 288}},
+		MaterializationRequired: true, Stage: string(types.StageExplore),
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"}, {Name: "grep"}, {Name: "repo_map"},
+		{Name: "emit_evidence"}, {Name: "emit_investigation_complete"},
+	}
+	eval := &explorerEvaluator{}
+
+	first := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(first); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("producer-selected mechanism read must start bounded materialization, got %v", gotNames)
+	}
+	eval.refreshMidLoopReadCoverage(ctx, LoopObservation{
+		Phase: PhaseMidLoop,
+		CurrentToolResults: []types.ToolResult{{
+			ToolName: "read_file", Success: true,
+			ReadCoverage: &types.ToolReadCoverage{
+				Path: "internal/context/builder.go", LineStart: 26, LineEnd: 288, TotalLines: 6184,
+			},
+		}},
+	})
+	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 0 {
+		t.Fatalf("exact mechanism read should drain its navigation debt: %+v", pending)
+	}
+
+	second := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(second); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("broad navigation reopened before mechanism evidence materialization or honest closure: %v", gotNames)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_GenericFlowRepairDoesNotLatchBoundedNavigation(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.EvidenceClosure().AddRepair(types.RepairDirective{
@@ -4750,7 +4787,7 @@ func TestExplorer_FilterToolSchemas_GenericFlowRepairDoesNotLatchBoundedNavigati
 	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,emit_evidence,emit_investigation_complete" {
 		t.Fatalf("generic flow search without an exact typed read must remain broad, got %v", gotNames)
 	}
-	if eval.flowNavigationMaterializationActive {
+	if eval.exactReadMaterializationActive {
 		t.Fatal("generic flow repair must not activate the exact-read materialization latch")
 	}
 }
@@ -4810,7 +4847,7 @@ func TestExplorer_MidLoopReadCoverageKeepsPartiallyCoveredFlowNavigationDebt(t *
 	if pending := mut.EvidenceClosure().PendingReads(); len(pending) != 1 {
 		t.Fatalf("partial read must preserve the remaining surgical debt: %+v", pending)
 	}
-	if !explorerHasPendingFlowNavigationRead(ctx) {
+	if !explorerHasPendingMaterializationRead(ctx) {
 		t.Fatal("partial read must keep the bounded flow-navigation surface active")
 	}
 }

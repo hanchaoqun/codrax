@@ -198,15 +198,15 @@ type explorerEvaluator struct {
 	primaryReadSeen                         bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter                         int  // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead                   int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	// flowNavigationMaterializationActive latches the bounded relation-repair
+	// exactReadMaterializationActive latches a producer-selected bounded repair
 	// surface for the remainder of the current explorer dispatch. The exact
 	// typed PendingRead is drained as soon as read_file covers it, but that read
 	// is only the navigation step: the model must still materialize grounded
 	// evidence or close with an honest limitation before broad search reopens.
 	// BuildInitialInstruction resets the latch at every dispatch boundary.
-	flowNavigationMaterializationActive bool
-	investigationComplete               bool // set when emit_investigation_complete tool was observed in MidLoop
-	mergedEmittedEvidenceLen            int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
+	exactReadMaterializationActive bool
+	investigationComplete          bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen       int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -680,7 +680,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.mutable = nil
 		e.investigationComplete = false
 		e.mergedEmittedEvidenceLen = 0
-		e.flowNavigationMaterializationActive = false
+		e.exactReadMaterializationActive = false
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -817,7 +817,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
 	e.mergedEmittedEvidenceLen = 0
-	e.flowNavigationMaterializationActive = false
+	e.exactReadMaterializationActive = false
 	e.declarativeAnchorFiles = nil
 	e.declarativeCandidateFiles = nil
 	// Per-dispatch reset of the completion flag. Without this, a
@@ -7282,11 +7282,11 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 	// read/materialize/close lane instead of exposing broad grep/repo_map again.
 	// This is driven solely by structured repair origin + file/range data; it
 	// never scans request or answer prose and never creates relation authority.
-	if explorerHasPendingFlowNavigationRead(ctx) {
-		e.flowNavigationMaterializationActive = true
+	if explorerHasPendingMaterializationRead(ctx) {
+		e.exactReadMaterializationActive = true
 		return evidenceRepairToolNames
 	}
-	if e.flowNavigationMaterializationActive {
+	if e.exactReadMaterializationActive {
 		return evidenceRepairToolNames
 	}
 	if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
@@ -7317,7 +7317,7 @@ func (e *explorerEvaluator) restrictedToolSurface(ctx *types.AgentContext) map[s
 	return nil
 }
 
-func explorerHasPendingFlowNavigationRead(ctx *types.AgentContext) bool {
+func explorerHasPendingMaterializationRead(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Stage != types.StageExplore || ctx.Mutable == nil {
 		return false
 	}
@@ -7326,7 +7326,7 @@ func explorerHasPendingFlowNavigationRead(ctx *types.AgentContext) bool {
 		return false
 	}
 	for _, pending := range closure.PendingReads() {
-		if types.PendingReadIsFlowNavigation(pending) && strings.TrimSpace(pending.File) != "" && len(pending.LineRanges) > 0 {
+		if types.PendingReadRequiresMaterialization(pending) {
 			return true
 		}
 	}
@@ -13084,7 +13084,7 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 
 // refreshMidLoopReadCoverage makes successful read_file coverage visible to
 // the run-level closure before the next ReAct turn. ParseOutput already
-// performs the same monotonic ingestion at dispatch end, but a typed flow
+// performs the same monotonic ingestion at dispatch end, but a typed exact
 // completion repair can enqueue a bounded PendingRead while the dispatch is
 // still active. Without this mid-loop bridge the next successful read remains
 // invisible until ParseOutput, so the restricted tool surface keeps offering
@@ -13092,8 +13092,9 @@ func (e *explorerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 //
 // This consumes only ToolReadCoverage emitted by read_file. It does not inspect
 // request/model prose, manufacture evidence, or satisfy a relation gate. A
-// fully covered typed flow-navigation debt is merely removed from the pending
-// navigation queue; relation authority still requires emit_evidence.
+// fully covered producer-selected materialization debt is merely removed from
+// the pending navigation queue; relation authority still requires
+// emit_evidence.
 func (e *explorerEvaluator) refreshMidLoopReadCoverage(ctx *types.AgentContext, obs LoopObservation) {
 	if e == nil || ctx == nil || ctx.Mutable == nil || len(obs.CurrentToolResults) == 0 {
 		return
@@ -13102,13 +13103,13 @@ func (e *explorerEvaluator) refreshMidLoopReadCoverage(ctx *types.AgentContext, 
 	if closure == nil {
 		return
 	}
-	hadFlowNavigationDebt := explorerHasPendingFlowNavigationRead(ctx)
+	hadMaterializationDebt := explorerHasPendingMaterializationRead(ctx)
 	readSet, readRanges, totals, _ := extractFileCoverageWithTotals(obs.CurrentToolResults, e.repoRoot)
 	if len(readSet) == 0 {
 		return
 	}
 	ingestExplorerReadCoverage(closure, e.repoRoot, readSet, readRanges, totals)
-	if hadFlowNavigationDebt {
+	if hadMaterializationDebt {
 		closure.DrainSatisfiedPendingReads()
 	}
 }

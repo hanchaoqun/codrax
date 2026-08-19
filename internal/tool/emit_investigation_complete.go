@@ -2305,11 +2305,12 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			if !missingValueConsumer.target.alreadyRead {
 				ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
 					Kind: types.RepairReadFile, Files: []string{missingValueConsumer.target.file},
-					LineRanges:    []types.LineRange{missingValueConsumer.target.lineRange},
-					Subject:       "flow_value_consumer:" + consumerID,
-					Rationale:     "Read the exact parser-owned consumer and emit its whole-value argument handoff; this navigation coordinate is not relation evidence.",
-					Origin:        types.RepairOriginFlowNavigationPrefix + "value_consumer",
-					DowngradeLane: types.DowngradeLaneFlowValueConsumerCoverage, Stage: string(types.StageExplore), Advisory: true,
+					LineRanges:              []types.LineRange{missingValueConsumer.target.lineRange},
+					Subject:                 "flow_value_consumer:" + consumerID,
+					Rationale:               "Read the exact parser-owned consumer and emit its whole-value argument handoff; this navigation coordinate is not relation evidence.",
+					Origin:                  types.RepairOriginFlowNavigationPrefix + "value_consumer",
+					MaterializationRequired: true,
+					DowngradeLane:           types.DowngradeLaneFlowValueConsumerCoverage, Stage: string(types.StageExplore), Advisory: true,
 				})
 			}
 			readStep := fmt.Sprintf("The consumer window %q lines %d-%d is already in the read closure; re-inspect it without another broad search.",
@@ -3893,14 +3894,15 @@ func queueFlowOperationNavigationRead(ctx *types.BusContext, missing []string, r
 		return
 	}
 	ctx.Mutable.EvidenceClosure().AddRepair(types.RepairDirective{
-		Kind:          types.RepairReadFile,
-		Files:         []string{target.file},
-		LineRanges:    []types.LineRange{target.lineRange},
-		Rationale:     rationale,
-		Origin:        types.RepairOriginFlowNavigationPrefix + strings.TrimSpace(suffix),
-		DowngradeLane: lane,
-		Stage:         string(types.StageExplore),
-		Advisory:      true,
+		Kind:                    types.RepairReadFile,
+		Files:                   []string{target.file},
+		LineRanges:              []types.LineRange{target.lineRange},
+		Rationale:               rationale,
+		Origin:                  types.RepairOriginFlowNavigationPrefix + strings.TrimSpace(suffix),
+		MaterializationRequired: true,
+		DowngradeLane:           lane,
+		Stage:                   string(types.StageExplore),
+		Advisory:                true,
 	})
 }
 
@@ -13648,14 +13650,15 @@ func callChainExactEndpointReachabilityDowngradeWithEvidence(ctx *types.BusConte
 					}
 					seenDemand[key] = true
 					closure.AddRepair(types.RepairDirective{
-						Kind:       types.RepairReadFile,
-						Files:      []string{demand.File},
-						Keywords:   []string{demand.Endpoint},
-						Tools:      []string{"read_file", "emit_evidence"},
-						Rationale:  "read the exact endpoint definition/body before declaring no_directed_path so any reverse or shared-callee parser edge can be carried without guessing",
-						Origin:     "pre_complete.call_chain_no_path_endpoint_body_read",
-						Stage:      string(types.StageExplore),
-						LineRanges: []types.LineRange{{Start: demand.Start, End: demand.End}},
+						Kind:                    types.RepairReadFile,
+						Files:                   []string{demand.File},
+						Keywords:                []string{demand.Endpoint},
+						Tools:                   []string{"read_file", "emit_evidence"},
+						Rationale:               "read the exact endpoint definition/body before declaring no_directed_path so any reverse or shared-callee parser edge can be carried without guessing",
+						Origin:                  "pre_complete.call_chain_no_path_endpoint_body_read",
+						Stage:                   string(types.StageExplore),
+						LineRanges:              []types.LineRange{{Start: demand.Start, End: demand.End}},
+						MaterializationRequired: true,
 					})
 				}
 			}
@@ -13896,12 +13899,13 @@ func callChainPrincipalSpanRepairWithEvidence(ctx *types.BusContext, closure *ty
 		)
 	}
 	return types.RepairDirective{
-		Kind:       repairKind,
-		Files:      []string{demand.source},
-		Rationale:  rationale,
-		Origin:     "pre_complete.call_chain_principal_span",
-		LineRanges: []types.LineRange{lineRange},
-		Stage:      string(types.StageExplore),
+		Kind:                    repairKind,
+		Files:                   []string{demand.source},
+		Rationale:               rationale,
+		Origin:                  "pre_complete.call_chain_principal_span",
+		LineRanges:              []types.LineRange{lineRange},
+		MaterializationRequired: true,
+		Stage:                   string(types.StageExplore),
 	}, demand, alreadyRead, true
 }
 

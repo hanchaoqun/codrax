@@ -98,6 +98,18 @@ func PendingReadIsFlowNavigation(p PendingRead) bool {
 	return strings.HasPrefix(NormalizePendingReadOrigin(p.Origin), RepairOriginFlowNavigationPrefix)
 }
 
+// PendingReadRequiresMaterialization reports whether an exact source window
+// was selected by its producer as a read-then-materialize completion repair.
+// Flow-navigation debt keeps a compatibility fallback for durable repair
+// state written before MaterializationRequired existed; every new producer
+// should set the explicit bit instead of relying on its Origin spelling.
+func PendingReadRequiresMaterialization(p PendingRead) bool {
+	if strings.TrimSpace(p.File) == "" || len(p.LineRanges) == 0 {
+		return false
+	}
+	return p.MaterializationRequired || PendingReadIsFlowNavigation(p)
+}
+
 // AllRepairKinds returns every legal RepairKind in declaration order.
 // Used by tests that assert no enforcer raises an unknown kind.
 func AllRepairKinds() []RepairKind {
@@ -321,6 +333,12 @@ type RepairDirective struct {
 	// byte-identically.
 	LineRanges []LineRange
 
+	// MaterializationRequired is propagated to the bridged PendingRead. It is
+	// set only by a producer that selected an exact source window whose read
+	// must be followed by model-authored typed evidence or an honest closure.
+	// It narrows tools; it never creates evidence, relations, or conclusions.
+	MaterializationRequired bool
+
 	// AcceptedEvidence carries bounded, typed identities for evidence that had
 	// already been accepted when this repair was raised. It is a handoff
 	// carrier, not prose: renderers should not print it into retry hints, but
@@ -416,6 +434,7 @@ func mergeRepairDirectiveMonotone(dst, src RepairDirective) RepairDirective {
 	dst.AcceptedEvidence = mergeAcceptedEvidenceRefs(dst.AcceptedEvidence, src.AcceptedEvidence)
 	dst.Tools = mergeRepairDirectiveStrings(dst.Tools, src.Tools)
 	dst.Keywords = mergeRepairDirectiveStrings(dst.Keywords, src.Keywords)
+	dst.MaterializationRequired = dst.MaterializationRequired || src.MaterializationRequired
 	return dst
 }
 

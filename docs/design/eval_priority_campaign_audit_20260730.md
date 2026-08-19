@@ -35649,6 +35649,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1151 r728：精确补读物化合同从 origin 猜测收敛到 producer-owned typed bit（2026-08-19）
+
+1. 在 `main@196aeefe3` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_nlohmann_long_double_symptom`。Runner `1 PASS / 1 FAIL`；人工
+   C++ partial、QF fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_materialization_contract_r728_20260819_manual_audit.md`。
+2. r728 否证 B1158 v1 的生产覆盖。QF 的精确补读来自
+   `pre_complete.mechanism_semantic_descent.26`，模型读完 `internal/context/builder.go:26-288` 后 pending debt
+   被正确清除，但旧 latch 只识别 flow-navigation origin，下一轮恢复 14-tool broad surface。模型后来虽发出
+   部分 typed evidence，仍经历 8 次 finalizer 拒绝、7 次 patch 并回退上一版结构化草稿；因此 v1 不能收账。
+3. B1158-B 把所有权移回精确窗口 producer。`RepairDirective.MaterializationRequired` 经 closure 单调桥接到
+   `PendingRead`，去重/合并只允许 `false -> true`；消费端只检查 exact file/range 与该 bit。旧 flow origin
+   仅保留为已持久化状态的兼容臂，新 producer 不再依赖字符串命名。机制语义下钻、请求子主题函数体、调用链
+   端点/主跨度以及 flow value/operation 五类精确读取统一置位。
+4. 读取覆盖仍只清 pending navigation debt，不清当前 explorer dispatch 的 materialization latch；后续工具面
+   保持 `read_file + emit_evidence + emit_investigation_complete`，直到模型物化 grounded typed evidence 或诚实
+   收口。它不扫描 request/model/final prose，不创建证据、关系、图或答案；新 dispatch 自动复位。
+5. C++ 补丁和 strict build/run 正确，但普通 float/double 非回归没有测试。进一步确认 B1160/P1：Write Analyzer
+   的“2-4 expected outcomes”教学把显式独立约束挤出 typed outcomes，只在 `known_constraints` 留下 prose，
+   导致 B1159-A 到达 planner 也没有合同可逐项见证。根修应扩大有界容量并要求每个用户显式独立成功/非回归
+   维度进入 typed outcome/behavior contract；不得由下游扫描请求或测试文本补造语义。
+6. QF 的连续 8 次成文拒绝另列独立审计，不与 B1158 合并收账。专项
+   `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿；全仓构建/测试在本批提交前复核。
+7. 本批不改 Trace query、显式窗、因果投影、自动补齐、JSON 教学或 stream liveness。Trace 主因仍仅来自
+   typed 链上席，优先级反转/调度供给/算力供给/D/IO/确定性语义与链上业务线索不丢；邻近/背景只作支持。
+   活跃流不按 4ms 或固定累计 age 降级，系统不代写模型结论。
+
+状态：
+
+`B1158-EXACTREADMATERIALIZATIONCONTRACT1=B-implemented/producer-owned-typed-bit+pinned/pending-replay`；
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A-implemented/B-structured-receipt-open`；
+`B1160-WRITEOUTCOMEINDEPENDENTDIMENSIONLOSS1=confirmed/P1/next`；
+`B1161-QFFINALIZERREJECTIONCHURN1=audit-pending`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1141 r721：有限事实读者卡生产正证；耦合关系题被错误拆成独立调查车道（2026-08-18）
 
 1. 在 `main@00a89c600` 构建后严格并发恰好两个案例：

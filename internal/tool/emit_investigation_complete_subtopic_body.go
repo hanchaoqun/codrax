@@ -78,9 +78,10 @@ func requestedSubTopicCallableBodyDowngrade(
 					"requested sub-topic %q names local callable %q, but current evidence reaches only its call site; read the exact implementation body before closing",
 					debt.topic, qualifiedEvidenceSymbolName(debt.sym),
 				),
-				Origin:     fmt.Sprintf("pre_complete.requested_subtopic_callable_body.%d", debt.sym.Line),
-				LineRanges: []types.LineRange{body},
-				Stage:      string(types.StageExplore),
+				Origin:                  fmt.Sprintf("pre_complete.requested_subtopic_callable_body.%d", debt.sym.Line),
+				LineRanges:              []types.LineRange{body},
+				MaterializationRequired: true,
+				Stage:                   string(types.StageExplore),
 			})
 			continue
 		}

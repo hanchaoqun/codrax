@@ -652,9 +652,10 @@ func mechanismSemanticDescentAddPendingRead(
 			"the explained entry %q returns or delegates through local callable %q; read that exact implementation body before closing so the answer can distinguish wrapper behavior from the delegated behavior",
 			strings.TrimSpace(root), qualifiedEvidenceSymbolName(sym),
 		),
-		Origin:     fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
-		LineRanges: []types.LineRange{body},
-		Stage:      string(types.StageExplore),
+		Origin:                  fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
+		LineRanges:              []types.LineRange{body},
+		MaterializationRequired: true,
+		Stage:                   string(types.StageExplore),
 	})
 }
 
@@ -674,8 +675,9 @@ func mechanismSemanticDescentAddSelectedBodyPendingRead(
 			"the typed mechanism selection %q resolves inside local callable %q; read only that exact implementation body before closing, while sibling calls require their own typed operation evidence",
 			strings.TrimSpace(root), qualifiedEvidenceSymbolName(sym),
 		),
-		Origin:     fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
-		LineRanges: []types.LineRange{body},
-		Stage:      string(types.StageExplore),
+		Origin:                  fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
+		LineRanges:              []types.LineRange{body},
+		MaterializationRequired: true,
+		Stage:                   string(types.StageExplore),
 	})
 }

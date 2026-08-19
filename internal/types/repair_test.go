@@ -170,6 +170,27 @@ func TestClassifyPendingReadRepair(t *testing.T) {
 	}
 }
 
+func TestPendingReadRequiresMaterializationUsesProducerBitAndExactRange(t *testing.T) {
+	if !PendingReadRequiresMaterialization(PendingRead{
+		File: "builder.go", Origin: "pre_complete.mechanism_semantic_descent.26",
+		LineRanges: []LineRange{{Start: 26, End: 288}}, MaterializationRequired: true,
+	}) {
+		t.Fatal("producer-selected exact read must require bounded materialization")
+	}
+	if PendingReadRequiresMaterialization(PendingRead{
+		File: "builder.go", Origin: "pre_complete.mechanism_semantic_descent.26",
+		MaterializationRequired: true,
+	}) {
+		t.Fatal("producer bit without an exact range must not narrow the tool surface")
+	}
+	if PendingReadRequiresMaterialization(PendingRead{
+		File: "anchor.go", Origin: "pre_complete.multi_path_anchor",
+		LineRanges: []LineRange{{Start: 4, End: 4}},
+	}) {
+		t.Fatal("an ordinary surgical read without producer authority must not latch materialization")
+	}
+}
+
 func TestRepairBlocksAcceptedClosure_CompletionFormDebtDoesNotBlock(t *testing.T) {
 	r := RepairDirective{
 		Kind:   RepairStructuredHandoff,
