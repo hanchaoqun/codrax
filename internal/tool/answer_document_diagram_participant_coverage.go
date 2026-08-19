@@ -15,14 +15,15 @@ import (
 type DiagramParticipantCoverageIssue string
 
 const (
-	DiagramParticipantCoverageMissingBoundary   DiagramParticipantCoverageIssue = "missing_unproven_boundary"
-	DiagramParticipantCoverageStaleBoundary     DiagramParticipantCoverageIssue = "stale_boundary_for_connected_participant"
-	DiagramParticipantCoverageNodeMissing       DiagramParticipantCoverageIssue = "boundary_participant_not_visible"
-	DiagramParticipantCoverageUnknownBoundary   DiagramParticipantCoverageIssue = "unknown_or_context_only_boundary"
-	DiagramParticipantCoverageDuplicate         DiagramParticipantCoverageIssue = "duplicate_unproven_boundary"
-	DiagramParticipantCoverageTypedEdgeMissing  DiagramParticipantCoverageIssue = "available_typed_incident_edge_not_rendered"
-	DiagramParticipantCoverageIdentityMissing   DiagramParticipantCoverageIssue = "required_participant_identity_not_visible"
-	DiagramParticipantCoverageBoundaryConnected DiagramParticipantCoverageIssue = "unproven_boundary_has_visible_incident_edge"
+	DiagramParticipantCoverageMissingBoundary    DiagramParticipantCoverageIssue = "missing_unproven_boundary"
+	DiagramParticipantCoverageStaleBoundary      DiagramParticipantCoverageIssue = "stale_boundary_for_connected_participant"
+	DiagramParticipantCoverageNodeMissing        DiagramParticipantCoverageIssue = "boundary_participant_not_visible"
+	DiagramParticipantCoverageUnknownBoundary    DiagramParticipantCoverageIssue = "unknown_or_context_only_boundary"
+	DiagramParticipantCoverageDuplicate          DiagramParticipantCoverageIssue = "duplicate_unproven_boundary"
+	DiagramParticipantCoverageTypedEdgeMissing   DiagramParticipantCoverageIssue = "available_typed_incident_edge_not_rendered"
+	DiagramParticipantCoverageIdentityMissing    DiagramParticipantCoverageIssue = "required_participant_identity_not_visible"
+	DiagramParticipantCoverageBoundaryConnected  DiagramParticipantCoverageIssue = "unproven_boundary_has_visible_incident_edge"
+	DiagramParticipantCoverageEndpointRetargeted DiagramParticipantCoverageIssue = "participant_visible_on_nonincident_endpoint"
 )
 
 // DiagramParticipantCoverageMismatch is derived only from the analyzer's
@@ -75,7 +76,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	// move a correctly placed field and hides the actual typed coverage issue.
 	// Schema/decoder failures own malformed-placement teaching; this lane names
 	// only the participant mismatch it actually observed.
-	expected := "Typed participant coverage mismatch: " + strings.Join(parts, "; ") + ". For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to plus participant_node_id and participant_node_side. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to participant_node_id; keep the candidate's technical from_identity/to_identity unchanged in edge_anchor_identity_fields. technical_endpoint_identity_stays_in_edge_anchor=true means the broader reader-facing participant node replaces that side only in diagram.body and edge_anchors[].from_node/to_node, never in from_identity/to_identity. visible_arrow_label is safe reader wording for the immutable relation_kind; use it instead of displaying the raw relation enum. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That boundary forbids using an unproved directed edge as the requested relation; it does not forbid an independently proved local technical edge, exact local endpoint, or no-arrow containment/grouping. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge."
+	expected := "Typed participant coverage mismatch: " + strings.Join(parts, "; ") + ". For every typed incident_required participant with an available request-scoped evidence-backed relation, render one matching typed visible incident edge authored from that relation; do not replace that request-scoped evidence with an unproven boundary. A local operation that merely touches a participant is an independent fact: when the typed request-scope authority says the complete requested relation is unproved, that local operation may coexist with the participant's unproven requested-relation boundary and does not eliminate it. The requested participant identity must itself remain present as the exact Mermaid endpoint node id or as a visible node/subgraph/group label; an internal operation endpoint that is merely owned by or statically bound to that participant does not replace the business/component identity. A stable exact participant node id may carry a concise business-facing visible label when the proved edge terminates on that same node id and edge_anchors preserve the exact technical endpoint identities. The candidate map publishes participant_endpoint_side=from|to|from_or_to plus participant_node_id and participant_node_side. Reuse the selected candidate as one edge and set only that declared side's Mermaid node id to participant_node_id; keep the candidate's technical from_identity/to_identity unchanged in edge_anchor_identity_fields. A different requested participant may appear on the opposite visible endpoint only when that opposite typed endpoint is independently incident to it; anchor metadata does not license retargeting the reader-visible endpoint to another component. technical_endpoint_identity_stays_in_edge_anchor=true means the broader reader-facing participant node replaces that side only in diagram.body and edge_anchors[].from_node/to_node, never in from_identity/to_identity. visible_arrow_label is safe reader wording for the immutable relation_kind; use it instead of displaying the raw relation enum. Do not draw the technical method as a separate endpoint and then add an unanchored bridge edge to the participant. Alternatively, place the exact technical endpoint inside that participant's visible group. When the requested directed relation is unproved, retain exactly one {participant:<typed identity>,status:\"unproven\"} row. That boundary forbids using an unproved directed edge as the requested relation; it does not forbid an independently proved local technical edge, exact local endpoint, or no-arrow containment/grouping. For a bounded participant, make the exact typed identity the Mermaid node id or the first visible node label, including a visible subgraph/group label; a short node id whose typed identity appears only in a secondary parenthetical or later multiline label is not that primary identity. Omit participant_boundaries or emit [] when all required participants have the requested typed incidence. Remove stale, unknown, context_only, or already-covered boundary rows. The system does not create or choose an edge."
 	if endpointConflicts != "" {
 		expected = "Resolve these exact endpoint-ID/label collisions first. Preserve each existing visible edge, canonical from_identity/to_identity, relation_kind, and direction. Choose one fresh non-participant Mermaid node ID for the technical endpoint; change only that side of the visible body edge and the matching edge_anchor from_node/to_node field. If that endpoint's visible label also equals the unproven participant, relabel the same technical node with concise technical wording derived from the already-published exact from_identity/to_identity; do not alter those anchor identities. Keep the exact participant separate from that directed edge and retain its unproven boundary; an independently grounded, already-authored no-arrow subgraph/grouping remains valid and must not be flattened or removed. The system is identifying an already model-authored unique edge/anchor pair and its parsed visible label, not creating or selecting a relation or choosing replacement wording: " + endpointConflicts + ". " + expected
 	}
@@ -285,6 +286,10 @@ func diagramParticipantCoverageRepairActions(mismatches []DiagramParticipantCove
 			edgeAction = "move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_out_of_that_directed_edge"
 			identityAction = "retain_exact_visible_participant_and_preserve_any_existing_grounded_no_arrow_grouping"
 			boundaryAction = "retain_exactly_one_unproven_boundary"
+		case DiagramParticipantCoverageEndpointRetargeted:
+			edgeAction = "keep_the_existing_typed_edge_and_anchor_direction_but_remove_the_requested_participant_identity_from_the_nonincident_endpoint"
+			identityAction = "map_each_requested_participant_only_to_an_endpoint_that_is_typed_incident_to_it_or_keep_it_in_an_honest_unproven_group"
+			boundaryAction = "recompute_from_the_corrected_visible_incidence_without_inventing_an_edge"
 		case DiagramParticipantCoverageUnknownBoundary:
 			edgeAction = "none"
 			identityAction = "none"
@@ -465,6 +470,9 @@ func DiagramParticipantCoverageMismatches(
 			Issue:       issue,
 		})
 	}
+	out = append(out, diagramParticipantVisibleEndpointRetargetMismatches(
+		doc, obligations, allSurfaces, evidence,
+	)...)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].BlockID != out[j].BlockID {
 			return out[i].BlockID < out[j].BlockID
@@ -475,6 +483,123 @@ func DiagramParticipantCoverageMismatches(
 		return out[i].Issue < out[j].Issue
 	})
 	return out
+}
+
+// diagramParticipantVisibleEndpointRetargetMismatches keeps the reader-facing
+// participant identity on the same side as its typed endpoint incidence. Edge
+// anchors intentionally allow concise business labels, so this check does not
+// require every visible label to repeat an internal symbol. It rejects only a
+// much narrower contradiction: an endpoint node id or primary label explicitly
+// names one of the analyzer's requested participants while the exact typed
+// endpoint on that side is not incident to that participant. A visible group
+// may legitimately contain several internal endpoints, so grouping alone is
+// not treated as endpoint retargeting.
+//
+// This closes the shape where an honest o.busCtx -> BuildAgentContext anchor is
+// displayed as BusContext -> Analyzer. The typed metadata still proves the
+// operation, but it cannot authorize moving the Analyzer identity onto the
+// BuildAgentContext endpoint. No request text, answer prose, fuzzy label, or
+// inferred relation participates.
+func diagramParticipantVisibleEndpointRetargetMismatches(
+	doc *types.AnswerDocumentV2,
+	obligations []types.DiagramParticipantHint,
+	allSurfaces [][]string,
+	evidence []types.EvidenceItem,
+) []DiagramParticipantCoverageMismatch {
+	if doc == nil || len(obligations) == 0 || len(obligations) != len(allSurfaces) {
+		return nil
+	}
+	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	boundedParticipants := make(map[string]bool)
+	for _, block := range doc.Blocks {
+		for _, boundary := range block.ParticipantBoundaries {
+			if boundary.Status == types.DiagramParticipantBoundaryUnproven {
+				boundedParticipants[strings.ToLower(strings.TrimSpace(boundary.Participant))] = true
+			}
+		}
+	}
+	seen := make(map[string]bool)
+	var out []DiagramParticipantCoverageMismatch
+	for blockIndex := range doc.Blocks {
+		block := &doc.Blocks[blockIndex]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
+		typedRelations := diagramTypedAnchorRelationSet(anchors)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
+				continue
+			}
+			fromIdentity, toIdentity, present, conflict := diagramEvidenceEdgeIdentityPair(edge.From, edge.To, anchors)
+			if !present || conflict || strings.TrimSpace(fromIdentity) == "" || strings.TrimSpace(toIdentity) == "" {
+				continue
+			}
+			fromVisible := make([]bool, len(obligations))
+			toVisible := make([]bool, len(obligations))
+			fromIncident := make([]bool, len(obligations))
+			toIncident := make([]bool, len(obligations))
+			fromHasAlignedParticipant := false
+			toHasAlignedParticipant := false
+			for participantIndex, obligation := range obligations {
+				if obligation.Role != types.DiagramParticipantIncidentRequired {
+					continue
+				}
+				surfaces := allSurfaces[participantIndex]
+				fromVisible[participantIndex] = diagramParticipantEndpointExplicitlyDisplaysIdentity(surfaces, edge.From, labels)
+				toVisible[participantIndex] = diagramParticipantEndpointExplicitlyDisplaysIdentity(surfaces, edge.To, labels)
+				fromIncident[participantIndex] = diagramParticipantIncidentEndpointMatches(surfaces, fromIdentity, evidence)
+				toIncident[participantIndex] = diagramParticipantIncidentEndpointMatches(surfaces, toIdentity, evidence)
+				fromHasAlignedParticipant = fromHasAlignedParticipant || (fromVisible[participantIndex] && fromIncident[participantIndex])
+				toHasAlignedParticipant = toHasAlignedParticipant || (toVisible[participantIndex] && toIncident[participantIndex])
+			}
+			for participantIndex, obligation := range obligations {
+				participant := strings.TrimSpace(obligation.Identity)
+				if participant == "" || obligation.Role != types.DiagramParticipantIncidentRequired ||
+					boundedParticipants[strings.ToLower(participant)] {
+					continue
+				}
+				fromRetargeted := fromVisible[participantIndex] && !fromIncident[participantIndex] && toHasAlignedParticipant
+				toRetargeted := toVisible[participantIndex] && !toIncident[participantIndex] && fromHasAlignedParticipant
+				if !fromRetargeted && !toRetargeted {
+					continue
+				}
+				key := strings.ToLower(strings.TrimSpace(block.ID) + "\x00" + participant)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, DiagramParticipantCoverageMismatch{
+					BlockID: block.ID, Participant: participant,
+					Issue: DiagramParticipantCoverageEndpointRetargeted,
+				})
+			}
+		}
+	}
+	return out
+}
+
+func diagramParticipantEndpointExplicitlyDisplaysIdentity(
+	surfaces []string,
+	node string,
+	labels map[string]string,
+) bool {
+	node = strings.TrimSpace(node)
+	if node == "" {
+		return false
+	}
+	if diagramParticipantSurfaceListContainsExact(surfaces, node) {
+		return true
+	}
+	if label := strings.TrimSpace(labels[strings.ToLower(node)]); label != "" {
+		for _, candidate := range diagramEvidenceLabelIdentityCandidates(label) {
+			if diagramParticipantSurfaceListContainsExact(surfaces, candidate) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // diagramParticipantRequestedGraphConnected checks only model-authored visible
@@ -648,7 +773,8 @@ func diagramParticipantCoverageCandidateGuidance(
 	failed := make(map[string]bool)
 	for _, mismatch := range mismatches {
 		if mismatch.Issue == DiagramParticipantCoverageTypedEdgeMissing ||
-			mismatch.Issue == DiagramParticipantCoverageIdentityMissing {
+			mismatch.Issue == DiagramParticipantCoverageIdentityMissing ||
+			mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
 			failed[strings.ToLower(strings.TrimSpace(mismatch.Participant))] = true
 		}
 	}

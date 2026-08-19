@@ -36548,6 +36548,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1115 B1120：候选 participant 别名只作用于已声明端点侧（2026-08-18）
+
+1. r709 终稿的 anchor 是诚实的 `o.busCtx -> ctxbuilder.BuildAgentContext`、`argument_flow`，但 Mermaid 可见图写成
+   `BusContext -> Analyzer`。旧校验只确认 anchor 的技术身份与关系有证据，又允许 candidate 的 participant 业务别名，
+   却没有约束别名只能落在 `participant_endpoint_side=from`；因此另一侧可借用另一 requested participant 的身份，元数据
+   正确而读者看到的关系已经变义。
+2. 新增 `participant_visible_on_nonincident_endpoint` 精确结构门：它只读取 analyzer typed participant slate、已解析 Mermaid
+   endpoint node id/primary label、edge anchor identity 和 citable typed operation。某侧明确显示 requested participant、且
+   typed endpoint 确实 incident 于它时才算对齐；若一侧已合法映射 participant，另一侧不得显示一个对其 typed endpoint
+   无 incidence 的 requested participant。
+3. 该门不要求所有节点暴露内部函数名。`BusContext -> 构建 AgentContext` 这类普通业务措辞仍合法，exact 技术身份继续留在
+   anchor；`Analyzer -> Explorer` 在两端 typed identity 本就对应二者时合法；一个 visible group 可包含多个内部节点，group
+   本身不被当成逐端点换名。已有 `status=unproven` 边界继续由 boundary-connected 合同处理，不重复轰炸。
+4. 修补提示保持模型所有权：保留已有 edge、anchor identity、relation 和方向，只移除非 incident 侧借用的 participant 身份；
+   participant 应映射到其真实 incident edge，或保留为诚实的未证节点/group。系统不选择新边、不生成标签、不修改图或结论。
+5. r709 形、合法双 participant 形、普通业务标签、group 与未证边界正负 pin 均通过；完整
+   `go test ./internal/tool -count=1` 全绿。判据不扫描用户请求、模型普通输出或最终答案段落，也不影响 Read/Trace。
+
+状态：
+
+`B1120-PARTICIPANTCANDIDATEENDPOINTSIDE1=implemented/typed-side-alignment+pinned`；
+`reader-business-labels=preserved/unrequested-labels-not-hard-gated`；
+`raw-request/model-prose/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`system-answer/diagram/conclusion-authorship=none`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

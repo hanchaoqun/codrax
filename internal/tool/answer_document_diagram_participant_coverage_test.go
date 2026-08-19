@@ -677,6 +677,78 @@ func TestDiagramParticipantCoverageExactEndpointNodeIDMayCarryBusinessLabel(t *t
 	}
 }
 
+func TestDiagramParticipantCoverageRejectsRequestedParticipantOnNonincidentCandidateSide(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n BusContext[\"BusContext\"] --> Analyzer[\"Analyzer\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "BusContext", ToNode: "Analyzer", FromIdentity: "o.busCtx",
+		ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow,
+	}}
+	evidence := []types.EvidenceItem{{
+		ID: "bus-argument", Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Kind: types.EvidenceRelationship, Subject: "o.busCtx", Predicate: "passes",
+		Object: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/orchestrator.go", LineStart: 8029,
+		AnchorKind: types.AnchorArgument, AnchorSymbol: "o.busCtx", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		OwnerIdentity:   "Orchestrator.dispatchStage",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "o.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}}
+
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence)
+	found := false
+	for _, mismatch := range got {
+		if mismatch.BlockID == "flow" && mismatch.Participant == "Analyzer" &&
+			mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("candidate's opposite endpoint borrowed Analyzer without typed incidence: %+v", got)
+	}
+	mut := types.NewMutableState("participant endpoint-side retarget")
+	mut.AppendEvidence(evidence)
+	hints := preCheckDiagramParticipantCoverage(doc, view, &preEmitCheckContext{ctx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut,
+	}})
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "participant=Analyzer issue=participant_visible_on_nonincident_endpoint") ||
+		!strings.Contains(hints[0].ExpectedShape, "opposite typed endpoint is independently incident to it") ||
+		!strings.Contains(hints[0].ExpectedShape, "remove_the_requested_participant_identity_from_the_nonincident_endpoint") {
+		t.Fatalf("retarget repair lost its side-specific typed contract: %+v", hints)
+	}
+
+	// Reader-friendly wording remains legal when it does not impersonate a
+	// different requested participant. The exact operation identity stays in
+	// the anchor and continues to own relation authority.
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n BusContext[\"BusContext\"] --> Build[\"构建 AgentContext\"]"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "Build"
+	for _, mismatch := range DiagramParticipantCoverageMismatches(doc, view, rm, evidence) {
+		if mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+			t.Fatalf("neutral business wording was incorrectly treated as a participant retarget: %+v", mismatch)
+		}
+	}
+}
+
+func TestDiagramParticipantCoverageAllowsParticipantWhenSameTypedEndpointIsIncident(t *testing.T) {
+	rm, view, doc, evidence := diagramParticipantCoverageFixture()
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n Analyzer[\"Analyzer\"] --> Explorer[\"Explorer\"]\n MutableState[\"MutableState\"]"
+	doc.Blocks[0].EdgeAnchors[0] = types.DiagramEdgeAnchor{
+		FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "Analyzer",
+		ToIdentity: "Explorer", RelationKind: types.DiagramRelCall,
+	}
+	for _, mismatch := range DiagramParticipantCoverageMismatches(doc, view, rm, evidence) {
+		if mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+			t.Fatalf("a participant may label the exact endpoint incident to itself: %+v", mismatch)
+		}
+	}
+}
+
 func TestDiagramParticipantCandidateEndpointSideIsDeterministic(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -904,6 +976,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 		{Participant: "analyzer", Issue: DiagramParticipantCoverageStaleBoundary},
 		{Participant: "UnprovenWorker", Issue: DiagramParticipantCoverageMissingBoundary},
 		{Participant: "DetachedStore", Issue: DiagramParticipantCoverageBoundaryConnected},
+		{Participant: "Analyzer", Issue: DiagramParticipantCoverageEndpointRetargeted},
 	}
 	got := diagramParticipantCoverageRepairActions(mismatches)
 	for _, want := range []string{
@@ -912,6 +985,7 @@ func TestDiagramParticipantCoverageRepairActionsKeepTypedLanesSeparate(t *testin
 		`repair_action["analyzer"]={issue:"stale_boundary_for_connected_participant",edge_action:"retain_existing_typed_incident_edge",identity_action:"retain_existing_visible_participant_identity",boundary_action:"remove_stale_boundary"}`,
 		`repair_action["UnprovenWorker"]={issue:"missing_unproven_boundary",edge_action:"none_for_missing_requested_relation_keep_independent_typed_local_facts_if_any",identity_action:"ensure_exact_visible_participant_without_directed_incident_edge_and_preserve_any_existing_grounded_no_arrow_grouping",boundary_action:"add_exactly_one_unproven_boundary"}`,
 		`repair_action["DetachedStore"]={issue:"unproven_boundary_has_visible_incident_edge",edge_action:"move_existing_typed_edge_to_its_exact_technical_endpoint_and_keep_participant_out_of_that_directed_edge",identity_action:"retain_exact_visible_participant_and_preserve_any_existing_grounded_no_arrow_grouping",boundary_action:"retain_exactly_one_unproven_boundary"}`,
+		`repair_action["Analyzer"]={issue:"participant_visible_on_nonincident_endpoint",edge_action:"keep_the_existing_typed_edge_and_anchor_direction_but_remove_the_requested_participant_identity_from_the_nonincident_endpoint",identity_action:"map_each_requested_participant_only_to_an_endpoint_that_is_typed_incident_to_it_or_keep_it_in_an_honest_unproven_group",boundary_action:"recompute_from_the_corrected_visible_incidence_without_inventing_an_edge"}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed participant repair actions missing %q:\n%s", want, got)
