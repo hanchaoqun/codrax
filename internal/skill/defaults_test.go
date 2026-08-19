@@ -292,6 +292,38 @@ func TestWriteAnalysisSkillTeachesOneGroundingLaneBeforeExactContracts(t *testin
 	}
 }
 
+func TestWriteAnalysisSkillTeachesProtectedRegressionOracleCarrier(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("write-analysis-skill")
+	if err != nil {
+		t.Fatalf("Get(write-analysis-skill) returned error: %v", err)
+	}
+	corpus := allWorkflowBodies(sk) + "\n" + sk.OutputFormat
+	for _, want := range []string{
+		"REGRESSION ORACLE OWNERSHIP",
+		"kind=preserve_regression_test",
+		"one exact repo-relative test file",
+		"preserves the existing baseline assertion as one oracle",
+		"do not reinterpret 'keep the input' as permission to update its expected output",
+		"does not choose the implementation or a correct expected value",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("write-analysis protected regression teaching missing %q:\n%s", want, corpus)
+		}
+	}
+	for _, banned := range []string{
+		"scan raw_request",
+		"parse raw_request",
+		"summary contains",
+		"rationale contains",
+	} {
+		if strings.Contains(strings.ToLower(corpus), banned) {
+			t.Fatalf("write-analysis protected regression teaching contains prose hard-gate smell %q:\n%s", banned, corpus)
+		}
+	}
+}
+
 func TestWriteAnalysisSkillPinsNativeJSONCarriersBeforeSemanticGuidance(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

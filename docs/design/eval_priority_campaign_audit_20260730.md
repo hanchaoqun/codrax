@@ -36622,6 +36622,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `system-answer/relation/diagram/conclusion-authorship=none`。
 
+### §123.1117 B1121：intentional 回归输入必须铸成整条 baseline oracle 保护（2026-08-18）
+
+1. r710 的 self-fulfilling 绿不是 suite 缺失：`make check` 真执行且真通过，但 write analyzer 把“现有五换行
+   odd-run 回归输入 intentional、不可删减”改写成“输入保留、期望按实现更新”，漏发已经存在的
+   `preserve_regression_test` typed constraint。下游 B1115 critic 没有保护 authority，无法在 apply 前阻断 oracle 改写。
+2. 本批不增加 raw request 关键词门，也不让系统推导正确期望值。单源 `write-analysis-skill` 明确：用户把现有
+   regression test/input/fixture/snapshot/assertion 声明为 intentional、must-keep 或不可删改时，必须发
+   `constraints[].kind=preserve_regression_test`，target 只能是一个精确 repo-relative test file，具体输入/断言放 note。
+3. 保护对象是既有 baseline assertion/oracle 这一整体，不得把“保留输入”重释为“允许把 expected output 改成新实现当前输出”，
+   也不得在 `expected_outcomes[]` 自行铸造这种授权。只有用户明确要求新 baseline 时，才把新 observable 放进
+   `behavior_contracts[]`，并且不得谎称旧 oracle 同时被保留。
+4. `emit_write_analysis` schema 的 constraint kind 描述与 skill 同步，仍复用 B1115 的 exact-path validate 和 controller
+   apply-before critic；系统只要求模型交付 typed ownership 决策，实际实现、期望值和是否能满足测试仍由模型计划与真实验证决定。
+5. 新 pin 钉住 regression oracle ownership、exact path、不得“按实现更新期望”以及不选择正确值的权限边界；既有 JSON
+   shape-first、constraint target 正负形、source-only replan/block 测试保持。`go test ./internal/skill ./internal/tool
+   ./internal/orchestrator -count=1` 全绿（tool 178.866s）。
+6. 该批只修上游 typed carrier，生产稳定性需用同写案例回放确认；若模型仍漏 carrier，应继续调整结构化分析教学/字段，不能
+   退回扫描 raw request、plan rationale 或最终输出做硬门。B1122/B1123/B1124 保持后续独立批次。
+
+状态：
+
+`B1121-PROTECTEDORACLECARRIER1=implemented/typed-teaching+schema+pinned/replay-next`；
+`B1115-PROTECTEDREGRESSIONTARGET1=unchanged/downstream-authority`；
+`raw-request/model-plan/final-prose-hard-gate=none`；
+`system-oracle/implementation/answer-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

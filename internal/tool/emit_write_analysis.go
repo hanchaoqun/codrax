@@ -382,7 +382,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					"type":     "object",
 					"required": []string{"kind"},
 					"properties": map[string]any{
-						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test/input must be kept. Pick the closest fit; free string is fine."},
+						"kind":   map[string]any{"type": "string", "description": "Short label like preserve_api / no_external_deps / match_existing_style. Use preserve_regression_test when the user explicitly says an existing regression test, input, fixture, snapshot, or assertion is intentional or must be kept; this protects the existing baseline assertion/oracle rather than authorizing its expected output to be changed to match a new implementation. Pick the closest fit; free string is fine."},
 						"target": map[string]any{"type": "string", "description": "Path or symbol the constraint applies to. Use '*' when global. For kind=preserve_regression_test this MUST be one exact repo-relative test file path such as tests/test_widget.py; keep the protected method/input details in note and never append prose to target."},
 						"note":   map[string]any{"type": "string", "description": "Short quote of the user's wording, when applicable."},
 					},
