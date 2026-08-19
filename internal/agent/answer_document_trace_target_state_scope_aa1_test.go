@@ -91,9 +91,14 @@ func TestRenderAnswerDocObservationLedgerSeparatesTargetStateFromCPUWideScopeAA1
 		"unaccounted=0.000ms",
 		"blocked-reason caller/count inventory",
 		"scheduler-marked classifier only",
-		"completion-closed issuer-blocked IO interval",
-		"never summarize their combination as bare `IO wait is zero`",
+		"completion-closed issuer-blocked IO ruler",
+		"NOT ASSESSED by this state partition, not zero",
+		"never the broad claim `IO wait is zero`",
+		"does not by itself prove voluntary yield, idleness, preemption, IO, a lock",
 		"io_wait_caliber=`scheduler_marked_only`",
+		"io_wait_zero_scope=`no_matching_scheduler_marker_only`",
+		"other_io_mechanisms=`not_assessed_by_state_partition`",
+		"sleep_mechanism=`unproven`",
 		"completion_closed_s_io_wait=`separate_typed_ruler`",
 	} {
 		if !strings.Contains(got, want) {
@@ -138,6 +143,7 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteExplicitWindowStateWitho
 		"running=20.000ms; runnable=10.000ms; sleep=70.000ms; d_state=0.000ms",
 		"io_wait=0.000ms; sleep_io_wait=3.000ms",
 		"io_wait_caliber=`scheduler_marked_only`",
+		"other_io_mechanisms=`not_assessed_by_state_partition`",
 		"state_partition_coverage=`complete`",
 	} {
 		if !strings.Contains(got, want) {

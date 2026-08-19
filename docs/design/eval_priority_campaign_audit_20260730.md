@@ -35661,14 +35661,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 3. B1142 尚不能生产收账。新 head summary、state authority、有限提示和 skill 均已到达 Finalizer，
    明确 `io_wait_caliber=scheduler_marked_only`，但终稿仍写“证明未发生磁盘或内核不可中断阻塞”。
    本轮有限问题没有发布 completion-closed 具体行，模型把“第二把尺未调查/未出现”错误扩成“第二把尺为零”。
-   下一修必须把无第二尺时的 reader meaning 明确为“该状态分区未评估”，并提供可直接采用的自然语言标签；
-   仍不得扫描/拒绝/改写答案，也不得把普通 S 自动认作 IO。
+   已完成第二轮泛化补强：无第二尺时 reader meaning 明确为“该状态分区未评估”，不是零；窄尺给出
+   `scheduler-marked D/IO-wait` 可直接采用的读者标签，并明确零值不能证明无 disk/filesystem/device IO。
+   实现仍不扫描/拒绝/改写答案，也不把普通 S 自动认作 IO；等待下一次生产回放收账。
 4. 同轮生产复确 B1139/P2：中文终稿泄漏 `target_window_states`、`complete`、
    `target_window_wait_occurrences`、`unproven`、`full_window_all_cpu` 等内部键/枚举。已有软本地化教学未充分
    降低心智，但禁止改成答案原文关键词硬门；应从 model-facing typed card 的读者标签与信息预算根修。
 5. 新记 B1143/P2：终稿把 Sleep 解释成“主动让出或被抢占后的睡眠等待”。调度器 S 只证明可中断睡眠状态，
-   不证明 voluntary yield、idle、preemption 或具体等待机制；抢占通常回到 runnable。需在 state-caliber
-   typed context 增加无机理授权边界，不替模型写原因。
+   不证明 voluntary yield、idle、preemption 或具体等待机制；抢占通常回到 runnable。同批已在 head summary、
+   state authority、有限提示和 skill 增加 `sleep_mechanism=unproven` 及无机理授权边界，不替模型写原因。
 6. sequence 案的有向边界正确：源码只有 `buildAnalysisIR→gate.RunWith` 与 `gate.Run→gate.RunWith`，系统未
    为迎合问题伪造 `buildAnalysisIR→gate.Run`。最终 Mermaid 合法且兼容修复生效，两个 grounded edge 汇聚
    到 RunWith，系统没有代画关系或改写结论。
@@ -35682,9 +35683,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B1142-IWAITCALIBERWORDING1=unit-complete/production-partial-r718/absent-second-ruler-boundary-next`；
+`B1142-IWAITCALIBERWORDING1=implemented-v2/absent-second-ruler-is-not-assessed+copy-ready-label/no-answer-scan/five-package-pass/pending-replay`；
 `B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-reconfirmed-r718/P2/no-prose-keyword-gate`；
-`B1143-SCHEDULERSTATEMECHANISMAUTHORITY1=confirmed/P2/typed-soft-boundary`；
+`B1143-SCHEDULERSTATEMECHANISMAUTHORITY1=implemented/s-state-only+mechanism-unproven/pinned/pending-replay`；
 `B1144-MULTISURFACEDIMENSIONORDER1=confirmed/P1/general-typed-design-next`；
 `QF-SEQUENCE-MERMAID=syntax-pass+source-repair-positive/directed-boundary-correct`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

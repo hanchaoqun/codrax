@@ -114,6 +114,9 @@ func TestTraceQueryPublishesTargetOwnedCompletePerCPURunningRows(t *testing.T) {
 	}
 	for _, want := range []string{
 		"io_wait_caliber=scheduler_marked_only",
+		"io_wait_zero_scope=no_matching_scheduler_marker_only",
+		"other_io_mechanisms=not_assessed_by_state_partition",
+		"sleep_mechanism=unproven",
 		"completion_closed_s_io_wait=separate_typed_ruler",
 	} {
 		if !strings.Contains(accountRow.Summary, want) {
