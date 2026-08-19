@@ -37,8 +37,9 @@ type WriteAnalysisIR struct {
 // WriteRequestModel captures the user's code-change request.
 //
 // Field decisions:
-//   - RawRequest: stored on the IR (not just BusContext) so a serialised
-//     write IR is self-contained for debug logs / replay tests.
+//   - RawRequest: system-bound from the current objective (not trusted from the
+//     model echo) and stored on the IR so a serialised write IR is self-contained
+//     for debug logs / replay tests.
 //   - Task: the LLM's classification of what kind of work this is.
 //   - Risk: the LLM's judgement, plus a system reconciliation pass that
 //     tightens AffectsPublicAPI / ChangesPersistence / ChangesBuildSystem

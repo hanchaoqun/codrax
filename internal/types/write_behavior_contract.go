@@ -119,6 +119,12 @@ const (
 const (
 	WriteBehaviorContractSourceExpectedOutcomeFallback = "expected_outcome_fallback"
 	WriteBehaviorContractSourcePlanAcceptanceFallback  = "plan_acceptance_fallback"
+	// WriteBehaviorContractSourcePlanningOnlyUngrounded is stamped by the
+	// orchestrator quality calibration when an analyzer-authored example has no
+	// exact request or typed evidence authority. The atom remains useful to the
+	// controller/planner as a proposed boundary to investigate, but it must not
+	// become a verifier completion obligation merely because it was schema-valid.
+	WriteBehaviorContractSourcePlanningOnlyUngrounded = "quality_repaired:planning_only_ungrounded"
 )
 
 type WriteBehaviorContractGeneration string
@@ -259,7 +265,7 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		if !IsKnownWriteBehaviorPolarity(string(c.Polarity)) {
 			c.Polarity = WriteBehaviorPolarityExpected
 		}
-		if c.Polarity == WriteBehaviorPolarityObserved {
+		if c.Polarity == WriteBehaviorPolarityObserved || IsPlanningOnlyWriteBehaviorContract(c) {
 			c.Required = false
 		} else {
 			c.Required = true
@@ -540,7 +546,7 @@ func RequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract, include
 		if !c.Required || strings.TrimSpace(c.ID) == "" {
 			continue
 		}
-		if c.Polarity == WriteBehaviorPolarityObserved {
+		if c.Polarity == WriteBehaviorPolarityObserved || IsPlanningOnlyWriteBehaviorContract(c) {
 			continue
 		}
 		if !includeFallback && IsExpectedOutcomeFallbackWriteBehaviorContract(c) {
@@ -555,7 +561,7 @@ func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
 	if !c.Required || strings.TrimSpace(c.ID) == "" {
 		return false
 	}
-	if c.Polarity == WriteBehaviorPolarityObserved {
+	if c.Polarity == WriteBehaviorPolarityObserved || IsPlanningOnlyWriteBehaviorContract(c) {
 		return false
 	}
 	if IsExpectedOutcomeFallbackWriteBehaviorContract(c) {
@@ -574,6 +580,17 @@ func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
 	default:
 		return false
 	}
+}
+
+// IsPlanningOnlyWriteBehaviorContract reads only the system-stamped source
+// roster. It never infers authority from the contract's model-authored prose.
+func IsPlanningOnlyWriteBehaviorContract(c WriteBehaviorContract) bool {
+	for _, source := range strings.Split(c.Source, ";") {
+		if strings.TrimSpace(source) == WriteBehaviorContractSourcePlanningOnlyUngrounded {
+			return true
+		}
+	}
+	return false
 }
 
 func IsPlacementRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {

@@ -328,8 +328,11 @@ func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
 		if IsHardRequiredWriteBehaviorContract(contract) {
 			priority = WriteContextP0
 		}
-		item := writeContextItem("behavior_contract", priority, text, "write_analysis",
-			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+		consumers := []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier}
+		if IsPlanningOnlyWriteBehaviorContract(contract) {
+			consumers = []WriteContextConsumer{WriteConsumerController, WriteConsumerPlanner}
+		}
+		item := writeContextItem("behavior_contract", priority, text, "write_analysis", consumers...)
 		item.SourceID = contract.ID
 		item.ID = writeContextStableID("behavior_contract", contract.ID, string(contract.Kind), contract.Subject, contract.Expected)
 		pack.Items = append(pack.Items, item)
@@ -2614,7 +2617,9 @@ func renderWriteBehaviorContractContext(c WriteBehaviorContract) string {
 			parts = append(parts, "comparator_evidence_ref="+c.Comparator.EvidenceRef)
 		}
 	}
-	if c.Required {
+	if IsPlanningOnlyWriteBehaviorContract(c) {
+		parts = append(parts, "planning_only=true")
+	} else if c.Required {
 		if IsHardRequiredWriteBehaviorContract(c) {
 			parts = append(parts, "hard_required=true")
 		} else {

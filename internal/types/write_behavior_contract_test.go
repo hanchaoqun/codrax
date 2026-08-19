@@ -386,3 +386,18 @@ func TestHardRequiredWriteBehaviorContractIDs_ExcludesSatisfiesAndFallback(t *te
 		t.Fatalf("hard required view missing exact contract: %+v", hard)
 	}
 }
+
+func TestNormalizeWriteBehaviorContracts_PreservesPlanningOnlyAuthorityBoundary(t *testing.T) {
+	got := NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+		ID: "candidate-boundary", Kind: WriteBehaviorObservable,
+		Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpSatisfies,
+		Expected: "an unproved boundary example", Required: true,
+		Source: "write_analyzer;" + WriteBehaviorContractSourcePlanningOnlyUngrounded,
+	}}, nil)
+	if len(got) != 1 || got[0].Required || !IsPlanningOnlyWriteBehaviorContract(got[0]) {
+		t.Fatalf("normalization upgraded planning-only guidance into a completion target: %+v", got)
+	}
+	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 0 {
+		t.Fatalf("planning-only contract leaked into required IDs: %+v", ids)
+	}
+}

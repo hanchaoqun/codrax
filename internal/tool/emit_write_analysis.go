@@ -123,11 +123,21 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil, params)
 	}
 
-	// Required field checks. RawRequest must be non-empty (the LLM
-	// echoes the user's request as a self-check); Task.Summary must
-	// be non-empty (the planner uses it as a per-iteration title).
-	if strings.TrimSpace(p.RawRequest) == "" {
+	// RawRequest is system-owned authority. Older providers may still echo the
+	// field for wire compatibility, but the model must not be able to add an
+	// invented expected value to its echo and thereby make that value look
+	// request-grounded to downstream quality gates. Prefer the exact current
+	// objective and use the payload only for legacy/direct callers that have no
+	// objective. Task.Summary remains model-authored presentation metadata.
+	rawRequest := strings.TrimSpace(types.StripConversationPrefix(ctx.Mutable.Objective()))
+	if rawRequest == "" {
+		rawRequest = strings.TrimSpace(p.RawRequest)
+	}
+	if rawRequest == "" {
 		return errResult(t.Name(), "emit_write_analysis rejected: raw_request is empty"), nil
+	}
+	if echoed := strings.TrimSpace(p.RawRequest); echoed != "" && echoed != rawRequest {
+		logging.Warning("[emit_write_analysis] ignored model raw_request echo because system current-request authority differs")
 	}
 	if strings.TrimSpace(p.Task.Summary) == "" {
 		return errResult(t.Name(), "emit_write_analysis rejected: task.summary is empty"), nil
@@ -224,7 +234,7 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	contracts := types.NormalizeWriteBehaviorContracts(p.BehaviorContracts, expectedOutcomes)
 	ir := &types.WriteAnalysisIR{
 		Request: types.WriteRequestModel{
-			RawRequest: strings.TrimSpace(p.RawRequest),
+			RawRequest: rawRequest,
 			Task: types.WriteTask{
 				Kind:    taskKind,
 				Scope:   scope,
@@ -331,11 +341,11 @@ func validateWriteBehaviorContractEnums(contracts []types.WriteBehaviorContract)
 func buildEmitWriteAnalysisSchema() map[string]any {
 	return map[string]any{
 		"type":     "object",
-		"required": []string{"raw_request", "task", "risk"},
+		"required": []string{"task", "risk"},
 		"properties": map[string]any{
 			"raw_request": map[string]any{
 				"type":        "string",
-				"description": "The user's request, echoed verbatim (or trivially trimmed) so the validator can sanity-check that you read the same input the system loaded.",
+				"description": "Optional legacy echo. The system preserves the exact current user request and ignores a differing model echo; omit this field in new calls.",
 			},
 			"task": map[string]any{
 				"type":     "object",

@@ -247,8 +247,8 @@ func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *test
 
 	repaired, repairs := repairWriteAnalysisIRQuality(ir)
 
-	if len(repairs) != 1 || !strings.Contains(repairs[0], "ungrounded-no-raise") {
-		t.Fatalf("expected one contract repair, got %+v", repairs)
+	if len(repairs) != 2 || !strings.Contains(strings.Join(repairs, "\n"), "ungrounded-no-raise") {
+		t.Fatalf("expected exact softening plus planning-only calibration, got %+v", repairs)
 	}
 	if got := writeAnalysisIRQualityRejection(repaired); got != "" {
 		t.Fatalf("repaired IR should satisfy quality gate, got %q", got)
@@ -265,6 +265,9 @@ func TestRepairWriteAnalysisIRQualitySoftensOnlyUngroundedExactContracts(t *test
 	}
 	if !strings.Contains(soft.Source, "quality_repaired:softened_ungrounded_exact") {
 		t.Fatalf("softened contract should be source-tagged, got %+v", soft)
+	}
+	if soft.Required || !types.IsPlanningOnlyWriteBehaviorContract(soft) {
+		t.Fatalf("ungrounded analyzer example must remain planning guidance, not a verifier target: %+v", soft)
 	}
 	if ir.Request.BehaviorContracts[1].Operator != types.WriteBehaviorOpNotRaises {
 		t.Fatalf("repair should not mutate original IR, got %+v", ir.Request.BehaviorContracts[1])
@@ -305,8 +308,45 @@ func TestRepairWriteAnalysisIRQualitySoftensInvalidPlacementContract(t *testing.
 	if !strings.Contains(got.Source, "quality_repaired:dropped_invalid_placement") {
 		t.Fatalf("softened placement contract should be source-tagged, got %+v", got)
 	}
+	if !got.Required || types.IsPlanningOnlyWriteBehaviorContract(got) {
+		t.Fatalf("request-grounded expected text should remain a soft completion target after placement removal: %+v", got)
+	}
 	if ir.Request.BehaviorContracts[0].Placement == nil {
 		t.Fatalf("repair should not mutate original placement")
+	}
+}
+
+func TestRepairWriteAnalysisIRQualityMarksDirectUngroundedSatisfiesAsPlanningOnly(t *testing.T) {
+	ir := &types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		RawRequest: "collapse each consecutive newline run before normal merging",
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{
+				ID: "invented-singleton", Kind: types.WriteBehaviorObservable,
+				Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies,
+				Subject: "one isolated newline", Expected: "one rank token", Required: true, Source: "write_analyzer",
+			},
+			{
+				ID: "grounded-run", Kind: types.WriteBehaviorObservable,
+				Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies,
+				Subject: "consecutive newline run", Expected: "one rank token", EvidenceRef: "tests/tokenizer.py:11",
+				Required: true, Source: "write_analyzer",
+			},
+		},
+	}}
+	repaired, repairs := repairWriteAnalysisIRQuality(ir)
+	if len(repairs) != 1 || !strings.Contains(repairs[0], "authority=planning_only") {
+		t.Fatalf("expected only the ungrounded example to be demoted, got %+v", repairs)
+	}
+	planning := repaired.Request.BehaviorContracts[0]
+	if planning.Required || !types.IsPlanningOnlyWriteBehaviorContract(planning) {
+		t.Fatalf("invented boundary example retained completion authority: %+v", planning)
+	}
+	grounded := repaired.Request.BehaviorContracts[1]
+	if !grounded.Required || types.IsPlanningOnlyWriteBehaviorContract(grounded) {
+		t.Fatalf("typed evidence-backed contract lost completion authority: %+v", grounded)
+	}
+	if len(types.RequiredWriteBehaviorContractIDs(repaired.Request.BehaviorContracts, true)) != 1 {
+		t.Fatalf("planning-only example leaked into required contract IDs: %+v", repaired.Request.BehaviorContracts)
 	}
 }
 

@@ -64,28 +64,62 @@ func repairWriteAnalysisIRQuality(ir *types.WriteAnalysisIR) (*types.WriteAnalys
 			}
 			contract.Source = appendWriteAnalysisContractSource(contract.Source, "quality_repaired:dropped_invalid_placement")
 			repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q dropped invalid placement and operator=%s->%s", i, contract.ID, oldOperator, contract.Operator))
-			continue
 		}
-		if !writeAnalysisContractNeedsExactGrounding(*contract) {
-			continue
+		if writeAnalysisContractNeedsExactGrounding(*contract) {
+			expected := strings.TrimSpace(contract.Expected)
+			if expected != "" && !strings.Contains(raw, expected) && !writeBehaviorContractGroundsExactExpected(*contract, raw) {
+				oldOperator := contract.Operator
+				contract.Operator = types.WriteBehaviorOpSatisfies
+				contract.Source = appendWriteAnalysisContractSource(contract.Source, "quality_repaired:softened_ungrounded_exact")
+				repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q operator=%s->%s", i, contract.ID, oldOperator, contract.Operator))
+			}
 		}
-		expected := strings.TrimSpace(contract.Expected)
-		if expected == "" || strings.Contains(raw, expected) {
-			continue
+		if writeAnalysisContractNeedsRequirementAuthority(*contract) &&
+			!writeAnalysisContractHasRequirementAuthority(*contract, raw) {
+			contract.Required = false
+			contract.Source = appendWriteAnalysisContractSource(contract.Source, types.WriteBehaviorContractSourcePlanningOnlyUngrounded)
+			repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q authority=planning_only", i, contract.ID))
 		}
-		if writeBehaviorContractGroundsExactExpected(*contract, raw) {
-			continue
-		}
-		oldOperator := contract.Operator
-		contract.Operator = types.WriteBehaviorOpSatisfies
-		contract.Source = appendWriteAnalysisContractSource(contract.Source, "quality_repaired:softened_ungrounded_exact")
-		repairs = append(repairs, fmt.Sprintf("behavior_contracts[%d] id=%q operator=%s->%s", i, contract.ID, oldOperator, contract.Operator))
 	}
 	if len(repairs) == 0 {
 		return ir, nil
 	}
 	sort.Strings(repairs)
 	return repaired, repairs
+}
+
+func writeAnalysisContractNeedsRequirementAuthority(contract types.WriteBehaviorContract) bool {
+	return contract.Required &&
+		contract.Polarity != types.WriteBehaviorPolarityObserved &&
+		!types.IsExpectedOutcomeFallbackWriteBehaviorContract(contract)
+}
+
+func writeAnalysisContractHasRequirementAuthority(contract types.WriteBehaviorContract, raw string) bool {
+	if expected := strings.TrimSpace(contract.Expected); expected != "" && strings.Contains(raw, expected) {
+		return true
+	}
+	if strings.TrimSpace(contract.EvidenceRef) != "" {
+		return true
+	}
+	if contract.Placement != nil && strings.TrimSpace(contract.Placement.EvidenceRef) != "" {
+		return true
+	}
+	if contract.Comparator != nil {
+		if strings.TrimSpace(contract.Comparator.EvidenceRef) != "" {
+			return true
+		}
+		if expected := strings.TrimSpace(contract.Comparator.Expected); expected != "" && strings.Contains(raw, expected) {
+			return true
+		}
+	}
+	if contract.Transition != nil {
+		for _, step := range contract.Transition.Steps {
+			if strings.TrimSpace(step.EvidenceRef) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func writeAnalysisPlacementQualityRejection(index int, contract types.WriteBehaviorContract, raw string) string {

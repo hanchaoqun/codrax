@@ -197,6 +197,34 @@ func TestWriteContextPackFromWriteAnalysisIR_RendersOrderedTransition(t *testing
 	}
 }
 
+func TestWriteContextPackFromWriteAnalysisIR_PlanningOnlyContractDoesNotReachVerifier(t *testing.T) {
+	ir := &WriteAnalysisIR{Request: WriteRequestModel{
+		Task: WriteTask{Summary: "investigate boundary behavior"},
+		BehaviorContracts: []WriteBehaviorContract{{
+			ID: "candidate-boundary", Kind: WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpSatisfies,
+			Expected: "candidate behavior to investigate", Required: false,
+			Source: "write_analyzer;" + WriteBehaviorContractSourcePlanningOnlyUngrounded,
+		}},
+	}}
+	pack := WriteContextPackFromWriteAnalysisIR(ir)
+	planner := pack.View(WriteConsumerPlanner, 10)
+	found := false
+	for _, item := range planner.Items {
+		if strings.Contains(item.Text, "id=candidate-boundary") {
+			found = strings.Contains(item.Text, "planning_only=true")
+		}
+	}
+	if !found {
+		t.Fatalf("planner lost the explicitly calibrated planning candidate: %+v", planner.Items)
+	}
+	for _, item := range pack.View(WriteConsumerVerifier, 10).Items {
+		if strings.Contains(item.Text, "id=candidate-boundary") {
+			t.Fatalf("planning-only candidate leaked into verifier context: %+v", item)
+		}
+	}
+}
+
 func TestWriteContextPackFromWriteAnalysisIR_ExactContractIsP0(t *testing.T) {
 	ir := &WriteAnalysisIR{
 		Request: WriteRequestModel{

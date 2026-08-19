@@ -81,6 +81,26 @@ func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
 	if ir.Request.BehaviorContracts[0].Source != "expected_outcome_fallback" {
 		t.Fatalf("fallback contract source drifted: %+v", ir.Request.BehaviorContracts[0])
 	}
+	if ir.Request.RawRequest != "test objective" {
+		t.Fatalf("raw request must come from system objective, not the model echo: %q", ir.Request.RawRequest)
+	}
+}
+
+func TestEmitWriteAnalysis_SystemRequestAuthorityOverridesInventedModelEcho(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := &types.BusContext{Mutable: types.NewMutableState("collapse each consecutive run to one token"), Mode: types.ModePlan}
+	params := json.RawMessage(`{
+		"raw_request":"collapse an even run to two tokens",
+		"task":{"kind":"bugfix","scope":"micro","summary":"repair run collapse"},
+		"risk":{"affects_public_api":false,"changes_persistence":false,"changes_build_system":false,"overall":"low"}
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("Execute failed: err=%v summary=%s", err, res.Summary)
+	}
+	if got := bus.Mutable.WriteAnalysisIR().Request.RawRequest; got != "collapse each consecutive run to one token" {
+		t.Fatalf("model echo replaced system request authority: %q", got)
+	}
 }
 
 func TestEmitWriteAnalysis_PreserveRegressionTestRequiresExactTestPath(t *testing.T) {
@@ -485,12 +505,6 @@ func TestEmitWriteAnalysis_RejectsEmptyRequiredFields(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "empty raw_request",
-			params: `{"raw_request": "", "task": {"kind": "feature", "scope": "micro", "summary": "x"},
-				"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"}}`,
-			want: "raw_request is empty",
-		},
-		{
 			name: "empty task.summary",
 			params: `{"raw_request": "x", "task": {"kind": "feature", "scope": "micro", "summary": ""},
 				"risk": {"affects_public_api": false, "changes_persistence": false, "changes_build_system": false, "overall": "low"}}`,
@@ -510,6 +524,18 @@ func TestEmitWriteAnalysis_RejectsEmptyRequiredFields(t *testing.T) {
 				t.Errorf("rejection summary = %q; want substring %q", res.Summary, c.want)
 			}
 		})
+	}
+
+	emptyObjective := &types.BusContext{Mutable: types.NewMutableState(""), Mode: types.ModePlan}
+	res, err := tool.Execute(emptyObjective, json.RawMessage(`{
+		"task":{"kind":"feature","scope":"micro","summary":"x"},
+		"risk":{"affects_public_api":false,"changes_persistence":false,"changes_build_system":false,"overall":"low"}
+	}`))
+	if err != nil {
+		t.Fatalf("empty-objective Execute returned err: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "raw_request is empty") {
+		t.Fatalf("caller without system request or legacy echo must fail loud: %+v", res)
 	}
 }
 

@@ -35649,6 +35649,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1131 B1132：模型自拟边界样例降为待验证设想，请求权威改由系统绑定（2026-08-18）
+
+1. r713 的矛盾不是特定于换行符：Write Analyzer 在 reasoning 中自行举出“单个换行”和“四个换行”后，
+   又把两者写成 `required behavior_contracts`；schema-valid 即获得 verifier 权限。其中“四个换行折成两个
+   token”与用户要求的“连续段折成一个 token”相冲突。问题属于模型提议、用户请求和已读证据没有 caliber
+   分层，而不是 Python/tokenizer 专项解析缺陷。
+2. 另发现更深的来源漏洞：`raw_request` 原由模型逐字回显。质量门虽只做 exact request containment，模型却
+   能把自拟 expected value 添进回显，再让同一值看似具有请求权威。现在 `emit_write_analysis` 从系统当前
+   objective 绑定精确请求；模型字段只保留旧 provider/direct caller 兼容，存在系统请求时不同回显被忽略。
+   新调用教学要求省略该字段，减少 JSON 心智和重复字符串转义风险。
+3. 对显式 expected/forbidden contract，只有 expected 值在系统绑定请求中逐字存在，或 contract/placement/
+   comparator/transition 携带 typed evidence ref 时，才保留完成义务。否则系统不删除其内容，也不猜正确答案：
+   将其标成 `planning_only=true`，供 controller/planner 作为待调查边界，排除出 required-ID、hard-required 与
+   verifier context。再次 Normalize 也不能把它升级回来。
+4. `ExpectedOutcomes` 继续是高层软成功目标：它可以让 reflector 判断计划是否朝用户目标前进，并在已有项目
+   runner 可用时促使继续跑完整测试；它不会直接成为 exact/hard verdict。这样既移除自拟具体样例的 verifier
+   权限，又保留模型对任务目标的正常归纳能力，避免因一个 case 把整个写规划退化成原文复制器。
+5. Write Analyzer 教学同步明确：reasoning 中发明的 illustrative boundary 不得进入 contract，除非请求明确
+   陈述或已读 request/test/source 证据由 `evidence_ref` 标出；未证样例留给 planner 探索。判定不按 newline、
+   语言、测试名或最终答案关键词分支，不扫描模型 reasoning/final prose，也不由系统选实现或编写测试断言。
+6. 正向 pin 覆盖：系统请求覆盖伪造 model echo；无依据的 direct `satisfies` 降为 planning-only；typed evidence
+   合约保持 required；Normalize 不再升权；planner 仍能看到待调查项而 verifier 看不到。完整
+   `go test ./internal/types ./internal/agent ./internal/orchestrator ./internal/tool ./internal/skill -count=1`
+   全绿（tool 179.885s）；内部术语 schema 静态护栏先红后绿。
+7. 本批不改 Read/Trace、答案正文或模型结论。显式时间窗、Trace 因果投影、确定性补齐、链上-only 主因与
+   实际占用/业务线索 + 规则计价可消除量双轴均保持；邻近/背景仍只能提供额外排查方向。活跃流不因 4ms 或
+   固定累计年龄降级。
+
+状态：
+
+`B1132-WRITECONTRACTPROVENANCE1=implemented/full-related-suites-pass/pending-production-replay`；
+`B1131-WRITECONTROLLERRETRYCONTEXT1=implemented/pending-production-replay`；
+`B1133-DIAGRAMDISPLAYIDENTITY1=implemented/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1130 B1133：required 图的用户显示身份不再被源码符号静默替换（2026-08-18）
 
 1. r713 的 `Mutable` 丢失发生在 Analyzer emit 边界：模型从 repo navigation 得到 `MutableState` 后，

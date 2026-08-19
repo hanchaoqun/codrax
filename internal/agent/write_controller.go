@@ -207,7 +207,9 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 					fmt.Fprintf(&b, " placement_delimiter=%s", c.Placement.Delimiter)
 				}
 			}
-			if c.Required {
+			if types.IsPlanningOnlyWriteBehaviorContract(c) {
+				b.WriteString(" planning_only=true")
+			} else if c.Required {
 				if types.IsHardRequiredWriteBehaviorContract(c) {
 					b.WriteString(" hard_required=true")
 				} else {
