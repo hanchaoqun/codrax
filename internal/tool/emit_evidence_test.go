@@ -3772,6 +3772,37 @@ func TestEmitEvidence_RequiredFlowRepairsMisclassifiedValueTransferAcrossLanguag
 	}
 }
 
+func TestEmitEvidence_StampsExplicitMemberInitializerContainerIdentity(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	source := "internal/context/builder.go"
+	line := "Mutable: bus.Mutable,"
+	seedReadFileHistory(ctx, source, 59, line)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangGo,
+			LineFeatures: map[int][]repomap.LineFeature{59: {repomap.LineFeatureMemberInitializer}},
+			MemberInitializerBindings: map[int][]repomap.MemberInitializerBinding{59: {{
+				Member: "Mutable", OwnerType: "AgentContext",
+			}}},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"AgentContext.Mutable","predicate":"assigns","object":"bus.Mutable","source":"internal/context/builder.go","line_start":59,"summary":"shared mutable state enters the agent context","anchor_kind":"initializer","anchor_symbol":"Mutable","snippet":"Mutable: bus.Mutable,"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("typed member initializer rejected, err=%v result=%+v", err, res)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].InitializerContainer != "AgentContext" {
+		t.Fatalf("parser-owned initializer container missing: %+v", got)
+	}
+	receiver, value, ok := types.AssignmentEvidenceEndpoints(got[0])
+	if !ok || receiver != "AgentContext.Mutable" || value != "bus.Mutable" ||
+		!types.AssignmentEvidenceEndpointsMatch(got[0]) {
+		t.Fatalf("typed initializer tuple=(%q,%q,%t), row=%+v", receiver, value, ok, got[0])
+	}
+}
+
 func TestEmitEvidence_RequiredFlowRepairsASTAnchorKindMismatchAcrossLanguages(t *testing.T) {
 	tests := []struct {
 		name        string

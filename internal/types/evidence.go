@@ -723,6 +723,12 @@ type EvidenceItem struct {
 	DeclaredBinding string `json:"declared_binding,omitempty"`
 	DeclaredType    string `json:"declared_type,omitempty"`
 	DeclaredOwner   string `json:"declared_owner,omitempty"`
+	// InitializerContainer is the parser-stamped, syntax-explicit owner type
+	// for a keyed/member initializer (for example AgentContext for
+	// `AgentContext{Mutable: bus.Mutable}`). It is not model-writable and only
+	// qualifies the already-grounded receiver identity; it never creates a
+	// relation kind, direction, or value endpoint.
+	InitializerContainer string `json:"initializer_container,omitempty"`
 	// DeclaredIdentityBindings are parser-stamped static bindings that occur
 	// inside this operation's already-validated exact endpoints. They only
 	// align endpoint identities with typed participants; they never add an

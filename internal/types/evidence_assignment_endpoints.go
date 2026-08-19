@@ -38,6 +38,13 @@ func AssignmentEvidenceEndpoints(item EvidenceItem) (receiver, value string, ok 
 			return "", "", false
 		}
 	}
+	if item.AnchorKind == AnchorInitializer {
+		container := strings.TrimSpace(item.InitializerContainer)
+		if container != "" && IsCodeIdentitySurface(container) &&
+			!AnswerCodeIdentityOwnsEndpoint(container, receiver) {
+			receiver = strings.TrimRight(container, ".:#") + "." + receiver
+		}
+	}
 	return receiver, value, true
 }
 

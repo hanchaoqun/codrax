@@ -36674,6 +36674,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `raw-request/model-plan/final-prose-hard-gate=none`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`。
 
+### §123.1119 B1123：成员 initializer 的接收端必须保留显式容器身份（2026-08-18）
+
+1. r710 中 Explorer 已在 `internal/context/builder.go:59` 正确提交
+   `subject=AgentContext.Mutable, object=bus.Mutable, anchor_kind=initializer`，且系统接受为 grounded
+   `assignment_fact`；但下游 `AssignmentEvidenceEndpoints` 只重解析单行 `Mutable: bus.Mutable`，把接收端降成裸
+   `Mutable`。因此 `bus.Mutable -> Mutable` 与 agent/stage 关系分在不同 typed component，模型最终只能删除更贴题但
+   无 authority 的阶段数据边。这不是模型没有发现源码，而是系统在接受后丢了 parser 已知的外层对象身份。
+2. 根修新增 FileInfo 的 parser-owned `member_initializer_bindings[line] = (member, owner_type)` 载体，并将 cache schema
+   升为 v6。只在 AST 精确证明“这个成员属于这个显式类型”时发布：Go keyed composite、Rust struct expression、
+   TypeScript/ArkTS 带显式类型的 object、C/C++ designated initializer；相应 extractor generation 已 bump，避免暖缓存
+   静默保留旧裸端点。
+3. grounded initializer 只在成员名唯一匹配该 parser tuple 时获得只读 `InitializerContainer`，canonical endpoint 才从
+   `Mutable` 变成 `AgentContext.Mutable`。原 assignment/initializer 行仍是 relation kind、方向、RHS 与 source location
+   的唯一 authority；容器载体只补身份，不创建边、不选择边、不修改模型图或结论。
+4. 无显式 nominal type 的 JS/Python object/dict、未标注 TS object、嵌套匿名 object，以及 Cangjie/Java/Kotlin/Swift/
+   Ruby/Lua 等语法中不等价的 named-call/collection 形态均保持空 owner、裸 receiver 或原有 assignment 语义，禁止借
+   外层对象/大小写/命名猜类型。也就是说是全语言统一的能力边界：有 parser-owned 显式容器才提升，其他语言/形态
+   fail-closed，而不是按 case 字符串硬补 `AgentContext`。
+5. pins 覆盖六种显式类型正形、ArkTS early-return 接线、生产 `parseOneFile` 接线、JS/TS untyped 与嵌套匿名对象负形、
+   错 owner 不匹配，以及 emit_evidence 端到端 `bus.Mutable -> AgentContext.Mutable` canonical tuple。repomap 全套、
+   `internal/types` 全套与 `internal/tool` 全套全绿（tool 177.218s）。
+6. 该批不读取 raw request、模型 reasoning、最终答案或 Mermaid 文本，不改变 participant hard gate；B1124 仍只负责
+   从已有 typed operations 中按请求 relation axis 排候选，不会与本批合并成系统代画。
+
+状态：
+
+`B1123-COMPOSITELITERALRECEIVER1=implemented/parser-owned-cross-language+pinned/replay-next`；
+`explicit-owner languages=Go/Rust/TypeScript/ArkTS/C/C++`；
+`untyped/ambiguous/named-call initializer=fail-closed`；
+`system-relation/diagram/answer/conclusion-authorship=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

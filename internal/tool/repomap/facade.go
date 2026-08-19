@@ -29,22 +29,23 @@ import (
 // ---- type re-exports ------------------------------------------------
 
 type (
-	Graph            = types.Graph
-	FileInfo         = types.FileInfo
-	Symbol           = types.Symbol
-	Import           = types.Import
-	Relation         = types.Relation
-	RelationEndpoint = types.RelationEndpoint
-	Metadata         = types.Metadata
-	UnresolvedImport = types.UnresolvedImport
-	SymbolID         = types.SymbolID
-	MethodKey        = types.MethodKey
-	ViewParams       = types.ViewParams
-	LineFeature      = types.LineFeature
-	FileEntry        = index.FileEntry
-	ViewData         = render.ViewData
-	ViewSection      = render.ViewSection
-	ViewItem         = render.ViewItem
+	Graph                    = types.Graph
+	FileInfo                 = types.FileInfo
+	Symbol                   = types.Symbol
+	Import                   = types.Import
+	Relation                 = types.Relation
+	RelationEndpoint         = types.RelationEndpoint
+	Metadata                 = types.Metadata
+	UnresolvedImport         = types.UnresolvedImport
+	SymbolID                 = types.SymbolID
+	MethodKey                = types.MethodKey
+	ViewParams               = types.ViewParams
+	LineFeature              = types.LineFeature
+	MemberInitializerBinding = types.MemberInitializerBinding
+	FileEntry                = index.FileEntry
+	ViewData                 = render.ViewData
+	ViewSection              = render.ViewSection
+	ViewItem                 = render.ViewItem
 )
 
 // ---- LineFeature value re-exports -----------------------------------

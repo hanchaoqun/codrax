@@ -4833,6 +4833,17 @@ func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Conte
 		it.OwnerIdentity = owner
 		changed = true
 	}
+	initializerContainer := ""
+	if it.AnchorKind == types.AnchorInitializer {
+		_, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
+		if ok && fi != nil {
+			initializerContainer = parserMemberInitializerContainer(fi, *it)
+		}
+	}
+	if it.InitializerContainer != initializerContainer {
+		it.InitializerContainer = initializerContainer
+		changed = true
+	}
 	if it.AnchorKind != types.AnchorDefinition {
 		graph, fi, _, _, ok := ground.ResolveSourceGraphFile(gc, it.Source)
 		var bindings []types.EvidenceDeclaredIdentityBinding
@@ -4890,6 +4901,33 @@ func stampEvidenceTypedIdentityBindings(it *types.EvidenceItem, gc *ground.Conte
 		changed = true
 	}
 	return changed
+}
+
+func parserMemberInitializerContainer(fi *repomap.FileInfo, it types.EvidenceItem) string {
+	if fi == nil || it.AnchorKind != types.AnchorInitializer || it.LineStart <= 0 {
+		return ""
+	}
+	probe := it
+	probe.InitializerContainer = ""
+	receiver, _, ok := types.AssignmentEvidenceEndpoints(probe)
+	if !ok {
+		return ""
+	}
+	matched := ""
+	for _, binding := range fi.MemberInitializerBindings[it.LineStart] {
+		if !types.AnswerCodeIdentitySurfacesCompatible(receiver, binding.Member) {
+			continue
+		}
+		owner := strings.TrimSpace(binding.OwnerType)
+		if owner == "" {
+			continue
+		}
+		if matched != "" && !types.AnswerCodeIdentitySurfacesCompatible(matched, owner) {
+			return ""
+		}
+		matched = owner
+	}
+	return matched
 }
 
 func parserDeclaredIdentityBindingsForOperation(graph *repomap.Graph, fi *repomap.FileInfo, it types.EvidenceItem) []types.EvidenceDeclaredIdentityBinding {

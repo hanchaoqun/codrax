@@ -393,6 +393,21 @@ type FileInfo struct {
 	// "AST features not available" (regex-only Tier 3+ fallback);
 	// callers treat absence as "no signal" rather than guessing.
 	LineFeatures map[int][]LineFeature `json:"line_features,omitempty"`
+	// MemberInitializerBindings preserves the explicit container type and
+	// member identity for parser-owned keyed/member initializer nodes. It is
+	// intentionally absent for untyped object/dict literals and named call
+	// arguments: only a syntax-explicit composite owner can qualify a bare
+	// initializer field as Type.Member for downstream identity alignment.
+	MemberInitializerBindings map[int][]MemberInitializerBinding `json:"member_initializer_bindings,omitempty"`
+}
+
+// MemberInitializerBinding is a parser-owned identity tuple for one exact
+// value-bearing member initializer. It describes identity only; the grounded
+// assignment/initializer row remains the sole authority for value-flow kind,
+// direction, value endpoint, and source location.
+type MemberInitializerBinding struct {
+	Member    string `json:"member"`
+	OwnerType string `json:"owner_type"`
 }
 
 // LineFeature tags a typed AST node-shape observation at a

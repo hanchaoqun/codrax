@@ -38,6 +38,29 @@ func TestAssignmentEvidenceEndpointsMatchCrossLanguageSimpleTransfers(t *testing
 	}
 }
 
+func TestAssignmentEvidenceEndpointsQualifiesParserStampedInitializerContainer(t *testing.T) {
+	item := EvidenceItem{
+		AnchorKind: AnchorInitializer, InitializerContainer: "AgentContext",
+		Subject: "AgentContext.Mutable", Object: "bus.Mutable",
+		Snippet: "Mutable: bus.Mutable,",
+	}
+	receiver, value, ok := AssignmentEvidenceEndpoints(item)
+	if !ok || receiver != "AgentContext.Mutable" || value != "bus.Mutable" ||
+		!AssignmentEvidenceEndpointsMatch(item) {
+		t.Fatalf("qualified initializer tuple=(%q,%q,%t) match=%t", receiver, value, ok, AssignmentEvidenceEndpointsMatch(item))
+	}
+	wrongOwner := item
+	wrongOwner.Subject = "OtherContext.Mutable"
+	if AssignmentEvidenceEndpointsMatch(wrongOwner) {
+		t.Fatalf("different model-authored owner gained initializer authority: %+v", wrongOwner)
+	}
+	withoutParserStamp := item
+	withoutParserStamp.InitializerContainer = ""
+	if receiver, _, _ := AssignmentEvidenceEndpoints(withoutParserStamp); receiver != "Mutable" {
+		t.Fatalf("unstamped initializer must remain bare, got receiver=%q", receiver)
+	}
+}
+
 func TestAssignmentEvidenceEndpointsAcceptsExactFullRHSExpressionButKeepsCanonicalIdentity(t *testing.T) {
 	tests := []struct {
 		name, snippet, subject, object, wantValue string

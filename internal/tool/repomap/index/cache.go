@@ -216,7 +216,9 @@ const (
 	// container is retired (chunked manifest only).
 	// v5: FileInfo persists parser-owned ControlFlowBranches so warm and cold
 	// scans expose identical condition/case -> effect ownership.
-	cacheSchemaVersion = 5
+	// v6: FileInfo persists syntax-explicit member-initializer container
+	// identities so warm and cold relation endpoints preserve Type.Member.
+	cacheSchemaVersion = 6
 )
 
 const cacheFileInfosChunkSize = 1024
@@ -229,21 +231,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         9,  // parser-owned lexical control branches
+	types.LangGo:         10, // explicit composite member-owner identity
 	types.LangJava:       9,  // parser-owned lexical control branches
 	types.LangPython:     10, // parser-owned lexical control branches
 	types.LangJavaScript: 8,  // parser-owned lexical control branches
-	types.LangTypeScript: 10, // parser-owned lexical control branches
-	types.LangArkTS:      11, // TS-backed parser-owned lexical control branches
+	types.LangTypeScript: 11, // explicit typed object member-owner identity
+	types.LangArkTS:      12, // TS-backed explicit typed object member-owner identity
 	types.LangCangjie:    8,  // lexer-backed guard features and balanced control branches
 	types.LangKotlin:     9,  // parser-owned lexical control branches
 	types.LangRuby:       5,  // parser-owned lexical control branches
 	types.LangSwift:      8,  // parser-owned lexical control branches
 	types.LangLua:        6,  // parser-owned lexical control branches
 	types.LangProto:      3,  // message fields carry parser-owned declared types
-	types.LangRust:       9,  // parser-owned lexical control branches
-	types.LangC:          8,  // preprocessor-branch declarations + parser-owned lexical control branches
-	types.LangCpp:        9,  // preprocessor-branch declarations + parser-owned lexical control branches
+	types.LangRust:       10, // explicit struct member-owner identity
+	types.LangC:          9,  // explicit designated-initializer owner identity
+	types.LangCpp:        10, // explicit designated-initializer owner identity
 }
 
 type cacheFileInfosManifest struct {
