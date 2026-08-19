@@ -35703,6 +35703,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     Finalizer 中文提示必须把 diagram 与 member_set 分成第 4/5 维并明确“先图、图后清单”。目标测试均绿；
     仍需生产回放确认 Analyzer 实际铸出两条维度并由模型完成图后关键函数清单，未提前虚报闭环。
 
+### §123.1138 r719：多展示面 carrier 生效；member roster 与端点边 facet 冲突（2026-08-18）
+
+1. 在 `main@596cb2a8f` 重建后严格并发恰好两个案例：
+   `real_trace_h4_supply_thermal_witness + qf_sequence_analyzer_gate`。Runner `2 PASS / 2`，人工均为
+   partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_io_caliber_sequence_r719_20260818_manual_audit.md`。
+2. B1144 的 Analyzer 半链获得生产正证：分析结果稳定铸出两个独立 typed 维度，顺序为
+   `① Mermaid 时序图`、`② 关键中间函数`。终稿也保住了 compiler/risk/hdp/binder/RunWith 五项清单，
+   不再出现“图吸收清单”的内容丢失；但该清单仍排在图前，因此 visible layout/order 尚未闭环。
+3. 新确认 B1145/P1：QFCallChain 要求 exact endpoint edge 的 `principal_path_edge` carrier，而用户另行要求的
+   `member_set` 是 descriptive key-function roster。第一稿把两种职责合到一个 ordered-list，给 roster 同时挂
+   `member_set + principal_path_edge + call_edge`；精确 ownership gate 正确拒绝，但模型连续三轮才完成拆块，
+   形成确定性的成文重试开销。最优解是前置 typed block-ownership 教学/计划：member roster 默认不继承端点边
+   facet/claim；只有清单本身恰为 exact endpoint-edge set 时才能合并。不得扫描函数名或终稿文本纠偏。
+4. sequence 最终关系保持真实：`buildAnalysisIR -> gate.RunWith <- gate.Run`；未伪造不存在的
+   `buildAnalysisIR -> gate.Run`，Mermaid 可渲染且 source repair 生效一次。三次 reject 是 typed facet 合同冲突，
+   不是畸形 JSON、关系丢失或模型结论降级。
+5. H4 数值和 policy binding 继续正确。B1143 获生产正证：Sleep 仅解释为可中断休眠，不再声称 voluntary
+   yield/preemption 等机制。B1142 有改善但仍 partial：D/io_wait 已显式收窄到不可中断/内核标记口径，终稿却
+   仍泄漏 `target_window_wait_occurrences=0,status=complete`，且没有把未出现的 completion-closed S-state ruler
+   说明为“本状态分区未评估”；B1139 继续开放，禁止用答案关键词硬拒或系统改写处理。
+6. H4 是有限影响问题，`root_cause_views=0/projection_blocks=0` 正确；真正 causal-diagnosis 的显式窗、自动补齐、
+   typed on-chain-only 主因以及实际占用/业务线索与规则可消除量双轴均未改。两案均无 active-stream 4ms 降级、
+   空答案、fallback 代答或系统结论替换。
+
+状态：
+
+`B1142-IWAITCALIBERWORDING1=production-improved-r719/still-partial/absent-completion-ruler-not-visible`；
+`B1143-SCHEDULERSTATEMECHANISMAUTHORITY1=production-positive-r719`；
+`B1144-MULTISURFACEDIMENSIONORDER1=analyzer-carrier-production-positive/content-preserved/layout-order-partial`；
+`B1145-MEMBERSETENDPOINTFACETCOLLISION1=confirmed/P1/three-finalizer-rejects/general-typed-root-fix-next`；
+`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-reconfirmed-r719/P2/no-prose-keyword-gate`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1136 r717：D/IO 零清单闭环；scheduler-marked 与 completion-closed IO 等待同名冲突（2026-08-18）
 
 1. 在 `main@9ed080a18` 重建后严格并发恰好两个案例：
