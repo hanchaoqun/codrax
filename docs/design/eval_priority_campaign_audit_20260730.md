@@ -52999,3 +52999,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+### §123.1132 r714：写合同权威生产闭环；参与者关系精确映射发布过晚（2026-08-18）
+
+1. 在 `main@660d47f67` 重建后严格并发恰好两个案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + qf_logic_view_read_pipeline`。Runner `2 PASS / 2`；
+   人工写案例 pass、读模式图 partial。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_write_context_display_identity_r714_20260818_manual_audit.md`。
+2. B1132 获生产正证：模型自拟的三个精确边界均被降为 `authority=planning_only`，仍供 planner 参考，
+   但不进入 required/hard verifier。Controller 完成 plan/apply/verify/finish，补丁只改目标 Python 文件，
+   普通 merge 与五换行回归均通过。请求权威由系统绑定，模型无法借自回显把举例升级成硬合同。
+3. B1131 的旧 `missing_task_input` 未复现，任务与 workflow 状态贯穿 controller 全程；本轮未经过无工具
+   重试分支，所以只记生产无回归，专门分支仍由 exact unit pin 负责，避免虚报生产正臂。
+4. B1133 获生产正证：终稿图明确保留用户指定 `Mutable`，源码解析到 `MutableState` 不再覆盖显示身份。
+   图最终包含四阶段 precedence、BusContext→BuildAgentContext 参数传递及 BuildAgentContext→Mutable 调用。
+5. 新确认 B1134/P1。首轮 prompt 已有全部 typed 关系，也把 BusContext/Mutable 标为 incident，但只给通用
+   relation capsule，没有给“候选关系的哪一端可映射到哪个指定参与者 node id、业务箭头标签是什么”的
+   参与者级 recipe。模型自行画错三条边并额外加 boundary；hard gate 正确拒绝。模型删边后，失败提示才首次
+   发布精确 `typed_candidate[BusContext/Mutable]`，最终经历 4 次拒绝、5 次尝试、87,407 tokens。
+6. 根修应让首轮 authoring context 与 hard gate 复用同一 typed candidate 解析器，前置发布有界候选及
+   `visible_arrow_label`。候选只给模型选择，不造边、不代画、不确权结论；无候选仍走 honest boundary。
+   不放松关系 gate，不按用户/模型/答案原文关键词判定。终稿 raw `call` 与偏内部“系统补充”另记 P2
+   展示债，先以业务标签 recipe 软降低，不做答案删除/替写。
+7. 本批无 Trace 改动。显式窗、因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则可消除量
+   双轴均保持；背景不能晋升主因。活跃流不因 4ms 或固定累计年龄降级，系统不代替模型形成答案结论。
+
+状态：
+
+`B1131-WRITECONTROLLERRETRYCONTEXT1=production-no-regression/direct-retry-arm-unit-pinned`；
+`B1132-WRITECONTRACTAUTHORITY1=production-positive-r714`；
+`B1133-DIAGRAMPARTICIPANTDISPLAYIDENTITY1=production-positive-r714`；
+`B1134-DIAGRAMPARTICIPANTCANDIDATEFIRSTPASS1=confirmed/P1/next`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
