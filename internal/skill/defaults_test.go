@@ -418,6 +418,44 @@ func TestWriteSkillsCarryStateTransitionsWithoutProseHardGate(t *testing.T) {
 	}
 }
 
+func TestChangePlanSkillTeachesGeneralBoundaryPartitionsWithoutChoosingSemantics(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	planner, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	text := allWorkflowBodies(planner)
+	for _, want := range []string{
+		"BOUNDARY-PARTITION VERIFICATION",
+		"counts, ranges, consecutive runs, batches, windows, or sequences",
+		"typed behavior contracts, verified current code, and existing tests",
+		"no-op/below-activation class",
+		"minimum triggering class",
+		"odd/even classes only where the operation makes them semantically distinct",
+		"mixed neighboring items",
+		"one nominal regression case cannot establish behavior",
+		"Do not invent expected values or choose an implementation for the user",
+		"language-neutral soft planning guidance",
+		"only executed native tests or valid probes own verification authority",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("planner boundary-partition guidance missing %q:\n%s", want, text)
+		}
+	}
+	lower := strings.ToLower(text)
+	for _, banned := range []string{
+		"if the user says",
+		"raw request contains",
+		"scan the final answer",
+		"hard-reject when the task mentions",
+	} {
+		if strings.Contains(lower, banned) {
+			t.Fatalf("planner boundary-partition guidance contains prose-routing smell %q", banned)
+		}
+	}
+}
+
 // TestExploreSkillR6_NoInternalGateJargon — 2026-05-10 audit. The
 // EVIDENCE_FLOOR_WAIVER skill prompt described the waiver's effect
 // using internal pipeline gate names ("forced-read and citation-

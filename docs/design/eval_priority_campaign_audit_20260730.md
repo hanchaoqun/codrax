@@ -36851,6 +36851,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`；
 `active-stream-fixed-age-degrade=forbidden`。
 
+### §123.1124 B1126：计数/区间/连续段/序列变换的通用边界分区验证教学（2026-08-18）
+
+1. r711 写案不是单个 tokenizer type 的偶发拟合问题：实现面对“连续段按 cardinality 变换”时，只用一个五元素正例和一个
+   feature 未触发的普通输入签绿；singleton/below activation、minimum trigger、odd/even/longer 与 mixed neighbors 没有被区分，
+   因而 `count % 2` 两臂相同、所有单个 newline 也被替换的错误逃出 verify。
+2. 现有 planner 长段 probe 说明虽提到 run-length/cardinality 的 triggering + nearby non-triggering，但位置晚、只给一组示例，不能稳定
+   建立“先划分语义域，再判断现有测试覆盖”的规划步骤。根修不是 tokenizer 专项 validator，而是在 ChangePlan 高层 workflow 增加
+   `BOUNDARY-PARTITION VERIFICATION` 通用软教学。
+3. 适用面是 changed production behavior 对 count/range/consecutive run/batch/window/sequence 的变换或分组；分区来源只允许 typed
+   behavior contract、已读当前实现与 existing tests。建议检查 no-op/below activation、minimum trigger、只有在运算确实区分时才检查
+   odd/even/longer，以及可能跨边界聚类时的 mixed neighbors；已有测试覆盖的分区不重复新增，只补最小缺口。
+4. 系统不规定任何 expected value、算法或实现形；期待值必须来自现有 invariant、typed contract、可读 upstream reference 或项目测试权威，
+   无权威的分区保留为待验证项。该教学明确为 language-neutral soft planning guidance，只有实际执行的 native tests/valid probes 能确权。
+5. Pin 固定上述完整分区、最小缺口、期望值来源和软权限，并负钉 `if the user says`、raw-request/final-answer scan 与按 task mentions
+   hard reject。`go test ./internal/skill -count=1` 与 `git diff --check` 全绿；未新增 planner/emit/apply/verifier 硬门。
+6. 该方案对 Go/Python/JS/TS/Java/Rust/C/C++/ArkTS/Cangjie 等共用 ChangePlan 车道一致生效，不依赖文件后缀或单个 type 名。
+   Read/Trace 路径零改动；显式窗、因果投影、系统补齐、链上-only 主因、业务语义、实际占用/规则可消双轴与 active-stream liveness
+   均保持原权属。
+
+状态：
+
+`B1126-SEQUENCEBOUNDARYPARTITIONVERIFY1=implemented/general-soft-guidance+pinned/replay-next`；
+`partition-source=typed-contract+verified-source+existing-tests`；
+`expected-semantics=project-authority-only/system-does-not-choose`；
+`raw-request/model-output/final-answer-hard-gate=none`；
+`language/type-specific-overfit=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`；
+`active-stream-fixed-age-degrade=forbidden`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与
