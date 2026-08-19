@@ -339,6 +339,64 @@ func TestR2_FiresOnCrossComponentEnumeration(t *testing.T) {
 	}
 }
 
+func TestR2_DoesNotSplitCoupledRequiredArchitectureDiagramByIdentifierAffix(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{
+			"Analyzer", "AnalyzerDecisionSignal",
+			"Mutable", "MutableState",
+			"StageOutput", "StageReport",
+		}},
+		DiagramHint: &types.DiagramHint{
+			Kind: types.DiagramArchitecture, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+			},
+		},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 0 {
+		t.Fatalf("one coupled relation diagram must keep one shared investigation, got %+v", got.SubTopics)
+	}
+	if r2 := collectR2Observations(obs); len(r2) != 0 {
+		t.Fatalf("identifier affixes must not split required diagram participants: %+v", r2)
+	}
+}
+
+func TestR2_DoesNotSplitGenericRequiredRelationDiagramWithoutEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"StageProducer", "StageConsumer"}},
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramFlow, Required: true},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 0 || len(collectR2Observations(obs)) != 0 {
+		t.Fatalf("required relation surface must remain coupled: topics=%+v obs=%+v", got.SubTopics, obs)
+	}
+}
+
+func TestR2_RequiredDiagramDoesNotHideExplicitCrossComponentEnumeration(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"AgentExplorer", "AgentExtractor"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 2 || len(collectR2Observations(obs)) != 1 {
+		t.Fatalf("explicit cross-component enumeration must retain per-member lanes: topics=%+v obs=%+v", got.SubTopics, obs)
+	}
+}
+
 // TestR2_DropsNonIdentifiers covers the case where AnalyzerHints
 // contains a mix of identifiers and prose phrases. R2 should
 // affix-group only the identifiers and emit a clean SubTopic set.

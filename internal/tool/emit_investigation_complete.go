@@ -3572,6 +3572,16 @@ func flowOperationEvidenceRequired(ctx *types.BusContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
 	}
+	// A probe node is a scheduler-owned breadth pass whose output is a bounded
+	// navigation handoff. It must not be asked to close the request-wide
+	// producer/transfer/consumer graph before the evidence node starts. The
+	// evidence and reconcile lanes retain this gate, as does final answer edge
+	// validation. This precise dispatch-kind carve-out prevents one global
+	// participant deficit from being independently retried inside every forked
+	// probe closure; it does not weaken the source-relation contract.
+	if ctx.ExploreDispatchKind == types.NodeProbe {
+		return false
+	}
 	rm := ctx.AnalysisIR.RequestModel
 	// Finite runtime fact/effect scopes own their completion breadth. An
 	// analyzer may legitimately select AxisFlow for a requested runtime value

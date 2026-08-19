@@ -223,6 +223,13 @@ func commonAffix(group []string) string {
 //  4. distinctEntityCount(rm.AnalyzerHints.Entities) ≥ 2
 //     (an empty or single-entity model has nothing to group).
 //  5. commonAffixGroups returns at least one qualifying group.
+//  6. NOT a coupled required relation diagram / architecture narrative
+//     without an explicit enumeration boundary. Participants in one required
+//     flow, sequence, call graph, or architecture view must be investigated
+//     together because the requested facts are their relations. Identifier
+//     affixes are search hints in that shape, not proof of independent answer
+//     lanes. Explicit category enumeration, completeness, declared member
+//     counts, and multiple requested buckets retain the existing R2 path.
 //
 // Source choice — like R1, R2 reads rm.AnalyzerHints.Entities
 // rather than rm.TermGraph.Canonical. The original design used
@@ -255,6 +262,9 @@ func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) 
 	if out.Predicates.IsScalarAnswer {
 		return nil
 	}
+	if r2CoupledRelationDiagramUsesSharedInvestigation(*out) {
+		return nil
+	}
 	if distinctEntityCount(out.AnalyzerHints.Entities) < minGroupSize {
 		return nil
 	}
@@ -285,6 +295,33 @@ func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) 
 		After:  fmt.Sprintf("%d", len(derived)),
 		Reason: fmt.Sprintf("AnalyzerHints.Entities has %d affix-grouped families: %s",
 			len(groups), strings.Join(groupAffixes, ", ")),
+	}
+}
+
+// r2CoupledRelationDiagramUsesSharedInvestigation is the typed boundary
+// between one relation surface and genuinely independent subject lanes. It
+// deliberately does not inspect RawRequest, entity names, model prose, or
+// repository content. An explicit set/table/bucket obligation wins because
+// that shape can legitimately benefit from per-member evidence lanes.
+func r2CoupledRelationDiagramUsesSharedInvestigation(rm types.RequestModel) bool {
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.HasPerMemberTable ||
+		rm.CompletenessObligation.IsActive() ||
+		(rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0) ||
+		len(rm.QuestionStructure().Buckets) >= 2 {
+		return false
+	}
+	if types.IsArchitectureNarrativeExplanation(rm) {
+		return true
+	}
+	if rm.DiagramHint == nil || !rm.DiagramHint.Required {
+		return false
+	}
+	switch rm.DiagramHint.Kind {
+	case types.DiagramFlow, types.DiagramSequence, types.DiagramCallDAG, types.DiagramArchitecture:
+		return true
+	default:
+		return false
 	}
 }
 

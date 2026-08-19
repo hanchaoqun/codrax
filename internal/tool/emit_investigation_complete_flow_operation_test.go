@@ -117,6 +117,41 @@ func TestEmitInvestigationComplete_FlowDefinitionsRequestOneOperationPass(t *tes
 	}
 }
 
+func TestEmitInvestigationComplete_ProbeDefersRequestWideFlowCompletionGates(t *testing.T) {
+	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})
+	ctx.ExploreDispatchKind = types.NodeProbe
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	res, err := (&EmitInvestigationComplete{}).Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute probe: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() || res.Repair != nil ||
+		strings.Contains(res.Summary, "operation-level transfer") ||
+		strings.Contains(res.Summary, "participant relation") {
+		t.Fatalf("probe should close its navigation pass without request-wide relation repair: %+v", res)
+	}
+	if got := ctx.Mutable.EvidenceClosure().Stats().PreCompleteDowngrades; got != 0 {
+		t.Fatalf("probe must not spend request-wide relation downgrade rounds, got %d", got)
+	}
+
+	evidenceCtx := flowOperationCompletionContext([]types.EvidenceItem{definition})
+	evidenceCtx.ExploreDispatchKind = types.NodeEvidence
+	evidenceCtx.AnalysisIR.RequestModel.DiagramHint = ctx.AnalysisIR.RequestModel.DiagramHint
+	evidenceRes, err := (&EmitInvestigationComplete{}).Execute(evidenceCtx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("Execute evidence: %v", err)
+	}
+	if evidenceRes.Repair == nil || evidenceRes.Repair.Code != "flow_operation_carrier_evidence" {
+		t.Fatalf("evidence lane must retain request-wide relation proof gate: %+v", evidenceRes)
+	}
+}
+
 func TestEmitInvestigationComplete_FlowOperationClosesNextAttempt(t *testing.T) {
 	definition := flowOperationEvidence(types.AnchorDefinition, "Pipeline", "stages", 10)
 	ctx := flowOperationCompletionContext([]types.EvidenceItem{definition})

@@ -35697,13 +35697,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     同批 H4 oracle 接受中英 `Running/运行`、`Runnable/可运行` 的等价表述，并把 policy witness 与绑定未证
     检查改为跨段语义共现；仍钉住 157.248/5.604/70.338/0.000 与 CPU4 2100000kHz，不降低证据要求。
     上轮生产正文经新 oracle 离线复验通过；`go test ./internal/agent -count=1` 全绿。
+11. N2 已施工。R2 amplifier 增加 schema-only 的“耦合必需关系图”边界：没有 category enumeration、
+    per-member table、completeness、declared count 或多 bucket 的 required flow/sequence/call-DAG/architecture
+    图，以及 architecture narrative，保持一个共享调查面；标识符前后缀只作搜索提示，不再把参与者铸成
+    独立 subtopic。显式 cross-component enumeration + required diagram 的正臂测试确认原多车道能力保留。
+12. 同批把 request-wide flow operation/participant completion gate 从 scheduler-owned `NodeProbe` 精确排除。
+    Probe 只负责定位候选入口，可在定义/导航证据后完成自己的节点；相同上下文换成 `NodeEvidence` 仍立即
+    要求 `flow_operation_carrier_evidence`，证明关系证据杆没有被降低。Finalizer 的 typed edge/participant
+    gate 也完全未改。R2 三个正负矩阵与 probe/evidence 成对 pin 已通过；
+    `go test ./internal/analysis/... -count=1`、编排专项与
+    `go test ./internal/tool -count=1`（178.691s）全绿。
 
 状态：
 
 `B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-positive-r721/per-cpu-reader-join-implemented`；
 `B1146-RUNTIMECPUJOINREADERLANGUAGE1=implemented/exact-target-window-cpu+pinned/pending-replay`；
-`B1147-COUPLEDRELATIONSUBTOPICAMPLIFICATION1=confirmed/P0/N2`；
-`B1148-PROBEGLOBALFLOWCOMPLETIONGATE1=confirmed/P0/N2`；
+`B1147-COUPLEDRELATIONSUBTOPICAMPLIFICATION1=implemented/typed-diagram+enumeration-carveout-pinned`；
+`B1148-PROBEGLOBALFLOWCOMPLETIONGATE1=implemented/probe-defer+evidence-gate-positive-pinned`；
 `H4-BILINGUAL-SEMANTIC-ORACLE=implemented/offline-r721-positive/pending-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
