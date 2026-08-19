@@ -950,6 +950,18 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		// A parser-owned call is the only relation kind in this candidate
+		// pool that can expose a complete value argument. Prefer that
+		// operation coordinate before counting lexical participant touches:
+		// a type_usage/reference beside two requested labels still cannot
+		// produce the missing transfer row, while the call can be inspected
+		// for its exact argument/receiver handoff. This remains navigation
+		// only; no call, argument, participant incidence, or diagram edge is
+		// minted here. Within the same parser relation kind the existing
+		// multi-participant and whole-carrier ranks retain their ordering.
+		if candidates[i].kindRank != candidates[j].kindRank {
+			return candidates[i].kindRank > candidates[j].kindRank
+		}
 		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
 			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
 		}
@@ -967,9 +979,6 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 		if candidates[i].matchRank != candidates[j].matchRank {
 			return candidates[i].matchRank > candidates[j].matchRank
-		}
-		if candidates[i].kindRank != candidates[j].kindRank {
-			return candidates[i].kindRank > candidates[j].kindRank
 		}
 		// When two coordinates are equally useful, spend the repair on fresh
 		// source. Crucially, read state is below semantic quality: a direct

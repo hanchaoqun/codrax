@@ -2030,6 +2030,84 @@ func TestFlowOperationNavigationPrefersDirectMultiParticipantOperationOverUnrela
 	}
 }
 
+func TestFlowOperationNavigationPrefersValueHandoffCallOverMultiParticipantTypeOccurrenceAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			typeUsePath := filepath.ToSlash(filepath.Join("src", language, "analyzer.src"))
+			ownerPath := filepath.ToSlash(filepath.Join("src", language, "orchestrator_owner.src"))
+			handoffPath := filepath.ToSlash(filepath.Join("src", language, "extract_handoff.src"))
+			for path, body := range map[string]string{
+				typeUsePath: strings.Join([]string{
+					"analyzer bus context helper", "", "", "", "", "", "", "", "", "BusContext local view",
+				}, "\n"),
+				ownerPath: "orchestrator owns bus context",
+				handoffPath: strings.Join([]string{
+					"extract stage handoff", "", "", "", "", "", "", "", "", "builder.BuildAgentContext(this.busContext, AgentExtractor)",
+				}, "\n"),
+			} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "analyzer", ResolvedAs: "analyzerEvaluator", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "extractor", Resolution: types.EntityResolutionInferredConcept},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramArchitecture, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				typeUsePath: {
+					RelPath: typeUsePath, Language: language,
+					Symbols: []repotypes.Symbol{{Name: "inspect", Kind: "method", Receiver: "analyzerEvaluator", Line: 1, EndLine: 10}},
+					Relations: []repotypes.Relation{{
+						Kind: "type_usage", File: typeUsePath, Line: 10,
+						FromEP:     repotypes.RelationEndpoint{Line: 10},
+						ToEP:       repotypes.RelationEndpoint{Name: "BusContext", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+				ownerPath: {
+					RelPath: ownerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{Name: "busContext", Kind: "field", Parent: "Orchestrator", DeclaredType: "BusContext", Line: 1}},
+				},
+				handoffPath: {
+					RelPath: handoffPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{Name: "extract", Kind: "method", Receiver: "Orchestrator", Line: 1, EndLine: 10}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: handoffPath, Line: 10,
+						FromEP:     repotypes.RelationEndpoint{Line: 10},
+						ToEP:       repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+			}))
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != handoffPath || target.lineRange != (types.LineRange{Start: 1, End: 22}) {
+				t.Fatalf("%s complete carrier handoff call must outrank a multi-label type occurrence: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("value-handoff navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationBalancesBindingBudgetAcrossMissingParticipantsAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {

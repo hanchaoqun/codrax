@@ -35823,11 +35823,23 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    等规范化等价副本只显示一次。生产同形、合法消息负臂与 canonical render dedupe 均已钉；
    `go test ./internal/render ./internal/tool -count=1` 全绿（tool 180.045s）。该修复不校验/修正图关系，
    不给 rejected draft 增加权限，也不把附件提升为结构化主体。
+8. B1151 已对生产图形进一步否证后施工。当前 repomap 没有丢失关系：
+   `Orchestrator.busCtx:*types.BusContext`、`extractStageHasRequiredWork` 的 enclosing owner、
+   `BuildAgentContext(o.busCtx, types.AgentExtractor, types.StageExtract)` 调用与完整参数都可由 parser/index
+   精确恢复。断层发生在 soft navigation 排序：`type_usage/reference` 即使因 owner/type 词面同时触达两个
+   participant，也只能把 Explorer 再带到定义/类型出现处，不能生成缺失的 transfer row；而 parser-owned
+   `call` 才能继续检查完整 argument/receiver handoff。现将 relation kind 的 operation quality 排到
+   participant-touch 之前；同为 call 的候选仍按多参与者、完整 carrier、owner bridge、handoff 与 read state
+   原顺序选举，因此不会让无关 complete argument 压过真实多参与者 call。没有铸造证据、边或结论。
+   新测试在全部 15 种读语言（含 ArkTS/Cangjie）构造“多标签 type occurrence 与完整 carrier handoff 竞争”形：
+   旧排序 15/15 选择 type occurrence 并失败，新排序 15/15 选择 value handoff；既有“直接多参与者 operation
+   高于无关 carrier argument”负臂及同 owner/跨文件/嵌套 carrier 矩阵同步全绿。
+   `go test ./internal/tool -count=1` 全绿（179.965s），`make` 全绿；待 production replay。
 
 状态：
 
 `B1150-PARTICIPANTARGUMENTMEMBERCOMPONENT1=implemented/pending-production-trigger`；
-`B1151-CARRIERHANDOFFNAVIGATIONQUALITY1=confirmed/P1/next`；
+`B1151-CARRIERHANDOFFNAVIGATIONQUALITY1=implemented/parser-operation-quality-first+15-language-pin/pending-replay`；
 `B1152-RECOVEREDDIAGRAMJSONTAILDEDUP1=implemented/recovery-boundary+canonical-render-dedupe+pinned/pending-replay`；
 `B1149-STRUCTUREDLISTROWATTRIBUTERENDER1=confirmed/P2/pending`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
