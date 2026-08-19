@@ -157,6 +157,31 @@ func TestAppendCompletionCaveat_DedupByLane(t *testing.T) {
 	}
 }
 
+func TestCompletionCaveatScopedBlockersRemainIndependent(t *testing.T) {
+	c := NewEvidenceClosure("")
+	const lane = DowngradeLaneRequiredRelationItemValidation
+	c.AppendCompletionCaveat(CompletionCaveat{Lane: lane, BlockerKey: 101, Reason: "first relation unproven"})
+	c.AppendCompletionCaveat(CompletionCaveat{Lane: lane, BlockerKey: 101, Reason: "duplicate"})
+	c.AppendCompletionCaveat(CompletionCaveat{Lane: lane, BlockerKey: 202, Reason: "second relation unproven"})
+
+	got := c.CompletionCaveats()
+	if len(got) != 2 {
+		t.Fatalf("scoped caveats must dedupe by lane+blocker, got %+v", got)
+	}
+	if !c.HasCompletionCaveatForBlocker(lane, 101) || !c.HasCompletionCaveatForBlocker(lane, 202) {
+		t.Fatalf("both exact blocker boundaries must remain queryable: %+v", got)
+	}
+	if c.HasCompletionCaveatForBlocker(lane, 303) {
+		t.Fatal("one converged relation must not suppress a distinct later obligation")
+	}
+	if !c.ClearCompletionCaveatForBlocker(lane, 101) || c.HasCompletionCaveatForBlocker(lane, 101) {
+		t.Fatal("precise evidence must clear only its exact scoped boundary")
+	}
+	if !c.HasCompletionCaveatForBlocker(lane, 202) {
+		t.Fatal("clearing one scoped boundary must preserve its sibling")
+	}
+}
+
 func TestCompletionCaveatLaneAuthorityCanUpgradeWithoutTouchingSiblingLane(t *testing.T) {
 	c := NewEvidenceClosure("")
 	c.AppendCompletionCaveat(CompletionCaveat{Lane: DowngradeLaneCallChainDiscoverySelection, Reason: "selection unproven"})

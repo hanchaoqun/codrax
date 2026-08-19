@@ -3205,6 +3205,82 @@ func TestRequiredRelationRepairDebtSurvivesUnrelatedSuccessfulEmitUntilExactRows
 	}
 }
 
+func TestRequiredRelationItemValidationConvergesWithoutMintingEvidence(t *testing.T) {
+	seed := flowOperationEvidence(types.AnchorCall, "Pipeline.run", "Worker.step", 12)
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{seed})
+	repair := buildEmitEvidenceArgumentFlowRepair([]emitEvidenceArgumentFlowRepair{{
+		itemIndex: 1, argument: "types.AgentExtractor", receiver: "ctxbuilder.BuildAgentContext",
+		source: "internal/orchestrator/extract_work.go", line: 15,
+	}})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "emit_evidence", Success: true, Repair: repair,
+	})
+	tool := &EmitInvestigationComplete{}
+	for attempt := 1; attempt <= 2; attempt++ {
+		res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+		if err != nil {
+			t.Fatalf("attempt %d: %v", attempt, err)
+		}
+		if res.Repair == nil || res.Repair.Code != types.ToolRepairCodeEvidenceItemValidation ||
+			ctx.Mutable.IsInvestigationComplete() {
+			t.Fatalf("attempt %d must keep the exact model-authored repair actionable: %+v", attempt, res)
+		}
+	}
+
+	res, err := tool.Execute(ctx, flowOperationCompletionParams(t))
+	if err != nil {
+		t.Fatalf("converged attempt: %v", err)
+	}
+	if !ctx.Mutable.IsInvestigationComplete() || !strings.Contains(res.Summary, "explicitly unproven") {
+		t.Fatalf("third identical blocker must close with an unproven boundary: %+v", res)
+	}
+	gotEvidence := ctx.Mutable.EmittedEvidence()
+	if len(gotEvidence) != 1 || gotEvidence[0].Subject != seed.Subject || gotEvidence[0].Object != seed.Object {
+		t.Fatalf("convergence must not mint or rewrite relation evidence: %+v", gotEvidence)
+	}
+	key, ok := requiredRelationItemValidationBlockerKey(repair)
+	if !ok || !ctx.Mutable.EvidenceClosure().HasCompletionCaveatForBlocker(
+		types.DowngradeLaneRequiredRelationItemValidation, key) {
+		t.Fatalf("exact typed caveat missing for blocker=%d: %+v", key, ctx.Mutable.EvidenceClosure().CompletionCaveats())
+	}
+}
+
+func TestRequiredRelationItemValidationConvergenceIsBlockerScopedAndUpgradeable(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	repairA := buildEmitEvidenceArgumentFlowRepair([]emitEvidenceArgumentFlowRepair{{
+		itemIndex: 0, argument: "left", receiver: "Pipeline.Build", source: "src/pipeline.go", line: 20,
+	}})
+	repairB := buildEmitEvidenceArgumentFlowRepair([]emitEvidenceArgumentFlowRepair{{
+		itemIndex: 1, argument: "right", receiver: "Pipeline.Run", source: "src/pipeline.go", line: 30,
+	}})
+	keyA, okA := requiredRelationItemValidationBlockerKey(repairA)
+	keyB, okB := requiredRelationItemValidationBlockerKey(repairB)
+	if !okA || !okB || keyA == keyB {
+		t.Fatalf("independent typed repairs need distinct stable keys: A=%d/%t B=%d/%t", keyA, okA, keyB, okB)
+	}
+	if requiredRelationItemValidationConverges(ctx, keyA) ||
+		requiredRelationItemValidationConverges(ctx, keyA) ||
+		!requiredRelationItemValidationConverges(ctx, keyA) {
+		t.Fatal("first exact blocker must converge only on its third identical attempt")
+	}
+	if requiredRelationItemValidationConverges(ctx, keyB) {
+		t.Fatal("a different exact blocker must retain its own repair budget")
+	}
+
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "emit_evidence", Success: true, Repair: repairA})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceRelationship, AnchorKind: types.AnchorArgument,
+		Subject: "left", Object: "Pipeline.Build", AnchorSymbol: "left", Predicate: "passes argument",
+		Source: "src/pipeline.go", LineStart: 20, Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	reconcileSatisfiedRequiredRelationItemValidationCaveats(ctx, ctx.Mutable.EmittedEvidence())
+	if ctx.Mutable.EvidenceClosure().HasCompletionCaveatForBlocker(
+		types.DowngradeLaneRequiredRelationItemValidation, keyA) {
+		t.Fatal("later exact model-authored evidence must upgrade only its scoped boundary")
+	}
+}
+
 func TestRequiredValueTransferRepairAcceptsEquivalentAssignmentInitializerSpelling(t *testing.T) {
 	ctx := flowOperationCompletionContext(nil)
 	repair := buildEmitEvidenceAssignmentEndpointRepair([]emitEvidenceAssignmentEndpointRepair{{

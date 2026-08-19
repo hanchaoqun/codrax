@@ -2102,20 +2102,27 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	aggregateStart := time.Now()
+	earlyDowngradeConverged := false
 	evidenceSnapshot := ctx.Mutable.EmittedEvidence()
+	reconcileSatisfiedRequiredRelationItemValidationCaveats(ctx, evidenceSnapshot)
 	if repair := pendingBlockingEmitEvidenceItemValidationRepair(ctx); repair != nil {
-		// A required typed relation row was locally rejected by the latest
-		// emit_evidence call. Do not count a completion attempt made before that
-		// exact item repair as flow no-progress: the failure is structurally
-		// repairable and has not yet entered the evidence buffer. A later
-		// successful emit_evidence call naturally supersedes this latch.
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   "emit_investigation_complete rejected: the latest emit_evidence call has an unresolved schema-invalid item required by the typed relation answer. " + repair.Hint,
-			Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
-			Success:   true,
-			Timestamp: time.Now(),
-		}, nil
+		// A required typed relation row was locally rejected by emit_evidence.
+		// Keep exact schema debt actionable, but do not replay one byte-identical
+		// parser-owned recipe forever: after bounded no-progress attempts, retain
+		// the relation as explicitly unproven and continue with already-grounded
+		// facts. The system never fills the row or creates an answer edge.
+		blockerKey, scoped := requiredRelationItemValidationBlockerKey(repair)
+		if !scoped || !requiredRelationItemValidationConverges(ctx, blockerKey) {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   "emit_investigation_complete rejected: the latest emit_evidence call has an unresolved schema-invalid item required by the typed relation answer. " + repair.Hint,
+				Repair:    attachToolJSONSurfaceMetadata(t.Name(), repair),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		earlyDowngradeConverged = true
+		ctx.Mutable.AppendCompletionGateNote("one parser-identified relation row remained schema-invalid after bounded repair attempts; no relation evidence or answer edge was created, so keep that handoff explicitly unproven and answer from the independently grounded facts")
 	}
 	aggregateFacts, softAggregateNotes, err := normalizeCompletionAggregateFacts(ctx, resultKind, p.AggregateFacts)
 	if err != nil {
@@ -2156,7 +2163,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	resultKind, justification = normalizeExactAbsenceCompletionWithEvidenceAndAggregates(ctx, resultKind, justification, evidenceSnapshot, aggregateFacts)
 	aggregateFactNormalizationNotes := aggregateFactValueCanonicalizationNotes(p.AggregateFacts, aggregateFacts)
 	aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, softAggregateNotes...)
-	earlyDowngradeConverged := false
 	discoverySelectionMissing := resultKind == "resolved" &&
 		callChainDiscoverySelectionRequired(ctx) &&
 		!types.HasCallChainDiscoverySelectionEvidence(evidenceSnapshot)
@@ -3209,6 +3215,55 @@ func pendingBlockingEmitEvidenceItemValidationRepair(ctx *types.BusContext) *typ
 	return nil
 }
 
+func requiredRelationItemValidationBlockerKey(repair *types.ToolRepair) (uint32, bool) {
+	if repair == nil || repair.Code != types.ToolRepairCodeEvidenceItemValidation || repair.Metadata == nil {
+		return 0, false
+	}
+	obligations, ok := decodeEmitEvidenceRelationRepairObligations(
+		repair.Metadata[emitEvidenceRelationRepairObligationsMetadataKey])
+	if !ok || len(obligations) == 0 {
+		return 0, false
+	}
+	identifiers := make([]string, 0, len(obligations))
+	for _, obligation := range obligations {
+		identifiers = append(identifiers, strings.Join([]string{
+			string(obligation.EvidenceKind),
+			string(obligation.AnchorKind),
+			canonicalRelationSourcePath(obligation.Source),
+			strconv.Itoa(obligation.Line),
+			strings.TrimSpace(obligation.Subject),
+			strings.TrimSpace(obligation.Object),
+		}, "\x00"))
+	}
+	key := types.ComputeDowngradeTypedIdentifierSetKey(
+		string(types.DowngradeLaneRequiredRelationItemValidation), identifiers)
+	return key, key != 0
+}
+
+// reconcileSatisfiedRequiredRelationItemValidationCaveats upgrades only exact
+// scoped boundaries whose model-authored rows are now present. A different
+// pending obligation remains actionable even when an earlier sibling already
+// converged.
+func reconcileSatisfiedRequiredRelationItemValidationCaveats(ctx *types.BusContext, evidence []types.EvidenceItem) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Mutable.EvidenceClosure() == nil {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	for _, result := range ctx.Mutable.DispatchToolResults() {
+		if types.CanonicalToolName(result.ToolName) != "emit_evidence" || result.Repair == nil {
+			continue
+		}
+		obligations, ok := decodeEmitEvidenceRelationRepairObligations(
+			result.Repair.Metadata[emitEvidenceRelationRepairObligationsMetadataKey])
+		if !ok || !emitEvidenceRelationRepairObligationsSatisfied(obligations, evidence) {
+			continue
+		}
+		if blockerKey, scoped := requiredRelationItemValidationBlockerKey(result.Repair); scoped {
+			closure.ClearCompletionCaveatForBlocker(types.DowngradeLaneRequiredRelationItemValidation, blockerKey)
+		}
+	}
+}
+
 func emitEvidenceRelationRepairObligationsSatisfied(obligations []emitEvidenceRelationRepairObligation, evidence []types.EvidenceItem) bool {
 	if len(obligations) == 0 {
 		return false
@@ -3605,6 +3660,36 @@ func preCompleteDowngradeConvergesWithClosureAndBlockerKeyAtThreshold(
 	})
 	logging.Info("[emit_investigation_complete] low-delta convergence force-complete lane=%s after %d consecutive no-progress attempts (blocker=%d reason=%s)",
 		lane, decision.Delta.Consecutive, blockerKey, decision.ReasonCode)
+	return true
+}
+
+// requiredRelationItemValidationConverges is blocker-scoped rather than
+// lane-wide. A run can expose several independent exact relation obligations;
+// converging one must not make a later sibling disappear. The key is built
+// exclusively from the producer-owned obligation tuple. No request, model
+// prose, answer text, or repair hint participates.
+func requiredRelationItemValidationConverges(ctx *types.BusContext, blockerKey uint32) bool {
+	if ctx == nil || ctx.Mutable == nil || blockerKey == 0 {
+		return false
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return false
+	}
+	lane := types.DowngradeLaneRequiredRelationItemValidation
+	if closure.HasCompletionCaveatForBlocker(lane, blockerKey) {
+		return true
+	}
+	decision := closure.RecordDowngradeProgressDelta(lane, blockerKey, downgradeConvergenceHardThreshold)
+	if decision.ShouldReplan {
+		return false
+	}
+	closure.AppendCompletionCaveat(types.CompletionCaveat{
+		Lane:       lane,
+		BlockerKey: blockerKey,
+		ReasonCode: decision.ReasonCode,
+		Reason:     "completed after the same exact relation-item schema repair recurred without a grounded model-authored row",
+	})
 	return true
 }
 

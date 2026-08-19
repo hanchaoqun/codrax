@@ -41,6 +41,24 @@ func (c *EvidenceClosure) HasCompletionCaveat(lane DowngradeLane) bool {
 	return false
 }
 
+// HasCompletionCaveatForBlocker reports whether one exact typed blocker has
+// already reached its disclose-and-proceed boundary. A historical lane-wide
+// caveat (BlockerKey=0) remains authoritative for every blocker in that lane;
+// otherwise only the identical non-zero key matches.
+func (c *EvidenceClosure) HasCompletionCaveatForBlocker(lane DowngradeLane, blockerKey uint32) bool {
+	if c == nil || lane == "" || blockerKey == 0 {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, caveat := range c.completionCaveats {
+		if caveat.Lane == lane && (caveat.BlockerKey == 0 || caveat.BlockerKey == blockerKey) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClearCompletionCaveat removes a lane boundary after precise current-state
 // evidence proves that lane's obligation. This is an upgrade, not a retry:
 // all evidence remains in the closure and no other caveat is changed.
@@ -52,6 +70,25 @@ func (c *EvidenceClosure) ClearCompletionCaveat(lane DowngradeLane) bool {
 	defer c.mu.Unlock()
 	for i, caveat := range c.completionCaveats {
 		if caveat.Lane != lane {
+			continue
+		}
+		c.completionCaveats = append(c.completionCaveats[:i], c.completionCaveats[i+1:]...)
+		return true
+	}
+	return false
+}
+
+// ClearCompletionCaveatForBlocker removes only one scoped boundary after
+// precise current evidence satisfies that exact obligation. Lane-wide caveats
+// are intentionally untouched by this narrow upgrade operation.
+func (c *EvidenceClosure) ClearCompletionCaveatForBlocker(lane DowngradeLane, blockerKey uint32) bool {
+	if c == nil || lane == "" || blockerKey == 0 {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, caveat := range c.completionCaveats {
+		if caveat.Lane != lane || caveat.BlockerKey != blockerKey {
 			continue
 		}
 		c.completionCaveats = append(c.completionCaveats[:i], c.completionCaveats[i+1:]...)

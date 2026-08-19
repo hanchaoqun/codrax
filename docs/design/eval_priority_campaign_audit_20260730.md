@@ -35649,6 +35649,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1166 B1170：精确关系行修复按 typed blocker 有界收敛（2026-08-19）
+
+1. 根因是 `pendingBlockingEmitEvidenceItemValidationRepair` 对所有 completion 直接 replay 最新 exact relation
+   repair，刻意绕过既有 low-delta convergence；设计初衷是“schema-invalid 行尚未进入 evidence buffer，不能按一般
+   evidence count 判断无进展”，但最终演变成同一 producer-owned recipe 没有任何退出条件。r733 中模型连续漏
+   `subject`，同一行因此拒绝 6 次并重开 Explorer。
+2. 新增 typed lane `required_relation_item_validation`，但不把它做成 lane-wide wildcard。每个 blocker key 只由
+   obligation ledger 的 `evidence_kind + anchor_kind + canonical source + line + subject + object` 组成；request、模型
+   thinking、repair hint、答案 prose、相似度或次数启发式均不参与。相同 key 第三次 completion 才进入
+   disclose-and-proceed；key 改变意味着真正不同的关系义务，重新拥有完整修复预算。
+3. 收敛只铸 `CompletionCaveat{lane, blocker_key}` 和一条“该 handoff 未证”的 completion note，不填缺失 JSON 字段、
+   不把 parser recipe 追加为 EvidenceItem、不生成 Mermaid edge、不删除模型已有事实，也不替模型写答案。没有完整
+   relation obligation metadata 的普通 schema-invalid JSON 仍走旧 fail-loud/latest-emit 车道，不能借此吞错。
+4. `CompletionCaveat` 的零 key 保留历史 lane-wide 语义；非零 key 按 lane+blocker 独立去重、查询和升级。因此先收敛
+   relation A 不会放过 relation B。若模型后来补出与 A 的 source/line/anchor/endpoints 全部吻合且 citable 的 exact row，
+   reconcile 只清 A 的 scoped caveat，B 与所有 sibling lane 保持不变。
+5. pin 覆盖三层：第三次相同 repair 后 investigation 完成且 evidence pool 字节级不增不改；不同 blocker 第一次仍必须
+   repair；后来 exact model-authored argument row 只升级自己的 boundary。旧“无 durable syntax key 的 local repair 被
+   后续成功 emit 覆盖”测试保持原语义。专项 `internal/types + internal/tool` 全绿（tool 178.518s）；随后
+   `make test` 全仓全绿（tool 201.617s、tracequery 87.909s、hitraceconv 102.591s、tracediag 15.999s）。
+6. 本批不改 Finalizer 图合同、Planner、Write 验证、Trace 查询/转换/投影或流式 transport。显式 Trace 窗、因果投影、
+   自动补齐、链上-only 根因、实际耗时/业务线索与规则可消除量双轴保持；背景不能晋升主因，活跃字节流不因
+   4ms/固定累计年龄降级。B1169 的最小 patch delta 另批处理，禁止借本批放松关系 gate。
+
+状态：
+
+`B1170-REQUIREDRELATIONITEMREPAIRCONVERGENCE1=implemented/scoped-typed-blocker+upgrade+pinned`；
+`B1169-DIAGRAMREPAIRDELTA1=confirmed/P1/next`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=production-partial/P1/open`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1165 r733：无损 sibling 恢复获生产正证；精确关系修复锁存器无有界退出（2026-08-19）
 
 1. 在 `main@c55bbea89` 重建后严格并发恰好两个案例：

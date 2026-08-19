@@ -101,6 +101,12 @@ const (
 	// consumers never enter the lane, and repeated no-progress attempts converge
 	// with an explicit boundary instead of creating an infinite completion loop.
 	DowngradeLaneFlowValueConsumerCoverage DowngradeLane = "flow_value_consumer_coverage"
+	// DowngradeLaneRequiredRelationItemValidation is the exact relation-row
+	// schema-repair lane. A parser-owned obligation may identify one missing or
+	// malformed model-authored row, but the system must neither mint that row nor
+	// replay the same repair forever. Convergence is scoped by the exact typed
+	// obligation key so a later, different relation debt remains actionable.
+	DowngradeLaneRequiredRelationItemValidation DowngradeLane = "required_relation_item_validation"
 )
 
 // DowngradeFingerprint is the typed, comparable identity of a single pre-complete
@@ -120,7 +126,11 @@ type DowngradeFingerprint struct {
 // force-completed by the convergence boundary without the blocker being resolved.
 // It is carried for downstream answer caveat / telemetry consumers.
 type CompletionCaveat struct {
-	Lane       DowngradeLane
+	Lane DowngradeLane
+	// BlockerKey scopes caveats for lanes that can carry more than one
+	// independent obligation in a run. Zero preserves the historical lane-wide
+	// behavior. It is derived only from typed blocker fields, never prose.
+	BlockerKey uint32
 	ReasonCode string
 	Reason     string
 }

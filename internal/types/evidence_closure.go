@@ -1892,8 +1892,11 @@ func (c *EvidenceClosure) LatestProgressDecision() ProgressDecision {
 	return c.latestProgressDecision
 }
 
-// AppendCompletionCaveat records, deduped by lane, that the convergence boundary
-// force-completed a downgrade lane without resolving its blocker.
+// AppendCompletionCaveat records that the convergence boundary force-completed
+// a downgrade lane without resolving its blocker. Historical lane-wide
+// caveats use BlockerKey=0 and remain deduped by lane. Scoped caveats are
+// deduped by lane+blocker so one unproved relation cannot suppress a distinct
+// later obligation in the same run.
 func (c *EvidenceClosure) AppendCompletionCaveat(caveat CompletionCaveat) {
 	if c == nil || caveat.Lane == "" {
 		return
@@ -1901,7 +1904,8 @@ func (c *EvidenceClosure) AppendCompletionCaveat(caveat CompletionCaveat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, existing := range c.completionCaveats {
-		if existing.Lane == caveat.Lane {
+		if existing.Lane == caveat.Lane &&
+			(existing.BlockerKey == 0 || caveat.BlockerKey == 0 || existing.BlockerKey == caveat.BlockerKey) {
 			return
 		}
 	}
