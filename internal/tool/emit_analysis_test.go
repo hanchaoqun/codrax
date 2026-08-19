@@ -4669,6 +4669,51 @@ func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRelationScopeCoLis
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsCrossComponentRequiredDiagramWithNarrowQuoteAndEmptyParticipants(t *testing.T) {
+	raw := "请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["pipeline","diagram"],
+		"entities":["BusContext","Mutable","analyzer","explorer","extractor","finalizer","Orchestrator"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"codrax read-mode pipeline 的逻辑视图","participants":[]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"Mermaid 架构图","role":"diagram","source_quote":"用 Mermaid 架构图画出","required":true},
+			{"index":2,"label":"组件责任","role":"function_or_purpose","source_quote":"简要说明各组件责任","required":true}
+		]}
+	}`
+
+	finalPayload := strings.Replace(
+		withV4Required(payload),
+		`"is_cross_component": false`,
+		`"is_cross_component": true`,
+		1,
+	)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid architecture diagram", PresentationDiagramRequired: true,
+	}, json.RawMessage(finalPayload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for _, want := range []string{
+		"participants is explicitly empty",
+		"predicates.is_cross_component=true",
+		"predicate_axis=\"flow\"",
+		"system will not infer participants",
+	} {
+		if res.Success || !strings.Contains(res.Summary, want) {
+			t.Fatalf("narrow relation quote must not erase typed cross-component participants; missing %q in %+v", want, res)
+		}
+	}
+	if mu.RequestModel() != nil {
+		t.Fatal("rejected cross-component/empty-participant conflict persisted a request model")
+	}
+}
+
 func TestValidateRequiredDiagramEmptyParticipantSlateDoesNotGuessSingleScopeOrEnterTrace(t *testing.T) {
 	base := types.RequestModel{
 		Intent:        types.IntentExplain,

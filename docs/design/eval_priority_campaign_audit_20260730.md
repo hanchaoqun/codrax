@@ -35649,6 +35649,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1177 r738：join 优先级生产生效；空参与者让无关 helper 图形式过关（2026-08-19）
+
+1. 在 `main@020fe2f88` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`；
+   人工两案均 fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_callsite_write_r738_20260819_manual_audit.md`。
+2. B1175 获生产正证：QF 从 r737 的六次 diagram patch/1200s timeout 降为一次 patch/607s 完成，typed join
+   frontier 不再被局部 participant mismatch 屏蔽。但终稿把用户指定的 Analyzer/Explorer/Extractor/Finalizer/
+   BusContext 全部从图中删除，只保留 `extractStageHasRequiredWork -> BuildAgentContext` 等五条底层 helper 边；
+   runner 只看图存在/边数而判 PASS，人工不能签收。
+3. 根因是 schema-valid analysis 自冲突：`predicates.is_cross_component=true + predicate_axis=flow + entities=7`，
+   同时 `diagram_hint.participants=[]`；relation scope 与 required dimension quote 又都过窄，没有 co-list 实体，旧门只覆盖
+   “typed quote 同时列出两个实体”的理想形，漏掉生产形。下游因此没有 required participant incidence/boundary 权威，
+   无关但有 typed evidence 的 helper 图即可满足形式合同。
+4. B1177 已根修：required diagram 的空 slate 在 quote arm没有命中时，再读取同一 analysis 内精确
+   `is_cross_component`、relation-axis enum 与 typed entity count。若三者明确宣称跨组件关系却不列任何 participant，
+   fail-loud 要模型自行选择：补 current-request participant rows，或纠正 cross-component/entities。系统不从原文推导身份、
+   不生成 node/edge、不改答案；generic 单 scope 与 Trace 继续绕开该门。生产等形、既有 quote 正臂、generic/Trace 负臂均钉住。
+5. Explorer 另确认 B1178：`extractor` 先错误恢复到 `finalize_preview.go:53` 的 `llm.SummaryExtractor`，模型随后读到
+   真正 `internal/agent/extractor.go` 并补正确行，但工具只允许同 stable identity amendment，无法撤销另一个 source/symbol
+   的旧 recovered 行。模型明确识别 stale row 却反复补读/闭合，最终 22 explorer iter、5 次 completion。不能用 summary
+   相似度自动删证据；下一批应提供 model-owned exact-selector、unique-match 的 typed retraction/supersession。
+6. 写案例首批算法错误，五换行仍输出 `[300,300,10]`，项目测试正确失败。普通 tests_failed replan 随后两轮输出
+   约 428k/353k 活跃语义字节，已读 exact test/source 却始终未提交新 plan，最后由 eval caller deadline 取消。
+   系统未按 4ms/固定 age 降级、未洗绿，并保留 verify_failed recovery ref。B1176 的 proof-only 分支未到达，故本轮
+   只能记 `not-exercised`，不能宣称生产失败。
+7. B1179 先作为异构复现观察：replan context/教学可能让模型重复模拟而不决策。优先收窄 typed context 与软教学；不得
+   扫描 reasoning/答案关键词截断，也不得以固定累计年龄终止仍活跃的字节流。取消后 final artifact 留在
+   `run_status=in_progress/verdict missing` 另记终态持久化观察，不与功能根因混修。
+8. 本批不改 Trace/Finalizer answer carrier。显式窗 Trace 因果投影、自动补齐、链上-only 主因、实际占用/链上业务线索
+   与规则计价可消除量双轴保持；邻近/背景仍只作支持，系统不代替模型画边、成文或下结论。
+
+状态：
+
+`B1175-DIAGRAMJOINCANDIDATEPRIORITY1=production-positive-r738/churn-reduced`；
+`B1177-DIAGRAMCROSSCOMPONENTPARTICIPANTCONSISTENCY1=implemented/production-shape+generic+Trace-pins-pass`；
+`B1178-EVIDENCEEXPLICITRETRACTION1=confirmed/P1/high/next`；
+`B1179-WRITEREPLANACTIVESTREAMMINDLOAD1=confirmed-observation/needs-heterogeneous-replay`；
+`B1176-PROOFFOLLOWUPSOURCECONTEXT1=not-exercised-r738/unit-pinned`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1176 B1176：proof follow-up 先精确探索，再携带已通过 API 模板规划（2026-08-19）
 
 1. 已把 cumulative verify 后仍有非 unavailable typed proof 缺口的直接补证批，从

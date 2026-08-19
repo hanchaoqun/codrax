@@ -2569,7 +2569,39 @@ func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel, relatio
 		}
 	}
 	if len(coListed) < 2 {
-		return ""
+		// A required relation diagram can still carry a too-narrow quote such
+		// as "draw a Mermaid diagram" while the independently typed request
+		// model says the question relates multiple components.  In that shape
+		// the quote-based arm above cannot see the omitted actors, and an empty
+		// participant slate lets a later answer satisfy the visual contract with
+		// unrelated helper edges.  Keep this as a cross-field consistency check:
+		// it reads only schema-valid analyzer output and asks the model to choose
+		// which declaration was wrong.  It does not derive participants from the
+		// request, create diagram nodes, or mint relation evidence.
+		if !rm.Predicates.IsCrossComponent ||
+			(rm.PredicateAxis != types.AxisFlow && rm.PredicateAxis != types.AxisCall &&
+				rm.PredicateAxis != types.AxisRegister && rm.PredicateAxis != types.AxisConfigure &&
+				rm.PredicateAxis != types.AxisCondition && rm.PredicateAxis != types.AxisImplement) {
+			return ""
+		}
+		declared := make([]string, 0, len(rm.AnalyzerHints.Entities))
+		declaredSeen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
+		for _, rawEntity := range rm.AnalyzerHints.Entities {
+			entity := strings.TrimSpace(rawEntity)
+			key := diagramParticipantProvenanceKey(entity)
+			if entity == "" || key == "" || declaredSeen[key] {
+				continue
+			}
+			declaredSeen[key] = true
+			declared = append(declared, entity)
+		}
+		if len(declared) < 2 {
+			return ""
+		}
+		return fmt.Sprintf(
+			"diagram_hint.participants is explicitly empty, but the same schema-valid analysis declares predicates.is_cross_component=true with predicate_axis=%q and %d typed entities; these fields cannot authorize a required relation diagram while omitting every participant. Decide the relation surface yourself: emit one participant row per current-request actor with a verbatim source_quote and role, or correct predicates.is_cross_component/entities when the requested visual is genuinely generic. The system will not infer participants or replace the requested diagram with unrelated helper edges",
+			rm.PredicateAxis, len(declared),
+		)
 	}
 	return fmt.Sprintf(
 		"diagram_hint.participants is explicitly empty, but a schema-validated required diagram relation quote co-lists current-request typed entities %v; decide the relation surface yourself: emit one participant row per intended actor with a verbatim source_quote and role, or narrow the typed relation quote when those entities are only non-participant scope. Do not leave the slate empty and let later diagram repair erase the requested identities",
