@@ -2283,6 +2283,91 @@ func TestFlowOperationNavigationPrefersMissingToCoveredParticipantJoinAcrossLang
 	}
 }
 
+func TestFlowOperationNavigationPrefersCallSiteWithWholeValueContinuationAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			path := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			lines := make([]string, 45)
+			lines[9] = "probe = builder.BuildAgentContext(this.busContext, AgentExtractor, stage)"
+			lines[10] = "count = len(probe.Rows)"
+			lines[29] = "agentContext = builder.BuildAgentContext(this.busContext, AgentExtractor, stage)"
+			lines[30] = "output = agent.Execute(agentContext)"
+			lines[31] = "pipeline.Apply(output)"
+			absolute := filepath.Join(repo, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			probeBuild := &repotypes.Relation{
+				Kind: "call", File: path, Line: 10,
+				FromEP: repotypes.RelationEndpoint{Name: "probeStage", Receiver: "Pipeline", Line: 10},
+				ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10},
+			}
+			dispatchBuild := &repotypes.Relation{
+				Kind: "call", File: path, Line: 30,
+				FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 30},
+				ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30},
+			}
+			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{path: {
+				RelPath: path, Language: language, Package: "pipeline",
+				Symbols: []repotypes.Symbol{
+					{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+					{Name: "probeStage", Kind: "method", Receiver: "Pipeline", Line: 1, EndLine: 20},
+					{Name: "dispatch", Kind: "method", Receiver: "Pipeline", Line: 21, EndLine: 40},
+				},
+				Relations: []repotypes.Relation{
+					*probeBuild,
+					{Kind: "call", File: path, Line: 11,
+						FromEP: repotypes.RelationEndpoint{Name: "probeStage", Receiver: "Pipeline", Line: 11},
+						ToEP:   repotypes.RelationEndpoint{Name: "len", Line: 11}},
+					*dispatchBuild,
+					{Kind: "call", File: path, Line: 31,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 31},
+						ToEP:   repotypes.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 31}},
+					{Kind: "call", File: path, Line: 32,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 32},
+						ToEP:   repotypes.RelationEndpoint{Name: "Apply", Receiver: "pipeline", Line: 32}},
+				},
+			}})
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "extractor", ResolvedAs: "AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(graph)
+			index := flowNavigationIndexForContext(ctx)
+			probeSite, dispatchSite := index.relationsByFile[path][0], index.relationsByFile[path][2]
+			if got := flowNavigationCallResultContinuationDepth(ctx, index, probeSite.relation, probeSite.ownerSurfaces); got != 0 {
+				t.Fatalf("%s member projection must not count as a whole-value continuation: %d", language, got)
+			}
+			if got := flowNavigationCallResultContinuationDepth(ctx, index, dispatchSite.relation, dispatchSite.ownerSurfaces); got != 2 {
+				t.Fatalf("%s dispatch continuation depth=%d, want 2", language, got)
+			}
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != path || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s full-value dispatcher must outrank the earlier probe call: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 0 {
+				t.Fatal("continuation-depth navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationDoesNotLexicallyStarveHighGainBindingWithinParticipantAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {

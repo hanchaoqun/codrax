@@ -35649,6 +35649,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1172 B1171：同 callee 调用点按 parser-owned whole-value continuation 软排序（2026-08-19）
+
+1. r735 的 `BuildAgentContext` 不是缺少赋值解析，而是多个合法调用点质量不同：
+   `extractStageHasRequiredWork` 把结果赋给 `ac` 后仅做 `ac.Member` 投影；`dispatchStage` 把结果赋给 `agentCtx`，随后完整值
+   进入 `ag.Execute(agentCtx, ...)`，其结果 `output` 又完整进入 `applyStageOutput(output)`。旧导航在其他 typed rank 相同时按
+   文件/行稳定排序，较早的预检查调用先被选择，导致精确但无端到端价值的补证。
+2. 新增有界 `call-result continuation depth`：起点必须是 parser-owned call 且同一行存在 assignment/initializer receiver；
+   后续 hop 必须是同一 enclosing callable 内的 parser-owned call，并把前一 receiver 作为 byte-identity 等价的完整 argument。
+   若该调用又有 assignment result，才继续下一 hop，最多沿既有四跳 cap。`ctx.Member`、派生表达式和邻近调用均不计。
+3. 该深度只加入同 kind、同 connection/touch 质量候选间的 SOFT 读取排序，并用于 continuation 内多个真实 consumer 的排序；
+   不成为 EvidenceItem、relation、执行顺序或因果权威，不改变 participant/relation hard gate。模型仍必须读源码并逐段提交
+   assignment/argument/call 证据；无 exact chain 时分数为 0，保持原有稳定顺序。
+4. 全部 `SupportedReadLanguages()` 共享矩阵 pin：同文件较早的
+   `probe = Build(...); len(probe.Rows)` 得分 0，较后的
+   `agentContext = Build(...); output = Execute(agentContext); Apply(output)` 得分 2，读取窗口稳定落到 dispatcher；测试还断言
+   Mutable evidence 仍为空，证明系统未铸边。既有导航、selected-result consumer 与 assignment companion 套件全绿。
+5. `make test` 全绿，覆盖 `internal/tool` 全语言矩阵、`hitraceconv`、`mermaidcompat`、`tracequery`、`tracediag` 与
+   writeflow。本批不改 AnswerDocument、Trace 或 write controller。B1172 的 runtime facet membership 另批处理，禁止借
+   关系修复扫描答案 prose 或强制 Trace 因果投影。严格并发 2 生产回放前，B1171 只记 implemented。
+
+状态：
+
+`B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=implemented/all-language+no-authorship-pins-pass/pending-production-replay`；
+`B1167-DIAGRAMCROSSCOMPONENTDATAFLOW1=pending-B1171-production-replay`；
+`B1172-RUNTIMEFACETMEMBERSHIPAUTHORITY1=confirmed/P1/high/next-after-replay`；
+`raw-request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/diagram-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
+
 ### §123.1171 r735：assignment 正臂生效但调用点选到预检查；运行时口径成员仍可成文丢失（2026-08-19）
 
 1. 在 `main@c69385c63` 严格并发恰好两个案例：

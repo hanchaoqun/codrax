@@ -821,9 +821,15 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		carrierValueRank int
 		carrierRank      int
 		handoffRank      int
-		matchRank        int
-		kindRank         int
-		line             int
+		// resultContinuationRank is a parser-owned SOFT navigation score.
+		// A call whose assigned result is later consumed as a whole value by
+		// another call is a more useful pipeline coordinate than an otherwise
+		// equal liveness/probe call whose result is only projected by member.
+		// It never becomes relation or runtime-order authority.
+		resultContinuationRank int
+		matchRank              int
+		kindRank               int
+		line                   int
 	}
 	var candidates []rankedTarget
 	closure := ctx.Mutable.EvidenceClosure()
@@ -972,9 +978,12 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 				carrierValueRank:       flowNavigationCarrierArgumentValueRank(argumentSurfaces, binding.alias),
 				carrierRank:            1,
 				handoffRank:            flowNavigationCarrierHandoffRank(relation, binding.alias),
-				matchRank:              argumentRank,
-				kindRank:               flowOperationRepairRelationKindRank(relation.Kind),
-				line:                   line,
+				resultContinuationRank: flowNavigationCallResultContinuationDepth(
+					ctx, index, relation, site.ownerSurfaces,
+				),
+				matchRank: argumentRank,
+				kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
+				line:      line,
 			})
 		}
 	}
@@ -999,6 +1008,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
 			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
+		}
+		if candidates[i].resultContinuationRank != candidates[j].resultContinuationRank {
+			return candidates[i].resultContinuationRank > candidates[j].resultContinuationRank
 		}
 		if candidates[i].carrierValueRank != candidates[j].carrierValueRank {
 			return candidates[i].carrierValueRank > candidates[j].carrierValueRank
@@ -1464,6 +1476,129 @@ func flowNavigationCarrierArgumentValueRank(arguments []string, binding string) 
 
 const flowNavigationCallResultContinuationMaxHops = 4
 
+// flowNavigationCallResultContinuationDepth ranks parser-owned call sites by
+// the length of an exact assignment-result -> whole-argument chain. It is a
+// SOFT navigation score only. Every hop requires:
+//   - an assignment/initializer receiver on the current call line;
+//   - a later parser-owned call in the same enclosing callable; and
+//   - that receiver as one complete argument of the later call.
+//
+// Member projections deliberately do not count. Thus a liveness check such as
+// `ctx := Build(...); len(ctx.Rows)` cannot outrank a dispatcher path such as
+// `ctx := Build(...); output := Execute(ctx); Apply(output)`. The bounded score
+// neither proves transfer nor runtime order and never creates evidence.
+func flowNavigationCallResultContinuationDepth(
+	ctx *types.BusContext,
+	index *flowNavigationIndex,
+	relation *repotypes.Relation,
+	ownerSurfaces []string,
+) int {
+	if ctx == nil || ctx.Mutable == nil || index == nil || relation == nil ||
+		strings.TrimSpace(relation.Kind) != "call" {
+		return 0
+	}
+	file := canonicalRelationSourcePath(strings.TrimSpace(relation.File))
+	if file == "" {
+		for candidateFile, sites := range index.relationsByFile {
+			for _, site := range sites {
+				if site.relation == relation {
+					file = candidateFile
+					break
+				}
+			}
+			if file != "" {
+				break
+			}
+		}
+	}
+	line := max(relation.Line, relation.FromEP.Line, relation.ToEP.Line)
+	lines := flowNavigationSourceLines(ctx, index, file)
+	if file == "" || line <= 0 || len(lines) == 0 {
+		return 0
+	}
+	if len(ownerSurfaces) == 0 {
+		ownerSurfaces = flowRepairRelationEndpointSurfaces(relation.FromEP)
+	}
+	receivers := types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{
+		AnchorKind: types.AnchorAssignment,
+		Snippet:    lines[line],
+	})
+	if len(receivers) == 0 {
+		return 0
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	gc := &ground.Context{
+		Graph: graph, RepoRoot: ctx.RepoRoot,
+		LineIndex: map[string]map[int]string{file: lines},
+	}
+	type memoKey struct {
+		line      int
+		receivers string
+		remaining int
+	}
+	memo := make(map[memoKey]int)
+	var depth func(int, []string, int) int
+	depth = func(currentLine int, currentReceivers []string, remaining int) int {
+		if remaining <= 0 || len(currentReceivers) == 0 {
+			return 0
+		}
+		keys := make([]string, 0, len(currentReceivers))
+		for _, receiver := range currentReceivers {
+			if key := strings.ToLower(strings.TrimSpace(receiver)); key != "" {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		key := memoKey{line: currentLine, receivers: strings.Join(keys, "\x00"), remaining: remaining}
+		if got, ok := memo[key]; ok {
+			return got
+		}
+		best := 0
+		for _, site := range index.relationsByFile[file] {
+			next := site.relation
+			if next == nil || strings.TrimSpace(next.Kind) != "call" ||
+				flowRepairPlanningSurfaceMatchRank(ownerSurfaces, site.ownerSurfaces) == 0 {
+				continue
+			}
+			nextLine := max(next.Line, next.FromEP.Line, next.ToEP.Line)
+			if nextLine <= currentLine {
+				continue
+			}
+			callee := flowNavigationCallReceiver(next)
+			if callee == "" {
+				continue
+			}
+			wholeValue := false
+			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, file, nextLine, callee) {
+				for _, receiver := range currentReceivers {
+					if types.AnswerCodeIdentitySurfacesEquivalent(receiver, flow.Argument) {
+						wholeValue = true
+						break
+					}
+				}
+				if wholeValue {
+					break
+				}
+			}
+			if !wholeValue {
+				continue
+			}
+			nextReceivers := types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{
+				AnchorKind: types.AnchorAssignment,
+				Snippet:    lines[nextLine],
+			})
+			candidate := 1
+			if len(nextReceivers) > 0 {
+				candidate += depth(nextLine, nextReceivers, remaining-1)
+			}
+			best = max(best, candidate)
+		}
+		memo[key] = best
+		return best
+	}
+	return depth(line, receivers, flowNavigationCallResultContinuationMaxHops)
+}
+
 // flowNavigationCallResultContinuationReadTarget follows an already-read
 // call-assignment result to a later call that consumes that exact receiver in
 // the same parser-owned enclosing callable. Repeating the step covers common
@@ -1526,8 +1661,10 @@ func flowNavigationCallResultContinuationReadTarget(
 	currentLine := line
 	for hop := 0; hop < flowNavigationCallResultContinuationMaxHops; hop++ {
 		type continuation struct {
-			site flowParserRelationSite
-			line int
+			site         flowParserRelationSite
+			line         int
+			continuation int
+			handoffRank  int
 		}
 		var candidates []continuation
 		seenLine := map[int]bool{}
@@ -1559,13 +1696,27 @@ func flowNavigationCallResultContinuationReadTarget(
 			}
 			if matched {
 				seenLine[nextLine] = true
-				candidates = append(candidates, continuation{site: site, line: nextLine})
+				candidates = append(candidates, continuation{
+					site: site, line: nextLine,
+					continuation: flowNavigationCallResultContinuationDepth(
+						ctx, index, next, site.ownerSurfaces,
+					),
+					handoffRank: flowNavigationCarrierHandoffRank(next, receivers[0]),
+				})
 			}
 		}
 		if len(candidates) == 0 {
 			return flowOperationRepairReadTarget{}, false
 		}
-		sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].line < candidates[j].line })
+		sort.SliceStable(candidates, func(i, j int) bool {
+			if candidates[i].continuation != candidates[j].continuation {
+				return candidates[i].continuation > candidates[j].continuation
+			}
+			if candidates[i].handoffRank != candidates[j].handoffRank {
+				return candidates[i].handoffRank > candidates[j].handoffRank
+			}
+			return candidates[i].line < candidates[j].line
+		})
 		advanced := false
 		for _, candidate := range candidates {
 			if !closure.HasReadLine(file, candidate.line) {
