@@ -1544,6 +1544,9 @@ func renderDisplayAttachmentTruncationNote(b *strings.Builder, totalRunes int, l
 }
 
 func displayAttachmentKey(kind, body string) string {
+	if strings.EqualFold(strings.TrimSpace(kind), types.AnswerDisplayAttachmentDiagram) {
+		body = diagramBodyDedupKey(body)
+	}
 	return strings.ToLower(strings.TrimSpace(kind)) + "\x00" + strings.TrimSpace(body)
 }
 

@@ -3068,6 +3068,32 @@ func TestRepairBlocksAsString_BraceFallbackReportsDroppedDiagram(t *testing.T) {
 	}
 }
 
+func TestRecoveredDiagramStripsJSONSiblingTailAndDedupesCanonicalBody(t *testing.T) {
+	const body = "sequenceDiagram\n    participant M as main\n    participant R as run\n    M->>R: call\n    R-->>M: done?"
+	malformed := body + `", "kind": "sequence", "language": "mermaid"`
+	recovered, ok := newRecoveredDiagramAttachment(malformed)
+	if !ok {
+		t.Fatal("malformed recovered diagram was not preserved")
+	}
+	if recovered.Body != body {
+		t.Fatalf("JSON sibling tail leaked into recovered Mermaid:\n%s", recovered.Body)
+	}
+	valid := types.AnswerDisplayAttachment{
+		Kind: types.AnswerDisplayAttachmentDiagram, Language: "mermaid", Body: body,
+	}
+	attachments := appendRecoveredAttachment(nil, valid)
+	attachments = appendRecoveredAttachment(attachments, recovered)
+	if len(attachments) != 1 {
+		t.Fatalf("same recovered diagram must dedupe after tail cleanup: %+v", attachments)
+	}
+
+	legitimate := `sequenceDiagram
+    A->>B: business "kind": value`
+	if got := cleanRecoveredDiagramBody(legitimate); got != legitimate {
+		t.Fatalf("ordinary Mermaid message containing kind must remain intact: %q", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_BraceFallbackPreservesDroppedDiagramAttachment(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

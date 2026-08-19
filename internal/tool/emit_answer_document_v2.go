@@ -2621,6 +2621,21 @@ func cleanRecoveredDiagramBody(s string) string {
 	if end := strings.Index(s, "```"); end >= 0 {
 		s = s[:end]
 	}
+	// A malformed/stringified block can close diagram.body and then continue
+	// with sibling JSON fields inside the recovered candidate, for example:
+	//
+	//   RM-->>IF: find?", "kind": "sequence", "language": "mermaid"
+	//
+	// Those bytes are transport structure, not Mermaid. Trim only the exact
+	// quoted-value -> sibling-key boundary on this recovery-only path; ordinary
+	// diagram labels/messages containing the words kind/language remain intact.
+	for _, boundary := range []string{
+		`", "kind":`, `","kind":`, `", "language":`, `","language":`,
+	} {
+		if idx := strings.Index(s, boundary); idx > 0 {
+			s = s[:idx]
+		}
+	}
 	for _, field := range []string{`"edge_anchors"`, `"claim_uses"`, `"facet_ids"`, `"surface_role"`, `"citations"`, `"caveats"`, `"snippets"`} {
 		if idx := strings.Index(s, field); idx > 0 {
 			s = s[:idx]

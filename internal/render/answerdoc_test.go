@@ -1035,6 +1035,20 @@ func TestRenderV2_WithRecoveredDiagramAttachmentDedupesStructuredDiagram(t *test
 	}
 }
 
+func TestRenderV2_DedupesCanonicalRecoveredDiagramVariants(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "s1", Kind: types.BlockSummary, Text: "answer",
+	}}}
+	body := "sequenceDiagram\n    A->>B: ok"
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{
+		{Kind: types.AnswerDisplayAttachmentDiagram, Language: "mermaid", Body: body},
+		{Kind: types.AnswerDisplayAttachmentDiagram, Language: "mermaid", Body: "```mermaid\n" + body + "\n```"},
+	}, "en")
+	if strings.Count(out, "sequenceDiagram") != 1 {
+		t.Fatalf("canonical recovered diagram variants must render once:\n%s", out)
+	}
+}
+
 func TestRenderV2_WithRecoveredTextAttachmentUsesDivider(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

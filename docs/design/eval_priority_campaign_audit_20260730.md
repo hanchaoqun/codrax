@@ -35817,12 +35817,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    把 rejected diagram 冒充已校验主体。
 6. 两案均无 4ms/固定总年龄降级。Read/Write 路由、Trace 显式窗、因果投影、自动补齐与链上-only 根因
    均未改；系统仍只发布精确信息/补证义务，不代替模型形成答案或图关系。
+7. B1152 已按 recovery-only 通用形施工。`cleanRecoveredDiagramBody` 只在 JSON quoted-value 后命中
+   精确 sibling delimiter（`kind` / `language`）时截断协议尾片；普通 Mermaid 业务消息中出现
+   `"kind"` 保持原样。attachment 渲染去重键统一使用既有 `diagramBodyDedupKey`，fenced/unfenced、CRLF
+   等规范化等价副本只显示一次。生产同形、合法消息负臂与 canonical render dedupe 均已钉；
+   `go test ./internal/render ./internal/tool -count=1` 全绿（tool 180.045s）。该修复不校验/修正图关系，
+   不给 rejected draft 增加权限，也不把附件提升为结构化主体。
 
 状态：
 
 `B1150-PARTICIPANTARGUMENTMEMBERCOMPONENT1=implemented/pending-production-trigger`；
 `B1151-CARRIERHANDOFFNAVIGATIONQUALITY1=confirmed/P1/next`；
-`B1152-RECOVEREDDIAGRAMJSONTAILDEDUP1=confirmed/P1/next-small-batch`；
+`B1152-RECOVEREDDIAGRAMJSONTAILDEDUP1=implemented/recovery-boundary+canonical-render-dedupe+pinned/pending-replay`；
 `B1149-STRUCTUREDLISTROWATTRIBUTERENDER1=confirmed/P2/pending`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
