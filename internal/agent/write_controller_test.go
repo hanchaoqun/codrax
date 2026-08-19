@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -201,7 +204,7 @@ func TestWriteControllerParseOutputReadsStoredDecisionJSON(t *testing.T) {
 	}
 }
 
-func TestWriteControllerSoftStopIsolatesRequiredToolCorrection(t *testing.T) {
+func TestWriteControllerSoftStopRetainsTypedContextForRequiredToolCorrection(t *testing.T) {
 	eval := &writeControllerEvaluator{}
 	sig := eval.Observe(nil, LoopObservation{
 		Phase: PhaseSoftStop,
@@ -213,8 +216,8 @@ func TestWriteControllerSoftStopIsolatesRequiredToolCorrection(t *testing.T) {
 	if !sig.HintRequested || sig.HintKey != "write-controller.required-tool.length-no-tool" {
 		t.Fatalf("length/no-tool response must request the typed correction, got %+v", sig)
 	}
-	if !sig.IsolateNextPrompt || !sig.BypassThrottle || !sig.BypassBudget {
-		t.Fatalf("length/no-tool correction must isolate the oversized draft and bypass ordinary hint budgets, got %+v", sig)
+	if sig.IsolateNextPrompt || !sig.BypassThrottle || !sig.BypassBudget {
+		t.Fatalf("length/no-tool correction must retain typed context and bypass ordinary hint budgets, got %+v", sig)
 	}
 	for _, want := range []string{"current typed workflow state", "available action enum", "emit_write_workflow_decision exactly once"} {
 		if !strings.Contains(sig.Hint, want) {
@@ -226,8 +229,73 @@ func TestWriteControllerSoftStopIsolatesRequiredToolCorrection(t *testing.T) {
 	}
 
 	ordinary := eval.Observe(nil, LoopObservation{Phase: PhaseSoftStop, Response: llm.Response{Content: "analysis", StopReason: "end_turn"}})
-	if ordinary.HintKey != "write-controller.required-tool.no-tool" || !ordinary.IsolateNextPrompt {
-		t.Fatalf("ordinary no-tool controller response needs the same schema-only recovery boundary, got %+v", ordinary)
+	if ordinary.HintKey != "write-controller.required-tool.no-tool" || ordinary.IsolateNextPrompt {
+		t.Fatalf("ordinary no-tool controller response must retain the same typed-context recovery boundary, got %+v", ordinary)
+	}
+}
+
+type writeControllerRetryCaptureLLM struct {
+	calls    int
+	messages [][]llm.Message
+}
+
+func (l *writeControllerRetryCaptureLLM) Chat(_ context.Context, messages []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	l.messages = append(l.messages, append([]llm.Message(nil), messages...))
+	if l.calls == 1 {
+		return llm.Response{Content: strings.Repeat("discarded controller reasoning ", 200)}, nil
+	}
+	return llm.Response{}, nil
+}
+
+func (*writeControllerRetryCaptureLLM) ModelID() string               { return "write-controller-retry-capture" }
+func (*writeControllerRetryCaptureLLM) MaxContextTokens() int         { return 128000 }
+func (*writeControllerRetryCaptureLLM) MaxOutputTokens() int          { return 4096 }
+func (*writeControllerRetryCaptureLLM) RequestTimeout() time.Duration { return 0 }
+func (*writeControllerRetryCaptureLLM) RetryMaxAttempts() int         { return 0 }
+
+func TestWriteControllerNoToolRetryKeepsTypedStateAndCompactsDiscardedReasoning(t *testing.T) {
+	mut := types.NewMutableState("retain exact typed task marker")
+	mut.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopeMicro, Summary: "repair typed retry context"},
+	}})
+	mut.SetWriteWorkflowRun(&types.WriteWorkflowRun{
+		RunID:         "wf-retry-context",
+		Status:        types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Goal: "plan from retained state", Status: types.WriteWorkflowBatchReadyToPlan,
+		}},
+	})
+	llmStub := &writeControllerRetryCaptureLLM{}
+	agent := NewBaseAgent(types.AgentWriteController, &Dependencies{
+		LLM: llmStub, MaxIterations: 2,
+	}, &writeControllerEvaluator{})
+	_, _ = agent.Execute(&types.AgentContext{
+		Stage: types.StageWriteController, Mode: types.ModeApply, Objective: "retain exact typed task marker", Mutable: mut,
+	}, &skill.Config{})
+	if len(llmStub.messages) != 2 {
+		t.Fatalf("expected one no-tool retry, got calls=%d", len(llmStub.messages))
+	}
+	var second strings.Builder
+	for _, message := range llmStub.messages[1] {
+		second.WriteString(message.Content)
+		second.WriteByte('\n')
+	}
+	got := second.String()
+	for _, want := range []string{
+		"retain exact typed task marker",
+		"wf-retry-context",
+		"action enum:",
+		"emit_write_workflow_decision exactly once",
+		"protocol-only text omitted",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("retry lost typed context or protocol marker %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "discarded controller reasoning discarded controller reasoning") {
+		t.Fatalf("retry replayed discarded controller prose instead of the bounded marker:\n%s", got)
 	}
 }
 

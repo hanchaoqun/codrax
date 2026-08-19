@@ -636,7 +636,16 @@ func shouldCompactNoToolAnswerDraftHistory(ctx *types.AgentContext, resp llm.Res
 }
 
 func contentForNoToolHistory(ctx *types.AgentContext, resp llm.Response) string {
-	if !noToolTextShouldStayProtocolOnly(ctx, resp) || !looksLikeStructuredAnswerDraft(resp.Content) {
+	if !noToolTextShouldStayProtocolOnly(ctx, resp) {
+		return resp.Content
+	}
+	// The write controller's only authoritative output is its typed decision
+	// tool. Ordinary no-tool reasoning can be very large and, more importantly,
+	// can describe an action that was never emitted. Keep the original typed
+	// task/workflow messages in history, but replace every such controller turn
+	// with a bounded protocol marker. Other stages retain the narrower historic
+	// rule that compacts only answer-shaped drafts.
+	if ctx == nil || (ctx.Stage != types.StageWriteController && !looksLikeStructuredAnswerDraft(resp.Content)) {
 		return resp.Content
 	}
 	return compactNoToolAnswerDraftHistory(ctx, resp)

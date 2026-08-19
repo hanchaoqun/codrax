@@ -78,13 +78,12 @@ func (e *writeControllerEvaluator) Observe(_ *types.AgentContext, obs LoopObserv
 			boundary = "The completed response reached the output-token limit before producing the required tool call."
 		}
 		return LoopSignal{
-			HintRequested:     true,
-			HintKey:           key,
-			Hint:              boundary + " Use only the current typed workflow state and the available action enum. Call emit_write_workflow_decision exactly once with one valid action; do not repeat analysis, reconstruct the discarded draft, or emit explanatory prose.",
-			Progress:          true,
-			BypassThrottle:    true,
-			BypassBudget:      true,
-			IsolateNextPrompt: true,
+			HintRequested:  true,
+			HintKey:        key,
+			Hint:           boundary + " Use only the current typed workflow state and the available action enum. Call emit_write_workflow_decision exactly once with one valid action; do not repeat analysis, reconstruct the discarded draft, or emit explanatory prose.",
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
 		}
 	}
 	if obs.Phase != PhaseMidLoop || obs.LastToolResult == nil || !obs.LastToolResult.Success {

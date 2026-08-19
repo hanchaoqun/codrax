@@ -35649,6 +35649,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1129 B1131：写控制器无工具重试保留 typed 状态、丢弃未执行 reasoning（2026-08-18）
+
+1. 根因不是 Controller 缺任务理解，而是 correction signal 的 `IsolateNextPrompt=true` 让 BaseAgent 把
+   第二轮消息历史替换成唯一 hint。提示要求消费“当前 typed workflow state”，同时又从上下文删除该 state，
+   构成确定性自冲突；模型报 `missing_task_input` 是该合同的直接结果。
+2. required-tool no-call 现在不再隔离初始消息。原始 user task、`WriteAnalysisIR`、durable workflow run、
+   artifact/context pack 与 typed action enum 原样留在第二轮，工具 schema/tool choice 也继续可用；hint 只要求
+   发一次 `emit_write_workflow_decision`，不要求重新分析。
+3. 为避免另一方向的污染，Write Controller 的任意非空 no-tool prose 都在历史中替换为有界
+   `[protocol-only text omitted: ...]` marker，不再只压缩 answer-shaped 草稿。这样模型首轮写出的长 reasoning、
+   拟议 action 或未执行结论不会被第二轮当成 authority；系统也没有从该 prose 重建 decision。
+4. 其他阶段的历史策略保持：Finalizer 可按既有预算保留首份可恢复答案草稿，Explore/Extract/Analyze 仍只在
+   既有 answer-shaped 条件下压缩；真正 degraded fallback 的 isolate+disable-tools 能力不变。
+5. 生产接线测试直接捕获两次 LLM request：第二轮必须同时含 task marker、workflow run id、action enum、
+   correction hint 与 compact marker，且不得含原始重复 reasoning。Signal 正负 pin 另断言普通/length 两臂都
+   `IsolateNextPrompt=false`。完整 `go test ./internal/agent -count=1` 全绿。
+6. 本批不触碰 Write 计划/应用/验证权限、Read 答案内容、Mermaid 关系、Trace 查询/投影或模型结论；活跃流也
+   不按 4ms 或固定累计年龄降级。
+
+状态：
+
+`B1131-WRITECONTROLLERRETRYCONTEXT1=implemented/full-agent-pass/pending-production-replay`；
+`B1133-DIAGRAMDISPLAYIDENTITY1=next`；
+`B1132-WRITECONTRACTPROVENANCE1=confirmed/P1`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1128 r713：单侧 identity 生产闭环；写重试删权威上下文与图显示身份丢失（2026-08-18）
 
 1. 在 `main@153b49c75` 重建后严格并发恰好两个案例：
