@@ -35791,6 +35791,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1144 r723：argument seam 待生产触发；carrier 导航与畸形图恢复出现两条新断层（2026-08-19）
+
+1. 在 `main@ec17fe9e8` 严格并发恰好两个异构关系案例：
+   `qf_logic_view_read_pipeline + sr_rust_cross_module_chain`。Runner `2 PASS / 2`，人工均为
+   partial；逐轮记录见 `eval/parallel_selected_summary_evalcampaign_argument_component_r723_20260819_manual_audit.md`。
+2. B1150 的新 seam 本轮没有得到生产正见证。completion 已精确给出
+   `source_operation_missing=[BusContext]`，但 repair navigation 选择了 Analyzer 内局部
+   `BusContext{...}` 构造；该行虽真实、可引用，却只用于路径规范化，不能连接用户指定的 BusContext/Mutable
+   数据流。模型从未读取 `o.busCtx` 作为 `BuildAgentContext` 完整实参的调用点，故没有触发新
+   argument-flow repair。三次无进展后诚实收敛，终图仅保留四阶段 precedence 与无箭头 containment，
+   仍未完成用户关系主体。
+3. 新确认 B1151/P1：flow repair target 排序中，精确 requested carrier 的完整 argument/assignment/return
+   handoff 必须高于只出现 participant type 的构造/定义旁支；当前 participant-touch rank 能让后者提前。
+   根修只能调整 parser-owned operation quality 排序并保留歧义 fail-closed，不能按 BusContext、函数名或该
+   case 关键词选文件，也不能凭类型构造制造关系。
+4. Rust 的主叙述、八段调用方向、引用及 walker 角色正确，但结构化终缝不合格。首稿把 `blocks` 整体
+   JSON 字符串化，数组内只有 summary/list，diagram 的 fields 落到数组外；list 缺 edge anchors 的拒绝正确，
+   patch 也正确拒绝不存在于 rejected patch base 的 diagram id。模型第二次只修 list，最终通过
+   rejected-draft attachment 保留图。
+5. 新确认 B1152/P1：lossy diagram recovery 同时从合法可见 diagram 和 malformed candidate 恢复同一图；
+   `cleanRecoveredDiagramBody` 未识别 `\", \"kind\":..., \"language\":...` sibling JSON 尾界，第二份
+   attachment 因 body/hash 不同逃过 dedupe，最终出现重复图且一份 Mermaid 尾行带协议碎片。根修应在
+   recovery-only 边界剥离精确 JSON sibling delimiter，再走既有 canonical hash；不得修正文图语义、补边或
+   把 rejected diagram 冒充已校验主体。
+6. 两案均无 4ms/固定总年龄降级。Read/Write 路由、Trace 显式窗、因果投影、自动补齐与链上-only 根因
+   均未改；系统仍只发布精确信息/补证义务，不代替模型形成答案或图关系。
+
+状态：
+
+`B1150-PARTICIPANTARGUMENTMEMBERCOMPONENT1=implemented/pending-production-trigger`；
+`B1151-CARRIERHANDOFFNAVIGATIONQUALITY1=confirmed/P1/next`；
+`B1152-RECOVEREDDIAGRAMJSONTAILDEDUP1=confirmed/P1/next-small-batch`；
+`B1149-STRUCTUREDLISTROWATTRIBUTERENDER1=confirmed/P2/pending`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1140 B1139：有限窗口查询的读者语言终缝（2026-08-18）
 
 1. r718/r719 与客户样例 `20260817-035940.596-30410.md` 共同确认的不是 Trace
