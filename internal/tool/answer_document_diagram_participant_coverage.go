@@ -417,6 +417,7 @@ func DiagramParticipantCoverageMismatches(
 	}
 	states := make([]state, 0, len(obligations))
 	allSurfaces := make([][]string, 0, len(obligations))
+	requestedRelationEvidence := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
 	for _, obligation := range obligations {
 		// The analyzer's typed display identity is always its own exact
 		// presentation surface, including schema-valid labels with spaces such
@@ -432,12 +433,12 @@ func DiagramParticipantCoverageMismatches(
 		states = append(states, state{
 			obligation:      obligation,
 			surfaces:        surfaces,
-			visibleCovered:  diagramParticipantHasTypedVisibleIncident(doc, surfaces, evidence, stagePrecedence),
+			visibleCovered:  diagramParticipantHasTypedVisibleIncident(doc, surfaces, requestedRelationEvidence, stagePrecedence),
 			identityVisible: diagramParticipantIdentityVisible(doc, surfaces, stagePrecedence),
 		})
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
-	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, evidence, stagePrecedence)
+	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, requestedRelationEvidence, stagePrecedence)
 	evidenceParticipantGraphComplete := len(obligations) > 1
 	for i := range states {
 		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i, requestedParticipantGraphComplete)
@@ -573,7 +574,7 @@ func DiagramParticipantCoverageMismatches(
 	// instead of forcing the model to guess a bridge through repeated retries.
 	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 1)
 	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete && len(joinCandidates) > 0 {
-		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, evidence, stagePrecedence)
+		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, requestedRelationEvidence, stagePrecedence)
 		outsidePrincipal := make(map[string]bool, len(states))
 		for i, current := range states {
 			if i < len(principal) && principal[i] {
@@ -616,7 +617,7 @@ func DiagramParticipantCoverageMismatches(
 		}
 	}
 	out = append(out, diagramParticipantVisibleEndpointRetargetMismatches(
-		doc, obligations, allSurfaces, evidence,
+		doc, obligations, allSurfaces, requestedRelationEvidence,
 	)...)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].BlockID != out[j].BlockID {
@@ -758,10 +759,10 @@ func diagramParticipantEndpointExplicitlyDisplaysIdentity(
 func diagramParticipantRequestedGraphConnected(
 	doc *types.AnswerDocumentV2,
 	participantSurfaces [][]string,
-	evidence []types.EvidenceItem,
+	requestedRelationEvidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) bool {
-	principal := diagramParticipantRequestedGraphPrincipalCovered(doc, participantSurfaces, evidence, stagePrecedence)
+	principal := diagramParticipantRequestedGraphPrincipalCovered(doc, participantSurfaces, requestedRelationEvidence, stagePrecedence)
 	if len(principal) < 2 {
 		return false
 	}
@@ -783,7 +784,7 @@ func diagramParticipantRequestedGraphConnected(
 func diagramParticipantRequestedGraphPrincipalCovered(
 	doc *types.AnswerDocumentV2,
 	participantSurfaces [][]string,
-	evidence []types.EvidenceItem,
+	requestedRelationEvidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) []bool {
 	covered := make([]bool, len(participantSurfaces))
@@ -853,11 +854,16 @@ func diagramParticipantRequestedGraphPrincipalCovered(
 			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
 				continue
 			}
+			if !diagramParticipantEdgeHasRequestedRelationAuthority(
+				edge.From, edge.To, anchors, labels, requestedRelationEvidence, stagePrecedence,
+			) {
+				continue
+			}
 			fromIndex, toIndex := ensureNode(edge.From), ensureNode(edge.To)
 			nodeUnion(fromIndex, toIndex)
-			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
-			fromParticipants := diagramParticipantEndpointRosterMatches(block, edge.From, from, labels, participantSurfaces, evidence)
-			toParticipants := diagramParticipantEndpointRosterMatches(block, edge.To, to, labels, participantSurfaces, evidence)
+			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, requestedRelationEvidence)
+			fromParticipants := diagramParticipantEndpointRosterMatches(block, edge.From, from, labels, participantSurfaces, requestedRelationEvidence)
+			toParticipants := diagramParticipantEndpointRosterMatches(block, edge.To, to, labels, participantSurfaces, requestedRelationEvidence)
 			if typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)][types.DiagramRelPrecedence] {
 				stageFrom, stageTo := diagramParticipantVerifiedStageEndpointRosterMatches(
 					diagramParticipantVisibleEndpoint(edge.From, labels),
@@ -927,6 +933,73 @@ func diagramParticipantRequestedGraphPrincipalCovered(
 		}
 	}
 	return covered
+}
+
+// diagramParticipantEdgeHasRequestedRelationAuthority keeps reader-visible
+// requested-participant connectivity on the same producer-owned lane as the
+// completion and first-pass candidate providers. A valid edge anchor may be a
+// truthful background/local fact, but it joins the requested graph only when
+// it is either checkout-verified stage precedence or exactly one
+// Explorer-selected operation. This prevents repo-wide expansions from
+// stitching unrelated owners together through a shared participant label.
+func diagramParticipantEdgeHasRequestedRelationAuthority(
+	fromNode, toNode string,
+	anchors []types.DiagramEdgeAnchor,
+	labels map[string]string,
+	requestedRelationEvidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) bool {
+	edgeKey := diagramEvidenceEdgeKey(fromNode, toNode)
+	for _, anchor := range anchors {
+		if diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode) != edgeKey {
+			continue
+		}
+		relation := diagramAnchorRelation(anchor)
+		from, to := diagramEvidenceAnchorEndpointSymbols(anchor, labels, requestedRelationEvidence)
+		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+		if !relation.IsValid() || from == "" || to == "" {
+			continue
+		}
+		if relation == types.DiagramRelPrecedence {
+			for _, precedence := range stagePrecedence {
+				if diagramStageRowIdentityMatches(precedence.From, from) &&
+					diagramStageRowIdentityMatches(precedence.To, to) {
+					return true
+				}
+			}
+			continue
+		}
+		for _, operation := range requestedRelationEvidence {
+			expectedRelation := types.RelationForClaimForm(types.ClaimFormOf(operation))
+			expectedFrom, expectedTo := strings.TrimSpace(operation.Subject), strings.TrimSpace(operation.Object)
+			if operation.AnchorKind == types.AnchorAssignment || operation.AnchorKind == types.AnchorInitializer {
+				receiver, value, ok := types.AssignmentEvidenceEndpoints(operation)
+				if !ok {
+					continue
+				}
+				switch relation {
+				case types.DiagramRelDataFlow:
+					expectedRelation, expectedFrom, expectedTo = types.DiagramRelDataFlow, value, receiver
+				case types.DiagramRelAssignment:
+					expectedRelation, expectedFrom, expectedTo = types.DiagramRelAssignment, receiver, value
+				default:
+					continue
+				}
+			}
+			if relation == expectedRelation &&
+				diagramParticipantRequestedRelationIdentityEqual(from, expectedFrom) &&
+				diagramParticipantRequestedRelationIdentityEqual(to, expectedTo) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func diagramParticipantRequestedRelationIdentityEqual(left, right string) bool {
+	left, right = strings.TrimSpace(left), strings.TrimSpace(right)
+	return left != "" && right != "" &&
+		(strings.EqualFold(left, right) || types.AnswerCodeIdentitySurfacesEquivalent(left, right))
 }
 
 func diagramParticipantVerifiedStageEndpointRosterMatches(
@@ -1196,7 +1269,8 @@ func diagramParticipantTypedJoinCandidates(
 	if len(obligations) < 2 {
 		return nil
 	}
-	indexes := diagramParticipantVisibleComponentIndexes(doc)
+	requestedRelationEvidence := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	indexes := diagramParticipantVisibleComponentIndexes(doc, requestedRelationEvidence, stagePrecedence)
 	if len(indexes) == 0 {
 		return nil
 	}
@@ -1234,7 +1308,11 @@ func diagramParticipantTypedJoinCandidates(
 	return out
 }
 
-func diagramParticipantVisibleComponentIndexes(doc *types.AnswerDocumentV2) []diagramParticipantVisibleComponentIndex {
+func diagramParticipantVisibleComponentIndexes(
+	doc *types.AnswerDocumentV2,
+	requestedRelationEvidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) []diagramParticipantVisibleComponentIndex {
 	if doc == nil {
 		return nil
 	}
@@ -1247,6 +1325,7 @@ func diagramParticipantVisibleComponentIndexes(doc *types.AnswerDocumentV2) []di
 		}
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
 		typedRelations := diagramTypedAnchorRelationSet(anchors)
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 		nodeIndex := make(map[string]int)
 		ordered := make([]string, 0)
 		parent := make([]int, 0)
@@ -1278,6 +1357,11 @@ func diagramParticipantVisibleComponentIndexes(doc *types.AnswerDocumentV2) []di
 			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
 				continue
 			}
+			if !diagramParticipantEdgeHasRequestedRelationAuthority(
+				edge.From, edge.To, anchors, labels, requestedRelationEvidence, stagePrecedence,
+			) {
+				continue
+			}
 			union(ensureNode(edge.From), ensureNode(edge.To))
 		}
 		if len(ordered) == 0 {
@@ -1289,7 +1373,7 @@ func diagramParticipantVisibleComponentIndexes(doc *types.AnswerDocumentV2) []di
 		}
 		out = append(out, diagramParticipantVisibleComponentIndex{
 			blockID: strings.TrimSpace(block.ID), nodeComponent: components,
-			labels: diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind), anchors: anchors,
+			labels: labels, anchors: anchors,
 		})
 	}
 	return out
@@ -1559,7 +1643,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), true)
 		}
 	}
-	for operationIndex, operation := range types.FlowOperationEvidenceForRequest(evidence, rm) {
+	for operationIndex, operation := range types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm) {
 		if len(obligations) > 1 && (operationIndex >= len(relationScope.operationRelevant) ||
 			!relationScope.operationRelevant[operationIndex]) {
 			continue
@@ -1903,6 +1987,11 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 			if !diagramHasValidTypedRelation(relations) {
 				continue
 			}
+			if !diagramParticipantEdgeHasRequestedRelationAuthority(
+				edge.From, edge.To, anchors, labels, evidence, stagePrecedence,
+			) {
+				continue
+			}
 			from, to := diagramEvidenceEdgeEndpointSymbols(edge.From, edge.To, anchors, labels, evidence)
 			// A technical endpoint owned by a requested component proves the
 			// relation, but it does not by itself prove that the visible graph
@@ -2048,13 +2137,13 @@ func diagramParticipantIncidentEndpointMatches(surfaces []string, endpoint strin
 		return true
 	}
 	for _, surface := range surfaces {
-		if types.AnswerCodeIdentityOwnsEndpoint(surface, endpoint) {
-			return true
-		}
 		for _, operation := range types.FlowOperationEvidence(evidence) {
 			if !types.AnswerCodeIdentitySurfacesEquivalent(endpoint, operation.Subject) &&
 				!types.AnswerCodeIdentitySurfacesEquivalent(endpoint, operation.Object) {
 				continue
+			}
+			if types.AnswerCodeIdentityOwnsEndpoint(surface, endpoint) {
+				return true
 			}
 			if types.AnswerCodeIdentityIncidentViaDeclaredBinding(surface, endpoint, operation, evidence) {
 				return true

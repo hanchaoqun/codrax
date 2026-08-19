@@ -572,7 +572,7 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 		surfaces[i] = []string{participants[i].Identity}
 	}
 	argument := func(subject string) types.EvidenceItem {
-		return types.EvidenceItem{ID: "arg-" + subject, Kind: types.EvidenceRelationship,
+		return types.EvidenceItem{ID: "arg-" + subject, Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship,
 			Subject: subject, Predicate: "passes argument", Object: "BuildAgentContext",
 			Source: "internal/orchestrator/extract_work.go", LineStart: 15,
 			AnchorKind: types.AnchorArgument, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
@@ -779,6 +779,64 @@ func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScope
 	}
 }
 
+func TestDiagramParticipantCoverageDoesNotJoinRepoWideExpansionIntoRequestedStageFlow(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), participants...),
+	}
+	precedence := []stageauthority.PrecedenceRelation{{
+		From: stageauthority.StageRow{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		To:   stageauthority.StageRow{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}}
+	autoExplorer := diagramEvidenceTestCall("internal/agent/explorer.go:renderExplorerToolBudgetPlan", "append")
+	autoExplorer.Producer = types.EvidenceProducerRepoMapCooperativeCall
+	autoExplorer.Source = "internal/agent/explorer.go"
+	autoBus := diagramEvidenceTestCall("append", "BusContext.Flush")
+	autoBus.Producer = types.EvidenceProducerRepoMapCooperativeCall
+	autoBus.Source = "internal/orchestrator/orchestrator.go"
+	evidence := []types.EvidenceItem{autoExplorer, autoBus}
+
+	surfaces := [][]string{{"Analyzer"}, {"Explorer"}, {"BusContext"}}
+	scope := buildFlowParticipantRelationScope(rm, participants, surfaces, evidence, precedence)
+	if !scope.effectiveParticipantCovered(0, false) || !scope.effectiveParticipantCovered(1, false) ||
+		scope.effectiveParticipantCovered(2, false) {
+		t.Fatalf("repo-wide expansion must not extend the requested stage provider to BusContext: %+v", scope)
+	}
+
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart LR\n Analyzer[\"Analyzer\"] --> Explorer[\"Explorer\"]\n Explorer --> append\n append --> BusContext[\"BusContext\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "Explorer", ToNode: "append", FromIdentity: autoExplorer.Subject, ToIdentity: autoExplorer.Object, RelationKind: types.DiagramRelCall},
+			{FromNode: "append", ToNode: "BusContext", FromIdentity: autoBus.Subject, ToIdentity: autoBus.Object, RelationKind: types.DiagramRelCall},
+		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+	}}}
+	if got := diagramParticipantTypedJoinCandidates(doc, rm, evidence, precedence, 2); len(got) != 0 {
+		t.Fatalf("repo-wide expansion must not be published as a requested join candidate: %+v", got)
+	}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
+		t.Fatalf("truthful local background edges plus an unproven requested boundary should pass: %+v", got)
+	}
+	doc.Blocks[0].ParticipantBoundaries = nil
+	got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...)
+	if len(got) != 1 || got[0].Participant != "BusContext" || got[0].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("background-only BusContext incidence must not close requested relation coverage: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageUsesTypedEndpointPairBehindBusinessLabels(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"理解请求\"] --> E[\"收集证据\"]\n M[\"MutableState\"]"
@@ -942,7 +1000,7 @@ func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *
 		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
 	}}
 	operation := types.EvidenceItem{
-		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
 		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
@@ -958,6 +1016,18 @@ func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *
 	if anchor.FromIdentity != "output.EvidenceItems" || anchor.ToIdentity != "o.busCtx.EvidenceItems" || anchor.RelationKind != types.DiagramRelDataFlow {
 		t.Fatalf("identity bridge must not rewrite or mint edge authority: %+v", anchor)
 	}
+
+	// The same selected assignment also authorizes its exact binding view in
+	// LHS -> RHS direction. Requested-scope filtering must preserve both typed
+	// renderings without treating either one as an automatically invented edge.
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"] --> O[\"产生证据\"]"
+	doc.Blocks[0].EdgeAnchors[0] = types.DiagramEdgeAnchor{
+		FromNode: "B", ToNode: "O", FromIdentity: "o.busCtx.EvidenceItems",
+		ToIdentity: "output.EvidenceItems", RelationKind: types.DiagramRelAssignment,
+	}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, []types.EvidenceItem{operation}); len(got) != 0 {
+		t.Fatalf("selected assignment binding view should retain requested relation authority: %+v", got)
+	}
 }
 
 func TestDiagramParticipantCoverageCandidateShapePassesRelationAndIdentityGatesTogether(t *testing.T) {
@@ -972,7 +1042,7 @@ func TestDiagramParticipantCoverageCandidateShapePassesRelationAndIdentityGatesT
 		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
 	}}
 	operation := types.EvidenceItem{
-		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
 		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
@@ -1006,7 +1076,7 @@ func TestDiagramParticipantCoverageDoesNotLetHiddenTypedOperationReplaceBusiness
 		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
 	}}
 	operation := types.EvidenceItem{
-		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
 		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
@@ -1038,7 +1108,7 @@ func TestDiagramParticipantCoverageDoesNotJoinDisconnectedBusinessNodeToTechnica
 		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
 	}}
 	operation := types.EvidenceItem{
-		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
 		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
@@ -1068,7 +1138,7 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"]"
 	doc.Blocks[0].EdgeAnchors = nil
 	operation := types.EvidenceItem{
-		ID: "bus-write", Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
 		Predicate: "assigns", Object: "output.EvidenceItems", Source: "src/pipeline.go", LineStart: 20,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",

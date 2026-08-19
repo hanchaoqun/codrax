@@ -2201,8 +2201,8 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 		Rationale: "typed shared-callee boundary",
 	})
 	evidence := []types.EvidenceItem{
-		{ID: "E-source", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", OwnerSymbol: "agent.buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
-		{ID: "E-sink", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Run", OwnerSymbol: "gate.Run", Object: "RunWith", AnchorSymbol: "RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "E-source", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "buildAnalysisIR", OwnerSymbol: "agent.buildAnalysisIR", Object: "gate.RunWith", AnchorSymbol: "gate.RunWith", Source: "internal/agent/analyzer.go", LineStart: 2722, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "E-sink", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Run", OwnerSymbol: "gate.Run", Object: "RunWith", AnchorSymbol: "RunWith", Source: "internal/analysis/gate/gate.go", LineStart: 135, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 	}
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: evidence})
 	ctx := &types.AgentContext{

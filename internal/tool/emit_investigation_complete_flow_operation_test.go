@@ -32,7 +32,8 @@ func flowOperationCompletionContext(evidence []types.EvidenceItem) *types.BusCon
 func flowOperationEvidence(anchor types.AnchorKind, subject, object string, line int) types.EvidenceItem {
 	item := types.EvidenceItem{
 		Kind: types.EvidenceRelationship, AnchorKind: anchor,
-		Subject: subject, Object: object, AnchorSymbol: object,
+		Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Subject:  subject, Object: object, AnchorSymbol: object,
 		Source: "src/pipeline.go", LineStart: line, Scope: types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
 	}

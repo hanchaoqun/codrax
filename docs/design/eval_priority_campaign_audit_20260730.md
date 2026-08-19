@@ -35789,6 +35789,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/edge/conclusion-authorship=none`。
 
+### §123.1181 B1182：请求级关系只消费模型选中的 operation；仓库扩展退回背景（2026-08-19）
+
+1. r740 的错误图不是三条源码关系本身为假，而是它们的 authority 域被放大。`flowParticipantRelationScope`、
+   participant candidate、可见连通分量和终局 coverage 过去都消费完整 `FlowOperationEvidenceForRequest`；其中同时
+   包含 Explorer 明确提交的 operation 与 repo-map/parser 自动扩展。`explorer.go` 路径段又可映射到显示参与者
+   `Explorer`，于是自动发现的 `renderExplorerToolBudgetPlan -> append`、`append -> BusContext.Flush` 能从已证
+   stage precedence 旁边接出一条请求级“主关系”，尽管它们只是另一个 owner/语义范围内的真实局部事实。
+2. 根修复用既有生产者单源 `ExplorerAuthoredFlowOperationEvidenceForRequest`。请求关系 completion、候选发布、
+   visible participant incidence、主连通分量、跨分量 join candidate 和 endpoint retarget 审计统一只消费
+   `Producer=explorer.emit_evidence` 且在 principal source scope 内的 operation；checkout 验证的 stage precedence
+   保留独立精确权威。repo-map/parser 扩展仍留在 evidence/citation/局部事实通道，但不能独立补齐请求关系、消除
+   `unproven` 边界或驱动模型把不同 owner 的局部边拼成主脊柱。
+3. 每条参与 requested connectivity 的可见边新增同源 receipt：必须精确对应一条模型选中的 typed operation，
+   或对应一条 checkout-verified stage precedence。锚点缺显式 identity 时仍通过既有 node-label/typed-evidence
+   resolver 解析；有 identity 时保留 exact/equivalent identity 对、关系类型和方向。赋值同时支持其两个合法视图：
+   `assignment` 为 LHS→RHS 绑定视图，`data_flow` 为 RHS→LHS 执行方向，二者都不能改写端点。
+4. 这是 authority/provenance 分层，不是禁止模型画局部真边。自动扩展关系仍可作为独立背景子图或正文证据；当
+   用户请求的参与者关系未被 Explorer 选中 operation 连接时，模型可保留这些局部边，同时为请求关系给出唯一
+   `unproven` boundary。系统不删除模型边、不代画、不从用户/答案原文关键词推断主链，也不替模型形成结论。
+5. 新回归构造与 r740 同型但符号无关的反例：已证 `Analyzer -> Explorer` stage precedence，加两条
+   `repo_map.cooperative_call` 自动边 `internal/agent/explorer.go:renderExplorerToolBudgetPlan -> append ->
+   BusContext.Flush`。断言 BusContext 不进入请求 relation scope、不产生 typed join candidate；保留 BusContext
+   unproven boundary 时通过，删除 boundary 时精确报缺失。既有阶段别名、参数载体、静态绑定、共享 callee、
+   多 hop、赋值/data-flow 双向视图及 15 语言通用 identity 行为保持通过。
+6. 专项 `go test ./internal/tool ./internal/agent -count=1` 全绿（tool 177.365s、agent 12.718s）；补齐一个旧
+   orchestrator 夹具的真实 Explorer producer 后，第二次 `go test ./... -count=1` 全绿（orchestrator 17.444s、
+   tool 190.834s、tracequery 84.070s、hitraceconv 87.177s）。本批未修改 Trace 查询、显式窗、因果投影、自动补齐
+   或 Finalizer 结论权；真正 causal diagnosis 的链上优先级反转、调度延迟/供给、算力供给、D/IO、确定性语义
+   与业务线索双轴均保持，邻近/背景仍不能晋升主因。
+
+状态：
+
+`B1182-REQUESTRELATIONLOCALLEDGEBRIDGE1=implemented/producer-owned-request-scope+visible-edge-receipt+pinned/pending-production-replay`；
+`B1179-WRITEREPLANACTIVESTREAMMINDLOAD1=implemented/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1178 B1178：模型显式证据替换闭环（2026-08-19）
 
 1. r738 的 `extractor` 误绑定不是“补一条正确证据”即可自然消失。旧工具只支持同一 StableEvidenceID 的

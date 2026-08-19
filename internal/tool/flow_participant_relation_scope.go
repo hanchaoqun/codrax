@@ -127,7 +127,12 @@ func buildFlowParticipantRelationScope(
 		participantPrincipalComponentCovered: make([]bool, len(participants)),
 		participantLocalOperation:            make([]bool, len(participants)),
 	}
-	operations := types.FlowOperationEvidenceForRequest(evidence, rm)
+	// Requested-relation coverage is principal answer-path authority. Keep it
+	// on the operations the Explorer explicitly selected for this
+	// investigation; repo-wide/parser expansions remain valid background facts
+	// but cannot independently connect requested participants merely because a
+	// file path or broad owner happens to share a participant name.
+	operations := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
 	scope.operationRelevant = make([]bool, len(operations))
 	if len(participants) == 0 {
 		return scope

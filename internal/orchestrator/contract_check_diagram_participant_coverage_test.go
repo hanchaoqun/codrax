@@ -19,7 +19,7 @@ func TestRunV2BlockOracles_PreservesTypedParticipantOrExplicitUnprovenBoundary(t
 	}
 	mut := types.NewMutableState("typed participant coverage")
 	mut.AppendEvidence([]types.EvidenceItem{{
-		ID: "analyzer-explorer", Kind: types.EvidenceRelationship,
+		ID: "analyzer-explorer", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship,
 		Subject: "Analyzer", Predicate: "calls", Object: "Explorer",
 		Source: "internal/agent/analyzer.go", LineStart: 1,
 		AnchorKind: types.AnchorCall, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,

@@ -22,6 +22,7 @@ func diagramEvidenceTestCall(subject, object string) types.EvidenceItem {
 		AnchorKind:      types.AnchorCall,
 		Scope:           types.ScopeLine,
 		GroundingStatus: types.GroundingGrounded,
+		Producer:        types.EvidenceProducerExplorerEmitEvidence,
 	}
 }
 
