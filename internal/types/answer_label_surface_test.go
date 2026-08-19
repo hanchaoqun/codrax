@@ -225,6 +225,20 @@ func TestAnswerCodeIdentitySurfacesEquivalentNormalizesOnlyPresentation(t *testi
 	}
 }
 
+func TestAnswerCodeIdentitySurfaceKeyMatchesExactEquivalenceOnly(t *testing.T) {
+	left := AnswerCodeIdentitySurfaceKey("Logger::run")
+	right := AnswerCodeIdentitySurfaceKey("logger.run()")
+	if left == "" || left != right {
+		t.Fatalf("presentation-equivalent keys differ: %q vs %q", left, right)
+	}
+	if got := AnswerCodeIdentitySurfaceKey("run"); got == left {
+		t.Fatalf("short tail key %q must not collapse qualified owner %q", got, left)
+	}
+	if got := AnswerCodeIdentitySurfaceKey("not an identity"); got != "" {
+		t.Fatalf("invalid identity key=%q, want empty", got)
+	}
+}
+
 func TestAnswerSourceLocationLabelMatchesCitation(t *testing.T) {
 	if !AnswerSourceLocationLabelMatchesCitation("internal/agent/analyzer.go:1903", Citation{
 		File: "internal/agent/analyzer.go",

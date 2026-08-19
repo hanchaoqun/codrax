@@ -35693,6 +35693,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/edge/conclusion-authorship=none`。
 
+### §123.1179 r739：六参与者清单生产生效；关系导航递归扫描引发确定性资源爆炸（2026-08-19）
+
+1. 在 `main@ca2a9d9dc` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `0 PASS / 2 FAIL`，
+   人工两案均 fail；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_supersession_write_r739_20260819_manual_audit.md`。
+2. B1177 获生产正证。QF 的 explorer 保留用户请求的全部六个 participant：Orchestrator、BusContext、
+   Analyzer、Explorer、Extractor、Finalizer；第一次 completion 的 `member_set value=5` 被精确拒绝，模型改为 6 后
+   再次提交。空参与者不再让无关 helper 图满足合同。
+3. 第二次 completion 已进入确定性工具且模型调用完整结束，却长期不返回。只读进程采样把热点钉到
+   `flowParticipantCoverageNavigationHint -> flowOperationNavigationHintForMissing ->
+   flowNavigationCallResultContinuationDepth`：旧实现为每个候选调用点递归扫描同文件全部 owner 关系，递归中
+   又重复解析参数流和 code-identity normalization；生产图上达到约 119% CPU、2.4GB RSS。为避免继续资源失控，
+   仅在模型流结束后终止该确定性进程；没有按 4ms/固定年龄降级活跃模型流。
+4. 新立 B1180/P0。根修不裁剪证据、不限制 participant/语言/type，也不改变 4-hop 语义：按精确
+   `(canonical file, typed owner identity set)` 把 owner 内全部 call site 编译成一次反向 value-continuation DAG；
+   complete assignment receiver 与 complete argument identity 用与既有 exact-equivalence 相同的 opaque key join，
+   同行 site 不互认“later”，深度仍封顶 4。一个 owner 首次查询线性求解，后续候选 O(1) 读取。
+5. `flowNavigationIndex` 缓存版本升为 v7；同 owner 的 160 节点链回归逐点验证原有深度并断言只编译一次。
+   identity key 另有 qualified/presentation-equivalent/short-tail/invalid 正负 pin；分隔符 replacer 改为包级不可变实例，
+   避免精确归一化中的重复构造。该缓存只用于给模型挑选下一处源码导航坐标，不生成 relation/evidence/diagram/answer。
+   专项 `internal/types + internal/tool` 与 `go test ./... -count=1` 均全绿（tool 198.605s、tracequery 90.406s、
+   hitraceconv 111.383s）。
+6. B1178 本轮没有生产触发：模型虽收到公开的 `id=ev-*`，但没有提交 `supersessions[]`，故仍记
+   implemented/pending-production，而不虚报闭环。QF 未到 Extractor/Finalizer，因此没有答案可审。
+7. 写案例首补丁仍把五换行折成 `[300,300,10]`，项目验证正确失败。第三轮 replan 连续输出
+   676,529 活跃语义传输字节、12m38s，却没有提交 structured plan；caller deadline 合法取消，补丁与 recovery ref
+   保留，runner 因 final report 仍为 `run_status=in_progress/verdict missing` 正确判 fail。B1179 因此从单次观察升级为
+   production-reconfirmed；下一批根修必须降低 planner 的重复心智负担或增加 schema-native 决策收敛，不得扫描
+   reasoning/答案词面、不得在活跃字节期间按固定累计年龄截断，也不得把失败洗绿。
+8. 本批不改 Trace 查询、投影编译、自动补齐或 Finalizer 结论权。显式窗 Trace 因果投影、链上-only 主因、实际
+   占用/链上业务线索与规则计价可消除量双轴保持；邻近/背景仍只作支持，系统不代替模型画边、成文或下结论。
+
+状态：
+
+`B1177-DIAGRAMCROSSCOMPONENTPARTICIPANTCONSISTENCY1=production-positive-r739`；
+`B1178-EVIDENCEEXPLICITRETRACTION1=implemented/not-exercised-r739/pending-production-replay`；
+`B1179-WRITEREPLANACTIVESTREAMMINDLOAD1=production-reconfirmed-r739/P1-next`；
+`B1180-FLOWCONTINUATIONRANKEXPLOSION1=implemented/reverse-DP+exact-owner-cache+pinned/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/production-not-observed-r739`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1178 B1178：模型显式证据替换闭环（2026-08-19）
 
 1. r738 的 `extractor` 误绑定不是“补一条正确证据”即可自然消失。旧工具只支持同一 StableEvidenceID 的

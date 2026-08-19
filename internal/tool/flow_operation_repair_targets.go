@@ -18,7 +18,7 @@ const (
 	maxFlowOperationRepairFiles    = 6
 	maxFlowOperationRepairKeywords = 8
 	flowOperationRepairReadRadius  = 12
-	flowNavigationIndexCacheKey    = "flow_navigation_index:v6"
+	flowNavigationIndexCacheKey    = "flow_navigation_index:v7"
 )
 
 type flowOperationRepairReadTarget struct {
@@ -106,6 +106,11 @@ type flowNavigationIndex struct {
 	sourceLinesMu        sync.Mutex
 	sourceLinesByFile    map[string]map[int]string
 	sourceLinesAttempted map[string]bool
+	continuationMu       sync.Mutex
+	// callResultContinuationByOwner caches all call-site continuation depths
+	// for one exact (file, typed owner-surface query) domain. A whole owner DAG
+	// is solved in one reverse pass; individual ranking call sites then read O(1).
+	callResultContinuationByOwner map[string]map[*repotypes.Relation]int
 }
 
 func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
@@ -120,14 +125,15 @@ func flowNavigationIndexForContext(ctx *types.BusContext) *flowNavigationIndex {
 		return nil
 	}
 	index := &flowNavigationIndex{
-		symbolsByKey:         make(map[string][]flowParserSymbolSite),
-		relationsByKey:       make(map[string][]flowParserRelationSite),
-		relationsByToken:     make(map[string][]flowParserRelationSite),
-		relationsByFile:      make(map[string][]flowParserRelationSite),
-		relationsByOwnerKey:  make(map[string][]flowParserRelationSite),
-		relationsByTarget:    make(map[*repotypes.Symbol][]flowParserRelationSite),
-		sourceLinesByFile:    make(map[string]map[int]string),
-		sourceLinesAttempted: make(map[string]bool),
+		symbolsByKey:                  make(map[string][]flowParserSymbolSite),
+		relationsByKey:                make(map[string][]flowParserRelationSite),
+		relationsByToken:              make(map[string][]flowParserRelationSite),
+		relationsByFile:               make(map[string][]flowParserRelationSite),
+		relationsByOwnerKey:           make(map[string][]flowParserRelationSite),
+		relationsByTarget:             make(map[*repotypes.Symbol][]flowParserRelationSite),
+		sourceLinesByFile:             make(map[string]map[int]string),
+		sourceLinesAttempted:          make(map[string]bool),
+		callResultContinuationByOwner: make(map[string]map[*repotypes.Relation]int),
 	}
 	paths := make([]string, 0, len(graph.FileIndex))
 	for path := range graph.FileIndex {
@@ -1539,84 +1545,159 @@ func flowNavigationCallResultContinuationDepth(
 	if len(ownerSurfaces) == 0 {
 		ownerSurfaces = flowRepairRelationEndpointSurfaces(relation.FromEP)
 	}
-	receivers := types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{
+	if len(types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{
 		AnchorKind: types.AnchorAssignment,
 		Snippet:    lines[line],
-	})
-	if len(receivers) == 0 {
+	})) == 0 {
 		return 0
+	}
+	ownerKeyParts := make([]string, 0, len(ownerSurfaces))
+	for _, surface := range ownerSurfaces {
+		if key := types.AnswerCodeIdentitySurfaceKey(surface); key != "" {
+			ownerKeyParts = append(ownerKeyParts, key)
+		}
+	}
+	if len(ownerKeyParts) == 0 {
+		for _, surface := range ownerSurfaces {
+			if surface = strings.ToLower(strings.TrimSpace(surface)); surface != "" {
+				ownerKeyParts = append(ownerKeyParts, "raw="+surface)
+			}
+		}
+	}
+	sort.Strings(ownerKeyParts)
+	ownerKeyParts = compactSortedStrings(ownerKeyParts)
+	cacheKey := file + "\x1e" + strings.Join(ownerKeyParts, "\x00")
+
+	index.continuationMu.Lock()
+	if cached := index.callResultContinuationByOwner[cacheKey]; cached != nil {
+		depth := cached[relation]
+		index.continuationMu.Unlock()
+		return depth
+	}
+	depths := flowNavigationCallResultContinuationDepthsForOwner(
+		ctx, index, file, lines, ownerSurfaces,
+	)
+	if index.callResultContinuationByOwner == nil {
+		index.callResultContinuationByOwner = make(map[string]map[*repotypes.Relation]int)
+	}
+	index.callResultContinuationByOwner[cacheKey] = depths
+	depth := depths[relation]
+	index.continuationMu.Unlock()
+	return depth
+}
+
+type flowNavigationContinuationSite struct {
+	relation     *repotypes.Relation
+	line         int
+	consumesKeys []string
+	producesKeys []string
+}
+
+// flowNavigationCallResultContinuationDepthsForOwner solves the complete
+// later-line value-continuation DAG for one typed owner domain in a single
+// reverse pass. For a site S, every produced assignment identity can feed a
+// later site T that consumes the same complete argument identity; depth[S] is
+// 1+depth[T], bounded by the existing four-hop presentation rank. Sites on the
+// same line are evaluated as one group so they never become "later" than one
+// another. This remains navigation-only and creates no relation evidence.
+func flowNavigationCallResultContinuationDepthsForOwner(
+	ctx *types.BusContext,
+	index *flowNavigationIndex,
+	file string,
+	lines map[int]string,
+	ownerSurfaces []string,
+) map[*repotypes.Relation]int {
+	out := make(map[*repotypes.Relation]int)
+	if ctx == nil || ctx.Mutable == nil || index == nil || file == "" || len(lines) == 0 {
+		return out
 	}
 	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	gc := &ground.Context{
 		Graph: graph, RepoRoot: ctx.RepoRoot,
 		LineIndex: map[string]map[int]string{file: lines},
 	}
-	type memoKey struct {
-		line      int
-		receivers string
-		remaining int
+	sites := make([]flowNavigationContinuationSite, 0, len(index.relationsByFile[file]))
+	seen := make(map[*repotypes.Relation]bool)
+	for _, indexed := range index.relationsByFile[file] {
+		relation := indexed.relation
+		if relation == nil || seen[relation] || strings.TrimSpace(relation.Kind) != "call" ||
+			flowRepairPlanningSurfaceMatchRank(ownerSurfaces, indexed.ownerSurfaces) == 0 {
+			continue
+		}
+		seen[relation] = true
+		line := max(relation.Line, relation.FromEP.Line, relation.ToEP.Line)
+		callee := flowNavigationCallReceiver(relation)
+		if line <= 0 || callee == "" {
+			continue
+		}
+		var consumes []string
+		for _, flow := range ground.DetectArgumentFlowsAtLine(gc, file, line, callee) {
+			if key := types.AnswerCodeIdentitySurfaceKey(flow.Argument); key != "" {
+				consumes = append(consumes, key)
+			}
+		}
+		var produces []string
+		for _, receiver := range types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{
+			AnchorKind: types.AnchorAssignment,
+			Snippet:    lines[line],
+		}) {
+			if key := types.AnswerCodeIdentitySurfaceKey(receiver); key != "" {
+				produces = append(produces, key)
+			}
+		}
+		sort.Strings(consumes)
+		sort.Strings(produces)
+		sites = append(sites, flowNavigationContinuationSite{
+			relation: relation, line: line,
+			consumesKeys: compactSortedStrings(consumes),
+			producesKeys: compactSortedStrings(produces),
+		})
 	}
-	memo := make(map[memoKey]int)
-	var depth func(int, []string, int) int
-	depth = func(currentLine int, currentReceivers []string, remaining int) int {
-		if remaining <= 0 || len(currentReceivers) == 0 {
-			return 0
+	sort.SliceStable(sites, func(i, j int) bool {
+		return sites[i].line > sites[j].line
+	})
+
+	// bestConsumer[key] is the best one-hop-plus-tail score available at a
+	// strictly later source line for that exact complete argument identity.
+	bestConsumer := make(map[string]int)
+	for start := 0; start < len(sites); {
+		end := start + 1
+		for end < len(sites) && sites[end].line == sites[start].line {
+			end++
 		}
-		keys := make([]string, 0, len(currentReceivers))
-		for _, receiver := range currentReceivers {
-			if key := strings.ToLower(strings.TrimSpace(receiver)); key != "" {
-				keys = append(keys, key)
+		updates := make(map[string]int)
+		for i := start; i < end; i++ {
+			depth := 0
+			for _, produced := range sites[i].producesKeys {
+				depth = max(depth, bestConsumer[produced])
+			}
+			depth = min(depth, flowNavigationCallResultContinuationMaxHops)
+			out[sites[i].relation] = depth
+			continuation := min(1+depth, flowNavigationCallResultContinuationMaxHops)
+			for _, consumed := range sites[i].consumesKeys {
+				updates[consumed] = max(updates[consumed], continuation)
 			}
 		}
-		sort.Strings(keys)
-		key := memoKey{line: currentLine, receivers: strings.Join(keys, "\x00"), remaining: remaining}
-		if got, ok := memo[key]; ok {
-			return got
+		for key, depth := range updates {
+			bestConsumer[key] = max(bestConsumer[key], depth)
 		}
-		best := 0
-		for _, site := range index.relationsByFile[file] {
-			next := site.relation
-			if next == nil || strings.TrimSpace(next.Kind) != "call" ||
-				flowRepairPlanningSurfaceMatchRank(ownerSurfaces, site.ownerSurfaces) == 0 {
-				continue
-			}
-			nextLine := max(next.Line, next.FromEP.Line, next.ToEP.Line)
-			if nextLine <= currentLine {
-				continue
-			}
-			callee := flowNavigationCallReceiver(next)
-			if callee == "" {
-				continue
-			}
-			wholeValue := false
-			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, file, nextLine, callee) {
-				for _, receiver := range currentReceivers {
-					if types.AnswerCodeIdentitySurfacesEquivalent(receiver, flow.Argument) {
-						wholeValue = true
-						break
-					}
-				}
-				if wholeValue {
-					break
-				}
-			}
-			if !wholeValue {
-				continue
-			}
-			nextReceivers := types.AssignmentNavigationReceiverCandidates(types.EvidenceItem{
-				AnchorKind: types.AnchorAssignment,
-				Snippet:    lines[nextLine],
-			})
-			candidate := 1
-			if len(nextReceivers) > 0 {
-				candidate += depth(nextLine, nextReceivers, remaining-1)
-			}
-			best = max(best, candidate)
-		}
-		memo[key] = best
-		return best
+		start = end
 	}
-	return depth(line, receivers, flowNavigationCallResultContinuationMaxHops)
+	return out
+}
+
+func compactSortedStrings(in []string) []string {
+	if len(in) < 2 {
+		return in
+	}
+	out := in[:0]
+	for _, value := range in {
+		if len(out) > 0 && out[len(out)-1] == value {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 // flowNavigationGroundedCallResultContinuationReadTarget resumes a

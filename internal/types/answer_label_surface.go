@@ -330,6 +330,19 @@ func AnswerCodeIdentitySurfacesEquivalent(left, right string) bool {
 	)
 }
 
+// AnswerCodeIdentitySurfaceKey returns the exact normalized segment identity
+// used by AnswerCodeIdentitySurfacesEquivalent. It is intended for typed
+// indexes and dynamic-programming joins that would otherwise rebuild the same
+// separator-normalization work for every pair. Empty means the surface is not
+// a valid code identity. The key is opaque; callers must not render it.
+func AnswerCodeIdentitySurfaceKey(raw string) string {
+	segments := answerCodeIdentitySegments(raw)
+	if len(segments) == 0 {
+		return ""
+	}
+	return strings.Join(segments, "\x1f")
+}
+
 // AnswerCodeIdentityContainsExactSegment reports whether an exact typed code
 // identity contains one complete normalized segment. It does not perform
 // substring, plural, or naming-convention inference.
@@ -354,19 +367,21 @@ func answerCodeIdentitySegmentSlicesEqual(left, right []string) bool {
 	return true
 }
 
+var answerCodeIdentitySeparatorReplacer = strings.NewReplacer(
+	"::", ".",
+	"->", ".",
+	"#", ".",
+	"/", ".",
+	`\`, ".",
+)
+
 func answerCodeIdentitySegments(raw string) []string {
 	raw = strings.Trim(strings.TrimSpace(raw), "`'\"")
 	raw = strings.TrimSuffix(raw, "()")
 	if raw == "" || strings.ContainsAny(raw, "\n\r\t ") {
 		return nil
 	}
-	raw = strings.NewReplacer(
-		"::", ".",
-		"->", ".",
-		"#", ".",
-		"/", ".",
-		`\`, ".",
-	).Replace(raw)
+	raw = answerCodeIdentitySeparatorReplacer.Replace(raw)
 	var out []string
 	for _, segment := range strings.Split(raw, ".") {
 		segment = strings.ToLower(strings.Trim(strings.TrimSpace(segment), "*&( )"))

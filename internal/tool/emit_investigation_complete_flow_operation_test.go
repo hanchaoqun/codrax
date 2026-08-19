@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2375,6 +2376,61 @@ func TestFlowOperationNavigationPrefersCallSiteWithWholeValueContinuationAcrossL
 				t.Fatal("continuation-depth navigation must not manufacture relation evidence")
 			}
 		})
+	}
+}
+
+func TestFlowOperationContinuationDepthSolvesOwnerDAGOnce(t *testing.T) {
+	repo := t.TempDir()
+	path := "src/pipeline.go"
+	const callCount = 160
+	lines := make([]string, callCount)
+	relations := make([]repotypes.Relation, callCount)
+	for i := 0; i < callCount; i++ {
+		callee := "Step"
+		argument := fmt.Sprintf("v%d", i)
+		if i == 0 {
+			callee = "Build"
+			argument = "seed"
+		}
+		lines[i] = fmt.Sprintf("v%d := %s(%s)", i+1, callee, argument)
+		relations[i] = repotypes.Relation{
+			Kind: "call", File: path, Line: i + 1,
+			FromEP: repotypes.RelationEndpoint{Name: "pipeline", Line: i + 1},
+			ToEP:   repotypes.RelationEndpoint{Name: callee, Line: i + 1},
+		}
+	}
+	absolute := filepath.Join(repo, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{path: {
+		RelPath: path, Language: "go", Package: "pipeline",
+		Symbols:   []repotypes.Symbol{{Name: "pipeline", Kind: "function", Line: 1, EndLine: callCount}},
+		Relations: relations,
+	}})
+	ctx := flowOperationCompletionContext(nil)
+	ctx.RepoRoot = repo
+	ctx.Mutable.SetSearchGraph(graph)
+	index := flowNavigationIndexForContext(ctx)
+	if index == nil {
+		t.Fatal("missing navigation index")
+	}
+	sites := index.relationsByFile[path]
+	if len(sites) != callCount {
+		t.Fatalf("indexed call sites=%d, want %d", len(sites), callCount)
+	}
+	for i, site := range sites {
+		got := flowNavigationCallResultContinuationDepth(ctx, index, site.relation, site.ownerSurfaces)
+		want := min(flowNavigationCallResultContinuationMaxHops, callCount-i-1)
+		if got != want {
+			t.Fatalf("site %d depth=%d, want %d", i, got, want)
+		}
+	}
+	if got := len(index.callResultContinuationByOwner); got != 1 {
+		t.Fatalf("same owner DAG should be compiled once, cache entries=%d", got)
 	}
 }
 
