@@ -11,23 +11,26 @@ import (
 func TestStampCumulativeVerificationScopeKeepsTransitiveClosureAcrossRestore(t *testing.T) {
 	t0 := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	planA := &types.ChangePlan{
-		ID:                 "plan-a",
-		TargetPaths:        []string{"old_test.java"},
-		Changes:            []types.FileChange{{Path: "old_test.java", Kind: "modify"}},
-		BehaviorContracts:  []types.WriteBehaviorContract{{ID: "contract-a"}},
-		VerificationProbes: []types.VerificationProbe{{ID: "probe-a"}},
+		ID:                      "plan-a",
+		TargetPaths:             []string{"old_test.java"},
+		Changes:                 []types.FileChange{{Path: "old_test.java", Kind: "modify"}},
+		BehaviorContracts:       []types.WriteBehaviorContract{{ID: "contract-a"}},
+		VerificationProbes:      []types.VerificationProbe{{ID: "probe-a"}},
+		ProjectTestObservations: []types.ProjectTestObservation{{ID: "observation-a", TestPath: "old_test.java"}},
 	}
 	planB := &types.ChangePlan{
-		ID:                 "plan-b",
-		TargetPaths:        []string{"source.java"},
-		Changes:            []types.FileChange{{Path: "source.java", Kind: "modify"}},
-		BehaviorContracts:  []types.WriteBehaviorContract{{ID: "contract-b"}},
-		VerificationProbes: []types.VerificationProbe{{ID: "probe-b"}},
+		ID:                      "plan-b",
+		TargetPaths:             []string{"source.java"},
+		Changes:                 []types.FileChange{{Path: "source.java", Kind: "modify"}},
+		BehaviorContracts:       []types.WriteBehaviorContract{{ID: "contract-b"}},
+		VerificationProbes:      []types.VerificationProbe{{ID: "probe-b"}},
+		ProjectTestObservations: []types.ProjectTestObservation{{ID: "observation-b", TestPath: "source.java"}},
 		CumulativeVerificationScope: &types.CumulativeVerificationScope{
-			SourcePlanIDs:      []string{planA.ID},
-			TargetPaths:        []string{"old_test.java"},
-			BehaviorContracts:  append([]types.WriteBehaviorContract(nil), planA.BehaviorContracts...),
-			VerificationProbes: append([]types.VerificationProbe(nil), planA.VerificationProbes...),
+			SourcePlanIDs:           []string{planA.ID},
+			TargetPaths:             []string{"old_test.java"},
+			BehaviorContracts:       append([]types.WriteBehaviorContract(nil), planA.BehaviorContracts...),
+			VerificationProbes:      append([]types.VerificationProbe(nil), planA.VerificationProbes...),
+			ProjectTestObservations: append([]types.ProjectTestObservation(nil), planA.ProjectTestObservations...),
 		},
 	}
 	planC := &types.ChangePlan{
@@ -78,6 +81,9 @@ func TestStampCumulativeVerificationScopeKeepsTransitiveClosureAcrossRestore(t *
 	}
 	if ids := verificationProbeIDs(got.VerificationProbes); !reflect.DeepEqual(ids, []string{"probe-b", "probe-a"}) {
 		t.Fatalf("verification probe closure = %+v", ids)
+	}
+	if len(got.ProjectTestObservations) != 2 || got.ProjectTestObservations[0].ID != "observation-b" || got.ProjectTestObservations[1].ID != "observation-a" {
+		t.Fatalf("project test observation closure = %+v", got.ProjectTestObservations)
 	}
 	if verificationScopeContainsString(got.SourcePlanIDs, "planner-injected") || verificationScopeContainsString(got.TargetPaths, "outside.txt") {
 		t.Fatalf("planner-owned scope escaped rebuild: %+v", got)

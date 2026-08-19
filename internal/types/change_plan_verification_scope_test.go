@@ -7,15 +7,17 @@ import (
 
 func TestChangePlanVerificationScopeKeepsApplyAndVerifyScopesSeparate(t *testing.T) {
 	plan := &ChangePlan{
-		ID:                 "plan-new",
-		TargetPaths:        []string{"new.go"},
-		BehaviorContracts:  []WriteBehaviorContract{{ID: "contract-new"}},
-		VerificationProbes: []VerificationProbe{{ID: "probe-new"}},
+		ID:                      "plan-new",
+		TargetPaths:             []string{"new.go"},
+		BehaviorContracts:       []WriteBehaviorContract{{ID: "contract-new"}},
+		VerificationProbes:      []VerificationProbe{{ID: "probe-new"}},
+		ProjectTestObservations: []ProjectTestObservation{{ID: "observation-new"}},
 		CumulativeVerificationScope: &CumulativeVerificationScope{
-			SourcePlanIDs:      []string{"plan-old"},
-			TargetPaths:        []string{"old.java"},
-			BehaviorContracts:  []WriteBehaviorContract{{ID: "contract-old"}},
-			VerificationProbes: []VerificationProbe{{ID: "probe-old"}},
+			SourcePlanIDs:           []string{"plan-old"},
+			TargetPaths:             []string{"old.java"},
+			BehaviorContracts:       []WriteBehaviorContract{{ID: "contract-old"}},
+			VerificationProbes:      []VerificationProbe{{ID: "probe-old"}},
+			ProjectTestObservations: []ProjectTestObservation{{ID: "observation-old"}},
 		},
 	}
 
@@ -31,6 +33,9 @@ func TestChangePlanVerificationScopeKeepsApplyAndVerifyScopesSeparate(t *testing
 	}
 	if got := ChangePlanVerificationProbes(plan); len(got) != 2 || got[0].ID != "probe-new" || got[1].ID != "probe-old" {
 		t.Fatalf("verification probes = %+v", got)
+	}
+	if got := ChangePlanVerificationProjectTestObservations(plan); len(got) != 2 || got[0].ID != "observation-new" || got[1].ID != "observation-old" {
+		t.Fatalf("project test observations = %+v", got)
 	}
 }
 

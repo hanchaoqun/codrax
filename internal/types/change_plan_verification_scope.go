@@ -76,6 +76,34 @@ func ChangePlanVerificationProbes(plan *ChangePlan) []VerificationProbe {
 	return out
 }
 
+// ChangePlanVerificationProjectTestObservations returns active declarations
+// plus controller-retained declarations from plans whose bytes still exist in
+// the worktree. IDs are the stable identity; the active generation wins.
+func ChangePlanVerificationProjectTestObservations(plan *ChangePlan) []ProjectTestObservation {
+	if plan == nil {
+		return nil
+	}
+	out := make([]ProjectTestObservation, 0, len(plan.ProjectTestObservations))
+	seen := map[string]bool{}
+	add := func(observation ProjectTestObservation) {
+		key := strings.TrimSpace(observation.ID)
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, observation)
+	}
+	for _, observation := range plan.ProjectTestObservations {
+		add(observation)
+	}
+	if plan.CumulativeVerificationScope != nil {
+		for _, observation := range plan.CumulativeVerificationScope.ProjectTestObservations {
+			add(observation)
+		}
+	}
+	return out
+}
+
 func dedupVerificationScopeStrings(in []string) []string {
 	seen := map[string]bool{}
 	var out []string

@@ -16,7 +16,7 @@ import (
 // the planner skill, emit tool description, and repair reminder. Keeping this
 // before semantic plan guidance prevents models from spending a retry deciding
 // whether structured siblings should be native JSON or JSON-encoded strings.
-const ChangePlanJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. changes[], acceptance_tests[], verification_probes[], and every changes[i].verification_probes[] value are native JSON arrays, not strings containing JSON. Inside those entries, encode ordinary string values (including code) with standard JSON escaping. Probe ids are unique across the whole plan: place each logical probe in exactly one carrier—top-level verification_probes[] for a batch-wide probe or the owning changes[i].verification_probes[] for a change-local probe—and never duplicate the same id/payload across both. If a repair asks you to re-emit an array, preserve every intended entry; never delete a field merely to make decoding pass."
+const ChangePlanJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one JSON object. changes[], acceptance_tests[], verification_probes[], project_test_observations[], and every changes[i].verification_probes[] value are native JSON arrays, not strings containing JSON. Inside those entries, encode ordinary string values (including code) with standard JSON escaping. Probe ids are unique across the whole plan: place each logical probe in exactly one carrier—top-level verification_probes[] for a batch-wide probe or the owning changes[i].verification_probes[] for a change-local probe—and never duplicate the same id/payload across both. If a repair asks you to re-emit an array, preserve every intended entry; never delete a field merely to make decoding pass."
 
 // Plan status enum — legal values of ChangePlan.Status. The plan
 // moves through these monotonically during a single apply Run;
@@ -405,6 +405,13 @@ type ChangePlan struct {
 	// lane explicitly, and run_tests consumes only the fields below.
 	VerificationProbes []VerificationProbe `json:"verification_probes,omitempty"`
 
+	// ProjectTestObservations bind exact behavior-contract IDs to a concrete
+	// repository test file that the planner inspected or added. The declaration
+	// is not proof by itself: run_tests may mint authority only when that exact
+	// path belongs to a filesystem-derived TestSurface candidate and the exact
+	// candidate command succeeds.
+	ProjectTestObservations []ProjectTestObservation `json:"project_test_observations,omitempty"`
+
 	// BehaviorContracts is the write_analyzer contract snapshot visible when
 	// this plan was emitted. It lets verify/probe coverage reference stable
 	// atom IDs instead of re-reading mutable task prose after retries.
@@ -663,25 +670,27 @@ func PlanFingerprint(plan *ChangePlan) string {
 		return ""
 	}
 	payload := struct {
-		ID                 string              `json:"id"`
-		Request            string              `json:"request,omitempty"`
-		Summary            string              `json:"summary,omitempty"`
-		Changes            []FileChange        `json:"changes"`
-		AcceptanceTests    []string            `json:"acceptance_tests,omitempty"`
-		VerificationProbes []VerificationProbe `json:"verification_probes,omitempty"`
-		TargetPaths        []string            `json:"target_paths"`
-		PhaseGroupID       string              `json:"phase_group_id,omitempty"`
-		PhaseIndex         int                 `json:"phase_index,omitempty"`
+		ID                      string                   `json:"id"`
+		Request                 string                   `json:"request,omitempty"`
+		Summary                 string                   `json:"summary,omitempty"`
+		Changes                 []FileChange             `json:"changes"`
+		AcceptanceTests         []string                 `json:"acceptance_tests,omitempty"`
+		VerificationProbes      []VerificationProbe      `json:"verification_probes,omitempty"`
+		ProjectTestObservations []ProjectTestObservation `json:"project_test_observations,omitempty"`
+		TargetPaths             []string                 `json:"target_paths"`
+		PhaseGroupID            string                   `json:"phase_group_id,omitempty"`
+		PhaseIndex              int                      `json:"phase_index,omitempty"`
 	}{
-		ID:                 plan.ID,
-		Request:            plan.Request,
-		Summary:            plan.Summary,
-		Changes:            append([]FileChange(nil), plan.Changes...),
-		AcceptanceTests:    append([]string(nil), plan.AcceptanceTests...),
-		VerificationProbes: append([]VerificationProbe(nil), plan.VerificationProbes...),
-		TargetPaths:        append([]string(nil), plan.TargetPaths...),
-		PhaseGroupID:       plan.PhaseGroupID,
-		PhaseIndex:         plan.PhaseIndex,
+		ID:                      plan.ID,
+		Request:                 plan.Request,
+		Summary:                 plan.Summary,
+		Changes:                 append([]FileChange(nil), plan.Changes...),
+		AcceptanceTests:         append([]string(nil), plan.AcceptanceTests...),
+		VerificationProbes:      append([]VerificationProbe(nil), plan.VerificationProbes...),
+		ProjectTestObservations: append([]ProjectTestObservation(nil), plan.ProjectTestObservations...),
+		TargetPaths:             append([]string(nil), plan.TargetPaths...),
+		PhaseGroupID:            plan.PhaseGroupID,
+		PhaseIndex:              plan.PhaseIndex,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -711,15 +720,29 @@ type VerificationProbe struct {
 	ExpectsBaselineFailure bool     `json:"expects_baseline_failure,omitempty"`
 }
 
+// ProjectTestObservation is a planner-authored, typed claim that one concrete
+// project test file directly observes the listed behavior contracts. It keeps
+// the semantic claim separate from execution authority: the verifier still
+// requires an exact filesystem-derived test-surface membership edge and a
+// successful matching command before any contract_ref is marked satisfied.
+// No test source, runner output, task prose, or model answer is scanned to
+// infer this relation.
+type ProjectTestObservation struct {
+	ID           string   `json:"id"`
+	TestPath     string   `json:"test_path"`
+	ContractRefs []string `json:"contract_refs"`
+}
+
 // CumulativeVerificationScope carries only verification inputs retained from
 // earlier still-applied plans. The active plan's own paths, contracts and
 // probes remain in their ordinary fields and are combined by the helpers
 // below. SourcePlanIDs make the provenance auditable without parsing prose.
 type CumulativeVerificationScope struct {
-	SourcePlanIDs      []string                `json:"source_plan_ids,omitempty"`
-	TargetPaths        []string                `json:"target_paths,omitempty"`
-	BehaviorContracts  []WriteBehaviorContract `json:"behavior_contracts,omitempty"`
-	VerificationProbes []VerificationProbe     `json:"verification_probes,omitempty"`
+	SourcePlanIDs           []string                 `json:"source_plan_ids,omitempty"`
+	TargetPaths             []string                 `json:"target_paths,omitempty"`
+	BehaviorContracts       []WriteBehaviorContract  `json:"behavior_contracts,omitempty"`
+	VerificationProbes      []VerificationProbe      `json:"verification_probes,omitempty"`
+	ProjectTestObservations []ProjectTestObservation `json:"project_test_observations,omitempty"`
 }
 
 // FileChange describes one file-level modification the apply stage

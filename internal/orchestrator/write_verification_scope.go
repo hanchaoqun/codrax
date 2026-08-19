@@ -24,10 +24,11 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 		if candidate == plan && plan.CumulativeVerificationScope != nil {
 			prior := plan.CumulativeVerificationScope
 			restoredScope = &types.CumulativeVerificationScope{
-				SourcePlanIDs:      append([]string(nil), prior.SourcePlanIDs...),
-				TargetPaths:        append([]string(nil), prior.TargetPaths...),
-				BehaviorContracts:  append([]types.WriteBehaviorContract(nil), prior.BehaviorContracts...),
-				VerificationProbes: append([]types.VerificationProbe(nil), prior.VerificationProbes...),
+				SourcePlanIDs:           append([]string(nil), prior.SourcePlanIDs...),
+				TargetPaths:             append([]string(nil), prior.TargetPaths...),
+				BehaviorContracts:       append([]types.WriteBehaviorContract(nil), prior.BehaviorContracts...),
+				VerificationProbes:      append([]types.VerificationProbe(nil), prior.VerificationProbes...),
+				ProjectTestObservations: append([]types.ProjectTestObservation(nil), prior.ProjectTestObservations...),
 			}
 			break
 		}
@@ -48,6 +49,7 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	var scope types.CumulativeVerificationScope
 	contractIDs := map[string]bool{}
 	probeIDs := map[string]bool{}
+	projectObservationIDs := map[string]bool{}
 	activeRebasedFallbackGeneration := plan.BehaviorContractGeneration == types.WriteBehaviorContractGenerationPlanAcceptanceRebase
 	// The active plan is the newest typed generation. Seed its IDs before
 	// collecting retained plans so an older contract/probe with the same ID
@@ -68,6 +70,11 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	for _, probe := range plan.VerificationProbes {
 		if id := strings.TrimSpace(probe.ID); id != "" {
 			probeIDs[id] = true
+		}
+	}
+	for _, observation := range plan.ProjectTestObservations {
+		if id := strings.TrimSpace(observation.ID); id != "" {
+			projectObservationIDs[id] = true
 		}
 	}
 	if restoredScope != nil {
@@ -91,6 +98,14 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			}
 			probeIDs[id] = true
 			scope.VerificationProbes = append(scope.VerificationProbes, probe)
+		}
+		for _, observation := range restoredScope.ProjectTestObservations {
+			id := strings.TrimSpace(observation.ID)
+			if id == "" || projectObservationIDs[id] {
+				continue
+			}
+			projectObservationIDs[id] = true
+			scope.ProjectTestObservations = append(scope.ProjectTestObservations, observation)
 		}
 	}
 	for _, planID := range o.writeFinalReportAppliedPlanIDs(run) {
@@ -134,6 +149,14 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 			}
 			probeIDs[id] = true
 			scope.VerificationProbes = append(scope.VerificationProbes, probe)
+		}
+		for _, observation := range types.ChangePlanVerificationProjectTestObservations(retained) {
+			id := strings.TrimSpace(observation.ID)
+			if id == "" || projectObservationIDs[id] {
+				continue
+			}
+			projectObservationIDs[id] = true
+			scope.ProjectTestObservations = append(scope.ProjectTestObservations, observation)
 		}
 	}
 	scope.SourcePlanIDs = writeFinalReportDedupStrings(scope.SourcePlanIDs)

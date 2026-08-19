@@ -35,7 +35,7 @@ const emitChangePlanSchemaReminder = types.ChangePlanJSONShapeFirstTeaching + " 
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
-	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs. " +
+	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, contract_refs[]} declarations. " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
@@ -76,11 +76,12 @@ type EmitChangePlan struct {
 // in sync with the JSON schema below; Execute uses DisallowUnknownFields
 // so any drift fails loudly rather than silently losing fields.
 type emitChangePlanParams struct {
-	Request            string                    `json:"request"`
-	Summary            string                    `json:"summary"`
-	Changes            []emitChangePlanChange    `json:"changes"`
-	AcceptanceTests    []string                  `json:"acceptance_tests,omitempty"`
-	VerificationProbes []types.VerificationProbe `json:"verification_probes,omitempty"`
+	Request                 string                         `json:"request"`
+	Summary                 string                         `json:"summary"`
+	Changes                 []emitChangePlanChange         `json:"changes"`
+	AcceptanceTests         []string                       `json:"acceptance_tests,omitempty"`
+	VerificationProbes      []types.VerificationProbe      `json:"verification_probes,omitempty"`
+	ProjectTestObservations []types.ProjectTestObservation `json:"project_test_observations,omitempty"`
 }
 
 // emitChangePlanChange mirrors types.FileChange but lives in the tool
@@ -242,6 +243,20 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
       "description": "Optional list of test assertions the verify stage must cover. Natural-language in B0; formalized to Criterion IR in B1.",
       "items": {"type": "string"}
     },
+    "project_test_observations": {
+      "type": "array",
+      "description": "Optional exact bindings from a concrete repository test file to behavior_contract ids. Emit only after inspecting or adding that test and confirming it directly asserts every listed contract. This declaration is not proof: run_tests grants authority only when the exact typed test-surface candidate containing test_path succeeds.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "description": "Stable unique observation id."},
+          "test_path": {"type": "string", "description": "Exact repo-relative test file path."},
+          "contract_refs": {"type": "array", "items": {"type": "string"}, "description": "Behavior-contract ids directly asserted by this exact test file."}
+        },
+        "required": ["id", "test_path", "contract_refs"]
+      }
+    },
     "verification_probes": {
       "type": "array",
       "description": "Optional typed fallback checks for verify environments where the project runner is unavailable or unparseable. Each probe must be deterministic, bounded, and exit non-zero on failure. Supported inline runtimes: __VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__. __VERIFICATION_PROBE_AUTHORING_BOUNDARY__",
@@ -325,7 +340,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		t.Name(),
 		params,
 		t.Parameters(),
-		[]string{"changes", "acceptance_tests", "verification_probes"},
+		[]string{"changes", "acceptance_tests", "verification_probes", "project_test_observations"},
 	)
 
 	// Strict decode — unknown fields fail loudly so a schema drift
@@ -352,6 +367,11 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
 	if len(p.Changes) == 0 {
+		if len(p.ProjectTestObservations) > 0 {
+			summary := "emit_change_plan rejected: project_test_observations cannot be carried by a source-free sentinel plan; keep the exact declarations on the source/test change plan whose project suite will execute them."
+			return rejectPlanToolResult(t.Name(), summary,
+				planRepairPackFromReason(t.Name(), "project_test_observation_without_changes", summary, []string{"$.changes", "$.project_test_observations"}, nil)), nil
+		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, p, probes); plan != nil {
 			attachWriteBehaviorContracts(ctx, plan)
 			enrichVerificationProbeRefs(plan)
@@ -403,6 +423,11 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// emit_plan_change path can reuse them); keeping the conversion
 	// at the top means the rest of Execute is a single-shape pipeline.
 	fcs := emitChangesToFileChanges(p.Changes)
+	projectTestObservations, rej := normalizeProjectTestObservations(ctx.RepoRoot, p.ProjectTestObservations, fcs)
+	if rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+			planRepairPackFromReason(t.Name(), "project_test_observation_invalid", rej, []string{"$.project_test_observations"}, nil)), nil
+	}
 
 	// B1 Q1 validation — three checks on the changes[] + depends_on
 	// graph. All three run BEFORE any Mutable mutation so a rejected
@@ -472,8 +497,12 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 
 	// Build the internal ChangePlan + populate target_paths from
 	// the (already converted + already validated) changes slice.
-	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
+	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes, projectTestObservations)
 	attachWriteBehaviorContracts(ctx, plan)
+	if rej := validateProjectTestObservationContractRefs(plan.BehaviorContracts, plan.ProjectTestObservations); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+			planRepairPackFromReason(t.Name(), "project_test_observation_contract_refs_failed", rej, []string{"$.project_test_observations[].contract_refs"}, nil)), nil
+	}
 	enrichVerificationProbeRefs(plan)
 
 	// Drain any per-language "unvalidated" reasons collected by the
@@ -571,7 +600,7 @@ func proofFollowupProbeOnlyPlanSentinel(ctx *types.BusContext, p emitChangePlanP
 	if summary == "" {
 		summary = "No source edits are required for this proof-follow-up batch; the plan reruns typed verification probes against the already-applied worktree."
 	}
-	plan := newChangePlanFromChanges(request, summary, nil, p.AcceptanceTests, probes)
+	plan := newChangePlanFromChanges(request, summary, nil, p.AcceptanceTests, probes, nil)
 	plan.Status = types.PlanStatusNoChangeRequired
 	plan.TargetPaths = append([]string(nil), batch.ExpectedPaths...)
 	if len(plan.TargetPaths) == 0 {

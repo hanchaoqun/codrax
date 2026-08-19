@@ -113,6 +113,38 @@ func TestBuildVerificationProofProfileDoesNotPromoteSourceStaticToBehaviorProof(
 	}
 }
 
+func TestBuildVerificationProofLedgerResolvesExactProjectTestContractReceipt(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-project-observation",
+		BehaviorContracts: NormalizeWriteBehaviorContracts([]WriteBehaviorContract{{
+			ID: "ordinary-number-format", Kind: WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected, Subject: "ordinary numbers",
+			Operator: WriteBehaviorOpSatisfies, Expected: "remain unchanged",
+		}}, nil),
+	}
+	report := &ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "make", Suite: "check", Outcome: "executed"}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "include/json.hpp", Status: ChangedPathVerificationCovered,
+			Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source: "project_test_observation", Category: "project_test_contract_refs",
+			Status: "satisfied", ReasonCode: "project_test_contract_ref_observed",
+			ContractRefs: []string{"ordinary-number-format"},
+		}},
+	}
+
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
+		t.Fatalf("exact project-test receipt did not resolve behavior contract: %+v", ledger)
+	}
+	if !verificationProofLedgerHasItem(ledger, "behavior_contract", VerificationProofLedgerItemCovered, "project_test_contract_ref_observed") {
+		t.Fatalf("project-test contract receipt missing from ledger: %+v", ledger.Obligations)
+	}
+}
+
 func TestBuildVerificationProofProfileTargetBehaviorDoesNotBlanketSignContracts(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-behavior",

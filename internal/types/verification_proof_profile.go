@@ -171,10 +171,12 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 		}
 	}
 	if plan != nil {
-		if len(HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan))) > 0 && out.TargetBehaviorPaths == 0 {
+		missingBehaviorContracts := missingRequiredWriteBehaviorContractObservationIDs(plan, report)
+		if len(HardRequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan))) > 0 &&
+			out.TargetBehaviorPaths == 0 && len(missingBehaviorContracts) > 0 {
 			addReason("target_behavior_verification_missing")
 		}
-		if missing := missingRequiredWriteBehaviorContractObservationIDs(plan, report); len(missing) > 0 {
+		if len(missingBehaviorContracts) > 0 {
 			addReason("behavior_contract_observation_missing")
 		}
 		if plan.PatchReview != nil {
@@ -340,12 +342,13 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 	out.Cumulative = true
 	out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, confidenceReasonCodes...)
 	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, confidence)
-	if len(missingCumulativeRequiredWriteBehaviorContractObservationIDs(unique)) == 0 {
+	missingBehaviorContracts := missingCumulativeRequiredWriteBehaviorContractObservationIDs(unique)
+	if len(missingBehaviorContracts) == 0 {
 		out.ReasonCodes = removeVerificationProofReason(out.ReasonCodes, "behavior_contract_observation_missing")
 	} else {
 		out.ReasonCodes = append(out.ReasonCodes, "behavior_contract_observation_missing")
 	}
-	if out.TargetBehaviorPaths > 0 {
+	if out.TargetBehaviorPaths > 0 || len(missingBehaviorContracts) == 0 {
 		out.ReasonCodes = removeVerificationProofReason(out.ReasonCodes, "target_behavior_verification_missing")
 	} else if verificationProofArtifactsHaveHardBehaviorContracts(unique) {
 		out.ReasonCodes = append(out.ReasonCodes, "target_behavior_verification_missing")
@@ -730,7 +733,7 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(repo
 			ledger.Obligations = append(ledger.Obligations, item)
 		}
 		switch strings.TrimSpace(rec.Category) {
-		case "probe_contract_refs", "probe_soft_contract_refs", "probe_placement_refs":
+		case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "probe_placement_refs":
 			refs := dedupTrimWriteWorkflowRunStrings(rec.ContractRefs)
 			if len(refs) == 0 {
 				add(base)
@@ -1222,7 +1225,7 @@ func verificationProofLedgerStatusFromImpactCoverage(status string) Verification
 
 func verificationProofLedgerKindFromConfidence(category string) string {
 	switch strings.TrimSpace(category) {
-	case "probe_contract_refs", "probe_soft_contract_refs":
+	case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs":
 		return "behavior_contract"
 	case "probe_placement_refs":
 		return "rendered_text_placement_contract"
@@ -1353,6 +1356,7 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 	var missing []missingRecord
 	hardCovered := map[string]bool{}
 	softCovered := map[string]bool{}
+	projectTestCovered := map[string]bool{}
 	placementCovered := map[string]bool{}
 	changedCovered := false
 	for _, rec := range records {
@@ -1374,6 +1378,12 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 						softCovered[ref] = true
 					}
 				}
+			case "project_test_contract_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						projectTestCovered[ref] = true
+					}
+				}
 			case "probe_placement_refs":
 				for _, ref := range rec.ContractRefs {
 					if ref = strings.TrimSpace(ref); ref != "" {
@@ -1393,7 +1403,7 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 				continue
 			}
 			switch category {
-			case "probe_contract_refs", "probe_soft_contract_refs", "probe_placement_refs":
+			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "probe_placement_refs":
 				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ContractRefs...)})
 			case "probe_changed_symbol":
 				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ChangedSymbolRefs...)})
@@ -1402,15 +1412,29 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 			}
 		}
 	}
+	contractCovered := map[string]bool{}
+	for ref := range hardCovered {
+		contractCovered[ref] = true
+	}
+	for ref := range softCovered {
+		contractCovered[ref] = true
+	}
+	for ref := range projectTestCovered {
+		contractCovered[ref] = true
+	}
 	unresolved := map[string]bool{}
 	for _, miss := range missing {
 		switch miss.category {
 		case "probe_contract_refs":
-			if !allVerificationProofRefsCovered(miss.refs, hardCovered) {
+			if !allVerificationProofRefsCovered(miss.refs, contractCovered) {
 				unresolved[miss.code] = true
 			}
 		case "probe_soft_contract_refs":
-			if !allVerificationProofRefsCovered(miss.refs, softCovered) {
+			if !allVerificationProofRefsCovered(miss.refs, contractCovered) {
+				unresolved[miss.code] = true
+			}
+		case "project_test_contract_refs":
+			if !allVerificationProofRefsCovered(miss.refs, contractCovered) {
 				unresolved[miss.code] = true
 			}
 		case "probe_placement_refs":
@@ -1465,7 +1489,8 @@ func verificationProofReasonCanBeResolvedByConfidence(code string) bool {
 	case "verification_probe_missing_required_contract_ref",
 		"verification_probe_missing_required_placement_ref",
 		"verification_probe_missing_soft_contract_ref",
-		"verification_probe_missing_changed_symbol_ref":
+		"verification_probe_missing_changed_symbol_ref",
+		"project_test_observation_not_executed":
 		return true
 	default:
 		return false

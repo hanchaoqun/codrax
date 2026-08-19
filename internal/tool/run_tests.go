@@ -3273,6 +3273,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 	for _, cmd := range report.ExecutedCommands {
 		out = append(out, verificationConfidenceFromCommand(cmd, status)...)
 	}
+	out = append(out, projectTestObservationConfidenceRecords(plan, report)...)
 	if plan != nil && reportHasPassedVerificationProbeObservation(report) {
 		contracts := types.ChangePlanVerificationBehaviorContracts(plan)
 		required := types.HardRequiredWriteBehaviorContractIDs(contracts)
@@ -3476,6 +3477,102 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 		}
 	}
 	return mergeVerificationConfidenceRecords(nil, out)
+}
+
+func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *types.ChangeReport) []types.VerificationConfidenceRecord {
+	if plan == nil || report == nil {
+		return nil
+	}
+	observations := types.ChangePlanVerificationProjectTestObservations(plan)
+	if len(observations) == 0 {
+		return nil
+	}
+	declared := map[string]struct{}{}
+	observed := map[string]struct{}{}
+	for _, observation := range observations {
+		for _, raw := range observation.ContractRefs {
+			if ref := strings.TrimSpace(raw); ref != "" {
+				declared[ref] = struct{}{}
+			}
+		}
+		if !projectTestObservationExecuted(observation, report) {
+			continue
+		}
+		for _, raw := range observation.ContractRefs {
+			if ref := strings.TrimSpace(raw); ref != "" {
+				observed[ref] = struct{}{}
+			}
+		}
+	}
+	var out []types.VerificationConfidenceRecord
+	if refs := sortedStringSet(observed); len(refs) > 0 {
+		out = append(out, types.VerificationConfidenceRecord{
+			Source:       "project_test_observation",
+			Category:     "project_test_contract_refs",
+			Status:       "satisfied",
+			Severity:     "info",
+			ReasonCode:   "project_test_contract_ref_observed",
+			ContractRefs: refs,
+			Detail:       "successful exact typed project-test candidates observed the listed behavior contracts",
+		})
+	}
+	if refs := sortedStringSet(subtractStringSet(declared, observed)); len(refs) > 0 {
+		out = append(out, types.VerificationConfidenceRecord{
+			Source:       "project_test_observation",
+			Category:     "project_test_contract_refs",
+			Status:       "missing",
+			Severity:     "warning",
+			ReasonCode:   "project_test_observation_not_executed",
+			ContractRefs: refs,
+			Detail:       "declared project-test observations did not have a successful exact typed candidate execution",
+		})
+	}
+	return out
+}
+
+func projectTestObservationExecuted(observation types.ProjectTestObservation, report *types.ChangeReport) bool {
+	if report == nil || report.TestSurface == nil {
+		return false
+	}
+	testPath := strings.ToLower(cleanRepoRelPath(observation.TestPath))
+	if testPath == "" {
+		return false
+	}
+	for _, candidate := range report.TestSurface.Candidates {
+		if !candidate.HasTestSignal || !declaredCoveragePathContains(candidate.DeclaredCoveragePaths, testPath) {
+			continue
+		}
+		candidateKey := testSurfaceCandidateKey(candidate.Runner, candidate.Framework, candidate.WorkingDir)
+		for _, cmd := range report.ExecutedCommands {
+			if strings.TrimSpace(cmd.Outcome) != "executed" || cmd.ExitCode != 0 || strings.TrimSpace(cmd.Runner) == "verification_probe" {
+				continue
+			}
+			if testSurfaceCandidateKey(cmd.Runner, cmd.Framework, cmd.WorkingDir) != candidateKey {
+				continue
+			}
+			target := strings.TrimSpace(candidate.MakeTarget)
+			if target != "" {
+				if strings.TrimSpace(cmd.Suite) != target {
+					continue
+				}
+			} else if strings.ToLower(cleanRepoRelPath(cmd.Suite)) != testPath {
+				// A non-Make candidate needs an exact typed suite selector until
+				// its runner exposes an equally precise declared test roster.
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func declaredCoveragePathContains(paths []string, wantLower string) bool {
+	for _, raw := range paths {
+		if strings.ToLower(cleanRepoRelPath(raw)) == wantLower {
+			return true
+		}
+	}
+	return false
 }
 
 func verificationProbeBaselineCommandCounts(plan *types.ChangePlan, report *types.ChangeReport) (expected, observed, unexpectedPass, unavailable int) {

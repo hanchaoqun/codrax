@@ -138,6 +138,7 @@ func TestNewChangePlanNormalizesVerificationProbeModuleIdentity(t *testing.T) {
 			ID:                "loader-behavior",
 			ChangedSymbolRefs: []string{"./cli/src/api/templates/js-binding"},
 		}},
+		nil,
 	)
 	if len(plan.VerificationProbes) != 1 ||
 		len(plan.VerificationProbes[0].ChangedSymbolRefs) != 1 ||
@@ -480,6 +481,77 @@ func TestEmitChangePlan_PersistsVerificationProbesInFingerprint(t *testing.T) {
 	fingerprintWithoutProbe := types.PlanFingerprint(plan)
 	if fingerprintWithProbe == "" || fingerprintWithProbe == fingerprintWithoutProbe {
 		t.Fatalf("plan fingerprint must include verification probes, with=%q without=%q", fingerprintWithProbe, fingerprintWithoutProbe)
+	}
+}
+
+func TestEmitChangePlanPersistsExactProjectTestObservationInFingerprint(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testPath := filepath.Join(repo, "tests", "widget_test.py")
+	if err := os.WriteFile(testPath, []byte("def test_value():\n    assert 42 == 42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = repo
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task: types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "keep the value contract"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "widget-value", Kind: types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpEquals, Expected: "42", Required: true,
+		}},
+	}})
+	params := json.RawMessage(`{
+		"request": "keep the value contract",
+		"summary": "Update the concrete project test and bind its exact assertion to the typed behavior contract.",
+		"changes": [
+			{"path": "tests/widget_test.py", "kind": "modify", "new_content": "def test_value():\n    assert 42 == 42\n", "rationale": "retain the direct behavior assertion"}
+		],
+		"project_test_observations": [
+			{"id": "widget-value-test", "test_path": "tests/widget_test.py", "contract_refs": ["widget-value"]}
+		]
+	}`)
+
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("exact project test observation rejected: success=%v err=%v summary=%s", res.Success, err, res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.ProjectTestObservations) != 1 || plan.ProjectTestObservations[0].TestPath != "tests/widget_test.py" {
+		t.Fatalf("project test observation not persisted: %+v", plan)
+	}
+	withObservation := types.PlanFingerprint(plan)
+	plan.ProjectTestObservations = nil
+	withoutObservation := types.PlanFingerprint(plan)
+	if withObservation == "" || withObservation == withoutObservation {
+		t.Fatalf("plan fingerprint must include project test observations: with=%q without=%q", withObservation, withoutObservation)
+	}
+}
+
+func TestEmitChangePlanRejectsUnknownProjectTestContractRef(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "widget_test.py"), []byte("assert True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := newTestBusCtx()
+	ctx.RepoRoot = repo
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task:              types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage},
+		BehaviorContracts: []types.WriteBehaviorContract{{ID: "known", Required: true}},
+	}})
+	params := json.RawMessage(`{
+		"request": "fix behavior",
+		"summary": "Update a concrete project test while preserving exact behavior-contract authority.",
+		"changes": [{"path":"widget_test.py","kind":"modify","new_content":"assert True\n","rationale":"keep the assertion"}],
+		"project_test_observations": [{"id":"widget-test","test_path":"widget_test.py","contract_refs":["unknown"]}]
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("typed rejection returned error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "unknown behavior_contract id") {
+		t.Fatalf("unknown project-test contract ref did not fail loudly: %+v", res)
 	}
 }
 

@@ -35715,6 +35715,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1156 B1159-B2：项目原生测试的逐合同精确执行回执（2026-08-19）
+
+1. B1159-B1 已把“变更路径执行能力”和“每项行为合同是否被观察”拆成两本账，但 native 语言仍缺少无需
+   inline probe 的消债载体。B1159-B2 新增 `project_test_observations[]`：planner 只能显式给出稳定 id、精确
+   repo-relative `test_path` 和它亲自核验过的 `contract_refs[]`。教学明确要求先读取或新增具体断言，禁止按
+   文件名相关性猜绑定；声明本身没有验证权。
+2. 两个计划发射入口（单次 `emit_change_plan` 与 skeleton）共用同一归一化/校验：路径必须安全且是现存文件
+   或本计划非 delete 变更，ID 唯一，合同引用必须属于本计划实际附着后的 typed behavior-contract generation。
+   新 carrier 进入计划 fingerprint、结构化 JSON 修复清单、上下文 pack 与累计 replan scope；active plan ID
+   优先，旧计划仍落在工作树时绑定不会被 stamp 清空。source-free sentinel 若携带该字段会 fail-loud，不能
+   悄悄丢弃。
+3. `run_tests` 只在 exact execution join 后铸造
+   `VerificationConfidenceRecord{category=project_test_contract_refs,status=satisfied}`。当前首个权威臂要求：
+   文件系统构建的 TestSurface candidate 明确列出 exact test path、执行命令与 candidate 的 runner/framework/
+   working-dir 相同、Make target 与 suite 相同、命令 `outcome=executed && exit=0`。非 Make runner 在没有同级
+   声明清单前只接受 exact suite path；目录、语言、文件名、aggregate pass、测试输出文字都不能替代 join。
+4. 三个 fail-closed pin 已覆盖：测试路径不在 candidate roster、Make target 不一致、只有项目总绿且没有
+   observation declaration，均不产生 satisfied receipt；精确 roster+target 成功才签约。另有 fingerprint、未知
+   contract、累计 scope、proof-ledger M4 pin，保证删除任何发布/累计接线都会转红。
+5. Proof profile 同步纠正复合权威：changed-path coverage 与 exact contract observation 保持正交；当每项必需
+   合同已有精确执行回执时，不再额外要求把同一行为事实伪装成一个 `target_behavior` 路径计数。未覆盖的变更
+   路径仍在 changed-path ledger 独立 fail-closed；未观察合同仍保留
+   `behavior_contract_observation_missing`/low-confidence。跨报告的 missing 与 later exact receipt 也按同一 ref
+   合并，不会因顺序不同留下陈腐弱化原因。
+6. 该批解决的是一类 native/project-runner 证明问题，不限定 Java 或 C++。任何语言只要 runner 提供同等级
+   exact candidate/suite 身份即可复用；没有精确信号的 C/C++/Rust/ArkTS/Cangjie 等继续诚实 unverified，
+   不用脚本包装、测试源码扫描或模型答案措辞降杆。下一步用 nlohmann fixture 回放，要求 planner 补普通
+   float/double 回归断言并逐项绑定四个合同，再确认生产闭环。
+7. 本批不改 Read/Trace/diagram/finalizer/stream。显式时间窗、Trace 因果投影、自动补齐、链上-only 主因、
+   实际耗时/业务线索与规则计价可消除量双轴保持；邻近/背景不能晋升主因。活跃流不因 4ms 或固定 age
+   降级，系统不扫描或代写模型答案。
+
+状态：
+
+`B1159-ACCEPTANCECRITERIONEXECUTIONCOVERAGE1=A-implemented/B1-exact-ledger+B2-project-test-receipt-implemented+pinned/pending-production-replay`；
+`B1162-DIAGRAMPARTICIPANTTECHNICALIDENTITYBINDING1=confirmed/P1/after-B1159-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1155 B1159-B1：路径执行能力不得代签逐合同观察（2026-08-19）
 
 1. r729 C++ 生产回放把 gap 定位到唯一真值铸点：`ChangedPathCoverage=covered/project_runner/target_behavior`

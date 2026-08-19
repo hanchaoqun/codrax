@@ -59,11 +59,12 @@ type emitPlanSkeletonChange struct {
 // emitPlanSkeletonParams is the wire shape for the skeleton tool.
 // Mirrors emitChangePlanParams except changes carries metadata only.
 type emitPlanSkeletonParams struct {
-	Request            string                    `json:"request"`
-	Summary            string                    `json:"summary"`
-	Changes            []emitPlanSkeletonChange  `json:"changes"`
-	AcceptanceTests    []string                  `json:"acceptance_tests,omitempty"`
-	VerificationProbes []types.VerificationProbe `json:"verification_probes,omitempty"`
+	Request                 string                         `json:"request"`
+	Summary                 string                         `json:"summary"`
+	Changes                 []emitPlanSkeletonChange       `json:"changes"`
+	AcceptanceTests         []string                       `json:"acceptance_tests,omitempty"`
+	VerificationProbes      []types.VerificationProbe      `json:"verification_probes,omitempty"`
+	ProjectTestObservations []types.ProjectTestObservation `json:"project_test_observations,omitempty"`
 }
 
 // emitPlanSkeletonSchemaReminder is the structural-emit twin of
@@ -74,7 +75,7 @@ var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,contract_refs[]}]}. " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
@@ -116,6 +117,20 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	      "type": "array",
 	      "items": {"type": "string"},
 	      "description": "Optional list of test assertions the verify stage must cover."
+	    },
+	    "project_test_observations": {
+	      "type": "array",
+	      "description": "Optional exact bindings from an inspected or newly added repository test file to behavior_contract ids. The declaration gains authority only after the exact typed test-surface candidate succeeds.",
+	      "items": {
+	        "type": "object",
+	        "additionalProperties": false,
+	        "properties": {
+	          "id": {"type": "string"},
+	          "test_path": {"type": "string"},
+	          "contract_refs": {"type": "array", "items": {"type": "string"}}
+	        },
+	        "required": ["id", "test_path", "contract_refs"]
+	      }
 	    },
 	    "verification_probes": {
 	      "type": "array",
@@ -165,7 +180,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		t.Name(),
 		params,
 		t.Parameters(),
-		[]string{"changes", "acceptance_tests", "verification_probes"},
+		[]string{"changes", "acceptance_tests", "verification_probes", "project_test_observations"},
 	)
 
 	dec := json.NewDecoder(strings.NewReader(string(params)))
@@ -187,6 +202,11 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
 	if len(p.Changes) == 0 {
+		if len(p.ProjectTestObservations) > 0 {
+			summary := "emit_plan_skeleton rejected: project_test_observations cannot be carried by a source-free sentinel plan; keep the exact declarations on the source/test change plan whose project suite will execute them."
+			return rejectPlanToolResult(t.Name(), summary,
+				planRepairPackFromReason(t.Name(), "project_test_observation_without_changes", summary, []string{"$.changes", "$.project_test_observations"}, nil)), nil
+		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, emitChangePlanParams{
 			Request:            p.Request,
 			Summary:            p.Summary,
@@ -243,6 +263,11 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 			// NewContent / Patch left empty — placeholder.
 		})
 	}
+	projectTestObservations, rej := normalizeProjectTestObservations(ctx.RepoRoot, p.ProjectTestObservations, fcs)
+	if rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+			planRepairPackFromReason(t.Name(), "project_test_observation_invalid", rej, []string{"$.project_test_observations"}, nil)), nil
+	}
 
 	// Content-independent validators run NOW so the planner sees
 	// structural mistakes (dup paths, dangling deps, illegal kind,
@@ -287,8 +312,12 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// plan from a prior dispatch (it nils both slots), then we
 	// install the fresh skeleton — order matters because Reset wipes
 	// PartialChangePlan too.
-	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes)
+	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes, projectTestObservations)
 	attachWriteBehaviorContracts(ctx, plan)
+	if rej := validateProjectTestObservationContractRefs(plan.BehaviorContracts, plan.ProjectTestObservations); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+			planRepairPackFromReason(t.Name(), "project_test_observation_contract_refs_failed", rej, []string{"$.project_test_observations[].contract_refs"}, nil)), nil
+	}
 	enrichVerificationProbeRefs(plan)
 	ctx.Mutable.ResetChangePlan()
 	ctx.Mutable.SetPartialChangePlan(plan)

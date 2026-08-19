@@ -3355,7 +3355,7 @@ func composePatchRejectionReason(repoRoot, path, gitErr, patchPayload string) st
 //
 // Reused by emit_plan_change when promoting PartialChangePlan to
 // ChangePlan — same factory, same shape.
-func newChangePlanFromChanges(request, summary string, changes []types.FileChange, acceptanceTests []string, verificationProbes []types.VerificationProbe) *types.ChangePlan {
+func newChangePlanFromChanges(request, summary string, changes []types.FileChange, acceptanceTests []string, verificationProbes []types.VerificationProbe, projectTestObservations []types.ProjectTestObservation) *types.ChangePlan {
 	now := time.Now()
 	plan := &types.ChangePlan{
 		ID:        fmt.Sprintf("plan-%d-%d", now.UnixNano(), os.Getpid()),
@@ -3377,6 +3377,9 @@ func newChangePlanFromChanges(request, summary string, changes []types.FileChang
 	}
 	if len(verificationProbes) > 0 {
 		plan.VerificationProbes = append([]types.VerificationProbe(nil), verificationProbes...)
+	}
+	if len(projectTestObservations) > 0 {
+		plan.ProjectTestObservations = append([]types.ProjectTestObservation(nil), projectTestObservations...)
 	}
 	plan.VerificationProbes = normalizeVerificationProbeChangedTargetRefs(plan.VerificationProbes, plan.TargetPaths)
 	return plan
@@ -3580,6 +3583,78 @@ func probeCoverageChangedSymbolRefs(plan *types.ChangePlan, contracts []types.Wr
 
 func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
 	return normalizeVerificationProbesWithOptions(in, true)
+}
+
+func normalizeProjectTestObservations(repoRoot string, in []types.ProjectTestObservation, changes []types.FileChange) ([]types.ProjectTestObservation, string) {
+	const (
+		maxObservations = 16
+		maxContractRefs = 10
+	)
+	if len(in) == 0 {
+		return nil, ""
+	}
+	if len(in) > maxObservations {
+		return nil, fmt.Sprintf("project_test_observations has %d entries; maximum is %d", len(in), maxObservations)
+	}
+	planned := map[string]string{}
+	for _, change := range changes {
+		if path, ok := canonpath.CanonicalRepoRelativeIdentity(change.Path); ok {
+			planned[path] = strings.TrimSpace(change.Kind)
+		}
+	}
+	out := make([]types.ProjectTestObservation, 0, len(in))
+	seen := map[string]bool{}
+	for i, observation := range in {
+		id := strings.TrimSpace(observation.ID)
+		if id == "" {
+			return nil, fmt.Sprintf("project_test_observations[%d].id is required", i)
+		}
+		if seen[id] {
+			return nil, fmt.Sprintf("project_test_observations has duplicate id %q", id)
+		}
+		seen[id] = true
+		testPath, ok := canonpath.CanonicalRepoRelativeIdentity(observation.TestPath)
+		if !ok {
+			return nil, fmt.Sprintf("project_test_observations[%d].test_path=%q must be a safe repo-relative path", i, observation.TestPath)
+		}
+		if kind, changed := planned[testPath]; changed {
+			if kind == "delete" {
+				return nil, fmt.Sprintf("project_test_observations[%d].test_path=%q is deleted by this plan", i, testPath)
+			}
+		} else {
+			info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(testPath)))
+			if err != nil || info.IsDir() {
+				return nil, fmt.Sprintf("project_test_observations[%d].test_path=%q must name an existing file or a non-delete changes[].path", i, testPath)
+			}
+		}
+		refs, rej := normalizeProbeStringRefs(observation.ContractRefs, maxContractRefs, fmt.Sprintf("project_test_observations[%d].contract_refs", i))
+		if rej != "" {
+			return nil, rej
+		}
+		if len(refs) == 0 {
+			return nil, fmt.Sprintf("project_test_observations[%d].contract_refs must name at least one behavior_contract id", i)
+		}
+		out = append(out, types.ProjectTestObservation{ID: id, TestPath: filepath.ToSlash(testPath), ContractRefs: refs})
+	}
+	return out, ""
+}
+
+func validateProjectTestObservationContractRefs(contracts []types.WriteBehaviorContract, observations []types.ProjectTestObservation) string {
+	if len(observations) == 0 {
+		return ""
+	}
+	ids := types.WriteBehaviorContractIDs(contracts)
+	if len(ids) == 0 {
+		return "project_test_observations require at least one typed behavior_contract"
+	}
+	for i, observation := range observations {
+		for _, ref := range observation.ContractRefs {
+			if _, ok := ids[ref]; !ok {
+				return fmt.Sprintf("project_test_observations[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
+			}
+		}
+	}
+	return ""
 }
 
 func normalizePlannerDryRunVerificationProbe(in []types.VerificationProbe) ([]types.VerificationProbe, string) {

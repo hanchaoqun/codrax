@@ -2946,19 +2946,21 @@ func (o *Orchestrator) buildCumulativePatchReviewPlan(run *types.WriteWorkflowRu
 	}
 	current := o.busCtx.Mutable.ChangePlan()
 	plan := &types.ChangePlan{
-		ID:                 planID,
-		Status:             types.PlanStatusApplied,
-		Summary:            "cumulative actual-diff review",
-		TargetPaths:        append([]string(nil), paths...),
-		AppliedPaths:       append([]string(nil), paths...),
-		Changes:            patchEffectFileChanges(effect),
-		PatchEffect:        &effect,
-		BehaviorContracts:  nil,
-		VerificationProbes: nil,
+		ID:                      planID,
+		Status:                  types.PlanStatusApplied,
+		Summary:                 "cumulative actual-diff review",
+		TargetPaths:             append([]string(nil), paths...),
+		AppliedPaths:            append([]string(nil), paths...),
+		Changes:                 patchEffectFileChanges(effect),
+		PatchEffect:             &effect,
+		BehaviorContracts:       nil,
+		VerificationProbes:      nil,
+		ProjectTestObservations: nil,
 	}
 	if current != nil {
 		plan.BehaviorContracts = append([]types.WriteBehaviorContract(nil), types.ChangePlanVerificationBehaviorContracts(current)...)
 		plan.VerificationProbes = append([]types.VerificationProbe(nil), types.ChangePlanVerificationProbes(current)...)
+		plan.ProjectTestObservations = append([]types.ProjectTestObservation(nil), types.ChangePlanVerificationProjectTestObservations(current)...)
 	}
 	stampChangePlanImpactObligations(plan, graphProvider)
 	applyVerifyCoverageToChangePlan(plan, report, err)

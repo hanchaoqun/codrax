@@ -518,6 +518,17 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		item.ID = writeContextStableID("acceptance_test", plan.ID, test)
 		pack.Items = append(pack.Items, item)
 	}
+	for _, observation := range ChangePlanVerificationProjectTestObservations(plan) {
+		text := fmt.Sprintf("id=%s test_path=%s contract_refs=%s",
+			strings.TrimSpace(observation.ID),
+			strings.TrimSpace(observation.TestPath),
+			strings.Join(dedupTrimWriteWorkflowRunStrings(observation.ContractRefs), ","))
+		item := writeContextItem("project_test_observation", WriteContextP1, text, "plan",
+			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier)
+		item.SourceID = strings.TrimSpace(plan.ID)
+		item.ID = writeContextStableID("project_test_observation", plan.ID, observation.ID, observation.TestPath)
+		pack.Items = append(pack.Items, item)
+	}
 	rebasedFallbacks := plan.BehaviorContractGeneration == WriteBehaviorContractGenerationPlanAcceptanceRebase
 	if rebasedFallbacks {
 		// Ordinary plans already receive the analyzer contract pack. Republish
