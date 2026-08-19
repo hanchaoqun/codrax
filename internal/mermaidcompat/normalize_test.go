@@ -48,6 +48,29 @@ func TestParseEdges_FlowchartPreservesColonQualifiedCallableLabels(t *testing.T)
 	}
 }
 
+func TestParseSubgraphsPreservesParentAndDirectMembers(t *testing.T) {
+	body := `flowchart TD
+  subgraph owner_group["BusContext"]
+    state["Mutable<br/>MutableState"]
+    subgraph nested["Nested"]
+      leaf["Leaf"]
+    end
+  end
+  outside["Outside"]`
+	got := ParseSubgraphs(body)
+	if len(got) != 2 {
+		t.Fatalf("subgraphs=%+v", got)
+	}
+	if got[0].Ident != "owner_group" || got[0].Label != "BusContext" || got[0].ParentIndex != -1 ||
+		len(got[0].Nodes) != 1 || got[0].Nodes[0].Ident != "state" {
+		t.Fatalf("owner group=%+v", got[0])
+	}
+	if got[1].Ident != "nested" || got[1].Label != "Nested" || got[1].ParentIndex != 0 ||
+		len(got[1].Nodes) != 1 || got[1].Nodes[0].Ident != "leaf" {
+		t.Fatalf("nested group=%+v", got[1])
+	}
+}
+
 func TestNodeDeclarationsAllRecognizesStandaloneBareFlowNodeWithoutMintingStatements(t *testing.T) {
 	for _, line := range []string{"analyzer", "  Explorer_2  ", "finalizer;"} {
 		got := NodeDeclarationsAll(line)

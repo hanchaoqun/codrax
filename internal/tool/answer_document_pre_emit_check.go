@@ -529,6 +529,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "source_inventory_requested_row_location", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "source_inventory_per_member_bucket_cells", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "call_chain_item_citation_role_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "diagram_no_arrow_ownership_direction", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
 		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
 		{Subgate: "diagram_participant_coverage", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
@@ -835,6 +836,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// and principal-path coverage. A function definition cannot prove a call.
 	if h := preCheckDiagramVisibleLabelConsistency(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
+	}
+	if h := preCheckDiagramNoArrowOwnershipDirection(doc, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolDiagramParticipantCoverage, h)
 	}
 	if h := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)

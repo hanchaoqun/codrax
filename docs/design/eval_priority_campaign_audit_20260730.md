@@ -35870,6 +35870,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/edge/conclusion-authorship=none`。
 
+### §123.1183 B1183：无箭头 containment 也有方向；共享 typed recipe 校验 subgraph 父子（2026-08-19）
+
+1. r741 的终稿不是单纯“布局不好看”。Finalizer 收到的 typed declaration 与 copy-ready 结构均明确为
+   `BusContext contains Mutable`，模型却画成 `subgraph Mutable` 内嵌 BusContext。Mermaid subgraph 的父子层级会向
+   用户表达 ownership/containment；旧校验只看节点存在、箭头证据与 participant boundary，完全不读 grouping 方向，
+   所以一个与精确声明相反的结构事实被接受。
+2. 根修将 declaration-backed ownership 投影下沉为 `types.DiagramNoArrowOwnershipGroup` 单源。Finalizer handoff 与
+   pre-emit validator 现在共同消费同一个 resolver：只接受 citable `AnchorDefinition` 的 exact
+   `DeclaredOwner + DeclaredBinding + DeclaredType`，以及 checkout-verified read-mode state carrier；owner 与 member/type
+   还必须分别唯一解析到两个不同的 `incident_required` participant。Trace、非 flow、非 required diagram、运行时工件、
+   不完整声明与歧义身份均不产 recipe。
+3. `mermaidcompat.ParseSubgraphs` 新增纯语法层 hierarchy：保留 subgraph id/visible label、parent index 与直接 node
+   members；嵌套 group 和 group 内 edge endpoint 可被统一观察，但解析器不推断语义。validator 只在模型已经把
+   exact typed member/type group 放在 exact typed owner 下，或反过来放置时解释这一个既有 containment 表达。
+4. 正向 owner→member 通过；二者作为 peer、同处一个无关业务布局 group、没有 subgraph、没有精确 recipe 均不触发。
+   仅反向 member/type→owner 时同轮拒绝，并要求模型纠正或删除这一反向 grouping、保留其他边/组/prose/citation/
+   boundary。系统不移动节点、不生成替代 group、不补箭头、不删除图，也不通过用户请求、模型推理、图中文字或最终
+   答案关键词铸造关系。
+5. 回归覆盖 r741 exact 反向形、正确直接嵌套、正确 nested subgroup、peer、无关布局组及 Trace carve-out；语言矩阵
+   用 Go/Java/ArkTS/Cangjie/Python/Rust/C++ source declaration 证明同一 typed field metadata 跨语言生效，未增加
+   Java 或单一 case 特判。共享 resolver 的既有 finalizer handoff 测试继续钉住 BusContext/Mutable copy-ready 正形。
+6. 本批不改变 directed-edge authority：call/data_flow/precedence 等仍须各自 typed recipe，no-arrow containment 不能
+   消除 `unproven` directed boundary。显式窗 Trace 因果投影、自动补齐、链上-only 主因、实际占用/业务线索与规则
+   计价可消除量双轴均未修改；活跃流不因 4ms 或固定累计年龄降级，系统不代替模型形成图边或结论。
+
+状态：
+
+`B1183-NOARROWCONTAINMENTDIRECTION1=implemented/shared-typed-recipe+syntax-hierarchy+pinned/pending-production-replay`；
+`B1184-PROBESCOPEIDENTITYLEDGERBREAK1=implemented/pushed-3fd0b78d1/pending-production-replay`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1178 B1178：模型显式证据替换闭环（2026-08-19）
 
 1. r738 的 `extractor` 误绑定不是“补一条正确证据”即可自然消失。旧工具只支持同一 StableEvidenceID 的

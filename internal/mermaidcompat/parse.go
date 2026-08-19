@@ -31,6 +31,17 @@ type NodeDecl struct {
 	Label string
 }
 
+// Subgraph is one authored flowchart/graph grouping. ParentIndex points to the
+// enclosing subgraph in ParseSubgraphs' return slice, or -1 at the root.
+// Nodes contains direct statement members only; callers may walk ParentIndex
+// for transitive containment. This is syntax topology, not semantic authority.
+type Subgraph struct {
+	Ident       string
+	Label       string
+	ParentIndex int
+	Nodes       []NodeDecl
+}
+
 const NodeShapeDecision = "decision"
 
 // ParseEdges scans a Mermaid body and returns every edge declaration it
@@ -102,6 +113,100 @@ func ParseEdges(body string) []Edge {
 		}
 	}
 	return edges
+}
+
+// ParseSubgraphs extracts authored flowchart/graph grouping hierarchy without
+// inferring what a group means. It deliberately ignores sequence/class
+// diagrams. Node declarations and edge endpoints written inside a subgraph
+// become direct members of that group; nested subgraphs retain their parent.
+func ParseSubgraphs(body string) []Subgraph {
+	lines := strings.Split(body, "\n")
+	firstKeyword := ""
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		firstKeyword = strings.ToLower(strings.Fields(line)[0])
+		break
+	}
+	if firstKeyword != "flowchart" && firstKeyword != "graph" {
+		return nil
+	}
+	var out []Subgraph
+	var stack []int
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "subgraph ") {
+			ident, label := parseSubgraphHeader(strings.TrimSpace(line[len("subgraph "):]))
+			if ident == "" && label == "" {
+				continue
+			}
+			parent := -1
+			if len(stack) > 0 {
+				parent = stack[len(stack)-1]
+			}
+			out = append(out, Subgraph{Ident: ident, Label: label, ParentIndex: parent})
+			stack = append(stack, len(out)-1)
+			continue
+		}
+		if lower == "end" {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			continue
+		}
+		if len(stack) == 0 || line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		current := stack[len(stack)-1]
+		for _, decl := range NodeDeclarationsAll(line) {
+			out[current].Nodes = appendUniqueSubgraphNode(out[current].Nodes, decl)
+		}
+		for _, edge := range ParseEdges("flowchart TD\n" + line) {
+			out[current].Nodes = appendUniqueSubgraphNode(out[current].Nodes, NodeDecl{Ident: edge.From, Label: edge.FromLabel})
+			out[current].Nodes = appendUniqueSubgraphNode(out[current].Nodes, NodeDecl{Ident: edge.To, Label: edge.ToLabel})
+		}
+	}
+	return out
+}
+
+func parseSubgraphHeader(rest string) (string, string) {
+	rest = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rest), ";"))
+	if rest == "" {
+		return "", ""
+	}
+	if rest[0] == '"' || rest[0] == '\'' {
+		label := strings.Trim(rest, `"' `)
+		return label, label
+	}
+	ident, label := ParseNodeToken(rest)
+	if label != "" {
+		return strings.TrimSpace(ident), strings.TrimSpace(label)
+	}
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return "", ""
+	}
+	return strings.TrimSpace(fields[0]), strings.TrimSpace(rest)
+}
+
+func appendUniqueSubgraphNode(nodes []NodeDecl, node NodeDecl) []NodeDecl {
+	node.Ident = strings.TrimSpace(node.Ident)
+	node.Label = strings.TrimSpace(node.Label)
+	if node.Ident == "" {
+		return nodes
+	}
+	if node.Label == "" {
+		node.Label = node.Ident
+	}
+	for _, existing := range nodes {
+		if strings.EqualFold(strings.TrimSpace(existing.Ident), node.Ident) {
+			return nodes
+		}
+	}
+	return append(nodes, node)
 }
 
 type classDiagramRelationOperator struct {
