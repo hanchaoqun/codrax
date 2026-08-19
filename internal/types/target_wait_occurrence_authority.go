@@ -9,7 +9,8 @@ import (
 )
 
 // TargetWaitOccurrenceAuthority is the answer-side projection of one
-// producer-paired, complete, bounded target wait roster. It is derived only
+// producer-paired, complete, bounded target D/IO-wait roster. This is not a
+// census of ordinary S or every wait/blocking mechanism. It is derived only
 // from registered trace note keys on a hard-grounded trace_query observation
 // that matches a typed user runtime target. Free-form investigation prose and
 // aggregate facts never enter this authority.

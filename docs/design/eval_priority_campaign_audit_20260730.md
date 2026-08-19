@@ -35670,6 +35670,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 5. B1138 根修冻结为 typed 上下文校准，不做答案扫描/替写：wire predicate 保留兼容；preview、observation
    summary、成文 authority 与 skill 全部将可见名称收窄为“目标 D/IO-wait occurrence 清单”，明确唯一
    纳入式和排除普通 S；零清单必须同时说明其不能反证其他等待。模型继续拥有诊断与措辞。
+   已按该形落地：producer 公式未变，preview 改用窄口径身份并携纳入/排除式；Observation summary 与
+   Finalizer 专属 authority 同时说明 D、显式 io_wait、`S+iowait=1` 三类成员，零清单不能推出无 Sleep/
+   等待/阻塞；skill 只作成文软引导，wire predicate 继续只供兼容与 typed 解析。新增 measured-zero、
+   小清单、截断清单及 skill 清册 pin，`tracequery/types/tool/agent/context` 五包全套通过。
 6. 新记 B1139/P2：`coverage=complete`、`target_effect_unproven_no_slice_binding`、
    `authority=direct_in_window_policy_limit` 与 raw predicate 仍泄漏到中文正文。只通过各 typed authority
    附近的自然语言释义与软教学逐步消除，禁止用最终答案关键词删改。
@@ -35686,7 +35690,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1135-FLOWPARTICIPANTFRONTIERPROGRESS1=production-positive-r716`；
 `B1136-BLOCKEDREASONSTATEATTRIBUTION1=production-positive-r716`；
 `B1137-DIAGRAMVISIBLEPARTICIPANTDEDUP1=not-reproduced-r716/P2-observe`；
-`B1138-TARGETWAITROSTERSCOPE1=confirmed/P1/next`；
+`B1138-TARGETWAITROSTERSCOPE1=implemented/narrow-preview+zero-boundary+pinned/five-package-pass/pending-production-replay`；
 `B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=confirmed/P2/planned`；
 `B1140-RUNTIMEQUESTIONJSONTEACHING1=confirmed/P1/after-B1138`；
 `active-stream-4ms-degrade=forbidden/not-observed`；

@@ -7334,7 +7334,10 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 	}
 	out := renderAnswerDocTargetWaitOccurrenceAuthority(ctx)
 	for _, want := range []string{
-		"## Typed Target Wait Occurrence Authority",
+		"## Target D/IO-Wait Occurrence Roster Scope",
+		"Ordinary S and waits or blocking proved by other mechanisms are outside this roster",
+		"It does NOT prove no Sleep, no waiting, or no blocking",
+		"Do not copy the compatibility wire predicate `target_window_wait_occurrences` into customer-facing prose",
 		"count=3; sum_ms=0.635",
 		"34579.451701..34579.451839 duration=0.138ms",
 		"34579.452934..34579.453081 duration=0.147ms",
@@ -7342,6 +7345,46 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("dedicated target occurrence authority missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderAnswerDocTargetWaitOccurrenceAuthorityKeepsMeasuredZeroNarrow(t *testing.T) {
+	count := 0
+	observation := types.ObservationRecord{
+		ID:              "trace_query:window#target_window_wait_occurrences",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            types.AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: types.ClaimGroundingHard,
+		Subject:         "main-42",
+		Predicate:       "target_window_wait_occurrences",
+		Object:          "complete",
+		Value:           "0",
+		ResultCount:     &count,
+		RichNotes: []string{
+			types.TraceNoteKeyTargetWaitOccurrencePrompt + "=status=complete,emitted=0,total=0",
+			types.TraceNoteKeyTargetWaitOccurrencePromptSum + "=0.000",
+		},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{observation},
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{RuntimeTargets: []types.RuntimeTarget{{
+			Kind: types.RuntimeTargetKindThread, PID: 42, Thread: "main-42", Source: "user_explicit",
+		}}}},
+	}
+	out := renderAnswerDocTargetWaitOccurrenceAuthority(ctx)
+	for _, want := range []string{
+		"count=0; sum_ms=0.000",
+		"no interval matched this D/IO-wait classifier",
+		"does NOT prove no Sleep, no waiting, or no blocking",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("measured-zero target roster lost scope boundary %q:\n%s", want, out)
 		}
 	}
 }

@@ -116,6 +116,15 @@ func TestTraceQueryTypedObservationsPublishMeasuredZeroWaitRoster(t *testing.T) 
 			record.Value != "0" || record.Object != "complete" {
 			t.Fatalf("measured-zero wait roster was not typed: %+v", record)
 		}
+		for _, want := range []string{
+			"target D/IO-wait occurrence roster",
+			"includes D, io_wait, and S only with iowait=1",
+			"ordinary S and other wait mechanisms are outside this roster",
+		} {
+			if !strings.Contains(record.Summary, want) {
+				t.Fatalf("measured-zero roster summary lost narrow scope %q: %s", want, record.Summary)
+			}
+		}
 		return
 	}
 	t.Fatal("measured-zero target wait occurrence set missing")

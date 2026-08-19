@@ -8371,11 +8371,13 @@ func writeTraceTargetCPURunningRoster(b *strings.Builder, account *tracequery.Ta
 }
 
 // writeTraceTargetWaitOccurrencePreview renders the target account's exact
-// small D/io-wait roster before the long per-view body. The account and its
+// small scheduler-marked D/IO-wait roster before the long per-view body. The account and its
 // occurrence rows are built from one ThreadTimeline decomposition, so count,
 // state kind, interval, caller and sum share one caliber. The preview never
 // reconstructs an occurrence from display rows and never claims completeness
-// when either the engine account or this head-preview cap omitted members.
+// when either the engine account or this head-preview cap omitted members. Its
+// label stays deliberately narrower than the compatibility wire predicate:
+// ordinary S and waits proved by other mechanisms are not members.
 func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *tracequery.TargetWindowStateAccount, payloadRef string) {
 	if b == nil || account == nil || strings.TrimSpace(account.WaitOccurrenceStatus) == "" {
 		return
@@ -8403,7 +8405,7 @@ func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *traceque
 			other++
 		}
 	}
-	fmt.Fprintf(b, "target_wait_occurrences status=%s account_status=%s emitted=%d total=%d",
+	fmt.Fprintf(b, "target_d_io_wait_occurrence_roster status=%s account_status=%s emitted=%d total=%d",
 		status, sanitizeForBanner(account.WaitOccurrenceStatus), visible, account.WaitOccurrenceTotal)
 	if account.WaitOccurrenceStatus == "complete" {
 		fmt.Fprintf(b, " d_state=%d io_wait=%d sleep_iowait=%d other=%d wall_clock_sum=%.3fms",
@@ -8412,7 +8414,7 @@ func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *traceque
 		fmt.Fprintf(b, " observed_d_state=%d observed_io_wait=%d observed_sleep_iowait=%d observed_other=%d observed_wall_clock_sum=%.3fms",
 			dState, ioWait, sleepIOWait, other, sumMS)
 	}
-	b.WriteString(" basis=single_thread_non_overlapping_typed_intervals\n")
+	b.WriteString(" basis=single_thread_non_overlapping_typed_intervals includes=D|io_wait|S_with_iowait_1 excludes=ordinary_S_and_other_wait_mechanisms\n")
 	for i := 0; i < visible; i++ {
 		occurrence := account.WaitOccurrences[i]
 		iowait := "unknown"
@@ -8422,7 +8424,7 @@ func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *traceque
 				iowait = "1"
 			}
 		}
-		fmt.Fprintf(b, "- target_wait_occurrence ordinal=%d state=%s window=%.6f..%.6f duration=%.3fms iowait=%s caller=%s lines=%d-%d reason_line=%d\n",
+		fmt.Fprintf(b, "- target_d_io_wait_occurrence ordinal=%d state=%s window=%.6f..%.6f duration=%.3fms iowait=%s caller=%s lines=%d-%d reason_line=%d\n",
 			occurrence.Ordinal, sanitizeForBanner(string(occurrence.State)), occurrence.StartTs, occurrence.EndTs,
 			occurrence.DurationMs, iowait, sanitizeForBanner(firstNonEmptyTraceString(occurrence.Caller, "unknown")),
 			occurrence.StartLine, occurrence.EndLine, occurrence.ReasonLine)
@@ -8432,7 +8434,7 @@ func writeTraceTargetWaitOccurrencePreview(b *strings.Builder, account *traceque
 		if omitted < 0 {
 			omitted = 0
 		}
-		fmt.Fprintf(b, "target_wait_occurrences_continuation omitted=%d payload_ref=%s\n",
+		fmt.Fprintf(b, "target_d_io_wait_occurrence_roster_continuation omitted=%d payload_ref=%s\n",
 			omitted, sanitizeForBanner(payloadRef))
 	}
 }
@@ -10092,7 +10094,7 @@ func traceQueryTargetWindowWaitOccurrenceObservations(
 		))
 	}
 	summary := fmt.Sprintf(
-		"target_window_wait_occurrences %s status=%s emitted=%d total=%d; exact bounded roster is carried by typed occurrence notes",
+		"target D/IO-wait occurrence roster for %s: status=%s emitted=%d total=%d; includes D, io_wait, and S only with iowait=1; ordinary S and other wait mechanisms are outside this roster; exact rows are carried by typed occurrence notes",
 		subject, account.WaitOccurrenceStatus, account.WaitOccurrenceEmitted, account.WaitOccurrenceTotal,
 	)
 	const promptOccurrenceCap = 8

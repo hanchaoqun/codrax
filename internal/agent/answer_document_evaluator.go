@@ -5702,9 +5702,11 @@ func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) strin
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Typed Target Wait Occurrence Authority\n\n")
-	b.WriteString("- These complete bounded rowsets were paired by the runtime engine for typed user targets. They are constructed separately from Observation Ledger ranking and repair-ref selection.\n")
+	b.WriteString("## Target D/IO-Wait Occurrence Roster Scope\n\n")
+	b.WriteString("- These complete bounded rowsets were paired by the runtime engine for typed user targets. Their scope is deliberately narrow: D-state intervals, explicit io_wait intervals, and S intervals only when the paired blocked-reason evidence carries `iowait=1`. Ordinary S and waits or blocking proved by other mechanisms are outside this roster. They are constructed separately from Observation Ledger ranking and repair-ref selection.\n")
+	b.WriteString("- A complete zero roster means only that no interval matched this D/IO-wait classifier in the selected target/window. It does NOT prove no Sleep, no waiting, or no blocking. Keep any separately published scheduler-state totals and completion/dependency evidence intact.\n")
 	b.WriteString("- If the principal answer enumerates any row from one set, copy every row in that set exactly. Do not rebuild an interval from adjacent sched events or use a blocked-reason timestamp as the interval start. Emit-time consistency checks reject missing or conflicting start/end/duration relations.\n\n")
+	b.WriteString("- Do not copy the compatibility wire predicate `target_window_wait_occurrences` into customer-facing prose. Describe the exact reader meaning instead, such as ‘the selected window contains no scheduler-marked D/IO-wait occurrence’; never shorten that to ‘there was no wait/blocking’.\n\n")
 	for _, authority := range authorities {
 		fmt.Fprintf(&b, "- subject=`%s`; status=`complete`; count=%d; sum_ms=%.3f; source_record=`%s`\n",
 			authority.Subject, authority.Count, authority.SumMS, authority.RecordID)

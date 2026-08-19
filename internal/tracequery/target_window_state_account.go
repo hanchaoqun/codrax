@@ -369,6 +369,12 @@ func stampTargetWindowCPURunningRoster(account *TargetWindowStateAccount, interv
 	}
 }
 
+// targetWindowWaitOccurrences returns the narrow scheduler-marked D/IO-wait
+// roster. It intentionally includes only D, explicit io_wait, and S intervals
+// whose paired blocked-reason row carries iowait=1. Ordinary S intervals and
+// other wait mechanisms are outside this roster; an empty result therefore
+// never means that the target did not sleep, wait, or block by another
+// mechanism.
 func targetWindowWaitOccurrences(intervals []Interval) []TargetWindowStateOccurrence {
 	out := make([]TargetWindowStateOccurrence, 0)
 	for _, it := range intervals {
