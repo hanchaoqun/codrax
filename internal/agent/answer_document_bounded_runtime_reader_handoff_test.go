@@ -50,6 +50,23 @@ func boundedRuntimeReaderHandoffTestContext() *types.AgentContext {
 					"target_wait_occurrence_prompt_sum_ms=0.000",
 				},
 			},
+			{
+				ID: "cpu-running", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				Predicate: "target_cpu_running", Subject: ".ugc.aweme.lite-17267", Object: "cpu=4", Value: "35.960", Unit: "ms",
+				RichNotes: []string{
+					"selected_window=13762.791708..13763.024898", "target_cpu_running_cpu=4",
+					"target_cpu_running_roster_status=complete",
+				},
+			},
+			{
+				ID: "cpu-frequency", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+				Predicate: "running_time", Subject: ".ugc.aweme.lite-17267", Object: "running", Value: "35.960", Unit: "ms",
+				RichNotes: []string{
+					"selected_window=13762.791708..13763.024898", "cpu=4", "freq=558000",
+				},
+			},
 		},
 	}}})
 	return &types.AgentContext{
@@ -91,6 +108,11 @@ func TestBoundedRuntimeFinalReaderHandoffUsesNaturalLanguageWithoutWireEnums(t *
 		"CPU 4",
 		"策略范围为 558000–2100000 kHz",
 		"是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠",
+		"目标线程的逐 CPU 运行与频率对照",
+		"于 CPU 4 运行 35.960ms（完整目标运行 CPU 清单中的一项）",
+		"代表频率 558000kHz",
+		"不证明该频率覆盖了目标线程的具体运行切片",
+		"两项出现在同一 CPU 仍不足以证明目标切片与策略重叠、目标受限或产生性能影响",
 		"系统不检查或修改模型正文，也不代替模型给结论",
 	} {
 		if !strings.Contains(got, want) {
@@ -101,6 +123,7 @@ func TestBoundedRuntimeFinalReaderHandoffUsesNaturalLanguageWithoutWireEnums(t *
 		"bounded_window_candidate", "target_window_states", "target_window_wait_occurrences",
 		"status=complete", "full_window_all_cpu", "target_effect_unproven_no_slice_binding",
 		"direct_in_window_policy_limit", "coverage_status", "unproven",
+		"dominant_state_slice_representative", "CPU-owned", "target-slice",
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("reader handoff leaked wire token %q:\n%s", forbidden, got)

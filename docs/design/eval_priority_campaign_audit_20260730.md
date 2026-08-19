@@ -35690,14 +35690,21 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 9. 本轮未观察 active-stream 4ms 降级、畸形 JSON 恢复或系统答案替换。真正 causal-diagnosis 的显式窗、
    Trace 因果投影与自动补齐保持；根因只来自 typed 链上证据，邻近/背景只能支撑额外排查；优先级反转、
    调度供给、算力供给、D/IO、确定性语义耗时、业务线索和规则计价可消除量继续保留。
+10. N1 已施工。有限事实终缝现在按 exact target + selected window + scheduler CPU 连接
+    `target_cpu_running`、CPU-owned running-bucket frequency 与同 CPU policy witness，并以读者语言逐行发布。
+    完整 roster 只说明 CPU 清单覆盖；桶级频率只属于 CPU；同 CPU 同窗出现仍明确不足以证明目标具体切片
+    与策略重叠、目标受限或性能影响。缺 frequency/policy 的行诚实写为不可评价，不借其他 CPU 或窗口补值。
+    同批 H4 oracle 接受中英 `Running/运行`、`Runnable/可运行` 的等价表述，并把 policy witness 与绑定未证
+    检查改为跨段语义共现；仍钉住 157.248/5.604/70.338/0.000 与 CPU4 2100000kHz，不降低证据要求。
+    上轮生产正文经新 oracle 离线复验通过；`go test ./internal/agent -count=1` 全绿。
 
 状态：
 
-`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-positive-r721/per-cpu-join-residual-open`；
-`B1146-RUNTIMECPUJOINREADERLANGUAGE1=confirmed/P1/N1`；
+`B1139-RUNTIMEENUMCUSTOMERLANGUAGE2=production-positive-r721/per-cpu-reader-join-implemented`；
+`B1146-RUNTIMECPUJOINREADERLANGUAGE1=implemented/exact-target-window-cpu+pinned/pending-replay`；
 `B1147-COUPLEDRELATIONSUBTOPICAMPLIFICATION1=confirmed/P0/N2`；
 `B1148-PROBEGLOBALFLOWCOMPLETIONGATE1=confirmed/P0/N2`；
-`H4-BILINGUAL-SEMANTIC-ORACLE=false-negative/N1`；
+`H4-BILINGUAL-SEMANTIC-ORACLE=implemented/offline-r721-positive/pending-replay`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；

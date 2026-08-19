@@ -959,7 +959,8 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 	}
 
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactFrequencyResidency) {
-		for _, witness := range answerDocRuntimeTraceGuidanceView(ctx).FrequencyLimitWitnesses {
+		witnesses := answerDocRuntimeTraceGuidanceView(ctx).FrequencyLimitWitnesses
+		for _, witness := range witnesses {
 			if zh {
 				fmt.Fprintf(&b, "- CPU %d 在 %.6f–%.6f 秒窗口内出现 %d 条频率策略上限记录，策略范围为 %d–%d kHz。这只证明该 CPU 的策略上限在窗口内存在；是否限制了目标线程，仍需同一 CPU 上目标运行切片与策略的重叠或其他目标绑定证据。\n",
 					witness.CPU, witness.WindowStartTs, witness.WindowEndTs, witness.LimitRowCount,
@@ -970,12 +971,174 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 					witness.MinFrequencyKHz, witness.MaxFrequencyKHz)
 			}
 		}
+		b.WriteString(renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(ctx, witnesses, zh))
 	}
 
 	if zh {
 		b.WriteString("- 其余请求事实沿用此前结构化事实行中的精确值与区间，但正文只使用本卡中的读者维度名称和自然语言边界。\n\n")
 	} else {
 		b.WriteString("- For any other requested fact, preserve the exact value and interval from the preceding structured fact row, but use only the reader dimension names and natural-language boundaries from this card in visible prose.\n\n")
+	}
+	return b.String()
+}
+
+// renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact restates the exact
+// target/window/CPU join already used by the typed runtime guidance in reader
+// language. It does not infer slice overlap, a restriction verdict, or a
+// performance effect. In particular, a CPU-owned running-bucket frequency and
+// a policy row on the same CPU remain two co-located facts until another typed
+// carrier binds the target's concrete running slice to that policy interval.
+//
+// The helper consumes only deterministic observation rows and typed frequency
+// witnesses. It never inspects request or answer prose and cannot edit the
+// model-authored answer.
+func renderAnswerDocBoundedRuntimeFrequencyCPUJoinReaderFact(
+	ctx *types.AgentContext,
+	witnesses []types.TraceFrequencyLimitAuthority,
+	zh bool,
+) string {
+	if ctx == nil || len(witnesses) == 0 {
+		return ""
+	}
+	type targetWindowKey struct {
+		subject string
+		window  string
+	}
+	type targetCPURow struct {
+		running string
+		unit    string
+		roster  string
+	}
+	policyByWindow := make(map[string]map[int]types.TraceFrequencyLimitAuthority)
+	for _, witness := range witnesses {
+		if witness.CPU < 0 {
+			continue
+		}
+		window := fmt.Sprintf("%.6f..%.6f", witness.WindowStartTs, witness.WindowEndTs)
+		if policyByWindow[window] == nil {
+			policyByWindow[window] = make(map[int]types.TraceFrequencyLimitAuthority)
+		}
+		if _, exists := policyByWindow[window][witness.CPU]; !exists {
+			policyByWindow[window][witness.CPU] = witness
+		}
+	}
+	targets := make(map[targetWindowKey]map[int]targetCPURow)
+	frequencies := make(map[targetWindowKey]map[int]map[int64]bool)
+	for _, record := range answerDocObservationLedger(ctx).Records {
+		if record.Origin != types.AnswerEvidenceOriginRuntimeArtifact ||
+			!types.RuntimeObservationProducerIsDeterministicQuery(record.Producer) {
+			continue
+		}
+		subject := strings.TrimSpace(record.Subject)
+		window := strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeySelectedWindow))
+		if subject == "" || window == "" || policyByWindow[window] == nil {
+			continue
+		}
+		cpuText := ""
+		switch strings.TrimSpace(record.Predicate) {
+		case "target_cpu_running":
+			cpuText = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningCPU))
+			if cpuText == "" && strings.HasPrefix(strings.TrimSpace(record.Object), "cpu=") {
+				cpuText = strings.TrimPrefix(strings.TrimSpace(record.Object), "cpu=")
+			}
+		case "running_time":
+			cpuText = strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, "cpu"))
+		default:
+			continue
+		}
+		cpu, err := strconv.Atoi(cpuText)
+		if err != nil || cpu < 0 {
+			continue
+		}
+		key := targetWindowKey{subject: subject, window: window}
+		if strings.TrimSpace(record.Predicate) == "running_time" {
+			frequency, err := strconv.ParseInt(strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, "freq")), 10, 64)
+			if err != nil || frequency <= 0 {
+				continue
+			}
+			if frequencies[key] == nil {
+				frequencies[key] = make(map[int]map[int64]bool)
+			}
+			if frequencies[key][cpu] == nil {
+				frequencies[key][cpu] = make(map[int64]bool)
+			}
+			frequencies[key][cpu][frequency] = true
+			continue
+		}
+		if targets[key] == nil {
+			targets[key] = make(map[int]targetCPURow)
+		}
+		targets[key][cpu] = targetCPURow{
+			running: strings.TrimSpace(record.Value),
+			unit:    strings.TrimSpace(record.Unit),
+			roster:  strings.TrimSpace(traceDecisionRichNoteValue(record.RichNotes, types.TraceNoteKeyTargetCPURunningRosterStatus)),
+		}
+	}
+	if len(targets) == 0 {
+		return ""
+	}
+	keys := make([]targetWindowKey, 0, len(targets))
+	for key := range targets {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		if keys[i].subject != keys[j].subject {
+			return keys[i].subject < keys[j].subject
+		}
+		return keys[i].window < keys[j].window
+	})
+	var b strings.Builder
+	if zh {
+		b.WriteString("- 目标线程的逐 CPU 运行与频率对照（只按同一目标、窗口和 CPU 对齐，不代替限制结论）：\n")
+	} else {
+		b.WriteString("- Per-CPU target running and frequency comparison (aligned only by identical target, window, and CPU; it does not decide restriction):\n")
+	}
+	for _, key := range keys {
+		cpus := make([]int, 0, len(targets[key]))
+		for cpu := range targets[key] {
+			cpus = append(cpus, cpu)
+		}
+		sort.Ints(cpus)
+		for _, cpu := range cpus {
+			row := targets[key][cpu]
+			frequencyText := answerDocTargetCPUFrequencyText(frequencies[key][cpu])
+			frequencyText = strings.TrimSuffix(frequencyText, "(CPU-owned running-bucket representative; not target-slice/policy overlap proof)")
+			policy, hasPolicy := policyByWindow[key.window][cpu]
+			complete := strings.EqualFold(row.roster, "complete")
+			if zh {
+				coverage := "已观测清单中的一项"
+				if complete {
+					coverage = "完整目标运行 CPU 清单中的一项"
+				}
+				fmt.Fprintf(&b, "  - %s 在 %s 秒窗口内于 CPU %d 运行 %s%s（%s）。", key.subject, key.window, cpu, row.running, row.unit, coverage)
+				if frequencyText != "absent" {
+					fmt.Fprintf(&b, "同一 CPU 的运行时间桶记录了代表频率 %s；这是 CPU 归属的桶级代表值，不证明该频率覆盖了目标线程的具体运行切片。", frequencyText)
+				} else {
+					b.WriteString("同一 CPU 没有可用的运行时间桶代表频率，不能补猜。")
+				}
+				if hasPolicy {
+					fmt.Fprintf(&b, "同窗还存在 %d 条策略记录，范围 %d–%d kHz；两项出现在同一 CPU 仍不足以证明目标切片与策略重叠、目标受限或产生性能影响。\n", policy.LimitRowCount, policy.MinFrequencyKHz, policy.MaxFrequencyKHz)
+				} else {
+					b.WriteString("该 CPU 没有同窗策略上限记录，因此不能在这一行评价策略限制。\n")
+				}
+			} else {
+				coverage := "an observed roster entry"
+				if complete {
+					coverage = "an entry in the complete target-running CPU roster"
+				}
+				fmt.Fprintf(&b, "  - %s ran for %s%s on CPU %d in %s seconds (%s). ", key.subject, row.running, row.unit, cpu, key.window, coverage)
+				if frequencyText != "absent" {
+					fmt.Fprintf(&b, "The same CPU running-time bucket records representative frequency %s; this is a CPU-owned bucket representative, not proof that the frequency covered the target's concrete running slices. ", frequencyText)
+				} else {
+					b.WriteString("No running-bucket representative frequency is available on the same CPU; do not guess one. ")
+				}
+				if hasPolicy {
+					fmt.Fprintf(&b, "The same window also has %d policy record(s), spanning %d–%d kHz. Co-location on one CPU still does not prove target-slice overlap, target restriction, or performance impact.\n", policy.LimitRowCount, policy.MinFrequencyKHz, policy.MaxFrequencyKHz)
+				} else {
+					b.WriteString("This CPU has no same-window policy-ceiling record, so this row cannot assess policy restriction.\n")
+				}
+			}
+		}
 	}
 	return b.String()
 }
