@@ -35649,6 +35649,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1173 r736：调用点软排序未覆盖抢先返回；补证后继无法结清前驱（2026-08-19）
+
+1. 在 `main@a15803840` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`；
+   人工为代码图 partial、写模式 fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_callsite_write_r736_20260819_manual_audit.md`。
+2. QF 的读取成本有所下降：read 25→16、Explorer iter 39→21；但 B1171 未获生产正证。最终
+   `requested_relation_spine_status=unproven`，图仍只有四阶段 precedence 与 builder/Mutable 等局部片段，
+   真正 `dispatchStage` 内 `agentCtx -> Execute -> output -> applyStageOutput` 共享状态流未进入证据或答案。
+   生产日志的后续 landing 只读 `internal/context/builder.go`，说明两个早期 grounded body/handoff fast path
+   仍可在新 continuation 排序前返回。最优修复是所有同 callee 调用点选择共享同一个 parser-owned
+   continuation quality；它只软排读取坐标，不铸 EvidenceItem、边、图或结论。
+3. 写模式确认新 P0/P1 `B1174`。三个 batch 都显示 `state=complete`，当前报告 3/3 通过，模型据 typed
+   状态选择 `all_verified`；终局却继续把早先 `batch-1-cumulative-review` 的
+   `verification_proof_incomplete` 永久发射为未闭合。测试全绿与“前代证明债仍开”同页冲突是确定性的，
+   不是模型波动，也不能通过降低证明杆消除。
+4. 同根上游断层是 `controllerActionInterruptsUnverifiedCompletion` 漏掉 `append_batch/split_batch`。
+   精确 proof-planning normalizer 本可铸造 controller-owned `verification_proof_followup + DependsOn +
+   changes=[]`，却被模型自拟普通 append 绕过；planner 随后因普通批不允许零 changes，被迫制造无意义
+   source patch。第一层修复应让已成立的 typed proof-planning decision 对 append/split 同样优先。
+5. 第二层采用严格后继结清，不把任意“后来测试绿”洗成历史全绿：只有后继 batch 的 purpose 是
+   controller-owned proof followup、`DependsOn` 精确指向一个 verify-only proof 前驱、后继自身完成
+   verified，且 exact proof ledger 的 missing/unavailable/failed/capability gap 全为 0，才把该直接前驱
+   标为 `superseded_by_verified_proof_followup`。无依赖、普通 purpose、代码失败、runner unavailable、
+   source-static-only 或低置信证明全部 fail-closed。
+6. Runner 对 QF 仍只看参与者词面/最小边数，不能识别两块断图，继续要求人工关系审计；不为该 case
+   增加答案关键词硬门。QF 最终 Mermaid 合法，系统没有添加关系。写模式改动仍在隔离 worktree，main
+   未被自动修改。
+7. 两案均未发生 active-stream 4ms 或固定累计 age 降级。Read/Write 施工不得触碰 Trace 查询结果、
+   显式时间窗、因果投影或自动补齐；Trace 主因继续限于 typed on-chain，实际占用/业务线索与规则
+   计价可消除量双轴保持，邻近/背景只能作支持，结论继续由模型形成。
+
+状态：
+
+`B1171-CALLSITEWHOLEVALUECONTINUATIONRANK1=unit-covered/production-failed-r736/early-fast-path-open`；
+`B1174-WRITEPROOFFOLLOWUPTERMINALRESOLUTION1=confirmed/P0-P1/next`；
+`B1172-RUNTIMEFACETMEMBERSHIPAUTHORITY1=confirmed/P1/queued`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/edge/conclusion-authorship=none`。
+
 ### §123.1172 B1171：同 callee 调用点按 parser-owned whole-value continuation 软排序（2026-08-19）
 
 1. r735 的 `BuildAgentContext` 不是缺少赋值解析，而是多个合法调用点质量不同：
