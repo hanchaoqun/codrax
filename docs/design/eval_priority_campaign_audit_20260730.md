@@ -36649,6 +36649,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-oracle/implementation/answer-authorship=none`；
 `Trace explicit-window/query/projection/auto-supplement=untouched`。
 
+### §123.1118 B1122：Make 复合执行器不得吞掉内层测试失败位置（2026-08-18）
+
+1. r710 首轮真实 `make check` 已运行并失败，但 `parseMakeOutput` 只保留末尾叙事错误摘要，内层 unittest 的
+   test identity、traceback `file:line` 与完整断言行被折叠。因而 controller 虽知道 suite 失败，却拿不到精确失败位置，
+   后续 replan 的 typed failure handoff 与 located-line 保护均无法生效。
+2. 根因属于复合执行器证据保真，不属于 tokenizer case，也不能靠扫描模型计划或答案修复。本批在 Make 判负后复用既有
+   unittest 结构化块解析器：若输出中存在内层 unittest failure block，则 `FailureDetail` 保留其原始 test header、
+   traceback 和 assertion；Make 的整体 passed/failed 判定、target suite identity 与简短 `FailureSummary` 均保持不变。
+3. 系统不猜 expected/actual：`Lists differ` 两侧继续保持 `operand_roles=unlabeled`，只携带执行器原始文本与确定位置。
+   baseline oracle 的 ownership 仍由 B1121 的 `preserve_regression_test` carrier 提供；B1122 只让真实失败证据不在
+   Make 包装层丢失，不把某个断言值升级为系统结论。
+4. 新 pin 用真实 Make→unittest 组合输出钉住 `make-test/check`、内层 test name、`/repo/tests/test_tokenizer.py:13`
+   和断言文本，并钉住 expected/actual 仍为空。既有 Make 成功、普通失败、有/无摘要测试保持；定向测试和
+   `go test ./internal/tool -count=1` 全绿（177.219s）。
+5. 该批没有读取 raw request、模型计划或最终答案，不改变 apply/replan 策略，不修改模型答案、图、关系或结论；
+   Trace 精确时间窗、因果投影、自动补齐与 active-stream 行为均未触碰。
+
+状态：
+
+`B1122-MAKEEMBEDDEDFAILLOC1=implemented/executor-owned-location+pinned/replay-next`；
+`B1121-PROTECTEDORACLECARRIER1=unchanged/upstream-ownership`；
+`test-operand-role-inference=none`；
+`raw-request/model-plan/final-prose-hard-gate=none`；
+`Trace explicit-window/query/projection/auto-supplement=untouched`。
+
 ### §123.1092 r699 与 B1103：关系边界教学/硬门跨轴同源（2026-08-18）
 
 1. `main@5565a9017` 重建后严格并发恰好两个：`qf_sequence_analyzer_gate` 与

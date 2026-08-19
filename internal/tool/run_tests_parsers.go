@@ -369,17 +369,31 @@ func parseMakeOutput(target, stdout string, runErr error) (*types.ChangeReport, 
 	}
 	passed := runErr == nil
 	var (
-		detail      string
-		failSummary string
+		detail        string
+		summaryDetail string
+		failSummary   string
 	)
 	if !passed {
-		detail = narrativeBuildErrorExcerpt(stdout)
+		summaryDetail = narrativeBuildErrorExcerpt(stdout)
+		detail = summaryDetail
+		// A Make target commonly delegates to a real test runner. Preserve an
+		// exact embedded unittest failure block when one is present instead of
+		// collapsing it to only the final AssertionError line. The composite
+		// make verdict and suite target stay unchanged; this only retains the
+		// executor-owned test identity, traceback file:line, and assertion
+		// operands for typed failure handoff / replan consumers.
+		if len(unittestFailureBlocks(stdout)) > 0 {
+			detail = unittestAggregateFailureDetail(stdout)
+		}
 		if detail == "" {
 			// Nothing marker-like in the output — at least carry the
 			// error string itself so the retry hint isn't empty.
 			detail = runErr.Error()
 		}
-		firstLine := strings.SplitN(detail, "\n", 2)[0]
+		if summaryDetail == "" {
+			summaryDetail = detail
+		}
+		firstLine := strings.SplitN(summaryDetail, "\n", 2)[0]
 		if len(firstLine) > 200 {
 			firstLine = types.CutPrefixRuneSafe(firstLine, 200) + "…"
 		}

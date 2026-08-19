@@ -687,6 +687,55 @@ func TestParseMakeOutput_FailureWithoutExcerpt(t *testing.T) {
 	}
 }
 
+func TestParseMakeOutput_PreservesEmbeddedUnittestFailureLocation(t *testing.T) {
+	stdout := strings.Join([]string{
+		"PYTHONPATH=. python3 -m unittest discover -s tests -v",
+		"test_newline_run (test_tokenizer.TokenizerTest) ... FAIL",
+		"",
+		"======================================================================",
+		"FAIL: test_newline_run (test_tokenizer.TokenizerTest)",
+		"----------------------------------------------------------------------",
+		"Traceback (most recent call last):",
+		`  File "/repo/tests/test_tokenizer.py", line 13, in test_newline_run`,
+		"    self.assertEqual(actual, expected)",
+		"AssertionError: Lists differ: [300, 300, 10] != [300]",
+		"",
+		"----------------------------------------------------------------------",
+		"Ran 1 test in 0.001s",
+		"",
+		"FAILED (failures=1)",
+		"make: *** [check] Error 1",
+	}, "\n")
+	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.Passed || len(report.TestResults) != 1 {
+		t.Fatalf("embedded unittest failure must keep the make verdict: %+v", report)
+	}
+	result := report.TestResults[0]
+	if result.AssertionID != "make-test" || result.Suite != "check" {
+		t.Fatalf("make target identity drifted: %+v", result)
+	}
+	for _, want := range []string{
+		"FAIL: test_newline_run",
+		`File "/repo/tests/test_tokenizer.py", line 13`,
+		"AssertionError: Lists differ: [300, 300, 10] != [300]",
+	} {
+		if !strings.Contains(result.FailureDetail, want) {
+			t.Fatalf("embedded unittest detail missing %q:\n%s", want, result.FailureDetail)
+		}
+	}
+	signal := types.ExtractTestFailureSignal(result, 900)
+	if signal.Location != "/repo/tests/test_tokenizer.py:13" {
+		t.Fatalf("embedded unittest location = %q, signal=%+v", signal.Location, signal)
+	}
+	if signal.Expected != "" || signal.Actual != "" ||
+		signal.OperandRoles != types.TestFailureOperandRolesUnlabeled {
+		t.Fatalf("location retention must not invent expected/actual roles: %+v", signal)
+	}
+}
+
 func TestParseMakeOutput_MissingTargetIsUnavailable(t *testing.T) {
 	stdout := "make: *** No rule to make target `check'.  Stop.\n"
 	report, err := parseMakeOutput("check", stdout, &fakeExitError{msg: "exit status 2"})
