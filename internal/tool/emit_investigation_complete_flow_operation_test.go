@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -3084,6 +3085,67 @@ func TestEmitInvestigationComplete_RelationOnlyParticipantDeficitConvergesAfterF
 		!ctx.Mutable.EvidenceClosure().HasCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage) ||
 		!strings.Contains(second.Summary, "participant relation remains unproven") {
 		t.Fatalf("second unchanged relation-only attempt should converge honestly: %+v", second)
+	}
+}
+
+func TestFlowParticipantStrictProviderSubsetWithLocalBoundaryUsesOneFocusedPass(t *testing.T) {
+	ctx := flowOperationCompletionContext([]types.EvidenceItem{
+		flowOperationEvidence(types.AnchorCall, "BuildAgentContext", "bus.Mutable.Objective", 41),
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{
+		"Analyzer", "Explorer", "Extractor", "Finalizer", "BusContext", "Mutable",
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+		{Surface: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+		{Surface: "Mutable", Resolution: types.EntityResolutionPrescanAnchor, Resolved: true, UseForSearch: true, UseForShape: true},
+	}
+	ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "BusContext", Role: types.DiagramParticipantContextOnly},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+		"internal/types/context.go": {
+			RelPath: "internal/types/context.go",
+			Symbols: []repotypes.Symbol{{
+				Name: "Mutable", Kind: "field", Parent: "BusContext",
+				DeclaredType: "*MutableState", Line: 20,
+			}},
+		},
+	}))
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+		{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"},
+	}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1]}, {From: rows[1], To: rows[2]}, {From: rows[2], To: rows[3]},
+	}
+
+	assessment := assessFlowParticipantCoverage(ctx, ctx.Mutable.EmittedEvidence(), precedence...)
+	if len(assessment.missing) != 1 || assessment.missing[0] != "Mutable" {
+		t.Fatalf("strict stage provider should leave the local carrier outside request scope: %+v", assessment)
+	}
+	if !assessment.boundedPartialUnprovenAvailable {
+		t.Fatalf("an exact publishable local-only candidate must make the partial boundary convergent: %+v", assessment)
+	}
+	if got := flowParticipantCoverageConvergenceThreshold(assessment, true, true); got != 2 {
+		t.Fatalf("an advancing navigation cursor must not require a third close after one focused pass, threshold=%d", got)
+	}
+	ordinary := assessment
+	ordinary.boundedPartialUnprovenAvailable = false
+	if got := flowParticipantCoverageConvergenceThreshold(ordinary, true, true); got != 0 {
+		t.Fatalf("a generic relation deficit with a live exact frontier must retain the full locate/read allowance, threshold=%d", got)
+	}
+	if assessment.missing[0] == "" || len(ctx.Mutable.EmittedEvidence()) != 1 {
+		t.Fatal("classification must preserve the missing boundary and never manufacture relation evidence")
 	}
 }
 

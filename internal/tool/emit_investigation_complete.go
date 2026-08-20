@@ -2236,7 +2236,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		ctx.Mutable.AppendCompletionGateNote("operation-level flow remains unproven: no citable call, callback, assignment/initializer, return, or precedence row established movement between source components; definitions and field rosters may still be summarized as independent context, but not as an ordered data path")
 	}
 	participantCoverageStart := time.Now()
-	missingFlowParticipants := flowParticipantCoverageMissing(ctx, evidenceSnapshot, verifiedStagePrecedence...)
+	participantCoverage := assessFlowParticipantCoverage(ctx, evidenceSnapshot, verifiedStagePrecedence...)
+	missingFlowParticipants := participantCoverage.missing
 	recordToolRuntimeTiming(&runtimeTimings, "flow_participant_coverage", participantCoverageStart, len(missingFlowParticipants))
 	if len(missingFlowParticipants) == 0 && ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.EvidenceClosure().ClearCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage)
@@ -2254,9 +2255,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		relationOnlyDeficit := flowMissingParticipantsHaveLocalOperations(ctx, evidenceSnapshot, missingFlowParticipants)
 		recordToolRuntimeTiming(&runtimeTimings, "flow_participant_repair_plan", participantRepairStart, len(files)+len(keywords))
 		var converged bool
-		if relationOnlyDeficit && !hasExactParticipantFrontier {
+		if threshold := flowParticipantCoverageConvergenceThreshold(
+			participantCoverage, relationOnlyDeficit, hasExactParticipantFrontier,
+		); threshold > 0 {
+			// A parser-owned request relation that covers only a strict subset,
+			// plus an exact publishable local-only candidate for every remaining
+			// participant, is a stronger boundary than a generic navigation
+			// cursor. One focused pass may still prove a bridge; an unchanged
+			// second completion must then close honestly as partial/unproven
+			// instead of spending a third attempt on a coordinate that cannot
+			// widen request-scope authority by itself.
 			converged = preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(
-				ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey, 2,
+				ctx, types.DowngradeLaneFlowParticipantCoverage, participantBlockerKey, threshold,
 			)
 		} else {
 			converged = preCompleteDowngradeConvergesWithTypedBlockerKey(
@@ -3824,13 +3834,35 @@ func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.Evi
 	return files, keywords
 }
 
+type flowParticipantCoverageAssessment struct {
+	missing                         []string
+	boundedPartialUnprovenAvailable bool
+}
+
+func flowParticipantCoverageConvergenceThreshold(
+	assessment flowParticipantCoverageAssessment,
+	relationOnlyDeficit bool,
+	hasExactParticipantFrontier bool,
+) int {
+	if assessment.boundedPartialUnprovenAvailable ||
+		(relationOnlyDeficit && !hasExactParticipantFrontier) {
+		return 2
+	}
+	return 0
+}
+
 func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.EvidenceItem, stagePrecedence ...stageauthority.PrecedenceRelation) []string {
+	return assessFlowParticipantCoverage(ctx, evidence, stagePrecedence...).missing
+}
+
+func assessFlowParticipantCoverage(ctx *types.BusContext, evidence []types.EvidenceItem, stagePrecedence ...stageauthority.PrecedenceRelation) flowParticipantCoverageAssessment {
+	var assessment flowParticipantCoverageAssessment
 	if ctx == nil || ctx.AnalysisIR == nil || !flowOperationEvidenceRequired(ctx) {
-		return nil
+		return assessment
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) == 0 {
-		return nil
+		return assessment
 	}
 	seen := make(map[string]bool)
 	participants := make([]types.DiagramParticipantHint, 0, len(rm.DiagramHint.Participants))
@@ -3869,13 +3901,34 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 	}
 	relationScope := buildFlowParticipantRelationScope(rm, participants, participantSurfaces, evidence, stagePrecedence)
 	missing := make([]string, 0, len(participants))
+	missingIndexes := make([]int, 0, len(participants))
 	for i, participant := range participants {
 		if !relationScope.effectiveParticipantCovered(i) {
 			missing = append(missing, strings.TrimSpace(participant.Identity))
+			missingIndexes = append(missingIndexes, i)
+		}
+	}
+	assessment.missing = missing
+	if relationScope.requestScopedSubsetIncomplete && len(missingIndexes) > 0 {
+		assessment.boundedPartialUnprovenAvailable = true
+		for _, i := range missingIndexes {
+			if i < 0 || i >= len(participants) || i >= len(relationScope.participantLocalOperation) ||
+				!relationScope.participantLocalOperation[i] {
+				assessment.boundedPartialUnprovenAvailable = false
+				break
+			}
+			candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+				rm, participants[i], evidence, stagePrecedence, 1,
+				participants, participantSurfaces, i, relationScope,
+			)
+			if len(candidates) == 0 || !candidates[0].localOnly {
+				assessment.boundedPartialUnprovenAvailable = false
+				break
+			}
 		}
 	}
 	if len(missing) > 0 || len(participants) < 2 {
-		return missing
+		return assessment
 	}
 	// Ordinary incident coverage can be satisfied by several disconnected
 	// two-party islands. For a required source-flow diagram, completion gets one
@@ -3888,7 +3941,8 @@ func flowParticipantCoverageMissing(ctx *types.BusContext, evidence []types.Evid
 			missing = append(missing, strings.TrimSpace(participant.Identity))
 		}
 	}
-	return missing
+	assessment.missing = missing
+	return assessment
 }
 
 func flowParticipantCoverageRepairHint(missing, files, keywords []string) string {

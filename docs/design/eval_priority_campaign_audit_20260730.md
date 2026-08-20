@@ -56725,3 +56725,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r764`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1238 B1229：严格子集关系债在一次聚焦补证后诚实闭环（2026-08-20）
+
+1. 代码复核确认现有 completion navigator 已按 typed missing-participant set 记录无进展收敛，不受无关 evidence/repair
+   抖动影响；但只要 parser 还能给出一个精确导航坐标，普通 participant lane 会保留“定位 + 读取”两次 repair room，要求
+   第三次相同 completion 才接受未证边界。r764 第一 Explorer 在 20 轮内只到达两次同 blocker close，因而被阶段上限结束，
+   orchestrator 随后重启第二 Explorer。这不是 4ms/总时长预算问题，也不应靠调大全局轮数掩盖。
+2. 本批把 completion 的 participant 计算提升为单一 typed assessment：除 missing 集外，同时判断 parser-owned
+   request-scoped provider 是否只覆盖严格子集，以及每个缺席 participant 是否都有同一 authoring pool 可发布的
+   `local_operation_only` 候选。只有四项同时成立——严格子集、非空缺席集、每席有真实 local operation、每席有可发布
+   local-only candidate——才铸造 `boundedPartialUnprovenAvailable`；任一缺项均 fail-closed。
+3. 上述精确状态即说明“局部事实可展示，但它本身无权扩张请求关系”。系统仍给模型一次聚焦 bridge pass；同一 typed
+   missing set 再次完成时即携带既有 completion caveat 正常闭环，不再因为一个新的导航游标要求第三次 close。普通尚无
+   local candidate 的 participant、仍有真实 locate/read 恢复空间的关系债、以及可由跨 participant typed bridge 闭合的图，
+   继续使用原三次 allowance。
+4. 此修复不把 partial 宣称为 complete，不清除 participant boundary，不把局部 operation 晋升为 request relation；也不
+   生成、选择、删除、反转或重连模型边。判定只消费 RequestModel participant enum、parser-owned stage/provider、grounded
+   EvidenceItem 和 typed candidate scope，不扫描 raw request、thinking、final prose 或 Mermaid 文案。
+5. 新 pin 覆盖“完整四阶段 provider + context owner + `Mutable` 局部 operation”同形：assessment 必须只留下
+   `Mutable`、识别 publishable local boundary，并在存在精确导航 frontier 时仍选择一次聚焦补证；对取消该强信号的普通
+   deficit，测试要求继续保留完整 locate/read allowance。既有 relation-only、disconnected islands、真实 multi-hop bridge
+   与 no-promotion 回归保持通过。
+6. `go test ./internal/types ./internal/agent ./internal/tool ./internal/orchestrator -count=1` 全绿
+   （tool 181.758s），补充 `internal/stageauthority` 和新增针对性 pin 均绿。Trace 查询、显式时间窗、链上-only 主因、
+   实际占时/现规则可消双轴、因果投影、自动补齐和活跃流判定没有改动。
+
+状态：
+
+`B1229-RELATIONINVESTIGATIONCHURN1=implemented/full-relevant-pass/pending-production-replay`；
+`strict-provider-subset+publishable-local-boundary=one-focused-pass-then-honest-close`；
+`generic-exact-frontier=full-locate-read-allowance-preserved`；
+`partial-unproven!=complete/pinned`；`local-operation-only!=requested-relation/pinned`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
