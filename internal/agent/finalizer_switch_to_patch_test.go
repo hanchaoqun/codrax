@@ -1007,7 +1007,8 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 		}
 		for _, want := range []string{
 			`"from_node":"BC"`, `"to_node":"E"`, "preserve_unlisted_edges=true",
-			"typed_candidate[BusContext][1]", "local_operation_only",
+			`"candidate_policy":"deferred_until_current_failures_clear"`,
+			"Do not add a candidate relation in this local repair",
 			"system has not selected, added, removed, relabelled, reversed, or reconnected",
 		} {
 			if !strings.Contains(signal.Hint, want) {
@@ -1017,6 +1018,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 		for _, forbidden := range []string{
 			"Copy-ready optional typed diagram", "Verified component fragment",
 			"use each exact relation recipe below at most once", "node_alias[n1]",
+			"typed_candidate[BusContext][1]", "local_operation_only",
 		} {
 			if strings.Contains(signal.Hint, forbidden) {
 				t.Fatalf("compact relation hint repeated full authority %q:\n%s", forbidden, signal.Hint)
@@ -1033,6 +1035,10 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 	assertCompact(t, patchEvaluator.emitPatchRejectFullRewriteSignal(
 		ctx, LoopObservation{LastToolResult: result("emit_answer_document_patch")},
 	))
+	if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].FromNode != "BC" {
+		t.Fatalf("compact relation lane must install the exact typed patch lease: %+v", lease)
+	}
 
 	fullEvaluator := &answerDocumentEvaluator{diagramRequired: true}
 	assertCompact(t, fullEvaluator.emitAnswerDocumentRejectSignal(
@@ -1040,6 +1046,29 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 	))
 	if !fullEvaluator.preferPatchNext {
 		t.Fatal("full reject compact relation recovery must switch to patch mode")
+	}
+}
+
+func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
+	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
+			Metadata: map[string]string{
+				types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+			},
+		},
+	}
+	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
+		!strings.Contains(signal.Hint, "Do not add a candidate relation in this local repair") {
+		t.Fatalf("lease rejection must remain on compact local repair lane: %+v", signal)
+	}
+	if strings.Contains(signal.Hint, "Copy-ready optional typed diagram") || strings.Contains(signal.Hint, "Verified component fragment") {
+		t.Fatalf("lease rejection must not reopen the full relation handbook: %s", signal.Hint)
 	}
 }
 

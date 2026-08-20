@@ -213,6 +213,12 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			Timestamp: now,
 		}, nil
 	}
+	// A relation-repair lease scopes one patch turn only. A fresh full-document
+	// emit explicitly abandons that delta base; clear the old lease before
+	// decoding so a later patch cannot compare a new draft against stale graph
+	// topology. Any typed relation rejection from this emit installs a new lease
+	// through the evaluator.
+	ctx.Mutable.SetAnswerDiagramRelationRepairLease(nil)
 	// v3.1 (2026-05-05): the dispatcher no longer inspects
 	// document_model at all — there is only one executor path, and
 	// the LLM-facing schema no longer mentions the field. The

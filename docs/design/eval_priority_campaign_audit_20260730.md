@@ -57713,3 +57713,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r778`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r778`。
+
+### §123.1265 B1246：结构化关系修补租约（2026-08-20）
+
+1. 代码复核确认 r778 的 15 次关系拒绝不是证据门误判，而是修补协议缺少执行边界：producer 已发布 exact
+   `failures[]` 与 `preserve_unlisted_edges=true`，但 patch 工具只把它们当提示；模型仍可通过 `replace_blocks` 重写整张图，
+   使一条失败边的修复同时删掉旧边或新增另一条未证边，失败集合逐轮迁移。
+2. 新增 retry-local `AnswerDiagramRelationRepairLease`。它只由 producer-owned relation delta 与当前 patch-base 的
+   `edge_anchors` 构造，不读取用户原文、模型 reasoning、最终正文、Mermaid body 或可见标签。租约快照覆盖所有现存结构化
+   关系及失败 tuple，并随 MutableState 防御性复制；成功成文、任务/fallback reset 会清除，模型改走 fresh full emit 时也先
+   清除旧租约，避免拿新草稿与陈腐 patch base 比较。
+3. patch 执行层在正常关系证据门之前核对 merged typed carrier：未被 `failures[]` 点名的旧关系必须保留；失败关系可以删除，
+   或在同一无向端点对/同一 identity 对上纠正方向、relation kind、identity；可见业务标签不参与比较，仍完全由模型编写。
+   新增其他端点对、删除未点名边、保留失败边后再扩出同对重复关系都会返回 compact typed
+   `answer_doc_relation_repair_scope`，原 accepted base 不被污染。
+4. 对 §123.1264 冻结方案做了一项收敛性细化：`candidate_alternatives` 在“清除当前失败 tuple”这一轮只保留为后续参考，不允许
+   与精确失败修补混在同一 patch 新增。原因是“删坏边并顺手加候选”仍会扩大一次变更的验证面，正是失败迁移的入口；当前失败
+   清零、租约退出后，模型仍可在普通 authoring lane 选择 typed candidate。系统不选择 candidate，也不自动删边、换边、补边、
+   重连或重画图。
+5. 租约只比较 `from_node/to_node/from_identity/to_identity/relation_kind` 的结构元组；明确排除 `visible_label` 和 Mermaid 文案，
+   因而不会把业务措辞硬化。普通 diagram 首稿、非 relation-delta patch、Trace 图、无 typed delta 的图全部不启用该门；原有
+   call/data-flow/return/participant authority 仍负责判断纠正后的关系是否真实。
+6. compact retry 专门复用同一 relation delta，不再掉入 generic patch handbook；教学明确本轮只清当前失败、候选延后，减少 JSON
+   与关系心智。测试钉住：只删失败边通过、同端点纠正方向通过、可见标签可改、未点名旧边被删必拒、全新未列边必拒、失败边
+   不得扩成重复关系、工具生产接线确实拒绝且不修改 base、scope reject 仍走 compact lane、fresh full emit/成功 emit 清租约。
+   完整相关包全绿：types 24.862s、tool 188.154s、agent 最终重跑 12.186s。
+7. 本批没有修改模型答案、结论、图、边、节点或标签，也没有扫描关键词做硬门；未触碰 Trace 输入、显式窗、因果投影与自动补采、
+   链上根因选举、实际占时/规则可消双轴、优先级反转、调度/算力供给、D/IO、确定性语义事件、业务线索或活跃流时限。
+
+状态：
+
+`B1246=implemented/full-relevant-pass/pending-production-replay`；
+`relation-repair-scope=typed-edge-anchor-lease`；
+`unlisted-old-relation=must-preserve`；
+`failed-relation=remove-or-same-pair-correct`；
+`candidate-alternatives=deferred-until-current-failures-clear`；
+`visible-business-wording=model-owned/outside-lease`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1244=confirmed/P2-after-B1246-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

@@ -375,6 +375,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// internally. Apply is pure (no side effects on the doc clone)
 	// so the dry-run is safe.
 	if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
+		if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease != nil {
+			if violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(violations) > 0 {
+				return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),
+					"answer_document relation repair escaped its local typed scope: %s",
+					answerDiagramRelationRepairScopeSummary(violations))
+			}
+		}
 		dropExplicitlyRemovedModelDiagrams = preserveExplicitDiagramRemovalIntent(ctx, mutation, prev)
 		if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 			preEmitCtx := newPreEmitCheckContext(ctx)
@@ -417,6 +424,43 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+func answerDiagramRelationRepairScopeRepair(
+	lease *types.AnswerDiagramRelationRepairLease,
+	violations []types.AnswerDiagramRelationRepairScopeViolation,
+) *types.ToolRepair {
+	fields := make([]string, 0, len(violations))
+	for _, violation := range violations {
+		fields = append(fields, fmt.Sprintf("blocks[%q].edge_anchors[%s->%s]:%s",
+			violation.BlockID, violation.FromNode, violation.ToNode, violation.Issue))
+	}
+	metadata := map[string]string{}
+	if lease != nil {
+		delta := struct {
+			Version               int                                        `json:"version"`
+			Failures              []types.AnswerDiagramRelationRepairFailure `json:"failures"`
+			PreserveUnlistedEdges bool                                       `json:"preserve_unlisted_edges"`
+		}{Version: 1, Failures: append([]types.AnswerDiagramRelationRepairFailure(nil), lease.Failures...), PreserveUnlistedEdges: true}
+		if raw, err := json.Marshal(delta); err == nil {
+			metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = string(raw)
+		}
+	}
+	return &types.ToolRepair{
+		Code:     types.ToolRepairCodeAnswerDocRelationRepairScope,
+		Hint:     "Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. Do not add candidate relations during this local repair.",
+		Fields:   fields,
+		Metadata: metadata,
+	}
+}
+
+func answerDiagramRelationRepairScopeSummary(violations []types.AnswerDiagramRelationRepairScopeViolation) string {
+	parts := make([]string, 0, len(violations))
+	for _, violation := range violations {
+		parts = append(parts, fmt.Sprintf("block=%s issue=%s edge=%s->%s",
+			violation.BlockID, violation.Issue, violation.FromNode, violation.ToNode))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // normalizeSparsePatchRelationMetadataEdits absorbs one precise retry shape

@@ -109,6 +109,41 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) {
+	bus := newPatchTestBusContext()
+	base := bus.Mutable.AnswerDocumentV2()
+	bus.Mutable.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "list1", Issue: "call_edge_unproven",
+			FromNode: "Analyze", ToNode: "Explore",
+		}}))
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"replace_blocks":[{
+			"id":"list1",
+			"kind":"ordered_list",
+			"items":[{"id":"i1","label":"A","citation_ref":0}],
+			"edge_anchors":[{
+				"from_node":"Extract","to_node":"Finalize","relation_kind":"call"
+			}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairScope {
+		t.Fatalf("unlisted relation addition must be rejected by production patch path: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "unlisted_relation_added") ||
+		strings.TrimSpace(res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]) == "" {
+		t.Fatalf("scope rejection must carry compact typed retry metadata: %+v", res)
+	}
+	if got := bus.Mutable.AnswerDocumentV2(); got == nil || len(got.Blocks[1].EdgeAnchors) != 0 {
+		t.Fatalf("rejected patch must not mutate accepted base: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_SplitsFusedProseAndDiagramWithoutDroppingEither(t *testing.T) {
 	bus := newPatchTestBusContext()
 	raw := json.RawMessage(`{

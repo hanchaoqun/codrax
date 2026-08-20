@@ -434,6 +434,12 @@ type MutableState struct {
 	// validation pipeline before it can be accepted.
 	lastRejectedAnswerDocumentV2 *AnswerDocumentV2
 
+	// answerDiagramRelationRepairLease is a retry-local structural boundary for
+	// source-diagram relation repairs. It snapshots typed edge_anchors only;
+	// request text, reasoning/final prose, and Mermaid labels are never read.
+	// A successful answer emit or any task/fallback reset clears the lease.
+	answerDiagramRelationRepairLease *AnswerDiagramRelationRepairLease
+
 	// degradedRecoveredAnswerDocumentV2 is the recovery-lane document that
 	// actually shipped when the finalizer exhausted retries without a
 	// validated emit (XGAP-FIX ④/⑤, §29.104.8). Consumed by post-finalize
@@ -3575,6 +3581,7 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
+	m.answerDiagramRelationRepairLease = nil
 	// A validated emit supersedes any earlier degraded recovery snapshot
 	// (XGAP-FIX ⑤): the prose defenses must scan the shipped document.
 	m.degradedRecoveredAnswerDocumentV2 = nil
@@ -3706,6 +3713,28 @@ func (m *MutableState) LastRejectedAnswerDocumentV2() *AnswerDocumentV2 {
 	return cloneAnswerDocumentV2(m.lastRejectedAnswerDocumentV2)
 }
 
+// SetAnswerDiagramRelationRepairLease installs or clears the bounded typed
+// graph-repair scope for the next patch turn.
+func (m *MutableState) SetAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepairLease) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDiagramRelationRepairLease = cloneAnswerDiagramRelationRepairLease(lease)
+}
+
+// AnswerDiagramRelationRepairLease returns a defensive copy of the active
+// retry-local graph-repair scope.
+func (m *MutableState) AnswerDiagramRelationRepairLease() *AnswerDiagramRelationRepairLease {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneAnswerDiagramRelationRepairLease(m.answerDiagramRelationRepairLease)
+}
+
 // SetDegradedRecoveredAnswerDocumentV2 records the recovery-lane document
 // that actually shipped when the finalizer exhausted retries without a
 // validated emit (XGAP-FIX ④/⑤, §29.104.8). It exists so the post-finalize
@@ -3793,6 +3822,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
+	m.answerDiagramRelationRepairLease = nil
 	m.finalizerTypedRelationRecipeAvailable = false
 	m.finalizerTypedRelationRecipeAnchors = nil
 	m.finalizerTypedRelationSemanticHandoffAnchors = nil
@@ -6872,6 +6902,10 @@ const (
 	// That shape proves a block/object boundary was serialized into a key; it
 	// must not be treated as harmless forward-compatible metadata.
 	ToolRepairCodeAnswerDocStructuralCarrierCorruption = "answer_doc_structural_carrier_corruption"
+	// ToolRepairCodeAnswerDocRelationRepairScope marks a patch that changed a
+	// typed edge-anchor outside the producer-named local relation failures. The
+	// gate reads only structural tuples from an active retry-local lease.
+	ToolRepairCodeAnswerDocRelationRepairScope = "answer_doc_relation_repair_scope"
 
 	// ToolRepairMetaMemberSetMissingFingerprint is the ToolRepair.Metadata
 	// key carrying the member-set coverage reject's missing-obligation

@@ -13,6 +13,26 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestEmitAnswerDocument_FreshFullEmitClearsStaleRelationRepairLease(t *testing.T) {
+	mut := types.NewMutableState("fresh full emit")
+	mut.SetAnswerDiagramRelationRepairLease(&types.AnswerDiagramRelationRepairLease{
+		Version: 1,
+		Failures: []types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+		}},
+	})
+	res, err := (&EmitAnswerDocument{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("empty full emit should still fail its ordinary document contract")
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
+		t.Fatalf("fresh full emit must abandon the old patch-base lease: %+v", got)
+	}
+}
+
 // ── B3-T5 emit_answer_document V2 路径单测 ─────────────────────────
 
 // helper: build a fresh BusContext with a non-nil Mutable so
