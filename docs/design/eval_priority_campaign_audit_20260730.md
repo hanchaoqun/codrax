@@ -57668,3 +57668,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1264 r778：B1245 生产闭环与关系 patch 收敛性 GAP（2026-08-20）
+
+1. 以 `171f2e1bf` 构建同一快照严格并发恰好 2 路：显式窗 Trace 177s、read 流水线图+表 1136s，runner
+   2/2 PASS；人工分别为 `pass + partial`。两路均由当前活跃模型流完成，没有因 4ms、4m、首字节、stall 或累计年龄
+   使用旧稿、空答案或降级答案；read 路在长轮次中持续收到 transport/protocol/semantic 活动。
+2. B1245 获生产正证：最终 read 图中的三条 stage precedence 分别显示“确定分析范围后收集证据 / 证据就绪后提炼事实 /
+   结构化事实就绪后组织答案”，不再出现泛化“随后进入”。正文和表格仍保留 Orchestrator、runReadSchedulerLoop、
+   dispatchStage、applyStageOutput、BusContext 以及四阶段输入/输出/载体，说明单源标签没有删除 typed 技术上下文。
+3. Trace 异构回归保持完整：2.000–2.020s 显式窗、六次 trace_query/自动补采、因果投影均在；主根因仍是已证链上
+   threadpool-400 iowait 11.000ms，三个 1.000ms runnable 席仍归调度供给。sleep 只作链路症状/上下文，背景
+   `16.000(IO活动综合指数,非墙钟)` 的窗口投影、链上累计和有效归因均为 `—`，没有进入根因排序。
+4. 新确认 `B1246-RELDELTA1/P1`：read 成文共 15 次拒绝、16 次 emit/patch 才通过，最终上下文约 138k tokens。首稿及
+   多次 patch 由模型自行加入未证 call/assignment/data_flow 边、错误端点或重构整张图；这些关系门拒绝有 typed 依据，未发现
+   同一边被系统同时要求必带和必拒，不能把每次拒绝本身判为合同矛盾。
+5. 系统层的根因是局部关系修补合同只有软声明、没有精确 delta 隔离：repair metadata 已发布失败 edge tuple、
+   `preserve_unlisted_edges=true` 与有限 candidate，但 `replace_blocks` 仍允许模型无约束地替换完整 diagram block。于是模型为删
+   一条失败边时可同时改写其他已证边或新增未列 candidate，下一轮失败集合迁移，通用关系手册和修补提示反复进入上下文，
+   最终技术图从较完整时序缩水为三条入口 call 加 stage spine。runner 的“有图+有表” oracle 对此只会判 PASS。
+6. 最优泛化方案冻结为“model-owned、system-enforced relation repair lease”：当且仅当 producer-owned typed
+   relation delta 激活时，记录 patch-base diagram 的结构化 edge tuple 集、当前失败 tuple 和有限 typed candidate 集；下一次
+   patch 只允许保留旧的未点名边、删除/纠正失败边，或加入模型明确选择的 listed candidate。任何全新未列 tuple 立即以一个
+   紧凑 delta 拒绝，不扫描用户原文、模型 reasoning/正文或 Mermaid 标签，也不由系统选择、删除、补画或重连边。lease 在
+   该 block 通过或离开 relation-repair lane 后清除，普通首稿/正常 patch/Trace 图不受约束。
+7. 同批应压缩重复教学：已有 typed delta 时，不再向同轮同时灌入整份通用关系手册；连续相同/迁移失败只返回当前失败 tuple、
+   允许操作和候选摘要。该优化只减少模型心智与上下文膨胀，不降低 call/data-flow/return/participant 的证据门。回归必须钉住
+   新增未列边被精确拦截、未点名边字节/结构保持、listed candidate 可由模型选择、失败边可删除、lease 不跨 block/turn 泄漏，
+   以及最终答案仍完全由模型撰写。
+8. `B1244-SOURCEANCHOROWNER1` 的只读定位同时找到通用根因：Go 结构 owner fallback 对顶层定义行向前无限寻找最近函数，
+   因而 `LoopController@519` 被归给先前的 `LoopObservation.ToolAvailable`。该 P2 仍排在 B1246 之后施工；不得通过扫描模型
+   答案中的 `LoopController@519` 反向覆盖系统 owner。
+
+状态：
+
+`r778=runner-pass-2/2,human-pass-1+partial-1`；
+`B1245=production-closed`；
+`B1246=confirmed/P1-next`；
+`relation-rejects=typed-valid-but-nonconvergent-15`；
+`relation-repair-lease=planned/structured-delta-only/model-owned`；
+`B1244=confirmed/P2-after-B1246`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r778`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r778`。
