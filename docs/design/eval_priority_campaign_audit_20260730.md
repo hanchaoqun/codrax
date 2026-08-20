@@ -56299,3 +56299,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1227 r761：Trace 复证通过；源码关系暴露覆盖状态与候选权威域断裂（2026-08-20）
+
+1. 在 `main@eb0c4924d` 重建后严格并发恰好两个异构案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_io_chain`。Runner `2 PASS / 0 FAIL`，人工
+   `1 pass / 1 fail`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_relation_trace_reader_r761_20260820_manual_audit.md`。
+2. Trace 案例完整保留显式 2.000000..2.020000s 窗、已证
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms IO 首席、三条 1.000ms 链上
+   runnable、实际占时/现规则可消双轴、因果投影和自动补齐。邻近 sleep 与背景压力没有进入根因排序。
+   B1219 的“证据事实对照/事实对照/根因排序/内核等待调用点/证据置信度”生产生效，旧 `typed` 词面未再发射。
+3. Trace 正文把三条 runnable 等待写成“CPU 竞争存在”，比当前“跨核唤醒、不等于直接竞争”的 typed 拓扑证据
+   稍强；但链上 runnable 等待仍是合法调度供给信号，系统上下文与确定性板均准确。该项按模型措辞波动观察，
+   不扫描或改写正文，也不新增硬门。
+4. 源码关系案例中 B1220 获生产正证：首次关系拒绝只携带约 4.3KB producer-owned 失败 delta，含精确失败边、
+   `preserve_unlisted_edges=true` 与可选候选；模型自行删除未证边，系统没有添加、反转、改名或重连任何可见边。
+   但最终图只剩四阶段 precedence 和 BusContext/Mutable 无箭头归属，没有回答请求的数据流，人工判 fail。
+5. 新确认 `B1222-FLOWLOCALCANDIDATEPARITY1`：authoring context 披露
+   `local_typed_incident_only=[Mutable]`，同时没有 `typed_candidate[Mutable]` 或
+   `local_operation_binding[Mutable]`。代码根因是 strict provider subset 分支仍用全 evidence 的
+   `AnswerCodeParticipantHasFlowOperation` 判 local-only，而候选只读 request-scoped、Explorer-authored relation
+   scope。系统因此承诺了模型无法消费的“精确局部操作”。最优方案是让 coverage、candidate、binding 共享同一
+   typed scope；无可发布候选就保持未证，不把无关内部控制流扩域成答案边。
+6. 新确认 `B1223-ANSWERITEMEVIDENCECITATIONBINDING1`：最终源码说明存在多处陈述—引用错绑，例如
+   Analyzer 的 Mutable 写入引用 `finalizer.go:26` 的 `DefaultLoopPolicy`。现有 `AnswerBlockItem` 只有模型手填
+   citation index，block-level `claim_use.evidence_id` 又不能区分多 item。后续应以 item-local accepted evidence
+   identity 作确定性 join 并派生 citation；不得通过标题、正文或模型输出关键词判断语义相关性。
+7. Analyzer 的三次 schema 拒绝最终均由模型纠正；现有提示已有 schema-validated 互斥决策表，未发现教学与
+   校验的确定性自冲突，暂记 P2 JSON 遵循波动。两路活跃流在 335s/373s 完成，没有 4ms、4m、首字节、stall
+   或总年龄降级。
+
+状态：
+
+`r761-runner=2-pass/human=1-pass+1-fail`；
+`B1219-TRACEVALIDATIONAPPENDIXLANGUAGE2=production-positive-r761/closed`；
+`B1220-SOURCERELATIONREPAIRDELTA1=production-positive-r761/closed`；
+`B1222-FLOWLOCALCANDIDATEPARITY1=confirmed/P1-implementation-next`；
+`B1223-ANSWERITEMEVIDENCECITATIONBINDING1=confirmed/P1-design-next`；
+`analyzer-json-churn=P2-model-variance/no-contract-conflict-found`；
+`request/model/final-prose-scan-or-rewrite=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-335s+373s`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r761`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
