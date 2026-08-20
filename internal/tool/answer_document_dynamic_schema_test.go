@@ -47,6 +47,11 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 		t.Fatalf("patch projected schema must parse: %v", err)
 	}
 	patchProps := patchRoot["properties"].(map[string]any)
+	for _, field := range []string{"diagram_edge_edits", "diagram_boundary_replacements"} {
+		if _, ok := patchProps[field]; !ok {
+			t.Fatalf("patch projected schema lost atomic diagram field %q", field)
+		}
+	}
 	fullBytes, _ := json.Marshal(fullItem)
 	for _, field := range []string{"replace_blocks", "add_blocks"} {
 		array := patchProps[field].(map[string]any)

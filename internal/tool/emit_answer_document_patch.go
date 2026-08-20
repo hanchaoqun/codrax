@@ -53,6 +53,8 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
+		"- `diagram_edge_edits`: model-authored atomic edits against one existing diagram block. Use this instead of `replace_blocks` when a retry only needs to relabel, remove, replace, or add individual typed relations. Each edit names the exact prior anchor (for relabel/remove/replace) or supplies one complete new anchor (for add); the system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every relation and writes every visible label.\n" +
+		"- `diagram_boundary_replacements`: model-authored replacement of only `participant_boundaries` on an existing diagram block. Use this for a participant coverage retry so the prior Mermaid body, relations, labels, and other block fields remain untouched.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
@@ -85,6 +87,65 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
       "type": "array",
       "items": {"type": "string"},
       "description": "Block ids that must be absent from the resulting document. An id already absent from the previous emit is an idempotent no-op."
+    },
+    "diagram_edge_edits": {
+      "type": "array",
+      "description": "Atomic model-authored edits for an existing diagram block. Prefer this during a local typed relation retry so unmentioned graph content stays byte-identical. relabel/remove/replace require match; add requires edge. occurrence is 1-based among exact duplicate anchors and defaults to 1. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "block_id": {"type": "string"},
+          "action": {"type": "string", "enum": ["relabel", "remove", "replace", "add"]},
+          "occurrence": {"type": "integer", "minimum": 1},
+          "match": {
+            "type": "object",
+            "properties": {
+              "from_node": {"type": "string"},
+              "to_node": {"type": "string"},
+              "from_identity": {"type": "string"},
+              "to_identity": {"type": "string"},
+              "relation_kind": {"type": "string", "enum": ["call", "callback", "argument_flow", "guard", "control_flow", "import", "precedence", "contain", "type_relation", "observe", "register", "assignment", "data_flow", "return", "temporal"]}
+            },
+            "required": ["from_node", "to_node", "relation_kind"]
+          },
+          "edge": {
+            "type": "object",
+            "properties": {
+              "from_node": {"type": "string"},
+              "to_node": {"type": "string"},
+              "visible_label": {"type": "string"},
+              "from_identity": {"type": "string"},
+              "to_identity": {"type": "string"},
+              "relation_kind": {"type": "string", "enum": ["call", "callback", "argument_flow", "guard", "control_flow", "import", "precedence", "contain", "type_relation", "observe", "register", "assignment", "data_flow", "return", "temporal"]}
+            },
+            "required": ["from_node", "to_node", "relation_kind"]
+          },
+          "visible_label": {"type": "string", "description": "Model-authored reader-facing message for relabel. It updates the matched Mermaid message and anchor.visible_label together."}
+        },
+        "required": ["block_id", "action"]
+      }
+    },
+    "diagram_boundary_replacements": {
+      "type": "array",
+      "description": "Replace only participant_boundaries on an existing diagram block while preserving its model-authored Mermaid body, edge anchors, labels, and all other fields.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "block_id": {"type": "string"},
+          "participant_boundaries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "participant": {"type": "string"},
+                "status": {"type": "string", "enum": ["unproven"]}
+              },
+              "required": ["participant", "status"]
+            }
+          }
+        },
+        "required": ["block_id", "participant_boundaries"]
+      }
     },
     "replace_citations": {
       "type": "array",
@@ -167,16 +228,36 @@ func BuildAnswerDocumentPatchParametersFor(view *types.AnswerSemanticView) json.
 // fields use the same FlexInt typed approach as the V2 emit so
 // citation_ref values can be int OR string from the LLM.
 type emitAnswerDocumentPatchParams struct {
-	UnchangedBlockIDs            []string                           `json:"unchanged_block_ids,omitempty"`
-	ReplaceBlocks                []emitAnswerBlockV2                `json:"replace_blocks,omitempty"`
-	AddBlocks                    []emitAnswerBlockV2                `json:"add_blocks,omitempty"`
-	RemoveBlockIDs               []string                           `json:"remove_block_ids,omitempty"`
-	ReplaceCitations             []emitAnswerCitationV2             `json:"replace_citations,omitempty"`
-	AppendCitations              []emitAnswerCitationV2             `json:"append_citations,omitempty"`
-	ReplaceExactResolution       *types.AnswerExactResolution       `json:"replace_exact_resolution,omitempty"`
-	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole `json:"replace_missing_requested_roles,omitempty"`
-	ReplaceCaveats               []string                           `json:"replace_caveats,omitempty"`
-	ReplaceSnippets              []emitCodeSnippetV2                `json:"replace_snippets,omitempty"`
+	UnchangedBlockIDs            []string                               `json:"unchanged_block_ids,omitempty"`
+	ReplaceBlocks                []emitAnswerBlockV2                    `json:"replace_blocks,omitempty"`
+	AddBlocks                    []emitAnswerBlockV2                    `json:"add_blocks,omitempty"`
+	RemoveBlockIDs               []string                               `json:"remove_block_ids,omitempty"`
+	DiagramEdgeEdits             []emitAnswerDiagramEdgeEdit            `json:"diagram_edge_edits,omitempty"`
+	DiagramBoundaryReplacements  []emitAnswerDiagramBoundaryReplacement `json:"diagram_boundary_replacements,omitempty"`
+	ReplaceCitations             []emitAnswerCitationV2                 `json:"replace_citations,omitempty"`
+	AppendCitations              []emitAnswerCitationV2                 `json:"append_citations,omitempty"`
+	ReplaceExactResolution       *types.AnswerExactResolution           `json:"replace_exact_resolution,omitempty"`
+	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole     `json:"replace_missing_requested_roles,omitempty"`
+	ReplaceCaveats               []string                               `json:"replace_caveats,omitempty"`
+	ReplaceSnippets              []emitCodeSnippetV2                    `json:"replace_snippets,omitempty"`
+}
+
+// emitAnswerDiagramEdgeEdit is a model-authored semantic delta over one
+// existing diagram edge. The tool renders the declared operation into the
+// previous model-authored Mermaid carrier; it never chooses an endpoint,
+// relation kind, or reader-facing label.
+type emitAnswerDiagramEdgeEdit struct {
+	BlockID      string                   `json:"block_id"`
+	Action       string                   `json:"action"`
+	Occurrence   int                      `json:"occurrence,omitempty"`
+	Match        *types.DiagramEdgeAnchor `json:"match,omitempty"`
+	Edge         *types.DiagramEdgeAnchor `json:"edge,omitempty"`
+	VisibleLabel string                   `json:"visible_label,omitempty"`
+}
+
+type emitAnswerDiagramBoundaryReplacement struct {
+	BlockID               string                             `json:"block_id"`
+	ParticipantBoundaries []types.DiagramParticipantBoundary `json:"participant_boundaries"`
 }
 
 // Execute applies the patch to the previous V2 emit. Failure paths
@@ -309,6 +390,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			return failEmit(t.Name(), now, "%s", err.Error())
 		}
 		patch.AddBlocks = converted
+	}
+	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 {
+		if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements); err != nil {
+			return failEmit(t.Name(), now, "diagram atomic edits: %s", err.Error())
+		}
 	}
 	// Stamp only blocks the model submitted in this patch. Unchanged blocks
 	// retain the internal provenance captured on their original full/patch

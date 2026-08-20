@@ -948,6 +948,7 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 			"producer-owned delta", `"participant":"BusContext"`,
 			`typed_candidate[BusContext][1]`, "select at most one candidate",
 			"must not become visible diagram wording", "system has not selected",
+			"diagram_boundary_replacements", "diagram_edge_edits",
 		} {
 			if !strings.Contains(hint, want) {
 				t.Fatalf("compact retry missing %q:\n%s", want, hint)
@@ -1009,6 +1010,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 			`"from_node":"BC"`, `"to_node":"E"`, "preserve_unlisted_edges=true",
 			`"allowed_additions"`, `"from_identity":"Orchestrator.applyStageOutput"`,
 			"The allowed rows are permissions, not required edges",
+			"diagram_edge_edits", "action=relabel", "action=remove", "action=add",
 			"system has not selected, added, removed, relabelled, reversed, or reconnected",
 		} {
 			if !strings.Contains(signal.Hint, want) {
@@ -1065,7 +1067,8 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	}
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
 	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
-		!strings.Contains(signal.Hint, "do not add any other relation") {
+		!strings.Contains(signal.Hint, "do not add any other relation") ||
+		!strings.Contains(signal.Hint, "diagram_edge_edits") {
 		t.Fatalf("lease rejection must remain on compact local repair lane: %+v", signal)
 	}
 	if strings.Contains(signal.Hint, "Copy-ready optional typed diagram") || strings.Contains(signal.Hint, "Verified component fragment") {

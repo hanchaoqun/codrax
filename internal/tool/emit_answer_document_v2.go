@@ -3766,7 +3766,9 @@ func topLevelArrayFieldAcceptsSingletonObject(field string) bool {
 		"replace_citations",
 		"append_citations",
 		"replace_missing_requested_roles",
-		"replace_snippets":
+		"replace_snippets",
+		"diagram_edge_edits",
+		"diagram_boundary_replacements":
 		return true
 	default:
 		return false

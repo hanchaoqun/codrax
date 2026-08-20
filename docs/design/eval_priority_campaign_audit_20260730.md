@@ -57923,3 +57923,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r782`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r782`。
+
+### §123.1270 B1251：模型声明、系统事务执行的原子图关系补丁（2026-08-20）
+
+1. 在既有 `emit_answer_document_patch` 增加 `diagram_edge_edits[]`，支持 `relabel/remove/replace/add` 四种原子操作。模型必须明确
+   给出目标 diagram block；前三种用完整 prior anchor tuple + 1-based occurrence 精确选旧边，replace/add 由模型给出完整新 anchor，
+   relabel/add/replace 的可见业务标签同样由模型给出。系统不从用户问题、reasoning、正文或 Mermaid 文案推断关系，也不选择候选、
+   端点、方向、relation kind 或标签。
+2. 原子操作编译器只把模型声明事务化应用到上一版模型图：未点名的 block 字段、participant/node 行、Mermaid edge 行、
+   `edge_anchors` 与可见标签保持原值；remove 只删除精确匹配的单条 body edge + anchor，relabel 同步更新该 edge message 与
+   anchor.visible_label，replace 只替换命中边，add 只追加模型声明的新边。随后仍经过 B1246/B1249 lease、全部 relation/evidence/
+   participant/pre-emit 合同；原子协议本身不产生证据权威。
+3. sequenceDiagram、flowchart/graph、classDiagram 三个当前可解析 Mermaid 家族统一支持；编辑目标必须是单边 statement。compact
+   chain 等一行多边形因无法保证局部字节边界而 fail-closed，要求模型先显式拆边；未知 block、非 diagram、歧义 occurrence、非法
+   relation、跨行标签、同一 block 同时声明 unchanged/full replace/remove 等冲突均在事务前拒绝，accepted/rejected base 不污染。
+4. 增加 `diagram_boundary_replacements[]`：participant coverage 修补只替换模型给出的 `participant_boundaries` 数组，整张图、关系、
+   标签和其他 block 字段保持。这补上 r782 后半段 participant 合同仍迫使模型重发整图的同根风险；boundary 仍只能是明确
+   `participant + status=unproven`，系统不替模型决定谁未证。
+5. relation delta 和 participant delta 的 compact retry 教学均优先引导上述原子字段；`replace_blocks` 继续保留给模型真正想重构
+   整图的普通车道。JSON schema 内联完整 native 类型和 relation enum，不依赖 `$ref` 或字符串化 JSON，降低兼容模型心智；字段
+   进入现有 quarantine/structured-payload compatibility 单源。
+6. 测试钉住：未点名图内容与载体保持、同一调用内 relabel+boundary、失败边删除+listed candidate 加入通过 lease、unlisted
+   candidate 继续精确拒绝且不污染 base、block op 冲突拒绝、sequence/flow/class 标签编辑，以及 agent compact hint/动态 schema
+   生产接线。完整相关包全绿：mermaidcompat 0.686s、types 25.577s、tool 190.270s、agent 13.985s；新增定向接线测试再次全绿。
+7. 本批没有修改模型正文、结论或完整图，也没有扫描请求/模型输出做硬门；未触碰 Trace 显式窗、因果投影、自动补采、链上根因、
+   实际占时/规则可消双轴、优先级/调度/算力/D/IO/确定性语义事件、业务线索、背景隔离或活动流时限。下一步以当前提交构建
+   不可变二进制，严格并发 read 关系图 + 显式窗 Trace 两路生产回放。
+
+状态：
+
+`B1251=implemented/full-relevant-pass/pending-production-replay`；
+`diagram-relation-edit=model-declared/atomic/system-transactional`；
+`unmentioned-graph-content=structurally-preserved`；
+`listed-candidate-authority=B1249-lease-still-enforced`；
+`participant-boundary-edit=model-declared/field-local`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

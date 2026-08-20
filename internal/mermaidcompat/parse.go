@@ -586,6 +586,16 @@ func SplitEdgeLine(line string) (string, string, string, string, bool) {
 	return "", "", "", "", false
 }
 
+// FindFlowchartArrow returns the first syntax-level flowchart edge operator.
+// It shares the quote/node-shape protection used by ParseEdges so callers that
+// perform a bounded source edit do not mistake source-language arrow bytes in
+// visible labels for Mermaid topology.
+func FindFlowchartArrow(line string) (int, string) {
+	return findFlowchartEdgeOperator(line, []string{
+		"-->>", "-.->", "-->", "==>", "->>", "-.-", "---", "==", "->",
+	})
+}
+
 // findFlowchartEdgeOperator finds an edge operator only in Mermaid syntax,
 // never inside a node shape or quoted label. Code identities such as
 // `sink_->write` are routinely rendered inside labels, and markdown
