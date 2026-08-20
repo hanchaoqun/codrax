@@ -56654,3 +56654,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1236 B1228：精确关系 handoff 存在时压缩嘈声叙事集合（2026-08-20）
+
+1. r763 最终正文的三项错误并非底层关系解析丢失：finalizer 上下文已经准确给出
+   `call_or_invocation Orchestrator.hasReusableTurnBSlateForFinalize → EmittedAnswerSymbols/EmittedHypothesisVerdicts` 与
+   `argument_handoff o.busCtx → BuildAgentContext`。冲突源是 Explorer 同时提交的自由书写 architecture `member_set`，
+   其中把 getter 调用写成“Extractor 写入”，把字段裁剪/共享 Mutable 指针写成“注入完整 BusContext 指针”。该集合虽已
+   被 typed request shape 降为 `supporting_coverage/demoted:architecture_narrative_support_member_set`，旧 prompt 仍完整重放
+   members/member_notes，导致嘈声候选覆盖更精确的关系角色。
+2. 本批在 finalizer 上下文投影增加 typed-only 压缩：当 accepted EvidenceItems 已能生成至少一条精确 Relation Role
+   Handoff，且 aggregate 已被现有 typed request 规则归类为 architecture/mechanism narrative supporting member_set 时，
+   保留 kind、role、provenance、member/note/support-ref 数量作为审计回执，但省略其 label/value/members/member_notes/
+   support_refs 内容。精确关系不存在时完全保留旧辅助集合；principal member_set、枚举、标量、Trace 与运行时事实不受影响。
+3. 该方案不扫描 raw request、thinking、final prose 或 Mermaid 文案，不做答案硬门，不删除/重写模型成文，也不让系统
+   选择关系或结论；它只用既有 schema-valid request traits、aggregate role/provenance 和 accepted typed EvidenceItems
+   决定 prompt 中嘈声候选是否需要重复。模型仍负责解释组件责任和给出最终判断。
+4. 先红测试证明旧 prompt 同时包含错误关系成员与注释；修复后只保留
+   `members_omitted/member_notes_omitted=precise_typed_relation_handoff_available` 回执，并保留原 demotion provenance。
+   无 typed handoff 的 supporting member notes、definition-only authority 与 composite support 回归均不变。
+   `go test ./internal/agent ./internal/tool -count=1` 全绿（tool 180.973s）。
+
+状态：
+
+`B1228-RELATIONSEMANTICDRIFT1=implemented/full-relevant-pass/pending-production-replay`；
+`precise-typed-relation>advisory-narrative-relation=prompt-projection-only`；
+`advisory-relation-receipt=kind+role+provenance+counts`；
+`no-typed-relation=legacy-support-context-preserved`；
+`B1229-RELATIONINVESTIGATIONCHURN1=observed/replay-next`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

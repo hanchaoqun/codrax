@@ -235,6 +235,58 @@ func TestRenderStructuredAggregateFactsCapsSupportingMemberNotes(t *testing.T) {
 	}
 }
 
+func TestRenderStructuredAggregateFactsCompactsNarrativeRelationsWhenTypedHandoffExists(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "architecture relation notes",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Extractor -> Mutable.EmittedAnswerSymbols",
+			"BusContext -> BuildAgentContext",
+		},
+		MemberNotes: []string{
+			"Extractor writes AnswerSymbols",
+			"BuildAgentContext injects the full BusContext pointer",
+		},
+		SupportRefs: []string{"src/pipeline.go:29", "src/context.go:15"},
+	}}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, Scenario: types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisFlow,
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "Orchestrator.hasReusableTurnBSlateForFinalize",
+			Object:  "o.busCtx.Mutable.EmittedAnswerSymbols",
+			Source:  "src/pipeline.go", LineStart: 29, Scope: types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	got := renderStructuredAggregateFactsForContext(ctx, facts)
+	for _, forbidden := range []string{
+		"Extractor -> Mutable.EmittedAnswerSymbols",
+		"Extractor writes AnswerSymbols",
+		"BuildAgentContext injects the full BusContext pointer",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("advisory narrative relation must not outrank the precise typed handoff; found %q:\n%s", forbidden, got)
+		}
+	}
+	for _, want := range []string{
+		"demoted:architecture_narrative_support_member_set",
+		"members_omitted=precise_typed_relation_handoff_available",
+		"member_notes_omitted=precise_typed_relation_handoff_available",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compacted narrative relation receipt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderStructuredAggregateFactsDemotesConflictingParallelCounts(t *testing.T) {
 	facts := []types.AnswerAggregateFact{
 		{

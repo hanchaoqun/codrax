@@ -26,13 +26,43 @@ func renderStructuredAggregateFactsForContext(ctx *types.AgentContext, facts []t
 		facts = types.DemoteAggregateCountFactsConflictingWithPrincipalMemberSets(facts, &ctx.AnalysisIR.RequestModel)
 	}
 	return renderStructuredAggregateFactsWithOptions(facts, structuredAggregatePromptFactLimit(ctx, facts), structuredAggregatePrincipalMemberSetRefs(ctx, facts), aggregateFactRenderOptions{
-		omitExcludedCandidates:   aggregateFactPromptOmitExcludedCandidates(ctx),
-		compactMemberSetRows:     structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
-		compactShadowedRows:      structuredAggregateCompactShadowedMemberSetIndexes(ctx, facts),
-		principalContractIndexes: structuredAggregatePrincipalContractIndexes(ctx, facts),
-		requestModel:             aggregateFactRenderRequestModel(ctx),
-		supportEvidence:          aggregateFactRenderSupportEvidence(ctx),
+		omitExcludedCandidates:    aggregateFactPromptOmitExcludedCandidates(ctx),
+		compactMemberSetRows:      structuredAggregateCompactPrincipalMemberSetIndexes(ctx, facts),
+		compactShadowedRows:       structuredAggregateCompactShadowedMemberSetIndexes(ctx, facts),
+		compactNarrativeRelations: structuredAggregateCompactNarrativeRelationIndexes(ctx, facts),
+		principalContractIndexes:  structuredAggregatePrincipalContractIndexes(ctx, facts),
+		requestModel:              aggregateFactRenderRequestModel(ctx),
+		supportEvidence:           aggregateFactRenderSupportEvidence(ctx),
 	})
+}
+
+// structuredAggregateCompactNarrativeRelationIndexes keeps a noisy,
+// model-authored architecture/mechanism outline from competing with the exact
+// typed relation handoff in the same finalizer prompt. The aggregate receipt
+// remains visible for audit, but its free-form members and notes are omitted
+// when accepted EvidenceItems already provide structured relation roles. This
+// is context selection only: it does not inspect or rewrite the final answer.
+func structuredAggregateCompactNarrativeRelationIndexes(ctx *types.AgentContext, facts []types.AnswerAggregateFact) map[int]bool {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		len(selectAnswerDocRelationSurfaceRows(ctx, 1)) == 0 {
+		return nil
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	out := make(map[int]bool)
+	for i, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			types.NormalizeAnswerAggregateRole(fact.Role) != types.AnswerAggregateRoleSupportingCoverage {
+			continue
+		}
+		if types.AggregateMemberSetIsArchitectureNarrativeSupport(rm, fact) ||
+			types.AggregateMemberSetIsMechanismNarrativeSupport(rm, fact) {
+			out[i] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func aggregateFactRenderSupportEvidence(ctx *types.AgentContext) []types.EvidenceItem {
@@ -137,12 +167,13 @@ func renderStructuredAggregateFactsWithPrincipalRefs(facts []types.AnswerAggrega
 }
 
 type aggregateFactRenderOptions struct {
-	omitExcludedCandidates   bool
-	compactMemberSetRows     map[int]bool
-	compactShadowedRows      map[int]bool
-	principalContractIndexes map[int]bool
-	requestModel             *types.RequestModel
-	supportEvidence          []types.EvidenceItem
+	omitExcludedCandidates    bool
+	compactMemberSetRows      map[int]bool
+	compactShadowedRows       map[int]bool
+	compactNarrativeRelations map[int]bool
+	principalContractIndexes  map[int]bool
+	requestModel              *types.RequestModel
+	supportEvidence           []types.EvidenceItem
 }
 
 func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact, maxFacts int, refs []types.AnswerAggregateFactRef, opts aggregateFactRenderOptions) string {
@@ -183,6 +214,8 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			fact.Kind == types.AnswerAggregateMemberSet &&
 			types.AnswerAggregateFactCarriesCompleteMemberSet(fact) &&
 			len(fact.Members) > 0
+		compactNarrativeRelation := opts.compactNarrativeRelations[i] &&
+			fact.Kind == types.AnswerAggregateMemberSet
 		fmt.Fprintf(&b, "- kind=`%s`", fact.Kind)
 		if omitAdvisoryNumeric {
 			// A model-extracted runtime scalar/count without typed support is
@@ -194,11 +227,15 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			// it does not inspect user or model prose and does not mutate the
 			// model-authored answer.
 			fmt.Fprintf(&b, ", label_omitted=runtime_advisory_without_typed_support, value_omitted=runtime_advisory_without_typed_support, numeric_observation_authority=`not_authorized`, arithmetic_operand=`not_authorized`")
+		} else if compactNarrativeRelation {
+			fmt.Fprintf(&b, ", label_omitted=precise_typed_relation_handoff_available")
 		} else {
 			fmt.Fprintf(&b, ", label=%s", fact.Label)
 		}
 		if omitAdvisoryNumeric {
 			// The omission receipt above is the complete value projection.
+		} else if compactNarrativeRelation {
+			fmt.Fprintf(&b, ", value_omitted=precise_typed_relation_handoff_available")
 		} else if compactShadowed {
 			fmt.Fprintf(&b, ", value_omitted=shadowed_by_authoritative_principal_rows")
 		} else {
@@ -236,6 +273,13 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 			if len(fact.MemberNotes) > 0 {
 				fmt.Fprintf(&b, ", member_note_count=%d, member_notes_omitted=runtime_advisory_without_typed_support", len(fact.MemberNotes))
 			}
+		} else if compactNarrativeRelation {
+			if len(fact.Members) > 0 {
+				fmt.Fprintf(&b, ", member_count=%d, members_omitted=precise_typed_relation_handoff_available", len(fact.Members))
+			}
+			if len(fact.MemberNotes) > 0 {
+				fmt.Fprintf(&b, ", member_note_count=%d, member_notes_omitted=precise_typed_relation_handoff_available", len(fact.MemberNotes))
+			}
 		} else if compactMembers {
 			fmt.Fprintf(&b, ", member_count=%d", len(fact.Members))
 			fmt.Fprintf(&b, ", members_rendered_in=authoritative_principal_member_rows")
@@ -258,7 +302,11 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", excluded=[%s]", excluded)
 			}
 		}
-		if compactMembers {
+		if compactNarrativeRelation {
+			if len(fact.SupportRefs) > 0 {
+				fmt.Fprintf(&b, ", support_ref_count=%d, support_refs_omitted=precise_typed_relation_handoff_available", len(fact.SupportRefs))
+			}
+		} else if compactMembers {
 			if len(fact.SupportRefs) > 0 {
 				fmt.Fprintf(&b, ", support_ref_count=%d", len(fact.SupportRefs))
 			}
@@ -272,11 +320,13 @@ func renderStructuredAggregateFactsWithOptions(facts []types.AnswerAggregateFact
 				fmt.Fprintf(&b, ", support_refs=[%s]", refs)
 			}
 		}
-		if authority := aggregateMemberNoteSupportAuthority(fact, opts.supportEvidence); authority != "" {
-			fmt.Fprintf(&b, ", member_note_support_authority=[%s]", authority)
-		}
-		if support := aggregateMemberNoteCompositeSupport(fact, opts.supportEvidence); support != "" {
-			fmt.Fprintf(&b, ", member_note_composite_support=[%s]", support)
+		if !compactNarrativeRelation {
+			if authority := aggregateMemberNoteSupportAuthority(fact, opts.supportEvidence); authority != "" {
+				fmt.Fprintf(&b, ", member_note_support_authority=[%s]", authority)
+			}
+			if support := aggregateMemberNoteCompositeSupport(fact, opts.supportEvidence); support != "" {
+				fmt.Fprintf(&b, ", member_note_composite_support=[%s]", support)
+			}
 		}
 		b.WriteString("\n")
 	}
