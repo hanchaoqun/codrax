@@ -55975,3 +55975,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1218 r757：B1208 回放未触发；Trace 模型混淆唤醒关系与阻塞机理（2026-08-19）
+
+1. 在 `main@24e51216f` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_io_chain`。Runner `2 PASS / 0 FAIL`，人工均为
+   `partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_local_relation_trace_r757_20260819_manual_audit.md`。
+2. 源码图最终保留三条已证阶段 precedence、BusContext 到 BuildAgentContext 的参数流，以及 BusContext
+   对 Mutable 的无箭头包含；Mutable 仍带明确未证请求关系边界，无伪桥。该轮 Explorer 没有发出
+   Mutable 的可引用局部调用/读写 EvidenceItem，因此 B1208 新增的 local-only 候选生产臂没有触发；这既
+   不是回归失败，也不能虚报生产正证。first-pass、compact patch delta 与完整内部测试仍是当前闭环证据。
+3. 图外正文仍概括 Explorer 写 Mutable、Extractor/Finalizer 读写 Mutable，超过本轮关系证据；精确未证
+   边界已在同一上下文与终图出现，故暂按模型服从残余，不扫描或改写正文，不为获得指定答案降低关系门。
+4. Trace 完整保留显式窗 2.000000..2.020000、已证
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链、11.000ms 链上 IO 首席、三个
+   1.000ms runnable 调度席、目标 20.000ms S 态症状、实际占用/规则计价双轴，以及因果投影与自动补齐。
+   邻近/背景未晋升，零 D/IO 没有否定上游 IO。
+5. 模型把四个节点误称“四跳”，并把“没有更强同步阻塞/持锁机理”误写成“直接唤醒者缺结构化依赖”。
+   冷读 finalizer context 已存在精确双层语义：`A -> B` 证明 typed wakeup/dependency relation；但不单独证明
+   B 同步等待 A、A 持有资源或所有 hop 是连续阻塞调用链。因此不是缺失上下文或确定性合同冲突，按模型
+   波动留档；不新增答案关键词门，不让系统接管结论。
+6. B1217 再获生产 witness：系统自己追加的 Trace 投影图例远长于模型结论，并含 `typed`、口径、席位、
+   registry 等内部实现词。它不改变根因/数值，但降低可读性；后续只改结构化 renderer 的读者词面与层级，
+   诊断载体保持无损，不能删除因果投影或扫描模型正文。
+7. 两路 387 秒/210 秒活跃流均正常完成，没有 4ms、4m 或累计年龄降级。
+
+状态：
+
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=implemented/unit+full-internal-covered/production-arm-not-exercised-r757`；
+`Trace-wakeup-vs-blocking-wording=model-variance/context-sufficient/no-hard-gate`；
+`B1217-TRACEAPPENDIXREADERLANGUAGE1=production-reconfirmed/P2-next`；
+`active-stream-4ms-degrade=forbidden/production-positive-387s+210s`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r757`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
