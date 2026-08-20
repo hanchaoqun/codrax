@@ -56871,3 +56871,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r766`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1242 r767：写终验义务脱离校验域；图表读者词可删除绕过（2026-08-20）
+
+1. 以 `41cc4c86f` 构建快照严格并发 2 路异构回放：`qf_type_relation_loop_controller` runner PASS 233s，
+   `github_issue_nlohmann_long_double` runner FAIL 149s；人工均不通过。两路持续活跃，没有 4ms、4m、首字节、stall 或
+   总年龄降级。
+2. 新确认 `B1232-WRITECUMULATIVEPROOFDOMAIN1/P0`：C++ 写任务正确同步修改实现头与 single-include，测试文件未改，
+   `make check` 两次 exit=0，两个 changed path 均为 covered，worktree audit clean；但 cumulative actual-diff review 生成
+   `project_test_assertion_not_observed`，随后 `verification_completion_scope` 同时报告 required typed contracts=0。系统要求
+   关闭一个没有进入必需校验域的义务，重复同一测试无法改变状态，最终错误签为 `verification_proof_incomplete`。
+3. 根因形冻结：actual-diff review 的 follow-up obligation 与 verify completion 使用不同权威集合。最优根修是在创建 cumulative
+   verify-only batch 时，把未覆盖的 typed proof obligation 以稳定 ID/target path/source assertion 进入同一 required domain；验证器
+   必须能用项目测试观测或精确 source assertion receipt 关闭。若 upstream 只存在 planning-only 自然语言条目，不得凭空创建
+   一个 required follow-up；不能用“测试 exit=0”直接跳过真实 typed 义务，也不能靠模型 finish 决策吞掉矛盾。
+4. 新确认 `B1233-DIAGRAMREADERLABELDELETIONESCAPE1/P1`：类型图首稿 body 显示 `implements`、anchor reader label 为“实现”，
+   校验正确发现不一致；repair 提示允许删除 `visible_label`，模型照做后 body 改为内部 enum `type_relation`，校验却通过。
+   结果结构和 12 个生产实现者清单正确，但读者看到内部词，违反“图中使用业务/仓库语言”的既有要求。
+5. B1233 的泛化修向不是翻译或重写 Mermaid。对于已有 typed recipe 且 relation kind 有 reader-facing label 的 edge，
+   model-authored `visible_label` 应成为不可删除的 schema 义务，body 与其字节一致；raw relation enum 继续禁止作为显示词。
+   系统只拒绝缺失/不一致，不创建标签。没有 recipe 的普通图保持 fail-open，避免用模型文案或用户关键词做硬门。
+6. r767 未运行 Trace，但本批只落档；P0/P1 后续施工均不得修改 Trace 窗口、因果投影、自动补齐、链上根因或双轴逻辑。
+
+状态：
+
+`r767=runner-pass-1/fail-1/human-pass-0/2`；
+`B1232-WRITECUMULATIVEPROOFDOMAIN1=confirmed/P0-next`；
+`B1233-DIAGRAMREADERLABELDELETIONESCAPE1=confirmed/P1-after-B1232`；
+`tests-pass+changed-path-covered!=typed-proof-closed-when-domain-disconnected`；
+`reader-label-required-by-typed-recipe=cannot-delete-to-bypass`；
+`raw-relation-enum=not-reader-language`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r767`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
