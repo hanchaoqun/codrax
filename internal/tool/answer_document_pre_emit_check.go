@@ -5722,8 +5722,9 @@ func diagramRelationRepairDeltaJSON(
 			FromIdentity: strings.TrimSpace(mismatch.FromSymbol),
 			ToIdentity:   strings.TrimSpace(mismatch.ToSymbol),
 		}
-		if failure.Issue == "" || failure.FromNode == "" || failure.ToNode == "" {
-			continue
+		if failure.BlockID == "" || failure.Issue == "" ||
+			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+			return ""
 		}
 		key := strings.ToLower(failure.BlockID + "\x00" + failure.Issue + "\x00" +
 			string(failure.RelationKind) + "\x00" + failure.FromNode + "\x00" + failure.ToNode + "\x00" +

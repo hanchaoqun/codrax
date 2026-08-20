@@ -51,6 +51,24 @@ type AnswerDiagramRelationRepairDelta struct {
 	CandidateAlternatives string                                 `json:"candidate_alternatives,omitempty"`
 }
 
+// AnswerDiagramRelationRepairFailureHasCompleteLocator accepts either the
+// model's complete local node pair or the producer-owned complete technical
+// identity pair. A half-present pair is always malformed, even when the other
+// pair is complete, because silently discarding one endpoint would make audit
+// and retry scope disagree.
+func AnswerDiagramRelationRepairFailureHasCompleteLocator(failure AnswerDiagramRelationRepairFailure) bool {
+	fromNode := strings.TrimSpace(failure.FromNode)
+	toNode := strings.TrimSpace(failure.ToNode)
+	fromIdentity := strings.TrimSpace(failure.FromIdentity)
+	toIdentity := strings.TrimSpace(failure.ToIdentity)
+	nodePresent := fromNode != "" || toNode != ""
+	identityPresent := fromIdentity != "" || toIdentity != ""
+	nodeComplete := fromNode != "" && toNode != ""
+	identityComplete := fromIdentity != "" && toIdentity != ""
+	return (!nodePresent || nodeComplete) && (!identityPresent || identityComplete) &&
+		(nodeComplete || identityComplete)
+}
+
 // MergeAnswerDiagramRelationRepairDeltaJSON atomically unions all structured
 // relation deltas from one validation cycle. It never derives a failure or an
 // allowed edge from Mermaid text. Any non-empty malformed/oversized sibling
@@ -85,7 +103,8 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 			failure.ToNode = strings.TrimSpace(failure.ToNode)
 			failure.FromIdentity = strings.TrimSpace(failure.FromIdentity)
 			failure.ToIdentity = strings.TrimSpace(failure.ToIdentity)
-			if failure.BlockID == "" || failure.Issue == "" || failure.FromNode == "" || failure.ToNode == "" {
+			if failure.BlockID == "" || failure.Issue == "" ||
+				!AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
 				return ""
 			}
 			key := answerDiagramRelationRepairFailureKey(failure)
@@ -197,7 +216,8 @@ func NewAnswerDiagramRelationRepairLease(
 		failure.ToNode = strings.TrimSpace(failure.ToNode)
 		failure.FromIdentity = strings.TrimSpace(failure.FromIdentity)
 		failure.ToIdentity = strings.TrimSpace(failure.ToIdentity)
-		if failure.BlockID == "" || failure.Issue == "" || failure.FromNode == "" || failure.ToNode == "" {
+		if failure.BlockID == "" || failure.Issue == "" ||
+			!AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
 			return nil
 		}
 		key := answerDiagramRelationRepairFailureKey(failure)

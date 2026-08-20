@@ -58389,3 +58389,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r788`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r788`。
+
+### §123.1281 B1262：关系失败定位支持完整 identity-only 载体（2026-08-20）
+
+1. `B1262-IDENTITYONLYLEASE1/P0` 已修复。新增共享精确谓词
+   `AnswerDiagramRelationRepairFailureHasCompleteLocator`：完整 `from_node/to_node` 或完整
+   `from_identity/to_identity` 任一存在即可定位同一失败关系；任一载体只出现单侧时整项无效，即使另一载体完整也不安装歧义租约。
+2. delta producer、同轮原子合并器、finalizer compact hint 解码与 lease 构造统一消费该谓词。原先
+   `typed_anchor_without_visible_edge` 的 identity-only precedence anchor 不再被 producer 丢弃；模型可给同一技术身份对补上自己选择的
+   Mermaid node id，或移除该失败关系，而不会触发空端点 `unlisted_relation_removed`。
+3. 关系租约执行器原有 identity fallback 与入口合同重新一致。修补仍只允许同一完整 unordered node/identity pair；其他未列出关系、
+   必要 diagram 载体、relation kind 和候选一次性约束均保持。系统不读取箭头消息、节点业务标签、用户原文、模型 reasoning 或最终
+   prose，也不生成、选择、删除、反转或改写任何可见关系。
+4. 新增回归覆盖：producer 保留 identity-only failure；同轮 merger 不丢失；compact hint 原样交给模型；租约成功安装；给同一 identity
+   pair 补 nodes 后通过局部范围验证；半 node pair 和半 identity pair 均拒绝。B1261 的完整并集、顺序无关、畸形兄弟原子 fail-open、
+   多于 8 条允许项等回归继续通过。
+5. 验证全绿：定向 types/tool/agent；完整 `internal/tool internal/agent internal/types`；`go test ./... -count=1`；CGO
+   release-tag `make`。全仓覆盖 hitraceconv、mermaidcompat、orchestrator、tracequery、tracediag、REPL 与 writeflow；本批未修改
+   Trace 查询、因果投影/自动补齐、JSON 恢复、模型答案作者权或活动流时限。
+6. 下一批进入 B1260：把链上线程的主状态根因与其独立、已证低优先级 runnable/running 供给维度分账，保留 IO/D/sleep 主席且不
+   重复计价。之后处理 B1263 typed stage-role 上下文泄漏；禁止用最终答案关键词扫描代替证据交接修复。
+
+状态：
+
+`B1262=implemented/full-suite-pass/pending-production-replay`；
+`relation-failure-locator=complete-node-pair-or-complete-identity-pair`；
+`half-pair=invalid/no-hard-lease`；
+`identity-only-anchor=node-completion-or-removal-model-owned`；
+`unlisted-relation-preservation=unchanged`；
+`B1260=confirmed/P1-next`；`B1263=confirmed/P1-after-B1260`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

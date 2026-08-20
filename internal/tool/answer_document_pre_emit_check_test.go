@@ -8794,6 +8794,28 @@ func TestEmitFixHintsRepairMergesEverySameCycleRelationDelta(t *testing.T) {
 	}
 }
 
+func TestDiagramRelationRepairDeltaCarriesIdentityOnlyFailedAnchor(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "flow", Kind: types.BlockDiagram}}}
+	raw := diagramRelationRepairDeltaJSON(doc, nil, []DiagramCallEdgeEvidenceMismatch{{
+		BlockID: "flow", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+		FromSymbol: "analyzer", ToSymbol: "explorer", Relation: types.DiagramRelPrecedence,
+	}}, nil, nil)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("identity-only typed failure must remain representable: %v raw=%s", err, raw)
+	}
+	if len(delta.Failures) != 1 || delta.Failures[0].FromNode != "" ||
+		delta.Failures[0].FromIdentity != "analyzer" || delta.Failures[0].ToIdentity != "explorer" {
+		t.Fatalf("identity-only locator was dropped or rewritten: %+v", delta)
+	}
+	repair := emitFixHintsRepair([]emitFixHint{{
+		Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: raw,
+	}})
+	if repair == nil || repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] == "" {
+		t.Fatalf("same-cycle merger must retain an identity-only typed failure: %+v", repair)
+	}
+}
+
 func TestEmitFixHintsRepairDoesNotInstallPartialRelationDelta(t *testing.T) {
 	valid := `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B"}],"preserve_unlisted_edges":true}`
 	repair := emitFixHintsRepair([]emitFixHint{
@@ -8805,6 +8827,19 @@ func TestEmitFixHintsRepairDoesNotInstallPartialRelationDelta(t *testing.T) {
 	}
 	if raw := repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; raw != "" {
 		t.Fatalf("a malformed sibling must suppress the incomplete hard lease, got %s", raw)
+	}
+}
+
+func TestEmitFixHintsRepairRejectsHalfRelationLocator(t *testing.T) {
+	half := `{"version":1,"failures":[{"block_id":"flow","issue":"typed_anchor_without_visible_edge","relation_kind":"precedence","from_node":"A","from_identity":"analyzer","to_identity":"explorer"}],"preserve_unlisted_edges":true}`
+	repair := emitFixHintsRepair([]emitFixHint{{
+		Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: half,
+	}})
+	if repair == nil {
+		t.Fatal("other structural repair metadata must remain available")
+	}
+	if raw := repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; raw != "" {
+		t.Fatalf("half node pair must not create an ambiguous hard lease: %s", raw)
 	}
 }
 

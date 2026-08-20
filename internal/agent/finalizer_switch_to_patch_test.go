@@ -1052,6 +1052,30 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 	}
 }
 
+func TestRequiredDiagramRelationRetryAcceptsIdentityOnlyFailureLocator(t *testing.T) {
+	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"typed_anchor_without_visible_edge","relation_kind":"precedence","from_identity":"analyzer","to_identity":"explorer"}],"preserve_unlisted_edges":true}`
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{Code: "answer_doc_pre_emit_contract", Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+		}},
+	}
+	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, true)
+	if !ok || !strings.Contains(hint, `"from_identity":"analyzer"`) ||
+		!strings.Contains(hint, `"to_identity":"explorer"`) {
+		t.Fatalf("identity-only typed locator must reach the model-owned patch lane: ok=%v hint=%s", ok, hint)
+	}
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
+		t.Fatal("identity-only typed locator must install a retry-local lease")
+	}
+	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FromNode != "" ||
+		lease.Failures[0].FromIdentity != "analyzer" {
+		t.Fatalf("identity-only locator changed across consumer boundary: %+v", lease)
+	}
+}
+
 func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()

@@ -17633,8 +17633,8 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 		return "", false
 	}
 	for _, failure := range delta.Failures {
-		if strings.TrimSpace(failure.Issue) == "" || strings.TrimSpace(failure.FromNode) == "" ||
-			strings.TrimSpace(failure.ToNode) == "" {
+		if strings.TrimSpace(failure.BlockID) == "" || strings.TrimSpace(failure.Issue) == "" ||
+			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
 			return "", false
 		}
 	}

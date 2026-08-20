@@ -150,6 +150,51 @@ func TestAnswerDiagramRelationRepairLeasePreservesCompleteUnion(t *testing.T) {
 	}
 }
 
+func TestAnswerDiagramRelationRepairLeaseIdentityOnlyFailureCanGainNodes(t *testing.T) {
+	identityOnly := DiagramEdgeAnchor{
+		FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: DiagramRelPrecedence,
+	}
+	sibling := DiagramEdgeAnchor{
+		FromNode: "Explore", ToNode: "Extract", FromIdentity: "explorer", ToIdentity: "extractor",
+		RelationKind: DiagramRelPrecedence,
+	}
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram, EdgeAnchors: []DiagramEdgeAnchor{identityOnly, sibling},
+	}}}
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "typed_anchor_without_visible_edge",
+		RelationKind: DiagramRelPrecedence, FromIdentity: "analyzer", ToIdentity: "explorer",
+	}
+	if !AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+		t.Fatal("complete technical identity pair must be a precise repair locator")
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil {
+		t.Fatal("identity-only failure must install a typed lease")
+	}
+	withNodes := identityOnly
+	withNodes.FromNode, withNodes.ToNode = "Analyze", "Explore"
+	got := ValidateAnswerDiagramRelationRepairLease(lease, &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram, EdgeAnchors: []DiagramEdgeAnchor{withNodes, sibling},
+	}}})
+	if len(got) != 0 {
+		t.Fatalf("the model may add node ids to the same listed technical relation: %+v", got)
+	}
+
+	halfNode := failure
+	halfNode.FromNode = "Analyze"
+	if AnswerDiagramRelationRepairFailureHasCompleteLocator(halfNode) ||
+		NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{halfNode}, nil) != nil {
+		t.Fatal("a half-present node pair must remain malformed even with complete identities")
+	}
+	halfIdentity := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B", FromIdentity: "only-one-side",
+	}
+	if AnswerDiagramRelationRepairFailureHasCompleteLocator(halfIdentity) {
+		t.Fatal("a half-present identity pair must remain malformed even with complete nodes")
+	}
+}
+
 func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 	m := NewMutableState("test")
 	lease := &AnswerDiagramRelationRepairLease{Version: 1, Failures: []AnswerDiagramRelationRepairFailure{{
