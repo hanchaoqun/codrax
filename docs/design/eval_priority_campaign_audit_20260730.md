@@ -56416,3 +56416,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1230 r762：精确候选已到达，但可选 ID 未阻断旧错引；Trace 总览残留假单位（2026-08-20）
+
+1. 在 `main@4627155ad` 重建后严格并发恰好两个异构案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_io_chain`。Runner `2 PASS / 0 FAIL`，人工
+   `1 pass（有显示债）/ 1 fail`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_itemevidence_trace_r762_20260820_manual_audit.md`。
+2. Trace 案例完整保留显式 2.000000..2.020000s 窗、已证
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms IO 首席、三条互斥 1.000ms 调度供给、
+   实际占时/现规则可消双轴、因果投影与自动补齐；邻近 sleep 和背景 IO 压力均未进入链上排序。343s 活跃流
+   正常返回模型答案，没有 4ms、4m、首字节、stall 或累计年龄降级。
+3. 新确认 `B1226-TRACEPRESSUREFAKEUNIT1`：同一系统投影的树和指标表正确显示
+   `7.000(综合评分,非墙钟)`，但 ◎ 总览背景行仍显示 `7.000ms`。根因是该面仍从 seat/tier/type token 判断
+   口径，没有消费已落地的 `ObservationRecord.Unit=composite_score`。这是系统自有数值单位错误，必须统一到
+   共享 non-wall-clock caliber helper；不涉及模型正文或根因排序。
+4. 模型把已明确 `absolute_level=not_defined / pressure_unproven` 的 7 分描述为“中高水平”。系统上下文和结构化板
+   已给出正确边界，当前按模型措辞波动观察；禁止扫描或改写模型正文，也不以此新增关键词硬门。
+5. 关系案例给出 B1222 生产正证：Mutable 与 BusContext 都获得 exact candidate，Finalizer 能自行选择并画出局部
+   operation；系统没有生成、反转或重连任何边。但最终图仍是四阶段 precedence 岛与 BuildAgentContext/Mutable
+   局部操作岛，typed handoff 已明确 `requested_relation_spine_status=unproven`、九个 weak components，答案却称其为
+   完整数据流。新确认 `B1225-FLOWSPINEDISCLOSURE1`：逐 participant incidence 完整不能替代整图连接完整性；需要
+   一个消费既有 typed spine 状态的模型自有范围披露载体，不能由系统代写边或结论。
+6. B1223 生产未采用：模型没有填写任何 `items[].evidence_ids`，四个阶段条目继续手算
+   `citation_ref=7`，最终四项都引用 `StageAnalyze` 行。字段缺席不产生义务虽兼容旧文档，却让“主动引用但不用精确
+   ID”的旧错引继续出厂。新确认 `B1224-ITEMEVIDENCEADOPTION1`：只在 current-source schema 已暴露 ID 且 item
+   主动携带 `citation_ref(s)` 时，要求同一 item 提供 accepted evidence ID；无引用、无 ID 的 item 仍可作为明确
+   无证说明。硬信号只读结构化字段，不读用户、item、推理、答案或 Mermaid prose。
+7. 关系案例有四次精确 diagram repair，最终 714s 正常返回模型终稿，没有超时或降级。两路 Analyzer 各出现三次
+   不同 schema 选择错误，均由模型修正；当前未发现同一字段既必带又必拒的合同自冲突，继续作为 P2 JSON 遵循
+   波动观察，不通过扩大 prompt 或增加 prose 门拟合。
+
+状态：
+
+`r762-runner=2-pass/human=1-pass-with-display-debt+1-fail`；
+`B1222-FLOWLOCALCANDIDATEPARITY1=production-positive-r762/closed`；
+`B1223-ANSWERITEMEVIDENCECITATIONBINDING1=carrier-present/production-not-adopted`；
+`B1224-ITEMEVIDENCEADOPTION1=confirmed/P1-next`；
+`B1225-FLOWSPINEDISCLOSURE1=confirmed/P1-after-citation`；
+`B1226-TRACEPRESSUREFAKEUNIT1=confirmed/P1-small-batch`；
+`request/model/final-prose/mermaid-text-scan-or-rewrite=none`；
+`model-edge/node/label/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/production-positive-343s+714s`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r762`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
