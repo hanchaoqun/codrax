@@ -56972,3 +56972,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1245 r768：B1232/B1233 生产验证；抽象集合 participant 与具体成员关系冲突（2026-08-20）
+
+1. 以 `851a87ed9` 构建快照严格并发 2 路回放：C++ 写用例 118s、类型关系用例 254s，runner 均 PASS；
+   人工分别通过/不通过。两路持续活跃，无 4ms、4m、首字节、stall 或累计年龄降级。
+2. `B1232` 生产闭环：applied tree 只把两份目标头文件的 `%.*lg` 改为 `%.*Lg`，测试文件字节未改；
+   `make check` exit=0、两条 changed path 均 covered、worktree clean，最终状态为 verified。6 个 planning-only contract
+   保留规划指导身份，没有再生成 `project_test_assertion_not_observed` 债；最终交付也明确“全部闭合”只指 required
+   structured obligations，不把自然语言验收项伪装成逐项执行证据。
+3. `B1233` 获生产正证：终稿保留 12 条 exact implementer→LoopController 边，body 与 anchor 均携带模型编写的
+   `implements`；`type_relation` 等 raw enum 不再泄漏。两次成文拒绝分别来自旧 citation index→evidence ID 迁移和
+   participant coverage，不是标签合同重试；模型没有通过删 label 或删 edge 逃逸。
+4. 新确认 `B1234-ABSTRACTSETPARTICIPANTRELATIONCONFLICT1/P0`：Analyzer 把用户的集合角色“主要实现类型”铸成
+   incident-required participant；typed implementer provider 则正确发布 12 个具体成员到 `LoopController` 的关系。覆盖器只按
+   participant 字面 identity 判断，把集合角色和 LoopController 都列为 unproven boundary。最终答案一边画出 12 条已证
+   实现关系，一边声明“LoopController、主要实现类型的请求关系未证”，形成同页确定性自相矛盾。
+5. 这不能靠让模型增加一个名为“主要实现类型”的 subgraph 解决：subgraph 只满足可见性，不会把集合角色与 12 个具体成员
+   建立 typed membership/coverage 关系。最优根修应让集合角色由同一 typed member-set/provider 携带：当 exact provider 已证明
+   该 role 的全部 principal members 与另一 participant 的所请求关系时，以成员关系集合覆盖 role，不再为 role 或已覆盖对端
+   生成 unproven boundary；partial/缺成员时仍保留边界。不得从 raw request、Mermaid label 或答案正文猜集合语义。
+6. 后续施工必须增加正负 pin：完整 12-member provider 覆盖集合 role；严格子集继续 partial-unproven；普通具体 participant
+   不受影响；group/subgraph 可见性不能自行铸造关系。系统仍不创建图、边、节点、标签或结论，Trace 独立因果投影不改。
+
+状态：
+
+`r768=runner-pass-2/2/human-pass-1/2`；
+`B1232-WRITECUMULATIVEPROOFDOMAIN1=production-closed`；
+`B1233-DIAGRAMREADERLABELDELETIONESCAPE1=production-closed`；
+`B1234-ABSTRACTSETPARTICIPANTRELATIONCONFLICT1=confirmed/P0-next`；
+`abstract-set-role!=literal-runtime-node`；
+`exact-member-relation-provider=must-own-role-coverage`；
+`subgraph-visibility!=relation-proof`；
+`request/model/final-prose/mermaid-business-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r768`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
