@@ -57290,3 +57290,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
+
+1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace
+   262s（runner FAIL、人工 fail）。两路持续活跃并正常完成，没有依据 4ms、4m、首字节、stall 或累计年龄使用旧稿、
+   空答案或降级答案。
+2. Trace 失败不是模型波动。analyzer 同时发射 `intent=trace`、`scenario=performance_bottleneck`、
+   `question_kind=call_chain`、`predicate_axis=flow`、`is_relational_lookup=true`，却把
+   `runtime_question_profile.scope` 设为 `bounded_fact_set`，并把“主要阻塞原因”降成普通展示维度。
+   该 typed 自冲突令 family 落为 generic，并触发有限范围提示主动抑制 root-cause/rank/seat；最终没有
+   root-cause-rank 主交接和 Trace 因果投影。
+3. 证据层已有 `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链，以及链端
+   `threadpool-400` 的 D/iowait 约 11ms。错误范围令模型把目标自身 20ms S 态症状写成主要阻塞，并推断
+   “发起网络操作/结果回传”等未证业务角色；链端 IO 根因、优先级/调度/供给席、实际占时与规则可消双轴均未进入
+   应有结论。generic family 又让可选 runtime 图误入非 runtime 源码关系门，真实唤醒图被拒后删除。
+4. B1238 根修只增加一个 typed 跨字段一致性边界：有限 fact/effect scope 与上述 runtime performance call-chain
+   tuple 不得同时成立。模型保有两条诚实出口：只问已观测唤醒/IPC/依赖路径时用 `relation_analysis`；问阻塞机理、
+   根因、排序或竞争贡献者时用 `causal_diagnosis`，并选择 `causal_attribution` 或
+   `causal_contributor_set`。系统不从用户原文、模型 thinking/正文、图标签或答案 prose 猜选出口，也不预判最终结果；
+   证据不足时模型仍可回答 unproven。
+5. 施工中否决了一个过宽草案：不能因整份答案带 runtime scope 就全局跳过源码图门，否则混合 runtime+current-source
+   答案中的虚构源码边会逃检。B1238 仅恢复该因果请求进入既有 Trace 专用 family；有限 runtime 状态/关系图继续由
+   已有 report-local temporal block authority 精细接管，其他有限 causal relation 图形另行审计，不借本案扩大全局免检。
+6. 类型关系正证与新 gap 同时冻结：B1237 后 12 条可见边方向和同侧 endpoint identity 均正确；但 finalizer 同时收到
+   权威 production principal member_set=12 和全 source-scope First-Pass Diagram Reference=15。第一次模型图本为 12，
+   修补回合按系统种子加入 `isolatedPromptEvaluator`、`protocolSoftStopAcceptEvaluator`、
+   `protocolSoftStopEvaluator` 三个 test helper，形成表格 12、图 15 的确定性上下文自冲突。记为
+   `B1239-PRINCIPALDIAGRAMBOUNDARY1`（P1，下一批）：图 authoring carrier 必须复用同一个 typed principal-member
+   权威边界；被排除关系可留在明确 support/audit 车道，不能污染 principal 图，亦不能由系统代写边。
+7. r773 原始 runner 摘要与完整人工审计已落地；B1238 回归覆盖矛盾 tuple 必须拒绝、relation-only/causal 两个合法出口
+   必须通过、普通有限事实查询保持通过。`go test ./internal/tool ./internal/types ./internal/skill ./internal/agent
+   -count=1` 全绿（tool 181.810s、types 24.559s、skill 1.614s、agent 14.784s）。
+
+状态：
+
+`r773=runner-pass-1/fail-1,human-partial-1/fail-1`；
+`B1238=implemented/full-relevant-pass/pending-production-replay`；
+`runtime-performance-call-chain=relation_analysis-or-causal_diagnosis/model-owned-choice`；
+`report-wide-runtime-source-diagram-bypass=forbidden`；
+`B1239=confirmed/P1-next`；
+`principal-member-set=12-production/diagram-seed=15-mixed-source-conflict`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=restored-by-scope-contract/pending-replay`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r773`。

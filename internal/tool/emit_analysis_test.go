@@ -563,6 +563,69 @@ func TestRuntimeQuestionCausalDiagnosisUsesScopeAndRequiredCausalDimensionAsBrea
 	}
 }
 
+func TestRuntimeQuestionBoundedScopeRejectsTypedPerformanceCallChainContradiction(t *testing.T) {
+	bounded := &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactTargetSchedulerState, types.RuntimeQuestionFactDirectWaker},
+	}
+	issue := validateRuntimePerformanceCallChainScopeConsistency(
+		bounded,
+		types.IntentTrace,
+		types.ScenarioPerformanceBottleneck,
+		string(types.ReqCallChain),
+		types.SemanticPredicates{IsRelationalLookup: true},
+	)
+	for _, want := range []string{
+		"bounded_fact_set conflicts",
+		"relation_analysis",
+		"causal_diagnosis",
+		"causal_attribution",
+		"causal_contributor_set",
+		"do not pre-decide",
+	} {
+		if !strings.Contains(issue, want) {
+			t.Fatalf("typed performance/call-chain contradiction missing %q: %s", want, issue)
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		profile    *types.RuntimeQuestionProfile
+		intent     types.Intent
+		scenario   types.Scenario
+		kind       string
+		relational bool
+	}{
+		"relation-only runtime path": {
+			profile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeRelationAnalysis},
+			intent:  types.IntentTrace, scenario: types.ScenarioPerformanceBottleneck,
+			kind: string(types.ReqCallChain), relational: true,
+		},
+		"causal runtime path": {
+			profile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+			intent:  types.IntentTrace, scenario: types.ScenarioPerformanceBottleneck,
+			kind: string(types.ReqCallChain), relational: true,
+		},
+		"finite target effect without call-chain": {
+			profile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeBoundedEffectVerdict, FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactFrequencyResidency}},
+			intent:  types.IntentExplain, scenario: types.ScenarioPerformanceBottleneck,
+			kind: string(types.ReqMechanism), relational: false,
+		},
+		"finite runtime relation facts outside performance diagnosis": {
+			profile: bounded, intent: types.IntentTrace, scenario: types.ScenarioGeneric,
+			kind: string(types.ReqCallChain), relational: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := validateRuntimePerformanceCallChainScopeConsistency(
+				tc.profile, tc.intent, tc.scenario, tc.kind,
+				types.SemanticPredicates{IsRelationalLookup: tc.relational},
+			); got != "" {
+				t.Fatalf("coherent typed scope rejected: %s", got)
+			}
+		})
+	}
+}
+
 func TestRuntimeQuestionBoundedFactsAllowDiagnosticFrameLocation(t *testing.T) {
 	profile := &types.RuntimeQuestionProfile{
 		Scope:        types.RuntimeQuestionScopeBoundedFactSet,

@@ -1871,6 +1871,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if issue := validateRuntimePerformanceCallChainScopeConsistency(
+		runtimeQuestionProfile, intent, scenario, kind, predicates,
+	); issue != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + issue,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if runtimeArtifactCarrier && runtimeArtifactValueProfile == nil {
@@ -5031,6 +5041,37 @@ func validateRuntimeQuestionProfileConsistency(
 	// places created contradictory retry contracts and let a local repair erase
 	// Trace causal projection. This branch consumes only validated typed fields.
 	return ""
+}
+
+// validateRuntimePerformanceCallChainScopeConsistency rejects one exact typed
+// contradiction that would otherwise erase the evidence needed by the same
+// request. A bounded fact/effect scope suppresses relation-chain and root-cause
+// report materialization, while this tuple explicitly declares a runtime
+// performance call-chain investigation. The analyzer must choose whether the
+// requested principal surface is relation-only or causal; the framework does
+// not infer that choice from request words, source_quote, reasoning, or answer
+// prose and never rewrites the model-owned classification.
+func validateRuntimePerformanceCallChainScopeConsistency(
+	profile *types.RuntimeQuestionProfile,
+	intent types.Intent,
+	scenario types.Scenario,
+	questionKind string,
+	predicates types.SemanticPredicates,
+) string {
+	if profile == nil || !profile.CarriesBoundedFactFamilies() ||
+		intent != types.IntentTrace ||
+		scenario != types.ScenarioPerformanceBottleneck ||
+		types.NormalizeRequirementKind(questionKind) != types.ReqCallChain ||
+		!predicates.IsRelationalLookup {
+		return ""
+	}
+	return "runtime_question_profile.scope=" + string(profile.Scope) +
+		" conflicts with the typed runtime performance call-chain tuple " +
+		"(intent=trace, scenario=performance_bottleneck, question_kind=call_chain, predicates.is_relational_lookup=true). " +
+		"A finite fact/effect scope would suppress the relation-chain and ranking evidence required by that declared investigation. " +
+		"Re-emit relation_analysis when the requested principal answer is only the observed wakeup/IPC/dependency path; " +
+		"re-emit causal_diagnosis with fact_families omitted and one required causal_attribution or causal_contributor_set dimension when it asks for the blocking mechanism, root cause, ranking, or competing contributors. " +
+		"Do not change the typed call-chain/performance fields merely to pass validation, and do not pre-decide the eventual finding"
 }
 
 // runtimeQuestionFiniteVerdictRepairTarget renders a deterministic PARTIAL
