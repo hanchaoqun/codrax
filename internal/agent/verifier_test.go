@@ -262,6 +262,11 @@ func TestVerifier_BuildInitialInstruction_SurfacesAcceptanceTests(t *testing.T) 
 	if !strings.Contains(inst, "OPTIONALLY") {
 		t.Errorf("instruction should mark emit_test_results as optional; got %q", inst)
 	}
+	for _, want := range []string{"planning checks", "does not prove", "typed contract_refs"} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("instruction should preserve acceptance authority boundary %q; got %q", want, inst)
+		}
+	}
 }
 
 // TestVerifier_BuildInitialInstruction_NoPlan verifies graceful

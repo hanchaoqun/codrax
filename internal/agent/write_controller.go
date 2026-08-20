@@ -313,6 +313,11 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		passedResults, failedResults := writeControllerVerificationResultCounts(report)
 		fmt.Fprintf(&b, "- verification_evidence: status=%s passed_results=%d failed_results=%d total_results=%d\n",
 			report.NormalizeVerificationStatus(), passedResults, failedResults, len(report.TestResults))
+		if plan := ctx.Mutable.ChangePlan(); plan != nil {
+			hard, covered, planningOnly := writeControllerBehaviorContractCoverage(plan, report)
+			fmt.Fprintf(&b, "- verification_completion_scope: required_typed_contracts=%d covered_required_typed_contracts=%d planning_only_contracts=%d natural_language_acceptance_items=%d all_verified_applies_to=required_typed_obligations acceptance_items_authority=planning_guidance_only\n",
+				hard, covered, planningOnly, len(plan.AcceptanceTests))
+		}
 		for i, cmd := range report.ExecutedCommands {
 			if i >= 8 {
 				fmt.Fprintf(&b, "- verification_command: ... +%d more\n", len(report.ExecutedCommands)-i)
@@ -361,6 +366,46 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 		return ""
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// writeControllerBehaviorContractCoverage summarizes only structured plan and
+// verifier records. It deliberately does not compare acceptance prose with
+// commands, tests, or model output. The proof ledger remains the completion
+// authority; this compact row keeps the controller from overstating what the
+// all_verified enum means.
+func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *types.ChangeReport) (hard, covered, planningOnly int) {
+	if plan == nil {
+		return 0, 0, 0
+	}
+	contracts := types.ChangePlanVerificationBehaviorContracts(plan)
+	hardIDs := types.HardRequiredWriteBehaviorContractIDs(contracts)
+	hard = len(hardIDs)
+	for _, contract := range contracts {
+		if types.IsPlanningOnlyWriteBehaviorContract(contract) {
+			planningOnly++
+		}
+	}
+	if report == nil || hard == 0 {
+		return hard, 0, planningOnly
+	}
+	seen := map[string]bool{}
+	for _, record := range report.VerificationConfidence {
+		if strings.TrimSpace(record.Status) != "satisfied" {
+			continue
+		}
+		switch strings.TrimSpace(record.Category) {
+		case "probe_contract_refs", "project_test_contract_refs":
+		default:
+			continue
+		}
+		for _, raw := range record.ContractRefs {
+			ref := strings.TrimSpace(raw)
+			if _, required := hardIDs[ref]; required {
+				seen[ref] = true
+			}
+		}
+	}
+	return hard, len(seen), planningOnly
 }
 
 func writeControllerChangedPathCoverageRows(rows []types.ChangedPathVerificationCoverage, limit int) []types.ChangedPathVerificationCoverage {

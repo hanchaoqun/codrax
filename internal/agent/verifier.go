@@ -63,7 +63,8 @@ type verifierEvaluator struct {
 // supplement with up to two sections:
 //
 //  1. AcceptanceTests — natural-language criteria the plan declared
-//     (when non-empty). Informational only; no automated matching.
+//     (when non-empty). Planning guidance only; no automated matching and no
+//     completion authority.
 //
 //  2. Baseline failures — present ONLY when the orchestrator captured
 //     a pre-apply BaselineReport and that baseline had failing
@@ -171,13 +172,14 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	s.WriteString("\n")
 	if len(plan.AcceptanceTests) > 0 {
 		s.WriteString("## Plan acceptance criteria\n\n")
-		s.WriteString("The plan declared these acceptance tests (natural-language):\n\n")
+		s.WriteString("The plan declared these natural-language planning checks. They help explain test selection, but a passing aggregate runner does not prove that every item below was independently exercised; only typed contract_refs joined to executed observations carry that authority:\n\n")
 		for _, a := range plan.AcceptanceTests {
 			s.WriteString("- " + a + "\n")
 		}
 		s.WriteString("\nAfter run_tests has produced its results, " +
 			"you may OPTIONALLY call emit_test_results to add a short FailureSummary " +
 			"narrative explaining how the actual test outcome relates to these criteria. " +
+			"Do not claim an item was independently observed unless the typed result says so. " +
 			"If all tests passed, no narrative is needed — return without calling emit_test_results.")
 	}
 	if len(baselineFailures) > 0 {

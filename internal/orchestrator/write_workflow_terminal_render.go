@@ -22,9 +22,9 @@ func renderWriteWorkflowTerminalStatus(run types.WriteWorkflowRun, lang string) 
 	switch run.Completion.Verdict {
 	case types.WriteWorkflowCompletionVerified:
 		if zh {
-			return "\n\n## 最终交付状态：已验证\n\n所有批次均已完成验证。\n"
+			return "\n\n## 最终交付状态：已验证\n\n所有批次及必需的结构化验证义务均已闭合。自然语言验收清单用于规划验证，不表示其中每一项都获得了独立执行证据。\n"
 		}
-		return "\n\n## Final delivery status: verified\n\nAll batches completed recorded verification.\n"
+		return "\n\n## Final delivery status: verified\n\nAll batches and required typed verification obligations are closed. Natural-language acceptance checklists guide verification planning; this status does not claim independent execution evidence for every checklist item.\n"
 	case types.WriteWorkflowCompletionUnverified:
 		details := writeWorkflowTerminalUnverifiedDetails(run, zh)
 		if zh {

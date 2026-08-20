@@ -402,11 +402,12 @@ type ChangePlan struct {
 	// to apply and observe small bounded slices without parsing planner prose.
 	Slices []ChangePlanSlice `json:"slices,omitempty"`
 
-	// AcceptanceTests names the test assertions the verify stage
-	// must cover before this plan is considered successful.
-	// Natural-language in B0 skeleton; B1 can promote to Criterion
-	// IR (open question #1). Empty slice is legal — plan passes
-	// verify trivially.
+	// AcceptanceTests is the planner's natural-language verification checklist.
+	// It is useful guidance for choosing project tests and typed probes, but it
+	// does not itself create completion authority: only grounded behavior
+	// contracts joined to executed typed observations can do that. Empty is
+	// legal. Keep this boundary explicit so a model-authored sentence cannot
+	// silently become either a hard gate or a false proof claim.
 	AcceptanceTests []string `json:"acceptance_tests,omitempty"`
 
 	// VerificationProbes are optional, typed, bounded behavioural

@@ -407,6 +407,40 @@ func TestWriteControllerPromptPreservesPartialVerificationEvidence(t *testing.T)
 	}
 }
 
+func TestWriteControllerPromptScopesAllVerifiedToTypedObligations(t *testing.T) {
+	mut := types.NewMutableState("verify exact behavior without upgrading planning prose")
+	mut.SetChangePlan(&types.ChangePlan{
+		ID:              "plan-proof-scope",
+		Status:          types.PlanStatusApplied,
+		AcceptanceTests: []string{"single boundary remains unchanged", "five values collapse"},
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{
+				ID: "exact-collapse", Kind: types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpEquals, Expected: "five values collapse",
+				Required: true, Source: "write_analyzer",
+			},
+			{
+				ID: "candidate-single", Kind: types.WriteBehaviorObservable,
+				Operator: types.WriteBehaviorOpSatisfies, Expected: "single boundary remains unchanged",
+				Source: "write_analyzer;" + types.WriteBehaviorContractSourcePlanningOnlyUngrounded,
+			},
+		},
+	})
+	mut.SetChangeReport(&types.ChangeReport{
+		PlanID: "plan-proof-scope", Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source: "verification_probe", Category: "probe_contract_refs", Status: "satisfied",
+			ContractRefs: []string{"exact-collapse"},
+		}},
+	})
+
+	got := (&writeControllerEvaluator{}).BuildInitialInstruction(&types.AgentContext{Mutable: mut}, nil)
+	want := "verification_completion_scope: required_typed_contracts=1 covered_required_typed_contracts=1 planning_only_contracts=1 natural_language_acceptance_items=2 all_verified_applies_to=required_typed_obligations acceptance_items_authority=planning_guidance_only"
+	if !strings.Contains(got, want) {
+		t.Fatalf("controller prompt lost exact verification authority scope %q:\n%s", want, got)
+	}
+}
+
 func TestWriteControllerPromptDisclosesChangedPathCapabilityBoundary(t *testing.T) {
 	mut := types.NewMutableState("static path verification")
 	mut.SetChangePlan(&types.ChangePlan{ID: "plan-static", Status: types.PlanStatusApplied})

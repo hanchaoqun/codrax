@@ -240,7 +240,7 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
     },
     "acceptance_tests": {
       "type": "array",
-      "description": "Optional list of test assertions the verify stage must cover. Natural-language in B0; formalized to Criterion IR in B1.",
+      "description": "Optional natural-language planning checklist for selecting verification. It does not itself create proof or a hard completion obligation; bind grounded behavior_contract ids to executed verification_probes or exact project_test_observations for typed authority.",
       "items": {"type": "string"}
     },
     "project_test_observations": {

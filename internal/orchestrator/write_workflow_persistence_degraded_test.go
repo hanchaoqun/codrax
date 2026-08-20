@@ -459,6 +459,32 @@ func TestRenderWriteWorkflowTerminalStatusLocalizesReasonCodesWithoutLeakingProt
 	}
 }
 
+func TestRenderWriteWorkflowTerminalStatusScopesVerifiedClaim(t *testing.T) {
+	run := types.WriteWorkflowRun{
+		Status: types.WriteWorkflowRunComplete,
+		Completion: &types.WriteWorkflowCompletion{
+			Verdict: types.WriteWorkflowCompletionVerified, ReasonCode: "all_batches_verified",
+		},
+	}
+	zh := renderWriteWorkflowTerminalStatus(run, "zh")
+	for _, want := range []string{"必需的结构化验证义务均已闭合", "不表示其中每一项都获得了独立执行证据"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese verified status lost scoped claim %q:\n%s", want, zh)
+		}
+	}
+	en := renderWriteWorkflowTerminalStatus(run, "en")
+	for _, want := range []string{"required typed verification obligations are closed", "does not claim independent execution evidence"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("English verified status lost scoped claim %q:\n%s", want, en)
+		}
+	}
+	for _, leaked := range []string{"all_batches_verified", "all_verified"} {
+		if strings.Contains(zh, leaked) || strings.Contains(en, leaked) {
+			t.Fatalf("verified status leaked internal enum %q: zh=%q en=%q", leaked, zh, en)
+		}
+	}
+}
+
 func TestRenderWriteWorkflowTerminalStatusHidesVerdictProtocolTokens(t *testing.T) {
 	for _, tc := range []struct {
 		verdict types.WriteWorkflowCompletionVerdict

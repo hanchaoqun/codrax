@@ -56189,3 +56189,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1224 B1221：验证完成状态收窄到必需 typed 义务，不把规划 prose 铸成证明（2026-08-20）
+
+1. 深审纠正 §123.1222 的过强定性。r759 并不存在“既有硬合同漏接”：计划只有
+   `newline-collapse-odd-run` 是 grounded hard-required 合同，它同时得到精确 verification probe 与
+   assertion-scoped project-test receipt，proof ledger 因而正确 closed。`单换行不变` 只存在于规划器摘要、
+   `acceptance_tests[]` 与被系统盖章为 `planning_only_ungrounded` 的候选合同；它没有硬完成权威。把这句
+   natural-language prose 自动升级为阻塞合同会让模型自行制造硬门，违反“精确信号作硬门”红线。
+2. 人工 fail 仍然成立，但性质是两项：模型生成的补丁违反其自己的规划承诺，且 probe 没有覆盖自己列出的
+   singleton 边界；`all_verified` 这个内部枚举又容易被读成“所有自然语言验收项逐项获得执行证明”。前者在
+   已有 language-neutral predicate-domain/boundary 教学完整的情况下属于本轮模型执行波动，不能靠扫描计划、
+   patch、测试或模型答案做硬修；后者是可泛化的完成状态权威表达 GAP。
+3. 本批保留现有 proof ledger 为唯一强权威。Controller 现在从 `ChangePlan.BehaviorContracts` 与
+   `ChangeReport.VerificationConfidence` 的 exact contract refs 生成一行紧凑 typed scope：必需合同总数、
+   已覆盖必需合同数、planning-only 合同数、自然语言 acceptance 项数，并明确 `all_verified` 只覆盖
+   required typed obligations；不做任何 prose 匹配。
+4. planner/verifier JSON 教学同步减负：`acceptance_tests[]` 明确定义为选择验证面的自然语言规划清单，不能
+   单独生成 proof 或 hard obligation；只有 grounded contract id 与已执行 probe / exact project-test receipt
+   的 typed join 才能确权。Verifier 也不得把 aggregate runner 通过表述成每条清单被独立观察。
+5. 中英文最终交付卡将“已验证”解释为“所有批次及必需的结构化验证义务闭合”，同时明确自然语言验收清单
+   不代表逐项独立执行证据。内部 `all_verified/all_batches_verified` 仍保留在 durable protocol 与审计 JSON，
+   用户可见状态不泄漏枚举值，也不扩大其语义。
+6. 新 pin 覆盖 hard=1/covered=1/planning-only=1/acceptance=2 的精确控制器投影、Verifier 权威教学以及中英文
+   终态范围；`go test ./internal/agent ./internal/orchestrator ./internal/tool ./internal/types ./internal/writeflow -count=1`
+   全绿。本批没有新增完成拒绝、重试或 proof-followup，也没有改 Trace、读模式、图关系、流式判定或模型
+   答案作者权。
+
+状态：
+
+`B1221-WRITEACCEPTANCEEVIDENCECOVERAGE1=implemented/scoped-authority-not-prose-gate`；
+`r759-hard-contract-ledger=correct/closed`；
+`r759-singleton-implementation=model-quality-fail/not-system-hard-gate`；
+`all_verified-user-meaning=required-typed-obligations-only`；
+`acceptance_tests=planning-guidance-only`；
+`request/plan/patch/test/model-output-prose-scan=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
