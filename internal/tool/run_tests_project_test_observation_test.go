@@ -328,3 +328,44 @@ func TestAggregateProjectPassWithoutObservationDoesNotMintContractReceipt(t *tes
 		}
 	}
 }
+
+func TestPlanningOnlyProjectTestObservationDoesNotMintVerifierDebt(t *testing.T) {
+	plan := &types.ChangePlan{
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "required-format", Kind: types.WriteBehaviorInvariant, Polarity: types.WriteBehaviorPolarityExpected,
+				Operator: types.WriteBehaviorOpEquals, Expected: "%.*Lg", Required: true, Source: "write_analyzer"},
+			{ID: "planning-sync", Kind: types.WriteBehaviorInvariant, Polarity: types.WriteBehaviorPolarityExpected,
+				Operator: types.WriteBehaviorOpSatisfies, Expected: "both generated headers remain synchronized", Required: false,
+				Source: "write_analyzer;" + types.WriteBehaviorContractSourcePlanningOnlyUngrounded},
+		},
+		ProjectTestObservations: []types.ProjectTestObservation{{
+			ID: "format-regression", TestPath: "tests/long_double_format.cpp",
+			AssertionSuite: "long_double_format", AssertionID: "test_long_double_format",
+			ContractRefs: []string{"required-format", "planning-sync"},
+		}},
+	}
+	report := &types.ChangeReport{Passed: true}
+	records := projectTestObservationConfidenceRecords(plan, report)
+	foundRequired := false
+	for _, rec := range records {
+		if rec.Category != "project_test_contract_refs" || rec.Status != "missing" {
+			continue
+		}
+		if len(rec.ContractRefs) != 1 || rec.ContractRefs[0] != "required-format" {
+			t.Fatalf("planning-only ref entered verifier debt: %+v", records)
+		}
+		foundRequired = true
+	}
+	if !foundRequired {
+		t.Fatalf("required project observation debt was lost: %+v", records)
+	}
+
+	plan.BehaviorContracts = plan.BehaviorContracts[1:]
+	plan.ProjectTestObservations[0].ContractRefs = []string{"planning-sync"}
+	records = projectTestObservationConfidenceRecords(plan, report)
+	for _, rec := range records {
+		if rec.Category == "project_test_contract_refs" {
+			t.Fatalf("planning-only observation emitted proof authority: %+v", records)
+		}
+	}
+}

@@ -56907,3 +56907,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1243 B1232：项目测试观察与终验必需域同源（2026-08-20）
+
+1. 代码复核确认 r767 的计划含 6 个 planning-only behavior contracts，`project_test_observations[obs-1]` 引用其中
+   `snprintf-format/sync-both-files`。`projectTestObservationConfidenceRecords` 原先对所有 observation ref 无条件生成 missing；
+   proof profile/ledger 又把所有 `project_test_contract_refs` missing 当成 obligation，而 controller completion scope 正确只统计
+   required contracts，三面权威域因此分裂。
+2. 本批在记录铸点先收窄：只要计划存在 typed behavior-contract domain，project-test 的 satisfied/missing receipt 只为
+   `RequiredWriteBehaviorContractIDs` 中的精确 ref 生成。planning-only ref 仍保留在计划和 planner 上下文，继续引导测试选择，
+   但观察未命中不再铸造 verifier debt。无 contract domain 的旧导入/测试夹具保留原兼容形。
+3. proof profile、累计 profile 与 proof ledger 同时消费同一 required-domain filter；因此旧持久化报告中已经存在的
+   `project_test_assertion_not_observed(planning-only-ref)` 也不会在恢复后复活为必需债。其他 confidence category 原样保留，
+   required project-test ref 的 missing/satisfied 严格性不变。
+4. 三层 pin：tool 测试证明 required+planning-only 混合 observation 只对 required ref 发债、纯 planning-only 零发债；types
+   测试证明旧报告的 planning-only missing 不削弱 profile/ledger；orchestrator 接线测试证明该形不进入 impact/proof follow-up，
+   把同一合同切成 required 后必须重新产生跟进项。
+5. `go test ./internal/types ./internal/tool ./internal/orchestrator -count=1` 全绿（tool 181.247s）。没有依据绿色测试跳过
+   required 义务，也没有扫描请求、计划叙述、模型输出或测试日志；系统不修改模型计划/答案。Trace 与读模式代码未改。
+
+状态：
+
+`B1232-WRITECUMULATIVEPROOFDOMAIN1=implemented/full-relevant-pass/pending-production-replay`；
+`project-test-receipt-domain=required-contract-ids-single-source`；
+`planning-only-observation=planner-guidance/no-verifier-debt`；
+`persisted-old-planning-only-missing=filtered-on-resume`；
+`required-project-test-missing=fail-closed/pinned`；
+`request/model/final-prose/test-log-scan-or-rewrite=none`；
+`system-plan/answer/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

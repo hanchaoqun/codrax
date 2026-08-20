@@ -152,7 +152,8 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 	out.ProbeCount = len(report.VerificationConfidence)
 	out.RunnerEvidence = verificationProofRunnerEvidence(report)
 	verificationProofAddCapabilityCounts(&out, report)
-	for _, rec := range report.VerificationConfidence {
+	confidence := verificationConfidenceRecordsForPlanRequiredDomain(plan, report.VerificationConfidence)
+	for _, rec := range confidence {
 		if code := strings.TrimSpace(rec.ReasonCode); code != "" {
 			out.ConfidenceReasonCodes = append(out.ConfidenceReasonCodes, code)
 			if verificationConfidenceRecordWeakensProof(rec) {
@@ -228,7 +229,7 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 	// the cumulative multi-report path does later. This never promotes an
 	// aggregate green suite: every missing ref must be closed by the same exact
 	// contract/symbol ref in a satisfied confidence record.
-	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, report.VerificationConfidence)
+	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, confidence)
 	switch status {
 	case VerificationStatusFailed:
 		out.Status = VerificationProofFailed
@@ -339,7 +340,8 @@ func BuildCumulativeVerificationProofProfile(primaryPlan *ChangePlan, primaryRep
 		out.SourceStaticPaths += profile.SourceStaticPaths
 		out.SyntaxOnlyPaths += profile.SyntaxOnlyPaths
 		out.RunnerEvidence = mergeVerificationProofRunnerEvidence(out.RunnerEvidence, profile.RunnerEvidence)
-		confidence = append(confidence, artifact.Report.VerificationConfidence...)
+		confidence = append(confidence,
+			verificationConfidenceRecordsForPlanRequiredDomain(artifact.Plan, artifact.Report.VerificationConfidence)...)
 		confidenceReasonCodes = append(confidenceReasonCodes, profile.ConfidenceReasonCodes...)
 	}
 	if out.ContributingReports == 0 {
@@ -398,7 +400,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 	for _, artifact := range unique {
 		out.addVerificationReportLedgerItems(artifact.Report)
 		out.addChangedPathCoverageLedgerItems(artifact.Report)
-		out.addVerificationConfidenceLedgerItems(artifact.Report)
+		out.addVerificationConfidenceLedgerItems(artifact.Plan, artifact.Report)
 		out.addPatchReviewLedgerItems(artifact.Plan)
 		out.addImpactLedgerItems(artifact.Plan)
 	}
@@ -774,11 +776,11 @@ func verificationProofCommandUnavailableReasonCode(cmd ExecutedCommand, class Ve
 	}
 }
 
-func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(report *ChangeReport) {
+func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(plan *ChangePlan, report *ChangeReport) {
 	if ledger == nil || report == nil {
 		return
 	}
-	for _, rec := range report.VerificationConfidence {
+	for _, rec := range verificationConfidenceRecordsForPlanRequiredDomain(plan, report.VerificationConfidence) {
 		status := verificationProofLedgerStatusFromConfidence(rec.Status)
 		kind := verificationProofLedgerKindFromConfidence(rec.Category)
 		source := firstNonEmptyVerificationProof(rec.Source, "verification_confidence")
@@ -828,6 +830,46 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(repo
 			add(base)
 		}
 	}
+}
+
+// verificationConfidenceRecordsForPlanRequiredDomain prevents an advisory
+// project-test observation from becoming a verifier completion obligation.
+// ProjectTestObservation.ContractRefs may name planning-only contracts so the
+// planner can keep an intended test surface. Those contracts are deliberately
+// absent from RequiredWriteBehaviorContractIDs and must stay absent from the
+// proof profile and ledger even when an older persisted report contains a
+// project_test_assertion_not_observed record for them. Other confidence
+// categories already derive their refs from the required-domain helpers and
+// are preserved byte-for-byte.
+func verificationConfidenceRecordsForPlanRequiredDomain(plan *ChangePlan, in []VerificationConfidenceRecord) []VerificationConfidenceRecord {
+	if len(in) == 0 {
+		return nil
+	}
+	if plan == nil {
+		return append([]VerificationConfidenceRecord(nil), in...)
+	}
+	required := RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan), true)
+	out := make([]VerificationConfidenceRecord, 0, len(in))
+	for _, rec := range in {
+		if strings.TrimSpace(rec.Category) != "project_test_contract_refs" {
+			out = append(out, rec)
+			continue
+		}
+		filtered := make([]string, 0, len(rec.ContractRefs))
+		for _, raw := range rec.ContractRefs {
+			ref := strings.TrimSpace(raw)
+			if _, ok := required[ref]; ok {
+				filtered = append(filtered, ref)
+			}
+		}
+		filtered = dedupTrimWriteWorkflowRunStrings(filtered)
+		if len(filtered) == 0 {
+			continue
+		}
+		rec.ContractRefs = filtered
+		out = append(out, rec)
+	}
+	return out
 }
 
 func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(plan *ChangePlan) {

@@ -3494,11 +3494,19 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 	if len(observations) == 0 {
 		return nil
 	}
+	contracts := types.ChangePlanVerificationBehaviorContracts(plan)
+	required := types.RequiredWriteBehaviorContractIDs(contracts, true)
+	// A validated production plan always has a typed contract domain. Keep the
+	// legacy unrestricted shape only for old/imported fixtures that contain no
+	// contracts at all. Once a domain exists, planning-only contract refs remain
+	// planner guidance and cannot mint verifier debt merely because the declared
+	// project assertion was not observed.
+	restrictToRequired := len(contracts) > 0
 	declared := map[string]struct{}{}
 	observed := map[string]struct{}{}
 	for _, observation := range observations {
 		for _, raw := range observation.ContractRefs {
-			if ref := strings.TrimSpace(raw); ref != "" {
+			if ref := strings.TrimSpace(raw); ref != "" && (!restrictToRequired || stringSetContains(required, ref)) {
 				declared[ref] = struct{}{}
 			}
 		}
@@ -3506,7 +3514,7 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 			continue
 		}
 		for _, raw := range observation.ContractRefs {
-			if ref := strings.TrimSpace(raw); ref != "" {
+			if ref := strings.TrimSpace(raw); ref != "" && (!restrictToRequired || stringSetContains(required, ref)) {
 				observed[ref] = struct{}{}
 			}
 		}
@@ -3535,6 +3543,11 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 		})
 	}
 	return out
+}
+
+func stringSetContains(set map[string]struct{}, key string) bool {
+	_, ok := set[key]
+	return ok
 }
 
 func projectTestObservationExecuted(observation types.ProjectTestObservation, report *types.ChangeReport) bool {

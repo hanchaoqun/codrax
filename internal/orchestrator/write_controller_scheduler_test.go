@@ -7977,6 +7977,44 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 	}
 }
 
+func TestSelectImpactRepairQueueItemsIgnoresPlanningOnlyProjectTestDebt(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID: "plan-planning-only-project-debt", Status: types.PlanStatusApplied,
+		TargetPaths: []string{"include/json.hpp"}, AppliedPaths: []string{"include/json.hpp"},
+		BehaviorContracts: []types.WriteBehaviorContract{{
+			ID: "planning-sync", Kind: types.WriteBehaviorInvariant,
+			Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies,
+			Expected: "generated headers remain synchronized", Required: false,
+			Source: "write_analyzer;" + types.WriteBehaviorContractSourcePlanningOnlyUngrounded,
+		}},
+	}
+	report := &types.ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults:      []types.TestResult{{Kind: types.TestResultKindUnit, AssertionID: "make-check", Passed: true}},
+		ExecutedCommands: []types.ExecutedCommand{{Runner: "make", Suite: "check", Outcome: "executed", ExitCode: 0}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "include/json.hpp", Status: types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationProjectRunner, Capability: types.VerificationCapabilityTargetBehavior,
+		}},
+		VerificationConfidence: []types.VerificationConfidenceRecord{{
+			Source: "project_test_observation", Category: "project_test_contract_refs",
+			Status: "missing", ReasonCode: "project_test_assertion_not_observed",
+			ContractRefs: []string{"planning-sync"},
+		}},
+	}
+
+	if items := selectImpactRepairQueueItems(plan, report, 0); len(items) != 0 {
+		t.Fatalf("planning-only project observation scheduled a proof follow-up: %+v", items)
+	}
+
+	plan.BehaviorContracts[0].Required = true
+	plan.BehaviorContracts[0].Source = "write_analyzer"
+	items := selectImpactRepairQueueItems(plan, report, 0)
+	if len(items) == 0 || items[0].ContractRef != "planning-sync" {
+		t.Fatalf("required project observation debt stopped scheduling a proof follow-up: %+v", items)
+	}
+}
+
 func TestPromoteActiveProofProbeOnlyBatchToVerifyOnly(t *testing.T) {
 	run := &types.WriteWorkflowRun{
 		ActiveBatchID: "batch-proof",

@@ -145,6 +145,42 @@ func TestBuildVerificationProofLedgerResolvesExactProjectTestContractReceipt(t *
 	}
 }
 
+func TestBuildVerificationProofLedgerIgnoresPersistedPlanningOnlyProjectDebt(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-planning-only-project-observation",
+		BehaviorContracts: []WriteBehaviorContract{{
+			ID: "planning-sync", Kind: WriteBehaviorInvariant,
+			Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpSatisfies,
+			Expected: "generated headers remain synchronized", Required: false,
+			Source: "write_analyzer;" + WriteBehaviorContractSourcePlanningOnlyUngrounded,
+		}},
+	}
+	report := &ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "make", Suite: "check", Outcome: "executed"}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "include/json.hpp", Status: ChangedPathVerificationCovered,
+			Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+		}},
+		// Resume compatibility: reports written before the authority fix may
+		// contain this record. It must not recreate a required obligation.
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source: "project_test_observation", Category: "project_test_contract_refs",
+			Status: "missing", ReasonCode: "project_test_assertion_not_observed",
+			ContractRefs: []string{"planning-sync"},
+		}},
+	}
+
+	profile := BuildVerificationProofProfile(plan, report)
+	if profile.Status != VerificationProofStrong || verificationProofHasReason(profile, "project_test_assertion_not_observed") {
+		t.Fatalf("planning-only project observation weakened proof profile: %+v", profile)
+	}
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
+		t.Fatalf("planning-only project observation entered proof ledger: %+v", ledger)
+	}
+}
+
 func TestBuildVerificationProofProfileSingleReportResolvesProbeMissingRefWithExactProjectReceipt(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-mixed-contract-proof",
