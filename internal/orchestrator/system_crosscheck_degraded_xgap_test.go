@@ -27,7 +27,7 @@ func TestCollectSystemCrossCheckFindings_ScansDegradedRecoveryDoc(t *testing.T) 
 	findings := o.collectSystemCrossCheckFindings()
 	var present bool
 	for _, f := range findings {
-		if strings.Contains(f, "typed 事实:com.baidu.tieba-59566") {
+		if strings.Contains(f, "事实对照：com.baidu.tieba-59566") {
 			present = true
 		}
 		if strings.Contains(f, "状态时长之和") || strings.Contains(f, "超过该线程该维度已发布总量") {

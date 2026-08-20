@@ -56264,3 +56264,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r760`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1226 B1219：Trace 系统附录统一改用读者语言（2026-08-20）
+
+1. r760 再次生产复现的 `typed 事实/typed 席位/typed confidence` 不是模型生成，也不是 Trace 数据缺失；它们来自
+   `system_crosscheck_appendix` 的独立结构化展示面。该面位于答案尾部、只读 observation ledger，并且不进入
+   `AnswerDocumentV2` 的模型块。此次只修展示映射，不改事实选择、数值、根因排序、因果关系或结论权属。
+2. 附录标题由“系统校验附注”收敛为“证据事实对照”，导语改为“事实直接来自本报告证据、供交叉核验、不评价
+   正文结论”。这避免把系统辅助事实包装成高于模型结论的“系统权威”，同时保留该面的来源边界。
+3. 中英文从同一结构化 renderer 统一改词：`typed 事实/fact` → `事实对照/Evidence reference`，
+   `typed 席位/seat` → `根因排序/root-cause rank`，空席改成“未进入根因排序”，
+   `typed 内核调用点` → `内核等待调用点`，`typed 锁角色` → `锁等待角色`，
+   `typed confidence` → `证据置信度`，`typed 频点` → `窗内观测频点`。协议内的 typed 字段、枚举和 ledger
+   完全不变，只在用户出口翻译其含义。
+4. 唤醒 CPU 拓扑、`target_cpu` 退化、频率观测、线程根因排序、blocked-reason 调用点、锁等待、五态账户及
+   置信度各生产面均走新词面；离线方向对照也同步，避免将来重新接线时复漏。所有原有数值、证据标签、
+   on-chain 席位及“跨核不等于直接竞争”等限定保持不变。
+5. 新增双语单源 pin，覆盖有席/无席、内核等待调用点、锁等待角色与置信度，并在完整附录标题+正文上负钉
+   `typed fact/seat/confidence/kernel/lock` 及对应中文混用。既有 pin 继续证明附录不进入模型块、不改模型正文、
+   不触发修补回合，零事实时不发射。
+6. `go test ./internal/orchestrator -count=1` 全绿；关联
+   `go test ./internal/agent ./internal/tool ./internal/types ./internal/tracequery -count=1` 全绿（tool 慢测
+   186.995s，未按时长降级）。该批没有读取用户原文或模型答案来作硬门，也没有改显式时间窗、唤醒链、
+   实际占时/现规则可消双轴、链上根因、因果投影或自动补齐。
+
+状态：
+
+`B1219-TRACEVALIDATIONAPPENDIXLANGUAGE2=implemented/full-relevant-pass`；
+`system-appendix-title=reader-facing-evidence-crosscheck`；
+`system-appendix-internal-typed-vocabulary=negative-pinned`；
+`system-appendix-model-block-mutation=forbidden/unchanged`；
+`request/model/final-prose-scan-or-rewrite=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

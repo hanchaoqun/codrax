@@ -200,17 +200,17 @@ func proseFactWakeupCPUTopologyFindings(ledger types.ObservationLedger) []proseS
 	for _, row := range rows {
 		if row.Relation == types.TraceWakeupCPUTopologyCrossCPU {
 			out = append(out, proseScalarBindingFinding{
-				entry: fmt.Sprintf("typed fact: wakeup topology %s -> %s — the wakeup event ran on CPU%d and targeted CPU%d (cross-CPU); this edge is not evidence of same-CPU occupancy, preemption, or direct competition",
+				entry: fmt.Sprintf("Evidence reference: wakeup topology %s -> %s — the wakeup event ran on CPU%d and targeted CPU%d (cross-CPU); this edge is not evidence of same-CPU occupancy, preemption, or direct competition",
 					row.Waker, row.Wakee, row.WakerCPU, row.WakeeTargetCPU),
-				entryZH: fmt.Sprintf("typed 事实:唤醒拓扑 %s → %s — 唤醒事件发生在 CPU%d,目标投递 CPU%d(跨核);该边不构成同核占用、抢占或直接竞争证据",
+				entryZH: fmt.Sprintf("事实对照：唤醒拓扑 %s → %s — 唤醒事件发生在 CPU%d,目标投递 CPU%d(跨核);该边不构成同核占用、抢占或直接竞争证据",
 					row.Waker, row.Wakee, row.WakerCPU, row.WakeeTargetCPU),
 			})
 			continue
 		}
 		out = append(out, proseScalarBindingFinding{
-			entry: fmt.Sprintf("typed fact: wakeup topology %s -> %s — the wakeup event ran on CPU%d and targeted CPU%d (same CPU); placement alone is not direct-competition evidence without a separate compatible running/runnable overlap",
+			entry: fmt.Sprintf("Evidence reference: wakeup topology %s -> %s — the wakeup event ran on CPU%d and targeted CPU%d (same CPU); placement alone is not direct-competition evidence without a separate compatible running/runnable overlap",
 				row.Waker, row.Wakee, row.WakerCPU, row.WakeeTargetCPU),
-			entryZH: fmt.Sprintf("typed 事实:唤醒拓扑 %s → %s — 唤醒事件发生在 CPU%d,目标投递 CPU%d(同核);仅凭放置相同仍不能证明直接竞争,还需独立的 running/runnable 重叠证据",
+			entryZH: fmt.Sprintf("事实对照：唤醒拓扑 %s → %s — 唤醒事件发生在 CPU%d,目标投递 CPU%d(同核);仅凭放置相同仍不能证明直接竞争,还需独立的 running/runnable 重叠证据",
 				row.Waker, row.Wakee, row.WakerCPU, row.WakeeTargetCPU),
 		})
 	}
@@ -272,8 +272,8 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 	// ── engine typed degradation fact (target_cpu 退化) ──────────────────
 	if total, ok := proseFactWakeupDegradation(bus, mut); ok && proseFactMentionsCPU(prose) {
 		add(proseScalarBindingFinding{
-			entry: fmt.Sprintf("typed fact: this trace's in-window sched_wakeup target_cpu field is suspected degraded (%d events, all zero) — per-CPU accounting keyed on target_cpu is unreliable", total),
-			entryZH: fmt.Sprintf("typed 事实:本 trace 窗内 sched_wakeup 的 target_cpu 字段疑退化(%d 条全 0),按 target_cpu 归账的 per-CPU 口径不可靠",
+			entry: fmt.Sprintf("Evidence reference: this trace's in-window sched_wakeup target_cpu field is suspected degraded (%d events, all zero) — per-CPU accounting keyed on target_cpu is unreliable", total),
+			entryZH: fmt.Sprintf("事实对照：本 trace 窗内 sched_wakeup 的 target_cpu 字段疑退化(%d 条全 0),按 target_cpu 归账的 per-CPU 口径不可靠",
 				total),
 		})
 	}
@@ -313,14 +313,14 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 			points := freqByCPU[cpuID]
 			if len(points) == 0 {
 				add(proseScalarBindingFinding{
-					entry:   fmt.Sprintf("typed fact: CPU%d carries no in-window frequency observation on this report's evidence face", cpuID),
-					entryZH: fmt.Sprintf("typed 事实:CPU%d 在本报告证据面无窗内频率观测记录", cpuID),
+					entry:   fmt.Sprintf("Evidence reference: CPU%d has no in-window frequency observation in this report's evidence", cpuID),
+					entryZH: fmt.Sprintf("事实对照：CPU%d 在本报告证据面无窗内频率观测记录", cpuID),
 				})
 				continue
 			}
 			add(proseScalarBindingFinding{
-				entry:   fmt.Sprintf("typed fact: CPU%d in-window typed frequency point(s) = %s", cpuID, proseFactFreqListLabel(points)),
-				entryZH: fmt.Sprintf("typed 事实:CPU%d 窗内 typed 频点=%s", cpuID, proseFactFreqListLabel(points)),
+				entry:   fmt.Sprintf("Evidence reference: CPU%d observed in-window frequency point(s) = %s", cpuID, proseFactFreqListLabel(points)),
+				entryZH: fmt.Sprintf("事实对照：CPU%d 窗内观测频点=%s", cpuID, proseFactFreqListLabel(points)),
 			})
 		}
 	}
@@ -624,7 +624,7 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 			// marker ride the roster chip. The caller is a kernel wait call-site,
 			// never a resource object or holder identity.
 			if seat.causeSymbol != "" {
-				dz = append(dz, "内核调用点="+seat.causeSymbol)
+				dz = append(dz, "内核等待调用点="+seat.causeSymbol)
 				de = append(de, "kernel wait call-site="+seat.causeSymbol)
 			}
 			if seat.unprovenRemainder {
@@ -638,11 +638,11 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 			pz = append(pz, z)
 			pe = append(pe, e)
 		}
-		zh = append(zh, "typed 席位="+strings.Join(pz, "/"))
-		en = append(en, "typed seat(s)="+strings.Join(pe, "/"))
+		zh = append(zh, "根因排序="+strings.Join(pz, "/"))
+		en = append(en, "root-cause rank(s)="+strings.Join(pe, "/"))
 	} else if f.boardExists {
-		zh = append(zh, "typed 席位=无")
-		en = append(en, "typed seat=none")
+		zh = append(zh, "未进入根因排序")
+		en = append(en, "not present in the root-cause ranking")
 	}
 	if len(f.callers) > 0 {
 		count := ""
@@ -651,8 +651,8 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 			count = fmt.Sprintf("(%d条记录)", f.callerCount)
 			countEN = fmt.Sprintf(" (%d record(s))", f.callerCount)
 		}
-		zh = append(zh, "typed 内核调用点="+strings.Join(f.callers, "/")+count)
-		en = append(en, "typed kernel wait call-site="+strings.Join(f.callers, "/")+countEN)
+		zh = append(zh, "内核等待调用点="+strings.Join(f.callers, "/")+count)
+		en = append(en, "kernel wait call-site="+strings.Join(f.callers, "/")+countEN)
 	}
 	if f.lockWaiter || f.lockHolder {
 		role, roleEN := "等待侧", "waiter side"
@@ -666,8 +666,8 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 			owner = fmt.Sprintf("(锁主 tid=%s)", strings.Join(f.ownerTIDs, "/"))
 			ownerEN = fmt.Sprintf(" (owner tid=%s)", strings.Join(f.ownerTIDs, "/"))
 		}
-		zh = append(zh, "typed 锁角色="+role+owner)
-		en = append(en, "typed lock role="+roleEN+ownerEN)
+		zh = append(zh, "锁等待角色="+role+owner)
+		en = append(en, "lock-wait role="+roleEN+ownerEN)
 	}
 	if f.account != nil {
 		// 件D (2026-07-13): ONE five-lane wording family — the thread fact
@@ -686,14 +686,14 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 		en = append(en, "tgid="+f.tgid)
 	}
 	if len(f.seats) == 0 && len(f.confidences) > 0 {
-		zh = append(zh, fmt.Sprintf("typed confidence=%.2f", f.confidences[0]))
-		en = append(en, fmt.Sprintf("typed confidence=%.2f", f.confidences[0]))
+		zh = append(zh, fmt.Sprintf("证据置信度=%.2f", f.confidences[0]))
+		en = append(en, fmt.Sprintf("evidence confidence=%.2f", f.confidences[0]))
 	}
 	if len(zh) == 0 {
 		return "", ""
 	}
-	return fmt.Sprintf("typed 事实:%s — %s", f.subject, strings.Join(zh, " · ")),
-		fmt.Sprintf("typed fact: %s — %s", f.subject, strings.Join(en, " · "))
+	return fmt.Sprintf("事实对照：%s — %s", f.subject, strings.Join(zh, " · ")),
+		fmt.Sprintf("Evidence reference: %s — %s", f.subject, strings.Join(en, " · "))
 }
 
 // proseFactEquationFindings — C-2 假等式臂: the only verdict lane, pure
@@ -1134,9 +1134,9 @@ func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
 	d := a.dims[proseWallClockDimDState]
 	io := a.ioWait
 	sum := r + q + s + d + io
-	head := fmt.Sprintf("typed 事实:%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/非IO D-state %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
+	head := fmt.Sprintf("事实对照：%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/非IO D-state %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
 		f.subject, r, q, s, d, io)
-	headEN := fmt.Sprintf("typed fact: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/non-IO D-state %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
+	headEN := fmt.Sprintf("Evidence reference: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/non-IO D-state %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
 		f.subject, r, q, s, d, io)
 	diff := sum - a.windowMS
 	if diff < 0 {

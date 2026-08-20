@@ -40,9 +40,9 @@ const systemCrossCheckFindingCap = 8
 
 func systemCrossCheckAppendixTitle(lang string) string {
 	if isChineseLang(lang) {
-		return "系统校验附注"
+		return "证据事实对照"
 	}
-	return "System Cross-check Notes"
+	return "Evidence Cross-check"
 }
 
 // systemCrossCheckLeadIn — CR-4 修复轮方向改造 (用户裁定 2026-07-12): the
@@ -52,9 +52,9 @@ func systemCrossCheckAppendixTitle(lang string) string {
 // anywhere below is pure arithmetic).
 func systemCrossCheckLeadIn(lang string) string {
 	if isChineseLang(lang) {
-		return "以下为系统对正文中出现的实体/数值的 typed 事实对照，供交叉核验；系统不判定正文正误。"
+		return "以下事实直接来自本报告证据，供交叉核验；不评价正文结论。"
 	}
-	return "The following are typed facts about entities/values that appear in the body, for cross-checking; no judgment of the body is implied."
+	return "The following facts come directly from this report's evidence for cross-checking; they do not judge the body's conclusions."
 }
 
 // systemCrossCheckScalarFinding renders the numeric/identity re-derivation

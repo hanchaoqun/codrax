@@ -562,9 +562,9 @@ func TestHeadlineElim_DirectionOmissionFinding(t *testing.T) {
 	// 提及」 form assumed a direction list exists). 返工 P3-1: 最大可消 is
 	// the direction's MAX across its two seats (58.320 > 12.100).
 	for _, want := range []string{
-		"typed 事实: 修向 频率与热治理",
+		"事实对照：修向 频率与热治理",
 		"最大可消 58.320ms",
-		"该方向最大席值",
+		"该方向最大排序项",
 		"正文未出现该方向词",
 	} {
 		if !strings.Contains(zh, want) {
@@ -576,7 +576,7 @@ func TestHeadlineElim_DirectionOmissionFinding(t *testing.T) {
 	}
 	en := findings[0].userReadable("en")
 	for _, want := range []string{
-		"typed fact: fix-direction frequency & thermal",
+		"Evidence reference: fix direction frequency & thermal",
 		"max recoverable 58.320ms",
 		"the direction's word does not appear in the body",
 	} {

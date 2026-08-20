@@ -135,7 +135,7 @@ func TestFactRel_SeatWithoutEffectiveKeepsMemberCount(t *testing.T) {
 	var line string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "typed 席位=") {
+		if strings.Contains(zh, "根因排序=") {
 			line = zh
 		}
 	}
@@ -219,7 +219,7 @@ func TestFactRel_SeatRosterCarriesUnprovenRemainder(t *testing.T) {
 	var line string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "ThreadPoolForeg-60555") && strings.Contains(zh, "typed 席位=") {
+		if strings.Contains(zh, "ThreadPoolForeg-60555") && strings.Contains(zh, "根因排序=") {
 			line = zh
 		}
 	}
@@ -227,7 +227,7 @@ func TestFactRel_SeatRosterCarriesUnprovenRemainder(t *testing.T) {
 		t.Fatalf("the seat roster fact line must render, got %+v", facts)
 	}
 	for _, want := range []string{
-		"#1(有效归因 7.386ms,成员共17,内核调用点=fscache_page_wait_o)",
+		"#1(有效归因 7.386ms,成员共17,内核等待调用点=fscache_page_wait_o)",
 		"#5(有效归因 10.433ms,原因未证)",
 	} {
 		if !strings.Contains(line, want) {

@@ -65,17 +65,59 @@ func TestCR4Fact_WaitingObjectLine(t *testing.T) {
 	var hit string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "typed 内核调用点=dma_fence_default_w") {
+		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "内核等待调用点=dma_fence_default_w") {
 			hit = zh
 		}
 	}
 	if hit == "" {
 		t.Fatalf("the waiting-object fact line must render, got %+v", facts)
 	}
-	if !strings.Contains(hit, "typed 席位=#1") || !strings.Contains(hit, "成员共4") {
+	if !strings.Contains(hit, "根因排序=#1") || !strings.Contains(hit, "成员共4") {
 		t.Fatalf("the seat + member-count facts ride the same line: %s", hit)
 	}
 	cr4BannedWordingCheck(t, []string{hit})
+}
+
+// TestProseFactThreadLineUsesReaderVocabulary pins the bilingual display
+// mapping at its single renderer. Internal typed-protocol names remain in
+// the ledger, but the user-facing appendix describes their meaning.
+func TestProseFactThreadLineUsesReaderVocabulary(t *testing.T) {
+	ranked := &proseFactThreadFacts{
+		subject: "worker-200",
+		seats: []proseFactSeat{{
+			rank: 1, effectiveMS: 8.25, hasEff: true, memberCount: 2,
+		}},
+		callers:     []string{"fscache_page_wait_on_page_bit"},
+		callerCount: 3,
+		lockWaiter:  true,
+		ownerTIDs:   []string{"300"},
+	}
+	zh, en := proseFactThreadLine(ranked)
+	for _, want := range []string{"事实对照：worker-200", "根因排序=#1", "内核等待调用点=", "锁等待角色=等待侧"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh reader vocabulary missing %q: %s", want, zh)
+		}
+	}
+	for _, want := range []string{"Evidence reference: worker-200", "root-cause rank(s)=#1", "kernel wait call-site=", "lock-wait role=waiter side"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en reader vocabulary missing %q: %s", want, en)
+		}
+	}
+
+	confidenceZH, confidenceEN := proseFactThreadLine(&proseFactThreadFacts{
+		subject:     "worker-201",
+		confidences: []float64{0.91},
+	})
+	if !strings.Contains(confidenceZH, "证据置信度=0.91") || !strings.Contains(confidenceEN, "evidence confidence=0.91") {
+		t.Fatalf("confidence must use reader vocabulary: zh=%s en=%s", confidenceZH, confidenceEN)
+	}
+	for _, surface := range []string{zh, en, confidenceZH, confidenceEN} {
+		for _, banned := range []string{"typed 事实", "typed fact", "typed 席位", "typed seat", "typed 内核", "typed kernel", "typed 锁", "typed lock", "typed confidence"} {
+			if strings.Contains(surface, banned) {
+				t.Fatalf("reader surface leaks internal vocabulary %q: %s", banned, surface)
+			}
+		}
+	}
 }
 
 // TestCR4Fact_LockRoleLine — F-CR3-1 witness (verbatim prose incl. the
@@ -90,7 +132,7 @@ func TestCR4Fact_LockRoleLine(t *testing.T) {
 	var hit string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "T7@ZeusThreadPo-61841") && strings.Contains(zh, "typed 锁角色=等待侧") {
+		if strings.Contains(zh, "T7@ZeusThreadPo-61841") && strings.Contains(zh, "锁等待角色=等待侧") {
 			hit = zh
 		}
 	}
@@ -305,7 +347,7 @@ func TestCR4Fact_FPVectorSentencesDrawNoVerdicts(t *testing.T) {
 		// judgment sentence.
 		for _, f := range proseFactJuxtapositionFindings(doc, bus, mut) {
 			zh := f.userReadable("zh")
-			if !strings.HasPrefix(zh, "typed 事实:") && !strings.HasPrefix(zh, "文中等式") {
+			if !strings.HasPrefix(zh, "事实对照：") && !strings.HasPrefix(zh, "文中等式") {
 				t.Fatalf("vector %d: fact lane emitted a non-fact line: %s", i+1, zh)
 			}
 		}

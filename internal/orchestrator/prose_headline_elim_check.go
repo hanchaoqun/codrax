@@ -1064,9 +1064,9 @@ func proseHeadlineDirectionOmissionFinding(prose []proseTextUnit, rows []proseHe
 	// deterministic check performed) — it never presupposes that the prose
 	// enumeration is a 清单 of directions.
 	return proseScalarBindingFinding{
-		entryZH: fmt.Sprintf("typed 事实: 修向 %s · 最大可消 %.3fms(该方向最大席值,%s#%d 席所在方向)——正文未出现该方向词",
+		entryZH: fmt.Sprintf("事实对照：修向 %s · 最大可消 %.3fms（该方向最大排序项，%s#%d 所在方向）——正文未出现该方向词",
 			wordZH, maxEff, tracefence.SeatChannelChainZH, one.rank),
-		entry: fmt.Sprintf("typed fact: fix-direction %s · max recoverable %.3fms (the direction's largest seat value; the direction of the %s #%d seat) — the direction's word does not appear in the body",
+		entry: fmt.Sprintf("Evidence reference: fix direction %s · max recoverable %.3fms (the direction's largest ranked value; the direction of %s #%d) — the direction's word does not appear in the body",
 			wordEN, maxEff, tracefence.SeatChannelChainEN, one.rank),
 	}, true
 }

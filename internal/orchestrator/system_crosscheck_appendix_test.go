@@ -60,13 +60,13 @@ func TestSystemCrossCheckAppendixRendersFindings(t *testing.T) {
 	out := &agent.StageOutput{FinalAnswer: "正文"}
 	o.attachSystemCrossCheckAppendix(out, "", nil)
 	atts := o.busCtx.Mutable.AnswerDisplayAttachments()
-	if len(atts) != 1 || atts[0].Title != "系统校验附注" {
+	if len(atts) != 1 || atts[0].Title != "证据事实对照" {
 		t.Fatalf("expected one appendix attachment, got %+v", atts)
 	}
 	body := atts[0].Body
 	for _, want := range []string{
-		"以下为系统对正文中出现的实体/数值的 typed 事实对照，供交叉核验；系统不判定正文正误。",
-		"typed 事实:com.baidu.tieba-59566",
+		"以下事实直接来自本报告证据，供交叉核验；不评价正文结论。",
+		"事实对照：com.baidu.tieba-59566",
 		"窗内五态",
 	} {
 		if !strings.Contains(body, want) {
@@ -175,17 +175,20 @@ func TestSystemCrossCheckAppendixNoInternalJargon(t *testing.T) {
 			t.Fatalf("[%s] expected one attachment, got %d", lang, len(atts))
 		}
 		body := atts[0].Body
+		surface := atts[0].Title + "\n" + body
 		// Blocklist entries are matched case-sensitively (acronyms like
 		// "ERM" must not trip on English words like "term"); the generic
 		// machinery words below are matched case-insensitively.
 		for _, term := range skill.InternalTermsBlocklist {
-			if strings.Contains(body, term) {
+			if strings.Contains(surface, term) {
 				t.Fatalf("[%s] appendix leaks internal term %q:\n%s", lang, term, body)
 			}
 		}
-		lower := strings.ToLower(body)
+		lower := strings.ToLower(surface)
 		for _, term := range []string{"violation", "finalize", "orchestrator",
-			"retry", "contract", "lexicon", "prose_scalar", "kind=", "stage"} {
+			"retry", "contract", "lexicon", "prose_scalar", "kind=", "stage",
+			"typed fact", "typed seat", "typed confidence", "typed kernel", "typed lock",
+			"typed 事实", "typed 席位", "typed 内核", "typed 锁", "typed 频点"} {
 			if strings.Contains(lower, term) {
 				t.Fatalf("[%s] appendix leaks internal term %q:\n%s", lang, term, body)
 			}
@@ -256,7 +259,7 @@ func TestSystemCrossCheckDoesNotBindFreeProseDurationsToTypedSubject(t *testing.
 			t.Fatalf("shipping appendix minted a prose-derived verdict %q:\n%s", banned, joined)
 		}
 	}
-	if !strings.Contains(joined, "typed 事实:app-100") ||
+	if !strings.Contains(joined, "事实对照：app-100") ||
 		!strings.Contains(joined, "running 0.000/runnable 0.000/sleep 10.000") {
 		t.Fatalf("the exact typed account should remain available without a prose verdict:\n%s", joined)
 	}

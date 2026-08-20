@@ -153,15 +153,15 @@ func TestCR4Arm6_Round2WitnessFactLane(t *testing.T) {
 	var appLine, seatedLine string
 	for _, f := range facts {
 		zh := f.userReadable("zh")
-		if strings.Contains(zh, "app-9511") && strings.Contains(zh, "typed 席位=无") {
+		if strings.Contains(zh, "app-9511") && strings.Contains(zh, "未进入根因排序") {
 			appLine = zh
 		}
-		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "typed 席位=#1") {
+		if strings.Contains(zh, "CompThread_0-2955") && strings.Contains(zh, "根因排序=#1") {
 			seatedLine = zh
 		}
 	}
 	if appLine == "" {
-		t.Fatalf("round-2 witness must render app-9511's typed 席位=无 fact, got %+v", facts)
+		t.Fatalf("round-2 witness must render app-9511's not-ranked fact, got %+v", facts)
 	}
 	if seatedLine == "" {
 		t.Fatalf("the seated subject's seat fact must render for juxtaposition, got %+v", facts)
