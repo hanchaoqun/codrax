@@ -55744,3 +55744,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1212 r754：写权威生产回放与 planner 结构化失败收敛 GAP（2026-08-19）
+
+1. 在 `main@0cadbf4bd` 重建后严格并发恰好两个案例：
+   `qf_type_relation_loop_controller + github_issue_tokenizers_newline_run_multirepo_py`。Runner 与人工均为
+   `2 PASS / 0 FAIL`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_typed_write_authority_r754_20260819_manual_audit.md`。
+2. 类型关系案例完整保留 12 条 production member -> `LoopController` 的 `implements` 边和对应文件表，
+   一次表形 finalizer 修补没有删除关系，B1209 再获异轮正证。系统没有选择、补画或替换模型关系。
+   但探索仍用 20 轮、13 次读取，且系统补充向用户暴露 `typed owner/evidence anchor` 等内部词，记
+   B1215/P2；只改补充 renderer 的用户显示，不扫描、判断或改写模型答案。
+3. tokenizer 写案例只修改 `fastlex/tokenizer.py`：在普通 BPE 循环前把连续 newline run 折叠成一个
+   rank token，既有测试文件未修改；pytest runner 不可用后，精确 unittest fallback 两个命名测试均通过，
+   changed-path coverage 为 `target_behavior/project_runner`。B1210 获生产正证：缺少
+   `regression-test-preserved` probe 行时，同 ref 的精确项目测试 receipt 正确完成单报告 reconciliation。
+4. B1211 的 fallback 降格也获生产正证：outcome-1..4 来源为
+   `expected_outcome_fallback;quality_repaired:planning_only_ungrounded`，未进入 required 权威。但深审确认
+   B1213：write-analyzer 本轮还直接生成四条 `operator=satisfies`、`source=write_analyzer`、无
+   `evidence_ref` 的显式合同。它们在结构上合法，旧 `runWriteAnalyzePhase` 只在 rejection 非空时进入
+   `repairWriteAnalysisIRQuality`，所以这些模型释义仍可保持 `required=true` 并铸入 workflow hard criteria。
+5. B1213 根修不比较 tokenizer、换行、数字或任何自然语言：每份成功解码的 WriteAnalysisIR 在接纳前
+   都先通过同一个 item-local authority calibration；只有缺少证据锚的合同被降为 planning-only，其他
+   typed 字段原样保留。生产入口测试钉住“结构合法的 ungrounded satisfies”只需一次 analyzer dispatch、
+   required ID 为空；已有 evidence-backed required 合同仍保留权威。
+6. 新确认 B1214/P1。首轮 planner 在 36 行 Python 文件上连续 14 轮发出非法结构化计划，包括虚构闭合
+   `}`、重叠 insert/replace，最后命中 `python_duplicate_definition_stutter`；外层携带 compact typed repair
+   pack 重派后 3 轮成功。说明 typed 修复信息有效，但干净滚转发生太晚。最优根修按连续失败的
+   structured emit result 计数：成功 emit 清零，达到小而有界的精确失败数后请求外层重派；不读取请求、
+   reasoning 或答案 prose，不按语言/type/case 拟合，也不以 4ms、4m、固定累计年龄终止活跃字节流。
+7. 本批不触碰 Read/Trace、Mermaid 关系所有权或答案结论所有权。显式时间窗 Trace 因果投影与自动补齐
+   保持；主因仍只来自 typed on-chain 证据，邻近/背景只作额外方向；优先级反转、调度延迟/供给、算力
+   供给、D/IO 等待、确定性语义事件、链上业务线索，以及实际占用与规则计价可消除量双轴不变。
+
+状态：
+
+`B1209-TYPERELATIONPARTICIPANTPARITY1=production-positive-r754`；
+`B1210-REPORTLOCALPROOFRECONCILE1=production-positive-r754`；
+`B1211-MODELPROSEWORKFLOWAUTHORITY1=production-positive-r754`；
+`B1213-EXPLICITUNGROUNDEDSATISFIESAUTHORITY1=implemented/production-entry-pin-pass`；
+`B1214-REPEATEDSTRUCTUREDEMITROLLOVER1=confirmed/P1/next`；
+`B1215-SYSTEMSUPPLEMENTBUSINESSLANGUAGE1=confirmed/P2`；
+`active-stream-4ms-degrade=forbidden/895s-run-preserved`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

@@ -404,6 +404,58 @@ func TestRunWriteAnalyzePhaseRepairsUngroundedExactContractWithoutWholeIRRetry(t
 	}
 }
 
+func TestRunWriteAnalyzePhaseCalibratesStructurallyValidUngroundedSatisfiesContract(t *testing.T) {
+	readIR := dagIR(types.AnswerContract{Language: "en"})
+	dispatchCount := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentWriteAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			dispatchCount++
+			ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+				RawRequest: "collapse each consecutive newline run before normal merging",
+				Task:       types.WriteTask{Kind: types.WriteTaskFeature, Scope: types.ScopeMicro, Summary: "collapse newline runs"},
+				Risk:       types.WriteRiskProfile{Overall: types.RiskBandLow},
+				ExpectedOutcomes: []string{
+					"preserve ordinary merging",
+				},
+				BehaviorContracts: []types.WriteBehaviorContract{{
+					ID:       "invented-isolated-newline",
+					Kind:     types.WriteBehaviorObservable,
+					Polarity: types.WriteBehaviorPolarityExpected,
+					Subject:  "one isolated newline",
+					Operator: types.WriteBehaviorOpSatisfies,
+					Expected: "one rank token",
+					Required: true,
+					Source:   "write_analyzer",
+				}},
+			}})
+			return &agent.StageOutput{StageReport: "structurally valid but ungrounded satisfies contract"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	mu := types.NewMutableState("collapse newline runs")
+	o.busCtx = &types.BusContext{Mode: types.ModeApply, Mutable: mu, AnalysisIR: readIR}
+
+	used, err := o.runWriteAnalyzePhase()
+	if err != nil {
+		t.Fatalf("ungrounded satisfies authority calibration should recover, got %v", err)
+	}
+	if used != 1 || dispatchCount != 1 {
+		t.Fatalf("used=%d dispatch=%d, want one write-analyzer dispatch", used, dispatchCount)
+	}
+	got := mu.WriteAnalysisIR()
+	if got == nil || len(got.Request.BehaviorContracts) != 1 {
+		t.Fatalf("calibrated IR missing: %+v", got)
+	}
+	contract := got.Request.BehaviorContracts[0]
+	if contract.Required || !types.IsPlanningOnlyWriteBehaviorContract(contract) {
+		t.Fatalf("ungrounded satisfies contract retained completion authority: %+v", contract)
+	}
+	if len(types.RequiredWriteBehaviorContractIDs(got.Request.BehaviorContracts, true)) != 0 {
+		t.Fatalf("ungrounded satisfies contract entered required ids: %+v", got.Request.BehaviorContracts)
+	}
+}
+
 func TestRunWriteAnalyzePhaseRepairsFirstIRUngroundedContractInsteadOfRetryOrFallback(t *testing.T) {
 	readIR := dagIR(types.AnswerContract{Language: "en"})
 	dispatchCount := 0

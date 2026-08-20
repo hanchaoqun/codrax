@@ -2953,20 +2953,20 @@ func (o *Orchestrator) runWriteAnalyzePhase() (int, error) {
 		elapsed := time.Since(started)
 		if err == nil && (out == nil || out.Error == "") {
 			if ir := o.busCtx.Mutable.WriteAnalysisIR(); ir != nil {
-				if rejection := writeAnalysisIRQualityRejection(ir); rejection == "" {
+				rejection := writeAnalysisIRQualityRejection(ir)
+				// Calibrate every IR; ungrounded satisfies contracts are planning-only too.
+				if repaired, repairs := repairWriteAnalysisIRQuality(ir); len(repairs) > 0 && writeAnalysisIRQualityRejection(repaired) == "" {
+					o.busCtx.Mutable.SetWriteAnalysisIR(repaired)
+					logging.Warning("[orchestrator] write_analyze calibrated under-grounded behavior contract(s) on the first valid IR; preserved all other typed fields: %s",
+						strings.Join(repairs, "; "))
+					o.busCtx.TaskState.LastError = ""
+					return used, nil
+				}
+				if rejection == "" {
 					return used, nil
 				} else {
 					rejectedIR = ir
 					lastErr = fmt.Errorf("write_analyzer emitted an under-grounded WriteAnalysisIR: %s", rejection)
-					// Calibrate item-local contract authority on the first valid IR;
-					// whole-payload retries can delete unrelated typed fields.
-					if repaired, repairs := repairWriteAnalysisIRQuality(ir); len(repairs) > 0 && writeAnalysisIRQualityRejection(repaired) == "" {
-						o.busCtx.Mutable.SetWriteAnalysisIR(repaired)
-						logging.Warning("[orchestrator] write_analyze calibrated under-grounded behavior contract(s) on the first valid IR; preserved all other typed fields: %s",
-							strings.Join(repairs, "; "))
-						o.busCtx.TaskState.LastError = ""
-						return used, nil
-					}
 					o.busCtx.Mutable.SetWriteAnalysisIR(nil)
 				}
 			}
