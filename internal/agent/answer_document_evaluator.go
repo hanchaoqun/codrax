@@ -23254,37 +23254,11 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 			relation.From.AgentIdent, relation.From.AgentValue,
 			relation.To.StageIdent, relation.To.StageValue,
 			relation.To.AgentIdent, relation.To.AgentValue,
-			answerDocReadStageTransitionReaderLabel(relation.From.StageValue, relation.To.StageValue, zh),
+			stageauthority.ReadModeTransitionReaderLabel(relation.From.StageValue, relation.To.StageValue, zh),
 			relation.SourceFile, relation.LineStart, relation.LineEnd)
 	}
 	b.WriteString("\n")
 	return b.String()
-}
-
-func answerDocReadStageTransitionReaderLabel(from, to string, zh bool) string {
-	pair := strings.ToLower(strings.TrimSpace(from)) + "\x00" + strings.ToLower(strings.TrimSpace(to))
-	if zh {
-		switch pair {
-		case "analyze\x00explore":
-			return "确定分析范围后收集证据"
-		case "explore\x00extract":
-			return "证据就绪后提炼事实"
-		case "extract\x00finalize":
-			return "结构化事实就绪后组织答案"
-		default:
-			return "进入下一阶段"
-		}
-	}
-	switch pair {
-	case "analyze\x00explore":
-		return "scope the analysis, then gather evidence"
-	case "explore\x00extract":
-		return "turn gathered evidence into structured facts"
-	case "extract\x00finalize":
-		return "compose the answer from structured facts"
-	default:
-		return "continue to the next stage"
-	}
 }
 
 func answerDocStageArtifactGroupingRequested(ctx *types.AgentContext) bool {

@@ -57606,3 +57606,65 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1262 r777：B1243 生产闭环与 read 时序图关系缩水审计（2026-08-20）
+
+1. 以 `b2e3adfb0` 构建同一二进制快照，严格并发恰好 2 路：显式窗 Trace 153s、read 流水线图+表 654s，runner
+   2/2 PASS；人工分别为 `pass + partial`。两路均交付当前活跃流答案，没有按 4ms、4m、首字节、stall 或累计年龄使用旧稿、
+   空答案或降级答案；read 路日志持续增长，长耗时不能被当作失败信号。
+2. B1243 获生产正证：Trace 仍选定 2.000–2.020s，执行 4 次 trace_query，完整生成因果投影。链上主根因保持
+   threadpool-400 的 11.000ms iowait；三个 1.000ms runnable 席保持“调度供给”方向。背景 16.000 只显示为
+   `IO活动综合指数,非墙钟`，窗口投影、链上累计和有效归因均为 `—`，未进入根因排序；旧“IO压力得分”、
+   “综合评分(io_pressure)”和“窗口IO压力(聚合)”均未出现。
+3. read 路模型首稿曾给出较完整的 Orchestrator/BusContext/dispatch/Agent/AnswerDocument 时序与阶段表，但最终图只剩
+   analyze→explorer→extractor→finalizer 三条“随后进入”边，信息明显缩水。正文和四列表仍有用，因此不是空答案，但不能因
+   runner 的图/表存在性 oracle 通过就判为人工全通过。
+4. 三次成文拒绝需要分责：一次 `replace_blocks` 被模型写成畸形 JSON 字符串；一次模型自行把 `Disp` 绑定成
+   `ctxbuilder.BuildAgentContext`、把 `Orch` 绑定成 `runReadSchedulerLoop` 等错误 endpoint identity；首稿也含若干无 typed owner
+   的 Bus 自消息和 actor 级调用。这些拒绝有可执行依据，未发现同一声明同时必带/必拒的硬合同冲突，不能全部归咎系统。
+5. 但确认 `B1245-STAGELABELDIVERGENCE1/P1`：同一三条 checkout-verified stage precedence 在 stage recipe 中分别给出
+   “确定分析范围后收集证据 / 证据就绪后提炼事实 / 结构化事实就绪后组织答案”，participant candidate 却统一给
+   “随后进入”。两面都被教学为 safe starting point，造成同一 typed relation 的上下文词面分叉；最终模型正是消费较弱候选，
+   形成关系存在但业务语义贫乏的图。这不是基于输出词面做硬门的问题，而是 producer-owned typed context 应单源的问题。
+6. 本轮没有发现 Trace 根因、邻近/背景分层、真实占时/规则可消双轴、优先级反转、调度/算力供给、D/IO、确定性语义事件、
+   链上业务线索或自动补采回归。下一批修复 B1245，仅统一 stage edge 的 soft authoring label；不让系统创建或改写图、边、
+   节点、标签、结论或模型答案。
+
+状态：
+
+`r777=runner-pass-2/2,human-pass-1+partial-1`；
+`B1243=production-closed`；
+`B1245=confirmed/P1-next`；
+`read-rejects=model-json-1+model-endpoint/relation-errors-2/no-hard-contract-contradiction-confirmed`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r777`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r777`。
+
+### §123.1263 B1245：read stage 关系词面统一到 typed stage authority（2026-08-20）
+
+1. 新增 `stageauthority.ReadModeTransitionReaderLabel` 作为三条相邻 read stage precedence 的唯一可读词源。原 finalizer
+   stage recipe 改为消费该函数；participant coverage 的已证 stage candidate 同样携带该函数产出的标签，不再按通用
+   `relation_kind=precedence` 回退为“随后进入 / then continue to”。
+2. 普通非 stage precedence 候选继续使用关系家族通用词面；calls、data flow、return、callback 等没有被错误套用 stage
+   语义。未知 stage pair 仍有保守 fallback，但 checkout-verified 主 read 流的三条边全部使用具体业务动作。
+3. 这是 typed soft guidance 单源化，不是答案 normalizer：系统不读取用户原文、模型 reasoning、最终正文或 Mermaid 标签来
+   决定门控，不创建、选择、反转或补写任何边，也不替换模型图或结论。既有 endpoint identity、方向、relation_kind 与证据
+   硬门完全不变；真实错误仍会被拒绝。
+4. 测试同时钉住中英文三条业务词面，以及 participant repair candidate 必须与 canonical stage recipe 相同、不得退回泛化
+   “随后进入”。完整相关包全绿：stageauthority 0.359s、tool 180.775s、agent 13.266s、types 24.920s。
+5. 下一步以本提交严格并发两个异构 eval：复放 read 时序图确认标签和关系表达改善，并配一条 Trace/写模式回归守住因果投影、
+   自动补采及非 read 控制面。`B1244-SOURCEANCHOROWNER1` 仍保持 confirmed/P2，待 B1245 生产回放后施工。
+
+状态：
+
+`B1245=implemented/full-relevant-pass/pending-production-replay`；
+`read-stage-visible-label=single-typed-authority`；
+`hard-relation-gates=unchanged`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1244=confirmed/P2-after-B1245-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

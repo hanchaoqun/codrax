@@ -935,7 +935,7 @@ func TestDiagramParticipantCoverageCompactRepairRetainsLocalCandidateAndRequeste
 		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
 		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
 	}
-	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow, Language: "zh-CN",
 		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
 	precedence := []stageauthority.PrecedenceRelation{{
 		From:       stageauthority.StageRow{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
@@ -952,6 +952,7 @@ func TestDiagramParticipantCoverageCompactRepairRetainsLocalCandidateAndRequeste
 	)
 	for _, want := range []string{
 		"typed_candidate[Analyzer][1]",
+		`visible_arrow_label:"确定分析范围后收集证据"`,
 		"typed_candidate[Mutable][1]",
 		`candidate_scope:"local_operation_only"`,
 		`requested_relation_closure:"unproven"`,
@@ -960,6 +961,9 @@ func TestDiagramParticipantCoverageCompactRepairRetainsLocalCandidateAndRequeste
 		if !strings.Contains(got, want) {
 			t.Fatalf("compact repair must retain the failed requested candidate and independently grounded local relation; missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, `typed_candidate[Analyzer][1]={relation_kind:"precedence",visible_arrow_label:"随后进入"`) {
+		t.Fatalf("stage participant candidate must not diverge from the canonical stage-recipe wording: %s", got)
 	}
 	if strings.Contains(got, "typed_candidate[Explorer]") {
 		t.Fatalf("compact repair must not widen the request-scoped repair roster beyond the failed participant: %s", got)

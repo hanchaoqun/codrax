@@ -64,6 +64,7 @@ type diagramParticipantTypedIncidentCandidate struct {
 	location                string
 	participantEndpointSide string
 	stageAuthority          bool
+	visibleLabel            string
 	// localOnly keeps an independently grounded operation visible without
 	// allowing it to close the requested multi-participant relation.  The
 	// candidate is authoring input only; the existing participant boundary and
@@ -1791,7 +1792,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 	}
 	seen := make(map[string]bool)
 	candidates := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
-	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide string, stageAuthority, localOnly bool) {
+	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide, visibleLabel string, stageAuthority, localOnly bool) {
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 		participantEndpointSide = strings.TrimSpace(participantEndpointSide)
 		if !relation.IsValid() || from == "" || to == "" || participantEndpointSide == "" {
@@ -1806,7 +1807,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 			participant: strings.TrimSpace(obligation.Identity),
 			relation:    relation, anchor: anchor, from: from, to: to, location: location,
 			participantEndpointSide: participantEndpointSide, stageAuthority: stageAuthority,
-			localOnly: localOnly,
+			visibleLabel: strings.TrimSpace(visibleLabel), localOnly: localOnly,
 		})
 	}
 	for _, relation := range stagePrecedence {
@@ -1818,7 +1819,9 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 		if fromIncident || toIncident {
 			add(types.DiagramRelPrecedence, types.AnchorPrecedence, relation.From.AgentValue, relation.To.AgentValue,
 				fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd),
-				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), true, false)
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident),
+				stageauthority.ReadModeTransitionReaderLabel(relation.From.StageValue, relation.To.StageValue,
+					strings.HasPrefix(strings.ToLower(strings.TrimSpace(rm.Language)), "zh")), true, false)
 		}
 	}
 	for operationIndex, operation := range diagramRequestedRelationEvidenceForRequest(evidence, rm) {
@@ -1847,7 +1850,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 		toIncident := diagramParticipantCandidateEndpointMatches(surfaces, to, operation, evidence)
 		if fromIncident || toIncident {
 			add(relation, operation.AnchorKind, from, to, operation.DisplayLocation(true),
-				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), false,
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), "", false,
 				localOnlyParticipant)
 		}
 	}
@@ -1977,8 +1980,12 @@ func renderDiagramParticipantTypedIncidentCandidate(candidate diagramParticipant
 	if candidate.localOnly {
 		localBoundary = `,candidate_scope:"local_operation_only",requested_relation_closure:"unproven",retain_participant_boundary:true`
 	}
+	visibleLabel := strings.TrimSpace(candidate.visibleLabel)
+	if visibleLabel == "" {
+		visibleLabel = diagramParticipantReaderArrowLabel(candidate.relation, language)
+	}
 	return fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true%s,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
-		strconv.Quote(string(candidate.relation)), strconv.Quote(diagramParticipantReaderArrowLabel(candidate.relation, language)), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.participant), strconv.Quote(candidate.participantEndpointSide), localBoundary,
+		strconv.Quote(string(candidate.relation)), strconv.Quote(visibleLabel), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.participant), strconv.Quote(candidate.participantEndpointSide), localBoundary,
 		strconv.Quote(candidate.location), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(string(candidate.relation)))
 }
 

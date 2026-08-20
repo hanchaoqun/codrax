@@ -34,6 +34,24 @@ func TestLoadReadModeReturnsExactAdjacentAuthority(t *testing.T) {
 	}
 }
 
+func TestReadModeTransitionReaderLabelUsesBusinessStageSemantics(t *testing.T) {
+	tests := []struct {
+		from, to, zh, en string
+	}{
+		{"analyze", "explore", "确定分析范围后收集证据", "scope the analysis, then gather evidence"},
+		{"explore", "extract", "证据就绪后提炼事实", "turn gathered evidence into structured facts"},
+		{"extract", "finalize", "结构化事实就绪后组织答案", "compose the answer from structured facts"},
+	}
+	for _, tc := range tests {
+		if got := ReadModeTransitionReaderLabel(tc.from, tc.to, true); got != tc.zh {
+			t.Fatalf("%s->%s zh label=%q, want %q", tc.from, tc.to, got, tc.zh)
+		}
+		if got := ReadModeTransitionReaderLabel(tc.from, tc.to, false); got != tc.en {
+			t.Fatalf("%s->%s en label=%q, want %q", tc.from, tc.to, got, tc.en)
+		}
+	}
+}
+
 func TestLoadReadModeFailsClosedOnSequenceOrBindingDrift(t *testing.T) {
 	tests := []struct {
 		name string

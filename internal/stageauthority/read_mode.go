@@ -49,6 +49,38 @@ type PrecedenceRelation struct {
 	LineEnd    int
 }
 
+// ReadModeTransitionReaderLabel returns the single reader-facing transition
+// wording for one checkout-verified adjacent read-stage precedence edge. Both
+// the full stage recipe and participant-coverage candidate surfaces consume
+// this function so the model never receives two different "safe" labels for
+// the same typed relation. The label is display guidance only; it does not
+// create, select, reverse, or validate an edge.
+func ReadModeTransitionReaderLabel(from, to string, zh bool) string {
+	pair := strings.ToLower(strings.TrimSpace(from)) + "\x00" + strings.ToLower(strings.TrimSpace(to))
+	if zh {
+		switch pair {
+		case "analyze\x00explore":
+			return "确定分析范围后收集证据"
+		case "explore\x00extract":
+			return "证据就绪后提炼事实"
+		case "extract\x00finalize":
+			return "结构化事实就绪后组织答案"
+		default:
+			return "进入下一阶段"
+		}
+	}
+	switch pair {
+	case "analyze\x00explore":
+		return "scope the analysis, then gather evidence"
+	case "explore\x00extract":
+		return "turn gathered evidence into structured facts"
+	case "extract\x00finalize":
+		return "compose the answer from structured facts"
+	default:
+		return "continue to the next stage"
+	}
+}
+
 // ReadModeAuthority is the complete fail-closed provider result.
 type ReadModeAuthority struct {
 	Main                 []StageRow
