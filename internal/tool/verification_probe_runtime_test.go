@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -50,6 +51,80 @@ func TestNormalizeVerificationProbesAcceptsMultiLanguageRuntimes(t *testing.T) {
 		if probes[i].Language != want {
 			t.Fatalf("probe[%d].Language = %q, want %q", i, probes[i].Language, want)
 		}
+	}
+}
+
+func TestValidateVerificationProbeSyntaxRejectsMalformedGoBeforePlanAcceptance(t *testing.T) {
+	ctx := &types.BusContext{RepoRoot: t.TempDir(), MainRepoRoot: t.TempDir()}
+	rej, pack := validatePlanFullContentWithRepair(ctx, "emit_change_plan", "probe syntax", nil, []types.VerificationProbe{{
+		ID:       "bad-go",
+		Language: "go",
+		Code:     "package main\nfunc main() { panic(\"missing brace\")\n",
+	}})
+	if rej == "" {
+		t.Fatal("malformed Go verification probe must be rejected before plan acceptance")
+	}
+	if !strings.Contains(rej, `verification_probes[0] id="bad-go" language=go has invalid syntax`) {
+		t.Fatalf("rejection must identify the exact structured probe: %s", rej)
+	}
+	if pack == nil || pack.ReasonCode != "verification_probe_syntax_invalid" {
+		t.Fatalf("repair pack = %+v, want typed syntax reason", pack)
+	}
+}
+
+func TestVerificationProbeSyntaxPreflightDoesNotExecutePython(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available on PATH")
+	}
+	marker := filepath.Join(t.TempDir(), "must-not-exist")
+	code := "from pathlib import Path\nPath(" + strconv.Quote(marker) + ").write_text('executed')\nassert True\n"
+	if got := verificationProbeSyntaxError(nil, "python", code); got != "" {
+		t.Fatalf("valid Python probe was rejected: %s", got)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("syntax preflight executed probe code; marker stat err=%v", err)
+	}
+}
+
+func TestVerificationProbeSyntaxPreflightRejectsSupportedLanguageSyntax(t *testing.T) {
+	cases := []struct {
+		language string
+		binary   string
+		code     string
+	}{
+		{language: "python", binary: "python3", code: "value = (\n"},
+		{language: "javascript", binary: "node", code: "const value = ;\n"},
+		{language: "ruby", binary: "ruby", code: "if true\n  raise 'bad'\n"},
+		{language: "java", binary: "javac", code: `if (true) { throw new AssertionError("bad") }`},
+		{language: "go", code: "package main\nfunc main( { panic(\"bad\") }\n"},
+	}
+	ctx := &types.BusContext{RepoRoot: t.TempDir(), MainRepoRoot: t.TempDir()}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			if tc.binary != "" {
+				if _, err := exec.LookPath(tc.binary); err != nil {
+					t.Skipf("%s not available on PATH", tc.binary)
+				}
+				if tc.language == "java" {
+					if err := exec.Command(tc.binary, "-version").Run(); err != nil {
+						t.Skip("javac launcher is present but no JDK runtime is available")
+					}
+				}
+			}
+			if got := verificationProbeSyntaxError(ctx, tc.language, tc.code); got == "" {
+				t.Fatalf("malformed %s probe was not rejected", tc.language)
+			}
+		})
+	}
+}
+
+func TestJavaVerificationProbeSyntaxClassifierIgnoresSemanticDiagnostics(t *testing.T) {
+	semantic := "CodraxVerificationProbe.java:3:9: compiler.err.cant.resolve.location: kindname.class, MissingProductType"
+	if javaOutputHasDefiniteSyntaxDiagnostic(semantic) {
+		t.Fatalf("missing product symbol must not become an emit-time syntax hard gate: %s", semantic)
+	}
+	if !javaOutputHasDefiniteSyntaxDiagnostic("CodraxVerificationProbe.java:3:18: compiler.err.expected: ';'") {
+		t.Fatal("definite javac parser diagnostic must be classified as syntax")
 	}
 }
 

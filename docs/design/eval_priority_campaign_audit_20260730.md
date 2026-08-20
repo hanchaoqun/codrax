@@ -55606,3 +55606,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1209 B1206：inline verification probe 接纳前跨语言语法预检（2026-08-19）
+
+1. r751 已确定源码实现和项目测试均通过，但计划内 Python probe 自身含非法语法；旧链路直到
+   apply/verify 执行时才产出 `verification_probe_syntax_error`，使一个本可在 planner bounded retry
+   内修正的作者错误污染累计证明并把终态降为 unverified。根因是两个计划 emitter 共用的
+   full-content 接纳 seam 只 dry-build 变更源码，不解析结构化 `verification_probes[].code`。
+2. 现将 B1206 根修放入该唯一 full-content seam，位于计划写入 `Mutable`/成为 workflow authority
+   之前，`emit_change_plan`、结构化 skeleton/change 路径和 proof-followup sentinel 共享。拒绝返回
+   `verification_probe_syntax_invalid`，并精确定位 probe index、id、typed language 与两个合法 carrier
+   路径；planner 可在原有 bounded retry 内只修探针，不再等源码应用后才发现。
+3. 支持矩阵按当前 inline runtime registry 整体覆盖，不按 Python case 特判：Go 使用标准 AST parser；
+   Python 使用隔离模式 `ast.parse`；JavaScript 使用 Node syntax-check；Ruby 使用 syntax-check；Java
+   只采信 `javac -XDrawDiagnostics` 的确定 parser diagnostic。所有路径只解析/编译临时探针，不执行
+   probe、不 import 客户模块、不运行产品代码、不改变 expected output，也不扫描 request、模型推理、
+   最终答案或自然语言关键词。
+4. 保持精确信号硬门：解析器/运行时缺失、启动壳不可用、5 秒静态检查超时全部 fail-open，继续由
+   执行期 typed-unavailable 披露；Java 缺 import/classpath/type/symbol 等语义环境错误不作为语法错误，
+   只有明确 parser diagnostic 才拒绝。专项测试还用文件 marker 证明 Python 预检没有执行探针代码。
+5. 五语言 malformed matrix（环境存在时执行）、Go 共用 seam typed repair pack、Java 语法/语义分界、
+   Python non-execution pin 均通过；完整 `go test ./internal/tool -count=1` 通过（179.417s）。下一步用
+   同一 tokenizers 写案例生产回放，验收标准是坏 probe 在 plan 接纳前被拒并重发，或模型一次给出
+   合法 probe；若没有触发坏 probe，不虚报该生产臂闭环。
+6. 本批不触碰 Read/Trace、答案成文、Mermaid 或流式终止策略。显式时间窗 Trace 因果投影与系统
+   自动补齐保持；主因只来自 typed on-chain 证据，邻近/背景只作额外方向；优先级反转、调度延迟/
+   供给、算力供给、D/IO 等待、确定性语义事件、链上业务线索，以及实际占用与规则计价可消除量
+   双轴不变。活跃字节流不因 4ms、4m 或固定累计年龄降级。
+
+状态：
+
+`B1206-INLINEPROBESYNTAXPREFLIGHT1=implemented/cross-runtime+full-tool-pins-pass/await-production-replay`；
+`B1207-PLANNERACTIVEOUTPUTRUNAWAY1=observed/no-active-stream-age-hard-cut`；
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=confirmed/P1/replay-before-design`；
+`active-stream-4ms-degrade=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

@@ -278,6 +278,9 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej, pack := validatePlanPathStateWithRepair(ctx, toolName, changes); rej != "" {
 		return rej, pack
 	}
+	if rej := validateVerificationProbeSyntax(ctx, verificationProbes); rej != "" {
+		return rej, planRepairPackFromReason(toolName, "verification_probe_syntax_invalid", rej, []string{"$.verification_probes[].code", "$.changes[].verification_probes[].code"}, nil)
+	}
 	if rej, paths := validatePassingProbeReplanAppliedPathMutation(ctx, changes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "replan_passing_probe_applied_path_mutation", rej, []string{"$.changes", "$.verification_probes"}, paths)
 	}
