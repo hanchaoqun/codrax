@@ -287,6 +287,66 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RequiresBodyOccurrenceForAmbiguous
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_BodyOnlyFailureMaySharePairWithDifferentAnchor(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A-->>B: grounded result\n    A->>B: unanchored invocation\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "B", FromIdentity: "ResultProducer", ToIdentity: "ResultConsumer",
+		RelationKind: types.DiagramRelReturn, VisibleLabel: "grounded result",
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B",
+			RelationKind: types.DiagramRelCall,
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "remove", BodyOccurrence: 2,
+		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("typed failed body-only relation must not be blocked by a different anchor on the same pair: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "A-->>B: grounded result") || strings.Contains(got.Diagram.Body, "unanchored invocation") {
+		t.Fatalf("body-only edit selected the wrong same-pair statement:\n%s", got.Diagram.Body)
+	}
+	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].RelationKind != types.DiagramRelReturn || got.EdgeAnchors[0].VisibleLabel != "grounded result" {
+		t.Fatalf("different same-pair anchor must remain byte-semantically intact: %+v", got.EdgeAnchors)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BodyOnlyFailureMaySharePairWithDifferentAnchorTransactionally(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A-->>B: grounded result\n    A->>B: unanchored invocation\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "B", FromIdentity: "ResultProducer", ToIdentity: "ResultConsumer",
+		RelationKind: types.DiagramRelReturn, VisibleLabel: "grounded result",
+	}}
+	mut := types.NewMutableState("atomic-body-only-shared-pair")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B",
+			RelationKind: types.DiagramRelCall,
+		}}, nil))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{
+			"block_id":"diag","action":"remove","body_occurrence":2,
+			"match":{"from_node":"A","to_node":"B","relation_kind":"call"}
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("shared-pair body-only transaction must pass the full lease and validation path: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || strings.Contains(got.Blocks[1].Diagram.Body, "unanchored invocation") ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, "A-->>B: grounded result") || len(got.Blocks[1].EdgeAnchors) != 1 {
+		t.Fatalf("transaction did not preserve the grounded sibling relation: %+v", got)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_RejectsCompoundAndConflictingCarrier(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: first\n"

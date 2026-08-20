@@ -58063,3 +58063,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1273 r784：同端点异类 anchor 仍封死 body-only 修补，读模式耗尽 20 次成文（2026-08-20）
+
+1. 以已推送 `f06ec4e90` 构建不可变二进制，严格并发恰好 2 路。显式窗 Trace 271s PASS；read 流水线图+表
+   1530s FAIL，20 次成文拒绝、19 次 patch、23 次 read、两段 Explorer、12 次 mid-loop、6 次 prune。两路模型流持续活跃，
+   没有因 4ms、4m、首字节、stall 或累计年龄抢先回退；read 最终降级是结构化重试耗尽，不是模型没有生成答案。
+2. Trace 精确系统面继续完整：2.000–2.020s 用户窗、七次 trace_query/自动补采、Trace 因果投影、11.000ms 链上 IO 首席、
+   三个 1.000ms runnable 调度供给席、主要占时/规则可消双轴与背景隔离均在，且一次成文成功。但 `B1253` 再次复现：模型
+   把上游 IO 链上候选写成“直接决定后续延迟”“阻塞整个链路”“目标阻塞完全来自上游”，同页 typed authority 却明确
+   wakeup path 不蕴含目标直接阻塞、目标直接阻塞关系未建立。该项保持 confirmed/P1，不能通过扫描或改写模型正文修复。
+3. r784 亲证 `B1254` 的剩余 P0：无锚坏 call 与另一条已证 return/data-flow 可能共享 from/to。执行器先找不到 exact call
+   anchor，随后却用“同 pair 存在任意 anchor”否决 body-only lane；模型已经声明 `body_occurrence=2` 仍收到
+   `match did not select ... exact prior anchor`。pair-level presence 把不同 relation 错当同一对象，造成 producer 一边要求删除、
+   executor 一边禁止删除的确定性合同冲突。
+4. `B1255-RELATIONATOMBODYSIBLING1/P0` 已按最小结构修正：body-only authority 仍必须来自当前 lease 中 exact
+   block/from/to/relation 且 issue 仅限 missing-anchor；但不再让同端点的其他 relation anchor 撤销该 authority。body 多义仍要求
+   模型显式 `body_occurrence`，remove 只删所选旧 statement，所有兄弟 anchors 保持；replace 仍由模型提供完整新 anchor/label，
+   合并后继续经过 lease 与全部 relation/evidence/participant 校验。系统不读取可见消息文案作事实判断，也不选择或补造关系。
+5. 新增直接编译器与真实 `EmitAnswerDocumentPatch.Execute` 两层回归：同 pair 的 grounded return 与 unanchored call 并存，模型
+   选择第 2 条 body call 后事务通过，只删除该 call，return body/anchor 保持。无租约、未点名 pair、relabel 无 anchor、歧义未选
+   occurrence 等既有 fail-closed 测试不变。完整相关包全绿：mermaidcompat 0.633s、types 24.930s、agent 13.260s、tool
+   184.178s；`make` 通过。
+6. 另确认两项高 ROI 后续债。`B1256-PATCHCONTEXTSLICE1/P1`：为修 4 个表格 evidence id 或少数图边，patch 回合仍携带
+   80k→121k 完整历史；失败类型没有决定最小 typed context。应提供失败字段、当前 block、稳定证据候选/lease 的精简视图，模型仍
+   自主选引用与关系，系统不得猜选或改正文。`B1252` 再次稳定复现：两段 Explorer、约 198 条共享证据和超宽 finalizer 输入，
+   前置 analyzer 还因 context-only provenance 连续三拒；需在 parser-owned 有界 declaration 窗与 typed completion 上根修。
+7. r784 还显示候选新增的低心智表达不足：模型多次提交 `analyze→explorer→extractor→finalizer` 可见边，却漏掉
+   `allowed_additions[]` 的 canonical identities，因此被 lease 作为 unlisted addition 正确拒绝。硬边界不应放宽；后续应让当前
+   patch schema/hint 直接、精简地暴露可复制的完整 candidate tuple，并明确“空 allowed additions 时禁止 add”，不靠可见标签、
+   请求或 reasoning 扫描判定。
+
+状态：
+
+`r784=runner-pass-1/fail-1,human-partial-1/fail-1`；
+`B1254=partial-production-positive/blocked-by-same-pair-different-anchor`；
+`B1255=implemented/full-relevant-pass/pending-production-replay`；
+`B1252=confirmed/P1`；`B1253=confirmed/P1`；`B1256=confirmed/P1`；
+`same-pair-different-relation-anchor=preserved/not-a-body-only-veto`；
+`body-only-selection=typed-failure-lease+model-body-occurrence`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r784`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r784`。

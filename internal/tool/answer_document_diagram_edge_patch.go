@@ -210,11 +210,13 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		if !atomicDiagramBodyOnlyFailureAuthorized(lease, block.ID, *edit.Match) {
 			return anchorErr
 		}
-		if atomicDiagramPairHasAnyAnchor(block.EdgeAnchors, edit.Match.FromNode, edit.Match.ToNode) {
-			return anchorErr
-		}
 		// The producer-owned retry delta names this exact failed visible
-		// pair, while the failure itself is that no prior anchor exists.
+		// relation, while the failure itself is that no matching prior
+		// anchor exists. Another relation may legitimately share the same
+		// visible endpoint pair (for example a grounded return beside an
+		// unanchored call), so pair-level anchor presence must not veto this
+		// body-only lane. body_occurrence remains mandatory whenever the
+		// visible pair is ambiguous, and unrelated anchors stay untouched.
 		// The model still chooses remove/replace and every replacement
 		// field; the compiler merely makes that declared operation
 		// executable against the previous model-authored Mermaid AST.
@@ -353,16 +355,6 @@ func atomicDiagramBodyOnlyFailureAuthorized(
 			continue
 		}
 		return true
-	}
-	return false
-}
-
-func atomicDiagramPairHasAnyAnchor(anchors []types.DiagramEdgeAnchor, fromNode, toNode string) bool {
-	fromNode, toNode = strings.TrimSpace(fromNode), strings.TrimSpace(toNode)
-	for _, anchor := range anchors {
-		if strings.TrimSpace(anchor.FromNode) == fromNode && strings.TrimSpace(anchor.ToNode) == toNode {
-			return true
-		}
 	}
 	return false
 }
