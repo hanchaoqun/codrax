@@ -57534,3 +57534,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r775`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r775`。
+
+### §123.1260 r776：B1242 生产闭环与写模式异构回归（2026-08-20）
+
+1. 以 `2b8cb33d4` 构建快照严格并发恰好 2 路：类型关系 206s、C 写模式 92s，runner 2/2 PASS；人工为
+   `pass-with-source-supplement-caveat + pass`。两路持续活跃并交付当前结果，没有因 4ms、4m、首字节、stall 或累计年龄
+   使用旧稿、空答案或降级答案。
+2. B1242 获生产正证：accepted AnalysisIR 只将用户明确命名的 `LoopController` 保留为参与者；后续 typed member-set
+   仍发现并完整展示 12 个 production implementer。主表 12 项、主图恰好 12 条同向 `implementer -> LoopController`
+   implements 边，错误的“未证关系边界”完全消失，测试专用三项继续明确留在 support-only 说明。
+3. Analyzer 首次尝试曾把预扫描发现的 12 个具体实现也升级为参与者；既有 current-request provenance 门精确拒绝，模型在
+   下一次完整调用中只保留 LoopController。这个拒绝是健康边界：预扫描发现的源码成员不是用户命名的 participant，后续
+   typed relation evidence 才能让模型画出它们。B1242 没有为减少重试而放宽此门。
+4. 成文从 r775 的 5 次拒绝/6 次 patch 降为 1 次拒绝/1 次 patch。唯一拒绝是列表项漏填 `evidence_ids`，修补后通过；
+   没有再次出现边界必带/必拒、关系方向或成员范围冲突，也没有系统删除或代写模型图。
+5. C 写模式端到端完成 analyze→plan→apply→verify→finish：计划只改 `main.c`，补丁仅将 `retrun buf;` 修为
+   `return buf;`，应用提交成功，`make test` 1/1 通过，最终 verdict=verified。说明 B1242 的 read-analysis typed 协调
+   未波及写控制器、ChangePlan、隔离 worktree、风险/应用/验证门。
+6. `B1244-SOURCEANCHOROWNER1` 再次稳定复现且升级为 confirmed/P2：模型正文与引用正确定位
+   `LoopController@agent.go:519`，系统“源码定位锚点核对”却把 `agent.go:516` 标为
+   `LoopObservation.ToolAvailable / ToolAvailable`。该补充没有改写模型主答案，但给用户提供了错误 owner；修复必须收窄
+   typed source-anchor 所属符号选择，不能扫描或覆盖模型文字。
+7. r776 没有覆盖 Trace，但 B1242 未接触 Trace 路径，完整包回归已经保护显式窗、链上根因、因果投影与自动补采。
+   B1243 的 IO 活动指数残余词面仍按原排期进入下一代码小批。
+
+状态：
+
+`r776=runner-pass-2/2,human-pass-1+pass-with-source-supplement-caveat-1`；
+`B1242=production-closed`；
+`analyzer-request-participant-provenance=healthy-reject`；
+`write-mode-plan/apply/verify=production-positive-r776`；
+`B1243=P2-next`；`B1244=confirmed/P2-after-B1243`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r776`。
