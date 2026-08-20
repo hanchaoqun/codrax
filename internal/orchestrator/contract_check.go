@@ -1563,7 +1563,8 @@ func looksLikeIdentifierShape(s string) bool {
 //
 // Emitted-name set composition (typed signal only — R2 red line):
 //   - All BlockOrderedList / BlockBulletList / BlockTable items'
-//     Label fields (verbatim, no normalisation).
+//     canonical visible identity: Label when present, otherwise Cells[0]
+//     (verbatim, no normalisation).
 //   - All AnswerBlockItem.Text leading words when the item kind
 //     conventionally carries the name there (Scalar / Decision).
 //
@@ -1609,7 +1610,7 @@ func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, r
 		if len(typedImpl) == 0 {
 			return nil
 		}
-		typedImpl = structuralDivergencePrincipalImplementers(typedImpl, rm)
+		typedImpl = structuralDivergencePrincipalImplementersForContext(typedImpl, rm, mut, busCtx)
 		if len(typedImpl) == 0 {
 			return nil
 		}
@@ -1640,7 +1641,7 @@ func runStructuralEnumerationDivergenceOracleV2(docV2 *types.AnswerDocumentV2, r
 	if len(typedImpl) == 0 {
 		return nil
 	}
-	typedImpl = structuralDivergencePrincipalImplementers(typedImpl, rm)
+	typedImpl = structuralDivergencePrincipalImplementersForContext(typedImpl, rm, mut, busCtx)
 	if len(typedImpl) == 0 {
 		return nil
 	}
@@ -1673,6 +1674,37 @@ func structuralDivergencePrincipalImplementers(typedImpl []*repotypes.Symbol, rm
 	return out
 }
 
+// structuralDivergencePrincipalImplementersForContext applies the exact
+// completion-verified typed-relation member ceiling after the request's source
+// scope. Once that authority exists, a broader all-source graph remains useful
+// supporting evidence but cannot make a principal table/list look incomplete.
+// The fallback preserves the legacy source-scope behaviour when no exact
+// principal relation set was accepted. No request text, answer prose, item
+// labels, or diagram body participates in selecting the ceiling.
+func structuralDivergencePrincipalImplementersForContext(typedImpl []*repotypes.Symbol, rm *types.RequestModel, mut *types.MutableState, busCtx *types.BusContext) []*repotypes.Symbol {
+	typedImpl = structuralDivergencePrincipalImplementers(typedImpl, rm)
+	if len(typedImpl) == 0 || rm == nil {
+		return typedImpl
+	}
+	var facts []types.AnswerAggregateFact
+	if plan := types.BuildAnswerSurfacePlanForBusContext(busCtx); plan != nil {
+		facts = plan.StableAggregateFacts
+	} else if mut != nil {
+		facts = mut.StableInvestigationAggregateFacts()
+	}
+	members := types.PrincipalTypedRelationMemberNamesForRequest(facts, rm)
+	if len(members) == 0 {
+		return typedImpl
+	}
+	out := make([]*repotypes.Symbol, 0, len(typedImpl))
+	for _, sym := range typedImpl {
+		if sym != nil && types.PrincipalTypedRelationMemberMatches(sym.Name, members) {
+			out = append(out, sym)
+		}
+	}
+	return out
+}
+
 // mapV1Names converts a V1 AnswerSymbol slice into a name set the
 // shared enumerateStructuralDivergence consumer expects.
 func mapV1Names(syms []types.AnswerSymbol) map[string]bool {
@@ -1687,7 +1719,8 @@ func mapV1Names(syms []types.AnswerSymbol) map[string]bool {
 
 // v2EmittedNameSet builds the emitted-name set from a V2 doc by
 // walking enumeration-shaped blocks (OrderedList / BulletList /
-// Table) and collecting Label values verbatim. Scalar / Decision
+// Table) and collecting each item's canonical visible identity verbatim:
+// Label when present, otherwise the first table/list cell. Scalar / Decision
 // blocks contribute their Text as a single name when non-empty.
 func v2EmittedNameSet(doc *types.AnswerDocumentV2) map[string]bool {
 	out := make(map[string]bool)
@@ -1695,7 +1728,11 @@ func v2EmittedNameSet(doc *types.AnswerDocumentV2) map[string]bool {
 		switch blk.Kind {
 		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 			for _, it := range blk.Items {
-				if name := strings.TrimSpace(it.Label); name != "" {
+				name := strings.TrimSpace(it.Label)
+				if name == "" && len(it.Cells) > 0 {
+					name = strings.TrimSpace(it.Cells[0])
+				}
+				if name != "" {
 					out[name] = true
 				}
 			}

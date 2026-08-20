@@ -52,6 +52,34 @@ func divergenceScopeAnswer(labels ...string) *types.AnswerDocumentV2 {
 	}
 }
 
+func divergenceScopeTable(cells ...string) *types.AnswerDocumentV2 {
+	items := make([]types.AnswerBlockItem, 0, len(cells))
+	for _, cell := range cells {
+		items = append(items, types.AnswerBlockItem{Cells: []string{cell, "covered"}})
+	}
+	return &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "members",
+			Kind:    types.BlockTable,
+			Columns: []string{"member", "status"},
+			Items:   items,
+		}},
+	}
+}
+
+func retainTypedRelationPrincipalMembers(mut *types.MutableState, members ...string) {
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "implementers",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Members:    members,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+	}})
+	mut.SetInvestigationComplete("accepted exact typed relation members")
+	mut.RetainInvestigationAggregateFacts()
+}
+
 func TestStructuralEnumerationDivergence_SkipsDerivedContextEntity(t *testing.T) {
 	mut := types.NewMutableState("")
 	mut.SetSearchGraph(buildDivergenceScopeGraph(t))
@@ -136,5 +164,44 @@ func TestStructuralEnumerationDivergence_AllScopePromotesTestImplementer(t *test
 	got := runStructuralEnumerationDivergenceOracleV2(divergenceScopeAnswer("alpha", "beta"), rm, mut, nil)
 	if len(got) != 1 || !strings.Contains(got[0].Detail, "loopTestDouble") {
 		t.Fatalf("all-source scope must keep omitted test implementer in principal divergence, got %+v", got)
+	}
+}
+
+func TestV2EmittedNameSet_UsesFirstCellAsCanonicalTableIdentity(t *testing.T) {
+	names := v2EmittedNameSet(divergenceScopeTable("alpha", "beta"))
+	if !names["alpha"] || !names["beta"] || len(names) != 2 {
+		t.Fatalf("first cells must be recognized as the two visible member identities, got %+v", names)
+	}
+}
+
+func TestStructuralEnumerationDivergence_ExactTypedPrincipalSetBoundsAllSourceOracle(t *testing.T) {
+	mut := types.NewMutableState("")
+	graph := buildDivergenceScopeGraph(t)
+	iface := graph.SymbolDefs["Looper"][0]
+	testFile := &repotypes.FileInfo{RelPath: "loop_test.go", Language: "go"}
+	testImpl := repotypes.Symbol{Name: "loopTestDouble", Kind: "struct", File: "loop_test.go", Line: 9, Implements: []repotypes.SymbolID{iface.ID}}
+	testImpl.ID = repotypes.DeriveSymbolID(testFile, &testImpl)
+	testFile.Symbols = []repotypes.Symbol{testImpl}
+	graph.Files = append(graph.Files, testFile)
+	graph.FileIndex[testFile.RelPath] = testFile
+	graph.SymbolByID[testImpl.ID] = &testFile.Symbols[0]
+	mut.SetSearchGraph(graph)
+	retainTypedRelationPrincipalMembers(mut, "alpha", "beta")
+
+	rm := &types.RequestModel{
+		Intent:             types.IntentEnumerate,
+		Predicates:         types.SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+		AnalyzerHints:      types.AnalyzerHints{PrimaryEntities: []string{"Looper"}},
+		SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll, IncludeAuxiliaryAsPrincipal: true},
+	}
+	bus := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: *rm}, Mutable: mut}
+	got := runStructuralEnumerationDivergenceOracleV2(divergenceScopeTable("alpha", "beta"), rm, mut, bus)
+	if len(got) != 0 {
+		t.Fatalf("support-only test implementer and canonical table cells must not create a false principal omission, got %+v", got)
+	}
+
+	got = runStructuralEnumerationDivergenceOracleV2(divergenceScopeTable("alpha"), rm, mut, bus)
+	if len(got) != 1 || !strings.Contains(got[0].Detail, "beta") || strings.Contains(got[0].Detail, "loopTestDouble") {
+		t.Fatalf("a real principal omission must still fire without promoting support-only members, got %+v", got)
 	}
 }

@@ -57413,3 +57413,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r774`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r774`。
+
+### §123.1257 B1240：结构枚举旧 oracle 对齐标准表格与精确主成员集合（2026-08-20）
+
+1. 确认 r774 的“枚举类条目中部分项的证据支持稍弱”不是模型遗漏。最终表格按 schema 将成员 identity 放在
+   `items[].cells[0]`，旧 `v2EmittedNameSet` 却只读取 `label`；同一结构化答案已经通过表格形状门，随后又被旧 oracle
+   误判为零成员，属于确定性的系统合同分叉。
+2. 旧 oracle 还有第二个边界漂移：即使 completion 已给 principal member_set 铸造
+   `system:typed_relation_principal_member_set`，它仍只按 `SourceScopeProfile=all` 读取整个代码图，因而会把已明确留在
+   support-only 的测试实现重新提升为主答案必备项。
+3. 本批将枚举型 list/table 的可见 item identity 统一为 `label` 优先、为空时读取 canonical `cells[0]`；不扫描
+   block text、用户原文、模型 reasoning/正文或 Mermaid。标量/决策块的既有结构化读取保持不变。
+4. 结构枚举 oracle 先保留既有 typed source-scope 过滤，再消费 completion-verified exact principal relation member set
+   作为成员上界。精确权威不存在时完全沿用旧行为；存在时，宽源代码图仍保留为支持证据，但不再反向扩大主表/主列表。
+5. 回归覆盖标准 cells 表格必须识别两个成员、all-source 下 support-only 测试实现不得产生假缺口、真实遗漏 production
+   member 仍必须报错且不得把测试实现写入缺失清单。`go test ./internal/orchestrator ./internal/types -count=1` 全绿
+   （orchestrator 12.748s、types 24.577s）。
+6. 本批只修读取 authority 与显示完整性 oracle；没有创建、补写或改写模型答案、表格项、关系边、节点、标签或结论，
+   也未修改 Trace 查询、显式窗、链上根因选举、因果投影/自动补采、JSON/Mermaid 自愈及活跃流时限路径。
+
+状态：
+
+`B1240=implemented/full-relevant-pass/pending-production-replay`；
+`structured-enumeration-item-identity=label-or-canonical-first-cell`；
+`structural-divergence-principal-universe=completion-verified-exact-typed-members-when-present`；
+`real-principal-omission=still-rejected`；
+`support-only-source-relations=preserved/not-promoted`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1241=P1-next`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
