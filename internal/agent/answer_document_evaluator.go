@@ -15279,6 +15279,9 @@ func answerDocumentRequiresTypedPerMemberSourceLocations(ctx *types.AgentContext
 	if ctx == nil {
 		return false
 	}
+	if len(answerDocExactRelationMemberLocations(ctx)) > 0 {
+		return true
+	}
 	if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil {
 		profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
 		if profile.Active() && profile.RequestsField(types.SourceInventoryFieldLocation) {
@@ -15345,6 +15348,14 @@ func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerD
 func answerDocumentCoversTypedPerMemberSourceLocations(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
 	if ctx == nil || doc == nil {
 		return false
+	}
+	if exact := answerDocExactRelationMemberLocations(ctx); len(exact) > 0 {
+		for _, row := range exact {
+			if !answerDocumentHasVisibleMemberLocationRow(doc, row.member, row.file) {
+				return false
+			}
+		}
+		return true
 	}
 	var found bool
 	for _, fact := range answerDocStableAggregateFacts(ctx) {
@@ -15556,8 +15567,8 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 // answerDocumentRelationMemberSetRequestsVisibleLocations joins two precise,
 // independent typed receipts: emit_analysis preserved a schema-validated
 // per-member location display field after disabling source-inventory authority,
-// and exploration supplied an exact relation-principal member set with one
-// aligned source location per member. Only that conjunction asks the existing
+// and the shared request-scoped typed-relation provider supplied exact member
+// identities and source locations. Only that conjunction asks the existing
 // member_set surface to show member+location on the same row. It does not read
 // request wording, dimension labels, table headings, model prose, or Mermaid.
 func answerDocumentRelationMemberSetRequestsVisibleLocations(ctx *types.AgentContext) bool {
@@ -15572,8 +15583,15 @@ func answerDocumentRelationMemberSetRequestsVisibleLocations(ctx *types.AgentCon
 		return false
 	}
 	// The inactive presentation receipt alone cannot demand an impossible
-	// answer. Require exact, index-aligned typed locations before enabling the
-	// display-only repair contract.
+	// answer. Prefer the same exact request-scoped provider used by the strict
+	// relation validator and finalizer recipe. This keeps authoring guidance,
+	// display coverage, and the evidence gate on one typed universe.
+	if len(answerDocExactRelationMemberLocations(ctx)) > 0 {
+		return true
+	}
+	// Retain the already-certified aggregate lane for contexts where the
+	// provider is intentionally unavailable but completion carried an exact,
+	// index-aligned principal relation set.
 	for _, fact := range answerDocStableAggregateFacts(ctx) {
 		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 ||
 			!types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
@@ -15595,6 +15613,59 @@ func answerDocumentRelationMemberSetRequestsVisibleLocations(ctx *types.AgentCon
 		}
 	}
 	return false
+}
+
+type answerDocRelationMemberLocation struct {
+	member string
+	file   string
+	line   int
+}
+
+// answerDocExactRelationMemberLocations projects the exact typed-relation
+// provider onto the narrow row-local presentation receipt. The provider is
+// shared with the strict relation evidence gate, so name-only/advisory rows,
+// out-of-scope source lanes, and incomplete source tuples fail closed before
+// this helper runs. The presentation-only source-inventory receipt is still
+// required: exact relation membership by itself does not create a visible
+// file-location obligation.
+func answerDocExactRelationMemberLocations(ctx *types.AgentContext) []answerDocRelationMemberLocation {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	profile := rm.SourceInventoryProfile
+	if profile == nil || !profile.PresentationFieldsOnly() ||
+		!profile.RequestsField(types.SourceInventoryFieldLocation) ||
+		!types.HasTypedRelationMemberSetShape(rm) {
+		return nil
+	}
+	exact := tool.ExactTypedRelationEvidenceForRequest(
+		types.ToolBusContext(ctx, types.AgentFinalizer),
+		rm,
+	)
+	if len(exact) == 0 {
+		return nil
+	}
+	out := make([]answerDocRelationMemberLocation, 0, len(exact))
+	seen := make(map[string]bool, len(exact))
+	for _, item := range exact {
+		member := strings.TrimSpace(item.Subject)
+		file := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, "/"))
+		if member == "" || file == "" || item.LineStart <= 0 {
+			continue
+		}
+		key := strings.ToLower(member) + "\x00" + strings.ToLower(file)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, answerDocRelationMemberLocation{
+			member: member,
+			file:   file,
+			line:   item.LineStart,
+		})
+	}
+	return out
 }
 
 func answerDocumentMemberSetPayloadBlockCount(doc *types.AnswerDocumentV2, requireExplicitFacet bool) int {

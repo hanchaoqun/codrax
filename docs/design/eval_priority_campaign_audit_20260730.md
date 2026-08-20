@@ -57124,3 +57124,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-degrade=forbidden/unchanged`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.1249 r770 与 B1235 接线纠偏：展示义务改接共享 exact relation provider（2026-08-20）
+
+1. 以 `d40338de6` 构建快照严格并发恰好 2 路：类型关系 221s、Trace 180s，runner 2/2 PASS，人工 2/2
+   通过；两路持续活跃，均未因 4ms、4m、首字节、stall 或累计年龄降级。Trace 继续保留显式窗、完整唤醒链、11.000ms
+   链上 iowait 首因、三席调度延迟、实际占时/规则可消双轴、Trace 因果投影与确定性补采，背景 IO 压力未越权加冕。
+2. 类型终稿也获得输出正证：12 个 production implementer 每行均有真实 file:line，图有 12 条模型编写的 `implements`
+   边，无抽象集合 boundary 或 raw relation enum。但日志否证了 §123.1248 所写的“生产合同已接通”：首稿本来就带全路径，三次
+   patch 只处理 citation 迁移、block-id 大小写笔误和 `member_set` facet；逐成员 location 教学/修补从未触发。
+3. 确切原因是权限载体错位。生产 aggregate 在 Finalizer handoff 中明确为
+   `fact_authority=advisory_model_inference/principal_contract=not_authorized`，而旧 helper 只接受 evidence-authorized principal
+   aggregate；与此同时，严格关系校验器、图 recipe 与 Finalizer 已经共享 `ExactTypedRelationEvidenceForRequest`，后者准确给出
+   12 个 request-scoped production 成员的 `name + file + line`。因此“答案正确”只是模型正向输出，不能证明确定性兜底闭环。
+4. 本批把展示合同改接同一 exact provider：只有 Analyzer 已保存 inactive presentation receipt 且明确请求 `location`、请求为
+   typed relation member-set、共享 provider 返回 CoverageGateEligible 的 request-scoped exact tuple 时，才生成逐成员位置义务。
+   name-only/advisory、不完整 tuple、测试/辅助 source lane 和缺 presentation receipt 均 fail-open；既有已认证 aggregate 路径仅作
+   provider 缺席时的兼容后备。
+5. 覆盖检查直接逐 exact member 要求模型自己的同一可见行同时出现 member identity 与 exact path；初始教学、修补 hint、硬覆盖
+   检查和关系证据门现在消费同一 typed universe。系统不建立表格、不选择成员、不填写路径、不改模型答案，也不扫描用户原文、
+   模型 thinking/正文、列标题、Mermaid 标签或语言关键词。
+6. 新 pin 覆盖：无 aggregate 时两个 exact production row 缺路径必须失败、逐行补路径通过；初始教学和 repair hint 均读取共享
+   provider；name-only provider 不得铸造硬展示义务。原 aggregate 兼容臂继续覆盖，普通 member-set 仍 shape-only。Trace、运行时
+   路由、因果投影、自动补齐、链上-only 根因与流式时限车道没有修改。`go test ./internal/agent ./internal/tool
+   ./internal/types` 全绿（agent 12.833s、tool 182.708s、types 25.316s）。
+
+状态：
+
+`r770=runner-pass-2/2/human-pass-2/2`；
+`B1235@d40338de6=output-positive/but-deterministic-wiring-partial`；
+`B1235-shared-exact-provider-wiring=implemented/full-relevant-pass/pending-production-replay`；
+`relation-membership+diagram-recipe+location-display=one-exact-provider`；
+`name-only/advisory/incomplete/out-of-scope=fail-open`；
+`request/model/final-prose/column-title/mermaid-label/language-keyword-scan=none`；
+`system-table/cell/member/path/edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r770`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r770`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

@@ -298,6 +298,106 @@ func TestRequestedRelationMemberSetPreservesPerMemberLocationDisplayReceipt(t *t
 	}
 }
 
+func TestRequestedRelationMemberSetUsesSharedExactProviderForPerMemberLocations(t *testing.T) {
+	mut := types.NewMutableState("show exact implementations and each source location")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		MultiGraph: answerDocExactRelationCandidateSourceFixture{
+			{
+				Relation: types.TypedRelationImplements, SourceName: "LoopController", SourceKind: "interface",
+				Member: types.TypedRelationMember{
+					Name: "Alpha", File: "internal/alpha.go", Line: 10, Kind: "struct",
+					SourceRole: types.SourcePathRoleProduction, Distance: 1,
+				},
+				Carrier: types.TypedRelationCarrierGraph, Precision: types.TypedRelationPrecisionExactSymbolID,
+			},
+			{
+				Relation: types.TypedRelationImplements, SourceName: "LoopController", SourceKind: "interface",
+				Member: types.TypedRelationMember{
+					Name: "Beta", File: "internal/beta.go", Line: 20, Kind: "struct",
+					SourceRole: types.SourcePathRoleProduction, Distance: 1,
+				},
+				Carrier: types.TypedRelationCarrierGraph, Precision: types.TypedRelationPrecisionExactFile,
+			},
+		},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisImplement,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"LoopController"}},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: false,
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "implementations and files", Role: types.RequestedAnswerDimensionMemberSet,
+					Required: true, Index: 1,
+				}},
+			}}},
+	}
+	dimension := ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0]
+	missing := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind: types.BlockTable, FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+		Items: []types.AnswerBlockItem{
+			{Label: "Alpha", Text: "first implementation"},
+			{Label: "Beta", Text: "second implementation"},
+		},
+	}}}
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, missing) {
+		t.Fatal("exact provider locations must remain visible on every member row without aggregate authority")
+	}
+	complete := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind: types.BlockTable, FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+		Items: []types.AnswerBlockItem{
+			{Label: "Alpha", Cells: []string{"internal/alpha.go", "first implementation"}},
+			{Label: "Beta", Cells: []string{"internal/beta.go", "second implementation"}},
+		},
+	}}}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, complete) {
+		t.Fatal("shared exact provider should certify visible member-local source paths without an aggregate")
+	}
+	for surface, text := range map[string]string{
+		"initial prompt": renderAnswerDocRequestedAnswerDimensions(ctx),
+		"repair hint":    requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{dimension}, "en"),
+	} {
+		if !strings.Contains(text, "member's own visible row/cell") {
+			t.Fatalf("%s did not consume the shared exact provider:\n%s", surface, text)
+		}
+	}
+}
+
+func TestRequestedRelationMemberSetDoesNotPromoteNameOnlyProviderLocations(t *testing.T) {
+	ctx := answerDocExactRelationProviderContext(types.TypedRelationPrecisionNameOnly, "internal/agent/analyzer.go")
+	ctx.AnalysisIR.RequestModel.Predicates = types.SemanticPredicates{
+		IsRelationalLookup:    true,
+		IsCategoryEnumeration: true,
+	}
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = &types.SourceInventoryProfile{
+		IsSourceInventory: false,
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+	}
+	ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions = &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions: []types.RequestedAnswerDimension{{
+			Label: "implementations and files", Role: types.RequestedAnswerDimensionMemberSet,
+			Required: true, Index: 1,
+		}},
+	}
+	if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
+		t.Fatal("name-only typed relation row must not create a hard visible-location obligation")
+	}
+}
+
 func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows(t *testing.T) {
 	mut := types.NewMutableState("list file and package per declaration")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
