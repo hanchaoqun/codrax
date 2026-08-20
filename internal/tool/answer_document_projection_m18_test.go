@@ -2,10 +2,10 @@ package tool
 
 // answer_document_projection_m18_test.go — RANKDIS-M18 report-face pins.
 // io_pressure deliberately remains an aggregate context row (zero rank-seat
-// behavior change), while its published magnitude moved to the typed
-// composite_score caliber. The shared projection renderer must therefore use
-// the suffix-free comprehensive-score word on the tree, key-metric table and
-// comparison panel, without deriving an ms/window pseudo-density.
+// behavior change), while its published magnitude is now a dedicated typed
+// activity index. The shared projection renderer must therefore use the
+// suffix-free activity-index word on the tree, key-metric table and comparison
+// panel, without deriving an ms/window/chain pseudo-account.
 
 import (
 	"strings"
@@ -50,7 +50,11 @@ func m18IOPressureProjectionRecords() []types.ObservationRecord {
 			Span:            types.ObservationSpan{LineStart: 30, LineEnd: 40},
 			RichNotes: []string{
 				"tier=context_only", "type=io_pressure", "subject_kind=aggregate_metric",
-				"impact_score=61.540", "cumulative_impact_score=61.540",
+				// Deliberately divergent legacy generic slots prove that the
+				// dedicated authority wins and that neither value leaks into a
+				// duration column.
+				"impact_score=7.000", "cumulative_impact_score=61.540",
+				types.TraceNoteKeyIOPressureActivityIndex + "=61.540",
 				"effective_impact_score=0.000", "chain_relevance=background",
 				"selected_window=5.000000..5.007000",
 			},
@@ -79,8 +83,11 @@ func TestM18IOPressureContextProjectionKeepsCompositeValueCaliber(t *testing.T) 
 		if !runtimeTraceProjCompositeValueCaliber(*pressure) {
 			t.Fatalf("zh=%v: typed composite_score Unit must drive the report value caliber: %+v", zh, *pressure)
 		}
+		if pressure.IOPressureActivityIndex != 61.540 || pressure.ImpactMS != 0 || pressure.CumulativeImpactMS != 0 || pressure.EffectiveImpactMS != 0 {
+			t.Fatalf("zh=%v: IO activity authority must be isolated from every duration account: %+v", zh, *pressure)
+		}
 
-		wantScore := runtimeTraceProjCompositeScoreValueText(61.540, zh)
+		wantScore := runtimeTraceProjCompositeValueText(*pressure, 61.540, zh)
 		fence := runtimeTraceProjTreeFence(model, zh)
 		if !strings.Contains(fence, wantScore) {
 			t.Fatalf("zh=%v: tree must carry the composite value word %q:\n%s", zh, wantScore, fence)
@@ -122,6 +129,9 @@ func TestM18IOPressureContextProjectionKeepsCompositeValueCaliber(t *testing.T) 
 		joined := strings.Join(pressureCells, " | ")
 		if !strings.Contains(joined, wantScore) || strings.Contains(joined, "61.540ms") || strings.Contains(joined, "cross-thread cumulative") || strings.Contains(joined, "跨线程累计") {
 			t.Fatalf("zh=%v: table must use only the composite value caliber, got %q", zh, joined)
+		}
+		if len(pressureCells) < 3 || pressureCells[1] != "—" || pressureCells[2] != "—" {
+			t.Fatalf("zh=%v: IO activity index must not occupy projection/chain-total columns: %+v", zh, pressureCells)
 		}
 
 		cell, densityWindow := runtimeTraceProjCompareBackgroundPressureCell(model, zh)

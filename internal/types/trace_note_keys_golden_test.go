@@ -347,6 +347,7 @@ var traceNoteKeyGoldenRows = []string{
 	"io_latency_overflow_pairs|io_latency|soft_consumer",
 	"io_latency_overflow_request_ms|io_latency|soft_consumer",
 	"io_len|io_latency|display_only",
+	"io_pressure_activity_index|io_pressure_caliber|hard_consumer",
 	"io_pressure_block_max_ms|io_pressure_caliber|hard_consumer",
 	"io_pressure_conclusion|io_pressure_caliber|hard_consumer",
 	"io_pressure_evidence_quality|io_pressure_caliber|hard_consumer",

@@ -619,9 +619,14 @@ type TraceCausalProjectionNode struct {
 	// count-only blocked_reason roster remains an activity marker even when
 	// its legacy mixed-unit index is numerically large. These fields drive
 	// only system-authored wording and never alter causal seating or rank.
-	IOPressureSignal             string  `json:"io_pressure_signal,omitempty"`
-	IOPressureEvidenceQuality    string  `json:"io_pressure_evidence_quality,omitempty"`
-	IOPressureScoreCaliber       string  `json:"io_pressure_score_caliber,omitempty"`
+	IOPressureSignal          string `json:"io_pressure_signal,omitempty"`
+	IOPressureEvidenceQuality string `json:"io_pressure_evidence_quality,omitempty"`
+	IOPressureScoreCaliber    string `json:"io_pressure_score_caliber,omitempty"`
+	// IOPressureActivityIndex is a mixed-unit background activity magnitude,
+	// never wall-clock time, a chain accumulation, or an eliminable impact.
+	// Keeping it outside the generic *ImpactMS lanes prevents renderers and
+	// downstream models from reading a window cap/ranking weight as this value.
+	IOPressureActivityIndex      float64 `json:"io_pressure_activity_index,omitempty"`
 	IOPressureConclusion         string  `json:"io_pressure_conclusion,omitempty"`
 	IOPressureIOWaitBlockedCount int     `json:"io_pressure_iowait_blocked_count,omitempty"`
 	IOPressureBlockMaxMS         float64 `json:"io_pressure_block_max_ms,omitempty"`
@@ -4054,6 +4059,7 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	node.IOPressureSignal = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureSignal))
 	node.IOPressureEvidenceQuality = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureEvidenceQuality))
 	node.IOPressureScoreCaliber = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureScoreCaliber))
+	node.IOPressureActivityIndex = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOPressureActivityIndex)
 	node.IOPressureConclusion = strings.TrimSpace(traceCausalProjectionRichNoteValue(record.RichNotes, TraceNoteKeyIOPressureConclusion))
 	node.IOPressureIOWaitBlockedCount = traceCausalProjectionRichNoteInt(record.RichNotes, TraceNoteKeyIOPressureIOWaitBlockedCount)
 	node.IOPressureBlockMaxMS = traceCausalProjectionRichNoteFloat(record.RichNotes, TraceNoteKeyIOPressureBlockMaxMS)
@@ -4215,6 +4221,27 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// target_impact_ms=%.3f; the causal_impact lanes carry target_impact=%.3fms
 	// verbatim — the shared float parser strips the unit).
 	node.TargetImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyTargetImpactMS, TraceNoteKeyTargetImpact)
+	// B1241: io_pressure is aggregate background context. Its mixed-unit
+	// activity index has a dedicated typed lane and must never occupy the
+	// generic window-projection / chain-cumulative / eliminable-impact slots.
+	// The fallback decodes pre-B1241 composite artifacts deterministically from
+	// their typed cumulative-score carrier (or record value), without parsing
+	// summary prose. New producers always emit the dedicated note.
+	if traceCausalProjectionCanonicalNode(node.TypeToken) == "io_pressure" ||
+		traceCausalProjectionCanonicalNode(node.Object) == "io_pressure" {
+		if node.IOPressureActivityIndex <= 0 {
+			node.IOPressureActivityIndex = node.CumulativeImpactMS
+		}
+		if node.IOPressureActivityIndex <= 0 &&
+			(strings.TrimSpace(record.Unit) == TraceObservationUnitCompositeScore || strings.TrimSpace(record.Unit) == "score") {
+			node.IOPressureActivityIndex = traceCausalProjectionFloat(record.Value)
+		}
+		if node.IOPressureActivityIndex > 0 {
+			node.ImpactMS = 0
+			node.CumulativeImpactMS = 0
+			node.EffectiveImpactMS = 0
+		}
+	}
 	node.UndrillableReason = traceCausalProjectionUndrillableReason(record)
 	// §7.30 裁定1/2: aggregate-metric rows carry a typed subject_kind so the
 	// renderer can show metric semantics instead of an "unresolved thread".
@@ -6106,6 +6133,7 @@ func traceCausalProjectionRankBoardDedupeKey(node TraceCausalProjectionNode) str
 
 func traceCausalProjectionNodeCarriesDedupeAccount(node TraceCausalProjectionNode) bool {
 	return node.Rank > 0 ||
+		node.IOPressureActivityIndex > 0 ||
 		node.ImpactMS > 0 ||
 		node.CumulativeImpactMS > 0 ||
 		node.EffectiveImpactMS > 0 ||

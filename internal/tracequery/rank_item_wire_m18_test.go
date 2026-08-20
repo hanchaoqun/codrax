@@ -57,10 +57,7 @@ func TestRankItemCompositeWireKeyFork(t *testing.T) {
 	}
 	text := string(payload)
 	for _, want := range []string{
-		`"impact_score":61.54`,
-		`"projected_impact_score":61.54`,
-		`"cumulative_impact_score":61.54`,
-		`"effective_impact_score":61.54`,
+		`"activity_index":61.54`,
 		// Physical wall-clock ledgers keep the ms suit on every row shape
 		// (QH2-A 口径分离).
 		`"target_impact_ms":1.5`,
@@ -70,7 +67,7 @@ func TestRankItemCompositeWireKeyFork(t *testing.T) {
 			t.Fatalf("composite wire must carry %s, got:\n%s", want, text)
 		}
 	}
-	for _, deny := range []string{`"impact_ms"`, `"projected_impact_ms"`, `"cumulative_impact_ms"`, `"effective_impact_ms"`} {
+	for _, deny := range []string{`"impact_ms"`, `"projected_impact_ms"`, `"cumulative_impact_ms"`, `"effective_impact_ms"`, `"impact_score"`, `"projected_impact_score"`, `"cumulative_impact_score"`, `"effective_impact_score"`, `"score"`} {
 		if strings.Contains(text, deny) {
 			t.Fatalf("composite wire must not publish the ms-semantic key %s:\n%s", deny, text)
 		}
@@ -96,8 +93,8 @@ func TestRankItemCompositeWireKeyFork(t *testing.T) {
 	if strings.Contains(string(payload), "impact_score\":0") || strings.Contains(string(payload), `"effective_impact_score"`) {
 		t.Fatalf("zero composite slots must be omitted:\n%s", payload)
 	}
-	if !strings.Contains(string(payload), `"cumulative_impact_score":3`) {
-		t.Fatalf("positive composite slot must publish:\n%s", payload)
+	if !strings.Contains(string(payload), `"activity_index":3`) {
+		t.Fatalf("positive IO activity index must publish:\n%s", payload)
 	}
 }
 

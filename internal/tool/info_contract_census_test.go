@@ -176,6 +176,7 @@ var nodeFieldContract = map[string]fieldDisposition{
 	"IOPressureSignal":              {Status: "displayed", Ref: "count-only IO 活动标记名称与证据口径行"},
 	"IOPressureEvidenceQuality":     {Status: "displayed", Ref: "IO 活动/压力名称分叉 + 证据口径行"},
 	"IOPressureScoreCaliber":        {Status: "displayed", Ref: "证据口径行 activity-index 尺度"},
+	"IOPressureActivityIndex":       {Status: "displayed", Ref: "专用 IO 活动综合指数；禁止进入窗口投影/链上累计毫秒槽"},
 	"IOPressureConclusion":          {Status: "displayed", Ref: "证据口径行 pressure_conclusion"},
 	"IOPressureIOWaitBlockedCount":  {Status: "displayed", Ref: "证据口径行 blocked_reason marker 数"},
 	"IOPressureBlockMaxMS":          {Status: "displayed", Ref: "证据口径行块层最大延迟"},

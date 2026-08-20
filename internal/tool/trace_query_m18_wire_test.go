@@ -2,12 +2,13 @@ package tool
 
 // trace_query_m18_wire_test.go — RANKDIS-M18 (§29.104.16.1 M18, user ruling
 // §29.104.17 ② 2026-07-16) tool-face pins. Three faces fork together on the
-// registry composite-value wire arm (io_pressure joins block_io_by_inode):
-//   1. rank TEXT face — io_pressure value slots wear the composite caliber
-//      word (QH2-A word face extended off the caliber-side class arm);
-//   2. observation NOTE face — composite rows publish impact_score/
-//      cumulative_impact_score/effective_impact_score/projected_*_score
-//      instead of the ms-semantic keys (one row emits exactly one family);
+// registry composite-value wire arm. B1241 splits io_pressure from the
+// block_io_by_inode composite-score family:
+//   1. rank TEXT face — io_pressure publishes one activity_index and marks
+//      generic window/chain accounts not applicable;
+//   2. observation NOTE face — io_pressure publishes the dedicated activity
+//      key plus the explicit zero attribution sentinel, never a positive
+//      generic impact/cumulative/projected score family;
 //   3. observation UNIT face — io_pressure rank records carry the typed
 //      composite_score caliber token (终判⑧ lane extended).
 // The state-drilldown composite weight note renamed rank_impact →
@@ -41,13 +42,13 @@ func traceQueryM18RankResult() tracequery.Result {
 					Rank: 0, Tier: tracequery.RootCauseTierContextOnly, Type: "io_pressure",
 					ImpactMs: 61.540, ProjectedImpactMs: 61.540, CumulativeImpactMs: 61.540,
 					Score: 43.078, Confidence: 0.70, LineStart: 10, LineEnd: 20,
-					Source: "window_stats.io_pressure_summary",
+					Source:  "window_stats.io_pressure_summary",
 					Summary: "io pressure signal=io_activity score=61.540",
 				},
 				{
 					Rank: 2, Tier: "direct", Type: "long_sleep",
-					Thread:   tracequery.ThreadRef{Comm: "dep", PID: 21},
-					StartTs:  1.2, EndTs: 1.8,
+					Thread:  tracequery.ThreadRef{Comm: "dep", PID: 21},
+					StartTs: 1.2, EndTs: 1.8,
 					ImpactMs: 4.000, ProjectedImpactMs: 4.000, CumulativeImpactMs: 4.000,
 					Score: 3.200, Confidence: 0.80, LineStart: 30, LineEnd: 40,
 					Source: "wakeup_chain", Summary: "dep slept before wakeup",
@@ -57,9 +58,8 @@ func traceQueryM18RankResult() tracequery.Result {
 	}
 }
 
-// TestM18IOPressureRankTextWearsCompositeCaliber: the io_pressure Score is
-// the same mixed-unit composite as block_io_by_inode (M18 value#7) — its
-// positive rank-text value slots drop the ms suit.
+// TestM18IOPressureRankTextWearsCompositeCaliber: the io_pressure Score is a
+// mixed-unit background activity index, not any window or chain account.
 func TestM18IOPressureRankTextWearsCompositeCaliber(t *testing.T) {
 	summary := traceQuerySummary(traceQueryM18RankResult(), traceQueryParams{View: "root_cause_rank"}, "path", "/tmp/payload.json")
 	var pressureLine, wallLine string
@@ -75,20 +75,20 @@ func TestM18IOPressureRankTextWearsCompositeCaliber(t *testing.T) {
 		t.Fatalf("both rank rows expected in the text face:\n%s", summary)
 	}
 	for _, want := range []string{
-		"impact=61.540(composite score, not wall clock)",
-		"cumulative_impact=61.540(composite score, not wall clock)",
-		"projected_impact=61.540(composite score, not wall clock)",
-		"projected_total=61.540(composite score, not wall clock)",
-		// The closed matrix zeroes io_pressure effective attribution; zero
-		// slots make no composite claim and keep the legacy form (QH2-A).
+		"impact=not_applicable(background activity index)",
+		"cumulative_impact=not_applicable(no chain account)",
 		"effective_impact=0.000ms",
+		"target_impact=0.000ms",
+		"activity_index=61.540",
 	} {
 		if !strings.Contains(pressureLine, want) {
 			t.Fatalf("io_pressure rank row must carry %q, got:\n%s", want, pressureLine)
 		}
 	}
-	if strings.Contains(pressureLine, "61.540ms") {
-		t.Fatalf("an io_pressure value slot must never wear the ms suit:\n%s", pressureLine)
+	for _, deny := range []string{"impact=61.540", "cumulative_impact=61.540", "projected_impact=", "projected_total=", "score=43.078"} {
+		if strings.Contains(pressureLine, deny) {
+			t.Fatalf("io_pressure activity index must not leak through generic slot %q:\n%s", deny, pressureLine)
+		}
 	}
 	if !strings.Contains(wallLine, "impact=4.000ms") || strings.Contains(wallLine, "composite score") {
 		t.Fatalf("wall-clock rows stay byte-identical:\n%s", wallLine)
@@ -113,21 +113,20 @@ func TestM18CompositeRankNotesForkScoreKeys(t *testing.T) {
 	}
 	pressureNotes := strings.Join(pressure.RichNotes, "\n")
 	for _, want := range []string{
-		types.TraceNoteKeyImpactScore + "=61.540",
-		types.TraceNoteKeyCumulativeImpactScore + "=61.540",
-		// The context-only ranking-exclusion sentinel rides the score twin on
-		// a composite row (one row, one key family).
+		types.TraceNoteKeyIOPressureActivityIndex + "=61.540",
+		// The context-only ranking-exclusion sentinel remains explicit, but
+		// it carries no positive activity value.
 		types.TraceNoteKeyEffectiveImpactScore + "=0.000",
-		"projected_impact_score=61.540",
-		"projected_total_score=61.540",
 	} {
 		if !strings.Contains(pressureNotes, want) {
 			t.Fatalf("composite rank notes must carry %q, got:\n%s", want, pressureNotes)
 		}
 	}
-	for _, deny := range []string{"impact_ms=", "cumulative_impact_ms=", "effective_impact_ms=", "projected_total_ms=", "projected_impact_ms="} {
-		if strings.Contains(pressureNotes, deny) {
-			t.Fatalf("composite rank notes must not carry the ms-semantic key %q:\n%s", deny, pressureNotes)
+	for _, deny := range []string{"impact_ms=", "cumulative_impact_ms=", "effective_impact_ms=", "projected_total_ms=", "projected_impact_ms=", "impact_score=", "cumulative_impact_score=", "projected_total_score=", "projected_impact_score="} {
+		for _, note := range pressure.RichNotes {
+			if strings.HasPrefix(note, deny) {
+				t.Fatalf("io_pressure rank notes must not carry generic key %q:\n%s", deny, pressureNotes)
+			}
 		}
 	}
 	if pressure.Unit != types.TraceObservationUnitCompositeScore {
@@ -212,9 +211,9 @@ func TestM18StateDrilldownNoteKeyRankImpactScore(t *testing.T) {
 		WindowStats: &tracequery.WindowStats{
 			Window: tracequery.TimeWindow{StartTs: 1, EndTs: 2},
 			StateDrilldownPlan: []tracequery.StateDrilldownStep{{
-				Rank:   1,
-				Thread: tracequery.ThreadRef{Comm: "drill", PID: 80},
-				State:  string(tracequery.StateRunnable),
+				Rank:     1,
+				Thread:   tracequery.ThreadRef{Comm: "drill", PID: 80},
+				State:    string(tracequery.StateRunnable),
 				ImpactMs: 9, TotalMs: 20, RankImpactMs: 13.5,
 				Source: "state_churn", LineStart: 33, LineEnd: 34,
 				Summary: "drill runnable",

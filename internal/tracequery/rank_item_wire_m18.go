@@ -2,12 +2,11 @@ package tracequery
 
 // rank_item_wire_m18.go — RANKDIS-M18 (§29.104.16.1 M18, user ruling
 // §29.104.17 ② 2026-07-16): a composite-score rank row's value slots leave
-// the ms-semantic JSON keys. The published magnitude of an io_pressure /
-// block_io_by_inode row is a composite score over mixed units (latency +
-// counts + bytes) — publishing it under impact_ms/cumulative_impact_ms/
-// effective_impact_ms let a raw grep over the payload blob read the score as
-// wall-clock milliseconds (§7.30 S1 closed the TEXT face only; the wire typed
-// field names stayed "out of scope (留裁)" until this ruling).
+// the ms-semantic JSON keys. B1241 further gives io_pressure its dedicated
+// activity_index authority, because its background mixed-unit value is not a
+// window projection or chain account. block_io_by_inode retains the generic
+// composite-score family. Publishing either family under *_ms let a raw grep
+// over the payload read a score as wall-clock milliseconds.
 //
 // Pure wire-key fork: the Go fields, every sort/tier/score lane and every
 // non-composite row are byte-identical — the fork lives exclusively at JSON
@@ -48,12 +47,38 @@ type rootCauseRankItemCompositeWire struct {
 	EffectiveImpactScore  float64 `json:"effective_impact_score,omitempty"`
 }
 
+// rootCauseRankItemIOPressureWire keeps the engine's private ranking/capping
+// fields out of the public io_pressure context payload. The only published
+// magnitude is the authoritative mixed-unit activity index. The underlying Go
+// fields remain unchanged for engine compatibility; this is a wire authority
+// split, not a ranking change.
+type rootCauseRankItemIOPressureWire struct {
+	rootCauseRankItemWireAlias
+	ImpactMs           float64 `json:"impact_ms,omitempty"`
+	ProjectedImpactMs  float64 `json:"projected_impact_ms,omitempty"`
+	CumulativeImpactMs float64 `json:"cumulative_impact_ms,omitempty"`
+	EffectiveImpactMs  float64 `json:"effective_impact_ms,omitempty"`
+	Score              float64 `json:"score,omitempty"`
+
+	ImpactScore           float64 `json:"impact_score,omitempty"`
+	ProjectedImpactScore  float64 `json:"projected_impact_score,omitempty"`
+	CumulativeImpactScore float64 `json:"cumulative_impact_score,omitempty"`
+	EffectiveImpactScore  float64 `json:"effective_impact_score,omitempty"`
+	ActivityIndex         float64 `json:"activity_index,omitempty"`
+}
+
 // MarshalJSON forks the value-slot key family on composite-score rows only.
 // Non-members marshal through the plain alias — field set, order and bytes
 // identical to the pre-M18 shape.
 func (item RootCauseRankItem) MarshalJSON() ([]byte, error) {
 	if !CausalTokenCompositeValueWire(item.Type) {
 		return json.Marshal(rootCauseRankItemWireAlias(item))
+	}
+	if item.Type == "io_pressure" {
+		return json.Marshal(rootCauseRankItemIOPressureWire{
+			rootCauseRankItemWireAlias: rootCauseRankItemWireAlias(item),
+			ActivityIndex:              item.CumulativeImpactMs,
+		})
 	}
 	return json.Marshal(rootCauseRankItemCompositeWire{
 		rootCauseRankItemWireAlias: rootCauseRankItemWireAlias(item),

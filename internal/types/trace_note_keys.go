@@ -443,9 +443,14 @@ const (
 // into the system-authored projection. They are display/authority inputs:
 // no rank, retry or hard admission gate reads them.
 const (
-	TraceNoteKeyIOPressureSignal             = "io_pressure_signal"
-	TraceNoteKeyIOPressureEvidenceQuality    = "io_pressure_evidence_quality"
-	TraceNoteKeyIOPressureScoreCaliber       = "io_pressure_score_caliber"
+	TraceNoteKeyIOPressureSignal          = "io_pressure_signal"
+	TraceNoteKeyIOPressureEvidenceQuality = "io_pressure_evidence_quality"
+	TraceNoteKeyIOPressureScoreCaliber    = "io_pressure_score_caliber"
+	// TraceNoteKeyIOPressureActivityIndex carries the authoritative composite
+	// activity magnitude. It is deliberately separate from impact/projected/
+	// cumulative slots: those names describe causal or wall-clock accounts and
+	// must not receive a mixed-unit background index.
+	TraceNoteKeyIOPressureActivityIndex      = "io_pressure_activity_index"
 	TraceNoteKeyIOPressureConclusion         = "io_pressure_conclusion"
 	TraceNoteKeyIOPressureIOWaitBlockedCount = "io_pressure_iowait_blocked_count"
 	TraceNoteKeyIOPressureBlockMaxMS         = "io_pressure_block_max_ms"
@@ -2315,6 +2320,7 @@ var traceNoteKeyRows = []TraceNoteKeyRow{
 	{TraceNoteKeyIOPressureSignal, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureEvidenceQuality, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureScoreCaliber, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
+	{TraceNoteKeyIOPressureActivityIndex, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureConclusion, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureIOWaitBlockedCount, "io_pressure_caliber", TraceNoteCarrierHardConsumer},
 	{TraceNoteKeyIOPressureBlockMaxMS, "io_pressure_caliber", TraceNoteCarrierHardConsumer},

@@ -4792,6 +4792,19 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			// CausalTokenCompositeValueWire).
 			rankValue := traceQueryRankImpactValue(item.Type)
 			projection := traceQueryProjectedActualFieldsValued(rankValue, item.ProjectedImpactMs, item.CumulativeImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)
+			impactValue := rankValue(item.ImpactMs)
+			cumulativeValue := rankValue(item.CumulativeImpactMs)
+			effectiveValue := rankValue(traceQueryRootCauseEffectiveImpact(item))
+			targetValue := rankValue(item.TargetImpactMs)
+			scoreField := fmt.Sprintf(" score=%.3f", item.Score)
+			if strings.TrimSpace(item.Type) == "io_pressure" {
+				impactValue = "not_applicable(background activity index)"
+				cumulativeValue = "not_applicable(no chain account)"
+				effectiveValue = "0.000ms"
+				targetValue = "0.000ms"
+				projection = ""
+				scoreField = fmt.Sprintf(" activity_index=%.3f score_caliber=%s", item.CumulativeImpactMs, sanitizeForBanner(item.IOPressureScoreCaliber))
+			}
 			backgroundRank := ""
 			if item.BackgroundRank > 0 && traceQueryRootCauseItemIsSemanticSpanWork(item.Type) {
 				// DCS E6 (ledger §23.1 ruling ③): the typed non-chain board
@@ -4831,10 +4844,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			// sub-window). The row-segment meaning wears its own word;
 			// selected_window= / candidate_window= were already scoped and
 			// the interaction first-last face wears first_last= (same batch).
-			fmt.Fprintf(&b, "- rank=%d%s tier=%s%s type=%s thread=%s row_window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%s cumulative_impact=%s effective_impact=%s target_impact=%s%s score=%.3f confidence=%.2f lines=%d-%d source=%s%s causality=%s chain_relevance=%s chain_depth=%d%s overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
+			fmt.Fprintf(&b, "- rank=%d%s tier=%s%s type=%s thread=%s row_window=%.6f..%.6f occurrence_windows=%s dominant_state=%s running=%.3fms runnable=%.3fms sleep=%.3fms d_state=%.3fms io_wait=%.3fms impact=%s cumulative_impact=%s effective_impact=%s target_impact=%s%s%s confidence=%.2f lines=%d-%d source=%s%s causality=%s chain_relevance=%s chain_depth=%d%s overlap=%.3fms edge_count=%d nearest_chain=%s nearest_window=%.6f..%.6f span=%s perf_context=%s perf_contexts=%s%s — %s\n",
 				item.Rank, rankChannel, item.Tier, backgroundRank, item.Type, traceThreadLabel(item.Thread), item.StartTs, item.EndTs,
 				occurrenceWindows, sanitizeForBanner(item.DominantState), item.RunningMs, item.RunnableMs, item.SleepMs, item.DStateMs, item.IOWaitMs,
-				rankValue(item.ImpactMs), rankValue(item.CumulativeImpactMs), rankValue(traceQueryRootCauseEffectiveImpact(item)), rankValue(item.TargetImpactMs), projection, item.Score, item.Confidence,
+				impactValue, cumulativeValue, effectiveValue, targetValue, projection, scoreField, item.Confidence,
 				item.LineStart, item.LineEnd, item.Source, physicalSource, sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.ChainDepth, priorityProof, item.OverlapMs, item.EdgeCount,
 				traceThreadLabel(item.NearestChainThread), item.NearestChainWindow.StartTs, item.NearestChainWindow.EndTs, traceQueryRootCauseSpanCompact(item), traceQueryPerfContextCompact(item.PerfContext), traceQueryPerfRoleContextsCompact(item.PerfContexts, 4), reconciliation, item.Summary)
 			writeTracePerfContextCaveats(&b, "  ", fmt.Sprintf("rank_perf_context_caveat rank=%d caveat", item.Rank), item.PerfContext)
@@ -8150,6 +8163,10 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 	for i := 0; i < visible; i++ {
 		item := rank.Items[i]
 		value := traceQueryRankImpactValue(item.Type)
+		magnitudeField := "cumulative_impact=" + value(item.CumulativeImpactMs)
+		if strings.TrimSpace(item.Type) == "io_pressure" {
+			magnitudeField = fmt.Sprintf("activity_index=%.3f(non-wall-clock mixed-unit context)", item.CumulativeImpactMs)
+		}
 		channel := tracequery.RootCauseRankOrdinalChannelWord(item)
 		if channel == "" {
 			channel = "none"
@@ -8164,9 +8181,9 @@ func writeTraceRootCauseRankPreview(b *strings.Builder, rank *tracequery.RootCau
 			overlapOmitted = len(overlaps) - traceQueryRootCauseOverlapPreviewCap
 			overlaps = overlaps[:traceQueryRootCauseOverlapPreviewCap]
 		}
-		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s cumulative_impact=%s fix_direction=%s causality=%s chain_relevance=%s member_count=%d cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s\n",
+		fmt.Fprintf(b, "- root_cause_rank_preview_row board_order=%d rank=%d rank_channel=%s tier=%s type=%s subject=%s dominant_state=%s effective_impact=%s %s fix_direction=%s causality=%s chain_relevance=%s member_count=%d cross_direction_overlaps=%s cross_direction_overlaps_omitted=%d lines=%d-%d source=%s\n",
 			i+1, item.Rank, sanitizeForBanner(channel), sanitizeForBanner(item.Tier), sanitizeForBanner(item.Type),
-			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), value(item.CumulativeImpactMs),
+			sanitizeForBanner(subject), sanitizeForBanner(item.DominantState), value(traceQueryRootCauseEffectiveImpact(item)), magnitudeField,
 			sanitizeForBanner(item.FixDirection), sanitizeForBanner(item.Causality), sanitizeForBanner(item.ChainRelevance), item.MemberCount,
 			sanitizeForBanner(traceQueryCrossDirectionOverlapsNote(overlaps)), overlapOmitted,
 			item.LineStart, item.LineEnd, sanitizeForBanner(item.Source))
@@ -8856,7 +8873,11 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				continue
 			}
 			notes := traceQueryTypedOccurrenceWindowRichNotes(item.OccurrenceWindows)
-			notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
+			if strings.TrimSpace(item.Type) == "io_pressure" {
+				notes = append(notes, traceQueryTypedIOPressureRankAuthorityNotes(rank, tier, item)...)
+			} else {
+				notes = append(notes, traceQueryTypedPriorityRichNotes(rank, tier, item.Type, item.Source, item.Causality, item.ChainDepth, item.Score, item.ImpactMs, item.CumulativeImpactMs, traceQueryRootCauseEffectiveImpact(item), item.TargetImpactMs, item.ProjectedImpactMs, item.ActualImpactMs, item.ActualTotalMs, item.ActualStartTs, item.ActualEndTs)...)
+			}
 			if item.BackgroundRank > 0 && traceQueryRootCauseItemIsSemanticSpanWork(item.Type) {
 				// DCS E6 double gate (ledger §23.1 ruling ③, 2026-07-08): a
 				// NON-CHAIN semantic compile span row publishes its typed
@@ -9175,6 +9196,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 					predicate = "root_cause_unattributed"
 				}
 			}
+			observationValue := traceQueryObservationMSValue(item.ImpactMs)
+			if strings.TrimSpace(item.Type) == "io_pressure" {
+				// B1241: io_pressure carries a mixed-unit activity index, not a
+				// wall-clock duration.  Preserve the uncapped index in the typed
+				// observation value while the dedicated note/unit keep consumers
+				// out of the generic ms/window/chain-account lanes.
+				observationValue = traceQueryObservationMSValue(item.CumulativeImpactMs)
+			}
 			out = append(out, types.ObservationRecord{
 				// Record identity keys on the POSITION (i+1), not the rank
 				// ordinal: G9 rows without a board seat carry Rank=0, and a
@@ -9196,7 +9225,7 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				Subject:   traceThreadLabel(item.Thread),
 				Predicate: predicate,
 				Object:    item.Type,
-				Value:     traceQueryObservationMSValue(item.ImpactMs),
+				Value:     observationValue,
 				// 终判⑧ (§29.96.2, 2026-07-15): a composite-score row's digest
 				// Unit publishes the typed caliber token instead of the ms lie
 				// (值=X ms on a block_io_by_inode score) — same registry gate
@@ -10475,6 +10504,29 @@ func traceQueryTypedPriorityRichNotes(rank int, tier, typ, source, causality str
 	return notes
 }
 
+// traceQueryTypedIOPressureRankAuthorityNotes publishes only the aggregate's
+// authoritative activity identity. The engine may retain private background
+// capping/ranking scalars, but those are neither a window projection nor a
+// chain cumulative amount and therefore never enter the observation contract.
+func traceQueryTypedIOPressureRankAuthorityNotes(rank int, tier string, item tracequery.RootCauseRankItem) []string {
+	rankValue, depthValue := "", ""
+	if rank > 0 {
+		rankValue = strconv.Itoa(rank)
+	}
+	if item.ChainDepth > 0 {
+		depthValue = strconv.Itoa(item.ChainDepth)
+	}
+	return traceQueryTypedKVNotes([][2]string{
+		{types.TraceNoteKeyRank, rankValue},
+		{types.TraceNoteKeyTier, tier},
+		{types.TraceNoteKeyType, item.Type},
+		{types.TraceNoteKeyIOPressureActivityIndex, traceQueryObservationMSValue(item.CumulativeImpactMs)},
+		{types.TraceNoteKeySource, item.Source},
+		{types.TraceNoteKeyCausality, item.Causality},
+		{types.TraceNoteKeyChainDepth, depthValue},
+	})
+}
+
 // traceQueryActualCaliberNote is the single DIAG A2 divergence judgment
 // (§28.11-3(b), D-10): both actual calibers present on ONE row — the
 // dominant-state segment actual (actual_impact lane) and the thread-level
@@ -10691,6 +10743,7 @@ func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankIt
 		{types.TraceNoteKeyIOPressureSignal, item.IOPressureSignal},
 		{types.TraceNoteKeyIOPressureEvidenceQuality, item.IOPressureEvidenceQuality},
 		{types.TraceNoteKeyIOPressureScoreCaliber, item.IOPressureScoreCaliber},
+		{types.TraceNoteKeyIOPressureActivityIndex, traceQueryObservationMSValue(item.CumulativeImpactMs)},
 		{"score_breakdown", scoreBreakdown},
 		{"comparison_scope", comparisonScope},
 		{"absolute_level", absoluteLevel},
@@ -13458,7 +13511,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 			Predicate:       pressure.Signal,
 			Object:          pressure.TopInode,
 			Value:           value,
-			Unit:            "score",
+			Unit:            types.TraceObservationUnitCompositeScore,
 			Summary:         traceQueryTypedIOPressureSummary(*pressure),
 			RichNotes: traceQueryTypedKVNotes([][2]string{
 				{types.TraceNoteKeyType, "io_pressure"},
@@ -13468,7 +13521,7 @@ func traceQueryTypedWindowStatsObservations(stats tracequery.WindowStats, ref ty
 				{types.TraceNoteKeyIOPressureSignal, pressure.Signal},
 				{types.TraceNoteKeyIOPressureEvidenceQuality, pressure.EvidenceQuality},
 				{types.TraceNoteKeyIOPressureScoreCaliber, pressure.ScoreCaliber},
-				{"score", value},
+				{types.TraceNoteKeyIOPressureActivityIndex, value},
 				{"score_breakdown", traceQueryIOPressureScoreBreakdown(*pressure)},
 				{"comparison_scope", traceQueryIOPressureComparisonScope(*pressure)},
 				{"absolute_level", traceQueryIOPressureAbsoluteLevel(*pressure)},

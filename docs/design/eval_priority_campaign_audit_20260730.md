@@ -57445,3 +57445,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1258 B1241：IO 活动综合指数退出窗口毫秒与链累计账（2026-08-20）
+
+1. r774 的双值冲突经代码闭环确认为一个通用单位/权限 GAP，而非模型波动。`io_pressure` 的原始值是由事件计数、
+   延迟与字节等混合量组成的背景活动指数；旧实现又通过 `backgroundImpactMs` 按窗口长度把它裁成内部背景排序权重。
+   因而同一行可同时出现原始活动指数 16 和内部权重 7。投影读取通用 `impact_score/cumulative_impact_score` 后，错误地
+   将 7 放入“窗口投影”、16 放入“链上累计”，让非墙钟背景指标看似拥有两个毫秒账户。
+2. 本批新增唯一 typed authority `io_pressure_activity_index` / `TraceCausalProjectionNode.IOPressureActivityIndex`。
+   新生产者只向该字段发布原始指数；历史 observation 若尚无新键，则只在 `Object/TypeToken=io_pressure` 且
+   `Unit=composite_score` 的精确形下从旧 cumulative/value 恢复。恢复后通用 `ImpactMS/CumulativeImpactMS/EffectiveImpactMS`
+   全部清零，只有 context-only 的“有效归因已发布且为 0”哨兵保留，禁止活动指数进入窗内可消除量或链累计。
+3. JSON `RootCauseRankItem` 对 `io_pressure` 使用专用 wire：发布 `activity_index`，隐藏内部 capping/ranking 的
+   `impact/projected/cumulative/effective/score` 字段；真实物理 `target_impact_ms/actual_impact_ms` 若存在仍按各自墙钟定义保留。
+   `block_io_by_inode` 继续使用独立的 `*_score` mixed-unit 合同，普通墙钟根因 JSON 字节形不变。
+4. 文本摘要、preview、observation notes、因果树、可消除概览、关键指标表与跨窗对比统一消费专用值。中文显示为
+   “IO活动综合指数,非墙钟”，英文为 “IO activity index, not wall clock”；关键指标表将其放在身份/口径单元格，
+   “窗口投影”和“链上累计”两列均显示 `—`，且不再计算伪密度或与毫秒行比较排序。没有引入高/低阈值；无同口径、
+   同采集条件、同窗长的 typed 比较证据时，绝对水平仍为未定义。
+5. 同批修正 explorer/finalizer 的 JSON 教学自冲突：`io_pressure.activity_index` 与
+   `block_io_by_inode.*_score` 分开说明，明确前者不是 elapsed/window/chain account；这是 typed soft guidance，未扫描用户
+   原文、模型 thinking/正文、图文案或答案数字，也未新增发射硬门。系统没有创建、删除、改写模型结论或根因。
+6. 回归使用故意冲突的旧记录（`impact_score=7.000`、`cumulative_impact_score=61.540`、专用指数 61.540）验证：
+   树/概览/表格/对比只显示一个 61.540 活动指数，投影和链累计为零/`—`；JSON 只发 `activity_index`；普通 4.000ms
+   墙钟行及 `block_io_by_inode` composite-score 车道保持。相关完整包全绿：tracequery 80.204s、tool 190.865s、
+   orchestrator 14.035s、types 重跑 23.257s、agent 13.902s。
+7. 本批未修改 Trace 输入解析、显式窗选择、唤醒链构造、D/IO 墙钟等待、块层延迟、优先级反转、调度/算力供给、
+   确定性语义事件、链上业务线索、根因选举、因果投影自动补采或活跃流时限。链上的真实 D/IO 时长仍可进入根因与
+   可消除量；被隔离的仅是 off-chain 混合活动指数，邻近/背景仍只提供额外排查方向。
+
+状态：
+
+`B1241=implemented/full-relevant-pass/pending-production-replay`；
+`io_pressure-public-magnitude=typed-activity-index-only`；
+`io_pressure-window-projection/chain-cumulative=forbidden`；
+`legacy-io-pressure-record=typed-object+unit-fallback/no-prose-parse`；
+`block_io_by_inode-composite-score=preserved`；
+`absolute-pressure-level=undefined-without-typed-comparison`；
+`JSON-teaching=field-specific/no-self-conflict`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1240=code-closed/pending-paired-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

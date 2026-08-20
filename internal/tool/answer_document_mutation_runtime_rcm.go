@@ -150,6 +150,22 @@ func runtimeTraceProjCompositeScoreValueText(v float64, zh bool) string {
 	return fmt.Sprintf("%.3f (composite score, not wall clock)", v)
 }
 
+// runtimeTraceProjCompositeValueText keeps io_pressure's authoritative
+// activity index distinct from generic composite scores. The value is
+// background context only: the wording deliberately carries neither a window
+// projection nor a chain-cumulative implication.
+func runtimeTraceProjCompositeValueText(node types.TraceCausalProjectionNode, fallback float64, zh bool) string {
+	if (runtimeTraceCausalProjectionCanonicalNode(node.TypeToken) == "io_pressure" ||
+		runtimeTraceCausalProjectionCanonicalNode(node.Object) == "io_pressure") &&
+		node.IOPressureActivityIndex > 0 {
+		if zh {
+			return fmt.Sprintf("%.3f(IO活动综合指数,非墙钟)", node.IOPressureActivityIndex)
+		}
+		return fmt.Sprintf("%.3f (IO activity index, not wall clock)", node.IOPressureActivityIndex)
+	}
+	return runtimeTraceProjCompositeScoreValueText(fallback, zh)
+}
+
 // runtimeTraceProjCompositeValueCaliber is the display-only authority for a
 // node whose published magnitude is a composite score rather than wall-clock
 // milliseconds. RANKDIS-M18 moved io_pressure onto the typed

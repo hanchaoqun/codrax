@@ -3694,7 +3694,7 @@ func runtimeTraceProjCompareBackgroundPressureCell(model runtimeTraceProjTreeMod
 	}
 	if best == nil || bestValue <= 0 {
 		if compositeBest != nil && compositeBestValue > 0 {
-			return runtimeTraceProjCompositeScoreValueText(compositeBestValue, zh), 0
+			return runtimeTraceProjCompositeValueText(*compositeBest, compositeBestValue, zh), 0
 		}
 		// COV-2 (§24.14 D-3, real_trace_campaign_20260705.md, 2026-07-08): the
 		// closed-set type gate swallowed every non-aggregate background row —

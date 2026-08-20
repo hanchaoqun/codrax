@@ -8741,6 +8741,11 @@ const (
 // runtimeTraceProjNodeDisplayImpact, returning the value together with its
 // typed source (precise signal — one field comparison per step).
 func runtimeTraceProjNodeDisplayImpactSource(node types.TraceCausalProjectionNode) (float64, runtimeTraceProjImpactSource) {
+	if node.IOPressureActivityIndex > 0 &&
+		(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken) == "io_pressure" ||
+			runtimeTraceCausalProjectionCanonicalNode(node.Object) == "io_pressure") {
+		return node.IOPressureActivityIndex, runtimeTraceProjImpactSourceNone
+	}
 	if node.ImpactMS > 0 {
 		return node.ImpactMS, runtimeTraceProjImpactSourceWindow
 	}
@@ -10762,7 +10767,7 @@ func runtimeTraceProjSelfRowParts(row runtimeTraceProjTreeRow, windowMS float64,
 		case runtimeTraceProjCompositeValueCaliber(node):
 			// Typed value caliber is independent of row placement. This covers
 			// both M18 context-only io_pressure and legacy block_io rows.
-			value = runtimeTraceProjCompositeScoreValueText(v, zh)
+			value = runtimeTraceProjCompositeValueText(node, v, zh)
 		case tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCount:
 			// §29.55 观察③ 两形一裁 (2026-07-14): the 行1 form 计数当量Xms is
 			// retired — the count-equivalent value never wears an ms suffix;
@@ -14007,7 +14012,7 @@ func runtimeTraceProjRowMetricParts(row runtimeTraceProjTreeRow, denom float64, 
 		// Unit caliber and seat/tier are independent: io_pressure remains a
 		// context-only aggregate while its value shares the suffix-free word
 		// face with the legacy block_io_by_inode composite row.
-		b.WriteString(" " + runtimeTraceProjCompositeScoreValueText(impact, zh))
+		b.WriteString(" " + runtimeTraceProjCompositeValueText(node, impact, zh))
 	} else if prefix := runtimeTraceProjFamilyValuePrefix(node, zh); prefix != "" {
 		// RCM-2 D2 行1 (witness 「✦ VerifyClass ×14 合计7.124ms 9%」): a family
 		// row's main-line duration wears the compact caliber stem directly, so
@@ -19022,7 +19027,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		annotated := func(v float64) string {
 			cell := msCell(v)
 			if compositeCaliber && v > 0 {
-				cell = runtimeTraceProjCompositeScoreValueText(v, zh)
+				cell = runtimeTraceProjCompositeValueText(node, v, zh)
 			}
 			if countCaliber && v > 0 {
 				cell = runtimeTraceProjCountEquivalentValueText(v, zh)
@@ -19168,6 +19173,17 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// 1.248). Genuine state projections beside gated fields (E13-shape)
 		// stay byte-identical.
 		projection := annotated(node.ImpactMS)
+		if node.IOPressureActivityIndex > 0 &&
+			(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken) == "io_pressure" ||
+				runtimeTraceCausalProjectionCanonicalNode(node.Object) == "io_pressure") {
+			// B1241: this row has no wall-clock window projection and no chain
+			// cumulative account. Keep both duration columns honest and carry the
+			// activity index in the identity cell with its explicit non-wall-clock
+			// caliber. The tree/comparison/sidebar use the same value composer.
+			name += " · " + runtimeTraceProjCompositeValueText(node, node.IOPressureActivityIndex, zh)
+			projection = dash
+			chainTotal = dash
+		}
 		if runtimeTraceProjGatedCompositeProjectionCell(node) {
 			// The word's teaching on THIS surface rides the table's own gated
 			// legend line (runtimeTraceProjDetailTableLegendFlags.gatedProjection

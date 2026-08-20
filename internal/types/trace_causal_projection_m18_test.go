@@ -48,9 +48,9 @@ func TestM18ProjectionReadsCompositeScoreNoteTwins(t *testing.T) {
 	}
 }
 
-// TestM18ProjectionCompositeSentinelOnScoreKey: the context-only
-// ranking-exclusion sentinel (authoritative zero) travels on the score twin
-// for composite rows — present, zero, published.
+// TestM18ProjectionCompositeSentinelOnScoreKey: io_pressure's mixed-unit
+// activity value is isolated from the generic duration accounts while the
+// context-only attribution sentinel remains present, zero and published.
 func TestM18ProjectionCompositeSentinelOnScoreKey(t *testing.T) {
 	record := ObservationRecord{
 		ID:              "trace_query:w#root_cause_rank:1",
@@ -66,12 +66,19 @@ func TestM18ProjectionCompositeSentinelOnScoreKey(t *testing.T) {
 		RichNotes: []string{
 			"tier=context_only",
 			"type=io_pressure",
-			"impact_score=61.540",
+			"impact_score=7.000",
 			"cumulative_impact_score=61.540",
 			"effective_impact_score=0.000",
+			TraceNoteKeyIOPressureActivityIndex + "=61.540",
 		},
 	}
 	node := traceCausalProjectionNodeFromRecord(TraceCausalRoleRootCauseContext, record)
+	if node.IOPressureActivityIndex != 61.540 {
+		t.Fatalf("dedicated IO activity authority missing, got %.3f", node.IOPressureActivityIndex)
+	}
+	if node.ImpactMS != 0 || node.CumulativeImpactMS != 0 {
+		t.Fatalf("IO activity index must not populate window/chain duration accounts: %+v", node)
+	}
 	if node.EffectiveImpactMS != 0 {
 		t.Fatalf("the sentinel zero stays authoritative, got %.3f", node.EffectiveImpactMS)
 	}

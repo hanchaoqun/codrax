@@ -2396,7 +2396,7 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 							valueText = strings.TrimSuffix(valueText, " (not wall clock)")
 						}
 					case runtimeTraceProjCompositeValueCaliber(row.Node):
-						valueText = runtimeTraceProjCompositeScoreValueText(value, zh)
+						valueText = runtimeTraceProjCompositeValueText(row.Node, value, zh)
 						if !zh {
 							// Same 件3 compression on the composite twin (the
 							// former 「· 综合评分」 residual is deleted with it).
