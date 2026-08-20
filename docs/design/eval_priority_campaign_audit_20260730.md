@@ -56938,3 +56938,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-degrade=forbidden/unchanged`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.1244 B1233：typed recipe 的读者标签义务不可通过删字段绕过（2026-08-20）
+
+1. r767 的失败并非“类型关系没有证据”：12 条 `type_relation` anchor 的 endpoint、方向和声明关系均已通过。
+   真正缺口是显示合同只在 `visible_label` 非空时比较 body；首稿的 `implements`/“实现”不一致被拒绝后，模型删除
+   `visible_label` 并把 body 改成 `type_relation`，相同 edge 就从校验域消失，内部枚举泄漏给读者。
+2. 本批把存在性判据收窄到当前答案已经收到的精确 recipe receipt。只有非 Trace 根因图的 anchor 同时满足
+   `from_identity + to_identity + relation_kind` 与本轮 recipe 完全相等，并且 body edge 与 anchor 可一对一关联时，
+   才要求模型提交非空 `visible_label`；节点 alias、用户原文、模型正文、最终答案和标签词义均不参与是否触发。
+3. 对命中席位，`visible_label` 仍由模型编写，并必须与同一 Mermaid edge/message 的可见文字一致；raw relation enum
+   继续被拒绝。系统不翻译 relation kind、不选词、不补字段、不改 Mermaid，也不改变 endpoint、方向或关系 authority。
+   typed candidate 已发布的 `visible_arrow_label` 只是模型可选的安全起点，不是系统代写结果。
+4. 普通无 recipe 图、身份不匹配的其他 recipe、无法精确一对一关联的重复/复合 edge 均保持原 fail-open；Trace
+   `QFRootCauseTrace` 继续走独立因果投影合同。因此没有把业务语言偏好扩成全图关键词硬门，也不影响显式时间窗、
+   自动补齐、链上-only 根因、实际占时/规则可消双轴或背景降权。
+5. 新 pin 覆盖四臂：删除字段必须得到 `diagram_typed_recipe_missing_visible_label`；模型在 body/anchor 写入相同业务词
+   必须通过；不相关 recipe 不得产生全局义务；真实 `runPreEmitChecks` 总入口必须发布同一失败 issue，防止 helper-only
+   假绿。schema/description 同源更新，并由 prompt/glossary hygiene pin 保证不向用户泄漏 `finalizer` 等内部实现词。
+6. `go test ./internal/tool -count=1` 全绿（179.378s）；`go test ./internal/types ./internal/agent -count=1`
+   全绿（types 25.223s，agent 13.687s）；`go test ./internal/render -count=1` 全绿（1.145s）。
+
+状态：
+
+`B1233-DIAGRAMREADERLABELDELETIONESCAPE1=implemented/full-relevant-pass/pending-production-replay`；
+`typed-recipe-label-presence=exact-endpoint+direction+relation-receipt`；
+`ordinary-diagram-without-matching-recipe=fail-open`；
+`raw-relation-enum=not-reader-language/pinned`；
+`model-visible-label-authorship=preserved`；
+`request/model/final-prose/mermaid-business-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

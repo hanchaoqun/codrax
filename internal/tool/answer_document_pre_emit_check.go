@@ -4971,14 +4971,19 @@ const (
 	diagramStandaloneRelationAnchorHasNoClaim    = "standalone_relation_anchor_has_no_claim"
 	diagramStandaloneRelationMissingVisibleLabel = "standalone_relation_missing_visible_label"
 	diagramStandaloneSemanticHandoffMissing      = "standalone_semantic_handoff_missing"
+	diagramTypedRecipeMissingVisibleLabel        = "diagram_typed_recipe_missing_visible_label"
 	diagramVisibleLabelMismatch                  = "diagram_visible_label_mismatch"
 	diagramVisibleLabelRawRelationKind           = "diagram_visible_label_raw_relation_kind"
 )
 
 // preCheckDiagramVisibleLabelConsistency compares only two model-authored
-// structured display surfaces: a diagram anchor's optional visible_label and
-// the parsed Mermaid edge/message label for the same occurrence. It never
-// reads request/final prose, derives wording from relation_kind, or rewrites a
+// structured display surfaces: a diagram anchor's visible_label and the parsed
+// Mermaid edge/message label for the same occurrence. visible_label remains
+// optional for an ordinary diagram, but is required when the anchor's exact
+// endpoint identities, direction, and relation kind match a typed recipe that
+// was delivered in this finalizer dispatch. This prevents deleting the field
+// from turning an internal relation enum into reader copy. It never reads
+// request/final prose, derives wording from relation_kind, or rewrites a
 // diagram. Ambiguous compound/repeated pairings fail open. Runtime root-cause
 // diagrams retain their independent causal projection contract.
 func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
@@ -5013,6 +5018,14 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 			for i, anchor := range anchors {
 				want := strings.TrimSpace(anchor.VisibleLabel)
 				if want == "" {
+					if diagramAnchorMatchesDeliveredTypedRecipe(anchor, pctx) {
+						got := diagramParsedVisibleLabel(edges[i].Label)
+						mismatches = append(mismatches, fmt.Sprintf(
+							"%s -> %s occurrence=%d typed_recipe_present=true diagram_label=%q visible_label=<missing>",
+							strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, got,
+						))
+						issues[diagramTypedRecipeMissingVisibleLabel] = true
+					}
 					continue
 				}
 				got := diagramParsedVisibleLabel(edges[i].Label)
@@ -5042,7 +5055,7 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 			continue
 		}
 		failureIssues := make([]string, 0, len(issues))
-		for _, issue := range []string{diagramVisibleLabelMismatch, diagramVisibleLabelRawRelationKind} {
+		for _, issue := range []string{diagramTypedRecipeMissingVisibleLabel, diagramVisibleLabelMismatch, diagramVisibleLabelRawRelationKind} {
 			if issues[issue] {
 				failureIssues = append(failureIssues, issue)
 			}
@@ -5052,11 +5065,35 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 			HardSignal:                   preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds:          []types.AnswerBlockKind{types.BlockDiagram},
 			ExpectedShape:                types.DiagramVisibleLabelConsistencyContract + " Mismatches: " + strings.Join(mismatches, "; "),
-			Reason:                       "the same model-authored structured block must keep one reader label per edge and must not expose its raw typed relation enum as display copy. This exact field/parsed-edge check does not inspect request or answer prose, choose final wording, translate relation_kind, rewrite the diagram, or change relation authority.",
+			Reason:                       "an edge selected from an exact dispatch-local typed recipe must keep one model-authored reader label on both structured display surfaces and must not expose its raw typed relation enum as display copy. This exact recipe/field/parsed-edge check does not inspect request or answer prose, choose final wording, translate relation_kind, rewrite the diagram, or change relation authority.",
 			DiagramRelationFailureIssues: failureIssues,
 		})
 	}
 	return hints
+}
+
+// diagramAnchorMatchesDeliveredTypedRecipe is deliberately narrower than
+// general relation-evidence validation. It consumes only the immutable recipe
+// receipt from the current finalizer dispatch and the model-authored anchor's
+// exact technical identities plus relation kind. Node aliases and visible
+// labels are excluded: changing presentation cannot manufacture a match, and
+// no recipe means no new display-field obligation.
+func diagramAnchorMatchesDeliveredTypedRecipe(anchor types.DiagramEdgeAnchor, pctx *preEmitCheckContext) bool {
+	if pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil ||
+		strings.TrimSpace(anchor.FromIdentity) == "" || strings.TrimSpace(anchor.ToIdentity) == "" ||
+		anchor.RelationKind == types.DiagramRelUnknown {
+		return false
+	}
+	recipes := pctx.ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+	recipes = append(recipes, pctx.ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
+	for _, recipe := range recipes {
+		if anchor.RelationKind == recipe.RelationKind &&
+			strings.TrimSpace(anchor.FromIdentity) == strings.TrimSpace(recipe.FromIdentity) &&
+			strings.TrimSpace(anchor.ToIdentity) == strings.TrimSpace(recipe.ToIdentity) {
+			return true
+		}
+	}
+	return false
 }
 
 // diagramParsedVisibleLabel removes only Mermaid's balanced outer quote
