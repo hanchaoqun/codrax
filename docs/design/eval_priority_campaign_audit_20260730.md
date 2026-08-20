@@ -58230,3 +58230,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r786`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r786`。
+
+### §123.1277 B1259：当前读流程阶段职责改为席位级 typed 归属，冲突事实不再收敛放行（2026-08-20）
+
+1. `B1259-STAGEROLEHOMONYM1/P0` 已根修。新增完成前的独立 `stage_role_authority` 车道，仅在三个精确信号同时成立时启用：
+   schema-validated 当前读模式流程选择、checkout-verified `stageauthority.SelectRequiredReadModeWorkflow`、以及模型提交的
+   `member_set` 与所选阶段行精确一一覆盖。它不读取用户原文、完成 reason、模型 reasoning、最终答案或 Mermaid 标签。
+2. 每个阶段成员现在必须按位置绑定到对应 `internal/types/stage_binding.go` 的 provider-owned 行；阶段/agent 的声明别名仍可作为
+   成员身份，但 `dataflow.Analyze` 这类带 receiver 的普通同名函数不会被尾段模糊折叠成 `StageAnalyze/analyze`。部分阶段清单、
+   混合阶段与状态载体的集合不受该专属门接管，继续走原有证据合同，避免把当前用例扩成全仓同名字面硬门。
+3. 首次冲突直接给 Explorer 一个有界、可执行的 `stage_binding.go` 行窗和每个席位的 expected/actual support 位置，不再提示去找
+   同名 producer/callsite/consumer。模型仍负责重写自己的 `members/member_notes/support_refs`；系统不生成职责说明、关系、表格或
+   结论。阻塞键只由 aggregate/member 索引、stage enum 与 expected/actual 源位置构成，不含模型 prose。
+4. 新车道有独立的 typed 收敛状态，不能借普通 `completion_form` 的低差量出口携带已知错误事实。相同冲突连续三次仍未修正时，
+   仅从本轮 authoritative aggregate handoff 中排除该冲突集合，保留 checkout-verified 阶段权威、独立 grounded evidence 与模型
+   最终作答机会，并明确披露排除边界；不会由系统补造替代清单或修改模型结论。
+5. 新增六类回归：四阶段错误同名支撑全部被识别；qualified helper 不冒充阶段；四个精确 provider 行通过；显式 source-suffix
+   阶段名通过；部分/混合集合旁路；真实 `EmitInvestigationComplete.Execute` 前两轮定向修复、第三轮只剔除冲突事实后闭环；Trace
+   intent 显式旁路该源码工作流权威。接线测试同时断言 repair code/lane/四行 target 和旧泛化搜索提示不得出现。
+6. 验证全绿：定向 `internal/tool`；完整 `internal/tool internal/types internal/agent internal/stageauthority`；`go test ./... -count=1`；
+   CGO release-tag `make`。全仓测试覆盖 `hitraceconv`、`mermaidcompat`、`orchestrator`、`tracequery`、`tracediag`，未观察到转换、
+   Mermaid 或 Trace 因果能力回归。下一步以本提交构建不可变二进制，严格并发恰好 2 路回放 read 流程图表与显式窗 Trace，确认
+   r786 的同名职责错配消失，同时继续审计 B1250 表头、B1253 因果越界和 B1256 patch 上下文。
+
+状态：
+
+`B1259=implemented/full-suite-pass/pending-production-replay`；
+`stage-role-trigger=schema+checkout-provider+exact-roster`；
+`stage-role-support=positional-exact-provider-row`；
+`qualified-homonym-collapse=forbidden`；
+`persistent-conflict=drop-conflicting-model-aggregate/keep-model-answer-opportunity`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation/table/authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged/test-bypassed`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

@@ -2467,6 +2467,37 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// emitted code-shape members whose evidence does not name them
 	// verbatim — repair belongs at the explorer turn, not in finalize.
 	memberValidationStart := time.Now()
+	stageRoleGaps := completionReadModeStageRoleAuthorityGaps(ctx, effectiveAggregateFacts, evidenceSnapshot)
+	if len(stageRoleGaps) > 0 {
+		queueCompletionStageRoleAuthorityRead(ctx, stageRoleGaps)
+		blockerKey := completionStageRoleAuthorityBlockerKey(stageRoleGaps)
+		if !preCompleteDowngradeConvergesWithTypedBlockerKey(ctx, types.DowngradeLaneStageRoleAuthority, blockerKey) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			}
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: preCompleteDowngradeSummary(
+					"emit_investigation_complete rejected: a model-authored current-read stage roster is not aligned to the checkout-verified responsibility source: " +
+						completionStageRoleAuthorityGapSummary(stageRoleGaps) +
+						". Use the exact stage_binding row for each selected stage; keep unrelated homonymous helpers as separate supporting facts."),
+				Repair:    attachToolJSONSurfaceMetadata(t.Name(), completionStageRoleAuthorityRepair(stageRoleGaps)),
+				Success:   true,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		// B1259 bounded escape: a known-invalid typed roster cannot ride the
+		// generic completion-form caveat into final answer synthesis. Exclude
+		// only the conflicting model-authored aggregate after bounded repair;
+		// the finalizer still receives the checkout-verified stage authority
+		// and independently grounded supporting evidence and remains the sole
+		// answer author.
+		effectiveAggregateFacts = dropCompletionAggregateFactsForStageRoleGaps(effectiveAggregateFacts, stageRoleGaps)
+		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes,
+			"excluded an unverified current-read stage-role aggregate after bounded typed repair; checkout-verified stage authority remains available to the model")
+		ctx.Mutable.AppendCompletionGateNote("current-read stage-role boundary: one model-authored stage roster remained misaligned with the checkout-verified stage binding and was excluded from authoritative aggregate handoff after bounded repair; use Current Run Stage-Lane Authority for stage responsibilities, and keep unconnected homonymous helpers as independent supporting context")
+		earlyDowngradeConverged = true
+	}
 	if err := validateAggregateMemberSetSupportRefs(ctx, effectiveAggregateFacts, evidenceSnapshot); err != nil {
 		queueCompletionFormRepair(ctx, "member_set_support_refs", err.Error())
 		if !preCompleteDowngradeConverges(ctx, types.DowngradeLaneCompletionForm) {

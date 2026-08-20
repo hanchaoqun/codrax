@@ -59,6 +59,13 @@ const (
 	// support_refs alignment. The defect may block an uncaveated strong answer,
 	// but it must not tool-fail forever or reopen broad exploration.
 	DowngradeLaneCompletionForm DowngradeLane = "completion_form"
+	// DowngradeLaneStageRoleAuthority is the exact current-run stage-role
+	// alignment lane. A model-authored stage roster may describe responsibilities
+	// only under the checkout-verified stage binding row for that exact selected
+	// stage. A homonymous helper or broad declaration remains supporting context.
+	// Repeated no-progress completion may drop the conflicting roster, but must
+	// never carry the known-invalid fact into final answer synthesis.
+	DowngradeLaneStageRoleAuthority DowngradeLane = "stage_role_authority"
 	// DowngradeLaneContractChain is the pre-complete contract-check chain gate
 	// (the ~13 sub-checks aggregate into this lane; the typed BlockerKey below
 	// distinguishes which sub-blocker is active).
