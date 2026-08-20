@@ -58348,3 +58348,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1280 r788：B1261 获生产正证；identity-only 租约断层与阶段上下文泄漏仍开放（2026-08-20）
+
+1. 以 `a8634736a` 精确提交构建不可变二进制，严格并发恰好 2 路回放同一 read+Trace 双例。runner 2/2 PASS：Trace
+   167s、read 498s。人工为 Trace partial、read fail。两路活动流均正常完成，无基于 4ms、4m、首字节、stall 或累计年龄降级。
+2. `B1261` 获明确生产正证：read 从 r787 的 1666s、34 次 finalizer reject、31 次 patch、最终降级，改善为 498s、8 次
+   reject、7 次 patch、单次 finalizer dispatch 且有效 answer_document 出厂；最高上下文从 68% 降到 47%，read 从 45 次降到
+   18 次。原先 `Phase->Disp` 等多份 delta 只租第一子集导致的持久 `unlisted_relation_removed/added` 风暴没有再现。
+3. 新 P0 `B1262-IDENTITYONLYLEASE1`：初始模型的三条 precedence `edge_anchors` 有完整
+   `from_identity/to_identity`，但没有 `from_node/to_node`，对应预检精确报 `typed_anchor_without_visible_edge`。delta 生成器、合并器、
+   agent hint 解码和 lease 构造却都要求 node pair 非空，因而把这三条失败从局部租约丢掉。模型随后给同一 identity pair 补 node，
+   租约将旧空-node anchor 的消失误报成端点为空的 `unlisted_relation_removed`。现有
+   `answerDiagramRelationFailureMatchesAnchor` 本就支持完整 identity pair 匹配，说明这是载体入口与执行器语义漂移。
+4. B1262 最优形：failure 只需满足“完整 node pair 或完整 identity pair”之一；半个 node/identity pair 均拒绝。四个生产消费点共享
+   同一谓词，identity-only 失败进入 typed delta 与 lease；补 node 或移除同一 identity relation 属于已列修复，其他关系继续不可增删。
+   不读取 Mermaid 文案、用户请求、reasoning 或最终 prose，不由系统补节点、删边或改答案。
+5. `B1259` 本轮确认仍未闭环，新增 `B1263-STAGEROLECONTEXTLEAK1/P1`：Explorer 先铸造
+   `internal/analysis/dataflow.Analyze` 是 read-mode/AgentAnalyzer 入口与底层实现的错误 evidence；最终 completion member_set 列的是
+   六个编排函数而非四阶段精确 roster，所以 B1259 的席位门按设计旁路。该错误证据仍进入 finalizer，正文遂重复错误，并附上定义行
+   citation。正确修向是让当前 read-workflow typed authority 在证据/上下文交接时标定角色归属和不相干同名支持边界；不能扫描最终
+   中文句子或由系统替模型改写结论。
+6. Trace 系统面继续生产正向：用户窗、两次 typed 查询、自动补查、四跳唤醒链、11ms iowait 主席、三个 1ms 调度供给席、
+   占时/可消双轴、背景隔离及 Trace 因果投影完整。最终模型明确披露未建立 app 与 threadpool 的直接阻塞/截止期因果，B1253
+   本轮未复现；但 B1260 的 dominant-state 优先级维度吞没仍复现，故人工仅 partial。
+7. 批次顺序冻结：先做 B1262 小批并提交；再做 B1260 独立维度分账；B1263 先补 typed context 设计与回归，禁止以最终 prose
+   关键词硬门。每批后继续严格并发 2 路，用 read/Trace 守住作者权、显式窗投影与自动补齐。
+
+状态：
+
+`r788=runner-pass-2/2,human-trace-partial+read-fail`；
+`B1261=production-positive/core-closed`；
+`B1262=confirmed/P0-next`；`B1260=confirmed/P1-after-B1262`；
+`B1259=partial`；`B1263=confirmed/P1-after-B1260`；
+`identity-only-typed-failure=must-enter-complete-delta-and-lease`；
+`half-node-or-half-identity-pair=invalid/fail-open`；
+`stage-role-context=typed-authority-must-outrank-unrelated-homonym`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r788`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r788`。
