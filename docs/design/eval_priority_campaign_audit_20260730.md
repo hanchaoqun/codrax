@@ -56688,3 +56688,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1237 r764：边界摆动已闭环，关系探索闭环空转成为主故障（2026-08-20）
+
+1. 以 `e881c61f0` 构建快照严格并发 2 路回放：Trace 用例 188s、零成文拒绝、人工通过；关系用例 449s、
+   2 次成文拒绝、人工不通过。两个任务均持续活跃，没有因 4ms、4m、首字节、stall 或累计年龄降级。
+2. B1227 生产验证通过：r763 中 `stale_boundary_for_connected_participant` 与 `missing_unproven_boundary` 的六轮
+   相反合同往返不再出现；最终局部关系披露和唯一 `Mutable` 未证边界稳定共存，成文拒绝降为两次。B1228 也有正向
+   效果：最终正文不再把两个 `Emitted*` getter 说成写入，也不再声称向 Extractor 注入完整 BusContext 指针。
+3. Trace 防回归完整：显式 `2.000..2.020s`、
+   `threadpool-400→network-300→cookie-200→app-100` 已证链、11.000ms iowait 主因、三项 1.000ms 调度供给、
+   实际占时/现规则可消双轴、Trace 因果投影与确定性补齐均保留；同窗 IO 压力只以综合评分进入背景旁栏，没有替代链上根因。
+4. r764 把 B1229 从观察项升级为确定性 P1：第一 Explorer 已有 22 条 grounded 证据和
+   `local_operation_only/retain_participant_boundary` 候选，仍在第 10、16、19 轮反复尝试完成，直到第 20 轮上限；随后
+   orchestrator 又启动第二 Explorer，从头读取相同拓扑。最终答案仍只能展示四阶段 precedence 岛与
+   `BusContext→BuildAgentContext` 局部 argument-flow，并诚实声明 `Mutable` 请求关系未证。继续搜索无法把局部 operation
+   证据变成 request-scoped relation，因而属于闭环策略空转，不是模型波动。
+5. 最优根修冻结：当 parser-owned request scope 已明确是严格子集、缺席 participant 已有可发布的
+   `local_operation_only` 候选且要求保留 boundary、当前探索已完成至少一次有证据的关系搜索时，completion navigator
+   应允许以 `partial_unproven` 正常闭环；它不得谎报完整、删除边界或把 local 候选晋升为请求关系。该 typed 出口只停止
+   已被精确信号证明无权闭合的重复探索，不读取用户原文、模型推理/答案、Mermaid 标签，也不按轮数或耗时硬截断。
+6. 关系正文仍有“所有跨阶段数据均通过 BusContext”“Immutable 区域初始化后不可修改”等超出已证 handoff 的宽泛叙述，
+   保留为 B1228 后续语义质量观察；禁止系统扫描或改写正文。先根修 B1229，复放后再判断是否需要进一步收窄模型上下文。
+
+状态：
+
+`r764=runner-pass-2/2/human-pass-1/2`；
+`B1227-LOCALBOUNDARYOSCILLATION1=production-closed`；
+`B1228-RELATIONSEMANTICDRIFT1=production-partial-positive/observe-broad-prose`；
+`B1229-RELATIONINVESTIGATIONCHURN1=confirmed/P1-next`；
+`partial-unproven!=complete`；`local-operation-only!=requested-relation`；
+`completion-exit=typed-partial-with-boundary-not-time-or-round-budget`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r764`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r764`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
