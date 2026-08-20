@@ -82,12 +82,12 @@ func TestPreEmitHintGate_CitationCarriersRemainAdvisory(t *testing.T) {
 // resurrecting the oracle lane as a hard reject: oracle absence is a
 // noisy signal and must never drive a same-turn hard gate.
 
-// (a) The same-turn hard policy stays EXACTLY the nine typed rows —
+// (a) The same-turn hard policy stays EXACTLY the ten typed rows —
 // enumeration-label kinds can never gain a row without failing here.
-func TestRatchetSameTurnHardPolicyRowsExactlyNine(t *testing.T) {
+func TestRatchetSameTurnHardPolicyRowsExactlyTen(t *testing.T) {
 	rows := preEmitSameTurnHardPolicyRows()
-	if len(rows) != 9 {
-		t.Fatalf("same-turn hard policy must stay exactly nine rows, got %+v", rows)
+	if len(rows) != 10 {
+		t.Fatalf("same-turn hard policy must stay exactly ten rows, got %+v", rows)
 	}
 	want := map[preEmitSameTurnHardPolicyRow]bool{
 		{Kind: types.ViolExhaustiveMemberSetCoverageDrift, Signal: preEmitHardSignalCompletePrincipalMemberSet}: true,
@@ -98,6 +98,7 @@ func TestRatchetSameTurnHardPolicyRowsExactlyNine(t *testing.T) {
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal}:             true,
 		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber}:             true,
 		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedSourceInventoryRowID}:                          true,
+		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedItemEvidenceIdentity}:                          true,
 		{Kind: types.ViolFacetUncovered, Signal: preEmitHardSignalTypedFacetCandidateOwnership}:                 true,
 	}
 	for _, row := range rows {

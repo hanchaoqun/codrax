@@ -106,6 +106,7 @@ func BuildAnswerSemanticView(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSem
 		plan.SourceInventoryObservation.IsActive() &&
 		ir.RequestModel.SourceInventoryProfile != nil &&
 		ir.RequestModel.SourceInventoryProfile.Active()
+	view.ItemEvidenceIdentityAvailable = plan != nil && plan.CurrentSourceEvidenceOrigin
 	return view
 }
 

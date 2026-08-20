@@ -248,6 +248,26 @@ func TestBuildAnswerDocumentParametersFor_ProjectsSourceInventoryIdentityOnlyWhe
 	assertFields(t, &types.AnswerSemanticView{SourceInventoryRowIdentityAvailable: true}, true)
 }
 
+func TestBuildAnswerDocumentParametersFor_ProjectsItemEvidenceIdentityOnlyForCurrentSource(t *testing.T) {
+	assertField := func(t *testing.T, view *types.AnswerSemanticView, want bool) {
+		t.Helper()
+		_, blockProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+		items := blockProps["items"].(map[string]any)
+		itemSchema := items["items"].(map[string]any)
+		itemProps := itemSchema["properties"].(map[string]any)
+		_, present := itemProps["evidence_ids"]
+		if present != want {
+			t.Fatalf("item evidence identity projection present=%v want=%v props=%v", present, want, itemProps)
+		}
+	}
+
+	assertField(t, &types.AnswerSemanticView{}, false)
+	assertField(t, &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}, true)
+	// Source-inventory identity alone must not widen the independent generic
+	// current-source evidence selector.
+	assertField(t, &types.AnswerSemanticView{SourceInventoryRowIdentityAvailable: true}, false)
+}
+
 func TestEmitAnswerDocumentSchema_ErrorGranularityVerdictEnumMatchesTypes(t *testing.T) {
 	raw := (&EmitAnswerDocument{}).Parameters()
 	var root map[string]any

@@ -93,6 +93,7 @@ type emitAnswerBlockItemV2 struct {
 	Cells                []string `json:"cells,omitempty"`
 	CandidateRole        string   `json:"candidate_role,omitempty"`
 	SourceInventoryRowID string   `json:"source_inventory_row_id,omitempty"`
+	EvidenceIDs          []string `json:"evidence_ids,omitempty"`
 	// CitationRef is a pointer so an ABSENT/null citation_ref (the item
 	// is uncited → types.CitationRefUnset) is distinguishable from an
 	// explicit citation_ref:0 (a valid zero-based index into the first
@@ -873,6 +874,15 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext(doc, view, ctx, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeOutOfRangeItemCitationRefsByEvidenceSurfaceWithContext", fixed)
 		logging.Warning("[%s] repaired %d out-of-range item citation_ref value(s) by evidence-surface corroboration", toolName, fixed)
+	}
+	// evidence_ids is the strongest non-inventory item citation selector. Apply
+	// it after every prose/role/location candidate repair and heuristic detach
+	// so no weaker lane can move or remove the model-selected evidence row. The
+	// binder changes only citation indexes; invalid IDs remain visible to the
+	// precise pre-emit check below.
+	if fixed := normalizeItemCitationRefsByEvidenceIDWithContext(doc, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeItemCitationRefsByEvidenceIDWithContext", fixed)
+		logging.Warning("[%s] bound %d item citation set(s) by exact accepted evidence ID", toolName, fixed)
 	}
 	if !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
 		if fixed := appendPrincipalEnumerationTypedSupplements(doc, ctx); fixed > 0 {

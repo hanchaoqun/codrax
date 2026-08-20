@@ -186,6 +186,7 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 				Cells:                normalizeTableCellStringSlice(it.Cells),
 				CandidateRole:        candidateRole,
 				SourceInventoryRowID: strings.TrimSpace(it.SourceInventoryRowID),
+				EvidenceIDs:          normalizeAnswerItemEvidenceIDs(it.EvidenceIDs),
 				CitationRef:          types.CitationRefUnset,
 			}
 			refs := make([]int, 0, 1+len(it.CitationRefs))
@@ -405,6 +406,29 @@ func normalizeTableStringSlice(in []string) []string {
 	}
 	for len(out) > 0 && out[len(out)-1] == "" {
 		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// normalizeAnswerItemEvidenceIDs preserves the model's stable evidence order
+// while removing whitespace-only and duplicate selectors. Evidence identity
+// is structural metadata: no visible item text participates in this pass.
+func normalizeAnswerItemEvidenceIDs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, raw := range in {
+		id := strings.TrimSpace(raw)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
 	}
 	if len(out) == 0 {
 		return nil

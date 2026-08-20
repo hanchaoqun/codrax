@@ -74,6 +74,7 @@ var (
 		"cells",
 		"candidate_role",
 		"source_inventory_row_id",
+		"evidence_ids",
 		"citation_ref",
 		"citation_refs",
 	)

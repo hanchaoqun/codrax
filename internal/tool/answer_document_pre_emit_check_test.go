@@ -28,6 +28,87 @@ func TestRunPreEmitChecks_NilSafe(t *testing.T) {
 	}
 }
 
+func TestNormalizeItemCitationRefsByEvidenceIDBindsExactSelectedRows(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "ev-write", Kind: types.EvidenceDirect, Source: "internal/agent/answer_document_evaluator.go", LineStart: 7878, LineEnd: 7880, Scope: types.ScopeLineRange, AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo, Snippet: "renderAnswerDocCurrentSourceExplanationProfile"},
+		{ID: "ev-read", Kind: types.EvidenceDirect, Source: "internal/tool/answer_document_pre_emit_check.go", LineStart: 2046, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("item evidence binding"), EvidenceItems: evidence}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: evidence[1].Source, Line: evidence[1].LineStart}},
+		Blocks: []types.AnswerBlock{{ID: "mechanism", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{
+			ID: "binding", Label: "PhantomSymbolName", EvidenceIDs: []string{" ev-write ", "ev-read", "ev-write"}, CitationRef: 0,
+		}}}},
+	}
+	pctx := newPreEmitCheckContext(ctx)
+	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, &types.AnswerSemanticView{}, ctx, pctx); fixed != 0 || len(pctx.detachedCitationItems) != 0 {
+		t.Fatalf("exact valid evidence identity must outrank label heuristics without scheduling a false detach disclosure: fixed=%d records=%+v", fixed, pctx.detachedCitationItems)
+	}
+	if fixed := normalizeItemCitationRefsByEvidenceIDWithContext(doc, pctx); fixed != 1 {
+		t.Fatalf("exact evidence identity should replace manual citation arithmetic once, fixed=%d doc=%+v", fixed, doc)
+	}
+	item := doc.Blocks[0].Items[0]
+	refs := types.AnswerBlockItemCitationRefs(item)
+	if len(refs) != 2 {
+		t.Fatalf("two selected evidence rows should produce two stable citation refs: refs=%v citations=%+v", refs, doc.Citations)
+	}
+	if got := doc.Citations[refs[0]]; got.File != evidence[0].Source || got.Line != evidence[0].LineStart || got.LineEnd != evidence[0].LineEnd {
+		t.Fatalf("first evidence identity bound wrong source row: got=%+v want=%+v", got, evidence[0])
+	}
+	if got := doc.Citations[refs[1]]; got.File != evidence[1].Source || got.Line != evidence[1].LineStart {
+		t.Fatalf("second evidence identity bound wrong source row: got=%+v want=%+v", got, evidence[1])
+	}
+	if hints := preCheckItemEvidenceIdentity(doc, pctx); len(hints) != 0 {
+		t.Fatalf("valid exact evidence identities should pass the precise check: %+v", hints)
+	}
+}
+
+func TestPreCheckItemEvidenceIdentityRejectsOnlyExplicitInvalidCarrier(t *testing.T) {
+	valid := types.EvidenceItem{ID: "ev-source", Kind: types.EvidenceDirect, Source: "internal/types/evidence.go", LineStart: 1537, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("item evidence check"), EvidenceItems: []types.EvidenceItem{valid}}
+	pctx := newPreEmitCheckContext(ctx)
+
+	withoutIDs := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "plain", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i", Label: "model synthesis"}}}}}
+	if hints := preCheckItemEvidenceIdentity(withoutIDs, pctx); len(hints) != 0 {
+		t.Fatalf("absent optional evidence identity must never create a gate: %+v", hints)
+	}
+
+	invalid := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "bad", Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{ID: "i", Label: "model fact", EvidenceIDs: []string{"ev-missing"}}},
+	}}}
+	hints := preCheckItemEvidenceIdentity(invalid, pctx)
+	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedItemEvidenceIdentity {
+		t.Fatalf("unknown explicit identity must use the exact typed hard lane: %+v", hints)
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("exact invalid ID must request one local correction: hard=%+v advisory=%+v", hard, advisory)
+	}
+
+	conflict := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "bad", Kind: types.BlockTable,
+		Items: []types.AnswerBlockItem{{ID: "i", Label: "row", SourceInventoryRowID: "row-1", EvidenceIDs: []string{"ev-source"}}},
+	}}}
+	hints = preCheckItemEvidenceIdentity(conflict, pctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].Reason, "cannot both select") {
+		t.Fatalf("two exact citation owners must fail closed without prose inference: %+v", hints)
+	}
+}
+
+func TestItemEvidenceIdentityDoesNotProtectRuntimeArtifactFromCitationBoundary(t *testing.T) {
+	runtimeEvidence := types.EvidenceItem{ID: "ev-runtime", Kind: types.EvidenceDirect, Source: "/tmp/customer.systrace", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorTextReference, GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginPerf}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("runtime identity"), EvidenceItems: []types.EvidenceItem{runtimeEvidence}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "runtime", Kind: types.BlockOrderedList,
+		Items: []types.AnswerBlockItem{{ID: "i", Label: "runtime row", EvidenceIDs: []string{"ev-runtime"}}},
+	}}}
+	hints := preCheckItemEvidenceIdentity(doc, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 || hints[0].HardSignal != preEmitHardSignalTypedItemEvidenceIdentity {
+		t.Fatalf("runtime artifact identity must not launder into current-source citation: %+v", hints)
+	}
+}
+
 func TestPreCheckRuntimeTraceModelPrincipalFloorProtectsModelConclusionOwnership(t *testing.T) {
 	view := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{
 		{Kind: types.BlockSummary, MinCount: 1, MaxCount: 1, Required: true, SurfaceRoleHint: types.SurfacePrincipal},

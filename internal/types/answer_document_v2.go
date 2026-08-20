@@ -606,6 +606,14 @@ type AnswerBlockItem struct {
 	// families or files without inspecting block titles or visible prose.
 	SourceInventoryRowID string `json:"source_inventory_row_id,omitempty"`
 
+	// EvidenceIDs are optional exact identities copied from the accepted
+	// current-source evidence handoff. They bind this model-authored visible
+	// item to one or more already-grounded source rows without asking the model
+	// to calculate citation-pool indexes. The system may translate these IDs
+	// into CitationRef/CitationRefs, but it never derives them from item prose
+	// and never uses them to author or replace the item's conclusion.
+	EvidenceIDs []string `json:"evidence_ids,omitempty"`
+
 	// CitationRef is a zero-based index into AnswerDocumentV2.
 	// Citations, or -1 when no citation backs this item. Renderer
 	// resolves the index to a (file, line) cite at render time. It remains

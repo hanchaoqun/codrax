@@ -45,6 +45,13 @@ type AnswerSemanticView struct {
 	// re-reading request or model prose.
 	SourceInventoryRowIdentityAvailable bool
 
+	// ItemEvidenceIdentityAvailable exposes items[].evidence_ids only for
+	// dispatches whose typed answer plan carries a current-source evidence
+	// origin. It is an optional citation-binding convenience, not a content
+	// obligation: the model still chooses the item and the exact accepted
+	// evidence rows that support it.
+	ItemEvidenceIdentityAvailable bool
+
 	// FacetCoverage is a pointer alias to the upstream contract so
 	// V2 validators / renderer / reviewer can reach it without re-
 	// compiling. Nil only when the family is QFGeneric and no facet

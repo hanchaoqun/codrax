@@ -60,14 +60,16 @@ func TestAnswerDocumentSourceInventoryFamilySurvivesMutableRoundTrip(t *testing.
 	doc := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{{
 		ID: "classes", Kind: BlockTable, SourceInventoryFamily: "public class",
 		Items: []AnswerBlockItem{{
-			ID: "cart", Label: "Cart", SourceInventoryRowID: "enum-set-row-cart-class",
+			ID: "cart", Label: "Cart", SourceInventoryRowID: "enum-set-row-cart-class", EvidenceIDs: []string{"ev-class"},
 		}},
 	}}}
 	mu := NewMutableState("answer family clone")
 	mu.SetAnswerDocumentV2WithMutation(MutationReplaceAll, doc)
+	doc.Blocks[0].Items[0].EvidenceIDs[0] = "corrupted"
 	got := mu.AnswerDocumentV2()
 	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].SourceInventoryFamily != "public class" ||
-		len(got.Blocks[0].Items) != 1 || got.Blocks[0].Items[0].SourceInventoryRowID != "enum-set-row-cart-class" {
+		len(got.Blocks[0].Items) != 1 || got.Blocks[0].Items[0].SourceInventoryRowID != "enum-set-row-cart-class" ||
+		len(got.Blocks[0].Items[0].EvidenceIDs) != 1 || got.Blocks[0].Items[0].EvidenceIDs[0] != "ev-class" {
 		t.Fatalf("source-inventory family/row identity was dropped by mutable-state clone: %+v", got)
 	}
 }

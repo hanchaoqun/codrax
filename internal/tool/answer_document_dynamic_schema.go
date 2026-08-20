@@ -31,6 +31,8 @@ import (
 //     answer surface is explicitly suppressed.
 //   - source_inventory_family and items[].source_inventory_row_id are dropped
 //     unless the view has a typed source-inventory observation.
+//   - items[].evidence_ids is dropped unless the view has a typed
+//     current-source evidence origin.
 //   - All other fields and the description prose stay byte-identical
 //     to the canonical schema.
 //
@@ -63,6 +65,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
+			projectItemEvidenceIdentityField(blockProps, view)
 		}
 		projectKindPayloadConditionals(blockItems, view)
 		projectSourceInventoryPrincipalTableItems(blockItems, view)
@@ -82,6 +85,16 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 	return out
+}
+
+func projectItemEvidenceIdentityField(blockProps map[string]any, view *types.AnswerSemanticView) {
+	if view != nil && view.ItemEvidenceIdentityAvailable {
+		return
+	}
+	itemsNode, _ := blockProps["items"].(map[string]any)
+	itemSchema, _ := itemsNode["items"].(map[string]any)
+	itemProps, _ := itemSchema["properties"].(map[string]any)
+	delete(itemProps, "evidence_ids")
 }
 
 // projectSourceInventoryPrincipalTableItems makes the dispatch-projected

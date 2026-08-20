@@ -56377,3 +56377,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1229 B1223：条目引用改用 accepted evidence ID 精确绑定（2026-08-20）
+
+1. r761 的错绑根因位于载体而非源码缺失：一个 block 可列多条独立源码事实，但既有 `claim_uses[].evidence_id`
+   只能描述整个 block 的 claim shape；每个 item 只有模型手算的 `citation_ref/citation_refs` 数组下标。只要模型
+   调整引用池顺序或把相邻定义/调用行混排，就会出现“解释事实正确、脚注指向另一行”，系统又无法从结构化字段
+   判断该 item 原本选择了哪条证据。
+2. 新增可选 `items[].evidence_ids`，只在 typed `CurrentSourceEvidenceOrigin` 生效的 dispatch-local schema 中暴露。
+   模型仍负责选择条目、陈述事实与选择支持它的 accepted evidence；它只需把 handoff 已显示的稳定 `evidence=` ID
+   原样复制，无需维护共享引用池下标。Trace、纯日志/附件、无当前源码车道不暴露该字段，不增加 JSON 心智。
+3. 预发射 binder 只做 exact ID → 已 grounded 当前源码 `file:line[-line_end]` → citation index 的确定性 join，按模型
+   选择顺序支持一个条目多条独立证据并去重同位置。它不读用户请求、item label/text/cells、模型推理、答案正文或
+   Mermaid 文案，不推断语义相关性，不选择/新增条目，也不修改模型解释与结论。有效 ID 的明确选择高于旧的
+   label/role/location 启发式引用修复，后者不得再把它移到相邻行。
+4. `source_inventory_row_id` 与 `evidence_ids` 是互斥的两个精确所有者：源码枚举行继续只用编译器生成的 row ID；
+   普通源码说明项才可用 accepted evidence ID。未知 ID、未 grounded 行、非 line-shaped 证据以及 log/perf/trace
+   artifact ID 不得洗成当前仓库引用。只有模型显式提交上述非法结构字段时，才走唯一
+   `typed_item_evidence_identity` 精确局部修正；字段缺席完全不产生义务或重试。
+5. full emit、patch/recovery、Mutable deep clone、字段 quarantine、semantic-view clone 与结构去重键均携带该字段；
+   中英文 current-source 教学明确系统只映射模型选中的 ID、不会选择条目或代写结论。新 pin 覆盖单条目多证据、
+   手算错引用被精确替换、未知 ID、runtime artifact 防洗、双所有者冲突、schema 条件投影、深拷贝与唯一 ForceHard
+   生产点，避免形成“教学允许/校验拒绝”的第二合同。
+6. 定向 schema/registry/binder/finalizer 测试全绿；完整
+   `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（tool 180.703s）。本批不改 Trace 查询、
+   时间窗、唤醒链、链上根因排名、实际占时/现规则可消双轴、因果投影、自动补齐、活跃流判定或系统/模型答案权属。
+
+状态：
+
+`B1223-ANSWERITEMEVIDENCECITATIONBINDING1=implemented/full-relevant-pass`；
+`item-citation-authority=exact-model-selected-accepted-evidence-id`；
+`manual-citation-index-arithmetic=optional/retained-for-legacy`；
+`invalid-explicit-id=precise-local-repair/absent-field=no-gate`；
+`runtime-artifact-to-current-source-laundering=forbidden/pinned`；
+`request/model/final-prose/mermaid-text-scan=none`；
+`model-item/fact/wording/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

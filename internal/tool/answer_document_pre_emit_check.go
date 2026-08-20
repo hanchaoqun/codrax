@@ -445,6 +445,7 @@ const (
 	preEmitHardSignalRuntimeTraceModelPrincipal      preEmitSameTurnHardSignal = "runtime_trace_model_principal"
 	preEmitHardSignalTypedTraceCausalClaimCaliber    preEmitSameTurnHardSignal = "typed_trace_causal_claim_caliber"
 	preEmitHardSignalTypedSourceInventoryRowID       preEmitSameTurnHardSignal = "typed_source_inventory_row_identity"
+	preEmitHardSignalTypedItemEvidenceIdentity       preEmitSameTurnHardSignal = "typed_item_evidence_identity"
 	preEmitHardSignalTypedFacetCandidateOwnership    preEmitSameTurnHardSignal = "typed_facet_candidate_ownership"
 )
 
@@ -463,6 +464,7 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolBlockCoverageMissing, Signal: preEmitHardSignalRuntimeTraceModelPrincipal},
 		{Kind: types.ViolAuthorityOverreach, Signal: preEmitHardSignalTypedTraceCausalClaimCaliber},
 		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedSourceInventoryRowID},
+		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedItemEvidenceIdentity},
 		{Kind: types.ViolFacetUncovered, Signal: preEmitHardSignalTypedFacetCandidateOwnership},
 	}
 }
@@ -529,6 +531,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "call_chain_endpoint_boundary_facet_ownership", ViolationKind: types.ViolFacetUncovered, HardLane: preEmitHardSignalTypedFacetCandidateOwnership},
 		// 5. Item/citation alignment + typed handoff preservation.
 		{Subgate: "item_citation_alignment", ViolationKind: types.ViolCitation},
+		{Subgate: "item_evidence_identity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedItemEvidenceIdentity},
 		{Subgate: "source_inventory_row_identity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "source_inventory_exact_row_binding", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
 		{Subgate: "source_inventory_exact_row_multiplicity", ViolationKind: types.ViolCitation, HardLane: preEmitHardSignalTypedSourceInventoryRowID},
@@ -805,6 +808,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// 5. Per-item label/citation alignment. A symbol-like list label with
 	// a citation must name the same cited evidence endpoint; otherwise the
 	// rendered answer silently shifts file:line proof across adjacent hops.
+	if h := preCheckItemEvidenceIdentity(doc, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
 	if h := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
@@ -1703,6 +1709,24 @@ func normalizeScalarCodeIdentityCitationRefsWithContext(doc *types.AnswerDocumen
 	return fixed
 }
 
+func preEmitItemHasValidEvidenceIdentity(item types.AnswerBlockItem, pctx *preEmitCheckContext) bool {
+	ids := normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)
+	if len(ids) == 0 || strings.TrimSpace(item.SourceInventoryRowID) != "" {
+		return false
+	}
+	byID := preEmitCurrentSourceEvidenceByID(pctx)
+	for _, id := range ids {
+		ev, ok := byID[id]
+		if !ok {
+			return false
+		}
+		if _, ok := preEmitCitationForItemEvidence(ev, pctx); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func preEmitScalarCodeIdentitySurface(block types.AnswerBlock) (string, bool) {
 	if block.Kind != types.BlockScalar || !preEmitScalarHasSourceCodeClaim(block) {
 		return "", false
@@ -2089,6 +2113,155 @@ func normalizeItemCitationRefsBySourceInventoryRows(doc *types.AnswerDocumentV2,
 		}
 	}
 	return fixed
+}
+
+// normalizeItemCitationRefsByEvidenceIDWithContext maps the model-selected
+// stable current-source evidence identities to citation indexes. It is a
+// carrier-only repair: the item text, label, cells, role, ordering, and block
+// ownership remain untouched, and no evidence identity is inferred from any
+// visible prose.
+func normalizeItemCitationRefsByEvidenceIDWithContext(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) int {
+	if doc == nil || pctx == nil {
+		return 0
+	}
+	byID := preEmitCurrentSourceEvidenceByID(pctx)
+	if len(byID) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			ids := normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)
+			if len(ids) == 0 || strings.TrimSpace(item.SourceInventoryRowID) != "" {
+				continue
+			}
+			refs := make([]int, 0, len(ids))
+			valid := true
+			for _, id := range ids {
+				ev, ok := byID[id]
+				if !ok {
+					valid = false
+					break
+				}
+				cit, ok := preEmitCitationForItemEvidence(ev, pctx)
+				if !ok {
+					valid = false
+					break
+				}
+				if ref := appendOrReusePreEmitCitation(doc, cit); ref >= 0 {
+					refs = append(refs, ref)
+				}
+			}
+			if !valid || len(refs) == 0 {
+				continue
+			}
+			refs = dedupPreEmitCitationRefs(refs)
+			if preEmitCitationRefSetsEqual(types.AnswerBlockItemCitationRefs(*item), refs) {
+				continue
+			}
+			types.SetAnswerBlockItemCitationRefs(item, refs)
+			fixed++
+		}
+	}
+	return fixed
+}
+
+// preCheckItemEvidenceIdentity rejects only explicit, schema-validated ID
+// carriers that cannot be resolved to citable current-source evidence. This
+// precise structural signal may request a same-turn local correction; absent
+// evidence_ids never creates an obligation or retry.
+func preCheckItemEvidenceIdentity(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil {
+		return nil
+	}
+	byID := preEmitCurrentSourceEvidenceByID(pctx)
+	var out []emitFixHint
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := doc.Blocks[bi].Items[ii]
+			ids := normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)
+			if len(ids) == 0 {
+				continue
+			}
+			field := fmt.Sprintf("blocks[%d].items[%d].evidence_ids", bi, ii)
+			if strings.TrimSpace(item.SourceInventoryRowID) != "" {
+				out = append(out, preEmitTypedItemEvidenceIdentityHint(
+					field,
+					"use source_inventory_row_id alone for a source-inventory row; otherwise remove source_inventory_row_id and retain only exact accepted current-source evidence IDs",
+					"source_inventory_row_id and evidence_ids are two independent exact citation owners and cannot both select the same item",
+				))
+				continue
+			}
+			for _, id := range ids {
+				ev, ok := byID[id]
+				if ok {
+					_, ok = preEmitCitationForItemEvidence(ev, pctx)
+				}
+				if ok {
+					continue
+				}
+				out = append(out, preEmitTypedItemEvidenceIdentityHint(
+					field,
+					fmt.Sprintf("remove %q or replace it with an exact evidence= ID from a citable current-source handoff row supporting this item", id),
+					"an explicit item evidence identity must resolve to one grounded current-source file:line row; runtime artifacts, ungrounded rows, and unknown IDs cannot become repository citations",
+				))
+				break
+			}
+		}
+	}
+	return out
+}
+
+func preEmitTypedItemEvidenceIdentityHint(field, expectedShape, reason string) emitFixHint {
+	return emitFixHint{
+		Field:         field,
+		ExpectedShape: expectedShape,
+		Reason:        reason,
+		ForceHard:     true,
+		HardSignal:    preEmitHardSignalTypedItemEvidenceIdentity,
+	}
+}
+
+func preEmitCurrentSourceEvidenceByID(pctx *preEmitCheckContext) map[string]types.EvidenceItem {
+	out := map[string]types.EvidenceItem{}
+	if pctx == nil {
+		return out
+	}
+	for _, ev := range pctx.evidenceItems() {
+		id := strings.TrimSpace(ev.ID)
+		if id == "" {
+			id = strings.TrimSpace(types.StableEvidenceID(ev))
+		}
+		if id == "" {
+			continue
+		}
+		if _, exists := out[id]; !exists {
+			out[id] = ev
+		}
+	}
+	return out
+}
+
+func preEmitCitationForItemEvidence(ev types.EvidenceItem, pctx *preEmitCheckContext) (types.Citation, bool) {
+	if !ev.IsCitable() || !ev.Scope.IsLineShaped() || ev.LineStart <= 0 ||
+		strings.TrimSpace(ev.Source) == "" || ev.Origin.IsLogDerived() ||
+		types.RuntimeArtifactPathKind(ev.Source) != "" {
+		return types.Citation{}, false
+	}
+	cit := types.Citation{
+		File:    ev.Source,
+		Line:    ev.LineStart,
+		LineEnd: ev.LineEnd,
+		Quote:   strings.TrimSpace(ev.Snippet),
+	}
+	if pctx != nil {
+		cit = pctx.canonicalCitation(cit)
+	}
+	if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+		return types.Citation{}, false
+	}
+	return cit, true
 }
 
 func preEmitSourceInventoryRowsByID(ctx *types.BusContext) map[string]types.EnumerationDisplayRow {
@@ -3687,6 +3860,13 @@ func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.Ans
 		}
 		for ii := range block.Items {
 			item := &block.Items[ii]
+			// An exact accepted evidence identity outranks the older
+			// label/surface heuristic. The late evidence-ID binder will restore
+			// its citation set; do not detach and schedule a false degradation
+			// disclosure first.
+			if preEmitItemHasValidEvidenceIdentity(*item, pctx) {
+				continue
+			}
 			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
 				continue
 			}

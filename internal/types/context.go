@@ -3855,6 +3855,7 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 						Cells:                append([]string(nil), it.Cells...),
 						CandidateRole:        it.CandidateRole,
 						SourceInventoryRowID: it.SourceInventoryRowID,
+						EvidenceIDs:          append([]string(nil), it.EvidenceIDs...),
 						CitationRef:          it.CitationRef,
 						CitationRefs:         append([]int(nil), it.CitationRefs...),
 					}

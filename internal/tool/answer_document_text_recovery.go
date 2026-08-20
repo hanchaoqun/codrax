@@ -666,6 +666,7 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 			Cells:                cells,
 			CandidateRole:        candidateRole,
 			SourceInventoryRowID: strings.TrimSpace(item.SourceInventoryRowID),
+			EvidenceIDs:          normalizeAnswerItemEvidenceIDs(item.EvidenceIDs),
 			CitationRef:          types.CitationRefUnset,
 		}
 		refs := make([]int, 0, 1+len(item.CitationRefs))

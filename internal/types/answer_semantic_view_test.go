@@ -170,6 +170,22 @@ func TestBuildAnswerSemanticView_SourceInventoryRowIdentityUsesTypedPlan(t *test
 	}
 }
 
+func TestBuildAnswerSemanticView_ItemEvidenceIdentityUsesCurrentSourcePlan(t *testing.T) {
+	ir := &AnalysisIR{RequestModel: RequestModel{Intent: IntentExplain}}
+	view := BuildAnswerSemanticView(ir, &AnswerSurfacePlan{CurrentSourceEvidenceOrigin: true})
+	if view == nil || !view.ItemEvidenceIdentityAvailable {
+		t.Fatalf("typed current-source plan should expose optional item evidence identity: %+v", view)
+	}
+	clone := cloneAnswerSemanticView(view)
+	if clone == nil || !clone.ItemEvidenceIdentityAvailable {
+		t.Fatalf("semantic-view clone lost item evidence identity availability: %+v", clone)
+	}
+	view = BuildAnswerSemanticView(ir, &AnswerSurfacePlan{})
+	if view == nil || view.ItemEvidenceIdentityAvailable {
+		t.Fatalf("non-current-source plan must not expose item evidence identity: %+v", view)
+	}
+}
+
 func TestCompileCallChainEndpointBoundary_UsesTypedNoDirectedPathOnly(t *testing.T) {
 	rm := RequestModel{
 		Intent:                   IntentTrace,

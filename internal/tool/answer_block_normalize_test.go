@@ -75,7 +75,7 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 		Title: "Title",
 		Text:  "body text",
 		Items: []emitAnswerBlockItemV2{
-			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleVariable), SourceInventoryRowID: "row-1", CitationRef: flexIntPtr(3)},
+			{ID: "i1", Label: "L", Text: "T", CandidateRole: string(types.AnswerCandidateRoleVariable), SourceInventoryRowID: "row-1", EvidenceIDs: []string{" ev-1 ", "ev-1", "ev-2"}, CitationRef: flexIntPtr(3)},
 		},
 		ClaimUses: []types.RenderedClaimUse{
 			{ClaimForm: types.ClaimDefinitionFact, FacetID: "f1"},
@@ -98,7 +98,7 @@ func TestNormalizeEmitAnswerBlock_HappyPathFullProjection(t *testing.T) {
 	if got.ID != "b1" || got.Kind != types.BlockSummary || got.Title != "Title" || got.Text != "body text" {
 		t.Errorf("scalar fields lost: %+v", got)
 	}
-	if len(got.Items) != 1 || got.Items[0].CitationRef != 3 || got.Items[0].CandidateRole != types.AnswerCandidateRoleVariable || got.Items[0].SourceInventoryRowID != "row-1" {
+	if len(got.Items) != 1 || got.Items[0].CitationRef != 3 || got.Items[0].CandidateRole != types.AnswerCandidateRoleVariable || got.Items[0].SourceInventoryRowID != "row-1" || !reflect.DeepEqual(got.Items[0].EvidenceIDs, []string{"ev-1", "ev-2"}) {
 		t.Errorf("items[0] fields lost: %+v", got.Items)
 	}
 	if len(got.ClaimUses) != 1 || got.ClaimUses[0].FacetID != "f1" {

@@ -576,6 +576,7 @@ func semanticPrincipalAnswerItemDedupeKey(item types.AnswerBlockItem, citations 
 	}
 	return string(item.CandidateRole) + "\x1e" +
 		strings.TrimSpace(item.SourceInventoryRowID) + "\x1e" +
+		strings.Join(normalizeAnswerItemEvidenceIDs(item.EvidenceIDs), "\x1d") + "\x1e" +
 		label + "\x1e" +
 		normalizeAnswerBlockDedupeSurface(item.Text) + "\x1e" +
 		strings.Join(answerBlockNormalizedSurfaces(item.Cells), "\x1d") + "\x1e" +
