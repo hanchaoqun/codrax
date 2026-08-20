@@ -57877,3 +57877,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r781`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r781`。
+
+### §123.1269 r782：typed candidate 已准入，但整块图修补仍导致关系迁移（2026-08-20）
+
+1. 以已推送 `245c2548f` 构建不可变二进制，严格并发恰好 2 路。显式窗 Trace 221s PASS；read 流水线图+表
+   1303s、12 次成文拒绝后 runner FAIL，原因为最终答案缺少 `(extractor|Extract)`。两路模型流均持续活跃，没有因 4ms、
+   4m、首字节、stall 或累计年龄回退旧稿、空答案或时间降级；read 是在第 13 次成文被接受后由内容 oracle 判失败。
+2. Trace 异构回归完整：2.000–2.020s 显式窗、六次 trace_query/自动补采、Trace 因果投影均在；已证链上首因仍是
+   threadpool-400 iowait 11.000ms，三个 1.000ms runnable 席仍归调度供给，邻近 sleep 和背景 IO 活动指数没有参与
+   根因排序。系统投影继续分开主要占时与规则可消两轴。
+3. `B1249-RELCANDIDATETXN` 的硬边界工作正常：relation delta 携带 structured `allowed_additions[]`，scope retry 保留该数组；
+   未列关系、候选重复和无关旧边删除仍被 typed lease 拒绝，系统没有选择或补画候选。但生产回放不能据此关账，因为协议仍要求
+   模型通过 `replace_blocks` 重发完整 diagram body 和完整 `edge_anchors`。
+4. 新确认 `B1251-RELATIONPATCHATOM1/P1`：第二份完整稿只需统一若干可见 edge label、删除两条 typed 未证关系，模型第一次
+   patch 却同时删掉未点名且已证的 `Loop→Env`；后续几轮又交替漏掉 `Phase→Dispatch` 等边，再进入 participant boundary 与
+   return/call 合同迁移。第 13 轮虽通过，最终图只剩 Analyze 局部和孤立 `Graph→Loop→Env`，`Run→Graph`、Extractor、Finalize
+   主段均丢失。runner 的缺失 Extractor oracle 与人工审计一致，不能归为单纯模型波动。
+5. 最优泛化修向冻结为“model-authored atomic diagram relation patch”：在既有 patch tool 内增加结构化原子操作，模型明确声明
+   目标 block、匹配的旧 relation tuple/occurrence、remove/replace/add 操作，以及由模型编写的新 endpoint/visible label；系统只对
+   上一版模型图事务化执行该声明，未点名 body 边与 anchor 字节/结构保持。允许新增仍受 `allowed_additions[]` exact identity/
+   direction/kind 约束；删除/替换仍只能命中当前 failures。系统不选择候选、不生成业务标签、不重连边、不改结论，普通完整 patch、
+   非 relation retry 与 Trace 图不受影响。
+6. 该原子协议必须先支持高频三类：仅更新某条边的 Mermaid message 与 anchor.visible_label；精确删除失败边；选择一条 listed
+   candidate 并由模型提供可见 node id/label。操作必须 fail-closed 于未知/重复/歧义 occurrence、body 与 anchor 不一致、越出 lease、
+   非 diagram block；事务失败不污染 accepted/rejected base。整块 `replace_blocks` 仍保留作真正重构图的普通车道，但 relation
+   lease 激活时优先只暴露原子操作，降低 JSON 心智与关系迁移面。
+7. 另记两项观察债。`B1252-EXPLORERCLOSURE1/P1-observe`：read 三个 Explorer window 合计约 93 轮、61 次 read、193 条
+   evidence，closure repair 后仍继续导航，使 finalizer 起始上下文约 61.8k；需审计 typed completion/closure 的可执行停止信号，
+   不能靠请求/源码关键词截断。`B1253-TRACESLEEPPRIO1/P2-observe`：Trace 模型导语把目标仍在 sleep 时的上游等待表述成目标 RT
+   线程“未能优先获得调度”，并把 11ms IO+三个 1ms runnable 说成构成完整 20ms；typed 投影本身没有该错误。后续只应通过
+   精确状态/口径上下文软校准：未 runnable 前优先级不能解释目标调度延迟，多席墙钟不可直接补足窗口；不得扫描模型答案或由系统
+   代写结论。
+8. 首轮另见一次 `blocks` JSON 字符串恢复后末块 `kind` 丢失，第二轮完整重发即消失，暂列 JSON recovery 观察项；本批不把单次
+   模型畸形提升为硬修。下一施工批优先 B1251，并以同一 read 关系图 + 显式窗 Trace 严格并发 2 路回放；之后再审 B1252 与
+   `B1244-SOURCEANCHOROWNER1`。
+
+状态：
+
+`r782=runner-pass-1/fail-1,human-pass-with-watch-1/fail-1`；
+`B1249=partial-production-positive/blocked-by-whole-block-repair`；
+`B1251=confirmed/P1-next`；`B1252=confirmed-observe/P1`；`B1253=confirmed-observe/P2`；
+`relation-atomic-ops=model-authored/system-transactional/planned`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r782`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r782`。
