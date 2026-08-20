@@ -230,6 +230,40 @@ func TestBuildAnswerDocumentParametersFor_ProjectsTypedParticipantBoundariesOnly
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_ProjectsRequestedRelationScopeOnlyForMultiParticipantFlow(t *testing.T) {
+	active := &types.AnswerSemanticView{
+		Family:       types.QFGeneric,
+		RelationAxis: types.AxisFlow,
+		DiagramPlan:  &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+		DiagramParticipantObligations: []types.DiagramParticipantHint{
+			{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}
+	_, activeProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(active))
+	field, ok := activeProps["requested_relation_scope"].(map[string]any)
+	if !ok {
+		t.Fatalf("required multi-participant source-flow schema must expose requested_relation_scope: %v", activeProps)
+	}
+	if desc, _ := field["description"].(string); !strings.Contains(desc, "requested_relation_spine_status=unproven") ||
+		!strings.Contains(desc, "exactly one") {
+		t.Fatalf("projected requested relation scope teaching is incomplete: %q", desc)
+	}
+
+	for name, view := range map[string]*types.AnswerSemanticView{
+		"trace":           {Family: types.QFRootCauseTrace, RelationAxis: types.AxisFlow, DiagramPlan: active.DiagramPlan, DiagramParticipantObligations: active.DiagramParticipantObligations},
+		"one participant": {Family: types.QFGeneric, RelationAxis: types.AxisFlow, DiagramPlan: active.DiagramPlan, DiagramParticipantObligations: active.DiagramParticipantObligations[:1]},
+		"non flow":        {Family: types.QFGeneric, RelationAxis: types.AxisDefine, DiagramPlan: active.DiagramPlan, DiagramParticipantObligations: active.DiagramParticipantObligations},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, props := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+			if _, leaked := props["requested_relation_scope"]; leaked {
+				t.Fatalf("inactive lane leaked requested_relation_scope: %v", props)
+			}
+		})
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectsSourceInventoryIdentityOnlyWhenAvailable(t *testing.T) {
 	assertFields := func(t *testing.T, view *types.AnswerSemanticView, want bool) {
 		t.Helper()

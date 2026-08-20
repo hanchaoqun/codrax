@@ -56533,3 +56533,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1233 B1225：局部边齐全不等于整条请求关系已证（2026-08-20）
+
+1. r762 暴露的不是某个 participant 再缺一条边，而是两个不同层次被混为一谈：四阶段 precedence 岛和
+   `BusContext/BuildAgentContext/Mutable` 局部 operation 岛都各自有真实 typed incidence，逐 participant 校验因而
+   可以通过；但既有 typed provider 同时已经给出 `requested_relation_spine_status=unproven`，说明这些片段没有形成
+   用户请求的完整端到端关系。`participant_boundaries` 只能表达“某个参与者的请求关系未证”，无法表达“每个参与者
+   都有局部边、整图仍是多个岛”，这就是 `B1225-FLOWSPINEDISCLOSURE1` 的结构根因。
+2. 本批新增独立的模型自有 block-level 载体 `requested_relation_scope=partial_unproven`。义务只来自既有唯一
+   parser-owned request-scope component 计算：多参与者 required source-flow 中，request-scoped provider 已覆盖至少
+   一个参与者、但只覆盖严格子集时，恰好一个承载请求关系的 diagram 必须提交该值；关系已完整、完全没有这一精确
+   partial-spine 信号、单参与者、非 flow 或 Trace 家族均不得携带。重复、缺失和陈旧声明都由同一 typed 判定拒绝，
+   不读取用户问题、模型推理、block 文本、Mermaid 标签或“完整/不完整”等词。
+3. 该字段不授权任何边：系统不会补边、删边、反转、重连、选择节点或替换模型结论。模型仍负责图、全部关系和结论；
+   renderer 只把模型提交且已通过 typed 对账的枚举显示为中英文读者事实——“当前图仅展示已有证据支持的局部关系，
+   现有证据尚未证明这些片段构成完整端到端关系”，并禁止把内部枚举发射给用户。模型正文即使存在措辞波动，也不以
+   prose 扫描或系统改写纠正；准确上下文、结构化披露和可见范围说明共同降低误读。
+4. 首轮 Diagram Contract 与 mechanism relation authority 现在同时发布精确 JSON recipe，动态 schema 只在 required、
+   multi-participant、non-Trace flow lane 暴露字段。full emit、patch、diagram 内误嵌套的无损提升、融合块拆分、恢复草稿、
+   Mutable 深拷贝和 post-finalizer oracle 全部走同一载体；从而避免“教学允许/校验拒绝”或 pre/post 丢字段。
+5. 回归覆盖 r762 同形的“stage 主岛 + carrier 局部岛”：per-participant 边界完整时仍先红缺少整图范围；模型提交唯一
+   `partial_unproven` 后转绿，边数和 anchor 字节不变；重复、无 typed partial provider 的陈旧字段、非 diagram、非法
+   enum、Trace schema 隔离、中英文内部枚举不泄漏均有 pin。完整
+   `go test ./internal/types ./internal/agent ./internal/tool ./internal/orchestrator ./internal/render -count=1` 全绿
+   （tool 181.988s）。
+6. 本批不触碰 Trace 查询、显式时间窗、唤醒链、链上-only 主因、实际占时/现规则可消双轴、因果投影、自动补齐或活跃
+   流判定；4ms、4m、首字节、stall 和累计年龄继续不得驱动降级。下一步以同一关系案例和 Trace 案例严格并发 2 路做
+   production 回放，验证 B1224/B1225/B1226 三项同时生效且无跨家族回归。
+
+状态：
+
+`B1225-FLOWSPINEDISCLOSURE1=implemented/full-relevant-pass/production-pending`；
+`whole-diagram-scope=model-authored-typed-field`；
+`partial-scope-authority=request-scoped-provider-strict-subset-only`；
+`participant-incidence!=whole-requested-relation-completeness`；
+`missing/stale/duplicate=typed-only-hard-check`；
+`system-edge/node/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`internal-enum-reader-leak=forbidden/pinned-zh-en`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

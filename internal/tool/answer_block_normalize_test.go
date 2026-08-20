@@ -932,6 +932,7 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
 			Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
 		}},
+		RequestedRelationScope: string(types.DiagramRelationScopePartialUnproven),
 		RelationClaims: []types.AnswerRelationClaim{{
 			AuthorityID: "trace:self_runnable_two_ruler:test:cross",
 			MemberRefs:  []string{"#4", "#10"}, PhysicalRelation: types.AnswerPhysicalRelationUnresolved,
@@ -987,6 +988,9 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		"EdgeAnchors": func() bool { return len(got.EdgeAnchors) > 0 },
 		"ParticipantBoundaries": func() bool {
 			return len(got.ParticipantBoundaries) == 1 && got.ParticipantBoundaries[0].Participant == "MutableState"
+		},
+		"RequestedRelationScope": func() bool {
+			return got.RequestedRelationScope == types.DiagramRelationScopePartialUnproven
 		},
 		"RelationClaims": func() bool { return len(got.RelationClaims) > 0 },
 		"FacetIDs":       func() bool { return len(got.FacetIDs) > 0 },
@@ -1070,6 +1074,25 @@ func TestNormalizeEmitAnswerBlock_RejectsInvalidParticipantBoundaries(t *testing
 				t.Fatalf("invalid participant boundary must fail at its typed field, got %v", err)
 			}
 		})
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_RejectsInvalidRequestedRelationScope(t *testing.T) {
+	base := emitAnswerBlockV2{
+		ID: "diagram", Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{Kind: string(types.DiagramFlow), Body: "flowchart LR\n A --> B"},
+	}
+	invalid := base
+	invalid.RequestedRelationScope = "complete"
+	if _, err := NormalizeEmitAnswerBlock(invalid, "blocks[0]"); err == nil || !strings.Contains(err.Error(), "allowed value: partial_unproven") {
+		t.Fatalf("invalid whole-relation scope must fail closed, got %v", err)
+	}
+	nonDiagram := emitAnswerBlockV2{
+		ID: "summary", Kind: string(types.BlockSummary), Text: "body",
+		RequestedRelationScope: string(types.DiagramRelationScopePartialUnproven),
+	}
+	if _, err := NormalizeEmitAnswerBlock(nonDiagram, "blocks[1]"); err == nil || !strings.Contains(err.Error(), "only valid on kind=diagram") {
+		t.Fatalf("whole-relation scope on a non-diagram block must fail closed, got %v", err)
 	}
 }
 

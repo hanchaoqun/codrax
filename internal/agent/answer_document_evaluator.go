@@ -4330,6 +4330,7 @@ func renderAnswerDocDiagramContract(ctx *types.AgentContext, dc *types.DiagramCo
 			if len(boundaries) > 0 {
 				if requestScopedSubsetIncomplete {
 					b.WriteString("- Typed unproven requested-relation recipes (a participant can retain this boundary even when an independently grounded local technical operation exists):\n")
+					b.WriteString("- Whole-diagram scope recipe: on exactly one diagram block that presents the requested relation, set block-level `requested_relation_scope=partial_unproven`. This model-authored typed disclosure tells readers that the proved local segments do not yet establish one complete end-to-end requested relation. It adds no edge and does not replace your conclusion; do not repeat the raw enum in visible prose or labels.\n")
 				} else {
 					b.WriteString("- Typed uncovered-participant recipes (use a row only when that participant has no grounded visible incident relation):\n")
 				}
@@ -9549,6 +9550,7 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 		renderAnswerDocMechanismPrincipalDiagramRecipe(b, aliases, recipes)
 	} else if requestScopedRelations > 0 {
 		fmt.Fprintf(b, "- requested_relation_spine_status=`unproven`; request_scoped_typed_relation_subset_count=%d. The verified subset does not cover every typed incident participant, so it remains supporting evidence and is not a complete answer to the requested relation.\n", requestScopedRelations)
+		b.WriteString("- requested_relation_scope_recipe={requested_relation_scope:`partial_unproven`,placement:`exactly_one_requested_relation_diagram_block`}. Copy this typed model-authored field so the renderer can disclose the bounded whole-diagram scope in reader language. The field creates no edge and does not replace your conclusion; never copy the raw enum into visible prose or Mermaid labels.\n")
 		b.WriteString("- Required-diagram boundary: preserve any useful verified subset, but do not call it the complete requested flow or let disconnected local operations stand in for missing carrier/participant relations. Investigate a typed bridge when available; otherwise keep the missing requested relation explicit with the existing participant boundary. You still author the diagram and conclusion; this authority adds no edge.\n")
 		b.WriteString("- Principal-diagram display guidance (soft): prioritize the requested participant identities as visible nodes together with any proved request-scoped relation subset. Keep disconnected local implementation operations in prose or a separate bounded support visual unless they materially explain a requested participant relation. Use concise repository/domain/business wording for visible labels and keep exact implementation symbols in citations or typed anchors. Preserve uncovered requested participants as visible disconnected nodes with unproven participant boundaries. This is selection and language guidance only: the model still authors every visible label, node, edge, diagram, and conclusion; this authority adds or rewrites none of them.\n")
 	}

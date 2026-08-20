@@ -100,12 +100,24 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		ClaimUses:             raw.ClaimUses,
 		EdgeAnchors:           raw.EdgeAnchors,
 		ParticipantBoundaries: types.CloneDiagramParticipantBoundaries(raw.ParticipantBoundaries),
-		RelationClaims:        types.CloneAnswerRelationClaims(raw.RelationClaims),
-		FacetIDs:              raw.FacetIDs,
-		SurfaceRole:           types.SurfaceRole(raw.SurfaceRole),
+		RequestedRelationScope: types.DiagramRelationScopeStatus(
+			strings.TrimSpace(raw.RequestedRelationScope),
+		),
+		RelationClaims: types.CloneAnswerRelationClaims(raw.RelationClaims),
+		FacetIDs:       raw.FacetIDs,
+		SurfaceRole:    types.SurfaceRole(raw.SurfaceRole),
 	}
 	if len(blk.ParticipantBoundaries) > 0 && kind != types.BlockDiagram {
 		return types.AnswerBlock{}, fmt.Errorf("%s: participant_boundaries is only valid on kind=diagram blocks", fieldPath)
+	}
+	if blk.RequestedRelationScope != types.DiagramRelationScopeUnknown {
+		if kind != types.BlockDiagram && raw.Diagram == nil {
+			return types.AnswerBlock{}, fmt.Errorf("%s: requested_relation_scope is only valid on kind=diagram blocks", fieldPath)
+		}
+		if !blk.RequestedRelationScope.IsValid() {
+			return types.AnswerBlock{}, fmt.Errorf("%s: requested_relation_scope=%q is invalid; allowed value: partial_unproven",
+				fieldPath, raw.RequestedRelationScope)
+		}
 	}
 	seenParticipantBoundaries := make(map[string]bool, len(blk.ParticipantBoundaries))
 	for i, boundary := range blk.ParticipantBoundaries {
@@ -745,6 +757,7 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 					visible.Diagram = nil
 					visible.EdgeAnchors = nil
 					visible.ParticipantBoundaries = nil
+					visible.RequestedRelationScope = ""
 					out = append(out, splitEmitBlockEntry{raw: visible, modelIndex: i})
 				} else {
 					out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
@@ -765,12 +778,14 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
 		visible.ParticipantBoundaries = nil
+		visible.RequestedRelationScope = ""
 		diagramHalf := emitAnswerBlockV2{
-			ID:                    deriveSplitDiagramBlockID(b.ID, used),
-			Kind:                  string(types.BlockDiagram),
-			Diagram:               b.Diagram,
-			EdgeAnchors:           b.EdgeAnchors,
-			ParticipantBoundaries: b.ParticipantBoundaries,
+			ID:                     deriveSplitDiagramBlockID(b.ID, used),
+			Kind:                   string(types.BlockDiagram),
+			Diagram:                b.Diagram,
+			EdgeAnchors:            b.EdgeAnchors,
+			ParticipantBoundaries:  b.ParticipantBoundaries,
+			RequestedRelationScope: b.RequestedRelationScope,
 		}
 		out = append(out,
 			splitEmitBlockEntry{raw: visible, modelIndex: i},
@@ -1100,11 +1115,12 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		}
 		seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: true})
 		return &emitAnswerBlockV2{
-			ID:                    target,
-			Kind:                  string(types.BlockDiagram),
-			Diagram:               b.Diagram,
-			EdgeAnchors:           b.EdgeAnchors,
-			ParticipantBoundaries: b.ParticipantBoundaries,
+			ID:                     target,
+			Kind:                   string(types.BlockDiagram),
+			Diagram:                b.Diagram,
+			EdgeAnchors:            b.EdgeAnchors,
+			ParticipantBoundaries:  b.ParticipantBoundaries,
+			RequestedRelationScope: b.RequestedRelationScope,
 		}, false
 	}
 	for _, b := range replaceBlocks {
@@ -1121,6 +1137,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
 		visible.ParticipantBoundaries = nil
+		visible.RequestedRelationScope = ""
 		outReplace = append(outReplace, visible)
 		if half != nil {
 			systemHalves = append(systemHalves, *half)
@@ -1140,6 +1157,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		visible.Diagram = nil
 		visible.EdgeAnchors = nil
 		visible.ParticipantBoundaries = nil
+		visible.RequestedRelationScope = ""
 		outAdd = append(outAdd, visible)
 		if half != nil {
 			systemHalves = append(systemHalves, *half)

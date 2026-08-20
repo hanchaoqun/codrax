@@ -846,6 +846,29 @@ func TestRenderV2_BlockDiagramPublishesModelAuthoredParticipantBoundary(t *testi
 	}
 }
 
+func TestRenderV2_BlockDiagramPublishesModelAuthoredWholeRelationScope(t *testing.T) {
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "d1", Kind: types.BlockDiagram,
+		Diagram:                &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B\n C --> D"},
+		RequestedRelationScope: types.DiagramRelationScopePartialUnproven,
+	}}}
+	zh := RenderAnswerDocument(doc, "zh-CN")
+	for _, want := range []string{"关系覆盖范围", "已有证据支持的局部关系", "尚未证明", "完整端到端关系"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("Chinese whole-relation scope disclosure lost %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, "partial_unproven") {
+		t.Fatalf("internal relation-scope enum leaked into reader output:\n%s", zh)
+	}
+	english := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{"Relationship coverage", "locally proved relations", "does not yet prove", "complete requested end-to-end relation"} {
+		if !strings.Contains(english, want) {
+			t.Fatalf("English whole-relation scope disclosure lost %q:\n%s", want, english)
+		}
+	}
+}
+
 func TestRenderV2_BlockDiagram_StripsNestedMermaidFence(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

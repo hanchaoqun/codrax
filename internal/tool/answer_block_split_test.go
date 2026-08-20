@@ -32,10 +32,11 @@ func fullyFusedBlock() emitAnswerBlockV2 {
 		Diagram: &emitAnswerDiagramV2{
 			Kind: string(types.DiagramSequence), Language: "mermaid", Body: "sequenceDiagram\n  A->>B: x",
 		},
-		ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact, FacetID: "f1"}},
-		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge}},
-		FacetIDs:    []string{"current_code_path"},
-		SurfaceRole: string(types.SurfacePrincipal),
+		ClaimUses:              []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact, FacetID: "f1"}},
+		EdgeAnchors:            []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, ClaimForm: types.ClaimCallEdge}},
+		RequestedRelationScope: string(types.DiagramRelationScopePartialUnproven),
+		FacetIDs:               []string{"current_code_path"},
+		SurfaceRole:            string(types.SurfacePrincipal),
 	}
 }
 
@@ -117,7 +118,7 @@ func TestSplitFusedDiagramBlocksFieldPartition(t *testing.T) {
 			if !onVisible || !onDiagram {
 				t.Errorf("%s must exist on both halves", name)
 			}
-		case "Diagram", "EdgeAnchors", "ParticipantBoundaries":
+		case "Diagram", "EdgeAnchors", "ParticipantBoundaries", "RequestedRelationScope":
 			if onVisible || !onDiagram {
 				t.Errorf("%s must live on the diagram half only (visible=%t diagram=%t)", name, onVisible, onDiagram)
 			}

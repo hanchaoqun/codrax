@@ -2601,21 +2601,25 @@ func validateDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	}
 	evidence = tool.DiagramEvidenceForValidation(bus, doc, view, evidence)
 	mismatches := tool.DiagramParticipantCoverageMismatchesWithRuntimeContext(bus, doc, view, evidence)
-	if len(mismatches) == 0 {
+	scopeMismatches := tool.DiagramRequestedRelationScopeMismatchesWithRuntimeContext(bus, doc, view, evidence)
+	if len(mismatches) == 0 && len(scopeMismatches) == 0 {
 		return nil
 	}
-	parts := make([]string, 0, len(mismatches))
+	parts := make([]string, 0, len(mismatches)+len(scopeMismatches))
 	for _, mismatch := range mismatches {
 		parts = append(parts, fmt.Sprintf("participant=%q issue=%s", mismatch.Participant, mismatch.Issue))
 	}
+	for _, mismatch := range scopeMismatches {
+		parts = append(parts, fmt.Sprintf("block=%q requested_relation_scope_issue=%s", mismatch.BlockID, mismatch.Issue))
+	}
 	return []types.Violation{{
 		Kind:       types.ViolDiagramParticipantCoverage,
-		Detail:     "required typed diagram participants lack a visible typed incident relation or an exact model-authored unproven boundary: " + strings.Join(parts, "; "),
-		Repair:     "Preserve every evidence-backed visible typed edge. For each remaining incident_required participant, keep a disconnected visible node and add exactly one participant_boundaries row with status=unproven; do not invent a relation.",
+		Detail:     "required typed diagram participant or whole-relation scope disclosure is incomplete: " + strings.Join(parts, "; "),
+		Repair:     "Preserve every evidence-backed visible typed edge. For each remaining incident_required participant, keep a disconnected visible node and add exactly one participant_boundaries row with status=unproven. When the typed request-spine authority covers only a strict participant subset, add requested_relation_scope=partial_unproven to exactly one requested-relation diagram; otherwise omit it. Do not invent a relation.",
 		ClusterKey: blockKindClusterKey(types.BlockDiagram, "diagram_participant_coverage"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "diagram_participant_coverage",
-			Reason:     "typed incident participant is neither connected by a typed visible relation nor explicitly bounded as unproven",
+			Reason:     "typed participant incidence or whole requested-relation scope lacks its exact structured disclosure",
 			Confidence: 0.98,
 		},
 		Stage:               string(types.StageFinalize),

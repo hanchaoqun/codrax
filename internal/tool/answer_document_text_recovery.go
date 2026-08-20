@@ -653,6 +653,9 @@ func visibleAnswerBlockFromRaw(raw json.RawMessage, idx int) (types.AnswerBlock,
 	if disclosure, ok := types.NormalizeScopeDisclosureKind(block.ScopeDisclosure); ok {
 		blk.ScopeDisclosure = disclosure
 	}
+	if relationScope, ok := types.NormalizeDiagramRelationScopeStatus(block.RequestedRelationScope); ok && kind == types.BlockDiagram {
+		blk.RequestedRelationScope = relationScope
+	}
 	for _, item := range block.Items {
 		candidateRole, _ := types.NormalizeAnswerCandidateRole(item.CandidateRole)
 		cells := normalizeTableCellStringSlice(item.Cells)

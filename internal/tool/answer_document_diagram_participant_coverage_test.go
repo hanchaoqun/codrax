@@ -839,6 +839,29 @@ func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScope
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
 		t.Fatalf("a truthful provider subset plus disconnected local pair should retain local facts and requested-relation boundaries: %+v", got)
 	}
+	scopeMismatches := DiagramRequestedRelationScopeMismatches(doc, view, rm, evidence, precedence...)
+	if len(scopeMismatches) != 1 || scopeMismatches[0].Issue != DiagramRequestedRelationScopeMissing {
+		t.Fatalf("disconnected local islands need one whole-diagram partial scope disclosure: %+v", scopeMismatches)
+	}
+	doc.Blocks[0].RequestedRelationScope = types.DiagramRelationScopePartialUnproven
+	if got := DiagramRequestedRelationScopeMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
+		t.Fatalf("one model-authored whole-diagram scope disclosure should satisfy the partial typed spine: %+v", got)
+	}
+	if len(doc.Blocks[0].EdgeAnchors) != 2 {
+		t.Fatalf("scope disclosure must not create, delete, or reconnect model-authored edges: %+v", doc.Blocks[0].EdgeAnchors)
+	}
+	duplicate := doc.Blocks[0]
+	duplicate.ID = "flow-support"
+	doc.Blocks = append(doc.Blocks, duplicate)
+	if got := DiagramRequestedRelationScopeMismatches(doc, view, rm, evidence, precedence...); len(got) != 1 ||
+		got[0].Issue != DiagramRequestedRelationScopeDuplicate || got[0].BlockID != "flow-support" {
+		t.Fatalf("whole-relation scope must have exactly one model-authored carrier: %+v", got)
+	}
+	doc.Blocks = doc.Blocks[:1]
+	if got := DiagramRequestedRelationScopeMismatches(doc, view, rm, evidence); len(got) != 1 ||
+		got[0].Issue != DiagramRequestedRelationScopeStale {
+		t.Fatalf("partial scope declaration must be removed without a typed partial-spine provider: %+v", got)
+	}
 	localCandidates := diagramParticipantTypedIncidentCandidates(rm, participants[2], evidence, precedence, 3)
 	if len(localCandidates) != 1 ||
 		!strings.Contains(localCandidates[0], `candidate_scope:"local_operation_only"`) ||

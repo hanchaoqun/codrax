@@ -326,6 +326,14 @@ type AnswerBlock struct {
 	// require exact agreement with analyzer participant obligations.
 	ParticipantBoundaries []DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
 
+	// RequestedRelationScope is a model-authored whole-diagram disclosure. It
+	// complements ParticipantBoundaries for the distinct case where each named
+	// participant may have a valid local incident relation, but the typed
+	// request-scoped evidence still proves only disconnected/local subsets. The
+	// renderer turns the enum into reader-facing language; validators never
+	// derive it from answer prose and it never authorizes a bridge edge.
+	RequestedRelationScope DiagramRelationScopeStatus `json:"requested_relation_scope,omitempty"`
+
 	// RelationClaims are model-authored declarations that bind value
 	// comparisons/additions in this block to exact typed relation authorities
 	// accepted during investigation. The system validates and preserves this

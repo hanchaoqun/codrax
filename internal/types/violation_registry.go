@@ -836,7 +836,7 @@ func init() {
 		Kind: ViolDiagramParticipantCoverage, DefaultSeverity: SeverityHigh, RepairPhase: RepairPhaseCoverage,
 		SoftByDefault: false, Promotable: true, FallbackLocus: LocusFinalizer,
 		Layer: "v2_oracle", CaveatFamilyID: CaveatFamilyDiagramFidelity,
-		SchemaDescriptionFragment: "For required non-Trace flow diagrams, every typed incident_required participant MUST either touch a visible typed relation or remain as a visible disconnected node with one model-authored participant_boundaries status=unproven row. Participant identity never authorizes an edge.",
+		SchemaDescriptionFragment: "For required non-Trace flow diagrams, every typed incident_required participant MUST either touch a visible typed relation or remain as a visible disconnected node with one model-authored participant_boundaries status=unproven row. When the parser-owned request-spine authority covers only a strict participant subset, exactly one requested-relation diagram MUST also carry requested_relation_scope=partial_unproven. Neither disclosure authorizes an edge.",
 		FixableByAgents:           []AgentName{AgentFinalizer, AgentExplorer},
 	})
 	RegisterViolKind(ViolKindSpec{

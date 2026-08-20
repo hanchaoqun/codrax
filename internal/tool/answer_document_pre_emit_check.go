@@ -611,6 +611,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "diagram_no_arrow_ownership_direction", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
 		{Subgate: "diagram_call_edge_evidence_alignment", ViolationKind: types.ViolDiagramCallEdgeUnproven, HardLane: preEmitHardSignalTypedCallEdgeEvidence},
 		{Subgate: "diagram_participant_coverage", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
+		{Subgate: "diagram_requested_relation_scope", ViolationKind: types.ViolDiagramParticipantCoverage, HardLane: preEmitHardSignalTypedDiagramParticipantCoverage},
 		{Subgate: "principal_support_member_coverage", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
 		{Subgate: "inactive_scope_disclosure", ViolationKind: types.ViolInactiveScopeDisclosureMissing},
 		{Subgate: "aggregate_scalar_value_coverage", ViolationKind: types.ViolAcceptance},
@@ -926,6 +927,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = appendPreEmitHints(hints, types.ViolDiagramCallEdgeUnproven, h)
 	}
 	if h := preCheckDiagramParticipantCoverage(doc, view, pctx); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolDiagramParticipantCoverage, h)
+	}
+	if h := preCheckDiagramRequestedRelationScope(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolDiagramParticipantCoverage, h)
 	}
 

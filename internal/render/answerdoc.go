@@ -1109,6 +1109,13 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, lang answer
 		diagramLang = "mermaid"
 	}
 	fmt.Fprintf(b, "```%s\n%s\n```\n\n", diagramLang, body)
+	if blk.RequestedRelationScope == types.DiagramRelationScopePartialUnproven {
+		if lang == answerDocLangZH {
+			b.WriteString("**关系覆盖范围：** 当前图仅展示已有证据支持的局部关系；现有证据尚未证明这些片段构成用户所请求的完整端到端关系。\n\n")
+		} else {
+			b.WriteString("**Relationship coverage:** This diagram shows only locally proved relations; current evidence does not yet prove that these segments form the complete requested end-to-end relation.\n\n")
+		}
+	}
 	if len(blk.ParticipantBoundaries) > 0 {
 		participants := make([]string, 0, len(blk.ParticipantBoundaries))
 		for _, boundary := range blk.ParticipantBoundaries {

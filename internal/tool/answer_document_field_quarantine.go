@@ -63,6 +63,7 @@ var (
 		"claim_uses",
 		"edge_anchors",
 		"participant_boundaries",
+		"requested_relation_scope",
 		"relation_claims",
 		"facet_ids",
 		"surface_role",

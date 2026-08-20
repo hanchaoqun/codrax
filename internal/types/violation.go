@@ -448,8 +448,11 @@ const (
 	// diagram with schema-validated incident_required participants. Every such
 	// participant must either touch one visible typed relation or be retained as
 	// a visible disconnected node with a model-authored
-	// participant_boundaries[{status:unproven}] row. The gate never scans prose
-	// and never turns participant identity into relation evidence.
+	// participant_boundaries[{status:unproven}] row. When the same typed
+	// request-scoped graph covers only a strict subset of those participants,
+	// exactly one diagram also carries requested_relation_scope=partial_unproven.
+	// The gate never scans prose and never turns participant identity into
+	// relation evidence.
 	ViolDiagramParticipantCoverage ViolationKind = "diagram_participant_coverage"
 
 	// ViolCallChainEndpointOmitted fires only for source call-chain answers

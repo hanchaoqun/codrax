@@ -81,6 +81,7 @@ type emitAnswerBlockV2 struct {
 	ClaimUses               []types.RenderedClaimUse           `json:"claim_uses,omitempty"`
 	EdgeAnchors             []types.DiagramEdgeAnchor          `json:"edge_anchors,omitempty"`
 	ParticipantBoundaries   []types.DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
+	RequestedRelationScope  string                             `json:"requested_relation_scope,omitempty"`
 	RelationClaims          []types.AnswerRelationClaim        `json:"relation_claims,omitempty"`
 	FacetIDs                []string                           `json:"facet_ids,omitempty"`
 	SurfaceRole             string                             `json:"surface_role,omitempty"`
@@ -4323,7 +4324,7 @@ func repairNestedArraysInPatch(raw json.RawMessage) (json.RawMessage, []string, 
 
 var answerBlockArrayFieldNames = []string{"items", "columns", "claim_uses", "edge_anchors", "participant_boundaries", "relation_claims", "facet_ids"}
 var answerBlockObjectFieldNames = []string{"diagram"}
-var answerBlockFieldsAllowedFromDiagram = []string{"claim_uses", "edge_anchors", "participant_boundaries", "facet_ids", "surface_role"}
+var answerBlockFieldsAllowedFromDiagram = []string{"claim_uses", "edge_anchors", "participant_boundaries", "requested_relation_scope", "facet_ids", "surface_role"}
 
 // repairMisplacedItemClaimUses hoists item-level claim_use(s) that local
 // models sometimes emit despite the schema's block-level-only contract. This
@@ -4882,7 +4883,7 @@ func misplacedDiagramFieldShapeOK(field string, raw json.RawMessage) bool {
 	case "claim_uses", "edge_anchors", "participant_boundaries", "facet_ids":
 		return raw[0] == '[' || raw[0] == '"' ||
 			(raw[0] == '{' && answerBlockArrayFieldAcceptsSingletonObject(field))
-	case "surface_role":
+	case "surface_role", "requested_relation_scope":
 		return raw[0] == '"'
 	default:
 		return false

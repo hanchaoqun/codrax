@@ -10596,6 +10596,7 @@ func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
 	for _, want := range []string{
 		"requested_relation_spine_status=`unproven`",
+		"requested_relation_scope_recipe={requested_relation_scope:`partial_unproven`",
 		"request_scoped_typed_relation_subset_count=3",
 		"does not cover every typed incident participant",
 		"do not call it the complete requested flow",
@@ -10779,6 +10780,7 @@ func TestVerifiedStageAuthorityKeepsDisconnectedCarrierPairOutsideRequestScope(t
 		"request_scoped_incident=[Analyzer Explorer Extractor Finalizer]",
 		"local_typed_incident_only=[BusContext Mutable]",
 		"requested_relation_spine_status=`unproven`",
+		"requested_relation_scope_recipe={requested_relation_scope:`partial_unproven`",
 		"retain_participant_boundary=true",
 	} {
 		if !strings.Contains(authority, want) {
@@ -10792,6 +10794,10 @@ func TestVerifiedStageAuthorityKeepsDisconnectedCarrierPairOutsideRequestScope(t
 		if strings.Count(contract, `participant_identity="`+participant+`"`) != 1 {
 			t.Fatalf("disconnected local participant %s must retain exactly one boundary recipe:\n%s", participant, contract)
 		}
+	}
+	if !strings.Contains(contract, "requested_relation_scope=partial_unproven") ||
+		!strings.Contains(contract, "exactly one diagram block") {
+		t.Fatalf("initial diagram contract must publish the whole-relation scope carrier on the first pass:\n%s", contract)
 	}
 	for _, participant := range []string{"Analyzer", "Explorer", "Extractor", "Finalizer"} {
 		if strings.Contains(contract, `participant_identity="`+participant+`"`) {

@@ -62,6 +62,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectDiagramField(blockProps, view)
 			projectEdgeAnchorsField(blockProps, view)
 			projectParticipantBoundariesField(blockProps, view)
+			projectRequestedRelationScopeField(blockProps, view)
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
@@ -609,5 +610,28 @@ func projectParticipantBoundariesField(blockProps map[string]any, view *types.An
 	field, _ := blockProps["participant_boundaries"].(map[string]any)
 	if field != nil {
 		field["description"] = "BLOCK-LEVEL sibling of diagram and edge_anchors; NEVER put participant_boundaries inside diagram. Exact shape: {kind:\"diagram\", diagram:{kind,language,body}, participant_boundaries:[{participant,status:\"unproven\"}]}. Explicit coverage decision for the typed incident participants [" + strings.Join(incident, ", ") + "]. Omit or emit [] when every participant has a typed visible incident edge for the requested directed relation. When that requested relation is unproved, list exactly the uncovered participant identities with status=unproven. A separately proved local operation touching the participant does not by itself prove or eliminate this requested-relation boundary. An independently proved local technical edge, exact endpoint, or no-arrow containment/grouping may coexist with the boundary, but none may be presented as the missing requested relation. This array never creates or authorizes an edge."
+	}
+}
+
+// projectRequestedRelationScopeField exposes the whole-diagram disclosure only
+// on the same precise required source-flow lane that can produce a typed
+// request-spine coverage decision. The field remains optional in JSON Schema
+// because the final evidence pool is dispatch-local; the typed pre-emit and
+// post-emit checks require it only when that exact pool proves a partial spine.
+func projectRequestedRelationScopeField(blockProps map[string]any, view *types.AnswerSemanticView) {
+	incident := 0
+	for _, obligation := range view.DiagramParticipantObligations {
+		if obligation.Role == types.DiagramParticipantIncidentRequired && strings.TrimSpace(obligation.Identity) != "" {
+			incident++
+		}
+	}
+	if view.DiagramPlan == nil || !view.DiagramPlan.Required || view.RelationAxis != types.AxisFlow || incident < 2 ||
+		view.Family == types.QFRootCauseTrace {
+		delete(blockProps, "requested_relation_scope")
+		return
+	}
+	field, _ := blockProps["requested_relation_scope"].(map[string]any)
+	if field != nil {
+		field["description"] = "BLOCK-LEVEL sibling of diagram and edge_anchors. When the typed relation context publishes requested_relation_spine_status=unproven, copy requested_relation_scope=partial_unproven onto exactly one diagram block that presents the requested relation. This model-authored declaration tells readers that proved visible segments do not yet establish one complete end-to-end requested relation. It creates no edge and does not replace your conclusion. Omit it when no typed partial-spine obligation is published; never copy the raw enum into visible prose or labels."
 	}
 }
