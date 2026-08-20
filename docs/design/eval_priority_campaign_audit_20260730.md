@@ -58265,3 +58265,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged/test-bypassed`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1278 r787：关系修补租约出现同轮自冲突；Trace 主状态吞掉独立优先级维度（2026-08-20）
+
+1. 以已推送 `a74009682` 构建不可变二进制，严格并发恰好 2 路回放。显式窗 Trace 203s，read 流水线图+表
+   1666s；runner 0/2 PASS，人工 0/2 PASS。两路活动模型流均持续健康，没有基于 4ms、4m、首字节、stall 或累计年龄
+   降级；read 的降级来自确定性结构合同自冲突，不是等待时长。
+2. Trace 的生产精确面继续成立：2.000–2.020s 用户窗、三次窗内查询、自动补查、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链、11.000ms 链上 iowait 首席、三个
+   1.000ms 调度供给席、占时/规则可消双轴、背景隔离及 `Trace 因果投影` 均完整。模型仍把 wakeup path 越界叙述成
+   threadpool IO “引发连锁阻塞/决定链路延迟基准”，`B1253` 保持 confirmed。
+3. 新 gap `B1260-PRIORITYDIMENSIONDOMINANCE1/P1`：三个低优先级链上依赖的 typed causal row 均已有
+   `priority_relation=lower_priority_dependency`、`priority_relation_caliber=closed_range_stable`、
+   `priority_relation_proven_lower_ms=1.000` 与正的 1.000ms runnable；但 `query.go` 还要求整行
+   `DominantState` 必须是 runnable/running，导致 sleep/io_wait 占主导时 `priority_inversion_candidate=false`。主状态根因和独立
+   可优化维度被错误互斥，模型因此完全拿不到本窗优先级候选。最优形是保留 IO/sleep 主席，同时从同一席位的硬优先级关系与正
+   runnable/running gated impact 铸造独立、去重后的优先级/算力供给席；无硬关系或无正影响仍 fail-closed，不与原占时重复计价。
+4. read 的 `B1259` 同名阶段职责错配未再出现，但 34 次 finalizer 拒绝、31 次 patch、两次 finalizer dispatch 后仍只能降级
+   展示无效草稿，故本轮只能记 `not-contradicted/production-replay-blocked`，不能借无有效答案宣称闭环。最高上下文约
+   136.9k/200k（68%），45 次 read、37 次 midloop 注入；性能与认知负担的直接根因是下面的结构合同冲突。
+5. 新高危 `B1261-MIXEDRELATIONDELTAUNION1/P0`：同一 pre-emit 周期会产生多份 schema-valid typed
+   `DiagramRelationRepairDeltaJSON`，可见错误要求模型修复全部失败关系；但 `emitFixHintsRepair` 只保留第一份非空 delta，
+   安装的局部租约只覆盖第一子集。模型按同一错误删除 `Phase->Disp` 等其他失败边时，被稳定拒绝为
+   `unlisted_relation_removed`；加入同轮允许的 `Orch->Phase`、`Phase->BusCtx` 等关系又被拒绝为
+   `unlisted_relation_added`。第二次 finalizer 在 `d1` 上同形复现。这是“必须修全部/禁止修第一份外关系”的精确信号硬合同自冲突，
+   不是模型波动。
+6. B1261 冻结施工形：同一预检周期的全部有效 typed relation delta 做集合并、精确去重、确定性排序后一次安装；畸形兄弟 delta
+   不得清除有效项。若总量超过安全上限或不能完整编码，禁止安装残缺第一子集硬租约，退回不带局部租约的普通重试。修复只消费
+   validator 自产的 typed failures/allowed additions，不扫描 Mermaid 正文，不推断新关系，不替模型删边、加边或改答案；模型仍执行
+   原子修补，未列出的兄弟关系继续受保护。
+7. 下一批先修 B1261，并以同一双例严格并发 2 路回放；只有 read 能产出有效 answer_document 后再给 B1259 生产闭环结论。随后
+   独立修 B1260，验证 D/IO 或 sleep 主席与正的链上低优先级 runnable/running 席可以同时存在、分账且不双算。表头回归 B1250、
+   patch 上下文 B1256、assignment/data-flow B1257 继续保留在后续队列。
+
+状态：
+
+`r787=runner-fail-2/2,human-fail-2`；
+`B1259=implemented/full-suite-pass/production-not-contradicted-replay-blocked`；
+`B1261=confirmed/P0-next`；`B1260=confirmed/P1-after-B1261`；
+`B1253=confirmed/P1`；`B1250=regression/partial`；`B1256/B1257/B1258=open`；
+`relation-repair-lease=typed-same-round-complete-union-required`；
+`partial-first-delta-hard-lease=forbidden`；
+`dominant-state-must-not-erase-independent-typed-priority-supply=required`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r787`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r787`。
