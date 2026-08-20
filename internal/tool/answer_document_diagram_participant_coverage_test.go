@@ -54,6 +54,43 @@ func TestDiagramParticipantCoverageRequiresTypedBoundaryWithoutInventingEdge(t *
 	}
 }
 
+func TestDiagramParticipantCoverage_TypeRelationMemberSetDoesNotRequireCollectionBoundary(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisImplement,
+		AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"LoopController"}},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: []types.DiagramParticipantHint{
+			{Identity: "LoopController", Role: types.DiagramParticipantIncidentRequired},
+		}},
+	}
+	view := &types.AnswerSemanticView{
+		Family:       types.QFGeneric,
+		RelationAxis: types.AxisImplement,
+		DiagramPlan:  &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+		DiagramParticipantObligations: append(
+			[]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...,
+		),
+	}
+	evidence := []types.EvidenceItem{{
+		ID: "impl", Kind: types.EvidenceRelationship,
+		Producer: types.EvidenceProducerRepoMapImplementerRelation,
+		Subject:  "analyzerEvaluator", Predicate: "implements", Object: "LoopController",
+		Source: "internal/agent/analyzer.go", LineStart: 49, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+	}}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "types", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid",
+			Body: "flowchart TD\n  A[\"analyzerEvaluator\"] -->|implements| L[\"LoopController\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "L", FromIdentity: "analyzerEvaluator", ToIdentity: "LoopController",
+			RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
+		t.Fatalf("a concrete target incident to the exact typed member relation must not inherit an unresolved collection boundary: %+v", got)
+	}
+}
+
 func TestPreCheckDiagramParticipantCoveragePreservesGroundedNoArrowGrouping(t *testing.T) {
 	rm, view, doc, evidence := diagramParticipantCoverageFixture()
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n A[\"Analyzer\"] --> E[\"Explorer\"]\n subgraph B[\"BusContext\"]\n  M[\"MutableState\"]\n end"

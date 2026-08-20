@@ -57489,3 +57489,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1259 r775 与 B1242：成员集合角色退出图参与者合同（2026-08-20）
+
+1. 以 `78ff5fff3` 构建快照严格并发恰好 2 路：Trace 168s、类型关系 278s，runner 2/2 PASS；人工为
+   `pass-with-wording-caveat + partial`。两路持续活跃并交付当前模型答案，没有因 4ms、4m、首字节、stall 或累计年龄
+   使用旧稿、空答案或降级答案。
+2. B1241 获生产正证：显式 2.000–2.020s 窗、三次 trace_query、自动补采和 Trace 因果投影都在；链上主根因是
+   threadpool-400 的 11.000ms iowait，另有三个 1.000ms runnable 调度供给席。sleep 只作症状/链路上下文，背景
+   io_pressure 只显示一次 `16.000(IO活动综合指数,非墙钟)`，窗口投影、链上累计、有效归因均为空，未进入根因排序。
+3. B1240 同样获生产正证：12 个 production implementer 在主表和主图全部出现，恰有 12 条同向
+   `implementer -> LoopController` typed 边；旧“证据支持稍弱”附注已经消失，三个测试实现保持 support-only。
+4. 新确认 `B1242-MEMBERCOLLECTIONACTOR1/P1`：Analyzer 将 `LoopController` 和泛称“实现类型”同时铸成
+   `incident_required` 参与者。后续 typed relation provider 已完整证明 12 个具体实现与接口的关系，却永远无法证明一个叫
+   “实现类型”的源码 actor，于是 finalizer 发布 `no_incident_typed_relation=[LoopController 实现类型]`，触发 5 次拒绝、
+   6 次 patch，并在完整 12 边图后追加错误的“未证关系边界”。这是 typed 规划合同冲突，不是模型波动。
+5. B1242 将 category-enumeration 下的参与者协调扩到两种精确集合权威：活动的 completeness_obligation；或 required
+   `member_set` dimension 与已校验 source_inventory collection quote 的合取。只有 participant.source_quote 与上述 typed
+   集合 quote 精确相同、且 identity 不是 exact target 或代码身份形的当前请求实体时才移除。普通多参与者流程、显式
+   context_only、非枚举图和真正命名的接口/类型保持原样。
+6. 本批不读取模型 reasoning、最终正文、Mermaid body/label 或业务关键词来决定门控；也不创建成员、边、节点、标签、
+   boundary 或结论。具体成员仍只能来自后续 typed member-set/关系证据并由模型决定如何展示。回归同时钉住：即使泛称被
+   Analyzer 重复放入普通 entities，它也不会因此升级成具体 actor；只保留 LoopController 后，精确 implements 边必须完成
+   participant coverage，不能再要求未证边界。
+7. 完整相关测试全绿：tool 183.390s、skill 0.473s、types 25.991s、agent 13.386s。未修改 Trace 输入、显式窗选择、
+   链上根因选举、实际占时/规则可消双轴、优先级反转、调度/算力供给、D/IO、确定性语义事件、业务线索、因果投影自动补采、
+   JSON/Mermaid 自愈或活跃流时限。
+8. r775 另冻结两个独立残余：`B1243-IOACTIVITYWORDING1/P2`——系统图例/标签仍写“综合评分(io_pressure)”和
+   “窗口IO压力(聚合)”，模型正文也受其影响写“IO压力得分”，需统一为不暗示高低的“IO活动综合指数”；
+   `B1244-SOURCEANCHOROWNER1/P2-audit`——系统源码定位补充把 `agent.go:518` 标成
+   `LoopObservation.ToolAvailable / ToolAvailable`，而用户目标是 `LoopController`（接口定义在下一行），需要单独审计
+   锚点所属符号选择，不能因本轮主答案正确而忽略上下文污染。
+
+状态：
+
+`r775=runner-pass-2/2,human-pass-with-wording-caveat-1+partial-1`；
+`B1240=production-closed`；
+`B1241=production-closed/value-authority`；
+`B1242=implemented/full-relevant-pass/pending-production-replay`；
+`B1243=P2-next`；`B1244=P2-audit`；
+`typed-member-collection!=diagram-actor`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r775`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r775`。

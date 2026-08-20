@@ -2038,8 +2038,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if reconciled, warning := reconcileDiagramParticipantsWithTypedCollectionScope(
 		diagramHint,
 		completenessObligation,
+		requestedAnswerDimensions,
+		sourceInventoryProfile,
 		predicates,
 		exactTargets,
+		mentionedEntities,
 	); warning != "" {
 		diagramHint = reconciled
 		logging.Warning("[emit_analysis] %s", warning)
@@ -7052,34 +7055,62 @@ func parseCompletenessObligation(raw string, p *emitCompletenessObligationParam)
 
 // reconcileDiagramParticipantsWithTypedCollectionScope resolves one precise
 // cross-field conflict without reading request prose or inventing diagram
-// structure. In category-enumeration questions, completeness_obligation owns
-// the requested member-set scope. When an analyzer also emits that exact
-// source quote as a diagram participant, it has turned a collection role into
-// a fictitious actor. Keeping the row would force a visible node and grounded
-// incident edge that no source relation can ever prove.
+// structure. In category-enumeration questions, either completeness_obligation
+// or a required member_set dimension paired with the validated source-
+// inventory quotes owns the requested member-set scope. When an analyzer also
+// emits one of those exact collection quotes as a diagram participant, it has
+// turned a collection role into a fictitious actor. Keeping the row would force
+// a visible node and grounded incident edge that no source relation can prove.
 //
-// Exact targets are preserved: a concrete actor can legitimately share words
-// with a completeness phrase. The normalization removes only rows whose
+// Exact targets and code-identity-shaped current-request analyzer entities are
+// preserved: a concrete actor can legitimately share words with an inventory
+// quote. A prose collection label does not become concrete merely because the
+// analyzer repeated it in `entities`. The normalization removes only rows whose
 // independently grounded source_quote is byte-equivalent (after trimming and
-// case folding) to the active completeness quote and whose identity is not an
-// analyzer-declared exact target. Concrete members discovered later remain
-// model-authored diagram nodes backed by typed relation evidence; this helper
-// neither creates those members nor authors an edge, label, or conclusion.
+// case folding) to one typed collection quote and whose identity is not a
+// concrete declared target/entity. Concrete members discovered later remain
+// model-authored diagram nodes backed by typed
+// relation evidence; this helper neither creates those members nor authors an
+// edge, label, or conclusion.
 func reconcileDiagramParticipantsWithTypedCollectionScope(
 	hint *types.DiagramHint,
 	completeness *types.CompletenessObligation,
+	dimensions *types.RequestedAnswerDimensionProfile,
+	sourceInventory *types.SourceInventoryProfile,
 	predicates types.SemanticPredicates,
 	exactTargets []string,
+	mentionedEntities []string,
 ) (*types.DiagramHint, string) {
-	if hint == nil || !predicates.IsCategoryEnumeration || !completeness.IsActive() ||
-		len(hint.Participants) == 0 {
+	if hint == nil || !predicates.IsCategoryEnumeration || len(hint.Participants) == 0 {
 		return hint, ""
 	}
-	collectionQuote := strings.TrimSpace(completeness.SourceQuote)
-	if collectionQuote == "" {
+	collectionQuotes := make([]string, 0, 4)
+	if completeness.IsActive() {
+		collectionQuotes = append(collectionQuotes, strings.TrimSpace(completeness.SourceQuote))
+	}
+	hasRequiredMemberSet := false
+	if dimensions != nil && dimensions.Active() {
+		for _, dimension := range dimensions.Dimensions {
+			if !dimension.Required || dimension.Role != types.RequestedAnswerDimensionMemberSet {
+				continue
+			}
+			hasRequiredMemberSet = true
+			collectionQuotes = append(collectionQuotes, strings.TrimSpace(dimension.SourceQuote))
+		}
+	}
+	if hasRequiredMemberSet && sourceInventory != nil {
+		collectionQuotes = append(collectionQuotes, sourceInventory.SourceQuotes...)
+	}
+	quotes := make(map[string]bool, len(collectionQuotes))
+	for _, quote := range collectionQuotes {
+		if key := strings.ToLower(strings.TrimSpace(quote)); key != "" {
+			quotes[key] = true
+		}
+	}
+	if len(quotes) == 0 {
 		return hint, ""
 	}
-	isExactTarget := func(identity string) bool {
+	isConcreteTarget := func(identity string) bool {
 		identityKey := diagramParticipantIdentityAliasKey(identity)
 		if identityKey == "" {
 			return false
@@ -7089,14 +7120,19 @@ func reconcileDiagramParticipantsWithTypedCollectionScope(
 				return true
 			}
 		}
+		for _, entity := range mentionedEntities {
+			if types.IsCodeIdentitySurface(entity) && diagramParticipantIdentityAliasKey(entity) == identityKey {
+				return true
+			}
+		}
 		return false
 	}
 
 	kept := make([]types.DiagramParticipantHint, 0, len(hint.Participants))
 	dropped := make([]string, 0, 1)
 	for _, participant := range hint.Participants {
-		if !isExactTarget(participant.Identity) &&
-			strings.EqualFold(strings.TrimSpace(participant.SourceQuote), collectionQuote) {
+		if !isConcreteTarget(participant.Identity) &&
+			quotes[strings.ToLower(strings.TrimSpace(participant.SourceQuote))] {
 			dropped = append(dropped, strings.TrimSpace(participant.Identity))
 			continue
 		}
@@ -7108,7 +7144,7 @@ func reconcileDiagramParticipantsWithTypedCollectionScope(
 	cloned := *hint
 	cloned.Participants = kept
 	return &cloned, fmt.Sprintf(
-		"removed diagram collection-scope participant(s) %v because their typed source_quote is the active completeness_obligation; concrete requested targets and member-set evidence remain authoritative",
+		"removed diagram collection-scope participant(s) %v because their typed source_quote belongs to the active member-set collection scope; concrete requested targets/entities and member-set evidence remain authoritative",
 		dropped,
 	)
 }
