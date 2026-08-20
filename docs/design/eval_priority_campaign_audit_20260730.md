@@ -56576,3 +56576,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1234 r763：B1225/B1226 生产回放与局部关系边界合同摆动（2026-08-20）
+
+1. 严格并发 2 路回放完成：`trace_query_wakeup_causal_io_chain` 194s、零成文拒绝、人工通过；
+   `qf_logic_view_read_pipeline` 468s、6 次成文拒绝、人工不通过。runner 的 2/2 PASS 只证明声明 oracle，不能替代
+   人工正确性。两个任务均由 `d56512b53` 构建快照执行，活跃期间未被 4ms、4m、首字节、stall 或累计年龄降级。
+2. Trace 正向面完整：显式 `2.000..2.020s` 主窗、
+   `threadpool-400→network-300→cookie-200→app-100` 已证唤醒链、11.000ms IO 链首、三项 1.000ms 调度供给、
+   实际占时/现规则可消双轴、Trace 因果投影与自动补充均保留；邻近/背景没有夺冠，综合评分只以
+   `7.000(综合评分,非墙钟)` 进入旁栏，B1226 未回归。
+3. B1225 的新载体也确实到达生产显示：最终模型提交 `requested_relation_scope=partial_unproven`，renderer 只发布
+   读者语言“当前图仅展示已有证据支持的局部关系”，raw enum 未泄漏，且系统没有新增、反转或重连模型关系边。
+   但生产回放同时证明 `B1227-LOCALBOUNDARYOSCILLATION1`：候选 carrier 明确标成
+   `candidate_scope=local_operation_only/requested_relation_closure=unproven/retain_participant_boundary=true`，一轮 patch
+   渲染后却因可见图刚好连成一片，被 `effectiveParticipantCovered(..., authoredRequestedGraphComplete=true)` 从严格
+   request-scoped 子集提升为普通 per-participant coverage，继而把同一 `Mutable` 未证边界判为
+   `stale_boundary_for_connected_participant`；模型删除后又被要求补回。模型在相反合同间往返，是确定性系统 gap，
+   不是 JSON 畸形或单次模型波动。
+4. 最优根修冻结：typed provider 已判 `requestScopedSubsetIncomplete=true` 时，模型画出的可见连通图不得反向扩张
+   provider 权威；`effectiveParticipantCovered` 必须始终只消费 `participantRequestScopedCovered`。可见图只能证明模型
+   已如何呈现现有 typed 关系，不能把 local-only operation 晋升为完整请求关系。只有 provider 自身不再是严格子集时，
+   才允许普通 typed component 关闭边界。此修复不删图、不补图、不选边、不改标签或结论。
+5. 最终关系答案另有 `B1228-RELATIONSEMANTICDRIFT1`：正文把可变的 `BusContext` 说成“不可变状态容器”，把
+   `BuildAgentContext` 的字段裁剪/共享 Mutable 指针说成“注入 BusContext 指针”，并把
+   `EmittedAnswerSymbols/EmittedHypothesisVerdicts` 两个读取方法误述成写入；引用源码行本身与这些句子相反。
+   这说明证据数量充足不等于关系角色精确。该项禁止通过扫描或改写正文硬修；后续应审计 typed evidence 的
+   read/write/argument-copy 角色是否在 Explorer→AnswerSymbol→Finalizer 上无损携带，并以软教学降低模型心智。
+6. 关系用例还出现双探索、25 次 read、10 次 mid-loop、153 条累计证据和一次阶段收窄后的不可用 grep 尝试，记为
+   `B1229-RELATIONINVESTIGATIONCHURN1` 观察项。先修 B1227 的确定性合同摆动，再用同案例复放区分合同级联与独立调度
+   冗余；不能据一份日志建立面向该 case 的硬预算或关键词门。
+
+状态：
+
+`r763=runner-pass-2/2/human-pass-1/2`；
+`B1225-FLOWSPINEDISCLOSURE1=production-positive`；
+`B1226-TRACEPRESSUREFAKEUNIT1=production-positive`；
+`B1227-LOCALBOUNDARYOSCILLATION1=confirmed/P0-next`；
+`B1228-RELATIONSEMANTICDRIFT1=confirmed/P1-after-B1227`；
+`B1229-RELATIONINVESTIGATIONCHURN1=observed/replay-after-B1227`；
+`typed-provider-authority=model-visible-connectivity=one-way-only`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`model-edge/node/label/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/production-positive-r763`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r763`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
