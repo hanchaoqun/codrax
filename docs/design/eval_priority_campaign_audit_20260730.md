@@ -58462,3 +58462,66 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1283 r789：B1260 获生产正证；主状态展示串席与允许关系验租顺序缺口（2026-08-20）
+
+1. 以 `652dd60e9` 精确提交构建不可变二进制，严格并发恰好 2 路回放 read+Trace 双例。runner 2/2 PASS：Trace
+   175s、read 767s；人工判定 Trace partial、read fail。两路活动流均持续到正常成文，无 4ms、4m、首字节、stall 或累计年龄触发的
+   降级答案。
+2. `B1260` 获明确生产正证：Trace 保留用户指定 2.000..2.020s 窗、三次 typed 查询、系统自动补采、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链和完整因果投影。`threadpool-400 / iowait`
+   11.000ms 保持根因排序 #1；cookie、network、threadpool 各自独立的 1.000ms 已证调度供给子席全部出厂，实际阻塞与规则可消两个
+   标尺未互相吞没。模型明确披露对端资源持有者未证，背景 IO 综合指数没有升级为链上主因。
+3. 新 P1 `B1264-PRIMARYIMPACTROLELEAK1`：B1260 已把 sleep/D/IO 主席和调度子席分开，但
+   `wakeup_causal_impact` typed observation 仍直接消费复合 engine impact 的 candidate 标志、gated 数值和 candidate summary。于是
+   cookie/network 的 17/14ms 主 sleep 行被标成“优先级反转候选”，同时独立 rank 行又正确展示 1ms 候选；同一节点出现“整段状态被
+   候选重标”和“候选只占 1ms”两种冲突角色。根因是 producer 载体角色串席，不是模型波动。
+4. 新 P0 `B1265-ALLOWEDRELATIONIDENTITYORDER1`：read 的 validator 已给出三条 typed precedence
+   `allowed_additions`，模型也明确选择并画出同向可见边；但 atomic edit 只带可见 node pair，局部 lease 在 typed-recipe 身份恢复之前
+   先比较规范 `from_identity/to_identity`，稳定拒绝为 `unlisted_relation_added`。直到第 12 轮模型整块重发，后置
+   `normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes×3` 才补齐同三条身份并通过。许可、精确元数据补全、验租的顺序倒置导致
+   12 次 finalizer reject；这是精确 typed 合同闭环问题，不是普通模型波动。
+5. B1265 冻结修向：只有模型已经新增一条可见边，且其 block、relation kind、方向和参与者映射唯一命中 lease 内一条 typed allowed
+   recipe 时，系统才可补该 recipe 自带的不可见 canonical identity fields，然后执行 scope 校验；零命中、多命中、关系类型或方向不符
+   继续拒绝。系统不得选择、生成、删除、反转或改写可见关系，也不得读取箭头文案、用户请求、reasoning 或最终 prose。
+6. `B1262` 本轮未被否证，但旧的 identity-only 空 node failure 没有直接复现，故不借本轮宣称生产闭环。`B1263` 继续开放：read
+   收集 363 条 evidence、20 次 read、两次 explorer，最终表头仍为“项目/列2/列3/列4/列5”，部分 stage 载体归属不准，图中多个编排
+   节点断开；这是证据/上下文精度与关系修补可用性债，不能由系统代写模型答案来遮盖。
+
+状态：
+
+`r789=runner-pass-2/2,human-trace-partial+read-fail`；
+`B1260=production-positive/core-closed`；`B1264=confirmed/P1-immediate`；
+`B1265=confirmed/P0-after-B1264`；`B1262=implemented/full-suite-pass/pending-direct-production-witness`；
+`B1263=confirmed/P1`；
+`allowed-visible-edge+unique-typed-recipe=canonical-metadata-fill-only`；
+`system-relation-selection/visible-edge-authorship=forbidden`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r789`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r789`。
+
+### §123.1284 B1264：因果 hop 主状态载体与独立调度子席隔离（2026-08-20）
+
+1. 新增 engine 单源 `WakeupCausalImpactPrimaryStateAccount`。只有一个 sleep/D/IO 等非 runnable/running 主导 impact 同时拥有
+   完整、已证、分量闭合的独立调度子席时，主状态视图才清除 candidate 角色、gated runnable/running-deficit、能力/拓扑说明和候选
+   区间私有账，并按主状态重新计算 `NextStepKind`、`NextStep` 与 `Summary`。hard priority relation 与覆盖事实保留，便于审计关系本身。
+2. runnable/running 主导节点仍使用历史复合席，helper 原样返回；非法、advisory、覆盖不足或分量不闭合的载体仍走既有 fail-closed
+   publication sanitizer。变换幂等，不能把已清理主状态行再次改写出候选角色。
+3. root-rank 主席和 `wakeup_causal_impact` observation 现在复用同一 engine helper，禁止两处重新实现。原始 trace_query payload 保持
+   无损复合事实；面向投影的 causal-hop observation 只携带主状态账户，独立的 `priority_inversion_candidate` 排名行继续携带自己的
+   1ms 等 gated 可消量。系统只修 typed 载体，不修改模型正文或结论。
+4. 回归覆盖：IO 主席 11ms 与独立候选 1ms 同时保留；主状态行不再发 candidate/gated note 或 candidate prose，仍保留 hard relation
+   caliber/coverage；普通 sleep effective 保持 0、D/IO 保持完整阻塞口径；runnable 主导复合席不变；helper 幂等。定向回归、完整
+   `internal/tracequery internal/tool`、仓库级 `go test ./... -count=1` 和 CGO release-tag `make` 全绿。
+
+状态：
+
+`B1264=implemented/full-suite-pass/pending-production-replay`；
+`raw-engine-impact=lossless-composite`；
+`typed-causal-hop=primary-state-account-only`；
+`root-rank-scheduling-subseat=independent/gated-account-only`；
+`hard-priority-relation+coverage=retained`；
+`system-answer/conclusion-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

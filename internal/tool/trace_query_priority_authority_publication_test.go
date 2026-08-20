@@ -694,6 +694,72 @@ func TestPriorityPointAuthorityImpactCandidateRequiresFinitePositiveClosedGate(t
 	}
 }
 
+func TestPriorityPointAuthorityTypedImpactObservationPublishesPrimaryStateAccount(t *testing.T) {
+	window := tracequery.TimeWindow{StartTs: 2, EndTs: 2.020}
+	impact := tracequery.WakeupCausalImpact{
+		Thread:                        tracequery.ThreadRef{Comm: "cookie", PID: 200},
+		Window:                        window,
+		ChainDepth:                    1,
+		OnChain:                       true,
+		DominantState:                 string(tracequery.StateSSleep),
+		DominantImpactMs:              17,
+		TotalMs:                       18,
+		SleepMs:                       17,
+		RunnableMs:                    1,
+		PriorityRelation:              "lower_priority_dependency",
+		PriorityRelationCaliber:       "closed_range_stable",
+		PriorityRelationProvenLowerMs: 1,
+		PriorityRelationArtifactSources: []string{
+			"artifact:0",
+		},
+		PriorityInversionCandidate: true,
+		PriorityInversionGatedMs:   1,
+		GatedRunnableMs:            1,
+		NextStepKind:               tracequery.NextStepKindPriorityInversion,
+		NextStep:                   "stale candidate guidance",
+		Summary:                    "stale priority_inversion_candidate=true",
+	}
+	result := tracequery.Result{
+		View:      "wakeup_chain",
+		TimeStart: window.StartTs,
+		TimeEnd:   window.EndTs,
+		TraceArtifacts: []tracequery.TraceArtifactSource{{
+			SourcePath: "/trace/primary.ftrace", CausalCompatible: true,
+		}},
+		WakeupChain: &tracequery.ChainResult{Window: window, CausalImpacts: []tracequery.WakeupCausalImpact{impact}},
+	}
+
+	records := traceQueryTypedObservations(result, "trace", "payload", "raw", "primary-account", time.Unix(0, 0).UTC())
+	var got *types.ObservationRecord
+	for i := range records {
+		if records[i].Predicate == "wakeup_causal_impact" && records[i].ClaimKey != "wakeup_causal_impact:folded_overflow" {
+			got = &records[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("missing typed causal-impact observation")
+	}
+	if got.Object != string(tracequery.StateSSleep) || got.Value != "17.000" {
+		t.Fatalf("primary state carrier drifted: %+v", *got)
+	}
+	notes := priorityAuthorityPublicationNotes(got.RichNotes)
+	for _, key := range []string{types.TraceNoteKeyPriorityInversionCandidate, "priority_inversion_gated", types.TraceNoteKeyGatedRunnable, types.TraceNoteKeyGatedRunningDeficit} {
+		if notes[key] != "" {
+			t.Fatalf("primary state observation retained scheduling sub-seat note %s=%q: %+v", key, notes[key], *got)
+		}
+	}
+	if notes[types.TraceNoteKeyEffectiveImpactMS] != "0.000" {
+		t.Fatalf("ordinary sleep primary account must remain context-only, notes=%#v", notes)
+	}
+	if notes[types.TraceNoteKeyPriorityRelationCaliber] != "closed_range_stable" || notes[types.TraceNoteKeyPriorityRelationProvenLowerMS] != "1.000" {
+		t.Fatalf("hard relation facts were lost from primary observation: %#v", notes)
+	}
+	if strings.Contains(got.Summary, "priority_inversion_candidate=true") || strings.Contains(got.Summary, "stale candidate") {
+		t.Fatalf("primary state summary retained scheduling candidate prose: %s", got.Summary)
+	}
+}
+
 func TestPriorityPointAuthorityPathCountsUseTheSameHardGateAsEdges(t *testing.T) {
 	chain := tracequery.ChainResult{
 		Target: tracequery.ThreadRef{Comm: "app", PID: 100},

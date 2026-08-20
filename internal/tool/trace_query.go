@@ -9546,6 +9546,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 				continue
 			}
 			impact = traceQueryPriorityCausalImpactForPublication(impact)
+			// B1264: a sleep/D/IO-dominant causal hop can own a separate,
+			// exactly proved scheduling-supply rank seat. The hop observation is
+			// the primary-state carrier; publishing the sub-seat's candidate flag
+			// here relabels the full blocking duration as the smaller scheduling
+			// account. Keep the raw result lossless and let root_cause_rank carry
+			// the independent candidate, while this observation uses the engine's
+			// single primary-account projection.
+			impact = tracequery.WakeupCausalImpactPrimaryStateAccount(impact)
 			out = append(out, types.ObservationRecord{
 				ID:              fmt.Sprintf("trace_query:%s#wakeup_causal_impact:%d", scope, i+1),
 				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,

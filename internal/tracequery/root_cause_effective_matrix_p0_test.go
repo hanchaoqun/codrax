@@ -1,6 +1,9 @@
 package tracequery
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRootCauseEffectiveMatrixUsesTypedCalibers(t *testing.T) {
 	tests := []struct {
@@ -133,6 +136,62 @@ func TestWakeupCausalEffectiveMatrixNeverFallsBackToTotal(t *testing.T) {
 				t.Fatalf("effective=%.6f want %.6f for %+v", got, tc.want, tc.impact)
 			}
 		})
+	}
+}
+
+func TestWakeupCausalPrimaryStateAccountSeparatesQualifiedSchedulingSubSeat(t *testing.T) {
+	impact := WakeupCausalImpact{
+		Thread:                             ThreadRef{Comm: "io-worker", PID: 200},
+		DominantState:                      string(StateIOWait),
+		DominantImpactMs:                   11,
+		TotalMs:                            17,
+		IOWaitMs:                           11,
+		RunnableMs:                         1,
+		PriorityRelation:                   "lower_priority_dependency",
+		PriorityRelationCaliber:            string(priorityCaliberClosedRangeStable),
+		PriorityRelationProvenLowerMs:      1,
+		PriorityInversionCandidate:         true,
+		PriorityInversionGatedMs:           1,
+		GatedRunnableMs:                    1,
+		GatedCapabilitySource:              "observed_capacity",
+		GatedClusterTopology:               "little",
+		GatedCapabilityFreqOnlyReason:      "none",
+		NextStepKind:                       NextStepKindPriorityInversion,
+		NextStep:                           "stale candidate guidance",
+		Summary:                            "stale priority_inversion_candidate=true",
+		priorityInversionRunnableIntervals: []foldInterval{{start: 1, end: 1.001}},
+	}
+
+	primary := WakeupCausalImpactPrimaryStateAccount(impact)
+	if primary.PriorityInversionCandidate || primary.PriorityInversionGatedMs != 0 ||
+		primary.GatedRunnableMs != 0 || primary.GatedRunningDeficitMs != 0 ||
+		primary.GatedCapabilitySource != "" || primary.GatedClusterTopology != "" ||
+		primary.GatedCapabilityFreqOnlyReason != "" || len(primary.priorityInversionRunnableIntervals) != 0 {
+		t.Fatalf("primary state account retained scheduling sub-seat charge: %+v", primary)
+	}
+	if primary.PriorityRelation != impact.PriorityRelation || primary.PriorityRelationCaliber != impact.PriorityRelationCaliber ||
+		primary.PriorityRelationProvenLowerMs != impact.PriorityRelationProvenLowerMs {
+		t.Fatalf("primary state account discarded hard relation facts: %+v", primary)
+	}
+	if primary.NextStepKind == NextStepKindPriorityInversion || strings.Contains(primary.Summary, "priority_inversion_candidate=true") {
+		t.Fatalf("primary state prose retained scheduling candidate role: %+v", primary)
+	}
+	if got := WakeupCausalImpactEffectiveImpactMs(primary); !near(got, 11, 0.000001) {
+		t.Fatalf("primary IO account effective=%.6f want 11", got)
+	}
+	priority := rootCausePriorityItemFromCausalImpact(impact)
+	if priority.Type != "priority_inversion_candidate" || !near(rootCauseEffectiveImpactMs(priority), 1, 0.000001) {
+		t.Fatalf("independent scheduling seat was lost: %+v", priority)
+	}
+	if again := WakeupCausalImpactPrimaryStateAccount(primary); again.Summary != primary.Summary || again.NextStepKind != primary.NextStepKind {
+		t.Fatalf("primary account transform must be idempotent: first=%+v second=%+v", primary, again)
+	}
+
+	composite := impact
+	composite.DominantState = string(StateRunnable)
+	composite.IOWaitMs = 0
+	if got := WakeupCausalImpactPrimaryStateAccount(composite); !got.PriorityInversionCandidate || got.PriorityInversionGatedMs != 1 {
+		t.Fatalf("runnable-dominant composite seat must remain unchanged: %+v", got)
 	}
 }
 

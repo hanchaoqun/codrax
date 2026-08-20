@@ -18533,6 +18533,35 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	return rootCauseItemFromCausalImpactRole(impact, impact.PriorityInversionCandidate)
 }
 
+// WakeupCausalImpactPrimaryStateAccount returns the user-facing primary-state
+// view of one causal impact. A sleep/D/IO-dominant impact may also own an
+// independently proved scheduling-supply sub-seat; that sub-seat remains in
+// root_cause_rank, while this lossless causal-hop row must describe only the
+// enclosing state account. Runnable/running-dominant impacts use the historic
+// composite seat and therefore remain unchanged.
+//
+// The hard priority relation and its coverage remain available as relation
+// facts. Only the candidate role, its charged components, and prose derived
+// from that role are removed. This keeps the transform idempotent and prevents
+// a 1ms scheduling sub-account from relabelling an 11ms IO/sleep state row.
+func WakeupCausalImpactPrimaryStateAccount(impact WakeupCausalImpact) WakeupCausalImpact {
+	if !wakeupCausalImpactHasSeparatePrioritySeat(impact) {
+		return impact
+	}
+	impact.PriorityInversionCandidate = false
+	impact.PriorityInversionGatedMs = 0
+	impact.GatedRunnableMs = 0
+	impact.GatedRunningDeficitMs = 0
+	impact.GatedCapabilitySource = ""
+	impact.GatedClusterTopology = ""
+	impact.GatedCapabilityFreqOnlyReason = ""
+	impact.priorityInversionRunnableIntervals = nil
+	impact.NextStep = causalImpactNextStep(impact)
+	impact.NextStepKind = causalImpactNextStepKind(impact)
+	impact.Summary = renderWakeupCausalImpactSummary(impact)
+	return impact
+}
+
 func rootCausePrimaryItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
 	return rootCauseItemFromCausalImpactRole(impact, false)
 }
@@ -18543,11 +18572,10 @@ func rootCausePriorityItemFromCausalImpact(impact WakeupCausalImpact) RootCauseR
 
 func rootCauseItemFromCausalImpactRole(impact WakeupCausalImpact, inversionSeat bool) RootCauseRankItem {
 	basis := impact
-	basis.PriorityInversionCandidate = inversionSeat
-	if !inversionSeat && impact.PriorityInversionCandidate {
-		basis.NextStep = causalImpactNextStep(basis)
-		basis.NextStepKind = causalImpactNextStepKind(basis)
-		basis.Summary = renderWakeupCausalImpactSummary(basis)
+	if inversionSeat {
+		basis.PriorityInversionCandidate = true
+	} else {
+		basis = WakeupCausalImpactPrimaryStateAccount(basis)
 	}
 	effectiveMs := WakeupCausalImpactEffectiveImpactMs(basis)
 	typ := causalImpactRootType(basis)
