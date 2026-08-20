@@ -4804,11 +4804,13 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	valueFlowParts := make([]string, 0, len(mismatches))
 	logicalRelationParts := make([]string, 0, len(mismatches))
 	collapsedEndpointParts := make([]string, 0, len(mismatches))
+	nodeIdentityConflictParts := make([]string, 0, len(mismatches))
 	otherParts := make([]string, 0, len(mismatches))
 	typeRelationMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	valueFlowMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	logicalRelationMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	collapsedEndpointMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
+	nodeIdentityConflictMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	otherMismatches := make([]DiagramCallEdgeEvidenceMismatch, 0, len(mismatches))
 	for _, mismatch := range mismatches {
 		part := fmt.Sprintf(
@@ -4821,6 +4823,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		if mismatch.Issue == diagramTypedEndpointsCollapsedToSelfEdge {
 			collapsedEndpointParts = append(collapsedEndpointParts, part+" relation_kind="+string(mismatch.Relation))
 			collapsedEndpointMismatches = append(collapsedEndpointMismatches, mismatch)
+		} else if mismatch.Issue == diagramEdgeAnchorNodeIdentityConflict {
+			nodeIdentityConflictParts = append(nodeIdentityConflictParts, part+" relation_kind="+string(mismatch.Relation))
+			nodeIdentityConflictMismatches = append(nodeIdentityConflictMismatches, mismatch)
 		} else if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
 			typeRelationParts = append(typeRelationParts, part)
 			typeRelationMismatches = append(typeRelationMismatches, mismatch)
@@ -4844,6 +4849,18 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			Reason:                         "the structured anchor proves two non-equivalent endpoints while the model-authored body collapses both onto one visible alias. That changes a typed A-to-B relation into a reader-visible A-to-A loop. Invocation actor self-messages retain their separate ordered-operation contract; this check reads no diagram message, request text, reasoning, or answer prose.",
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationRepairDeltaJSON: relationRepairDelta,
+		})
+	}
+	if len(nodeIdentityConflictParts) > 0 {
+		hints = append(hints, emitFixHint{
+			Field:                          "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[].from_node/to_node/from_identity/to_identity",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, nodeIdentityConflictMismatches),
+			ExpectedShape:                  "keep every visible arrow, from_node/to_node, and from_identity/to_identity in one direction: from_node must denote from_identity and to_node must denote to_identity. Align the existing model-authored body and anchor metadata with the same evidence-backed endpoint pair; do not merely swap identity fields to preserve a reversed visible relation: " + strings.Join(nodeIdentityConflictParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                         "a parsed Mermaid node declaration resolves to one unique citable code identity, but that visible entity is bound to a different typed endpoint on the same anchor. The typed pair may prove a relation while this contradiction reverses or misroutes what the reader sees. Business-only labels and unresolved aliases do not enter this gate; it reads no request text, edge message, reasoning, or answer prose and does not rewrite the graph.",
+			DiagramRelationFailurePairs:    diagramRelationFailurePairFingerprints(nodeIdentityConflictMismatches),
+			DiagramRelationFailureIssues:   diagramRelationFailureIssueValues(nodeIdentityConflictMismatches),
+			DiagramRelationRepairDeltaJSON: diagramRelationRepairDeltaJSON(doc, pctx.ctx, nodeIdentityConflictMismatches, evidence, stagePrecedence),
 		})
 	}
 	if len(typeRelationParts) > 0 {

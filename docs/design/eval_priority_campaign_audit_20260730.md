@@ -57258,3 +57258,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace-value-copy-drift=model-variance/observe-no-hard-prose-gate`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r772`。
+
+### §123.1253 B1237：typed endpoint 与可见 Mermaid 节点同侧绑定（2026-08-20）
+
+1. 根因确认在共享 `DiagramCallEdgeEvidenceMismatches`：完整 `from_identity/to_identity` 会直接成为关系证据选择器，
+   但此前只检查其方向能否命中 typed evidence，以及 `from_node/to_node` 是否存在对应 body edge，没有检查每个 node ID
+   的可见实体是否与同侧 identity 一致。因此正确的 `implementer -> interface` typed 对可以被挂到
+   `interface -> implementer` 的可见边上并签绿。
+2. 本批增加统一、证据约束的节点身份绑定：只从既有 Mermaid declaration parser 读取 node label，并且只有 label 中
+   恰好一个 exact code identity 能在 citable typed evidence 中唯一复认时，才成为硬信号；该身份必须与同侧 endpoint
+   exact/qualified-short compatible，或作为其精确 owner/component 承载 operation。纯业务标签、无法解析标签和多身份歧义
+   均 fail-open，不使用业务词义、边文案、请求、thinking 或答案 prose 猜关系。
+3. 对精确冲突新增 repairable `edge_anchor_node_identity_conflict`：提示模型把原有可见箭头、node fields 和 identity fields
+   对齐到同一证据方向，同时明确不得只交换 identity 来保住反向图。系统不反转、创建、删除或改写模型的边、节点、标签、
+   关系及结论；现有 typed evidence 仍是唯一关系 authority。
+4. 回归同时覆盖：B1237 原形反绑必须红；同向 implementer→interface 必须绿；中文业务 participant + exact identity pair
+   保持绿；`Service`/`Worker` actor 承载 `Service.Run -> Worker.Handle` operation 保持绿；现有 type-relation 方向门保持绿。
+   该共享实现不区分源语言，覆盖 Go、Java/Kotlin、C/C++、Rust、Python、ArkTS、Cangjie 等所有已支持语言和
+   architecture/flow/sequence 等图面。
+5. `go test ./internal/tool ./internal/agent ./internal/types -count=1` 全绿（tool 180.962s、agent 13.948s、types
+   24.429s）。`QFRootCauseTrace` 仍在共享 source-diagram validator 入口隔离，本批未修改 Trace 查询、窗口选择、唤醒链、
+   根因选举、因果投影/自动补齐、JSON/Mermaid 渲染自愈或活跃流时限路径。
+
+状态：
+
+`B1237=implemented/full-relevant-pass/pending-production-replay`；
+`node-id-to-endpoint-binding=exact-citable-identity-only`；
+`business-label/unresolved-or-ambiguous-alias=no-hard-gate`；
+`operation-owner-carrier=preserved`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

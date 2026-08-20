@@ -55,6 +55,7 @@ const (
 	diagramCallbackEdgeIssueNoEvidence        = "callback_handoff_unproven"
 	diagramArgumentFlowEdgeIssueNoEvidence    = "argument_flow_unproven"
 	diagramTypedEndpointsCollapsedToSelfEdge  = "typed_endpoints_collapsed_to_self_edge"
+	diagramEdgeAnchorNodeIdentityConflict     = "edge_anchor_node_identity_conflict"
 	diagramSemanticRelationIssueNoEvidence    = "semantic_relation_edge_unproven"
 	diagramRequestedStageSpineIncomplete      = "requested_stage_precedence_spine_incomplete"
 )
@@ -355,6 +356,27 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 				continue
 			}
 			relation := diagramAnchorRelation(anchor)
+			// A complete typed identity pair selects relation evidence; it must
+			// not be attached to the opposite reader-visible Mermaid entities.
+			// Resolve a node only when its parsed declaration contains one unique
+			// citable code identity. Business/domain labels therefore remain
+			// presentation-only, while an exact visible A paired with typed B is
+			// a schema-level contradiction. A component/type may still host one
+			// of its exact operation endpoints, preserving actor-oriented call and
+			// sequence diagrams. This check reads neither edge messages, request
+			// text, reasoning, nor rendered prose, and it never rewrites the graph.
+			if block.Kind == types.BlockDiagram && block.Diagram != nil &&
+				anchor.HasEndpointIdentityPair() &&
+				diagramEdgeAnchorHasNodeIdentityConflict(anchor, labels, evidence) {
+				out = append(out, DiagramCallEdgeEvidenceMismatch{
+					BlockID: block.ID, Issue: diagramEdgeAnchorNodeIdentityConflict,
+					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+					FromSymbol: strings.TrimSpace(anchor.FromIdentity),
+					ToSymbol:   strings.TrimSpace(anchor.ToIdentity),
+					Relation:   relation,
+				})
+				continue
+			}
 			// One Mermaid participant may intentionally host several exact
 			// invocation operations, so actor self-messages remain legal for
 			// call/callback/return. A value, binding, type, or logical relation is
@@ -671,6 +693,65 @@ func diagramEvidenceAnchorEndpointSymbols(anchor types.DiagramEdgeAnchor, labels
 	}
 	return diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence),
 		diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
+}
+
+// diagramEdgeAnchorHasNodeIdentityConflict rejects only a precise binding
+// contradiction. An unresolved or business-only visible label cannot create a
+// hard gate. A uniquely evidence-backed code identity must, however, denote
+// the same endpoint selected by that side of the anchor (or an exact owner of
+// that operation); otherwise correct typed relation metadata can be used to
+// sign a visibly reversed graph.
+func diagramEdgeAnchorHasNodeIdentityConflict(anchor types.DiagramEdgeAnchor, labels map[string]string, evidence []types.EvidenceItem) bool {
+	if !anchor.HasEndpointIdentityPair() {
+		return false
+	}
+	if identity, ok := diagramEvidenceExactNodeIdentity(anchor.FromNode, labels, evidence); ok &&
+		!diagramEvidenceNodeIdentityBindsEndpoint(identity, anchor.FromIdentity) {
+		return true
+	}
+	if identity, ok := diagramEvidenceExactNodeIdentity(anchor.ToNode, labels, evidence); ok &&
+		!diagramEvidenceNodeIdentityBindsEndpoint(identity, anchor.ToIdentity) {
+		return true
+	}
+	return false
+}
+
+func diagramEvidenceExactNodeIdentity(node string, labels map[string]string, evidence []types.EvidenceItem) (string, bool) {
+	node = strings.TrimSpace(node)
+	if node == "" {
+		return "", false
+	}
+	label := strings.TrimSpace(labels[strings.ToLower(node)])
+	if label == "" {
+		return "", false
+	}
+	candidates := diagramEvidenceLabelIdentityCandidates(label)
+	matched := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !diagramEvidenceIdentityAppearsExactly(evidence, candidate) {
+			continue
+		}
+		duplicate := false
+		for _, existing := range matched {
+			if types.AnswerCodeIdentitySurfacesEquivalent(existing, candidate) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			matched = append(matched, candidate)
+		}
+	}
+	if len(matched) != 1 {
+		return "", false
+	}
+	return matched[0], true
+}
+
+func diagramEvidenceNodeIdentityBindsEndpoint(nodeIdentity, endpointIdentity string) bool {
+	return types.AnswerCodeIdentitySurfacesEquivalent(nodeIdentity, endpointIdentity) ||
+		types.AnswerCodeIdentitySurfacesCompatible(nodeIdentity, endpointIdentity) ||
+		types.AnswerCodeIdentityOwnsEndpoint(nodeIdentity, endpointIdentity)
 }
 
 func diagramEvidenceEdgeIdentityPair(fromNode, toNode string, anchors []types.DiagramEdgeAnchor) (string, string, bool, bool) {

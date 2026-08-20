@@ -2463,6 +2463,84 @@ func TestDiagramCallEdgeEvidenceMismatches_TypedIdentityPairKeepsBusinessDisplay
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_ExactNodeIdentityMustBindSameAnchorSide(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceRelationship, Producer: types.EvidenceProducerRepoMapImplementerRelation,
+			Subject: "analyzerEvaluator", Predicate: "implements", Object: "LoopController",
+			Source: "internal/agent/analyzer.go", LineStart: 49, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceMechanism, Subject: "LoopController", AnchorSymbol: "LoopController",
+			Source: "internal/agent/agent.go", LineStart: 519, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	view := &types.AnswerSemanticView{Family: types.QFGeneric}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "types", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			`  LC["LoopController\ninternal/agent/agent.go:519"] --> A["analyzerEvaluator\ninternal/agent/analyzer.go:49"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "LC", ToNode: "A", FromIdentity: "analyzerEvaluator", ToIdentity: "LoopController",
+			RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence)
+	if len(got) != 1 || got[0].Issue != diagramEdgeAnchorNodeIdentityConflict ||
+		got[0].FromSymbol != "analyzerEvaluator" || got[0].ToSymbol != "LoopController" {
+		t.Fatalf("opposite visible-node bindings must fail before a correct typed pair can sign the graph: %+v", got)
+	}
+	mut := types.NewMutableState("explain the implementation relationship")
+	mut.AppendEvidence(evidence)
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(&types.BusContext{Mutable: mut}))
+	if len(hints) != 1 ||
+		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramEdgeAnchorNodeIdentityConflict}) ||
+		!strings.Contains(hints[0].Field, "from_node/to_node/from_identity/to_identity") ||
+		!strings.Contains(hints[0].ExpectedShape, "from_node must denote from_identity") {
+		t.Fatalf("pre-emit must return the surgical node/identity binding repair without rewriting the graph: %+v", hints)
+	}
+
+	doc.Blocks[0].Diagram.Body = strings.Join([]string{
+		"flowchart TD",
+		`  A["analyzerEvaluator\ninternal/agent/analyzer.go:49"] --> LC["LoopController\ninternal/agent/agent.go:519"]`,
+	}, "\n")
+	doc.Blocks[0].EdgeAnchors[0].FromNode = "A"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "LC"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("same-side visible node and typed endpoint bindings must pass: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_ExactActorMayHostOwnedOperationEndpoint(t *testing.T) {
+	call := diagramEvidenceTestCall("Service.Run", "Worker.Handle")
+	call.OwnerSymbol = "Service"
+	worker := types.EvidenceItem{
+		Kind: types.EvidenceMechanism, Subject: "Worker", AnchorSymbol: "Worker",
+		Source: "internal/worker.go", LineStart: 4, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "actors", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant S as Service",
+			"  participant W as Worker",
+			"  S->>W: execute",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "S", ToNode: "W", FromIdentity: "Service.Run", ToIdentity: "Worker.Handle",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{call, worker}); len(got) != 0 {
+		t.Fatalf("an exact actor/component may remain the presentation carrier for its owned operation: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_TypedFlowUniquelyProjectsShortCallEndpoints(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,
