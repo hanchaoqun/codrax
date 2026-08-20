@@ -277,10 +277,14 @@ func diagramParticipantEndpointConflictGuidance(
 						conflictIdentity = exact[0].FromIdentity
 						oppositeNode, oppositeIdentity = edge.To, exact[0].ToIdentity
 					}
+					incidentToDifferentRequestedParticipant := diagramParticipantIdentityIncidentToAnyRequestedParticipant(
+						allParticipantSurfaces, conflictIdentity, requestedRelationEvidence,
+					)
+					oppositeAligned := diagramParticipantEndpointHasAlignedRequestedParticipant(
+						allParticipantSurfaces, oppositeNode, oppositeIdentity, labels, requestedRelationEvidence,
+					)
 					if diagramParticipantIncidentEndpointMatches(surfaces, conflictIdentity, requestedRelationEvidence) ||
-						!diagramParticipantEndpointHasAlignedRequestedParticipant(
-							allParticipantSurfaces, oppositeNode, oppositeIdentity, labels, requestedRelationEvidence,
-						) {
+						(!oppositeAligned && !incidentToDifferentRequestedParticipant) {
 						continue
 					}
 				}
@@ -320,6 +324,19 @@ func diagramParticipantEndpointConflictGuidance(
 		))
 	}
 	return strings.Join(rows, "; ")
+}
+
+func diagramParticipantIdentityIncidentToAnyRequestedParticipant(
+	participantSurfaces [][]string,
+	typedIdentity string,
+	evidence []types.EvidenceItem,
+) bool {
+	for _, surfaces := range participantSurfaces {
+		if diagramParticipantIncidentEndpointMatches(surfaces, typedIdentity, evidence) {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramParticipantEndpointHasAlignedRequestedParticipant(
@@ -705,14 +722,6 @@ func diagramParticipantVisibleEndpointRetargetMismatches(
 		return nil
 	}
 	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
-	boundedParticipants := make(map[string]bool)
-	for _, block := range doc.Blocks {
-		for _, boundary := range block.ParticipantBoundaries {
-			if boundary.Status == types.DiagramParticipantBoundaryUnproven {
-				boundedParticipants[strings.ToLower(strings.TrimSpace(boundary.Participant))] = true
-			}
-		}
-	}
 	seen := make(map[string]bool)
 	var out []DiagramParticipantCoverageMismatch
 	for blockIndex := range doc.Blocks {
@@ -773,12 +782,22 @@ func diagramParticipantVisibleEndpointRetargetMismatches(
 			}
 			for participantIndex, obligation := range obligations {
 				participant := strings.TrimSpace(obligation.Identity)
-				if participant == "" || obligation.Role != types.DiagramParticipantIncidentRequired ||
-					boundedParticipants[strings.ToLower(participant)] {
+				if participant == "" || obligation.Role != types.DiagramParticipantIncidentRequired {
 					continue
 				}
-				fromRetargeted := fromVisible[participantIndex] && !fromIncident[participantIndex] && toHasAlignedParticipant
-				toRetargeted := toVisible[participantIndex] && !toIncident[participantIndex] && fromHasAlignedParticipant
+				fromIncidentToOtherParticipant := false
+				toIncidentToOtherParticipant := false
+				for otherIndex, other := range obligations {
+					if otherIndex == participantIndex || other.Role != types.DiagramParticipantIncidentRequired {
+						continue
+					}
+					fromIncidentToOtherParticipant = fromIncidentToOtherParticipant || fromIncident[otherIndex]
+					toIncidentToOtherParticipant = toIncidentToOtherParticipant || toIncident[otherIndex]
+				}
+				fromRetargeted := fromVisible[participantIndex] && !fromIncident[participantIndex] &&
+					(toHasAlignedParticipant || fromIncidentToOtherParticipant)
+				toRetargeted := toVisible[participantIndex] && !toIncident[participantIndex] &&
+					(fromHasAlignedParticipant || toIncidentToOtherParticipant)
 				if !fromRetargeted && !toRetargeted {
 					continue
 				}

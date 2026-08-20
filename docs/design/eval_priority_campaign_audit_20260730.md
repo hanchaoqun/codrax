@@ -56799,3 +56799,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r765`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1240 B1230：未证边界不得豁免同侧技术端点身份错绑（2026-08-20）
+
+1. 既有 endpoint-retarget gate 只在“被冒用 participant 没有 boundary”时检查，且只识别“另一端已经对齐某个 requested
+   participant”的错绑。r765 同时命中两个盲区：`Mutable` 恰有合法未证 boundary；`o.busCtx` 的真实 BusContext incidence
+   位于同一 from side，而对侧 `BuildAgentContext` 不是 requested participant，于是错误的 `mutable→builder` 通过。
+2. 根修取消 boundary 对 identity collision 的豁免。boundary 只声明请求关系未证，不授权 participant 名称与技术 endpoint
+   互换；真实 local operation 若端点确实 incident 于该 participant，原校验仍然通过，不与 boundary 冲突。
+3. retarget 判据增加精确的同侧 sibling arm：当模型节点明确显示 participant A、anchor 同侧技术 identity 不 incident 于 A，
+   但精确 incident 于另一个 requested participant B 时，判为 `participant_visible_on_nonincident_endpoint`。原有“对侧已对齐”
+   arm 保留；若技术 identity 不属于任何 requested participant，仍 fail-open 允许普通业务标签，避免把模糊解释变成硬门。
+4. repair delta 同步识别同侧 sibling：仅发布模型已经写出的 block、body edge、冲突侧、原 from/to identity 和 relation kind，
+   要求模型把 participant 身份从错误端点移开；不选择新节点 ID、不提供替代标签、不创建或修改边。
+5. 新生产同形 pin 使用 `BusContext` group 内的 `Mutable` 节点、`o.busCtx→BuildAgentContext` argument anchor 和 Mutable
+   unproven boundary：必须精确拒绝 Mutable from-side retarget，并生成唯一 non-authoring collision tuple。既有合法 participant
+   incidence、普通业务标签、重复 pair、局部边+boundary、父子 no-arrow grouping 全部保持通过。
+6. `go test ./internal/types ./internal/agent ./internal/tool ./internal/orchestrator ./internal/render -count=1` 全绿
+   （tool 182.096s）。判定只读 schema-valid participant、parsed node identity、typed edge anchor 与 grounded evidence；不扫描
+   用户原文、模型 reasoning/final prose，不重写 Mermaid，不影响 Trace 明确窗、因果投影、补齐或链上根因。
+
+状态：
+
+`B1230-ENDPOINTNODEIDENTITYRETARGET1=implemented/full-relevant-pass/pending-production-replay`；
+`bounded-participant-endpoint-identity=still-checked`；
+`same-side-other-requested-participant-incidence=precise-retarget-signal`；
+`unknown-technical-endpoint=fail-open/business-label-preserved`；
+`group-containment!=identity-equivalence/pinned`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

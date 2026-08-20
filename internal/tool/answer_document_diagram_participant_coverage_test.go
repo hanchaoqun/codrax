@@ -1108,6 +1108,57 @@ func TestDiagramParticipantCoverageRejectsRequestedParticipantOnNonincidentCandi
 	}
 }
 
+func TestDiagramParticipantCoverageRejectsBoundedParticipantRetargetedFromSiblingIdentity(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n subgraph BusContext[\"BusContext\"]\n  mutable[\"Mutable\"]\n end\n mutable -->|作为参数传递| ctxbuilder[\"构建阶段上下文\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "mutable", ToNode: "ctxbuilder", FromIdentity: "o.busCtx",
+		ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow,
+		VisibleLabel: "作为参数传递",
+	}}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := []types.EvidenceItem{{
+		ID: "bus-argument", Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Kind: types.EvidenceRelationship, Subject: "o.busCtx", Predicate: "passes",
+		Object: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/extract_work.go", LineStart: 15,
+		AnchorKind: types.AnchorArgument, AnchorSymbol: "o.busCtx", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded, OwnerIdentity: "Orchestrator.extractStageHasRequiredWork",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "o.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}}
+
+	found := false
+	for _, mismatch := range DiagramParticipantCoverageMismatches(doc, view, rm, evidence) {
+		if mismatch.BlockID == "flow" && mismatch.Participant == "Mutable" &&
+			mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a Mutable boundary must not allow the BusContext argument endpoint to be relabelled as Mutable")
+	}
+	mut := types.NewMutableState("bounded sibling endpoint retarget")
+	mut.AppendEvidence(evidence)
+	hints := preCheckDiagramParticipantCoverage(doc, view, &preEmitCheckContext{ctx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut,
+	}})
+	if len(hints) != 1 ||
+		!strings.Contains(hints[0].ExpectedShape, `typed_endpoint_collision["Mutable"]`) ||
+		!strings.Contains(hints[0].ExpectedShape, `body_edge:{from_node:"mutable",to_node:"ctxbuilder"}`) ||
+		!strings.Contains(hints[0].ExpectedShape, `conflict_endpoint_side:"from"`) ||
+		!strings.Contains(hints[0].ExpectedShape, `from_identity:"o.busCtx"`) {
+		t.Fatalf("bounded same-side retarget must receive an exact non-authoring repair tuple: %+v", hints)
+	}
+}
+
 func TestDiagramParticipantCoverageRejectsRepeatedPairRetargetPerOccurrence(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
