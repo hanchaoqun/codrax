@@ -57048,3 +57048,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1247 r769：B1234 生产闭环；答案维度存在但字段值错位（2026-08-20）
+
+1. 以 `686f1effb` 构建同一二进制快照，严格并发恰好 2 路：`qf_type_relation_loop_controller` 204s、
+   `trace_query_wakeup_causal_io_chain` 345s，runner 2/2 PASS。两路持续活跃，没有因 4ms、4m、首字节、stall 或累计年龄降级。
+2. B1234 生产闭环：Analyzer 首次把 repo 探出的具体实现者冒充 request participant 时被 provenance 门正确拒绝；第二次只保留
+   用户明确命名的 `LoopController`，不再铸造抽象集合 actor。终稿保留 12 条 model-authored exact `implements` 边，既无
+   “主要实现类型/LoopController 未证”的矛盾边界，也无 `type_relation` 内部枚举泄漏。代码 normalization 未触发，新增教学先
+   让模型给出正确形；精确兜底仍由单测覆盖。
+3. Trace 主能力人工通过：显式 `2.000..2.020s`、已证
+   `threadpool-400→network-300→cookie-200→app-100` 唤醒链、链上 11.000ms iowait 主根因、三席各
+   1.000ms 调度供给、实际占时/规则可消双轴、Trace 因果投影、系统确定性补采均完整。目标 sleep 只作症状，邻近 sleep 与背景
+   IO 综合评分没有进入根因加冕；下一步保留 fscache 调用点、IO 依赖和同核竞争等业务/内核下钻方向。
+4. Trace 正文有一处非主结论的模型服从波动：把 background `io_pressure score=16.000` 称为“偏高”，而同页 typed 图例明确
+   该跨单位综合分没有绝对压力等级。证据上下文已给出正确边界，故暂不增加正文关键词硬门、不让系统删改模型句子；后续异构
+   Trace 只观察是否稳定复现，必要时收敛 soft context 的邻接位置。
+5. 新确认 `B1235-TYPEDDIMENSIONFIELDVALUEDRIFT1/P1`：类型答案的独立维度要求“列出每个实现类型所在文件”，终稿表头也为
+   “文件位置”，但 12 个值单元格全部是职责说明，真正路径只在图节点和 citations 中。当前门看到 `facet_ids=[member_set]` 与
+   完整 rowset 就签绿，没有验证 typed requested field 是否由同一成员行可见承载，因此 runner 假绿。
+6. B1235 的最优方案冻结为字段级 typed cell obligation，不读取列标题或答案词义：当已验证 requested dimension/source-inventory
+   field 明确要求 location，且 member-set row 已有 exact source localization receipt 时，Finalizer handoff 发布每行
+   `member identity + source path` 的显示义务；pre-emit 只检查模型选定的 member table/list 行是否包含同一 typed path。系统不创建
+   表格、不改列、不补路径；普通 member-set、没有 location 维度或缺 exact localization 的场景保持 fail-open。需同时覆盖多语言
+   路径、列表形、表格形、完整/缺失行和 Trace 排除臂。
+
+状态：
+
+`r769=runner-pass-2/2/human-partial-2/2`；
+`B1234-ABSTRACTSETPARTICIPANTRELATIONCONFLICT1=production-closed`；
+`B1235-TYPEDDIMENSIONFIELDVALUEDRIFT1=confirmed/P1-next`；
+`type-graph=12-exact-edges/no-abstract-boundary/no-raw-enum`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r769`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-occupancy+rule-eliminable=present`；
+`io-pressure-absolute-grade=model-variance/soft-follow-up`；
+`request/model/final-prose/mermaid-label-or-column-title-scan=none`；
+`system-table/cell/edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r769`。
