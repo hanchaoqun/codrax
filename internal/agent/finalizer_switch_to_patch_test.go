@@ -983,6 +983,66 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 	assertCompact(t, fullSignal.Hint)
 }
 
+func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
+	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true,"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
+	result := func(toolName string) *types.ToolResult {
+		return &types.ToolResult{
+			ToolName: toolName, Success: false,
+			Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					"violation_kinds":                                  string(types.ViolDiagramCallEdgeUnproven),
+					types.ToolRepairMetaOffendingBlockKinds:            string(types.BlockDiagram),
+					types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+				},
+			},
+		}
+	}
+	assertCompact := func(t *testing.T, signal LoopSignal) {
+		t.Helper()
+		if !signal.HintRequested ||
+			(!strings.Contains(signal.HintKey, "required_diagram_relation_delta") &&
+				!strings.Contains(signal.HintKey, "required-diagram-relation-delta")) {
+			t.Fatalf("relation reject must select the compact delta lane: %+v", signal)
+		}
+		for _, want := range []string{
+			`"from_node":"BC"`, `"to_node":"E"`, "preserve_unlisted_edges=true",
+			"typed_candidate[BusContext][1]", "local_operation_only",
+			"system has not selected, added, removed, relabelled, reversed, or reconnected",
+		} {
+			if !strings.Contains(signal.Hint, want) {
+				t.Fatalf("compact relation hint missing %q:\n%s", want, signal.Hint)
+			}
+		}
+		for _, forbidden := range []string{
+			"Copy-ready optional typed diagram", "Verified component fragment",
+			"use each exact relation recipe below at most once", "node_alias[n1]",
+		} {
+			if strings.Contains(signal.Hint, forbidden) {
+				t.Fatalf("compact relation hint repeated full authority %q:\n%s", forbidden, signal.Hint)
+			}
+		}
+		if len(signal.Hint) > 6000 {
+			t.Fatalf("compact relation retry unexpectedly large: %d bytes", len(signal.Hint))
+		}
+	}
+
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	patchEvaluator := &answerDocumentEvaluator{diagramRequired: true}
+	assertCompact(t, patchEvaluator.emitPatchRejectFullRewriteSignal(
+		ctx, LoopObservation{LastToolResult: result("emit_answer_document_patch")},
+	))
+
+	fullEvaluator := &answerDocumentEvaluator{diagramRequired: true}
+	assertCompact(t, fullEvaluator.emitAnswerDocumentRejectSignal(
+		ctx, LoopObservation{LastToolResult: result("emit_answer_document")},
+	))
+	if !fullEvaluator.preferPatchNext {
+		t.Fatal("full reject compact relation recovery must switch to patch mode")
+	}
+}
+
 func TestEmitAnswerDocumentRejectSignal_RequiredFlowUsesTypedRelationBoundaryWhenWholeDiagramWithheld(t *testing.T) {
 	e := &answerDocumentEvaluator{diagramRequired: true}
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()

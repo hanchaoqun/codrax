@@ -59,6 +59,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -419,6 +420,11 @@ type emitFixHint struct {
 	// choices. It prevents patch retries from rebuilding the full relation
 	// authority prompt while preserving model ownership of the visible graph.
 	DiagramParticipantRepairDeltaJSON string
+	// DiagramRelationRepairDeltaJSON is the analogous local projection for
+	// source relation-authority failures. It carries exact failed edge tuples
+	// and only a bounded set of already-grounded alternatives, never a complete
+	// relation catalog or system-authored visible edge.
+	DiagramRelationRepairDeltaJSON string
 }
 
 type preEmitBlockCardinalityRelation string
@@ -4464,6 +4470,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	failurePairs := diagramRelationFailurePairFingerprints(mismatches)
 	failureIssues := diagramRelationFailureIssueValues(mismatches)
 	groundedAnchorPatchJSON := diagramGroundedAnchorPatchJSON(doc, mismatches)
+	relationRepairDelta := diagramRelationRepairDeltaJSON(
+		doc, pctx.ctx, mismatches, evidence, stagePrecedence,
+	)
 	if mismatches[0].Issue == diagramRequestedStageSpineIncomplete {
 		parts := make([]string, 0, len(mismatches))
 		for _, mismatch := range mismatches {
@@ -4475,8 +4484,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
 			ExpectedShape: "preserve supporting grounded diagrams if useful, and make at least one model-authored diagram contain the complete connected requested precedence spine using visible edges plus relation_kind=precedence owners. Missing from the best current diagram: " +
 				strings.Join(parts, "; "),
-			Reason:                      "checkout-verified requested stage relations are principal answer scope. Supporting call or implementation-detail diagrams may accompany that scope but cannot replace it; this check reads only the model-authored visible relation spine and never inserts or rewrites an edge.",
-			DiagramRelationFailurePairs: failurePairs,
+			Reason:                         "checkout-verified requested stage relations are principal answer scope. Supporting call or implementation-detail diagrams may accompany that scope but cannot replace it; this check reads only the model-authored visible relation spine and never inserts or rewrites an edge.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	if mismatches[0].Issue == diagramCallEdgeIssueDuplicateParticipant {
@@ -4493,8 +4503,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, mismatches),
 			ExpectedShape: "declare each exact typed call endpoint under one Mermaid alias; reuse that one alias on every body edge, and set edge_anchors[].from_node/to_node to the verbatim alias IDs used by the body. Remove the duplicate participant declaration rather than renaming the typed endpoint: " +
 				strings.Join(parts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:                      "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
-			DiagramRelationFailurePairs: failurePairs,
+			Reason:                         "multiple aliases for one exact typed call endpoint make body-edge identity ambiguous and can disguise valid calls as missing anchors. Owner/class presentation participants remain legal when exact message operations distinguish their typed call edges.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	standaloneMismatches, diagramMismatches := preEmitPartitionStandaloneStructuredRelationMismatches(doc, mismatches)
@@ -4560,32 +4571,35 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	}
 	if len(collapsedEndpointParts) > 0 {
 		hints = append(hints, emitFixHint{
-			Field:                       "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[].from_node/to_node",
-			HardSignal:                  preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds:         preEmitDiagramMismatchBlockKinds(doc, collapsedEndpointMismatches),
-			ExpectedShape:               "preserve each distinct typed endpoint identity under a distinct Mermaid node/participant alias, then draw the existing evidence-backed relation in its declared direction and keep edge_anchors[].from_node/to_node aligned to those two body aliases. Do not render a cross-object value, binding, type, or logical relation as a self-loop: " + strings.Join(collapsedEndpointParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:                      "the structured anchor proves two non-equivalent endpoints while the model-authored body collapses both onto one visible alias. That changes a typed A-to-B relation into a reader-visible A-to-A loop. Invocation actor self-messages retain their separate ordered-operation contract; this check reads no diagram message, request text, reasoning, or answer prose.",
-			DiagramRelationFailurePairs: failurePairs,
+			Field:                          "blocks[kind=diagram].diagram.body AND blocks[].edge_anchors[].from_node/to_node",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, collapsedEndpointMismatches),
+			ExpectedShape:                  "preserve each distinct typed endpoint identity under a distinct Mermaid node/participant alias, then draw the existing evidence-backed relation in its declared direction and keep edge_anchors[].from_node/to_node aligned to those two body aliases. Do not render a cross-object value, binding, type, or logical relation as a self-loop: " + strings.Join(collapsedEndpointParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                         "the structured anchor proves two non-equivalent endpoints while the model-authored body collapses both onto one visible alias. That changes a typed A-to-B relation into a reader-visible A-to-A loop. Invocation actor self-messages retain their separate ordered-operation contract; this check reads no diagram message, request text, reasoning, or answer prose.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	if len(typeRelationParts) > 0 {
 		hints = append(hints, emitFixHint{
-			Field:                       "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
-			HardSignal:                  preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds:         preEmitDiagramMismatchBlockKinds(doc, typeRelationMismatches),
-			ExpectedShape:               "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:                      "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
-			DiagramRelationFailurePairs: failurePairs,
+			Field:                          "blocks[].edge_anchors[relation_kind=type_relation] AND blocks[kind=diagram].diagram.body",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, typeRelationMismatches),
+			ExpectedShape:                  "every explicit relation_kind=type_relation edge in a non-runtime-trace answer must preserve one exact parser-authored declared-type relationship in this direction: subtype / implementing type / embedded type -> superclass / interface / trait / protocol / embedded contract. Correct the edge direction/endpoints or remove an unsupported edge; do not relabel it as call or contain: " + strings.Join(typeRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                         "inheritance, implementation, conformance, and embedding are cross-language declared-type relations, not invocations or containment. The typed relation enum is precise enough to gate only when a same-direction parser relationship is present; rendered labels and prose never create that authority.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	if len(valueFlowParts) > 0 {
 		hints = append(hints, emitFixHint{
-			Field:                       "blocks[].edge_anchors[relation_kind=assignment|data_flow|return] AND blocks[kind=diagram].diagram.body",
-			HardSignal:                  preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds:         preEmitDiagramMismatchBlockKinds(doc, valueFlowMismatches),
-			ExpectedShape:               "every explicit assignment/data_flow/return edge in a non-runtime-trace answer must preserve one citable typed fact in its declared direction: assignment is LHS receiver -> bound RHS value/type; data_flow is the same exact source tuple reversed into execution direction, RHS value/source -> LHS receiver; return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:                      "assignment, execution-direction data flow, initialization, and factory return are distinct value-flow views rather than source invocations. Their typed relation kinds preserve exact source direction without inventing a call or conceptual bridge; labels and prose never create this authority.",
-			DiagramRelationFailurePairs: failurePairs,
+			Field:                          "blocks[].edge_anchors[relation_kind=assignment|data_flow|return] AND blocks[kind=diagram].diagram.body",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, valueFlowMismatches),
+			ExpectedShape:                  "every explicit assignment/data_flow/return edge in a non-runtime-trace answer must preserve one citable typed fact in its declared direction: assignment is LHS receiver -> bound RHS value/type; data_flow is the same exact source tuple reversed into execution direction, RHS value/source -> LHS receiver; return is returning function -> returned value/type. Correct the endpoints/direction or remove the unsupported edge; never relabel a factory/data-binding edge as call: " + strings.Join(valueFlowParts, "; ") + diagramRelationSurgicalRepairInstruction,
+			Reason:                         "assignment, execution-direction data flow, initialization, and factory return are distinct value-flow views rather than source invocations. Their typed relation kinds preserve exact source direction without inventing a call or conceptual bridge; labels and prose never create this authority.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	if len(logicalRelationParts) > 0 {
@@ -4595,8 +4609,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			OffendingBlockKinds: preEmitDiagramMismatchBlockKinds(doc, logicalRelationMismatches),
 			ExpectedShape: types.GroundedSourceDiagramRelationEvidenceContract + " Do not relabel an unproved call, dispatch, binding, or value-flow edge as a logical relation: " +
 				strings.Join(logicalRelationParts, "; ") + diagramRelationSurgicalRepairInstruction,
-			Reason:                      "relation_kind is a model-authored typed assertion, not supporting evidence. Requiring its matching structured evidence closes enum relabel escapes without reading edge labels, request text, model reasoning, or rendered answer prose; runtime/root-cause trace diagrams remain on their independent causal authority.",
-			DiagramRelationFailurePairs: failurePairs,
+			Reason:                         "relation_kind is a model-authored typed assertion, not supporting evidence. Requiring its matching structured evidence closes enum relabel escapes without reading edge labels, request text, model reasoning, or rendered answer prose; runtime/root-cause trace diagrams remain on their independent causal authority.",
+			DiagramRelationFailurePairs:    failurePairs,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	if len(otherParts) > 0 {
@@ -4623,6 +4638,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			DiagramRelationFailurePairs:    failurePairs,
 			DiagramRelationFailureIssues:   failureIssues,
 			DiagramGroundedAnchorPatchJSON: groundedAnchorPatchJSON,
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	return hints
@@ -5299,6 +5315,98 @@ func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMisma
 	}
 	sort.Strings(issues)
 	return issues
+}
+
+type diagramRelationRepairDelta struct {
+	Version               int                                 `json:"version"`
+	Failures              []diagramRelationRepairDeltaFailure `json:"failures"`
+	PreserveUnlistedEdges bool                                `json:"preserve_unlisted_edges"`
+	CandidateAlternatives string                              `json:"candidate_alternatives,omitempty"`
+}
+
+type diagramRelationRepairDeltaFailure struct {
+	BlockID      string                    `json:"block_id,omitempty"`
+	Issue        string                    `json:"issue"`
+	RelationKind types.DiagramRelationKind `json:"relation_kind,omitempty"`
+	FromNode     string                    `json:"from_node"`
+	ToNode       string                    `json:"to_node"`
+	FromIdentity string                    `json:"from_identity,omitempty"`
+	ToIdentity   string                    `json:"to_identity,omitempty"`
+}
+
+// diagramRelationRepairDeltaJSON projects only the exact source-diagram edge
+// tuples that failed the current typed authority gate. It deliberately omits
+// the full relation recipe catalog. A small optional roster of already-grounded
+// local participant operations helps the model retain useful facts without
+// claiming that those operations close the requested multi-participant flow.
+// Runtime/trace diagrams are filtered before this source-code helper is called.
+func diagramRelationRepairDeltaJSON(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	mismatches []DiagramCallEdgeEvidenceMismatch,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) string {
+	if doc == nil || len(mismatches) == 0 {
+		return ""
+	}
+	failures := make([]diagramRelationRepairDeltaFailure, 0, len(mismatches))
+	seen := make(map[string]bool, len(mismatches))
+	for _, mismatch := range mismatches {
+		failure := diagramRelationRepairDeltaFailure{
+			BlockID:      strings.TrimSpace(mismatch.BlockID),
+			Issue:        strings.TrimSpace(mismatch.Issue),
+			RelationKind: mismatch.Relation,
+			FromNode:     strings.TrimSpace(mismatch.FromNode),
+			ToNode:       strings.TrimSpace(mismatch.ToNode),
+			FromIdentity: strings.TrimSpace(mismatch.FromSymbol),
+			ToIdentity:   strings.TrimSpace(mismatch.ToSymbol),
+		}
+		if failure.Issue == "" || failure.FromNode == "" || failure.ToNode == "" {
+			continue
+		}
+		key := strings.ToLower(failure.BlockID + "\x00" + failure.Issue + "\x00" +
+			string(failure.RelationKind) + "\x00" + failure.FromNode + "\x00" + failure.ToNode + "\x00" +
+			failure.FromIdentity + "\x00" + failure.ToIdentity)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		failures = append(failures, failure)
+	}
+	if len(failures) == 0 {
+		return ""
+	}
+	sort.SliceStable(failures, func(i, j int) bool {
+		left, right := failures[i], failures[j]
+		if left.BlockID != right.BlockID {
+			return left.BlockID < right.BlockID
+		}
+		if left.FromNode != right.FromNode {
+			return left.FromNode < right.FromNode
+		}
+		if left.ToNode != right.ToNode {
+			return left.ToNode < right.ToNode
+		}
+		if left.RelationKind != right.RelationKind {
+			return left.RelationKind < right.RelationKind
+		}
+		return left.Issue < right.Issue
+	})
+	candidates := ""
+	if ctx != nil && ctx.AnalysisIR != nil {
+		candidates = diagramRelationRepairLocalCandidateGuidance(
+			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, 4,
+		)
+	}
+	raw, err := json.Marshal(diagramRelationRepairDelta{
+		Version: 1, Failures: failures, PreserveUnlistedEdges: true,
+		CandidateAlternatives: strings.TrimSpace(candidates),
+	})
+	if err != nil || len(raw) > 16*1024 {
+		return ""
+	}
+	return string(raw)
 }
 
 type diagramGroundedAnchorPatchRow struct {
@@ -15080,6 +15188,7 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	diagramRelationFailureIssues := map[string]struct{}{}
 	diagramGroundedAnchorPatchJSON := ""
 	diagramParticipantRepairDeltaJSON := ""
+	diagramRelationRepairDeltaJSON := ""
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -15138,6 +15247,9 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		if diagramParticipantRepairDeltaJSON == "" {
 			diagramParticipantRepairDeltaJSON = strings.TrimSpace(h.DiagramParticipantRepairDeltaJSON)
 		}
+		if diagramRelationRepairDeltaJSON == "" {
+			diagramRelationRepairDeltaJSON = strings.TrimSpace(h.DiagramRelationRepairDeltaJSON)
+		}
 	}
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
@@ -15147,6 +15259,9 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	}
 	if diagramParticipantRepairDeltaJSON != "" {
 		meta[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON] = diagramParticipantRepairDeltaJSON
+	}
+	if diagramRelationRepairDeltaJSON != "" {
+		meta[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = diagramRelationRepairDeltaJSON
 	}
 	for _, h := range hints {
 		if fp := strings.TrimSpace(h.SameCauseFingerprint); fp != "" {

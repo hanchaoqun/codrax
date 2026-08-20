@@ -16884,6 +16884,20 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// place the required diagram, while the system stops teaching two subtly
 	// different JSON/identity forms in one dispatch.
 	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
+		if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested:  true,
+				HintKey:        "answer_doc.patch_required_diagram_relation_delta",
+				Hint:           hint,
+				Progress:       true,
+				BypassThrottle: true,
+				BypassBudget:   true,
+			}
+		}
 		if hint, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, true); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
@@ -17327,6 +17341,21 @@ type answerDocDiagramParticipantRepairDelta struct {
 	EndpointConflicts string `json:"endpoint_conflicts,omitempty"`
 }
 
+type answerDocDiagramRelationRepairDelta struct {
+	Version  int `json:"version"`
+	Failures []struct {
+		BlockID      string `json:"block_id,omitempty"`
+		Issue        string `json:"issue"`
+		RelationKind string `json:"relation_kind,omitempty"`
+		FromNode     string `json:"from_node"`
+		ToNode       string `json:"to_node"`
+		FromIdentity string `json:"from_identity,omitempty"`
+		ToIdentity   string `json:"to_identity,omitempty"`
+	} `json:"failures"`
+	PreserveUnlistedEdges bool   `json:"preserve_unlisted_edges"`
+	CandidateAlternatives string `json:"candidate_alternatives,omitempty"`
+}
+
 // answerDocRequiredDiagramParticipantDeltaPatchHint consumes the exact local
 // mismatch projection emitted by the participant gate. It deliberately does
 // not re-render the full relation authority, generic handbook, or every
@@ -17364,6 +17393,47 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 	b.WriteString("\n```\n\n")
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
 	b.WriteString(" The system has not selected, added, removed, relabelled, or reconnected any model-authored edge. Do not reopen files or write free-form prose outside the tool call.")
+	return b.String(), true
+}
+
+// answerDocRequiredDiagramRelationDeltaPatchHint consumes the producer-owned
+// local edge-authority projection before any fallback renders the complete
+// relation handbook. It never chooses an alternative or edits the graph; the
+// finalizer model keeps ownership of every visible edge and label.
+func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return "", false
+	}
+	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON])
+	if raw == "" || len(raw) > 16*1024 {
+		return "", false
+	}
+	var delta answerDocDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil || delta.Version != 1 ||
+		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
+		return "", false
+	}
+	for _, failure := range delta.Failures {
+		if strings.TrimSpace(failure.Issue) == "" || strings.TrimSpace(failure.FromNode) == "" ||
+			strings.TrimSpace(failure.ToNode) == "" {
+			return "", false
+		}
+	}
+	prefix := "Your last `emit_answer_document` call was rejected"
+	action := "Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+		action = "Keep using `emit_answer_document_patch`"
+	}
+	var b strings.Builder
+	b.WriteString(prefix)
+	b.WriteString(" by a local typed source-diagram relation mismatch. ")
+	b.WriteString(action)
+	b.WriteString("; replace only the rejected relation block or blocks, retain unrelated blocks through `unchanged_block_ids`, and preserve inherited citations. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only that exact visible edge/anchor pair in its named block. `preserve_unlisted_edges=true` requires every other model-authored edge and anchor to remain unchanged. `candidate_alternatives` contains optional already-grounded local facts: select at most one per named participant only when it improves the diagram, preserve its exact identities, direction, relation kind, and boundary flags, and author its reader-facing wording yourself. A `local_operation_only` candidate does not close the requested participant relation and must retain its unproven boundary. If no candidate helps, omit it; never invent a bridge. Issue values, candidate keys, source locations, relation enums, and boundary flags are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	b.WriteString(raw)
+	b.WriteString("\n```\n\n")
+	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
+	b.WriteString(" The system has not selected, added, removed, relabelled, reversed, or reconnected any model-authored edge. Do not reopen files or write free-form prose outside the tool call.")
 	return b.String(), true
 }
 
@@ -17694,11 +17764,19 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// instead of making the model hunt through the original long prompt and
 	// hand-recreate aliases/JSON.
 	if !diagramCallEdgePatchRecovery && hasPatchBase && e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
-		if compact, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, false); ok {
+		if compact, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, false); ok {
 			hint = compact
-			reasonKey = "required-diagram-typed-unproven-repeat"
+			reasonKey = "required-diagram-relation-delta"
 			diagramCallEdgePatchRecovery = true
 			e.preferPatchNext = true
+		}
+		if !diagramCallEdgePatchRecovery {
+			if compact, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, false); ok {
+				hint = compact
+				reasonKey = "required-diagram-typed-unproven-repeat"
+				diagramCallEdgePatchRecovery = true
+				e.preferPatchNext = true
+			}
 		}
 		if !diagramCallEdgePatchRecovery && answerDocumentPatchRejectIsDiagramCallEdge(obs.LastToolResult) {
 			if requiredHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, false); ok {

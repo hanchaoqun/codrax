@@ -8548,6 +8548,49 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignmentCarriesActualOffendingBlockKind
 	}
 }
 
+func TestPreCheckDiagramRelationFailurePublishesCompactRepairDelta(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "pipeline", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n BC[BusContext] --> E[Explorer]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "BC", ToNode: "E", FromIdentity: "BusContext", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelDataFlow,
+		}},
+	}}}
+	rm := types.RequestModel{PredicateAxis: types.AxisFlow, DiagramHint: &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+			{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		},
+	}}
+	pctx := &preEmitCheckContext{ctx: &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		doc, &types.AnswerSemanticView{Family: types.QFGeneric, RelationAxis: types.AxisFlow}, pctx,
+	)
+	if len(hints) != 1 || strings.TrimSpace(hints[0].DiagramRelationRepairDeltaJSON) == "" {
+		t.Fatalf("diagram relation failure must publish one compact delta: %+v", hints)
+	}
+	hints = appendPreEmitHints(nil, types.ViolDiagramCallEdgeUnproven, hints)
+	repair := emitFixHintsRepair(hints)
+	raw := repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	var delta diagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("repair metadata must carry valid relation delta: %v raw=%s", err, raw)
+	}
+	if delta.Version != 1 || !delta.PreserveUnlistedEdges || len(delta.Failures) != 1 ||
+		delta.Failures[0].Issue != diagramDataFlowEdgeIssueNoEvidence ||
+		delta.Failures[0].FromNode != "BC" || delta.Failures[0].ToNode != "E" {
+		t.Fatalf("repair metadata lost exact failing edge: %+v", delta)
+	}
+	if len(raw) > 4096 {
+		t.Fatalf("single-edge relation delta unexpectedly large: %d bytes", len(raw))
+	}
+}
+
 func TestEmitFixHintsRepair_Empty(t *testing.T) {
 	if repair := emitFixHintsRepair(nil); repair != nil {
 		t.Fatalf("empty hints should not fabricate repair metadata: %+v", repair)

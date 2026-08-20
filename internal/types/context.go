@@ -6907,6 +6907,13 @@ const (
 	// avoid re-sending the full relation handbook on every local patch attempt.
 	// It is guidance metadata, never edge evidence or answer content.
 	ToolRepairMetaDiagramParticipantRepairDeltaJSON = "diagram_participant_repair_delta_json"
+	// ToolRepairMetaDiagramRelationRepairDeltaJSON carries only the exact
+	// rejected source-diagram edge tuples plus a bounded roster of already-
+	// grounded local alternatives. It prevents a local edge-authority retry
+	// from re-injecting the complete relation handbook. The model still owns
+	// every visible edge, label, ordering, and conclusion; this carrier is never
+	// relation evidence and runtime/trace diagrams do not consume it.
+	ToolRepairMetaDiagramRelationRepairDeltaJSON = "diagram_relation_repair_delta_json"
 	// DiagramRelationFailureMissingGroundedCallAnchor is the producer-owned
 	// closed issue value for a visible call edge whose direction/endpoints are
 	// already supported by accepted typed evidence and whose only defect is a

@@ -1628,6 +1628,52 @@ func flowParticipantTypedIncidentCandidateGuidance(
 	return strings.Join(rows, "; ")
 }
 
+// diagramRelationRepairLocalCandidateGuidance returns a globally bounded
+// subset of local-only participant operations for a relation-authority retry.
+// The initial authoring prompt may publish a wider roster; a local retry needs
+// only enough precise alternatives to avoid deleting every useful relation
+// when one speculative edge pair failed. Candidates remain optional and retain
+// their unproven requested-relation boundary.
+func diagramRelationRepairLocalCandidateGuidance(
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	totalLimit int,
+) string {
+	if rm.DiagramHint == nil || totalLimit <= 0 {
+		return ""
+	}
+	localParticipants := diagramParticipantLocalOnlyCandidateParticipants(rm, evidence, stagePrecedence)
+	if len(localParticipants) == 0 {
+		return ""
+	}
+	obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	rows := make([]string, 0, min(totalLimit, len(localParticipants)))
+	for obligationIndex, obligation := range obligations {
+		participant := strings.TrimSpace(obligation.Identity)
+		if !localParticipants[strings.ToLower(participant)] {
+			continue
+		}
+		candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+			rm, obligation, evidence, stagePrecedence, 1,
+			obligations, allSurfaces, obligationIndex, relationScope,
+		)
+		if len(candidates) == 0 {
+			continue
+		}
+		rows = append(rows, fmt.Sprintf(
+			"typed_candidate[%s][1]=%s",
+			participant,
+			renderDiagramParticipantTypedIncidentCandidate(candidates[0], rm.Language),
+		))
+		if len(rows) >= totalLimit {
+			break
+		}
+	}
+	return strings.Join(rows, "; ")
+}
+
 func diagramParticipantCandidateObligations(rm types.RequestModel) ([]types.DiagramParticipantHint, [][]string) {
 	if rm.DiagramHint == nil {
 		return nil, nil

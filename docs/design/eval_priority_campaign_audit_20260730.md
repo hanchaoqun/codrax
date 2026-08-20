@@ -56115,3 +56115,77 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1222 r759：多仓路径修复获正证；机器 PASS 同时暴露验收覆盖与关系修补上下文 GAP（2026-08-19）
+
+1. 在 `main@16d6faee6` 重建后严格并发恰好两个异构案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + qf_logic_view_read_pipeline`。Runner `2 PASS / 0 FAIL`，
+   人工为 `1 fail / 1 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_multirepo_relation_r759_20260819_manual_audit.md`。
+2. 写案例中计划、apply、project test 与 probe 均使用活动子仓内的 `fastlex/...`、`tests/...`，此前的
+   `patch_path_missing` 消失，B1218 获生产正证。`pytest` 缺失后系统安全升级到真实 `unittest`，两条测试
+   执行通过，说明 runner 选择并非失败根因。
+3. 人工审计不能签绿：补丁遇到任意长度的换行 run 都无条件追加 `(10,10)` 的 rank，因此单个换行也被
+   替换；模型自己的计划摘要与验收项却明确“单换行不变”。probe 只覆盖 5/2/4 个换行和无换行普通文本，
+   项目套件只覆盖五换行与 `hi`，系统仍发出 `all_verified`。这确认新的 B1221：结构化验收项没有与执行
+   证据逐项绑定，强完成状态会把未覆盖甚至已违反的验收条件签绿。不得通过扫描计划 prose、代码或测试
+   关键词硬补；应以 acceptance ID、执行 receipt 和覆盖状态做 typed 闭环。
+4. 读案例的 B1208 producer 已生产触发：Finalizer 上下文明确发布
+   `local_typed_incident_only=[Mutable BusContext]`，并给出 BusContext 的参数流与
+   `applyStageOutput -> SetTurnAArtifacts` 局部候选，均带未证请求关系边界。关系 gate 正确拒绝模型首稿的
+   七条无证 assignment/data_flow 边，不能为图完整性放松。
+5. 第三轮只剩 `BC -> E/X/F` 三条无证 data_flow 时，violation 从 participant coverage 切换为 value-flow
+   authority，compact participant delta 不再随拒绝携带；fallback 注入完整关系手册，单条 hint 达
+   31,622 字节。模型删掉失败边时也放弃已有局部真边，终图将 BusContext/Mutable 与流水线断开，正文仍
+   继续声称共享载体流转。根因是 repair delta 覆盖不全和上下文显著性失衡，不是候选生产缺失。
+6. 两路 397 秒/447 秒活跃流均正常完成，没有 4ms、4m、首字节、stall 或累计年龄降级。本轮无运行时
+   Trace 查询；源码图 GAP 与 Trace 因果投影权威隔离，不能借机改变显式窗口、自动补齐或链上根因合同。
+
+状态：
+
+`B1218-MULTIREPOPLANPATHIDENTITY1=production-positive-r759`；
+`B1220-SOURCERELATIONREPAIRDELTA1=confirmed/P1-implementation-next`；
+`B1221-WRITEACCEPTANCEEVIDENCECOVERAGE1=confirmed/P1-design-next`；
+`runner-pass=not-human-correctness-authority`；
+`request/model/final-prose-scan-or-rewrite=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-397s+447s`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1223 B1220：所有源码关系拒绝共享有界失败边 delta（2026-08-19）
+
+1. 根修不针对 BusContext、Go 或当前 flowchart。源码图关系 producer 现在为 call、callback、argument、
+   assignment/data_flow/return、type relation、guard/control-flow/import/precedence/contain/observe 等同一合同的
+   本轮失败项生成统一 JSON delta：精确 block ID、issue、relation kind、可见 from/to node 与 canonical
+   endpoint identity，并钉死 `preserve_unlisted_edges=true`。混合关系错误携带本轮完整失败集，不能只发
+   第一类错误却把另一类失败边误称“应原样保留”。
+2. delta 另带全局最多四条、每个参与者最多一条的既有局部 typed 候选，只从已验证 evidence、请求的
+   schema participant slate 与 relation scope 计算。候选若是 `local_operation_only`，继续携带
+   `requested_relation_closure=unproven` 和 `retain_participant_boundary=true`；它不能变成跨参与者桥，
+   也不能关闭未证边界。
+3. Finalizer 的 full-emit 与 patch 两条 required-diagram 拒绝车道优先消费该 delta，再考虑历史完整 relation
+   boundary fallback。修补提示只要求模型处理 delta 中的精确边、保留其他边，并可自行选择至多一个局部
+   候选；系统不选择、添加、删除、反转、重连、命名或翻译任何图边，不修改模型正文与结论。
+4. 生产 witness 的三条失败 data_flow 加局部候选形由原 31,622 字节全手册收敛到 6KB 上限内；单失败边
+   producer/metadata 接线另有 4KB pin。负 pin 禁止 retry 再带 copy-ready 全图、verified component fragment、
+   node_alias 全目录或“逐条 recipe”手册。participant delta 原通道保持不变。
+5. 新 pin 覆盖 producer 到 `ToolRepair.Metadata` 的接线、失败边全集、局部候选与未证边界、full/patch 双路
+   优先级、提示上限、未列边保留和系统零边作者权。定向测试与完整
+   `go test ./internal/tool ./internal/agent -count=1` 通过；完整 `go test ./internal/... -count=1` 亦全绿，
+   包含 hitraceconv、orchestrator、render、repl、tracequery、types、worktree 与 writeflow。
+6. `DiagramCallEdgeEvidenceMismatches` 对 `QFRootCauseTrace` 的现有排除保持不变。该批不改 Trace 查询、
+   时间窗、唤醒链、链上排名、实际占用、规则可消除量、因果投影、自动补齐或活跃流判定；不扫描用户请求、
+   模型推理、答案正文或 Mermaid 文案来决定硬门。
+
+状态：
+
+`B1220-SOURCERELATIONREPAIRDELTA1=implemented/full-internal-pass`；
+`relation-retry-context=exact-failure-set+bounded-optional-local-candidates`；
+`model-edge/node/label/conclusion-authorship=preserved`；
+`B1221-WRITEACCEPTANCEEVIDENCECOVERAGE1=confirmed/next`；
+`request/model/final-prose-scan=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

@@ -1384,6 +1384,65 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 	}
 }
 
+func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternatives(t *testing.T) {
+	rm, _, doc, _ := diagramParticipantCoverageFixture()
+	rm.Language = "zh-CN"
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+	}
+	operation := types.EvidenceItem{
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Kind: types.EvidenceRelationship, Subject: "o.busCtx.EvidenceItems",
+		Predicate: "assigns", Object: "output.EvidenceItems",
+		Source: "src/pipeline.go", LineStart: 20, AnchorKind: types.AnchorAssignment,
+		AnchorSymbol: "o.busCtx.EvidenceItems", Scope: types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		Snippet:         "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity:   "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	mismatches := []DiagramCallEdgeEvidenceMismatch{
+		{BlockID: "pipeline", Issue: diagramDataFlowEdgeIssueNoEvidence,
+			FromNode: "BC", ToNode: "A", FromSymbol: "BusContext", ToSymbol: "Analyzer",
+			Relation: types.DiagramRelDataFlow},
+		{BlockID: "pipeline", Issue: diagramDataFlowEdgeIssueNoEvidence,
+			FromNode: "BC", ToNode: "X", FromSymbol: "BusContext", ToSymbol: "Extractor",
+			Relation: types.DiagramRelDataFlow},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	raw := diagramRelationRepairDeltaJSON(doc, ctx, mismatches, []types.EvidenceItem{operation}, nil)
+	var delta diagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("relation repair delta must be valid JSON: %v raw=%s", err, raw)
+	}
+	if delta.Version != 1 || !delta.PreserveUnlistedEdges || len(delta.Failures) != 2 {
+		t.Fatalf("relation delta lost exact local failure set: %+v", delta)
+	}
+	for _, want := range []string{
+		`"from_node":"BC"`, `"to_node":"A"`, `"to_node":"X"`,
+		`typed_candidate[BusContext][1]`, `candidate_scope:\"local_operation_only\"`,
+		`retain_participant_boundary:true`, `from_identity:\"output.EvidenceItems\"`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("relation delta missing %q: %s", want, raw)
+		}
+	}
+	for _, forbidden := range []string{
+		"For every typed incident_required participant", "Copy-ready verified component fragments",
+		"Verified component fragment",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("relation delta leaked full handbook section %q: %s", forbidden, raw)
+		}
+	}
+	if len(raw) > 6000 {
+		t.Fatalf("relation delta must stay bounded, got %d bytes", len(raw))
+	}
+}
+
 func TestDiagramParticipantReaderArrowLabelCoversEveryEdgeRelationWithoutRawEnums(t *testing.T) {
 	for _, relation := range types.AllDiagramRelationKinds() {
 		zh := diagramParticipantReaderArrowLabel(relation, "zh-CN")
