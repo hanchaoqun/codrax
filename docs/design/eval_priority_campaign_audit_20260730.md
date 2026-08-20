@@ -58107,3 +58107,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r784`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r784`。
+
+### §123.1274 r785：body-only 原子修补生产转正，剩余瓶颈转向上下文与 typed 关系覆盖（2026-08-20）
+
+1. 以已推送 `797129520` 构建不可变二进制，严格并发恰好 2 路；Trace 312s、read 512s，runner 2/2 PASS，人工均 partial。
+   两路活动流正常完成，没有基于 4ms、4m、首字节、stall 或累计年龄降级。read 相比 r784 的 1530s/20 rejects 降为
+   512s/4 rejects，耗时下降约 66%，且最终发布的是通过完整校验的当前答案，不是恢复稿。
+2. read 最终保留一张合法 sequenceDiagram 和一张列头完整的阶段表；Analyze→Explore→Extract→Finalize typed precedence
+   主干完整，AnalysisIR、EvidenceItems、AnswerSymbols、AnswerDocumentV2 与 BusContext/Mutable 状态载体均可读。第 5 轮 relation
+   lease 建立后，模型一次声明删除 analyze/explorer/extractor/finalizer→BusContext 四条无锚可见边，原子事务通过且未点名的阶段
+   spine 保持。这是 `B1254` 首个生产正证；B1251 原子保留能力也从 partial 升 production-positive。
+3. r785 未复现“同端点另一 relation anchor”这一 B1255 特殊形，因此 B1255 维持完整回归关闭、等待异构生产见证；第 3 轮出现的
+   exact-prior-anchor 并非 B1255 回归，而是 relation lease 尚未建立。首拒同时含 participant boundary 与 relation mismatch，系统
+   只先发布 participant delta；模型按同一错误尝试 relation edit 时没有 producer authority，下一轮清掉 boundary 后 relation delta
+   才出现。记 `B1258-MIXEDDIAGRAMDELTA1/P2`：mixed typed failures 应在同一 compact retry 中并列两种 lease，使模型可选择同一
+   原子事务完成；不能把一种失败的 authority 由另一种提示文字暗示出来。
+4. 新确认 `B1257-STATECARRIERRELATION1/P2`：EvidenceItems 已含 `AnalysisIR` 赋值、EvidenceItems/AnswerChains/AnswerSymbols merge
+   等精确 assignment rows，模型初稿也画出 Orchestrator→BusContext 状态写入；但当前 relation candidate provider 只给阶段
+   precedence 等候选，赋值/数据流没有进入可选 typed additions，最终只能删掉四条 BC 边，留下孤立 BusContext。当前用例的表格仍
+   回答了状态载体，因此不判失败；后续应从已有 typed assignment evidence 统一铸造有界 data_flow/assignment candidates，模型
+   决定是否画、如何命名，系统不得依据 Mermaid 文案补边。
+5. `B1252/B1256` 仍是最高 ROI 性能债：read 两段 Explorer、17 reads、约 196 条共享证据、13 次 mid-loop，finalizer 初始上下文
+   79.5k；虽然本轮没有失败历史膨胀到 121k，但正常首稿已远超问题所需。先根修 parser-owned declaration 有界闭环与 evidence
+   owner/关系闭包裁剪，再做失败类型专属 patch context；不能简单降预算、删证据或取消关系门。
+6. Trace 系统精确面继续生产正向：显式窗、自动补采、投影、链上排序、两轴与背景隔离全在。B1253 仍稳定：模型同页先说目标
+   直接阻塞者未建立，又称 threadpool IO 是整条链“核心驱动”，并在没有同核竞争证据时建议绑同核/提优先级。修复仍应是席位级
+   typed authority 的简洁并置与写作指导；不扫描/拒绝/删除/替换模型正文，不由系统改结论。
+
+状态：
+
+`r785=runner-pass-2/2,human-partial-2`；
+`B1251=production-positive`；`B1254=production-positive`；
+`B1255=full-regression-closed/pending-heterogeneous-production-witness`；
+`B1252=confirmed/P1-next`；`B1256=confirmed/P1-after-B1252`；`B1253=confirmed/P1`；
+`B1257=confirmed/P2`；`B1258=confirmed/P2`；
+`diagram-unmentioned-content=preserved-in-production`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r785`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r785`。
