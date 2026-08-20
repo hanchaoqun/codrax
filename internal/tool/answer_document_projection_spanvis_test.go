@@ -325,7 +325,7 @@ func TestSpanvisNameTruncationTailKept(t *testing.T) {
 // entry renders exactly with the ◈ word face (承诺面双向) and never mints a
 // per-row judgment word.
 func TestSpanvisReadingReferenceEntry(t *testing.T) {
-	const entryZH = "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅业务视角提示,不参与根因排序,不参与汇排。"
+	const entryZH = "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅提供业务排查方向,不参与根因排序或可消除量汇总。"
 	withText := scoreDerivClusterText(t, spanvisMentionProjection(), "zh")
 	if !strings.Contains(withText, entryZH) {
 		t.Fatalf("the reading-reference entry must render verbatim with the ◈ face:\n%s", withText)
@@ -334,7 +334,7 @@ func TestSpanvisReadingReferenceEntry(t *testing.T) {
 		t.Fatalf("the face must never mint a frequency judgment word (树面零判词)")
 	}
 	enText := scoreDerivClusterText(t, spanvisMentionProjection(), "en")
-	if !strings.Contains(enText, "- ◈ business span lead rows (reading reference): many occurrences with a small single occurrence → look toward the business flow / call count; a long single occurrence → look toward one run's duration; the trio (max single / count / total) are raw in-window wall-clock values — business-view leads only, not in root-cause ranking, not ranked here.") {
+	if !strings.Contains(enText, "- ◈ business span leads (reading reference): many short occurrences point toward business flow or call count, while one long occurrence points toward that run's duration; max single, count, and total are raw in-window wall-clock values used only for business investigation, never for root-cause ordering or eliminable-impact totals.") {
 		t.Fatalf("EN reading-reference entry must render verbatim:\n%s", enText)
 	}
 	baseText := scoreDerivClusterText(t, revisit76IOProjection(), "zh")

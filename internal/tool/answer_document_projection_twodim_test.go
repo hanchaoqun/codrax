@@ -140,8 +140,10 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 		"非 IO D-state 10.000ms、io_wait 20.000ms",
 		"不能直接当作可消除收益",
 		"Worker-9001 / one long span",
+		"链上依据：链上节点",
 		"52.000ms",
 		"Worker-9002 / many small spans",
+		"链上依据：自身",
 		"80.000ms",
 		"2.000ms",
 		"40",
@@ -161,6 +163,11 @@ func TestTwoDimOccupancyDecisionSurfaceMatrix(t *testing.T) {
 	}
 	if strings.Contains(joined, "120.000ms") {
 		t.Fatalf("cross-thread process CPU time must never be relabeled as wall clock:\n%s", joined)
+	}
+	for _, internal := range []string{"basis=", "chain_member", "不占根因席位", "typed 唤醒链"} {
+		if strings.Contains(joined, internal) {
+			t.Fatalf("occupancy reader surface leaked internal term %q:\n%s", internal, joined)
+		}
 	}
 
 	// Producer order is not authority: the business family group must rank by

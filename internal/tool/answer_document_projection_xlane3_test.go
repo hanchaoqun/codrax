@@ -163,10 +163,8 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	if !strings.Contains(md, "- 根因排序: ➊ #1·窗13762.792~13763.025s·板锚 CompThread_0-2955·置信高") {
 		t.Fatalf("the detail seat line must carry the full board identity:\n%s", md)
 	}
-	// The board-anchor legend entry rides the wearing report.
-	if !strings.Contains(md, "`板锚 <线程>`") {
-		t.Fatalf("the 板锚 legend entry must render on the multi-board report:\n%s", md)
-	}
+	// The row/detail identity is the customer-facing explanation; the
+	// exhaustive board-anchor term definition remains in the audit catalog.
 	// 件3: the cross-board same-thread same-family mutual pointers exist in
 	// BOTH directions (the 2.35× witness pair: logd.writer's 9163-board 全额
 	// seats vs its 2955-board census/anchored seats). The fence wraps long
@@ -179,7 +177,7 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 		!strings.Contains(joinedMD, "(板锚 logd.writer-9163,见图例)") {
 		t.Fatalf("the cross-board mutual pointers must render both directions:\n%s", md)
 	}
-	if !strings.Contains(md, "席位值不可跨板相加") {
+	if !strings.Contains(md, "数值不能跨组相加") {
 		t.Fatalf("the ⇄ legend entry must carry the cross-board invariant:\n%s", md)
 	}
 	// 件3: no cross-board Σ face — the pre-fix line summed both boards

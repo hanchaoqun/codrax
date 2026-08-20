@@ -194,7 +194,7 @@ func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
 	if !strings.Contains(pos, "0.285ms") {
 		t.Fatalf("正臂 must render the 0.285ms sentinel value:\n%s", pos)
 	}
-	if !strings.Contains(pos, "唤醒锚定(宿主→目标)") || !strings.Contains(pos, "34579.496810") {
+	if !strings.Contains(pos, "唤醒锚定(宿主→目标,见图例)") || !strings.Contains(pos, "34579.496810") {
 		t.Fatalf("正臂 must render the credential sentence with the µs boundary:\n%s", pos)
 	}
 	if !strings.Contains(pos, "仅关系凭证") || !strings.Contains(pos, "延迟机理未证") {

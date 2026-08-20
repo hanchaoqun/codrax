@@ -1512,7 +1512,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 	}
 	claimUses := []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation}}
 	facets := []string{"observed_artifact_fact"}
-	leadText := runtimeTraceProjLeadText(projection, model, lang, zh)
+	leadText := runtimeTraceProjReaderLeadText(projection, model, lang, zh)
 	if elimFence != "" {
 		leadText += "\n\n" + elimFence
 	}
@@ -1610,7 +1610,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长;无下钻子链的行不含子链份额,该值即该行自身账目的窗内投影;「链上」指沿唤醒链累计的方向,不是「直达关注线程」的额外传导声明。",
 			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与链上累计同值时为同一测量的两个名目(非两项单独证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于链上累计)。",
 			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
-			"- 与 trace_query 行字段对照:窗口投影 对应 impact=(JSON impact_ms);链上累计 对应 cumulative_impact=(cumulative_impact_ms);有效归因 对应 effective_impact=(effective_impact_ms);实际状态 对应 actual_impact=(actual_impact_ms);一行内多字段同值 = 同一测量的多个名目,不构成相互印证。",
+			"- 同一行多列同值 = 同一次测量服务于不同解读,不构成多份独立证据;各列含义以上述说明为准。",
 			"- 「—」 = 该列对此节点无值。",
 		}
 		if undrillableLegend {
@@ -1631,7 +1631,7 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its chain total is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
 				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken; when it equals the chain total the two are one measurement under two names (never two separate proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
 				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
-				"- field mapping to trace_query rows: window projection ↔ impact= (JSON impact_ms); chain total ↔ cumulative_impact= (cumulative_impact_ms); attribution ↔ effective_impact= (effective_impact_ms); actual state ↔ actual_impact= (actual_impact_ms); several fields of one row sharing one value = one measurement under several names, never mutual corroboration.",
+				"- Equal values in several columns mean one measurement serving different interpretations, not several independent proofs; use the definitions above for each column.",
 				"- “—” = no value in this column for this node.",
 			}
 			if undrillableLegend {
@@ -1676,9 +1676,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			// column's 状态落窗时长 promise does not hold on those cells).
 			if flags.gatedProjection {
 				if zh {
-					lines = append(lines, "- 优先级反转席的「窗口投影」列为该席发布的构成值(runnable(全额)+running(折算),非纯状态落窗时长),单元格已标注 构成,见明细;构成拆解见该行分解行与明细块。")
+					lines = append(lines, "- 优先级反转项的「窗口投影」列为 runnable(全额)+running(折算)的构成值,不是单一状态时长;单元格会标注 构成,见明细。")
 				} else {
-					lines = append(lines, "- an inversion seat's window-projection cell is the seat's PUBLISHED composite value (runnable in full + discounted running — not a pure in-window state duration); the cell carries the composite, see the detail blocks annotation, and the split lives on the row's breakdown line and its detail block.")
+					lines = append(lines, "- a priority-inversion item's window projection is the published composite of runnable in full plus discounted running, not one state's in-window duration; the cell points to the detail block for the split.")
 				}
 			}
 			// DISP-2 G19 (§27.5, 2026-07-09): the all-zero fold note's gated
@@ -1750,9 +1750,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			}
 			if flags.multiSeat {
 				if zh {
-					lines = append(lines, "- 双席/多席 = 同一节点同时出现在多个区段,表内只列一行、数值不重复计,记号列出所在区段;各区段属性见下方「因果投影明细」。")
+					lines = append(lines, "- 多区段 = 同一项同时出现在多个区段,表内只列一行且数值不重复计算;所在区段和各自属性见下方「因果投影明细」。")
 				} else {
-					lines = append(lines, "- dual-/multi-seat = one node appears in several stanzas; the table lists it once and never double counts, the glyphs name the stanzas — per-stanza attributes live in the Causal Projection Detail below.")
+					lines = append(lines, "- multiple sections = one item appears in several sections; the table lists it once and never double counts it, while section-specific attributes remain in the Causal Projection Detail below.")
 				}
 			}
 			// SCORE-DERIV (§29.104.22.1 user ruling 2026-07-17, 「阅读参考」
@@ -1770,16 +1770,16 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			// over-claim (documented in the design doc; 委托默认处置).
 			if flags.scoreIOPressure {
 				if zh {
-					lines = append(lines, "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,通用图例不列系数;typed count-only 行可披露精确分解,但不定义绝对压力等级;非墙钟,不参与汇排。")
+					lines = append(lines, "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,通用图例不列系数;有精确计数分解的行会单独披露,但不定义绝对压力等级;非墙钟,不参与时长排序。")
 				} else {
-					lines = append(lines, "- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend whose generic legend omits coefficient values; a typed count-only row may disclose its exact breakdown but defines no absolute pressure level; not wall clock, not ranked here.")
+					lines = append(lines, "- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend whose generic legend omits coefficient values; rows with an exact count breakdown disclose it separately but define no absolute pressure level; not wall clock and not part of duration ordering.")
 				}
 			}
 			if flags.scoreBlockIO {
 				if zh {
-					lines = append(lines, "- 综合评分(block_io) = 最大块延迟 + 最大存储延迟 + 文件IO字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与汇排。")
+					lines = append(lines, "- 综合评分(block_io) = 最大块延迟 + 最大存储延迟 + 文件IO字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与时长排序。")
 				} else {
-					lines = append(lines, "- composite score (block_io) = max block latency + max storage latency + file-IO bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock, not ranked here.")
+					lines = append(lines, "- composite score (block_io) = max block latency + max storage latency + file-IO bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock and not part of duration ordering.")
 				}
 			}
 			if flags.countEquivalent {
@@ -1789,16 +1789,16 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 				// byte-volume term) — the entry names the second form so the
 				// formula promise stays complete; still zero digits.
 				if zh {
-					lines = append(lines, "- 计数当量 = 事件数 × 固定当量系数(文件IO热点形另含字节量加权项;系数均不列数值);非墙钟,不参与汇排。")
+					lines = append(lines, "- 计数当量 = 事件数 × 固定当量系数(文件IO热点形另含字节量加权项;系数均不列数值);非墙钟,不参与时长排序。")
 				} else {
-					lines = append(lines, "- count equivalent (计数当量) = event count × a fixed equivalence coefficient (the file-IO hotspot form adds a weighted byte-volume term; values not listed); not wall clock, not ranked here.")
+					lines = append(lines, "- count equivalent (计数当量) = event count × a fixed equivalence coefficient (the file-IO hotspot form adds a weighted byte-volume term; values not listed); not wall clock and not part of duration ordering.")
 				}
 			}
 			if flags.countClamp {
 				if zh {
-					lines = append(lines, "- 超上限截断 = 计数当量按窗长固定比例设上限,超出即按上限发布(原始和随行供对照);非墙钟,不参与汇排。")
+					lines = append(lines, "- 超上限截断 = 计数当量按窗长固定比例设上限,超出即按上限发布(原始和随行供对照);非墙钟,不参与时长排序。")
 				} else {
-					lines = append(lines, "- over-limit clamp (超上限截断) = the count equivalent is capped at a fixed fraction of the window length and publishes the cap when exceeded (the raw sum rides along for cross-checking); not wall clock, not ranked here.")
+					lines = append(lines, "- over-limit clamp (超上限截断) = the count equivalent is capped at a fixed fraction of the window length and publishes the cap when exceeded (the raw sum rides along for cross-checking); not wall clock and not part of duration ordering.")
 				}
 			}
 			// AXIOM-V2 护栏③ (排序键定义句, user rulings 2026-07-18 —
@@ -1810,9 +1810,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 				// The channel word rides the tracefence constant (UXG-1 M1
 				// discipline: no new hand mirror of the seat-channel bytes).
 				if zh {
-					lines = append(lines, "- "+tracefence.SeatChannelChainZH+"键 = 各席折算后可消除的提升空间(即 有效归因):跨修复方向同一口径下可比、不可相加(同段重叠收益不叠加,见行内互指句);修向 = 修复方向归类(registry 属性轴),不改变排序与数值。")
+					lines = append(lines, "- "+tracefence.SeatChannelChainZH+"依据 = 各项折算后的可消除提升空间(即 有效归因):跨修复方向同一口径下可比较但不可相加,同段重叠收益不叠加;修向只表示修复方向类别,不改变排序与数值。")
 				} else {
-					lines = append(lines, "- "+tracefence.SeatChannelChainEN+" key = each seat's post-conversion eliminable headroom (i.e. attribution): comparable across fix directions on one caliber, never additive (same-segment overlap gains do not add — see the in-row mutual clauses); fix-direction = a repair-direction class (registry attribute axis) that changes no ordering and no value.")
+					lines = append(lines, "- "+tracefence.SeatChannelChainEN+" basis = each item's post-conversion eliminable headroom (attribution): comparable across fix directions on one caliber but never additive, and same-segment overlap gains do not add; fix direction is an organizing category that changes no ordering or value.")
 				}
 			}
 			// SPANVIS-1 件4 阅读参考层 (user ruling 2026-07-19; SCORE-DERIV
@@ -1824,9 +1824,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			// §29.131 既裁).
 			if flags.businessSpanMention {
 				if zh {
-					lines = append(lines, "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅业务视角提示,不参与根因排序,不参与汇排。")
+					lines = append(lines, "- ◈ 业务span提示行(阅读参考):次数多而单次小→业务流程/调用次数方向;单次长→单次运行时长方向;三数(单次最大/次数/合计)均为窗内墙钟原始值,仅提供业务排查方向,不参与根因排序或可消除量汇总。")
 				} else {
-					lines = append(lines, "- ◈ business span lead rows (reading reference): many occurrences with a small single occurrence → look toward the business flow / call count; a long single occurrence → look toward one run's duration; the trio (max single / count / total) are raw in-window wall-clock values — business-view leads only, not in root-cause ranking, not ranked here.")
+					lines = append(lines, "- ◈ business span leads (reading reference): many short occurrences point toward business flow or call count, while one long occurrence points toward that run's duration; max single, count, and total are raw in-window wall-clock values used only for business investigation, never for root-cause ordering or eliminable-impact totals.")
 				}
 			}
 		}
@@ -2027,7 +2027,7 @@ func runtimeTraceOccupancyTargetStateText(
 	}
 	if zh {
 		return fmt.Sprintf(
-			"目标线程状态墙钟分区：%s 在 %.6f..%.6f 内 running %.3fms、runnable %.3fms、sleep %.3fms（其中 S 态 IO 等待 %.3fms）、非 IO D-state %.3fms、io_wait %.3fms。状态分区描述目标经历了什么；sleep/runnable 等等待症状仍需沿 typed 唤醒链或阻塞边下钻，不能直接当作可消除收益。",
+			"目标线程状态墙钟分区：%s 在 %.6f..%.6f 内 running %.3fms、runnable %.3fms、sleep %.3fms（其中 S 态 IO 等待 %.3fms）、非 IO D-state %.3fms、io_wait %.3fms。状态分区描述目标经历了什么；sleep/runnable 等等待症状仍需沿已证唤醒链或阻塞关系下钻，不能直接当作可消除收益。",
 			account.Subject,
 			account.WindowStartTs,
 			account.WindowEndTs,
@@ -2040,7 +2040,7 @@ func runtimeTraceOccupancyTargetStateText(
 		)
 	}
 	return fmt.Sprintf(
-		"Target-thread wall-clock state partition: %s in %.6f..%.6f has running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), non-IO D-state %.3fms, and io_wait %.3fms. This partition describes what the target experienced; wait symptoms such as sleep/runnable still require drill-down through typed wakeup or blocking edges and are not automatically eliminable benefit.",
+		"Target-thread wall-clock state partition: %s in %.6f..%.6f has running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), non-IO D-state %.3fms, and io_wait %.3fms. This partition describes what the target experienced; wait symptoms such as sleep/runnable still require drill-down through proven wakeup or blocking relationships and are not automatically eliminable benefit.",
 		account.Subject,
 		account.WindowStartTs,
 		account.WindowEndTs,
@@ -2330,10 +2330,14 @@ func runtimeTraceOccupancyBusinessSpanCandidates(
 			span.Count <= 0 || span.TotalMS <= 0 || span.MaxMS <= 0 {
 			continue
 		}
+		basisWord, ok := runtimeTraceProjBusinessSpanMentionBasisWord(span.Basis, zh)
+		if !ok {
+			continue
+		}
 		location := runtimeTraceOccupancyLineLocation(span.StartLine, span.EndLine, zh)
-		caliber := fmt.Sprintf("原始墙钟；按 (tid, span name) 聚族，依据=%s；不占根因席位、不自动计价", span.Basis)
+		caliber := fmt.Sprintf("原始墙钟；按线程和 span 名称归组；链上依据：%s；只提供业务排查方向，不进入%s或可消除量汇总", basisWord, tracefence.SeatChannelChainZH)
 		if !zh {
-			caliber = fmt.Sprintf("raw wall clock grouped by (tid, span name), basis=%s; no root ordinal and no automatic pricing", span.Basis)
+			caliber = fmt.Sprintf("raw wall clock grouped by thread and span name; on-chain basis: %s; a business investigation lead only, excluded from root-cause ordering and eliminable-impact totals", basisWord)
 		}
 		out = append(out, runtimeTraceOccupancyCandidate{
 			group:    runtimeTraceOccupancyGroupLabel("business", zh),
@@ -2574,10 +2578,10 @@ func runtimeTraceCausalProjectionRepresentativeWindowsBlock(
 		return nil
 	}
 	title := "代表性时间窗"
-	columns := []string{"排序", "链上席位", "时间窗", "口径"}
+	columns := []string{"排序", "链上项目", "时间窗", "口径"}
 	if !zh {
 		title = "Representative Time Windows"
-		columns = []string{"Rank", "On-chain seat", "Window", "Caliber"}
+		columns = []string{"Rank", "On-chain item", "Window", "How to read it"}
 	}
 	items := make([]types.AnswerBlockItem, 0, len(nodes))
 	for i, node := range nodes {
@@ -2592,9 +2596,9 @@ func runtimeTraceCausalProjectionRepresentativeWindowsBlock(
 			seat += " / " + cause
 		}
 		window := fmt.Sprintf("%.6f..%.6f", node.StartTs, node.EndTs)
-		caliber := "该窗是此排序席的一处代表性发生片段；席位值按完整查询窗聚合，不能把席位值当作此单窗时长。"
+		caliber := "该窗是此排序项目的一处代表性发生片段；项目数值按完整查询窗聚合，不能把它当作此单窗时长。"
 		if !zh {
-			caliber = "This is one representative occurrence for the ranked seat; the seat value aggregates over the full query window and is not this single-window duration."
+			caliber = "This is one representative occurrence for the ranked item; its value aggregates over the full query window and is not this single-window duration."
 		}
 		items = append(items, types.AnswerBlockItem{
 			ID:          fmt.Sprintf("%s_rep_%d", idPrefix, i+1),
@@ -5180,9 +5184,9 @@ func runtimeTraceCausalProjectionCoverageReasons(results []types.ToolResult, zh 
 			continue
 		}
 		if !result.Success {
-			reason := "trace_query_failed"
+			reason := "the Trace query failed"
 			if zh {
-				reason = "trace_query 执行失败"
+				reason = "Trace 查询执行失败"
 			}
 			if !seen[reason] {
 				seen[reason] = true
@@ -5952,9 +5956,9 @@ func runtimeTraceCausalProjectionAuditDetail(node types.TraceCausalProjectionNod
 	}
 	if len(parts) == 0 {
 		if zh {
-			return "结构化 trace_query 观测"
+			return "结构化 trace 观测"
 		}
-		return "structured trace_query observation"
+		return "structured trace observation"
 	}
 	return strings.Join(parts, " · ")
 }
@@ -6956,10 +6960,10 @@ func materializeRuntimeTraceSemanticOptimizationBlock(doc *types.AnswerDocumentV
 	// C8PROSE-1 (§29.164 残余清单收账, 2026-07-20): prose intro — the depth-0
 	// semicolon goes full-width; the parenthetical span-class roster keeps its
 	// half-width interior comma.
-	text := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在 typed 有效归因可用时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	text := "trace 中的确定性语义优化阶段(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在存在精确链上归因时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if !zh {
 		title = tracefence.SectionOptimizationEN
-		text = "Deterministic semantic optimization spans found in the trace (class verification / JIT / shader compilation / texture upload / explicit GC pauses, from the typed semantic_class channel): each row separates raw in-window wall time from the amount eliminable under existing typed rules; the latter is published only when typed effective attribution is available. Durations and E# tags resolve to trace line spans via the evidence index."
+		text = "Deterministic semantic optimization stages found in the trace (class verification, JIT, shader or runtime compilation, texture upload, and explicit GC pauses): each row separates raw in-window wall time from the amount eliminable under current rules; the latter is published only when precise on-chain attribution is available. Durations and E# tags resolve to trace line spans via the evidence index."
 	}
 	block := types.AnswerBlock{
 		ID:      "runtime_trace_semantic_optimizations",

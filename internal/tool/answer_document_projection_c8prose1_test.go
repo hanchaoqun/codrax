@@ -209,16 +209,17 @@ func TestC8Prose1SemanticOptimizationFacesRegime(t *testing.T) {
 	if block == nil {
 		t.Fatalf("optimization table missing")
 	}
-	want := "trace 中的确定性语义优化 span(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等,来自 typed semantic_class 通道):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在 typed 有效归因可用时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
+	want := "trace 中的确定性语义优化阶段(类校验/JIT编译/着色器编译/运行时编译/纹理上传/GC暂停等):每行分别列出原始窗内墙钟与现有规则可消除量；后者仅在存在精确链上归因时发布。时长与 E# 证据均可经证据索引定位到 trace 行号区间。"
 	if block.Text != want {
 		t.Fatalf("face I: optimization intro must speak the C8 regime:\n got %q\nwant %q", block.Text, want)
 	}
 	if n := disphyg3DepthZeroHalfClauseMarks(block.Text); n != 0 {
 		t.Fatalf("face I: %d depth-0 half-width clause marks survived: %q", n, block.Text)
 	}
-	// The parenthetical span-class roster keeps its half-width interior.
-	if !strings.Contains(block.Text, "等,来自 typed semantic_class 通道") {
-		t.Fatalf("face I: parenthetical interior must keep half-width: %q", block.Text)
+	// The parenthetical optimization-family roster remains compact and does
+	// not expose the transport-channel enum.
+	if !strings.Contains(block.Text, "纹理上传/GC暂停等)") || strings.Contains(block.Text, "semantic_class") {
+		t.Fatalf("face I: optimization roster leaked its transport channel: %q", block.Text)
 	}
 	if strings.Contains(block.Text, "优化点;时长") {
 		t.Fatalf("face I: legacy mixed-mark bytes survived: %q", block.Text)

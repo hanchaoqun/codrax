@@ -248,7 +248,7 @@ func TestTraceProjection730BarStateAttributionZH(t *testing.T) {
 	// claim (the tag may sit on a subordinate line after the T1 split); the
 	// family list and its dominant-state semantics are unchanged.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 状态标签(…)来自该行主导调度状态 → 行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。 (图例族)
-	for _, want := range []string{"running", "runnable", "行内 sleep/runnable/running/iowait/D-state = 该行的主导调度状态。"} {
+	for _, want := range []string{"running", "runnable", "状态：sleep=睡眠等待，runnable=已就绪但未获 CPU，running=正在使用 CPU"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("bar state attribution missing %q:\n%s", want, md)
 		}
@@ -379,7 +379,7 @@ func TestTraceProjection730BarStateAttributionEN(t *testing.T) {
 		},
 	}
 	md := audit730Render(t, bus, obs, "en")
-	if !strings.Contains(md, "sleep / runnable / running / iowait / D-state") {
+	if !strings.Contains(md, "States: sleep=waiting asleep, runnable=ready but not scheduled, running=using CPU") {
 		t.Fatalf("EN state-label legend family missing:\n%s", md)
 	}
 	// PTV4 T1: the state tag may render inline or on a "· " subordinate line.

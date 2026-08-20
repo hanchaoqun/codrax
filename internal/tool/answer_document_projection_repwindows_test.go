@@ -74,7 +74,7 @@ func TestRuntimeTraceCausalProjectionRepresentativeWindowsBlockUsesTypedRankedSe
 		got[0] != "#1" ||
 		!strings.Contains(got[1], "worker-a-101") ||
 		got[2] != "10.125000..10.130000" ||
-		!strings.Contains(got[3], "不能把席位值当作此单窗时长") {
+		!strings.Contains(got[3], "不能把它当作此单窗时长") {
 		t.Fatalf("rank-1 representative row lost identity/window/caliber: %+v", got)
 	}
 	if got := block.Items[1].Cells; len(got) != 4 ||

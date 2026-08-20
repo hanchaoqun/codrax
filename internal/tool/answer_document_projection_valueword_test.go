@@ -15,7 +15,8 @@ package tool
 //   ② 有效归因 eff↔cum relation clause (same-value = ONE measurement;
 //      direction deferred to the row's caliber word — verified multi-lane:
 //      折算/链上计入 below, 发生段账目/承自等待区间 above, default equal);
-//   ③ the wire-mapping glossary line (column word ↔ trace_query row field);
+//   ③ the reader-facing equal-value glossary line (one measurement serving
+//      several interpretations, never several proofs);
 //   ④ 裁定③ confidence-tier sentence (glossary line + the 行2 identity
 //      legend entry): tier = per-lane numeric confidence folded through
 //      fixed thresholds, never a cross-row evidence-strength comparison.
@@ -39,8 +40,8 @@ func TestValueWordGlossaryLinesVerbatim(t *testing.T) {
 		"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长;无下钻子链的行不含子链份额,该值即该行自身账目的窗内投影;「链上」指沿唤醒链累计的方向,不是「直达关注线程」的额外传导声明。",
 		// ② eff↔cum relation clause.
 		"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与链上累计同值时为同一测量的两个名目(非两项单独证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于链上累计)。",
-		// ③ wire-mapping line.
-		"- 与 trace_query 行字段对照:窗口投影 对应 impact=(JSON impact_ms);链上累计 对应 cumulative_impact=(cumulative_impact_ms);有效归因 对应 effective_impact=(effective_impact_ms);实际状态 对应 actual_impact=(actual_impact_ms);一行内多字段同值 = 同一测量的多个名目,不构成相互印证。",
+		// ③ equal-value reader line.
+		"- 同一行多列同值 = 同一次测量服务于不同解读,不构成多份独立证据;各列含义以上述说明为准。",
 		// ④ 裁定③ confidence-tier line.
 		"- 置信 = 置信档(高/中/低):各证据来源的数值置信按固定阈值折词,不同来源基准不同,不作跨行证据强度比较。",
 	} {
@@ -52,7 +53,7 @@ func TestValueWordGlossaryLinesVerbatim(t *testing.T) {
 	for _, want := range []string{
 		"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its chain total is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
 		"when it equals the chain total the two are one measurement under two names (never two separate proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
-		"- field mapping to trace_query rows: window projection ↔ impact= (JSON impact_ms); chain total ↔ cumulative_impact= (cumulative_impact_ms); attribution ↔ effective_impact= (effective_impact_ms); actual state ↔ actual_impact= (actual_impact_ms); several fields of one row sharing one value = one measurement under several names, never mutual corroboration.",
+		"- Equal values in several columns mean one measurement serving different interpretations, not several independent proofs; use the definitions above for each column.",
 		"- confidence = the confidence tier (high/mid/low): each evidence source's numeric confidence folded through fixed thresholds; sources use different baselines, so the tier never compares evidence strength across rows.",
 	} {
 		if !strings.Contains(enMD, want) {

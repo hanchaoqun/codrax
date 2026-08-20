@@ -56010,3 +56010,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r757`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1219 B1217：Trace 因果投影读者面与无损审计面分层（2026-08-19）
+
+1. r756/r757 的附件不是“因果投影数据太多”，而是完整 renderer 协议目录被直接当作客户读法发布：每个
+   发射标记逐条展开，既重复链、状态、合并、凭证和计价规则，又暴露 `typed/registry/席位/佩章/板锚/判词`
+   等实现词，篇幅压过模型结论。继续删投影行会损失链上根因、实际占时或可消除量；继续要求模型总结则
+   不能修复系统自有附录。因此立案为系统展示分层 GAP，而非模型波动。
+2. 根修建立同一结构化 mark set 驱动的双面：无损审计目录继续供结构 pin 与离线诊断使用，正式答案改用
+   bounded reader legend。读者面只解释本次实际出现的关系、状态、排序、链上/邻近/背景边界、跨修向不可
+   相加、合并口径、计数分与墙钟区分、频率折算、确定性语义工作和周期信号；不扫描用户请求、模型推理或
+   最终答案文本，也不通过关键词决定根因或是否成文。
+3. 生产接线只把因果投影 lead 从 audit face 切到 reader face。投影的节点、边、显式窗口、E# 证据、链上
+   排名、实际状态、有效归因、可消除量、合并成员、凭证、覆盖边界、自动补齐及模型正文全部保持原载体；
+   审计目录没有删除或降采样。帧因果未证仍由最终项目自身的结构化状态附注，不受会话早期探测污染。
+4. 同批清理其余系统直出词面：业务 span 的 `basis=self/chain_member/host_wakeup_edge` 映射为“自身/链上节点/
+   唤醒边凭证”，未知值不发布；目标状态说明把 `typed 唤醒链` 改为“已证唤醒链”；代表性时间窗把“席位”
+   改为“链上项目”；确定性语义优化表不再暴露 `typed semantic_class`；列口径不再展示 JSON/trace_query
+   字段映射、registry 或“汇排”，但一行多列同值仍明确说明为同一次测量的不同解读。
+5. 新 pin 覆盖 reader legend 篇幅上限与必要语义、内部词负臂、audit catalog 无损、生产 cluster 确实消费
+   reader face、业务 span 枚举映射、代表窗与确定性语义自然语言，以及原有窗口/排序/合并/计价结构。
+   专项用例通过；`go test ./internal/tool -count=1`（178.670s）与完整
+   `go test ./internal/... -count=1` 全绿，包含 hitraceconv、orchestrator、render、repl、tracequery、types、
+   writeflow 等包。
+6. 本批没有让系统总结或替换模型结论，没有把邻近/背景晋升为主因，也没有改变“主因仅来自已证链上项”
+   的边界。优先级反转、调度延迟/供给、算力供给、D/IO 等待、确定性语义阶段、链上业务线索，以及
+   “真实占时 + 现规则可消除量”双轴均保留。活跃流仍不因 4ms、4m 或累计年龄降级。
+
+状态：
+
+`B1217-TRACEAPPENDIXREADERLANGUAGE1=implemented/dual-face+production-wire/full-internal-pass`；
+`trace-projection-audit-catalog=lossless/diagnostic-only`；
+`trace-projection-customer-legend=bounded/mark-driven`；
+`model-request/reasoning/final-prose-scan-or-rewrite=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

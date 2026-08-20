@@ -150,7 +150,7 @@ func TestAXIOMV2MutualClauseBothOrNeither(t *testing.T) {
 // 护栏③: the 根因排序键 definition sentence rides the 阅读参考 legend exactly
 // when a direction face is on the render (承诺面双向).
 func TestAXIOMV2ReadingReferenceSortKeyEntry(t *testing.T) {
-	sortKeyZH := "- 根因排序键 = 各席折算后可消除的提升空间(即 有效归因):跨修复方向同一口径下可比、不可相加(同段重叠收益不叠加,见行内互指句);修向 = 修复方向归类(registry 属性轴),不改变排序与数值。"
+	sortKeyZH := "- 根因排序依据 = 各项折算后的可消除提升空间(即 有效归因):跨修复方向同一口径下可比较但不可相加,同段重叠收益不叠加;修向只表示修复方向类别,不改变排序与数值。"
 	text := scoreDerivClusterText(t, axiomv2CrossDirectionProjection(), "zh")
 	if !strings.Contains(text, sortKeyZH) {
 		t.Fatalf("护栏③: the sort-key definition sentence must render with the direction faces:\n%s", text)

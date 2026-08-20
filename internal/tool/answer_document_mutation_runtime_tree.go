@@ -2641,6 +2641,201 @@ func runtimeTraceProjLegendGroupLinesWithAuthority(marks *runtimeTraceProjMarkSe
 	return lines
 }
 
+// runtimeTraceProjReaderLegendLines renders the customer-facing reading key.
+//
+// The exhaustive catalog above is a protocol/audit surface: every emitted
+// mark has a lossless definition and structural tests can inspect it.  It is
+// intentionally NOT copied wholesale into the answer.  Doing that used to
+// turn a compact causal projection into several dozen lines of renderer
+// vocabulary ("seat", "board", "registry", emission rules, and so on), which
+// obscured the actual chain and made internal implementation mechanics look
+// like customer conclusions.
+//
+// This reader key is driven by the same precise mark set.  It explains only
+// the semantic boundaries needed to read the marks that are present; it never
+// changes, filters, ranks, or authors any projection fact.
+func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frameCausalityUnproven bool) []string {
+	if marks == nil {
+		return nil
+	}
+	hasAny := func(values ...runtimeTraceProjMark) bool {
+		for _, value := range values {
+			if marks.has(value) {
+				return true
+			}
+		}
+		return false
+	}
+	var lines []string
+	if marks.has(runtimeTraceProjMarkEdgeDrill) {
+		if zh {
+			lines = append(lines, "- `下钻`表示沿已发布的链继续看上游依赖或影响；只有另有等待-完成、持有者-等待者等关系证据时，才代表直接阻塞。")
+		} else {
+			lines = append(lines, "- `drill-down` follows a published chain to an upstream dependency or influence; it means direct blocking only when separate wait/completion or holder/waiter evidence exists.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkEdgeWake) {
+		if zh {
+			lines = append(lines, "- `唤醒`的子行唤醒父行，父行的等待在该事件后结束。")
+		} else {
+			lines = append(lines, "- On a `wakes` edge, the child wakes the parent and the parent's wait ends after that event.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkEdgeOwn) {
+		if zh {
+			lines = append(lines, "- `自身`表示目标线程或同进程在同一时间段的另一种计量口径，不表示唤醒关系。")
+		} else {
+			lines = append(lines, "- `self` is another measurement caliber for the target or its process in the same interval; it is not a wakeup relationship.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkEdgeChainUnresolved, runtimeTraceProjMarkChainSeatUnattached) {
+		if zh {
+			lines = append(lines, "- `链上·深度未解析`表示该项已确认在链上，但上下游位置尚不明确，因此不补造关系。")
+		} else {
+			lines = append(lines, "- `on-chain · depth unresolved` means the item is proven on the chain but its upstream position is unknown, so no relationship is invented.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkIconSleep, runtimeTraceProjMarkIconRunnable, runtimeTraceProjMarkIconRunning, runtimeTraceProjMarkIconDState, runtimeTraceProjMarkIconDStateOffChain) {
+		if zh {
+			lines = append(lines, "- 状态：sleep=睡眠等待，runnable=已就绪但未获 CPU，running=正在使用 CPU，D-state/iowait=不可中断或 IO 等待；睡眠是症状而非根因，状态本身是占时事实，根因仍由链上关系与独立证据确定。")
+		} else {
+			lines = append(lines, "- States: sleep=waiting asleep, runnable=ready but not scheduled, running=using CPU, and D-state/iowait=uninterruptible or IO wait. Sleep is a symptom, not a root cause; a state is elapsed-time evidence, while causality comes from on-chain relationships and independent evidence.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkTraceGapBlindSpot, runtimeTraceProjMarkTraceGapBelowFloor, runtimeTraceProjMarkIconBlindSpot, runtimeTraceProjMarkUndrillable) {
+		if zh {
+			lines = append(lines, "- `数据盲区/链止`表示当前窗口缺少可继续关联的调度或唤醒证据，或现有区间都低于查询阈值；它不表示系统实际没有活动。")
+		} else {
+			lines = append(lines, "- `data gap/chain ends` means this window lacks schedulable or wakeup evidence that can continue the relationship, or all intervals are below the query threshold; it does not mean the system had no activity.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkOmitted) {
+		if zh {
+			lines = append(lines, "- 过长链会折叠中段以控制篇幅；中段节点名不在本报告逐一展开，完整位置仍可通过"+tracefence.SectionEvidenceZH+"核对。")
+		} else {
+			lines = append(lines, "- A long chain folds its middle to keep the report bounded; middle-node names are not expanded one by one here, while their locations remain auditable through the evidence index.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkUserFocusTransit) {
+		if zh {
+			lines = append(lines, "- `关注线程·中转`表示折叠链中命中的用户关注线程被单独保留，便于定位；它本身不新增根因。")
+		} else {
+			lines = append(lines, "- `focused thread · transit` keeps a user-selected thread visible inside a folded chain for orientation; it does not create a new root cause.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkBadge) {
+		if zh {
+			line := "- " + runtimeTraceProjBadgeGlyph(1) + ".." + runtimeTraceProjBadgeGlyph(runtimeTraceProjBadgeTopN) + "按可消除影响排序；主根因专指已证链上项目中单项可消除量最大的项目，不额外宣称尚未证明的机理。"
+			if frameCausalityUnproven {
+				line += " 当前项目的帧因果尚未证明，但这不改变已证链上可消除量及其排序。"
+			}
+			lines = append(lines, line)
+		} else {
+			line := "- " + runtimeTraceProjBadgeGlyph(1) + ".." + runtimeTraceProjBadgeGlyph(runtimeTraceProjBadgeTopN) + " order items by eliminable impact. Primary root cause means the largest single proven on-chain eliminable contribution; it does not add an unproven mechanism claim."
+			if frameCausalityUnproven {
+				line += " Frame causality is not proven for this item, which does not change its proven amount or order."
+			}
+			lines = append(lines, line)
+		}
+	}
+	if hasAny(runtimeTraceProjMarkAdjacentStanza, runtimeTraceProjMarkBackgroundStanza) {
+		if zh {
+			lines = append(lines, "- ⛓ 链上项目可参与"+tracefence.SeatChannelChainZH+"；◇ 邻近项目只给条件性排查方向；▒ 背景项目只说明环境压力，后二者都不能替代链上根因。")
+		} else {
+			lines = append(lines, "- ⛓ on-chain items may enter root-cause ordering; ◇ adjacent items are conditional investigation leads; ▒ background items describe environmental pressure. Neither off-chain group can replace an on-chain root cause.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkElimOverview) {
+		if zh {
+			lines = append(lines, "- ◎ 汇总现有规则可消除的链上影响，并把业务线索、邻近信息和背景信息分开显示；不同修复方向的收益不能直接相加。")
+		} else {
+			lines = append(lines, "- ◎ summarizes on-chain impact eliminable under current rules and keeps business leads, adjacent information, and background information separate; gains from different fix directions must not be added directly.")
+		}
+	}
+	if marks.has(runtimeTraceProjMarkCrossDirectionOverlap) {
+		if zh {
+			lines = append(lines, "- 同一时间段若同时属于不同修复方向，行内会相互标出重叠量且收益不能相加；低于显著性阈值的极小重叠不展开互指句，但仍保留在审计明细中。")
+		} else {
+			lines = append(lines, "- When one interval belongs to different fix directions, rows cross-reference the overlap and the gains cannot be added. Very small overlaps below the significance floor omit the cross-reference sentence but remain in audit detail.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkHostEdgeAnchored, runtimeTraceProjMarkChainCredentialDemoted,
+		runtimeTraceProjMarkChainCredentialSegmentDisjoint, runtimeTraceProjMarkChainCredentialEnvelope,
+		runtimeTraceProjMarkChainCredentialTruncatedLowerBound, runtimeTraceProjMarkChainIdentityInheritance,
+		runtimeTraceProjMarkChainCredentialTierFamily) {
+		if zh {
+			lines = append(lines, "- 入链凭证：唤醒锚定只证明线程间关系；区间相交可证明对应时间段，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒或直接计入可消除量。")
+		} else {
+			lines = append(lines, "- On-chain credentials: a wakeup anchor proves only the thread relationship; interval intersection proves the corresponding time range, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup or directly count as eliminable.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkRankBoardAnchor, runtimeTraceProjMarkRankBoardParams, runtimeTraceProjMarkCrossBoardFamilyNote) {
+		if zh {
+			lines = append(lines, "- 同一报告包含多个目标或查询组时，各组分别排序；跨组提示只帮助识别同一线程的同类账目，数值不能跨组相加。")
+		} else {
+			lines = append(lines, "- When one report contains several targets or query groups, each group is ordered separately. Cross-group notes only identify same-thread same-family accounts, whose values cannot be added across groups.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkNonAdditivePointer, runtimeTraceProjMarkAccountRelation,
+		runtimeTraceProjMarkChainAnchorSplit, runtimeTraceProjMarkChainAnchorRelation,
+		runtimeTraceProjMarkSameSegMirror) {
+		if zh {
+			lines = append(lines, "- 同一线程的多项账目会注明物理时间是否重叠：重叠项不能相加；只有明确互斥或同源拆分闭合时才按行内说明合计。")
+		} else {
+			lines = append(lines, "- Multiple accounts for one thread state whether physical time overlaps: overlapping items cannot be added; a total is valid only when rows explicitly prove disjoint intervals or a closed same-source split.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkMergedSum, runtimeTraceProjMarkMergedDedup, runtimeTraceProjMarkMergedMax,
+		runtimeTraceProjMarkMergedUnion, runtimeTraceProjMarkMergedWindowMax, runtimeTraceProjMarkMergedSameSegMirror,
+		runtimeTraceProjMarkMergedMultiWindowNoShare, runtimeTraceProjMarkFamilyTotal,
+		runtimeTraceProjMarkFamilyMemberMax, runtimeTraceProjMarkSameSegMirror) {
+		if zh {
+			lines = append(lines, "- 合并项会在行内注明求和、取最大、区间并集或重复发布；跨线程墙钟和重叠查询窗的数值不直接相加。")
+		} else {
+			lines = append(lines, "- A merged item states whether it uses a sum, member maximum, interval union, or duplicate-publication fold. Wall-clock values across threads or overlapping query windows are not added directly.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjMarkIconCaliberSide) {
+		if zh {
+			lines = append(lines, "- `计数当量`和`综合评分`不是墙钟时长，只用于活动规模对照，不参与时长排序或求和。")
+		} else {
+			lines = append(lines, "- `count equivalent` and `composite score` are not wall-clock durations; they describe activity scale and never enter duration ordering or sums.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkInheritedAttribution, runtimeTraceProjMarkFamilyChainIntersection) {
+		if zh {
+			lines = append(lines, "- `继承`表示数值或链上身份来自其所属等待区间或链成员关系，并非本行独立实测；具体凭证范围以行内说明为准。")
+		} else {
+			lines = append(lines, "- `inherited` means the value or on-chain identity comes from the enclosing wait interval or chain membership rather than an independent measurement on this row; the row states the exact evidence scope.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkCaliberGlobalMaxFmax, runtimeTraceProjMarkCaliberDefaultCapability,
+		runtimeTraceProjMarkCaliberFreqOnlyCapability, runtimeTraceProjMarkCaliberComovementTopology,
+		runtimeTraceProjMarkCaliberKeyedRailTopology, runtimeTraceProjMarkCaliberStatedBasis,
+		runtimeTraceProjMarkCaliberStatedClustering, runtimeTraceProjMarkStanzaDiscount) {
+		if zh {
+			lines = append(lines, "- `折算`表示按频率/核能力估算的可提升空间，不是额外发生的墙钟占时；采用的基准与证据强度在行内标明。")
+		} else {
+			lines = append(lines, "- `discounted/converted` is estimated improvement headroom from frequency or core capability, not additional elapsed wall-clock time; the row states its basis and evidence strength.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkSemanticSpan, runtimeTraceProjMarkSelfDeterministicBasis, runtimeTraceProjMarkSemanticMentionFloor) {
+		if zh {
+			lines = append(lines, "- 确定性语义工作（如类校验、JIT、着色器编译、运行时编译、纹理上传或 GC）按目标线程窗内运行时间计；没有独立关系证据时不据此补造唤醒边。")
+		} else {
+			lines = append(lines, "- Deterministic semantic work (for example class verification, JIT, shader/runtime compilation, texture upload, or GC) is measured in the target thread's in-window running time; it does not create a wakeup edge without separate relationship evidence.")
+		}
+	}
+	if hasAny(runtimeTraceProjMarkPeriodicSource, runtimeTraceProjMarkPeriodicIdle, runtimeTraceProjMarkPacingIdle, runtimeTraceProjMarkIconPacing) {
+		if zh {
+			lines = append(lines, "- 周期性信号源的正常节拍等待不计为可消除量；只统计信号迟到和就绪后等待调度的部分。")
+		} else {
+			lines = append(lines, "- Normal cadence wait of a periodic signal source is not eliminable; only signal lateness and ready-to-run scheduling delay are counted.")
+		}
+	}
+	return lines
+}
+
 // runtimeTraceProjTreeMiniLegendGlyphTable is the CLOSED, ordered glyph key
 // behind the tree-head mini legend (A2 件2, §29.174 UX-10, 2026-07-21): one
 // row per opaque fence GLYPH, keyed on the same typed emission-site mark the
@@ -15158,7 +15353,20 @@ func runtimeTraceProjCrossWindow(node types.TraceCausalProjectionNode) bool {
 
 // --- lead text ----------------------------------------------------------------
 
+// runtimeTraceProjLeadText retains the exhaustive audit-contract face used by
+// structural tests and offline diagnostics.
 func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, lang string, zh bool) string {
+	return runtimeTraceProjLeadTextWithLegend(projection, model, lang, zh, false)
+}
+
+// runtimeTraceProjReaderLeadText is the customer-published face. The only
+// difference is the bounded reader legend; conclusions, windows, coverage
+// accounting, and every projected value remain byte-identical.
+func runtimeTraceProjReaderLeadText(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, lang string, zh bool) string {
+	return runtimeTraceProjLeadTextWithLegend(projection, model, lang, zh, true)
+}
+
+func runtimeTraceProjLeadTextWithLegend(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, lang string, zh, readerFacing bool) string {
 	var sections []string
 	if line := runtimeTraceProjConclusionLine(projection, model, zh); line != "" {
 		sections = append(sections, line)
@@ -15195,7 +15403,11 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			// 远在证据索引导语,导语版保留).
 			"- 时长与排序均来自 trace 证据;行尾 [E#] 可在文末证据索引查到对应 trace 行号/时间区间,E#(+N) 表示另合并 N 条同类观测(与 N次 实例合并计数是两种口径,互不换算)。",
 		}
-		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, true, model.FrameCausalityUnproven)...)
+		if readerFacing {
+			lines = append(lines, runtimeTraceProjReaderLegendLines(model.Marks, true, model.FrameCausalityUnproven)...)
+		} else {
+			lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, true, model.FrameCausalityUnproven)...)
+		}
 		sections = append(sections, strings.Join(lines, "\n"))
 	} else {
 		headClause := "- Top-down = tracing upstream from the focused thread."
@@ -15207,7 +15419,11 @@ func runtimeTraceProjLeadText(projection types.TraceCausalProjection, model runt
 			headClause,
 			"- Durations and ranks come from trace evidence; a trailing [E#] resolves to trace line/time spans in the evidence index at the end, and E#(+N) means N more observations of the same kind were merged in (a different count from n=N instance merging; the two never convert).",
 		}
-		lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, false, model.FrameCausalityUnproven)...)
+		if readerFacing {
+			lines = append(lines, runtimeTraceProjReaderLegendLines(model.Marks, false, model.FrameCausalityUnproven)...)
+		} else {
+			lines = append(lines, runtimeTraceProjLegendGroupLinesWithAuthority(model.Marks, false, model.FrameCausalityUnproven)...)
+		}
 		sections = append(sections, strings.Join(lines, "\n"))
 	}
 	if len(model.Background) == 0 {

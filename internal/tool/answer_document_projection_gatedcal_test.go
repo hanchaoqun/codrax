@@ -89,7 +89,7 @@ func gatedCalAssertCompositeWordSplitReachable(t *testing.T, md string) {
 	isDefinition := func(line string) bool {
 		trimmed := strings.TrimSpace(line)
 		return strings.HasPrefix(trimmed, "- `"+word+"`") ||
-			strings.HasPrefix(trimmed, "- 优先级反转席的「窗口投影」列")
+			strings.HasPrefix(trimmed, "- 优先级反转项的「窗口投影」列")
 	}
 	splitReachable := func(base string) bool {
 		for _, opener := range []string{"**[" + base + "]", "**[" + base + "("} {

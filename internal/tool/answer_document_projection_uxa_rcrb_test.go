@@ -610,8 +610,8 @@ func TestUXAFixtureRenderSnapshot(t *testing.T) {
 		"因果投影明细(逐节点完整属性)",
 		"各列口径:",
 		"分析窗 33872.289~33872.409s，共 120.000ms。",
-		"- 记号:",
-		"- 口径:",
+		"- 状态：",
+		"- `下钻`表示沿已发布的链继续看上游依赖或影响",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("cluster missing %q", want)

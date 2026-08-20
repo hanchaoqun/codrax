@@ -77,7 +77,7 @@ func TestINTERFLOOR1KeepMutualClauseTieba61839(t *testing.T) {
 	}
 	// 件4 图例随动: the ∩ sentence legend teaches the relative floor
 	// (低于显著阈的重叠不发句,记号道可审计).
-	if !strings.Contains(md, "低于显著阈(相对两席较小发布值)的极小重叠不发句,降入记号道保持可审计") {
+	if !strings.Contains(md, "低于显著性阈值的极小重叠不展开互指句，但仍保留在审计明细中") {
 		t.Fatalf("the ∩ legend must teach the de-minimis floor:\n%s", md)
 	}
 }

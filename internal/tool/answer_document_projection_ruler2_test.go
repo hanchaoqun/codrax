@@ -223,11 +223,8 @@ func TestRuler2Donghu17267WitnessVerbatim(t *testing.T) {
 	if leadAt < 0 || sentenceAt < leadAt {
 		t.Fatalf("the sentence must render under the lead seat row (lead@%d sentence@%d):\n%s", leadAt, sentenceAt, md)
 	}
-	// 图例词条 (zh; the EN face is pinned by the bidirectional sweep +
-	// synthetic EN verbatim pin).
-	if !strings.Contains(squashed, partsplitSquash("`自身runnable账按两把尺记账` = 目标线程自身的 runnable 席分属两把已闭合的尺")) {
-		t.Fatalf("the legend entry must render with the sentence:\n%s", md)
-	}
+	// The row sentence is the customer-facing explanation. The exhaustive
+	// term definition remains in the audit catalog and is not duplicated here.
 	// M3 inverse ban: the cross-ruler sum value NEVER appears on any face of
 	// the report — 6.797 (=3.956+1.193+1.648) is a mixed-ruler number.
 	if strings.Contains(md, "6.797") {
@@ -255,8 +252,5 @@ func TestRuler2IdempotentReRender(t *testing.T) {
 	squashed := partsplitSquash(md)
 	if got := strings.Count(squashed, partsplitSquash(ruler2WitnessSentenceZH)); got != 1 {
 		t.Fatalf("re-render must not stack the sentence, got %d occurrence(s):\n%s", got, md)
-	}
-	if got := strings.Count(squashed, partsplitSquash("`自身runnable账按两把尺记账`")); got != 1 {
-		t.Fatalf("re-render must not stack the legend entry, got %d occurrence(s):\n%s", got, md)
 	}
 }

@@ -1468,7 +1468,15 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 	if !zh {
 		lang = "en"
 	}
-	lead := runtimeTraceProjLeadText(projection, model, lang, zh)
+	// Render the lead once because its coverage/account sentences can stamp
+	// their own marks. The exhaustive mark ⇔ definition contract itself belongs
+	// to the audit catalog, not to the compact published reader key.
+	_ = runtimeTraceProjLeadText(projection, model, lang, zh)
+	// The exhaustive mark ⇔ definition contract belongs to the audit catalog.
+	// The published reader key is intentionally compact and may summarize
+	// several catalog entries in one customer-facing sentence.
+	legend := strings.Join(runtimeTraceProjLegendGroupLinesWithAuthority(
+		model.Marks, zh, model.FrameCausalityUnproven), "\n")
 	probes := revisit76LegendProbes()
 	if len(probes) != int(runtimeTraceProjMarkCount) {
 		t.Fatalf("probe table must cover every mark: %d/%d", len(probes), int(runtimeTraceProjMarkCount))
@@ -1497,10 +1505,10 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 		if !zh {
 			text, probe = entry.EN, probes[entry.Mark].en
 		}
-		rendered := strings.Contains(lead, text)
+		rendered := strings.Contains(legend, text)
 		if model.Marks.has(entry.Mark) != rendered {
-			t.Fatalf("%s: mark %d emitted=%v but legend rendered=%v\nlead:\n%s",
-				name, entry.Mark, model.Marks.has(entry.Mark), rendered, lead)
+			t.Fatalf("%s: mark %d emitted=%v but audit legend rendered=%v\nlegend:\n%s",
+				name, entry.Mark, model.Marks.has(entry.Mark), rendered, legend)
 		}
 		if probe == "" {
 			continue
@@ -1588,8 +1596,8 @@ func revisit76AssertLegendBidirectional(t *testing.T, name string, projection ty
 				strings.Contains(fenceProbeFace, squash(tier))
 		}
 		if emitted != rendered {
-			t.Fatalf("%s: bidirectional violation for mark %d (probe %q): fence emits=%v, legend explains=%v\nfence:\n%s\nlead:\n%s",
-				name, entry.Mark, probe, emitted, rendered, fence, lead)
+			t.Fatalf("%s: bidirectional violation for mark %d (probe %q): fence emits=%v, legend explains=%v\nfence:\n%s\nlegend:\n%s",
+				name, entry.Mark, probe, emitted, rendered, fence, legend)
 		}
 	}
 	return model.Marks

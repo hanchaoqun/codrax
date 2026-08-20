@@ -96,7 +96,7 @@ func TestTypedSeatFrameCausalityAddsQualifierWithoutDecrowning(t *testing.T) {
 			t.Fatalf("retired de-crowning wording %q was emitted:\n%s", forbidden, rendered.String())
 		}
 	}
-	for _, want := range []string{"根因排序前五", "主根因(优先处理;帧因果未证)", "本席位的帧因果未证"} {
+	for _, want := range []string{"➊..➎按可消除影响排序", "主根因(优先处理;帧因果未证)", "当前项目的帧因果尚未证明"} {
 		if !strings.Contains(rendered.String(), want) {
 			t.Fatalf("seat-level qualifier was not kept consistent on system surfaces, missing %q:\n%s", want, rendered.String())
 		}

@@ -257,11 +257,11 @@ func TestRNBSameSegmentTwinFoldSiblingCauseForm(t *testing.T) {
 		[]types.ObservationRecord{rnbAnchor(), rnbPath("#RxComputationT-16816 -> app-100"), lock, rank, chain}, "")
 	despaced := vs2Despace(md)
 	// Exactly ONE makeup child remains (the chain-lane running row); the rank
-	// twin folded into it instead of minting a second ├─构成─ sibling (A2
-	// 件4①: 成因→构成). Two occurrences = the single tree row + its legend
-	// entry.
-	if got := strings.Count(md, "构成─"); got != 2 {
-		t.Fatalf("exactly one makeup child (plus its legend entry) must remain after the fold, got %d:\n%s", got, md)
+	// twin folded into it instead of minting a second ├─构成─ sibling. The
+	// customer reader key no longer repeats the renderer token, so exactly one
+	// occurrence remains: the actual tree edge.
+	if got := strings.Count(md, "构成─"); got != 1 {
+		t.Fatalf("exactly one makeup child must remain after the fold, got %d:\n%s", got, md)
 	}
 	if strings.Contains(md, "#RxComputationT-16816 / 优先级反转候选") {
 		t.Fatalf("the rank twin must not keep its own row:\n%s", md)
@@ -388,11 +388,10 @@ func TestRNBGatedRunnableComponentSubRow(t *testing.T) {
 			t.Fatalf("retired wording %q leaked:\n%s", banned, md)
 		}
 	}
-	// The caliber legend entries render on demand (§24.1补).
-	for _, want := range []string{"- `全额` =", "- `折算,按全域最大核最高频`/`按全域最大核最高频折算`"} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("caliber legend entry %q must render:\n%s", want, md)
-		}
+	// The compact reader key keeps the essential wall-clock boundary without
+	// repeating the exhaustive audit-catalog entries.
+	if !strings.Contains(md, "`折算`表示按频率/核能力估算的可提升空间，不是额外发生的墙钟占时") {
+		t.Fatalf("compact conversion boundary must render:\n%s", md)
 	}
 	// Display-only 负向: the components never sum into any published value.
 	if strings.Contains(despaced, "1.434") {

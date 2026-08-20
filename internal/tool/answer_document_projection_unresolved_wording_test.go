@@ -166,8 +166,7 @@ func TestTraceProjectionLegendsRenderAsItemLists(t *testing.T) {
 		// PTV8-RCR-B 收尾 (留账⑦收账, 2026-07-08): the E#(+N)/×N double-count
 		// reconciliation clause joins the head line.
 		"- 时长与排序均来自 trace 证据;行尾 [E#] 可在文末证据索引查到对应 trace 行号/时间区间,E#(+N) 表示另合并 N 条同类观测(与 N次 实例合并计数是两种口径,互不换算)。",
-		"- `⊚` = 树根:本次分析锚定的关注线程。",
-		"- `☾/sleep` = 睡眠等待(等事件/等唤醒);睡眠是症状而非根因,沿下钻/唤醒子行继续排查链上原因,具体等待内容与阻塞机理以独立关系证据为准。",
+		"- 状态：sleep=睡眠等待，runnable=已就绪但未获 CPU，running=正在使用 CPU",
 		"各列口径:\n- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
 		"- 背景行仅作环境压力证据,不计入链上归因。",
 	} {
@@ -222,7 +221,7 @@ func TestTraceProjectionLegendExplainsEmittedUndrillableMark(t *testing.T) {
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 窗口内无匹配
 	// sched_wakeup → 窗口内无匹配唤醒事件(sched_wakeup) (legend catalog item 3,
 	// 与关键指标图例 ⊘ 条同词).
-	if !strings.Contains(zhMD, "- `⊘链止` = 窗口内无匹配唤醒事件(sched_wakeup),链止于此。") {
+	if !strings.Contains(zhMD, "- `数据盲区/链止`表示当前窗口缺少可继续关联的调度或唤醒证据") {
 		t.Fatalf("emitted ⊘ must carry its legend entry:\n%s", zhMD)
 	}
 	// Flat fallback has no 🎯 root — its entry must not render.
