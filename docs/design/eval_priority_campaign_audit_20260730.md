@@ -55555,3 +55555,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1206 r751：关系标签修复生产生效；inline probe 语法缺少接纳前预检（2026-08-19）
+
+1. 在 `main@3cbbb3d86` 重建后严格并发恰好两个案例：
+   `qf_logic_view_read_pipeline + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`，
+   人工均为 partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_terminal_r751_20260819_manual_audit.md`。
+2. B1204 获生产正证：模型一次提交 5 条中文业务边标签，Mermaid repair 加展示引号后仍 0 次 finalizer
+   reject，终稿完整保留。系统只比较 reader-visible label，没有改写模型词面。B1205 的 repeated-pair
+   endpoint-retarget 精确臂本轮没有出现，不虚报生产闭环，继续由专项 unit pin 守住。
+3. r750 的两条伪 `Extractor -> Mutable` 边不再出现；终稿只保留三阶段 precedence 与
+   `BusContext -> BuildAgentContext -> AgentContext` 两条有 typed anchor 的关系，Mutable 以 unproven
+   boundary 披露。这证明 hard gate 没有为了凑完整图而造边。但人工仍不能签 pass：AgentContext 没有
+   连接到四阶段，正文同时说“BusContext 不持有可变状态”与其拥有 `Mutable *MutableState` 指针，形成
+   用户可见矛盾；探索达 30 iterations、12 次 midloop。记 B1208 为 typed relation/context precision
+   残余，先用异构关系案例验证共同来源，不按本题 node 名补规则，也不由系统代画。
+4. B1203 终态 plan 轴镜像获生产正证：每次 final report 同时写入 turn-local reportDir 与 durable
+   workflow 对应 canonical `plans/`；runner 读取到最终 source plan 的 `complete/unverified`，旧
+   `in_progress/missing` 不再冒充最终状态。本轮没有触发 persistent protected-test rejection，
+   rejected-candidate 不夺权分支只记 unit-covered，不虚报生产正臂。
+5. 写实现本身正确：最终 patch 将连续 newline run 折叠为单个 rank token，不改测试；人工在保留的
+   worktree 复跑两项 unittest 均通过，changed-path coverage 为 `target_behavior/project_runner`。
+   系统把模型 `all_verified` 归一为 `accept_unverified` 也是正确的，因为更早的 inline Python probe
+   含 f-string 表达式内反斜杠，执行得到 `verification_probe_syntax_error`，而现有 project tests 没有
+   独立覆盖该 probe 声明的 single-newline 合同。
+6. 新确认 B1206/P1：`emit_change_plan` 会对 Python 变更文件做 dry-build，却不在计划接纳前对同语言
+   `verification_probes[].code` 做语法预检；确定性 parser_error 直到 apply/verify 才出现，随后需要
+   累计补证且终态诚实 unverified。最优根修是在 probe emitter 共用接纳 seam 按 typed language/runtime
+   做无副作用 parse/compile 预检，失败时拒绝该 plan 并给结构化字段定位，让 planner bounded 重发；
+   不执行 probe、不改变其预期、不扫描任务或模型 prose、不把 parser_error 当行为失败。
+7. 另记 B1207 观察项：首轮 planner 在两个小文件已读后持续输出 14m52s、约 24 万字符推理，最终由
+   provider 自身 length 截断且无 tool call；系统正确走 no-plan typed retry，没有把残文变成计划，也没有
+   按 4ms/4m/固定总年龄降级。先归为模型波动叠加心智负担，后续异构写案例复现前不加 client-side
+   活跃流硬截断。
+8. 本批回放及待施工点不触碰 Trace。显式时间窗的 Trace 因果投影与自动补齐保持；根因只来自 typed
+   on-chain 证据，背景只作额外方向；优先级反转、调度延迟/供给、算力供给、D/IO 等待、确定性语义
+   事件和链上业务线索不丢，实际占用与规则计价可消除量双轴不变。
+
+状态：
+
+`B1203-TERMINALPLANAXISMIRROR1=production-positive-r751`；
+`B1203-REJECTEDREPLANCANDIDATEAUTHORITY1=unit-covered/production-arm-not-exercised`；
+`B1204-MERMAIDVISIBLEQUOTELABEL1=production-positive-r751`；
+`B1205-REPEATEDPAIRENDPOINTRETARGET1=unit-covered/production-arm-not-exercised`；
+`B1206-INLINEPROBESYNTAXPREFLIGHT1=confirmed/P1/next`；
+`B1207-PLANNERACTIVEOUTPUTRUNAWAY1=observed/model-variance+context-load/no-hard-age-cut`；
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=confirmed/P1/replay-before-design`；
+`active-stream-4ms-degrade=forbidden/14m52s-active-stream-preserved`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
