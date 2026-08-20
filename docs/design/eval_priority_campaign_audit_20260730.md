@@ -57755,3 +57755,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1266 r779 与 B1247：mixed relation delta 的 diagram carrier 逃逸（2026-08-20）
+
+1. 以 `7ba2d5df5` 构建同一二进制严格并发恰好 2 路：显式窗 Trace 224s、read 流水线图+表 631s，runner 2/2
+   PASS；人工为 `pass + partial`。两路活跃流均使用当前模型结果完成，没有因 4ms、4m、首字节、stall 或累计年龄降级。
+2. Trace 异构回归完整：2.000–2.020s 显式窗、十次 trace_query/自动补采、Trace 因果投影均在；链上主根因是
+   threadpool-400 iowait 11.000ms，另有三个 1.000ms runnable 调度供给席。正文明确实际占时与规则可消两轴，sleep 仅为
+   被唤醒方症状；背景 IO 活动指数无窗口投影/链累计且未入根因。
+3. read 成文从 r778 的 15 次拒绝降至 4 次，最终图保留三条具体 stage 业务语义边，正文/表格完整解释四阶段、
+   BusContext/MutableState/StageOutput、输入输出载体和源码位置；B1246 的 compact delta 方向有效，但尚不能生产关账。
+4. 新确认 `B1247-RELCARRIER1/P1`：首轮失败同时包含 diagram relation 与 table item `evidence_ids`。旧选择器只在
+   “关系是唯一剩余问题”时安装 lease，因此 mixed reject 落到 generic patch；模型随后把原 diagram block 的同一 id 跨 kind
+   改成 table。下一轮再补 diagram 时形成两个 diagram，cardinality 门虽最终删到一个，却留下两张内容相同的表。四次拒绝均有
+   各自 typed 理由，但“局部关系修补可改变 carrier 类型/数量”的协议逃逸是系统 GAP，不是模型波动。
+5. 修复方案：只要 required diagram reject 携带合法 producer-owned relation delta，即使同时存在独立 citation/participant/
+   cardinality 字段，也先安装同一结构租约；租约除 edge tuple 外同时冻结当前 required diagram carrier 的 block id、
+   `kind=diagram` 和 diagram block id 集。模型仍可改失败边和可见业务文案，但不能把 diagram 改成 table、删除原 carrier 或新增
+   第二 diagram。没有 base diagram 时不禁止按 missing-diagram 合同新增，避免把恢复车道做成死门。
+6. 该补强仍只读取 ToolRepair typed delta、patch-base block kind/id 与 edge_anchors；不读取用户原文、模型 reasoning/最终正文、
+   Mermaid body/label，不做系统代写、自动删边、自动选图或自动去重表。普通 patch、非 required diagram、Trace 图不启用。
+7. 已实现并钉住三类 carrier 逃逸：原 diagram 同 id 跨 kind 改成 table、删除原 diagram、增加第二个 diagram 均返回 compact typed
+   `answer_doc_relation_repair_scope`，且拒绝不会污染 accepted base；base 尚无 diagram 时仍保留 missing-diagram 恢复能力。载体违规按
+   block id 稳定排序，诊断不再输出空 `edge=->`。mixed full reject 的生产接线测试证明，citation 等独立问题与 relation failure 同时
+   出现时仍会安装 exact carrier lease。完整相关包全绿：types 24.807s、agent 13.166s、tool 188.162s。
+
+状态：
+
+`r779=runner-pass-2/2,human-pass-1+partial-1`；
+`B1246=partial-production-positive/rejects-15-to-4`；
+`B1247=implemented/full-relevant-pass/pending-production-replay`；
+`mixed-relation-delta=must-arm-lease`；
+`required-diagram-carrier=id+kind+set-frozen-during-local-repair`；
+`duplicate-table=witness-of-cross-kind-patch-escape`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1244=confirmed/P2-after-B1247-replay`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r779`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r779`。

@@ -26,6 +26,7 @@ type AnswerDiagramRelationRepairFailure struct {
 // excludes VisibleLabel so reader-facing wording remains model-owned.
 type AnswerDiagramRelationRepairLeaseBlock struct {
 	BlockID     string              `json:"block_id"`
+	Kind        AnswerBlockKind     `json:"kind,omitempty"`
 	BaseAnchors []DiagramEdgeAnchor `json:"base_anchors,omitempty"`
 }
 
@@ -77,11 +78,12 @@ func NewAnswerDiagramRelationRepairLease(base *AnswerDocumentV2, failures []Answ
 	blocks := make([]AnswerDiagramRelationRepairLeaseBlock, 0, len(base.Blocks))
 	for _, block := range base.Blocks {
 		id := strings.TrimSpace(block.ID)
-		if id == "" || (len(block.EdgeAnchors) == 0 && !targetBlocks[id]) {
+		if id == "" || (len(block.EdgeAnchors) == 0 && !targetBlocks[id] && block.Kind != BlockDiagram) {
 			continue
 		}
 		blocks = append(blocks, AnswerDiagramRelationRepairLeaseBlock{
 			BlockID:     id,
+			Kind:        block.Kind,
 			BaseAnchors: append([]DiagramEdgeAnchor(nil), block.EdgeAnchors...),
 		})
 	}
@@ -97,17 +99,50 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 		return nil
 	}
 	resultBlocks := make(map[string][]DiagramEdgeAnchor, len(merged.Blocks))
+	resultKinds := make(map[string]AnswerBlockKind, len(merged.Blocks))
 	for _, block := range merged.Blocks {
 		id := strings.TrimSpace(block.ID)
 		if id != "" {
 			resultBlocks[id] = append(resultBlocks[id], block.EdgeAnchors...)
+			resultKinds[id] = block.Kind
 		}
 	}
 	baseBlocks := make(map[string][]DiagramEdgeAnchor, len(lease.Blocks))
+	baseDiagramIDs := make(map[string]bool)
 	for _, block := range lease.Blocks {
 		id := strings.TrimSpace(block.BlockID)
 		if id != "" {
 			baseBlocks[id] = append(baseBlocks[id], block.BaseAnchors...)
+			if block.Kind == BlockDiagram {
+				baseDiagramIDs[id] = true
+			}
+		}
+	}
+	var violations []AnswerDiagramRelationRepairScopeViolation
+	if len(baseDiagramIDs) > 0 {
+		baseDiagramOrder := make([]string, 0, len(baseDiagramIDs))
+		for id := range baseDiagramIDs {
+			baseDiagramOrder = append(baseDiagramOrder, id)
+		}
+		sort.Strings(baseDiagramOrder)
+		for _, id := range baseDiagramOrder {
+			kind, exists := resultKinds[id]
+			switch {
+			case !exists:
+				violations = append(violations, AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "relation_diagram_carrier_removed"})
+			case kind != BlockDiagram:
+				violations = append(violations, AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "relation_diagram_carrier_kind_changed"})
+			}
+		}
+		resultDiagramOrder := make([]string, 0, len(resultKinds))
+		for id, kind := range resultKinds {
+			if kind == BlockDiagram && !baseDiagramIDs[id] {
+				resultDiagramOrder = append(resultDiagramOrder, id)
+			}
+		}
+		sort.Strings(resultDiagramOrder)
+		for _, id := range resultDiagramOrder {
+			violations = append(violations, AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "relation_diagram_carrier_added"})
 		}
 	}
 
@@ -126,7 +161,6 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 	}
 	sort.Strings(orderedIDs)
 
-	var violations []AnswerDiagramRelationRepairScopeViolation
 	for _, blockID := range orderedIDs {
 		base := baseBlocks[blockID]
 		result := resultBlocks[blockID]
@@ -293,7 +327,8 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 		out.Blocks = make([]AnswerDiagramRelationRepairLeaseBlock, len(in.Blocks))
 		for i, block := range in.Blocks {
 			out.Blocks[i] = AnswerDiagramRelationRepairLeaseBlock{
-				BlockID: block.BlockID, BaseAnchors: append([]DiagramEdgeAnchor(nil), block.BaseAnchors...),
+				BlockID: block.BlockID, Kind: block.Kind,
+				BaseAnchors: append([]DiagramEdgeAnchor(nil), block.BaseAnchors...),
 			}
 		}
 	}

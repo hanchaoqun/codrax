@@ -144,6 +144,40 @@ func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement(t *testing.T) {
+	mut := types.NewMutableState("relation repair")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}},
+		},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+		}}))
+	bus := &types.BusContext{Mutable: mut}
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"replace_blocks":[{"id":"flow","kind":"table","columns":["阶段"],"items":[{"cells":["analyze"]}]}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairScope ||
+		!strings.Contains(res.Summary, "relation_diagram_carrier_kind_changed") {
+		t.Fatalf("cross-kind relation repair must fail at the typed lease: %+v", res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || got.Blocks[1].Kind != types.BlockDiagram {
+		t.Fatalf("rejected cross-kind patch must preserve the diagram base: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_SplitsFusedProseAndDiagramWithoutDroppingEither(t *testing.T) {
 	bus := newPatchTestBusContext()
 	raw := json.RawMessage(`{

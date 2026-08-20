@@ -432,6 +432,10 @@ func answerDiagramRelationRepairScopeRepair(
 ) *types.ToolRepair {
 	fields := make([]string, 0, len(violations))
 	for _, violation := range violations {
+		if strings.TrimSpace(violation.FromNode) == "" && strings.TrimSpace(violation.ToNode) == "" {
+			fields = append(fields, fmt.Sprintf("blocks[%q].kind:%s", violation.BlockID, violation.Issue))
+			continue
+		}
 		fields = append(fields, fmt.Sprintf("blocks[%q].edge_anchors[%s->%s]:%s",
 			violation.BlockID, violation.FromNode, violation.ToNode, violation.Issue))
 	}
@@ -448,7 +452,7 @@ func answerDiagramRelationRepairScopeRepair(
 	}
 	return &types.ToolRepair{
 		Code:     types.ToolRepairCodeAnswerDocRelationRepairScope,
-		Hint:     "Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. Do not add candidate relations during this local repair.",
+		Hint:     "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. Do not add candidate relations during this local repair.",
 		Fields:   fields,
 		Metadata: metadata,
 	}
@@ -457,6 +461,10 @@ func answerDiagramRelationRepairScopeRepair(
 func answerDiagramRelationRepairScopeSummary(violations []types.AnswerDiagramRelationRepairScopeViolation) string {
 	parts := make([]string, 0, len(violations))
 	for _, violation := range violations {
+		if strings.TrimSpace(violation.FromNode) == "" && strings.TrimSpace(violation.ToNode) == "" {
+			parts = append(parts, fmt.Sprintf("block=%s issue=%s", violation.BlockID, violation.Issue))
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("block=%s issue=%s edge=%s->%s",
 			violation.BlockID, violation.Issue, violation.FromNode, violation.ToNode))
 	}

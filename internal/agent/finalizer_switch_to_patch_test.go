@@ -1072,6 +1072,37 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	}
 }
 
+func TestMixedFullRejectStillArmsRelationRepairLease(t *testing.T) {
+	const delta = `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B"}],"preserve_unlisted_edges":true}`
+	mut := types.NewMutableState("mixed relation and table repair")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}},
+		},
+	}})
+	ctx := &types.AgentContext{Mutable: mut}
+	e := &answerDocumentEvaluator{diagramRequired: true, mu: mut}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document", Success: false,
+		Repair: &types.ToolRepair{
+			Code:   "answer_doc_pre_emit_contract",
+			Fields: []string{"blocks[0].items[0].evidence_ids", "blocks[1].edge_anchors"},
+			Metadata: map[string]string{
+				"violation_kinds": "item_evidence_identity_required," + string(types.ViolDiagramCallEdgeUnproven),
+				types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+			},
+		},
+	}
+	_ = e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+	lease := mut.AnswerDiagramRelationRepairLease()
+	if lease == nil || len(lease.Blocks) != 1 || lease.Blocks[0].BlockID != "flow" || lease.Blocks[0].Kind != types.BlockDiagram {
+		t.Fatalf("mixed independent failure must still arm the exact diagram carrier lease: %+v", lease)
+	}
+}
+
 func TestEmitAnswerDocumentRejectSignal_RequiredFlowUsesTypedRelationBoundaryWhenWholeDiagramWithheld(t *testing.T) {
 	e := &answerDocumentEvaluator{diagramRequired: true}
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()

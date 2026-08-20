@@ -16933,6 +16933,13 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	// A relation delta remains authoritative when the same reject also names a
+	// table citation, participant boundary, or another independent field. Arm
+	// the typed lease before choosing the user-facing repair hint so a mixed
+	// failure cannot turn a local diagram fix into a cross-kind graph rewrite.
+	if e.diagramRequired {
+		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+	}
 	// Honor the same rejectHintBudget the legacy reject-hint path
 	// uses. Re-firing the patch nudge alongside legacy rejects
 	// would otherwise burn the budget twice as fast; respecting
@@ -17658,7 +17665,7 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 	b.WriteString(prefix)
 	b.WriteString(" by a local typed source-diagram relation mismatch. ")
 	b.WriteString(action)
-	b.WriteString("; replace only the rejected relation block or blocks, retain unrelated blocks through `unchanged_block_ids`, and preserve inherited citations. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only that exact visible edge/anchor pair in its named block. `preserve_unlisted_edges=true` is enforced on typed `edge_anchors`: every other model-authored relation must remain unchanged. Do not add a candidate relation in this local repair; `candidate_alternatives` is deferred until the named failures are cleared, so one correction cannot create a new failure elsewhere. Visible labels remain model-authored and may be improved without changing endpoint IDs, identities, direction, or relation kind. Issue values, candidate keys, source locations, relation enums, and boundary flags are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	b.WriteString("; replace only the rejected relation block or blocks, retain unrelated blocks through `unchanged_block_ids`, and preserve inherited citations. Keep every existing required diagram block id and `kind=diagram` unchanged; do not add or remove a diagram block in this local repair. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only that exact visible edge/anchor pair in its named block. `preserve_unlisted_edges=true` is enforced on typed `edge_anchors`: every other model-authored relation must remain unchanged. Do not add a candidate relation in this local repair; `candidate_alternatives` is deferred until the named failures are cleared, so one correction cannot create a new failure elsewhere. Visible labels remain model-authored and may be improved without changing endpoint IDs, identities, direction, or relation kind. Issue values, candidate keys, source locations, relation enums, and boundary flags are repair metadata and must not become visible diagram wording.\n\n```json\n")
 	b.Write(visibleRaw)
 	b.WriteString("\n```\n\n")
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
@@ -17977,6 +17984,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	rejectCode := answerDocRejectCodeFromRepair(repair)
 
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
+	if hasPatchBase && e.diagramRequired {
+		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+	}
 	hint := answerDocDefaultFullRejectHint(hasPatchBase)
 	reasonKey := "tool-reject"
 	diagramCallEdgePatchRecovery := false

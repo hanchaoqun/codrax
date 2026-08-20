@@ -91,3 +91,54 @@ func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 		t.Fatalf("accepted emit must clear retry-local lease: %+v", got)
 	}
 }
+
+func TestAnswerDiagramRelationRepairLease_FreezesRequiredDiagramCarrier(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram:     &AnswerDiagramBlock{Kind: DiagramSequence, Body: "sequenceDiagram"},
+		EdgeAnchors: []DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: DiagramRelCall}},
+	}}}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+	}})
+
+	tests := []struct {
+		name  string
+		doc   *AnswerDocumentV2
+		issue string
+	}{
+		{
+			name:  "kind changed",
+			doc:   &AnswerDocumentV2{Blocks: []AnswerBlock{{ID: "flow", Kind: BlockTable}}},
+			issue: "relation_diagram_carrier_kind_changed",
+		},
+		{
+			name:  "carrier removed",
+			doc:   &AnswerDocumentV2{Blocks: []AnswerBlock{{ID: "summary", Kind: BlockSummary}}},
+			issue: "relation_diagram_carrier_removed",
+		},
+		{
+			name: "second diagram added",
+			doc: &AnswerDocumentV2{Blocks: []AnswerBlock{
+				{ID: "flow", Kind: BlockDiagram, Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Body: "sequenceDiagram"}},
+				{ID: "flow-2", Kind: BlockDiagram, Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Body: "sequenceDiagram"}},
+			}},
+			issue: "relation_diagram_carrier_added",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ValidateAnswerDiagramRelationRepairLease(lease, tc.doc)
+			found := false
+			for _, violation := range got {
+				if violation.Issue == tc.issue {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s, got %+v", tc.issue, got)
+			}
+		})
+	}
+}
