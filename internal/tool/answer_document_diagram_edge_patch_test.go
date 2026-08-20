@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -41,7 +42,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_PreservesUnmentionedGraphContent(t
 		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
 			Participant: "AnswerDocument", Status: types.DiagramParticipantBoundaryUnproven,
 		}},
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatalf("atomic edit rejected: %v", err)
 	}
@@ -128,6 +129,164 @@ func TestEmitAnswerDocumentPatch_AtomicUnlistedAdditionStillRejectedByLease(t *t
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_RemovesTypedFailedBodyOnlyEdge(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    A->>A: unsupported self call\n    A->>B: old label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "A",
+			RelationKind: types.DiagramRelCall,
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "A", RelationKind: types.DiagramRelCall},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("typed failed body-only edge must be removable: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Contains(got.Diagram.Body, "A->>A") || !strings.Contains(got.Diagram.Body, "A->>B: old label") {
+		t.Fatalf("body-only remove changed the wrong Mermaid content:\n%s", got.Diagram.Body)
+	}
+	if len(got.EdgeAnchors) != 2 {
+		t.Fatalf("body-only remove must not change unrelated anchors: %+v", got.EdgeAnchors)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RemovesTypedFailedBodyOnlyEdgeTransactionally(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    A->>A: unsupported self call\n    A->>B: old label\n"
+	mut := types.NewMutableState("atomic-body-only")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "A",
+			RelationKind: types.DiagramRelCall,
+		}}, nil))
+	bus := &types.BusContext{Mutable: mut}
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"block_id":"diag","action":"remove","match":{"from_node":"A","to_node":"A","relation_kind":"call"}}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("body-only producer-scoped transaction must pass: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || strings.Contains(got.Blocks[1].Diagram.Body, "A->>A") ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, "A->>B: old label") {
+		t.Fatalf("persisted transaction changed the wrong graph content: %+v", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_RejectsUnlistedBodyOnlyEdge(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>A: unsupported self call\n    A->>B: old label\n"
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "A", RelationKind: types.DiagramRelCall},
+	}}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "exact prior anchor") {
+		t.Fatalf("unlisted body-only edge must remain outside atomic scope: %v", err)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_ReplacesTypedFailedBodyOnlyEdge(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    A->>A: unsupported self call\n    A->>B: old label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "A",
+			RelationKind: types.DiagramRelCall,
+		}}, []types.AnswerDiagramRelationRepairCandidate{{
+			BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+			FromIdentity: "Analyzer", ToIdentity: "Explorer", Source: "stageauthority",
+		}})
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "replace",
+		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "A", RelationKind: types.DiagramRelCall},
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "C", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "确定范围后继续",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("typed failed body-only edge replacement rejected: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Contains(got.Diagram.Body, "A->>A") || !strings.Contains(got.Diagram.Body, "A->>C: 确定范围后继续") {
+		t.Fatalf("body-only replacement did not stay local:\n%s", got.Diagram.Body)
+	}
+	if len(got.EdgeAnchors) != 3 || got.EdgeAnchors[2].ToNode != "C" {
+		t.Fatalf("replacement anchor was not model-authored into the carrier: %+v", got.EdgeAnchors)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_NormalGraphMayExceedSixteenOperations(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	var body strings.Builder
+	body.WriteString("sequenceDiagram\n")
+	failures := make([]types.AnswerDiagramRelationRepairFailure, 0, 17)
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, 17)
+	for i := 0; i < 17; i++ {
+		from := string(rune('A' + i))
+		to := from + "_bad"
+		body.WriteString("    " + from + "->>" + to + ": unsupported\n")
+		failures = append(failures, types.AnswerDiagramRelationRepairFailure{
+			BlockID: "diag", Issue: "missing_call_anchor", FromNode: from, ToNode: to,
+			RelationKind: types.DiagramRelCall,
+		})
+		edits = append(edits, emitAnswerDiagramEdgeEdit{
+			BlockID: "diag", Action: "remove",
+			Match: &types.DiagramEdgeAnchor{FromNode: from, ToNode: to, RelationKind: types.DiagramRelCall},
+		})
+	}
+	prev.Blocks[1].Diagram.Body = body.String()
+	prev.Blocks[1].EdgeAnchors = nil
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, failures, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, edits, nil, lease); err != nil {
+		t.Fatalf("17 exact model-authored repairs must fit one validated transaction: %v", err)
+	}
+	if edges := mermaidcompat.ParseEdges(patch.ReplaceBlocks[0].Diagram.Body); len(edges) != 0 {
+		t.Fatalf("all 17 selected failed edges should be removed, got %+v", edges)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_RequiresBodyOccurrenceForAmbiguousPair(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: setup context\n    A-->>B: model output\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelDataFlow,
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "data_flow_edge_unproven", FromNode: "A", ToNode: "B",
+			RelationKind: types.DiagramRelDataFlow,
+		}}, nil)
+	baseEdit := emitAnswerDiagramEdgeEdit{
+		BlockID: "diag", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelDataFlow},
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{baseEdit}, nil, lease); err == nil ||
+		!strings.Contains(err.Error(), "set body_occurrence explicitly") {
+		t.Fatalf("ambiguous body pair must fail closed with an executable selector hint: %v", err)
+	}
+
+	baseEdit.BodyOccurrence = 2
+	patch = &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{baseEdit}, nil, lease); err != nil {
+		t.Fatalf("explicit body occurrence must select the model-owned edge: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "A->>B: setup context") || strings.Contains(got.Diagram.Body, "model output") || len(got.EdgeAnchors) != 0 {
+		t.Fatalf("explicit body occurrence removed the wrong edge/anchor: %+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_RejectsCompoundAndConflictingCarrier(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: first\n"
@@ -136,7 +295,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RejectsCompoundAndConflictingCarri
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
 		BlockID: "diag", Action: "remove",
 		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall},
-	}}, nil)
+	}}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "conflicts with unchanged_block_ids") {
 		t.Fatalf("same carrier must not be both unchanged and atomically edited: %v", err)
 	}

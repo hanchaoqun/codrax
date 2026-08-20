@@ -58026,3 +58026,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r783`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r783`。
+
+### §123.1272 B1254：无锚可见坏边进入同一模型声明原子事务（2026-08-20）
+
+1. `diagram_edge_edits` 现在同时覆盖两类旧图对象：已有 anchor 的边仍按完整 tuple + anchor occurrence 精确选择；没有
+   anchor 的可见边只在当前 `AnswerDiagramRelationRepairLease.failures[]` 明确点名同一 block/from/to/relation，且 issue 为
+   `missing_call_anchor` 或 `missing_relation_anchor` 时，允许模型声明 remove/replace。普通无租约 patch、未点名 pair、其他
+   failure issue、同 pair 仍存在任意 anchor 的形全部保持 fail-closed；relabel 仍只允许已有 anchor。
+2. body-only remove 只删除模型选择的旧 Mermaid statement，不制造 anchor；body-only replace 要求模型给出完整新
+   from/to/identity/relation/visible_label，编译器替换所选 statement 并登记该模型声明 anchor。合并稿随后继续经过 B1246/B1249
+   lease、allowed additions、call/data-flow/return/participant 与全部普通证据合同；因此接口只恢复“可执行性”，不授予关系事实、
+   不替模型选择删除/替换、新关系、节点或业务标签。
+3. 修正原子匹配的另一处精度债：同一 from/to 在 Mermaid body 中可能有多条消息，而 anchor 数与 body 边数未必一一对应。
+   旧实现用 anchor 的 pair 序号直接选 body，可能把 `BuildAgentContext` 与 `StageOutput` 这类同端点不同消息修错。新增模型字段
+   `body_occurrence`；仅当 body pair 唯一，或 anchor/body 数量一一对应时可省略，否则事务明确拒绝并要求模型给出 1-based
+   body occurrence。系统不依据消息文案、operator 或业务语义猜选目标。
+4. 原隐藏固定上限 16 改为 schema 与 executor 同源钉住的 128，并在 schema 明示 `maxItems=128`。这允许正常图按“每条既有
+   可见边一次 + 有界候选新增”在单次全量复验事务中清完，同时保留绝对资源边界；17 项生产形不再因协议容量本身失败。
+5. 回归覆盖：producer 点名 body-only 坏边可在真实 patch Execute 路径删除且不损伤兄弟边；无 lease/未点名边不能删除；
+   body-only replace 必须由模型提供完整新 anchor/label；17 个精确失败边可一次事务完成；同 pair 两条 body 边在未声明
+   `body_occurrence` 时必须红、显式选择第二条后只删除第二条与对应 anchor；schema/executor 上限漂移 pin。完整相关包全绿：
+   mermaidcompat 0.225s、types 23.969s、tool 181.146s、agent 13.925s；`make` 通过。
+6. 本批不读取用户原文、模型 reasoning/最终 prose 或 Mermaid 可见标签作事实硬门；不修改模型答案/结论，不自动生成、删除、
+   替换、反转关系。Trace 查询、显式窗口、因果投影、自动补采、链上根因选举、两轴计量、优先级/调度/算力/D/IO/确定性语义、
+   业务线索、背景隔离和活动流时限路径均未改。下一步提交推送本批，再用 read 图+显式窗 Trace 严格并发 2 路验证生产收敛。
+
+状态：
+
+`B1254=implemented/full-relevant-pass/pending-production-replay`；
+`B1251=partial-production-hit/pending-B1254-replay`；
+`body-only-edit-authority=typed-failure-lease+model-operation`；
+`ambiguous-body-pair=model-body-occurrence-required`；
+`diagram-atomic-max-items=128/schema-executor-pinned`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

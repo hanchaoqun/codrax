@@ -53,7 +53,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
-		"- `diagram_edge_edits`: model-authored atomic edits against one existing diagram block. Use this instead of `replace_blocks` when a retry only needs to relabel, remove, replace, or add individual typed relations. Each edit names the exact prior anchor (for relabel/remove/replace) or supplies one complete new anchor (for add); the system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every relation and writes every visible label.\n" +
+		"- `diagram_edge_edits`: model-authored atomic edits against one existing diagram block. Use this instead of `replace_blocks` when a retry only needs to relabel, remove, replace, or add individual typed relations. relabel names an exact prior anchor. remove/replace normally name an exact prior anchor; when the immediately preceding typed relation failure names a visible edge whose defect is a missing anchor, they may instead name that exact failed body edge. add supplies one complete new anchor. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of only `participant_boundaries` on an existing diagram block. Use this for a participant coverage retry so the prior Mermaid body, relations, labels, and other block fields remain untouched.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
@@ -90,13 +90,15 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     },
     "diagram_edge_edits": {
       "type": "array",
-      "description": "Atomic model-authored edits for an existing diagram block. Prefer this during a local typed relation retry so unmentioned graph content stays byte-identical. relabel/remove/replace require match; add requires edge. occurrence is 1-based among exact duplicate anchors and defaults to 1. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
+      "maxItems": 128,
+      "description": "Atomic model-authored edits for an existing diagram block (maximum 128 operations). Prefer this during a local typed relation retry so unmentioned graph content stays byte-identical. relabel requires an exact prior anchor. remove/replace require match and may also target the exact visible body edge named by the immediately preceding typed failure when that edge has no prior anchor. add requires edge. occurrence is 1-based among exact duplicate anchors and defaults to 1. When multiple visible Mermaid edges share the selected from_node/to_node pair and they cannot be mapped one-to-one to anchors, body_occurrence is required to select the 1-based visible pair occurrence. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
       "items": {
         "type": "object",
         "properties": {
           "block_id": {"type": "string"},
           "action": {"type": "string", "enum": ["relabel", "remove", "replace", "add"]},
           "occurrence": {"type": "integer", "minimum": 1},
+          "body_occurrence": {"type": "integer", "minimum": 1, "description": "1-based visible Mermaid edge occurrence for the selected from_node/to_node pair. Omit when the pair is unique or body edges map one-to-one to exact prior anchors; required when the body pair is otherwise ambiguous."},
           "match": {
             "type": "object",
             "properties": {
@@ -247,12 +249,13 @@ type emitAnswerDocumentPatchParams struct {
 // previous model-authored Mermaid carrier; it never chooses an endpoint,
 // relation kind, or reader-facing label.
 type emitAnswerDiagramEdgeEdit struct {
-	BlockID      string                   `json:"block_id"`
-	Action       string                   `json:"action"`
-	Occurrence   int                      `json:"occurrence,omitempty"`
-	Match        *types.DiagramEdgeAnchor `json:"match,omitempty"`
-	Edge         *types.DiagramEdgeAnchor `json:"edge,omitempty"`
-	VisibleLabel string                   `json:"visible_label,omitempty"`
+	BlockID        string                   `json:"block_id"`
+	Action         string                   `json:"action"`
+	Occurrence     int                      `json:"occurrence,omitempty"`
+	BodyOccurrence int                      `json:"body_occurrence,omitempty"`
+	Match          *types.DiagramEdgeAnchor `json:"match,omitempty"`
+	Edge           *types.DiagramEdgeAnchor `json:"edge,omitempty"`
+	VisibleLabel   string                   `json:"visible_label,omitempty"`
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {
@@ -392,7 +395,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		patch.AddBlocks = converted
 	}
 	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 {
-		if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements); err != nil {
+		lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+		if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements, lease); err != nil {
 			return failEmit(t.Name(), now, "diagram atomic edits: %s", err.Error())
 		}
 	}

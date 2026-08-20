@@ -52,6 +52,9 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 			t.Fatalf("patch projected schema lost atomic diagram field %q", field)
 		}
 	}
+	if got := patchProps["diagram_edge_edits"].(map[string]any)["maxItems"]; got != float64(maxModelAuthoredDiagramEdgeEdits) {
+		t.Fatalf("diagram atomic edit schema/executor limit drift: schema=%v executor=%d", got, maxModelAuthoredDiagramEdgeEdits)
+	}
 	fullBytes, _ := json.Marshal(fullItem)
 	for _, field := range []string{"replace_blocks", "add_blocks"} {
 		array := patchProps[field].(map[string]any)

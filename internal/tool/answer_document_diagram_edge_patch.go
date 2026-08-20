@@ -8,7 +8,14 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const maxModelAuthoredDiagramEdgeEdits = 16
+// Keep the resource bound explicit in both the projected JSON schema and the
+// executor. A normal diagram repair may legitimately need one operation per
+// visible edge (including body-only edges that were rejected for missing
+// anchors), so the old limit of 16 made some fully validated transactions
+// impossible to express. The surrounding answer/block/body size limits remain
+// the primary payload bounds; this cap is a final defence against pathological
+// edit arrays.
+const maxModelAuthoredDiagramEdgeEdits = 128
 
 // applyModelAuthoredDiagramAtomicEdits turns model-declared edge and boundary
 // operations into full block replacements over the previous model-authored
@@ -22,6 +29,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 	patch *types.AnswerDocumentV2Patch,
 	edits []emitAnswerDiagramEdgeEdit,
 	boundaries []emitAnswerDiagramBoundaryReplacement,
+	lease *types.AnswerDiagramRelationRepairLease,
 ) error {
 	if prev == nil || patch == nil {
 		return fmt.Errorf("previous answer and patch are required")
@@ -89,7 +97,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 		if err != nil {
 			return err
 		}
-		if err := applyOneModelAuthoredDiagramEdgeEdit(&block, edit); err != nil {
+		if err := applyOneModelAuthoredDiagramEdgeEdit(&block, edit, lease); err != nil {
 			return fmt.Errorf("edit[%d] block_id=%q: %w", i, blockID, err)
 		}
 		working[blockID] = block
@@ -138,7 +146,11 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 	return out
 }
 
-func applyOneModelAuthoredDiagramEdgeEdit(block *types.AnswerBlock, edit emitAnswerDiagramEdgeEdit) error {
+func applyOneModelAuthoredDiagramEdgeEdit(
+	block *types.AnswerBlock,
+	edit emitAnswerDiagramEdgeEdit,
+	lease *types.AnswerDiagramRelationRepairLease,
+) error {
 	if block == nil || block.Diagram == nil {
 		return fmt.Errorf("diagram carrier is unavailable")
 	}
@@ -153,6 +165,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(block *types.AnswerBlock, edit emitAns
 	if occurrence < 1 {
 		return fmt.Errorf("occurrence must be at least 1")
 	}
+	if edit.BodyOccurrence < 0 {
+		return fmt.Errorf("body_occurrence must be at least 1")
+	}
 	if action == "add" {
 		if edit.Match != nil {
 			return fmt.Errorf("action=add must omit match")
@@ -160,8 +175,8 @@ func applyOneModelAuthoredDiagramEdgeEdit(block *types.AnswerBlock, edit emitAns
 		if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
 			return err
 		}
-		if occurrence != 1 {
-			return fmt.Errorf("action=add does not accept occurrence")
+		if occurrence != 1 || edit.BodyOccurrence != 0 {
+			return fmt.Errorf("action=add does not accept occurrence or body_occurrence")
 		}
 		if strings.TrimSpace(edit.Edge.VisibleLabel) == "" {
 			return fmt.Errorf("action=add requires edge.visible_label authored by the model")
@@ -186,11 +201,33 @@ func applyOneModelAuthoredDiagramEdgeEdit(block *types.AnswerBlock, edit emitAns
 	if err := validateAtomicDiagramAnchor(edit.Match, "match"); err != nil {
 		return err
 	}
-	anchorIndex, pairOccurrence, err := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, occurrence)
+	anchorIndex, anchorPairOccurrence, anchorErr := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, occurrence)
+	bodyOnly := false
+	if anchorErr != nil {
+		if action == "relabel" {
+			return anchorErr
+		}
+		if !atomicDiagramBodyOnlyFailureAuthorized(lease, block.ID, *edit.Match) {
+			return anchorErr
+		}
+		if atomicDiagramPairHasAnyAnchor(block.EdgeAnchors, edit.Match.FromNode, edit.Match.ToNode) {
+			return anchorErr
+		}
+		// The producer-owned retry delta names this exact failed visible
+		// pair, while the failure itself is that no prior anchor exists.
+		// The model still chooses remove/replace and every replacement
+		// field; the compiler merely makes that declared operation
+		// executable against the previous model-authored Mermaid AST.
+		bodyOnly = true
+	}
+	bodyOccurrence, err := atomicDiagramBodyOccurrence(
+		block.Diagram.Body, block.EdgeAnchors, edit.Match.FromNode, edit.Match.ToNode,
+		anchorPairOccurrence, edit.BodyOccurrence, bodyOnly,
+	)
 	if err != nil {
 		return err
 	}
-	lineIndex, err := findAtomicMermaidEdgeLine(block.Diagram.Body, edit.Match.FromNode, edit.Match.ToNode, pairOccurrence)
+	lineIndex, err := findAtomicMermaidEdgeLine(block.Diagram.Body, edit.Match.FromNode, edit.Match.ToNode, bodyOccurrence)
 	if err != nil {
 		return err
 	}
@@ -201,7 +238,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(block *types.AnswerBlock, edit emitAns
 			return fmt.Errorf("action=remove must omit edge and visible_label")
 		}
 		lines = append(lines[:lineIndex], lines[lineIndex+1:]...)
-		block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+		if !bodyOnly {
+			block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+		}
 	case "relabel":
 		if edit.Edge != nil {
 			return fmt.Errorf("action=relabel must omit edge")
@@ -229,10 +268,103 @@ func applyOneModelAuthoredDiagramEdgeEdit(block *types.AnswerBlock, edit emitAns
 		}
 		indent := lines[lineIndex][:len(lines[lineIndex])-len(strings.TrimLeft(lines[lineIndex], " \t"))]
 		lines[lineIndex] = indent + strings.TrimLeft(line, " \t")
-		block.EdgeAnchors[anchorIndex] = *edit.Edge
+		if bodyOnly {
+			block.EdgeAnchors = append(block.EdgeAnchors, *edit.Edge)
+		} else {
+			block.EdgeAnchors[anchorIndex] = *edit.Edge
+		}
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
 	return nil
+}
+
+func atomicDiagramBodyOccurrence(
+	body string,
+	anchors []types.DiagramEdgeAnchor,
+	fromNode, toNode string,
+	anchorPairOccurrence, declaredBodyOccurrence int,
+	bodyOnly bool,
+) (int, error) {
+	bodyCount := atomicDiagramBodyPairCount(body, fromNode, toNode)
+	if bodyCount == 0 {
+		return 0, fmt.Errorf("Mermaid body has no matching edge for %s->%s", fromNode, toNode)
+	}
+	if declaredBodyOccurrence > 0 {
+		if declaredBodyOccurrence > bodyCount {
+			return 0, fmt.Errorf("body_occurrence=%d exceeds %d visible edge(s) for %s->%s", declaredBodyOccurrence, bodyCount, fromNode, toNode)
+		}
+		return declaredBodyOccurrence, nil
+	}
+	if bodyCount == 1 {
+		return 1, nil
+	}
+	if !bodyOnly {
+		anchorCount := atomicDiagramAnchorPairCount(anchors, fromNode, toNode)
+		if anchorCount == bodyCount && anchorPairOccurrence > 0 && anchorPairOccurrence <= bodyCount {
+			return anchorPairOccurrence, nil
+		}
+	}
+	return 0, fmt.Errorf(
+		"Mermaid body has %d edges for %s->%s that do not map one-to-one to prior anchors; set body_occurrence explicitly",
+		bodyCount, fromNode, toNode,
+	)
+}
+
+func atomicDiagramBodyPairCount(body, fromNode, toNode string) int {
+	fromNode, toNode = strings.TrimSpace(fromNode), strings.TrimSpace(toNode)
+	count := 0
+	for _, edge := range mermaidcompat.ParseEdges(body) {
+		if strings.TrimSpace(edge.From) == fromNode && strings.TrimSpace(edge.To) == toNode {
+			count++
+		}
+	}
+	return count
+}
+
+func atomicDiagramAnchorPairCount(anchors []types.DiagramEdgeAnchor, fromNode, toNode string) int {
+	fromNode, toNode = strings.TrimSpace(fromNode), strings.TrimSpace(toNode)
+	count := 0
+	for _, anchor := range anchors {
+		if strings.TrimSpace(anchor.FromNode) == fromNode && strings.TrimSpace(anchor.ToNode) == toNode {
+			count++
+		}
+	}
+	return count
+}
+
+func atomicDiagramBodyOnlyFailureAuthorized(
+	lease *types.AnswerDiagramRelationRepairLease,
+	blockID string,
+	match types.DiagramEdgeAnchor,
+) bool {
+	if lease == nil || lease.Version != 1 || strings.TrimSpace(blockID) == "" {
+		return false
+	}
+	for _, failure := range lease.Failures {
+		if failure.Issue != diagramCallEdgeIssueMissingAnchor && failure.Issue != diagramCallEdgeIssueMissingRelationAnchor {
+			continue
+		}
+		if strings.TrimSpace(failure.BlockID) != strings.TrimSpace(blockID) ||
+			strings.TrimSpace(failure.FromNode) != strings.TrimSpace(match.FromNode) ||
+			strings.TrimSpace(failure.ToNode) != strings.TrimSpace(match.ToNode) {
+			continue
+		}
+		if failure.RelationKind.IsValid() && failure.RelationKind != match.RelationKind {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func atomicDiagramPairHasAnyAnchor(anchors []types.DiagramEdgeAnchor, fromNode, toNode string) bool {
+	fromNode, toNode = strings.TrimSpace(fromNode), strings.TrimSpace(toNode)
+	for _, anchor := range anchors {
+		if strings.TrimSpace(anchor.FromNode) == fromNode && strings.TrimSpace(anchor.ToNode) == toNode {
+			return true
+		}
+	}
+	return false
 }
 
 func validateAtomicDiagramAnchor(anchor *types.DiagramEdgeAnchor, field string) error {
