@@ -178,6 +178,41 @@ func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement
 	}
 }
 
+func TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration(t *testing.T) {
+	mut := types.NewMutableState("relation repair generation")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+	}})
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+
+	matching := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n participant A\n participant B"},
+	}}}
+	gotLease, violations := validateAndConsumeAnswerDiagramRelationRepairLease(mut, matching)
+	if gotLease == nil || len(violations) != 0 {
+		t.Fatalf("matching local repair must consume its generation lease: lease=%+v violations=%+v", gotLease, violations)
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
+		t.Fatalf("satisfied relation generation must not constrain a later independent contract: %+v", got)
+	}
+
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	escaped := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "flow", Kind: types.BlockTable}}}
+	_, violations = validateAndConsumeAnswerDiagramRelationRepairLease(mut, escaped)
+	if len(violations) == 0 {
+		t.Fatal("carrier escape must remain rejected")
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got == nil {
+		t.Fatal("failed local repair must retain its lease for the next retry")
+	}
+}
+
 func TestEmitAnswerDocumentPatch_SplitsFusedProseAndDiagramWithoutDroppingEither(t *testing.T) {
 	bus := newPatchTestBusContext()
 	raw := json.RawMessage(`{

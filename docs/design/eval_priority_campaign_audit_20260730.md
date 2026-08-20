@@ -57794,3 +57794,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r779`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r779`。
+
+### §123.1267 r780 与 B1248：关系租约跨修补代次陈腐（2026-08-20）
+
+1. 以已推送 `793666fc9` 构建不可变二进制，严格并发恰好 2 路。显式窗 Trace 227s PASS；read 流水线图+表在
+   1079s、20 次成文拒绝后 FAIL，runner 原因是 `degraded_answer_checks_skipped`。两路活动流均未因 4ms、4m、首字节、stall
+   或累计年龄提前降级；read 的降级发生在 finalizer 重试耗尽之后。
+2. Trace 人工复核通过：2.000–2.020s 显式窗、六次 trace_query/自动补采、Trace 因果投影完整；threadpool-400 的
+   11.000ms IO 等待仍为链上首因，三个 1.000ms runnable 席仍为调度供给不足。实际占时与规则可消双轴、sleep 症状隔离、
+   背景 IO 活动不入主因均未回退。
+3. `B1247-RELCARRIER1` 的第一层目标生效：日志没有再次把原 diagram id 跨 kind 改成 table，carrier id/kind/count 逃逸被
+   typed scope 拦截。但 r780 暴露 `B1248-RELLEASEGEN1/P1`：模型成功清掉第一代失败关系后，merged patch 已通过租约；它随后
+   被独立 participant/precedence 完备性合同拒绝。旧租约没有在这次 scope success 时清除，于是新合同发布的
+   `analyzer→explorer`、`explorer→extractor`、`extractor→finalizer` typed candidates 又被旧失败集合判为
+   `unlisted_relation_added`，形成合同代次互锁。
+4. 这不是模型波动，也不是“放宽关系证据门”的理由。租约语义本来就是 next-patch retry local：scope violation 时保留同一租约，
+   让模型继续修当前精确失败；一旦某个 merged patch 通过 scope，即在运行任何后续 pre-emit 合同前消费旧租约。若后续合同失败，
+   它必须凭自己的 producer-owned typed delta 建立新租约，不能继承旧失败的禁止集合。
+5. 实现增加单一生产消费点：patch dry-run 合并后先执行 lease validate；有 scope violation 时原行为不变并保留 lease；零 violation
+   时立即清空 lease，再进入 participant/citation/cardinality 等独立检查。该逻辑只读取 Mutable typed lease 与 merged
+   block/id/kind/edge_anchors，不读取用户原文、模型 reasoning/正文、Mermaid body/label，也不创建、选择、删除或重连任何边。
+6. 回归钉住两个代次分支：匹配当前失败集合的局部 patch 会消费租约，使下一份 typed contract 可建立新权限；跨 kind 等 scope
+   逃逸仍被拒绝且租约保留供下一次重试。生产回放须同时证明 read 不再出现陈腐 `unlisted_relation_added` 循环、图表不重复，
+   以及 Trace 异构路不回退。完整相关包全绿：types 25.459s、agent 13.644s、tool 188.226s。
+
+状态：
+
+`r780=runner-pass-1/fail-1,human-pass-1/fail-1`；
+`B1247=production-positive-carrier-freeze/blocked-by-B1248`；
+`B1248=implemented/full-relevant-pass/pending-production-replay`；
+`relation-lease-lifetime=one-matching-patch-generation`；
+`scope-failure=retain-lease`；`scope-success=consume-before-next-contract`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1244=confirmed/P2-after-relation-lifecycle-close`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r780`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r780`。

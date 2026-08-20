@@ -375,12 +375,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// internally. Apply is pure (no side effects on the doc clone)
 	// so the dry-run is safe.
 	if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
-		if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease != nil {
-			if violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(violations) > 0 {
-				return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),
-					"answer_document relation repair escaped its local typed scope: %s",
-					answerDiagramRelationRepairScopeSummary(violations))
-			}
+		if lease, violations := validateAndConsumeAnswerDiagramRelationRepairLease(ctx.Mutable, merged); len(violations) > 0 {
+			return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),
+				"answer_document relation repair escaped its local typed scope: %s",
+				answerDiagramRelationRepairScopeSummary(violations))
 		}
 		dropExplicitlyRemovedModelDiagrams = preserveExplicitDiagramRemovalIntent(ctx, mutation, prev)
 		if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
@@ -424,6 +422,30 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// validateAndConsumeAnswerDiagramRelationRepairLease applies one precise
+// retry-generation contract. A scope violation retains the lease so the model
+// can retry the same local correction. Once a merged patch satisfies that
+// scope, the old lease is consumed before any independent pre-emit contract is
+// evaluated; a later participant/citation/cardinality failure must establish
+// its own typed repair authority instead of inheriting stale edge prohibitions.
+func validateAndConsumeAnswerDiagramRelationRepairLease(
+	mut *types.MutableState,
+	merged *types.AnswerDocumentV2,
+) (*types.AnswerDiagramRelationRepairLease, []types.AnswerDiagramRelationRepairScopeViolation) {
+	if mut == nil {
+		return nil, nil
+	}
+	lease := mut.AnswerDiagramRelationRepairLease()
+	if lease == nil {
+		return nil, nil
+	}
+	violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged)
+	if len(violations) == 0 {
+		mut.SetAnswerDiagramRelationRepairLease(nil)
+	}
+	return lease, violations
 }
 
 func answerDiagramRelationRepairScopeRepair(
