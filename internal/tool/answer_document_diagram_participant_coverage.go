@@ -77,6 +77,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 	// that pool creates an impossible contract where one unproven boundary is
 	// required here and rejected after persistence.
 	evidence := DiagramEvidenceForValidation(pctx.ctx, doc, view, pctx.evidenceItems())
+	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, pctx.ctx, evidence)
 	mismatches := DiagramParticipantCoverageMismatchesWithRuntimeContext(
 		pctx.ctx, doc, view, evidence,
 	)
@@ -207,7 +208,7 @@ func diagramParticipantEndpointConflictGuidance(
 		participantSurfaces[strings.ToLower(identity)] = surfaces
 		allParticipantSurfaces = append(allParticipantSurfaces, surfaces)
 	}
-	requestedRelationEvidence := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	requestedRelationEvidence := diagramRequestedRelationEvidenceForRequest(evidence, rm)
 	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	rows := make([]string, 0)
 	seen := make(map[string]bool)
@@ -460,7 +461,7 @@ func DiagramParticipantCoverageMismatches(
 	}
 	states := make([]state, 0, len(obligations))
 	allSurfaces := make([][]string, 0, len(obligations))
-	requestedRelationEvidence := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	requestedRelationEvidence := diagramRequestedRelationEvidenceForRequest(evidence, rm)
 	for _, obligation := range obligations {
 		// The analyzer's typed display identity is always its own exact
 		// presentation surface, including schema-valid labels with spaces such
@@ -1035,7 +1036,7 @@ func diagramParticipantEdgeHasRequestedRelationAuthority(
 			continue
 		}
 		for _, operation := range requestedRelationEvidence {
-			expectedRelation := types.RelationForClaimForm(types.ClaimFormOf(operation))
+			expectedRelation := diagramRequestedEvidenceRelation(operation)
 			expectedFrom, expectedTo := strings.TrimSpace(operation.Subject), strings.TrimSpace(operation.Object)
 			if operation.AnchorKind == types.AnchorAssignment || operation.AnchorKind == types.AnchorInitializer {
 				receiver, value, ok := types.AssignmentEvidenceEndpoints(operation)
@@ -1334,7 +1335,7 @@ func diagramParticipantTypedJoinCandidates(
 	if len(obligations) < 2 {
 		return nil
 	}
-	requestedRelationEvidence := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	requestedRelationEvidence := diagramRequestedRelationEvidenceForRequest(evidence, rm)
 	indexes := diagramParticipantVisibleComponentIndexes(doc, requestedRelationEvidence, stagePrecedence)
 	if len(indexes) == 0 {
 		return nil
@@ -1708,13 +1709,13 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), true)
 		}
 	}
-	for operationIndex, operation := range types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm) {
+	for operationIndex, operation := range diagramRequestedRelationEvidenceForRequest(evidence, rm) {
 		if len(obligations) > 1 && (operationIndex >= len(relationScope.operationRelevant) ||
 			!relationScope.operationRelevant[operationIndex]) {
 			continue
 		}
 		from, to := strings.TrimSpace(operation.Subject), strings.TrimSpace(operation.Object)
-		relation := types.RelationForClaimForm(types.ClaimFormOf(operation))
+		relation := diagramRequestedEvidenceRelation(operation)
 		if operation.AnchorKind == types.AnchorAssignment || operation.AnchorKind == types.AnchorInitializer {
 			receiver, value, ok := types.AssignmentEvidenceEndpoints(operation)
 			if !ok {
@@ -2321,6 +2322,7 @@ func DiagramParticipantCoverageMismatchesWithRuntimeContext(
 		return nil
 	}
 	evidence = DiagramEvidenceForValidation(ctx, doc, view, evidence)
+	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
 	return DiagramParticipantCoverageMismatches(
 		doc, view, ctx.AnalysisIR.RequestModel, evidence,
 		diagramVerifiedReadModeStagePrecedence(ctx, view)...,

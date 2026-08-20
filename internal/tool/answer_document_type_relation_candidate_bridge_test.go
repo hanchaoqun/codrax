@@ -33,6 +33,23 @@ func typedRelationBridgeTestDocument(from, to string) *types.AnswerDocumentV2 {
 	}}}
 }
 
+func typedRelationBridgeLabeledDocument(from, to string) *types.AnswerDocumentV2 {
+	return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "type-relations",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind:     types.DiagramArchitecture,
+			Language: "mermaid",
+			Body: "flowchart TD\n  A[\"" + from + "\"]\n  B[\"" + to +
+				"\"]\n  A --> B",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: from, ToIdentity: to,
+			RelationKind: types.DiagramRelTypeRelation,
+		}},
+	}}}
+}
+
 func exactImplementerCandidate(file string) types.TypedRelationCandidate {
 	return types.TypedRelationCandidate{
 		Relation:   types.TypedRelationImplements,
@@ -213,13 +230,93 @@ func TestPreEmitEvidenceWithExactTypedDiagramRelations_CrossLanguageCarrierIsExt
 		t.Run(file, func(t *testing.T) {
 			candidate := exactImplementerCandidate(file)
 			ctx := typedRelationBridgeTestContext(candidate)
-			doc := typedRelationBridgeTestDocument("analyzerEvaluator", "LoopController")
+			doc := typedRelationBridgeLabeledDocument("analyzerEvaluator", "LoopController")
 			rows := preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, nil)
 			if len(rows) != 1 || !types.IsRepoMapTypeRelationEvidence(rows[0]) ||
 				rows[0].Subject != "analyzerEvaluator" || rows[0].Object != "LoopController" || !rows[0].IsCitable() {
 				t.Fatalf("file %q did not produce one exact cross-language type relation: %+v", file, rows)
 			}
 		})
+	}
+}
+
+func TestDiagramParticipantCoverage_ExactTypedRelationProviderIsSharedAcrossLanguagesAndPasses(t *testing.T) {
+	files := []string{
+		"controller.go",
+		"src/Controller.java",
+		"src/Controller.kt",
+		"src/controller.ets",
+		"src/controller.cj",
+		"include/controller.hpp",
+		"src/controller.rs",
+	}
+	for _, file := range files {
+		t.Run(file, func(t *testing.T) {
+			ctx := typedRelationBridgeTestContext(exactImplementerCandidate(file))
+			rm := ctx.AnalysisIR.RequestModel
+			rm.Intent = types.IntentExplain
+			rm.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramArchitecture, Required: true,
+				Participants: []types.DiagramParticipantHint{{
+					Identity: "LoopController", Role: types.DiagramParticipantIncidentRequired,
+				}},
+			}
+			ctx.AnalysisIR.RequestModel = rm
+			view := &types.AnswerSemanticView{
+				Family: types.QFGeneric, RelationAxis: types.AxisImplement,
+				DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+				DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+			}
+			doc := typedRelationBridgeLabeledDocument("analyzerEvaluator", "LoopController")
+
+			if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil); len(got) != 0 {
+				t.Fatalf("post-finalizer participant gate rejected exact provider relation for %q: %+v", file, got)
+			}
+			if hints := preCheckDiagramParticipantCoverage(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+				t.Fatalf("pre-emit participant gate rejected exact provider relation for %q: %+v", file, hints)
+			}
+		})
+	}
+}
+
+func TestDiagramParticipantCoverage_ExactTypedRelationRemainsDirectionalAndExact(t *testing.T) {
+	base := exactImplementerCandidate("internal/agent/analyzer.go")
+	build := func(candidate types.TypedRelationCandidate, from, to string) (*types.BusContext, *types.AnswerDocumentV2, *types.AnswerSemanticView) {
+		ctx := typedRelationBridgeTestContext(candidate)
+		rm := ctx.AnalysisIR.RequestModel
+		rm.Intent = types.IntentExplain
+		rm.DiagramHint = &types.DiagramHint{
+			Kind: types.DiagramArchitecture, Required: true,
+			Participants: []types.DiagramParticipantHint{{
+				Identity: "LoopController", Role: types.DiagramParticipantIncidentRequired,
+			}},
+		}
+		ctx.AnalysisIR.RequestModel = rm
+		return ctx, typedRelationBridgeLabeledDocument(from, to), &types.AnswerSemanticView{
+			Family: types.QFGeneric, RelationAxis: types.AxisImplement,
+			DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+			DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...),
+		}
+	}
+
+	nameOnly := base
+	nameOnly.Precision = types.TypedRelationPrecisionNameOnly
+	ctx, doc, view := build(nameOnly, "analyzerEvaluator", "LoopController")
+	if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil); len(got) != 1 ||
+		got[0].Issue != DiagramParticipantCoverageMissingBoundary {
+		t.Fatalf("name-only relation must not satisfy participant authority: %+v", got)
+	}
+
+	ctx, doc, view = build(base, "LoopController", "analyzerEvaluator")
+	if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil); len(got) == 0 {
+		t.Fatalf("reverse relation must not satisfy participant authority: %+v", got)
+	}
+
+	unrelated := base
+	unrelated.SourceName = "OtherController"
+	ctx, doc, view = build(unrelated, "analyzerEvaluator", "LoopController")
+	if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, nil); len(got) == 0 {
+		t.Fatalf("unrelated exact target must not satisfy request-scoped participant authority: %+v", got)
 	}
 }
 

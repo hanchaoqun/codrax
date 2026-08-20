@@ -127,12 +127,14 @@ func buildFlowParticipantRelationScope(
 		participantPrincipalComponentCovered: make([]bool, len(participants)),
 		participantLocalOperation:            make([]bool, len(participants)),
 	}
-	// Requested-relation coverage is principal answer-path authority. Keep it
-	// on the operations the Explorer explicitly selected for this
-	// investigation; repo-wide/parser expansions remain valid background facts
-	// but cannot independently connect requested participants merely because a
-	// file path or broad owner happens to share a participant name.
-	operations := types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)
+	// Requested-relation coverage is principal answer-path authority. Ordinary
+	// flow operations stay on the rows the Explorer explicitly selected for
+	// this investigation. Exact request-scoped parser type relations share the
+	// same lane because the regular diagram edge gate already treats those rows
+	// as hard authority; excluding them here creates an impossible contract in
+	// which one validator accepts a model-authored relation and participant
+	// coverage simultaneously requires an unproven boundary for that relation.
+	operations := diagramRequestedRelationEvidenceForRequest(evidence, rm)
 	scope.operationRelevant = make([]bool, len(operations))
 	if len(participants) == 0 {
 		return scope
@@ -432,6 +434,91 @@ func buildFlowParticipantRelationScope(
 		}
 	}
 	return scope
+}
+
+// diagramRequestedRelationEvidenceForRequest is the single typed evidence
+// lane shared by participant coverage, component checks, and repair guidance.
+// It does not inspect request prose or diagram text and never creates an edge.
+//
+// General operations remain Explorer-selected. The only deterministic rows
+// admitted in addition are exact, citable repo-map type relationships whose
+// typed relation family and target are selected by the current RequestModel.
+// Name-only/heuristic rows, unrelated targets, and unsupported relation kinds
+// remain unable to satisfy a hard gate.
+func diagramRequestedRelationEvidenceForRequest(evidence []types.EvidenceItem, rm types.RequestModel) []types.EvidenceItem {
+	out := append([]types.EvidenceItem(nil), types.ExplorerAuthoredFlowOperationEvidenceForRequest(evidence, rm)...)
+	query := types.BuildTypedRelationQuery(rm, types.TypedRelationPurposeCoverageGate, 0)
+	if len(query.Kinds) == 0 || len(query.Sources) == 0 {
+		return out
+	}
+	seen := make(map[string]bool, len(out)+len(evidence))
+	for _, item := range out {
+		seen[diagramRequestedRelationEvidenceKey(item)] = true
+	}
+	for _, item := range evidence {
+		kind, ok := diagramRepoMapTypeRelationKind(item)
+		if !ok || !item.IsCitable() || !query.AllowsKind(kind) ||
+			!diagramTypedRelationTargetMatchesQuery(item.Object, query.Sources) {
+			continue
+		}
+		key := diagramRequestedRelationEvidenceKey(item)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func diagramRepoMapTypeRelationKind(item types.EvidenceItem) (types.TypedRelationKind, bool) {
+	if !types.IsRepoMapTypeRelationEvidence(item) {
+		return "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(item.Predicate)) {
+	case "implements", "implementation":
+		return types.TypedRelationImplements, true
+	case "inheritance", "extends", "embedding":
+		return types.TypedRelationExtends, true
+	case "overrides":
+		return types.TypedRelationOverrides, true
+	default:
+		return "", false
+	}
+}
+
+func diagramTypedRelationTargetMatchesQuery(target string, sources []string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	for _, source := range sources {
+		if strings.EqualFold(target, strings.TrimSpace(source)) ||
+			types.AnswerCodeIdentitySurfacesEquivalent(target, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramRequestedRelationEvidenceKey(item types.EvidenceItem) string {
+	if id := strings.TrimSpace(item.ID); id != "" {
+		return "id\x00" + id
+	}
+	return strings.ToLower(strings.Join([]string{
+		strings.TrimSpace(item.Producer),
+		strings.TrimSpace(item.Subject),
+		strings.TrimSpace(item.Predicate),
+		strings.TrimSpace(item.Object),
+		strings.TrimSpace(item.Source),
+	}, "\x00"))
+}
+
+func diagramRequestedEvidenceRelation(item types.EvidenceItem) types.DiagramRelationKind {
+	if _, ok := diagramRepoMapTypeRelationKind(item); ok {
+		return types.DiagramRelTypeRelation
+	}
+	return types.RelationForClaimForm(types.ClaimFormOf(item))
 }
 
 func flowRelationOperationCallableEndpoints(operation types.EvidenceItem) (bool, bool) {
