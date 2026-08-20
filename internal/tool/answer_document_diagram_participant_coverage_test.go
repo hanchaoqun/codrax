@@ -1002,6 +1002,38 @@ func TestDiagramParticipantCoverageRejectsRequestedParticipantOnNonincidentCandi
 	}
 }
 
+func TestDiagramParticipantCoverageRejectsRepeatedPairRetargetPerOccurrence(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n Extractor --> Mutable\n Extractor --> Mutable"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "Extractor", ToNode: "Mutable", FromIdentity: "Orchestrator.hasReusableTurnBSlateForFinalize", ToIdentity: "o.busCtx.Mutable.EmittedAnswerSymbols", RelationKind: types.DiagramRelCall},
+		{FromNode: "Extractor", ToNode: "Mutable", FromIdentity: "Orchestrator.hasReusableTurnBSlateForFinalize", ToIdentity: "o.busCtx.Mutable.EmittedHypothesisVerdicts", RelationKind: types.DiagramRelCall},
+	}
+	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+		Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven,
+	}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Orchestrator.hasReusableTurnBSlateForFinalize", "o.busCtx.Mutable.EmittedAnswerSymbols"),
+		diagramEvidenceTestCall("Orchestrator.hasReusableTurnBSlateForFinalize", "o.busCtx.Mutable.EmittedHypothesisVerdicts"),
+	}
+
+	found := false
+	for _, mismatch := range DiagramParticipantCoverageMismatches(doc, view, rm, evidence) {
+		if mismatch.BlockID == "flow" && mismatch.Participant == "Extractor" &&
+			mismatch.Issue == DiagramParticipantCoverageEndpointRetargeted {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("distinct typed operations collapsed onto one repeated business pair must not bypass endpoint incidence")
+	}
+}
+
 func TestDiagramParticipantEndpointRetargetGuidanceNamesOnlyConflictingLocalEdge(t *testing.T) {
 	rm, _, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{

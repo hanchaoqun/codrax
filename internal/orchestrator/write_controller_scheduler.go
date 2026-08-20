@@ -348,7 +348,16 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 					plan = priorPlan
 				}
 			}
-			if plan != nil {
+			// A planner candidate becomes workflow authority only after the
+			// bounded planning lane accepts it. Previously an emit-time rejection
+			// (for example, a candidate that weakened a protected regression
+			// contract) was stamped as a completed plan attempt before innerErr was
+			// handled. That displaced the actually applied plan on the durable run
+			// and made terminal reports follow rejected bytes. The dry-run sentinel
+			// is the sole non-nil error that intentionally reuses an accepted prior
+			// plan.
+			planAccepted := innerErr == nil || errors.Is(innerErr, errPlannerProbePassedExistingWorktree)
+			if planAccepted && plan != nil {
 				o.stampWorkflowPlanForActiveBatch(plan, &run)
 				updateWorkflowRunBatchPlan(&run, run.ActiveBatchID, plan, priorPlan)
 				o.stampCumulativeVerificationScope(plan, &run, priorPlan)
@@ -367,6 +376,17 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 			}
 			if innerErr != nil {
 				lastInnerErr = innerErr
+				if replanFromFailedVerify && priorPlan != nil && !errors.Is(innerErr, errPlannerProbePassedExistingWorktree) {
+					// The rejected candidate never governed an apply. Restore the last
+					// applied/verified plan as the mutable authority before persisting
+					// terminal or resumable state. Candidate artifacts remain on disk
+					// for audit, but cannot replace the plan whose bytes are in the
+					// worktree and whose report the final handoff must describe.
+					o.busCtx.Mutable.SetChangePlan(priorPlan)
+					plan = priorPlan
+					appendControllerProgress(&run, run.ActiveBatchID, "rejected_replan_candidate_discarded",
+						"planner candidate failed bounded acceptance; restored the prior applied plan as workflow authority")
+				}
 				if o.completeInterruptedFollowupIfSourceComplete(&run, "plan_batch_followup_unverified", "plan_batch") {
 					return nil
 				}
@@ -4583,6 +4603,38 @@ func (o *Orchestrator) persistWriteFinalReportIfAuditable(run *types.WriteWorkfl
 		return
 	}
 	logging.Info("[orchestrator] WriteFinalReport saved: %s", finalPath)
+	// A resumed REPL turn can have a run-local blob reportDir while the
+	// durable workflow and the governing applied plan live in the canonical
+	// <runtime>/plans tree. Keep the same immutable projection beside that
+	// workflow as well. Otherwise a terminal state is persisted correctly in
+	// the workflow JSON but clients following the original plan ID continue to
+	// read an older in_progress final report. workflowPath is returned by the
+	// typed workflow store; no model-authored path or prose participates.
+	if canonicalDir := writeFinalReportCanonicalPlanDir(workflowPath); canonicalDir != "" &&
+		filepath.Clean(canonicalDir) != filepath.Clean(planDir) {
+		canonicalPath := filepath.Join(canonicalDir, stem+".final.json")
+		if err := types.WriteFinalReportToFile(&final, canonicalPath); err != nil {
+			logging.Warning("[orchestrator] canonical write final report persist failed: %v", err)
+		} else {
+			logging.Info("[orchestrator] WriteFinalReport saved: %s", canonicalPath)
+		}
+	}
+}
+
+func writeFinalReportCanonicalPlanDir(workflowPath string) string {
+	workflowPath = strings.TrimSpace(workflowPath)
+	if workflowPath == "" {
+		return ""
+	}
+	workflowDir := filepath.Dir(filepath.Clean(workflowPath))
+	if filepath.Base(workflowDir) != "workflows" {
+		return ""
+	}
+	planDir := filepath.Dir(workflowDir)
+	if planDir == "." || planDir == string(filepath.Separator) {
+		return ""
+	}
+	return planDir
 }
 
 func writeWorkflowRunHasAuditableFinalReportState(run *types.WriteWorkflowRun, plan *types.ChangePlan, report *types.ChangeReport) bool {

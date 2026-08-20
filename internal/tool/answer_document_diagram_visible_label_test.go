@@ -62,6 +62,23 @@ func TestDiagramVisibleLabelConsistencyAcceptsExactModelAuthoredWording(t *testi
 	}
 }
 
+func TestDiagramVisibleLabelConsistencyAcceptsRenderabilityQuotedWording(t *testing.T) {
+	for _, body := range []string{
+		`flowchart TD
+  A -->|"调用业务能力"| B`,
+		`flowchart TD
+  A -->|'调用业务能力'| B`,
+	} {
+		doc := diagramVisibleLabelTestDocument(types.DiagramArchitecture, body, "调用业务能力")
+		if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(hints) != 0 {
+			t.Fatalf("Mermaid syntax quotes must not change visible-label identity: %+v", hints)
+		}
+		if doc.Blocks[0].EdgeAnchors[0].VisibleLabel != "调用业务能力" || doc.Blocks[0].Diagram.Body != body {
+			t.Fatalf("comparison must not rewrite either model-authored surface: %+v", doc.Blocks[0])
+		}
+	}
+}
+
 func TestDiagramVisibleLabelConsistencyRejectsRawRelationEnumWithoutChoosingFinalCopy(t *testing.T) {
 	doc := diagramVisibleLabelTestDocument(
 		types.DiagramFlow,

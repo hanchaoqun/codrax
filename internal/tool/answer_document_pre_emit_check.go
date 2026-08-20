@@ -4733,7 +4733,7 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 				if want == "" {
 					continue
 				}
-				got := strings.TrimSpace(edges[i].Label)
+				got := diagramParsedVisibleLabel(edges[i].Label)
 				if got != want {
 					mismatches = append(mismatches, fmt.Sprintf(
 						"%s -> %s occurrence=%d diagram_label=%q visible_label=%q",
@@ -4775,6 +4775,25 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 		})
 	}
 	return hints
+}
+
+// diagramParsedVisibleLabel removes only Mermaid's balanced outer quote
+// delimiters from a parsed flowchart label. The renderability normalizer may
+// turn |reader wording| into |"reader wording"| without changing what the
+// reader sees; comparing the parser's raw syntax bytes to visible_label would
+// otherwise reject two identical model-authored display surfaces and pressure
+// the model to delete useful relationship labels. This is presentation syntax
+// normalization only: it does not translate, invent, or rewrite wording.
+func diagramParsedVisibleLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if len(label) < 2 {
+		return label
+	}
+	if (label[0] == '"' && label[len(label)-1] == '"') ||
+		(label[0] == '\'' && label[len(label)-1] == '\'') {
+		return strings.TrimSpace(label[1 : len(label)-1])
+	}
+	return label
 }
 
 // preCheckStandaloneTypedRelationVisibility keeps a model-authored relation

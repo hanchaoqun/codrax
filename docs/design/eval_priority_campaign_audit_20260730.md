@@ -35649,6 +35649,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1203 r750：关系图标签/重复边权威失配；写安全拒绝终态沿错误计划轴发布（2026-08-19）
+
+1. 在 `main@072ede815` 重建后严格并发恰好两个案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，
+   人工均不能签 pass；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_budget_relation_r750_20260819_manual_audit.md`。
+2. B1202 获生产正证：写工作流超过旧 900 秒阈值后继续到 1202 秒，没有因固定总年龄、4ms/4s 或
+   活跃字节流年龄降级。最终失败是模型连续三轮试图改弱既有五换行回归测试，deterministic
+   protected-test guard 正确拒绝，不是预算终止；因此 1800 秒默认值保留且不降低测试权威。
+3. 代码图暴露两个同根精确合同 gap。其一，Mermaid flowchart 的 `|"label"|`/`|'label'|` 外层引号
+   是展示语法，旧校验却把引号计入 endpoint label identity，正确标签被拒后模型只能删掉全部关系标签。
+   根修只在比较面剥离成对展示定界符，模型原文与图字节不改。其二，同一可见 node pair 对应两条不同
+   exact typed anchor 时，旧 endpoint-retarget 聚合器把它判为冲突并整对跳过，导致两条
+   `Extractor -> Mutable` 伪边逃过；现按同对边出现顺序与同数 typed anchor 一一配对检查，数量不等
+   才回退既有唯一映射逻辑。两项都只消费 parser/typed relation，不扫描请求或答案 prose，不替模型造边。
+4. 人工终稿仍有实质错误：把
+   `Orchestrator.hasReusableTurnBSlateForFinalize -> o.busCtx.Mutable.EmittedAnswerSymbols/HypothesisVerdicts`
+   两条 getter 读取说成 Extractor 向 Mutable 传递；图还重复无标签边并把 unproven boundary 连实。
+   新门会拒绝这类非 incident participant retarget，但不会自行改成“想要的图”；后续生产回放要验证模型
+   是否在 typed 候选内形成业务可读关系。18 轮探索/4 次成文拒绝仍过高，暂不继续堆 prompt 文字。
+5. 写模式新确认 B1203：安全拒绝后的 durable workflow 实际已经是 `blocked`，但 planner 候选在
+   bounded acceptance 返回错误前就被记成 completed plan attempt，覆盖了真正 applied/verify-failed
+   计划；恢复轮又把 final report 写进 turn-local blob，而原计划的 canonical final 仍是旧
+   `in_progress`。这不是“终态没算出”，而是候选接纳顺序与 plan 轴发布断裂。
+6. 根修分两层：只有 `innerErr=nil` 或 typed dry-run reuse sentinel 才允许候选进入 workflow plan authority；
+   失败的 verify-replan 候选保留审计工件，但 Mutable/active batch 恢复 prior applied plan。终态 final
+   report 同时写入当前 reportDir 与由 typed workflow-store path 推导的 canonical `plans/` 目录，确保
+   原 plan ID 的消费者读到同一 blocked/complete 状态。未伪造 verified/accepted_failed，不把失败改绿。
+7. 本批不修改 Trace 查询、投影编译、自动补齐或答案结论。显式时间窗的完整诊断仍保留 Trace 因果投影；
+   主因只能来自 typed on-chain 证据，优先级反转/调度延迟/算力供给/D 状态/IO 等待/确定性语义事件与
+   链上业务线索继续保留；邻近与背景只能支撑额外排查。实际占用与规则计价可消除量双轴均未改变。
+
+状态：
+
+`B1202-WRITEACTIVETIMEBUDGET1=production-positive-r750/no-fixed-age-degrade`；
+`B1203-REJECTEDREPLANCANDIDATEAUTHORITY1=implemented/acceptance-order+pinned`；
+`B1203-TERMINALPLANAXISMIRROR1=implemented/canonical-workflow-path+pinned`；
+`B1204-MERMAIDVISIBLEQUOTELABEL1=implemented/presentation-only-normalization+pinned`；
+`B1205-REPEATEDPAIRENDPOINTRETARGET1=implemented/occurrence-mapping+pinned`；
+`B1201-RELATIONRECIPECHURN1=production-open/replay-after-gates`；
+`active-stream-4ms-degrade=forbidden/production-positive-over-900s`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1202 r749：Trace IO 链保持；写修复活跃重规划被默认预算截断（2026-08-19）
 
 1. 在 `main@772c0ecfc` 重建后严格并发恰好两个案例：

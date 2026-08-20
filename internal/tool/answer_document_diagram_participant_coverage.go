@@ -717,11 +717,33 @@ func diagramParticipantVisibleEndpointRetargetMismatches(
 		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
 		anchors := diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts)
 		typedRelations := diagramTypedAnchorRelationSet(anchors)
-		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+		parsedEdges := mermaidcompat.ParseEdges(block.Diagram.Body)
+		edgeCounts := make(map[string]int, len(parsedEdges))
+		anchorsByPair := make(map[string][]types.DiagramEdgeAnchor)
+		for _, edge := range parsedEdges {
+			edgeCounts[diagramEvidenceEdgeKey(edge.From, edge.To)]++
+		}
+		for _, anchor := range anchors {
+			key := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+			anchorsByPair[key] = append(anchorsByPair[key], anchor)
+		}
+		edgeOccurrence := make(map[string]int, len(edgeCounts))
+		for _, edge := range parsedEdges {
 			if !diagramHasValidTypedRelation(typedRelations[diagramEvidenceEdgeKey(edge.From, edge.To)]) {
 				continue
 			}
-			fromIdentity, toIdentity, present, conflict := diagramEvidenceEdgeIdentityPair(edge.From, edge.To, anchors)
+			key := diagramEvidenceEdgeKey(edge.From, edge.To)
+			occurrence := edgeOccurrence[key]
+			edgeOccurrence[key]++
+			fromIdentity, toIdentity, present, conflict := "", "", false, false
+			pairAnchors := anchorsByPair[key]
+			if len(pairAnchors) == edgeCounts[key] && occurrence < len(pairAnchors) {
+				anchor := pairAnchors[occurrence]
+				fromIdentity, toIdentity = strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(anchor.ToIdentity)
+				present = fromIdentity != "" && toIdentity != "" && anchor.RelationKind.IsValid()
+			} else {
+				fromIdentity, toIdentity, present, conflict = diagramEvidenceEdgeIdentityPair(edge.From, edge.To, anchors)
+			}
 			if !present || conflict || strings.TrimSpace(fromIdentity) == "" || strings.TrimSpace(toIdentity) == "" {
 				continue
 			}

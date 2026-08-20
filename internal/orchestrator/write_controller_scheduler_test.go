@@ -25,6 +25,7 @@ type fakeWorkflowRunStore struct {
 	saveCount int
 	last      *types.WriteWorkflowRun
 	active    *types.WriteWorkflowRun
+	savePath  string
 }
 
 func TestWriteFinalReportProofArtifactsRetainsEarlierAppliedPlanInSameReplanBatch(t *testing.T) {
@@ -86,6 +87,9 @@ func (s *fakeWorkflowRunStore) Save(run *types.WriteWorkflowRun) (string, error)
 	if run != nil {
 		cp := types.CloneWriteWorkflowRun(*run)
 		s.last = &cp
+	}
+	if strings.TrimSpace(s.savePath) != "" {
+		return s.savePath, nil
 	}
 	return "/tmp/" + run.RunID + ".json", nil
 }
@@ -1123,6 +1127,59 @@ func TestPersistWriteWorkflowRunTerminalWritesFinalReport(t *testing.T) {
 		final.ReasoningGraph.WorkflowEventCount == 0 ||
 		final.ReasoningGraph.NodeCount == 0 {
 		t.Fatalf("final reasoning graph summary missing workflow telemetry: %+v", final.ReasoningGraph)
+	}
+}
+
+func TestPersistWriteWorkflowRunMirrorsTerminalReportBesideDurableWorkflow(t *testing.T) {
+	root := t.TempDir()
+	canonicalPlanDir := filepath.Join(root, ".codrax", "plans")
+	workflowPath := filepath.Join(canonicalPlanDir, "workflows", "wf-resumed.json")
+	transientPlanDir := filepath.Join(root, ".codrax", "blob", "turn-2", "plans")
+	mu := types.NewMutableState("resumed terminal report")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:           "plan-applied",
+		Status:       types.PlanStatusVerifyFailed,
+		TargetPaths:  []string{"src/app.py"},
+		AppliedPaths: []string{"src/app.py"},
+	})
+	mu.SetChangeReport(&types.ChangeReport{
+		PlanID:             "plan-applied",
+		Passed:             false,
+		VerificationStatus: types.VerificationStatusFailed,
+		FailureKind:        types.FailureKindTestsFailed,
+	})
+	store := &fakeWorkflowRunStore{savePath: workflowPath}
+	o := &Orchestrator{
+		busCtx:                &types.BusContext{Mutable: mu, WorkDir: filepath.Dir(transientPlanDir), Mode: types.ModeApply},
+		reportDir:             transientPlanDir,
+		writeWorkflowRunStore: store,
+	}
+	run := &types.WriteWorkflowRun{
+		RunID:         "wf-resumed",
+		Status:        types.WriteWorkflowRunBlocked,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID:        "batch-1",
+			Status:    types.WriteWorkflowBatchBlocked,
+			PlanID:    "plan-applied",
+			ApplyRef:  "refs/codrax/applied/plan-applied",
+			VerifyRef: "plan-applied.report.json",
+		}},
+	}
+
+	o.persistWriteWorkflowRun(run)
+
+	for _, path := range []string{
+		filepath.Join(transientPlanDir, "plan-applied.final.json"),
+		filepath.Join(canonicalPlanDir, "plan-applied.final.json"),
+	} {
+		final, err := types.LoadWriteFinalReportFromFile(path)
+		if err != nil {
+			t.Fatalf("LoadWriteFinalReportFromFile(%s): %v", path, err)
+		}
+		if final.RunStatus != types.WriteWorkflowRunBlocked || final.Plan.ID != "plan-applied" {
+			t.Fatalf("terminal projection at %s = status=%q plan=%q", path, final.RunStatus, final.Plan.ID)
+		}
 	}
 }
 
@@ -3299,6 +3356,12 @@ func TestRunWriteControllerWorkflow_BlocksPersistentProtectedRegressionTestWeake
 	}
 	if !workflowProgressHasReason(store.last.ProgressLedger, "protected_test_source_only_replan_requested") {
 		t.Fatalf("workflow should record source-only repair lane request: %+v", store.last.ProgressLedger)
+	}
+	if store.last.Status != types.WriteWorkflowRunBlocked || store.last.Batches[0].Status != types.WriteWorkflowBatchBlocked {
+		t.Fatalf("persistent safety rejection must be terminal, got run=%q batch=%q", store.last.Status, store.last.Batches[0].Status)
+	}
+	if store.last.Batches[0].PlanID != "" || workflowBatchHasAttempt(store.last.Batches[0], "plan", "complete", "", "") {
+		t.Fatalf("rejected planner candidate must not become workflow authority: %+v", store.last.Batches[0])
 	}
 }
 
