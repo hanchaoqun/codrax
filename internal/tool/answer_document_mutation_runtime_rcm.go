@@ -163,8 +163,8 @@ func runtimeTraceProjCompositeValueCaliber(node types.TraceCausalProjectionNode)
 	if strings.TrimSpace(node.Unit) == types.TraceObservationUnitCompositeScore {
 		return true
 	}
-	return node.IsCaliberSideRow() &&
-		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore
+	return tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) == tracequery.CausalCaliberSideCompositeScore &&
+		(node.IsCaliberSideRow() || !runtimeTraceProjFamilyRow(node))
 }
 
 // runtimeTraceProjCountEquivalentValueCaliber is the display-only authority

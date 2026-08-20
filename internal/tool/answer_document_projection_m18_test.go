@@ -92,6 +92,21 @@ func TestM18IOPressureContextProjectionKeepsCompositeValueCaliber(t *testing.T) 
 			t.Fatalf("zh=%v: ordinary wall-clock rows must remain byte-identical:\n%s", zh, fence)
 		}
 
+		overview := runtimeTraceProjElimOverviewFence(projection, model, zh)
+		overviewScore := wantScore
+		if !zh {
+			overviewScore = strings.Replace(overviewScore, ", not wall clock)", ")", 1)
+		}
+		if !strings.Contains(overview, overviewScore) || strings.Contains(overview, "61.540ms") {
+			t.Fatalf("zh=%v: eliminable overview must keep the score on its non-wall-clock sidebar and off every ms lane:\n%s", zh, overview)
+		}
+		if zh && !strings.Contains(overview, "口径旁栏") {
+			t.Fatalf("zh=%v: composite score must remain visible on the calibrated sidebar:\n%s", zh, overview)
+		}
+		if !zh && !strings.Contains(overview, "caliber sidebar") {
+			t.Fatalf("zh=%v: composite score must remain visible on the calibrated sidebar:\n%s", zh, overview)
+		}
+
 		_, rows := runtimeTraceProjDetailTable(model, zh)
 		var pressureCells []string
 		for _, row := range rows {

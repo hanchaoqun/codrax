@@ -51,11 +51,11 @@ package tool
 //	        runtimeTraceProjRowOrdinalChannel; ▒ background NEVER enters —
 //	        基石 C: cross-thread calibers have no defined in-window eliminable
 //	        amount; E30/54.x adversarial forms are structurally unreachable);
-//	口径臂+值形臂  the SHARED registry ruler arm (V2-P0 §6.1 同一实现):
-//	        CausalTokenCaliberSideClass == None on the display token, plus the
-//	        typed ⌗ caliber_side tier guard for stale persisted forms — count
-//	        equivalents and composite scores are footnote material, never
-//	        汇排 members.
+//	口径臂+值形臂  the SHARED non-wall-clock value-caliber arm: typed
+//	        ObservationRecord.Unit, registry token class, family count clamp,
+//	        plus the typed ⌗ caliber_side tier guard for stale persisted forms.
+//	        Count equivalents and composite scores are footnote material,
+//	        never 汇排 members.
 //
 // Wording: the row transcription mints NO new per-row vocabulary — value
 // (verbatim %.3f), channel identity (⛓ 链上/◇ 邻近 — glyph + the existing
@@ -121,6 +121,18 @@ func runtimeTraceProjElimRankItemRow(row runtimeTraceProjTreeRow) bool {
 		return true
 	}
 	return false
+}
+
+// runtimeTraceProjElimCaliberSideRow is the single overview-side boundary
+// between wall-clock values and non-wall-clock/unknown-caliber values. The
+// shared value helper consumes the authoritative Unit as well as registry and
+// family carriers; IsCaliberSideRow retains the fail-closed belt for legacy
+// persisted rows whose exact non-wall-clock class is unavailable. This helper
+// changes display admission only — never rank, tier, channel, or value.
+func runtimeTraceProjElimCaliberSideRow(node types.TraceCausalProjectionNode) bool {
+	return node.IsCaliberSideRow() ||
+		runtimeTraceProjNonWallClockValueCaliber(node) ||
+		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(node.TypeToken)) != tracequery.CausalCaliberSideNone
 }
 
 // runtimeTraceProjElimEligible is the four-arm ◎ admission gate (design §2.2).
@@ -212,8 +224,7 @@ func runtimeTraceProjElimSemanticCensusRow(row runtimeTraceProjTreeRow) bool {
 	if strings.TrimSpace(row.Node.SemanticClass) == "" || runtimeTraceProjElimRankItemRow(row) {
 		return false
 	}
-	if row.Node.IsCaliberSideRow() ||
-		tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+	if runtimeTraceProjElimCaliberSideRow(row.Node) {
 		return false
 	}
 	if runtimeTraceProjNodeDisplayImpact(row.Node) <= 0 {
@@ -229,6 +240,12 @@ func runtimeTraceProjElimSemanticCensusRow(row runtimeTraceProjTreeRow) bool {
 // runtimeTraceProjElimEligibleSansRepresented is the pre-裁定① admission body
 // (every arm except the represented exclusion above).
 func runtimeTraceProjElimEligibleSansRepresented(row runtimeTraceProjTreeRow) bool {
+	// Value caliber outranks every special carriage. In particular, a stale or
+	// future micro-fold marker must never let a composite score/count equivalent
+	// enter the millisecond ruler merely because the fold arm returns early.
+	if runtimeTraceProjElimCaliberSideRow(row.Node) {
+		return false
+	}
 	// RNB-5B 件⑦ (§29.96.2 终判⑦, 2026-07-15): the micro anchored-cut-seat
 	// fold row IS the board representation of its folded ⛓ members (they were
 	// individually eligible before the fold; 零静默消失) — admitted on its
@@ -253,16 +270,6 @@ func runtimeTraceProjElimEligibleSansRepresented(row runtimeTraceProjTreeRow) bo
 	switch runtimeTraceProjRowOrdinalChannel(row) {
 	case runtimeTraceProjOrdinalChannelChain, runtimeTraceProjOrdinalChannelAdjacent:
 	default:
-		return false
-	}
-	// 口径臂 + 值形臂 — ONE shared registry ruler arm (V2-P0 §6.1: count
-	// additivity AND composite scores live on the ⌗ side), plus the typed
-	// caliber_side tier for stale forms minted before the registry knew the
-	// token. Wall-clock rows pass (CausalCaliberSideNone).
-	if row.Node.IsCaliberSideRow() {
-		return false
-	}
-	if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
 		return false
 	}
 	return true
@@ -2334,11 +2341,11 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 				}
 				continue
 			}
-			caliberSide := row.Node.IsCaliberSideRow() ||
-				tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone
+			caliberSide := runtimeTraceProjElimCaliberSideRow(row.Node)
 			if caliberSide && runtimeTraceProjElimRankItemRow(row) {
 				switch runtimeTraceProjRowOrdinalChannel(row) {
-				case runtimeTraceProjOrdinalChannelChain, runtimeTraceProjOrdinalChannelAdjacent:
+				case runtimeTraceProjOrdinalChannelChain, runtimeTraceProjOrdinalChannelAdjacent,
+					runtimeTraceProjOrdinalChannelBackground:
 				default:
 					continue
 				}
@@ -2364,7 +2371,7 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 					// and an unlit mark decouples the 计数当量 wordface from
 					// its legend entry.
 					model.Marks.mark(runtimeTraceProjMarkCaliberSideRow)
-					if tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) == tracequery.CausalCaliberSideCount {
+					if runtimeTraceProjCountEquivalentValueCaliber(row.Node) {
 						model.Marks.mark(runtimeTraceProjMarkFamilyCountEquivalent)
 					}
 					// DISPLAY-WRAP 件④(c) (§29.104.18.1 A6): the value carries
@@ -2374,8 +2381,8 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 					// suffix-free number (the tier itself stays the precise
 					// signal).
 					valueText := fmt.Sprintf("%.3f", value)
-					switch tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) {
-					case tracequery.CausalCaliberSideCount:
+					switch {
+					case runtimeTraceProjCountEquivalentValueCaliber(row.Node):
 						valueText = runtimeTraceProjCountEquivalentValueText(value, zh)
 						if !zh {
 							// 双复核修复 件3 (冷读 CR6, 2026-07-21). EVOLUTION
@@ -2388,7 +2395,7 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 							// changed source form fails open to full bytes).
 							valueText = strings.TrimSuffix(valueText, " (not wall clock)")
 						}
-					case tracequery.CausalCaliberSideCompositeScore:
+					case runtimeTraceProjCompositeValueCaliber(row.Node):
 						valueText = runtimeTraceProjCompositeScoreValueText(value, zh)
 						if !zh {
 							// Same 件3 compression on the composite twin (the
@@ -2468,8 +2475,7 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 			if !row.HasData || row.Node.IsTargetSelfStateRow() || runtimeTraceProjElimRankItemRow(*row) {
 				continue
 			}
-			if row.Node.IsCaliberSideRow() ||
-				tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+			if runtimeTraceProjElimCaliberSideRow(row.Node) {
 				continue
 			}
 			if runtimeTraceProjNodeDisplayImpact(row.Node) <= 0 {
@@ -2618,8 +2624,7 @@ func runtimeTraceProjElimAuxAccountRows(model runtimeTraceProjTreeModel, board [
 			if row.Node.IsTargetSelfStateRow() || runtimeTraceProjElimSemanticCensusRow(row) {
 				continue
 			}
-			if row.Node.IsCaliberSideRow() ||
-				tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+			if runtimeTraceProjElimCaliberSideRow(row.Node) {
 				continue
 			}
 			value := runtimeTraceProjNodeDisplayImpact(row.Node)
@@ -2669,8 +2674,7 @@ func runtimeTraceProjElimBackgroundZoneLines(model runtimeTraceProjTreeModel, zh
 			continue
 		}
 		total++
-		if row.Node.IsCaliberSideRow() ||
-			tracequery.CausalTokenCaliberSideClass(runtimeTraceCausalProjectionCanonicalNode(row.Node.TypeToken)) != tracequery.CausalCaliberSideNone {
+		if runtimeTraceProjElimCaliberSideRow(row.Node) {
 			continue
 		}
 		if runtimeTraceProjNodeDisplayImpact(row.Node) <= 0 {

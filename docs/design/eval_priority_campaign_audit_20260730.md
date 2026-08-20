@@ -56497,3 +56497,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1232 B1226：非墙钟口径统一退出毫秒总览（2026-08-20）
+
+1. r762 的 `7.000(综合评分,非墙钟)` 在树和关键指标表正确，却在 `trace-elim-overview` 背景区变成
+   `7.000ms`。根因不是数据源或模型措辞，而是总览六个消费点仍各自以 `tier/type_token` 判断口径，没有共同消费
+   已落地的 `ObservationRecord.Unit=composite_score`；同一 row 因而在不同系统面获得冲突单位。
+2. 本批新增总览唯一口径边界：显式 typed Unit、共享 token registry、family count clamp 与 legacy
+   `caliber_side` tier 任一证明非墙钟/未知口径，该 row 就不得进入毫秒排行、语义 census、邻近最大、未计价占用或
+   背景窗内投影候选。micro-fold 等早返回载体也先过同一边界，未来新 carriage 不能再次绕过。
+3. 被排除不等于消失：综合评分和计数当量进入已有“口径旁栏”，继续显示数值、类别、主体和 E#，背景区保留总行数
+   并诚实写“无窗内投影值”。旁栏值形也改为消费同一 composite/count helper，因此 typed
+   `Unit=composite_score` 正确显示 `7.000(综合评分,非墙钟)`，不再靠 type token 恢复单位。
+4. 回归同时发现并保留 `block_io_by_inode` 的双形语义：独立旧口径行以 registry token 兼容综合评分；带明确
+   family fold 的 inode 成员合计仍是可审计墙钟时长，继续显示 `合计Xms/成员最大Xms`。判定因此采用“显式 Unit
+   优先；旧 token 仅在非时长聚合族或既有口径席生效”，没有把合法时长误改成分数。
+5. 中英文 pin 覆盖 io_pressure 背景综合评分：旁栏必须保留分数，整个总览不得出现同值 `ms`；既有全部
+   elim/RCM2 形回归通过。`go test ./internal/types ./internal/tracequery` 全绿（27.217s/76.784s），最终
+   `go test ./internal/tool -count=1` 全绿（176.420s）。
+6. 所有改动仅影响系统自有显示准入和值形，不改 projection 原始节点、rank/tier/channel、根因排序、墙钟值、模型
+   正文或结论；不扫描用户输入、模型输出或 Mermaid 文案。显式窗、链上-only 主因、实际占时/现规则可消双轴、
+   因果投影、自动补齐和活跃流判定均保持不变。
+
+状态：
+
+`B1226-TRACEPRESSUREFAKEUNIT1=implemented/full-relevant-pass`；
+`elim-non-wall-clock-authority=typed-unit+registry+family-clamp+legacy-tier`；
+`composite/count-in-ms-lanes=forbidden/pinned`；
+`caliber-value=visible-on-sidebar/not-dropped`；
+`block-io-family-wall-clock-form=preserved/pinned`；
+`B1225-FLOWSPINEDISCLOSURE1=confirmed/P1-next`；
+`request/model/final-prose/mermaid-text-scan-or-rewrite=none`；
+`model-wording/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
