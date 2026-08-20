@@ -55897,3 +55897,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1216 r756：读者语言修复获生产正证；局部关系与未证边界被错误二选一（2026-08-19）
+
+1. 在 `main@4656bc82b` 重建后严格并发恰好两个异构案例：
+   `qf_logic_view_read_pipeline + trace_query_wakeup_causal_io_chain`。Runner `2 PASS / 0 FAIL`，人工为
+   `1 pass / 1 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_reader_authority_relation_r756_20260819_manual_audit.md`。
+2. Trace 案例完整保留显式窗 2.000000..2.020000、已证链
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、链上 D/IO 11.000ms 首席、三个 runnable
+   各 1.000ms 的调度供给车道，以及目标自身 20.000ms S 态症状。IO 与调度方向没有跨车道相加，目标
+   S 态零 iowait 也没有否定上游链上 IO。模型正文不再复制 `status=complete`、
+   `state_partition_coverage`、`io_wait_caliber`，完整目标等待/状态权威只发布一次且使用读者语言，B1215
+   获生产正证；因果投影与自动补齐均在，系统没有改写模型结论。
+3. 源码逻辑图机器 PASS 但人工 partial。四阶段职责与
+   `Analyzer -> Explorer -> Extractor -> Finalizer` 顺序正确；模型第一稿也主动画了
+   `Orchestrator -> Mutable` 与调度边。关系 gate 正确拒绝这些无 sibling anchor 的可见边，不能为图完整性
+   放松。但修补提示只发布 BusContext 的 request-scoped `o.busCtx -> BuildAgentContext` 候选；已经在证据池
+   中的 `runTaskGraph -> o.busCtx.Mutable.SetResult` 与
+   `hasReusableTurnBSlateForFinalize -> o.busCtx.Mutable.EmittedAnswerSymbols` 被归为 local-only 后没有成为
+   可选修补候选。模型只能删掉 Mutable 局部边，终稿中 Mutable 成为无箭头孤岛。
+4. 这是既有 B1208 的生产复现，不是“模型没有探索”：Explorer 共 20 轮、10 次读取，完成门三次要求补
+   participant flow；40 条证据和最终 copy-ready relation capsule 已包含 Mutable 的真实局部调用边。系统的
+   语义文字本身也允许“局部 typed 操作与未证请求关系边界并存”，但 candidate producer 在多参与者未连通
+   时整体返回空，形成上下文自相矛盾。最优修复是同源发布 bounded `local_operation_candidate`，明确
+   `requested_relation_closure=unproven`、`retain_participant_boundary=true`；它只让模型选择并表示已有局部边，
+   不使该边满足完整请求关系，也不选择节点、标签、方向或结论。
+5. 同批观察 P2 展示残余：系统追加的 Trace 因果投影/对账附录仍含少量 `typed`、`口径`、内部图例式
+   词汇。它没有进入模型首段结论，且不影响链上选举或数值，但仍应在后续按结构化 renderer 做读者语言
+   收敛；不得扫描或改写模型正文，也不能因此删除诊断细节。
+6. 本轮无固定年龄降级。345 秒与 209 秒两路均按活跃字节流正常完成；没有 4ms、4m 或累计时长降级。
+   下一批先施工 B1208 的 local-candidate/boundary 正交化并补 first-pass + patch delta pin，再以恰好两个
+   异构案例回放。Trace 显式窗、因果投影、自动补齐、链上-only 主因、实际占用/规则计价双轴保持不变。
+
+状态：
+
+`B1215-SYSTEMSUPPLEMENTBUSINESSLANGUAGE1=production-positive-r756`；
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=production-reconfirmed/local-candidate-boundary-orthogonality-next`；
+`B1217-TRACEAPPENDIXREADERLANGUAGE1=observed/P2`；
+`active-stream-4ms-degrade=forbidden/production-positive-345s+209s`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r756`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
