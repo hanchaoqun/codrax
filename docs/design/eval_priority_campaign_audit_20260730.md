@@ -56763,3 +56763,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1239 r765：B1229 生产闭环；技术端点可被错绑到语义节点（2026-08-20）
+
+1. 以 `faf013ee3` 构建快照严格并发 2 路回放：Trace 用例 151s、人工通过；关系用例 307s、人工不通过。
+   两者 runner 均 PASS，活跃期间没有因 4ms、4m、首字节、stall 或累计年龄降级。
+2. B1229 生产验证成立：关系用例只运行一个 Explorer；第 17 轮首次形成稳定的 `Mutable` relation-only blocker，模型执行
+   一次聚焦补证后第 20 轮再次完成，系统携带未证 caveat 正常闭环，没有像 r764 一样重启第二 Explorer。相对 r764，
+   总时长 449→307s、read 12→10、repo_map 5→4、midloop 12→8；这是 typed 收敛改善，不是降低全局预算。
+3. Trace 防回归继续完整：显式窗、四节点唤醒链、11.000ms IO 主因、三项链上调度供给、实际占时/现规则可消双轴、
+   Trace 因果投影、自动补齐与背景不夺冠均保留；综合评分继续显示为非墙钟。
+4. 新确认 `B1230-ENDPOINTNODEIDENTITYRETARGET1/P0`：最终 diagram 的 edge anchor 保留精确
+   `from_identity=o.busCtx,to_identity=ctxbuilder.BuildAgentContext,relation_kind=argument_flow`，但 `from_node` 指向嵌在
+   BusContext group 内的 `Mutable` 节点。现有校验验证技术 identity 和关系类型，却允许该 identity 被重定向到语义不同的
+   participant node；读者因此看到“Mutable 作为参数传递”，而源码第 15 行实际传入的是 BusContext。
+5. 该问题不能靠扫描标签或正文修复。最优根修应在 typed candidate 已声明 participant endpoint side/node 时，对
+   edge anchor 的节点归属做精确约束：`o.busCtx` 只能映射到其已声明的 BusContext participant 节点，技术端点仍保留在
+   anchor；若模型要展示 Mutable，只能使用独立已证的 Mutable operation，或保留未证边界。group containment 不得使父子
+   participant identity 可互换。修复只拒绝错绑，不替模型改 node、边、标签或答案。
+6. 正文仍有两个语义质量项：把 `Emitted*` getter 说成 extractor 写入；把 `finalizePreviewHook.extractor`
+   （`llm.SummaryExtractor`）误当成 pipeline extractor 输入。前者说明 B1228 只压缩 aggregate 嘈声仍不足，后者是同名字段
+   与 requested participant 的角色混淆。先修 B1230 的精确结构漏洞，再从 typed owner/role handoff 统一收窄上下文，不做
+   文本关键词门或成文改写。
+
+状态：
+
+`r765=runner-pass-2/2/human-pass-1/2`；
+`B1229-RELATIONINVESTIGATIONCHURN1=production-closed`；
+`B1230-ENDPOINTNODEIDENTITYRETARGET1=confirmed/P0-next`；
+`B1228-RELATIONSEMANTICDRIFT1=production-partial/open-owner-role`；
+`typed-endpoint!=arbitrary-visible-node`；`group-containment!=identity-equivalence`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r765`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r765`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
