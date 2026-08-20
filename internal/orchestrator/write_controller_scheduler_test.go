@@ -7922,6 +7922,49 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 		t.Fatalf("exact successful runner escalation still vetoed closed proof: got=%+v want=%+v", got, passed)
 	}
 
+	// A bounded proof probe does not need to repeat contracts already observed
+	// by exact project-test receipts in the same verifier generation. The
+	// missing probe-ref record is resolved by the matching typed project receipt,
+	// while an unrelated receipt remains unable to close it.
+	mixedPlan := &types.ChangePlan{
+		ID: "plan-proof-mixed", Status: types.PlanStatusApplied,
+		BehaviorContracts: []types.WriteBehaviorContract{
+			{ID: "outcome-project", Kind: types.WriteBehaviorObservable, Polarity: types.WriteBehaviorPolarityExpected,
+				Operator: types.WriteBehaviorOpSatisfies, Expected: "project assertion observes outcome", Required: true},
+			{ID: "outcome-probe", Kind: types.WriteBehaviorObservable, Polarity: types.WriteBehaviorPolarityExpected,
+				Operator: types.WriteBehaviorOpSatisfies, Expected: "probe observes fallback", Required: true},
+		},
+		VerificationProbes: []types.VerificationProbe{{ID: "required-probe", Language: "python", Code: "assert True",
+			ContractRefs: []string{"outcome-probe"}}},
+	}
+	mixedReport := &types.ChangeReport{
+		PlanID: mixedPlan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, AssertionID: "project-case", Suite: "pkg/project", Passed: true},
+			{Kind: types.TestResultKindUnit, AssertionID: "required-probe", Suite: "verification_probe/python", Passed: true},
+		},
+		ExecutedCommands: []types.ExecutedCommand{
+			{Runner: "python", Suite: "pkg/project", Outcome: "executed", Source: "declared_coverage_test_surface"},
+			{Runner: "verification_probe", Framework: "python", Command: "python -c <verification_probe:required-probe>",
+				Outcome: "executed", Source: "pre_suite_verification_probe"},
+		},
+		VerificationConfidence: []types.VerificationConfidenceRecord{
+			{Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
+				ReasonCode: "project_test_contract_ref_observed", ContractRefs: []string{"outcome-project"}},
+			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "missing",
+				ReasonCode: "verification_probe_missing_soft_contract_ref", ContractRefs: []string{"outcome-project"}},
+			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "satisfied",
+				ReasonCode: "verification_probe_soft_contract_ref_covered", ContractRefs: []string{"outcome-probe"}},
+		},
+	}
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, mixedPlan, mixedReport, passed); got != passed {
+		t.Fatalf("same-generation exact project receipt did not close mixed proof: got=%+v want=%+v", got, passed)
+	}
+	mixedReport.VerificationConfidence[0].ContractRefs = []string{"different-outcome"}
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, mixedPlan, mixedReport, passed); got.Kind != writeflow.VerifyOutcomeVerificationIncomplete {
+		t.Fatalf("unrelated project receipt laundered a missing probe contract: %+v", got)
+	}
+
 	strongReport := &types.ChangeReport{
 		PlanID:             "plan-proof",
 		Passed:             true,

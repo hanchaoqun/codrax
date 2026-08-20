@@ -220,6 +220,15 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 			}
 		}
 	}
+	// One verifier generation may legitimately split exact proof across
+	// independent typed carriers: for example a bounded probe observes one
+	// fallback-only outcome while exact project-test receipts observe the
+	// remaining contracts. Resolve confidence warnings against the complete
+	// report-local typed receipt set before assigning proof strength, just as
+	// the cumulative multi-report path does later. This never promotes an
+	// aggregate green suite: every missing ref must be closed by the same exact
+	// contract/symbol ref in a satisfied confidence record.
+	out.ReasonCodes = cumulativeVerificationProofReasonCodes(out.ReasonCodes, report.VerificationConfidence)
 	switch status {
 	case VerificationStatusFailed:
 		out.Status = VerificationProofFailed

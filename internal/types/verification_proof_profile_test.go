@@ -145,6 +145,55 @@ func TestBuildVerificationProofLedgerResolvesExactProjectTestContractReceipt(t *
 	}
 }
 
+func TestBuildVerificationProofProfileSingleReportResolvesProbeMissingRefWithExactProjectReceipt(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-mixed-contract-proof",
+		BehaviorContracts: []WriteBehaviorContract{
+			{ID: "outcome-project", Kind: WriteBehaviorObservable, Polarity: WriteBehaviorPolarityExpected,
+				Operator: WriteBehaviorOpSatisfies, Expected: "project test observes behavior", Required: true},
+			{ID: "outcome-probe", Kind: WriteBehaviorObservable, Polarity: WriteBehaviorPolarityExpected,
+				Operator: WriteBehaviorOpSatisfies, Expected: "probe observes fallback", Required: true},
+		},
+	}
+	report := &ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
+		TestResults: []TestResult{
+			{AssertionID: "project-case", Suite: "pkg/project", Passed: true},
+			{AssertionID: "probe-case", Suite: "verification_probe/python", Passed: true},
+		},
+		ExecutedCommands: []ExecutedCommand{
+			{Runner: "python", Suite: "pkg/project", Outcome: "executed", Source: "declared_coverage_test_surface"},
+			{Runner: "verification_probe", Suite: "verification_probe/python", Outcome: "executed", Source: "pre_suite_verification_probe"},
+		},
+		VerificationConfidence: []VerificationConfidenceRecord{
+			{Source: "project_test_observation", Category: "project_test_contract_refs", Status: "satisfied",
+				ReasonCode: "project_test_contract_ref_observed", ContractRefs: []string{"outcome-project"}},
+			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "missing",
+				ReasonCode: "verification_probe_missing_soft_contract_ref", ContractRefs: []string{"outcome-project"}},
+			{Source: "verification_probe", Category: "probe_soft_contract_refs", Status: "satisfied",
+				ReasonCode: "verification_probe_soft_contract_ref_covered", ContractRefs: []string{"outcome-probe"}},
+		},
+	}
+
+	profile := BuildVerificationProofProfile(plan, report)
+	if profile.Status != VerificationProofStrong ||
+		verificationProofHasReason(profile, "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("exact report-local project receipt did not resolve the probe-only missing ref: %+v", profile)
+	}
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 ||
+		ledger.UnavailableCount != 0 || ledger.FailedCount != 0 {
+		t.Fatalf("closed report-local mixed proof did not produce a verified ledger: %+v", ledger)
+	}
+
+	report.VerificationConfidence[0].ContractRefs = []string{"different-outcome"}
+	profile = BuildVerificationProofProfile(plan, report)
+	if profile.Status != VerificationProofWeak ||
+		!verificationProofHasReason(profile, "verification_probe_missing_soft_contract_ref") {
+		t.Fatalf("unrelated project receipt must not resolve the exact missing ref: %+v", profile)
+	}
+}
+
 func TestBuildVerificationProofProfileTargetBehaviorDoesNotBlanketSignContracts(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-behavior",

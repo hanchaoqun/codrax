@@ -55643,3 +55643,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1210 r752：精确类型关系双门自冲突与单报告 proof 假阴性（2026-08-19）
+
+1. 在 `main@d910af76d` 重建后严格并发恰好两个案例：
+   `qf_type_relation_loop_controller + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`，
+   人工为 `1 fail / 1 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_probe_type_relation_r752_20260819_manual_audit.md`。
+2. 类型关系 Runner PASS 是假阳性。Analyzer/repo-map 已精确给出 12 条生产实现关系，首版 answer_document
+   也逐条画出 `member -> LoopController` 并携带 `relation_kind=type_relation` 与 exact identities。普通关系门
+   通过 `preEmitEvidenceWithExactTypedDiagramRelations` 重新查询 coverage-gate provider，因此全部接受；参与者
+   完备性门却只读取 `ExplorerAuthoredFlowOperationEvidenceForRequest`，把唯一 typed participant
+   `LoopController` 判为未证。模型被迫在“必须加 boundary”和“可见关系存在时 boundary 必须删除”之间
+   循环 4 次，最终删除全部 12 条关系，只留下节点清单。确认 B1209：这是同一证据池双门合同自冲突，
+   不是模型波动。
+3. B1209 根修已提交 `848a0a08a`。参与者覆盖、可见组件、endpoint conflict 与候选提示统一消费同一个
+   request-scoped typed 入口：普通 flow 仍只承认 Explorer 明确选择的操作；额外只允许 citable、repo-map
+   parser-owned、relation kind 被 RequestModel 选择、target 与 typed query source 精确等价的类型关系。
+   该入口不读 request/final/model prose，不按 Mermaid label 猜关系，不选择或生成模型边。
+4. pre-emit 与 post-finalizer 均在同一 seam 注入 exact provider rows；implements/extends/overrides 只映射到
+   typed `type_relation`，方向仍是 member/subtype -> source/interface。name-only、heuristic、反向边、无关
+   target 继续 fail-closed。Go、Java、Kotlin、ArkTS、Cangjie、C/C++、Rust 矩阵以及前后两次实际 gate pin
+   均通过；完整 `go test ./internal/tool -count=1` 通过（178.912s）。
+5. 写案例的实现和测试正确：目标 Python patch 只改 fallback，两个命名回归测试与补证 probe 均通过；
+   最终累计 proof 已是 `strong/cumulative`，5/5 impact target verified。终态仍 unverified 的直接原因是
+   单报告 profile 保留 `verification_probe_missing_soft_contract_ref(outcome-1..4)`，尽管同一 report 的 exact
+   project-test receipt 已覆盖 outcome-1..4，probe 又覆盖 outcome-5。跨报告路径已有同 ref 消解逻辑，
+   单报告路径未调用，形成 B1210；这不是代码失败、测试失败或验证杆不足。
+6. B1210 根修将已有 exact-ref reconciliation 前移到单报告 proof strength 铸造前：probe 可以只验证它负责的
+   fallback outcome，项目断言可独立验证其他 outcome；只有相同 contract_ref 的 satisfied typed receipt
+   能消解 missing，其他 ref、聚合绿测试、命令文本与模型理由均不能。专项 profile/ledger 与 controller
+   proof-followup pin 证明 closed report 回到 verified，unrelated ref 仍为
+   `verification_proof_incomplete`；完整 `internal/types` 与 `internal/orchestrator` 包测试通过。
+7. B1206 本轮没有获得生产正证：新 probe 语法合法，未触发接纳前拒绝；保持 unit-covered/待生产回放，
+   不虚报闭环。另有低一档 B1208 证据/总结精度：终稿称接口方法为 `ShouldContinue`，当前接口证据实际是
+   `Observe`。它不解释系统性删边，本批不按方法名增加答案扫描或硬门，留待异构关系案例复现。
+8. 本批不触碰 Trace、成文结论所有权或流式终止策略。显式时间窗 Trace 因果投影与自动补齐保持；主因
+   仅来自 typed on-chain 证据，邻近/背景只作额外方向；优先级反转、调度延迟/供给、算力供给、D/IO
+   等待、确定性语义事件、链上业务线索，以及实际占用与规则计价可消除量双轴不变。活跃字节流不因
+   4ms、4m 或固定累计年龄降级。
+
+状态：
+
+`B1209-TYPERELATIONPARTICIPANTPARITY1=implemented/commit-848a0a08a/cross-language+pre-post-pins-pass`；
+`B1210-REPORTLOCALPROOFRECONCILE1=implemented/exact-ref-only/types+orchestrator-pins-pass`；
+`B1206-INLINEPROBESYNTAXPREFLIGHT1=unit-covered/production-arm-not-exercised`；
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=open/P2/heterogeneous-replay`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
