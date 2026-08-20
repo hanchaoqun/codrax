@@ -168,6 +168,65 @@ func TestApplyAndPersistMutation_StampsReadOwnerAnchorsFromTurnA(t *testing.T) {
 	}
 }
 
+func TestApplyAndPersistMutation_DocCommentRoleEvidenceDoesNotReplaceDeclarationLocation(t *testing.T) {
+	bus := newBusForMutationTest()
+	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:              "ev-definition",
+				Kind:            types.EvidenceDirect,
+				Source:          "pkg/owner.go",
+				LineStart:       19,
+				LineEnd:         19,
+				Subject:         "Owner",
+				OwnerSymbol:     "Owner",
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Owner",
+				GroundingStatus: types.GroundingGrounded,
+				Scope:           types.ScopeLine,
+			},
+			{
+				ID:              "ev-role-comment",
+				Kind:            types.EvidenceMechanism,
+				Source:          "pkg/owner.go",
+				LineStart:       15,
+				LineEnd:         15,
+				Subject:         "Owner",
+				OwnerSymbol:     "Owner",
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Owner",
+				Producer:        types.EvidenceProducerAutoPairRoleDescription,
+				GroundingStatus: types.GroundingGrounded,
+				Scope:           types.ScopeLine,
+				DerivedFrom:     []string{"ev-definition"},
+			},
+		},
+	})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks:        []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "answer"}},
+	}
+
+	res, err := ApplyAndPersistMutation(bus, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("ToolResult.Success = false: %s", res.Summary)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.ReadOwnerAnchors) != 1 {
+		t.Fatalf("expected only the declaration owner anchor: %+v", got)
+	}
+	anchor := got.ReadOwnerAnchors[0]
+	if anchor.EvidenceRef == nil || anchor.EvidenceRef.ID != "ev-definition" || anchor.EvidenceRef.LineStart != 19 {
+		t.Fatalf("doc-comment line replaced exact declaration location: %+v", anchor)
+	}
+	if got.ReadSourceLocalization == nil || len(got.ReadSourceLocalization.EvidenceRefs) != 2 {
+		t.Fatalf("role-description WHAT evidence should remain in the read ledger: %+v", got.ReadSourceLocalization)
+	}
+}
+
 func TestApplyAndPersistMutation_SoftMixedRuntimeWithSourceProofKeepsSourceAuditSupplements(t *testing.T) {
 	bus := newBusForMutationTest()
 	bus.AttachedLog = "WARN request timed out at artifact line 42"

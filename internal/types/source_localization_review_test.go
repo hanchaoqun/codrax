@@ -81,6 +81,61 @@ func TestSourceLocalizationReviewFromTurnAGroundedEvidenceCreatesOwnerAnchor(t *
 	}
 }
 
+func TestSourceLocalizationReviewFromTurnAAutoPairedRoleDescriptionIsContextNotDeclarationLocation(t *testing.T) {
+	review := SourceLocalizationReviewFromTurnA(
+		nil,
+		[]EvidenceItem{
+			{
+				ID:              "ev-definition",
+				Kind:            EvidenceDirect,
+				Source:          "pkg/owner.go",
+				LineStart:       19,
+				LineEnd:         19,
+				Subject:         "Owner",
+				OwnerSymbol:     "Owner",
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Owner",
+				GroundingStatus: GroundingGrounded,
+				Scope:           ScopeLine,
+			},
+			{
+				ID:              "ev-role-comment",
+				Kind:            EvidenceMechanism,
+				Source:          "pkg/owner.go",
+				LineStart:       15,
+				LineEnd:         15,
+				Subject:         "Owner",
+				OwnerSymbol:     "Owner",
+				AnchorKind:      AnchorDefinition,
+				AnchorSymbol:    "Owner",
+				Producer:        EvidenceProducerAutoPairRoleDescription,
+				GroundingStatus: GroundingGrounded,
+				Scope:           ScopeLine,
+				DerivedFrom:     []string{"ev-definition"},
+			},
+		},
+	)
+
+	definition := sourceLocalizationTestAnchor(review, "pkg/owner.go", SourceLocalizationAnchorGroundedEvidence, SourceLocalizationAnchorOwner)
+	if definition == nil || definition.EvidenceRef == nil || definition.EvidenceRef.ID != "ev-definition" || definition.EvidenceRef.LineStart != 19 {
+		t.Fatalf("exact definition must remain the owner location: %+v", review.Anchors)
+	}
+	for _, anchor := range review.Anchors {
+		if anchor.EvidenceRef != nil && anchor.EvidenceRef.ID == "ev-role-comment" {
+			t.Fatalf("role-description comment must not become a declaration anchor: %+v", anchor)
+		}
+	}
+	seenRoleContext := false
+	for _, ref := range review.EvidenceRefs {
+		if ref.ID == "ev-role-comment" && ref.LineStart == 15 {
+			seenRoleContext = true
+		}
+	}
+	if !seenRoleContext {
+		t.Fatalf("role-description evidence must remain available as WHAT context: %+v", review.EvidenceRefs)
+	}
+}
+
 func TestSourceLocalizationReviewFromTurnAInfersOwnerFromSourcePrefixedSubject(t *testing.T) {
 	review := SourceLocalizationReviewFromTurnA(
 		nil,

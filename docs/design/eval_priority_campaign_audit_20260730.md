@@ -57161,3 +57161,65 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `active-stream-4ms-degrade=forbidden/production-positive-r770`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r770`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.1250 r771：B1235 生产闭环与职责注释冒充声明位置（2026-08-20）
+
+1. 以 `edabab613` 构建快照严格并发恰好 2 路：类型关系 197s、Trace 196s，runner 2/2 PASS；人工为
+   1 pass + 1 partial。两路持续活跃，均未因 4ms、4m、首字节、stall 或累计年龄降级。类型答案完整列出
+   12 个 production implementer 的 exact file:line，Mermaid 有 12 条模型编写的 `implements` 边，无抽象集合
+   boundary 和 raw relation enum。
+2. B1235 获得生产接线正证：Finalizer 初始上下文明确发出“每个成员自己的可见行展示其 exact path/file:line”教学，
+   首稿直接满足；唯一 patch 只给原表补 `member_set` facet，零成文拒绝。说明展示教学、覆盖检查、关系证据门确已共享
+   exact typed relation provider，而非依赖模型偶然输出；系统未建立成员、表格、单元格、节点、边、标签或结论。
+3. Trace 显式 2.000–2.020s 窗、四节点唤醒链、11.000ms 链上 iowait 首因、三个 runnable 调度席、实际占时/
+   规则可消双轴、Trace 因果投影和自动补齐均保留，背景 IO 压力没有越权加冕。模型只在后段业务 prose 中把
+   threadpool 的 11.000ms IO 等待误写为 14.000ms（14ms 是 network sleep）；同页 typed 表正确、r770 无该错，
+   暂按单轮模型波动观察，不新增原文扫描硬门或系统改写。
+4. 新确认 `B1236-ROLECOMMENTDECLARATIONLOCATIONALIAS1`（P1，确定性）：模型、direct definition 证据和真实源码均指向
+   `LoopController` 声明 `internal/agent/agent.go:519`，但系统补充表把 `auto_pair_role_description` 的 doc-comment
+   行 515 发射为“精确位置/已核实归属”。该 producer 的既有类型注释明确规定它只承载职责/WHAT，且“不是第二个声明身份”；
+   通用源码定位层却把所有 LLM-emittable evidence 都提升为 owner anchor，较早注释行因此污染系统确定性表面。
+5. 最优修向冻结：保留 auto-pair 行在 EvidenceRefs 和模型上下文中，禁止它单独铸造 owner/declaration localization anchor；
+   真实声明位置继续由其 `DerivedFrom` 的 definition evidence 提供。判定只读 typed producer，不读用户原文、模型 thinking/
+   正文、Mermaid 标签、列标题或语言关键词，因而同时覆盖 Go、Java、C/C++、Python、ArkTS、Cangjie 等所有提取器。
+
+状态：
+
+`r771=runner-pass-2/2/human-pass-1+partial-1`；
+`B1235=production-closed`；
+`B1236=confirmed/P1-in-progress`；
+`role-description=WHAT-context-only/not-declaration-location`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r771`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`Trace-11-to-14ms=model-variance/observe-no-hard-prose-gate`；
+`active-stream-4ms-degrade=forbidden/production-positive-r771`。
+
+### §123.1251 B1236：职责说明证据与声明位置证据分权（2026-08-20）
+
+1. 根因位于读/写共享的 `SourceLocalizationReviewFromTurnA`：证据先正确保存为 EvidenceRef，随后
+   `sourceLocalizationEvidenceCanAnchorOwner` 却把所有 LLM-emittable evidence 一律提升成定位 anchor。
+   `auto_pair_role_description` 虽由真实 declaration evidence 派生，但其 `LineStart` 有意指向 leading doc comment；
+   因而职责说明行会被错误发射为“精确声明位置”，并可能参与后续 write owner coverage。
+2. 本批只依据 typed `Producer=auto_pair_role_description` 收窄权限：该行继续保留在 EvidenceRefs、职责/WHAT 上下文和
+   grounding ledger 中，但不能创建 owner/supporting declaration localization anchor。原始 direct definition evidence
+   继续提供真实 WHERE；普通 grounded mechanism、relationship、direct evidence 的定位行为完全不变。
+3. 该修复不是针对 Go 行号或 `LoopController` 的特殊拟合，也不解析注释文本、用户问句、模型 thinking/正文、答案表格、
+   Mermaid 标签或语言关键词。auto-pair producer 为语言无关的共享载体，故 Go、Java/Kotlin、C/C++、Rust、Python、ArkTS、
+   Cangjie 等所有支持语言统一获得相同的“职责证据不冒充声明位置”边界。
+4. 新类型层 pin 构造同文件声明行 19 + 职责注释行 15：最终唯一 owner anchor 必须引用 definition 行 19，同时注释行仍须
+   出现在 EvidenceRefs。生产持久化 pin 再穿过 `ApplyAndPersistMutation`，要求 `ReadOwnerAnchors` 只保留 declaration 证据，
+   `ReadSourceLocalization` 仍保留两条证据，防止通过删除 WHAT 上下文换取位置正确。
+5. `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 35.049s、tool 181.094s、agent
+   14.085s）。未修改 Trace 查询/因果选举/投影补齐、窗口统计、JSON/Mermaid 自愈、模型答案或活跃流时限路径。
+
+状态：
+
+`B1236=implemented/full-relevant-pass/pending-production-replay`；
+`auto-paired-role-description=EvidenceRef/WHAT-preserved`；
+`auto-paired-role-description-owner-anchor=forbidden`；
+`exact-declaration-location=origin-definition-evidence`；
+`all-supported-languages=shared-typed-fix`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-degrade=forbidden/unchanged`。

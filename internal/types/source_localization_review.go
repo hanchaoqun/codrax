@@ -647,6 +647,14 @@ func sourceLocalizationAnchorFromEvidence(ev EvidenceItem) (SourceLocalizationAn
 }
 
 func sourceLocalizationEvidenceCanAnchorOwner(ev EvidenceItem) bool {
+	// An auto-paired role description points at the leading documentation
+	// comment, not at the declaration itself. Keep it in EvidenceRefs as WHAT
+	// context, but never promote its comment line into an owner/declaration
+	// localization anchor. The originating definition evidence remains the
+	// precise WHERE identity across every supported source language.
+	if strings.TrimSpace(ev.Producer) == EvidenceProducerAutoPairRoleDescription {
+		return false
+	}
 	if ev.Kind.IsLLMEmittable() {
 		return true
 	}
