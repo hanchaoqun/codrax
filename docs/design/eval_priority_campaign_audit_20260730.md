@@ -57962,3 +57962,67 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1271 r783：原子修补生产命中，但 body-only 坏边与固定操作上限形成不可执行合同（2026-08-20）
+
+1. 以已推送 `c91b0757b` 构建不可变二进制，严格并发恰好 2 路；显式窗 Trace 224s、read 流水线图+表 947s，
+   runner 2/2 PASS，人工均为 partial。两路活动流都由当前模型响应完成，没有因 4ms、4m、首字节、stall 或累计年龄
+   回退旧稿/空答案；read 的主要问题是结构合同无法执行导致 9 次成文拒绝，而不是时间降级。
+2. Trace 的系统精确面继续通过：2.000–2.020s 用户窗、三次 trace_query/自动补采、Trace 因果投影、链上根因排序均在；
+   threadpool-400 的 11.000ms iowait 是链上最大规则可消席，三个 1.000ms runnable 席归调度供给；主要占时与规则可消
+   分账，邻近 sleep 与背景 IO 活动指数没有进入根因排序。
+3. `B1251-RELATIONPATCHATOM1` 生产确实被模型选用，但尚不能关账。首个原子 patch 精确声明 17 个操作：保留/纠正四条
+   typed 边并删除十三条校验器点名的坏边；工具先以隐藏固定上限 `max=16` 拒绝。该上限既未在 schema 中披露，也与当前图
+   的既有边数无关，导致一张正常规模图无法在一次“merged document 必须全量复验”的事务中清完失败集；拆成两次也不可行，
+   因为第一份不完整 patch 仍会被剩余坏边拒绝。
+4. 更根本的新 GAP 为 `B1254-RELATIONATOMBODYPATCH1/P0`：relation validator 会对 Mermaid body 中没有
+   `edge_anchors` 的可见边发布 `missing_call_anchor`，并明确要求模型“correct or remove only the listed edge pairs”；但
+   `diagram_edge_edits.remove/replace/relabel` 的执行器只接受 exact prior anchor，无法选择恰恰缺 anchor 的可见坏边。
+   r783 中 `Orch→Orch`、各 stage self-loop、`Bus→stage` 等删除操作全部因
+   `match did not select ... exact prior anchor` 失败。这是同一结构对象同时“必须删除”又“协议上不可删除”的确定性合同冲突，
+   不是模型波动，也不能通过继续加 retry 教学解决。
+5. 模型随后在原子删除、完整 `replace_blocks`、reply/call 操作符与 relation authority 之间往返；第 10 次 patch 最终以整块
+   diagram replacement 才通过。最终图恢复 Analyze→Explore→Extract→Finalize 三条 typed precedence，且只有一图一表、
+   表头完整，较 r782 恢复了 Extractor/Finalizer；但 Orchestrator/BusContext 交互被删，关系表达缩水，证明 whole-block
+   风险仍存在。B1251 因此只能记 `partial-production-hit/blocked-by-B1254`，B1249 也继续保持 partial。
+6. B1254 最优施工形冻结为“同一 model-authored atomic transaction 覆盖 anchored 与 body-only 两类旧边”：
+   anchored edge 继续按完整 typed tuple/occurrence 精确命中；仅当校验器已经发布该 block 的 exact failed visible pair、且该 pair
+   在旧 Mermaid AST 中唯一可定位但没有同 pair anchor 时，允许模型声明 remove，或声明完整 replacement anchor+业务标签后 replace。
+   系统只执行模型选择的既有 body 边，不推断/选择新关系；replace/add 仍必须经过 B1249 allowed additions、relation evidence、
+   participant 与全部普通合同。歧义 pair/一行多边/未知 block 继续 fail-closed。匹配 authority 应来自 typed retry delta + Mermaid
+   AST，不读取用户原文、reasoning、最终正文或可见标签做事实判断。
+7. 操作资源界限改为与既有图规模相容的显式协议：schema 与执行器共享同一硬上限；允许至少覆盖“当前旧图每条边一次 + 有界
+   listed additions”，同时保留全局绝对上限防止 payload 膨胀。不能再用与图规模无关且 schema 不可见的 16。测试须钉住：
+   17+ 正常规模失败集可单事务修完、body-only failed edge 可精确 remove、body-only replace 必须提供完整新 anchor/label、未被
+   producer delta 点名的 body edge 不可动、歧义 pair 不可动、失败不污染 base、r783 首个 17-op 形先红后绿。
+8. `B1252-EXPLORERCLOSURE1` 从 observe 升 `confirmed/P1`：read 两次 Explorer、41 次 read、25 次 mid-loop、7 次
+   completion 尝试、5 次 prune。模型多次提交 grounded completion 后，mechanism semantic descent 仍要求完整覆盖
+   `runReadSchedulerLoop` 等超长函数体；分段 read 未覆盖整个 declaration 时同一 pending frontier 反复重铸，直到提示 cap 饱和
+   才退出第一 Explorer，随后又启动第二 Explorer。修复必须把超长 declaration 的闭环要求改成 parser-owned selection line/
+   direct call edge 周围的有界正文窗，并使用 merged read-range satisfaction；不可按函数名/请求关键词截断，也不可取消 wrapper→
+   callee 下钻证据门。
+9. `B1253-TRACESLEEPPRIO1` 从 observe 升 `confirmed/P1`：最终正文一方面说 app-100 的直接睡眠原因未记录，另一方面又断言
+   它“被上游三个工作线程的完成依赖所阻塞”、fscache IO 是整条链延迟源头；同页系统 typed caveat 明确
+   `wakeup_path_blocking_authority=not_implied`、`target_direct_blocking_authority=not_provided`。系统投影没有越权，但给模型的
+   soft context 没有把“wakeup path 已证”与“target 同步阻塞关系未证”放在同一简洁决策面。后续应在 finalizer context 中并置
+   typed chain/path、direct-blocking authority、目标状态和跨席不可相加边界，软引导模型区分“链上可消候选”与“已证目标阻塞”；
+   不扫描答案、不改写结论、不因 sleeping RT 优先级直接铸调度根因。
+10. `B1250-TABLEHEADER1` 获得正向生产见证：最终表已显示“阶段/Agent/主要输入/主要输出/状态载体”列，不再退化为
+    “项目/列2…”；先保持 production-positive，待异构表格回放后关账。read 正文把 `FinalAnswer` 含混写成
+    `AnswerDocumentV2` 内字段，与 `StageOutput.FinalAnswer` 的实际归属有偏差，暂并入 B1252 的上下文压力/事实合成观察，不据
+    单次措辞增加关键词硬门。
+
+状态：
+
+`r783=runner-pass-2/2,human-partial-2`；
+`B1251=partial-production-hit/blocked-by-B1254`；
+`B1254=confirmed/P0-next-contract-conflict`；
+`B1252=confirmed/P1-after-B1254`；`B1253=confirmed/P1-after-B1252`；
+`B1250=production-positive/pending-heterogeneous-close`；
+`diagram-body-only-failed-edge=typed-delta-scoped/model-selected/planned`；
+`diagram-atomic-op-limit=schema-executor-single-source/graph-size-compatible/planned`；
+`request/model/final-prose-keyword-hard-gate=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r783`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r783`。
