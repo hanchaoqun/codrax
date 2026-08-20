@@ -57223,3 +57223,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-degrade=forbidden/unchanged`。
+
+### §123.1252 r772：B1236 输出正证与图端点身份绑定漏检（2026-08-20）
+
+1. 以 `e4fb25a43` 构建快照严格并发恰好 2 路：类型关系 176s、Trace 363s，runner 2/2 PASS，人工
+   2/2 partial。两路持续活跃；Trace 超过 4 分钟仍正常完成本轮答案，没有因 4ms、4m、首字节、stall 或累计年龄
+   使用旧稿、空答案或降级答案。
+2. B1236 获得输出正证：auto-paired role description 仍以 typed EvidenceRef 行 516 进入模型 WHAT 上下文，模型和
+   direct definition 均选择声明行 519，最终可见面不再把 515/516 作为系统“精确位置”。12 个 production implementer
+   及逐成员 exact file:line 仍完整，说明修复没有通过删除职责证据换取位置正确。
+3. 新确认 `B1237-EDGEANCHORNODEIDENTITYBINDING1`（P1，确定性）：类型图画成
+   `LoopController --implements--> analyzerEvaluator` 等 12 条反向边。模型提交的 edge anchor 却同时写
+   `from_identity=analyzerEvaluator, from_node=LC`，而 Mermaid 节点 `LC` 的可解析身份是 `LoopController`；
+   `to_identity=LoopController, to_node=analyzerEvaluator` 也同样反绑。系统验证了 identity 对能命中 typed relation，
+   却没验证 identity 与其 node ID 是同一个实体，错误图因此签绿。
+4. 最优方案冻结为通用图符号表绑定：从已经结构化解析的 Mermaid 节点声明建立 `node_id → canonical identity/aliases`，
+   对每个 edge anchor 精确校验 from_node 绑定 from_identity、to_node 绑定 to_identity，再进入现有 typed relation/方向门。
+   若图省略显式节点声明或 identity 无法无歧义解析则不凭标签语义猜造硬门；有完整 anchor + 节点表时冲突必须 repairable fail-closed。
+   系统只返回端点绑定修补提示，不反转、创建或重写模型的边、节点、标签和结论。该方案覆盖 inheritance/implements/call/
+   data-flow/sequence/architecture 等所有关系族和所有源语言，不读取用户原文、模型 thinking/正文或业务词典。
+5. Trace 主能力保持：显式 2.000–2.020s 窗、四节点唤醒链、11.000ms 链上 iowait 首因、三个 1.000ms
+   runnable 调度席、实际占时/规则可消双轴、Trace 因果投影、自动补齐与背景隔离均在。r771 的 11→14ms 错位未复现，
+   本轮模型改为把 `threadpool→network` 的正确 2.016s 抄成 2.014s；typed handoff 和同页系统投影仍正确为 2.016s。
+   两轮漂移字段不同，先按模型压缩波动观察，不新增原文/数值扫描硬门或系统代写。
+
+状态：
+
+`r772=runner-pass-2/2/human-partial-2/2`；
+`B1236=production-output-positive+deterministic-code-closed`；
+`B1237=confirmed/P1-next`；
+`edge-anchor-identity-proof=typed-relation-pass-but-node-binding-missing`；
+`system-edge/node/label/conclusion-rewrite=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r772`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`Trace-value-copy-drift=model-variance/observe-no-hard-prose-gate`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r772`。
