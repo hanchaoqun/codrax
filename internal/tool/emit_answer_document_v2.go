@@ -775,14 +775,7 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
-	if ctx != nil && ctx.Mutable != nil {
-		recipes := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
-		recipes = append(recipes, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
-		if fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes); fixed > 0 {
-			pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes", fixed)
-			logging.Warning("[%s] restored %d exact relation edge identity pair(s) from the finalizer typed-recipe receipt", toolName, fixed)
-		}
-	}
+	normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(toolName, doc, ctx, pctx)
 	// Capture an exact model-selected source-inventory row before any weaker
 	// candidate or aggregate citation repair can move a same-name declaration
 	// to another file/family. The row-id citation binder near the end then
@@ -984,6 +977,38 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		ctx.Mutable.SetPendingDetachedCitationDisclosures(pctx.detachedCitationDisclosures())
 	}
 	pctx.logPreEmitRepairSummary(toolName)
+}
+
+// normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes is the single
+// wiring point for the existing typed-recipe identity repair. The patch path
+// also invokes it before a retry-local relation lease is checked: a model may
+// select an allowed visible edge without repeating its invisible canonical
+// identity fields, and the lease must compare the exact repaired tuple rather
+// than reject it before this deterministic metadata step runs.
+//
+// The underlying normalizer requires an already model-authored visible edge
+// and anchor, exact direction/relation, and a unique typed recipe/component
+// mapping. It never creates, selects, removes, reverses, or relabels an edge.
+func normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(
+	toolName string,
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	pctx *preEmitCheckContext,
+) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	recipes := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+	recipes = append(recipes, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
+	fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc, recipes)
+	if fixed <= 0 {
+		return 0
+	}
+	if pctx != nil {
+		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes", fixed)
+	}
+	logging.Warning("[%s] restored %d exact relation edge identity pair(s) from the finalizer typed-recipe receipt", toolName, fixed)
+	return fixed
 }
 
 func normalizeOutOfRangeCitationRefsBeforePoolGrowth(doc *types.AnswerDocumentV2) int {

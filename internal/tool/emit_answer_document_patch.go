@@ -465,6 +465,16 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// internally. Apply is pure (no side effects on the doc clone)
 	// so the dry-run is safe.
 	if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
+		preEmitCtx := newPreEmitCheckContext(ctx)
+		// B1265: a local relation lease names canonical typed identities,
+		// while the model owns and may submit only the visible node ids and
+		// relation it selected from allowed_additions. Restore uniquely matched
+		// recipe metadata before the lease compares tuples. The repair cannot
+		// create or choose a visible relation, and an unlisted/ambiguous edge is
+		// still rejected by the unchanged lease below.
+		if ctx.Mutable.AnswerDiagramRelationRepairLease() != nil {
+			normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(t.Name(), merged, ctx, preEmitCtx)
+		}
 		if lease, violations := validateAndConsumeAnswerDiagramRelationRepairLease(ctx.Mutable, merged); len(violations) > 0 {
 			return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),
 				"answer_document relation repair escaped its local typed scope: %s",
@@ -472,7 +482,6 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		dropExplicitlyRemovedModelDiagrams = preserveExplicitDiagramRemovalIntent(ctx, mutation, prev)
 		if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
-			preEmitCtx := newPreEmitCheckContext(ctx)
 			// Freeze the adoption decision on the merged pre-normalize payload.
 			// The per-item raw index snapshot was captured above from only the
 			// model-submitted replace/add blocks; inherited/system-owned refs stay
@@ -509,6 +518,18 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				dropExplicitlyRemovedModelDiagrams,
 			)
 		}
+		// No semantic view means there are no view-specific pre-emit checks, but
+		// the exact pre-lease identity repair above is still part of the merged
+		// carrier and must not be lost by re-applying the original patch.
+		return persistMergedAnswerDocumentWithAttachmentPolicy(
+			ctx,
+			t.Name(),
+			types.MutationPartial,
+			mutation.Summary(),
+			merged,
+			now,
+			dropExplicitlyRemovedModelDiagrams,
+		)
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)

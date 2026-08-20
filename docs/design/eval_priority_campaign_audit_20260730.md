@@ -58525,3 +58525,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
+### §123.1285 B1265：允许关系的 typed identity 补全先于局部验租（2026-08-20）
+
+1. `B1265-ALLOWEDRELATIONIDENTITYORDER1/P0` 已根修。patch dry-run 得到模型提交的完整 merged carrier 后，若本轮存在
+   relation-repair lease，先消费 finalizer 已有 typed-recipe receipt 做精确 identity metadata 恢复，再执行 lease scope 校验。模型仍须
+   亲自提交 `diagram_edge_edits action=add`、可见 from/to node、relation kind 与 visible label；系统不会从候选池选择或创建边。
+2. 复用既有 `normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes`，并将生产接线收敛到一个 helper。它只处理已经同时存在于 Mermaid
+   body 和 `edge_anchors` 的模型可见边；要求方向、relation kind 与唯一 recipe/node 或唯一关系标注连通分量映射一致。零命中、多命中、
+   单侧冲突、拓扑不一致均不修改。修复不读取 visible label、用户请求、模型 reasoning 或最终 prose。
+3. lease 自身仍是第二道精确边界：补全后的 canonical identity 必须逐字命中本轮同 block 的 `allowed_additions`，且每条最多使用一次；
+   receipt 中存在、但不在本轮允许集合的关系仍报 `unlisted_relation_added`。未列旧边保持、失败边预算、diagram block id/kind/count 和
+   carrier 保护均未放松。
+4. 修正了一个随顺序修复暴露的持久化断点：无 semantic view 时，旧 patch 路径会重新 Apply 原始 patch，丢掉 dry-run merged 上的精确
+   metadata 修复。现在验租通过后直接持久化该 merged carrier；有 semantic view 的既有完整 pre-emit 检查路径不变，后续 normalizer
+   对已补字段幂等返回 0。
+5. 回归覆盖唯一 receipt 正向、无 receipt、同 node/kind 多 receipt 歧义、receipt 不在 allowed 集合、已有完整 identity、未列关系、
+   原子 remove+add 事务以及 full normalizer 接线。正向断言可见 node、方向和业务标签逐字保持，只补 `from_identity/to_identity`；三个
+   负臂均继续产生 `unlisted_relation_added`。完整 `internal/tool internal/agent internal/types`、仓库级
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+
+状态：
+
+`B1265=implemented/full-suite-pass/pending-production-replay`；
+`model-visible-edge-selection+direction+label=model-owned`；
+`canonical-identity=unique-typed-receipt-metadata-only`；
+`pre-lease-normalization=exact/idempotent`；
+`missing/ambiguous/unlisted-receipt=fail-closed`；
+`relation-lease-preservation=unchanged`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

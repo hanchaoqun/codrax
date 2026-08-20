@@ -105,6 +105,90 @@ func TestEmitAnswerDocumentPatch_AtomicRelationEditsHonorTypedLease(t *testing.T
 	}
 }
 
+func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBeforeLease(t *testing.T) {
+	newBus := func(allowed types.AnswerDiagramRelationRepairCandidate, recipes []types.DiagramEdgeAnchor) *types.BusContext {
+		prev := atomicPatchTestDocument()
+		mut := types.NewMutableState("atomic typed identity ordering")
+		mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+		mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(prev,
+			[]types.AnswerDiagramRelationRepairFailure{{
+				BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+				FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelPrecedence,
+			}}, []types.AnswerDiagramRelationRepairCandidate{allowed}))
+		mut.SetFinalizerTypedRelationRecipeAvailable(true)
+		mut.SetFinalizerTypedRelationRecipeAnchors(recipes)
+		return &types.BusContext{Mutable: mut}
+	}
+	allowed := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "Extractor", ToIdentity: "Finalizer", Source: "stageauthority",
+	}
+	recipe := types.DiagramEdgeAnchor{
+		FromNode: "C", ToNode: "F", FromIdentity: "Extractor", ToIdentity: "Finalizer",
+		RelationKind: types.DiagramRelPrecedence,
+	}
+	raw := json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"block_id":"diag","action":"add","edge":{
+			"from_node":"C","to_node":"F","relation_kind":"precedence","visible_label":"结构化事实就绪后组织答案"
+		}}]
+	}`)
+
+	t.Run("unique typed receipt completes invisible identity metadata", func(t *testing.T) {
+		bus := newBus(allowed, []types.DiagramEdgeAnchor{recipe})
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		if err != nil || !res.Success {
+			t.Fatalf("model-selected allowed edge must pass after exact metadata completion: err=%v res=%+v", err, res)
+		}
+		doc := bus.Mutable.AnswerDocumentV2()
+		if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].EdgeAnchors) != 3 {
+			t.Fatalf("unexpected persisted document: %+v", doc)
+		}
+		got := doc.Blocks[1].EdgeAnchors[2]
+		if got.FromNode != "C" || got.ToNode != "F" || got.VisibleLabel != "结构化事实就绪后组织答案" ||
+			got.FromIdentity != "Extractor" || got.ToIdentity != "Finalizer" {
+			t.Fatalf("identity completion changed visible model authorship or lost typed metadata: %+v", got)
+		}
+	})
+
+	t.Run("missing receipt remains fail closed", func(t *testing.T) {
+		bus := newBus(allowed, nil)
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		if err != nil {
+			t.Fatalf("unexpected execution error: %v", err)
+		}
+		if res.Success || !strings.Contains(res.Summary, "unlisted_relation_added") {
+			t.Fatalf("missing typed receipt must not authorize an identity-less addition: %+v", res)
+		}
+	})
+
+	t.Run("ambiguous receipt remains fail closed", func(t *testing.T) {
+		other := recipe
+		other.FromIdentity = "OtherExtractor"
+		bus := newBus(allowed, []types.DiagramEdgeAnchor{recipe, other})
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		if err != nil {
+			t.Fatalf("unexpected execution error: %v", err)
+		}
+		if res.Success || !strings.Contains(res.Summary, "unlisted_relation_added") {
+			t.Fatalf("ambiguous typed receipt must not choose an identity pair: %+v", res)
+		}
+	})
+
+	t.Run("receipt outside allowed additions stays rejected", func(t *testing.T) {
+		otherAllowed := allowed
+		otherAllowed.FromIdentity = "OtherExtractor"
+		bus := newBus(otherAllowed, []types.DiagramEdgeAnchor{recipe})
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
+		if err != nil {
+			t.Fatalf("unexpected execution error: %v", err)
+		}
+		if res.Success || !strings.Contains(res.Summary, "unlisted_relation_added") {
+			t.Fatalf("a typed recipe that is not lease-listed must remain rejected: %+v", res)
+		}
+	})
+}
+
 func TestEmitAnswerDocumentPatch_AtomicUnlistedAdditionStillRejectedByLease(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	mut := types.NewMutableState("atomic-unlisted")
