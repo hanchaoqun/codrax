@@ -404,7 +404,7 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 		}
 	}
 	if len(ir.Request.ExpectedOutcomes) > 0 {
-		b.WriteString("- expected outcomes:\n")
+		b.WriteString("- analyzer-proposed outcomes (planning guidance only; current request, exact preserve constraints, inspected source, and executed tests take precedence):\n")
 		for _, o := range ir.Request.ExpectedOutcomes {
 			fmt.Fprintf(&b, "  - %s\n", o)
 		}

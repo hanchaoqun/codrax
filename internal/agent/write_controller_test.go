@@ -173,7 +173,7 @@ func TestWriteControllerTaskSectionUsesActiveReplanContractGeneration(t *testing
 	got := renderWriteControllerTaskSection(&types.AgentContext{Mutable: mut})
 	for _, want := range []string{
 		"behavior_contract_generation: plan_acceptance_rebase",
-		"expected_outcomes: both negative paths pass | only repository.c changes",
+		"analyzer_proposed_outcomes (planning_only; request/preserve constraints/source/tests take precedence): both negative paths pass | only repository.c changes",
 		"expected=both negative paths pass",
 	} {
 		if !strings.Contains(got, want) {

@@ -316,8 +316,8 @@ func WriteContextPackFromWriteAnalysisIR(ir *WriteAnalysisIR) WriteContextPack {
 			WriteConsumerController, WriteConsumerPlanner))
 	}
 	for _, outcome := range ir.Request.ExpectedOutcomes {
-		pack.Items = append(pack.Items, writeContextItem("success_criterion", WriteContextP1, outcome, "write_analysis",
-			WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+		pack.Items = append(pack.Items, writeContextItem("proposed_success_criterion", WriteContextP1, outcome, "write_analysis",
+			WriteConsumerController, WriteConsumerPlanner))
 	}
 	for _, contract := range ir.Request.BehaviorContracts {
 		text := renderWriteBehaviorContractContext(contract)

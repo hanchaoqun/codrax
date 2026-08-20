@@ -178,7 +178,7 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- behavior_contract_generation: %s\n", plan.BehaviorContractGeneration)
 	}
 	if len(expectedOutcomes) > 0 {
-		fmt.Fprintf(&b, "- expected_outcomes: %s\n", strings.Join(expectedOutcomes, " | "))
+		fmt.Fprintf(&b, "- analyzer_proposed_outcomes (planning_only; request/preserve constraints/source/tests take precedence): %s\n", strings.Join(expectedOutcomes, " | "))
 	}
 	if len(behaviorContracts) > 0 {
 		b.WriteString("- behavior_contracts:\n")

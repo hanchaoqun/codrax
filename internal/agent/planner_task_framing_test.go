@@ -184,6 +184,10 @@ func TestPlannerTaskFramingSeparatesRequiredProofRefsFromPlanningOnlyContext(t *
 			Operator: types.WriteBehaviorOpSatisfies, Expected: "planning context",
 			Source: "write_analyzer;quality_repaired:planning_only_ungrounded",
 		}, {
+			ID: "grounded-outcome", Kind: types.WriteBehaviorObservable,
+			Operator: types.WriteBehaviorOpEquals, Expected: "one collapsed token",
+			Required: true, Source: "write_analyzer", EvidenceRef: "tests/test_tokenizer.py:42",
+		}, {
 			ID: "outcome-2", Kind: types.WriteBehaviorObservable,
 			Operator: types.WriteBehaviorOpSatisfies, Expected: "second required outcome",
 			Required: true, Source: types.WriteBehaviorContractSourceExpectedOutcomeFallback,
@@ -197,8 +201,8 @@ func TestPlannerTaskFramingSeparatesRequiredProofRefsFromPlanningOnlyContext(t *
 	got := (&plannerEvaluator{}).buildTaskFramingSection(&types.AgentContext{Mutable: mu})
 	for _, want := range []string{
 		"verification proof carrier map (typed soft guidance; plan emission may remain partial)",
-		"required contract_refs for a verified close: outcome-1, outcome-2",
-		"planning-only context ids (these refs alone close no required proof): specific-planning-shape",
+		"required contract_refs for a verified close: grounded-outcome",
+		"planning-only context ids (these refs alone close no required proof): outcome-1, outcome-2, specific-planning-shape",
 		"partial mappings are legal but leave every omitted required id explicitly unverified",
 	} {
 		if !strings.Contains(got, want) {
@@ -267,7 +271,7 @@ func TestPlannerWorkflowSeed_RendersNextBatchFromPhaseProposal(t *testing.T) {
 		"add provider config schema",
 		"needs_code_exploration: true",
 		"internal/config/runtime.go, providers.yaml.example",
-		"static providers still work",
+		"verification_receipt_required=true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("workflow seed missing %q; got:\n%s", want, got)
@@ -275,6 +279,9 @@ func TestPlannerWorkflowSeed_RendersNextBatchFromPhaseProposal(t *testing.T) {
 	}
 	if strings.Contains(got, "add OAuth token cache") {
 		t.Errorf("workflow seed should not unfold later batches into current next_batch details; got:\n%s", got)
+	}
+	if strings.Contains(got, "static providers still work") || strings.Contains(got, "OAuth providers cache tokens") {
+		t.Errorf("analyzer-proposed prose must not become workflow hard criteria; got:\n%s", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package writeflow
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -160,7 +161,7 @@ func WorkflowSeedFromWriteAnalysis(ir *types.WriteAnalysisIR) WriteWorkflowPlan 
 	plan := WriteWorkflowPlan{
 		Goal:             goal,
 		KnownConstraints: constraints,
-		SuccessCriteria:  dedupTrimWorkflowStrings(ir.Request.ExpectedOutcomes),
+		SuccessCriteria:  workflowSeedTypedSuccessCriteria(ir),
 		Status:           WorkflowPlanned,
 		Strategy:         "rolling_batches",
 	}
@@ -212,6 +213,41 @@ func WorkflowSeedFromWriteAnalysis(ir *types.WriteAnalysisIR) WriteWorkflowPlan 
 	}
 	plan.NextBatch = &next
 	return NormalizeWorkflowPlan(plan)
+}
+
+// workflowSeedTypedSuccessCriteria keeps model-authored expected_outcomes out
+// of the workflow's hard completion surface. The analyzer's prose remains
+// available as planning guidance, while this seed contains only typed contract
+// identities, exact preserved test paths, or the system-owned requirement that
+// an executed verification receipt must exist.
+func workflowSeedTypedSuccessCriteria(ir *types.WriteAnalysisIR) []string {
+	if ir == nil {
+		return []string{"verification_receipt_required=true"}
+	}
+	var out []string
+	ids := types.RequiredWriteBehaviorContractIDs(ir.Request.BehaviorContracts, true)
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			ordered = append(ordered, id)
+		}
+	}
+	sort.Strings(ordered)
+	for _, id := range ordered {
+		out = append(out, "contract_ref="+id)
+	}
+	for _, constraint := range ir.Request.Constraints {
+		if strings.TrimSpace(constraint.Kind) != "preserve_regression_test" {
+			continue
+		}
+		if target := strings.TrimSpace(constraint.Target); target != "" {
+			out = append(out, "preserve_regression_test="+target)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "verification_receipt_required=true")
+	}
+	return dedupTrimWorkflowStrings(out)
 }
 
 // WriteWorkflowPlanSchema returns the model-facing JSON schema for the future

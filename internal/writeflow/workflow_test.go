@@ -123,6 +123,39 @@ func TestWorkflowSeedFromWriteAnalysisUsesPhaseProposal(t *testing.T) {
 	if len(got.KnownConstraints) != 1 || !strings.Contains(got.KnownConstraints[0], "preserve_read_mode") {
 		t.Fatalf("constraints = %+v", got.KnownConstraints)
 	}
+	if len(got.SuccessCriteria) != 1 || got.SuccessCriteria[0] != "verification_receipt_required=true" {
+		t.Fatalf("model-authored expected outcomes leaked into workflow authority: %+v", got.SuccessCriteria)
+	}
+	if strings.Contains(strings.Join(got.SuccessCriteria, "\n"), "risk is visible") {
+		t.Fatalf("analyzer prose became a hard workflow criterion: %+v", got.SuccessCriteria)
+	}
+}
+
+func TestWorkflowSeedFromWriteAnalysisUsesOnlyTypedContractAndPreservedTestCriteria(t *testing.T) {
+	ir := &types.WriteAnalysisIR{}
+	ir.Request.Task.Summary = "fix a regression"
+	ir.Request.ExpectedOutcomes = []string{"invented model outcome"}
+	ir.Request.Constraints = []types.WriteConstraint{{
+		Kind: "preserve_regression_test", Target: "tests/test_widget.py",
+	}}
+	ir.Request.BehaviorContracts = []types.WriteBehaviorContract{
+		{ID: "grounded-contract", Kind: types.WriteBehaviorInvariant, Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpEquals, Expected: "stable", EvidenceRef: "tests/test_widget.py:12", Required: true, Source: "write_analyzer"},
+		{ID: "outcome-1", Kind: types.WriteBehaviorObservable, Polarity: types.WriteBehaviorPolarityExpected,
+			Operator: types.WriteBehaviorOpSatisfies, Expected: "invented model outcome", Required: false,
+			Source: types.WriteBehaviorContractSourceExpectedOutcomeFallback + ";" + types.WriteBehaviorContractSourcePlanningOnlyUngrounded},
+	}
+
+	got := WorkflowSeedFromWriteAnalysis(ir)
+	joined := strings.Join(got.SuccessCriteria, "\n")
+	for _, want := range []string{"contract_ref=grounded-contract", "preserve_regression_test=tests/test_widget.py"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("typed workflow criterion %q missing: %+v", want, got.SuccessCriteria)
+		}
+	}
+	if strings.Contains(joined, "invented model outcome") || strings.Contains(joined, "outcome-1") {
+		t.Fatalf("planning-only model outcome leaked into workflow authority: %+v", got.SuccessCriteria)
+	}
 }
 
 func TestWorkflowSeedFromWriteAnalysis_MicroScopeWithAnchorsSeedsReadyForPlan(t *testing.T) {

@@ -7124,7 +7124,7 @@ func TestImpactObligationRepairFollowupSchedulesHardContractAfterSourceStaticOnl
 	}
 }
 
-func TestImpactObligationRepairFollowupDoesNotLetTargetBehaviorBlanketSignFallback(t *testing.T) {
+func TestImpactObligationRepairFollowupDoesNotPromotePlanningFallbackToProofObligation(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:          "plan-target-behavior-fallback",
 		TargetPaths: []string{"include/serializer.hpp"},
@@ -7149,14 +7149,8 @@ func TestImpactObligationRepairFollowupDoesNotLetTargetBehaviorBlanketSignFallba
 	}
 
 	batch, suppressed := impactObligationRepairFollowupDecision(nil, "batch-1", plan, report)
-	if suppressed || batch == nil || batch.Purpose != "verification_proof_followup" {
-		t.Fatalf("missing fallback observation did not schedule proof follow-up: batch=%+v suppressed=%v", batch, suppressed)
-	}
-	criteria := strings.Join(batch.SuccessCriteria, "\n")
-	for _, want := range []string{"contract_ref=outcome-ordinary-float", "behavior_contract_observation_missing", "verification_probe_required=true"} {
-		if !strings.Contains(criteria, want) {
-			t.Fatalf("fallback proof criteria missing %q:\n%s", want, criteria)
-		}
+	if suppressed || batch != nil {
+		t.Fatalf("planning-only fallback must not manufacture a proof follow-up: batch=%+v suppressed=%v", batch, suppressed)
 	}
 }
 
@@ -7167,13 +7161,14 @@ func TestNormalizeControllerTypedStateDecisionPassedReplanDoesNotLetStaleFailure
 		Status:      types.PlanStatusApplied,
 		TargetPaths: []string{"fastlex/tokenizer.py"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
-			ID:       "outcome-newline-collapse",
-			Kind:     types.WriteBehaviorObservable,
-			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
-			Expected: "newline run reaches the pair merge token",
-			Required: true,
-			Source:   types.WriteBehaviorContractSourceExpectedOutcomeFallback,
+			ID:          "outcome-newline-collapse",
+			Kind:        types.WriteBehaviorObservable,
+			Polarity:    types.WriteBehaviorPolarityExpected,
+			Operator:    types.WriteBehaviorOpSatisfies,
+			Expected:    "newline run reaches the pair merge token",
+			Required:    true,
+			Source:      "write_analyzer",
+			EvidenceRef: "tests/test_tokenizer.py:42",
 		}},
 	}
 	report := &types.ChangeReport{

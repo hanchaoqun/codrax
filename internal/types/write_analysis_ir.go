@@ -11,7 +11,7 @@ const WriteAnalysisJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit exactly one 
 // not a prose parser or a deterministic completeness gate: the analyzer owns
 // the semantic decomposition and emits the typed dimensions downstream agents
 // can verify.
-const WriteAnalysisIndependentOutcomeTeaching = "Emit one short expected_outcomes[] entry for every independent success or non-regression dimension that the user explicitly requires; do not merge or omit a dimension to fit an item-count target. A constraint that protects observable behavior still needs a corresponding expected outcome or grounded behavior contract so downstream verification can witness it. Most tasks need 2-8 entries; when the request has more independent dimensions, preserve them all."
+const WriteAnalysisIndependentOutcomeTeaching = "Emit one short expected_outcomes[] entry for every independent success or non-regression dimension that the user explicitly requires; do not merge or omit a dimension to fit an item-count target. These entries are analyzer-proposed planning guidance, not verifier authority: do not invent exact examples, counts, values, or transitions, and never let an entry override the current request, an exact preserve constraint, inspected source, or an executed test. A constraint that protects observable behavior should use a grounded behavior contract when exact evidence exists. Most tasks need 2-8 entries; when the request has more independent dimensions, preserve them all."
 
 // WriteAnalysisIR is the write-mode peer to AnalysisIR. It captures
 // what the user wants to do as a code-modification task, framed in
@@ -56,10 +56,10 @@ type WriteAnalysisIR struct {
 //   - Constraints: must-keep / must-not-touch the user mentioned. The LLM
 //     extracts these from the request body; the planner renders them
 //     verbatim into its prompt.
-//   - ExpectedOutcomes: one short concrete signal per independent explicit
-//     success or non-regression dimension. The reflector reads these so its
-//     critique can judge "does the plan move toward the goal" not just "did
-//     tests pass".
+//   - ExpectedOutcomes: analyzer-proposed planning guidance, one short signal
+//     per independent explicit success or non-regression dimension. These
+//     strings never mint verifier completion authority; grounded typed
+//     contracts and executed receipts do that.
 //   - BehaviorContracts: optional typed observables that downstream plan and
 //     verify artifacts can reference by ID. They may carry typed comparator
 //     baselines when the request or light repo inspection gives a working

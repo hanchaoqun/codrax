@@ -265,6 +265,18 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		if !IsKnownWriteBehaviorPolarity(string(c.Polarity)) {
 			c.Polarity = WriteBehaviorPolarityExpected
 		}
+		c.Source = strings.TrimSpace(c.Source)
+		if c.Source == "" {
+			c.Source = "write_analyzer"
+		}
+		// expected_outcomes[] and plan acceptance_tests[] are model-authored
+		// summaries. Preserve them for planning, but never mint verifier
+		// completion authority from prose merely because it decoded into the
+		// schema. Exact project receipts or evidence-backed typed contracts must
+		// carry hard completion authority.
+		if IsExpectedOutcomeFallbackWriteBehaviorContract(c) {
+			c.Source = appendWriteBehaviorContractSource(c.Source, WriteBehaviorContractSourcePlanningOnlyUngrounded)
+		}
 		if c.Polarity == WriteBehaviorPolarityObserved || IsPlanningOnlyWriteBehaviorContract(c) {
 			c.Required = false
 		} else {
@@ -283,10 +295,6 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 		}
 		c.Comparator = normalizeWriteBehaviorComparator(c.Comparator, c.Operator)
 		c.EvidenceRef = strings.TrimSpace(c.EvidenceRef)
-		c.Source = strings.TrimSpace(c.Source)
-		if c.Source == "" {
-			c.Source = "write_analyzer"
-		}
 		if c.Expected == "" && c.Subject == "" && c.Transition == nil && c.Placement == nil {
 			continue
 		}
@@ -318,8 +326,9 @@ func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcome
 			Polarity: WriteBehaviorPolarityExpected,
 			Operator: WriteBehaviorOpSatisfies,
 			Expected: outcome,
-			Required: true,
-			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
+			Required: false,
+			Source: WriteBehaviorContractSourceExpectedOutcomeFallback + ";" +
+				WriteBehaviorContractSourcePlanningOnlyUngrounded,
 		})
 	}
 	const maxContracts = 12
@@ -345,8 +354,10 @@ func RebaseExpectedOutcomeFallbackWriteBehaviorContracts(in []WriteBehaviorContr
 	}
 	rebased := NormalizeWriteBehaviorContracts(explicit, expectedOutcomes)
 	for i := range rebased {
-		if rebased[i].Source == WriteBehaviorContractSourceExpectedOutcomeFallback {
-			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback
+		if IsExpectedOutcomeFallbackWriteBehaviorContract(rebased[i]) {
+			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback + ";" +
+				WriteBehaviorContractSourcePlanningOnlyUngrounded
+			rebased[i].Required = false
 		}
 	}
 	return rebased
@@ -382,8 +393,10 @@ func RebaseVerifyFailureWriteBehaviorContracts(in []WriteBehaviorContract, expec
 	}
 	rebased := NormalizeWriteBehaviorContracts(retained, expectedOutcomes)
 	for i := range rebased {
-		if rebased[i].Source == WriteBehaviorContractSourceExpectedOutcomeFallback {
-			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback
+		if IsExpectedOutcomeFallbackWriteBehaviorContract(rebased[i]) {
+			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback + ";" +
+				WriteBehaviorContractSourcePlanningOnlyUngrounded
+			rebased[i].Required = false
 		}
 	}
 	return rebased, dedupSortedWriteBehaviorContractIDs(retired)
@@ -428,12 +441,30 @@ func dedupSortedWriteBehaviorContractIDs(in []string) []string {
 }
 
 func IsExpectedOutcomeFallbackWriteBehaviorContract(c WriteBehaviorContract) bool {
-	switch strings.TrimSpace(c.Source) {
-	case WriteBehaviorContractSourceExpectedOutcomeFallback, WriteBehaviorContractSourcePlanAcceptanceFallback:
-		return true
-	default:
-		return false
+	for _, source := range strings.Split(c.Source, ";") {
+		switch strings.TrimSpace(source) {
+		case WriteBehaviorContractSourceExpectedOutcomeFallback, WriteBehaviorContractSourcePlanAcceptanceFallback:
+			return true
+		}
 	}
+	return false
+}
+
+func appendWriteBehaviorContractSource(source, marker string) string {
+	source = strings.TrimSpace(source)
+	marker = strings.TrimSpace(marker)
+	if marker == "" {
+		return source
+	}
+	for _, part := range strings.Split(source, ";") {
+		if strings.TrimSpace(part) == marker {
+			return source
+		}
+	}
+	if source == "" {
+		return marker
+	}
+	return source + ";" + marker
 }
 
 // NormalizeWriteBehaviorTransition preserves only schema-known ordered steps.
@@ -585,6 +616,13 @@ func IsHardRequiredWriteBehaviorContract(c WriteBehaviorContract) bool {
 // IsPlanningOnlyWriteBehaviorContract reads only the system-stamped source
 // roster. It never infers authority from the contract's model-authored prose.
 func IsPlanningOnlyWriteBehaviorContract(c WriteBehaviorContract) bool {
+	// Legacy persisted plans may predate the explicit planning-only marker.
+	// Their fallback source token is still enough to prove that the text came
+	// from a model-authored outcome/acceptance summary rather than grounded
+	// verifier authority, so never let reload upgrade it.
+	if IsExpectedOutcomeFallbackWriteBehaviorContract(c) {
+		return true
+	}
 	for _, source := range strings.Split(c.Source, ";") {
 		if strings.TrimSpace(source) == WriteBehaviorContractSourcePlanningOnlyUngrounded {
 			return true

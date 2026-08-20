@@ -115,7 +115,8 @@ func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
 	if len(ir.Request.BehaviorContracts) != 2 || ir.Request.BehaviorContracts[0].ID != "outcome-1" {
 		t.Fatalf("expected outcomes should project fallback behavior contracts: %+v", ir.Request.BehaviorContracts)
 	}
-	if ir.Request.BehaviorContracts[0].Source != "expected_outcome_fallback" {
+	if !types.IsExpectedOutcomeFallbackWriteBehaviorContract(ir.Request.BehaviorContracts[0]) ||
+		!types.IsPlanningOnlyWriteBehaviorContract(ir.Request.BehaviorContracts[0]) || ir.Request.BehaviorContracts[0].Required {
 		t.Fatalf("fallback contract source drifted: %+v", ir.Request.BehaviorContracts[0])
 	}
 	if ir.Request.RawRequest != "test objective" {
@@ -239,7 +240,8 @@ func TestEmitWriteAnalysis_PreservesExplicitBehaviorContracts(t *testing.T) {
 		t.Fatalf("explicit comparator contract drifted: %+v", got.Comparator)
 	}
 	fallback := ir.Request.BehaviorContracts[1]
-	if fallback.Source != "expected_outcome_fallback" || fallback.ID != "outcome-1" || !fallback.Required {
+	if !types.IsExpectedOutcomeFallbackWriteBehaviorContract(fallback) ||
+		!types.IsPlanningOnlyWriteBehaviorContract(fallback) || fallback.ID != "outcome-1" || fallback.Required {
 		t.Fatalf("expected outcome fallback should be retained alongside explicit contracts: %+v", fallback)
 	}
 }

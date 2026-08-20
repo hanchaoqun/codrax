@@ -57,10 +57,10 @@ type AcceptanceCheckInput struct {
 	// patterns.
 	TestReport *types.ChangeReport
 
-	// Outcomes carries WriteAnalysisIR.Request.ExpectedOutcomes
-	// — the overall task's expected outcomes. Lets the reviewer
-	// reason about whether THIS phase contributed toward at
-	// least one of them.
+	// Outcomes carries WriteAnalysisIR.Request.ExpectedOutcomes — analyzer-
+	// proposed orientation only. They can help the reviewer ask whether a phase
+	// moved toward the goal, but cannot independently fail a phase or override
+	// the phase goal, preserve constraints, source, or test report.
 	Outcomes []string
 
 	// Attempt is the 1-indexed retry attempt number for this
@@ -97,7 +97,7 @@ var acceptanceTool = llm.ToolSchema{
     },
     "reasoning": {
       "type": "string",
-      "description": "1-2 sentences justifying the verdict. Cite specific evidence — name a path from the plan summary, a failing test, an expected outcome. Vague reasoning ('looks fine' / 'something is off') is useless."
+    "description": "1-2 sentences justifying the verdict. Cite specific evidence — name a path from the plan summary or a failing test; analyzer-proposed outcomes are orientation only. Vague reasoning ('looks fine' / 'something is off') is useless."
     },
     "next_hint": {
       "type": "string",
@@ -117,7 +117,7 @@ You will see:
 - The phase's goal text (what this phase was supposed to do)
 - A summary of the plan that was applied
 - The test report (passed / failed counts; failure details when any)
-- The overall task's expected outcomes (each phase should contribute toward at least one)
+- Analyzer-proposed outcome hypotheses (soft orientation only; they cannot independently fail a phase or override the phase goal, preserved tests, source, or executed test report)
 
 Decide whether THIS phase contributed toward what it was asked to do. A phase passes acceptance when:
 - The plan summary describes work that addresses the phase goal
@@ -217,7 +217,7 @@ func renderAcceptanceUserMessage(in AcceptanceCheckInput) string {
 		b.WriteString("\n\n")
 	}
 	if len(in.Outcomes) > 0 {
-		b.WriteString("## Overall task expected outcomes\n\n")
+		b.WriteString("## Analyzer-proposed outcomes (advisory)\n\n")
 		for _, o := range in.Outcomes {
 			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(o))
 		}

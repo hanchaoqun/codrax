@@ -193,19 +193,27 @@ func TestNormalizeWriteBehaviorContracts_ObservedIsNotRequiredTarget(t *testing.
 	}
 }
 
-func TestNormalizeWriteBehaviorContracts_FallbacksAreExpectedTargets(t *testing.T) {
+func TestNormalizeWriteBehaviorContracts_FallbacksArePlanningOnlyTargets(t *testing.T) {
 	got := NormalizeWriteBehaviorContracts(nil, []string{"bug no longer reproduces"})
 	if len(got) != 1 {
 		t.Fatalf("contracts len = %d, want 1: %+v", len(got), got)
 	}
-	if got[0].Polarity != WriteBehaviorPolarityExpected || !got[0].Required {
-		t.Fatalf("fallback expected outcome should be required expected target: %+v", got[0])
+	if got[0].Polarity != WriteBehaviorPolarityExpected || got[0].Required || !IsPlanningOnlyWriteBehaviorContract(got[0]) {
+		t.Fatalf("model-authored fallback must remain planning-only: %+v", got[0])
 	}
 	if ids := RequiredWriteBehaviorContractIDs(got, false); len(ids) != 0 {
 		t.Fatalf("explicit-required view should exclude fallback ids: %+v", ids)
 	}
-	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 1 {
-		t.Fatalf("fallback-inclusive required ids missing: %+v", ids)
+	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 0 {
+		t.Fatalf("fallback prose leaked into required ids: %+v", ids)
+	}
+	legacy := WriteBehaviorContract{
+		ID: "legacy-outcome", Kind: WriteBehaviorObservable, Polarity: WriteBehaviorPolarityExpected,
+		Operator: WriteBehaviorOpSatisfies, Expected: "persisted model summary", Required: true,
+		Source: WriteBehaviorContractSourceExpectedOutcomeFallback,
+	}
+	if !IsPlanningOnlyWriteBehaviorContract(legacy) || len(RequiredWriteBehaviorContractIDs([]WriteBehaviorContract{legacy}, true)) != 0 {
+		t.Fatalf("legacy persisted fallback regained completion authority: %+v", legacy)
 	}
 }
 
@@ -227,14 +235,15 @@ func TestNormalizeWriteBehaviorContracts_AppendsDistinctExpectedOutcomes(t *test
 	if got[0].ID != "nan-height" || !got[0].Required || got[0].Source != "write_analyzer" {
 		t.Fatalf("explicit required contract drifted: %+v", got[0])
 	}
-	if got[1].Source != "expected_outcome_fallback" || got[1].ID != "outcome-2" || !got[1].Required {
-		t.Fatalf("distinct expected outcome should append as required fallback: %+v", got[1])
+	if !IsExpectedOutcomeFallbackWriteBehaviorContract(got[1]) || got[1].ID != "outcome-2" ||
+		got[1].Required || !IsPlanningOnlyWriteBehaviorContract(got[1]) {
+		t.Fatalf("distinct expected outcome should append as planning guidance: %+v", got[1])
 	}
 	if ids := RequiredWriteBehaviorContractIDs(got, false); len(ids) != 1 {
 		t.Fatalf("explicit-required view should exclude fallback ids: %+v", ids)
 	}
-	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 2 {
-		t.Fatalf("fallback-inclusive required ids missing: %+v", ids)
+	if ids := RequiredWriteBehaviorContractIDs(got, true); len(ids) != 1 {
+		t.Fatalf("planning fallback changed grounded required ids: %+v", ids)
 	}
 }
 
@@ -281,7 +290,7 @@ func TestRebaseExpectedOutcomeFallbackWriteBehaviorContractsPreservesExplicitAnd
 	if !IsExpectedOutcomeFallbackWriteBehaviorContract(got[1]) || !IsExpectedOutcomeFallbackWriteBehaviorContract(got[2]) {
 		t.Fatalf("rebased acceptance tests must remain soft fallback contracts: %+v", got)
 	}
-	if got[1].Source != WriteBehaviorContractSourcePlanAcceptanceFallback || got[2].Source != WriteBehaviorContractSourcePlanAcceptanceFallback {
+	if !IsPlanningOnlyWriteBehaviorContract(got[1]) || !IsPlanningOnlyWriteBehaviorContract(got[2]) {
 		t.Fatalf("rebased fallbacks must expose their newer typed generation: %+v", got)
 	}
 }
@@ -341,7 +350,8 @@ func TestRebaseVerifyFailureWriteBehaviorContractsRetiresUngroundedSoftGeneratio
 	if got[0].ID != "hard-user-contract" || got[1].ID != "grounded-soft-invariant" || got[2].ID != "observed-failure" {
 		t.Fatalf("stable contracts were not retained in order: %+v", got)
 	}
-	if got[3].Expected != "the repaired direct constant passes" || got[3].Source != WriteBehaviorContractSourcePlanAcceptanceFallback {
+	if got[3].Expected != "the repaired direct constant passes" ||
+		!IsExpectedOutcomeFallbackWriteBehaviorContract(got[3]) || !IsPlanningOnlyWriteBehaviorContract(got[3]) {
 		t.Fatalf("current acceptance generation missing: %+v", got)
 	}
 	wantRetired := []string{"outcome-1", "stale-soft-shape"}
@@ -375,8 +385,8 @@ func TestHardRequiredWriteBehaviorContractIDs_ExcludesSatisfiesAndFallback(t *te
 	}, []string{"fallback outcome text"})
 
 	required := RequiredWriteBehaviorContractIDs(got, true)
-	if len(required) != 3 {
-		t.Fatalf("wide required view should retain all completion targets, got %+v", required)
+	if len(required) != 2 {
+		t.Fatalf("wide required view must exclude model-authored fallback prose, got %+v", required)
 	}
 	hard := HardRequiredWriteBehaviorContractIDs(got)
 	if len(hard) != 1 {

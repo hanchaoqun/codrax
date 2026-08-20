@@ -55693,3 +55693,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1211 r753：类型关系生产闭环；模型 prose 被升级为写硬合同（2026-08-19）
+
+1. 在 `main@53a2b1594` 重建后严格并发恰好两个案例：
+   `qf_type_relation_loop_controller + github_issue_tokenizers_newline_run_multirepo_py`。Runner `1 PASS / 1 FAIL`，
+   人工同为 `1 pass / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_relation_proof_r753_20260819_manual_audit.md`。
+2. B1209 获得生产正证。模型首版及终版均保留 12 条 production member -> `LoopController` 的
+   `implements` 边和同一成员文件清单，finalizer 零拒绝；旧的“关系门接受、参与者门要求 boundary、
+   boundary 门又拒绝”循环没有复现。系统没有选择、生成或改写任何关系。B1208 仍留低一档：若干职责
+   说明只引用 struct 定义行；本题所求关系/文件正确，但功能说明的 citation caliber 仍需异构案例审计。
+3. B1210 本轮没有获得生产闭环正证：写案例没有到达预期的 mixed-proof 终态。代码 pin 与完整受影响包
+   测试仍通过，但不能用 unit green 冒充这次生产臂已经触发。
+4. 写失败的上游根因是新确认 B1211。系统绑定的原始请求明确要求“连续段折成一个 rank token”，现有
+   五换行回归也精确期望一个 token；write-analyzer 却在 `expected_outcomes[]` 中生成“5 -> 2”，随后
+   `NormalizeWriteBehaviorContracts` 无条件铸成 `Required=true expected_outcome_fallback`，
+   `WorkflowSeedFromWriteAnalysis` 又把同一模型字符串直接放进硬 `SuccessCriteria`。首个错误补丁被项目
+   测试正确拒绝，重规划却同时收到“2 个 token”和“保留现有 1 个 token 测试”两份相反权威，多个活跃
+   长输出轮次反复解释矛盾，最终 2195 秒 context-canceled，未形成新计划。这不是单纯模型波动。
+5. 根修不比较换行、数字或任何任务 prose：`expected_outcomes[]` 和 plan `acceptance_tests[]` 明确定级为
+   analyzer/planner 提议，只进入 controller/planner 的 P1 规划视图，不进入 verifier 消费面，也不自动
+   产生 required contract ID。已有 fallback 在 normalize/rebase 时同样被系统盖上 planning-only 来源，
+   防止持久化旧计划重新升级。
+6. workflow 硬成功条件改由精确 typed 信号铸造：evidence-backed required contract 只携带
+   `contract_ref=<id>`；`preserve_regression_test` 只携带已规范化的精确测试路径；无上述专门条件时使用
+   系统安全不变量 `verification_receipt_required=true`。模型 outcome 原文不进入硬条件，但仍在 task
+   framing 中以“planning guidance only”可见；请求、精确保留约束、已读源码和执行测试被明确标为高权威。
+7. phase acceptance 的同源上下文也同步降格：analyzer outcomes 只作 advisory orientation，不能独立判一批
+   失败或覆盖 phase goal / preserved test / source / executed report。这里仍是模型评审，不新增系统结论，
+   更没有扫描用户输入、模型 reasoning、最终答案或关键词做门控。
+8. 专项覆盖包含 fallback normalization/rebase、required-ID 负 pin、planner-only context、verifier 隔离、
+   workflow typed seed（grounded contract + exact preserved test + generic receipt）、planner/controller 文案和
+   phase acceptance 文案。全量 `go test ./internal/... -count=1` 通过；其中还明确钉住两侧边界：planning
+   fallback 不进入 proof ledger / proof-followup，证据化 required contract 未被 probe 覆盖时仍继续执行真实
+   项目测试，不能因降格 prose 而降低项目验证杆。
+9. 活跃流策略本轮获反向正证：单次 planner 输出超过 8 分钟仍按字节活性顺延，没有 4ms、4m 或固定
+   累计年龄降级；本批通过减少矛盾权威降低无效心智负担，不增加任何 active-stream 时间硬切。Trace
+   查询、显式窗因果投影、自动补齐和答案结论所有权均未修改；主因仍只能来自 typed on-chain 证据，
+   邻近/背景只作支撑，双轴根因与链上业务线索保持。
+
+状态：
+
+`B1209-TYPERELATIONPARTICIPANTPARITY1=production-positive-r753`；
+`B1210-REPORTLOCALPROOFRECONCILE1=implemented/unit+package-green/production-arm-not-reached-r753`；
+`B1211-MODELPROSEWORKFLOWAUTHORITY1=implemented/planning-only+typed-workflow-seed/full-internal-pass`；
+`B1212-ACTIVEPLANNERCONTRADICTIONCHURN1=rooted-in-B1211/replay-required`；
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=open/P2`；
+`active-stream-4ms-degrade=forbidden/production-positive-over-8m-per-round`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

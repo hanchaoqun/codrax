@@ -125,6 +125,22 @@ func TestWriteContextPackFromWriteAnalysisIR_ObservedContractNotP0(t *testing.T)
 	}
 }
 
+func TestWriteContextPackFromWriteAnalysisIR_ExpectedOutcomesArePlannerOnly(t *testing.T) {
+	ir := &WriteAnalysisIR{Request: WriteRequestModel{
+		Task:             WriteTask{Summary: "fix observed behavior"},
+		ExpectedOutcomes: []string{"model-proposed outcome without typed authority"},
+	}}
+	pack := WriteContextPackFromWriteAnalysisIR(ir)
+	if !writeContextViewContains(pack.View(WriteConsumerPlanner, 10), "proposed_success_criterion", "model-proposed outcome") {
+		t.Fatalf("planner lost analyzer proposal: %+v", pack.View(WriteConsumerPlanner, 10).Items)
+	}
+	for _, item := range pack.View(WriteConsumerVerifier, 10).Items {
+		if item.Kind == "proposed_success_criterion" || strings.Contains(item.Text, "model-proposed outcome") {
+			t.Fatalf("analyzer proposal leaked into verifier authority: %+v", item)
+		}
+	}
+}
+
 func TestWriteContextPackFromWriteAnalysisIR_SatisfiesContractIsSoft(t *testing.T) {
 	ir := &WriteAnalysisIR{
 		Request: WriteRequestModel{

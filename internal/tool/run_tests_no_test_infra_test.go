@@ -1313,7 +1313,7 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenPlanContractRefMi
 	}
 }
 
-func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenFallbackContractMissing(t *testing.T) {
+func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenGroundedContractMissing(t *testing.T) {
 	if _, ok := resolvePythonDryBuildRunner(); !ok {
 		t.Skip("no usable python on PATH; skip")
 	}
@@ -1331,19 +1331,20 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenFallbackContractM
 	if err := os.WriteFile(filepath.Join(root, "tests", "test_project_suite.py"), []byte(testBody), 0o644); err != nil {
 		t.Fatalf("write test: %v", err)
 	}
-	mu := types.NewMutableState("probe missing fallback contract ref")
+	mu := types.NewMutableState("probe missing grounded contract ref")
 	mu.SetChangePlan(&types.ChangePlan{
 		ID:          "plan-probe-missing-fallback-ref",
 		Status:      types.PlanStatusPending,
 		TargetPaths: []string{"widget.py"},
 		BehaviorContracts: []types.WriteBehaviorContract{{
-			ID:       "outcome-1",
-			Kind:     types.WriteBehaviorObservable,
-			Polarity: types.WriteBehaviorPolarityExpected,
-			Operator: types.WriteBehaviorOpSatisfies,
-			Expected: "widget value is 42",
-			Required: true,
-			Source:   "expected_outcome_fallback",
+			ID:          "outcome-1",
+			Kind:        types.WriteBehaviorObservable,
+			Polarity:    types.WriteBehaviorPolarityExpected,
+			Operator:    types.WriteBehaviorOpSatisfies,
+			Expected:    "widget value is 42",
+			Required:    true,
+			Source:      "write_analyzer",
+			EvidenceRef: "tests/test_project_suite.py:5",
 		}},
 		VerificationProbes: []types.VerificationProbe{{
 			ID:                "value_contract",
@@ -1367,7 +1368,7 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenFallbackContractM
 		t.Fatalf("Execute returned error: %v", err)
 	}
 	if result.Success {
-		t.Fatalf("failing project suite must remain authoritative when fallback contract coverage is missing, got %+v", result)
+		t.Fatalf("failing project suite must remain authoritative when grounded contract coverage is missing, got %+v", result)
 	}
 	report := mu.ChangeReport()
 	if report == nil {
@@ -1386,15 +1387,15 @@ func TestRunTestsVerificationProbePassContinuesProjectSuiteWhenFallbackContractM
 			foundExecutedSuite = true
 		}
 		if cmd.Source == "probe_primary_suite_skipped" {
-			t.Fatalf("suite must not be skipped while fallback contract coverage is missing: %+v", report.ExecutedCommands)
+			t.Fatalf("suite must not be skipped while grounded contract coverage is missing: %+v", report.ExecutedCommands)
 		}
 	}
 	if !foundContinuedSuite || !foundExecutedSuite {
-		t.Fatalf("fallback contract gap should continue the detected suite: %+v", report.ExecutedCommands)
+		t.Fatalf("grounded contract gap should continue the detected suite: %+v", report.ExecutedCommands)
 	}
 }
 
-func TestVerificationProbeMissingRequiredIncludingFallbackContractRefs(t *testing.T) {
+func TestVerificationProbeMissingRequiredContractRefsIgnoresPlanningFallback(t *testing.T) {
 	plan := &types.ChangePlan{
 		BehaviorContracts: []types.WriteBehaviorContract{{
 			ID:       "outcome-1",
@@ -1404,15 +1405,24 @@ func TestVerificationProbeMissingRequiredIncludingFallbackContractRefs(t *testin
 			Expected: "widget value is 42",
 			Required: true,
 			Source:   "expected_outcome_fallback",
+		}, {
+			ID:          "grounded-1",
+			Kind:        types.WriteBehaviorObservable,
+			Polarity:    types.WriteBehaviorPolarityExpected,
+			Operator:    types.WriteBehaviorOpEquals,
+			Expected:    "widget value is 42",
+			Required:    true,
+			Source:      "write_analyzer",
+			EvidenceRef: "tests/test_widget.py:8",
 		}},
 		VerificationProbes: []types.VerificationProbe{{ID: "value_contract"}},
 	}
-	if got := verificationProbeMissingRequiredIncludingFallbackContractRefs(plan); len(got) != 1 || got[0] != "outcome-1" {
-		t.Fatalf("missing fallback refs = %v, want [outcome-1]", got)
+	if got := verificationProbeMissingRequiredIncludingFallbackContractRefs(plan); len(got) != 1 || got[0] != "grounded-1" {
+		t.Fatalf("missing required refs = %v, want only grounded-1", got)
 	}
-	plan.VerificationProbes[0].ContractRefs = []string{"outcome-1"}
+	plan.VerificationProbes[0].ContractRefs = []string{"grounded-1"}
 	if got := verificationProbeMissingRequiredIncludingFallbackContractRefs(plan); len(got) != 0 {
-		t.Fatalf("covered fallback refs must not force suite continuation: %v", got)
+		t.Fatalf("covered grounded refs and ignored planning fallbacks must not force suite continuation: %v", got)
 	}
 }
 

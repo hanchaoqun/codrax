@@ -244,7 +244,7 @@ func TestBuildVerificationProofProfileTargetBehaviorDoesNotBlanketSignContracts(
 	}
 }
 
-func TestBuildVerificationProofLedgerExpectedOutcomeFallbackNeedsExactObservation(t *testing.T) {
+func TestBuildVerificationProofLedgerExpectedOutcomeFallbackIsPlanningOnly(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-fallback-observation",
 		BehaviorContracts: []WriteBehaviorContract{{
@@ -267,23 +267,8 @@ func TestBuildVerificationProofLedgerExpectedOutcomeFallbackNeedsExactObservatio
 	}
 
 	ledger := BuildVerificationProofLedger(plan, report, nil)
-	if ledger.State != VerificationProofLedgerLowConfidence || ledger.UncoveredCount != 1 {
-		t.Fatalf("aggregate project pass blanket-signed expected-outcome fallback: %+v", ledger)
-	}
-	if !verificationProofLedgerHasItem(ledger, "behavior_contract", VerificationProofLedgerItemMissing, "behavior_contract_observation_missing") {
-		t.Fatalf("fallback contract was omitted from exact observation ledger: %+v", ledger.Obligations)
-	}
-
-	report.VerificationConfidence = []VerificationConfidenceRecord{{
-		Source:       "verification_probe",
-		Category:     "probe_soft_contract_refs",
-		Status:       "satisfied",
-		ReasonCode:   "verification_probe_soft_contract_ref_covered",
-		ContractRefs: []string{"outcome-1"},
-	}}
-	ledger = BuildVerificationProofLedger(plan, report, nil)
-	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
-		t.Fatalf("matching executed fallback receipt did not close proof ledger: %+v", ledger)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 || ledger.ObligationCount != 0 {
+		t.Fatalf("planning-only expected-outcome fallback entered proof authority: %+v", ledger)
 	}
 }
 
