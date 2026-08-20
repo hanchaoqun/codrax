@@ -701,8 +701,7 @@ var threadStateComparisonSiteGolden = map[string]string{
 	"query.go:mintRootCauseDIOStateSeat": "d_sleep,io_wait#4",
 	// The closed aggregate effective accessor now owns one former duplicated
 	// running-state branch; the constructor retains only its raw-display case.
-	"query.go:rootCauseItemFromCausalAggregate": "running#1",
-	"query.go:rootCauseItemFromCausalImpact":    "running#2",
+	"query.go:rootCauseItemFromCausalImpactRole": "running#2",
 	// RSPA (§29.61.10, 2026-07-14): the re-anchoring pass gates the
 	// scheduler_latency/low_frequency satellite arm on the runnable dominant
 	// state (one comparison; the formal-seat arms fork on the type token).
@@ -734,9 +733,10 @@ var threadStateComparisonSiteGolden = map[string]string{
 	// GAP-B2 (§13.7 wire, 2026-07-25): the seventh comparison is the d_sleep
 	// dominant gate that stamps the occurrence's typed blocked-reason caller
 	// (DFamilyBlockedCaller) — the D∧timer credential source.
-	"query.go:summarizeWakeupCausalImpact": "running,runnable,d_sleep#7",
-	"query.go:threadTimelineForTarget":     "dead,unknown#2",
-	"query.go:traceCompletenessCaveats":    "s_sleep#1",
+	"query.go:summarizeWakeupCausalImpact":                 "running,runnable,d_sleep#6",
+	"query.go:wakeupCausalImpactUsesCompositePrioritySeat": "running,runnable#2",
+	"query.go:threadTimelineForTarget":                     "dead,unknown#2",
+	"query.go:traceCompletenessCaveats":                    "s_sleep#1",
 	// Window-head sched_migrate_task carry updates CPU attribution only for a
 	// precisely recovered RUNNABLE checkpoint. blocked_reason records compact
 	// opening-side provenance only on an already-open D slice; it never mutates

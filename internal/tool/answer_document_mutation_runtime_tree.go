@@ -4679,9 +4679,16 @@ func runtimeTraceProjStampCoverageFragmentRank(model *runtimeTraceProjTreeModel)
 	}
 	key := func(node types.TraceCausalProjectionNode) (string, float64, bool) {
 		full := node.FullWindowStateMS
+		anchorAccount := node.ChainAnchorFullMS > 0 && node.ChainAnchoredMS > 0 && !node.ChainAnchorRemainderSeat
+		if anchorAccount {
+			full = node.ChainAnchorFullMS
+		}
+		family, covered, accountOK := runtimeTraceProjRSPAOwnedStateAccount(node)
 		class := types.TraceCausalProjectionStateClass(node.StateKind)
-		covered := runtimeTraceProjNodeDisplayImpact(node)
-		if full <= 0 || strings.TrimSpace(node.FullWindowStateSource) == "" || class == "" || covered <= 0 {
+		if accountOK && family == string(tracequery.CausalLaneSchedulingDemand) {
+			class = "runnable"
+		}
+		if full <= 0 || (!anchorAccount && strings.TrimSpace(node.FullWindowStateSource) == "") || class == "" || covered <= 0 {
 			return "", 0, false
 		}
 		return strings.TrimSpace(node.Subject) + "|" + string(class) + "|" + strconv.FormatFloat(full, 'f', 3, 64), covered, true
@@ -20873,14 +20880,21 @@ func runtimeTraceProjOccupierRosterDisplay(roster string, zh bool) string {
 func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode, zh, secondary bool, mergedTwinCount int) (runtimeTraceProjTag, bool) {
 	full := node.FullWindowStateMS
 	source := strings.TrimSpace(node.FullWindowStateSource)
-	if full <= 0 || source == "" {
+	anchorAccount := node.ChainAnchorFullMS > 0 && node.ChainAnchoredMS > 0 && !node.ChainAnchorRemainderSeat
+	if anchorAccount {
+		full = node.ChainAnchorFullMS
+	}
+	if full <= 0 || (!anchorAccount && source == "") {
 		return runtimeTraceProjTag{}, false
 	}
+	family, covered, accountOK := runtimeTraceProjRSPAOwnedStateAccount(node)
 	class := types.TraceCausalProjectionStateClass(node.StateKind)
+	if accountOK && family == string(tracequery.CausalLaneSchedulingDemand) {
+		class = "runnable"
+	}
 	if class == "" {
 		return runtimeTraceProjTag{}, false
 	}
-	covered := runtimeTraceProjNodeDisplayImpact(node)
 	if covered <= 0 {
 		return runtimeTraceProjTag{}, false
 	}
@@ -20893,9 +20907,6 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	// would be false; the 同源二分 line already carries the whole account).
 	if node.ChainAnchorRemainderSeat {
 		return runtimeTraceProjTag{}, false
-	}
-	if node.ChainAnchorFullMS > 0 {
-		full = node.ChainAnchorFullMS
 	}
 	// PTV7 (#74, 用户裁定 2026-07-06): the state class IS the canonical
 	// display word on both faces — the class TABLE keys stay untouched.
@@ -20942,7 +20953,7 @@ func runtimeTraceProjFullWindowCoverageTag(node types.TraceCausalProjectionNode,
 	}
 	var text string
 	switch {
-	case node.FullWindowStateSameWindow:
+	case node.FullWindowStateSameWindow || anchorAccount:
 		text = fmt.Sprintf("窗内 %s 合计 %.3fms,%s %.3fms(%.0f%%)",
 			displayClass, full, fragmentZH, covered, covered/full*100)
 		if !zh {

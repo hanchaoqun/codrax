@@ -987,7 +987,7 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 			t.Fatalf("relation-only semantic family must not wear ranked badge %s:\n%s", glyph, texBlock)
 		}
 	}
-	if !strings.Contains(texBlock, "未入根因排序前4") {
+	if !strings.Contains(texBlock, "未入根因排序前") {
 		t.Fatalf("relation-only semantic family must disclose its non-ranked placement:\n%s", texBlock)
 	}
 	if strings.Contains(md, "11.130") {

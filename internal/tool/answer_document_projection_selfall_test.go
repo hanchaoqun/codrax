@@ -239,25 +239,41 @@ func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 	q := tracequery.Query{PID: 17267, TimeStart: 13762.791708, TimeEnd: 13763.024898,
 		MaxBranches: 8, MaxChainNodes: 1, TraceFlavorHint: tracequery.TraceFlavorHarmonyHitrace}
 	var records []types.ObservationRecord
+	var engineRankRoster []string
 	for i, view := range []string{"window_stats", "root_cause_rank", "critical_blocking_calls", "thread_timeline"} {
 		vq := q
 		vq.View = view
 		result := tracequery.Run(idx, vq)
-		records = append(records, traceQueryTypedObservations(result, "donghu.ftrace",
-			fmt.Sprintf("payload-%d", i), "raw-ref", "", time.Unix(1751600000, 0).UTC())...)
+		if view == "root_cause_rank" && result.RootCauseRank != nil {
+			for _, item := range result.RootCauseRank.Items {
+				if item.Rank > 0 {
+					engineRankRoster = append(engineRankRoster, fmt.Sprintf("#%d:%s:%s-%d", item.Rank, item.Type, item.Thread.Comm, item.Thread.PID))
+				}
+			}
+		}
+		viewRecords := traceQueryTypedObservations(result, "donghu.ftrace",
+			fmt.Sprintf("payload-%d", i), "raw-ref", "", time.Unix(1751600000, 0).UTC())
+		records = append(records, viewRecords...)
 	}
 	set := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
 	if len(set.Projections) == 0 {
 		t.Fatal("no projection")
 	}
 	model := buildRuntimeTraceProjTreeModel(set.Projections[0], newRuntimeTraceCausalProjectionEvidenceIndex(), true)
-	// F1: rendered seat ordinals are contiguous — every engine seat between 1
-	// and the max rendered ordinal holds a visible row (fold peers included:
-	// a rank twin folded into a rendered row keeps its published seat).
+	// F1: rendered CHAIN-seat ordinals are contiguous — every engine root-
+	// cause seat between 1 and the max rendered ordinal holds a visible row
+	// (fold peers included: a rank twin folded into a rendered row keeps its
+	// published seat). The adjacent channel has its own ordinal domain and its
+	// post-aggregation overflow is deliberately carried by a counted context
+	// fold; mixing that domain into this assertion would promote background
+	// investigation context into the root-cause board.
 	seen := map[int]bool{}
 	var maxRank int
 	for _, lane := range [][]runtimeTraceProjTreeRow{model.SelfRows, model.TreeRows, model.Adjacent, model.Background} {
 		for _, row := range lane {
+			if runtimeTraceProjRowOrdinalChannel(row) != runtimeTraceProjOrdinalChannelChain {
+				continue
+			}
 			if row.Node.Rank > 0 {
 				seen[row.Node.Rank] = true
 				if row.Node.Rank > maxRank {
@@ -279,7 +295,7 @@ func TestSelfAllFixRoundDonghuABWitness(t *testing.T) {
 	}
 	for r := 1; r <= maxRank; r++ {
 		if !seen[r] {
-			t.Fatalf("F1 序数连续承诺: seat #%d is invisible on every render surface (ordinal hole):\nseen=%v", r, seen)
+			t.Fatalf("F1 序数连续承诺: chain seat #%d is invisible on every render surface (ordinal hole):\nseen=%v\nengine=%v", r, seen, engineRankRoster)
 		}
 	}
 	// F2: the overlap-proven io seat and the self-basis family render as

@@ -506,8 +506,8 @@ func TestRNB5BMicroFoldCensusCountsMembersDonghu2955(t *testing.T) {
 	for _, row := range model.TreeRows {
 		if row.Node.MicroAnchorFold {
 			foldLive = true
-			if row.MicroAnchorFoldDepthlessMembers != 3 {
-				t.Fatalf("the 2955 fold must carry 3 depthless members: %+v", row)
+			if row.MicroAnchorFoldDepthlessMembers != 2 {
+				t.Fatalf("the 2955 fold must carry the 2 remaining depthless members after B1260 promotes the qualified scheduling sub-seat: %+v", row)
 			}
 		}
 	}

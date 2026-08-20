@@ -100,6 +100,26 @@ func runtimeTraceProjSMR1StateFamily(node types.TraceCausalProjectionNode) strin
 	return ""
 }
 
+// runtimeTraceProjRSPAOwnedStateAccount resolves the state family and scalar
+// that a row owns specifically for an RSPA full-window/chain-anchor account.
+// Most rows own their ordinary display scalar in their registered state
+// family.  A priority-inversion scheduling-supply sub-seat is different: its
+// dominant state remains the surrounding dependency's evidence context and
+// its display value may also include a running compute-deficit component, but
+// only the typed gated-runnable component belongs to the runnable wall-clock
+// bipartition.  Keeping this exception in one typed helper prevents the
+// coverage, same-source pairing and twin-visibility consumers from drifting.
+func runtimeTraceProjRSPAOwnedStateAccount(node types.TraceCausalProjectionNode) (string, float64, bool) {
+	token := firstNonEmptyAnswerString(node.TypeToken, node.Object)
+	if runtimeTracePriorityInversionCandidateType(runtimeTraceCausalProjectionCanonicalNode(token)) &&
+		node.GatedRunnableMS > 0 {
+		return string(tracequery.CausalLaneSchedulingDemand), node.GatedRunnableMS, true
+	}
+	family := runtimeTraceProjSMR1StateFamily(node)
+	value := runtimeTraceProjNodeDisplayImpact(node)
+	return family, value, family != "" && value > 0
+}
+
 // runtimeTraceProjSMR1HullsDisjointProven (修复轮三 R2-F2) reports whether
 // two rows' typed occurrence hulls are PROVABLY disjoint: both carry valid
 // [StartTs,EndTs] and the intervals do not intersect. Hull disjointness ⇒
@@ -750,8 +770,8 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		if !runtimeTraceProjSMR1WallClockRow(rn) {
 			continue
 		}
-		family := runtimeTraceProjSMR1StateFamily(rn)
-		if family == "" {
+		family, _, familyOK := runtimeTraceProjRSPAOwnedStateAccount(rn)
+		if !familyOK {
 			continue
 		}
 		var clipped, chainSeat *runtimeTraceProjTreeRow
@@ -765,7 +785,8 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 				runtimeTraceCausalProjectionCanonicalNode(rn.Subject) {
 				continue
 			}
-			if runtimeTraceProjSMR1StateFamily(on) != family || !runtimeTraceProjSMR1WallClockRow(on) {
+			otherFamily, otherOwnedMS, otherAccountOK := runtimeTraceProjRSPAOwnedStateAccount(on)
+			if !otherAccountOK || otherFamily != family || !runtimeTraceProjSMR1WallClockRow(on) {
 				continue
 			}
 			if !runtimeTraceProjSMR1WindowsCompatible(on, rn) {
@@ -777,8 +798,7 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 					break
 				}
 				clipped = other
-			} else if strings.TrimSpace(on.ChainRelevance) == "on_chain" &&
-				runtimeTraceProjNodeDisplayImpact(on) > 0 {
+			} else if strings.TrimSpace(on.ChainRelevance) == "on_chain" && otherOwnedMS > 0 {
 				// Case-A fallback — RNB-2 件1(ii)/(iii) (§29.88 W3 病②,
 				// 2026-07-15). EVOLUTION RECORD: this arm used to accept ANY
 				// positive on-chain same-family row and take the LARGEST when
@@ -791,7 +811,7 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 				// anchored portion already lives on the chain seat); ≥2
 				// verified candidates fail open (禁猜 — the largest-seat
 				// tiebreak is retired on this arm).
-				if !runtimeTraceProjSMR1ValuesEqual(runtimeTraceProjNodeDisplayImpact(on), rn.ChainAnchoredMS) {
+				if !runtimeTraceProjSMR1ValuesEqual(otherOwnedMS, rn.ChainAnchoredMS) {
 					continue
 				}
 				if chainSeat != nil {
@@ -815,7 +835,8 @@ func runtimeTraceProjMarkAccountRelations(model *runtimeTraceProjTreeModel, zh b
 		// the sentence names must publish exactly the anchored share (µs); a
 		// different-bipartition clipped row of the same (thread, family) must
 		// never be spoken of as this remainder's counterpart (fail open).
-		if !runtimeTraceProjSMR1ValuesEqual(runtimeTraceProjNodeDisplayImpact(pick.Node), rn.ChainAnchoredMS) {
+		_, pickOwnedMS, pickAccountOK := runtimeTraceProjRSPAOwnedStateAccount(pick.Node)
+		if !pickAccountOK || !runtimeTraceProjSMR1ValuesEqual(pickOwnedMS, rn.ChainAnchoredMS) {
 			continue
 		}
 		rem.AccountRelRef = strings.TrimSpace(pick.EvidenceTag)
@@ -1423,6 +1444,9 @@ func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeR
 			continue
 		}
 		family := runtimeTraceProjSMR1StateFamily(rn)
+		if token := firstNonEmptyAnswerString(rn.TypeToken, rn.Object); runtimeTracePriorityInversionCandidateType(token) && rn.GatedRunnableMS > 0 {
+			family = string(tracequery.CausalLaneSchedulingDemand)
+		}
 		subject := runtimeTraceCausalProjectionCanonicalNode(rn.Subject)
 		visible := false
 		for _, other := range all {
@@ -1433,7 +1457,13 @@ func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeR
 			if runtimeTraceCausalProjectionCanonicalNode(on.Subject) != subject {
 				continue
 			}
-			if runtimeTraceProjSMR1StateFamily(on) != family {
+			otherFamily := runtimeTraceProjSMR1StateFamily(on)
+			otherOwnedMS := runtimeTraceProjNodeDisplayImpact(on)
+			if token := firstNonEmptyAnswerString(on.TypeToken, on.Object); runtimeTracePriorityInversionCandidateType(token) && on.GatedRunnableMS > 0 {
+				otherFamily = string(tracequery.CausalLaneSchedulingDemand)
+				otherOwnedMS = on.GatedRunnableMS
+			}
+			if otherFamily != family {
 				continue
 			}
 			if !runtimeTraceProjSMR1WindowsCompatible(on, rn) {
@@ -1441,7 +1471,7 @@ func runtimeTraceProjStampChainAnchorTwinVisibility(all []*runtimeTraceProjTreeR
 			}
 			if rn.ChainAnchorRemainderSeat {
 				if (on.ChainAnchorFullMS > 0 && !on.ChainAnchorRemainderSeat) ||
-					(strings.TrimSpace(on.ChainRelevance) == "on_chain" && runtimeTraceProjNodeDisplayImpact(on) > 0) {
+					(strings.TrimSpace(on.ChainRelevance) == "on_chain" && otherOwnedMS > 0) {
 					visible = true
 					break
 				}

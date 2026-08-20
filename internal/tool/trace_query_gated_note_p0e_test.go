@@ -69,6 +69,7 @@ func TestCausalAggregateFacePublishesGatedNotes(t *testing.T) {
 		DominantImpactMs:                5,
 		TotalMs:                         8,
 		PriorityInversion:               true,
+		PriorityRelation:                "lower_priority_dependency",
 		PriorityInversionGatedMs:        6.0,
 		GatedRunnableMs:                 5.0,
 		GatedRunningDeficitMs:           1.0,

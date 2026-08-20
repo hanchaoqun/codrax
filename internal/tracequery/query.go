@@ -14051,7 +14051,8 @@ func rankSeatAggregates(chain ChainResult) []WakeupCausalAggregate {
 		if aggregate.ChainDepth <= 0 || aggregate.DominantImpactMs <= 0 {
 			continue
 		}
-		if isIntermediateSleepAggregate(chain, aggregate) && !aggregate.PeriodicSource {
+		if isIntermediateSleepAggregate(chain, aggregate) && !aggregate.PeriodicSource &&
+			!WakeupCausalAggregateHasPriorityInversionSeat(aggregate) {
 			continue
 		}
 		out = append(out, aggregate)
@@ -14340,12 +14341,13 @@ func priorityArtifactSourceUnion(sources ...string) []string {
 // degrades to MAX.
 func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregate, members []int) {
 	type gatedMember struct {
-		window     TimeWindow
-		total      float64
-		runnable   float64
-		deficit    float64
-		capability string
-		topology   string
+		window            TimeWindow
+		total             float64
+		runnable          float64
+		deficit           float64
+		runnableIntervals []foldInterval
+		capability        string
+		topology          string
 		// DISPHYG-3 件7: the gated freq_only cause token travels with its
 		// capability source (same first-non-empty / strongest rules).
 		freqOnlyReason string
@@ -14361,13 +14363,14 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 			continue
 		}
 		gated = append(gated, gatedMember{
-			window:         impact.Window,
-			total:          impact.PriorityInversionGatedMs,
-			runnable:       impact.GatedRunnableMs,
-			deficit:        impact.GatedRunningDeficitMs,
-			capability:     impact.GatedCapabilitySource,
-			topology:       impact.GatedClusterTopology,
-			freqOnlyReason: impact.GatedCapabilityFreqOnlyReason,
+			window:            impact.Window,
+			total:             impact.PriorityInversionGatedMs,
+			runnable:          impact.GatedRunnableMs,
+			deficit:           impact.GatedRunningDeficitMs,
+			runnableIntervals: append([]foldInterval(nil), impact.priorityInversionRunnableIntervals...),
+			capability:        impact.GatedCapabilitySource,
+			topology:          impact.GatedClusterTopology,
+			freqOnlyReason:    impact.GatedCapabilityFreqOnlyReason,
 		})
 	}
 	if len(gated) == 0 {
@@ -14387,9 +14390,11 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 		}
 	}
 	if disjoint {
+		var runnableIntervals []foldInterval
 		for _, member := range gated {
 			item.GatedRunnableMs += member.runnable
 			item.GatedRunningDeficitMs += member.deficit
+			runnableIntervals = append(runnableIntervals, member.runnableIntervals...)
 			// CAP (§26 C3): members share one per-query capability judgment;
 			// first non-empty wins. CAP-2: the topology token travels the
 			// same way.
@@ -14409,6 +14414,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 		// components-sum and split the single-source identity
 		// (total == runnable + deficit) every downstream face relies on.
 		item.PriorityInversionGatedMs = item.GatedRunnableMs + item.GatedRunningDeficitMs
+		item.priorityInversionRunnableIntervals = foldIntervalUnion(runnableIntervals)
 		item.GatedAggregationCaliber = GatedCaliberSumDisjointOccurrences
 		return
 	}
@@ -14421,6 +14427,7 @@ func applyAggregateGatedInversion(chain *ChainResult, item *WakeupCausalAggregat
 	item.PriorityInversionGatedMs = strongest.total
 	item.GatedRunnableMs = strongest.runnable
 	item.GatedRunningDeficitMs = strongest.deficit
+	item.priorityInversionRunnableIntervals = foldIntervalUnion(strongest.runnableIntervals)
 	item.GatedCapabilitySource = strongest.capability
 	item.GatedClusterTopology = strongest.topology
 	item.GatedCapabilityFreqOnlyReason = strongest.freqOnlyReason
@@ -15618,9 +15625,6 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			// lane now mints the depth-0 running row with the full typed set.
 			continue
 		}
-		if isIntermediateSleepImpact(chain, impact) {
-			continue
-		}
 		if haveSelfRunningSeat && impact.ChainDepth <= 0 &&
 			impact.DominantState == string(StateRunning) && sameThreadRef(impact.Thread, chain.Target) {
 			// ELIM-SELF-FIX 件1 ORD closure (§29.93.1 修向①): the window-
@@ -15643,23 +15647,53 @@ func buildRootCauseRankFromWithCache(idx *Index, q Query, chain ChainResult, sta
 			seatRootEvidenceTwin(impact)
 			continue
 		}
+		separatePrioritySeat := wakeupCausalImpactHasSeparatePrioritySeat(impact)
+		if isIntermediateSleepImpact(chain, impact) {
+			if separatePrioritySeat {
+				items = append(items, rootCausePriorityItemFromCausalImpact(impact))
+				seatRootEvidenceTwin(impact)
+			}
+			continue
+		}
 		if impact.ChainDepth > 0 && rspaSuppressChainDIOSeat(impact.Thread.PID, impact.DominantState) {
 			// RSPA M-D: the clipped §29.50.5 partition seats own this
 			// account; the RootEvidence twin is seeded so no lane resurrects
 			// the same physical occurrence.
+			if separatePrioritySeat {
+				items = append(items, rootCausePriorityItemFromCausalImpact(impact))
+			}
 			seatRootEvidenceTwin(impact)
 			continue
 		}
-		items = append(items, rootCauseItemFromCausalImpact(impact))
+		if separatePrioritySeat {
+			items = append(items,
+				rootCausePrimaryItemFromCausalImpact(impact),
+				rootCausePriorityItemFromCausalImpact(impact),
+			)
+		} else {
+			items = append(items, rootCauseItemFromCausalImpact(impact))
+		}
 		seatRootEvidenceTwin(impact)
 	}
 	for _, aggregate := range seatedAggregates {
+		separatePrioritySeat := WakeupCausalAggregateHasPriorityInversionSeat(aggregate) &&
+			!WakeupCausalAggregateInversionTyped(aggregate)
+		if separatePrioritySeat {
+			items = append(items, rootCausePriorityItemFromCausalAggregate(aggregate))
+		}
 		if rspaSuppressChainDIOSeat(aggregate.Thread.PID, aggregate.DominantState) {
 			// RSPA M-D: same one-seat closure on the aggregate face (member
 			// occurrences were twin-seeded in the loop above).
 			continue
 		}
-		items = append(items, rootCauseItemFromCausalAggregate(aggregate))
+		if isIntermediateSleepAggregate(chain, aggregate) && !aggregate.PeriodicSource {
+			continue
+		}
+		if separatePrioritySeat {
+			items = append(items, rootCausePrimaryItemFromCausalAggregate(aggregate))
+		} else {
+			items = append(items, rootCauseItemFromCausalAggregate(aggregate))
+		}
 	}
 	for _, root := range chain.RootEvidence {
 		// §20 headline + §20.1 ruling ① (2026-07-07, RKC): a RootEvidence twin
@@ -18496,28 +18530,47 @@ func RootCauseRankItemEffectiveImpactMs(item RootCauseRankItem) float64 {
 }
 
 func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
-	effectiveMs := WakeupCausalImpactEffectiveImpactMs(impact)
-	typ := causalImpactRootType(impact)
-	if impact.PriorityInversionCandidate {
+	return rootCauseItemFromCausalImpactRole(impact, impact.PriorityInversionCandidate)
+}
+
+func rootCausePrimaryItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
+	return rootCauseItemFromCausalImpactRole(impact, false)
+}
+
+func rootCausePriorityItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem {
+	return rootCauseItemFromCausalImpactRole(impact, true)
+}
+
+func rootCauseItemFromCausalImpactRole(impact WakeupCausalImpact, inversionSeat bool) RootCauseRankItem {
+	basis := impact
+	basis.PriorityInversionCandidate = inversionSeat
+	if !inversionSeat && impact.PriorityInversionCandidate {
+		basis.NextStep = causalImpactNextStep(basis)
+		basis.NextStepKind = causalImpactNextStepKind(basis)
+		basis.Summary = renderWakeupCausalImpactSummary(basis)
+	}
+	effectiveMs := WakeupCausalImpactEffectiveImpactMs(basis)
+	typ := causalImpactRootType(basis)
+	if inversionSeat {
 		typ = "priority_inversion_candidate"
 	}
 	conf := 0.86
-	if impact.PriorityInversionCandidate {
+	if inversionSeat {
 		conf = 0.91
 	}
-	impactMs := causalImpactBlockingMs(impact)
-	if impact.PriorityInversionCandidate {
+	impactMs := causalImpactBlockingMs(basis)
+	if inversionSeat {
 		// R5d: an inversion row publishes and ranks with its gated impact,
 		// not the dependency's whole dominant/blocked duration.
 		impactMs = impact.PriorityInversionGatedMs
 	}
-	item := rootCauseItem(typ, impact.Thread, impactMs, conf, impact.LineStart, impact.LineEnd, "wakeup_chain.causal_impacts", impact.Summary)
+	item := rootCauseItem(typ, basis.Thread, impactMs, conf, basis.LineStart, basis.LineEnd, "wakeup_chain.causal_impacts", basis.Summary)
 	item.EffectiveImpactMs = effectiveMs
 	item.PriorityRelationCaliber = impact.PriorityRelationCaliber
 	item.PriorityRelationProvenLowerMs = impact.PriorityRelationProvenLowerMs
 	item.PriorityRelationUnknownOrNonLowerMs = impact.PriorityRelationUnknownOrNonLowerMs
 	item.PriorityRelationArtifactSources = append([]string(nil), impact.PriorityRelationArtifactSources...)
-	if impact.PriorityInversionCandidate {
+	if inversionSeat {
 		// §7.30.3 D3: the composite's composition travels with the row so the
 		// renderer can split it instead of claiming a single state.
 		item.GatedRunnableMs = impact.GatedRunnableMs
@@ -18525,7 +18578,8 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 		item.GatedCapabilitySource = impact.GatedCapabilitySource
 		item.GatedClusterTopology = impact.GatedClusterTopology
 		item.GatedCapabilityFreqOnlyReason = impact.GatedCapabilityFreqOnlyReason
-	} else if impact.DominantState == string(StateRunning) {
+		item.familyMemberIntervals = append([]foldInterval(nil), impact.priorityInversionRunnableIntervals...)
+	} else if basis.DominantState == string(StateRunning) {
 		// §20.2 (2026-07-07, overturns §20.1甲 side clause — EVOLUTION): the
 		// merged non-inversion RUNNING row's ATTRIBUTION channels (effective /
 		// sort / Score) carry its ELIMINABLE supply-fold deficit — 0 when the
@@ -18543,8 +18597,12 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.ChainRelevance = "on_chain"
 	item.ChainDepth = impact.ChainDepth
 	item.ChainBranch = impact.ChainBranch
-	item.CumulativeImpactMs = impact.TotalMs
-	if impact.PriorityInversionCandidate && impact.DominantState == string(StateRunning) {
+	item.CumulativeImpactMs = basis.TotalMs
+	if inversionSeat && wakeupCausalImpactHasSeparatePrioritySeat(impact) {
+		// The surrounding sleep/D/IO account has its own row.  This row owns
+		// only the disjoint runnable + running-deficit sub-account.
+		item.CumulativeImpactMs = impact.PriorityInversionGatedMs
+	} else if inversionSeat && basis.DominantState == string(StateRunning) {
 		// §20.1 ruling ①甲 (raw 墙钟保留): the merged running-dominant
 		// inversion row keeps the dead twin's raw caliber visible — the raw
 		// RUNNING wall clock rides the cumulative face (q6: gated 37.410
@@ -18564,11 +18622,18 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	item.SleepMs = impact.SleepMs
 	item.DStateMs = impact.DStateMs
 	item.IOWaitMs = impact.IOWaitMs
-	item.ProjectedImpactMs = firstPositiveFloat(impact.ProjectedImpactMs, impactMs)
-	item.ActualImpactMs = impact.ActualImpactMs
-	item.ActualTotalMs = impact.ActualTotalMs
+	item.ProjectedImpactMs = firstPositiveFloat(basis.ProjectedImpactMs, impactMs)
+	item.ActualImpactMs = basis.ActualImpactMs
+	item.ActualTotalMs = basis.ActualTotalMs
+	if inversionSeat && wakeupCausalImpactHasSeparatePrioritySeat(impact) {
+		item.ProjectedImpactMs = impactMs
+		item.ActualStartTs = 0
+		item.ActualEndTs = 0
+		item.ActualImpactMs = 0
+		item.ActualTotalMs = 0
+	}
 	item.Score = effectiveMs * conf * rootCauseScoreWeightChainImpact
-	if impact.PeriodicSource {
+	if !inversionSeat && basis.PeriodicSource {
 		// VS-1 (§7.8): a periodic source's sleep-dominant occurrence ranks and
 		// scores by its DISCOUNTED attribution (runnable in full + lateness) —
 		// in-period sleep is cadence, not cause. Raw ImpactMs/CumulativeImpactMs
@@ -18591,105 +18656,112 @@ func rootCauseItemFromCausalImpact(impact WakeupCausalImpact) RootCauseRankItem 
 	// rows the deficit now IS the attribution (effective/sort/Score above) —
 	// the former "deficit 不参赛" clause is overturned for that lane; ideal
 	// remains display-only everywhere (ideal 零 impact 化).
-	if impact.SupplyFoldBasis != nil {
-		basis := *impact.SupplyFoldBasis
-		item.SupplyFoldDeficitMs = impact.SupplyFoldDeficitMs
-		item.SupplyFoldIdealMs = impact.SupplyFoldIdealMs
-		item.SupplyFoldBasis = &basis
+	if basis.SupplyFoldBasis != nil {
+		foldBasis := *basis.SupplyFoldBasis
+		item.SupplyFoldDeficitMs = basis.SupplyFoldDeficitMs
+		item.SupplyFoldIdealMs = basis.SupplyFoldIdealMs
+		item.SupplyFoldBasis = &foldBasis
 	}
 	return item
 }
 
 func rootCauseItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCauseRankItem {
-	inversionTyped := WakeupCausalAggregateInversionTyped(aggregate)
-	effectiveMs := WakeupCausalAggregateEffectiveImpactMs(aggregate)
-	typ := aggregateRootCauseType(aggregate)
-	if inversionTyped {
+	return rootCauseItemFromCausalAggregateRole(aggregate, WakeupCausalAggregateInversionTyped(aggregate))
+}
+
+func rootCausePrimaryItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCauseRankItem {
+	return rootCauseItemFromCausalAggregateRole(aggregate, false)
+}
+
+func rootCausePriorityItemFromCausalAggregate(aggregate WakeupCausalAggregate) RootCauseRankItem {
+	return rootCauseItemFromCausalAggregateRole(aggregate, true)
+}
+
+func rootCauseItemFromCausalAggregateRole(aggregate WakeupCausalAggregate, inversionSeat bool) RootCauseRankItem {
+	basis := aggregate
+	if !inversionSeat && aggregate.PriorityInversion {
+		basis.PriorityInversion = false
+		basis.Summary = renderWakeupCausalAggregateSummary(basis)
+	}
+	effectiveMs := WakeupCausalAggregateEffectiveImpactMs(basis)
+	if inversionSeat {
+		effectiveMs = aggregate.PriorityInversionGatedMs
+	}
+	typ := aggregateRootCauseType(basis)
+	if inversionSeat {
 		typ = "priority_inversion_candidate"
 	}
 	conf := 0.82
-	if inversionTyped {
+	if inversionSeat {
 		conf = 0.88
 	}
-	impactMs := aggregateBlockingMs(aggregate)
-	if inversionTyped {
-		// R5d aggregate half (§20 E-Gap②, 2026-07-07): an inversion-typed
-		// aggregate row publishes and ranks with its gated caliber — the same
-		// R5d rule the per-occurrence lane has carried since §7.30.1; the raw
-		// blocking magnitude stays on the cumulative/state faces. The gated
-		// value's cross-occurrence additivity/fallback is decided at
-		// aggregation time (applyAggregateGatedInversion — sum only over
-		// disjoint occurrence windows, honest MAX otherwise).
+	impactMs := aggregateBlockingMs(basis)
+	if inversionSeat {
 		impactMs = aggregate.PriorityInversionGatedMs
 	}
-	item := rootCauseItem(typ, aggregate.Thread, impactMs, conf, aggregate.LineStart, aggregate.LineEnd, "wakeup_chain.aggregated_impacts", aggregate.Summary)
+	item := rootCauseItem(typ, basis.Thread, impactMs, conf, basis.LineStart, basis.LineEnd, "wakeup_chain.aggregated_impacts", basis.Summary)
 	item.EffectiveImpactMs = effectiveMs
 	item.PriorityRelationCaliber = aggregate.PriorityRelationCaliber
 	item.PriorityRelationProvenLowerMs = aggregate.PriorityRelationProvenLowerMs
 	item.PriorityRelationUnknownOrNonLowerMs = aggregate.PriorityRelationUnknownOrNonLowerMs
 	item.PriorityRelationArtifactSources = append([]string(nil), aggregate.PriorityRelationArtifactSources...)
-	if inversionTyped {
-		// §7.30.3 D3 mirror: composition travels with the row.
+	if inversionSeat {
 		item.GatedRunnableMs = aggregate.GatedRunnableMs
 		item.GatedRunningDeficitMs = aggregate.GatedRunningDeficitMs
 		item.GatedCapabilitySource = aggregate.GatedCapabilitySource
 		item.GatedClusterTopology = aggregate.GatedClusterTopology
 		item.GatedCapabilityFreqOnlyReason = aggregate.GatedCapabilityFreqOnlyReason
-	} else if aggregate.DominantState == string(StateRunning) {
-		// §20.2 mirror (2026-07-07, overturns §20.1甲 side clause): a
-		// non-inversion running-dominant aggregate's attribution channels
-		// carry the ELIMINABLE member-deficit value (VS-2 fold sum over the
-		// folded members; 0 when no member folded or frequency data was
-		// missing — authoritative at 0 via the type=="running" branch in
-		// rootCauseEffectiveImpactMs). Raw ΣRunning stays display-only
-		// (ImpactMs/ProjectedImpactMs bar + TotalMs cumulative below). The
-		// The typed inversion gate above is authoritative. The raw aggregate
-		// flag is an audit census bit ("some member was flagged") and cannot
-		// suppress a valid plain-running CAP deficit when no typed gated
-		// inversion survived aggregation.
-		item.EffectiveImpactMs = effectiveMs
+		item.familyMemberIntervals = append([]foldInterval(nil), aggregate.priorityInversionRunnableIntervals...)
 	}
 	item.Causality = "on_wakeup_chain"
 	item.ChainRelevance = "on_chain"
-	item.ChainDepth = aggregate.ChainDepth
-	item.ChainBranch = aggregate.ChainBranch
-	item.CumulativeImpactMs = aggregate.TotalMs
-	item.TargetImpactMs = aggregate.TargetBlockedMs
-	item.StartTs = aggregate.FirstTs
-	item.EndTs = aggregate.LastTs
-	item.ActualStartTs = aggregate.ActualFirstTs
-	item.ActualEndTs = aggregate.ActualLastTs
-	item.DominantState = aggregate.DominantState
-	item.RunningMs = aggregate.RunningMs
-	item.RunnableMs = aggregate.RunnableMs
-	item.SleepMs = aggregate.SleepMs
-	item.DStateMs = aggregate.DStateMs
-	item.IOWaitMs = aggregate.IOWaitMs
-	item.ProjectedImpactMs = firstPositiveFloat(aggregate.ProjectedImpactMs, impactMs)
-	item.ActualImpactMs = aggregate.ActualImpactMs
-	item.ActualTotalMs = aggregate.ActualTotalMs
-	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), aggregate.OccurrenceWindows...)
+	item.ChainDepth = basis.ChainDepth
+	item.ChainBranch = basis.ChainBranch
+	item.CumulativeImpactMs = basis.TotalMs
+	if inversionSeat && !WakeupCausalAggregateInversionTyped(aggregate) {
+		// The dominant blocking state remains on its own full-value seat.  This
+		// row owns only the non-overlapping scheduling-supply sub-account.
+		item.CumulativeImpactMs = aggregate.PriorityInversionGatedMs
+	}
+	item.TargetImpactMs = basis.TargetBlockedMs
+	item.StartTs = basis.FirstTs
+	item.EndTs = basis.LastTs
+	item.ActualStartTs = basis.ActualFirstTs
+	item.ActualEndTs = basis.ActualLastTs
+	item.DominantState = basis.DominantState
+	item.RunningMs = basis.RunningMs
+	item.RunnableMs = basis.RunnableMs
+	item.SleepMs = basis.SleepMs
+	item.DStateMs = basis.DStateMs
+	item.IOWaitMs = basis.IOWaitMs
+	item.ProjectedImpactMs = firstPositiveFloat(basis.ProjectedImpactMs, impactMs)
+	item.ActualImpactMs = basis.ActualImpactMs
+	item.ActualTotalMs = basis.ActualTotalMs
+	if inversionSeat && !WakeupCausalAggregateInversionTyped(aggregate) {
+		item.ProjectedImpactMs = impactMs
+		item.ActualStartTs = 0
+		item.ActualEndTs = 0
+		item.ActualImpactMs = 0
+		item.ActualTotalMs = 0
+	}
+	item.OccurrenceWindows = append([]WakeupCausalOccurrence(nil), basis.OccurrenceWindows...)
 	item.Score = effectiveMs * conf * rootCauseScoreWeightChainAggregate
-	if aggregate.PeriodicSource {
-		// VS-1 (§7.8): same discounted ranking as the per-occurrence face —
-		// see rootCauseItemFromCausalImpact. Raw impact/cumulative unchanged.
+	if !inversionSeat && basis.PeriodicSource {
 		item.PeriodicSource = true
-		item.DetectedPeriodMs = aggregate.DetectedPeriodMs
-		item.LatenessMs = aggregate.LatenessMs
+		item.DetectedPeriodMs = basis.DetectedPeriodMs
+		item.LatenessMs = basis.LatenessMs
 		item.EffectiveImpactMs = effectiveMs
 		item.Score = effectiveMs * conf * rootCauseScoreWeightChainAggregate
-		if aggregate.PeriodicTimerWait {
+		if basis.PeriodicTimerWait {
 			item.PeriodicTimerWait = true
-			item.PeriodicTimerCaller = aggregate.PeriodicTimerCaller
+			item.PeriodicTimerCaller = basis.PeriodicTimerCaller
 		}
 	}
-	// VS-2 (§7.10): same mirror as rootCauseItemFromCausalImpact — display
-	// decision-table input only, never a rank/score participant.
-	if aggregate.SupplyFoldBasis != nil {
-		basis := *aggregate.SupplyFoldBasis
-		item.SupplyFoldDeficitMs = aggregate.SupplyFoldDeficitMs
-		item.SupplyFoldIdealMs = aggregate.SupplyFoldIdealMs
-		item.SupplyFoldBasis = &basis
+	if basis.SupplyFoldBasis != nil {
+		foldBasis := *basis.SupplyFoldBasis
+		item.SupplyFoldDeficitMs = basis.SupplyFoldDeficitMs
+		item.SupplyFoldIdealMs = basis.SupplyFoldIdealMs
+		item.SupplyFoldBasis = &foldBasis
 	}
 	return item
 }
@@ -19263,6 +19335,52 @@ func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
 	}
 }
 
+const priorityInversionAccountEpsilonMs = 1e-9
+
+func priorityInversionComponentsAreClosed(total, runnable, runningDeficit float64) bool {
+	if total <= 0 || runnable < 0 || runningDeficit < 0 ||
+		math.IsNaN(total) || math.IsInf(total, 0) ||
+		math.IsNaN(runnable) || math.IsInf(runnable, 0) ||
+		math.IsNaN(runningDeficit) || math.IsInf(runningDeficit, 0) {
+		return false
+	}
+	return math.Abs(total-(runnable+runningDeficit)) <= priorityInversionAccountEpsilonMs
+}
+
+func wakeupCausalImpactHasPriorityInversionSeat(impact WakeupCausalImpact) bool {
+	return impact.PriorityInversionCandidate &&
+		impact.PriorityRelation == "lower_priority_dependency" &&
+		priorityEvidenceCaliberIsHard(impact.PriorityRelationCaliber) &&
+		impact.PriorityRelationProvenLowerMs+priorityInversionAccountEpsilonMs >= impact.PriorityInversionGatedMs &&
+		priorityInversionComponentsAreClosed(impact.PriorityInversionGatedMs, impact.GatedRunnableMs, impact.GatedRunningDeficitMs)
+}
+
+func wakeupCausalImpactUsesCompositePrioritySeat(impact WakeupCausalImpact) bool {
+	if !wakeupCausalImpactHasPriorityInversionSeat(impact) {
+		return false
+	}
+	return impact.DominantState == string(StateRunnable) || impact.DominantState == string(StateRunning)
+}
+
+func wakeupCausalImpactHasSeparatePrioritySeat(impact WakeupCausalImpact) bool {
+	return wakeupCausalImpactHasPriorityInversionSeat(impact) &&
+		!wakeupCausalImpactUsesCompositePrioritySeat(impact)
+}
+
+// WakeupCausalAggregateHasPriorityInversionSeat validates the aggregate's
+// independent scheduling-supply sub-account.  It deliberately does not read
+// DominantState: a D/IO- or sleep-dominant chain node may still contain a
+// disjoint, exactly proved runnable/running supply loss.  Callers decide
+// whether that sub-account shares the dominant-state row or needs a separate
+// rank seat.
+func WakeupCausalAggregateHasPriorityInversionSeat(aggregate WakeupCausalAggregate) bool {
+	return aggregate.PriorityInversion &&
+		aggregate.PriorityRelation == "lower_priority_dependency" &&
+		priorityEvidenceCaliberIsHard(aggregate.PriorityRelationCaliber) &&
+		aggregate.PriorityRelationProvenLowerMs+priorityInversionAccountEpsilonMs >= aggregate.PriorityInversionGatedMs &&
+		priorityInversionComponentsAreClosed(aggregate.PriorityInversionGatedMs, aggregate.GatedRunnableMs, aggregate.GatedRunningDeficitMs)
+}
+
 // WakeupCausalAggregateInversionTyped (F1/F2, §20.2 absorption 2026-07-07) is
 // the SINGLE typed determination of whether an aggregate row is
 // inversion-TYPED on the rank face (type==priority_inversion_candidate).
@@ -19273,7 +19391,7 @@ func aggregateRootCauseIsPrioritySensitive(item WakeupCausalAggregate) bool {
 // internal/tool aggregate note face gates on exactly this determination —
 // never on the raw flag.
 func WakeupCausalAggregateInversionTyped(aggregate WakeupCausalAggregate) bool {
-	return aggregate.PriorityInversion && aggregateRootCauseIsPrioritySensitive(aggregate)
+	return WakeupCausalAggregateHasPriorityInversionSeat(aggregate) && aggregateRootCauseIsPrioritySensitive(aggregate)
 }
 
 func aggregateRootCauseType(item WakeupCausalAggregate) string {
@@ -25592,17 +25710,26 @@ func summarizeWakeupCausalImpact(idx *Index, q Query, cache *chainQueryCache, th
 		item.GatedClusterTopology = capability.topologySource
 		item.GatedCapabilityFreqOnlyReason = capability.freqOnlyReason
 	}
-	// R5d (§7.30.1): the inversion flag and its published impact key on the
-	// GATED duration only — runnable time plus the running conversion deficit
-	// of the dependency. Its own sleep/D/IO time never qualifies: that is the
-	// dependency's own upstream problem and previously inflated inversion
-	// rows into the top rank. A D/IO- or sleep-dominant dependency therefore
-	// keeps its own root identity (io_wait / d_state / drilldown) at full
-	// blocking magnitude; only rows whose story IS scheduling supply
-	// (runnable- or running-dominant) surface as inversion candidates.
+	for _, interval := range relationIntervals {
+		if interval.State != StateRunnable || interval.DurationMs <= 0 {
+			continue
+		}
+		item.priorityInversionRunnableIntervals = append(item.priorityInversionRunnableIntervals, foldInterval{
+			start: interval.StartTs, end: interval.EndTs, valueMs: interval.DurationMs,
+		})
+	}
+	// B1260 (2026-08-20): candidate authority belongs to the qualified
+	// RUNNABLE/RUNNING sub-account, not to whichever of the five scheduler
+	// states happens to dominate the enclosing node.  Sleep/D/IO never enters
+	// the gated value; when one of those states dominates, rank construction
+	// publishes the full blocking state seat and this disjoint scheduling-
+	// supply sub-seat separately.  RUNNABLE/RUNNING-dominant nodes retain the
+	// historical single composite seat, so one physical sub-account never
+	// competes twice.
 	item.PriorityInversionCandidate = item.PriorityRelation == "lower_priority_dependency" &&
-		item.PriorityInversionGatedMs > 0 &&
-		(item.DominantState == string(StateRunnable) || item.DominantState == string(StateRunning))
+		priorityEvidenceCaliberIsHard(item.PriorityRelationCaliber) &&
+		item.PriorityRelationProvenLowerMs+priorityInversionAccountEpsilonMs >= item.PriorityInversionGatedMs &&
+		priorityInversionComponentsAreClosed(item.PriorityInversionGatedMs, item.GatedRunnableMs, item.GatedRunningDeficitMs)
 	item.NextStep = causalImpactNextStep(item)
 	item.NextStepKind = causalImpactNextStepKind(item)
 	item.Summary = renderWakeupCausalImpactSummary(item)

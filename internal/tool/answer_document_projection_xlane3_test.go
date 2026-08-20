@@ -211,8 +211,12 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// cap. It is truthfully counted as an on-chain row not included in the
 	// wait-attribution sentence, but carries effective=0 and cannot affect the
 	// board or the unchanged maximum.
-	if !strings.Contains(md, "另有 39 条链上行未计入上句已归因数值(单项最大 74.915ms") {
-		t.Fatalf("the unadmitted census must scope to the subject board (39 rows, max 74.915):\n%s", md)
+	// EVOLUTION RECORD (B1260): the independently qualified scheduling-supply
+	// sub-seat of a sleep/D/IO-dominant dependency is now retained beside its
+	// blocking account. It adds one typed on-chain row to this census while the
+	// board maximum and every attribution amount remain unchanged.
+	if !strings.Contains(md, "另有 40 条链上行未计入上句已归因数值(单项最大 74.915ms") {
+		t.Fatalf("the unadmitted census must scope to the subject board (40 rows, max 74.915):\n%s", md)
 	}
 	// 修补轮 件C (one relation, one sentence): E11↔E44 already cross-refer
 	// through the cross-channel pointers — the cross-board sentence must not
@@ -237,22 +241,27 @@ func TestXLANE3TwoStepFusedBoardsDisambiguate(t *testing.T) {
 	// EVOLUTION RECORD (B829, 2026-08-15): the newly preserved bounded
 	// relation-only semantic clue occupies E44; later cross-channel seats shift
 	// by one while identities, values and relation cardinality remain intact.
-	if !strings.Contains(joinedMD, "本线程另有邻近席 [E46]") ||
-		!strings.Contains(joinedMD, "本线程另有链上席 [E11(+1)]") {
+	// EVOLUTION RECORD (B1260): splitting a qualified scheduling sub-seat from
+	// a sleep/D/IO-dominant account removes the old composite publication shape
+	// on both boards.  The surviving relation endpoints therefore move one
+	// evidence ordinal earlier (E46/E11/E29/E30 -> E45/E10/E28/E29); their
+	// subjects, directions, peer cardinality and values remain unchanged.
+	if !strings.Contains(joinedMD, "本线程另有邻近席 [E45]") ||
+		!strings.Contains(joinedMD, "本线程另有链上席 [E10(+1)]") {
 		t.Fatalf("the cross-channel pointers must keep their sentences:\n%s", md)
 	}
-	// E46's sentence drops E11 (its cross-channel chain pointer) and keeps
-	// the remaining 9163-board peers; E11's sentence drops E46 (its
+	// E45's sentence drops E10 (its cross-channel chain pointer) and keeps
+	// the remaining 9163-board peers; E10's sentence drops E45 (its
 	// cross-channel adjacent pointer) and keeps [E40]. OTHER 9163-board rows
-	// without a cross-channel pointer to E46 legitimately keep both refs.
-	if strings.Contains(joinedMD, "另板席 [E11(+1)]") {
-		t.Fatalf("E46's cross-board sentence must not re-hang its cross-channel-pointed peer E11 (件C):\n%s", md)
+	// without a cross-channel pointer to E45 legitimately keep both refs.
+	if strings.Contains(joinedMD, "另板席 [E10(+1)]") {
+		t.Fatalf("E45's cross-board sentence must not re-hang its cross-channel-pointed peer E10 (件C):\n%s", md)
 	}
 	if !strings.Contains(joinedMD, "⇄另板[E40](板锚 CompThread_0-2955,见图例)") {
-		t.Fatalf("E11's cross-board sentence must keep exactly its remaining peer [E40] (件C):\n%s", md)
+		t.Fatalf("E10's cross-board sentence must keep exactly its remaining peer [E40] (件C):\n%s", md)
 	}
-	if !strings.Contains(joinedMD, "⇄另板[E29]、[E30]等3席(板锚 logd.writer-9163") {
-		t.Fatalf("E46's cross-board sentence must keep its remaining 9163-board peers (件C; relation-only semantic preservation shifts only later refs):\n%s", md)
+	if !strings.Contains(joinedMD, "⇄另板[E28]、[E29]等3席(板锚 logd.writer-9163") {
+		t.Fatalf("E45's cross-board sentence must keep its remaining 9163-board peers (件C; relation-only semantic preservation shifts only later refs):\n%s", md)
 	}
 	// 修补轮 件F: the micro fold's detail-face ordinal range wears the board
 	// chip on this multi-board report (a bare 「#4~#6(折叠合一)」 is the

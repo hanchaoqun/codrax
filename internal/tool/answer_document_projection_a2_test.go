@@ -592,10 +592,10 @@ func TestA2SelfInversionPeerQualifierLine(t *testing.T) {
 }
 
 // TestA2SelfSupplyFoldSeatWireCapExempt — 件11(a) (§29.192 + §29.192.2 修正)
-// pins: the target's own supply-fold deficit seat survives the per-family
-// wire position cap (tree-face 恒显 swallow point #2; the engine board cap is
-// already closed by the §29.93.3 selfSide lane); an ordinary seat at the same
-// over-cap position stays cut (值切其他席不受影响负臂). The ◎ face keeps
+// pins: every engine-minted Rank>0 seat and the target's own supply-fold
+// deficit seat survive the per-family wire position cap (tree-face 恒显
+// swallow point #2); an unseated diagnostic at the same over-cap position
+// stays cut. The ◎ face keeps
 // ZERO exemption by construction (no ◎ code touched — its TOP5 slice still
 // reads the board order; pinned via the roster helper's unchanged TopN math
 // in TestOmgclean/elim suites).
@@ -615,8 +615,15 @@ func TestA2SelfSupplyFoldSeatWireCapExempt(t *testing.T) {
 			t.Fatalf("件11(a) 负臂 %s: only the typed triple exempts", name)
 		}
 	}
+	if !traceQueryRootCauseRankRowCapExempt(tracequery.RootCauseRankItem{Rank: 33}) {
+		t.Fatalf("件11(a): an engine-minted positive ordinal must survive the transport cap")
+	}
+	if traceQueryRootCauseRankRowCapExempt(tracequery.RootCauseRankItem{Tier: "tertiary"}) {
+		t.Fatalf("件11(a) 负臂: an unseated diagnostic must retain the transport cap")
+	}
 	// Wire-level arm: a board whose self fold seat sits past the family cap
-	// still publishes its record; the ordinary over-cap neighbor stays cut.
+	// still publishes its record; an ordinary ranked seat also survives, while
+	// an unseated over-cap neighbor stays cut.
 	cap := traceQueryWidthTypedFamilyRowCap()
 	items := make([]tracequery.RootCauseRankItem, 0, cap+2)
 	for i := 0; i < cap; i++ {
@@ -628,7 +635,7 @@ func TestA2SelfSupplyFoldSeatWireCapExempt(t *testing.T) {
 	}
 	items = append(items,
 		tracequery.RootCauseRankItem{
-			Thread: tracequery.ThreadRef{PID: 9000, Comm: "cut-me"}, Type: "runnable_wait",
+			Thread: tracequery.ThreadRef{PID: 9000, Comm: "ranked-seat"}, Type: "runnable_wait",
 			Rank: cap + 1, Tier: "secondary", EffectiveImpactMs: 0.5,
 			Causality: "on_wakeup_chain", LineStart: 900, LineEnd: 905,
 		},
@@ -638,13 +645,17 @@ func TestA2SelfSupplyFoldSeatWireCapExempt(t *testing.T) {
 			SupplyFoldDeficitMs: 0.3, SubjectIsAnalysisTarget: true,
 			OnChainBasis: tracequery.RootCauseOnChainBasisSelfWallClockInterval,
 			Causality:    "self_wall_clock", LineStart: 950, LineEnd: 955,
+		},
+		tracequery.RootCauseRankItem{
+			Thread: tracequery.ThreadRef{PID: 9001, Comm: "cut-me"}, Type: "trace_gap",
+			Tier: "data_gap", LineStart: 960, LineEnd: 965, Summary: "unseated diagnostic",
 		})
 	result := tracequery.Result{
 		View: "root_cause_rank", SourcePath: "x.systrace",
 		RootCauseRank: &tracequery.RootCauseRankResult{Items: items},
 	}
 	obs := traceQueryTypedObservations(result, "fixture", "p-rank", "r", "", time.Unix(1751600000, 0).UTC())
-	sawSelf, sawCut := false, false
+	sawSelf, sawRanked, sawCut := false, false, false
 	for _, record := range obs {
 		if strings.Contains(record.Subject, "target-42") {
 			sawSelf = true
@@ -652,12 +663,18 @@ func TestA2SelfSupplyFoldSeatWireCapExempt(t *testing.T) {
 		if strings.Contains(record.Subject, "cut-me") {
 			sawCut = true
 		}
+		if strings.Contains(record.Subject, "ranked-seat") {
+			sawRanked = true
+		}
 	}
 	if !sawSelf {
 		t.Fatalf("件11(a): the over-cap self fold seat must still publish its record")
 	}
+	if !sawRanked {
+		t.Fatalf("件11(a): the over-cap engine-ranked seat must still publish its record")
+	}
 	if sawCut {
-		t.Fatalf("件11(a) 负臂: the ordinary over-cap row must stay cut")
+		t.Fatalf("件11(a) 负臂: the unseated over-cap diagnostic must stay cut")
 	}
 }
 

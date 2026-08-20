@@ -469,12 +469,10 @@ func TestRSPADonghuWitnessBoard(t *testing.T) {
 			} else {
 				compThreadD = item
 			}
-		case item.Thread.PID == 9655 && item.Type == "runnable_wait" && strings.HasPrefix(item.Source, "window_stats"):
-			if item.ChainAnchorRemainderSeat {
-				jankRunnableRem = item
-			} else {
-				jankRunnable = item
-			}
+		case item.Thread.PID == 9655 && item.Type == "runnable_wait" && strings.HasPrefix(item.Source, "window_stats") && item.ChainAnchorRemainderSeat:
+			jankRunnableRem = item
+		case item.Thread.PID == 9655 && item.Type == "priority_inversion_candidate" && strings.HasPrefix(item.Source, "wakeup_chain") && item.ChainAnchorFullMs > 0:
+			jankRunnable = item
 		}
 	}
 	if compThreadD == nil || compThreadDRem == nil || jankRunnable == nil || jankRunnableRem == nil {
@@ -498,7 +496,9 @@ func TestRSPADonghuWitnessBoard(t *testing.T) {
 	}
 	// JankManager runnable: census full account 31.191 = 1.759 anchored +
 	// 29.432 remainder (帽基→census 顺带修: the capped basis said 16.687).
-	if math.Abs(jankRunnable.RunnableMs-1.759) > 0.002 || jankRunnable.ChainRelevance != "on_chain" {
+	if math.Abs(jankRunnable.GatedRunnableMs-1.759) > 0.002 ||
+		math.Abs(jankRunnable.ChainAnchoredMs-jankRunnable.GatedRunnableMs) > 0.002 ||
+		jankRunnable.ChainRelevance != "on_chain" {
 		t.Fatalf("JankManager ⛓ anchored runnable drifted: %+v", jankRunnable)
 	}
 	if math.Abs(jankRunnableRem.RunnableMs-29.432) > 0.002 || !jankRunnableRem.ChainAnchorRemainderSeat {
@@ -566,6 +566,24 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 			}
 		}
 	}
+	// B1260 can move low-valued edge-anchored state seats beyond the fixed
+	// candidate board after qualified scheduling sub-seats enter. Preserve the
+	// engine-value pin against the lossless pre-truncation pool when that
+	// happens; the board's compaction disclosure owns visibility.
+	for i := range rank.preTruncationItems {
+		item := &rank.preTruncationItems[i]
+		if item.Thread.PID != 61839 {
+			continue
+		}
+		switch {
+		case edgeIOSeat == nil && item.Type == "io_wait" && item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState:
+			edgeIOSeat = item
+		case edgeRunnableSeat == nil && item.Type == "runnable_wait" && item.OnChainBasis == RootCauseOnChainBasisHostWakeupEdgeState:
+			edgeRunnableSeat = item
+		case edgeRunnableRem == nil && item.Type == "runnable_wait" && item.ChainAnchorRemainderSeat:
+			edgeRunnableRem = item
+		}
+	}
 	// The displaced hmfs dust seats survive losslessly in the pre-truncation
 	// pool (first occurrence wins — the pool is the build+enrich union and may
 	// hold one row twice).
@@ -587,10 +605,11 @@ func TestRSPATiebaWitnessBoard(t *testing.T) {
 	}{
 		"fscache_page_wait_o": {7.386, true, true},
 		"":                    {10.433, true, true},
-		// B829 frees one candidate slot by removing relation-only semantic
-		// work from the priced election; the next legitimate off-chain D-state
-		// disclosure now survives the fixed cap.
-		"hmfs_get_dnode": {0.171, false, true},
+		// B1260 adds qualified scheduling sub-seats beside dominant blocking
+		// rows. The fixed board cap therefore displaces this low-valued
+		// off-chain disclosure again; it remains losslessly present in the
+		// pre-truncation pool verified above.
+		"hmfs_get_dnode": {0.171, false, false},
 		"hmfs_read":      {0.145, false, false},
 	}
 	sum := 0.0
@@ -781,6 +800,12 @@ func rspaAssertBoardBipartitionInvariants(t *testing.T, rank RootCauseRankResult
 			continue
 		}
 		published := item.RunnableMs + item.DStateMs + item.IOWaitMs
+		if item.Type == "priority_inversion_candidate" && !item.ChainAnchorRemainderSeat {
+			// B1260: the composite row's RSPA-owned wall-clock account is only
+			// its exact runnable subcomponent; running deficit and the backing
+			// dependency state remain separate calibers.
+			published = item.GatedRunnableMs
+		}
 		if item.ChainAnchorRemainderSeat {
 			if math.Abs(item.ChainAnchoredMs+published-item.ChainAnchorFullMs) > 0.002 {
 				t.Fatalf("◇ identity broken: anchored=%.3f + published=%.3f != full=%.3f (%+v)",

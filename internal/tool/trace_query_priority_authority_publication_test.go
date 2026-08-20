@@ -638,7 +638,7 @@ func TestPriorityPointAuthorityAdvisoryNeverPublishesHardInversion(t *testing.T)
 	}
 }
 
-func TestPriorityPointAuthorityImpactCandidateRequiresFinitePositivePrioritySensitiveGate(t *testing.T) {
+func TestPriorityPointAuthorityImpactCandidateRequiresFinitePositiveClosedGate(t *testing.T) {
 	base := tracequery.WakeupCausalImpact{
 		Thread: tracequery.ThreadRef{Comm: "worker", PID: 200}, DominantState: string(tracequery.StateRunnable),
 		PriorityRelation: "lower_priority_dependency", PriorityRelationCaliber: "closed_range_stable",
@@ -649,10 +649,10 @@ func TestPriorityPointAuthorityImpactCandidateRequiresFinitePositivePrioritySens
 	}
 	for name, mutate := range map[string]func(*tracequery.WakeupCausalImpact){
 		"zero gated impact": func(impact *tracequery.WakeupCausalImpact) {},
-		"non priority-sensitive state": func(impact *tracequery.WakeupCausalImpact) {
+		"component sum mismatch": func(impact *tracequery.WakeupCausalImpact) {
 			impact.DominantState = string(tracequery.StateSSleep)
 			impact.PriorityInversionGatedMs = 1
-			impact.GatedRunnableMs = 1
+			impact.GatedRunnableMs = 0.5
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -678,6 +678,12 @@ func TestPriorityPointAuthorityImpactCandidateRequiresFinitePositivePrioritySens
 	valid.GatedRunnableMs = 1
 	if got := traceQueryPriorityCausalImpactForPublication(valid); !got.PriorityInversionCandidate || got.Summary != valid.Summary || got.NextStep != valid.NextStep {
 		t.Fatalf("valid hard impact drifted: got=%+v want=%+v", got, valid)
+	}
+	nonDominant := valid
+	nonDominant.DominantState = string(tracequery.StateIOWait)
+	nonDominant.IOWaitMs = 11
+	if got := traceQueryPriorityCausalImpactForPublication(nonDominant); !got.PriorityInversionCandidate || got.PriorityInversionGatedMs != 1 {
+		t.Fatalf("a hard closed runnable sub-account must survive independently of enclosing dominant state: %+v", got)
 	}
 
 	nonFinite := base

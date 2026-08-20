@@ -58423,3 +58423,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1282 B1260：主阻塞状态与已证调度供给子席正交分账（2026-08-20）
+
+1. `B1260-PRIORITYDIMENSIONDOMINANCE1/P1` 已根修。优先级候选不再读取整节点的 `DominantState` 作为资格门；唯一资格来自同一链上
+   物理区间的 typed `lower_priority_dependency`、hard caliber、已证低优先级覆盖量、正的 gated runnable/running deficit，以及
+   `gated_total = gated_runnable + gated_running_deficit` 闭合。无硬关系、覆盖不足、非有限数或分量不闭合仍 fail-closed。
+2. 状态主席与优化子席现在正交：runnable/running 主导节点保持历史单一复合席；sleep/D/IO 主导节点保留完整阻塞席，同时发布独立
+   `priority_inversion_candidate` 调度供给子席。子席只以 gated 分量进入排序和可消除量，不携带主阻塞席的 actual/full-window 值，因而
+   既不吞掉 IO/D/sleep 占时，也不把同一物理时间重复计价。中间 sleep 节点只有在该精确子席存在时才越过原来的展示抑制。
+3. 聚合层沿用同一不变量：不相交成员做 SUM，重叠或不能证明不相交时取最强 MAX；精确 runnable 区间清单随聚合私有携带并做 union。
+   aggregate 原始行仍按主状态发布，禁止把 D/IO 大条错误重标成较小的优先级值；独立子席只在 root-rank 车道拥有自己的 type/value。
+4. RSPA 同步按“席位所拥有的物理账”解释候选：`priority_inversion_candidate` 的 runnable 账只取 `GatedRunnableMs`，绝不因原节点
+   `DominantState=io_wait/d_state` 冒充 IO 账。只有单一候选精确拥有全部链上 runnable 锚定量、且存在可二分的窗内 runnable 席时，才
+   铸造 `全窗=链上锚定+余段`；多候选或无窗内对席一律不猜。Donghu 的 31.191=1.759+29.432 账和跨板不可相加关系保持。
+5. 施工中发现并同批关闭一个后置吞席点：engine 已完成候选/side cap 并分配正 Rank 后，observation transport 又按数组位置做第二次
+   family cap，会静默删掉合法排名席并制造 ordinal hole。现在所有 `Rank>0` 的 engine 权威席免于该二次截断；普通 Rank=0 诊断仍受
+   原 cap，自身 running fold 的既裁例外保持。链上与邻近 ordinal 继续分属两个 channel，测试不再把 adjacent 序号误当 chain 缺口。
+6. 回归覆盖 D/IO、sleep 与 IO-wait 主席旁的独立优先级子席、running/runnable 历史复合形、hard relation/覆盖/分量闭合负臂、聚合
+   SUM/MAX 去重、RSPA family/coverage/同源二分、transport cap、Donghu/Tieba/DHM/RNB/跨板关系及 live census。定向测试和完整
+   `internal/tracequery`、`internal/tool` 已通过；仓库级 `go test ./... -count=1` 全绿，覆盖转换器、Mermaid、编排、REPL、
+   tracewire/tracediag、repomap、read/write 流程。
+7. 本批没有扫描用户请求、模型输出或 Mermaid 文案，没有按业务名称硬编码，也没有由系统生成或替换模型结论。系统只增加精确 typed
+   席位、数值与关系供模型使用；显式时间窗、自动补查、Trace 因果投影、链上根因限定、邻近/背景分道、实际占时与规则可消双轴均保持。
+   提交后以不可变二进制严格并发恰好 2 路回放同一 read+Trace 双例：Trace 验收独立低优先级调度供给席恢复且 IO 主席不丢，read
+   验收 B1262 identity-only 关系租约生产闭环并继续观察 B1263 typed stage-role context 泄漏。
+
+状态：
+
+`B1260=implemented/full-suite-pass/pending-production-replay`；
+`priority-authority=typed-lower-relation+hard-caliber+proved-coverage+closed-components`；
+`dominant-blocking-seat=preserved/full-account`；
+`qualified-scheduling-subseat=independent/gated-account-only`；
+`runnable/running-dominant=historical-composite-seat`；
+`rank-positive-transport-drop=closed`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

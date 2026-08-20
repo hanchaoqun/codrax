@@ -4064,12 +4064,10 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	if pool == nil || pool.DominantState != string(StateIOWait) || pool.IOWaitMs < 10 {
 		t.Fatalf("threadpool D/IO impact should be on chain: %+v", chain.CausalImpacts)
 	}
-	// R5d (§7.30.1): an IO-dominant dependency is NOT a priority-inversion
-	// candidate — its blocked time is its own upstream problem and must not
-	// inflate an inversion row. Only the gated runnable share (~1ms here) is
-	// inversion-eligible and is preserved as a typed fact.
-	if pool.PriorityInversionCandidate {
-		t.Fatalf("IO-dominant dependency must not be an inversion candidate under R5d: %+v", pool)
+	// B1260: the full IO wait remains its own cause while the exact
+	// lower-priority runnable sub-interval receives a separate inversion seat.
+	if !pool.PriorityInversionCandidate {
+		t.Fatalf("IO-dominant lower-priority dependency lost its qualified runnable sub-seat: %+v", pool)
 	}
 	if pool.PriorityInversionGatedMs <= 0 || pool.PriorityInversionGatedMs > 2 {
 		t.Fatalf("gated inversion share should be the ~1ms runnable time, got %.3f", pool.PriorityInversionGatedMs)
@@ -4080,6 +4078,44 @@ func TestRootCauseRankKeepsOffChainPressureAsBackground(t *testing.T) {
 	}
 	if rank.Items[0].Tier != "primary" || rank.Items[0].DominantState != string(StateIOWait) || rank.Items[0].IOWaitMs <= 0 {
 		t.Fatalf("on-chain D/IO dependency should remain a primary typed cause with state totals: %+v", rank.Items[0])
+	}
+	var ioSeat, prioritySeat *RootCauseRankItem
+	for i := range rank.Items {
+		item := &rank.Items[i]
+		if item.Thread.PID != 400 {
+			continue
+		}
+		switch item.Type {
+		case "io_wait", "d_state_or_io_wait":
+			ioSeat = item
+		case "priority_inversion_candidate":
+			prioritySeat = item
+		}
+	}
+	if ioSeat == nil || prioritySeat == nil ||
+		!near(RootCauseRankItemEffectiveImpactMs(*ioSeat), 11, 0.001) ||
+		!near(RootCauseRankItemEffectiveImpactMs(*prioritySeat), 1, 0.001) {
+		t.Fatalf("IO and scheduling sub-accounts must publish as two disjoint seats: %+v", rank.Items)
+	}
+	if !near(RootCauseRankItemEffectiveImpactMs(*ioSeat)+RootCauseRankItemEffectiveImpactMs(*prioritySeat), 12, 0.001) {
+		t.Fatalf("disjoint IO + scheduling account must add back without duplication: io=%+v priority=%+v", ioSeat, prioritySeat)
+	}
+	for _, pid := range []int{200, 300, 400} {
+		priorityFound := false
+		for _, item := range rank.Items {
+			if item.Thread.PID != pid {
+				continue
+			}
+			if item.Type == "priority_inversion_candidate" && RootCauseRankItemEffectiveImpactMs(item) > 0 {
+				priorityFound = true
+			}
+			if item.Type == "runnable_wait" && RootCauseRankItemEffectiveImpactMs(item) > 0 {
+				t.Fatalf("the exact runnable account must not compete beside its priority sub-seat: pid=%d item=%+v", pid, item)
+			}
+		}
+		if !priorityFound {
+			t.Fatalf("sleep/D/IO-dominant lower-priority dependency lost its scheduling sub-seat: pid=%d items=%+v", pid, rank.Items)
+		}
 	}
 	for _, item := range rank.Items {
 		if item.Thread.PID == 900 && item.Causality != "background" {

@@ -56,7 +56,8 @@ func runsplitF2ProbeTrace(t *testing.T) *Index {
 
 // TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder — the §29.209 件1
 // + 件2 regression pin on the probe F2 shape: the 36ms-full-crown form is
-// extinct — the chain member's window runnable seat publishes the LEDGER
+// extinct — whichever typed chain seat owns the runnable account (the plain
+// runnable seat or a qualified inversion sub-seat) publishes the LEDGER
 // anchored share on the ⛓ lane and its remainder rides the ◇ counter-seat.
 func TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder(t *testing.T) {
 	idx := runsplitF2ProbeTrace(t)
@@ -74,12 +75,13 @@ func TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder(t *testing.T) {
 	var clipped, remainder *RootCauseRankItem
 	for i := range rank.Items {
 		it := &rank.Items[i]
-		if it.Thread.PID != 200 || it.Type != "runnable_wait" || it.Source != "window_stats" {
+		if it.Thread.PID != 200 {
 			continue
 		}
-		if it.ChainAnchorRemainderSeat {
+		if it.Type == "runnable_wait" && it.Source == "window_stats" && it.ChainAnchorRemainderSeat {
 			remainder = it
-		} else {
+		} else if it.Type == "priority_inversion_candidate" && it.Source == "wakeup_chain.causal_impacts" &&
+			it.ChainAnchorFullMs > 0 {
 			clipped = it
 		}
 	}
@@ -89,12 +91,13 @@ func TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder(t *testing.T) {
 	// 件1 — ⛓ seat value = the ledger anchored share; eff and the ordinal
 	// follow the TRUE value; the census credential tier is the interval tier
 	// (ChainAnchoredMs>0 arm), never a bare membership word.
-	if math.Abs(clipped.RunnableMs-2.0) > rspaAnchorIdentityTolMs ||
+	if math.Abs(clipped.GatedRunnableMs-2.0) > rspaAnchorIdentityTolMs ||
 		math.Abs(clipped.EffectiveImpactMs-2.0) > rspaAnchorIdentityTolMs {
 		t.Fatalf("⛓ seat must publish the anchored share 2.000 (probe disease: full 37.000): %+v", clipped)
 	}
-	if !clipped.ledgerAnchorStamped || math.Abs(clipped.ledgerAnchoredRunnableMs-clipped.ChainAnchoredMs) > rspaAnchorIdentityTolMs {
-		t.Fatalf("⛓ seat value must come from the RNB-1 T1 ledger stamp: %+v", clipped)
+	if math.Abs(clipped.GatedRunnableMs-clipped.ChainAnchoredMs) > rspaAnchorIdentityTolMs ||
+		math.Abs(clipped.ChainAnchorFullMs-37.0) > rspaAnchorIdentityTolMs {
+		t.Fatalf("⛓ inversion sub-seat must expose its exact runnable account against the RSPA full ledger: %+v", clipped)
 	}
 	if clipped.ChainRelevance != "on_chain" || clipped.Rank <= 0 {
 		t.Fatalf("⛓ seat must stay ranked on the chain lane: %+v", clipped)
@@ -123,13 +126,10 @@ func TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder(t *testing.T) {
 		t.Fatalf("bipartition must restore the full-window account (anchored %.3f + remainder %.3f = full %.3f): %+v",
 			remainder.ChainAnchoredMs, remainder.RunnableMs, remainder.ChainAnchorFullMs, remainder)
 	}
-	// 件2 word face — both halves speak the SHARED bipartition sentences (the
-	// E28/E38 word single-point: rspaAnchoredSummary / rspaRemainderSummary,
-	// same emitters as the D/IO lane — 禁二抄).
-	if !strings.Contains(clipped.Summary, "anchored inside its typed wakeup-dependency windows") ||
-		!strings.Contains(clipped.Summary, rspaSummaryRemainderTwinPublished) {
-		t.Fatalf("⛓ seat must speak the shared anchored-half sentence with the counter-seat pointer: %q", clipped.Summary)
-	}
+	// 件2 word face — the window remainder keeps the engine-side account
+	// sentence. The chain sub-seat keeps its priority explanation unchanged;
+	// the shared display composer reads the typed decomposition pair and owns
+	// the bidirectional wording (the engine must not rewrite the conclusion).
 	if !strings.Contains(remainder.Summary, "outside its wakeup-dependency windows (no chain credential for these segments)") ||
 		!strings.Contains(remainder.Summary, "additive back to the full account") {
 		t.Fatalf("◇ remainder must speak the shared remainder-half sentence: %q", remainder.Summary)
@@ -141,7 +141,11 @@ func TestRUNSPLITProbeF2FormBisectsToAnchoredShareAndRemainder(t *testing.T) {
 		if it.Thread.PID != 200 || it.AbsorbedByRankFamily || !rootCauseItemIsOnChain(it) {
 			continue
 		}
-		if it.DominantState != string(StateRunnable) {
+		ownedRunnable := it.RunnableMs
+		if it.Type == "priority_inversion_candidate" {
+			ownedRunnable = it.GatedRunnableMs
+		}
+		if ownedRunnable <= 0 {
 			continue
 		}
 		if !strings.HasPrefix(it.Source, "wakeup_chain") && it.ChainAnchorFullMs == 0 &&

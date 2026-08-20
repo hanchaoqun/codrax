@@ -431,10 +431,10 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 	traceBoard := BuildRootCauseRank(tieba, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(traceBoard, []string{
-		"; 49 valued candidate row(s) did not enter the published board (on_chain=1/adjacent=3/background=45)",
-		"largest on_chain running RenderThread-59891 0.378ms",
-		"链上最大 running RenderThread-59891 0.378ms",
-		"另 2 行自身侧道已发布",
+		"; 52 valued candidate row(s) did not enter the published board (on_chain=4/adjacent=3/background=45)",
+		"largest on_chain priority_inversion_candidate CookieMonsterCl-59843 0.689ms",
+		"链上最大 priority_inversion_candidate CookieMonsterCl-59843 0.689ms",
+		"另 3 行自身侧道已发布",
 	})
 
 	donghu := requireRealTrace("../../eval/fixtures/real_traces/donghu.ftrace")

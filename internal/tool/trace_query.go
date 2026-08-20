@@ -8848,10 +8848,14 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 		rankRows = append(rankRows, result.RootCauseRank.AbsorbedItems...)
 		for i, item := range rankRows {
 			if i >= traceQueryWidthTypedFamilyRowCap() &&
-				!traceQuerySelfSupplyFoldSeatCapExempt(item) {
-				// A2 件11(a) (§29.192.2, 2026-07-21): the position cut stays
-				// for every ordinary row; ONLY the target's own supply-fold
-				// deficit seat rides the exemption below (see the helper).
+				!traceQueryRootCauseRankRowCapExempt(item) {
+				// The engine has already applied the root-cause candidate and
+				// side-row budgets before assigning ordinals.  This second,
+				// transport-side position cap therefore applies only to unseated
+				// diagnostics.  Cutting a Rank>0 row here creates an ordinal hole
+				// and silently removes an authoritative published cause from the
+				// projection.  The typed predicate below also retains the target's
+				// own supply-fold deficit seat, whose historical rank may be zero.
 				continue
 			}
 			rank := item.Rank
@@ -10766,10 +10770,20 @@ func traceQueryTypedRootCauseIOPressureRichNotes(item tracequery.RootCauseRankIt
 // swallow point). Precise typed predicate only: the self wall-clock on-chain
 // basis + the analysis-target subject stamp + a positive fold deficit. The ◎
 // overview gets ZERO exemption (its TOP5 value cut competes normally — the
-// §29.192.2 correction), and every other row keeps the position cut.
+// §29.192.2 correction). Positive engine-ranked seats are handled by the
+// publication-boundary wrapper below; ordinary rank-0 rows keep the cut.
 func traceQuerySelfSupplyFoldSeatCapExempt(item tracequery.RootCauseRankItem) bool {
 	return item.SupplyFoldDeficitMs > 0 && item.SubjectIsAnalysisTarget &&
 		strings.TrimSpace(item.OnChainBasis) == tracequery.RootCauseOnChainBasisSelfWallClockInterval
+}
+
+// traceQueryRootCauseRankRowCapExempt preserves the engine's authoritative
+// publication boundary across the observation transport.  A positive Rank is
+// a precise, engine-minted board seat, so a generic per-family position cap may
+// not erase it after the fact.  Rank-0 diagnostic and context rows retain the
+// normal cap, except for the independently ruled self supply-fold seat.
+func traceQueryRootCauseRankRowCapExempt(item tracequery.RootCauseRankItem) bool {
+	return item.Rank > 0 || traceQuerySelfSupplyFoldSeatCapExempt(item)
 }
 
 // traceQueryWakeupCausalImpactFoldRecord builds the PTS zero-silent-drop fold
@@ -15386,9 +15400,9 @@ func traceQueryPriorityCausalImpactForPublicationInUniverse(impact tracequery.Wa
 	gatedAuthorized := traceQueryPriorityCoverageAuthorizesImpact(
 		impact.PriorityRelationCaliber, impact.PriorityRelationProvenLowerMs, impact.PriorityInversionGatedMs) &&
 		relationProvenanceAuthorized
-	prioritySensitiveState := impact.DominantState == string(tracequery.StateRunnable) ||
-		impact.DominantState == string(tracequery.StateRunning)
-	if impact.PriorityInversionCandidate && gatedAuthorized && prioritySensitiveState {
+	componentsClosed := impact.PriorityInversionGatedMs > 0 && impact.GatedRunnableMs >= 0 && impact.GatedRunningDeficitMs >= 0 &&
+		math.Abs(impact.PriorityInversionGatedMs-(impact.GatedRunnableMs+impact.GatedRunningDeficitMs)) <= 1e-9
+	if impact.PriorityInversionCandidate && gatedAuthorized && componentsClosed {
 		return impact
 	}
 	if hard && !impact.PriorityInversionCandidate && impact.NextStepKind != tracequery.NextStepKindPriorityInversion &&
@@ -15444,6 +15458,12 @@ func traceQueryPriorityCausalAggregateForPublication(aggregate tracequery.Wakeup
 }
 
 func traceQueryPriorityCausalAggregateForPublicationInUniverse(aggregate tracequery.WakeupCausalAggregate, universe traceQueryPriorityArtifactUniverse) tracequery.WakeupCausalAggregate {
+	// This function publishes the aggregate ROW itself. A sleep/D/IO-dominant
+	// aggregate may own a valid separate scheduling sub-seat on root_cause_rank,
+	// but relabeling this dominant-state row would pair its raw blocking bar
+	// with the smaller gated scalar. Keep the aggregate face on the historical
+	// composite-row predicate; the independent seat is published by the rank
+	// lane where it has its own type/value identity.
 	typedInversion := tracequery.WakeupCausalAggregateInversionTyped(aggregate)
 	hard := traceQueryPriorityEvidenceHard(aggregate.PriorityRelationCaliber)
 	relationClaim := strings.TrimSpace(aggregate.PriorityRelation) != "" ||

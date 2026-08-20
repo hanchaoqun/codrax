@@ -162,6 +162,44 @@ func TestDIOAggregateKeepsFullBlockingCaliberInsteadOfInversionGate(t *testing.T
 	}
 }
 
+func TestQualifiedDIOAggregatePublishesBlockingAndSchedulingAsDisjointSeats(t *testing.T) {
+	aggregate := WakeupCausalAggregate{
+		Thread:                             ThreadRef{PID: 200, Comm: "io-worker"},
+		DominantState:                      string(StateIOWait),
+		DominantImpactMs:                   9,
+		DStateMs:                           2,
+		IOWaitMs:                           7,
+		RunnableMs:                         2,
+		RunningMs:                          1,
+		TotalMs:                            12,
+		PriorityInversion:                  true,
+		PriorityRelation:                   "lower_priority_dependency",
+		PriorityRelationCaliber:            string(priorityCaliberClosedRangeStable),
+		PriorityRelationProvenLowerMs:      3,
+		PriorityInversionGatedMs:           3,
+		GatedRunnableMs:                    2,
+		GatedRunningDeficitMs:              1,
+		priorityInversionRunnableIntervals: []foldInterval{{start: 1, end: 1.002, valueMs: 2}},
+		ChainDepth:                         1,
+	}
+	if !WakeupCausalAggregateHasPriorityInversionSeat(aggregate) || WakeupCausalAggregateInversionTyped(aggregate) {
+		t.Fatalf("qualified D/IO aggregate needs a separate scheduling seat without retyping the blocking seat: %+v", aggregate)
+	}
+	blocking := rootCausePrimaryItemFromCausalAggregate(aggregate)
+	priority := rootCausePriorityItemFromCausalAggregate(aggregate)
+	if blocking.Type != "io_wait" || !near(rootCauseEffectiveImpactMs(blocking), 9, 0.000001) {
+		t.Fatalf("full D/IO account was not retained: %+v", blocking)
+	}
+	if priority.Type != "priority_inversion_candidate" || !near(rootCauseEffectiveImpactMs(priority), 3, 0.000001) ||
+		priority.CumulativeImpactMs != 3 || len(priority.familyMemberIntervals) != 1 {
+		t.Fatalf("qualified scheduling sub-account was not isolated: %+v", priority)
+	}
+	presence := rspaChainSeatPresenceByPID([]RootCauseRankItem{blocking, priority})[200]
+	if !presence.dio || !near(presence.dioMs, 9, 0.000001) || !presence.runnable || !near(presence.runnableMs, 2, 0.000001) {
+		t.Fatalf("RSPA must classify each seat by its owned account, not the shared dominant-state context: %+v", presence)
+	}
+}
+
 func TestRawAggregateInversionFlagCannotSuppressPlainRunningDeficit(t *testing.T) {
 	aggregate := WakeupCausalAggregate{
 		Thread: ThreadRef{PID: 200, Comm: "worker"}, DominantState: string(StateRunning),

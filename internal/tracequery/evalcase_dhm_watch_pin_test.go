@@ -26,6 +26,7 @@ package tracequery
 // Fixture red line: real captures — every number is a measured pin.
 
 import (
+	"fmt"
 	"sort"
 	"testing"
 )
@@ -153,7 +154,7 @@ func TestEvalcaseDHMC1ContrastBurstCensusZero(t *testing.T) {
 // 中间带活体可观时按 §29.169 词面纪律(见证下界禁比值)议披露,消费者缺席 pin
 // 的红=届时复审面。」
 // Phase-one distribution facts on a NEW combo (tieba Chrome_IOThread-60560,
-// full window): the closed-set disposition census (7 self_ruled / 4
+// full window): the closed-set disposition census (7 self_ruled / 5
 // edge_terminated / 2 segment_join / 7 off-wire), the ALL-QUIET family-①
 // middle band (counterfactual invalid == 0 on every seat — across all 16
 // probe boards not one periodic-pinned conviction exists locally), and the
@@ -167,22 +168,27 @@ func TestEvalcaseDHMP3MDistributionNewCombo(t *testing.T) {
 	rank := BuildRootCauseRank(idx, Query{PID: 60560, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		TraceFlavorHint: TraceFlavorHarmonyHitrace})
 	census := map[string]int{}
+	var dispositionRoster []string
 	for _, it := range rank.Items {
 		census[it.P3MDisposition]++
+		dispositionRoster = append(dispositionRoster, fmt.Sprintf("%s:%s-%d:%s", it.P3MDisposition, it.Thread.Comm, it.Thread.PID, it.Type))
 		if it.P3MCounterfactualInvalidMs != 0 {
 			t.Fatalf("DHM-P3M: family-① conviction appeared on %s/%d (invalid=%.3f) — stage-two middle-band data, record it in the ledger",
 				it.Type, it.Thread.PID, it.P3MCounterfactualInvalidMs)
 		}
 	}
 	want := map[string]int{
-		p3mDispositionSelfRuled:            7,
-		p3mDispositionEdgeTerminatedWindow: 4,
+		p3mDispositionSelfRuled: 7,
+		// B1260: ThreadPoolForeg-60559's D/IO-dominant dependency now keeps
+		// its exact scheduling sub-seat, carrying the same typed disposition
+		// as the underlying occurrence instead of disappearing at rank mint.
+		p3mDispositionEdgeTerminatedWindow: 5,
 		p3mDispositionSegmentJoin:          2,
 		"":                                 7,
 	}
 	for disp, n := range want {
 		if census[disp] != n {
-			t.Fatalf("DHM-P3M: disposition census drifted: %q=%d want %d (full: %v)", disp, census[disp], n, census)
+			t.Fatalf("DHM-P3M: disposition census drifted: %q=%d want %d (full: %v roster=%v)", disp, census[disp], n, census, dispositionRoster)
 		}
 	}
 	for disp := range census {

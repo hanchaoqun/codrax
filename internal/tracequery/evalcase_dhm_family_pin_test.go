@@ -40,6 +40,7 @@ package tracequery
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -259,22 +260,28 @@ func TestEvalcaseDHMA5aCompositeScoreWireForkLive(t *testing.T) {
 	rank := BuildRootCauseRank(idx, Query{PID: 2179, TimeStart: 13762.791708, TimeEnd: 13763.024898,
 		TraceFlavorHint: TraceFlavorHarmonyHitrace})
 	var candidates, waits int
+	var inversionRoster []string
 	for _, it := range rank.Items {
 		switch it.Type {
 		case "priority_inversion_candidate":
 			candidates++
+			inversionRoster = append(inversionRoster, fmt.Sprintf("candidate:%s-%d:%s:%.3f", it.Thread.Comm, it.Thread.PID, it.DominantState, RootCauseRankItemEffectiveImpactMs(it)))
 		case "priority_inversion_runnable_wait":
 			waits++
+			inversionRoster = append(inversionRoster, fmt.Sprintf("wait:%s-%d:%s:%.3f", it.Thread.Comm, it.Thread.PID, it.DominantState, RootCauseRankItemEffectiveImpactMs(it)))
 		}
 	}
 	// NIAUTH-04 (2026-07-26): the full CPU-constraint census admits one
 	// precisely proven constraint contender that used to die behind the
 	// display Top-8. The fixed board capacity therefore retains 7 candidate
-	// + 6 wait inversion rows instead of the former 7+7 publication. This is
-	// a publication pin; the test's composite-score subject stays present
-	// and is checked below.
-	if candidates != 7 || waits != 6 {
-		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 7/6)", candidates, waits)
+	// B1260 (2026-08-20): two sleep-dominant dependencies carry exact lower-
+	// priority runnable sub-accounts (ransmitThread-18130 and wk:0/0/1/14-
+	// 53879). They now coexist with their full blocking/context seat rather
+	// than being swallowed by DominantState, so the board holds 9 candidates
+	// + 6 wait rows. This is a publication pin; the test's composite-score
+	// subject stays present and is checked below.
+	if candidates != 9 || waits != 6 {
+		t.Fatalf("DHM-A5a: published inversion roster drifted: candidates=%d waits=%d (want 9/6), roster=%v", candidates, waits, inversionRoster)
 	}
 	for _, item := range rank.Items {
 		if item.Type == "block_io_by_inode" && item.Thread.PID == 17267 && rootCauseItemIsOnChain(item) {

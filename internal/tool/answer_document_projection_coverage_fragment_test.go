@@ -75,6 +75,29 @@ func TestCoverageFragmentSingleRowByteIdentical(t *testing.T) {
 	}
 }
 
+// TestCoverageFragmentPrioritySubseatUsesRunnableAccount — B1260: a
+// D/IO-dominant dependency can carry a separate inversion sub-seat whose
+// display value is runnable + running-deficit.  Full-window coverage must
+// compare the runnable ledger to GatedRunnableMS, never mislabel the row as
+// D/IO and never use the larger composite value as wall-clock coverage.
+func TestCoverageFragmentPrioritySubseatUsesRunnableAccount(t *testing.T) {
+	node := types.TraceCausalProjectionNode{
+		Subject: "JankManager-9655", Object: "priority_inversion_candidate", TypeToken: "priority_inversion_candidate",
+		StateKind: "io_wait", PriorityInversionCandidate: true,
+		ImpactMS: 4.710, GatedRunnableMS: 1.759, GatedRunningDeficitMS: 2.951,
+		FullWindowStateMS: 31.191, FullWindowStateSource: "window_stats", FullWindowStateSameWindow: true,
+		ChainAnchoredMS: 1.759, ChainAnchorFullMS: 31.191,
+	}
+	tag, ok := runtimeTraceProjFullWindowCoverageTag(node, true, false, 0)
+	if !ok || tag.Text != "窗内 runnable 合计 31.191ms,链上锚定合计 1.759ms(6%)" {
+		t.Fatalf("priority sub-seat must publish its typed runnable account, got %q", tag.Text)
+	}
+	if en, ok := runtimeTraceProjFullWindowCoverageTag(node, false, false, 0); !ok ||
+		en.Text != "full-window runnable total 31.191ms; the chain-anchored total is 1.759ms (6%)" {
+		t.Fatalf("EN priority sub-seat runnable account drifted: %q", en.Text)
+	}
+}
+
 // TestCoverageFragmentGroupBoundaries — different thread, different state
 // class, or different full total = different groups; each keeps its own
 // max word (never cross-demoted). Ties keep the word on every tied row.

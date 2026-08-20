@@ -508,7 +508,10 @@ func rspaChainRunnableSeatWindowsByPID(items []RootCauseRankItem) map[int][]Time
 		if items[i].Thread.PID <= 0 || !strings.HasPrefix(strings.TrimSpace(items[i].Source), "wakeup_chain") {
 			continue
 		}
-		if items[i].DominantState != string(StateRunnable) {
+		isPriorityRunnableSubseat := RootCauseTypeIsPriorityInversion(items[i].Type) &&
+			strings.TrimSpace(items[i].Type) == "priority_inversion_candidate" &&
+			items[i].GatedRunnableMs > 0
+		if items[i].DominantState != string(StateRunnable) && !isPriorityRunnableSubseat {
 			continue
 		}
 		var windows []TimeWindow
@@ -590,15 +593,33 @@ func rspaChainSeatPresenceByPID(items []RootCauseRankItem) map[int]rspaChainSeat
 			continue
 		}
 		var presence rspaChainSeatPresence
-		switch items[i].DominantState {
-		case string(StateRunnable):
+		// B1260: a priority-inversion row can now be a scheduling-supply
+		// SUB-SEAT beside a sleep / D / IO dominant blocking seat. Its original
+		// dominant state remains useful evidence context, but it does not change
+		// the physical account owned by this rank seat: only the exact gated
+		// runnable component can own a runnable census share, and it can never
+		// own the D/IO account. Classifying this row by DominantState made a 1ms
+		// scheduling sub-seat impersonate an 11ms IO chain seat; RSPA then
+		// rewrote the real IO owner to a zero remainder and silently lost the
+		// blocking value. The typed rank kind is the precise seat-role signal.
+		if RootCauseTypeIsPriorityInversion(items[i].Type) &&
+			strings.TrimSpace(items[i].Type) == "priority_inversion_candidate" {
+			if items[i].GatedRunnableMs <= 0 {
+				continue
+			}
 			presence.runnable = true
-			presence.runnableMs = items[i].RunnableMs
-		case string(StateDSleep), string(StateIOWait):
-			presence.dio = true
-			presence.dioMs = items[i].DStateMs + items[i].IOWaitMs
-		default:
-			continue
+			presence.runnableMs = items[i].GatedRunnableMs
+		} else {
+			switch items[i].DominantState {
+			case string(StateRunnable):
+				presence.runnable = true
+				presence.runnableMs = items[i].RunnableMs
+			case string(StateDSleep), string(StateIOWait):
+				presence.dio = true
+				presence.dioMs = items[i].DStateMs + items[i].IOWaitMs
+			default:
+				continue
+			}
 		}
 		if out == nil {
 			out = map[int]rspaChainSeatPresence{}
@@ -666,8 +687,11 @@ func rspaAnchoredSummary(thread ThreadRef, family string, anchored, full float64
 // fail-open boundary is deliberately NOT re-worded by the envelope pass
 // (审计表已列覆盖行; one lane, one vocabulary owner).
 func rspaReanchorOwnedType(typ string) bool {
+	if RootCauseTypeIsPriorityInversion(typ) {
+		return true
+	}
 	switch strings.TrimSpace(typ) {
-	case "runnable_wait", "priority_inversion_runnable_wait", "cpu_affinity_or_cpuset",
+	case "runnable_wait", "cpu_affinity_or_cpuset",
 		"scheduler_latency", "low_frequency", "fragmented_runnable_wait",
 		"d_state_or_io_wait", "io_wait", "fragmented_d_state_or_io_wait":
 		return true
@@ -782,6 +806,13 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 	// satellite demotion (computed once per pass; the demotion never mutates
 	// the chain seats themselves, so the snapshot stays valid).
 	chainRunnableSeatWindows := rspaChainRunnableSeatWindowsByPID(items)
+	decomposableRunnableWindowSeat := map[int]bool{}
+	for i := range items {
+		if items[i].Thread.PID > 0 && strings.TrimSpace(items[i].Type) == "runnable_wait" &&
+			strings.TrimSpace(items[i].Source) == "window_stats" {
+			decomposableRunnableWindowSeat[items[i].Thread.PID] = true
+		}
+	}
 	var appended []RootCauseRankItem
 	for i := range items {
 		item := &items[i]
@@ -796,6 +827,27 @@ func reanchorOnChainStateSeats(chain ChainResult, stats WindowStats, items []Roo
 			continue
 		}
 		switch strings.TrimSpace(item.Type) {
+		case "priority_inversion_candidate":
+			// B1260: a sleep/D/IO-dominant dependency may publish a separate
+			// scheduling-supply sub-seat.  Its typed GatedRunnableMs (backed by
+			// the exact interval inventory carried on familyMemberIntervals) is
+			// the runnable account; DominantState and the composite display value
+			// are deliberately not used here.  Stamp the legacy RSPA decomposition
+			// only when this one row provably owns the COMPLETE anchored runnable
+			// census.  A multi-row owner stays unstamped rather than making each
+			// fragment claim the whole anchored share.
+			decision, ok := runnableDecisions[item.Thread.PID]
+			if !ok || !decision.migrate || !decision.identityHolds || item.GatedRunnableMs <= 0 ||
+				!decomposableRunnableWindowSeat[item.Thread.PID] {
+				continue
+			}
+			presence := chainSeats[item.Thread.PID]
+			if !presence.runnable || !rspaWithinTol(presence.runnableMs, decision.anchoredMs) ||
+				!rspaWithinTol(item.GatedRunnableMs, decision.anchoredMs) {
+				continue
+			}
+			item.ChainAnchoredMs = item.GatedRunnableMs
+			item.ChainAnchorFullMs = decision.fullMs
 		case "runnable_wait":
 			decision, ok := runnableDecisions[item.Thread.PID]
 			if !ok || !decision.migrate || item.Source != "window_stats" {

@@ -6156,6 +6156,11 @@ type WakeupCausalImpact struct {
 	GatedRunnableMs       float64 `json:"gated_runnable_ms,omitempty"`
 	GatedRunningDeficitMs float64 `json:"gated_running_deficit_ms,omitempty"`
 	GatedCapabilitySource string  `json:"gated_capability_source,omitempty"`
+	// priorityInversionRunnableIntervals is the exact scheduler-segment
+	// inventory behind GatedRunnableMs. It is intentionally private: rank
+	// reconciliation uses it to subtract a runnable share exactly, while the
+	// public value/component fields remain the stable wire contract.
+	priorityInversionRunnableIntervals []foldInterval
 	// stateAccountIntervals is the complete clamped inventory of the dominant
 	// scheduler state. It never serializes; the final result reconciler uses
 	// it to mint StateAccountKey without relying on a hull or display value.
@@ -6359,8 +6364,13 @@ type WakeupCausalAggregate struct {
 	// GatedCapabilityFreqOnlyReason (DISPHYG-3 件7): the members' typed gated
 	// freq_only cause token (uniform per query, first non-empty wins — same
 	// rule as GatedClusterTopology above).
-	GatedCapabilityFreqOnlyReason string                   `json:"gated_capability_freq_only_reason,omitempty"`
-	OccurrenceWindows             []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
+	GatedCapabilityFreqOnlyReason string `json:"gated_capability_freq_only_reason,omitempty"`
+	// priorityInversionRunnableIntervals is the overlap-safe member inventory
+	// behind the aggregate GatedRunnableMs.  The SUM-disjoint arm carries the
+	// union of every member; the MAX fallback carries only the selected
+	// strongest member.  It never serializes.
+	priorityInversionRunnableIntervals []foldInterval
+	OccurrenceWindows                  []WakeupCausalOccurrence `json:"occurrence_windows,omitempty"`
 	// VS-1 (§7.8): periodic-signal-source accounting, aggregate face — see the
 	// WakeupCausalImpact field docs. LatenessMs here is the SUM of the member
 	// occurrences' blocked-caliber lateness amounts, capped at raw blocking −

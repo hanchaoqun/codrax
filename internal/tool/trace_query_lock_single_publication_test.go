@@ -296,10 +296,10 @@ func TestBLKLockTwinPublishesWithoutRankRow(t *testing.T) {
 	}
 }
 
-// TestBLKLockTwinPublishesWhenRankRowBeyondCap — §15.C ① fallback: a rank
-// lock row cut by the typed family row cap emits nothing, so it must not
-// suppress its twin.
-func TestBLKLockTwinPublishesWhenRankRowBeyondCap(t *testing.T) {
+// TestBLKLockRankSeatSurvivesTransportCap — §15.C ① + B1260: the engine
+// has already bounded and seated the rank board, so the observation transport
+// cap must preserve a positive-ordinal lock row and suppress its physical twin.
+func TestBLKLockRankSeatSurvivesTransportCap(t *testing.T) {
 	fixture := blkLockSinglePublicationFixture()
 	lockRow := fixture.RootCauseRank.Items[0]
 	var padded []tracequery.RootCauseRankItem
@@ -315,25 +315,25 @@ func TestBLKLockTwinPublishesWhenRankRowBeyondCap(t *testing.T) {
 	fixture.RootCauseRank.Items = append(padded, lockRow)
 
 	records := blkCollectRecords(t, fixture)
-	suppressedRankPublished := false
+	rankPublished := false
 	for _, record := range records {
 		if strings.HasPrefix(strings.TrimSpace(record.Predicate), "root_cause_") &&
 			blkNotesContain(record, "blocking_kind=monitor_contention") {
-			suppressedRankPublished = true
+			rankPublished = true
 		}
 	}
-	if suppressedRankPublished {
-		t.Fatal("the beyond-cap rank lock row must not have published (test premise broken)")
+	if !rankPublished {
+		t.Fatal("the beyond-cap engine-ranked lock row must survive the transport cap")
 	}
 	blocking := blkRecordsByPredicate(records, "critical_blocking")
-	found := false
+	foundTwin := false
 	for _, record := range blocking {
 		if blkNotesContain(record, "blocking_kind=monitor_contention") {
-			found = true
+			foundTwin = true
 		}
 	}
-	if !found {
-		t.Fatal("with the rank lock row beyond the cap, the critical_blocking twin must keep publishing")
+	if foundTwin {
+		t.Fatal("the published rank lock row must suppress its physical critical_blocking twin")
 	}
 }
 

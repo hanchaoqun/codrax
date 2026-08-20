@@ -74,9 +74,8 @@ var traceQueryDominantStateComparisonSiteGolden = map[string]string{
 	// matrix helper. The target-wait preview comparison is a display-only
 	// exhaustive classifier over the same state tokens; registering it here
 	// ensures a future state-universe change cannot silently mislabel a row.
-	"trace_query.go:traceQueryCausalImpactRecursive":                        "runnable#1",
-	"trace_query.go:traceQueryPriorityCausalImpactForPublicationInUniverse": "runnable,running#2",
-	"trace_query.go:writeTraceTargetWaitOccurrencePreview":                  "io_wait,d_sleep,s_sleep#3",
+	"trace_query.go:traceQueryCausalImpactRecursive":       "runnable#1",
+	"trace_query.go:writeTraceTargetWaitOccurrencePreview": "io_wait,d_sleep,s_sleep#3",
 }
 
 type traceQueryDominantStateSwitchSite struct {
