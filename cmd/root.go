@@ -86,7 +86,7 @@ const (
 	defaultRepo                    = "."
 	defaultBranch                  = "main"
 	defaultMaxSteps                = 50
-	defaultPipelineWriteMaxSeconds = 900
+	defaultPipelineWriteMaxSeconds = 1800
 	defaultProvidersConfig         = "providers.yaml"
 	runtimeAnchorDir               = ".codrax"
 	blobSubdir                     = "blob"
@@ -3711,9 +3711,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.PipelineBaselineCacheMax != nil {
 			pipelineSettings.BaselineCacheMax = *rs.PipelineBaselineCacheMax
 		}
-		// Write-mode wall-time cap (commit 2 P0 C). Default 900 s;
+		// Write-mode wall-time cap (commit 2 P0 C). Default 1800 s;
 		// 0 disables the cap; hard-capped at 1800 inside the orch
-		// setter.
+		// setter. The default intentionally matches the hard ceiling so
+		// an active verify-failure replan is not cancelled halfway through.
 		pipelineSettings.WriteMaxSeconds = defaultPipelineWriteMaxSeconds
 		if rs.PipelineWriteMaxSeconds != nil {
 			pipelineSettings.WriteMaxSeconds = *rs.PipelineWriteMaxSeconds

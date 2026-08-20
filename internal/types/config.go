@@ -144,7 +144,7 @@ type PipelineSettings struct {
 	// (plan / apply / verify). The orchestrator starts a deadline
 	// timer at write-mode entry and cancels the in-flight Run when
 	// the timer fires; LastError surfaces a "write mode wall-time
-	// exceeded" message. Read-mode Runs are unaffected. Default 900
+	// exceeded" message. Read-mode Runs are unaffected. Default 1800
 	// (set in cmd/root.go); 0 disables the cap (legacy behaviour).
 	// Hard-capped at 1800 inside the orchestrator setter.
 	WriteMaxSeconds int `yaml:"write_max_seconds"`

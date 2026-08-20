@@ -38,6 +38,12 @@ func TestRootHelpSeparatesReadModeFromWriteAutoPilot(t *testing.T) {
 	}
 }
 
+func TestDefaultPipelineWriteBudgetMatchesSafetyCeiling(t *testing.T) {
+	if defaultPipelineWriteMaxSeconds != 1800 {
+		t.Fatalf("default write budget = %d; want existing 1800s safety ceiling", defaultPipelineWriteMaxSeconds)
+	}
+}
+
 func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
 	got := normalizeCompatArgs([]string{
 		"-repo", ".",

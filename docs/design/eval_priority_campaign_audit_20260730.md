@@ -35649,6 +35649,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1202 r749：Trace IO 链保持；写修复活跃重规划被默认预算截断（2026-08-19）
+
+1. 在 `main@772c0ecfc` 重建后严格并发恰好两个案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + trace_query_wakeup_causal_io_chain`。Runner
+   `1 PASS / 1 FAIL`；人工 Trace partial、写案例 fail。逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_runnerfallback_traceio_r749_20260819_manual_audit.md`。
+2. Trace 主能力无回归：显式 2.000..2.020s 因果投影在场，已证链
+   `threadpool-400 → network-300 → cookie-200 → app-100` 上，threadpool 的 IO 等待 11.000ms
+   为首要可消除项，三个链上 runnable 席各 1.000ms；邻近 sleep 与背景 IO 综合评分没有进入主因排序。
+   真实耗时集中、规则计价可消除影响、业务/内核调用点和继续下钻方向四者均保留。
+3. Trace 人工发现 B1201 的一个新 witness：模型把四节点主链写成“四个 hop”，但四节点只有三条主链边；
+   若把 `irq-2 → threadpool-400` 纳入，则应明确写成五节点四边。typed 上下文、投影和表内逐边证据均正确，
+   错误发生在模型成文计数。先并入通用关系 recipe/节点边数表达债，不用答案词面硬门或系统改写正文。
+4. 写案例的首个补丁在语义上错误：五个连续换行被折成 `[300,300,10]` 而不是 `[300]`。精确
+   verification probe、unittest 和 `make` 全部正确拒绝，controller 持有完整 typed 失败证据并进入
+   `needs_replan`。因此不应为了 eval 变绿降低验证杆，也不把模型首次修向波动拟合成产品规则。
+5. 新确认 B1202/P0：外层 eval 给单例 1800s，但产品 apply 默认 `pipeline_write_max_seconds=900`。
+   重规划模型在 13m45s 内持续产生 transport/protocol/semantic bytes，LLM 的 first-byte/byte-stall
+   保护均正确延续；到 apply 总时长 900s 时，产品 caller deadline 仍取消 planner，使 workflow 留在
+   `in_progress` 且没有最终 verdict。这里不是“4ms 没完整 JSON”降级，而是合法总预算过低，切断了仍有
+   进展的失败修复轮。
+6. 根修把默认写预算提高到既有硬上限 1800s。硬上限、显式更小配置、caller cancellation、无首字节、
+   byte-stall、transport/decode failure 全部保持；0 的历史 no-cap 配置语义也不变。没有根据输出文字或
+   活跃程度无限续期，只是避免默认值低于系统已经认可的安全 ceiling。读模式与 Trace 不受该预算影响。
+7. B1200 本轮没有获得 production-positive：pytest runner_missing 后的 exact unittest fallback 也真实失败，
+   所以旧 unavailable 记录正确没有被 supersede。成功 fallback 的生产复放仍待下一批；单元与 scheduler
+   seam 已覆盖 exact target 成功、不同 suite、空 suite、普通通过和失败 fallback 的正负形。
+
+状态：
+
+`B1200-EXACTRUNNERMISSINGESCALATION1=implemented+pinned/pending-successful-production-replay`；
+`B1201-TYPEDRELATIONRECIPEBREADTH1=open/P1/four-node-three-edge-witness-added`；
+`B1202-WRITEDEFAULTBUDGETMISMATCH1=implemented/default-1800+hard-cap-preserved`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1194 r746：一条关系证据被复制成四条图边；测试框架降级丢精确目标（2026-08-19）
 
 1. 在 `main@c2c453e62` 重建后严格并发恰好两个案例：
