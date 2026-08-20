@@ -55789,3 +55789,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1213 B1214：连续结构化计划拒绝的精确有界滚转（2026-08-19）
+
+1. r754 已证明 compact typed repair pack 能让第二次 planner dispatch 在 3 轮内完成，但旧轮次先连续
+   14 次提交非法结构化编辑，才由更晚的 stutter/iteration 边界退出。继续增加 prompt 教学不能解决
+   “何时停止在污染上下文里修补”这一控制层问题，也会继续增加模型心智负担。
+2. 根修放在 planner 已有 `ToolResultObserver -> LoopController` seam，只消费三个结构化计划 emitter 的
+   typed `ToolName + Success`。单 dispatch 内累计失败 submission；前两次仍保留原有读取/修补窗口，第三次
+   请求结束当前轮，由既有 ParseOutput/outer retry 携带最新 validator summary 或 PlanRepairPack 干净重派。
+3. 每个成功的完整计划、skeleton 或单文件 change submission 都把失败 streak 清零；每次
+   `BuildInitialInstruction` 也清零，因此大计划中正常成功的分段提交不会被历史失败误杀。一个 tool batch
+   若含多个失败 submission 按精确条数累计；不比较错误自然语言、文件内容、语言或 case type。
+4. 这不是 4ms/4m/固定年龄超时：计数只在模型本轮字节流结束、工具实际返回失败后推进，不会打断活跃
+   LLM stream；达到阈值后也不降级回答或伪造计划，只让既有外层以最新 typed repair context 重试。
+5. 专项 pin 覆盖“1/2 次不滚转、第三次滚转”“成功 submission 清零”“新 dispatch 清零”；完整
+   `internal/agent` 与全 `internal/...` 回归作为提交门。后续 r755 用同一写案例加一个异构读/关系案例
+   并发恰好两个回放，生产验收为首 dispatch 不再持续 14 次非法提交；若模型一次成功则只记未触发，
+   不虚报滚转臂生产闭环。
+6. 本批不触碰 Read/Trace、模型答案、Mermaid、项目测试权威或 workflow 验证条件。显式时间窗 Trace
+   因果投影与自动补齐保持；主因仍只来自 typed on-chain 证据，背景只作支撑；优先级反转、调度延迟/
+   供给、算力供给、D/IO 等待、确定性语义事件、链上业务线索，以及实际占用与规则计价可消除量双轴
+   保持不变。
+
+状态：
+
+`B1214-REPEATEDSTRUCTUREDEMITROLLOVER1=implemented/typed-count+reset-pins`；
+`B1215-SYSTEMSUPPLEMENTBUSINESSLANGUAGE1=open/P2`；
+`active-stream-4ms-degrade=forbidden/event-count-only`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

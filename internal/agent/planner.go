@@ -78,6 +78,9 @@ type plannerEvaluator struct {
 	// before the corrected emit can be sent. This flag only widens the
 	// planner's soft-cap recovery window; the hard cap still bounds the loop.
 	structuredEmitRepairActive bool
+	// structuredEmitFailureStreak counts only typed failed plan-emitter results
+	// in this dispatch. A successful structured emit or a new dispatch resets it.
+	structuredEmitFailureStreak int
 
 	// proofFollowupMaterializationOnly is true for controller-authorized
 	// verification proof follow-up batches that do not currently have a typed
@@ -149,6 +152,7 @@ const (
 	plannerHandoffSynthesisMaxReadBudget  = 4
 	plannerStructuredEmitRepairReadBudget = 2
 	plannerVerifyFailureRepairReadBudget  = 3
+	plannerStructuredEmitFailureRollover  = 3
 )
 
 // BuildInitialInstruction captures the Mutable pointer + per-dispatch
@@ -173,6 +177,7 @@ const (
 func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	e.structuredEmitRepairActive = false
+	e.structuredEmitFailureStreak = 0
 	e.proofFollowupMaterializationOnly = plannerContextHasProofFollowupMaterializationOnly(ctx)
 	e.verifyFailureRepairActive = plannerContextHasVerifyFailureRepairMaterial(ctx)
 	e.handoffSynthesisActive = plannerContextHasWriteHandoffMaterial(ctx)
@@ -1509,17 +1514,22 @@ func (e *plannerEvaluator) materializationOnlySurfaceActive() bool {
 	return e.handoffSynthesisReadBudgetExhausted()
 }
 
-func plannerToolResultsContainFailedStructuredEmit(results []types.ToolResult) bool {
+func plannerFailedStructuredEmitCount(results []types.ToolResult) int {
+	count := 0
 	for _, result := range results {
 		if result.Success {
 			continue
 		}
 		switch strings.TrimSpace(result.ToolName) {
 		case emitChangePlanToolName, emitPlanSkeletonToolName, emitPlanChangeToolName:
-			return true
+			count++
 		}
 	}
-	return false
+	return count
+}
+
+func plannerToolResultsContainFailedStructuredEmit(results []types.ToolResult) bool {
+	return plannerFailedStructuredEmitCount(results) > 0
 }
 
 func plannerLastStructuredEmitRejection(results []types.ToolResult) (types.ToolResult, bool) {
@@ -1854,11 +1864,13 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 	if plannerToolResultsContainSuccessfulStructuredEmit(obs.CurrentToolResults) {
 		e.structuredEmitRepairActive = false
 		e.structuredEmitRepairReadCalls = 0
+		e.structuredEmitFailureStreak = 0
 		return
 	}
-	if plannerToolResultsContainFailedStructuredEmit(obs.CurrentToolResults) {
+	if failed := plannerFailedStructuredEmitCount(obs.CurrentToolResults); failed > 0 {
 		e.structuredEmitRepairActive = true
 		e.structuredEmitRepairReadCalls = 0
+		e.structuredEmitFailureStreak += failed
 		e.materializationSurfaceViolations = 0
 		return
 	}
@@ -1874,6 +1886,12 @@ func (e *plannerEvaluator) ObserveToolResults(_ *types.AgentContext, obs LoopObs
 func (e *plannerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase != PhaseMidLoop || e == nil {
 		return LoopSignal{}
+	}
+	if e.structuredEmitFailureStreak >= plannerStructuredEmitFailureRollover {
+		return LoopSignal{
+			StopRequested: true,
+			StopReason:    "planner structured plan submission rejected repeatedly; restart with the latest typed repair context",
+		}
 	}
 	if e.verifyFailureProbeHintPending && e.materializationOnlySurfaceActive() {
 		e.verifyFailureProbeHintPending = false

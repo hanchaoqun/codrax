@@ -1042,11 +1042,60 @@ func TestPlannerShouldStop_BuildInitialInstructionClearsTypedEmitRepair(t *testi
 	})
 
 	_ = e.BuildInitialInstruction(&types.AgentContext{Mutable: e.mu}, nil)
+	if e.structuredEmitFailureStreak != 0 {
+		t.Fatalf("new dispatch retained structured emit failure streak %d", e.structuredEmitFailureStreak)
+	}
 	resp := llm.Response{ToolCalls: []llm.ToolCall{
 		{Name: "read_file"},
 	}}
 	if !e.ShouldStop(resp, e.effectiveSoftCap()) {
 		t.Fatalf("expected new dispatch to clear structured emit repair state")
+	}
+}
+
+func TestPlannerObserve_RepeatedStructuredEmitFailuresRequestCleanRollover(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	failed := LoopObservation{Phase: PhaseMidLoop, CurrentToolResults: []types.ToolResult{{
+		ToolName: emitChangePlanToolName,
+		Success:  false,
+		Repair:   &types.ToolRepair{Code: types.PlanRepairToolCode},
+	}}}
+
+	for attempt := 1; attempt < plannerStructuredEmitFailureRollover; attempt++ {
+		e.ObserveToolResults(nil, failed)
+		if signal := e.Observe(nil, failed); signal.StopRequested {
+			t.Fatalf("attempt %d stopped before the bounded rollover threshold: %+v", attempt, signal)
+		}
+	}
+	e.ObserveToolResults(nil, failed)
+	signal := e.Observe(nil, failed)
+	if !signal.StopRequested || signal.HintRequested {
+		t.Fatalf("third typed structured rejection should request a clean rollover, got %+v", signal)
+	}
+	if !strings.Contains(signal.StopReason, "typed repair context") {
+		t.Fatalf("rollover reason should preserve typed repair handoff semantics, got %q", signal.StopReason)
+	}
+}
+
+func TestPlannerObserve_SuccessfulStructuredEmitResetsFailureStreak(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	failed := LoopObservation{Phase: PhaseMidLoop, CurrentToolResults: []types.ToolResult{{
+		ToolName: emitPlanChangeToolName,
+		Success:  false,
+	}}}
+	for attempt := 0; attempt < plannerStructuredEmitFailureRollover-1; attempt++ {
+		e.ObserveToolResults(nil, failed)
+	}
+	e.ObserveToolResults(nil, LoopObservation{CurrentToolResults: []types.ToolResult{{
+		ToolName: emitPlanSkeletonToolName,
+		Success:  true,
+	}}})
+	e.ObserveToolResults(nil, failed)
+	if signal := e.Observe(nil, failed); signal.StopRequested {
+		t.Fatalf("successful structured emit must reset the rejection streak, got %+v", signal)
+	}
+	if e.structuredEmitFailureStreak != 1 {
+		t.Fatalf("failure streak after success and one rejection = %d, want 1", e.structuredEmitFailureStreak)
 	}
 }
 
