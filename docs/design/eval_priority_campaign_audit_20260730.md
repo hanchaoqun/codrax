@@ -56622,3 +56622,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r763`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1235 B1227：模型可见连通图不得反向扩张 typed provider 权威（2026-08-20）
+
+1. 先红用例直接复现 r763 的确定性摆动：`participantCovered=[true,true,true]`、
+   `participantRequestScopedCovered=[true,true,false]` 且 `requestScopedSubsetIncomplete=true` 时，旧
+   `effectiveParticipantCovered(2,true)` 错误返回 true；也就是模型只要把现有 typed 局部边画成一个可见连通图，
+   第三个 local-only participant 就能反向晋升为 parser-owned request scope，随后其未证边界被判陈旧。
+2. 根修删除 `authoredRequestedGraphComplete` 这一扩权入参。严格 provider 子集存在时，所有消费者始终读取
+   `participantRequestScopedCovered`；provider 本身完整时仍读取普通 `participantCovered`。最终答案图的连通性继续用于
+   判断“模型是否已经呈现 provider 已证的关系”，但不再改变“provider 证明了什么”。权威方向固定为
+   typed evidence → model presentation，禁止 model presentation → typed authority。
+3. participant coverage、local candidate roster 与 investigation completion 三个消费面已切到同一无扩权函数；候选仍可
+   以 `local_operation_only` 进入模型上下文，且必须与 `retain_participant_boundary=true` 共存。系统没有创建、删除、选择、
+   反转或重连任何边，也没有扫描/修改用户输入、模型推理、答案正文或 Mermaid 标签。
+4. 先红测试修复后转绿；既有 disconnected-local-pair、compact repair、verified shared-handoff graph 一并通过。
+   完整 `go test ./internal/types ./internal/agent ./internal/tool ./internal/orchestrator -count=1` 全绿
+   （tool 182.173s）。Trace 查询、显式窗、链上-only 根因、双轴、因果投影、自动补齐和活跃流预算均未改动。
+
+状态：
+
+`B1227-LOCALBOUNDARYOSCILLATION1=implemented/full-relevant-pass/pending-production-replay`；
+`typed-provider-authority=model-visible-connectivity=one-way-only/pinned`；
+`local-only-candidate+unproven-boundary=compatible/stable`；
+`strict-provider-subset=never-widened-by-authored-graph`；
+`B1228-RELATIONSEMANTICDRIFT1=confirmed/P1-next`；
+`B1229-RELATIONINVESTIGATIONCHURN1=observed/replay-with-B1228`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

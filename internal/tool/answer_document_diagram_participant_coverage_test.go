@@ -818,8 +818,8 @@ func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScope
 		}
 	}
 	if !scope.requestScopedSubsetIncomplete ||
-		!scope.effectiveParticipantCovered(0, false) || !scope.effectiveParticipantCovered(1, false) ||
-		scope.effectiveParticipantCovered(2, false) || scope.effectiveParticipantCovered(3, false) {
+		!scope.effectiveParticipantCovered(0) || !scope.effectiveParticipantCovered(1) ||
+		scope.effectiveParticipantCovered(2) || scope.effectiveParticipantCovered(3) {
 		t.Fatalf("only the provider-connected stage pair should close request-scoped coverage before a full authored graph exists: %+v", scope)
 	}
 
@@ -875,6 +875,20 @@ func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScope
 	if len(got) != 2 || got[0].Issue != DiagramParticipantCoverageMissingBoundary ||
 		got[1].Issue != DiagramParticipantCoverageMissingBoundary {
 		t.Fatalf("both local-only participants need explicit requested-relation boundaries: %+v", got)
+	}
+}
+
+func TestFlowParticipantRelationScopeStrictProviderCannotBeWidenedByAuthoredGraph(t *testing.T) {
+	scope := flowParticipantRelationScope{
+		participantCovered:              []bool{true, true, true},
+		participantRequestScopedCovered: []bool{true, true, false},
+		requestScopedSubsetIncomplete:   true,
+	}
+	if !scope.effectiveParticipantCovered(0) || !scope.effectiveParticipantCovered(1) {
+		t.Fatal("the parser-owned request-scoped provider must retain its covered participants")
+	}
+	if scope.effectiveParticipantCovered(2) {
+		t.Fatal("a model-authored connected graph must not promote a local-only participant into parser-owned request scope")
 	}
 }
 
@@ -942,8 +956,8 @@ func TestDiagramParticipantCoverageDoesNotJoinRepoWideExpansionIntoRequestedStag
 
 	surfaces := [][]string{{"Analyzer"}, {"Explorer"}, {"BusContext"}}
 	scope := buildFlowParticipantRelationScope(rm, participants, surfaces, evidence, precedence)
-	if !scope.effectiveParticipantCovered(0, false) || !scope.effectiveParticipantCovered(1, false) ||
-		scope.effectiveParticipantCovered(2, false) {
+	if !scope.effectiveParticipantCovered(0) || !scope.effectiveParticipantCovered(1) ||
+		scope.effectiveParticipantCovered(2) {
 		t.Fatalf("repo-wide expansion must not extend the requested stage provider to BusContext: %+v", scope)
 	}
 

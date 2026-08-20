@@ -65,7 +65,7 @@ func ResolveFlowParticipantRelationCoverage(
 	if scope.requestScopedSubsetIncomplete {
 		for i, participant := range participants {
 			if i >= len(scope.participantLocalOperation) || !scope.participantLocalOperation[i] ||
-				scope.effectiveParticipantCovered(i, false) {
+				scope.effectiveParticipantCovered(i) {
 				continue
 			}
 			candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
@@ -84,17 +84,19 @@ func ResolveFlowParticipantRelationCoverage(
 }
 
 // effectiveParticipantCovered keeps a request-scoped typed provider from
-// being silently widened by disconnected local operations.  Before the model
-// has authored one fully anchored requested-participant graph, a strict
-// provider subset covers only the participants that provider itself names.
-// Once the authored graph is genuinely complete, the ordinary typed
-// component result is sufficient.  This is identity/coverage authority only;
-// it never creates an edge or decides the requested relation for the model.
-func (s flowParticipantRelationScope) effectiveParticipantCovered(participantIndex int, authoredRequestedGraphComplete bool) bool {
+// being silently widened by local operations or by the model-authored visible
+// graph. A strict parser-owned provider subset covers only the participants
+// that provider itself names. The visible graph may faithfully present typed
+// local facts, but it cannot promote those facts into request-scope authority;
+// doing so makes the same local-only candidate alternately require and reject
+// an unproven boundary across repair rounds. This is identity/coverage
+// authority only; it never creates an edge or decides the requested relation
+// for the model.
+func (s flowParticipantRelationScope) effectiveParticipantCovered(participantIndex int) bool {
 	if participantIndex < 0 || participantIndex >= len(s.participantCovered) {
 		return false
 	}
-	if s.requestScopedSubsetIncomplete && !authoredRequestedGraphComplete {
+	if s.requestScopedSubsetIncomplete {
 		return participantIndex < len(s.participantRequestScopedCovered) &&
 			s.participantRequestScopedCovered[participantIndex]
 	}

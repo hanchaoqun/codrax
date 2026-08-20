@@ -490,7 +490,7 @@ func DiagramParticipantCoverageMismatches(
 	requestedParticipantGraphComplete := diagramParticipantRequestedGraphConnected(doc, allSurfaces, requestedRelationEvidence, stagePrecedence)
 	evidenceParticipantGraphComplete := len(obligations) > 1
 	for i := range states {
-		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i, requestedParticipantGraphComplete)
+		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i)
 		states[i].typedEdgeAvailable = requestScopedEdgeAvailable
 		if !requestScopedEdgeAvailable || !relationScope.completionParticipantConnectedCovered(i) {
 			evidenceParticipantGraphComplete = false
@@ -1321,7 +1321,7 @@ func diagramParticipantLocalOnlyCandidateParticipants(
 	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
 	for i, obligation := range obligations {
 		if i >= len(relationScope.participantLocalOperation) || !relationScope.participantLocalOperation[i] ||
-			relationScope.effectiveParticipantCovered(i, false) {
+			relationScope.effectiveParticipantCovered(i) {
 			continue
 		}
 		if key := strings.ToLower(strings.TrimSpace(obligation.Identity)); key != "" {
@@ -1755,7 +1755,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 	}
 	localOnlyParticipant := false
 	if len(obligations) > 1 && (obligationIndex < 0 ||
-		!relationScope.effectiveParticipantCovered(obligationIndex, false)) {
+		!relationScope.effectiveParticipantCovered(obligationIndex)) {
 		localOnlyParticipant = obligationIndex >= 0 &&
 			obligationIndex < len(relationScope.participantLocalOperation) &&
 			relationScope.participantLocalOperation[obligationIndex]
