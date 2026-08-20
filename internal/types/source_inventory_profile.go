@@ -36,6 +36,13 @@ func (u SourceInventoryTypeUnderlying) IsValid() bool {
 // inventories. It lets deterministic parser/graph code supply membership
 // authority without inferring the user's requested role or structural facets
 // from raw request text or model prose.
+//
+// A profile may also survive typed relation reconciliation as a
+// presentation-fields-only receipt. In that shape IsSourceInventory is false,
+// TargetRoles is empty, and RequestedFields preserves only the already
+// schema-validated visible fields requested for each relation member. The
+// receipt has no discovery, membership, completion, or source-inventory
+// authority; Active deliberately remains false.
 type SourceInventoryProfile struct {
 	IsSourceInventory bool                            `json:"is_source_inventory"`
 	TargetRoles       []AnswerCandidateRole           `json:"target_roles,omitempty"`
@@ -49,6 +56,16 @@ type SourceInventoryProfile struct {
 
 func (p *SourceInventoryProfile) Active() bool {
 	return p != nil && p.IsSourceInventory && len(p.TargetRoles) > 0
+}
+
+// PresentationFieldsOnly reports the narrow post-reconciliation receipt used
+// when a typed relation owns the member universe but the analyzer separately
+// emitted per-member visible fields. It is intentionally structural: callers
+// must not infer this state from request prose, labels, rationale, or answer
+// text. Only emit_analysis mints this inactive shape from a previously active,
+// provenance-validated profile.
+func (p *SourceInventoryProfile) PresentationFieldsOnly() bool {
+	return p != nil && !p.IsSourceInventory && len(p.TargetRoles) == 0 && len(p.RequestedFields) > 0
 }
 
 func (p *SourceInventoryProfile) RequiresRole(role AnswerCandidateRole) bool {

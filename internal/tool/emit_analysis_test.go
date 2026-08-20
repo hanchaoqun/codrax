@@ -11240,8 +11240,14 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T)
 	if rm == nil {
 		t.Fatal("RequestModel not persisted")
 	}
-	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
-		t.Fatalf("typed relation request must drop source inventory profile: %+v", rm.SourceInventoryProfile)
+	if rm.SourceInventoryProfile == nil || rm.SourceInventoryProfile.Active() ||
+		!rm.SourceInventoryProfile.PresentationFieldsOnly() {
+		t.Fatalf("typed relation must retain only an inactive presentation-fields receipt: %+v", rm.SourceInventoryProfile)
+	}
+	if len(rm.SourceInventoryProfile.TargetRoles) != 0 ||
+		!rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldName) ||
+		!rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldLocation) {
+		t.Fatalf("typed relation presentation receipt lost requested fields or retained membership roles: %+v", rm.SourceInventoryProfile)
 	}
 	if !types.HasTypedRelationMemberSetShape(*rm) {
 		t.Fatalf("typed relation shape should remain active: %+v", rm)

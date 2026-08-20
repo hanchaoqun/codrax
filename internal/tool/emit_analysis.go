@@ -4355,8 +4355,22 @@ func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, s
 		return false, ""
 	}
 	if types.HasTypedRelationMemberSetShape(*rm) {
-		rm.SourceInventoryProfile = nil
-		return true, "source_inventory_profile ignored because predicate_axis / relational predicate declares a typed relation answer; relation member sets must be carried by typed graph/evidence, not source-inventory repair"
+		// The typed relation remains the sole membership/evidence authority, but
+		// requested_fields is an orthogonal presentation contract. Preserve that
+		// schema-validated receipt without retaining any source-inventory
+		// discovery, completion, or role authority. This lets a combined
+		// member+location table stay one model-owned surface instead of losing
+		// the requested location field or synthesising a second dimension.
+		profile := rm.SourceInventoryProfile
+		profile.IsSourceInventory = false
+		profile.TargetRoles = nil
+		profile.TypeUnderlying = types.SourceInventoryTypeUnderlyingUnknown
+		profile.RequiresConstSet = false
+		profile.Rationale = ""
+		if len(profile.RequestedFields) == 0 {
+			rm.SourceInventoryProfile = nil
+		}
+		return true, "source_inventory_profile membership authority disabled because predicate_axis / relational predicate declares a typed relation answer; relation members remain owned by typed graph/evidence while schema-validated requested_fields remain presentation-only"
 	}
 	if types.SourceInventoryProfileConflictsWithRelationFlow(*rm) {
 		rm.SourceInventoryProfile = nil

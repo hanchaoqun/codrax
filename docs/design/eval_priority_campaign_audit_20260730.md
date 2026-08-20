@@ -57086,3 +57086,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `request/model/final-prose/mermaid-label-or-column-title-scan=none`；
 `system-table/cell/edge/node/label/conclusion-authorship=none`；
 `active-stream-4ms-degrade=forbidden/production-positive-r769`。
+
+### §123.1248 B1235：关系成员证据权与逐成员展示字段权解耦（2026-08-20）
+
+1. 冷读 r769 的 Analyzer payload 后确认不是路径证据缺失：模型已经结构化发出
+   `source_inventory_profile.requested_fields=[name,location]`，Explorer 的 12-member typed relation aggregate 也为每个成员给出
+   一一对齐的 exact `support_refs`。缺口发生在 Analyzer 归一化：为避免 source inventory 抢占关系成员 universe，系统把整个
+   profile 置空，连正交的 `location` 展示要求一并丢失；最后 `member_set` 只检查成员块存在，职责描述因此误占“文件位置”列并签绿。
+2. 本批没有恢复 source-inventory 权限，也没有新增/拆分用户答案维度。对 `HasTypedRelationMemberSetShape` 的唯一特殊臂，把原 profile
+   降为 `presentation-fields-only` 收据：`IsSourceInventory=false`、`TargetRoles=[]`、underlying/const/rationale 清空，只保留已经过
+   schema 与 current-request provenance 校验的 `RequestedFields`。因此 `Active()` 恒为假，源码发现、成员枚举、完备性补齐、角色
+   绑定、repomap/source-inventory authority 均不会复活；关系成员仍只由 typed graph/evidence 决定。
+3. Finalizer 的组合合同只在三类精确信号合取时启用：关系型 member-set 请求、inactive presentation receipt 明确含 `location`、
+   evidence-authorized principal relation aggregate 为每个成员提供数量相等、identity 对齐、可解析且 line>0 的 source location。
+   命中后，同一个模型编写的 `facet_ids=[member_set]` 列表/表格必须在每个成员自己的可见行/单元格展示 exact path/file:line；citation
+   只证明该行，不能代替可见字段。系统不选择成员、不建表、不补单元格、不移动/改写模型内容。
+4. 若任一成员位置缺失、support-ref identity 错位、没有精确 relation aggregate 或 Analyzer 没有发出 location 字段，合同不启用，
+   普通 member-set 保持原 shape-only 行为，避免制造模型无法满足的重试。初始教学与一次 display-only patch hint 读取同一 typed
+   predicate，明确“成员+路径同一行”；它们不扫描用户原文、列标题、模型 thinking、答案正文、Mermaid 或语言关键词。
+5. 新 pin 覆盖：生产形 typed relation 在禁用成员权限后仍保存 `name/location` 展示收据；profile inactive 且 target roles 清空；
+   关系表缺两行路径被判展示未覆盖；每行 exact path 后通过；移除展示收据后相同普通 member-set 继续通过；中英文初始教学和修补
+   hint 均只要求模型展示现有 typed 位置。architecture/runtime 等其他 source-inventory 冲突臂仍置空，真实 source inventory 保持 active。
+6. `go test ./internal/tool ./internal/agent ./internal/types` 全绿（tool 182.223s、agent 15.320s、types 25.921s）；随后精确回归
+   `DropsSourceInventoryForTypedRelation + architecture negative + combined member/location + source-location + label-only hint` 全绿。未修改
+   Trace、运行时问句路由、因果投影、自动补齐、链上根因、实际占时/规则可消双轴、流式时限与降级车道。
+
+状态：
+
+`B1235-TYPEDDIMENSIONFIELDVALUEDRIFT1=implemented/full-relevant-pass/pending-production-replay`；
+`relation-membership-authority=typed-graph/evidence-only`；
+`per-member-display-authority=schema-validated-presentation-fields-receipt`；
+`source-inventory-active=false/no-discovery-no-completion`；
+`location-display-gate=typed-request+exact-aligned-member-support-refs`；
+`missing-location-evidence=fail-open/no-impossible-contract`；
+`request/model/final-prose/mermaid-label/column-title/language-keyword-scan=none`；
+`system-table/cell/member/path/edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。

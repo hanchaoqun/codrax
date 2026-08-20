@@ -222,6 +222,82 @@ func TestRequestedSourceLocationDimensionRequiresLocationOnEveryTypedRelationMem
 	}
 }
 
+func TestRequestedRelationMemberSetPreservesPerMemberLocationDisplayReceipt(t *testing.T) {
+	mut := types.NewMutableState("show implementations and each source location")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "implementers",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"Alpha", "Beta"},
+		SupportRefs: []string{
+			"Alpha @ internal/alpha.go:10",
+			"Beta @ internal/beta.go:20",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisImplement,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: false,
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "implementations and files", Role: types.RequestedAnswerDimensionMemberSet,
+					Required: true, Index: 1,
+				}},
+			},
+		}},
+	}
+	dimension := ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[0]
+	missing := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind: types.BlockTable, FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+		Items: []types.AnswerBlockItem{
+			{Label: "Alpha", Text: "first implementation"},
+			{Label: "Beta", Text: "second implementation"},
+		},
+	}}}
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, missing) {
+		t.Fatal("member_set marker must not hide an omitted schema-validated per-member location field")
+	}
+	complete := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		Kind: types.BlockTable, FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
+		Items: []types.AnswerBlockItem{
+			{Label: "Alpha", Cells: []string{"internal/alpha.go", "first implementation"}},
+			{Label: "Beta", Cells: []string{"internal/beta.go", "second implementation"}},
+		},
+	}}}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, complete) {
+		t.Fatal("one model-authored member_set table with an exact path on every row must cover the combined dimension")
+	}
+	for surface, text := range map[string]string{
+		"initial prompt": renderAnswerDocRequestedAnswerDimensions(ctx),
+		"repair hint":    requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{dimension}, "en"),
+	} {
+		for _, want := range []string{"file:line", "member's own visible row/cell"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s omitted exact per-member location guidance %q:\n%s", surface, want, text)
+			}
+		}
+	}
+
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = nil
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, missing) {
+		t.Fatal("ordinary member_set without a typed location receipt must retain its existing shape-only coverage")
+	}
+}
+
 func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows(t *testing.T) {
 	mut := types.NewMutableState("list file and package per declaration")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -7311,7 +7387,7 @@ func TestRequestedAnswerDimensionCoverageHint_UsesOnlyUserFacingLabels(t *testin
 		{Label: "回退行为", Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true, Index: 3},
 	}
 	for _, lang := range []string{"zh", "en"} {
-		hint := requestedAnswerDimensionCoverageHint(dims, lang)
+		hint := requestedAnswerDimensionCoverageHint(nil, dims, lang)
 		for _, label := range []string{"调用链", "原生模块名", "回退行为"} {
 			if !strings.Contains(hint, label) {
 				t.Fatalf("lang=%s hint missing user-facing label %q:\n%s", lang, label, hint)

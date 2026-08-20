@@ -7805,8 +7805,14 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if lang == "zh" {
 				b.WriteString("  - 在真正承载这组成员的可见列表/表格块上设置隐藏元数据 `facet_ids:[\"member_set\"]`；不要把 `member_set` 写进可见标题或正文，也不要把别的关系/边界清单标成这组成员。\n")
+				if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
+					b.WriteString("  - 当前 typed 证据为每个成员提供了精确源码位置；在同一个成员块中，把各自路径或 file:line 放进该成员自己的可见行/单元格。引用只负责证明，不能代替用户要求看到的文件位置。\n")
+				}
 			} else {
 				b.WriteString("  - On the visible list/table block that actually carries this roster, set hidden metadata `facet_ids:[\"member_set\"]`. Do not print `member_set` in the visible title/body, and do not tag a different relation/boundary list as this roster.\n")
+				if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
+					b.WriteString("  - Exact typed source locations are available for every member. In the same roster block, put each path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
+				}
 			}
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
@@ -15141,7 +15147,7 @@ func (e *answerDocumentEvaluator) requestedAnswerDimensionCoverageSignal(ctx *ty
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "answer_doc.requested_dimensions",
-		Hint:           requestedAnswerDimensionCoverageHint(missing, lang),
+		Hint:           requestedAnswerDimensionCoverageHint(ctx, missing, lang),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -15538,7 +15544,57 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 	if requested == 0 {
 		return false
 	}
-	return answerDocumentMemberSetPayloadBlockCount(doc, true) >= requested
+	if answerDocumentMemberSetPayloadBlockCount(doc, true) < requested {
+		return false
+	}
+	if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
+		return answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc)
+	}
+	return true
+}
+
+// answerDocumentRelationMemberSetRequestsVisibleLocations joins two precise,
+// independent typed receipts: emit_analysis preserved a schema-validated
+// per-member location display field after disabling source-inventory authority,
+// and exploration supplied an exact relation-principal member set with one
+// aligned source location per member. Only that conjunction asks the existing
+// member_set surface to show member+location on the same row. It does not read
+// request wording, dimension labels, table headings, model prose, or Mermaid.
+func answerDocumentRelationMemberSetRequestsVisibleLocations(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	profile := rm.SourceInventoryProfile
+	if profile == nil || !profile.PresentationFieldsOnly() ||
+		!profile.RequestsField(types.SourceInventoryFieldLocation) ||
+		!types.HasTypedRelationMemberSetShape(rm) {
+		return false
+	}
+	// The inactive presentation receipt alone cannot demand an impossible
+	// answer. Require exact, index-aligned typed locations before enabling the
+	// display-only repair contract.
+	for _, fact := range answerDocStableAggregateFacts(ctx) {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) == 0 ||
+			!types.AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
+			len(fact.SupportRefs) != len(fact.Members) {
+			continue
+		}
+		valid := true
+		for i, member := range fact.Members {
+			refMember, location, ok := types.ParseAnswerSupportRefMemberLocation(fact.SupportRefs[i])
+			if !ok || strings.TrimSpace(refMember) == "" || strings.TrimSpace(member) == "" ||
+				!types.AnswerAggregateNamedSupportRefLabelDescribesMember(refMember, member) ||
+				strings.TrimSpace(location.File) == "" || location.LineStart <= 0 {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return true
+		}
+	}
+	return false
 }
 
 func answerDocumentMemberSetPayloadBlockCount(doc *types.AnswerDocumentV2, requireExplicitFacet bool) int {
@@ -15836,9 +15892,10 @@ func answerDocumentV2VisibleTextForDimensionCoverage(doc *types.AnswerDocumentV2
 	return b.String()
 }
 
-func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimension, lang string) string {
+func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []types.RequestedAnswerDimension, lang string) string {
 	missing = requestedDimensionsSortedForHint(missing)
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	memberLocationsRequired := answerDocumentRelationMemberSetRequestsVisibleLocations(ctx)
 	var b strings.Builder
 	if zh {
 		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
@@ -15856,6 +15913,9 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 			b.WriteByte('\n')
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
 				b.WriteString("  - 请在真正承载该成员清单的可见列表/表格块上补隐藏元数据 `facet_ids:[\"member_set\"]`；不要把这个内部标记写进可见标题/正文，也不要标到别的关系或边界清单上。\n")
+				if memberLocationsRequired {
+					b.WriteString("  - 当前证据为每个成员提供了精确源码位置；请把各自路径或 file:line 放在该成员自己的可见行/单元格中。引用只负责证明，不能代替用户要求看到的文件位置。\n")
+				}
 			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
@@ -15876,6 +15936,9 @@ func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimensi
 		b.WriteByte('\n')
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
 			b.WriteString("  - Add hidden metadata `facet_ids:[\"member_set\"]` to the visible list/table block that actually carries this roster. Do not print the marker in the visible title/body or attach it to another relation/boundary list.\n")
+			if memberLocationsRequired {
+				b.WriteString("  - Exact source locations are available for every member. Put each path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
+			}
 		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")
