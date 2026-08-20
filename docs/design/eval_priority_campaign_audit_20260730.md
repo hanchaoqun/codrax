@@ -55838,12 +55838,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 4. Trace 主链基本正确：请求显式窗 1.000000..1.010000，worker-200 -> app-100 是已证链；worker runnable
    有效归因 8.300ms、链累计 9.000ms，目标自身 sleep 实占 10.000ms；跨 CPU 角色、优先级候选上限、
    D/IO 零值、背景不晋升、实际占用/规则计价双轴和完整 Trace 因果投影均保留。
-5. 新确认 B1216/P1-high。早期 perf-triage 对同一工件发出自由因果叙事：“主要阻塞为自身睡眠等待，非
-   调度延迟”，并称不存在优先级反转；后续 deterministic trace_query 已给出相反的链上 worker runnable
-   与 priority candidate。最终 context 仍让两种 authority 并存，模型正文因此写“D/IO=0 表明是正常的
-   睡眠等待”，同页 caveat 又说 sleep 机制未证。根修沿既有 B400：同一 runtime artifact 已有
-   deterministic trace_query authority 后，pre-triage 的自由 summary/因果/机理判断只作导航，不进入最终
-   answer authority；保留其原始测量字段和审计历史，不扫描或重写最终答案。
+5. 冷读否证后，B1216 不立案。早期 perf-triage 的确曾自由判断“主要为自身睡眠、无反转”，但 finalizer
+   prompt 的 `Perf Triage — Validated Extraction` 已只保留三条 `deterministic_validator` 行；model
+   observations、meta summary 与 residue 都未进入最终权威，Prior Stage Findings 也由确定性 root-cause
+   board 构造。Prompt 还明确提供 `zero_d_state_or_iowait_does_not_classify_sleep_reason=true`、
+   `sleep_cause_authority=not_provided_by_target_state_account`。模型正文仍写“正常睡眠”是对精确上下文的
+   单轮违背，按模型波动留档，不增加答案原文硬门、不让系统代写或覆盖结论。
 6. B1215 再获生产 witness：`status=complete`、`state_partition_coverage=complete` 等内部枚举仍进入
    模型可复制上下文并泄漏到中文正文。后续在 typed context/系统补充自身 renderer 提供读者词形，内部
    枚举继续留在诊断载体；不对用户请求、模型 reasoning 或答案 prose 做关键词硬门。
@@ -55853,7 +55853,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 状态：
 
 `B1214-REPEATEDSTRUCTUREDEMITROLLOVER1=unit-covered/production-arm-not-exercised-r755`；
-`B1216-PRETRIAGENARRATIVEAUTHORITY2=confirmed/P1-high/next`；
+`B1216-PRETRIAGENARRATIVEAUTHORITY2=refuted/finalizer-suppression-working/model-variance`；
 `B1215-SYSTEMSUPPLEMENTBUSINESSLANGUAGE1=production-witness-r755/P2`；
 `active-stream-4ms-degrade=forbidden/not-observed`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r755`；
