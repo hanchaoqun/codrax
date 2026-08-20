@@ -7829,6 +7829,36 @@ func TestReconcileProofFollowupVerifyOutcome_RequiresClosedTypedProofLedger(t *t
 		t.Fatalf("project suite passed without executing the planned probe: %+v", got)
 	}
 
+	// Production r748: pytest was unavailable, then the controller-selected
+	// exact unittest fallback ran the same suite and the planned probe passed.
+	// The missing candidate remains advisory; it must not veto the closed proof.
+	escalatedPlan := &types.ChangePlan{
+		ID: "plan-proof-escalated", Status: types.PlanStatusApplied,
+		VerificationProbes: []types.VerificationProbe{{ID: "required-probe"}},
+	}
+	escalatedReport := &types.ChangeReport{
+		PlanID: escalatedPlan.ID, Passed: true, VerificationStatus: types.VerificationStatusPassed,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, Suite: "verification_probe/python",
+			AssertionID: "required-probe", Passed: true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "verification_probe", Framework: "python", WorkingDir: ".",
+			Command: "python -c <verification_probe:required-probe>", Source: "pre_suite_verification_probe", Outcome: "executed",
+		}, {
+			Runner: "python", Framework: "pytest", WorkingDir: ".", Suite: "tests/test_tokenizer.py",
+			Command: "python3 -m pytest tests/test_tokenizer.py", ExitCode: 1,
+			Source: "impact_test_surface", Outcome: string(types.FailureKindRunnerMissing),
+		}, {
+			Runner: "python", Framework: "unittest", WorkingDir: ".", Suite: "tests/test_tokenizer.py",
+			Command: "python3 -m unittest tests/test_tokenizer.py -v", ExitCode: 0,
+			Source: "runner_missing_escalation", Outcome: "executed",
+		}},
+	}
+	if got := reconcileProofFollowupVerifyOutcome(proofRun, escalatedPlan, escalatedReport, passed); got != passed {
+		t.Fatalf("exact successful runner escalation still vetoed closed proof: got=%+v want=%+v", got, passed)
+	}
+
 	strongReport := &types.ChangeReport{
 		PlanID:             "plan-proof",
 		Passed:             true,

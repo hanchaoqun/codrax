@@ -404,6 +404,7 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
 	}
 	out.resolveHistoricalVerificationFailures(primaryReport)
+	out.resolveSuccessfulRunnerMissingEscalations(primaryReport)
 	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
 	out.State = verificationProofLedgerStateFromProfile(profile)
 	return NormalizeVerificationProofLedger(out)
@@ -591,6 +592,52 @@ func (ledger *VerificationProofLedger) resolveHistoricalVerificationFailures(pri
 	}
 }
 
+// resolveSuccessfulRunnerMissingEscalations keeps the unavailable candidate
+// visible without letting it veto an exact typed fallback that actually ran.
+// run_tests marks the replacement command with runner_missing_escalation.  A
+// replacement may change framework/command (for example pytest -> unittest),
+// so the stable target identity is runner + working directory + exact suite.
+// Empty suites, different targets, ordinary project passes, and failed or
+// unavailable replacement commands cannot resolve the capability.
+func (ledger *VerificationProofLedger) resolveSuccessfulRunnerMissingEscalations(primary *ChangeReport) {
+	if ledger == nil || primary == nil || primary.NormalizeVerificationStatus() != VerificationStatusPassed {
+		return
+	}
+	passedTargets := map[string]bool{}
+	unavailableTargetsByItem := map[string]string{}
+	for _, cmd := range primary.ExecutedCommands {
+		target := verificationProofCommandTargetIdentity(cmd)
+		if target == "" {
+			continue
+		}
+		unavailable := verificationProofCommandUnavailableReasonCode(cmd, verificationProofCommandClass(cmd))
+		if strings.TrimSpace(cmd.Source) == "runner_missing_escalation" &&
+			!executedCommandFailed(cmd) && unavailable == "" {
+			passedTargets[target] = true
+		}
+		if unavailable == string(FailureKindRunnerMissing) {
+			itemID := verificationProofLedgerStableID("command", primary.PlanID, cmd.Source, cmd.Suite, cmd.Outcome, cmd.Command)
+			unavailableTargetsByItem[itemID] = target
+		}
+	}
+	if len(passedTargets) == 0 || len(unavailableTargetsByItem) == 0 {
+		return
+	}
+	for i := range ledger.Capabilities {
+		item := &ledger.Capabilities[i]
+		if item.Kind != "executed_command" || item.Status != VerificationProofLedgerItemUnavailable ||
+			strings.TrimSpace(item.ReportPlanID) != strings.TrimSpace(primary.PlanID) ||
+			strings.TrimSpace(item.ReasonCode) != string(FailureKindRunnerMissing) {
+			continue
+		}
+		if target := unavailableTargetsByItem[item.ID]; target != "" && passedTargets[target] {
+			item.Status = VerificationProofLedgerItemAdvisory
+			item.ReasonCode = "superseded_by_exact_runner_missing_escalation"
+			item.Detail = "the unavailable candidate was replaced by a passing typed runner escalation for the same exact suite target"
+		}
+	}
+}
+
 // resolveCumulativeChangedPathObligations lets a terminal verification report
 // cover earlier still-applied edits only when the controller explicitly bound
 // those source plans and exact paths into the active plan's cumulative verify
@@ -661,6 +708,16 @@ func verificationProofCommandIdentity(cmd ExecutedCommand) string {
 		cmd.Suite,
 		cmd.Command,
 	)
+}
+
+func verificationProofCommandTargetIdentity(cmd ExecutedCommand) string {
+	runner := strings.TrimSpace(cmd.Runner)
+	workingDir := strings.TrimSpace(cmd.WorkingDir)
+	suite := strings.TrimSpace(cmd.Suite)
+	if runner == "" || suite == "" {
+		return ""
+	}
+	return verificationProofLedgerStableID("command_target", runner, workingDir, suite)
 }
 
 func (ledger *VerificationProofLedger) addChangedPathCoverageLedgerItems(report *ChangeReport) {

@@ -35723,6 +35723,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
 
+### §123.1200 r748：proof-only 计划闭环；精确 runner 降级被旧 unavailable 候选否决（2026-08-19）
+
+1. 在 `main@47bcb6e3c` 重建后严格并发恰好两个案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + qf_logic_view_read_pipeline`。Runner `1 PASS / 1 FAIL`，
+   人工两案均为 partial；逐案记录见
+   `eval/parallel_selected_summary_evalcampaign_proof_relation_replay_r748_20260819_manual_audit.md`。
+2. B1198/B1199 获生产正证。第二份 probe-only plan 的唯一探针绑定全部 8 个 required contract refs；
+   controller 在 proof batch 完成探索、尚无 plan 时将模型的 finish 精确收窄为 plan_batch，随后真实
+   plan/apply/verify。B1196 的 source plan、target path 与 assertion observations 也跨 plan 保持。
+3. 写案的探针、make、两个 exact unittest assertions、changed-path target_behavior 与工作树审计全绿，
+   但终态仍 `verification_proof_incomplete`。新立 `B1200-RUNNERESCALATIONCAPABILITY1/P0`：同一报告先将
+   `pytest` 对 exact `cwd=. + suite=tests/test_tokenizer.py` 记为 runner_missing，随后以 typed source
+   `runner_missing_escalation` 在同 runner/cwd/suite 执行 unittest 成功。Ledger obligations 全 covered、
+   state verified，旧候选 capability unavailable 却仍计数 1 并否决整个 proof-only 批。
+4. 根修只用 typed command fields：仅当报告 passed，fallback source 精确为 runner_missing_escalation，
+   runner、working_dir、非空 suite 三元组完全相同，且 fallback 本身成功且非 unavailable，才把旧
+   runner_missing capability 降为 advisory。不同 suite、空 suite、普通项目绿或失败 fallback 均不能洗掉；
+   不解析命令输出、模型理由、用户请求或答案原文。Types ledger 正负 pin 与 scheduler proof-only seam pin 已绿。
+5. 读案三条阶段 precedence 与 BusContext argument_flow 均为真实 typed edge，B1197 继续正证；但
+   BusContext/Mutable↔各阶段的主要状态流仍缺 parser-owned 边，人工 partial。新记
+   `B1201-PIPELINESTATEFLOWRELATIONCOVERAGE1/P1`：43 次 read、20 次 invalid call、两次成文拒绝、963s
+   才诚实收束。后续应补字段赋值/参数传递/回写关系捕获与 relation-target 软 recipe，不放宽关系 gate，
+   不由系统补画。
+6. 两条活跃流持续 642s/963s，均未因 4ms、4m 或固定累计年龄降级。本批不改 Trace 查询、显式时窗、
+   因果投影、自动补齐或答案正文；链上-only 主因、邻近/背景 support-only、真实占用/业务线索与
+   规则计价可消除量双轴保持。
+
+状态：
+
+`B1196-PROOFONLYCUMULATIVEOBSERVATION1=production-positive-r748`；
+`B1198-REQUIREDPROOFCARRIERAUTHORITY1=production-positive-r748`；
+`B1199-PENDINGPROOFPLANFINISH1=production-positive-r748`；
+`B1200-RUNNERESCALATIONCAPABILITY1=implemented+typed-exact-target-positive-negative-pins/pending-production-replay`；
+`B1201-PIPELINESTATEFLOWRELATIONCOVERAGE1=confirmed/P1/pending-generalized-parser-recipe-design`；
+`active-stream-4m-degrade=forbidden/production-reconfirmed-r748`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
 ### §123.1198 r747：精确测试降级生效；证明 ID 权威与 proof-plan 终态跳转（2026-08-19）
 
 1. 在 `main@4efe3a74a` 重建后严格并发恰好两个案例：

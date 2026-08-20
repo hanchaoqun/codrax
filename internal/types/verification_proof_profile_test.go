@@ -765,6 +765,39 @@ func TestBuildVerificationProofLedgerTreatsProbeParserErrorCommandAsUnavailable(
 	}
 }
 
+func TestBuildVerificationProofLedgerResolvesExactRunnerMissingEscalation(t *testing.T) {
+	newReport := func(escalationSuite string) *ChangeReport {
+		return &ChangeReport{
+			PlanID:             "plan-python-fallback",
+			VerificationStatus: VerificationStatusPassed,
+			Passed:             true,
+			ExecutedCommands: []ExecutedCommand{{
+				Runner: "python", Framework: "pytest", WorkingDir: ".", Suite: "tests/test_tokenizer.py",
+				Command: "python3 -m pytest tests/test_tokenizer.py", ExitCode: 1,
+				Source: "impact_test_surface", Outcome: string(FailureKindRunnerMissing),
+			}, {
+				Runner: "python", Framework: "unittest", WorkingDir: ".", Suite: escalationSuite,
+				Command: "python3 -m unittest tests/test_tokenizer.py -v", ExitCode: 0,
+				Source: "runner_missing_escalation", Outcome: "executed",
+			}},
+		}
+	}
+
+	got := BuildVerificationProofLedger(nil, newReport("tests/test_tokenizer.py"), nil)
+	if got.State != VerificationProofLedgerVerified || got.CapabilityUnavailableCount != 0 {
+		t.Fatalf("exact typed runner escalation did not resolve unavailable candidate: %+v", got)
+	}
+	if !verificationProofLedgerHasCapability(got, "executed_command", VerificationProofLedgerItemAdvisory, "superseded_by_exact_runner_missing_escalation") {
+		t.Fatalf("resolved runner candidate lost advisory receipt: %+v", got.Capabilities)
+	}
+
+	differentTarget := BuildVerificationProofLedger(nil, newReport("tests/test_other.py"), nil)
+	if differentTarget.CapabilityUnavailableCount != 1 ||
+		!verificationProofLedgerHasCapability(differentTarget, "executed_command", VerificationProofLedgerItemUnavailable, string(FailureKindRunnerMissing)) {
+		t.Fatalf("different-suite pass laundered unavailable runner candidate: %+v", differentTarget)
+	}
+}
+
 func verificationProofHasReason(profile VerificationProofProfile, code string) bool {
 	for _, reason := range profile.ReasonCodes {
 		if reason == code {
