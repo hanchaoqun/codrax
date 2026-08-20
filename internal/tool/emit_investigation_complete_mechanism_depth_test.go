@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -164,6 +166,114 @@ func TestMechanismSemanticDescent_QueuesDirectReturnedCalleeBodyThenDirectHelper
 	}
 	if pending = ctx.Mutable.EvidenceClosure().PendingReads(); len(pending) != 0 {
 		t.Fatalf("fully read bounded frontier left pending=%+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_LongCallableUsesMergedParserOwnedWindows(t *testing.T) {
+	graph, fi := mechanismSemanticDescentFixture()
+	// Render is intentionally much larger than a normal read_file page. Its
+	// only direct return-call is parser-owned near the end of the declaration;
+	// rewrite/fallback live after Render rather than being nested by the widened
+	// fixture span.
+	fi.Symbols[0].EndLine = 402
+	fi.Symbols[1].Line, fi.Symbols[1].EndLine = 410, 412
+	fi.Symbols[2].Line, fi.Symbols[2].EndLine = 414, 416
+	fi.Relations[0].Line = 350
+	fi.Relations[0].FromEP.Line = 350
+	fi.Relations[0].ToEP.Line = 350
+	fi.Relations[1].Line = 411
+	fi.Relations[1].FromEP.Line = 411
+	fi.Relations[1].ToEP.Line = 411
+	fi.LineFeatures = map[int][]repotypes.LineFeature{
+		350: {repotypes.LineFeatureReturnStmt, repotypes.LineFeatureCallExpression},
+		411: {repotypes.LineFeatureReturnStmt, repotypes.LineFeatureCallExpression},
+	}
+
+	ctx := mechanismSemanticDescentContext(t, graph, 1, nil)
+	if got := raiseMechanismSemanticDescentPendingReads(
+		ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{mechanismSemanticDescentFact()}, nil,
+	); got != 1 {
+		t.Fatalf("long callable demands=%d, want one bounded read", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	want := []types.LineRange{{Start: 2, End: 18}, {Start: 342, End: 358}}
+	if len(pending) != 1 || !reflect.DeepEqual(pending[0].LineRanges, want) {
+		t.Fatalf("long callable pending=%+v, want parser-owned windows %+v", pending, want)
+	}
+	if got := pending[0].LineRanges[0].End - pending[0].LineRanges[0].Start + 1 +
+		pending[0].LineRanges[1].End - pending[0].LineRanges[1].Start + 1; got >= 401 {
+		t.Fatalf("bounded windows expanded to whole declaration: %d lines", got)
+	}
+
+	// Two paginated reads per target merge in EvidenceClosure and satisfy the
+	// same typed obligation. Once those exact windows are covered, descent still
+	// follows the real return edge and asks for the small callee body.
+	closure := ctx.Mutable.EvidenceClosure()
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"src/pipeline.go": {
+			{Start: 2, End: 10}, {Start: 11, End: 18},
+			{Start: 342, End: 350}, {Start: 351, End: 358},
+		},
+	})
+	closure.DrainSatisfiedPendingReads()
+	if got := raiseMechanismSemanticDescentPendingReads(
+		ctx, closure, []types.AnswerAggregateFact{mechanismSemanticDescentFact()}, nil,
+	); got != 1 {
+		t.Fatalf("merged windows demands=%d, want unread returned callee", got)
+	}
+	pending = closure.PendingReads()
+	if len(pending) != 1 || !reflect.DeepEqual(pending[0].LineRanges, []types.LineRange{{Start: 410, End: 412}}) {
+		t.Fatalf("merged windows did not advance to returned callee: %+v", pending)
+	}
+}
+
+func TestMechanismSemanticDescent_LongNonWrapperDoesNotDemandWholeDeclaration(t *testing.T) {
+	graph, fi := mechanismSemanticDescentFixture()
+	fi.Symbols[0].EndLine = 402
+	fi.Relations = fi.Relations[1:]
+	fi.LineFeatures = map[int][]repotypes.LineFeature{}
+	ctx := mechanismSemanticDescentContext(t, graph, 1, nil)
+	fact := mechanismSemanticDescentFact()
+
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil); got != 1 {
+		t.Fatalf("initial long non-wrapper demands=%d, want one bounded declaration window", got)
+	}
+	pending := ctx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || !reflect.DeepEqual(pending[0].LineRanges, []types.LineRange{{Start: 2, End: 18}}) {
+		t.Fatalf("long non-wrapper pending=%+v", pending)
+	}
+
+	ctx.Mutable.EvidenceClosure().SetReadRanges(map[string][]types.LineRange{
+		"src/pipeline.go": {{Start: 2, End: 18}},
+	})
+	if got := raiseMechanismSemanticDescentPendingReads(ctx, ctx.Mutable.EvidenceClosure(), []types.AnswerAggregateFact{fact}, nil); got != 0 {
+		t.Fatalf("bounded declaration window should close non-wrapper, demands=%d pending=%+v", got, ctx.Mutable.EvidenceClosure().PendingReads())
+	}
+}
+
+func TestMechanismSemanticDescent_ManyReturnSitesDoNotCreateArbitrarySubset(t *testing.T) {
+	_, fi := mechanismSemanticDescentFixture()
+	fi.Symbols[0].EndLine = 500
+	fi.Relations = nil
+	fi.LineFeatures = map[int][]repotypes.LineFeature{}
+	for idx, line := range []int{100, 180, 260, 340, 420} {
+		name := "helper" + strconv.Itoa(idx)
+		fi.Relations = append(fi.Relations, repotypes.Relation{
+			Kind: "call", File: fi.RelPath, Line: line,
+			FromEP:     repotypes.RelationEndpoint{Name: "Render", File: fi.RelPath, Line: line},
+			ToEP:       repotypes.RelationEndpoint{Name: name, File: fi.RelPath, Line: line},
+			Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+		})
+		fi.LineFeatures[line] = []repotypes.LineFeature{
+			repotypes.LineFeatureReturnStmt, repotypes.LineFeatureCallExpression,
+		}
+	}
+	node := mechanismSemanticDescentNode{file: fi.RelPath, fi: fi, sym: &fi.Symbols[0], selectionLine: fi.Symbols[0].Line}
+	if got := mechanismSemanticDescentReturnCallLines(node); len(got) != 0 {
+		t.Fatalf("many-site callable selected an arbitrary return subset: %v", got)
+	}
+	if got := mechanismSemanticDescentReadRanges(node); !reflect.DeepEqual(got, []types.LineRange{{Start: 2, End: 18}}) {
+		t.Fatalf("many-site callable should retain only the declaration selection window, got %v", got)
 	}
 }
 

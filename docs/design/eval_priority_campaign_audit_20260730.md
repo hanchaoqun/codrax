@@ -58147,3 +58147,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r785`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r785`。
+
+### §123.1275 B1252：超长声明闭环改为 parser-owned 有界选择窗（2026-08-20）
+
+1. 根因落在 `raiseMechanismSemanticDescentPendingReads`：旧实现无条件把 parser 的 `Symbol.Line..EndLine` 当作一个必须完整覆盖的
+   `PendingRead`。因此 `runReadSchedulerLoop`、`dispatchStage` 等数百行 orchestration callable 即使定义行、模型选中的证据行和
+   关键直接调用行已经读取，分页区间只要没有覆盖整个声明就会重铸同一 pending frontier；这是 r783/r784/r785 两段 Explorer、重复
+   completion 和超宽上下文的确定性来源，不是模型波动。
+2. 本批保留小 callable 的原完整正文合同；仅当声明超过 96 行时，完成债改由 typed/parser-owned 结构构造：声明起点后的有界窗口、
+   当前模型已经发射且落在该 callable 内的精确选择行窗口，以及 parser 明确标记为 `return_stmt + call_expression` 的直接调用位点窗口。
+   所有区间排序合并后进入同一个 `PendingRead.LineRanges`，完成判定逐区间消费 `EvidenceClosure` 已合并的 read ranges；相邻分页读取可
+   共同满足，不再要求某一次 read 覆盖整个 declaration。
+3. wrapper→callee 下钻没有取消：小函数仍整段读取并沿全部真实 direct return-call 继续；超长函数若直接 return-call 位点总数在有界
+   范围内，则全部位点都必须读到后才沿 parser-resolved target 下钻。若位点超过 4 个，结构上不再把它当作“薄包装器”，系统返回空
+   下钻集合，而不是任取前 4 条制造源码顺序偏置。每条遍历边仍要求 Tree-sitter/Cangjie parser provenance、return+call line feature、
+   精确已读行和唯一 repository target。
+4. 新增回归覆盖：401 行 callable 只生成 `2..18` 与 direct-return `342..358` 两个窗口；四次分页读合并后该债务消失并继续要求
+   `rewrite:410..412` 的真实被调函数体；无 return-call 的长函数读完声明选择窗即可闭环；5 个 return-call 位点不得任取子集。既有
+   小函数两级 `Render→rewrite→fallback`、call argument 非执行、call-chain 专用门旁路及跨语言矩阵保持通过。
+5. 验证：`go test ./internal/tool -run 'TestMechanismSemanticDescent' -count=1` 通过；
+   `go test ./internal/types ./internal/agent ./internal/tool -count=1` 通过；`go test ./... -count=1` 全绿。下一步以本提交构建不可变
+   二进制，严格并发恰好 2 路回放 read 流水线图与显式窗 Trace，人工核验 Explorer 次数/read 数/finalizer context、Trace 投影、
+   自动补采、链上根因排序和活动流不降级。
+
+状态：
+
+`B1252=implemented/full-suite-pass/pending-production-replay`；
+`large-declaration-closure=parser-owned-bounded-selection-windows`；
+`read-range-satisfaction=merged-per-file-ranges`；
+`thin-wrapper-descent=preserved/complete-bounded-return-sites`；
+`arbitrary-first-N-return-selection=forbidden`；
+`B1256=confirmed/P1-after-B1252-replay`；`B1253=confirmed/P1`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

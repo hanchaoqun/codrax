@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -10,8 +11,12 @@ import (
 )
 
 const (
-	mechanismSemanticDescentMaxDepth   = 2
-	mechanismSemanticDescentMaxDemands = 4
+	mechanismSemanticDescentMaxDepth             = 2
+	mechanismSemanticDescentMaxDemands           = 4
+	mechanismSemanticDescentFullBodyMaxLines     = 96
+	mechanismSemanticDescentDeclarationLookahead = 16
+	mechanismSemanticDescentCallContextLines     = 8
+	mechanismSemanticDescentMaxReturnCallSites   = 4
 )
 
 type mechanismSemanticDescentNode struct {
@@ -20,6 +25,10 @@ type mechanismSemanticDescentNode struct {
 	sym   *repotypes.Symbol
 	depth int
 	root  string
+	// selectionLine is the exact model-selected evidence/declaration row that
+	// brought this callable into the bounded closure. It is parser-grounded and
+	// never derived from request, reasoning, or answer prose.
+	selectionLine int
 }
 
 // raiseMechanismSemanticDescentPendingReads closes a narrow but important
@@ -94,7 +103,9 @@ func raiseMechanismSemanticDescentPendingReads(
 			if !ok {
 				continue
 			}
-			addSeed(mechanismSemanticDescentNode{file: file, fi: fi, sym: sym, root: strings.TrimSpace(member)})
+			addSeed(mechanismSemanticDescentNode{
+				file: file, fi: fi, sym: sym, root: strings.TrimSpace(member), selectionLine: sym.Line,
+			})
 		}
 	}
 	// B879c: EvidenceKindMechanism + ClaimDefinitionFact is a stronger typed
@@ -149,13 +160,9 @@ func raiseMechanismSemanticDescentPendingReads(
 		if node.sym == nil || node.fi == nil || node.sym.Line <= 0 {
 			continue
 		}
-		end := node.sym.EndLine
-		if end < node.sym.Line {
-			end = node.sym.Line
-		}
-		body := types.LineRange{Start: node.sym.Line, End: end}
-		if !callChainDemandRangeFullyRead(closure, node.file, body) {
-			mechanismSemanticDescentAddSelectedBodyPendingRead(closure, node.file, node.sym, node.root, body)
+		bodyRanges := mechanismSemanticDescentReadRanges(node)
+		if !mechanismSemanticDescentRangesFullyRead(closure, node.file, bodyRanges) {
+			mechanismSemanticDescentAddSelectedBodyPendingRead(closure, node.file, node.sym, node.root, bodyRanges)
 			demands++
 			continue
 		}
@@ -163,10 +170,9 @@ func raiseMechanismSemanticDescentPendingReads(
 			continue
 		}
 
-		for line := node.sym.Line; line <= end && demands < mechanismSemanticDescentMaxDemands; line++ {
-			if !closure.HasReadLine(node.file, line) ||
-				!mechanismReturnCallLine(node.fi, line) {
-				continue
+		for _, line := range mechanismSemanticDescentReturnCallLines(node) {
+			if demands >= mechanismSemanticDescentMaxDemands || !closure.HasReadLine(node.file, line) {
+				break
 			}
 			for relIdx := range node.fi.Relations {
 				rel := &node.fi.Relations[relIdx]
@@ -182,13 +188,10 @@ func raiseMechanismSemanticDescentPendingReads(
 					seen[key] = true
 					child.depth = node.depth + 1
 					child.root = node.root
-					childEnd := child.sym.EndLine
-					if childEnd < child.sym.Line {
-						childEnd = child.sym.Line
-					}
-					childBody := types.LineRange{Start: child.sym.Line, End: childEnd}
-					if !callChainDemandRangeFullyRead(closure, child.file, childBody) {
-						mechanismSemanticDescentAddPendingRead(closure, child.file, child.sym, node.root, childBody)
+					child.selectionLine = child.sym.Line
+					childRanges := mechanismSemanticDescentReadRanges(child)
+					if !mechanismSemanticDescentRangesFullyRead(closure, child.file, childRanges) {
+						mechanismSemanticDescentAddPendingRead(closure, child.file, child.sym, node.root, childRanges)
 						demands++
 						if demands >= mechanismSemanticDescentMaxDemands {
 							break
@@ -253,6 +256,7 @@ func mechanismSemanticDescentExecutionSeeds(
 		}
 		seeds = append(seeds, mechanismSemanticDescentNode{
 			file: file, fi: fi, sym: sym, root: root, depth: mechanismSemanticDescentMaxDepth,
+			selectionLine: item.LineStart,
 		})
 	}
 	return seeds
@@ -298,6 +302,7 @@ func mechanismSemanticDescentSelectedDefinitionSeeds(
 		seenFiles[fileKey] = true
 		node := mechanismSemanticDescentNode{
 			file: file, fi: fi, sym: sym, root: strings.TrimSpace(item.AnchorSymbol),
+			selectionLine: item.LineStart,
 		}
 		// A selected definition proves only its own body regardless of whether
 		// another principal fact exists elsewhere in the dispatch. Exact call
@@ -385,7 +390,7 @@ func mechanismSemanticDescentDefinitionSeeds(
 			}
 			seen[key] = true
 			seeds = append(seeds, mechanismSemanticDescentNode{
-				file: file, fi: fi, sym: sym, root: strings.TrimSpace(member),
+				file: file, fi: fi, sym: sym, root: strings.TrimSpace(member), selectionLine: sym.Line,
 			})
 		}
 	}
@@ -490,7 +495,8 @@ func mechanismSemanticDescentOperationLeafSeeds(
 			seen[key] = true
 			seeds = append(seeds, mechanismSemanticDescentNode{
 				file: targetFile, fi: targetFI, sym: target, depth: 1,
-				root: strings.TrimSpace(item.Subject) + " -> " + strings.TrimSpace(target.Name),
+				root:          strings.TrimSpace(item.Subject) + " -> " + strings.TrimSpace(target.Name),
+				selectionLine: target.Line,
 			})
 		}
 	}
@@ -566,7 +572,9 @@ func mechanismReturnCallChildren(
 				return
 			}
 		}
-		children = append(children, mechanismSemanticDescentNode{file: childFile, fi: childFI, sym: sym})
+		children = append(children, mechanismSemanticDescentNode{
+			file: childFile, fi: childFI, sym: sym, selectionLine: sym.Line,
+		})
 	}
 	if graph != nil && fi != nil && rel != nil {
 		add(graph.ResolveCallTarget(fi, *rel))
@@ -609,6 +617,128 @@ func mechanismSemanticDescentASTFile(fi *repotypes.FileInfo) bool {
 	return fi != nil && fi.ParseTier <= 2 && len(fi.Symbols) > 0
 }
 
+// mechanismSemanticDescentReadRanges keeps the thin-wrapper guard exact
+// without turning a large orchestration function into a whole-body reading
+// obligation. Small callables retain the original complete-body contract. For
+// a large callable, the closure owns only the declaration/selected evidence
+// window plus every parser-owned direct return-call site when that set itself
+// is bounded. A callable with many return-call sites is structurally not a
+// thin wrapper, so it does not create recursive semantic-descent work.
+func mechanismSemanticDescentReadRanges(node mechanismSemanticDescentNode) []types.LineRange {
+	if node.sym == nil || node.fi == nil || node.sym.Line <= 0 {
+		return nil
+	}
+	end := node.sym.EndLine
+	if end < node.sym.Line {
+		end = node.sym.Line
+	}
+	if end-node.sym.Line+1 <= mechanismSemanticDescentFullBodyMaxLines {
+		return []types.LineRange{{Start: node.sym.Line, End: end}}
+	}
+
+	ranges := []types.LineRange{{
+		Start: node.sym.Line,
+		End:   min(end, node.sym.Line+mechanismSemanticDescentDeclarationLookahead),
+	}}
+	selectionLine := node.selectionLine
+	if selectionLine < node.sym.Line || selectionLine > end {
+		selectionLine = node.sym.Line
+	}
+	ranges = append(ranges, mechanismSemanticDescentContextRange(selectionLine, node.sym.Line, end))
+	if node.depth < mechanismSemanticDescentMaxDepth {
+		for _, line := range mechanismSemanticDescentReturnCallLines(node) {
+			ranges = append(ranges, mechanismSemanticDescentContextRange(line, node.sym.Line, end))
+		}
+	}
+	return mechanismSemanticDescentMergeRanges(ranges)
+}
+
+func mechanismSemanticDescentContextRange(line, start, end int) types.LineRange {
+	if line < start {
+		line = start
+	}
+	if line > end {
+		line = end
+	}
+	return types.LineRange{
+		Start: max(start, line-mechanismSemanticDescentCallContextLines),
+		End:   min(end, line+mechanismSemanticDescentCallContextLines),
+	}
+}
+
+// mechanismSemanticDescentReturnCallLines returns the complete bounded set of
+// parser-owned return-call rows for a callable. It deliberately returns no
+// rows, rather than an arbitrary first-N subset, when the callable has too many
+// such sites to qualify as a thin wrapper.
+func mechanismSemanticDescentReturnCallLines(node mechanismSemanticDescentNode) []int {
+	if node.sym == nil || node.fi == nil || node.sym.Line <= 0 {
+		return nil
+	}
+	end := node.sym.EndLine
+	if end < node.sym.Line {
+		end = node.sym.Line
+	}
+	seen := make(map[int]bool)
+	lines := make([]int, 0, mechanismSemanticDescentMaxReturnCallSites)
+	for idx := range node.fi.Relations {
+		rel := &node.fi.Relations[idx]
+		if rel.Line < node.sym.Line || rel.Line > end || seen[rel.Line] ||
+			!mechanismSemanticDescentCallRelation(rel, rel.Line) ||
+			!mechanismReturnCallLine(node.fi, rel.Line) {
+			continue
+		}
+		seen[rel.Line] = true
+		lines = append(lines, rel.Line)
+		if len(lines) > mechanismSemanticDescentMaxReturnCallSites {
+			return nil
+		}
+	}
+	sort.Ints(lines)
+	return lines
+}
+
+func mechanismSemanticDescentMergeRanges(ranges []types.LineRange) []types.LineRange {
+	valid := make([]types.LineRange, 0, len(ranges))
+	for _, r := range ranges {
+		if r.Start > 0 && r.End >= r.Start {
+			valid = append(valid, r)
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	sort.Slice(valid, func(i, j int) bool {
+		if valid[i].Start == valid[j].Start {
+			return valid[i].End < valid[j].End
+		}
+		return valid[i].Start < valid[j].Start
+	})
+	out := []types.LineRange{valid[0]}
+	for _, r := range valid[1:] {
+		last := &out[len(out)-1]
+		if r.Start <= last.End+1 {
+			if r.End > last.End {
+				last.End = r.End
+			}
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func mechanismSemanticDescentRangesFullyRead(closure *types.EvidenceClosure, file string, ranges []types.LineRange) bool {
+	if len(ranges) == 0 {
+		return false
+	}
+	for _, r := range ranges {
+		if !callChainDemandRangeFullyRead(closure, file, r) {
+			return false
+		}
+	}
+	return true
+}
+
 func mechanismSemanticDescentGraphFile(graph *repotypes.Graph, source string) (string, *repotypes.FileInfo) {
 	if graph == nil {
 		return "", nil
@@ -641,9 +771,9 @@ func mechanismSemanticDescentAddPendingRead(
 	file string,
 	sym *repotypes.Symbol,
 	root string,
-	body types.LineRange,
+	bodyRanges []types.LineRange,
 ) {
-	if closure == nil || sym == nil || file == "" || body.Start <= 0 || body.End < body.Start {
+	if closure == nil || sym == nil || file == "" || len(bodyRanges) == 0 {
 		return
 	}
 	closure.AddPendingRead(types.PendingRead{
@@ -653,7 +783,7 @@ func mechanismSemanticDescentAddPendingRead(
 			strings.TrimSpace(root), qualifiedEvidenceSymbolName(sym),
 		),
 		Origin:                  fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
-		LineRanges:              []types.LineRange{body},
+		LineRanges:              bodyRanges,
 		MaterializationRequired: true,
 		Stage:                   string(types.StageExplore),
 	})
@@ -664,19 +794,19 @@ func mechanismSemanticDescentAddSelectedBodyPendingRead(
 	file string,
 	sym *repotypes.Symbol,
 	root string,
-	body types.LineRange,
+	bodyRanges []types.LineRange,
 ) {
-	if closure == nil || sym == nil || file == "" || body.Start <= 0 || body.End < body.Start {
+	if closure == nil || sym == nil || file == "" || len(bodyRanges) == 0 {
 		return
 	}
 	closure.AddPendingRead(types.PendingRead{
 		File: file,
 		Rationale: fmt.Sprintf(
-			"the typed mechanism selection %q resolves inside local callable %q; read only that exact implementation body before closing, while sibling calls require their own typed operation evidence",
+			"the typed mechanism selection %q resolves inside local callable %q; read only the listed parser-owned declaration/selection windows before closing, while sibling calls require their own typed operation evidence",
 			strings.TrimSpace(root), qualifiedEvidenceSymbolName(sym),
 		),
 		Origin:                  fmt.Sprintf("pre_complete.mechanism_semantic_descent.%d", sym.Line),
-		LineRanges:              []types.LineRange{body},
+		LineRanges:              bodyRanges,
 		MaterializationRequired: true,
 		Stage:                   string(types.StageExplore),
 	})
