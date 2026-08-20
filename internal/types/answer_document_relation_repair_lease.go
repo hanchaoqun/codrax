@@ -1,9 +1,16 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+)
+
+const (
+	AnswerDiagramRelationRepairDeltaVersion      = 1
+	AnswerDiagramRelationRepairDeltaMaxEntries   = 128
+	AnswerDiagramRelationRepairDeltaMaxJSONBytes = 64 * 1024
 )
 
 // AnswerDiagramRelationRepairFailure is the producer-owned tuple for one
@@ -31,6 +38,109 @@ type AnswerDiagramRelationRepairCandidate struct {
 	FromIdentity string              `json:"from_identity"`
 	ToIdentity   string              `json:"to_identity"`
 	Source       string              `json:"source"`
+}
+
+// AnswerDiagramRelationRepairDelta is the single producer-owned carrier for
+// every relation failure emitted by one pre-emit validation cycle. Keeping the
+// schema in types prevents the producer and retry consumer from drifting.
+type AnswerDiagramRelationRepairDelta struct {
+	Version               int                                    `json:"version"`
+	Failures              []AnswerDiagramRelationRepairFailure   `json:"failures"`
+	PreserveUnlistedEdges bool                                   `json:"preserve_unlisted_edges"`
+	AllowedAdditions      []AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+	CandidateAlternatives string                                 `json:"candidate_alternatives,omitempty"`
+}
+
+// MergeAnswerDiagramRelationRepairDeltaJSON atomically unions all structured
+// relation deltas from one validation cycle. It never derives a failure or an
+// allowed edge from Mermaid text. Any non-empty malformed/oversized sibling
+// makes the result empty so callers cannot install a misleading partial hard
+// lease while the visible rejection asks the model to repair a larger set.
+func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
+	if len(rawDeltas) == 0 {
+		return ""
+	}
+	failureByKey := make(map[string]AnswerDiagramRelationRepairFailure)
+	additionByKey := make(map[string]AnswerDiagramRelationRepairCandidate)
+	validDeltaCount := 0
+	for _, raw := range rawDeltas {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if len(raw) > AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+			return ""
+		}
+		var delta AnswerDiagramRelationRepairDelta
+		if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
+			delta.Version != AnswerDiagramRelationRepairDeltaVersion ||
+			!delta.PreserveUnlistedEdges || len(delta.Failures) == 0 {
+			return ""
+		}
+		validDeltaCount++
+		for _, failure := range delta.Failures {
+			failure.BlockID = strings.TrimSpace(failure.BlockID)
+			failure.Issue = strings.TrimSpace(failure.Issue)
+			failure.FromNode = strings.TrimSpace(failure.FromNode)
+			failure.ToNode = strings.TrimSpace(failure.ToNode)
+			failure.FromIdentity = strings.TrimSpace(failure.FromIdentity)
+			failure.ToIdentity = strings.TrimSpace(failure.ToIdentity)
+			if failure.BlockID == "" || failure.Issue == "" || failure.FromNode == "" || failure.ToNode == "" {
+				return ""
+			}
+			key := answerDiagramRelationRepairFailureKey(failure)
+			failureByKey[key] = failure
+			if len(failureByKey) > AnswerDiagramRelationRepairDeltaMaxEntries {
+				return ""
+			}
+		}
+		for _, candidate := range delta.AllowedAdditions {
+			candidate.BlockID = strings.TrimSpace(candidate.BlockID)
+			candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
+			candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
+			candidate.Source = strings.TrimSpace(candidate.Source)
+			if candidate.BlockID == "" || !candidate.RelationKind.IsValid() ||
+				candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
+				return ""
+			}
+			key := answerDiagramRelationRepairCandidateKey(candidate)
+			if prior, ok := additionByKey[key]; !ok || candidate.Source < prior.Source {
+				additionByKey[key] = candidate
+			}
+			if len(additionByKey) > AnswerDiagramRelationRepairDeltaMaxEntries {
+				return ""
+			}
+		}
+	}
+	if validDeltaCount == 0 || len(failureByKey) == 0 {
+		return ""
+	}
+	failureKeys := make([]string, 0, len(failureByKey))
+	for key := range failureByKey {
+		failureKeys = append(failureKeys, key)
+	}
+	sort.Strings(failureKeys)
+	failures := make([]AnswerDiagramRelationRepairFailure, 0, len(failureKeys))
+	for _, key := range failureKeys {
+		failures = append(failures, failureByKey[key])
+	}
+	additionKeys := make([]string, 0, len(additionByKey))
+	for key := range additionByKey {
+		additionKeys = append(additionKeys, key)
+	}
+	sort.Strings(additionKeys)
+	additions := make([]AnswerDiagramRelationRepairCandidate, 0, len(additionKeys))
+	for _, key := range additionKeys {
+		additions = append(additions, additionByKey[key])
+	}
+	raw, err := json.Marshal(AnswerDiagramRelationRepairDelta{
+		Version: AnswerDiagramRelationRepairDeltaVersion, Failures: failures,
+		PreserveUnlistedEdges: true, AllowedAdditions: additions,
+	})
+	if err != nil || len(raw) > AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return ""
+	}
+	return string(raw)
 }
 
 // AnswerDiagramRelationRepairLeaseBlock snapshots the structured relation
@@ -72,11 +182,14 @@ func NewAnswerDiagramRelationRepairLease(
 	failures []AnswerDiagramRelationRepairFailure,
 	allowedAdditions []AnswerDiagramRelationRepairCandidate,
 ) *AnswerDiagramRelationRepairLease {
-	if base == nil || len(failures) == 0 {
+	if base == nil || len(failures) == 0 ||
+		len(failures) > AnswerDiagramRelationRepairDeltaMaxEntries ||
+		len(allowedAdditions) > AnswerDiagramRelationRepairDeltaMaxEntries {
 		return nil
 	}
 	clean := make([]AnswerDiagramRelationRepairFailure, 0, len(failures))
 	targetBlocks := make(map[string]bool)
+	failureSeen := make(map[string]bool, len(failures))
 	for _, failure := range failures {
 		failure.BlockID = strings.TrimSpace(failure.BlockID)
 		failure.Issue = strings.TrimSpace(failure.Issue)
@@ -85,15 +198,23 @@ func NewAnswerDiagramRelationRepairLease(
 		failure.FromIdentity = strings.TrimSpace(failure.FromIdentity)
 		failure.ToIdentity = strings.TrimSpace(failure.ToIdentity)
 		if failure.BlockID == "" || failure.Issue == "" || failure.FromNode == "" || failure.ToNode == "" {
+			return nil
+		}
+		key := answerDiagramRelationRepairFailureKey(failure)
+		if failureSeen[key] {
 			continue
 		}
+		failureSeen[key] = true
 		clean = append(clean, failure)
 		targetBlocks[failure.BlockID] = true
 	}
 	if len(clean) == 0 {
 		return nil
 	}
-	allowed := make([]AnswerDiagramRelationRepairCandidate, 0, min(len(allowedAdditions), 8))
+	sort.SliceStable(clean, func(i, j int) bool {
+		return answerDiagramRelationRepairFailureKey(clean[i]) < answerDiagramRelationRepairFailureKey(clean[j])
+	})
+	allowed := make([]AnswerDiagramRelationRepairCandidate, 0, len(allowedAdditions))
 	allowedSeen := make(map[string]bool, len(allowedAdditions))
 	for _, candidate := range allowedAdditions {
 		candidate.BlockID = strings.TrimSpace(candidate.BlockID)
@@ -102,7 +223,7 @@ func NewAnswerDiagramRelationRepairLease(
 		candidate.Source = strings.TrimSpace(candidate.Source)
 		if !targetBlocks[candidate.BlockID] || !candidate.RelationKind.IsValid() ||
 			candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
-			continue
+			return nil
 		}
 		key := answerDiagramRelationRepairCandidateKey(candidate)
 		if allowedSeen[key] {
@@ -110,10 +231,10 @@ func NewAnswerDiagramRelationRepairLease(
 		}
 		allowedSeen[key] = true
 		allowed = append(allowed, candidate)
-		if len(allowed) >= 8 {
-			break
-		}
 	}
+	sort.SliceStable(allowed, func(i, j int) bool {
+		return answerDiagramRelationRepairCandidateKey(allowed[i]) < answerDiagramRelationRepairCandidateKey(allowed[j])
+	})
 	blocks := make([]AnswerDiagramRelationRepairLeaseBlock, 0, len(base.Blocks))
 	for _, block := range base.Blocks {
 		id := strings.TrimSpace(block.ID)
@@ -323,6 +444,15 @@ func answerDiagramRelationRepairCandidateKey(candidate AnswerDiagramRelationRepa
 	return strings.Join([]string{
 		strings.TrimSpace(candidate.BlockID), strings.TrimSpace(string(candidate.RelationKind)),
 		strings.TrimSpace(candidate.FromIdentity), strings.TrimSpace(candidate.ToIdentity),
+	}, "\x00")
+}
+
+func answerDiagramRelationRepairFailureKey(failure AnswerDiagramRelationRepairFailure) string {
+	return strings.Join([]string{
+		strings.TrimSpace(failure.BlockID), strings.TrimSpace(failure.Issue),
+		strings.TrimSpace(string(failure.RelationKind)),
+		strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode),
+		strings.TrimSpace(failure.FromIdentity), strings.TrimSpace(failure.ToIdentity),
 	}, "\x00")
 }
 

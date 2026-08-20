@@ -5691,23 +5691,8 @@ func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMisma
 	return issues
 }
 
-type diagramRelationRepairDelta struct {
-	Version               int                                          `json:"version"`
-	Failures              []diagramRelationRepairDeltaFailure          `json:"failures"`
-	PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
-	AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
-	CandidateAlternatives string                                       `json:"candidate_alternatives,omitempty"`
-}
-
-type diagramRelationRepairDeltaFailure struct {
-	BlockID      string                    `json:"block_id,omitempty"`
-	Issue        string                    `json:"issue"`
-	RelationKind types.DiagramRelationKind `json:"relation_kind,omitempty"`
-	FromNode     string                    `json:"from_node"`
-	ToNode       string                    `json:"to_node"`
-	FromIdentity string                    `json:"from_identity,omitempty"`
-	ToIdentity   string                    `json:"to_identity,omitempty"`
-}
+type diagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
+type diagramRelationRepairDeltaFailure = types.AnswerDiagramRelationRepairFailure
 
 // diagramRelationRepairDeltaJSON projects only the exact source-diagram edge
 // tuples that failed the current typed authority gate. It deliberately omits
@@ -5783,11 +5768,12 @@ func diagramRelationRepairDeltaJSON(
 		)
 	}
 	raw, err := json.Marshal(diagramRelationRepairDelta{
-		Version: 1, Failures: failures, PreserveUnlistedEdges: true,
+		Version:  types.AnswerDiagramRelationRepairDeltaVersion,
+		Failures: failures, PreserveUnlistedEdges: true,
 		AllowedAdditions:      allowedAdditions,
 		CandidateAlternatives: strings.TrimSpace(candidates),
 	})
-	if err != nil || len(raw) > 16*1024 {
+	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
 		return ""
 	}
 	return string(raw)
@@ -15572,7 +15558,7 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	diagramRelationFailureIssues := map[string]struct{}{}
 	diagramGroundedAnchorPatchJSON := ""
 	diagramParticipantRepairDeltaJSON := ""
-	diagramRelationRepairDeltaJSON := ""
+	var diagramRelationRepairDeltaJSONs []string
 	for _, h := range hints {
 		if field := strings.TrimSpace(h.Field); field != "" {
 			if _, ok := seenFields[field]; !ok {
@@ -15631,10 +15617,13 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 		if diagramParticipantRepairDeltaJSON == "" {
 			diagramParticipantRepairDeltaJSON = strings.TrimSpace(h.DiagramParticipantRepairDeltaJSON)
 		}
-		if diagramRelationRepairDeltaJSON == "" {
-			diagramRelationRepairDeltaJSON = strings.TrimSpace(h.DiagramRelationRepairDeltaJSON)
+		if raw := strings.TrimSpace(h.DiagramRelationRepairDeltaJSON); raw != "" {
+			diagramRelationRepairDeltaJSONs = append(diagramRelationRepairDeltaJSONs, raw)
 		}
 	}
+	diagramRelationRepairDeltaJSON := types.MergeAnswerDiagramRelationRepairDeltaJSON(
+		diagramRelationRepairDeltaJSONs,
+	)
 	meta := map[string]string{
 		"hint_count": strconv.Itoa(len(hints)),
 	}

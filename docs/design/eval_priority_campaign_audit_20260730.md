@@ -58312,3 +58312,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r787`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r787`。
+
+### §123.1279 B1261：同轮关系修补 delta 原子并集，残缺租约 fail-open（2026-08-20）
+
+1. `B1261-MIXEDRELATIONDELTAUNION1/P0` 已根修。关系修补 delta 的 schema 从 tool/agent 两份手抄定义收敛到
+   `types.AnswerDiagramRelationRepairDelta` 单源；producer 与 finalizer 共享版本、条数和字节上限，避免载体继续漂移。
+2. `emitFixHintsRepair` 不再拿第一份非空 `DiagramRelationRepairDeltaJSON`。同一 pre-emit 周期内全部非空 typed delta
+   先逐份校验，再对 failures 与 allowed additions 做精确去重、确定性排序及完整集合并；输入 hint 顺序不影响最终载体。合并只读取
+   validator 生产的结构字段，不读取 Mermaid body、节点/边文案、用户请求、模型 reasoning 或最终 prose。
+3. 原子性边界已钉死：任一非空兄弟 delta 畸形、版本不符、缺失必需字段、条数超过 128 或合并 JSON 超过 64KiB 时，不发布关系
+   修补 metadata，也就不安装局部硬租约；其他结构修复 metadata 仍可继续走普通重试。禁止退回“保留第一份有效子集”的旧行为，
+   因为可见错误可能同时要求修复被截掉的关系。
+4. 租约构造侧同步取消 `allowed_additions` 静默只保留前 8 条的截断；最多 128 条全部规范化、去重、排序后进入租约。任何非法项或
+   超限都令整份租约 fail-open，保证 finalizer 看到的允许项与下一 patch 真正可操作的范围一致。原有未列出关系不许增删、必要图载体
+   不许移除/改 kind、候选每项至多使用一次等保护均未放松。
+5. 新增回归覆盖：两份 delta 的失败边与允许新增边完整合并；重复失败去重；hint 反序仍字节一致；畸形兄弟不得形成局部租约；
+   两个同轮失败边全部删除不再触发 `unlisted_relation_removed`；10 条允许新增项完整保留，防止“前 8 条”回归。
+6. 验证全绿：定向 types/tool/agent；完整 `internal/tool internal/agent internal/types`；`go test ./... -count=1`；CGO
+   release-tag `make`。全仓回归包含 hitraceconv、mermaidcompat、orchestrator、tracequery、tracediag、REPL 和 writeflow；本批未修改
+   Trace 查询、根因选举、因果投影/自动补齐、模型答案作者权或活动流时限路径。
+7. 下一步以本提交构建不可变二进制，用 r787 同一 read+Trace 双例严格并发 2 路回放。验收重点是 read 不再出现同轮
+   `unlisted_relation_removed/added` 自冲突、能产出有效 answer_document；Trace 显式窗投影与自动补齐保持完整。随后进入
+   B1260 链上独立优先级/算力维度修复。
+
+状态：
+
+`B1261=implemented/full-suite-pass/pending-production-replay`；
+`relation-delta-schema=single-source/types-owned`；
+`same-cycle-failures+allowed-additions=complete-deterministic-union`；
+`malformed/over-cap/incomplete-delta=no-hard-lease`；
+`allowed-addition-first-eight-truncation=removed`；
+`unlisted-relation-preservation=unchanged`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

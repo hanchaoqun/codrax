@@ -17572,13 +17572,7 @@ type answerDocDiagramParticipantRepairDelta struct {
 	EndpointConflicts string `json:"endpoint_conflicts,omitempty"`
 }
 
-type answerDocDiagramRelationRepairDelta struct {
-	Version               int                                          `json:"version"`
-	Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
-	PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
-	AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
-	CandidateAlternatives string                                       `json:"candidate_alternatives,omitempty"`
-}
+type answerDocDiagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
 
 // answerDocRequiredDiagramParticipantDeltaPatchHint consumes the exact local
 // mismatch projection emitted by the participant gate. It deliberately does
@@ -17629,11 +17623,12 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 		return "", false
 	}
 	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON])
-	if raw == "" || len(raw) > 16*1024 {
+	if raw == "" || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
 		return "", false
 	}
 	var delta answerDocDiagramRelationRepairDelta
-	if err := json.Unmarshal([]byte(raw), &delta); err != nil || delta.Version != 1 ||
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
+		delta.Version != types.AnswerDiagramRelationRepairDeltaVersion ||
 		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
 		return "", false
 	}
@@ -17683,11 +17678,12 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 		return false
 	}
 	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON])
-	if raw == "" || len(raw) > 16*1024 {
+	if raw == "" || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
 		return false
 	}
 	var delta answerDocDiagramRelationRepairDelta
-	if err := json.Unmarshal([]byte(raw), &delta); err != nil || delta.Version != 1 ||
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
+		delta.Version != types.AnswerDiagramRelationRepairDeltaVersion ||
 		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
 		return false
 	}

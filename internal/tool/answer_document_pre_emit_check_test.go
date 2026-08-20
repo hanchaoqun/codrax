@@ -8762,6 +8762,52 @@ func TestPreCheckDiagramRelationFailurePublishesCompactRepairDelta(t *testing.T)
 	}
 }
 
+func TestEmitFixHintsRepairMergesEverySameCycleRelationDelta(t *testing.T) {
+	first := `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"Phase","to_node":"Disp","from_identity":"Phase","to_identity":"Disp"}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"flow","relation_kind":"precedence","from_identity":"Orch","to_identity":"Phase","source":"internal/types/stage_binding.go:1"}]}`
+	second := `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"Phase","to_node":"Disp","from_identity":"Phase","to_identity":"Disp"},{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"Disp","to_node":"Bus","from_identity":"Disp","to_identity":"Bus"}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"flow","relation_kind":"precedence","from_identity":"Phase","to_identity":"Bus","source":"internal/types/stage_binding.go:2"}]}`
+	hints := []emitFixHint{
+		{Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: second},
+		{Field: "blocks[0].diagram.body", DiagramRelationRepairDeltaJSON: first},
+	}
+	repair := emitFixHintsRepair(hints)
+	if repair == nil {
+		t.Fatal("same-cycle typed relation deltas must produce one repair")
+	}
+	raw := repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("merged relation delta must remain valid JSON: %v raw=%s", err, raw)
+	}
+	if len(delta.Failures) != 2 || len(delta.AllowedAdditions) != 2 {
+		t.Fatalf("same-cycle union lost a failure or allowed addition: %+v", delta)
+	}
+	if delta.Failures[0].FromNode != "Disp" || delta.Failures[1].FromNode != "Phase" {
+		t.Fatalf("merged failures must be de-duplicated and deterministically sorted: %+v", delta.Failures)
+	}
+
+	reversed := emitFixHintsRepair([]emitFixHint{
+		{Field: "blocks[0].diagram.body", DiagramRelationRepairDeltaJSON: first},
+		{Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: second},
+	})
+	if reversed == nil || reversed.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] != raw {
+		t.Fatalf("merged carrier must not depend on hint order: first=%s reversed=%+v", raw, reversed)
+	}
+}
+
+func TestEmitFixHintsRepairDoesNotInstallPartialRelationDelta(t *testing.T) {
+	valid := `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B"}],"preserve_unlisted_edges":true}`
+	repair := emitFixHintsRepair([]emitFixHint{
+		{Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: valid},
+		{Field: "blocks[0].diagram.body", DiagramRelationRepairDeltaJSON: `{"version":1,"failures":`},
+	})
+	if repair == nil {
+		t.Fatal("other structural repair metadata must remain available")
+	}
+	if raw := repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; raw != "" {
+		t.Fatalf("a malformed sibling must suppress the incomplete hard lease, got %s", raw)
+	}
+}
+
 func TestEmitFixHintsRepair_Empty(t *testing.T) {
 	if repair := emitFixHintsRepair(nil); repair != nil {
 		t.Fatalf("empty hints should not fabricate repair metadata: %+v", repair)

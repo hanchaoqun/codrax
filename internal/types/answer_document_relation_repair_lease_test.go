@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestAnswerDiagramRelationRepairLease_LocalDeltaOnly(t *testing.T) {
 	bad := DiagramEdgeAnchor{
@@ -107,6 +110,44 @@ func TestAnswerDiagramRelationRepairLease_LocalDeltaOnly(t *testing.T) {
 			t.Fatalf("expected no-expansion violation, got %+v", got)
 		}
 	})
+}
+
+func TestAnswerDiagramRelationRepairLeasePreservesCompleteUnion(t *testing.T) {
+	first := DiagramEdgeAnchor{
+		FromNode: "Phase", ToNode: "Disp", FromIdentity: "Phase", ToIdentity: "Disp",
+		RelationKind: DiagramRelCall,
+	}
+	second := DiagramEdgeAnchor{
+		FromNode: "Disp", ToNode: "Bus", FromIdentity: "Disp", ToIdentity: "Bus",
+		RelationKind: DiagramRelCall,
+	}
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram, EdgeAnchors: []DiagramEdgeAnchor{first, second},
+	}}}
+	failures := []AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall, FromNode: "Phase", ToNode: "Disp", FromIdentity: "Phase", ToIdentity: "Disp"},
+		{BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall, FromNode: "Disp", ToNode: "Bus", FromIdentity: "Disp", ToIdentity: "Bus"},
+	}
+	additions := make([]AnswerDiagramRelationRepairCandidate, 0, 10)
+	for i := 0; i < 10; i++ {
+		additions = append(additions, AnswerDiagramRelationRepairCandidate{
+			BlockID: "flow", RelationKind: DiagramRelPrecedence,
+			FromIdentity: fmt.Sprintf("Stage%d", i), ToIdentity: fmt.Sprintf("Stage%d", i+1),
+			Source: fmt.Sprintf("internal/types/stage_binding.go:%d", i+1),
+		})
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, failures, additions)
+	if lease == nil || len(lease.Failures) != 2 || len(lease.AllowedAdditions) != 10 {
+		t.Fatalf("lease must preserve the complete normalized union without first-eight truncation: %+v", lease)
+	}
+	got := ValidateAnswerDiagramRelationRepairLease(lease, &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+	}}})
+	for _, violation := range got {
+		if violation.Issue == "unlisted_relation_removed" {
+			t.Fatalf("removing every same-cycle named failure must not be rejected as unlisted: %+v", got)
+		}
+	}
 }
 
 func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
