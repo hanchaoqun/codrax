@@ -67,7 +67,9 @@ for case_file in "$@"; do
   fi
 done
 
-SWEEP_BIN="./.codrax-selected-${SWEEP_START}"
+SWEEP_TMP_DIR="./.codrax/tmp"
+SWEEP_BIN="${SWEEP_TMP_DIR}/codrax-selected-${SWEEP_START}"
+mkdir -p "$SWEEP_TMP_DIR"
 cleanup() {
   local pids
   pids="$(jobs -pr || true)"
