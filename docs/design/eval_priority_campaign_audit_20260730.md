@@ -56832,3 +56832,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1241 r766：B1230 生产闭环；关系语义上下文与修复增量仍不完整（2026-08-20）
+
+1. 以 `18af3f33b` 构建快照严格并发 2 路回放：Trace 用例 225s、零成文拒绝、人工通过；关系用例 306s、
+   4 次成文拒绝、人工不通过。两者 runner 均 PASS，活跃期间没有因 4ms、4m、首字节、stall 或累计年龄降级。
+2. B1230 生产验证通过：最终模型图把 `from_identity=o.busCtx,to_identity=BuildAgentContext` 的 argument-flow
+   正确画成 `BusContext→BuildAgentContext`；`Mutable` 不再冒充参数源，而是以可见、唯一的未证关系边界保留。修复过程仍由
+   模型选择并修改节点/边/标签，系统只拒绝精确的 typed identity collision，没有代写答案。
+3. B1229 继续正向：只运行一个 Explorer；在确认 `Mutable` 只有 local operation、无 request-scoped relation 后诚实关闭，
+   没有重启第二 Explorer。相对 r765，read 10→6、midloop 8→7，但仍有 4 次 finalizer reject，瓶颈已从探索收敛转到成文修复。
+4. Trace 防回归完整：显式 `2.000..2.020s`、四节点已证唤醒链、11.000ms iowait 主因、三项 1.000ms 调度供给、
+   实际占时/现规则可消双轴、Trace 因果投影和确定性补齐均保留；邻近睡眠与 IO 综合评分只作支撑/背景，不参与主因加冕。
+5. 关系答案仍不能人工通过。最终图只保留四阶段 precedence 与一个 `BusContext→BuildAgentContext` 局部参数流，诚实披露
+   requested scope 不完整；但正文又把 `Mutable.Emitted*` 的少数 getter/复用判断泛化成“各阶段通过 Mutable 实现状态共享”，
+   并把概括性组件职责与已证数据流混在一起。该问题归入 `B1228-RELATIONSEMANTICDRIFT1` 的 owner/role 子项：模型获得的
+   definition、member、local operation、request-scoped relation 没有以统一 typed 角色视图交付，不能靠扫描或改写正文补救。
+6. 新记 `B1231-RELATIONREPAIRDELTAATOMIC1/P1`：第一次修补已删除大量无锚边，但后续依次经历 BusContext typed edge、
+   Mutable boundary、partial scope、Mutable visible identity 四个拒绝。每条单独合同并不矛盾，问题是 repair delta 没发布同一
+   diagram 的完整目标状态，模型修一席时删掉另一席已经成立的字段。最优方案是从同一 typed assessment 一次发出 participant
+   outcome 表（render typed edge / retain boundary / visible identity / block scope），并标明保持项；仍只描述当前模型草稿与精确
+   evidence，不创建替代边、节点或标签，也不读取用户原文、thinking、final prose 或 Mermaid 文案来判定。
+7. 下一步按 ROI 先用异构读/写用例验证 B1228/B1231 是否跨场景出现；若复现，再分别施工 typed owner-role handoff 与原子
+   repair plan。不得继续围绕本 case 增加词面、参与者名称或 Mermaid 标签特判。
+
+状态：
+
+`r766=runner-pass-2/2/human-pass-1/2`；
+`B1230-ENDPOINTNODEIDENTITYRETARGET1=production-closed`；
+`B1229-RELATIONINVESTIGATIONCHURN1=production-stable`；
+`B1228-RELATIONSEMANTICDRIFT1=open-owner-role/P1`；
+`B1231-RELATIONREPAIRDELTAATOMIC1=observed/P1-cross-case-audit-next`；
+`typed-endpoint-to-visible-participant=production-positive`；
+`partial-scope+participant-outcomes=single-source-atomic-plan-needed`；
+`request/model/final-prose/mermaid-label-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-r766`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r766`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
