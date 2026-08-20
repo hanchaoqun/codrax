@@ -58558,3 +58558,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1286 r790：主状态分账与关系身份顺序获生产正证；拒绝 patch 隐式推进基线（2026-08-20）
+
+1. 以已推送 `e5685f350` 构建不可变二进制，严格并发恰好 2 路回放同一 read+Trace 双例。runner 2/2 PASS：Trace
+   203s、read 473s。两路活动流均正常完成，没有 4ms、4m、首字节、stall 或累计年龄触发的降级；read 较 r789 的 767s 已下降，
+   但仍有 10 次 finalizer reject，不能只凭 PASS 宣称健康。
+2. `B1264` 获生产正证：用户指定窗、三次 typed 查询、系统自动补采、四跳唤醒链与 `Trace 因果投影` 全部保留；17/14ms 的
+   cookie/network sleep 主状态行不再携带候选角色，三个独立 1.000ms 调度供给/优先级候选仍作为自己的排名席出厂，11.000ms
+   threadpool IO 保持链上 #1。实际占时与规则可消继续分账，邻近/背景未越权成主因。
+3. `B1265` 获生产正证：最终三条由模型选择、定向并书写业务标签的 precedence 可见边，在 lease 比较之前经唯一 typed recipe
+   补齐 canonical identity；旧的 `unlisted_relation_added` 持久循环未复现。系统没有选择、生成、删除、反转或改写任何可见边。
+   `B1262` 的 identity-only 旧形本轮仍未直接复现，继续保留 pending direct witness。
+4. 新 P0 `B1266-REJECTEDPATCHBASEADVANCE1`：patch dry-run 经部分结构修复后若在后续 pre-emit gate 被拒，当前实现仍调用
+   `rememberRejectedAnswerDocumentDraft(merged)`，把该未接受 merged 文档设为下一次 patch base。同一 finalizer dispatch 内不会重建
+   `Previous Emit` 提示，模型只能看到错误文本，看不到基线已经变更；于是本轮多次 exact occurrence edit 按旧基线重发，被稳定报
+   `match did not select occurrence`，并自行猜测哪些失败操作“似乎部分成功”。这违反 patch 的原子/事务直觉，是隐藏状态合同，不是
+   普通模型波动。
+5. B1266 最优形冻结：只有首次完整 emit 的可解码拒绝稿可建立 patch base；后续任何 rejected patch 必须事务回滚，不得替换基线。
+   下一 patch 始终针对同一个已明确展示/可恢复的 previous document，须重新提交本轮需要的完整 delta。工具 schema 与 repair hint 明示
+   `reject = zero applied changes`。这不放松任一 typed gate，也不替模型选择关系；只消除隐藏状态推进。
+6. 新 P1 `B1267-STAGEEXECUTIONAUTHORITYBOUNDARY1`：最终摘要声称“语言模型仅负责 analyze，后续均由确定性代码完成”，与同一
+   typed stage authority 已发布的 AgentExplorer/AgentExtractor/AgentFinalizer 以及实际模型驱动阶段不符。现有 prompt 只精确解释
+   analyze 的“模型分类 + 确定性编译”分界，却没有明确该句不能外推为其他阶段 deterministic-only，模型据此形成错误总括。
+   最优形是在 checkout-verified stage-lane authority 中补 execution-owner/authority-boundary 软上下文：每个 stage 的 agent 是阶段执行者，
+   deterministic contract/validator 围绕模型输出但不替代模型作者；未提供精确执行证据时不得外推。禁止扫描最终正文或由系统改写摘要。
+7. 施工顺序：先做 B1266 原子回滚小批并提交，回归 rejected full emit 仍可作为初始 patch base、rejected patch 不推进、accepted patch
+   正常持久化；再做 B1267 typed/soft 上下文批。之后继续严格并发 2 路生产回放，验收 read 拒绝数与事实正确性，同时守住 Trace
+   显式窗、自动补采、因果投影、链上根因限定和调度/算力独立席。
+
+状态：
+
+`r790=runner-pass-2/2,human-trace-pass+read-fail`；
+`B1264=production-positive/closed`；`B1265=production-positive/core-closed`；
+`B1266=confirmed/P0-next`；`B1267=confirmed/P1-after-B1266`；
+`B1262=implemented/full-suite-pass/pending-direct-production-witness`；
+`rejected-full-emit=may-seed-initial-patch-base`；`rejected-patch=transactional-zero-write-required`；
+`stage-agent-execution-boundary=typed-soft-context-required`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r790`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r790`。
