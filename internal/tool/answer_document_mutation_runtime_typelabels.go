@@ -59,7 +59,7 @@ func runtimeTraceRootCauseTypeZHLabel(token string) string {
 		// on this token.
 		return "周期空闲(等待下一周期信号)"
 	case "io_pressure":
-		return "IO压力"
+		return "IO活动综合指数"
 	case "io_burst_episode":
 		return "IO突发"
 	case "block_io_by_inode":
@@ -181,7 +181,7 @@ func runtimeTraceRootCauseTypeENLabel(token string) string {
 	case "periodic_idle":
 		return "periodic idle (awaiting the next periodic signal)"
 	case "io_pressure":
-		return "IO pressure"
+		return "IO activity index"
 	case "io_burst_episode":
 		return "IO burst"
 	case "block_io_by_inode":

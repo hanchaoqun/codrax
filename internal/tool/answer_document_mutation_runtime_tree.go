@@ -2797,9 +2797,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 	}
 	if hasAny(runtimeTraceProjMarkFamilyCountEquivalent, runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjMarkCaliberSideRow, runtimeTraceProjMarkIconCaliberSide) {
 		if zh {
-			lines = append(lines, "- `计数当量`和`综合评分`不是墙钟时长，只用于活动规模对照，不参与时长排序或求和。")
+			lines = append(lines, "- `计数当量`、`IO活动综合指数`及其他`综合评分`都不是墙钟时长，只用于同口径活动规模对照，不参与时长排序或求和。")
 		} else {
-			lines = append(lines, "- `count equivalent` and `composite score` are not wall-clock durations; they describe activity scale and never enter duration ordering or sums.")
+			lines = append(lines, "- `count equivalent`, `IO activity index`, and other `composite scores` are not wall-clock durations; they compare activity scale under the same caliber and never enter duration ordering or sums.")
 		}
 	}
 	if hasAny(runtimeTraceProjMarkInheritedAttribution, runtimeTraceProjMarkFamilyChainIntersection) {

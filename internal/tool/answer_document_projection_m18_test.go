@@ -118,7 +118,7 @@ func TestM18IOPressureContextProjectionKeepsCompositeValueCaliber(t *testing.T) 
 		var pressureCells []string
 		for _, row := range rows {
 			joined := strings.Join(row.Cells, " | ")
-			if strings.Contains(joined, "io_pressure") || strings.Contains(joined, "IO压力") || strings.Contains(joined, "IO pressure") {
+			if strings.Contains(joined, "io_pressure") || strings.Contains(joined, "IO活动综合指数") || strings.Contains(joined, "IO activity index") {
 				pressureCells = row.Cells
 				break
 			}

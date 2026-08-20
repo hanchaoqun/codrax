@@ -96,7 +96,7 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundZH(t *testing.T)
 	if bgIdx < 0 {
 		t.Fatalf("demoted rows must produce the background stanza:\n%s", md)
 	}
-	for _, want := range []string{"窗口IO压力(聚合)", "对端线程未解析"} {
+	for _, want := range []string{"窗口IO活动综合指数(聚合)", "对端线程未解析"} {
 		idx := strings.Index(md, want)
 		if idx < 0 {
 			t.Fatalf("background stanza missing demoted row %q:\n%s", want, md)
@@ -114,7 +114,7 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundZH(t *testing.T)
 	// Detail blocks (PTV4 T10 (b)): demoted rows carry background layer +
 	// position labels, not primary ones.
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: 因果位置·优先级: 背景 · 支撑参考 → 因果位置: 背景(参考) (明细块合并词表)
-	if !strings.Contains(md, "窗口IO压力(聚合)**") ||
+	if !strings.Contains(md, "窗口IO活动综合指数(聚合)**") ||
 		!strings.Contains(md, "- 层级: ▒ 背景") || !strings.Contains(md, "- 因果位置: 背景(参考)") {
 		t.Fatalf("aggregate detail block must be background-labeled:\n%s", md)
 	}
@@ -135,7 +135,7 @@ func TestTraceProjection730AggregateAndUnknownDemoteToBackgroundEN(t *testing.T)
 	}
 	// Pin updated 2026-07-03 alongside the ZH twin: "unattributed thread" →
 	// typed unresolved-peer wording.
-	for _, want := range []string{"window IO pressure (aggregate)", "unresolved wait peer"} {
+	for _, want := range []string{"window IO activity index (aggregate)", "unresolved wait peer"} {
 		idx := strings.Index(md, want)
 		if idx < 0 {
 			t.Fatalf("background stanza missing demoted row %q:\n%s", want, md)
@@ -356,7 +356,7 @@ func TestTraceProjection730AllPrimariesDemotedLeadPointsAtBackground(t *testing.
 	if !strings.Contains(zhMD, "**主根因:** 窗口内未定位到链上主根因，见背景压力段。") {
 		t.Fatalf("all-demoted lead must point at the background stanza:\n%s", zhMD)
 	}
-	if strings.Contains(zhMD, "**主根因(=已证链上单项最大可消除量):** 窗口IO压力(聚合)") {
+	if strings.Contains(zhMD, "**主根因(=已证链上单项最大可消除量):** 窗口IO活动综合指数(聚合)") {
 		t.Fatalf("lead must not name a background-demoted row as primary root cause:\n%s", zhMD)
 	}
 	enMD := audit730Render(t, audit730Bus("en"), obs(), "en")

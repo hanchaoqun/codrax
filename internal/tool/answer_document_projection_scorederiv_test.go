@@ -67,7 +67,7 @@ func scoreDerivClampedCountNode() types.TraceCausalProjectionNode {
 }
 
 const (
-	scoreDerivEntryIOPressureZH = "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,通用图例不列系数;有精确计数分解的行会单独披露,但不定义绝对压力等级;非墙钟,不参与时长排序。"
+	scoreDerivEntryIOPressureZH = "- IO活动综合指数 = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):用于同口径活动规模对照,通用图例不列系数;有精确计数分解的行会单独披露,但不定义绝对压力等级;非墙钟,不参与时长排序。"
 	scoreDerivEntryBlockIOZH    = "- 综合评分(block_io) = 最大块延迟 + 最大存储延迟 + 文件IO字节(加权):跨单位合成分,加权系数为固定常量(报告不列数值);非墙钟,不参与时长排序。"
 	scoreDerivEntryCountZH      = "- 计数当量 = 事件数 × 固定当量系数(文件IO热点形另含字节量加权项;系数均不列数值);非墙钟,不参与时长排序。"
 	scoreDerivEntryClampZH      = "- 超上限截断 = 计数当量按窗长固定比例设上限,超出即按上限发布(原始和随行供对照);非墙钟,不参与时长排序。"
@@ -82,7 +82,7 @@ func TestScoreDerivEntriesRenderOnDemand(t *testing.T) {
 	if !strings.Contains(base, scoreDerivEntryBlockIOZH) || !strings.Contains(base, scoreDerivEntryCountZH) {
 		t.Fatalf("block_io/count entries must render verbatim with their ⌗ rows:\n%s", base)
 	}
-	if strings.Contains(base, "综合评分(io_pressure)") || strings.Contains(base, "- 超上限截断") {
+	if strings.Contains(base, "IO活动综合指数 =") || strings.Contains(base, "- 超上限截断") {
 		t.Fatalf("absent word faces must keep their entries off (承诺面双向):\n%s", base)
 	}
 
@@ -111,7 +111,7 @@ func TestScoreDerivEntriesRenderOnDemand(t *testing.T) {
 	}
 	bare.AdjacentCauses = adjacent
 	none := scoreDerivClusterText(t, bare, "zh")
-	for _, banned := range []string{"综合评分(io_pressure)", "综合评分(block_io)", "- 计数当量 = 事件数", "- 超上限截断"} {
+	for _, banned := range []string{"IO活动综合指数 =", "综合评分(block_io)", "- 计数当量 = 事件数", "- 超上限截断"} {
 		if strings.Contains(none, banned) {
 			t.Fatalf("caliber-free board must render no formula entry (%q):\n%s", banned, none)
 		}
@@ -126,7 +126,7 @@ func TestScoreDerivEntriesENFaces(t *testing.T) {
 	full.AdjacentCauses = append(full.AdjacentCauses, scoreDerivClampedCountNode())
 	text := scoreDerivClusterText(t, full, "en")
 	for _, want := range []string{
-		"- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend whose generic legend omits coefficient values; rows with an exact count breakdown disclose it separately but define no absolute pressure level; not wall clock and not part of duration ordering.",
+		"- IO activity index = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): used to compare activity scale under the same caliber; the generic legend omits coefficient values; rows with an exact count breakdown disclose it separately but define no absolute pressure level; not wall clock and not part of duration ordering.",
 		"- composite score (block_io) = max block latency + max storage latency + file-IO bytes (weighted): a cross-unit blend with fixed weight constants (values not listed in the report); not wall clock and not part of duration ordering.",
 		"- count equivalent (计数当量) = event count × a fixed equivalence coefficient (the file-IO hotspot form adds a weighted byte-volume term; values not listed); not wall clock and not part of duration ordering.",
 		"- over-limit clamp (超上限截断) = the count equivalent is capped at a fixed fraction of the window length and publishes the cap when exceeded (the raw sum rides along for cross-checking); not wall clock and not part of duration ordering.",

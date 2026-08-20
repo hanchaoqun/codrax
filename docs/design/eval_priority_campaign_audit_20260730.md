@@ -57570,3 +57570,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r776`。
+
+### §123.1261 B1243：IO 活动指数用户词面单源化（2026-08-20）
+
+1. r775 的“IO压力得分”经四个显示面冷读确认不是新的计算值，也不是链上 IO 等待：底层已经有专用
+   `io_pressure_activity_index`，但类型标签仍叫“IO压力”、非 marker 聚合行仍叫“窗口IO压力”、公式仍叫
+   “综合评分(io_pressure)”，最终 observation 摘要又只看共用 `Unit=composite_score`。同一个 typed 指数因此被系统上下文
+   反复包装成可判断高低的“压力/得分”，容易诱导模型和客户把背景活动规模误读为根因强度。
+2. 本批将 `io_pressure` 的用户可见身份统一为“IO活动综合指数 / IO activity index”：类型名、非 marker 聚合行、公式说明、
+   读者图例及 finalizer observation 摘要全部对齐。`activity_marker_only` 的聚合名仍保持更保守的“窗口IO活动标记”，其
+   数值若展示则仍明确标注活动综合指数和非墙钟；没有把低口径证据升级成压力结论。
+3. observation 摘要优先读取专用 `io_pressure_activity_index` note。对旧版 typed 记录，仅在 exact
+   `type/object=io_pressure` 与 exact `Unit=composite_score` 合取时从 `Value` 恢复；不扫描用户原文、模型 reasoning、模型
+   正文或 Mermaid，也不按模糊关键词猜测类型。故意构造 `Value=7.000`、专用指数 `61.540` 的回归证明摘要只显示
+   `61.540(IO活动综合指数,非墙钟)`。
+4. 共享 `composite_score` 合同没有被重命名：`block_io_by_inode` 等其他混合分家族继续显示“综合评分”，原有数值、排序、
+   门控和公式保持。IO 活动指数仍不进入窗口投影、链上累计、有效归因或毫秒排序；真实 D/iowait 墙钟、块请求时延及链上
+   IO 等待仍按原权限进入根因与可消除量。
+5. 系统只修正 producer-owned typed 数据的显示语义，没有创建、删除、替换模型答案、根因、关系边、节点、标签或结论；
+   也未修改显式窗、唤醒链、因果投影自动补采、实际占时/规则可消双轴、优先级反转、调度/算力供给、确定性语义事件、
+   链上业务线索、JSON/Mermaid 自愈或活跃流时限。
+6. 回归全绿：tool 183.607s、agent 14.837s、types 25.300s、tracequery 77.291s。下一步按战役纪律以当前提交构建并严格并发
+   两个异构 eval，人工核验生产答案是否不再出现“IO压力得分”，同时确认 Trace 因果投影与普通 read 图文没有回归。
+
+状态：
+
+`B1243=implemented/full-relevant-pass/pending-production-replay`；
+`io_pressure-user-wording=IO-activity-index/single-typed-source`；
+`activity-marker-only=conservative-marker-label`；
+`block_io_by_inode-composite-score=preserved`；
+`io-real-wall-clock/root-cause-eligibility=preserved`；
+`request/model/final-prose/mermaid-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1244=confirmed/P2-after-B1243-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

@@ -21926,6 +21926,17 @@ func traceQueryObservationSupplementTypeLabel(raw string, zh bool) string {
 }
 
 func traceQueryObservationValue(record types.ObservationRecord, zh bool) string {
+	// RANKDIS-M18/B1243: io_pressure owns a dedicated typed activity-index
+	// value.  Keep that reader meaning at the observation-supplement boundary;
+	// the shared composite_score unit remains valid for unrelated families such
+	// as block_io.  This reads only producer-owned typed fields/notes and never
+	// infers identity from model prose.
+	if value := traceQueryObservationIOActivityIndex(record); value != "" {
+		if zh {
+			return "值=" + value + "(IO活动综合指数,非墙钟)"
+		}
+		return "value=" + value + " (IO activity index, not wall clock)"
+	}
 	value := strings.TrimSpace(record.Value)
 	if value == "" {
 		return ""
@@ -21950,6 +21961,24 @@ func traceQueryObservationValue(record types.ObservationRecord, zh bool) string 
 		return "值=" + value
 	}
 	return "value=" + value
+}
+
+func traceQueryObservationIOActivityIndex(record types.ObservationRecord) string {
+	typeToken := strings.ToLower(strings.TrimSpace(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyType)))
+	objectToken := strings.ToLower(strings.TrimSpace(record.Object))
+	if typeToken != "io_pressure" && objectToken != "io_pressure" {
+		return ""
+	}
+	if value := strings.TrimSpace(traceQueryObservationSupplementNoteValue(record, types.TraceNoteKeyIOPressureActivityIndex)); value != "" {
+		return value
+	}
+	// Strict compatibility for older typed rows minted before the dedicated
+	// note: the exact io_pressure identity plus exact composite unit is enough
+	// to recover the same value caliber without widening other score families.
+	if strings.TrimSpace(record.Unit) == types.TraceObservationUnitCompositeScore {
+		return strings.TrimSpace(record.Value)
+	}
+	return ""
 }
 
 // traceQueryObservationLocation renders the DISPLAY locator for one trace_query

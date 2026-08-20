@@ -42,3 +42,27 @@ func TestTraceQueryObservationValueCompositeCaliberToken(t *testing.T) {
 		t.Fatalf("events records keep the legacy zh form, got %q", got)
 	}
 }
+
+func TestTraceQueryObservationValueIOPressureUsesDedicatedActivityIndex(t *testing.T) {
+	record := types.ObservationRecord{
+		Object: "io_pressure",
+		Value:  "7.000",
+		Unit:   types.TraceObservationUnitCompositeScore,
+		RichNotes: []string{
+			types.TraceNoteKeyType + "=io_pressure",
+			types.TraceNoteKeyIOPressureActivityIndex + "=61.540",
+		},
+	}
+	if got := traceQueryObservationValue(record, true); got != "值=61.540(IO活动综合指数,非墙钟)" {
+		t.Fatalf("zh IO-pressure digest must use its dedicated activity-index authority, got %q", got)
+	}
+	if got := traceQueryObservationValue(record, false); got != "value=61.540 (IO activity index, not wall clock)" {
+		t.Fatalf("en IO-pressure digest must use its dedicated activity-index authority, got %q", got)
+	}
+
+	legacy := record
+	legacy.RichNotes = []string{types.TraceNoteKeyType + "=io_pressure"}
+	if got := traceQueryObservationValue(legacy, true); got != "值=7.000(IO活动综合指数,非墙钟)" {
+		t.Fatalf("legacy typed IO-pressure rows must keep the activity-index caliber, got %q", got)
+	}
+}

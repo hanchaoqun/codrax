@@ -1771,9 +1771,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			// over-claim (documented in the design doc; 委托默认处置).
 			if flags.scoreIOPressure {
 				if zh {
-					lines = append(lines, "- 综合评分(io_pressure) = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):跨单位合成分,通用图例不列系数;有精确计数分解的行会单独披露,但不定义绝对压力等级;非墙钟,不参与时长排序。")
+					lines = append(lines, "- IO活动综合指数 = 最大单事件块/存储延迟 + iowait 阻塞次数(加权) + D态/iowait 墙钟 + 页缓存事件(加权) + 文件IO事件与字节(加权):用于同口径活动规模对照,通用图例不列系数;有精确计数分解的行会单独披露,但不定义绝对压力等级;非墙钟,不参与时长排序。")
 				} else {
-					lines = append(lines, "- composite score (io_pressure) = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): a cross-unit blend whose generic legend omits coefficient values; rows with an exact count breakdown disclose it separately but define no absolute pressure level; not wall clock and not part of duration ordering.")
+					lines = append(lines, "- IO activity index = max single-event block/storage latency + iowait blocked count (weighted) + D-state/iowait wall clock + page-cache events (weighted) + file-IO events and bytes (weighted): used to compare activity scale under the same caliber; the generic legend omits coefficient values; rows with an exact count breakdown disclose it separately but define no absolute pressure level; not wall clock and not part of duration ordering.")
 				}
 			}
 			if flags.scoreBlockIO {
@@ -6624,9 +6624,9 @@ func runtimeTraceCausalProjectionAggregateMetricName(node types.TraceCausalProje
 			return "window IO activity markers (aggregate)"
 		}
 		if zh {
-			return "窗口IO压力(聚合)"
+			return "窗口IO活动综合指数(聚合)"
 		}
-		return "window IO pressure (aggregate)"
+		return "window IO activity index (aggregate)"
 	case "cpu_pressure":
 		if zh {
 			return "CPU竞争压力(聚合)"
