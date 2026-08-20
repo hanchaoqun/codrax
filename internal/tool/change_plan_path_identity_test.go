@@ -1,6 +1,9 @@
 package tool
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -22,6 +25,106 @@ func TestEmitChangesToFileChangesCanonicalizesPathIdentity(t *testing.T) {
 	}
 	if len(changes[1].DependsOn) != 1 || changes[1].DependsOn[0] != "src/base.go" {
 		t.Fatalf("depends_on=%v, want [src/base.go]", changes[1].DependsOn)
+	}
+}
+
+func TestNormalizePlanPathsForActiveRepoUsesReadToolRepoLabelAuthority(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "bindings-py")
+	for _, rel := range []string{"fastlex/tokenizer.py", "tests/test_tokenizer.py"} {
+		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte("# fixture\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	changes := normalizePlanPathsForActiveRepo(ctx, []types.FileChange{
+		{Path: "bindings-py/fastlex/tokenizer.py", Kind: "patch"},
+		{Path: "bindings-py/tests/test_tokenizer.py", Kind: "modify", DependsOn: []string{"bindings-py/fastlex/tokenizer.py"}},
+	})
+	if got := []string{changes[0].Path, changes[1].Path, changes[1].DependsOn[0]}; !reflect.DeepEqual(got, []string{
+		"fastlex/tokenizer.py", "tests/test_tokenizer.py", "fastlex/tokenizer.py",
+	}) {
+		t.Fatalf("repo-label plan identities = %#v", got)
+	}
+	if rej, pack := validatePlanGraphIntegrityWithRepair("emit_change_plan", changes); rej != "" || pack != nil {
+		t.Fatalf("normalized graph rejected: %q pack=%+v", rej, pack)
+	}
+}
+
+func TestNormalizePlanPathsForActiveRepoExposesAliasDuplicateBeforeConsumers(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "bindings-py")
+	path := filepath.Join(repoRoot, "fastlex", "tokenizer.py")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changes := normalizePlanPathsForActiveRepo(&types.BusContext{RepoRoot: repoRoot}, []types.FileChange{
+		{Path: "bindings-py/fastlex/tokenizer.py", Kind: "patch"},
+		{Path: "fastlex/tokenizer.py", Kind: "modify"},
+	})
+	rej, pack := validatePlanGraphIntegrityWithRepair("emit_change_plan", changes)
+	if rej == "" || pack == nil || pack.ReasonCode != "duplicate_change_path" {
+		t.Fatalf("repo-label aliases must converge before duplicate validation: rejection=%q pack=%+v changes=%+v", rej, pack, changes)
+	}
+}
+
+func TestNormalizePlanPathsForActiveRepoDoesNotGuessCreateOrRealNestedPath(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "bindings-py")
+	realNested := filepath.Join(repoRoot, "bindings-py", "existing.py")
+	if err := os.MkdirAll(filepath.Dir(realNested), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realNested, []byte("# real nested file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changes := normalizePlanPathsForActiveRepo(&types.BusContext{RepoRoot: repoRoot}, []types.FileChange{
+		{Path: "bindings-py/new_file.py", Kind: "create"},
+		{Path: "bindings-py/existing.py", Kind: "modify"},
+		{Path: "../outside.py", Kind: "modify"},
+	})
+	want := []string{"bindings-py/new_file.py", "bindings-py/existing.py", "../outside.py"}
+	got := []string{changes[0].Path, changes[1].Path, changes[2].Path}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ambiguous/unsafe identities changed: got=%#v want=%#v", got, want)
+	}
+	if rej, pack := validatePlanGraphIntegrityWithRepair("emit_change_plan", changes[2:]); rej == "" || pack == nil || pack.ReasonCode != "change_path_unsafe" {
+		t.Fatalf("traversal must remain fail-closed: rejection=%q pack=%+v", rej, pack)
+	}
+}
+
+func TestNormalizePlanProbeAndProjectTestPathsForActiveRepo(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "bindings-py")
+	for _, rel := range []string{"fastlex/tokenizer.py", "tests/test_tokenizer.py"} {
+		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# fixture\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	probes := normalizePlanProbePathsForActiveRepo(ctx, []types.VerificationProbe{{
+		WorkingDir:        "bindings-py",
+		ChangedSymbolRefs: []string{"path:bindings-py/fastlex/tokenizer.py", "Tokenizer.encode"},
+	}})
+	if probes[0].WorkingDir != "." || !reflect.DeepEqual(probes[0].ChangedSymbolRefs, []string{"path:fastlex/tokenizer.py", "Tokenizer.encode"}) {
+		t.Fatalf("probe paths not normalized: %+v", probes[0])
+	}
+	observations, rej := normalizeProjectTestObservations(ctx, []types.ProjectTestObservation{{
+		ID: "pto-1", TestPath: "bindings-py/tests/test_tokenizer.py", AssertionSuite: "TokenizerTest", AssertionID: "test_newlines", ContractRefs: []string{"bc-1"},
+	}}, []types.FileChange{{Path: "fastlex/tokenizer.py", Kind: "patch"}})
+	if rej != "" || len(observations) != 1 || observations[0].TestPath != "tests/test_tokenizer.py" {
+		t.Fatalf("project test path normalization = %+v rejection=%q", observations, rej)
 	}
 }
 

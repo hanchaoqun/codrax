@@ -5215,6 +5215,18 @@ func TestResolveToolPath_StripsActiveRepoLabelPrefixWhenUnambiguous(t *testing.T
 	}
 }
 
+func TestResolveToolPath_StripsExactActiveRepoLabelToRoot(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "bindings-py")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	if got := resolveToolPath(ctx, "bindings-py"); got != repoRoot {
+		t.Fatalf("exact active repo label should resolve to root: got %q want %q", got, repoRoot)
+	}
+}
+
 func TestResolveToolPath_DoesNotStripRealTopLevelRepoLabelDirectory(t *testing.T) {
 	parent := t.TempDir()
 	repoRoot := filepath.Join(parent, "codrax-small")

@@ -203,6 +203,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
 			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
+	probes = normalizePlanProbePathsForActiveRepo(ctx, probes)
 	if len(p.Changes) == 0 {
 		if len(p.ProjectTestObservations) > 0 {
 			summary := "emit_plan_skeleton rejected: project_test_observations cannot be carried by a source-free sentinel plan; keep the exact declarations on the source/test change plan whose project suite will execute them."
@@ -265,7 +266,8 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 			// NewContent / Patch left empty — placeholder.
 		})
 	}
-	projectTestObservations, rej := normalizeProjectTestObservations(ctx.RepoRoot, p.ProjectTestObservations, fcs)
+	fcs = normalizePlanPathsForActiveRepo(ctx, fcs)
+	projectTestObservations, rej := normalizeProjectTestObservations(ctx, p.ProjectTestObservations, fcs)
 	if rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
 			planRepairPackFromReason(t.Name(), "project_test_observation_invalid", rej, []string{"$.project_test_observations"}, nil)), nil

@@ -368,6 +368,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
 			planRepairPackWithEnums(t.Name(), "verification_probe_invalid", rej, []string{"$.verification_probes", "$.changes[].verification_probes"}, supportedVerificationProbeLanguageSet())), nil
 	}
+	probes = normalizePlanProbePathsForActiveRepo(ctx, probes)
 	if len(p.Changes) == 0 {
 		if len(p.ProjectTestObservations) > 0 {
 			summary := "emit_change_plan rejected: project_test_observations cannot be carried by a source-free sentinel plan; keep the exact declarations on the source/test change plan whose project suite will execute them."
@@ -424,8 +425,8 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// types.FileChange (so the structural emit_plan_skeleton +
 	// emit_plan_change path can reuse them); keeping the conversion
 	// at the top means the rest of Execute is a single-shape pipeline.
-	fcs := emitChangesToFileChanges(p.Changes)
-	projectTestObservations, rej := normalizeProjectTestObservations(ctx.RepoRoot, p.ProjectTestObservations, fcs)
+	fcs := normalizePlanPathsForActiveRepo(ctx, emitChangesToFileChanges(p.Changes))
+	projectTestObservations, rej := normalizeProjectTestObservations(ctx, p.ProjectTestObservations, fcs)
 	if rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
 			planRepairPackFromReason(t.Name(), "project_test_observation_invalid", rej, []string{"$.project_test_observations"}, nil)), nil

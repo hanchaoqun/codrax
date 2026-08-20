@@ -77,6 +77,67 @@ func canonicalOptionalPlanPathIdentity(raw string) string {
 	return canonicalPlanPathIdentity(raw)
 }
 
+// normalizePlanPathsForActiveRepo applies the same exact repo-label alias
+// authority used by read_file/list_files before any plan graph, path-state,
+// duplicate, fingerprint, or verification consumer sees the plan. The alias
+// is deliberately narrow: strip only the active RepoRoot basename, only when
+// the label-prefixed path does not exist, and only when the stripped target
+// already exists inside RepoRoot. New/create destinations are therefore never
+// guessed into a different location.
+func normalizePlanPathsForActiveRepo(ctx *types.BusContext, changes []types.FileChange) []types.FileChange {
+	if len(changes) == 0 {
+		return changes
+	}
+	out := append([]types.FileChange(nil), changes...)
+	aliases := make(map[string]string, len(out))
+	for i := range out {
+		raw := canonicalPlanPathIdentity(out[i].Path)
+		path := raw
+		if stripped, ok := stripActiveRepoLabelPrefix(ctx, raw); ok {
+			path = canonicalPlanPathIdentity(stripped)
+		}
+		out[i].Path = path
+		aliases[raw] = path
+		out[i].DependsOn = append([]string(nil), out[i].DependsOn...)
+	}
+	for i := range out {
+		for j, raw := range out[i].DependsOn {
+			path := canonicalPlanPathIdentity(raw)
+			if mapped, ok := aliases[path]; ok {
+				path = mapped
+			} else if stripped, ok := stripActiveRepoLabelPrefix(ctx, path); ok {
+				path = canonicalPlanPathIdentity(stripped)
+			}
+			out[i].DependsOn[j] = path
+		}
+	}
+	return out
+}
+
+func normalizePlanProbePathsForActiveRepo(ctx *types.BusContext, probes []types.VerificationProbe) []types.VerificationProbe {
+	if len(probes) == 0 {
+		return probes
+	}
+	out := append([]types.VerificationProbe(nil), probes...)
+	for i := range out {
+		if stripped, ok := stripActiveRepoLabelPrefix(ctx, out[i].WorkingDir); ok {
+			out[i].WorkingDir = filepath.ToSlash(stripped)
+		}
+		out[i].ChangedSymbolRefs = append([]string(nil), out[i].ChangedSymbolRefs...)
+		for j, raw := range out[i].ChangedSymbolRefs {
+			trimmed := strings.TrimSpace(raw)
+			if !strings.HasPrefix(trimmed, "path:") {
+				continue
+			}
+			path := canonicalPlanPathIdentity(strings.TrimPrefix(trimmed, "path:"))
+			if stripped, ok := stripActiveRepoLabelPrefix(ctx, path); ok {
+				out[i].ChangedSymbolRefs[j] = "path:" + canonicalPlanPathIdentity(stripped)
+			}
+		}
+	}
+	return out
+}
+
 // validatePlanGraphIntegrity bundles the four content-independent
 // structural checks: every change has a path; every kind is legal;
 // no duplicate paths; no dangling / self / empty depends_on. Cycle
@@ -3650,7 +3711,7 @@ func normalizeVerificationProbes(in []types.VerificationProbe) ([]types.Verifica
 	return normalizeVerificationProbesWithOptions(in, true)
 }
 
-func normalizeProjectTestObservations(repoRoot string, in []types.ProjectTestObservation, changes []types.FileChange) ([]types.ProjectTestObservation, string) {
+func normalizeProjectTestObservations(ctx *types.BusContext, in []types.ProjectTestObservation, changes []types.FileChange) ([]types.ProjectTestObservation, string) {
 	const (
 		maxObservations = 16
 		maxContractRefs = 10
@@ -3660,6 +3721,10 @@ func normalizeProjectTestObservations(repoRoot string, in []types.ProjectTestObs
 	}
 	if len(in) > maxObservations {
 		return nil, fmt.Sprintf("project_test_observations has %d entries; maximum is %d", len(in), maxObservations)
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
 	}
 	planned := map[string]string{}
 	for _, change := range changes {
@@ -3681,6 +3746,9 @@ func normalizeProjectTestObservations(repoRoot string, in []types.ProjectTestObs
 		testPath, ok := canonpath.CanonicalRepoRelativeIdentity(observation.TestPath)
 		if !ok {
 			return nil, fmt.Sprintf("project_test_observations[%d].test_path=%q must be a safe repo-relative path", i, observation.TestPath)
+		}
+		if stripped, strippedOK := stripActiveRepoLabelPrefix(ctx, testPath); strippedOK {
+			testPath = canonicalPlanPathIdentity(stripped)
 		}
 		if kind, changed := planned[testPath]; changed {
 			if kind == "delete" {

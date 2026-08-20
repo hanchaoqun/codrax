@@ -246,9 +246,6 @@ func stripActiveRepoLabelPrefix(ctx *types.BusContext, raw string) (string, bool
 		return "", false
 	}
 	parts := strings.Split(cleaned, "/")
-	if len(parts) < 2 {
-		return "", false
-	}
 	repoLabel := filepath.Base(filepath.Clean(root))
 	if repoLabel == "" || repoLabel == "." || parts[0] != repoLabel {
 		return "", false
@@ -256,6 +253,12 @@ func stripActiveRepoLabelPrefix(ctx *types.BusContext, raw string) (string, bool
 	original := filepath.Join(root, cleaned)
 	if fileExists(original) {
 		return "", false
+	}
+	if len(parts) == 1 {
+		// The active repository's own display label is an unambiguous alias
+		// for its root when there is no real same-named child. This keeps
+		// repo-scoped working directories consistent with file-tool paths.
+		return ".", true
 	}
 	stripped := strings.Join(parts[1:], "/")
 	if stripped == "" || stripped == "." || stripped == ".." || strings.HasPrefix(stripped, "../") {

@@ -56047,3 +56047,71 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1220 r758：Trace 读者面获生产正证；多仓读写路径身份发生确定性冲突（2026-08-19）
+
+1. 在 `main@43bc3610b` 重建后严格并发恰好两个异构案例：
+   `trace_query_wakeup_causal_io_chain + github_issue_tokenizers_newline_run_multirepo_py`。Runner
+   `1 PASS / 1 FAIL`，人工同为 `1 pass / 1 fail`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_trace_write_reader_r758_20260819_manual_audit.md`。
+2. Trace 完整保留显式窗 2.000000..2.020000、已证
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 首席、三个 1.000ms runnable
+   调度项、目标 20.000ms S 态症状、实际占用/规则可消除双轴、自动补齐与完整 E#。邻近/背景未晋升，
+   系统未替换模型结论。正式投影图例由此前的协议目录收敛为约十条按本次 mark 动态生成的读者说明，
+   B1217 获生产正证。
+3. 模型把 `fscache_page_wait_on_page_bit` 进一步解释为“数据来自磁盘”并建议预取，但同页又承认没有具体
+   设备/文件证据。上下文已给出精确未证边界，属于模型过推而非证据载体缺失；按模型波动留档，不新增
+   用户请求/模型输出关键词硬门，不让系统删除、改写或代替模型结论。
+4. 写案例暴露确定性 P0：活动 `RepoRoot` 已是子仓 `bindings-py`，read_file/list_files 会把
+   `bindings-py/fastlex/tokenizer.py` 安全规范为 `fastlex/tokenizer.py` 并成功读取；计划入口却保留原字面，
+   先把 `bindings-py/tests/test_tokenizer.py` 判作不存在，随后以 `patch_path_missing` 拒绝同一已读文件。
+   这不是模型单轮波动，而是读与写对相同 repo-label 路径采用两套身份合同。
+5. B1214 的第三次重复结构拒绝滚转在生产触发，及时发出 evaluator stop，避免旧式十余次重复提交；但其
+   职责只是收敛，不能掩盖或修复路径合同冲突。写路 835 秒后没有计划与 apply，人工必须判 fail。
+6. 系统后置校验附注仍出现 `typed 事实/typed 席位/typed confidence`，是独立 P2 读者词面残余；它不改变
+   本轮链上排序和模型首段结论，后续只改结构化系统 renderer，不能与多仓 P0 混批，也不能扫描模型正文。
+7. 两路均无固定年龄降级。281 秒 Trace 与 835 秒写流持续活动；不存在 4ms、4m 或累计年龄触发的答案
+   降级。下一批先根修多仓路径单源化，再以恰好两个案例回放。
+
+状态：
+
+`B1217-TRACEAPPENDIXREADERLANGUAGE1=production-positive-r758`；
+`B1214-REPEATEDSTRUCTUREDEMITROLLOVER1=production-positive-r758/bounded-not-root-fix`；
+`B1218-MULTIREPOPLANPATHIDENTITY1=confirmed/P0-next`；
+`B1219-TRACEVALIDATIONAPPENDIXLANGUAGE2=confirmed/P2-later`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r758`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
+
+### §123.1221 B1218：多仓计划路径与读取路径共享精确活动仓库身份（2026-08-19）
+
+1. 根因修复没有针对 `bindings-py` 或 Python 写特例。计划的单次 `emit_change_plan` 与分段
+   `emit_plan_skeleton -> emit_plan_change` 现在都在任何图、重复、存在性、依赖、指纹、测试声明或验证
+   消费之前，共享 read_file/list_files 的活动仓库标签规范化权威。
+2. 改写条件保持精确且 fail-closed：首段必须逐字等于当前 `RepoRoot` basename；原 label-prefixed 路径
+   必须不存在；去掉标签后的目标必须已经存在并位于 RepoRoot 内。真实同名顶层目录优先，新建路径与
+   rename destination 不猜测位置，绝对路径和 `..` 越界路径继续拒绝。精确仓库标签本身只在不存在同名
+   子目录时映射为根目录 `.`。
+3. `changes[].path` 与 `depends_on` 在去重和图校验前收敛为一个身份；项目测试的 `test_path`、验证探针的
+   `working_dir` 和显式 `path:` changed-symbol ref 同步收敛。由此不会出现读取成功后计划判不存在，也不会
+   让同一文件通过别名逃过 duplicate/conflict 检查。探针代码正文不被系统重写，模型仍负责测试逻辑。
+4. 正负 pin 覆盖：活动仓标签下的两个真实文件与依赖统一；前缀/无前缀别名在消费者前被识别为重复；
+   项目测试与探针三类路径同步；单仓正常路径不变；真实同名嵌套路径不剥离；不存在的新建目标不猜测；
+   父目录穿越保持 typed 拒绝；精确仓标签可作为 repo-scoped working dir。
+5. 专项测试、完整 `go test ./internal/tool -count=1`（179.156s）及
+   `go test ./internal/... -count=1` 全部通过，覆盖 hitraceconv、orchestrator、render、repl、tracequery、
+   types、worktree 与 writeflow。本批不涉及 Trace 查询、窗口、链成员、根因排序、实际占用、可消除量、
+   投影、自动补齐、答案成文或流式超时逻辑；生产回放仍单独验收。
+
+状态：
+
+`B1218-MULTIREPOPLANPATHIDENTITY1=implemented/full-internal-pass/replay-pending`；
+`plan-path-identity=shared-with-read-tools/exact-existing-target-only`；
+`create/rename-destination-guessing=forbidden`；
+`model-probe-code-rewrite=none`；
+`request/model/final-prose-scan=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
