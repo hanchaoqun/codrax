@@ -2250,6 +2250,69 @@ func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFa
 	}
 }
 
+func TestPreCheckPrincipalTypedRelationDiagramMembershipRejectsOnlyOutsidePrincipalEdges(t *testing.T) {
+	mu := types.NewMutableState("show production implementations")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"ProdEvaluator"},
+	}})
+	mu.SetInvestigationComplete("typed principal relation set accepted")
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisImplement,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "principal-types", Kind: types.BlockDiagram, SurfaceRole: types.SurfacePrincipal,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Body: "flowchart LR\n  p[ProdEvaluator] --> c[Controller]\n  t[TestEvaluator] --> c"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "p", ToNode: "c", FromIdentity: "ProdEvaluator", ToIdentity: "Controller", RelationKind: types.DiagramRelTypeRelation},
+			{FromNode: "t", ToNode: "c", FromIdentity: "TestEvaluator", ToIdentity: "Controller", RelationKind: types.DiagramRelTypeRelation},
+		},
+	}}}
+	pctx := newPreEmitCheckContext(ctx)
+	hints := preCheckPrincipalTypedRelationDiagramMembership(doc, pctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, `member="TestEvaluator"`) ||
+		strings.Contains(hints[0].ExpectedShape, `member="ProdEvaluator"`) {
+		t.Fatalf("principal diagram membership should identify only the outside member: %+v", hints)
+	}
+	allHints := runPreEmitChecks(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil, ctx)
+	foundHook := false
+	for _, hint := range allHints {
+		if strings.Contains(hint.Field, "surface_role=principal") &&
+			strings.Contains(hint.ExpectedShape, `member="TestEvaluator"`) {
+			foundHook = true
+			break
+		}
+	}
+	if !foundHook {
+		t.Fatalf("runPreEmitChecks lost the principal type-relation membership subgate: %+v", allHints)
+	}
+
+	doc.Blocks[0].EdgeAnchors = doc.Blocks[0].EdgeAnchors[:1]
+	if got := preCheckPrincipalTypedRelationDiagramMembership(doc, newPreEmitCheckContext(ctx)); len(got) != 0 {
+		t.Fatalf("exact principal type-relation diagram rejected: %+v", got)
+	}
+
+	// The same grounded relation may be shown in a separately bounded support
+	// diagram; only the principal graph is the exact member-set carrier.
+	doc.Blocks[0].SurfaceRole = ""
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors,
+		types.DiagramEdgeAnchor{FromNode: "t", ToNode: "c", FromIdentity: "TestEvaluator", ToIdentity: "Controller", RelationKind: types.DiagramRelTypeRelation})
+	if got := preCheckPrincipalTypedRelationDiagramMembership(doc, newPreEmitCheckContext(ctx)); len(got) != 0 {
+		t.Fatalf("separately bounded support diagram must retain broader grounded relation context: %+v", got)
+	}
+}
+
 func TestPreCheckRelationMemberSetAnswerShape_RequiresSingletonCarrierForTypedRelation(t *testing.T) {
 	mu := types.NewMutableState("which workers can invoke capability Y")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

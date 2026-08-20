@@ -4669,6 +4669,9 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	if pctx == nil {
 		return standaloneHints
 	}
+	if hints := preCheckPrincipalTypedRelationDiagramMembership(doc, pctx); len(hints) > 0 {
+		return append(standaloneHints, hints...)
+	}
 	if hints := preCheckStandaloneCallChainSemanticHandoffCoverage(doc, view, pctx); len(hints) > 0 {
 		return append(standaloneHints, hints...)
 	}
@@ -4925,6 +4928,57 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		})
 	}
 	return hints
+}
+
+// preCheckPrincipalTypedRelationDiagramMembership keeps a model-authored
+// principal declared-type diagram on the same exact member boundary as the
+// completion-verified principal table/list. A broader typed source roster is
+// still valid evidence for a separately bounded support diagram, but cannot be
+// smuggled into the principal graph during a repair.
+//
+// The check consumes only block surface_role, relation_kind, exact endpoint
+// identity, and the system-marked aggregate member carrier. It never reads
+// Mermaid labels/body, request text, reasoning, or answer prose, and it never
+// adds/removes/rewrites an edge for the model.
+func preCheckPrincipalTypedRelationDiagramMembership(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) []emitFixHint {
+	if doc == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := &pctx.ctx.AnalysisIR.RequestModel
+	members := types.PrincipalTypedRelationMemberNamesForRequest(
+		pctx.stableAggregateFactsForCheck(), rm,
+	)
+	if len(members) == 0 {
+		return nil
+	}
+	var outside []string
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram || block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		for _, anchor := range block.EdgeAnchors {
+			if anchor.RelationKind != types.DiagramRelTypeRelation {
+				continue
+			}
+			identity := strings.TrimSpace(anchor.FromIdentity)
+			if identity == "" || types.PrincipalTypedRelationMemberMatches(identity, members) {
+				continue
+			}
+			outside = append(outside, fmt.Sprintf("block=%q member=%q edge=%s->%s",
+				block.ID, identity, strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode)))
+		}
+	}
+	if len(outside) == 0 {
+		return nil
+	}
+	return []emitFixHint{{
+		Field:               "blocks[kind=diagram,surface_role=principal].edge_anchors[relation_kind=type_relation].from_identity",
+		HardSignal:          preEmitHardSignalCompletePrincipalMemberSet,
+		OffendingBlockKinds: []types.AnswerBlockKind{types.BlockDiagram},
+		ExpectedShape: "keep the principal declared-type diagram on the completion-verified principal member set already used by the principal table/list; remove only these outside-member edges from this principal block, or move them to a separately labelled support/audit diagram without surface_role=principal: " +
+			strings.Join(outside, "; "),
+		Reason: "a broader grounded typed-relation roster proves those structural relations may exist, but it cannot expand the exact principal answer membership after completion verified a narrower principal relation set. This check preserves model ownership of the visible graph and reads no wording.",
+	}}
 }
 
 // diagramMismatchesWithoutExactSemanticHandoffReceipts accepts only the

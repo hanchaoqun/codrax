@@ -73,6 +73,51 @@ func PrincipalTypedRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFa
 	return out
 }
 
+// PrincipalTypedRelationMemberNamesForRequest returns the exact member
+// identities of every completion-verified principal relation set. It is the
+// shared principal-membership ceiling for visible relation carriers such as a
+// table and its sibling diagram. Broader request-scoped relation candidates
+// remain valid supporting evidence, but cannot expand this principal slate.
+//
+// The function consumes only the system-marked aggregate carrier and preserves
+// case-sensitive source identities. It never inspects labels, request prose,
+// model reasoning, answer text, or Mermaid wording.
+func PrincipalTypedRelationMemberNamesForRequest(facts []AnswerAggregateFact, rm *RequestModel) []string {
+	refs := PrincipalTypedRelationMemberSetFactRefsForRequest(facts, rm)
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	for _, ref := range refs {
+		for _, raw := range ref.Fact.Members {
+			member := strings.TrimSpace(raw)
+			if member == "" || seen[member] {
+				continue
+			}
+			seen[member] = true
+			out = append(out, member)
+		}
+	}
+	return out
+}
+
+// PrincipalTypedRelationMemberMatches reports whether identity is one of the
+// exact principal members, allowing only the shared separator-normalization
+// bridge used by relation evidence (for example `pkg.Type` vs `pkg::Type`).
+// It never collapses a qualified identity to a short tail. An empty member
+// ceiling is intentionally false: callers decide whether absence means no
+// ceiling is active.
+func PrincipalTypedRelationMemberMatches(identity string, members []string) bool {
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return false
+	}
+	for _, member := range members {
+		if AnswerCodeIdentitySurfacesEquivalent(identity, member) {
+			return true
+		}
+	}
+	return false
+}
+
 func sourceInventoryAllPrincipalRows(rowSet SourceInventoryPrincipalRowSet) []SourceInventoryRow {
 	rows := append([]SourceInventoryRow(nil), rowSet.PrincipalRows...)
 	return sourceInventoryFamilyBalancedRows(rows)

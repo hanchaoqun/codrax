@@ -330,6 +330,62 @@ func TestRenderAnswerDocTypedRelationSourceRoleHandoffHonorsTypedTestScope(t *te
 	}
 }
 
+func TestRenderAnswerDocTypedRelationSourceRoleHandoffUsesVerifiedPrincipalMemberBoundary(t *testing.T) {
+	mu := types.NewMutableState("show the main LoopController implementations")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: types.TypedRelationPrincipalMemberSetAggregateProvenance,
+		Members:    []string{"prodEvaluator"},
+	}})
+	mu.SetInvestigationComplete("typed principal set accepted")
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:             types.IntentEnumerate,
+			PredicateAxis:      types.AxisImplement,
+			SourceScopeProfile: &types.SourceScopeProfile{RequestedScope: types.SourceScopeAll},
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+		}},
+		TypedRelationHints: []types.TypedRelationHint{{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "LoopController",
+			Members: []types.TypedRelationMember{
+				{Name: "prodEvaluator", File: "internal/agent/prod.go"},
+				{Name: "testEvaluator", File: "internal/agent/prod_test.go"},
+			},
+		}},
+	}
+	got := renderAnswerDocTypedRelationSourceRoleHandoff(ctx)
+	for _, want := range []string{
+		"exact_principal_member_boundary=`completion_verified_typed_relation_member_set`",
+		"member=`prodEvaluator` answer_membership=`principal`",
+		"member=`testEvaluator` answer_membership=`support_only`",
+		`"from_identity":"prodEvaluator"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("verified principal member boundary missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"from_identity":"testEvaluator"`) {
+		t.Fatalf("broader all-source candidate leaked into principal type-relation recipe:\n%s", got)
+	}
+
+	edges := []answerDocMechanismRelationEdge{
+		{from: "prodEvaluator", to: "LoopController", relation: types.DiagramRelTypeRelation},
+		{from: "testEvaluator", to: "LoopController", relation: types.DiagramRelTypeRelation},
+		{from: "Factory", to: "Builder", relation: types.DiagramRelCall},
+	}
+	bounded := answerDocPrincipalTypedRelationBoundaryEdges(ctx, edges)
+	if len(bounded) != 2 || bounded[0].from != "prodEvaluator" || bounded[1].relation != types.DiagramRelCall {
+		t.Fatalf("principal boundary must remove only outside type members and retain other relation families: %+v", bounded)
+	}
+}
+
 func TestRenderAnswerDocTypedRelationDirectionRecipesAreLanguageNeutral(t *testing.T) {
 	files := []string{
 		"src/GoImpl.go",

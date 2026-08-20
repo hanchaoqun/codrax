@@ -1470,13 +1470,19 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 		}
 	}
 	if diagramRequired {
+		diagramSeedMembershipRule := "When a `Diagram Seeds` / `First-Pass Diagram Reference` section is present, treat its grounded labels as a FLOOR you can extend, not a verbatim ceiling. You SHOULD add additional grounded nodes / branches / fan-out when your investigation supports a richer mechanism. The hard rule: every file/path label inside the fenced block stays grounded in citations[] or Log Triage frames."
+		if ctx != nil && ctx.AnalysisIR != nil && len(types.PrincipalTypedRelationMemberNamesForRequest(
+			answerDocStableAggregateFacts(ctx), &ctx.AnalysisIR.RequestModel,
+		)) > 0 {
+			diagramSeedMembershipRule = "A completion-verified typed principal relation member set is active. Its members are the exact membership boundary for the principal relation table and sibling principal diagram: do not add another same-relation principal member merely because a broader source-scope relation row or grounded diagram seed exists. Broader grounded relations may appear only in a separately bounded support/audit view. You still author every visible node, edge, label, and conclusion."
+		}
 		items = append(items,
 			// PREFERRED form must be Mermaid — duplicate the
 			// preference here so this checklist agrees with the
 			// Diagram Contract section. ASCII art is a fallback
 			// only when the Mermaid subset cannot express the shape.
 			"This dispatch must include at least one grounded fenced diagram via a `diagram` block (preferred — `diagram.kind` ∈ flow / sequence / architecture / call_dag, `diagram.language=\"mermaid\"`) OR a fenced block embedded in the `summary` block's text. PREFERRED Mermaid: for flow / architecture / call_dag use `flowchart TD` by default (switch direction only when it materially improves readability); for sequence use `sequenceDiagram`, but keep participant labels short because actors render horizontally. ASCII art is the fallback only.",
-			"When a `Diagram Seeds` / `First-Pass Diagram Reference` section is present, treat its grounded labels as a FLOOR you can extend, not a verbatim ceiling. You SHOULD add additional grounded nodes / branches / fan-out when your investigation supports a richer mechanism. The hard rule: every file/path label inside the fenced block stays grounded in citations[] or Log Triage frames.",
+			diagramSeedMembershipRule,
 			"Every file/path node you keep inside a fenced diagram must also be grounded by `citations[]` or by attached Log Triage frames in this dispatch. If a relationship lacks a grounded node label, explain it in prose instead of inventing a diagram node.",
 		)
 		if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
@@ -4518,6 +4524,14 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	if strings.TrimSpace(reference) == "" {
 		return ""
 	}
+	hasPrincipalMemberBoundary := false
+	principalMemberCount := 0
+	if ctx != nil && ctx.AnalysisIR != nil {
+		principalMemberCount = len(types.PrincipalTypedRelationMemberNamesForRequest(
+			answerDocStableAggregateFacts(ctx), &ctx.AnalysisIR.RequestModel,
+		))
+		hasPrincipalMemberBoundary = principalMemberCount > 0
+	}
 	var b strings.Builder
 	b.WriteString("## First-Pass Diagram Reference\n\n")
 	// Pre-2026-04-30 this section said "copy this fenced skeleton
@@ -4532,8 +4546,13 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	// fan-out, or switch to `sequenceDiagram` — the only hard rule
 	// being that every label remains grounded in citations[] or
 	// Log Triage frames.
-	b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch, and some scenarios may supply prevalidated role labels whose supporting anchors are listed elsewhere in the prompt. Use it as a FLOOR, not a ceiling:\n\n")
-	b.WriteString("- You SHOULD extend it with additional grounded nodes when the investigation supports a richer mechanism (e.g. more call-chain hops, branch points, fan-out, error paths).\n")
+	if hasPrincipalMemberBoundary {
+		fmt.Fprintf(&b, "Below is a grounded authoring reference restricted to the completion-verified principal typed-relation member set (%d member(s)). It is the exact same-relation membership boundary as the principal table/list, not a broader source-roster floor. You still author all visible wording and may choose a faithful subset only when the answer contract permits it:\n\n", principalMemberCount)
+		b.WriteString("- Do not add another principal member connected by the same declared-type relation merely because a broader grounded/source-scope relation exists elsewhere. Keep such relations as explicitly bounded support/audit context outside this principal diagram.\n")
+	} else {
+		b.WriteString("Below is a grounded starting reference — every node listed here is already corroborated by evidence in this dispatch, and some scenarios may supply prevalidated role labels whose supporting anchors are listed elsewhere in the prompt. Use it as a FLOOR, not a ceiling:\n\n")
+		b.WriteString("- You SHOULD extend it with additional grounded nodes when the investigation supports a richer mechanism (e.g. more call-chain hops, branch points, fan-out, error paths).\n")
+	}
 	if dc := answerDocDiagramContract(ctx); dc != nil && dc.RequiredKind != types.DiagramNone && dc.RequiredKind.IsValid() {
 		fmt.Fprintf(&b, "- Required semantic kind for this dispatch: `%s`; keep `diagram.kind` and the Mermaid syntax aligned with that kind.\n", dc.RequiredKind)
 	} else {
@@ -8252,6 +8271,10 @@ func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) stri
 		return ""
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	principalMembers := types.PrincipalTypedRelationMemberNamesForRequest(
+		answerDocStableAggregateFacts(ctx), &rm,
+	)
+	hasPrincipalMemberBoundary := len(principalMembers) > 0
 	type row struct {
 		relation types.TypedRelationKind
 		source   string
@@ -8300,7 +8323,11 @@ func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) stri
 	b.WriteString("## Typed Relation Source-Role Projection (Advisory)\n\n")
 	fmt.Fprintf(&b, "- complete_relation_roster=%d; principal=%d; auxiliary=%d; unknown=%d.\n", len(rows), principal, auxiliary, unknown)
 	b.WriteString("- This projection reads only typed relation members, deterministic path roles, and analyzer-emitted `SourceScopeProfile`; it does not scan the raw request or answer prose.\n")
-	b.WriteString("- For the principal relation table/diagram/member_set, use lane=`principal`. Preserve lane=`auxiliary` as an explicitly labelled support/audit roster unless the typed scope opts that source role into principal. Disclose lane=`unknown` and verify it; never silently promote or delete it.\n")
+	if hasPrincipalMemberBoundary {
+		fmt.Fprintf(&b, "- exact_principal_member_boundary=`completion_verified_typed_relation_member_set`; principal_member_count=%d. This exact set is the sole membership authority for the principal relation table and sibling principal diagram. Source-scope lanes below remain audit/support metadata and cannot add another principal member; broader structural relations may remain in a separately labelled support view.\n", len(principalMembers))
+	} else {
+		b.WriteString("- For the principal relation table/diagram/member_set, use lane=`principal`. Preserve lane=`auxiliary` as an explicitly labelled support/audit roster unless the typed scope opts that source role into principal. Disclose lane=`unknown` and verify it; never silently promote or delete it.\n")
+	}
 	b.WriteString("- The complete structural roster and the principal answer set are intentionally different surfaces. Auxiliary membership proves the structural edge exists, but does not by itself authorize a row as a principal production answer.\n")
 	b.WriteString("- Lookup direction and display direction are distinct for declared type relations. For `implements`, `extends`, and `overrides`, `source` is the queried contract/supertype and `member` is the implementing/subtype/overriding declaration; a visible `type_relation` edge and its anchor therefore run `member -> source`. The recipes below are advisory authoring aids; the exact provider and hard validator independently verify every model-authored edge.\n")
 	for i, row := range rows {
@@ -8318,6 +8345,13 @@ func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) stri
 		}
 		fmt.Fprintf(&b, "- lane=`%s` source_role=`%s` relation=`%s` source=`%s` member=`%s`",
 			lane, role, row.relation, row.source, row.member.Name)
+		if hasPrincipalMemberBoundary {
+			membership := "support_only"
+			if types.PrincipalTypedRelationMemberMatches(row.member.Name, principalMembers) {
+				membership = "principal"
+			}
+			fmt.Fprintf(&b, " answer_membership=`%s`", membership)
+		}
 		if row.member.File != "" {
 			fmt.Fprintf(&b, " @ %s", row.member.File)
 			if row.member.Line > 0 {
@@ -8361,6 +8395,7 @@ func renderAnswerDocTypedRelationSourceRoleHandoff(ctx *types.AgentContext) stri
 	recipes := make([]recipeRow, 0, len(rows))
 	for _, row := range rows {
 		if row.member.ScopeLane != types.TypedRelationMemberLanePrincipal ||
+			(hasPrincipalMemberBoundary && !types.PrincipalTypedRelationMemberMatches(row.member.Name, principalMembers)) ||
 			!answerDocTypedRelationUsesMemberToSourceDisplay(row.relation) ||
 			row.member.Name == "" || row.source == "" {
 			continue
@@ -8784,7 +8819,39 @@ func answerDocCurrentSourceMechanismRelations(ctx *types.AgentContext) ([]types.
 		})
 	}
 	acceptedFacts += len(stagePrecedence)
+	edges = answerDocPrincipalTypedRelationBoundaryEdges(ctx, edges)
 	return evidence, edges, acceptedFacts, callsiteFacts
+}
+
+// answerDocPrincipalTypedRelationBoundaryEdges keeps a principal relation
+// diagram/table authoring carrier on the same exact membership ceiling already
+// accepted by the completion layer. The full evidence pool remains unchanged,
+// so excluded typed relations can still support prose or an explicitly bounded
+// audit view; they simply cannot re-enter the principal graph through a broader
+// source-scope candidate roster.
+//
+// Declared type relations have one reviewed direction across languages:
+// implementing/sub/overriding member -> queried contract/supertype. Other
+// relation families are untouched. No labels, request text, model prose, or
+// Mermaid body are read, and no edge is authored or rewritten.
+func answerDocPrincipalTypedRelationBoundaryEdges(ctx *types.AgentContext, edges []answerDocMechanismRelationEdge) []answerDocMechanismRelationEdge {
+	if ctx == nil || ctx.AnalysisIR == nil || len(edges) == 0 {
+		return edges
+	}
+	members := types.PrincipalTypedRelationMemberNamesForRequest(
+		answerDocStableAggregateFacts(ctx), &ctx.AnalysisIR.RequestModel,
+	)
+	if len(members) == 0 {
+		return edges
+	}
+	out := make([]answerDocMechanismRelationEdge, 0, len(edges))
+	for _, edge := range edges {
+		if edge.relation != types.DiagramRelTypeRelation ||
+			types.PrincipalTypedRelationMemberMatches(edge.from, members) {
+			out = append(out, edge)
+		}
+	}
+	return out
 }
 
 func answerDocAppendExactTypedRelationEvidence(ctx *types.AgentContext, evidence []types.EvidenceItem) []types.EvidenceItem {

@@ -57335,3 +57335,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=restored-by-scope-contract/pending-replay`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r773`。
+
+### §123.1255 B1239：主关系表与主关系图共享精确成员边界（2026-08-20）
+
+1. 根因确认不是模型随机扩写，而是三个系统上下文面互相冲突：completion 已验收 12 个 production implementer 的
+   principal member_set；typed source-role handoff 和 First-Pass Diagram Reference 却继续按 `SourceScopeProfile=all`
+   提供 15 个关系成员，并把图种子描述为“只能扩、不能缩”的 floor。模型首稿的 12 边正确，修补回合反而遵照系统教学
+   加入 3 个 test helper，造成主表 12、主图 15。
+2. 本批在类型层建立共享 `completion_verified_typed_relation_member_set` 成员 authority：只消费 completion 写入的
+   typed provenance 和 exact member identity；允许语言原生分隔符等价，但禁止 qualified identity 缩成短名。主表、
+   主关系图 recipe、First-Pass reference 和成文校验现在使用同一成员上界。
+3. 完整关系证据没有删除。超出 principal set 的真实关系继续保留在 evidence/source-role handoff，并明确标成
+   `support_only`；模型可将其放入单独标明的支持/审计图。共享关系 seed 仅过滤 principal `type_relation` 的外部成员，
+   call/data-flow/runtime 等其他关系族不受影响。
+4. 新的 pre-emit 检查只作用于 `kind=diagram + surface_role=principal + relation_kind=type_relation`，读取结构化图块角色、
+   typed endpoint identity 和 system-marked exact member_set。它不读取用户原文、模型 thinking/正文、Mermaid body/label、
+   业务词典或语言关键词；遇到外部成员只返回局部修补提示，不创建、删除、改写边、节点、标签和结论。未标 principal 的
+   支持图仍可展示更宽但有证据的关系。
+5. 回归覆盖：标记 member_set 只能返回 production 成员；分隔符变体可匹配、短名/未标 supporting set 不得扩权；
+   all-source handoff 必须把 test helper 标为 support-only 且不得生成 principal recipe；主图外部成员必须红、精确成员必须绿、
+   支持图同一真实关系必须绿；共享 edge seed 仅过滤 type-relation 外部成员并保留其他关系族。
+6. `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（types 24.240s、agent 13.461s、tool
+   183.034s）。未修改 Trace 查询、窗口选择、链上根因选举、因果投影/自动补齐、JSON/Mermaid 自愈、模型答案或活跃流时限。
+
+状态：
+
+`B1239=implemented/full-relevant-pass/pending-production-replay`；
+`principal-table+principal-diagram=one-exact-typed-member-authority`；
+`broader-grounded-relations=support/audit-preserved`；
+`request/model/final-prose/mermaid-body-or-label/language-keyword-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1238=code-closed/pending-paired-replay`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
