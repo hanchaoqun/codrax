@@ -57369,3 +57369,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1256 r774：B1238/B1239 生产闭环；枚举旧 oracle 与 IO 综合分双值冲突（2026-08-20）
+
+1. 以 `9e4e979d8` 构建快照严格并发恰好 2 路：Trace 223s、类型关系 284s，runner 2/2 PASS；人工为
+   `partial + pass-with-caveat`。两路持续活跃且完整交付模型答案，没有因 4ms、4m、首字节、stall 或累计年龄采用旧稿、
+   空答案或降级答案。
+2. B1238 获生产正证：Analyzer 首次即选择 `causal_diagnosis`，只因同时误带 bounded `fact_families` 被精确拒绝一次；
+   第二次保留因果 scope、移除 fact families 并补 required `causal_attribution`。最终 family 为 `root_cause_trace`，Explorer
+   同一显式 2.000–2.020s 窗执行 wakeup_chain/window_stats/root_cause_rank；11.000ms threadpool IO 链上席、三个
+   1.000ms runnable 调度席、实际占时/规则可消双轴、Trace 因果投影及自动补采全部恢复，app-100 的 20ms S 态只作症状。
+3. Trace 人工仍不记满分。typed seat 明确给出 `on_chain_prewakeup_work_candidate_only`，并声明 target-wait、work-completion、
+   direct-blocking authority 均未提供；模型正文却写成该 IO 等待沿链“逐级传导”。上下文已有正确边界，且该越界只发生一轮，
+   暂按模型压缩波动用软指导观察，禁止扫描模型 thinking/正文做硬门，也禁止系统替换结论。
+4. 新确认 `B1241-IOPRESSURESCOREIDENTITY1/P1`：同一个 background io_pressure row 同时携带
+   `activity_index/cumulative_impact_score=16` 与普通 root-cause ranking `impact_score=7`。两者不是同一数值身份，系统投影却
+   把 7 渲染成“窗口投影”、16 渲染成“链上累计”；这既让背景行看似拥有链上量，又与模型采用的 typed summary 16 冲突。
+   最优修向是给 composite activity index 与 ranking weight 分开 typed 字段/显示权限：背景综合分只展示权威 activity index
+   及可解释分解，ranking weight 保持内部排序元数据且不得冒充窗口投影/链上累计；不扫描答案数字，不定义硬高低等级。
+5. B1239 获生产正证：First-Pass reference 从首轮即限定 completion-verified 12 席；source-role handoff 将 12 个 production
+   标为 principal、3 个 test helper 标为 support_only；主表和主图从首稿到终稿都只有 12 个 production，12 条可见边均为
+   `implementer -> LoopController`，node/identity 同侧绑定正确。没有通过末轮删边碰巧过关，也没有丢失 support evidence。
+6. 新确认 `B1240-STRUCTDIVTABLECELL1/P1`：最终仍追加“枚举类条目中部分项的证据支持稍弱”。日志中
+   principal-support coverage 为 0 缺口，唯一 soft advisory 来自 V2 block oracle。代码冷读确认 legacy
+   `v2EmittedNameSet` 对 table/ordered-list/bullet-list 只读取 `item.label`，不读取 canonical `cells[0]`；本轮表格按 schema
+   正确使用 cells，故 12 个 production 被旧 oracle 误判未展示。同时该 oracle 仍按 `SourceScopeProfile=all` 取关系全集，
+   未消费 B1239 的 exact principal typed member authority。应统一改用 structured item identity surface + exact principal relation
+   set；真实遗漏仍披露，support-only 测试成员不得反向污染 principal completeness。
+7. 类型案三次成文拒绝分别为 citation_ref→evidence_ids、三列表仍用 label/text 而非 cells、patch 中把
+   `summary-main` 写成 `Summary-main`。三者没有互相矛盾的必带/必拒合同，属于模型 JSON/patch 操作失误；后续可通过 schema
+   单源 canonical table-row 示例和 patch block-roster 低心智提示降低次数，但不得放宽证据、表格形状或 ID 精确校验。
+
+状态：
+
+`r774=runner-pass-2/2,human-partial-1+pass-with-caveat-1`；
+`B1238=production-closed`；
+`B1239=production-closed`；
+`B1237=no-regression/production-positive-r774`；
+`B1240=P1-next`；
+`B1241=P1-after-B1240`；
+`trace-mechanism-overstatement=model-variance/soft-guidance-only/no-prose-hard-gate`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r774`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r774`。
