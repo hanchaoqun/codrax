@@ -4362,6 +4362,120 @@ func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
 	}
 }
 
+func TestReconcileDiagramParticipantsWithTypedCollectionScope(t *testing.T) {
+	hint := &types.DiagramHint{
+		Kind: types.DiagramArchitecture, Required: true,
+		Participants: []types.DiagramParticipantHint{
+			{Identity: "LoopController", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "LoopController 接口"},
+			{Identity: "主要实现类型", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "主要实现类型"},
+		},
+	}
+	predicates := types.SemanticPredicates{IsCategoryEnumeration: true}
+	completeness := &types.CompletenessObligation{Required: true, SourceQuote: "主要实现类型"}
+
+	got, warning := reconcileDiagramParticipantsWithTypedCollectionScope(
+		hint, completeness, predicates, []string{"LoopController"},
+	)
+	if warning == "" || !strings.Contains(warning, "主要实现类型") {
+		t.Fatalf("typed collection normalization must stay auditable, warning=%q", warning)
+	}
+	if got == hint {
+		t.Fatal("normalization must clone rather than mutate the accepted analyzer carrier")
+	}
+	if len(got.Participants) != 1 || got.Participants[0].Identity != "LoopController" {
+		t.Fatalf("collection role became a hard diagram actor: %+v", got.Participants)
+	}
+	if len(hint.Participants) != 2 {
+		t.Fatalf("input hint was mutated: %+v", hint.Participants)
+	}
+
+	t.Run("exact target remains a concrete actor", func(t *testing.T) {
+		concrete := &types.DiagramHint{Participants: []types.DiagramParticipantHint{{
+			Identity: "AllClients", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "AllClients",
+		}}}
+		kept, warning := reconcileDiagramParticipantsWithTypedCollectionScope(
+			concrete,
+			&types.CompletenessObligation{Required: true, SourceQuote: "AllClients"},
+			predicates,
+			[]string{"AllClients"},
+		)
+		if warning != "" || kept != concrete || len(kept.Participants) != 1 {
+			t.Fatalf("exact target was mistaken for a collection role: got=%+v warning=%q", kept, warning)
+		}
+	})
+
+	t.Run("unrelated completeness quote does not change participants", func(t *testing.T) {
+		kept, warning := reconcileDiagramParticipantsWithTypedCollectionScope(
+			hint,
+			&types.CompletenessObligation{Required: true, SourceQuote: "列出每个文件"},
+			predicates,
+			[]string{"LoopController"},
+		)
+		if warning != "" || kept != hint {
+			t.Fatalf("unrelated typed scope changed the diagram plan: got=%+v warning=%q", kept, warning)
+		}
+	})
+}
+
+func TestEmitAnalysis_CategoryCollectionScopeDoesNotBecomeDiagramParticipant(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	const objective = "请用 Mermaid 类图表示 LoopController 接口和它的主要实现类型之间的关系，并列出每个实现类型所在文件。"
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(withV4Required(`{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["LoopController","implementations","class diagram"],
+		"entities":["LoopController"],
+		"exact_targets":["LoopController"],
+		"question_kind":"enumeration",
+		"predicate_axis":"implement",
+		"diagram_hint":{"kind":"architecture","required":true,"relation_scope_quote":"Mermaid 类图表示 LoopController 接口和它的主要实现类型之间的关系","participants":[
+			{"identity":"LoopController","source_quote":"LoopController 接口","role":"incident_required"},
+			{"identity":"主要实现类型","source_quote":"主要实现类型","role":"incident_required"}
+		]},
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.97,
+			"dimensions":[{"label":"Mermaid 类图","role":"diagram","source_quote":"Mermaid 类图","required":true,"index":1}]
+		}
+	}`)), &payload); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	predicates, _ := json.Marshal(types.SemanticPredicates{
+		IsRelationalLookup:    true,
+		IsCategoryEnumeration: true,
+	})
+	payload["predicates"] = predicates
+	payload["completeness_obligation"] = json.RawMessage(`{"required":true,"source_quote":"主要实现类型"}`)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	mu := types.NewMutableState(objective)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, raw)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed collection reconciliation should avoid an impossible actor: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.DiagramHint == nil || len(rm.DiagramHint.Participants) != 1 ||
+		rm.DiagramHint.Participants[0].Identity != "LoopController" {
+		t.Fatalf("collection scope leaked into participant obligations: %+v", rm)
+	}
+	if rm.CompletenessObligation == nil || rm.CompletenessObligation.SourceQuote != "主要实现类型" {
+		t.Fatalf("member-set completeness authority was lost: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, "removed diagram collection-scope participant") {
+		t.Fatalf("normalization warning missing from audit summary: %q", res.Summary)
+	}
+}
+
 func TestParseDiagramHintRejectsAmbiguousParticipantContract(t *testing.T) {
 	required := true
 	unknownRole := []emitDiagramParticipantParam{{Identity: "StageA", Role: "required", SourceQuote: "StageA"}}

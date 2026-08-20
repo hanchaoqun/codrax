@@ -57010,3 +57010,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1246 B1234：集合完备性范围与具体图参与者解耦（2026-08-20）
+
+1. 冷读 r768 Analyzer 原始 payload 后修正 §123.1245 的施工位置：系统没有自动补入“主要实现类型”；模型明确把它同时写成
+   `completeness_obligation.source_quote` 和 `diagram_hint.participants[].source_quote`。现有教学已经说 generic collection 不是
+   participant，但 participant schema 只有 `incident_required/context_only` 两种具体 actor 角色，没有结构化解决这组跨字段
+   自冲突，最终覆盖器只能把集合短语当成必须有 incident edge 的字面节点。
+2. 本批在 Analyzer 已完成各字段独立 provenance 校验后做单点 typed reconciliation。只有以下四项同时成立才移除该 participant：
+   `predicates.is_category_enumeration=true`、完备性义务有效、participant 的独立 `source_quote` 与完备性 `source_quote`
+   trim+case-fold 后完全相同、该 identity 不在已验证 `exact_targets`。不读取用户关键词、模型 thinking、答案正文、Mermaid
+   节点/标签，也不做“主要/所有/每个”等语言词典判断。
+3. 这不是系统替模型补图：系统只阻止一个已由 typed 完备性字段声明为“成员集合范围”的短语再次铸成虚构 actor。具体成员仍由
+   Explorer/repomap 的 exact typed member-set 与 relation provider 交给模型；模型自行决定节点、边、业务标签和结论。有效
+   `exact_targets` 即使与完备性引用同字也原样保留，普通 participant、非分类枚举和不同 source quote 均不变。
+4. §123.1245 所说“由 provider 覆盖抽象 role”没有采用：那会要求覆盖器把字面集合词与若干具体成员建立新的 membership 语义，
+   增加一层系统推断。当前方案直接恢复既有架构边界：completeness 只管集合是否完整，participant 只管明确 actor 是否有已证
+   incident，typed relation 只管具体 endpoint 关系；三权分离，partial member-set 仍由既有完备性门 fail-closed。
+5. 新 pin 覆盖：生产形 `LoopController + 主要实现类型` 只留下精确目标；输入 carrier 不被原地修改；同字 exact target
+   不被误删；无关完备性引用不改变 participant；真实 `EmitAnalysis.Execute` 接线持久化单一具体 participant 并保留原
+   completeness obligation。既有跨 Go/Java/Kotlin/ArkTS/Cangjie/C++/Rust exact type relation coverage 测试继续通过。
+6. `go test ./internal/tool ./internal/types ./internal/skill ./internal/agent -count=1` 全绿（tool 182.380s、types
+   24.485s、skill 1.128s、agent 13.534s）。Trace intent/QFRootCauseTrace、显式窗、因果投影、系统补齐、链上-only
+   根因、双轴统计与活跃流时限路径均未修改。
+
+状态：
+
+`B1234-ABSTRACTSETPARTICIPANTRELATIONCONFLICT1=implemented/full-relevant-pass/pending-production-replay`；
+`collection-scope-authority=completeness-obligation`；
+`concrete-actor-authority=diagram-participant`；
+`concrete-edge-authority=typed-relation-provider`；
+`exact-target-same-quote=preserved`；
+`partial-member-set=existing-completeness-gate/fail-closed`；
+`request/model/final-prose/mermaid-label-keyword-scan-or-rewrite=none`；
+`system-edge/node/label/conclusion-authorship=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

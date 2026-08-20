@@ -2025,6 +2025,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			val.Warnings = append(val.Warnings, "recovered finite named config exact_targets from current-request mentioned entities")
 		}
 	}
+	if reconciled, warning := reconcileDiagramParticipantsWithTypedCollectionScope(
+		diagramHint,
+		completenessObligation,
+		predicates,
+		exactTargets,
+	); warning != "" {
+		diagramHint = reconciled
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if normalizeFiniteConfigValueMatrixPredicate(
 		kind,
 		scenario,
@@ -6983,6 +6993,69 @@ func parseCompletenessObligation(raw string, p *emitCompletenessObligationParam)
 		return nil, "completeness_obligation.source_quote must appear in the current request text (whitespace-insensitive match allowed)"
 	}
 	return out, ""
+}
+
+// reconcileDiagramParticipantsWithTypedCollectionScope resolves one precise
+// cross-field conflict without reading request prose or inventing diagram
+// structure. In category-enumeration questions, completeness_obligation owns
+// the requested member-set scope. When an analyzer also emits that exact
+// source quote as a diagram participant, it has turned a collection role into
+// a fictitious actor. Keeping the row would force a visible node and grounded
+// incident edge that no source relation can ever prove.
+//
+// Exact targets are preserved: a concrete actor can legitimately share words
+// with a completeness phrase. The normalization removes only rows whose
+// independently grounded source_quote is byte-equivalent (after trimming and
+// case folding) to the active completeness quote and whose identity is not an
+// analyzer-declared exact target. Concrete members discovered later remain
+// model-authored diagram nodes backed by typed relation evidence; this helper
+// neither creates those members nor authors an edge, label, or conclusion.
+func reconcileDiagramParticipantsWithTypedCollectionScope(
+	hint *types.DiagramHint,
+	completeness *types.CompletenessObligation,
+	predicates types.SemanticPredicates,
+	exactTargets []string,
+) (*types.DiagramHint, string) {
+	if hint == nil || !predicates.IsCategoryEnumeration || !completeness.IsActive() ||
+		len(hint.Participants) == 0 {
+		return hint, ""
+	}
+	collectionQuote := strings.TrimSpace(completeness.SourceQuote)
+	if collectionQuote == "" {
+		return hint, ""
+	}
+	isExactTarget := func(identity string) bool {
+		identityKey := diagramParticipantIdentityAliasKey(identity)
+		if identityKey == "" {
+			return false
+		}
+		for _, target := range exactTargets {
+			if diagramParticipantIdentityAliasKey(target) == identityKey {
+				return true
+			}
+		}
+		return false
+	}
+
+	kept := make([]types.DiagramParticipantHint, 0, len(hint.Participants))
+	dropped := make([]string, 0, 1)
+	for _, participant := range hint.Participants {
+		if !isExactTarget(participant.Identity) &&
+			strings.EqualFold(strings.TrimSpace(participant.SourceQuote), collectionQuote) {
+			dropped = append(dropped, strings.TrimSpace(participant.Identity))
+			continue
+		}
+		kept = append(kept, participant)
+	}
+	if len(dropped) == 0 {
+		return hint, ""
+	}
+	cloned := *hint
+	cloned.Participants = kept
+	return &cloned, fmt.Sprintf(
+		"removed diagram collection-scope participant(s) %v because their typed source_quote is the active completeness_obligation; concrete requested targets and member-set evidence remain authoritative",
+		dropped,
+	)
 }
 
 // parseQuestionBuckets (Plan E, 2026-05-02) validates the optional
