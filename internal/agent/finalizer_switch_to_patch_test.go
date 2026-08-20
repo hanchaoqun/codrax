@@ -984,7 +984,7 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 }
 
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
-	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true,"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
+	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
 	result := func(toolName string) *types.ToolResult {
 		return &types.ToolResult{
 			ToolName: toolName, Success: false,
@@ -1007,8 +1007,8 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 		}
 		for _, want := range []string{
 			`"from_node":"BC"`, `"to_node":"E"`, "preserve_unlisted_edges=true",
-			`"candidate_policy":"deferred_until_current_failures_clear"`,
-			"Do not add a candidate relation in this local repair",
+			`"allowed_additions"`, `"from_identity":"Orchestrator.applyStageOutput"`,
+			"The allowed rows are permissions, not required edges",
 			"system has not selected, added, removed, relabelled, reversed, or reconnected",
 		} {
 			if !strings.Contains(signal.Hint, want) {
@@ -1036,7 +1036,8 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 		ctx, LoopObservation{LastToolResult: result("emit_answer_document_patch")},
 	))
 	if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease == nil || len(lease.Failures) != 1 ||
-		lease.Failures[0].FromNode != "BC" {
+		lease.Failures[0].FromNode != "BC" || len(lease.AllowedAdditions) != 1 ||
+		lease.AllowedAdditions[0].FromIdentity != "Orchestrator.applyStageOutput" {
 		t.Fatalf("compact relation lane must install the exact typed patch lease: %+v", lease)
 	}
 
@@ -1064,7 +1065,7 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	}
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
 	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
-		!strings.Contains(signal.Hint, "Do not add a candidate relation in this local repair") {
+		!strings.Contains(signal.Hint, "do not add any other relation") {
 		t.Fatalf("lease rejection must remain on compact local repair lane: %+v", signal)
 	}
 	if strings.Contains(signal.Hint, "Copy-ready optional typed diagram") || strings.Contains(signal.Hint, "Verified component fragment") {

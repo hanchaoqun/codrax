@@ -20,6 +20,19 @@ type AnswerDiagramRelationRepairFailure struct {
 	ToIdentity   string              `json:"to_identity,omitempty"`
 }
 
+// AnswerDiagramRelationRepairCandidate is one producer-owned relation tuple
+// that the model may choose to add while clearing the current failure set.
+// Node ids and visible labels stay outside the permission so layout and reader
+// wording remain model-authored; the ordinary diagram authority gate still
+// validates the selected endpoint mapping after the lease admits it.
+type AnswerDiagramRelationRepairCandidate struct {
+	BlockID      string              `json:"block_id"`
+	RelationKind DiagramRelationKind `json:"relation_kind"`
+	FromIdentity string              `json:"from_identity"`
+	ToIdentity   string              `json:"to_identity"`
+	Source       string              `json:"source"`
+}
+
 // AnswerDiagramRelationRepairLeaseBlock snapshots the structured relation
 // topology of one block at the start of a bounded repair turn. Visible labels
 // are retained in the snapshot for audit, but lease comparison intentionally
@@ -36,9 +49,10 @@ type AnswerDiagramRelationRepairLeaseBlock struct {
 // relation remains unchanged. The lease never authors, deletes, relabels, or
 // reconnects an edge itself.
 type AnswerDiagramRelationRepairLease struct {
-	Version  int                                     `json:"version"`
-	Failures []AnswerDiagramRelationRepairFailure    `json:"failures"`
-	Blocks   []AnswerDiagramRelationRepairLeaseBlock `json:"blocks"`
+	Version          int                                     `json:"version"`
+	Failures         []AnswerDiagramRelationRepairFailure    `json:"failures"`
+	AllowedAdditions []AnswerDiagramRelationRepairCandidate  `json:"allowed_additions,omitempty"`
+	Blocks           []AnswerDiagramRelationRepairLeaseBlock `json:"blocks"`
 }
 
 // AnswerDiagramRelationRepairScopeViolation is a compact typed explanation of
@@ -53,7 +67,11 @@ type AnswerDiagramRelationRepairScopeViolation struct {
 // NewAnswerDiagramRelationRepairLease freezes the precise graph carrier that
 // the next patch is allowed to repair. Empty/invalid failures produce nil so a
 // malformed diagnostic can never create a hard gate.
-func NewAnswerDiagramRelationRepairLease(base *AnswerDocumentV2, failures []AnswerDiagramRelationRepairFailure) *AnswerDiagramRelationRepairLease {
+func NewAnswerDiagramRelationRepairLease(
+	base *AnswerDocumentV2,
+	failures []AnswerDiagramRelationRepairFailure,
+	allowedAdditions []AnswerDiagramRelationRepairCandidate,
+) *AnswerDiagramRelationRepairLease {
 	if base == nil || len(failures) == 0 {
 		return nil
 	}
@@ -75,6 +93,27 @@ func NewAnswerDiagramRelationRepairLease(base *AnswerDocumentV2, failures []Answ
 	if len(clean) == 0 {
 		return nil
 	}
+	allowed := make([]AnswerDiagramRelationRepairCandidate, 0, min(len(allowedAdditions), 8))
+	allowedSeen := make(map[string]bool, len(allowedAdditions))
+	for _, candidate := range allowedAdditions {
+		candidate.BlockID = strings.TrimSpace(candidate.BlockID)
+		candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
+		candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
+		candidate.Source = strings.TrimSpace(candidate.Source)
+		if !targetBlocks[candidate.BlockID] || !candidate.RelationKind.IsValid() ||
+			candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
+			continue
+		}
+		key := answerDiagramRelationRepairCandidateKey(candidate)
+		if allowedSeen[key] {
+			continue
+		}
+		allowedSeen[key] = true
+		allowed = append(allowed, candidate)
+		if len(allowed) >= 8 {
+			break
+		}
+	}
 	blocks := make([]AnswerDiagramRelationRepairLeaseBlock, 0, len(base.Blocks))
 	for _, block := range base.Blocks {
 		id := strings.TrimSpace(block.ID)
@@ -87,7 +126,9 @@ func NewAnswerDiagramRelationRepairLease(base *AnswerDocumentV2, failures []Answ
 			BaseAnchors: append([]DiagramEdgeAnchor(nil), block.EdgeAnchors...),
 		})
 	}
-	return &AnswerDiagramRelationRepairLease{Version: 1, Failures: clean, Blocks: blocks}
+	return &AnswerDiagramRelationRepairLease{
+		Version: 1, Failures: clean, AllowedAdditions: allowed, Blocks: blocks,
+	}
 }
 
 // ValidateAnswerDiagramRelationRepairLease checks only typed edge-anchor
@@ -195,7 +236,8 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 		}
 
 		// Every removed base relation must be explicitly named by failures[].
-		for key, count := range baseCounts {
+		for _, key := range answerDiagramRelationSortedCountKeys(baseCounts) {
+			count := baseCounts[key]
 			missing := count - resultCounts[key]
 			if missing <= 0 {
 				continue
@@ -212,7 +254,9 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 
 		newBudget := removedFailedBudget + missingBaseFailureBudget
 		newUsed := 0
-		for key, count := range resultCounts {
+		allowedUsed := make(map[string]int)
+		for _, key := range answerDiagramRelationSortedCountKeys(resultCounts) {
+			count := resultCounts[key]
 			extra := count - baseCounts[key]
 			if extra <= 0 {
 				continue
@@ -220,6 +264,17 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 			anchor, ok := answerDiagramRelationAnchorByKey(result, key)
 			for i := 0; ok && i < extra; i++ {
 				if !answerDiagramRelationAnchorMatchesAnyFailure(blockID, anchor, lease.Failures) {
+					if candidate, listed := answerDiagramRelationAllowedCandidate(blockID, anchor, lease.AllowedAdditions); listed {
+						candidateKey := answerDiagramRelationRepairCandidateKey(candidate)
+						allowedUsed[candidateKey]++
+						if allowedUsed[candidateKey] > 1 {
+							violations = append(violations, AnswerDiagramRelationRepairScopeViolation{
+								BlockID: blockID, Issue: "listed_relation_expanded",
+								FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+							})
+						}
+						continue
+					}
 					violations = append(violations, AnswerDiagramRelationRepairScopeViolation{
 						BlockID: blockID, Issue: "unlisted_relation_added",
 						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
@@ -237,6 +292,38 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 		}
 	}
 	return answerDiagramRelationRepairUniqueViolations(violations, 8)
+}
+
+func answerDiagramRelationSortedCountKeys(counts map[string]int) []string {
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func answerDiagramRelationAllowedCandidate(
+	blockID string,
+	anchor DiagramEdgeAnchor,
+	candidates []AnswerDiagramRelationRepairCandidate,
+) (AnswerDiagramRelationRepairCandidate, bool) {
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.BlockID) == blockID &&
+			candidate.RelationKind == anchor.RelationKind &&
+			strings.TrimSpace(candidate.FromIdentity) == strings.TrimSpace(anchor.FromIdentity) &&
+			strings.TrimSpace(candidate.ToIdentity) == strings.TrimSpace(anchor.ToIdentity) {
+			return candidate, true
+		}
+	}
+	return AnswerDiagramRelationRepairCandidate{}, false
+}
+
+func answerDiagramRelationRepairCandidateKey(candidate AnswerDiagramRelationRepairCandidate) string {
+	return strings.Join([]string{
+		strings.TrimSpace(candidate.BlockID), strings.TrimSpace(string(candidate.RelationKind)),
+		strings.TrimSpace(candidate.FromIdentity), strings.TrimSpace(candidate.ToIdentity),
+	}, "\x00")
 }
 
 func answerDiagramRelationAnchorSemanticKey(anchor DiagramEdgeAnchor) string {
@@ -323,6 +410,7 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 	}
 	out := &AnswerDiagramRelationRepairLease{Version: in.Version}
 	out.Failures = append([]AnswerDiagramRelationRepairFailure(nil), in.Failures...)
+	out.AllowedAdditions = append([]AnswerDiagramRelationRepairCandidate(nil), in.AllowedAdditions...)
 	if len(in.Blocks) > 0 {
 		out.Blocks = make([]AnswerDiagramRelationRepairLeaseBlock, len(in.Blocks))
 		for i, block := range in.Blocks {

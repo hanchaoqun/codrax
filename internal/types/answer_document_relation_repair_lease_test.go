@@ -15,6 +15,9 @@ func TestAnswerDiagramRelationRepairLease_LocalDeltaOnly(t *testing.T) {
 	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{{
 		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall,
 		FromNode: "Analyze", ToNode: "Explore", FromIdentity: "runAnalyzePhase", ToIdentity: "runExplorePhase",
+	}}, []AnswerDiagramRelationRepairCandidate{{
+		BlockID: "flow", RelationKind: DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
 	}})
 	if lease == nil {
 		t.Fatal("expected a lease from a valid typed failure")
@@ -60,6 +63,40 @@ func TestAnswerDiagramRelationRepairLease_LocalDeltaOnly(t *testing.T) {
 		}
 	})
 
+	t.Run("listed typed candidate may be selected in the same patch", func(t *testing.T) {
+		candidate := DiagramEdgeAnchor{
+			FromNode: "AnalyzeStage", ToNode: "ExploreStage",
+			FromIdentity: "analyzer", ToIdentity: "explorer",
+			RelationKind: DiagramRelPrecedence, VisibleLabel: "model-owned wording",
+		}
+		got := ValidateAnswerDiagramRelationRepairLease(lease, &AnswerDocumentV2{Blocks: []AnswerBlock{{
+			ID: "flow", EdgeAnchors: []DiagramEdgeAnchor{good, candidate},
+		}}})
+		if len(got) != 0 {
+			t.Fatalf("producer-listed typed candidate must be selectable without an empty intermediate graph: %+v", got)
+		}
+	})
+
+	t.Run("listed typed candidate cannot be duplicated", func(t *testing.T) {
+		candidate := DiagramEdgeAnchor{
+			FromNode: "AnalyzeStage", ToNode: "ExploreStage",
+			FromIdentity: "analyzer", ToIdentity: "explorer",
+			RelationKind: DiagramRelPrecedence,
+		}
+		got := ValidateAnswerDiagramRelationRepairLease(lease, &AnswerDocumentV2{Blocks: []AnswerBlock{{
+			ID: "flow", EdgeAnchors: []DiagramEdgeAnchor{good, candidate, candidate},
+		}}})
+		found := false
+		for _, violation := range got {
+			if violation.Issue == "listed_relation_expanded" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("listed candidate is a one-row permission, got %+v", got)
+		}
+	})
+
 	t.Run("retaining failure cannot expand same pair", func(t *testing.T) {
 		duplicate := bad
 		duplicate.RelationKind = DiagramRelAssignment
@@ -100,7 +137,7 @@ func TestAnswerDiagramRelationRepairLease_FreezesRequiredDiagramCarrier(t *testi
 	}}}
 	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{{
 		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
-	}})
+	}}, nil)
 
 	tests := []struct {
 		name  string

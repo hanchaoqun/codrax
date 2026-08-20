@@ -116,7 +116,7 @@ func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) 
 		[]types.AnswerDiagramRelationRepairFailure{{
 			BlockID: "list1", Issue: "call_edge_unproven",
 			FromNode: "Analyze", ToNode: "Explore",
-		}}))
+		}}, nil))
 
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
 		"unchanged_block_ids":["s1"],
@@ -158,7 +158,7 @@ func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement
 	mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(base,
 		[]types.AnswerDiagramRelationRepairFailure{{
 			BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
-		}}))
+		}}, nil))
 	bus := &types.BusContext{Mutable: mut}
 
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
@@ -178,6 +178,39 @@ func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RelationLeaseAllowsOnlyStructuredCandidateAddition(t *testing.T) {
+	bus := newPatchTestBusContext()
+	base := bus.Mutable.AnswerDocumentV2()
+	bus.Mutable.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "list1", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+		}},
+		[]types.AnswerDiagramRelationRepairCandidate{{
+			BlockID: "list1", RelationKind: types.DiagramRelPrecedence,
+			FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
+		}}))
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"replace_blocks":[{
+			"id":"list1","kind":"ordered_list",
+			"items":[{"id":"i1","label":"A","citation_ref":0}],
+			"edge_anchors":[{
+				"from_node":"AnalyzeStage","to_node":"ExploreStage",
+				"from_identity":"analyzer","to_identity":"explorer",
+				"relation_kind":"precedence","visible_label":"model wording"
+			}]
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("listed structured candidate must pass the production lease before ordinary authority checks: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks[1].EdgeAnchors) != 1 || doc.Blocks[1].EdgeAnchors[0].VisibleLabel != "model wording" {
+		t.Fatalf("candidate permission must preserve the model-authored carrier: %+v", doc)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration(t *testing.T) {
 	mut := types.NewMutableState("relation repair generation")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
@@ -187,7 +220,7 @@ func TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration(t
 	}}}
 	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
 		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
-	}})
+	}}, nil)
 	mut.SetAnswerDiagramRelationRepairLease(lease)
 
 	matching := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{

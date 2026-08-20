@@ -1550,8 +1550,18 @@ func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternat
 	if delta.Version != 1 || !delta.PreserveUnlistedEdges || len(delta.Failures) != 2 {
 		t.Fatalf("relation delta lost exact local failure set: %+v", delta)
 	}
+	if len(delta.AllowedAdditions) == 0 {
+		t.Fatalf("relation delta must carry machine-readable candidates from the same typed provider: %+v", delta)
+	}
+	for _, candidate := range delta.AllowedAdditions {
+		if candidate.BlockID != "pipeline" || candidate.FromIdentity == "" || candidate.ToIdentity == "" ||
+			!candidate.RelationKind.IsValid() || candidate.Source == "" {
+			t.Fatalf("allowed addition must be a complete typed tuple scoped to the failed block: %+v", candidate)
+		}
+	}
 	for _, want := range []string{
 		`"from_node":"BC"`, `"to_node":"A"`, `"to_node":"X"`,
+		`"allowed_additions"`, `"block_id":"pipeline"`,
 		`typed_candidate[BusContext][1]`, `candidate_scope:\"local_operation_only\"`,
 		`retain_participant_boundary:true`, `from_identity:\"output.EvidenceItems\"`,
 	} {
@@ -1569,6 +1579,33 @@ func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternat
 	}
 	if len(raw) > 6000 {
 		t.Fatalf("relation delta must stay bounded, got %d bytes", len(raw))
+	}
+}
+
+func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}
+	stage := func(name, agent string) stageauthority.StageRow {
+		return stageauthority.StageRow{StageValue: name, AgentValue: agent}
+	}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: stage("analyze", "analyzer"), To: stage("explore", "explorer"), SourceFile: "internal/types/enums.go", LineStart: 120, LineEnd: 121},
+		{From: stage("explore", "explorer"), To: stage("extract", "extractor"), SourceFile: "internal/types/enums.go", LineStart: 121, LineEnd: 122},
+		{From: stage("extract", "extractor"), To: stage("finalize", "finalizer"), SourceFile: "internal/types/enums.go", LineStart: 122, LineEnd: 123},
+	}
+	got := diagramRelationRepairAllowedAdditions(rm, nil, precedence, []string{"diagram-1"}, 8)
+	if len(got) != 3 {
+		t.Fatalf("complete checkout-verified stage spine must remain selectable in one local repair, got %+v", got)
+	}
+	for i, want := range []struct{ from, to string }{
+		{"analyzer", "explorer"}, {"explorer", "extractor"}, {"extractor", "finalizer"},
+	} {
+		if got[i].BlockID != "diagram-1" || got[i].RelationKind != types.DiagramRelPrecedence ||
+			got[i].FromIdentity != want.from || got[i].ToIdentity != want.to || got[i].Source == "" {
+			t.Fatalf("stage candidate %d drifted: got=%+v want=%s->%s", i, got[i], want.from, want.to)
+		}
 	}
 }
 

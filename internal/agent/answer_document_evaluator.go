@@ -17573,10 +17573,11 @@ type answerDocDiagramParticipantRepairDelta struct {
 }
 
 type answerDocDiagramRelationRepairDelta struct {
-	Version               int                                        `json:"version"`
-	Failures              []types.AnswerDiagramRelationRepairFailure `json:"failures"`
-	PreserveUnlistedEdges bool                                       `json:"preserve_unlisted_edges"`
-	CandidateAlternatives string                                     `json:"candidate_alternatives,omitempty"`
+	Version               int                                          `json:"version"`
+	Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
+	PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
+	AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+	CandidateAlternatives string                                       `json:"candidate_alternatives,omitempty"`
 }
 
 // answerDocRequiredDiagramParticipantDeltaPatchHint consumes the exact local
@@ -17643,13 +17644,13 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 		}
 	}
 	visibleDelta := struct {
-		Version               int                                        `json:"version"`
-		Failures              []types.AnswerDiagramRelationRepairFailure `json:"failures"`
-		PreserveUnlistedEdges bool                                       `json:"preserve_unlisted_edges"`
-		CandidatePolicy       string                                     `json:"candidate_policy"`
+		Version               int                                          `json:"version"`
+		Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
+		PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
+		AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
 	}{
 		Version: delta.Version, Failures: delta.Failures,
-		PreserveUnlistedEdges: true, CandidatePolicy: "deferred_until_current_failures_clear",
+		PreserveUnlistedEdges: true, AllowedAdditions: delta.AllowedAdditions,
 	}
 	visibleRaw, err := json.Marshal(visibleDelta)
 	if err != nil {
@@ -17665,7 +17666,7 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 	b.WriteString(prefix)
 	b.WriteString(" by a local typed source-diagram relation mismatch. ")
 	b.WriteString(action)
-	b.WriteString("; replace only the rejected relation block or blocks, retain unrelated blocks through `unchanged_block_ids`, and preserve inherited citations. Keep every existing required diagram block id and `kind=diagram` unchanged; do not add or remove a diagram block in this local repair. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only that exact visible edge/anchor pair in its named block. `preserve_unlisted_edges=true` is enforced on typed `edge_anchors`: every other model-authored relation must remain unchanged. Do not add a candidate relation in this local repair; `candidate_alternatives` is deferred until the named failures are cleared, so one correction cannot create a new failure elsewhere. Visible labels remain model-authored and may be improved without changing endpoint IDs, identities, direction, or relation kind. Issue values, candidate keys, source locations, relation enums, and boundary flags are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	b.WriteString("; replace only the rejected relation block or blocks, retain unrelated blocks through `unchanged_block_ids`, and preserve inherited citations. Keep every existing required diagram block id and `kind=diagram` unchanged; do not add or remove a diagram block in this local repair. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only that exact visible edge/anchor pair in its named block. `preserve_unlisted_edges=true` is enforced on typed `edge_anchors`: every other model-authored relation must remain unchanged. You may choose zero or more `allowed_additions[]` rows in this same patch, but copy each selected row's from_identity, to_identity, relation_kind, and block_id exactly and use it at most once; do not add any other relation. The allowed rows are permissions, not required edges. You still author all visible node ids, labels, business wording, ordering, and layout. Issue values and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
 	b.Write(visibleRaw)
 	b.WriteString("\n```\n\n")
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
@@ -17697,7 +17698,7 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 	if base == nil {
 		base = answerDocumentPatchBaseDocumentInMutable(primary)
 	}
-	lease := types.NewAnswerDiagramRelationRepairLease(base, delta.Failures)
+	lease := types.NewAnswerDiagramRelationRepairLease(base, delta.Failures, delta.AllowedAdditions)
 	if lease == nil {
 		return false
 	}

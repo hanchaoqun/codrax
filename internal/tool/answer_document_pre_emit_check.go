@@ -5692,10 +5692,11 @@ func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMisma
 }
 
 type diagramRelationRepairDelta struct {
-	Version               int                                 `json:"version"`
-	Failures              []diagramRelationRepairDeltaFailure `json:"failures"`
-	PreserveUnlistedEdges bool                                `json:"preserve_unlisted_edges"`
-	CandidateAlternatives string                              `json:"candidate_alternatives,omitempty"`
+	Version               int                                          `json:"version"`
+	Failures              []diagramRelationRepairDeltaFailure          `json:"failures"`
+	PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
+	AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+	CandidateAlternatives string                                       `json:"candidate_alternatives,omitempty"`
 }
 
 type diagramRelationRepairDeltaFailure struct {
@@ -5768,13 +5769,22 @@ func diagramRelationRepairDeltaJSON(
 		return left.Issue < right.Issue
 	})
 	candidates := ""
+	var allowedAdditions []types.AnswerDiagramRelationRepairCandidate
 	if ctx != nil && ctx.AnalysisIR != nil {
 		candidates = diagramRelationRepairLocalCandidateGuidance(
 			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, 4,
 		)
+		blockIDs := make([]string, 0, len(failures))
+		for _, failure := range failures {
+			blockIDs = append(blockIDs, failure.BlockID)
+		}
+		allowedAdditions = diagramRelationRepairAllowedAdditions(
+			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, 8,
+		)
 	}
 	raw, err := json.Marshal(diagramRelationRepairDelta{
 		Version: 1, Failures: failures, PreserveUnlistedEdges: true,
+		AllowedAdditions:      allowedAdditions,
 		CandidateAlternatives: strings.TrimSpace(candidates),
 	})
 	if err != nil || len(raw) > 16*1024 {

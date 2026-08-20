@@ -464,17 +464,22 @@ func answerDiagramRelationRepairScopeRepair(
 	metadata := map[string]string{}
 	if lease != nil {
 		delta := struct {
-			Version               int                                        `json:"version"`
-			Failures              []types.AnswerDiagramRelationRepairFailure `json:"failures"`
-			PreserveUnlistedEdges bool                                       `json:"preserve_unlisted_edges"`
-		}{Version: 1, Failures: append([]types.AnswerDiagramRelationRepairFailure(nil), lease.Failures...), PreserveUnlistedEdges: true}
+			Version               int                                          `json:"version"`
+			Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
+			PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
+			AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+		}{
+			Version: 1, Failures: append([]types.AnswerDiagramRelationRepairFailure(nil), lease.Failures...),
+			PreserveUnlistedEdges: true,
+			AllowedAdditions:      append([]types.AnswerDiagramRelationRepairCandidate(nil), lease.AllowedAdditions...),
+		}
 		if raw, err := json.Marshal(delta); err == nil {
 			metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = string(raw)
 		}
 	}
 	return &types.ToolRepair{
 		Code:     types.ToolRepairCodeAnswerDocRelationRepairScope,
-		Hint:     "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. Do not add candidate relations during this local repair.",
+		Hint:     "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. You may choose listed allowed_additions[] at most once each; do not add any other relation.",
 		Fields:   fields,
 		Metadata: metadata,
 	}

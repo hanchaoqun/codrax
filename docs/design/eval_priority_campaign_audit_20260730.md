@@ -57831,3 +57831,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r780`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r780`。
+
+### §123.1268 r781：租约代次闭环与 typed candidate 同轮准入 GAP（2026-08-20）
+
+1. 以已推送 `7f93cce9f` 构建不可变二进制，严格并发恰好 2 路；read 945s、Trace 250s，runner 2/2 PASS，人工
+   `pass + partial`。两路均由当前活动流完成，没有 4ms、4m、首字节、stall、累计年龄或陈旧草稿降级。
+2. `B1248-RELLEASEGEN1` 生产命中：read 第 9 次 patch 首次提交“保留图载体、清空旧失败 edge_anchors”的中间稿，日志不再返回
+   relation scope violation，而是进入下一代 missing precedence spine/participant 合同；第 12 次 patch 加入三条 typed precedence
+   spine 后成功。最终仅一张合法 sequenceDiagram 和一张表，无跨 kind、重复图或重复表，证明 scope-success 消费点有效。
+3. Trace 异构回归保持完整：2.000–2.020s 显式窗、八次 trace_query/自动补采、Trace 因果投影均在；链上首因仍为
+   threadpool-400 的 11.000ms IO 等待，三个 runnable 调度供给席各 1.000ms。实际占时/规则可消双轴、sleep 症状和背景 IO
+   不入主因均未回退；一次 finalizer reject 未改变最终内容。
+4. 新确认 `B1249-RELCANDIDATETXN/P1`：B1248 解除跨代死锁，但当前协议强制模型做两次语义上机械的 patch——先只删失败边，
+   等租约消费后再加入 producer 下一代已经拥有的精确 typed candidate。r781 中模型连续多次把 checkout-verified
+   `analyzer→explorer→extractor→finalizer` precedence spine 与旧边清理放在同一 patch，却被租约作为 unlisted addition 拒绝；
+   直到第 9 轮学会发空 anchor 中间稿才继续，最终共 12 次拒绝、60% 上下文。该高频形说明“候选全部延后”降低了协议可执行性。
+5. 最优泛化修正不是取消租约，也不是解析 `candidate_alternatives` 字符串：producer 应在 relation delta 中增加有界
+   `allowed_additions[]` 结构元组，字段仅含 relation_kind/from_identity/to_identity（及目标 block）；来源只允许同一个精确
+   stageauthority/evidence candidate provider。lease 同轮允许模型保留未点名边、删除/同对纠正失败边，并可选择零到若干列出的
+   addition；任何未列 tuple、候选重复扩张、错误方向/类型仍精确拒绝。模型继续决定是否使用候选、可见 node id、业务标签和图布局，
+   系统不选边、不补边、不改图。
+6. `candidate_alternatives` 文字继续只作软教学，严禁解析它驱动硬门；硬许可只消费 schema-validated typed 数组。scope rejection
+   必须原样携带 failures+allowed additions，避免下一次重试丢权。测试覆盖 listed candidate 同轮可选、未列 candidate 拒绝、同一
+   candidate 不可重复扩张、visible label/node wording 仍由模型持有、旧边保持与 carrier freeze 不回退，以及 delta 体积上限。
+7. 另记 `B1250-TABLEHEADER1/P2`：最终表无 `columns` 时渲染成“项目/列2…列6”，不能直接回答输入/输出/状态载体列义；同时
+   Explorer 行出现“调用 emit_answer_document 收集证据”的模型误述。前者是结构展示债，后者当前仅一轮见证，先作模型事实校准
+   观察项；不得扫描正文关键词做硬门或由系统替换模型叙述。
+8. B1249 已按上述结构实现：delta/lease 新增最多 8 条 `allowed_additions[]`，每条强制 block_id、relation_kind、
+   from_identity、to_identity、source；stageauthority 完整相邻 spine 与同一 participant typed evidence provider 直接铸造数组，
+   `candidate_alternatives` 文本不参与硬许可。模型可同轮选择列出候选且自定 node id/label/layout；候选只能使用一次，未列关系、
+   反向/错类型、重复扩张继续精确拒绝。scope rejection 会携带原 candidates，carrier freeze、未点名旧边保持和单代消费均不变；
+   违规遍历改为稳定排序。完整相关包全绿：types 25.826s、agent 13.998s、tool 187.067s。
+
+状态：
+
+`r781=runner-pass-2/2,human-pass-1+partial-1`；
+`B1247=production-closed`；`B1248=production-closed`；
+`B1249=implemented/full-relevant-pass/pending-production-replay`；
+`B1250=confirmed-display-P2+model-fact-watch`；
+`typed-candidate-hard-authority=structured-provider-row-only`；
+`candidate-string=soft-guidance-only/not-parsed`；
+`request/model/final-prose/mermaid-label-scan=none`；
+`system-answer/conclusion/edge/node/label-authorship=none`；
+`B1244=confirmed/P2-after-B1249`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r781`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r781`。

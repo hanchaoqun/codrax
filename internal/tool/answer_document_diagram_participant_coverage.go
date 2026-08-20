@@ -1694,6 +1694,97 @@ func diagramRelationRepairLocalCandidateGuidance(
 	return strings.Join(rows, "; ")
 }
 
+// diagramRelationRepairAllowedAdditions projects the same exact typed
+// relation providers into machine-readable lease permissions. Unlike the
+// nearby rendered candidate guidance, this value is never parsed from text:
+// stage authority and typed evidence construct it directly. The model still
+// chooses whether to use a row and owns node ids, labels, and layout.
+func diagramRelationRepairAllowedAdditions(
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	blockIDs []string,
+	totalLimit int,
+) []types.AnswerDiagramRelationRepairCandidate {
+	if totalLimit <= 0 {
+		return nil
+	}
+	targets := make([]string, 0, len(blockIDs))
+	targetSeen := make(map[string]bool, len(blockIDs))
+	for _, blockID := range blockIDs {
+		blockID = strings.TrimSpace(blockID)
+		if blockID == "" || targetSeen[blockID] {
+			continue
+		}
+		targetSeen[blockID] = true
+		targets = append(targets, blockID)
+	}
+	sort.Strings(targets)
+	if len(targets) == 0 {
+		return nil
+	}
+
+	typed := make([]diagramParticipantTypedIncidentCandidate, 0, len(stagePrecedence)+4)
+	for _, relation := range stagePrecedence {
+		typed = append(typed, diagramParticipantTypedIncidentCandidate{
+			relation: types.DiagramRelPrecedence,
+			from:     strings.TrimSpace(relation.From.AgentValue),
+			to:       strings.TrimSpace(relation.To.AgentValue),
+			location: fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd),
+		})
+	}
+	if rm.DiagramHint != nil {
+		obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+		relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+		for i, obligation := range obligations {
+			typed = append(typed, diagramParticipantTypedIncidentCandidateValuesWithScope(
+				rm, obligation, evidence, stagePrecedence, 2,
+				obligations, allSurfaces, i, relationScope,
+			)...)
+		}
+	}
+	sort.SliceStable(typed, func(i, j int) bool {
+		left, right := typed[i], typed[j]
+		if left.relation != right.relation {
+			return left.relation < right.relation
+		}
+		if left.from != right.from {
+			return left.from < right.from
+		}
+		if left.to != right.to {
+			return left.to < right.to
+		}
+		return left.location < right.location
+	})
+
+	seen := make(map[string]bool)
+	out := make([]types.AnswerDiagramRelationRepairCandidate, 0, totalLimit)
+	for _, candidate := range typed {
+		if !candidate.relation.IsValid() || strings.TrimSpace(candidate.from) == "" ||
+			strings.TrimSpace(candidate.to) == "" || strings.TrimSpace(candidate.location) == "" {
+			continue
+		}
+		for _, blockID := range targets {
+			row := types.AnswerDiagramRelationRepairCandidate{
+				BlockID: blockID, RelationKind: candidate.relation,
+				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
+				Source: strings.TrimSpace(candidate.location),
+			}
+			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
+				row.FromIdentity + "\x00" + row.ToIdentity)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, row)
+			if len(out) >= totalLimit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
 func diagramParticipantCandidateObligations(rm types.RequestModel) ([]types.DiagramParticipantHint, [][]string) {
 	if rm.DiagramHint == nil {
 		return nil, nil
