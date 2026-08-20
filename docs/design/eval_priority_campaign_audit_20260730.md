@@ -58183,3 +58183,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1276 r786：B1252 生产闭环；阶段角色被同名子系统冒充进入下一优先批（2026-08-20）
+
+1. 以已推送 `577090a3f` 构建不可变二进制，严格并发恰好 2 路；显式窗 Trace 216s、read 流水线图+表 496s，runner
+   2/2 PASS，人工均 FAIL。两路活动模型流正常完成，没有基于 4ms、4m、首字节、stall 或累计年龄降级；人工失败来自答案
+   事实与因果措辞，不是流式超时或空答案。
+2. `B1252` 获得同形真实生产正证：read 只运行一段 Explorer，日志中不再出现任何
+   `queued ... bounded mechanism semantic-descent`，`closure_only_repeated=0`，最高上下文约 77.5k/200k（39%）。与 r785
+   的两段 Explorer 相比，超长声明不再因未读完整函数体反复重铸；B1252 升 production-closed。总时长只从 512s 降到 496s，
+   说明下一性能杠杆已转向证据选择、19 次普通 read、成文 patch context 与模型波动，不能把全部时间收益归给这一修点。
+3. Trace 的系统精确面继续通过：2.000–2.020s 用户窗、自动补查、Trace 因果投影、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 链、11.000ms 链上 iowait 首席、三个 1.000ms runnable
+   调度供给席、占时/规则可消双轴及背景隔离均完整。`B1253` 仍复现：模型把已证 wakeup path 进一步叙述成目标线程“完全依赖”
+   上游且把 threadpool IO 称为直接阻塞源，并在没有同核竞争证明时建议核压/亲和性排查；系统投影本身未越权。
+4. read 的新高危为 `B1259-STAGEROLEHOMONYM1/P0`。typed current-run stage authority 已把
+   StageAnalyze/AgentAnalyzer 的职责、产物和 stage_binding 源行准确交给 finalizer，且 relation capsule 已把真正四阶段 spine
+   标为 `requested_relation_spine`、`dataflow.Analyze` 标为断开的 supporting segment；但 Explorer 先把普通
+   `internal/analysis/dataflow.Analyze(graph...)` 写入 StageAnalyze 成员说明，通用 support-ref gate 的提示又要求继续寻找
+   “producer/callsite/consumer”。两次无进展后 `completion_form` 低差量收敛直接接受了这份仍不对齐的 aggregate，错误交接压过
+   了更窄的 typed stage_binding 权威。最终答案遂把 `dataflow.Analyze` 当 read-mode Analyze 入口，并虚构其产物进入
+   `BusContext.AnalysisIR`。这不是名称本身的模型波动，而是“精确角色权威存在、结构化交接仍允许同名普通符号覆盖”的系统 gap。
+5. 同一答案还反转了实际控制方向：源码是 `executeStageRequest -> dispatchStage`，正文却说 `dispatchStage` 内部调用前者；产生
+   不可能的 `internal/agent/explorer.go:918c2f1e1c665ce3` 行号；表头再次退化为“列 1..列 4”。因此
+   `B1250-TABLEHEADER1` 从 production-positive 退回 regression/partial；`B1257` 的 assignment/data-flow 候选缺失与
+   `B1258` mixed delta 串行仍开放，但不是本批首要准确性根因。
+6. B1259 最优施工形冻结为 typed 角色归属单源，而不是扫描“Analyze”字样：仅当 schema-validated 当前 read workflow、
+   checkout-verified stageauthority selection 与一个 model-authored member_set 精确一一覆盖同一组选中 stage 行时，该集合的每行
+   responsibility 主支撑必须来自对应 `stage_binding` 行；普通同名函数、广域 topology/enum 或断开 supporting component 不能替代。
+   失败提示直接发布 provider 已知的精确文件/行窗口并触发有界读取，避免引导模型继续搜同名 producer。该门只约束结构化
+   member/support tuple，不读取用户原文、reasoning、final prose、Mermaid 标签，也不替模型撰写职责或答案。
+7. 低差量边界必须同步修正：精确 stage-role 冲突不能像普通格式债一样在两次后携带错误 aggregate 放行。健康路径应在一次有界
+   stage_binding read 后由模型重发；若最终仍无法修复，只能把冲突集合标为未证/排除出权威交接并保留模型回答机会，不能把已知错误
+   事实送入 finalizer。最终答案仍由模型依据 typed provider 与独立 grounded evidence 作者化，系统不生成表格、关系或结论。
+
+状态：
+
+`r786=runner-pass-2/2,human-fail-2`；
+`B1252=production-closed`；`B1259=confirmed/P0-next`；
+`B1250=regression/partial`；`B1253=confirmed/P1`；
+`B1256=confirmed/P1-after-accuracy`；`B1257/B1258=confirmed/P2`；
+`stage-role-authority=checkout-typed/provider-owned/planned`；
+`homonymous-supporting-symbol=must-not-override-current-stage-role`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r786`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r786`。
