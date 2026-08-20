@@ -10692,6 +10692,56 @@ func TestVerifiedStageAuthorityKeepsLocalCarrierOperationAndRequestedBoundarySep
 	}
 }
 
+func TestVerifiedStageAuthorityDoesNotPromiseBroadOnlyLocalCandidate(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	ctx := &types.AgentContext{
+		Mode: types.ModeRead, RepoRoot: repo,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqMechanism),
+				Entities: []string{"Analyzer", "Explorer", "Extractor", "Finalizer", "Mutable"},
+			},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: participants},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "broad-mutable-call", Producer: types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+			Kind: types.EvidenceRelationship, Subject: "BaseAgent.executeTool", Predicate: "calls",
+			Object: "ctx.Mutable.AppendLearningFailure", Source: "internal/agent/agent.go", LineStart: 240,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "ctx.Mutable.AppendLearningFailure",
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	authority := renderAnswerDocMechanismRelationAuthority(ctx)
+	for _, want := range []string{
+		"request_scoped_incident=[Analyzer Explorer Extractor Finalizer]",
+		"local_typed_incident_only=[]",
+		"no_incident_typed_relation=[Mutable]",
+	} {
+		if !strings.Contains(authority, want) {
+			t.Fatalf("broad-only operation must not promise a request-scoped local candidate; missing %q:\n%s", want, authority)
+		}
+	}
+	for _, forbidden := range []string{
+		"local_typed_incident_only=[Mutable]",
+		"local_operation_binding[Mutable]",
+		"typed_candidate[Mutable]",
+	} {
+		if strings.Contains(authority, forbidden) {
+			t.Fatalf("broad-only operation leaked unavailable local authoring input %q:\n%s", forbidden, authority)
+		}
+	}
+}
+
 func TestVerifiedStageAuthorityKeepsDisconnectedCarrierPairOutsideRequestScope(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)

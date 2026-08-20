@@ -56343,3 +56343,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r761`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1228 B1222：局部关系覆盖状态与可发布候选共用同一权威域（2026-08-20）
+
+1. r761 的矛盾不是模型漏读候选，而是系统没有生成候选：strict stage provider 已覆盖四阶段时，finalizer 用
+   全 evidence 的 `AnswerCodeParticipantHasFlowOperation` 把任意仓库背景操作判为 Mutable 的
+   `local_typed_incident_only`；tool 候选生成器则正确只读当前请求范围、Explorer 明确选择的 typed 操作。
+   因而同一上下文一边承诺“有精确局部操作”，一边没有 candidate/binding 可供模型表达。
+2. `ResolveFlowParticipantRelationCoverage` 现在从已经构造的同一个 `flowParticipantRelationScope` 计算
+   `ParticipantLocalCandidateAvailable`。只有候选生成器能从该请求范围证据发布至少一个 exact
+   `local_operation_only` 候选时，finalizer 才能把参与者放入 local-only；宽泛 repo-map、自动扩展或未被
+   Explorer 选择的操作仍可作为背景事实，但不能扩大 principal authoring coverage。
+3. 这不是把候选做宽。scalar return、无合法 typed relation、无精确端点或请求范围外的操作继续 fail closed；
+   没有可发布候选的参与者进入 `no_incident_typed_relation` 并保留诚实未证边界。真正的 Explorer-authored
+   Mutable 局部 call 仍发布 exact candidate、local binding 与 `retain_participant_boundary=true`，不会被误删。
+4. 新生产形 pin 使用 stage subset 加 repo-map-only Mutable call，钉死
+   `local_typed_incident_only=[] / no_incident_typed_relation=[Mutable]`，并负钉空承诺、空 binding 和空 candidate；
+   既有 selected-operation 正 pin 继续通过。定向测试及
+   `go test ./internal/agent ./internal/tool ./internal/types -count=1` 全绿（tool 186.255s）。
+5. 本批只统一结构化 coverage/candidate 权威域，不扫描请求、模型推理、答案正文或 Mermaid 文案，不生成、选择、
+   删除、反转或重连模型图边，也不替模型撰写结论。Trace 查询、显式窗口、链上根因、实际占时/现规则可消双轴、
+   因果投影和自动补齐均未改变。
+
+状态：
+
+`B1222-FLOWLOCALCANDIDATEPARITY1=implemented/full-relevant-pass`；
+`local-only-authority=request-scoped-publishable-candidate`；
+`broad-background-operation=background-only/not-authoring-coverage`；
+`B1223-ANSWERITEMEVIDENCECITATIONBINDING1=confirmed/P1-design-next`；
+`request/model/final-prose/mermaid-text-scan=none`；
+`model-edge/node/label/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

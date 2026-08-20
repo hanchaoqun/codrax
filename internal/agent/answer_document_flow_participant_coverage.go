@@ -128,6 +128,12 @@ func answerDocResolveFlowParticipantCoverage(
 				sharedCoverage.ParticipantRequestScopedCovered[participantIndex]
 			generalCovered = participantIndex < len(sharedCoverage.ParticipantCovered) &&
 				sharedCoverage.ParticipantCovered[participantIndex]
+			// A strict request-scoped provider subset must not inherit a broad
+			// repository-wide operation match.  Local-only authoring is available
+			// exactly when the shared typed scope can publish a concrete candidate;
+			// otherwise keep the requested participant honestly unproved.
+			localCovered = participantIndex < len(sharedCoverage.ParticipantLocalCandidateAvailable) &&
+				sharedCoverage.ParticipantLocalCandidateAvailable[participantIndex]
 		}
 		if result.requestScopedSubsetIncomplete && requestScopedCovered {
 			result.incident = append(result.incident, participant)

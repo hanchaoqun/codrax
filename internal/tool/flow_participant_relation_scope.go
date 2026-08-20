@@ -40,7 +40,14 @@ type flowParticipantRelationScope struct {
 type FlowParticipantRelationCoverage struct {
 	ParticipantCovered              []bool
 	ParticipantRequestScopedCovered []bool
-	RequestScopedSubsetIncomplete   bool
+	// ParticipantLocalCandidateAvailable is true only when the same
+	// request-scoped typed operation pool used by diagram authoring can publish
+	// at least one exact local-only candidate for that participant.  A broader
+	// repository evidence row may remain useful context, but it must not make a
+	// downstream prompt promise an operation that the candidate carrier cannot
+	// actually expose.
+	ParticipantLocalCandidateAvailable []bool
+	RequestScopedSubsetIncomplete      bool
 }
 
 // ResolveFlowParticipantRelationCoverage exposes the one typed relation-scope
@@ -54,10 +61,25 @@ func ResolveFlowParticipantRelationCoverage(
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) FlowParticipantRelationCoverage {
 	scope := buildFlowParticipantRelationScope(rm, participants, participantSurfaces, evidence, stagePrecedence)
+	localCandidates := make([]bool, len(participants))
+	if scope.requestScopedSubsetIncomplete {
+		for i, participant := range participants {
+			if i >= len(scope.participantLocalOperation) || !scope.participantLocalOperation[i] ||
+				scope.effectiveParticipantCovered(i, false) {
+				continue
+			}
+			candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+				rm, participant, evidence, stagePrecedence, 1,
+				participants, participantSurfaces, i, scope,
+			)
+			localCandidates[i] = len(candidates) > 0 && candidates[0].localOnly
+		}
+	}
 	return FlowParticipantRelationCoverage{
-		ParticipantCovered:              append([]bool(nil), scope.participantCovered...),
-		ParticipantRequestScopedCovered: append([]bool(nil), scope.participantRequestScopedCovered...),
-		RequestScopedSubsetIncomplete:   scope.requestScopedSubsetIncomplete,
+		ParticipantCovered:                 append([]bool(nil), scope.participantCovered...),
+		ParticipantRequestScopedCovered:    append([]bool(nil), scope.participantRequestScopedCovered...),
+		ParticipantLocalCandidateAvailable: localCandidates,
+		RequestScopedSubsetIncomplete:      scope.requestScopedSubsetIncomplete,
 	}
 }
 
