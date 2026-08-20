@@ -404,8 +404,12 @@ func TestDiagramParticipantCoverageDoesNotPromotePerParticipantLocalFactsIntoReq
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence); len(got) != 0 {
 		t.Fatalf("separate local facts must coexist with honest unproven requested-relation boundaries: %+v", got)
 	}
-	if got := diagramParticipantTypedIncidentCandidates(rm, rm.DiagramHint.Participants[0], evidence, nil, 3); len(got) != 0 {
-		t.Fatalf("a disconnected local fact must not be offered as a requested-relation repair candidate: %v", got)
+	localCandidates := diagramParticipantTypedIncidentCandidates(rm, rm.DiagramHint.Participants[0], evidence, nil, 3)
+	if len(localCandidates) != 1 ||
+		!strings.Contains(localCandidates[0], `candidate_scope:"local_operation_only"`) ||
+		!strings.Contains(localCandidates[0], `requested_relation_closure:"unproven"`) ||
+		!strings.Contains(localCandidates[0], `retain_participant_boundary:true`) {
+		t.Fatalf("a disconnected local fact must remain available only with its requested-relation boundary: %v", localCandidates)
 	}
 
 	doc.Blocks[0].ParticipantBoundaries = nil
@@ -527,6 +531,30 @@ func TestFlowParticipantRelationScopeDoesNotJoinSharedReturnSinkAcrossOperations
 		if got := diagramParticipantTypedIncidentCandidates(rm, participant, evidence, nil, 3); len(got) != 0 {
 			t.Fatalf("shared terminal return sink must not become a requested-relation repair candidate for %s: %v", participant.Identity, got)
 		}
+	}
+}
+
+func TestDiagramParticipantLocalOnlyScalarReturnExcludesValuesButKeepsCodeIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		object string
+		want   bool
+	}{
+		{object: "nil", want: true},
+		{object: "true", want: true},
+		{object: "42", want: true},
+		{object: `"tool-a"`, want: true},
+		{object: "resolved.Payload", want: false},
+	} {
+		operation := diagramEvidenceTestCall("ToolA.Resolve", tc.object)
+		operation.AnchorKind = types.AnchorReturn
+		operation.Predicate = "returns"
+		if got := diagramParticipantLocalOnlyScalarReturn(operation); got != tc.want {
+			t.Fatalf("local-only scalar return classification for %q=%v, want %v", tc.object, got, tc.want)
+		}
+	}
+	call := diagramEvidenceTestCall("ToolA.Resolve", "dependency.Load")
+	if diagramParticipantLocalOnlyScalarReturn(call) {
+		t.Fatal("a non-return operation must never be removed by the scalar-return filter")
 	}
 }
 
@@ -811,8 +839,12 @@ func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScope
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
 		t.Fatalf("a truthful provider subset plus disconnected local pair should retain local facts and requested-relation boundaries: %+v", got)
 	}
-	if got := diagramParticipantTypedIncidentCandidates(rm, participants[2], evidence, precedence, 3); len(got) != 0 {
-		t.Fatalf("a disconnected local carrier edge must not be offered as request-scoped repair authority: %v", got)
+	localCandidates := diagramParticipantTypedIncidentCandidates(rm, participants[2], evidence, precedence, 3)
+	if len(localCandidates) != 1 ||
+		!strings.Contains(localCandidates[0], `candidate_scope:"local_operation_only"`) ||
+		!strings.Contains(localCandidates[0], `requested_relation_closure:"unproven"`) ||
+		!strings.Contains(localCandidates[0], `retain_participant_boundary:true`) {
+		t.Fatalf("a disconnected local carrier edge must remain available only as local authoring input with its requested boundary: %v", localCandidates)
 	}
 
 	doc.Blocks[0].ParticipantBoundaries = nil
@@ -820,6 +852,43 @@ func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScope
 	if len(got) != 2 || got[0].Issue != DiagramParticipantCoverageMissingBoundary ||
 		got[1].Issue != DiagramParticipantCoverageMissingBoundary {
 		t.Fatalf("both local-only participants need explicit requested-relation boundaries: %+v", got)
+	}
+}
+
+func TestDiagramParticipantCoverageCompactRepairRetainsLocalCandidateAndRequestedBoundary(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	precedence := []stageauthority.PrecedenceRelation{{
+		From:       stageauthority.StageRow{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		To:         stageauthority.StageRow{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		SourceFile: "internal/orchestrator/topology.go", LineStart: 21, LineEnd: 22,
+	}}
+	evidence := []types.EvidenceItem{diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective")}
+	mismatches := []DiagramParticipantCoverageMismatch{{
+		BlockID: "flow", Participant: "Analyzer", Issue: DiagramParticipantCoverageTypedEdgeMissing,
+	}}
+
+	got := diagramParticipantCoverageCompactCandidateGuidance(
+		&types.AnswerDocumentV2{DocumentModel: "v2"}, rm, mismatches, evidence, precedence,
+	)
+	for _, want := range []string{
+		"typed_candidate[Analyzer][1]",
+		"typed_candidate[Mutable][1]",
+		`candidate_scope:"local_operation_only"`,
+		`requested_relation_closure:"unproven"`,
+		`retain_participant_boundary:true`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compact repair must retain the failed requested candidate and independently grounded local relation; missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "typed_candidate[Explorer]") {
+		t.Fatalf("compact repair must not widen the request-scoped repair roster beyond the failed participant: %s", got)
 	}
 }
 

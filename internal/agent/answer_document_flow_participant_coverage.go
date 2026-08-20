@@ -197,6 +197,7 @@ func renderAnswerDocFlowParticipantCoverageGuidance(
 		if candidateGuidance != "" {
 			b.WriteString("- First-pass typed participant endpoint choices (bounded authoring input, not a system-authored graph): " + candidateGuidance + "\n")
 			b.WriteString("- For every incident-required participant that has first-pass choices, select one relevant existing candidate when representing that participant's directed relation. One edge may satisfy two participants when its declared sides match both. In `diagram.body`, map only `participant_endpoint_side` to the exact `participant_node_id`; in the sibling edge anchor keep `edge_anchor_identity_fields` byte-for-byte and use `visible_arrow_label` as reader-facing relationship wording. Do not render every candidate, join candidates into a new path, or add a bridge. Participants with no candidate keep the separately published honest boundary. The model still authors every visible node, edge, label, diagram, and conclusion.\n")
+			b.WriteString("- A candidate marked `candidate_scope=local_operation_only` proves only that local operation. It may be shown inside the participant's visible group, but it does not close or join the requested participant relation: keep the model-authored `unproven` participant boundary exactly as directed by `retain_participant_boundary=true`.\n")
 		}
 		return
 	}

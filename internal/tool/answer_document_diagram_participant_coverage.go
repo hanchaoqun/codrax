@@ -64,6 +64,11 @@ type diagramParticipantTypedIncidentCandidate struct {
 	location                string
 	participantEndpointSide string
 	stageAuthority          bool
+	// localOnly keeps an independently grounded operation visible without
+	// allowing it to close the requested multi-participant relation.  The
+	// candidate is authoring input only; the existing participant boundary and
+	// connectivity gates remain authoritative.
+	localOnly bool
 }
 
 func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
@@ -1235,6 +1240,9 @@ func diagramParticipantCoverageCandidateGuidance(
 	if len(failed) == 0 {
 		return ""
 	}
+	for participant := range diagramParticipantLocalOnlyCandidateParticipants(rm, evidence, stagePrecedence) {
+		failed[participant] = true
+	}
 	joinGuidance := ""
 	if componentSplit {
 		// A bridge can be incident to the already-visible principal component
@@ -1289,7 +1297,38 @@ func diagramParticipantCoverageCompactCandidateGuidance(
 	if len(failed) == 0 {
 		return ""
 	}
+	for participant := range diagramParticipantLocalOnlyCandidateParticipants(rm, evidence, stagePrecedence) {
+		failed[participant] = true
+	}
 	return flowParticipantTypedIncidentCandidateGuidance(rm, evidence, stagePrecedence, failed, 1)
+}
+
+// diagramParticipantLocalOnlyCandidateParticipants returns only participants
+// that have a citable local operation but are not covered by the requested
+// multi-participant relation component.  Publishing these identities beside a
+// real repair candidate does not relax coverage: each rendered candidate is
+// explicitly marked local-only and must retain its unproven boundary.
+func diagramParticipantLocalOnlyCandidateParticipants(
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) map[string]bool {
+	out := make(map[string]bool)
+	obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+	if len(obligations) < 2 {
+		return out
+	}
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	for i, obligation := range obligations {
+		if i >= len(relationScope.participantLocalOperation) || !relationScope.participantLocalOperation[i] ||
+			relationScope.effectiveParticipantCovered(i, false) {
+			continue
+		}
+		if key := strings.ToLower(strings.TrimSpace(obligation.Identity)); key != "" {
+			out[key] = true
+		}
+	}
+	return out
 }
 
 type diagramParticipantVisibleComponentIndex struct {
@@ -1668,11 +1707,15 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 	if limit <= 0 {
 		return nil
 	}
+	localOnlyParticipant := false
 	if len(obligations) > 1 && (obligationIndex < 0 ||
 		!relationScope.effectiveParticipantCovered(obligationIndex, false)) {
-		// Local operations remain valid evidence, but are not repair candidates
-		// for a relationship that no typed component currently proves.
-		return nil
+		localOnlyParticipant = obligationIndex >= 0 &&
+			obligationIndex < len(relationScope.participantLocalOperation) &&
+			relationScope.participantLocalOperation[obligationIndex]
+		if !localOnlyParticipant {
+			return nil
+		}
 	}
 	var surfaces []string
 	if obligationIndex >= 0 && obligationIndex < len(allSurfaces) {
@@ -1683,7 +1726,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 	}
 	seen := make(map[string]bool)
 	candidates := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
-	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide string, stageAuthority bool) {
+	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide string, stageAuthority, localOnly bool) {
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 		participantEndpointSide = strings.TrimSpace(participantEndpointSide)
 		if !relation.IsValid() || from == "" || to == "" || participantEndpointSide == "" {
@@ -1698,20 +1741,32 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 			participant: strings.TrimSpace(obligation.Identity),
 			relation:    relation, anchor: anchor, from: from, to: to, location: location,
 			participantEndpointSide: participantEndpointSide, stageAuthority: stageAuthority,
+			localOnly: localOnly,
 		})
 	}
 	for _, relation := range stagePrecedence {
+		if localOnlyParticipant {
+			continue
+		}
 		fromIncident := stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.From)
 		toIncident := stageauthority.ParticipantMatchesStageRow(rm, obligation, relation.To)
 		if fromIncident || toIncident {
 			add(types.DiagramRelPrecedence, types.AnchorPrecedence, relation.From.AgentValue, relation.To.AgentValue,
 				fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd),
-				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), true)
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), true, false)
 		}
 	}
 	for operationIndex, operation := range diagramRequestedRelationEvidenceForRequest(evidence, rm) {
-		if len(obligations) > 1 && (operationIndex >= len(relationScope.operationRelevant) ||
-			!relationScope.operationRelevant[operationIndex]) {
+		operationRequestScoped := operationIndex < len(relationScope.operationRelevant) &&
+			relationScope.operationRelevant[operationIndex]
+		if len(obligations) > 1 && !operationRequestScoped && !localOnlyParticipant {
+			continue
+		}
+		if localOnlyParticipant && diagramParticipantLocalOnlyScalarReturn(operation) {
+			// A scalar return remains a citable local fact, but its value is not a
+			// component identity. Offering `callable -> nil/true/42/"name"` as a
+			// diagram relation adds model burden without preserving a meaningful
+			// participant operation. Exact returned code identities remain eligible.
 			continue
 		}
 		from, to := strings.TrimSpace(operation.Subject), strings.TrimSpace(operation.Object)
@@ -1727,7 +1782,8 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 		toIncident := diagramParticipantCandidateEndpointMatches(surfaces, to, operation, evidence)
 		if fromIncident || toIncident {
 			add(relation, operation.AnchorKind, from, to, operation.DisplayLocation(true),
-				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), false)
+				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), false,
+				localOnlyParticipant)
 		}
 	}
 	// Candidate ordering is selection guidance only: it never creates, removes,
@@ -1758,6 +1814,31 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 		return left.participantEndpointSide < right.participantEndpointSide
 	})
 	return boundDiagramParticipantTypedIncidentCandidates(candidates, limit)
+}
+
+func diagramParticipantLocalOnlyScalarReturn(operation types.EvidenceItem) bool {
+	if operation.AnchorKind != types.AnchorReturn {
+		return false
+	}
+	value := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(operation.Object), ",;}"))
+	if value == "" {
+		return true
+	}
+	switch strings.ToLower(value) {
+	case "true", "false", "nil", "null", "none", "undefined":
+		return true
+	}
+	if len(value) >= 2 {
+		first, last := value[0], value[len(value)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
+			return true
+		}
+	}
+	numeric := strings.ReplaceAll(value, "_", "")
+	if _, err := strconv.ParseFloat(numeric, 64); err == nil {
+		return true
+	}
+	return false
 }
 
 // boundDiagramParticipantTypedIncidentCandidates preserves the existing hard
@@ -1827,9 +1908,13 @@ func boundDiagramParticipantTypedIncidentCandidates(
 }
 
 func renderDiagramParticipantTypedIncidentCandidate(candidate diagramParticipantTypedIncidentCandidate, language string) string {
-	return fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
-		strconv.Quote(string(candidate.relation)), strconv.Quote(diagramParticipantReaderArrowLabel(candidate.relation, language)), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.participant), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.location),
-		strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(string(candidate.relation)))
+	localBoundary := ""
+	if candidate.localOnly {
+		localBoundary = `,candidate_scope:"local_operation_only",requested_relation_closure:"unproven",retain_participant_boundary:true`
+	}
+	return fmt.Sprintf("{relation_kind:%s,visible_arrow_label:%s,from_identity:%s,to_identity:%s,participant_endpoint_side:%s,participant_node_id:%s,participant_node_side:%s,technical_endpoint_identity_stays_in_edge_anchor:true%s,source:%s,edge_anchor_identity_fields:{from_identity:%s,to_identity:%s,relation_kind:%s}}",
+		strconv.Quote(string(candidate.relation)), strconv.Quote(diagramParticipantReaderArrowLabel(candidate.relation, language)), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(candidate.participantEndpointSide), strconv.Quote(candidate.participant), strconv.Quote(candidate.participantEndpointSide), localBoundary,
+		strconv.Quote(candidate.location), strconv.Quote(candidate.from), strconv.Quote(candidate.to), strconv.Quote(string(candidate.relation)))
 }
 
 // diagramParticipantTypedCandidateRank orders only already-grounded typed

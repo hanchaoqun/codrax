@@ -55939,3 +55939,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r756`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1217 B1208：局部真实关系与未证请求边界正交发布（2026-08-19）
+
+1. 根因不是关系硬门过严，而是候选发布器把两个正交问题错误合并：一个参与者尚未进入请求关系主连通
+   分量时，其真实局部操作也被整体隐藏。验证器其实已经允许“局部 typed 边 + 请求关系未证边界”共存，
+   但首轮上下文和修补 delta 没给模型这条边，导致 r756 只能删除 `Mutable` 的真实局部关系。关系完备性
+   gate 保持不变，不能用局部边充当跨参与者桥。
+2. 现在同一个 typed relation-scope 计算同时驱动首轮与修补回合：对未进入请求主分量、但存在 citable
+   局部操作的参与者，发布 bounded 候选并带
+   `candidate_scope=local_operation_only`、`requested_relation_closure=unproven`、
+   `retain_participant_boundary=true`。模型可以选择把真实局部调用/数据流画在该参与者组内，同时必须保留
+   未证边界；系统仍不创建边、不选择节点/方向/标签、不补结论。
+3. 修补 delta 取“当前失败的 request-scoped 参与者候选”与“已有局部关系但未接入主分量的参与者候选”
+   的有界并集，避免重试只给 BusContext、再次静默漏掉 Mutable。未失败的请求主分量成员不会被无界重发，
+   component-split 场景仍优先只发可执行 crossing frontier，不被局部候选稀释。
+4. 为减少模型心智，局部候选只保留有意义的代码身份关系。`return nil/true/42/"literal"` 等标量终止值
+   仍是证据事实，但不作为组件关系候选；返回一个明确代码身份仍可保留。这一分流只读 `anchor_kind` 与
+   typed object，不扫描用户请求、模型推理或答案原文。
+5. 新增/更新 pin 覆盖：首轮发布 local-only 候选且边界仍在；compact patch delta 同时携带失败候选与
+   Mutable 局部候选；两个独立局部关系不能闭合请求关系；局部 carrier 边保留但不能晋升；共享标量 return
+   sink 不成桥；标量返回与代码身份返回的结构分类。`go test ./internal/agent ./internal/tool -count=1` 与
+   完整 `go test ./internal/... -count=1` 均通过。
+6. 本批不改 Trace 查询、时间窗、链成员、根因排名、实际占用/规则计价、因果投影或自动补齐；不改活跃
+   流判断。Trace 主因仍仅来自 typed on-chain 证据，邻近/背景仍只作支撑方向；系统不改写模型答案。
+
+状态：
+
+`B1208-DIAGRAMRELATIONCONTEXTPRECISION1=implemented/local-relation+honest-boundary/full-internal-pass`；
+`diagram-relation-gate=unchanged`；
+`model-edge/node/label/conclusion-authorship=preserved`；
+`request/model/final-prose-scan=none`；
+`B1217-TRACEAPPENDIXREADERLANGUAGE1=next/P2`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

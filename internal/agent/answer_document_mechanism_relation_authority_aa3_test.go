@@ -628,7 +628,7 @@ func TestMechanismRelationAuthorityPublishesFirstPassParticipantEndpointChoicesA
 	}
 }
 
-func TestMechanismRelationAuthorityDoesNotPublishLocalOnlyCandidateAsRequestedRelationAA3(t *testing.T) {
+func TestMechanismRelationAuthorityPublishesLocalOnlyCandidateWithoutClosingRequestedRelationAA3(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
 		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
 		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
@@ -651,8 +651,16 @@ func TestMechanismRelationAuthorityDoesNotPublishLocalOnlyCandidateAsRequestedRe
 	}
 
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
-	if strings.Contains(got, "typed_candidate[Mutable]") {
-		t.Fatalf("a disconnected local operation must not be promoted into a first-pass requested-relation candidate:\n%s", got)
+	for _, want := range []string{
+		"typed_candidate[Mutable][1]",
+		`candidate_scope:"local_operation_only"`,
+		`requested_relation_closure:"unproven"`,
+		`retain_participant_boundary:true`,
+		"does not close or join the requested participant relation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("a grounded local operation must remain available without closing the requested relation; missing %q:\n%s", want, got)
+		}
 	}
 	contract := renderAnswerDocDiagramContract(ctx, &types.DiagramContract{
 		Required: true, RequiredKind: types.DiagramArchitecture, Participants: participants,
