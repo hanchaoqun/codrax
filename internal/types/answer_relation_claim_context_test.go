@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestInvestigationRelationClaimsSurviveResetAndExploreForkMerge(t *testing.T) {
 	value := 5.149
@@ -61,6 +64,7 @@ func TestAnswerDocumentSourceInventoryFamilySurvivesMutableRoundTrip(t *testing.
 		ID: "classes", Kind: BlockTable, SourceInventoryFamily: "public class",
 		Items: []AnswerBlockItem{{
 			ID: "cart", Label: "Cart", SourceInventoryRowID: "enum-set-row-cart-class", EvidenceIDs: []string{"ev-class"},
+			CitationRefsModelSubmitted: true, CitationRefsModelSubmittedValues: []int{2, 4}, CitationRefsEvidenceIDAdoptionRequired: true,
 		}},
 	}}}
 	mu := NewMutableState("answer family clone")
@@ -69,7 +73,10 @@ func TestAnswerDocumentSourceInventoryFamilySurvivesMutableRoundTrip(t *testing.
 	got := mu.AnswerDocumentV2()
 	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].SourceInventoryFamily != "public class" ||
 		len(got.Blocks[0].Items) != 1 || got.Blocks[0].Items[0].SourceInventoryRowID != "enum-set-row-cart-class" ||
-		len(got.Blocks[0].Items[0].EvidenceIDs) != 1 || got.Blocks[0].Items[0].EvidenceIDs[0] != "ev-class" {
+		len(got.Blocks[0].Items[0].EvidenceIDs) != 1 || got.Blocks[0].Items[0].EvidenceIDs[0] != "ev-class" ||
+		!got.Blocks[0].Items[0].CitationRefsModelSubmitted ||
+		!reflect.DeepEqual(got.Blocks[0].Items[0].CitationRefsModelSubmittedValues, []int{2, 4}) ||
+		!got.Blocks[0].Items[0].CitationRefsEvidenceIDAdoptionRequired {
 		t.Fatalf("source-inventory family/row identity was dropped by mutable-state clone: %+v", got)
 	}
 }

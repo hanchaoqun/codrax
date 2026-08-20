@@ -58,7 +58,7 @@ func TestNormalizeItemCitationRefsByEvidenceIDBindsExactSelectedRows(t *testing.
 	if got := doc.Citations[refs[1]]; got.File != evidence[1].Source || got.Line != evidence[1].LineStart {
 		t.Fatalf("second evidence identity bound wrong source row: got=%+v want=%+v", got, evidence[1])
 	}
-	if hints := preCheckItemEvidenceIdentity(doc, pctx); len(hints) != 0 {
+	if hints := preCheckItemEvidenceIdentity(doc, &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}, pctx); len(hints) != 0 {
 		t.Fatalf("valid exact evidence identities should pass the precise check: %+v", hints)
 	}
 }
@@ -69,15 +69,42 @@ func TestPreCheckItemEvidenceIdentityRejectsOnlyExplicitInvalidCarrier(t *testin
 	pctx := newPreEmitCheckContext(ctx)
 
 	withoutIDs := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "plain", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i", Label: "model synthesis"}}}}}
-	if hints := preCheckItemEvidenceIdentity(withoutIDs, pctx); len(hints) != 0 {
+	activeView := &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}
+	if hints := preCheckItemEvidenceIdentity(withoutIDs, activeView, pctx); len(hints) != 0 {
 		t.Fatalf("absent optional evidence identity must never create a gate: %+v", hints)
+	}
+
+	manual := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: valid.Source, Line: valid.LineStart}},
+		Blocks:    []types.AnswerBlock{{ID: "manual", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i", Label: "model fact", CitationRef: 0}}}},
+	}
+	markModelSubmittedItemCitationRefs(manual)
+	markModelSubmittedItemEvidenceIDAdoptionRequired(manual, activeView, pctx)
+	hints := preCheckItemEvidenceIdentity(manual, activeView, pctx)
+	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedItemEvidenceIdentity ||
+		!strings.Contains(hints[0].ExpectedShape, "accepted current-source evidence=") {
+		t.Fatalf("model-submitted current-source citation arithmetic must require exact evidence identity: %+v", hints)
+	}
+	if hints := preCheckItemEvidenceIdentity(manual, &types.AnswerSemanticView{}, pctx); len(hints) != 0 {
+		t.Fatalf("a lane where evidence_ids is not exposed must preserve legacy citation behavior: %+v", hints)
+	}
+	// A deterministic normalizer may add a citation after capture. That
+	// system-created ref must not manufacture a new model obligation.
+	systemBound := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: valid.Source, Line: valid.LineStart}},
+		Blocks:    []types.AnswerBlock{{ID: "system", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i", Label: "model fact", CitationRef: types.CitationRefUnset}}}},
+	}
+	markModelSubmittedItemCitationRefs(systemBound)
+	systemBound.Blocks[0].Items[0].CitationRef = 0
+	if hints := preCheckItemEvidenceIdentity(systemBound, activeView, pctx); len(hints) != 0 {
+		t.Fatalf("system-added citation must not create an evidence-id adoption retry: %+v", hints)
 	}
 
 	invalid := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "bad", Kind: types.BlockOrderedList,
 		Items: []types.AnswerBlockItem{{ID: "i", Label: "model fact", EvidenceIDs: []string{"ev-missing"}}},
 	}}}
-	hints := preCheckItemEvidenceIdentity(invalid, pctx)
+	hints = preCheckItemEvidenceIdentity(invalid, activeView, pctx)
 	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedItemEvidenceIdentity {
 		t.Fatalf("unknown explicit identity must use the exact typed hard lane: %+v", hints)
 	}
@@ -90,7 +117,7 @@ func TestPreCheckItemEvidenceIdentityRejectsOnlyExplicitInvalidCarrier(t *testin
 		ID: "bad", Kind: types.BlockTable,
 		Items: []types.AnswerBlockItem{{ID: "i", Label: "row", SourceInventoryRowID: "row-1", EvidenceIDs: []string{"ev-source"}}},
 	}}}
-	hints = preCheckItemEvidenceIdentity(conflict, pctx)
+	hints = preCheckItemEvidenceIdentity(conflict, activeView, pctx)
 	if len(hints) != 1 || !strings.Contains(hints[0].Reason, "cannot both select") {
 		t.Fatalf("two exact citation owners must fail closed without prose inference: %+v", hints)
 	}
@@ -103,7 +130,7 @@ func TestItemEvidenceIdentityDoesNotProtectRuntimeArtifactFromCitationBoundary(t
 		ID: "runtime", Kind: types.BlockOrderedList,
 		Items: []types.AnswerBlockItem{{ID: "i", Label: "runtime row", EvidenceIDs: []string{"ev-runtime"}}},
 	}}}
-	hints := preCheckItemEvidenceIdentity(doc, newPreEmitCheckContext(ctx))
+	hints := preCheckItemEvidenceIdentity(doc, &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}, newPreEmitCheckContext(ctx))
 	if len(hints) != 1 || hints[0].HardSignal != preEmitHardSignalTypedItemEvidenceIdentity {
 		t.Fatalf("runtime artifact identity must not launder into current-source citation: %+v", hints)
 	}

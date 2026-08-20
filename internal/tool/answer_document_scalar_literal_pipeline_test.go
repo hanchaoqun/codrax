@@ -9,12 +9,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestEmitAnswerDocumentV2_ScalarLiteralCitationSurvivesLateCarrierAndPoolPasses
-// pins the complete full-emit composition seen in B22-F r1. The scalar repair
-// is not complete merely because its helper changes citation_ref: the exact
-// value citation must remain reachable after deterministic enumeration carrier
-// materialization, unused-pool pruning, and the shared persist chokepoint.
-func TestEmitAnswerDocumentV2_ScalarLiteralCitationSurvivesLateCarrierAndPoolPasses(t *testing.T) {
+// TestEmitAnswerDocumentV2_ScalarLiteralEvidenceIdentitySurvivesLateCarrierAndPoolPasses
+// pins the complete full-emit composition seen in B22-F r1 and upgraded by
+// B1223/B1224. The exact model-selected value identity must remain reachable
+// after deterministic enumeration carrier materialization, unused-pool
+// pruning, and the shared persist chokepoint.
+func TestEmitAnswerDocumentV2_ScalarLiteralEvidenceIdentitySurvivesLateCarrierAndPoolPasses(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "cmd"), 0o755); err != nil {
 		t.Fatalf("mkdir cmd: %v", err)
@@ -90,7 +90,7 @@ func TestEmitAnswerDocumentV2_ScalarLiteralCitationSurvivesLateCarrierAndPoolPas
 	raw := json.RawMessage(`{
 		"blocks": [
 			{"id":"summary","kind":"summary","surface_role":"principal","text":"pipeline_max_steps 解析链路"},
-			{"id":"default","kind":"scalar","surface_role":"principal","text":"50","facet_ids":["resolved_literal_or_symbol"],"claim_uses":[{"claim_form":"literal_value_fact"}],"items":[{"id":"v","citation_ref":1}]},
+			{"id":"default","kind":"scalar","surface_role":"principal","text":"50","facet_ids":["resolved_literal_or_symbol"],"claim_uses":[{"claim_form":"literal_value_fact"}],"items":[{"id":"v","evidence_ids":["value"]}]},
 			{"id":"precedence","kind":"table","surface_role":"principal","text":"| 层级 | 值 |\n|---|---|\n| code default | 50 |\n| yaml | configured |\n| CLI | override |"}
 		],
 		"citations": [

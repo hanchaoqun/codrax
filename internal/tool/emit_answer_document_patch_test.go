@@ -1625,7 +1625,7 @@ func TestEmitAnswerDocumentPatchProductionPreservesStableItemCitationAcrossInser
 	}
 }
 
-func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *testing.T) {
+func TestEmitAnswerDocumentPatch_BindsExactEvidenceIDsBeforePoolRangeGate(t *testing.T) {
 	bus := &types.BusContext{
 		Mutable: types.NewMutableState("页面分配时序图"),
 		AnalysisIR: &types.AnalysisIR{
@@ -1634,6 +1634,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 	}
 	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
 		{
+			ID:              "slowpath-definition",
 			Kind:            types.EvidenceDirect,
 			Source:          "mm/page_alloc.c",
 			LineStart:       4687,
@@ -1644,6 +1645,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 			GroundingStatus: types.GroundingGrounded,
 		},
 		{
+			ID:              "slowpath-retry",
 			Kind:            types.EvidenceDirect,
 			Source:          "mm/page_alloc.c",
 			LineStart:       4782,
@@ -1654,6 +1656,7 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 			GroundingStatus: types.GroundingGrounded,
 		},
 		{
+			ID:              "fastpath-call",
 			Kind:            types.EvidenceDirect,
 			Source:          "mm/page_alloc.c",
 			LineStart:       5226,
@@ -1713,16 +1716,16 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 			"claim_uses": [{"claim_form": "call_edge", "facet_id": "principal_path_edge"}],
 			"edge_anchors": [{"from_node":"slowpath", "to_node":"freelist", "visible_label":"慢速路径调用快速分配尝试", "from_identity":"__alloc_pages_slowpath", "to_identity":"get_page_from_freelist", "relation_kind":"call"}],
 			"items": [
-				{"id":"fast", "label":"get_page_from_freelist (快速路径)", "text":"快速路径核心函数。", "citation_ref":3},
-				{"id":"slow", "label":"__alloc_pages_slowpath (慢速路径)", "text":"慢速路径主入口。", "citation_ref":0},
-				{"id":"retry", "label":"get_page_from_freelist (慢速路径重试)", "text":"慢速路径重新尝试 get_page_from_freelist。", "citation_ref":1}
+				{"id":"fast", "label":"get_page_from_freelist (快速路径)", "text":"快速路径核心函数。", "evidence_ids":["fastpath-call"]},
+				{"id":"slow", "label":"__alloc_pages_slowpath (慢速路径)", "text":"慢速路径主入口。", "evidence_ids":["slowpath-definition"]},
+				{"id":"retry", "label":"get_page_from_freelist (慢速路径重试)", "text":"慢速路径重新尝试 get_page_from_freelist。", "evidence_ids":["slowpath-retry"]}
 			]
 		}]
 	}`)
 	tool := &EmitAnswerDocumentPatch{}
 	res, _ := tool.Execute(bus, params)
 	if !res.Success {
-		t.Fatalf("patch path should normalize item citation_ref before citation-pool range reject, got: %s", res.Summary)
+		t.Fatalf("patch path should bind exact evidence IDs before citation-pool range validation, got: %s", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
 	if doc == nil {
@@ -1739,10 +1742,10 @@ func TestEmitAnswerDocumentPatch_NormalizesCitationRefsBeforePoolRangeGate(t *te
 		t.Fatalf("missing normalized hops block: %+v", doc)
 	}
 	if got := hops.Items[0].CitationRef; got != 2 {
-		t.Fatalf("out-of-range fast-path citation_ref should be remapped to existing matching citation index 2, got %d", got)
+		t.Fatalf("fast-path evidence identity should bind existing citation index 2, got %d", got)
 	}
 	if got := hops.Items[2].CitationRef; got != 1 {
-		t.Fatalf("row-text decorated retry label should keep the cited slowpath call site, got %d", got)
+		t.Fatalf("retry evidence identity should bind the slowpath call site, got %d", got)
 	}
 }
 
@@ -1892,9 +1895,11 @@ func TestEmitAnswerDocumentPatch_AppendCitationStaysAlignedAcrossPathCanonicaliz
 		}},
 	}
 	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		ID:              "native-add-definition",
 		Kind:            types.EvidenceDirect,
 		Source:          "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj",
 		LineStart:       6,
+		Scope:           types.ScopeLine,
 		AnchorKind:      types.AnchorDefinition,
 		Subject:         "native_add",
 		AnchorSymbol:    "native_add",
@@ -1935,7 +1940,7 @@ func TestEmitAnswerDocumentPatch_AppendCitationStaysAlignedAcrossPathCanonicaliz
 				"id":"ff1",
 				"label":"native_add",
 				"text":"FFI 外部函数声明，签名 foreign func native_add(a: Int64, b: Int64): Int64，属于包 demo.bridge。",
-				"citation_ref": 8
+				"evidence_ids": ["native-add-definition"]
 			}]
 		}],
 		"append_citations": [{"file":"eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj", "line":6, "quote":"foreign func native_add(a: Int64, b: Int64): Int64"}]

@@ -310,6 +310,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
+	// Stamp only blocks the model submitted in this patch. Unchanged blocks
+	// retain the internal provenance captured on their original full/patch
+	// emit, while citation refs added by later deterministic normalizers remain
+	// explicitly non-model-owned.
+	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.ReplaceBlocks})
+	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.AddBlocks})
 	if changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, params, patch); changed {
 		logging.Warning("[emit_answer_document_patch] preserved prior model-authored block content for typed relation-metadata-only replacement(s): %s",
 			strings.Join(fields, ", "))
@@ -372,6 +378,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		dropExplicitlyRemovedModelDiagrams = preserveExplicitDiagramRemovalIntent(ctx, mutation, prev)
 		if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 			preEmitCtx := newPreEmitCheckContext(ctx)
+			// Freeze the adoption decision on the merged pre-normalize payload.
+			// The per-item raw index snapshot was captured above from only the
+			// model-submitted replace/add blocks; inherited/system-owned refs stay
+			// outside this obligation.
+			markModelSubmittedItemEvidenceIDAdoptionRequired(merged, view, preEmitCtx)
 			normalizeAnswerDocumentForPreEmit(t.Name(), merged, view, ctx, preEmitCtx)
 			if hints := runPreEmitChecksWithContext(merged, view, preEmitOracleFromCtx(ctx), preEmitCtx); len(hints) > 0 {
 				if fixed := materializeRequiredCaveatWhenOnlyMissing(merged, view, hints, ctx); fixed > 0 {
@@ -810,6 +821,12 @@ func preservePatchReplacementStableItemCitationRefs(prev *types.AnswerDocumentV2
 			newComparable := *item
 			oldComparable.CitationRef = 0
 			newComparable.CitationRef = 0
+			oldComparable.CitationRefsModelSubmitted = false
+			newComparable.CitationRefsModelSubmitted = false
+			oldComparable.CitationRefsModelSubmittedValues = nil
+			newComparable.CitationRefsModelSubmittedValues = nil
+			oldComparable.CitationRefsEvidenceIDAdoptionRequired = false
+			newComparable.CitationRefsEvidenceIDAdoptionRequired = false
 			if !reflect.DeepEqual(oldComparable, newComparable) {
 				continue
 			}
@@ -818,6 +835,9 @@ func preservePatchReplacementStableItemCitationRefs(prev *types.AnswerDocumentV2
 				continue
 			}
 			item.CitationRef = old.item.CitationRef
+			item.CitationRefsModelSubmitted = old.item.CitationRefsModelSubmitted
+			item.CitationRefsModelSubmittedValues = append([]int(nil), old.item.CitationRefsModelSubmittedValues...)
+			item.CitationRefsEvidenceIDAdoptionRequired = old.item.CitationRefsEvidenceIDAdoptionRequired
 			fields = append(fields, fmt.Sprintf("replace_blocks[%q].items[%q]→%d", blockID, id, old.item.CitationRef))
 		}
 	}

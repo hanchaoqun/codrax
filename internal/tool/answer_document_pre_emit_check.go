@@ -127,6 +127,76 @@ type preEmitCheckContext struct {
 	detachedCitationItems []preEmitDetachedCitationItem
 }
 
+func markModelSubmittedItemCitationRefs(doc *types.AnswerDocumentV2) {
+	if doc == nil {
+		return
+	}
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			refs := types.AnswerBlockItemCitationRefs(*item)
+			item.CitationRefsModelSubmitted = len(refs) > 0
+			item.CitationRefsModelSubmittedValues = append(item.CitationRefsModelSubmittedValues[:0], refs...)
+			item.CitationRefsEvidenceIDAdoptionRequired = false
+		}
+	}
+}
+
+// markModelSubmittedItemEvidenceIDAdoptionRequired freezes B1224's adoption
+// decision before the general citation-normalization chain runs. A model-owned
+// citation set is eligible only when every submitted pool index already names
+// at least one accepted, citable current-source evidence row. Consequently an
+// out-of-range/aggregate/source-inventory legacy carrier keeps its existing
+// dedicated repair lane, while a later system-added or rebound citation can
+// never manufacture a new evidence-ID obligation.
+func markModelSubmittedItemEvidenceIDAdoptionRequired(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) {
+	if doc == nil || view == nil || !view.ItemEvidenceIdentityAvailable || pctx == nil {
+		return
+	}
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			item.CitationRefsEvidenceIDAdoptionRequired = false
+			if !item.CitationRefsModelSubmitted || len(item.CitationRefsModelSubmittedValues) == 0 ||
+				len(normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)) > 0 ||
+				strings.TrimSpace(item.SourceInventoryRowID) != "" {
+				continue
+			}
+			eligible := true
+			for _, ref := range item.CitationRefsModelSubmittedValues {
+				if ref < 0 || ref >= len(doc.Citations) {
+					eligible = false
+					break
+				}
+				matches, ok := pctx.citedEvidenceItems(doc.Citations[ref])
+				if !ok {
+					eligible = false
+					break
+				}
+				citable := false
+				for _, ev := range matches {
+					id := strings.TrimSpace(ev.ID)
+					if id == "" {
+						id = strings.TrimSpace(types.StableEvidenceID(ev))
+					}
+					if id == "" {
+						continue
+					}
+					if _, ok := preEmitCitationForItemEvidence(ev, pctx); ok {
+						citable = true
+						break
+					}
+				}
+				if !citable {
+					eligible = false
+					break
+				}
+			}
+			item.CitationRefsEvidenceIDAdoptionRequired = eligible
+		}
+	}
+}
+
 // preEmitDetachedCitationItem identifies one item whose citation_ref was
 // detached, so end-of-chain disclosure can check whether the item is still
 // visible in the final document. kind selects the persist-time wording lane
@@ -808,7 +878,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	// 5. Per-item label/citation alignment. A symbol-like list label with
 	// a citation must name the same cited evidence endpoint; otherwise the
 	// rendered answer silently shifts file:line proof across adjacent hops.
-	if h := preCheckItemEvidenceIdentity(doc, pctx); len(h) > 0 {
+	if h := preCheckItemEvidenceIdentity(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
 	if h := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(h) > 0 {
@@ -2167,11 +2237,13 @@ func normalizeItemCitationRefsByEvidenceIDWithContext(doc *types.AnswerDocumentV
 	return fixed
 }
 
-// preCheckItemEvidenceIdentity rejects only explicit, schema-validated ID
-// carriers that cannot be resolved to citable current-source evidence. This
-// precise structural signal may request a same-turn local correction; absent
-// evidence_ids never creates an obligation or retry.
-func preCheckItemEvidenceIdentity(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) []emitFixHint {
+// preCheckItemEvidenceIdentity rejects explicit, schema-validated ID carriers
+// that cannot be resolved to citable current-source evidence. It also enforces
+// B1224 only for an item whose pre-normalize model-owned citation indexes were
+// all proven replaceable by accepted evidence identities. An uncited item, an
+// unsupported aggregate/source-inventory carrier, or a citation introduced by
+// deterministic repair never creates this obligation.
+func preCheckItemEvidenceIdentity(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil {
 		return nil
 	}
@@ -2181,10 +2253,20 @@ func preCheckItemEvidenceIdentity(doc *types.AnswerDocumentV2, pctx *preEmitChec
 		for ii := range doc.Blocks[bi].Items {
 			item := doc.Blocks[bi].Items[ii]
 			ids := normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)
+			field := fmt.Sprintf("blocks[%d].items[%d].evidence_ids", bi, ii)
+			if len(ids) == 0 && view != nil && view.ItemEvidenceIdentityAvailable &&
+				strings.TrimSpace(item.SourceInventoryRowID) == "" &&
+				item.CitationRefsEvidenceIDAdoptionRequired {
+				out = append(out, preEmitTypedItemEvidenceIdentityHint(
+					field,
+					"copy the exact accepted current-source evidence= ID(s) supporting this item and omit manual citation_ref/citation_refs; if the item is intentionally unsupported, remove its citation indexes instead of guessing an ID",
+					"a model-submitted item citation index is pool-position arithmetic, not stable evidence identity; current-source item citations must name the accepted evidence rows the model selected",
+				))
+				continue
+			}
 			if len(ids) == 0 {
 				continue
 			}
-			field := fmt.Sprintf("blocks[%d].items[%d].evidence_ids", bi, ii)
 			if strings.TrimSpace(item.SourceInventoryRowID) != "" {
 				out = append(out, preEmitTypedItemEvidenceIdentityHint(
 					field,

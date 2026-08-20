@@ -8106,7 +8106,7 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileCombinedProofRen
 		"## Current-Source Explanation Request",
 		"current-source evidence has already landed",
 		"Use both the external observation lane and the current-source lane",
-		"copy those rows' `evidence=` IDs into item `evidence_ids`",
+		"copy the supporting accepted rows' `evidence=` IDs into item `evidence_ids`",
 		"it does not choose the item or write its conclusion",
 		"current_source_satisfied=true",
 	} {

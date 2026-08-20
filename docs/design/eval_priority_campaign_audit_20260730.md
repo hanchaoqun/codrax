@@ -56461,3 +56461,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r762`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1231 B1224：主动源码引用必须采用可用的精确证据身份（2026-08-20）
+
+1. r762 证明仅“暴露可选 `items[].evidence_ids`”不足以替换旧的引用池下标心智：模型仍给四个阶段条目全部提交
+   `citation_ref=7`，四项遂共同错引到 `StageAnalyze`。本批把采用条件收窄为结构化三合取：当前 dispatch 的
+   schema 确实暴露 item evidence identity、该 item 的原始模型 payload 主动提交了引用下标、且这些原始下标
+   每一项都能精确映射到已接受且可引用的 current-source `evidence=` 行。三者同时成立而 `evidence_ids` 缺席时，
+   才通过唯一 `typed_item_evidence_identity` 局部修正，要求模型复制它自己选择的证据 ID。
+2. 判定在通用引用修复前冻结，并由仅内存、不序列化、不渲染的 item provenance 携带原始模型引用集合与采用结果。
+   后续系统新增、重绑、移动引用均不能反向制造模型义务；补丁的 unchanged block 保留原权属，精确识别出的稳定旧
+   item 也继承旧权属，而 replace/add 中真正新提交的引用才进入判定。该载体不改变答案 JSON、渲染文本或引用池。
+3. 为避免形成新的教学—校验冲突，聚合事实的系统支撑行、源码枚举 `source_inventory_row_id`、越界/无对应 accepted
+   evidence 的遗留引用继续走各自既有修复车道；无引用的综合说明继续允许同时省略 ID 和引用。系统既不从 item
+   label/text/cells 猜证据，也不选择条目、事实或结论。有效 `evidence_ids` 仍按模型顺序确定性绑定一条或多条
+   file:line，并压过较弱的标签/位置修复。
+4. 回归覆盖：模型原始下标可精确替换时硬拒；字段未暴露时兼容；系统后加引用不制造义务；聚合支撑无 accepted ID
+   时不误拒；full emit、patch、稳定行插入、路径规范化、源码枚举行与 Mutable 深拷贝均保持正确。完整
+   `go test ./internal/types ./internal/agent ./internal/tool -count=1` 全绿（tool 183.189s）。
+5. 本批只治理模型已经主动选择源码引用时的身份载体，不扫描用户输入、模型推理、答案正文或 Mermaid 文案，不改
+   模型条目/措辞/结论，不触碰 Trace 查询、显式时间窗、唤醒链、链上根因、实际占时/现规则可消双轴、因果投影、
+   自动补齐或活跃流判定。
+
+状态：
+
+`B1224-ITEMEVIDENCEADOPTION1=implemented/full-relevant-pass`；
+`adoption-gate=dispatch-field+raw-model-ref+exact-accepted-source-evidence`；
+`system-added/rebound-citation=never-creates-obligation`；
+`unsupported/aggregate/source-inventory/legacy-out-of-range=dedicated-existing-lanes`；
+`B1225-FLOWSPINEDISCLOSURE1=confirmed/P1-next-after-small-trace-batch`；
+`B1226-TRACEPRESSUREFAKEUNIT1=confirmed/P1-next-small-batch`；
+`request/model/final-prose/mermaid-text-scan-or-rewrite=none`；
+`model-item/fact/wording/conclusion-authorship=preserved`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

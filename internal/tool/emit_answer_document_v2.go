@@ -326,6 +326,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// post-emit chain in internal/orchestrator runs unchanged.
 	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil {
 		preEmitCtx := newPreEmitCheckContext(ctx)
+		// Capture model-owned citation-index carriers before any deterministic
+		// repair can add, move, or remove an item citation. B1224's exact
+		// evidence-ID adoption gate must never fire on a system-created ref.
+		markModelSubmittedItemCitationRefs(doc)
+		markModelSubmittedItemEvidenceIDAdoptionRequired(doc, view, preEmitCtx)
 		if fixed := carryForwardCitationsFromRejectedDraft(doc, ctx); fixed > 0 {
 			logging.Warning("[emit_answer_document] restored %d citation(s) from previous answer draft", fixed)
 		}

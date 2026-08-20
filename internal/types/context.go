@@ -3849,15 +3849,18 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				cloned.Items = make([]AnswerBlockItem, len(b.Items))
 				for j, it := range b.Items {
 					cloned.Items[j] = AnswerBlockItem{
-						ID:                   it.ID,
-						Label:                it.Label,
-						Text:                 it.Text,
-						Cells:                append([]string(nil), it.Cells...),
-						CandidateRole:        it.CandidateRole,
-						SourceInventoryRowID: it.SourceInventoryRowID,
-						EvidenceIDs:          append([]string(nil), it.EvidenceIDs...),
-						CitationRef:          it.CitationRef,
-						CitationRefs:         append([]int(nil), it.CitationRefs...),
+						ID:                                     it.ID,
+						Label:                                  it.Label,
+						Text:                                   it.Text,
+						Cells:                                  append([]string(nil), it.Cells...),
+						CandidateRole:                          it.CandidateRole,
+						SourceInventoryRowID:                   it.SourceInventoryRowID,
+						EvidenceIDs:                            append([]string(nil), it.EvidenceIDs...),
+						CitationRef:                            it.CitationRef,
+						CitationRefs:                           append([]int(nil), it.CitationRefs...),
+						CitationRefsModelSubmitted:             it.CitationRefsModelSubmitted,
+						CitationRefsModelSubmittedValues:       append([]int(nil), it.CitationRefsModelSubmittedValues...),
+						CitationRefsEvidenceIDAdoptionRequired: it.CitationRefsEvidenceIDAdoptionRequired,
 					}
 				}
 			}

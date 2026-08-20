@@ -625,6 +625,27 @@ type AnswerBlockItem struct {
 	// (for example a binding site and the bound value's definition site).
 	// The primary CitationRef is not repeated here after normalization.
 	CitationRefs []int `json:"citation_refs,omitempty"`
+
+	// CitationRefsModelSubmitted is internal carrier provenance. It records
+	// that citation_ref/citation_refs came from a model payload before any
+	// deterministic citation repair. It is never serialized or rendered; the
+	// pre-emit evidence-ID contract uses it only to avoid turning a system-added
+	// citation into a new model obligation on a later patch attempt.
+	CitationRefsModelSubmitted bool `json:"-"`
+
+	// CitationRefsModelSubmittedValues preserves the exact pool indexes from
+	// that payload. Later deterministic citation repair may rewrite the public
+	// CitationRef/CitationRefs fields, so the evidence-ID adoption decision must
+	// be made from this immutable model-owned snapshot rather than the repaired
+	// values. It is internal-only and never rendered or serialized.
+	CitationRefsModelSubmittedValues []int `json:"-"`
+
+	// CitationRefsEvidenceIDAdoptionRequired records the precise pre-normalize
+	// decision that every model-submitted citation index for this item resolved
+	// to an accepted, citable current-source evidence row. This lets the later
+	// shared pre-emit check enforce exact evidence identity without treating
+	// system-added/rebound citations as model omissions.
+	CitationRefsEvidenceIDAdoptionRequired bool `json:"-"`
 }
 
 // AnswerBlockItemCitationRefs returns every citation index carried by an item
