@@ -7894,13 +7894,11 @@ func runtimeTraceMetricSnapshotItems(doc *types.AnswerDocumentV2, ctx *types.Bus
 			text = candidate.raw
 		}
 		text += snapCtx.spanMismatchNote(candidate.record, candidate.projIdx, zh)
-		// PTV8-RCR-B (UXA 域C #9 / 域D #27, 2026-07-08). EVOLUTION RECORD: the
-		// view token was bare on the label face — the zh face reuses the
-		// registered 状态切换 display word with the token in parens (§22.2.1
-		// 兜底同构); EN keeps the raw token.
-		churn := "state_churn"
+		// The typed view token stays in the diagnostic record. This label is a
+		// customer-facing system supplement, so it uses the reader meaning only.
+		churn := "thread state changes"
 		if zh {
-			churn = "状态切换(state_churn)"
+			churn = "线程状态变化"
 		}
 		label := strings.TrimSpace(candidate.record.Subject)
 		if label == "" {

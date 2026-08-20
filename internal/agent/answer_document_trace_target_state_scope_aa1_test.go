@@ -79,30 +79,25 @@ func TestRenderAnswerDocObservationLedgerSeparatesTargetStateFromCPUWideScopeAA1
 
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
-		"### Trace Target-State Scope Authority",
-		"scope=`target_thread_only`",
-		"running=26.946ms; runnable=3.636ms",
-		"cpu_wide_saturation_authority=`not_provided_by_target_window_states`",
-		"low runnable share can bound that target's scheduler queueing",
-		"Never rename target-thread running share as CPU utilization",
-		"copy the selected account's published millisecond values",
-		"Scheduler states are not mechanism labels",
-		"state_partition_coverage=`complete`",
-		"unaccounted=0.000ms",
-		"blocked-reason caller/count inventory",
-		"scheduler-marked classifier only",
-		"completion-closed issuer-blocked IO ruler",
-		"NOT ASSESSED by this state partition, not zero",
-		"never the broad claim `IO wait is zero`",
-		"does not by itself prove voluntary yield, idleness, preemption, IO, a lock",
-		"io_wait_caliber=`scheduler_marked_only`",
-		"io_wait_zero_scope=`no_matching_scheduler_marker_only`",
-		"other_io_mechanisms=`not_assessed_by_state_partition`",
-		"sleep_mechanism=`unproven`",
-		"completion_closed_s_io_wait=`separate_typed_ruler`",
+		"### Target-thread scheduler-state accounting",
+		"They describe only that thread",
+		"running 26.946 ms, runnable but not yet scheduled 3.636 ms",
+		"does not establish system-wide CPU utilization, idle capacity, or saturation",
+		"Preserve the published millisecond values and window precision",
+		"A scheduler state says where the target spent time, not why",
+		"complete coverage; 0.000 ms unaccounted",
+		"narrow scheduler-marked definition",
+		"Target blocking closed by IO issue-to-completion evidence is a separate ruler",
+		"unassessed rather than zero",
+		"does not prove yielding, idleness, preemption, IO, a lock",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed target-state scope authority missing %q:\n%s", want, got)
+		}
+	}
+	for _, internal := range []string{"state_partition_coverage", "io_wait_caliber", "sleep_mechanism", "cpu_wide_saturation_authority"} {
+		if strings.Contains(got, internal) {
+			t.Fatalf("target-state reader authority leaked machine token %q:\n%s", internal, got)
 		}
 	}
 }
@@ -138,13 +133,11 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteExplicitWindowStateWitho
 	}
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
-		"### Trace Target-State Scope Authority",
-		"target=`main-100`",
-		"running=20.000ms; runnable=10.000ms; sleep=70.000ms; d_state=0.000ms",
-		"io_wait=0.000ms; sleep_io_wait=3.000ms",
-		"io_wait_caliber=`scheduler_marked_only`",
-		"other_io_mechanisms=`not_assessed_by_state_partition`",
-		"state_partition_coverage=`complete`",
+		"### Target-thread scheduler-state accounting",
+		"target thread main-100",
+		"running 20.000 ms, runnable but not yet scheduled 10.000 ms, interruptible sleep 70.000 ms, uninterruptible wait 0.000 ms",
+		"0.000 ms marked by the scheduler as IO wait and 3.000 ms of interruptible sleep carrying an IO-wait marker",
+		"complete coverage",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("finite state authority missing %q:\n%s", want, got)
@@ -185,10 +178,10 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteStateForTypedParenthesiz
 	}
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
-		"### Trace Target-State Scope Authority",
-		"target=`.ugc.aweme.lite-17267`",
-		"running=157.248ms; runnable=5.604ms; sleep=70.338ms; d_state=0.000ms",
-		"total=233.190ms; state_partition_coverage=`complete`",
+		"### Target-thread scheduler-state accounting",
+		"target thread .ugc.aweme.lite-17267",
+		"running 157.248 ms, runnable but not yet scheduled 5.604 ms, interruptible sleep 70.338 ms, uninterruptible wait 0.000 ms",
+		"total 233.190 ms; complete coverage",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("parenthesized typed target lost finite state authority %q:\n%s", want, got)

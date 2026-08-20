@@ -77,8 +77,7 @@ func TestRuntimeTraceMetricSnapshot_ChainThreadsPreemptUnrelatedThreads(t *testi
 	if len(items) != 1 {
 		t.Fatalf("expected exactly the chain-thread snapshot row (unrelated excluded), got %+v", items)
 	}
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label <subject> state_churn → <subject> 状态切换(state_churn) (快照族)
-	if items[0].Label != "chainy-2 状态切换(state_churn)" {
+	if items[0].Label != "chainy-2 线程状态变化" {
 		t.Fatalf("chain thread must win the snapshot slot: %+v", items[0])
 	}
 	for _, item := range items {
@@ -105,8 +104,7 @@ func TestRuntimeTraceMetricSnapshot_EntityThreadsRankAboveRest(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected entity + rest snapshot rows, got %+v", items)
 	}
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label <subject> state_churn → <subject> 状态切换(state_churn) (快照族)
-	if items[0].Label != "ent-7 状态切换(state_churn)" || items[1].Label != "noisy-9 状态切换(state_churn)" {
+	if items[0].Label != "ent-7 线程状态变化" || items[1].Label != "noisy-9 线程状态变化" {
 		t.Fatalf("analyzer-entity thread must rank first: %+v", items)
 	}
 }
@@ -283,8 +281,7 @@ func TestRuntimeTraceMetricSnapshot_MultiArtifactLabelPrefix(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected one snapshot row per artifact, got %+v", items)
 	}
-	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label <subject> state_churn → <subject> 状态切换(state_churn) (快照族)
-	if items[0].Label != "one.trace · alpha-1 状态切换(state_churn)" || items[1].Label != "two.trace · beta-2 状态切换(state_churn)" {
+	if items[0].Label != "one.trace · alpha-1 线程状态变化" || items[1].Label != "two.trace · beta-2 线程状态变化" {
 		t.Fatalf("multi-artifact snapshot rows must carry the artifact prefix: %+v", items)
 	}
 }

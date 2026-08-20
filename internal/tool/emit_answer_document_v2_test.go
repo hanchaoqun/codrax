@@ -714,10 +714,10 @@ func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceMetricSnapshotFromTypedObs
 		t.Fatalf("missing metric snapshot block: %+v", doc.Blocks)
 	}
 	// PTV8-RCR-B (UXA 横扫批, 2026-07-08). EVOLUTION RECORD: label
-	// "app-20 state_churn" → "app-20 状态切换(state_churn)"; 主导状态→主导;
+	// The customer-facing system card uses the reader label only.
 	// 状态段数 21/切换次数 20 → 切换特征: 20 次切换/21 段; P95段长→P95 段长;
 	// header 状态时长(括号为占该线程观测时长比例) carries the H13 denominator.
-	if len(snapshot.Items) != 1 || snapshot.Items[0].Label != "app-20 状态切换(state_churn)" {
+	if len(snapshot.Items) != 1 || snapshot.Items[0].Label != "app-20 线程状态变化" {
 		t.Fatalf("unexpected metric snapshot items: %+v", snapshot.Items)
 	}
 	// §7.30 S2: the snapshot line is humanized + localized (no raw key=value

@@ -55859,3 +55859,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r755`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1215 B1215：模型上下文与系统补充的读者语言单源化（2026-08-19）
+
+1. r755 的 `status=complete` 不是单个中文词面遗漏。冷读 Finalizer prompt 后确认，同一份完整的目标
+   D/IO 等待清单被三个独立展示消费者重复发布：通用 Observation Ledger、专用 occurrence authority、
+   typed tool handoff；四次 trace 查询又把同值集合重复成四行。专用目标状态 authority 同时直接发布
+   `state_partition_coverage/io_wait_caliber/*_authority` 等机器键。模型最终复制内部枚举，是发布拓扑与
+   词面分层 GAP；继续增加“不要复制”的教学不能消除相互竞争的高显著载体。
+2. 根修保持 producer 的 `ObservationRecord/RichNotes`、完整 ledger、tool result、handoff 原件、因果投影、
+   answer-side occurrence consistency checker 和诊断 payload 全部无损。只有 Finalizer prompt 做 typed
+   单源投影：当一个目标存在可验证的完整 occurrence authority 时，同目标的集合行与 occurrence leaf
+   从通用 ledger 和工具交接展示面退出，由专用 authority 一次发布；相同完整集合来自多次查询时仍只
+   显示一份。冲突或不完整集合不能铸成 authority，因此不会被该投影静默遮蔽。
+3. 专用等待清单与目标线程状态口径现按答案语言发布自然表达，保留目标、窗口、每项起止时间、持续
+   时间、调度器 IO 标记、caller、四态数值、覆盖完整性和未归账量；不再把 predicate、status、coverage、
+   caliber 或 authority 状态码当作模型词汇。零 D/IO 仍明确只是“没有匹配调度器标记的窄口径”，不能
+   否定普通 S、其他 IO 活动、completion-closed S 等待或独立依赖证据。
+4. 同批处理两个确定的系统直出面：读模式源码定位补充把
+   `typed owner/evidence anchor / owner / ev-*` 改为“已核实的源码归属、精确位置、可信程度”，内部 evidence
+   ID 留在结构化文档；Trace 状态快照标题把 `状态切换(state_churn)` 改为“线程状态变化”。这些函数只渲染
+   系统自己的补充，不扫描、拒绝、翻译、删除或改写模型正文。
+5. 正负 pin 覆盖重复 complete roster 只发布一次、通用 ledger/tool handoff 不再重发 wire 行、零值窄
+   口径、target-state 中英文自然表达、源码定位 evidence ID/strength enum 不外泄，以及状态快照不含
+   `state_churn`。`go test ./internal/agent ./internal/tool ./internal/context -count=1` 与完整
+   `go test ./internal/... -count=1` 均通过。
+6. 本批没有改变 Trace 查询、用户显式窗口、链路成员、根因选举/排序、窗内可消除量、实际占用、自动
+   补齐、投影 materialization 或模型结论所有权。主因仍只来自 typed on-chain 证据；邻近/背景只作额外
+   排查方向；活跃字节流不因 4ms、4m 或固定累计年龄降级。
+
+状态：
+
+`B1215-SYSTEMSUPPLEMENTBUSINESSLANGUAGE1=implemented/single-reader-authority+system-display-localized/full-internal-pass`；
+`trace-machine-enums=diagnostic-preserved/model-prompt-deduplicated`；
+`model-request/reasoning/final-prose-scan-or-rewrite=none`；
+`active-stream-4ms-degrade=forbidden/unchanged`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。

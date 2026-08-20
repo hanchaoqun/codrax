@@ -5486,6 +5486,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if len(records) == 0 {
 		return ""
 	}
+	records = answerDocObservationRecordsWithoutReaderAuthorityDuplicates(ctx, promptLedger, records)
 	var b strings.Builder
 	b.WriteString("## Observation Ledger\n\n")
 	b.WriteString("- This is a compact typed view of accepted observations from exploration: current source evidence, structured aggregate facts, VCS/diff or command tool banners, runtime artifacts, cross-repo index rows, external documents, web pages, MCP resources, and connector resources.\n")
@@ -5529,7 +5530,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceIPCRequestCensusAuthority(ctx, promptLedger); authority != "" {
 		b.WriteString(authority)
 	}
-	if authority := renderAnswerDocTraceTargetStateScopeAuthority(promptLedger); authority != "" {
+	if authority := renderAnswerDocTraceTargetStateScopeAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
 		b.WriteString(authority)
 	}
 	if authority := renderAnswerDocTraceRankAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
@@ -5538,7 +5539,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if authority := renderAnswerDocTraceWakeupCensusAuthority(promptLedger, extractAnswerDocLang(ctx)); authority != "" {
 		b.WriteString(authority)
 	}
-	if len(promptLedger.Records) > len(records) {
+	if len(records) > 0 && len(promptLedger.Records) > len(records) {
 		renderedIDs := make(map[string]bool, len(records))
 		for _, record := range records {
 			renderedIDs[strings.TrimSpace(record.ID)] = true
@@ -5548,6 +5549,13 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "; dropped: %s", dropped)
 		}
 		b.WriteString(")*\n\n")
+	}
+	if len(records) == 0 {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh") {
+			b.WriteString("- 完整的调度器标记等待清单将在下方专用读者事实区只发布一次；原始机器记录仍保留在审计账本和校验器中。\n")
+		} else {
+			b.WriteString("- Complete scheduler-marked target-wait rows are intentionally published once in the dedicated reader-ready section below; their lossless machine records remain in the audit ledger and validators.\n")
+		}
 	}
 	for _, record := range records {
 		fmt.Fprintf(&b,
@@ -5706,17 +5714,57 @@ func renderAnswerDocTargetWaitOccurrenceAuthority(ctx *types.AgentContext) strin
 	if len(authorities) == 0 {
 		return ""
 	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(extractAnswerDocLang(ctx))), "zh")
 	var b strings.Builder
-	b.WriteString("## Target D/IO-Wait Occurrence Roster Scope\n\n")
-	b.WriteString("- These complete bounded rowsets were paired by the runtime engine for typed user targets. Their scope is deliberately narrow: D-state intervals, explicit io_wait intervals, and S intervals only when the paired blocked-reason evidence carries `iowait=1`. Ordinary S and waits or blocking proved by other mechanisms are outside this roster. They are constructed separately from Observation Ledger ranking and repair-ref selection.\n")
-	b.WriteString("- A complete zero roster means only that no interval matched this D/IO-wait classifier in the selected target/window. It does NOT prove no Sleep, no waiting, or no blocking. Keep any separately published scheduler-state totals and completion/dependency evidence intact.\n")
-	b.WriteString("- If the principal answer enumerates any row from one set, copy every row in that set exactly. Do not rebuild an interval from adjacent sched events or use a blocked-reason timestamp as the interval start. Emit-time consistency checks reject missing or conflicting start/end/duration relations.\n\n")
-	b.WriteString("- Do not copy the compatibility wire predicate `target_window_wait_occurrences` into customer-facing prose. Describe the exact reader meaning instead, such as ‘the selected window contains no scheduler-marked D/IO-wait occurrence’; never shorten that to ‘there was no wait/blocking’.\n\n")
+	if zh {
+		b.WriteString("## 目标线程的调度器标记等待清单\n\n")
+		b.WriteString("- 这些完整清单由运行时引擎按目标线程和所选窗口配对，只包含不可中断等待、明确的 IO 等待，以及阻塞原因明确标记为 IO 等待的可中断睡眠。普通可中断睡眠和由其他机制证明的等待或阻塞不在本清单内。\n")
+		b.WriteString("- 清单为零只表示该目标与窗口内没有匹配上述窄口径的区间；不能据此声称没有睡眠、等待、阻塞或 IO 活动。另行发布的线程状态总量、IO 完成闭环和依赖证据仍然有效。\n")
+		b.WriteString("- 如果正文列举清单中的任一项，必须保留同一清单的全部项目及其原始起止时间和持续时间；不得用相邻调度事件重建区间，也不得把阻塞原因记录的时间戳当作区间起点。字段名和机器状态码只用于内部校验，不要写入面向客户的正文。\n\n")
+	} else {
+		b.WriteString("## Scheduler-marked waits for the target thread\n\n")
+		b.WriteString("- These complete lists are paired by the runtime engine for the target thread and selected window. They include uninterruptible waits, explicit IO waits, and interruptible sleep only when its blocked-reason evidence explicitly marks IO wait. Ordinary interruptible sleep and waits or blocking proved by other mechanisms are outside this list.\n")
+		b.WriteString("- A zero list means only that no interval matched this narrow classifier for the target and window. It does not prove there was no sleep, waiting, blocking, or IO activity. Separately published thread-state totals, completion-closed IO evidence, and dependency evidence remain valid.\n")
+		b.WriteString("- If the answer enumerates any item, preserve every item in the same list with its original start, end, and duration. Do not rebuild intervals from adjacent scheduler events or use a blocked-reason timestamp as an interval start. Field names and machine status codes are validation metadata and must not appear in customer-facing prose.\n\n")
+	}
 	for _, authority := range authorities {
-		fmt.Fprintf(&b, "- subject=`%s`; status=`complete`; count=%d; sum_ms=%.3f; source_record=`%s`\n",
-			authority.Subject, authority.Count, authority.SumMS, authority.RecordID)
+		if zh {
+			fmt.Fprintf(&b, "- %s：清单完整覆盖所选窗口；共 %d 次，合计 %.3f 毫秒。\n",
+				authority.Subject, authority.Count, authority.SumMS)
+		} else {
+			fmt.Fprintf(&b, "- %s: the list completely covers the selected window; %d occurrence(s), totaling %.3f ms.\n",
+				authority.Subject, authority.Count, authority.SumMS)
+		}
 		for _, row := range authority.Rows {
-			fmt.Fprintf(&b, "  - occurrence=`%s`\n", row.CanonicalLine())
+			state := traceFinalReaderStateLabel(row.State, zh)
+			if state == "" {
+				state = row.State
+			}
+			iowait := "unknown"
+			if zh {
+				iowait = "未知"
+			}
+			switch row.IOWait {
+			case "1":
+				if zh {
+					iowait = "是"
+				} else {
+					iowait = "yes"
+				}
+			case "0":
+				if zh {
+					iowait = "否"
+				} else {
+					iowait = "no"
+				}
+			}
+			if zh {
+				fmt.Fprintf(&b, "  - 第 %d 次：%s；%.6f–%.6f 秒；持续 %.3f 毫秒；调度器 IO 等待标记：%s；内核记录函数：%s。\n",
+					row.Ordinal, state, row.StartTs, row.EndTs, row.DurationM, iowait, row.Caller)
+			} else {
+				fmt.Fprintf(&b, "  - Occurrence %d: %s; %.6f–%.6f seconds; duration %.3f ms; scheduler IO-wait marker: %s; recorded kernel function: %s.\n",
+					row.Ordinal, state, row.StartTs, row.EndTs, row.DurationM, iowait, row.Caller)
+			}
 		}
 	}
 	b.WriteString("\n")
@@ -5869,43 +5917,51 @@ func writeAnswerDocTraceShardAmount(b *strings.Builder, status string, totalMS, 
 	fmt.Fprintf(b, "; total_impact=%.3fms; max_shard=%.3fms; cross_shard_additivity=`disjoint_windows`", totalMS, maxMS)
 }
 
-func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedger) string {
+func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedger, lang string) string {
 	authorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
 	if len(authorities) == 0 {
 		return ""
 	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
 	var b strings.Builder
-	b.WriteString("### Trace Target-State Scope Authority\n\n")
-	b.WriteString("- `target_window_states` is a wall-clock partition of ONE target thread. Its running/runnable/sleep/D-state values describe only that thread. A low runnable share can bound that target's scheduler queueing; it cannot prove CPU-wide utilization, idle capacity, or saturation.\n")
-	b.WriteString("- Any CPU-wide saturation or head-room conclusion requires a separate typed per-CPU, core-class, process-domain, or system occupancy/idle/pressure account. Never rename target-thread running share as CPU utilization.\n")
-	b.WriteString("- When the question requests this state partition, copy the selected account's published millisecond values at their displayed precision; do not reconstruct them from rounded narrative values or a neighboring window. Coverage describes only whether the scheduler-state partition accounts for the selected target window.\n")
-	b.WriteString("- Scheduler states are not mechanism labels. `sleep`, D-state, and `io_wait` report where the target spent wall clock; a blocked-reason caller/count inventory may explain only its own typed, interval-joined subset. Without that join, never rename all sleep/D/IO time after one caller, subsystem, or event family. In particular, `sleep` proves interruptible S-state only: it does not by itself prove voluntary yield, idleness, preemption, IO, a lock, or another wait mechanism. Preempted-but-ready time belongs to runnable rather than sleep.\n")
-	b.WriteString("- The `io_wait` and `sleep_io_wait` fields below are the scheduler-marked classifier only: D/explicit io_wait, plus S only when paired blocked-reason evidence carries iowait=1. A zero means zero matches for that narrow classifier. It never proves that disk, filesystem, device, or other IO activity/blocking did not occur. If no separately typed completion-closed issuer-blocked IO ruler is published for this finite question, that ruler is NOT ASSESSED by this state partition, not zero; if it is published, report it separately. Use a reader-facing label equivalent to `scheduler-marked D/IO-wait` for the narrow value, never the broad claim `IO wait is zero`.\n")
+	if zh {
+		b.WriteString("### 目标线程状态统计口径\n\n")
+		b.WriteString("- 下面是单个目标线程在所选窗口内的墙钟状态分区，只描述该线程。目标线程的运行或可运行占比不能直接代表整机 CPU 利用率、空闲算力或饱和程度；此类结论必须另有逐 CPU、核簇、进程域或系统级证据。\n")
+		b.WriteString("- 保留这里发布的毫秒值与窗口精度，不要从四舍五入的叙述或相邻窗口重新计算。状态只说明线程把时间花在哪一种调度状态，不自动说明等待机制。可中断睡眠本身不证明主动让出、空闲、抢占、IO、锁或其他等待；已经可运行但尚未获调度的时间属于调度延迟。\n")
+		b.WriteString("- 其中的 IO 等待采用调度器标记的窄口径：不可中断等待、明确 IO 等待，以及阻塞原因标记为 IO 等待的可中断睡眠。零值只表示没有匹配该窄口径，不能证明磁盘、文件系统、设备或其他 IO 活动/阻塞不存在。由 IO 发起到完成闭合的目标线程等待是另一把尺；若未单独发布，应表述为未评估而不是零。\n")
+	} else {
+		b.WriteString("### Target-thread scheduler-state accounting\n\n")
+		b.WriteString("- The rows below partition wall-clock time for one target thread in the selected window. They describe only that thread. Its running or runnable share does not establish system-wide CPU utilization, idle capacity, or saturation; those conclusions require separate per-CPU, core-class, process-domain, or system evidence.\n")
+		b.WriteString("- Preserve the published millisecond values and window precision; do not reconstruct them from rounded prose or a neighboring window. A scheduler state says where the target spent time, not why. Interruptible sleep alone does not prove yielding, idleness, preemption, IO, a lock, or another wait mechanism; ready-but-unscheduled time is scheduling latency.\n")
+		b.WriteString("- IO wait here uses the narrow scheduler-marked definition: uninterruptible wait, explicit IO wait, and interruptible sleep whose blocked-reason evidence marks IO wait. Zero means no match for that narrow definition; it does not prove the absence of disk, filesystem, device, or other IO activity/blocking. Target blocking closed by IO issue-to-completion evidence is a separate ruler; when it is not separately published, it is unassessed rather than zero.\n")
+	}
 	for i, authority := range authorities {
 		if i >= 4 {
-			fmt.Fprintf(&b, "- (%d additional target-state account(s) omitted from this compact wording view)\n", len(authorities)-i)
+			if zh {
+				fmt.Fprintf(&b, "- 另有 %d 个目标线程状态统计未在本紧凑视图展开。\n", len(authorities)-i)
+			} else {
+				fmt.Fprintf(&b, "- %d additional target-thread state account(s) are omitted from this compact view.\n", len(authorities)-i)
+			}
 			break
 		}
 		label := authority.ArtifactLabel
 		if label == "" {
 			label = fmt.Sprintf("partition-%d", i+1)
 		}
-		fmt.Fprintf(&b,
-			"- artifact=`%s`; target=`%s`; window=`%.6f..%.6f`; scope=`target_thread_only`; running=%.3fms; runnable=%.3fms; sleep=%.3fms; d_state=%.3fms; io_wait=%.3fms; sleep_io_wait=%.3fms; io_wait_caliber=`scheduler_marked_only`; io_wait_zero_scope=`no_matching_scheduler_marker_only`; other_io_mechanisms=`not_assessed_by_state_partition`; sleep_mechanism=`unproven`; completion_closed_s_io_wait=`separate_typed_ruler`; total=%.3fms; state_partition_coverage=`%s`; unaccounted=%.3fms; cpu_wide_saturation_authority=`not_provided_by_target_window_states`\n",
-			label,
-			authority.Subject,
-			authority.WindowStartTs,
-			authority.WindowEndTs,
-			authority.RunningMS,
-			authority.RunnableMS,
-			authority.SleepMS,
-			authority.DStateMS,
-			authority.IOWaitMS,
-			authority.SleepIOWaitMS,
-			authority.TotalMS,
-			authority.CoverageStatus,
-			authority.UnaccountedMS,
-		)
+		coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
+		if zh {
+			fmt.Fprintf(&b,
+				"- 工件 %s；目标线程 %s；窗口 %.6f–%.6f 秒；运行 %.3f 毫秒，可运行但尚未获调度 %.3f 毫秒，可中断睡眠 %.3f 毫秒，不可中断等待 %.3f 毫秒，其中调度器标记的 IO 等待 %.3f 毫秒、带 IO 等待标记的可中断睡眠 %.3f 毫秒；合计 %.3f 毫秒；%s；未归账 %.3f 毫秒。\n",
+				label, authority.Subject, authority.WindowStartTs, authority.WindowEndTs,
+				authority.RunningMS, authority.RunnableMS, authority.SleepMS, authority.DStateMS,
+				authority.IOWaitMS, authority.SleepIOWaitMS, authority.TotalMS, coverage, authority.UnaccountedMS)
+		} else {
+			fmt.Fprintf(&b,
+				"- Artifact %s; target thread %s; window %.6f–%.6f seconds; running %.3f ms, runnable but not yet scheduled %.3f ms, interruptible sleep %.3f ms, uninterruptible wait %.3f ms, including %.3f ms marked by the scheduler as IO wait and %.3f ms of interruptible sleep carrying an IO-wait marker; total %.3f ms; %s; %.3f ms unaccounted.\n",
+				label, authority.Subject, authority.WindowStartTs, authority.WindowEndTs,
+				authority.RunningMS, authority.RunnableMS, authority.SleepMS, authority.DStateMS,
+				authority.IOWaitMS, authority.SleepIOWaitMS, authority.TotalMS, coverage, authority.UnaccountedMS)
+		}
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -6839,6 +6895,33 @@ func answerDocToolHandoffCarriersForFinalizer(ctx *types.AgentContext, carriers 
 		}
 		carriers = types.NormalizeToolHandoffCarriers(projected)
 	}
+	// A complete target-wait roster is rendered once by the dedicated
+	// reader-facing authority. Drop only its duplicate observation refs from
+	// the model prompt; typed carriers and the lossless ledger remain intact for
+	// validation and diagnostics.
+	if ctx != nil && ctx.AnalysisIR != nil {
+		shadowed := answerDocReaderAuthorityShadowedObservationIDs(ctx, answerDocObservationLedger(ctx))
+		if len(shadowed) > 0 {
+			projected := make([]types.ToolHandoffCarrier, 0, len(carriers))
+			for _, carrier := range carriers {
+				originalRefCount := len(carrier.ObservationRefs)
+				refs := make([]types.ToolObservationRef, 0, originalRefCount)
+				for _, ref := range carrier.ObservationRefs {
+					if shadowed[strings.TrimSpace(ref.ID)] {
+						continue
+					}
+					refs = append(refs, ref)
+				}
+				carrier.ObservationRefs = refs
+				if originalRefCount > 0 && len(refs) == 0 && len(carrier.AcceptedEvidence) == 0 &&
+					carrier.Repair == nil && carrier.SupportedJSON == nil {
+					continue
+				}
+				projected = append(projected, carrier)
+			}
+			carriers = types.NormalizeToolHandoffCarriers(projected)
+		}
+	}
 	if len(carriers) == 0 || !answerDocSourceInventorySuppressesStaleDisplayDebt(ctx) {
 		return carriers
 	}
@@ -7196,6 +7279,61 @@ func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.
 	records, _ = answerDocSelectedWindowObservationRecords(ctx, records)
 	ledger := types.ObservationLedger{Records: records}
 	return types.ProjectObservationPromptRecords(records, rm, contract, answerDocObservationPromptProjectionOptions(ctx, ledger, limit))
+}
+
+// answerDocObservationRecordsWithoutReaderAuthorityDuplicates removes only
+// prompt rows whose complete values are already republished by the dedicated
+// target-wait reader authority. The lossless ObservationLedger, tool result,
+// audit payload, causal projection, and answer-side consistency checker retain
+// the original rows. Keeping one natural-language prompt surface prevents
+// repeated trace queries from teaching the answer model a compatibility
+// predicate or machine status value as customer vocabulary.
+func answerDocObservationRecordsWithoutReaderAuthorityDuplicates(
+	ctx *types.AgentContext,
+	ledger types.ObservationLedger,
+	records []types.ObservationPromptRecord,
+) []types.ObservationPromptRecord {
+	shadowed := answerDocReaderAuthorityShadowedObservationIDs(ctx, ledger)
+	if len(shadowed) == 0 || len(records) == 0 {
+		return records
+	}
+	out := make([]types.ObservationPromptRecord, 0, len(records))
+	for _, record := range records {
+		if shadowed[strings.TrimSpace(record.ID)] {
+			continue
+		}
+		out = append(out, record)
+	}
+	return out
+}
+
+func answerDocReaderAuthorityShadowedObservationIDs(ctx *types.AgentContext, ledger types.ObservationLedger) map[string]bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(ledger.Records) == 0 {
+		return nil
+	}
+	authorities := types.BuildTargetWaitOccurrenceAuthorities(ledger, &ctx.AnalysisIR.RequestModel)
+	if len(authorities) == 0 {
+		return nil
+	}
+	subjects := make(map[string]bool, len(authorities))
+	for _, authority := range authorities {
+		if subject := strings.ToLower(strings.TrimSpace(authority.Subject)); subject != "" {
+			subjects[subject] = true
+		}
+	}
+	shadowed := make(map[string]bool)
+	for _, record := range ledger.Records {
+		predicate := strings.ToLower(strings.TrimSpace(record.Predicate))
+		if predicate != "target_window_wait_occurrences" && predicate != "target_window_wait_occurrence" {
+			continue
+		}
+		if subjects[strings.ToLower(strings.TrimSpace(record.Subject))] {
+			if id := strings.TrimSpace(record.ID); id != "" {
+				shadowed[id] = true
+			}
+		}
+	}
+	return shadowed
 }
 
 // answerDocSelectedWindowObservationRecords keeps deterministic trace-query
@@ -20157,20 +20295,20 @@ func renderReadOwnerAnchorSupplement(ctx *types.AgentContext, doc *types.AnswerD
 	if zh {
 		b.WriteString("---\n\n")
 		b.WriteString("> **系统补充：源码定位锚点核对**\n>\n")
-		b.WriteString("> 下表来自本轮读模式探索阶段的 typed owner/evidence anchor，用于避免最终成文压缩时丢失定位依据；它不替代上方模型答案，也不是新的路由依据。\n\n")
-		b.WriteString("| 文件 | Owner/符号 | 证据 | 强度 |\n|---|---|---|---|\n")
+		b.WriteString("> 下表汇总本轮读模式已经核实的源码归属与精确位置，用于避免最终成文压缩时丢失定位依据；它不替代上方模型答案，也不是新的路由依据。\n\n")
+		b.WriteString("| 文件 | 所属符号 | 精确位置 | 可信程度 |\n|---|---|---|---|\n")
 	} else {
 		b.WriteString("---\n\n")
-		b.WriteString("> **System supplement: source-localization anchors**\n>\n")
-		b.WriteString("> The table below is derived from typed owner/evidence anchors gathered during read-mode exploration. It preserves localization evidence that can be lost during final compression. It does not replace the model-authored answer above and is not a routing signal.\n\n")
-		b.WriteString("| File | Owner / symbol | Evidence | Strength |\n|---|---|---|---|\n")
+		b.WriteString("> **System supplement: verified source locations**\n>\n")
+		b.WriteString("> The table below summarizes source ownership and exact locations already verified during read-mode exploration. It preserves location evidence that can be lost during final compression; it does not replace the model-authored answer above and is not a routing signal.\n\n")
+		b.WriteString("| File | Owning symbol | Exact location | Confidence |\n|---|---|---|---|\n")
 	}
 	for _, row := range rows {
-		fmt.Fprintf(&b, "| `%s` | %s | %s | `%s` |\n",
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
 			row.Path,
 			readOwnerAnchorSupplementSymbol(row),
 			readOwnerAnchorSupplementEvidence(row),
-			row.Strength)
+			readOwnerAnchorSupplementStrength(row.Strength, zh))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -20506,10 +20644,27 @@ func readOwnerAnchorSupplementEvidence(row readOwnerAnchorSupplementRow) string 
 			loc += fmt.Sprintf(":%d", row.LineStart)
 		}
 	}
-	if row.EvidenceID != "" {
-		return fmt.Sprintf("`%s` (`%s`)", loc, row.EvidenceID)
-	}
 	return "`" + loc + "`"
+}
+
+func readOwnerAnchorSupplementStrength(strength types.SourceLocalizationAnchorStrength, zh bool) string {
+	switch strength {
+	case types.SourceLocalizationAnchorOwner:
+		if zh {
+			return "已核实归属"
+		}
+		return "verified ownership"
+	case types.SourceLocalizationAnchorSupporting:
+		if zh {
+			return "定位证据充分"
+		}
+		return "well-supported location"
+	default:
+		if zh {
+			return "定位证据有限"
+		}
+		return "limited location evidence"
+	}
 }
 
 func renderRequestedAnswerDimensionSourceQuoteSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {

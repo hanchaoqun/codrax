@@ -7349,11 +7349,24 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 			types.TraceNoteKeyTargetWaitOccurrence + "=#3 state=io_wait 34579.471372..34579.471722 duration=0.350ms iowait=1 caller=sync_buffer_read_wi lines=7-8 reason_line=9",
 		},
 	}
+	ref, ok := types.ToolObservationRefFromObservationRecord(observation)
+	if !ok {
+		t.Fatal("target wait observation should produce a typed handoff ref")
+	}
+	duplicate := observation
+	duplicate.ID = "trace_query:second-window-query#target_window_wait_occurrences"
+	duplicateRef, ok := types.ToolObservationRefFromObservationRecord(duplicate)
+	if !ok {
+		t.Fatal("duplicate target wait observation should produce a typed handoff ref")
+	}
 	mut := types.NewMutableState("q")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
 		ToolName:     "trace_query",
 		Success:      true,
-		Observations: []types.ObservationRecord{observation},
+		Observations: []types.ObservationRecord{observation, duplicate},
+	}}, HandoffCarriers: []types.ToolHandoffCarrier{{
+		Version: types.ToolHandoffCarrierVersion, ToolName: "trace_query",
+		ReasonCode: "tool_observation_handoff", ObservationRefs: []types.ToolObservationRef{ref, duplicateRef},
 	}}})
 	ctx := &types.AgentContext{
 		Mutable: mut,
@@ -7368,18 +7381,29 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityBypassesLedgerAndRepairBudg
 	}
 	out := renderAnswerDocTargetWaitOccurrenceAuthority(ctx)
 	for _, want := range []string{
-		"## Target D/IO-Wait Occurrence Roster Scope",
-		"Ordinary S and waits or blocking proved by other mechanisms are outside this roster",
-		"It does NOT prove no Sleep, no waiting, or no blocking",
-		"Do not copy the compatibility wire predicate `target_window_wait_occurrences` into customer-facing prose",
-		"count=3; sum_ms=0.635",
-		"34579.451701..34579.451839 duration=0.138ms",
-		"34579.452934..34579.453081 duration=0.147ms",
-		"34579.471372..34579.471722 duration=0.350ms",
+		"## Scheduler-marked waits for the target thread",
+		"Ordinary interruptible sleep and waits or blocking proved by other mechanisms are outside this list",
+		"does not prove there was no sleep, waiting, blocking, or IO activity",
+		"Field names and machine status codes are validation metadata",
+		"3 occurrence(s), totaling 0.635 ms",
+		"34579.451701–34579.451839 seconds; duration 0.138 ms",
+		"34579.452934–34579.453081 seconds; duration 0.147 ms",
+		"34579.471372–34579.471722 seconds; duration 0.350 ms",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("dedicated target occurrence authority missing %q:\n%s", want, out)
 		}
+	}
+	if count := strings.Count(out, "the list completely covers the selected window"); count != 1 {
+		t.Fatalf("identical complete rosters from repeated queries must publish once, got %d:\n%s", count, out)
+	}
+	if ledgerPrompt := renderAnswerDocObservationLedger(ctx); strings.Contains(ledgerPrompt, "target_window_wait_occurrences") ||
+		strings.Contains(ledgerPrompt, "target_wait_occurrence_prompt=status=complete") {
+		t.Fatalf("dedicated reader authority must shadow duplicate wait wire rows in the model ledger:\n%s", ledgerPrompt)
+	}
+	if handoffPrompt := renderAnswerDocToolHandoffCarriers(ctx); strings.Contains(handoffPrompt, "target_window_wait_occurrences") ||
+		strings.Contains(handoffPrompt, "target_wait_occurrence_prompt=status=complete") {
+		t.Fatalf("dedicated reader authority must shadow duplicate wait wire refs in the model handoff:\n%s", handoffPrompt)
 	}
 }
 
@@ -7413,9 +7437,9 @@ func TestRenderAnswerDocTargetWaitOccurrenceAuthorityKeepsMeasuredZeroNarrow(t *
 	}
 	out := renderAnswerDocTargetWaitOccurrenceAuthority(ctx)
 	for _, want := range []string{
-		"count=0; sum_ms=0.000",
-		"no interval matched this D/IO-wait classifier",
-		"does NOT prove no Sleep, no waiting, or no blocking",
+		"0 occurrence(s), totaling 0.000 ms",
+		"no interval matched this narrow classifier",
+		"does not prove there was no sleep, waiting, blocking, or IO activity",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("measured-zero target roster lost scope boundary %q:\n%s", want, out)
@@ -11009,8 +11033,8 @@ func TestRenderReadOwnerAnchorSupplement_RendersOwnerRows(t *testing.T) {
 		"系统补充：源码定位锚点核对",
 		"`internal/agent/subagent_runtime.go`",
 		"`SubAgentRuntime.Run` / `Run`",
-		"`internal/agent/subagent_runtime.go:218` (`ev-owner`)",
-		"`owner`",
+		"`internal/agent/subagent_runtime.go:218`",
+		"已核实归属",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("supplement missing %q:\n%s", want, got)
@@ -11058,15 +11082,17 @@ func TestRenderReadOwnerAnchorSupplement_ProjectsOnePreciseRowPerPath(t *testing
 	}
 	for _, want := range []string{
 		"`exactOwner` / `exactCall`",
-		"`pkg/main.go:42` (`ev-exact`)",
-		"`pkg/other.go:7` (`ev-other`)",
+		"`pkg/main.go:42`",
+		"`pkg/other.go:7`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("supplement missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "ev-broad") {
-		t.Fatalf("broader same-path anchor must not leak into final supplement:\n%s", got)
+	for _, internal := range []string{"typed owner/evidence anchor", "`owner`", "ev-broad", "ev-exact", "ev-other"} {
+		if strings.Contains(got, internal) {
+			t.Fatalf("internal localization token %q must not leak into final supplement:\n%s", internal, got)
+		}
 	}
 }
 
