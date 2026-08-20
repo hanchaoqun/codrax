@@ -55820,3 +55820,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1214 r755：写滚转未触发；Trace 预检叙事与确定性权威争用（2026-08-19）
+
+1. 在 `main@d40f44ef8` 重建后严格并发恰好两个案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + trace_query_wakeup_causal_runnable`。Runner `2 PASS / 0 FAIL`，
+   人工为 `1 pass / 1 partial`；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_write_trace_r755_20260819_manual_audit.md`。
+2. 写案例在 243 秒内正确完成：只改 `fastlex/tokenizer.py`，保留原 five-newline 测试；identity-coupled
+   probe、pytest 缺失后的精确 unittest fallback 两项、project-test contract refs 与 changed-path
+   verification 均通过。两条 `satisfies` 合同都有真实源码/测试 `evidence_ref`，保持 required 是 B1213
+   的应然正边界，不应一律降格。
+3. B1214 本轮没有生产触发。Planner 首次把新函数体 insert 到旧定义前，被 validator 正确拒绝；随后读取
+   repair context 并以完整 replacement 成功，总计只有 1 次 failed structured emit，未达到三次滚转阈值。
+   运行从 r754 的 895 秒降至 243 秒是正向效率信号，但可能含模型波动，保持
+   `unit-covered/production-arm-not-exercised`，不得虚报闭环。
+4. Trace 主链基本正确：请求显式窗 1.000000..1.010000，worker-200 -> app-100 是已证链；worker runnable
+   有效归因 8.300ms、链累计 9.000ms，目标自身 sleep 实占 10.000ms；跨 CPU 角色、优先级候选上限、
+   D/IO 零值、背景不晋升、实际占用/规则计价双轴和完整 Trace 因果投影均保留。
+5. 新确认 B1216/P1-high。早期 perf-triage 对同一工件发出自由因果叙事：“主要阻塞为自身睡眠等待，非
+   调度延迟”，并称不存在优先级反转；后续 deterministic trace_query 已给出相反的链上 worker runnable
+   与 priority candidate。最终 context 仍让两种 authority 并存，模型正文因此写“D/IO=0 表明是正常的
+   睡眠等待”，同页 caveat 又说 sleep 机制未证。根修沿既有 B400：同一 runtime artifact 已有
+   deterministic trace_query authority 后，pre-triage 的自由 summary/因果/机理判断只作导航，不进入最终
+   answer authority；保留其原始测量字段和审计历史，不扫描或重写最终答案。
+6. B1215 再获生产 witness：`status=complete`、`state_partition_coverage=complete` 等内部枚举仍进入
+   模型可复制上下文并泄漏到中文正文。后续在 typed context/系统补充自身 renderer 提供读者词形，内部
+   枚举继续留在诊断载体；不对用户请求、模型 reasoning 或答案 prose 做关键词硬门。
+7. 本轮没有固定时长降级。Read/Trace 成文正常，显式窗投影与自动补齐未因写模式收敛改动受影响；系统
+   未选择模型根因、未改写模型正文，背景仍只作额外排查方向。
+
+状态：
+
+`B1214-REPEATEDSTRUCTUREDEMITROLLOVER1=unit-covered/production-arm-not-exercised-r755`；
+`B1216-PRETRIAGENARRATIVEAUTHORITY2=confirmed/P1-high/next`；
+`B1215-SYSTEMSUPPLEMENTBUSINESSLANGUAGE1=production-witness-r755/P2`；
+`active-stream-4ms-degrade=forbidden/not-observed`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r755`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
