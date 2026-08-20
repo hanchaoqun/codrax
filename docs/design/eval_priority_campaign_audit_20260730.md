@@ -56228,3 +56228,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/conclusion-authorship=none`。
+
+### §123.1225 r760：B1221 获生产正证；Trace 权威完整并复证 B1219 读者词面债（2026-08-20）
+
+1. 在 `main@99b163a5c` 重建后严格并发恰好两个异构案例：
+   `github_issue_tokenizers_newline_run_multirepo_py + trace_query_wakeup_causal_io_chain`。Runner `2 PASS / 0 FAIL`，
+   人工 `1 pass / 1 partial`；逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_acceptance_trace_r760_20260820_manual_audit.md`。
+2. 写案例只修改 `fastlex/tokenizer.py`，原五换行测试字节保持不变。执行 probe 同时覆盖单换行 `[10]`、
+   五换行 `[300]`、普通 `hi -> [256]` 和混合内容；实现只在真实相邻 pair 存在时开始折叠，r759 的
+   singleton 回归消失。changed path 获 `target_behavior`，final proof 为诚实 `adequate`。
+3. Analyzer 的十条无仓库凭证候选全部保持 `planning_only_ungrounded`，没有被 probe 文案反向升级为硬合同。
+   Controller 生产消费 `required=0/covered=0/planning-only=10/acceptance=0` 后收口，用户面明确“已验证”只覆盖
+   必需结构化义务，不代表自然语言清单逐项执行。B1221 获生产正证，且没有新增 prose 硬门。
+4. Trace 案例完整保留显式 2.000000..2.020000s 窗、app-100 的 20.000ms sleep、已证
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms IO 首席、三条 1.000ms 调度供给、
+   实际占时/现规则可消双轴、因果投影与自动补采。邻近 sleep 和背景 IO 压力均未进入根因排序。
+5. 模型正文把三条边/四个 CPU 节点口误成“四跳”，并在同一项同时写“三席小计 3ms”与“同方向不可相加”；
+   系统投影的精确事实是三个互斥区间可作 3ms 小计、跨修复方向不可相加。上下文充分且确定性板正确，按
+   模型波动留档，不扫描用户或答案原文做硬拒绝。
+6. B1219 获新的生产 witness：系统校验附注仍直接显示 `typed 事实/typed 席位/typed confidence`。这是系统
+   自有 structured renderer 的读者语言问题，可从结构化字段映射修复；不得扫描或改写模型正文，也不得
+   借机改变链上席位、数值、排序或结论。
+7. 两路活跃流在 270s/529s 正常完成，没有 4ms、4m、首字节、stall 或累计年龄降级。Trace 成文仅有一次
+   schema 字段挂错 block kind，按精确错误一轮修正成功；未发现 JSON 教学与校验的互斥合同。
+
+状态：
+
+`B1221-WRITEACCEPTANCEEVIDENCECOVERAGE1=production-positive-r760/closed`；
+`B1219-TRACEVALIDATIONAPPENDIXLANGUAGE2=production-reconfirmed/P2-next`；
+`write-singleton-boundary=passed`；
+`verification-completion-scope=production-consumed`；
+`request/plan/patch/test/model-output-prose-scan=none`；
+`active-stream-4ms-degrade=forbidden/production-positive-270s+529s`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r760`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion-authorship=none`。
