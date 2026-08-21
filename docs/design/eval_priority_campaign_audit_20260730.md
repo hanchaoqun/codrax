@@ -57563,6 +57563,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1329 r813：B1295 载体到达生产，但可选处置未被消费；opaque ref 冗余坐标触发重试风暴（2026-08-21）
+
+1. 从干净 `main@86319eb0b` 构建不可变二进制，严格并发恰好两路：
+   `read_combo_pipeline_sequence_table` 与 `trace_query_wakeup_causal_io_chain`。runner 2/2 PASS，人工 1/2 PASS；详见
+   `eval/parallel_selected_summary_evalcampaign_orphancleanup_r813_20260821_manual_audit.md`。
+2. Trace 人工通过：精确 2.000000..2.020000 用户窗、`threadpool-400→network-300→cookie-200→app-100` 四跳唤醒链、
+   11.000ms 链上 IO 第一席、三个分别 1.000ms 的调度/优先级候选、实际占时/现规则可消双账户、邻近/背景隔离、自动补采和
+   `Trace 因果投影` 全部保留；`bounded_window_candidate` 等 JSON 控制值未泄漏。模型把两个线程的“唤醒前累计 sleep”写成“被唤醒后
+   sleep”，与同页时间点不一致，但 typed 数据和主结论正确，先按模型措辞波动观察，不增加答案原文硬门或系统改写。
+3. Read runner 假绿，人工失败。首稿 14 条无证 sequence 边被 relation lease 正确拒绝，B1295 的 optional cleanup 能力随同代 schema/hint
+   到达模型；但模型未选择 `diagram_participant_edits`。最终图仍声明 `Orchestrator/Analyzer/Explorer/Extractor/Finalizer/BusCtx`，真实
+   可见边却是 `Analyzer→explorer→extractor→finalizer`，同时产生大小写不同的隐式 actor 与多枚零 incident 声明，用户看到的关系仍奇怪。
+   这证明“可选但省略即无条件保留”不能闭环 B1295；系统仍不得自动删除，下一步必须让模型对受本轮删边影响的候选显式选择
+   `remove_if_isolated` 或结构化 `retain_as_context`，而非从答案 prose 猜它的意图。
+4. 新 `B1296-OPAQUEREFREDUNDANTSELECTORCHURN1/P1` 是确定性低心智 gap。`failure_ref` 已由 live lease 精确绑定 block、carrier、节点、
+   relation 与 occurrence，schema/hint 也明确它替代这些坐标；模型却连续四轮附带冗余 `block_id/match/body_occurrence`。第一轮填 `call`、
+   后续填缺 relation 或 `precedence`，均被 redundant-match hard gate 拒绝。visible-body failure 的有效 relation 可为空，而 schema 的
+   `match.relation_kind` 只允许非空 enum，导致“若模型重复 match 就没有可表达的相等值”。第六轮终于只靠 ref 越过，却已烧掉约 4 分钟和
+   4 次无意义重试。最优根修是 ref-first canonicalization：live ref + allowed action 通过后，冗余选择坐标没有权威，直接隔离；unknown/stale、
+   reused ref、disallowed action 与缺少 replace edge 等真实冲突继续 fail-closed。该归一化不改变模型 action、replacement edge 或 visible label。
+5. 新 `B1297-ORPHANDECISIONOMISSION1/P1` 冻结为下一批。只有当模型本 patch 已选择删除候选的全部 incident failure edges、使声明实际变成
+   isolated 时，要求同一 patch 对该精确 candidate 显式二选一：删除，或以结构化上下文处置保留。系统不得默认选择、不得从用户/模型/答案
+   关键词推断、不得补边；请求参与者、unproven boundary、仍有关联边/anchor、模糊/复合声明继续拒绝删除。先完成 B1296 降低修补心智，再对
+   retain 载体选择最小可见且模型成文的表达，不能引入内部枚举泄漏。
+6. Read 另有两个次级观察项：最终 caveat 泄漏 `executable_body=unproven` 内部枚举；系统补出的核心函数清单只有 2 行且说明重复，虽然主表四阶段
+   基本可用，但“完整性补充”本身不清晰。它们登记为 presentation/compaction 后续项，不与 P1 图修复合批，避免把系统答案接管重新带回主线。
+
+状态：
+
+`r813=runner-2/2-pass,human-1/2-pass`；
+`B1295=production-negative/optional-candidate-not-consumed`；
+`B1296=P1-confirmed/ref-first-canonicalization-next`；
+`B1297=P1-confirmed/explicit-model-disposition-after-B1296`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-node/edge/relation/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose-hard-gate=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，
