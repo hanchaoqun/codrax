@@ -137,20 +137,39 @@ func diagramParticipantEndpointCarrierAuthorizes(
 	authorities []diagramParticipantEndpointCarrierAuthority,
 	anchor types.DiagramEdgeAnchor,
 	side string,
+	visibleNode string,
 	visibleIdentity string,
+	labels map[string]string,
 ) bool {
+	visibleNode = strings.TrimSpace(visibleNode)
 	visibleIdentity = strings.TrimSpace(visibleIdentity)
-	if visibleIdentity == "" || !anchor.HasEndpointIdentityPair() {
+	if visibleNode == "" || !anchor.HasEndpointIdentityPair() {
 		return false
 	}
 	for _, authority := range authorities {
 		if authority.relation != diagramAnchorRelation(anchor) ||
 			!types.AnswerCodeIdentitySurfacesEquivalent(authority.from, anchor.FromIdentity) ||
-			!types.AnswerCodeIdentitySurfacesEquivalent(authority.to, anchor.ToIdentity) ||
-			!strings.EqualFold(authority.participant, visibleIdentity) {
+			!types.AnswerCodeIdentitySurfacesEquivalent(authority.to, anchor.ToIdentity) {
 			continue
 		}
-		if authority.side == side || authority.side == "from_or_to" {
+		if authority.side != side && authority.side != "from_or_to" {
+			continue
+		}
+		// The participant contract deliberately separates the reader-facing
+		// component carrier from the exact technical endpoint retained in the
+		// anchor. A node such as Mutable["Mutable<br/>*MutableState"] may have
+		// one uniquely citable type identity (*MutableState), while the same
+		// request-scoped typed candidate explicitly permits the exact Mutable
+		// participant node to display bus.Mutable.Objective. Requiring the
+		// generic resolver's one citable identity to equal the participant here
+		// contradicts that candidate. Accept only the exact participant node ID
+		// or one exact participant identity in its parsed label; business aliases,
+		// nearby owners, messages, request prose, and arbitrary labels cannot
+		// create this permission.
+		if strings.EqualFold(authority.participant, visibleIdentity) ||
+			diagramParticipantEndpointExplicitlyDisplaysIdentity(
+				[]string{authority.participant}, visibleNode, labels,
+			) {
 			return true
 		}
 	}

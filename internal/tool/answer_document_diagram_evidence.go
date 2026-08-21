@@ -754,11 +754,15 @@ func diagramEdgeAnchorNodeIdentityConflictDetails(
 		return false, fromIdentity, toIdentity
 	}
 	if fromOK && !diagramEvidenceNodeIdentityBindsEndpoint(fromIdentity, anchor.FromIdentity) &&
-		!diagramParticipantEndpointCarrierAuthorizes(participantCarrierAuthorities, anchor, "from", fromIdentity) {
+		!diagramParticipantEndpointCarrierAuthorizes(
+			participantCarrierAuthorities, anchor, "from", anchor.FromNode, fromIdentity, labels,
+		) {
 		return true, fromIdentity, toIdentity
 	}
 	if toOK && !diagramEvidenceNodeIdentityBindsEndpoint(toIdentity, anchor.ToIdentity) &&
-		!diagramParticipantEndpointCarrierAuthorizes(participantCarrierAuthorities, anchor, "to", toIdentity) {
+		!diagramParticipantEndpointCarrierAuthorizes(
+			participantCarrierAuthorities, anchor, "to", anchor.ToNode, toIdentity, labels,
+		) {
 		return true, fromIdentity, toIdentity
 	}
 	return false, fromIdentity, toIdentity

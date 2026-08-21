@@ -1523,6 +1523,65 @@ func TestDiagramParticipantCandidateCarrierAuthorityKeepsCanonicalEndpointIdenti
 	}
 }
 
+func TestDiagramParticipantCandidateCarrierAuthorityAllowsExactParticipantBesideCitableTypeLabel(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BuildAgentContext\"] --> Mutable[\"Mutable<br/>MutableState\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "B", ToNode: "Mutable", FromIdentity: "BuildAgentContext",
+		ToIdentity: "bus.Mutable.Objective", RelationKind: types.DiagramRelCall,
+	}}
+	call := diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective")
+	call.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "bus.Mutable", Type: "*MutableState", Owner: "BusContext",
+	}}
+	evidence := []types.EvidenceItem{
+		call,
+		{
+			ID: "builder", Kind: types.EvidenceMechanism, Subject: "BuildAgentContext",
+			AnchorSymbol: "BuildAgentContext", Source: "internal/context/builder.go", LineStart: 17,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "mutable-type", Kind: types.EvidenceMechanism, Subject: "MutableState",
+			AnchorSymbol: "MutableState", Source: "internal/types/context.go", LineStart: 113,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 ||
+		got[0].Issue != diagramEdgeAnchorNodeIdentityConflict {
+		t.Fatalf("context-free validation must retain the strict exact-type conflict: %+v", got)
+	}
+	ctx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+		Mutable:    types.NewMutableState("show Mutable's typed incident call"),
+	}
+	ctx.Mutable.AppendEvidence(evidence)
+	if got := diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, view, evidence, nil, &rm); len(got) != 0 {
+		t.Fatalf("the exact candidate must authorize its participant node while retaining the technical anchor: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, doc, view, evidence); len(got) != 0 {
+		t.Fatalf("post-finalizer relation validation rejected the prescribed participant carrier: %+v", got)
+	}
+	if got := DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, evidence); len(got) != 0 {
+		t.Fatalf("participant and relation gates must accept the same typed candidate shape: %+v", got)
+	}
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("pre-emit validation rejected the same candidate shape it prescribes: %+v", hints)
+	}
+
+	// An arbitrary alias cannot borrow the request-scoped participant carrier.
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BuildAgentContext\"] --> M[\"MutableState\"]"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "M"
+	if got := diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, view, evidence, nil, &rm); len(got) != 1 ||
+		got[0].Issue != diagramEdgeAnchorNodeIdentityConflict {
+		t.Fatalf("a type-only node without the exact participant identity must remain rejected: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageDoesNotLetHiddenTypedOperationReplaceBusinessParticipant(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{

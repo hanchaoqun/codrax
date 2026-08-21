@@ -57291,6 +57291,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1345 r826：参与者候选与通用 node/identity 门互斥，20 轮后再次降级旧稿（2026-08-21）
+
+1. 从已推送 `1a13a1371` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`。runner 1/2 PASS：Trace 256s；read 859s 后以 `degraded_answer_checks_skipped` 失败。人工判定 Trace pass、
+   read system fail。最终 read 散文覆盖基本组件，但明确披露“最终重试未能产出有效 answer_document”，且图仍带本轮 validator 否定的
+   `BuildAgentContext -> Mutable(bus.Mutable.Objective)` 显示/identity 形，不能把恢复旧稿判为正确。
+2. Trace 守护继续通过：显式 2.000..2.020s 主窗、3 次 target-filtered typed 查询覆盖 4 个维度族、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链、逐跳 CPU、11.000ms 链上 IO 第一席、三个独立且不可相加的
+   1.000ms runnable/优先级候选、实际占时/现规则可消双账户、链外背景隔离、成文前自动补采和完整 `Trace 因果投影` 均在；finalizer 零拒绝，
+   活动流未按固定 4ms/4m、累计年龄或上下文比例降级。根因仅从链上 typed facts 选举，邻近/背景只作支撑；系统未扫描或改写模型结论。
+3. read 的 20 次拒绝确认新 P0 `B1311-PARTICIPANTCARRIERIDENTITYCONTRACT1`。participant coverage 的 typed candidate 明确发布：
+   `participant_node_id=Mutable`、participant side=to/from、canonical technical identity=`bus.Mutable.Objective`，并要求模型只把该 side 的可见 node
+   映射为 `Mutable`，anchor 继续保留技术 identity。模型照做后，通用 `edge_anchor_node_identity_conflict` 先把 Mermaid node
+   `Mutable["Mutable<br/>*MutableState"]` 唯一解析为可引用类型 `*MutableState`，再要求它直接等于/拥有 `bus.Mutable.Objective`，于是确定性拒绝。
+   participant 门随后又以 `available_typed_incident_edge_not_rendered` 要求恢复完全相同的 candidate 形。call 与 data_flow 两个精确候选都陷入同一循环。
+4. 这是精确信号之间的硬合同互斥，不是模型波动。B1237 已有 request-scoped display-carrier authority，但授权函数只比较 generic resolver 的
+   `visibleIdentity` 与 participant；当 label 同时含业务 participant 和一个可引用技术类型时，resolver 正确选择技术类型，却因此丢失 participant
+   node ID/label 的结构化映射。participant coverage 自己使用 exact node ID/parsed label，所以两个门对同一文档采用不同身份语义。
+5. 最优根修仍是单源对齐，不是关闭 node/identity 防反向门：carrier authority 继续要求当前 RequestModel typed obligation、同一 candidate 的 exact
+   relation/from/to/participant side 全部匹配；在此基础上，显示侧用 participant coverage 已有的精确规则——该 side 的 node ID 等于 participant，或 parsed
+   node label 含一个 exact participant identity——即可豁免 generic identity mismatch。任意业务别名、仅显示 `MutableState` 的 type-only 节点、无候选边、
+   反向 tuple、不同 relation/side 继续 fail-closed。关系/方向/端点/可见标签仍全由模型选择与书写，系统只验证已选边是否等于发布候选。
+6. B1311 已施工：`diagramParticipantEndpointCarrierAuthorizes` 同时消费 visible node、parsed labels 与 generic resolved identity；exact candidate tuple/side
+   匹配后，仅接受 exact participant node/label。新增跨门测试复现 `Mutable["Mutable<br/>MutableState"]` +
+   `BuildAgentContext -> bus.Mutable.Objective`：context-free strict 门仍拒绝；带 request-scoped candidate 的 pre-emit、post-finalizer relation 门与 participant
+   coverage 门全部接受；改成 type-only alias 后再次拒绝。该测试直接钉住生产互斥，不以当前 case 文案、Mermaid message 或用户原文作条件。
+7. B1310 本轮没有取得 no-live-lease 生产正证：第 8 轮出现的 stale addition ref 位于另一 live generation，属于模型复用旧代 ref，而不是
+   “无 lease schema 仍发布 ref”的旧矛盾；执行器继续 fail-closed。B1310 保持实现+全套通过、待自然 no-lease dispatch 正证，不虚记关闭。
+8. B1309 仍在：read 探索 16 reads、31 iterations，虽较 r825 有所下降，但 evidence 导航仍偏向 `Mutable.Objective` 局部操作而不是共享
+   `bus.Mutable -> AgentContext.Mutable` 初始化绑定；它影响图层语义质量与耗时，但本轮确定性出厂失败由 B1311 直接造成，保持独立 P1 后续施工。
+
+状态：
+
+`r826=runner-pass-1/2,human-trace-pass+read-system-fail`；
+`B1310=implemented/P0/full-relevant-suite+release-build-pass/pending-exact-no-lease-production-shape`；
+`B1311=implemented/P0/full-relevant-suite+release-build-pass/pending-production-replay`；
+`B1309=confirmed/P1/documented-next`；
+`participant-candidate-display-carrier=exact-tuple+side+participant-node-or-label-only`；
+`ordinary/reversed/type-only/unrelated-alias=fail-closed`；
+`system-edge/action/node/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r826`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r826`。
+
 ### §123.1344 r825：live 精确修补生产转正；无租约 schema 仍发布陈腐 ref 能力（2026-08-21）
 
 1. 从已推送 `e36eef999` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
