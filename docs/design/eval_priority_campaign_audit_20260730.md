@@ -57334,6 +57334,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r806`。
 
+### §123.1320 r807 人工审计与 B1290：Schema 精确枚举字段片段自愈（2026-08-21）
+
+1. r807 以 `main@76d7cbd77` 不可变二进制并发恰好 2 路。Trace 184s PASS：精确 2.000..2.020s、4 节点唤醒链、
+   threadpool-400 链上 11.000ms iowait 第一席、三个独立 1.000ms 反转候选、实际占时/规则可消双轴、业务下钻和完整「Trace 因果投影」
+   均保留；邻近/背景未加冕，内核调用点披露为调用位置而非具体资源，活动流未按固定耗时阈值降级。
+2. read 649s FAIL，9 次成文拒绝。前两轮是模型漏写 diagram block kind，第三轮形成真实 relation delta。B1288 的 3 个 live
+   `allowed_additions[].addition_ref` 全部发布，模型也明确逐一选择正确候选，证明 ref-first 教学与候选选择已进入生产路径；但第一次 add 的枚举值在
+   function-calling 参数中断裂为 `action\": \"add`，随后四轮继续复用同一坏参数，尚未进入原子 lease 执行。最终降级稿保留图与表而非空答案，
+   但关系未经终验，人工判 fail；该降级来自 9 次真实拒绝，不是活动流或 4ms/4m 固定阈值。
+3. 新确认 `B1290-ENUMFRAGMENT1/P1`：现有 tool-param compat 能修复 string-wrapped array、字段名漂移和 enum case/style，却不能修复
+   「当前字段片段被塞入该字段字符串值」这一确定性 JSON 断裂。重复要求模型纠正无法进展，并造成高墙钟、上下文膨胀和有效答案降级。
+4. 已按通用结构施工：`toolparam.normalizeObject` 在当前 schema property 上仅尝试把**完整字符串**包装为单字段 JSON object；只有解析结果恰好只有
+   一个字段、字段名与当前 property 字节一致、值为 string 且是当前 schema enum 的精确成员时，才以
+   `string_enum_echoed_property_fragment` 修复。不同字段、未知枚举、第二字段、前后 prose、部分 token、case/style 猜测均不进入该臂。
+5. 该自愈只恢复模型已经写出的结构化 enum 值，不读取用户请求、thinking、答案 prose、Mermaid message，也不选择 action/关系/节点/标签/布局/
+   结论；普通 schema 校验、relation lease 与证据门继续在修复后执行。回归覆盖 r807 原始嵌套 array 形及四类反例。
+6. 聚焦 `internal/toolparam`、finalizer 生产调用层、完整 `go test ./... -count=1`、CGO release-tag `make` 与 diff check 全绿。下一步独立提交推送，
+   再从精确提交并发恰好 2 路重放同一 read+Trace。read 验收枚举自愈出现一次后能进入
+   addition_ref 原子执行且不再重复同因拒绝；Trace 继续作为显式窗/链上根因/投影/活动流不降级护栏。
+
+状态：
+
+`r807=trace-pass/read-fail-human-audited`；
+`B1288-live-ref-publish/model-selection=production-positive`；
+`B1288-atomic-execution=pending-after-transport-repair`；
+`B1290=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`enum-fragment-repair=exact-current-property+exact-current-schema-member-only`；
+`ambiguous/different-field/unknown-member/multi-field/prose=unchanged/fail-closed`；
+`system-action/relation/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r807`。
+
 ### §123.1319 B1288：允许新增关系改为同代 opaque ref 选择，隐藏身份单源回填（2026-08-21）
 
 1. `B1288-RELATIONADDITIONREF1/P1` 已施工。`AnswerDiagramRelationRepairCandidate` 新增 `addition_ref`；生产者 delta 中的任何 ref 在 merge/install

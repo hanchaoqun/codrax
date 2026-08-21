@@ -148,6 +148,58 @@ func TestNormalizeToolCallParams_NormalizedNestedEnumViolationNeverGetsSchemaAut
 	}
 }
 
+func TestNormalizeToolCallParams_RepairsNestedEchoedPropertyEnumFragment(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentFinalizer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentFinalizer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "diagram_edge_edits":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "action":{"type":"string","enum":["relabel","remove","replace","add"]},
+	          "addition_ref":{"type":"string"}
+	        },
+	        "required":["action"]
+	      }
+	    }
+	  },
+	  "required":["diagram_edge_edits"]
+	}`)
+	calls := []llm.ToolCall{{
+		ID:     "r807-enum-fragment",
+		Name:   "emit_answer_document_patch",
+		Params: json.RawMessage(`{"diagram_edge_edits":[{"action":"action\": \"add","addition_ref":"ra1-example"}]}`),
+	}}
+
+	got := base.normalizeToolCallParams(calls, []llm.ToolSchema{{
+		Name:       "emit_answer_document_patch",
+		Parameters: schema,
+	}})
+	var decoded struct {
+		Edits []struct {
+			Action string `json:"action"`
+		} `json:"diagram_edge_edits"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if len(decoded.Edits) != 1 || decoded.Edits[0].Action != "add" {
+		t.Fatalf("echoed enum fragment was not repaired: %+v raw=%s", decoded.Edits, got[0].Params)
+	}
+	if got[0].ParamSchemaFingerprint == "" || got[0].ParamSchemaValidationError != "" {
+		t.Fatalf("schema-valid repaired call must carry authority: %+v", got[0])
+	}
+}
+
 func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,

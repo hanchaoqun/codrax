@@ -48,6 +48,63 @@ func TestNormalize_StringScalarsAgainstSchema(t *testing.T) {
 	}
 }
 
+func TestNormalize_RepairsEchoedPropertyFragmentOnlyToExactStringEnum(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "diagram_edge_edits":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "action":{"type":"string","enum":["remove","replace","add"]}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{"diagram_edge_edits":[{"action":"action\": \"add"}]}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.diagram_edge_edits[0].action", "string_enum_echoed_property_fragment") {
+		t.Fatalf("expected exact echoed-property enum repair, got %+v\n%s", report, got)
+	}
+	var decoded struct {
+		Edits []struct {
+			Action string `json:"action"`
+		} `json:"diagram_edge_edits"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Edits) != 1 || decoded.Edits[0].Action != "add" {
+		t.Fatalf("unexpected repaired action: %+v", decoded.Edits)
+	}
+}
+
+func TestNormalize_DoesNotGuessEchoedPropertyFragmentEnum(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "action":{"type":"string","enum":["remove","replace","add"]}
+	  }
+	}`)
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"action":"mode\": \"add"}`),
+		json.RawMessage(`{"action":"action\": \"append"}`),
+		json.RawMessage(`{"action":"action\": \"add\", \"other\": \"remove"}`),
+		json.RawMessage(`{"action":"prefix action\": \"add"}`),
+	} {
+		got, report := Normalize(raw, schema, repairPolicy)
+		if report.Changed() {
+			t.Fatalf("ambiguous/non-exact fragment must not be repaired: raw=%s report=%+v", raw, report)
+		}
+		if string(got) != string(raw) {
+			t.Fatalf("non-exact fragment changed: got %s want %s", got, raw)
+		}
+	}
+}
+
 func TestNormalize_ConcatenatesDuplicateSchemaArrayProperties(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

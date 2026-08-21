@@ -414,7 +414,22 @@ func normalizeObject(in map[string]any, node schemaNode, path string, cfg types.
 		if !exists {
 			continue
 		}
+		var prefixRepairs []Repair
+		if text, isString := current.(string); isString {
+			if propNode, parsed := parseSchema(propSchema); parsed {
+				if enumValue, ok := decodeEchoedPropertyStringEnum(text, key, propNode); ok {
+					current = enumValue
+					prefixRepairs = append(prefixRepairs, repair(
+						path+"."+key,
+						"string_enum_echoed_property_fragment",
+						"string",
+						"string_enum",
+					))
+				}
+			}
+		}
 		normalized, fieldRepairs := normalizeValue(current, propSchema, path+"."+key, cfg)
+		fieldRepairs = append(prefixRepairs, fieldRepairs...)
 		if len(fieldRepairs) == 0 {
 			continue
 		}
@@ -428,6 +443,53 @@ func normalizeObject(in map[string]any, node schemaNode, path string, cfg types.
 		return in, nil
 	}
 	return out, repairs
+}
+
+// decodeEchoedPropertyStringEnum repairs one narrow function-calling JSON
+// fracture where an object-field fragment lands inside that field's string
+// value, for example action=`action\": \"add`. The rewrite is admitted only
+// when wrapping the complete value produces exactly one JSON property whose
+// key is the current schema property and whose value is an exact member of the
+// current string enum. It therefore cannot infer an enum from prose, a nearby
+// field, a partial token, or a case/style approximation.
+func decodeEchoedPropertyStringEnum(s, property string, node schemaNode) (string, bool) {
+	if property == "" || !schemaAllowsStringEnumRepair(node) {
+		return "", false
+	}
+	enumValues := schemaStringEnumValues(node)
+	if _, alreadyValid := enumValues[s]; alreadyValid {
+		return "", false
+	}
+	fragment := strings.TrimSpace(s)
+	if fragment == "" {
+		return "", false
+	}
+	wrappedCandidates := []string{
+		`{"` + fragment + `"}`,
+		`{` + fragment + `}`,
+	}
+	for _, wrapped := range wrappedCandidates {
+		decoded, ok := decodeJSONValue(json.RawMessage(wrapped))
+		if !ok {
+			continue
+		}
+		object, ok := decoded.(map[string]any)
+		if !ok || len(object) != 1 {
+			continue
+		}
+		value, exists := object[property]
+		if !exists {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		if _, allowed := enumValues[text]; allowed {
+			return text, true
+		}
+	}
+	return "", false
 }
 
 type keyRepairCandidate struct {
