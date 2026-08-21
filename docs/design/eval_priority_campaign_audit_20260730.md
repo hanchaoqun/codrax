@@ -57602,6 +57602,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `request/model/final-prose-hard-gate=none`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive`。
 
+### §123.1330 B1296：live opaque ref 成为唯一载体选择权威，隔离冗余坐标（2026-08-21）
+
+1. r813 的四轮重复拒绝不是关系证据不足，而是同一操作存在两套选择权威：live `failure_ref` 已精确绑定当前代 block、carrier、节点、关系和
+   occurrence，模型又附带旧式 `match/occurrence/body_occurrence`；执行器随后要求两者逐字段一致。对 `visible_body_edge`，有效 relation 还可能为空，
+   但旧 `match.relation_kind` schema 只能写非空枚举，因此该冗余合同甚至没有总能表达的正确值。`addition_ref` 同样与模型重复填写的隐藏
+   relation/identity 字段形成第二权威。
+2. 本批采用 ref-first canonicalization，而不是放宽关系证据：`failure_ref` 存在且通过 live lease、action capability、唯一 carrier 与 block
+   归属检查后，执行器清空旧式 `match/occurrence/body_occurrence`，再安装 ref 自身绑定的定位值；`addition_ref` 通过同代候选检查后，以候选绑定的
+   block/relation/identity 覆盖重复隐藏镜像。模型选择的 action、replace/add 的可见 from/to、visible_label、顺序和布局均保持原样。
+3. 安全边界不变：unknown/stale ref、重复消费、未授权 action、显式跨 block 冲突、歧义 carrier、缺失 replace/add edge 继续 fail-closed；普通关系
+   authority、typed anchor 校验与最终图证据门仍在规范化后完整执行。系统没有从用户请求、模型推理、答案正文、Mermaid message 或节点名推断关系，
+   也没有替模型选择删除、替换、新增或可见措辞。
+4. schema、动态工具说明和 canonical patch 教学统一改为“ref 是唯一 carrier selector；旧式坐标只是隔离输入”。为避免修复反而增加模型上下文，
+   同时压缩重复教学，并保留四操作语义、whole-block replacement 和 native JSON 三组既有字节钉；compact relation retry 继续低于 6000-byte 上限。
+5. 回归覆盖生产 patch 工具中互相矛盾的 match/occurrence/body_occurrence 仍只命中 ref 精确载体、addition 的隐藏镜像被隔离但可见端点/标签不变，
+   以及 stale/cross-block/reused/disallowed refs 继续拒绝。定向 `types/agent/tool/skill` 套件已通过；完整 `go test ./... -count=1` 与 `make`
+   在本节提交前执行并以提交状态记录。
+6. 本批不改变 Analyzer 图意图、最终答案结论权、Trace 查询或投影。显式时间窗、自动补采、唤醒/IO 链、链上根因排序、实际占时/规则可消双账户、
+   优先级反转/调度供给/算力供给/D/IO/确定性语义与业务线索通道均保持原合同；邻近和背景仍不得进入主因席位。
+
+状态：
+
+`B1296=implemented+targeted-suite-pass+full-suite-pass+build-pass/production-replay-pending`；
+`carrier-selector=live-ref-only`；`legacy-selector-mirrors=quarantined/no-authority`；
+`unknown/stale/reused/disallowed/cross-block/ambiguous=fail-closed`；
+`model-action/endpoints/label/order/layout/conclusion=unchanged`；
+`B1297=P1-next/explicit-model-orphan-disposition`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

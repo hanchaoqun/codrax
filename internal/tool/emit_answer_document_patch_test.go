@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -229,13 +230,6 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 			summaryWant: "does not allow action=relabel",
 		},
 		{
-			name: "selector conflicts with live ref",
-			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
-				`{"failure_ref":"` + liveRef + `","action":"remove","match":` +
-				`{"from_node":"X","to_node":"B","relation_kind":"call"}}]}`,
-			summaryWant: "already selects from_node",
-		},
-		{
 			name: "stale addition ref",
 			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
 				`{"addition_ref":"ra1-000000000000000000000000","action":"add","edge":` +
@@ -265,6 +259,48 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 	}
 	if got := mut.AnswerDocumentV2(); got == nil || got.Blocks[1].Diagram.Body != base.Blocks[1].Diagram.Body {
 		t.Fatalf("rejected atomic edit must not mutate the accepted document: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_LiveFailureRefQuarantinesLegacySelectorMirrors(t *testing.T) {
+	mut := types.NewMutableState("relation repair ref-first")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: "sequenceDiagram\n A->>B: model relation",
+			},
+		},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "flow", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B",
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("expected one live relation failure: %+v", lease)
+	}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{Mutable: mut}
+
+	params := fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{
+			"failure_ref":%q,"action":"remove","block_id":"flow",
+			"occurrence":77,"body_occurrence":99,
+			"match":{"from_node":"legacy-X","to_node":"legacy-Y","relation_kind":"call"}
+		}]
+	}`, lease.Failures[0].FailureRef)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+	if err != nil || !res.Success {
+		t.Fatalf("live ref must outrank selector mirrors without changing action: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[1].Diagram == nil ||
+		strings.Contains(got.Blocks[1].Diagram.Body, "A->>B") {
+		t.Fatalf("ref-first remove did not target the lease-owned carrier: %+v", got)
 	}
 }
 

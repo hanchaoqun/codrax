@@ -284,7 +284,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		}
 	})
 
-	t.Run("conflicting technical fields fail closed", func(t *testing.T) {
+	t.Run("legacy technical mirrors are quarantined", func(t *testing.T) {
 		got := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
 			Action: "add", AdditionRef: additionRef,
@@ -293,8 +293,14 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 				RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model label",
 			},
 		}}, nil, lease)
-		if err == nil || !strings.Contains(err.Error(), "selects identity") {
-			t.Fatalf("a ref cannot be combined with a different hidden identity: %v", err)
+		if err != nil || len(got.ReplaceBlocks) != 1 || len(got.ReplaceBlocks[0].EdgeAnchors) != 3 {
+			t.Fatalf("a live addition ref must quarantine hidden mirrors: err=%v patch=%+v", err, got)
+		}
+		added := got.ReplaceBlocks[0].EdgeAnchors[2]
+		if added.FromNode != "X" || added.ToNode != "Y" || added.VisibleLabel != "model label" ||
+			added.FromIdentity != "analyzer" || added.ToIdentity != "explorer" ||
+			added.RelationKind != types.DiagramRelPrecedence {
+			t.Fatalf("ref must preserve visible authorship and restore only selected hidden fields: %+v", added)
 		}
 	})
 }
@@ -1031,9 +1037,6 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefScopeFailsClosed(t *test
 		{name: "unknown or stale", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: "rf1-not-live", Action: "remove"}}, want: "unknown or stale"},
 		{name: "cross block", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, BlockID: "other", Action: "remove"}}, want: "belongs to block_id"},
 		{name: "duplicate consumption", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove"}, {FailureRef: ref, Action: "remove"}}, want: "reuses failure_ref"},
-		{name: "conflicting match", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "B", ToNode: "A", RelationKind: types.DiagramRelPrecedence}}}, want: "already selects from_node"},
-		{name: "conflicting identity", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", FromIdentity: "Other", RelationKind: types.DiagramRelPrecedence}}}, want: "already selects from_identity"},
-		{name: "conflicting relation", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}}}, want: "already selects relation_kind"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1046,6 +1049,32 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefScopeFailsClosed(t *test
 				t.Fatalf("rejected ref transaction must not publish a replacement: %+v", patch.ReplaceBlocks)
 			}
 		})
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefQuarantinesSelectorMirrors(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	ref := lease.Failures[0].FailureRef
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: ref, BlockID: "diag", Action: "remove", Occurrence: 17, BodyOccurrence: 23,
+		Match: &types.DiagramEdgeAnchor{
+			FromNode: "legacy-X", ToNode: "legacy-Y", FromIdentity: "legacy-source",
+			ToIdentity: "legacy-target", RelationKind: types.DiagramRelCall,
+		},
+	}}, nil, lease)
+	if err != nil || len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("live ref must compile after quarantining selector mirrors: err=%v patch=%+v", err, patch)
+	}
+	if strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B") ||
+		len(patch.ReplaceBlocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("only the exact ref-owned carrier should be removed: %+v", patch.ReplaceBlocks[0])
 	}
 }
 

@@ -530,7 +530,10 @@ func applyAtomicSharedBodyRemove(block *types.AnswerBlock, edits []emitAnswerDia
 // failure reference into the exact structural locator already present in the
 // rejected draft. It does not choose an action, replacement edge, visible
 // label, or relation. References are useful only inside the live lease; an
-// unknown, cross-block, ambiguous, or stale reference fails closed.
+// unknown, cross-block, ambiguous, or stale reference fails closed. Once the
+// live ref and action pass those checks, obsolete selector coordinates carry
+// no authority: the ref already owns the exact carrier, so match/occurrence
+// fields are quarantined instead of creating a second contradictory selector.
 func resolveAtomicDiagramFailureRef(
 	edit emitAnswerDiagramEdgeEdit,
 	lease *types.AnswerDiagramRelationRepairLease,
@@ -550,10 +553,6 @@ func resolveAtomicDiagramFailureRef(
 	if action == "add" {
 		return edit, fmt.Errorf("action=add does not accept failure_ref; select an allowed addition with a complete edge")
 	}
-	declaredMatch := edit.Match
-	if edit.Occurrence != 0 {
-		return edit, fmt.Errorf("failure_ref already selects one failure; omit occurrence")
-	}
 	if lease == nil || lease.Version != 1 {
 		return edit, fmt.Errorf("failure_ref=%q is not present in a live relation-repair lease", ref)
 	}
@@ -572,12 +571,15 @@ func resolveAtomicDiagramFailureRef(
 		return edit, fmt.Errorf("failure_ref=%q is unknown or stale for the live relation-repair lease", ref)
 	}
 	edit.failureRefCarrier = failure.TargetCarrier
-	if edit.BodyOccurrence != 0 && edit.BodyOccurrence != failure.BodyOccurrence {
-		return edit, fmt.Errorf(
-			"failure_ref=%q already selects body_occurrence=%d, not %d; omit body_occurrence",
-			ref, failure.BodyOccurrence, edit.BodyOccurrence,
-		)
-	}
+	// These fields are legacy selector mirrors. The opaque ref is the only
+	// current-generation carrier identity, so keeping them would create two
+	// authorities for one operation (and visible-body failures may not even
+	// have a schema-expressible relation_kind). Quarantine them before the
+	// lease-owned locator is installed. This changes no model-authored action,
+	// replacement edge, or visible label.
+	edit.Match = nil
+	edit.Occurrence = 0
+	edit.BodyOccurrence = 0
 	edit.BodyOccurrence = failure.BodyOccurrence
 	if !failure.AllowsAction(action) {
 		return edit, fmt.Errorf(
@@ -614,9 +616,6 @@ func resolveAtomicDiagramFailureRef(
 			strings.ContainsAny(match.FromNode+match.ToNode, "\r\n") {
 			return edit, fmt.Errorf("failure_ref=%q cannot identify its visible body edge: from_node and to_node must be complete single-line values", ref)
 		}
-		if err := validateAtomicDiagramFailureRefRedundantMatch(ref, declaredMatch, match); err != nil {
-			return edit, err
-		}
 		edit.Match = &match
 		edit.failureRefResolved = true
 		return edit, nil
@@ -634,9 +633,6 @@ func resolveAtomicDiagramFailureRef(
 	switch len(matches) {
 	case 1:
 		match := matches[0]
-		if err := validateAtomicDiagramFailureRefRedundantMatch(ref, declaredMatch, match); err != nil {
-			return edit, err
-		}
 		edit.Match = &match
 		edit.failureRefResolved = true
 		return edit, nil
@@ -651,8 +647,9 @@ func resolveAtomicDiagramFailureRef(
 // a complete hidden anchor tuple. The opaque ref is the choice: the compiler
 // does not infer a relation from node names, labels, request prose, or Mermaid
 // messages. The model still authors both visible endpoints and the visible
-// label. Any explicitly repeated technical field must agree byte-for-byte with
-// the selected candidate so this convenience cannot broaden authority.
+// label. Repeated hidden technical fields are quarantined because the selected
+// candidate already owns them; visible endpoints and wording remain model
+// authored and are never inferred from those discarded mirrors.
 func resolveAtomicDiagramAdditionRef(
 	edit emitAnswerDiagramEdgeEdit,
 	lease *types.AnswerDiagramRelationRepairLease,
@@ -685,77 +682,11 @@ func resolveAtomicDiagramAdditionRef(
 	if edit.Edge == nil {
 		return edit, fmt.Errorf("addition_ref=%q requires a model-authored edge with from_node, to_node, and visible_label", ref)
 	}
-	if relation := strings.TrimSpace(string(edit.Edge.RelationKind)); relation != "" &&
-		edit.Edge.RelationKind != selected.RelationKind {
-		return edit, fmt.Errorf("addition_ref=%q selects relation_kind=%q, not %q", ref, selected.RelationKind, edit.Edge.RelationKind)
-	}
-	fromIdentity := strings.TrimSpace(edit.Edge.FromIdentity)
-	toIdentity := strings.TrimSpace(edit.Edge.ToIdentity)
-	if (fromIdentity == "") != (toIdentity == "") {
-		return edit, fmt.Errorf("addition_ref=%q requires both technical identities to be omitted or copied together", ref)
-	}
-	if fromIdentity != "" && (fromIdentity != strings.TrimSpace(selected.FromIdentity) ||
-		toIdentity != strings.TrimSpace(selected.ToIdentity)) {
-		return edit, fmt.Errorf(
-			"addition_ref=%q selects identity=%s->%s, not %s->%s",
-			ref, selected.FromIdentity, selected.ToIdentity, fromIdentity, toIdentity,
-		)
-	}
 	edit.BlockID = blockID
 	edit.Edge.RelationKind = selected.RelationKind
 	edit.Edge.FromIdentity = strings.TrimSpace(selected.FromIdentity)
 	edit.Edge.ToIdentity = strings.TrimSpace(selected.ToIdentity)
 	return edit, nil
-}
-
-// validateAtomicDiagramFailureRefRedundantMatch tolerates an older patch
-// shape only when every selector field names the same lease-owned carrier as
-// the opaque ref. The redundant object cannot broaden authority: the exact
-// live ref still supplies the locator and is the value ultimately executed.
-// Any disagreement remains fail-closed and reports the conflicting field.
-func validateAtomicDiagramFailureRefRedundantMatch(
-	ref string,
-	declared *types.DiagramEdgeAnchor,
-	resolved types.DiagramEdgeAnchor,
-) error {
-	if declared == nil {
-		return nil
-	}
-	if err := validateAtomicDiagramAnchor(declared, "match"); err != nil {
-		return fmt.Errorf("failure_ref=%q redundant match is invalid: %w", ref, err)
-	}
-	type fieldPair struct {
-		name     string
-		declared string
-		resolved string
-		optional bool
-	}
-	fields := []fieldPair{
-		{name: "from_node", declared: declared.FromNode, resolved: resolved.FromNode},
-		{name: "to_node", declared: declared.ToNode, resolved: resolved.ToNode},
-		{name: "from_identity", declared: declared.FromIdentity, resolved: resolved.FromIdentity, optional: true},
-		{name: "to_identity", declared: declared.ToIdentity, resolved: resolved.ToIdentity, optional: true},
-	}
-	for _, field := range fields {
-		got := strings.TrimSpace(field.declared)
-		want := strings.TrimSpace(field.resolved)
-		if field.optional && got == "" {
-			continue
-		}
-		if got != want {
-			return fmt.Errorf(
-				"failure_ref=%q already selects %s=%q, not %q; omit the redundant match or copy the same carrier",
-				ref, field.name, want, got,
-			)
-		}
-	}
-	if declared.RelationKind != resolved.RelationKind {
-		return fmt.Errorf(
-			"failure_ref=%q already selects relation_kind=%q, not %q; omit the redundant match or copy the same carrier",
-			ref, resolved.RelationKind, declared.RelationKind,
-		)
-	}
-	return nil
 }
 
 func atomicDiagramFailureMatchesAnchorExactly(
