@@ -1448,6 +1448,81 @@ func TestDiagramParticipantCoverageCandidateShapePassesRelationAndIdentityGatesT
 	}
 }
 
+func TestDiagramParticipantCandidateCarrierAuthorityKeepsCanonicalEndpointIdentity(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"] --> C[\"BuildAgentContext\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "B", ToNode: "C", FromIdentity: "o.busCtx",
+		ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow,
+	}}
+	argumentFlow := types.EvidenceItem{
+		ID: "ctx-arg", Producer: types.EvidenceProducerExplorerEmitEvidence,
+		Kind: types.EvidenceRelationship, Subject: "o.busCtx", Predicate: "passes argument",
+		Object: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/pipeline.go", LineStart: 88,
+		AnchorKind: types.AnchorArgument, AnchorSymbol: "ctxbuilder.BuildAgentContext",
+		Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		OwnerIdentity: "Orchestrator.extractStageHasRequiredWork",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "o.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	busIdentity := types.EvidenceItem{
+		ID: "bus-type", Kind: types.EvidenceMechanism, Subject: "BusContext", AnchorSymbol: "BusContext",
+		Source: "internal/types/context.go", LineStart: 20, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+	}
+	calleeIdentity := types.EvidenceItem{
+		ID: "callee", Kind: types.EvidenceMechanism, Subject: "ctxbuilder.BuildAgentContext",
+		AnchorSymbol: "ctxbuilder.BuildAgentContext", Source: "internal/ctxbuilder/context.go", LineStart: 40,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+	}
+	evidence := []types.EvidenceItem{argumentFlow, busIdentity, calleeIdentity}
+
+	// The context-free validator intentionally retains B1237's strict default:
+	// a visible exact identity cannot sign a different technical endpoint.
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 ||
+		got[0].Issue != diagramEdgeAnchorNodeIdentityConflict {
+		t.Fatalf("without the request-scoped candidate the exact display/anchor difference must fail closed: %+v", got)
+	}
+
+	ctx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+		Mutable:    types.NewMutableState("show BusContext argument flow"),
+	}
+	ctx.Mutable.AppendEvidence(evidence)
+	if got := diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, view, evidence, nil, &rm); len(got) != 0 {
+		t.Fatalf("the same typed candidate must authorize only its declared participant display carrier: %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, doc, view, evidence); len(got) != 0 {
+		t.Fatalf("post-finalizer validation must consume the same precise carrier authority: %+v", got)
+	}
+	if hints := preCheckDiagramCallEdgeEvidenceAlignment(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("pre-emit validation must not forbid the candidate shape it prescribed: %+v", hints)
+	}
+
+	wrongParticipant := rm
+	wrongParticipant.DiagramHint = &types.DiagramHint{
+		Kind: types.DiagramFlow, Required: true,
+		Participants: []types.DiagramParticipantHint{{Identity: "MutableState", Role: types.DiagramParticipantIncidentRequired}},
+	}
+	if got := diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, view, evidence, nil, &wrongParticipant); len(got) != 1 ||
+		got[0].Issue != diagramEdgeAnchorNodeIdentityConflict {
+		t.Fatalf("an unrelated requested participant must not widen the display carrier: %+v", got)
+	}
+
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"] --> C[\"BuildAgentContext\"]"
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "ctxbuilder.BuildAgentContext"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "o.busCtx"
+	if got := diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, view, evidence, nil, &rm); len(got) == 0 ||
+		got[0].Issue != diagramEdgeAnchorNodeIdentityConflict {
+		t.Fatalf("a reversed canonical tuple must retain the strict node-identity rejection: %+v", got)
+	}
+}
+
 func TestDiagramParticipantCoverageDoesNotLetHiddenTypedOperationReplaceBusinessParticipant(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{

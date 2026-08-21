@@ -72,6 +72,91 @@ type diagramParticipantTypedIncidentCandidate struct {
 	localOnly bool
 }
 
+// diagramParticipantEndpointCarrierAuthority is the narrow display-side
+// permission carried by one request-scoped typed incident candidate. It does
+// not authorize the relation: the ordinary relation/evidence gate still
+// validates relation/from/to below. It only records that the candidate
+// provider explicitly told the model to display the requested participant on
+// one endpoint while retaining the technical identity in the edge anchor.
+type diagramParticipantEndpointCarrierAuthority struct {
+	participant string
+	relation    types.DiagramRelationKind
+	from        string
+	to          string
+	side        string
+}
+
+// diagramParticipantEndpointCarrierAuthorities derives display permissions
+// from the same typed provider used by participant coverage and repair
+// guidance. RequestModel participant identities are typed planning input, not
+// relation evidence, so these rows can never mint an edge or satisfy relation
+// authority on their own. Local-only candidates are deliberately excluded.
+func diagramParticipantEndpointCarrierAuthorities(
+	rm types.RequestModel,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) []diagramParticipantEndpointCarrierAuthority {
+	obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+	if len(obligations) == 0 {
+		return nil
+	}
+	relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+	limit := len(diagramRequestedRelationEvidenceForRequest(evidence, rm)) + len(stagePrecedence) + 1
+	out := make([]diagramParticipantEndpointCarrierAuthority, 0, len(obligations))
+	seen := make(map[string]bool)
+	for i, obligation := range obligations {
+		candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+			rm, obligation, evidence, stagePrecedence, limit,
+			obligations, allSurfaces, i, relationScope,
+		)
+		for _, candidate := range candidates {
+			if candidate.localOnly || !candidate.relation.IsValid() ||
+				strings.TrimSpace(candidate.participant) == "" ||
+				strings.TrimSpace(candidate.from) == "" || strings.TrimSpace(candidate.to) == "" {
+				continue
+			}
+			row := diagramParticipantEndpointCarrierAuthority{
+				participant: strings.TrimSpace(candidate.participant),
+				relation:    candidate.relation,
+				from:        strings.TrimSpace(candidate.from), to: strings.TrimSpace(candidate.to),
+				side: strings.TrimSpace(candidate.participantEndpointSide),
+			}
+			key := strings.ToLower(strings.Join([]string{
+				row.participant, string(row.relation), row.from, row.to, row.side,
+			}, "\x00"))
+			if !seen[key] {
+				seen[key] = true
+				out = append(out, row)
+			}
+		}
+	}
+	return out
+}
+
+func diagramParticipantEndpointCarrierAuthorizes(
+	authorities []diagramParticipantEndpointCarrierAuthority,
+	anchor types.DiagramEdgeAnchor,
+	side string,
+	visibleIdentity string,
+) bool {
+	visibleIdentity = strings.TrimSpace(visibleIdentity)
+	if visibleIdentity == "" || !anchor.HasEndpointIdentityPair() {
+		return false
+	}
+	for _, authority := range authorities {
+		if authority.relation != diagramAnchorRelation(anchor) ||
+			!types.AnswerCodeIdentitySurfacesEquivalent(authority.from, anchor.FromIdentity) ||
+			!types.AnswerCodeIdentitySurfacesEquivalent(authority.to, anchor.ToIdentity) ||
+			!strings.EqualFold(authority.participant, visibleIdentity) {
+			continue
+		}
+		if authority.side == side || authority.side == "from_or_to" {
+			return true
+		}
+	}
+	return false
+}
+
 func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
 		return nil

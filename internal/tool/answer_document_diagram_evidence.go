@@ -79,12 +79,31 @@ const (
 // projections and their automatic supplements, use a separate runtime
 // relation authority and deliberately do not enter this source-code contract.
 func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, evidence []types.EvidenceItem, stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation) []DiagramCallEdgeEvidenceMismatch {
-	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
-		return nil
-	}
 	var stagePrecedence []stageauthority.PrecedenceRelation
 	if len(stagePrecedenceOpt) > 0 {
 		stagePrecedence = stagePrecedenceOpt[0]
+	}
+	return diagramCallEdgeEvidenceMismatchesWithRequestModel(doc, view, evidence, stagePrecedence, nil)
+}
+
+// diagramCallEdgeEvidenceMismatchesWithRequestModel keeps the exported,
+// context-free validator strict while allowing the production pre/post emit
+// paths to consume one exact request-scoped participant carrier permission.
+// The permission is display-only; every relation below still passes through
+// the unchanged typed evidence checks.
+func diagramCallEdgeEvidenceMismatchesWithRequestModel(
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+	rm *types.RequestModel,
+) []DiagramCallEdgeEvidenceMismatch {
+	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
+		return nil
+	}
+	var participantCarrierAuthorities []diagramParticipantEndpointCarrierAuthority
+	if rm != nil {
+		participantCarrierAuthorities = diagramParticipantEndpointCarrierAuthorities(*rm, evidence, stagePrecedence)
 	}
 	strictSourceCallChain := view.Family == types.QFCallChain
 	// A schema-validated source relation axis, not diagram vocabulary, decides
@@ -373,7 +392,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			// text, reasoning, nor rendered prose, and it never rewrites the graph.
 			if block.Kind == types.BlockDiagram && block.Diagram != nil && anchor.HasEndpointIdentityPair() {
 				conflict, fromNodeSymbol, toNodeSymbol := diagramEdgeAnchorNodeIdentityConflictDetails(
-					anchor, labels, evidence, stagePrecedence,
+					anchor, labels, evidence, stagePrecedence, participantCarrierAuthorities,
 				)
 				if conflict {
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -717,6 +736,7 @@ func diagramEdgeAnchorNodeIdentityConflictDetails(
 	labels map[string]string,
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
+	participantCarrierAuthorities []diagramParticipantEndpointCarrierAuthority,
 ) (bool, string, string) {
 	if !anchor.HasEndpointIdentityPair() {
 		return false, "", ""
@@ -733,10 +753,12 @@ func diagramEdgeAnchorNodeIdentityConflictDetails(
 		diagramStagePrecedenceAnchorBindsVisibleNodes(stagePrecedence, anchor, labels) {
 		return false, fromIdentity, toIdentity
 	}
-	if fromOK && !diagramEvidenceNodeIdentityBindsEndpoint(fromIdentity, anchor.FromIdentity) {
+	if fromOK && !diagramEvidenceNodeIdentityBindsEndpoint(fromIdentity, anchor.FromIdentity) &&
+		!diagramParticipantEndpointCarrierAuthorizes(participantCarrierAuthorities, anchor, "from", fromIdentity) {
 		return true, fromIdentity, toIdentity
 	}
-	if toOK && !diagramEvidenceNodeIdentityBindsEndpoint(toIdentity, anchor.ToIdentity) {
+	if toOK && !diagramEvidenceNodeIdentityBindsEndpoint(toIdentity, anchor.ToIdentity) &&
+		!diagramParticipantEndpointCarrierAuthorizes(participantCarrierAuthorities, anchor, "to", toIdentity) {
 		return true, fromIdentity, toIdentity
 	}
 	return false, fromIdentity, toIdentity

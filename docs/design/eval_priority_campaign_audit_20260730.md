@@ -57381,6 +57381,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r821`。
 
+### §123.1341 r822：B1304 生产转正；participant 显示载体与身份门形成确定性合同自冲突（2026-08-21）
+
+1. 从已推送 `ccd861b16` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`，runner 1/2 PASS：Trace 177s，read 897s。人工审计分别判 Trace pass、read system-fail。
+2. Trace 继续通过：明确 2.000..2.020s 主窗、3 次 typed `trace_query`、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链、11.000ms 链上 IO 第一席、三个互相独立的
+   1.000ms 调度/优先级候选、实际占时/现规则可消双账户、CPU1 与逐跳 CPU、背景隔离、成文前自动补采和完整 `Trace 因果投影` 均在；
+   活动流没有因固定 4ms/4m、累计年龄或上下文比例降级。模型一处把三个候选称为“合计上限 3.000ms”，紧接着又说明不可相加；系统 typed
+   投影正确披露重叠，先记模型软措辞波动，不扫描、拒绝或改写正文。
+3. B1304 获得生产正证：当前图已经承载同一 canonical tuple 后，participant 车道不再铸造重复 addition，日志中也未再出现
+   `duplicates an existing exact anchor`。但新 P0 `B1305-PARTICIPANTCARRIERIDENTITYCONFLICT1` 是更直接的红线合同冲突：同一个 typed
+   candidate 明确要求把请求侧 `BusContext` 作为可见 from 节点，同时把技术端点 `o.busCtx` 保留在
+   `from_identity`；模型逐字照做后，通用身份门又以 `edge_anchor_node_identity_conflict` 拒绝该精确形。即同一 typed 候选既是必须采用的合法修向，
+   又被兄弟硬门禁止，不是 JSON/Mermaid 或模型波动。
+4. B1305 根修不得全局放宽 B1237 的“可见节点不能反签相反技术端点”红线。只允许同一个 request-scoped typed candidate provider 为一个
+   exact canonical relation/from/to tuple 铸造 endpoint-carrier authority：仅 provider 声明的 participant endpoint side、仅精确 participant
+   node identity、仅非 local-only 候选可以吸收这一个显示层差异；另一端、反向 tuple、其他 participant、无/歧义候选仍按原门 fail-closed。
+   关系 kind、方向、两端 canonical identity 与独立 citable evidence 仍由原关系门复验，carrier authority 不创建关系、不替模型选边或改正文。
+5. 新 P1 `B1306-RELATIONLIVEREFREPUBLISH1` 是同一失败链的次级放大器。当前 atomic patch 因 unknown/stale relation ref 拒绝时，只说明所交 ref
+   无效，不同时回传当前 lease 的 live `failure_ref`/`addition_ref` 清册；合法 ref 会随每个已接受状态代次重签，模型因此在第 12–20 轮连续猜历史
+   ref。最优形是在执行器的 typed 错误结果中并列当前 lease roster，不自动重选 action，也不从错误 prose 反解析旧 ref。
+6. 施工顺序冻结：先以 B1305 消除“系统要求且禁止”的 P0 自冲突，并钉住 generic/no-request-context 的 B1237 反向拒绝；再给 B1306 增加当前
+   lease 引用反馈。两批都不得读取用户原文、模型 thinking、最终答案 prose 或 Mermaid message 作为事实/硬门，不得系统选择关系、动作、节点、
+   标签、业务措辞、布局或结论。完成各自测试与 release build 后分别提交推送，再从不可变提交恰好 2 路 read+显式窗 Trace 回放。
+7. B1305 已按冻结边界施工。生产 pre-emit 与 post-finalizer source relation gate 现在从同一 typed participant candidate provider 派生
+   endpoint-carrier authority；匹配条件同时包含 relation kind、canonical from/to identity、provider 声明的 endpoint side 和精确 request participant
+   identity，且 `local_only` 永不进入。authority 只吸收“可见业务 participant 与该侧技术 identity 不同”这一显示差异，随后原 argument/call/data-flow/
+   type-relation 等证据门仍复验同一个 canonical tuple；无 RequestModel 的通用 validator 保持 B1237 原严格行为。
+8. 回归复现 r822 的 `BusContext -> BuildAgentContext` 可见边与 `o.busCtx -> ctxbuilder.BuildAgentContext / argument_flow`
+   canonical anchor：通用 validator 必须先报 identity conflict，同一 request-scoped candidate 在 pre-emit/post-finalizer 两面均通过；换成无关
+   participant 或反转 canonical tuple 必须继续报 conflict。既有 opposite typed endpoint 反签测试保持通过；
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿。release build 通过并推送后，B1306 单独成批，避免把 ref 反馈与 P0
+   身份合同混成一个不可审计改动。
+
+状态：
+
+`r822=runner-pass-1/2,human-trace-pass+read-system-fail`；
+`B1304=production-positive/core-closed`；
+`B1305=implemented/related-full-suite+release-build-pass/pending-production-replay`；`B1306=confirmed/P1-queued`；
+`participant-carrier-authority=exact-request-scoped-candidate+declared-side-only`；
+`generic-visible-node-vs-anchor-binding=B1237-fail-closed-unchanged`；
+`system-edge/action/node/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r822`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r822`。
+
 ### §123.1336 r817/B1300：跨行装饰器清单合同自冲突；数据引用投影范围被默认收口（2026-08-21）
 
 1. 从已推送 `7ba2ac614` 构建不可变二进制，严格并发恰好 2 路执行 `arkts_repomap` 与

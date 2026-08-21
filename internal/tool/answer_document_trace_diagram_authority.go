@@ -57,6 +57,10 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	// and every ordinary call remain visible to the unchanged evidence matcher.
 	doc = documentWithoutStandaloneSemanticHandoffAnchors(doc, ctx)
 	stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
+	var requestModel *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		requestModel = &ctx.AnalysisIR.RequestModel
+	}
 	owned := ReportLocalRuntimeTemporalDiagramOwnedBlockIDs(ctx, doc)
 	if len(owned) == 0 {
 		// Keep post-finalizer validation on the same exact relation evidence
@@ -64,7 +68,9 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 		// model authored a type_relation anchor, and it admits only coverage-
 		// gate-eligible provider rows; it never adds or rewrites a visible edge.
 		evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
-		mismatches := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, stagePrecedence)
+		mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(
+			doc, view, evidence, stagePrecedence, requestModel,
+		)
 		if ctx != nil && ctx.Mutable != nil {
 			mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(
 				doc, mismatches, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors(),
@@ -83,7 +89,9 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 		}
 	}
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(&copyDoc, ctx, evidence)
-	mismatches := DiagramCallEdgeEvidenceMismatches(&copyDoc, view, evidence, stagePrecedence)
+	mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(
+		&copyDoc, view, evidence, stagePrecedence, requestModel,
+	)
 	if ctx != nil && ctx.Mutable != nil {
 		mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(
 			&copyDoc, mismatches, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors(),
