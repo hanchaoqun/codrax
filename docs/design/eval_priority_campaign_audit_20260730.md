@@ -57382,6 +57382,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r810`。
 
+### §123.1324 r811：B1293 回放闭环与 analyzer 图参与者来源职责 gap（2026-08-21）
+
+1. 从已推送 `main@2430b25e3` 构建精确二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 188s，read
+   598s。相较 r810 read 的 1279s FAIL、20 次 reject、19 次 patch，本轮收敛到 4 次 reject、4 次 patch；两路均保持活动模型流直到正常答案，
+   没有固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级。
+2. Trace 人工判 partial，但系统权威面继续无回归：精确 2.000..2.020s 用户窗、四节点唤醒依赖链、11.000ms 链上 IO 第一席、三个各
+   1.000ms runnable/优先级候选、主要占时/规则可消双账、背景隔离、完整 `Trace 因果投影` 和确定性补采均在。模型同页正确披露
+   `target_direct_blocking_authority=not_provided`，又把 IO 写成“导致下游链整体向后推迟/由完整唤醒链传导延迟”，仍是 B1269/B1271 的
+   未证传播机理扩写；继续只改 typed soft guidance，禁止扫描请求/模型/答案原文硬拒或由系统代写结论。
+3. read 终稿可用：四阶段表齐全，Mermaid 合法，三条阶段先后边有 typed anchor；新增边复用已声明 `Anlz/Expl/Extc/Finz`，未再生成隐式同义
+   participant。B1293 的精确“同一可见 statement 多 failure ref”和非图 metadata 生产形本轮没有自然复现，因此本批证明无回归与显著收敛，
+   不能把 production-wiring tests 虚报成 production trigger。B1293 保持 implemented、full-suite-pass、production-exact-trigger-pending。
+4. read 人工仍判 partial：最终图只表达 Analyze→Explore→Extract→Finalize 的阶段先后，Orchestrator 与 BusContext 孤立；主要状态流转只在正文/
+   表格出现，图没有完整表达“请求时序+状态载体交互”。validator 删除了缺少 typed 依据的直接调用/返回边是正确的，不能通过放松证据门、系统
+   自铸关系或从最终 prose 猜边来追求图面丰满；后续应提升证据阶段的 typed participant/relation candidate 供给，由模型选择并表述。
+5. 新候选 `B1294-ANALYZERDIAGRAMPARTICIPANTAUTHORITY1/P1` 是确定性教学/职责 gap。analyzer 已从 repo_map 预扫发现 Orchestrator、Explore 等仓库组件，
+   随后把它们写入 `diagram_hint.participants` 并伪填同名字面 `source_quote`；精确 CURRENT-request provenance 门连续拒绝 Orchestrator、Explore。
+   来源门行为正确，因为该字段铸造的是“用户当前请求明确点名的图身份义务”，不能让仓库搜索候选冒充用户意图。问题在于 analyzer 教学没有清楚
+   分开两类权威：用户点名的 participant obligation 与源码发现的 evidence candidate，导致模型在一个字段里同时满足互斥职责。
+6. 同轮还先因缺少泛化必填 `call_chain_endpoints` 被拒。模型随后为非明确 source→sink 的流水线时序自造 `Orchestrator -> Finalizer Agent`，再次把
+   代码发现的组件误当请求边界。B1294 施工不得关闭字段或放宽 provenance；最优形是把 JSON 教学收窄为：`diagram_hint.participants` 只列当前请求
+   关系子句逐字可定位的身份，代码预扫发现的组件留给 evidence 阶段；没有明确调用链端点时使用 schema 规定的空端点，不猜 source/sink。新增
+   prompt/schema pin 覆盖“用户要求完整架构图但只点名端点/状态载体”的通用场景，并保持 noisy repo-map 结果只能作 soft search guidance。
+
+状态：
+
+`r811=runner-2/2-pass,human-trace-partial+read-partial`；
+`B1293=implemented+full-suite+build-pass+production-no-regression/exact-trigger-pending`；
+`B1294=P1-confirmed/prompt-and-field-responsibility-fix-next`；
+`diagram_hint.participants=current-request-precise-obligation-only`；
+`repo-discovered-participants=evidence-candidate-only`；
+`provenance-hard-gate=preserve`；
+`system-relation/direction/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r811`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r811`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，
