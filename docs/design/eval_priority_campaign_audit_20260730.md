@@ -57370,6 +57370,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1338 r819：B1302 生产闭环；显式窗 Trace 全能力守护通过（2026-08-21）
+
+1. 从已推送 `8dc0a78b4` 构建不可变二进制，严格并发恰好 2 路复放数据 reference projection 与显式窗 Trace，runner 2/2 PASS：Trace 190s、
+   数据 290s。两路活动流都自然完成，没有按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧答案或由系统代写结论。
+2. B1302 获得生产正证并闭环：数据终态 complete、0 repair round、13 条规则、17 条决策、4 条 contribution、9 个累计消费路径、reconcile pass，
+   最终唯一输出 `17,0,5`。r818 中 `labels.csv/observations.csv/targets.csv` 已在前序 typed extraction 消费却被终批判未调度的错误完全消失；
+   inventory discovery 权限没有参与本例，也未被放宽。
+3. B1301 同时获得端到端正证：未确权 candidate 先让位给 typed planner；模型根据实际 artifact 选择 complete-reference 后，系统按
+   `targets.csv` 的 GroupA/GroupX/GroupC 顺序逐槽投影，GroupX 缺失贡献按合同填 0，GroupC 保留实际 5。系统没有从请求/规则 prose 选择 reference
+   scope，也没有按 present contribution groups 回退成旧错值 `17,4,5`。
+4. 数据过程仍出现一个跨 join/compute/final 多依赖 rank 的初始计划，被 precise DAG guard 安全拆成 deferred queue；一个 deferred assemble 还因
+   compute artifact 使用 `group_key` 而非模型预写 `canonical_label` 被真实字段合同阻断。两者最终从已物化 schema 收敛，不触发 repair round，也不污染
+   输出。先作为 data schema/JSON 教学效率观察，需异构重复后再立案；禁止据一次 290s 样本增加固定轮数/耗时硬截断。
+5. Trace 守护面完整：3 次 query 均保留精确 2.000000..2.020000 窗和 pid 过滤；
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 已证唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、
+   目标 20.000ms sleep 实际占时、现规则可消量、业务下钻、邻近/背景隔离、critical-blocking 自动补采与完整 `Trace 因果投影` 均在。
+6. Trace 人工判 partial 只因模型正文口径：首段称“阻塞原因完全来自依赖链上游”，后文又正确披露 wakeup/优先级候选不证明 app 同步阻塞等待其工作
+   完成，目标 sleep 原因仍未归因；同核唤醒建议也无量化证据。typed 上下文和系统投影已给出正确边界，继续归入 B1269/B1271 的软引导/模型遵循观察，
+   不扫描请求、thinking 或最终答案硬拒，不由系统删除或改写模型结论。
+
+状态：
+
+`r819=runner-pass-2/2,human-data-pass+trace-partial`；
+`B1300=production-positive/core-closed`；
+`B1301=production-positive/core-closed`；
+`B1302=production-positive/core-closed`；
+`data-reference-output=17,0,5+complete+repair-0`；
+`B1269/B1271=model-causal-wording-repeat-partial/no-hard-prose-gate`；
+`system-answer/conclusion/reference-scope-authorship=none`；
+`request/model/final-prose/error-prose-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r819`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r819`。
+
 ### §123.1334 r815：B1298 纯形车道无回归；addition ref 疑点经原始参数否证（2026-08-21）
 
 1. 从已推送 `ed147975f` 的不可变二进制严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 206s、read
