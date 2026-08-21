@@ -57365,6 +57365,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r793`。
 
+### §123.1293 B1270：关系失败获得同轮稳定引用，坐标重抄不再是修补前提（2026-08-20）
+
+1. `B1270-RELATIONFAILUREREF1/P0` 已实现。每条 production relation failure 在进入 compact delta 前获得 `failure_ref`；该引用由失败的
+   block/issue/direction/relation/node/identity 与当前 diagram 的 typed anchor 快照确定性派生。同一 rejected base 重试时字节稳定，typed anchor
+   结构变化后引用变化。引用计算不读取 Mermaid 消息/可见标签、用户请求、模型 reasoning、答案 prose 或最终输出。
+2. 模型现在可对 relabel/remove/replace 只提交 `{failure_ref, action}`；executor 仅从当前 live lease 解引用到 exact failed relation，再执行模型
+   选择的动作。replace 仍必须由模型提交完整 corrected edge 与非空 visible label；add 仍必须从 allowed addition 自行选择并提交完整 edge，且
+   禁止携带 failure_ref。系统不选择删/改/恢复、不生成边/标签、不修改结论。
+3. 权限继续 fail-closed：无 live lease、未知/过期 ref、跨 block、ref+match 混用、显式 occurrence、同 patch 重复消费、多个相同 prior anchor、
+   缺 replacement 或空 label 均拒绝。body-only missing-anchor 与 anchor-only stale-anchor 两条既有精确车道均可由 ref 进入；普通显式
+   block+match+occurrence 车道保持兼容。
+4. 显式 match 不命中时，错误现在附带最多 8 条 live exact prior-anchor roster：只列 relation/node/identity 与可用 failure_ref，不列可见消息。
+   这让旧客户端/模型能看见真正的 rejected base 坐标，而不是继续猜 `Analyze/Analyzer/analyze/analyzer`。整个 patch 仍保持事务语义，失败操作
+   不推进 hidden base。
+5. patch 工具描述、动态 JSON schema、共享 operation teaching 与 required-diagram compact retry hint 已单源同步；测试覆盖 ref 稳定/typed
+   carrier 变更失效、stale-anchor remove/replace、replacement 模型所有权、未知/跨块/重复/match 冲突拒绝、旧显式匹配与有界 roster，以及
+   production delta→lease ref 字节一致性。
+6. 本批不改变 Trace 查询、显式时间窗、自动补采、因果投影、链上根因、实际占时账户或规则可消账户。下一步从本提交严格并发恰好 2 路
+   read+Trace 生产回放，验收关系修补拒绝数是否从 r793 的 20 次显著下降；之后处理 B1271 调用点名称的机理越界软上下文。
+
+状态：
+
+`B1270=implemented/full-suite+CGO-build-pass/pending-production-replay`；
+`failure-ref=live-lease-only/model-selects-action/system-resolves-exact-typed-target`；
+`failure-ref-input=typed-anchor-structure-only/no-mermaid-message-or-prose`；
+`unknown/stale/cross-block/duplicate/ambiguous-ref=fail-closed`；
+`legacy-explicit-match=compatible+bounded-roster`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
 
 1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace

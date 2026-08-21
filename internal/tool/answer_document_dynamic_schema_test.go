@@ -55,6 +55,14 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	if got := patchProps["diagram_edge_edits"].(map[string]any)["maxItems"]; got != float64(maxModelAuthoredDiagramEdgeEdits) {
 		t.Fatalf("diagram atomic edit schema/executor limit drift: schema=%v executor=%d", got, maxModelAuthoredDiagramEdgeEdits)
 	}
+	edgeEditItem := patchProps["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)
+	edgeEditProps := edgeEditItem["properties"].(map[string]any)
+	if _, ok := edgeEditProps["failure_ref"]; !ok {
+		t.Fatalf("diagram atomic edit schema lost the live failure selector: %v", edgeEditProps)
+	}
+	if required := edgeEditItem["required"].([]any); len(required) != 1 || required[0] != "action" {
+		t.Fatalf("failure_ref lane must not require coordinate retyping: required=%v", required)
+	}
 	fullBytes, _ := json.Marshal(fullItem)
 	for _, field := range []string{"replace_blocks", "add_blocks"} {
 		array := patchProps[field].(map[string]any)

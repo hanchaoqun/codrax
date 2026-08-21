@@ -1550,6 +1550,11 @@ func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternat
 	if delta.Version != 1 || !delta.PreserveUnlistedEdges || len(delta.Failures) != 2 {
 		t.Fatalf("relation delta lost exact local failure set: %+v", delta)
 	}
+	for _, failure := range delta.Failures {
+		if failure.FailureRef == "" {
+			t.Fatalf("every production failure row must carry a live stable selector: %+v", delta.Failures)
+		}
+	}
 	if len(delta.AllowedAdditions) == 0 {
 		t.Fatalf("relation delta must carry machine-readable candidates from the same typed provider: %+v", delta)
 	}

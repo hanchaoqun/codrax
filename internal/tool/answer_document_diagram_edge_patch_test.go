@@ -161,6 +161,113 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RestoresTypedFailedAnchorWithoutBo
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_UsesLiveFailureRefWithoutRetypingCoordinates(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef == "" {
+		t.Fatalf("test setup missing live failure ref: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("live ref must resolve the exact stale anchor: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "B" ||
+		strings.Contains(got.Diagram.Body, "A->>B") || !strings.Contains(got.Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("ref-selected remove changed unmentioned graph content: %+v", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefReplaceStillNeedsModelEdge(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	ref := lease.Failures[0].FailureRef
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: ref, Action: "replace",
+	}}, nil, lease); err == nil || !strings.Contains(err.Error(), "edge is required") {
+		t.Fatalf("ref must not let the system author a replacement edge: %v", err)
+	}
+	patch = &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: ref, Action: "replace",
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model wording",
+		},
+	}}, nil, lease)
+	if err != nil || !strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B: model wording") {
+		t.Fatalf("complete model-authored ref replacement must pass: err=%v patch=%+v", err, patch)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefScopeFailsClosed(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	ref := lease.Failures[0].FailureRef
+	tests := []struct {
+		name  string
+		edits []emitAnswerDiagramEdgeEdit
+		want  string
+	}{
+		{name: "unknown or stale", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: "rf1-not-live", Action: "remove"}}, want: "unknown or stale"},
+		{name: "cross block", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, BlockID: "other", Action: "remove"}}, want: "belongs to block_id"},
+		{name: "duplicate consumption", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "relabel", VisibleLabel: "one"}, {FailureRef: ref, Action: "remove"}}, want: "reuses failure_ref"},
+		{name: "conflicting match", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelPrecedence}}}, want: "mutually exclusive"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+			err := applyModelAuthoredDiagramAtomicEdits(prev, patch, tc.edits, nil, lease)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("failure ref scope must fail closed with %q: %v", tc.want, err)
+			}
+			if len(patch.ReplaceBlocks) != 0 {
+				t.Fatalf("rejected ref transaction must not publish a replacement: %+v", patch.ReplaceBlocks)
+			}
+		})
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_ExplicitMissListsBoundedFailureRefs(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{FromNode: "Analyzer", ToNode: "Explorer", RelationKind: types.DiagramRelPrecedence},
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "live exact prior-anchor roster") ||
+		!strings.Contains(err.Error(), lease.Failures[0].FailureRef) {
+		t.Fatalf("explicit selector miss must expose the bounded live ref roster: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AnchorWithoutBodyPermissionIsExact(t *testing.T) {
 	newPrev := func() *types.AnswerDocumentV2 {
 		prev := atomicPatchTestDocument()

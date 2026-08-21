@@ -150,6 +150,39 @@ func TestAnswerDiagramRelationRepairLeasePreservesCompleteUnion(t *testing.T) {
 	}
 }
 
+func TestAnswerDiagramRelationRepairFailureRefsAreStableAndCarrierBound(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n    A->>B: visible\n"},
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: DiagramRelPrecedence, VisibleLabel: "visible",
+		}},
+	}}}
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "typed_anchor_without_visible_edge",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: DiagramRelPrecedence,
+	}
+	first := AssignAnswerDiagramRelationRepairFailureRefs(base, []AnswerDiagramRelationRepairFailure{failure})
+	second := AssignAnswerDiagramRelationRepairFailureRefs(base, []AnswerDiagramRelationRepairFailure{failure})
+	if len(first) != 1 || first[0].FailureRef == "" || first[0].FailureRef != second[0].FailureRef {
+		t.Fatalf("same rejected carrier must produce one stable opaque ref: first=%+v second=%+v", first, second)
+	}
+	changed := *base
+	changed.Blocks = append([]AnswerBlock(nil), base.Blocks...)
+	changed.Blocks[0].EdgeAnchors = append([]DiagramEdgeAnchor(nil), base.Blocks[0].EdgeAnchors...)
+	changed.Blocks[0].EdgeAnchors[0].FromIdentity = "ChangedAnalyzer"
+	third := AssignAnswerDiagramRelationRepairFailureRefs(&changed, []AnswerDiagramRelationRepairFailure{failure})
+	if third[0].FailureRef == first[0].FailureRef {
+		t.Fatalf("changed carrier must invalidate an old ref: old=%s new=%s", first[0].FailureRef, third[0].FailureRef)
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, first, nil)
+	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef != first[0].FailureRef {
+		t.Fatalf("live lease must retain the ref bound to its exact base: %+v", lease)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLeaseIdentityOnlyFailureCanGainNodes(t *testing.T) {
 	identityOnly := DiagramEdgeAnchor{
 		FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: DiagramRelPrecedence,

@@ -5754,6 +5754,12 @@ func diagramRelationRepairDeltaJSON(
 		}
 		return left.Issue < right.Issue
 	})
+	failures = types.AssignAnswerDiagramRelationRepairFailureRefs(doc, failures)
+	for _, failure := range failures {
+		if failure.FailureRef == "" {
+			return ""
+		}
+	}
 	candidates := ""
 	var allowedAdditions []types.AnswerDiagramRelationRepairCandidate
 	if ctx != nil && ctx.AnalysisIR != nil {

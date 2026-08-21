@@ -8805,8 +8805,13 @@ func TestDiagramRelationRepairDeltaCarriesIdentityOnlyFailedAnchor(t *testing.T)
 		t.Fatalf("identity-only typed failure must remain representable: %v raw=%s", err, raw)
 	}
 	if len(delta.Failures) != 1 || delta.Failures[0].FromNode != "" ||
-		delta.Failures[0].FromIdentity != "analyzer" || delta.Failures[0].ToIdentity != "explorer" {
+		delta.Failures[0].FromIdentity != "analyzer" || delta.Failures[0].ToIdentity != "explorer" ||
+		delta.Failures[0].FailureRef == "" {
 		t.Fatalf("identity-only locator was dropped or rewritten: %+v", delta)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, nil)
+	if lease == nil || lease.Failures[0].FailureRef != delta.Failures[0].FailureRef {
+		t.Fatalf("producer-visible ref and executor lease ref must be byte-identical: delta=%+v lease=%+v", delta.Failures, lease)
 	}
 	repair := emitFixHintsRepair([]emitFixHint{{
 		Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: raw,

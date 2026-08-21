@@ -1,6 +1,7 @@
 package types
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -18,6 +19,7 @@ const (
 // structural fields only: request text, reasoning prose, answer prose, and
 // Mermaid labels are deliberately outside this contract.
 type AnswerDiagramRelationRepairFailure struct {
+	FailureRef   string              `json:"failure_ref,omitempty"`
 	BlockID      string              `json:"block_id,omitempty"`
 	Issue        string              `json:"issue"`
 	RelationKind DiagramRelationKind `json:"relation_kind,omitempty"`
@@ -25,6 +27,90 @@ type AnswerDiagramRelationRepairFailure struct {
 	ToNode       string              `json:"to_node"`
 	FromIdentity string              `json:"from_identity,omitempty"`
 	ToIdentity   string              `json:"to_identity,omitempty"`
+}
+
+// AssignAnswerDiagramRelationRepairFailureRefs binds each structural failure
+// to the exact diagram carrier that produced it. The opaque reference is only
+// a retry selector: admission still requires membership in the live lease and
+// all ordinary relation/evidence checks continue to run after the edit. A
+// changed typed anchor snapshot therefore gets a different reference, while
+// repeated validation of the same rejected draft remains stable. Mermaid
+// source, visible labels, request text, reasoning, and answer prose are never
+// read into this selector.
+func AssignAnswerDiagramRelationRepairFailureRefs(
+	base *AnswerDocumentV2,
+	failures []AnswerDiagramRelationRepairFailure,
+) []AnswerDiagramRelationRepairFailure {
+	out := append([]AnswerDiagramRelationRepairFailure(nil), failures...)
+	for i := range out {
+		out[i].FailureRef = answerDiagramRelationRepairFailureRef(base, out[i])
+	}
+	return out
+}
+
+func answerDiagramRelationRepairFailureRef(base *AnswerDocumentV2, failure AnswerDiagramRelationRepairFailure) string {
+	if base == nil || strings.TrimSpace(failure.BlockID) == "" {
+		return ""
+	}
+	var selected *AnswerBlock
+	selectedCount := 0
+	for i := range base.Blocks {
+		if strings.TrimSpace(base.Blocks[i].ID) != strings.TrimSpace(failure.BlockID) {
+			continue
+		}
+		selectedCount++
+		selected = &base.Blocks[i]
+	}
+	failure.FailureRef = ""
+	type refAnchor struct {
+		FromNode     string              `json:"from_node,omitempty"`
+		ToNode       string              `json:"to_node,omitempty"`
+		FromIdentity string              `json:"from_identity,omitempty"`
+		ToIdentity   string              `json:"to_identity,omitempty"`
+		RelationKind DiagramRelationKind `json:"relation_kind,omitempty"`
+	}
+	type refBlock struct {
+		ID          string          `json:"id"`
+		Kind        AnswerBlockKind `json:"kind,omitempty"`
+		EdgeAnchors []refAnchor     `json:"edge_anchors,omitempty"`
+	}
+	toRefBlock := func(block AnswerBlock) refBlock {
+		out := refBlock{ID: strings.TrimSpace(block.ID), Kind: block.Kind}
+		for _, anchor := range block.EdgeAnchors {
+			out.EdgeAnchors = append(out.EdgeAnchors, refAnchor{
+				FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+				FromIdentity: strings.TrimSpace(anchor.FromIdentity), ToIdentity: strings.TrimSpace(anchor.ToIdentity),
+				RelationKind: anchor.RelationKind,
+			})
+		}
+		return out
+	}
+	payload := struct {
+		Version        int                                `json:"version"`
+		Failure        AnswerDiagramRelationRepairFailure `json:"failure"`
+		Block          *refBlock                          `json:"block,omitempty"`
+		FallbackBlocks []refBlock                         `json:"fallback_blocks,omitempty"`
+	}{
+		Version: 1, Failure: failure,
+	}
+	if selectedCount == 1 {
+		block := toRefBlock(*selected)
+		payload.Block = &block
+	} else {
+		// Compatibility/fail-closed fallback for a malformed diagnostic whose
+		// block id is absent or ambiguous in the base. The lease may still be
+		// installed so existing diagnostics remain visible, but the atomic
+		// executor cannot resolve this ref to a unique block/anchor and rejects.
+		for _, block := range base.Blocks {
+			payload.FallbackBlocks = append(payload.FallbackBlocks, toRefBlock(block))
+		}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("rf1-%x", sum[:12])
 }
 
 // AnswerDiagramRelationRepairCandidate is one producer-owned relation tuple
@@ -97,6 +183,7 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 		}
 		validDeltaCount++
 		for _, failure := range delta.Failures {
+			failure.FailureRef = strings.TrimSpace(failure.FailureRef)
 			failure.BlockID = strings.TrimSpace(failure.BlockID)
 			failure.Issue = strings.TrimSpace(failure.Issue)
 			failure.FromNode = strings.TrimSpace(failure.FromNode)
@@ -108,6 +195,13 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 				return ""
 			}
 			key := answerDiagramRelationRepairFailureKey(failure)
+			if prior, ok := failureByKey[key]; ok && prior.FailureRef != "" &&
+				failure.FailureRef != "" && prior.FailureRef != failure.FailureRef {
+				return ""
+			}
+			if prior, ok := failureByKey[key]; ok && failure.FailureRef == "" {
+				failure.FailureRef = prior.FailureRef
+			}
 			failureByKey[key] = failure
 			if len(failureByKey) > AnswerDiagramRelationRepairDeltaMaxEntries {
 				return ""
@@ -210,6 +304,7 @@ func NewAnswerDiagramRelationRepairLease(
 	targetBlocks := make(map[string]bool)
 	failureSeen := make(map[string]bool, len(failures))
 	for _, failure := range failures {
+		failure.FailureRef = strings.TrimSpace(failure.FailureRef)
 		failure.BlockID = strings.TrimSpace(failure.BlockID)
 		failure.Issue = strings.TrimSpace(failure.Issue)
 		failure.FromNode = strings.TrimSpace(failure.FromNode)
@@ -266,6 +361,12 @@ func NewAnswerDiagramRelationRepairLease(
 			Kind:        block.Kind,
 			BaseAnchors: append([]DiagramEdgeAnchor(nil), block.EdgeAnchors...),
 		})
+	}
+	clean = AssignAnswerDiagramRelationRepairFailureRefs(base, clean)
+	for _, failure := range clean {
+		if failure.FailureRef == "" {
+			return nil
+		}
 	}
 	return &AnswerDiagramRelationRepairLease{
 		Version: 1, Failures: clean, AllowedAdditions: allowed, Blocks: blocks,

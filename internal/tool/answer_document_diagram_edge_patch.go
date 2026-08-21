@@ -69,6 +69,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 
 	working := make(map[string]types.AnswerBlock)
 	order := make([]string, 0, len(edits)+len(boundaries))
+	usedFailureRefs := make(map[string]bool, len(edits))
 	loadBlock := func(blockID string, index int, field string) (types.AnswerBlock, error) {
 		if block, exists := working[blockID]; exists {
 			return block, nil
@@ -89,6 +90,18 @@ func applyModelAuthoredDiagramAtomicEdits(
 		return block, nil
 	}
 	for i, edit := range edits {
+		failureRef := strings.TrimSpace(edit.FailureRef)
+		if failureRef != "" {
+			if usedFailureRefs[failureRef] {
+				return fmt.Errorf("diagram_edge_edits[%d] reuses failure_ref=%q; each live failure may be consumed at most once", i, failureRef)
+			}
+			usedFailureRefs[failureRef] = true
+		}
+		var err error
+		edit, err = resolveAtomicDiagramFailureRef(edit, lease)
+		if err != nil {
+			return fmt.Errorf("diagram_edge_edits[%d]: %w", i, err)
+		}
 		blockID := strings.TrimSpace(edit.BlockID)
 		if blockID == "" {
 			return fmt.Errorf("edit[%d] has empty block_id", i)
@@ -146,6 +159,112 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 	return out
 }
 
+// resolveAtomicDiagramFailureRef converts one model-selected, lease-owned
+// failure reference into the exact structural locator already present in the
+// rejected draft. It does not choose an action, replacement edge, visible
+// label, or relation. References are useful only inside the live lease; an
+// unknown, cross-block, ambiguous, or stale reference fails closed.
+func resolveAtomicDiagramFailureRef(
+	edit emitAnswerDiagramEdgeEdit,
+	lease *types.AnswerDiagramRelationRepairLease,
+) (emitAnswerDiagramEdgeEdit, error) {
+	ref := strings.TrimSpace(edit.FailureRef)
+	if ref == "" {
+		return edit, nil
+	}
+	action := strings.ToLower(strings.TrimSpace(edit.Action))
+	if action == "add" {
+		return edit, fmt.Errorf("action=add does not accept failure_ref; select an allowed addition with a complete edge")
+	}
+	if edit.Match != nil {
+		return edit, fmt.Errorf("failure_ref and match are mutually exclusive")
+	}
+	if edit.Occurrence != 0 {
+		return edit, fmt.Errorf("failure_ref already selects one failure; omit occurrence")
+	}
+	if lease == nil || lease.Version != 1 {
+		return edit, fmt.Errorf("failure_ref=%q is not present in a live relation-repair lease", ref)
+	}
+	var failure *types.AnswerDiagramRelationRepairFailure
+	for i := range lease.Failures {
+		if strings.TrimSpace(lease.Failures[i].FailureRef) != ref {
+			continue
+		}
+		if failure != nil {
+			return edit, fmt.Errorf("failure_ref=%q is ambiguous in the live relation-repair lease", ref)
+		}
+		row := lease.Failures[i]
+		failure = &row
+	}
+	if failure == nil {
+		return edit, fmt.Errorf("failure_ref=%q is unknown or stale for the live relation-repair lease", ref)
+	}
+	blockID := strings.TrimSpace(failure.BlockID)
+	if declared := strings.TrimSpace(edit.BlockID); declared != "" && declared != blockID {
+		return edit, fmt.Errorf("failure_ref=%q belongs to block_id=%q, not %q", ref, blockID, declared)
+	}
+	edit.BlockID = blockID
+
+	var baseAnchors []types.DiagramEdgeAnchor
+	for _, block := range lease.Blocks {
+		if strings.TrimSpace(block.BlockID) == blockID {
+			baseAnchors = append(baseAnchors, block.BaseAnchors...)
+		}
+	}
+	matches := make([]types.DiagramEdgeAnchor, 0, 1)
+	for _, anchor := range baseAnchors {
+		if atomicDiagramFailureMatchesAnchorExactly(*failure, anchor) {
+			matches = append(matches, anchor)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		match := matches[0]
+		edit.Match = &match
+		edit.failureRefResolved = true
+		return edit, nil
+	case 0:
+		if failure.Issue != diagramCallEdgeIssueMissingAnchor && failure.Issue != diagramCallEdgeIssueMissingRelationAnchor {
+			return edit, fmt.Errorf("failure_ref=%q no longer selects a prior anchor in block_id=%q", ref, blockID)
+		}
+		match := types.DiagramEdgeAnchor{
+			FromNode: strings.TrimSpace(failure.FromNode), ToNode: strings.TrimSpace(failure.ToNode),
+			FromIdentity: strings.TrimSpace(failure.FromIdentity), ToIdentity: strings.TrimSpace(failure.ToIdentity),
+			RelationKind: failure.RelationKind,
+		}
+		if err := validateAtomicDiagramAnchor(&match, "failure_ref body-edge locator"); err != nil {
+			return edit, fmt.Errorf("failure_ref=%q cannot identify a visible body-only edge: %w", ref, err)
+		}
+		edit.Match = &match
+		edit.failureRefResolved = true
+		return edit, nil
+	default:
+		return edit, fmt.Errorf("failure_ref=%q matches %d identical prior anchors; use explicit match with occurrence", ref, len(matches))
+	}
+}
+
+func atomicDiagramFailureMatchesAnchorExactly(
+	failure types.AnswerDiagramRelationRepairFailure,
+	anchor types.DiagramEdgeAnchor,
+) bool {
+	if failure.RelationKind.IsValid() && failure.RelationKind != anchor.RelationKind {
+		return false
+	}
+	if strings.TrimSpace(failure.FromNode) != "" || strings.TrimSpace(failure.ToNode) != "" {
+		if strings.TrimSpace(failure.FromNode) != strings.TrimSpace(anchor.FromNode) ||
+			strings.TrimSpace(failure.ToNode) != strings.TrimSpace(anchor.ToNode) {
+			return false
+		}
+	}
+	if strings.TrimSpace(failure.FromIdentity) != "" || strings.TrimSpace(failure.ToIdentity) != "" {
+		if strings.TrimSpace(failure.FromIdentity) != strings.TrimSpace(anchor.FromIdentity) ||
+			strings.TrimSpace(failure.ToIdentity) != strings.TrimSpace(anchor.ToIdentity) {
+			return false
+		}
+	}
+	return true
+}
+
 func applyOneModelAuthoredDiagramEdgeEdit(
 	block *types.AnswerBlock,
 	edit emitAnswerDiagramEdgeEdit,
@@ -169,6 +288,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		return fmt.Errorf("body_occurrence must be at least 1")
 	}
 	if action == "add" {
+		if strings.TrimSpace(edit.FailureRef) != "" {
+			return fmt.Errorf("action=add must omit failure_ref")
+		}
 		if edit.Match != nil {
 			return fmt.Errorf("action=add must omit match")
 		}
@@ -198,17 +320,17 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	if edit.Match == nil {
 		return fmt.Errorf("action=%s requires match", action)
 	}
-	if err := validateAtomicDiagramAnchor(edit.Match, "match"); err != nil {
+	if err := validateAtomicDiagramAnchor(edit.Match, "match"); err != nil && !edit.failureRefResolved {
 		return err
 	}
 	anchorIndex, anchorPairOccurrence, anchorErr := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, occurrence)
 	bodyOnly := false
 	if anchorErr != nil {
 		if action == "relabel" {
-			return anchorErr
+			return fmt.Errorf("%w%s", anchorErr, atomicDiagramPriorAnchorRoster(lease, block.ID))
 		}
 		if !atomicDiagramBodyOnlyFailureAuthorized(lease, block.ID, *edit.Match) {
-			return anchorErr
+			return fmt.Errorf("%w%s", anchorErr, atomicDiagramPriorAnchorRoster(lease, block.ID))
 		}
 		// The producer-owned retry delta names this exact failed visible
 		// relation, while the failure itself is that no matching prior
@@ -308,6 +430,59 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
 	return nil
+}
+
+func atomicDiagramPriorAnchorRoster(lease *types.AnswerDiagramRelationRepairLease, blockID string) string {
+	if lease == nil || lease.Version != 1 {
+		return ""
+	}
+	rows := make([]string, 0, 8)
+	for _, block := range lease.Blocks {
+		if strings.TrimSpace(block.BlockID) != strings.TrimSpace(blockID) {
+			continue
+		}
+		for _, anchor := range block.BaseAnchors {
+			ref := ""
+			for _, failure := range lease.Failures {
+				if strings.TrimSpace(failure.BlockID) == strings.TrimSpace(blockID) &&
+					atomicDiagramFailureMatchesAnchorExactly(failure, anchor) {
+					ref = strings.TrimSpace(failure.FailureRef)
+					break
+				}
+			}
+			rows = append(rows, fmt.Sprintf(
+				"prior_anchor={relation:%s node:%s->%s identity:%s->%s failure_ref:%q}",
+				anchor.RelationKind, anchor.FromNode, anchor.ToNode,
+				anchor.FromIdentity, anchor.ToIdentity, ref,
+			))
+			if len(rows) == 8 {
+				break
+			}
+		}
+		break
+	}
+	// A body-only missing-anchor failure has no prior anchor by definition;
+	// still expose its live selector and exact structural locator.
+	if len(rows) == 0 {
+		for _, failure := range lease.Failures {
+			if strings.TrimSpace(failure.BlockID) != strings.TrimSpace(blockID) ||
+				strings.TrimSpace(failure.FailureRef) == "" {
+				continue
+			}
+			rows = append(rows, fmt.Sprintf(
+				"body_failure={failure_ref:%q issue:%s relation:%s node:%s->%s identity:%s->%s}",
+				failure.FailureRef, failure.Issue, failure.RelationKind,
+				failure.FromNode, failure.ToNode, failure.FromIdentity, failure.ToIdentity,
+			))
+			if len(rows) == 8 {
+				break
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	return "; live exact prior-anchor roster: " + strings.Join(rows, "; ")
 }
 
 // atomicDiagramAnchorWithoutBodyFailureAuthorized admits only the exact
