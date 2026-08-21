@@ -30,6 +30,7 @@ type AnswerDiagramRelationRepairFailure struct {
 	TargetCarrier  AnswerDiagramRelationRepairTargetCarrier `json:"target_carrier,omitempty"`
 	AllowedActions []AnswerDiagramRelationRepairAction      `json:"allowed_actions,omitempty"`
 	RelatedIssues  []string                                 `json:"related_issues,omitempty"`
+	BodyOccurrence int                                      `json:"body_occurrence,omitempty"`
 }
 
 // AnswerDiagramRelationRepairTargetCarrier tells the retrying model which
@@ -197,7 +198,7 @@ func answerDiagramRelationRepairFailureCarrierKey(base *AnswerDocumentV2, failur
 		return strings.Join([]string{
 			strings.TrimSpace(failure.BlockID), "body",
 			strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode),
-			string(AnswerDiagramRelationRepairFailureEffectiveRelation(failure)),
+			string(AnswerDiagramRelationRepairFailureEffectiveRelation(failure)), fmt.Sprintf("%d", failure.BodyOccurrence),
 		}, "\x00")
 	}
 	return "failure\x00" + answerDiagramRelationRepairFailureKey(failure)
@@ -844,6 +845,7 @@ func answerDiagramRelationRepairFailureKey(failure AnswerDiagramRelationRepairFa
 		strings.TrimSpace(string(failure.RelationKind)),
 		strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode),
 		strings.TrimSpace(failure.FromIdentity), strings.TrimSpace(failure.ToIdentity),
+		fmt.Sprintf("%d", failure.BodyOccurrence),
 	}, "\x00")
 }
 

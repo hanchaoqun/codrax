@@ -986,7 +986,7 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
 	const staleProducerRef = "rf1-000000000000000000000000"
-	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
+	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
 	result := func(toolName string) *types.ToolResult {
 		return &types.ToolResult{
 			ToolName: toolName, Success: false,
@@ -1009,6 +1009,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 		}
 		for _, want := range []string{
 			`"from_node":"BC"`, `"to_node":"E"`, "preserve_unlisted_edges=true",
+			`"body_occurrence":1`, "omit block_id, match, occurrence, and body_occurrence",
 			`"allowed_additions"`, `"from_identity":"Orchestrator.applyStageOutput"`,
 			"The allowed rows are permissions, not required edges",
 			"diagram_edge_edits", "action=relabel", "action=remove", "action=add",

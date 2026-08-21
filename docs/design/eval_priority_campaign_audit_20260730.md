@@ -59189,3 +59189,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1303 r798/B1277：失败能力已进入生产，但重复正文关系仍缺精确位置；补为可直接执行的同代 selector（2026-08-20）
+
+1. 以已推送 `8f994ec82` 的不可变二进制严格并发恰好 2 路复放 read+Trace，runner 2/2 PASS：Trace 228s、read 1018s。Trace
+   继续保留显式 2.000..2.020s 窗、typed 查询与成文前自动补采、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个独立 1.000ms 调度/优先级候选、
+   实际占时/规则可消双账户和 `Trace 因果投影`；邻近/背景未升为主因，活动流未按 4ms/4m 或累计年龄降级。
+2. `B1276` 获得生产正证：模型能看到并消费每个失败的 `target_carrier`、`allowed_actions` 与合并后的 `related_issues`，read 从 r797 的
+   1794s/20 reject/最终失败恢复为可交付答案。但 1018s、13 reject、62 次 read、43 次 midloop 和 53% context 仍不健康，runner PASS
+   不能覆盖修补过程合同质量。
+3. 新 P0 `B1277-RELATIONFAILUREBODYOCCURRENCE1`：同一 `DC -> BC` 可见 pair 有 4 条独立 Mermaid message，四条都是
+   `visible_body_edge` 且允许 remove/replace；旧 failure ref 只携带 pair，不携带其在拒绝草稿中的第几个可见 occurrence。模型完全按
+   `{failure_ref, action=remove}` 教学提交后，执行器仍报“4 edges ... set body_occurrence explicitly”。这使“opaque ref 已精确选择失败载体”
+   与执行合同直接矛盾，并把模型逼向整块 `replace_blocks` 重写。
+4. B1277 已按结构化位置根修：严格 body 遍历在产生 mismatch 时同时铸造 1-based `body_occurrence`；failure delta、same-generation lease、
+   opaque ref 哈希和 executor 共享该字段。模型复制 `{failure_ref, action}` 即可，resolver 自动恢复 block、match、relation、identity 和
+   body occurrence；模型若重填冲突坐标则 fail-closed。该位置来自已解析 Mermaid AST 的顺序，不读 message label、用户请求、模型 prose 或
+   最终正文词义。
+5. 原子执行补上稳定次序：多个 operation 的 occurrence 都相对于不可变拒绝草稿；同 block、同 from/to pair 的精确 body 操作按原始
+   occurrence 从大到小执行，避免先删第 1 条后令第 2–4 条编号漂移。这里只调整同一事务中模型已选择操作的机械执行顺序，不增删模型动作，
+   不选择关系/方向/节点/标签。重复选择同一 base occurrence 明确拒绝。
+6. 回归覆盖 4 条同端点 body-only 失败分别获得唯一 ref/occurrence/capability，并在模型只提交四个 `{failure_ref, remove}` 时一次删除成功；
+   同载体多 issue 合并、混合 prior/body/stale carrier、歧义显式 occurrence 和普通单边路径保持原回归。工具 schema、共享 patch 教学和 retry
+   hint 统一要求使用 ref 时省略 `body_occurrence`，降低 JSON 心智负担。
+7. 人工答案审计：read 最终正文正确说明 Phase 1 analyze 与 Phase 2 DAG 调度，给出合法 sequenceDiagram 和四阶段输入/输出/载体表，未由系统
+   代写结论；但图退化为四个 stage 的先后关系，Orchestrator/BusContext/StageOutput 的交互只留在表和 prose。后续 P1
+   `B1278-DIAGRAMNODEIDENTITYALIASCONTRACT1` 需统一审计 participant id/display alias、typed identity 与 allowed addition 的契约，解决后半程
+   node-identity 冲突；不得针对本图硬编码名字或由系统生成关系。
+8. Trace 仍为 partial：正文再次把 `fscache_page_wait_on_page_bit` 从“链上线程的内核等待调用点”扩写成“fscache 缓存路径”修向，虽然事实卡
+   已明确对象、持有者与后端未知。继续保留 `B1269/B1271/P1` 软教学项；禁止扫描、拒绝或重写模型结论。
+
+状态：
+
+`r798=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1276=production-positive/core-closed`；
+`B1277=implemented/full-suite-pass/pending-production-replay`；
+`B1278=confirmed/P1-next-after-B1277`；`B1269/B1271=partial/P1-open`；
+`failure-ref=exact-base-body-occurrence+carrier+allowed-actions`；
+`same-pair-atomic-application=descending-base-occurrence`；
+`system-relation/action/label/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r798`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r798`。

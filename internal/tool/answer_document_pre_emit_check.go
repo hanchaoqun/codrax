@@ -5714,13 +5714,14 @@ func diagramRelationRepairDeltaJSON(
 	seen := make(map[string]bool, len(mismatches))
 	for _, mismatch := range mismatches {
 		failure := diagramRelationRepairDeltaFailure{
-			BlockID:      strings.TrimSpace(mismatch.BlockID),
-			Issue:        strings.TrimSpace(mismatch.Issue),
-			RelationKind: mismatch.Relation,
-			FromNode:     strings.TrimSpace(mismatch.FromNode),
-			ToNode:       strings.TrimSpace(mismatch.ToNode),
-			FromIdentity: strings.TrimSpace(mismatch.FromSymbol),
-			ToIdentity:   strings.TrimSpace(mismatch.ToSymbol),
+			BlockID:        strings.TrimSpace(mismatch.BlockID),
+			Issue:          strings.TrimSpace(mismatch.Issue),
+			RelationKind:   mismatch.Relation,
+			FromNode:       strings.TrimSpace(mismatch.FromNode),
+			ToNode:         strings.TrimSpace(mismatch.ToNode),
+			FromIdentity:   strings.TrimSpace(mismatch.FromSymbol),
+			ToIdentity:     strings.TrimSpace(mismatch.ToSymbol),
+			BodyOccurrence: mismatch.BodyOccurrence,
 		}
 		if failure.BlockID == "" || failure.Issue == "" ||
 			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
@@ -5728,7 +5729,7 @@ func diagramRelationRepairDeltaJSON(
 		}
 		key := strings.ToLower(failure.BlockID + "\x00" + failure.Issue + "\x00" +
 			string(failure.RelationKind) + "\x00" + failure.FromNode + "\x00" + failure.ToNode + "\x00" +
-			failure.FromIdentity + "\x00" + failure.ToIdentity)
+			failure.FromIdentity + "\x00" + failure.ToIdentity + "\x00" + strconv.Itoa(failure.BodyOccurrence))
 		if seen[key] {
 			continue
 		}

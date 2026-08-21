@@ -307,6 +307,49 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRemovesGroundedBodyOnlyE
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefsSelectAndRemoveRepeatedBodyEdges(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    participant DC\n" +
+		"    participant BC\n" +
+		"    DC->>BC: first\n" +
+		"    DC->>BC: second\n" +
+		"    DC->>BC: third\n" +
+		"    DC->>BC: fourth\n"
+	prev.Blocks[1].EdgeAnchors = nil
+	failures := make([]types.AnswerDiagramRelationRepairFailure, 0, 4)
+	for occurrence := 1; occurrence <= 4; occurrence++ {
+		failures = append(failures, types.AnswerDiagramRelationRepairFailure{
+			BlockID: "diag", Issue: diagramCallEdgeIssueMissingAnchor,
+			FromNode: "DC", ToNode: "BC", RelationKind: types.DiagramRelCall,
+			BodyOccurrence: occurrence,
+		})
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, failures, nil)
+	if lease == nil || len(lease.Failures) != 4 {
+		t.Fatalf("each repeated visible relation needs one executable carrier: %+v", lease)
+	}
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, len(lease.Failures))
+	seen := make(map[int]bool)
+	for _, failure := range lease.Failures {
+		if failure.FailureRef == "" || failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+			!failure.AllowsAction("remove") || failure.BodyOccurrence < 1 || failure.BodyOccurrence > 4 ||
+			seen[failure.BodyOccurrence] {
+			t.Fatalf("repeated relation failure lacks an exact independent capability: %+v", failure)
+		}
+		seen[failure.BodyOccurrence] = true
+		edits = append(edits, emitAnswerDiagramEdgeEdit{FailureRef: failure.FailureRef, Action: "remove"})
+	}
+
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, edits, nil, lease); err != nil {
+		t.Fatalf("failure refs must select their base occurrences without model-authored coordinates: %v", err)
+	}
+	if got := mermaidcompat.ParseEdges(patch.ReplaceBlocks[0].Diagram.Body); len(got) != 0 {
+		t.Fatalf("all four selected repeated relations should be removed, got %+v\n%s", got, patch.ReplaceBlocks[0].Diagram.Body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRejectsUnlistedAction(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev,

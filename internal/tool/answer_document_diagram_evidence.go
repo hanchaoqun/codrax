@@ -19,13 +19,14 @@ import (
 // Mermaid syntax. It never scans the raw request, model prose, edge-message
 // vocabulary, or rendered final text for hard-gate keywords.
 type DiagramCallEdgeEvidenceMismatch struct {
-	BlockID    string
-	Issue      string
-	FromNode   string
-	ToNode     string
-	FromSymbol string
-	ToSymbol   string
-	Relation   types.DiagramRelationKind
+	BlockID        string
+	Issue          string
+	FromNode       string
+	ToNode         string
+	FromSymbol     string
+	ToSymbol       string
+	Relation       types.DiagramRelationKind
+	BodyOccurrence int
 }
 
 // IsRequestedStagePrecedenceSpineIncomplete exposes the typed completeness
@@ -162,7 +163,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 					BlockID: block.ID, Issue: issue,
 					FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
 					FromSymbol: fromSymbol, ToSymbol: toSymbol,
-					Relation: relation,
+					Relation: relation, BodyOccurrence: occurrence + 1,
 				})
 			}
 		}
@@ -240,6 +241,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 						BlockID: block.ID, Issue: issue,
 						FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
 						FromSymbol: fromSymbol, ToSymbol: toSymbol,
+						BodyOccurrence: occurrence + 1,
 					})
 					continue
 				}
@@ -271,7 +273,7 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 						BlockID: block.ID, Issue: diagramSemanticRelationIssueNoEvidence,
 						FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
 						FromSymbol: fromSymbol, ToSymbol: toSymbol,
-						Relation: relation,
+						Relation: relation, BodyOccurrence: occurrence + 1,
 					})
 				}
 				if !requiresCallAuthority {
@@ -283,12 +285,13 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 						issue = diagramCallEdgeIssueMissingGroundedAnchor
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
-						BlockID:    block.ID,
-						Issue:      issue,
-						FromNode:   strings.TrimSpace(edge.From),
-						ToNode:     strings.TrimSpace(edge.To),
-						FromSymbol: fromSymbol,
-						ToSymbol:   toSymbol,
+						BlockID:        block.ID,
+						Issue:          issue,
+						FromNode:       strings.TrimSpace(edge.From),
+						ToNode:         strings.TrimSpace(edge.To),
+						FromSymbol:     fromSymbol,
+						ToSymbol:       toSymbol,
+						BodyOccurrence: occurrence + 1,
 					})
 					continue
 				}
@@ -309,18 +312,19 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 							BlockID: block.ID, Issue: diagramCallEdgeIssueOccurrenceUnproven,
 							FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
 							FromSymbol: fromSymbol, ToSymbol: toSymbol,
-							Relation: types.DiagramRelCall,
+							Relation: types.DiagramRelCall, BodyOccurrence: occurrence + 1,
 						})
 					}
 					continue
 				}
 				out = append(out, DiagramCallEdgeEvidenceMismatch{
-					BlockID:    block.ID,
-					Issue:      diagramCallEdgeIssueNoEvidence,
-					FromNode:   strings.TrimSpace(edge.From),
-					ToNode:     strings.TrimSpace(edge.To),
-					FromSymbol: fromSymbol,
-					ToSymbol:   toSymbol,
+					BlockID:        block.ID,
+					Issue:          diagramCallEdgeIssueNoEvidence,
+					FromNode:       strings.TrimSpace(edge.From),
+					ToNode:         strings.TrimSpace(edge.To),
+					FromSymbol:     fromSymbol,
+					ToSymbol:       toSymbol,
+					BodyOccurrence: occurrence + 1,
 				})
 			}
 		}

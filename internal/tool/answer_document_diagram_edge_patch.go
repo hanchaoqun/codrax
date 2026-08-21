@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
@@ -89,6 +90,11 @@ func applyModelAuthoredDiagramAtomicEdits(
 		order = append(order, blockID)
 		return block, nil
 	}
+	type resolvedEdgeEdit struct {
+		edit          emitAnswerDiagramEdgeEdit
+		originalIndex int
+	}
+	resolvedEdits := make([]resolvedEdgeEdit, 0, len(edits))
 	for i, edit := range edits {
 		failureRef := strings.TrimSpace(edit.FailureRef)
 		if failureRef != "" {
@@ -106,6 +112,54 @@ func applyModelAuthoredDiagramAtomicEdits(
 		if blockID == "" {
 			return fmt.Errorf("edit[%d] has empty block_id", i)
 		}
+		resolvedEdits = append(resolvedEdits, resolvedEdgeEdit{edit: edit, originalIndex: i})
+	}
+	// Every body_occurrence is minted against the immutable rejected draft.
+	// Removing or replacing occurrence 1 first would renumber occurrence 2 in
+	// the working Mermaid body and make an otherwise complete atomic repair
+	// impossible. Execute only exact same-pair body selections from the highest
+	// base occurrence downward. This changes no model-authored action, edge,
+	// label, or relation; it merely preserves the stable meaning of the typed
+	// selectors while applying the transaction.
+	groups := make(map[string][]int)
+	for i, item := range resolvedEdits {
+		if item.edit.Match == nil || item.edit.BodyOccurrence <= 0 ||
+			strings.EqualFold(strings.TrimSpace(item.edit.Action), "add") {
+			continue
+		}
+		key := strings.Join([]string{
+			strings.TrimSpace(item.edit.BlockID),
+			strings.TrimSpace(item.edit.Match.FromNode),
+			strings.TrimSpace(item.edit.Match.ToNode),
+		}, "\x00")
+		groups[key] = append(groups[key], i)
+	}
+	for key, indexes := range groups {
+		if len(indexes) < 2 {
+			continue
+		}
+		members := make([]resolvedEdgeEdit, len(indexes))
+		for i, index := range indexes {
+			members[i] = resolvedEdits[index]
+		}
+		sort.SliceStable(members, func(i, j int) bool {
+			return members[i].edit.BodyOccurrence > members[j].edit.BodyOccurrence
+		})
+		for i := 1; i < len(members); i++ {
+			if members[i-1].edit.BodyOccurrence == members[i].edit.BodyOccurrence {
+				return fmt.Errorf(
+					"diagram_edge_edits[%d] and diagram_edge_edits[%d] select the same base body_occurrence=%d for carrier=%q",
+					members[i-1].originalIndex, members[i].originalIndex, members[i].edit.BodyOccurrence, key,
+				)
+			}
+		}
+		for i, index := range indexes {
+			resolvedEdits[index] = members[i]
+		}
+	}
+	for _, resolved := range resolvedEdits {
+		edit, i := resolved.edit, resolved.originalIndex
+		blockID := strings.TrimSpace(edit.BlockID)
 		block, err := loadBlock(blockID, i, "diagram_edge_edits")
 		if err != nil {
 			return err
@@ -199,6 +253,13 @@ func resolveAtomicDiagramFailureRef(
 	if failure == nil {
 		return edit, fmt.Errorf("failure_ref=%q is unknown or stale for the live relation-repair lease", ref)
 	}
+	if edit.BodyOccurrence != 0 && edit.BodyOccurrence != failure.BodyOccurrence {
+		return edit, fmt.Errorf(
+			"failure_ref=%q already selects body_occurrence=%d, not %d; omit body_occurrence",
+			ref, failure.BodyOccurrence, edit.BodyOccurrence,
+		)
+	}
+	edit.BodyOccurrence = failure.BodyOccurrence
 	if !failure.AllowsAction(action) {
 		return edit, fmt.Errorf(
 			"failure_ref=%q targets carrier=%s and does not allow action=%s; allowed_actions=%v",
@@ -487,9 +548,9 @@ func atomicDiagramPriorAnchorRoster(lease *types.AnswerDiagramRelationRepairLeas
 				continue
 			}
 			rows = append(rows, fmt.Sprintf(
-				"body_failure={failure_ref:%q issue:%s relation:%s node:%s->%s identity:%s->%s}",
+				"body_failure={failure_ref:%q issue:%s relation:%s node:%s->%s identity:%s->%s body_occurrence:%d}",
 				failure.FailureRef, failure.Issue, failure.RelationKind,
-				failure.FromNode, failure.ToNode, failure.FromIdentity, failure.ToIdentity,
+				failure.FromNode, failure.ToNode, failure.FromIdentity, failure.ToIdentity, failure.BodyOccurrence,
 			))
 			if len(rows) == 8 {
 				break
