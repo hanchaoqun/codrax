@@ -61,7 +61,7 @@ var builtinStageBindings = []StageBinding{
 		Stage:          StageExplore,
 		Agent:          AgentExplorer,
 		Skill:          "explore-skill",
-		Responsibility: "Execute the AnalysisIR task graph and evidence plan, collect grounded evidence, and close investigation units.",
+		Responsibility: "Run the AgentExplorer model/tool loop over the AnalysisIR task graph and evidence plan, collect grounded evidence, and close investigation units under deterministic tool and evidence contracts.",
 		PrimaryArtifacts: []string{
 			"EvidenceItems",
 			"AnswerChains",
@@ -73,7 +73,7 @@ var builtinStageBindings = []StageBinding{
 		Stage:          StageExtract,
 		Agent:          AgentExtractor,
 		Skill:          "extract-skill",
-		Responsibility: "Distill accepted evidence into answer-ready symbols, hypothesis verdicts, and structured support.",
+		Responsibility: "Use the AgentExtractor model to distill accepted evidence into answer-ready symbols, hypothesis verdicts, and structured support under deterministic schema validation.",
 		PrimaryArtifacts: []string{
 			"AnswerSymbols",
 			"HypothesisVerdicts",
@@ -86,7 +86,7 @@ var builtinStageBindings = []StageBinding{
 		Agent:          AgentFinalizer,
 		Skill:          "answer-document-skill",
 		Terminal:       true,
-		Responsibility: "Render the AnswerDocumentV2 final answer from the AnswerContract, support plans, and grounded evidence.",
+		Responsibility: "Use the AgentFinalizer model to author the AnswerDocumentV2 final answer from the AnswerContract, support plans, and grounded evidence; deterministic code validates and renders the accepted document.",
 		PrimaryArtifacts: []string{
 			"AnswerDocumentV2",
 			"FinalAnswer",

@@ -58630,3 +58630,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1288 B1267：读阶段执行者与确定性边界进入权威上下文（2026-08-20）
+
+1. `B1267-STAGEEXECUTIONAUTHORITYBOUNDARY1/P1` 已根修。read 主车道的 typed stage binding 现在明确：explore 由
+   AgentExplorer 模型/工具循环执行，extract 由 AgentExtractor 模型产出结构化提炼，finalize 由 AgentFinalizer 模型创作
+   `AnswerDocumentV2`；确定性编排、编译器、工具合同、schema 校验器和渲染器约束或转换这些产物，但不取代模型作者。
+2. finalizer 获得同源 execution-owner boundary 软上下文：analyze 的“模型分类 + 确定性后编译”只描述该阶段的局部分界，禁止在没有
+   独立实现证据时外推成“explore/extract/finalize 均为 deterministic-only”。这修复的是模型输入事实不足，不扫描用户请求、模型输出、
+   最终 prose 或 Mermaid 标签，也不增加答案侧硬词门。
+3. stage binding 仍是阶段职责和主要工件的 principal authority；同名 helper/subsystem 仍不能凭名称重定义阶段。AnswerDocument 仍由模型
+   创作，系统没有注入、删除或替换摘要、结论、图关系与业务措辞。
+4. 回归钉住 explore/extract/finalize 三阶段的 model author 与 deterministic constraint 双边界，并钉住 finalizer prompt 的执行者清册、
+   “不替代作者”和“不得跨阶段外推”教学。完整 `internal/types internal/stageauthority internal/agent internal/tool`、仓库级
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+5. 下一步按用户要求继续严格并发恰好 2 路回放 read+Trace：read 验收不再出现“后续阶段纯确定性”错误总括，并观察 B1266 后 patch
+   拒绝次数是否下降；Trace 同时守住显式窗、系统自动补采、因果投影、链上根因和实际占时/规则可消双账户。
+
+状态：
+
+`B1267=implemented/full-suite-pass/pending-production-replay`；
+`stage-execution-owner=typed-stage-agent`；
+`model-authorship=analyze-classification+explore-decisions/tools+extract-structure+final-answer-document`；
+`deterministic-components=orchestrate/compile/constrain/validate/render-not-author`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

@@ -83,6 +83,24 @@ func TestReadModeStageBindingsCarryResponsibilitiesAndArtifacts(t *testing.T) {
 			t.Fatalf("StageAnalyze artifacts missing %q: %v", want, analyze.PrimaryArtifacts)
 		}
 	}
+	for _, tc := range []struct {
+		stage PipelineStage
+		want  []string
+	}{
+		{StageExplore, []string{"AgentExplorer", "model/tool loop", "deterministic tool and evidence contracts"}},
+		{StageExtract, []string{"AgentExtractor model", "deterministic schema validation"}},
+		{StageFinalize, []string{"AgentFinalizer model", "author", "deterministic code validates and renders"}},
+	} {
+		binding, ok := StageBindingForStage(tc.stage)
+		if !ok {
+			t.Fatalf("%s binding missing", tc.stage)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(binding.Responsibility, want) {
+				t.Fatalf("%s responsibility missing %q: %q", tc.stage, want, binding.Responsibility)
+			}
+		}
+	}
 }
 
 func stageBindingHasArtifact(binding StageBinding, want string) bool {
