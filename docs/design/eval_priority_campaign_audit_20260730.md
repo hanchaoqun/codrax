@@ -57291,6 +57291,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1346 r827：B1311 生产转正；关系闭合导航与锚修补仍制造孤岛和重复边（2026-08-21）
+
+1. 从已推送 `bfa6e9311` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`。runner 2/2 PASS：Trace 213s、read 922s；人工判定 Trace pass、read fail。read 最终没有降级，散文责任说明基本
+   可用，但显式要求的 `BusContext/Mutable` 与四阶段数据流仍未在图中闭合，且三条阶段边各重复两次；自动 oracle 的关键字/边数命中不足以证明真实需求满足。
+2. Trace 守护继续通过：显式 2.000..2.020s 主窗、3 次 target-filtered typed 查询覆盖 4 个维度族、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链及逐跳 CPU、11.000ms 链上 IO 第一席、三个独立不可相加的
+   1.000ms runnable/优先级候选、实际占时/现规则可消双账户、链外背景隔离、成文前自动补采和完整 `Trace 因果投影` 均在；finalizer 零拒绝，
+   活动流未按固定 4ms/4m、累计年龄或上下文比例降级。根因仅来自链上 typed facts，邻近/背景仅作支撑；系统未扫描或改写模型结论。
+3. B1311 获得生产正证。read 全程未再出现 `edge_anchor_node_identity_conflict` 与 participant candidate 的互斥，模型最终能够保留
+   `Mutable["Mutable<br/>可变状态"]` 并通过同一 request-scoped candidate 的通用关系门和 participant coverage 门，答案正常出厂。因此
+   `B1311-PARTICIPANTCARRIERIDENTITYCONTRACT1` 核心闭环；任意别名、反向 tuple、type-only carrier 等负边界仍由回归覆盖。
+4. P1 `B1309-PARTICIPANTNAVIGATIONCOMPLETION1` 本轮升级为高 ROI 待施工。read 使用 34 次 `read_file`、3 次 `repo_map`、52 次 explorer iteration，
+   累积约 500 条证据后才结束；完成门反复要求把 `BusContext/Mutable` 接入关系分量，但导航候选主要给出
+   `Mutable.Objective`、`types.NewMutableState -> BusContext.Mutable` 等局部操作或宽泛 `orchestrator.go` 窗。真实共享值传递已存在于
+   `internal/context/builder.go` 的 `Mutable: bus.Mutable` 结构体初始化，却没有被 repair frontier 优先为“能把缺失 participant 接到既有图分量”的
+   exact assignment/initializer。最优方案是按解析器拥有的 operation 结构与当前 typed participant/component obligation 排序：优先 exact
+   assignment、initializer、argument handoff 中能连接两个既有分量的候选；找不到则显式 bounded-unproven 收敛。不得按用户/模型/final prose、
+   Mermaid message、关键词、轮数、时长或上下文比例硬截断，也不得由系统代画边。
+5. 新 P1 `B1312-EXISTINGEDGEANCHORREPAIRDUP1`：最终 Mermaid 中 Analyzer→Explorer、Explorer→Extractor、Extractor→Finalizer 各出现两次，
+   且标签完全相同。日志显示原边被报 `missing_relation_anchor` 时，live lease 同时发布 failure replace/remove 与同关系 addition；模型用 addition
+   追加了 typed relation，但已有可见边没有被消费，于是“补锚”变成“再画一条边”，结构门仍放行。该问题不能只对当前三个标签去重。后续应统一审计
+   原子关系修补语义：对已经存在的 model-authored visible occurrence，锚修补必须精确绑定/替换该 occurrence，不能以 addition 产生第二条同形边；
+   exact structural duplicate 的判定读取 parsed relation tuple、visible endpoints、label 与 occurrence，不扫描业务 prose。系统只能校验模型选择的 typed
+   candidate 与既有边一致，不得自行创造、反向或删除关系。
+6. 施工顺序冻结：先做 B1309 的 parser-owned connecting-operation frontier，使探索能拿到真正支撑完整图的数据关系；随后独立审计并修复 B1312 的
+   existing-edge anchor transaction 与 exact duplicate 边界。每批均先加跨语言/跨图类结构回归，再跑 relevant suite、release build，提交推送后从
+   不可变版本严格并发 2 路复放 read+显式窗 Trace。B1310 仍只有实现和单测正证，继续等待 exact no-live-lease 自然生产形，不虚记关闭。
+
+状态：
+
+`r827=runner-pass-2/2,human-trace-pass+read-fail`；
+`B1311=production-positive/core-closed`；
+`B1309=confirmed/high-ROI-P1/next`；
+`B1312=confirmed/P1/documented-after-B1309`；
+`B1310=implemented/tests-positive/pending-exact-no-live-lease-production-shape`；
+`system-edge/action/node/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r827`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r827`。
+
 ### §123.1345 r826：参与者候选与通用 node/identity 门互斥，20 轮后再次降级旧稿（2026-08-21）
 
 1. 从已推送 `1a13a1371` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
