@@ -3111,12 +3111,29 @@ func dataTaskScheduledMaterialConsumption(records []dataTaskWorkflowRecord, plan
 			out[value] = true
 		}
 	}
+	var markArtifact func(dataquery.DataArtifact)
+	markArtifact = func(artifact dataquery.DataArtifact) {
+		// An inventory proves only that a candidate exists. Its child artifacts
+		// mirror candidate source paths without reading their contents, so do not
+		// let those children satisfy script_consumed coverage. For every other
+		// typed result, preserve the complete source-lineage tree: extract_records
+		// keeps the stable task-relative source credential (for example
+		// labels.csv) on a child while the parent carries the staged absolute path.
+		if normalizeDataActionKindForWorkflow(dataquery.DataActionKind(artifact.Kind)) == dataquery.DataActionMaterialInventory {
+			mark(dataTaskArtifactAliasPaths(artifact))
+			return
+		}
+		mark(artifact.SourcePaths)
+		mark(dataTaskArtifactAliasPaths(artifact))
+		for _, child := range artifact.Children {
+			markArtifact(child)
+		}
+	}
 	for _, rec := range records {
 		if rec.Result != nil {
 			mark(rec.Result.ConsumedPaths)
 			for _, artifact := range rec.Result.Artifacts {
-				mark(artifact.SourcePaths)
-				mark(dataTaskArtifactAliasPaths(artifact))
+				markArtifact(artifact)
 			}
 		}
 	}

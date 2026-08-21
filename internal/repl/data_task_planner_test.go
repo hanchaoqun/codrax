@@ -9885,6 +9885,62 @@ func TestDataTaskTerminalSchedulingUsesAuthoritativeScriptConsumption(t *testing
 	}
 }
 
+func TestDataTaskTerminalSchedulingUsesPriorTypedArtifactSourceLineage(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID: "extract_labels", Kind: dataquery.DataActionExtractRecords,
+			InputPaths: []string{"labels.csv"}, OutputArtifact: "labels_data",
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:          "labels_data",
+			Kind:        string(dataquery.DataActionExtractRecords),
+			SourcePaths: []string{"/staged/session/labels.csv"},
+			Children: []dataquery.DataArtifact{{
+				ID:          "labels.csv#records",
+				Kind:        "extract_records/csv",
+				SourcePaths: []string{"labels.csv"},
+			}},
+		}}},
+	}}
+	terminal := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{{
+			Path: "labels.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed,
+		}}},
+		Actions: []dataquery.DataAction{{
+			ID: "reconcile", Kind: dataquery.DataActionReconcile, InputPaths: []string{"contributions"},
+		}},
+	}
+	if got := dataTaskTerminalRequiredMaterialSchedulingError(records, terminal); got != "" {
+		t.Fatalf("staging error=%q, prior typed extract lineage must satisfy cumulative material coverage", got)
+	}
+}
+
+func TestDataTaskTerminalSchedulingDoesNotTreatInventoryChildrenAsConsumed(t *testing.T) {
+	records := []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Actions: []dataquery.DataAction{{
+			ID: "inventory", Kind: dataquery.DataActionMaterialInventory,
+		}}},
+		Result: &dataquery.Result{Artifacts: []dataquery.DataArtifact{{
+			ID:   "inventory",
+			Kind: string(dataquery.DataActionMaterialInventory),
+			Children: []dataquery.DataArtifact{{
+				ID:          "labels.csv#candidate",
+				SourcePaths: []string{"labels.csv"},
+			}},
+		}}},
+	}}
+	terminal := dataquery.TaskPlan{
+		Status: "ready",
+		CoverageContract: dataquery.CoverageContract{RequiredMaterials: []dataquery.CoverageMaterial{{
+			Path: "labels.csv", Required: true, UsageMode: dataquery.MaterialUseScriptConsumed,
+		}}},
+	}
+	if got := dataTaskTerminalRequiredMaterialSchedulingError(records, terminal); !strings.Contains(got, "labels.csv") {
+		t.Fatalf("staging error=%q, discovery-only inventory child must not satisfy material consumption", got)
+	}
+}
+
 func TestDataTaskAuthoritativeScriptConsumptionGapRoutesToRepairBeforeExecution(t *testing.T) {
 	plan := dataquery.TaskPlan{
 		Status:     "ready",

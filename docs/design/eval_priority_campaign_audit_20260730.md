@@ -57335,6 +57335,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1337 r818/B1302：前序 typed 材料消费的子级来源凭证必须进入累计终批合同（2026-08-21）
+
+1. 从已推送 `59f242921` 构建不可变二进制，严格并发恰好 2 路复放 `arkts_repomap` 与
+   `data_multifile_reference_projection`，runner 1/2 PASS：ArkTS 300s、数据 369s。人工审计不以 verdict 代替结论：ArkTS 完整正确；数据的
+   rules/decisions/contributions/reconcile 已闭合且模型最终知道正确值 `17,0,5`，但系统在终批调度阶段 fail-closed。
+2. B1300 获得生产正证：最终准确列出 4 个 `@Entry` 页面类型和 2 个 `@Builder` 片段，路径、成员、声明行与排除项均正确；finalizer 0 reject，
+   r817 的 `@component` row-id 被 `@builder` partition 拒绝没有复现。探索仍有 3 次 dispatch/17 iteration，作为效率观察，不据此增加固定轮数或时限硬门。
+3. B1301 的核心接线也获得生产正证：未确权 reference candidate 没有再触发系统的 present-groups deterministic fallback，而是返回 typed planner。
+   后续模型结合真实 artifact/ledger 明确 `targets` 顺序 `GroupA,GroupX,GroupC`、贡献 `GroupA=17,GroupC=5` 和缺失槽 `GroupX=0`，目标恢复为
+   `17,0,5`；系统没有替模型选择 complete-reference，也没有再次输出旧错值 `17,4,5`。
+4. 新 P1 `B1302-CUMULATIVEMATERIALLINEAGE1` 是数据终态失败的确定性系统 gap。终批调度器会读取历史 Result，但只收集顶层 artifact 的 source/alias。
+   `extract_records` 顶层如 `labels_data` 保存 staged absolute path，精确对应合同 `labels.csv` 的 task-relative typed 来源凭证位于子 artifact
+   `labels.csv#records.source_paths=[labels.csv]`。旧实现不递归，遂把三份已在前序批次实际消费的 CSV 全判为“终批未调度”，触发 6 次无效 repair，
+   即使 9 条规则、10 条决策、4 条贡献和 pass reconcile 都在仍以 failed 终止。
+5. B1302 根修为递归遍历成功保留下来的 typed artifact source lineage，并把这些精确路径纳入 workflow-cumulative scheduling。禁止用 basename、
+   后缀、文件名相似度或错误 prose 做路径猜测。`material_inventory` 顶层仍只提供候选发现权，其 children 即使镜像 source path 也不递归，避免“看见文件”
+   冒充“已读取内容”；literal custom script 的 helper-read census 与未读材料 fail-closed 门不变。
+6. 新回归钉住两臂：前序 `extract_records` 的子 artifact 精确 `source_paths` 可以满足后续 reconcile/assemble 终批累计覆盖；inventory 子 artifact 不得
+   获得消费资格。原 authoritative script consumption 测试与完整 `go test ./internal/dataworkflow ./internal/repl -count=1` 全绿。下一步从本提交
+   重建不可变二进制，仍恰好 2 路复放数据参考投影与一个高优先异构 case，验收数据零 repair 或有界收敛并最终只输出 `17,0,5`。
+
+状态：
+
+`r818=runner-pass-1/2,human-arkts-pass+data-system-gap`；
+`B1300=production-positive/core-closed`；
+`B1301=decision-handoff-production-positive/core-closed`；
+`B1302=implemented/dataworkflow+repl-full-suite-pass/pending-production-replay`；
+`required-material-coverage=workflow-cumulative+typed-lineage-recursive`；
+`material-inventory=discovery-only/no-consumption-authority`；
+`system-reference-scope-selection=forbidden`；
+`request/model/final-prose/error-prose-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1334 r815：B1298 纯形车道无回归；addition ref 疑点经原始参数否证（2026-08-21）
 
 1. 从已推送 `ed147975f` 的不可变二进制严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 206s、read
