@@ -475,9 +475,12 @@ func AnswerDiagramRelationRepairFailureHasCompleteLocator(failure AnswerDiagramR
 
 // MergeAnswerDiagramRelationRepairDeltaJSON atomically unions all structured
 // relation deltas from one validation cycle. It never derives a failure or an
-// allowed edge from Mermaid text. Any non-empty malformed/oversized sibling
-// makes the result empty so callers cannot install a misleading partial hard
-// lease while the visible rejection asks the model to repair a larger set.
+// allowed edge from Mermaid text. A participant-only coverage rejection may
+// legitimately publish additions without a failed prior edge: that is the
+// current generation's executable capability for one already-grounded typed
+// candidate. Any non-empty malformed/oversized sibling makes the result empty
+// so callers cannot install a misleading partial hard lease while the visible
+// rejection asks the model to repair a larger set.
 func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 	if len(rawDeltas) == 0 {
 		return ""
@@ -496,7 +499,8 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 		var delta AnswerDiagramRelationRepairDelta
 		if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
 			delta.Version != AnswerDiagramRelationRepairDeltaVersion ||
-			!delta.PreserveUnlistedEdges || len(delta.Failures) == 0 {
+			!delta.PreserveUnlistedEdges ||
+			(len(delta.Failures) == 0 && len(delta.AllowedAdditions) == 0) {
 			return ""
 		}
 		validDeltaCount++
@@ -546,7 +550,7 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 			}
 		}
 	}
-	if validDeltaCount == 0 || len(failureByKey) == 0 {
+	if validDeltaCount == 0 || (len(failureByKey) == 0 && len(additionByKey) == 0) {
 		return ""
 	}
 	failureKeys := make([]string, 0, len(failureByKey))
@@ -610,14 +614,17 @@ type AnswerDiagramRelationRepairScopeViolation struct {
 }
 
 // NewAnswerDiagramRelationRepairLease freezes the precise graph carrier that
-// the next patch is allowed to repair. Empty/invalid failures produce nil so a
-// malformed diagnostic can never create a hard gate.
+// the next patch is allowed to repair. A lease may contain failed prior edges,
+// allowed typed additions, or both. The additions-only shape is necessary when
+// participant coverage requires one already-grounded incident edge after the
+// previous relation-failure lease was successfully consumed. An entirely
+// empty or invalid capability set still produces nil.
 func NewAnswerDiagramRelationRepairLease(
 	base *AnswerDocumentV2,
 	failures []AnswerDiagramRelationRepairFailure,
 	allowedAdditions []AnswerDiagramRelationRepairCandidate,
 ) *AnswerDiagramRelationRepairLease {
-	if base == nil || len(failures) == 0 ||
+	if base == nil || (len(failures) == 0 && len(allowedAdditions) == 0) ||
 		len(failures) > AnswerDiagramRelationRepairDeltaMaxEntries ||
 		len(allowedAdditions) > AnswerDiagramRelationRepairDeltaMaxEntries {
 		return nil
@@ -645,7 +652,7 @@ func NewAnswerDiagramRelationRepairLease(
 		clean = append(clean, failure)
 		targetBlocks[failure.BlockID] = true
 	}
-	if len(clean) == 0 {
+	if len(clean) == 0 && len(allowedAdditions) == 0 {
 		return nil
 	}
 	sort.SliceStable(clean, func(i, j int) bool {
@@ -653,15 +660,29 @@ func NewAnswerDiagramRelationRepairLease(
 	})
 	allowed := make([]AnswerDiagramRelationRepairCandidate, 0, len(allowedAdditions))
 	allowedSeen := make(map[string]bool, len(allowedAdditions))
+	baseBlockCounts := make(map[string]int, len(base.Blocks))
+	for _, block := range base.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			baseBlockCounts[id]++
+		}
+	}
 	for _, candidate := range allowedAdditions {
 		candidate.AdditionRef = ""
 		candidate.BlockID = strings.TrimSpace(candidate.BlockID)
 		candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
 		candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
 		candidate.Source = strings.TrimSpace(candidate.Source)
-		if !targetBlocks[candidate.BlockID] || !candidate.RelationKind.IsValid() ||
+		if candidate.BlockID == "" || baseBlockCounts[candidate.BlockID] != 1 || !candidate.RelationKind.IsValid() ||
 			candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
 			return nil
+		}
+		// A failed carrier already owns its block. In the additions-only shape,
+		// the candidate itself is the precise block-scoped capability.
+		if len(clean) > 0 && !targetBlocks[candidate.BlockID] {
+			return nil
+		}
+		if len(clean) == 0 {
+			targetBlocks[candidate.BlockID] = true
 		}
 		key := answerDiagramRelationRepairCandidateKey(candidate)
 		if allowedSeen[key] {
@@ -774,7 +795,8 @@ func answerDiagramRelationRepairCandidateRef(base *AnswerDocumentV2, candidate A
 // reasoning, or final prose. Ordinary diagram evidence validation remains the
 // authority for whether a corrected relation is true.
 func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepairLease, merged *AnswerDocumentV2) []AnswerDiagramRelationRepairScopeViolation {
-	if lease == nil || lease.Version != 1 || merged == nil || len(lease.Failures) == 0 {
+	if lease == nil || lease.Version != 1 || merged == nil ||
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0) {
 		return nil
 	}
 	resultBlocks := make(map[string][]DiagramEdgeAnchor, len(merged.Blocks))

@@ -17635,12 +17635,20 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 	var delta answerDocDiagramRelationRepairDelta
 	if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
 		delta.Version != types.AnswerDiagramRelationRepairDeltaVersion ||
-		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
+		(len(delta.Failures) == 0 && len(delta.AllowedAdditions) == 0) ||
+		!delta.PreserveUnlistedEdges {
 		return answerDocDiagramRelationRepairDelta{}, nil, false
 	}
 	for _, failure := range delta.Failures {
 		if strings.TrimSpace(failure.BlockID) == "" || strings.TrimSpace(failure.Issue) == "" ||
 			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+			return answerDocDiagramRelationRepairDelta{}, nil, false
+		}
+	}
+	for _, candidate := range delta.AllowedAdditions {
+		if strings.TrimSpace(candidate.BlockID) == "" || !candidate.RelationKind.IsValid() ||
+			strings.TrimSpace(candidate.FromIdentity) == "" || strings.TrimSpace(candidate.ToIdentity) == "" ||
+			strings.TrimSpace(candidate.Source) == "" {
 			return answerDocDiagramRelationRepairDelta{}, nil, false
 		}
 	}
@@ -17663,7 +17671,7 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 // action, edge, label, relation, participant layout, or answer conclusion.
 func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
 	_, participantRaw, participantOK := parseAnswerDocDiagramParticipantRepairDelta(result)
-	_, relationRaw, relationOK := parseAnswerDocDiagramRelationRepairDelta(result)
+	relationDelta, relationRaw, relationOK := parseAnswerDocDiagramRelationRepairDelta(result)
 	if !participantOK || !relationOK {
 		return "", false
 	}
@@ -17675,9 +17683,18 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 	}
 	var b strings.Builder
 	b.WriteString(prefix)
-	b.WriteString(" by two independent local defects in the same required diagram: participant coverage and typed relation authority. ")
+	if len(relationDelta.Failures) == 0 {
+		b.WriteString(" by one local participant-coverage defect whose exact typed candidate now has a current-generation atomic addition capability. ")
+	} else {
+		b.WriteString(" by two independent local defects in the same required diagram: participant coverage and typed relation authority. ")
+	}
 	b.WriteString(action)
-	b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. Do not repair one family while carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. For relation_delta, choose only a listed failure action and copy `{failure_ref, action}`; supply a complete corrected edge and visible label only for replace. `allowed_additions` are optional permissions; select one with `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}`. If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and retain inherited sibling/citation content. You still own every action, visible node/edge, business wording, order, grouping, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n{\"participant_delta\":")
+	if len(relationDelta.Failures) == 0 {
+		b.WriteString(" and repair the participant delta with the matching current-generation allowed addition in ONE atomic patch. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; do not re-emit the whole diagram through `replace_blocks`. Follow only the exact participant mismatch/action/candidate row. Select the matching permission with `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}`; the ref supplies only hidden typed relation identity while you author both visible endpoints and the business label. Keep every unlisted edge because preserve_unlisted_edges=true, and retain inherited sibling/citation content. ")
+	} else {
+		b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. Do not repair one family while carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. For relation_delta, choose only a listed failure action and copy `{failure_ref, action}`; supply a complete corrected edge and visible label only for replace. `allowed_additions` are optional permissions; select one with `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}`. If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and retain inherited sibling/citation content. ")
+	}
+	b.WriteString("You still own every action, visible node/edge, business wording, order, grouping, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n{\"participant_delta\":")
 	b.WriteString(participantRaw)
 	b.WriteString(",\"relation_delta\":")
 	b.Write(relationRaw)
@@ -17720,8 +17737,8 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 // relation handbook. It never chooses an alternative or edits the graph; the
 // finalizer model keeps ownership of every visible edge and label.
 func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
-	_, visibleRaw, ok := parseAnswerDocDiagramRelationRepairDelta(result)
-	if !ok {
+	delta, visibleRaw, ok := parseAnswerDocDiagramRelationRepairDelta(result)
+	if !ok || len(delta.Failures) == 0 {
 		return "", false
 	}
 	prefix := "Your last `emit_answer_document` call was rejected"
@@ -17887,7 +17904,8 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 	var delta answerDocDiagramRelationRepairDelta
 	if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
 		delta.Version != types.AnswerDiagramRelationRepairDeltaVersion ||
-		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
+		(len(delta.Failures) == 0 && len(delta.AllowedAdditions) == 0) ||
+		!delta.PreserveUnlistedEdges {
 		return false
 	}
 	var base *types.AnswerDocumentV2

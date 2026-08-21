@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1339 r820/B1303：参与者候选要求添加却没有同代执行许可，形成 20 轮不可满足成文合同（2026-08-21）
+
+1. 从已推送 `31354c945` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `patch_python_typo`，runner 1/2 PASS：write 71s，read 871s。write 人工判 pass：ChangePlan 只把 `main.py:20` 的
+   `retrun` 改为 `return`，精确 `kind=patch + old_text`，状态 `pending_approval`，没有 apply 或主仓写入；Python import/greet
+   验证探针与三项验收一致。
+2. read 人工判系统失败，而非模型波动。第 3 轮原子 patch 已成功删除未证关系并加入三条 typed stage precedence；该旧 relation lease
+   随成功事务正确消费。下一次 pre-emit 只剩 `BusContext / available_typed_incident_edge_not_rendered`，并从精确源码行发布
+   `o.busCtx -> ctxbuilder.BuildAgentContext / argument_flow` candidate，要求模型复用该候选画一条参与者入射边。
+3. 新 P0 `B1303-PARTICIPANTADDITIONLEASE1` 是确定性能力合同自冲突：participant-only reject 没有旧边失败，因此 producer 不生成
+   relation-failure delta，consumer 也不安装新 relation lease；但参与者修补教学仍要求使用 typed candidate。模型第 4 轮提交历史
+   `ra1-9f678...`、后续提交历史 `ra1-a7aa...`，执行器均正确判定“不在 live lease”。于是系统一面强制添加、一面不给任何合法添加能力，
+   连续 20 次 finalizer reject 后只降级恢复上一版草稿；该草稿明确未通过 answer_document，并仍含未完成 typed 校验的图关系，不能视为成功答案。
+4. B1303 根修为同源、同代、短生命周期的 additions-only lease。参与者 coverage producer 从生成可见 candidate guidance 的同一个 typed
+   candidate value 同时构造 machine-readable `failures=[] + allowed_additions=[...]`；仅当 candidate 完整、目标是唯一精确现有 diagram carrier
+   时发射。未绑定目标且存在多个图、缺失/重复 carrier、空 candidate 或畸形 tuple 均不猜、不铸 ref，保持原诚实边界车道。
+5. full/patch 两条 retry 路由都把 producer candidate 绑定当前 patch base 后重签，模型看到的 `addition_ref` 与执行器 live lease 字节一致。
+   addition-only 教学不再要求不存在的 `failure_ref`；模型仍自行选择是否使用候选，并自行创作可见 from/to node、业务标签、排序、分组和布局。
+   ref 只恢复已选 candidate 的 block id、relation kind、canonical from/to identities，不生成可见边或结论。
+6. 安全边界没有放宽：旧 ref 继续 stale fail-closed；已有所有 edge anchor 必须保持；未列第二条关系、跨 block、重复 ref、缺失 carrier 与整图
+   replace 继续拒绝；普通 mixed failure+addition lease 的 target-block 限制保持。lease 在模型选择的 addition 通过局部拓扑校验后立即消费，后续独立
+   participant/citation/答案合同必须建立自己的新代次，不能继承旧权限。
+7. 回归覆盖 participant producer 同源 tuple、addition-only merge、当前 ref 安装、full/patch 联合提示、最小 JSON 原子执行并消费、未列关系拒绝、
+   多图歧义不发能力、空/缺失 carrier 拒绝，以及既有 mixed relation failure 车道。`go test ./internal/types ./internal/tool ./internal/agent -count=1`
+   完整套件全绿。下一步从本提交重建不可变二进制，仍严格并发恰好 2 路复放 read 图表与一个异构高优先 case，验收生产中不再出现
+   “candidate 可见但 ref 不可执行”，并继续人工审计答案关系表达而不只看 runner verdict。
+8. r820 次级过程观察：read 有 2 个 explorer dispatch、27 iteration、16 次 read、65% context，第二 dispatch 一度引用测试文件后才回到生产源码。
+   先作为异构重复观察，不与 B1303 混修；禁止据单例增加固定轮数、耗时、4ms/4m 或上下文比例硬截断，也不扫描模型/答案原文做硬门。
+
+状态：
+
+`r820=runner-pass-1/2,human-write-pass+read-system-fail`；
+`B1303=implemented/related-full-suite-pass/pending-production-replay`；
+`participant-only-candidate=current-generation-addition-ref`；
+`empty/ambiguous-target=no-capability`；`stale-ref=fail-closed`；
+`system-edge/action/visible-endpoint/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1336 r817/B1300：跨行装饰器清单合同自冲突；数据引用投影范围被默认收口（2026-08-21）
 
 1. 从已推送 `7ba2ac614` 构建不可变二进制，严格并发恰好 2 路执行 `arkts_repomap` 与

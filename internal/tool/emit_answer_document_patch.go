@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -271,7 +272,8 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 }
 
 func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
-	if lease == nil || lease.Version != 1 || len(lease.Failures) == 0 {
+	if lease == nil || lease.Version != 1 ||
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0) {
 		return nil
 	}
 	diagramBlocks := make(map[string]bool, len(lease.Blocks))
@@ -286,8 +288,8 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 		}
 		diagramBlocks[id] = block.Kind == types.BlockDiagram
 	}
-	seen := make(map[string]bool, len(lease.Failures))
-	out := make([]string, 0, len(lease.Failures))
+	seen := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions))
+	out := make([]string, 0, len(lease.Failures)+len(lease.AllowedAdditions))
 	for _, failure := range lease.Failures {
 		id := strings.TrimSpace(failure.BlockID)
 		if id == "" || strings.TrimSpace(failure.FailureRef) == "" ||
@@ -308,6 +310,23 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 			out = append(out, id)
 		}
 	}
+	for _, candidate := range lease.AllowedAdditions {
+		id := strings.TrimSpace(candidate.BlockID)
+		if id == "" || strings.TrimSpace(candidate.AdditionRef) == "" ||
+			!candidate.RelationKind.IsValid() || strings.TrimSpace(candidate.FromIdentity) == "" ||
+			strings.TrimSpace(candidate.ToIdentity) == "" || strings.TrimSpace(candidate.Source) == "" {
+			// A malformed lease must not narrow a hard tool surface.
+			return nil
+		}
+		if ambiguousBlocks[id] || !diagramBlocks[id] {
+			continue
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 

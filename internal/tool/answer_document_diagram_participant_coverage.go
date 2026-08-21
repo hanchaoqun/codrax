@@ -112,6 +112,10 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		doc, pctx.ctx.AnalysisIR.RequestModel, mismatches, evidence,
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view), actions, endpointConflicts,
 	)
+	participantAdditionDelta := diagramParticipantRepairAdditionDeltaJSON(
+		doc, pctx.ctx, mismatches, evidence,
+		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
+	)
 	// This precheck runs only after the document has already parsed into the
 	// block-level ParticipantBoundaries field. Do not prepend a generic JSON
 	// placement warning here: doing so falsely tells a model with valid JSON to
@@ -135,7 +139,164 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		ExpectedShape:                     expected,
 		Reason:                            "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
 		DiagramParticipantRepairDeltaJSON: compactDelta,
+		DiagramRelationRepairDeltaJSON:    participantAdditionDelta,
 	}}
+}
+
+// diagramParticipantRepairAdditionDeltaJSON gives a participant-only retry an
+// executable, current-generation addition capability for the same precise
+// typed candidates named by its coverage delta. It does not choose a candidate
+// or author visible endpoints/wording. When the target diagram is ambiguous or
+// no exact candidate exists, it emits no lease metadata and the repair stays
+// on its honest boundary-only lane.
+func diagramParticipantRepairAdditionDeltaJSON(
+	doc *types.AnswerDocumentV2,
+	ctx *types.BusContext,
+	mismatches []DiagramParticipantCoverageMismatch,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) string {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || len(mismatches) == 0 {
+		return ""
+	}
+	blockIDs := diagramParticipantRepairAdditionTargetBlockIDs(doc, mismatches)
+	if len(blockIDs) == 0 {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.DiagramHint == nil {
+		return ""
+	}
+
+	failed := make(map[string]bool)
+	componentSplit := false
+	for _, mismatch := range mismatches {
+		switch mismatch.Issue {
+		case DiagramParticipantCoverageTypedEdgeMissing:
+			if participant := strings.ToLower(strings.TrimSpace(mismatch.Participant)); participant != "" {
+				failed[participant] = true
+			}
+		case DiagramParticipantCoverageComponentSplit:
+			componentSplit = true
+		}
+	}
+	var typed []diagramParticipantTypedIncidentCandidate
+	if componentSplit {
+		typed = diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 2)
+	} else if len(failed) > 0 {
+		obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
+		relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
+		for i, obligation := range obligations {
+			if !failed[strings.ToLower(strings.TrimSpace(obligation.Identity))] {
+				continue
+			}
+			typed = append(typed, diagramParticipantTypedIncidentCandidateValuesWithScope(
+				rm, obligation, evidence, stagePrecedence, 1,
+				obligations, allSurfaces, i, relationScope,
+			)...)
+		}
+	}
+	if len(typed) == 0 {
+		return ""
+	}
+
+	allowed := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(typed)*len(blockIDs))
+	seen := make(map[string]bool)
+	for _, candidate := range typed {
+		if !candidate.relation.IsValid() || strings.TrimSpace(candidate.from) == "" ||
+			strings.TrimSpace(candidate.to) == "" || strings.TrimSpace(candidate.location) == "" {
+			continue
+		}
+		for _, blockID := range blockIDs {
+			row := types.AnswerDiagramRelationRepairCandidate{
+				BlockID: blockID, RelationKind: candidate.relation,
+				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
+				Source: strings.TrimSpace(candidate.location),
+			}
+			key := strings.Join([]string{row.BlockID, string(row.RelationKind), row.FromIdentity, row.ToIdentity}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			allowed = append(allowed, row)
+		}
+	}
+	if len(allowed) == 0 {
+		return ""
+	}
+	if ctx.Mutable != nil {
+		receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+		receipts = append(receipts, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
+		allowed = diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, 8)
+	}
+	raw, err := json.Marshal(types.AnswerDiagramRelationRepairDelta{
+		Version:  types.AnswerDiagramRelationRepairDeltaVersion,
+		Failures: []types.AnswerDiagramRelationRepairFailure{}, PreserveUnlistedEdges: true,
+		AllowedAdditions: allowed,
+	})
+	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return ""
+	}
+	return string(raw)
+}
+
+func diagramParticipantRepairAdditionTargetBlockIDs(
+	doc *types.AnswerDocumentV2,
+	mismatches []DiagramParticipantCoverageMismatch,
+) []string {
+	if doc == nil {
+		return nil
+	}
+	type blockState struct {
+		count   int
+		diagram bool
+	}
+	states := make(map[string]blockState)
+	allDiagramIDs := make([]string, 0)
+	for _, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		state := states[id]
+		state.count++
+		state.diagram = state.diagram || (block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "")
+		states[id] = state
+		if block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "" {
+			allDiagramIDs = append(allDiagramIDs, id)
+		}
+	}
+	targeted := make(map[string]bool)
+	hasUnscoped := false
+	for _, mismatch := range mismatches {
+		switch mismatch.Issue {
+		case DiagramParticipantCoverageTypedEdgeMissing, DiagramParticipantCoverageComponentSplit:
+		default:
+			continue
+		}
+		id := strings.TrimSpace(mismatch.BlockID)
+		if id == "" {
+			hasUnscoped = true
+			continue
+		}
+		targeted[id] = true
+	}
+	if hasUnscoped {
+		if len(allDiagramIDs) != 1 {
+			return nil
+		}
+		targeted[allDiagramIDs[0]] = true
+	}
+	out := make([]string, 0, len(targeted))
+	for id := range targeted {
+		state := states[id]
+		if state.count != 1 || !state.diagram {
+			return nil
+		}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func diagramParticipantRepairDeltaJSON(

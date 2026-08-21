@@ -1511,6 +1511,60 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		t.Fatalf("patch delta must not repeat the full participant handbook: delta=%d full=%d raw=%s",
 			len(raw), len(hints[0].ExpectedShape), raw)
 	}
+	relationRaw := repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	var relationDelta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(relationRaw), &relationDelta); err != nil {
+		t.Fatalf("participant-only retry must publish a machine-readable addition capability: %v raw=%s", err, relationRaw)
+	}
+	if len(relationDelta.Failures) != 0 || !relationDelta.PreserveUnlistedEdges || len(relationDelta.AllowedAdditions) != 1 {
+		t.Fatalf("participant-only retry must publish exactly its typed candidate without inventing a failed edge: %+v", relationDelta)
+	}
+	addition := relationDelta.AllowedAdditions[0]
+	if addition.AdditionRef != "" || addition.BlockID != "flow" || addition.RelationKind != types.DiagramRelDataFlow ||
+		addition.FromIdentity != "output.EvidenceItems" || addition.ToIdentity != "o.busCtx.EvidenceItems" || addition.Source != "src/pipeline.go:20" {
+		t.Fatalf("participant addition capability drifted from the same typed candidate provider: %+v", addition)
+	}
+}
+
+func TestParticipantOnlyAdditionCapabilityFailsOpenWhenDiagramTargetIsAmbiguous(t *testing.T) {
+	rm, view, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	view.DiagramParticipantObligations = append([]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...)
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n B[\"BusContext\"]"
+	doc.Blocks[0].EdgeAnchors = nil
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "flow-2", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n X[Other]"},
+	})
+	operation := types.EvidenceItem{
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship,
+		Subject: "o.busCtx.EvidenceItems", Predicate: "assigns", Object: "output.EvidenceItems",
+		Source: "src/pipeline.go", LineStart: 20, AnchorKind: types.AnchorAssignment,
+		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	mut := types.NewMutableState("ambiguous participant addition target")
+	mut.AppendEvidence([]types.EvidenceItem{operation})
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut}
+	raw := diagramParticipantRepairAdditionDeltaJSON(doc, ctx, []DiagramParticipantCoverageMismatch{{
+		Participant: "BusContext", Issue: DiagramParticipantCoverageTypedEdgeMissing,
+	}}, []types.EvidenceItem{operation}, nil)
+	if raw != "" {
+		t.Fatalf("ambiguous diagram target must not mint an executable addition ref: %s", raw)
+	}
+	oneDiagram := *doc
+	oneDiagram.Blocks = append([]types.AnswerBlock(nil), doc.Blocks[:1]...)
+	raw = diagramParticipantRepairAdditionDeltaJSON(&oneDiagram, ctx, []DiagramParticipantCoverageMismatch{{
+		Participant: "BusContext", Issue: DiagramParticipantCoverageIdentityMissing,
+	}}, []types.EvidenceItem{operation}, nil)
+	if raw != "" {
+		t.Fatalf("identity-only repair may need a node/group edit and must not be narrowed to add-only: %s", raw)
+	}
 }
 
 func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternatives(t *testing.T) {

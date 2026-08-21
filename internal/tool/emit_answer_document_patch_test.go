@@ -262,6 +262,48 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 	}
 }
 
+func TestEmitAnswerDocumentPatch_ParticipantOnlyAdditionRefExecutesAndConsumes(t *testing.T) {
+	mut := types.NewMutableState("participant-only addition")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n BusContext[BusContext]",
+		}},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/extract_work.go:15",
+	}})
+	if lease == nil || len(lease.Failures) != 0 || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("expected one additions-only live lease: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{Mutable: mut}
+	params := fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"action":"add","addition_ref":%q,
+			"edge":{"from_node":"BusContext","to_node":"BuildAgentContext","visible_label":"作为参数传递"}}]
+	}`, lease.AllowedAdditions[0].AdditionRef)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+	if err != nil || !res.Success {
+		t.Fatalf("same-generation participant candidate must be executable: err=%v res=%+v", err, res)
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
+		t.Fatalf("successful additions-only generation must be consumed before later independent checks: %+v", got)
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].EdgeAnchors) != 1 {
+		t.Fatalf("model-authored visible edge and typed hidden tuple were not persisted: %+v", doc)
+	}
+	anchor := doc.Blocks[1].EdgeAnchors[0]
+	if anchor.FromNode != "BusContext" || anchor.ToNode != "BuildAgentContext" ||
+		anchor.FromIdentity != "o.busCtx" || anchor.ToIdentity != "ctxbuilder.BuildAgentContext" ||
+		anchor.RelationKind != types.DiagramRelArgumentFlow || anchor.VisibleLabel != "作为参数传递" {
+		t.Fatalf("addition ref must stamp only the selected hidden tuple and preserve model wording: %+v", anchor)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_LiveFailureRefQuarantinesLegacySelectorMirrors(t *testing.T) {
 	mut := types.NewMutableState("relation repair ref-first")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{

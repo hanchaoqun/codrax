@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -148,6 +149,59 @@ func TestAnswerDiagramRelationRepairLeaseAdditionRefsAreStableAndBaseBound(t *te
 	third := NewAnswerDiagramRelationRepairLease(&changed, failures, candidates)
 	if third == nil || third.AllowedAdditions[0].AdditionRef == ref {
 		t.Fatalf("a changed typed base must invalidate the prior addition ref: old=%q new=%+v", ref, third)
+	}
+}
+
+func TestAnswerDiagramRelationRepairLeaseSupportsAdditionOnlyGeneration(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramFlow, Language: "mermaid", Body: "flowchart LR\n B[BusContext]"},
+	}}}
+	candidate := AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: DiagramRelArgumentFlow,
+		FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/extract_work.go:15",
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, nil, []AnswerDiagramRelationRepairCandidate{candidate})
+	if lease == nil || len(lease.Failures) != 0 || len(lease.AllowedAdditions) != 1 ||
+		!strings.HasPrefix(lease.AllowedAdditions[0].AdditionRef, "ra1-") {
+		t.Fatalf("addition-only participant generation must mint one live capability: %+v", lease)
+	}
+	merged := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramFlow, Language: "mermaid", Body: "flowchart LR\n B[BusContext]\n B --> C[Build context]"},
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "B", ToNode: "C", FromIdentity: candidate.FromIdentity, ToIdentity: candidate.ToIdentity,
+			RelationKind: candidate.RelationKind, VisibleLabel: "作为参数传递",
+		}},
+	}}}
+	if got := ValidateAnswerDiagramRelationRepairLease(lease, merged); len(got) != 0 {
+		t.Fatalf("the selected current-generation typed addition must pass: %+v", got)
+	}
+
+	unlisted := *merged
+	unlisted.Blocks = append([]AnswerBlock(nil), merged.Blocks...)
+	unlisted.Blocks[0].EdgeAnchors = append(unlisted.Blocks[0].EdgeAnchors, DiagramEdgeAnchor{
+		FromNode: "X", ToNode: "Y", FromIdentity: "Unknown.X", ToIdentity: "Unknown.Y", RelationKind: DiagramRelCall,
+	})
+	if got := ValidateAnswerDiagramRelationRepairLease(lease, &unlisted); len(got) != 1 || got[0].Issue != "unlisted_relation_added" {
+		t.Fatalf("addition-only lease must still reject every unlisted relation: %+v", got)
+	}
+	if got := NewAnswerDiagramRelationRepairLease(base, nil, nil); got != nil {
+		t.Fatalf("an empty capability set must never create a hard lease: %+v", got)
+	}
+	missingCarrier := candidate
+	missingCarrier.BlockID = "not-in-base"
+	if got := NewAnswerDiagramRelationRepairLease(base, nil, []AnswerDiagramRelationRepairCandidate{missingCarrier}); got != nil {
+		t.Fatalf("an addition capability must bind one exact existing carrier: %+v", got)
+	}
+}
+
+func TestMergeAnswerDiagramRelationRepairDeltaJSONKeepsAdditionOnlyCapability(t *testing.T) {
+	raw := `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"flow","relation_kind":"argument_flow","from_identity":"o.busCtx","to_identity":"ctxbuilder.BuildAgentContext","source":"internal/orchestrator/extract_work.go:15"}]}`
+	merged := MergeAnswerDiagramRelationRepairDeltaJSON([]string{raw})
+	var delta AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(merged), &delta); err != nil || len(delta.Failures) != 0 || len(delta.AllowedAdditions) != 1 {
+		t.Fatalf("addition-only delta must survive the typed merge: err=%v delta=%+v raw=%s", err, delta, merged)
 	}
 }
 

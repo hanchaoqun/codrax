@@ -1064,6 +1064,55 @@ func TestRequiredDiagramMixedParticipantAndRelationDeltasStayInOneRetryGeneratio
 	}
 }
 
+func TestRequiredDiagramParticipantOnlyCandidateGetsLiveSameGenerationAdditionRef(t *testing.T) {
+	const participantDelta = `{"version":1,"mismatches":[{"block_id":"flow","participant":"BusContext","issue":"available_typed_incident_edge_not_rendered"}],"actions":"repair_action[BusContext]=reuse_one_existing_typed_candidate","candidates":"typed_candidate[BusContext][1]={relation_kind:\"argument_flow\",from_identity:\"o.busCtx\",to_identity:\"ctxbuilder.BuildAgentContext\"}"}`
+	const relationDelta = `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"flow","relation_kind":"argument_flow","from_identity":"o.busCtx","to_identity":"ctxbuilder.BuildAgentContext","source":"internal/orchestrator/extract_work.go:15"}]}`
+
+	for _, toolName := range []string{"emit_answer_document", "emit_answer_document_patch"} {
+		t.Run(toolName, func(t *testing.T) {
+			mut := types.NewMutableState("participant-only current-generation addition")
+			mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+				{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+				{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n BusContext[BusContext]",
+				}},
+			}})
+			ctx := &types.AgentContext{Mutable: mut}
+			result := &types.ToolResult{ToolName: toolName, Success: false, Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: participantDelta,
+					types.ToolRepairMetaDiagramRelationRepairDeltaJSON:    relationDelta,
+				},
+			}}
+			e := &answerDocumentEvaluator{diagramRequired: true, mu: mut}
+			var signal LoopSignal
+			if toolName == "emit_answer_document" {
+				signal = e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+			} else {
+				signal = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+			}
+			lease := mut.AnswerDiagramRelationRepairLease()
+			if !signal.HintRequested || !strings.Contains(signal.HintKey, "joint") || lease == nil ||
+				len(lease.Failures) != 0 || len(lease.AllowedAdditions) != 1 {
+				t.Fatalf("participant-only candidate must install one executable joint retry generation: signal=%+v lease=%+v", signal, lease)
+			}
+			liveRef := lease.AllowedAdditions[0].AdditionRef
+			if liveRef == "" || !strings.Contains(signal.Hint, `"addition_ref":"`+liveRef+`"`) {
+				t.Fatalf("hint must publish the exact ref owned by the executor's live lease: ref=%q hint=%s", liveRef, signal.Hint)
+			}
+			for _, want := range []string{"current-generation atomic addition capability", "you author both visible endpoints and the business label", "preserve_unlisted_edges=true"} {
+				if !strings.Contains(signal.Hint, want) {
+					t.Fatalf("addition-only retry missing %q: %s", want, signal.Hint)
+				}
+			}
+			if strings.Contains(signal.Hint, "choose only a listed failure action") {
+				t.Fatalf("addition-only retry must not teach a nonexistent failure_ref lane: %s", signal.Hint)
+			}
+		})
+	}
+}
+
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
 	const staleProducerRef = "rf1-000000000000000000000000"
 	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
@@ -1115,6 +1164,16 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
 	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
+	ctx.Mutable.SetPendingAnswerDocumentPatchBase(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "s1", Kind: types.BlockSummary, Text: "x"},
+		{ID: "pipeline-diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n BC --> E"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "BC", ToNode: "E", FromIdentity: "BusContext", ToIdentity: "Explorer",
+				RelationKind: types.DiagramRelDataFlow,
+			}},
+		},
+	}})
 	patchEvaluator := &answerDocumentEvaluator{diagramRequired: true}
 	patchResult := result("emit_answer_document_patch")
 	patchSignal := patchEvaluator.emitPatchRejectFullRewriteSignal(
