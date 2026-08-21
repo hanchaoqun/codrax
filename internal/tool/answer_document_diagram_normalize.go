@@ -1006,29 +1006,64 @@ func diagramUniqueVisibleAliasPair(doc *types.AnswerDocumentV2, rawFrom, rawTo s
 }
 
 func diagramNodeAliasIndex(body string) map[string]string {
-	values := map[string]string{}
-	ambiguous := map[string]bool{}
-	add := func(surface, ident string) {
+	// Exact ids are structural identities. Collect them before display labels,
+	// including ids that are introduced only by a visible edge. Otherwise a
+	// prior declaration such as `participant Ex as Explorer` can steal the
+	// exact id `explorer` from a later model-authored `explorer->>extractor`
+	// edge, rewriting only its anchor to Ex and deterministically manufacturing
+	// a body/metadata mismatch.
+	exact := map[string]string{}
+	exactAmbiguous := map[string]bool{}
+	addExact := func(ident string) {
+		key := diagramSurfaceKey(ident)
+		ident = strings.TrimSpace(ident)
+		if key == "" || ident == "" || exactAmbiguous[key] {
+			return
+		}
+		if existing := exact[key]; existing != "" && existing != ident {
+			delete(exact, key)
+			exactAmbiguous[key] = true
+			return
+		}
+		exact[key] = ident
+	}
+	for _, line := range strings.Split(body, "\n") {
+		for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
+			addExact(decl.Ident)
+		}
+		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+			addExact(decl.Ident)
+		}
+	}
+	for _, edge := range mermaidcompat.ParseEdges(body) {
+		addExact(edge.From)
+		addExact(edge.To)
+	}
+
+	values := make(map[string]string, len(exact))
+	for key, ident := range exact {
+		values[key] = ident
+	}
+	aliasAmbiguous := map[string]bool{}
+	addAlias := func(surface, ident string) {
 		key := diagramSurfaceKey(surface)
 		ident = strings.TrimSpace(ident)
-		if key == "" || ident == "" || ambiguous[key] {
+		if key == "" || ident == "" || exact[key] != "" || exactAmbiguous[key] || aliasAmbiguous[key] {
 			return
 		}
 		if existing := values[key]; existing != "" && existing != ident {
 			delete(values, key)
-			ambiguous[key] = true
+			aliasAmbiguous[key] = true
 			return
 		}
 		values[key] = ident
 	}
 	for _, line := range strings.Split(body, "\n") {
 		for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
-			add(decl.Ident, decl.Ident)
-			add(decl.Label, decl.Ident)
+			addAlias(decl.Label, decl.Ident)
 		}
 		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
-			add(decl.Ident, decl.Ident)
-			add(decl.Label, decl.Ident)
+			addAlias(decl.Label, decl.Ident)
 		}
 	}
 	return values

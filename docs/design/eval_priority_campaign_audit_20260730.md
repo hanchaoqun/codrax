@@ -57291,6 +57291,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1317 B1287：Mermaid exact node id 优先于显示 label alias（2026-08-21）
+
+1. `B1287-EXACTNODEIDBEFORELABELALIAS1/P0` 已按结构身份层级施工。`diagramNodeAliasIndex` 现在分两遍构造：第一遍从 sequence participant、
+   flow/node declaration 以及解析后的每一条可见边端点收集 exact node ids；第二遍才登记唯一 display label alias。相同 surface 若既是正文 exact id，
+   又是另一节点的 label，exact id 胜出，禁止 label normalizer 把模型新增边的一端改写到旧 participant。
+2. 该规则同时覆盖显式声明与“只在边上首次出现”的隐式节点。r805 的 `Ex as Explorer` 与正文 `explorer->>extractor` 形中，anchor 的
+   `explorer/extractor` 现在保持不变；普通 `A[Caller] -> B[Callee]` 仍可把唯一 reader label 解析到 A/B。两个节点复用同一 label 时继续不解析，
+   exact A/B 本身不受歧义 label 影响。
+3. 修复只读取 Mermaid parser 已提取的 declaration 与 edge endpoint 结构；不读取 message/arrow label 的业务词义，不读取用户请求、thinking、模型 prose、
+   最终答案或错误文本，也不生成、删除、反转、重连或改写任何可见边。`normalizeDiagramEdgeAnchorMetadata` 仍只在唯一结构别名成立时修改隐藏 node ref，
+   Mermaid body 保持字节不变。
+4. 新回归覆盖 sequence 与 flow 两类 exact-id/display-label 冲突、普通唯一 label 映射和歧义 label fail-closed；完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一步从 B1286+B1287 后的不可变提交构建二进制，仍恰好 2 路复放 read+显式窗 Trace，
+   重点验收 relation delta 是否一轮齐全、alias normalizer 不再制造 body/anchor 双向失败、read 不再恢复旧稿，以及 Trace 所有既有能力不退化。
+
+状态：
+
+`B1287=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`node-resolution-priority=exact-declaration/body-edge-id>unique-display-label`；
+`ambiguous-label=fail-closed/exact-ids-preserved`；
+`mermaid-body=byte-preserved`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-text-as-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1315 r805：B1285 仅部分转正；陈旧 ref 与 exact-node/label alias 再次击穿局部修补（2026-08-21）
 
 1. 从已推送 `6a3b8f8fa` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace。Trace PASS（221s）；read FAIL

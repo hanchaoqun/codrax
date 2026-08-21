@@ -47,6 +47,67 @@ func TestNormalizeDiagramEdgeAnchorMetadata_NormalizesOnlyTypedMetadata(t *testi
 	}
 }
 
+func TestNormalizeDiagramEdgeAnchorMetadata_ExactBodyNodeIDWinsDisplayLabelAlias(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind types.DiagramKind
+		body string
+	}{
+		{
+			name: "sequence",
+			kind: types.DiagramSequence,
+			body: strings.Join([]string{
+				"sequenceDiagram",
+				"  participant Ex as Explorer",
+				"  participant Et as Extractor",
+				"  explorer->>extractor: model-authored stage handoff",
+			}, "\n"),
+		},
+		{
+			name: "flow",
+			kind: types.DiagramFlow,
+			body: strings.Join([]string{
+				"flowchart TD",
+				`  Ex["Explorer"]`,
+				`  Et["Extractor"]`,
+				"  explorer --> extractor",
+			}, "\n"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "d1", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: tc.kind, Language: "mermaid", Body: tc.body},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "explorer", ToNode: "extractor",
+					RelationKind: types.DiagramRelPrecedence, ClaimForm: types.ClaimPrecedenceRole,
+				}},
+			}}}
+			if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed != 0 {
+				t.Fatalf("fixed=%d, exact body node ids must not be rewritten through old display labels: %+v", fixed, doc.Blocks[0].EdgeAnchors)
+			}
+			anchor := doc.Blocks[0].EdgeAnchors[0]
+			if anchor.FromNode != "explorer" || anchor.ToNode != "extractor" || doc.Blocks[0].Diagram.Body != tc.body {
+				t.Fatalf("exact body identity or model-authored diagram changed: anchor=%+v body=%q", anchor, doc.Blocks[0].Diagram.Body)
+			}
+		})
+	}
+}
+
+func TestDiagramNodeAliasIndex_AmbiguousDisplayLabelFailsClosed(t *testing.T) {
+	body := strings.Join([]string{
+		"flowchart TD",
+		`  A["Worker"] --> B["Worker"]`,
+	}, "\n")
+	aliases := diagramNodeAliasIndex(body)
+	if got := aliases[diagramSurfaceKey("Worker")]; got != "" {
+		t.Fatalf("ambiguous display label must not select an exact node id: %q", got)
+	}
+	if aliases[diagramSurfaceKey("A")] != "A" || aliases[diagramSurfaceKey("B")] != "B" {
+		t.Fatalf("ambiguous labels must not erase exact node ids: %+v", aliases)
+	}
+}
+
 func TestNormalizeDiagramEdgeAnchorMetadata_RepairsUniqueOneSidedCopiedIdentityNodeRef(t *testing.T) {
 	body := strings.Join([]string{
 		"flowchart TD",
