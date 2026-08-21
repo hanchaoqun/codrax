@@ -351,6 +351,47 @@ func TestEmitAnswerDocumentPatch_ParticipantOnlyAdditionRefExecutesAndConsumes(t
 	}
 }
 
+func TestEmitAnswerDocumentPatch_PairedAttachExecutesAndConsumesWithoutDuplicateBody(t *testing.T) {
+	mut := types.NewMutableState("paired existing-body attach")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A -->|旧文案| B\n",
+		}},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B",
+		FromIdentity: "pkg.A.run", ToIdentity: "pkg.B.accept", BodyOccurrence: 1,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "pkg.A.run", ToIdentity: "pkg.B.accept", Source: "internal/source.go:10",
+	}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 ||
+		!lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("expected one paired live attach: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"action":"attach","failure_ref":%q,"addition_ref":%q,
+			"edge":{"from_node":"A","to_node":"B","visible_label":"把输入交给目标处理"}}]
+	}`, lease.Failures[0].FailureRef, lease.AllowedAdditions[0].AdditionRef)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(params))
+	if err != nil || !res.Success {
+		t.Fatalf("same-generation paired attach must execute: err=%v res=%+v", err, res)
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
+		t.Fatalf("successful paired generation must be consumed: %+v", got)
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].EdgeAnchors) != 1 ||
+		strings.Count(doc.Blocks[1].Diagram.Body, "A -->") != 1 ||
+		!strings.Contains(doc.Blocks[1].Diagram.Body, "A -->|把输入交给目标处理| B") {
+		t.Fatalf("paired attach duplicated or lost the visible relation: %+v", doc)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_LiveFailureRefQuarantinesLegacySelectorMirrors(t *testing.T) {
 	mut := types.NewMutableState("relation repair ref-first")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{

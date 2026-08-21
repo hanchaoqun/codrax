@@ -57291,6 +57291,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1349 B1312：已有可见边与 typed 候选同代原子绑定，退役重复 add / 不可执行 replace（2026-08-21）
+
+1. r828 日志与代码交叉确认 B1312 是确定性 schema/executor 自冲突，不是模型波动。`missing_relation_anchor` 的
+   `visible_body_edge` failure 无有效 `relation_kind` 时仍发布 `replace`；live 窄 schema 又只允许模型填写
+   `from_node/to_node/visible_label`，隐藏 relation/identity，执行器却在改正文前要求完整 anchor。与此同时同一轮的精确 typed candidate
+   只能通过 `addition_ref + action=add` 选择，且 `failure_ref` 与 `addition_ref` 被无条件判互斥。模型因此无法表达“把这个候选绑定到这条已有边”，
+   只能撞不可执行 replace、另加重复边、整块替换或跨代删后重建。
+2. lease 能力现按机械可执行性铸造：visible-body failure 始终可 remove；只有 failure 自身携带有效 relation 与完整双端 identity 时才发布
+   replace，并由同一 failure ref 恢复 schema 故意隐藏的 typed tuple。无 relation 的 body 不再得到虚假的 replace。普通 unsupported relation、
+   stale anchor、label-only 与 prior-anchor 车道的证据门和既有动作不放宽；合并后仍须通过普通 typed relation/evidence validators。
+3. 新增同代 `action=attach`，但只在一个 exact visible body failure 与一个 typed allowed-addition candidate 同 block、同方向、完整 identity
+   且经共享 closed identity-equivalence 判据匹配时发布。动态 schema 为每个合法组合生成精确
+   `{failure_ref,addition_ref,action:"attach",edge:{from_node,to_node,visible_label}}` 分支；模型明确选择两个 ref 并自写可见端点与业务文案。
+   系统只把所选 candidate 的隐藏 relation/identity 绑定到所选 occurrence，不选择关系、方向、节点、标签、布局或结论。
+4. 已有匹配 body 时，同一个 candidate 不再同时发布 duplicate-producing `add` 分支；模型可选择 attach 或 remove，但不能把同一候选复制成第二条正文边。
+   attach 在原 occurrence 上做一次 model-authored replace-visible + append-anchor，保留所有 sibling 行/锚；failure/addition ref 各只能消费一次，反向、异 block、
+   不相干 identity、缺 occurrence、历史 ref 或已有 anchor 均 fail-closed。sequence 同端点多消息仍按精确 body occurrence 分别租约，不做 pair 级全局去重。
+5. JSON/重试教学同步改为“当前动态 schema 分支是唯一能力权威”，不再静态宣称 failure/addition 永远二选一，也不再手列一套可能漂移的 action 合同。
+   participant+relation joint hint、relation-only hint、canonical patch teaching 和 tool DescriptionFor 使用同一分支语义：只有 schema 真发布 attach 才允许双 ref；
+   没有 branch 时不得猜或组合。该修复只读 typed lease、candidate、parsed occurrence，不扫描用户输入、thinking、final prose 或 Mermaid message 词义。
+6. 回归覆盖：remove+attach/no replace 的 capability roster；反向 identity 负臂；动态 schema 只发 remove+attach 且抑制 add；执行器保持一条 body、保留 sibling、
+   绑定所选 typed tuple；错误 candidate 拒绝；完整 `EmitAnswerDocumentPatch` JSON 接线成功并消费 generation；原 addition-only、重复 occurrence、孤儿 participant、
+   stale ref、source relation 和 Trace 独立 authority 套件保持。相关完整套件通过：`internal/types` 25.315s、`internal/tool` 183.229s、
+   `internal/agent` 14.141s；CGO release-tag `make` 与 `git diff --check` 全绿。
+
+状态：
+
+`B1312=implemented/high-ROI-P1/relevant-full-suite-pass/pending-production-replay`；
+`existing-visible-edge+typed-candidate=one-model-selected-attach-transaction`；
+`untyped-visible-replace=not-advertised`；`matching-candidate-add=suppressed-no-duplicate-body`；
+`sequence-same-pair=different-occurrence-preserved`；
+`JSON-teaching=current-dynamic-schema-single-authority`；
+`system-evidence/relation/edge/node/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1348 r828：B1309 生产转正；read 成文仍被已有边/锚事务拖入 13 次拒绝（2026-08-21）
 
 1. 从已推送 `f2fc701a7` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与

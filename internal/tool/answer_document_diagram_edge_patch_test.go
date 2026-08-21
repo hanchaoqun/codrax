@@ -441,6 +441,83 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	})
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_AttachBindsSelectedCandidateToExistingBody(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n  Source -->|旧的模型文案| Target\n  Keep -->|保留| Sibling\n",
+		}},
+	}}
+	failure := types.AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "Source", ToNode: "Target",
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", BodyOccurrence: 1,
+	}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", Source: "internal/source.go:10",
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, []types.AnswerDiagramRelationRepairCandidate{candidate})
+	if lease == nil || !lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("test setup missing paired attach capability: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Action: "attach", Edge: &types.DiagramEdgeAnchor{
+			FromNode: "Source", ToNode: "Target", VisibleLabel: "把输入交给目标处理",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("paired attach must compile: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("unexpected compiled patch: %+v", patch)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Count(got.Diagram.Body, "Source -->") != 1 ||
+		!strings.Contains(got.Diagram.Body, "Source -->|把输入交给目标处理| Target") ||
+		!strings.Contains(got.Diagram.Body, "Keep -->|保留| Sibling") || len(got.EdgeAnchors) != 1 {
+		t.Fatalf("attach must replace one visible occurrence without duplicating or dropping siblings: %+v", got)
+	}
+	anchor := got.EdgeAnchors[0]
+	if anchor.FromIdentity != candidate.FromIdentity || anchor.ToIdentity != candidate.ToIdentity ||
+		anchor.RelationKind != candidate.RelationKind || anchor.VisibleLabel != "把输入交给目标处理" {
+		t.Fatalf("attach did not preserve model wording and selected typed tuple: %+v", anchor)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AttachRejectsDifferentCandidate(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B\n"},
+	}}}
+	failure := types.AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B",
+		FromIdentity: "A.run", ToIdentity: "B.accept", BodyOccurrence: 1,
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, []types.AnswerDiagramRelationRepairCandidate{
+		{BlockID: "flow", RelationKind: types.DiagramRelCall, FromIdentity: "A.run", ToIdentity: "B.accept", Source: "a.go:1"},
+		{BlockID: "flow", RelationKind: types.DiagramRelCall, FromIdentity: "Other.run", ToIdentity: "Else.accept", Source: "b.go:2"},
+	})
+	if lease == nil || len(lease.AllowedAdditions) != 2 || !lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("test setup missing mixed candidates: %+v", lease)
+	}
+	var wrongRef string
+	for _, candidate := range lease.AllowedAdditions {
+		if candidate.FromIdentity == "Other.run" {
+			wrongRef = candidate.AdditionRef
+		}
+	}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, &types.AnswerDocumentV2Patch{}, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, AdditionRef: wrongRef, Action: "attach",
+		Edge: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", VisibleLabel: "model wording"},
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("a different typed candidate must not bind to the selected body occurrence: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefReusesUniqueDeclaredTypedParticipants(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +

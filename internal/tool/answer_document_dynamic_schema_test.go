@@ -219,6 +219,56 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachNotDuplicateAdd(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A -->|model wording| B\n"},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B",
+		FromIdentity: "pkg.A.run", ToIdentity: "pkg.B.accept", BodyOccurrence: 1,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "pkg.A.run", ToIdentity: "pkg.B.accept", Source: "internal/source.go:10",
+	}})
+	if lease == nil || !lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("test setup missing paired attach capability: %+v", lease)
+	}
+	mut := types.NewMutableState("paired attach schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut}), &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	branches := root["properties"].(map[string]any)["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 2 {
+		t.Fatalf("existing body must expose remove+attach only, got %+v", branches)
+	}
+	seen := map[string]bool{}
+	for _, rawBranch := range branches {
+		props := rawBranch.(map[string]any)["properties"].(map[string]any)
+		action := props["action"].(map[string]any)["enum"].([]any)[0].(string)
+		seen[action] = true
+		if action != "attach" {
+			continue
+		}
+		if _, ok := props["failure_ref"]; !ok {
+			t.Fatalf("attach branch lost exact body selector: %+v", props)
+		}
+		if _, ok := props["addition_ref"]; !ok {
+			t.Fatalf("attach branch lost exact typed candidate selector: %+v", props)
+		}
+		required := rawBranch.(map[string]any)["required"].([]any)
+		if !reflect.DeepEqual(required, []any{"failure_ref", "addition_ref", "action", "edge"}) {
+			t.Fatalf("attach branch required fields=%v", required)
+		}
+	}
+	if !seen["remove"] || !seen["attach"] || seen["replace"] || seen["add"] {
+		t.Fatalf("paired schema advertised a contradictory or duplicate-producing path: %v", seen)
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_NoLeaseHidesGenerationScopedCapabilities(t *testing.T) {
 	mut := types.NewMutableState("retry without a relation lease")
 	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})

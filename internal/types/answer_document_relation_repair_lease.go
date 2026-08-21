@@ -61,6 +61,10 @@ const (
 	AnswerDiagramRelationRepairActionRelabel AnswerDiagramRelationRepairAction = "relabel"
 	AnswerDiagramRelationRepairActionRemove  AnswerDiagramRelationRepairAction = "remove"
 	AnswerDiagramRelationRepairActionReplace AnswerDiagramRelationRepairAction = "replace"
+	// Attach binds one model-selected typed addition candidate to one exact
+	// model-authored visible-body occurrence. It is published only as a paired
+	// failure_ref+addition_ref capability; neither ref can select the other.
+	AnswerDiagramRelationRepairActionAttach AnswerDiagramRelationRepairAction = "attach"
 )
 
 func (f AnswerDiagramRelationRepairFailure) AllowsAction(action string) bool {
@@ -149,9 +153,16 @@ func answerDiagramRelationRepairFailureCapabilities(
 	switch issue {
 	case "missing_call_anchor", DiagramRelationFailureMissingGroundedCallAnchor, "missing_relation_anchor":
 		if strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {
-			return AnswerDiagramRelationRepairCarrierVisibleBodyEdge, []AnswerDiagramRelationRepairAction{
-				AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+			actions := []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}
+			// A failure-ref replacement schema deliberately withholds hidden
+			// relation/identity fields. Advertise replace only when this exact
+			// producer row can restore those fields without guessing. An
+			// untyped body edge may instead receive a separately selected typed
+			// candidate through the paired attach capability installed below.
+			if answerDiagramRelationRepairFailureHasReplacementTuple(failure) {
+				actions = append(actions, AnswerDiagramRelationRepairActionReplace)
 			}
+			return AnswerDiagramRelationRepairCarrierVisibleBodyEdge, actions
 		}
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	case "typed_anchor_without_visible_edge":
@@ -176,6 +187,40 @@ func answerDiagramRelationRepairFailureCapabilities(
 		}
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
+}
+
+func answerDiagramRelationRepairFailureHasReplacementTuple(failure AnswerDiagramRelationRepairFailure) bool {
+	return AnswerDiagramRelationRepairFailureEffectiveRelation(failure).IsValid() &&
+		strings.TrimSpace(failure.FromIdentity) != "" &&
+		strings.TrimSpace(failure.ToIdentity) != ""
+}
+
+// AnswerDiagramRelationRepairFailureCanAttachCandidate is the single precise
+// compatibility predicate shared by lease publication, schema projection and
+// execution. It reads only typed identities, direction, relation kind, block
+// ownership and the exact visible occurrence. No Mermaid label, request text,
+// reasoning or final prose participates.
+func AnswerDiagramRelationRepairFailureCanAttachCandidate(
+	failure AnswerDiagramRelationRepairFailure,
+	candidate AnswerDiagramRelationRepairCandidate,
+) bool {
+	if failure.TargetCarrier != AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+		failure.BodyOccurrence < 1 ||
+		strings.TrimSpace(failure.BlockID) == "" ||
+		strings.TrimSpace(failure.BlockID) != strings.TrimSpace(candidate.BlockID) ||
+		!candidate.RelationKind.IsValid() ||
+		strings.TrimSpace(failure.FromIdentity) == "" ||
+		strings.TrimSpace(failure.ToIdentity) == "" ||
+		strings.TrimSpace(candidate.FromIdentity) == "" ||
+		strings.TrimSpace(candidate.ToIdentity) == "" {
+		return false
+	}
+	if relation := AnswerDiagramRelationRepairFailureEffectiveRelation(failure); relation.IsValid() &&
+		relation != candidate.RelationKind {
+		return false
+	}
+	return AnswerCodeIdentitySurfacesEquivalent(failure.FromIdentity, candidate.FromIdentity) &&
+		AnswerCodeIdentitySurfacesEquivalent(failure.ToIdentity, candidate.ToIdentity)
 }
 
 func answerDiagramRelationRepairCompiledFailures(
@@ -759,8 +804,18 @@ func NewAnswerDiagramRelationRepairLease(
 		})
 	}
 	clean = answerDiagramRelationRepairCompiledFailures(base, clean)
-	for _, failure := range clean {
-		if failure.FailureRef == "" {
+	for i := range clean {
+		for _, candidate := range allowed {
+			if !AnswerDiagramRelationRepairFailureCanAttachCandidate(clean[i], candidate) {
+				continue
+			}
+			clean[i].AllowedActions = append(clean[i].AllowedActions, AnswerDiagramRelationRepairActionAttach)
+			break
+		}
+		// allowed_actions is part of the generation-scoped capability. Rebind
+		// the opaque selector after the paired attach action is installed.
+		clean[i].FailureRef = answerDiagramRelationRepairFailureRef(base, clean[i])
+		if clean[i].FailureRef == "" {
 			return nil
 		}
 	}

@@ -282,7 +282,7 @@ func TestAnswerDiagramRelationRepairLeasePublishesExecutableFailureCapabilities(
 	}}}
 	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{
 		{BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall, FromNode: "A", ToNode: "B"},
-		{BlockID: "flow", Issue: DiagramRelationFailureMissingGroundedCallAnchor, RelationKind: DiagramRelCall, FromNode: "B", ToNode: "C"},
+		{BlockID: "flow", Issue: DiagramRelationFailureMissingGroundedCallAnchor, RelationKind: DiagramRelCall, FromNode: "B", ToNode: "C", FromIdentity: "B.run", ToIdentity: "C.run"},
 		{BlockID: "flow", Issue: "typed_anchor_without_visible_edge", RelationKind: DiagramRelPrecedence, FromNode: "C", ToNode: "D"},
 	}, nil)
 	if lease == nil || len(lease.Failures) != 3 {
@@ -308,6 +308,39 @@ func TestAnswerDiagramRelationRepairLeasePublishesExecutableFailureCapabilities(
 		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
 	assertCapability("typed_anchor_without_visible_edge", AnswerDiagramRelationRepairCarrierStaleAnchor,
 		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
+}
+
+func TestAnswerDiagramRelationRepairLeasePairsExistingBodyWithExactTypedCandidate(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A -->|model wording| B\n"},
+	}}}
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B",
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", BodyOccurrence: 1,
+	}
+	candidate := AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: DiagramRelArgumentFlow,
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", Source: "internal/source.go:10",
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{failure}, []AnswerDiagramRelationRepairCandidate{candidate})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("expected one paired live capability: %+v", lease)
+	}
+	got := lease.Failures[0]
+	if got.TargetCarrier != AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+		!got.AllowsAction("remove") || !got.AllowsAction("attach") || got.AllowsAction("replace") {
+		t.Fatalf("untyped visible body must publish remove+attach, not an impossible replace: %+v", got)
+	}
+	if !AnswerDiagramRelationRepairFailureCanAttachCandidate(got, lease.AllowedAdditions[0]) {
+		t.Fatalf("the exact same-direction typed candidate must pair with the visible occurrence: failure=%+v candidate=%+v", got, lease.AllowedAdditions[0])
+	}
+
+	reversed := lease.AllowedAdditions[0]
+	reversed.FromIdentity, reversed.ToIdentity = reversed.ToIdentity, reversed.FromIdentity
+	if AnswerDiagramRelationRepairFailureCanAttachCandidate(got, reversed) {
+		t.Fatal("reversed typed identities must not authorize attach")
+	}
 }
 
 func TestAnswerDiagramRelationRepairLeaseDoesNotAdvertiseAmbiguousRefAction(t *testing.T) {

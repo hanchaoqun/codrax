@@ -1141,7 +1141,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 			`"body_occurrence":1`, "omit block_id, match, occurrence, and body_occurrence",
 			`"allowed_additions"`, `"from_identity":"Orchestrator.applyStageOutput"`,
 			"The allowed rows are permissions, not required edges",
-			"diagram_edge_edits", "action=relabel", "action=remove", "action=add",
+			"diagram_edge_edits", "Choose exactly one current tool-schema branch",
 			"system has not selected, added, removed, relabelled, reversed, or reconnected",
 		} {
 			if !strings.Contains(signal.Hint, want) {

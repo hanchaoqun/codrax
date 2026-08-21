@@ -690,10 +690,26 @@ func resolveAtomicDiagramFailureRef(
 	ref := strings.TrimSpace(edit.FailureRef)
 	additionRef := strings.TrimSpace(edit.AdditionRef)
 	if ref != "" && additionRef != "" {
-		return edit, fmt.Errorf("failure_ref and addition_ref are mutually exclusive")
+		if strings.ToLower(strings.TrimSpace(edit.Action)) != string(types.AnswerDiagramRelationRepairActionAttach) {
+			return edit, fmt.Errorf("failure_ref and addition_ref may be paired only with action=attach")
+		}
+		failureOnly := edit
+		failureOnly.AdditionRef = ""
+		failureOnly.attachPairResolving = true
+		resolved, err := resolveAtomicDiagramFailureRef(failureOnly, lease)
+		if err != nil {
+			return edit, err
+		}
+		resolved.AdditionRef = additionRef
+		resolved.attachPairResolving = false
+		return resolveAtomicDiagramAdditionRef(resolved, lease)
 	}
 	if additionRef != "" {
 		return resolveAtomicDiagramAdditionRef(edit, lease)
+	}
+	if strings.ToLower(strings.TrimSpace(edit.Action)) == string(types.AnswerDiagramRelationRepairActionAttach) &&
+		!edit.attachPairResolving {
+		return edit, fmt.Errorf("action=attach requires both failure_ref and addition_ref")
 	}
 	if ref == "" {
 		return edit, nil
@@ -765,6 +781,16 @@ func resolveAtomicDiagramFailureRef(
 			strings.ContainsAny(match.FromNode+match.ToNode, "\r\n") {
 			return edit, fmt.Errorf("failure_ref=%q cannot identify its visible body edge: from_node and to_node must be complete single-line values", ref)
 		}
+		if action == string(types.AnswerDiagramRelationRepairActionReplace) && edit.Edge != nil {
+			relation := types.AnswerDiagramRelationRepairFailureEffectiveRelation(*failure)
+			if !relation.IsValid() || strings.TrimSpace(failure.FromIdentity) == "" ||
+				strings.TrimSpace(failure.ToIdentity) == "" {
+				return edit, fmt.Errorf("failure_ref=%q does not own a complete typed replacement tuple", ref)
+			}
+			edit.Edge.RelationKind = relation
+			edit.Edge.FromIdentity = strings.TrimSpace(failure.FromIdentity)
+			edit.Edge.ToIdentity = strings.TrimSpace(failure.ToIdentity)
+		}
 		edit.Match = &match
 		edit.failureRefResolved = true
 		return edit, nil
@@ -804,8 +830,9 @@ func resolveAtomicDiagramAdditionRef(
 	lease *types.AnswerDiagramRelationRepairLease,
 ) (emitAnswerDiagramEdgeEdit, error) {
 	ref := strings.TrimSpace(edit.AdditionRef)
-	if strings.ToLower(strings.TrimSpace(edit.Action)) != "add" {
-		return edit, fmt.Errorf("addition_ref=%q is valid only with action=add", ref)
+	action := strings.ToLower(strings.TrimSpace(edit.Action))
+	if action != "add" && action != string(types.AnswerDiagramRelationRepairActionAttach) {
+		return edit, fmt.Errorf("addition_ref=%q is valid only with action=add or action=attach", ref)
 	}
 	if lease == nil || lease.Version != 1 {
 		return edit, fmt.Errorf("addition_ref=%q is not present in a live relation-repair lease", ref)
@@ -830,6 +857,21 @@ func resolveAtomicDiagramAdditionRef(
 	}
 	if edit.Edge == nil {
 		return edit, fmt.Errorf("addition_ref=%q requires a model-authored edge with from_node, to_node, and visible_label", ref)
+	}
+	if action == string(types.AnswerDiagramRelationRepairActionAttach) {
+		if !edit.failureRefResolved || edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+			edit.Match == nil || edit.BodyOccurrence < 1 {
+			return edit, fmt.Errorf("addition_ref=%q action=attach requires one exact live visible_body_edge failure", ref)
+		}
+		failure := types.AnswerDiagramRelationRepairFailure{
+			BlockID: strings.TrimSpace(edit.BlockID), TargetCarrier: edit.failureRefCarrier,
+			FromNode: strings.TrimSpace(edit.Match.FromNode), ToNode: strings.TrimSpace(edit.Match.ToNode),
+			FromIdentity: strings.TrimSpace(edit.Match.FromIdentity), ToIdentity: strings.TrimSpace(edit.Match.ToIdentity),
+			RelationKind: edit.Match.RelationKind, BodyOccurrence: edit.BodyOccurrence,
+		}
+		if !types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, *selected) {
+			return edit, fmt.Errorf("addition_ref=%q is not compatible with the selected visible-body failure", ref)
+		}
 	}
 	edit.BlockID = blockID
 	edit.Edge.RelationKind = selected.RelationKind
@@ -870,7 +912,8 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		return fmt.Errorf("target carrier is unavailable")
 	}
 	action := strings.ToLower(strings.TrimSpace(edit.Action))
-	if action != "relabel" && action != "remove" && action != "replace" && action != "add" {
+	if action != "relabel" && action != "remove" && action != "replace" && action != "add" &&
+		action != string(types.AnswerDiagramRelationRepairActionAttach) {
 		return fmt.Errorf("unsupported action %q", edit.Action)
 	}
 	occurrence := edit.Occurrence
@@ -934,6 +977,10 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		block.EdgeAnchors = append(block.EdgeAnchors, *edit.Edge)
 		return nil
 	}
+	if action == string(types.AnswerDiagramRelationRepairActionAttach) &&
+		(strings.TrimSpace(edit.FailureRef) == "" || strings.TrimSpace(edit.AdditionRef) == "") {
+		return fmt.Errorf("action=attach requires failure_ref and addition_ref")
+	}
 	if edit.Match == nil {
 		return fmt.Errorf("action=%s requires match", action)
 	}
@@ -960,6 +1007,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		// field; the compiler merely makes that declared operation
 		// executable against the previous model-authored Mermaid AST.
 		bodyOnly = true
+	}
+	if action == string(types.AnswerDiagramRelationRepairActionAttach) && !bodyOnly {
+		return fmt.Errorf("action=attach requires an existing visible edge without a typed anchor")
 	}
 	// A metadata-only prior-anchor ref deliberately has no unique Mermaid body
 	// occurrence. Removing it therefore deletes exactly the selected structured
@@ -1085,7 +1135,7 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		}
 		lines[lineIndex] = updated
 		block.EdgeAnchors[anchorIndex].VisibleLabel = label
-	case "replace":
+	case "replace", string(types.AnswerDiagramRelationRepairActionAttach):
 		if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
 			return err
 		}

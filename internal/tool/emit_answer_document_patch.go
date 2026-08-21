@@ -55,7 +55,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
-		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row and prefer `{failure_ref, action}` over retyping block/node/identity/relation/occurrence/body_occurrence coordinates. The live lease resolves only that exact failed carrier; legacy match/occurrence mirrors are ignored after the ref is validated, while an explicit cross-block conflict still fails. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id because the executor restores those invisible fields from the selected row and ignores legacy hidden-field mirrors. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates under stage, agent, or operation aliases. Legacy add without addition_ref must supply one complete new anchor and still cannot use failure_ref. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
+		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. A live `attach` branch pairs one exact visible-body failure_ref with one exact typed addition_ref; select both refs and author edge.from_node/to_node/visible_label, so the existing model-authored edge receives that chosen typed relation without adding a duplicate edge. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of only `participant_boundaries` on an existing diagram block. Use this for a participant coverage retry so the prior Mermaid body, relations, labels, and other block fields remain untouched.\n" +
 		"- `diagram_participant_edits`: model-authored disposition of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row. If your same-patch edge edits leave that candidate isolated, explicitly choose remove_if_isolated, or retain_as_context with a non-empty model-authored visible_label. The executor rejects requested/boundary participants, uncovered or remaining edges, and ambiguous declarations. The system never chooses the disposition or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
@@ -247,7 +247,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		return t.Description()
 	}
 	return "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
-		"Select a published failure_ref with one of its displayed actions, or select a published addition_ref and author the visible endpoints and label. " +
+		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or an action=attach pair that binds both refs to one existing visible edge; author every visible endpoint and label required by that branch. " +
 		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, relation kinds, and whole-block mutations are unavailable in this dispatch. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
@@ -322,7 +322,7 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	edgeEdits["minItems"] = 1
 	edgeEdits["maxItems"] = len(lease.Failures) + len(lease.AllowedAdditions)
 	edgeEdits["uniqueItems"] = true
-	edgeEdits["description"] = "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition endpoints and all visible labels remain model-authored. Omitted legacy coordinates and hidden identity fields are unavailable."
+	edgeEdits["description"] = "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition/attach endpoints and all visible labels remain model-authored. attach is available only as an exact paired failure_ref+addition_ref branch for one existing visible edge and does not add a duplicate body edge. Omitted legacy coordinates and hidden identity fields are unavailable."
 	edgeEdits["items"] = map[string]any{"oneOf": branches}
 
 	if boundaries, ok := properties["diagram_boundary_replacements"].(map[string]any); ok {
@@ -394,6 +394,15 @@ func localDiagramLeaseExecutableEdgeBranches(
 				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, false, true)
 			case string(types.AnswerDiagramRelationRepairActionReplace):
 				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, true, false)
+			case string(types.AnswerDiagramRelationRepairActionAttach):
+				for _, candidate := range lease.AllowedAdditions {
+					if !types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
+						continue
+					}
+					branches = append(branches, exactLocalDiagramAttachBranch(ref, candidate.AdditionRef))
+					added++
+				}
+				continue
 			default:
 				return nil, false
 			}
@@ -410,9 +419,43 @@ func localDiagramLeaseExecutableEdgeBranches(
 			return nil, false
 		}
 		seenRefs[ref] = true
+		attachedToExistingBody := false
+		for _, failure := range lease.Failures {
+			if types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
+				attachedToExistingBody = true
+				break
+			}
+		}
+		if attachedToExistingBody {
+			continue
+		}
 		branches = append(branches, exactLocalDiagramEdgeBranch("addition_ref", ref, "add", true, false))
 	}
 	return branches, true
+}
+
+func exactLocalDiagramAttachBranch(failureRef, additionRef string) map[string]any {
+	properties := map[string]any{
+		"failure_ref":  map[string]any{"type": "string", "enum": []any{strings.TrimSpace(failureRef)}},
+		"addition_ref": map[string]any{"type": "string", "enum": []any{strings.TrimSpace(additionRef)}},
+		"action":       map[string]any{"type": "string", "enum": []any{string(types.AnswerDiagramRelationRepairActionAttach)}},
+		"edge": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"from_node":     map[string]any{"type": "string", "minLength": 1},
+				"to_node":       map[string]any{"type": "string", "minLength": 1},
+				"visible_label": map[string]any{"type": "string", "minLength": 1},
+			},
+			"required": []any{"from_node", "to_node", "visible_label"},
+		},
+	}
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           properties,
+		"required":             []any{"failure_ref", "addition_ref", "action", "edge"},
+	}
 }
 
 func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsLabel bool) map[string]any {
@@ -619,17 +662,18 @@ type emitAnswerDocumentPatchParams struct {
 // previous model-authored Mermaid carrier; it never chooses an endpoint,
 // relation kind, or reader-facing label.
 type emitAnswerDiagramEdgeEdit struct {
-	BlockID            string                   `json:"block_id"`
-	Action             string                   `json:"action"`
-	FailureRef         string                   `json:"failure_ref,omitempty"`
-	AdditionRef        string                   `json:"addition_ref,omitempty"`
-	Occurrence         int                      `json:"occurrence,omitempty"`
-	BodyOccurrence     int                      `json:"body_occurrence,omitempty"`
-	Match              *types.DiagramEdgeAnchor `json:"match,omitempty"`
-	Edge               *types.DiagramEdgeAnchor `json:"edge,omitempty"`
-	VisibleLabel       string                   `json:"visible_label,omitempty"`
-	failureRefResolved bool
-	failureRefCarrier  types.AnswerDiagramRelationRepairTargetCarrier
+	BlockID             string                   `json:"block_id"`
+	Action              string                   `json:"action"`
+	FailureRef          string                   `json:"failure_ref,omitempty"`
+	AdditionRef         string                   `json:"addition_ref,omitempty"`
+	Occurrence          int                      `json:"occurrence,omitempty"`
+	BodyOccurrence      int                      `json:"body_occurrence,omitempty"`
+	Match               *types.DiagramEdgeAnchor `json:"match,omitempty"`
+	Edge                *types.DiagramEdgeAnchor `json:"edge,omitempty"`
+	VisibleLabel        string                   `json:"visible_label,omitempty"`
+	failureRefResolved  bool
+	failureRefCarrier   types.AnswerDiagramRelationRepairTargetCarrier
+	attachPairResolving bool
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {
