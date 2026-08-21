@@ -57291,6 +57291,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
+
+1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，
+   read 1395s；两路都没有因 4ms、4m、首字节、stall、累计年龄或上下文比例触发产品降级，read 的活动模型流保留到自然产出。
+2. Trace 系统面继续完整：精确 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   唤醒链、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、主要时间占用/规则可消双账户、邻近/背景隔离和
+   `Trace 因果投影` 均在。模型仍把 `fscache_page_wait_on_page_bit` 调用点扩写成具体文件系统缓存页 IO 完成，后文又正确披露该调用点不证明
+   对象、后端或持有者；维持既有 B1269/B1271 软引导项，不以请求/模型/答案关键词硬拒或系统改写结论。
+3. B1286 获得生产正证：陈旧 ref、whole replace 和不允许的 add 每次失败后都重新发布当前代完整 failures/actions/allowed additions，未再退化成
+   单条 plain error。B1287 本轮未出现 exact node id 被显示 label alias 改写；原始 `AC/EX/...` node id 始终稳定，属于无回归而非自然触发正证。
+4. 新 P1 `B1288-RELATIONADDITIONREF1` 为确定性合同自冲突。read 的 joint delta 明确列出允许新增
+   `analyzer -> explorer -> extractor -> finalizer` 三条 precedence；模型按该候选先后使用 `analyze`、`analyzer` 等可见 node id，原子编辑已
+   实际创建可见边，但新增操作没有一个同代 opaque selector，也没有携带候选的隐藏 identity pair。随后
+   `normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes` 依据另一套 exact node/recipe 方言补写身份，lease 再以 allowed candidate 的 Agent
+   方言精确比较并报 `unlisted_relation_added`。同一候选被系统一侧指导、一侧拒绝，不能归因模型波动。
+5. r806 的最终第 13 次成文偶然改用 `StageAnalyze -> StageExplore -> StageExtract -> StageFinalize` node id，recipe 才回填出 lease 接受的 Agent
+   identity，因而 PASS；代价是 12 次 reject、19 次 midloop、79% context、25 次 read 和 1395s 墙钟。终稿表格可用，三条阶段边合法，但原
+   `Orchestrator/Agent/BusContext` 六个 participant 变成孤点，图只剩最小阶段骨架，人工判 partial。
+6. B1288 最优形冻结为“候选引用选择、隐藏身份回填”：lease 为每条 `allowed_additions[]` 生成绑定当前 patch base 的 `addition_ref`；模型用
+   `action=add + addition_ref` 明确选择关系并继续作者化可见 from_node/to_node、业务标签和布局；原子编译器只从被选候选回填 block、relation kind
+   与 canonical identity pair。未知、陈旧、重复、跨 block、action 不符或模型显式技术字段冲突全部 fail-closed。该机制不读请求、错误 prose、
+   Mermaid message 或答案文本，不替模型选择边，也不改变调用/数据流/先后证据门。
+7. 新 P1 `B1289-REPAIRDIAGNOSTICCAVEATSTALE1` 独立留档。第 9 轮模型在关系仍未修好时通过 `replace_caveats` 写入“patch 接口无法原子添加”临时
+   自诊断；该 patch 虽未通过最终校验，但成为 retry-local staging base。第 13 轮关系已经成功添加，却继承旧 caveat，终稿同时展示三条边并声称
+   无法添加，且泄漏 patch/edge_anchors 内部术语。不能靠扫描 caveat 文本删除；候选 ref 根修会先消掉主要诱因，后续若仍复现，应以 typed
+   retry-generation ownership 要求模型在成功提交中显式确认、替换或清空“失败代次修改过的 caveat”，系统不得自行改写可见答案。
+
+状态：
+
+`r806=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1286=production-positive/core-closed`；
+`B1287=no-regression/tests-positive`；
+`B1288=confirmed/P1-next`；
+`B1289=confirmed/P1-after-B1288-replay`；
+`read-finalizer=12-rejects/13th-emit-pass/1395s`；
+`allowed-addition=current=no-opaque-selector+identity-dialect-split`；
+`target=base-bound-addition-ref+model-owned-visible-edge`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r806`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r806`。
+
 ### §123.1317 B1287：Mermaid exact node id 优先于显示 label alias（2026-08-21）
 
 1. `B1287-EXACTNODEIDBEFORELABELALIAS1/P0` 已按结构身份层级施工。`diagramNodeAliasIndex` 现在分两遍构造：第一遍从 sequence participant、
