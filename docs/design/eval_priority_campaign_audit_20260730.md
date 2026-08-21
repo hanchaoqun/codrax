@@ -57709,6 +57709,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r814`。
 
+### §123.1333 B1298：语义错误的成员引用收敛后隔离，纯形债保持原策略（2026-08-21）
+
+1. `B1298-MEMBERGROUNDINGCONVERGENCE1/P1` 已施工。`validateAggregateMemberSetSupportRefs` 不再只返回一段不可区分的 error prose；
+   producer 现在同时保存 typed `groundingIndexes`，精确指向“所选 support ref 不能证明同一 member/attribute”的 aggregate。数组长度不齐、空 note/ref、
+   缺 decorator ref 等纯落地形问题只进入 message，不会被误标成语义 grounding 债。路由完全来自 validator 当次结构化判断，不扫描错误字符串、请求、
+   thinking、最终答案或 Mermaid 文本。
+2. 第一次命中仍按原 completion-form 车道给模型有限局部修补机会；不会因为一个错误引用立刻丢掉模型工作。只有同一 typed blocker 经既有低增量边界收敛，
+   且 validator 同代仍报告 semantic grounding index 时，才从 `effectiveAggregateFacts` 剔除对应 model-authored fact。其他有效 aggregate、独立 grounded
+   evidence、checkout stage authority、关系 recipes 和 typed runtime/Trace 事实全部保留；系统不补成员、不重写 note/ref，也不生成可见结论。
+3. 剔除后立即重建 completion preflight 的 aggregate 视图，防止后续 citation/Tier-1/contract gate 继续读取收敛前陈腐权威。相邻的 StageRoleAuthority
+   既有剔除车道也补上同一 preflight 重建，统一“已排除事实不得留在后续 gate 快照”的不变量。accepted completion summary 携带内部 typed 隔离说明，
+   finalizer 只能从剩余有效载体自行成文；该说明不授权系统代写答案。
+4. 新集成回归钉住生产形：`StageAnalyze(AnalysisIR)` 选择一个只证明 enum 身份、不能证明其产出/安装责任的 ref，首轮必须请求修补；第二轮允许有界收敛，
+   但该 member_set 必须从稳定 aggregate handoff 消失，旁边有效 scalar fact 原样保留，summary 必须披露被隔离 aggregate。原有纯形债测试继续证明
+   `Cart.itemAt (origin)` 缺 refs 的 substantive aggregate 在 caveat 下仍保留，避免把所有 completion form 一刀切丢弃。
+5. 定向回归、完整 `go test ./internal/tool -count=1`（181.432s）、全仓 `go test ./... -count=1` 和 CGO release-tag `make` 全绿。本批未修改
+   Diagram relation/participant validator、Mermaid formatter、Trace query/convert、因果投影、显式时间窗、自动补齐、根因排序、实际占时/规则可消账户或
+   活动流终止策略。
+
+状态：
+
+`B1298=implemented+targeted-suite-pass+tool-suite-pass+full-suite-pass+build-pass/production-replay-pending`；
+`support-ref-validation=typed-shape-vs-semantic-grounding`；
+`first-failure=bounded-model-repair-opportunity`；
+`converged-semantic-grounding-failure=drop-offending-aggregate-only`；
+`converged-shape-only-debt=historical-caveated-retention`；
+`post-drop-preflight=rebuilt/no-stale-authority`；
+`system-member/note/ref/relation/answer/conclusion-authorship=none`；
+`request/model/final-prose/error-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

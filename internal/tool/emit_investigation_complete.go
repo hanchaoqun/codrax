@@ -2493,6 +2493,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		// and independently grounded supporting evidence and remains the sole
 		// answer author.
 		effectiveAggregateFacts = dropCompletionAggregateFactsForStageRoleGaps(effectiveAggregateFacts, stageRoleGaps)
+		preflight = preflight.WithAggregateFacts(effectiveAggregateFacts, structuredRelationAuthorityFacts)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes,
 			"excluded an unverified current-read stage-role aggregate after bounded typed repair; checkout-verified stage authority remains available to the model")
 		ctx.Mutable.AppendCompletionGateNote("current-read stage-role boundary: one model-authored stage roster remained misaligned with the checkout-verified stage binding and was excluded from authoritative aggregate handoff after bounded repair; use Current Run Stage-Lane Authority for stage responsibilities, and keep unconnected homonymous helpers as independent supporting context")
@@ -2511,6 +2512,27 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Success:   true,
 				Timestamp: time.Now(),
 			}, nil
+		}
+		// B1298: a wrong same-member support ref is semantic grounding debt,
+		// not merely a JSON landing-shape defect. Bounded convergence may stop
+		// the retry loop, but it must never promote an aggregate that the typed
+		// validator already knows is unsupported. Drop only the offending
+		// model-authored facts; independent grounded evidence, checkout stage
+		// authority, and every valid aggregate remain available to finalizer.
+		// Shape-only debt retains the historical caveated handoff.
+		if validationErr, ok := err.(*aggregateMemberSetSupportValidationError); ok {
+			groundingFacts := validationErr.groundingFactIndexes()
+			if len(groundingFacts) > 0 {
+				var dropped []string
+				effectiveAggregateFacts, dropped = dropCompletionAggregateFactsByIndex(effectiveAggregateFacts, groundingFacts)
+				preflight = preflight.WithAggregateFacts(effectiveAggregateFacts, structuredRelationAuthorityFacts)
+				aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes,
+					"excluded model-authored member aggregates whose selected support refs remained semantically ungrounded after bounded repair")
+				ctx.Mutable.AppendCompletionGateNote(fmt.Sprintf(
+					"member support boundary: %d model-authored aggregate(s) with same-member support refs that did not prove their selected member/attribute were excluded after bounded repair; final synthesis must use the remaining grounded evidence and typed authority lanes%s",
+					len(dropped), completionDroppedAggregateLabelSuffix(dropped),
+				))
+			}
 		}
 		earlyDowngradeConverged = true
 	}
@@ -8843,6 +8865,82 @@ func memberHasDecoratedCodeIdentityBase(member string) bool {
 	return types.IsCodeIdentitySurface(strings.TrimSpace(base))
 }
 
+// aggregateMemberSetSupportValidationError keeps semantic same-member
+// grounding failures typed and indexed separately from landing-shape debt.
+// Its Error text remains the existing model repair surface; callers never
+// parse that prose to decide which aggregate is authoritative.
+type aggregateMemberSetSupportValidationError struct {
+	messages         []string
+	groundingIndexes map[int]struct{}
+}
+
+func (e *aggregateMemberSetSupportValidationError) Error() string {
+	if e == nil || len(e.messages) == 0 {
+		return ""
+	}
+	if len(e.messages) == 1 {
+		return e.messages[0]
+	}
+	indexed := make([]string, 0, len(e.messages))
+	for i, message := range e.messages {
+		indexed = append(indexed, fmt.Sprintf("[%d] %s", i+1, message))
+	}
+	return fmt.Sprintf(
+		"%s The payload has %d member-row grounding violations — fix ALL of them in this one re-emit: %s",
+		e.messages[0], len(e.messages), strings.Join(indexed, "; "),
+	)
+}
+
+func (e *aggregateMemberSetSupportValidationError) groundingFactIndexes() map[int]struct{} {
+	if e == nil || len(e.groundingIndexes) == 0 {
+		return nil
+	}
+	out := make(map[int]struct{}, len(e.groundingIndexes))
+	for index := range e.groundingIndexes {
+		out[index] = struct{}{}
+	}
+	return out
+}
+
+func dropCompletionAggregateFactsByIndex(
+	facts []types.AnswerAggregateFact,
+	indexes map[int]struct{},
+) ([]types.AnswerAggregateFact, []string) {
+	if len(facts) == 0 || len(indexes) == 0 {
+		return facts, nil
+	}
+	out := make([]types.AnswerAggregateFact, 0, len(facts))
+	dropped := make([]string, 0, len(indexes))
+	for i, fact := range facts {
+		if _, remove := indexes[i]; !remove {
+			out = append(out, fact)
+			continue
+		}
+		label := strings.TrimSpace(fact.Label)
+		if label == "" {
+			label = "(unlabeled)"
+		}
+		dropped = append(dropped, label)
+	}
+	return out, dropped
+}
+
+func completionDroppedAggregateLabelSuffix(labels []string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	const limit = 3
+	visible := labels
+	if len(visible) > limit {
+		visible = visible[:limit]
+	}
+	suffix := ": " + strings.Join(visible, ", ")
+	if len(labels) > len(visible) {
+		suffix += fmt.Sprintf(" (+%d more)", len(labels)-len(visible))
+	}
+	return suffix
+}
+
 // validateAggregateMemberSetSupportRefs is the emit-time gate that
 // closes the schema asymmetry behind the 2026-05-16 architectural-
 // comparison finalize loop. AnswerAggregateFact.SupportRefs is
@@ -8855,9 +8953,8 @@ func memberHasDecoratedCodeIdentityBase(member string) bool {
 // the missing or unresolved data is upstream.
 //
 // Run AFTER enrichCompletionAggregateFactsWithMemberSupportWithEvidence
-// so auto-fillable members get their support_refs first. The check
-// is narrowed to DECORATED code-identity members because the
-// enrichment pass can usually back bare members like "Intent" /
+// so auto-fillable members get their support_refs first. The enrichment
+// pass can usually back bare members like "Intent" /
 // "StageAnalyze" against verbatim evidence anchors; the decorator
 // (parens + qualifier) makes verbatim matching fail and the
 // finalizer has no way to recover. Reaching this validator with
@@ -8869,15 +8966,21 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
 	var violations []string
 	seenViolation := map[string]bool{}
-	addViolation := func(message string) {
+	groundingFactIndexes := make(map[int]struct{})
+	addViolation := func(factIndex int, semanticGrounding bool, message string) {
 		message = strings.TrimSpace(message)
-		if message == "" || seenViolation[message] {
+		if message == "" {
 			return
 		}
-		seenViolation[message] = true
-		violations = append(violations, message)
+		if semanticGrounding {
+			groundingFactIndexes[factIndex] = struct{}{}
+		}
+		if !seenViolation[message] {
+			seenViolation[message] = true
+			violations = append(violations, message)
+		}
 	}
-	for _, fact := range facts {
+	for factIndex, fact := range facts {
 		if fact.Kind != types.AnswerAggregateMemberSet {
 			continue
 		}
@@ -8886,7 +8989,7 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		}
 		if aggregateNarrativeMemberSetRequiresAlignedCurrentSourceSupport(ctx, fact) {
 			if len(fact.MemberNotes) != len(fact.Members) || len(fact.SupportRefs) != len(fact.Members) {
-				addViolation(fmt.Sprintf(
+				addViolation(factIndex, false, fmt.Sprintf(
 					"aggregate_facts: current-source architecture/mechanism member_set %q uses member_notes as a completion boundary, but members/member_notes/support_refs are not exactly index-aligned (members=%d member_notes=%d support_refs=%d). Re-emit either without member_notes, or with exactly one verified non-empty member_note and one grounded support_ref per member in the same order; identity-only declarations do not prove behavioral responsibility",
 					strings.TrimSpace(fact.Label), len(fact.Members), len(fact.MemberNotes), len(fact.SupportRefs),
 				))
@@ -8894,14 +8997,14 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 			}
 			for i := range fact.Members {
 				if strings.TrimSpace(fact.MemberNotes[i]) == "" || strings.TrimSpace(fact.SupportRefs[i]) == "" {
-					addViolation(fmt.Sprintf(
+					addViolation(factIndex, false, fmt.Sprintf(
 						"aggregate_facts: current-source architecture/mechanism member_set %q has an empty member_note or support_ref at index %d for member %q. Re-emit with one verified non-empty note and one grounded ref per member in the same order, or omit member_notes entirely",
 						strings.TrimSpace(fact.Label), i, strings.TrimSpace(fact.Members[i]),
 					))
 				}
 				if strings.TrimSpace(fact.SupportRefs[i]) != "" &&
 					!aggregateMemberSetSupportRefsResolveMember(fact, fact.Members[i], support) {
-					addViolation(fmt.Sprintf(
+					addViolation(factIndex, true, fmt.Sprintf(
 						"aggregate_facts: current-source architecture/mechanism member_set %q has support_ref %q at index %d, but it does not resolve to grounded evidence for member %q. Re-emit with the already-read producer/callsite/consumer location that proves this member's responsibility; an identity-only or unrelated location cannot close the investigation",
 						strings.TrimSpace(fact.Label), strings.TrimSpace(fact.SupportRefs[i]), i, strings.TrimSpace(fact.Members[i]),
 					))
@@ -8921,14 +9024,14 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 				if i < len(fact.SupportRefs) {
 					ref = strings.TrimSpace(fact.SupportRefs[i])
 				}
-				addViolation(fmt.Sprintf(
+				addViolation(factIndex, true, fmt.Sprintf(
 					"aggregate_facts: current-source per-member table member_set %q has member %q at index %d with support_ref %q, but that row does not resolve to grounded evidence for the same member. Re-emit one exact grounded evidence id or source location per members[] row in the same order; do not use a nearby function or shared file as evidence for a different member",
 					strings.TrimSpace(fact.Label), strings.TrimSpace(member), i, ref,
 				))
 			}
 			if aggregatePerMemberTableCurrentSourceSetRequiresAttributeNotes(ctx, fact, evidence) {
 				if len(fact.MemberNotes) != len(fact.Members) {
-					addViolation(fmt.Sprintf(
+					addViolation(factIndex, false, fmt.Sprintf(
 						"aggregate_facts: current-source per-member attribute table member_set %q has members=%d but member_notes=%d. Re-emit exactly one verified non-empty member_note and one same-member grounded support_ref per members[] row in the same order; an identity-only roster cannot supply the requested per-row attributes",
 						strings.TrimSpace(fact.Label), len(fact.Members), len(fact.MemberNotes),
 					))
@@ -8937,7 +9040,7 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 						if strings.TrimSpace(fact.MemberNotes[i]) != "" {
 							continue
 						}
-						addViolation(fmt.Sprintf(
+						addViolation(factIndex, false, fmt.Sprintf(
 							"aggregate_facts: current-source per-member attribute table member_set %q has an empty member_note at index %d for member %q. Re-emit a verified row attribute note grounded by the aligned same-member support_ref; identity alone cannot prove the requested row attributes",
 							strings.TrimSpace(fact.Label), i, strings.TrimSpace(member),
 						))
@@ -8988,7 +9091,7 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		if label == "" {
 			label = "(unlabeled)"
 		}
-		addViolation(fmt.Sprintf(
+		addViolation(factIndex, len(unresolved) > 0, fmt.Sprintf(
 			"aggregate_facts: member_set %q has %d member(s) shaped as "+
 				"\"<code identifier> (<qualifier>)\" (%s%s) but %s. "+
 				"Decorated code-shape members never auto-resolve against evidence anchors, "+
@@ -9006,17 +9109,10 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 	if len(violations) == 0 {
 		return nil
 	}
-	if len(violations) == 1 {
-		return fmt.Errorf("%s", violations[0])
+	return &aggregateMemberSetSupportValidationError{
+		messages:         violations,
+		groundingIndexes: groundingFactIndexes,
 	}
-	indexed := make([]string, 0, len(violations))
-	for i, violation := range violations {
-		indexed = append(indexed, fmt.Sprintf("[%d] %s", i+1, violation))
-	}
-	return fmt.Errorf(
-		"%s The payload has %d member-row grounding violations — fix ALL of them in this one re-emit: %s",
-		violations[0], len(violations), strings.Join(indexed, "; "),
-	)
 }
 
 // aggregatePerMemberTableCurrentSourceSetRequiresAlignedSupport activates the

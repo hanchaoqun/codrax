@@ -8461,6 +8461,64 @@ func TestEmitInvestigationComplete_CompletionFormSupportRefsConvergesWithCaveat(
 	}
 }
 
+func TestEmitInvestigationComplete_SemanticallyUngroundedMemberSetIsDroppedAfterConvergence(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"the source mechanism is otherwise grounded",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"stage carriers",
+				"value":"1",
+				"role":"principal_answer",
+				"members":["StageAnalyze(AnalysisIR)"],
+				"member_notes":["StageAnalyze produces and installs AnalysisIR"],
+				"support_refs":["internal/types/enums.go:34"]
+			},
+			{
+				"kind":"scalar_value",
+				"label":"verified independent fact",
+				"value":"1"
+			}
+		]
+	}`)
+
+	var finalResult types.ToolResult
+	for attempt := 1; attempt <= 2; attempt++ {
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("attempt %d unexpected error: %v", attempt, err)
+		}
+		if !res.Success {
+			t.Fatalf("attempt %d should remain on the bounded completion lane: %s", attempt, res.Summary)
+		}
+		if attempt == 1 && !strings.Contains(res.Summary, EmitInvestigationCompleteDowngradePrefix) {
+			t.Fatalf("first attempt should request local grounding repair: %s", res.Summary)
+		}
+		finalResult = res
+	}
+
+	if !mut.IsInvestigationComplete() {
+		t.Fatal("second identical blocker should converge after isolating the invalid aggregate")
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateScalar || facts[0].Label != "verified independent fact" {
+		t.Fatalf("known-invalid member aggregate must be excluded while valid siblings survive: %+v", facts)
+	}
+	if !strings.Contains(finalResult.Summary, "member support boundary") || !strings.Contains(finalResult.Summary, "stage carriers") {
+		t.Fatalf("typed exclusion boundary missing from accepted completion summary: %q", finalResult.Summary)
+	}
+}
+
 func TestPreCompleteDowngradeCompletionFormConvergesAcrossFormDebtChurn(t *testing.T) {
 	mut := types.NewMutableState("completion form churn")
 	bus := &types.BusContext{Mutable: mut}
