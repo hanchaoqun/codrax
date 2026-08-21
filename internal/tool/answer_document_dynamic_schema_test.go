@@ -219,6 +219,53 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_NoLeaseHidesGenerationScopedCapabilities(t *testing.T) {
+	mut := types.NewMutableState("retry without a relation lease")
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("no-lease patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("no-lease compatibility schema lost executable whole mutation %q", field)
+		}
+	}
+	if _, ok := props["diagram_participant_edits"]; ok {
+		t.Fatal("no-lease schema must not advertise generation-scoped participant cleanup")
+	}
+	edgeItem := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)
+	edgeProps := edgeItem["properties"].(map[string]any)
+	for _, field := range []string{"failure_ref", "addition_ref"} {
+		if _, ok := edgeProps[field]; ok {
+			t.Fatalf("no-lease schema leaked generation-scoped selector %q", field)
+		}
+	}
+	if _, ok := edgeItem["anyOf"]; ok {
+		t.Fatalf("no-lease schema retained an opaque-selector alternative: %+v", edgeItem)
+	}
+	if got := edgeItem["required"].([]any); !reflect.DeepEqual(got, []any{"block_id", "action"}) {
+		t.Fatalf("no-lease edge edit must require executable legacy coordinates, got %v", got)
+	}
+	for _, field := range []string{"block_id", "match", "edge"} {
+		if _, ok := edgeProps[field]; !ok {
+			t.Fatalf("no-lease schema lost executable model-authored field %q", field)
+		}
+	}
+	matchProps := edgeProps["match"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"from_identity", "to_identity", "relation_kind"} {
+		if _, ok := matchProps[field]; !ok {
+			t.Fatalf("legacy compatibility match lost %q", field)
+		}
+	}
+	desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut})
+	if strings.Contains(desc, "failure_ref") || strings.Contains(desc, "addition_ref") ||
+		!strings.Contains(desc, "identify an existing block") {
+		t.Fatalf("no-lease description contradicted its executable schema: %q", desc)
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_AdditionOnlyLeaseDropsUnavailableCleanupSurface(t *testing.T) {
 	base := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{{

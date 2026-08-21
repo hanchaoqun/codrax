@@ -57291,6 +57291,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1344 r825：live 精确修补生产转正；无租约 schema 仍发布陈腐 ref 能力（2026-08-21）
+
+1. 从已推送 `e36eef999` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`，runner 2/2 PASS：Trace 271s、read 647s；人工判定 2/2 pass。read 最终答案不再降级到旧稿，
+   但过程仍有 3 次 finalizer reject，需按合同逐轮拆分，不能用最终 PASS 掩盖确定性系统 churn。
+2. Trace 守护继续通过：显式 2.000..2.020s 主窗、10 次带 window/pid/thread 的 typed 查询、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链、逐跳 CPU、11.000ms 链上 IO 第一席、三个彼此独立且不可直接相加的
+   1.000ms runnable/优先级候选、实际占时/现规则可消双账户、链外背景隔离、成文前自动补采和完整 `Trace 因果投影` 均在；finalizer 零拒绝，
+   活动流没有因固定 4ms/4m、累计年龄或上下文比例降级。系统未从用户/模型/答案 prose 或 Mermaid 标签扫描事实，也没有代写根因、关系或结论。
+3. B1308 获得生产正证。首份完整 read 文档被指出一个缺失 incident edge 后，系统发布当前 addition-only lease；下一轮工具 schema 只给出
+   一个精确 `addition_ref + action=add` 分支。模型实际调用只含该 ref、模型自写的 `from_node/to_node/visible_label`、citation 修补与 unchanged roster；
+   未提交 legacy block/match/occurrence、hidden identity/relation kind 或 whole-block mutation。原子 add 成功，证明 lease-aware executable schema
+   能降低 JSON 心智且不接管模型关系作者权。
+4. 随后的 1 次必拒调用确认新 P0 `B1310-ABSENTLEASESCHEMA1`。成功 addition 已消费该 generation lease，下一轮 typed 状态为 no-live-lease；
+   retry 提示明确说明历史 ref 无效，但 canonical patch schema 仍把 `failure_ref/addition_ref` 与 `diagram_participant_edits` 发布为可选能力。模型复用了历史
+   addition ref，执行器只能报 stale/absent lease。此处不是模型波动，也不应保留已满足旧 lease（否则会引导重复添加同一边）；根因是 schema 与 executor
+   对同一精确状态给出相反合同。
+5. 最优根修按能力投影而非提示加码：no-live-lease 时，从动态 schema 删除 generation-scoped failure/addition refs 和 participant cleanup；
+   legacy `diagram_edge_edits` 改为结构上必带 `block_id+action`，保留仍可执行的 model-authored match/edge 及 whole replace/add/remove。对应动态 description
+   只教学当前可执行兼容面，不出现不可用 ref。live 完整 diagram lease 继续走 B1308 精确 oneOf；畸形、混合或非 diagram live lease 继续保留宽兼容面并由
+   executor fail-closed。投影只读取 typed lease 是否存在，不读取请求、thinking、答案 prose 或 Mermaid message，系统不选择 action、edge、direction、
+   wording、layout 或 conclusion。
+6. B1310 已施工：`EmitAnswerDocumentPatch.ParametersFor` 在 Mutable 明确无 lease 时调用 no-lease capability projector；该 projector 移除两个 ref、
+   移除 lease-only participant cleanup、删除 ref `anyOf` 并把 block id/action 变为必填。`DescriptionFor` 同步发射无租约教学。tool 单测固定兼容整块面仍在、
+   ref/participant 面不在、legacy match/edge 仍在；agent 接线 pin 直接审计最终下发给模型的 description/parameters，防止 helper 绿而生产接线漂移。
+7. read 最终答案本身可用：给出 analyze→explore→extract→finalize 四阶段串行骨架，并将 `o.busCtx -> BuildAgentContext` 标为 argument flow、
+   `bus.Mutable -> AgentContext.Mutable` 标为 data flow；未把缺证关系编成完整调用图。但 30 reads、41 explorer iterations 仍说明 B1309 的 participant 导航
+   completion 低效存在，继续保持独立 P1，待 B1310 生产回放后施工，避免把 schema 正确性与探索坐标排序混成一批。
+
+状态：
+
+`r825=runner-pass-2/2,human-pass-2/2`；
+`B1308=production-positive/core-closed`；
+`B1310=implemented/P0/full-relevant-suite+release-build-pass/pending-production-replay`；
+`B1309=confirmed/P1/documented-next`；
+`no-live-lease-ref/participant-capability=hidden`；`legacy-executable-compatibility=preserved`；
+`system-edge/action/node/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r825`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r825`。
+
 ### §123.1343 r824：live 关系租约仍暴露不可执行旧式修补面，20 轮后降级出厂旧稿（2026-08-21）
 
 1. 从已推送 `3e10e52f2` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与

@@ -218,7 +218,11 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	if ctx == nil || ctx.Mutable == nil {
 		return raw
 	}
-	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, ctx.Mutable.AnswerDiagramRelationRepairLease())
+	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if lease == nil {
+		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
+	}
+	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease)
 }
 
 // DescriptionFor keeps the prose surface aligned with the per-dispatch schema.
@@ -232,6 +236,12 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		return t.Description()
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if lease == nil {
+		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
+			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
+			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
+			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
+	}
 	targets := localDiagramLeaseTargetBlockIDs(lease)
 	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
 		return t.Description()
@@ -240,6 +250,41 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		"Select a published failure_ref with one of its displayed actions, or select a published addition_ref and author the visible endpoints and label. " +
 		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, relation kinds, and whole-block mutations are unavailable in this dispatch. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
+}
+
+// narrowAnswerDocumentPatchParametersWithoutRelationLease removes operations
+// whose executor requires a live typed relation-repair lease. Historical
+// failure/addition refs and orphan-cleanup candidates are generation-scoped;
+// advertising them after that generation has been consumed makes the schema
+// promise a call that the runtime must reject. The no-lease compatibility lane
+// keeps whole-block repairs and legacy block-local edge coordinates because
+// those remain executable and model-authored.
+func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage) json.RawMessage {
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return raw
+	}
+	properties, _ := root["properties"].(map[string]any)
+	if properties == nil {
+		return raw
+	}
+	edgeEdits, _ := properties["diagram_edge_edits"].(map[string]any)
+	items, _ := edgeEdits["items"].(map[string]any)
+	itemProperties, _ := items["properties"].(map[string]any)
+	if edgeEdits == nil || items == nil || itemProperties == nil {
+		return raw
+	}
+	delete(itemProperties, "failure_ref")
+	delete(itemProperties, "addition_ref")
+	items["required"] = []any{"block_id", "action"}
+	delete(items, "anyOf")
+	edgeEdits["description"] = "Atomic model-authored relation edits for an existing block. block_id and action are required. Supply the complete local match for relabel/remove/replace and the complete model-authored edge for replace/add. No generation-scoped opaque selector or participant-cleanup choice is available in this dispatch. The system applies only the declared operation and never chooses an edge, relation, visible label, layout, or conclusion."
+	delete(properties, "diagram_participant_edits")
+	out, err := json.Marshal(root)
+	if err != nil || !json.Valid(out) {
+		return raw
+	}
+	return out
 }
 
 // narrowAnswerDocumentPatchParametersForLocalDiagramLease projects one live

@@ -119,6 +119,9 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 	if patchSchema == nil {
 		t.Fatal("retry dispatch must expose emit_answer_document_patch")
 	}
+	if strings.Contains(patchSchema.Description, "failure_ref") || strings.Contains(patchSchema.Description, "addition_ref") {
+		t.Fatalf("retry dispatch without a live lease must not teach generation-scoped refs:\n%s", patchSchema.Description)
+	}
 	// The full tool owns the one compact carrier teaching. The patch tool's
 	// projected function schema must express its delta containers structurally,
 	// not copy another prose schema that can drift or contradict the full tool.
@@ -142,6 +145,20 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 	}
 	if err := json.Unmarshal(patchSchema.Parameters, &paramsSchema); err != nil {
 		t.Fatalf("decode patch schema: %v", err)
+	}
+	var rawRoot map[string]any
+	if err := json.Unmarshal(patchSchema.Parameters, &rawRoot); err != nil {
+		t.Fatalf("decode no-lease patch schema: %v", err)
+	}
+	rawProps := rawRoot["properties"].(map[string]any)
+	rawEdgeProps := rawProps["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"failure_ref", "addition_ref"} {
+		if _, ok := rawEdgeProps[field]; ok {
+			t.Fatalf("agent no-lease dispatch leaked generation-scoped field %q", field)
+		}
+	}
+	if _, ok := rawProps["diagram_participant_edits"]; ok {
+		t.Fatal("agent no-lease dispatch leaked unavailable participant cleanup")
 	}
 	for _, field := range []string{
 		"unchanged_block_ids", "replace_blocks", "add_blocks", "remove_block_ids",
