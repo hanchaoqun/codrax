@@ -57291,6 +57291,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1342 r823：显式窗 Trace 守护继续通过；孤儿清理 lease 发布不可兑现能力（2026-08-21）
+
+1. 从已推送 `5b6a65f1c` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`，runner 2/2 PASS：Trace 188s、read 612s。人工审计判 Trace pass、read final-answer pass/process-fail。
+2. Trace 继续通过：显式 2.000..2.020s 主窗、3 次 typed `trace_query`、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链、11.000ms 链上 IO 第一席、三个独立的
+   1.000ms 调度/优先级候选、实际占时/现规则可消双账户、逐跳 CPU、链外背景隔离、成文前自动补采和完整
+   `Trace 因果投影` 均在；finalizer 零拒绝，活动流没有因固定 4ms/4m、累计年龄或上下文比例降级。模型把 11ms 区间写成
+   “跨越整个 20ms 睡眠窗”，又把已证多跳链限定为“未建立直接阻塞关系”；typed 时间区间和链路正文仍正确，先按模型软措辞精度观察，
+   不扫描、拒绝或系统改写正文。
+3. B1305 的旧 `edge_anchor_node_identity_conflict` 未再出现在本轮，但模型没有自然提交 r822 的
+   `BusContext -> BuildAgentContext` 精确 participant-carrier 形，因此本轮只证明无回归，不能把 B1305 记为生产正证。B1306 的
+   `lease_status=absent` 形同样未自然触发，继续保持实现+测试闭环、待生产形正证。
+4. 新 P0 `B1307-ORPHANCAPABILITYCARDINALITY1` 是确定性 lease 自冲突。首轮 relation delta 把 `Orch` 列入
+   `optional_orphan_cleanups`，表示模型只要选择对应 remove-capable failures，便可再选择 `remove_if_isolated` 或
+   `retain_as_context`。模型第 2/3/11 轮完整选择同代 10 个 failure refs 后，执行器仍确定性报告 `Orch` 保留可见 incident edge；
+   `retain_as_context` 也按合同要求仅适用于已经隔离的节点，因此同样拒绝。模型随后在同一条件上反复 13 次，最终改走新代 relation delta 才通过。
+5. 深审定位到两个同根结构缺陷，而非提示措辞或模型波动。候选生产者
+   `answerDocDiagramEdgeHasRemoveCapableFailure` 只按 block/from/to 和 remove action 判断，并允许
+   `BodyOccurrence<=0` 的一个 failure 覆盖同 pair 的每个可见 occurrence；它既不做 failure-ref 一对一消费，也不区分
+   `visible_body_edge/prior_anchor`（删除可见边）与 `stale_anchor/prior_anchor_metadata`（只删除隐藏 anchor）。执行器的
+   `atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures` 使用同样宽判据作二次授权。于是一个只删除 metadata 或只能删除第一条同端点边的 ref，
+   可以错误证明两条可见边都会消失；系统发布了实际上不可兑现的 typed capability。
+6. 最优根修不是放宽清理执行器，也不是根据错误 prose 自动替模型删节点。生产者与执行器必须共享同一 occurrence-aware 能力判据：只有
+   `visible_body_edge` 或会同步删除可见 occurrence 的 `prior_anchor` 才能覆盖一条可见边；`BodyOccurrence>0` 必须精确等于该 occurrence，
+   occurrence 缺省只允许同 pair 在 base 中唯一；同一个 `failure_ref` 对同一 participant 只能覆盖一个可见 occurrence。任一 incident edge
+   没有一条尚未消费的可执行 failure 时，不得发布/接受 orphan candidate。模型仍自行选择 remove/replace、是否清理、保留标签和布局。
+7. 施工与验收冻结为一个小批：先给共享 failure capability 增加可见载体与 occurrence 基数判定；同时修改 candidate producer 与 executor
+   recheck，避免“提示说可做、执行器说不可做”的分叉。回归至少覆盖：一个 occurrence+一个 visible-body failure 可清理；两个同 pair
+   occurrence+一个零 occurrence failure 不得铸候选；两个 occurrence+两个精确 failure 可以铸候选；metadata-only failure 不得证明可见边消失；
+   requested/boundary participant 保护不变。相关包全套与 release build 通过后提交推送，再以恰好 2 路 read+显式窗 Trace 回放。
+
+状态：
+
+`r823=runner-pass-2/2,human-trace-pass+read-final-pass/process-fail`；
+`B1305=no-regression/pending-exact-production-shape`；
+`B1306=tests-positive/pending-production-shape`；
+`B1307=implemented/P0/full-suite+release-build-pass/pending-production-replay`；
+`orphan-capability=visible-carrier+one-ref-per-occurrence+pair-cardinality`；
+`metadata-only-failure=cannot-authorize-visible-orphan-cleanup`；
+`system-edge/action/node/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r823`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r823`。
+
 ### §123.1339 r820/B1303：参与者候选要求添加却没有同代执行许可，形成 20 轮不可满足成文合同（2026-08-21）
 
 1. 从已推送 `31354c945` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与

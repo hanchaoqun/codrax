@@ -261,6 +261,41 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RequiresExplicitNe
 	})
 }
 
+func TestAtomicDiagramBaseIncidentEdgesRequireOneVisibleRemovalRefPerOccurrence(t *testing.T) {
+	base := types.AnswerBlock{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			" participant A",
+			" participant B",
+			" A->>B: first",
+			" A->>B: second",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "A.Call", ToIdentity: "B.Run",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "first",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{base}}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+		FromIdentity: "A.Call", ToIdentity: "B.Run", RelationKind: types.DiagramRelCall,
+	}}, nil)
+	if incident, ok := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, "A", lease); ok || incident != 1 {
+		t.Fatalf("one ambiguous ref must fail on the first uncovered repeated occurrence: incident=%d ok=%v lease=%+v", incident, ok, lease)
+	}
+
+	base.EdgeAnchors = nil
+	doc.Blocks[0] = base
+	lease = types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, BodyOccurrence: 2},
+	}, nil)
+	if incident, ok := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, "A", lease); !ok || incident != 2 {
+		t.Fatalf("two occurrence-bound visible refs should cover both edges: incident=%d ok=%v lease=%+v", incident, ok, lease)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_OrphanDispositionOmissionRepublishesLiveChoices(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{

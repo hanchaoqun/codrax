@@ -73,6 +73,46 @@ func (f AnswerDiagramRelationRepairFailure) AllowsAction(action string) bool {
 	return false
 }
 
+// CanRemoveVisibleBodyOccurrence reports whether this exact live capability
+// can delete one exact Mermaid body edge occurrence. Orphan cleanup is a
+// stronger claim than "some failure on the same endpoint pair is removable":
+// stale/prior-anchor-metadata removals change hidden metadata only, and one
+// occurrence-agnostic ref must not be counted once for every repeated edge.
+//
+// Callers still own one-to-one ref consumption across a participant's incident
+// edges. This method only checks one candidate occurrence and deliberately
+// reads no request text, model prose, visible label, or relation semantics.
+func (f AnswerDiagramRelationRepairFailure) CanRemoveVisibleBodyOccurrence(
+	blockID, fromNode, toNode string,
+	bodyOccurrence, samePairTotal int,
+) bool {
+	if bodyOccurrence < 1 || samePairTotal < bodyOccurrence ||
+		strings.TrimSpace(f.FailureRef) == "" ||
+		strings.TrimSpace(f.BlockID) != strings.TrimSpace(blockID) ||
+		strings.TrimSpace(f.FromNode) != strings.TrimSpace(fromNode) ||
+		strings.TrimSpace(f.ToNode) != strings.TrimSpace(toNode) ||
+		!f.AllowsAction(string(AnswerDiagramRelationRepairActionRemove)) {
+		return false
+	}
+	switch f.TargetCarrier {
+	case AnswerDiagramRelationRepairCarrierVisibleBodyEdge,
+		AnswerDiagramRelationRepairCarrierPriorAnchor:
+		// These are the only two carrier classes whose remove executor also
+		// removes a visible Mermaid occurrence. StaleAnchor and
+		// PriorAnchorMetadata intentionally preserve the body.
+	default:
+		return false
+	}
+	if f.BodyOccurrence > 0 {
+		return f.BodyOccurrence == bodyOccurrence
+	}
+	// A zero occurrence is unambiguous only when the rejected base contains
+	// exactly one visible edge for this endpoint pair. Reusing it across a
+	// duplicate pair would publish an orphan capability the executor cannot
+	// fulfill with one opaque ref.
+	return samePairTotal == 1
+}
+
 // AssignAnswerDiagramRelationRepairFailureRefs binds each structural failure
 // to the exact diagram carrier that produced it. The opaque reference is only
 // a retry selector: admission still requires membership in the live lease and

@@ -536,9 +536,16 @@ func atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(
 	if base.Diagram == nil || lease == nil {
 		return 0, false
 	}
+	edges := mermaidcompat.ParseEdges(base.Diagram.Body)
+	pairTotals := make(map[string]int)
+	for _, edge := range edges {
+		key := strings.TrimSpace(edge.From) + "\x00" + strings.TrimSpace(edge.To)
+		pairTotals[key]++
+	}
 	pairOccurrences := make(map[string]int)
+	usedFailureRefs := make(map[string]bool)
 	incident := 0
-	for _, edge := range mermaidcompat.ParseEdges(base.Diagram.Body) {
+	for _, edge := range edges {
 		from, to := strings.TrimSpace(edge.From), strings.TrimSpace(edge.To)
 		pairKey := from + "\x00" + to
 		pairOccurrences[pairKey]++
@@ -548,15 +555,15 @@ func atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(
 		incident++
 		matched := false
 		for _, failure := range lease.Failures {
-			if strings.TrimSpace(failure.BlockID) != strings.TrimSpace(base.ID) ||
-				!failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionRemove)) ||
-				strings.TrimSpace(failure.FromNode) != from || strings.TrimSpace(failure.ToNode) != to {
+			ref := strings.TrimSpace(failure.FailureRef)
+			if usedFailureRefs[ref] || !failure.CanRemoveVisibleBodyOccurrence(
+				base.ID, from, to, pairOccurrences[pairKey], pairTotals[pairKey],
+			) {
 				continue
 			}
-			if failure.BodyOccurrence <= 0 || failure.BodyOccurrence == pairOccurrences[pairKey] {
-				matched = true
-				break
-			}
+			usedFailureRefs[ref] = true
+			matched = true
+			break
 		}
 		if !matched {
 			return incident, false

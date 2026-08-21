@@ -17844,15 +17844,21 @@ func answerDocDiagramOptionalOrphanCleanupCandidates(
 				continue
 			}
 			incident, allRemovable := 0, true
+			usedFailureRefs := make(map[string]bool)
 			for _, item := range indexed {
 				if strings.TrimSpace(item.edge.From) != id && strings.TrimSpace(item.edge.To) != id {
 					continue
 				}
 				incident++
-				if !answerDocDiagramEdgeHasRemoveCapableFailure(lease, blockID, item.edge, item.occurrence) {
+				pairKey := strings.TrimSpace(item.edge.From) + "\x00" + strings.TrimSpace(item.edge.To)
+				failureRef, ok := answerDocDiagramEdgeRemoveFailureRef(
+					lease, blockID, item.edge, item.occurrence, pairOccurrences[pairKey], usedFailureRefs,
+				)
+				if !ok {
 					allRemovable = false
 					break
 				}
+				usedFailureRefs[failureRef] = true
 			}
 			if incident == 0 || !allRemovable {
 				continue
@@ -17875,24 +17881,24 @@ func answerDocDiagramOptionalOrphanCleanupCandidates(
 	return out
 }
 
-func answerDocDiagramEdgeHasRemoveCapableFailure(
+func answerDocDiagramEdgeRemoveFailureRef(
 	lease *types.AnswerDiagramRelationRepairLease,
 	blockID string,
 	edge mermaidcompat.Edge,
 	bodyOccurrence int,
-) bool {
+	samePairTotal int,
+	usedFailureRefs map[string]bool,
+) (string, bool) {
 	for _, failure := range lease.Failures {
-		if strings.TrimSpace(failure.BlockID) != blockID ||
-			!failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionRemove)) ||
-			strings.TrimSpace(failure.FromNode) != strings.TrimSpace(edge.From) ||
-			strings.TrimSpace(failure.ToNode) != strings.TrimSpace(edge.To) {
+		ref := strings.TrimSpace(failure.FailureRef)
+		if usedFailureRefs[ref] || !failure.CanRemoveVisibleBodyOccurrence(
+			blockID, edge.From, edge.To, bodyOccurrence, samePairTotal,
+		) {
 			continue
 		}
-		if failure.BodyOccurrence <= 0 || failure.BodyOccurrence == bodyOccurrence {
-			return true
-		}
+		return ref, true
 	}
-	return false
+	return "", false
 }
 
 func answerDocDiagramParticipantSurfaceKey(raw string) string {

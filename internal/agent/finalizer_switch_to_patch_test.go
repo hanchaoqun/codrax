@@ -1302,6 +1302,52 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 	}
 }
 
+func TestRequiredDiagramRelationRetryDoesNotPublishUnfulfillableRepeatedPairOrphanCleanup(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			" participant X as InternalController",
+			" participant A as Analyze",
+			" X->>A: first",
+			" X->>A: second",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "X", ToNode: "A", FromIdentity: "Internal.Run", ToIdentity: "Analyze",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "first",
+		}},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "X", ToNode: "A",
+		FromIdentity: "Internal.Run", ToIdentity: "Analyze", RelationKind: types.DiagramRelCall,
+		// Zero is intentionally ambiguous across the two same-pair body rows.
+		BodyOccurrence: 0,
+	}}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		!lease.Failures[0].AllowsAction(string(types.AnswerDiagramRelationRepairActionRemove)) {
+		t.Fatalf("test setup did not mint one remove-capable prior-anchor ref: %+v", lease)
+	}
+	if got := answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, nil); len(got) != 0 {
+		t.Fatalf("one zero-occurrence ref cannot promise removal of two visible occurrences: %+v", got)
+	}
+
+	// Two distinct visible-body refs, each bound to one occurrence, can fulfill
+	// the orphan contract and therefore remain an advertised model choice.
+	base.Blocks[0].EdgeAnchors = nil
+	lease = types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "X", ToNode: "A", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+		{BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "X", ToNode: "A", RelationKind: types.DiagramRelCall, BodyOccurrence: 2},
+	}, nil)
+	got := answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, nil)
+	foundX := false
+	for _, candidate := range got {
+		foundX = foundX || candidate.ParticipantID == "X"
+	}
+	if !foundX {
+		t.Fatalf("two exact refs should authorize the repeated-pair cleanup: %+v", got)
+	}
+}
+
 func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()

@@ -431,6 +431,48 @@ func TestAnswerDiagramRelationRepairLeaseIdentityOnlyFailureCanGainNodes(t *test
 	}
 }
 
+func TestAnswerDiagramRelationRepairFailureCanRemoveVisibleBodyOccurrence(t *testing.T) {
+	base := AnswerDiagramRelationRepairFailure{
+		FailureRef: "rf-live", BlockID: "diag", FromNode: "A", ToNode: "B",
+		TargetCarrier:  AnswerDiagramRelationRepairCarrierVisibleBodyEdge,
+		AllowedActions: []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove},
+		BodyOccurrence: 1,
+	}
+	if !base.CanRemoveVisibleBodyOccurrence("diag", "A", "B", 1, 2) {
+		t.Fatal("an exact visible-body occurrence must be removable")
+	}
+	if base.CanRemoveVisibleBodyOccurrence("diag", "A", "B", 2, 2) {
+		t.Fatal("one exact ref must not cover a sibling occurrence")
+	}
+
+	zeroOccurrence := base
+	zeroOccurrence.BodyOccurrence = 0
+	if !zeroOccurrence.CanRemoveVisibleBodyOccurrence("diag", "A", "B", 1, 1) {
+		t.Fatal("one occurrence-agnostic ref is safe for a unique pair")
+	}
+	if zeroOccurrence.CanRemoveVisibleBodyOccurrence("diag", "A", "B", 1, 2) {
+		t.Fatal("one occurrence-agnostic ref must not cover a repeated pair")
+	}
+
+	for _, carrier := range []AnswerDiagramRelationRepairTargetCarrier{
+		AnswerDiagramRelationRepairCarrierStaleAnchor,
+		AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+		AnswerDiagramRelationRepairCarrierLabelPair,
+	} {
+		metadataOnly := base
+		metadataOnly.TargetCarrier = carrier
+		if metadataOnly.CanRemoveVisibleBodyOccurrence("diag", "A", "B", 1, 1) {
+			t.Fatalf("carrier %q cannot authorize visible-body orphan cleanup", carrier)
+		}
+	}
+
+	priorAnchor := base
+	priorAnchor.TargetCarrier = AnswerDiagramRelationRepairCarrierPriorAnchor
+	if !priorAnchor.CanRemoveVisibleBodyOccurrence("diag", "A", "B", 1, 1) {
+		t.Fatal("a unique prior-anchor remove deletes its visible occurrence too")
+	}
+}
+
 func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 	m := NewMutableState("test")
 	lease := &AnswerDiagramRelationRepairLease{Version: 1, Failures: []AnswerDiagramRelationRepairFailure{{
