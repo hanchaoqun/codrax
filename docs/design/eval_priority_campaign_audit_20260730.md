@@ -57305,20 +57305,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    用户请求、模型原文、表题、说明列或最终答案，覆盖 ArkTS、Cangjie 及其他多行声明语法，而不是针对 `@Entry` 样例拟合。
 4. 新回归钉住两臂：coarse role 只保留 type、sibling function 的观察行与声明证据错开一行时，两条精确 principal row id 仍可绑定；同文件两个
    同名 `@builder` 成员不得获得跨行 alias。定向测试与完整 `go test ./internal/tool -count=1` 通过。
-5. `B1299-DATAREFERENCEDECISIONHANDOFF1/P1`：数据材料、active 过滤、标签 join、4 条 contribution 与 reconcile 全部完成，模型在 thinking、goal 和
+5. `B1301-DATAREFERENCEDECISIONHANDOFF1/P1`：数据材料、active 过滤、标签 join、4 条 contribution 与 reconcile 全部完成，模型在 thinking、goal 和
    success criteria 中也识别了 `targets.csv` 顺序，但初始 typed `output_contract.complete_reference=false`。系统后续发现结构化 candidate
    `targets.csv#canonical_label`，却因它“未声明”而让 deterministic final-projection fallback 按 reconcile groups 的 group_key 排序终结，输出
    `17,4,5`；正确目标槽是 GroupA/GroupX/GroupC，应为 `17,0,5`。现有 output graph 甚至因候选和答案同为 3 项而显示 satisfied，未检查槽身份。
-6. B1299 的施工边界冻结：结构 census 只能说明候选存在，不能授权系统把它硬化成 complete-reference；但系统也不能在候选仍未确权时自行选
+6. B1301 的施工边界冻结：结构 census 只能说明候选存在，不能授权系统把它硬化成 complete-reference；但系统也不能在候选仍未确权时自行选
    present-groups 并终结。下一小批令 deterministic projection fallback 在 `candidate_present && !declared` 时让位给 typed 规划轮，由模型基于已读
    材料/规则明确选择 complete-reference 或 present-only；一旦选择前者，沿用既有逐槽 grounding、零填充和 domain mismatch 门。不得扫描
    instructions/request/model/final prose 做硬门，也不得由系统选择引用集合。
+7. B1301 已按上述边界施工：`BuildRequiredOutputProjectionPlan` 同时覆盖 output-graph 与 legacy next-stage fallback 两条接线；只要存在
+   `ReferenceGap.Present && !Declared`（或图上同义 typed 状态），确定性 fallback 返回无计划，由正常 continuation planner 接手。没有 reference
+   candidate 的普通严格输出仍自动 assemble；已声明 complete-reference 的路径仍由原逐槽 grounding、零填充和 domain alignment fail-closed 门
+   收口；已完成的显式 present-only answer 也不被候选 census 硬改写。
+8. 回归分别钉住：未确权 candidate 不生成普通 assemble plan；workflow next-stage fallback 也必须让位给 planner；无 candidate 的普通
+   reconcile groups 仍生成单一 assemble action；既有 undeclared subset 完成、declared same-count slot mismatch、declared zero-fill 等 REPL 回归保持。
+   `go test ./internal/dataworkflow ./internal/repl -count=1` 全绿。
 
 状态：
 
 `r817=runner-fail-2/2,human-system-gap-2/2`；
 `B1300=implemented/full-internal-tool-suite-pass/pending-replay`；
-`B1299=confirmed/P1-next`；
+`B1301=implemented/dataworkflow+repl-full-suite-pass/pending-replay`；
 `cross-line-declaration-alias=unique-file+member+typed-family-only`；
 `ambiguous-same-file-member-family=fail-closed`；
 `undeclared-reference-candidate=soft/model-owned`；

@@ -339,7 +339,7 @@ func TestBuildRequiredOutputProjectionPlanUsesOutputGraph(t *testing.T) {
 	}
 }
 
-func TestBuildRequiredOutputProjectionPlanDoesNotPromiseUndeclaredReferenceProjection(t *testing.T) {
+func TestBuildRequiredOutputProjectionPlanDefersUndeclaredReferenceScopeToPlanner(t *testing.T) {
 	gap := ReferenceProjectionGap{
 		Present: true,
 		Candidate: dataquery.ReferenceKeyCandidate{
@@ -347,20 +347,33 @@ func TestBuildRequiredOutputProjectionPlanDoesNotPromiseUndeclaredReferenceProje
 		},
 	}
 	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
-		Output:         dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
-		OutputGraph:    OutputProjectionGraph{Status: OutputProjectionStatusMissingProjection},
+		Output: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		OutputGraph: OutputProjectionGraph{
+			Status:                     OutputProjectionStatusMissingProjection,
+			ReferenceCandidatePresent:  true,
+			ReferenceCandidateDeclared: false,
+			ReferenceCandidatePath:     "targets.csv",
+			ReferenceCandidateField:    "canonical_label",
+		},
 		UseOutputGraph: true,
 		ReferenceGap:   gap,
 	})
-	if !ok || len(plan.Actions) != 1 {
-		t.Fatalf("plan=%+v ok=%t, want ordinary assemble projection", plan, ok)
+	if ok || len(plan.Actions) != 0 {
+		t.Fatalf("plan=%+v ok=%t, deterministic fallback must defer the typed reference-scope decision to the planner", plan, ok)
 	}
-	action := plan.Actions[0]
-	if plan.OutputContract.CompleteReference || action.Params["complete_reference"] != "" || action.Params["reference_path"] != "" {
-		t.Fatalf("plan=%+v, undeclared candidate must not become hard projection authority", plan)
-	}
-	if strings.Contains(plan.WhyThisBatch, "complete structural reference") || strings.Contains(plan.NextBatch, "fill missing groups") {
-		t.Fatalf("plan=%+v, narrative must not promise an undeclared zero-fill projection", plan)
+}
+
+func TestBuildRequiredOutputProjectionPlanKeepsOrdinaryFallbackWithoutReferenceCandidate(t *testing.T) {
+	plan, ok := BuildRequiredOutputProjectionPlan(OutputProjectionPlanInput{
+		Output:         dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+		OutputGraph:    OutputProjectionGraph{Status: OutputProjectionStatusMissingProjection},
+		UseOutputGraph: true,
+		Result: dataquery.Result{Reconcile: &dataquery.ReconcileReport{Groups: []dataquery.ReconcileGroup{{
+			GroupKey: dataquery.LooseText("A"), Actual: dataquery.LooseText("10"),
+		}}}},
+	})
+	if !ok || len(plan.Actions) != 1 || plan.Actions[0].Kind != dataquery.DataActionAssembleAnswer {
+		t.Fatalf("plan=%+v ok=%t, ordinary projection without a reference candidate must keep deterministic fallback", plan, ok)
 	}
 }
 
@@ -577,6 +590,36 @@ func TestBuildWorkflowNextStageFallbackPlanProjectsFinalAnswer(t *testing.T) {
 	}
 	if !strings.Contains(reason, "answer projection") {
 		t.Fatalf("reason=%q, want answer projection reason", reason)
+	}
+}
+
+func TestBuildWorkflowNextStageFallbackPlanDefersUndeclaredReferenceScope(t *testing.T) {
+	result := dataquery.Result{
+		Contributions: []dataquery.ContributionRecord{{
+			ItemID: dataquery.LooseText("row-1"), GroupKey: dataquery.LooseText("GroupA"),
+			Metric: dataquery.LooseText("value"), Value: dataquery.LooseText("10"), Operation: dataquery.LooseText("add"),
+		}},
+		Reconcile: &dataquery.ReconcileReport{Status: dataquery.LooseText("pass"), Groups: []dataquery.ReconcileGroup{{
+			GroupKey: dataquery.LooseText("GroupA"), Metric: dataquery.LooseText("value"), Actual: dataquery.LooseText("10"),
+		}}},
+	}
+	plan, _, ok := BuildWorkflowNextStageFallbackPlan(WorkflowNextStageFallbackPlanInput{
+		Current:  dataquery.TaskPlan{Status: "complete", Goal: "format final values"},
+		Coverage: dataquery.CoverageContract{ContributionLedgerRequired: true, ReconcileRequired: true},
+		Output:   dataquery.OutputContract{Format: dataquery.OutputCSVLine, ExplanationAllowed: false},
+		Facts: StageFacts{
+			MaterialCoverageSufficient: true, ContributionRecords: 1,
+			ContributionLedgerRequired: true, ReconcileRequired: true, HasReconcile: true,
+		},
+		Result: &result,
+		ReferenceGap: ReferenceProjectionGap{
+			Present: true, Declared: false,
+			Candidate: dataquery.ReferenceKeyCandidate{Path: "targets.csv", Field: "canonical_label", KeyCount: 3},
+		},
+		ReasonPrefix: "terminal plan ended",
+	})
+	if ok || len(plan.Actions) != 0 {
+		t.Fatalf("plan=%+v ok=%t, unresolved typed reference scope must return to the model planner", plan, ok)
 	}
 }
 

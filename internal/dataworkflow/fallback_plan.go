@@ -574,10 +574,29 @@ type OutputProjectionPlanInput struct {
 }
 
 func BuildRequiredOutputProjectionPlan(input OutputProjectionPlanInput) (dataquery.TaskPlan, bool) {
+	// A discovered reference universe without a model-owned declaration is a
+	// typed decision point, not a deterministic projection recipe. Returning no
+	// fallback keeps both choices available to the next planner turn instead of
+	// silently treating current reconcile groups as the final universe.
+	if input.ReferenceGap.Present && !input.ReferenceGap.Declared {
+		return dataquery.TaskPlan{}, false
+	}
 	needsProjection := false
 	if input.UseOutputGraph {
 		switch input.OutputGraph.Status {
 		case OutputProjectionStatusMissingProjection:
+			// A structural reference candidate is useful typed context but is
+			// not authority to choose complete-reference versus present-only
+			// output. Do not let the deterministic fallback silently make the
+			// opposite choice either by projecting only current reconcile
+			// groups. Yield to the planner so the model can re-decide the scope
+			// after real material fields and ledgers are available. Once the
+			// model declares a reference, the existing slot grounding and
+			// zero-fill path remains deterministic and fail-closed.
+			if input.OutputGraph.ReferenceCandidatePresent &&
+				!input.OutputGraph.ReferenceCandidateDeclared {
+				return dataquery.TaskPlan{}, false
+			}
 			needsProjection = true
 		case OutputProjectionStatusIncompleteReference:
 			if !input.ReferenceGap.Present {

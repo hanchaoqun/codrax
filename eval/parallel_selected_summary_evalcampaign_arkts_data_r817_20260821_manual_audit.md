@@ -23,6 +23,6 @@ This scaffold is for human review. The runner records typed metrics and declared
 
 ## Manual conclusion
 
-- `B1299`（数据引用投影）：系统在发现一个未确权的结构化 reference candidate 时，不应自行按现有 reconcile groups 终结；应回到 typed 规划轮让模型明确选择 complete-reference 或 present-only，再由既有逐槽 grounding gate 校验。禁止从 instructions/request prose 做硬扫描或由系统替模型选择目标集合。
+- `B1301`（数据引用投影）：系统在发现一个未确权的结构化 reference candidate 时，不应自行按现有 reconcile groups 终结；应回到 typed 规划轮让模型明确选择 complete-reference 或 present-only，再由既有逐槽 grounding gate 校验。禁止从 instructions/request prose 做硬扫描或由系统替模型选择目标集合。
 - `B1300`（跨行声明身份）：多语言装饰器/修饰符和声明可落在不同行。准入应使用唯一的 `file + member + typed surface_family` 结构身份桥；同文件同名同族歧义继续 fail-closed。该方案适用于 ArkTS、Cangjie 及其他装饰器语言，不按单个 case 或固定行距拟合。
 - 本批不涉及 Trace 执行面；显式时间窗、Trace 因果投影、系统自动补采、链上根因和 4ms/4m 活动流策略均未修改。
