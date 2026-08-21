@@ -188,6 +188,34 @@ func TestApplyModelAuthoredDiagramAtomicEdits_UsesLiveFailureRefWithoutRetypingC
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefAcceptsOnlyMatchingRedundantCoordinates(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueNoEvidence,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef == "" {
+		t.Fatalf("test setup missing live failure ref: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef,
+		BlockID:    "diag", BodyOccurrence: 1, Action: "remove",
+		Match: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelPrecedence,
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("a live ref must absorb matching legacy coordinates without another model retry: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 || strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B") ||
+		len(patch.ReplaceBlocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("matching redundant coordinates changed the ref-selected outcome: %+v", patch.ReplaceBlocks)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_LiveFailureRefsUseSameGenerationStagingBody(t *testing.T) {
 	mut := types.NewMutableState("same-generation relation staging")
 	accepted := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
@@ -508,7 +536,9 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefScopeFailsClosed(t *test
 		{name: "unknown or stale", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: "rf1-not-live", Action: "remove"}}, want: "unknown or stale"},
 		{name: "cross block", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, BlockID: "other", Action: "remove"}}, want: "belongs to block_id"},
 		{name: "duplicate consumption", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove"}, {FailureRef: ref, Action: "remove"}}, want: "reuses failure_ref"},
-		{name: "conflicting match", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelPrecedence}}}, want: "mutually exclusive"},
+		{name: "conflicting match", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "B", ToNode: "A", RelationKind: types.DiagramRelPrecedence}}}, want: "already selects from_node"},
+		{name: "conflicting identity", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", FromIdentity: "Other", RelationKind: types.DiagramRelPrecedence}}}, want: "already selects from_identity"},
+		{name: "conflicting relation", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}}}, want: "already selects relation_kind"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

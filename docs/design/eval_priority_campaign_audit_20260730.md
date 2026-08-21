@@ -59279,3 +59279,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r799`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r799`。
+
+### §123.1305 B1279：失败引用吸收完全一致的冗余坐标，冲突字段继续 fail-closed（2026-08-20）
+
+1. `B1279-FAILUREREFREDUNDANTSELECTOR1/P1` 已按“ref 单权威、兼容输入不增权”施工。r799 的模型已经正确选择 live `failure_ref` 和允许的
+   remove 动作，但仍按旧习惯复制同一个 block、match 与 body occurrence；这些值与 ref 指向的同代载体完全一致，却被旧 resolver 无条件判为
+   mutually exclusive，平白多耗一轮成文。该失败发生在结构化 JSON 参数层，不是关系真伪或模型答案波动。
+2. resolver 现在先从 live lease 解出精确 failure、目标 carrier、同代 block、body occurrence 和实际 prior/body selector，再检查冗余输入。
+   `block_id` 与 `body_occurrence` 沿用原有逐值一致性校验；`match` 必须是合法完整 selector，from/to node、relation kind 以及任何显式填写的
+   from/to identity 必须逐字段等于 ref 解出的真实载体。全部一致时丢弃冗余 selector 并执行 ref；任一字段反向、跨节点、跨 identity、换 relation、
+   跨 block 或 occurrence 冲突仍在接触图正文前 fail-closed，并直接报告冲突字段。
+3. 该兼容臂不读取 Mermaid message、可见 label、请求、thinking 或答案 prose，也不会自动选择 action、edge、direction、relation 或 wording。
+   工具教学仍只要求最小 `{failure_ref, action}`，因此正确心智保持最小；兼容臂只吸收模型多填但语义恒等的旧式坐标，不能用冗余字段扩大 opaque ref
+   的 lease 权限。
+4. 回归覆盖 r799 原形：同一个 ref 加一致 block、partial match 和 body occurrence 一次删除成功；同时钉住 cross-block、反向 node、错误 identity、
+   错误 relation、错误 body occurrence、unknown/stale ref、重复消费和未允许 action 均继续失败。B1277 的四条同 pair occurrence ref 单轮删除回归
+   同时保持通过。
+
+状态：
+
+`B1279=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`failure-ref=sole-live-authority`；
+`matching-redundant-selector=accepted+discarded-before-execution`；
+`conflicting-redundant-selector=fail-closed+field-specific`；
+`minimal-json-teaching={failure_ref,action}`；
+`system-relation/action/label/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
