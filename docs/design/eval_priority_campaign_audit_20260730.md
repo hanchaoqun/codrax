@@ -57291,6 +57291,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1321 r808/B1291：同级逐成员表不再把一个耦合关系调查拆成内部名称子课题（2026-08-21）
+
+1. r808 从已推送 `b76aff12d` 构建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 247s、read 536s。Trace 人工通过：精确 2.000..2.020s、4 节点唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级候选、主要占时/规则可消双账户、背景隔离与完整 `Trace 因果投影` 均在；活动流没有固定 4ms/4m 降级。
+2. read 最终答案人工 partial：模型产出了合法四阶段 sequenceDiagram 与逐阶段输入/输出/状态载体表，一次关系拒绝后自行选择只保留三条已证 precedence，系统未代写答案或替模型选择关系。但总过程仍有 46 explorer iteration、30 次 read、26 次 midloop；图最终只保留阶段先后，Orchestrator/BusContext 交互明显变薄，正文对条件性 LogTriage/PerfTriage 位于 analyze 前还是 analyze 后还存在局部矛盾。
+3. 新 P1 `B1291-COUPLEDPERMEMBERTABLESUBTOPIC1` 已确认。Analyzer 最终没有显式 `SubTopics`，却保留了预扫描/支持性 `AnalyzerHints.Entities`，其中 `emit_analysis` 与 `emit_answer_document_v2` 因共同 `emit_` 前缀被 R2 自动派生成两条调查线。触发根因是 `r2CoupledRelationDiagramUsesSharedInvestigation` 把 `HasPerMemberTable` 误当作显式成员集合边界：请求实际要求的是一个耦合 sequenceDiagram 加一张同级逐阶段表，表的存在并不证明任意 affix family 就是成员宇宙。
+4. 泛化根修删除该错误权限：单个 required flow/sequence/call_dag/architecture 图在没有明确枚举边界时保持一个共享调查，即使还要求逐成员表；明确 category enumeration、active completeness、declared member count 或多个 typed question buckets 仍可进入独立成员车道。无耦合 required diagram 的表格问题保留原 R2 行为；模型显式 SubTopics 继续绝对优先。
+5. 判据只消费 schema-valid typed fields，不读取用户请求、模型 thinking、最终答案、Mermaid label/message 或仓库名称；不选择边、节点、关系、表成员、答案或结论。Trace 的时间窗、自动补采、链上根因、两轴账本及因果投影代码路径未修改。回归分别钉住“required sequence + sibling table 不拆”和“无 coupled diagram 的 table-only 仍可拆”；定向 amplifier 测试、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. r808 没有自然复现 B1290 的畸形 enum 片段，因此 B1290 仍只算生产调用层测试正证；B1288 的 addition-ref 原子执行本轮也未触发，不能虚报生产转正。下一步以 B1291 提交构建不可变二进制，再严格 2 路复放同一 read+Trace，验收 read 不再出现内部 `emit_*` 子课题、探索范围收敛且关系图/表不缩水，同时 Trace 全面不回归。
+
+状态：
+
+`r808=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1290=tests-positive/no-r808-production-trigger`；
+`B1288-addition-ref-execution=tests-positive/pending-production-trigger`；
+`B1291=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`coupled-required-relation-diagram+sibling-table=one-shared-investigation`；
+`explicit-enumeration/completeness/declared-count/multi-bucket=independent-lanes-preserved`；
+`system-relation/member/answer/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r808`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r808`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

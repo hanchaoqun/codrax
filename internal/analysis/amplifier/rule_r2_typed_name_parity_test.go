@@ -379,6 +379,40 @@ func TestR2_DoesNotSplitGenericRequiredRelationDiagramWithoutEnumeration(t *test
 	}
 }
 
+func TestR2_DoesNotSplitCoupledRequiredRelationDiagramForSiblingPerMemberTable(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		PredicateAxis: types.AxisFlow,
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"emit_analysis", "emit_answer_document_v2"}},
+		Predicates: types.SemanticPredicates{
+			HasPerMemberTable: true,
+			IsCrossComponent:  true,
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 0 || len(collectR2Observations(obs)) != 0 {
+		t.Fatalf("a sibling detail table must not split one coupled relation investigation: topics=%+v obs=%+v", got.SubTopics, obs)
+	}
+}
+
+func TestR2_PerMemberTableWithoutCoupledDiagramStillAllowsAffixLanes(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"emit_analysis", "emit_answer_document_v2"},
+		},
+		Predicates: types.SemanticPredicates{
+			HasPerMemberTable: true,
+			IsCrossComponent:  true,
+		},
+	}
+	got, obs := Amplify(rm)
+	if len(got.SubTopics) != 2 || len(collectR2Observations(obs)) != 1 {
+		t.Fatalf("table-only questions retain existing affix-lane behavior: topics=%+v obs=%+v", got.SubTopics, obs)
+	}
+}
+
 func TestR2_RequiredDiagramDoesNotHideExplicitCrossComponentEnumeration(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,

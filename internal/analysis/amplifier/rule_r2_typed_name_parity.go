@@ -301,11 +301,14 @@ func r2TypedNameParitySubTopics(in types.RequestModel, out *types.RequestModel) 
 // r2CoupledRelationDiagramUsesSharedInvestigation is the typed boundary
 // between one relation surface and genuinely independent subject lanes. It
 // deliberately does not inspect RawRequest, entity names, model prose, or
-// repository content. An explicit set/table/bucket obligation wins because
-// that shape can legitimately benefit from per-member evidence lanes.
+// repository content. An explicit set/bucket membership obligation wins
+// because that shape can legitimately benefit from per-member evidence lanes.
+// HasPerMemberTable alone does not establish such a membership universe: a
+// coupled workflow question can ask for one relation diagram and a sibling
+// per-stage detail table. In that shape identifier affixes remain search hints,
+// not authority to split the investigation into unrelated lanes.
 func r2CoupledRelationDiagramUsesSharedInvestigation(rm types.RequestModel) bool {
 	if rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.HasPerMemberTable ||
 		rm.CompletenessObligation.IsActive() ||
 		(rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0) ||
 		len(rm.QuestionStructure().Buckets) >= 2 {
