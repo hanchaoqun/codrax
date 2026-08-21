@@ -59044,3 +59044,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1299 B1275：关系失败引用与下一轮补丁统一到同一草稿代次（2026-08-20）
+
+1. `B1275-RELATIONLEASEPATCHBASEGENERATION1/P0` 已根修。系统继续严格区分三类状态：已通过全部校验、可交付给用户的 accepted answer；
+   首次完整成文失败留下的 rejected-full base；以及一个仅限同任务重试、不可见的 pending patch candidate。第三类只在模型提交的补丁已完成
+   结构合并和规范化、随后被 merged-document hard validator 拒绝时建立，内容是模型刚提交的完整合并结果，而不是系统重写。
+2. 后续 `emit_answer_document_patch`、patch-base block roster、关系 repair lease 和 `failure_ref` 原子编译统一优先读取同一个 pending
+   candidate。这样失败增量若是在代次 N 的 Mermaid body 上铸造，下一轮模型复制其引用时也必定作用于代次 N，不再回到代次 N-1 后报
+   `Mermaid body has no matching edge`。回归覆盖一个 staged 图上的两条 live failure refs 同轮删除并成功提交，且未提及的 summary 保留 staged
+   版本，直接锁定 r796 的真实代际分裂。
+3. B1266 的事务红线没有回退：被拒补丁不会进入 accepted answer，也不会改写 rejected-full base，更不会展示给用户；只有后续补丁通过全部
+   校验后才一次性提交。JSON 解码失败、补丁结构/ID/原子操作失败以及 relation lease 越界等在尚未形成合法 merged candidate 前的失败，不会
+   推进 pending base。
+4. 生命周期明确收口：成功成文、fresh full emit、任务级/fallback reset 都清空 pending candidate；getter/setter 均防御性深拷贝。同一 finalizer
+   修复轮可以保留草稿，以便模型继续修正，但它始终不是发布态。工具 schema 也明确区分“没有编辑成为已接受答案”和“已结构合并的模型草稿可作为
+   下一补丁基线”，避免继续向模型教授互相矛盾的事务合同。
+5. 回归覆盖 accepted/rejected-full 不变、pending candidate 精确保留、staged > accepted > retry snapshot > rejected-full 的单一优先级、成功与
+   reset 清空、同代多 failure-ref 执行；完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 本批不读取用户输入、模型输出正文或 Mermaid label 来做门控；不由系统选择、删除、恢复、改向或命名关系；不修改 Trace 查询、显式时间窗、
+   自动补采、根因排序或因果投影。下一批按 r796 冻结项补齐 typed Trace 读者事实与 JSON 字段作用域教学。
+
+状态：
+
+`B1275=implemented/full-suite-pass/pending-production-replay`；
+`accepted-answer=rejected-patch-zero-write`；
+`pending-patch-candidate=model-authored/retry-local/not-user-visible`；
+`failure-ref+roster+patch-base=same-generation`；
+`parse/structural/lease-scope-failure=no-candidate-advance`；
+`fresh-full-emit/success/task-reset=clear-staging`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -184,6 +185,50 @@ func TestApplyModelAuthoredDiagramAtomicEdits_UsesLiveFailureRefWithoutRetypingC
 	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "B" ||
 		strings.Contains(got.Diagram.Body, "A->>B") || !strings.Contains(got.Diagram.Body, "B->>C: keep label") {
 		t.Fatalf("ref-selected remove changed unmentioned graph content: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_LiveFailureRefsUseSameGenerationStagingBody(t *testing.T) {
+	mut := types.NewMutableState("same-generation relation staging")
+	accepted := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "accepted summary"},
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram",
+		}},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, accepted)
+	staged := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "staged summary"},
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    A->>B: first\n    B->>C: second",
+		}},
+	}}
+	failures := []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: diagramCallEdgeIssueMissingAnchor, RelationKind: types.DiagramRelCall, FromNode: "A", ToNode: "B", FromIdentity: "A.Run", ToIdentity: "B.Handle"},
+		{BlockID: "flow", Issue: diagramCallEdgeIssueMissingAnchor, RelationKind: types.DiagramRelCall, FromNode: "B", ToNode: "C", FromIdentity: "B.Handle", ToIdentity: "C.Store"},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(staged, failures, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("expected two live failures: %+v", lease)
+	}
+	mut.SetPendingAnswerDocumentPatchBase(staged)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[
+			{"failure_ref":%q,"action":"remove"},
+			{"failure_ref":%q,"action":"remove"}
+		]
+	}`, lease.Failures[0].FailureRef, lease.Failures[1].FailureRef)
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(params))
+	if err != nil || !res.Success {
+		t.Fatalf("all refs must execute against their staged generation: res=%+v err=%v", res, err)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || got.Blocks[0].Text != "staged summary" || len(mermaidcompat.ParseEdges(got.Blocks[1].Diagram.Body)) != 0 {
+		t.Fatalf("accepted document must be staged generation with only selected edges removed: %+v", got)
 	}
 }
 

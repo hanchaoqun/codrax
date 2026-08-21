@@ -16987,6 +16987,9 @@ func answerDocumentPatchBaseDocumentInMutable(mut *types.MutableState) *types.An
 	if mut == nil {
 		return nil
 	}
+	if doc := mut.PendingAnswerDocumentPatchBase(); doc != nil && len(doc.Blocks) > 0 {
+		return doc
+	}
 	if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
 		return doc
 	}

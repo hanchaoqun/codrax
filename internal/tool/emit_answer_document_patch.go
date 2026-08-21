@@ -16,7 +16,8 @@ import (
 // tool. On retry paths the LLM emits a *delta* (this tool) rather
 // than the full document (emit_answer_document). The system applies
 // the patch to the previous emit (read from
-// MutableState.AnswerDocumentV2 OR the typed retry-state snapshot)
+// the retry-local staged patch, MutableState.AnswerDocumentV2, or the typed
+// retry-state snapshot)
 // and writes the resulting full doc to Mutable.
 //
 // Why this tool exists despite emit_answer_document already
@@ -59,7 +60,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
-		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the next patch base. The next attempt still targets the same previous document, so resubmit every intended edit together with the correction named by the error. Only an accepted patch advances the document.\n\n" +
+		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the accepted answer. When a patch was structurally applicable and only a merged-document validator rejected it, that exact model-authored merged draft remains a retry-local staging base for the next patch; it is never user-visible until a later patch passes every validator. Earlier accepted/rejected-full documents remain unchanged. The retry prompt publishes the live staging block roster, so correct the named failure against that current base.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
@@ -282,11 +283,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			"emit_answer_document_patch requires a writable context")
 	}
 
-	// Locate the previous emit. Prefer Mutable.AnswerDocumentV2()
-	// (the live state — most recent successful emit). Fall back to
+	// Locate the previous emit. Prefer the retry-local staged patch when one
+	// exists: it is the exact model-authored merged candidate that produced the
+	// latest validator failures and relation refs, not accepted answer state.
+	// Otherwise prefer Mutable.AnswerDocumentV2() (the live state — most recent
+	// successful emit). Fall back to
 	// RetryState.PrevEmitJSON (snapshot taken at retry-decision
 	// time) when AnswerDocumentV2 has been cleared by ResetForFallback.
-	prev := ctx.Mutable.AnswerDocumentV2()
+	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
+	if prev == nil {
+		prev = ctx.Mutable.AnswerDocumentV2()
+	}
 	if prev == nil {
 		prev = recoverPrevFromRetryState(ctx.Mutable)
 	}
@@ -506,14 +513,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "pre-emit structural", advisoryHints)
 				}
 				if len(hardHints) > 0 {
-					// A patch is a transaction over the previously visible/recoverable
-					// document. Do not advance LastRejectedAnswerDocumentV2 with a
-					// merged carrier that this same call rejects: within one finalizer
-					// dispatch the model cannot inspect that hidden new base, so later
-					// exact/occurrence edits would target an unknowable state. The
-					// initial rejected full emit remains available as the stable patch
-					// base; only persistMergedAnswerDocumentWithAttachmentPolicy below
-					// advances it after all gates accept the patch.
+					// Keep accepted state and the initial rejected-full base unchanged,
+					// but retain this exact normalized merged candidate as retry-local
+					// staging state. The model authored every visible change; the next
+					// patch only refines it. This keeps live failure refs and block
+					// rosters on one generation without making a rejected answer visible.
+					ctx.Mutable.SetPendingAnswerDocumentPatchBase(merged)
 					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
 						"%s", formatEmitFixHints(hardHints))
 				}

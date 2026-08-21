@@ -248,6 +248,33 @@ func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 	}
 }
 
+func TestMutableState_PendingAnswerDocumentPatchBaseLifecycle(t *testing.T) {
+	m := NewMutableState("test")
+	staged := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{{
+		ID: "summary", Kind: BlockSummary, Text: "staged",
+	}}}
+	m.SetPendingAnswerDocumentPatchBase(staged)
+	staged.Blocks[0].Text = "caller mutation"
+	got := m.PendingAnswerDocumentPatchBase()
+	if got == nil || got.Blocks[0].Text != "staged" {
+		t.Fatalf("setter must retain a defensive staged copy: %+v", got)
+	}
+	got.Blocks[0].Text = "reader mutation"
+	if fresh := m.PendingAnswerDocumentPatchBase(); fresh == nil || fresh.Blocks[0].Text != "staged" {
+		t.Fatalf("getter must return a defensive staged copy: %+v", fresh)
+	}
+
+	m.SetAnswerDocumentV2WithMutation(MutationPartial, &AnswerDocumentV2{DocumentModel: "v2"})
+	if got := m.PendingAnswerDocumentPatchBase(); got != nil {
+		t.Fatalf("accepted patch must clear retry-local staging: %+v", got)
+	}
+	m.SetPendingAnswerDocumentPatchBase(staged)
+	m.ResetAnswerDocumentV2()
+	if got := m.PendingAnswerDocumentPatchBase(); got != nil {
+		t.Fatalf("task reset must clear retry-local staging: %+v", got)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLease_FreezesRequiredDiagramCarrier(t *testing.T) {
 	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
 		ID: "flow", Kind: BlockDiagram,

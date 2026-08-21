@@ -6417,10 +6417,12 @@ func TestAnswerDocPatchBaseBlockRosterHintMirrorsPatchBasePrecedence(t *testing.
 	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "rejected", Kind: types.BlockDiagram}}})
 	mut.SetRetryState(&types.RetryState{PrevEmitJSON: json.RawMessage(`{"blocks":[{"id":"retry","kind":"table"}]}`)})
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "live", Kind: types.BlockSummary}}})
+	mut.SetPendingAnswerDocumentPatchBase(&types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "staged", Kind: types.BlockDiagram}}})
 
 	hint := answerDocPatchBaseBlockRosterHint(&types.AgentContext{Mutable: mut}, mut, types.BlockSummary)
-	if !strings.Contains(hint, `[{"id":"live","kind":"summary"}]`) || strings.Contains(hint, "retry") || strings.Contains(hint, "rejected") {
-		t.Fatalf("roster must mirror live > retry > rejected patch-base precedence: %q", hint)
+	if !strings.Contains(hint, `[{"id":"staged","kind":"diagram"}]`) || strings.Contains(hint, `"id":"live"`) ||
+		strings.Contains(hint, `"id":"retry"`) || strings.Contains(hint, `"id":"rejected"`) {
+		t.Fatalf("roster must mirror staged > live > retry > rejected patch-base precedence: %q", hint)
 	}
 }
 

@@ -1086,10 +1086,10 @@ func TestEmitAnswerDocumentPatch_NormalizedAddExistingPreservesPrincipalRelation
 	}
 }
 
-func TestEmitAnswerDocumentPatch_RejectedPatchDoesNotAdvanceRejectedDraftBase(t *testing.T) {
-	if got := (&EmitAnswerDocumentPatch{}).Description(); !strings.Contains(got, "if any patch validation fails, NONE") ||
-		!strings.Contains(got, "Only an accepted patch advances the document") {
-		t.Fatalf("patch schema teaching must state transactional rejection semantics: %s", got)
+func TestEmitAnswerDocumentPatch_RejectedPatchStagesCandidateWithoutAdvancingAcceptedOrFullRejectedBase(t *testing.T) {
+	if got := (&EmitAnswerDocumentPatch{}).Description(); !strings.Contains(got, "NONE of that patch's edits become the accepted answer") ||
+		!strings.Contains(got, "retry-local staging base") || !strings.Contains(got, "never user-visible") {
+		t.Fatalf("patch schema teaching must distinguish accepted state from retry staging: %s", got)
 	}
 	mut := types.NewMutableState("transactional rejected patch")
 	base := &types.AnswerDocumentV2{
@@ -1143,10 +1143,42 @@ func TestEmitAnswerDocumentPatch_RejectedPatchDoesNotAdvanceRejectedDraftBase(t 
 	}
 	got := mut.LastRejectedAnswerDocumentV2()
 	if got == nil || len(got.Blocks) != 2 || got.Blocks[1].Items[0].Label != "stable hop" {
-		t.Fatalf("rejected patch advanced the hidden patch base: %+v", got)
+		t.Fatalf("rejected patch changed the initial rejected-full base: %+v", got)
 	}
 	if got.Blocks[0].Text != "stable rejected summary" {
 		t.Fatalf("rejected patch changed an unrelated base block: %+v", got.Blocks[0])
+	}
+	staged := mut.PendingAnswerDocumentPatchBase()
+	if staged == nil || len(staged.Blocks) != 2 || staged.Blocks[1].Items[0].Label != "changed hidden hop" {
+		t.Fatalf("merged rejected patch must remain as the exact retry-local staging base: %+v", staged)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_PrefersRetryLocalStagingBase(t *testing.T) {
+	bus := newPatchTestBusContext()
+	bus.Mutable.SetPendingAnswerDocumentPatchBase(&types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "staged", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+			Text: "model-authored staged summary",
+		}},
+	})
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"replace_blocks":[{
+			"id":"staged","kind":"summary","surface_role":"principal",
+			"text":"refined staged summary"
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("patch must refine the live staging base: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].ID != "staged" || got.Blocks[0].Text != "refined staged summary" {
+		t.Fatalf("accepted patch did not commit the staged generation: %+v", got)
+	}
+	if bus.Mutable.PendingAnswerDocumentPatchBase() != nil {
+		t.Fatal("accepted patch must clear retry-local staging state")
 	}
 }
 

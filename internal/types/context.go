@@ -434,6 +434,15 @@ type MutableState struct {
 	// validation pipeline before it can be accepted.
 	lastRejectedAnswerDocumentV2 *AnswerDocumentV2
 
+	// pendingAnswerDocumentPatchBase is the retry-local staging document
+	// produced when a structurally applicable patch reaches the ordinary
+	// merged-document validators but is rejected there. It is not accepted or
+	// user-visible answer state. A following patch may refine this exact
+	// model-authored candidate, which keeps failure refs, block rosters, and
+	// atomic relation edits on the same generation. Successful persistence, a
+	// fresh full emit, or a task reset clears it.
+	pendingAnswerDocumentPatchBase *AnswerDocumentV2
+
 	// answerDiagramRelationRepairLease is a retry-local structural boundary for
 	// source-diagram relation repairs. It snapshots typed edge_anchors only;
 	// request text, reasoning/final prose, and Mermaid labels are never read.
@@ -3581,6 +3590,7 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
+	m.pendingAnswerDocumentPatchBase = nil
 	m.answerDiagramRelationRepairLease = nil
 	// A validated emit supersedes any earlier degraded recovery snapshot
 	// (XGAP-FIX ⑤): the prose defenses must scan the shipped document.
@@ -3713,6 +3723,29 @@ func (m *MutableState) LastRejectedAnswerDocumentV2() *AnswerDocumentV2 {
 	return cloneAnswerDocumentV2(m.lastRejectedAnswerDocumentV2)
 }
 
+// SetPendingAnswerDocumentPatchBase stores a defensive retry-local staging
+// document. It never changes AnswerDocumentV2 or LastRejectedAnswerDocumentV2;
+// only the patch tool and its exact retry-authority projections consume it.
+func (m *MutableState) SetPendingAnswerDocumentPatchBase(doc *AnswerDocumentV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingAnswerDocumentPatchBase = cloneAnswerDocumentV2(doc)
+}
+
+// PendingAnswerDocumentPatchBase returns the latest retry-local staged patch
+// candidate, or nil when no structurally applied rejected patch is pending.
+func (m *MutableState) PendingAnswerDocumentPatchBase() *AnswerDocumentV2 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneAnswerDocumentV2(m.pendingAnswerDocumentPatchBase)
+}
+
 // SetAnswerDiagramRelationRepairLease installs or clears the bounded typed
 // graph-repair scope for the next patch turn.
 func (m *MutableState) SetAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepairLease) {
@@ -3822,6 +3855,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
+	m.pendingAnswerDocumentPatchBase = nil
 	m.answerDiagramRelationRepairLease = nil
 	m.finalizerTypedRelationRecipeAvailable = false
 	m.finalizerTypedRelationRecipeAnchors = nil
