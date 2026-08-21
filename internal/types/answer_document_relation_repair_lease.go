@@ -412,18 +412,35 @@ type AnswerDiagramRelationRepairCandidate struct {
 	Source       string              `json:"source"`
 }
 
-// AnswerDiagramOrphanCleanupCandidate is a presentation-only option derived
+type AnswerDiagramOrphanDispositionAction string
+
+const (
+	AnswerDiagramOrphanDispositionRemove AnswerDiagramOrphanDispositionAction = "remove_if_isolated"
+	AnswerDiagramOrphanDispositionRetain AnswerDiagramOrphanDispositionAction = "retain_as_context"
+)
+
+// AnswerDiagramOrphanCleanupCandidate is a presentation-only decision derived
 // from the rejected diagram's parsed topology after the relation lease is
-// installed. It never authorizes an edge or requires deletion. The model may
-// choose remove_if_isolated in the same atomic patch; the executor rechecks
-// that every former incident edge belongs to the live failure set, the selected
-// edge edits actually leave the declaration isolated, and no requested or
-// uncertainty-bound participant is being removed.
+// installed. It never authorizes an edge or chooses a disposition. If the
+// model's selected relation edits actually isolate this declaration, the model
+// must explicitly remove it or retain it with model-authored visible wording.
+// The executor rechecks former incident edges, current isolation, requested
+// participants, and uncertainty boundaries before applying either action.
 type AnswerDiagramOrphanCleanupCandidate struct {
-	BlockID       string `json:"block_id"`
-	ParticipantID string `json:"participant_id"`
-	VisibleLabel  string `json:"visible_label,omitempty"`
-	AllowedAction string `json:"allowed_action"`
+	BlockID        string                                 `json:"block_id"`
+	ParticipantID  string                                 `json:"participant_id"`
+	VisibleLabel   string                                 `json:"visible_label,omitempty"`
+	AllowedActions []AnswerDiagramOrphanDispositionAction `json:"allowed_actions"`
+}
+
+func (c AnswerDiagramOrphanCleanupCandidate) AllowsAction(action string) bool {
+	action = strings.TrimSpace(action)
+	for _, allowed := range c.AllowedActions {
+		if action == string(allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 // AnswerDiagramRelationRepairDelta is the single producer-owned carrier for
@@ -576,10 +593,11 @@ type AnswerDiagramRelationRepairLeaseBlock struct {
 // relation remains unchanged. The lease never authors, deletes, relabels, or
 // reconnects an edge itself.
 type AnswerDiagramRelationRepairLease struct {
-	Version          int                                     `json:"version"`
-	Failures         []AnswerDiagramRelationRepairFailure    `json:"failures"`
-	AllowedAdditions []AnswerDiagramRelationRepairCandidate  `json:"allowed_additions,omitempty"`
-	Blocks           []AnswerDiagramRelationRepairLeaseBlock `json:"blocks"`
+	Version                int                                     `json:"version"`
+	Failures               []AnswerDiagramRelationRepairFailure    `json:"failures"`
+	AllowedAdditions       []AnswerDiagramRelationRepairCandidate  `json:"allowed_additions,omitempty"`
+	OptionalOrphanCleanups []AnswerDiagramOrphanCleanupCandidate   `json:"optional_orphan_cleanups,omitempty"`
+	Blocks                 []AnswerDiagramRelationRepairLeaseBlock `json:"blocks"`
 }
 
 // AnswerDiagramRelationRepairScopeViolation is a compact typed explanation of
@@ -1048,6 +1066,15 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 		}
 	}
 	out.AllowedAdditions = append([]AnswerDiagramRelationRepairCandidate(nil), in.AllowedAdditions...)
+	if len(in.OptionalOrphanCleanups) > 0 {
+		out.OptionalOrphanCleanups = make([]AnswerDiagramOrphanCleanupCandidate, len(in.OptionalOrphanCleanups))
+		for i, candidate := range in.OptionalOrphanCleanups {
+			out.OptionalOrphanCleanups[i] = candidate
+			out.OptionalOrphanCleanups[i].AllowedActions = append(
+				[]AnswerDiagramOrphanDispositionAction(nil), candidate.AllowedActions...,
+			)
+		}
+	}
 	if len(in.Blocks) > 0 {
 		out.Blocks = make([]AnswerDiagramRelationRepairLeaseBlock, len(in.Blocks))
 		for i, block := range in.Blocks {

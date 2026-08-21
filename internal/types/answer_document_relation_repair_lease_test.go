@@ -353,6 +353,11 @@ func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 	m := NewMutableState("test")
 	lease := &AnswerDiagramRelationRepairLease{Version: 1, Failures: []AnswerDiagramRelationRepairFailure{{
 		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+	}}, OptionalOrphanCleanups: []AnswerDiagramOrphanCleanupCandidate{{
+		BlockID: "flow", ParticipantID: "A",
+		AllowedActions: []AnswerDiagramOrphanDispositionAction{
+			AnswerDiagramOrphanDispositionRemove, AnswerDiagramOrphanDispositionRetain,
+		},
 	}}}
 	m.SetAnswerDiagramRelationRepairLease(lease)
 	got := m.AnswerDiagramRelationRepairLease()
@@ -360,7 +365,9 @@ func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 		t.Fatalf("lease was not retained: %+v", got)
 	}
 	got.Failures[0].FromNode = "mutated"
-	if fresh := m.AnswerDiagramRelationRepairLease(); fresh.Failures[0].FromNode != "A" {
+	got.OptionalOrphanCleanups[0].AllowedActions[0] = "mutated"
+	if fresh := m.AnswerDiagramRelationRepairLease(); fresh.Failures[0].FromNode != "A" ||
+		fresh.OptionalOrphanCleanups[0].AllowedActions[0] != AnswerDiagramOrphanDispositionRemove {
 		t.Fatal("lease getter must return a defensive copy")
 	}
 	m.SetAnswerDocumentV2WithMutation(MutationReplaceAll, &AnswerDocumentV2{DocumentModel: "v2"})

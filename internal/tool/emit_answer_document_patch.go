@@ -56,7 +56,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row and prefer `{failure_ref, action}` over retyping block/node/identity/relation/occurrence/body_occurrence coordinates. The live lease resolves only that exact failed carrier; legacy match/occurrence mirrors are ignored after the ref is validated, while an explicit cross-block conflict still fails. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id because the executor restores those invisible fields from the selected row and ignores legacy hidden-field mirrors. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates under stage, agent, or operation aliases. Legacy add without addition_ref must supply one complete new anchor and still cannot use failure_ref. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of only `participant_boundaries` on an existing diagram block. Use this for a participant coverage retry so the prior Mermaid body, relations, labels, and other block fields remain untouched.\n" +
-		"- `diagram_participant_edits`: optional model-authored cleanup of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row and action=remove_if_isolated, in the same patch that removes every failed incident edge. The executor rejects requested participants, unproven-boundary participants, declarations whose original incident edges are not all covered by remove-capable live failures, declarations that remain connected after edge edits, and ambiguous/non-standalone declarations. Omitting this operation keeps the declaration as model-authored context; the system never chooses deletion.\n" +
+		"- `diagram_participant_edits`: model-authored disposition of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row. If your same-patch edge edits leave that candidate isolated, explicitly choose remove_if_isolated, or retain_as_context with a non-empty model-authored visible_label. The executor rejects requested/boundary participants, uncovered or remaining edges, and ambiguous declarations. The system never chooses the disposition or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
@@ -162,13 +162,14 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "diagram_participant_edits": {
       "type": "array",
       "maxItems": 64,
-      "description": "Optional model-authored cleanup during a live local relation-repair lease. Copy one exact optional_orphan_cleanups row as block_id+participant_id and choose action=remove_if_isolated only when the same patch removes every failed incident edge. The executor removes only one unique standalone declaration line after rechecking that it is not requested or boundary-protected and is actually isolated. Omitting this operation retains the declaration as context; no edge, label, relation, or conclusion is inferred.",
+      "description": "Model-authored disposition during a live local relation-repair lease. Copy one exact optional_orphan_cleanups row as block_id+participant_id. If the same patch removes every incident edge, choose remove_if_isolated, or choose retain_as_context and author visible_label. The executor rechecks isolation and protections; the system chooses no action, wording, edge, relation, or conclusion.",
       "items": {
         "type": "object",
         "properties": {
           "block_id": {"type": "string"},
           "participant_id": {"type": "string"},
-          "action": {"type": "string", "enum": ["remove_if_isolated"]}
+          "action": {"type": "string", "enum": ["remove_if_isolated", "retain_as_context"]},
+          "visible_label": {"type": "string", "description": "Required and model-authored only for action=retain_as_context; omitted for remove_if_isolated."}
         },
         "required": ["block_id", "participant_id", "action"]
       }
@@ -391,6 +392,7 @@ type emitAnswerDiagramParticipantEdit struct {
 	BlockID       string `json:"block_id"`
 	ParticipantID string `json:"participant_id"`
 	Action        string `json:"action"`
+	VisibleLabel  string `json:"visible_label,omitempty"`
 }
 
 // localDiagramLeaseWholeBlockMutationViolation guards the execution path as
@@ -788,14 +790,18 @@ func answerDiagramRelationRepairScopeRepair(
 	metadata := map[string]string{}
 	if lease != nil {
 		delta := struct {
-			Version               int                                          `json:"version"`
-			Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
-			PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
-			AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+			Version                int                                          `json:"version"`
+			Failures               []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
+			PreserveUnlistedEdges  bool                                         `json:"preserve_unlisted_edges"`
+			AllowedAdditions       []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+			OptionalOrphanCleanups []types.AnswerDiagramOrphanCleanupCandidate  `json:"optional_orphan_cleanups,omitempty"`
 		}{
 			Version: 1, Failures: append([]types.AnswerDiagramRelationRepairFailure(nil), lease.Failures...),
 			PreserveUnlistedEdges: true,
 			AllowedAdditions:      append([]types.AnswerDiagramRelationRepairCandidate(nil), lease.AllowedAdditions...),
+			OptionalOrphanCleanups: append(
+				[]types.AnswerDiagramOrphanCleanupCandidate(nil), lease.OptionalOrphanCleanups...,
+			),
 		}
 		if raw, err := json.Marshal(delta); err == nil {
 			metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = string(raw)

@@ -82,6 +82,7 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 		if lease == nil || len(lease.Failures) != 1 || !lease.Failures[0].AllowsAction("remove") {
 			t.Fatalf("test setup: executable failure lease missing: %+v", lease)
 		}
+		lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
 		return lease
 	}
 
@@ -159,6 +160,7 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 			BlockID: "diag", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
 			FromIdentity: "API.Call", ToIdentity: "Worker.Run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1,
 		}}, nil)
+		lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
 		patch := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
 			prev, patch, []emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
@@ -180,6 +182,7 @@ func TestEmitAnswerDocumentPatch_WiresOptionalOrphanCleanupThroughProductionEnve
 	if lease == nil || len(lease.Failures) != 1 {
 		t.Fatalf("test setup: live lease missing: %+v", lease)
 	}
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
 	mut := types.NewMutableState("production participant cleanup")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
 	mut.SetAnswerDiagramRelationRepairLease(lease)
@@ -199,6 +202,104 @@ func TestEmitAnswerDocumentPatch_WiresOptionalOrphanCleanupThroughProductionEnve
 		!strings.Contains(got.Blocks[1].Diagram.Body, "B->>C: keep label") {
 		t.Fatalf("production cleanup did not preserve the local graph: %+v", got)
 	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RequiresExplicitNewOrphanDisposition(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+	}}, nil)
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+	removeEdge := []emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}
+
+	t.Run("omission fails after selected edits isolate the candidate", func(t *testing.T) {
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, &types.AnswerDocumentV2Patch{}, removeEdge, nil, nil, nil, lease,
+		)
+		if err == nil || !strings.Contains(err.Error(), "became isolated") ||
+			!strings.Contains(err.Error(), "retain_as_context") {
+			t.Fatalf("missing explicit disposition must fail with both choices: %v", err)
+		}
+	})
+
+	t.Run("retain uses only the model-authored visible label", func(t *testing.T) {
+		patch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, patch, removeEdge, nil,
+			[]emitAnswerDiagramParticipantEdit{{
+				BlockID: "diag", ParticipantID: "A", Action: "retain_as_context",
+				VisibleLabel: "分析入口（背景，关系未证明）",
+			}}, nil, lease,
+		)
+		if err != nil || len(patch.ReplaceBlocks) != 1 {
+			t.Fatalf("explicit retain decision rejected: err=%v patch=%+v", err, patch)
+		}
+		body := patch.ReplaceBlocks[0].Diagram.Body
+		if !strings.Contains(body, `participant A as "分析入口（背景，关系未证明）"`) ||
+			strings.Contains(body, "A->>B") {
+			t.Fatalf("retain must rewrite only the declaration label after edge removal:\n%s", body)
+		}
+	})
+
+	t.Run("connected candidate needs no orphan disposition", func(t *testing.T) {
+		patch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, patch, []emitAnswerDiagramEdgeEdit{{
+				FailureRef: lease.Failures[0].FailureRef, Action: "replace",
+				Edge: &types.DiagramEdgeAnchor{
+					FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+					RelationKind: types.DiagramRelPrecedence, VisibleLabel: "模型修正关系",
+				},
+			}}, nil, nil, nil, lease,
+		)
+		if err != nil || len(patch.ReplaceBlocks) != 1 ||
+			!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B: 模型修正关系") {
+			t.Fatalf("a still-connected candidate must not be forced through orphan disposition: err=%v patch=%+v", err, patch)
+		}
+	})
+}
+
+func TestEmitAnswerDocumentPatch_OrphanDispositionOmissionRepublishesLiveChoices(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+	}}, nil)
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+	mut := types.NewMutableState("explicit orphan disposition")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, lease.Failures[0].FailureRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || res.Success || res.Repair == nil {
+		t.Fatalf("omitted disposition must remain on the live repair lane: err=%v res=%+v", err, res)
+	}
+	raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	for _, want := range []string{`"participant_id":"A"`, `"remove_if_isolated"`, `"retain_as_context"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("republished live delta missing %q: %s", want, raw)
+		}
+	}
+}
+
+func testDiagramOrphanCandidates(blockID string, participantIDs ...string) []types.AnswerDiagramOrphanCleanupCandidate {
+	out := make([]types.AnswerDiagramOrphanCleanupCandidate, 0, len(participantIDs))
+	for _, participantID := range participantIDs {
+		out = append(out, types.AnswerDiagramOrphanCleanupCandidate{
+			BlockID: blockID, ParticipantID: participantID,
+			AllowedActions: []types.AnswerDiagramOrphanDispositionAction{
+				types.AnswerDiagramOrphanDispositionRemove,
+				types.AnswerDiagramOrphanDispositionRetain,
+			},
+		})
+	}
+	return out
 }
 
 func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHiddenTuple(t *testing.T) {

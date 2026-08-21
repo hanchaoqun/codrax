@@ -856,6 +856,112 @@ func RemoveRemovableNodeDeclaration(body, ident string) (string, int) {
 	return strings.Join(lines, "\n"), 1
 }
 
+// RewriteRemovableNodeDeclarationLabel rewrites only the visible label of one
+// unique standalone declaration. The caller supplies the wording; this helper
+// owns only Mermaid quoting and preserves the declaration keyword, node id,
+// flow shape, suffix, indentation, and every other line. Ambiguous or
+// composite carriers fail closed by returning the original body.
+func RewriteRemovableNodeDeclarationLabel(body, ident, visibleLabel string) (string, int) {
+	ident = strings.TrimSpace(ident)
+	visibleLabel = strings.TrimSpace(visibleLabel)
+	if ident == "" || visibleLabel == "" || strings.ContainsAny(visibleLabel, "\r\n\x00") {
+		return body, 0
+	}
+	family := mermaidBodyFamily(body)
+	lines := strings.Split(body, "\n")
+	matches := make([]int, 0, 1)
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		var decls []NodeDecl
+		switch family {
+		case "sequence":
+			decls = SequenceParticipantDeclarations(line)
+		case "flow":
+			if standaloneFlowDeclarationLine(line) {
+				decls = NodeDeclarationsAll(line)
+			}
+		}
+		if len(decls) == 1 && strings.TrimSpace(decls[0].Ident) == ident {
+			matches = append(matches, i)
+		}
+	}
+	if len(matches) != 1 {
+		return body, len(matches)
+	}
+	i := matches[0]
+	rewritten, ok := rewriteRemovableNodeDeclarationLine(lines[i], family, ident, visibleLabel)
+	if !ok {
+		return body, 0
+	}
+	lines[i] = rewritten
+	return strings.Join(lines, "\n"), 1
+}
+
+func rewriteRemovableNodeDeclarationLine(raw, family, ident, visibleLabel string) (string, bool) {
+	indent := raw[:len(raw)-len(strings.TrimLeft(raw, " \t"))]
+	line := strings.TrimSpace(raw)
+	label := strings.ReplaceAll(visibleLabel, `"`, `&quot;`)
+	switch family {
+	case "sequence":
+		keyword := ""
+		switch {
+		case strings.HasPrefix(line, "participant "):
+			keyword = "participant"
+		case strings.HasPrefix(line, "actor "):
+			keyword = "actor"
+		default:
+			return "", false
+		}
+		suffix := ""
+		if commentAt := strings.Index(line, " %%"); commentAt >= 0 {
+			suffix = line[commentAt:]
+		}
+		return indent + keyword + " " + ident + ` as "` + label + `"` + suffix, true
+	case "flow":
+		trimmed := strings.TrimSpace(line)
+		semicolon := ""
+		if strings.HasSuffix(trimmed, ";") {
+			trimmed = strings.TrimSpace(strings.TrimSuffix(trimmed, ";"))
+			semicolon = ";"
+		}
+		if trimmed == ident {
+			return indent + ident + `["` + label + `"]` + semicolon, true
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, ident))
+		type shape struct{ open, close, replacementOpen, replacementClose string }
+		shapes := []shape{
+			{`(((`, `)))`, `((("`, `")))`},
+			{`([`, `])`, `(["`, `"])`},
+			{`[[`, `]]`, `[["`, `"]]`},
+			{`[(`, `)]`, `[("`, `")]`},
+			{`[/`, `/]`, `[/"`, `"/]`},
+			{`[\`, `\]`, `[\"`, `"\]`},
+			{`[/`, `\]`, `[/"`, `"\]`},
+			{`[\`, `/]`, `[\"`, `"/]`},
+			{`["`, `"]`, `["`, `"]`},
+			{`((`, `))`, `(("`, `"))`},
+			{`{{`, `}}`, `{{"`, `"}}`},
+			{`("`, `")`, `("`, `")`},
+			{`[`, `]`, `["`, `"]`},
+			{`(`, `)`, `("`, `")`},
+			{`{`, `}`, `{"`, `"}`},
+			{`>`, `]`, `>"`, `"]`},
+		}
+		for _, candidate := range shapes {
+			if !strings.HasPrefix(rest, candidate.open) {
+				continue
+			}
+			closeAt := strings.LastIndex(rest, candidate.close)
+			if closeAt < len(candidate.open) {
+				continue
+			}
+			suffix := rest[closeAt+len(candidate.close):]
+			return indent + ident + candidate.replacementOpen + label + candidate.replacementClose + suffix + semicolon, true
+		}
+	}
+	return "", false
+}
+
 func mermaidBodyFamily(body string) string {
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.ToLower(strings.TrimSpace(raw))

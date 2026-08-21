@@ -1295,3 +1295,37 @@ func TestRemovableNodeDeclarationsAndExactRemoval(t *testing.T) {
 		}
 	})
 }
+
+func TestRewriteRemovableNodeDeclarationLabelPreservesCarrier(t *testing.T) {
+	t.Run("sequence actor", func(t *testing.T) {
+		body := "sequenceDiagram\n  actor A as API\n  participant B\n"
+		after, count := RewriteRemovableNodeDeclarationLabel(body, "A", `业务背景 "未证明关系"`)
+		if count != 1 || !strings.Contains(after, `  actor A as "业务背景 &quot;未证明关系&quot;"`) ||
+			!strings.Contains(after, "  participant B") {
+			t.Fatalf("sequence label rewrite count=%d body=%q", count, after)
+		}
+	})
+
+	t.Run("flow shape and suffix", func(t *testing.T) {
+		body := "flowchart LR\n  A((API)):::context\n  B([Worker])\n"
+		after, count := RewriteRemovableNodeDeclarationLabel(body, "A", "业务背景")
+		if count != 1 || !strings.Contains(after, `  A(("业务背景")):::context`) ||
+			!strings.Contains(after, "  B([Worker])") {
+			t.Fatalf("flow label rewrite count=%d body=%q", count, after)
+		}
+		after, count = RewriteRemovableNodeDeclarationLabel(after, "B", "工作节点")
+		if count != 1 || !strings.Contains(after, `  B(["工作节点"])`) {
+			t.Fatalf("stadium shape must survive label rewrite: count=%d body=%q", count, after)
+		}
+	})
+
+	t.Run("ambiguous or multiline fails closed", func(t *testing.T) {
+		body := "sequenceDiagram\n participant A\n participant A as Again\n"
+		if after, count := RewriteRemovableNodeDeclarationLabel(body, "A", "context"); count != 2 || after != body {
+			t.Fatalf("duplicate rewrite must remain untouched: count=%d after=%q", count, after)
+		}
+		if after, count := RewriteRemovableNodeDeclarationLabel("flowchart LR\n A[API]\n", "A", "bad\nlabel"); count != 0 || after != "flowchart LR\n A[API]\n" {
+			t.Fatalf("multiline visible label must fail closed: count=%d after=%q", count, after)
+		}
+	})
+}

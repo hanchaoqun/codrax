@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -143,6 +144,16 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseNarrowsOnlyWholeTargetMu
 	}
 	if _, ok := props["diagram_participant_edits"]; !ok {
 		t.Fatal("local lease must retain optional model-authored orphan cleanup edits")
+	}
+	participantEdits := props["diagram_participant_edits"].(map[string]any)
+	participantItem := participantEdits["items"].(map[string]any)
+	participantProps := participantItem["properties"].(map[string]any)
+	actions := participantProps["action"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(actions, []any{"remove_if_isolated", "retain_as_context"}) {
+		t.Fatalf("orphan disposition actions=%v", actions)
+	}
+	if _, ok := participantProps["visible_label"]; !ok {
+		t.Fatal("retain_as_context must expose one model-authored visible_label")
 	}
 }
 

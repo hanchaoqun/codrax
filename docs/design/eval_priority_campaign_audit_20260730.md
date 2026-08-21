@@ -57634,6 +57634,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1331 B1297：删边后孤立声明必须由模型显式二选一（2026-08-21）
+
+1. r813 证明 B1295 的“发布可选清理候选、模型省略就原样保留”不足：关系门正确删除 14 条无证边后，模型未消费 cleanup，终图同时出现大小写不同的
+   隐式 actor 和多枚零 incident 技术声明。系统若直接删除又会越权，因为孤立节点可能是模型有意保留的业务边界或背景；最优形不是默认删除，而是只在
+   本 patch 实际制造孤立时要求模型明确表达去留。
+2. relation repair lease 现在保存与 retry JSON 同源的 `optional_orphan_cleanups`，每项发布两个 capability：`remove_if_isolated` 与
+   `retain_as_context`。候选仍只来自精确 Mermaid 拓扑与 typed lease：唯一独立声明、旧图至少一条 incident edge、所有 incident edge 都有同 block/
+   occurrence 的 remove-capable live failure，且不属于 requested participant 或既有 uncertainty boundary；节点名、标签业务语义和答案 prose 不参与候选。
+3. 原子编译器先执行模型选择的关系与 boundary 操作，再检查实际结果。候选仍有 visible edge/typed anchor 时不触发；关系被 replace 后仍连接也不触发；
+   新增 uncertainty boundary 已是模型结构化保留决定，同样受保护。只有本轮删边使候选确实变成零 incident 且仍有唯一声明时，省略处置才 fail-loud，并把
+   同代两种 capability 重新发布给模型，不会降级、静默保留或由系统挑选。
+4. 模型选 `remove_if_isolated` 时，执行器沿用 B1295 的 parser-owned 单声明删除；选 `retain_as_context` 时必须提供非空的
+   `visible_label`。新增 Mermaid formatter 只把模型原样提供的标签安全写回唯一声明，保留 sequence 的 participant/actor 关键字、node id、flow shape、
+   suffix、缩进和其他所有行；引号转义属于语法承载，不生成“背景”“未证明”等业务用语。重复声明、多行标签、非候选、陈腐 lease 和受保护节点继续拒绝。
+5. 该硬门只读取三类精确信号：live typed candidate、模型已选择的结构化 edge action、解析后的当前 incident 拓扑；不扫描用户原文、模型推理、最终答案、
+   Mermaid message/label 关键词，也不从仓库实体名推断关系。系统不新增边、角色、调用方向、时序、业务标签、布局或结论，最终可见措辞仍由模型给出。
+6. 回归覆盖 sequence/flow 安全标签写回、重复/多行 fail-closed、删边后省略处置拒绝并重发双 capability、删除与保留两臂、仍连接不触发、生产 schema、
+   retry lease 同源及 defensive clone。`types/mermaidcompat/agent/tool` 整组、完整 `go test ./... -count=1` 与正式 `make` 均通过。
+7. 本批不改变 Trace 的显式时间窗、自动补采、唤醒/IO 链、链上根因选举、实际占时/规则可消双账户和因果投影；优先级反转、调度/算力供给、D/IO、
+   确定性语义与业务链线索继续由 typed 链提供给模型，邻近与背景仍不能加冕为主因。活动流也不因 4ms/4m 固定年龄阈值降级。
+
+状态：
+
+`B1297=implemented+targeted-suite-pass+related-suite-pass+full-suite-pass+build-pass/production-replay-pending`；
+`orphan-trigger=same-patch-typed-edge-removal+parsed-zero-incident-only`；
+`disposition=model-explicit/remove-or-retain`；`retain-visible-wording=model-authored`；
+`mermaid-system-work=syntax-carrier-only/no-business-semantics`；
+`requested/boundary/connected/ambiguous=protected-or-fail-closed`；
+`system-node/edge/relation/role/direction/order/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-keyword-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

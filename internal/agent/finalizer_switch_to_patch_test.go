@@ -1214,9 +1214,14 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
 		t.Fatal("relation lease installation failed")
 	}
+	if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease == nil ||
+		len(lease.OptionalOrphanCleanups) != 1 || lease.OptionalOrphanCleanups[0].ParticipantID != "X" ||
+		!lease.OptionalOrphanCleanups[0].AllowsAction("retain_as_context") {
+		t.Fatalf("executor lease must retain the same typed orphan decision: %+v", lease)
+	}
 	raw := result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
 	for _, want := range []string{
-		`"optional_orphan_cleanups"`, `"participant_id":"X"`, `"allowed_action":"remove_if_isolated"`,
+		`"optional_orphan_cleanups"`, `"participant_id":"X"`, `"allowed_actions":["remove_if_isolated","retain_as_context"]`,
 	} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("typed optional cleanup missing %q: %s", want, raw)
@@ -1231,7 +1236,7 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 	if !ok {
 		t.Fatal("relation delta hint missing")
 	}
-	for _, want := range []string{"diagram_participant_edits", "remove_if_isolated", "allows `diagram_participant_edits` after incident removals", `"participant_id":"X"`} {
+	for _, want := range []string{"diagram_participant_edits", "remove_if_isolated", "retain_as_context", "selected edits isolate", `"participant_id":"X"`} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("model-owned cleanup teaching missing %q:\n%s", want, hint)
 		}

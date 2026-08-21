@@ -265,25 +265,36 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipants(
 		if blockID == "" || participantID == "" {
 			return fmt.Errorf("diagram_participant_edits[%d] requires block_id and participant_id", i)
 		}
-		if strings.TrimSpace(edit.Action) != "remove_if_isolated" {
-			return fmt.Errorf("diagram_participant_edits[%d].action=%q is invalid; allowed action: remove_if_isolated", i, edit.Action)
+		action := strings.TrimSpace(edit.Action)
+		if action != string(types.AnswerDiagramOrphanDispositionRemove) &&
+			action != string(types.AnswerDiagramOrphanDispositionRetain) {
+			return fmt.Errorf("diagram_participant_edits[%d].action=%q is invalid; choose remove_if_isolated or retain_as_context", i, edit.Action)
 		}
 		key := blockID + "\x00" + participantID
 		if participantSeen[key] {
 			return fmt.Errorf("diagram_participant_edits[%d] duplicates block_id=%q participant_id=%q", i, blockID, participantID)
 		}
 		participantSeen[key] = true
+		candidate, ok := atomicDiagramLeaseOrphanCandidate(lease, blockID, participantID)
+		if !ok || !candidate.AllowsAction(action) {
+			return fmt.Errorf("diagram_participant_edits[%d] is not one allowed live optional_orphan_cleanups decision", i)
+		}
 		block, err := loadBlock(blockID, i, "diagram_participant_edits", true)
 		if err != nil {
 			return err
 		}
 		base := previous[blockID]
 		if err := applyOneModelAuthoredDiagramParticipantEdit(
-			&block, base, participantID, protectedParticipants, lease,
+			&block, base, edit, candidate, protectedParticipants, lease,
 		); err != nil {
 			return fmt.Errorf("diagram_participant_edits[%d] block_id=%q participant_id=%q: %w", i, blockID, participantID, err)
 		}
 		working[blockID] = block
+	}
+	if err := requireExplicitAtomicDiagramOrphanDispositions(
+		previous, working, participantSeen, protectedParticipants, lease,
+	); err != nil {
+		return err
 	}
 	for _, blockID := range order {
 		patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
@@ -321,15 +332,16 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 func applyOneModelAuthoredDiagramParticipantEdit(
 	block *types.AnswerBlock,
 	base types.AnswerBlock,
-	participantID string,
+	edit emitAnswerDiagramParticipantEdit,
+	candidate types.AnswerDiagramOrphanCleanupCandidate,
 	protectedParticipants []string,
 	lease *types.AnswerDiagramRelationRepairLease,
 ) error {
 	if block == nil || block.Kind != types.BlockDiagram || block.Diagram == nil ||
 		base.Kind != types.BlockDiagram || base.Diagram == nil || lease == nil {
-		return fmt.Errorf("remove_if_isolated requires one live relation-repair lease and an existing diagram")
+		return fmt.Errorf("orphan disposition requires one live relation-repair lease and an existing diagram")
 	}
-	participantID = strings.TrimSpace(participantID)
+	participantID := strings.TrimSpace(edit.ParticipantID)
 	baseDecl, count := atomicDiagramUniqueRemovableDeclaration(base.Diagram.Body, participantID)
 	if count != 1 {
 		return fmt.Errorf("base declaration is not one unique standalone participant/node line (matches=%d)", count)
@@ -364,12 +376,142 @@ func applyOneModelAuthoredDiagramParticipantEdit(
 			return fmt.Errorf("participant remains incident to typed edge metadata after the selected relation edits")
 		}
 	}
-	body, count := mermaidcompat.RemoveRemovableNodeDeclaration(block.Diagram.Body, participantID)
+	action := strings.TrimSpace(edit.Action)
+	if !candidate.AllowsAction(action) {
+		return fmt.Errorf("action=%q is not allowed by the live orphan decision", action)
+	}
+	var body string
+	switch action {
+	case string(types.AnswerDiagramOrphanDispositionRemove):
+		if strings.TrimSpace(edit.VisibleLabel) != "" {
+			return fmt.Errorf("remove_if_isolated does not accept visible_label")
+		}
+		body, count = mermaidcompat.RemoveRemovableNodeDeclaration(block.Diagram.Body, participantID)
+	case string(types.AnswerDiagramOrphanDispositionRetain):
+		visibleLabel := strings.TrimSpace(edit.VisibleLabel)
+		if visibleLabel == "" || len(visibleLabel) > 512 {
+			return fmt.Errorf("retain_as_context requires a non-empty model-authored visible_label of at most 512 bytes")
+		}
+		body, count = mermaidcompat.RewriteRemovableNodeDeclarationLabel(block.Diagram.Body, participantID, visibleLabel)
+	default:
+		return fmt.Errorf("unsupported orphan disposition action=%q", action)
+	}
 	if count != 1 {
-		return fmt.Errorf("current declaration is not one unique standalone participant/node line (matches=%d)", count)
+		return fmt.Errorf("current declaration is not one unique safely editable participant/node line (matches=%d)", count)
 	}
 	block.Diagram.Body = body
 	return nil
+}
+
+func atomicDiagramLeaseOrphanCandidate(
+	lease *types.AnswerDiagramRelationRepairLease,
+	blockID, participantID string,
+) (types.AnswerDiagramOrphanCleanupCandidate, bool) {
+	blockID = strings.TrimSpace(blockID)
+	participantID = strings.TrimSpace(participantID)
+	var found types.AnswerDiagramOrphanCleanupCandidate
+	count := 0
+	if lease != nil {
+		for _, candidate := range lease.OptionalOrphanCleanups {
+			if strings.TrimSpace(candidate.BlockID) != blockID ||
+				strings.TrimSpace(candidate.ParticipantID) != participantID {
+				continue
+			}
+			found = candidate
+			count++
+		}
+	}
+	return found, count == 1
+}
+
+// requireExplicitAtomicDiagramOrphanDispositions does not choose a graph
+// outcome. It notices only the precise structural transition caused by this
+// patch: a live candidate's former incident edges are all gone. At that point
+// the model must have selected one of the two published dispositions. A newly
+// submitted uncertainty boundary is already an explicit structured retention
+// decision and remains protected by the existing boundary contract.
+func requireExplicitAtomicDiagramOrphanDispositions(
+	previous map[string]types.AnswerBlock,
+	working map[string]types.AnswerBlock,
+	participantDecisions map[string]bool,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+) error {
+	if lease == nil {
+		return nil
+	}
+	for _, candidate := range lease.OptionalOrphanCleanups {
+		blockID := strings.TrimSpace(candidate.BlockID)
+		participantID := strings.TrimSpace(candidate.ParticipantID)
+		base, baseOK := previous[blockID]
+		current, changed := working[blockID]
+		if !baseOK || !changed || current.Diagram == nil || base.Diagram == nil {
+			continue
+		}
+		decl, count := atomicDiagramUniqueRemovableDeclaration(current.Diagram.Body, participantID)
+		if count != 1 || atomicDiagramParticipantEditProtected(base, current, participantID, decl.Label, protectedParticipants) {
+			continue
+		}
+		if atomicDiagramParticipantHasIncidentCarrier(current, participantID) {
+			continue
+		}
+		if !atomicDiagramBaseCandidateStillAuthorized(base, participantID, lease) {
+			continue
+		}
+		if !participantDecisions[blockID+"\x00"+participantID] {
+			return fmt.Errorf(
+				"diagram participant block_id=%q participant_id=%q became isolated after the selected edge edits; explicitly choose remove_if_isolated or retain_as_context with a model-authored visible_label",
+				blockID, participantID,
+			)
+		}
+	}
+	return nil
+}
+
+func atomicDiagramParticipantEditProtected(
+	base, current types.AnswerBlock,
+	participantID, visibleLabel string,
+	protectedParticipants []string,
+) bool {
+	protected := make(map[string]bool, len(protectedParticipants)+len(base.ParticipantBoundaries)+len(current.ParticipantBoundaries))
+	for _, raw := range protectedParticipants {
+		if key := atomicDiagramParticipantSurfaceKey(raw); key != "" {
+			protected[key] = true
+		}
+	}
+	for _, boundaries := range [][]types.DiagramParticipantBoundary{base.ParticipantBoundaries, current.ParticipantBoundaries} {
+		for _, boundary := range boundaries {
+			if key := atomicDiagramParticipantSurfaceKey(boundary.Participant); key != "" {
+				protected[key] = true
+			}
+		}
+	}
+	return atomicDiagramParticipantProtected(protected, participantID, visibleLabel)
+}
+
+func atomicDiagramParticipantHasIncidentCarrier(block types.AnswerBlock, participantID string) bool {
+	if block.Diagram != nil {
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			if strings.TrimSpace(edge.From) == participantID || strings.TrimSpace(edge.To) == participantID {
+				return true
+			}
+		}
+	}
+	for _, anchor := range block.EdgeAnchors {
+		if strings.TrimSpace(anchor.FromNode) == participantID || strings.TrimSpace(anchor.ToNode) == participantID {
+			return true
+		}
+	}
+	return false
+}
+
+func atomicDiagramBaseCandidateStillAuthorized(
+	base types.AnswerBlock,
+	participantID string,
+	lease *types.AnswerDiagramRelationRepairLease,
+) bool {
+	incident, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, participantID, lease)
+	return incident > 0 && allFailed
 }
 
 func atomicDiagramUniqueRemovableDeclaration(body, participantID string) (mermaidcompat.NodeDecl, int) {
