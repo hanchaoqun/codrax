@@ -57291,6 +57291,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1348 r828：B1309 生产转正；read 成文仍被已有边/锚事务拖入 13 次拒绝（2026-08-21）
+
+1. 从已推送 `f2fc701a7` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`。runner 2/2 PASS：Trace 284s、read 677s；人工判定 Trace pass、read fail。read 没有降级旧稿，最终散文与图比 r827
+   更诚实，但仍未完整表达显式要求的 Mutable/BusContext 与阶段数据流，自动 oracle 的文字/边数命中继续不能替代人工正确性。
+2. Trace 守护继续通过：10 次 pid/thread/window-filtered typed 查询覆盖 5 个维度族，显式 2.000..2.020s 主窗、四节点唤醒链及逐跳 CPU、
+   11.000ms 链上 IO 第一席、三个独立不可加的 1.000ms runnable/优先级候选、实际占时/现规则可消双账户、链外背景隔离、成文前自动补采和完整
+   `Trace 因果投影` 均在；finalizer 零拒绝，活动流未按固定 4ms/4m、累计年龄或上下文比例降级。根因仅从链上 typed facts 选举。
+3. B1309 获得直接生产正证。第 19 次 completion 后，repair 不再停在 `bus.Mutable.Objective()` 或 `ag.Execute`，而是明确要求并实际读取
+   `internal/context/builder.go:47-71`；最终答案引用 line 59 `Mutable: bus.Mutable` 并准确说明 `bus.Mutable -> AgentContext.Mutable`。
+   read_file 从 r827 的 34 次降到 20 次，explorer iterations 从 52 降到约 32，证明 connecting value-operation frontier 的方向与泛化形有效。
+4. 仍不能把 read 判 pass。模型第一稿把同一个 initializer tuple 扩写为 Mutable→Explorer/Extractor/Finalizer 三条边，关系门正确拒绝；之后 13 次
+   finalizer reject 依次暴露 whole replace 不在 live lease、atomic edge 缺字段、boundary replacement schema、unlisted relation、visible label 与 raw enum
+   不一致、旧 generation ref、full emit 工具已隐藏、participant boundary 与 incident candidate 冲突等。最终图只保留四阶段 precedence 与
+   `BusContext -> BuildAgentContext`，Mutable 位于 BusContext 无箭头 group 并标 requested relation unproven；它没有重复边，也没有伪造 Mutable→阶段关系，
+   但已证局部 `bus.Mutable -> AgentContext.Mutable` 没有在图中表达，显式数据流维度仍不完整。
+5. 这确认 B1312 不是简单“重复边去重”，而是 existing visible edge/anchor/participant cleanup 的原子事务能力 gap。当前 failure 对已有可见边只给
+   remove/replace，allowed addition 又可发布同一 typed tuple；模型要“给已有边补 anchor/label”时只能重画、整块替换或跨多个代次组合删除与新增，lease
+   在每轮重签后让旧 ref 失效。最优方案需以 parsed visible occurrence 为租约对象提供一个精确 attach/replace-visible-occurrence 操作：模型选择当前
+   failure/candidate 和可见措辞，系统只把 anchor 附着到该模型已写 occurrence；若需要换端点，仍要求完整 model-authored replacement。该能力必须与
+   orphan participant cleanup 同代原子执行，并禁止 addition 复刻已存在的 exact visible tuple。不得由系统选择关系、方向、节点、标签或结论。
+6. B1312 施工前先审计 closed matrix：区分 missing anchor、wrong anchor、unsupported visible edge、缺 incident candidate、孤儿 participant 五种状态；
+   精确 duplicate 判定使用 parsed block/occurrence/from/to/visible label/relation tuple，不扫描用户、thinking、final prose 或 Mermaid message 的业务词义。
+   顺序图中同端点的不同消息/不同 occurrence 仍须保留，不能做全局 tuple 去重。相关回归必须覆盖 architecture/flow/sequence 与全部语言共享入口，
+   同时继续双路守护显式窗 Trace。
+
+状态：
+
+`r828=runner-pass-2/2,human-trace-pass+read-fail`；
+`B1309=production-positive/core-closed`；
+`B1312=confirmed/high-ROI-P1/next`；
+`read-navigation=20-reads/typed-initializer-reached`；
+`read-finalizer=13-rejects/existing-edge-anchor-transaction-open`；
+`system-evidence/relation/edge/node/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r828`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r828`。
+
 ### §123.1347 B1309：接收函数关系 frontier 优先值传递，不再被局部 getter 抢占（2026-08-21）
 
 1. 代码冷读与 r827 日志交叉确认：系统已经拥有 `o.busCtx -> ctxbuilder.BuildAgentContext` 的 model-authored argument-flow 行，也能把调用目标唯一解析到
