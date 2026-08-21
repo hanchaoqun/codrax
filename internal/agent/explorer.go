@@ -4341,6 +4341,47 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 	return files
 }
 
+// deterministicEnrichmentFileSet separates investigation-time discovery from
+// post-completion evidence enrichment. Before the model's structured
+// completion is accepted, deterministic producers may inspect the active
+// frontier so they can surface answer-changing neighbors. Once
+// emit_investigation_complete has succeeded, that discovery contract is
+// closed: post-processing may still derive precise values and relationships,
+// but only from files whose contents the investigation actually read.
+//
+// investigationComplete is a typed control-plane latch. It is set only after
+// emit_investigation_complete succeeds without a MutableState soft downgrade;
+// request prose, model prose, confidence scores, and completion-ready hints do
+// not participate. An empty read set therefore deliberately remains empty for
+// trace/log-only investigations instead of falling back to pre-scanned source.
+func (e *explorerEvaluator) deterministicEnrichmentFileSet(readSet map[string]bool, notesJoined string) map[string]bool {
+	if e == nil {
+		return nil
+	}
+	if !e.investigationComplete {
+		return e.activeFrontierFileSet(readSet, notesJoined)
+	}
+	files := make(map[string]bool, len(readSet))
+	for file, read := range readSet {
+		if !read {
+			continue
+		}
+		file = canonicalExplorerPath(file)
+		if file == "" || isNoisePath(file) {
+			continue
+		}
+		files[file] = true
+	}
+	return files
+}
+
+func (e *explorerEvaluator) deterministicEnrichmentScopeKey() string {
+	if e != nil && e.investigationComplete {
+		return "accepted_completion_read_set"
+	}
+	return "open_active_frontier"
+}
+
 func (e *explorerEvaluator) activeFrontierFiles(readSet map[string]bool, notesJoined string) []string {
 	files := e.activeFrontierFileSet(readSet, notesJoined)
 	if len(files) == 0 {
@@ -14126,10 +14167,13 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		logging.Debug("[explorer] T1.1 gate: ERM unsatisfied (%d/%d) — running dataflow.Analyze: %s",
 			len(unsat), len(reqsCopy), strings.Join(unsat, ","))
 	}
-	candidateSet := e.activeFrontierFileSet(readSet, strings.Join(e.investigationNotes, "\n"))
+	candidateSet := e.deterministicEnrichmentFileSet(readSet, strings.Join(e.investigationNotes, "\n"))
 	// Expand candidates with ERM-directed files that may have been
 	// missed by keyword search ranking but contain gap-filling evidence.
-	if len(e.ermRequirements) > 0 {
+	// An accepted explicit completion closes discovery. ERM suggestions remain
+	// useful while investigating, but must not reopen unread source during
+	// deterministic post-processing after that typed terminal action.
+	if !e.investigationComplete && len(e.ermRequirements) > 0 {
 		for _, s := range ermSuggestFiles(e.searchResult.Graph, e.ermRequirements, readSet, 5) {
 			candidateSet[s.Path] = true
 		}
@@ -14165,6 +14209,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		MaxNodesPerFunc: 400,
 		MaxItemsPerFile: 50,
 		SkipFindings:    intent == IntentLookup,
+		ExactCandidates: e.investigationComplete,
 		EntityBias:      entityBias,
 	})
 	logging.Debug("[explorer] dataflow.Analyze(intent=%s): %d evidence, %d findings from %d candidates",
@@ -15463,7 +15508,8 @@ func (e *explorerEvaluator) getConcreteValuesCached(ctx context.Context, repoRoo
 		ctx = context.TODO()
 	}
 	coverageKey := concreteValuesReadCoverageKey(readSet, closure) +
-		concreteReturnOwnerAuthorityCoverageKey(e.currentStructuredEvidence())
+		concreteReturnOwnerAuthorityCoverageKey(e.currentStructuredEvidence()) +
+		"\x00scope=" + e.deterministicEnrichmentScopeKey()
 	if e.cachedConcreteValues == nil || e.cachedConcreteValuesCoverageKey != coverageKey {
 		r := e.buildConcreteValuesSection(ctx, repoRoot, readSet, closure)
 		if ctx.Err() != nil {
@@ -16048,7 +16094,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	// anchors, analyzer-required files, and direct note-referenced
 	// neighbors. Deliberately excludes the whole allScoredFiles tail so
 	// first-round ranking noise does not become second-round scan scope.
-	filesToScan := e.activeFrontierFileSet(readSet, notesJoined)
+	filesToScan := e.deterministicEnrichmentFileSet(readSet, notesJoined)
 	filesToScan = e.filterConcreteValueScanFiles(filesToScan)
 	focusSymbols := e.concreteValueFocusSymbols(graph, filesToScan)
 	// Runtime-target discovery needs declared type relationships even when

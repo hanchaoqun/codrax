@@ -147,22 +147,24 @@ func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
 		add(path)
 	}
 
-	seed := append([]string(nil), ordered...)
-	for _, path := range seed {
-		if dataflowCanceled(opts) {
-			break
-		}
-		for _, dep := range graph.FilesImportedBy(path) {
-			add(dep)
-		}
-		for _, rev := range graph.FilesImporting(path) {
-			add(rev)
-		}
-		if fi := graph.FileIndex[path]; fi != nil {
-			for _, rel := range fi.Relations {
-				if defs := graph.SymbolDefs[rel.ToEP.Name]; len(defs) > 0 {
-					for _, def := range defs {
-						add(def.File)
+	if !opts.ExactCandidates {
+		seed := append([]string(nil), ordered...)
+		for _, path := range seed {
+			if dataflowCanceled(opts) {
+				break
+			}
+			for _, dep := range graph.FilesImportedBy(path) {
+				add(dep)
+			}
+			for _, rev := range graph.FilesImporting(path) {
+				add(rev)
+			}
+			if fi := graph.FileIndex[path]; fi != nil {
+				for _, rel := range fi.Relations {
+					if defs := graph.SymbolDefs[rel.ToEP.Name]; len(defs) > 0 {
+						for _, def := range defs {
+							add(def.File)
+						}
 					}
 				}
 			}

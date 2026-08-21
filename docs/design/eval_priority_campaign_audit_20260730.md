@@ -59349,3 +59349,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1307 B1281：结构化闭环后只在已读源码域做确定性增强，禁止后处理重新开荒（2026-08-21）
+
+1. `B1281-EXPLORERPOSTCLOSUREBROADSCAN1/P1` 已确认并施工。r800 的模型在第 24 轮成功调用
+   `emit_investigation_complete`，工具与 MutableState 都已接受闭环；随后 `ParseOutput` 仍把调查期的 active frontier 交给
+   Concrete Values 与 Dataflow，候选锚点、声明邻域、required files、预扫描文件和图邻居因此重新扩成 51–57 个文件，产生
+   43,341 个值、33,724 条 evidence 与 86,209 条 finding。问题发生在明确闭环后的系统派生层，不是模型波动，也不是必须补齐的
+   Trace 因果数据。
+2. 根修把两个概念拆成独立合同：调查未闭环时继续使用 `activeFrontierFileSet`，允许沿精确源码图探索回答可能需要的邻居；只有
+   `emit_investigation_complete` 成功且没有 MutableState soft downgrade 时，`deterministicEnrichmentFileSet` 才切换为精确
+   ReadSet。completion-ready 提示、轮数、耗时、上下文比例、请求/模型/答案 prose 均不参与判定，因此没有按 4ms/4m、文件名或关键词
+   硬截断。
+3. 闭环后不是关闭自动补齐：Concrete Values、声明类型关系、cooperative call、terminal body call 和 Dataflow 仍在模型实际读过的文件内
+   运行并可补充精确证据；只是不能借 analyzer required file、note symbol、import、反向 import 或 symbol definition 邻居重新打开未读源码。
+   Dataflow 新增 `ExactCandidates` typed 选项，默认 false，所有调查期和其他调用者保持原图扩展行为；Explorer 仅在已接受显式闭环后置 true。
+4. Concrete Values 缓存键加入确定性增强 scope 代次。若同一 ReadSet 曾在闭环前缓存过宽 active-frontier 结果，显式闭环会使缓存失效并按
+   ReadSet 重建，禁止陈腐宽域证据绕过新边界进入 Turn-A/finalizer。纯 Trace/日志调查的 ReadSet 为空时保持为空，不再回退到预扫描源码；
+   typed trace_query 结果、显式时间窗、唤醒链、根因席位、实际占时/规则可消双账户、因果投影和成文前 Trace 自动补采均未修改。
+5. 回归钉住四个结构面：已接受闭环只保留 read=true 文件；外部 Trace/日志闭环的空 ReadSet 不回退源码；soft-downgrade/未闭环继续保留
+   active frontier；闭环状态变化使宽域 Concrete Values 缓存键失效。Dataflow 另钉住 exact candidate 不经 imports/reverse imports/symbol defs
+   扩域。`go test ./internal/agent ./internal/analysis/dataflow -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放同一 read 与显式窗 Trace：read 验收闭环后扫描文件/派生量/时长是否收敛且最终答案
+   不缩水；Trace 验收因果投影、自动补采、链上根因、业务线索、实际占时与可消量继续完整，且活动流不因固定毫秒/分钟阈值降级。
+
+状态：
+
+`B1281=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`pre-completion-discovery=active-frontier+graph-neighbors`；
+`accepted-post-completion-enrichment=typed-read-set-only`；
+`soft-downgrade/rejected-completion=open-investigation-unchanged`；
+`concrete-values-cache=scope-generation-aware`；
+`dataflow-exact-candidates=no-import/reverse-import/symbol-def-expansion`；
+`system-answer/conclusion/member/relation-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

@@ -134,6 +134,14 @@ type Options struct {
 	// questions where single-hop evidence is enough and the cross-file
 	// propagation pass would be wasted compute.
 	SkipFindings bool
+	// ExactCandidates prevents selectCandidateFiles from widening the supplied
+	// candidate list through imports, reverse imports, or symbol-definition
+	// neighbors. It is used after a structured investigation completion has
+	// already been accepted: deterministic enrichment may analyze the exact
+	// files the model read, but must not restart source discovery behind the
+	// completed investigation's back. False preserves investigation-time graph
+	// expansion for all existing callers.
+	ExactCandidates bool
 	// EntityBias (T2.3) is a list of question-relevant entity names
 	// (typically derived from ERM). When non-empty, selectCandidateFiles
 	// scores each candidate by the number of biased entities that appear

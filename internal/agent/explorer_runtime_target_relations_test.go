@@ -25,6 +25,68 @@ func runtimeTargetRelationEvaluator(graph *repomap.Graph) *explorerEvaluator {
 	}
 }
 
+func TestDeterministicEnrichmentFileSet_AcceptedCompletionUsesOnlyReadFiles(t *testing.T) {
+	eval := &explorerEvaluator{
+		investigationComplete:     true,
+		exactAnchorFiles:          []string{"src/exact.go"},
+		declarativeAnchorFiles:    []string{"src/declaration.go"},
+		declarativeCandidateFiles: []string{"src/candidate.go"},
+		requiredFiles:             []string{"src/required.go"},
+		preScannedFiles:           []string{"src/prescanned.go"},
+		allScoredFiles:            []string{"src/scored.go"},
+	}
+	got := eval.deterministicEnrichmentFileSet(map[string]bool{
+		"src/read.go":  true,
+		"src/false.go": false,
+	}, "exact declaration required candidate prescanned scored")
+	if len(got) != 1 || !got["src/read.go"] {
+		t.Fatalf("accepted completion must retain exactly the typed read set, got %+v", got)
+	}
+	for _, forbidden := range []string{"src/exact.go", "src/declaration.go", "src/candidate.go", "src/required.go", "src/prescanned.go", "src/scored.go"} {
+		if got[forbidden] {
+			t.Fatalf("accepted completion reopened unread frontier file %q: %+v", forbidden, got)
+		}
+	}
+}
+
+func TestDeterministicEnrichmentFileSet_AcceptedExternalCompletionDoesNotFallbackToSource(t *testing.T) {
+	eval := &explorerEvaluator{
+		investigationComplete: true,
+		exactAnchorFiles:      []string{"src/exact.go"},
+		preScannedFiles:       []string{"src/prescanned.go"},
+		allScoredFiles:        []string{"src/scored.go"},
+	}
+	if got := eval.deterministicEnrichmentFileSet(nil, ""); len(got) != 0 {
+		t.Fatalf("trace/log-only accepted completion must not fall back to source discovery: %+v", got)
+	}
+}
+
+func TestDeterministicEnrichmentFileSet_OpenInvestigationKeepsActiveFrontier(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"src/exact.go"},
+		preScannedFiles:  []string{"src/prescanned.go"},
+	}
+	got := eval.deterministicEnrichmentFileSet(map[string]bool{"src/read.go": true}, "")
+	if !got["src/read.go"] || !got["src/exact.go"] {
+		t.Fatalf("open investigation must preserve active-frontier discovery, got %+v", got)
+	}
+}
+
+func TestGetConcreteValuesCached_AcceptedCompletionInvalidatesOpenFrontierCache(t *testing.T) {
+	eval := &explorerEvaluator{}
+	readSet := map[string]bool{"src/read.go": true}
+	eval.cachedConcreteValues = &concreteValuesResult{}
+	eval.cachedConcreteValuesCoverageKey = concreteValuesReadCoverageKey(readSet, nil) +
+		concreteReturnOwnerAuthorityCoverageKey(nil) + "\x00scope=" + eval.deterministicEnrichmentScopeKey()
+	openKey := eval.cachedConcreteValuesCoverageKey
+	eval.investigationComplete = true
+	closedKey := concreteValuesReadCoverageKey(readSet, nil) +
+		concreteReturnOwnerAuthorityCoverageKey(nil) + "\x00scope=" + eval.deterministicEnrichmentScopeKey()
+	if openKey == closedKey {
+		t.Fatalf("accepted completion must invalidate any broad pre-completion concrete-value cache: %q", openKey)
+	}
+}
+
 func TestBuildConcreteValuesSection_StandaloneStructuralRelationsReachHandoff(t *testing.T) {
 	file := &repotypes.FileInfo{
 		RelPath:  "pipeline/plugins.py",

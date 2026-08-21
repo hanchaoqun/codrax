@@ -910,6 +910,24 @@ func TestE2E_EmptyCandidates(t *testing.T) {
 	}
 }
 
+func TestSelectCandidateFiles_ExactCandidatesDoesNotExpandGraphNeighbors(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"read.go": {RelPath: "read.go"},
+			"dep.go":  {RelPath: "dep.go"},
+		},
+		ImportGraph: map[string][]string{"read.go": {"dep.go"}},
+	}
+	got, truncated := selectCandidateFiles(graph, Options{
+		CandidateFiles:  []string{"read.go"},
+		ExactCandidates: true,
+		MaxFiles:        40,
+	})
+	if truncated || len(got) != 1 || got[0] != "read.go" {
+		t.Fatalf("exact candidate scope must not widen through graph neighbors: got=%v truncated=%v", got, truncated)
+	}
+}
+
 // ─────────────────────────────────────────────────────────────
 // Scenario 12: Evidence deduplication across same file analyzed twice
 // ─────────────────────────────────────────────────────────────
