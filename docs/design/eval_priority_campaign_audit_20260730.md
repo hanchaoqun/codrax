@@ -57291,6 +57291,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1350 r829：B1312 生产转正；参与者边界仍以整表替换放大联合修补心智（2026-08-21）
+
+1. 从已推送 `16390da79` 重建不可变二进制，严格并发恰好 2 路复放 read 图表用例与显式窗 Trace 用例，runner 2/2 PASS：Trace
+   221s、read 284s。两路活动流都没有按固定 4ms、4m、累计年龄或上下文比例降级；Trace 没有成文拒绝，read 虽最终出厂但发生 6 次
+   finalizer reject，人工不能把 runner PASS 当成质量闭环。
+2. Trace 人工判定 pass：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳、
+   threadpool-400 的 11.000ms 链上 iowait 第一席、三个 1.000ms runnable/优先级候选、实际占时/规则可消双账户、业务下钻方向和完整
+   `Trace 因果投影` 均在。邻近与背景没有升为主因；模型同时披露未建立 app-100 的具体同步对象/持有者关系，没有把调用点或时序邻近扩写成
+   已证直接阻塞。系统没有替换模型结论，Trace 自动补采和链上-only 根因权威均未受 read 图表修复影响。
+3. B1312 获得生产正证。read 第一轮 joint patch 对已有 A→E、E→X、X→F 三条可见边选择 same-generation `failure_ref +
+   addition_ref + action=attach`，三条 body edge 原位获得 typed precedence anchor，没有再 add 重复边；无候选的 BusContext→Mutable 则由模型
+   选择 remove。说明 attach 的 schema 可发现、模型可执行、原位绑定和 sibling 保留都在真实链路成立。
+4. read 人工判定 partial，确认新 P1 `B1313-PARTICIPANTBOUNDARYDELTA1`。relation patch 已正确完成后，participant delta 明确列出
+   Analyzer/Explorer/Extractor/Finalizer 的 `remove_stale_boundary`，模型 thinking 也逐项作出正确判断；但唯一发布能力
+   `diagram_boundary_replacements` 要求模型重新发射整张 `participant_boundaries` 数组。模型随后反复复制旧的六行全集，第二轮补入 BusContext
+   typed incident edge后仍保留五条 stale row，继而经历空表、单行、整块 rewrite 等试探，累计 6 次拒绝，最终只能回退上一版结构化草稿并披露
+   质量 caveat。问题是局部 typed delta 与整表 mutation 能力不对称，不是 Mermaid 语法或关系证据不足，也不能归为单次模型波动。
+5. 最优通用方案冻结为局部边界 lease，而不是自动删除或按参与者名字拟合：producer 为每条 stale/missing boundary issue 铸 same-generation opaque
+   ref；动态 schema 只发布可执行的精确动作，例如 `remove_boundary` 或 `retain_unproven`。模型显式选择动作，executor 在不可变 patch base 上逐行
+   应用并复验；需要新增 typed incident edge 的 participant 仍必须由模型通过现有 addition ref 编写可见端点和业务标签，系统不得自造边。
+   未命中的 sibling boundary 原样保留，stale/cross-generation/cross-block/ref 重用和 issue/action 不匹配全部 fail-closed。该能力只读 validator typed
+   delta，不扫描请求、thinking、最终 prose 或 Mermaid message，不选择边、关系、wording、布局或结论。
+6. 下一小批先实现 B1313 的精确边界动作通道并钉住 joint attach+boundary edit 的单轮事务；随后仍从新提交构建不可变二进制，恰好并发 2 路复放
+   read+Trace。验收目标不是“零重试”硬指标，而是同代正确选择能一次落地、错误选择给出单一可行动失败，同时 Trace 因果投影、自动补采、链上根因、
+   业务线索与双账户继续完整。
+
+状态：
+
+`r829=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1312=production-positive/core-closed`；
+`B1313=confirmed/P1-next`；
+`existing-visible-edge+typed-candidate=attach-without-duplicate-production-positive`；
+`participant-boundary-current-capability=whole-array-replacement/churn-prone`；
+`target-boundary-capability=same-generation-ref+model-selected-local-action`；
+`system-edge/relation/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r829`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r829`。
+
 ### §123.1349 B1312：已有可见边与 typed 候选同代原子绑定，退役重复 add / 不可执行 replace（2026-08-21）
 
 1. r828 日志与代码交叉确认 B1312 是确定性 schema/executor 自冲突，不是模型波动。`missing_relation_anchor` 的
