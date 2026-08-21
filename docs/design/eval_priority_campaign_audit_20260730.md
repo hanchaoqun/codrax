@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1310 r802：B1282 生产转正；零 occurrence 的 prior-anchor 形成自相矛盾修补合同（2026-08-21）
+
+1. 从已推送 `94e086850` 构建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 224s、read
+   655s。两路活动流都没有按 4ms、4m、首字节、stall、累计年龄或上下文比例降级；没有恢复旧稿或系统代写答案。
+2. Trace 系统面继续通过且成文零重试：显式 2.000..2.020s 窗、2 次目标过滤 typed query、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   优先级候选、实际占时/规则可消双账户、背景隔离和完整 `Trace 因果投影` 全在。模型仍把内部字段形
+   `target_direct_blocking_authority=not_provided`、`resolved_files=0` 写入正文，并把跨 CPU 亲和作为条件排查方向；finalizer 上下文已明确
+   要求只表达读者语义，故先按模型呈现波动观察，不新增正文扫描、拒绝、翻译或系统改写。
+3. B1282 获得生产正证：read 第一拒与第三拒都同时存在 participant delta 与 relation delta，路由分别命中
+   `answer_doc.reject.patch-required-diagram-joint-delta.1` 和 `answer_doc.patch_required_diagram_joint_delta`，模型在同一轮看到了两个完整 typed
+   carrier；旧的“先隐藏关系失败、下一轮才披露”已关闭。最终答案保留四阶段 precedence 图、五列表、Orchestrator 机制、BusContext/Mutable
+   载体和源码引用，模型结论与可见图仍由模型作者决定。
+4. 新 `B1283-PRIORANCHORZEROCCURRENCE1/P0` 为确定性红线冲突。初稿有一个聚合 prior anchor
+   `TASK(runTaskPhase) -> DISP(dispatchStage)`，但 Mermaid body 中同一节点对有 Explore/Extract/Finalize 三条消息；该 anchor 没有可证明的
+   单一 body occurrence，producer 因而合法发布 `target_carrier=prior_anchor, body_occurrence=0`。模型按允许动作选择 remove 后，atomic executor
+   要求“3 条可见边无法一一映射，必须设置 body_occurrence”；模型设置 1 后，failure-ref resolver 又要求“ref 已选择 body_occurrence=0，必须
+   省略”。r802 在第 4–12 轮反复交替这两个互斥要求，最终只能绕回 whole-block replacement，共 12 次 reject、13 次 patch、14 轮成文。
+5. B1283 根修冻结为 carrier 语义闭包，不让模型猜 occurrence，也不放宽关系证据门：live ref 的 `target_carrier=prior_anchor` 若精确选择一个
+   anchor、但该 anchor 无法与重复 visible pair 一一映射，则只发布可执行的 `remove` capability；执行 remove 只删除该精确 prior-anchor
+   metadata，不擅自选择或删除任一可见边。相同验证代次已有 `visible_body_edge` failure refs 时，模型仍可分别选择其带非零
+   `body_occurrence` 的 remove/replace，在同一原子 patch 处理可见边；没有对应 body failure 时，剩余未锚定边由普通 validator 下一代诚实重报。
+   `replace` 仅在 prior anchor 与 body occurrence 可精确映射时发布，禁止生成不可执行 capability。
+6. 必须增加两类结构 pin：三条同节点对 body edge + 一个零 occurrence 聚合 prior anchor 时，`{failure_ref,remove}` 单独可执行且只删 anchor；
+   同批再带三条 exact visible-body refs 时，按 immutable base occurrence 降序应用后一次成功。负 pin 要证明 prior-anchor ref 既不要求模型填
+   occurrence，也不允许系统任意选一条可见边，且 user/model/final prose、Mermaid label 与错误 message 均不参与 carrier 判定。
+
+状态：
+
+`r802=runner-pass-2/2,human-answer-pass/system-quality-partial`；
+`B1282=production-positive/core-closed`；
+`B1283=confirmed/P0-next`；
+`read-finalize=14-rounds/12-rejects/13-patches/contract-conflict`；
+`zero-occurrence-prior-anchor=current=require-and-reject-body-occurrence`；
+`target-fix=prior-anchor-remove-is-anchor-only/visible-body-edits-use-own-exact-refs`；
+`system-visible-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label/error-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r802`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r802`。
+
 ### §123.1291 r792：Trace 权威链保持；read 主机执行会话中断，不形成产品裁定（2026-08-20）
 
 1. 以已推送 `60c73e390` 构建不可变二进制，严格并发恰好 2 路启动同一 read+Trace 双例。Trace 在 212s 正常 PASS；read
