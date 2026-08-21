@@ -72,6 +72,135 @@ func TestApplyModelAuthoredDiagramAtomicEdits_PreservesUnmentionedGraphContent(t
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenNewOrphan(t *testing.T) {
+	newLease := func(prev *types.AnswerDocumentV2) *types.AnswerDiagramRelationRepairLease {
+		lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+		}}, nil)
+		if lease == nil || len(lease.Failures) != 1 || !lease.Failures[0].AllowsAction("remove") {
+			t.Fatalf("test setup: executable failure lease missing: %+v", lease)
+		}
+		return lease
+	}
+
+	t.Run("sequence declaration removed after its only failed edge", func(t *testing.T) {
+		prev := atomicPatchTestDocument()
+		lease := newLease(prev)
+		patch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, patch,
+			[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+			[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "A", Action: "remove_if_isolated"}},
+			nil, lease,
+		)
+		if err != nil {
+			t.Fatalf("atomic edge+participant cleanup rejected: %v", err)
+		}
+		if len(patch.ReplaceBlocks) != 1 {
+			t.Fatalf("compiled replacements=%d", len(patch.ReplaceBlocks))
+		}
+		got := patch.ReplaceBlocks[0]
+		if strings.Contains(got.Diagram.Body, "participant A") || strings.Contains(got.Diagram.Body, "A->>B") {
+			t.Fatalf("selected orphan or failed edge survived:\n%s", got.Diagram.Body)
+		}
+		for _, want := range []string{"participant B", "participant C", "B->>C: keep label"} {
+			if !strings.Contains(got.Diagram.Body, want) {
+				t.Fatalf("unmentioned graph content lost %q:\n%s", want, got.Diagram.Body)
+			}
+		}
+		if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "B" || got.EdgeAnchors[0].ToNode != "C" {
+			t.Fatalf("unmentioned anchor changed: %+v", got.EdgeAnchors)
+		}
+	})
+
+	t.Run("requested boundary and still-connected declarations fail closed", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			participant string
+			protected   []string
+			addBoundary bool
+		}{
+			"requested":       {participant: "A", protected: []string{"A"}},
+			"boundary":        {participant: "A", addBoundary: true},
+			"still connected": {participant: "B"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				prev := atomicPatchTestDocument()
+				if tc.addBoundary {
+					prev.Blocks[1].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+						Participant: "A", Status: types.DiagramParticipantBoundaryUnproven,
+					}}
+				}
+				lease := newLease(prev)
+				err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+					prev, &types.AnswerDocumentV2Patch{},
+					[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+					[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: tc.participant, Action: "remove_if_isolated"}},
+					tc.protected, lease,
+				)
+				if err == nil {
+					t.Fatal("unsafe participant cleanup unexpectedly passed")
+				}
+			})
+		}
+	})
+
+	t.Run("flow standalone declaration uses the same contract", func(t *testing.T) {
+		prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+			ID: "diag", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  A[API]\n  B[Worker]\n  A -->|calls| B\n"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", FromIdentity: "API.Call", ToIdentity: "Worker.Run",
+				RelationKind: types.DiagramRelCall, VisibleLabel: "calls",
+			}},
+		}}}
+		lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+			FromIdentity: "API.Call", ToIdentity: "Worker.Run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1,
+		}}, nil)
+		patch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, patch, []emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+			[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "A", Action: "remove_if_isolated"}}, nil, lease,
+		)
+		if err != nil || len(patch.ReplaceBlocks) != 1 || strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A[API]") {
+			t.Fatalf("flow cleanup failed: err=%v patch=%+v", err, patch)
+		}
+	})
+}
+
+func TestEmitAnswerDocumentPatch_WiresOptionalOrphanCleanupThroughProductionEnvelope(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+	}}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("test setup: live lease missing: %+v", lease)
+	}
+	mut := types.NewMutableState("production participant cleanup")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}],
+		"diagram_participant_edits":[{"block_id":"diag","participant_id":"A","action":"remove_if_isolated"}]
+	}`, lease.Failures[0].FailureRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || !res.Success {
+		t.Fatalf("production envelope rejected model-owned cleanup: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[1].Diagram == nil ||
+		strings.Contains(got.Blocks[1].Diagram.Body, "participant A") ||
+		strings.Contains(got.Blocks[1].Diagram.Body, "A->>B") ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("production cleanup did not preserve the local graph: %+v", got)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHiddenTuple(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev,

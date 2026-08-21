@@ -412,15 +412,30 @@ type AnswerDiagramRelationRepairCandidate struct {
 	Source       string              `json:"source"`
 }
 
+// AnswerDiagramOrphanCleanupCandidate is a presentation-only option derived
+// from the rejected diagram's parsed topology after the relation lease is
+// installed. It never authorizes an edge or requires deletion. The model may
+// choose remove_if_isolated in the same atomic patch; the executor rechecks
+// that every former incident edge belongs to the live failure set, the selected
+// edge edits actually leave the declaration isolated, and no requested or
+// uncertainty-bound participant is being removed.
+type AnswerDiagramOrphanCleanupCandidate struct {
+	BlockID       string `json:"block_id"`
+	ParticipantID string `json:"participant_id"`
+	VisibleLabel  string `json:"visible_label,omitempty"`
+	AllowedAction string `json:"allowed_action"`
+}
+
 // AnswerDiagramRelationRepairDelta is the single producer-owned carrier for
 // every relation failure emitted by one pre-emit validation cycle. Keeping the
 // schema in types prevents the producer and retry consumer from drifting.
 type AnswerDiagramRelationRepairDelta struct {
-	Version               int                                    `json:"version"`
-	Failures              []AnswerDiagramRelationRepairFailure   `json:"failures"`
-	PreserveUnlistedEdges bool                                   `json:"preserve_unlisted_edges"`
-	AllowedAdditions      []AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
-	CandidateAlternatives string                                 `json:"candidate_alternatives,omitempty"`
+	Version                int                                    `json:"version"`
+	Failures               []AnswerDiagramRelationRepairFailure   `json:"failures"`
+	PreserveUnlistedEdges  bool                                   `json:"preserve_unlisted_edges"`
+	AllowedAdditions       []AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+	OptionalOrphanCleanups []AnswerDiagramOrphanCleanupCandidate  `json:"optional_orphan_cleanups,omitempty"`
+	CandidateAlternatives  string                                 `json:"candidate_alternatives,omitempty"`
 }
 
 // AnswerDiagramRelationRepairFailureHasCompleteLocator accepts either the

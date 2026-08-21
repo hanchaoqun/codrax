@@ -47,13 +47,16 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 		t.Fatalf("patch projected schema must parse: %v", err)
 	}
 	patchProps := patchRoot["properties"].(map[string]any)
-	for _, field := range []string{"diagram_edge_edits", "diagram_boundary_replacements"} {
+	for _, field := range []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_participant_edits"} {
 		if _, ok := patchProps[field]; !ok {
 			t.Fatalf("patch projected schema lost atomic diagram field %q", field)
 		}
 	}
 	if got := patchProps["diagram_edge_edits"].(map[string]any)["maxItems"]; got != float64(maxModelAuthoredDiagramEdgeEdits) {
 		t.Fatalf("diagram atomic edit schema/executor limit drift: schema=%v executor=%d", got, maxModelAuthoredDiagramEdgeEdits)
+	}
+	if got := patchProps["diagram_participant_edits"].(map[string]any)["maxItems"]; got != float64(maxModelAuthoredDiagramParticipantEdits) {
+		t.Fatalf("diagram participant edit schema/executor limit drift: schema=%v executor=%d", got, maxModelAuthoredDiagramParticipantEdits)
 	}
 	edgeEditItem := patchProps["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)
 	edgeEditProps := edgeEditItem["properties"].(map[string]any)
@@ -137,6 +140,9 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseNarrowsOnlyWholeTargetMu
 	}
 	if _, ok := props["diagram_boundary_replacements"]; !ok {
 		t.Fatal("local lease must retain model-authored participant-boundary edits")
+	}
+	if _, ok := props["diagram_participant_edits"]; !ok {
+		t.Fatal("local lease must retain optional model-authored orphan cleanup edits")
 	}
 }
 

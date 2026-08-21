@@ -35,6 +35,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/loopkernel"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/stageauthority"
@@ -17596,10 +17597,11 @@ type answerDocDiagramParticipantRepairDelta struct {
 type answerDocDiagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
 
 type answerDocDiagramRelationRepairVisibleDelta struct {
-	Version               int                                          `json:"version"`
-	Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
-	PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
-	AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+	Version                int                                          `json:"version"`
+	Failures               []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
+	PreserveUnlistedEdges  bool                                         `json:"preserve_unlisted_edges"`
+	AllowedAdditions       []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+	OptionalOrphanCleanups []types.AnswerDiagramOrphanCleanupCandidate  `json:"optional_orphan_cleanups,omitempty"`
 }
 
 func parseAnswerDocDiagramParticipantRepairDelta(result *types.ToolResult) (answerDocDiagramParticipantRepairDelta, string, bool) {
@@ -17645,6 +17647,7 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 	visibleRaw, err := json.Marshal(answerDocDiagramRelationRepairVisibleDelta{
 		Version: delta.Version, Failures: delta.Failures,
 		PreserveUnlistedEdges: true, AllowedAdditions: delta.AllowedAdditions,
+		OptionalOrphanCleanups: delta.OptionalOrphanCleanups,
 	})
 	if err != nil {
 		return answerDocDiagramRelationRepairDelta{}, nil, false
@@ -17674,7 +17677,7 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 	b.WriteString(prefix)
 	b.WriteString(" by two independent local defects in the same required diagram: participant coverage and typed relation authority. ")
 	b.WriteString(action)
-	b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together in that call. Do not repair one family while silently carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. For relation_delta, each failure row publishes its exact `target_carrier` and `allowed_actions`: choose only an action listed on that row, copy only `{failure_ref, action}` for remove/relabel, and supply your complete corrected anchor and visible label only when you choose an allowed replace. `allowed_additions` are optional permissions, never required relations; when you choose one, use `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}` so the live lease supplies only its hidden block, relation, and identity fields. Keep every unlisted edge because `preserve_unlisted_edges=true`; retain sibling blocks and inherited citations. You still own every action choice, visible node/edge, business label, order, grouping, and layout. Issue enums, refs, action capabilities, source locations, and internal identities are repair metadata and must not become visible wording.\n\n```json\n{\"participant_delta\":")
+	b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; optional `diagram_participant_edits` may join them. Do not repair one family while silently carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. For relation_delta, each failure row publishes its exact `target_carrier` and `allowed_actions`: choose only an action listed on that row, copy only `{failure_ref, action}` for remove/relabel, and supply your complete corrected anchor and visible label only when you choose an allowed replace. `allowed_additions` are optional permissions, never required relations; when you choose one, use `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}` so the live lease supplies only its hidden block, relation, and identity fields. An `optional_orphan_cleanups` row permits, but never requires, same-patch `remove_if_isolated` after all incident failures are removed; omit it to retain context. Keep every unlisted edge because `preserve_unlisted_edges=true`; retain sibling blocks and inherited citations. You still own every action choice, visible node/edge, business label, order, grouping, and layout. Issue enums, refs, action capabilities, cleanup ids, source locations, and internal identities are repair metadata and must not become visible wording.\n\n```json\n{\"participant_delta\":")
 	b.WriteString(participantRaw)
 	b.WriteString(",\"relation_delta\":")
 	b.Write(relationRaw)
@@ -17731,12 +17734,139 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 	b.WriteString(prefix)
 	b.WriteString(" by a local typed source-diagram relation mismatch. ")
 	b.WriteString(action)
-	b.WriteString("; prefer `diagram_edge_edits` for this local repair instead of re-emitting the whole diagram in `replace_blocks`. Each failures[] row publishes the exact `target_carrier` and its `allowed_actions`; choose only an action listed on that same row, copy `{failure_ref, action}`, and omit block_id, match, occurrence, and body_occurrence so node aliases, visible positions, and canonical identities cannot drift. The capability list says only what the current same-generation carrier can execute; it never chooses your action or visible wording. `prior_anchor` permits only the listed change to one mapped anchor/body pair; `prior_anchor_metadata` permits remove of only that exact anchor metadata and leaves visible block content unchanged, including when the named block is not a diagram; `visible_body_edge` names one exact unanchored Mermaid edge; `stale_anchor` names metadata with no body edge; and `label_pair` permits only model-authored relabeling. If several failure rows name the same positive body_occurrence and you choose remove for all of them, include every selected `{failure_ref, action:\"remove\"}` in this one patch so the shared statement and all selected typed anchors close transactionally. action=relabel is valid only when that row lists relabel; action=remove only when it lists remove; action=replace only when it lists replace and always requires your complete corrected anchor and visible_label. A row with empty allowed_actions has no unambiguous opaque-ref operation: do not guess a ref action. action=add is separate and accepts only a selected allowed_additions row, never a failure_ref. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Keep every existing required diagram block id and `kind=diagram` unchanged; do not add or remove a diagram block in this local repair. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only its exact carrier in the named block. `preserve_unlisted_edges=true` is enforced on typed `edge_anchors`: every other model-authored relation must remain unchanged. You may choose zero or more `allowed_additions[]` rows in this same patch; select one by copying its addition_ref into action=add, author its visible from_node/to_node/visible_label, and use the ref at most once. The executor supplies only that selected row's block_id, from_identity, to_identity, and relation_kind; do not add any other relation. The allowed rows are permissions, not required edges. You still author all visible node ids, labels, business wording, ordering, and layout. Issue values, carrier/action capabilities, failure/addition refs, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	b.WriteString("; prefer `diagram_edge_edits` for this local repair instead of re-emitting the whole diagram in `replace_blocks`. Each failures[] row publishes the exact `target_carrier` and its `allowed_actions`; choose only an action listed on that same row, copy `{failure_ref, action}`, and omit block_id, match, occurrence, and body_occurrence so node aliases, visible positions, and canonical identities cannot drift. The capability list says only what the current same-generation carrier can execute; it never chooses your action or visible wording. `prior_anchor` permits only the listed change to one mapped anchor/body pair; `prior_anchor_metadata` permits remove of only that exact anchor metadata and leaves visible block content unchanged, including when the named block is not a diagram; `visible_body_edge` names one exact unanchored Mermaid edge; `stale_anchor` names metadata with no body edge; and `label_pair` permits only model-authored relabeling. If several failure rows name the same positive body_occurrence and you choose remove for all of them, include every selected `{failure_ref, action:\"remove\"}` in this one patch so the shared statement and all selected typed anchors close transactionally. action=relabel is valid only when that row lists relabel; action=remove only when it lists remove; action=replace only when it lists replace and always requires your complete corrected anchor and visible_label. A row with empty allowed_actions has no unambiguous opaque-ref operation: do not guess a ref action. action=add is separate and accepts only a selected allowed_additions row, never a failure_ref. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Keep every existing required diagram block id and `kind=diagram` unchanged; do not add or remove a diagram block in this local repair. Apply the bounded producer-owned delta below before considering any wider relation catalog. For each `failures[]` row, correct or remove only its exact carrier in the named block. `preserve_unlisted_edges=true` is enforced on typed `edge_anchors`: every other model-authored relation must remain unchanged. You may choose zero or more `allowed_additions[]` rows in this same patch; select one by copying its addition_ref into action=add, author its visible from_node/to_node/visible_label, and use the ref at most once. The executor supplies only that selected row's block_id, from_identity, to_identity, and relation_kind; do not add any other relation. The allowed rows are permissions, not required edges. `optional_orphan_cleanups` allows `diagram_participant_edits` after incident removals; omit to retain. Protections are rechecked. You still author all visible node ids, labels, business wording, ordering, and layout. Issue values, carrier/action capabilities, cleanup ids, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
 	b.Write(visibleRaw)
 	b.WriteString("\n```\n\n")
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
 	b.WriteString(" The system has not selected, added, removed, relabelled, reversed, or reconnected any model-authored edge. Do not reopen files or write free-form prose outside the tool call.")
 	return b.String(), true
+}
+
+// answerDocDiagramOptionalOrphanCleanupCandidates derives presentation-only
+// cleanup choices from the exact rejected Mermaid topology plus the installed
+// relation lease. A declaration is listed only when it currently has at least
+// one incident edge and every such edge is a remove-capable failure carrier.
+// Requested participants and model-authored unproven boundaries are protected.
+// The model still chooses whether to remove every edge and whether to submit the
+// cleanup operation; the patch executor repeats all checks after applying the
+// chosen edge edits.
+func answerDocDiagramOptionalOrphanCleanupCandidates(
+	base *types.AnswerDocumentV2,
+	lease *types.AnswerDiagramRelationRepairLease,
+	view *types.AnswerSemanticView,
+) []types.AnswerDiagramOrphanCleanupCandidate {
+	if base == nil || lease == nil {
+		return nil
+	}
+	protected := make(map[string]bool)
+	if view != nil {
+		for _, obligation := range view.DiagramParticipantObligations {
+			if key := answerDocDiagramParticipantSurfaceKey(obligation.Identity); key != "" {
+				protected[key] = true
+			}
+		}
+	}
+	var out []types.AnswerDiagramOrphanCleanupCandidate
+	for _, block := range base.Blocks {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		blockID := strings.TrimSpace(block.ID)
+		body := block.Diagram.Body
+		if blockID == "" || body == "" {
+			continue
+		}
+		blockProtected := make(map[string]bool, len(protected)+len(block.ParticipantBoundaries))
+		for key := range protected {
+			blockProtected[key] = true
+		}
+		for _, boundary := range block.ParticipantBoundaries {
+			if key := answerDocDiagramParticipantSurfaceKey(boundary.Participant); key != "" {
+				blockProtected[key] = true
+			}
+		}
+		edges := mermaidcompat.ParseEdges(body)
+		declarationCounts := make(map[string]int)
+		for _, decl := range mermaidcompat.RemovableNodeDeclarations(body) {
+			declarationCounts[strings.TrimSpace(decl.Ident)]++
+		}
+		pairOccurrences := make(map[string]int)
+		type edgeOccurrence struct {
+			edge       mermaidcompat.Edge
+			occurrence int
+		}
+		indexed := make([]edgeOccurrence, 0, len(edges))
+		for _, edge := range edges {
+			key := strings.TrimSpace(edge.From) + "\x00" + strings.TrimSpace(edge.To)
+			pairOccurrences[key]++
+			indexed = append(indexed, edgeOccurrence{edge: edge, occurrence: pairOccurrences[key]})
+		}
+		for _, decl := range mermaidcompat.RemovableNodeDeclarations(body) {
+			id := strings.TrimSpace(decl.Ident)
+			if id == "" || declarationCounts[id] != 1 || answerDocDiagramSurfaceProtected(blockProtected, id, decl.Label) {
+				continue
+			}
+			incident, allRemovable := 0, true
+			for _, item := range indexed {
+				if strings.TrimSpace(item.edge.From) != id && strings.TrimSpace(item.edge.To) != id {
+					continue
+				}
+				incident++
+				if !answerDocDiagramEdgeHasRemoveCapableFailure(lease, blockID, item.edge, item.occurrence) {
+					allRemovable = false
+					break
+				}
+			}
+			if incident == 0 || !allRemovable {
+				continue
+			}
+			out = append(out, types.AnswerDiagramOrphanCleanupCandidate{
+				BlockID: blockID, ParticipantID: id, VisibleLabel: strings.TrimSpace(decl.Label),
+				AllowedAction: "remove_if_isolated",
+			})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].BlockID != out[j].BlockID {
+			return out[i].BlockID < out[j].BlockID
+		}
+		return out[i].ParticipantID < out[j].ParticipantID
+	})
+	return out
+}
+
+func answerDocDiagramEdgeHasRemoveCapableFailure(
+	lease *types.AnswerDiagramRelationRepairLease,
+	blockID string,
+	edge mermaidcompat.Edge,
+	bodyOccurrence int,
+) bool {
+	for _, failure := range lease.Failures {
+		if strings.TrimSpace(failure.BlockID) != blockID ||
+			!failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionRemove)) ||
+			strings.TrimSpace(failure.FromNode) != strings.TrimSpace(edge.From) ||
+			strings.TrimSpace(failure.ToNode) != strings.TrimSpace(edge.To) {
+			continue
+		}
+		if failure.BodyOccurrence <= 0 || failure.BodyOccurrence == bodyOccurrence {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocDiagramParticipantSurfaceKey(raw string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Trim(raw, "`\\\"'")))
+}
+
+func answerDocDiagramSurfaceProtected(protected map[string]bool, surfaces ...string) bool {
+	for _, surface := range surfaces {
+		key := answerDocDiagramParticipantSurfaceKey(surface)
+		if key != "" && protected[key] {
+			return true
+		}
+	}
+	return false
 }
 
 // installAnswerDocDiagramRelationRepairLease turns the producer-owned local
@@ -17777,6 +17907,11 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 	// touching Mermaid text, visible labels, answer prose, or model decisions.
 	delta.Failures = append([]types.AnswerDiagramRelationRepairFailure(nil), lease.Failures...)
 	delta.AllowedAdditions = append([]types.AnswerDiagramRelationRepairCandidate(nil), lease.AllowedAdditions...)
+	var view *types.AnswerSemanticView
+	if ctx != nil {
+		view = types.BuildAnswerSemanticViewForAgentContext(ctx)
+	}
+	delta.OptionalOrphanCleanups = answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, view)
 	canonicalRaw, err := json.Marshal(delta)
 	if err != nil || len(canonicalRaw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
 		return false

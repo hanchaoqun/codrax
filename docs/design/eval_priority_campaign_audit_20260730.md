@@ -57527,6 +57527,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1328 B1295：关系修复后的孤立声明改为模型可选原子清理（2026-08-21）
+
+1. r812 的异常不是 Mermaid 语法错误，而是关系 repair 只删除无证边，保留了原图中随后变成零 incident 的显式 participant/node
+   declaration；图因此语法合法但出现一排与当前业务路径脱节的技术节点。把所有孤立节点自动删除同样错误，因为模型可能有意保留边界、参与者
+   roster 或上下文节点；系统也不能为避免孤立而自动补造关系。
+2. 新增 parser-owned 的可安全移除载体：只识别 sequenceDiagram 的独立 `participant/actor` 声明，以及 flowchart/graph 的独立整行节点声明。
+   edge endpoint、隐式 sequence participant、subgraph、class body、note、style/control 指令与复合语句全部排除；重复声明保持歧义并 fail-closed。
+   这是一项 Mermaid 结构能力，不读取节点业务词，也不按语言、case 或节点名特判。
+3. relation repair delta 新增 `optional_orphan_cleanups`。候选只在不可变拒绝稿中满足以下合取时产生：声明唯一且可整行移除；至少存在一条
+   incident edge；每条 incident edge 都被同 block、同 endpoint/body occurrence 的 live remove-capable failure 覆盖；该节点不是 typed
+   requested participant，也不是模型已声明的 unproven boundary。候选只是权限，不是删除指令；模型可通过省略操作保留该节点作为上下文。
+4. 模型若选择清理，必须在同一 patch 显式提交 `diagram_participant_edits[{block_id,participant_id,
+   action:"remove_if_isolated"}]`，并自行选择删除全部相关失败边。原子编译器先执行模型选择的 edge edits，再基于不可变旧图重验候选资格，并检查
+   当前图中已无 incident visible edge、已无 incident typed edge anchor、请求参与者与新旧 boundary 均未保护该节点，最后只删除该唯一 declaration
+   行。陈腐 ref、未删净关系、模糊声明、越权 participant 或脱离 live lease 的调用一律拒绝；系统不改其他 node/edge/label/order/layout。
+5. 当前安全覆盖 sequenceDiagram 与 flowchart/graph（含以 flow 语法承载的 architecture/call_dag）；classDiagram 的 class body 不是整行无副作用载体，
+   本批明确不做自动结构切除。后续若扩展，必须先由 parser 提供可证明的整声明范围，不能退回正则或节点名扫描。
+6. 回归覆盖 sequence 与 flow 成功清理、重复声明歧义、请求参与者、boundary、仍有 visible edge、仍有 typed anchor、生产
+   `emit_answer_document_patch` 接线、动态 schema/本地 lease schema、候选与 retry 教学。相关四包、完整 `go test ./... -count=1` 与 CGO
+   release-tag `make` 全绿。
+7. 本批不改变 Analyzer 图意图、关系证据门、最终答案结论权，也不读取用户原文、模型推理或最终正文做事实硬门；只把模型已经选择的局部清理编译成
+   可审计原子操作。Trace 查询、显式时间窗、自动补采、唤醒/IO 链、链上根因排序、实际占时/规则可消双账户与因果投影均未改动。
+
+状态：
+
+`B1295=implemented+related-suite+full-suite-pass+build-pass/production-replay-pending`；
+`orphan-candidate=parsed-topology+live-remove-failures+typed-protection`；
+`cleanup-choice=model-owned/optional`；
+`cleanup-operation=one-explicit-declaration-line-only`；
+`sequence+flowchart=covered`；`class-body=excluded/fail-closed`；
+`system-node/edge/relation/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-business-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

@@ -787,6 +787,113 @@ func SequenceParticipantDeclarations(line string) []NodeDecl {
 	return []NodeDecl{{Ident: ident, Label: ident}}
 }
 
+// RemovableNodeDeclarations returns only explicit, whole-line node carriers
+// that can be removed without rewriting another Mermaid statement. Sequence
+// participant/actor declarations and standalone flowchart node declarations
+// are supported. Edge endpoints, subgraph headers, class bodies, notes, and
+// implicit sequence participants are deliberately excluded: this is syntax
+// topology for a model-authored local cleanup, not semantic node inference.
+func RemovableNodeDeclarations(body string) []NodeDecl {
+	var out []NodeDecl
+	family := mermaidBodyFamily(body)
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		switch family {
+		case "sequence":
+			decls := SequenceParticipantDeclarations(line)
+			if len(decls) == 1 {
+				out = append(out, decls[0])
+			}
+		case "flow":
+			if !standaloneFlowDeclarationLine(line) {
+				continue
+			}
+			decls := NodeDeclarationsAll(line)
+			if len(decls) == 1 {
+				out = append(out, decls[0])
+			}
+		}
+	}
+	return out
+}
+
+// RemoveRemovableNodeDeclaration removes one exact explicit declaration line.
+// The returned count is the number of matching declaration lines in the input;
+// callers must require count==1 before accepting the returned body. Keeping the
+// ambiguity visible prevents duplicate declarations or composite statements
+// from becoming an implicit system choice.
+func RemoveRemovableNodeDeclaration(body, ident string) (string, int) {
+	ident = strings.TrimSpace(ident)
+	if ident == "" {
+		return body, 0
+	}
+	family := mermaidBodyFamily(body)
+	lines := strings.Split(body, "\n")
+	matches := make([]int, 0, 1)
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		var decls []NodeDecl
+		switch family {
+		case "sequence":
+			decls = SequenceParticipantDeclarations(line)
+		case "flow":
+			if standaloneFlowDeclarationLine(line) {
+				decls = NodeDeclarationsAll(line)
+			}
+		}
+		if len(decls) == 1 && strings.TrimSpace(decls[0].Ident) == ident {
+			matches = append(matches, i)
+		}
+	}
+	if len(matches) != 1 {
+		return body, len(matches)
+	}
+	i := matches[0]
+	lines = append(lines[:i], lines[i+1:]...)
+	return strings.Join(lines, "\n"), 1
+}
+
+func mermaidBodyFamily(body string) string {
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.ToLower(strings.TrimSpace(raw))
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "sequencediagram"):
+			return "sequence"
+		case strings.HasPrefix(line, "flowchart"), strings.HasPrefix(line, "graph"):
+			return "flow"
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+func standaloneFlowDeclarationLine(line string) bool {
+	trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ";"))
+	if trimmed == "" || len(ParseEdges("flowchart TD\n"+trimmed)) > 0 {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "flowchart" || strings.HasPrefix(lower, "flowchart ") ||
+		lower == "graph" || strings.HasPrefix(lower, "graph ") ||
+		lower == "subgraph" || strings.HasPrefix(lower, "subgraph ") ||
+		lower == "end" || lower == "direction" || strings.HasPrefix(lower, "direction ") ||
+		lower == "classdef" || strings.HasPrefix(lower, "classdef ") ||
+		lower == "class" || strings.HasPrefix(lower, "class ") ||
+		lower == "style" || strings.HasPrefix(lower, "style ") ||
+		lower == "click" || strings.HasPrefix(lower, "click ") ||
+		lower == "linkstyle" || strings.HasPrefix(lower, "linkstyle ") {
+		return false
+	}
+	return len(NodeDeclarationsAll(trimmed)) == 1
+}
+
 // NodeDeclarationsAll walks a line and returns every node declaration it
 // can recognise. A statement like A[Label A] --> B[Label B] produces two
 // declarations.

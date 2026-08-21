@@ -1171,6 +1171,73 @@ func TestRequiredDiagramRelationRetryAcceptsIdentityOnlyFailureLocator(t *testin
 	}
 }
 
+func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t *testing.T) {
+	mut := types.NewMutableState("optional orphan cleanup")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			" participant X as InternalController",
+			" participant A as Analyze",
+			" participant C as ContextBoundary",
+			" X->>A: unsupported",
+			" A->>C: keep",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "X", ToNode: "A", FromIdentity: "Internal.Run", ToIdentity: "Analyze", RelationKind: types.DiagramRelCall},
+			{FromNode: "A", ToNode: "C", FromIdentity: "Analyze", ToIdentity: "ContextBoundary", RelationKind: types.DiagramRelDataFlow},
+		},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{Participant: "ContextBoundary", Status: types.DiagramParticipantBoundaryUnproven}},
+	}}})
+	ctx := &types.AgentContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisFlow,
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: []types.DiagramParticipantHint{
+				{Identity: "Analyze", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "Analyze"},
+				{Identity: "ContextBoundary", Role: types.DiagramParticipantContextOnly, SourceQuote: "ContextBoundary"},
+			}},
+		},
+		AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+			Required: true, PreferredKinds: []types.DiagramKind{types.DiagramSequence},
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "Analyze", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "Analyze"},
+				{Identity: "ContextBoundary", Role: types.DiagramParticipantContextOnly, SourceQuote: "ContextBoundary"},
+			},
+		}},
+	}}
+	const delta = `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"X","to_node":"A","from_identity":"Internal.Run","to_identity":"Analyze","body_occurrence":1}],"preserve_unlisted_edges":true}`
+	result := &types.ToolResult{ToolName: "emit_answer_document", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract", Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+		},
+	}}
+	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
+		t.Fatal("relation lease installation failed")
+	}
+	raw := result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	for _, want := range []string{
+		`"optional_orphan_cleanups"`, `"participant_id":"X"`, `"allowed_action":"remove_if_isolated"`,
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("typed optional cleanup missing %q: %s", want, raw)
+		}
+	}
+	for _, forbidden := range []string{`"participant_id":"A"`, `"participant_id":"C"`} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("requested/boundary participant leaked as cleanup candidate %q: %s", forbidden, raw)
+		}
+	}
+	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, false)
+	if !ok {
+		t.Fatal("relation delta hint missing")
+	}
+	for _, want := range []string{"diagram_participant_edits", "remove_if_isolated", "allows `diagram_participant_edits` after incident removals", `"participant_id":"X"`} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("model-owned cleanup teaching missing %q:\n%s", want, hint)
+		}
+	}
+}
+
 func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()

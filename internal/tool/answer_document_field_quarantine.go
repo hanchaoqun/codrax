@@ -37,6 +37,7 @@ var answerDocumentPatchQuarantineProfile = answerDocumentFieldQuarantineProfile{
 		"remove_block_ids",
 		"diagram_edge_edits",
 		"diagram_boundary_replacements",
+		"diagram_participant_edits",
 		"replace_citations",
 		"append_citations",
 		"replace_exact_resolution",

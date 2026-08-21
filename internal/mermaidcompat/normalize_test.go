@@ -1262,3 +1262,36 @@ func TestNormalizeSourceForMarkdown_KeepsLexableSubgraphTitlesByteIdentical(t *t
 		}
 	}
 }
+
+func TestRemovableNodeDeclarationsAndExactRemoval(t *testing.T) {
+	t.Run("sequence explicit only", func(t *testing.T) {
+		body := "sequenceDiagram\n  participant A as API\n  actor B\n  A->>B: call\n  Note over A: keep\n"
+		got := RemovableNodeDeclarations(body)
+		if len(got) != 2 || got[0].Ident != "A" || got[0].Label != "API" || got[1].Ident != "B" {
+			t.Fatalf("removable sequence declarations=%+v", got)
+		}
+		after, count := RemoveRemovableNodeDeclaration(body, "A")
+		if count != 1 || strings.Contains(after, "participant A as API") || !strings.Contains(after, "A->>B: call") || !strings.HasSuffix(after, "\n") {
+			t.Fatalf("sequence removal count=%d body=%q", count, after)
+		}
+	})
+
+	t.Run("flow standalone only", func(t *testing.T) {
+		body := "flowchart LR\n  A[API]\n  B\n  A --> C[Worker]\n  subgraph SG[Group]\n    D[Member]\n  end\n"
+		got := RemovableNodeDeclarations(body)
+		if len(got) != 3 || got[0].Ident != "A" || got[1].Ident != "B" || got[2].Ident != "D" {
+			t.Fatalf("removable flow declarations=%+v", got)
+		}
+		after, count := RemoveRemovableNodeDeclaration(body, "B")
+		if count != 1 || strings.Contains(after, "\n  B\n") || !strings.Contains(after, "A --> C[Worker]") {
+			t.Fatalf("flow removal count=%d body=%q", count, after)
+		}
+	})
+
+	t.Run("duplicate stays ambiguous", func(t *testing.T) {
+		body := "sequenceDiagram\n participant A\n participant A as Again\n"
+		if after, count := RemoveRemovableNodeDeclaration(body, "A"); count != 2 || after != body {
+			t.Fatalf("duplicate declaration must remain untouched: count=%d after=%q", count, after)
+		}
+	})
+}

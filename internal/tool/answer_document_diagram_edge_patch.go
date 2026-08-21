@@ -18,6 +18,7 @@ import (
 // the primary payload bounds; this cap is a final defence against pathological
 // edit arrays.
 const maxModelAuthoredDiagramEdgeEdits = 128
+const maxModelAuthoredDiagramParticipantEdits = 64
 
 type resolvedAtomicDiagramEdgeEdit struct {
 	edit          emitAnswerDiagramEdgeEdit
@@ -41,14 +42,32 @@ func applyModelAuthoredDiagramAtomicEdits(
 	lease *types.AnswerDiagramRelationRepairLease,
 	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
 ) error {
+	return applyModelAuthoredDiagramAtomicEditsWithParticipants(
+		prev, patch, edits, boundaries, nil, nil, lease, stagePrecedenceOpt...,
+	)
+}
+
+func applyModelAuthoredDiagramAtomicEditsWithParticipants(
+	prev *types.AnswerDocumentV2,
+	patch *types.AnswerDocumentV2Patch,
+	edits []emitAnswerDiagramEdgeEdit,
+	boundaries []emitAnswerDiagramBoundaryReplacement,
+	participantEdits []emitAnswerDiagramParticipantEdit,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
+) error {
 	if prev == nil || patch == nil {
 		return fmt.Errorf("previous answer and patch are required")
 	}
-	if len(edits) == 0 && len(boundaries) == 0 {
+	if len(edits) == 0 && len(boundaries) == 0 && len(participantEdits) == 0 {
 		return nil
 	}
 	if len(edits) > maxModelAuthoredDiagramEdgeEdits {
 		return fmt.Errorf("too many edits: got %d, max %d", len(edits), maxModelAuthoredDiagramEdgeEdits)
+	}
+	if len(participantEdits) > maxModelAuthoredDiagramParticipantEdits {
+		return fmt.Errorf("too many participant edits: got %d, max %d", len(participantEdits), maxModelAuthoredDiagramParticipantEdits)
 	}
 	var stagePrecedence []stageauthority.PrecedenceRelation
 	if len(stagePrecedenceOpt) > 0 {
@@ -79,7 +98,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 	}
 
 	working := make(map[string]types.AnswerBlock)
-	order := make([]string, 0, len(edits)+len(boundaries))
+	order := make([]string, 0, len(edits)+len(boundaries)+len(participantEdits))
 	usedFailureRefs := make(map[string]bool, len(edits))
 	usedAdditionRefs := make(map[string]bool, len(edits))
 	loadBlock := func(blockID string, index int, field string, requireDiagram bool) (types.AnswerBlock, error) {
@@ -239,6 +258,33 @@ func applyModelAuthoredDiagramAtomicEdits(
 		block.ParticipantBoundaries = append([]types.DiagramParticipantBoundary(nil), replacement.ParticipantBoundaries...)
 		working[blockID] = block
 	}
+	participantSeen := make(map[string]bool, len(participantEdits))
+	for i, edit := range participantEdits {
+		blockID := strings.TrimSpace(edit.BlockID)
+		participantID := strings.TrimSpace(edit.ParticipantID)
+		if blockID == "" || participantID == "" {
+			return fmt.Errorf("diagram_participant_edits[%d] requires block_id and participant_id", i)
+		}
+		if strings.TrimSpace(edit.Action) != "remove_if_isolated" {
+			return fmt.Errorf("diagram_participant_edits[%d].action=%q is invalid; allowed action: remove_if_isolated", i, edit.Action)
+		}
+		key := blockID + "\x00" + participantID
+		if participantSeen[key] {
+			return fmt.Errorf("diagram_participant_edits[%d] duplicates block_id=%q participant_id=%q", i, blockID, participantID)
+		}
+		participantSeen[key] = true
+		block, err := loadBlock(blockID, i, "diagram_participant_edits", true)
+		if err != nil {
+			return err
+		}
+		base := previous[blockID]
+		if err := applyOneModelAuthoredDiagramParticipantEdit(
+			&block, base, participantID, protectedParticipants, lease,
+		); err != nil {
+			return fmt.Errorf("diagram_participant_edits[%d] block_id=%q participant_id=%q: %w", i, blockID, participantID, err)
+		}
+		working[blockID] = block
+	}
 	for _, blockID := range order {
 		patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
 	}
@@ -270,6 +316,125 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 		out.Diagram = &diagram
 	}
 	return out
+}
+
+func applyOneModelAuthoredDiagramParticipantEdit(
+	block *types.AnswerBlock,
+	base types.AnswerBlock,
+	participantID string,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+) error {
+	if block == nil || block.Kind != types.BlockDiagram || block.Diagram == nil ||
+		base.Kind != types.BlockDiagram || base.Diagram == nil || lease == nil {
+		return fmt.Errorf("remove_if_isolated requires one live relation-repair lease and an existing diagram")
+	}
+	participantID = strings.TrimSpace(participantID)
+	baseDecl, count := atomicDiagramUniqueRemovableDeclaration(base.Diagram.Body, participantID)
+	if count != 1 {
+		return fmt.Errorf("base declaration is not one unique standalone participant/node line (matches=%d)", count)
+	}
+	protected := make(map[string]bool, len(protectedParticipants)+len(block.ParticipantBoundaries)+len(base.ParticipantBoundaries))
+	for _, raw := range protectedParticipants {
+		if key := atomicDiagramParticipantSurfaceKey(raw); key != "" {
+			protected[key] = true
+		}
+	}
+	for _, boundaries := range [][]types.DiagramParticipantBoundary{base.ParticipantBoundaries, block.ParticipantBoundaries} {
+		for _, boundary := range boundaries {
+			if key := atomicDiagramParticipantSurfaceKey(boundary.Participant); key != "" {
+				protected[key] = true
+			}
+		}
+	}
+	if atomicDiagramParticipantProtected(protected, participantID, baseDecl.Label) {
+		return fmt.Errorf("participant is protected by the typed requested-participant slate or an unproven boundary")
+	}
+	incident, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, participantID, lease)
+	if incident == 0 || !allFailed {
+		return fmt.Errorf("base participant must have incident edges and every incident edge must be covered by a remove-capable live failure")
+	}
+	for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+		if strings.TrimSpace(edge.From) == participantID || strings.TrimSpace(edge.To) == participantID {
+			return fmt.Errorf("participant remains incident to a visible edge after the selected relation edits")
+		}
+	}
+	for _, anchor := range block.EdgeAnchors {
+		if strings.TrimSpace(anchor.FromNode) == participantID || strings.TrimSpace(anchor.ToNode) == participantID {
+			return fmt.Errorf("participant remains incident to typed edge metadata after the selected relation edits")
+		}
+	}
+	body, count := mermaidcompat.RemoveRemovableNodeDeclaration(block.Diagram.Body, participantID)
+	if count != 1 {
+		return fmt.Errorf("current declaration is not one unique standalone participant/node line (matches=%d)", count)
+	}
+	block.Diagram.Body = body
+	return nil
+}
+
+func atomicDiagramUniqueRemovableDeclaration(body, participantID string) (mermaidcompat.NodeDecl, int) {
+	participantID = strings.TrimSpace(participantID)
+	var found mermaidcompat.NodeDecl
+	count := 0
+	for _, decl := range mermaidcompat.RemovableNodeDeclarations(body) {
+		if strings.TrimSpace(decl.Ident) != participantID {
+			continue
+		}
+		found = decl
+		count++
+	}
+	return found, count
+}
+
+func atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(
+	base types.AnswerBlock,
+	participantID string,
+	lease *types.AnswerDiagramRelationRepairLease,
+) (int, bool) {
+	if base.Diagram == nil || lease == nil {
+		return 0, false
+	}
+	pairOccurrences := make(map[string]int)
+	incident := 0
+	for _, edge := range mermaidcompat.ParseEdges(base.Diagram.Body) {
+		from, to := strings.TrimSpace(edge.From), strings.TrimSpace(edge.To)
+		pairKey := from + "\x00" + to
+		pairOccurrences[pairKey]++
+		if from != participantID && to != participantID {
+			continue
+		}
+		incident++
+		matched := false
+		for _, failure := range lease.Failures {
+			if strings.TrimSpace(failure.BlockID) != strings.TrimSpace(base.ID) ||
+				!failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionRemove)) ||
+				strings.TrimSpace(failure.FromNode) != from || strings.TrimSpace(failure.ToNode) != to {
+				continue
+			}
+			if failure.BodyOccurrence <= 0 || failure.BodyOccurrence == pairOccurrences[pairKey] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return incident, false
+		}
+	}
+	return incident, true
+}
+
+func atomicDiagramParticipantSurfaceKey(raw string) string {
+	return strings.ToLower(strings.TrimSpace(strings.Trim(raw, "`\\\"'")))
+}
+
+func atomicDiagramParticipantProtected(protected map[string]bool, surfaces ...string) bool {
+	for _, surface := range surfaces {
+		key := atomicDiagramParticipantSurfaceKey(surface)
+		if key != "" && protected[key] {
+			return true
+		}
+	}
+	return false
 }
 
 // validateAtomicSharedBodyRemove admits the only safe overlap between atomic

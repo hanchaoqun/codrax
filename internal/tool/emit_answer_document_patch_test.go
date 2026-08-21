@@ -1486,6 +1486,7 @@ func TestEmitAnswerDocumentPatch_ToolMetadata(t *testing.T) {
 		"remove_block_ids",
 		"diagram_edge_edits",
 		"diagram_boundary_replacements",
+		"diagram_participant_edits",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("Description missing %q", want)
