@@ -57488,6 +57488,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r812`。
 
+### §123.1327 B1294 根修：非调用图不再承担空端点心智，参与者权威按当前请求关系面闭合（2026-08-21）
+
+1. r812 证明仅补 prompt/字段教学不足以让首次 `emit_analysis` 收敛：模型仍先漏掉 `call_chain_endpoints`，随后把预扫描发现的
+   `Orchestrator`、状态载体和表格成员误放进 sequence participant roster。根因是两个不同职责被统一 schema presence 和模型自报 roster
+   绑在一起，而不是 JSON 语法波动。
+2. `call_chain_endpoints` 现改为条件必填：只有 typed `predicate_axis=call` 或 `question_kind=call_chain` 的源码调用链必须显式给出有序
+   source/sink；flow/architecture/sequence 等非调用图缺失该对象时使用无权威的 inactive 语义默认，不构造
+   `CallChainEndpointProfile`，同时保留审计 warning。独立的 `runtime_selection_profile` 继续按原关系/选择合同必填，真正调用链缺端点仍
+   fail-loud，因此没有丢失调用方向或运行时实现选择能力。
+3. participant 归一化改成行级、来源闭合：identity 与 source_quote 都不能逐字锚定当前请求的仓库发现行，无论 required/optional 均只删除该行，
+   仓库实体仍留在 investigation/evidence 候选，不进入图关系义务。若 verbatim relation scope 已精确包含至少两个当前请求实体，则继续删除
+   scope 外的表格成员或旁系组件；系统不新增用户点名参与者、不生成边、不决定角色与布局。
+4. 为防归一化吞掉真实用户身份，新增独立 fail-loud 臂：已有部分 participant 时，只要已校验 relation scope 逐字包含某个 typed code identity，
+   但归一化后没有该 exact/alias participant，就要求模型按用户可见身份重发。该臂覆盖 `Mutable/BusContext` 中 `Mutable` 被仓库符号
+   `MutableState` 冒充的生产类形；它读取 typed entity 与 verbatim scope，不扫描模型正文、最终答案或 Mermaid label。显式空 roster 仍由既有
+   empty-slate 合同区分通用视觉、维度归一化和真实缺失参与者，系统不猜 actor。
+5. 回归钉住：非调用 flow 缺 endpoint 首次通过且端点权威为 nil；源码 call-chain 缺 endpoint 仍拒绝；required 图只删除无来源行并保留有来源
+   sibling；r812 式全推测 roster 收敛为一次精确缺 `analyze/finalizer` 重试；仓库符号替代用户显示身份必须失败，修回 exact `Mutable` 后通过；
+   generic empty roster 与 requested-dimension reconciliation 保持原行为。相关四包、完整 `go test ./... -count=1` 与 CGO release-tag
+   `make` 全绿。
+6. 本批不改 Trace 查询、显式时间窗、自动补采、唤醒/IO 链、链上根因排序、实际占时/规则可消双账户、因果投影或流式等待。下一独立批处理
+   `B1295`：关系 repair 删除无证边后遗留零 incident 的 participant declaration；方案必须保持模型选择删除或作为背景保留，禁止系统补边、
+   代写业务关系或对所有孤立节点做硬拒。
+
+状态：
+
+`B1294=implemented+related-suite+full-suite-pass+build-pass/production-replay-pending`；
+`non-call-endpoint=inactive-semantic-default/no-authority`；
+`true-call-chain-endpoint=explicit-required/fail-loud`；
+`diagram-participant-authority=current-request-verbatim-scope-only`；
+`repository-discovery=investigation/evidence-only`；
+`missing-user-visible-participant=precise-model-retry/no-system-inference`；
+`B1295=confirmed/P1-next`；
+`system-participant/edge/role/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

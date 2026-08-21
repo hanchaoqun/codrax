@@ -2011,8 +2011,8 @@ func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyFor
 		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"},
 		"current_source_explanation_profile":{"modes":["explain_current_mechanism"]}
 	}`)
-	if missing := missingEmitAnalysisRequiredTopLevelFields(sourceFlow, false); !slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
-		t.Fatalf("current-source flow must fail loud instead of silently losing runtime selection: %v", missing)
+	if missing := missingEmitAnalysisRequiredTopLevelFields(sourceFlow, false); slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
+		t.Fatalf("current-source flow must default inert endpoints while retaining the independent runtime-selection decision: %v", missing)
 	}
 
 	runtimeFlow := json.RawMessage(`{
@@ -2030,8 +2030,18 @@ func TestMissingEmitAnalysisRequiredTopLevelFieldsRequiresRelationCarrierOnlyFor
 		"predicate_axis":"define",
 		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"}
 	}`)
-	if missing := missingEmitAnalysisRequiredTopLevelFields(definitionDiagram, true); !slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
-		t.Fatalf("required current-source diagram must carry the explicit relation/selection discriminator: %v", missing)
+	if missing := missingEmitAnalysisRequiredTopLevelFields(definitionDiagram, true); slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
+		t.Fatalf("required non-call diagram must default inert endpoints while retaining the selection discriminator: %v", missing)
+	}
+
+	sourceCall := json.RawMessage(`{
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"runtime_artifact_scope_profile":{"requested_scope":"not_applicable"},
+		"current_source_explanation_profile":{"modes":["explain_current_mechanism"]}
+	}`)
+	if missing := missingEmitAnalysisRequiredTopLevelFields(sourceCall, false); !slices.Contains(missing, "call_chain_endpoints") || !slices.Contains(missing, "runtime_selection_profile") {
+		t.Fatalf("source-code call chain must still fail loud without ordered endpoints and selection decision: %v", missing)
 	}
 }
 
@@ -2053,6 +2063,52 @@ func TestEmitAnalysisMissingRelationCarrierRetryReTeachesSelectionDecision(t *te
 	ordinary := emitAnalysisMissingTopLevelFieldsSummary([]string{"runtime_question_profile"})
 	if strings.Contains(ordinary, "runtime_selection_profile") {
 		t.Fatalf("unrelated missing-field retry gained selection teaching: %s", ordinary)
+	}
+}
+
+func TestEmitAnalysis_Execute_DefaultsOmittedNonCallEndpointsWithoutRetry(t *testing.T) {
+	raw := "explain Analyzer to Explorer data flow with a Mermaid diagram"
+	mu := types.NewMutableState(raw)
+	payload := withV4Required(`{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"moderate",
+		"keywords":["Analyzer","Explorer","data flow"],
+		"entities":["Analyzer","Explorer"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"flow","required":true,"relation_scope_quote":"Analyzer to Explorer data flow","participants":[
+			{"identity":"Analyzer","role":"incident_required","source_quote":"Analyzer"},
+			{"identity":"Explorer","role":"incident_required","source_quote":"Explorer"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.9,"dimensions":[
+			{"index":1,"label":"diagram","role":"diagram","source_quote":"Mermaid diagram","required":true}
+		]}
+	}`)
+	var object map[string]any
+	if err := json.Unmarshal([]byte(payload), &object); err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	delete(object, "call_chain_endpoints")
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid diagram", PresentationDiagramRequired: true,
+	}, encoded)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("non-call flow should accept the inactive endpoint default: success=%t summary=%q", res.Success, res.Summary)
+	}
+	if got := mu.RequestModel().CallChainEndpointProfile; got != nil {
+		t.Fatalf("inactive endpoint default created authority: %+v", got)
+	}
+	if !strings.Contains(res.Summary, "defaulted omitted non-call-chain call_chain_endpoints") {
+		t.Fatalf("endpoint default must remain auditable: %q", res.Summary)
 	}
 }
 
@@ -5017,7 +5073,7 @@ func TestValidateRequiredDiagramEmptyParticipantSlateDoesNotGuessSingleScopeOrEn
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsRequiredDiagramWhenInferredParticipantLacksCurrentRequestAuthority(t *testing.T) {
+func TestEmitAnalysis_Execute_DropsInferredRequiredParticipantWithoutLosingRequestedSibling(t *testing.T) {
 	mu := types.NewMutableState("explain analyze to finalizer; require a Mermaid sequenceDiagram; show BusContext")
 	payload := `{
 		"intent": "explain",
@@ -5036,12 +5092,16 @@ func TestEmitAnalysis_Execute_RejectsRequiredDiagramWhenInferredParticipantLacks
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || mu.RequestModel() != nil {
-		t.Fatalf("required diagram must fail loud instead of silently dropping an unauthorized participant: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
+		t.Fatalf("required diagram should drop only the inferred row and preserve its requested sibling: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
-	for _, want := range []string{"diagram_hint.participants[0]", "exact user-authored visible identity", "do not substitute a repository symbol"} {
+	participants := mu.RequestModel().DiagramHint.Participants
+	if len(participants) != 1 || participants[0].Identity != "BusContext" {
+		t.Fatalf("participant normalization=%+v, want only current-request BusContext", participants)
+	}
+	for _, want := range []string{"dropped inferred diagram participant", "Orchestrator", "repository discovery outside participant authority"} {
 		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("required participant repair missing %q: %s", want, res.Summary)
+			t.Fatalf("required participant normalization missing %q: %s", want, res.Summary)
 		}
 	}
 }
@@ -5287,6 +5347,45 @@ func TestEmitAnalysis_Execute_DropsIncidentParticipantsFromSiblingPresentationSu
 		}
 		if !slices.Contains(mu.RequestModel().AnalyzerHints.Entities, identity) {
 			t.Fatalf("sibling table identity %q must remain available outside the diagram: %v", identity, mu.RequestModel().AnalyzerHints.Entities)
+		}
+	}
+}
+
+func TestEmitAnalysis_Execute_InferredRosterCollapsesToOnePreciseMissingParticipantRetry(t *testing.T) {
+	raw := "解释 codrax read mode 一次请求从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并再给一张表列出每个 stage 的输入、输出和主要状态载体（例如 AnalysisIR、EvidenceItems、AnswerDocument、Mutable/BusContext）。"
+	mu := types.NewMutableState(raw)
+	payload := `{
+		"intent":"explain",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["read mode","analyze","finalizer","sequenceDiagram","AnalysisIR","BusContext"],
+		"entities":["Orchestrator","analyze","finalizer","AnalysisIR","EvidenceItems","AnswerDocument","BusContext"],
+		"question_kind":"mechanism",
+		"predicate_axis":"flow",
+		"diagram_hint":{"kind":"sequence","required":true,"relation_scope_quote":"codrax read mode 一次请求从 analyze 到 finalizer 的时序","participants":[
+			{"identity":"Orchestrator","role":"incident_required","source_quote":"Orchestrator"},
+			{"identity":"AnalysisIR","role":"incident_required","source_quote":"AnalysisIR"},
+			{"identity":"AnswerDocument","role":"incident_required","source_quote":"AnswerDocument"},
+			{"identity":"BusContext","role":"incident_required","source_quote":"BusContext"}
+		]},
+		"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[
+			{"index":1,"label":"Mermaid sequenceDiagram","role":"diagram","source_quote":"Mermaid sequenceDiagram","required":true},
+			{"index":2,"label":"输入、输出和主要状态载体","role":"stage_or_workflow","source_quote":"输入、输出和主要状态载体","required":true}
+		]}
+	}`
+
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
+		Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true,
+	}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("missing requested analyze/finalizer rows must remain fail-loud: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	}
+	for _, want := range []string{"participants is explicitly empty", "[analyze finalizer]", "intended actor"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("collapsed retry missing %q: %s", want, res.Summary)
 		}
 	}
 }

@@ -128,7 +128,7 @@ var emitAnalysisSchemaRequiredTopLevelFields = []string{
 	"predicates", "diagnostic_profile", "answer_role_profile", "error_granularity_profile",
 	"requested_answer_dimensions", "runtime_selection_profile",
 	"runtime_artifact_scope_profile", "runtime_target_profile", "runtime_question_profile",
-	"history_selection_profile", "completeness_obligation", "call_chain_endpoints",
+	"history_selection_profile", "completeness_obligation",
 }
 
 // emitAnalysisRuntimePresenceRequiredFields is deliberately narrower than the
@@ -1315,6 +1315,13 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if _, decodeFailure, err := decodeStrictNormalizedToolParams(t.Name(), params, &p, emitAnalysisMisplacedHints); err != nil {
 		return *decodeFailure, err
 	}
+	var presenceObject map[string]json.RawMessage
+	_ = json.Unmarshal(params, &presenceObject)
+	if p.CallChainEndpoints == nil && !emitAnalysisCallChainEndpointCarrierRequired(presenceObject) &&
+		emitAnalysisRelationCarrierRequired(presenceObject, false) {
+		compatWarnings = append(compatWarnings,
+			"defaulted omitted non-call-chain call_chain_endpoints to the inactive empty+exact shape; no endpoint authority was created")
+	}
 	if missing := missingEmitAnalysisRequiredTopLevelFields(params, false); len(missing) > 0 {
 		return types.ToolResult{
 			ToolName: t.Name(), Success: false,
@@ -2011,6 +2018,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	if reconciled, warning := reconcileDiagramParticipantsWithClosedRelationScope(diagramHint, mentionedEntities); warning != "" {
+		diagramHint = reconciled
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	// A finite named config comparison has enough precise provenance to recover
 	// exact targets even when the analyzer omitted the optional exact_targets
 	// field.  Do this before exact_context_roles are sanitized so a correctly
@@ -2473,12 +2485,14 @@ func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredD
 	// runtime-artifact-only requests retain the compatibility default. A
 	// current-source relation/mechanism surface cannot silently erase endpoint
 	// direction before the explorer sees it.
-	if emitAnalysisRelationCarrierRequired(object, requiredDiagram) {
+	if emitAnalysisCallChainEndpointCarrierRequired(object) {
 		raw, ok := object["call_chain_endpoints"]
 		if !ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			missing = append(missing, "call_chain_endpoints")
 		}
-		raw, ok = object["runtime_selection_profile"]
+	}
+	if emitAnalysisRelationCarrierRequired(object, requiredDiagram) {
+		raw, ok := object["runtime_selection_profile"]
 		if (!ok || len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))) &&
 			!legacyCallChainRuntimeSelectionFieldsPresent(object["call_chain_endpoints"]) {
 			missing = append(missing, "runtime_selection_profile")
@@ -2529,6 +2543,23 @@ func emitAnalysisRelationCarrierRequired(object map[string]json.RawMessage, requ
 		types.NormalizeRequirementKind(kind) == types.ReqCallChain
 }
 
+// emitAnalysisCallChainEndpointCarrierRequired keeps the ordered endpoint
+// object conditional on an analyzer-authored source-call shape. Flow and
+// architecture diagrams still carry an independent runtime-selection decision,
+// but an inert source/sink object adds no authority and need not consume a JSON
+// repair round. This reads only schema fields; it never scans request prose.
+func emitAnalysisCallChainEndpointCarrierRequired(object map[string]json.RawMessage) bool {
+	if emitAnalysisRuntimeArtifactOnlyObject(object) {
+		return false
+	}
+	var axis string
+	_ = json.Unmarshal(object["predicate_axis"], &axis)
+	var kind string
+	_ = json.Unmarshal(object["question_kind"], &kind)
+	return types.PredicateAxis(strings.TrimSpace(axis)) == types.AxisCall ||
+		types.NormalizeRequirementKind(kind) == types.ReqCallChain
+}
+
 func emitAnalysisRuntimeArtifactOnlyObject(object map[string]json.RawMessage) bool {
 	var currentSource struct {
 		Modes []string `json:"modes"`
@@ -2552,6 +2583,59 @@ func emitAnalysisRuntimeArtifactOnlyObject(object map[string]json.RawMessage) bo
 	}
 	_ = json.Unmarshal(object["external_observation_policy"], &policy)
 	return strings.TrimSpace(policy.CurrentSourceMode) == "exclude"
+}
+
+// reconcileDiagramParticipantsWithClosedRelationScope extends the same closed
+// relation-surface rule used by parseDiagramHint to the precise
+// MentionedEntities lane. The model may omit the actual A/B participant rows
+// while also emitting repository-discovered or sibling-table actors; counting
+// only its proposed rows would then fail to notice that the verbatim relation
+// quote already names a closed A/B surface. This helper removes only rows whose
+// exact visible identity lies outside a quote containing at least two distinct
+// current-request-mentioned entities. It never adds the missing A/B actors, so
+// the existing empty-slate gate remains model-owned and fail-loud.
+func reconcileDiagramParticipantsWithClosedRelationScope(
+	hint *types.DiagramHint,
+	mentionedEntities []string,
+) (*types.DiagramHint, string) {
+	if hint == nil || !hint.Required || len(hint.Participants) == 0 {
+		return hint, ""
+	}
+	relationScope := strings.TrimSpace(hint.RelationScopeQuote)
+	if relationScope == "" {
+		return hint, ""
+	}
+	scopeKeys := make(map[string]bool)
+	for _, raw := range mentionedEntities {
+		entity := strings.TrimSpace(raw)
+		key := diagramParticipantIdentityAliasKey(entity)
+		if entity == "" || key == "" || !sourceQuoteAnchoredInCurrentRequest(relationScope, entity) {
+			continue
+		}
+		scopeKeys[key] = true
+	}
+	if len(scopeKeys) < 2 {
+		return hint, ""
+	}
+	kept := make([]types.DiagramParticipantHint, 0, len(hint.Participants))
+	dropped := make([]string, 0)
+	for _, participant := range hint.Participants {
+		identity := strings.TrimSpace(participant.Identity)
+		if sourceQuoteAnchoredInCurrentRequest(relationScope, identity) {
+			kept = append(kept, participant)
+			continue
+		}
+		dropped = append(dropped, identity)
+	}
+	if len(dropped) == 0 {
+		return hint, ""
+	}
+	cloned := *hint
+	cloned.Participants = kept
+	return &cloned, fmt.Sprintf(
+		"removed diagram participant(s) %v outside the closed current-request relation scope; kept them only as investigation entities and did not infer missing participants or edges",
+		dropped,
+	)
 }
 
 // validateRequiredDiagramEmptyParticipantSlate catches one precise typed
@@ -2714,6 +2798,37 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		if key := diagramParticipantIdentityAliasKey(participant.Identity); key != "" {
 			participantAliasKeys[key] = true
 		}
+	}
+	var omittedRelationScopeParticipants []string
+	if len(rm.DiagramHint.Participants) > 0 {
+		omittedScopeSeen := make(map[string]bool)
+		// Entities is intentionally wider than MentionedEntities here. The latter
+		// keeps only standalone raw-request surfaces and can omit one member of a
+		// slash-joined display roster (for example Mutable/BusContext). Authority
+		// still comes from the separately validated verbatim relation-scope quote:
+		// a repository-discovered entity that is absent from that quote cannot
+		// enter omittedRelationScopeParticipants. An explicitly empty slate remains
+		// owned by validateRequiredDiagramEmptyParticipantSlate, which distinguishes
+		// generic visuals and dimension-reconciliation lanes without guessing actors.
+		for _, rawEntity := range rm.AnalyzerHints.Entities {
+			entity := strings.TrimSpace(rawEntity)
+			key := diagramParticipantProvenanceKey(entity)
+			aliasKey := diagramParticipantIdentityAliasKey(entity)
+			if entity == "" || key == "" || omittedScopeSeen[key] ||
+				!types.IsCodeIdentitySurface(entity) ||
+				!sourceQuoteAnchoredInCurrentRequest(rm.DiagramHint.RelationScopeQuote, entity) ||
+				participantKeys[key] || participantAliasKeys[aliasKey] {
+				continue
+			}
+			omittedScopeSeen[key] = true
+			omittedRelationScopeParticipants = append(omittedRelationScopeParticipants, entity)
+		}
+	}
+	if len(omittedRelationScopeParticipants) > 0 {
+		conflicts = append(conflicts, fmt.Sprintf(
+			"diagram_hint.relation_scope_quote explicitly names current-request participant identity/entities %v but no matching participant row remains; emit each exact user-authored visible identity as its own participant instead of substituting a repository symbol",
+			omittedRelationScopeParticipants,
+		))
 	}
 	for i, participant := range rm.DiagramHint.Participants {
 		identity := strings.TrimSpace(participant.Identity)
@@ -6852,11 +6967,8 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 		sourceQuote := strings.TrimSpace(raw.SourceQuote)
 		if sourceQuote == "" {
 			if !sourceQuoteAnchoredInCurrentRequest(rawRequest, identity) {
-				if required {
-					return nil, fmt.Sprintf("diagram_hint.participants[%d] names %q without CURRENT-request provenance — remove this inferred row, or resend it with the exact user-authored visible identity and a verbatim source_quote; do not substitute a repository symbol for the requested display identity", i, identity), warnings
-				}
 				warnings = append(warnings, fmt.Sprintf(
-					"dropped diagram participant %q because neither its identity nor source_quote is anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
+					"dropped inferred diagram participant %q because neither its identity nor source_quote is anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t and kept repository discovery outside participant authority",
 					identity, kind, required,
 				))
 				continue
@@ -6881,17 +6993,15 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 				}
 				return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request and contain identity %q", i, identity), warnings
 			}
-			if required {
-				return nil, fmt.Sprintf("diagram_hint.participants[%d] names %q with a source_quote that has no CURRENT-request provenance — remove this inferred row, or resend it with the exact user-authored visible identity and a verbatim source_quote; do not substitute a repository symbol for the requested display identity", i, identity), warnings
-			}
 			// Participant rows are planning guidance, not diagram-shape
 			// authority. An inferred participant without current-request
-			// provenance must never become a hard relation obligation, but it
-			// also must not erase an independently valid kind+required visual
-			// contract. Drop only the unauthorized row and keep parsing any
-			// siblings that do have exact current-request authority.
+			// provenance must never become a hard relation obligation. Drop only
+			// the unauthorized row for both required and optional diagrams and
+			// keep parsing siblings with exact current-request authority. A later
+			// empty-slate consistency gate still fails loud when the model omitted
+			// user-named actors; this normalization cannot erase such an actor.
 			warnings = append(warnings, fmt.Sprintf(
-				"dropped diagram participant %q because its source_quote is not anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t",
+				"dropped inferred diagram participant %q because its source_quote is not anchored in the CURRENT request; preserved diagram_hint kind=%s required=%t and kept repository discovery outside participant authority",
 				identity, kind, required,
 			))
 			continue
