@@ -58967,3 +58967,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1297 r796：双路字面通过但人工审计失败；阶段锚与关系修补基线形成两个确定性 P0（2026-08-20）
+
+1. 以已推送 `59dcf4000` 的不可变二进制严格并发恰好 2 路回放 read+Trace。runner 2/2 PASS：Trace 229s、read 995s；
+   活动流均持续到正常终态，没有 4ms、4m、首字节、stall 或累计年龄触发降级。但 read 有 12 次 finalizer reject、32 次 midloop，
+   仅凭 runner 字面 oracle 不能判健康。
+2. Trace 人工判定 partial：显式 2.000..2.020s 窗、三次 typed 查询、系统自动补采、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个独立 1.000ms 调度/优先级候选、
+   实际占时/规则可消双账户和 `Trace 因果投影` 全部保留；邻近/背景没有升为主因，活动流没有短时降级。
+3. Trace 仍确认 P1 `B1269-WAKEUPPROSEAUTHORITYDRIFT1` 与 `B1271-CALLSITEINFERENCEBOUNDARY1`：typed 行只证明
+   `fscache_page_wait_on_page_bit` 是本席内核记录的等待调用点，不证明具体缓存页、持有者、文件系统/存储后端或预取/缓存穿透方案；模型却再次
+   写成“具体缓存页属于应用工作集”并给出预取方向，还把目标 sleep 过推成“完全由唤醒链传导/协作式睡眠”。这已跨多轮重复，不再按模型波动
+   处理。最优形是把同一 typed callsite 权限和 direct-blocking 未证边界转换成更靠近成文决策的读者事实卡，仍只给事实与未知边界，不生成结论。
+4. 新 P1 `B1272-TRACEINTERNALENUMSURFACE1`：模型正文复制 `on_chain`、`direct_blocking_authority` 等机器字段；当前详细 ledger 早于读者事实卡且
+   体量更大，读者卡没有为等待调用点和唤醒 CPU 提供等价的人类措辞，导致机器词占据注意力。下一批补 typed reader facts：调用点只定位栈位；
+   waker CPU/target CPU 只证明记录的 CPU 编号，不能推出 NUMA、迁移成本、直接竞争或延迟原因。禁止扫描/改写最终 prose。
+5. 新 P1 `B1273-RUNTIMECANDIDATEROLESILENTCOERCE1`：首稿对 thread/process/CPU/frame/span 行提交 `candidate_role="thread"`。
+   该值不在 source/inventory candidate-role enum 中；当前 `NormalizeEmitAnswerBlock` 没有拒绝，而是静默改为 `other`。因此旧判断“会触发 schema
+   reject”不准确，真实风险是运行时实体被无声铸成另一个有效角色，进而污染排除/覆盖语义。最优形不是扩大全局 enum，而是在 schema 与最终
+   JSON 教学中明确：运行时实体默认省略该可选字段，只有 active typed answer-role contract 要求现有合法 enum 时才填写。
+6. 首次 Trace 成文还把只允许 principal summary 的 `trace_causal_claim_caliber` 放到所有 block，产生 1 次可避免拒绝。补一个靠近 JSON 输出的
+   精确 scope 说明：该字段仅放 principal summary，不得复制到 section/table/diagram；这是 schema 字段作用域教学，不读用户或模型 prose。
+7. 新 P0 `B1274-STAGEAUTHORITYDELIMITERLINE1`：`verifiedBindingLine` 对已完整核验的 binding row 返回 composite literal 的起始 `{` 行，
+   即 46/60/72/84；grounding 按 StageAnalyze/Explore/Extract/Finalize 语义身份稳定落到 `Stage:` 字段行 47/61/73/85。completion gate 要求
+   exact file+line 相等，造成两轮 explore 分别 16/20+ 次循环、26 次 read 和重复证据恢复。根修应让行级 authority 指向标识该行身份的
+   `Stage` keyed field，而不是容器定界符，并用源码行文本包含对应 StageIdent 的测试锁定。
+8. `B1270B/C` 在 r796 获得一半生产正证：模型直接复制 8 个 live `failure_ref`，执行器确实逐条执行，说明“引用未进入执行链”已关闭；但又暴露
+   新 P0 `B1275-RELATIONLEASEPATCHBASEGENERATION1`。被拒 patch 的 merged 草稿产生 failure delta/lease，而 B1266 事务语义要求下一 patch 仍以
+   首次拒绝稿为 base；lease 中第五个 `Orch->ANA` ref 因而在执行基线上找不到正文边。系统同时承诺“失败 ref 对应当前草稿”与“rejected patch
+   零推进仍用旧基线”，形成代际合同分裂，12 次拒绝并非模型波动。
+9. B1275 最优形冻结：保留 B1266 对 accepted/通用 rejected base 的事务零写；另建立仅供 exact relation-repair lease 的不可见候选快照，
+   它必须与产生 failure delta 的 normalized merged 文档同代，并由 lease 身份绑定。下一轮含 live lease 的 atomic edit 只在该快照上编译；
+   接受后一次性提交，拒绝后不改变 accepted 文档。无 lease、代次/hash 不符、跨 block、歧义 ref 继续 fail-closed。系统仍不选择、删除、增加、
+   改向或命名任何可见关系。
+10. 施工顺序：先提交本审计；P0-A 修 B1274；P0-B 修 B1275 并覆盖“被拒 patch 产生 lease → 多条 failure_ref 原子删除 → 接受”真实代际；
+    再做 Trace 的 B1271/B1272/B1273 与 JSON scope 小批。每批完整测试、提交、推送；随后从精确新提交严格并发 2 路 r797 验收。
+
+状态：
+
+`r796=runner-pass-2/2,human-trace-partial+read-fail`；
+`B1270B/C=production-positive-for-executor-entry/remaining-generation-split`；
+`B1274=confirmed/P0-next`；`B1275=confirmed/P0-after-B1274`；
+`B1269=repeat-confirmed/P1`；`B1271=repeat-confirmed/P1`；
+`B1272=confirmed/P1`；`B1273=corrected-confirmation/P1`；
+`trace-caliber-json-scope=confirmed/P1`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r796`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r796`。
