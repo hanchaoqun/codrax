@@ -57451,6 +57451,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `request/model/final-prose/mermaid-message-scan=none`；
 `Trace query/ranking/projection/auto-supplement=unchanged`。
 
+### §123.1326 r812：教学被重试消费但首次提交未收敛，关系修复遗留孤立参与者（2026-08-21）
+
+1. 从已推送 `main@50c125430` 构建不可变二进制，严格并发恰好 2 路复放同一 read 时序图与显式窗 Trace。runner 2/2 PASS：Trace 211s，
+   read 904s；两路活动模型流均保留到正常新答案，没有固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级。
+2. Trace 人工判 partial，但系统面完整：2.000..2.020s、四节点唤醒链、11.000ms 链上 IO 第一席、三个 1.000ms 调度候选、主要占时/规则可消
+   双账、邻近/背景隔离、完整 `Trace 因果投影` 与确定性补采均在。模型已明确披露未建立目标与上游的同步阻塞/资源持有关系；仍从跨 CPU 唤醒
+   扩写 NUMA 排查、从 fscache 调用位扩写网络/本地缓存选择，属于 B1269/B1271 的待查假设软校准，不以答案扫描或系统代写处理。
+3. B1294 只取得 retry-consumption 正证，不能收账。首次 `emit_analysis` 仍漏 `call_chain_endpoints`；重试提示准确让模型填
+   `source="", sink="", sink_mode=exact`。第二次仍把 repo 预扫的 Orchestrator/BusContext/Agent 等写入 participant，并以同名字面伪造
+   source_quote；精确来源门拒绝后，LOW-MIND 规则才让模型改为 analyze/finalizer。analyzer 仍 5 轮，说明继续堆 prompt 无高 ROI。
+4. B1294 下一施工形升级为精确结构归一化，而不是放宽权威。对 schema 已声明非源码调用链的 question kind/axis，缺失 endpoint 对象可确定性补成
+   inactive empty+exact；call-chain/ordered-call 形继续 fail-loud。对每条无 CURRENT-request provenance 的推断 participant，逐行移回调查候选并
+   记录 warning；真正用户点名行、closed relation surface、context-only 约束和 empty-slate cross-field gate 保持。系统不从请求关键词猜题型，也不
+   选择最终图节点或关系。
+5. 新高杠杆 `B1295-SEQUENCEORPHANPARTICIPANT1/P1` 获得生产 witness。首稿 sequenceDiagram 声明 Orchestrator、runAnalyzePhase、
+   dispatchStage、BusContext/AnalysisIR 等技术参与者并画多条无 typed anchor 的调用/返回边。关系门正确要求删除无证边，模型最终保留三个
+   precedence 边；但 10 个原 participant declaration 失去全部 incident edge 后仍留在图中，真正阶段边反而依赖 Mermaid 隐式 participant。
+   终图语法合法却展示一排孤立技术节点，正是用户持续反馈的“关系奇怪/关系丢失”同类，不是渲染器语法问题。
+6. B1295 最优形不得自动补造关系，也不应把孤立节点一律硬拒，因为无边 context/boundary actor 可能有意存在。应从已解析 Mermaid AST、typed
+   requested participants、当前 edge set 和 repair delta 生成 local soft cleanup candidates：当本轮删除让一个非请求、非显式 boundary 的声明
+   变成零 incident 时，提示模型在同一 patch 显式删除或保留并说明其上下文角色；默认不替模型选择。若模型选择删除，操作只删 declaration，
+   不动其他 node/edge/label/layout；sequence/flow/architecture/call_dag 统一按结构能力审计，不能为当前 case 写节点名特判。
+
+状态：
+
+`r812=runner-2/2-pass,human-trace-partial+read-partial`；
+`B1294=soft-teaching-consumed-on-retry/production-first-emit-not-closed`；
+`B1294-next=typed-inert-default+row-local-unproven-participant-normalization`；
+`B1295=P1-confirmed/design-frozen/implementation-pending`；
+`orphan-detection=parsed-structure+typed-request-scope+repair-delta`；
+`orphan-policy=soft-model-owned-delete-or-explicit-context-retain`；
+`system-edge/relation/direction/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-business-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r812`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r812`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，
