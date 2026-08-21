@@ -57291,6 +57291,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1334 r815/B1299：B1298 纯形车道无回归；addition ref 教学与前置校验自冲突（2026-08-21）
+
+1. 从已推送 `ed147975f` 的不可变二进制严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 206s、read
+   376s。两路活动模型流均自然完成，没有按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或系统代写答案。
+2. Trace 系统面继续完整：精确 2.000000..2.020000 请求窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   四节点三条唤醒边、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、实际占时/规则可消双账户、邻近/背景隔离、
+   自动补齐和完整 `Trace 因果投影` 均在。人工判 partial 只因模型继续把 `fscache_page_wait_on_page_bit` 调用点外推成缓存未命中/页面回收方向，
+   并把一张摘要表头写成“列 2…列 7”；后文事实边界仍明确对象、后端和直接阻塞未证。本轮不增加请求/模型/答案原文硬门，也不由系统改写结论。
+3. B1298 的“纯形债保持原策略”获得生产正证：Explorer 首次 member_set 以带装饰成员配上不能按装饰身份对齐的 ref，工具给出局部
+   `member_set_support_refs` 修补；模型下一轮去掉装饰并提交四个逐成员 support refs 后闭环。该次没有产生 semantic same-member wrong-ref，因而
+   “语义错误引用在有界收敛后只隔离 offending aggregate”仍是测试正证、待自然生产触发，不能虚报已生产转正。
+4. read 最终答案人工 partial：阶段输入/输出/状态载体表完整，sequenceDiagram 语法合法并保留
+   `analyze -> explorer -> extractor -> finalizer` 三条 typed precedence；但 Orchestrator/BusContext/emit/finalizer 的实际交互边因缺少同向精确
+   provider 被模型删除，图仍偏薄。现有源码 call 的具体端点与抽象 stage participant 不完全相同，本轮不放宽关系证据门，继续作为统一关系表达
+   provider 的异构回放观察项。
+5. 新确认 P1 红线 `B1299-ADDITIONREFPREVALIDATION1`。同代 repair capsule 对每条 allowed addition 发布 live `addition_ref`，共享教学字面要求
+   模型提交 `{addition_ref, action:"add", edge:{from_node,to_node,visible_label}}`，并明确省略 `edge.relation_kind`，因为 ref 会恢复隐藏技术字段。
+   模型完全照此提交三条 precedence，执行器却先在 ref 解析/回填之前调用通用 edge shape 校验，以“edge requires from_node, to_node, and a valid
+   relation_kind”拒绝。下一轮模型只能违背教学，手工复制 `relation_kind=precedence` 才通过。这是同一结构化合同的必带/必拒冲突，不是 JSON 波动。
+6. 最优修向冻结为 ref-first 单权威：add operation 携带 live `addition_ref` 时，前置 shape 只验证模型拥有的可见字段
+   `from_node/to_node/visible_label`；随后解析同代 ref、校验 action/base/block/重复消费并从候选恢复 relation kind 与 canonical identities，最后对完整
+   normalized edge 运行现有严格校验。无 ref 的 legacy add 仍必须显式给全量 relation kind；模型若同时复制隐藏字段，只有逐字段恒等才吸收，冲突仍
+   fail-closed。不得从 Mermaid message、请求、thinking、最终答案或错误 prose 推断 relation。
+
+状态：
+
+`r815=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1298=shape-debt-production-positive/semantic-grounding-isolation-tests-positive-production-trigger-pending`；
+`B1299=confirmed/P1-next`；
+`addition-ref-teaching=visible-fields-only`；
+`current-prevalidation=incorrectly-requires-hidden-relation-kind-before-ref-resolution`；
+`target=resolve-live-ref->restore-hidden-fields->strict-normalized-validation`；
+`system-edge/action/relation/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-prose-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r815`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r815`。
+
 ### §123.1321 r808/B1291：同级逐成员表不再把一个耦合关系调查拆成内部名称子课题（2026-08-21）
 
 1. r808 从已推送 `b76aff12d` 构建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 247s、read 536s。Trace 人工通过：精确 2.000..2.020s、4 节点唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级候选、主要占时/规则可消双账户、背景隔离与完整 `Trace 因果投影` 均在；活动流没有固定 4ms/4m 降级。
