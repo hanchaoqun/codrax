@@ -59017,3 +59017,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r796`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r796`。
+
+### §123.1298 B1274：阶段 binding 权威锚改为语义身份字段（2026-08-20）
+
+1. `B1274-STAGEAUTHORITYDELIMITERLINE1/P0` 已根修。`verifiedBindingLine` 在完整核验一条 `builtinStageBindings` 记录后，不再返回
+   composite literal 起始 `{`；它只返回该记录的 `Stage` keyed value token 所在行。权威来源仍是 checkout AST 与编译期 canonical binding
+   的逐字段相等，未放宽任何 stage/agent/skill/responsibility/artifact/terminal 核验。
+2. 该选择使权威和 grounding 共享同一个语义身份锚：StageAnalyze/Explore/Extract/Finalize 分别落到当前源码的 47/61/73/85 行，
+   而不是无名称的 46/60/72/84 定界符行。所有消费 `StageRow.Line` 的 completion、prompt、citation candidate 与 stage-role authority 面
+   同步得到一致位置，不需要按 case 特判四个数字。
+3. 回归直接读取 fixture 源码，逐条断言返回行同时含 `Stage:` 和对应 `StageIdent`；因此未来新增空行、调整格式或重排 binding 时仍按 AST
+   语义定位，若退回容器定界符会立即变红。
+4. 定向 `internal/stageauthority internal/tool internal/agent`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+   本批不读用户/模型/答案 prose，不修改关系选择、模型可见图、Trace 查询、显式时间窗、自动补采、根因排序或因果投影。
+5. 下一批处理 `B1275`：给 exact relation-repair lease 建立与 failure delta 同代的 rejected candidate base，同时保持 accepted 文档和通用
+   rejected patch 的 B1266 事务零写语义。
+
+状态：
+
+`B1274=implemented/full-suite-pass/pending-production-replay`；
+`stage-row-authority-line=Stage-keyed-identity-token`；
+`composite-literal-delimiter=not-an-authority-location`；
+`B1275=confirmed/P0-next`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

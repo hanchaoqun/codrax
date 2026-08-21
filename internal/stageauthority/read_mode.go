@@ -674,13 +674,43 @@ func verifiedBindingLine(file *ast.File, fset *token.FileSet, want StageRow) int
 			for _, element := range list.Elts {
 				entry, ok := element.(*ast.CompositeLit)
 				if ok && bindingEntryMatches(entry, want) {
-					return fset.Position(entry.Pos()).Line
+					// The row authority must point at the token that identifies
+					// this binding, not at the composite literal's opening `{`.
+					// Grounded source evidence for StageAnalyze/Explore/Extract/
+					// Finalize resolves to the Stage keyed field; returning the
+					// delimiter line creates a deterministic one-line disagreement
+					// between the checkout authority and its own source evidence.
+					stage := bindingEntryFieldValue(entry, "Stage")
+					if stage == nil {
+						return 0
+					}
+					return fset.Position(stage.Pos()).Line
 				}
 			}
 			return 0
 		}
 	}
 	return 0
+}
+
+func bindingEntryFieldValue(entry *ast.CompositeLit, name string) ast.Expr {
+	if entry == nil || strings.TrimSpace(name) == "" {
+		return nil
+	}
+	for _, element := range entry.Elts {
+		keyed, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			return nil
+		}
+		key, ok := keyed.Key.(*ast.Ident)
+		if !ok {
+			return nil
+		}
+		if key.Name == name {
+			return keyed.Value
+		}
+	}
+	return nil
 }
 
 func bindingEntryMatches(entry *ast.CompositeLit, want StageRow) bool {

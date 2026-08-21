@@ -32,6 +32,20 @@ func TestLoadReadModeReturnsExactAdjacentAuthority(t *testing.T) {
 			t.Fatalf("precedence[%d]=%+v, want %s with exact source", i, relation, want[i])
 		}
 	}
+	bindingData, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(types.ReadModePipelineStageBindingFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindingLines := strings.Split(string(bindingData), "\n")
+	for _, row := range authority.Main {
+		if row.Line <= 0 || row.Line > len(bindingLines) {
+			t.Fatalf("stage row has invalid identity line: %+v", row)
+		}
+		line := bindingLines[row.Line-1]
+		if !strings.Contains(line, "Stage:") || !strings.Contains(line, row.StageIdent) {
+			t.Fatalf("stage row authority must point to its Stage identity field, row=%+v line=%q", row, line)
+		}
+	}
 }
 
 func TestReadModeTransitionReaderLabelUsesBusinessStageSemantics(t *testing.T) {
