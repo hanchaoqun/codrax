@@ -221,16 +221,38 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, ctx.Mutable.AnswerDiagramRelationRepairLease())
 }
 
-// narrowAnswerDocumentPatchParametersForLocalDiagramLease removes one
-// contradictory capability from the model-facing tool schema. A live relation
-// lease authorizes only atomic edits for its target diagram blocks; offering a
-// whole replace/add/remove for those same ids invites a transaction the lease
-// must later reject. The JSON-schema exclusion is derived solely from the
-// typed same-generation lease. Other block ids and all atomic operations stay
-// available, so citation/table repairs can coexist with the local graph fix.
+// DescriptionFor keeps the prose surface aligned with the per-dispatch schema.
+// A live local lease deliberately exposes a much smaller capability set than
+// the compatibility patch envelope, so repeating the legacy whole-block and
+// coordinate-selector teaching would ask the model to call operations that the
+// same dispatch cannot execute. The lease is typed producer state; no request,
+// reasoning, answer prose, or Mermaid label participates in this projection.
+func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return t.Description()
+	}
+	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	targets := localDiagramLeaseTargetBlockIDs(lease)
+	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
+		return t.Description()
+	}
+	return "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
+		"Select a published failure_ref with one of its displayed actions, or select a published addition_ref and author the visible endpoints and label. " +
+		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, relation kinds, and whole-block mutations are unavailable in this dispatch. " +
+		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
+}
+
+// narrowAnswerDocumentPatchParametersForLocalDiagramLease projects one live
+// typed lease into the operations that its executor can actually perform. The
+// model sees exact opaque refs crossed only with their allowed actions, while
+// still authoring every visible endpoint, label, layout, and disposition. This
+// removes the contradictory legacy coordinate/hidden-identity/whole-block
+// surface that previously burned retries after a precise lease had already
+// been published. A malformed or mixed non-diagram lease keeps the broad
+// compatibility schema and remains fail-closed in the executor.
 func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease) json.RawMessage {
 	targets := localDiagramLeaseTargetBlockIDs(lease)
-	if len(targets) == 0 {
+	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
 		return raw
 	}
 	var root map[string]any
@@ -241,32 +263,195 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if properties == nil {
 		return raw
 	}
-	forbidden := make([]any, 0, len(targets))
-	for _, id := range targets {
-		forbidden = append(forbidden, id)
-	}
-	for _, field := range []string{"replace_blocks", "add_blocks"} {
-		array, _ := properties[field].(map[string]any)
-		item, _ := array["items"].(map[string]any)
-		itemProperties, _ := item["properties"].(map[string]any)
-		idSchema, _ := itemProperties["id"].(map[string]any)
-		if idSchema == nil {
-			return raw
-		}
-		idSchema["not"] = map[string]any{"enum": forbidden}
-	}
-	remove, _ := properties["remove_block_ids"].(map[string]any)
-	removeItems, _ := remove["items"].(map[string]any)
-	if removeItems == nil {
+	branches, ok := localDiagramLeaseExecutableEdgeBranches(lease, targets)
+	if !ok || len(branches) == 0 {
 		return raw
 	}
-	removeItems["not"] = map[string]any{"enum": forbidden}
+	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+		delete(properties, field)
+	}
+	edgeEdits, _ := properties["diagram_edge_edits"].(map[string]any)
+	if edgeEdits == nil {
+		return raw
+	}
+	edgeEdits["minItems"] = 1
+	edgeEdits["maxItems"] = len(lease.Failures) + len(lease.AllowedAdditions)
+	edgeEdits["uniqueItems"] = true
+	edgeEdits["description"] = "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition endpoints and all visible labels remain model-authored. Omitted legacy coordinates and hidden identity fields are unavailable."
+	edgeEdits["items"] = map[string]any{"oneOf": branches}
+
+	if boundaries, ok := properties["diagram_boundary_replacements"].(map[string]any); ok {
+		item, _ := boundaries["items"].(map[string]any)
+		itemProperties, _ := item["properties"].(map[string]any)
+		blockID, _ := itemProperties["block_id"].(map[string]any)
+		if blockID == nil {
+			return raw
+		}
+		blockID["enum"] = stringsToAny(targets)
+	}
+	if !narrowLocalDiagramParticipantEditSchema(properties, lease) {
+		return raw
+	}
 	if unchanged, ok := properties["unchanged_block_ids"].(map[string]any); ok {
 		unchanged["description"] = "Block ids from the previous emit to preserve. A block also named by diagram_edge_edits, diagram_boundary_replacements, or diagram_participant_edits may be listed redundantly; the atomic compiler absorbs that id because every unmentioned carrier is already preserved from the immutable base."
 	}
 	out, err := json.Marshal(root)
 	if err != nil || !json.Valid(out) {
 		return raw
+	}
+	return out
+}
+
+func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLease, targets []string) bool {
+	if lease == nil || len(targets) == 0 {
+		return false
+	}
+	targetSet := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		targetSet[target] = true
+	}
+	for _, failure := range lease.Failures {
+		if !targetSet[strings.TrimSpace(failure.BlockID)] {
+			return false
+		}
+	}
+	for _, candidate := range lease.AllowedAdditions {
+		if !targetSet[strings.TrimSpace(candidate.BlockID)] {
+			return false
+		}
+	}
+	return len(lease.Failures)+len(lease.AllowedAdditions) > 0
+}
+
+func localDiagramLeaseExecutableEdgeBranches(
+	lease *types.AnswerDiagramRelationRepairLease,
+	targets []string,
+) ([]any, bool) {
+	if lease == nil || !localDiagramLeaseRowsAllTargeted(lease, targets) {
+		return nil, false
+	}
+	seenRefs := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions))
+	branches := make([]any, 0, len(lease.Failures)*2+len(lease.AllowedAdditions))
+	for _, failure := range lease.Failures {
+		ref := strings.TrimSpace(failure.FailureRef)
+		if ref == "" || seenRefs[ref] || len(failure.AllowedActions) == 0 {
+			return nil, false
+		}
+		seenRefs[ref] = true
+		added := 0
+		for _, allowed := range failure.AllowedActions {
+			action := strings.TrimSpace(string(allowed))
+			var branch map[string]any
+			switch action {
+			case string(types.AnswerDiagramRelationRepairActionRemove):
+				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, false, false)
+			case string(types.AnswerDiagramRelationRepairActionRelabel):
+				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, false, true)
+			case string(types.AnswerDiagramRelationRepairActionReplace):
+				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, true, false)
+			default:
+				return nil, false
+			}
+			branches = append(branches, branch)
+			added++
+		}
+		if added == 0 {
+			return nil, false
+		}
+	}
+	for _, candidate := range lease.AllowedAdditions {
+		ref := strings.TrimSpace(candidate.AdditionRef)
+		if ref == "" || seenRefs[ref] {
+			return nil, false
+		}
+		seenRefs[ref] = true
+		branches = append(branches, exactLocalDiagramEdgeBranch("addition_ref", ref, "add", true, false))
+	}
+	return branches, true
+}
+
+func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsLabel bool) map[string]any {
+	properties := map[string]any{
+		refField: map[string]any{"type": "string", "enum": []any{ref}},
+		"action": map[string]any{"type": "string", "enum": []any{action}},
+	}
+	required := []any{refField, "action"}
+	if needsEdge {
+		properties["edge"] = map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"from_node":     map[string]any{"type": "string", "minLength": 1},
+				"to_node":       map[string]any{"type": "string", "minLength": 1},
+				"visible_label": map[string]any{"type": "string", "minLength": 1},
+			},
+			"required": []any{"from_node", "to_node", "visible_label"},
+		}
+		required = append(required, "edge")
+	}
+	if needsLabel {
+		properties["visible_label"] = map[string]any{"type": "string", "minLength": 1}
+		required = append(required, "visible_label")
+	}
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           properties,
+		"required":             required,
+	}
+}
+
+func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *types.AnswerDiagramRelationRepairLease) bool {
+	if len(lease.OptionalOrphanCleanups) == 0 {
+		delete(properties, "diagram_participant_edits")
+		return true
+	}
+	participantEdits, _ := properties["diagram_participant_edits"].(map[string]any)
+	if participantEdits == nil {
+		return false
+	}
+	branches := make([]any, 0, len(lease.OptionalOrphanCleanups)*2)
+	for _, candidate := range lease.OptionalOrphanCleanups {
+		blockID := strings.TrimSpace(candidate.BlockID)
+		participantID := strings.TrimSpace(candidate.ParticipantID)
+		if blockID == "" || participantID == "" || len(candidate.AllowedActions) == 0 {
+			return false
+		}
+		for _, allowed := range candidate.AllowedActions {
+			action := strings.TrimSpace(string(allowed))
+			properties := map[string]any{
+				"block_id":       map[string]any{"type": "string", "enum": []any{blockID}},
+				"participant_id": map[string]any{"type": "string", "enum": []any{participantID}},
+				"action":         map[string]any{"type": "string", "enum": []any{action}},
+			}
+			required := []any{"block_id", "participant_id", "action"}
+			switch action {
+			case string(types.AnswerDiagramOrphanDispositionRemove):
+			case string(types.AnswerDiagramOrphanDispositionRetain):
+				properties["visible_label"] = map[string]any{"type": "string", "minLength": 1}
+				required = append(required, "visible_label")
+			default:
+				return false
+			}
+			branches = append(branches, map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties":           properties,
+				"required":             required,
+			})
+		}
+	}
+	participantEdits["minItems"] = 1
+	participantEdits["maxItems"] = len(lease.OptionalOrphanCleanups)
+	participantEdits["uniqueItems"] = true
+	participantEdits["items"] = map[string]any{"oneOf": branches}
+	return true
+}
+
+func stringsToAny(in []string) []any {
+	out := make([]any, 0, len(in))
+	for _, value := range in {
+		out = append(out, value)
 	}
 	return out
 }

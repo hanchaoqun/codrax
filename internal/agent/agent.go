@@ -3819,6 +3819,7 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			}
 			if patch, ok := t.(*tool.EmitAnswerDocumentPatch); ok {
 				params = patch.ParametersFor(ctx)
+				desc = patch.DescriptionFor(ctx)
 			}
 			// emit_write_workflow_decision projects its action enum by
 			// typed mode (ModePlan drops apply/verify actions) so the

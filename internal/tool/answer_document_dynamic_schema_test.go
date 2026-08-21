@@ -100,17 +100,26 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	}
 }
 
-func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseNarrowsOnlyWholeTargetMutations(t *testing.T) {
+func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableCapabilities(t *testing.T) {
 	base := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(base,
 		[]types.AnswerDiagramRelationRepairFailure{{
 			BlockID: "diag", Issue: "call_edge_unproven",
 			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
 			RelationKind: types.DiagramRelPrecedence,
-		}}, nil)
+		}}, []types.AnswerDiagramRelationRepairCandidate{{
+			BlockID: "diag", RelationKind: types.DiagramRelCall,
+			FromIdentity: "Extractor", ToIdentity: "Finalizer", Source: "internal/orchestrator/topology.go:1",
+		}})
 	if lease == nil {
 		t.Fatal("test setup: expected live local lease")
 	}
+	lease.OptionalOrphanCleanups = []types.AnswerDiagramOrphanCleanupCandidate{{
+		BlockID: "diag", ParticipantID: "C", AllowedActions: []types.AnswerDiagramOrphanDispositionAction{
+			types.AnswerDiagramOrphanDispositionRemove,
+			types.AnswerDiagramOrphanDispositionRetain,
+		},
+	}}
 	mut := types.NewMutableState("local diagram schema")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
 	mut.SetAnswerDiagramRelationRepairLease(lease)
@@ -120,40 +129,146 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseNarrowsOnlyWholeTargetMu
 		t.Fatalf("projected patch schema must parse: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	assertTargetForbidden := func(t *testing.T, node map[string]any) {
-		t.Helper()
-		notNode, _ := node["not"].(map[string]any)
-		enum, _ := notNode["enum"].([]any)
-		if len(enum) != 1 || enum[0] != "diag" {
-			t.Fatalf("local target must be structurally excluded, got %+v", node)
+	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+		if _, ok := props[field]; ok {
+			t.Fatalf("live local lease must hide non-executable whole mutation %q", field)
 		}
 	}
-	for _, field := range []string{"replace_blocks", "add_blocks"} {
-		array := props[field].(map[string]any)
-		item := array["items"].(map[string]any)
-		itemProps := item["properties"].(map[string]any)
-		assertTargetForbidden(t, itemProps["id"].(map[string]any))
+	edgeEdits := props["diagram_edge_edits"].(map[string]any)
+	if edgeEdits["minItems"] != float64(1) || edgeEdits["maxItems"] != float64(2) || edgeEdits["uniqueItems"] != true {
+		t.Fatalf("live refs must define the exact transaction cardinality: %+v", edgeEdits)
 	}
-	remove := props["remove_block_ids"].(map[string]any)
-	assertTargetForbidden(t, remove["items"].(map[string]any))
-	if _, ok := props["diagram_edge_edits"]; !ok {
-		t.Fatal("local lease must retain model-authored atomic edge edits")
+	branches := edgeEdits["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 3 {
+		t.Fatalf("expected remove+replace+add branches, got %d: %+v", len(branches), branches)
 	}
-	if _, ok := props["diagram_boundary_replacements"]; !ok {
-		t.Fatal("local lease must retain model-authored participant-boundary edits")
+	wantFailureRef := lease.Failures[0].FailureRef
+	wantAdditionRef := lease.AllowedAdditions[0].AdditionRef
+	seen := make(map[string]bool)
+	for _, rawBranch := range branches {
+		branch := rawBranch.(map[string]any)
+		if branch["additionalProperties"] != false {
+			t.Fatalf("each exact branch must reject unadvertised legacy fields: %+v", branch)
+		}
+		branchProps := branch["properties"].(map[string]any)
+		for _, forbidden := range []string{"block_id", "match", "occurrence", "body_occurrence"} {
+			if _, ok := branchProps[forbidden]; ok {
+				t.Fatalf("exact-ref branch leaked legacy selector %q: %+v", forbidden, branchProps)
+			}
+		}
+		action := branchProps["action"].(map[string]any)["enum"].([]any)[0].(string)
+		refField := "failure_ref"
+		ref := wantFailureRef
+		if action == "add" {
+			refField, ref = "addition_ref", wantAdditionRef
+		}
+		if got := branchProps[refField].(map[string]any)["enum"].([]any); len(got) != 1 || got[0] != ref {
+			t.Fatalf("branch %s did not pin the current opaque ref: %+v", action, branchProps)
+		}
+		if edge, ok := branchProps["edge"].(map[string]any); ok {
+			edgeProps := edge["properties"].(map[string]any)
+			if edge["additionalProperties"] != false || len(edgeProps) != 3 {
+				t.Fatalf("replacement/addition edge must expose visible model fields only: %+v", edge)
+			}
+			for _, visible := range []string{"from_node", "to_node", "visible_label"} {
+				if _, ok := edgeProps[visible]; !ok {
+					t.Fatalf("edge branch lost model-owned field %q: %+v", visible, edgeProps)
+				}
+			}
+		}
+		seen[action] = true
 	}
-	if _, ok := props["diagram_participant_edits"]; !ok {
-		t.Fatal("local lease must retain optional model-authored orphan cleanup edits")
+	if !seen["remove"] || !seen["replace"] || !seen["add"] || seen["relabel"] {
+		t.Fatalf("schema action roster drifted from live capabilities: %+v", seen)
 	}
+
+	boundaries := props["diagram_boundary_replacements"].(map[string]any)
+	boundaryItem := boundaries["items"].(map[string]any)
+	boundaryProps := boundaryItem["properties"].(map[string]any)
+	if got := boundaryProps["block_id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"diag"}) {
+		t.Fatalf("boundary repair must stay within the live diagram target: %v", got)
+	}
+
 	participantEdits := props["diagram_participant_edits"].(map[string]any)
-	participantItem := participantEdits["items"].(map[string]any)
-	participantProps := participantItem["properties"].(map[string]any)
-	actions := participantProps["action"].(map[string]any)["enum"].([]any)
-	if !reflect.DeepEqual(actions, []any{"remove_if_isolated", "retain_as_context"}) {
-		t.Fatalf("orphan disposition actions=%v", actions)
+	participantBranches := participantEdits["items"].(map[string]any)["oneOf"].([]any)
+	if len(participantBranches) != 2 || participantEdits["maxItems"] != float64(1) {
+		t.Fatalf("participant cleanup must expose one exact candidate with its two choices: %+v", participantEdits)
 	}
-	if _, ok := participantProps["visible_label"]; !ok {
-		t.Fatal("retain_as_context must expose one model-authored visible_label")
+	participantActions := make(map[string]bool)
+	for _, rawBranch := range participantBranches {
+		branch := rawBranch.(map[string]any)
+		branchProps := branch["properties"].(map[string]any)
+		action := branchProps["action"].(map[string]any)["enum"].([]any)[0].(string)
+		participantActions[action] = true
+		if got := branchProps["block_id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"diag"}) {
+			t.Fatalf("participant block selector=%v", got)
+		}
+		if got := branchProps["participant_id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"C"}) {
+			t.Fatalf("participant selector=%v", got)
+		}
+		_, hasLabel := branchProps["visible_label"]
+		if hasLabel != (action == "retain_as_context") {
+			t.Fatalf("visible label ownership drifted for action=%s: %+v", action, branchProps)
+		}
+	}
+	if !participantActions["remove_if_isolated"] || !participantActions["retain_as_context"] {
+		t.Fatalf("orphan disposition actions=%v", participantActions)
+	}
+	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); strings.Contains(desc, "replace_blocks") || !strings.Contains(desc, "current schema is the sole capability authority") {
+		t.Fatalf("live description must match the executable schema: %q", desc)
+	}
+}
+
+func TestEmitAnswerDocumentPatchParametersFor_AdditionOnlyLeaseDropsUnavailableCleanupSurface(t *testing.T) {
+	base := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diag", RelationKind: types.DiagramRelCall,
+		FromIdentity: "Extractor", ToIdentity: "Finalizer", Source: "internal/orchestrator/topology.go:1",
+	}})
+	mut := types.NewMutableState("addition-only local diagram schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut}), &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	if _, ok := props["diagram_participant_edits"]; ok {
+		t.Fatal("lease without an orphan-cleanup candidate must not advertise participant edits")
+	}
+	branches := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 1 {
+		t.Fatalf("addition-only lease must expose exactly one executable branch: %+v", branches)
+	}
+}
+
+func TestEmitAnswerDocumentPatchParametersFor_NonDiagramLeaseKeepsCompatibilitySurface(t *testing.T) {
+	base := atomicPatchTestDocument()
+	base.Blocks = append(base.Blocks, types.AnswerBlock{
+		ID: "list", Kind: types.BlockOrderedList,
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "X", ToNode: "Y", FromIdentity: "X.run", ToIdentity: "Y.run", RelationKind: types.DiagramRelCall,
+		}},
+	})
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "list", Issue: "typed_anchor_without_visible_edge",
+		FromNode: "X", ToNode: "Y", FromIdentity: "X.run", ToIdentity: "Y.run", RelationKind: types.DiagramRelCall,
+	}}, nil)
+	mut := types.NewMutableState("non-diagram relation schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut}), &root); err != nil {
+		t.Fatalf("compatibility patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("non-diagram/mixed lease must retain compatibility field %q", field)
+		}
+	}
+	if got := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); got != (&EmitAnswerDocumentPatch{}).Description() {
+		t.Fatal("non-diagram compatibility schema must retain its matching compatibility description")
 	}
 }
 

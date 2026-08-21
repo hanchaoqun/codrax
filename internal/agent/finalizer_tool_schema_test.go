@@ -163,6 +163,66 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 	}
 }
 
+func TestFinalizerToolSchemas_LiveRelationLeaseUsesMatchingExecutableDescriptionAndParameters(t *testing.T) {
+	agent := finalizerSchemaTestAgent()
+	sk := finalizerSchemaTestSkill()
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "kept"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: "sequenceDiagram\n A->>B: model wording",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", FromIdentity: "A.run", ToIdentity: "B.run",
+				RelationKind: types.DiagramRelCall, VisibleLabel: "model wording",
+			}},
+		},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+		FromIdentity: "A.run", ToIdentity: "B.run", RelationKind: types.DiagramRelCall,
+	}}, nil)
+	if lease == nil {
+		t.Fatal("test setup: expected live relation lease")
+	}
+	mut := types.NewMutableState("live relation retry")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	ctx := &types.AgentContext{Mutable: mut}
+
+	var patchSchema *llm.ToolSchema
+	for _, schema := range agent.buildToolSchemas(sk, ctx) {
+		if schema.Name == "emit_answer_document_patch" {
+			s := schema
+			patchSchema = &s
+			break
+		}
+	}
+	if patchSchema == nil {
+		t.Fatal("live relation retry must expose emit_answer_document_patch")
+	}
+	if !strings.Contains(patchSchema.Description, "current schema is the sole capability authority") ||
+		strings.Contains(patchSchema.Description, "replace_blocks") {
+		t.Fatalf("agent dispatch leaked the broad compatibility description into a narrow lease: %q", patchSchema.Description)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(patchSchema.Parameters, &root); err != nil {
+		t.Fatalf("decode live patch parameters: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+		if _, ok := props[field]; ok {
+			t.Fatalf("agent dispatch leaked unavailable whole mutation %q", field)
+		}
+	}
+	branches := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 2 {
+		t.Fatalf("agent dispatch must carry the live remove+replace choices, got %+v", branches)
+	}
+}
+
 func finalizerSchemaTestAgent() *BaseAgent {
 	registry := tool.NewRegistry()
 	registry.Register(&tool.EmitAnswerDocument{})

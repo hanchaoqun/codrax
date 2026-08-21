@@ -57291,6 +57291,64 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1343 r824：live 关系租约仍暴露不可执行旧式修补面，20 轮后降级出厂旧稿（2026-08-21）
+
+1. 从已推送 `3e10e52f2` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`。runner 1/2 PASS：Trace 301s；read 1784s 后以
+   `degraded_answer_checks_skipped` 失败。人工判定 Trace pass、read system/process fail；runner 的 answer/mermaid 字面命中不能把恢复旧稿判为正确。
+2. Trace 守护继续通过：显式 2.000..2.020s 主窗、target-filtered typed queries、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链、11.000ms 链上 IO 第一席、三个独立且不可直接相加的
+   1.000ms runnable/优先级候选、各跳 CPU、实际占时/现规则可消双账户、链外背景隔离、成文前自动补采和完整
+   `Trace 因果投影` 均在；finalizer 零拒绝，活动流没有按固定 4ms/4m、累计年龄或上下文比例降级。模型对 11ms 区间/直接阻塞的两处
+   措辞精度继续按软观察处理，typed 时间、链与权限边界正确，系统没有扫描或改写模型结论。
+3. B1307 的精确 `optional_orphan_cleanups` 生产形本轮没有自然出现，不能伪记生产转正；其 occurrence-aware 可见边能力判据仍由全套测试覆盖。
+   read 的新故障发生在另一个独立层：首个有效完整文档被关系/参与者门拒绝后，same-generation lease 实际能够重签并在后续发布真实
+   `failure_ref/addition_ref`，但模型面对的 patch 工具仍同时暴露旧式 `block_id + match + occurrence/body_occurrence`、可重填的 hidden
+   from/to identity 和 relation kind，以及整块 replace/add/remove。target id 上的 JSON Schema `not` 没有阻止模型发出整块 replacement，调用仍到达
+   runtime 才以 `whole_replace_not_authorized` 拒绝。
+4. 新 P0 `B1308-LIVELEASEEXECUTABLESCHEMA1` 是“提示/工具 schema/执行器”三面能力不一致，而非单纯模型波动。模型先把
+   `typed_candidate[BusContext][1]` 当成 addition ref，被判 stale；随后在 legacy match、replace、whole-block replace、重新添加、relabel 和伪造
+   `observe` 关系之间反复。中间系统确实再次发布了 live `ra1-...`，模型也成功选择过，但下一代局部失败又回到同一宽 schema。总计 20 次
+   finalizer reject、上下文升至 78%，最后展示“上一版结构化答案草稿”；该草稿仍含 validator 已明确否定的
+   `Orchestrator -> BusContext`、`BusContext -> Mutable`、`Explorer -> Mutable` 等关系，因此不是诚实可用的降级答案。
+5. B1308 最优根修不是系统替模型删边，也不是放宽关系证据门。live lease 存在时，动态 patch schema 必须只暴露该代真正可执行的选择：
+   `failure_ref` 只能取 lease 当前 refs，action 只能取该行 allowed actions；`addition_ref` 只能取当前 additions，action 固定 add；模型仍只创作
+   visible from/to node、label 和 replace/relabel 的可见内容。此时从 schema 删除 legacy locator、hidden identity/relation 重填和 whole-block
+   replace/add/remove；无 live lease 时保留兼容全表面。这样精确信号直接缩小模型 JSON 心智，执行器继续逐 ref fail-closed，系统不选择 action、edge、
+   direction、wording、layout 或 conclusion。
+6. 另立 P1 `B1309-PARTICIPANTNAVIGATIONCOMPLETION1`，不与 P0 混成一个补丁。read 调查已经多次满足 general closure，却因
+   `Mutable` participant relation 未闭合被导航器反复指向 `internal/orchestrator/extract_work.go:4-28`；该窗只有 BusContext 参数传递和 Mutable
+   getter，无法证明 `BusContext.Mutable -> AgentContext.Mutable`。真正精确值传递在
+   `internal/context/builder.go` 的结构体初始化 `Mutable: bus.Mutable`。当前 typed repair coordinate 本身不具备完成义务，造成 117 explorer
+   iterations、61 reads、480 evidence rows。后续应让 participant repair frontier 优先使用解析器拥有的 exact assignment/initializer candidate，
+   并证明该坐标能连接缺失 participant；找不到时按 bounded unproven 收敛，不能按关键词、轮数、耗时或上下文比例硬截断。
+7. 施工顺序冻结：先完成 B1308 的 lease-aware executable schema、相关单测/全套/release build、提交推送；再从不可变提交恰好 2 路复放
+   read+显式窗 Trace。只有 B1308 生产转正后，B1309 才作为独立批次施工，避免把“成文可执行能力”与“探索坐标质量”混成不可审计的大改。
+8. B1308 已按上述边界施工。`EmitAnswerDocumentPatch.ParametersFor` 在完整且全部落于唯一 diagram carrier 的同代 lease 上，把
+   `diagram_edge_edits.items` 投影为精确 `failure_ref/addition_ref × allowed action` 的 `oneOf` 分支；remove 只接受 ref+action，relabel 额外要求
+   模型自写 visible label，replace/add 只开放模型自写的 visible from/to node+label。每个分支 `additionalProperties=false`，因此旧
+   block/match/occurrence/body_occurrence、hidden identity/relation kind 不再可重填；whole replace/add/remove 在该轮完全不发射。boundary block id
+   同步限制在 lease targets；没有 orphan candidate 时不发 participant edit，有 candidate 时只发其精确 participant+允许 disposition，retain 的可见
+   label 仍由模型写。无 lease、畸形 lease、混合/非 diagram lease 保留兼容 schema，并继续由既有执行器 fail-closed。
+9. 实际 finalizer 接线同时使用 `DescriptionFor(ctx)`，避免参数已经收窄而工具描述仍教学旧式整块/坐标操作；接线 pin 直接从
+   `BaseAgent.buildToolSchemas` 断言描述与参数同轮一致。投影只读 typed lease，不读取请求、thinking、答案 prose 或 Mermaid message；系统没有选择
+   action、relation、edge、node、label、layout 或 conclusion。新增回归覆盖 remove+replace+add 精确分支、隐藏字段负面、整块面负面、addition-only、
+   orphan 两动作、boundary target、非 diagram 兼容和 agent 接线。`go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿
+   （24.837s/182.381s/13.466s），release `make` 与 `git diff --check` 通过；等待提交推送后从不可变版本进行恰好 2 路生产复放。
+
+状态：
+
+`r824=runner-pass-1/2,human-trace-pass+read-system-fail`；
+`B1307=tests-positive/pending-exact-production-shape`；
+`B1308=implemented/P0/full-suite+release-build-pass/pending-production-replay`；`B1309=confirmed/P1/documented-next`；
+`live-lease-model-surface=current-executable-refs-only`；
+`legacy-locator/hidden-identity/whole-block-mutation=hide-during-live-lease`；
+`system-edge/action/node/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r824`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r824`。
+
 ### §123.1342 r823：显式窗 Trace 守护继续通过；孤儿清理 lease 发布不可兑现能力（2026-08-21）
 
 1. 从已推送 `5b6a65f1c` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
