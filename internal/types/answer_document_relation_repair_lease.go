@@ -39,11 +39,17 @@ type AnswerDiagramRelationRepairFailure struct {
 type AnswerDiagramRelationRepairTargetCarrier string
 
 const (
-	AnswerDiagramRelationRepairCarrierUnknown         AnswerDiagramRelationRepairTargetCarrier = "unknown"
-	AnswerDiagramRelationRepairCarrierPriorAnchor     AnswerDiagramRelationRepairTargetCarrier = "prior_anchor"
-	AnswerDiagramRelationRepairCarrierVisibleBodyEdge AnswerDiagramRelationRepairTargetCarrier = "visible_body_edge"
-	AnswerDiagramRelationRepairCarrierStaleAnchor     AnswerDiagramRelationRepairTargetCarrier = "stale_anchor"
-	AnswerDiagramRelationRepairCarrierLabelPair       AnswerDiagramRelationRepairTargetCarrier = "label_pair"
+	AnswerDiagramRelationRepairCarrierUnknown     AnswerDiagramRelationRepairTargetCarrier = "unknown"
+	AnswerDiagramRelationRepairCarrierPriorAnchor AnswerDiagramRelationRepairTargetCarrier = "prior_anchor"
+	// PriorAnchorMetadata identifies one exact structured anchor whose visible
+	// body occurrence cannot be selected without guessing among repeated
+	// from/to messages. The only safe local capability is removing that anchor
+	// metadata; visible edges remain model-owned and require their own exact
+	// visible_body_edge failure refs.
+	AnswerDiagramRelationRepairCarrierPriorAnchorMetadata AnswerDiagramRelationRepairTargetCarrier = "prior_anchor_metadata"
+	AnswerDiagramRelationRepairCarrierVisibleBodyEdge     AnswerDiagramRelationRepairTargetCarrier = "visible_body_edge"
+	AnswerDiagramRelationRepairCarrierStaleAnchor         AnswerDiagramRelationRepairTargetCarrier = "stale_anchor"
+	AnswerDiagramRelationRepairCarrierLabelPair           AnswerDiagramRelationRepairTargetCarrier = "label_pair"
 )
 
 // AnswerDiagramRelationRepairAction is one atomic operation that the current
@@ -91,6 +97,14 @@ func answerDiagramRelationRepairFailureCapabilities(
 	base *AnswerDocumentV2,
 	failure AnswerDiagramRelationRepairFailure,
 ) (AnswerDiagramRelationRepairTargetCarrier, []AnswerDiagramRelationRepairAction) {
+	if failure.TargetCarrier == AnswerDiagramRelationRepairCarrierPriorAnchorMetadata {
+		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			return AnswerDiagramRelationRepairCarrierPriorAnchorMetadata, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	}
 	issue := strings.TrimSpace(failure.Issue)
 	switch issue {
 	case "missing_call_anchor", DiagramRelationFailureMissingGroundedCallAnchor, "missing_relation_anchor":

@@ -251,6 +251,7 @@ func resolveAtomicDiagramFailureRef(
 	if failure == nil {
 		return edit, fmt.Errorf("failure_ref=%q is unknown or stale for the live relation-repair lease", ref)
 	}
+	edit.failureRefCarrier = failure.TargetCarrier
 	if edit.BodyOccurrence != 0 && edit.BodyOccurrence != failure.BodyOccurrence {
 		return edit, fmt.Errorf(
 			"failure_ref=%q already selects body_occurrence=%d, not %d; omit body_occurrence",
@@ -301,6 +302,7 @@ func resolveAtomicDiagramFailureRef(
 		return edit, nil
 	}
 	if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor &&
+		failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata &&
 		failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierStaleAnchor &&
 		failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair {
 		return edit, fmt.Errorf(
@@ -475,6 +477,27 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		// field; the compiler merely makes that declared operation
 		// executable against the previous model-authored Mermaid AST.
 		bodyOnly = true
+	}
+	// A metadata-only prior-anchor ref deliberately has no unique Mermaid body
+	// occurrence. Removing it therefore deletes exactly the selected structured
+	// anchor and leaves every visible edge byte-identical. Any failed visible
+	// edge has its own producer-owned visible_body_edge ref with a non-zero base
+	// occurrence. This prevents the contradictory contract where one ref both
+	// requires body_occurrence to disambiguate repeated messages and rejects it
+	// because the same ref published occurrence zero.
+	if anchorErr == nil && edit.failureRefResolved &&
+		edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata {
+		if action != "remove" {
+			return fmt.Errorf("prior_anchor_metadata permits only action=remove")
+		}
+		if edit.BodyOccurrence != 0 {
+			return fmt.Errorf("body_occurrence must be omitted for prior_anchor_metadata")
+		}
+		if edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
+			return fmt.Errorf("action=remove must omit edge and visible_label")
+		}
+		block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+		return nil
 	}
 	anchorWithoutBody := anchorErr == nil &&
 		(action == "remove" || action == "replace") &&

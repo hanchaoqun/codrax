@@ -913,6 +913,95 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RequiresBodyOccurrenceForAmbiguous
 	}
 }
 
+func TestPriorAnchorWithoutUniqueRepeatedBodyOccurrencePublishesAnchorOnlyCapability(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    participant TASK as runTaskPhase\n" +
+		"    participant DISP as dispatchStage\n" +
+		"    TASK->>DISP: execute StageExplore\n" +
+		"    TASK->>DISP: execute StageExtract\n" +
+		"    TASK->>DISP: execute StageFinalize\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "TASK", ToNode: "DISP", FromIdentity: "runTaskPhase", ToIdentity: "dispatchStage",
+		// Even an exact message-label match cannot mint a hard occurrence:
+		// visible model wording is outside the structural locator contract.
+		RelationKind: types.DiagramRelPrecedence, VisibleLabel: "execute StageExplore",
+	}}
+	failure := bindDiagramRelationRepairAnchorBodyCarrier(prev, types.AnswerDiagramRelationRepairFailure{
+		BlockID: "diag", Issue: diagramSemanticRelationIssueNoEvidence,
+		FromNode: "TASK", ToNode: "DISP", FromIdentity: "runTaskPhase", ToIdentity: "dispatchStage",
+		RelationKind: types.DiagramRelPrecedence,
+	})
+	if failure.BodyOccurrence != 0 ||
+		failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata {
+		t.Fatalf("aggregate prior anchor must not guess one of three visible occurrences: %+v", failure)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata ||
+		!lease.Failures[0].AllowsAction("remove") || lease.Failures[0].AllowsAction("replace") {
+		t.Fatalf("metadata-only prior anchor must publish one executable remove-only ref: %+v", lease)
+	}
+
+	originalBody := prev.Blocks[1].Diagram.Body
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease); err != nil {
+		t.Fatalf("remove-only prior anchor ref must not ask for body_occurrence: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if got.Diagram.Body != originalBody || len(got.EdgeAnchors) != 0 {
+		t.Fatalf("metadata-only remove must preserve every visible edge and remove only the selected anchor: anchors=%+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
+func TestPriorAnchorMetadataAndRepeatedVisibleFailuresApplyInOneAtomicPatch(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    participant TASK as runTaskPhase\n" +
+		"    participant DISP as dispatchStage\n" +
+		"    TASK->>DISP: execute StageExplore\n" +
+		"    TASK->>DISP: execute StageExtract\n" +
+		"    TASK->>DISP: execute StageFinalize\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "TASK", ToNode: "DISP", FromIdentity: "runTaskPhase", ToIdentity: "dispatchStage",
+		RelationKind: types.DiagramRelPrecedence, VisibleLabel: "遍历其余阶段并分发",
+	}}
+	anchorFailure := bindDiagramRelationRepairAnchorBodyCarrier(prev, types.AnswerDiagramRelationRepairFailure{
+		BlockID: "diag", Issue: diagramSemanticRelationIssueNoEvidence,
+		FromNode: "TASK", ToNode: "DISP", FromIdentity: "runTaskPhase", ToIdentity: "dispatchStage",
+		RelationKind: types.DiagramRelPrecedence,
+	})
+	failures := []types.AnswerDiagramRelationRepairFailure{anchorFailure}
+	for occurrence := 1; occurrence <= 3; occurrence++ {
+		failures = append(failures, types.AnswerDiagramRelationRepairFailure{
+			BlockID: "diag", Issue: diagramCallEdgeIssueMissingAnchor,
+			FromNode: "TASK", ToNode: "DISP", RelationKind: types.DiagramRelCall,
+			BodyOccurrence: occurrence,
+		})
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, failures, nil)
+	if lease == nil || len(lease.Failures) != 4 {
+		t.Fatalf("anchor metadata plus three visible failures must stay independently executable: %+v", lease)
+	}
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, len(lease.Failures))
+	for _, failure := range lease.Failures {
+		if !failure.AllowsAction("remove") {
+			t.Fatalf("fixture failure must expose model-selectable remove: %+v", failure)
+		}
+		edits = append(edits, emitAnswerDiagramEdgeEdit{FailureRef: failure.FailureRef, Action: "remove"})
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, edits, nil, lease); err != nil {
+		t.Fatalf("one atomic patch must execute exact anchor and body carriers without coordinate retyping: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if len(got.EdgeAnchors) != 0 || len(mermaidcompat.ParseEdges(got.Diagram.Body)) != 0 {
+		t.Fatalf("all model-selected failed carriers should be removed exactly: anchors=%+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_BodyOnlyFailureMaySharePairWithDifferentAnchor(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A-->>B: grounded result\n    A->>B: unanchored invocation\n"

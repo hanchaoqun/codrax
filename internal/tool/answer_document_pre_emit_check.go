@@ -5716,6 +5716,79 @@ func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMisma
 type diagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
 type diagramRelationRepairDeltaFailure = types.AnswerDiagramRelationRepairFailure
 
+// bindDiagramRelationRepairAnchorBodyCarrier closes the locator contract for
+// one exact prior anchor before capabilities are published. A single visible
+// pair is occurrence 1; repeated pairs may be bound only by the existing
+// one-anchor-per-body-edge structural order. Visible labels and message text
+// never participate. When one aggregate anchor cannot be mapped to any one
+// repeated visible message, mark
+// it as metadata-only so remove means exactly "remove this anchor" and never
+// asks the model or executor to guess which body edge it represented.
+func bindDiagramRelationRepairAnchorBodyCarrier(
+	doc *types.AnswerDocumentV2,
+	failure diagramRelationRepairDeltaFailure,
+) diagramRelationRepairDeltaFailure {
+	if doc == nil || failure.BodyOccurrence > 0 ||
+		failure.TargetCarrier == types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+		failure.TargetCarrier == types.AnswerDiagramRelationRepairCarrierStaleAnchor {
+		return failure
+	}
+	candidates := types.AnswerDiagramRelationRepairFailureBaseAnchorCandidates(doc, failure)
+	if len(candidates) != 1 {
+		return failure
+	}
+	anchor := candidates[0]
+	var block *types.AnswerBlock
+	for i := range doc.Blocks {
+		if strings.TrimSpace(doc.Blocks[i].ID) != strings.TrimSpace(failure.BlockID) {
+			continue
+		}
+		if block != nil {
+			return failure
+		}
+		block = &doc.Blocks[i]
+	}
+	if block == nil || block.Diagram == nil {
+		return failure
+	}
+	edges := mermaidcompat.ParseEdges(block.Diagram.Body)
+	pairCount := 0
+	for _, edge := range edges {
+		if strings.TrimSpace(edge.From) != strings.TrimSpace(anchor.FromNode) ||
+			strings.TrimSpace(edge.To) != strings.TrimSpace(anchor.ToNode) {
+			continue
+		}
+		pairCount++
+	}
+	if pairCount == 0 {
+		return failure
+	}
+	if pairCount == 1 {
+		failure.BodyOccurrence = 1
+		return failure
+	}
+	pairAnchorCount := 0
+	selectedCount := 0
+	selectedPairOccurrence := 0
+	for _, candidate := range block.EdgeAnchors {
+		if strings.TrimSpace(candidate.FromNode) != strings.TrimSpace(anchor.FromNode) ||
+			strings.TrimSpace(candidate.ToNode) != strings.TrimSpace(anchor.ToNode) {
+			continue
+		}
+		pairAnchorCount++
+		if atomicDiagramAnchorSameTuple(candidate, anchor) {
+			selectedCount++
+			selectedPairOccurrence = pairAnchorCount
+		}
+	}
+	if pairAnchorCount == pairCount && selectedCount == 1 {
+		failure.BodyOccurrence = selectedPairOccurrence
+		return failure
+	}
+	failure.TargetCarrier = types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata
+	return failure
+}
+
 // diagramRelationRepairDeltaJSON projects only the exact source-diagram edge
 // tuples that failed the current typed authority gate. It deliberately omits
 // the full relation recipe catalog. A small optional roster of already-grounded
@@ -5745,6 +5818,7 @@ func diagramRelationRepairDeltaJSON(
 			ToIdentity:     strings.TrimSpace(mismatch.ToSymbol),
 			BodyOccurrence: mismatch.BodyOccurrence,
 		}
+		failure = bindDiagramRelationRepairAnchorBodyCarrier(doc, failure)
 		if failure.BlockID == "" || failure.Issue == "" ||
 			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
 			return ""

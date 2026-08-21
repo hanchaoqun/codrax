@@ -57332,6 +57332,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r802`。
 
+### §123.1311 B1283：把不可唯一映射的 prior anchor 与可见边拆成独立可执行 carrier（2026-08-21）
+
+1. `B1283-PRIORANCHORZEROCCURRENCE1/P0` 已施工。relation-delta producer 在发布 capability 前对 exact prior anchor 做结构绑定：同节点对只有
+   一条可见边时绑定 occurrence=1；重复节点对只有在 prior-anchor 数量与可见边数量一一相等时，才按 immutable rejected draft 中的结构顺序
+   绑定对应 occurrence。Mermaid message、visible label、用户请求、模型 prose、最终答案和错误文本均不参与；即使某个 anchor label 恰好等于
+   第一条消息，也不能据此铸造硬定位。
+2. 一个聚合 prior anchor 对应多条重复可见边、无法一一绑定时，producer 现在发布独立
+   `target_carrier=prior_anchor_metadata`，且 `allowed_actions` 只有 remove。failure ref 继续精确绑定 immutable base 中的唯一 anchor；模型选择
+   remove 后，atomic compiler 只删除该结构化 anchor metadata，Mermaid body 的所有可见节点、边和文字保持字节不变。系统不猜 occurrence、
+   不选业务边，也不把 remove 扩成可见关系删除。
+3. 同一验证代次的未锚定可见边继续各自发布 `target_carrier=visible_body_edge` 与非零 `body_occurrence`。模型若同时选择删除/替换这些 refs，
+   executor 仍按 immutable base occurrence 对同节点对降序执行，避免前一项删除导致后项序号漂移；模型若不选择，普通关系 validator 下一代继续
+   披露，系统不会借 anchor-metadata action 静默处理。`replace` 只在 prior anchor 已有精确 body binding 时继续发布，故 capability 列表与 executor
+   的真实可执行域闭合。
+4. 新正负 pin 使用 r802 同构形：`TASK->DISP` 三条可见消息 + 一个聚合 precedence anchor。单独 `{failure_ref,remove}` 必须成功、只删 anchor、
+   body 字节恒等；同批再带三条 exact visible-body refs 必须在一个 atomic patch 成功且没有 occurrence 重写。另钉住“anchor visible_label 与第一条
+   message 完全相同”仍不得成为 occurrence authority。旧的无 ref 手工 ambiguous selector 仍 fail-closed 要求模型显式 occurrence，未被放宽。
+5. 工具 schema 与局部 retry 教学同步说明新 carrier，继续要求 failure-ref 形只复制 `{failure_ref,action}`，不让模型重填 node/identity/relation/
+   occurrence。完整 `go test ./internal/tool ./internal/types ./internal/agent -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make`
+   全绿；最后移除 label 绑定后又单独复跑 B1283 三个结构测试全绿。
+6. 下一步从本提交重建不可变二进制，仍严格并发恰好 2 路复放同一 read+显式窗 Trace。read 的生产验收不是只看 PASS：必须确认不再出现
+   “set body_occurrence / omit body_occurrence”交替合同，relation patch 能在一代执行，成文拒绝显著下降且最终关系不缩水；Trace 继续守住显式窗、
+   自动补采、链上根因、业务线索、双账户和完整因果投影，活动流不得按固定 4ms/4m 阈值降级。
+
+状态：
+
+`B1283=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`mapped-prior-anchor=prior_anchor/body-occurrence-exact`；
+`unmapped-aggregate-prior-anchor=prior_anchor_metadata/remove-only`；
+`prior-anchor-metadata-remove=anchor-only/visible-body-byte-identical`；
+`visible-repeated-edge=own-ref+nonzero-base-occurrence`；
+`message-label/request/model/final-prose/error-text-as-locator=none`；
+`system-visible-edge/action/wording/layout/conclusion-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1291 r792：Trace 权威链保持；read 主机执行会话中断，不形成产品裁定（2026-08-20）
 
 1. 以已推送 `60c73e390` 构建不可变二进制，严格并发恰好 2 路启动同一 read+Trace 双例。Trace 在 212s 正常 PASS；read
