@@ -59386,3 +59386,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1308 r801：B1281 生产转正；多类图失败被 retry 路由串行隐藏（2026-08-21）
+
+1. 从已推送 `9f54932a6` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace，runner 2/2 PASS：Trace 196s、read
+   498s。两路活动流均未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级；没有恢复旧稿或系统代写答案。
+2. B1281 获得生产正证。read 的首个未完成调查 dispatch 仍可按开放调查合同扫描 17 个 active-frontier 文件并对 21 个 Dataflow 候选
+   做增强；第二个 dispatch 在 typed `emit_investigation_complete` 被接受后，structured evidence 与 Concrete Values 分别只耗 3ms，
+   没有再次扫描 51–57 个文件、没有第二次数万量级 Dataflow。相对 r800，墙钟从 634s 降到 498s、read 26→20、explorer iteration
+   46→33，且最终四阶段表与三条阶段 precedence 关系没有缩水。该结果只证明闭环后扩域被消除；开放调查本身的 17/21 文件成本仍按独立
+   性能项观察，不能用本批边界提前截断。
+3. Trace 系统面继续通过：显式 2.000..2.020s 窗、2 次 target-filtered typed query、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms
+   runnable/优先级候选、实际占时/规则可消双账户、背景隔离和完整 `Trace 因果投影` 全在；闭环后的源码增强为 0ms，空 ReadSet 没有
+   回退预扫描源码。模型仍把 `fscache_page_wait_on_page_bit` 调用点与唤醒先后扩写成具体页面缓存机理/整链控制，保持既有
+   `B1269/B1271` 软教学观察，不扫描、拒绝或改写正文。
+4. 新 P1 `B1282-MIXEDDIAGRAMREPAIRDELTA1` 为精确、可重复的重试路由 gap。read 第一稿的同一 diagram reject 已同时发布两类 typed
+   失败：`analyze/finalizer` participant identity 缺口，以及 18 条可见 orchestration/state edge 缺少 typed anchor；relation delta 的
+   same-generation lease 也已安装。`emitAnswerDocumentRejectSignal` 却先命中 participant 分支并将 relation delta 从本轮提示隐藏，模型只能修
+   participant；下一稿仍同时有 relation+stale-boundary，patch router 又优先 participant；直到第三拒才首次给出 18 个 relation failure refs，
+   模型随后一次全部删除并通过。
+5. B1282 不是放宽关系证据门，也不是要求系统替模型保留/删除边。最优形是同一 reject 同时存在合法 participant delta 与 relation delta 时，
+   生成一个 joint typed repair capsule：一次披露两个原始 delta、明确可在一个原子 patch 中并用
+   `diagram_boundary_replacements` 与 `diagram_edge_edits`，每条 relation 仍只允许其 failure row 列出的 action，candidate 仍只是 permission；
+   模型继续选择 action、边、业务 wording 与布局。任一 delta 缺失/畸形时回退现有单类车道，不能从错误 prose、Mermaid message 或请求词猜。
+6. read 最终答案人工 partial：表格列齐阶段、Agent、输入、产物和 BusContext/Mutable 载体，Mermaid 语法合法并保留三条阶段业务关系；但
+   18 条边被末轮批量删除后 Orchestrator/BusContext 成为孤立 participant，图对状态交互的表达明显变薄。正文还把
+   `runReadSchedulerLoop` 定义误写为 4200，引用表却正确列 4528；这是模型事实漂移，不据一次样本增加正文硬门，继续由后续异构 read 回放观察。
+
+状态：
+
+`r801=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1281=production-positive/core-closed`；
+`B1282=confirmed/P1-next`；
+`accepted-post-completion-enrichment=3ms+3ms/no-broad-rerun`；
+`mixed-participant+relation-reject=current-serial-hidden-delta`；
+`target-joint-repair=two-typed-deltas/one-atomic-model-owned-patch`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r801`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r801`。
