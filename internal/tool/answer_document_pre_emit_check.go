@@ -2401,6 +2401,7 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 		}
 	}
 	observedKeys := preEmitSourceInventoryObservedRowAliasIdentityKeys(ctx.Mutable.SourceInventoryObservation())
+	observedDeclarationKeys := preEmitSourceInventoryObservedDeclarationIdentityKeys(ctx.Mutable.SourceInventoryObservation())
 	var out []types.EnumerationDisplaySet
 	pctx := newPreEmitCheckContext(ctx)
 	if plan := answerSurfacePlan(ctx); plan != nil {
@@ -2410,6 +2411,7 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 			for _, row := range set.Rows {
 				if canonicalKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
 					observedKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
+					observedDeclarationKeys[preEmitSourceInventoryDeclarationIdentityKey(row.Source, row.Member, row.SurfaceTerms)] ||
 					preEmitSourceInventoryPromptRowHasExactGroundedEvidence(row, pctx) {
 					filtered.Rows = append(filtered.Rows, row)
 				}
@@ -2428,6 +2430,52 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 	}
 	if !hasGlobal {
 		out = append(out, canonical...)
+	}
+	return out
+}
+
+// preEmitSourceInventoryDeclarationIdentityKey is the line-independent
+// companion to the exact source-coordinate key. Decorator-based languages
+// commonly report the marker line in the repo lens while grounded evidence
+// cites the declaration line (for example @Entry followed by struct two lines
+// later). File + exact member + exact typed surface family remains a precise
+// declaration identity only when it is unique in the observed lens; prose,
+// block titles, request text, and nearby line distance are deliberately absent.
+func preEmitSourceInventoryDeclarationIdentityKey(source, member string, surfaceTerms []string) string {
+	path := preEmitNormalizePath(source)
+	name := normalizeEnumerationDisplayTableKey(member)
+	family := types.SourceInventorySurfaceFamilyKey(surfaceTerms)
+	if path == "" || name == "" || family == "" {
+		return ""
+	}
+	return path + "\x00" + name + "\x00" + types.SourceInventorySurfaceTermKey(family)
+}
+
+// preEmitSourceInventoryObservedDeclarationIdentityKeys admits only unique,
+// positively observed declarations. If a file contains two same-name members
+// in the same typed family, neither gains a line-independent alias and the
+// existing exact-coordinate/evidence lanes remain fail-closed.
+func preEmitSourceInventoryObservedDeclarationIdentityKeys(observation types.SourceInventoryObservation) map[string]bool {
+	out := map[string]bool{}
+	if !observation.Active {
+		return out
+	}
+	counts := map[string]int{}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			if member.CoverageState != types.SourceInventoryCoverageObserved {
+				continue
+			}
+			key := preEmitSourceInventoryDeclarationIdentityKey(member.File, member.Name, member.SurfaceTerms)
+			if key != "" {
+				counts[key]++
+			}
+		}
+	}
+	for key, count := range counts {
+		if count == 1 {
+			out[key] = true
+		}
 	}
 	return out
 }

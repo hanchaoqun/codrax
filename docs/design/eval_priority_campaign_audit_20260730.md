@@ -57291,6 +57291,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1336 r817/B1300：跨行装饰器清单合同自冲突；数据引用投影范围被默认收口（2026-08-21）
+
+1. 从已推送 `7ba2ac614` 构建不可变二进制，严格并发恰好 2 路执行 `arkts_repomap` 与
+   `data_multifile_reference_projection`，runner 0/2 PASS：数据 183s、ArkTS 514s。两例都由人工读取原始结构化调用、状态图、账本和最终答案后判定
+   为系统 GAP，不把 runner 标签或模型 thinking 当根因。
+2. `B1300-CROSSLINEDECLARATIONIDENTITY1/P1`：ArkTS 探索正确找到并逐文件验证 4 个 `@Entry` 页面类型与 2 个 `@Builder` 片段，最终
+   `Principal Enumeration Rows` 也明确打印 `@component` 4 行和 `@builder` 2 行及各自精确 row id。但 repo lens 的 typed 行位于装饰器行
+   （例如 `@Entry` 第 5 行），grounded evidence/最终行位于 struct 声明行（第 7 行）；旧 sibling-role 准入只接受同一 file:line+family，校验器
+   实际 registry 因此只剩 `@builder`。模型复制提示中的精确 `@component` row id 仍连续 20 轮被报 unknown/outside partition，最终降级旧稿。
+3. B1300 根修为跨语言的唯一声明身份桥：只有仓库观察中 `file + exact member + typed surface_family` 唯一时，才允许装饰器/修饰符行与声明行
+   对齐；同文件同名同族出现两次则不铸 alias，继续依赖精确坐标/grounded evidence 并 fail-closed。该判据不使用固定行距、语言名、装饰器关键词、
+   用户请求、模型原文、表题、说明列或最终答案，覆盖 ArkTS、Cangjie 及其他多行声明语法，而不是针对 `@Entry` 样例拟合。
+4. 新回归钉住两臂：coarse role 只保留 type、sibling function 的观察行与声明证据错开一行时，两条精确 principal row id 仍可绑定；同文件两个
+   同名 `@builder` 成员不得获得跨行 alias。定向测试与完整 `go test ./internal/tool -count=1` 通过。
+5. `B1299-DATAREFERENCEDECISIONHANDOFF1/P1`：数据材料、active 过滤、标签 join、4 条 contribution 与 reconcile 全部完成，模型在 thinking、goal 和
+   success criteria 中也识别了 `targets.csv` 顺序，但初始 typed `output_contract.complete_reference=false`。系统后续发现结构化 candidate
+   `targets.csv#canonical_label`，却因它“未声明”而让 deterministic final-projection fallback 按 reconcile groups 的 group_key 排序终结，输出
+   `17,4,5`；正确目标槽是 GroupA/GroupX/GroupC，应为 `17,0,5`。现有 output graph 甚至因候选和答案同为 3 项而显示 satisfied，未检查槽身份。
+6. B1299 的施工边界冻结：结构 census 只能说明候选存在，不能授权系统把它硬化成 complete-reference；但系统也不能在候选仍未确权时自行选
+   present-groups 并终结。下一小批令 deterministic projection fallback 在 `candidate_present && !declared` 时让位给 typed 规划轮，由模型基于已读
+   材料/规则明确选择 complete-reference 或 present-only；一旦选择前者，沿用既有逐槽 grounding、零填充和 domain mismatch 门。不得扫描
+   instructions/request/model/final prose 做硬门，也不得由系统选择引用集合。
+
+状态：
+
+`r817=runner-fail-2/2,human-system-gap-2/2`；
+`B1300=implemented/full-internal-tool-suite-pass/pending-replay`；
+`B1299=confirmed/P1-next`；
+`cross-line-declaration-alias=unique-file+member+typed-family-only`；
+`ambiguous-same-file-member-family=fail-closed`；
+`undeclared-reference-candidate=soft/model-owned`；
+`system-reference-scope-selection=forbidden`；
+`request/model/final-prose-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1334 r815：B1298 纯形车道无回归；addition ref 疑点经原始参数否证（2026-08-21）
 
 1. 从已推送 `ed147975f` 的不可变二进制严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 206s、read

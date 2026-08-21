@@ -5633,6 +5633,52 @@ func TestPreEmitSourceInventoryTypedPrincipalSets_AdmitsExactObservedSiblingRole
 	}
 }
 
+func TestPreEmitSourceInventoryTypedPrincipalSets_AdmitsUniqueObservedSiblingRoleAcrossDecoratorAndDeclarationLines(t *testing.T) {
+	ctx, _ := sourceInventoryObservedSiblingFunctionTestContext(t)
+	observation := ctx.Mutable.SourceInventoryObservation()
+	for setIdx := range observation.Sets {
+		for memberIdx := range observation.Sets[setIdx].Members {
+			member := &observation.Sets[setIdx].Members[memberIdx]
+			if member.Name == "native_add" {
+				// The typed repo lens points at a decorator/modifier line while
+				// the grounded principal row cites the declaration line.
+				// This is the production ArkTS @Entry/@Builder shape and also
+				// occurs in Cangjie and other decorator-based languages.
+				member.Line--
+			}
+		}
+	}
+	ctx.Mutable.SetSourceInventoryObservation(observation)
+
+	var rowIDs []string
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		if set.Label != "foreign func declarations" {
+			continue
+		}
+		for _, row := range set.Rows {
+			rowIDs = append(rowIDs, row.RowID)
+		}
+	}
+	if len(rowIDs) != 2 || rowIDs[0] == "" || rowIDs[1] == "" || rowIDs[0] == rowIDs[1] {
+		t.Fatalf("unique cross-line sibling rows did not retain distinct prompt row ids: %q", rowIDs)
+	}
+}
+
+func TestPreEmitSourceInventoryObservedDeclarationIdentityKeys_AmbiguousSameFileMemberFailsClosed(t *testing.T) {
+	observation := types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "build", File: "src/Page.ets", Line: 5, SurfaceTerms: []string{"@builder"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "build", File: "src/Page.ets", Line: 20, SurfaceTerms: []string{"@builder"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	if got := preEmitSourceInventoryObservedDeclarationIdentityKeys(observation); len(got) != 0 {
+		t.Fatalf("ambiguous same-file declaration aliases must fail closed: %v", got)
+	}
+}
+
 func TestPreEmitPrincipalSelectionFamiliesByFactIndex_SeparatesTypedMembershipFromDisplayGroup(t *testing.T) {
 	ctx, _ := sourceInventoryObservedSiblingFunctionTestContext(t)
 	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
