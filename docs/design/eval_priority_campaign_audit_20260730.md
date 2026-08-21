@@ -57332,6 +57332,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1340 r821/B1304：同一 typed 候选已在当前图中，参与者车道仍重复铸造 add 权限（2026-08-21）
+
+1. 从已推送 `12bf4e34f` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与
+   `trace_query_wakeup_causal_io_chain`，runner 1/2 PASS：Trace 188s，read 1227s。人工审计仍以日志和最终答案为准，不以 runner 标签代替结论。
+2. Trace 人工判 pass。明确 2.000..2.020s 请求主窗、3 次 typed `trace_query`、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点唤醒链、11.000ms 链上 IO 第一席、三个互相独立且不可相加的
+   1.000ms 调度/优先级候选、实际占时/现规则可消双账户、链外背景隔离、成文前自动补采与完整 `Trace 因果投影` 均在；目标切入 CPU1
+   和逐跳 CPU 证据也可见。模型首段把 network/cookie 的重叠 sleep 段称为“其余时间消耗”，有可加误读风险，但后文与系统投影已经明确
+   它们是等待症状、重叠不可加，记软措辞观察，不扫描、拒绝或改写模型正文。活动流没有因固定 4ms、4m、累计年龄或上下文比例降级。
+3. B1303 获得一半生产正证：participant-only retry 已得到同代 `addition_ref`，日志中不再出现“复制历史 ref 但 live lease 不存在”的旧故障。
+   但 read 仍确定性失败，新增 P0 `B1304-PARTICIPANTDUPLICATECAPABILITY1`。一次 patch 已把
+   `types.StageAnalyze -> o.busCtx.PipelineStage / data_flow` 写入当前结构化锚；下一代 participant reject 仍把同一 tuple 作为
+   `allowed_additions` 发出。模型按提示选择该 current ref 后，原子执行器只能正确拒绝 `action=add duplicates an existing exact anchor`。
+4. 随后系统继续把“已有同一 typed 锚但可见参与者端点/边界尚未收敛”描述为“请新增一条边”，模型在 add、remove、relabel 以及
+   `BC`/`BusContext` 两套可见节点之间反复猜测；20 次 finalizer reject 后降级恢复第一稿。恢复稿自身明确未通过 answer_document，仍含大量
+   未证 call/assignment/argument_flow 箭头，不能视为可用答案。该链是 producer 与 executor 的确定性能力冲突，不是 Mermaid/JSON 格式波动。
+5. B1304 最优施工边界冻结为两个同源判定。第一，request-scoped typed candidate provider 必须直接识别“同一 canonical
+   from/to identity + relation 已有可见 body edge，且声明的 participant endpoint side 已由该可见端点承载”；该精确形直接计为 participant
+   incidence，剩余 boundary 只走 stale-boundary 删除，不再要求第二条边。第二，任何 candidate 若已存在于当前 block 的 typed anchor 拓扑，
+   不得再进入 `allowed_additions`；无可执行 failure/addition 时不安装 lease、不宣称有 add capability。
+6. 判定只能读取 RequestModel typed participant、同一 request-scoped candidate values、结构化 edge anchors、解析后的 Mermaid node/edge 与
+   checkout-verified stage authority；不得读取用户原文、模型 thinking、最终答案 prose、可见消息关键词或错误 prose 推测关系。系统不选择
+   add/remove/replace/relabel，不写业务标签、布局或结论；它只禁止一个结构上必失败的重复权限，并把已存在的精确关系识别为已存在。
+7. 施工回归需覆盖：同一 scoped candidate 已渲染时 participant coverage 通过或只报 stale boundary；同一 hidden tuple 已在 anchor 中时
+   addition delta 为空；只有未存在 candidate 时仍发布 additions-only lease；结构锚存在但 body 缺失、endpoint side 未承载参与者、多个候选/
+   多图歧义均不得误判覆盖。相关包全套和 release build 通过后立即提交推送，再用恰好 2 路 read+显式窗 Trace 复放转正。
+8. 次级过程债继续独立观察：read 本轮 71 次 read、71 次 midloop、29 次 investigation completion 尝试、72% context，说明开放调查仍有高成本；
+   但不能据单例、固定轮数、4ms/4m 或上下文比例提前终止，也不能以性能优化削弱复杂 read 或 Trace 自动补齐。先闭环确定性的成文能力冲突，再做
+   typed frontier/repair debt 的泛化性能审计。
+9. B1304 已按上述边界施工：参与者覆盖读取同一 request-scoped typed candidate provider，仅在 canonical relation/from/to identity、解析出的
+   Mermaid body edge、结构化 anchor 与 provider 声明的 participant endpoint side 四者同时一致时认定该候选已渲染；addition delta 在 typed receipt
+   扩展后过滤当前 carrier 已有 tuple，租约构造器再次防御过滤，纯重复能力归零时不安装 lease。系统没有选择节点、标签、边方向、动作、布局或结论。
+   新增回归覆盖 exact-visible 正臂，以及 local-only、错误 endpoint side、anchor-only、生产者重复 tuple、租约 additions-only/混合 failure 防御臂；
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1`、release `make` 与 `git diff --check` 均通过。等待推送后不可变版本的恰好 2 路
+   read+显式窗 Trace 生产复放，不能以单测替代闭环。
+
+状态：
+
+`r821=runner-pass-1/2,human-trace-pass+read-system-fail`；
+`B1303=current-generation-ref-production-positive/core-partial`；
+`B1304=implemented/tests+release-build-pass/pending-production-replay`；
+`duplicate-existing-candidate=must-not-mint-addition-ref`；
+`rendered-request-scoped-candidate=typed-incidence-authority`；
+`system-edge/action/visible-endpoint/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r821`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r821`。
+
 ### §123.1336 r817/B1300：跨行装饰器清单合同自冲突；数据引用投影范围被默认收口（2026-08-21）
 
 1. 从已推送 `7ba2ac614` 构建不可变二进制，严格并发恰好 2 路执行 `arkts_repomap` 与

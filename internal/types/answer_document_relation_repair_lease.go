@@ -681,6 +681,9 @@ func NewAnswerDiagramRelationRepairLease(
 		if len(clean) > 0 && !targetBlocks[candidate.BlockID] {
 			return nil
 		}
+		if answerDiagramRelationRepairCandidateAlreadyAnchored(base, candidate) {
+			continue
+		}
 		if len(clean) == 0 {
 			targetBlocks[candidate.BlockID] = true
 		}
@@ -690,6 +693,9 @@ func NewAnswerDiagramRelationRepairLease(
 		}
 		allowedSeen[key] = true
 		allowed = append(allowed, candidate)
+	}
+	if len(clean) == 0 && len(allowed) == 0 {
+		return nil
 	}
 	sort.SliceStable(allowed, func(i, j int) bool {
 		return answerDiagramRelationRepairCandidateKey(allowed[i]) < answerDiagramRelationRepairCandidateKey(allowed[j])
@@ -721,6 +727,32 @@ func NewAnswerDiagramRelationRepairLease(
 	return &AnswerDiagramRelationRepairLease{
 		Version: 1, Failures: clean, AllowedAdditions: allowed, Blocks: blocks,
 	}
+}
+
+// answerDiagramRelationRepairCandidateAlreadyAnchored is the lease boundary's
+// defense in depth: an addition capability can never name a canonical tuple
+// already present in the base carrier. Visible endpoints and labels are not
+// part of this identity and remain model-owned.
+func answerDiagramRelationRepairCandidateAlreadyAnchored(
+	base *AnswerDocumentV2,
+	candidate AnswerDiagramRelationRepairCandidate,
+) bool {
+	if base == nil {
+		return false
+	}
+	for _, block := range base.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) {
+			continue
+		}
+		for _, anchor := range block.EdgeAnchors {
+			if anchor.RelationKind == candidate.RelationKind &&
+				strings.TrimSpace(anchor.FromIdentity) == strings.TrimSpace(candidate.FromIdentity) &&
+				strings.TrimSpace(anchor.ToIdentity) == strings.TrimSpace(candidate.ToIdentity) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // answerDiagramRelationRepairCandidateRef binds one optional addition to the

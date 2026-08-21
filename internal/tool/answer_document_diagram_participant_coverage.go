@@ -229,6 +229,17 @@ func diagramParticipantRepairAdditionDeltaJSON(
 		receipts = append(receipts, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
 		allowed = diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, 8)
 	}
+	filtered := allowed[:0]
+	for _, candidate := range allowed {
+		if diagramParticipantRepairCandidateAlreadyAnchored(doc, candidate) {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	allowed = filtered
+	if len(allowed) == 0 {
+		return ""
+	}
 	raw, err := json.Marshal(types.AnswerDiagramRelationRepairDelta{
 		Version:  types.AnswerDiagramRelationRepairDeltaVersion,
 		Failures: []types.AnswerDiagramRelationRepairFailure{}, PreserveUnlistedEdges: true,
@@ -238,6 +249,33 @@ func diagramParticipantRepairAdditionDeltaJSON(
 		return ""
 	}
 	return string(raw)
+}
+
+// diagramParticipantRepairCandidateAlreadyAnchored prevents the participant
+// retry lane from advertising action=add for a canonical typed tuple that is
+// already present in its exact target carrier. Endpoint node ids and visible
+// labels remain model-authored and deliberately do not participate.
+func diagramParticipantRepairCandidateAlreadyAnchored(
+	doc *types.AnswerDocumentV2,
+	candidate types.AnswerDiagramRelationRepairCandidate,
+) bool {
+	if doc == nil || strings.TrimSpace(candidate.BlockID) == "" || !candidate.RelationKind.IsValid() {
+		return false
+	}
+	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	for blockIndex, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) {
+			continue
+		}
+		for _, anchor := range diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts) {
+			if anchor.RelationKind == candidate.RelationKind &&
+				strings.TrimSpace(anchor.FromIdentity) == strings.TrimSpace(candidate.FromIdentity) &&
+				strings.TrimSpace(anchor.ToIdentity) == strings.TrimSpace(candidate.ToIdentity) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func diagramParticipantRepairAdditionTargetBlockIDs(
@@ -671,6 +709,16 @@ func DiagramParticipantCoverageMismatches(
 	for i := range states {
 		requestScopedEdgeAvailable := relationScope.effectiveParticipantCovered(i)
 		states[i].typedEdgeAvailable = requestScopedEdgeAvailable
+		if requestScopedEdgeAvailable {
+			candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
+				rm, states[i].obligation, evidence, stagePrecedence, 8,
+				obligations, allSurfaces, i, relationScope,
+			)
+			if diagramParticipantHasRenderedRequestScopedCandidate(doc, states[i].surfaces, candidates) {
+				states[i].visibleCovered = true
+				states[i].identityVisible = true
+			}
+		}
 		if !requestScopedEdgeAvailable || !relationScope.completionParticipantConnectedCovered(i) {
 			evidenceParticipantGraphComplete = false
 		}
@@ -2611,6 +2659,67 @@ func diagramParticipantHasTypedVisibleIncident(doc *types.AnswerDocumentV2, surf
 				stagePrecedence,
 			) {
 				return true
+			}
+		}
+	}
+	return false
+}
+
+// diagramParticipantHasRenderedRequestScopedCandidate recognizes only a
+// relation selected by the same typed, request-scoped provider used to author
+// participant repair guidance. The canonical anchor tuple must already exist,
+// its exact node pair must be a parsed visible edge, and the provider-declared
+// participant side must visibly carry the participant. It neither infers a
+// relation from Mermaid text nor chooses an edit for the model.
+func diagramParticipantHasRenderedRequestScopedCandidate(
+	doc *types.AnswerDocumentV2,
+	surfaces []string,
+	candidates []diagramParticipantTypedIncidentCandidate,
+) bool {
+	if doc == nil || len(surfaces) == 0 || len(candidates) == 0 {
+		return false
+	}
+	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
+	for blockIndex := range doc.Blocks {
+		block := &doc.Blocks[blockIndex]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		visiblePairs := make(map[string]bool)
+		for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
+			visiblePairs[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
+		}
+		for _, anchor := range diagramEvidenceEffectiveAnchorsForBlock(doc, blockIndex, blockCounts) {
+			if !visiblePairs[diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)] {
+				continue
+			}
+			for _, candidate := range candidates {
+				if candidate.localOnly || candidate.relation != anchor.RelationKind ||
+					strings.TrimSpace(candidate.from) != strings.TrimSpace(anchor.FromIdentity) ||
+					strings.TrimSpace(candidate.to) != strings.TrimSpace(anchor.ToIdentity) {
+					continue
+				}
+				fromCarries := diagramParticipantVisibleEndpointCarriesIdentity(
+					*block, surfaces, anchor.FromNode, anchor.FromIdentity, labels,
+				)
+				toCarries := diagramParticipantVisibleEndpointCarriesIdentity(
+					*block, surfaces, anchor.ToNode, anchor.ToIdentity, labels,
+				)
+				switch strings.TrimSpace(candidate.participantEndpointSide) {
+				case "from":
+					if fromCarries {
+						return true
+					}
+				case "to":
+					if toCarries {
+						return true
+					}
+				case "from_or_to":
+					if fromCarries || toCarries {
+						return true
+					}
+				}
 			}
 		}
 	}

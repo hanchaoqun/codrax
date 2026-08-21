@@ -196,6 +196,34 @@ func TestAnswerDiagramRelationRepairLeaseSupportsAdditionOnlyGeneration(t *testi
 	}
 }
 
+func TestAnswerDiagramRelationRepairLeaseNeverMintsAdditionForExistingCanonicalTuple(t *testing.T) {
+	existing := DiagramEdgeAnchor{
+		FromNode: "A", ToNode: "B", FromIdentity: "analyzer",
+		ToIdentity: "explorer", RelationKind: DiagramRelPrecedence,
+	}
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram:     &AnswerDiagramBlock{Kind: DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B"},
+		EdgeAnchors: []DiagramEdgeAnchor{existing},
+	}}}
+	candidate := AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "stageauthority",
+	}
+	if got := NewAnswerDiagramRelationRepairLease(base, nil, []AnswerDiagramRelationRepairCandidate{candidate}); got != nil {
+		t.Fatalf("an additions-only lease must disappear when its tuple already exists: %+v", got)
+	}
+
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelPrecedence,
+		FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer",
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{failure}, []AnswerDiagramRelationRepairCandidate{candidate})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 0 {
+		t.Fatalf("an independent failure lease may survive, but its duplicate add capability must not: %+v", lease)
+	}
+}
+
 func TestMergeAnswerDiagramRelationRepairDeltaJSONKeepsAdditionOnlyCapability(t *testing.T) {
 	raw := `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"flow","relation_kind":"argument_flow","from_identity":"o.busCtx","to_identity":"ctxbuilder.BuildAgentContext","source":"internal/orchestrator/extract_work.go:15"}]}`
 	merged := MergeAnswerDiagramRelationRepairDeltaJSON([]string{raw})

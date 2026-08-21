@@ -1301,6 +1301,77 @@ func TestDiagramParticipantCandidateEndpointSideIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestDiagramParticipantRenderedRequestScopedCandidateRequiresExactVisibleCarrier(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n O[\"产生证据\"] --> B[\"BusContext\"]"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "O", ToNode: "B", FromIdentity: "output.EvidenceItems",
+			ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
+		}},
+	}}}
+	candidate := diagramParticipantTypedIncidentCandidate{
+		participant: "BusContext", relation: types.DiagramRelDataFlow,
+		from: "output.EvidenceItems", to: "o.busCtx.EvidenceItems",
+		participantEndpointSide: "to",
+	}
+	if !diagramParticipantHasRenderedRequestScopedCandidate(doc, []string{"BusContext"}, []diagramParticipantTypedIncidentCandidate{candidate}) {
+		t.Fatal("an exact canonical candidate with its declared visible participant endpoint must be recognized")
+	}
+
+	localOnly := candidate
+	localOnly.localOnly = true
+	if diagramParticipantHasRenderedRequestScopedCandidate(doc, []string{"BusContext"}, []diagramParticipantTypedIncidentCandidate{localOnly}) {
+		t.Fatal("an independent local operation must not close request-scoped participant incidence")
+	}
+	wrongSide := candidate
+	wrongSide.participantEndpointSide = "from"
+	if diagramParticipantHasRenderedRequestScopedCandidate(doc, []string{"BusContext"}, []diagramParticipantTypedIncidentCandidate{wrongSide}) {
+		t.Fatal("the opposite visible endpoint must not carry the requested participant")
+	}
+
+	anchorOnly := *doc
+	anchorOnly.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+	anchorOnly.Blocks[0].Diagram = &types.AnswerDiagramBlock{
+		Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n B[\"BusContext\"]",
+	}
+	if diagramParticipantHasRenderedRequestScopedCandidate(&anchorOnly, []string{"BusContext"}, []diagramParticipantTypedIncidentCandidate{candidate}) {
+		t.Fatal("a hidden structured anchor without its visible body edge is not rendered incidence")
+	}
+}
+
+func TestParticipantOnlyAdditionCapabilityOmitsAlreadyAnchoredTuple(t *testing.T) {
+	rm, _, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n O[\"产生证据\"] --> B[\"BusContext\"]"
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "O", ToNode: "B", FromIdentity: "output.EvidenceItems",
+		ToIdentity: "o.busCtx.EvidenceItems", RelationKind: types.DiagramRelDataFlow,
+	}}
+	operation := types.EvidenceItem{
+		ID: "bus-write", Producer: types.EvidenceProducerExplorerEmitEvidence, Kind: types.EvidenceRelationship,
+		Subject: "o.busCtx.EvidenceItems", Predicate: "assigns", Object: "output.EvidenceItems",
+		Source: "src/pipeline.go", LineStart: 20, AnchorKind: types.AnchorAssignment,
+		GroundingStatus: types.GroundingGrounded, Snippet: "o.busCtx.EvidenceItems = output.EvidenceItems",
+		OwnerIdentity: "Orchestrator.applyStageOutput",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{
+			Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+		}},
+	}
+	mut := types.NewMutableState("existing participant candidate")
+	mut.AppendEvidence([]types.EvidenceItem{operation})
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mut}
+	raw := diagramParticipantRepairAdditionDeltaJSON(doc, ctx, []DiagramParticipantCoverageMismatch{{
+		BlockID: "flow", Participant: "BusContext", Issue: DiagramParticipantCoverageTypedEdgeMissing,
+	}}, []types.EvidenceItem{operation}, nil)
+	if raw != "" {
+		t.Fatalf("an existing canonical tuple must never be re-advertised as action=add: %s", raw)
+	}
+}
+
 func TestDiagramParticipantCoverageUsesExactStaticBindingWithoutChangingEdge(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
