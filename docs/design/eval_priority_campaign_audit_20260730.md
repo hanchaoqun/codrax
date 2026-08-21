@@ -58600,3 +58600,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r790`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r790`。
+
+### §123.1287 B1266：被拒 answer patch 改为事务回滚（2026-08-20）
+
+1. `B1266-REJECTEDPATCHBASEADVANCE1/P0` 已根修。patch 仍在 clone 上完成 dry-run、typed identity 补全、关系租约和全部 pre-emit
+   校验；但任一 hard hint 拒绝时不再把 merged clone 写入 `LastRejectedAnswerDocumentV2`。同一 finalizer dispatch 的后续 patch 因而
+   始终针对原来已知的 previous document，不再出现模型看不到的 occurrence/anchor/participant 状态推进。
+2. 首次完整 `emit_answer_document` 的可解码拒绝稿保留原机制，仍可建立初始 patch base；成功 patch 仍经统一持久化入口一次性提交。
+   只有 rejected patch 变为 zero-write，accepted document、首次拒绝稿恢复与最终尽力恢复都未删除。
+3. patch 工具 schema 同步明确事务语义：任一校验失败则本 patch 的所有编辑都不生效，下一轮必须相对同一 previous document
+   重交完整 intended delta。该教学由工具合同直接提供，不读取用户请求、模型 reasoning、答案 prose 或 Mermaid 消息，也不通过关键词
+   驱动硬门。
+4. 回归同时钉住四条边界：初始 rejected full document 可被合法 patch；rejected patch 不生成 accepted document；原 rejected base 的
+   changed block 与 unrelated block 均字节语义保持；成功 patch 正常持久化。定向测试、完整 `internal/tool internal/agent internal/types`、
+   仓库级 `go test ./... -count=1` 和 CGO release-tag `make` 全绿。
+5. 本批没有放宽关系/证据/参与者/枚举/Trace 合同，也不生成、选择或删除模型可见边和结论。下一批处理 B1267 stage execution
+   authority 边界，再以严格并发 2 路生产回放观察 read 拒绝风暴和事实准确性。
+
+状态：
+
+`B1266=implemented/full-suite-pass/pending-production-replay`；
+`initial-rejected-full-emit=stable-patch-base`；
+`rejected-patch=transactional-rollback/zero-hidden-state-advance`；
+`accepted-patch=single-persist`；
+`patch-schema=explicit-transaction-semantics`；
+`B1267=confirmed/P1-next`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

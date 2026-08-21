@@ -1086,6 +1086,70 @@ func TestEmitAnswerDocumentPatch_NormalizedAddExistingPreservesPrincipalRelation
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RejectedPatchDoesNotAdvanceRejectedDraftBase(t *testing.T) {
+	if got := (&EmitAnswerDocumentPatch{}).Description(); !strings.Contains(got, "if any patch validation fails, NONE") ||
+		!strings.Contains(got, "Only an accepted patch advances the document") {
+		t.Fatalf("patch schema teaching must state transactional rejection semantics: %s", got)
+	}
+	mut := types.NewMutableState("transactional rejected patch")
+	base := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "x.go", Line: 10}},
+		Blocks: []types.AnswerBlock{
+			{
+				ID: "s1", Kind: types.BlockSummary,
+				SurfaceRole: types.SurfacePrincipal,
+				Text:        "stable rejected summary",
+				FacetIDs:    []string{string(types.FacetCurrentCodePath)},
+			},
+			{
+				ID: "path", Kind: types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetCurrentCodePath)},
+				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+				Items:       []types.AnswerBlockItem{{ID: "hop", Label: "stable hop", CitationRef: 0}},
+			},
+		},
+	}
+	mut.SetLastRejectedAnswerDocumentV2(base)
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"replace_blocks":[{
+			"id":"path",
+			"kind":"ordered_list",
+			"surface_role":"principal",
+			"facet_ids":["current_code_path"],
+			"claim_uses":[{"claim_form":"call_edge"}],
+			"items":[{"id":"hop","label":"changed hidden hop","citation_ref":0}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, `blocks[id="path"].edge_anchors`) {
+		t.Fatalf("invalid relation patch must reach the ordinary hard gate: %+v", res)
+	}
+	if got := mut.AnswerDocumentV2(); got != nil {
+		t.Fatalf("rejected-draft patch must not create an accepted document: %+v", got)
+	}
+	got := mut.LastRejectedAnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[1].Items[0].Label != "stable hop" {
+		t.Fatalf("rejected patch advanced the hidden patch base: %+v", got)
+	}
+	if got.Blocks[0].Text != "stable rejected summary" {
+		t.Fatalf("rejected patch changed an unrelated base block: %+v", got.Blocks[0])
+	}
+}
+
 func TestEmitAnswerDocumentPatch_NormalizesRemoveThenAddSameExistingBlockToReplace(t *testing.T) {
 	bus := newPatchTestBusContext()
 	tool := &EmitAnswerDocumentPatch{}

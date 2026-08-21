@@ -59,6 +59,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
+		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the next patch base. The next attempt still targets the same previous document, so resubmit every intended edit together with the correction named by the error. Only an accepted patch advances the document.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
 		BuildAnswerDocumentSemanticContractDescription()
@@ -498,7 +499,14 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "pre-emit structural", advisoryHints)
 				}
 				if len(hardHints) > 0 {
-					rememberRejectedAnswerDocumentDraft(ctx, merged)
+					// A patch is a transaction over the previously visible/recoverable
+					// document. Do not advance LastRejectedAnswerDocumentV2 with a
+					// merged carrier that this same call rejects: within one finalizer
+					// dispatch the model cannot inspect that hidden new base, so later
+					// exact/occurrence edits would target an unknowable state. The
+					// initial rejected full emit remains available as the stable patch
+					// base; only persistMergedAnswerDocumentWithAttachmentPolicy below
+					// advances it after all gates accept the patch.
 					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
 						"%s", formatEmitFixHints(hardHints))
 				}
