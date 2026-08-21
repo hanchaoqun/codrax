@@ -499,6 +499,44 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
 		return nil
 	}
+	// A live stale_anchor ref has already selected one exact base anchor whose
+	// visible Mermaid edge is absent. Do not re-authorize that selection by
+	// comparing the validator-resolved identities with the rejected model
+	// anchor a second time: those identities may legitimately be more precise
+	// than the model-authored metadata even though the unique node/relation
+	// carrier is the same. Requiring that second equality made the advertised
+	// remove/replace capability impossible to execute and sent the finalizer
+	// back through a body-edge lookup that must fail by definition.
+	if anchorErr == nil && edit.failureRefResolved &&
+		edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierStaleAnchor {
+		if edit.BodyOccurrence != 0 {
+			return fmt.Errorf("body_occurrence must be omitted for stale_anchor")
+		}
+		switch action {
+		case "remove":
+			if edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
+				return fmt.Errorf("action=remove must omit edge and visible_label")
+			}
+			block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+		case "replace":
+			if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
+				return err
+			}
+			if strings.TrimSpace(edit.Edge.VisibleLabel) == "" {
+				return fmt.Errorf("action=replace requires edge.visible_label authored by the model")
+			}
+			line, err := renderAtomicMermaidEdgeLine(block.Diagram.Body, *edit.Edge)
+			if err != nil {
+				return err
+			}
+			body := strings.TrimRight(block.Diagram.Body, "\n")
+			block.Diagram.Body = body + "\n" + line + "\n"
+			block.EdgeAnchors[anchorIndex] = *edit.Edge
+		default:
+			return fmt.Errorf("stale_anchor permits only action=remove or action=replace")
+		}
+		return nil
+	}
 	anchorWithoutBody := anchorErr == nil &&
 		(action == "remove" || action == "replace") &&
 		atomicDiagramAnchorWithoutBodyFailureAuthorized(lease, block.ID, block.EdgeAnchors[anchorIndex])

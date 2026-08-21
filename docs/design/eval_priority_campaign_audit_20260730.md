@@ -57291,6 +57291,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1312 r803/B1284：stale-anchor 能力与执行器自冲突；按 live ref 闭合元数据修补（2026-08-21）
+
+1. 从已推送 `a03ac967e` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace。Trace PASS（219s）；read FAIL
+   （1412s，20 次 finalizer reject、18 次 patch，最终恢复上一版结构化草稿）。两路均走完正式 runner 终态，没有按 4ms、4m、首字节、
+   stall、活动流年龄或上下文比例生成提前降级答案；read 的降级只发生在结构化修补合同耗尽之后。
+2. Trace 人工审计通过：显式 2.000..2.020s 窗、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级候选、
+   实际占时/规则可消双账户、邻近/背景隔离及完整 `Trace 因果投影` 全部保留。模型对 fscache 调用点只给条件性排查方向，并同时声明尚无
+   app 同步等待、具体设备/文件/持有者证据；系统没有替换其结论。
+3. B1282 继续获得生产正证：同一代 participant 与 relation delta 联合发布，模型能在一个 patch 中同时看到两类精确 carrier。B1283 的旧
+   `set body_occurrence` / `omit body_occurrence` 交替合同没有再出现，聚合 prior anchor 已按 `prior_anchor_metadata/remove-only` 发射，故
+   B1283 核心转为 production-positive。
+4. 新 `B1284-STALEANCHORREFEXEC1/P0` 是另一条确定性能力/执行自冲突。producer 与 lease 对
+   `typed_anchor_without_visible_edge` 正确发布 `target_carrier=stale_anchor`、`allowed_actions=[remove,replace]`；模型在第 18–19 轮终于按教学
+   提交 `{failure_ref,action=remove}`，executor 却再次要求在 Mermaid body 找到 `n1->n2`，并报
+   `Mermaid body has no matching edge`。该 carrier 的定义正是“只有结构化锚、没有可见边”，所以 remove 的成功前提与错误检查互斥。
+5. 根因是 resolver 已通过 opaque ref 唯一选择 rejected base anchor，却在执行阶段又用 validator-resolved identity 与模型原 anchor identity
+   做第二次授权比较。两套 identity 可以因 participant/technical projection 合法不同；第二次比较失败后，代码跌回普通 body-edge 路径。
+   既有测试只覆盖两套 identity 字节相同，漏掉了生产形。
+6. B1284 已根修：当 live ref 已解析为 `stale_anchor` 且唯一 base anchor 命中时，remove 只删除该 anchor metadata，Mermaid body 字节不变；
+   replace 仍必须由模型提交完整 edge 与非空 visible label，执行器才追加可见边并替换 metadata。无 ref/手工 selector 继续走旧的精确 lease
+   复核，unknown/stale/cross-block/错误 action/错误 body occurrence 均 fail-closed。新正负回归专门令 validator identity 与 base anchor
+   identity 不同，分别钉住 remove 与 replace；相关包、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+7. r803 还暴露 `B1285-LOCALDIAGRAMTOOLSURFACE1/P1`：已有 joint typed delta 且提示明确要求原子编辑时，patch schema 仍允许把同一目标图块放入
+   `replace_blocks`。模型多轮选择整图替换，被 lease-scope 门以 unlisted/expanded relation 拒绝。最优形是在下一轮存在精确 local relation
+   lease 时，仅禁止目标图块走 whole replace/add/remove，其他列表/表格仍可 replace 以修引用；`diagram_edge_edits` 与
+   `diagram_boundary_replacements` 保持模型选择权。先用 B1284 后的 r804 判断自然收敛度，再决定是否施工，避免把模型一次选择波动过早硬化。
+
+状态：
+
+`r803=trace-pass+read-fail,human-trace-pass+read-contract-fail`；
+`B1282=production-positive/core-closed`；`B1283=production-positive/core-closed`；
+`B1284=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1285=confirmed-observation/P1-pending-r804`；
+`stale-anchor-live-ref=exact-anchor-metadata/remove-or-model-authored-replace`；
+`stale-anchor-remove=no-body-lookup/visible-body-byte-identical`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-text-as-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r803`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r803`。
+
 ### §123.1310 r802：B1282 生产转正；零 occurrence 的 prior-anchor 形成自相矛盾修补合同（2026-08-21）
 
 1. 从已推送 `94e086850` 构建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 224s、read

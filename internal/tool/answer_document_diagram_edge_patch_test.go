@@ -188,6 +188,68 @@ func TestApplyModelAuthoredDiagramAtomicEdits_UsesLiveFailureRefWithoutRetypingC
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_StaleRefDoesNotRequireValidatorIdentityToEqualBaseAnchor(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	// Production witness r803: the validator resolves broader participant
+	// identities while the rejected anchor keeps its original technical
+	// identities. The unique A->B precedence carrier is still exact.
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "analyze", ToIdentity: "explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierStaleAnchor ||
+		lease.Failures[0].FailureRef == "" {
+		t.Fatalf("test setup missing exact stale-anchor capability: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("ref-selected stale metadata remove must not require a nonexistent body edge: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "B" ||
+		strings.Contains(got.Diagram.Body, "A->>B") || !strings.Contains(got.Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("stale metadata remove changed unmentioned graph content: %+v", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_StaleRefRestoresModelAuthoredEdgeAcrossIdentityProjection(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "analyze", ToIdentity: "explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef == "" {
+		t.Fatalf("test setup missing exact stale-anchor capability: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "replace",
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "确定范围后收集证据",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("ref-selected stale anchor replacement must stay executable: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "A->>B: 确定范围后收集证据") ||
+		!strings.Contains(got.Diagram.Body, "B->>C: keep label") ||
+		len(got.EdgeAnchors) != 2 || got.EdgeAnchors[0].VisibleLabel != "确定范围后收集证据" {
+		t.Fatalf("stale replacement did not preserve model-authored visible edge and siblings: %+v", got)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefAcceptsOnlyMatchingRedundantCoordinates(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev,
