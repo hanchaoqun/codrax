@@ -57668,6 +57668,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1332 r814：孤点处置生产转正；completion form 混入语义 grounding 债（2026-08-21）
+
+1. 从已推送 `18ec73691` 的不可变状态严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 166s、read
+   619s。两路活动模型流均自然完成，没有按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或系统代写模型答案。
+2. Trace 人工判定 pass：精确 2.000000..2.020000 请求窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   四节点三条唤醒边、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、实际占时/规则可消双账户、邻近/背景隔离、
+   自动补齐和完整 `Trace 因果投影` 均在。模型把四节点口语写成“四跳”，并一处把调用点扩写为页缓存完成语义，后文已正确披露调用点不证明对象、
+   后端或直接阻塞；本轮继续按模型措辞观察处理，不增加原文关键词硬门，不由系统修改结论。
+3. B1296/B1297 获得生产正证。第一次 joint patch 使用 live `failure_ref`/`addition_ref`，旧式 selector 没有再成为第二权威；第二轮四条删边使
+   `Orch` 真正变成零 incident 后，工具没有静默删除或保留，而是要求模型在同代结构化 capability 中二选一。模型显式提交
+   `retain_as_context + visible_label=Orchestrator` 后通过，证明模型继续拥有节点去留和可见文字，系统只做语法承载与拓扑核验。
+4. read 最终有完整答案、逐阶段输入/输出/状态载体表和合法 sequenceDiagram，但人工判 partial。初稿的 11 条
+   `Orchestrator -> stage / stage -> Orchestrator / applyStageOutput` 抽象交互缺少同向 exact typed anchors，被关系门正确拒绝；本轮 repair provider
+   只发布已证三条 stage precedence，模型删除无证边并显式保留孤立 Orchestrator。最终图满足“analyze 到 finalizer 的时序”，但对编排交互表达变薄。
+   由于源码 call 的真实端点并不是抽象 stage participant，本轮不据单例放宽 call 门；继续用异构 sequence/architecture 回放判断是否缺失可表达的
+   callback/argument/data-flow provider。
+5. 新确认 `B1298-MEMBERGROUNDINGCONVERGENCE1/P1`。Explorer 共 34 轮、26 次 read、4 次 completion 调用。模型先产生数组长度不齐，后又给
+   `StageAnalyze(AnalysisIR)`、`StageExplore(EvidenceItems)` 等 7 行配上不能证明该成员责任的 nearby support refs；validator 已精确报告 7 条
+   same-member grounding violation。该错误却与普通数组/格式债共用 `DowngradeLaneCompletionForm`，第二次无增量后被 force-complete；已知无效的两个
+   aggregate 随后仍以 `supporting_coverage + exact_source_support=true` 进入 finalizer prompt。这里不是“防无限重试”的边界错误，而是 landing-form
+   与 semantic-grounding 两种债未分型，可能让无效职责说明污染答案权威。
+6. B1298 最优方案冻结为 typed offending-fact 隔离：support-ref validator 返回结构化 issue kind 与 offending aggregate identity，不解析 error prose；
+   数组长度、空值等纯形债继续有限 completion-form 修补。若“ref 不证明同一成员/责任”的精确 grounding 债在有限修补后仍收敛，只剔除对应
+   model-authored aggregate，再把独立 grounded evidence、checkout-verified stage authority 和其他有效 aggregate 交给 finalizer。不得把已知无效行标成
+   exact support，不得系统补写成员、说明、关系或结论，也不得为修复重新开启宽域探索。
+
+状态：
+
+`r814=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1296=production-positive/core-closed`；`B1297=production-positive/core-closed`；
+`B1298=confirmed/P1-next`；
+`orphan-disposition=model-explicit/retain-as-context-production-positive`；
+`completion-form-shape-debt!=member-semantic-grounding-debt`；
+`converged-invalid-aggregate=must-drop-before-finalizer`；
+`diagram-call-authority=not-broadened`；
+`system-node/edge/relation/role/direction/label/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-keyword-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r814`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r814`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，
