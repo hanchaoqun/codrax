@@ -57473,6 +57473,60 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1296 r795 与 B1270B/C：实时引用深入执行后暴露双重身份合同分裂（2026-08-20）
+
+1. 以已推送 `29b469a86` 精确 HEAD 构建不可变二进制，严格并发恰好 2 路回放 read+Trace，runner 2/2 PASS：Trace
+   331s、read 591s。人工均判 partial：Trace 核心能力完整但仍有符号机理越界和机器字段泄漏；read 最终内容基本可读，但经历
+   13 次 finalizer reject，runner 的 PASS 不能掩盖确定性修补风暴。两路活动流均正常持续，没有依据 4ms、4m、首字节、stall 或累计
+   年龄触发旧稿/空答案降级。
+2. `B1270A` 获生产正证：模型复制提示中的 live `failure_ref` 后，executor 不再报 unknown/stale，说明 producer、提示和实际租约已使用
+   同一快照。但 ref 随即报 `no longer selects a prior anchor`，暴露新的 P0
+   `B1270B-FAILUREREFRESOLVEDIDENTITYDRIFT1`：failure 行的 `FromIdentity/ToIdentity` 是校验器根据可见 participant 和证据解析出的
+   更精确身份，可能与被拒草稿自己写入的错误 anchor identity 不同；旧 resolver 却要求两者逐字相等，因而正确 ref 无法选择它本来
+   指向的错误载体。
+3. B1270B 根修以 ref 已绑定的 exact base snapshot 为权限边界：优先用 block、可见 from/to node 与由 issue/typed relation 得到的
+   relation kind 选择原草稿 carrier；identity 只在同 node/relation 有多条 operation 时用于消歧，不能反过来要求错误 anchor 等于校验器的
+   纠正身份。唯一 carrier 可执行模型选择的 remove/relabel/replace；多 carrier 且身份仍不能唯一选择时继续 fail-closed。无 anchor 的
+   `missing_call_anchor` 同时从 typed issue 恢复 call 关系，允许 ref 精确删除正文唯一边而不要求模型重抄坐标。
+4. 同轮确认 P0 `B1270C-ALLOWEDRECEIPTIDENTITYDIALECT1`：stage authority 给 lease 的 allowed row 是
+   `analyzer -> explorer`，同一 typed authoring receipt/normalizer 在模型 alias topology 上补出的却是
+   `Analyzer -> Explorer`；后者通过普通 stage authority，却被局部 lease 报 `unlisted_relation_added`。这是同一 typed provider 的身份
+   展示形不一致，不是模型选择了未授权关系。
+5. B1270C 根修不采用大小写全局放宽。repair delta 只把“已在 allowed 集合中的 relation/direction/exact endpoint pair”扩展到与之
+   `AnswerCodeIdentitySurfacesEquivalent` 的 dispatch-scoped typed receipt 精确身份，并继承同一 source；relation、方向、block 任一不同或
+   receipt 身份不等价均不能进入租约。这样 normalizer 能生成的 exact tuple 与 executor 可接受集合闭合，又不从 Mermaid 文案、用户请求、
+   reasoning 或答案 prose 铸造权限。
+6. 回归新增三类 ref 载体：validator identity 比错误 anchor 更精确时唯一可删；relation_kind 空缺的 missing-call ref 可删正文边；同一
+   node/relation 两条 operation 且纠正身份均不命中时保持歧义拒绝。receipt 回归钉住 `analyzer/Analyzer` 等价 exact dialect 可加入，
+   unrelated receipt 不扩权。相关包、仓库级 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。系统仍不选择 repair action、
+   不生成/删除可见边、不书写 label 或结论。
+7. Trace 人工审计：指定 2.000..2.020s 窗、自动补采、四跳链、11.000ms 链上 IO 主席、三个独立 1.000ms 调度候选、实际占时/规则
+   可消双账及 `Trace 因果投影` 全保留，邻近/背景未加冕，cross-CPU 的“不证明 NUMA/直接竞争”已出厂。但 B1271 已第四次重复：模型仍仅
+   凭 `fscache_page_wait_on_page_bit` 扩写文件系统页缓存后端；B1272 仍在可见表泄漏 `blocked_reason_caller`、`kernel_callsite`、
+   `waker_cpu/wakee_target_cpu`。软边界不能据一次回放宣称闭环，下一批应提供逐席 typed reader-safe fact capsule，而非扫描/改写正文。
+8. 新 P1 `B1273-RUNTIMECANDIDATEROLEENUM1`：Trace 第一次成文把线程席写为 `candidate_role=thread`，但该枚举只包含源码
+   function/method/type 等角色，造成一次确定性 schema reject。须审计 candidate_role 的下游语义后，在“扩充 runtime role”与“明确运行时
+   行省略源码角色”之间选单源方案；不得直接加入一个可能影响源码 exclusion gate 的枚举。B1263 的通用表列语义、wakeup prose 把已证边
+   过写为连续业务传递的 B1269 仍开放。
+
+状态：
+
+`r795=runner-pass-2/2,human-partial-2/2`；
+`B1270A=production-positive/closed`；
+`B1270B=implemented/full-suite+CGO-build-pass/pending-production-replay`；
+`B1270C=implemented/full-suite+CGO-build-pass/pending-production-replay`；
+`B1271=repeated-4x/soft-boundary-insufficient/P1-next`；
+`B1272=partial/internal-field-face-open`；`B1273=confirmed/P1-audit-first`；
+`B1263=confirmed/P1-open`；`B1269=repeated-model-prose-drift/no-hard-prose-gate`；
+`failure-ref=exact-live-base+unique-visible-carrier+typed-relation`；
+`allowed-addition=original-typed-permission+equivalent-exact-dispatch-receipt-only`；
+`ambiguous-carrier/unrelated-receipt=fail-closed`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r795`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r795`。
+
 ### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
 
 1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace

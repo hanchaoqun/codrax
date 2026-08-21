@@ -211,12 +211,14 @@ func resolveAtomicDiagramFailureRef(
 			baseAnchors = append(baseAnchors, block.BaseAnchors...)
 		}
 	}
-	matches := make([]types.DiagramEdgeAnchor, 0, 1)
-	for _, anchor := range baseAnchors {
-		if atomicDiagramFailureMatchesAnchorExactly(*failure, anchor) {
-			matches = append(matches, anchor)
-		}
-	}
+	// failure.FromIdentity/ToIdentity are the validator's resolved endpoint
+	// identities. They may be more precise than (and intentionally disagree
+	// with) the rejected draft's model-authored anchor identities. The opaque
+	// ref is bound to the exact base snapshot, so resolve it first by its stable
+	// visible carrier and typed relation. Use identity only to disambiguate two
+	// otherwise identical carrier rows; never require a rejected identity to
+	// equal the corrected validator projection.
+	matches := atomicDiagramFailureBaseAnchorCandidates(*failure, baseAnchors)
 	switch len(matches) {
 	case 1:
 		match := matches[0]
@@ -230,16 +232,86 @@ func resolveAtomicDiagramFailureRef(
 		match := types.DiagramEdgeAnchor{
 			FromNode: strings.TrimSpace(failure.FromNode), ToNode: strings.TrimSpace(failure.ToNode),
 			FromIdentity: strings.TrimSpace(failure.FromIdentity), ToIdentity: strings.TrimSpace(failure.ToIdentity),
-			RelationKind: failure.RelationKind,
+			RelationKind: atomicDiagramFailureEffectiveRelation(*failure),
 		}
-		if err := validateAtomicDiagramAnchor(&match, "failure_ref body-edge locator"); err != nil {
-			return edit, fmt.Errorf("failure_ref=%q cannot identify a visible body-only edge: %w", ref, err)
+		if strings.TrimSpace(match.FromNode) == "" || strings.TrimSpace(match.ToNode) == "" ||
+			strings.ContainsAny(match.FromNode+match.ToNode, "\r\n") {
+			return edit, fmt.Errorf("failure_ref=%q cannot identify a visible body-only edge: from_node and to_node must be complete single-line values", ref)
 		}
 		edit.Match = &match
 		edit.failureRefResolved = true
 		return edit, nil
 	default:
-		return edit, fmt.Errorf("failure_ref=%q matches %d identical prior anchors; use explicit match with occurrence", ref, len(matches))
+		return edit, fmt.Errorf("failure_ref=%q matches %d candidate prior anchors; the live failure is structurally ambiguous", ref, len(matches))
+	}
+}
+
+func atomicDiagramFailureBaseAnchorCandidates(
+	failure types.AnswerDiagramRelationRepairFailure,
+	anchors []types.DiagramEdgeAnchor,
+) []types.DiagramEdgeAnchor {
+	relation := atomicDiagramFailureEffectiveRelation(failure)
+	fromNode, toNode := strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode)
+	fromIdentity, toIdentity := strings.TrimSpace(failure.FromIdentity), strings.TrimSpace(failure.ToIdentity)
+	candidates := make([]types.DiagramEdgeAnchor, 0, 1)
+	for _, anchor := range anchors {
+		if relation.IsValid() && anchor.RelationKind != relation {
+			continue
+		}
+		if fromNode != "" || toNode != "" {
+			if fromNode != strings.TrimSpace(anchor.FromNode) || toNode != strings.TrimSpace(anchor.ToNode) {
+				continue
+			}
+		} else if fromIdentity != "" || toIdentity != "" {
+			if fromIdentity != strings.TrimSpace(anchor.FromIdentity) || toIdentity != strings.TrimSpace(anchor.ToIdentity) {
+				continue
+			}
+		}
+		candidates = append(candidates, anchor)
+	}
+	if len(candidates) <= 1 || fromIdentity == "" || toIdentity == "" {
+		return candidates
+	}
+	// Several operations may share one visible participant pair. An exact
+	// identity match may select one; a validator-resolved identity that matches
+	// none does not guess among them.
+	exact := candidates[:0]
+	for _, anchor := range candidates {
+		if fromIdentity == strings.TrimSpace(anchor.FromIdentity) && toIdentity == strings.TrimSpace(anchor.ToIdentity) {
+			exact = append(exact, anchor)
+		}
+	}
+	if len(exact) == 1 {
+		return exact
+	}
+	return candidates
+}
+
+func atomicDiagramFailureEffectiveRelation(failure types.AnswerDiagramRelationRepairFailure) types.DiagramRelationKind {
+	if failure.RelationKind.IsValid() {
+		return failure.RelationKind
+	}
+	switch failure.Issue {
+	case diagramCallEdgeIssueNoEvidence, diagramCallEdgeIssueOccurrenceUnproven,
+		diagramCallEdgeIssueMissingAnchor, diagramCallEdgeIssueMissingGroundedAnchor,
+		diagramCallEdgeIssueReplyOperatorConflict:
+		return types.DiagramRelCall
+	case diagramRegistrationEdgeIssueNoEvidence:
+		return types.DiagramRelRegister
+	case diagramTypeRelationEdgeIssueNoEvidence:
+		return types.DiagramRelTypeRelation
+	case diagramAssignmentEdgeIssueNoEvidence:
+		return types.DiagramRelAssignment
+	case diagramDataFlowEdgeIssueNoEvidence:
+		return types.DiagramRelDataFlow
+	case diagramReturnEdgeIssueNoEvidence:
+		return types.DiagramRelReturn
+	case diagramCallbackEdgeIssueNoEvidence:
+		return types.DiagramRelCallback
+	case diagramArgumentFlowEdgeIssueNoEvidence:
+		return types.DiagramRelArgumentFlow
+	default:
+		return failure.RelationKind
 	}
 }
 

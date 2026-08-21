@@ -5773,6 +5773,13 @@ func diagramRelationRepairDeltaJSON(
 		allowedAdditions = diagramRelationRepairAllowedAdditions(
 			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, 8,
 		)
+		if ctx.Mutable != nil {
+			receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+			receipts = append(receipts, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
+			allowedAdditions = diagramRelationRepairAllowedAdditionsWithTypedReceipts(
+				allowedAdditions, receipts, 8,
+			)
+		}
 	}
 	raw, err := json.Marshal(diagramRelationRepairDelta{
 		Version:  types.AnswerDiagramRelationRepairDeltaVersion,

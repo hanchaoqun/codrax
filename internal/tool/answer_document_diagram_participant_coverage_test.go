@@ -1614,6 +1614,30 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 	}
 }
 
+func TestDiagramRelationRepairAllowedAdditionsAcceptsEquivalentExactTypedReceiptDialect(t *testing.T) {
+	allowed := []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
+	}}
+	receipts := []types.DiagramEdgeAnchor{{
+		FromNode: "n1", ToNode: "n2", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence,
+	}}
+	got := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, 8)
+	if len(got) != 2 || got[1].BlockID != "diagram-1" ||
+		got[1].FromIdentity != "Analyzer" || got[1].ToIdentity != "Explorer" ||
+		got[1].RelationKind != types.DiagramRelPrecedence || got[1].Source != allowed[0].Source {
+		t.Fatalf("lease must admit the exact equivalent identity tuple that its typed-recipe normalizer can stamp: %+v", got)
+	}
+
+	nonEquivalent := []types.DiagramEdgeAnchor{{
+		FromIdentity: "Unrelated.Run", ToIdentity: "Other.Run", RelationKind: types.DiagramRelPrecedence,
+	}}
+	if unchanged := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, nonEquivalent, 8); len(unchanged) != 1 {
+		t.Fatalf("an unrelated receipt must not broaden the allowed relation set: %+v", unchanged)
+	}
+}
+
 func TestDiagramParticipantReaderArrowLabelCoversEveryEdgeRelationWithoutRawEnums(t *testing.T) {
 	for _, relation := range types.AllDiagramRelationKinds() {
 		zh := diagramParticipantReaderArrowLabel(relation, "zh-CN")

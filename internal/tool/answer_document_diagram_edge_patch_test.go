@@ -187,6 +187,76 @@ func TestApplyModelAuthoredDiagramAtomicEdits_UsesLiveFailureRefWithoutRetypingC
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefUsesUniqueLiveCarrierWhenValidatorIdentityIsMorePrecise(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant O\n    participant A\n    participant B\n    O->>A: dispatch stage\n    B->>A: keep\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "O", ToNode: "A", FromIdentity: "Orchestrator", ToIdentity: "AgentAnalyzer", RelationKind: types.DiagramRelCall, VisibleLabel: "dispatch stage"},
+		{FromNode: "B", ToNode: "A", FromIdentity: "Builder", ToIdentity: "AgentAnalyzer", RelationKind: types.DiagramRelCall, VisibleLabel: "keep"},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueNoEvidence,
+			FromNode: "O", ToNode: "A",
+			// The evidence validator resolved the visible participant to a more
+			// precise operation than the rejected anchor claimed.
+			FromIdentity: "Orchestrator.dispatchStage", ToIdentity: "AgentAnalyzer",
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("live failure ref must select the unique rejected carrier despite resolved identity drift: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Contains(got.Diagram.Body, "O->>A") || !strings.Contains(got.Diagram.Body, "B->>A: keep") || len(got.EdgeAnchors) != 1 {
+		t.Fatalf("identity-drift repair changed the wrong graph content: %+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRemovesRelationlessMissingCallAnchor(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant O\n    participant Ctx\n    O->>Ctx: build context\n"
+	prev.Blocks[1].EdgeAnchors = nil
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueMissingAnchor,
+			FromNode: "O", ToNode: "Ctx", FromIdentity: "Orchestrator", ToIdentity: "BusContext",
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("missing-call failure ref must carry its structural call relation without model coordinate retyping: %v", err)
+	}
+	if got := patch.ReplaceBlocks[0].Diagram.Body; strings.Contains(got, "O->>Ctx") {
+		t.Fatalf("body-only ref did not remove the named visible call: %s", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefIdentityDriftStillFailsClosedOnAmbiguousCarrier(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: first\n    A->>B: second\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "A", ToNode: "B", FromIdentity: "First.call", ToIdentity: "Target.one", RelationKind: types.DiagramRelCall},
+		{FromNode: "A", ToNode: "B", FromIdentity: "Second.call", ToIdentity: "Target.two", RelationKind: types.DiagramRelCall},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueNoEvidence,
+			FromNode: "A", ToNode: "B", FromIdentity: "Resolved.call", ToIdentity: "Resolved.target",
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "matches 2 candidate prior anchors") {
+		t.Fatalf("identity drift must not guess between repeated same-pair operations: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefReplaceStillNeedsModelEdge(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"

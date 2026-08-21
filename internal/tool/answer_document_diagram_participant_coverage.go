@@ -1785,6 +1785,62 @@ func diagramRelationRepairAllowedAdditions(
 	return out
 }
 
+// diagramRelationRepairAllowedAdditionsWithTypedReceipts keeps the retry
+// lease in the same exact identity dialect as the authoring receipt consumed
+// by the metadata normalizer. A provider may expose equivalent declaration
+// and runtime enum surfaces (for example AgentAnalyzer and analyzer), while a
+// model-authored alias topology uniquely maps to the receipt's participant
+// surface (Analyzer). If the lease lists only another equivalent surface, the
+// normalizer can deterministically produce a tuple that the lease itself then
+// rejects. Expand only an already-allowed typed tuple to an equivalent exact
+// dispatch receipt; no Mermaid text, visible label, request, or answer prose
+// participates and no new relation/direction is authorized.
+func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
+	allowed []types.AnswerDiagramRelationRepairCandidate,
+	receipts []types.DiagramEdgeAnchor,
+	totalLimit int,
+) []types.AnswerDiagramRelationRepairCandidate {
+	if totalLimit <= 0 || len(allowed) == 0 || len(receipts) == 0 {
+		return allowed
+	}
+	out := append([]types.AnswerDiagramRelationRepairCandidate(nil), allowed...)
+	seen := make(map[string]bool, len(out))
+	for _, candidate := range out {
+		seen[strings.Join([]string{
+			strings.TrimSpace(candidate.BlockID), string(candidate.RelationKind),
+			strings.TrimSpace(candidate.FromIdentity), strings.TrimSpace(candidate.ToIdentity),
+		}, "\x00")] = true
+	}
+	for _, receipt := range receipts {
+		if !receipt.RelationKind.IsValid() || !receipt.HasEndpointIdentityPair() {
+			continue
+		}
+		for _, candidate := range allowed {
+			if candidate.RelationKind != receipt.RelationKind ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(candidate.FromIdentity, receipt.FromIdentity) ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(candidate.ToIdentity, receipt.ToIdentity) {
+				continue
+			}
+			expanded := candidate
+			expanded.FromIdentity = strings.TrimSpace(receipt.FromIdentity)
+			expanded.ToIdentity = strings.TrimSpace(receipt.ToIdentity)
+			key := strings.Join([]string{
+				strings.TrimSpace(expanded.BlockID), string(expanded.RelationKind),
+				expanded.FromIdentity, expanded.ToIdentity,
+			}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, expanded)
+			if len(out) >= totalLimit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
 func diagramParticipantCandidateObligations(rm types.RequestModel) ([]types.DiagramParticipantHint, [][]string) {
 	if rm.DiagramHint == nil {
 		return nil, nil
