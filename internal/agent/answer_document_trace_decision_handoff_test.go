@@ -670,6 +670,7 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 	got := renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set, runtimeTraceGuidanceView{}, facts)
 	for _, want := range []string{
 		"typed_window_aggregate_context",
+		"All available background rows are included in this bounded handoff",
 		"kind=`supply_pressure`; signal=`cpu_pressure`; value=604.528; unit=`cpu·ms`",
 		"pressure_density=`5.259`",
 		"kind=`io_pressure`; signal=`scheduler_iowait`; value=4340.000; unit=`score`",
@@ -677,10 +678,15 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 		"target_causal_authority=`not_provided`",
 		"cross_axis_addition=`forbidden`",
 		"do not infer severity from the raw number alone when no calibration field is present",
+		"every machine-facing Trace token below",
+		"use only its reader-language meaning in the visible answer",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("aggregate handoff missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "complete=`") {
+		t.Fatalf("machine complete enum leaked into the aggregate handoff:\n%s", got)
 	}
 	projection := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
 	if len(projection.Projections) != 1 || len(projection.Projections[0].PrimaryRootCauses) != 0 ||

@@ -57440,6 +57440,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r794`。
 
+### §123.1295 B1271+B1272：调用点形态权限与 Trace 机器枚举展示边界（2026-08-20）
+
+1. `B1271-CALLSITEMORPHOLOGYDRIFT1/P1` 已按通用 typed 软边界施工。`sched_blocked_reason.caller` 继续无损携带原始符号，
+   但 finalizer 邻接上下文现在明确把它定义为“不透明的已观测调用点标识”：符号名中的词片本身不证明子系统、资源类型、存储/网络后端、
+   完成机理或修复措施。缺少独立 typed relation 时，模型可以建议继续关联这些证据，但不得仅按命名先宣布具体后端机理。
+2. 同一 wakeup typed 上下文补齐 cross-CPU 权限边界：该标签只证明记录的 waker CPU 与 wakee target CPU 不同，不证明 NUMA 布局、迁移、
+   核间通信成本、直接 CPU 竞争或任何延迟成因。该规则与既有方向/时间戳/目标 CPU 事实邻接，不改变 waker→wakee 方向，也不抑制在另有
+   typed topology/scheduler 证据时形成结论。
+3. `B1272-TRACESTATUSLANG1/P2` 采用单源软展示约束：已有 `AnswerControlMetadataVisibilityGuide` 现在直接进入高显著度 Trace decision
+   handoff，并明确覆盖 coverage/status、role、lane、caliber、authority、candidate 等所有机器 token。JSON/tool 字段在需要时照常保留，
+   可见正文只写当前答案语言下的含义；系统不扫描、拒绝、翻译或重写模型 prose。
+4. background aggregate handoff 不再发布 `complete=true/false` 生枚举；完整时写普通教学句“All available ... are included”，截断时写
+   “Only N of M ...; do not claim complete coverage”。emitted/total、typed calibration、证据 id 和背景/因果权限仍原样保留，故没有以显示
+   卫生换取覆盖信息损失。
+5. 回归钉住调用点符号不透明语义、跨 CPU 五类禁止外推、机器字段不进入读者正文的软教学、完整 aggregate 的读者句与 `complete=` 负钉。
+   这些约束均由 typed trace context 激活，不读用户原文、模型 thinking、答案正文或 Mermaid 标签，不新增 noisy-signal hard gate。
+6. 本批只调整模型上下文精度与展示教学；Trace 查询、指定时间窗、自动补采、唤醒链构造、根因排序、实际占时/规则可消双账户、因果投影
+   及系统后补均未改动。下一步以本提交严格并发恰好 2 路回放 read+Trace，先验证 B1270A live ref 真正可执行，再观察 B1271/B1272
+   是否消除调用点机理越界与内部枚举泄漏；不得用单次模型波动冒充闭环。
+
+状态：
+
+`B1271=implemented/full-suite+CGO-build-pass/pending-production-replay`；
+`B1272=implemented-soft-display-boundary/full-suite+CGO-build-pass/pending-production-replay`；
+`caller-symbol=opaque-observed-identifier/no-lexical-mechanism-authority`；
+`cross-cpu=recorded-cpu-inequality-only/no-numa-migration-cost-competition-authority`；
+`machine-enum=tool-control-only/reader-language-visible-meaning`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
 
 1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace

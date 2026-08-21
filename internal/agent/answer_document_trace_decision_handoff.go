@@ -63,6 +63,7 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	var b strings.Builder
 	b.WriteString("## Trace Decision Inputs (Model Owns The Conclusion)\n\n")
 	b.WriteString("- The deterministic system owns only the typed measurements, rank seats, wakeup paths, and evidence boundary below. You own the diagnosis and final recommendation. Do not present this handoff as a system-authored conclusion and do not merely repeat the rows.\n")
+	b.WriteString("- " + types.AnswerControlMetadataVisibilityGuide + " This applies to every machine-facing Trace token below, including coverage/status, role, lane, caliber, authority, and candidate enums; keep the typed field in the tool payload when required, but use only its reader-language meaning in the visible answer.\n")
 	hasActual, hasEliminable := traceDecisionAxesPresent(set)
 	switch {
 	case hasActual && hasEliminable:
@@ -718,7 +719,12 @@ func traceDecisionWriteTypedAggregateFacts(b *strings.Builder, facts []traceDeci
 	if emitted > limit {
 		emitted = limit
 	}
-	fmt.Fprintf(b, "- typed_window_aggregate_context (background measurements for synthesis only; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; emitted=%d; total=%d; complete=`%t`):\n", emitted, len(facts), emitted == len(facts))
+	fmt.Fprintf(b, "- typed_window_aggregate_context (background measurements for synthesis only; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; emitted=%d; total=%d):\n", emitted, len(facts))
+	if emitted == len(facts) {
+		b.WriteString("  All available background rows are included in this bounded handoff.\n")
+	} else {
+		fmt.Fprintf(b, "  Only %d of %d available background rows are included; do not claim complete background coverage.\n", emitted, len(facts))
+	}
 	for _, fact := range facts[:emitted] {
 		fmt.Fprintf(b, "  - artifact=`%s`; selected_window=`%.6f..%.6f`; kind=`%s`; signal=`%s`; value=%.3f; unit=`%s`; evidence_id=`%s`; source_lane=`%s`",
 			traceDecisionPromptScalar(fact.Artifact), fact.WindowStart, fact.WindowEnd,

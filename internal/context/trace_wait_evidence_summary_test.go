@@ -102,6 +102,9 @@ func TestTraceWaitEvidence_BlockedReasonFacts(t *testing.T) {
 		"Each row below is one separately bound typed seat",
 		"sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row",
 		"resource, lock, owner, holder, and root-cause identity require a separate typed relation",
+		"Treat the caller symbol as an opaque observed identifier",
+		"lexical fragments in its name do not prove a subsystem, resource type, storage or network backend, completion mechanism, or remediation",
+		"Machine field names and enum values such as seat_type/caller_role are authoring metadata only",
 		"Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat",
 	} {
 		if !strings.Contains(summary, want) {
@@ -211,8 +214,16 @@ func TestTraceWaitEvidence_FinalizerProjectsBoundedNamedTargetRelations(t *testi
 // waker/wakee/timestamp; identical republications collapse; ts order.
 func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	summary := formatTraceWaitWakeEvidenceFromLedger(traceWaitTestLedger(), nil)
-	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay):") {
+	if !strings.Contains(summary, "Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay).") {
 		t.Fatalf("wakeup edge lane missing:\n%s", summary)
+	}
+	for _, want := range []string{
+		"cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ",
+		"does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("cross-CPU authority boundary missing %q:\n%s", want, summary)
+		}
 	}
 	want := "- gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234 (pre-wakeup wait: sleep/blocking start → sched_wakeup 0.123ms; latency_caliber=sleep_start_to_sched_wakeup) [waker_cpu=2; wakee_target_cpu=1; cpu_relation=cross_cpu; same_cpu_occupancy_or_direct_competition_authority=not_provided]"
 	if got := strings.Count(summary, want); got != 1 {

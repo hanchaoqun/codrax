@@ -912,7 +912,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	}
 
 	var b strings.Builder
-	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). Each row below is one separately bound typed seat: never merge, rebind, or transfer a caller, state, value, member, or mechanism across rows merely because the subject is the same. A sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row; resource, lock, owner, holder, and root-cause identity require a separate typed relation. Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat. Per-caller Σ is the records' self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), use the sched_wakeup edge below. Use each published value verbatim; do not arithmetically recompose values across seats.\n")
+	b.WriteString("Measured kernel wait-call-site and wakeup-source evidence for this run (verbatim values). Each row below is one separately bound typed seat: never merge, rebind, or transfer a caller, state, value, member, or mechanism across rows merely because the subject is the same. A sched_blocked_reason caller is only the kernel wait call-site/symbol recorded for that row; resource, lock, owner, holder, and root-cause identity require a separate typed relation. Treat the caller symbol as an opaque observed identifier: lexical fragments in its name do not prove a subsystem, resource type, storage or network backend, completion mechanism, or remediation. Without a separate typed relation, ask to correlate the call site with those facts instead of naming a specific inferred mechanism. Thread-window record inventory and census rows describe that thread's selected window and bind to no individual cause seat. Per-caller Σ is the records' self-reported delay= field and may include pre-window accumulation. When the question asks WHO woke a thread (and when), use the sched_wakeup edge below. Machine field names and enum values such as seat_type/caller_role are authoring metadata only; express their meaning in the answer language and do not copy the tokens into reader-visible prose. Use each published value verbatim; do not arithmetically recompose values across seats.\n")
 	if len(selectedSubjects) > 0 {
 		var unboundWindowRows []string
 		b.WriteString("Kernel-recorded wait evidence (separately bound typed seats):\n")
@@ -1120,7 +1120,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		}
 	}
 	if len(selectedEdges) > 0 {
-		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay):\n")
+		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay). A cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
 		for _, edge := range selectedEdges {
 			line := "- " + edge.waker + " → " + edge.wakee
 			if edge.ts != "" {
