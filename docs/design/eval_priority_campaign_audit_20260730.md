@@ -59115,3 +59115,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1301 r797：Trace 主能力保持，关系失败引用缺少动作能力导致 20 轮修补死循环（2026-08-20）
+
+1. 以已推送 `57fa8e32b` 的不可变二进制严格并发恰好 2 路回放 read+Trace。Trace runner PASS（173s，0 次 finalizer reject）；read
+   runner FAIL（1794s，20 次 finalizer reject、18 次 patch、95% context，最终进入 rejected-full 尽力恢复）。两路活动流均未因 4ms、4m、
+   首字节、stall 或累计年龄提前降级；read 在多次单轮超过 4m 时均由真实上游字节活性顺延，因此“4ms/4m 活跃流无答案就降级”没有发生。
+2. Trace 人工判定 partial：显式 2.000..2.020s 窗、4 次 typed 查询与自动补采、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个独立 1.000ms 调度/优先级候选、
+   实际占时/规则可消双账户和 `Trace 因果投影` 均完整；邻近/背景未升级为主因。`trace_causal_claim_caliber` 只在 principal summary，
+   runtime 行未再误填 `candidate_role`，waker/target CPU 位置也未被推成 NUMA、迁核、直接竞争或抢占。
+3. `B1271` 只获部分生产正证：读者事实已明确对象、持有者、后端及目标线程直接阻塞因果未知，但模型仍把
+   `fscache_page_wait_on_page_bit` 拆词释义成“等待文件系统缓存页位图就绪/缓存页位图就绪前”。这是从标识符词面生成未证等待对象/完成条件，
+   不是 typed 证据；继续记 P1 `B1269/B1271`，只能加强靠近成文的软边界教学，禁止扫描、拒绝或改写模型正文。
+4. `B1274` 获生产正证：read 不再出现 stage completion authority 的定界符行错位。`B1275` 也消除了跨代旧 base；后续失败引用始终围绕同一
+   模型草稿。但同代以后暴露新 P0 `B1276-RELATIONFAILUREACTIONCAPABILITY1`：一个 live `failures[]` 名册同时混有 prior-anchor 无证、
+   visible-body 缺锚、anchor-without-body、visible-label mismatch 等不同载体，`failure_ref` 却只提供 opaque identity，不声明该项当前可执行的
+   `relabel/remove/replace` 集合与实际 target carrier。
+5. r797 的确定性过程证据：首稿存在三条 Loop precedence 标签不一致、四条无证 return/assignment、三条无证 precedence，以及正文边/锚点不对称；
+   模型按通用教学把 body-only failure 当 prior-anchor remove，原子执行器报 `match did not select ... exact prior anchor`；又把 label-only 问题改成
+   remove/add，repair lease 报 `unlisted_relation_*`；最后还把 boundary replacement 与 `unchanged_block_ids=d1` 同轮提交。20 轮均在猜
+   隐式载体/动作权限，不是单次 JSON 波动。
+6. B1276 最优形冻结：failure delta 必须由与原子执行器共享的精确编译器为每个失败发布 `target_carrier`（至少 prior_anchor、visible_body_edge、
+   stale_anchor、label_pair）和 `allowed_actions`；只有真正可由当前同代 base 执行的动作才进入数组。`failure_ref` 的 resolver 必须复用同一编译结果，
+   action 不在集合内立即给出该 ref 的合法动作，而不是退回裸坐标猜测。系统只描述能力，不替模型选择删、改、补哪条关系，也不生成 visible label。
+7. 对 allowed addition 同步冻结一条后续约束：权限行需要可执行的当前 Mermaid node id，或提供同代 opaque `addition_ref`；canonical identity 与可见
+   alias 无唯一映射时不得声称可以直接 add。先闭合 failure action capability，再用同一 read+Trace 双路验证，避免把 addition 的次生问题和本批
+   P0 混修。
+
+状态：
+
+`r797=runner-trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1274=production-positive/core-closed`；`B1275=production-positive/core-closed`；
+`B1276=confirmed/P0-next`；`B1269/B1271=partial/P1-open`；
+`relation-failure-ref=typed-carrier+allowed-actions-required`；
+`system-relation/action/label-selection=forbidden`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r797`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r797`。
