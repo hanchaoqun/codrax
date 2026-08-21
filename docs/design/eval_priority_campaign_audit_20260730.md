@@ -57291,6 +57291,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1347 B1309：接收函数关系 frontier 优先值传递，不再被局部 getter 抢占（2026-08-21）
+
+1. 代码冷读与 r827 日志交叉确认：系统已经拥有 `o.busCtx -> ctxbuilder.BuildAgentContext` 的 model-authored argument-flow 行，也能把调用目标唯一解析到
+   `internal/context/builder.go::BuildAgentContext`；但 `flowNavigationGroundedHandoffCalleeOperationReadTarget` 只枚举接收函数内的 parser call relation，
+   不枚举 parser `LineFeatures` 已标注的 assignment/member-initializer。因此 `bus.Mutable.Objective()` 这类局部 getter 会先成为 repair coordinate，真正连接
+   外层 carrier 与目标字段的 `Mutable: bus.Mutable` 被跳过。caller-side call-result continuation 又排在 receiver-body frontier 之前，进一步把导航带到
+   `ag.Execute` 等后续局部调用。该机制解释了 r827 的 52 explorer iterations、34 reads 和孤立 `BusContext/Mutable`，不是模型随机波动。
+2. B1309 根修保持 SOFT navigation 权限：只有已有 citable argument-flow、同源 parser call、唯一 `ResolveCallTarget`、目标 callable 精确 span、
+   parser `LineFeatureAssignment/LineFeatureMemberInitializer` 与 source-line conservative endpoint parser 全部成立时，才把未发出的赋值/初始化列为下一坐标。
+   候选必须以 typed-compatible receiver/value 触及 still-missing participant；substring-only affinity 不进入该快速路径。系统不铸 EvidenceItem、关系、方向、
+   节点、标签或结论，模型仍须读取/复核源码并自行 `emit_evidence`。
+3. 排序改为：grounded handoff 的接收函数内“未发出的精确值传递”优先；其后才是 caller-side result continuation 与其他关系导航。接收函数内已经发出的
+   assignment/initializer 或 call 会按 source+line+exact endpoint 跳过，避免反复要求模型重发同一局部 operation；值传递已覆盖后，既有
+   build→execute→apply continuation 仍继续工作。找不到精确操作时仍走 bounded partial-unproven，不扩大为猜测关系。
+4. 新增全 `repotypes.SupportedReadLanguages()` 矩阵回归：同一唯一接收函数同时含 local getter 与 parser-tagged initializer 时，必须选择 initializer；
+   initializer 已由模型发出时不得循环，必须继续精确 caller consumer；已有“handoff→callee mutation”“receiving callable”“caller sibling argument”与
+   continuation 用例同时保持绿。该实现不识别任何当前 case 业务词、用户/模型/final prose 或 Mermaid message，覆盖 Go、Python、JavaScript/TypeScript、
+   Java/Kotlin、Rust、C/C++、Ruby、Swift、Lua、Proto、ArkTS、Cangjie 的共享导航合同。
+5. `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 25.165s、tool 181.966s、agent 13.561s）；release `make` 与
+   `git diff --check` 通过。本批未修改 Trace 查询、明确时间窗、唤醒链、根因排序、实际占时/可消量、因果投影/自动补齐、JSON/Mermaid 自愈或活跃流时限。
+
+状态：
+
+`B1309=implemented/high-ROI-P1/full-relevant-suite+release-build-pass/pending-production-replay`；
+`receiver-frontier=unique-grounded-handoff+parser-tagged-unemitted-value-operation-first`；
+`already-emitted-operation=skip-then-continue`；
+`system-evidence/relation/edge/node/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1346 r827：B1311 生产转正；关系闭合导航与锚修补仍制造孤岛和重复边（2026-08-21）
 
 1. 从已推送 `bfa6e9311` 构建不可变二进制，严格并发恰好 2 路复放 `qf_logic_view_read_pipeline` 与

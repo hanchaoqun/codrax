@@ -796,6 +796,15 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		return flowOperationRepairReadTarget{}, false
 	}
 	evidence := ctx.Mutable.EmittedEvidence()
+	// When the model has already grounded a carrier handoff, first inspect the
+	// uniquely resolved receiver for an un-emitted value-bearing operation that
+	// can connect the still-missing participant. Caller-side result continuation
+	// remains the next preference after that receiver frontier is exhausted.
+	if target, ok := flowNavigationGroundedHandoffCalleeOperationReadTarget(
+		ctx, index, missingParticipantSurfaceGroups, evidence,
+	); ok {
+		return target, true
+	}
 	if target, ok := flowNavigationGroundedCallResultContinuationReadTarget(
 		ctx, index, participantSurfaceGroups, evidence,
 	); ok {
@@ -803,11 +812,6 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	}
 	if target, ok := flowNavigationGroundedBodyOperationCallerHandoffReadTarget(
 		ctx, index, participantSurfaceGroups, missingParticipantSurfaceGroups, evidence,
-	); ok {
-		return target, true
-	}
-	if target, ok := flowNavigationGroundedHandoffCalleeOperationReadTarget(
-		ctx, index, missingParticipantSurfaceGroups, evidence,
 	); ok {
 		return target, true
 	}
@@ -1365,7 +1369,13 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 		return flowOperationRepairReadTarget{}, false
 	}
 	type candidate struct {
-		target                 flowOperationRepairReadTarget
+		target flowOperationRepairReadTarget
+		// operationRank prefers an exact parser-tagged assignment/member
+		// initializer inside the uniquely resolved receiving callable over a
+		// local member call that merely mentions the same participant.  Both
+		// remain navigation-only; the source line still has to be inspected and
+		// emitted by the model before it can authorize a relation.
+		operationRank          int
 		matchRank              int
 		resultContinuationRank int
 		line                   int
@@ -1414,6 +1424,65 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 		if calleeInfo == nil || !relationSourceInRequestedScope(calleeFile, ctx.AnalysisIR.RequestModel) {
 			continue
 		}
+		// A grounded argument handoff already supplies the caller -> receiving
+		// callable half of the component frontier. Prefer an exact value-bearing
+		// operation inside that callable (assignment/member initializer) before a
+		// getter or other local call. The former can connect the carried value to
+		// the missing participant; the latter proves only a local operation and
+		// was repeatedly selected ahead of the real binding in production.
+		lines := flowNavigationSourceLines(ctx, index, calleeFile)
+		for line := resolved.Line; line <= resolved.EndLine && len(lines) > 0; line++ {
+			features := calleeInfo.LineFeatures[line]
+			anchorKind := types.AnchorKind("")
+			for _, feature := range features {
+				switch feature {
+				case repotypes.LineFeatureMemberInitializer:
+					anchorKind = types.AnchorInitializer
+				case repotypes.LineFeatureAssignment:
+					if anchorKind == "" {
+						anchorKind = types.AnchorAssignment
+					}
+				}
+			}
+			if anchorKind == "" {
+				continue
+			}
+			operation := types.EvidenceItem{AnchorKind: anchorKind, Snippet: lines[line]}
+			receiver, value, ok := types.AssignmentEvidenceEndpoints(operation)
+			if !ok || flowNavigationAssignmentOperationAlreadyEmitted(
+				evidence, calleeFile, line, receiver, value,
+			) {
+				continue
+			}
+			matchRank := 0
+			for _, group := range missingParticipantSurfaceGroups {
+				matchRank = max(matchRank, flowRepairPlanningSurfaceMatchRank(
+					group, []string{receiver, value},
+				))
+			}
+			// Substring-only affinity is insufficient for this precise fast
+			// path. A typed-compatible receiver/value endpoint is required.
+			if matchRank < 2 {
+				continue
+			}
+			key := strings.ToLower(calleeFile + "\x00" + strings.TrimSpace(resolved.Name) + "\x00mutation\x00" + strconv.Itoa(line))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			start := line - flowOperationRepairReadRadius
+			if start < 1 {
+				start = 1
+			}
+			candidates = append(candidates, candidate{
+				target: flowOperationRepairReadTarget{
+					file: calleeFile, lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
+					focusIdentity: receiver + " <- " + value,
+					alreadyRead:   closure.HasReadLine(calleeFile, line), receivingCallableBody: true,
+				},
+				operationRank: 2, matchRank: matchRank, line: line,
+			})
+		}
 		for _, site := range index.relationsByFile[calleeFile] {
 			relation := site.relation
 			if relation == nil || strings.TrimSpace(relation.Kind) != "call" {
@@ -1421,6 +1490,11 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 			}
 			line := max(relation.Line, relation.FromEP.Line, relation.ToEP.Line)
 			if line < resolved.Line || line > resolved.EndLine {
+				continue
+			}
+			if flowNavigationCallOperationAlreadyEmitted(
+				evidence, calleeFile, line, site.ownerSurfaces, flowNavigationCallReceiver(relation),
+			) {
 				continue
 			}
 			surfaces := append(flowRepairRelationEndpointSurfaces(relation.FromEP),
@@ -1449,7 +1523,7 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 					file: calleeFile, lineRange: types.LineRange{Start: start, End: line + flowOperationRepairReadRadius},
 					alreadyRead: closure.HasReadLine(calleeFile, line), receivingCallableBody: true,
 				},
-				matchRank: matchRank,
+				operationRank: 1, matchRank: matchRank,
 				resultContinuationRank: flowNavigationCallResultContinuationDepth(
 					ctx, index, relation, site.ownerSurfaces,
 				),
@@ -1461,6 +1535,9 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 		return flowOperationRepairReadTarget{}, false
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].operationRank != candidates[j].operationRank {
+			return candidates[i].operationRank > candidates[j].operationRank
+		}
 		if candidates[i].matchRank != candidates[j].matchRank {
 			return candidates[i].matchRank > candidates[j].matchRank
 		}
@@ -1476,6 +1553,48 @@ func flowNavigationGroundedHandoffCalleeOperationReadTarget(
 		return candidates[i].line < candidates[j].line
 	})
 	return candidates[0].target, true
+}
+
+func flowNavigationAssignmentOperationAlreadyEmitted(
+	evidence []types.EvidenceItem,
+	source string,
+	line int,
+	receiver, value string,
+) bool {
+	source = canonicalRelationSourcePath(source)
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimAssignmentFact ||
+			canonicalRelationSourcePath(item.Source) != source || item.LineStart != line {
+			continue
+		}
+		gotReceiver, gotValue, ok := types.AssignmentEvidenceEndpoints(item)
+		if ok && types.AnswerCodeIdentitySurfacesEquivalent(gotReceiver, receiver) &&
+			types.AnswerCodeIdentitySurfacesEquivalent(gotValue, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func flowNavigationCallOperationAlreadyEmitted(
+	evidence []types.EvidenceItem,
+	source string,
+	line int,
+	ownerSurfaces []string,
+	callee string,
+) bool {
+	source = canonicalRelationSourcePath(source)
+	for _, item := range evidence {
+		if !item.IsCitable() || types.ClaimFormOf(item) != types.ClaimCallEdge ||
+			canonicalRelationSourcePath(item.Source) != source || item.LineStart != line ||
+			!flowAnyIdentitySurfaceMatches([]string{item.Object, item.AnchorSymbol}, callee) {
+			continue
+		}
+		if len(ownerSurfaces) == 0 || flowAnyIdentitySurfaceMatches(ownerSurfaces, item.Subject) {
+			return true
+		}
+	}
+	return false
 }
 
 // flowNavigationCarrierArgumentValueRank is a SOFT preference among already

@@ -1395,6 +1395,94 @@ func TestFlowOperationNavigationContinuesGroundedHandoffIntoReceivingCallableBod
 	}
 }
 
+func TestFlowOperationNavigationGroundedHandoffPrefersExactInitializerOverLocalCallAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			callerPath := filepath.ToSlash(filepath.Join("src", language, "pipeline.src"))
+			calleePath := filepath.ToSlash(filepath.Join("src", language, "builder.src"))
+			callerLines := make([]string, 24)
+			callerLines[9] = "agentContext := builder.BuildAgentContext(pipeline.busContext, stage)"
+			calleeLines := make([]string, 44)
+			calleeLines[19] = "BuildAgentContext(bus, stage)"
+			calleeLines[28] = "objective := bus.Mutable.Objective()"
+			calleeLines[29] = "Mutable: bus.Mutable"
+			for path, lines := range map[string][]string{callerPath: callerLines, calleePath: calleeLines} {
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			handoff := flowOperationEvidence(types.AnchorArgument, "pipeline.busContext", "BuildAgentContext", 10)
+			handoff.Source = callerPath
+			handoff.AnchorSymbol = "pipeline.busContext"
+			ctx := flowOperationCompletionContext([]types.EvidenceItem{handoff})
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "Mutable", ResolvedAs: "Mutable", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
+				callerPath: {
+					RelPath: callerPath, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{{Name: "run", Kind: "function", Line: 1, EndLine: 20}},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: callerPath, Line: 10,
+						FromEP:     repotypes.RelationEndpoint{Name: "run", Line: 10},
+						ToEP:       repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 10},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+				},
+				calleePath: {
+					RelPath: calleePath, Language: language, Package: "builder",
+					Symbols: []repotypes.Symbol{
+						{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
+						{Name: "Mutable", Kind: "field", Parent: "AgentContext", DeclaredType: "MutableState", Line: 30},
+					},
+					Relations: []repotypes.Relation{{
+						Kind: "call", File: calleePath, Line: 29,
+						FromEP:     repotypes.RelationEndpoint{Name: "BuildAgentContext", Line: 29},
+						ToEP:       repotypes.RelationEndpoint{Name: "Objective", Receiver: "bus.Mutable", Line: 29},
+						Confidence: repotypes.ConfidenceAST, Provenance: repotypes.ProvenanceTreeSitter,
+					}},
+					LineFeatures: map[int][]repotypes.LineFeature{30: {repotypes.LineFeatureMemberInitializer}},
+				},
+			})
+			graph.ResolvedImports = map[string][]repotypes.ResolvedImportBinding{
+				callerPath: {{
+					Import:  repotypes.Import{Alias: "builder", Path: "builder", File: callerPath, Line: 1},
+					Targets: []string{calleePath},
+				}},
+			}
+			ctx.Mutable.SetSearchGraph(graph)
+			ctx.Mutable.EvidenceClosure().SetReadSet(map[string]bool{callerPath: true, calleePath: true})
+			ctx.Mutable.EvidenceClosure().AddReadRanges(map[string][]types.LineRange{
+				callerPath: {{Start: 1, End: 20}}, calleePath: {{Start: 20, End: 40}},
+			})
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"Mutable"})
+			if !ok || target.file != calleePath || target.lineRange != (types.LineRange{Start: 18, End: 42}) ||
+				!target.alreadyRead || !target.receivingCallableBody || target.focusIdentity != "Mutable <- bus.Mutable" {
+				t.Fatalf("%s grounded handoff must prefer the exact initializer over the local getter: ok=%t target=%+v", language, ok, target)
+			}
+			if got := ctx.Mutable.EmittedEvidence(); len(got) != 1 || types.ClaimFormOf(got[0]) != types.ClaimArgumentFlow {
+				t.Fatalf("%s initializer navigation must not manufacture evidence: %+v", language, got)
+			}
+		})
+	}
+}
+
 func TestFlowOperationNavigationWalksGroundedReceivingBodyBackToExactCallerHandoffAcrossLanguages(t *testing.T) {
 	for _, language := range repotypes.SupportedReadLanguages() {
 		t.Run(language, func(t *testing.T) {
@@ -1423,6 +1511,7 @@ func TestFlowOperationNavigationWalksGroundedReceivingBodyBackToExactCallerHando
 					{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
 					{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 30},
 				},
+				LineFeatures: map[int][]repotypes.LineFeature{30: {repotypes.LineFeatureMemberInitializer}},
 			}
 			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
 				callerPath: {
@@ -2466,6 +2555,7 @@ func TestFlowOperationNavigationCarriesContinuationRankAcrossGroundedFastPathsAl
 					{Name: "BuildAgentContext", Kind: "function", Line: 20, EndLine: 40},
 					{Name: "Mutable", Kind: "field", Parent: "BusContext", DeclaredType: "MutableState", Line: 30},
 				},
+				LineFeatures: map[int][]repotypes.LineFeature{30: {repotypes.LineFeatureMemberInitializer}},
 			}
 			graph := flowTestIndexedGraph(map[string]*repotypes.FileInfo{
 				callerPath: {
