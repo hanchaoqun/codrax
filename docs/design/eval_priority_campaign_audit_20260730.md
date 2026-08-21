@@ -57291,6 +57291,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1315 r805：B1285 仅部分转正；陈旧 ref 与 exact-node/label alias 再次击穿局部修补（2026-08-21）
+
+1. 从已推送 `6a3b8f8fa` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace。Trace PASS（221s）；read FAIL
+   （914s，20 次 finalizer reject、19 次 patch，最终恢复第一版结构化草稿）。两路都没有按 4ms、4m、首字节、stall、活动流年龄或上下文比例
+   提前降级；read 的恢复只发生在结构化合同重试耗尽后，因此不能用固定时长阈值解释或规避。
+2. Trace 系统面继续通过：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点三边链、
+   11.000ms 链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、实际占时/规则可消双账户、邻近/背景隔离与完整
+   `Trace 因果投影` 全在，成文零拒绝。模型仍把 typed `fscache_page_wait_on_page_bit` 调用点扩写成“等待页面位图/内核级文件系统缓存
+   IO 完成”；当前证据只证明调用点、D/iowait 区间与唤醒链位置，不证明具体等待对象/后端/完成机理，继续归入 `B1269/B1271` 软教学观察，
+   禁止扫描、拒绝或系统改写正文。
+3. B1285 获得窄生产正证：第一轮 atomic edge+boundary patch 同时把目标图列入 `unchanged_block_ids` 时，compiler 已吸收该冗余声明，旧
+   `conflicts with unchanged_block_ids` 不再出现；same-generation lease 下目标 whole replace 也会被入口以
+   `whole_replace_not_authorized` 拒绝。但 read 仍未收敛，所以 B1285 只能记作 operation-domain core 正证，不能宣称完整战役闭环。
+4. 新 P0 `B1286-LIVERELATIONDELTAONATOMICERROR1`：模型携带上一验证代的 `failure_ref` 后，atomic executor 只返回第一条
+   `unknown or stale` 纯文本错误；当前 live lease 中完整 failures、allowed actions 与 allowed additions 没有随 ToolRepair 重发。模型随后逐个删除
+   `rf1-222...`、`rf1-fc09...`、`rf1-d67...`，又对 `carrier=unknown/allowed_actions=[]` 逐项猜 action。该路径把同一 typed generation 的
+   能力集降成 O(n) 文本试错，不是模型关系判断波动。
+5. B1286 的最优根修是“执行错误仍返回当前 typed capability”：只要 live lease 存在且 atomic edit 在解析/授权/定位阶段失败，失败摘要可保留精确
+   executor 错误，但 ToolRepair metadata 必须重新携带当前 generation 的完整 relation delta；retry 路由因此一次看到所有 live refs。系统不解析
+   error prose、不静默过滤旧 ref、不替模型选 remove/replace/add，也不扩大 lease；无 live lease 时保持普通参数错误车道。
+6. 新 P0 `B1287-EXACTNODEIDBEFORELABELALIAS1` 是本轮更深的确定性自造失败。模型按 allowed addition 新增正文边
+   `analyze -> explorer -> extractor -> finalizer`；原图同时声明 `An as Analyzer`、`Ex as Explorer` 等旧 participant。
+   `diagramNodeAliasIndex` 仅登记声明 id/label，未把正文边端点登记为 exact node id，大小写折叠后把 `explorer` 当作旧 label alias `Ex`。
+   `normalizeDiagramEdgeAnchorMetadata` 因而只把新增 anchor 的一侧改成 `Ex/Et/Fz`，正文仍是 `explorer/extractor/finalizer`，下一门同时报告
+   `missing_call_anchor` 与 `typed_anchor_without_visible_edge`。这是系统 normalizer 制造的新矛盾，不是 Mermaid/模型输出本身不合法。
+7. B1287 应按结构身份优先级根修：先从 Mermaid 声明和所有已解析可见边收集 exact node ids；相同 surface 同时是 exact id 与另一节点 display label
+   时，exact id 必须胜出。只有不存在 exact id 时才允许唯一 label alias 映射；多 label 仍 fail-closed。该规则只消费解析后的 Mermaid 结构，
+   不读 message 文案、用户请求、thinking、模型 prose 或最终答案，也不生成/反转/删除/改写可见关系。
+8. B1286/B1287 必须分批施工并各自提交：先恢复 live typed repair capsule，钉住 stale/非法 action/selector 三类错误一次重发完整 current delta；再修
+   alias index，钉住 exact body node 与旧 display label 冲突、普通唯一 label alias、歧义 label 以及 sequence/flow 两类正文。完成后仍以同一 read+Trace
+   恰好 2 路生产复放验收，不能只看单测 PASS；read 要显著降低拒绝并输出正式模型答案，Trace 要守住显式窗、自动补采、链上根因、双账户和完整投影。
+
+状态：
+
+`r805=trace-pass+read-fail,human-trace-partial+read-contract-fail`；
+`B1285=production-positive-operation-domain/core-closed`；
+`B1286=confirmed/P0-next`；`B1287=confirmed/P0-after-B1286`；
+`read-finalize=20-rejects/19-patches/recovered-first-draft`；
+`atomic-error-repair=current-first-plain-error-only/target-current-live-delta`；
+`node-alias-priority=current-label-over-exact-body-id/target-exact-id-first`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-text-as-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r805`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r805`。
+
 ### §123.1313 r804：B1284 生产转正；局部图编辑与 unchanged 合同冲突确认 B1285（2026-08-21）
 
 1. 从已推送 `44bdc07bd` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace，runner 2/2 PASS：Trace 192s、read
