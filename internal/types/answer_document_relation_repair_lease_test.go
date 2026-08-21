@@ -150,6 +150,88 @@ func TestAnswerDiagramRelationRepairLeasePreservesCompleteUnion(t *testing.T) {
 	}
 }
 
+func TestAnswerDiagramRelationRepairLeasePublishesExecutableFailureCapabilities(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n    A->>B: call\n    B->>C: result\n"},
+		EdgeAnchors: []DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "B", RelationKind: DiagramRelCall},
+			{FromNode: "C", ToNode: "D", RelationKind: DiagramRelPrecedence},
+		},
+	}}}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall, FromNode: "A", ToNode: "B"},
+		{BlockID: "flow", Issue: DiagramRelationFailureMissingGroundedCallAnchor, RelationKind: DiagramRelCall, FromNode: "B", ToNode: "C"},
+		{BlockID: "flow", Issue: "typed_anchor_without_visible_edge", RelationKind: DiagramRelPrecedence, FromNode: "C", ToNode: "D"},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 3 {
+		t.Fatalf("expected three executable failure rows: %+v", lease)
+	}
+	got := make(map[string]AnswerDiagramRelationRepairFailure, len(lease.Failures))
+	for _, failure := range lease.Failures {
+		got[failure.Issue] = failure
+		if failure.FailureRef == "" {
+			t.Fatalf("capability row missing opaque ref: %+v", failure)
+		}
+	}
+	assertCapability := func(issue string, carrier AnswerDiagramRelationRepairTargetCarrier, actions ...AnswerDiagramRelationRepairAction) {
+		t.Helper()
+		failure := got[issue]
+		if failure.TargetCarrier != carrier || fmt.Sprint(failure.AllowedActions) != fmt.Sprint(actions) {
+			t.Fatalf("issue=%s capability=%s/%v want=%s/%v", issue, failure.TargetCarrier, failure.AllowedActions, carrier, actions)
+		}
+	}
+	assertCapability("call_edge_unproven", AnswerDiagramRelationRepairCarrierPriorAnchor,
+		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
+	assertCapability(DiagramRelationFailureMissingGroundedCallAnchor, AnswerDiagramRelationRepairCarrierVisibleBodyEdge,
+		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
+	assertCapability("typed_anchor_without_visible_edge", AnswerDiagramRelationRepairCarrierStaleAnchor,
+		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
+}
+
+func TestAnswerDiagramRelationRepairLeaseDoesNotAdvertiseAmbiguousRefAction(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		EdgeAnchors: []DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "B", FromIdentity: "First", ToIdentity: "One", RelationKind: DiagramRelCall},
+			{FromNode: "A", ToNode: "B", FromIdentity: "Second", ToIdentity: "Two", RelationKind: DiagramRelCall},
+		},
+	}}}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall,
+		FromNode: "A", ToNode: "B", FromIdentity: "Resolved", ToIdentity: "Unknown",
+	}}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("ambiguous diagnostic should remain visible without granting an action: %+v", lease)
+	}
+	failure := lease.Failures[0]
+	if failure.TargetCarrier != AnswerDiagramRelationRepairCarrierUnknown || len(failure.AllowedActions) != 0 || failure.FailureRef == "" {
+		t.Fatalf("ambiguous ref must not advertise an executable action: %+v", failure)
+	}
+}
+
+func TestAnswerDiagramRelationRepairLeaseCoalescesSeveralIssuesOnOneCarrier(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "IR", ToNode: "Bus", FromIdentity: "AnalysisIR", ToIdentity: "BusContext",
+			RelationKind: DiagramRelAssignment,
+		}},
+	}}}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "assignment_edge_unproven", RelationKind: DiagramRelAssignment, FromNode: "IR", ToNode: "Bus", FromIdentity: "AnalysisIR", ToIdentity: "BusContext"},
+		{BlockID: "flow", Issue: "sequence_relation_reply_operator_conflict", RelationKind: DiagramRelAssignment, FromNode: "IR", ToNode: "Bus", FromIdentity: "AnalysisIR", ToIdentity: "BusContext"},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("one carrier with two validator issues must publish one executable ref: %+v", lease)
+	}
+	failure := lease.Failures[0]
+	if len(failure.RelatedIssues) != 2 || failure.TargetCarrier != AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		!failure.AllowsAction("remove") || !failure.AllowsAction("replace") {
+		t.Fatalf("coalesced carrier lost issue or action authority: %+v", failure)
+	}
+}
+
 func TestAnswerDiagramRelationRepairFailureRefsAreStableAndCarrierBound(t *testing.T) {
 	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
 		ID: "flow", Kind: BlockDiagram,

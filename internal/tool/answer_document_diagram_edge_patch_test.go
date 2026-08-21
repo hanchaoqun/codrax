@@ -281,6 +281,123 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRemovesRelationlessMissi
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRemovesGroundedBodyOnlyEdge(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant O\n    participant Ctx\n    O->>Ctx: build context\n"
+	prev.Blocks[1].EdgeAnchors = nil
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueMissingGroundedAnchor,
+			FromNode: "O", ToNode: "Ctx", FromIdentity: "Orchestrator.Run", ToIdentity: "BuildContext",
+			RelationKind: types.DiagramRelCall,
+		}}, nil)
+	if lease == nil || lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+		!lease.Failures[0].AllowsAction("remove") {
+		t.Fatalf("grounded missing-anchor row must publish its executable body carrier: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("grounded missing-anchor failure ref must remove its exact visible body edge: %v", err)
+	}
+	if got := patch.ReplaceBlocks[0].Diagram.Body; strings.Contains(got, "O->>Ctx") {
+		t.Fatalf("body-only grounded ref did not remove the named visible edge: %s", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRejectsUnlistedAction(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueNoEvidence,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "relabel", VisibleLabel: "wording only",
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "does not allow action=relabel") ||
+		!strings.Contains(err.Error(), "allowed_actions=[remove replace]") {
+		t.Fatalf("relation-evidence failure must expose its exact executable actions: %v", err)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_OneRefRepairsSeveralIssuesOnSameCarrier(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant IR\n    participant Bus\n    participant C\n    IR-->>Bus: stores result\n    Bus->>C: keep\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "IR", ToNode: "Bus", FromIdentity: "AnalysisIR", ToIdentity: "BusContext", RelationKind: types.DiagramRelAssignment},
+		{FromNode: "Bus", ToNode: "C", RelationKind: types.DiagramRelCall},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: diagramAssignmentEdgeIssueNoEvidence, RelationKind: types.DiagramRelAssignment, FromNode: "IR", ToNode: "Bus", FromIdentity: "AnalysisIR", ToIdentity: "BusContext"},
+		{BlockID: "diag", Issue: diagramSequenceRelationReplyConflict, RelationKind: types.DiagramRelAssignment, FromNode: "IR", ToNode: "Bus", FromIdentity: "AnalysisIR", ToIdentity: "BusContext"},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 1 || len(lease.Failures[0].RelatedIssues) != 2 {
+		t.Fatalf("same carrier must expose one live ref with both issues: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("one model-selected operation must repair the shared carrier: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Contains(got.Diagram.Body, "IR-->>Bus") || !strings.Contains(got.Diagram.Body, "Bus->>C: keep") || len(got.EdgeAnchors) != 1 {
+		t.Fatalf("coalesced repair changed an unrelated relation: %+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_MixedCarrierBatchRemainsExecutable(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    Run->>Phase: keep\n" +
+		"    Analyzer-->>IR: unsupported return\n" +
+		"    IR-->>Bus: unsupported assignment\n" +
+		"    Bus->>Task: unanchored call\n" +
+		"    Loop->>Explorer: unsupported ordering\n" +
+		"    Explorer-->>Bus: unanchored result\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "Run", ToNode: "Phase", RelationKind: types.DiagramRelCall},
+		{FromNode: "Analyzer", ToNode: "IR", RelationKind: types.DiagramRelReturn},
+		{FromNode: "IR", ToNode: "Bus", RelationKind: types.DiagramRelAssignment},
+		{FromNode: "Run", ToNode: "Task", RelationKind: types.DiagramRelCall},
+		{FromNode: "Loop", ToNode: "Explorer", RelationKind: types.DiagramRelPrecedence},
+	}
+	failures := []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: diagramReturnEdgeIssueNoEvidence, RelationKind: types.DiagramRelReturn, FromNode: "Analyzer", ToNode: "IR"},
+		{BlockID: "diag", Issue: diagramAssignmentEdgeIssueNoEvidence, RelationKind: types.DiagramRelAssignment, FromNode: "IR", ToNode: "Bus"},
+		{BlockID: "diag", Issue: diagramSequenceRelationReplyConflict, RelationKind: types.DiagramRelAssignment, FromNode: "IR", ToNode: "Bus"},
+		{BlockID: "diag", Issue: diagramCallEdgeIssueMissingGroundedAnchor, RelationKind: types.DiagramRelCall, FromNode: "Bus", ToNode: "Task"},
+		{BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge, RelationKind: types.DiagramRelCall, FromNode: "Run", ToNode: "Task"},
+		{BlockID: "diag", Issue: diagramSemanticRelationIssueNoEvidence, RelationKind: types.DiagramRelPrecedence, FromNode: "Loop", ToNode: "Explorer"},
+		{BlockID: "diag", Issue: diagramCallEdgeIssueMissingAnchor, RelationKind: types.DiagramRelCall, FromNode: "Explorer", ToNode: "Bus"},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, failures, nil)
+	if lease == nil || len(lease.Failures) != 6 {
+		t.Fatalf("seven issues on six carriers must compile to six live operations: %+v", lease)
+	}
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, len(lease.Failures))
+	for _, failure := range lease.Failures {
+		if !failure.AllowsAction("remove") {
+			t.Fatalf("mixed carrier unexpectedly lacks remove capability: %+v", failure)
+		}
+		edits = append(edits, emitAnswerDiagramEdgeEdit{FailureRef: failure.FailureRef, Action: "remove"})
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, edits, nil, lease); err != nil {
+		t.Fatalf("one operation per exact carrier must not become stale within the transaction: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "Run->>Phase: keep") || len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "Run" || got.EdgeAnchors[0].ToNode != "Phase" {
+		t.Fatalf("mixed repair failed to preserve the unlisted healthy edge: %+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefIdentityDriftStillFailsClosedOnAmbiguousCarrier(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: first\n    A->>B: second\n"
@@ -297,7 +414,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefIdentityDriftStillFailsC
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
 		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
 	}}, nil, lease)
-	if err == nil || !strings.Contains(err.Error(), "matches 2 candidate prior anchors") {
+	if err == nil || !strings.Contains(err.Error(), "carrier=unknown") || !strings.Contains(err.Error(), "allowed_actions=[]") {
 		t.Fatalf("identity drift must not guess between repeated same-pair operations: %v", err)
 	}
 }
@@ -347,7 +464,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefScopeFailsClosed(t *test
 	}{
 		{name: "unknown or stale", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: "rf1-not-live", Action: "remove"}}, want: "unknown or stale"},
 		{name: "cross block", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, BlockID: "other", Action: "remove"}}, want: "belongs to block_id"},
-		{name: "duplicate consumption", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "relabel", VisibleLabel: "one"}, {FailureRef: ref, Action: "remove"}}, want: "reuses failure_ref"},
+		{name: "duplicate consumption", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove"}, {FailureRef: ref, Action: "remove"}}, want: "reuses failure_ref"},
 		{name: "conflicting match", edits: []emitAnswerDiagramEdgeEdit{{FailureRef: ref, Action: "remove", Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelPrecedence}}}, want: "mutually exclusive"},
 	}
 	for _, tc := range tests {

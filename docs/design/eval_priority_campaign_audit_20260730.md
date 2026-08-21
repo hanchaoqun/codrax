@@ -59154,3 +59154,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r797`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r797`。
+
+### §123.1302 B1276：关系失败引用发布同代载体与动作能力，并按真实载体合并重复问题（2026-08-20）
+
+1. `B1276-RELATIONFAILUREACTIONCAPABILITY1/P0` 已根修。每个 lease-owned `failures[]` 行现在携带结构化
+   `target_carrier` 与 `allowed_actions`：`prior_anchor` 是已有锚+正文边，`visible_body_edge` 是正文有边但缺锚，`stale_anchor` 是锚存在但正文
+   无边，`label_pair` 是仅显示标签需要模型重写；歧义或当前基线不存在唯一原子目标时发布 `unknown` 和空动作集，不再谎称引用可执行。
+2. 能力由拒绝草稿的同代 block/anchor 快照和 typed issue 编译，不读用户请求、thinking、答案 prose 或 Mermaid message 词义。模型仍在允许集合中选择
+   remove/replace/relabel，并为 replace 提交完整关系与 visible label；系统不选择动作、关系、方向、节点或业务措辞。executor 在接触正文前校验该引用
+   是否允许所选 action，拒绝时直接返回 carrier 与合法动作集合。
+3. producer、lease 与 executor 现共享同一个 exact anchor candidate 编译器；validator-resolved identity 可以比拒绝锚更精确，但只在重复同端点操作时
+   用于消歧，绝不猜选。`missing_call_anchor`、`missing_grounded_call_anchor` 和 `missing_relation_anchor` 统一进入
+   `visible_body_edge`，补上 r797 中 grounded 正文边虽可见却被 resolver 当成“不存在 prior anchor”的遗漏车道。
+4. 新增同载体合并：若多个 validator issue 指向同一 exact anchor 或同一 body-only 边，lease 只发布一个 `failure_ref`，并在
+   `related_issues[]` 保留完整排序后的问题清单。这样模型一次 remove/replace 同时处理该载体的全部问题，不会再出现 r797 的
+   `IR -> Bus` 先因 assignment unproven 被删除、随后又因 sequence reply operator conflict 对同一锚执行第二次删除而必然 stale。
+5. 动作集合按“能解决该载体当前全部问题”计算：证据/操作符/身份问题只允许 remove/replace，纯标签问题只允许 relabel；不再用 relabel 掩盖关系证据
+   不足。重复同端点且 identity 无法唯一复认时保留诊断但不给 opaque-ref 动作，继续 fail-closed。
+6. 工具说明、动态 schema 描述、共享 patch 教学和 local relation retry hint 已统一消费这套能力字段，明确禁止从 issue 文本猜动作。回归覆盖
+   prior/body/stale 三载体、grounded missing-anchor、非法 relabel、歧义空能力、两 issue 同载体折叠，以及 7 issue/6 carrier 混合批一次原子执行并
+   保留健康边。完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+7. 本批不修改 Trace 查询、显式时间窗、根因席位、唤醒链、两套时长账户、因果投影或自动补采；不扫描或改写模型结论。下一步从本精确提交重建后严格
+   并发恰好 2 路复放同一 read+Trace，重点验收关系 reject 从 20 次收敛，同时继续观察调用点词面过推的 P1。
+
+状态：
+
+`B1276=implemented/full-suite-pass/pending-production-replay`；
+`failure-ref=one-exact-carrier/possibly-many-related-issues`；
+`target-carrier+allowed-actions=producer/lease/executor-single-contract`；
+`grounded-missing-anchor=visible-body-edge/remove-or-model-replace`；
+`ambiguous-carrier=diagnostic-visible/no-false-action-permission`；
+`system-relation/action/label-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

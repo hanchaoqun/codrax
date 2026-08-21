@@ -19,14 +19,51 @@ const (
 // structural fields only: request text, reasoning prose, answer prose, and
 // Mermaid labels are deliberately outside this contract.
 type AnswerDiagramRelationRepairFailure struct {
-	FailureRef   string              `json:"failure_ref,omitempty"`
-	BlockID      string              `json:"block_id,omitempty"`
-	Issue        string              `json:"issue"`
-	RelationKind DiagramRelationKind `json:"relation_kind,omitempty"`
-	FromNode     string              `json:"from_node"`
-	ToNode       string              `json:"to_node"`
-	FromIdentity string              `json:"from_identity,omitempty"`
-	ToIdentity   string              `json:"to_identity,omitempty"`
+	FailureRef     string                                   `json:"failure_ref,omitempty"`
+	BlockID        string                                   `json:"block_id,omitempty"`
+	Issue          string                                   `json:"issue"`
+	RelationKind   DiagramRelationKind                      `json:"relation_kind,omitempty"`
+	FromNode       string                                   `json:"from_node"`
+	ToNode         string                                   `json:"to_node"`
+	FromIdentity   string                                   `json:"from_identity,omitempty"`
+	ToIdentity     string                                   `json:"to_identity,omitempty"`
+	TargetCarrier  AnswerDiagramRelationRepairTargetCarrier `json:"target_carrier,omitempty"`
+	AllowedActions []AnswerDiagramRelationRepairAction      `json:"allowed_actions,omitempty"`
+	RelatedIssues  []string                                 `json:"related_issues,omitempty"`
+}
+
+// AnswerDiagramRelationRepairTargetCarrier tells the retrying model which
+// exact carrier the opaque failure ref selects. This is structural capability
+// metadata derived from the rejected document, never a suggested repair.
+type AnswerDiagramRelationRepairTargetCarrier string
+
+const (
+	AnswerDiagramRelationRepairCarrierUnknown         AnswerDiagramRelationRepairTargetCarrier = "unknown"
+	AnswerDiagramRelationRepairCarrierPriorAnchor     AnswerDiagramRelationRepairTargetCarrier = "prior_anchor"
+	AnswerDiagramRelationRepairCarrierVisibleBodyEdge AnswerDiagramRelationRepairTargetCarrier = "visible_body_edge"
+	AnswerDiagramRelationRepairCarrierStaleAnchor     AnswerDiagramRelationRepairTargetCarrier = "stale_anchor"
+	AnswerDiagramRelationRepairCarrierLabelPair       AnswerDiagramRelationRepairTargetCarrier = "label_pair"
+)
+
+// AnswerDiagramRelationRepairAction is one atomic operation that the current
+// carrier can execute. The model still chooses among these actions and authors
+// every replacement tuple and reader-facing label.
+type AnswerDiagramRelationRepairAction string
+
+const (
+	AnswerDiagramRelationRepairActionRelabel AnswerDiagramRelationRepairAction = "relabel"
+	AnswerDiagramRelationRepairActionRemove  AnswerDiagramRelationRepairAction = "remove"
+	AnswerDiagramRelationRepairActionReplace AnswerDiagramRelationRepairAction = "replace"
+)
+
+func (f AnswerDiagramRelationRepairFailure) AllowsAction(action string) bool {
+	action = strings.ToLower(strings.TrimSpace(action))
+	for _, allowed := range f.AllowedActions {
+		if action == string(allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 // AssignAnswerDiagramRelationRepairFailureRefs binds each structural failure
@@ -43,9 +80,242 @@ func AssignAnswerDiagramRelationRepairFailureRefs(
 ) []AnswerDiagramRelationRepairFailure {
 	out := append([]AnswerDiagramRelationRepairFailure(nil), failures...)
 	for i := range out {
+		out[i].TargetCarrier, out[i].AllowedActions = answerDiagramRelationRepairFailureCapabilities(base, out[i])
 		out[i].FailureRef = answerDiagramRelationRepairFailureRef(base, out[i])
 	}
 	return out
+}
+
+func answerDiagramRelationRepairFailureCapabilities(
+	base *AnswerDocumentV2,
+	failure AnswerDiagramRelationRepairFailure,
+) (AnswerDiagramRelationRepairTargetCarrier, []AnswerDiagramRelationRepairAction) {
+	issue := strings.TrimSpace(failure.Issue)
+	switch issue {
+	case "missing_call_anchor", DiagramRelationFailureMissingGroundedCallAnchor, "missing_relation_anchor":
+		if strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {
+			return AnswerDiagramRelationRepairCarrierVisibleBodyEdge, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	case "typed_anchor_without_visible_edge":
+		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			return AnswerDiagramRelationRepairCarrierStaleAnchor, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	case "diagram_visible_label_mismatch", "diagram_typed_recipe_missing_visible_label", "diagram_visible_label_raw_relation_kind":
+		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			return AnswerDiagramRelationRepairCarrierLabelPair, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRelabel,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	default:
+		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			return AnswerDiagramRelationRepairCarrierPriorAnchor, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	}
+}
+
+func answerDiagramRelationRepairCompiledFailures(
+	base *AnswerDocumentV2,
+	failures []AnswerDiagramRelationRepairFailure,
+) []AnswerDiagramRelationRepairFailure {
+	byCarrier := make(map[string]AnswerDiagramRelationRepairFailure, len(failures))
+	issuesByCarrier := make(map[string]map[string]bool, len(failures))
+	for _, failure := range failures {
+		failure.TargetCarrier, failure.AllowedActions = answerDiagramRelationRepairFailureCapabilities(base, failure)
+		failure.FailureRef = ""
+		failure.RelatedIssues = nil
+		carrierKey := answerDiagramRelationRepairFailureCarrierKey(base, failure)
+		prior, exists := byCarrier[carrierKey]
+		if !exists || answerDiagramRelationRepairFailureKey(failure) < answerDiagramRelationRepairFailureKey(prior) {
+			byCarrier[carrierKey] = failure
+		}
+		if issuesByCarrier[carrierKey] == nil {
+			issuesByCarrier[carrierKey] = make(map[string]bool)
+		}
+		issuesByCarrier[carrierKey][strings.TrimSpace(failure.Issue)] = true
+	}
+	keys := make([]string, 0, len(byCarrier))
+	for key := range byCarrier {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]AnswerDiagramRelationRepairFailure, 0, len(keys))
+	for _, key := range keys {
+		failure := byCarrier[key]
+		issues := make([]string, 0, len(issuesByCarrier[key]))
+		for issue := range issuesByCarrier[key] {
+			if issue != "" {
+				issues = append(issues, issue)
+			}
+		}
+		sort.Strings(issues)
+		if len(issues) > 0 {
+			failure.Issue = issues[0]
+		}
+		if len(issues) > 1 {
+			failure.RelatedIssues = append([]string(nil), issues...)
+		}
+		// Several validator issues can describe one exact prior anchor. One
+		// remove/replace then resolves every issue on that carrier; publishing
+		// one ref per issue would make the second operation deterministically
+		// stale inside the same atomic patch. A label-only carrier remains
+		// relabel-only, while any non-label defect keeps the stronger
+		// remove/replace capability.
+		if failure.TargetCarrier == AnswerDiagramRelationRepairCarrierLabelPair && len(issues) > 1 {
+			for _, issue := range issues {
+				if !answerDiagramRelationRepairLabelOnlyIssue(issue) {
+					failure.TargetCarrier = AnswerDiagramRelationRepairCarrierPriorAnchor
+					failure.AllowedActions = []AnswerDiagramRelationRepairAction{
+						AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+					}
+					break
+				}
+			}
+		}
+		failure.FailureRef = answerDiagramRelationRepairFailureRef(base, failure)
+		out = append(out, failure)
+	}
+	return out
+}
+
+func answerDiagramRelationRepairFailureCarrierKey(base *AnswerDocumentV2, failure AnswerDiagramRelationRepairFailure) string {
+	if candidates := answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure); len(candidates) == 1 {
+		return strings.Join([]string{
+			strings.TrimSpace(failure.BlockID), "anchor", answerDiagramRelationAnchorSemanticKey(candidates[0]),
+		}, "\x00")
+	}
+	if failure.TargetCarrier == AnswerDiagramRelationRepairCarrierVisibleBodyEdge {
+		return strings.Join([]string{
+			strings.TrimSpace(failure.BlockID), "body",
+			strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode),
+			string(AnswerDiagramRelationRepairFailureEffectiveRelation(failure)),
+		}, "\x00")
+	}
+	return "failure\x00" + answerDiagramRelationRepairFailureKey(failure)
+}
+
+func answerDiagramRelationRepairLabelOnlyIssue(issue string) bool {
+	switch strings.TrimSpace(issue) {
+	case "diagram_visible_label_mismatch", "diagram_typed_recipe_missing_visible_label", "diagram_visible_label_raw_relation_kind":
+		return true
+	default:
+		return false
+	}
+}
+
+// AnswerDiagramRelationRepairFailureBaseAnchorCandidates is the shared exact
+// locator compiler used by both lease publication and atomic ref resolution.
+// Validator-resolved identities may be more precise than a rejected anchor;
+// node pair + relation select the carrier first, with exact identities used
+// only to disambiguate repeated operations on the same visible pair.
+func AnswerDiagramRelationRepairFailureBaseAnchorCandidates(
+	base *AnswerDocumentV2,
+	failure AnswerDiagramRelationRepairFailure,
+) []DiagramEdgeAnchor {
+	if base == nil {
+		return nil
+	}
+	var anchors []DiagramEdgeAnchor
+	count := 0
+	for _, block := range base.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(failure.BlockID) {
+			continue
+		}
+		count++
+		anchors = append(anchors, block.EdgeAnchors...)
+	}
+	if count != 1 {
+		return nil
+	}
+	return answerDiagramRelationRepairFailureAnchorCandidates(failure, anchors)
+}
+
+func answerDiagramRelationRepairFailureBaseAnchorCandidates(
+	base *AnswerDocumentV2,
+	failure AnswerDiagramRelationRepairFailure,
+) []DiagramEdgeAnchor {
+	return AnswerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)
+}
+
+func AnswerDiagramRelationRepairFailureAnchorCandidates(
+	failure AnswerDiagramRelationRepairFailure,
+	anchors []DiagramEdgeAnchor,
+) []DiagramEdgeAnchor {
+	return answerDiagramRelationRepairFailureAnchorCandidates(failure, anchors)
+}
+
+func answerDiagramRelationRepairFailureAnchorCandidates(
+	failure AnswerDiagramRelationRepairFailure,
+	anchors []DiagramEdgeAnchor,
+) []DiagramEdgeAnchor {
+	relation := AnswerDiagramRelationRepairFailureEffectiveRelation(failure)
+	fromNode, toNode := strings.TrimSpace(failure.FromNode), strings.TrimSpace(failure.ToNode)
+	fromIdentity, toIdentity := strings.TrimSpace(failure.FromIdentity), strings.TrimSpace(failure.ToIdentity)
+	candidates := make([]DiagramEdgeAnchor, 0, 1)
+	for _, anchor := range anchors {
+		if relation.IsValid() && anchor.RelationKind != relation {
+			continue
+		}
+		if fromNode != "" || toNode != "" {
+			if fromNode != strings.TrimSpace(anchor.FromNode) || toNode != strings.TrimSpace(anchor.ToNode) {
+				continue
+			}
+		} else if fromIdentity != "" || toIdentity != "" {
+			if fromIdentity != strings.TrimSpace(anchor.FromIdentity) || toIdentity != strings.TrimSpace(anchor.ToIdentity) {
+				continue
+			}
+		}
+		candidates = append(candidates, anchor)
+	}
+	if len(candidates) <= 1 || fromIdentity == "" || toIdentity == "" {
+		return candidates
+	}
+	exact := candidates[:0]
+	for _, anchor := range candidates {
+		if fromIdentity == strings.TrimSpace(anchor.FromIdentity) && toIdentity == strings.TrimSpace(anchor.ToIdentity) {
+			exact = append(exact, anchor)
+		}
+	}
+	if len(exact) == 1 {
+		return exact
+	}
+	return candidates
+}
+
+func AnswerDiagramRelationRepairFailureEffectiveRelation(failure AnswerDiagramRelationRepairFailure) DiagramRelationKind {
+	if failure.RelationKind.IsValid() {
+		return failure.RelationKind
+	}
+	switch strings.TrimSpace(failure.Issue) {
+	case "call_edge_unproven", "call_edge_occurrence_unproven", "missing_call_anchor",
+		DiagramRelationFailureMissingGroundedCallAnchor, "call_reply_operator_conflict":
+		return DiagramRelCall
+	case "registration_edge_unproven":
+		return DiagramRelRegister
+	case "type_relation_edge_unproven":
+		return DiagramRelTypeRelation
+	case "assignment_edge_unproven":
+		return DiagramRelAssignment
+	case "data_flow_edge_unproven":
+		return DiagramRelDataFlow
+	case "return_edge_unproven":
+		return DiagramRelReturn
+	case "callback_handoff_unproven":
+		return DiagramRelCallback
+	case "argument_flow_unproven":
+		return DiagramRelArgumentFlow
+	default:
+		return failure.RelationKind
+	}
 }
 
 func answerDiagramRelationRepairFailureRef(base *AnswerDocumentV2, failure AnswerDiagramRelationRepairFailure) string {
@@ -362,7 +632,7 @@ func NewAnswerDiagramRelationRepairLease(
 			BaseAnchors: append([]DiagramEdgeAnchor(nil), block.EdgeAnchors...),
 		})
 	}
-	clean = AssignAnswerDiagramRelationRepairFailureRefs(base, clean)
+	clean = answerDiagramRelationRepairCompiledFailures(base, clean)
 	for _, failure := range clean {
 		if failure.FailureRef == "" {
 			return nil
@@ -660,7 +930,14 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 		return nil
 	}
 	out := &AnswerDiagramRelationRepairLease{Version: in.Version}
-	out.Failures = append([]AnswerDiagramRelationRepairFailure(nil), in.Failures...)
+	if len(in.Failures) > 0 {
+		out.Failures = make([]AnswerDiagramRelationRepairFailure, len(in.Failures))
+		for i, failure := range in.Failures {
+			out.Failures[i] = failure
+			out.Failures[i].AllowedActions = append([]AnswerDiagramRelationRepairAction(nil), failure.AllowedActions...)
+			out.Failures[i].RelatedIssues = append([]string(nil), failure.RelatedIssues...)
+		}
+	}
 	out.AllowedAdditions = append([]AnswerDiagramRelationRepairCandidate(nil), in.AllowedAdditions...)
 	if len(in.Blocks) > 0 {
 		out.Blocks = make([]AnswerDiagramRelationRepairLeaseBlock, len(in.Blocks))
