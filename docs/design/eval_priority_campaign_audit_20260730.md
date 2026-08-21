@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1352 r830：B1313 未获独立生产臂；label-pair 能力已实现但 producer 未接线（2026-08-21）
+
+1. 从已推送 `76a737699` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：
+   Trace 236s、read 447s。两路活动流均未按固定 4ms、4m、累计年龄或上下文比例降级；Trace 0 次成文拒绝，read 4 次拒绝，
+   因此仍须人工区分 runner 通过、能力生产 witness 与答案质量。
+2. Trace 人工判定 pass：2.000..2.020s 显式窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   四线程三跳链、threadpool-400 的 11.000ms 链上 iowait 第一席、三个 1.000ms runnable/优先级反转候选、实际占时/
+   规则可消双账户、业务下钻与完整 `Trace 因果投影` 全部保留。邻近/背景没有升为根因；模型明确等待调用点不证明具体文件、
+   资源或持有者，没有把时序相邻扩写为直接阻塞。read 图修补没有侵入 Trace 窗口、链、根因选举或自动补采。
+3. read 人工判定 partial。最终答案没有回退旧草稿，A→E→X→F 与 BusContext→BuildAgentContext 四条 typed 关系可见，
+   Mutable 诚实保留 unproven 边界。拒绝从 r829 的 6 次降为 4 次，但本轮最初 participant defect 是
+   `available_typed_incident_edge_not_rendered`：模型必须先选择 typed candidate 并自写可见关系，系统按权限不能把它错误铸成纯
+   boundary action。因此本轮不是 B1313 的正/负生产证据；B1313 保持代码与回归已闭、生产 witness 待后续自然命中。
+4. 新 P1 `B1314-LABELPAIRLEASEWIRE1` 已由日志和代码双证确认。模型把 BusContext→BuildAgentContext typed candidate 加入图后，
+   `visible_label` 元数据漏填。`preCheckDiagramVisibleLabelConsistency` 能精确得到 block、唯一 occurrence、完整既有 anchor 与三类 typed
+   issue，但 emit hint 只填写 `DiagramRelationFailureIssues`，没有附 `DiagramRelationRepairDeltaJSON`。下游 lease 已明确支持
+   `diagram_typed_recipe_missing_visible_label` / `diagram_visible_label_mismatch` / `diagram_visible_label_raw_relation_kind` 的唯一
+   `label_pair + relabel` 能力，却永远收不到该 producer 数据。动态 schema 因而退回 legacy match；模型只给 node pair+relation，
+   executor 的 exact tuple 还要求 hidden from/to identity，于是确定性报 `match did not select ... exact prior anchor`，再逼模型整块重写。
+5. B1314 最优通用方案：visible-label producer 为每个一对一 anchor/body occurrence 直接构造完整 typed failure row并附统一 relation
+   delta；复用现有 same-generation `failure_ref + action=relabel` schema/executor，由 ref 恢复隐藏 identity/relation/occurrence，模型只负责
+   选择 relabel 并提供 reader-facing `visible_label`。多 owner、重复 occurrence、缺 body 或不唯一 anchor 继续不铸 ref；系统不翻译
+   relation_kind、不选择词、不扫描请求/thinking/final prose，不改边、方向、端点、关系或结论。测试须覆盖 missing/mismatch/raw-enum
+   三臂、跨代失效、同 block sibling 保留和生产 schema 接线。
+6. 另记 P1 `B1315-ITEMEVIDENCESUBJECT1`：最终 `SetResult` 项仍显示 `orchestrator.go:4602`，而同轮精确 advisory 已给同主体候选
+   `:4532`；`:4602` 实际是 `SetExploreBudget`。现有软 advisory 与 citation rebinding 没有使最终 item label、evidence id 和可见引用同主体
+   闭合。该项先独立审计 precise signal 与误拒风险，不与 B1314 混批，不以答案 prose 关键词做硬门。
+
+状态：
+
+`r830=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1313=implementation-green/production-witness-still-pending`；
+`B1314=confirmed/P1-next`；
+`label-pair-capability=executor+lease-present/producer-delta-missing`；
+`B1315=confirmed-visible-contradiction/pending-signal-audit`；
+`system-edge/relation/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r830`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r830`。
+
 ### §123.1351 B1313：参与者边界 same-generation 局部动作通道（2026-08-21）
 
 1. 本批实现 producer-owned `diagram_boundary_edits`：participant validator 的精确 mismatch 被铸成同代 opaque
