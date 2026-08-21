@@ -57291,6 +57291,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1351 B1313：参与者边界 same-generation 局部动作通道（2026-08-21）
+
+1. 本批实现 producer-owned `diagram_boundary_edits`：participant validator 的精确 mismatch 被铸成同代 opaque
+   `boundary_ref`，动态 schema 只发布该 ref 当前可执行的单一动作。`stale_boundary_for_connected_participant` 与
+   `unknown_or_context_only_boundary` 只允许 `remove_boundary`；`missing_unproven_boundary` 只允许
+   `add_unproven`；`duplicate_unproven_boundary` 只允许 `deduplicate_boundary`。identity、endpoint、component 或
+   typed-edge 问题仍须模型先修改可见图，不会被包装成一个语义不完整的边界动作。
+2. 边界能力与 relation repair lease 共享一个不可变 patch generation，但权限彼此分离。relation ref 不能改边界，boundary ref
+   不能创建、删除、反转或标注 Mermaid 边；stale/cross-generation/unknown/ref 重用、动作不匹配、跨整表替换冲突均 fail-closed。
+   executor 只对 ref 指定的 participant 行做 add/remove/deduplicate，并保留未提及的边界、Mermaid body、typed anchors、标签、
+   block 字段和 sibling blocks。
+3. 当当前代存在安全 boundary refs 时，schema 隐藏 `diagram_boundary_replacements`；boundary-only 代同时隐藏 edge/whole-block
+   mutation，避免模型复制整张旧数组。relation+boundary 联合修补代则精确并置两组 `oneOf` 分支，模型可以在一个原子 patch 中选择
+   `failure_ref + addition_ref + attach` 与 `boundary_ref + remove_boundary`，而不是先改关系再重发全量边界。没有安全局部 ref 的
+   identity/edge 修补仍保留既有模型自写图和整表车道，不会因局部能力而失去表达空间。
+4. finalizer 在 full-document 与 patch 两条 reject 车道都从 typed participant delta 安装 live refs，并把同一组 ref/action 写回
+   retry metadata；执行失败时 repair scope 继续携带当前边界 delta，避免下一轮只能猜。整个判定不读取用户请求、模型 thinking、最终
+   prose 或 Mermaid message 文案，不通过名字、语言或单个 eval 类型选择动作，系统也不代写关系、业务标签、布局和结论。
+5. 新增回归覆盖 safe issue/action 映射、非安全问题不铸 ref、ref 稳定与换代失效、动态 schema 精确分支、局部 add/remove/dedup
+   保留 sibling、生产 patch 接线、full/patch retry ref 一致，以及同一事务 attach 现有可见 A→B 后只保留一条关系并删除指定边界。
+   联合事务测试按 Mermaid 解析后的关系语义断言，不绑定某一种空格排版。
+6. 验证：`git diff --check` 通过；`go test ./internal/types ./internal/tool ./internal/agent -count=1` 通过（types
+   22.840s、tool 178.893s、agent 13.495s）；`go test ./... -count=1` 全仓通过（含 hitraceconv 97.733s、tool
+   200.638s、tracequery 85.663s、tracediag 13.096s）；`make` 通过。下一步从本提交构建不可变二进制，严格并发 2 路回放
+   read+Trace，验收生产链是否减少整表复制与拒绝，同时保持显式窗因果投影、自动补采、链上-only 根因、业务线索和双账户完整。
+
+状态：
+
+`B1313=implemented/full-suite-green/pending-production-replay`；
+`participant-boundary-capability=same-generation-ref+model-selected-local-action`；
+`safe-actions=add_unproven|remove_boundary|deduplicate_boundary`；
+`identity-or-visible-edge-repair=model-authored-existing-lane`；
+`joint-relation+boundary-transaction=typed-regression-positive`；
+`system-edge/relation/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1350 r829：B1312 生产转正；参与者边界仍以整表替换放大联合修补心智（2026-08-21）
 
 1. 从已推送 `16390da79` 重建不可变二进制，严格并发恰好 2 路复放 read 图表用例与显式窗 Trace 用例，runner 2/2 PASS：Trace

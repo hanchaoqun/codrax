@@ -1965,3 +1965,116 @@ func TestRelabelAtomicMermaidEdgeLine_AllSupportedFamilies(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyModelAuthoredDiagramAtomicEdits_BoundaryRefsPreserveUnmentionedRowsAndGraph(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A-->|work|B"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "work",
+		}},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{
+			{Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven},
+			{Participant: "Keep", Status: types.DiagramParticipantBoundaryUnproven},
+		},
+	}}}
+	lease := types.WithAnswerDiagramParticipantBoundaryRepairFailures(prev, nil,
+		[]types.AnswerDiagramParticipantBoundaryRepairFailure{
+			{BlockID: "flow", Participant: "Analyzer", Issue: "stale_boundary_for_connected_participant"},
+			{BlockID: "flow", Participant: "Mutable", Issue: "missing_unproven_boundary"},
+		})
+	if lease == nil || len(lease.ParticipantBoundaryFailures) != 2 {
+		t.Fatalf("test setup: expected two boundary refs: %+v", lease)
+	}
+	byParticipant := make(map[string]types.AnswerDiagramParticipantBoundaryRepairFailure)
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		byParticipant[failure.Participant] = failure
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		prev, patch, nil, nil,
+		[]emitAnswerDiagramBoundaryEdit{
+			{BoundaryRef: byParticipant["Analyzer"].BoundaryRef, Action: "remove_boundary"},
+			{BoundaryRef: byParticipant["Mutable"].BoundaryRef, Action: "add_unproven"},
+		}, nil, nil, lease,
+	)
+	if err != nil {
+		t.Fatalf("exact boundary refs should execute: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("expected one compiled local block replacement: %+v", patch.ReplaceBlocks)
+	}
+	got := patch.ReplaceBlocks[0]
+	if got.Diagram == nil || got.Diagram.Body != prev.Blocks[0].Diagram.Body ||
+		len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0] != prev.Blocks[0].EdgeAnchors[0] {
+		t.Fatalf("boundary refs must preserve visible graph and typed anchors: %+v", got)
+	}
+	if len(got.ParticipantBoundaries) != 2 || got.ParticipantBoundaries[0].Participant != "Keep" ||
+		got.ParticipantBoundaries[1].Participant != "Mutable" {
+		t.Fatalf("only selected boundary rows may change: %+v", got.ParticipantBoundaries)
+	}
+
+	stale := *prev
+	stale.Blocks = append([]types.AnswerBlock(nil), prev.Blocks...)
+	stale.Blocks[0].ParticipantBoundaries = append(
+		append([]types.DiagramParticipantBoundary(nil), prev.Blocks[0].ParticipantBoundaries...),
+		types.DiagramParticipantBoundary{Participant: "Other", Status: types.DiagramParticipantBoundaryUnproven},
+	)
+	err = applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		&stale, &types.AnswerDocumentV2Patch{}, nil, nil,
+		[]emitAnswerDiagramBoundaryEdit{{BoundaryRef: byParticipant["Analyzer"].BoundaryRef, Action: "remove_boundary"}},
+		nil, nil, lease,
+	)
+	if err == nil || !strings.Contains(err.Error(), "current boundary generation") {
+		t.Fatalf("a ref rebound to another boundary generation must fail closed: %v", err)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AttachAndBoundaryRefShareOneTransaction(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A-->|next|B"},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+	}}}
+	relationLease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B",
+			FromIdentity: "Analyzer", ToIdentity: "Explorer", RelationKind: types.DiagramRelPrecedence,
+			BodyOccurrence: 1,
+		}}, []types.AnswerDiagramRelationRepairCandidate{{
+			BlockID: "flow", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, Source: "internal/orchestrator/topology.go:1",
+		}})
+	lease := types.WithAnswerDiagramParticipantBoundaryRepairFailures(prev, relationLease,
+		[]types.AnswerDiagramParticipantBoundaryRepairFailure{{
+			BlockID: "flow", Participant: "Analyzer", Issue: "stale_boundary_for_connected_participant",
+		}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 ||
+		len(lease.ParticipantBoundaryFailures) != 1 ||
+		!lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("test setup: expected attach plus boundary capabilities: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		prev, patch,
+		[]emitAnswerDiagramEdgeEdit{{
+			FailureRef: lease.Failures[0].FailureRef, AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+			Action: "attach", Edge: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", VisibleLabel: "next"},
+		}}, nil,
+		[]emitAnswerDiagramBoundaryEdit{{
+			BoundaryRef: lease.ParticipantBoundaryFailures[0].BoundaryRef, Action: "remove_boundary",
+		}}, nil, nil, lease,
+	)
+	if err != nil {
+		t.Fatalf("joint attach+boundary transaction should execute: %v", err)
+	}
+	visibleEdges := mermaidcompat.ParseEdges(patch.ReplaceBlocks[0].Diagram.Body)
+	if len(patch.ReplaceBlocks) != 1 || len(patch.ReplaceBlocks[0].EdgeAnchors) != 1 ||
+		len(patch.ReplaceBlocks[0].ParticipantBoundaries) != 0 || len(visibleEdges) != 1 ||
+		visibleEdges[0].From != "A" || visibleEdges[0].To != "B" {
+		t.Fatalf("joint transaction must attach in place and remove only selected boundary: %+v", patch.ReplaceBlocks)
+	}
+}

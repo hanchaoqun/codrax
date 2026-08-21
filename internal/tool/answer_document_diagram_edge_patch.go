@@ -57,10 +57,26 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipants(
 	lease *types.AnswerDiagramRelationRepairLease,
 	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
 ) error {
+	return applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		prev, patch, edits, boundaries, nil, participantEdits, protectedParticipants, lease, stagePrecedenceOpt...,
+	)
+}
+
+func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+	prev *types.AnswerDocumentV2,
+	patch *types.AnswerDocumentV2Patch,
+	edits []emitAnswerDiagramEdgeEdit,
+	boundaries []emitAnswerDiagramBoundaryReplacement,
+	boundaryEdits []emitAnswerDiagramBoundaryEdit,
+	participantEdits []emitAnswerDiagramParticipantEdit,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
+) error {
 	if prev == nil || patch == nil {
 		return fmt.Errorf("previous answer and patch are required")
 	}
-	if len(edits) == 0 && len(boundaries) == 0 && len(participantEdits) == 0 {
+	if len(edits) == 0 && len(boundaries) == 0 && len(boundaryEdits) == 0 && len(participantEdits) == 0 {
 		return nil
 	}
 	if len(edits) > maxModelAuthoredDiagramEdgeEdits {
@@ -98,7 +114,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipants(
 	}
 
 	working := make(map[string]types.AnswerBlock)
-	order := make([]string, 0, len(edits)+len(boundaries)+len(participantEdits))
+	order := make([]string, 0, len(edits)+len(boundaries)+len(boundaryEdits)+len(participantEdits))
 	usedFailureRefs := make(map[string]bool, len(edits))
 	usedAdditionRefs := make(map[string]bool, len(edits))
 	loadBlock := func(blockID string, index int, field string, requireDiagram bool) (types.AnswerBlock, error) {
@@ -258,6 +274,87 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipants(
 		block.ParticipantBoundaries = append([]types.DiagramParticipantBoundary(nil), replacement.ParticipantBoundaries...)
 		working[blockID] = block
 	}
+	usedBoundaryRefs := make(map[string]bool, len(boundaryEdits))
+	for i, edit := range boundaryEdits {
+		ref := strings.TrimSpace(edit.BoundaryRef)
+		action := strings.TrimSpace(edit.Action)
+		if ref == "" || action == "" {
+			return fmt.Errorf("diagram_boundary_edits[%d] requires boundary_ref and action", i)
+		}
+		if usedBoundaryRefs[ref] {
+			return fmt.Errorf("diagram_boundary_edits[%d] reuses boundary_ref=%q", i, ref)
+		}
+		usedBoundaryRefs[ref] = true
+		var failure *types.AnswerDiagramParticipantBoundaryRepairFailure
+		if lease != nil {
+			for j := range lease.ParticipantBoundaryFailures {
+				if strings.TrimSpace(lease.ParticipantBoundaryFailures[j].BoundaryRef) == ref {
+					failure = &lease.ParticipantBoundaryFailures[j]
+					break
+				}
+			}
+		}
+		if failure == nil || !failure.AllowsBoundaryAction(action) {
+			return fmt.Errorf("diagram_boundary_edits[%d] boundary_ref=%q is stale, unknown, or does not allow action=%q", i, ref, action)
+		}
+		blockID := strings.TrimSpace(failure.BlockID)
+		if boundarySeen[blockID] {
+			return fmt.Errorf("diagram_boundary_edits[%d] block_id=%q conflicts with diagram_boundary_replacements", i, blockID)
+		}
+		block, err := loadBlock(blockID, i, "diagram_boundary_edits", true)
+		if err != nil {
+			return err
+		}
+		immutableBase, baseOK := previous[blockID]
+		if !baseOK || ambiguous[blockID] {
+			return fmt.Errorf("diagram_boundary_edits[%d] boundary_ref=%q has no unique immutable base", i, ref)
+		}
+		if got := types.AnswerDiagramParticipantBoundaryFingerprint(immutableBase.ParticipantBoundaries); got == "" || got != failure.BaseBoundaryFingerprint {
+			return fmt.Errorf("diagram_boundary_edits[%d] boundary_ref=%q does not match the current boundary generation", i, ref)
+		}
+		participant := strings.TrimSpace(failure.Participant)
+		matches := make([]int, 0, 2)
+		for j, boundary := range block.ParticipantBoundaries {
+			if strings.EqualFold(strings.TrimSpace(boundary.Participant), participant) {
+				matches = append(matches, j)
+			}
+		}
+		switch types.AnswerDiagramParticipantBoundaryRepairAction(action) {
+		case types.AnswerDiagramParticipantBoundaryRepairAddUnproven:
+			if len(matches) != 0 {
+				return fmt.Errorf("diagram_boundary_edits[%d] add_unproven requires participant=%q to be absent", i, participant)
+			}
+			block.ParticipantBoundaries = append(block.ParticipantBoundaries, types.DiagramParticipantBoundary{
+				Participant: participant, Status: types.DiagramParticipantBoundaryUnproven,
+			})
+		case types.AnswerDiagramParticipantBoundaryRepairRemove:
+			if len(matches) != 1 {
+				return fmt.Errorf("diagram_boundary_edits[%d] remove_boundary requires exactly one participant=%q row", i, participant)
+			}
+			at := matches[0]
+			block.ParticipantBoundaries = append(block.ParticipantBoundaries[:at], block.ParticipantBoundaries[at+1:]...)
+		case types.AnswerDiagramParticipantBoundaryRepairDeduplicate:
+			if len(matches) < 2 {
+				return fmt.Errorf("diagram_boundary_edits[%d] deduplicate_boundary requires duplicate participant=%q rows", i, participant)
+			}
+			kept := false
+			out := make([]types.DiagramParticipantBoundary, 0, len(block.ParticipantBoundaries)-len(matches)+1)
+			for _, boundary := range block.ParticipantBoundaries {
+				if !strings.EqualFold(strings.TrimSpace(boundary.Participant), participant) {
+					out = append(out, boundary)
+					continue
+				}
+				if !kept {
+					out = append(out, boundary)
+					kept = true
+				}
+			}
+			block.ParticipantBoundaries = out
+		default:
+			return fmt.Errorf("diagram_boundary_edits[%d] action=%q is invalid", i, action)
+		}
+		working[blockID] = block
+	}
 	participantSeen := make(map[string]bool, len(participantEdits))
 	for i, edit := range participantEdits {
 		blockID := strings.TrimSpace(edit.BlockID)
@@ -322,6 +419,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipants(
 func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 	out := in
 	out.EdgeAnchors = append([]types.DiagramEdgeAnchor(nil), in.EdgeAnchors...)
+	out.ParticipantBoundaries = append([]types.DiagramParticipantBoundary(nil), in.ParticipantBoundaries...)
 	if in.Diagram != nil {
 		diagram := *in.Diagram
 		out.Diagram = &diagram

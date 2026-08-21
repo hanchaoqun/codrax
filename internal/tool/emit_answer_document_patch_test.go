@@ -226,6 +226,51 @@ func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement
 	}
 }
 
+func TestEmitAnswerDocumentPatch_BoundaryRefExecutesThroughProductionTool(t *testing.T) {
+	mut := types.NewMutableState("boundary repair")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A-->|work|B"},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+				RelationKind: types.DiagramRelPrecedence, VisibleLabel: "work",
+			}},
+			ParticipantBoundaries: []types.DiagramParticipantBoundary{
+				{Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven},
+				{Participant: "Keep", Status: types.DiagramParticipantBoundaryUnproven},
+			},
+		},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	lease := types.WithAnswerDiagramParticipantBoundaryRepairFailures(base, nil,
+		[]types.AnswerDiagramParticipantBoundaryRepairFailure{{
+			BlockID: "flow", Participant: "Analyzer", Issue: "stale_boundary_for_connected_participant",
+		}})
+	if lease == nil || len(lease.ParticipantBoundaryFailures) != 1 {
+		t.Fatalf("test setup: expected one boundary capability: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{Mutable: mut}
+	params := fmt.Sprintf(`{"unchanged_block_ids":["summary"],"diagram_boundary_edits":[{"boundary_ref":%q,"action":"remove_boundary"}]}`,
+		lease.ParticipantBoundaryFailures[0].BoundaryRef)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+	if err != nil || !res.Success {
+		t.Fatalf("production patch tool should execute the exact local boundary branch: res=%+v err=%v", res, err)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || len(got.Blocks[1].ParticipantBoundaries) != 1 ||
+		got.Blocks[1].ParticipantBoundaries[0].Participant != "Keep" ||
+		got.Blocks[1].Diagram == nil || got.Blocks[1].Diagram.Body != base.Blocks[1].Diagram.Body ||
+		len(got.Blocks[1].EdgeAnchors) != 1 {
+		t.Fatalf("production boundary patch must preserve graph and unmentioned row: %+v", got)
+	}
+	if live := mut.AnswerDiagramRelationRepairLease(); live != nil {
+		t.Fatalf("validated boundary generation must be consumed: %+v", live)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLease(t *testing.T) {
 	mut := types.NewMutableState("relation repair")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{

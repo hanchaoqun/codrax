@@ -219,6 +219,61 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranchesOnly(t *testing.T) {
+	base := atomicPatchTestDocument()
+	for i := range base.Blocks {
+		if base.Blocks[i].ID == "diag" {
+			base.Blocks[i].ParticipantBoundaries = []types.DiagramParticipantBoundary{
+				{Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven},
+				{Participant: "Keep", Status: types.DiagramParticipantBoundaryUnproven},
+			}
+		}
+	}
+	lease := types.WithAnswerDiagramParticipantBoundaryRepairFailures(base, nil,
+		[]types.AnswerDiagramParticipantBoundaryRepairFailure{
+			{BlockID: "diag", Participant: "Analyzer", Issue: "stale_boundary_for_connected_participant"},
+			{BlockID: "diag", Participant: "Explorer", Issue: "missing_unproven_boundary"},
+		})
+	if lease == nil || len(lease.ParticipantBoundaryFailures) != 2 {
+		t.Fatalf("test setup: expected two boundary capabilities: %+v", lease)
+	}
+	mut := types.NewMutableState("boundary schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	for _, forbidden := range []string{"replace_blocks", "add_blocks", "remove_block_ids", "diagram_boundary_replacements", "diagram_edge_edits"} {
+		if _, exists := props[forbidden]; exists {
+			t.Fatalf("boundary-only generation must hide broader capability %q: %v", forbidden, props)
+		}
+	}
+	field := props["diagram_boundary_edits"].(map[string]any)
+	branches := field["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 2 || field["minItems"] != float64(1) || field["maxItems"] != float64(2) {
+		t.Fatalf("expected two exact boundary branches: %+v", field)
+	}
+	want := make(map[string]string)
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		want[failure.BoundaryRef] = string(failure.AllowedBoundaryActions[0])
+	}
+	for _, rawBranch := range branches {
+		branch := rawBranch.(map[string]any)
+		if branch["additionalProperties"] != false {
+			t.Fatalf("boundary branch must reject unadvertised coordinates: %+v", branch)
+		}
+		branchProps := branch["properties"].(map[string]any)
+		ref := branchProps["boundary_ref"].(map[string]any)["enum"].([]any)[0].(string)
+		action := branchProps["action"].(map[string]any)["enum"].([]any)[0].(string)
+		if want[ref] != action {
+			t.Fatalf("schema branch is not lease-owned: ref=%q action=%q want=%v", ref, action, want)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachNotDuplicateAdd(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

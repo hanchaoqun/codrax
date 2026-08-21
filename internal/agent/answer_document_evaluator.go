@@ -16940,6 +16940,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// failure cannot turn a local diagram fix into a cross-kind graph rewrite.
 	if e.diagramRequired {
 		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
 	// Honor the same rejectHintBudget the legacy reject-hint path
 	// uses. Re-firing the patch nudge alongside legacy rejects
@@ -17058,11 +17059,15 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	if e.diagramRequired {
+		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
+	}
 	// When one validator pass already knows both participant and relation
 	// defects, keep them in the same retry generation. Serially selecting the
 	// participant lane hides live failure refs that the model could have fixed
 	// in the same atomic patch, guaranteeing another reject for no new evidence.
-	if e.diagramRequired && installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult) {
+	if e.diagramRequired && ctx != nil && ctx.Mutable != nil && ctx.Mutable.AnswerDiagramRelationRepairLease() != nil {
 		if hint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, true); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
@@ -17106,7 +17111,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		e.preferPatchNext = true
 		hint := strings.TrimSpace(repair.Hint)
 		hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
-		hint += " Submit one patch that lists every current block id in `unchanged_block_ids` and contains no `diagram_edge_edits`; this preserves the model-authored draft byte-for-byte while the ordinary validators establish a fresh lease only if needed. Do not write free-form prose outside the tool call."
+		hint += " Submit one patch that lists every current block id in `unchanged_block_ids` and contains no `diagram_edge_edits` or `diagram_boundary_edits`; this preserves the model-authored draft byte-for-byte while the ordinary validators establish a fresh lease only if needed. Do not write free-form prose outside the tool call."
 		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
 		return LoopSignal{
 			HintRequested: true, HintKey: "answer_doc.patch_relation_lease_absent",
@@ -17605,9 +17610,11 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 type answerDocDiagramParticipantRepairDelta struct {
 	Version    int `json:"version"`
 	Mismatches []struct {
-		BlockID     string `json:"block_id,omitempty"`
-		Participant string `json:"participant"`
-		Issue       string `json:"issue"`
+		BlockID                string                                               `json:"block_id,omitempty"`
+		Participant            string                                               `json:"participant"`
+		Issue                  string                                               `json:"issue"`
+		BoundaryRef            string                                               `json:"boundary_ref,omitempty"`
+		AllowedBoundaryActions []types.AnswerDiagramParticipantBoundaryRepairAction `json:"allowed_boundary_actions,omitempty"`
 	} `json:"mismatches"`
 	Actions           string `json:"actions,omitempty"`
 	Candidates        string `json:"candidates,omitempty"`
@@ -17642,6 +17649,72 @@ func parseAnswerDocDiagramParticipantRepairDelta(result *types.ToolResult) (answ
 		}
 	}
 	return delta, raw, true
+}
+
+// installAnswerDocDiagramParticipantBoundaryRepairLease converts only
+// producer-owned participant mismatch rows into generation-scoped local
+// boundary capabilities. Rows that require a visible graph change receive no
+// boundary ref; no action is inferred from request or answer prose.
+func installAnswerDocDiagramParticipantBoundaryRepairLease(ctx *types.AgentContext, primary *types.MutableState, result *types.ToolResult) bool {
+	delta, _, ok := parseAnswerDocDiagramParticipantRepairDelta(result)
+	if !ok {
+		return false
+	}
+	var base *types.AnswerDocumentV2
+	if ctx != nil && ctx.Mutable != nil {
+		base = answerDocumentPatchBaseDocumentInMutable(ctx.Mutable)
+	}
+	if base == nil {
+		base = answerDocumentPatchBaseDocumentInMutable(primary)
+	}
+	if base == nil {
+		return false
+	}
+	var current *types.AnswerDiagramRelationRepairLease
+	if ctx != nil && ctx.Mutable != nil {
+		current = ctx.Mutable.AnswerDiagramRelationRepairLease()
+	}
+	if current == nil && primary != nil {
+		current = primary.AnswerDiagramRelationRepairLease()
+	}
+	inputs := make([]types.AnswerDiagramParticipantBoundaryRepairFailure, 0, len(delta.Mismatches))
+	for _, mismatch := range delta.Mismatches {
+		inputs = append(inputs, types.AnswerDiagramParticipantBoundaryRepairFailure{
+			BlockID: mismatch.BlockID, Participant: mismatch.Participant, Issue: mismatch.Issue,
+		})
+	}
+	lease := types.WithAnswerDiagramParticipantBoundaryRepairFailures(base, current, inputs)
+	if lease == nil || len(lease.ParticipantBoundaryFailures) == 0 {
+		return false
+	}
+	byKey := make(map[string]types.AnswerDiagramParticipantBoundaryRepairFailure, len(lease.ParticipantBoundaryFailures))
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		key := strings.ToLower(strings.TrimSpace(failure.BlockID)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(failure.Participant)) + "\x00" + strings.TrimSpace(failure.Issue)
+		byKey[key] = failure
+	}
+	for i := range delta.Mismatches {
+		key := strings.ToLower(strings.TrimSpace(delta.Mismatches[i].BlockID)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(delta.Mismatches[i].Participant)) + "\x00" + strings.TrimSpace(delta.Mismatches[i].Issue)
+		if failure, exists := byKey[key]; exists {
+			delta.Mismatches[i].BoundaryRef = failure.BoundaryRef
+			delta.Mismatches[i].AllowedBoundaryActions = append(
+				[]types.AnswerDiagramParticipantBoundaryRepairAction(nil), failure.AllowedBoundaryActions...,
+			)
+		}
+	}
+	raw, err := json.Marshal(delta)
+	if err != nil || len(raw) > 32*1024 {
+		return false
+	}
+	result.Repair.Metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON] = string(raw)
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetAnswerDiagramRelationRepairLease(lease)
+	}
+	if primary != nil && (ctx == nil || primary != ctx.Mutable) {
+		primary.SetAnswerDiagramRelationRepairLease(lease)
+	}
+	return true
 }
 
 func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerDocDiagramRelationRepairDelta, []byte, bool) {
@@ -17690,7 +17763,7 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 // its boundary and edge operations in one atomic patch. It never chooses an
 // action, edge, label, relation, participant layout, or answer conclusion.
 func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
-	_, participantRaw, participantOK := parseAnswerDocDiagramParticipantRepairDelta(result)
+	participantDelta, participantRaw, participantOK := parseAnswerDocDiagramParticipantRepairDelta(result)
 	relationDelta, relationRaw, relationOK := parseAnswerDocDiagramRelationRepairDelta(result)
 	if !participantOK || !relationOK {
 		return "", false
@@ -17702,6 +17775,13 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 		action = "Keep using `emit_answer_document_patch`"
 	}
 	var b strings.Builder
+	hasBoundaryRefs := false
+	for _, mismatch := range participantDelta.Mismatches {
+		if strings.TrimSpace(mismatch.BoundaryRef) != "" && len(mismatch.AllowedBoundaryActions) > 0 {
+			hasBoundaryRefs = true
+			break
+		}
+	}
 	b.WriteString(prefix)
 	if len(relationDelta.Failures) == 0 {
 		b.WriteString(" by one local participant-coverage defect whose exact typed candidate now has a current-generation atomic addition capability. ")
@@ -17710,9 +17790,18 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 	}
 	b.WriteString(action)
 	if len(relationDelta.Failures) == 0 {
-		b.WriteString(" and repair the participant delta with the matching current-generation allowed addition in ONE atomic patch. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; do not re-emit the whole diagram through `replace_blocks`. Follow only the exact participant mismatch/action/candidate row. Select the matching permission with `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}`; the ref supplies only hidden typed relation identity while you author both visible endpoints and the business label. Keep every unlisted edge because preserve_unlisted_edges=true, and retain inherited sibling/citation content. ")
+		if hasBoundaryRefs {
+			b.WriteString(" and repair the participant delta with the exact current-generation capabilities. Use a published `{boundary_ref,action}` branch for a boundary-only row and the matching `{addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}` branch only when a typed incident edge is needed. `diagram_boundary_edits` and `diagram_edge_edits` may appear together; do not re-emit the whole diagram through `replace_blocks`. The refs supply only their typed hidden carriers; you still choose each action and author both visible endpoints and the business label for every relation addition. Keep every unlisted edge and boundary, and retain inherited sibling/citation content. ")
+		} else {
+			b.WriteString(" and repair the participant delta with the matching current-generation allowed addition in ONE atomic patch. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; do not re-emit the whole diagram through `replace_blocks`. Follow only the exact participant mismatch/action/candidate row. Select the matching permission with `{addition_ref, action:\"add\", edge:{from_node,to_node,visible_label}}`; the ref supplies only hidden typed relation identity while you author both visible endpoints and the business label. Keep every unlisted edge because preserve_unlisted_edges=true, and retain inherited sibling/citation content. ")
+		}
 	} else {
-		b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. Do not repair one family while carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. For relation_delta, choose exactly one current tool-schema branch. A failure-only branch uses its displayed action; an addition-only branch adds the selected candidate with model-authored from_node/to_node/visible_label; an action=attach branch exists only when the schema explicitly pairs one failure_ref and one addition_ref for an existing visible edge, and it requires both refs plus the model-authored edge fields. Do not invent or combine refs outside a published branch. If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and retain inherited sibling/citation content. ")
+		if hasBoundaryRefs {
+			b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_edits` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. A participant mismatch with a published boundary_ref must use only its exact current action branch; rows without a boundary_ref still require the listed model-authored visible graph repair. A candidate is permission, not a required edge. ")
+		} else {
+			b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. Do not repair one family while carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. ")
+		}
+		b.WriteString("For relation_delta, choose exactly one current tool-schema branch. A failure-only branch uses its displayed action; an addition-only branch adds the selected candidate with model-authored from_node/to_node/visible_label; an action=attach branch exists only when the schema explicitly pairs one failure_ref and one addition_ref for an existing visible edge, and it requires both refs plus the model-authored edge fields. Do not invent or combine refs outside a published branch. If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and preserve every unmentioned boundary; retain inherited sibling/citation content. ")
 	}
 	b.WriteString("You still own every action, visible node/edge, business wording, order, grouping, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n{\"participant_delta\":")
 	b.WriteString(participantRaw)
@@ -17730,7 +17819,7 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 // participant candidate on each patch retry. The JSON remains guidance only:
 // the model chooses any candidate and authors every visible node/edge/label.
 func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
-	_, raw, ok := parseAnswerDocDiagramParticipantRepairDelta(result)
+	delta, raw, ok := parseAnswerDocDiagramParticipantRepairDelta(result)
 	if !ok {
 		return "", false
 	}
@@ -17744,7 +17833,18 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 	b.WriteString(prefix)
 	b.WriteString(" by a local required-diagram participant/edge mismatch. ")
 	b.WriteString(action)
-	b.WriteString("; prefer `diagram_boundary_replacements` when only participant_boundaries change, and combine it with `diagram_edge_edits` only when you explicitly select one of the typed candidates below. Do not re-emit the whole diagram in `replace_blocks` for this local repair. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Apply only the producer-owned delta below. Preserve every visible edge and anchor not named by the immediately preceding tool error; that error remains the authority for any separately listed failing edge pair. A candidate is an existing typed choice, not a required edge: select at most one candidate needed for each failed participant, copy its canonical identities/relation kind/direction unchanged, and author the visible business wording yourself. If no candidate applies, keep the participant visible and use the delta's unproven-boundary action instead of inventing a bridge. Action names, issue values, recipe indexes, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	hasBoundaryRefs := false
+	for _, mismatch := range delta.Mismatches {
+		if strings.TrimSpace(mismatch.BoundaryRef) != "" && len(mismatch.AllowedBoundaryActions) > 0 {
+			hasBoundaryRefs = true
+			break
+		}
+	}
+	if hasBoundaryRefs {
+		b.WriteString("; use `diagram_boundary_edits` for every mismatch row that publishes a boundary_ref/action branch, and combine it with `diagram_edge_edits` only when you explicitly select one of the typed candidates below. The current tool schema is the executable authority; do not replace the whole participant_boundaries array or re-emit the diagram through `replace_blocks` when a local ref is published. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Apply only the producer-owned delta below. Preserve every visible edge, anchor, and unmentioned boundary. A candidate is an existing typed choice, not a required edge: select at most one candidate needed for each failed participant, keep its canonical identities/relation kind/direction, and author the visible business wording yourself. If no candidate applies and no boundary ref is published, keep the participant visible and follow the typed structural action without inventing a bridge. Action names, issue values, refs, recipe indexes, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	} else {
+		b.WriteString("; prefer `diagram_boundary_replacements` when only participant_boundaries change, and combine it with `diagram_edge_edits` only when you explicitly select one of the typed candidates below. Do not re-emit the whole diagram in `replace_blocks` for this local repair. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Apply only the producer-owned delta below. Preserve every visible edge and anchor not named by the immediately preceding tool error; that error remains the authority for any separately listed failing edge pair. A candidate is an existing typed choice, not a required edge: select at most one candidate needed for each failed participant, copy its canonical identities/relation kind/direction unchanged, and author the visible business wording yourself. If no candidate applies, keep the participant visible and use the delta's unproven-boundary action instead of inventing a bridge. Action names, issue values, recipe indexes, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	}
 	b.WriteString(raw)
 	b.WriteString("\n```\n\n")
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
@@ -18252,6 +18352,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
 	if hasPatchBase && e.diagramRequired {
 		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
 	hint := answerDocDefaultFullRejectHint(hasPatchBase)
 	reasonKey := "tool-reject"

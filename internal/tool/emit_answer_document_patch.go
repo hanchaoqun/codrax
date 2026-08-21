@@ -56,7 +56,8 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. A live `attach` branch pairs one exact visible-body failure_ref with one exact typed addition_ref; select both refs and author edge.from_node/to_node/visible_label, so the existing model-authored edge receives that chosen typed relation without adding a duplicate edge. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
-		"- `diagram_boundary_replacements`: model-authored replacement of only `participant_boundaries` on an existing diagram block. Use this for a participant coverage retry so the prior Mermaid body, relations, labels, and other block fields remain untouched.\n" +
+		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
+		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
 		"- `diagram_participant_edits`: model-authored disposition of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row. If your same-patch edge edits leave that candidate isolated, explicitly choose remove_if_isolated, or retain_as_context with a non-empty model-authored visible_label. The executor rejects requested/boundary participants, uncovered or remaining edges, and ambiguous declarations. The system never chooses the disposition or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
@@ -160,6 +161,19 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
         "required": ["block_id", "participant_boundaries"]
       }
     },
+    "diagram_boundary_edits": {
+      "type": "array",
+      "maxItems": 128,
+      "description": "Generation-scoped local participant-boundary edits. Available only when the current schema publishes exact boundary_ref/action branches; the system changes no edge, relation, label, layout, or conclusion.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "boundary_ref": {"type": "string"},
+          "action": {"type": "string", "enum": ["add_unproven", "remove_boundary", "deduplicate_boundary"]}
+        },
+        "required": ["boundary_ref", "action"]
+      }
+    },
     "diagram_participant_edits": {
       "type": "array",
       "maxItems": 64,
@@ -247,7 +261,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		return t.Description()
 	}
 	return "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
-		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or an action=attach pair that binds both refs to one existing visible edge; author every visible endpoint and label required by that branch. " +
+		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, an action=attach pair that binds both refs to one existing visible edge, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. " +
 		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, relation kinds, and whole-block mutations are unavailable in this dispatch. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
@@ -280,6 +294,7 @@ func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage
 	delete(items, "anyOf")
 	edgeEdits["description"] = "Atomic model-authored relation edits for an existing block. block_id and action are required. Supply the complete local match for relabel/remove/replace and the complete model-authored edge for replace/add. No generation-scoped opaque selector or participant-cleanup choice is available in this dispatch. The system applies only the declared operation and never chooses an edge, relation, visible label, layout, or conclusion."
 	delete(properties, "diagram_participant_edits")
+	delete(properties, "diagram_boundary_edits")
 	out, err := json.Marshal(root)
 	if err != nil || !json.Valid(out) {
 		return raw
@@ -308,22 +323,43 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if properties == nil {
 		return raw
 	}
-	branches, ok := localDiagramLeaseExecutableEdgeBranches(lease, targets)
-	if !ok || len(branches) == 0 {
+	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, targets)
+	boundaryBranches, boundaryOK := localDiagramLeaseExecutableBoundaryBranches(lease, targets)
+	if !edgeOK && !boundaryOK {
 		return raw
 	}
 	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
 		delete(properties, field)
 	}
 	edgeEdits, _ := properties["diagram_edge_edits"].(map[string]any)
-	if edgeEdits == nil {
-		return raw
+	if edgeOK && len(branches) > 0 {
+		if edgeEdits == nil {
+			return raw
+		}
+		edgeEdits["minItems"] = 1
+		edgeEdits["maxItems"] = len(lease.Failures) + len(lease.AllowedAdditions)
+		edgeEdits["uniqueItems"] = true
+		edgeEdits["description"] = "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition/attach endpoints and all visible labels remain model-authored. attach is available only as an exact paired failure_ref+addition_ref branch for one existing visible edge and does not add a duplicate body edge. Omitted legacy coordinates and hidden identity fields are unavailable."
+		edgeEdits["items"] = map[string]any{"oneOf": branches}
+	} else {
+		delete(properties, "diagram_edge_edits")
 	}
-	edgeEdits["minItems"] = 1
-	edgeEdits["maxItems"] = len(lease.Failures) + len(lease.AllowedAdditions)
-	edgeEdits["uniqueItems"] = true
-	edgeEdits["description"] = "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition/attach endpoints and all visible labels remain model-authored. attach is available only as an exact paired failure_ref+addition_ref branch for one existing visible edge and does not add a duplicate body edge. Omitted legacy coordinates and hidden identity fields are unavailable."
-	edgeEdits["items"] = map[string]any{"oneOf": branches}
+	if boundaryOK && len(boundaryBranches) > 0 {
+		boundaryEdits, _ := properties["diagram_boundary_edits"].(map[string]any)
+		if boundaryEdits == nil {
+			return raw
+		}
+		boundaryEdits["minItems"] = 1
+		boundaryEdits["maxItems"] = len(lease.ParticipantBoundaryFailures)
+		boundaryEdits["uniqueItems"] = true
+		boundaryEdits["description"] = "Choose exact current boundary_ref/action branches. Each branch changes only one typed participant-boundary row on the immutable patch base; unmentioned boundaries and every visible graph carrier are preserved."
+		boundaryEdits["items"] = map[string]any{"oneOf": boundaryBranches}
+		// A live local boundary capability supersedes the error-prone whole-array
+		// replacement surface for the same generation.
+		delete(properties, "diagram_boundary_replacements")
+	} else {
+		delete(properties, "diagram_boundary_edits")
+	}
 
 	if boundaries, ok := properties["diagram_boundary_replacements"].(map[string]any); ok {
 		item, _ := boundaries["items"].(map[string]any)
@@ -365,7 +401,42 @@ func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLe
 			return false
 		}
 	}
-	return len(lease.Failures)+len(lease.AllowedAdditions) > 0
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		if !targetSet[strings.TrimSpace(failure.BlockID)] || strings.TrimSpace(failure.BoundaryRef) == "" ||
+			len(failure.AllowedBoundaryActions) == 0 {
+			return false
+		}
+	}
+	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures) > 0
+}
+
+func localDiagramLeaseExecutableBoundaryBranches(
+	lease *types.AnswerDiagramRelationRepairLease,
+	targets []string,
+) ([]any, bool) {
+	if lease == nil || !localDiagramLeaseRowsAllTargeted(lease, targets) || len(lease.ParticipantBoundaryFailures) == 0 {
+		return nil, false
+	}
+	seen := make(map[string]bool, len(lease.ParticipantBoundaryFailures))
+	branches := make([]any, 0, len(lease.ParticipantBoundaryFailures))
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		ref := strings.TrimSpace(failure.BoundaryRef)
+		if ref == "" || seen[ref] || len(failure.AllowedBoundaryActions) != 1 {
+			return nil, false
+		}
+		seen[ref] = true
+		action := strings.TrimSpace(string(failure.AllowedBoundaryActions[0]))
+		branches = append(branches, map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"boundary_ref": map[string]any{"type": "string", "enum": []any{ref}},
+				"action":       map[string]any{"type": "string", "enum": []any{action}},
+			},
+			"required": []any{"boundary_ref", "action"},
+		})
+	}
+	return branches, len(branches) > 0
 }
 
 func localDiagramLeaseExecutableEdgeBranches(
@@ -546,7 +617,7 @@ func stringsToAny(in []string) []any {
 
 func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
 	if lease == nil || lease.Version != 1 ||
-		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0) {
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0) {
 		return nil
 	}
 	diagramBlocks := make(map[string]bool, len(lease.Blocks))
@@ -561,8 +632,8 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 		}
 		diagramBlocks[id] = block.Kind == types.BlockDiagram
 	}
-	seen := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions))
-	out := make([]string, 0, len(lease.Failures)+len(lease.AllowedAdditions))
+	seen := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures))
+	out := make([]string, 0, len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures))
 	for _, failure := range lease.Failures {
 		id := strings.TrimSpace(failure.BlockID)
 		if id == "" || strings.TrimSpace(failure.FailureRef) == "" ||
@@ -589,6 +660,19 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 			!candidate.RelationKind.IsValid() || strings.TrimSpace(candidate.FromIdentity) == "" ||
 			strings.TrimSpace(candidate.ToIdentity) == "" || strings.TrimSpace(candidate.Source) == "" {
 			// A malformed lease must not narrow a hard tool surface.
+			return nil
+		}
+		if ambiguousBlocks[id] || !diagramBlocks[id] {
+			continue
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		id := strings.TrimSpace(failure.BlockID)
+		if id == "" || strings.TrimSpace(failure.BoundaryRef) == "" || len(failure.AllowedBoundaryActions) == 0 {
 			return nil
 		}
 		if ambiguousBlocks[id] || !diagramBlocks[id] {
@@ -648,6 +732,7 @@ type emitAnswerDocumentPatchParams struct {
 	RemoveBlockIDs               []string                               `json:"remove_block_ids,omitempty"`
 	DiagramEdgeEdits             []emitAnswerDiagramEdgeEdit            `json:"diagram_edge_edits,omitempty"`
 	DiagramBoundaryReplacements  []emitAnswerDiagramBoundaryReplacement `json:"diagram_boundary_replacements,omitempty"`
+	DiagramBoundaryEdits         []emitAnswerDiagramBoundaryEdit        `json:"diagram_boundary_edits,omitempty"`
 	DiagramParticipantEdits      []emitAnswerDiagramParticipantEdit     `json:"diagram_participant_edits,omitempty"`
 	ReplaceCitations             []emitAnswerCitationV2                 `json:"replace_citations,omitempty"`
 	AppendCitations              []emitAnswerCitationV2                 `json:"append_citations,omitempty"`
@@ -679,6 +764,11 @@ type emitAnswerDiagramEdgeEdit struct {
 type emitAnswerDiagramBoundaryReplacement struct {
 	BlockID               string                             `json:"block_id"`
 	ParticipantBoundaries []types.DiagramParticipantBoundary `json:"participant_boundaries"`
+}
+
+type emitAnswerDiagramBoundaryEdit struct {
+	BoundaryRef string `json:"boundary_ref"`
+	Action      string `json:"action"`
 }
 
 type emitAnswerDiagramParticipantEdit struct {
@@ -872,7 +962,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
-	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramParticipantEdits) > 0 {
+	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
 		view := types.BuildAnswerSemanticViewForBusContext(ctx)
 		stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
 		protectedParticipants := make([]string, 0)
@@ -883,9 +973,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				}
 			}
 		}
-		if err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+		if err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements,
-			p.DiagramParticipantEdits, protectedParticipants, lease, stagePrecedence,
+			p.DiagramBoundaryEdits, p.DiagramParticipantEdits, protectedParticipants, lease, stagePrecedence,
 		); err != nil {
 			// A live relation lease is the current generation's complete
 			// capability surface. Returning only the first executor error here
@@ -896,11 +986,14 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			// or rewrite any model-authored operation or visible relation.
 			if lease != nil {
 				repair := answerDiagramRelationRepairScopeRepair(lease, nil)
-				repair.Fields = []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_participant_edits"}
+				repair.Fields = []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_boundary_edits", "diagram_participant_edits"}
 				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. Re-read the complete current typed delta and choose only live failure_ref/actions or listed additions; do not guess, silently drop, or widen operations."
 				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
 			}
 			if repair := answerDiagramRelationRepairLeaseAbsentRepair(p.DiagramEdgeEdits); repair != nil {
+				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
+			}
+			if repair := answerDiagramBoundaryRepairLeaseAbsentRepair(p.DiagramBoundaryEdits); repair != nil {
 				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
 			}
 			return failEmit(t.Name(), now, "diagram atomic edits: %s", err.Error())
@@ -1075,6 +1168,26 @@ func answerDiagramRelationRepairLeaseAbsentRepair(edits []emitAnswerDiagramEdgeE
 	}
 }
 
+func answerDiagramBoundaryRepairLeaseAbsentRepair(edits []emitAnswerDiagramBoundaryEdit) *types.ToolRepair {
+	fields := make([]string, 0, len(edits))
+	for i, edit := range edits {
+		if strings.TrimSpace(edit.BoundaryRef) != "" {
+			fields = append(fields, fmt.Sprintf("diagram_boundary_edits[%d].boundary_ref", i))
+		}
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeAnswerDocRelationRepairLeaseAbsent,
+		Fields: fields,
+		Hint:   "No participant-boundary repair lease is active for the current patch base. Every historical boundary_ref is invalid; do not guess or reuse one.",
+		Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairLeaseStatus: "absent",
+		},
+	}
+}
+
 // validateAndConsumeAnswerDiagramRelationRepairLease applies one precise
 // retry-generation contract. A scope violation retains the lease so the model
 // can retry the same local correction. Once a merged patch satisfies that
@@ -1130,6 +1243,21 @@ func answerDiagramRelationRepairScopeRepair(
 		}
 		if raw, err := json.Marshal(delta); err == nil {
 			metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = string(raw)
+		}
+		if len(lease.ParticipantBoundaryFailures) > 0 {
+			participantDelta := struct {
+				Version    int                                                   `json:"version"`
+				Mismatches []types.AnswerDiagramParticipantBoundaryRepairFailure `json:"mismatches"`
+			}{
+				Version: 1,
+				Mismatches: append(
+					[]types.AnswerDiagramParticipantBoundaryRepairFailure(nil),
+					lease.ParticipantBoundaryFailures...,
+				),
+			}
+			if raw, err := json.Marshal(participantDelta); err == nil {
+				metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON] = string(raw)
+			}
 		}
 	}
 	return &types.ToolRepair{

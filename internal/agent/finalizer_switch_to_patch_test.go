@@ -1113,6 +1113,56 @@ func TestRequiredDiagramParticipantOnlyCandidateGetsLiveSameGenerationAdditionRe
 	}
 }
 
+func TestRequiredDiagramStaleBoundariesGetLiveLocalRefsOnFullAndPatchRejects(t *testing.T) {
+	const delta = `{"version":1,"mismatches":[{"block_id":"flow","participant":"Analyzer","issue":"stale_boundary_for_connected_participant"},{"block_id":"flow","participant":"Explorer","issue":"stale_boundary_for_connected_participant"}],"actions":"remove_stale_boundary"}`
+	for _, toolName := range []string{"emit_answer_document", "emit_answer_document_patch"} {
+		t.Run(toolName, func(t *testing.T) {
+			mut := types.NewMutableState("participant boundary refs")
+			mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+				{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+				{ID: "flow", Kind: types.BlockDiagram,
+					Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n Analyzer --> Explorer"},
+					ParticipantBoundaries: []types.DiagramParticipantBoundary{
+						{Participant: "Analyzer", Status: types.DiagramParticipantBoundaryUnproven},
+						{Participant: "Explorer", Status: types.DiagramParticipantBoundaryUnproven},
+						{Participant: "Keep", Status: types.DiagramParticipantBoundaryUnproven},
+					},
+				},
+			}})
+			ctx := &types.AgentContext{Mutable: mut}
+			result := &types.ToolResult{ToolName: toolName, Success: false, Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: delta,
+					"violation_kinds":                       string(types.ViolDiagramParticipantCoverage),
+					types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+				},
+			}}
+			e := &answerDocumentEvaluator{diagramRequired: true, mu: mut}
+			var signal LoopSignal
+			if toolName == "emit_answer_document" {
+				signal = e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+			} else {
+				signal = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+			}
+			lease := mut.AnswerDiagramRelationRepairLease()
+			if !signal.HintRequested || lease == nil || len(lease.ParticipantBoundaryFailures) != 2 {
+				t.Fatalf("stale boundaries must install two live local capabilities: signal=%+v lease=%+v", signal, lease)
+			}
+			for _, failure := range lease.ParticipantBoundaryFailures {
+				if failure.BoundaryRef == "" || !strings.Contains(signal.Hint, `"boundary_ref":"`+failure.BoundaryRef+`"`) ||
+					!failure.AllowsBoundaryAction("remove_boundary") {
+					t.Fatalf("hint and executor must share the exact ref/action: failure=%+v hint=%s", failure, signal.Hint)
+				}
+			}
+			if !strings.Contains(signal.Hint, "diagram_boundary_edits") ||
+				strings.Contains(signal.Hint, "prefer `diagram_boundary_replacements` when only participant_boundaries change") {
+				t.Fatalf("local refs must supersede whole-array boundary teaching: %s", signal.Hint)
+			}
+		})
+	}
+}
+
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
 	const staleProducerRef = "rf1-000000000000000000000000"
 	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`

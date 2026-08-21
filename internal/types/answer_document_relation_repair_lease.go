@@ -682,11 +682,12 @@ type AnswerDiagramRelationRepairLeaseBlock struct {
 // relation remains unchanged. The lease never authors, deletes, relabels, or
 // reconnects an edge itself.
 type AnswerDiagramRelationRepairLease struct {
-	Version                int                                     `json:"version"`
-	Failures               []AnswerDiagramRelationRepairFailure    `json:"failures"`
-	AllowedAdditions       []AnswerDiagramRelationRepairCandidate  `json:"allowed_additions,omitempty"`
-	OptionalOrphanCleanups []AnswerDiagramOrphanCleanupCandidate   `json:"optional_orphan_cleanups,omitempty"`
-	Blocks                 []AnswerDiagramRelationRepairLeaseBlock `json:"blocks"`
+	Version                     int                                             `json:"version"`
+	Failures                    []AnswerDiagramRelationRepairFailure            `json:"failures"`
+	AllowedAdditions            []AnswerDiagramRelationRepairCandidate          `json:"allowed_additions,omitempty"`
+	OptionalOrphanCleanups      []AnswerDiagramOrphanCleanupCandidate           `json:"optional_orphan_cleanups,omitempty"`
+	ParticipantBoundaryFailures []AnswerDiagramParticipantBoundaryRepairFailure `json:"participant_boundary_failures,omitempty"`
+	Blocks                      []AnswerDiagramRelationRepairLeaseBlock         `json:"blocks"`
 }
 
 // AnswerDiagramRelationRepairScopeViolation is a compact typed explanation of
@@ -923,7 +924,7 @@ func answerDiagramRelationRepairCandidateRef(base *AnswerDocumentV2, candidate A
 // authority for whether a corrected relation is true.
 func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepairLease, merged *AnswerDocumentV2) []AnswerDiagramRelationRepairScopeViolation {
 	if lease == nil || lease.Version != 1 || merged == nil ||
-		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0) {
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0) {
 		return nil
 	}
 	resultBlocks := make(map[string][]DiagramEdgeAnchor, len(merged.Blocks))
@@ -1215,6 +1216,15 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 		}
 	}
 	out.AllowedAdditions = append([]AnswerDiagramRelationRepairCandidate(nil), in.AllowedAdditions...)
+	if len(in.ParticipantBoundaryFailures) > 0 {
+		out.ParticipantBoundaryFailures = make([]AnswerDiagramParticipantBoundaryRepairFailure, len(in.ParticipantBoundaryFailures))
+		for i, failure := range in.ParticipantBoundaryFailures {
+			out.ParticipantBoundaryFailures[i] = failure
+			out.ParticipantBoundaryFailures[i].AllowedBoundaryActions = append(
+				[]AnswerDiagramParticipantBoundaryRepairAction(nil), failure.AllowedBoundaryActions...,
+			)
+		}
+	}
 	if len(in.OptionalOrphanCleanups) > 0 {
 		out.OptionalOrphanCleanups = make([]AnswerDiagramOrphanCleanupCandidate, len(in.OptionalOrphanCleanups))
 		for i, candidate := range in.OptionalOrphanCleanups {
