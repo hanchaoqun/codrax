@@ -17060,15 +17060,16 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// migration.
 	if obs.LastToolResult.Repair != nil &&
 		obs.LastToolResult.Repair.Code == types.ToolRepairCodeAnswerDocRelationRepairScope {
-		if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
-			installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
-			e.rejectHintsUsed++
-			e.preferPatchNext = true
-			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
-			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
-			return LoopSignal{
-				HintRequested: true, HintKey: "answer_doc.patch_relation_repair_scope",
-				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+		if installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult) {
+			if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
+				e.rejectHintsUsed++
+				e.preferPatchNext = true
+				hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+				hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+				return LoopSignal{
+					HintRequested: true, HintKey: "answer_doc.patch_relation_repair_scope",
+					Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+				}
 			}
 		}
 	}
@@ -17114,19 +17115,20 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// place the required diagram, while the system stops teaching two subtly
 	// different JSON/identity forms in one dispatch.
 	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
-		if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
-			installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
-			e.rejectHintsUsed++
-			e.preferPatchNext = true
-			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
-			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
-			return LoopSignal{
-				HintRequested:  true,
-				HintKey:        "answer_doc.patch_required_diagram_relation_delta",
-				Hint:           hint,
-				Progress:       true,
-				BypassThrottle: true,
-				BypassBudget:   true,
+		if installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult) {
+			if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
+				e.rejectHintsUsed++
+				e.preferPatchNext = true
+				hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+				hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+				return LoopSignal{
+					HintRequested:  true,
+					HintKey:        "answer_doc.patch_required_diagram_relation_delta",
+					Hint:           hint,
+					Progress:       true,
+					BypassThrottle: true,
+					BypassBudget:   true,
+				}
 			}
 		}
 		if hint, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, true); ok {
@@ -17698,6 +17700,20 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 	if lease == nil {
 		return false
 	}
+	// Publish exactly the refs owned by the lease that the executor will read.
+	// The producer may have validated a deterministically normalized view while
+	// the patch base is the original rejected model carrier; refs from those two
+	// snapshots are intentionally different. Showing producer refs and then
+	// installing base-bound refs makes a byte-perfect model copy fail as stale.
+	// Rewriting only this typed retry metadata closes that split brain without
+	// touching Mermaid text, visible labels, answer prose, or model decisions.
+	delta.Failures = append([]types.AnswerDiagramRelationRepairFailure(nil), lease.Failures...)
+	delta.AllowedAdditions = append([]types.AnswerDiagramRelationRepairCandidate(nil), lease.AllowedAdditions...)
+	canonicalRaw, err := json.Marshal(delta)
+	if err != nil || len(canonicalRaw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return false
+	}
+	result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = string(canonicalRaw)
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.SetAnswerDiagramRelationRepairLease(lease)
 	}

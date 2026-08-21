@@ -985,7 +985,8 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 }
 
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
-	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
+	const staleProducerRef = "rf1-000000000000000000000000"
+	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`
 	result := func(toolName string) *types.ToolResult {
 		return &types.ToolResult{
 			ToolName: toolName, Success: false,
@@ -1034,13 +1035,26 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
 	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisFlow
 	patchEvaluator := &answerDocumentEvaluator{diagramRequired: true}
-	assertCompact(t, patchEvaluator.emitPatchRejectFullRewriteSignal(
-		ctx, LoopObservation{LastToolResult: result("emit_answer_document_patch")},
-	))
+	patchResult := result("emit_answer_document_patch")
+	patchSignal := patchEvaluator.emitPatchRejectFullRewriteSignal(
+		ctx, LoopObservation{LastToolResult: patchResult},
+	)
+	assertCompact(t, patchSignal)
 	if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease == nil || len(lease.Failures) != 1 ||
 		lease.Failures[0].FromNode != "BC" || len(lease.AllowedAdditions) != 1 ||
 		lease.AllowedAdditions[0].FromIdentity != "Orchestrator.applyStageOutput" {
 		t.Fatalf("compact relation lane must install the exact typed patch lease: %+v", lease)
+	} else {
+		if lease.Failures[0].FailureRef == "" || lease.Failures[0].FailureRef == staleProducerRef {
+			t.Fatalf("live lease must replace the producer snapshot ref: %+v", lease.Failures[0])
+		}
+		if !strings.Contains(patchSignal.Hint, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
+			strings.Contains(patchSignal.Hint, staleProducerRef) {
+			t.Fatalf("retry hint must publish only the executor's live lease ref %q:\n%s", lease.Failures[0].FailureRef, patchSignal.Hint)
+		}
+		if raw := patchResult.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; !strings.Contains(raw, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) || strings.Contains(raw, staleProducerRef) {
+			t.Fatalf("producer metadata must be canonicalized to the live lease ref: %s", raw)
+		}
 	}
 
 	fullEvaluator := &answerDocumentEvaluator{diagramRequired: true}

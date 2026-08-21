@@ -57398,6 +57398,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1294 r794 与 B1270A：失败引用获模型采用，但发布快照与执行租约分裂（2026-08-20）
+
+1. 以已推送 `6fa942116` 精确 HEAD 构建不可变二进制，严格并发恰好 2 路回放 read+Trace。Trace runner PASS（297s、7 次
+   `trace_query`、零 finalizer reject）；read runner FAIL（1109s、20 次 finalizer reject、19 次 patch、73% 上下文，降级旧稿）。两条
+   活动流都持续到正常终态或结构化重试预算终态，没有因 4ms、4m、首字节、stall 或累计年龄提前降级。
+2. B1270 的模型侧可用性获得明确正证：compact delta 给出 `failure_ref` 后，模型在两轮 patch 中都选择 `relabel` 并逐字复制三个 ref，
+   不再手抄 node/identity/occurrence 坐标。可是 executor 两轮都将这些 ref 拒绝为 `unknown or stale for the live relation-repair lease`。
+   因而 B1270 的局部编译器正确，但 production producer→prompt→lease 接线仍未闭环。
+3. 新 P0 `B1270A-LEASEPUBLISHEDREFSPLIT1` 根因已亲验：producer 在确定性规范化后的 `doc` 上铸造 delta ref；finalizer 随后在原始
+   rejected patch base 上重建 live lease。两个 typed anchor 快照可以不同，所以提示给模型的 ref 与 executor 实际接受的 ref 天生不一致；
+   两条 patch-reject 分支还先生成 hint、后安装 lease，进一步固定了陈旧值。这是系统合同 split-brain，不是模型波动。
+4. 根修形：所有 ref-based compact retry 必须先从 exact patch base 安装 live lease，再只把 repair metadata 中的 failures/allowed additions
+   规范化为该 lease 的结构化值，最后生成提示；安装失败时不得发 ref 提示。系统只同步 opaque selector，不读取 Mermaid 消息、可见标签、
+   用户请求、reasoning 或答案 prose，也不选择 relabel/remove/replace、不生成关系或业务词。unknown/stale/cross-block/duplicate 等执行门
+   继续 fail-closed。
+5. 回归新增陈旧 producer ref→live lease ref 的跨层钉：输入故意携带合法形但错误的旧 ref；断言 lease 重新铸造不同 ref、repair metadata
+   与实际 hint 只发布 executor 的 live ref、旧 ref 完全消失。关系 scope 重试与 required-diagram typed relation 重试统一为“先租约、后提示”；
+   既有 tool/type 测试继续覆盖模型复制 live ref 后的 exact remove/relabel/replace 与全部拒绝臂。
+6. Trace 人工判定 partial，但核心系统面继续为正：请求主窗 2.000..2.020s、自动补采、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳、11.000ms 链上 IO 主席、三个独立 1.000ms 调度/优先级候选、
+   实际占时/规则可消双账和 `Trace 因果投影` 均保留；邻近与背景没有升级为主因。
+7. `B1271-CALLSITEMORPHOLOGYDRIFT1` 获第三次生产复现：模型仍仅凭
+   `fscache_page_wait_on_page_bit` 名字扩写为 fscache 后端磁盘/网络机理，并从 cross-CPU 延伸 NUMA 排查，而 typed authority 明确没有
+   resource/subsystem/direct-competition 权限。下一批以调用点 observation 邻接的通用软边界处理，禁止扫或改写最终正文。中文主因说明又直接
+   复制 `kernel_wait_callsite`，加上既有 `complete`/`bounded_window_candidate` 见证，`B1272-TRACESTATUSLANG1` 升为 confirmed：
+   后续从 typed enum 单源提供读者语言 face，不用答案关键词硬门。
+8. read 恢复稿虽保留四阶段、语义表头和 sequenceDiagram，但它是最终结构化校验失败后的旧稿，且仍把多个阶段过度归给统一 dispatch
+   路径，不能以降级出厂代替正确答案。B1270A 修复推送后先做严格 2 路生产回放，再按 ROI 处理 B1271+B1272 的 typed 软上下文/展示批；
+   B1263 的阶段操作精度继续开放，禁止系统代写图或结论。
+
+状态：
+
+`r794=trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1270=core-correct/production-integration-split`；`B1270A=implemented/full-suite+CGO-build-pass/pending-production-replay`；
+`B1271=confirmed/P1-next`；`B1272=confirmed/P2-batch-with-B1271`；`B1263=confirmed/P1-open`；
+`failure-ref-publish=exact-live-lease-snapshot-only`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r794`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r794`。
+
 ### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
 
 1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace
