@@ -57291,6 +57291,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1291 r792：Trace 权威链保持；read 主机执行会话中断，不形成产品裁定（2026-08-20）
+
+1. 以已推送 `60c73e390` 构建不可变二进制，严格并发恰好 2 路启动同一 read+Trace 双例。Trace 在 212s 正常 PASS；read
+   在 317s 时仍处于 Explorer 第 13 轮的新模型请求，外层主机执行会话终止，未进入 Extract/Finalize、没有 answer document、没有产品
+   verdict。该行严格记为 `INCOMPLETE/inconclusive`，不能当作 B1268 成败或产品回归证据。
+2. read 终止前已形成 56 条 evidence、20 次 read、3 次 repo_map，最高上下文 43%。期间多次 provider 529 显著拖慢进程，但最后一条
+   日志是新请求已发出而非重试耗尽，因此不能把中断误归因为 provider exhaustion。也没有任何 4ms、4m、首字节、stall 或累计年龄策略
+   生成降级答案；本轮根本没有答案可降级。
+3. Trace 系统面继续稳定：显式 2.000..2.020s 用户窗、typed trace 查询、确定性自动补采、`Trace 因果投影`、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 已证方向、11.000ms 链上 IO 主席，以及三个独立 1.000ms
+   调度供给/优先级候选全部保留。sleep 只作状态/关键路径上下文，邻近与背景没有升级为主因。
+4. r791 的模型正文方向反写与“跨核即跨核通信瓶颈”没有重复；本轮逐边 waker->wakee 和 CPU 权限边界均正确，故
+   `B1269-WAKEUPPROSEAUTHORITYDRIFT1` 保持 `observed/pending-repeat`，不据单次波动扫描或改写最终 prose。另观察到模型把
+   `fscache_page_wait_on_page_bit` 调用点名称扩写为具体 fscache 模块语义；typed 输入已明确“调用点不是资源/子系统机理”，先记软教学
+   有效性观察，不新增答案硬门。
+5. B1268 在 read 终止前没有进入 finalizer，故没有生产触发。下一步重跑同一严格 2 路，并由宿主侧持续轮询保持执行会话；只在出现
+   `typed_anchor_without_visible_edge` 且模型完成 exact remove/replace 后，才可把 B1268 记作生产闭环。随后再处理 B1263 的 typed
+   表列/阶段角色上下文，仍禁止由系统代写表头或结论。
+
+状态：
+
+`r792=trace-pass+read-incomplete,human-trace-partial+read-inconclusive`；
+`B1268=implemented/full-suite-pass/pending-production-replay`；
+`B1269=observed-once/not-repeated/no-hard-gate`；`B1263=confirmed/P1-open`；
+`host-session-termination=no-product-verdict`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r792`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r792`。
+
 ### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
 
 1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace
