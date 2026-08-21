@@ -57322,6 +57322,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r792`。
 
+### §123.1292 r793：陈旧锚自冲突消失；关系修补缺少稳定失败引用导致新风暴（2026-08-20）
+
+1. 以已推送 `3cb0eb008` 精确 HEAD 重建不可变二进制，严格并发恰好 2 路并由宿主持续轮询。Trace PASS（212s）；read FAIL
+   （748s，20 次 finalizer reject、19 次 patch、65% 上下文，降级旧稿）。两路均完成正式 runner 终态，没有 4ms、4m、首字节、stall
+   或累计年龄触发的活动流降级。
+2. B1268 的原确定性自冲突没有再出现：lease 列出的 `typed_anchor_without_visible_edge` 已不再因正文缺边而报
+   `Mermaid body has no matching edge`。模型可选择 stale-anchor remove/restore 车道，executor 也进入 exact prior-anchor 匹配；因此核心
+   执行语义正确。但本轮没有完成一次 exact stale-anchor patch，生产闭环仍是 partial，不能只凭“旧错误消失”宣称 fully closed。
+3. 新 P0 `B1270-RELATIONFAILUREREF1`：当前局部关系 patch 要模型同时重抄可见 `from_node/to_node`、canonical
+   `from_identity/to_identity`、`relation_kind` 和可选 occurrence。失败提示又同时给 failure edge 与 typed candidate，两者合法地使用不同
+   node/identity 坐标；模型在大上下文中反复把 `Analyze/Analyzer/analyze/analyzer` 混用。任一字段错时执行器只报
+   `match did not select occurrence 1 of an exact prior anchor`，没有列出稳定、可直接选择的 exact prior anchor。模型遂误以为 rejected patch
+   已推进基线、全块重发、混用 atomic edits，再被局部 lease 拒绝，形成 20 轮风暴。
+4. B1270 最优形冻结：由 validator/lease 为每条失败关系铸造稳定、不可伪造、同轮有效的 `failure_ref`；patch 的 remove/relabel/replace
+   可由模型提交该 ref 选择 exact prior anchor，executor 从 lease 解引用后仍校验 block、issue、方向、relation 与 replacement 完整性。
+   ref 只替代坐标重抄，不替模型选择删/改/恢复，不生成可见边或标签；缺失、过期、跨 block、重复消费、非 lease ref 均 fail-closed。
+   旧显式 match 保持兼容，并把“不命中”诊断补成有界 exact prior-anchor roster。禁止读取 Mermaid 消息、用户请求、reasoning 或最终 prose。
+5. read 恢复稿表头已由“列2…”改善为语义列，B1263 的显示子面有正证；但正文和图仍错误宣称
+   `Orchestrator.dispatchStage` 统一调度 Analyze/Explore/Extract/Finalize，Explore 的专用 window dispatch 被错误探索证据覆盖。该稿来自降级旧
+   draft，不能把系统恢复视为正确答案；B1263 继续按 typed stage-operation authority 修，不做 prose 扫描或系统代写。
+6. Trace 系统面继续完整：显式窗、自动补采、因果投影、四跳链、11.000ms IO 主席、三席 1.000ms 调度供给与背景隔离均正确。
+   r792/r793 连续两次出现同一模型越界：把 kernel call-site `fscache_page_wait_on_page_bit` 的名字扩写成具体 fscache 子系统、页面 IO
+   完成机理和文件/cache 修向，而 typed authority 明确没有 resource/subsystem identity。立
+   `B1271-CALLSITEMORPHOLOGYDRIFT1/P1-confirmed`：把调用点边界与 reader-language caveat 邻接到该 observation/席位上下文，仍只作软
+   事实教学，不扫描或改写模型正文。另记 `B1272-TRACESTATUSLANG1/P2`：中文正文复制 `complete` typed 状态，后续做 typed reader-language
+   映射，不以答案关键词硬门。
+7. 更正 r792：其 runner 父会话终止后，孤儿 codrax 子进程在 18:09:59 继续写出答案；该答案一次 full emit 因表行 citation index 被拒，
+   随后一份 table-only patch accepted，未触发 B1268。它可作为“阶段表头/职责可正常出厂”的辅助人工证据，但父 runner 已无正式 verdict，
+   故 §123.1291 的 `INCOMPLETE` 分类保持，不能回填成 PASS。
+
+状态：
+
+`r793=trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1268=core-correct/production-usability-partial`；
+`B1270=confirmed/P0-next`；`B1271=confirmed/P1-after-B1270`；`B1272=observed/P2`；
+`B1263=confirmed/P1-open`；`B1266=production-positive/transactional`；
+`failure-ref=model-selects-system-resolves-exact-lease-target`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r793`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r793`。
+
 ### §123.1254 r773 与 B1238：Trace 性能调用链被有限事实范围掏空（2026-08-20）
 
 1. 以 `d1eb281f2` 构建快照严格并发恰好 2 路：类型关系 256s（runner PASS、人工 partial），Trace
