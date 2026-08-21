@@ -57291,7 +57291,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
-### §123.1334 r815/B1299：B1298 纯形车道无回归；addition ref 教学与前置校验自冲突（2026-08-21）
+### §123.1334 r815：B1298 纯形车道无回归；addition ref 疑点经原始参数否证（2026-08-21）
 
 1. 从已推送 `ed147975f` 的不可变二进制严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 206s、read
    376s。两路活动模型流均自然完成，没有按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或系统代写答案。
@@ -57306,23 +57306,24 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `analyze -> explorer -> extractor -> finalizer` 三条 typed precedence；但 Orchestrator/BusContext/emit/finalizer 的实际交互边因缺少同向精确
    provider 被模型删除，图仍偏薄。现有源码 call 的具体端点与抽象 stage participant 不完全相同，本轮不放宽关系证据门，继续作为统一关系表达
    provider 的异构回放观察项。
-5. 新确认 P1 红线 `B1299-ADDITIONREFPREVALIDATION1`。同代 repair capsule 对每条 allowed addition 发布 live `addition_ref`，共享教学字面要求
-   模型提交 `{addition_ref, action:"add", edge:{from_node,to_node,visible_label}}`，并明确省略 `edge.relation_kind`，因为 ref 会恢复隐藏技术字段。
-   模型完全照此提交三条 precedence，执行器却先在 ref 解析/回填之前调用通用 edge shape 校验，以“edge requires from_node, to_node, and a valid
-   relation_kind”拒绝。下一轮模型只能违背教学，手工复制 `relation_kind=precedence` 才通过。这是同一结构化合同的必带/必拒冲突，不是 JSON 波动。
-6. 最优修向冻结为 ref-first 单权威：add operation 携带 live `addition_ref` 时，前置 shape 只验证模型拥有的可见字段
-   `from_node/to_node/visible_label`；随后解析同代 ref、校验 action/base/block/重复消费并从候选恢复 relation kind 与 canonical identities，最后对完整
-   normalized edge 运行现有严格校验。无 ref 的 legacy add 仍必须显式给全量 relation kind；模型若同时复制隐藏字段，只有逐字段恒等才吸收，冲突仍
-   fail-closed。不得从 Mermaid message、请求、thinking、最终答案或错误 prose 推断 relation。
+5. `B1299-ADDITIONREFPREVALIDATION1` 疑点经原始 tool 参数与代码双重否证，不立案。第二轮 thinking 虽声称要使用 live `addition_ref`，实际
+   `emit_answer_document_patch` JSON 的三条 add 均没有 `addition_ref`，只提交了 `block_id + edge`；这依法进入 legacy add，缺少完整
+   `relation_kind` 被拒是正确的。第三轮 JSON 才真正携带三个 live ref；它同时复制了 `relation_kind=precedence`，执行器按既有 ref 单权威隔离隐藏镜像后
+   成功。不能把 thinking 中的计划误当成结构化调用事实。
+6. 代码交叉核验确认正确顺序已经在场：`resolveAtomicDiagramFailureRef` 会先分派 `addition_ref` 到
+   `resolveAtomicDiagramAdditionRef`，由 live candidate 填回 block、relation kind 和 canonical identities，之后
+   `applyOneModelAuthoredDiagramEdgeEdit` 才运行完整 anchor 校验。单元测试和 `EmitAnswerDocumentPatch` 生产接线测试均以
+   `{addition_ref, edge:{from_node,to_node,visible_label}}`、不带 relation kind 的字面形通过，并覆盖 stale/duplicate/cross-block/ambiguous
+   fail-closed。该回合只算模型参数遗漏，暂不增加新硬门或 JSON 原文扫描。
 
 状态：
 
 `r815=runner-pass-2/2,human-trace-partial+read-partial`；
 `B1298=shape-debt-production-positive/semantic-grounding-isolation-tests-positive-production-trigger-pending`；
-`B1299=confirmed/P1-next`；
+`B1299=false-positive/denied-by-raw-tool-params+code+tests`；
 `addition-ref-teaching=visible-fields-only`；
-`current-prevalidation=incorrectly-requires-hidden-relation-kind-before-ref-resolution`；
-`target=resolve-live-ref->restore-hidden-fields->strict-normalized-validation`；
+`addition-ref-execution=resolve-live-ref->restore-hidden-fields->strict-normalized-validation/already-implemented`；
+`r815-second-patch=legacy-add-because-addition-ref-omitted/model-parameter-variance`；
 `system-edge/action/relation/label/layout/conclusion-selection=none`；
 `request/model/final-prose/mermaid-message/error-prose-hard-gate=none`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r815`；
