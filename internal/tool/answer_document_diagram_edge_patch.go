@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -31,6 +32,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 	edits []emitAnswerDiagramEdgeEdit,
 	boundaries []emitAnswerDiagramBoundaryReplacement,
 	lease *types.AnswerDiagramRelationRepairLease,
+	stagePrecedenceOpt ...[]stageauthority.PrecedenceRelation,
 ) error {
 	if prev == nil || patch == nil {
 		return fmt.Errorf("previous answer and patch are required")
@@ -40,6 +42,10 @@ func applyModelAuthoredDiagramAtomicEdits(
 	}
 	if len(edits) > maxModelAuthoredDiagramEdgeEdits {
 		return fmt.Errorf("too many edits: got %d, max %d", len(edits), maxModelAuthoredDiagramEdgeEdits)
+	}
+	var stagePrecedence []stageauthority.PrecedenceRelation
+	if len(stagePrecedenceOpt) > 0 {
+		stagePrecedence = stagePrecedenceOpt[0]
 	}
 	previous := make(map[string]types.AnswerBlock, len(prev.Blocks))
 	ambiguous := make(map[string]bool)
@@ -169,7 +175,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 		if err != nil {
 			return err
 		}
-		if err := applyOneModelAuthoredDiagramEdgeEdit(&block, edit, lease); err != nil {
+		if err := applyOneModelAuthoredDiagramEdgeEdit(&block, edit, lease, stagePrecedence); err != nil {
 			return fmt.Errorf("edit[%d] block_id=%q: %w", i, blockID, err)
 		}
 		working[blockID] = block
@@ -493,6 +499,7 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	block *types.AnswerBlock,
 	edit emitAnswerDiagramEdgeEdit,
 	lease *types.AnswerDiagramRelationRepairLease,
+	stagePrecedence []stageauthority.PrecedenceRelation,
 ) error {
 	if block == nil || block.Diagram == nil {
 		return fmt.Errorf("diagram carrier is unavailable")
@@ -517,6 +524,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		}
 		if edit.Match != nil {
 			return fmt.Errorf("action=add must omit match")
+		}
+		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
+			return err
 		}
 		if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
 			return err
@@ -713,6 +723,162 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
 	return nil
+}
+
+// canonicalizeAtomicSequenceAdditionNodeRefs prevents one typed endpoint from
+// being rendered twice under two Mermaid participant ids. Mermaid accepts an
+// undeclared message endpoint and silently creates an implicit participant;
+// after a local relation repair that can leave the original declared
+// participant disconnected beside a second implicit copy of the same stage or
+// code identity.
+//
+// This is a carrier-only normalization. It runs only when the sequence body
+// already contains explicit participant declarations and the model-authored
+// endpoint plus exactly one declaration both bind to the same hidden typed
+// endpoint. Read-stage alias families are admitted only for checkout-verified
+// precedence rows. Ambiguity fails closed; labels, direction, relation kind,
+// technical identities, participant membership, and answer prose are never
+// inferred or changed.
+func canonicalizeAtomicSequenceAdditionNodeRefs(
+	block *types.AnswerBlock,
+	edge *types.DiagramEdgeAnchor,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) error {
+	if block == nil || block.Diagram == nil || edge == nil ||
+		types.MermaidBodySyntaxFamily(block.Diagram.Body) != types.MermaidSyntaxSequence {
+		return nil
+	}
+	var declarations []mermaidcompat.NodeDecl
+	for _, line := range strings.Split(block.Diagram.Body, "\n") {
+		declarations = append(declarations, mermaidcompat.SequenceParticipantDeclarations(line)...)
+	}
+	if len(declarations) == 0 {
+		return nil
+	}
+	type endpoint struct {
+		name     string
+		node     *string
+		identity string
+	}
+	endpoints := []endpoint{
+		{name: "from_node", node: &edge.FromNode, identity: edge.FromIdentity},
+		{name: "to_node", node: &edge.ToNode, identity: edge.ToIdentity},
+	}
+	for _, item := range endpoints {
+		current := strings.TrimSpace(*item.node)
+		identity := strings.TrimSpace(item.identity)
+		if current == "" || identity == "" || atomicSequenceNodeIsDeclared(current, declarations) {
+			continue
+		}
+		canonical, matched, ambiguous := atomicSequenceUniqueDeclaredTypedNode(
+			current, identity, edge.RelationKind, declarations, stagePrecedence,
+		)
+		if ambiguous {
+			return fmt.Errorf(
+				"action=add edge.%s=%q resolves to the same typed endpoint %q as multiple declared sequence participants; use one exact declared participant id",
+				item.name, current, identity,
+			)
+		}
+		if matched {
+			*item.node = canonical
+		}
+	}
+	return nil
+}
+
+func atomicSequenceNodeIsDeclared(node string, declarations []mermaidcompat.NodeDecl) bool {
+	for _, declaration := range declarations {
+		if strings.EqualFold(strings.TrimSpace(declaration.Ident), strings.TrimSpace(node)) {
+			return true
+		}
+	}
+	return false
+}
+
+func atomicSequenceUniqueDeclaredTypedNode(
+	modelNode string,
+	endpointIdentity string,
+	relation types.DiagramRelationKind,
+	declarations []mermaidcompat.NodeDecl,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) (string, bool, bool) {
+	modelBindsGeneric := atomicSequenceSurfaceBindsEndpoint(modelNode, endpointIdentity)
+	targetStage, targetStageOK := "", false
+	modelStage, modelStageOK := "", false
+	if relation == types.DiagramRelPrecedence && len(stagePrecedence) > 0 {
+		targetStage, targetStageOK = atomicSequenceUniqueStageIdentity(stagePrecedence, endpointIdentity)
+		modelStage, modelStageOK = atomicSequenceUniqueStageIdentity(stagePrecedence, modelNode)
+	}
+	modelBindsStage := targetStageOK && modelStageOK && targetStage == modelStage
+	if !modelBindsGeneric && !modelBindsStage {
+		return "", false, false
+	}
+
+	matches := make(map[string]string)
+	for _, declaration := range declarations {
+		ident := strings.TrimSpace(declaration.Ident)
+		if ident == "" {
+			continue
+		}
+		declBinds := atomicSequenceSurfaceBindsEndpoint(ident, endpointIdentity) ||
+			atomicSequenceSurfaceBindsEndpoint(declaration.Label, endpointIdentity)
+		if !declBinds && targetStageOK {
+			if stage, ok := atomicSequenceUniqueStageIdentity(stagePrecedence, ident); ok && stage == targetStage {
+				declBinds = true
+			}
+			if !declBinds {
+				if stage, ok := atomicSequenceUniqueStageIdentity(stagePrecedence, declaration.Label); ok && stage == targetStage {
+					declBinds = true
+				}
+			}
+		}
+		if declBinds {
+			matches[strings.ToLower(ident)] = ident
+		}
+	}
+	if len(matches) == 0 {
+		return "", false, false
+	}
+	if len(matches) != 1 {
+		return "", false, true
+	}
+	for _, ident := range matches {
+		return ident, true, false
+	}
+	return "", false, false
+}
+
+func atomicSequenceSurfaceBindsEndpoint(surface, endpointIdentity string) bool {
+	surface = strings.TrimSpace(surface)
+	endpointIdentity = strings.TrimSpace(endpointIdentity)
+	return surface != "" && endpointIdentity != "" &&
+		(types.AnswerCodeIdentitySurfacesEquivalent(surface, endpointIdentity) ||
+			types.AnswerCodeIdentitySurfacesCompatible(surface, endpointIdentity) ||
+			types.AnswerCodeIdentityOwnsEndpoint(surface, endpointIdentity))
+}
+
+func atomicSequenceUniqueStageIdentity(relations []stageauthority.PrecedenceRelation, surface string) (string, bool) {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return "", false
+	}
+	matches := make(map[string]bool)
+	visit := func(row stageauthority.StageRow) {
+		if diagramStageRowIdentityMatches(row, surface) {
+			matches[row.StageIdent] = true
+		}
+	}
+	for _, relation := range relations {
+		visit(relation.From)
+		visit(relation.To)
+	}
+	if len(matches) != 1 {
+		return "", false
+	}
+	for stage := range matches {
+		return stage, true
+	}
+	return "", false
 }
 
 func atomicDiagramPriorAnchorRoster(lease *types.AnswerDiagramRelationRepairLease, blockID string) string {

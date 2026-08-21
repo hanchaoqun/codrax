@@ -3,10 +3,12 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -166,6 +168,179 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 			t.Fatalf("a ref cannot be combined with a different hidden identity: %v", err)
 		}
 	})
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefReusesUniqueDeclaredTypedParticipants(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    participant OC as Orchestrator\n" +
+		"    participant CTX as BusContext\n" +
+		"    participant ANA as StageAnalyze\n" +
+		"    participant EXP as StageExplore\n" +
+		"    participant EXT as StageExtract\n" +
+		"    participant FIN as StageFinalize\n"
+	prev.Blocks[1].EdgeAnchors = nil
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+		{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+		{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"},
+	}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1]},
+		{From: rows[1], To: rows[2]},
+		{From: rows[2], To: rows[3]},
+	}
+	candidates := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(precedence))
+	for _, relation := range precedence {
+		candidates = append(candidates, types.AnswerDiagramRelationRepairCandidate{
+			BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+			FromIdentity: relation.From.AgentValue, ToIdentity: relation.To.AgentValue,
+			Source: "checkout-stage-authority",
+		})
+	}
+	failures := []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "requested_stage_precedence_spine_incomplete",
+		FromNode: "StageAnalyze", ToNode: "StageFinalize", RelationKind: types.DiagramRelPrecedence,
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, failures, candidates)
+	if lease == nil || len(lease.AllowedAdditions) != 3 {
+		t.Fatalf("expected three referenced additions: %+v", lease)
+	}
+	modelNodes := [][2]string{{"analyze", "explorer"}, {"explorer", "extractor"}, {"extractor", "finalizer"}}
+	labels := []string{"确定分析范围后收集证据", "证据就绪后提炼事实", "结构化事实就绪后组织答案"}
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, 3)
+	for i := range lease.AllowedAdditions {
+		edits = append(edits, emitAnswerDiagramEdgeEdit{
+			Action: "add", AdditionRef: lease.AllowedAdditions[i].AdditionRef,
+			Edge: &types.DiagramEdgeAnchor{
+				FromNode: modelNodes[i][0], ToNode: modelNodes[i][1], VisibleLabel: labels[i],
+			},
+		})
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, edits, nil, lease, precedence); err != nil {
+		t.Fatalf("same typed stage aliases must canonicalize to the unique declared carriers: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	for _, want := range []string{
+		"ANA->>EXP: 确定分析范围后收集证据",
+		"EXP->>EXT: 证据就绪后提炼事实",
+		"EXT->>FIN: 结构化事实就绪后组织答案",
+	} {
+		if !strings.Contains(got.Diagram.Body, want) {
+			t.Fatalf("canonical declared participant edge %q missing:\n%s", want, got.Diagram.Body)
+		}
+	}
+	for _, forbidden := range []string{"analyze->>explorer", "explorer->>extractor", "extractor->>finalizer"} {
+		if strings.Contains(got.Diagram.Body, forbidden) {
+			t.Fatalf("implicit duplicate participant edge %q survived:\n%s", forbidden, got.Diagram.Body)
+		}
+	}
+	wantNodes := [][2]string{{"ANA", "EXP"}, {"EXP", "EXT"}, {"EXT", "FIN"}}
+	for i, anchor := range got.EdgeAnchors {
+		if anchor.FromNode != wantNodes[i][0] || anchor.ToNode != wantNodes[i][1] ||
+			anchor.FromIdentity != candidates[i].FromIdentity || anchor.ToIdentity != candidates[i].ToIdentity {
+			t.Fatalf("edge %d lost visible carrier closure or hidden authority: %+v", i, anchor)
+		}
+	}
+
+	t.Run("ambiguous duplicate declarations fail closed", func(t *testing.T) {
+		ambiguous := *prev
+		ambiguous.Blocks = append([]types.AnswerBlock(nil), prev.Blocks...)
+		block := ambiguous.Blocks[1]
+		diagram := *block.Diagram
+		diagram.Body = strings.Replace(diagram.Body, "    participant EXP as StageExplore\n", "    participant EXP as StageExplore\n    participant EXP2 as AgentExplorer\n", 1)
+		block.Diagram = &diagram
+		ambiguous.Blocks[1] = block
+		ambiguousLease := types.NewAnswerDiagramRelationRepairLease(&ambiguous, failures, candidates[:1])
+		gotPatch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEdits(&ambiguous, gotPatch, []emitAnswerDiagramEdgeEdit{{
+			Action: "add", AdditionRef: ambiguousLease.AllowedAdditions[0].AdditionRef,
+			Edge: &types.DiagramEdgeAnchor{FromNode: "analyze", ToNode: "explorer", VisibleLabel: labels[0]},
+		}}, nil, ambiguousLease, precedence)
+		if err == nil || !strings.Contains(err.Error(), "multiple declared sequence participants") {
+			t.Fatalf("ambiguous same-identity declarations must not be guessed: %v", err)
+		}
+	})
+}
+
+func TestEmitAnswerDocumentPatch_ProductionWiresDeclaredStageParticipantReuse(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    participant ANA as StageAnalyze\n" +
+		"    participant EXP as StageExplore\n" +
+		"    participant EXT as StageExtract\n" +
+		"    participant FIN as StageFinalize\n"
+	prev.Blocks[1].EdgeAnchors = nil
+	mut := types.NewMutableState("atomic declared stage participant production wiring")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	ctx := &types.BusContext{
+		RepoRoot: repoRoot,
+		Mode:     types.ModeRead,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true, Participants: []types.DiagramParticipantHint{
+				{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "explorer", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "extractor", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "finalizer", Role: types.DiagramParticipantIncidentRequired},
+			}},
+		}},
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	precedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
+	if len(precedence) != 3 {
+		t.Fatalf("production context must expose the three adjacent stage rows: %+v", precedence)
+	}
+	candidates := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(precedence))
+	for _, relation := range precedence {
+		candidates = append(candidates, types.AnswerDiagramRelationRepairCandidate{
+			BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+			FromIdentity: relation.From.AgentValue, ToIdentity: relation.To.AgentValue,
+			Source: "checkout-stage-authority",
+		})
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "requested_stage_precedence_spine_incomplete",
+			FromNode: "StageAnalyze", ToNode: "StageFinalize", RelationKind: types.DiagramRelPrecedence,
+		}}, candidates)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	if lease == nil || len(lease.AllowedAdditions) != 3 {
+		t.Fatalf("expected three live referenced additions: %+v", lease)
+	}
+	modelNodes := [][2]string{{"analyze", "explorer"}, {"explorer", "extractor"}, {"extractor", "finalizer"}}
+	labels := []string{"确定分析范围后收集证据", "证据就绪后提炼事实", "结构化事实就绪后组织答案"}
+	edits := make([]string, 0, 3)
+	for i, candidate := range lease.AllowedAdditions {
+		edits = append(edits, fmt.Sprintf(`{"action":"add","addition_ref":%q,"edge":{"from_node":%q,"to_node":%q,"visible_label":%q}}`,
+			candidate.AdditionRef, modelNodes[i][0], modelNodes[i][1], labels[i]))
+	}
+	params := json.RawMessage(`{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` + strings.Join(edits, ",") + `]}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("production patch wiring must reuse the declared stage carriers: err=%v res=%+v", err, res)
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("unexpected persisted document: %+v", doc)
+	}
+	body := doc.Blocks[1].Diagram.Body
+	for _, want := range []string{
+		"ANA->>EXP: 确定分析范围后收集证据",
+		"EXP->>EXT: 证据就绪后提炼事实",
+		"EXT->>FIN: 结构化事实就绪后组织答案",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("production wiring did not use declared participant edge %q:\n%s", want, body)
+		}
+	}
 }
 
 func TestApplyModelAuthoredDiagramAtomicEdits_RemovesTypedFailedAnchorWithoutBody(t *testing.T) {

@@ -57314,6 +57314,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r808`。
 
+### §123.1322 r809/B1292：原子新增关系复用同一 Mermaid participant 载体（2026-08-21）
+
+1. r809 从已推送 `main@256092360` 构建不可变二进制，严格并发恰好 2 路复放同一 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 217s、read 384s。Trace 系统面继续完整：显式 2.000..2.020s 主窗、四节点唤醒链、链上 11.000ms IO 第一席、三个互相独立的 1.000ms 反转候选、主要占时/规则可消双账、邻近/背景隔离和完整 `Trace 因果投影` 均在，活动流没有固定 4ms/4m 降级。
+2. Trace 人工判 partial 的原因仍是模型关系措辞越权：正文把三个不同上游等待写成“共同叠加出”20ms，并把 IO 写成“阻塞整链”，而 typed caveat 只证明链成员、时间交集与唤醒顺序，未提供三项墙钟可加或 IO 直接阻塞全链的权限。该项继续归入 B1269/B1271 的软引导残余；系统不得扫描正文硬拒或改写模型结论。
+3. read 最终表格和正文基本可用，且 B1288 首次取得完整生产正证：三次关系修补后，模型逐一消费 live `addition_ref`，原子执行成功补入 `analyzer -> explorer -> extractor -> finalizer` 三条 checkout-verified precedence，没有再发生 hidden identity 方言冲突。B1290 的畸形 enum 修复本轮未触发。analyzer 本轮显式发出了两个 `SubTopics`，所以不能把探索收敛归功于 B1291 的自动耦合逻辑；模型显式拆分权继续保留。
+4. 新 P1 `B1292-SEQUENCEPARTICIPANTCARRIERSPLIT1` 已确认。原图声明 `ANA as StageAnalyze`、`EXP as StageExplore`、`EXT as StageExtract`、`FIN as StageFinalize`；模型在 atomic add 中却把可见端点写成 `analyze/explorer/extractor/finalizer`。Mermaid 会为未声明的 message endpoint 自动创建隐式 participant，因此 typed anchor/precedence 校验已经通过，视觉图仍出现两套同义节点：原声明节点成为孤点，关系落在隐式节点上，看起来像“关系再次丢失”。
+5. 泛化根修位于原子新增关系编译边界：仅对已有显式 participant 声明的 `sequenceDiagram`，若模型端点与**唯一一个**声明 participant 都绑定同一个隐藏 typed endpoint，就把新增边的 node carrier 规范到该声明 ID。普通 code identity 继续使用既有 exact/compatible/owner 绑定；read stage alias 只在 checkout-verified precedence row 上成立。零匹配保持模型原值，多匹配歧义 fail-closed，禁止凭 participant 文案、业务词义、请求、thinking 或答案 prose 猜载体。
+6. 该规范化只改变 Mermaid 内部 node reference，模型选择的 relation、方向、visible label、顺序、布局意图、隐藏 identity、成员集合和正文均不变；系统不创建关系、不补造结论。JSON/tool 教学同步要求：sequence 已声明 participant 时，atomic add 复用准确声明 ID，避免模型无谓心智和隐式重复节点。回归钉住 r809 原形三边全部落到 ANA/EXP/EXT/FIN、隐藏 authority 不变，以及同一 typed endpoint 存在两个声明时必须拒绝而非猜测。
+7. 新增 helper 与生产 `EmitAnswerDocumentPatch.Execute` 接线 pin 均已通过；后者从真实 read-mode semantic view 取得 checkout-verified stage authority，并钉住三条 live ref 新增边全部复用既有 participant。`internal/tool` 完整包、`go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。下一步从精确提交构建不可变二进制执行 r810 两路回放；生产回放完成前不把 B1292 记为闭环。
+
+状态：
+
+`r809=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1288-addition-ref-atomic-execution=production-positive-r809`；
+`B1290=no-r809-production-trigger`；
+`B1291=no-r809-production-trigger/explicit-model-subtopics-preserved`；
+`B1292=implemented/production-wiring-pin+full-suite+build-pass/pending-replay`；
+`sequence-addition-node-carrier=unique-declared-same-typed-participant`；
+`zero-match=model-carrier-preserved,multi-match=fail-closed`；
+`system-relation/direction/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r809`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r809`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，
