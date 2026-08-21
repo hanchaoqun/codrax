@@ -178,6 +178,84 @@ func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement
 	}
 }
 
+func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLease(t *testing.T) {
+	mut := types.NewMutableState("relation repair")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: "sequenceDiagram\n A->>B: model relation",
+			},
+		},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "flow", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B",
+			RelationKind: types.DiagramRelCall,
+		}}, []types.AnswerDiagramRelationRepairCandidate{{
+			BlockID: "flow", FromIdentity: "Worker.Run", ToIdentity: "Sink.Store",
+			RelationKind: types.DiagramRelCall, Source: "worker.go:10-12",
+		}})
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("expected one live relation failure: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{Mutable: mut}
+	staleRef := "rf1-000000000000000000000000"
+
+	liveRef := lease.Failures[0].FailureRef
+	tests := []struct {
+		name        string
+		params      string
+		summaryWant string
+	}{
+		{
+			name: "stale ref",
+			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
+				`{"failure_ref":"` + staleRef + `","action":"remove"}]}`,
+			summaryWant: "unknown or stale",
+		},
+		{
+			name: "action outside live capability",
+			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
+				`{"failure_ref":"` + liveRef + `","action":"relabel","visible_label":"model wording"}]}`,
+			summaryWant: "does not allow action=relabel",
+		},
+		{
+			name: "selector conflicts with live ref",
+			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
+				`{"failure_ref":"` + liveRef + `","action":"remove","match":` +
+				`{"from_node":"X","to_node":"B","relation_kind":"call"}}]}`,
+			summaryWant: "already selects from_node",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(tc.params))
+			if err != nil {
+				t.Fatalf("unexpected execution error: %v", err)
+			}
+			if res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairScope {
+				t.Fatalf("invalid atomic edit must return the live typed repair capsule: %+v", res)
+			}
+			if !strings.Contains(res.Summary, tc.summaryWant) {
+				t.Fatalf("exact executor failure %q must remain visible in the summary: %s", tc.summaryWant, res.Summary)
+			}
+			raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+			if !strings.Contains(raw, `"failure_ref":"`+liveRef+`"`) ||
+				strings.Contains(raw, staleRef) || !strings.Contains(raw, `"allowed_additions"`) {
+				t.Fatalf("repair must republish the complete current lease and exclude stale refs: %s", raw)
+			}
+		})
+	}
+	if got := mut.AnswerDocumentV2(); got == nil || got.Blocks[1].Diagram.Body != base.Blocks[1].Diagram.Body {
+		t.Fatalf("rejected atomic edit must not mutate the accepted document: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RelationLeaseAllowsOnlyStructuredCandidateAddition(t *testing.T) {
 	bus := newPatchTestBusContext()
 	base := bus.Mutable.AnswerDocumentV2()

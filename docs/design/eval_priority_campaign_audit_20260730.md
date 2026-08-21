@@ -57337,6 +57337,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r805`。
 
+### §123.1316 B1286：原子编辑失败继续发布当前代完整 typed capability（2026-08-21）
+
+1. `B1286-LIVERELATIONDELTAONATOMICERROR1/P0` 已施工。`emit_answer_document_patch` 在 live relation lease 下调用 atomic compiler
+   失败时，不再只返回第一条纯文本参数错误；结果保留 executor 的精确摘要，同时以
+   `answer_doc_relation_repair_scope` ToolRepair 重新携带当前 lease 的完整 failures、allowed actions、allowed additions 和
+   `preserve_unlisted_edges=true`。finalizer retry 因而能一次重读当前 generation 的全部 refs，而不是逐条猜删上一代 ref。
+2. 该路径没有“自动容错”模型动作：系统不丢弃陈旧 ref、不改 action、不修 selector、不选择 allowed addition，也不触碰 Mermaid body、anchor、
+   label、业务节点、布局或答案结论。模型提交的失败 transaction 整体不落盘；当前 accepted/pending base 与 lease 保持不变。没有 live lease 的普通
+   atomic 参数错误继续走原有 failEmit，不凭错误字符串猜 relation authority。
+3. 回归覆盖三类生产失败：unknown/stale `failure_ref`、live ref 上未授权的 `relabel` action、live ref 与冗余 `match` 的 endpoint 冲突。
+   每类都必须同时满足：summary 保留具体失败；repair metadata 包含当前 live ref 和 allowed additions；陈旧 ref 不进入新 delta；已接受文档正文
+   字节不变。这样既给模型足够精确信息，也不放宽任何关系证据或 scope 门。
+4. focused tool/agent retry 路由测试、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一批独立施工 B1287 的 exact node-id
+   优先规则；B1286 不与 alias 修复合并提交，便于生产回放时分别判断“delta 是否齐全”和“normalizer 是否还自造失败”。
+
+状态：
+
+`B1286=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`atomic-error-summary=exact-executor-failure`；
+`atomic-error-repair=current-live-relation-delta`；
+`stale-ref/action/selector=not-auto-dropped-or-rewritten`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-text-as-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1313 r804：B1284 生产转正；局部图编辑与 unchanged 合同冲突确认 B1285（2026-08-21）
 
 1. 从已推送 `44bdc07bd` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace，runner 2/2 PASS：Trace 192s、read

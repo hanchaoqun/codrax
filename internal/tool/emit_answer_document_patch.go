@@ -554,6 +554,19 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 {
 		if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements, lease); err != nil {
+			// A live relation lease is the current generation's complete
+			// capability surface. Returning only the first executor error here
+			// strands the retry on an old failure_ref/action/selector while hiding
+			// every current ref that could replace it. Re-publish the unchanged
+			// typed lease together with the exact error summary. The evaluator can
+			// then render one bounded delta again; it still does not select, drop,
+			// or rewrite any model-authored operation or visible relation.
+			if lease != nil {
+				repair := answerDiagramRelationRepairScopeRepair(lease, nil)
+				repair.Fields = []string{"diagram_edge_edits", "diagram_boundary_replacements"}
+				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. Re-read the complete current typed delta and choose only live failure_ref/actions or listed additions; do not guess, silently drop, or widen operations."
+				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
+			}
 			return failEmit(t.Name(), now, "diagram atomic edits: %s", err.Error())
 		}
 	}
