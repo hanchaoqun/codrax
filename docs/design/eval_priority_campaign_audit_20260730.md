@@ -57339,6 +57339,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r809`。
 
+### §123.1323 r810/B1293：关系修复租约的共享载体事务与非图块能力闭包（2026-08-21）
+
+1. r810 从已推送 `main@760c5aa3e` 构建不可变二进制，严格并发恰好 2 路复放同一 read 图表与显式窗 Trace。Trace 207s PASS；read
+   1279s FAIL，累计 20 次 finalizer reject、19 次 patch、39 次 explorer iteration、26 次 read 和 7 次 history prune，最终只能降级展示首稿。
+   两路活动模型流都没有按 4ms、4m、首字节、stall、累计年龄或上下文比例提前降级；read 失败来自确定性修复合同不可执行，而非固定时间门。
+2. Trace 人工判 partial，但系统面完整且没有回归：显式 2.000..2.020s、四节点唤醒链、链上 11.000ms IO 第一席、三个各
+   1.000ms 的 runnable/优先级候选、主要占时/规则可消双账、邻近/背景隔离与完整 `Trace 因果投影` 均在。模型仍把 typed 时序/依赖边扩写为
+   “整条下游链被阻塞”和“跨 CPU 传递本身增加调度开销”，而同页 caveat 已承认缺少直接阻塞与工作完成证明；继续归入 B1269/B1271 软引导残余，
+   禁止系统扫描或改写正文结论。
+3. 新高杠杆 `B1293-RELATIONREPAIRLEASETRANSACTIONCLOSURE1/P1` 有两个同根生产 witness。第一，同一条 `Phase -> Fin` 可见 Mermaid
+   statement 同时承载 call 与 precedence 两条不同 typed anchor，validator 因而发布两个 live failure ref，且两行都允许模型 remove。模型按要求
+   同轮选择两个 ref 后，executor 却以“相同 body_occurrence”拒绝；只选一个会删除可见行和一个 anchor，另一个 failure 又残留。系统同时要求
+   “修完全部失败”和“禁止唯一能闭环的事务”，属于精确合同自冲突，不是模型波动。
+4. 第二，`ordered_list` 等非 diagram 块若携带错误 `edge_anchors`，validator 会诚实发布失败；旧 candidate 投影却把所有 failure block id
+   无差别送给 `allowed_additions`，给非图块发出 addition_ref。原子执行器只接受 diagram carrier，整块 replace 又被 local repair lease 禁止，形成
+   “已发布能力无法执行”的第二个闭环缺口。
+5. B1293 泛化根修保持模型所有权。若且仅若多个**不同 live failure ref** 精确选择同一 block/from/to/正 body occurrence，且模型对每行都明确选择
+   `action=remove`、不提交 replacement edge/label，编译器才把它们合成一个共享载体事务：可见 statement 删除一次，所有被模型选中的 exact typed
+   anchors 同时删除。remove/replace 混用、非 live ref、不同 locator、重复 typed target、metadata/stale/label carrier 和歧义仍 fail-closed；系统不选择
+   action、relation、direction、node、label、layout 或答案。
+6. 非图块失败在 producer 边界被标成 `prior_anchor_metadata`，只发布 exact remove；执行器可从该块删除唯一租约绑定 anchor，同时保持 kind、title、
+   text、items、surface role 等全部可见字段不变。`allowed_additions` 的 block targets 改为当前 rejected document 中唯一存在、具有非空 Mermaid body
+   的 diagram carriers；非图块、缺失 id、重复 id 均不得获得 addition_ref。失败本身仍保留，不能借过滤候选把错误元数据静默吞掉。
+7. JSON schema/tool/finalizer 教学同步到同一能力：共享 occurrence 若模型决定全删，应在一个 patch 中提交全部 ref；非图块只允许 metadata remove。
+   教学不要求模型机械删除，也不把 candidates 写成必选边。新增 production `EmitAnswerDocumentPatch.Execute` 回归钉住共享 call+precedence 双 ref 一次闭环、
+   remove/replace 冲突拒绝、ordered-list 可见内容字节语义保持，以及 additions 只投 diagram carrier。相关完整包、`go test ./... -count=1`、
+   `git diff --check` 与 CGO release-tag `make` 全绿；生产 r811 回放完成前保持 `implemented/pending-replay`，不虚报闭环。
+
+状态：
+
+`r810=runner-trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1292=no-r810-production-trigger/blocked-by-earlier-lease-conflict`；
+`B1293=implemented/relevant+full-suite+build-pass/production-replay-pending`；
+`shared-visible-carrier=all-selected-live-remove-refs/one-body-delete+all-selected-anchor-delete`；
+`mixed-action/ambiguous/stale/non-live=fail-closed`；
+`non-diagram-relation-repair=exact-prior-anchor-metadata-remove-only`；
+`allowed-addition-target=unique-existing-nonempty-diagram-carrier-only`；
+`system-relation/action/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r810`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r810`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

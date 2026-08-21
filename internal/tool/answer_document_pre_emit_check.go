@@ -5748,7 +5748,14 @@ func bindDiagramRelationRepairAnchorBodyCarrier(
 		}
 		block = &doc.Blocks[i]
 	}
-	if block == nil || block.Diagram == nil {
+	if block == nil {
+		return failure
+	}
+	if block.Kind != types.BlockDiagram || block.Diagram == nil {
+		// A relation anchor attached to a non-diagram block has no visible
+		// Mermaid occurrence. Publish only the exact metadata removal
+		// capability; never ask the model to invent or replace a diagram body.
+		failure.TargetCarrier = types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata
 		return failure
 	}
 	edges := mermaidcompat.ParseEdges(block.Diagram.Body)
@@ -5863,10 +5870,7 @@ func diagramRelationRepairDeltaJSON(
 		candidates = diagramRelationRepairLocalCandidateGuidance(
 			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, 4,
 		)
-		blockIDs := make([]string, 0, len(failures))
-		for _, failure := range failures {
-			blockIDs = append(blockIDs, failure.BlockID)
-		}
+		blockIDs := diagramRelationRepairAdditionTargetBlockIDs(doc, failures)
 		allowedAdditions = diagramRelationRepairAllowedAdditions(
 			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, 8,
 		)
@@ -5888,6 +5892,49 @@ func diagramRelationRepairDeltaJSON(
 		return ""
 	}
 	return string(raw)
+}
+
+// diagramRelationRepairAdditionTargetBlockIDs returns only exact existing
+// Mermaid carriers. Relation failures on non-diagram blocks remain visible so
+// their stale metadata can be removed, but they must never receive an
+// addition_ref: the atomic addition executor has no visible diagram body to
+// update and whole-block synthesis is outside a local repair lease.
+func diagramRelationRepairAdditionTargetBlockIDs(
+	doc *types.AnswerDocumentV2,
+	failures []diagramRelationRepairDeltaFailure,
+) []string {
+	if doc == nil || len(failures) == 0 {
+		return nil
+	}
+	targeted := make(map[string]bool, len(failures))
+	for _, failure := range failures {
+		if id := strings.TrimSpace(failure.BlockID); id != "" {
+			targeted[id] = true
+		}
+	}
+	type carrierState struct {
+		count   int
+		diagram bool
+	}
+	states := make(map[string]carrierState, len(targeted))
+	for _, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if !targeted[id] {
+			continue
+		}
+		state := states[id]
+		state.count++
+		state.diagram = state.diagram || (block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "")
+		states[id] = state
+	}
+	out := make([]string, 0, len(states))
+	for id, state := range states {
+		if state.count == 1 && state.diagram {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 type diagramGroundedAnchorPatchRow struct {

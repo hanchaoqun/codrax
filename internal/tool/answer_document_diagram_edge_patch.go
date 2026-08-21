@@ -19,6 +19,13 @@ import (
 // edit arrays.
 const maxModelAuthoredDiagramEdgeEdits = 128
 
+type resolvedAtomicDiagramEdgeEdit struct {
+	edit          emitAnswerDiagramEdgeEdit
+	originalIndex int
+	sharedRemove  []emitAnswerDiagramEdgeEdit
+	skip          bool
+}
+
 // applyModelAuthoredDiagramAtomicEdits turns model-declared edge and boundary
 // operations into full block replacements over the previous model-authored
 // carrier. This is a structural patch compiler, not an answer normalizer: the
@@ -75,8 +82,11 @@ func applyModelAuthoredDiagramAtomicEdits(
 	order := make([]string, 0, len(edits)+len(boundaries))
 	usedFailureRefs := make(map[string]bool, len(edits))
 	usedAdditionRefs := make(map[string]bool, len(edits))
-	loadBlock := func(blockID string, index int, field string) (types.AnswerBlock, error) {
+	loadBlock := func(blockID string, index int, field string, requireDiagram bool) (types.AnswerBlock, error) {
 		if block, exists := working[blockID]; exists {
+			if requireDiagram && (block.Kind != types.BlockDiagram || block.Diagram == nil || strings.TrimSpace(block.Diagram.Body) == "") {
+				return types.AnswerBlock{}, fmt.Errorf("%s[%d] block_id=%q is not an existing diagram carrier", field, index, blockID)
+			}
 			return block, nil
 		}
 		if op, exists := claimed[blockID]; exists {
@@ -86,7 +96,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 		if !ok || ambiguous[blockID] {
 			return types.AnswerBlock{}, fmt.Errorf("%s[%d] block_id=%q does not uniquely select a previous block", field, index, blockID)
 		}
-		if base.Kind != types.BlockDiagram || base.Diagram == nil || strings.TrimSpace(base.Diagram.Body) == "" {
+		if requireDiagram && (base.Kind != types.BlockDiagram || base.Diagram == nil || strings.TrimSpace(base.Diagram.Body) == "") {
 			return types.AnswerBlock{}, fmt.Errorf("%s[%d] block_id=%q is not an existing diagram carrier", field, index, blockID)
 		}
 		block := cloneAtomicDiagramPatchBlock(base)
@@ -94,11 +104,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 		order = append(order, blockID)
 		return block, nil
 	}
-	type resolvedEdgeEdit struct {
-		edit          emitAnswerDiagramEdgeEdit
-		originalIndex int
-	}
-	resolvedEdits := make([]resolvedEdgeEdit, 0, len(edits))
+	resolvedEdits := make([]resolvedAtomicDiagramEdgeEdit, 0, len(edits))
 	for i, edit := range edits {
 		failureRef := strings.TrimSpace(edit.FailureRef)
 		if failureRef != "" {
@@ -123,7 +129,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 		if blockID == "" {
 			return fmt.Errorf("edit[%d] has empty block_id", i)
 		}
-		resolvedEdits = append(resolvedEdits, resolvedEdgeEdit{edit: edit, originalIndex: i})
+		resolvedEdits = append(resolvedEdits, resolvedAtomicDiagramEdgeEdit{edit: edit, originalIndex: i})
 	}
 	// Every body_occurrence is minted against the immutable rejected draft.
 	// Removing or replacing occurrence 1 first would renumber occurrence 2 in
@@ -149,31 +155,56 @@ func applyModelAuthoredDiagramAtomicEdits(
 		if len(indexes) < 2 {
 			continue
 		}
-		members := make([]resolvedEdgeEdit, len(indexes))
+		members := make([]resolvedAtomicDiagramEdgeEdit, len(indexes))
 		for i, index := range indexes {
 			members[i] = resolvedEdits[index]
 		}
 		sort.SliceStable(members, func(i, j int) bool {
 			return members[i].edit.BodyOccurrence > members[j].edit.BodyOccurrence
 		})
-		for i := 1; i < len(members); i++ {
-			if members[i-1].edit.BodyOccurrence == members[i].edit.BodyOccurrence {
-				return fmt.Errorf(
-					"diagram_edge_edits[%d] and diagram_edge_edits[%d] select the same base body_occurrence=%d for carrier=%q",
-					members[i-1].originalIndex, members[i].originalIndex, members[i].edit.BodyOccurrence, key,
-				)
+		for start := 0; start < len(members); {
+			end := start + 1
+			for end < len(members) && members[end].edit.BodyOccurrence == members[start].edit.BodyOccurrence {
+				end++
 			}
+			if end-start > 1 {
+				if err := validateAtomicSharedBodyRemove(members[start:end]); err != nil {
+					return fmt.Errorf(
+						"diagram_edge_edits[%d..%d] select the same base body_occurrence=%d for carrier=%q: %w",
+						members[start].originalIndex, members[end-1].originalIndex,
+						members[start].edit.BodyOccurrence, key, err,
+					)
+				}
+				members[start].sharedRemove = make([]emitAnswerDiagramEdgeEdit, 0, end-start)
+				for i := start; i < end; i++ {
+					members[start].sharedRemove = append(members[start].sharedRemove, members[i].edit)
+					if i > start {
+						members[i].skip = true
+					}
+				}
+			}
+			start = end
 		}
 		for i, index := range indexes {
 			resolvedEdits[index] = members[i]
 		}
 	}
 	for _, resolved := range resolvedEdits {
+		if resolved.skip {
+			continue
+		}
 		edit, i := resolved.edit, resolved.originalIndex
 		blockID := strings.TrimSpace(edit.BlockID)
-		block, err := loadBlock(blockID, i, "diagram_edge_edits")
+		block, err := loadBlock(blockID, i, "diagram_edge_edits", false)
 		if err != nil {
 			return err
+		}
+		if len(resolved.sharedRemove) > 0 {
+			if err := applyAtomicSharedBodyRemove(&block, resolved.sharedRemove); err != nil {
+				return fmt.Errorf("edit[%d] block_id=%q: %w", i, blockID, err)
+			}
+			working[blockID] = block
+			continue
 		}
 		if err := applyOneModelAuthoredDiagramEdgeEdit(&block, edit, lease, stagePrecedence); err != nil {
 			return fmt.Errorf("edit[%d] block_id=%q: %w", i, blockID, err)
@@ -190,7 +221,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 			return fmt.Errorf("diagram_boundary_replacements[%d] duplicates block_id=%q", i, blockID)
 		}
 		boundarySeen[blockID] = true
-		block, err := loadBlock(blockID, i, "diagram_boundary_replacements")
+		block, err := loadBlock(blockID, i, "diagram_boundary_replacements", true)
 		if err != nil {
 			return err
 		}
@@ -239,6 +270,95 @@ func cloneAtomicDiagramPatchBlock(in types.AnswerBlock) types.AnswerBlock {
 		out.Diagram = &diagram
 	}
 	return out
+}
+
+// validateAtomicSharedBodyRemove admits the only safe overlap between atomic
+// edit selectors: the model selected every live failure ref attached to one
+// exact visible Mermaid statement and chose remove for each of them. Distinct
+// typed anchors can legitimately share one body occurrence (for example a
+// rejected call and a rejected precedence claim rendered on the same arrow).
+// The statement can be removed only once, while every selected anchor must be
+// removed in the same transaction. No action, relation, endpoint, or visible
+// wording is inferred here.
+func validateAtomicSharedBodyRemove(members []resolvedAtomicDiagramEdgeEdit) error {
+	if len(members) < 2 {
+		return fmt.Errorf("shared body removal requires at least two selected failures")
+	}
+	first := members[0].edit
+	if first.Match == nil || first.BodyOccurrence <= 0 {
+		return fmt.Errorf("shared body removal requires one exact positive body occurrence")
+	}
+	blockID := strings.TrimSpace(first.BlockID)
+	fromNode := strings.TrimSpace(first.Match.FromNode)
+	toNode := strings.TrimSpace(first.Match.ToNode)
+	bodyOccurrence := first.BodyOccurrence
+	seenTargets := make(map[string]bool, len(members))
+	for _, member := range members {
+		edit := member.edit
+		if !edit.failureRefResolved || strings.TrimSpace(edit.FailureRef) == "" {
+			return fmt.Errorf("overlapping selectors require distinct live failure_ref values")
+		}
+		if !strings.EqualFold(strings.TrimSpace(edit.Action), "remove") || edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
+			return fmt.Errorf("overlapping selectors permit only model-selected action=remove without edge or visible_label")
+		}
+		if edit.Match == nil || strings.TrimSpace(edit.BlockID) != blockID ||
+			strings.TrimSpace(edit.Match.FromNode) != fromNode || strings.TrimSpace(edit.Match.ToNode) != toNode ||
+			edit.BodyOccurrence != bodyOccurrence {
+			return fmt.Errorf("overlapping selectors do not identify one exact visible body carrier")
+		}
+		if edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor &&
+			edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge {
+			return fmt.Errorf("target_carrier=%s cannot share a visible body removal", edit.failureRefCarrier)
+		}
+		targetKey := strings.Join([]string{
+			string(edit.failureRefCarrier), string(edit.Match.RelationKind),
+			strings.TrimSpace(edit.Match.FromIdentity), strings.TrimSpace(edit.Match.ToIdentity),
+		}, "\x00")
+		if seenTargets[targetKey] {
+			return fmt.Errorf("overlapping failure refs select the same typed target")
+		}
+		seenTargets[targetKey] = true
+	}
+	return nil
+}
+
+func applyAtomicSharedBodyRemove(block *types.AnswerBlock, edits []emitAnswerDiagramEdgeEdit) error {
+	if block == nil || block.Diagram == nil || len(edits) < 2 || edits[0].Match == nil {
+		return fmt.Errorf("shared body removal requires an existing diagram carrier")
+	}
+	first := edits[0]
+	lineIndex, err := findAtomicMermaidEdgeLine(
+		block.Diagram.Body, first.Match.FromNode, first.Match.ToNode, first.BodyOccurrence,
+	)
+	if err != nil {
+		return err
+	}
+	anchorIndexes := make(map[int]bool, len(edits))
+	for _, edit := range edits {
+		anchorIndex, _, anchorErr := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, 1)
+		if anchorErr != nil {
+			if edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge {
+				continue
+			}
+			return anchorErr
+		}
+		if anchorIndexes[anchorIndex] {
+			return fmt.Errorf("overlapping failure refs resolve to the same exact prior anchor")
+		}
+		anchorIndexes[anchorIndex] = true
+	}
+	indexes := make([]int, 0, len(anchorIndexes))
+	for index := range anchorIndexes {
+		indexes = append(indexes, index)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(indexes)))
+	for _, index := range indexes {
+		block.EdgeAnchors = append(block.EdgeAnchors[:index], block.EdgeAnchors[index+1:]...)
+	}
+	lines := strings.Split(block.Diagram.Body, "\n")
+	lines = append(lines[:lineIndex], lines[lineIndex+1:]...)
+	block.Diagram.Body = strings.Join(lines, "\n")
+	return nil
 }
 
 // resolveAtomicDiagramFailureRef converts one model-selected, lease-owned
@@ -501,8 +621,8 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	lease *types.AnswerDiagramRelationRepairLease,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 ) error {
-	if block == nil || block.Diagram == nil {
-		return fmt.Errorf("diagram carrier is unavailable")
+	if block == nil {
+		return fmt.Errorf("target carrier is unavailable")
 	}
 	action := strings.ToLower(strings.TrimSpace(edit.Action))
 	if action != "relabel" && action != "remove" && action != "replace" && action != "add" {
@@ -517,6 +637,24 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	if edit.BodyOccurrence < 0 {
 		return fmt.Errorf("body_occurrence must be at least 1")
+	}
+	// Relation validators may find stale edge_anchors on a non-diagram block.
+	// Such a block has no visible Mermaid carrier to rewrite, but one live ref
+	// can still select one exact metadata row. Permit only that remove-only
+	// capability and preserve all reader-visible block fields byte-for-byte.
+	if block.Diagram == nil {
+		if !edit.failureRefResolved ||
+			edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata ||
+			action != "remove" || edit.BodyOccurrence != 0 || edit.Match == nil ||
+			edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
+			return fmt.Errorf("non-diagram carrier permits only live prior_anchor_metadata action=remove")
+		}
+		anchorIndex, _, err := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, 1)
+		if err != nil {
+			return err
+		}
+		block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+		return nil
 	}
 	if action == "add" {
 		if strings.TrimSpace(edit.FailureRef) != "" {

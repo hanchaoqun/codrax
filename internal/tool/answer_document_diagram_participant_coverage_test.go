@@ -1534,10 +1534,10 @@ func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternat
 		}},
 	}
 	mismatches := []DiagramCallEdgeEvidenceMismatch{
-		{BlockID: "pipeline", Issue: diagramDataFlowEdgeIssueNoEvidence,
+		{BlockID: "flow", Issue: diagramDataFlowEdgeIssueNoEvidence,
 			FromNode: "BC", ToNode: "A", FromSymbol: "BusContext", ToSymbol: "Analyzer",
 			Relation: types.DiagramRelDataFlow},
-		{BlockID: "pipeline", Issue: diagramDataFlowEdgeIssueNoEvidence,
+		{BlockID: "flow", Issue: diagramDataFlowEdgeIssueNoEvidence,
 			FromNode: "BC", ToNode: "X", FromSymbol: "BusContext", ToSymbol: "Extractor",
 			Relation: types.DiagramRelDataFlow},
 	}
@@ -1559,14 +1559,14 @@ func TestDiagramRelationRepairDeltaCarriesOnlyFailedEdgesAndBoundedLocalAlternat
 		t.Fatalf("relation delta must carry machine-readable candidates from the same typed provider: %+v", delta)
 	}
 	for _, candidate := range delta.AllowedAdditions {
-		if candidate.BlockID != "pipeline" || candidate.FromIdentity == "" || candidate.ToIdentity == "" ||
+		if candidate.BlockID != "flow" || candidate.FromIdentity == "" || candidate.ToIdentity == "" ||
 			!candidate.RelationKind.IsValid() || candidate.Source == "" {
 			t.Fatalf("allowed addition must be a complete typed tuple scoped to the failed block: %+v", candidate)
 		}
 	}
 	for _, want := range []string{
 		`"from_node":"BC"`, `"to_node":"A"`, `"to_node":"X"`,
-		`"allowed_additions"`, `"block_id":"pipeline"`,
+		`"allowed_additions"`, `"block_id":"flow"`,
 		`typed_candidate[BusContext][1]`, `candidate_scope:\"local_operation_only\"`,
 		`retain_participant_boundary:true`, `from_identity:\"output.EvidenceItems\"`,
 	} {
@@ -1610,6 +1610,56 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 		if got[i].BlockID != "diagram-1" || got[i].RelationKind != types.DiagramRelPrecedence ||
 			got[i].FromIdentity != want.from || got[i].ToIdentity != want.to || got[i].Source == "" {
 			t.Fatalf("stage candidate %d drifted: got=%+v want=%s->%s", i, got[i], want.from, want.to)
+		}
+	}
+}
+
+func TestDiagramRelationRepairDeltaPublishesAdditionsOnlyForDiagramCarriers(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "diagram-1", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n    A->>B: visible\n",
+		}, EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence,
+		}}},
+		{ID: "ol1", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "row", Label: "visible list row"}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence,
+			}}},
+	}}
+	stage := func(name, agent string) stageauthority.StageRow {
+		return stageauthority.StageRow{StageValue: name, AgentValue: agent}
+	}
+	precedence := []stageauthority.PrecedenceRelation{{
+		From: stage("analyze", "analyzer"), To: stage("explore", "explorer"),
+		SourceFile: "internal/types/enums.go", LineStart: 120, LineEnd: 121,
+	}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}}}
+	raw := diagramRelationRepairDeltaJSON(doc, ctx, []DiagramCallEdgeEvidenceMismatch{
+		{BlockID: "diagram-1", Issue: diagramSemanticRelationIssueNoEvidence, FromNode: "A", ToNode: "B", FromSymbol: "analyzer", ToSymbol: "explorer", Relation: types.DiagramRelPrecedence},
+		{BlockID: "ol1", Issue: diagramSemanticRelationIssueNoEvidence, FromNode: "A", ToNode: "B", FromSymbol: "analyzer", ToSymbol: "explorer", Relation: types.DiagramRelPrecedence},
+	}, nil, precedence)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("mixed carrier relation delta must remain valid: %v raw=%s", err, raw)
+	}
+	if len(delta.Failures) != 2 {
+		t.Fatalf("non-diagram failure must remain visible for metadata cleanup: %+v", delta)
+	}
+	for _, failure := range delta.Failures {
+		if failure.BlockID == "ol1" && (failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata ||
+			!failure.AllowsAction("remove") || failure.AllowsAction("replace")) {
+			t.Fatalf("non-diagram failure gained a visible-body capability: %+v", failure)
+		}
+	}
+	if len(delta.AllowedAdditions) == 0 {
+		t.Fatalf("diagram carrier should retain typed addition permissions: %+v", delta)
+	}
+	for _, candidate := range delta.AllowedAdditions {
+		if candidate.BlockID != "diagram-1" {
+			t.Fatalf("non-diagram block must never receive an unexecutable addition_ref: %+v", delta.AllowedAdditions)
 		}
 	}
 }

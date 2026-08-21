@@ -1476,6 +1476,110 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AbsorbsRedundantUnchangedCarrier(t
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RemovesEverySelectedAnchorSharingOneVisibleBodyOccurrence(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant Phase\n    participant Fin\n    Phase->>Fin: hand off result\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "Phase", ToNode: "Fin", FromIdentity: "Phase.run", ToIdentity: "Fin.accept", RelationKind: types.DiagramRelCall},
+		{FromNode: "Phase", ToNode: "Fin", FromIdentity: "analyzer", ToIdentity: "finalizer", RelationKind: types.DiagramRelPrecedence},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: "call_edge_unproven", FromNode: "Phase", ToNode: "Fin", FromIdentity: "Phase.run", ToIdentity: "Fin.accept", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: "semantic_relation_edge_unproven", FromNode: "Phase", ToNode: "Fin", FromIdentity: "analyzer", ToIdentity: "finalizer", RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("two typed claims sharing one visible line must retain two model-selectable refs: %+v", lease)
+	}
+	mut := types.NewMutableState("shared visible relation carrier")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[
+			{"failure_ref":%q,"action":"remove"},
+			{"failure_ref":%q,"action":"remove"}
+		]
+	}`, lease.Failures[0].FailureRef, lease.Failures[1].FailureRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || !res.Success {
+		t.Fatalf("all model-selected refs on one body occurrence must close in one transaction: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || len(got.Blocks[1].EdgeAnchors) != 0 ||
+		strings.Contains(got.Blocks[1].Diagram.Body, "Phase->>Fin") {
+		t.Fatalf("shared statement must be removed once with both selected anchors: %+v", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_SharedBodyRejectsMixedActions(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: shared\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "A", ToNode: "B", FromIdentity: "A.call", ToIdentity: "B.run", RelationKind: types.DiagramRelCall},
+		{FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B", FromIdentity: "A.call", ToIdentity: "B.run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: "semantic_relation_edge_unproven", FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1},
+	}, nil)
+	edits := []emitAnswerDiagramEdgeEdit{
+		{FailureRef: lease.Failures[0].FailureRef, Action: "remove"},
+		{FailureRef: lease.Failures[1].FailureRef, Action: "replace", Edge: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model replacement",
+		}},
+	}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, &types.AnswerDocumentV2Patch{}, edits, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "permit only model-selected action=remove") {
+		t.Fatalf("overlapping remove/replace must remain fail-closed instead of choosing for the model: %v", err)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_NonDiagramFailureRefRemovesOnlyExactAnchorMetadata(t *testing.T) {
+	anchor := types.DiagramEdgeAnchor{
+		FromNode: "Phase", ToNode: "Fin", FromIdentity: "analyzer", ToIdentity: "finalizer",
+		RelationKind: types.DiagramRelPrecedence,
+	}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep summary"},
+		{ID: "ol1", Kind: types.BlockOrderedList, Title: "keep title", Text: "keep text", SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{ID: "step", Label: "keep label", Text: "keep item"}}, EdgeAnchors: []types.DiagramEdgeAnchor{anchor}},
+	}}
+	failure := bindDiagramRelationRepairAnchorBodyCarrier(prev, types.AnswerDiagramRelationRepairFailure{
+		BlockID: "ol1", Issue: "semantic_relation_edge_unproven",
+		FromNode: anchor.FromNode, ToNode: anchor.ToNode, FromIdentity: anchor.FromIdentity, ToIdentity: anchor.ToIdentity,
+		RelationKind: anchor.RelationKind,
+	})
+	if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata {
+		t.Fatalf("non-diagram relation metadata must publish remove-only metadata capability: %+v", failure)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil || len(lease.Failures) != 1 || !lease.Failures[0].AllowsAction("remove") || lease.Failures[0].AllowsAction("replace") {
+		t.Fatalf("non-diagram metadata lease is not exactly executable: %+v", lease)
+	}
+	mut := types.NewMutableState("non diagram relation metadata")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, lease.Failures[0].FailureRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || !res.Success {
+		t.Fatalf("exact non-diagram metadata removal must pass production executor: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("patched document missing: %+v", got)
+	}
+	block := got.Blocks[1]
+	if block.Kind != types.BlockOrderedList || block.Title != "keep title" || block.Text != "keep text" ||
+		len(block.Items) != 1 || block.Items[0].Label != "keep label" || block.Items[0].Text != "keep item" ||
+		len(block.EdgeAnchors) != 0 {
+		t.Fatalf("metadata-only edit changed visible ordered-list content: %+v", block)
+	}
+}
+
 func TestRelabelAtomicMermaidEdgeLine_AllSupportedFamilies(t *testing.T) {
 	for name, tc := range map[string][3]string{
 		"sequence": {"sequenceDiagram\n  A->>B: old", "  A->>B: old", "A->>B: new"},
