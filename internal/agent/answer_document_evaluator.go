@@ -17057,6 +17057,22 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
+	// When one validator pass already knows both participant and relation
+	// defects, keep them in the same retry generation. Serially selecting the
+	// participant lane hides live failure refs that the model could have fixed
+	// in the same atomic patch, guaranteeing another reject for no new evidence.
+	if e.diagramRequired && installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult) {
+		if hint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested: true, HintKey: "answer_doc.patch_required_diagram_joint_delta",
+				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+			}
+		}
+	}
 	// A lease-scope rejection is itself a precise relation-delta retry. Keep the
 	// same bounded graph carrier instead of falling through to the generic patch
 	// handbook, which would re-open the whole diagram and recreate failure-set
@@ -17579,27 +17595,104 @@ type answerDocDiagramParticipantRepairDelta struct {
 
 type answerDocDiagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
 
+type answerDocDiagramRelationRepairVisibleDelta struct {
+	Version               int                                          `json:"version"`
+	Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
+	PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
+	AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
+}
+
+func parseAnswerDocDiagramParticipantRepairDelta(result *types.ToolResult) (answerDocDiagramParticipantRepairDelta, string, bool) {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return answerDocDiagramParticipantRepairDelta{}, "", false
+	}
+	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON])
+	if raw == "" || len(raw) > 32*1024 {
+		return answerDocDiagramParticipantRepairDelta{}, "", false
+	}
+	var delta answerDocDiagramParticipantRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil || delta.Version != 1 || len(delta.Mismatches) == 0 {
+		return answerDocDiagramParticipantRepairDelta{}, "", false
+	}
+	for _, mismatch := range delta.Mismatches {
+		if strings.TrimSpace(mismatch.Participant) == "" || strings.TrimSpace(mismatch.Issue) == "" {
+			return answerDocDiagramParticipantRepairDelta{}, "", false
+		}
+	}
+	return delta, raw, true
+}
+
+func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerDocDiagramRelationRepairDelta, []byte, bool) {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return answerDocDiagramRelationRepairDelta{}, nil, false
+	}
+	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON])
+	if raw == "" || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return answerDocDiagramRelationRepairDelta{}, nil, false
+	}
+	var delta answerDocDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
+		delta.Version != types.AnswerDiagramRelationRepairDeltaVersion ||
+		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
+		return answerDocDiagramRelationRepairDelta{}, nil, false
+	}
+	for _, failure := range delta.Failures {
+		if strings.TrimSpace(failure.BlockID) == "" || strings.TrimSpace(failure.Issue) == "" ||
+			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+			return answerDocDiagramRelationRepairDelta{}, nil, false
+		}
+	}
+	visibleRaw, err := json.Marshal(answerDocDiagramRelationRepairVisibleDelta{
+		Version: delta.Version, Failures: delta.Failures,
+		PreserveUnlistedEdges: true, AllowedAdditions: delta.AllowedAdditions,
+	})
+	if err != nil {
+		return answerDocDiagramRelationRepairDelta{}, nil, false
+	}
+	return delta, visibleRaw, true
+}
+
+// answerDocRequiredDiagramJointDeltaPatchHint keeps independently-known
+// participant and relation failures in one retry generation. The producer has
+// already validated both typed deltas and installed the relation lease; this
+// function only presents those two carriers together so the model can choose
+// its boundary and edge operations in one atomic patch. It never chooses an
+// action, edge, label, relation, participant layout, or answer conclusion.
+func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
+	_, participantRaw, participantOK := parseAnswerDocDiagramParticipantRepairDelta(result)
+	_, relationRaw, relationOK := parseAnswerDocDiagramRelationRepairDelta(result)
+	if !participantOK || !relationOK {
+		return "", false
+	}
+	prefix := "Your last `emit_answer_document` call was rejected"
+	action := "Use `emit_answer_document_patch`"
+	if alreadyPatching {
+		prefix = "Your last `emit_answer_document_patch` call was rejected"
+		action = "Keep using `emit_answer_document_patch`"
+	}
+	var b strings.Builder
+	b.WriteString(prefix)
+	b.WriteString(" by two independent local defects in the same required diagram: participant coverage and typed relation authority. ")
+	b.WriteString(action)
+	b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together in that call. Do not repair one family while silently carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. For relation_delta, each failure row publishes its exact `target_carrier` and `allowed_actions`: choose only an action listed on that row, copy only `{failure_ref, action}` for remove/relabel, and supply your complete corrected anchor and visible label only when you choose an allowed replace. `allowed_additions` are optional permissions, never required relations. Keep every unlisted edge because `preserve_unlisted_edges=true`; retain sibling blocks and inherited citations. You still own every action choice, visible node/edge, business label, order, grouping, and layout. Issue enums, refs, action capabilities, source locations, and internal identities are repair metadata and must not become visible wording.\n\n```json\n{\"participant_delta\":")
+	b.WriteString(participantRaw)
+	b.WriteString(",\"relation_delta\":")
+	b.Write(relationRaw)
+	b.WriteString("}\n```\n\n")
+	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
+	b.WriteString(" The system has not selected, added, removed, relabelled, reversed, reconnected, or rewritten any model-authored relation or answer text. Do not reopen files or write free-form prose outside the tool call.")
+	return b.String(), true
+}
+
 // answerDocRequiredDiagramParticipantDeltaPatchHint consumes the exact local
 // mismatch projection emitted by the participant gate. It deliberately does
 // not re-render the full relation authority, generic handbook, or every
 // participant candidate on each patch retry. The JSON remains guidance only:
 // the model chooses any candidate and authors every visible node/edge/label.
 func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
-	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+	_, raw, ok := parseAnswerDocDiagramParticipantRepairDelta(result)
+	if !ok {
 		return "", false
-	}
-	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON])
-	if raw == "" || len(raw) > 32*1024 {
-		return "", false
-	}
-	var delta answerDocDiagramParticipantRepairDelta
-	if err := json.Unmarshal([]byte(raw), &delta); err != nil || delta.Version != 1 || len(delta.Mismatches) == 0 {
-		return "", false
-	}
-	for _, mismatch := range delta.Mismatches {
-		if strings.TrimSpace(mismatch.Participant) == "" || strings.TrimSpace(mismatch.Issue) == "" {
-			return "", false
-		}
 	}
 	prefix := "Your last `emit_answer_document` call was rejected"
 	action := "Use `emit_answer_document_patch`"
@@ -17624,36 +17717,8 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 // relation handbook. It never chooses an alternative or edits the graph; the
 // finalizer model keeps ownership of every visible edge and label.
 func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
-	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
-		return "", false
-	}
-	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON])
-	if raw == "" || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
-		return "", false
-	}
-	var delta answerDocDiagramRelationRepairDelta
-	if err := json.Unmarshal([]byte(raw), &delta); err != nil ||
-		delta.Version != types.AnswerDiagramRelationRepairDeltaVersion ||
-		len(delta.Failures) == 0 || !delta.PreserveUnlistedEdges {
-		return "", false
-	}
-	for _, failure := range delta.Failures {
-		if strings.TrimSpace(failure.BlockID) == "" || strings.TrimSpace(failure.Issue) == "" ||
-			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
-			return "", false
-		}
-	}
-	visibleDelta := struct {
-		Version               int                                          `json:"version"`
-		Failures              []types.AnswerDiagramRelationRepairFailure   `json:"failures"`
-		PreserveUnlistedEdges bool                                         `json:"preserve_unlisted_edges"`
-		AllowedAdditions      []types.AnswerDiagramRelationRepairCandidate `json:"allowed_additions,omitempty"`
-	}{
-		Version: delta.Version, Failures: delta.Failures,
-		PreserveUnlistedEdges: true, AllowedAdditions: delta.AllowedAdditions,
-	}
-	visibleRaw, err := json.Marshal(visibleDelta)
-	if err != nil {
+	_, visibleRaw, ok := parseAnswerDocDiagramRelationRepairDelta(result)
+	if !ok {
 		return "", false
 	}
 	prefix := "Your last `emit_answer_document` call was rejected"
@@ -18016,11 +18081,22 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 			hint += " Do not write free-form prose outside the tool call."
 		}
 	}
+	// Both deltas were produced by the same validation generation. Present
+	// them together before either single-family lane so the model can submit one
+	// bounded atomic patch without losing any already-known failure carrier.
+	if hasPatchBase && e.diagramRequired {
+		if jointHint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, false); ok {
+			hint = jointHint
+			reasonKey = "required-diagram-joint-delta"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		}
+	}
 	// Prefer a metadata-only repair whenever every rejected diagram relation is
 	// already grounded and only its edge-anchor carrier is absent. This precise
 	// lane applies equally to required and optional diagrams and prevents the
 	// general call-edge recovery from deleting grounded model-authored edges.
-	if hasPatchBase {
+	if !diagramCallEdgePatchRecovery && hasPatchBase {
 		if groundedHint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, false); ok {
 			hint = groundedHint
 			reasonKey = "grounded-diagram-anchors"

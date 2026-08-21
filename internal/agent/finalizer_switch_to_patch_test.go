@@ -984,6 +984,86 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 	assertCompact(t, fullSignal.Hint)
 }
 
+func TestRequiredDiagramMixedParticipantAndRelationDeltasStayInOneRetryGeneration(t *testing.T) {
+	const participantDelta = `{"version":1,"mismatches":[{"block_id":"flow","participant":"analyze","issue":"required_participant_identity_not_visible"}],"actions":"repair_action[analyze]=add_only_the_missing_visible_identity","candidates":"typed_candidate[analyze][1]={relation_kind:\"precedence\",from_identity:\"analyzer\",to_identity:\"explorer\"}"}`
+	const staleProducerRef = "rf1-000000000000000000000000"
+	const relationDelta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B","from_identity":"Owner.run","to_identity":"Worker.do","body_occurrence":1}],"preserve_unlisted_edges":true}`
+
+	newContextAndResult := func(toolName string) (*types.AgentContext, *types.ToolResult) {
+		mut := types.NewMutableState("mixed participant and relation repair")
+		mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{
+			DocumentModel: "v2",
+			Blocks: []types.AnswerBlock{
+				{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+				{
+					ID: "flow", Kind: types.BlockDiagram,
+					Diagram: &types.AnswerDiagramBlock{
+						Kind: types.DiagramSequence, Language: "mermaid",
+						Body: "sequenceDiagram\n participant A as Owner\n participant B as Worker\n A->>B: run",
+					},
+					EdgeAnchors: []types.DiagramEdgeAnchor{{
+						FromNode: "A", ToNode: "B", FromIdentity: "Owner.run", ToIdentity: "Worker.do",
+						RelationKind: types.DiagramRelCall,
+					}},
+				},
+			},
+		})
+		ctx := &types.AgentContext{Mutable: mut}
+		return ctx, &types.ToolResult{
+			ToolName: toolName, Success: false,
+			Repair: &types.ToolRepair{
+				Code: "answer_doc_pre_emit_contract",
+				Metadata: map[string]string{
+					"violation_kinds": strings.Join([]string{
+						string(types.ViolDiagramParticipantCoverage),
+						string(types.ViolDiagramCallEdgeUnproven),
+					}, ","),
+					types.ToolRepairMetaOffendingBlockKinds:               string(types.BlockDiagram),
+					types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: participantDelta,
+					types.ToolRepairMetaDiagramRelationRepairDeltaJSON:    relationDelta,
+				},
+			},
+		}
+	}
+
+	for _, toolName := range []string{"emit_answer_document", "emit_answer_document_patch"} {
+		t.Run(toolName, func(t *testing.T) {
+			ctx, result := newContextAndResult(toolName)
+			e := &answerDocumentEvaluator{diagramRequired: true, mu: ctx.Mutable}
+			var signal LoopSignal
+			if toolName == "emit_answer_document" {
+				signal = e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+			} else {
+				signal = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+			}
+			if !signal.HintRequested || !strings.Contains(signal.HintKey, "joint") || !e.preferPatchNext {
+				t.Fatalf("mixed deltas must select one joint patch retry: %+v", signal)
+			}
+			lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+			if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FailureRef == "" ||
+				lease.Failures[0].FailureRef == staleProducerRef {
+				t.Fatalf("joint retry must install a live same-generation relation lease: %+v", lease)
+			}
+			for _, want := range []string{
+				`"participant_delta"`, `"participant":"analyze"`,
+				`"relation_delta"`, `"from_identity":"Owner.run"`,
+				`"failure_ref":"` + lease.Failures[0].FailureRef + `"`,
+				"ONE atomic patch", "`diagram_boundary_replacements` and `diagram_edge_edits` may appear together",
+				"candidate is permission, not a required edge", "preserve_unlisted_edges=true",
+				"system has not selected, added, removed, relabelled, reversed, reconnected, or rewritten",
+			} {
+				if !strings.Contains(signal.Hint, want) {
+					t.Fatalf("joint retry missing %q:\n%s", want, signal.Hint)
+				}
+			}
+			if strings.Contains(signal.Hint, staleProducerRef) ||
+				strings.Contains(signal.Hint, "use each exact relation recipe below at most once") {
+				t.Fatalf("joint retry leaked stale/full-authority carrier:\n%s", signal.Hint)
+			}
+		})
+	}
+}
+
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
 	const staleProducerRef = "rf1-000000000000000000000000"
 	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`

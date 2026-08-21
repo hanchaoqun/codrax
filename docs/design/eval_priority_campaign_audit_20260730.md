@@ -59427,3 +59427,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r801`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r801`。
+
+### §123.1309 B1282：同代参与者与关系失败联合披露，模型一次原子修补（2026-08-21）
+
+1. `B1282-MIXEDDIAGRAMREPAIRDELTA1/P1` 已施工。全量/patch 两条拒绝路由现在先读取同一验证代次的
+   `diagram_participant_repair_delta_json` 与 `diagram_relation_repair_delta_json`；两者都通过各自版本、大小、必填字段和 locator 校验时，
+   只发一个 joint typed repair capsule，允许模型在同一次 `emit_answer_document_patch` 中并用
+   `diagram_boundary_replacements` 与 `diagram_edge_edits`。因此系统不再先隐藏关系失败、下一轮再隐藏或重复参与者失败，也不再为已知事实
+   必然消耗两个以上重试回合。
+2. relation delta 在联合渲染前仍须成功安装 same-generation lease；发给模型的是 lease 重签后的当前 `failure_ref`，不是生产者陈腐 ref。
+   每个 relation failure 仍只能选该行 `allowed_actions`，`allowed_additions` 与 participant candidates 仍只是 permission；系统不选择 add/remove/
+   replace/relabel，不选择节点、边、业务名称、顺序、分组、布局或结论。任一 delta 缺失、超限、畸形或 locator 不完整时，联合车道 fail-closed，
+   原 participant-only、relation-only、grounded-anchor 与通用修补车道保持不变。
+3. 该修复只消费 validator/producer 写入的 typed metadata 与现有 patch base，不扫描用户请求、模型原文、最终答案、Mermaid 可见标签或错误消息来
+   推测事实；也没有降低调用/数据流/先后等关系的证据门。系统只同时交付两份已经存在的局部失败清单，所有可见答案内容继续由模型决定。
+4. 新回归同时覆盖 `emit_answer_document` 与 `emit_answer_document_patch`：联合 hint 必须包含两个 delta、当前 lease ref、允许两类 operation 原子共存、
+   `preserve_unlisted_edges=true` 和候选非强制语义；禁止泄漏陈腐 ref、全量关系 authority 或系统已替模型增删/改写关系的暗示。既有 participant-only、
+   relation-only 与 mixed-flow 测试继续通过；`go test ./internal/agent -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+5. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 read 图表用例与显式窗 Trace 用例。read 验收生产重试是否在自然复现 mixed reject
+   时一次同时携带两类 delta、减少无新增证据的轮次且不促使模型机械删边；Trace 验收因果投影、自动补采、链上根因、业务线索、实际占时与规则可消量
+   继续完整，活动流不因固定 4ms/4m 或其他耗时阈值降级。
+
+状态：
+
+`B1282=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`same-generation-participant+relation-failure=one-joint-typed-capsule`；
+`relation-failure-ref=current-lease-generation-only`；
+`malformed/missing-single-delta=existing-single-family-fallback`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
