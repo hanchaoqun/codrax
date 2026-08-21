@@ -57291,6 +57291,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1313 r804：B1284 生产转正；局部图编辑与 unchanged 合同冲突确认 B1285（2026-08-21）
+
+1. 从已推送 `44bdc07bd` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace，runner 2/2 PASS：Trace 192s、read
+   761s。两路活动流都没有按 4ms、4m、首字节、stall、累计年龄或上下文比例生成降级答案；read 最终是本轮模型 patch 接受后的正式答案，
+   没有恢复旧稿或由系统替换模型结论。
+2. Trace 人工审计通过：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点已证链、
+   11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、实际占时/规则可消双账户、邻近/背景隔离和完整
+   `Trace 因果投影` 均在。模型把四节点三边写成“四跳”略松，但逐边方向正确，并保留“尚无锁持有者/同步阻塞证明”的边界；不据此扫描或改写正文。
+3. B1284 获得生产正证。joint delta 发布 `typed_anchor_without_visible_edge` 的 `target_carrier=stale_anchor` 后，模型复制 live
+   `{failure_ref,action=remove}`，executor 成功进入下一代 participant/relation 校验；全程不再出现
+   `Mermaid body has no matching edge`。这证明 anchor-only remove 已不依赖 validator/base identity 字节相同，也不再错误查找不存在的正文边。
+4. `B1285-LOCALDIAGRAMTOOLSURFACE1/P1` 经第二次生产回放升级为 confirmed。模型在同一 patch 中正确选择
+   `diagram_edge_edits` 与 `diagram_boundary_replacements`，并把目标图块列入 `unchanged_block_ids` 以保留未提及内容；工具却以
+   `diagram_edge_edits[0] block_id="d1" conflicts with unchanged_block_ids` 拒绝。局部编辑本身已经定义为“只改所选 carrier、其余保持不变”，
+   因而目标块的 unchanged 声明是语义冗余，不是冲突。当前 schema/教学让模型承担这一内部互斥细节，且错误后模型被诱导改走整块
+   `replace_blocks`，立即触发 `unlisted_relation_added/removed` 的 local lease 越界。
+5. 本轮 read 共 9 次 finalizer reject、8 次 patch；其中上述 unchanged 冲突重复两次，whole-block 越界重复两次。最终模型通过逐轮排除冲突
+   获得正式答案，五列表、四阶段说明与 Mermaid 均可渲染；但图同时声明 `An/Ex/Et/Fi`，关系却另用隐式
+   `analyze/explorer/extractor/finalizer` 节点，导致多数声明 participant 孤立，状态/载体交互仍未充分表达。该结果判为
+   `runner-pass/human-partial`，不能用最后 PASS 掩盖合同噪声与图层缩水。
+6. B1285 的最优根修冻结为 typed operation-domain 归一，而非按图名或 message 拟合：若同一 block 已被
+   `diagram_edge_edits` 或 `diagram_boundary_replacements` 选择，patch 入口自动从 `unchanged_block_ids` 删除该 block；局部操作仍以 immutable
+   base 为底并天然保留未列 carrier。若当前 same-generation relation/participant lease 只授权局部修补，则 projected schema 同时禁止该目标块
+   进入 whole `replace_blocks`/`add_blocks`/`remove_block_ids`，但其他 section/table 块仍可正常整块替换。任何跨 block、未知 ref、未允许 action、
+   扩大关系集合或模型自填冲突坐标继续 fail-closed。
+7. 施工必须钉住三组泛化回归：局部 edge/boundary 操作与冗余 unchanged 一次成功且未提及正文/锚字节恒等；局部 lease 活跃时目标 diagram
+   不出现在 whole-block schema 能力中而非到执行末端才拒绝；同 patch 的非目标 section/table replace 继续允许。不得读取用户请求、模型 prose、
+   最终答案或 Mermaid message 判断局部性，也不得由系统选择关系、action、label、业务节点、布局或结论。
+
+状态：
+
+`r804=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1284=production-positive/core-closed`；
+`B1285=confirmed/P1-next`；
+`local-diagram-edit+same-block-unchanged=current-redundant-but-rejected`；
+`local-lease-target-whole-block-mutation=current-overbroad-tool-surface`；
+`target-fix=typed-operation-domain-normalization+projected-capability-narrowing`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-text-as-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r804`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r804`。
+
 ### §123.1312 r803/B1284：stale-anchor 能力与执行器自冲突；按 live ref 闭合元数据修补（2026-08-21）
 
 1. 从已推送 `a03ac967e` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace。Trace PASS（219s）；read FAIL
