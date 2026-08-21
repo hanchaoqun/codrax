@@ -57334,6 +57334,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r806`。
 
+### §123.1319 B1288：允许新增关系改为同代 opaque ref 选择，隐藏身份单源回填（2026-08-21）
+
+1. `B1288-RELATIONADDITIONREF1/P1` 已施工。`AnswerDiagramRelationRepairCandidate` 新增 `addition_ref`；生产者 delta 中的任何 ref 在 merge/install
+   边界一律清空，`NewAnswerDiagramRelationRepairLease` 再以当前 rejected patch base 的 block kind 与完整 typed anchor snapshot、候选 block/
+   relation/identity/source 铸造稳定 `ra1-*`。同一 typed base 重签字节稳定，anchor snapshot 变化立即换 ref，旧代引用不能跨草稿复用。
+2. `diagram_edge_edits action=add` 现在优先接受 `addition_ref`。模型通过 ref 明确选择一个 allowed candidate，并继续完整作者化
+   `edge.from_node`、`edge.to_node`、`edge.visible_label`、边在图中的顺序和整体布局；原子编译器只从该 ref 对应候选回填 block id、relation kind、
+   from_identity/to_identity。系统不根据 node 名、显示 label、Mermaid message、用户请求、thinking 或答案 prose 猜候选，也不替模型添加未选择的边。
+3. ref 与 failure_ref 互斥，只允许 action=add，每个 ref 一次事务最多消费一次。未知/陈旧/重复 ref、跨 block 声明、错误 action、半对技术身份、
+   与候选 relation/identity 不一致均 fail-closed；B1286 的失败路由继续回传当前代完整 failures/actions/allowed additions，包括 live addition_ref，
+   不退化为单条错误或静默丢操作。无 ref 的 legacy complete-anchor add 保留兼容，仍受同一 lease 与普通关系证据门约束。
+4. r806 的核心分裂已由生产路径回归钉住：即使没有可匹配 node dialect 的 finalizer recipe，选择 live ref 的新增边也可直接使用 candidate 的
+   Agent identity 通过租约；后续 typed-recipe normalizer 看到完整 identity pair 时不再把它改写为 Stage 方言。可见业务 node/label 字节保持模型输入，
+   relation lease 继续限制每个候选只新增一次。
+5. JSON/tool 教学同步改为 ref-first：联合 participant+relation capsule、relation-only retry、共享 patch teaching 与工具 schema 均教模型复制
+   `addition_ref`，不再要求重复抄写隐藏 block/from_identity/to_identity。该变化减少模型心智与方言猜测，不降低任何证据门，也没有新增从原始请求或
+   模型输出扫描关键词的硬门。
+6. 回归覆盖 base-bound/stable ref、生产者 ref 重签、ref add 可见所有权、无 recipe 成功、冲突 recipe 不覆写、陈旧/重复/跨块/技术字段冲突拒绝、
+   失败后完整 live capsule 重发及 legacy add 兼容。`go test ./internal/types ./internal/tool ./internal/agent -count=1`、完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+7. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放同一 read 图表与显式窗 Trace。read 验收自然 mixed reject 时是否直接使用
+   addition_ref、显著减少 12 次同因 reject、保留原 Orchestrator/Agent/BusContext 有用关系，并观察 B1289 临时 caveat 是否还会复现；Trace 继续验收
+   显式窗、自动补采、链上根因、业务线索、实际占时/规则可消和完整因果投影，活动流不按固定耗时阈值降级。
+
+状态：
+
+`B1288=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`allowed-addition-selector=base-bound-live-addition-ref`；
+`selected-hidden-tuple=lease-owned/block+relation+from_identity+to_identity`；
+`visible-node/label/order/layout=model-owned`；
+`unknown/stale/duplicate/cross-block/conflicting-ref=fail-closed`；
+`legacy-complete-anchor-add=compatible`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1317 B1287：Mermaid exact node id 优先于显示 label alias（2026-08-21）
 
 1. `B1287-EXACTNODEIDBEFORELABELALIAS1/P0` 已按结构身份层级施工。`diagramNodeAliasIndex` 现在分两遍构造：第一遍从 sequence participant、

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +111,44 @@ func TestAnswerDiagramRelationRepairLease_LocalDeltaOnly(t *testing.T) {
 			t.Fatalf("expected no-expansion violation, got %+v", got)
 		}
 	})
+}
+
+func TestAnswerDiagramRelationRepairLeaseAdditionRefsAreStableAndBaseBound(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Caller", ToIdentity: "Callee",
+			RelationKind: DiagramRelCall,
+		}},
+	}}}
+	failures := []AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall,
+		FromNode: "A", ToNode: "B", FromIdentity: "Caller", ToIdentity: "Callee",
+	}}
+	candidates := []AnswerDiagramRelationRepairCandidate{{
+		AdditionRef: "producer-must-not-survive",
+		BlockID:     "flow", RelationKind: DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "stageauthority",
+	}}
+	first := NewAnswerDiagramRelationRepairLease(base, failures, candidates)
+	second := NewAnswerDiagramRelationRepairLease(base, failures, candidates)
+	if first == nil || second == nil || len(first.AllowedAdditions) != 1 || len(second.AllowedAdditions) != 1 {
+		t.Fatalf("expected one live allowed addition: first=%+v second=%+v", first, second)
+	}
+	ref := first.AllowedAdditions[0].AdditionRef
+	if !strings.HasPrefix(ref, "ra1-") || ref == "producer-must-not-survive" ||
+		ref != second.AllowedAdditions[0].AdditionRef {
+		t.Fatalf("same typed base must mint one stable lease-owned selector: first=%q second=%q", ref, second.AllowedAdditions[0].AdditionRef)
+	}
+
+	changed := *base
+	changed.Blocks = append([]AnswerBlock(nil), base.Blocks...)
+	changed.Blocks[0].EdgeAnchors = append([]DiagramEdgeAnchor(nil), base.Blocks[0].EdgeAnchors...)
+	changed.Blocks[0].EdgeAnchors[0].ToIdentity = "DifferentCallee"
+	third := NewAnswerDiagramRelationRepairLease(&changed, failures, candidates)
+	if third == nil || third.AllowedAdditions[0].AdditionRef == ref {
+		t.Fatalf("a changed typed base must invalidate the prior addition ref: old=%q new=%+v", ref, third)
+	}
 }
 
 func TestAnswerDiagramRelationRepairLeasePreservesCompleteUnion(t *testing.T) {

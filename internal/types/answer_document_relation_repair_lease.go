@@ -404,6 +404,7 @@ func answerDiagramRelationRepairFailureRef(base *AnswerDocumentV2, failure Answe
 // wording remain model-authored; the ordinary diagram authority gate still
 // validates the selected endpoint mapping after the lease admits it.
 type AnswerDiagramRelationRepairCandidate struct {
+	AdditionRef  string              `json:"addition_ref,omitempty"`
 	BlockID      string              `json:"block_id"`
 	RelationKind DiagramRelationKind `json:"relation_kind"`
 	FromIdentity string              `json:"from_identity"`
@@ -493,6 +494,9 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 			}
 		}
 		for _, candidate := range delta.AllowedAdditions {
+			// Producer refs are never trusted across the merge/install boundary.
+			// The live lease re-mints a selector against its exact patch base.
+			candidate.AdditionRef = ""
 			candidate.BlockID = strings.TrimSpace(candidate.BlockID)
 			candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
 			candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
@@ -617,6 +621,7 @@ func NewAnswerDiagramRelationRepairLease(
 	allowed := make([]AnswerDiagramRelationRepairCandidate, 0, len(allowedAdditions))
 	allowedSeen := make(map[string]bool, len(allowedAdditions))
 	for _, candidate := range allowedAdditions {
+		candidate.AdditionRef = ""
 		candidate.BlockID = strings.TrimSpace(candidate.BlockID)
 		candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
 		candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
@@ -635,6 +640,12 @@ func NewAnswerDiagramRelationRepairLease(
 	sort.SliceStable(allowed, func(i, j int) bool {
 		return answerDiagramRelationRepairCandidateKey(allowed[i]) < answerDiagramRelationRepairCandidateKey(allowed[j])
 	})
+	for i := range allowed {
+		allowed[i].AdditionRef = answerDiagramRelationRepairCandidateRef(base, allowed[i])
+		if allowed[i].AdditionRef == "" {
+			return nil
+		}
+	}
 	blocks := make([]AnswerDiagramRelationRepairLeaseBlock, 0, len(base.Blocks))
 	for _, block := range base.Blocks {
 		id := strings.TrimSpace(block.ID)
@@ -656,6 +667,73 @@ func NewAnswerDiagramRelationRepairLease(
 	return &AnswerDiagramRelationRepairLease{
 		Version: 1, Failures: clean, AllowedAdditions: allowed, Blocks: blocks,
 	}
+}
+
+// answerDiagramRelationRepairCandidateRef binds one optional addition to the
+// exact rejected carrier whose live lease may admit it. The model uses this
+// opaque selector to choose a producer-owned relation candidate without
+// retyping invisible canonical identities. Visible node ids, labels, ordering,
+// and layout remain outside the hash and remain model-authored. As with a
+// failure_ref, a changed typed anchor snapshot produces a different selector.
+func answerDiagramRelationRepairCandidateRef(base *AnswerDocumentV2, candidate AnswerDiagramRelationRepairCandidate) string {
+	if base == nil || strings.TrimSpace(candidate.BlockID) == "" ||
+		!candidate.RelationKind.IsValid() || strings.TrimSpace(candidate.FromIdentity) == "" ||
+		strings.TrimSpace(candidate.ToIdentity) == "" {
+		return ""
+	}
+	candidate.AdditionRef = ""
+	type refAnchor struct {
+		FromNode     string              `json:"from_node,omitempty"`
+		ToNode       string              `json:"to_node,omitempty"`
+		FromIdentity string              `json:"from_identity,omitempty"`
+		ToIdentity   string              `json:"to_identity,omitempty"`
+		RelationKind DiagramRelationKind `json:"relation_kind,omitempty"`
+	}
+	type refBlock struct {
+		ID          string          `json:"id"`
+		Kind        AnswerBlockKind `json:"kind,omitempty"`
+		EdgeAnchors []refAnchor     `json:"edge_anchors,omitempty"`
+	}
+	toRefBlock := func(block AnswerBlock) refBlock {
+		out := refBlock{ID: strings.TrimSpace(block.ID), Kind: block.Kind}
+		for _, anchor := range block.EdgeAnchors {
+			out.EdgeAnchors = append(out.EdgeAnchors, refAnchor{
+				FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+				FromIdentity: strings.TrimSpace(anchor.FromIdentity), ToIdentity: strings.TrimSpace(anchor.ToIdentity),
+				RelationKind: anchor.RelationKind,
+			})
+		}
+		return out
+	}
+	var selected *refBlock
+	selectedCount := 0
+	for _, block := range base.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) {
+			continue
+		}
+		selectedCount++
+		value := toRefBlock(block)
+		selected = &value
+	}
+	payload := struct {
+		Version        int                                  `json:"version"`
+		Candidate      AnswerDiagramRelationRepairCandidate `json:"candidate"`
+		Block          *refBlock                            `json:"block,omitempty"`
+		FallbackBlocks []refBlock                           `json:"fallback_blocks,omitempty"`
+	}{Version: 1, Candidate: candidate}
+	if selectedCount == 1 {
+		payload.Block = selected
+	} else {
+		for _, block := range base.Blocks {
+			payload.FallbackBlocks = append(payload.FallbackBlocks, toRefBlock(block))
+		}
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("ra1-%x", sum[:12])
 }
 
 // ValidateAnswerDiagramRelationRepairLease checks only typed edge-anchor

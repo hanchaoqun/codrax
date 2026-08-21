@@ -207,6 +207,10 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 	staleRef := "rf1-000000000000000000000000"
 
 	liveRef := lease.Failures[0].FailureRef
+	liveAdditionRef := lease.AllowedAdditions[0].AdditionRef
+	if liveAdditionRef == "" {
+		t.Fatal("expected the live lease to publish an addition_ref")
+	}
 	tests := []struct {
 		name        string
 		params      string
@@ -231,6 +235,13 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 				`{"from_node":"X","to_node":"B","relation_kind":"call"}}]}`,
 			summaryWant: "already selects from_node",
 		},
+		{
+			name: "stale addition ref",
+			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
+				`{"addition_ref":"ra1-000000000000000000000000","action":"add","edge":` +
+				`{"from_node":"Worker","to_node":"Sink","relation_kind":"call","visible_label":"model label"}}]}`,
+			summaryWant: "unknown or stale",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -246,7 +257,8 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 			}
 			raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
 			if !strings.Contains(raw, `"failure_ref":"`+liveRef+`"`) ||
-				strings.Contains(raw, staleRef) || !strings.Contains(raw, `"allowed_additions"`) {
+				strings.Contains(raw, staleRef) || !strings.Contains(raw, `"allowed_additions"`) ||
+				!strings.Contains(raw, `"addition_ref":"`+liveAdditionRef+`"`) {
 				t.Fatalf("repair must republish the complete current lease and exclude stale refs: %s", raw)
 			}
 		})

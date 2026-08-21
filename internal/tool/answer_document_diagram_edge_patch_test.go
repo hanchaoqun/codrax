@@ -70,6 +70,104 @@ func TestApplyModelAuthoredDiagramAtomicEdits_PreservesUnmentionedGraphContent(t
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHiddenTuple(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "requested_stage_precedence_spine_incomplete",
+			FromNode: "StageAnalyze", ToNode: "StageExplore", RelationKind: types.DiagramRelPrecedence,
+		}}, []types.AnswerDiagramRelationRepairCandidate{{
+			BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+			FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
+		}})
+	if lease == nil || len(lease.AllowedAdditions) != 1 || lease.AllowedAdditions[0].AdditionRef == "" {
+		t.Fatalf("expected one live referenced addition: %+v", lease)
+	}
+	additionRef := lease.AllowedAdditions[0].AdditionRef
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		Action: "add", AdditionRef: additionRef,
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "businessAnalyze", ToNode: "businessExplore",
+			VisibleLabel: "确定分析范围后收集证据",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("referenced allowed addition must compile: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 || len(patch.ReplaceBlocks[0].EdgeAnchors) != 3 {
+		t.Fatalf("unexpected compiled patch: %+v", patch)
+	}
+	added := patch.ReplaceBlocks[0].EdgeAnchors[2]
+	if added.FromNode != "businessAnalyze" || added.ToNode != "businessExplore" ||
+		added.VisibleLabel != "确定分析范围后收集证据" ||
+		added.FromIdentity != "analyzer" || added.ToIdentity != "explorer" ||
+		added.RelationKind != types.DiagramRelPrecedence {
+		t.Fatalf("ref must preserve visible authorship and stamp only its typed tuple: %+v", added)
+	}
+
+	merged, err := types.ApplyAnswerDocumentV2Patch(prev, patch)
+	if err != nil {
+		t.Fatalf("compiled patch must apply: %v", err)
+	}
+	// This is the production split from r806: a node-keyed recipe offers a
+	// different Stage identity dialect. The already-complete ref-selected Agent
+	// pair must not be re-authored by that downstream metadata normalizer.
+	fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(merged, []types.DiagramEdgeAnchor{{
+		FromNode: "businessAnalyze", ToNode: "businessExplore",
+		FromIdentity: "StageAnalyze", ToIdentity: "StageExplore",
+		RelationKind: types.DiagramRelPrecedence,
+	}})
+	if fixed != 0 || merged.Blocks[1].EdgeAnchors[2].FromIdentity != "analyzer" ||
+		merged.Blocks[1].EdgeAnchors[2].ToIdentity != "explorer" {
+		t.Fatalf("recipe normalization must not overwrite the selected live candidate: fixed=%d anchor=%+v", fixed, merged.Blocks[1].EdgeAnchors[2])
+	}
+	if violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(violations) != 0 {
+		t.Fatalf("the exact ref-selected candidate must pass its own live lease: %+v", violations)
+	}
+
+	t.Run("stale ref fails closed", func(t *testing.T) {
+		got := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
+			Action: "add", AdditionRef: "ra1-000000000000000000000000",
+			Edge: &types.DiagramEdgeAnchor{FromNode: "X", ToNode: "Y", VisibleLabel: "model label"},
+		}}, nil, lease)
+		if err == nil || !strings.Contains(err.Error(), "unknown or stale") {
+			t.Fatalf("stale addition ref must be rejected: %v", err)
+		}
+	})
+
+	t.Run("duplicate ref fails closed", func(t *testing.T) {
+		got := &types.AnswerDocumentV2Patch{}
+		edge := func(from, to string) emitAnswerDiagramEdgeEdit {
+			return emitAnswerDiagramEdgeEdit{
+				Action: "add", AdditionRef: additionRef,
+				Edge: &types.DiagramEdgeAnchor{FromNode: from, ToNode: to, VisibleLabel: "model label"},
+			}
+		}
+		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{
+			edge("X", "Y"), edge("P", "Q"),
+		}, nil, lease)
+		if err == nil || !strings.Contains(err.Error(), "reuses addition_ref") {
+			t.Fatalf("one candidate ref must not authorize two visible edges: %v", err)
+		}
+	})
+
+	t.Run("conflicting technical fields fail closed", func(t *testing.T) {
+		got := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
+			Action: "add", AdditionRef: additionRef,
+			Edge: &types.DiagramEdgeAnchor{
+				FromNode: "X", ToNode: "Y", FromIdentity: "other", ToIdentity: "explorer",
+				RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model label",
+			},
+		}}, nil, lease)
+		if err == nil || !strings.Contains(err.Error(), "selects identity") {
+			t.Fatalf("a ref cannot be combined with a different hidden identity: %v", err)
+		}
+	})
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_RemovesTypedFailedAnchorWithoutBody(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
@@ -768,6 +866,34 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 			"from_node":"C","to_node":"F","relation_kind":"precedence","visible_label":"结构化事实就绪后组织答案"
 		}}]
 	}`)
+
+	t.Run("live addition ref removes recipe dialect dependency", func(t *testing.T) {
+		bus := newBus(allowed, nil)
+		lease := bus.Mutable.AnswerDiagramRelationRepairLease()
+		if lease == nil || len(lease.AllowedAdditions) != 1 || lease.AllowedAdditions[0].AdditionRef == "" {
+			t.Fatalf("expected a referenced live addition: %+v", lease)
+		}
+		params := fmt.Sprintf(`{
+			"unchanged_block_ids":["summary"],
+			"diagram_edge_edits":[{"action":"add","addition_ref":%q,"edge":{
+				"from_node":"BusinessExtract","to_node":"BusinessFinalize","visible_label":"结构化事实就绪后组织答案"
+			}}]
+		}`, lease.AllowedAdditions[0].AdditionRef)
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+		if err != nil || !res.Success {
+			t.Fatalf("selected live candidate must not depend on guessing a recipe node dialect: err=%v res=%+v", err, res)
+		}
+		doc := bus.Mutable.AnswerDocumentV2()
+		if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].EdgeAnchors) != 3 {
+			t.Fatalf("unexpected persisted document: %+v", doc)
+		}
+		got := doc.Blocks[1].EdgeAnchors[2]
+		if got.FromNode != "BusinessExtract" || got.ToNode != "BusinessFinalize" ||
+			got.FromIdentity != "Extractor" || got.ToIdentity != "Finalizer" ||
+			got.VisibleLabel != "结构化事实就绪后组织答案" {
+			t.Fatalf("addition ref changed visible authorship or lost its hidden tuple: %+v", got)
+		}
+	})
 
 	t.Run("unique typed receipt completes invisible identity metadata", func(t *testing.T) {
 		bus := newBus(allowed, []types.DiagramEdgeAnchor{recipe})

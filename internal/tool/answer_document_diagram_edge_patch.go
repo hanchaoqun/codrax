@@ -68,6 +68,7 @@ func applyModelAuthoredDiagramAtomicEdits(
 	working := make(map[string]types.AnswerBlock)
 	order := make([]string, 0, len(edits)+len(boundaries))
 	usedFailureRefs := make(map[string]bool, len(edits))
+	usedAdditionRefs := make(map[string]bool, len(edits))
 	loadBlock := func(blockID string, index int, field string) (types.AnswerBlock, error) {
 		if block, exists := working[blockID]; exists {
 			return block, nil
@@ -99,6 +100,13 @@ func applyModelAuthoredDiagramAtomicEdits(
 				return fmt.Errorf("diagram_edge_edits[%d] reuses failure_ref=%q; each live failure may be consumed at most once", i, failureRef)
 			}
 			usedFailureRefs[failureRef] = true
+		}
+		additionRef := strings.TrimSpace(edit.AdditionRef)
+		if additionRef != "" {
+			if usedAdditionRefs[additionRef] {
+				return fmt.Errorf("diagram_edge_edits[%d] reuses addition_ref=%q; each live allowed addition may be selected at most once", i, additionRef)
+			}
+			usedAdditionRefs[additionRef] = true
 		}
 		var err error
 		edit, err = resolveAtomicDiagramFailureRef(edit, lease)
@@ -237,6 +245,13 @@ func resolveAtomicDiagramFailureRef(
 	lease *types.AnswerDiagramRelationRepairLease,
 ) (emitAnswerDiagramEdgeEdit, error) {
 	ref := strings.TrimSpace(edit.FailureRef)
+	additionRef := strings.TrimSpace(edit.AdditionRef)
+	if ref != "" && additionRef != "" {
+		return edit, fmt.Errorf("failure_ref and addition_ref are mutually exclusive")
+	}
+	if additionRef != "" {
+		return resolveAtomicDiagramAdditionRef(edit, lease)
+	}
 	if ref == "" {
 		return edit, nil
 	}
@@ -339,6 +354,67 @@ func resolveAtomicDiagramFailureRef(
 	default:
 		return edit, fmt.Errorf("failure_ref=%q matches %d candidate %s rows; the live failure is structurally ambiguous", ref, len(matches), failure.TargetCarrier)
 	}
+}
+
+// resolveAtomicDiagramAdditionRef turns one model-selected live candidate into
+// a complete hidden anchor tuple. The opaque ref is the choice: the compiler
+// does not infer a relation from node names, labels, request prose, or Mermaid
+// messages. The model still authors both visible endpoints and the visible
+// label. Any explicitly repeated technical field must agree byte-for-byte with
+// the selected candidate so this convenience cannot broaden authority.
+func resolveAtomicDiagramAdditionRef(
+	edit emitAnswerDiagramEdgeEdit,
+	lease *types.AnswerDiagramRelationRepairLease,
+) (emitAnswerDiagramEdgeEdit, error) {
+	ref := strings.TrimSpace(edit.AdditionRef)
+	if strings.ToLower(strings.TrimSpace(edit.Action)) != "add" {
+		return edit, fmt.Errorf("addition_ref=%q is valid only with action=add", ref)
+	}
+	if lease == nil || lease.Version != 1 {
+		return edit, fmt.Errorf("addition_ref=%q is not present in a live relation-repair lease", ref)
+	}
+	var selected *types.AnswerDiagramRelationRepairCandidate
+	for i := range lease.AllowedAdditions {
+		if strings.TrimSpace(lease.AllowedAdditions[i].AdditionRef) != ref {
+			continue
+		}
+		if selected != nil {
+			return edit, fmt.Errorf("addition_ref=%q is ambiguous in the live relation-repair lease", ref)
+		}
+		candidate := lease.AllowedAdditions[i]
+		selected = &candidate
+	}
+	if selected == nil {
+		return edit, fmt.Errorf("addition_ref=%q is unknown or stale for the live relation-repair lease", ref)
+	}
+	blockID := strings.TrimSpace(selected.BlockID)
+	if declared := strings.TrimSpace(edit.BlockID); declared != "" && declared != blockID {
+		return edit, fmt.Errorf("addition_ref=%q belongs to block_id=%q, not %q", ref, blockID, declared)
+	}
+	if edit.Edge == nil {
+		return edit, fmt.Errorf("addition_ref=%q requires a model-authored edge with from_node, to_node, and visible_label", ref)
+	}
+	if relation := strings.TrimSpace(string(edit.Edge.RelationKind)); relation != "" &&
+		edit.Edge.RelationKind != selected.RelationKind {
+		return edit, fmt.Errorf("addition_ref=%q selects relation_kind=%q, not %q", ref, selected.RelationKind, edit.Edge.RelationKind)
+	}
+	fromIdentity := strings.TrimSpace(edit.Edge.FromIdentity)
+	toIdentity := strings.TrimSpace(edit.Edge.ToIdentity)
+	if (fromIdentity == "") != (toIdentity == "") {
+		return edit, fmt.Errorf("addition_ref=%q requires both technical identities to be omitted or copied together", ref)
+	}
+	if fromIdentity != "" && (fromIdentity != strings.TrimSpace(selected.FromIdentity) ||
+		toIdentity != strings.TrimSpace(selected.ToIdentity)) {
+		return edit, fmt.Errorf(
+			"addition_ref=%q selects identity=%s->%s, not %s->%s",
+			ref, selected.FromIdentity, selected.ToIdentity, fromIdentity, toIdentity,
+		)
+	}
+	edit.BlockID = blockID
+	edit.Edge.RelationKind = selected.RelationKind
+	edit.Edge.FromIdentity = strings.TrimSpace(selected.FromIdentity)
+	edit.Edge.ToIdentity = strings.TrimSpace(selected.ToIdentity)
+	return edit, nil
 }
 
 // validateAtomicDiagramFailureRefRedundantMatch tolerates an older patch

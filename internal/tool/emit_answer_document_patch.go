@@ -54,7 +54,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
-		"- `diagram_edge_edits`: model-authored atomic edits against one existing diagram block. Use this instead of `replace_blocks` when a retry only needs to relabel, remove, replace, or add individual typed relations. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row and prefer `{failure_ref, action}` over retyping block/node/identity/relation/occurrence/body_occurrence coordinates. The live lease resolves only that exact failed carrier. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique repeated body occurrence and is remove-only without changing visible edges; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. replace requires the complete model-authored edge/visible_label. add supplies one complete new anchor and does not accept failure_ref. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
+		"- `diagram_edge_edits`: model-authored atomic edits against one existing diagram block. Use this instead of `replace_blocks` when a retry only needs to relabel, remove, replace, or add individual typed relations. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row and prefer `{failure_ref, action}` over retyping block/node/identity/relation/occurrence/body_occurrence coordinates. The live lease resolves only that exact failed carrier. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique repeated body occurrence and is remove-only without changing visible edges; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id because the executor restores those invisible fields from the selected row. Legacy add without addition_ref must supply one complete new anchor and still cannot use failure_ref. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of only `participant_boundaries` on an existing diagram block. Use this for a participant coverage retry so the prior Mermaid body, relations, labels, and other block fields remain untouched.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
@@ -93,13 +93,14 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "diagram_edge_edits": {
       "type": "array",
       "maxItems": 128,
-      "description": "Atomic model-authored edits for an existing diagram block (maximum 128 operations). Prefer this during a local typed relation retry so unmentioned graph content stays byte-identical. A live failures[] failure_ref may replace block_id+match+occurrence+body_occurrence only with an action listed by that row's allowed_actions; target_carrier states whether it selects a mapped prior anchor/body pair, remove-only prior anchor metadata with no unique repeated body occurrence, visible body-only edge, stale anchor, or label pair. replace requires a complete model-authored edge and visible_label. add requires block_id+edge and rejects failure_ref. occurrence is 1-based among exact duplicate anchors and defaults to 1. Without failure_ref, body_occurrence selects the 1-based visible Mermaid edge for an otherwise ambiguous from_node/to_node pair. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
+      "description": "Atomic model-authored edits for an existing diagram block (maximum 128 operations). Prefer this during a local typed relation retry so unmentioned graph content stays byte-identical. A live failures[] failure_ref may replace block_id+match+occurrence+body_occurrence only with an action listed by that row's allowed_actions; target_carrier states whether it selects a mapped prior anchor/body pair, remove-only prior anchor metadata with no unique repeated body occurrence, visible body-only edge, stale anchor, or label pair. replace requires a complete model-authored edge and visible_label. For add, prefer a live allowed_additions[].addition_ref plus edge.from_node/to_node/visible_label; omit edge.relation_kind/from_identity/to_identity and block_id because the ref supplies those hidden fields. Legacy add requires block_id+complete edge. add always rejects failure_ref. occurrence is 1-based among exact duplicate anchors and defaults to 1. Without failure_ref, body_occurrence selects the 1-based visible Mermaid edge for an otherwise ambiguous from_node/to_node pair. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
       "items": {
         "type": "object",
         "properties": {
           "block_id": {"type": "string"},
           "action": {"type": "string", "enum": ["relabel", "remove", "replace", "add"]},
           "failure_ref": {"type": "string", "description": "Opaque selector copied exactly from the live failures[] row. Use only an action listed in that row's allowed_actions. It replaces block_id, match, occurrence, and body_occurrence; omit those coordinates and omit failure_ref for add. Unknown, stale, disallowed-action, cross-block, ambiguous, or reused refs fail closed."},
+          "addition_ref": {"type": "string", "description": "Opaque selector copied exactly from one live allowed_additions[] row. Use only with action=add. It supplies that selected candidate's block_id, relation_kind, from_identity, and to_identity; you still author edge.from_node, edge.to_node, and edge.visible_label. Omit failure_ref. Unknown, stale, duplicate, cross-block, wrong-action, or conflicting technical fields fail closed."},
           "occurrence": {"type": "integer", "minimum": 1},
           "body_occurrence": {"type": "integer", "minimum": 1, "description": "1-based visible Mermaid edge occurrence for the selected from_node/to_node pair. Omit when the pair is unique or body edges map one-to-one to exact prior anchors; required when the body pair is otherwise ambiguous."},
           "match": {
@@ -123,13 +124,14 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
               "to_identity": {"type": "string"},
               "relation_kind": {"type": "string", "enum": ["call", "callback", "argument_flow", "guard", "control_flow", "import", "precedence", "contain", "type_relation", "observe", "register", "assignment", "data_flow", "return", "temporal"]}
             },
-            "required": ["from_node", "to_node", "relation_kind"]
+            "required": ["from_node", "to_node"]
           },
           "visible_label": {"type": "string", "description": "Model-authored reader-facing message for relabel. It updates the matched Mermaid message and anchor.visible_label together."}
         },
         "required": ["action"],
         "anyOf": [
           {"required": ["failure_ref"]},
+          {"required": ["addition_ref"]},
           {"required": ["block_id"]}
         ]
       }
@@ -354,6 +356,7 @@ type emitAnswerDiagramEdgeEdit struct {
 	BlockID            string                   `json:"block_id"`
 	Action             string                   `json:"action"`
 	FailureRef         string                   `json:"failure_ref,omitempty"`
+	AdditionRef        string                   `json:"addition_ref,omitempty"`
 	Occurrence         int                      `json:"occurrence,omitempty"`
 	BodyOccurrence     int                      `json:"body_occurrence,omitempty"`
 	Match              *types.DiagramEdgeAnchor `json:"match,omitempty"`
@@ -765,7 +768,7 @@ func answerDiagramRelationRepairScopeRepair(
 	}
 	return &types.ToolRepair{
 		Code:     types.ToolRepairCodeAnswerDocRelationRepairScope,
-		Hint:     "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. You may choose listed allowed_additions[] at most once each; do not add any other relation.",
+		Hint:     "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. You may choose a listed allowed_additions[] row through its addition_ref at most once and still author the visible nodes/label; do not add any other relation.",
 		Fields:   fields,
 		Metadata: metadata,
 	}

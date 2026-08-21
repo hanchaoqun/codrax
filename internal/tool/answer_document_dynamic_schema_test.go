@@ -60,6 +60,14 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	if _, ok := edgeEditProps["failure_ref"]; !ok {
 		t.Fatalf("diagram atomic edit schema lost the live failure selector: %v", edgeEditProps)
 	}
+	if _, ok := edgeEditProps["addition_ref"]; !ok {
+		t.Fatalf("diagram atomic edit schema lost the live allowed-addition selector: %v", edgeEditProps)
+	}
+	edgePayload := edgeEditProps["edge"].(map[string]any)
+	edgeRequired := edgePayload["required"].([]any)
+	if len(edgeRequired) != 2 || edgeRequired[0] != "from_node" || edgeRequired[1] != "to_node" {
+		t.Fatalf("addition_ref lane must require only model-owned visible endpoints at schema level: required=%v", edgeRequired)
+	}
 	if required := edgeEditItem["required"].([]any); len(required) != 1 || required[0] != "action" {
 		t.Fatalf("failure_ref lane must not require coordinate retyping: required=%v", required)
 	}
