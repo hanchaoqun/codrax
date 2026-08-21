@@ -57330,6 +57330,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r815`。
 
+### §123.1335 r816：类型关系图与 Java write-plan 异构回放均通过（2026-08-21）
+
+1. 从 `main@4244c89a8` 重建不可变二进制后，严格并发恰好 2 路运行 read 类型关系图与 Java write-plan，runner 2/2 PASS：
+   `patch_java_typo` 55s、`qf_type_relation_loop_controller` 160s。两路人工均判 pass，没有按固定 4ms/4m、首字节、stall、累计年龄或上下文比例
+   降级，也没有恢复旧稿或系统代写答案。
+2. Java plan-only 车道只读取 `Main.java`，生成一个 `kind=patch` 的单行 hunk，把第 16 行 `retrun` 改为 `return`；old/new text、
+   `Main.greet` owner、目标路径与三项验收一致，没有 apply、额外文件、整文件覆盖或虚假“已验证”声明。Java verification probe 只是 pending plan
+   载体，本批没有执行，状态正确保持 `pending_approval`。
+3. read 终稿完整列出 12 个 production `LoopController` implementer、各自文件和行号；合法 flowchart 中 12 条边均为
+   `implementer -->|implements| LoopController`，方向与 typed type-relation 一致，3 个 test-only 实现未混入主体。答案没有暴露 relation/anchor/
+   lease 等系统协议词，也没有把实现关系误说成继承、嵌入或调用关系。
+4. 唯一 finalizer reject 来自模型在 summary item 上使用手工 citation carrier；精确提示要求改为当前 evidence ID 后闭合。随后输出维度检查只要求给
+   已存在的逐成员文件表补 typed facet，第二次 patch 没有改变可见成员、文件、关系、图布局或结论。该过程有局部结构 churn，但没有证据表明同向合同
+   自冲突或关系丢失，暂不新增代码 gap。
+5. r815 中疑似 addition-ref 冲突的否证继续成立：本轮不依赖该 repair lane；现有单测/生产接线仍是 ref-first、隐藏技术字段由 live candidate 恢复。
+   B1298 semantic-grounding 隔离也未自然触发，状态仍为测试正证、待异构生产形，而非为了触发它反复拟合同一 case。
+
+状态：
+
+`r816=runner-pass-2/2,human-pass-2/2`；
+`type-relation=12/12-production-edges+12/12-visible-files`；
+`java-write-plan=single-file+single-line+pending-approval`；
+`finalizer-reject=one-citation-carrier-repair/no-relation-loss`；
+`new-system-gap=none`；
+`B1298=semantic-production-trigger-pending`；
+`system-member/edge/relation/file/answer/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-keyword-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r816`。
+
 ### §123.1321 r808/B1291：同级逐成员表不再把一个耦合关系调查拆成内部名称子课题（2026-08-21）
 
 1. r808 从已推送 `b76aff12d` 构建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 247s、read 536s。Trace 人工通过：精确 2.000..2.020s、4 节点唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级候选、主要占时/规则可消双账户、背景隔离与完整 `Trace 因果投影` 均在；活动流没有固定 4ms/4m 降级。
