@@ -626,6 +626,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. Re-read the complete current typed delta and choose only live failure_ref/actions or listed additions; do not guess, silently drop, or widen operations."
 				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
 			}
+			if repair := answerDiagramRelationRepairLeaseAbsentRepair(p.DiagramEdgeEdits); repair != nil {
+				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
+			}
 			return failEmit(t.Name(), now, "diagram atomic edits: %s", err.Error())
 		}
 	}
@@ -767,6 +770,35 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// answerDiagramRelationRepairLeaseAbsentRepair classifies only structured
+// ref-bearing operations when the caller has already established lease=nil.
+// It never parses the executor error, request, Mermaid text, or model prose,
+// and it cannot mint a replacement ref. The retrying model can preserve the
+// staged patch base for one ordinary revalidation cycle, which will publish a
+// fresh typed lease only if relation failures still exist.
+func answerDiagramRelationRepairLeaseAbsentRepair(edits []emitAnswerDiagramEdgeEdit) *types.ToolRepair {
+	fields := make([]string, 0, len(edits))
+	for i, edit := range edits {
+		if strings.TrimSpace(edit.FailureRef) != "" {
+			fields = append(fields, fmt.Sprintf("diagram_edge_edits[%d].failure_ref", i))
+		}
+		if strings.TrimSpace(edit.AdditionRef) != "" {
+			fields = append(fields, fmt.Sprintf("diagram_edge_edits[%d].addition_ref", i))
+		}
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return &types.ToolRepair{
+		Code:   types.ToolRepairCodeAnswerDocRelationRepairLeaseAbsent,
+		Fields: fields,
+		Hint:   "No relation-repair lease is active for the current patch base. Every historical failure_ref/addition_ref is invalid; do not guess or reuse one.",
+		Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairLeaseStatus: "absent",
+		},
+	}
 }
 
 // validateAndConsumeAnswerDiagramRelationRepairLease applies one precise

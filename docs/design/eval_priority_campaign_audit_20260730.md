@@ -57399,11 +57399,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    exact canonical relation/from/to tuple 铸造 endpoint-carrier authority：仅 provider 声明的 participant endpoint side、仅精确 participant
    node identity、仅非 local-only 候选可以吸收这一个显示层差异；另一端、反向 tuple、其他 participant、无/歧义候选仍按原门 fail-closed。
    关系 kind、方向、两端 canonical identity 与独立 citable evidence 仍由原关系门复验，carrier authority 不创建关系、不替模型选边或改正文。
-5. 新 P1 `B1306-RELATIONLIVEREFREPUBLISH1` 是同一失败链的次级放大器。当前 atomic patch 因 unknown/stale relation ref 拒绝时，只说明所交 ref
-   无效，不同时回传当前 lease 的 live `failure_ref`/`addition_ref` 清册；合法 ref 会随每个已接受状态代次重签，模型因此在第 12–20 轮连续猜历史
-   ref。最优形是在执行器的 typed 错误结果中并列当前 lease roster，不自动重选 action，也不从错误 prose 反解析旧 ref。
-6. 施工顺序冻结：先以 B1305 消除“系统要求且禁止”的 P0 自冲突，并钉住 generic/no-request-context 的 B1237 反向拒绝；再给 B1306 增加当前
-   lease 引用反馈。两批都不得读取用户原文、模型 thinking、最终答案 prose 或 Mermaid message 作为事实/硬门，不得系统选择关系、动作、节点、
+5. 新 P1 `B1306-RELATIONLEASEABSENT1` 是同一失败链的次级放大器，但深审后纠正初判：有 live lease 时，执行器自 `69dd700131`
+   已在 unknown/stale ref 错误旁完整重发当前 `failure_ref`/`addition_ref` 清册，r822 第 5 轮日志也证明模型收到了新 refs。真正漏网发生在上一代 lease
+   已成功消费、当前 lease 为 nil 后：模型继续提交历史 ref，工具只返回普通“not present in a live lease”错误，没有 typed `lease_status=absent`；路由
+   随即落入泛化 patch 修补，模型把历史提示误当当前 roster 并在第 12–20 轮反复猜。此时没有 refs 可以重发，系统更不能伪造一个。
+6. 施工顺序冻结：先以 B1305 消除“系统要求且禁止”的 P0 自冲突，并钉住 generic/no-request-context 的 B1237 反向拒绝；再给 B1306 增加精确
+   `lease=absent` 反馈和无 ref 的当前 staged-base 重验车道。两批都不得读取用户原文、模型 thinking、最终答案 prose 或 Mermaid message 作为事实/硬门，不得系统选择关系、动作、节点、
    标签、业务措辞、布局或结论。完成各自测试与 release build 后分别提交推送，再从不可变提交恰好 2 路 read+显式窗 Trace 回放。
 7. B1305 已按冻结边界施工。生产 pre-emit 与 post-finalizer source relation gate 现在从同一 typed participant candidate provider 派生
    endpoint-carrier authority；匹配条件同时包含 relation kind、canonical from/to identity、provider 声明的 endpoint side 和精确 request participant
@@ -57414,12 +57415,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    participant 或反转 canonical tuple 必须继续报 conflict。既有 opposite typed endpoint 反签测试保持通过；
    `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿。release build 通过并推送后，B1306 单独成批，避免把 ref 反馈与 P0
    身份合同混成一个不可审计改动。
+9. B1306 已按纠正后的边界施工。执行器仅在 `lease == nil` 且提交的结构化 `diagram_edge_edits[]` 明确带 `failure_ref` 或 `addition_ref` 时，返回
+   `answer_doc_relation_repair_lease_absent + diagram_relation_repair_lease_status=absent`；它不解析错误文本，也不为普通无 ref 编辑误报。finalizer
+   由该 typed 状态进入专用重验车道：明确历史 refs 全部失效，要求用当前 patch-base roster 的 `unchanged_block_ids` 原样保存模型草稿并暂不提交
+   relation edits，让普通 validator 仅在关系缺口仍存在时发新 lease。该过程不选择边、action、标签、布局或结论，也不会把旧 ref 映射成新 ref。
+10. 回归覆盖 failure/addition 两类历史 ref：无 lease 时必须返回 exact absent code/status、指出结构化字段、不得携带虚构 relation delta，且拒绝前后
+    accepted draft 字节等价；evaluator 必须走 `answer_doc.patch_relation_lease_absent`、携带当前 block roster、禁止暗示存在
+    `allowed_additions` 或切回 whole-answer rewrite。既有“有 live lease 时重发完整当前 roster”的正反例保持同批回归。
 
 状态：
 
 `r822=runner-pass-1/2,human-trace-pass+read-system-fail`；
 `B1304=production-positive/core-closed`；
-`B1305=implemented/related-full-suite+release-build-pass/pending-production-replay`；`B1306=confirmed/P1-queued`；
+`B1305=implemented/related-full-suite+release-build-pass/pending-production-replay`；
+`B1306=implemented/targeted+related-full-suite+release-build-pass/pending-production-replay`；
 `participant-carrier-authority=exact-request-scoped-candidate+declared-side-only`；
 `generic-visible-node-vs-anchor-binding=B1237-fail-closed-unchanged`；
 `system-edge/action/node/wording/layout/conclusion-selection=none`；

@@ -6940,6 +6940,11 @@ const (
 	// typed edge-anchor outside the producer-named local relation failures. The
 	// gate reads only structural tuples from an active retry-local lease.
 	ToolRepairCodeAnswerDocRelationRepairScope = "answer_doc_relation_repair_scope"
+	// ToolRepairCodeAnswerDocRelationRepairLeaseAbsent marks a structured
+	// relation-ref operation submitted when the current patch base has no live
+	// lease at all. This is distinct from an unknown ref inside a live lease:
+	// there is no current ref roster to republish or infer.
+	ToolRepairCodeAnswerDocRelationRepairLeaseAbsent = "answer_doc_relation_repair_lease_absent"
 
 	// ToolRepairMetaMemberSetMissingFingerprint is the ToolRepair.Metadata
 	// key carrying the member-set coverage reject's missing-obligation
@@ -6987,6 +6992,10 @@ const (
 	// every visible edge, label, ordering, and conclusion; this carrier is never
 	// relation evidence and runtime/trace diagrams do not consume it.
 	ToolRepairMetaDiagramRelationRepairDeltaJSON = "diagram_relation_repair_delta_json"
+	// ToolRepairMetaDiagramRelationRepairLeaseStatus is the producer-owned
+	// exact lease state for ref admission failures. The current closed value is
+	// `absent`; consumers must not infer it from Summary/error prose.
+	ToolRepairMetaDiagramRelationRepairLeaseStatus = "diagram_relation_repair_lease_status"
 	// DiagramRelationFailureMissingGroundedCallAnchor is the producer-owned
 	// closed issue value for a visible call edge whose direction/endpoints are
 	// already supported by accepted typed evidence and whose only defect is a

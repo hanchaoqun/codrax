@@ -17093,6 +17093,26 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			}
 		}
 	}
+	// A ref-bearing patch with no live lease has no current capability roster
+	// to install. Route on the producer-owned status instead of sending the
+	// model back through the generic patch handbook, where historical refs can
+	// be mistaken for current ones. This asks only for a no-relation-change
+	// revalidation of the existing staged base; it does not choose an edge,
+	// action, label, layout, or conclusion.
+	if repair := obs.LastToolResult.Repair; repair != nil &&
+		repair.Code == types.ToolRepairCodeAnswerDocRelationRepairLeaseAbsent &&
+		strings.TrimSpace(repair.Metadata[types.ToolRepairMetaDiagramRelationRepairLeaseStatus]) == "absent" {
+		e.rejectHintsUsed++
+		e.preferPatchNext = true
+		hint := strings.TrimSpace(repair.Hint)
+		hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+		hint += " Submit one patch that lists every current block id in `unchanged_block_ids` and contains no `diagram_edge_edits`; this preserves the model-authored draft byte-for-byte while the ordinary validators establish a fresh lease only if needed. Do not write free-form prose outside the tool call."
+		hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+		return LoopSignal{
+			HintRequested: true, HintKey: "answer_doc.patch_relation_lease_absent",
+			Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+		}
+	}
 	// A graph that is already grounded must not be replaced by a smaller
 	// evidence skeleton merely because the model omitted edge_anchors. The
 	// producer supplies a complete block-local anchor array for this exact

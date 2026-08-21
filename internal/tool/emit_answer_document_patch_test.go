@@ -145,6 +145,53 @@ func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_ReportsAbsentRelationLeaseWithoutInventingRefs(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		params    string
+		wantField string
+	}{
+		{
+			name: "historical failure ref",
+			params: `{"unchanged_block_ids":["s1","list1"],"diagram_edge_edits":[` +
+				`{"failure_ref":"rf1-000000000000000000000000","action":"remove"}]}`,
+			wantField: "diagram_edge_edits[0].failure_ref",
+		},
+		{
+			name: "historical addition ref",
+			params: `{"unchanged_block_ids":["s1","list1"],"diagram_edge_edits":[` +
+				`{"addition_ref":"ra1-000000000000000000000000","action":"add",` +
+				`"edge":{"from_node":"A","to_node":"B","visible_label":"model label"}}]}`,
+			wantField: "diagram_edge_edits[0].addition_ref",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bus := newPatchTestBusContext()
+			before := bus.Mutable.AnswerDocumentV2()
+			if lease := bus.Mutable.AnswerDiagramRelationRepairLease(); lease != nil {
+				t.Fatalf("fixture must begin without a live relation lease: %+v", lease)
+			}
+			res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(tc.params))
+			if err != nil {
+				t.Fatalf("unexpected execution error: %v", err)
+			}
+			if res.Success || res.Repair == nil ||
+				res.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairLeaseAbsent ||
+				res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairLeaseStatus] != "absent" {
+				t.Fatalf("ref without a live lease must publish the exact absent state: %+v", res)
+			}
+			if !reflect.DeepEqual(res.Repair.Fields, []string{tc.wantField}) ||
+				strings.TrimSpace(res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]) != "" ||
+				!strings.Contains(res.Summary, "not present in a live relation-repair lease") {
+				t.Fatalf("absent state must identify the structured ref and mint no replacement roster: %+v", res)
+			}
+			if after := bus.Mutable.AnswerDocumentV2(); !reflect.DeepEqual(before, after) {
+				t.Fatalf("rejected historical ref must not mutate the accepted draft: before=%+v after=%+v", before, after)
+			}
+		})
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement(t *testing.T) {
 	mut := types.NewMutableState("relation repair")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{

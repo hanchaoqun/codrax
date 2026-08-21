@@ -1326,6 +1326,35 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	}
 }
 
+func TestAbsentRelationRepairLeaseGetsTypedRevalidationLane(t *testing.T) {
+	ctx := ctxWithAnswerPatchBase()
+	e := &answerDocumentEvaluator{}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{
+			Code:   types.ToolRepairCodeAnswerDocRelationRepairLeaseAbsent,
+			Hint:   "No live relation lease exists; historical refs are invalid.",
+			Fields: []string{"diagram_edge_edits[0].addition_ref"},
+			Metadata: map[string]string{
+				types.ToolRepairMetaDiagramRelationRepairLeaseStatus: "absent",
+			},
+		},
+	}
+	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_lease_absent" ||
+		!signal.BypassThrottle || !signal.BypassBudget ||
+		!strings.Contains(signal.Hint, "unchanged_block_ids") ||
+		!strings.Contains(signal.Hint, "contains no `diagram_edge_edits`") ||
+		!strings.Contains(signal.Hint, "Current patch-base block roster") {
+		t.Fatalf("absent lease must take the precise no-ref revalidation lane: %+v", signal)
+	}
+	for _, forbidden := range []string{"allowed_additions", "failure_ref, action", "switch to a full `emit_answer_document`"} {
+		if strings.Contains(signal.Hint, forbidden) {
+			t.Fatalf("absent lease guidance must not imply a live ref roster or whole-answer rewrite (%q): %s", forbidden, signal.Hint)
+		}
+	}
+}
+
 func TestMixedFullRejectStillArmsRelationRepairLease(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B"}],"preserve_unlisted_edges":true}`
 	mut := types.NewMutableState("mixed relation and table repair")
