@@ -1280,6 +1280,47 @@ func TestRequiredDiagramRelationRetryAcceptsIdentityOnlyFailureLocator(t *testin
 	}
 }
 
+func TestRequiredDiagramRelationRetryInstallsLabelPairRelabelRef(t *testing.T) {
+	mut := types.NewMutableState("label pair retry")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A -->|model wording| B",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Alpha.Run", ToIdentity: "Beta.Accept",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}})
+	ctx := &types.AgentContext{Mutable: mut}
+	const delta = `{"version":1,"failures":[{"block_id":"flow","issue":"diagram_typed_recipe_missing_visible_label","relation_kind":"call","from_node":"A","to_node":"B","from_identity":"Alpha.Run","to_identity":"Beta.Accept","body_occurrence":1}],"preserve_unlisted_edges":true}`
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document", Success: false,
+		Repair: &types.ToolRepair{Code: "answer_doc_pre_emit_contract", Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+		}},
+	}
+	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
+		t.Fatal("label-pair producer delta must install a retry-local lease")
+	}
+	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
+		!lease.Failures[0].AllowsAction("relabel") || lease.Failures[0].FailureRef == "" {
+		t.Fatalf("label-pair lease is not executable: %+v", lease)
+	}
+	raw := result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	if !strings.Contains(raw, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
+		!strings.Contains(raw, `"allowed_actions":["relabel"]`) {
+		t.Fatalf("retry metadata did not publish the live relabel ref: %s", raw)
+	}
+	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, false)
+	if !ok || !strings.Contains(hint, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
+		!strings.Contains(hint, `"allowed_actions":["relabel"]`) {
+		t.Fatalf("model retry hint did not receive the exact label-pair capability: ok=%v\n%s", ok, hint)
+	}
+}
+
 func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t *testing.T) {
 	mut := types.NewMutableState("optional orphan cleanup")
 	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{

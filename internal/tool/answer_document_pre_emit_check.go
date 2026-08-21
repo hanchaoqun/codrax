@@ -5153,8 +5153,15 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 			anchorsByPair[key] = append(anchorsByPair[key], anchor)
 		}
 		var mismatches []string
+		var relationFailures []types.AnswerDiagramRelationRepairFailure
 		issues := make(map[string]bool)
-		for key, anchors := range anchorsByPair {
+		pairKeys := make([]string, 0, len(anchorsByPair))
+		for key := range anchorsByPair {
+			pairKeys = append(pairKeys, key)
+		}
+		sort.Strings(pairKeys)
+		for _, key := range pairKeys {
+			anchors := anchorsByPair[key]
 			edges := edgesByPair[key]
 			// Multiple semantic owners may intentionally share one visible edge.
 			// Without a one-to-one occurrence join there is no precise display row
@@ -5172,6 +5179,9 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 							strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, got,
 						))
 						issues[diagramTypedRecipeMissingVisibleLabel] = true
+						relationFailures = append(relationFailures, diagramVisibleLabelRepairFailure(
+							block.ID, anchor, i+1, diagramTypedRecipeMissingVisibleLabel,
+						))
 					}
 					continue
 				}
@@ -5182,6 +5192,9 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 						strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, got, want,
 					))
 					issues[diagramVisibleLabelMismatch] = true
+					relationFailures = append(relationFailures, diagramVisibleLabelRepairFailure(
+						block.ID, anchor, i+1, diagramVisibleLabelMismatch,
+					))
 					continue
 				}
 				if want == string(anchor.RelationKind) {
@@ -5195,6 +5208,9 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 						strings.TrimSpace(anchor.FromNode), strings.TrimSpace(anchor.ToNode), i+1, want, suggested,
 					))
 					issues[diagramVisibleLabelRawRelationKind] = true
+					relationFailures = append(relationFailures, diagramVisibleLabelRepairFailure(
+						block.ID, anchor, i+1, diagramVisibleLabelRawRelationKind,
+					))
 				}
 			}
 		}
@@ -5214,9 +5230,61 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 			ExpectedShape:                types.DiagramVisibleLabelConsistencyContract + " Mismatches: " + strings.Join(mismatches, "; "),
 			Reason:                       "an edge selected from an exact dispatch-local typed recipe must keep one model-authored reader label on both structured display surfaces and must not expose its raw typed relation enum as display copy. This exact recipe/field/parsed-edge check does not inspect request or answer prose, choose final wording, translate relation_kind, rewrite the diagram, or change relation authority.",
 			DiagramRelationFailureIssues: failureIssues,
+			DiagramRelationRepairDeltaJSON: diagramVisibleLabelRepairDeltaJSON(
+				doc, relationFailures,
+			),
 		})
 	}
 	return hints
+}
+
+func diagramVisibleLabelRepairFailure(
+	blockID string,
+	anchor types.DiagramEdgeAnchor,
+	bodyOccurrence int,
+	issue string,
+) types.AnswerDiagramRelationRepairFailure {
+	return types.AnswerDiagramRelationRepairFailure{
+		BlockID:        strings.TrimSpace(blockID),
+		Issue:          strings.TrimSpace(issue),
+		FromNode:       strings.TrimSpace(anchor.FromNode),
+		ToNode:         strings.TrimSpace(anchor.ToNode),
+		FromIdentity:   strings.TrimSpace(anchor.FromIdentity),
+		ToIdentity:     strings.TrimSpace(anchor.ToIdentity),
+		RelationKind:   anchor.RelationKind,
+		BodyOccurrence: bodyOccurrence,
+	}
+}
+
+// diagramVisibleLabelRepairDeltaJSON turns the same exact one-to-one
+// anchor/body join used by the hard check into an executable retry-local
+// relabel capability. It carries no suggested or system-authored wording: the
+// model still supplies visible_label. Any ambiguous carrier suppresses the
+// whole delta and leaves the ordinary diagnostic in place.
+func diagramVisibleLabelRepairDeltaJSON(
+	doc *types.AnswerDocumentV2,
+	failures []types.AnswerDiagramRelationRepairFailure,
+) string {
+	if doc == nil || len(failures) == 0 || len(failures) > types.AnswerDiagramRelationRepairDeltaMaxEntries {
+		return ""
+	}
+	assigned := types.AssignAnswerDiagramRelationRepairFailureRefs(doc, failures)
+	for _, failure := range assigned {
+		if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
+			!failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionRelabel)) ||
+			strings.TrimSpace(failure.FailureRef) == "" {
+			return ""
+		}
+	}
+	raw, err := json.Marshal(types.AnswerDiagramRelationRepairDelta{
+		Version:               types.AnswerDiagramRelationRepairDeltaVersion,
+		Failures:              assigned,
+		PreserveUnlistedEdges: true,
+	})
+	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return ""
+	}
+	return string(raw)
 }
 
 // diagramAnchorMatchesDeliveredTypedRecipe is deliberately narrower than

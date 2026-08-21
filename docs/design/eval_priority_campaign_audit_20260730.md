@@ -57291,6 +57291,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1353 B1314：visible-label producer 接通 same-generation label-pair lease（2026-08-21）
+
+1. `preCheckDiagramVisibleLabelConsistency` 现把它已经用于硬检查的一对一 `block + anchor + parsed body occurrence`
+   精确信号，同时投影为 `AnswerDiagramRelationRepairFailure`。三类既有 issue——typed recipe 缺 `visible_label`、body/anchor
+   两个模型自写显示面不一致、`visible_label` 裸露内部 relation enum——都携带完整 node、identity、relation 和 occurrence；
+   pair 遍历同时改为稳定排序，避免 map 顺序影响 delta 和 opaque ref。
+2. 新 delta 只发布 failure，不附 unrelated additions。只有每条 failure 都能在同一被拒绝文档中唯一绑定
+   `label_pair` carrier、且唯一动作是 `relabel` 时才发射；重复相同 anchor、compound owner、缺 body、跨 block 或其他歧义只保留原
+   diagnostic，不铸可执行 ref。pre-emit repair metadata、finalizer installer、动态 schema 和 executor 因此使用同一 typed generation，
+   不再退回缺 hidden identity 的 legacy match。
+3. 模型可见 schema 对该代只给 `{failure_ref, action:"relabel", visible_label}`；block/node/identity/relation/occurrence 都由 ref
+   精确选择但不成为读者文案。executor 只把模型提供的 label 同步到既有 Mermaid edge 和同一 anchor 的 `visible_label`，保留关系、
+   方向、端点 identity、sibling edge/block 及答案其它字段。系统不从 relation_kind 翻译或选择词，不改边和结论。
+4. 回归覆盖 flow/architecture/call_dag/sequence 四图族的 label mismatch、typed-recipe missing、raw-enum 三臂；ambiguous
+   duplicate carrier 负臂；pre-emit hint→ToolRepair metadata→finalizer live ref；schema 仅 relabel 分支；ref 执行后只改两个显示面并保留
+   hidden tuple 与 sibling。实现不读取请求、thinking、final prose 或 Mermaid message 词义；Trace family 继续在入口隔离。
+5. 验证：`git diff --check` 通过；`go test ./internal/tool ./internal/agent ./internal/types -count=1` 通过（tool
+   181.861s、agent 14.074s、types 25.931s）；`go test ./... -count=1` 全仓通过（含 hitraceconv 110.320s、tool
+   193.721s、tracequery 90.483s、tracediag 12.725s）；最终专项重跑与 `make` 均通过。B1315 引用同主体一致性仍保持独立待审，
+   本批不扩大硬门或混入 citation 语义变更。
+
+状态：
+
+`B1314=implemented/full-suite-green/pending-production-replay`；
+`label-pair-producer→repair→lease→schema→executor=closed`；
+`visible-label-authorship=model-only`；
+`ambiguous-carrier=diagnostic-only/no-ref`；
+`system-edge/relation/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1352 r830：B1313 未获独立生产臂；label-pair 能力已实现但 producer 未接线（2026-08-21）
 
 1. 从已推送 `76a737699` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：

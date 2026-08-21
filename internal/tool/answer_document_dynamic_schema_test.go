@@ -274,6 +274,57 @@ func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranche
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelRefOnly(t *testing.T) {
+	base := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramTypedRecipeMissingVisibleLabel,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
+		!lease.Failures[0].AllowsAction("relabel") {
+		t.Fatalf("test setup did not produce one label-pair capability: %+v", lease)
+	}
+	mut := types.NewMutableState("label pair schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	edits := props["diagram_edge_edits"].(map[string]any)
+	branches := edits["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 1 || edits["minItems"] != float64(1) || edits["maxItems"] != float64(1) {
+		t.Fatalf("label-pair lease must expose exactly one branch: %+v", edits)
+	}
+	branch := branches[0].(map[string]any)
+	branchProps := branch["properties"].(map[string]any)
+	if got := branchProps["action"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"relabel"}) {
+		t.Fatalf("label-pair action=%v", got)
+	}
+	if got := branchProps["failure_ref"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{lease.Failures[0].FailureRef}) {
+		t.Fatalf("label-pair ref=%v", got)
+	}
+	for _, required := range []string{"failure_ref", "action", "visible_label"} {
+		found := false
+		for _, rawField := range branch["required"].([]any) {
+			found = found || rawField == required
+		}
+		if !found {
+			t.Fatalf("label-pair branch did not require %q: %+v", required, branch)
+		}
+	}
+	for _, hidden := range []string{"block_id", "match", "occurrence", "body_occurrence", "edge"} {
+		if _, exists := branchProps[hidden]; exists {
+			t.Fatalf("label-pair branch leaked hidden/legacy field %q: %+v", hidden, branchProps)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachNotDuplicateAdd(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

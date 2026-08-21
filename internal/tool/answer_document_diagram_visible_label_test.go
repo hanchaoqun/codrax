@@ -1,11 +1,50 @@
 package tool
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func requireVisibleLabelRelabelDelta(
+	t *testing.T,
+	doc *types.AnswerDocumentV2,
+	hint emitFixHint,
+	wantIssue string,
+) types.AnswerDiagramRelationRepairFailure {
+	t.Helper()
+	raw := strings.TrimSpace(hint.DiagramRelationRepairDeltaJSON)
+	if raw == "" {
+		t.Fatal("exact visible-label mismatch did not publish a relation repair delta")
+	}
+	repair := emitFixHintsRepair([]emitFixHint{hint})
+	if repair == nil || strings.TrimSpace(repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]) != raw {
+		t.Fatalf("pre-emit repair container lost the visible-label delta: %+v", repair)
+	}
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("visible-label repair delta must parse: %v\n%s", err, raw)
+	}
+	if delta.Version != types.AnswerDiagramRelationRepairDeltaVersion || !delta.PreserveUnlistedEdges ||
+		len(delta.Failures) != 1 || len(delta.AllowedAdditions) != 0 {
+		t.Fatalf("visible-label repair must publish one failure-only carrier: %+v", delta)
+	}
+	failure := delta.Failures[0]
+	if failure.Issue != wantIssue || failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
+		!failure.AllowsAction("relabel") || len(failure.AllowedActions) != 1 ||
+		failure.FailureRef == "" || failure.BodyOccurrence != 1 {
+		t.Fatalf("visible-label delta is not one exact relabel capability: %+v", failure)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
+		!lease.Failures[0].AllowsAction("relabel") {
+		t.Fatalf("producer delta cannot install the executor's label-pair lease: %+v", lease)
+	}
+	return failure
+}
 
 func diagramVisibleLabelTestDocument(kind types.DiagramKind, body, anchorLabel string) *types.AnswerDocumentV2 {
 	return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
@@ -47,6 +86,7 @@ func TestDiagramVisibleLabelConsistencyRejectsModelAuthoredDisplayConflictAcross
 				hints[0].DiagramRelationFailureIssues[0] != diagramVisibleLabelMismatch {
 				t.Fatalf("unexpected exact display-consistency hint: %+v", hints[0])
 			}
+			requireVisibleLabelRelabelDelta(t, doc, hints[0], diagramVisibleLabelMismatch)
 		})
 	}
 }
@@ -93,6 +133,7 @@ func TestDiagramVisibleLabelConsistencyRequiresModelLabelForDeliveredTypedRecipe
 		hints[0].DiagramRelationFailureIssues[0] != diagramTypedRecipeMissingVisibleLabel {
 		t.Fatalf("deleting visible_label bypassed the delivered typed-recipe display contract: %+v", hints)
 	}
+	requireVisibleLabelRelabelDelta(t, doc, hints[0], diagramTypedRecipeMissingVisibleLabel)
 	if doc.Blocks[0].EdgeAnchors[0].VisibleLabel != "" || !strings.Contains(doc.Blocks[0].Diagram.Body, "|type_relation|") {
 		t.Fatalf("presence check rewrote model-authored wording: %+v", doc.Blocks[0])
 	}
@@ -176,6 +217,7 @@ func TestDiagramVisibleLabelConsistencyRejectsRawRelationEnumWithoutChoosingFina
 		hints[0].DiagramRelationFailureIssues[0] != diagramVisibleLabelRawRelationKind {
 		t.Fatalf("raw relation enum did not receive exact structured-field repair guidance: %+v", hints)
 	}
+	requireVisibleLabelRelabelDelta(t, doc, hints[0], diagramVisibleLabelRawRelationKind)
 	if doc.Blocks[0].EdgeAnchors[0].VisibleLabel != "call" || !strings.Contains(doc.Blocks[0].Diagram.Body, "|call|") {
 		t.Fatalf("display gate rewrote model-authored diagram instead of rejecting: %+v", doc.Blocks[0])
 	}
@@ -240,6 +282,19 @@ func TestDiagramVisibleLabelConsistencyFailsOpenWithoutUniqueStructuredJoin(t *t
 	})
 	if hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil); len(hints) != 0 {
 		t.Fatalf("compound edge with no one-to-one display join must fail open: %+v", hints)
+	}
+}
+
+func TestDiagramVisibleLabelConsistencyPublishesNoRefForAmbiguousRepeatedAnchor(t *testing.T) {
+	doc := diagramVisibleLabelTestDocument(
+		types.DiagramFlow,
+		"flowchart TD\n  A -->|first| B\n  A -->|second| B",
+		"model wording",
+	)
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors, doc.Blocks[0].EdgeAnchors[0])
+	hints := preCheckDiagramVisibleLabelConsistency(doc, &types.AnswerSemanticView{Family: types.QFGeneric}, nil)
+	if len(hints) != 1 || strings.TrimSpace(hints[0].DiagramRelationRepairDeltaJSON) != "" {
+		t.Fatalf("ambiguous duplicate carrier must keep the diagnostic but publish no executable ref: %+v", hints)
 	}
 }
 

@@ -1110,6 +1110,41 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRejectsUnlistedAction(t 
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefRelabelsOnlyDisplaySurfaces(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	baseAnchor := prev.Blocks[1].EdgeAnchors[0]
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramTypedRecipeMissingVisibleLabel,
+			FromNode: baseAnchor.FromNode, ToNode: baseAnchor.ToNode,
+			FromIdentity: baseAnchor.FromIdentity, ToIdentity: baseAnchor.ToIdentity,
+			RelationKind: baseAnchor.RelationKind, BodyOccurrence: 1,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
+		!lease.Failures[0].AllowsAction("relabel") {
+		t.Fatalf("test setup did not produce a label-pair ref: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "relabel", VisibleLabel: "模型选择的业务标签",
+	}}, nil, lease); err != nil {
+		t.Fatalf("label-pair ref must execute without legacy hidden coordinates: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("label-pair edit must replace only its carrier: %+v", patch.ReplaceBlocks)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "模型选择的业务标签") || len(got.EdgeAnchors) != len(prev.Blocks[1].EdgeAnchors) ||
+		got.EdgeAnchors[0].VisibleLabel != "模型选择的业务标签" ||
+		got.EdgeAnchors[0].FromIdentity != baseAnchor.FromIdentity ||
+		got.EdgeAnchors[0].ToIdentity != baseAnchor.ToIdentity ||
+		got.EdgeAnchors[0].RelationKind != baseAnchor.RelationKind ||
+		got.EdgeAnchors[1] != prev.Blocks[1].EdgeAnchors[1] {
+		t.Fatalf("relabel must change only the selected body/anchor display wording: %+v", got)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_OneRefRepairsSeveralIssuesOnSameCarrier(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant IR\n    participant Bus\n    participant C\n    IR-->>Bus: stores result\n    Bus->>C: keep\n"
