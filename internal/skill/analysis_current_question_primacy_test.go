@@ -425,6 +425,15 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_R6Audit(t *testing.T) {
 
 func TestAnalysisDiagramParticipantTeachingSeparatesActorsFromPresentationSyntax(t *testing.T) {
 	for _, want := range []string{
+		"CURRENT request names",
+		"Never add a participant learned from repository pre-scan, search, or evidence",
+		"do not add an inferred controller, middle stage, or table-only carrier",
+	} {
+		if !strings.Contains(AnalysisDiagramParticipantLowMindRule, want) {
+			t.Fatalf("diagram participant low-mind rule missing %q: %s", want, AnalysisDiagramParticipantLowMindRule)
+		}
+	}
+	for _, want := range []string{
 		"explicitly named code/runtime/data actor",
 		"presentation grammar",
 		"diagram-family/syntax names",

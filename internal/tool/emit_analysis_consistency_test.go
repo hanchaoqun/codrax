@@ -278,6 +278,9 @@ func TestEmitAnalysisSchemaDeclaresCallChainEndpointDirectionAsSingleSource(t *t
 	if !strings.Contains(prop.Description, types.CallChainEndpointProfileTeaching) {
 		t.Fatalf("call_chain_endpoints schema must consume the single teaching source: %s", prop.Description)
 	}
+	if !strings.Contains(prop.Description, types.CallChainEndpointLowMindRule) {
+		t.Fatalf("call_chain_endpoints schema must front-load the inert non-call-chain shape: %s", prop.Description)
+	}
 }
 
 func TestEmitAnalysisSchemaDeclaresDedicatedRuntimeSelectionProfile(t *testing.T) {

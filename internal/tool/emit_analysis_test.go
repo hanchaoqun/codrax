@@ -2039,6 +2039,9 @@ func TestEmitAnalysisMissingRelationCarrierRetryReTeachesSelectionDecision(t *te
 	got := emitAnalysisMissingTopLevelFieldsSummary([]string{"call_chain_endpoints", "runtime_selection_profile"})
 	for _, want := range []string{
 		"emit only ordered endpoint identity",
+		"not a source-code call-chain request",
+		"source=\"\", sink=\"\", sink_mode=exact",
+		"never promote repository pre-scan, search, or evidence candidates",
 		"runtime_selection_profile",
 		"do not default false merely to satisfy presence",
 		"source_quote",
@@ -4416,6 +4419,9 @@ func TestEmitAnalysis_DiagramParticipantSchemaUsesPlanningSSOT(t *testing.T) {
 	}
 	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantPlanningContract); count != 2 {
 		t.Fatalf("diagram participant SSOT must describe diagram_hint and participants exactly once each, got %d in %s", count, raw)
+	}
+	if count := strings.Count(string(raw), skill.AnalysisDiagramParticipantLowMindRule); count != 2 {
+		t.Fatalf("diagram participant low-mind rule must precede both schema surfaces, got %d in %s", count, raw)
 	}
 	if !strings.Contains(string(raw), `"required":["identity","role","source_quote"]`) {
 		t.Fatalf("diagram participant schema must require exact current-request provenance: %s", raw)

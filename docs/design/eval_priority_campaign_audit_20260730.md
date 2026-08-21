@@ -57420,6 +57420,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r811`。
 
+### §123.1325 B1294：图参与者与调用链端点的低心智权威分层（2026-08-21）
+
+1. r811 的 analyzer 三次确定性返工确认来源硬门无需放宽：`diagram_hint.participants` 是用户当前请求点名的可见关系身份义务，repo_map/预扫/
+   搜索发现的 Orchestrator、Explore 等只是调查候选。允许后者冒充前者会把搜索噪声升级成图节点硬合同，并进一步污染最终关系完整性门。
+2. 根因是正确规则埋在长合同后半部，而 missing-field retry 只提示“补 source/sink/mode”。模型先漏掉必填 `call_chain_endpoints`，随后为并非源码
+   调用链的问题从预扫结果发明 `Orchestrator -> Finalizer Agent`；它又把预扫组件写入 participant 并伪造同名字面 source_quote。精确门拒绝这些行
+   是正确 fail-closed，重复重试则是系统教学心智税。
+3. 新增并前置唯一 `AnalysisDiagramParticipantLowMindRule`：participant 只取 CURRENT request 为该关系视图点名的可见 actor；repo 预扫、搜索或证据发现
+   的组件只留在 investigation entity/evidence 候选，待 grounded evidence 支撑终图，不能进入 analyzer 硬义务。`flow from A to B + 独立 stage/state
+   carrier 表` 的默认形明确为仅 A、B；控制器、中间阶段、表格专属载体都不得猜入 participant。
+4. 新增并前置 `CallChainEndpointLowMindRule`：CURRENT request 不问源码调用链时，必填载体统一提交
+   `source="", sink="", sink_mode=exact`；不得因为 schema 要求对象存在，就从预扫/搜索/证据发明端点。源码调用链原有 exact/discover/
+   discover_terminal/discover_path 权威形保持不变。
+5. missing-field retry 同步返回同一空端点默认形，避免模型在结构修复轮重新推理题意。skill prompt 与 tool schema 都消费同一低心智规则；新增 pin
+   确认 prompt 只前置一次、schema 两个相邻载体面都携带一次、调用链 schema 消费 SSOT、重试提示保留空端点和禁止候选升级。没有新增请求/答案/
+   Mermaid message 扫描，没有增加硬门，也没有由系统选择 participant、endpoint、relation、direction、label、layout 或结论。
+6. 相关 skill/types/agent/tool 定向套件全绿；`go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。精确生产收益等待
+   r812 同 case 回放验证；代码层先记 implemented/full-suite-pass，不以 prompt pin 冒充生产收敛。
+
+状态：
+
+`B1294=implemented+full-suite+build-pass/production-replay-pending`；
+`diagram-participant-authority=current-request-relation-identity-only`；
+`repo-discovered-component=investigation/evidence-candidate-only`；
+`non-call-chain-endpoint-shape=empty+exact`；
+`provenance-hard-gate=preserved`；
+`new-hard-gate=none`；
+`system-participant/endpoint/relation/direction/label/layout/prose/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-scan=none`；
+`Trace query/ranking/projection/auto-supplement=unchanged`。
+
 ### §123.1318 r806：允许新增关系缺少同代选择句柄，身份回填分裂造成 12 轮修补（2026-08-21）
 
 1. 从已推送 `0127ec970` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。runner 2/2 PASS：Trace 197s，

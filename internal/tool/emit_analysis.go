@@ -517,7 +517,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"call_chain_endpoints": map[string]any{
 				"type":        "object",
-				"description": types.CallChainEndpointProfileTeaching + " This is the ONLY field whose exact endpoint order is directional; entities and exact_targets remain unordered identity sets. For all other shapes emit source=\"\", sink=\"\", sink_mode=exact.",
+				"description": types.CallChainEndpointLowMindRule + " " + types.CallChainEndpointProfileTeaching + " This is the ONLY field whose exact endpoint order is directional; entities and exact_targets remain unordered identity sets.",
 				"properties": map[string]any{
 					"source":    map[string]string{"type": "string", "description": "Exact caller/start copied from the current request in exact/discover/discover_terminal; empty in discover_path and when not applicable."},
 					"sink":      map[string]string{"type": "string", "description": "Exact current-request destination in exact; empty in discover/discover_terminal/discover_path and when not applicable."},
@@ -905,7 +905,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"diagram_hint": map[string]any{
 				"type":        "object",
-				"description": "Visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; in that authorized shape this object must be retained on every complete repair call. Otherwise set required=false and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly. " + skill.AnalysisDiagramParticipantPlanningContract,
+				"description": "Visual-family hint. `required` is the authority boundary: set it true ONLY when the CURRENT request or typed Presentation Directive explicitly requires a diagram / visual / drawing; in that authorized shape this object must be retained on every complete repair call. Otherwise set required=false and the hint remains optional guidance. An explicitly requested visual modality is authoritative: sequence/timeline/interaction view -> sequence even when the topic is a call chain; call graph/DAG/fan-out view -> call_dag. Do not replace an explicit sequence request with call_dag merely because predicate_axis=call. Omit this object for ordinary code, call-chain, architecture, log, or trace questions when prose/list/table blocks answer the user directly. " + skill.AnalysisDiagramParticipantLowMindRule + " " + skill.AnalysisDiagramParticipantPlanningContract,
 				"properties": map[string]any{
 					"kind":     stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
 					"required": map[string]any{"type": "boolean", "description": "Hard presentation authority. True only for an explicit current-turn visual request independently confirmed by the out-of-band typed requires_diagram signal; without that carrier, true is normalized to false and remains optional structural guidance."},
@@ -915,7 +915,7 @@ func buildEmitAnalysisSchema() {
 					},
 					"participants": map[string]any{
 						"type":        "array",
-						"description": skill.AnalysisDiagramParticipantPlanningContract,
+						"description": skill.AnalysisDiagramParticipantLowMindRule + " " + skill.AnalysisDiagramParticipantPlanningContract,
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
@@ -2505,7 +2505,7 @@ func emitAnalysisMissingTopLevelFieldsSummary(missing []string) string {
 		case "diagram_hint":
 			summary += " The accepted current-turn diagram dimension remains required: re-emit diagram_hint with its model-chosen kind, exact relation_scope_quote, and explicit participant roster; this carrier is presentation authority and does not prove any edge."
 		case "call_chain_endpoints":
-			summary += " For call_chain_endpoints, emit only ordered endpoint identity: source, sink, and sink_mode."
+			summary += " For call_chain_endpoints, emit only ordered endpoint identity: source, sink, and sink_mode. If the CURRENT request is not a source-code call-chain request, use source=\"\", sink=\"\", sink_mode=exact; never promote repository pre-scan, search, or evidence candidates into endpoint authority."
 		case "runtime_selection_profile":
 			summary += " For runtime_selection_profile, independently decide whether the CURRENT request asks which implementation/tool/path is used under different conditions; do not default false merely to satisfy presence. When true, copy one shortest contiguous verbatim phrase into source_quote."
 		}
