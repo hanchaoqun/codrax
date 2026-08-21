@@ -109,6 +109,77 @@ func TestDiagramStagePrecedenceAuthorityTreatsSameStageLabelAliasesAsOneEndpoint
 	}
 }
 
+func TestDiagramStagePrecedenceAuthorityBindsVisibleAndAnchorAliasesWithinOneVerifiedRow(t *testing.T) {
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}
+	authority := []stageauthority.PrecedenceRelation{{From: rows[0], To: rows[1]}}
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceMechanism, Subject: "AgentAnalyzer", AnchorSymbol: "AgentAnalyzer",
+			Source: "internal/types/enums.go", LineStart: 130, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceMechanism, Subject: "AgentExplorer", AnchorSymbol: "AgentExplorer",
+			Source: "internal/types/enums.go", LineStart: 131, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "stages", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant analyzer as AgentAnalyzer",
+			"  participant explorer as AgentExplorer",
+			"  analyzer->>explorer: next stage",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "analyzer", ToNode: "explorer",
+			FromIdentity: "analyzer", ToIdentity: "explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, authority); len(got) != 0 {
+		t.Fatalf("visible declaration aliases and value anchors from one verified stage row must agree: %+v", got)
+	}
+
+	// The exception is scoped to an exact verified precedence pair. Reversing
+	// the typed identities is still a visible-node contradiction.
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "explorer"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "analyzer"
+	got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence, authority)
+	var conflict *DiagramCallEdgeEvidenceMismatch
+	for i := range got {
+		if got[i].Issue == diagramEdgeAnchorNodeIdentityConflict {
+			conflict = &got[i]
+			break
+		}
+	}
+	if conflict == nil || conflict.FromNodeSymbol != "AgentAnalyzer" || conflict.ToNodeSymbol != "AgentExplorer" {
+		t.Fatalf("cross-stage identity reversal must remain a typed, actionable conflict: %+v", got)
+	}
+
+	// A call edge cannot borrow the stage alias family. Relation kinds keep
+	// their independent exact authority.
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "analyzer"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "explorer"
+	doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelCall
+	got = DiagramCallEdgeEvidenceMismatches(doc, view, evidence, authority)
+	conflict = nil
+	for i := range got {
+		if got[i].Issue == diagramEdgeAnchorNodeIdentityConflict {
+			conflict = &got[i]
+			break
+		}
+	}
+	if conflict == nil {
+		t.Fatalf("call relations must not inherit the stage-only alias bridge: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatchesRepeatedCallOccurrenceNeedsDistinctCallSites(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,
@@ -2500,7 +2571,8 @@ func TestDiagramCallEdgeEvidenceMismatches_ExactNodeIdentityMustBindSameAnchorSi
 	if len(hints) != 1 ||
 		!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramEdgeAnchorNodeIdentityConflict}) ||
 		!strings.Contains(hints[0].Field, "from_node/to_node/from_identity/to_identity") ||
-		!strings.Contains(hints[0].ExpectedShape, "from_node must denote from_identity") {
+		!strings.Contains(hints[0].ExpectedShape, "from_node must denote from_identity") ||
+		!strings.Contains(hints[0].ExpectedShape, "resolved_visible_identity=LoopController -> analyzerEvaluator") {
 		t.Fatalf("pre-emit must return the surgical node/identity binding repair without rewriting the graph: %+v", hints)
 	}
 

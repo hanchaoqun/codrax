@@ -59233,3 +59233,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r798`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r798`。
+
+### §123.1304 r799/B1278：阶段身份别名合同归一，保留关系种类隔离（2026-08-20）
+
+1. 以已推送 `ce89217b7` 的不可变二进制严格并发恰好 2 路复放 read+Trace，runner 2/2 PASS：Trace 241s、read 387s。两路均未因
+   4ms、4m、首字节、stall 或累计活动流年龄降级；Trace 继续保留显式 2.000..2.020s 窗、8 次 typed 查询与自动补采、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms 调度/优先级候选、
+   实际占时/规则可消双账户以及完整 `Trace 因果投影`。邻近与背景没有升为主因，系统没有改写模型结论。
+2. Trace 人工判定 partial：最终模型把 typed `pre_wakeup_dependency` 的链上工作候选写成“阻塞了后续三个线程/最终导致”，但同轮成文事实已明确
+   `work_completion_dependency_authority=not_provided`、`direct_blocking_authority=not_provided`、调用点不证明等待对象/持有者/后端。
+   后文 caveat 又否认该直接传导，形成模型正文内的因果口径矛盾。系统投影仍按候选边界发射；本轮不以用户/模型/答案原文扫描做硬门，不由系统重写，
+   继续作为 `B1269/B1271` 的跨回放模型遵循观察项。
+3. read 人工判定 partial：最终有合法 sequenceDiagram、完整 analyze→explore→extract→finalize 主链和逐阶段输入/输出/载体表，且阶段边使用业务化
+   转移文案。初稿额外画出的无证 `Orchestrator -> StageAnalyze` call 被模型按 live failure ref 删除；总拒绝从 r798 的 13 次降至 2 次。
+   但模型第一次 patch 同时提交正确 `failure_ref` 和与它完全一致的旧式 block/match/body occurrence，工具以字段互斥再次拒绝，第二轮才成功；
+   最终 Orchestrator 成为孤立 participant，Mutable/AnswerDocumentV2 的实际持久化通道也未被图表充分解释。B1277 的四条同 pair occurrence
+   生产形本轮没有自然触发，因此仍是单测闭环、待真实触发正证。
+4. `B1278-DIAGRAMNODEIDENTITYALIASCONTRACT1/P1` 已按 typed identity-family 根修。问题不是普通 Mermaid alias：checkout 验证后的每个 read
+   stage 明确携带 `StageIdent/StageValue/AgentIdent/AgentValue` 四种声明或值身份，例如
+   `StageAnalyze/analyze/AgentAnalyzer/analyzer`。阶段 allowed-addition/receipt 使用 `analyzer`，而模型合法写
+   `participant analyzer as AgentAnalyzer` 时，旧通用 node gate 不认识二者属于同一 StageRow，错误报告 node/anchor identity conflict。
+5. 新判据仅对 `relation_kind=precedence` 且当前已选择的 checkout-verified read-stage relation 生效：显示端点和 anchor 端点必须分别唯一命中同一条
+   `PrecedenceRelation` 的 from/to StageRow，整对且仅一条关系匹配才视为同一身份族。反向、跨阶段、非相邻、歧义和无 stage provider 继续拒绝；
+   call/data-flow/return/type/guard 等所有其他关系种类完全不借用该桥，Trace 仍在独立运行时因果权威域。
+6. 真冲突的诊断现在同时携带 anchor identity 与解析出的 visible node identity，而不再打印成
+   `analyzer(analyzer)` 这种看不出矛盾来源的形。该信息只解释已有 typed 冲突，不读取 edge message、请求、thinking 或答案 prose，也不选择如何改图。
+   回归覆盖 `AgentAnalyzer/AgentExplorer` 显示身份与 `analyzer/explorer` anchor 通过、反向仍拒绝且披露两侧身份，以及同一 pair 改成 call 后不得借
+   stage alias 权威。
+7. r799 同时确认新 P1 `B1279-FAILUREREFREDUNDANTSELECTOR1`：opaque ref 已精确选择同代载体时，模型额外复制完全一致的 block/match/
+   body occurrence 不会扩大权限，当前却无条件按“mutually exclusive”拒绝。最优形是 ref 先解析，再逐字段比较：一致冗余归一删除，任何冲突仍
+   fail-closed；系统不选择 action、edge、label 或 relation。作为下一独立小批施工，避免与 B1278 身份权限混为一批。
+
+状态：
+
+`r799=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1276=production-positive/core-closed`；
+`B1277=implemented/tests-positive/pending-production-shape`；
+`B1278=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1279=confirmed/P1-next`；`B1269/B1271=repeat-partial/model-guidance-open`；
+`stage-alias-bridge=precedence-only+same-verified-row-pair`；
+`call/dataflow/type/runtime-authority=not-broadened`；
+`true-node-conflict=anchor-identity+resolved-visible-identity`；
+`system-relation/action/label/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r799`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r799`。

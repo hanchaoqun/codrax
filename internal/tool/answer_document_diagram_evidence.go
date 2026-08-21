@@ -25,6 +25,8 @@ type DiagramCallEdgeEvidenceMismatch struct {
 	ToNode         string
 	FromSymbol     string
 	ToSymbol       string
+	FromNodeSymbol string
+	ToNodeSymbol   string
 	Relation       types.DiagramRelationKind
 	BodyOccurrence int
 }
@@ -369,17 +371,22 @@ func DiagramCallEdgeEvidenceMismatches(doc *types.AnswerDocumentV2, view *types.
 			// of its exact operation endpoints, preserving actor-oriented call and
 			// sequence diagrams. This check reads neither edge messages, request
 			// text, reasoning, nor rendered prose, and it never rewrites the graph.
-			if block.Kind == types.BlockDiagram && block.Diagram != nil &&
-				anchor.HasEndpointIdentityPair() &&
-				diagramEdgeAnchorHasNodeIdentityConflict(anchor, labels, evidence) {
-				out = append(out, DiagramCallEdgeEvidenceMismatch{
-					BlockID: block.ID, Issue: diagramEdgeAnchorNodeIdentityConflict,
-					FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
-					FromSymbol: strings.TrimSpace(anchor.FromIdentity),
-					ToSymbol:   strings.TrimSpace(anchor.ToIdentity),
-					Relation:   relation,
-				})
-				continue
+			if block.Kind == types.BlockDiagram && block.Diagram != nil && anchor.HasEndpointIdentityPair() {
+				conflict, fromNodeSymbol, toNodeSymbol := diagramEdgeAnchorNodeIdentityConflictDetails(
+					anchor, labels, evidence, stagePrecedence,
+				)
+				if conflict {
+					out = append(out, DiagramCallEdgeEvidenceMismatch{
+						BlockID: block.ID, Issue: diagramEdgeAnchorNodeIdentityConflict,
+						FromNode: strings.TrimSpace(anchor.FromNode), ToNode: strings.TrimSpace(anchor.ToNode),
+						FromSymbol:     strings.TrimSpace(anchor.FromIdentity),
+						ToSymbol:       strings.TrimSpace(anchor.ToIdentity),
+						FromNodeSymbol: fromNodeSymbol,
+						ToNodeSymbol:   toNodeSymbol,
+						Relation:       relation,
+					})
+					continue
+				}
 			}
 			// One Mermaid participant may intentionally host several exact
 			// invocation operations, so actor self-messages remain legal for
@@ -699,25 +706,66 @@ func diagramEvidenceAnchorEndpointSymbols(anchor types.DiagramEdgeAnchor, labels
 		diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
 }
 
-// diagramEdgeAnchorHasNodeIdentityConflict rejects only a precise binding
+// diagramEdgeAnchorNodeIdentityConflictDetails rejects only a precise binding
 // contradiction. An unresolved or business-only visible label cannot create a
 // hard gate. A uniquely evidence-backed code identity must, however, denote
 // the same endpoint selected by that side of the anchor (or an exact owner of
 // that operation); otherwise correct typed relation metadata can be used to
 // sign a visibly reversed graph.
-func diagramEdgeAnchorHasNodeIdentityConflict(anchor types.DiagramEdgeAnchor, labels map[string]string, evidence []types.EvidenceItem) bool {
+func diagramEdgeAnchorNodeIdentityConflictDetails(
+	anchor types.DiagramEdgeAnchor,
+	labels map[string]string,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) (bool, string, string) {
 	if !anchor.HasEndpointIdentityPair() {
+		return false, "", ""
+	}
+	fromIdentity, fromOK := diagramEvidenceExactNodeIdentity(anchor.FromNode, labels, evidence)
+	toIdentity, toOK := diagramEvidenceExactNodeIdentity(anchor.ToNode, labels, evidence)
+	// A read-stage row has four checkout-verified declaration/value aliases.
+	// The generic code-identity comparator intentionally does not equate those
+	// spellings globally. For an explicitly typed precedence edge only, accept
+	// the visible and anchor pairs when both select the same one verified row.
+	// This is pair-scoped and cannot authorize a call/data-flow relation, a
+	// reversed edge, or any relation outside the selected read-stage provider.
+	if diagramAnchorRelation(anchor) == types.DiagramRelPrecedence &&
+		diagramStagePrecedenceAnchorBindsVisibleNodes(stagePrecedence, anchor, labels) {
+		return false, fromIdentity, toIdentity
+	}
+	if fromOK && !diagramEvidenceNodeIdentityBindsEndpoint(fromIdentity, anchor.FromIdentity) {
+		return true, fromIdentity, toIdentity
+	}
+	if toOK && !diagramEvidenceNodeIdentityBindsEndpoint(toIdentity, anchor.ToIdentity) {
+		return true, fromIdentity, toIdentity
+	}
+	return false, fromIdentity, toIdentity
+}
+
+func diagramStagePrecedenceAnchorBindsVisibleNodes(
+	relations []stageauthority.PrecedenceRelation,
+	anchor types.DiagramEdgeAnchor,
+	labels map[string]string,
+) bool {
+	if len(relations) == 0 || !anchor.HasEndpointIdentityPair() {
 		return false
 	}
-	if identity, ok := diagramEvidenceExactNodeIdentity(anchor.FromNode, labels, evidence); ok &&
-		!diagramEvidenceNodeIdentityBindsEndpoint(identity, anchor.FromIdentity) {
-		return true
+	fromStage, fromOK := diagramVisibleEndpointUniqueStage(relations, anchor.FromNode, labels)
+	toStage, toOK := diagramVisibleEndpointUniqueStage(relations, anchor.ToNode, labels)
+	if !fromOK || !toOK {
+		return false
 	}
-	if identity, ok := diagramEvidenceExactNodeIdentity(anchor.ToNode, labels, evidence); ok &&
-		!diagramEvidenceNodeIdentityBindsEndpoint(identity, anchor.ToIdentity) {
-		return true
+	matches := 0
+	for _, relation := range relations {
+		if !diagramStageRowIdentityMatches(relation.From, fromStage) ||
+			!diagramStageRowIdentityMatches(relation.To, toStage) ||
+			!diagramStageRowIdentityMatches(relation.From, anchor.FromIdentity) ||
+			!diagramStageRowIdentityMatches(relation.To, anchor.ToIdentity) {
+			continue
+		}
+		matches++
 	}
-	return false
+	return matches == 1
 }
 
 func diagramEvidenceExactNodeIdentity(node string, labels map[string]string, evidence []types.EvidenceItem) (string, bool) {

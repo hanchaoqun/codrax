@@ -4827,7 +4827,14 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			collapsedEndpointParts = append(collapsedEndpointParts, part+" relation_kind="+string(mismatch.Relation))
 			collapsedEndpointMismatches = append(collapsedEndpointMismatches, mismatch)
 		} else if mismatch.Issue == diagramEdgeAnchorNodeIdentityConflict {
-			nodeIdentityConflictParts = append(nodeIdentityConflictParts, part+" relation_kind="+string(mismatch.Relation))
+			nodePart := part + " relation_kind=" + string(mismatch.Relation)
+			if mismatch.FromNodeSymbol != "" || mismatch.ToNodeSymbol != "" {
+				nodePart += fmt.Sprintf(
+					" resolved_visible_identity=%s -> %s",
+					mismatch.FromNodeSymbol, mismatch.ToNodeSymbol,
+				)
+			}
+			nodeIdentityConflictParts = append(nodeIdentityConflictParts, nodePart)
 			nodeIdentityConflictMismatches = append(nodeIdentityConflictMismatches, mismatch)
 		} else if mismatch.Issue == diagramTypeRelationEdgeIssueNoEvidence {
 			typeRelationParts = append(typeRelationParts, part)
