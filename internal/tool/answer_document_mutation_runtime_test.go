@@ -2576,6 +2576,9 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 		"Do not narrate which machine value you selected",
 		"never write 'classified as <enum>' or 'the status is <enum>'",
 		"framework does not scan, reject, delete, translate, or rewrite your prose or conclusion",
+		"`candidate_role` when a row's category or scalar/literal role matters",
+		"not a generic entity-type field",
+		"omit it for runtime-artifact rows representing threads, processes, CPUs, frames, or spans",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("shared Trace JSON-shape teaching missing %q:\n%s", want, body)

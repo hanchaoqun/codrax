@@ -189,7 +189,12 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		for _, it := range raw.Items {
 			candidateRole, ok := types.NormalizeAnswerCandidateRole(it.CandidateRole)
 			if !ok {
-				candidateRole = types.AnswerCandidateRoleOther
+				// An unrecognized optional role is absence, not evidence for the
+				// valid catch-all role "other". Dropping only this invalid typed
+				// annotation preserves model-authored visible content and lets an
+				// active precise role contract request a retry through its existing
+				// missing-role gate instead of silently minting false metadata.
+				candidateRole = types.AnswerCandidateRoleUnknown
 			}
 			item := types.AnswerBlockItem{
 				ID:                   it.ID,

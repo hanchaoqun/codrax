@@ -164,7 +164,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		Ceiling: types.TraceCausalClaimBoundedWindow,
 	}
 	got := renderTraceFinalReaderDecisionCards(
-		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, contract, "zh-CN",
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, contract, "zh-CN", nil,
 	)
 	for _, want := range []string{
 		"## 面向读者的 Trace 成文事实卡（结论由模型给出）",
@@ -228,7 +228,7 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 	got := renderTraceFinalReaderDecisionCards(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
 		ArtifactLabel: "customer.systrace", RankedSeats: []types.TraceCausalProjectionNode{node},
 		OnChainCauses: []types.TraceCausalProjectionNode{node},
-	}}}, nil, "en")
+	}}}, nil, "en", nil)
 	for _, want := range []string{
 		"## Reader-ready Trace facts (the model owns the conclusion)",
 		"Measured time concentrations",
@@ -244,6 +244,44 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 	for _, forbidden := range []string{"d_state_or_io_wait", "io_wait", "on_chain", "effective_attribution"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("English reader-ready Trace card leaked internal control token %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestTraceFinalReaderDecisionCardExplainsWaitCallsiteAndWakeupPlacementBoundaries(t *testing.T) {
+	inWindow := true
+	wait := types.TraceCausalProjectionNode{
+		EvidenceID: "io-seat", Subject: "threadpool-400", StateKind: "io_wait",
+		ImpactMS: 11, IOWaitSplitMS: 11, EffectiveImpactMS: 11, Rank: 1,
+		ChainRelevance: "on_chain", WithinRequestedWindow: &inWindow,
+		BlockedReasonCaller: "fscache_page_wait_on_page_bit",
+	}
+	got := renderTraceFinalReaderDecisionCards(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
+		ArtifactLabel: "customer.systrace", RankedSeats: []types.TraceCausalProjectionNode{wait},
+		OnChainCauses: []types.TraceCausalProjectionNode{wait},
+	}}}, nil, "zh-CN", []types.TraceWakeupCPUTopologyAuthority{{
+		Waker: "cookie-200", Wakee: "app-100", WakerCPU: 2, WakeeTargetCPU: 1,
+		Relation: types.TraceWakeupCPUTopologyCrossCPU,
+	}})
+	for _, want := range []string{
+		"链上等待证据边界",
+		"threadpool-400：IO 等待，已测 11.000 毫秒",
+		"内核记录的等待调用位置为 `fscache_page_wait_on_page_bit`",
+		"没有给出具体等待对象、持有者、文件系统/缓存/存储后端",
+		"不证明目标线程的睡眠完全由该线程或该工作传导",
+		"不能仅凭符号名称推出预取、缓存穿透等修复方案",
+		"cookie-200 在 CPU 2 发出对 app-100 的唤醒，目标 CPU 为 1",
+		"不证明 NUMA 开销、迁核成本、直接 CPU 竞争、抢占或醒后延迟原因",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("reader-ready wait/CPU boundary missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"blocked_reason_caller", "caller_role", "wakeup_cpu_topology_authority", "cpu_relation", "direct_blocking_authority",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("reader-ready wait/CPU boundary leaked control token %q:\n%s", forbidden, got)
 		}
 	}
 }
@@ -403,6 +441,10 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"exactly one value allowed by the dispatch-local tool schema",
 		"never repeat the field name or its machine value in visible prose",
 		"No conclusion is inferred from prose or written for you",
+		"Trace JSON field scope: set `trace_causal_claim_caliber` exactly once on that principal summary",
+		"omit it from every section, table, diagram, list, decision, and caveat block",
+		"`candidate_role` is not a runtime entity type",
+		"omit it from thread, process, CPU, frame, and span rows",
 		"causal_conclusion=`unproven`",
 		"frame_evidence_status=`absent`",
 		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",

@@ -59078,3 +59078,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1300 B1269/B1271/B1272/B1273：Trace 等待与 CPU 证据转为读者事实，JSON 角色不再静默伪造（2026-08-20）
+
+1. `B1271-CALLSITEINFERENCEBOUNDARY1` 与 `B1272-TRACEINTERNALENUMSURFACE1` 已按 typed-reader-fact 形施工。最终 Trace 成文事实卡现在只从
+   编译后投影的 ranked/primary/on-chain 节点读取非空 `BlockedReasonCaller`，且要求节点已证在链上、未被明确标为窗外；按节点身份+调用点去重并
+   最多发布 4 条。它同时给出该行的实测 IO/D 等待量和内核记录的调用位置，不从符号名称推断对象或机制。
+2. 读者边界明确说明：调用点只约束对应线程的该条等待证据；具体等待对象、持有者、文件系统/缓存/存储后端仍未知；它不能转移到 sibling/target
+   线程，也不证明目标 sleep 完全由该工作传导，更不能仅凭 `fscache...` 名称推出预取、缓存穿透等方案。系统仍只供证与未知边界，诊断、优先级和
+   优化方向全部由模型给出。
+3. 同一个 `BuildTraceWakeupCPUTopologyAuthorities` 精确编译器现在也给最终读者事实卡供数：模型能直接看到“谁在 CPU X 发出对谁的唤醒、目标
+   CPU Y”。cross-CPU 只证明两个记录位置不同，same-CPU 只证明相同；二者均不证明 NUMA/迁核成本、直接竞争、抢占或醒后延迟原因，后者仍需独立
+   running/runnable overlap 证据。未知/不一致 relation 在上游保持不发布，未新增猜测臂。
+4. `B1273-RUNTIMECANDIDATEROLESILENTCOERCE1` 根修为 fail-open omission：`candidate_role` 是 source/inventory 或精确 answer-role 元数据，
+   不是 thread/process/CPU/frame/span 的通用实体类型。工具 schema、共享 full/patch 合同和 Trace 最终 JSON 教学统一要求普通运行时行省略该字段；
+   非法可选值不再静默铸成合法 `other`，而是只删除无效 annotation、保留模型全部可见内容。若当前任务确有 typed positive-role contract，既有
+   missing-role 精确门仍会要求合法值，不会被 omission 绕过。
+5. `trace_causal_claim_caliber` 的最后一跳教学也补齐：只在唯一 principal summary 上提交一次，section/table/diagram/list/decision/caveat
+   全部省略。这个作用域原本已在 schema/normalizer 中正确执行，本批把同一事实靠近最终 JSON 输出，减少模型把字段复制到所有 block 的无谓重试；
+   不扫描模型 JSON 文本之外的 prose，也不根据 prose 判断 causal caliber。
+6. 回归覆盖中英文读者卡、11ms 链上 IO 调用点、cross-CPU 唤醒位置、对象/后端/目标阻塞与 CPU 机理负权限、内部枚举不泄漏、JSON 作用域教学、
+   非法 role 省略及合法 alias 保留。完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+7. 本批不修改 Trace 窗选举、查询、根因席位、两套时长账户、因果投影或自动补采；不把邻近/背景升为主因；不按 4ms/4m/活动流年龄降级。下一步从
+   精确新提交严格并发恰好 2 路 read+Trace，人工核验等待推理边界、JSON 首轮成文以及 B1275 同代关系修补是否生产闭环。
+
+状态：
+
+`B1269/B1271/B1272=implemented/full-suite-pass/pending-production-replay`；
+`B1273=implemented/fail-open-omission/pending-production-replay`；
+`wait-callsite=exact-on-chain-row+measured-duration+unknown-object-boundary`；
+`wakeup-cpu=exact-event-placement/no-mechanism-inference`；
+`trace-caliber-json-scope=principal-summary-only`；
+`runtime-candidate-role=omit-unless-active-typed-role-contract`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

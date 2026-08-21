@@ -491,16 +491,19 @@ func TestNormalizeEmitAnswerBlock_RejectsCurrentStatusVerdictOnNonDecision(t *te
 	}
 }
 
-func TestNormalizeEmitAnswerBlock_RepairsInvalidCandidateRoleToOther(t *testing.T) {
+func TestNormalizeEmitAnswerBlock_DropsInvalidOptionalCandidateRoleInsteadOfMintingOther(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID: "b1", Kind: string(types.BlockOrderedList),
-		Items: []emitAnswerBlockItemV2{{ID: "i1", CandidateRole: "garbage"}},
+		Items: []emitAnswerBlockItemV2{{ID: "i1", Label: "visible label", Text: "visible text", CandidateRole: "garbage"}},
 	}, "blocks[0]")
 	if err != nil {
 		t.Fatalf("invalid optional candidate_role should be repaired, not rejected: %v", err)
 	}
-	if got.Items[0].CandidateRole != types.AnswerCandidateRoleOther {
-		t.Fatalf("candidate_role = %q, want other", got.Items[0].CandidateRole)
+	if got.Items[0].CandidateRole != types.AnswerCandidateRoleUnknown {
+		t.Fatalf("candidate_role = %q, want omitted", got.Items[0].CandidateRole)
+	}
+	if got.Items[0].Label != "visible label" || got.Items[0].Text != "visible text" {
+		t.Fatalf("dropping invalid optional metadata must preserve model-authored visible content: %+v", got.Items[0])
 	}
 }
 

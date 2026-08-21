@@ -153,6 +153,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	b.WriteString("- You own the diagnosis, prioritization, optimization direction, and wording. The system supplies measurements and authority ceilings only; do not merely restate the projection rows.\n")
 	if view := types.BuildAnswerSemanticViewForAgentContext(ctx); view != nil && view.TraceCausalClaimContract.Active() {
 		b.WriteString("- Principal Trace summary contract: emit one principal summary block and fill its causal-strength JSON control field with exactly one value allowed by the dispatch-local tool schema. Keep the visible lead/detail within the matching natural-language scope supplied in the reader handoff below, but never repeat the field name or its machine value in visible prose. This declaration does not choose the cause. No conclusion is inferred from prose or written for you.\n")
+		b.WriteString("- Trace JSON field scope: set `trace_causal_claim_caliber` exactly once on that principal summary and omit it from every section, table, diagram, list, decision, and caveat block. `candidate_role` is not a runtime entity type: omit it from thread, process, CPU, frame, and span rows unless the active typed answer-role contract explicitly requires one value present in the projected enum.\n")
 	}
 	if authority.CausalUnproven {
 		b.WriteString("- causal_conclusion=`unproven`: the strongest supported synthesis is a bounded candidate or first validation direction, not a proven dropped-frame/frame-deadline cause.\n")
@@ -202,7 +203,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	// control tokens makes them disproportionately easy for the model to copy
 	// into visible prose. This card is derived from the same compiled projection
 	// and does not inspect, classify, or rewrite any model-authored text.
-	b.WriteString(renderTraceFinalReaderDecisionCards(set, causalClaimContract, lang))
+	b.WriteString(renderTraceFinalReaderDecisionCards(set, causalClaimContract, lang, types.BuildTraceWakeupCPUTopologyAuthorities(ledger)))
 	return b.String()
 }
 
@@ -317,7 +318,7 @@ func traceFinalReaderCausalScopeOptions(contract *types.TraceCausalClaimContract
 // diagnosis, prioritization, optimization direction, and wording. Exact
 // typed admission/ranking stays upstream; this function performs display-only
 // mapping over those admitted rows and never scans request or answer prose.
-func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string) string {
+func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string, wakeupRows []types.TraceWakeupCPUTopologyAuthority) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -432,6 +433,33 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			}
 		}
 
+		if waits := traceFinalReaderBlockedReasonRows(projection, 4); len(waits) > 0 {
+			if zh {
+				b.WriteString("- 链上等待证据边界（调用位置只约束对应线程的这条等待证据）：\n")
+			} else {
+				b.WriteString("- On-chain wait evidence boundaries (a call site applies only to this wait record for the named thread):\n")
+			}
+			for _, node := range waits {
+				caller := traceDecisionPromptScalar(node.BlockedReasonCaller)
+				subject := traceDecisionPromptScalar(node.Subject)
+				cause := traceFinalReaderActualCauseLabel(node, zh)
+				measured := traceFinalReaderBlockedReasonMeasuredMS(node)
+				if zh {
+					fmt.Fprintf(&b, "  - %s：%s", subject, cause)
+					if measured > 0 {
+						fmt.Fprintf(&b, "，已测 %.3f 毫秒", measured)
+					}
+					fmt.Fprintf(&b, "；内核记录的等待调用位置为 `%s`。它只定位这条等待发生时的内核调用位置；当前证据没有给出具体等待对象、持有者、文件系统/缓存/存储后端，也不证明目标线程的睡眠完全由该线程或该工作传导，不能仅凭符号名称推出预取、缓存穿透等修复方案。\n", caller)
+				} else {
+					fmt.Fprintf(&b, "  - %s: %s", subject, cause)
+					if measured > 0 {
+						fmt.Fprintf(&b, ", measured %.3f ms", measured)
+					}
+					fmt.Fprintf(&b, "; the kernel-recorded wait call site is `%s`. It locates only the kernel call site for this wait record; the specific waited object, holder, filesystem/cache/storage backend, and complete cause of the target thread's sleep remain unproved, so the symbol alone cannot justify a prefetch or cache-penetration fix.\n", caller)
+				}
+			}
+		}
+
 		if contexts := traceDecisionNonCausalContextRows(projection, 4); len(contexts) > 0 {
 			if zh {
 				b.WriteString("- 背景与邻近信息（只能支撑额外排查方向，不得升级为链上主因或参与根因序数）：\n")
@@ -463,12 +491,76 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			}
 		}
 	}
+	if len(wakeupRows) > 0 {
+		if zh {
+			b.WriteString("\n- 唤醒发生位置（每条只说明该次唤醒事件记录的 CPU）：\n")
+		} else {
+			b.WriteString("\n- Wakeup placement (each row states only the CPUs recorded for that wakeup event):\n")
+		}
+		for _, row := range wakeupRows {
+			waker := traceDecisionPromptScalar(row.Waker)
+			wakee := traceDecisionPromptScalar(row.Wakee)
+			switch row.Relation {
+			case types.TraceWakeupCPUTopologyCrossCPU:
+				if zh {
+					fmt.Fprintf(&b, "  - %s 在 CPU %d 发出对 %s 的唤醒，目标 CPU 为 %d；这只证明两个记录位置不同，不证明 NUMA 开销、迁核成本、直接 CPU 竞争、抢占或醒后延迟原因。\n", waker, row.WakerCPU, wakee, row.WakeeTargetCPU)
+				} else {
+					fmt.Fprintf(&b, "  - %s issued a wakeup for %s on CPU %d with target CPU %d; this proves only that the recorded placements differ, not NUMA cost, migration cost, direct CPU competition, preemption, or the cause of post-wakeup delay.\n", waker, wakee, row.WakerCPU, row.WakeeTargetCPU)
+				}
+			case types.TraceWakeupCPUTopologySameCPU:
+				if zh {
+					fmt.Fprintf(&b, "  - %s 在 CPU %d 发出对 %s 的唤醒，目标 CPU 同为 %d；这只证明两个记录位置相同，直接竞争、抢占或醒后延迟原因仍需独立的运行/可运行重叠证据。\n", waker, row.WakerCPU, wakee, row.WakeeTargetCPU)
+				} else {
+					fmt.Fprintf(&b, "  - %s issued a wakeup for %s on CPU %d with the same target CPU %d; this proves only matching recorded placement. Direct competition, preemption, or post-wakeup delay still requires separate running/runnable overlap evidence.\n", waker, wakee, row.WakerCPU, row.WakeeTargetCPU)
+				}
+			}
+		}
+	}
 	if zh {
 		b.WriteString("\n请基于以上事实自行给出结论：同时回答真实耗时集中与按现有规则可消除影响两个维度；链外信息只作背景；证据不足处明确限定，不得由系统字段名替代面向用户的解释。\n\n")
 	} else {
 		b.WriteString("\nNow provide your own conclusion from these facts: address both measured time concentration and impact eliminable under existing rules; keep off-chain information as context; qualify evidence gaps; and use reader language rather than system field names.\n\n")
 	}
 	return b.String()
+}
+
+func traceFinalReaderBlockedReasonRows(projection types.TraceCausalProjection, limit int) []types.TraceCausalProjectionNode {
+	pools := [][]types.TraceCausalProjectionNode{
+		projection.RankedSeats,
+		projection.PrimaryRootCauses,
+		projection.OnChainCauses,
+	}
+	seen := make(map[string]bool)
+	out := make([]types.TraceCausalProjectionNode, 0, limit)
+	for _, pool := range pools {
+		for _, node := range pool {
+			caller := strings.TrimSpace(node.BlockedReasonCaller)
+			if caller == "" || !traceFinalReaderNodeProvedOnChain(projection, node) ||
+				(node.WithinRequestedWindow != nil && !*node.WithinRequestedWindow) {
+				continue
+			}
+			key := traceDecisionNodeIdentity(node) + "\x00" + caller
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, node)
+			if limit > 0 && len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func traceFinalReaderBlockedReasonMeasuredMS(node types.TraceCausalProjectionNode) float64 {
+	if node.IOWaitSplitMS > 0 {
+		return node.IOWaitSplitMS
+	}
+	if node.DStateSplitMS > 0 {
+		return node.DStateSplitMS
+	}
+	return traceFinalMeasuredStateOccupancy(node)
 }
 
 // traceFinalReaderWriteCumulativeRole keeps the projection's three duration

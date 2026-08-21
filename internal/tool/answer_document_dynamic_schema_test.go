@@ -102,6 +102,11 @@ func TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes(t *testing.T) {
 	itemNode := itemsField["items"].(map[string]any)
 	itemProps := itemNode["properties"].(map[string]any)
 	roleNode := itemProps["candidate_role"].(map[string]any)
+	roleDescription, _ := roleNode["description"].(string)
+	if !strings.Contains(roleDescription, "not a generic entity type") ||
+		!strings.Contains(roleDescription, "threads, processes, CPUs, frames, or spans") {
+		t.Fatalf("candidate_role schema must tell runtime rows to omit the source/inventory role field: %q", roleDescription)
+	}
 	enum := roleNode["enum"].([]any)
 	want := types.AllAnswerCandidateRoles()
 	if len(enum) != len(want) {
