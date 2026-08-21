@@ -59308,3 +59308,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1306 r800/B1280：概念成员行与源码清单行统一精确 row-id 所有权（2026-08-20）
+
+1. 以已推送 `5beab9f17` 的不可变二进制严格并发恰好 2 路回放 read+write，runner 2/2 PASS：write 99s、read 634s。write
+   人工判定 pass：仅把 `main.go` 的 `retrun` 改为 `return`，应用树无额外改动，真实 `go test -json ./...` 1/1 通过，计划、应用、验证、
+   fingerprint、recovery ref、changed-path coverage 与 clean worktree audit 全部闭合。controller handoff 有一组重复状态，analyzer 首轮将写请求
+   归成 explain，但没有扩大改动或跳过 write 风险/应用/验证门，先记低优先上下文噪声。
+2. read 人工判定最终答案 pass：四阶段表的阶段、Agent、输入、输出和 BusContext 载体完整，sequenceDiagram 语法合法且
+   analyze→explore→extract→finalize 三条 precedence 均通过 typed 关系校验；没有系统代写模型结论。B1278 未出现身份冲突，但本轮没有自然产生
+   B1279 的 relation failure/ref 冗余 selector，因此 B1279 仍是单测闭环、待生产形正证。
+3. 新 P1 `B1280-PRINCIPALROWOWNERCONTRACT1` 是确定性合同自冲突。finalizer handoff 把 Stage 行编译进 `Principal Enumeration Rows` 并要求
+   `source_inventory_row_id`；共享字段教学却声称该载体仅用于 source-inventory，自动 row-id 绑定器也只在 source-inventory 请求运行。模型第二稿以
+   精确 stage+源码坐标提交手工 citation 后，evidence-ID 门要求改成 `evidence_ids`；模型同时按 Principal Enumeration Rows 补 row id，下一轮又被
+   “两个精确 citation owner 不能并存”拒绝。两条规则单独都合理，作用域不一致使正确修补必然制造下一次失败。
+4. B1280 根修为同一 typed roster 单权威：所有已编译 `Principal Enumeration Rows`——包括概念成员集合与源码清单——统一以其精确 row id 作为
+   结构化行所有权；`evidence_ids` 仅用于不在该 roster 中的模型自写条目。schema、共享 full/patch 合同和中英文 finalizer 教学均明确两者互斥，
+   不再以“是否 source inventory”的粗分类分流同一个 typed row。
+5. 自愈只在精确三元组成立时补隐藏 row id：结构化第一列/member identity、模型已选 citation 的 file:line、typed compiled row 必须唯一一致；
+   重名异址、跨 family、错坐标或歧义均不猜。该归一化不读用户请求、thinking、答案 prose、表格后续说明列或 Mermaid label，不改变可见文本、成员、
+   次序、引用事实或模型结论。新增回归专门证明非 source-inventory 的 Stage 概念行先获得精确 row id，从而不会再进入互斥 evidence-ID 修补车道；
+   原 source-inventory 重名/分区 fail-closed 套件保持。
+6. r800 另确认 P1 `B1281-EXPLORERPOSTCLOSUREBROADSCAN1`，与 B1280 分批：read 共 26 次 read、46 次 explorer iteration、16 次 midloop、
+   6 次 investigation_complete、3 次 history prune；日志曾在早期明确 completion-ready，但随后 deterministic concrete-values 扫 53 个文件并生成
+   43,341 个值、dataflow 对 57 个候选生成 33,724 evidence/86,209 findings。下一批需要按 typed ReadSet/已选 provider/未满足 evidence dimension
+   收窄后处理输入域；禁止按文件名、模型文本、固定轮数、4ms/4m 或上下文百分比硬截断，也不能削弱真正复杂 read/Trace 的补齐能力。
+
+状态：
+
+`r800=runner-pass-2/2,human-write-pass+read-pass/process-partial`；
+`B1278=no-regression-no-alias-production-trigger`；
+`B1279=tests-positive/pending-production-shape`；
+`B1280=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1281=confirmed/P1-next`；
+`principal-enumeration-row-owner=exact-row-id-only`；
+`non-roster-model-item-owner=evidence-ids-only`；
+`system-row-binding=hidden-carrier-only/exact-identity+source-coordinate`；
+`system-answer/conclusion/member/relation-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

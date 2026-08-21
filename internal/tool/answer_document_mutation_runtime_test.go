@@ -2562,9 +2562,10 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 	if !strings.Contains(body, "projected for THIS dispatch") || !strings.Contains(body, "Required Answer Blocks") {
 		t.Fatalf("shared contract must point the model at the dispatch-scoped JSON recipe:\n%s", body)
 	}
-	if !strings.Contains(body, "Every structured principal source-inventory item must copy its exact `row_id`") ||
-		!strings.Contains(body, "into `source_inventory_row_id`") {
-		t.Fatalf("shared contract must pin the exact source-inventory row identity carrier:\n%s", body)
+	if !strings.Contains(body, "Every structured principal item emitted from `Principal Enumeration Rows` must copy its exact `row_id`") ||
+		!strings.Contains(body, "into the historically named `source_inventory_row_id`") ||
+		!strings.Contains(body, "conceptual member sets as well as source inventories") {
+		t.Fatalf("shared contract must pin the exact principal-row identity carrier without a source-inventory-only contradiction:\n%s", body)
 	}
 	for _, want := range []string{
 		"kind: \"summary\"",

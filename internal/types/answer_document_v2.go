@@ -611,9 +611,11 @@ type AnswerBlockItem struct {
 	CandidateRole AnswerCandidateRole `json:"candidate_role,omitempty"`
 
 	// SourceInventoryRowID is an optional exact identity copied from a
-	// Principal Enumeration Rows row_id. It lets the source-inventory
-	// citation binder distinguish identical member labels across declaration
-	// families or files without inspecting block titles or visible prose.
+	// Principal Enumeration Rows row_id. The historical wire-field name is
+	// shared by conceptual principal member sets and source inventories. It
+	// lets the citation binder distinguish exact typed rows, including identical
+	// member labels across declaration families or files, without inspecting
+	// block titles or visible prose.
 	SourceInventoryRowID string `json:"source_inventory_row_id,omitempty"`
 
 	// EvidenceIDs are optional exact identities copied from the accepted

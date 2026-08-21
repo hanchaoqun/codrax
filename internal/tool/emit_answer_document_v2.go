@@ -776,13 +776,13 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
 	normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(toolName, doc, ctx, pctx)
-	// Capture an exact model-selected source-inventory row before any weaker
-	// candidate or aggregate citation repair can move a same-name declaration
-	// to another file/family. The row-id citation binder near the end then
-	// restores that precise identity after the generic repair lanes finish.
-	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext", fixed)
-		logging.Warning("[%s] preserved %d source_inventory_row_id value(s) from exact typed label and citation location", toolName, fixed)
+	// Capture an exact model-selected Principal Enumeration Row before any
+	// weaker candidate or aggregate citation repair can move its citation. The
+	// row-id binder applies equally to source inventories and conceptual member
+	// sets; it changes only the hidden identity carrier, never visible content.
+	if fixed := normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext", fixed)
+		logging.Warning("[%s] preserved %d principal enumeration row id value(s) from exact typed identity and citation location", toolName, fixed)
 	}
 	if fixed := normalizeItemCitationRefsByUniqueBacktickCitationQuoteWithContext(doc, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueBacktickCitationQuote", fixed)
@@ -808,18 +808,17 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizePrincipalAggregateItemCitationRefsWithContext", fixed)
 		logging.Warning("[%s] bound %d item citation_ref value(s) to exact principal aggregate support rows", toolName, fixed)
 	}
-	// Source-inventory row identity is more specific than the generic
-	// candidate-role / label candidate lanes above. Apply it after those
-	// repairs so a same-name declaration in another family cannot overwrite an
-	// exact prompt-visible row binding (for example an `extend Cart` row and a
-	// `public class Cart` row at different lines).
+	// Principal-row identity is more specific than the generic candidate-role /
+	// label candidate lanes above. Apply it after those repairs so a same-name
+	// declaration or conceptual member cannot overwrite an exact prompt-visible
+	// row binding.
 	if fixed := normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext(doc, ctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByUniqueSourceInventoryDisplayRowWithContext", fixed)
 		logging.Warning("[%s] repaired %d item citation_ref value(s) by unique typed principal enumeration row", toolName, fixed)
 	}
-	if fixed := normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc, ctx); fixed > 0 {
-		pctx.recordPreEmitRepair("normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext", fixed)
-		logging.Warning("[%s] bound %d source_inventory_row_id value(s) by exact typed label and citation location", toolName, fixed)
+	if fixed := normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext(doc, ctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext", fixed)
+		logging.Warning("[%s] bound %d principal enumeration row id value(s) by exact typed identity and citation location", toolName, fixed)
 	}
 	// An explicit (or just normalized) row id is the strongest citation
 	// selector. Keep it last in the row-identity chain so no weaker repair can

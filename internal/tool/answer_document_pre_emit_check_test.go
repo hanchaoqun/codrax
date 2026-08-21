@@ -123,6 +123,63 @@ func TestPreCheckItemEvidenceIdentityRejectsOnlyExplicitInvalidCarrier(t *testin
 	}
 }
 
+func TestPrincipalEnumerationRowBindingPrecedesEvidenceIDAdoptionForConceptualMembers(t *testing.T) {
+	evidence := types.EvidenceItem{
+		ID: "ev-stage-analyze", Kind: types.EvidenceDirect,
+		Source: "internal/types/stage_binding.go", LineStart: 47,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+		AnchorSymbol: "StageAnalyze", Subject: "StageAnalyze",
+		GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo,
+	}
+	mu := types.NewMutableState("explain each read-mode stage in a table")
+	mu.AppendEvidence([]types.EvidenceItem{evidence})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "read-mode stages", Value: "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"StageAnalyze"},
+		SupportRefs: []string{"StageAnalyze @ internal/types/stage_binding.go:47"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		EvidenceItems: []types.EvidenceItem{evidence},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentExplain,
+			Predicates: types.SemanticPredicates{HasPerMemberTable: true},
+		}},
+	}
+	if sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		t.Fatal("conceptual stage table must not be reclassified as a source inventory")
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: evidence.Source, Line: evidence.LineStart}},
+		Blocks: []types.AnswerBlock{{
+			ID: "stages", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			Columns:  []string{"stage", "input"},
+			Items: []types.AnswerBlockItem{{
+				ID: "analyze", Cells: []string{"StageAnalyze", "request"}, CitationRef: 0,
+			}},
+		}},
+	}
+	view := &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}
+	pctx := newPreEmitCheckContext(ctx)
+	markModelSubmittedItemCitationRefs(doc)
+	markModelSubmittedItemEvidenceIDAdoptionRequired(doc, view, pctx)
+	if !doc.Blocks[0].Items[0].CitationRefsEvidenceIDAdoptionRequired {
+		t.Fatal("pre-normalize manual citation should initially qualify for evidence-id adoption")
+	}
+	if fixed := normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want exact conceptual principal-row binding; doc=%+v", fixed, doc)
+	}
+	if got := strings.TrimSpace(doc.Blocks[0].Items[0].SourceInventoryRowID); got == "" {
+		t.Fatalf("conceptual Principal Enumeration Row did not receive its exact row id: %+v", doc.Blocks[0].Items[0])
+	}
+	if hints := preCheckItemEvidenceIdentity(doc, view, pctx); len(hints) != 0 {
+		t.Fatalf("exact principal row id must suppress the mutually exclusive evidence_ids repair lane: %+v", hints)
+	}
+}
+
 func TestItemEvidenceIdentityDoesNotProtectRuntimeArtifactFromCitationBoundary(t *testing.T) {
 	runtimeEvidence := types.EvidenceItem{ID: "ev-runtime", Kind: types.EvidenceDirect, Source: "/tmp/customer.systrace", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorTextReference, GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginPerf}
 	ctx := &types.BusContext{Mutable: types.NewMutableState("runtime identity"), EvidenceItems: []types.EvidenceItem{runtimeEvidence}}

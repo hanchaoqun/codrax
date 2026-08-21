@@ -2274,7 +2274,7 @@ func preCheckItemEvidenceIdentity(doc *types.AnswerDocumentV2, view *types.Answe
 			if strings.TrimSpace(item.SourceInventoryRowID) != "" {
 				out = append(out, preEmitTypedItemEvidenceIdentityHint(
 					field,
-					"use source_inventory_row_id alone for a source-inventory row; otherwise remove source_inventory_row_id and retain only exact accepted current-source evidence IDs",
+					"use source_inventory_row_id alone for an item copied from Principal Enumeration Rows; otherwise remove source_inventory_row_id and retain only exact accepted current-source evidence IDs",
 					"source_inventory_row_id and evidence_ids are two independent exact citation owners and cannot both select the same item",
 				))
 				continue
@@ -2871,17 +2871,20 @@ func preEmitSourceInventoryExactLabelRows(item types.AnswerBlockItem, rows []typ
 	return out
 }
 
-// normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext removes a
-// mechanical retry when the model has already selected one exact typed row by
-// structured primary identity plus citation. This applies to unique and
-// duplicate labels and to cells-only table rows:
-// every principal source-inventory item receives the same stable row carrier.
+// normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext
+// removes a mechanical retry when the model has already selected one exact
+// typed Principal Enumeration Row by structured primary identity plus
+// citation. This applies to source inventories and to conceptual principal
+// member sets (for example pipeline stages), and to unique, duplicate-label,
+// and cells-only rows. SourceInventoryRowID is the historical wire-field name;
+// its authority is the exact compiled Principal Enumeration Row, not a prose
+// inference that the request is a source inventory.
 // The repair reads only item.label or item.cells[0], citation_ref, and typed
 // source coordinates. It never reads later cells, request, title, or answer
 // prose, and it refuses to guess unless the citation selects one alias identity
 // exactly.
-func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
-	if doc == nil || ctx == nil || !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+func normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil {
 		return 0
 	}
 	sets := preEmitSourceInventoryTypedPrincipalSets(ctx)
@@ -2952,6 +2955,18 @@ func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types
 		}
 	}
 	return fixed
+}
+
+// normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext preserves
+// the narrower helper contract used by source-inventory-specific checks and
+// tests. Production normalization uses the generic Principal Enumeration Row
+// binder above so conceptual member rows do not fall into the evidence_ids
+// lane and then collide with the row-id lane on the following retry.
+func normalizeSourceInventoryRowIDsByExactLabelAndCitationWithContext(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if !sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		return 0
+	}
+	return normalizePrincipalEnumerationRowIDsByExactIdentityAndCitationWithContext(doc, ctx)
 }
 
 // preEmitSourceInventoryCitationHasMultipleObservedFamilies preserves the
