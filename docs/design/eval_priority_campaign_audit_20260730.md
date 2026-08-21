@@ -58658,3 +58658,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1289 r791：阶段归属获生产正证；陈旧关系元数据陷入不可执行修复合同（2026-08-20）
+
+1. 以已推送 `45a268eea` 构建不可变二进制，严格并发恰好 2 路回放 read+Trace。Trace runner PASS（328s），read runner
+   FAIL（1116s，`degraded_answer_checks_skipped`）；两路活动流均持续到正常终态或重试预算终态，没有 4ms、4m、首字节、stall、累计年龄
+   触发的提前降级。
+2. Trace 人工判定 partial：用户指定 2.000..2.020s 窗、两次 typed 查询、自动补采、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、`Trace 因果投影`、11.000ms IO 主席及三个独立
+   1.000ms 调度供给/优先级候选均保留；17/14ms sleep 仍为状态上下文，邻近/背景未升级为主因。
+3. Trace 模型正文出现两类越界：一段把已证 waker→wakee 三跳逐条反写为“threadpool 被 network 唤醒、network 被 cookie 唤醒、
+   cookie 被 app 唤醒”；又把 `cross_cpu` 过推成“不存在直接 CPU 竞争，延迟来自跨核通信”。同轮 typed 输入已逐字提供方向、
+   `never reverse` 和 `same_cpu_occupancy_or_direct_competition_authority=not_provided`，系统因果投影也保持正确方向。因此先记 P1
+   `B1269-WAKEUPPROSEAUTHORITYDRIFT1=observed/pending-repeat`，不得扫描或改写最终 prose；后续异构 Trace 重放判断是否需要把同一 typed
+   方向/权限边界更靠近模型结论教学。
+4. `B1267` 获生产正证：read 最终恢复稿不再声称“只有 analyze 用模型”；它明确写出 StageExplore/AgentExplorer、
+   StageExtract/AgentExtractor、StageFinalize/AgentFinalizer 的模型阶段产出，并仅把最终验证描述为 deterministic。系统未修改模型结论。
+5. `B1266` 的事务回滚行为也得到过程正证：每个 rejected patch 都继续以同一初始 rejected full document 为 base，没有隐藏推进；但这揭开
+   新 P0 `B1268-ANCHORONLYREPAIRUNEXECUTABLE1`。pre-emit 精确报出三条
+   `typed_anchor_without_visible_edge`，并要求“restore visible edge or remove stale metadata”；模型按建议对同一 anchor 发
+   `diagram_edge_edits action=remove`，原子执行器却先强制查找 Mermaid 正文箭头，并稳定拒绝
+   `Mermaid body has no matching edge for Ana->Exp`。同一 typed 对象同时“必须删陈旧元数据”与“因正文不存在而不能删”，属于确定性合同
+   自冲突，不是模型波动；20 次 reject、79% context 和最终旧稿降级均由其级联。
+6. B1268 冻结最优形：只在 repair lease 精确列出同 block、同方向、同 relation/identity 的
+   `typed_anchor_without_visible_edge` 时，允许模型的 `remove` 只删除该 exact prior anchor 而不改 Mermaid body；允许 `replace` 用模型提交的
+   完整 edge/visible label 恢复一条正文边并替换该 anchor。零 lease、错 issue、错 tuple、歧义 occurrence 继续拒绝；系统不自行选择删除或
+   恢复哪条关系。工具 schema 与 retry 教学同步说明这两个可执行出口。
+7. read 恢复稿仍有既有 `B1263`：表头显示“项目/列2/列3/列4/列5/列6”，没有把用户指定的 stage/输入/输出/状态载体映射成语义列名；
+   在 B1268 解除 P0 重试风暴后继续按 typed table-column 上下文处理，不由系统代写表头。
+
+状态：
+
+`r791=runner-trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1267=production-positive/core-closed`；
+`B1266=production-positive/transactional-semantics-correct`；
+`B1268=confirmed/P0-next`；`B1269=observed/P1-pending-repeat`；`B1263=confirmed/P1-open`；
+`typed-anchor-without-body=exact-lease-model-remove-or-replace-required`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r791`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r791`。
