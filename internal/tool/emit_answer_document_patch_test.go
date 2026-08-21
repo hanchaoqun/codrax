@@ -169,7 +169,7 @@ func TestEmitAnswerDocumentPatch_RelationLeaseRejectsCrossKindDiagramReplacement
 		t.Fatalf("unexpected execution error: %v", err)
 	}
 	if res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairScope ||
-		!strings.Contains(res.Summary, "relation_diagram_carrier_kind_changed") {
+		!strings.Contains(res.Summary, "whole_replace_not_authorized") {
 		t.Fatalf("cross-kind relation repair must fail at the typed lease: %+v", res)
 	}
 	got := mut.AnswerDocumentV2()

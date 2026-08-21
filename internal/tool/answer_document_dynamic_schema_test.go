@@ -88,6 +88,50 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseNarrowsOnlyWholeTargetMutations(t *testing.T) {
+	base := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil {
+		t.Fatal("test setup: expected live local lease")
+	}
+	mut := types.NewMutableState("local diagram schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	assertTargetForbidden := func(t *testing.T, node map[string]any) {
+		t.Helper()
+		notNode, _ := node["not"].(map[string]any)
+		enum, _ := notNode["enum"].([]any)
+		if len(enum) != 1 || enum[0] != "diag" {
+			t.Fatalf("local target must be structurally excluded, got %+v", node)
+		}
+	}
+	for _, field := range []string{"replace_blocks", "add_blocks"} {
+		array := props[field].(map[string]any)
+		item := array["items"].(map[string]any)
+		itemProps := item["properties"].(map[string]any)
+		assertTargetForbidden(t, itemProps["id"].(map[string]any))
+	}
+	remove := props["remove_block_ids"].(map[string]any)
+	assertTargetForbidden(t, remove["items"].(map[string]any))
+	if _, ok := props["diagram_edge_edits"]; !ok {
+		t.Fatal("local lease must retain model-authored atomic edge edits")
+	}
+	if _, ok := props["diagram_boundary_replacements"]; !ok {
+		t.Fatal("local lease must retain model-authored participant-boundary edits")
+	}
+}
+
 func TestEmitAnswerDocumentSchema_CandidateRoleEnumMatchesTypes(t *testing.T) {
 	raw := (&EmitAnswerDocument{}).Parameters()
 	var root map[string]any

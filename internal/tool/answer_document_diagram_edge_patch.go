@@ -55,9 +55,6 @@ func applyModelAuthoredDiagramAtomicEdits(
 		previous[id] = block
 	}
 	claimed := make(map[string]string)
-	for _, id := range patch.UnchangedBlockIDs {
-		claimed[strings.TrimSpace(id)] = "unchanged_block_ids"
-	}
 	for _, block := range patch.ReplaceBlocks {
 		claimed[strings.TrimSpace(block.ID)] = "replace_blocks"
 	}
@@ -199,6 +196,23 @@ func applyModelAuthoredDiagramAtomicEdits(
 	}
 	for _, blockID := range order {
 		patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
+	}
+	// An atomic diagram operation is itself the model's edit declaration for
+	// the block. Listing that same block in unchanged_block_ids is therefore a
+	// redundant preservation assertion, not a competing whole-block mutation:
+	// the compiler starts from the immutable base and preserves every unlisted
+	// carrier byte. Absorb the redundant id after all target blocks have been
+	// resolved, while leaving unknown/unrelated unchanged ids for the ordinary
+	// patch validator to check. Replace/add/remove remain true conflicts above.
+	if len(working) > 0 && len(patch.UnchangedBlockIDs) > 0 {
+		kept := patch.UnchangedBlockIDs[:0]
+		for _, rawID := range patch.UnchangedBlockIDs {
+			if _, edited := working[strings.TrimSpace(rawID)]; edited {
+				continue
+			}
+			kept = append(kept, rawID)
+		}
+		patch.UnchangedBlockIDs = kept
 	}
 	return nil
 }

@@ -111,7 +111,8 @@ func TestEmitAnswerDocumentPatch_RemovesTypedFailedAnchorWithoutBodyTransactiona
 			RelationKind: types.DiagramRelPrecedence,
 		}}, nil))
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{
-		"unchanged_block_ids":["summary"],
+		"unchanged_block_ids":["diag"],
+		"replace_blocks":[{"id":"summary","kind":"summary","text":"updated sibling"}],
 		"diagram_edge_edits":[{"block_id":"diag","action":"remove","match":{
 			"from_node":"A","to_node":"B","from_identity":"Analyzer","to_identity":"Explorer","relation_kind":"precedence"
 		}}]
@@ -121,9 +122,39 @@ func TestEmitAnswerDocumentPatch_RemovesTypedFailedAnchorWithoutBodyTransactiona
 	}
 	got := mut.AnswerDocumentV2()
 	if got == nil || len(got.Blocks) != 2 || len(got.Blocks[1].EdgeAnchors) != 1 ||
+		got.Blocks[0].Text != "updated sibling" ||
 		strings.Contains(got.Blocks[1].Diagram.Body, "A->>B") ||
 		!strings.Contains(got.Blocks[1].Diagram.Body, "B->>C: keep label") {
 		t.Fatalf("stale-anchor transaction changed unrelated graph content: %+v", got)
+	}
+}
+
+func TestLocalDiagramLeaseWholeBlockMutationViolation_TargetOnly(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil {
+		t.Fatal("test setup: expected live local lease")
+	}
+	for name, params := range map[string]*emitAnswerDocumentPatchParams{
+		"replace target": {ReplaceBlocks: []emitAnswerBlockV2{{ID: "diag"}}},
+		"add target":     {AddBlocks: []emitAnswerBlockV2{{ID: "diag"}}},
+		"remove target":  {RemoveBlockIDs: []string{"diag"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := localDiagramLeaseWholeBlockMutationViolation(params, lease); got == nil || got.BlockID != "diag" {
+				t.Fatalf("whole target mutation must be rejected from typed lease: %+v", got)
+			}
+		})
+	}
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		ReplaceBlocks: []emitAnswerBlockV2{{ID: "summary"}},
+	}, lease); got != nil {
+		t.Fatalf("unrelated sibling replacement must remain available: %+v", got)
 	}
 }
 
@@ -1124,17 +1155,23 @@ func TestEmitAnswerDocumentPatch_BodyOnlyFailureMaySharePairWithDifferentAnchorT
 	}
 }
 
-func TestApplyModelAuthoredDiagramAtomicEdits_RejectsCompoundAndConflictingCarrier(t *testing.T) {
+func TestApplyModelAuthoredDiagramAtomicEdits_AbsorbsRedundantUnchangedCarrier(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: first\n"
 	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall}}
-	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"diag"}}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary", "diag"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
 		BlockID: "diag", Action: "remove",
 		Match: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall},
 	}}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "conflicts with unchanged_block_ids") {
-		t.Fatalf("same carrier must not be both unchanged and atomically edited: %v", err)
+	if err != nil {
+		t.Fatalf("same-block unchanged assertion must be absorbed by the atomic compiler: %v", err)
+	}
+	if len(patch.UnchangedBlockIDs) != 1 || patch.UnchangedBlockIDs[0] != "summary" {
+		t.Fatalf("only the atomically edited block should leave unchanged_block_ids: %+v", patch.UnchangedBlockIDs)
+	}
+	if len(patch.ReplaceBlocks) != 1 || strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B") || len(patch.ReplaceBlocks[0].EdgeAnchors) != 0 {
+		t.Fatalf("atomic edit was not compiled over the immutable base: %+v", patch.ReplaceBlocks)
 	}
 }
 

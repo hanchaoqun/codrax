@@ -57334,6 +57334,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r804`。
 
+### §123.1314 B1285：局部图修补只暴露可执行能力，冗余 unchanged 由原子编译器吸收（2026-08-21）
+
+1. `B1285-LOCALDIAGRAMTOOLSURFACE1/P1` 已按 typed operation domain 施工。原子 edge/boundary 编译仍从 immutable rejected base 克隆完整
+   diagram，并只应用模型选择的局部 operation；若模型同时把目标 block 放进 `unchanged_block_ids`，该 id 现在被识别为语义冗余并自动移除，
+   其余未知或非目标 unchanged id 仍交给普通 patch validator 精确校验。`replace_blocks`、`add_blocks`、`remove_block_ids` 与局部 operation
+   的真实同块冲突没有放宽。
+2. model-facing `emit_answer_document_patch` schema 现在读取 same-generation typed relation lease：仅当 failure 的目标载体在 lease snapshot 中唯一且
+   `kind=diagram` 时，给该目标 block id 的 whole replace/add/remove schema 加结构化排除；`diagram_edge_edits` 与
+   `diagram_boundary_replacements` 全部保留。非目标 section/table/list block 仍可整块替换，非 diagram 的 relation carrier 也保持既有 whole-block
+   路径并继续由 post-merge lease 守门，避免把专用 Mermaid 原子能力错误扩到所有 block family。
+3. 执行入口同步做同一 typed 排除，防止陈旧 schema 或直接工具调用绕过：模型原始 envelope 若对局部 lease 的 diagram 目标提交 whole
+   replace/add/remove，会在 split、继承、merge 之前返回带当前 relation delta 的精确 repair；atomic compiler 内部生成的完整 replacement 不受该检查，
+   因为它是模型局部动作在 immutable base 上的机械载体，不是系统新增关系。该区分不读取 Mermaid label/body 语义、用户请求、thinking、模型 prose
+   或最终答案。
+4. 回归覆盖 r804 原形：同一 patch 对 diagram 同时提交 edge edit、boundary replacement 和冗余 unchanged，并整块替换一个 sibling summary，必须
+   一次成功；目标 diagram 的未提及 body/anchor/字段保持，summary 修改保留。另逐项钉住目标 whole replace/add/remove 被拒、sibling replace
+   可用、schema 三个 whole-op id 面均排除目标、两类 atomic field 仍存在，以及 list/table relation carrier 不被误收窄。
+5. 相关 `internal/tool + internal/types + internal/agent` 套件、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一步从本提交
+   重建不可变二进制，仍严格并发恰好 2 路复放 read 图表用例与显式窗 Trace；read 要核验 unchanged 冲突和 whole-block 振荡消失、拒绝数下降且
+   关系层不缩水，Trace 继续核验明确窗、自动补采、链上根因、业务线索、实际占时/可消量双账户和完整因果投影。
+
+状态：
+
+`B1285=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`atomic-target+unchanged=redundant/absorbed`；
+`local-lease-diagram-target=atomic-ops-only-in-schema+executor`；
+`non-target/non-diagram-block=whole-block-ops-preserved`；
+`atomic-compiler-replacement=immutable-base+model-selected-delta`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/error-text-as-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1312 r803/B1284：stale-anchor 能力与执行器自冲突；按 live ref 闭合元数据修补（2026-08-21）
 
 1. 从已推送 `a03ac967e` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace。Trace PASS（219s）；read FAIL
