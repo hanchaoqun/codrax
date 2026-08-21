@@ -69,6 +69,136 @@ func TestApplyModelAuthoredDiagramAtomicEdits_PreservesUnmentionedGraphContent(t
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_RemovesTypedFailedAnchorWithoutBody(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("typed stale anchor must be removable without a body edge: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Contains(got.Diagram.Body, "A->>B") || !strings.Contains(got.Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("anchor-only remove changed Mermaid body:\n%s", got.Diagram.Body)
+	}
+	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "B" || got.EdgeAnchors[0].ToNode != "C" {
+		t.Fatalf("anchor-only remove changed an unmentioned anchor: %+v", got.EdgeAnchors)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_RemovesTypedFailedAnchorWithoutBodyTransactionally(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	mut := types.NewMutableState("atomic-anchor-without-body")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"block_id":"diag","action":"remove","match":{
+			"from_node":"A","to_node":"B","from_identity":"Analyzer","to_identity":"Explorer","relation_kind":"precedence"
+		}}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("typed stale-anchor transaction must pass: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || len(got.Blocks[1].EdgeAnchors) != 1 ||
+		strings.Contains(got.Blocks[1].Diagram.Body, "A->>B") ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("stale-anchor transaction changed unrelated graph content: %+v", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_RestoresTypedFailedAnchorWithoutBody(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "replace",
+		Match: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		},
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "确定分析范围后收集证据",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("typed stale anchor must be restorable from a complete model edge: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "A->>B: 确定分析范围后收集证据") ||
+		!strings.Contains(got.Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("anchor-only replacement did not restore the selected visible edge:\n%s", got.Diagram.Body)
+	}
+	if len(got.EdgeAnchors) != 2 || got.EdgeAnchors[0].VisibleLabel != "确定分析范围后收集证据" ||
+		got.EdgeAnchors[1].VisibleLabel != "keep label" {
+		t.Fatalf("anchor-only replacement changed the wrong metadata: %+v", got.EdgeAnchors)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AnchorWithoutBodyPermissionIsExact(t *testing.T) {
+	newPrev := func() *types.AnswerDocumentV2 {
+		prev := atomicPatchTestDocument()
+		prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+		return prev
+	}
+	edit := emitAnswerDiagramEdgeEdit{
+		BlockID: "diag", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		},
+	}
+	for name, lease := range map[string]*types.AnswerDiagramRelationRepairLease{
+		"missing lease": nil,
+		"wrong issue": types.NewAnswerDiagramRelationRepairLease(newPrev(),
+			[]types.AnswerDiagramRelationRepairFailure{{
+				BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+				FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+				RelationKind: types.DiagramRelPrecedence,
+			}}, nil),
+		"wrong tuple": types.NewAnswerDiagramRelationRepairLease(newPrev(),
+			[]types.AnswerDiagramRelationRepairFailure{{
+				BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
+				FromNode: "B", ToNode: "C", FromIdentity: "Explorer", ToIdentity: "Extractor",
+				RelationKind: types.DiagramRelPrecedence,
+			}}, nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+			err := applyModelAuthoredDiagramAtomicEdits(newPrev(), patch, []emitAnswerDiagramEdgeEdit{edit}, nil, lease)
+			if err == nil || !strings.Contains(err.Error(), "Mermaid body has no matching edge") {
+				t.Fatalf("non-exact stale-anchor permission must fail closed: %v", err)
+			}
+		})
+	}
+}
+
 func TestEmitAnswerDocumentPatch_AtomicRelationEditsHonorTypedLease(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	mut := types.NewMutableState("atomic")

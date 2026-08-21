@@ -58699,3 +58699,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r791`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r791`。
+
+### §123.1290 B1268：陈旧关系元数据获得精确可执行的模型修补出口（2026-08-20）
+
+1. `B1268-ANCHORONLYREPAIRUNEXECUTABLE1/P0` 已根修。原子关系编译器现在识别上一轮 repair lease 中精确的
+   `typed_anchor_without_visible_edge`：block、方向、relation kind 以及 lease 已提供的 node/identity locator 必须与 prior anchor 完整一致，
+   才进入 anchor-without-body 车道。
+2. 模型选择 `action=remove` 时，只删除该 exact stale anchor，Mermaid body 因本来没有对应边而保持字节语义不变；模型选择
+   `action=replace` 时，必须提交完整 corrected edge 和非空 `visible_label`，编译器才用该模型产物新增一条可见 Mermaid 边并替换 anchor。
+   系统不从候选池选择关系、不生成业务标签，也不判断模型应删还是应恢复。
+3. 权限继续 fail-closed：缺 lease、issue 不是 `typed_anchor_without_visible_edge`、block/方向/relation/node/identity 任一不符、声明
+   `body_occurrence`、缺完整 replacement 或空 label 均拒绝；普通 body-only missing-anchor、普通 anchor+body remove/replace、歧义 occurrence、
+   allowed addition 与 unlisted relation 租约检查保持原语义。
+4. 工具描述、动态 JSON schema、共享 patch operation teaching 与 relation retry hint 已统一说明同一两出口，消除“校验器要求删除 stale
+   metadata、执行器却要求先存在 body edge”的确定性合同自冲突，也降低模型在 JSON 修补时猜测隐式状态的心智负担。
+5. 回归覆盖 direct remove、完整工具事务持久化、model-authored replace/restore，以及 missing lease、wrong issue、wrong tuple 三个拒绝臂；
+   同时验证 unmentioned Mermaid 行和 sibling anchor 原样保留。定向测试、完整 `internal/tool internal/agent internal/types`、仓库级
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 本批不修改 Trace 查询、时间窗、根因排序、唤醒链、因果投影或自动补齐，也不扫描用户/模型/答案 prose。下一步从本精确提交严格并发
+   2 路复放 read+Trace，重点验收 read 不再因 anchor-only 删除陷入 20 轮循环，同时继续观察 B1269 是否跨回放复现。
+
+状态：
+
+`B1268=implemented/full-suite-pass/pending-production-replay`；
+`typed-anchor-without-body-remove=exact-model-selected-anchor-only`；
+`typed-anchor-without-body-replace=complete-model-edge+visible-label`；
+`missing/wrong/ambiguous-lease=fail-closed`；
+`unmentioned-graph-content=preserved`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`system-answer/conclusion/relation-selection/visible-label-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

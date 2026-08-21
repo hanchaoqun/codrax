@@ -222,6 +222,36 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		// executable against the previous model-authored Mermaid AST.
 		bodyOnly = true
 	}
+	anchorWithoutBody := anchorErr == nil &&
+		(action == "remove" || action == "replace") &&
+		atomicDiagramAnchorWithoutBodyFailureAuthorized(lease, block.ID, block.EdgeAnchors[anchorIndex])
+	if anchorWithoutBody {
+		if edit.BodyOccurrence != 0 {
+			return fmt.Errorf("body_occurrence must be omitted for an anchor with no visible Mermaid edge")
+		}
+		switch action {
+		case "remove":
+			if edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
+				return fmt.Errorf("action=remove must omit edge and visible_label")
+			}
+			block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+		case "replace":
+			if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
+				return err
+			}
+			if strings.TrimSpace(edit.Edge.VisibleLabel) == "" {
+				return fmt.Errorf("action=replace requires edge.visible_label authored by the model")
+			}
+			line, err := renderAtomicMermaidEdgeLine(block.Diagram.Body, *edit.Edge)
+			if err != nil {
+				return err
+			}
+			body := strings.TrimRight(block.Diagram.Body, "\n")
+			block.Diagram.Body = body + "\n" + line + "\n"
+			block.EdgeAnchors[anchorIndex] = *edit.Edge
+		}
+		return nil
+	}
 	bodyOccurrence, err := atomicDiagramBodyOccurrence(
 		block.Diagram.Body, block.EdgeAnchors, edit.Match.FromNode, edit.Match.ToNode,
 		anchorPairOccurrence, edit.BodyOccurrence, bodyOnly,
@@ -278,6 +308,44 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
 	return nil
+}
+
+// atomicDiagramAnchorWithoutBodyFailureAuthorized admits only the exact
+// producer-owned stale-anchor failure from the immediately preceding repair
+// lease. The model still chooses whether to remove that anchor or replace it
+// with a complete visible edge. No Mermaid label, request text, reasoning, or
+// answer prose participates in this permission.
+func atomicDiagramAnchorWithoutBodyFailureAuthorized(
+	lease *types.AnswerDiagramRelationRepairLease,
+	blockID string,
+	anchor types.DiagramEdgeAnchor,
+) bool {
+	if lease == nil || lease.Version != 1 || strings.TrimSpace(blockID) == "" {
+		return false
+	}
+	for _, failure := range lease.Failures {
+		if failure.Issue != diagramCallEdgeIssueAnchorWithoutBodyEdge ||
+			strings.TrimSpace(failure.BlockID) != strings.TrimSpace(blockID) {
+			continue
+		}
+		if failure.RelationKind.IsValid() && failure.RelationKind != anchor.RelationKind {
+			continue
+		}
+		if strings.TrimSpace(failure.FromNode) != "" || strings.TrimSpace(failure.ToNode) != "" {
+			if strings.TrimSpace(failure.FromNode) != strings.TrimSpace(anchor.FromNode) ||
+				strings.TrimSpace(failure.ToNode) != strings.TrimSpace(anchor.ToNode) {
+				continue
+			}
+		}
+		if strings.TrimSpace(failure.FromIdentity) != "" || strings.TrimSpace(failure.ToIdentity) != "" {
+			if strings.TrimSpace(failure.FromIdentity) != strings.TrimSpace(anchor.FromIdentity) ||
+				strings.TrimSpace(failure.ToIdentity) != strings.TrimSpace(anchor.ToIdentity) {
+				continue
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func atomicDiagramBodyOccurrence(
