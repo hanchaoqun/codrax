@@ -2470,6 +2470,105 @@ func TestFlowOperationNavigationPrefersCallSiteWithWholeValueContinuationAcrossL
 	}
 }
 
+func TestFlowOperationNavigationKeepsGroundedParticipantSourceBeforeBindingBudgetAcrossLanguages(t *testing.T) {
+	for _, language := range repotypes.SupportedReadLanguages() {
+		t.Run(language, func(t *testing.T) {
+			repo := t.TempDir()
+			files := make(map[string]*repotypes.FileInfo)
+			for i := 0; i < maxFlowOperationRepairFiles+1; i++ {
+				path := filepath.ToSlash(filepath.Join("src", language, fmt.Sprintf("a_noise_%02d.src", i)))
+				lines := make([]string, 20)
+				lines[9] = "ctx = busContext.Context()"
+				lines[10] = "done = ctx.Done()"
+				absolute := filepath.Join(repo, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(absolute, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				owner := fmt.Sprintf("Probe%d", i)
+				files[path] = &repotypes.FileInfo{
+					RelPath: path, Language: language, Package: "pipeline",
+					Symbols: []repotypes.Symbol{
+						{Name: "busContext", Kind: "field", Parent: owner, DeclaredType: "BusContext", Line: 1},
+						{Name: "probe", Kind: "method", Receiver: owner, Line: 1, EndLine: 20},
+					},
+					Relations: []repotypes.Relation{
+						{Kind: "call", File: path, Line: 10,
+							FromEP: repotypes.RelationEndpoint{Name: "probe", Receiver: owner, Line: 10},
+							ToEP:   repotypes.RelationEndpoint{Name: "Context", Receiver: "busContext", Line: 10}},
+						{Kind: "call", File: path, Line: 11,
+							FromEP: repotypes.RelationEndpoint{Name: "probe", Receiver: owner, Line: 11},
+							ToEP:   repotypes.RelationEndpoint{Name: "Done", Receiver: "ctx", Line: 11}},
+					},
+				}
+			}
+
+			dispatchPath := filepath.ToSlash(filepath.Join("src", language, "z_dispatch.src"))
+			dispatchLines := make([]string, 45)
+			dispatchLines[29] = "agentContext = builder.BuildAgentContext(busContext, agentName, stage)"
+			dispatchLines[30] = "output = agent.Execute(agentContext)"
+			dispatchLines[31] = "pipeline.Apply(output)"
+			absolute := filepath.Join(repo, filepath.FromSlash(dispatchPath))
+			if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(absolute, []byte(strings.Join(dispatchLines, "\n")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			files[dispatchPath] = &repotypes.FileInfo{
+				RelPath: dispatchPath, Language: language, Package: "pipeline",
+				Symbols: []repotypes.Symbol{
+					{Name: "busContext", Kind: "field", Parent: "Pipeline", DeclaredType: "BusContext", Line: 1},
+					{Name: "dispatch", Kind: "method", Receiver: "Pipeline", Line: 21, EndLine: 40},
+				},
+				Relations: []repotypes.Relation{
+					{Kind: "call", File: dispatchPath, Line: 30,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 30},
+						ToEP:   repotypes.RelationEndpoint{Name: "BuildAgentContext", Receiver: "builder", Line: 30}},
+					{Kind: "call", File: dispatchPath, Line: 31,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 31},
+						ToEP:   repotypes.RelationEndpoint{Name: "Execute", Receiver: "agent", Line: 31}},
+					{Kind: "call", File: dispatchPath, Line: 32,
+						FromEP: repotypes.RelationEndpoint{Name: "dispatch", Receiver: "Pipeline", Line: 32},
+						ToEP:   repotypes.RelationEndpoint{Name: "Apply", Receiver: "pipeline", Line: 32}},
+				},
+			}
+
+			ctx := flowOperationCompletionContext(nil)
+			ctx.RepoRoot = repo
+			ctx.AnalysisIR.RequestModel.AnalyzerHints.EntityProvenance = []types.EntityProvenance{
+				{Surface: "Extractor", ResolvedAs: "AgentExtractor", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+				{Surface: "BusContext", ResolvedAs: "BusContext", Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true},
+			}
+			ctx.AnalysisIR.RequestModel.DiagramHint = &types.DiagramHint{
+				Kind: types.DiagramFlow, Required: true,
+				Participants: []types.DiagramParticipantHint{
+					{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+					{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+				},
+			}
+			ctx.Mutable.SetSearchGraph(flowTestIndexedGraph(files))
+			ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+				Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
+				Producer: types.EvidenceProducerExplorerEmitEvidence,
+				Subject:  "Pipeline.busContext", Object: "*BusContext", AnchorSymbol: "busContext",
+				Source: dispatchPath, LineStart: 1, Scope: types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded,
+			}})
+
+			target, ok := flowOperationRepairReadTargetForMissing(ctx, []string{"BusContext"})
+			if !ok || target.file != dispatchPath || target.lineRange != (types.LineRange{Start: 18, End: 42}) {
+				t.Fatalf("%s grounded participant source must survive the six-file binding budget: ok=%t target=%+v", language, ok, target)
+			}
+			if len(ctx.Mutable.EmittedEvidence()) != 1 {
+				t.Fatal("adaptive navigation must not manufacture relation evidence")
+			}
+		})
+	}
+}
+
 func TestFlowOperationContinuationDepthSolvesOwnerDAGOnce(t *testing.T) {
 	repo := t.TempDir()
 	path := "src/pipeline.go"

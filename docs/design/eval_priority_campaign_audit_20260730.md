@@ -57479,6 +57479,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1422 r869/B1354：已落地参与者源必须重入软导航预算，不能被陈腐同名坐标锁死（2026-08-22）
+
+1. 从已推送 `0679841bb` 重建干净二进制，严格并发恰好 2 路复放逻辑图 read 与显式窗 Trace，runner 2/2 PASS：Trace 127s、read
+   223s。人工判定 Trace pass、read partial；逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r869_20260822_manual_audit.md`。B1353 本轮可签生产无回归：最终只有一个
+   `BusContext` subgraph，没有同 ID node/subgraph 冲突或第二个隐式 BusContext 节点，Mermaid 合法且成文零拒绝；但自然运行未触发
+   exact alias-repair 正臂，因此不把无冲突误记为完整生产转正。
+2. Trace 守护完整通过：精确 2.000000..2.020000s 用户窗、app-100 四态、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链及逐跳 CPU、11.000ms 链上 IO 第一席、三个独立不可加的
+   1.000ms runnable/优先级候选、实际占时/规则可消双账户、链外背景隔离、业务下钻和完整 `Trace 因果投影` 均在。四次 typed 查询均带目标/
+   窗约束，finalizer 零拒绝；活动流没有因固定 4ms、4m、累计年龄或上下文比例降级，系统没有替模型写根因、关系或修复结论。
+3. read 的三条阶段 precedence、各阶段责任与状态字段清单基本准确，但图没有连接 Mutable/BusContext 与四阶段，不能回答用户明确要求的数据流。
+   completion gate 正确识别 `source_operation_missing=[BusContext]`，却把修复坐标两次固定到
+   `internal/orchestrator/cgec_enforcers.go:767-791` 的 `forcedReadCancelled -> busCtx.Context()` 局部取消检查。模型明确判断该坐标无关，随后读取
+   `orchestrator.go` 并在 line 55 发出同一 BusContext 的可引用字段证据；导航仍返回旧 cgec 坐标。工具面此时仅剩按坐标读取/发证/完成，模型无法做
+   定向检索，最终连续三次无增量后 caveated force-complete。故该缺关系不是单纯模型波动，也不是证据门过严。
+4. 新确认并施工 `B1354-GROUNDEDSOURCEFRONTIER1/P1`。深层根因是声明 binding 在实际 operation quality 比较前先受六文件预算裁剪；常见
+   Context/State 类型可在大量参数、字段和辅助函数中出现，按旧 connection/external-call/文件字典序排序时，后来已经被模型精确落证的真实 owner 文件
+   仍可能永远进不了候选池。B1309 的 receiver-body frontier 只在 handoff 已经发证后生效，不能挽救“真实 handoff 文件先被预算裁掉”的前一跳。
+5. 根修增加一个窄而精确的自适应软信号：只有 `EvidenceItem.IsCitable()`、source path 字节归一后相同，且该 evidence 的 typed endpoints 对
+   still-missing participant identity 匹配时，才让该源的声明 binding 在预算截断前优先，并在最终 parser-owned operation 候选排序中保留同源优先级。
+   它只保证模型自己已经落证的参与者源不被陈腐同名坐标挤出；并不证明文件内另一操作、参数绑定、阶段关系或数据流。模型仍必须读取源码并通过
+   `emit_evidence` 发出 exact argument/initializer/call/return，原 participant/relation hard gate、unproven 出口和低增量止损均不放宽。
+6. 新全支持语言矩阵构造七个词典序靠前的同类型局部 `Context()/Done()` 文件，使真实 dispatch 文件超过六文件预算；只有真实 dispatch 文件携带
+   已落地 BusContext 证据，且其中 `BuildAgentContext(busContext, agentName, stage) -> Execute -> Apply` 具备完整值延续。回归要求所有支持语言都选中
+   dispatch 有界窗，而不是旧局部取消检查；同时钉住 evidence 数量不增长，证明系统未制造关系。既有 whole-value continuation、missing-carrier join
+   与语言矩阵保持通过。`go test ./internal/tool -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。下一步独立提交推送，再用同 read+Trace 严格 2 路生产复放验证自然恢复。
+
+状态：
+
+`r869=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1353=production-no-regression/exact-alias-positive-not-triggered`；
+`B1354=implemented/cross-language+full-suite+build-pass/pending-production-replay`；
+`completion-hard-gate=unchanged/fail-closed`；
+`adaptive-navigation=exact-citable-source+typed-participant-incidence/soft-only`；
+`system-evidence/relation/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r869`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r869`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、

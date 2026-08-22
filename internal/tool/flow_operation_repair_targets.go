@@ -828,7 +828,12 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		// touched by this one parser-owned operation coordinate. It ranks a
 		// real cross-participant receiver/caller site ahead of a ubiquitous
 		// context argument used by an unrelated helper.
-		participantTouchRank   int
+		participantTouchRank int
+		// groundedSourceRank keeps an exact source file which already carries
+		// citable evidence for the still-missing participant in the bounded
+		// candidate set. This is adaptive SOFT navigation only: the existing
+		// evidence does not authorize any un-emitted operation from that file.
+		groundedSourceRank     int
 		carrierOwnerBridgeRank int
 		// carrierValueRank distinguishes handing off the carrier itself from
 		// handing off one derived member. Both are useful navigation, but an
@@ -896,6 +901,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 			participantTouchRank: flowNavigationRequestedParticipantTouchRank(
 				relation, flowDeclaredBindingSite{}, site.ownerSurfaces, participantSurfaceGroups,
 			),
+			groundedSourceRank: flowNavigationGroundedParticipantSourceRank(
+				evidence, file, surfaces,
+			),
 			matchRank: matchRank,
 			kindRank:  flowOperationRepairRelationKindRank(relation.Kind),
 			line:      line,
@@ -921,7 +929,7 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	for _, group := range missingParticipantSurfaceGroups {
 		for _, binding := range flowNavigationDeclaredBindingSitesForRepair(
-			index, graph, rm, group, participantSurfaceGroups,
+			index, graph, rm, group, participantSurfaceGroups, evidence,
 		) {
 			key := strings.ToLower(binding.file + "\x00" + binding.alias + "\x00" + binding.owner)
 			if seenBindingSites[key] {
@@ -989,6 +997,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 					append(append(append([]string(nil), site.ownerSurfaces...), binding.owner), argumentSurfaces...),
 					participantSurfaceGroups,
 				),
+				groundedSourceRank: flowNavigationGroundedParticipantSourceRank(
+					evidence, site.file, surfaces,
+				),
 				carrierOwnerBridgeRank: site.carrierOwnerBridgeRank,
 				carrierValueRank:       flowNavigationCarrierArgumentValueRank(argumentSurfaces, binding.alias),
 				carrierRank:            1,
@@ -1023,6 +1034,9 @@ func flowOperationRepairReadTargetForMissing(ctx *types.BusContext, missing []st
 		}
 		if candidates[i].participantTouchRank != candidates[j].participantTouchRank {
 			return candidates[i].participantTouchRank > candidates[j].participantTouchRank
+		}
+		if candidates[i].groundedSourceRank != candidates[j].groundedSourceRank {
+			return candidates[i].groundedSourceRank > candidates[j].groundedSourceRank
 		}
 		if candidates[i].resultContinuationRank != candidates[j].resultContinuationRank {
 			return candidates[i].resultContinuationRank > candidates[j].resultContinuationRank
@@ -2900,20 +2914,27 @@ func flowNavigationDeclaredBindingSitesForRepair(
 	rm types.RequestModel,
 	currentSurfaces []string,
 	participantSurfaceGroups [][]string,
+	evidence []types.EvidenceItem,
 ) []flowDeclaredBindingSite {
 	all := flowRepairAllDeclaredBindingSites(index, rm, currentSurfaces)
 	if len(all) <= 1 {
 		return all
 	}
 	type rankedBinding struct {
-		site             flowDeclaredBindingSite
-		connectionRank   int
-		externalCallRank int
-		bridgeRank       int
+		site               flowDeclaredBindingSite
+		groundedSourceRank int
+		connectionRank     int
+		externalCallRank   int
+		bridgeRank         int
 	}
 	ranked := make([]rankedBinding, 0, len(all))
 	for _, binding := range all {
-		entry := rankedBinding{site: binding}
+		entry := rankedBinding{
+			site: binding,
+			groundedSourceRank: flowNavigationGroundedParticipantSourceRank(
+				evidence, binding.file, currentSurfaces,
+			),
+		}
 		bindingSymbol := repotypes.Symbol{Name: binding.alias, DeclaredType: binding.declaredType}
 		for _, relationSite := range flowNavigationBindingRelationSites(index, graph, binding) {
 			relation := relationSite.relation
@@ -2944,6 +2965,9 @@ func flowNavigationDeclaredBindingSitesForRepair(
 		if ranked[i].connectionRank != ranked[j].connectionRank {
 			return ranked[i].connectionRank > ranked[j].connectionRank
 		}
+		if ranked[i].groundedSourceRank != ranked[j].groundedSourceRank {
+			return ranked[i].groundedSourceRank > ranked[j].groundedSourceRank
+		}
 		if ranked[i].externalCallRank != ranked[j].externalCallRank {
 			return ranked[i].externalCallRank > ranked[j].externalCallRank
 		}
@@ -2960,6 +2984,32 @@ func flowNavigationDeclaredBindingSitesForRepair(
 		ordered = append(ordered, entry.site)
 	}
 	return flowRepairBoundDeclaredBindingSites(ordered)
+}
+
+// flowNavigationGroundedParticipantSourceRank is a precise adaptive signal for
+// the SOFT source navigator. A model-authored citable row must already come
+// from the exact file and carry one of the typed still-missing participant
+// surfaces. The rank only prevents that source from being discarded by a
+// lexical file budget; it neither validates another operation in the file nor
+// creates relation, diagram, or answer authority.
+func flowNavigationGroundedParticipantSourceRank(
+	evidence []types.EvidenceItem,
+	file string,
+	participantSurfaces []string,
+) int {
+	file = canonicalRelationSourcePath(file)
+	if file == "" || len(participantSurfaces) == 0 {
+		return 0
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || canonicalRelationSourcePath(item.Source) != file {
+			continue
+		}
+		if flowRepairItemMatchesAnySurface(item, participantSurfaces) {
+			return 1
+		}
+	}
+	return 0
 }
 
 func flowRepairSymbolMatchesAnySurface(symbol repotypes.Symbol, surfaces []string) bool {
