@@ -4507,13 +4507,13 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	if answerDocMechanismHasCompleteRequestSpine(ctx) {
 		return ""
 	}
-	// Prefer the validator-aligned typed carrier when one exists. The legacy
+	// Prefer the validator-aligned typed topology carrier when one exists. The legacy
 	// seed renderer publishes only Mermaid display labels; for a canonicalized
 	// call graph those labels can intentionally be more qualified than the
 	// underlying call-site endpoint (for example agent.buildAnalysisIR vs
 	// buildAnalysisIR). Asking the model to copy that body without the sibling
 	// from_identity/to_identity selectors teaches a draft that the strict
-	// relation gate must later reject. The copy-ready carrier is compiled from
+	// relation gate must later reject. The typed topology carrier is compiled from
 	// the same typed relation projection as validation and keeps its Mermaid
 	// node IDs, arrows, and edge_anchors together. This changes prompt evidence
 	// only: the model still authors visible wording and the answer conclusion.
@@ -4562,7 +4562,7 @@ func renderAnswerDocFirstPassDiagramSkeleton(ctx *types.AgentContext) string {
 	b.WriteString("- You MAY add branches / fan-out / multi-source / multi-sink shapes; the linear chain in the reference is just the safest default skeleton, not a structural requirement.\n")
 	b.WriteString("- Preserve an edge from the reference only when it is actually present there. A node-only reference deliberately asserts no relationship: never connect nodes merely because they are listed next to each other or appear in collection order.\n")
 	if validatorAligned {
-		b.WriteString("- This reference includes its validator-aligned `edge_anchors_json`. If you retain an edge, keep that edge's node IDs, direction, and matching anchor object together; visible labels and messages remain yours to express in concise domain language. Do not substitute the display label for `from_identity` / `to_identity`.\n")
+		b.WriteString("- This reference includes validator-aligned topology and `edge_anchors_json` identity fields, but it is intentionally NOT an acceptance-ready answer: directed template edges carry the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION` and anchors have no `visible_label`. If you retain an edge, keep its node IDs, direction, and matching anchor object together, then replace the placeholder with one concise domain/business action and copy that exact wording into both the Mermaid edge/message and the anchor `visible_label`. Do not emit the template unchanged or substitute the display label for `from_identity` / `to_identity`.\n")
 	}
 	b.WriteString("- HARD RULE: every node label must remain grounded in citations[] or Log Triage frames. Renaming an existing node, abstracting it, or inventing a node without grounded backing is rejected by the diagram-grounding gate.\n\n")
 	b.WriteString(reference)
@@ -8662,7 +8662,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		}
 		if dc := answerDocDiagramContract(ctx); dc != nil {
 			if boundaries, _ := answerDocDiagramUnprovenParticipantBoundaries(ctx, dc); len(boundaries) > 0 {
-				// The copy-ready body and edge anchors used to be followed by a
+				// The typed topology body and edge anchors used to be followed by a
 				// separate participant-boundary recipe. A model could correctly
 				// copy the first carrier and miss the second, then be rejected by
 				// the participant gate even though both values came from the same
@@ -8680,7 +8680,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 					ParticipantBoundaries: boundaries,
 				})
 				if err == nil {
-					fmt.Fprintf(&b, "- diagram_block_sibling_fields_json=`%s`; this single object is the complete block-level metadata carrier for the copy-ready diagram. Copy both arrays together into the same model-authored diagram block; do not reconstruct or selectively omit one array. The boundary rows constrain only the still-unproved requested relation, while independently proved local arrows remain unchanged. Do not display this JSON, boundary status, or validator vocabulary in reader-facing prose.\n", payload)
+					fmt.Fprintf(&b, "- diagram_block_sibling_fields_json=`%s`; this single object is the complete block-level typed metadata carrier for the topology template. Copy both arrays together into the same model-authored diagram block; do not reconstruct or selectively omit one array. Replace every `AUTHOR_BUSINESS_ACTION` placeholder with your business/domain message and copy it into the matching anchor visible_label. The boundary rows constrain only the still-unproved requested relation, while independently proved local arrows remain unchanged. Do not display this JSON, boundary status, or validator vocabulary in reader-facing prose.\n", payload)
 				}
 			}
 		}
@@ -9097,7 +9097,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 				i+1, row.from, row.to, answerDocCallChainInline(row.handoff.callTarget), answerDocCallChainInline(row.handoff.registeredCallable))
 		}
 	} else {
-		b.WriteString("- A validator-compatible evidence skeleton and anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; flow-family diagrams may keep reviewed unary facts as standalone unanchored fact nodes. Neither carrier is an edge or can satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, annotation carriers, and anchor array; replace only visible node/message/annotation wording with model-authored business/domain language. Do not compose a different story graph.\n")
+		b.WriteString("- A validator-aligned typed topology template and identity anchor array follow from the diagram-expressible, unambiguous subset of the typed recipe set. This is authoring input, not an acceptance-ready answer: every directed arrow carries the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION`, and its anchor omits `visible_label`. Sequence diagrams keep non-message typed facts as unanchored Notes when possible; flow-family diagrams may keep reviewed unary facts as standalone unanchored fact nodes. Neither carrier is an edge or can satisfy call/callback authority. Relations that the selected family cannot carry remain valid sibling facts in the full capsule above. If you include the optional diagram, preserve its node IDs, exact edge topology, annotation carriers, and anchor identity fields; replace each placeholder with one concise business/domain action and copy it byte-identically into both the Mermaid message and matching anchor `visible_label`. Do not emit the template unchanged or compose a different story graph.\n")
 		for i, row := range unaryRows {
 			fmt.Fprintf(b, "- unary_note_recipe[%d]=`%s`; participant=`%s`; relation_kind=`%s`; detail=`%s`",
 				i+1, row.participant, row.annotation.participant, row.annotation.relation, row.annotation.detail)
@@ -9249,7 +9249,7 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 	if len(fragments) == 0 {
 		return
 	}
-	b.WriteString("- Copy-ready verified component fragments follow. Each fence and its sibling anchor array are one self-consistent local carrier: copy node IDs, arrows, and anchors together, then replace only visible labels/messages with business wording. ")
+	b.WriteString("- Typed topology component templates follow. Each fence and its sibling anchor array are one self-consistent local topology carrier: copy node IDs, arrows, and anchors together, then replace every `AUTHOR_BUSINESS_ACTION` placeholder with a business/domain label in both the Mermaid message and matching anchor `visible_label`. Anchor arrays intentionally omit `visible_label`; do not emit a template unchanged. ")
 	if len(semanticHandoffs) == 0 {
 		b.WriteString("Fragments are mutually unordered and disconnected; selecting several never authorizes an inter-fragment edge or a complete-flow conclusion.\n")
 	} else {
@@ -9264,7 +9264,7 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 				fmt.Fprintf(b, "  participant %s as %s\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
 			}
 			for _, recipe := range part.recipes {
-				fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
+				fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, answerDocMechanismVisibleActionPlaceholder)
 			}
 			for _, recipe := range part.annotations {
 				fmt.Fprintf(b, "  Note over %s,%s: %s\n", recipe.from, recipe.to,
@@ -9276,7 +9276,7 @@ func renderAnswerDocMechanismCopyReadyComponentFragments(
 				fmt.Fprintf(b, "  %s[\"%s\"]\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
 			}
 			for _, recipe := range part.recipes {
-				fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, recipe.edge.relation, recipe.to)
+				fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, answerDocMechanismVisibleActionPlaceholder, recipe.to)
 			}
 		}
 		b.WriteString("```\n")
@@ -9834,6 +9834,9 @@ func answerDocMechanismRelationComponents(
 	return components
 }
 
+const answerDocMechanismTypedTopologyTemplateHeading = "#### Typed topology authoring template"
+const answerDocMechanismVisibleActionPlaceholder = "AUTHOR_BUSINESS_ACTION"
+
 func renderAnswerDocMechanismCopyReadyDiagram(
 	b *strings.Builder,
 	aliases []answerDocMechanismAliasRow,
@@ -9916,12 +9919,12 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 		return
 	}
 
-	b.WriteString("\n#### Copy-ready optional typed diagram\n\n")
-	b.WriteString("- This optional evidence skeleton contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Visible labels, messages, Notes, and fact-node text are placeholders: replace them with concise model-authored business/domain wording. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. ")
+	b.WriteString("\n" + answerDocMechanismTypedTopologyTemplateHeading + "\n\n")
+	b.WriteString("- This optional evidence template contains only relation kinds that the selected Mermaid family can represent without changing their typed meaning, and only one unambiguous relation per endpoint pair. Keep its node IDs, edge direction/topology, unanchored annotation carriers, and complete `edge_anchors_json` together, or omit the diagram. `from_identity` / `to_identity` are typed endpoint selectors, not visible copy and not relation evidence. Every directed template edge carries the literal syntax-safe placeholder `AUTHOR_BUSINESS_ACTION`, while every matching anchor intentionally omits `visible_label`: before emitting an answer, replace each placeholder with one concise business/domain action and copy that exact wording into both the Mermaid edge/message and its anchor `visible_label`. Do not emit this template unchanged. Notes and fact-node text are also authoring placeholders. Do not expose relation enums, exact endpoint selectors, or source locations as primary visible text. Non-edge annotations preserve already-typed facts but are not arrows and MUST NOT receive `edge_anchors` rows. ")
 	if len(semanticHandoffs) == 0 {
 		b.WriteString("Keep disconnected components disconnected; do not invent story/actor bridges.\n")
 	} else {
-		b.WriteString("An exact registered-export handoff may appear as the supplied visibly labelled relation_kind=register edge between its named aliases. It is not a call, callback, value-flow, return, or execution-order claim. Keep every other disconnected component pair disconnected and do not invent story/actor bridges.\n")
+		b.WriteString("An exact registered-export handoff may appear as a typed-topology edge carrying the same `AUTHOR_BUSINESS_ACTION` placeholder. Before emitting it, replace that placeholder with a concise business/domain binding action and copy that wording into both the Mermaid message and the matching relation_kind=register anchor `visible_label`. It is not a call, callback, value-flow, return, or execution-order claim. Keep every other disconnected component pair disconnected and do not invent story/actor bridges.\n")
 	}
 	if kind == types.DiagramSequence && sequenceOrderGrounded {
 		b.WriteString("- Sequence display order is normalized only from the typed graph: zero-indegree entrypoints come first, then same-caller call sites use grounded source-line order. This improves reading order but does not prove that every branch executes, that siblings are concurrent, or that a static cycle has runtime order.\n")
@@ -9963,7 +9966,7 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 			fmt.Fprintf(b, "  participant %s as %s\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
 		}
 		for _, recipe := range diagramRecipes {
-			fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, recipe.edge.relation)
+			fmt.Fprintf(b, "  %s->>%s: %s\n", recipe.from, recipe.to, answerDocMechanismVisibleActionPlaceholder)
 		}
 		for _, recipe := range annotationRecipes {
 			fmt.Fprintf(b, "  Note over %s,%s: %s\n", recipe.from, recipe.to,
@@ -9974,8 +9977,7 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 				answerDocMechanismUnarySequenceNotePlaceholder(row.annotation))
 		}
 		for _, row := range semanticHandoffs {
-			fmt.Fprintf(b, "  %s->>%s: Export binding is verified; describe the binding in business language, not as a call\n",
-				row.from, row.to)
+			fmt.Fprintf(b, "  %s->>%s: %s\n", row.from, row.to, answerDocMechanismVisibleActionPlaceholder)
 		}
 	} else {
 		b.WriteString("flowchart TD\n")
@@ -9986,10 +9988,10 @@ func renderAnswerDocMechanismCopyReadyDiagram(
 			fmt.Fprintf(b, "  %s[\"%s\"]\n", row.alias, answerDocMechanismMermaidLabel(row.identity))
 		}
 		for _, recipe := range diagramRecipes {
-			fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, recipe.edge.relation, recipe.to)
+			fmt.Fprintf(b, "  %s -->|%s| %s\n", recipe.from, answerDocMechanismVisibleActionPlaceholder, recipe.to)
 		}
 		for _, row := range semanticHandoffs {
-			fmt.Fprintf(b, "  %s -->|verified binding; use business wording| %s\n", row.from, row.to)
+			fmt.Fprintf(b, "  %s -->|%s| %s\n", row.from, answerDocMechanismVisibleActionPlaceholder, row.to)
 		}
 		for i, row := range visualUnaryAnnotations {
 			fmt.Fprintf(b, "  u%d[\"%s\"]\n", i+1,
@@ -17736,11 +17738,11 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. "
 	switch {
 	case copyReadyPayload != "":
-		hint += "A copy-ready optional typed diagram skeleton is available below. When it carries useful verified relationship structure, prefer replacing only the rejected diagram with the skeleton's exact node IDs, edge topology, unanchored annotations, and complete `edge_anchors_json`; this preserves grounded structure with less reconstruction. Do not compose a third graph. "
+		hint += "A typed topology authoring template is available below. It is not acceptance-ready because its directed arrows carry the literal placeholder `AUTHOR_BUSINESS_ACTION` and its anchors omit `visible_label`. When it carries useful verified relationship structure, prefer replacing only the rejected diagram with the template's exact node IDs, edge topology, unanchored annotations, and complete identity fields in `edge_anchors_json`; then replace each placeholder with one business/domain action and copy it into both the Mermaid message and anchor `visible_label`. Do not emit the template unchanged or compose a third graph. "
 	case boundaryPayload != "":
 		hint += "A whole-diagram skeleton is intentionally unavailable because the existing typed relations do not prove one complete source-flow story. A bounded exact relation boundary is repeated below instead. Prefer repairing the diagram to a faithful subset of those recipes: keep each chosen recipe's node aliases, direction, relation kind, and `edge_anchor_json` together, use a recipe at most once, and keep separate components disconnected. Do not join the recipes into a longer path or compose a third story graph. "
 	default:
-		hint += "No copy-ready typed relation carrier is available. Keep only visible edges already supported by the accepted typed evidence, or remove the optional diagram; do not reconstruct a new story graph. "
+		hint += "No typed topology template is available. Keep only visible edges already supported by the accepted typed evidence, or remove the optional diagram; do not reconstruct a new story graph. "
 	}
 	hint += "The diagram remains optional: remove it with `remove_block_ids` only when you judge that the available verified relation carrier adds no useful relationship structure beyond the grounded textual answer. This is authoring guidance, not a requirement to keep a diagram. " +
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
@@ -17767,10 +17769,10 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	}
 	return prefix + " only because the REQUIRED diagram still contains invocation edges outside the existing typed call-edge authority. " +
 		action + "; put the rejected diagram block in `replace_blocks`, list every retained sibling block in `unchanged_block_ids`, and preserve the inherited `citations[]` pool. Do not add or delete blocks in this repair. " +
-		"Do not remove the required diagram, rename endpoints, reopen files, or reconstruct a different graph/JSON shape. Preserve the following evidence skeleton's exact node IDs, edge topology, and complete `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator:\n\n" +
+		"Do not remove the required diagram, rename endpoints, reopen files, or reconstruct a different graph/JSON shape. Preserve the following typed topology template's exact node IDs, edge topology, and complete identity fields in `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator. The template is intentionally not acceptance-ready: replace every literal `AUTHOR_BUSINESS_ACTION` placeholder with one concise business/domain action and copy it byte-identically into the Mermaid message and matching anchor `visible_label`; do not emit the template unchanged:\n\n" +
 		payload + "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
 		answerDocDiagramBusinessDisplayRepairGuidance() +
-		" The system supplies only the verified diagram carrier and does not rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
+		" The system supplies only verified topology/identity input and does not write a visible label or rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
 }
 
 type answerDocDiagramParticipantRepairDelta struct {
@@ -18314,12 +18316,11 @@ func answerDocDiagramBusinessDisplayRepairGuidance() string {
 // capsule out of the model's working focus.
 func answerDocMechanismCopyReadyRepairPayload(ctx *types.AgentContext) string {
 	authority := renderAnswerDocMechanismRelationAuthority(ctx)
-	const heading = "#### Copy-ready optional typed diagram"
-	start := strings.Index(authority, heading)
+	start := strings.Index(authority, answerDocMechanismTypedTopologyTemplateHeading)
 	if start < 0 {
 		return ""
 	}
-	section := authority[start+len(heading):]
+	section := authority[start+len(answerDocMechanismTypedTopologyTemplateHeading):]
 	fenceStart := strings.Index(section, "```mermaid\n")
 	if fenceStart < 0 {
 		return ""

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -66,7 +67,7 @@ func TestMechanismRelationAuthorityUsesExactProviderBeforeDiagramRepair(t *testi
 	hint := answerDocOptionalDiagramCallEdgePatchHint(ctx, false)
 	if !strings.Contains(hint, "bounded exact relation boundary") ||
 		!strings.Contains(hint, "edge_recipe[1]=`n1 -> n2`; relation_kind=`type_relation`") ||
-		strings.Contains(hint, "No copy-ready typed relation carrier is available") {
+		strings.Contains(hint, "No typed topology template is available") {
 		t.Fatalf("optional repair must repeat the exact typed direction instead of steering diagram deletion:\n%s", hint)
 	}
 }
@@ -196,7 +197,7 @@ func TestMechanismRelationAuthorityTypedFlowDoesNotOfferArbitraryWholeDiagram(t 
 		!strings.Contains(got, "Do not retarget the relation to an abstract component node") {
 		t.Fatalf("typed component relation guidance must preserve exact endpoint and presentation layers:\n%s", got)
 	}
-	if strings.Contains(got, "Copy-ready optional typed diagram") || strings.Contains(got, "edge_anchors_json=") {
+	if strings.Contains(got, "Typed topology authoring template") || strings.Contains(got, "edge_anchors_json=") {
 		t.Fatalf("typed flow must not receive an arbitrary whole-diagram replacement capsule:\n%s", got)
 	}
 }
@@ -237,13 +238,13 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 		"ordered_path_authority=`typed_flow_paths_present`",
 		"verified_relation_component_count=1",
 		"inter_component_bridge_status=`not_applicable_single_component`",
-		"preserve its node IDs, exact edge topology, annotation carriers, and anchor array",
-		"replace only visible node/message/annotation wording with model-authored business/domain language",
-		"#### Copy-ready optional typed diagram",
+		"preserve its node IDs, exact edge topology, annotation carriers, and anchor identity fields",
+		"replace each placeholder with one concise business/domain action",
+		"#### Typed topology authoring template",
 		"sequenceDiagram",
 		"participant n1 as convertTrace",
 		"participant n2 as parseTraceMark",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"convertTrace\",\"to_identity\":\"parseTraceMark\",\"relation_kind\":\"call\"}]`",
 		"typed_flow_path[1]=`readEvent -> parseTraceMark -> classifySpan`",
 	} {
@@ -253,6 +254,9 @@ func TestMechanismRelationAuthorityPublishesOnlyTypedEdgesAndFlowPathsAA3(t *tes
 	}
 	if strings.Contains(got, "copy both unchanged") {
 		t.Fatalf("evidence skeleton must not contradict the business display layer by freezing visible metadata labels:\n%s", got)
+	}
+	if strings.Contains(got, "n1->>n2: call") || strings.Contains(got, `"visible_label":"call"`) {
+		t.Fatalf("typed relation enum must not be emitted as a reader-visible action:\n%s", got)
 	}
 	if strings.Contains(got, "`A -> B`") {
 		t.Fatalf("unsupported flow finding must not receive path authority:\n%s", got)
@@ -772,8 +776,8 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 		`n2["Parser.parse"]`,
 		`n3["Registry"]`,
 		`n4["Plugin"]`,
-		"n1 -->|call| n2",
-		"n3 -->|register| n4",
+		"n1 -->|AUTHOR_BUSINESS_ACTION| n2",
+		"n3 -->|AUTHOR_BUSINESS_ACTION| n4",
 		"verified_relation_component_count=2",
 		"inter_component_bridge_status=`unproven_between_components`",
 		"verified_component[1]=`n1:Factory<\"json\"> | n2:Parser.parse`",
@@ -796,9 +800,20 @@ func TestMechanismRelationCopyReadyFlowPreservesDisconnectedTypedComponentsAA3(t
 			t.Fatalf("copy-ready flow missing %q:\n%s", want, got)
 		}
 	}
-	for _, bridge := range []string{"n2 --> n3", "n2 -->|call| n3", "n2 -->|register| n3"} {
+	for _, bridge := range []string{"n2 --> n3", "n2 -->|call| n3", "n2 -->|register| n3", "n2 -->|AUTHOR_BUSINESS_ACTION| n3"} {
 		if strings.Contains(got, bridge) {
 			t.Fatalf("copy-ready flow invented a bridge %q:\n%s", bridge, got)
+		}
+	}
+	for _, rawLabel := range []string{"-->|call|", "-->|register|", `"visible_label":"call"`, `"visible_label":"register"`} {
+		if strings.Contains(got, rawLabel) {
+			t.Fatalf("typed relation enum leaked into a visible flow label %q:\n%s", rawLabel, got)
+		}
+	}
+	_, diags := render.TryRenderMermaidBlocks(got)
+	for _, diag := range diags {
+		if diag.Outcome == render.OutcomeLibraryRejected {
+			t.Fatalf("typed topology flow template must be renderable before model wording replacement: %+v\n%s", diag, got)
 		}
 	}
 }
@@ -1077,12 +1092,22 @@ func TestRegisteredExportHandoffMapsToVisibleSequenceBindingEndpointsAA3(t *test
 		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
 	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence, types.DiagramSequence)
 	for _, want := range []string{
-		"n2->>n3: Export binding is verified; describe the binding in business language, not as a call",
+		"n2->>n3: AUTHOR_BUSINESS_ACTION",
+		"replace that placeholder with a concise business/domain binding action",
 		`edge_anchors_json=`,
 		`{"from_node":"n2","to_node":"n3","from_identity":"_fastlex.tokenize_bytes","to_identity":"py::tokenize_bytes","relation_kind":"register"}`,
 	} {
 		if !strings.Contains(rendered.String(), want) {
 			t.Fatalf("copy-ready sequence lost exact non-call export handoff %q:\n%s", want, rendered.String())
+		}
+	}
+	for _, forbidden := range []string{
+		"n2->>n3: register",
+		"n2->>n3: Export binding is verified",
+		`"visible_label":"register"`,
+	} {
+		if strings.Contains(rendered.String(), forbidden) {
+			t.Fatalf("typed registration metadata leaked as visible template wording %q:\n%s", forbidden, rendered.String())
 		}
 	}
 
@@ -1256,7 +1281,7 @@ func TestDisconnectedCallChainConcreteDiagramContractWithholdsWholeSkeletonAcros
 			for _, want := range []string{
 				"verified_relation_component_count=2",
 				"inter_component_bridge_status=`unproven_between_components`",
-				"Copy-ready verified component fragments follow",
+				"Typed topology component templates follow",
 				"Verified component fragment 1 (not a complete flow)",
 				"Verified component fragment 2 (not a complete flow)",
 			} {
@@ -1264,7 +1289,7 @@ func TestDisconnectedCallChainConcreteDiagramContractWithholdsWholeSkeletonAcros
 					t.Fatalf("disconnected %s call-chain boundary missing %q:\n%s", tt.name, want, got)
 				}
 			}
-			if strings.Contains(got, "#### Copy-ready optional typed diagram") ||
+			if strings.Contains(got, "#### Typed topology authoring template") ||
 				strings.Contains(got, "- edge_anchors_json=`") {
 				t.Fatalf("disconnected %s call chain must not receive a whole copy-ready skeleton:\n%s", tt.name, got)
 			}
@@ -1288,9 +1313,9 @@ func TestConnectedCallChainConcreteDiagramContractKeepsWholeSkeletonAA3(t *testi
 
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
 	for _, want := range []string{
-		"#### Copy-ready optional typed diagram",
-		"n1->>n2: call",
-		"n2->>n3: call",
+		"#### Typed topology authoring template",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
+		"n2->>n3: AUTHOR_BUSINESS_ACTION",
 		"- edge_anchors_json=`",
 	} {
 		if !strings.Contains(got, want) {
@@ -1318,13 +1343,13 @@ func TestDisconnectedCallChainOptionalRepairUsesBoundaryInsteadOfWholeSkeletonAA
 		"whole-diagram skeleton is intentionally unavailable",
 		"bounded exact relation boundary",
 		"keep separate components disconnected",
-		"Copy-ready verified component fragments follow",
+		"Typed topology component templates follow",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("disconnected call-chain repair lost boundary guidance %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "copy-ready optional typed diagram skeleton is available") ||
+	if strings.Contains(got, "typed topology authoring template is available") ||
 		strings.Contains(got, "- edge_anchors_json=`") {
 		t.Fatalf("disconnected call-chain repair exposed a whole skeleton:\n%s", got)
 	}
@@ -1431,11 +1456,11 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
 	for _, want := range []string{
-		"#### Copy-ready optional typed diagram",
+		"#### Typed topology authoring template",
 		"sequenceDiagram",
 		"participant n1 as Caller",
 		"participant n2 as Callee",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		"edge_anchors_json=`[{\"from_node\":\"n1\",\"to_node\":\"n2\",\"from_identity\":\"Caller\",\"to_identity\":\"Callee\",\"relation_kind\":\"call\"}]`",
 	} {
 		if !strings.Contains(got, want) {
@@ -1444,6 +1469,12 @@ func TestMechanismRelationCopyReadyDiagramFollowsSequenceContractAA3(t *testing.
 	}
 	if strings.Contains(got, "flowchart TD") {
 		t.Fatalf("sequence contract must not receive a competing flowchart example:\n%s", got)
+	}
+	_, diags := render.TryRenderMermaidBlocks(got)
+	for _, diag := range diags {
+		if diag.Outcome == render.OutcomeLibraryRejected {
+			t.Fatalf("typed topology sequence template must be renderable before model wording replacement: %+v\n%s", diag, got)
+		}
 	}
 	if strings.Contains(got, "edge_recipe[1]") || strings.Contains(got, "node_alias[n1]") {
 		t.Fatalf("copy-ready diagram intent must not receive duplicate per-edge JSON teaching:\n%s", got)
@@ -1481,7 +1512,7 @@ func TestMechanismRelationOptionalSequenceWithNonLinearCallTopologyPublishesReci
 		}
 	}
 	for _, forbidden := range []string{
-		"#### Copy-ready optional typed diagram",
+		"#### Typed topology authoring template",
 		"#### Verified component fragment",
 		"sequenceDiagram",
 		"edge_anchors_json=",
@@ -1534,8 +1565,8 @@ func TestMechanismRelationCopyReadyDiagramSharesQualifiedCallableIdentityAA3(t *
 		"participant n1 as run",
 		"participant n2 as walker::collect_files",
 		"participant n3 as walk",
-		"n1->>n2: call",
-		"n2->>n3: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
+		"n2->>n3: AUTHOR_BUSINESS_ACTION",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("shared qualified callable identity missing %q:\n%s", want, got)
@@ -1776,7 +1807,7 @@ func TestMechanismCopyReadySequenceUsesGroundedRootFirstDisplayOrderAA3(t *testi
 	}
 
 	got := renderAnswerDocMechanismRelationAuthority(ctx)
-	copyReadyAt := strings.Index(got, "#### Copy-ready optional typed diagram")
+	copyReadyAt := strings.Index(got, "#### Typed topology authoring template")
 	if copyReadyAt < 0 {
 		t.Fatalf("copy-ready sequence missing:\n%s", got)
 	}
@@ -1788,11 +1819,11 @@ func TestMechanismCopyReadySequenceUsesGroundedRootFirstDisplayOrderAA3(t *testi
 		`participant n4 as VisitRepository.countOpenVisits`,
 		`participant n1 as VisitRepository.insert`,
 		`participant n2 as AuditLog.record`,
-		`n6->>n3: call`,
-		`n3->>n5: call`,
-		`n3->>n4: call`,
-		`n3->>n1: call`,
-		`n1->>n2: call`,
+		`n6->>n3: AUTHOR_BUSINESS_ACTION`,
+		`n3->>n5: AUTHOR_BUSINESS_ACTION`,
+		`n3->>n4: AUTHOR_BUSINESS_ACTION`,
+		`n3->>n1: AUTHOR_BUSINESS_ACTION`,
+		`n1->>n2: AUTHOR_BUSINESS_ACTION`,
 	}
 	last := -1
 	for _, want := range wantOrder {
@@ -1834,7 +1865,7 @@ func TestMechanismRelationCopyReadySequencePreservesNonMessageRelationsAsNotesAA
 	for _, want := range []string{
 		"participant n1 as Logger.log",
 		"participant n2 as Sink.write",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		"participant n3 as SinkRegistry::create",
 		"participant n4 as ConsoleSink",
 		"Note over n3,n4: Runtime binding is verified; describe the selected implementation",
@@ -1899,7 +1930,7 @@ func TestMechanismRelationCopyReadySequencePreservesUnaryGuardAsOneParticipantNo
 			t.Fatalf("unary guard visual subset missing %q:\n%s", want, got)
 		}
 	}
-	copyReady := got[strings.Index(got, "#### Copy-ready optional typed diagram"):]
+	copyReady := got[strings.Index(got, "#### Typed topology authoring template"):]
 	for _, forbidden := range []string{
 		"n2->>n2",
 		`"relation_kind":"guard"`,
@@ -1961,7 +1992,7 @@ func TestMechanismRelationCopyReadyFlowPreservesUnaryGuardAsStandaloneFactNodeAA
 			t.Fatalf("flow-family unary fact node missing %q:\n%s", want, got)
 		}
 	}
-	copyReady := got[strings.Index(got, "#### Copy-ready optional typed diagram"):]
+	copyReady := got[strings.Index(got, "#### Typed topology authoring template"):]
 	for _, forbidden := range []string{"n2 --> u1", "u1 --> n2", `"relation_kind":"guard"`} {
 		if strings.Contains(copyReady, forbidden) {
 			t.Fatalf("flow-family unary guard minted an edge %q:\n%s", forbidden, got)
@@ -1998,7 +2029,7 @@ func TestMechanismRelationCopyReadyReceiptSeparatesRenderedAndOmittedKindsAA3(t 
 	if !strings.Contains(got, "visual_omitted_relation_kinds=`return`") {
 		t.Fatalf("call_dag must disclose its actually omitted return relation:\n%s", got)
 	}
-	copyReady := got[strings.Index(got, "#### Copy-ready optional typed diagram"):]
+	copyReady := got[strings.Index(got, "#### Typed topology authoring template"):]
 	if strings.Contains(copyReady, "visual_annotation_relation_count=0") ||
 		strings.Contains(copyReady, "return`; these are preserved") {
 		t.Fatalf("omitted return must not be described as a rendered annotation:\n%s", got)
@@ -2057,7 +2088,7 @@ func TestMechanismRelationAuthorityDoesNotSuggestDiagramWithoutTypedPresentation
 	if !strings.Contains(got, "edge_recipe[1]") {
 		t.Fatalf("typed relation recipe must remain available:\n%s", got)
 	}
-	if strings.Contains(got, "Copy-ready optional typed diagram") || strings.Contains(got, "```mermaid") {
+	if strings.Contains(got, "Typed topology authoring template") || strings.Contains(got, "```mermaid") {
 		t.Fatalf("a prose-only presentation must not be tempted into an unnecessary graph:\n%s", got)
 	}
 }

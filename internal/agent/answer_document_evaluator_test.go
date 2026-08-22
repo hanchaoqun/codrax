@@ -2537,7 +2537,8 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 
 	got := renderAnswerDocFirstPassDiagramSkeleton(ctx)
 	for _, want := range []string{
-		"validator-aligned `edge_anchors_json`",
+		"validator-aligned topology and `edge_anchors_json` identity fields",
+		"AUTHOR_BUSINESS_ACTION",
 		"participant n1 as agent.buildAnalysisIR",
 		`"from_identity":"buildAnalysisIR"`,
 		`"to_identity":"gate.RunWith"`,
@@ -2550,6 +2551,17 @@ func TestRenderAnswerDocFirstPassDiagramSkeleton_ReusesValidatorAlignedTypedCarr
 	}
 	if strings.Contains(got, `participant p0 as "agent.buildAnalysisIR"`) {
 		t.Fatalf("first-pass reference must not publish the legacy body-only carrier beside the typed carrier:\n%s", got)
+	}
+	for _, raw := range []string{": call", `"visible_label":"call"`} {
+		if strings.Contains(got, raw) {
+			t.Fatalf("first-pass template leaked typed relation metadata as visible wording %q:\n%s", raw, got)
+		}
+	}
+	_, diags := render.TryRenderMermaidBlocks(got)
+	for _, diag := range diags {
+		if diag.Outcome == render.OutcomeLibraryRejected {
+			t.Fatalf("first-pass typed topology template must be renderable before model wording replacement: %+v\n%s", diag, got)
+		}
 	}
 	repairCarrier := answerDocMechanismCopyReadyRepairPayload(ctx)
 	if repairCarrier == "" || !strings.Contains(got, repairCarrier) {

@@ -57852,6 +57852,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r841`。
 
+### §123.1375 B1327：关系教学模板只给 typed 拓扑/身份，可见业务动作由模型填写（2026-08-22）
+
+1. `B1327-INVALIDCOPYREADYDIAGRAMLABEL1/P1` 已施工。机制图生产器不再把 `call`、`register` 等
+   `relation_kind` 原始枚举写进 Mermaid 可见消息，也不再把尚缺 reader label 的载体称为 copy-ready/acceptance-ready。主模板、首次成文教学、
+   required/optional patch 提示和断连 component fragment 共用同一合同，因而覆盖 sequence、flow、call_dag、architecture 及所有语言/关系类型，
+   不是对 TypeScript 或 `call` 单点拟合。
+2. 系统仍只提供 typed authority 已证明的 node ID、端点方向、拓扑与 `from_identity/to_identity/relation_kind`；每条模板边使用统一、
+   Mermaid 语法合法但明确非成品的 `AUTHOR_BUSINESS_ACTION` 占位消息，匹配 anchor 故意不铸 `visible_label`。模型若决定采用该边，必须自行用
+   业务/领域动作替换占位消息，并把同一文字写入 anchor `visible_label`；系统不翻译关系枚举、不选业务动作、不改写模型正文/结论，也不决定
+   保留、删除、增加或重排哪条关系。
+3. 施工中额外否证了“直接输出无标签箭头”的初版方案：flowchart 无标签边可解析，但当前 sequence Mermaid 合同要求冒号消息，`A->>B`
+   会使系统教学本身成为非法语法。最终采用语法安全占位消息，并新增真实 `render.TryRenderMermaidBlocks` 验收，分别钉住 sequence、flow 和
+   first-pass 模板在模型替换文字之前也不能触发 library reject；这避免为修 raw enum 又引入新的 Mermaid 格式 gap。
+4. 负向 pin 覆盖 raw `call/register` 消息、flow edge label 与 raw-enum `visible_label` 不得由模板发射；registration/export handoff 同样只保留
+   typed `relation_kind=register` 身份，不再由系统写“Export binding …”这类最终可见句。anchor 缺少 `visible_label` 的非成品状态继续阻止模板被
+   误当最终答案，现有 reader-label 精确门没有放宽。
+5. 修复只读取现有 typed relation projection 和 diagram contract，不扫描用户请求、模型原文、最终答案、Mermaid message、节点标签或错误 prose
+   推断事实；Trace 查询、显式时间窗、自动补采、唤醒/IO 链、链上根因选举、实际占时/规则可消双账户和因果投影代码均未修改。活动流也没有加入
+   4ms、4m、累计年龄或上下文比例降级。
+6. `go test ./internal/agent -count=1`、完整 `go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。下一步从本提交
+   重建不可变二进制，严格并发恰好 2 路复放关系图 read 与显式窗 Trace；关系用例验证模型是否自然消费新模板且减少确定性重试，Trace 用例继续
+   守护因果投影、链上双维根因与自动补采。若生产模型没有自然进入模板车道，只记测试闭环，不虚报生产转正。
+
+状态：
+
+`B1327=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`template-authority=typed-topology+endpoint-identity-only`；
+`template-visible-message=syntax-safe-placeholder/model-replaces`；
+`template-anchor-visible-label=absent/model-authors`；
+`raw-relation-enum-visible-emission=forbidden`；
+`sequence/flow-template-renderability=pinned`；
+`B1326=tests-closed/pending-natural-production-shape`；
+`system-visible-label/edge/action/order/layout/answer/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read

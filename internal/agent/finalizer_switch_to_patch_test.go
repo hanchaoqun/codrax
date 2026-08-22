@@ -497,7 +497,7 @@ func TestEmitPatchRejectFullRewriteSignal_OptionalDiagramCallEdgeOffersRemoval(t
 		"OPTIONAL diagram",
 		"remove_block_ids",
 		"typed call-edge evidence",
-		"No copy-ready typed relation carrier is available",
+		"No typed topology template is available",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"source locations are evidence metadata; do not copy them as the primary visible wording",
 		"beyond the grounded textual answer",
@@ -536,7 +536,7 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 	}
 	for _, want := range []string{
 		"Use `emit_answer_document_patch`",
-		"copy-ready optional typed diagram skeleton",
+		"typed topology authoring template",
 		"prefer replacing only the rejected diagram",
 		"This is authoring guidance, not a requirement to keep a diagram",
 		"remove_block_ids",
@@ -544,7 +544,7 @@ func TestEmitAnswerDocumentRejectSignal_OptionalDiagramCallEdgeConvergesOnFirstR
 		"verified carrier's topology and anchor array",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"participant n1 as Orchestrator.runAnalyzePhase",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 	} {
 		if !strings.Contains(got.Hint, want) {
@@ -605,7 +605,7 @@ func TestGroundedDiagramMissingAnchorsPreserveModelGraphOnFullAndPatchReject(t *
 			}
 			for _, forbidden := range []string{
 				"Preserve the following evidence skeleton's exact node IDs",
-				"copy-ready optional typed diagram skeleton",
+				"typed topology authoring template",
 				"remove the optional diagram",
 			} {
 				if strings.Contains(got.Hint, forbidden) {
@@ -695,10 +695,10 @@ func TestOptionalDiagramCallEdgePatchHintUsesExactBoundaryWhenWholeFlowSkeletonW
 		"edge_recipe[1]=`n1 -> n2`",
 		`edge_anchor_json=` + "`" + `{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}` + "`",
 		"keep separate components disconnected",
-		"Copy-ready verified component fragments follow",
+		"Typed topology component templates follow",
 		"Verified component fragment 1 (not a complete flow)",
 		"participant n1 as Orchestrator.runAnalyzePhase",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		`component_edge_anchors_json[1]=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 		"remove it with `remove_block_ids` only when you judge",
 	} {
@@ -707,7 +707,7 @@ func TestOptionalDiagramCallEdgePatchHintUsesExactBoundaryWhenWholeFlowSkeletonW
 		}
 	}
 	for _, forbidden := range []string{
-		"copy-ready optional typed diagram skeleton is available",
+		"typed topology authoring template is available",
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("optional flow boundary repair made unsupported promise %q:\n%s", forbidden, got)
@@ -735,8 +735,8 @@ func TestRequiredFlowBoundaryCarriesCopyReadyDisconnectedComponentsWithoutBridge
 		"Fragments are mutually unordered and disconnected",
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"participant n3 as agent.prependEmitRetryDirective",
-		"n1->>n2: call",
-		"n3->>n4: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
+		"n3->>n4: AUTHOR_BUSINESS_ACTION",
 	} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("component-fragment boundary missing %q:\n%s", want, hint)
@@ -766,7 +766,7 @@ func TestEmitAnswerDocumentRejectSignal_RequiredDiagramDoesNotOfferRemoval(t *te
 
 	got := e.emitAnswerDocumentRejectSignal(ctx, obs)
 	if strings.Contains(got.Hint, "remove the optional diagram block") ||
-		strings.Contains(got.Hint, "copy-ready optional typed diagram capsule") {
+		strings.Contains(got.Hint, "typed topology authoring template") {
 		t.Fatalf("required diagram must stay on ordinary correction path:\n%s", got.Hint)
 	}
 }
@@ -821,10 +821,10 @@ func TestEmitPatchRejectFullRewriteSignal_RequiredDiagramRepeatsExactTypedCapsul
 		"put the rejected diagram block in `replace_blocks`",
 		"participant n1 as Orchestrator.runAnalyzePhase",
 		"participant n2 as Orchestrator.dispatchStage",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 		"same typed evidence consumed by the validator",
-		"does not rewrite the model's prose, ordering, or conclusions",
+		"does not write a visible label or rewrite the model's prose, ordering, or conclusions",
 	} {
 		if !strings.Contains(got.Hint, want) {
 			t.Errorf("required exact-capsule hint missing %q:\n%s", want, got.Hint)
@@ -862,7 +862,7 @@ func TestEmitAnswerDocumentRejectSignal_RequiredDiagramRepeatsExactTypedCapsule(
 		"Use `emit_answer_document_patch`",
 		"REQUIRED diagram",
 		"participant n1 as Orchestrator.runAnalyzePhase",
-		"n1->>n2: call",
+		"n1->>n2: AUTHOR_BUSINESS_ACTION",
 		`edge_anchors_json=` + "`" + `[{"from_node":"n1","to_node":"n2","from_identity":"Orchestrator.runAnalyzePhase","to_identity":"Orchestrator.dispatchStage","relation_kind":"call"}]` + "`",
 		"Visible node labels, edge/message labels, and Notes remain model-authored",
 		"source locations are evidence metadata; do not copy them as the primary visible wording",
@@ -956,7 +956,7 @@ func TestRequiredDiagramParticipantRetryUsesProducerCompactDeltaOnFullAndPatchRe
 		}
 		for _, forbidden := range []string{
 			"Verified component fragment", "For every typed incident_required participant",
-			"node_alias[n1]", "Copy-ready verified component fragments",
+			"node_alias[n1]", "Typed topology component templates",
 		} {
 			if strings.Contains(hint, forbidden) {
 				t.Fatalf("compact retry repeated full authority payload %q:\n%s", forbidden, hint)
@@ -1199,7 +1199,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 			}
 		}
 		for _, forbidden := range []string{
-			"Copy-ready optional typed diagram", "Verified component fragment",
+			"Typed topology authoring template", "Verified component fragment",
 			"use each exact relation recipe below at most once", "node_alias[n1]",
 			"typed_candidate[BusContext][1]", "local_operation_only",
 		} {
@@ -1458,7 +1458,7 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 		!strings.Contains(signal.Hint, "diagram_edge_edits") {
 		t.Fatalf("lease rejection must remain on compact local repair lane: %+v", signal)
 	}
-	if strings.Contains(signal.Hint, "Copy-ready optional typed diagram") || strings.Contains(signal.Hint, "Verified component fragment") {
+	if strings.Contains(signal.Hint, "Typed topology authoring template") || strings.Contains(signal.Hint, "Verified component fragment") {
 		t.Fatalf("lease rejection must not reopen the full relation handbook: %s", signal.Hint)
 	}
 }
