@@ -57291,6 +57291,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1412 r861：两路转绿且关系列表完整；精确引用候选缺少可执行 evidence ref（2026-08-22）
+
+1. 从已推送 `fc185d212` 重建干净不可变二进制，严格并发恰好 2 路复放 Python 动态注册链与显式窗 Trace，runner 2/2
+   PASS：Python 168s、Trace 202s。相对 r860，Python 从 375s/11 reject/恢复旧稿收敛到 168s/2 reject/正常结构化答案；两路均未按
+   4ms、4m、首字节、stall、累计年龄或上下文比例降级。
+2. Python 人工 partial。模型本次没有选择 Mermaid block，因此 B1344/B1345 未自然触发，不能据 runner 绿宣称图 atomic repair 已获生产正证；
+   但 principal ordered list 保留五条 reader-facing relation，正文完整说明 `JsonPlugin`、import-time `@register` 绑定、runtime `resolve`、
+   `REGISTRY` 查找、`cls()` 实例化、executor callback 以及 Timestamp/Validation/Base MRO，关系事实本身未缩水，也不是靠删空关系通过。
+3. 新 P1 `B1346-ITEMCITATIONCANDIDATEEXECUTABILITY1` 已确认。模型给“resolve 查找 REGISTRY”选择 runner.py:15 的 argument-flow
+   evidence，给“resolve 调用 cls”选择 register 定义/赋值 evidence；最终分别引用 runner.py:15 和 registry.py:11/17，而真正支持行是
+   registry.py:31/34。pre-emit 已用 typed symbol/location 发现第二项 `current_citation is INVALID` 并列出 candidate locations，但该提示只有
+   `file:line`，没有能直接放回 patch `evidence_ids` 的 current-generation evidence ref；模型无法把候选位置无歧义地落实到 item carrier，三轮都保留错引。
+4. B1346 的最优方向是增强 producer-owned typed repair capsule，不让系统改引用：当 item 的当前 evidence/citation 与精确结构 anchor 不匹配，
+   除 candidate_citations 外发布同一证据账本中 citable、精确 location/anchor 匹配的 `candidate_evidence_ids`，并明确它们只是模型可选项；模型选择
+   replacement evidence ID，现有 grounding/citation normalizer 再执行。无唯一/完整候选时保持现有 advisory，不从 item text、请求或最终 prose 猜。
+5. Trace 人工 pass：请求主窗、四跳 typed 唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms 调度/优先级候选、实际占时/规则可消
+   双账户、业务下钻、链旁/背景隔离和完整 `Trace 因果投影` 均在，finalizer reject=0。模型再次把 fscache 调用点与唤醒先后扩写成整链阻塞，
+   仍按软措辞观察处理，系统不扫描、拒绝或改写模型结论。
+
+状态：
+
+`r861=runner-pass-2/2,human-python-partial+trace-pass`；
+`B1344/B1345=no-natural-trigger-r861`；
+`B1346=confirmed/P1-next`；
+`python-visible-relations=principal-list-five-rows/no-mermaid-selected`；
+`item-citation-candidate=file-line-only/not-executable-as-evidence-id`；
+`system-reference/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r861`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r861`。
+
 ### §123.1411 B1343 否证与 B1345：不放宽孤点能力，精确披露删边后仍存关系（2026-08-22）
 
 1. 对 r860 原始 Mermaid、原子 edit 和 parser 做冷读复算后，`B1343-POSTEDITORPHANCAPABILITY1` 被否证。原图同时包含
