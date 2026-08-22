@@ -145,6 +145,69 @@ func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) 
 	}
 }
 
+func TestEmitAnswerDocumentPatch_OrdinarySiblingGrantStillUsesRelationEvidenceGate(t *testing.T) {
+	mut := types.NewMutableState("same-generation sibling repair")
+	base := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "x.go", Line: 10}},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "grounded answer"},
+			{
+				ID: "flow", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "A", ToNode: "B", FromIdentity: "pkg.A", ToIdentity: "pkg.B",
+					RelationKind: types.DiagramRelCall,
+				}},
+			},
+			{
+				ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+				ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+				Items:     []types.AnswerBlockItem{{ID: "hop", Label: "entry", CitationRef: 0}},
+			},
+		},
+	}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B",
+		FromIdentity: "pkg.A", ToIdentity: "pkg.B", RelationKind: types.DiagramRelCall,
+	}}, nil)
+	if lease == nil || !types.BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(lease, base, []string{"chain"}) {
+		t.Fatalf("test setup could not bind exact sibling grant: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+
+	params := fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}],
+		"replace_blocks":[
+			{"id":"chain","kind":"ordered_list","surface_role":"principal",
+			 "claim_uses":[{"claim_form":"call_edge"}],
+			 "items":[{"id":"hop","label":"entry","citation_ref":0}],
+			 "edge_anchors":[{"from_node":"entry","to_node":"worker","from_identity":"Unknown.entry","to_identity":"Unknown.worker","relation_kind":"call","visible_label":"调用 worker"}]}
+		]
+	}`, lease.Failures[0].FailureRef)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+	if err != nil {
+		t.Fatalf("unexpected execution error: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code == types.ToolRepairCodeAnswerDocRelationRepairScope {
+		t.Fatalf("sibling grant must pass the lease and fail only at ordinary evidence validation: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "Unknown.entry") || !strings.Contains(res.Summary, "Unknown.worker") {
+		t.Fatalf("ordinary source relation gate did not retain authority after lease deferral: %+v", res)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_ReportsAbsentRelationLeaseWithoutInventingRefs(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

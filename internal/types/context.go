@@ -6996,6 +6996,12 @@ const (
 	// every visible edge, label, ordering, and conclusion; this carrier is never
 	// relation evidence and runtime/trace diagrams do not consume it.
 	ToolRepairMetaDiagramRelationRepairDeltaJSON = "diagram_relation_repair_delta_json"
+	// ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON carries the exact
+	// non-diagram structured block IDs that another same-generation validator
+	// requires the model to correct while a local diagram relation lease is
+	// active. The lease may defer those blocks to ordinary relation validation;
+	// it never grants a repository-wide or answer-wide relation exception.
+	ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON = "relation_repair_ordinary_block_ids_json"
 	// ToolRepairMetaDiagramRelationRepairLeaseStatus is the producer-owned
 	// exact lease state for ref admission failures. The current closed value is
 	// `absent`; consumers must not infer it from Summary/error prose.

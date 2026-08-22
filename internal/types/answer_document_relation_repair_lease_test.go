@@ -114,6 +114,78 @@ func TestAnswerDiagramRelationRepairLease_LocalDeltaOnly(t *testing.T) {
 	})
 }
 
+func TestAnswerDiagramRelationRepairLeaseDefersOnlyProducerNamedOrdinaryBlocks(t *testing.T) {
+	bad := DiagramEdgeAnchor{
+		FromNode: "A", ToNode: "B", FromIdentity: "pkg.A", ToIdentity: "pkg.B",
+		RelationKind: DiagramRelCall,
+	}
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{
+		{ID: "diagram", Kind: BlockDiagram, EdgeAnchors: []DiagramEdgeAnchor{bad}},
+		{ID: "chain", Kind: BlockOrderedList, SurfaceRole: SurfacePrincipal},
+		{ID: "other", Kind: BlockTable},
+	}}
+	newLease := func() *AnswerDiagramRelationRepairLease {
+		return NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{{
+			BlockID: "diagram", Issue: "call_edge_unproven", RelationKind: DiagramRelCall,
+			FromNode: "A", ToNode: "B", FromIdentity: "pkg.A", ToIdentity: "pkg.B",
+		}}, nil)
+	}
+	chainAnchor := DiagramEdgeAnchor{
+		FromNode: "entry", ToNode: "worker", FromIdentity: "Entry.run", ToIdentity: "Worker.handle",
+		RelationKind: DiagramRelCall, VisibleLabel: "调用 worker",
+	}
+	merged := &AnswerDocumentV2{Blocks: []AnswerBlock{
+		{ID: "diagram", Kind: BlockDiagram},
+		{ID: "chain", Kind: BlockOrderedList, SurfaceRole: SurfacePrincipal, EdgeAnchors: []DiagramEdgeAnchor{chainAnchor}},
+		{ID: "other", Kind: BlockTable},
+	}}
+
+	withoutGrant := newLease()
+	if got := ValidateAnswerDiagramRelationRepairLease(withoutGrant, merged); len(got) != 1 ||
+		got[0].BlockID != "chain" || got[0].Issue != "unlisted_relation_added" {
+		t.Fatalf("ordinary sibling addition must remain frozen without a producer grant: %+v", got)
+	}
+
+	lease := newLease()
+	if !BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(lease, base, []string{"chain"}) {
+		t.Fatal("exact unique ordinary block must bind to the lease")
+	}
+	if got := ValidateAnswerDiagramRelationRepairLease(lease, merged); len(got) != 0 {
+		t.Fatalf("producer-named sibling must defer to ordinary relation validation: %+v", got)
+	}
+
+	unlisted := *merged
+	unlisted.Blocks = append([]AnswerBlock(nil), merged.Blocks...)
+	unlisted.Blocks[2].EdgeAnchors = []DiagramEdgeAnchor{{
+		FromNode: "x", ToNode: "y", FromIdentity: "X", ToIdentity: "Y", RelationKind: DiagramRelCall,
+	}}
+	if got := ValidateAnswerDiagramRelationRepairLease(lease, &unlisted); len(got) != 1 ||
+		got[0].BlockID != "other" || got[0].Issue != "unlisted_relation_added" {
+		t.Fatalf("grant for one sibling must not thaw another block: %+v", got)
+	}
+
+	wrongKind := *merged
+	wrongKind.Blocks = append([]AnswerBlock(nil), merged.Blocks...)
+	wrongKind.Blocks[1].Kind = BlockSummary
+	if got := ValidateAnswerDiagramRelationRepairLease(lease, &wrongKind); len(got) != 1 ||
+		got[0].BlockID != "chain" || got[0].Issue != "unlisted_relation_added" {
+		t.Fatalf("ordinary grant must not authorize a kind-changed generic carrier: %+v", got)
+	}
+
+	for name, ids := range map[string][]string{
+		"diagram": {"diagram"},
+		"missing": {"missing"},
+		"empty":   {""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := newLease()
+			if BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(candidate, base, ids) {
+				t.Fatalf("invalid ordinary block grant must fail closed: ids=%v lease=%+v", ids, candidate)
+			}
+		})
+	}
+}
+
 func TestAnswerDiagramRelationRepairLeaseAdditionRefsAreStableAndBaseBound(t *testing.T) {
 	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
 		ID: "flow", Kind: BlockDiagram,

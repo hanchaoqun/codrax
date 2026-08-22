@@ -551,6 +551,11 @@ type emitFixHint struct {
 	// hash intentionally ignores relation kind, allowing the finalizer to
 	// recognise call -> precedence -> assignment churn without reading prose.
 	DiagramRelationFailurePairs []string
+	// RelationRepairOrdinaryBlockIDs names exact non-diagram structured blocks
+	// that this same producer generation requires ordinary relation validation
+	// to change. A concurrent diagram relation lease may defer only these IDs;
+	// all other blocks remain frozen by that lease.
+	RelationRepairOrdinaryBlockIDs []string
 	// DiagramRelationFailureIssues carries the producer-owned closed issue
 	// enum(s) for retry routing. It lets the finalizer distinguish a grounded
 	// visible edge that only lacks metadata from an unproved relation without
@@ -5019,13 +5024,14 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			))
 		}
 		hints = append(hints, emitFixHint{
-			Field:                        "blocks[kind=ordered_list|bullet_list|table].edge_anchors[]",
-			HardSignal:                   preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds:          preEmitDiagramMismatchBlockKinds(doc, standaloneMismatches),
-			ExpectedShape:                "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. Keep from_node/to_node as stable local presentation ids; correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; "),
-			Reason:                       "the model explicitly attached schema-valid typed relations to a principal structured carrier. Those assertions must use the same source authority as a diagram; silently dropping their metadata would let block kind change relation truth. This check reads only claim_uses, edge_anchors, and citable typed evidence, never list prose, labels, request text, or rendered output.",
-			DiagramRelationFailurePairs:  diagramRelationFailurePairFingerprints(standaloneMismatches),
-			DiagramRelationFailureIssues: diagramRelationFailureIssueValues(standaloneMismatches),
+			Field:                          "blocks[kind=ordered_list|bullet_list|table].edge_anchors[]",
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, standaloneMismatches),
+			ExpectedShape:                  "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. Keep from_node/to_node as stable local presentation ids; correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; "),
+			Reason:                         "the model explicitly attached schema-valid typed relations to a principal structured carrier. Those assertions must use the same source authority as a diagram; silently dropping their metadata would let block kind change relation truth. This check reads only claim_uses, edge_anchors, and citable typed evidence, never list prose, labels, request text, or rendered output.",
+			DiagramRelationFailurePairs:    diagramRelationFailurePairFingerprints(standaloneMismatches),
+			DiagramRelationFailureIssues:   diagramRelationFailureIssueValues(standaloneMismatches),
+			RelationRepairOrdinaryBlockIDs: preEmitDiagramMismatchBlockIDs(standaloneMismatches),
 		})
 	}
 	mismatches = diagramMismatches
@@ -5530,8 +5536,9 @@ func preCheckStandaloneTypedRelationVisibility(doc *types.AnswerDocumentV2) []em
 				"block=%q keeps typed relation anchors without a diagram. For every kept anchor, add visible_label with concise reader-facing wording in the answer language; the renderer will show the model-authored from_node -> to_node plus this label. If an anchor is not part of the intended visible relation graph, remove that anchor and its matching relation claim instead. Missing: %s",
 				block.ID, strings.Join(missing, "; "),
 			),
-			Reason:                       "typed relation metadata is not itself user-visible. This presence check reads only block kind/role, typed claim forms, anchors, and visible_label emptiness; it never inspects or rewrites item prose, chooses an endpoint, translates relation_kind, or authors a relation.",
-			DiagramRelationFailureIssues: []string{diagramStandaloneRelationMissingVisibleLabel},
+			Reason:                         "typed relation metadata is not itself user-visible. This presence check reads only block kind/role, typed claim forms, anchors, and visible_label emptiness; it never inspects or rewrites item prose, chooses an endpoint, translates relation_kind, or authors a relation.",
+			DiagramRelationFailureIssues:   []string{diagramStandaloneRelationMissingVisibleLabel},
+			RelationRepairOrdinaryBlockIDs: []string{block.ID},
 		})
 	}
 	return hints
@@ -5583,8 +5590,9 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 					"block=%q declares facet_id=%q, so preserve at least one model-authored directed claim_use (call_edge, callback_handoff, or registration_edge) and the matching complete edge_anchors row(s). If this block is descriptive rather than a directed path, remove facet_id=%q instead of inventing a relation. No Mermaid block is required",
 					block.ID, types.FacetPrincipalPathEdge, types.FacetPrincipalPathEdge,
 				),
-				Reason:                       "a principal_path_edge facet cannot outlive the same block's model-authored directed relation ownership. The check reads only schema-validated family, block kind, surface role, facet ids, claim forms, and anchors; it never infers or writes a relation.",
-				DiagramRelationFailureIssues: []string{diagramStandalonePrincipalPathMissingOwner},
+				Reason:                         "a principal_path_edge facet cannot outlive the same block's model-authored directed relation ownership. The check reads only schema-validated family, block kind, surface role, facet ids, claim forms, and anchors; it never infers or writes a relation.",
+				DiagramRelationFailureIssues:   []string{diagramStandalonePrincipalPathMissingOwner},
+				RelationRepairOrdinaryBlockIDs: []string{block.ID},
 			})
 			continue
 		}
@@ -5610,8 +5618,9 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 					"block=%q carries relation anchor kind(s) [%s] without the matching typed claim_use. If each relation remains part of the model-selected visible relation graph, add its matching claim_form; otherwise remove only that unselected anchor. Preserve the other model-authored anchors. No Mermaid block is required",
 					block.ID, strings.Join(unownedAnchorForms, ", "),
 				),
-				Reason:                       "a standalone relation anchor and its visible claim must have the same model-authored typed owner. The check reads only schema-validated block role, claim form, and relation kind; it neither deletes nor creates a relation.",
-				DiagramRelationFailureIssues: []string{diagramStandaloneRelationAnchorHasNoClaim},
+				Reason:                         "a standalone relation anchor and its visible claim must have the same model-authored typed owner. The check reads only schema-validated block role, claim form, and relation kind; it neither deletes nor creates a relation.",
+				DiagramRelationFailureIssues:   []string{diagramStandaloneRelationAnchorHasNoClaim},
+				RelationRepairOrdinaryBlockIDs: []string{block.ID},
 			})
 			continue
 		}
@@ -5628,8 +5637,9 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
 				block.ID, strings.Join(relationForms, ", "),
 			),
-			Reason:                       types.GroundedStandaloneCallChainRelationOwnershipContract + " The check reads no item text, label, request text, reasoning, or final prose. No relation is created or chosen on the model's behalf.",
-			DiagramRelationFailureIssues: []string{diagramStandaloneRelationClaimHasNoAnchor},
+			Reason:                         types.GroundedStandaloneCallChainRelationOwnershipContract + " The check reads no item text, label, request text, reasoning, or final prose. No relation is created or chosen on the model's behalf.",
+			DiagramRelationFailureIssues:   []string{diagramStandaloneRelationClaimHasNoAnchor},
+			RelationRepairOrdinaryBlockIDs: []string{block.ID},
 		})
 	}
 	return hints
@@ -5699,8 +5709,9 @@ func preCheckStandaloneCallChainSemanticHandoffCoverage(
 				"block=%q already selects both endpoints of exact registered-export handoff(s) [%s]. Keep the selected principal relation graph honest by adding claim_form=registration_edge and copying each matching edge_anchor_json from the typed authoring capsule. This is a non-call binding row on the existing ordered_list/bullet_list/table; no Mermaid block is required. Alternatively, keep genuinely disconnected components in separate bounded supporting carriers instead of presenting both endpoint components as one principal relation graph",
 				block.ID, strings.Join(parts, "; "),
 			),
-			Reason:                       "the model selected both exact endpoint identities in one principal structured relation graph, and the current dispatch supplied their exact typed registered-export handoff. Requiring that already-selected bridge prevents a silent hole between two chosen components without reading or rewriting answer prose, forcing a diagram, or creating an edge on the model's behalf.",
-			DiagramRelationFailureIssues: []string{diagramStandaloneSemanticHandoffMissing},
+			Reason:                         "the model selected both exact endpoint identities in one principal structured relation graph, and the current dispatch supplied their exact typed registered-export handoff. Requiring that already-selected bridge prevents a silent hole between two chosen components without reading or rewriting answer prose, forcing a diagram, or creating an edge on the model's behalf.",
+			DiagramRelationFailureIssues:   []string{diagramStandaloneSemanticHandoffMissing},
+			RelationRepairOrdinaryBlockIDs: []string{block.ID},
 		})
 	}
 	return hints
@@ -6517,6 +6528,21 @@ func preEmitDiagramMismatchBlockKinds(doc *types.AnswerDocumentV2, mismatches []
 		seenKinds[block.Kind] = struct{}{}
 		out = append(out, block.Kind)
 	}
+	return out
+}
+
+func preEmitDiagramMismatchBlockIDs(mismatches []DiagramCallEdgeEvidenceMismatch) []string {
+	seen := make(map[string]bool, len(mismatches))
+	out := make([]string, 0, len(mismatches))
+	for _, mismatch := range mismatches {
+		id := strings.TrimSpace(mismatch.BlockID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -16025,6 +16051,7 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	cardinalityRelations := map[preEmitBlockCardinalityRelation]struct{}{}
 	diagramRelationFailurePairs := map[string]struct{}{}
 	diagramRelationFailureIssues := map[string]struct{}{}
+	relationRepairOrdinaryBlockIDs := map[string]struct{}{}
 	diagramGroundedAnchorPatchJSON := ""
 	diagramParticipantRepairDeltaJSON := ""
 	var diagramRelationRepairDeltaJSONs []string
@@ -16080,6 +16107,11 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 				diagramRelationFailureIssues[issue] = struct{}{}
 			}
 		}
+		for _, raw := range h.RelationRepairOrdinaryBlockIDs {
+			if id := strings.TrimSpace(raw); id != "" {
+				relationRepairOrdinaryBlockIDs[id] = struct{}{}
+			}
+		}
 		if diagramGroundedAnchorPatchJSON == "" {
 			diagramGroundedAnchorPatchJSON = strings.TrimSpace(h.DiagramGroundedAnchorPatchJSON)
 		}
@@ -16104,6 +16136,17 @@ func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
 	}
 	if diagramRelationRepairDeltaJSON != "" {
 		meta[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = diagramRelationRepairDeltaJSON
+	}
+	if len(relationRepairOrdinaryBlockIDs) > 0 &&
+		len(relationRepairOrdinaryBlockIDs) <= types.AnswerDiagramRelationRepairOrdinaryValidationMaxEntries {
+		ids := make([]string, 0, len(relationRepairOrdinaryBlockIDs))
+		for id := range relationRepairOrdinaryBlockIDs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		if raw, err := json.Marshal(ids); err == nil {
+			meta[types.ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON] = string(raw)
+		}
 	}
 	for _, h := range hints {
 		if fp := strings.TrimSpace(h.SameCauseFingerprint); fp != "" {

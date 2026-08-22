@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1464,8 +1465,9 @@ func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolatio
 					"violation_kinds": strings.Join([]string{
 						string(types.ViolDiagramCallEdgeUnproven), string(types.ViolCitation),
 					}, ","),
-					types.ToolRepairMetaOffendingBlockKinds:            strings.Join([]string{string(types.BlockDiagram), string(types.BlockOrderedList)}, ","),
-					types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+					types.ToolRepairMetaOffendingBlockKinds:                strings.Join([]string{string(types.BlockDiagram), string(types.BlockOrderedList)}, ","),
+					types.ToolRepairMetaDiagramRelationRepairDeltaJSON:     delta,
+					types.ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON: `["ol1"]`,
 				},
 			}}
 			e := &answerDocumentEvaluator{diagramRequired: false, mu: ctx.Mutable}
@@ -1476,7 +1478,8 @@ func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolatio
 				got = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
 			}
 			lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
-			if !got.HintRequested || lease == nil || len(lease.Failures) != 1 {
+			if !got.HintRequested || lease == nil || len(lease.Failures) != 1 ||
+				!reflect.DeepEqual(lease.OrdinaryValidationBlockIDs, []string{"ol1"}) {
 				t.Fatalf("optional mixed reject must install one live local relation lease: signal=%+v lease=%+v", got, lease)
 			}
 			liveRef := lease.Failures[0].FailureRef

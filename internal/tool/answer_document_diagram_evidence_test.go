@@ -3288,8 +3288,13 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresenceFailsLoudWithoutReadin
 				hints[0].Field != `blocks[id="principal-path"].edge_anchors` ||
 				!strings.Contains(hints[0].ExpectedShape, "no Mermaid block is required") ||
 				!strings.Contains(hints[0].ExpectedShape, string(form)) ||
-				!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneRelationClaimHasNoAnchor}) {
+				!reflect.DeepEqual(hints[0].DiagramRelationFailureIssues, []string{diagramStandaloneRelationClaimHasNoAnchor}) ||
+				!reflect.DeepEqual(hints[0].RelationRepairOrdinaryBlockIDs, []string{"principal-path"}) {
 				t.Fatalf("zero-anchor relation claim must fail through the wired typed lane: %+v", hints)
+			}
+			repair := emitFixHintsRepair(hints)
+			if repair == nil || repair.Metadata[types.ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON] != `["principal-path"]` {
+				t.Fatalf("same-generation ordinary relation grant was not ferried as typed metadata: %+v", repair)
 			}
 		})
 	}

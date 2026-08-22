@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	AnswerDiagramRelationRepairDeltaVersion      = 1
-	AnswerDiagramRelationRepairDeltaMaxEntries   = 128
-	AnswerDiagramRelationRepairDeltaMaxJSONBytes = 64 * 1024
+	AnswerDiagramRelationRepairDeltaVersion                 = 1
+	AnswerDiagramRelationRepairDeltaMaxEntries              = 128
+	AnswerDiagramRelationRepairDeltaMaxJSONBytes            = 64 * 1024
+	AnswerDiagramRelationRepairOrdinaryValidationMaxEntries = 16
 )
 
 // AnswerDiagramRelationRepairFailure is the producer-owned tuple for one
@@ -719,6 +720,7 @@ type AnswerDiagramRelationRepairLease struct {
 	AllowedAdditions            []AnswerDiagramRelationRepairCandidate          `json:"allowed_additions,omitempty"`
 	OptionalOrphanCleanups      []AnswerDiagramOrphanCleanupCandidate           `json:"optional_orphan_cleanups,omitempty"`
 	ParticipantBoundaryFailures []AnswerDiagramParticipantBoundaryRepairFailure `json:"participant_boundary_failures,omitempty"`
+	OrdinaryValidationBlockIDs  []string                                        `json:"ordinary_validation_block_ids,omitempty"`
 	Blocks                      []AnswerDiagramRelationRepairLeaseBlock         `json:"blocks"`
 }
 
@@ -857,6 +859,65 @@ func NewAnswerDiagramRelationRepairLease(
 	}
 }
 
+// BindAnswerDiagramRelationRepairOrdinaryValidationBlocks grants a bounded
+// same-generation exception for exact non-diagram relation carriers that a
+// sibling validator has already required the model to correct. The diagram
+// lease stops comparing those blocks with its old snapshot; the ordinary
+// pre/post-emit relation validators remain the authority for every resulting
+// anchor. This consumes only producer-owned block IDs plus the exact patch
+// base and never inspects request text, model prose, Mermaid labels, or output.
+func BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(
+	lease *AnswerDiagramRelationRepairLease,
+	base *AnswerDocumentV2,
+	blockIDs []string,
+) bool {
+	if lease == nil || base == nil || len(blockIDs) > AnswerDiagramRelationRepairOrdinaryValidationMaxEntries {
+		return false
+	}
+	if len(blockIDs) == 0 {
+		lease.OrdinaryValidationBlockIDs = nil
+		return true
+	}
+	counts := make(map[string]int, len(base.Blocks))
+	kinds := make(map[string]AnswerBlockKind, len(base.Blocks))
+	for _, block := range base.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		counts[id]++
+		kinds[id] = block.Kind
+	}
+	seen := make(map[string]bool, len(blockIDs))
+	clean := make([]string, 0, len(blockIDs))
+	for _, raw := range blockIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" || counts[id] != 1 || !answerDiagramRelationRepairOrdinaryValidationKind(kinds[id]) {
+			return false
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		clean = append(clean, id)
+	}
+	if len(clean) == 0 {
+		return false
+	}
+	sort.Strings(clean)
+	lease.OrdinaryValidationBlockIDs = clean
+	return true
+}
+
+func answerDiagramRelationRepairOrdinaryValidationKind(kind AnswerBlockKind) bool {
+	switch kind {
+	case BlockOrderedList, BlockBulletList, BlockTable:
+		return true
+	default:
+		return false
+	}
+}
+
 // answerDiagramRelationRepairCandidateAlreadyAnchored is the lease boundary's
 // defense in depth: an addition capability can never name a canonical tuple
 // already present in the base carrier. Visible endpoints and labels are not
@@ -979,6 +1040,12 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 			}
 		}
 	}
+	ordinaryValidationIDs := make(map[string]bool, len(lease.OrdinaryValidationBlockIDs))
+	for _, raw := range lease.OrdinaryValidationBlockIDs {
+		if id := strings.TrimSpace(raw); id != "" {
+			ordinaryValidationIDs[id] = true
+		}
+	}
 	var violations []AnswerDiagramRelationRepairScopeViolation
 	if len(baseDiagramIDs) > 0 {
 		baseDiagramOrder := make([]string, 0, len(baseDiagramIDs))
@@ -1023,6 +1090,11 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 	sort.Strings(orderedIDs)
 
 	for _, blockID := range orderedIDs {
+		if ordinaryValidationIDs[blockID] {
+			if kind, exists := resultKinds[blockID]; !exists || answerDiagramRelationRepairOrdinaryValidationKind(kind) {
+				continue
+			}
+		}
 		base := baseBlocks[blockID]
 		result := resultBlocks[blockID]
 		baseCounts := answerDiagramRelationAnchorCounts(base)
@@ -1248,6 +1320,7 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 		}
 	}
 	out.AllowedAdditions = append([]AnswerDiagramRelationRepairCandidate(nil), in.AllowedAdditions...)
+	out.OrdinaryValidationBlockIDs = append([]string(nil), in.OrdinaryValidationBlockIDs...)
 	if len(in.ParticipantBoundaryFailures) > 0 {
 		out.ParticipantBoundaryFailures = make([]AnswerDiagramParticipantBoundaryRepairFailure, len(in.ParticipantBoundaryFailures))
 		for i, failure := range in.ParticipantBoundaryFailures {

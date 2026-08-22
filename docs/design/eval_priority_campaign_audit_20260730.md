@@ -57745,6 +57745,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r857`。
 
+### §123.1402 B1337：关系 lease 与同代兄弟结构块改由精确 typed 权限协作（2026-08-22）
+
+1. `B1337-RELATIONLEASESIBLING1/P1` 已施工。普通关系 ownership/authority validator 现在把本代确切要求修改的非图 block ID 写入
+   `relation_repair_ordinary_block_ids_json`；覆盖空 anchor、anchor 无 claim、principal-path 无 owner、standalone visible label、普通关系
+   authority mismatch 和注册语义 handoff 六类既有结构校验。载体只含排序去重后的 block ID，不含边、候选、用户请求、错误 prose 或答案文本。
+2. finalizer 安装 diagram relation lease 时，对该 roster 做第二次 fail-closed 绑定：最多 16 个 ID；每个 ID 必须在当前 retained patch base 中唯一
+   存在，且 kind 只能是 ordered_list、bullet_list 或 table。空 ID、未知 ID、重复载体、越界 roster、summary/section/diagram ID 均使本次 lease
+   安装失败并回退既有通用车道，不能扩大为整份答案或整仓关系权限。
+3. lease 只对 roster 内 exact ID 停止执行“与旧 edge-anchor 快照恒等”的局部拓扑比较，把该块交回普通 pre/post-emit validator；diagram block、
+   未点名兄弟块和跨 kind 变形仍由 lease 冻结。模型可以按普通 validator 的要求新增/删除/修改关系，也可以选择把关系块改成描述性载体；系统不
+   选择 endpoint、relation kind、action、visible label、布局或结论。
+4. 回归钉住三层：producer 必须从 zero-anchor principal block 发出 exact JSON roster；consumer 必须把它绑定并克隆进 live lease；executor 同一
+   patch 完成 diagram failure ref 删除并给点名 list 补关系锚时，不再报 `unlisted_relation_added`。同时，无 producer grant 的同一新增仍拒绝，
+   未点名 table 的新增仍拒绝，点名块改为 summary 仍拒绝；点名 list 若补入 `Unknown.entry -> Unknown.worker`，lease 放行后会被原普通 source
+   relation evidence gate 拒绝，证明证据合同没有降杆。
+5. `go test ./internal/types ./internal/tool ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。Trace query/runtime 权威、显式时间窗、自动补采、因果投影、链上根因和实际占时/规则可消双轴均未改动；不存在按
+   4ms、4m、重试次数或模型文字降级答案的新增分支。
+6. 下一批处理 `B1338-DIAGRAMORPHANNOTEREF1`：统一 sequence participant 的引用活性，不让 `remove_if_isolated` 删除仍被 Note、activate/
+   deactivate 或其他合法 sequence 语法引用的 participant；只阻止错误删除，不由系统删 Note、补 actor、选关系或改可见图。
+
+状态：
+
+`B1337=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`ordinary-repair-grant=producer-owned/exact-block-id/base-bound/max-16`；
+`lease-deferred-surface=ordered-list|bullet-list|table-only`；
+`ordinary-relation-evidence-gate=unchanged`；
+`unlisted/cross-kind/global-relation-mutation=still-rejected`；
+`B1338=confirmed/P1-next`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

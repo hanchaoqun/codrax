@@ -18584,6 +18584,15 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 	if lease == nil {
 		return false
 	}
+	var ordinaryBlockIDs []string
+	if rawOrdinary := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON]); rawOrdinary != "" {
+		if len(rawOrdinary) > 4096 || json.Unmarshal([]byte(rawOrdinary), &ordinaryBlockIDs) != nil ||
+			len(ordinaryBlockIDs) == 0 ||
+			len(ordinaryBlockIDs) > types.AnswerDiagramRelationRepairOrdinaryValidationMaxEntries ||
+			!types.BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(lease, base, ordinaryBlockIDs) {
+			return false
+		}
+	}
 	// Publish exactly the refs owned by the lease that the executor will read.
 	// The producer may have validated a deterministically normalized view while
 	// the patch base is the original rejected model carrier; refs from those two
