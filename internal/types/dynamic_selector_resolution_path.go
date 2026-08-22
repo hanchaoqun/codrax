@@ -529,13 +529,22 @@ func dynamicSelectorApplicationEvidenceIDs(in []dynamicSelectorApplicationCandid
 
 func uniqueDynamicSelectorBindings(in []dynamicSelectorBindingCandidate) []dynamicSelectorBindingCandidate {
 	out := make([]dynamicSelectorBindingCandidate, 0, len(in))
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	for _, candidate := range in {
-		key := candidate.containerKey + "\x00" + AnswerCodeIdentitySurfaceKey(candidate.value) + "\x00" + dynamicSelectorEvidenceOccurrenceKey(candidate.item)
-		if seen[key] {
+		key := dynamicSelectorBindingShapeKey(candidate)
+		if idx, ok := seen[key]; ok {
+			// The same exact source assignment may be present twice: once as
+			// the parser-authored assignment row and once as a grounded model
+			// registration row. They agree on the endpoint tuple and source
+			// occurrence, so they are corroborating carriers, not two possible
+			// bindings. Prefer the stronger registration relation without
+			// relabeling an assignment when no such row exists.
+			if ClaimFormOf(out[idx].item) == ClaimAssignmentFact && ClaimFormOf(candidate.item) == ClaimRegistrationEdge {
+				out[idx] = candidate
+			}
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(out)
 		out = append(out, candidate)
 	}
 	return out
@@ -544,9 +553,23 @@ func uniqueDynamicSelectorBindings(in []dynamicSelectorBindingCandidate) []dynam
 func distinctDynamicSelectorBindingShapes(in []dynamicSelectorBindingCandidate) int {
 	seen := make(map[string]bool)
 	for _, item := range in {
-		seen[item.containerKey+"\x00"+AnswerCodeIdentitySurfaceKey(item.value)+"\x00"+dynamicSelectorEvidenceOccurrenceKey(item.item)] = true
+		seen[dynamicSelectorBindingShapeKey(item)] = true
 	}
 	return len(seen)
+}
+
+func dynamicSelectorBindingShapeKey(candidate dynamicSelectorBindingCandidate) string {
+	end := candidate.item.LineEnd
+	if end <= 0 {
+		end = candidate.item.LineStart
+	}
+	return strings.Join([]string{
+		candidate.containerKey,
+		AnswerCodeIdentitySurfaceKey(candidate.value),
+		strings.TrimSpace(candidate.item.Source),
+		fmt.Sprintf("%d:%d", candidate.item.LineStart, end),
+		AnswerCodeIdentitySurfaceKey(candidate.item.OwnerSymbol),
+	}, "\x00")
 }
 
 func dynamicSelectorBindingEvidenceIDs(in []dynamicSelectorBindingCandidate) []string {

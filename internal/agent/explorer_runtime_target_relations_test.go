@@ -657,6 +657,14 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 
 	got := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, closure)
 	all := mergeEvidenceItems(eval.structuredEvidence, got.evidence)
+	// Production investigators may independently ground the same source write
+	// as a registration relation. It must corroborate, not conflict with, the
+	// deterministic assignment row at the identical source occurrence.
+	all = append(all, types.EvidenceItem{
+		ID: "E-grounded-register", Kind: types.EvidenceRegistration, Subject: "REGISTRY", Predicate: "binds", Object: "cls",
+		OwnerSymbol: "register", Source: "pipeline/registry.py", LineStart: 17, LineEnd: 17, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorAssignment, AnchorSymbol: "REGISTRY", Snippet: "REGISTRY[name] = cls", GroundingStatus: types.GroundingGrounded,
+	})
 	compiled := types.CompileDynamicSelectorResolutionPaths(all, "run_pipeline")
 	if len(compiled.Candidates) != 2 || len(compiled.Rejected) != 0 {
 		t.Fatalf("csv/json decorator applications should each retain one complete static candidate: compiled=%+v\nregistry=%+v\nevidence=%+v\nmarkdown=%s", compiled, graph.FileIndex["pipeline/registry.py"], got.evidence, got.markdown)
@@ -672,7 +680,7 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 	for _, candidate := range compiled.Candidates {
 		if candidate.EntryIdentity != "run_pipeline" || candidate.SelectorArgument != "kind" ||
 			candidate.ContainerIdentity != "REGISTRY" || candidate.LookupIdentity != "resolve" || len(candidate.Hops) != 6 ||
-			candidate.Hops[3].RelationKind != types.DiagramRelAssignment {
+			candidate.Hops[3].RelationKind != types.DiagramRelRegister || candidate.Hops[3].EvidenceID != "E-grounded-register" {
 			t.Fatalf("unexpected static candidate path: %+v", candidate)
 		}
 	}
@@ -691,7 +699,7 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 	for _, want := range []string{
 		"Typed dynamic-selection candidates",
 		"declared_candidate=`JsonPlugin`",
-		"relation_kind=`assignment`: `REGISTRY` -> `cls`",
+		"relation_kind=`register`: `REGISTRY` -> `cls`",
 		"relation_kind=`argument_flow`: `kind` -> `resolve`",
 	} {
 		if !strings.Contains(prompt, want) {

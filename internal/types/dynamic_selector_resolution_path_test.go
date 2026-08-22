@@ -102,6 +102,34 @@ func TestCompileDynamicSelectorResolutionPaths_AcceptsExactIndexedAssignmentWith
 	}
 }
 
+func TestCompileDynamicSelectorResolutionPaths_CollapsesSameOccurrenceAssignmentAndRegistrationProofs(t *testing.T) {
+	evidence := dynamicSelectorCompleteEvidence()
+	assignment := evidence[1]
+	assignment.ID = "E-bind-assignment"
+	assignment.Kind = EvidenceConcrete
+	assignment.Predicate = "assigns"
+	evidence = append(evidence, assignment)
+
+	compiled := CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
+	if len(compiled.Rejected) != 0 || len(compiled.Candidates) != 1 {
+		t.Fatalf("same-coordinate assignment and registration rows should corroborate one binding: %+v", compiled)
+	}
+	binding := compiled.Candidates[0].Hops[3]
+	if binding.RelationKind != DiagramRelRegister || binding.ClaimForm != ClaimRegistrationEdge || binding.EvidenceID != "E-bind" {
+		t.Fatalf("same-occurrence duplicate should retain the stronger exact registration row: %+v", binding)
+	}
+
+	otherOccurrence := assignment
+	otherOccurrence.ID = "E-bind-other-line"
+	otherOccurrence.LineStart = 11
+	otherOccurrence.LineEnd = 11
+	evidence = append(dynamicSelectorCompleteEvidence(), otherOccurrence)
+	compiled = CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
+	if len(compiled.Candidates) != 0 || len(compiled.Rejected) != 1 || compiled.Rejected[0].Reason != DynamicSelectorRejectAmbiguousContainer {
+		t.Fatalf("same endpoints at a different source occurrence must remain ambiguous: %+v", compiled)
+	}
+}
+
 func TestCompileDynamicSelectorResolutionPaths_OrdinarySelectorOwnerPropertyAssignmentIsNotBinding(t *testing.T) {
 	evidence := dynamicSelectorCompleteEvidence()
 	evidence[1].Kind = EvidenceConcrete

@@ -57493,6 +57493,62 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1387 r848：三类 producer 全部转正；同一写入的双载体被误判为两个 binding（2026-08-22）
+
+1. 从不可变提交 `55127688c` 重建二进制，严格并发恰好 2 路复放 Python 动态注册与显式窗 Trace，runner 2/2 PASS；Python
+   105s、1 次成文拒绝，Trace 225s、0 次成文拒绝。人工均记 `uncertain`：不是结构失败，而是各有一个需要区分系统缺口与模型波动的语义边界。
+2. B1330-B 获得生产正证。Python evidence ledger 同时出现 registry.py:17 indexed write、registry.py:31 indexed lookup 和 runner.py:15
+   argument-flow，证明精确 citable 单行 admission 能恢复缺失行且没有扩成邻近扫描。答案从 r847 的 511s/8 拒绝收敛到 105s/1 拒绝，正文已完整解释
+   `JsonPlugin`、lookup、装饰器加载期绑定和 executor callback。
+3. 完整 dynamic-selection capsule 仍未发布，代码与日志汇合确认新根因：同一 registry.py:17、同一 `REGISTRY -> cls` endpoint tuple 同时存在
+   deterministic assignment row 与 model-grounded registration row。`uniqueDynamicSelectorBindings` 的 shape key 包含 claim form/predicate，
+   把两个相互印证的载体计为两个 binding，触发 `ambiguous_container` fail-closed。此处不是两个候选容器，也不是两个源码发生点。
+4. `B1330-C/P1` 最窄修向：仅当 container、value、owner、canonical source、规范化后的单行 start/end 全部相同，才把 assignment 与 registration
+   视为同一发生点的重复证明；若存在 grounded registration，canonical hop 保留 registration 的原 Evidence ID/relation kind，否则保留 assignment，
+   绝不把 assignment 自行改名。相同 endpoint 但不同源码行仍是两个发生点并继续 `ambiguous_container`，防止隐藏分支/重复注册被吞。
+5. Python 可见答案仍有一档轻微语义模糊：`resolve -> JsonPlugin — 返回插件类` 把 `return cls()` 的实例构造说成返回类；typed candidate 未到场是
+   放大因素，B1330-C 提供 lookup/return/selector 的分型上下文，但最终措辞仍由模型决定，不增 prose 扫描硬门或系统改写。
+6. Trace 的显式窗、完整唤醒链、11ms 链上 IO 主因、实际占时/规则可消双轴、业务/内核线索、背景隔离和完整因果投影再次保留。模型本轮却在导语
+   把三条 typed“优先级反转候选”升级为“构成优先级倒置结构”，后文又恢复候选限定；并把没有绝对标尺的 CPU/IO 综合指数称为“低水平”。typed 系统板
+   没有这些越级，r847 也未出现，判为模型措辞波动/soft-guidance 跟随不稳；按既裁不扫描最终 prose、不由系统改写结论，留观察而不做单 case 硬拟合。
+
+状态：
+
+`r848=runner-2/2-pass+human-2/2-uncertain`；
+`B1330-B=production-positive`；
+`B1330-C=confirmed/P1/same-occurrence-corroboration`；
+`different-occurrence-same-endpoint=remain-ambiguous`；
+`Trace typed projection=production-positive-r848`；
+`Trace prose overclaim=model-variation/soft-guidance-observation`；
+`system-prose-scan/rewrite/hard-gate=forbidden`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r848`。
+
+### §123.1388 B1330-C：同源码发生点的 assignment/registration 双证明合并（2026-08-22）
+
+1. binding 去重 key 收窄为语义 endpoint 与物理发生点的合取：container、value、owner、source、start/end 全相同才合并；`LineEnd=0` 只规范化为
+   同一 `LineStart`，不会与另一个真实范围混同。registration 与 assignment 同时存在时选 registration 作为该 hop 的原生关系；只有 assignment 时
+   继续发 `DiagramRelAssignment`，不伪造注册语义。
+2. 新 types pin 覆盖正反两臂：同一行、同 endpoint 的 assignment+registration 编译为一个 candidate，hop 使用 grounded registration Evidence ID；
+   把 assignment 移到下一行后必须重新得到 `ambiguous_container`。真实 Python fixture 也注入 production-shaped 双载体，要求两个静态候选均完整、
+   finalizer handoff 出现 `register REGISTRY -> cls` 与 `argument_flow kind -> resolve`，且仍禁止 synthetic `run_pipeline -> JsonPlugin` call 和
+   “runtime selected”结论。
+3. 本批只修 compiler 对同一事实的多载体归并，不改 grounding、diagram gate、模型答案、候选选择或 Trace。下一步通过全仓测试/构建后独立提交，
+   再从不可变提交严格并发 2 路复放 Python+Trace，验收 `Typed dynamic-selection candidates` 真实发射及 Trace 无回归。
+
+状态：
+
+`B1330-C=implemented/targeted-pass/full-suite-pass/build-pass`；
+`same-source+line+owner+container+value=corroborating-carriers`；
+`different-source/line/owner/container/value=ambiguous-fail-closed`；
+`assignment-only=assignment`；`grounded-registration-present=registration`；
+`runtime-selection=candidate-only/model-owned`；
+`request/model/final-prose/mermaid-text-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
 
 1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read
