@@ -3147,8 +3147,13 @@ func answerDocDynamicSelectorEvidencePool(ctx *types.AgentContext, limit int, en
 		if types.ClaimFormOf(item) != types.ClaimCallEdge {
 			return false
 		}
+		// Subject is the typed source endpoint of a call edge. OwnerSymbol is
+		// only enclosing qualification and may legitimately be more qualified
+		// than the requested entry (for example pipeline.runner.run_pipeline
+		// versus run_pipeline). Keep the same endpoint priority as the selector
+		// compiler so an exact call is not discarded before compilation.
 		return entryIdentity == "" || types.AnswerCodeIdentitySurfacesEquivalent(
-			firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject), entryIdentity,
+			firstNonEmptyAnswerDocString(item.Subject, item.OwnerSymbol), entryIdentity,
 		)
 	}
 	seen := make(map[string]int, limit)

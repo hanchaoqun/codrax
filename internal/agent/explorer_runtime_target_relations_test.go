@@ -633,7 +633,7 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 	eval.structuredEvidence = []types.EvidenceItem{
 		{
 			ID: "E-entry", Kind: types.EvidenceRelationship, Subject: "run_pipeline", Predicate: "calls", Object: "resolve",
-			OwnerSymbol: "run_pipeline", Source: "pipeline/runner.py", LineStart: 15, LineEnd: 15, Scope: types.ScopeLine,
+			OwnerSymbol: "pipeline.runner.run_pipeline", Source: "pipeline/runner.py", LineStart: 15, LineEnd: 15, Scope: types.ScopeLine,
 			AnchorKind: types.AnchorCall, AnchorSymbol: "resolve", Snippet: "plugin = resolve(kind)", GroundingStatus: types.GroundingGrounded,
 		},
 		{

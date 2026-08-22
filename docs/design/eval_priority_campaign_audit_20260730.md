@@ -57371,6 +57371,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r851`。
 
+### §123.1392 r852/B1330-G：编译入口已修但证据池仍反序筛选；统一调用端点权威（2026-08-22）
+
+1. 从已推送 `313dfec57` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS，均为
+   175s。Python 仍有 4 次成文拒绝/4 次 patch，typed diagnostic 仍为 `entry_unavailable=2`；因此 B1330-F 只修 compiler
+   还不足以闭环，不能以单测通过或表面答案正确收账。
+2. 精确对照生产 ledger 后确认六类候选事实均在：`run_pipeline -> resolve` call 的 Subject=`run_pipeline`、
+   OwnerSymbol=`pipeline.runner.run_pipeline`，同坐标 argument flow、selector application、indexed binding、lookup assignment、
+   owner-qualified return 均已进入 finalizer。真正丢证据发生在 compiler 前的 `answerDocDynamicSelectorEvidencePool`：它仍以
+   `OwnerSymbol` 优先与请求入口 `run_pipeline` 做精确等价，导致该 call 在进入 B1330-F 已修复的 Subject-first compiler 前即被过滤。
+   这是同一 typed call-edge 在相邻两层使用相反端点优先级的确定性合同分叉，不是 parser 缺失、模型波动或短名歧义。
+3. `B1330-G/P1` 根修为消费链单一权威：证据池与 compiler 都优先使用 call edge 的 `Subject` 作为 source endpoint；只有 Subject
+   为空的 legacy deterministic 行才回退 `OwnerSymbol`。仍使用 exact identity equivalence，不增加 qualified-tail、文件路径、显示标签、
+   请求、thinking、答案或 Mermaid 文本猜测；callee、调用点、argument-flow、binding/lookup/return 唯一性和歧义 fail-closed 均不变。
+4. 生产 fixture 回归把 entry call 的 OwnerSymbol 固定为 `pipeline.runner.run_pipeline`、Subject 保持 `run_pipeline`，要求完整
+   `csv/json` 两个 candidate 必须穿过 evidence pool 进入 finalizer soft context。types 层既有 Subject-first/legacy fallback 回归继续钉住
+   compiler；这次新增的是 compiler 前置筛选面的接线 pin，防止只修下游而上游继续丢边。
+5. Python 人工判 uncertain：最终 `JsonPlugin`、查表、`cls()`、callback 和装饰器作用基本正确，但 typed candidate 空产使模型连续把
+   assignment/return/callback 当 call 修补，最后图只剩两个彼此不连续的片段，关系表达仍不足。独立 `B1332` completion-repair
+   自冲突本轮未复现，但 r851 的确定性 witness 保持开放，候选生产转正后再单独处理，禁止为本 fixture 硬编码行号或函数名。
+6. Trace 人工判 uncertain、系统面 pass：显式窗口、四线程唤醒依赖、11.000ms 链上 IO 第一席、三个独立 1.000ms 候选、实际占时/
+   规则可消双轴、背景隔离和完整 `Trace 因果投影` 均保留，零成文拒绝。模型把候选唤醒先后扩写成 network/cookie 被依次阻塞，并把
+   `fscache_page_wait_on_page_bit` 调用点扩写为具体缓存页面/网络文件系统对象，而 typed authority 未提供等待对象、持有者或直接阻塞证明；
+   继续归 B1269/B1271 软遵循观察，不通过正文关键词硬拒或系统改写。
+7. 定向 `go test ./internal/agent ./internal/types` 已通过；完整套件、构建与 r853 生产回放在本批最终状态中更新。下一轮仍严格并发恰好
+   2 路使用同一 Python+Trace 对：Python 验收 candidate 必须由 0 变 2、拒绝/关系表达收敛且无 synthetic direct call；Trace 继续守住
+   显式窗、自动补采、链上根因和因果投影，活动流不得按固定 4ms/4m 降级。
+
+状态：
+
+`r852=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1330-E=production-positive`；
+`B1330-F=compiler-correct/evidence-pool-pre-filter-gap-confirmed`；
+`B1330-G=implemented/targeted-pass/full-suite-pass/build-pass/pending-replay`；
+`call-source-authority=subject-first/owner-fallback-only/across-pool+compiler`；
+`qualified-tail/file-path/prose-shortening=none`；
+`B1332=confirmed/P1/open/not-reproduced-r852`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r852`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r852`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
