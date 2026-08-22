@@ -637,9 +637,16 @@ func toolResultTypedErrorClass(result *types.ToolResult) (key string, display st
 		toolName = strings.TrimSpace(result.ToolName)
 	}
 	var parts []string
+	progressSignature := ""
 	if result.Repair != nil {
 		if code := strings.TrimSpace(result.Repair.Code); code != "" {
 			parts = append(parts, "repair="+code)
+			if code == types.ToolRepairCodeAnswerDocRelationRepairScope {
+				candidate := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature])
+				if validDiagramRelationProgressSignature(candidate) {
+					progressSignature = candidate
+				}
+			}
 		}
 		if fields := sortedNonEmptyStrings(result.Repair.Fields); len(fields) > 0 {
 			parts = append(parts, "fields="+strings.Join(fields, ","))
@@ -657,7 +664,23 @@ func toolResultTypedErrorClass(result *types.ToolResult) (key string, display st
 		parts = append([]string{"tool=" + toolName}, parts...)
 	}
 	display = strings.Join(parts, " ")
-	return display, display, true
+	key = display
+	if progressSignature != "" {
+		key += " progress=" + progressSignature
+	}
+	return key, display, true
+}
+
+func validDiagramRelationProgressSignature(value string) bool {
+	if len(value) != 67 || !strings.HasPrefix(value, "v1:") {
+		return false
+	}
+	for _, r := range value[3:] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func sortedNonEmptyStrings(values []string) []string {

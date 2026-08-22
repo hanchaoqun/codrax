@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -302,6 +303,77 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RequiresExplicitNe
 	})
 }
 
+func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_ReportsCompleteDispositionRoster(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"    participant A",
+			"    participant B",
+			"    participant C",
+			"    participant D",
+			"    A->>B: first",
+			"    C->>D: second",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "B", FromIdentity: "A.Run", ToIdentity: "B.Run", RelationKind: types.DiagramRelCall, VisibleLabel: "first"},
+			{FromNode: "C", ToNode: "D", FromIdentity: "C.Run", ToIdentity: "D.Run", RelationKind: types.DiagramRelCall, VisibleLabel: "second"},
+		},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B", FromIdentity: "A.Run", ToIdentity: "B.Run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: "call_edge_unproven", FromNode: "C", ToNode: "D", FromIdentity: "C.Run", ToIdentity: "D.Run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("test setup: relation failures missing: %+v", lease)
+	}
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A", "C")
+
+	t.Run("all newly isolated participants are returned together", func(t *testing.T) {
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, &types.AnswerDocumentV2Patch{},
+			[]emitAnswerDiagramEdgeEdit{
+				{FailureRef: lease.Failures[0].FailureRef, Action: "remove"},
+				{FailureRef: lease.Failures[1].FailureRef, Action: "remove"},
+			}, nil, nil, nil, lease,
+		)
+		var roster *atomicDiagramParticipantDispositionRosterError
+		if !errors.As(err, &roster) || len(roster.Missing) != 2 || len(roster.Unexpected) != 0 {
+			t.Fatalf("expected one complete two-row missing roster, got err=%v roster=%+v", err, roster)
+		}
+		if roster.Missing[0].ParticipantID != "A" || roster.Missing[1].ParticipantID != "C" ||
+			!strings.Contains(err.Error(), "diag/A") || !strings.Contains(err.Error(), "diag/C") {
+			t.Fatalf("complete roster lost a participant: %v", err)
+		}
+		if rosterJSON, signature := atomicDiagramParticipantDispositionRosterMetadata(err); !strings.Contains(rosterJSON, `"participant_id":"A"`) ||
+			!strings.Contains(rosterJSON, `"participant_id":"C"`) ||
+			len(signature) != 67 || !strings.HasPrefix(signature, "v1:") {
+			t.Fatalf("typed roster metadata is incomplete: json=%s signature=%q", rosterJSON, signature)
+		}
+	})
+
+	t.Run("missing and still-connected submissions are returned together", func(t *testing.T) {
+		patch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, patch,
+			[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+			[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "C", Action: "remove_if_isolated"}},
+			nil, lease,
+		)
+		var roster *atomicDiagramParticipantDispositionRosterError
+		if !errors.As(err, &roster) || len(roster.Missing) != 1 || len(roster.Unexpected) != 1 {
+			t.Fatalf("expected aggregate missing+unexpected roster, got err=%v roster=%+v", err, roster)
+		}
+		if roster.Missing[0].ParticipantID != "A" || roster.Unexpected[0].ParticipantID != "C" ||
+			!strings.Contains(roster.Unexpected[0].Detail, "C->>D") {
+			t.Fatalf("aggregate roster lacks exact structural state: %+v", roster)
+		}
+		if len(patch.ReplaceBlocks) != 0 {
+			t.Fatal("failed roster validation must not author or commit a participant choice")
+		}
+	})
+}
+
 func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_UnlistedCleanupExplainsRemainingReply(t *testing.T) {
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "diag", Kind: types.BlockDiagram,
@@ -430,6 +502,12 @@ func TestEmitAnswerDocumentPatch_AtomicParticipantFailurePublishesWholeRollbackR
 	}
 	if raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; !strings.Contains(raw, lease.Failures[0].FailureRef) || !strings.Contains(raw, `"participant_id":"A"`) {
 		t.Fatalf("rollback response must republish the same live complete delta: %s", raw)
+	}
+	if raw := res.Repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON]; !strings.Contains(raw, `"participant_id":"C"`) || !strings.Contains(raw, `"unexpected"`) {
+		t.Fatalf("rollback response must publish the exact participant mismatch roster: %s", raw)
+	}
+	if signature := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature]; len(signature) != 67 || !strings.HasPrefix(signature, "v1:") {
+		t.Fatalf("rollback response must publish a closed typed progress signature: %q", signature)
 	}
 	got := mut.AnswerDocumentV2()
 	if got == nil || !strings.Contains(got.Blocks[1].Diagram.Body, "A->>B: old label") ||

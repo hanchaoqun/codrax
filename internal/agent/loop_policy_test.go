@@ -699,6 +699,69 @@ func TestLoopPolicy_IdenticalErrorStreak_CoversAnswerDocumentPatch(t *testing.T)
 	}
 }
 
+func TestLoopPolicy_IdenticalErrorStreak_UsesTypedRelationRosterProgress(t *testing.T) {
+	newObs := func(iter int, variant byte, signature, summary string) LoopObservation {
+		obs := midLoopObsWithNamedFailedToolRepair(
+			iter, "emit_answer_document_patch", summary, variant,
+			types.ToolRepairCodeAnswerDocRelationRepairScope,
+			"diagram_edge_edits", "diagram_participant_edits",
+		)
+		obs.LastToolResult.Repair.Metadata = map[string]string{
+			types.ToolRepairMetaDiagramRelationProgressSignature: signature,
+		}
+		return obs
+	}
+	sigA := "v1:" + strings.Repeat("a", 64)
+	sigB := "v1:" + strings.Repeat("b", 64)
+	s := newTestPolicyState(DefaultLoopPolicy())
+	sequence := []struct {
+		sig     string
+		summary string
+	}{
+		{sigA, "missing participant A"},
+		{sigA, "wording changed but typed roster did not"},
+		{sigB, "missing participant B"},
+		{sigB, "arbitrary prose variation one"},
+		{sigB, "arbitrary prose variation two"},
+	}
+	for i, item := range sequence {
+		if result := s.Apply(PhaseMidLoop, newObs(i, byte('a'+i), item.sig, item.summary), LoopSignal{}); result.Outcome == OutcomeStop {
+			t.Fatalf("typed roster progress must reset the streak; stopped at iter=%d: %s", i, result.Reason)
+		}
+	}
+	result := s.Apply(PhaseMidLoop, newObs(5, 'z', sigB, "more unrelated prose"), LoopSignal{})
+	if result.Outcome != OutcomeStop || !strings.Contains(result.Reason, "same error class") {
+		t.Fatalf("an actually unchanged typed roster must still stop at the configured threshold: %+v", result)
+	}
+}
+
+func TestToolResultTypedErrorClass_IgnoresUnclosedProgressMetadata(t *testing.T) {
+	base := &types.ToolResult{
+		ToolName: "emit_answer_document_patch",
+		Success:  false,
+		Repair: &types.ToolRepair{
+			Code:   types.ToolRepairCodeAnswerDocRelationRepairScope,
+			Fields: []string{"diagram_participant_edits"},
+		},
+	}
+	keyWithout, _, ok := toolResultTypedErrorClass(base)
+	if !ok {
+		t.Fatal("test setup: typed repair must produce an error class")
+	}
+	base.Repair.Metadata = map[string]string{
+		types.ToolRepairMetaDiagramRelationProgressSignature: "v1:not-a-sha256",
+	}
+	keyMalformed, _, _ := toolResultTypedErrorClass(base)
+	if keyMalformed != keyWithout {
+		t.Fatalf("malformed/model-controlled metadata must not affect the hard loop class: without=%q malformed=%q", keyWithout, keyMalformed)
+	}
+	base.Repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature] = "v1:" + strings.Repeat("c", 64)
+	keyValid, display, _ := toolResultTypedErrorClass(base)
+	if keyValid == keyWithout || strings.Contains(display, "progress=") {
+		t.Fatalf("valid producer signature must affect only the internal key: key=%q display=%q", keyValid, display)
+	}
+}
+
 // TestLoopPolicy_IdenticalErrorStreak_ResetsOnSuccess — when the LLM
 // finally produces a successful tool call, the error streak resets
 // so a later, different failure doesn't inherit the previous count.

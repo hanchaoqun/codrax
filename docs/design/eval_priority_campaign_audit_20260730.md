@@ -57291,6 +57291,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
+
+1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、
+   finalizer reject=2、未降级；相对 r863 的 691s/reject=9 明显收敛。C++ 341s、reject=11，虽仍因降级答案检查失败，亦相对
+   r863 的 1146s/reject=20 收敛。两案均未再出现 `target_carrier=unknown,allowed_actions=[]` 的无动作死租约；所有新 failure
+   都有真实可执行分支，因此 B1348 获得生产正证。
+2. Python 人工 pass：终端类 `JsonPlugin`、`run_pipeline -> resolve -> REGISTRY/cls() -> plugin.handle`、`@register` 绑定及 MRO
+   均准确，引用命中 `resolve` 的 `return cls()`；Mermaid 语法合法且主调用/返回关系正确。图层对 REGISTRY、executor 与 MRO 的表达
+   比正文薄，先作为跨语言/异构图层覆盖观察，不按 Python 名词加硬规则。
+3. C++ 人工 fail：主体链与 factory/virtual dispatch 基本齐全，但恢复稿把源码中的 `stderr` 写成 stdout，并将 console sink 明确的
+   base no-op flush 扩写成强制落盘。更关键的系统 P1 `B1350-ORPHANROSTERPROGRESS1` 可确定复现：一次原子修补同时涉及多个可选孤点，
+   旧执行器只返回首个缺失或不合格参与者，模型只能逐轮发现 CStd、Buffer、SinkBase；loop policy 又只以固定
+   tool+repair+fields 识别错误类，最终把参与者已经变化的修补误算成同一失败并提前终止。
+4. B1350 根修在提交任何 participant mutation 前，基于 live typed `optional_orphan_cleanups`、模型本轮选择的 exact edge edits、
+   Mermaid 结构端点及 typed anchors 计算完整 roster。一次返回所有 `missing`（本轮确已变成孤点但未选择处置）和 `unexpected`
+   （仍有结构关系、受保护、非 live candidate 或 action 不在该行能力内）行；失败仍保持整个 patch 原子回滚。系统不选删除/保留，
+   不写 visible label，不删边，不重排图，不改正文或结论。
+5. ToolRepair 新增 roster JSON 与其 canonical v1 SHA-256 进展签名。重复错误门只在 repair code 为闭合 relation-repair scope 且签名满足
+   固定格式时把签名纳入内部 error-class key；清单变化会重置 streak，同一清单持续不变仍按既有阈值止损。显示摘要不带签名，畸形/任意
+   metadata 被忽略；请求、thinking、答案 prose、错误 prose 与 Mermaid message/label 均不进入硬门。
+6. 回归覆盖两个同时孤立参与者一次完整披露、missing+still-connected unexpected 同时披露、失败零提交、生产 ToolRepair roster/signature、
+   typed roster 变化重置 streak、同 roster 不变仍停止、畸形签名不影响 hard class。相关 `internal/tool`、`internal/agent`、
+   `internal/types` 全包、完整 `go test ./... -count=1` 及 CGO release-tag `make` 均通过；下一步独立提交推送，再以严格 2 路回放
+   C++ 与一个异构高优先用例。
+
+状态：
+
+`r864=runner-pass-1/2,human-python-pass+cpp-fail`；
+`B1348=production-positive/core-closed`；
+`B1350=implemented/relevant-full-pass/full-suite-pass/build-pass/pending-production-replay`；
+`B1349=filed/recovery-syntax-not-repeated-r864/still-open`；
+`orphan-disposition=complete-missing+unexpected-typed-roster`；
+`failed-atomic-patch=zero-commit/unchanged`；
+`error-streak=closed-producer-signature/not-summary-prose`；
+`system-edge/action/participant-label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1414 r862 与 B1347：无配对代际仍教学 attach，系统自诱导后再拒绝（2026-08-22）
 
 1. 从已推送 `420c326f0` 重建干净不可变二进制，严格并发恰好 2 路复放 Python 动态注册链与显式窗 Trace，runner 2/2

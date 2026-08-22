@@ -1,6 +1,8 @@
 package tool
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,6 +27,89 @@ type resolvedAtomicDiagramEdgeEdit struct {
 	originalIndex int
 	sharedRemove  []emitAnswerDiagramEdgeEdit
 	skip          bool
+}
+
+type atomicDiagramParticipantDispositionRosterRow struct {
+	BlockID       string `json:"block_id"`
+	ParticipantID string `json:"participant_id"`
+	Issue         string `json:"issue"`
+	Detail        string `json:"detail,omitempty"`
+}
+
+type atomicDiagramParticipantDispositionRosterError struct {
+	Version    int                                            `json:"version"`
+	Missing    []atomicDiagramParticipantDispositionRosterRow `json:"missing,omitempty"`
+	Unexpected []atomicDiagramParticipantDispositionRosterRow `json:"unexpected,omitempty"`
+}
+
+func (e *atomicDiagramParticipantDispositionRosterError) Error() string {
+	if e == nil {
+		return "diagram participant disposition roster mismatch"
+	}
+	formatRows := func(rows []atomicDiagramParticipantDispositionRosterRow) string {
+		parts := make([]string, 0, len(rows))
+		for _, row := range rows {
+			item := fmt.Sprintf("%s/%s", row.BlockID, row.ParticipantID)
+			if strings.TrimSpace(row.Detail) != "" {
+				item += ": " + row.Detail
+			}
+			parts = append(parts, item)
+		}
+		return strings.Join(parts, "; ")
+	}
+	parts := make([]string, 0, 2)
+	if len(e.Missing) > 0 {
+		parts = append(parts, "missing isolated-participant decisions=["+formatRows(e.Missing)+"]")
+	}
+	if len(e.Unexpected) > 0 {
+		parts = append(parts, "unexpected/ineligible decisions=["+formatRows(e.Unexpected)+"]")
+	}
+	return "diagram participant disposition roster mismatch: " + strings.Join(parts, "; ") +
+		"; submit exactly one model-owned remove_if_isolated or retain_as_context decision for every missing row, and omit every unexpected row"
+}
+
+func (e *atomicDiagramParticipantDispositionRosterError) canonicalJSON() string {
+	if e == nil {
+		return ""
+	}
+	copyErr := *e
+	copyErr.Version = 1
+	sortRows := func(rows []atomicDiagramParticipantDispositionRosterRow) []atomicDiagramParticipantDispositionRosterRow {
+		out := append([]atomicDiagramParticipantDispositionRosterRow(nil), rows...)
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].BlockID != out[j].BlockID {
+				return out[i].BlockID < out[j].BlockID
+			}
+			if out[i].ParticipantID != out[j].ParticipantID {
+				return out[i].ParticipantID < out[j].ParticipantID
+			}
+			if out[i].Issue != out[j].Issue {
+				return out[i].Issue < out[j].Issue
+			}
+			return out[i].Detail < out[j].Detail
+		})
+		return out
+	}
+	copyErr.Missing = sortRows(copyErr.Missing)
+	copyErr.Unexpected = sortRows(copyErr.Unexpected)
+	raw, err := json.Marshal(copyErr)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func atomicDiagramParticipantDispositionRosterMetadata(err error) (rosterJSON, progressSignature string) {
+	roster, ok := err.(*atomicDiagramParticipantDispositionRosterError)
+	if !ok || roster == nil {
+		return "", ""
+	}
+	rosterJSON = roster.canonicalJSON()
+	if rosterJSON == "" {
+		return "", ""
+	}
+	sum := sha256.Sum256([]byte(rosterJSON))
+	return rosterJSON, fmt.Sprintf("v1:%x", sum[:])
 }
 
 // applyModelAuthoredDiagramAtomicEdits turns model-declared edge and boundary
@@ -356,6 +441,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		working[blockID] = block
 	}
 	participantSeen := make(map[string]bool, len(participantEdits))
+	participantCandidates := make(map[string]types.AnswerDiagramOrphanCleanupCandidate, len(participantEdits))
 	for i, edit := range participantEdits {
 		blockID := strings.TrimSpace(edit.BlockID)
 		participantID := strings.TrimSpace(edit.ParticipantID)
@@ -372,36 +458,33 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			return fmt.Errorf("diagram_participant_edits[%d] duplicates block_id=%q participant_id=%q", i, blockID, participantID)
 		}
 		participantSeen[key] = true
-		block, err := loadBlock(blockID, i, "diagram_participant_edits", true)
+		_, err := loadBlock(blockID, i, "diagram_participant_edits", true)
 		if err != nil {
 			return err
 		}
 		candidate, ok := atomicDiagramLeaseOrphanCandidate(lease, blockID, participantID)
-		if !ok {
-			return fmt.Errorf(
-				"diagram_participant_edits[%d] block_id=%q participant_id=%q is not one allowed live optional_orphan_cleanups decision: %s",
-				i, blockID, participantID,
-				atomicDiagramParticipantCleanupIneligibility(block, previous[blockID], participantID, protectedParticipants, lease),
-			)
+		if ok {
+			participantCandidates[key] = candidate
 		}
-		if !candidate.AllowsAction(action) {
-			return fmt.Errorf(
-				"diagram_participant_edits[%d] block_id=%q participant_id=%q action=%q is not allowed by the live optional_orphan_cleanups row",
-				i, blockID, participantID, action,
-			)
-		}
+	}
+	if err := validateAtomicDiagramParticipantDispositionRoster(
+		previous, working, participantEdits, participantSeen, participantCandidates,
+		protectedParticipants, lease,
+	); err != nil {
+		return err
+	}
+	for i, edit := range participantEdits {
+		blockID := strings.TrimSpace(edit.BlockID)
+		participantID := strings.TrimSpace(edit.ParticipantID)
+		key := blockID + "\x00" + participantID
+		block := working[blockID]
 		base := previous[blockID]
 		if err := applyOneModelAuthoredDiagramParticipantEdit(
-			&block, base, edit, candidate, protectedParticipants, lease,
+			&block, base, edit, participantCandidates[key], protectedParticipants, lease,
 		); err != nil {
 			return fmt.Errorf("diagram_participant_edits[%d] block_id=%q participant_id=%q: %w", i, blockID, participantID, err)
 		}
 		working[blockID] = block
-	}
-	if err := requireExplicitAtomicDiagramOrphanDispositions(
-		previous, working, participantSeen, protectedParticipants, lease,
-	); err != nil {
-		return err
 	}
 	for _, blockID := range order {
 		patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
@@ -618,21 +701,59 @@ func atomicDiagramParticipantCleanupIneligibility(
 	return "the participant is not published by the current lease; the executor cannot widen the model's cleanup capability"
 }
 
-// requireExplicitAtomicDiagramOrphanDispositions does not choose a graph
-// outcome. It notices only the precise structural transition caused by this
-// patch: a live candidate's former incident edges are all gone. At that point
-// the model must have selected one of the two published dispositions. A newly
-// submitted uncertainty boundary is already an explicit structured retention
-// decision and remains protected by the existing boundary contract.
-func requireExplicitAtomicDiagramOrphanDispositions(
+// validateAtomicDiagramParticipantDispositionRoster computes the complete
+// post-edge-edit decision surface before applying any participant mutation.
+// It does not choose a graph outcome. Every row comes from the live typed
+// orphan roster plus structural Mermaid endpoints/typed anchors; message text,
+// visible labels, request prose, and answer prose are not evidence inputs.
+func validateAtomicDiagramParticipantDispositionRoster(
 	previous map[string]types.AnswerBlock,
 	working map[string]types.AnswerBlock,
+	participantEdits []emitAnswerDiagramParticipantEdit,
 	participantDecisions map[string]bool,
+	participantCandidates map[string]types.AnswerDiagramOrphanCleanupCandidate,
 	protectedParticipants []string,
 	lease *types.AnswerDiagramRelationRepairLease,
 ) error {
 	if lease == nil {
-		return nil
+		if len(participantEdits) == 0 {
+			return nil
+		}
+	}
+	roster := &atomicDiagramParticipantDispositionRosterError{Version: 1}
+	for _, edit := range participantEdits {
+		blockID := strings.TrimSpace(edit.BlockID)
+		participantID := strings.TrimSpace(edit.ParticipantID)
+		key := blockID + "\x00" + participantID
+		base, baseOK := previous[blockID]
+		current, currentOK := working[blockID]
+		candidate, candidateOK := participantCandidates[key]
+		if !baseOK || !currentOK || current.Diagram == nil || base.Diagram == nil || !candidateOK {
+			detail := "the participant is not one unique live optional_orphan_cleanups row"
+			if baseOK && currentOK && current.Diagram != nil && base.Diagram != nil {
+				detail = atomicDiagramParticipantCleanupIneligibility(current, base, participantID, protectedParticipants, lease)
+			}
+			roster.Unexpected = append(roster.Unexpected, atomicDiagramParticipantDispositionRosterRow{
+				BlockID: blockID, ParticipantID: participantID, Issue: "not_live_candidate", Detail: detail,
+			})
+			continue
+		}
+		if !candidate.AllowsAction(strings.TrimSpace(edit.Action)) {
+			roster.Unexpected = append(roster.Unexpected, atomicDiagramParticipantDispositionRosterRow{
+				BlockID: blockID, ParticipantID: participantID, Issue: "action_not_allowed",
+				Detail: fmt.Sprintf("action=%q is not allowed by the live optional_orphan_cleanups row", strings.TrimSpace(edit.Action)),
+			})
+			continue
+		}
+		if !atomicDiagramParticipantDispositionIsRequired(base, current, participantID, protectedParticipants, lease) {
+			roster.Unexpected = append(roster.Unexpected, atomicDiagramParticipantDispositionRosterRow{
+				BlockID: blockID, ParticipantID: participantID, Issue: "not_isolated_or_ineligible",
+				Detail: atomicDiagramParticipantCleanupIneligibility(current, base, participantID, protectedParticipants, lease),
+			})
+		}
+	}
+	if lease == nil {
+		return roster
 	}
 	for _, candidate := range lease.OptionalOrphanCleanups {
 		blockID := strings.TrimSpace(candidate.BlockID)
@@ -642,24 +763,37 @@ func requireExplicitAtomicDiagramOrphanDispositions(
 		if !baseOK || !changed || current.Diagram == nil || base.Diagram == nil {
 			continue
 		}
-		decl, count := atomicDiagramUniqueRemovableDeclaration(current.Diagram.Body, participantID)
-		if count != 1 || atomicDiagramParticipantEditProtected(base, current, participantID, decl.Label, protectedParticipants) {
-			continue
-		}
-		if atomicDiagramParticipantHasIncidentCarrier(current, participantID) {
-			continue
-		}
-		if !atomicDiagramBaseCandidateStillAuthorized(base, participantID, lease) {
+		if !atomicDiagramParticipantDispositionIsRequired(base, current, participantID, protectedParticipants, lease) {
 			continue
 		}
 		if !participantDecisions[blockID+"\x00"+participantID] {
-			return fmt.Errorf(
-				"diagram participant block_id=%q participant_id=%q became isolated after the selected edge edits; explicitly choose remove_if_isolated or retain_as_context with a model-authored visible_label",
-				blockID, participantID,
-			)
+			roster.Missing = append(roster.Missing, atomicDiagramParticipantDispositionRosterRow{
+				BlockID: blockID, ParticipantID: participantID, Issue: "isolated_decision_required",
+				Detail: "became isolated after the selected edge edits",
+			})
 		}
 	}
+	if len(roster.Missing) > 0 || len(roster.Unexpected) > 0 {
+		return roster
+	}
 	return nil
+}
+
+func atomicDiagramParticipantDispositionIsRequired(
+	base, current types.AnswerBlock,
+	participantID string,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+) bool {
+	if current.Diagram == nil || base.Diagram == nil {
+		return false
+	}
+	decl, count := atomicDiagramUniqueRemovableDeclaration(current.Diagram.Body, participantID)
+	if count != 1 || atomicDiagramParticipantEditProtected(base, current, participantID, decl.Label, protectedParticipants) {
+		return false
+	}
+	return !atomicDiagramParticipantHasIncidentCarrier(current, participantID) &&
+		atomicDiagramBaseCandidateStillAuthorized(base, participantID, lease)
 }
 
 func atomicDiagramParticipantEditProtected(

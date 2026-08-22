@@ -6996,6 +6996,19 @@ const (
 	// every visible edge, label, ordering, and conclusion; this carrier is never
 	// relation evidence and runtime/trace diagrams do not consume it.
 	ToolRepairMetaDiagramRelationRepairDeltaJSON = "diagram_relation_repair_delta_json"
+	// ToolRepairMetaDiagramParticipantDispositionRosterJSON carries the exact
+	// post-edge-edit orphan-disposition mismatch computed by the atomic diagram
+	// compiler. It names every missing decision and every submitted decision
+	// that is not currently eligible. The roster is retry guidance only: it
+	// never chooses remove_if_isolated versus retain_as_context and never
+	// authors a visible participant label.
+	ToolRepairMetaDiagramParticipantDispositionRosterJSON = "diagram_participant_disposition_roster_json"
+	// ToolRepairMetaDiagramRelationProgressSignature is a closed, producer-
+	// owned v1 SHA-256 signature of the disposition roster above. The loop
+	// policy may use it only to distinguish genuine relation-repair progress
+	// from an unchanged retry; arbitrary model/error prose is never hashed into
+	// this hard stop signal.
+	ToolRepairMetaDiagramRelationProgressSignature = "diagram_relation_progress_signature"
 	// ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON carries the exact
 	// non-diagram structured block IDs that another same-generation validator
 	// requires the model to correct while a local diagram relation lease is

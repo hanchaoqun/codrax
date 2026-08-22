@@ -1110,6 +1110,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			if lease != nil {
 				repair := answerDiagramRelationRepairScopeRepair(lease, nil)
 				repair.Fields = []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_boundary_edits", "diagram_participant_edits"}
+				if rosterJSON, progressSignature := atomicDiagramParticipantDispositionRosterMetadata(err); rosterJSON != "" {
+					repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON] = rosterJSON
+					repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature] = progressSignature
+				}
 				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. The whole rejected patch transaction was rolled back: none of its edge, boundary, participant, block, or citation operations were committed. Re-read the complete current typed delta and resubmit every operation you still choose together in one new atomic patch; do not assume a valid sibling operation from the rejected call already applied, and do not guess, silently drop, or widen operations."
 				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
 			}
