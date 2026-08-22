@@ -57557,6 +57557,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1367 B1321：关系路径与成员清单拆为独立 typed 答案维度（2026-08-22）
+
+1. `B1321-RELATIONDIMMEMBERCOLLISION1/P1` 已施工。`RequestedAnswerDimensionRole` 新增语言无关的
+   `relation_path`，表示一条调用、数据、控制、依赖、唤醒或 handoff 路径/有向关系序列；原 `member_set` 只表示用户另行要求的
+   “哪些/全部成员”清单。路径上的端点与 hop 不再因其“也是一组名字”而自动铸成第二份成员 roster 责任。该拆分面向所有语言与关系族，
+   不读取 Java/Rust/Cangjie/ArkTS 等语言关键词，也不按单个 eval 文件或函数名分支。
+2. analyzer schema 明确教学两者的边界；`question_kind=call_chain` 若仍提交 required `member_set`，只有同时存在规范化后的
+   `is_category_enumeration`、`has_per_member_table`、精确数量边界、完备性义务或 active source inventory 之一，才表示用户确实另要
+   roster。否则分析阶段 fail-loud，给出唯一 typed 修正目标 `relation_path`。系统不静默改写模型字段，也不扫描用户原文、维度 label、
+   rationale、模型答案或最终正文来猜“其实想要什么”；模型仍负责重发自洽合同。
+3. 最终答案覆盖 receipt 同步新增 `relation_path`：只接受模型成文、`surface_role=principal`、可见且携带
+   `principal_path_edge` 的主路径块，或携带完整端点与合法 typed relation 的 edge anchor；support/background 块、系统自动补充块、
+   空载体和只有端点名字但没有 typed relation 的块都不能消费该维度。该 receipt 只证明用户要求的路径展示面存在，边是否合法、证据是否
+   支持、顺序是否成立仍由现有 claim/anchor/关系门负责；系统不生成边、成员、顺序、业务措辞、图布局或结论。
+4. 原独立 roster 能力未收窄：category enumeration、逐成员表、显式数量、all/every 完备性或独立源码清单任一 typed 信号在场时，
+   call-chain 的 `member_set` 仍合法，compiler 继续要求 sibling roster；`relation_path` 则由既有主调用链块直接覆盖，不再触发 r837
+   那种“先补 member_set、再因替换丢 claim/anchor”的自冲突修补。visible label 恰好出现“调用链”也不能绕过 typed path receipt。
+5. 新回归覆盖 role 枚举/归一化、真实 `emit_analysis` 的错误 member_set→精确拒绝→relation_path 一次收敛、五类独立 roster
+   信号保留、schema 教学、principal/support/system/typed-edge 正反臂。`go test ./internal/types ./internal/tool ./internal/agent
+   -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与显式时间窗 Trace：read 验收 analyzer 直接产出
+   `relation_path`、已有 hop block 一次覆盖且不再产生伪成员表修补；Trace 验收窗口选举、唤醒链、链上根因、调度/算力/D/IO/确定性语义
+   线索、业务下钻、实际占时/规则可消双账户、因果投影和自动补采均不缩水，活动流不因固定 4ms/4m 阈值降级。
+
+状态：
+
+`B1321=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`requested-relation-path=relation_path`；
+`requested-independent-roster=member_set+independent-typed-boundary`；
+`path-endpoints/hops-do-not-mint-roster=true`；
+`path-coverage=model-owned-principal-visible+typed-relation-only`；
+`system-answer/member/relation/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/dimension-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read

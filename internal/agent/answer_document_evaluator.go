@@ -15249,7 +15249,8 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 		// requested label. The model chooses the owning block by declaring the
 		// typed marker; the system neither reads answer wording nor chooses or
 		// writes members on the model's behalf.
-		if dim.Role == types.RequestedAnswerDimensionMemberSet {
+		if dim.Role == types.RequestedAnswerDimensionMemberSet ||
+			dim.Role == types.RequestedAnswerDimensionRelationPath {
 			missing = append(missing, dim)
 			continue
 		}
@@ -15270,6 +15271,8 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 		return answerDocumentHasScalarPayload(doc)
 	case types.RequestedAnswerDimensionMemberSet:
 		return answerDocumentCoversRequestedMemberSetDimensions(ctx, doc)
+	case types.RequestedAnswerDimensionRelationPath:
+		return answerDocumentHasRelationPathPayload(doc)
 	case types.RequestedAnswerDimensionSourceLocation:
 		return answerDocumentCoversRequestedSourceLocationDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceAttribute:
@@ -15283,6 +15286,42 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	default:
 		return false
 	}
+}
+
+// answerDocumentHasRelationPathPayload recognizes only a model-authored,
+// principal, visible relation carrier. A typed principal_path_edge facet is the
+// canonical path surface; a block with an exact typed edge anchor is also
+// accepted so diagram and non-call relation families do not need to masquerade
+// as a call-chain roster. The relation role proves presentation coverage only:
+// existing emit-time relation validators still own endpoint evidence and edge
+// legality.
+func answerDocumentHasRelationPathPayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+			block.SurfaceRole != types.SurfacePrincipal ||
+			strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		if answerBlockHasFacet(block, string(types.FacetPrincipalPathEdge)) {
+			return true
+		}
+		for _, anchor := range block.EdgeAnchors {
+			if strings.TrimSpace(anchor.FromNode) == "" || strings.TrimSpace(anchor.ToNode) == "" {
+				continue
+			}
+			relation := anchor.RelationKind
+			if !relation.IsValid() {
+				relation = types.RelationForClaimForm(anchor.ClaimForm)
+			}
+			if relation.IsValid() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // answerDocumentCoversRequestedSourceLocationDimensions keeps two different
@@ -15396,6 +15435,7 @@ func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerD
 	switch role {
 	case types.RequestedAnswerDimensionCount,
 		types.RequestedAnswerDimensionMemberSet,
+		types.RequestedAnswerDimensionRelationPath,
 		types.RequestedAnswerDimensionSourceLocation,
 		types.RequestedAnswerDimensionSourceAttribute,
 		types.RequestedAnswerDimensionBoundary,
@@ -16056,6 +16096,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 					b.WriteString("  - 当前证据为每个成员提供了精确源码位置；请把各自路径或 file:line 放在该成员自己的可见行/单元格中。引用只负责证明，不能代替用户要求看到的文件位置。\n")
 				}
 			}
+			if dim.Role == types.RequestedAnswerDimensionRelationPath {
+				b.WriteString("  - 请让承载这条路径的模型成文主块保留可见的有向步骤/关系，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条有向边仍需使用现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
+			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
 		return b.String()
@@ -16078,6 +16121,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			if memberLocationsRequired {
 				b.WriteString("  - Exact source locations are available for every member. Put each path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
 			}
+		}
+		if dim.Role == types.RequestedAnswerDimensionRelationPath {
+			b.WriteString("  - Keep the visible directed steps/relations in the model-authored principal path block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every directed edge still needs the existing typed claim/anchor evidence; never invent a relation from member names.\n")
 		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")

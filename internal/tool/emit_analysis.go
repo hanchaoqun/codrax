@@ -837,7 +837,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
-				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension, when independently paired with the current-turn out-of-band visual authority, requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge. " + skill.AnalysisMultiSurfaceDimensionTeaching,
+				"description": "Required typed declaration for whether the CURRENT request explicitly asks the final answer to preserve visible answer dimensions, such as diff clues, current key code, purpose/function, impact, comparison axes, total count, complete member set, a directed relation path, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. Set is_dimensioned_answer=false when none are requested. Each dimension is not an evidence origin. Most remain soft presentation guidance; one required role=diagram dimension, when independently paired with the current-turn out-of-band visual authority, requires the sibling diagram_hint carrier and final visual surface but still proves no participant or edge. " + skill.AnalysisMultiSurfaceDimensionTeaching,
 				"properties": map[string]any{
 					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
 					"dimensions": map[string]any{
@@ -847,7 +847,7 @@ func buildEmitAnalysisSchema() {
 							"type": "object",
 							"properties": map[string]any{
 								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
-								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means an actual user-visible source file/path or file:line location; it never means a package name, module name, namespace name, native-library name, or logical component identity. Use member_set when the request asks which names/entities participate, observed_value for one scalar name/value, and source_attribute only for a per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields. A detached citation pool alone is not a per-member location inventory, although a citation attached to a principal structured item renders its exact file:line for a single non-inventory location dimension. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisBranchBehaviorDimensionTeaching + " " + skill.AnalysisRuntimeDimensionSchemaTeaching},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role. source_location means an actual user-visible source file/path or file:line location; it never means a package name, module name, namespace name, native-library name, or logical component identity. Use relation_path for one requested call/data/control/dependency/wakeup/handoff path or directed relation sequence. Use member_set only when the request independently asks which/all names or entities participate as a roster; path endpoints and hops do not by themselves create that separate roster obligation. A call-chain request that independently asks for a roster must also declare the typed enumeration/per-member/completeness boundary that owns that member universe. Use observed_value for one scalar name/value, and source_attribute only for a per-subject package/module/namespace declaration requested through source_inventory_profile.requested_fields. A detached citation pool alone is not a per-member location inventory, although a citation attached to a principal structured item renders its exact file:line for a single non-inventory location dimension. evidence_source means where proof came from. stage_or_workflow denotes a conceptual stage/phase/step sequence or handoff surface; for explain requests it does not imply a source declaration inventory. " + skill.AnalysisBranchBehaviorDimensionTeaching + " " + skill.AnalysisRuntimeDimensionSchemaTeaching},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
 								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
@@ -2440,6 +2440,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if conflict := validateCallChainRequestedDimensionRoles(rm); conflict != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + conflict,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	if conflict := validateAuxiliaryPrincipalExclusionConflict(rm); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -3372,6 +3380,44 @@ func validateAuxiliaryPrincipalExclusionConflict(rm types.RequestModel) string {
 		return ""
 	}
 	return "source_scope_profile allows repo-owned auxiliary source classes as principal inventory members, but answer_exclusion_policy excludes auxiliary source classes; these typed policies are mutually exclusive. Keep auxiliary classes in scope or remove the auxiliary exclusion before emitting analysis."
+}
+
+// validateCallChainRequestedDimensionRoles prevents a relationship path from
+// accidentally minting a second, independent member-roster contract. A call
+// chain necessarily has endpoints and hops, but those identities are the
+// path's presentation payload; they are not evidence that the current request
+// also asks for a complete/listed member universe.
+//
+// Every signal consumed here is a normalized typed field. The validator never
+// scans the request, labels, rationale, source quotes, or eventual answer text,
+// and it never relabels the model-owned dimension. A contradictory tuple is
+// rejected so the analyzer can deliberately choose relation_path or emit the
+// independent typed roster boundary it intended.
+func validateCallChainRequestedDimensionRoles(rm types.RequestModel) string {
+	if !strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "call_chain") ||
+		rm.RequestedAnswerDimensions == nil ||
+		!rm.RequestedAnswerDimensions.Active() {
+		return ""
+	}
+	hasRequiredMemberSet := false
+	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionMemberSet {
+			hasRequiredMemberSet = true
+			break
+		}
+	}
+	if !hasRequiredMemberSet {
+		return ""
+	}
+	independentRoster := rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.HasPerMemberTable ||
+		rm.EnumerationBoundary != nil ||
+		rm.CompletenessObligation.IsActive() ||
+		(rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active())
+	if independentRoster {
+		return ""
+	}
+	return "question_kind=call_chain has a required requested_answer_dimensions role=member_set, but no independent typed category-enumeration, per-member-table, enumeration-boundary, completeness, or active source-inventory signal declares a separate roster. Path endpoints and hops belong to role=relation_path and do not by themselves create a member roster. Re-emit the same model-owned path dimension with role=relation_path; reserve member_set for a separately requested roster and emit its independent typed boundary when one exists. The system will not relabel the dimension or infer this distinction from request/answer prose"
 }
 
 func sourceInventoryProfileRepairSourceQuotes(raw string, attempted *emitSourceInventoryProfileParam) []string {

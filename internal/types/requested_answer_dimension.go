@@ -29,6 +29,14 @@ const (
 	RequestedAnswerDimensionComparisonAxis RequestedAnswerDimensionRole = "comparison_axis"
 	RequestedAnswerDimensionCount          RequestedAnswerDimensionRole = "count"
 	RequestedAnswerDimensionMemberSet      RequestedAnswerDimensionRole = "member_set"
+	// RequestedAnswerDimensionRelationPath identifies one visible ordered or
+	// directed relationship path, such as a call, data, control, dependency,
+	// wakeup, or handoff sequence. It is deliberately distinct from MemberSet:
+	// the endpoints/hops needed to render a path do not by themselves mean the
+	// user requested a separate roster of every participating entity. Relation
+	// authority remains on typed claims/anchors; this role only preserves the
+	// requested presentation surface.
+	RequestedAnswerDimensionRelationPath RequestedAnswerDimensionRole = "relation_path"
 	// RequestedAnswerDimensionSourceLocation identifies a user-visible,
 	// per-subject source/file location column. It is deliberately distinct
 	// from EvidenceSource: a citation can prove a row without making the file
@@ -86,6 +94,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionComparisonAxis,
 		RequestedAnswerDimensionCount,
 		RequestedAnswerDimensionMemberSet,
+		RequestedAnswerDimensionRelationPath,
 		RequestedAnswerDimensionSourceLocation,
 		RequestedAnswerDimensionSourceAttribute,
 		RequestedAnswerDimensionEvidenceSource,

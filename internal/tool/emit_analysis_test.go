@@ -1712,6 +1712,86 @@ func TestEmitAnalysis_SourceCallChainRepairsMissingAxisWithoutDroppingOrderedEnd
 	}
 }
 
+func TestEmitAnalysis_SourceCallChainSeparatesRelationPathFromMemberRoster(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "请展示 buildAnalysisIR 到 gate.Run 的调用顺序"
+	payloadForRole := func(role types.RequestedAnswerDimensionRole) string {
+		return fmt.Sprintf(`{
+			"intent":"trace",
+			"scenario":"architecture_explain",
+			"complexity":"moderate",
+			"keywords":["buildAnalysisIR","gate.Run","call","sequence"],
+			"entities":["buildAnalysisIR","gate.Run"],
+			"question_kind":"call_chain",
+			"call_chain_endpoints":{"source":"buildAnalysisIR","sink":"gate.Run","sink_mode":"exact"},
+			"requested_answer_dimensions":{"is_dimensioned_answer":true,"confidence":0.95,"dimensions":[{"index":1,"label":"调用顺序","role":%q,"source_quote":"调用顺序","required":true}]}
+		}`, role)
+	}
+
+	rejected, rejectedState := runEmitAnalysisWithObjective(t, objective, payloadForRole(types.RequestedAnswerDimensionMemberSet))
+	if rejected.Success || !strings.Contains(rejected.Summary, "role=relation_path") ||
+		!strings.Contains(rejected.Summary, "no independent typed") {
+		t.Fatalf("path mislabeled as member_set must get one typed repair target: success=%t summary=%q", rejected.Success, rejected.Summary)
+	}
+	if rejectedState.RequestModel() != nil {
+		t.Fatalf("contradictory path/roster tuple must not persist: %+v", rejectedState.RequestModel())
+	}
+
+	accepted, acceptedState := runEmitAnalysisWithObjective(t, objective, payloadForRole(types.RequestedAnswerDimensionRelationPath))
+	if !accepted.Success || acceptedState.RequestModel() == nil {
+		t.Fatalf("canonical relation_path tuple must succeed: success=%t summary=%q", accepted.Success, accepted.Summary)
+	}
+	dimensions := acceptedState.RequestModel().RequestedAnswerDimensions
+	if dimensions == nil || len(dimensions.Dimensions) != 1 ||
+		dimensions.Dimensions[0].Role != types.RequestedAnswerDimensionRelationPath {
+		t.Fatalf("relation_path role did not survive: %+v", dimensions)
+	}
+}
+
+func TestValidateCallChainRequestedDimensionRolesAllowsIndependentRosterSignals(t *testing.T) {
+	base := types.RequestModel{
+		AnalyzerHints: types.AnalyzerHints{Kind: "call_chain"},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{{
+				Role: types.RequestedAnswerDimensionMemberSet, Required: true,
+			}},
+		},
+	}
+	if got := validateCallChainRequestedDimensionRoles(base); !strings.Contains(got, "role=relation_path") {
+		t.Fatalf("unbounded call-chain member_set should reject with precise target: %q", got)
+	}
+
+	cases := map[string]func(*types.RequestModel){
+		"category enumeration": func(rm *types.RequestModel) { rm.Predicates.IsCategoryEnumeration = true },
+		"per-member table":     func(rm *types.RequestModel) { rm.Predicates.HasPerMemberTable = true },
+		"declared boundary": func(rm *types.RequestModel) {
+			rm.EnumerationBoundary = &types.RequestedEnumerationBoundary{DeclaredCount: 3, SourceQuote: "three"}
+		},
+		"completeness": func(rm *types.RequestModel) {
+			rm.CompletenessObligation = &types.CompletenessObligation{Required: true, SourceQuote: "all"}
+		},
+		"source inventory": func(rm *types.RequestModel) {
+			rm.SourceInventoryProfile = &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+			}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			rm := base
+			mutate(&rm)
+			if got := validateCallChainRequestedDimensionRoles(rm); got != "" {
+				t.Fatalf("independent roster signal must remain valid: %q", got)
+			}
+		})
+	}
+}
+
 func TestEmitAnalysis_SourceCallChainRejectsExplicitNonCallAxis(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -12188,7 +12268,7 @@ func TestEmitAnalysisSchema_SourceInventoryExcludesConceptualArchitectureMembers
 	itemProperties, _ := items["properties"].(map[string]any)
 	role, _ := itemProperties["role"].(map[string]any)
 	roleDescription, _ := role["description"].(string)
-	for _, want := range []string{"source_location", "actual user-visible source file/path", "never means a package name, module name, namespace name", "member_set", "observed_value", "source_attribute", "principal structured item", "stage_or_workflow", "does not imply a source declaration inventory"} {
+	for _, want := range []string{"source_location", "actual user-visible source file/path", "never means a package name, module name, namespace name", "relation_path", "path endpoints and hops do not by themselves create that separate roster obligation", "member_set", "observed_value", "source_attribute", "principal structured item", "stage_or_workflow", "does not imply a source declaration inventory"} {
 		if !strings.Contains(roleDescription, want) {
 			t.Fatalf("requested_answer_dimensions role teaching missing %q: %q", want, roleDescription)
 		}

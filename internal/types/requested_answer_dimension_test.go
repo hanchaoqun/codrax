@@ -2,6 +2,44 @@ package types
 
 import "testing"
 
+func TestRequestedAnswerDimensionRelationPathIsDeclaredAndValid(t *testing.T) {
+	if !RequestedAnswerDimensionRelationPath.IsValid() {
+		t.Fatal("relation_path must be a declared requested-answer dimension role")
+	}
+	found := false
+	for _, role := range AllRequestedAnswerDimensionRoles() {
+		if role == RequestedAnswerDimensionRelationPath {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("relation_path missing from the schema-facing role roster")
+	}
+}
+
+func TestNormalizeRequestedAnswerDimensionProfilePreservesRelationPath(t *testing.T) {
+	raw := "请说明跨模块调用链"
+	profile, warnings := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Confidence:          0.9,
+		Dimensions: []RequestedAnswerDimension{{
+			Label:       "跨模块调用链",
+			Role:        RequestedAnswerDimensionRelationPath,
+			SourceQuote: "跨模块调用链",
+			Required:    true,
+			Index:       1,
+		}},
+	})
+	if profile == nil || len(profile.Dimensions) != 1 ||
+		profile.Dimensions[0].Role != RequestedAnswerDimensionRelationPath {
+		t.Fatalf("relation path was not preserved: profile=%+v warnings=%v", profile, warnings)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("anchored relation path emitted warnings: %v", warnings)
+	}
+}
+
 func TestNormalizeRequestedAnswerDimensionProfile_PreservesAnchoredDimensions(t *testing.T) {
 	raw := "请说明每次提交的 diff 线索、当前关键代码、作用和影响，不要只给 commit id。"
 	profile, warnings := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{

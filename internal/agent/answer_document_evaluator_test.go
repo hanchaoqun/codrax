@@ -523,6 +523,45 @@ func TestRequestedSingleSourceLocationUsesPrincipalStructuredCitationReceipt(t *
 	}
 }
 
+func TestRequestedRelationPathUsesTypedPrincipalRelationSurface(t *testing.T) {
+	ctx := &types.AgentContext{}
+	dimension := types.RequestedAnswerDimension{
+		Index: 1, Label: "cross-module call path",
+		Role: types.RequestedAnswerDimensionRelationPath, Required: true,
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+		Items:    []types.AnswerBlockItem{{Label: "entry calls worker"}},
+	}}}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("visible model-authored principal_path_edge must cover relation_path")
+	}
+
+	doc.Blocks[0].SurfaceRole = ""
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("supporting/background relation must not consume a requested principal path")
+	}
+	doc.Blocks[0].SurfaceRole = types.SurfacePrincipal
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedEvidenceSupplement
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("a system supplement must not replace the model-owned path answer")
+	}
+
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedBlockUnknown
+	doc.Blocks[0].FacetIDs = nil
+	doc.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "entry", ToNode: "worker", RelationKind: types.DiagramRelCall,
+	}}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("visible principal block with an exact typed directed edge must cover relation_path")
+	}
+	doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelUnknown
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("untyped endpoint names must not manufacture relation-path coverage")
+	}
+}
+
 func TestRequestedPerMemberSourceLocationsCannotUseSingleCitationReceipt(t *testing.T) {
 	mut := types.NewMutableState("typed member location authority")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
