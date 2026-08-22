@@ -1193,7 +1193,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// rosters on one generation without making a rejected answer visible.
 					ctx.Mutable.SetPendingAnswerDocumentPatchBase(merged)
 					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
-						"%s", formatEmitFixHints(hardHints))
+						"%s", formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints))
 				}
 			}
 			if hints := preCheckModelSurfaceTerms(merged, ctx); len(hints) > 0 {

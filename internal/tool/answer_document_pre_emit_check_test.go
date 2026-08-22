@@ -8826,6 +8826,23 @@ func TestFormatEmitFixHints_RedlineAudit(t *testing.T) {
 	}
 }
 
+func TestFormatEmitFixHintsWithRetryCompanions_DoesNotCreateRetry(t *testing.T) {
+	hard := []emitFixHint{{Field: "blocks[].id", ExpectedShape: "add the required id"}}
+	advisory := []emitFixHint{
+		{Field: "blocks[].items[].citation_ref", ExpectedShape: "candidate_evidence=[{...}]", RetryCompanion: true},
+		{Field: "blocks[].title", ExpectedShape: "consider a clearer title"},
+	}
+	got := formatEmitFixHintsWithRetryCompanions(hard, advisory)
+	if !strings.Contains(got, "Optional repair context for this already-required retry") ||
+		!strings.Contains(got, "candidate_evidence=[{...}]") ||
+		strings.Contains(got, "consider a clearer title") {
+		t.Fatalf("only explicit retry companions should accompany the hard rejection: %s", got)
+	}
+	if got := formatEmitFixHintsWithRetryCompanions(nil, advisory); got != "" {
+		t.Fatalf("an advisory alone must not create a rejection surface, got %q", got)
+	}
+}
+
 func TestEmitFixHintsRepair_CarriesTypedFieldsAndKinds(t *testing.T) {
 	hints := []emitFixHint{
 		{

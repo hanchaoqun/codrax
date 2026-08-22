@@ -57291,6 +57291,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1413 B1346：错引候选位置与可执行 evidence ID 同代配对，软建议不新增重试（2026-08-22）
+
+1. `B1346-ITEMCITATIONCANDIDATEEXECUTABILITY1/P1` 已施工。item/citation alignment 仍先用既有 typed
+   symbol/location 规则产生 bounded `candidate_citations`；本批只把这些已经入选的位置与同一 Mutable evidence ledger 中
+   citable、current-source、line-shaped 的 EvidenceItem 做精确 file:line join，并发布成
+   `candidate_evidence=[{evidence_id,citation,claim_form,anchor_kind,subject,object,anchor_symbol,owner_symbol}]`。因此模型不再只看到
+   无法写回 patch 的裸 file:line，而能选择一个真实、当前代、可被既有 evidence-ID normalizer 消费的引用；系统不替模型挑选或改写引用。
+2. 候选投影最多 8 行，按 candidate location 轮转取值，而不是让第一个位置的多条 corroboration 抢满限额；所以四个候选位置即使前几个各有
+   多条 evidence，后面的精确 call/return 行仍至少有一次露出机会。ID 在每个位置内稳定排序，未知、runtime/log、ungrounded、非 line-shaped
+   或不可引用证据不会进入 capsule；无可执行 row 时明确保留 `candidate_evidence=[]`，不从源码文本、请求或答案正文猜造 ID。
+3. 冷读同时确认 r861 的更深接线 gap：citation mismatch 原先只写 debug advisory；若同一候选稿因另一个精确合同被退回，实际 tool result 和
+   retry hint 都看不到这条建议。本批给 `emitFixHint` 增加纯 typed `RetryCompanion` 标记：只有已经存在独立 hard hint、该稿本来就必须重试时，
+   full emit 与 patch emit 才把 bounded citation capsule 作为“optional repair context”附在同一 tool result。它不进入 ToolRepair metadata，
+   单独存在时格式化结果为空、文档照常接受，因此不会重新把 citation advisory 硬化，也不会制造或延长成文重试。
+4. 该方案保持模型所有权：模型决定是否采用候选、采用哪个 evidence ID、是否拆分 item 或收窄 label；系统只提供精确可执行材料。没有扫描用户请求、
+   thinking、最终 prose 或 Mermaid message/label 作硬门，也没有修改答案事实、关系、措辞、布局或结论。r861 中另一项“label 只写 resolve、item text
+   同时扩写 REGISTRY lookup”的错引没有被本批伪称自动解决：它属于多主张 item 缺少逐主张结构化绑定的后续观察，禁止靠正文关键词硬扫拟合。
+5. 回归钉住：candidate citation 必须携带对应 accepted evidence ID、location 与 claim form；限额下每个候选位置先保留一行；candidate capsule
+   继续走 citation advisory；retry companion 只有 hard list 非空时才出现，普通 advisory 不被夹带。`go test ./internal/tool -count=1`
+   （180.276s）、完整 `go test ./... -count=1` 和 CGO release-tag `make` 全绿。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 Python 动态注册链与显式窗 Trace。Python 验收自然发生独立 hard retry 时是否收到
+   candidate evidence pair、是否能把 `cls()` 引用落到 registry.py:34 且不增加 reject；若首稿无需 hard retry，则确认 citation advisory 不主动
+   打断成文。Trace 继续验收显式窗、自动补采、链上根因、业务线索、实际占时/规则可消双轴与完整因果投影。
+
+状态：
+
+`B1346=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`candidate-location-to-evidence=exact-current-generation-citable-join`；
+`candidate-bound=8/location-round-robin`；
+`citation-mismatch=advisory-only`；
+`retry-companion=visible-only-during-independent-hard-retry/no-new-retry`；
+`system-reference/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1412 r861：两路转绿且关系列表完整；精确引用候选缺少可执行 evidence ref（2026-08-22）
 
 1. 从已推送 `fc185d212` 重建干净不可变二进制，严格并发恰好 2 路复放 Python 动态注册链与显式窗 Trace，runner 2/2

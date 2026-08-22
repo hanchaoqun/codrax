@@ -879,6 +879,7 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{
 		EvidenceItems: []types.EvidenceItem{
 			{
+				ID:              "ev-adjacent-call",
 				Kind:            types.EvidenceConditional,
 				Source:          "internal/agent/analyzer.go",
 				LineStart:       1850,
@@ -888,6 +889,7 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 				GroundingStatus: types.GroundingGrounded,
 			},
 			{
+				ID:              "ev-gate-runwith",
 				Kind:            types.EvidenceDirect,
 				Source:          "internal/agent/analyzer.go",
 				LineStart:       1970,
@@ -905,11 +907,35 @@ func TestPreCheckItemCitationAlignment_RejectsAdjacentCallCitationDrift(t *testi
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "gate.RunWith") ||
 		!strings.Contains(hints[0].ExpectedShape, "current_citation=internal/agent/analyzer.go:1850") ||
-		!strings.Contains(hints[0].ExpectedShape, "candidate_citations=[internal/agent/analyzer.go:1970]") {
+		!strings.Contains(hints[0].ExpectedShape, "candidate_citations=[internal/agent/analyzer.go:1970]") ||
+		!strings.Contains(hints[0].ExpectedShape, `"evidence_id":"ev-gate-runwith"`) ||
+		!strings.Contains(hints[0].ExpectedShape, `"citation":"internal/agent/analyzer.go:1970"`) ||
+		!strings.Contains(hints[0].ExpectedShape, `"claim_form":"call_edge"`) {
 		t.Fatalf("hint should name invalid current cite and typed candidate line, got %+v", hints[0])
+	}
+	if !hints[0].RetryCompanion {
+		t.Fatalf("citation repair choices should accompany an independently required retry without becoming hard: %+v", hints[0])
+	}
+	hard, advisory := splitPreEmitHintsByGate(tagPreEmitHints(types.ViolCitation, hints))
+	if len(hard) != 0 || len(advisory) != 1 {
+		t.Fatalf("candidate evidence context must remain advisory-only, hard=%+v advisory=%+v", hard, advisory)
 	}
 	if strings.Contains(hints[0].ExpectedShape, "cite internal/agent/analyzer.go:1850") {
 		t.Fatalf("hint must not present the current invalid citation as the target, got %+v", hints[0])
+	}
+}
+
+func TestPreEmitItemCitationCandidateEvidenceRows_PreservesEveryCandidateLocationUnderBound(t *testing.T) {
+	mut := types.NewMutableState("bounded candidate evidence")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{ID: "ev-a1", Kind: types.EvidenceDirect, Source: "pkg/a.go", LineStart: 10, AnchorKind: types.AnchorCall, Subject: "A", Object: "One", GroundingStatus: types.GroundingGrounded},
+		{ID: "ev-a2", Kind: types.EvidenceDirect, Source: "pkg/a.go", LineStart: 10, AnchorKind: types.AnchorCall, Subject: "A", Object: "Two", GroundingStatus: types.GroundingGrounded},
+		{ID: "ev-b1", Kind: types.EvidenceDirect, Source: "pkg/b.go", LineStart: 20, AnchorKind: types.AnchorCall, Subject: "B", Object: "Three", GroundingStatus: types.GroundingGrounded},
+	}})
+	pctx := newPreEmitCheckContext(&types.BusContext{Mutable: mut})
+	got := preEmitItemCitationCandidateEvidenceRows(pctx, []string{"pkg/a.go:10", "pkg/b.go:20"}, 2)
+	if len(got) != 2 || got[0].Citation != "pkg/a.go:10" || got[1].Citation != "pkg/b.go:20" {
+		t.Fatalf("bounded candidate projection should keep one executable row per location before extra corroboration: %+v", got)
 	}
 }
 

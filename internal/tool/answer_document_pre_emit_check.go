@@ -523,12 +523,19 @@ func (idx *preEmitEvidenceIndex) citedEvidenceItemsByUniqueEquivalentPath(file s
 // should emit; Reason is the one-sentence "why" so the LLM
 // understands the structural requirement, not just the literal fix.
 type emitFixHint struct {
-	Field              string
-	ExpectedShape      string
-	Reason             string
-	Kind               types.ViolationKind
-	ForceHard          bool
-	HardSignal         preEmitSameTurnHardSignal
+	Field         string
+	ExpectedShape string
+	Reason        string
+	Kind          types.ViolationKind
+	ForceHard     bool
+	HardSignal    preEmitSameTurnHardSignal
+	// RetryCompanion marks a soft hint that may be shown only when another,
+	// independently hard hint has already required the same candidate document
+	// to be retried. It never changes hard/advisory routing and can never create
+	// an extra retry by itself. This is used for bounded, executable repair
+	// context that would otherwise be stranded in debug logs during a retry the
+	// model must already perform.
+	RetryCompanion     bool
 	ExpectedBlockKinds []types.AnswerBlockKind
 	// OffendingBlockKinds records where the actual typed mismatch lives. It is
 	// distinct from ExpectedBlockKinds, which describes a missing/required
@@ -1791,14 +1798,118 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 		} else {
 			part += " candidate_citations=[]"
 		}
+		if candidates := preEmitItemCitationCandidateEvidenceRows(pctx, m.candidates, 8); len(candidates) > 0 {
+			if raw, err := json.Marshal(candidates); err == nil {
+				part += " candidate_evidence=" + string(raw)
+			}
+		} else {
+			part += " candidate_evidence=[]"
+		}
 		parts = append(parts, part)
 	}
 	return []emitFixHint{{
-		Field: "blocks[].items[].citation_ref",
-		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same label; each source-location label must cite that exact file:line. current_citation is INVALID, not a target. Use a candidate_citations entry when present, or change the label to an endpoint actually present at current_citation: " +
+		Field:          "blocks[].items[].citation_ref",
+		RetryCompanion: true,
+		ExpectedShape: "each symbol-like item label must cite the evidence line whose subject/object/anchor names that same label; each source-location label must cite that exact file:line. current_citation is INVALID, not a target. candidate_evidence entries pair an executable accepted evidence_id with its exact candidate citation; when one supports the item, replace evidence_ids with the model-selected ID and omit manual citation indexes. Otherwise use a candidate_citations entry when present, or change the label to an endpoint actually present at current_citation: " +
 			strings.Join(parts, "; "),
 		Reason: "list item labels and citation_ref values must stay aligned; adjacent call-chain hops or nearby source locations cannot borrow each other's citations.",
 	}}
+}
+
+// preEmitItemCitationCandidateEvidenceRows turns already-selected soft
+// candidate locations into executable, stable evidence choices. The location
+// producer remains authoritative for candidate selection; this helper merely
+// joins those exact locations back to citable current-source EvidenceItems.
+// It neither scores nor chooses a candidate and never reads request prose.
+type preEmitItemCitationCandidateEvidence struct {
+	EvidenceID   string           `json:"evidence_id"`
+	Citation     string           `json:"citation"`
+	ClaimForm    types.ClaimForm  `json:"claim_form,omitempty"`
+	AnchorKind   types.AnchorKind `json:"anchor_kind,omitempty"`
+	Subject      string           `json:"subject,omitempty"`
+	Object       string           `json:"object,omitempty"`
+	AnchorSymbol string           `json:"anchor_symbol,omitempty"`
+	OwnerSymbol  string           `json:"owner_symbol,omitempty"`
+}
+
+func preEmitItemCitationCandidateEvidenceRows(pctx *preEmitCheckContext, locations []string, limit int) []preEmitItemCitationCandidateEvidence {
+	if pctx == nil || len(locations) == 0 {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 8
+	}
+	locationOrder := make(map[string]int, len(locations))
+	canonicalLocation := make(map[string]string, len(locations))
+	for _, raw := range locations {
+		surface, ok := types.ParseAnswerSourceLocationSurface(raw)
+		if !ok || surface.File == "" || surface.LineStart <= 0 {
+			continue
+		}
+		cit := pctx.canonicalCitation(types.Citation{File: surface.File, Line: surface.LineStart, LineEnd: surface.LineEnd})
+		key := preEmitCitationLocationKey(cit)
+		if key == "" {
+			continue
+		}
+		if _, exists := locationOrder[key]; exists {
+			continue
+		}
+		locationOrder[key] = len(locationOrder)
+		canonicalLocation[key] = fmt.Sprintf("%s:%d", strings.TrimSpace(cit.File), cit.Line)
+	}
+	if len(locationOrder) == 0 {
+		return nil
+	}
+
+	byID := preEmitCurrentSourceEvidenceByID(pctx)
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	buckets := make([][]preEmitItemCitationCandidateEvidence, len(locationOrder))
+	for _, id := range ids {
+		ev := byID[id]
+		cit, ok := preEmitCitationForItemEvidence(ev, pctx)
+		if !ok {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		order, selected := locationOrder[key]
+		if !selected {
+			continue
+		}
+		buckets[order] = append(buckets[order], preEmitItemCitationCandidateEvidence{
+			EvidenceID:   id,
+			Citation:     canonicalLocation[key],
+			ClaimForm:    types.ClaimFormOf(ev),
+			AnchorKind:   ev.AnchorKind,
+			Subject:      strings.TrimSpace(ev.Subject),
+			Object:       strings.TrimSpace(ev.Object),
+			AnchorSymbol: strings.TrimSpace(ev.AnchorSymbol),
+			OwnerSymbol:  strings.TrimSpace(ev.OwnerSymbol),
+		})
+	}
+	out := make([]preEmitItemCitationCandidateEvidence, 0, min(limit, len(ids)))
+	// Round-robin by candidate location so several corroborating rows at the
+	// first location cannot consume the bound and hide later exact locations.
+	for depth := 0; ; depth++ {
+		added := false
+		for _, bucket := range buckets {
+			if depth >= len(bucket) {
+				continue
+			}
+			out = append(out, bucket[depth])
+			added = true
+			if len(out) >= limit {
+				return out
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out
 }
 
 func preEmitBlockRendersItemSurface(kind types.AnswerBlockKind) bool {
@@ -16291,6 +16402,39 @@ func formatEmitFixHints(hints []emitFixHint) string {
 		if reason := strings.TrimSpace(h.Reason); reason != "" {
 			fmt.Fprintf(&b, "     Why: %s\n", reason)
 		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatEmitFixHintsWithRetryCompanions keeps advisory hints advisory while
+// making bounded repair choices visible during a retry that a separate precise
+// contract has already required. Companion hints are omitted on the accepted
+// path and are not included in ToolRepair metadata, so they cannot create or
+// prolong a retry loop.
+func formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints []emitFixHint) string {
+	base := formatEmitFixHints(hardHints)
+	if base == "" {
+		return ""
+	}
+	companions := make([]emitFixHint, 0, len(advisoryHints))
+	for _, hint := range advisoryHints {
+		if hint.RetryCompanion {
+			companions = append(companions, hint)
+		}
+	}
+	if len(companions) == 0 {
+		return base
+	}
+	var b strings.Builder
+	b.WriteString(base)
+	b.WriteString("\n\nOptional repair context for this already-required retry (this section does not reject an otherwise acceptable answer and must not cause another retry):\n")
+	const maxCompanions = 2
+	for i, hint := range companions {
+		if i >= maxCompanions {
+			fmt.Fprintf(&b, "  - +%d more optional hint(s)\n", len(companions)-maxCompanions)
+			break
+		}
+		fmt.Fprintf(&b, "  - Field `%s`: %s\n", strings.TrimSpace(hint.Field), strings.TrimSpace(hint.ExpectedShape))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

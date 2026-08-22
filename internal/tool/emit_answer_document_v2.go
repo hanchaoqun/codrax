@@ -356,7 +356,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 				rememberRejectedAnswerDocumentDraft(ctx, doc)
 				persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
 				return failEmitWithRepair(toolName, now, emitFixHintsRepair(hardHints),
-					"%s", formatEmitFixHints(hardHints))
+					"%s", formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints))
 			}
 		}
 	}
