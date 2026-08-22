@@ -57498,6 +57498,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1395 r854/B1334：candidate 配方初稿可见，但 optional-diagram 重试被 generic fragment 抢占（2026-08-22）
+
+1. 从已推送 `5d31d93c6` 重建干净不可变二进制，严格并发恰好 2 路复放同一 Python 动态分派与显式窗 Trace，runner 2/2 PASS：
+   Trace 182s、Python 278s。两路活动流均未按固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或系统代写结论。
+2. B1333 获得一半生产正证。Python 初始 finalizer prompt 的统一 relation capsule 内真实出现 csv/json 两组 schema-native 配方；每组都含
+   call、argument flow、两处 assignment、return 和 declared-type rows，exact node/identity/relation/Evidence ID/source occurrence/
+   `edge_anchor_json` 齐全。证明初稿载体与 Mutable receipt 接线有效，且没有把 assignment/return/type 伪装成 call。
+3. 但 Python 仍有 5 次成文拒绝，人工判 uncertain。模型先后把 lookup 当 data_flow、把 factory return 画成 `resolve -> run_pipeline` reply、
+   把 callback endpoint 写成 `run_pipeline -> handle`，还出现一次 `replace_blocks` 与 `diagram_edge_edits` 原子操作冲突。最终答案正文基本正确，
+   图却只保留 generic call/callback fragment，并加入 `resolve -> KeyError` 与 `resolve -> cls` 支持分支；注册、查表、factory return、
+   `JsonPlugin`/type 关系全部不在图中，未回答用户关注的动态解析关系。
+4. 新 P1 `B1334-DYNAMICCANDIDATERETRYFOCUS1` 已确认。optional-diagram retry 先调用
+   `answerDocMechanismCopyReadyRepairPayload`；只要 generic topology template 存在，就不走含完整 candidate subsection 的
+   typed-relation boundary payload。最后一轮 19KB 提示明确把 generic component fragment 放在当前修补焦点，模型遂把“事实为真但偏离请求”的
+   exception/constructor call 当作安全替代。B1333 写入 Mutable receipt 只供 validator 判定，不自动进入这条 repair hint，所以“初稿与重试共用
+   一份配方”的账本表述需收窄为 receipt 同源、重试显示尚未同源。
+5. 最优通用方案不是硬要求保留某条 Python 边，而是增加 request-scoped dynamic-candidate repair payload：当 typed compiler 已产出完整
+   candidate 时，optional/required diagram repair 优先重复所有候选组的 exact recipes，并明确它们是候选权限、由模型选择相关组；generic
+   grounded fragments只保留为 supporting fallback，不能替代本次动态解析关系。载体只读 typed endpoint profile、compiler output 与 receipt，
+   不扫描问题/思考/答案/Mermaid 标签，也不选择 json、类、边、布局或结论。
+6. 同时暴露一层更深的图拓扑 gap：当前 recipe 逐 occurrence 使用独立 node id，虽防止重复源码位置被静默折叠，却让同一 `resolve`/
+   `REGISTRY` 身份在图中断开；selector application 仅为 note，尚无由“精确装饰器应用 + 同 owner indexed binding”合成的 literal-specific
+   registration candidate edge。下一批需在不宣称 runtime-selected 的前提下，评估发布 candidate-only 的组合绑定事实，并把 occurrence
+   provenance 与可复用 semantic node identity 分层，不能用 fixture 名字或行号拼链。
+7. Trace 系统面继续通过：显式 2.000..2.020s、四线程链、11.000ms 链上 IO 第一席、三个 1.000ms 候选、实际占时/规则可消双轴、
+   背景隔离、自动补采和完整 `Trace 因果投影` 全在，零成文拒绝。模型开头正确披露同步阻塞者/锁持有者未证，但仍把已证唤醒先后写成
+   “由跨 CPU 依赖唤醒链引起”；继续归 B1269/B1271 软遵循观察，不做正文关键词硬门或系统替换。
+
+状态：
+
+`r854=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1333=production-positive-initial-carrier/partial`；
+`B1334=confirmed/P1/next`；
+`initial-candidate-recipe=complete`；
+`optional-diagram-retry-focus=generic-fragment-wins/candidate-hidden`；
+`candidate-runtime-selection=model-owned`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`B1332=confirmed/P1/open`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r854`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r854`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
