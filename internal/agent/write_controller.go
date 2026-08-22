@@ -394,7 +394,7 @@ func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *typ
 			continue
 		}
 		switch strings.TrimSpace(record.Category) {
-		case "probe_contract_refs", "project_test_contract_refs":
+		case "probe_contract_refs", "project_test_contract_refs", "source_contract_refs":
 		default:
 			continue
 		}

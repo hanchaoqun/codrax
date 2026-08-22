@@ -3746,7 +3746,7 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 			conf.ProbeUnavailable = true
 		case status == "missing" && category == "probe_changed_symbol":
 			conf.MissingChangedSymbol = true
-		case status == "missing" && category == "probe_contract_refs":
+		case status == "missing" && (category == "probe_contract_refs" || category == "source_contract_refs"):
 			for _, ref := range rec.ContractRefs {
 				if ref = strings.TrimSpace(ref); ref != "" {
 					conf.MissingContracts[ref] = true
@@ -3758,7 +3758,7 @@ func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCovera
 					conf.CoveredSymbols[ref] = true
 				}
 			}
-		case status == "satisfied" && category == "probe_contract_refs":
+		case status == "satisfied" && (category == "probe_contract_refs" || category == "source_contract_refs"):
 			for _, ref := range rec.ContractRefs {
 				if ref = strings.TrimSpace(ref); ref != "" {
 					conf.CoveredContracts[ref] = true
@@ -8996,7 +8996,7 @@ func verificationConfidenceRepairQueueItems(plan *types.ChangePlan, report *type
 			continue
 		}
 		switch strings.TrimSpace(rec.Category) {
-		case "probe_soft_contract_refs", "probe_contract_refs":
+		case "probe_soft_contract_refs", "probe_contract_refs", "source_contract_refs":
 			addContractRefs(rec, rec.ContractRefs)
 		case "probe_changed_symbol":
 			addChangedSymbolRefs(rec, rec.ChangedSymbolRefs)

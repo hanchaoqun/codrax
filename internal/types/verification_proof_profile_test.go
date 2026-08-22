@@ -145,6 +145,42 @@ func TestBuildVerificationProofLedgerResolvesExactProjectTestContractReceipt(t *
 	}
 }
 
+func TestBuildVerificationProofLedgerResolvesExactSourceContractReceipt(t *testing.T) {
+	plan := &ChangePlan{
+		ID: "plan-source-observation",
+		BehaviorContracts: []WriteBehaviorContract{{
+			ID: "return-line", Kind: WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpEquals,
+			Expected: "return buf;", EvidenceRef: "main.c:19", Required: true,
+		}},
+	}
+	report := &ChangeReport{
+		PlanID: plan.ID, Passed: true, VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{Runner: "make", Suite: "test", Outcome: "executed", ExitCode: 0}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path: "main.c", Status: ChangedPathVerificationCovered,
+			Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+		}},
+		VerificationConfidence: []VerificationConfidenceRecord{{
+			Source: "post_apply_source_observation", Category: "source_contract_refs",
+			Status: "satisfied", ReasonCode: "post_apply_source_contract_observed",
+			ContractRefs: []string{"return-line"},
+		}},
+	}
+
+	profile := BuildVerificationProofProfile(plan, report)
+	if profile.Status != VerificationProofStrong || verificationProofHasReason(profile, "behavior_contract_observation_missing") {
+		t.Fatalf("exact source receipt did not close the source-value contract: %+v", profile)
+	}
+	ledger := BuildVerificationProofLedger(plan, report, nil)
+	if ledger.State != VerificationProofLedgerVerified || ledger.UncoveredCount != 0 {
+		t.Fatalf("exact source receipt did not close proof ledger: %+v", ledger)
+	}
+	if !verificationProofLedgerHasItem(ledger, "behavior_contract", VerificationProofLedgerItemCovered, "post_apply_source_contract_observed") {
+		t.Fatalf("source contract receipt missing from ledger: %+v", ledger.Obligations)
+	}
+}
+
 func TestBuildVerificationProofLedgerIgnoresPersistedPlanningOnlyProjectDebt(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-planning-only-project-observation",

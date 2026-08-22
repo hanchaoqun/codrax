@@ -801,7 +801,7 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(plan
 			ledger.Obligations = append(ledger.Obligations, item)
 		}
 		switch strings.TrimSpace(rec.Category) {
-		case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "probe_placement_refs":
+		case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs", "probe_placement_refs":
 			refs := dedupTrimWriteWorkflowRunStrings(rec.ContractRefs)
 			if len(refs) == 0 {
 				add(base)
@@ -893,7 +893,7 @@ func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(pl
 			PlanID:      strings.TrimSpace(plan.ID),
 			ReasonCode:  "behavior_contract_observation_missing",
 			ContractRef: id,
-			Detail:      "required behavior contract has no typed executed observation carrying this exact contract_ref",
+			Detail:      "required behavior contract has no typed observation carrying this exact contract_ref",
 		})
 	}
 }
@@ -913,7 +913,7 @@ func missingRequiredWriteBehaviorContractObservationIDs(plan *ChangePlan, report
 				continue
 			}
 			switch strings.TrimSpace(rec.Category) {
-			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs":
+			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs":
 				for _, ref := range rec.ContractRefs {
 					if ref = strings.TrimSpace(ref); ref != "" {
 						covered[ref] = struct{}{}
@@ -949,7 +949,7 @@ func missingCumulativeRequiredWriteBehaviorContractObservationIDs(artifacts []Ve
 				continue
 			}
 			switch strings.TrimSpace(rec.Category) {
-			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs":
+			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs":
 				for _, ref := range rec.ContractRefs {
 					if ref = strings.TrimSpace(ref); ref != "" {
 						covered[ref] = struct{}{}
@@ -1333,7 +1333,7 @@ func verificationProofLedgerStatusFromImpactCoverage(status string) Verification
 
 func verificationProofLedgerKindFromConfidence(category string) string {
 	switch strings.TrimSpace(category) {
-	case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs":
+	case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs":
 		return "behavior_contract"
 	case "probe_placement_refs":
 		return "rendered_text_placement_contract"
@@ -1465,6 +1465,7 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 	hardCovered := map[string]bool{}
 	softCovered := map[string]bool{}
 	projectTestCovered := map[string]bool{}
+	sourceCovered := map[string]bool{}
 	placementCovered := map[string]bool{}
 	changedCovered := false
 	for _, rec := range records {
@@ -1492,6 +1493,12 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 						projectTestCovered[ref] = true
 					}
 				}
+			case "source_contract_refs":
+				for _, ref := range rec.ContractRefs {
+					if ref = strings.TrimSpace(ref); ref != "" {
+						sourceCovered[ref] = true
+					}
+				}
 			case "probe_placement_refs":
 				for _, ref := range rec.ContractRefs {
 					if ref = strings.TrimSpace(ref); ref != "" {
@@ -1511,7 +1518,7 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 				continue
 			}
 			switch category {
-			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "probe_placement_refs":
+			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs", "probe_placement_refs":
 				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ContractRefs...)})
 			case "probe_changed_symbol":
 				missing = append(missing, missingRecord{code: code, category: category, refs: append([]string(nil), rec.ChangedSymbolRefs...)})
@@ -1530,6 +1537,9 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 	for ref := range projectTestCovered {
 		contractCovered[ref] = true
 	}
+	for ref := range sourceCovered {
+		contractCovered[ref] = true
+	}
 	unresolved := map[string]bool{}
 	for _, miss := range missing {
 		switch miss.category {
@@ -1542,6 +1552,10 @@ func unresolvedVerificationProofConfidenceReasons(records []VerificationConfiden
 				unresolved[miss.code] = true
 			}
 		case "project_test_contract_refs":
+			if !allVerificationProofRefsCovered(miss.refs, contractCovered) {
+				unresolved[miss.code] = true
+			}
+		case "source_contract_refs":
 			if !allVerificationProofRefsCovered(miss.refs, contractCovered) {
 				unresolved[miss.code] = true
 			}

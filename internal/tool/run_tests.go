@@ -409,6 +409,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.VerificationConfidence,
 			verificationConfidenceRecordsFromReport(authorityPlan, report),
 		)
+		if !dryRunProbe {
+			report.VerificationConfidence = mergeVerificationConfidenceRecords(
+				report.VerificationConfidence,
+				postApplySourceContractConfidenceRecords(ctx.RepoRoot, authorityPlan),
+			)
+		}
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}

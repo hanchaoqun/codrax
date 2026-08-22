@@ -57421,6 +57421,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1364 S1319：计划自有单行源码合同获得语言无关的 post-apply 精确观察（2026-08-22）
+
+1. `B1319-WRITESOURCECONTRACTOBS1/P1` 已施工。`run_tests` 在非 dry-run 的 post-apply 报告封口处新增独立
+   `source_contract_refs` 证据车道：它逐个读取 active+cumulative behavior contract，只在 hard-required、非
+   placement/transition/comparator、`kind=observable|invariant|file_layout`、operator 为
+   `equals|not_equals|contains|not_contains`、expected 非空且 `evidence_ref` 可结构化解析为**单个**
+   `repo-relative-code/config-path:line` 时进入。该判据不读取用户请求、模型解释、acceptance prose、测试输出文本或
+   文件名关键词，也不因语言不同分叉。
+2. 读取权限继续收窄：source path 必须与 `ChangePlanVerificationTargetPaths` 中的计划自有路径精确相等；绝对路径、
+   `..`、line range、未拥有路径、缺失文件、超长行和解析歧义均不铸证。读取前对仓根与目标做 symlink resolution，
+   目标逃出 worktree 时 fail-closed。比较只对源码行与 expected 做首尾空白归一，内部字节不改；匹配发
+   `post_apply_source_contract_observed/satisfied`，明确可执行但值不符发
+   `post_apply_source_contract_value_mismatch/missing`，不会静默把失败源码签绿。
+3. 权限边界保持两轴独立。该 receipt 只关闭“post-apply 源码在指定行具有指定值”这一个 contract；`returns`、
+   `raises/not_raises`、运行时状态、stdout/status code、时序、跨行语义和 rendered placement 仍不能由源码相似字节证明，
+   必须使用 identity-coupled verification probe 或 exact project assertion。项目 runner 的 changed-path
+   `target_behavior`/`target_execution` 权限也没有被抬高。本例因此由 source receipt 关闭 `return buf;` 单行值轴，
+   由真实 `make test` 关闭编译/执行轴，不再追加一个 C 运行时根本无法增强的 verify-only 循环。
+4. proof profile、单报告/累计 proof ledger、controller completion summary、verify coverage confidence 与 repair queue
+   统一消费同一 `source_contract_refs` category；required behavior-contract 缺口说明也从“必须 executed observation”
+   更正为“必须 typed observation”，但没有放宽任何 runtime contract。新增回归覆盖正匹配、精确不匹配、runtime
+   operator、line range、未拥有路径、symlink escape，以及 source receipt 能关闭 exact contract ledger；原 probe、
+   project assertion、changed-path、write scheduler 与累计证明套件继续通过。
+5. 验收：定向 `go test ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator ... -count=1` 全绿；完整
+   `go test ./... -count=1` 全绿（tool 200.276s、hitraceconv 97.602s、tracequery 86.729s、types 34.636s）；CGO
+   release-tag `make` 与 `git diff --check` 通过。下一小批按冻结顺序施工 B1320 的 lossless full-block operation
+   remap，然后再用同一 C write + Rust read 严格并发恰好 2 路做生产回放。
+
+状态：
+
+`B1319=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`source-contract-authority=typed-plan-owned-single-line-only`；
+`source-operators=equals/not-equals/contains/not-contains`；
+`runtime/exception/state/timing/output/placement=executable-proof-only`；
+`unowned/range/ambiguous/symlink-escape=fail-closed`；
+`aggregate-project-green=not-blanket-contract-authority`；
+`system-answer/relation/action/label/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
