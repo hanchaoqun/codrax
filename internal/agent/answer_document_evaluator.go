@@ -18462,6 +18462,10 @@ func answerDocDiagramOptionalOrphanCleanupCandidates(
 			}
 		}
 		edges := mermaidcompat.ParseEdges(body)
+		sequenceReferences := make(map[string]bool)
+		for _, id := range mermaidcompat.SequenceParticipantReferences(body) {
+			sequenceReferences[strings.TrimSpace(id)] = true
+		}
 		declarationCounts := make(map[string]int)
 		for _, decl := range mermaidcompat.RemovableNodeDeclarations(body) {
 			declarationCounts[strings.TrimSpace(decl.Ident)]++
@@ -18479,7 +18483,8 @@ func answerDocDiagramOptionalOrphanCleanupCandidates(
 		}
 		for _, decl := range mermaidcompat.RemovableNodeDeclarations(body) {
 			id := strings.TrimSpace(decl.Ident)
-			if id == "" || declarationCounts[id] != 1 || answerDocDiagramSurfaceProtected(blockProtected, id, decl.Label) {
+			if id == "" || declarationCounts[id] != 1 || sequenceReferences[id] ||
+				answerDocDiagramSurfaceProtected(blockProtected, id, decl.Label) {
 				continue
 			}
 			incident, allRemovable := 0, true

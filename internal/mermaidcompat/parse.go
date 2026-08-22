@@ -787,6 +787,109 @@ func SequenceParticipantDeclarations(line string) []NodeDecl {
 	return []NodeDecl{{Ident: ident, Label: ident}}
 }
 
+// SequenceParticipantReferences returns explicit participant identifiers used
+// by non-message sequence statements. Message endpoints are intentionally
+// excluded because ParseEdges already owns them, and declaration lines are not
+// references to some other carrier. This parser is syntax-only: it reads
+// Mermaid directive positions, never note text or other user/model prose.
+//
+// Keeping these references separate prevents a local edge repair from
+// deleting a declaration that is still needed by a Note, lifecycle directive,
+// actor-link metadata, or a create/destroy statement.
+func SequenceParticipantReferences(body string) []string {
+	if mermaidBodyFamily(body) != "sequence" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(raw string) {
+		id := strings.TrimSpace(strings.Trim(raw, `"'`))
+		if id == "" || seen[id] || strings.ContainsAny(id, " \t\r\n") {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "%%") || len(SequenceParticipantDeclarations(line)) > 0 {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if sequenceDirectiveHasTokenPrefix(lower, "note") {
+			rest := strings.TrimSpace(line[len("note"):])
+			lowerRest := strings.ToLower(rest)
+			for _, prefix := range []string{"right of ", "left of ", "over "} {
+				if !strings.HasPrefix(lowerRest, prefix) {
+					continue
+				}
+				targets := strings.TrimSpace(rest[len(prefix):])
+				if colon := strings.Index(targets, ":"); colon >= 0 {
+					targets = targets[:colon]
+				}
+				for _, target := range strings.Split(targets, ",") {
+					add(target)
+				}
+				break
+			}
+			continue
+		}
+		matched := false
+		for _, keyword := range []string{"activate", "deactivate", "destroy", "link", "links", "properties", "details"} {
+			if !sequenceDirectiveHasTokenPrefix(lower, keyword) {
+				continue
+			}
+			rest := strings.TrimSpace(line[len(keyword):])
+			if colon := strings.Index(rest, ":"); colon >= 0 {
+				rest = rest[:colon]
+			}
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				add(fields[0])
+			}
+			matched = true
+			break
+		}
+		if matched {
+			continue
+		}
+		for _, keyword := range []string{"create participant", "create actor"} {
+			if !sequenceDirectiveHasTokenPrefix(lower, keyword) {
+				continue
+			}
+			rest := strings.TrimSpace(line[len(keyword):])
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				add(fields[0])
+			}
+			break
+		}
+	}
+	return out
+}
+
+// SequenceParticipantReferenced is the membership form used by atomic diagram
+// edits. Identifier comparison is exact, matching Mermaid participant IDs;
+// visible labels do not participate.
+func SequenceParticipantReferenced(body, participantID string) bool {
+	participantID = strings.TrimSpace(participantID)
+	if participantID == "" {
+		return false
+	}
+	for _, id := range SequenceParticipantReferences(body) {
+		if id == participantID {
+			return true
+		}
+	}
+	return false
+}
+
+func sequenceDirectiveHasTokenPrefix(lowerLine, lowerKeyword string) bool {
+	if lowerLine == lowerKeyword {
+		return true
+	}
+	return len(lowerLine) > len(lowerKeyword) && strings.HasPrefix(lowerLine, lowerKeyword) &&
+		isASCIIWhitespace(lowerLine[len(lowerKeyword)])
+}
+
 // RemovableNodeDeclarations returns only explicit, whole-line node carriers
 // that can be removed without rewriting another Mermaid statement. Sequence
 // participant/actor declarations and standalone flowchart node declarations

@@ -310,6 +310,45 @@ func TestParseEdges_SequenceNonMessageDirectiveArrowBytesAreNotEdges(t *testing.
 	}
 }
 
+func TestSequenceParticipantReferencesCoversNonEdgeSequenceCarriers(t *testing.T) {
+	body := strings.Join([]string{
+		"sequenceDiagram",
+		"  participant A as API",
+		"  participant B as Worker",
+		"  participant C as Cache",
+		"  participant D as Database",
+		"  participant E as External",
+		"  Note over A,B: A -> B appears only in note text",
+		"  Note right of C: cache details",
+		"  activate D",
+		"  deactivate D",
+		"  link E: Dashboard @ https://example.invalid",
+		"  properties E: {\"owner\":\"team\"}",
+		"  create participant F as Future",
+		"  destroy F",
+		"  A->>B: dispatch C and E",
+		"  %% Note over G,H: comment only",
+	}, "\n")
+	got := SequenceParticipantReferences(body)
+	want := []string{"A", "B", "C", "D", "E", "F"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sequence non-edge participant references=%v want=%v", got, want)
+	}
+	for _, id := range want {
+		if !SequenceParticipantReferenced(body, id) {
+			t.Fatalf("membership helper missed %q in %v", id, got)
+		}
+	}
+	for _, absent := range []string{"G", "H", "dispatch", "Cache"} {
+		if SequenceParticipantReferenced(body, absent) {
+			t.Fatalf("declaration label, note text, message text, or comment minted reference %q: %v", absent, got)
+		}
+	}
+	if refs := SequenceParticipantReferences("flowchart LR\n A --> B"); len(refs) != 0 {
+		t.Fatalf("non-sequence diagram must stay outside participant-reference grammar: %v", refs)
+	}
+}
+
 func TestParseEdges_SequenceDirectiveNamedParticipantMessageIsPreserved(t *testing.T) {
 	body := strings.Join([]string{
 		"sequenceDiagram",

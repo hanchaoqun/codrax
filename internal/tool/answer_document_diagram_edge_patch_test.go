@@ -147,6 +147,25 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 		}
 	})
 
+	t.Run("sequence Note reference prevents declaration removal", func(t *testing.T) {
+		prev := atomicPatchTestDocument()
+		prev.Blocks[1].Diagram.Body += "    Note over A,C: keep authored context\n"
+		lease := newLease(prev)
+		// Simulate a stale producer candidate to pin the executor's independent
+		// syntax-liveness recheck. Current production candidate generation no
+		// longer publishes this row in the first place.
+		lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, &types.AnswerDocumentV2Patch{},
+			[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+			[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "A", Action: "remove_if_isolated"}},
+			nil, lease,
+		)
+		if err == nil || !strings.Contains(err.Error(), "referenced by a visible sequence directive") {
+			t.Fatalf("Note-referenced participant removal must fail closed: %v", err)
+		}
+	})
+
 	t.Run("flow standalone declaration uses the same contract", func(t *testing.T) {
 		prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 			ID: "diag", Kind: types.BlockDiagram,

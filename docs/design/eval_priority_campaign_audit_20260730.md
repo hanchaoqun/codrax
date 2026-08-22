@@ -57780,6 +57780,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1403 B1338：sequence participant 孤立判定覆盖全部非边引用载体（2026-08-22）
+
+1. `B1338-DIAGRAMORPHANNOTEREF1/P1` 已施工。此前可选孤儿候选和执行器只把 Mermaid message edge 与 `edge_anchors` 当 participant 活性；
+   `Note over JP,H`、activate/deactivate 等非边语法不参与 census，模型删除失证边并选择 `remove_if_isolated` 后，系统会删掉 JP/H 声明却保留
+   Note，形成悬空引用或依赖查看器隐式补 actor 的弱图。
+2. `mermaidcompat` 新增纯语法 `SequenceParticipantReferences`：覆盖 `Note over/right of/left of`、activate/deactivate、create/destroy，以及
+   link/links/properties/details 的 participant 位置。它不解析 Note 内容、message label、用户请求、模型 reasoning、最终 prose 或业务词；message
+   endpoint 仍由既有 `ParseEdges` 单独负责，普通 flow/class 图保持不变。
+3. 候选 producer 在发布 `optional_orphan_cleanups` 前，先把这些 exact reference ID 纳入 liveness；仍被任一非边指令引用的 participant 不再被
+   宣告为可删除孤儿。执行器再做独立防御复核：即使收到陈腐/手工构造的 cleanup candidate，`remove_if_isolated` 也会因当前图仍有 sequence
+   reference 而 fail-closed。`retain_as_context` 仍是模型拥有的显示选择，系统不删除 Note、不补 actor、不改标签、不创造边或结论。
+4. “删边后是否必须显式处置孤儿”的检查也复用同一活性源：有 Note/lifecycle/metadata 引用时不再强迫模型在 remove/retain 两项中选择，因为该
+   participant 结构上并未孤立。没有任何 edge/anchor/reference 且所有旧 incident edge 都由 remove-capable live failure 覆盖时，原显式处置合同
+   继续生效。
+5. 回归覆盖：Note 双 participant、Note 单 participant、activation 生命周期、actor metadata、create/destroy、注释与 message/note 内容不误铸
+   引用、非 sequence 排除；producer 不发布 Note-referenced cleanup；executor 拒绝陈腐 cleanup；无非边引用时原 cleanup 选择仍可用。
+   `go test ./internal/mermaidcompat ./internal/tool ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。
+6. 下一步从本提交构建不可变二进制，继续严格并发恰好 2 路复放 Python 动态选择与显式窗 Trace：Python 验收 B1337 是否减少同代自冲突、
+   B1338 是否保留 Note 引用 participant；Trace 继续守住因果投影、自动补采、链上根因、业务线索和实际占时/规则可消双轴。
+
+状态：
+
+`B1338=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`sequence-participant-liveness=edge+anchor+non-edge-reference`；
+`note/lifecycle/actor-metadata-reference=syntax-only`；
+`orphan-removal=explicit-model-choice+executor-recheck`；
+`system-note/participant/relation/wording/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

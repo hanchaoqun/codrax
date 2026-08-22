@@ -484,6 +484,9 @@ func applyOneModelAuthoredDiagramParticipantEdit(
 		if strings.TrimSpace(edit.VisibleLabel) != "" {
 			return fmt.Errorf("remove_if_isolated does not accept visible_label")
 		}
+		if mermaidcompat.SequenceParticipantReferenced(block.Diagram.Body, participantID) {
+			return fmt.Errorf("participant remains referenced by a visible sequence directive after the selected relation edits")
+		}
 		body, count = mermaidcompat.RemoveRemovableNodeDeclaration(block.Diagram.Body, participantID)
 	case string(types.AnswerDiagramOrphanDispositionRetain):
 		visibleLabel, ok := normalizeAtomicMermaidParticipantVisibleLabel(edit.VisibleLabel)
@@ -611,6 +614,9 @@ func atomicDiagramParticipantHasIncidentCarrier(block types.AnswerBlock, partici
 			if strings.TrimSpace(edge.From) == participantID || strings.TrimSpace(edge.To) == participantID {
 				return true
 			}
+		}
+		if mermaidcompat.SequenceParticipantReferenced(block.Diagram.Body, participantID) {
+			return true
 		}
 	}
 	for _, anchor := range block.EdgeAnchors {

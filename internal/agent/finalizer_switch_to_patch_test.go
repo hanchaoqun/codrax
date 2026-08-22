@@ -1440,6 +1440,43 @@ func TestRequiredDiagramRelationRetryDoesNotPublishUnfulfillableRepeatedPairOrph
 	}
 }
 
+func TestRequiredDiagramRelationRetryDoesNotPublishSequenceReferencedOrphanCleanup(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			" participant X as JsonPlugin",
+			" participant A as resolve",
+			" X->>A: unsupported",
+			" Note over X,A: model-authored source context",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "X", ToNode: "A", FromIdentity: "JsonPlugin", ToIdentity: "resolve",
+			RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "X", ToNode: "A",
+		FromIdentity: "JsonPlugin", ToIdentity: "resolve", RelationKind: types.DiagramRelCall, BodyOccurrence: 1,
+	}}, nil)
+	if lease == nil {
+		t.Fatal("test setup did not create relation lease")
+	}
+	if got := answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, nil); len(got) != 0 {
+		t.Fatalf("participant retained by Note must not be advertised as removable orphan: %+v", got)
+	}
+
+	base.Blocks[0].Diagram.Body = strings.ReplaceAll(base.Blocks[0].Diagram.Body,
+		"\n Note over X,A: model-authored source context", "")
+	lease = types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", FromNode: "X", ToNode: "A",
+		FromIdentity: "JsonPlugin", ToIdentity: "resolve", RelationKind: types.DiagramRelCall, BodyOccurrence: 1,
+	}}, nil)
+	if got := answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, nil); len(got) != 2 {
+		t.Fatalf("without a non-edge reference both uniquely declared endpoints may remain model-owned cleanup choices: %+v", got)
+	}
+}
+
 func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolation(t *testing.T) {
 	const staleProducerRef = "rf1-stale-optional-generation"
 	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true}`
