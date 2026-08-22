@@ -57671,6 +57671,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1370 r839：关系路径家族权威与 Trace 时序语义生产转正；成文读者语言仍有残余（2026-08-22）
+
+1. 从已推送 `b66d6f1c8` 重建不可变二进制，严格并发恰好 2 路复放 TypeScript workspace 调用链与显式窗 Trace，runner
+   2/2 PASS；TypeScript 235s、Trace 262s。两路都未按固定 4ms、4m、累计活动年龄或上下文比例降级，也没有恢复旧稿或由系统接管模型结论。
+2. `B1323-RELATIONPATHFAMILYAUTH1` 获生产正证。TypeScript analyzer 首次直接声明 `relation_path`，无伪 `member_set`；终稿完整给出
+   `run -> ApiClient.fetchUser -> HttpTransport.send -> HttpTransport.dispatchOnce -> fetch`，并准确定位 `@app/core` 的
+   `tsconfig.base.json:8` 映射。Trace 第一稿的主路径块只携带 `relation_path + observed_artifact_fact + external_observation`，没有
+   `principal_path_edge`、source edge anchor 或伪 `relation_kind=call`，说明 runtime/source family 分流已进入真实成文。
+3. `B1324-TRACEINTERVALSEMANTICSGUIDANCE1` 获生产正证。hard deterministic ledger 的 wakeup-path 与 state/interval 合取使 finalizer 收到
+   typed 时间组合提示；终稿把 threadpool/network/cookie/app 的等待区间分别放在各自 wakeup 之前，列出 2.014/2.016/2.018/2.020s
+   四个 transition，并明确三个 1.000ms 优先级/调度候选不可相加。r838 的“被唤醒后睡眠”和跨线程等待叠加没有复现。
+4. Trace 核心能力未缩水：用户窗 2.000..2.020s、9 次 typed 查询与成文前补采、四线程三跳链、threadpool-400 的 11.000ms 链上
+   IO 第一席、三个独立 1.000ms 调度/优先级候选、CPU 位置、实际占时/规则可消双账户、链上业务下钻、邻近/背景降格和完整
+   `Trace 因果投影` 均在。主根因仍只由链上 typed 席位选举，系统投影没有替换模型正文。
+5. Trace 人工判 `uncertain` 而非完全通过。模型把“IO 等待在 irq wakeup 处结束”加强为“threadpool-400 完成 IO 后”，但当前证据只证明
+   D/IO-wait 区间结束与 wakeup 先后，不证明具体 request completion、等待对象或存储后端；正文还复制 `trace_query`、
+   `root_cause_rank`、`priority_inversion_candidate` 等机器词。前者归入既有 `B1269/B1271` 机理边界残余，后者归入
+   `B1272/B1215` 读者语言残余。系统已有软边界而单次模型仍未遵循，后续应把同一 typed 席位的 reader-safe label 与负权限更靠近最终 recipe；
+   禁止扫描、拒绝或改写模型最终正文。
+6. 两路各发生 1 次局部成文修补。Trace 首稿缺唯一 principal summary/caliber，一轮增补后通过且
+   `bounded_window_candidate` 没有泄漏到可见答案；TypeScript 首稿仍手填 citation pool index，随后用 stable `evidence_ids` 并补全 edge
+   identity 后通过。后者使 `B1325-REPLACEBLOCKMETADATALOAD1` 获得 Rust→TypeScript 第二语言复现，但仍只消耗一轮、未损害终稿，先升级为
+   `P1-audit`：审计 evidence-ID handoff、canonical item citation 教学和 full-block replacement metadata 是否存在竞争/重复，再决定是否施工，
+   不针对本 case 或函数名拟合。
+
+状态：
+
+`r839=runner-pass-2/2,human-typescript-pass+trace-uncertain`；
+`B1323=production-positive/core-closed`；
+`B1324=production-positive/core-closed`；
+`B1325=P1-audit/cross-language-recurrence`；
+`B1269/B1271=repeat-partial/typed-mechanism-boundary-open`；
+`B1272/B1215=repeat-partial/reader-language-open`；
+`runtime-relation-path=no-fake-source-call-anchor`；
+`typed-temporal-guidance=production-positive/no-inversion/no-cross-thread-sum`；
+`system-answer/member/relation/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/facet-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r839`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r839`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
