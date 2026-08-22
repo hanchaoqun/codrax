@@ -57634,6 +57634,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1399 r856：精确动态返回生产转正；可选关系图仍被全量坐标修补拖入五轮（2026-08-22）
+
+1. 从已推送 `cc0798167` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态选择与显式窗 Trace，runner 2/2 PASS：Trace
+   235s、Python 400s。两路活动流均未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级；没有恢复旧稿或由系统代写答案。
+2. `B1335-DYNAMICRETURNCARRIER1` 获得生产正证。finalizer 的 `Typed dynamic-selection candidates` 同时发布 csv/json 两个完整候选，
+   每组都保留 exact `run_pipeline -> resolve` call、`kind -> resolve` argument flow、decorator selector application、
+   `REGISTRY -> cls` register/assignment 以及 `resolve -> cls()` return；日志不再出现 `return_unavailable`，B1334 的 candidate-first
+   repair focus 也在自然失败中触发。精确 parser return 已不会被同坐标模型释义覆盖。
+3. Python 最终正文与有序链正确回答 `kind=json` 选择 `JsonPlugin`，并连接 `run_pipeline`、`resolve`、`REGISTRY`、`@register`、
+   `cls()`、executor callback 和 cooperative `super` 链；但人工仍判 uncertain。模型自选的可选 sequence 图连续 5 次混用语义参与者与
+   源码端点、反转 assignment/register 方向、把 callback 写成直接类边并让 Mermaid message 与 `visible_label` 不一致；第 6 次才删除可选图。
+   因而答案关系正文可用，但结构化关系表达丢失且墙钟增至 400s。
+4. 新 P1 `B1336-OPTIONALRELATIONLOCALREPAIR1` 已确认。当前 same-generation opaque relation repair lease 只在
+   `diagramRequired=true` 时安装；可选图的 mixed reject 即使已经带有精确 diagram relation failure metadata，也先落入通用坐标式
+   `diagram_edge_edits` 教学。模型必须重复抄写 block/node/occurrence/relation，且一旦同时改变 match relation kind 就会得到
+   `match did not select occurrence`，继而重写整图、迁移失败集合，直到最后删图。该 gap 是 required/optional 图修补能力分叉，不是
+   Python 或 registry 特例。
+5. 最优施工形冻结为：只要 validator 已发布 typed relation failure delta 且存在 retained patch base，就为 required/optional 图统一安装
+   same-generation lease；优先把 opaque `failure_ref`/`addition_ref` 的局部能力交给模型。可选图额外保留模型自选的整块删除出口，required 图继续
+   禁删。系统不选择 remove/replace/relabel/attach/add，不写 Mermaid、业务标签、关系、布局或结论；非图表/list 等同轮失败继续由原 validator
+   原样披露，不能被 relation lane 静默隐藏。任一 lease/delta 缺失或畸形时 fail-closed 回到现有通用车道。
+6. Trace 系统面继续通过：明确窗、自动补齐、四跳链、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms 调度供给候选、实际占时/规则可消双轴、
+   业务下钻、邻近/背景隔离和完整 `Trace 因果投影` 全在，零成文拒绝。模型仍把唤醒先后扩写成直接传播机理，继续作为软教学遵循观察；不扫描、
+   拒绝或改写正文。
+
+状态：
+
+`r856=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1334=production-positive/candidate-first-repair-triggered`；
+`B1335=production-positive/core-closed`；
+`B1336=confirmed/P1-next`；
+`optional-diagram-current-repair=legacy-coordinate-copy+failure-set-migration`；
+`target-repair=typed-same-generation-opaque-ref+model-owned-action`；
+`system-runtime-selection/relation/action/wording/layout/conclusion=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r856`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r856`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
