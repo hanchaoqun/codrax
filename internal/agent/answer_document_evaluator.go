@@ -3005,6 +3005,10 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 		b.WriteString(capsule)
 	}
+	if candidates := renderAnswerDocDynamicSelectorResolutionCandidates(ctx, strings.TrimSpace(profile.Source)); candidates != "" {
+		b.WriteString("\n\n")
+		b.WriteString(candidates)
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -3024,6 +3028,157 @@ type answerDocLocalFactOrderGroup struct {
 	source string
 	owner  string
 	items  []types.EvidenceItem
+}
+
+const (
+	answerDocDynamicSelectorEvidenceLimit  = 512
+	answerDocDynamicSelectorCandidateLimit = 4
+)
+
+// renderAnswerDocDynamicSelectorResolutionCandidates gives Finalizer a small,
+// versioned, candidate-only composition of already-citable typed relations.
+// It does not select the runtime target, invent a continuous call chain, draw a
+// diagram, or rewrite an answer. Incomplete or ambiguous groups stay withheld.
+func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext, entryIdentity string) string {
+	compiled := types.CompileDynamicSelectorResolutionPaths(
+		answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entryIdentity),
+		entryIdentity,
+	)
+	if len(compiled.Candidates) == 0 {
+		return ""
+	}
+	limit := len(compiled.Candidates)
+	if limit > answerDocDynamicSelectorCandidateLimit {
+		limit = answerDocDynamicSelectorCandidateLimit
+	}
+	var b strings.Builder
+	b.WriteString("### Typed dynamic-selection candidates (soft context; model-owned)\n\n")
+	b.WriteString("Each candidate below is an exact static-evidence composition, not proof of the runtime-selected implementation. Preserve every hop's stated relation; do not replace registration, argument flow, assignment, return, callback, or type relation with a direct call.\n\n")
+	for i := 0; i < limit; i++ {
+		path := compiled.Candidates[i]
+		fmt.Fprintf(&b, "- candidate `%d`: entry=`%s`; selector_argument=`%s`; selector_literal=`%s`; registry_container=`%s`; lookup=`%s`; declared_candidate=`%s`\n",
+			i+1,
+			answerDocCallChainInline(path.EntryIdentity),
+			answerDocCallChainInline(path.SelectorArgument),
+			answerDocCallChainInline(path.SelectorLiteral),
+			answerDocCallChainInline(path.ContainerIdentity),
+			answerDocCallChainInline(path.LookupIdentity),
+			answerDocCallChainInline(path.CandidateIdentity),
+		)
+		for _, hop := range path.Hops {
+			if hop.Role == types.DynamicSelectorHopSelectorApplication {
+				fmt.Fprintf(&b, "  - typed declaration selector application: `%s` applies literal `%s` to `%s` [%s]; represent this as a note/table fact, not a diagram edge.\n",
+					answerDocCallChainInline(path.SelectorOwner),
+					answerDocCallChainInline(path.SelectorLiteral),
+					answerDocCallChainInline(path.CandidateIdentity),
+					answerDocCallChainInline(hop.EvidenceID),
+				)
+				continue
+			}
+			fmt.Fprintf(&b, "  - relation_kind=`%s`: `%s` -> `%s` [%s]\n",
+				hop.RelationKind,
+				answerDocCallChainInline(hop.FromIdentity),
+				answerDocCallChainInline(hop.ToIdentity),
+				answerDocCallChainInline(hop.EvidenceID),
+			)
+		}
+		for _, hop := range path.CallbackHops {
+			fmt.Fprintf(&b, "  - optional callback handoff, relation_kind=`%s`: `%s` -> `%s` [%s]; it proves transfer of a callable, not later execution.\n",
+				hop.RelationKind,
+				answerDocCallChainInline(hop.FromIdentity),
+				answerDocCallChainInline(hop.ToIdentity),
+				answerDocCallChainInline(hop.EvidenceID),
+			)
+		}
+		for _, hop := range path.TypeRoster {
+			fmt.Fprintf(&b, "  - optional declared-type row, relation_kind=`%s`: `%s` -> `%s` [%s]; it does not prove runtime MRO or invocation.\n",
+				hop.RelationKind,
+				answerDocCallChainInline(hop.FromIdentity),
+				answerDocCallChainInline(hop.ToIdentity),
+				answerDocCallChainInline(hop.EvidenceID),
+			)
+		}
+	}
+	if len(compiled.Candidates) > limit {
+		fmt.Fprintf(&b, "\n- `%d` additional complete candidates are omitted only from this bounded prompt view; do not claim uniqueness from the displayed subset.\n", len(compiled.Candidates)-limit)
+	}
+	if len(compiled.Rejected) > 0 {
+		b.WriteString("\n- Additional selector groups were withheld because their typed path was incomplete or ambiguous; do not reconstruct them from source-display text or prose.\n")
+	}
+	b.WriteString("\n- Use these rows as evidence options. The model decides whether the candidate is relevant, whether separate runtime evidence proves that the argument equals the selector literal, which relations to explain or draw, the reader-facing business wording, and the final conclusion. Do not expose carrier role/status names in the reader-facing answer, and never add a synthetic `entry -> declared_candidate` call.\n")
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func answerDocDynamicSelectorEvidencePool(ctx *types.AgentContext, limit int, entryIdentity string) []types.EvidenceItem {
+	if ctx == nil || limit <= 0 {
+		return nil
+	}
+	entryIdentity = strings.TrimSpace(entryIdentity)
+	isCore := func(item types.EvidenceItem) bool {
+		if item.SelectorApplication != nil {
+			return true
+		}
+		switch types.ClaimFormOf(item) {
+		case types.ClaimRegistrationEdge, types.ClaimAssignmentFact, types.ClaimReturnFact,
+			types.ClaimArgumentFlow, types.ClaimCallbackHandoff:
+			return true
+		default:
+			return types.IsRepoMapTypeRelationEvidence(item)
+		}
+	}
+	isCall := func(item types.EvidenceItem) bool {
+		if types.ClaimFormOf(item) != types.ClaimCallEdge {
+			return false
+		}
+		return entryIdentity == "" || types.AnswerCodeIdentitySurfacesEquivalent(
+			firstNonEmptyAnswerDocString(item.OwnerSymbol, item.Subject), entryIdentity,
+		)
+	}
+	seen := make(map[string]int, limit)
+	out := make([]types.EvidenceItem, 0, extractorMinInt(len(ctx.EvidenceItems), limit))
+	addGroup := func(items []types.EvidenceItem, accept func(types.EvidenceItem) bool, familyCount *int, familyLimit int) {
+		for _, item := range items {
+			if !accept(item) {
+				continue
+			}
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				id = types.StableEvidenceID(item)
+				item.ID = id
+			}
+			if idx, ok := seen[id]; ok {
+				out[idx] = types.MergeEvidenceItemByStableID(out[idx], item)
+				continue
+			}
+			if len(out) >= limit || *familyCount >= familyLimit {
+				continue
+			}
+			seen[id] = len(out)
+			out = append(out, item)
+			*familyCount = *familyCount + 1
+		}
+	}
+	groups := [][]types.EvidenceItem{ctx.EvidenceItems}
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			groups = append(groups, ta.EvidenceItems)
+		}
+		groups = append(groups, ctx.Mutable.EmittedEvidence())
+	}
+	// Calls are normally the largest family. Reserve three quarters of this
+	// bounded pool for the rarer selector/binding/value/type carriers so a
+	// broad call inventory cannot starve the very rows needed to compile the
+	// dynamic boundary. The remaining quarter carries entry/callback calls.
+	coreLimit := limit - limit/4
+	coreCount := 0
+	for _, group := range groups {
+		addGroup(group, isCore, &coreCount, coreLimit)
+	}
+	callCount := 0
+	for _, group := range groups {
+		addGroup(group, isCall, &callCount, limit-coreLimit)
+	}
+	return out
 }
 
 // renderAnswerDocLocalFactOrderCapsule exposes exact lexical order for

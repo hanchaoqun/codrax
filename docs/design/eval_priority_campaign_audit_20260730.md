@@ -57330,6 +57330,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1382 B1329-B：完整 typed 候选路径进入 soft 成文上下文，模型继续拥有选择与结论（2026-08-22）
+
+1. B1329 第二批已把 `DynamicSelectorResolutionPath` 接入运行时目标/调用路径发现的 finalizer handoff。只有编译器成功产出的完整、无歧义
+   candidate 才进入 `Typed dynamic-selection candidates`；所有缺 hop 或多义 selector group 继续被扣留，不从错误文本、source-display、请求或模型
+   prose 猜补。该区块是 soft context，不参与 emit-time hard gate，也不要求答案必须画图。
+2. 每个候选逐行提供模型可直接消费的业务 identity、原始 Evidence ID 与诚实关系种类：入口 call、完整实参 `argument_flow`、selector application
+   声明事实、registry `register`、lookup `assignment`、factory `return`，以及独立的 callback/type-relation。selector application 明确只能用 Note、表格或
+   文字表达，不伪装成 diagram edge；callback 只证明 callable handoff，type row 只证明声明关系，不升级为执行/MRO。
+3. 上下文明确保持候选上限：静态组合不证明调用时实参等于 selector literal，也不证明声明候选就是本次运行实际选中的实现；这些判断、业务解释、
+   关系取舍、图形、读者措辞和最终结论全部由模型结合其他证据决定。禁止新增 `entry -> declared candidate` synthetic call，也禁止把系统 carrier 的
+   role/status token 抄进读者答案。
+4. 证据收集按 typed family 预留容量：稀有的 selector/registration/assignment/return/argument/callback/type 行占 3/4 有界池，call 行占 1/4；
+   当 analyzer 已给出精确 entry identity 时，只接收该 entry 的 typed call，避免宽调用清单挤掉动态边界核心证据。该选择只读结构化 claim/identity，
+   不扫描用户原文、模型原文、最终答案、Mermaid 文本、文件扩展名或语言名。
+5. 回归钉住完整 finalizer handoff：六类 core 关系、callback、type row 和 Evidence ID 必须齐全，selector application 不得变成边，prompt 不得宣称
+   JsonPlugin 已被运行时选中或铸造 `resolve/run_pipeline -> JsonPlugin` call；同 selector 多候选时整个候选区块不发。agent+types 完整包、最终快照
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全部通过；下一步从不可变提交严格并发恰好 2 路复放 Python 动态选择 + 显式窗 Trace。
+
+状态：
+
+`B1329-B=implemented/relevant-packages-pass/full-suite-pass/build-pass`；
+`finalizer-carrier=soft+candidate-only+versioned-typed-path`；
+`diagram-recipe=original-relation-kinds/no-synthetic-continuity`；
+`selector/runtime-selection-conclusion=model-owned`；
+`incomplete/ambiguous-path=withheld`；
+`system-answer/conclusion/edge/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-text/file-extension/language-name-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
 
 1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read

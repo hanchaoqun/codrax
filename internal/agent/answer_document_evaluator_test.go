@@ -1884,6 +1884,71 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 	}
 }
 
+func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandidateWithoutSyntheticCall(t *testing.T) {
+	application := types.EvidenceItem{
+		ID: "E-app", Kind: types.EvidenceRelationship, Subject: `@register("json")`, Predicate: "decorator_selector_application", Object: "JsonPlugin",
+		Source: "pipeline/plugins.py", LineStart: 8, LineEnd: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition,
+		OwnerSymbol: "JsonPlugin", Producer: types.EvidenceProducerRepoMapDecoratorApplication,
+		SelectorApplication: &types.EvidenceSelectorApplication{Owner: "register", Literal: "json"},
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "run_pipeline", SinkMode: types.CallChainSinkResolutionDiscover},
+			AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			application,
+			{ID: "E-bind", Kind: types.EvidenceRegistration, Subject: "REGISTRY[name]", Predicate: "binds", Object: "cls", OwnerSymbol: "register", Source: "pipeline/registry.py", LineStart: 7, LineEnd: 7, Scope: types.ScopeLine, AnchorKind: types.AnchorAssignment, Snippet: "REGISTRY[name] = cls"},
+			{ID: "E-lookup", Kind: types.EvidenceRelationship, Subject: "cls", Predicate: "assigns", Object: "REGISTRY[name]", OwnerSymbol: "resolve", Source: "pipeline/registry.py", LineStart: 18, LineEnd: 18, Scope: types.ScopeLine, AnchorKind: types.AnchorAssignment, Snippet: "cls = REGISTRY[name]"},
+			{ID: "E-return", Kind: types.EvidenceDirect, Subject: "resolve", Predicate: "returns", Object: "cls()", OwnerSymbol: "resolve", Source: "pipeline/registry.py", LineStart: 19, LineEnd: 19, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Snippet: "return cls()"},
+			{ID: "E-entry", Kind: types.EvidenceRelationship, Subject: "run_pipeline", Predicate: "calls", Object: "resolve", OwnerSymbol: "run_pipeline", Source: "pipeline/runner.py", LineStart: 15, LineEnd: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Snippet: "plugin = resolve(kind)"},
+			{ID: "E-argument", Kind: types.EvidenceRelationship, Subject: "kind", Predicate: "argument_flow", Object: "resolve", OwnerSymbol: "run_pipeline", Source: "pipeline/runner.py", LineStart: 15, LineEnd: 15, Scope: types.ScopeLine, AnchorKind: types.AnchorArgument, Snippet: "plugin = resolve(kind)"},
+			{ID: "E-callback-call", Kind: types.EvidenceRelationship, Subject: "run_pipeline", Predicate: "calls", Object: "loop.run_in_executor", OwnerSymbol: "run_pipeline", Source: "pipeline/runner.py", LineStart: 16, LineEnd: 16, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Snippet: "loop.run_in_executor(None, plugin.handle, payload)"},
+			{ID: "E-callback", Kind: types.EvidenceRelationship, Subject: "loop.run_in_executor", Predicate: "callback_handoff", Object: "plugin.handle", OwnerSymbol: "run_pipeline", Source: "pipeline/runner.py", LineStart: 16, LineEnd: 16, Scope: types.ScopeLine, AnchorKind: types.AnchorCallback, Snippet: "loop.run_in_executor(None, plugin.handle, payload)"},
+			{ID: "E-type", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "BasePlugin", OwnerSymbol: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 8, LineEnd: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 1},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"### Typed dynamic-selection candidates (soft context; model-owned)",
+		"entry=`run_pipeline`; selector_argument=`kind`; selector_literal=`json`; registry_container=`REGISTRY`; lookup=`resolve`; declared_candidate=`JsonPlugin`",
+		"relation_kind=`call`: `run_pipeline` -> `resolve` [E-entry]",
+		"relation_kind=`argument_flow`: `kind` -> `resolve` [E-argument]",
+		"typed declaration selector application: `register` applies literal `json` to `JsonPlugin` [E-app]",
+		"relation_kind=`register`: `REGISTRY` -> `cls` [E-bind]",
+		"relation_kind=`assignment`: `REGISTRY` -> `cls` [E-lookup]",
+		"relation_kind=`return`: `resolve` -> `cls()` [E-return]",
+		"optional callback handoff, relation_kind=`callback`: `loop.run_in_executor` -> `plugin.handle` [E-callback]",
+		"optional declared-type row, relation_kind=`type_relation`: `JsonPlugin` -> `BasePlugin` [E-type]",
+		"model decides whether the candidate is relevant",
+		"never add a synthetic `entry -> declared_candidate` call",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed dynamic-selector candidate missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"relation_kind=`call`: `resolve` -> `JsonPlugin`",
+		"relation_kind=`call`: `run_pipeline` -> `JsonPlugin`",
+		"runtime-selected implementation is `JsonPlugin`",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("candidate context minted a runtime conclusion or synthetic call %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_DynamicSelectorAmbiguityWithholdsCandidateContext(t *testing.T) {
+	ctx := &types.AgentContext{EvidenceItems: []types.EvidenceItem{
+		{ID: "E-app-json", Kind: types.EvidenceRelationship, Predicate: "decorator_selector_application", Object: "JsonPlugin", Source: "plugins.py", LineStart: 8, LineEnd: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapDecoratorApplication, SelectorApplication: &types.EvidenceSelectorApplication{Owner: "register", Literal: "json"}},
+		{ID: "E-app-other", Kind: types.EvidenceRelationship, Predicate: "decorator_selector_application", Object: "OtherPlugin", Source: "plugins.py", LineStart: 18, LineEnd: 18, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapDecoratorApplication, SelectorApplication: &types.EvidenceSelectorApplication{Owner: "register", Literal: "json"}},
+	}}
+	if got := renderAnswerDocDynamicSelectorResolutionCandidates(ctx, "run_pipeline"); got != "" {
+		t.Fatalf("ambiguous selector candidates must not be promoted into finalizer context:\n%s", got)
+	}
+}
+
 func TestAnswerDocReturnExpressionForm_CrossLanguageCallResults(t *testing.T) {
 	for _, expression := range []string{
 		"cls()",                    // Python / Ruby
