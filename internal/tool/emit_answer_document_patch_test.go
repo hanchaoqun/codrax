@@ -778,6 +778,35 @@ func TestEmitAnswerDocumentPatch_VerifiesNonEmptyAppendedCitationQuote(t *testin
 	}
 }
 
+func TestEmitAnswerDocumentPatchPrunesUnusedInheritedCitationAfterMergedRebind(t *testing.T) {
+	bus := newPatchTestBusContext()
+	prev := bus.Mutable.AnswerDocumentV2()
+	prev.Citations = append(prev.Citations, types.Citation{File: "right.go", Line: 20, Quote: "func Right() {}"})
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"replace_blocks":[{
+			"id":"list1", "kind":"ordered_list",
+			"claim_uses":[{"claim_form":"call_edge"}],
+			"items":[{"id":"i1","label":"Right","citation_ref":1}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("patch should accept exact merged citation rebind: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Citations) != 1 || doc.Citations[0].File != "right.go" {
+		t.Fatalf("unused inherited citation was not pruned after merge: %+v", doc)
+	}
+	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
+		t.Fatalf("surviving merged citation index was not remapped: %d", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_DropsAppendedCitationWhoseExactSourceRowIsBlank(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "source.py"), []byte("import os\n\nimport _fastlex\n"), 0o644); err != nil {
@@ -2050,14 +2079,14 @@ func TestEmitAnswerDocumentPatch_MergesAppendCitationsBeforePreservedPoolNormali
 		t.Fatalf("merged citation ops should still normalize preserved citation-bearing blocks, got: %s", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Citations) != 3 {
-		t.Fatalf("normalized merged citation pool = %+v, want inherited old + two appended citations", doc)
+	if doc == nil || len(doc.Citations) != 2 {
+		t.Fatalf("normalized merged citation pool = %+v, want the two referenced citations", doc)
 	}
-	if doc.Citations[0].File != "x.go" || doc.Citations[1].File != "z.go" || doc.Citations[2].File != "w.go" {
+	if doc.Citations[0].File != "x.go" || doc.Citations[1].File != "w.go" {
 		t.Fatalf("unexpected citation pool after merged normalization: %+v", doc.Citations)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 2 {
-		t.Fatalf("replacement block citation_ref should be remapped through merged pool to index 2, got %d", got)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("replacement block citation_ref should be remapped through compacted pool to index 1, got %d", got)
 	}
 	if got := doc.Blocks[1].Items[0].CitationRef; got != 0 {
 		t.Fatalf("preserved block citation_ref should still point at inherited pool index 0, got %d", got)
@@ -2344,8 +2373,8 @@ func TestEmitAnswerDocumentPatch_RebindsExplicitSourceLocationsAgainstInheritedC
 		t.Fatalf("explicit source-location evidence should rebind inherited stale citation refs, got: %s", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Citations) != 9 {
-		t.Fatalf("expected two typed citations appended to stale inherited pool, got %+v", doc)
+	if doc == nil || len(doc.Citations) != 2 {
+		t.Fatalf("expected only the two live typed citations after stale-pool compaction, got %+v", doc)
 	}
 	var classBlock *types.AnswerBlock
 	for i := range doc.Blocks {
@@ -2413,13 +2442,13 @@ func TestEmitAnswerDocumentPatch_RebindsPatchAppendCitationWhenInheritedPoolIsLo
 		t.Fatalf("patch append citation should rebind item refs against the inherited pool, got: %s", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Citations) != 13 {
-		t.Fatalf("expected appended Cart citation after stale inherited pool, got %+v", doc)
+	if doc == nil || len(doc.Citations) != 1 {
+		t.Fatalf("expected only the live Cart citation after stale-pool compaction, got %+v", doc)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 12 {
-		t.Fatalf("class-cart should point to appended citation index 12, got %d", got)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("class-cart should point to compacted citation index 0, got %d", got)
 	}
-	if got := doc.Citations[12]; got.File != "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" || got.Line != 14 {
+	if got := doc.Citations[0]; got.File != "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" || got.Line != 14 {
 		t.Fatalf("unexpected appended citation: %+v", got)
 	}
 }
@@ -2488,8 +2517,8 @@ func TestEmitAnswerDocumentPatch_AppendCitationStaysAlignedAcrossPathCanonicaliz
 		t.Fatalf("patch append citation should remain aligned after typed path canonicalization, got: %s", res.Summary)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Citations) != 9 {
-		t.Fatalf("expected appended native_add citation after inherited pool, got %+v", doc)
+	if doc == nil || len(doc.Citations) != 1 {
+		t.Fatalf("expected only the live native_add citation after inherited-pool compaction, got %+v", doc)
 	}
 	var section *types.AnswerBlock
 	for i := range doc.Blocks {
@@ -2501,8 +2530,8 @@ func TestEmitAnswerDocumentPatch_AppendCitationStaysAlignedAcrossPathCanonicaliz
 	if section == nil || len(section.Items) != 1 {
 		t.Fatalf("missing foreign-section block: %+v", doc)
 	}
-	if got := section.Items[0].CitationRef; got != 8 {
-		t.Fatalf("native_add should keep the appended definition citation index 8, got %d cit=%+v", got, doc.Citations[got])
+	if got := section.Items[0].CitationRef; got != 0 {
+		t.Fatalf("native_add should keep the compacted definition citation index 0, got %d cit=%+v", got, doc.Citations[got])
 	}
 	if got := doc.Citations[section.Items[0].CitationRef]; got.Line != 6 || !strings.EqualFold(got.File, "eval/fixtures/testdata/cangjie_minimal/bridge/bridge.cj") {
 		t.Fatalf("native_add citation should point at line 6 append candidate, got %+v", got)

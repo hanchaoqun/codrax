@@ -876,8 +876,15 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	// evidence_ids is the strongest non-inventory item citation selector. Apply
 	// it after every prose/role/location candidate repair and heuristic detach
 	// so no weaker lane can move or remove the model-selected evidence row. The
-	// binder changes only citation indexes; invalid IDs remain visible to the
-	// precise pre-emit check below.
+	// binder changes only citation indexes. Before binding, repair the one safe
+	// contradiction shape: a single valid ID names a different typed endpoint
+	// while exactly one accepted citable row names the structured code label.
+	// Ambiguous/composite carriers remain model-owned and visible to the precise
+	// advisory/check below.
+	if fixed := normalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate(doc, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate", fixed)
+		logging.Warning("[%s] rebound %d single item evidence ID(s) to unique typed label candidates", toolName, fixed)
+	}
 	if fixed := normalizeItemCitationRefsByEvidenceIDWithContext(doc, pctx); fixed > 0 {
 		pctx.recordPreEmitRepair("normalizeItemCitationRefsByEvidenceIDWithContext", fixed)
 		logging.Warning("[%s] bound %d item citation set(s) by exact accepted evidence ID", toolName, fixed)

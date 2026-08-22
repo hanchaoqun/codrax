@@ -2241,6 +2241,90 @@ func normalizeItemCitationRefsByEvidenceIDWithContext(doc *types.AnswerDocumentV
 	return fixed
 }
 
+// normalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate keeps an explicit
+// item evidence carrier on the same typed code identity as the model-authored
+// structured label. It repairs only the narrow case where one selected,
+// citable current-source evidence ID names a different endpoint and exactly
+// one other accepted evidence row names the label's code identity. Composite
+// evidence sets, prose/display labels, ambiguous same-name rows, unknown IDs,
+// and non-citable origins remain untouched. The visible item and its wording
+// are never changed.
+func normalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext) int {
+	if doc == nil || pctx == nil {
+		return 0
+	}
+	byID := preEmitCurrentSourceEvidenceByID(pctx)
+	if len(byID) == 0 {
+		return 0
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			selected := normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)
+			label := strings.TrimSpace(item.Label)
+			if len(selected) != 1 || strings.TrimSpace(item.SourceInventoryRowID) != "" ||
+				!types.IsCodeIdentitySurface(label) {
+				continue
+			}
+			current, ok := byID[selected[0]]
+			if !ok {
+				continue
+			}
+			if _, citable := preEmitCitationForItemEvidence(current, pctx); !citable {
+				continue
+			}
+			if preEmitStructuredLabelMatchesTypedEvidenceIdentity(label, current) {
+				continue
+			}
+
+			candidateID := ""
+			ambiguous := false
+			for _, id := range ids {
+				ev := byID[id]
+				if _, citable := preEmitCitationForItemEvidence(ev, pctx); !citable ||
+					!preEmitStructuredLabelMatchesTypedEvidenceIdentity(label, ev) {
+					continue
+				}
+				if candidateID != "" {
+					ambiguous = true
+					break
+				}
+				candidateID = id
+			}
+			if ambiguous || candidateID == "" || candidateID == selected[0] {
+				continue
+			}
+			item.EvidenceIDs = []string{candidateID}
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitStructuredLabelMatchesTypedEvidenceIdentity(label string, ev types.EvidenceItem) bool {
+	label = strings.TrimSpace(label)
+	if label == "" || !types.IsCodeIdentitySurface(label) {
+		return false
+	}
+	if _, _, qualified := preEmitQualifiedCodeSurfaceParts(label); qualified {
+		matched, handled := preEmitQualifiedCodeSurfaceMatchesEvidence(label, ev)
+		return handled && matched
+	}
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitCodeSurfaceMatches(label, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
 // preCheckItemEvidenceIdentity rejects explicit, schema-validated ID carriers
 // that cannot be resolved to citable current-source evidence. It also enforces
 // B1224 only for an item whose pre-normalize model-owned citation indexes were

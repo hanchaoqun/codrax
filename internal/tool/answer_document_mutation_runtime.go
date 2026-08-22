@@ -261,8 +261,9 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 		return failEmit(toolName, now, "pre-persist normalization violated model-answer ownership: %v", err)
 	}
 	// Full emits intentionally prune their unused citation pool before this
-	// shared path, while patch emits preserve inherited citation indexes.
-	// Keep that contract, but remove an unused runtime-artifact NEGATIVE proof
+	// shared path. Patch merge keeps inherited indexes stable while applying the
+	// mutation; a final compaction below remaps the merged document atomically.
+	// Before that final compaction, remove an unused runtime-artifact NEGATIVE proof
 	// when its own structured pattern is directly contradicted by the bound
 	// artifact. This is proof verification, not answer-prose inspection.
 	if fixed := normalizeUnusedContradictedRuntimeArtifactNegativeCitations(merged, ctx); fixed > 0 {
@@ -310,6 +311,15 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	// (audit position).
 	if stampCurrentStatusVerdictEvidenceDowngrade(ctx, merged) {
 		logging.Info("[%s] current-status verdict downgraded to not-evaluable disclosure: origin-lane ledger has zero current_source evidence this run (original verdict retained for audit)", toolName)
+	}
+	// A patch can correctly replace an item's evidence_ids while leaving the
+	// old inherited citation slot detached from every visible row. Rendering the
+	// whole stale pool would then expose a wrong source coordinate even though
+	// the item itself is fixed. Compact only after every supplement/caveat has
+	// landed, and remap all surviving hidden indexes in one transaction. The
+	// established citation-only document shape (zero item refs) remains intact.
+	if fixed := normalizeUnusedCitationPoolEntries(merged, ctx); fixed > 0 {
+		logging.Warning("[%s] pruned/remapped %d unused merged citation-pool slot(s) before persist", toolName, fixed)
 	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())

@@ -63,6 +63,50 @@ func TestNormalizeItemCitationRefsByEvidenceIDBindsExactSelectedRows(t *testing.
 	}
 }
 
+func TestNormalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate(t *testing.T) {
+	wrong := types.EvidenceItem{ID: "ev-budget", Kind: types.EvidenceRelationship, Source: "internal/orchestrator/orchestrator.go", LineStart: 4602, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "Orchestrator.runReadSchedulerLoop", Object: "o.busCtx.Mutable.SetExploreBudget", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
+	right := types.EvidenceItem{ID: "ev-result", Kind: types.EvidenceRelationship, Source: "internal/orchestrator/orchestrator.go", LineStart: 4532, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "Orchestrator.runReadSchedulerLoop", Object: "o.busCtx.Mutable.SetResult", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("typed item identity"), EvidenceItems: []types.EvidenceItem{wrong, right}}
+	pctx := newPreEmitCheckContext(ctx)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "finalizer", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "result", Label: "SetResult", EvidenceIDs: []string{"ev-budget"}, CitationRef: types.CitationRefUnset}}}}}
+
+	if fixed := normalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate(doc, pctx); fixed != 1 {
+		t.Fatalf("unique typed label candidate should repair one hidden evidence ID, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].EvidenceIDs; !reflect.DeepEqual(got, []string{"ev-result"}) {
+		t.Fatalf("evidence_ids = %v, want unique SetResult row", got)
+	}
+	if fixed := normalizeItemCitationRefsByEvidenceIDWithContext(doc, pctx); fixed != 1 {
+		t.Fatalf("repaired evidence ID should bind one citation set, fixed=%d doc=%+v", fixed, doc)
+	}
+	ref := doc.Blocks[0].Items[0].CitationRef
+	if ref < 0 || ref >= len(doc.Citations) || doc.Citations[ref].Line != 4532 {
+		t.Fatalf("SetResult item bound wrong source row: ref=%d citations=%+v", ref, doc.Citations)
+	}
+}
+
+func TestNormalizeSingleItemEvidenceIDLeavesAmbiguousAndCompositeSelections(t *testing.T) {
+	wrong := types.EvidenceItem{ID: "ev-wrong", Kind: types.EvidenceRelationship, Source: "src/flow.go", LineStart: 10, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Object: "Other", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
+	a := types.EvidenceItem{ID: "ev-a", Kind: types.EvidenceRelationship, Source: "src/a.go", LineStart: 20, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Object: "pkg.SetResult", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
+	b := types.EvidenceItem{ID: "ev-b", Kind: types.EvidenceRelationship, Source: "src/b.go", LineStart: 30, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Object: "other.SetResult", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("ambiguous item identity"), EvidenceItems: []types.EvidenceItem{wrong, a, b}}
+	pctx := newPreEmitCheckContext(ctx)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "list", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+		{ID: "ambiguous", Label: "SetResult", EvidenceIDs: []string{"ev-wrong"}},
+		{ID: "composite", Label: "SetResult", EvidenceIDs: []string{"ev-wrong", "ev-a"}},
+		{ID: "prose", Label: "最终结果写入", EvidenceIDs: []string{"ev-wrong"}},
+	}}}}
+
+	if fixed := normalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate(doc, pctx); fixed != 0 {
+		t.Fatalf("ambiguous/composite/prose carriers must remain model-owned, fixed=%d doc=%+v", fixed, doc)
+	}
+	for _, item := range doc.Blocks[0].Items {
+		if item.ID == "ambiguous" && !reflect.DeepEqual(item.EvidenceIDs, []string{"ev-wrong"}) {
+			t.Fatalf("ambiguous carrier changed: %+v", item)
+		}
+	}
+}
+
 func TestPreCheckItemEvidenceIdentityRejectsOnlyExplicitInvalidCarrier(t *testing.T) {
 	valid := types.EvidenceItem{ID: "ev-source", Kind: types.EvidenceDirect, Source: "internal/types/evidence.go", LineStart: 1537, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
 	ctx := &types.BusContext{Mutable: types.NewMutableState("item evidence check"), EvidenceItems: []types.EvidenceItem{valid}}

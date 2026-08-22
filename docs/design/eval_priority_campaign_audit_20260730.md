@@ -57332,6 +57332,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r832`。
 
+### §123.1357 B1315：单条错 evidence ID 精确改绑，patch 旧 citation 池不再泄漏（2026-08-21）
+
+1. `B1315-CITATIONSUBJECTLINECONSISTENCY1/P1` 已按 r830+r832 的交叉 witness 施工。新增隐藏载体 normalizer 只处理
+   `items[].evidence_ids` 恰为一条、item label 是结构化代码 identity、当前 ID 可引用但其 typed subject/object/anchor/owner 均不匹配 label，
+   且 accepted current-source evidence 中只有一条可引用同 identity 候选的情形。此时把隐藏 ID 改绑到唯一候选，再由既有 evidence-ID binder
+   生成 citation index；`SetResult` 因此不能再被 `SetExploreBudget@4602` 覆盖，正确落到 `SetResult@4532`。
+2. 候选判定只比较 schema item label 与 EvidenceItem 的 typed endpoint identity；不读 item text、block prose、用户请求、thinking、最终答案、
+   Mermaid message、summary 关键词或相似度分数。多 evidence IDs、非代码/业务展示 label、未知 ID、未接地/不可引用/跨 origin 证据、同名多候选与
+   qualified owner 不足全部保持原值，由现有 advisory/校验披露，禁止系统猜选事实。
+3. patch 仍在 apply 阶段保留 inherited citation indexes，保证 mutation 内的模型索引稳定；待合并、typed supplements、quote 验证、caveat 和状态 stamp
+   全部完成后，统一调用既有 citation compactor。它仅删除没有任何 item 引用的 slot，并原子 remap 所有 surviving refs。因此 r832 中已无人使用的
+   `context.go:51` 不会再出现在文末；仍被任一 visible item 使用的 inherited cite 原样保留。零 item refs 的 citation-only 文档继续保留全池，既有
+   表达合同不变。
+4. 回归覆盖：错 `SetExploreBudget` ID 唯一改绑 `SetResult`；两个同名候选不猜；多 ID 复合条目不拆；中文展示 label 不据 prose 改绑；patch 从两条池
+   改用第二条后删第一条并把 ref 1→0；replace+append、显式 source location、长 inherited pool、大小写路径 canonicalization 等旧测试更新为验证最终
+   live-only 池及 remap，而非继续把陈腐 slot 当成功条件。该修复只改隐藏引用载体，不改模型 item、成员选择、关系、图、措辞、布局或结论。
+5. 验证：专项引用回归通过；`go test ./internal/tool -count=1` 通过（177.150s）；完整 `go test ./... -count=1` 通过（含 tool
+   198.226s、hitraceconv 97.501s、tracequery 86.186s、types 33.589s）；CGO release-tag `make` 与 `git diff --check` 全绿。下一步从本提交
+   重建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace；read 验收错误引用/旧 bibliography 是否消失，Trace 继续守护完整投影、自动补采、
+   链上-only 根因、双账户与业务线索。
+
+状态：
+
+`B1315=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`single-wrong-evidence-id=unique-citable-typed-label-candidate-rebind`；
+`ambiguous/multi-id/non-code-label/non-current-source=no-auto-rebind`；
+`patch-citation-index=stable-during-apply/compacted-after-final-merge`；
+`citation-only-document=pool-preserved`；
+`system-answer/member/relation/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1354 r831：B1313/B1314 生产转正；局部图修补合同仍有四类不可执行分支（2026-08-21）
 
 1. 从已推送 `456e1cac8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：
