@@ -17405,8 +17405,8 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// table citation, participant boundary, or another independent field. Arm
 	// the typed lease before choosing the user-facing repair hint so a mixed
 	// failure cannot turn a local diagram fix into a cross-kind graph rewrite.
+	installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
 	if e.diagramRequired {
-		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
 	// Honor the same rejectHintBudget the legacy reject-hint path
@@ -17538,8 +17538,10 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// lease, even though the executor returned a non-empty live capability
 	// roster. Preserve the producer as the single generation authority and
 	// validate/render its versioned delta below.
-	if e.diagramRequired && repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
+	if repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
 		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+	}
+	if e.diagramRequired && repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
 	// When one validator pass already knows both participant and relation
@@ -17563,7 +17565,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// handbook, which would re-open the whole diagram and recreate failure-set
 	// migration.
 	if repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope {
-		if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
+		if hint, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, true, e.diagramRequired); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
 			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
@@ -17612,6 +17614,23 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
+		}
+	}
+	// Optional diagrams use the same exact relation lease as required diagrams.
+	// Keep mixed diagram+sibling failures on this local opaque-ref surface so
+	// the model does not have to recopy fragile block/node/occurrence selectors.
+	// The model still decides whether to edit the graph or remove the optional
+	// block; neither action is performed here.
+	if !e.diagramRequired {
+		if hint, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, true, false); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested: true, HintKey: "answer_doc.patch_optional_diagram_relation_delta",
+				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
+			}
 		}
 	}
 	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramParticipantRepair(obs.LastToolResult) {
@@ -18358,6 +18377,15 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 // relation handbook. It never chooses an alternative or edits the graph; the
 // finalizer model keeps ownership of every visible edge and label.
 func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
+	return answerDocDiagramRelationDeltaPatchHint(result, alreadyPatching, true)
+}
+
+// answerDocDiagramRelationDeltaPatchHint keeps required and optional diagrams
+// on one validator-owned relation repair protocol. Requiredness affects only
+// the model's presentation choice: required diagrams stay, while optional
+// diagrams may be removed by an explicit model patch. The relation lease and
+// all evidence/identity checks remain identical.
+func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPatching, diagramRequired bool) (string, bool) {
 	delta, visibleRaw, ok := parseAnswerDocDiagramRelationRepairDelta(result)
 	if !ok {
 		return "", false
@@ -18376,7 +18404,13 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 		b.WriteString(" by a local typed source-diagram relation mismatch. ")
 	}
 	b.WriteString(action)
-	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. Choose exactly one current tool-schema branch: a failure-only branch uses its displayed action, an addition-only branch adds one selected typed candidate, and an action=attach branch is valid only when that branch explicitly pairs one failure_ref with one addition_ref for an existing visible edge. attach requires both refs plus your complete from_node/to_node/visible_label and does not add a second body edge. For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. Do not invent or combine refs outside a published branch. The allowed rows are permissions, not required edges; do not add any other relation. Preserve required blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. If the selected edits isolate an `optional_orphan_cleanups` row, add `diagram_participant_edits` and explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n")
+	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. Choose exactly one current tool-schema branch: a failure-only branch uses its displayed action, an addition-only branch adds one selected typed candidate, and an action=attach branch is valid only when that branch explicitly pairs one failure_ref with one addition_ref for an existing visible edge. attach requires both refs plus your complete from_node/to_node/visible_label and does not add a second body edge. For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. Do not invent or combine refs outside a published branch. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. If the selected edits isolate an `optional_orphan_cleanups` row, add `diagram_participant_edits` and explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
+	if diagramRequired {
+		b.WriteString("The diagram is required, so keep its block and repair only with the published local capabilities. ")
+	} else {
+		b.WriteString("The diagram remains optional: when you judge that its verified relation carrier adds no useful structure beyond the grounded textual answer, you may instead remove that exact diagram block with `remove_block_ids`; that choice remains yours. This local relation capsule does not discharge or replace the sibling non-diagram corrections in the immediately preceding tool error; repair those exact fields in the same patch. ")
+	}
+	b.WriteString("\n\n```json\n")
 	b.Write(visibleRaw)
 	b.WriteString("\n```\n\n")
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
@@ -18877,8 +18911,10 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	rejectCode := answerDocRejectCodeFromRepair(repair)
 
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
-	if hasPatchBase && e.diagramRequired {
+	if hasPatchBase {
 		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+	}
+	if hasPatchBase && e.diagramRequired {
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
 	hint := answerDocDefaultFullRejectHint(hasPatchBase)
@@ -18913,6 +18949,19 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		if groundedHint, ok := answerDocGroundedDiagramAnchorPatchHint(obs.LastToolResult, false); ok {
 			hint = groundedHint
 			reasonKey = "grounded-diagram-anchors"
+			diagramCallEdgePatchRecovery = true
+			e.preferPatchNext = true
+		}
+	}
+	// Optional diagrams consume the same producer-owned local relation delta as
+	// required diagrams, including when the reject also names a sibling
+	// structured block. This replaces fragile coordinate copying with the live
+	// opaque-ref lease while leaving keep/remove and every visible edit to the
+	// model.
+	if !diagramCallEdgePatchRecovery && hasPatchBase && !e.diagramRequired {
+		if compact, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, false, false); ok {
+			hint = compact
+			reasonKey = "optional-diagram-relation-delta"
 			diagramCallEdgePatchRecovery = true
 			e.preferPatchNext = true
 		}

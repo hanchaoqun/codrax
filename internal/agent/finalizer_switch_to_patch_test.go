@@ -1439,6 +1439,67 @@ func TestRequiredDiagramRelationRetryDoesNotPublishUnfulfillableRepeatedPairOrph
 	}
 }
 
+func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolation(t *testing.T) {
+	const staleProducerRef = "rf1-stale-optional-generation"
+	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true}`
+	for _, toolName := range []string{"emit_answer_document", "emit_answer_document_patch"} {
+		t.Run(toolName, func(t *testing.T) {
+			ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+			ctx.Mutable.SetPendingAnswerDocumentPatchBase(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+				{ID: "s1", Kind: types.BlockSummary, Text: "grounded answer"},
+				{ID: "pipeline-diagram", Kind: types.BlockDiagram,
+					Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n BC --> E"},
+					EdgeAnchors: []types.DiagramEdgeAnchor{{
+						FromNode: "BC", ToNode: "E", FromIdentity: "BusContext", ToIdentity: "Explorer",
+						RelationKind: types.DiagramRelDataFlow,
+					}},
+				},
+				{ID: "ol1", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "i1", Text: "grounded relation"}}},
+			}})
+			result := &types.ToolResult{ToolName: toolName, Success: false, Repair: &types.ToolRepair{
+				Code:   "answer_doc_pre_emit_contract",
+				Fields: []string{"blocks[].edge_anchors[] AND blocks[kind=diagram].diagram.body", "blocks[id=ol1].edge_anchors"},
+				Hint:   "Repair the diagram relation and the sibling ordered-list relation carrier.",
+				Metadata: map[string]string{
+					"violation_kinds": strings.Join([]string{
+						string(types.ViolDiagramCallEdgeUnproven), string(types.ViolCitation),
+					}, ","),
+					types.ToolRepairMetaOffendingBlockKinds:            strings.Join([]string{string(types.BlockDiagram), string(types.BlockOrderedList)}, ","),
+					types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+				},
+			}}
+			e := &answerDocumentEvaluator{diagramRequired: false, mu: ctx.Mutable}
+			var got LoopSignal
+			if toolName == "emit_answer_document" {
+				got = e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+			} else {
+				got = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+			}
+			lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+			if !got.HintRequested || lease == nil || len(lease.Failures) != 1 {
+				t.Fatalf("optional mixed reject must install one live local relation lease: signal=%+v lease=%+v", got, lease)
+			}
+			liveRef := lease.Failures[0].FailureRef
+			for _, want := range []string{
+				"diagram_edge_edits", `"failure_ref":"` + liveRef + `"`,
+				"The diagram remains optional", "remove_block_ids",
+				"does not discharge or replace the sibling non-diagram corrections",
+				"system has not selected, added, removed, relabelled, reversed, or reconnected",
+			} {
+				if !strings.Contains(got.Hint, want) {
+					t.Fatalf("optional compact relation hint missing %q:\n%s", want, got.Hint)
+				}
+			}
+			if strings.Contains(got.Hint, staleProducerRef) || strings.Contains(got.Hint, "No typed topology template is available") {
+				t.Fatalf("optional compact lane leaked stale/generic repair authority:\n%s", got.Hint)
+			}
+			if !e.preferPatchNext {
+				t.Fatal("optional compact relation retry must remain on patch surface")
+			}
+		})
+	}
+}
+
 func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"failure_ref":"rf1-current-executor-generation","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()

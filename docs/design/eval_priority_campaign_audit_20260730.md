@@ -57673,6 +57673,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r856`。
 
+### §123.1400 B1336：可选与必需关系图统一同代局部修补协议（2026-08-22）
+
+1. `B1336-OPTIONALRELATIONLOCALREPAIR1/P1` 已施工。此前 relation repair lease 只在 `diagramRequired=true` 时安装；可选图即使 validator
+   已发布完整 `diagram_relation_repair_delta_json`，全量拒绝、patch 拒绝和 switch-to-patch 三条路由仍回落到 legacy
+   block/node/occurrence/relation 坐标抄写。现在三条路由只要存在 retained patch base 与合法 typed delta，就统一安装 same-generation lease；
+   required/optional 只影响图能否由模型显式删除，不再影响关系修补的证据与身份协议。
+2. 可选图新增 compact local-delta 车道，优先于旧的 coordinate-copy 与 whole-diagram 重写提示。模型通过当前 tool schema 选择
+   `failure_ref`/`addition_ref` 的 remove/replace/relabel/attach/add 分支，并继续亲自填写可见 node id 与业务标签；ref 只恢复 validator 已确认的隐藏
+   relation/identity carrier。系统不选择 action、候选、边、方向、标签、布局或结论，也不自动保留或删除图。
+3. 可选图的整块删除仍是模型拥有的显式出口：只有模型判断已验证关系载体对 grounded 文本没有额外结构价值时，才可用
+   `remove_block_ids` 删除该图；required 图继续禁止删除。不存在按重试次数、4ms、4m、上下文比例、活动流年龄或模型措辞自动降级答案的分支。
+4. mixed reject 不再把兄弟错误静默掉。compact hint 明确说明 relation capsule 只处理图的局部关系载体，上一条 tool error 中 list/table/citation 等
+   非图字段仍须在同一 patch 按原精确字段修复。原 tool error 保持在会话中；系统没有从错误 prose 或最终答案重建事实。
+5. 新先红后绿回归同时覆盖 `emit_answer_document` 与 `emit_answer_document_patch`：optional diagram + ordered-list sibling violation 必须安装
+   一个 live lease、用新 `failure_ref` 替换 producer snapshot ref、发出 compact `diagram_edge_edits` 协议、保留模型删除选择并显式保留兄弟修补义务；
+   禁止退回 generic topology 教学。既有 required compact delta、optional sole-call removal、grounded-anchor、relation-scope 与 glossary 红线测试均通过。
+6. `go test ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。下一步从本提交
+   重建不可变二进制，严格并发恰好 2 路复放同一 Python+显式窗 Trace，验收 Python 自然 mixed reject 是否直接进入
+   `optional-diagram-relation-delta`、重试数/墙钟是否收敛且图不再因坐标迁移被迫丢失；Trace 继续守住因果投影、自动补齐、链上根因与双轴量化。
+
+状态：
+
+`B1336=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`required+optional-relation-repair=one-same-generation-lease-protocol`；
+`optional-diagram-removal=explicit-model-choice-only`；
+`mixed-sibling-violations=preserved-in-same-patch-obligation`；
+`legacy-coordinate-copy=fallback-only-when-delta-absent-or-malformed`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
