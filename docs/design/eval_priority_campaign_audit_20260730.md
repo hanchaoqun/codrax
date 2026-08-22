@@ -57594,6 +57594,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1368 r838：B1321 生产转正；关系路径载体仍把运行时唤醒误教成源码调用（2026-08-22）
+
+1. 从已推送 `e8a44d06f` 重建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与显式时间窗 Trace，runner
+   2/2 PASS；Rust 115s、Trace 224s。活动流均未按固定 4ms、4m、累计年龄或上下文比例降级，也未回退旧答案。
+2. `B1321-RELATIONDIMMEMBERCOLLISION1` 获得生产正证。Rust analyzer 首次即把“跨模块调用链”铸为
+   `relation_path`，没有再生成伪 `member_set`、sibling roster 或成员表修补；最终保留 `main -> run`、
+   `run -> collect_files`、`collect_files -> walk`、`run -> index_file`、`index_file -> is_match` 五条源码可复核边，
+   并解释 walker 的业务职责。关系路径/成员清单拆分从 unit-positive 转为 production-positive。
+3. Trace typed/system 面未缩水：固定 2.000..2.020s 用户窗、8 次窗口化查询、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四线程三跳唤醒链、threadpool 的 11.000ms 链上 IO
+   第一席、三个各自独立的 1.000ms runnable/优先级候选、CPU 与跨核事实、实际占时/规则可消双账户、邻近背景降格、
+   自动补采和完整 `Trace 因果投影` 均在。根因仍只从 typed 链上席位选举，背景未越权。
+4. 新确认 `B1323-RELATIONPATHFAMILYAUTH1/P1`。`relation_path` 是跨调用、依赖、唤醒、handoff 的通用答案维度，
+   但当前通用覆盖修补提示仍要求 `principal_path_edge` 与 edge anchor；在运行时 Trace 上，模型据此把三条
+   `sched_wakeup` 关系伪标成 `relation_kind=call`。源码调用与运行时观察的证据所有权不相同：前者应继续消费源码
+   relation anchors；后者应消费 model-owned principal runtime-observation path、`external_observation` 与既有 typed
+   wakeup authority，绝不能为满足展示合同虚构源码调用锚。最优方案是按 typed question family/authority 选择载体，不读取请求、
+   模型答案、最终 prose、可见标签或 Mermaid message，也不由系统生成边、方向、成员、布局或结论。
+5. 新确认 `B1324-TRACEINTERVALSEMANTICSGUIDANCE1/P1`。Trace 正文把 network/cookie 的睡眠区间叙述为“被唤醒后
+   睡眠”，而 typed 时间线显示这些区间结束于各自 wakeup；又把不同线程可重叠的等待区间作“叠加覆盖窗口”的可加和叙述。
+   这不是查询缺证据，而是成文前缺少紧凑 typed 时间语义。下一批从最终消费的 wakeup/state authority 生成软指导：区间位于其
+   结束事件之前；跨线程区间可重叠/嵌套，无 typed 串行结算凭证不得相加为端到端延迟；wakeup 只证明方向和时序，不自动证明具体
+   业务/IO 后端机理。禁止新增最终正文关键词硬门、嘈声评分门或系统改写结论。
+6. Rust 的两次成文拒绝分别是首次手填 citation index 而非 evidence ID，以及首次全块替换漏搬既有 `claim_uses`；第二次 patch
+   恢复后通过。暂列 `B1325-REPLACEBLOCKMETADATALOAD1/P2-observe`，先用异构回放判断是否成类；若复现，应降低 full-block
+   replacement 的字段搬运心智或提供 typed partial mutation，不针对本次 JSON 字面做容错拟合。
+
+状态：
+
+`r838=runner-pass-2/2,human-rust-pass+trace-fail`；
+`B1321=production-positive/closed`；
+`B1323=P1-next/family-aware-relation-authority`；
+`B1324=P1-next/typed-soft-temporal-guidance`；
+`B1325=P2-observe/no-case-specific-json-gate`；
+`system-answer/member/relation/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
