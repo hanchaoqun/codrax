@@ -58029,6 +58029,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1380 r845：owner 补充无回归；动态选择仍只半遵循且 Trace 模型因果口径反复（2026-08-22）
+
+1. 从已推送 `b537f92c4` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态注册 + 显式窗 Trace，runner 2/2 PASS：Trace
+   140s、Python 259s。两路活动流均未按固定 4ms、4m、首字节、stall、累计年龄或上下文比例降级；本轮时长相对 r844 下降属于模型/
+   服务波动观测，不据单点宣称性能优化。
+2. B1244 无回归但没有自然触发精确歧义选择分支：本轮模型自身给 JsonPlugin item 绑定了 `pipeline/plugins.py:18` 引用，因此
+   `plugins.py` 已被 principal citation 覆盖，last-mile owner supplement 整体不触发。r844 的无关 `CsvPlugin@9` 已消失，单测已钉住
+   “同路径 rank 更高兄弟 + structured JsonPlugin selector”形；生产状态保持 tests-positive/pending-natural-trigger，不能虚报 production-positive。
+3. B1328 获部分生产遵循：Analyzer 这次正确发出 `call_chain_endpoints={source:run_pipeline,sink:"",sink_mode:discover}`，不再把 repo-map
+   候选预填为 sink；但 `runtime_selection_profile.is_selection_question` 仍为 false。相同教学在连续两次生产回放分别表现为完全不遵循和只遵循 wire
+   shape，证明软教学不能作为稳定 authority，且不应升级为请求/答案关键词硬分类。
+4. Python 事实正文判 pass、视觉/过程仍 partial：终稿正确回答 JsonPlugin、run_pipeline→resolve、REGISTRY 查找、`cls()` 实例化、executor
+   callback 与 @register 导入期绑定；2 次成文拒绝后可选 diagram 再次被删除，结构化关系列表只剩 `run_pipeline -> resolve` 与
+   `run_pipeline -> plugin.handle`。动态 selector/register/lookup/factory/callback/MRO 的 typed 关系岛仍未形成可供模型安全组合的路径，
+   `B1329` 再次确认，下一批按 typed carrier 与 consumer 分离施工。
+5. Trace 系统面继续完整：显式 2.000000..2.020000 用户窗、两次 target-filtered query、四线程三条 wakeup edge、11.000ms 链上
+   IO 第一席、三个独立 1.000ms runnable/优先级候选、实际占时/规则可消双账户、业务下钻、邻近/背景隔离和完整 `Trace 因果投影` 全在，
+   0 次成文拒绝。模型开头也正确披露 wait-for-work、work-completion 与 direct-blocking authority 均未建立。
+6. Trace 人工仍判 partial/uncertain：同一模型答案后文又称 threadpool IO 为“主要阻塞原因”、app “间接受到上游 IO 阻塞传导”、三个
+   runnable 席是“候选叠加”，并把 `fscache_page_wait_on_page_bit` 标识符拆词猜成“等待页面位图缓存页/网络文件系统缓存层面”。这与前面的
+   typed authority 上限矛盾，属于 `B1269/B1271/B1253` 的重复模型遵循问题；系统投影本身没有升级这些机理。后续只能压缩/前置精确 typed
+   边界作为软上下文并做异构回放，不扫描模型原文作硬拒、不由系统替换结论。
+
+状态：
+
+`r845=runner-pass-2/2,human-python-content-pass/process-visual-partial+trace-uncertain-model-causality`；
+`B1244=tests-positive/no-bad-symptom/pending-natural-production-trigger`；
+`B1328=partial-production-following/no-hard-classifier`；
+`B1329=reconfirmed/P1-next`；
+`B1269/B1271/B1253=repeated-model-guidance-observe`；
+`python-finalizer-rejects=2/diagram-removed`；
+`system-answer/conclusion/relation/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r845`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r845`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
