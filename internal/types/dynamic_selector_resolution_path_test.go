@@ -86,6 +86,27 @@ func TestCompileDynamicSelectorResolutionPaths_PreservesTypedHopKindsAndEvidence
 	}
 }
 
+func TestCompileDynamicSelectorResolutionPaths_EntryUsesTypedCallSubjectBeforeQualifiedOwner(t *testing.T) {
+	evidence := dynamicSelectorCompleteEvidence()
+	evidence[4].OwnerSymbol = "pipeline.runner.run_pipeline"
+
+	compiled := CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
+	if len(compiled.Rejected) != 0 || len(compiled.Candidates) != 1 {
+		t.Fatalf("qualified enclosing owner must not hide the exact typed call source endpoint: %+v", compiled)
+	}
+	entry := compiled.Candidates[0].Hops[0]
+	if entry.FromIdentity != "run_pipeline" || entry.ToIdentity != "resolve" || entry.EvidenceID != "E-entry" {
+		t.Fatalf("entry hop must preserve the call edge's typed subject/object endpoints: %+v", entry)
+	}
+
+	evidence[4].Subject = ""
+	compiled = CompileDynamicSelectorResolutionPaths(evidence, "pipeline.runner.run_pipeline")
+	if len(compiled.Rejected) != 0 || len(compiled.Candidates) != 1 ||
+		compiled.Candidates[0].Hops[0].FromIdentity != "pipeline.runner.run_pipeline" {
+		t.Fatalf("legacy subject-empty call rows should still fall back to their exact qualified owner: %+v", compiled)
+	}
+}
+
 func TestCompileDynamicSelectorResolutionPaths_AcceptsExactIndexedAssignmentWithoutRelabelingRegistration(t *testing.T) {
 	evidence := dynamicSelectorCompleteEvidence()
 	evidence[1].Kind = EvidenceConcrete

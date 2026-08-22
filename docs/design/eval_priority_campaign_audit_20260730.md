@@ -57332,6 +57332,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r850`。
 
+### §123.1391 r851/B1330-F：return 转正后 entry 被 enclosing owner 遮蔽；调用边端点恢复单一权威（2026-08-22）
+
+1. 从已推送 `e23c3a7da` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 190s、Python
+   379s。Python 仍有 4 次成文拒绝/4 次 patch；typed diagnostic 从 r850 的 `return_unavailable=2` 精确前移为
+   `entry_unavailable=2`，证明 B1330-E 的 return producer 已真实进入生产 compiler，但完整候选尚未闭环。
+2. B1330-E 获得生产正证：finalizer evidence 中出现 `repomap_dynamic_selector_return @ pipeline/registry.py:34`，owner=`resolve`、
+   object=`cls()`，且 binding/lookup/return 三段已经通过 compiler。入口 citable call 同时明确存在：Subject=`run_pipeline`、Object=`resolve`、
+   OwnerSymbol=`pipeline.runner.run_pipeline`。旧 entry 编译却先取 OwnerSymbol，再与请求入口 `run_pipeline` 做精确 identity 等价，限定 owner 因而
+   遮蔽了调用边真实 source endpoint；这不是缺源码、模型未读或短名歧义。
+3. `B1330-F/P1` 根修为 typed call-edge 语义：入口 identity 优先取 `EvidenceItem.Subject`，只有 legacy deterministic 行的 Subject 为空时才回退
+   OwnerSymbol。Subject/Object 是该 edge 已验证的两个端点；OwnerSymbol 是 enclosing/source qualification，不能反向覆盖端点。该修复不引入
+   qualified-tail 猜测、不从文件路径或显示文案缩短身份，也不放宽 requested entry、callee、source occurrence 或 argument-flow 唯一性。
+4. 回归把完整 candidate 的 entry OwnerSymbol 改成 `pipeline.runner.run_pipeline`，要求仍保留原 `run_pipeline -> resolve` Evidence ID 和端点；
+   再把 Subject 置空并以完整限定入口查询，要求 legacy fallback 继续成立。原歧义、方向、缺失和多 occurrence fail-closed 套件保持通过。
+5. Python 人工仍为 uncertain：最终事实基本正确，但 typed candidate 空产导致模型自行把 assignment/return/callback 画成 call，连续四次被准确拒绝，
+   最后删除整个图；因此关系表达仍未转正。另确认独立 P1 `B1332-REGISTRATIONREPAIRLOOP1`：系统 completion repair 明确要求在
+   `registry.py:14` 的函数定义行提交 `anchor_kind=call subject=bind object=cls`，ground/recovery 又把该 tuple 移到 `registry.py:34 return cls()` 并
+   判重复；模型按要求重试多轮仍不可能满足，直至 bounded convergence 才放行并启动第二次 Explorer。该合同自冲突造成 15+3 轮探索和 379s，
+   不是模型波动；与 B1330-F 分批，待候选闭环后优先根修 typed repair producer，禁止为本 fixture 硬编码行号或函数名。
+6. Trace 人工 pass：显式窗口、完整唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms 验证候选、实际占时/规则可消双轴、背景隔离和完整
+   `Trace 因果投影` 均在。唯一成文拒绝是模型首稿漏 principal summary 的 typed JSON control carrier，局部追加后通过；可见答案没有泄漏
+   `bounded_window_candidate`，并明确候选尚未证明为掉帧/截止期原因。活动流没有按固定 4ms/4m 或耗时阈值降级。
+7. B1330-F 定向测试、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 均已通过；独立提交推送后，将从新不可变提交做 r852 同对两路回放。验收 Python typed candidates 是否从
+   0 变 2、模型关系/拒绝是否收敛且不出现 synthetic direct call；Trace 继续守住原能力。B1332 只留档不混入本提交。
+
+状态：
+
+`r851=runner-pass-2/2,human-python-uncertain+trace-pass`；
+`B1330-E=production-positive`；
+`B1330-F=implemented/targeted-pass/full-suite-pass/build-pass/pending-replay`；
+`entry-source-authority=call-edge-subject-first/owner-fallback-only`；
+`qualified-tail/file-path/prose-shortening=none`；
+`B1332=confirmed/P1/next-after-dynamic-candidate-closure`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r851`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r851`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

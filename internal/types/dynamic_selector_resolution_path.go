@@ -291,7 +291,13 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 			!dynamicSelectorIdentityEquivalent(item.Object, lookupRow.owner) {
 			continue
 		}
-		from := strings.TrimSpace(firstNonEmptyDynamicSelectorIdentity(item.OwnerSymbol, item.Subject))
+		// A call edge's Subject is its typed source endpoint. OwnerSymbol is
+		// enclosing/source qualification and can legitimately be more qualified
+		// (for example pipeline.runner.run_pipeline); it is only a fallback for
+		// deterministic legacy rows whose Subject is absent. Preferring the owner
+		// here makes an otherwise exact run_pipeline -> resolve edge fail entry
+		// matching without adding any evidence or ambiguity.
+		from := strings.TrimSpace(firstNonEmptyDynamicSelectorIdentity(item.Subject, item.OwnerSymbol))
 		if from == "" || (requestedEntry != "" && !dynamicSelectorIdentityEquivalent(from, requestedEntry)) {
 			continue
 		}
