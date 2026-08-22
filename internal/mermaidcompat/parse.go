@@ -31,6 +31,16 @@ type NodeDecl struct {
 	Label string
 }
 
+// InlineNodeDecl is one shaped node declaration embedded in a Mermaid
+// statement. Token preserves the exact model-authored carrier bytes (including
+// an optional :::class suffix) so a structural editor can lift the declaration
+// onto its own line without recreating its label or shape.
+type InlineNodeDecl struct {
+	Ident string
+	Label string
+	Token string
+}
+
 // Subgraph is one authored flowchart/graph grouping. ParentIndex points to the
 // enclosing subgraph in ParseSubgraphs' return slice, or -1 at the root.
 // Nodes contains direct statement members only; callers may walk ParentIndex
@@ -1107,6 +1117,30 @@ func standaloneFlowDeclarationLine(line string) bool {
 // can recognise. A statement like A[Label A] --> B[Label B] produces two
 // declarations.
 func NodeDeclarationsAll(line string) []NodeDecl {
+	inline := InlineNodeDeclarations(line)
+	out := make([]NodeDecl, 0, len(inline))
+	for _, decl := range inline {
+		out = append(out, NodeDecl{Ident: decl.Ident, Label: decl.Label})
+	}
+	// Mermaid flowcharts also permit a node to be declared by one bare,
+	// syntax-safe identifier on its own statement line. This form matters for
+	// honest disconnected participants: requiring a shape solely so another
+	// subsystem can observe the node would make our accepted Mermaid grammar
+	// narrower than the renderer's. Keep this exact and non-semantic — it
+	// contributes a visible node declaration only, never an edge or relation.
+	if len(out) == 0 {
+		if decl, ok := standaloneFlowNodeDeclaration(line); ok {
+			out = append(out, decl)
+		}
+	}
+	return out
+}
+
+// InlineNodeDeclarations returns only shaped declarations embedded in the
+// supplied statement. Unlike NodeDeclarationsAll it never treats a bare
+// standalone identifier as a declaration. Parsing is syntax-only and does not
+// inspect labels for semantic meaning.
+func InlineNodeDeclarations(line string) []InlineNodeDecl {
 	openers := []struct{ open, close string }{
 		{"[\"", "\"]"},
 		{"((", "))"},
@@ -1117,7 +1151,7 @@ func NodeDeclarationsAll(line string) []NodeDecl {
 		{"{", "}"},
 		{">", "]"},
 	}
-	var out []NodeDecl
+	var out []InlineNodeDecl
 	cursor := 0
 	for cursor < len(line) {
 		bestPos := -1
@@ -1158,19 +1192,41 @@ func NodeDeclarationsAll(line string) []NodeDecl {
 		labelEnd := labelStart + closeRel
 		label := strings.TrimSpace(line[labelStart:labelEnd])
 		label = strings.Trim(label, "\"'")
-		out = append(out, NodeDecl{Ident: ident, Label: label})
-		cursor = labelEnd + len(bestOpener.close)
-	}
-	// Mermaid flowcharts also permit a node to be declared by one bare,
-	// syntax-safe identifier on its own statement line. This form matters for
-	// honest disconnected participants: requiring a shape solely so another
-	// subsystem can observe the node would make our accepted Mermaid grammar
-	// narrower than the renderer's. Keep this exact and non-semantic — it
-	// contributes a visible node declaration only, never an edge or relation.
-	if len(out) == 0 {
-		if decl, ok := standaloneFlowNodeDeclaration(line); ok {
-			out = append(out, decl)
+		tokenEnd := labelEnd + len(bestOpener.close)
+		// Preserve Mermaid's optional inline class attachment as part of the
+		// authored node carrier: A[Business]:::critical.
+		if strings.HasPrefix(line[tokenEnd:], ":::") {
+			suffixEnd := tokenEnd + 3
+			for suffixEnd < len(line) {
+				remaining := line[suffixEnd:]
+				isEdgeOperator := false
+				for _, operator := range []string{"-->>", "-.->", "-->", "==>", "->>", "-.-", "---", "==", "->"} {
+					if strings.HasPrefix(remaining, operator) {
+						isEdgeOperator = true
+						break
+					}
+				}
+				if isEdgeOperator {
+					break
+				}
+				ch := line[suffixEnd]
+				if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+					(ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == ':' {
+					suffixEnd++
+					continue
+				}
+				break
+			}
+			if suffixEnd > tokenEnd+3 {
+				tokenEnd = suffixEnd
+			}
 		}
+		out = append(out, InlineNodeDecl{
+			Ident: ident,
+			Label: label,
+			Token: strings.TrimSpace(line[identStart:tokenEnd]),
+		})
+		cursor = tokenEnd
 	}
 	return out
 }

@@ -528,6 +528,96 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AttachBindsSelectedCandidateToExis
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_RemoveLiftsInlineBusinessNodeDeclarations(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n" +
+			"  subgraph 注册阶段\n" +
+			"    decorator[@register(\"json\")] -->|注册| reg[REGISTRY 字典]\n" +
+			"    reg -->|选择| jp[JsonPlugin 类]\n" +
+			"  end\n"},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "missing_call_anchor", FromNode: "decorator", ToNode: "reg",
+		RelationKind: types.DiagramRelCall,
+	}}, nil)
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "flow", Action: "remove",
+		Match: &types.DiagramEdgeAnchor{FromNode: "decorator", ToNode: "reg", RelationKind: types.DiagramRelCall},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("body-only removal must compile: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("unexpected patch: %+v", patch)
+	}
+	body := patch.ReplaceBlocks[0].Diagram.Body
+	for _, want := range []string{
+		`    decorator[@register("json")]`,
+		`    reg[REGISTRY 字典]`,
+		`    reg -->|选择| jp[JsonPlugin 类]`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("remove lost business node carrier %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "decorator -->") || strings.Contains(body, "-->|注册|") {
+		t.Fatalf("remove retained the deleted relation:\n%s", body)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AttachLiftsInlineBusinessNodeDeclarations(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  Source[业务入口]:::entry -->|旧文案| Target[目标处理]\n"},
+	}}}
+	failure := types.AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "Source", ToNode: "Target",
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", BodyOccurrence: 1,
+	}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", Source: "source.go:10",
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, []types.AnswerDiagramRelationRepairCandidate{candidate})
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Action: "attach", Edge: &types.DiagramEdgeAnchor{
+			FromNode: "Source", ToNode: "Target", VisibleLabel: "交给目标处理",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("attach must compile: %v", err)
+	}
+	body := patch.ReplaceBlocks[0].Diagram.Body
+	for _, want := range []string{
+		"  Source[业务入口]:::entry\n",
+		"  Target[目标处理]\n",
+		"  Source -->|交给目标处理| Target\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("attach lost exact model-authored node carrier %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "旧文案") {
+		t.Fatalf("attach retained the replaced relation wording:\n%s", body)
+	}
+}
+
+func TestAtomicDiagramInlineNodeDeclarationLiftLeavesSequenceAndClassOutside(t *testing.T) {
+	for _, body := range []string{
+		"sequenceDiagram\n  participant A as 业务入口\n  A->>B: 调用\n",
+		"classDiagram\n  Child --|> Base : 继承\n",
+	} {
+		lines := strings.Split(body, "\n")
+		if got := atomicDiagramInlineNodeDeclarationsToLift(body, lines, 1); len(got) != 0 {
+			t.Fatalf("independent Mermaid declaration family entered flow lift lane: body=%q got=%+v", body, got)
+		}
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AddWithBothLiveRefsAliasesAttach(t *testing.T) {
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

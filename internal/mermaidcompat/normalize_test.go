@@ -88,6 +88,23 @@ func TestNodeDeclarationsAllRecognizesStandaloneBareFlowNodeWithoutMintingStatem
 	}
 }
 
+func TestInlineNodeDeclarationsPreserveExactAuthoredCarrierTokens(t *testing.T) {
+	line := `  rp[run_pipeline]:::entry -->|调用| res["resolve(kind)"]`
+	got := InlineNodeDeclarations(line)
+	if len(got) != 2 {
+		t.Fatalf("inline declarations=%+v, want two", got)
+	}
+	if got[0].Ident != "rp" || got[0].Label != "run_pipeline" || got[0].Token != `rp[run_pipeline]:::entry` {
+		t.Fatalf("from declaration lost exact carrier: %+v", got[0])
+	}
+	if got[1].Ident != "res" || got[1].Label != "resolve(kind)" || got[1].Token != `res["resolve(kind)"]` {
+		t.Fatalf("to declaration lost exact carrier: %+v", got[1])
+	}
+	if got := InlineNodeDeclarations("  rp --> res"); len(got) != 0 {
+		t.Fatalf("bare edge endpoints are references, not inline declarations: %+v", got)
+	}
+}
+
 func TestParseEdges_FlowchartDoesNotInventEdgesFromCodeInsideNodeLabels(t *testing.T) {
 	body := strings.Join([]string{
 		"flowchart TD",

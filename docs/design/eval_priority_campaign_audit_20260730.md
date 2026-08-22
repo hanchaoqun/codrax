@@ -57291,6 +57291,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1408 B1341：原子删边/换边保留模型原写业务节点声明，不保留被删关系（2026-08-22）
+
+1. `B1341-DIAGRAMEDGEREMOVENODECARRIER1/P1` 已施工。Mermaid flowchart/graph 的一个 edge statement 若同时承载 shaped node declaration，
+   atomic remove/replace/attach 在删除或覆盖该 statement 前提取精确声明 token；旧 statement 消失后，将尚无其他 shaped declaration 的节点以原缩进
+   提升为 standalone declaration，再应用模型选择的新边或纯删除。`rp[run_pipeline]`、`res[resolve]`、`decorator[@register("json")]` 等
+   reader-facing 业务名称不再随边一起丢失。
+2. 提升的是模型原字节载体：node id、label、括号/方括号 shape 及可选 `:::class` 样式均原样保留，不翻译、不重命名、不从 typed identity 合成显示名。
+   声明仍留在旧 edge 所处缩进，因此 subgraph membership 不漂移；另一路已有同 node 的 shaped declaration 时不重复插入。
+3. 被删除或替换的关系本身绝不保留：旧 arrow、旧 message、旧 relation anchor 按原 atomic action 删除/替换；新 arrow 仍只来自模型选择的 edit，
+   relation tuple 仍由 live ref/原 authority 校验。节点存在不证明节点间有关系，也不会让孤立 participant 绕过独立 orphan disposition 合同。
+4. 该自愈严格限于 flowchart/graph 的 inline shaped declaration。sequenceDiagram 使用独立 participant/actor 声明，classDiagram 使用独立 class declaration，
+   两者不进入本路径并保持原编辑行为；普通源码语言同样无关，因此 Java/Python/ArkTS/Cangjie/C/C++/Rust 等所有产生 flowchart 的回答共享一套语法修复，
+   没有按语言或单个 case 硬编码。
+5. 回归覆盖三层：语法层精确抽取两个 inline declaration 与 `:::class`；remove 后旧注册箭头消失、原业务节点留在原 subgraph、兄弟关系不变；
+   attach 后旧文案消失、两个业务节点声明及样式原样保留、新边使用模型新文案。另钉住 sequence/class 不进入 lift lane。
+6. `go test ./internal/mermaidcompat ./internal/tool ./internal/render ./internal/types ./internal/agent -count=1`、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。Trace runtime/query、显式窗、自动补采、因果投影、链上根因、
+   业务线索、实际占时/规则可消双轴和活动流策略未修改。
+
+状态：
+
+`B1341=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`flow-edge-inline-node-declaration=exact-token-lift-before-remove/replace/attach`；
+`deleted/replaced-relation=not-preserved`；
+`sequence/class=independent-declaration-family/unchanged`；
+`system-node-label/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1406 r859：B1339 候选生产正证；零锚点修补与删边节点载体仍造成五次重试和图缩水（2026-08-22）
 
 1. 从已推送 `37384560d` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态选择与显式窗 Trace，runner 2/2 PASS：Trace

@@ -1260,12 +1260,15 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		return err
 	}
 	lines := strings.Split(block.Diagram.Body, "\n")
+	preservedNodeDeclarations := atomicDiagramInlineNodeDeclarationsToLift(
+		block.Diagram.Body, lines, lineIndex,
+	)
 	switch action {
 	case "remove":
 		if edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
 			return fmt.Errorf("action=remove must omit edge and visible_label")
 		}
-		lines = append(lines[:lineIndex], lines[lineIndex+1:]...)
+		lines = replaceAtomicMermaidStatementLine(lines, lineIndex, preservedNodeDeclarations)
 		if !bodyOnly {
 			block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
 		}
@@ -1295,7 +1298,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			return err
 		}
 		indent := lines[lineIndex][:len(lines[lineIndex])-len(strings.TrimLeft(lines[lineIndex], " \t"))]
-		lines[lineIndex] = indent + strings.TrimLeft(line, " \t")
+		replacement := append([]string(nil), preservedNodeDeclarations...)
+		replacement = append(replacement, indent+strings.TrimLeft(line, " \t"))
+		lines = replaceAtomicMermaidStatementLine(lines, lineIndex, replacement)
 		if bodyOnly {
 			block.EdgeAnchors = append(block.EdgeAnchors, *edit.Edge)
 		} else {
@@ -1304,6 +1309,55 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
 	return nil
+}
+
+// atomicDiagramInlineNodeDeclarationsToLift preserves only model-authored
+// shaped node carriers that live on the exact flowchart/graph edge statement
+// being removed or replaced. The edge relation itself is never retained. A
+// declaration already present on another line wins, preventing duplicates;
+// otherwise the exact token is lifted at the old statement's indentation so
+// subgraph membership and reader-facing business labels survive. Sequence and
+// class diagrams use independent participant/class declarations and remain
+// byte-identical on this lane.
+func atomicDiagramInlineNodeDeclarationsToLift(body string, lines []string, lineIndex int) []string {
+	header := atomicDiagramHeader(body)
+	if (header != "flowchart" && header != "graph") || lineIndex < 0 || lineIndex >= len(lines) {
+		return nil
+	}
+	candidates := mermaidcompat.InlineNodeDeclarations(lines[lineIndex])
+	if len(candidates) == 0 {
+		return nil
+	}
+	existing := make(map[string]bool)
+	for i, line := range lines {
+		if i == lineIndex {
+			continue
+		}
+		for _, decl := range mermaidcompat.InlineNodeDeclarations(line) {
+			existing[strings.TrimSpace(decl.Ident)] = true
+		}
+	}
+	indent := lines[lineIndex][:len(lines[lineIndex])-len(strings.TrimLeft(lines[lineIndex], " \t"))]
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(candidates))
+	for _, decl := range candidates {
+		ident := strings.TrimSpace(decl.Ident)
+		token := strings.TrimSpace(decl.Token)
+		if ident == "" || token == "" || existing[ident] || seen[ident] {
+			continue
+		}
+		seen[ident] = true
+		out = append(out, indent+token)
+	}
+	return out
+}
+
+func replaceAtomicMermaidStatementLine(lines []string, index int, replacement []string) []string {
+	out := make([]string, 0, len(lines)-1+len(replacement))
+	out = append(out, lines[:index]...)
+	out = append(out, replacement...)
+	out = append(out, lines[index+1:]...)
+	return out
 }
 
 // canonicalizeAtomicSequenceAdditionNodeRefs prevents one typed endpoint from
