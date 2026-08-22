@@ -1440,7 +1440,7 @@ func TestRequiredDiagramRelationRetryDoesNotPublishUnfulfillableRepeatedPairOrph
 }
 
 func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
-	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
+	const delta = `{"version":1,"failures":[{"failure_ref":"rf1-current-executor-generation","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
 	e := &answerDocumentEvaluator{diagramRequired: true}
 	result := &types.ToolResult{
@@ -1460,6 +1460,97 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	}
 	if strings.Contains(signal.Hint, "Copy-ready optional typed diagram") || strings.Contains(signal.Hint, "Verified component fragment") {
 		t.Fatalf("lease rejection must not reopen the full relation handbook: %s", signal.Hint)
+	}
+}
+
+func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEmpty(t *testing.T) {
+	const liveRef = "ra1-current-executor-generation"
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{
+			ID: "pipeline-diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramFlow, Language: "mermaid",
+				Body: "flowchart LR\n BusContext -->|作为参数传递| BuildAgentContext",
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "BusContext", ToNode: "BuildAgentContext",
+				FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext",
+				RelationKind: types.DiagramRelArgumentFlow,
+			}},
+		},
+	}}
+	mut := types.NewMutableState("live relation delta forwarding")
+	mut.SetLastRejectedAnswerDocumentV2(base)
+	ctx := &types.AgentContext{Mutable: mut}
+	e := &answerDocumentEvaluator{diagramRequired: true, mu: mut}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
+			Metadata: map[string]string{
+				types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"addition_ref":"` + liveRef + `","block_id":"pipeline-diagram","relation_kind":"argument_flow","from_identity":"o.busCtx","to_identity":"ctxbuilder.BuildAgentContext","source":"internal/orchestrator/extract_work.go:15"}]}`,
+			},
+		},
+	}
+
+	// The evaluator's patch base is a later generation in which the candidate
+	// is already anchored. Re-signing against it correctly produces no lease;
+	// this must not erase the executor's still-live generation returned above.
+	if installAnswerDocDiagramRelationRepairLease(ctx, mut, result) {
+		t.Fatal("consumer-side rebuild should be empty for a candidate already anchored in its later patch base")
+	}
+	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
+		!signal.BypassBudget || !signal.BypassThrottle || !strings.Contains(signal.Hint, `"addition_ref":"`+liveRef+`"`) ||
+		!strings.Contains(signal.Hint, "complete current additions-only typed capability roster") {
+		t.Fatalf("scope retry must forward the executor-owned current generation unchanged: %+v", signal)
+	}
+	if strings.Contains(signal.Hint, "answer_doc.patch_correct") ||
+		strings.Contains(signal.Hint, "ra1-historical-generation") {
+		t.Fatalf("scope retry must not fall back to a generic or historical capability lane: %s", signal.Hint)
+	}
+}
+
+func TestRelationRepairScopeMalformedDeltaStillFallsBackWithoutMintingCapabilities(t *testing.T) {
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
+			Metadata: map[string]string{
+				types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"addition_ref":"ra1-malformed","block_id":"pipeline-diagram","relation_kind":"argument_flow","from_identity":"o.busCtx","to_identity":"","source":"internal/orchestrator/extract_work.go:15"}]}`,
+			},
+		},
+	}
+
+	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_correct" {
+		t.Fatalf("malformed producer delta must retain the existing fail-closed fallback: %+v", signal)
+	}
+	if strings.Contains(signal.Hint, `"addition_ref":"ra1-malformed"`) ||
+		strings.Contains(signal.Hint, "complete current additions-only typed capability roster") {
+		t.Fatalf("malformed delta must not mint or publish a relation capability: %s", signal.Hint)
+	}
+}
+
+func TestRelationRepairScopeDeltaWithoutLiveRefStillFailsClosed(t *testing.T) {
+	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	e := &answerDocumentEvaluator{diagramRequired: true}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
+			Metadata: map[string]string{
+				types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"argument_flow","from_identity":"o.busCtx","to_identity":"ctxbuilder.BuildAgentContext","source":"internal/orchestrator/extract_work.go:15"}]}`,
+			},
+		},
+	}
+
+	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_correct" ||
+		strings.Contains(signal.Hint, "complete current additions-only typed capability roster") {
+		t.Fatalf("scope delta without an executor-owned live ref must fail closed: %+v", signal)
 	}
 }
 

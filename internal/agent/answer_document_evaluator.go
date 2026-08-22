@@ -17059,7 +17059,19 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	if !answerDocumentPatchBaseAvailable(ctx, e.mu) {
 		return LoopSignal{}
 	}
-	if e.diagramRequired {
+	repairCode := ""
+	if obs.LastToolResult.Repair != nil {
+		repairCode = strings.TrimSpace(obs.LastToolResult.Repair.Code)
+	}
+	// A relation-scope rejection is produced from the lease that the atomic
+	// executor has just read. Its delta is therefore already the exact live
+	// generation. Rebuilding that lease against the evaluator's current patch
+	// base is not an equivalent validation: a candidate selected by the prior
+	// patch may now appear anchored in that base and be filtered to an empty
+	// lease, even though the executor returned a non-empty live capability
+	// roster. Preserve the producer as the single generation authority and
+	// validate/render its versioned delta below.
+	if e.diagramRequired && repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
 		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
@@ -17083,18 +17095,15 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// same bounded graph carrier instead of falling through to the generic patch
 	// handbook, which would re-open the whole diagram and recreate failure-set
 	// migration.
-	if obs.LastToolResult.Repair != nil &&
-		obs.LastToolResult.Repair.Code == types.ToolRepairCodeAnswerDocRelationRepairScope {
-		if installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult) {
-			if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
-				e.rejectHintsUsed++
-				e.preferPatchNext = true
-				hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
-				hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
-				return LoopSignal{
-					HintRequested: true, HintKey: "answer_doc.patch_relation_repair_scope",
-					Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
-				}
+	if repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope {
+		if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
+			e.rejectHintsUsed++
+			e.preferPatchNext = true
+			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
+			hint = answerDocAttachEscalation(hint, e.rejectHintsUsed)
+			return LoopSignal{
+				HintRequested: true, HintKey: "answer_doc.patch_relation_repair_scope",
+				Hint: hint, Progress: true, BypassThrottle: true, BypassBudget: true,
 			}
 		}
 	}
@@ -17737,11 +17746,19 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
 			return answerDocDiagramRelationRepairDelta{}, nil, false
 		}
+		if strings.TrimSpace(result.Repair.Code) == types.ToolRepairCodeAnswerDocRelationRepairScope &&
+			strings.TrimSpace(failure.FailureRef) == "" {
+			return answerDocDiagramRelationRepairDelta{}, nil, false
+		}
 	}
 	for _, candidate := range delta.AllowedAdditions {
 		if strings.TrimSpace(candidate.BlockID) == "" || !candidate.RelationKind.IsValid() ||
 			strings.TrimSpace(candidate.FromIdentity) == "" || strings.TrimSpace(candidate.ToIdentity) == "" ||
 			strings.TrimSpace(candidate.Source) == "" {
+			return answerDocDiagramRelationRepairDelta{}, nil, false
+		}
+		if strings.TrimSpace(result.Repair.Code) == types.ToolRepairCodeAnswerDocRelationRepairScope &&
+			strings.TrimSpace(candidate.AdditionRef) == "" {
 			return answerDocDiagramRelationRepairDelta{}, nil, false
 		}
 	}
@@ -17858,7 +17875,7 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 // finalizer model keeps ownership of every visible edge and label.
 func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
 	delta, visibleRaw, ok := parseAnswerDocDiagramRelationRepairDelta(result)
-	if !ok || len(delta.Failures) == 0 {
+	if !ok {
 		return "", false
 	}
 	prefix := "Your last `emit_answer_document` call was rejected"
@@ -17869,7 +17886,11 @@ func answerDocRequiredDiagramRelationDeltaPatchHint(result *types.ToolResult, al
 	}
 	var b strings.Builder
 	b.WriteString(prefix)
-	b.WriteString(" by a local typed source-diagram relation mismatch. ")
+	if len(delta.Failures) == 0 {
+		b.WriteString(" because the last atomic relation operation was not executable under the current additions-only lease. The patch executor has returned the complete current additions-only typed capability roster. ")
+	} else {
+		b.WriteString(" by a local typed source-diagram relation mismatch. ")
+	}
 	b.WriteString(action)
 	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. Choose exactly one current tool-schema branch: a failure-only branch uses its displayed action, an addition-only branch adds one selected typed candidate, and an action=attach branch is valid only when that branch explicitly pairs one failure_ref with one addition_ref for an existing visible edge. attach requires both refs plus your complete from_node/to_node/visible_label and does not add a second body edge. For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. Do not invent or combine refs outside a published branch. The allowed rows are permissions, not required edges; do not add any other relation. Preserve required blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. If the selected edits isolate an `optional_orphan_cleanups` row, add `diagram_participant_edits` and explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n")
 	b.Write(visibleRaw)

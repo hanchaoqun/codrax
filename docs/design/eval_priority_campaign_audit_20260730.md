@@ -57408,6 +57408,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r834`。
 
+### §123.1361 B1318：活动关系 delta 由执行器单源直传，消费者不再跨草稿代次重签（2026-08-22）
+
+1. `B1318-LIVERELATIONDELTAFORWARD1/P1` 已施工。`emitPatchRejectFullRewriteSignal` 先读取 typed repair code；当 code 为
+   `answer_doc_relation_repair_scope` 时，不再调用 relation/participant lease installer 对工具结果做第二次重建。该 code 只由 atomic patch executor
+   读取活动租约后产生，所以工具结果中的 delta 就是执行器下一轮 schema 所使用的当前代能力；evaluator 只做版本、大小、locator/candidate 完整性校验
+   并原样渲染。
+2. additions-only 成为正式可渲染形。共享 relation-delta hint 不再要求至少一条 failure；当 failures 为空但 allowed additions 非空时，明确说明这是
+   当前 additions-only 活动能力，仍只允许模型从清单选择候选并自行填写可见 endpoints/label。failures-only 与 mixed 形保持原文义；candidate 是 permission
+   而非必画关系，系统不选择 add/remove/attach、关系、节点、业务文案、顺序、布局或结论。
+3. 直传不是放宽输入。若 repair code 是 executor scope，所有 failure 必须携带非空 live `failure_ref`，所有 allowed addition 必须携带非空 live
+   `addition_ref`；任何缺 ref、空能力、超限、非法 relation、残缺 identity/source 或不完整 locator 都继续 fail-closed 到原 generic patch-local 车道，
+   不发布伪能力。其他 pre-emit reject 仍按旧路径以当前 patch base 安装并重签租约，只有已经由 executor 确权的 scope repair 退役消费者重算。
+4. 新回归精确复现 r834 的跨代形：evaluator 当前 patch base 已含该 candidate，证明 consumer installer 返回 false；同一工具结果携带另一执行器活动代的
+   additions-only ref。修后信号必须走 `patch_relation_repair_scope`、携带该 current ref 与完整 typed roster，禁止退回 `patch_correct` 或历史 ref。另两条
+   负 pin 覆盖残缺 identity 与缺 live ref，均不得发布 additions-only 能力；既有 failures-only scope 测试改为显式 current ref，符合 executor 合同。
+5. 该批不读取用户请求、模型 reasoning、最终 prose、Mermaid message 或可见业务标签，不修改图解析、关系证据、答案正文、JSON 自愈、Trace 查询或渲染。
+   `go test ./internal/agent -count=1` 通过（11.982s）；完整 `go test ./... -count=1` 全绿（tool 197.988s、hitraceconv 97.293s、
+   tracequery 85.294s、types 31.165s）；CGO release-tag `make` 与 `git diff --check` 通过。
+6. 下一步从本提交重建不可变二进制，继续 exact-2 read 图表 + 显式窗 Trace 回放。read 验收 stale-ref 后是否重新收到当前 additions-only ref、是否停止
+   `patch_correct`/历史 ref 循环并减少 20 次拒绝；Trace 继续验收因果投影、自动补采、链上-only 根因、优先级反转/调度供给/算力供给/D/IO/
+   确定性语义与业务线索、实际占时/规则可消双轴以及活动流不按固定 4ms/4m 降级。
+
+状态：
+
+`B1318=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`executor-scope-delta=single-current-generation-authority`；
+`consumer-reinstall-for-scope-repair=retired`；
+`failures-only+mixed+additions-only=validated+renderable`；
+`missing-live-ref/malformed/empty=fail-closed`；
+`system-answer/member/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1356 r832：B1316 去重臂生产转正；B1315 跨样本确认为“错 ID 优先 + 旧 citation 池泄漏”（2026-08-21）
 
 1. 从已推送 `4944761c8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 154s、read
