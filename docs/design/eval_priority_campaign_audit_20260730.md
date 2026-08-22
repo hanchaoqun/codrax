@@ -57750,6 +57750,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1372 r840：稳定证据载体生产转正；融合图拆分丢失列表关系所有权（2026-08-22）
+
+1. 从已推送 `493a3bb56` 重建不可变二进制，严格并发恰好 2 路复放 TypeScript workspace 调用链与显式窗 Trace，runner 2/2 PASS；
+   Trace 201s、TypeScript 216s。两路均未按固定 4ms、4m、活动年龄、首字节或上下文比例降级，没有恢复旧稿或系统替换模型结论。
+2. `B1325-ITEMEVIDENCECARRIERCONFLICT1` 获生产正证。TypeScript 第一稿的五个调用链 item 全部直接提交 accepted stable
+   `evidence_ids`，没有再走 manual citation index adoption 拒绝；模型选择的复合证据顺序保留，后续日志只是 evidence binder 将 ID 持久化为可渲染
+   citation。故 Rust→TypeScript 的固定一轮引用合同冲突已关闭。
+3. 新 P1 `B1326-FUSEDEDGERETENTION1` 是两次连续复现的确定性系统自冲突。模型第一稿在同一 `ordered_list + diagram` 融合块上已经提交
+   6 条 `edge_anchors`。splitter 依据旧“字段只能属于一个 half”规则把全部 anchors 移到 diagram half，却让 visible ordered-list half 继续保留
+   `surface_role=principal`、`call_edge` claim 和 `principal_path_edge` facet；下游精确 gate 因列表 anchors 为空拒绝。第二轮模型再次提交 fused patch，
+   splitter 再次清空；第三轮只替换列表才通过。错误完全由系统拆分构造，不是模型没按反馈修补。
+4. 最优根修按结构化语义所有权而非字段名机械分区：diagram half 始终保留模型提交的 anchors；visible half 只有在 kind 为
+   ordered_list/bullet_list/table、surface_role=principal 且 claim_uses 含 typed directed relation 时，才克隆同一批 anchors。普通 prose、定义表、
+   非 principal 或无 directed claim 的融合块仍只把 anchors 放在图半。该规则不读 items、label、Mermaid message、用户请求、thinking 或答案 prose，
+   不创建/选择/反转任何关系，只防止系统删除模型已选的关系所有权；full/patch/重复融合三路必须同一 helper。
+5. TypeScript 终稿调用链与合法 sequence diagram 均完整，但摘要把 `tsconfig.base.json:8` 的精确
+   `packages/core/src/index.ts` 缩写成 `packages/core/src`，人工判 partial。typed evidence 和引用位置正确，r839 同案曾准确输出 index.ts，先按模型
+   事实遵循波动观察，不据单例扫描或改写正文。Trace 人工判 uncertain：完整投影与双账户通过，但模型对
+   `fscache_page_wait_on_page_bit` 的业务机理描述仍略强于调用点本身，继续归入 B1269/B1271 软边界残余。
+6. Trace 核心验收通过：用户窗、4 次 typed 查询与自动补采、四线程三跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms 调度/优先级候选、
+   CPU 位置、链上业务下钻、实际占时/规则可消双账户、邻近/背景隔离和完整 `Trace 因果投影` 全在。唯一结构拒绝是模型把 summary-only
+   caliber 字段放到 section，下一稿删除后通过；当前没有证据表明是系统合同冲突。
+
+状态：
+
+`r840=runner-pass-2/2,human-typescript-partial+trace-uncertain`；
+`B1325=production-positive/core-closed`；
+`B1326=confirmed/P1-next`；
+`fused-directed-visible-half=current-system-drops-edge-anchors`；
+`target-split=diagram-keeps-anchors+typed-visible-owner-clones-same-model-anchors`；
+`system-edge/action/member/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/item-label/mermaid-message/facet-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r840`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r840`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
