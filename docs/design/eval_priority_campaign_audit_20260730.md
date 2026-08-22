@@ -57367,6 +57367,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
+
+1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
+   1228s FAIL；read 共 20 次成文拒绝、19 次 patch，最终降级到旧结构稿，因此 runner 与人工均不能把 read 收账为通过。
+2. Trace 人工判 pass：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   四线程三跳链、threadpool-400 的 11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、实际占时/
+   规则可消双账户、链上业务下钻、背景隔离和完整 `Trace 因果投影` 全部保留。0 次成文拒绝；活动流未按固定 4ms、4m、累计年龄或
+   上下文比例降级，read 图修补仍未侵入 Trace 查询、窗口选举、自动补采、根因排序或投影。
+3. B1317 获得生产正证。r834 的混合关系拒绝已经持续发布完整 failures、allowed additions 与 current refs；`failures=null` 的原断链未再出现。
+   模型能够在一次原子 patch 中选择 remove+add，并使原错误 self-loop 从下一稿消失。故半 identity 归一化和兄弟 failure 保留核心闭环，read 最终失败是
+   后续独立代次问题，不能回退 B1317。
+4. 新确认 `B1318-LIVERELATIONDELTAFORWARD1/P1`，不是模型波动。一次原子 patch 成功消费旧租约后，普通 validator 在新拒绝中发布
+   additions-only 活动租约；模型下一轮误用旧 addition ref，patch executor 正确以 `answer_doc_relation_repair_scope` 返回当前活动租约的完整 typed
+   delta。`emitPatchRejectFullRewriteSignal` 却要求先调用 `installAnswerDocDiagramRelationRepairLease`，用当前 patch base 再构造一次租约；前一轮已写入
+   草稿的候选会被 `candidateAlreadyAnchored` 过滤，重建得到 nil。消费者随即丢弃工具原始 live delta，退回 `answer_doc.patch_correct`，只说“重新读取
+   当前 delta”却没有附带任何当前 ref。
+5. 历史消息同时保留多代 `ra1-*`，而 opaque ref 的代次不可由模型推断。r834 因此依次复用三条历史 ref，均被正确判 stale；同 key 提示随后又被
+   dedupe，直到 20 次拒绝后降级。工具生产者已经拥有执行器正在读取的精确活动租约，evaluator 的第二次重建既不是安全校验，也不是等价重签，而是
+   引入了另一个 patch-base 权威，构成确定性合同自冲突。
+6. 最优通用方案冻结为 producer 单源直传：`answer_doc_relation_repair_scope` 携带的 versioned、限长、完整 locator/candidate typed delta 通过现有 parser
+   后，evaluator 直接渲染该次工具结果；不得把“重新安装成功”作为展示活动清单的前置条件。failures-only、failures+additions 与 additions-only 三形
+   都必须可见；畸形、超限或空能力继续 fail-closed。系统不选择 add/remove/attach、节点、边、业务 wording、顺序、布局或结论，也不读取请求、模型
+   reasoning、最终 prose、Mermaid message 或可见标签决定路由。
+7. 下一独立施工批新增精确回归：构造一个活动 additions-only lease，其候选已出现在 evaluator 当前 patch base，证明重新安装会返回 false；工具结果
+   仍携带另一代当前 ref。信号必须走 `patch_relation_repair_scope`、逐字携带工具当前 ref、不得出现历史 ref 或 generic `patch_correct`，并继续钉住
+   malformed delta 的原 fail-closed 路径。修复后跑 agent 定向包、完整 `go test ./...`、CGO release-tag `make`，再以 exact-2 read+Trace 回放验收。
+
+状态：
+
+`r834=runner-pass-1/2,human-trace-pass+read-fail/degraded-old-draft`；
+`B1317=production-positive/core-closed`；
+`B1318=confirmed/P1-next/minimal-test-shape-frozen`；
+`scope-repair-source=executor-active-lease-delta`；
+`consumer-rebuild-on-current-patch-base=non-equivalent/forbidden`；
+`failures-only+mixed+additions-only=all-renderable`；
+`system-answer/member/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r834`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r834`。
+
 ### §123.1356 r832：B1316 去重臂生产转正；B1315 跨样本确认为“错 ID 优先 + 旧 citation 池泄漏”（2026-08-21）
 
 1. 从已推送 `4944761c8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 154s、read
