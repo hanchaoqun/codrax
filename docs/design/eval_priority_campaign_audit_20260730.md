@@ -57291,6 +57291,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
+
+1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
+   221s。该 PASS 不能代替人工审计：Python 仍有 3 次成文拒绝/3 次 patch，`Typed dynamic-selection candidates` 仍未进入 finalizer 上下文。
+2. B1330-A/B 的 producer 已获得完整生产正证，不再是“缺某一行”：finalizer handoff 同时存在
+   `decorator_selector_application @ plugins.py:17`、selector helper 的 indexed write `REGISTRY[name]=cls @ registry.py:17`、lookup
+   `cls=REGISTRY[name] @ registry.py:31`、factory return `return cls() @ registry.py:34`、entry call `run_pipeline->resolve @ runner.py:15` 和
+   同坐标 argument flow `kind->resolve`。因此本轮候选空产的边界已收窄为 `CompileDynamicSelectorResolutionPaths` 内部合取，不能再把它归咎于
+   模型没读源码、分页遗漏或单一 producer 缺失。
+3. B1330-C 在本轮没有自然触发：模型在装饰器行反复尝试发 registration，但这些行未通过精确 grounding，进入 compiler 的 binding 仍是
+   parser assignment-only。也就是说候选空产不是同 occurrence assignment/registration 双载体歧义；B1330-C 的单测成立，但其生产形仍待另一个
+   自然样本。
+4. 新增 diagnostic-only typed telemetry：候选 compiler 有拒绝项时只在 debug log 记录 entry、candidate/rejected 数量及按 typed enum 聚合的
+   reason counts。它不把内部枚举放进模型 prompt 或用户答案，不改变 fail-closed 判定、证据池、候选、关系、模型正文或结论。下一轮可直接判断是
+   binding/lookup/return/entry/argument 哪一层合取失败，避免再从模型 prose 或 Mermaid 文本反推系统事实。
+5. Python 最终答案人工 uncertain：最终 `JsonPlugin`、`REGISTRY[name]` 查表、`cls()` 构造、executor callback 与装饰器 import-time 作用均正确，
+   Mermaid 语法合法；但图只剩 entry call 和 return，关系表达仍不足。不能因为答案表面正确就宣称动态边界闭环。
+6. Trace 人工 uncertain、系统面 pass：显式 2.000..2.020s 窗、四线程唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms 候选、实际占时/
+   规则可消双账、业务下钻和完整 `Trace 因果投影` 均保留；邻近/背景未升主因，活动流没有按固定 4ms/4m 降级。模型仍把唤醒先后扩写为
+   “依次传导阻塞影响”，后文又正确披露无直接阻塞/等待对象/后端证明，继续归既有软教学遵循观察，不以正文关键词硬拒或系统改写。
+
+状态：
+
+`r849=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1330-A/B=production-positive/all-six-input-families-visible`；
+`B1330-C=tests-positive/not-production-triggered-r849`；
+`B1330-D=typed-compiler-rejection-observability/implemented`；
+`compiler-rejection-log=typed-counts-only/debug-only`；
+`internal-enum-to-model/reader=none`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r849`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r849`。
+
 ### §123.1381 B1329-A：动态选择路径改为版本化 typed 候选载体，所有连接保持原关系（2026-08-22）
 
 1. r845 确认的 `B1329-DYNAMICSELECTORRESOLUTIONPATH1/P1` 先完成第一批载体与编译器施工。旧的 runtime-target capsule 虽能分别给出装饰器、注册、

@@ -3044,6 +3044,23 @@ func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext,
 		answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entryIdentity),
 		entryIdentity,
 	)
+	// Keep compilation failures observable without putting internal rejection
+	// enums into the model prompt or the reader-facing answer. These are typed
+	// compiler outcomes, not conclusions: the log is diagnostic-only and does
+	// not relax the fail-closed candidate contract.
+	if len(compiled.Rejected) > 0 {
+		reasonCounts := make(map[types.DynamicSelectorResolutionRejectionReason]int)
+		for _, rejected := range compiled.Rejected {
+			reasonCounts[rejected.Reason]++
+		}
+		reasons := make([]string, 0, len(reasonCounts))
+		for reason, count := range reasonCounts {
+			reasons = append(reasons, fmt.Sprintf("%s=%d", reason, count))
+		}
+		sort.Strings(reasons)
+		logging.Debug("[finalizer/dynamic_selector] entry=%q candidates=%d rejected=%d reasons=%s",
+			strings.TrimSpace(entryIdentity), len(compiled.Candidates), len(compiled.Rejected), strings.Join(reasons, ","))
+	}
 	if len(compiled.Candidates) == 0 {
 		return ""
 	}
