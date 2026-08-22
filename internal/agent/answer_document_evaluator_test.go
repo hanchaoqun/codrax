@@ -11486,6 +11486,12 @@ func TestRenderReadOwnerAnchorSupplement_RendersOwnerRows(t *testing.T) {
 func TestRenderReadOwnerAnchorSupplement_ProjectsOnePreciseRowPerPath(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			Items:       []types.AnswerBlockItem{{ID: "selected-owner", Label: "exactOwner"}},
+		}},
 		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
 			Path:        "pkg/main.go",
 			Kind:        types.SourceLocalizationAnchorGroundedEvidence,
@@ -11531,6 +11537,74 @@ func TestRenderReadOwnerAnchorSupplement_ProjectsOnePreciseRowPerPath(t *testing
 		if strings.Contains(got, internal) {
 			t.Fatalf("internal localization token %q must not leak into final supplement:\n%s", internal, got)
 		}
+	}
+}
+
+func TestRenderReadOwnerAnchorSupplement_SelectsStructuredPrincipalOwnerNotSameFileSibling(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "principal-path",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode:     "@register",
+				ToNode:       "JsonPlugin",
+				FromIdentity: "register",
+				ToIdentity:   "JsonPlugin",
+				RelationKind: types.DiagramRelRegister,
+			}},
+		}},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path:        "pipeline/plugins.py",
+			Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:    types.SourceLocalizationAnchorOwner,
+			Rank:        1,
+			OwnerSymbol: "CsvPlugin",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID: "ev-csv", Source: "pipeline/plugins.py", LineStart: 9,
+			},
+		}, {
+			Path:        "pipeline/plugins.py",
+			Kind:        types.SourceLocalizationAnchorGroundedEvidence,
+			Strength:    types.SourceLocalizationAnchorOwner,
+			Rank:        7,
+			OwnerSymbol: "JsonPlugin",
+			EvidenceRef: &types.WriteExplorationEvidenceRef{
+				ID: "ev-json", Source: "pipeline/plugins.py", LineStart: 18,
+			},
+		}},
+	}
+	got := renderReadOwnerAnchorSupplement(nil, doc, "zh")
+	for _, want := range []string{"`JsonPlugin`", "`pipeline/plugins.py:18`"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("structured principal owner selection missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{"`CsvPlugin`", "`pipeline/plugins.py:9`"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("same-file sibling owner must not leak into supplement %q:\n%s", banned, got)
+		}
+	}
+}
+
+func TestRenderReadOwnerAnchorSupplement_SuppressesAmbiguousSameFileOwnersWithoutStructuredSelection(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "principal", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+			Text: "模型正文可以讨论任意主体，但正文词义不参与系统 owner 选择。",
+		}},
+		ReadOwnerAnchors: []types.OwnerAnchorViewItem{{
+			Path: "pkg/plugins.py", Kind: types.SourceLocalizationAnchorGroundedEvidence,
+			Strength: types.SourceLocalizationAnchorOwner, OwnerSymbol: "CsvPlugin",
+		}, {
+			Path: "pkg/plugins.py", Kind: types.SourceLocalizationAnchorGroundedEvidence,
+			Strength: types.SourceLocalizationAnchorOwner, OwnerSymbol: "JsonPlugin",
+		}},
+	}
+	if got := renderReadOwnerAnchorSupplement(nil, doc, "zh"); got != "" {
+		t.Fatalf("ambiguous same-file sibling owners need an exact structured selector, got:\n%s", got)
 	}
 }
 

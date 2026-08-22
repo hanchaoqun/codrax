@@ -21446,13 +21446,16 @@ func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocum
 		return nil
 	}
 	// The final-answer supplement is a path-localization safety net, not a
-	// second semantic inventory. Keep one strongest, most precise typed anchor
-	// per uncited source path. Without this projection, several nested owners
-	// and evidence revisions from one read can consume the entire visible cap
-	// and drown the model-authored answer while adding no new file location.
+	// second semantic inventory. A path alone cannot select an owner: one file
+	// can contain many sibling declarations. Prefer an owner/anchor that the
+	// model already selected in a PRINCIPAL structured item or edge identity.
+	// When no such identity exists, publish a row only if every strong anchor on
+	// that path belongs to the same owner family. This reads typed carriers, not
+	// model prose or Mermaid labels, and never creates answer authority.
 	view := types.NormalizeOwnerAnchorView(types.OwnerAnchorView{Items: doc.ReadOwnerAnchors}, 0)
-	pathIndex := map[string]int{}
-	var rows []readOwnerAnchorSupplementRow
+	principalIdentities := answerDocPrincipalStructuredOwnerIdentities(doc)
+	pathOrder := make([]string, 0)
+	pathRows := make(map[string][]readOwnerAnchorSupplementRow)
 	for _, item := range view.Items {
 		if item.Path == "" || types.SourcePathRoleIsAuxiliary(item.Role) || item.Kind == types.SourceLocalizationAnchorScope {
 			continue
@@ -21487,19 +21490,113 @@ func readOwnerAnchorSupplementRows(_ *types.AgentContext, doc *types.AnswerDocum
 		if pathKey == "" {
 			continue
 		}
-		if idx, ok := pathIndex[pathKey]; ok {
-			if readOwnerAnchorSupplementRowBetter(row, rows[idx]) {
-				rows[idx] = row
-			}
+		if _, ok := pathRows[pathKey]; !ok {
+			pathOrder = append(pathOrder, pathKey)
+		}
+		pathRows[pathKey] = append(pathRows[pathKey], row)
+	}
+	rows := make([]readOwnerAnchorSupplementRow, 0, min(len(pathOrder), readOwnerAnchorSupplementMaxRows))
+	for _, pathKey := range pathOrder {
+		row, ok := readOwnerAnchorSupplementSelectRow(pathRows[pathKey], principalIdentities)
+		if !ok {
 			continue
 		}
-		if len(rows) >= readOwnerAnchorSupplementMaxRows {
-			continue
-		}
-		pathIndex[pathKey] = len(rows)
 		rows = append(rows, row)
+		if len(rows) >= readOwnerAnchorSupplementMaxRows {
+			break
+		}
 	}
 	return rows
+}
+
+// answerDocPrincipalStructuredOwnerIdentities returns only explicit structured
+// identities selected by the model. Free-form block text, item text, diagram
+// body/message labels, and the user request are deliberately excluded.
+func answerDocPrincipalStructuredOwnerIdentities(doc *types.AnswerDocumentV2) []string {
+	if doc == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		key := strings.ToLower(raw)
+		if raw == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, raw)
+	}
+	for _, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal {
+			continue
+		}
+		for _, item := range block.Items {
+			add(item.Label)
+		}
+		for _, anchor := range block.EdgeAnchors {
+			add(anchor.FromIdentity)
+			add(anchor.ToIdentity)
+			add(anchor.FromNode)
+			add(anchor.ToNode)
+		}
+	}
+	return out
+}
+
+func readOwnerAnchorSupplementSelectRow(rows []readOwnerAnchorSupplementRow, principalIdentities []string) (readOwnerAnchorSupplementRow, bool) {
+	if len(rows) == 0 {
+		return readOwnerAnchorSupplementRow{}, false
+	}
+	bestScore := 0
+	var best readOwnerAnchorSupplementRow
+	found := false
+	for _, row := range rows {
+		score := readOwnerAnchorSupplementIdentityScore(row, principalIdentities)
+		if score == 0 {
+			continue
+		}
+		if !found || score > bestScore || (score == bestScore && readOwnerAnchorSupplementRowBetter(row, best)) {
+			best, bestScore, found = row, score, true
+		}
+	}
+	if found {
+		return best, true
+	}
+
+	// With no model-selected structured identity, a unique owner family is
+	// still safe. Multiple sibling owners on the same path are ambiguous and
+	// must not be resolved by rank alone.
+	owner := ""
+	for _, row := range rows {
+		candidate := firstNonEmptyString(row.OwnerSymbol, row.AnchorSymbol)
+		if candidate == "" {
+			return readOwnerAnchorSupplementRow{}, false
+		}
+		if owner == "" {
+			owner = candidate
+		} else if !types.AnswerCodeIdentitySurfacesEquivalent(owner, candidate) {
+			return readOwnerAnchorSupplementRow{}, false
+		}
+		if !found || readOwnerAnchorSupplementRowBetter(row, best) {
+			best, found = row, true
+		}
+	}
+	return best, found
+}
+
+func readOwnerAnchorSupplementIdentityScore(row readOwnerAnchorSupplementRow, principalIdentities []string) int {
+	for _, identity := range principalIdentities {
+		if row.OwnerSymbol != "" && types.AnswerCodeIdentitySurfacesEquivalent(row.OwnerSymbol, identity) {
+			return 2
+		}
+	}
+	for _, identity := range principalIdentities {
+		if row.AnchorSymbol != "" && types.AnswerCodeIdentitySurfacesEquivalent(row.AnchorSymbol, identity) {
+			return 1
+		}
+	}
+	return 0
 }
 
 func readOwnerAnchorSupplementRowBetter(candidate, current readOwnerAnchorSupplementRow) bool {

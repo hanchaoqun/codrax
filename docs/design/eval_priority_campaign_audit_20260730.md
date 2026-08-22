@@ -58000,6 +58000,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r844`。
 
+### §123.1379 B1244：源码定位补充按结构化主体选择 owner，同文件兄弟不再串位（2026-08-22）
+
+1. `B1244-SOURCEANCHOROWNER1/P2` 已按 r844 的同文件兄弟 witness 根修。旧 last-mile 只确认模型 principal surface 出现了一个未引用路径，
+   随后把该路径的所有 strong owner anchor 按 rank/行号收成一行；路径只能证明文件相同，不能证明 `CsvPlugin` 就是答案所选的
+   `JsonPlugin`，所以系统会向正确模型答案追加错误 owner。
+2. 新选择器先从 principal block 的结构化 item label 与 edge anchor 的 from/to node、from/to identity 建立 exact identity 集，不读取 block/item
+   prose、Mermaid body/message、用户请求或模型 reasoning。每个路径优先选择 owner identity 与该集合完整等价的 row；语言原生分隔符可规范化，
+   但短尾不能冒充限定名。owner 无匹配时才尝试 anchor symbol，防止调用点压过更强的所属类型。
+3. 若模型没有提供结构化主体，同一路径所有强锚必须属于同一个 exact owner family 才允许显示最精确一行；存在两个不同兄弟 owner 时直接省略
+   成功补充，不再让 rank 替系统做语义选择。该 fail-open omission 只影响 system-owned 定位旁栏，不拒绝、修改或降级模型答案，也不改变内部
+   ReadOwnerAnchors 审计账。
+4. 新回归覆盖 r844 同形：`CsvPlugin@plugins.py:9` rank 更高、`JsonPlugin@plugins.py:18` rank 更低，但 principal edge 明确选择
+   JsonPlugin 时只显示后者；没有结构化选择且同文件多 owner 时不发补充；唯一 owner 和结构化选中精确 row 的既有车道继续通过。agent 定向包、
+   完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+5. 本批不改变模型正文、引用、关系、图、结论或 finalizer 校验，不触碰 Trace 输入、显式窗、链上根因、实际占时/规则可消双轴、优先级/调度/
+   算力/D/IO/确定性语义事件、业务线索、因果投影自动补采或活跃流时限。下一步提交推送后，从该不可变提交严格并发恰好 2 路复放 Python
+   动态注册 + 显式窗 Trace，验收无关 CsvPlugin 补充消失且 Trace 全面不回归；随后进入 B1329 typed carrier 第一批。
+
+状态：
+
+`B1244=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`owner-supplement-selection=principal-structured-exact-identity`；
+`same-path-multiple-owners-without-selector=omit`；
+`model-prose/mermaid-message/request-scan=none`；
+`system-answer/conclusion/relation/owner-inference=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
