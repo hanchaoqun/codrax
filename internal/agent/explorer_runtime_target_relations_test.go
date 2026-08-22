@@ -612,6 +612,9 @@ func TestBuildRuntimeTargetDecoratorApplications_PreservesSelectorRoleWithoutReg
 		item.Producer != types.EvidenceProducerRepoMapDecoratorApplication || item.AnchorKind != types.AnchorDefinition || !item.IsCitable() {
 		t.Fatalf("unexpected typed decorator application: %+v", item)
 	}
+	if item.SelectorApplication == nil || item.SelectorApplication.Owner != "register" || item.SelectorApplication.Literal != "json" {
+		t.Fatalf("selector metadata must survive as a typed system carrier: %+v", item.SelectorApplication)
+	}
 	for _, forbidden := range []string{"registry binding", "registration_edge", "@dynamic(NAME)"} {
 		if strings.Contains(got.markdown, forbidden) {
 			t.Fatalf("decorator syntax invented semantics or admitted a dynamic selector %q:\n%s", forbidden, got.markdown)

@@ -723,6 +723,12 @@ type EvidenceItem struct {
 	DeclaredBinding string `json:"declared_binding,omitempty"`
 	DeclaredType    string `json:"declared_type,omitempty"`
 	DeclaredOwner   string `json:"declared_owner,omitempty"`
+	// SelectorApplication is parser-authored metadata for one exact static
+	// selector application (for example a literal-key decorator/annotation
+	// attached to a declaration). It is deliberately separate from Subject and
+	// Summary: consumers must not recover a selector by parsing display syntax
+	// or prose. The model-facing emit_evidence schema does not expose it.
+	SelectorApplication *EvidenceSelectorApplication `json:"selector_application,omitempty"`
 	// InitializerContainer is the parser-stamped, syntax-explicit owner type
 	// for a keyed/member initializer (for example AgentContext for
 	// `AgentContext{Mutable: bus.Mutable}`). It is not model-writable and only
@@ -1085,6 +1091,12 @@ func StableEvidenceID(item EvidenceItem) string {
 		"origin=" + string(item.Origin),
 		"authority=" + string(item.Authority),
 	}
+	if item.SelectorApplication != nil {
+		parts = append(parts,
+			"selector_owner="+item.SelectorApplication.Owner,
+			"selector_literal="+item.SelectorApplication.Literal,
+		)
+	}
 	switch item.Scope {
 	case ScopeSection:
 		parts = append(parts, "section="+item.SectionPath)
@@ -1294,6 +1306,10 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 	}
 	if dst.EvidenceRef == "" {
 		dst.EvidenceRef = src.EvidenceRef
+	}
+	if dst.SelectorApplication == nil && src.SelectorApplication != nil {
+		clone := *src.SelectorApplication
+		dst.SelectorApplication = &clone
 	}
 	dst.SurfaceTerms = MergeEvidenceStringSet(dst.SurfaceTerms, src.SurfaceTerms)
 	dst.DerivedFrom = MergeEvidenceStringSet(dst.DerivedFrom, src.DerivedFrom)

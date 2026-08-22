@@ -15085,6 +15085,7 @@ func (e *explorerEvaluator) buildRuntimeTargetDecoratorApplications(
 			}
 			surface := strings.TrimSpace(rel.Metadata["application_surface"])
 			selector := strings.TrimSpace(rel.Metadata["selector_literal"])
+			decorator := strings.TrimSpace(rel.FromEP.Name)
 			target := strings.TrimSpace(rel.ToEP.Name)
 			if receiver := strings.TrimSpace(rel.ToEP.Receiver); receiver != "" && target != "" {
 				target = receiver + "." + target
@@ -15093,7 +15094,7 @@ func (e *explorerEvaluator) buildRuntimeTargetDecoratorApplications(
 			if source == "" {
 				source = canonicalExplorerPath(fi.RelPath)
 			}
-			if surface == "" || selector == "" || target == "" || source == "" {
+			if surface == "" || selector == "" || decorator == "" || target == "" || source == "" {
 				continue
 			}
 			if closure != nil {
@@ -15123,6 +15124,10 @@ func (e *explorerEvaluator) buildRuntimeTargetDecoratorApplications(
 				AnchorKind:   types.AnchorDefinition,
 				AnchorSymbol: target,
 				OwnerSymbol:  target,
+				SelectorApplication: &types.EvidenceSelectorApplication{
+					Owner:   decorator,
+					Literal: selector,
+				},
 			}
 			item.ID = types.StableEvidenceID(item)
 			rows = append(rows, row{item: item, selector: selector, resolvedBy: rel.ResolvedBy})

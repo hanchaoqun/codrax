@@ -3134,6 +3134,10 @@ func cloneEvidenceItemForMutableStorage(in EvidenceItem) EvidenceItem {
 		clone := *in.NegativeQuery
 		out.NegativeQuery = &clone
 	}
+	if in.SelectorApplication != nil {
+		clone := *in.SelectorApplication
+		out.SelectorApplication = &clone
+	}
 	out.DerivedFrom = append([]string(nil), in.DerivedFrom...)
 	out.SurfaceTerms = append([]string(nil), in.SurfaceTerms...)
 	return out

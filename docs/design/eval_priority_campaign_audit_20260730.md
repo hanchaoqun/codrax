@@ -57291,6 +57291,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1381 B1329-A：动态选择路径改为版本化 typed 候选载体，所有连接保持原关系（2026-08-22）
+
+1. r845 确认的 `B1329-DYNAMICSELECTORRESOLUTIONPATH1/P1` 先完成第一批载体与编译器施工。旧的 runtime-target capsule 虽能分别给出装饰器、注册、
+   assignment、return、callback、type-relation 和 call 行，但没有一个版本化对象证明这些行是否能连接成同一条动态选择候选路径；模型只能在一组平铺
+   证据中自行重建，很容易遗漏注册/返回/回调关系，或为追求连续图形把非 call 的边误画成直接调用。
+2. `EvidenceItem` 新增仅由 parser/repomap 生产者铸造的 `SelectorApplication{Owner,Literal}` sidecar。Python 静态装饰器关系现在把解析器已确认的装饰器
+   owner 与字面 selector 写入该载体；稳定 evidence identity、merge 与 mutable deep-clone 同步覆盖这两个字段。编译器禁止从 Subject、Summary、源码
+   snippet、请求、模型输出、最终答案或 Mermaid 文本反解析 selector，也不按语言名、扩展名或关键词分流；其他语言生产者将来只需产出相同 typed sidecar，
+   即可进入同一个语言无关编译合同。
+3. 新 `DynamicSelectorResolutionPath(version=1,status=candidate_only)` 只连接 citable typed evidence，并逐 hop 保留原 `claim_form`、`relation_kind` 与
+   Evidence ID：入口到 lookup 的真实 call、同一调用点的完整实参到 receiving API 的 `argument_flow`、selector application、注册容器到绑定值的
+   `register`、容器取值到局部 receiver 的 `assignment`、lookup/factory 到构造表达式的 `return`。callback handoff 与候选类型声明/MRO roster 作为独立
+   附加 hop 保留，不被改写成直接调用；编译器绝不铸造 `entry -> selected implementation` 这类源码中不存在的 synthetic call。
+4. 候选不是定论。相同 selector 对应多个候选、同一 selector owner 有多个容器、lookup/return/entry/完整实参缺失或多义时均输出 typed rejection，
+   不发布路径。去重仅吸收同源码坐标、同 claim、同端点的重复 producer 行；相同端点但位于不同源码位置仍视为不同 occurrence 并 fail-closed，避免任意
+   挑选一个 Evidence ID。identity 只使用既有跨语言限定符归一，不使用短名尾部猜测。
+5. 回归覆盖完整六段 core hop、callback 与类型 roster 独立保留、selector 多候选、多容器、调用点实参缺失/多义、语言原生 `::`/`.`/`/` 限定符、
+   禁止从 display/prose 铸权，以及 selector sidecar 的 stable-ID/deep-clone。增补同调用点 argument-flow 后，定向包、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全部通过。
+6. 本批尚未把该候选载体接入 finalizer 教学或图关系配方，因此不宣称生产答案已经获得完整动态选择链。下一批 B1329-B 只把成功编译的 typed path 作为
+   soft、candidate-only 上下文交给模型，逐 hop 建议诚实关系种类与证据引用；模型继续决定候选是否成立、业务解释、图形、措辞和最终结论。歧义 rejection
+   不会触发系统代写或硬改答案。
+
+状态：
+
+`B1329-A=implemented/targeted-tests-pass/full-suite-pass/build-pass`；
+`selector-authority=parser-authored-sidecar-only`；
+`dynamic-path=versioned+candidate-only+exact-occurrence-joined`；
+`core-hop=call+argument-flow+selector-application+register+assignment+return`；
+`callback/type-roster=independent-original-relation`；
+`ambiguity/missing-hop=typed-fail-closed`；
+`synthetic-direct-call=forbidden`；
+`B1329-B=finalizer-soft-consumer+production-replay-next`；
+`system-answer/conclusion/edge/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-text-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
 
 1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read
