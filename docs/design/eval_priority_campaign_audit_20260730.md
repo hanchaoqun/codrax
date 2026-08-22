@@ -57890,6 +57890,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1376 r842：B1327 合同冲突消失；关系修补仍有模型操作抖动，Trace 模型因果越界复现（2026-08-22）
+
+1. 从已推送 `df62611b9` 重建不可变二进制，严格并发恰好 2 路复放 TypeScript workspace 关系图与显式窗 Trace，runner 2/2 PASS；
+   Trace 197s、TypeScript 199s。两路活动流都没有按 4ms、4m、累计年龄、首字节或上下文比例降级，没有恢复旧稿或系统替换模型结论。
+2. B1327 获得生产路径正证但收窄收账：首轮 finalizer authority 与第二次 relation repair hint 均真实发布新
+   `Typed topology authoring template`，8 条边全部使用语法安全 `AUTHOR_BUSINESS_ACTION`，anchor 只含 typed identity/relation；日志中没有旧
+   `copy-ready` 允诺、raw `call/register` 可见模板消息或 raw-enum reader label，最终答案也没有占位符泄漏。故“系统示范一个必被自己拒绝的 raw enum
+   图”核心已闭环；模型未直接采用模板，不能宣称模板自然消费或成文重试整体闭环。
+3. TypeScript 首稿的 3 类失败均来自模型自写载体：遗漏精确 `@app/core` 结构锚、在 Mermaid 消息加入 `<br/>` 但 anchor
+   `visible_label` 未同步、自造无 call authority 的 `Send -> Send` 重试自调用。第二稿错误地给自调用补 anchor；第三稿同时对同一 block 提交
+   `replace_blocks` 与 `diagram_edge_edits`，被现有互斥合同精确拒绝；第四稿删除自调用并通过。终稿的五级主调用链、`send -> sleep` 分支、
+   `@app/core -> packages/core/src/index.ts` 解析和四条有锚业务调用图正确，但经历 3 次拒绝，且导语“5 个节点”与另列 sleep 分支的计数口径略不严谨。
+4. 此轮没有确认新的“同一字段同时必带/必拒”系统矛盾。`replace_blocks` 与同块 atomic edit 互斥已在教学中明确，模型收到冲突后下一轮即修正；
+   自动合并两种操作会引入执行顺序歧义并可能替模型保留/删除边，当前不越权修改。把该现象记为 patch-operation 模型抖动观察，后续只有跨异构用例重复时
+   才立 generalized schema/投影任务，不按本 case 增加正文关键词门或系统代写。
+5. Trace 系统面继续通过：显式 2.000000..2.020000 用户窗、3 次 target-filtered typed query、三跳唤醒链、threadpool-400 的
+   11.000ms 链上 IO 第一席、三个 1.000ms runnable/优先级候选、实际占时/规则可消双账户、链上/邻近/背景隔离与完整 `Trace 因果投影` 全在，
+   0 次成文拒绝。系统上下文已明确 direct blocker 未证、wakeup 不等于同步等待、kernel caller 不证明资源/后端。
+6. Trace 模型仍越过上限：把链上候选写成“主要阻塞原因”和“目标睡眠完全由最长节点决定”，并猜测网络文件系统预取/缓存未命中及同步读修向；还把
+   4 个线程误称“4 跳”（实际 3 条 wakeup edge）。r841 同一用例曾正确遵守边界，现阶段判为模型波动兼既有 `B1269/B1271` 软教学观察，不能用
+   用户/模型/答案关键词硬拒，更不能由系统改写正文结论。后续异构 Trace 回放继续判断是否形成稳定、可由 typed context 改善的一类问题。
+
+状态：
+
+`r842=runner-pass-2/2,human-typescript-partial+trace-partial`；
+`B1327=production-positive-contract/core-closed,natural-template-consumption-unproven`；
+`raw-relation-enum-template-reject=absent`；
+`typescript-finalizer-rejects=3(model-anchor/unsupported-edge/op-conflict)`；
+`same-block-replace+atomic-edit=model-operation-wave/observe`；
+`Trace projection/explicit-window/on-chain-ranking/dual-axis=production-positive-r842`；
+`Trace model-causal-overclaim=B1269/B1271-observe/not-hard-gated`；
+`system-visible-label/edge/action/order/layout/answer/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/label-fact-scan=none`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r842`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
