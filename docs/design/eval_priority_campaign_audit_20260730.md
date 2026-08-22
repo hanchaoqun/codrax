@@ -57818,6 +57818,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1374 r841：Trace 守护通过；“可直接复制”图模板仍示范校验必拒的原始关系枚举（2026-08-22）
+
+1. 从已推送 `3fe32fa04` 重建不可变二进制，严格并发恰好 2 路复放 TypeScript workspace 调用链与显式窗 Trace，runner 2/2 PASS；
+   Trace 234s、TypeScript 238s。两路活动流均未按固定 4ms、4m、累计年龄、首字节或上下文比例降级，没有恢复旧稿或系统改写模型结论。
+2. Trace 人工判 pass：显式 2.000..2.020s 用户窗、6 次 target-filtered typed query 与自动补采、四线程三跳链、11.000ms 链上 IO
+   第一席、三个独立 1.000ms runnable/优先级候选、实际占时/规则可消双账户、链上业务下钻、背景隔离和完整 `Trace 因果投影` 均在。
+   模型明确披露 wakeup 只证明依赖、不证明同步等待，也没有把 fscache 调用点升级为具体存储后端；0 次成文拒绝。
+3. B1326 的单测/全仓验收保持，但本轮不能生产转正：TypeScript 首稿自然选择了分离的 principal list 与 diagram，两个块都没有提交 anchors，
+   因而没有触发 fused splitter。第一拒是模型原始遗漏，不是 splitter 再次删除；B1326 保持 `pending-production-shape`，不得用 runner PASS 虚收账。
+4. 新 P1 `B1327-INVALIDCOPYREADYDIAGRAMLABEL1` 经生产日志和代码交叉确认。系统把机制 skeleton 称为
+   `copy-ready optional typed diagram`、`validator-aligned edge_anchors_json`，但生产者在 Mermaid 消息中直接写 raw `relation_kind`（本案 `call`），
+   anchors 又没有 `visible_label`。旁边 prose 虽要求模型替换 placeholder，模板本身却不是可通过校验的形；模型第五稿照抄后立即被同系统的
+   `visible_label must not repeat raw relation_kind` 精确门拒绝，下一轮改为“调用”才通过。这不是两个合同逻辑上同时必带/必拒，但属于系统示例与
+   执行合同不一致，增加 JSON/图表心智并制造确定性额外重试。
+5. B1327 最优根修必须跨语言、跨关系种类：机制模板只发布 typed topology/identity，不再把 raw relation enum 放进 Mermaid 可见消息，也不得把
+   尚需模型补写 reader label 的载体称为 acceptance-ready/copy-ready。模板需明确逐边的 model-authored display slot；关系、方向、identity 仍来自
+   typed authority，模型继续选择是否采用该图并负责所有业务 wording。禁止系统翻译/注入最终标签，禁止扫描用户/模型/答案 prose，禁止为通过用例
+   放宽 visible-label 门。修复应覆盖 sequence/flow/call_dag/architecture 与所有 relation kind，而不是只替换 `call` 或中文词。
+6. TypeScript 终稿人工 partial：调用链、分支重试和 tsconfig 精确值正确，图也合法；但共经历 5 次拒绝，且最终 skeleton 扩入 console/JSON 等
+   支撑调用，使主链表达比请求所需更嘈杂。该表现强化 B1327 的结构/教学优先级，不授权系统删除边或替模型选择“想要的图”。
+
+状态：
+
+`r841=runner-pass-2/2,human-trace-pass+typescript-partial`；
+`B1326=tests-closed/pending-natural-production-shape`；
+`B1327=confirmed/P1-next`；
+`copy-ready-template=current-visible-raw-enum+missing-reader-label`；
+`target-template=typed-topology-only+explicit-model-authored-display-slots`；
+`system-visible-label/edge/answer/conclusion-selection=none`；
+`request/model/final-prose/item-label/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r841`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r841`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
