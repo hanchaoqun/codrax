@@ -57291,6 +57291,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
+
+1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read
+   1147s FAIL；read 共 20 次成文拒绝、19 次 patch，最终以旧结构稿降级，因此整批不能按 runner 局部通过收账。
+2. Trace 人工判 pass：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   四线程三跳链、threadpool-400 的 11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、实际占时/
+   规则可消双账户、链上业务下钻和完整 `Trace 因果投影` 全部保留。邻近/背景没有升为主因；活动流未按固定 4ms、4m、累计年龄或
+   上下文比例降级，read 图修补没有侵入 Trace 窗口选举、查询补齐、根因排序或投影。
+3. B1315 获得生产正证。r830 的错误 `SetResult -> SetExploreBudget@4602` evidence 绑定与 r832 遗留的无人使用
+   `internal/types/context.go:51` citation 均未出现在最终 read 文档；所有可见引用都落到仍被条目实际消费的真实源码坐标。该结果证明隐藏
+   evidence-ID 唯一改绑与最终 live-only citation compaction 同时生效，未改模型正文、成员、关系、图或结论。
+4. 新确认 `B1317-HALFIDENTITYRELATIONDELTA1/P1`，不是模型波动。read 某次同一 diagram reject 同时列出两条
+   `typed_anchor_without_visible_edge` 和多条 `missing_relation_anchor`；其中 `Extractor -> Mutable` 等可见 body edge 的 node pair
+   完整，但 typed resolver 只得到一侧 identity。`diagramRelationRepairDeltaJSON` 把该半 identity 原样写入 failure；共享 locator 合同正确地
+   拒绝半对 identity，于是 same-cycle merge 将整份 relation delta 原子清空，连其他完整且可执行的 stale/missing-anchor failures 一并丢失。
+   下一轮 joint capsule 因而显示 `failures=null`，只剩 participant addition。
+5. 级联随后构成系统自矛盾：participant addition 被模型选择并消费后，模型复用旧 addition ref，执行器正确报告 lease absent；系统要求发一轮
+   preserve-all patch，并声称普通 validator 会按需建立新 lease。模型逐字照做后，同一 11 条关系故障再次出现，但 relation delta 仍被半 identity
+   清空，路由只给 participant-only 候选与旧式 coordinate schema，没有任何当前代 failure ref。此后模型在无能力清单的情况下反复增删/整图替换，直至
+   20 次拒绝后降级。故障根因是 producer carrier 不可表示，模型后续波动只是级联放大。
+6. 最优通用方案冻结为“收窄可选 locator，不放宽证据门”：当且仅当 failure 具有完整 model-authored node pair、technical identity 恰为半对，且该
+   node/relation 在当前 base 中没有任何 prior anchor candidate 时，producer 同时清空两个可选 identity 字段，将其编译为 node-local remove-only
+   body-edge 能力；不得据单侧 identity 猜另一端、不得授予 replace/attach/add，也不得从请求、thinking、答案 prose 或 Mermaid message 取事实。
+   有 prior anchor、node pair 不完整、identity 歧义或其他不完整 locator 继续 fail-closed。其余完整 failures 必须继续进入同代 joint delta 与 live lease。
+7. 已用最小结构复现先红：同一图混合两条 stale anchors、一个完整 identity 的 missing anchor、一个单侧 identity 的 missing anchor，修前 raw delta
+   为空；该测试同时证明单条半 identity 让所有兄弟 failure 消失。下一独立施工批只修改 producer locator 归一化和 pin，不改 validator、关系真值、
+   模型 action/edge/label/layout/conclusion 所有权，也不触碰 Trace。
+
+状态：
+
+`r833=runner-pass-1/2,human-trace-pass+read-fail/degraded-old-draft`；
+`B1315=production-positive/core-closed`；
+`B1317=confirmed/P1-next/minimal-red-reproduction`；
+`half-identity+complete-node+no-prior-anchor=planned-node-local-remove-only`；
+`prior-anchor/partial-node/ambiguous-locator=fail-closed`；
+`preserve-all-lease-refresh=current-contract-broken-by-empty-relation-delta`；
+`system-answer/member/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r833`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r833`。
+
 ### §123.1356 r832：B1316 去重臂生产转正；B1315 跨样本确认为“错 ID 优先 + 旧 citation 池泄漏”（2026-08-21）
 
 1. 从已推送 `4944761c8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 154s、read
