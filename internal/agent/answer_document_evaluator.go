@@ -7835,6 +7835,19 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 				}
 			}
 		}
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionRelationPath {
+			if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
+				if lang == "zh" {
+					b.WriteString("  - 在模型成文、可见的主路径块上设置隐藏 ownership 标记 `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]`，并用 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]` 保留运行时观测权威；展示已有 typed 唤醒/依赖方向，不要补 `principal_path_edge` 或把运行时关系伪写成源码 `call` 锚。\n")
+				} else {
+					b.WriteString("  - On the model-authored visible principal runtime-path block, set the hidden ownership marker `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]` and preserve runtime-observation authority with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. Show only the existing typed wakeup/dependency direction; do not add `principal_path_edge` or masquerade a runtime relation as a source-code `call` anchor.\n")
+				}
+			} else if lang == "zh" {
+				b.WriteString("  - 让承载这条源码关系路径的模型成文主块保留可见有向步骤，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条边仍需现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
+			} else {
+				b.WriteString("  - Keep visible directed steps in the model-authored principal source-relation block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every edge still needs existing typed claim/anchor evidence; never invent a relation from member names.\n")
+			}
+		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
 			if lang == "zh" {
 				b.WriteString("  - 在这个维度的位置呈现请求的图；图只承载有证据的关系，不替代相邻维度要求的清单、表格或文字解释。\n")
@@ -13493,6 +13506,9 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 			// This compact lane is selected only by a schema-valid typed authority;
 			// request/model/final prose never participates.
 			b.WriteString("- Typed trace context precedence: use the exact `trace_query` rows and, when rendered for this request scope, the Trace Decision Inputs and final typed boundary for scenario-specific facts and authority. Do not replay unrelated generic Binder, IO, perf, priority-inversion, or root-cause recipes merely because this is a trace; preserve any on-chain/adjacent/background population and value caliber exactly as typed, then form the diagnosis yourself.\n")
+			if view.WakeupStateTemporalAuthority {
+				b.WriteString("- Typed wake/state temporal composition hint: each state interval belongs before its ending transition. When a sleep/D/IO-wait interval ends at a wakeup, say that the wait ended at the wakeup and that runnable scheduling delay begins afterward; never describe the interval's duration as time spent after being woken. State intervals from different threads may overlap or nest, so keep their row-local durations separate and never add them into one end-to-end delay unless an explicit typed serial/non-overlap or end-to-end account authorizes that arithmetic. A wakeup edge proves endpoint direction and chain connection only; it does not transfer every child state to the parent or prove a specific lock, storage, network, or business mechanism without its own typed connector. This is composition guidance only; the model still owns the diagnosis and wording.\n")
+			}
 			switch answerDocRuntimeTracePresentationScope(ctx) {
 			case types.RuntimeQuestionScopeCausalDiagnosis:
 				b.WriteString("- Runtime trace presentation hint: present the model-owned conclusion first, then the minimum event/seat facts needed to justify it and explicit evidence ceilings. Keep every typed on-chain candidate eligible for the principal root-cause population regardless of family, including measured priority inversion (a lower-priority on-chain dependency with typed runnable effective impact and/or a typed running compute-supply deficit, or stronger holder/waiter authority), runnable/scheduler-supply delay, compute-supply limits, D-state/IO waits, and deterministic semantic work; keep adjacent/background rows as support or additional investigation directions only.\n")
@@ -13886,6 +13902,11 @@ type runtimeTraceGuidanceView struct {
 	// observation intervals. They keep three different rulers separate without
 	// parsing a model-authored aggregate label or answer prose.
 	FrameMeasurements []runtimeTraceFrameMeasurement
+	// WakeupStateTemporalAuthority is true only when the hard deterministic
+	// trace ledger contains both a wakeup-path family and a state/timeline/root
+	// interval family. It enables one compact composition reminder; it never
+	// gates, rewrites, or scans the model's answer.
+	WakeupStateTemporalAuthority bool
 }
 
 type runtimeTraceFrameMeasurement struct {
@@ -13904,6 +13925,7 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 		return view
 	}
 	ledger := answerDocObservationLedger(ctx)
+	view.WakeupStateTemporalAuthority = answerDocHasWakeupStateTemporalAuthority(ledger)
 	for _, record := range ledger.Records {
 		if !answerDocRuntimeTraceGuidanceRecord(record) {
 			continue
@@ -13968,6 +13990,29 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 	view.FrequencyLimitWitnesses = answerDocDedupFrequencyLimitWitnesses(view.FrequencyLimitWitnesses, 8)
 	view.FrameMeasurements = answerDocDedupRuntimeTraceFrameMeasurements(view.FrameMeasurements, 2)
 	return view
+}
+
+func answerDocHasWakeupStateTemporalAuthority(ledger types.ObservationLedger) bool {
+	coverage := types.BuildTraceObservationCoverage(ledger)
+	if !coverage.Active {
+		return false
+	}
+	hasWakeup := false
+	hasStateIntervals := false
+	for _, dimension := range coverage.Dimensions {
+		if dimension.Count <= 0 {
+			continue
+		}
+		switch dimension.Dimension {
+		case types.TraceObservationDimensionWakeupChain:
+			hasWakeup = true
+		case types.TraceObservationDimensionStateDrilldown,
+			types.TraceObservationDimensionThreadTimeline,
+			types.TraceObservationDimensionRootCauseRank:
+			hasStateIntervals = true
+		}
+	}
+	return hasWakeup && hasStateIntervals
 }
 
 type runtimeTraceInterval struct {
@@ -15272,7 +15317,7 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	case types.RequestedAnswerDimensionMemberSet:
 		return answerDocumentCoversRequestedMemberSetDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionRelationPath:
-		return answerDocumentHasRelationPathPayload(doc)
+		return answerDocumentHasRelationPathPayload(ctx, doc)
 	case types.RequestedAnswerDimensionSourceLocation:
 		return answerDocumentCoversRequestedSourceLocationDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceAttribute:
@@ -15289,20 +15334,33 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 }
 
 // answerDocumentHasRelationPathPayload recognizes only a model-authored,
-// principal, visible relation carrier. A typed principal_path_edge facet is the
-// canonical path surface; a block with an exact typed edge anchor is also
-// accepted so diagram and non-call relation families do not need to masquerade
-// as a call-chain roster. The relation role proves presentation coverage only:
-// existing emit-time relation validators still own endpoint evidence and edge
-// legality.
-func answerDocumentHasRelationPathPayload(doc *types.AnswerDocumentV2) bool {
+// principal, visible relation carrier. Source-backed relation families keep
+// their principal_path_edge / exact edge-anchor authority. Runtime-only Trace
+// paths instead use a hidden relation_path ownership marker joined with the
+// already-required observed_artifact_fact + external_observation carrier; they
+// must not invent source-call anchors merely to satisfy presentation coverage.
+//
+// The family choice comes from the compiled typed semantic view. It never reads
+// the request, block wording, model reasoning, final prose, or Mermaid message.
+// This receipt proves only which model block owns the requested visible path;
+// existing evidence gates still own endpoint/direction legality.
+func answerDocumentHasRelationPathPayload(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
 	if doc == nil {
 		return false
 	}
+	runtimeObservation := answerDocRequestedRelationPathUsesRuntimeObservation(ctx)
 	for _, block := range doc.Blocks {
 		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
 			block.SurfaceRole != types.SurfacePrincipal ||
 			strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		if runtimeObservation {
+			if answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRelationPath)) &&
+				answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
+				answerBlockHasClaimForm(block, types.ClaimExternalObservation) {
+				return true
+			}
 			continue
 		}
 		if answerBlockHasFacet(block, string(types.FacetPrincipalPathEdge)) {
@@ -15319,6 +15377,42 @@ func answerDocumentHasRelationPathPayload(doc *types.AnswerDocumentV2) bool {
 			if relation.IsValid() {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// answerDocRequestedRelationPathUsesRuntimeObservation derives the relation
+// carrier from the same compiled principal-block contract that emit-time checks
+// consume. A runtime-only root-cause view requires observed_artifact_fact plus
+// external_observation and does not require current_code_path or
+// principal_path_edge. No intent/prose heuristic is involved.
+func answerDocRequestedRelationPathUsesRuntimeObservation(ctx *types.AgentContext) bool {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || view.Family != types.QFRootCauseTrace {
+		return false
+	}
+	for _, req := range view.RequiredBlocks {
+		if !req.Required || req.SurfaceRoleHint != types.SurfacePrincipal ||
+			!answerDocBlockRequirementHasFacet(req, types.FacetObservedArtifactFact) ||
+			answerDocBlockRequirementHasFacet(req, types.FacetPrincipalPathEdge) ||
+			answerDocBlockRequirementHasFacet(req, types.FacetCurrentCodePath) {
+			continue
+		}
+		for _, form := range req.AcceptableClaimForms {
+			if form == types.ClaimExternalObservation {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func answerDocBlockRequirementHasFacet(req types.BlockRequirement, facet types.AnswerFacetKind) bool {
+	want := string(facet)
+	for _, got := range req.FacetIDs {
+		if strings.TrimSpace(got) == want {
+			return true
 		}
 	}
 	return false
@@ -15876,6 +15970,15 @@ func answerBlockHasFacet(block types.AnswerBlock, facetID string) bool {
 	return false
 }
 
+func answerBlockHasClaimForm(block types.AnswerBlock, form types.ClaimForm) bool {
+	for _, claim := range block.ClaimUses {
+		if claim.ClaimForm == form {
+			return true
+		}
+	}
+	return false
+}
+
 func requestedDimensionsToCover(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {
 	if len(in) == 0 {
 		return nil
@@ -16097,7 +16200,11 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 				}
 			}
 			if dim.Role == types.RequestedAnswerDimensionRelationPath {
-				b.WriteString("  - 请让承载这条路径的模型成文主块保留可见的有向步骤/关系，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条有向边仍需使用现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
+				if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
+					b.WriteString("  - 请在模型成文、可见的主运行时路径块上保留已有 typed 唤醒/依赖方向，设置 `surface_role:\"principal\"`、`facet_ids:[\"relation_path\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`。不要补 `principal_path_edge`，也不要把运行时关系伪写成源码 `call` 锚。\n")
+				} else {
+					b.WriteString("  - 请让承载这条源码关系路径的模型成文主块保留可见的有向步骤/关系，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条有向边仍需使用现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
+				}
 			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
@@ -16123,7 +16230,11 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			}
 		}
 		if dim.Role == types.RequestedAnswerDimensionRelationPath {
-			b.WriteString("  - Keep the visible directed steps/relations in the model-authored principal path block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every directed edge still needs the existing typed claim/anchor evidence; never invent a relation from member names.\n")
+			if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
+				b.WriteString("  - Keep the existing typed wakeup/dependency direction in a model-authored visible principal runtime-path block and set `surface_role:\"principal\"`, `facet_ids:[\"relation_path\",\"observed_artifact_fact\"]`, and `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. Do not add `principal_path_edge` or masquerade the runtime relation as a source-code `call` anchor.\n")
+			} else {
+				b.WriteString("  - Keep the visible directed steps/relations in the model-authored principal source-relation block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every directed edge still needs the existing typed claim/anchor evidence; never invent a relation from member names.\n")
+			}
 		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")

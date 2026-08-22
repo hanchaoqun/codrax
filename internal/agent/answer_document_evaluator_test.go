@@ -562,6 +562,94 @@ func TestRequestedRelationPathUsesTypedPrincipalRelationSurface(t *testing.T) {
 	}
 }
 
+func TestRequestedRelationPathUsesRuntimeObservationCarrierWithoutSourceCallAnchor(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	dimension := types.RequestedAnswerDimension{
+		Index: 1, Label: "wakeup dependency path",
+		Role: types.RequestedAnswerDimensionRelationPath, Required: true,
+	}
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:                    types.IntentRootCause,
+			Scenario:                  types.ScenarioRootCause,
+			LogTriage:                 mut.LogTriage(),
+			DiagnosticProfile:         types.DiagnosticIntentProfile{IsDiagnostic: true},
+			RuntimeQuestionProfile:    &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{dimension}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"trace only"},
+				Confidence:        1,
+			},
+		}},
+	}
+	if !answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
+		t.Fatal("typed runtime-only root-cause carrier must select external-observation relation ownership")
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "runtime-path", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+		Text:     "worker wakes service, then service wakes app",
+		FacetIDs: []string{string(types.RequestedAnswerDimensionRelationPath), string(types.FacetObservedArtifactFact)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+			FacetID:   string(types.FacetObservedArtifactFact),
+		}},
+	}}}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("model-owned runtime observation path must cover relation_path without a fake source call anchor")
+	}
+	if len(doc.Blocks[0].EdgeAnchors) != 0 || answerBlockHasFacet(doc.Blocks[0], string(types.FacetPrincipalPathEdge)) {
+		t.Fatal("runtime relation receipt must not require or mint source relation metadata")
+	}
+
+	doc.Blocks[0].FacetIDs = []string{string(types.FacetObservedArtifactFact)}
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("a generic runtime observation block without model-owned relation_path marker must not consume the path dimension")
+	}
+	doc.Blocks[0].FacetIDs = []string{string(types.RequestedAnswerDimensionRelationPath), string(types.FacetObservedArtifactFact)}
+	doc.Blocks[0].ClaimUses = nil
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("runtime relation ownership without external-observation authority must fail closed")
+	}
+	doc.Blocks[0].ClaimUses = []types.RenderedClaimUse{{ClaimForm: types.ClaimExternalObservation, FacetID: string(types.FacetObservedArtifactFact)}}
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedEvidenceSupplement
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("a system-generated Trace projection must not replace the model-owned requested path")
+	}
+}
+
+func TestRequestedRelationPathCoverageHintIsFamilyAware(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	dimension := types.RequestedAnswerDimension{Index: 1, Label: "唤醒依赖", Role: types.RequestedAnswerDimensionRelationPath, Required: true}
+	ctx := &types.AgentContext{Language: "zh", Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause, LogTriage: mut.LogTriage(),
+		DiagnosticProfile:         types.DiagnosticIntentProfile{IsDiagnostic: true},
+		RuntimeQuestionProfile:    &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{dimension}},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"trace only"}, Confidence: 1,
+		},
+	}}}
+	hint := requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{dimension}, "zh")
+	for _, want := range []string{`facet_ids:["relation_path","observed_artifact_fact"]`, `"claim_form":"external_observation"`, "不要补 `principal_path_edge`", "不要把运行时关系伪写成源码 `call` 锚"} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("runtime relation-path hint missing %q:\n%s", want, hint)
+		}
+	}
+
+	sourceHint := requestedAnswerDimensionCoverageHint(&types.AgentContext{}, []types.RequestedAnswerDimension{dimension}, "en")
+	if !strings.Contains(sourceHint, `facet_ids:["principal_path_edge"]`) ||
+		strings.Contains(sourceHint, `"claim_form":"external_observation"`) {
+		t.Fatalf("source relation-path hint must retain source authority without runtime carrier:\n%s", sourceHint)
+	}
+}
+
 func TestRequestedPerMemberSourceLocationsCannotUseSingleCitationReceipt(t *testing.T) {
 	mut := types.NewMutableState("typed member location authority")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -8436,6 +8524,60 @@ func TestAnswerDocumentEvaluator_RuntimeCausalDiagnosisUsesPostOverrideFacetAndL
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("runtime-only causal JSON teaching retained contradictory source/hop obligation %q:\n%s", forbidden, prompt)
 		}
+	}
+}
+
+func TestRuntimeTraceGuidanceUsesTypedWakeStateTemporalComposition(t *testing.T) {
+	record := func(id, predicate, claimKey, subject, object string, start, end float64) types.ObservationRecord {
+		return types.ObservationRecord{
+			ID: id, Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+			Producer: "trace_query", Role: types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceRuntimeArtifact, ArtifactID: "trace.systrace", ToolCallID: "trace-query-1",
+			},
+			Predicate: predicate, ClaimKey: claimKey, Subject: subject, Object: object,
+			Span: types.ObservationSpan{StartTs: start, EndTs: end},
+		}
+	}
+	wakeup := record("wake", "wakeup_chain", "wakeup_chain:worker->app", "worker-2", "worker-2 -> app-1", 2.010, 2.011)
+	wait := record("wait", "state_drilldown", "state_drilldown:worker-2:S", "worker-2", "S", 2.000, 2.010)
+	ctxFor := func(records []types.ObservationRecord) *types.AgentContext {
+		mut := types.NewMutableState("q")
+		mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+			ToolName: "trace_query", Success: true, Observations: records,
+			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+				View: "root_cause_rank", TypedCausalRowCount: 2, CausalConclusion: "bounded_by_typed_rows",
+			},
+		}}})
+		return &types.AgentContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause,
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+		}}}
+	}
+
+	prompt := renderAnswerDocRuntimeTraceAnswerGuidance(ctxFor([]types.ObservationRecord{wakeup, wait}))
+	for _, want := range []string{
+		"Typed wake/state temporal composition hint",
+		"state interval belongs before its ending transition",
+		"runnable scheduling delay begins afterward",
+		"different threads may overlap or nest",
+		"explicit typed serial/non-overlap or end-to-end account",
+		"wakeup edge proves endpoint direction and chain connection only",
+		"model still owns the diagnosis and wording",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("typed wake/state guidance missing %q:\n%s", want, prompt)
+		}
+	}
+
+	withoutState := renderAnswerDocRuntimeTraceAnswerGuidance(ctxFor([]types.ObservationRecord{wakeup}))
+	if strings.Contains(withoutState, "Typed wake/state temporal composition hint") {
+		t.Fatalf("wakeup-only ledger must not manufacture state-interval composition guidance:\n%s", withoutState)
+	}
+	withoutWakeup := renderAnswerDocRuntimeTraceAnswerGuidance(ctxFor([]types.ObservationRecord{wait}))
+	if strings.Contains(withoutWakeup, "Typed wake/state temporal composition hint") {
+		t.Fatalf("state-only ledger must not manufacture wakeup-path composition guidance:\n%s", withoutWakeup)
 	}
 }
 

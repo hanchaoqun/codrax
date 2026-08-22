@@ -1182,7 +1182,9 @@ func TestAnalysisSkill_MultiSurfaceDimensionsRemainIndependentAndOrdered(t *test
 	for _, want := range []string{
 		"every explicitly requested visible output surface as an independent",
 		"A diagram never absorbs a sibling list, table, or prose explanation",
-		"role=`member_set` for a requested roster",
+		"role=`relation_path` for one requested call/data/control/dependency/wakeup/handoff path",
+		"role=`member_set` only for a separately requested roster",
+		"Path endpoints and hops do not by themselves create a member_set",
 		"Preserve the requested visible order with `index`",
 		"presentation planning only",
 	} {

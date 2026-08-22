@@ -57634,6 +57634,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1369 B1323/B1324：关系路径按证据家族选载体；typed 唤醒/状态时间语义前置软引导（2026-08-22）
+
+1. `B1323-RELATIONPATHFAMILYAUTH1/P1` 已施工。requested `relation_path` 仍只表示用户要求看到一条有向路径，不授权任何
+   关系；覆盖 receipt 改为读取已经编译的 typed semantic view 选择载体。源码关系家族维持 model-owned principal
+   `principal_path_edge`/合法 edge anchor；runtime-only `QFRootCauseTrace` 则要求 model-owned principal 可见块同时声明隐藏
+   `relation_path` ownership、`observed_artifact_fact` 与 `external_observation`。系统自动投影块、support/background 块、只有 ownership
+   无外部观测权威、只有观测无 ownership 均不能消费该维度。
+2. 初稿教学与精确 patch hint 已同源分流。源码路径继续要求既有 typed source relation；运行时 Trace 路径明确禁止添加
+   `principal_path_edge` 或把 wakeup/dependency 伪装成 `relation_kind=call`，只让模型把已有 typed 运行时关系自然成文。高层 analyzer
+   多展示面教学也补齐 `relation_path` 与 `member_set` 的正交边界，避免 schema 字段教学正确、workflow 总教学仍漏项。所有选择只读
+   schema-valid question family、required block facets/claim forms 和 block metadata，不扫描请求、维度 label、模型推理、最终 prose、
+   Mermaid message 或可见标题；系统不生成边、端点、方向、成员、顺序、布局或结论。
+3. `B1324-TRACEINTERVALSEMANTICSGUIDANCE1/P1` 已施工。只有 hard deterministic Trace ledger 同时存在 wakeup-path family 与
+   state/timeline/root interval family，且 trace_query/system supplement 提供 typed authority 时，finalizer 才收到一条紧凑软提示：状态区间
+   位于其结束 transition 之前；sleep/D/IO-wait 若结束于 wakeup，则 wakeup 后才进入 runnable 调度等待；不同线程区间可能重叠/嵌套，
+   无显式 typed 串行、不重叠或 end-to-end 账户不得相加；wakeup 只证明方向与链连接，不自动转移子线程状态或证明锁/存储/网络/业务机理。
+   该提示不拒绝、不重试、不改写答案，诊断与措辞仍由模型负责。
+4. 正负回归覆盖：runtime observation relation path 无伪 source anchor 通过；缺 ownership、缺 external claim、system-generated block
+   均失败；source relation 仍要求源码边；中英文 family-aware patch hint 分离；wakeup+state 合取才出现时间提示，wakeup-only/state-only
+   均不触发；分析教学同时锁住 relation_path、独立 roster 与“path hops 不铸 member_set”。四个核心包全量、完整 `go test ./...`、
+   release-tag CGO `make` 与 `git diff --check` 全绿。
+5. 下一步从本批不可变提交严格并发 2 路复放显式窗 Trace 与另一种源码关系/语言 case，人工验收运行时路径不再出现 fake `call`
+   anchor、正文不再倒置唤醒前后或跨线程相加，同时确认因果投影、自动补采、链上根因族、业务线索和实际占时/规则可消双账户均不缩水。
+
+状态：
+
+`B1323=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1324=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`runtime-relation-path=model-owned-principal+relation_path+observed_artifact_fact+external_observation`；
+`source-relation-path=model-owned-principal+typed-source-relation`；
+`temporal-guidance=typed-wakeup∧typed-state/interval+soft-only`；
+`system-answer/member/relation/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message/facet-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
