@@ -129,7 +129,7 @@ func TestCompileAnswerIntentContract_HistoryDiagramKeepsDiagramAndDiff(t *testin
 			IsHistoryLookup: true,
 		},
 		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
-		DiagramHint:   &DiagramHint{Kind: DiagramFlow},
+		DiagramHint:   &DiagramHint{Kind: DiagramFlow, Required: true},
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
@@ -142,6 +142,29 @@ func TestCompileAnswerIntentContract_HistoryDiagramKeepsDiagramAndDiff(t *testin
 			AnswerRequestedOutputSummary,
 			AnswerRequestedOutputMechanism,
 			AnswerRequestedOutputDiagram,
+		},
+	)
+}
+
+func TestCompileAnswerIntentContract_OptionalHistoryDiagramHintStaysAdvisory(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		DiagramHint:   &DiagramHint{Kind: DiagramFlow, Required: false},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{
+			AnswerEvidenceOriginCurrentSource,
+			AnswerEvidenceOriginVCSMetadata,
+		},
+		[]AnswerRequestedOutput{
+			AnswerRequestedOutputSummary,
+			AnswerRequestedOutputMechanism,
 		},
 	)
 }

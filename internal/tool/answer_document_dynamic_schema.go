@@ -15,8 +15,9 @@ import (
 //
 // Projections:
 //   - block.kind enum is restricted to view.RequiredBlocks ∪
-//     view.OptionalBlocks ∪ view.Presentation.AllowedBlocks kinds
-//     (canonical set when all are empty).
+//     view.OptionalBlocks ∪ view.Presentation.AllowedBlocks kinds.
+//     When all three are empty, canonical kinds remain available except
+//     diagram when no DiagramPlan owns its payload.
 //   - block.diagram is dropped entirely when view.DiagramPlan is nil.
 //     When present, diagram.kind is pinned to view.DiagramPlan.Kind.
 //   - block.edge_anchors is dropped entirely when view.DiagramPlan
@@ -234,8 +235,9 @@ func appendPrincipalKindRequiredFieldsConditional(blockItems map[string]any, kin
 
 // projectBlockKindEnum restricts the block.kind enum to the kinds
 // declared in view.RequiredBlocks ∪ view.OptionalBlocks ∪
-// view.Presentation.AllowedBlocks. When the view declares no kinds at
-// all, the enum is left at the canonical full list so the schema stays usable.
+// view.Presentation.AllowedBlocks. When the view declares no kinds at all,
+// the canonical non-diagram list keeps the schema usable; diagram still needs
+// a live DiagramPlan.
 func projectBlockKindEnum(blockProps map[string]any, view *types.AnswerSemanticView) {
 	kindField, _ := blockProps["kind"].(map[string]any)
 	if kindField == nil {
@@ -577,31 +579,11 @@ func projectRequiredBlockArrayCardinality(blocksField map[string]any, view *type
 
 // allowedKindSet returns the set of block-kind strings this dispatch
 // allows the LLM to emit, as restricted by the view's RequiredBlocks,
-// OptionalBlocks, and Presentation.AllowedBlocks. Empty when the view
-// declares none — the caller then treats every canonical kind as allowed.
+// OptionalBlocks, and Presentation.AllowedBlocks. A view with no explicit
+// roster receives the canonical set minus diagram when no DiagramPlan exists.
 func allowedKindSet(view *types.AnswerSemanticView) map[string]bool {
 	out := make(map[string]bool, 9)
-	for _, br := range view.RequiredBlocks {
-		for _, kind := range br.AcceptedKinds() {
-			if kind != "" {
-				out[string(kind)] = true
-			}
-		}
-	}
-	for _, br := range view.OptionalBlocks {
-		for _, kind := range br.AcceptedKinds() {
-			if kind != "" {
-				out[string(kind)] = true
-			}
-		}
-	}
-	for _, kind := range view.Presentation.AllowedBlocks {
-		if kind == "" {
-			continue
-		}
-		if kind == types.BlockDiagram && view.DiagramPlan == nil {
-			continue
-		}
+	for _, kind := range types.AnswerSemanticViewAllowedBlockKinds(view) {
 		out[string(kind)] = true
 	}
 	return out

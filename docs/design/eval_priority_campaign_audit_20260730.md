@@ -57331,6 +57331,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r865`。
 
+### §123.1418 r866/B1351-R2：可选图不再升级为硬输出，JSON 自愈后重验实时能力（2026-08-22）
+
+1. 从已推送 `c92638643` 重建不可变二进制，严格并发恰好 2 路复放 C++ 虚调用链与显式窗 Trace，runner 2/2 PASS：C++ 173s、Trace
+   176s。Trace 人工 pass：2.000..2.020s 显式窗、四节点唤醒链、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级候选、
+   实际占时/规则可消双账户、链上业务线索、背景隔离、自动补齐和完整 `Trace 因果投影` 均保留；零成文拒绝，未按 4ms/4m/流龄降级。
+2. C++ 核心答案与最终 Mermaid 可读，且 r865 的融合 section+diagram 和空“调用路径时序图”标题没有再出现，证明 B1351 首批动态 kind 教学、
+   closed projected block 与 diagram discriminator 已在生产生效。但人工仍判 partial：最终把基类 no-op `flush` 扩写成“确保数据刷新到控制台”，属于
+   模型事实漂移；不据此扫描答案 prose 或替模型改结论。
+3. B1351 残余是新的确定性同根合同错位。Analyzer 只发出 `DiagramHint{required:false}`，semantic view 明确
+   `has_diagram=false`，实时工具 schema 因而不含 diagram；但 `CompileAnswerIntentContract` 仍把任意非空 hint 升级成 requested output diagram，
+   call-chain support lane 又静态宣称 `summary, ordered_list, diagram`，模型上下文因此同时把被 schema 删除的能力描述成硬输出与硬允许块。
+4. 模型随后把顶层 `blocks` 发成 JSON 编码字符串。既有 executor 按用户要求做无损自愈并恢复出原生数组，但恢复后没有再走本轮动态 schema，
+   因此 native diagram 从兼容通道重新进入。这不是应当禁用的 JSON 自愈；正确边界是“先无损恢复，再以同一实时能力复验”，失败时保留恢复稿并给模型
+   精确修补出口，不能静默删图、改块或用系统答案代替模型。
+5. 本批统一三面权威：只有 `DiagramHint.Required=true` 或编译后的 required DiagramContract 才进入 requested outputs/VCS-diff 证据域；
+   support lane 的 AllowedBlocks 与 full emit 动态 kind enum 共用 `AnswerSemanticViewAllowedBlockKinds`，无 DiagramPlan 时即使陈腐 requirement 提到 diagram
+   也不发布；字符串化 `blocks[]` 恢复完成后，对其原生数组执行 dispatch-local blocks schema 全量复验。合法 summary/list 自愈保持，required DiagramPlan
+   下的图自愈保持，未授权 diagram 与融合 payload 精确失败。
+6. 全部判据只读取 typed `Required`、`DiagramPlan`、block requirement/presentation roster 与结构化 JSON；不扫描请求、thinking、模型/最终 prose、
+   Mermaid message/label，不选择答案事实、关系、节点、措辞、布局或结论。B1352 的历史 fused companion 谱系仍独立开放；本批先消除新输出和 JSON 自愈
+   再次制造该形的入口，不能以此冒充旧稿/历史客户端同伴处置已闭环。
+
+状态：
+
+`r866=runner-pass-2/2,human-cpp-partial+trace-pass`；
+`B1351=second-batch-implemented/relevant-tests-pass/full-suite-pass/build-pass/production-replay-pending`；
+`B1352=confirmed/P1/history-recovery-lineage-open`；
+`optional-diagram-hint=soft-only/no-requested-output/no-vcs-origin`；
+`support-lane+tool-kind-roster=one-typed-semantic-view-projection`；
+`string-wrapped-blocks=lossless-repair+same-dispatch-schema-revalidation`；
+`schema-invalid-recovery=retained-draft+precise-model-repair/no-silent-delete`；
+`system-answer/relation/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r866`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r866`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、

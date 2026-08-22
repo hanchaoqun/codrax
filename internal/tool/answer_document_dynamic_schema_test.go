@@ -40,6 +40,9 @@ func TestBuildAnswerDocumentParametersFor_ProjectedBlockObjectIsClosedAndTeachin
 		},
 		OptionalBlocks: []types.BlockRequirement{
 			{Kind: types.BlockSection},
+			// A stale/soft roster entry cannot expose diagram without the
+			// compiled DiagramPlan that owns its payload.
+			{Kind: types.BlockDiagram},
 			{Kind: types.BlockCaveat},
 		},
 	}

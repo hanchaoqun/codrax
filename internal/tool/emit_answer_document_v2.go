@@ -201,6 +201,25 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
+	// A JSON-encoded blocks string reaches this executor before it has a native
+	// array shape, so the agent-level compatibility validator cannot check its
+	// item discriminators and dispatch-local enum. Recovery remains lossless,
+	// but the recovered native carrier must now pass the exact blocks schema
+	// projected from this BusContext. This prevents the repair path from
+	// laundering a diagram (or another omitted kind/payload) that the same
+	// dispatch did not publish to the model.
+	if strings.TrimSpace(recovery.Mode) != "" {
+		if err := validateRecoveredAnswerBlocksAgainstDispatchSchema(ctx, raw); err != nil {
+			persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
+			repair := &types.ToolRepair{
+				Code:   "answer_doc_recovered_blocks_schema",
+				Fields: []string{"blocks"},
+				Hint:   "The JSON-encoded blocks[] value was recovered losslessly, but the recovered native blocks do not match this dispatch's projected schema. Re-emit only block kinds and sibling payload fields present in the current emit_answer_document schema; preserve the answer facts and citations.",
+			}
+			return failEmitWithRepair(toolName, now, repair,
+				"recovered blocks[] does not match the current dispatch schema: %v", err)
+		}
+	}
 
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -409,6 +428,29 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	return res, err
+}
+
+func validateRecoveredAnswerBlocksAgainstDispatchSchema(ctx *types.BusContext, raw json.RawMessage) error {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return err
+	}
+	blocks, ok := document["blocks"]
+	if !ok {
+		return fmt.Errorf("blocks property is missing after recovery")
+	}
+	schema := BuildAnswerDocumentParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx))
+	var schemaRoot struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &schemaRoot); err != nil {
+		return fmt.Errorf("projected schema is invalid: %w", err)
+	}
+	blocksSchema, ok := schemaRoot.Properties["blocks"]
+	if !ok {
+		return fmt.Errorf("projected schema does not expose blocks")
+	}
+	return toolparam.Validate(blocks, blocksSchema)
 }
 
 // answerDocumentCitationLedgerSuffix renders the machine-readable

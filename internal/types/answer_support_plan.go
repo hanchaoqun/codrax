@@ -116,6 +116,7 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 		if out := buildAnswerSupportPlanForFamily(view.Family, ctx.AnalysisIR.RequestModel, plan); out != nil {
 			out = projectCallChainEndpointBoundarySupportPlan(out, view.CallChainEndpointBoundary)
 			out = augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
+			out = projectAnswerSupportPlanAllowedBlocks(out, view)
 			ctx.storeAnswerSupportPlan(out)
 			return cloneAnswerSupportPlan(out)
 		}
@@ -127,6 +128,7 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 			buildAnswerSupportPlanForFamily(QFRootCauseTrace, ctx.AnalysisIR.RequestModel, plan),
 			currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
 		)
+		out = projectAnswerSupportPlanAllowedBlocks(out, view)
 		ctx.storeAnswerSupportPlan(out)
 		return cloneAnswerSupportPlan(out)
 	}
@@ -134,6 +136,7 @@ func BuildAnswerSupportPlanForAgentContext(ctx *AgentContext) *AnswerSupportPlan
 		BuildAnswerSupportPlan(ctx.AnalysisIR.RequestModel, plan),
 		currentStatusDiagnosticContractFromIR(ctx.AnalysisIR),
 	)
+	out = projectAnswerSupportPlanAllowedBlocks(out, view)
 	ctx.storeAnswerSupportPlan(out)
 	return cloneAnswerSupportPlan(out)
 }
@@ -222,6 +225,7 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 		if out := buildAnswerSupportPlanForFamily(view.Family, bus.AnalysisIR.RequestModel, plan); out != nil {
 			out = projectCallChainEndpointBoundarySupportPlan(out, view.CallChainEndpointBoundary)
 			out = augmentCurrentStatusVerdictLane(out, view.CurrentStatusDiagnostic)
+			out = projectAnswerSupportPlanAllowedBlocks(out, view)
 			bus.storeAnswerSupportPlan(out)
 			return cloneAnswerSupportPlan(out)
 		}
@@ -233,6 +237,7 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 			buildAnswerSupportPlanForFamily(QFRootCauseTrace, bus.AnalysisIR.RequestModel, plan),
 			currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
 		)
+		out = projectAnswerSupportPlanAllowedBlocks(out, view)
 		bus.storeAnswerSupportPlan(out)
 		return cloneAnswerSupportPlan(out)
 	}
@@ -240,8 +245,75 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 		BuildAnswerSupportPlan(bus.AnalysisIR.RequestModel, plan),
 		currentStatusDiagnosticContractFromIR(bus.AnalysisIR),
 	)
+	out = projectAnswerSupportPlanAllowedBlocks(out, view)
 	bus.storeAnswerSupportPlan(out)
 	return cloneAnswerSupportPlan(out)
+}
+
+// AnswerSemanticViewAllowedBlockKinds is the single typed projection used by
+// both the live tool schema and finalizer support lanes. Optional analyzer
+// hints do not grant a carrier: diagram is available only when the compiled
+// view contains a DiagramPlan. When the view has no explicit block roster the
+// canonical non-diagram kinds remain available, preserving general answers
+// without advertising a payload the dispatch schema has removed.
+func AnswerSemanticViewAllowedBlockKinds(view *AnswerSemanticView) []AnswerBlockKind {
+	all := AllAnswerBlockKinds()
+	if view == nil {
+		return append([]AnswerBlockKind(nil), all...)
+	}
+	declared := make(map[AnswerBlockKind]bool, len(all))
+	for _, requirement := range view.RequiredBlocks {
+		for _, kind := range requirement.AcceptedKinds() {
+			if kind != "" {
+				declared[kind] = true
+			}
+		}
+	}
+	for _, requirement := range view.OptionalBlocks {
+		for _, kind := range requirement.AcceptedKinds() {
+			if kind != "" {
+				declared[kind] = true
+			}
+		}
+	}
+	for _, kind := range view.Presentation.AllowedBlocks {
+		if kind != "" {
+			declared[kind] = true
+		}
+	}
+	hasDeclaredRoster := len(declared) > 0
+	out := make([]AnswerBlockKind, 0, len(all))
+	for _, kind := range all {
+		if kind == BlockDiagram && view.DiagramPlan == nil {
+			continue
+		}
+		if hasDeclaredRoster && !declared[kind] {
+			continue
+		}
+		out = append(out, kind)
+	}
+	return out
+}
+
+func projectAnswerSupportPlanAllowedBlocks(plan *AnswerSupportPlan, view *AnswerSemanticView) *AnswerSupportPlan {
+	if plan == nil || view == nil {
+		return plan
+	}
+	allowed := make(map[string]bool, len(AllAnswerBlockKinds()))
+	for _, kind := range AnswerSemanticViewAllowedBlockKinds(view) {
+		allowed[string(kind)] = true
+	}
+	for laneIndex := range plan.Lanes {
+		lane := &plan.Lanes[laneIndex]
+		filtered := make([]string, 0, len(lane.AllowedBlocks))
+		for _, kind := range lane.AllowedBlocks {
+			if allowed[kind] {
+				filtered = append(filtered, kind)
+			}
+		}
+		lane.AllowedBlocks = filtered
+	}
+	return plan
 }
 
 // AnswerRequiresObservedArtifactCarrier is the shared typed predicate for the

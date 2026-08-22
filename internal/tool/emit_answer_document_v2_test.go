@@ -2685,6 +2685,62 @@ func TestEmitAnswerDocumentV2_FlatModeBlocksAsString(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_StringifiedBlocksCannotBypassProjectedDiagramSchema(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		PredicateAxis: types.AxisCall,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: false},
+	}}
+	tool := &EmitAnswerDocument{}
+	flat := json.RawMessage(`{
+		"blocks": "[{\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"grounded answer\"},{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\nA->>B: call\"}}]"
+	}`)
+	res, err := tool.Execute(bus, flat)
+	if err != nil {
+		t.Fatalf("stringified projected-schema rejection returned execution error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("stringified blocks must not launder an unavailable diagram: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "recovered blocks[] does not match") ||
+		!strings.Contains(res.Summary, "$[1].") ||
+		(!strings.Contains(res.Summary, "schema enum") && !strings.Contains(res.Summary, "not allowed")) {
+		t.Fatalf("rejection must expose the precise recovered-carrier mismatch: %s", res.Summary)
+	}
+	if bus.Mutable.AnswerDocumentV2() != nil {
+		t.Fatal("schema-rejected recovered blocks must not become the accepted document")
+	}
+}
+
+func TestValidateRecoveredAnswerBlocksAgainstDispatchSchemaAllowsRequiredDiagram(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+		},
+		AnswerContract: types.AnswerContract{Diagram: &types.DiagramContract{
+			Required: true, RequiredKind: types.DiagramSequence,
+		}},
+	}
+	bus.EvidenceItems = []types.EvidenceItem{
+		{ID: "E1", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "A", Object: "B", Source: "a.cpp", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+		{ID: "E2", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "B", Object: "C", Source: "b.cpp", LineStart: 20, GroundingStatus: types.GroundingGrounded},
+	}
+	flat := json.RawMessage(`{
+		"blocks": "[{\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"grounded answer\"},{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"sequence\",\"language\":\"mermaid\",\"body\":\"sequenceDiagram\\nA->>B: call\"}}]"
+	}`)
+	repaired, _, ok := repairBlocksAsStringDetailed(flat)
+	if !ok {
+		t.Fatal("required-diagram stringified fixture did not recover")
+	}
+	if err := validateRecoveredAnswerBlocksAgainstDispatchSchema(bus, repaired); err != nil {
+		t.Fatalf("live required diagram must remain valid after lossless recovery: %v", err)
+	}
+}
+
 func TestEmitAnswerDocumentV2_FlatModeTopLevelCitationsAsString(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

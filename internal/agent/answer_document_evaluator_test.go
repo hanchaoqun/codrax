@@ -4442,7 +4442,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 	mut.SetEmittedAnswerSymbols(syms, types.CompletenessLowerBound)
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
-			RequestModel:   types.RequestModel{Intent: types.IntentTrace},
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				DiagramHint:   &types.DiagramHint{Kind: types.DiagramSequence, Required: false},
+			},
 			AnswerContract: types.AnswerContract{},
 		},
 		Mutable:                  mut,
@@ -4464,7 +4468,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 		"Cangjie",
 		"Declarative imports, inheritance/implements edges, annotations, and Proto/RPC declarations",
 		"presentation instructions, not conclusion authority",
-		"Allowed block kinds: summary, ordered_list, diagram",
+		"Allowed block kinds: summary, ordered_list",
 		"[entry_role=`typed_step_backbone`]",
 		"`RequestModel`",
 		"internal/agent/analyzer.go:616",
@@ -4478,6 +4482,14 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainSupport
 	}
 	if strings.Contains(prompt, "## Resolved Step Sequence") {
 		t.Fatalf("call-chain support lanes should replace legacy step sequence prompt:\n%s", prompt)
+	}
+	for _, forbidden := range []string{
+		"Allowed block kinds: summary, ordered_list, diagram",
+		"requested outputs: `summary`, `trace`, `diagram`",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("optional diagram hint must not expand a hard finalizer contract %q:\n%s", forbidden, prompt)
+		}
 	}
 }
 

@@ -424,6 +424,29 @@ func TestBuildAnswerSupportPlan_CallChainCompilesCurrentPathLaneFromStepBackbone
 	}
 }
 
+func TestProjectAnswerSupportPlanAllowedBlocksUsesLiveDiagramCapability(t *testing.T) {
+	base := &AnswerSupportPlan{Lanes: []AnswerSupportLane{{
+		Kind:          SupportLaneCurrentCodePath,
+		AllowedBlocks: []string{"summary", "ordered_list", "diagram"},
+	}}}
+	withoutDiagram := projectAnswerSupportPlanAllowedBlocks(cloneAnswerSupportPlan(base), &AnswerSemanticView{
+		RequiredBlocks: []BlockRequirement{{Kind: BlockSummary, Required: true}},
+		OptionalBlocks: []BlockRequirement{{Kind: BlockOrderedList}, {Kind: BlockDiagram}},
+	})
+	if got, want := strings.Join(withoutDiagram.Lanes[0].AllowedBlocks, ","), "summary,ordered_list"; got != want {
+		t.Fatalf("support lane advertised a diagram without live DiagramPlan: got %q want %q", got, want)
+	}
+
+	withDiagram := projectAnswerSupportPlanAllowedBlocks(cloneAnswerSupportPlan(base), &AnswerSemanticView{
+		RequiredBlocks: []BlockRequirement{{Kind: BlockSummary, Required: true}, {Kind: BlockDiagram, Required: true}},
+		OptionalBlocks: []BlockRequirement{{Kind: BlockOrderedList}},
+		DiagramPlan:    &DiagramFacetGraph{Kind: DiagramSequence, Required: true},
+	})
+	if got, want := strings.Join(withDiagram.Lanes[0].AllowedBlocks, ","), "summary,ordered_list,diagram"; got != want {
+		t.Fatalf("required diagram capability was removed from support lane: got %q want %q", got, want)
+	}
+}
+
 func TestBuildAnswerSupportPlan_CallChainStepBackboneKeepsTypedClaimRoles(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		StepBackbone: []StepSurfaceAnchor{

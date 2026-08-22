@@ -937,7 +937,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_DiagramRequestKeepsDiagramBlock
 		RawRequest:    "解释流程并画图",
 		Intent:        types.IntentExplain,
 		Scenario:      types.ScenarioArchitectureExplain,
-		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture},
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true},
 		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
 	}
 	mut := types.NewMutableState(rm.RawRequest)
@@ -960,7 +960,7 @@ func TestAppendSoftContractCaveatsToAnswerForBus_DiagramRequestKeepsDiagramFacet
 		RawRequest:    "解释流程并画图",
 		Intent:        types.IntentExplain,
 		Scenario:      types.ScenarioArchitectureExplain,
-		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture},
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true},
 		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
 	}
 	mut := types.NewMutableState(rm.RawRequest)

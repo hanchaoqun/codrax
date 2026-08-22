@@ -292,7 +292,11 @@ func CompileAnswerIntentContractWithPreflight(rm RequestModel, contract *AnswerC
 	if contract != nil && contract.ExactResolution != nil && contract.ExactResolution.AllowAbsence {
 		addOutput(AnswerRequestedOutputAbsence)
 	}
-	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
+	// DiagramHint may be an analyzer recommendation rather than a user-visible
+	// output obligation. Only the typed Required bit (or the compiled answer
+	// contract below) may promote that soft recommendation into the requested
+	// output boundary shown to the finalizer.
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" && rm.DiagramHint.Required {
 		addOutput(AnswerRequestedOutputDiagram)
 	}
 	if contract != nil && contract.Diagram != nil && contract.Diagram.Required {
@@ -384,7 +388,7 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 		return true
 	}
-	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" {
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != "" && rm.DiagramHint.Required {
 		return true
 	}
 	return contract != nil && contract.Diagram != nil && contract.Diagram.Required
