@@ -717,6 +717,63 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 			t.Fatalf("unread assignment coordinates must not produce selector-flow authority: %+v", withheld.evidence)
 		}
 	}
+
+	// An exact, already-citable evidence coordinate is equivalent to reading
+	// that one line for parser enrichment, but must not grant adjacent rows or
+	// the enclosing file. This mirrors production explorers that ground the
+	// lookup through emit_evidence while a later paginated read covers only the
+	// decorator helper.
+	eval.structuredEvidence = append(eval.structuredEvidence,
+		types.EvidenceItem{
+			ID: "E-bind-line", Kind: types.EvidenceDirect, Subject: "REGISTRY", Predicate: "assignment observed",
+			Source: "pipeline/registry.py", LineStart: 17, LineEnd: 17, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorAssignment, AnchorSymbol: "REGISTRY", Snippet: "REGISTRY[name] = cls", GroundingStatus: types.GroundingGrounded,
+		},
+		types.EvidenceItem{
+			ID: "E-lookup-line", Kind: types.EvidenceDirect, Subject: "REGISTRY", Predicate: "assignment observed",
+			Source: "pipeline/registry.py", LineStart: 31, LineEnd: 31, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorAssignment, AnchorSymbol: "REGISTRY", Snippet: "cls = REGISTRY[name]", GroundingStatus: types.GroundingGrounded,
+		},
+	)
+	authorized := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, restricted)
+	authorizedCounts := map[string]int{}
+	for _, item := range authorized.evidence {
+		authorizedCounts[item.Producer]++
+	}
+	if authorizedCounts[types.EvidenceProducerRepoMapDynamicSelectorAssignment] != 2 ||
+		authorizedCounts[types.EvidenceProducerRepoMapDynamicSelectorArgument] != 1 {
+		t.Fatalf("exact citable assignment/call coordinates should authorize only their parser enrichments: counts=%+v evidence=%+v", authorizedCounts, authorized.evidence)
+	}
+}
+
+func TestRuntimeTargetReadOrExactEvidenceLineAllowed_ExactCoordinateOnly(t *testing.T) {
+	closure := types.NewEvidenceClosure("")
+	closure.SetReadSet(map[string]bool{"pipeline/registry.py": true})
+	closure.AddReadRanges(map[string][]types.LineRange{"pipeline/registry.py": {{Start: 1, End: 10}}})
+	evidence := []types.EvidenceItem{{
+		ID: "E31", Kind: types.EvidenceDirect, Subject: "REGISTRY", Source: "pipeline/registry.py",
+		LineStart: 31, LineEnd: 31, Scope: types.ScopeLine, AnchorKind: types.AnchorAssignment,
+		AnchorSymbol: "REGISTRY", Snippet: "cls = REGISTRY[name]", GroundingStatus: types.GroundingGrounded,
+	}}
+	readSet := map[string]bool{"pipeline/registry.py": true}
+	if !runtimeTargetReadOrExactEvidenceLineAllowed("pipeline/registry.py", 31, readSet, closure, evidence) {
+		t.Fatal("exact citable coordinate should authorize one-line parser enrichment")
+	}
+	for _, line := range []int{30, 32} {
+		if runtimeTargetReadOrExactEvidenceLineAllowed("pipeline/registry.py", line, readSet, closure, evidence) {
+			t.Fatalf("exact evidence at line 31 must not authorize adjacent line %d", line)
+		}
+	}
+	wide := evidence[0]
+	wide.LineEnd = 34
+	if runtimeTargetReadOrExactEvidenceLineAllowed("pipeline/registry.py", 31, readSet, closure, []types.EvidenceItem{wide}) {
+		t.Fatal("multi-line evidence must not become an implicit parser read range")
+	}
+	uncitable := evidence[0]
+	uncitable.GroundingStatus = types.GroundingUngrounded
+	if runtimeTargetReadOrExactEvidenceLineAllowed("pipeline/registry.py", 31, readSet, closure, []types.EvidenceItem{uncitable}) {
+		t.Fatal("uncitable coordinates must not authorize parser enrichment")
+	}
 }
 
 func TestMergeConcreteValuesResults_PreservesEveryDeterministicLaneWithoutLiterals(t *testing.T) {

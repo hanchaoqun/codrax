@@ -57434,6 +57434,65 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1385 r847：Trace 获得正证；动态 producer 受“已引用但分页未覆盖”精确坐标阻断（2026-08-22）
+
+1. 从不可变提交 `84ae95bb4` 重建二进制，严格并发恰好 2 路复放 Python 动态注册与显式窗 Trace，runner 2/2 PASS；人工结论为
+   Trace `pass`、Python `uncertain`。Trace 用时 178s、成文零拒绝；Python 用时 511s、成文拒绝/patch 各 8 次、上下文峰值约 79.6k。
+2. Trace 保留显式 2.000..2.020s、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四线程三边、11.000ms
+   链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、实际占时/规则可消双轴、链上业务/内核线索、背景隔离、系统补采和完整
+   `Trace 因果投影`。模型没有把邻近或背景升为主因，也没有按固定 4ms/4m、活动流年龄或上下文比例降级答案，B1330 对 Trace 无侵入。
+3. Python 的 AST assignment 映射和生产接线已真实生效：finalizer ledger 出现 `repomap_dynamic_selector_assignment`，坐标为
+   `pipeline/registry.py:17 REGISTRY[name] = cls`。但同轮 later paginated read 只覆盖 registry.py:11..20；模型此前已经发出并通过 grounding 的
+   registry.py:31 lookup 证据和 runner.py:15 direct-call 证据，producer 仍只认 `EvidenceClosure.HasReadLine`，把这两个“已有 citable 精确坐标、
+   但不在后一次分页范围”的行当成未读，因而 lookup assignment、argument flow 和完整 candidate 全部扣留。
+4. 这不是应通过邻近扫描、文件级授权或模型 prose 猜桥解决的缺口。最窄通用修向是：parser enrichment 的单行 admission 可由精确 read-range，或
+   已通过 `EvidenceItem.IsCitable` 的同 canonical file、同 `LineStart`、且 `LineEnd` 为空/等于起点的单行坐标授权；后者只授权该一行，不能授权
+   相邻行、enclosing callable 或整文件。recovered/ungrounded、多行 range、不同文件或仅出现在请求/模型/final/Mermaid 的坐标继续拒绝。
+5. Python 最终正文正确命名 `JsonPlugin` 并解释装饰器加载期绑定，但因 typed candidate 未形成，8 次重试持续在 `resolve -> JsonPlugin/cls`、
+   callback endpoint 与图锚之间摆动；最终图只保留 `run_pipeline -> resolve -> cls`，没有呈现 assignment/lookup/argument/callback 关系。
+   runner 的 substring PASS 不能替代这一人工缺口。`B1330-B/P1` 立即施工上述单行 evidence admission，随后从新不可变提交再做恰好 2 路复放。
+6. r846 的冗余 `trace_causal_claim_caliber` 没在本轮复现，Trace 成文首次即通过；`B1331/P2` 仍保留为完全相同隐藏 metadata 的安全自愈项，
+   不抢占 B1330-B，且不得借机修改模型正文、因果等级或主根因。
+
+状态：
+
+`r847=runner-2/2-pass+human-trace-pass/python-uncertain`；
+`B1330-A=production-partial/indexed-write-positive`；
+`B1330-B=confirmed/P1/exact-citable-coordinate-admission-next`；
+`whole-file/adjacent-line/model-prose-coordinate-admission=forbidden`；
+`B1331=P2/not-reproduced-r847`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r847`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/edge/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-text-hard-scan=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r847`。
+
+### §123.1386 B1330-B：精确 citable 单行与 read-range 同权，但不扩成文件权限（2026-08-22）
+
+1. 动态 selector producer 的唯一行 admission 已改为二选一：既有 `EvidenceClosure.HasReadLine` 继续优先；若分页范围未覆盖，则只接受当前 evidence
+   ledger 中 `IsCitable()`、canonical source 完全相同、`LineStart` 等于目标行且 `LineEnd` 为空或等于同一行的 EvidenceItem。该桥只表示
+   “grounding 已经验证过这一行，允许 deterministic parser 在同坐标补充结构字段”，不表示整文件或附近代码已读。
+2. assignment feature 扫描和 direct-call argument 解析共用该单一 admission。前者因此可在已引用的 registry.py:31 上恢复精确 indexed lookup，
+   后者可在已引用的 runner.py:15 上恢复同调用点完整参数；selector owner 内 registry.py:17 indexed write 仍按原 typed assignment 语义发布。
+   三者都不从引用摘要、用户问题、模型正文、最终答案或 Mermaid 文本取 endpoint/selector 值。
+3. 真实 fixture 回归新增分页形：显式 read range 排除 registry.py:17/31 时，若没有精确 citable 行，assignment/argument producer 必须全空；追加
+   两条已 grounded 的精确 assignment 坐标后，恰好恢复 2 条 assignment 和 1 条 argument。独立边界 pin 证明 line 31 不能授权 line 30/32，
+   多行 EvidenceItem 与 ungrounded EvidenceItem 也不能获得 admission。
+4. 本修复不放宽 assignment/argument 语法、dynamic candidate 唯一性、diagram relation evidence 或 runtime-selection 结论权限；不改 Trace、写模式、
+   JSON carrier、模型答案或系统补充。下一步完成全仓测试和构建后独立提交推送，再以不可变提交严格并发 2 路复放同一 Python/Trace 对。
+
+状态：
+
+`B1330-B=implemented/targeted-pass/full-suite-pass/build-pass`；
+`admission=read-line OR exact-citable-single-line`；
+`adjacent/enclosing/file-wide-escalation=forbidden`；
+`recovered/ungrounded/multiline=fail-closed`；
+`runtime-selection=candidate-only/model-owned`；
+`request/model/final-prose/mermaid-text-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
 
 1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read

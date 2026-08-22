@@ -15203,6 +15203,7 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 	if len(selectorOwners) == 0 {
 		return concreteValuesResult{}
 	}
+	structuredEvidence := e.currentStructuredEvidence()
 
 	type row struct {
 		item types.EvidenceItem
@@ -15238,7 +15239,8 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 		}
 		sort.Ints(featureLines)
 		for _, line := range featureLines {
-			if line <= 0 || line > len(lines) || !runtimeTargetReadLineAllowed(source, line, readSet, closure) {
+			if line <= 0 || line > len(lines) ||
+				!runtimeTargetReadOrExactEvidenceLineAllowed(source, line, readSet, closure, structuredEvidence) {
 				continue
 			}
 			callable := runtimeTargetEnclosingCallable(fi, line)
@@ -15307,13 +15309,14 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 	// every complete argument. Multiple arguments stay visible so the downstream
 	// compiler can fail closed rather than select by position.
 	if len(lookupOwners) > 0 {
-		for _, call := range e.currentStructuredEvidence() {
+		for _, call := range structuredEvidence {
 			if !call.IsCitable() || types.ClaimFormOf(call) != types.ClaimCallEdge || call.LineStart <= 0 ||
 				!dynamicSelectorOwnerMatchesAny(call.Object, lookupOwners) {
 				continue
 			}
 			source := canonicalExplorerPath(call.Source)
-			if source == "" || !runtimeTargetReadLineAllowed(source, call.LineStart, readSet, closure) {
+			if source == "" ||
+				!runtimeTargetReadOrExactEvidenceLineAllowed(source, call.LineStart, readSet, closure, structuredEvidence) {
 				continue
 			}
 			fi := graph.FileIndex[source]
@@ -15407,6 +15410,42 @@ func runtimeTargetReadLineAllowed(source string, line int, readSet map[string]bo
 		return closure.HasReadLine(source, line)
 	}
 	return readSetContains(readSet, source)
+}
+
+// runtimeTargetReadOrExactEvidenceLineAllowed admits one parser enrichment at
+// a coordinate that was either explicitly read or already survived the
+// citable EvidenceItem grounding contract. The evidence alternative is exact:
+// it requires the same canonical file and one single-line span. It does not
+// grant the enclosing function, adjacent lines, or the rest of the file.
+//
+// This matters when an explorer grounded an assignment/call directly through
+// emit_evidence but a later paginated read covered a different slice of the
+// same file. Treating the precise citable coordinate as unread would erase a
+// fact the evidence ledger already authorizes; treating the whole file as read
+// would be an unsafe expansion.
+func runtimeTargetReadOrExactEvidenceLineAllowed(
+	source string,
+	line int,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+	evidence []types.EvidenceItem,
+) bool {
+	if runtimeTargetReadLineAllowed(source, line, readSet, closure) {
+		return true
+	}
+	source = canonicalExplorerPath(source)
+	if source == "" || line <= 0 {
+		return false
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || canonicalExplorerPath(item.Source) != source || item.LineStart != line {
+			continue
+		}
+		if item.LineEnd == 0 || item.LineEnd == line {
+			return true
+		}
+	}
+	return false
 }
 
 func dynamicSelectorOwnerMatchesAny(owner string, candidates []string) bool {
