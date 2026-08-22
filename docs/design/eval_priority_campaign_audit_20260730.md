@@ -57291,6 +57291,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1417 r865/B1351：实时 JSON schema 与教学自冲突，融合图旁路留下空标题（2026-08-22）
+
+1. 从已推送 `ea654b3fc` 构建不可变二进制，严格并发恰好 2 路复放 C++ 虚调用链与显式窗 Trace，runner 2/2 PASS：Trace 153s、C++
+   306s。Trace 人工 pass：2.000..2.020s 显式窗、三次 typed query、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 完整链、11.000ms 链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、
+   实际占时/规则可消双账户、业务线索、背景隔离、自动补齐和最终 `Trace 因果投影` 全在；零成文拒绝，未按 4ms/4m/流龄降级。
+2. B1350 获得生产正证。C++ 同时修多项关系/孤点时不再因只披露一条进展而原地停止，成文拒绝由 r864 的 11 次降为 4 次。最终文字正确解释
+   `Logger::log`、guard、`Sink::write` 虚分派、`ConsoleSink::write -> std::fputs(..., stderr)`、注册表工厂、`unique_ptr<Sink>` 注入和基类
+   no-op flush；因此核心答案通过，但图表展示人工判 partial。
+3. 新 P1 `B1351-DYNAMICSCHEMATEACHING1` 为确定性合同自冲突：本 dispatch 没有 typed DiagramPlan，实时 JSON schema 正确地从
+   `blocks[].kind` enum 删除 diagram；共享工具说明却无条件列出 diagram block。模型首轮按说明发出原生 `kind=diagram`，在执行前被 enum 拒绝；
+   第二轮模型明确识别矛盾后改用 `kind=section + diagram payload`。因为 projected block object 未关闭未知字段，runtime compatibility splitter 又把该
+   旁路恢复成 section 与派生 diagram，导致“schema 不允许的能力”从另一载体重新进入。
+4. B1351 根修不扩大图表要求，也不读取用户/模型/答案关键词：full emit 的 dispatch-local description 从同一 typed AnswerSemanticView 枚举本轮
+   真实 kind roster；共享教学将所有 kind 映射改成“仅 enum 出现时可用”；projected block object 对已发布字段闭合；只要 diagram payload 可见，
+   JSON discriminator 就要求原生 `kind=diagram`。历史客户端/畸形响应仍可在执行层走 fused recovery，但新模型不能再被 schema 教入旁路。
+5. r865 同时确认独立 P1 `B1352-FUSEDDIAGRAMCOMPANION1`：兼容 splitter 把模型的融合块拆成 `call-chain-diagram` section 与
+   `call-chain-diagram_diagram` diagram。模型后来显式删除 optional 派生图时，patch schema 未披露同伴谱系或同伴 remove/retain 选择，最终留下
+   “调用路径时序图”空标题，再新增一段重复完整路径。系统不能擅自级联删除或改写标题；下一批应让 splitter 记录 typed lineage，并在模型删除一半时
+   精确要求另一半的显式 disposition，所有可见文字、去留、关系和布局仍由模型选择。
+6. B1349 畸形 Mermaid 恢复本轮未复现，但由于图被模型显式删除而不是成功保留，继续开放。B1351 的回归先钉动态 enum/description 同源、未知字段闭合、
+   fused discriminator 与 full-finalizer 生产接线；完整 `go test ./...`、构建和双并行回放通过后再转正。
+
+状态：
+
+`r865=runner-pass-2/2,human-trace-pass+cpp-partial`；
+`B1350=production-positive/core-closed`；
+`B1351=implemented/relevant-tests-pass/full-suite-pass/build-pass/production-replay-pending`；
+`B1352=confirmed/P1-next`；
+`B1349=filed/no-natural-positive-r865/still-open`；
+`dynamic-kind-teaching=typed-view-single-source`；
+`projected-block-object=closed-over-live-fields`；
+`diagram-payload=native-kind-only-on-live-schema`；
+`historical-fused-recovery=retained`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r865`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r865`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、

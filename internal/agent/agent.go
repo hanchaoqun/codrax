@@ -3816,6 +3816,7 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			params := t.Parameters()
 			if ead, ok := t.(*tool.EmitAnswerDocument); ok {
 				params = ead.ParametersFor(ctx)
+				desc = ead.DescriptionFor(ctx)
 			}
 			if patch, ok := t.(*tool.EmitAnswerDocumentPatch); ok {
 				params = patch.ParametersFor(ctx)

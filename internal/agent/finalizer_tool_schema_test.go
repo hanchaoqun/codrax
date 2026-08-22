@@ -98,6 +98,47 @@ func TestFinalizerToolSchemas_DocumentBlocksUseOneSchemaNearCarrierTeaching(t *t
 	}
 }
 
+func TestFinalizerToolSchemas_DocumentDescriptionPublishesProjectedKindRoster(t *testing.T) {
+	agent := finalizerSchemaTestAgent()
+	sk := finalizerSchemaTestSkill()
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("call-chain finalizer dispatch"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+			PredicateAxis: types.AxisCall,
+		}},
+	}
+	var docSchema *llm.ToolSchema
+	for _, schema := range agent.buildToolSchemas(sk, ctx) {
+		if schema.Name == "emit_answer_document" {
+			s := schema
+			docSchema = &s
+			break
+		}
+	}
+	if docSchema == nil {
+		t.Fatal("finalizer must expose emit_answer_document")
+	}
+	var root map[string]any
+	if err := json.Unmarshal(docSchema.Parameters, &root); err != nil {
+		t.Fatalf("decode projected schema: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	blockItems := props["blocks"].(map[string]any)["items"].(map[string]any)
+	blockProps := blockItems["properties"].(map[string]any)
+	kindEnum := blockProps["kind"].(map[string]any)["enum"].([]any)
+	for _, raw := range kindEnum {
+		kind := raw.(string)
+		if !strings.Contains(docSchema.Description, "`"+kind+"`") {
+			t.Fatalf("description omitted live kind %q:\n%s", kind, docSchema.Description)
+		}
+	}
+	if _, diagramExposed := blockProps["diagram"]; !diagramExposed &&
+		strings.Contains(strings.Split(docSchema.Description, ". Do not substitute")[0], "`diagram`") {
+		t.Fatalf("description advertised diagram in its exact live roster while schema omitted it:\n%s", docSchema.Description)
+	}
+}
+
 func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradictory(t *testing.T) {
 	agent := finalizerSchemaTestAgent()
 	sk := finalizerSchemaTestSkill()

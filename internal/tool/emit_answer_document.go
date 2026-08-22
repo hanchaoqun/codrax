@@ -55,6 +55,38 @@ func (t *EmitAnswerDocument) Description() string {
 		BuildAnswerDocumentSemanticContractDescription()
 }
 
+// DescriptionFor publishes the same dispatch-local kind roster as the
+// projected JSON enum. The exact roster is derived only from typed answer
+// requirements/presentation state; it never reads the user request, model
+// prose, or diagram labels. The shared contract below remains conditional so
+// an omitted kind is not accidentally advertised as an alternate carrier.
+func (t *EmitAnswerDocument) DescriptionFor(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return t.Description()
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	return types.AnswerDocumentJSONShapeFirstTeaching + "\n\n" +
+		"Emit the FULL final answer document as a structured blocks[] array. " +
+		"Treat the projected tool schema as the only authority for field names, value types, required fields, and enums in this dispatch. " +
+		projectedAnswerBlockKindTeaching(view) + " " +
+		"Use this on first dispatches and whenever the answer needs a complete rewrite. On retry paths where only a few blocks need editing, prefer emit_answer_document_patch which protocol-level preserves typed annotation fields on blocks you do not touch.\n\n" +
+		BuildAnswerDocumentSemanticContractDescription()
+}
+
+func projectedAnswerBlockKindTeaching(view *types.AnswerSemanticView) string {
+	allowed := map[string]bool(nil)
+	if view != nil {
+		allowed = allowedKindSet(view)
+	}
+	kinds := make([]string, 0, len(types.AllAnswerBlockKinds()))
+	for _, kind := range types.AllAnswerBlockKinds() {
+		if len(allowed) == 0 || allowed[string(kind)] {
+			kinds = append(kinds, "`"+string(kind)+"`")
+		}
+	}
+	return "For this dispatch, the exact allowed block kinds are: " + strings.Join(kinds, ", ") + ". Do not substitute a different kind or attach one kind's payload to another."
+}
+
 // Parameters returns the canonical (full) V2 JSON schema. Most
 // callers should use ParametersFor(ctx) so the schema is projected
 // onto the per-dispatch AnswerSemanticView (drop fields the

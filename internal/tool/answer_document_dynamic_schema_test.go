@@ -32,6 +32,71 @@ func TestBuildAnswerDocumentParametersFor_NilViewReturnsCanonical(t *testing.T) 
 	}
 }
 
+func TestBuildAnswerDocumentParametersFor_ProjectedBlockObjectIsClosedAndTeachingMatchesKindEnum(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFRoleLookup,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true},
+		},
+		OptionalBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSection},
+			{Kind: types.BlockCaveat},
+		},
+	}
+	blockItems, blockProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	if open, ok := blockItems["additionalProperties"].(bool); !ok || open {
+		t.Fatalf("dispatch-local block schema must reject omitted/unknown payload fields: %+v", blockItems["additionalProperties"])
+	}
+	if _, exposed := blockProps["diagram"]; exposed {
+		t.Fatal("diagram payload must be absent without a typed diagram plan")
+	}
+	kindNode := blockProps["kind"].(map[string]any)
+	for _, raw := range kindNode["enum"].([]any) {
+		if raw == string(types.BlockDiagram) {
+			t.Fatalf("diagram kind must be absent without a typed diagram plan: %v", kindNode["enum"])
+		}
+	}
+	teaching := projectedAnswerBlockKindTeaching(view)
+	if strings.Contains(teaching, "`diagram`") ||
+		!strings.Contains(teaching, "`summary`, `section`, `caveat`") {
+		t.Fatalf("dispatch teaching drifted from projected kind enum: %s", teaching)
+	}
+}
+
+func TestBuildAnswerDocumentParametersFor_DiagramPayloadRequiresNativeDiagramKind(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture,
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true},
+			{Kind: types.BlockDiagram, Required: true},
+		},
+		OptionalBlocks: []types.BlockRequirement{{Kind: types.BlockSection}},
+		DiagramPlan:    &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+	}
+	blockItems, blockProps := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	if _, exposed := blockProps["diagram"]; !exposed {
+		t.Fatal("typed diagram plan must expose the native diagram payload")
+	}
+	found := false
+	for _, entry := range schemaAllOfEntries(blockItems) {
+		ifNode, _ := entry["if"].(map[string]any)
+		required, _ := ifNode["required"].([]any)
+		if !reflect.DeepEqual(required, []any{"diagram"}) {
+			continue
+		}
+		thenNode := entry["then"].(map[string]any)
+		thenProps := thenNode["properties"].(map[string]any)
+		kindNode := thenProps["kind"].(map[string]any)
+		if got := kindNode["const"]; got != string(types.BlockDiagram) {
+			t.Fatalf("diagram payload discriminator=%v, want native diagram kind", got)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("diagram payload ownership conditional missing: %+v", blockItems["allOf"])
+	}
+}
+
 func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		RelationAxis: types.AxisFlow,
@@ -1133,12 +1198,15 @@ func TestBuildAnswerDocumentParametersFor_PerKindPayloadConditionals(t *testing.
 	gotPayloads := make(map[string]string, len(allOf))
 	for _, c := range allOf {
 		entry := c.(map[string]any)
-		ifNode := entry["if"].(map[string]any)
-		ifProps := ifNode["properties"].(map[string]any)
-		kindNode := ifProps["kind"].(map[string]any)
-		kind := kindNode["const"].(string)
-		thenNode := entry["then"].(map[string]any)
-		req := thenNode["required"].([]any)
+		ifNode, _ := entry["if"].(map[string]any)
+		ifProps, _ := ifNode["properties"].(map[string]any)
+		kindNode, _ := ifProps["kind"].(map[string]any)
+		kind, _ := kindNode["const"].(string)
+		thenNode, _ := entry["then"].(map[string]any)
+		req, _ := thenNode["required"].([]any)
+		if kind == "" || len(req) == 0 {
+			continue
+		}
 		// Find the payload field — it is the third entry after "id"
 		// and "kind" in the canonical order.
 		for _, r := range req {

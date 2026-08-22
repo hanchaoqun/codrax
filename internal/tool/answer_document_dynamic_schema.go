@@ -67,7 +67,15 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
 			projectItemEvidenceIdentityField(blockProps, view)
+			projectDiagramPayloadOwnership(blockItems, blockProps)
 		}
+		// The projected field set is the executable contract. Leaving the
+		// object open let an omitted payload (notably diagram) be attached to
+		// another kind and then revived by the compatibility normalizer. That
+		// made the JSON schema and its runtime meaning disagree. Full canonical
+		// callers remain unchanged; dispatch-local schemas are deliberately
+		// closed over the exact fields they publish.
+		blockItems["additionalProperties"] = false
 		projectKindPayloadConditionals(blockItems, view)
 		projectSourceInventoryPrincipalTableItems(blockItems, view)
 	}
@@ -86,6 +94,34 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 	return out
+}
+
+// projectDiagramPayloadOwnership makes the native diagram carrier
+// unambiguous whenever this dispatch exposes block.diagram. A fused
+// section/list + diagram payload remains tolerated by the runtime recovery
+// path for historical callers, but a live model can no longer be taught or
+// schema-admitted into that compatibility shape: if it chooses diagram, it
+// must choose kind=diagram. No Mermaid text, label, request prose, or model
+// answer is inspected here.
+func projectDiagramPayloadOwnership(blockItems, blockProps map[string]any) {
+	if blockItems == nil || blockProps == nil {
+		return
+	}
+	if _, exposed := blockProps["diagram"]; !exposed {
+		return
+	}
+	conditionals := schemaAllOfEntries(blockItems)
+	conditionals = append(conditionals, map[string]any{
+		"if": map[string]any{
+			"required": []string{"diagram"},
+		},
+		"then": map[string]any{
+			"properties": map[string]any{
+				"kind": map[string]any{"const": string(types.BlockDiagram)},
+			},
+		},
+	})
+	blockItems["allOf"] = conditionals
 }
 
 func projectItemEvidenceIdentityField(blockProps map[string]any, view *types.AnswerSemanticView) {
