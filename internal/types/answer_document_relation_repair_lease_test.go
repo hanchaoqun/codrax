@@ -303,7 +303,7 @@ func TestAnswerDiagramRelationRepairLeasePublishesExecutableFailureCapabilities(
 		}
 	}
 	assertCapability("call_edge_unproven", AnswerDiagramRelationRepairCarrierPriorAnchor,
-		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
+		AnswerDiagramRelationRepairActionRemove)
 	assertCapability(DiagramRelationFailureMissingGroundedCallAnchor, AnswerDiagramRelationRepairCarrierVisibleBodyEdge,
 		AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace)
 	assertCapability("typed_anchor_without_visible_edge", AnswerDiagramRelationRepairCarrierStaleAnchor,
@@ -381,8 +381,52 @@ func TestAnswerDiagramRelationRepairLeaseCoalescesSeveralIssuesOnOneCarrier(t *t
 	}
 	failure := lease.Failures[0]
 	if len(failure.RelatedIssues) != 2 || failure.TargetCarrier != AnswerDiagramRelationRepairCarrierPriorAnchor ||
-		!failure.AllowsAction("remove") || !failure.AllowsAction("replace") {
+		!failure.AllowsAction("remove") || failure.AllowsAction("replace") {
 		t.Fatalf("coalesced carrier lost issue or action authority: %+v", failure)
+	}
+}
+
+func TestAnswerDiagramRelationRepairLeaseEvidenceNegativeLabelCarrierNarrowsToRemoveOnly(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Caller.Run", ToIdentity: "Callee.Handle",
+			RelationKind: DiagramRelCall, VisibleLabel: "model label",
+		}},
+	}}}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "diagram_visible_label_mismatch", RelationKind: DiagramRelCall, FromNode: "A", ToNode: "B", FromIdentity: "Caller.Run", ToIdentity: "Callee.Handle"},
+		{BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall, FromNode: "A", ToNode: "B", FromIdentity: "Caller.Run", ToIdentity: "Callee.Handle"},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("same carrier issues must compile to one capability: %+v", lease)
+	}
+	got := lease.Failures[0]
+	if got.TargetCarrier != AnswerDiagramRelationRepairCarrierPriorAnchor || !got.AllowsAction("remove") ||
+		got.AllowsAction("replace") || got.AllowsAction("relabel") {
+		t.Fatalf("evidence-negative sibling must narrow the merged carrier to remove-only: %+v", got)
+	}
+}
+
+func TestAnswerDiagramRelationRepairLeaseSkipsCaseEquivalentExistingAddition(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: DiagramRelPrecedence,
+		}},
+	}}}
+	candidate := AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "typed-stage-authority",
+	}
+	if lease := NewAnswerDiagramRelationRepairLease(base, nil, []AnswerDiagramRelationRepairCandidate{candidate}); lease != nil {
+		t.Fatalf("case-equivalent canonical relation must not be re-published as a new edge: %+v", lease)
+	}
+	reversed := candidate
+	reversed.FromIdentity, reversed.ToIdentity = reversed.ToIdentity, reversed.FromIdentity
+	if lease := NewAnswerDiagramRelationRepairLease(base, nil, []AnswerDiagramRelationRepairCandidate{reversed}); lease == nil || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("direction remains semantic and must not be collapsed by case normalization: %+v", lease)
 	}
 }
 

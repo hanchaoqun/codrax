@@ -57335,6 +57335,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r831`。
 
+### §123.1355 B1316：局部图修补能力按可满足性收口，未证关系不再伪装成可替换（2026-08-21）
+
+1. `B1316-DIAGRAMLOCALREPAIRCAPABILITYSAT1/P1` 已按 r831 的四个同根生产 witness 施工。full emit normalizer 现在只在外层
+   `kind` 为空、存在显式非空 `diagram` 对象且没有 text/caveat/table/verdict 等竞争载体时，按精确结构 discriminator 补
+   `kind=diagram`；完整 diagram-only 块不再浪费两轮重发。若正文与 diagram 并存、diagram 为空或仅正文像 Mermaid，仍保持 schema
+   fail-closed，系统不会从模型文字猜 block 类型。
+2. relation repair lease 改为“发布能力必须能执行且不能扩大证据”：`call/registration/type/assignment/data_flow/return/callback/
+   argument_flow/semantic *_unproven` 等 evidence-negative typed issue 仅开放 remove；同一 carrier 的 label mismatch 与未证问题合并时，
+   动作按安全交集收窄为 remove-only，不再把未证 tuple 换个标签继续保留。只有闭集结构冲突（call/sequence reply operator、typed endpoint
+   self-collapse、node/identity conflict）可以 remove/replace；未知新 issue 默认 remove-only，须由 producer 明确归类后才可扩为 replace。
+3. 对确实允许 replace 的 `stale_anchor/prior_anchor`，动态 schema 继续只让模型填写可见 `from_node/to_node/visible_label`；executor 由当前
+   generation 的精确 `failure_ref` 恢复 schema 故意隐藏的 relation kind 与 endpoint identities。恢复失败、locator 歧义、陈腐 ref 或缺少完整
+   typed tuple 均在改图前拒绝。系统不选择 action、可见端点、label、方向或新关系；另有 grounded candidate 时仍由模型显式选择 add/attach。
+4. allowed-addition 去重现在在同 block、同 relation、同方向内对 canonical identity 做 trim+case-insensitive exact 比较。因此
+   `Analyzer→Explorer` 已存在时不会再把 `analyzer→explorer` 发布成新边；反向、不同 relation 或不同 identity 仍是独立候选，不做模糊别名
+   合并。`retain_as_context` 的模型多行 label 仅把 CR/LF 编码为 Mermaid 单行载体的 `<br/>`，逐字保留模型 wording；NUL、空值、超长和歧义
+   declaration 继续拒绝。
+5. 回归覆盖 diagram-only 缺 kind 正向自愈与竞争载体反向拒绝、未证+label 合并 remove-only、结构 conflict replace 隐藏 tuple 恢复、
+   evidence-negative 动态 schema 无 replace、大小写等价候选去重但反向保留、多行 context label 语法编码，以及 Agent dispatch 的真实动作清单。
+   `go test ./internal/types ./internal/tool -count=1`、`go test ./internal/agent -count=1`、完整 `go test ./... -count=1`、`make` 与
+   `git diff --check` 全绿。
+6. 本批未修改 Trace 查询、窗口选举、自动补采、唤醒链、链上根因排序、实际占时/规则可消双账户或 `Trace 因果投影`；不读取用户请求、
+   thinking、最终答案或 Mermaid message 语义作硬门。下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 read 图表+显式窗 Trace，验证
+   read 的拒绝轮次是否从 r831 的 13 次下降且图关系不缩水，同时继续验收 Trace 完整性与活跃流不按固定 4ms/4m 降级。独立
+   `B1315-CITATIONSUBJECTLINECONSISTENCY1` 仍排在本批生产回放之后。
+
+状态：
+
+`B1316=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`missing-diagram-kind=exact-diagram-only-self-heal`；
+`evidence-negative-relation=remove-only`；
+`structural-replace=closed-issue-set+model-visible-edge+ref-hidden-tuple`；
+`unknown-repair-issue=remove-only-fail-closed`；
+`allowed-addition=case-equivalent-existing-anchor-suppressed/direction-preserved`；
+`multiline-context-label=syntax-only-<br/>-encoding`；
+`system-edge/relation/action/label/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1353 B1314：visible-label producer 接通 same-generation label-pair lease（2026-08-21）
 
 1. `preCheckDiagramVisibleLabelConsistency` 现把它已经用于硬检查的一对一 `block + anchor + parsed body occurrence`

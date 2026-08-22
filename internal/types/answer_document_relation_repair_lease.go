@@ -54,7 +54,8 @@ const (
 
 // AnswerDiagramRelationRepairAction is one atomic operation that the current
 // carrier can execute. The model still chooses among these actions and authors
-// every replacement tuple and reader-facing label.
+// replacement endpoints and reader-facing labels; an opaque ref may restore
+// only the exact technical relation/identity tuple hidden by schema.
 type AnswerDiagramRelationRepairAction string
 
 const (
@@ -181,11 +182,31 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	default:
 		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
-			return AnswerDiagramRelationRepairCarrierPriorAnchor, []AnswerDiagramRelationRepairAction{
-				AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+			actions := []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}
+			// Only a closed set of structural issues may retain the carrier through
+			// a model-authored replacement. Evidence-negative and unknown issues are
+			// remove-only: restoring their hidden tuple would preserve an unproved
+			// relation under new wording. The executor restores only fields
+			// deliberately hidden by the opaque-ref schema.
+			if answerDiagramRelationRepairIssueAllowsReplacement(issue) {
+				actions = append(actions, AnswerDiagramRelationRepairActionReplace)
 			}
+			return AnswerDiagramRelationRepairCarrierPriorAnchor, actions
 		}
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	}
+}
+
+func answerDiagramRelationRepairIssueAllowsReplacement(issue string) bool {
+	switch strings.TrimSpace(issue) {
+	case "call_reply_operator_conflict", "sequence_relation_reply_operator_conflict",
+		"typed_endpoints_collapsed_to_self_edge", "edge_anchor_node_identity_conflict":
+		return true
+	default:
+		// Fail closed for newly introduced issue values. A producer must classify
+		// a defect as an exact structural replacement case before the lease may
+		// expose replace; remove remains universally executable.
+		return false
 	}
 }
 
@@ -269,13 +290,24 @@ func answerDiagramRelationRepairCompiledFailures(
 		// one ref per issue would make the second operation deterministically
 		// stale inside the same atomic patch. A label-only carrier remains
 		// relabel-only, while any non-label defect keeps the stronger
-		// remove/replace capability.
+		// remove/replace capability when every non-label defect is structural.
+		// An evidence-negative sibling narrows the merged carrier to remove-only:
+		// capabilities compose by safe intersection, never by union.
 		if failure.TargetCarrier == AnswerDiagramRelationRepairCarrierLabelPair && len(issues) > 1 {
 			for _, issue := range issues {
 				if !answerDiagramRelationRepairLabelOnlyIssue(issue) {
 					failure.TargetCarrier = AnswerDiagramRelationRepairCarrierPriorAnchor
-					failure.AllowedActions = []AnswerDiagramRelationRepairAction{
-						AnswerDiagramRelationRepairActionRemove, AnswerDiagramRelationRepairActionReplace,
+					failure.AllowedActions = []AnswerDiagramRelationRepairAction{AnswerDiagramRelationRepairActionRemove}
+					allStructural := true
+					for _, related := range issues {
+						if !answerDiagramRelationRepairLabelOnlyIssue(related) &&
+							!answerDiagramRelationRepairIssueAllowsReplacement(related) {
+							allStructural = false
+							break
+						}
+					}
+					if allStructural {
+						failure.AllowedActions = append(failure.AllowedActions, AnswerDiagramRelationRepairActionReplace)
 					}
 					break
 				}
@@ -842,8 +874,8 @@ func answerDiagramRelationRepairCandidateAlreadyAnchored(
 		}
 		for _, anchor := range block.EdgeAnchors {
 			if anchor.RelationKind == candidate.RelationKind &&
-				strings.TrimSpace(anchor.FromIdentity) == strings.TrimSpace(candidate.FromIdentity) &&
-				strings.TrimSpace(anchor.ToIdentity) == strings.TrimSpace(candidate.ToIdentity) {
+				strings.EqualFold(strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(candidate.FromIdentity)) &&
+				strings.EqualFold(strings.TrimSpace(anchor.ToIdentity), strings.TrimSpace(candidate.ToIdentity)) {
 				return true
 			}
 		}

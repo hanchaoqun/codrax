@@ -139,8 +139,8 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 		t.Fatalf("live refs must define the exact transaction cardinality: %+v", edgeEdits)
 	}
 	branches := edgeEdits["items"].(map[string]any)["oneOf"].([]any)
-	if len(branches) != 3 {
-		t.Fatalf("expected remove+replace+add branches, got %d: %+v", len(branches), branches)
+	if len(branches) != 2 {
+		t.Fatalf("expected remove+add branches for an evidence-negative carrier, got %d: %+v", len(branches), branches)
 	}
 	wantFailureRef := lease.Failures[0].FailureRef
 	wantAdditionRef := lease.AllowedAdditions[0].AdditionRef
@@ -178,7 +178,7 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 		}
 		seen[action] = true
 	}
-	if !seen["remove"] || !seen["replace"] || !seen["add"] || seen["relabel"] {
+	if !seen["remove"] || seen["replace"] || !seen["add"] || seen["relabel"] {
 		t.Fatalf("schema action roster drifted from live capabilities: %+v", seen)
 	}
 

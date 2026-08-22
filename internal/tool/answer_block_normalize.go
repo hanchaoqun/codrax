@@ -52,6 +52,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 	if strings.TrimSpace(raw.ID) == "" {
 		return types.AnswerBlock{}, fmt.Errorf("%s: id is required and must be non-empty", fieldPath)
 	}
+	// A present, non-empty diagram object is an exact structured discriminator.
+	// Some providers still omit the required outer block kind while preserving
+	// the complete nested diagram. Recover only the unambiguous diagram-only
+	// shape; any competing non-diagram payload remains a schema error instead of
+	// being silently reclassified or discarded. This reads no model prose and
+	// does not infer a diagram from Mermaid-looking text.
+	if strings.TrimSpace(raw.Kind) == "" && emitAnswerBlockHasUnambiguousDiagramDiscriminator(raw) {
+		logging.Debug("[answer_block_normalize] restored missing outer kind=diagram from explicit payload at %s", fieldPath)
+		raw.Kind = string(types.BlockDiagram)
+	}
 	kind := types.AnswerBlockKind(raw.Kind)
 	if !types.IsValidAnswerBlockKind(kind) {
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=%q is not a valid block kind; allowed values: %v",
@@ -244,6 +254,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		return types.AnswerBlock{}, fmt.Errorf("%s: kind=diagram requires the sibling `diagram` object {kind: <flow|sequence|architecture|call_dag>, language: \"mermaid\", body: <raw mermaid source>}. If the diagram body is currently in the block-level `text` field, move it into `diagram.body` and set diagram.kind to the SEMANTIC family the contract names (NOT the Mermaid keyword)", fieldPath)
 	}
 	return blk, nil
+}
+
+func emitAnswerBlockHasUnambiguousDiagramDiscriminator(raw emitAnswerBlockV2) bool {
+	if raw.Diagram == nil || emitAnswerDiagramV2IsZero(raw.Diagram) || strings.TrimSpace(raw.Diagram.Body) == "" {
+		return false
+	}
+	return strings.TrimSpace(raw.Text) == "" && strings.TrimSpace(raw.Caveat) == "" &&
+		strings.TrimSpace(raw.ErrorGranularityVerdict) == "" && strings.TrimSpace(raw.CurrentStatusVerdict) == "" &&
+		strings.TrimSpace(raw.TraceCausalClaimCaliber) == "" && strings.TrimSpace(raw.ScopeDisclosure) == "" &&
+		strings.TrimSpace(raw.SourceInventoryFamily) == "" && len(raw.Columns) == 0 && len(raw.Items) == 0
 }
 
 func emitAnswerDiagramV2IsZero(diagram *emitAnswerDiagramV2) bool {

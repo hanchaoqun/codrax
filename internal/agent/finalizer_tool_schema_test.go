@@ -235,8 +235,12 @@ func TestFinalizerToolSchemas_LiveRelationLeaseUsesMatchingExecutableDescription
 		}
 	}
 	branches := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
-	if len(branches) != 2 {
-		t.Fatalf("agent dispatch must carry the live remove+replace choices, got %+v", branches)
+	if len(branches) != 1 {
+		t.Fatalf("agent dispatch must expose only remove for an evidence-negative relation, got %+v", branches)
+	}
+	branchProps := branches[0].(map[string]any)["properties"].(map[string]any)
+	if actions := branchProps["action"].(map[string]any)["enum"].([]any); len(actions) != 1 || actions[0] != "remove" {
+		t.Fatalf("evidence-negative lease action roster=%v, want remove-only", actions)
 	}
 }
 

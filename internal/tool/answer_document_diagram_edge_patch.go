@@ -486,8 +486,8 @@ func applyOneModelAuthoredDiagramParticipantEdit(
 		}
 		body, count = mermaidcompat.RemoveRemovableNodeDeclaration(block.Diagram.Body, participantID)
 	case string(types.AnswerDiagramOrphanDispositionRetain):
-		visibleLabel := strings.TrimSpace(edit.VisibleLabel)
-		if visibleLabel == "" || len(visibleLabel) > 512 {
+		visibleLabel, ok := normalizeAtomicMermaidParticipantVisibleLabel(edit.VisibleLabel)
+		if !ok {
 			return fmt.Errorf("retain_as_context requires a non-empty model-authored visible_label of at most 512 bytes")
 		}
 		body, count = mermaidcompat.RewriteRemovableNodeDeclarationLabel(block.Diagram.Body, participantID, visibleLabel)
@@ -499,6 +499,24 @@ func applyOneModelAuthoredDiagramParticipantEdit(
 	}
 	block.Diagram.Body = body
 	return nil
+}
+
+func normalizeAtomicMermaidParticipantVisibleLabel(raw string) (string, bool) {
+	if strings.ContainsRune(raw, '\x00') {
+		return "", false
+	}
+	label := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n", "\n"), "\r", "\n"))
+	if label == "" || len(label) > 512 {
+		return "", false
+	}
+	// Mermaid declaration labels are single-line carriers. Preserve every
+	// model-authored word while encoding line boundaries in Mermaid's portable
+	// display form; this is syntax normalization, not label authorship.
+	label = strings.ReplaceAll(label, "\n", "<br/>")
+	if len(label) > 512 {
+		return "", false
+	}
+	return label, true
 }
 
 func atomicDiagramLeaseOrphanCandidate(
@@ -906,6 +924,21 @@ func resolveAtomicDiagramFailureRef(
 	switch len(matches) {
 	case 1:
 		match := matches[0]
+		if action == string(types.AnswerDiagramRelationRepairActionReplace) && edit.Edge != nil {
+			relation := types.AnswerDiagramRelationRepairFailureEffectiveRelation(*failure)
+			fromIdentity := strings.TrimSpace(failure.FromIdentity)
+			toIdentity := strings.TrimSpace(failure.ToIdentity)
+			if fromIdentity == "" || toIdentity == "" {
+				fromIdentity = strings.TrimSpace(match.FromIdentity)
+				toIdentity = strings.TrimSpace(match.ToIdentity)
+			}
+			if !relation.IsValid() || fromIdentity == "" || toIdentity == "" {
+				return edit, fmt.Errorf("failure_ref=%q does not own a complete typed replacement tuple", ref)
+			}
+			edit.Edge.RelationKind = relation
+			edit.Edge.FromIdentity = fromIdentity
+			edit.Edge.ToIdentity = toIdentity
+		}
 		edit.Match = &match
 		edit.failureRefResolved = true
 		return edit, nil

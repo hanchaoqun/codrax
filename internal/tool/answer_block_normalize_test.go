@@ -560,6 +560,34 @@ func TestNormalizeEmitAnswerBlock_DiagramPayloadNormalizesDiagramKind(t *testing
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_DiagramPayloadRestoresMissingOuterKind(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID: "d1",
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow), Language: "mermaid",
+			Body: "flowchart LR\n  A --> B",
+		},
+	}, "blocks[6]")
+	if err != nil {
+		t.Fatalf("explicit diagram-only payload should restore its missing discriminator: %v", err)
+	}
+	if got.Kind != types.BlockDiagram || got.Diagram == nil || got.Diagram.Body != "flowchart LR\n  A --> B" {
+		t.Fatalf("diagram-only recovery changed model content: %+v", got)
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_MissingKindWithCompetingPayloadFailsClosed(t *testing.T) {
+	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID: "ambiguous", Text: "separate prose payload",
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow), Language: "mermaid", Body: "flowchart LR\n  A --> B",
+		},
+	}, "blocks[6]")
+	if err == nil || !strings.Contains(err.Error(), `kind="" is not a valid block kind`) {
+		t.Fatalf("ambiguous missing discriminator must remain a schema error: %v", err)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_DropsZeroDiagramPlaceholderFromNonDiagramKind(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:      "s1",

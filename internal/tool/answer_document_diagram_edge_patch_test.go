@@ -244,19 +244,41 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RequiresExplicitNe
 	})
 
 	t.Run("connected candidate needs no orphan disposition", func(t *testing.T) {
+		structuralLease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramSequenceRelationReplyConflict,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+		}}, nil)
+		if structuralLease == nil || !structuralLease.Failures[0].AllowsAction("replace") {
+			t.Fatalf("test setup: structural failure must expose model-authored replacement: %+v", structuralLease)
+		}
 		patch := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
 			prev, patch, []emitAnswerDiagramEdgeEdit{{
-				FailureRef: lease.Failures[0].FailureRef, Action: "replace",
+				FailureRef: structuralLease.Failures[0].FailureRef, Action: "replace",
 				Edge: &types.DiagramEdgeAnchor{
-					FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
-					RelationKind: types.DiagramRelPrecedence, VisibleLabel: "模型修正关系",
+					FromNode: "A", ToNode: "B", VisibleLabel: "模型修正关系",
 				},
-			}}, nil, nil, nil, lease,
+			}}, nil, nil, nil, structuralLease,
 		)
 		if err != nil || len(patch.ReplaceBlocks) != 1 ||
 			!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B: 模型修正关系") {
 			t.Fatalf("a still-connected candidate must not be forced through orphan disposition: err=%v patch=%+v", err, patch)
+		}
+	})
+
+	t.Run("retain encodes model line breaks without changing wording", func(t *testing.T) {
+		patch := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, patch, removeEdge, nil,
+			[]emitAnswerDiagramParticipantEdit{{
+				BlockID: "diag", ParticipantID: "A", Action: "retain_as_context",
+				VisibleLabel: "分析入口\n背景关系未证明",
+			}}, nil, lease,
+		)
+		if err != nil || len(patch.ReplaceBlocks) != 1 ||
+			!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, `分析入口<br/>背景关系未证明`) {
+			t.Fatalf("multiline model label should receive syntax-only Mermaid encoding: err=%v patch=%+v", err, patch)
 		}
 	})
 }
@@ -345,7 +367,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 			FromNode: "StageAnalyze", ToNode: "StageExplore", RelationKind: types.DiagramRelPrecedence,
 		}}, []types.AnswerDiagramRelationRepairCandidate{{
 			BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
-			FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
+			FromIdentity: "dispatcher", ToIdentity: "finalizer", Source: "internal/types/enums.go:120-121",
 		}})
 	if lease == nil || len(lease.AllowedAdditions) != 1 || lease.AllowedAdditions[0].AdditionRef == "" {
 		t.Fatalf("expected one live referenced addition: %+v", lease)
@@ -368,7 +390,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	added := patch.ReplaceBlocks[0].EdgeAnchors[2]
 	if added.FromNode != "businessAnalyze" || added.ToNode != "businessExplore" ||
 		added.VisibleLabel != "确定分析范围后收集证据" ||
-		added.FromIdentity != "analyzer" || added.ToIdentity != "explorer" ||
+		added.FromIdentity != "dispatcher" || added.ToIdentity != "finalizer" ||
 		added.RelationKind != types.DiagramRelPrecedence {
 		t.Fatalf("ref must preserve visible authorship and stamp only its typed tuple: %+v", added)
 	}
@@ -378,15 +400,15 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		t.Fatalf("compiled patch must apply: %v", err)
 	}
 	// This is the production split from r806: a node-keyed recipe offers a
-	// different Stage identity dialect. The already-complete ref-selected Agent
+	// different Stage identity dialect. The already-complete ref-selected typed
 	// pair must not be re-authored by that downstream metadata normalizer.
 	fixed := normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(merged, []types.DiagramEdgeAnchor{{
 		FromNode: "businessAnalyze", ToNode: "businessExplore",
 		FromIdentity: "StageAnalyze", ToIdentity: "StageExplore",
 		RelationKind: types.DiagramRelPrecedence,
 	}})
-	if fixed != 0 || merged.Blocks[1].EdgeAnchors[2].FromIdentity != "analyzer" ||
-		merged.Blocks[1].EdgeAnchors[2].ToIdentity != "explorer" {
+	if fixed != 0 || merged.Blocks[1].EdgeAnchors[2].FromIdentity != "dispatcher" ||
+		merged.Blocks[1].EdgeAnchors[2].ToIdentity != "finalizer" {
 		t.Fatalf("recipe normalization must not overwrite the selected live candidate: fixed=%d anchor=%+v", fixed, merged.Blocks[1].EdgeAnchors[2])
 	}
 	if violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(violations) != 0 {
@@ -434,7 +456,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		}
 		added := got.ReplaceBlocks[0].EdgeAnchors[2]
 		if added.FromNode != "X" || added.ToNode != "Y" || added.VisibleLabel != "model label" ||
-			added.FromIdentity != "analyzer" || added.ToIdentity != "explorer" ||
+			added.FromIdentity != "dispatcher" || added.ToIdentity != "finalizer" ||
 			added.RelationKind != types.DiagramRelPrecedence {
 			t.Fatalf("ref must preserve visible authorship and restore only selected hidden fields: %+v", added)
 		}
@@ -887,8 +909,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_StaleRefRestoresModelAuthoredEdgeA
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
 		FailureRef: lease.Failures[0].FailureRef, Action: "replace",
 		Edge: &types.DiagramEdgeAnchor{
-			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
-			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "确定范围后收集证据",
+			FromNode: "A", ToNode: "B", VisibleLabel: "确定范围后收集证据",
 		},
 	}}, nil, lease)
 	if err != nil {
@@ -897,7 +918,9 @@ func TestApplyModelAuthoredDiagramAtomicEdits_StaleRefRestoresModelAuthoredEdgeA
 	got := patch.ReplaceBlocks[0]
 	if !strings.Contains(got.Diagram.Body, "A->>B: 确定范围后收集证据") ||
 		!strings.Contains(got.Diagram.Body, "B->>C: keep label") ||
-		len(got.EdgeAnchors) != 2 || got.EdgeAnchors[0].VisibleLabel != "确定范围后收集证据" {
+		len(got.EdgeAnchors) != 2 || got.EdgeAnchors[0].VisibleLabel != "确定范围后收集证据" ||
+		got.EdgeAnchors[0].RelationKind != types.DiagramRelPrecedence ||
+		got.EdgeAnchors[0].FromIdentity != "analyze" || got.EdgeAnchors[0].ToIdentity != "explorer" {
 		t.Fatalf("stale replacement did not preserve model-authored visible edge and siblings: %+v", got)
 	}
 }
@@ -1105,7 +1128,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRejectsUnlistedAction(t 
 		FailureRef: lease.Failures[0].FailureRef, Action: "relabel", VisibleLabel: "wording only",
 	}}, nil, lease)
 	if err == nil || !strings.Contains(err.Error(), "does not allow action=relabel") ||
-		!strings.Contains(err.Error(), "allowed_actions=[remove replace]") {
+		!strings.Contains(err.Error(), "allowed_actions=[remove]") {
 		t.Fatalf("relation-evidence failure must expose its exact executable actions: %v", err)
 	}
 }
@@ -1926,7 +1949,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_SharedBodyRejectsMixedActions(t *t
 	}
 	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{
 		{BlockID: "diag", Issue: "call_edge_unproven", FromNode: "A", ToNode: "B", FromIdentity: "A.call", ToIdentity: "B.run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
-		{BlockID: "diag", Issue: "semantic_relation_edge_unproven", FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: diagramSequenceRelationReplyConflict, FromNode: "A", ToNode: "B", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1},
 	}, nil)
 	edits := []emitAnswerDiagramEdgeEdit{
 		{FailureRef: lease.Failures[0].FailureRef, Action: "remove"},

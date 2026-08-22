@@ -8859,7 +8859,7 @@ func TestPreCheckDiagramRelationFailurePublishesCompactRepairDelta(t *testing.T)
 		delta.Failures[0].Issue != diagramDataFlowEdgeIssueNoEvidence ||
 		delta.Failures[0].FromNode != "BC" || delta.Failures[0].ToNode != "E" ||
 		delta.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
-		!delta.Failures[0].AllowsAction("remove") || !delta.Failures[0].AllowsAction("replace") ||
+		!delta.Failures[0].AllowsAction("remove") || delta.Failures[0].AllowsAction("replace") ||
 		delta.Failures[0].AllowsAction("relabel") {
 		t.Fatalf("repair metadata lost exact failing edge: %+v", delta)
 	}
