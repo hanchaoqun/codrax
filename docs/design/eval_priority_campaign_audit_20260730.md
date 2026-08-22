@@ -57403,7 +57403,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `r852=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
 `B1330-E=production-positive`；
 `B1330-F=compiler-correct/evidence-pool-pre-filter-gap-confirmed`；
-`B1330-G=implemented/targeted-pass/full-suite-pass/build-pass/pending-replay`；
+`B1330-G=production-positive/core-closed`；
 `call-source-authority=subject-first/owner-fallback-only/across-pool+compiler`；
 `qualified-tail/file-path/prose-shortening=none`；
 `B1332=confirmed/P1/open/not-reproduced-r852`；
@@ -57412,6 +57412,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r852`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r852`。
+
+### §123.1393 r853/B1333：动态候选生产转正；非 call hop 未进入统一关系配方（2026-08-22）
+
+1. 从已推送 `960bd512b` 重建干净不可变二进制，严格并发恰好 2 路复放同一 Python 动态分派与显式窗 Trace，runner 2/2 PASS：
+   Trace 146s、Python 273s。两路活动流均未按固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或系统代写结论。
+2. `B1330-G` 获得生产正证并关闭核心入口缺口。Python finalizer 首次真实发射 2 条完整
+   `Typed dynamic-selection candidates`：csv/json 每条都保留 `run_pipeline -> resolve` call、`kind -> resolve` argument flow、
+   selector application、selector-side indexed assignment、lookup assignment、`resolve -> cls()` return 以及独立 type roster。
+   candidate 数从 0 变 2，证明证据池和 compiler 已统一 Subject-first/Owner fallback；没有 qualified-tail 猜测或 synthetic
+   `run_pipeline -> JsonPlugin` call。
+3. runner PASS 仍不能收关系表达。Python 初稿虽收到完整 candidate，却连续四次成文拒绝：一次手抄 Evidence ID 少一字符、一次把
+   `replace_blocks` 发成畸形 JSON string carrier，后两次把 REGISTRY lookup、声明 MRO、factory return 与 reply 画成 direct call；最终模型
+   删除整个 diagram，只保留正文和结构化关系列表。用户问题的 requested output 明确包含 diagram，因此人工判 uncertain，不能以事实正文基本正确
+   代替图层闭环。
+4. 新 P1 `B1333-DYNAMICCANDIDATERELATIONRECIPE1` 为通用接线 gap。成功 candidate 的 assignment/argument-flow/return/type-relation
+   目前只出现在独立文字清单；同轮统一 `Typed relation authoring capsule` 的 `edge_recipe[]/edge_anchor_json` 只有 guard、call、callback，完全没有
+   这些已证非 call hop。模型因此必须自己重新生成 node id、identity、relation kind 和 occurrence，再与严格 validator 对齐，系统在同一 prompt 中
+   实际提供了“两套不同完备度的关系合同”。这不是 Python 特例：任何语言的 registry/factory/DI/interface/closure/reflection candidate 都会遇到同类
+   图层不足。
+5. 最优方案是把成功编译的 typed candidate hop 作为 advisory relation recipes 接入同一个成文关系配方源：逐 hop 保留原 relation kind、
+   endpoint、Evidence ID、owner/source occurrence，并给出稳定局部 node id 与 `edge_anchor_json`；selector application 仍只给 Note/table fact，
+   不伪造边。候选之间、重复 occurrence 和同端点不同 owner 不自动合并，模型继续选择相关 candidate、是否画图、可见业务标签、布局与最终结论。
+   该接线不得把 candidate 升级成 runtime-selected fact，不得增加 emit-time“必须画全”硬门，也不得读取请求、thinking、答案 prose 或 Mermaid
+   message 来铸权。
+6. Python 探索期另有 3 次 completion 调用：第一条 member_set 的 members/member_notes/support_refs 数量不对齐，被精确降级；第二次在低增量
+   convergence 后接受。本轮没有复现 r851 的“定义行要求 call tuple、grounder 又移到 return 行”原形，因此 `B1332` 仍按既有 witness 开放，
+   不与 B1333 混批。Malformed JSON string carrier 已有 fail-loud 诊断，本轮模型下一次改成原生数组后通过，不据一次样本扩大系统改写。
+7. Trace 人工判 uncertain、系统面 pass：显式 2.000..2.020s、四线程唤醒依赖、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   候选、实际占时/规则可消双轴、背景隔离、系统补采和完整 `Trace 因果投影` 均保留，零成文拒绝。模型仍把
+   pre-wakeup dependency 写成“沿唤醒链向上传导的阻塞源头”，而同文已承认等待对象、持有者、后端与直接阻塞未证；继续归
+   B1269/B1271 软遵循观察，不做正文关键词硬门或系统替换。
+
+状态：
+
+`r853=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1330-E/F/G=production-positive/core-closed`；
+`B1333=confirmed/P1/next`；
+`dynamic-candidate-hop=text-list-positive/relation-recipe-missing`；
+`candidate-runtime-selection=model-owned`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`B1332=confirmed/P1/open/not-reproduced-r853`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r853`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r853`。
 
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
