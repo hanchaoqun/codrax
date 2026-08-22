@@ -57291,6 +57291,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1354 r831：B1313/B1314 生产转正；局部图修补合同仍有四类不可执行分支（2026-08-21）
+
+1. 从已推送 `456e1cac8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：
+   Trace 277s、read 626s。Trace 0 次成文拒绝；read 13 次拒绝、11 次 patch，因此 runner 通过不能掩盖局部修补合同的严重迭代膨胀。
+   两路均未按固定 4ms、4m、累计活动年龄或上下文比例降级，也没有恢复旧稿或由系统替模型写结论。
+2. Trace 人工判定 pass：显式 2.000..2.020s 窗、四线程三跳唤醒链、threadpool-400 的 11.000ms 链上 IO 第一席、三个
+   1.000ms runnable/优先级候选、实际占时/规则可消双轴、链上业务线索和完整 `Trace 因果投影` 全部保留。邻近/背景没有升为主因，
+   read 图表修补未侵入 Trace 查询、自动补采、链上选举或因果投影。
+3. read 最终答案人工判定 partial：正文和 Mermaid 可读，Analyzer→Explorer→Extractor→Finalizer 主链以及
+   BusContext/Mutable 的局部数据关系可见，Mutable 的完整请求关系仍诚实标为未证明。B1314 获得生产正证：第 5 轮明确收到三个 live
+   `failure_ref`，两个 label mismatch 只开放 `relabel`。B1313 也获得生产正证：第 14 轮收到四个 stale-boundary `boundary_ref`，模型只提交
+   四个 `remove_boundary` 即接受。两条局部通道自身均闭合，但前置错误集合仍把总重试放大到 13 次。
+4. 新 P1 `B1316-DIAGRAMLOCALREPAIRCAPABILITYSAT1` 含四个同根的“schema/lease 宣称可做、执行路径做不到或不应做”缺口：
+   (a) 模型两轮都提交了完整 `diagram{kind,language,body}`，仅漏 block 外层 `kind`；schema 虽声明 required，provider 仍可输出，normalizer 在看
+   精确 diagram payload 前先拒绝空 kind，未利用已有无歧义 discriminator；(b) 同一 carrier 同时有 label mismatch 与
+   `semantic_relation_edge_unproven` 时，合并 lease 把它升级为 remove/replace，动态 schema 的 replace 分支隐藏 relation/identity，executor
+   却未从 ref 恢复这些 hidden tuple，模型按 schema 提交后确定性报 edge 缺 relation_kind；更根本地，evidence-negative `_unproven`
+   carrier 不应开放保留原未证 tuple 的 replace；(c) 已存在的 Analyzer→Explorer 等 stage anchor 仅因 identity 大小写差异未被
+   `candidateAlreadyAnchored` 识别，又作为 allowed additions 发布，模型误把 permission 当清单增加三条重复边，随后六条同义 precedence
+   一起被拒；(d) `retain_as_context` schema 允许模型多行 visible_label，executor 的 Mermaid 单行声明改写却返回 matches=0，形成接口自冲突。
+5. B1316 最优通用方案冻结为精确载体自愈与能力可满足性，而不是样例拟合：显式非空 diagram payload + 空 discriminator 只补
+   `kind=diagram`；evidence-negative typed issue 只开放 remove（若有独立 exact candidate 则另走 add/attach），结构性 replace 必须由 ref 恢复
+   hidden relation/identity；already-anchored 比对应至少做 trim+case-insensitive exact identity，同 relation/同 block 才去重；孤立 participant 的
+   模型多行标签仅做 Mermaid 语法级换行编码，不改词义。所有歧义、反向、不同 relation、不同 identity 继续 fail-closed。系统仍不选择 action、
+   edge、label、layout 或结论，也不扫描请求、thinking、答案 prose 或 Mermaid message 词义。
+6. 独立 P1 `B1315-CITATIONSUBJECTLINECONSISTENCY1` 仍保留：r830 最终 SetResult 项正文引用 4602，但精确 advisory 给 4532，4602 实为
+   SetExploreBudget。先按 evidence subject + file + line 的 typed 绑定审计，不与 B1316 的图修补执行合同混批。
+
+状态：
+
+`r831=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1313=production-positive/core-closed`；
+`B1314=production-positive/core-closed`；
+`B1316=confirmed/P1-next`；`B1315=confirmed/P1-after-B1316`；
+`full-emit-missing-diagram-discriminator=exact-self-heal-planned`；
+`evidence-negative-failure=remove-only/no-false-replace`；
+`allowed-addition=exclude-same-block+same-relation+case-equivalent-existing-anchor`；
+`multiline-context-label=syntax-normalization-only`；
+`system-edge/relation/action/label/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r831`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r831`。
+
 ### §123.1353 B1314：visible-label producer 接通 same-generation label-pair lease（2026-08-21）
 
 1. `preCheckDiagramVisibleLabelConsistency` 现把它已经用于硬检查的一对一 `block + anchor + parsed body occurrence`
