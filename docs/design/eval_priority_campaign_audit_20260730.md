@@ -57291,6 +57291,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1406 r859：B1339 候选生产正证；零锚点修补与删边节点载体仍造成五次重试和图缩水（2026-08-22）
+
+1. 从已推送 `37384560d` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态选择与显式窗 Trace，runner 2/2 PASS：Trace
+   170s、Python 320s。两路活动流均未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级；没有恢复旧稿或由系统代写答案。
+2. Trace 人工判定 pass：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 已证唤醒链、
+   11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级/调度供给候选、实际占时/规则可消双账户、业务下钻、邻近/背景隔离和完整
+   `Trace 因果投影` 全在，零成文拒绝。系统未把邻近压力升为主因，也未因活动流时长或固定阈值降级回答。
+3. B1339 获得生产正证：首轮普通结构关系失败后，拒绝提示从 citable typed evidence 发布了 6 条精确候选，包含
+   `run_pipeline -> resolve` call、`run_pipeline -> loop.run_in_executor` call、`loop.run_in_executor -> plugin.handle` callback 和
+   `resolve -> cls()` return，均携真实 evidence/source；不相关、未 grounded 候选未混入。模型随后能够选择真实 tuple，说明局部候选投影方向有效。
+4. 新 P1 `B1340-STANDALONERELATIONZEROANCHORCANDIDATE1` 已确认。模型一轮为清理陈腐普通块 anchor 将 `edge_anchors` 置空后，零锚点门只重复
+   “复制 typed recipe”，没有复用刚刚同代发布的精确候选，导致模型必须再耗一轮从长上下文恢复三个 tuple。最优形是按该块已经模型选择的 directed
+   `claim_uses` typed family，在同轮 citable evidence 中发布有界候选；它只提供 relation/from/to/evidence/source，不自动选边、改正文或改变 authority。
+5. 新 P1 `B1341-DIAGRAMEDGEREMOVENODECARRIER1` 已确认。首稿把业务节点声明内联在边上，例如 `rp[run_pipeline] --> res[resolve]`。
+   原子 remove/replace 以整行删除或覆盖边，节点的唯一可见声明也随之消失；后续 attach 只恢复 `rp --> res`，最终图暴露内部短 ID
+   `rp/res/exe` 并留下空的“装饰器注册阶段”分组。该行为是 patch executor 的确定性载体丢失，不是模型关系判断波动。根修应在模型明确删/换边时，
+   仅把旧行里仍被新图引用且无其他声明的原始节点 declaration 原样提升为 standalone declaration；不合成名称、不保留关系、不改变布局意图。
+6. 新 P1 `B1342-RELATIONATTACHACTIONALIAS1` 已确认。模型两轮都同时精确选择 live `failure_ref` 与 compatible `addition_ref`，但沿用
+   `action=add`，resolver 要求该双 ref 组合必须写 `action=attach`，产生两次纯 JSON 协议重试。可安全吸收的范围仅为：两个 ref 均为同代 live、失败项
+   明确允许 attach、候选与失败精确兼容时，把 add 解释为 attach；未知/陈腐/不兼容 ref 或不允许 attach 继续 fail-closed。系统不因此选择任何候选。
+7. Python 最终正文人工基本正确：识别 JsonPlugin、REGISTRY 查找、`cls()` 构造、executor callback 与装饰器导入期注册；但 5 次成文拒绝后图仅剩
+   两条 call，业务节点名丢失且 registration subgraph 为空，故整体人工判定 uncertain。下一施工顺序冻结为：B1340+B1342 先减少无事实增量重试，
+   B1341 独立修复图载体并做全 Mermaid family 回归；随后继续恰好并行 2 路异构 eval。
+
+状态：
+
+`r859=runner-pass-2/2,human-trace-pass+python-uncertain`；
+`B1339=production-positive/core-closed`；
+`B1340=confirmed/P1-next`；
+`B1341=confirmed/P1-next`；
+`B1342=confirmed/P1-next`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r859`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r859`。
+
 ### §123.1390 r850/B1330-E：返回跳空产根因闭合；补 parser-authored 精确 return 通道（2026-08-22）
 
 1. 从已推送 `945ca3be2` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 167s、Python
