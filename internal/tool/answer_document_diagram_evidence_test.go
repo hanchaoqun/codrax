@@ -3300,6 +3300,65 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresenceFailsLoudWithoutReadin
 	}
 }
 
+func TestPreCheckStandaloneCallChainRelationAnchorPresencePublishesClaimScopedTypedCandidates(t *testing.T) {
+	call := types.EvidenceItem{
+		ID: "ev-call", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "run_pipeline", Object: "resolve", Predicate: "calls",
+		Source: "pipeline/runner.py", LineStart: 15, LineEnd: 15,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}
+	callback := types.EvidenceItem{
+		ID: "ev-callback", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "loop.run_in_executor", Object: "plugin.handle", Predicate: "passes callback",
+		Source: "pipeline/runner.py", LineStart: 17, LineEnd: 17,
+		AnchorKind: types.AnchorCallback, GroundingStatus: types.GroundingGrounded,
+	}
+	returnFact := types.EvidenceItem{
+		ID: "ev-return", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "resolve", Object: "cls()", Predicate: "returns",
+		Source: "pipeline/registry.py", LineStart: 34, LineEnd: 34,
+		AnchorKind: types.AnchorReturn, GroundingStatus: types.GroundingGrounded,
+	}
+	ungroundedCall := call
+	ungroundedCall.ID = "ev-untrusted"
+	ungroundedCall.Subject = "Other.start"
+	ungroundedCall.Object = "Other.finish"
+	ungroundedCall.GroundingStatus = types.GroundingUngrounded
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{
+			{ClaimForm: types.ClaimCallEdge, EvidenceID: "ev-call"},
+			{ClaimForm: types.ClaimCallbackHandoff, EvidenceID: "ev-callback"},
+		},
+	}}}
+	ctx := &types.BusContext{
+		Mutable:       types.NewMutableState("zero-anchor candidate projection"),
+		EvidenceItems: []types.EvidenceItem{callback, returnFact, ungroundedCall, call},
+	}
+	hints := preCheckStandaloneCallChainRelationAnchorPresence(
+		doc, &types.AnswerSemanticView{Family: types.QFCallChain}, newPreEmitCheckContext(ctx),
+	)
+	if len(hints) != 1 {
+		t.Fatalf("expected one zero-anchor hint, got %+v", hints)
+	}
+	for _, want := range []string{
+		`Exact citable relation candidates matching this block's model-selected claim_form(s)`,
+		`relation_kind:"call"`, `from_identity:"run_pipeline"`, `to_identity:"resolve"`,
+		`evidence_id:"ev-call"`, `source:"pipeline/runner.py:15"`,
+		`relation_kind:"callback"`, `from_identity:"loop.run_in_executor"`,
+		`to_identity:"plugin.handle"`, `evidence_id:"ev-callback"`,
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("zero-anchor typed candidate guidance missing %q: %s", want, hints[0].ExpectedShape)
+		}
+	}
+	for _, forbidden := range []string{"ev-return", "cls()", "ev-untrusted", "Other.start"} {
+		if strings.Contains(hints[0].ExpectedShape, forbidden) {
+			t.Fatalf("candidate outside selected claim forms or authority escaped: %q in %s", forbidden, hints[0].ExpectedShape)
+		}
+	}
+}
+
 func TestPreCheckStandaloneCallChainRelationAnchorPresenceRejectsOnlyUnownedTypedKind(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,

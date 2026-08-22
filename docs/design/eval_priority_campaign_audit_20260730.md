@@ -57328,6 +57328,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r859`。
 
+### §123.1407 B1340+B1342：零锚点重投影模型已选关系族；双 live ref 吸收 add/attach 传输别名（2026-08-22）
+
+1. `B1340-STANDALONERELATIONZEROANCHORCANDIDATE1/P1` 已施工。QFCallChain 的 principal ordered/bullet/table 块在仍保留模型选择的
+   directed `claim_uses`、但 `edge_anchors` 为空时，原 hard gate 保持；同一提示现在从本轮已可引用 typed evidence 中投影至多 6 条与这些
+   claim forms 匹配的 relation/from/to/evidence/source 候选。模型在 `claim_uses.evidence_id` 已明确选择的行排在前面，其余同 relation family
+   候选只作备选，避免全证据池排序把当前块自己的关系淹没。
+2. 候选生成不读 block items、label、请求、reasoning、最终正文或 Mermaid message；只读 schema-valid family/block/role/claim forms、模型已选
+   evidence ID 和 citable typed evidence。未 grounded、不可引用、relation family 不匹配、端点不完整或不能再通过原 authority helper 的行不发布。
+   模型仍决定选择哪些 row、是否删除 claim form、可见名称和叙述；下一稿继续走原关系门，系统不自动补 anchor 或路径。
+3. `B1342-RELATIONATTACHACTIONALIAS1/P1` 已施工。当且仅当同一个 atomic edit 同时携带模型选择的 `failure_ref` 与 `addition_ref`，resolver
+   才把旧式 `action=add` 解释为 `action=attach`。随后仍逐项验证 failure ref 属于当前 lease、失败项允许 attach、addition ref 当前有效且与该
+   failure 的 carrier/identity/relation 精确兼容；未知、陈腐、不兼容或无 attach 权限继续 fail-closed。单 addition ref 的 add 语义完全不变。
+4. 这不是系统替模型选择动作或关系：双 ref 已完整表达“把这个候选绑定到这个失败载体”，兼容层只消除 JSON 枚举术语差异；visible label、节点、
+   relation tuple、目标 occurrence 均来自模型所选 ref/edge。回归同时钉住 r859 正形一次通过，以及不同 endpoint 候选在 `action=add` 别名下仍被
+   `not compatible` 拒绝。
+5. 新回归还钉住零锚点时 call+callback 两个模型已选 claim family 的精确候选及 source/evidence 可见，return family 与未 grounded call 不得
+   越界。`go test ./internal/tool ./internal/types ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。Trace runtime/query、显式窗、自动补采、因果投影、链上根因、业务线索、实际占时/规则可消双轴和活动流策略未改动。
+6. B1341 图节点声明载体保留仍独立施工；不把它与本批协议归一化混在一个提交，便于对 Mermaid flowchart/class/sequence 的渲染风险单独回退与验证。
+
+状态：
+
+`B1340=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1342=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`zero-anchor-candidate-scope=model-selected-claim-family+selected-evidence-first/max-6`；
+`add+failure-ref+addition-ref=attach-transport-alias/normal-live-lease-revalidation`；
+`system-relation/action-target/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/item-prose/visible-label/mermaid-message-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1390 r850/B1330-E：返回跳空产根因闭合；补 parser-authored 精确 return 通道（2026-08-22）
 
 1. 从已推送 `945ca3be2` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 167s、Python

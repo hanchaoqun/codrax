@@ -528,6 +528,75 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AttachBindsSelectedCandidateToExis
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_AddWithBothLiveRefsAliasesAttach(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  Source -->|旧文案| Target\n"},
+	}}}
+	failure := types.AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "Source", ToNode: "Target",
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", BodyOccurrence: 1,
+	}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "pkg.Source.run", ToIdentity: "pkg.Target.accept", Source: "internal/source.go:10",
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, []types.AnswerDiagramRelationRepairCandidate{candidate})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 || !lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("test setup missing compatible live pair: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef:  lease.Failures[0].FailureRef,
+		AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Action:      "add",
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "Source", ToNode: "Target", VisibleLabel: "交给目标处理",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("add with both exact live refs must use the attach transport alias: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 ||
+		!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "Source -->|交给目标处理| Target") ||
+		len(patch.ReplaceBlocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("transport alias did not compile the model-selected pair: %+v", patch)
+	}
+	anchor := patch.ReplaceBlocks[0].EdgeAnchors[0]
+	if anchor.RelationKind != types.DiagramRelArgumentFlow ||
+		anchor.FromIdentity != candidate.FromIdentity || anchor.ToIdentity != candidate.ToIdentity {
+		t.Fatalf("transport alias changed the selected typed tuple: %+v", anchor)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AddWithBothRefsStillRejectsIncompatibleCandidate(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  A --> B\n"},
+	}}}
+	failure := types.AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: "missing_relation_anchor", FromNode: "A", ToNode: "B",
+		FromIdentity: "A.run", ToIdentity: "B.accept", BodyOccurrence: 1,
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, []types.AnswerDiagramRelationRepairCandidate{
+		{BlockID: "flow", RelationKind: types.DiagramRelCall, FromIdentity: "A.run", ToIdentity: "B.accept", Source: "a.go:1"},
+		{BlockID: "flow", RelationKind: types.DiagramRelCall, FromIdentity: "Other.run", ToIdentity: "Else.accept", Source: "b.go:2"},
+	})
+	var wrongRef string
+	for _, addition := range lease.AllowedAdditions {
+		if addition.FromIdentity == "Other.run" {
+			wrongRef = addition.AdditionRef
+		}
+	}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, &types.AnswerDocumentV2Patch{}, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, AdditionRef: wrongRef, Action: "add",
+		Edge: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", VisibleLabel: "模型文案"},
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("add alias must not authorize a different candidate: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AttachRejectsDifferentCandidate(t *testing.T) {
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

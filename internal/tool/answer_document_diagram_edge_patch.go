@@ -812,7 +812,18 @@ func resolveAtomicDiagramFailureRef(
 	ref := strings.TrimSpace(edit.FailureRef)
 	additionRef := strings.TrimSpace(edit.AdditionRef)
 	if ref != "" && additionRef != "" {
-		if strings.ToLower(strings.TrimSpace(edit.Action)) != string(types.AnswerDiagramRelationRepairActionAttach) {
+		action := strings.ToLower(strings.TrimSpace(edit.Action))
+		// A model that selected both live opaque refs has already expressed the
+		// exact bind-existing-carrier intent. Accept the schema's older "add"
+		// spelling as the transport alias for "attach"; the recursive failure
+		// resolver and addition resolver below still require a live failure that
+		// allows attach and an exact compatible candidate. No ref, action target,
+		// relation, endpoint, or wording is selected by this normalization.
+		if action == "add" {
+			edit.Action = string(types.AnswerDiagramRelationRepairActionAttach)
+			action = string(types.AnswerDiagramRelationRepairActionAttach)
+		}
+		if action != string(types.AnswerDiagramRelationRepairActionAttach) {
 			return edit, fmt.Errorf("failure_ref and addition_ref may be paired only with action=attach")
 		}
 		failureOnly := edit

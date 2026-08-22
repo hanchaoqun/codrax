@@ -4892,7 +4892,7 @@ const diagramRelationSurgicalRepairInstruction = " Only edge pairs listed by the
 
 func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	var standaloneHints []emitFixHint
-	standaloneHints = append(standaloneHints, preCheckStandaloneCallChainRelationAnchorPresence(doc, view)...)
+	standaloneHints = append(standaloneHints, preCheckStandaloneCallChainRelationAnchorPresence(doc, view, pctx)...)
 	standaloneHints = append(standaloneHints, preCheckStandaloneTypedRelationVisibility(doc)...)
 	if pctx == nil {
 		return standaloneHints
@@ -5225,6 +5225,71 @@ func preEmitStandaloneRelationRepairCandidateGuidance(
 		}
 	}
 	if len(candidates) == 0 {
+		return ""
+	}
+	return preEmitFormatStandaloneRelationRepairCandidates(candidates, limit)
+}
+
+// preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms gives a
+// zero-anchor structured block a bounded set of recipes that match relation
+// families the model already selected in claim_uses. It does not infer a path,
+// choose a recipe, or read any reader-visible text.
+func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
+	block types.AnswerBlock,
+	evidence []types.EvidenceItem,
+	limit int,
+) string {
+	if len(evidence) == 0 || limit <= 0 {
+		return ""
+	}
+	allowed := make(map[types.DiagramRelationKind]bool)
+	selectedEvidence := make(map[string]bool)
+	for _, use := range block.ClaimUses {
+		if !types.IsCallChainPrincipalRelationClaimForm(use.ClaimForm) {
+			continue
+		}
+		if relation := types.RelationForClaimForm(use.ClaimForm); relation.IsValid() {
+			allowed[relation] = true
+		}
+		if id := strings.TrimSpace(use.EvidenceID); id != "" {
+			selectedEvidence[id] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return ""
+	}
+	candidates := make([]preEmitStandaloneRelationRepairCandidate, 0, limit)
+	seen := make(map[string]bool)
+	for _, ev := range evidence {
+		if !ev.IsCitable() {
+			continue
+		}
+		for _, candidate := range preEmitStandaloneRelationCandidatesFromEvidence(ev) {
+			if !allowed[candidate.relation] || !preEmitStandaloneRelationCandidateHasAuthority(candidate, evidence) {
+				continue
+			}
+			if !selectedEvidence[strings.TrimSpace(candidate.evidenceID)] {
+				candidate.rank = 1
+			}
+			key := strings.Join([]string{
+				string(candidate.relation), strings.TrimSpace(candidate.from), strings.TrimSpace(candidate.to),
+				strings.TrimSpace(candidate.evidenceID), strings.TrimSpace(candidate.source),
+			}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			candidates = append(candidates, candidate)
+		}
+	}
+	return preEmitFormatStandaloneRelationRepairCandidates(candidates, limit)
+}
+
+func preEmitFormatStandaloneRelationRepairCandidates(
+	candidates []preEmitStandaloneRelationRepairCandidate,
+	limit int,
+) string {
+	if len(candidates) == 0 || limit <= 0 {
 		return ""
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -5733,9 +5798,17 @@ func preCheckStandaloneTypedRelationVisibility(doc *types.AnswerDocumentV2) []em
 // gate consumes only schema-validated family/block/role/claim-form fields. It
 // never reads request text, list labels/items, model prose, or rendered output,
 // and it never synthesizes a relation on the model's behalf.
-func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+func preCheckStandaloneCallChainRelationAnchorPresence(
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	contexts ...*preEmitCheckContext,
+) []emitFixHint {
 	if doc == nil || view == nil || view.Family != types.QFCallChain {
 		return nil
+	}
+	var evidence []types.EvidenceItem
+	if len(contexts) > 0 && contexts[0] != nil {
+		evidence = contexts[0].evidenceItems()
 	}
 	var hints []emitFixHint
 	for _, block := range doc.Blocks {
@@ -5811,14 +5884,19 @@ func preCheckStandaloneCallChainRelationAnchorPresence(doc *types.AnswerDocument
 		}
 		sort.Strings(relationForms)
 		relationForms = dedupPreEmitStringCandidates(relationForms)
+		localCandidates := preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(block, evidence, 6)
+		expectedShape := fmt.Sprintf(
+			"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+			block.ID, strings.Join(relationForms, ", "),
+		)
+		if localCandidates != "" {
+			expectedShape += ". Exact citable relation candidates matching this block's model-selected claim_form(s), supplied only as optional local repair choices: " + localCandidates + ". Select only the row(s) the block intends to assert; these candidates do not require the block to render every available relation."
+		}
 		hints = append(hints, emitFixHint{
-			Field:               fmt.Sprintf("blocks[id=%q].edge_anchors", block.ID),
-			HardSignal:          preEmitHardSignalTypedCallEdgeEvidence,
-			OffendingBlockKinds: []types.AnswerBlockKind{block.Kind},
-			ExpectedShape: fmt.Sprintf(
-				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
-				block.ID, strings.Join(relationForms, ", "),
-			),
+			Field:                          fmt.Sprintf("blocks[id=%q].edge_anchors", block.ID),
+			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
+			OffendingBlockKinds:            []types.AnswerBlockKind{block.Kind},
+			ExpectedShape:                  expectedShape,
 			Reason:                         types.GroundedStandaloneCallChainRelationOwnershipContract + " The check reads no item text, label, request text, reasoning, or final prose. No relation is created or chosen on the model's behalf.",
 			DiagramRelationFailureIssues:   []string{diagramStandaloneRelationClaimHasNoAnchor},
 			RelationRepairOrdinaryBlockIDs: []string{block.ID},
