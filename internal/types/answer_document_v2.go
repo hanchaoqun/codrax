@@ -2,11 +2,14 @@ package types
 
 import "strings"
 
-// AnswerDocumentItemCitationCarrierTeaching is the one item-level citation
-// carrier rule shared by the schema-near tool teaching and the static finalizer
-// skill. Keep it independent of answer content: the model chooses the evidence
-// anchors; this rule only says how to transport those already-selected indexes.
-const AnswerDocumentItemCitationCarrierTeaching = "ITEM CITATION CARRIER: citation_ref is the primary zero-based citations[] index. When the same visible item states several independently grounded facts and you already selected all supporting citations, keep the primary index in citation_ref and put only the remaining indexes in citation_refs in stable evidence order; never repeat the primary or add unselected anchors. If citation_ref is omitted, normalization promotes the first citation_refs entry. For one anchor use citation_ref; omit both fields when no citation backs the item. Both fields live only on items, never inside claim_uses or visible answer prose. The citations[] pool is not document-wide support: an unreferenced pool entry is pruned, and a citation carried by a neighboring block or item does not support this item's claims. When table rows need citations, prefer structured items. If a complete Markdown table stays in block.text, add one citation-only item sidecar per cited visible row, carrying id plus citation_ref/citation_refs but no label/text/cells; these sidecars do not render a second table. Never derive sidecar indexes from table prose or add sidecars for uncited rows."
+// AnswerDocumentItemCitationCarrierTeaching is the one item-level evidence /
+// citation carrier rule shared by the schema-near tool teaching and the static
+// finalizer skill. Keep it independent of answer content: the model chooses the
+// evidence anchors; this rule only selects the transport exposed by the current
+// dispatch. In particular, the stable current-source evidence carrier must be
+// taught before the legacy pool-index carrier so one prompt never requires and
+// forbids citation arithmetic for the same item.
+const AnswerDocumentItemCitationCarrierTeaching = "ITEM EVIDENCE/CITATION CARRIER: inspect the projected item schema before choosing a carrier. When it exposes evidence_ids, a model-authored current-source item outside Principal Enumeration Rows copies the exact accepted evidence= ID(s) it selected into evidence_ids and omits citation_ref/citation_refs; a Principal Enumeration Row instead uses source_inventory_row_id alone. Use manual citation_ref/citation_refs only when the projected schema does not expose evidence_ids for that source item, or for another citation lane whose projected schema explicitly permits pool indexes. In that legacy lane, citation_ref is the primary zero-based citations[] index and citation_refs contains only additional already-selected anchors for independently grounded facts in the same visible item; never repeat the primary or add an unselected anchor. If citation_ref is omitted, normalization promotes the first citation_refs entry. Omit every evidence/citation carrier when no source backs the item. evidence_ids, source_inventory_row_id, citation_ref, and citation_refs live only on items, never inside claim_uses or visible answer prose. The citations[] pool is not document-wide support: an unreferenced pool entry is pruned, and a citation carried by a neighboring block or item does not support this item's claims. When table rows need source support, prefer structured items. If a complete Markdown table stays in block.text, add one citation-only item sidecar per cited visible row using the carrier selected above and no label/text/cells; these sidecars do not render a second table. Never derive sidecar indexes or evidence IDs from table prose or add sidecars for unsupported rows."
 
 // AnswerDocumentJSONShapeFirstTeaching is the compact carrier decision owned by
 // the schema-near emit tool description. The static finalizer skill points to
@@ -15,7 +18,7 @@ const AnswerDocumentItemCitationCarrierTeaching = "ITEM CITATION CARRIER: citati
 // catalog: visible list prose and block-level evidence annotations are sibling
 // lanes, and confusing them can otherwise turn an enum such as "call_edge"
 // into user-visible answer text.
-const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text (plus optional label/cells/citation_ref/citation_refs); evidence annotations use blocks[i].claim_uses[] at block level. " + AnswerDocumentItemCitationCarrierTeaching + " Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
+const AnswerDocumentJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one object with native blocks[] and citations[] arrays. Visible list/table rows use blocks[i].items[j].text plus whichever optional label/cells/evidence/citation fields the projected item schema exposes; evidence annotations use blocks[i].claim_uses[] at block level. " + AnswerDocumentItemCitationCarrierTeaching + " Never put claim_form/facet_id/evidence_id inside items[], and never quote an object or array as a JSON string."
 
 // AnswerDocumentV2 is the block-only carrier introduced by Phase 2 of
 // the docs/migration/block_only_carrier.md plan (B3 落地). It

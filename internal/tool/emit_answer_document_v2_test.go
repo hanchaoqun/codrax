@@ -107,6 +107,58 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_StabilizesUniqueModelCitationRefToEvidenceID(t *testing.T) {
+	evidence := types.EvidenceItem{
+		ID:              "ev-fetch-definition",
+		Kind:            types.EvidenceDirect,
+		Source:          "src/api.ts",
+		LineStart:       20,
+		Scope:           types.ScopeLine,
+		AnchorKind:      types.AnchorDefinition,
+		Subject:         "ApiClient.fetchUser",
+		Snippet:         "async fetchUser()",
+		GroundingStatus: types.GroundingGrounded,
+		Origin:          types.ClaimOriginCurrentRepo,
+	}
+	bus := &types.BusContext{
+		Mutable:       types.NewMutableState("explain current source"),
+		EvidenceItems: []types.EvidenceItem{evidence},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"explain current source"},
+				Confidence:                          0.95,
+			},
+		}},
+	}
+	raw := json.RawMessage(`{
+		"citations": [{"file":"src/api.ts","line":20,"quote":"async fetchUser()"}],
+		"blocks": [
+			{"id":"summary","kind":"summary","text":"ApiClient owns the fetch operation."},
+			{"id":"facts","kind":"bullet_list","items":[
+				{"id":"fetch","label":"ApiClient.fetchUser","text":"Defines the fetch operation.","citation_ref":0}
+			]}
+		]
+	}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil || !res.Success {
+		t.Fatalf("unique model citation should stabilize on the full production route: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("full production route lost the accepted item: %+v", doc)
+	}
+	item := doc.Blocks[1].Items[0]
+	if !slices.Equal(item.EvidenceIDs, []string{"ev-fetch-definition"}) {
+		t.Fatalf("full production route did not persist the stable evidence selection: %+v", item)
+	}
+	if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) || doc.Citations[item.CitationRef].File != evidence.Source {
+		t.Fatalf("stable evidence selection did not bind back to its citation: item=%+v citations=%+v", item, doc.Citations)
+	}
+}
+
 func TestEmitAnswerDocumentV2_SplitsFusedProseAndDiagramWithoutDroppingEither(t *testing.T) {
 	bus := newV2TestBusContext()
 	raw := json.RawMessage(`{

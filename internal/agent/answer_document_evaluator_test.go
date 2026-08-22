@@ -4759,7 +4759,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersEquivalentPrinci
 		"Anchors are equivalent only for the visible claims they both actually prove",
 		"prefer one grounded proof anchor that carries both the member endpoint and that visible second axis",
 		"a definition-only line is not equivalent for that two-axis row",
-		"Do not churn `citation_ref`",
+		"Do not churn the selected stable row/evidence carrier",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("principal equivalent-anchor prompt missing %q:\n%s", want, prompt)
@@ -4820,7 +4820,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersStructuredAggreg
 		"kind=`total_count`, label=production assignment locations, value=`4`",
 		"kind=`unique_count`, label=unique files, value=`3`",
 		"internal/orchestrator/orchestrator.go",
-		"create or reuse a matching `citations[]` entry",
+		"use that row's exact projected row/evidence carrier",
+		"only a schema-permitted legacy lane should create or reuse a manual citation-pool index",
 		"Do not recompute new aggregate values in finalization",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -7265,7 +7266,8 @@ func TestRenderAnswerDocSubmissionChecklist_SectionOwnsStructuredRowsAndCitation
 	got := renderAnswerDocSubmissionChecklist(ctx, view, false)
 	for _, want := range []string{
 		"A section may also carry structured `items[]`",
-		"primary citation_ref and optional additional citation_refs",
+		"exact evidence/citation carrier exposed by the projected schema",
+		"with their row IDs",
 		"put those rows once in the section's items[]",
 		"instead of duplicating the roster in a separate global list or table",
 	} {
@@ -7289,10 +7291,10 @@ func TestRenderAnswerDocSubmissionChecklist_EnumerationUsesMultiCitationCarrierW
 
 	got := renderAnswerDocSubmissionChecklist(ctx, view, false)
 	for _, want := range []string{
-		"primary `citation_ref=N`",
-		"optional additional `citation_refs=[...]`",
-		"only when that same item states separately supported facts from several already-selected anchors",
-		"Never add an unselected anchor merely to fill the array",
+		"exact Principal Enumeration Row uses `source_inventory_row_id`",
+		"another current-source row uses selected stable `evidence_ids` when exposed",
+		"manual pool indexes are only the legacy fallback explicitly permitted by the schema",
+		"Never add an unselected anchor merely to fill a carrier",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("enumeration checklist missing soft multi-citation guidance %q:\n%s", want, got)

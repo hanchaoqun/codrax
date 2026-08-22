@@ -138,16 +138,22 @@ func TestAnswerDocumentFullAndPatchSchemasExposeSameMultipleCitationCarrier(t *t
 		t.Fatalf("shape-first item-citation teaching count=%d, want 1: %s", got, types.AnswerDocumentJSONShapeFirstTeaching)
 	}
 	for _, want := range []string{
-		"primary index in citation_ref",
-		"remaining indexes in citation_refs",
-		"never repeat the primary or add unselected anchors",
+		"inspect the projected item schema before choosing a carrier",
+		"exposes evidence_ids",
+		"copies the exact accepted evidence= ID(s)",
+		"omits citation_ref/citation_refs",
+		"Principal Enumeration Row instead uses source_inventory_row_id alone",
+		"Use manual citation_ref/citation_refs only when",
+		"citation_ref is the primary zero-based citations[] index",
+		"citation_refs contains only additional already-selected anchors",
+		"never repeat the primary or add an unselected anchor",
 		"citations[] pool is not document-wide support",
 		"an unreferenced pool entry is pruned",
 		"a citation carried by a neighboring block or item does not support this item's claims",
-		"When table rows need citations, prefer structured items",
+		"When table rows need source support, prefer structured items",
 		"one citation-only item sidecar per cited visible row",
 		"these sidecars do not render a second table",
-		"Never derive sidecar indexes from table prose or add sidecars for uncited rows",
+		"Never derive sidecar indexes or evidence IDs from table prose or add sidecars for unsupported rows",
 	} {
 		if !strings.Contains(types.AnswerDocumentItemCitationCarrierTeaching, want) {
 			t.Fatalf("canonical multi-citation teaching missing %q: %s", want, types.AnswerDocumentItemCitationCarrierTeaching)

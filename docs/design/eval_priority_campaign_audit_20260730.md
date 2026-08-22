@@ -57712,6 +57712,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r839`。
 
+### §123.1371 B1325：证据载体教学单权威；唯一引用选择无损稳定化（2026-08-22）
+
+1. `B1325-ITEMEVIDENCECARRIERCONFLICT1/P1` 经 Rust→TypeScript 两轮生产复现后确认，不是模型随机波动。动态 item schema 与末段
+   current-source 教学已经要求 `evidence_ids`，但共享 finalizer/skill 的较早静态段仍多次要求模型手填 `citation_ref/citation_refs`。
+   模型照前一份合同提交 citation pool 下标后，精确 evidence-ID gate 又按后一份合同拒绝，因此每个源码条目都有稳定证据时仍固定浪费一次修补。
+   Principal Enumeration Rows 另有 `source_inventory_row_id` 单权威，三种载体若不按 dispatch 区分还会重现 B1280 的互斥循环。
+2. canonical 教学现统一为按投影能力分流的单权威，优先级固定为：命中 `Principal Enumeration Rows` 的精确行只提交
+   `source_inventory_row_id`；其他当前源码 item 且本轮 schema 暴露稳定身份时，提交模型实际选中的 `evidence_ids`；只有 schema 未暴露稳定
+   carrier 的兼容车道才使用 citation pool index。summary/scalar/decision/hop/section/list 等共享说明、full/patch JSON 形和 evaluator 必填块
+   checklist 均消费同一语义，不再一处教下标、另一处强制 ID。
+3. 为兼容已经按旧教学形成的草稿，full 与 patch 的共享 pre-emit 链增加一条严格无损稳定化：仅当模型已明确选择的每个 citation ref 都能按
+   file:line 唯一对应到恰好一个 accepted、citable、current-source evidence row 时，系统把这些选择按原顺序记为 `evidence_ids`，随后仍由原
+   evidence binder 回绑 citation。零匹配、多匹配、非源码、aggregate、越界、Principal row、已经显式提交 ID 或 row-id 的 item 均不处理并保持
+   原精确拒绝；因此系统没有替模型选择证据、成员、关系、文字或结论。
+4. 自愈只读取结构化 citation、accepted EvidenceItem 和 schema capability，不读取用户请求、模型 thinking、答案 prose、label、Mermaid message
+   或 facet 名称。模型可见文本逐字不改，引用顺序与复合引用数量不改；相同 file:line 上 definition/call 等多个合法 evidence ID 时继续
+   fail-closed，明确要求模型自行选择稳定 ID。
+5. 新回归覆盖：唯一双引用保持模型原顺序；同坐标多 evidence 歧义不得猜；完整 `emit_answer_document` 生产路由一次通过并持久化 ID；局部
+   `emit_answer_document_patch` 生产路由同样一次通过；教学与动态 schema 均钉住 Principal row / stable evidence / legacy citation 三车道互斥。
+   `internal/types`、`internal/skill`、`internal/tool`、`internal/agent` 分包测试已通过；全仓与构建验证随本批提交前完成。
+6. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放 TypeScript relation path 与显式窗 Trace。前者验收首稿是否直接提交 stable
+   evidence carrier、citation repair 是否归零；后者验收用户窗、自动补采、完整 Trace 因果投影、链上根因、业务线索、实际占时/规则可消双账户
+   全部不变，并继续禁止活动流按固定 4ms/4m 降级。
+
+状态：
+
+`B1325=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`principal-row-owner=source_inventory_row_id-only`；
+`other-current-source-item-owner=evidence_ids-when-projected`；
+`legacy-citation-index=schema-permitted-lane-only`；
+`unique-old-draft-selection=lossless-stabilization`；
+`ambiguous/non-source/out-of-range=fail-closed`；
+`system-evidence/member/relation/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/label/mermaid-message/facet-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read

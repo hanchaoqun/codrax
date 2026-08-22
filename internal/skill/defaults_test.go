@@ -1796,21 +1796,24 @@ func TestAnswerDocumentSkillUsesOneCanonicalItemCitationCarrier(t *testing.T) {
 	}
 	blob := strings.Join(append([]string{sk.OutputFormat}, sk.Workflow...), "\n")
 	for _, want := range []string{
-		"primary `citation_ref` plus additional `citation_refs`",
-		"`citation_ref=N` for one/primary anchor",
-		"`citation_refs=[...]` only for additional already-selected anchors",
-		"Item-level `citation_ref` / `citation_refs` follow the Workflow's canonical ITEM CITATION CARRIER rule",
+		"ITEM EVIDENCE/CITATION CARRIER",
+		"inspect the projected item schema before choosing a carrier",
+		"do not use citation-pool arithmetic when this dispatch exposes stable `evidence_ids`",
+		"selected stable IDs on that item when `evidence_ids` is exposed",
+		"using the exact evidence/citation carrier selected by the projected schema",
 	} {
 		if !strings.Contains(blob, want) {
-			t.Fatalf("multi-citation skill teaching missing %q:\n%s", want, blob)
+			t.Fatalf("dispatch-aware item evidence teaching missing %q:\n%s", want, blob)
 		}
 	}
 	for _, stale := range []string{
 		"References to the citations[] array by zero-based integer index live on `items[i].citation_ref`",
 		"Every `citation_ref` lives on `items[i].citation_ref`",
+		"use `citation_ref=N` for one/primary anchor",
+		"attach a single-element `items=[{id:\"v\", citation_ref: N}]`",
 	} {
 		if strings.Contains(blob, stale) {
-			t.Fatalf("static finalizer retained singular-only citation contract %q", stale)
+			t.Fatalf("static finalizer retained unconditional legacy citation contract %q", stale)
 		}
 	}
 }

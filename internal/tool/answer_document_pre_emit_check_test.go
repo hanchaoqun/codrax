@@ -63,6 +63,63 @@ func TestNormalizeItemCitationRefsByEvidenceIDBindsExactSelectedRows(t *testing.
 	}
 }
 
+func TestNormalizeUniqueModelCitationRefsToEvidenceIDsPreservesExactSelections(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "ev-call", Kind: types.EvidenceRelationship, Source: "src/main.ts", LineStart: 12, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "run", Object: "ApiClient.fetchUser", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo},
+		{ID: "ev-send", Kind: types.EvidenceRelationship, Source: "src/api.ts", LineStart: 20, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "ApiClient.fetchUser", Object: "HttpTransport.send", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("stable evidence adoption"), EvidenceItems: evidence}
+	pctx := newPreEmitCheckContext(ctx)
+	view := &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/main.ts", Line: 12}, {File: "src/api.ts", Line: 20}},
+		Blocks: []types.AnswerBlock{{ID: "path", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{
+			ID: "hop", Label: "run -> ApiClient.fetchUser -> HttpTransport.send", CitationRef: 0, CitationRefs: []int{1},
+		}}}},
+	}
+	markModelSubmittedItemCitationRefs(doc)
+	markModelSubmittedItemEvidenceIDAdoptionRequired(doc, view, pctx)
+	if fixed := normalizeUniqueModelCitationRefsToEvidenceIDs(doc, view, pctx); fixed != 1 {
+		t.Fatalf("unique selected citations should stabilize without retry: fixed=%d doc=%+v", fixed, doc)
+	}
+	item := doc.Blocks[0].Items[0]
+	if !reflect.DeepEqual(item.EvidenceIDs, []string{"ev-call", "ev-send"}) {
+		t.Fatalf("stable IDs lost model citation order: %+v", item.EvidenceIDs)
+	}
+	if item.CitationRefsEvidenceIDAdoptionRequired {
+		t.Fatal("successful exact stabilization must retire the retry obligation")
+	}
+	if hints := preCheckItemEvidenceIdentity(doc, view, pctx); len(hints) != 0 {
+		t.Fatalf("stabilized exact selections should pass without a repair round: %+v", hints)
+	}
+}
+
+func TestNormalizeUniqueModelCitationRefsToEvidenceIDsFailsClosedOnAmbiguousLocation(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{ID: "ev-definition", Kind: types.EvidenceDirect, Source: "src/main.ts", LineStart: 12, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Subject: "fetchUser", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo},
+		{ID: "ev-call", Kind: types.EvidenceRelationship, Source: "src/main.ts", LineStart: 12, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "run", Object: "fetchUser", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("ambiguous evidence adoption"), EvidenceItems: evidence}
+	pctx := newPreEmitCheckContext(ctx)
+	view := &types.AnswerSemanticView{ItemEvidenceIdentityAvailable: true}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "src/main.ts", Line: 12}},
+		Blocks:    []types.AnswerBlock{{ID: "path", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "hop", Label: "run -> fetchUser", CitationRef: 0}}}},
+	}
+	markModelSubmittedItemCitationRefs(doc)
+	markModelSubmittedItemEvidenceIDAdoptionRequired(doc, view, pctx)
+	if fixed := normalizeUniqueModelCitationRefsToEvidenceIDs(doc, view, pctx); fixed != 0 {
+		t.Fatalf("ambiguous file:line must not choose one evidence identity: fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Blocks[0].Items[0].EvidenceIDs) != 0 {
+		t.Fatalf("ambiguous location acquired an invented selector: %+v", doc.Blocks[0].Items[0])
+	}
+	hints := preCheckItemEvidenceIdentity(doc, view, pctx)
+	if len(hints) != 1 || hints[0].HardSignal != preEmitHardSignalTypedItemEvidenceIdentity {
+		t.Fatalf("ambiguous location must remain on the precise retry lane: %+v", hints)
+	}
+}
+
 func TestNormalizeSingleItemEvidenceIDByUniqueTypedLabelCandidate(t *testing.T) {
 	wrong := types.EvidenceItem{ID: "ev-budget", Kind: types.EvidenceRelationship, Source: "internal/orchestrator/orchestrator.go", LineStart: 4602, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "Orchestrator.runReadSchedulerLoop", Object: "o.busCtx.Mutable.SetExploreBudget", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}
 	right := types.EvidenceItem{ID: "ev-result", Kind: types.EvidenceRelationship, Source: "internal/orchestrator/orchestrator.go", LineStart: 4532, Scope: types.ScopeLine, AnchorKind: types.AnchorCall, Subject: "Orchestrator.runReadSchedulerLoop", Object: "o.busCtx.Mutable.SetResult", GroundingStatus: types.GroundingGrounded, Origin: types.ClaimOriginCurrentRepo}

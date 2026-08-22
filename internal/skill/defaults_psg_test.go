@@ -308,9 +308,9 @@ func TestG16FinalizerSkillHopCitationAssertionAlignment(t *testing.T) {
 	for _, want := range []string{
 		"SAME kind as that item's own assertion",
 		"priority inversion must not carry an IO-latency row's reference",
-		"re-check the primary citation_ref and every additional citation_refs index",
-		"off-by-one drift",
-		"leave that item uncited and state the boundary",
+		"re-check every selected stable evidence ID",
+		"schema-permitted legacy lane",
+		"leave that item unsupported and state the boundary",
 	} {
 		if !strings.Contains(item.Body, want) {
 			t.Fatalf("citation-alignment rule missing %q:\n%s", want, item.Body)

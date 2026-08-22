@@ -197,6 +197,82 @@ func markModelSubmittedItemEvidenceIDAdoptionRequired(doc *types.AnswerDocumentV
 	}
 }
 
+// normalizeUniqueModelCitationRefsToEvidenceIDs removes one avoidable retry
+// from the stable current-source evidence lane. The model has already selected
+// each citation pool entry. When, and only when, every selected entry resolves
+// to exactly one accepted citable evidence identity, this pass records that
+// same identity in evidence_ids so later binding is stable across pool edits.
+//
+// This is a transport normalization, not evidence selection: ambiguous source
+// locations, multiple evidence rows at one location, unsupported rows,
+// Principal Enumeration Rows, system-added refs, and dispatches without the
+// stable-ID carrier remain untouched and continue through the precise retry
+// lane. No item label/text/cells, request prose, or claim wording is read.
+func normalizeUniqueModelCitationRefsToEvidenceIDs(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) int {
+	if doc == nil || view == nil || !view.ItemEvidenceIdentityAvailable || pctx == nil {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		for ii := range doc.Blocks[bi].Items {
+			item := &doc.Blocks[bi].Items[ii]
+			if !item.CitationRefsEvidenceIDAdoptionRequired ||
+				len(normalizeAnswerItemEvidenceIDs(item.EvidenceIDs)) > 0 ||
+				strings.TrimSpace(item.SourceInventoryRowID) != "" {
+				continue
+			}
+			ids := make([]string, 0, len(item.CitationRefsModelSubmittedValues))
+			seen := make(map[string]bool, len(item.CitationRefsModelSubmittedValues))
+			valid := true
+			for _, ref := range item.CitationRefsModelSubmittedValues {
+				if ref < 0 || ref >= len(doc.Citations) {
+					valid = false
+					break
+				}
+				matches, ok := pctx.citedEvidenceItems(doc.Citations[ref])
+				if !ok {
+					valid = false
+					break
+				}
+				unique := ""
+				ambiguous := false
+				for _, ev := range matches {
+					if _, ok := preEmitCitationForItemEvidence(ev, pctx); !ok {
+						continue
+					}
+					id := strings.TrimSpace(ev.ID)
+					if id == "" {
+						id = strings.TrimSpace(types.StableEvidenceID(ev))
+					}
+					if id == "" || id == unique {
+						continue
+					}
+					if unique != "" {
+						ambiguous = true
+						break
+					}
+					unique = id
+				}
+				if ambiguous || unique == "" {
+					valid = false
+					break
+				}
+				if !seen[unique] {
+					seen[unique] = true
+					ids = append(ids, unique)
+				}
+			}
+			if !valid || len(ids) == 0 {
+				continue
+			}
+			item.EvidenceIDs = ids
+			item.CitationRefsEvidenceIDAdoptionRequired = false
+			fixed++
+		}
+	}
+	return fixed
+}
+
 // preEmitDetachedCitationItem identifies one item whose citation_ref was
 // detached, so end-of-chain disclosure can check whether the item is still
 // visible in the final document. kind selects the persist-time wording lane

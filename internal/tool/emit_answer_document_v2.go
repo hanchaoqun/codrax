@@ -742,6 +742,16 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if pctx == nil {
 		pctx = newPreEmitCheckContext(ctx)
 	}
+	// The model may still follow a legacy citation-pool instruction even when
+	// this dispatch exposes stable current-source evidence IDs. If every
+	// model-selected citation resolves to one and only one accepted evidence
+	// identity, preserve that exact selection as the stable carrier before any
+	// pool mutation. Ambiguous locations remain on the existing fail-closed
+	// correction lane; no visible answer content participates in this pass.
+	if fixed := normalizeUniqueModelCitationRefsToEvidenceIDs(doc, view, pctx); fixed > 0 {
+		pctx.recordPreEmitRepair("normalizeUniqueModelCitationRefsToEvidenceIDs", fixed)
+		logging.Warning("[%s] stabilized %d uniquely selected current-source item citation set(s) as evidence IDs", toolName, fixed)
+	}
 	// B649-CITATIONPOOLCOLLISION1: quarantine every model-submitted
 	// out-of-range item reference before any typed repair is allowed to append
 	// citations. Otherwise an empty/short model pool plus refs such as

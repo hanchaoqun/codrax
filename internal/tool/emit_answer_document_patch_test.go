@@ -2315,6 +2315,65 @@ func TestEmitAnswerDocumentPatch_BindsExactEvidenceIDsBeforePoolRangeGate(t *tes
 	}
 }
 
+func TestEmitAnswerDocumentPatch_StabilizesUniqueModelCitationRefToEvidenceID(t *testing.T) {
+	evidence := types.EvidenceItem{
+		ID:              "ev-send-definition",
+		Kind:            types.EvidenceDirect,
+		Source:          "src/transport.ts",
+		LineStart:       31,
+		Scope:           types.ScopeLine,
+		AnchorKind:      types.AnchorDefinition,
+		Subject:         "HttpTransport.send",
+		Snippet:         "async send()",
+		GroundingStatus: types.GroundingGrounded,
+		Origin:          types.ClaimOriginCurrentRepo,
+	}
+	bus := &types.BusContext{
+		Mutable:       types.NewMutableState("explain current source"),
+		EvidenceItems: []types.EvidenceItem{evidence},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"explain current source"},
+				Confidence:                          0.95,
+			},
+		}},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: evidence.Source, Line: evidence.LineStart, Quote: evidence.Snippet}},
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "The transport sends the request."},
+			{ID: "facts", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{ID: "send", Label: evidence.Subject, Text: "Defines the send operation."}}},
+		},
+	})
+	params := json.RawMessage(`{
+		"unchanged_block_ids": ["summary"],
+		"replace_blocks": [{
+			"id":"facts","kind":"bullet_list","items":[
+				{"id":"send","label":"HttpTransport.send","text":"Defines the send operation.","citation_ref":0}
+			]
+		}]
+	}`)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("unique model citation should stabilize on the patch production route: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("patch production route lost the accepted item: %+v", doc)
+	}
+	item := doc.Blocks[1].Items[0]
+	if !reflect.DeepEqual(item.EvidenceIDs, []string{"ev-send-definition"}) {
+		t.Fatalf("patch production route did not persist the stable evidence selection: %+v", item)
+	}
+	if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) || doc.Citations[item.CitationRef].File != evidence.Source {
+		t.Fatalf("stable evidence selection did not bind back to its citation: item=%+v citations=%+v", item, doc.Citations)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_RebindsExplicitSourceLocationsAgainstInheritedCitationPool(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("enumerate source inventory classes")}
 	bus.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
