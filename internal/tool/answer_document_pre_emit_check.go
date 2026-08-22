@@ -5922,6 +5922,34 @@ func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMisma
 type diagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
 type diagramRelationRepairDeltaFailure = types.AnswerDiagramRelationRepairFailure
 
+// normalizeDiagramRelationRepairFailureLocator keeps a visible body-edge
+// failure executable when the relation validator resolved only one technical
+// endpoint. A missing-anchor mismatch is still precisely located by its
+// complete model-authored node pair; retaining a half identity pair would make
+// the whole same-cycle delta malformed and discard unrelated executable
+// failures. Drop both optional identities only when no prior anchor matches
+// the node pair, so this remains a remove-only body-edge capability and can
+// never be mistaken for authority to restore or retarget a typed relation.
+func normalizeDiagramRelationRepairFailureLocator(
+	doc *types.AnswerDocumentV2,
+	failure diagramRelationRepairDeltaFailure,
+) diagramRelationRepairDeltaFailure {
+	fromNode := strings.TrimSpace(failure.FromNode)
+	toNode := strings.TrimSpace(failure.ToNode)
+	fromIdentity := strings.TrimSpace(failure.FromIdentity)
+	toIdentity := strings.TrimSpace(failure.ToIdentity)
+	identityPartial := (fromIdentity == "") != (toIdentity == "")
+	if fromNode == "" || toNode == "" || !identityPartial {
+		return failure
+	}
+	if len(types.AnswerDiagramRelationRepairFailureBaseAnchorCandidates(doc, failure)) != 0 {
+		return failure
+	}
+	failure.FromIdentity = ""
+	failure.ToIdentity = ""
+	return failure
+}
+
 // bindDiagramRelationRepairAnchorBodyCarrier closes the locator contract for
 // one exact prior anchor before capabilities are published. A single visible
 // pair is occurrence 1; repeated pairs may be bound only by the existing
@@ -6031,6 +6059,7 @@ func diagramRelationRepairDeltaJSON(
 			ToIdentity:     strings.TrimSpace(mismatch.ToSymbol),
 			BodyOccurrence: mismatch.BodyOccurrence,
 		}
+		failure = normalizeDiagramRelationRepairFailureLocator(doc, failure)
 		failure = bindDiagramRelationRepairAnchorBodyCarrier(doc, failure)
 		if failure.BlockID == "" || failure.Issue == "" ||
 			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {

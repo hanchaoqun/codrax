@@ -8971,6 +8971,61 @@ func TestDiagramRelationRepairDeltaCarriesIdentityOnlyFailedAnchor(t *testing.T)
 	}
 }
 
+func TestDiagramRelationRepairDeltaCarriesMixedStaleAndMissingAnchorFailures(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: "flowchart TD\n    Orch --> Mutable\n    Orch --> Analyzer\n    Extractor --> Mutable\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "Orch", ToNode: "Mutable", FromIdentity: "Orchestrator.hasReusableTurnBSlateForFinalize", ToIdentity: "state.EmittedAnswerSymbols", RelationKind: types.DiagramRelCall},
+			{FromNode: "Orch", ToNode: "Mutable", FromIdentity: "Orchestrator.hasReusableTurnBSlateForFinalize", ToIdentity: "state.EmittedHypothesisVerdicts", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	mismatches := []DiagramCallEdgeEvidenceMismatch{
+		{BlockID: "flow", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge, FromNode: "Orch", ToNode: "Mutable", FromSymbol: "Orchestrator.hasReusableTurnBSlateForFinalize", ToSymbol: "state.EmittedAnswerSymbols", Relation: types.DiagramRelCall},
+		{BlockID: "flow", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge, FromNode: "Orch", ToNode: "Mutable", FromSymbol: "Orchestrator.hasReusableTurnBSlateForFinalize", ToSymbol: "state.EmittedHypothesisVerdicts", Relation: types.DiagramRelCall},
+		{BlockID: "flow", Issue: diagramCallEdgeIssueMissingGroundedAnchor, FromNode: "Orch", ToNode: "Analyzer", FromSymbol: "Orchestrator", ToSymbol: "Analyzer", Relation: types.DiagramRelCall},
+		{BlockID: "flow", Issue: diagramCallEdgeIssueMissingGroundedAnchor, FromNode: "Extractor", ToNode: "Mutable", FromSymbol: "Extractor", Relation: types.DiagramRelCall},
+	}
+	raw := diagramRelationRepairDeltaJSON(doc, nil, mismatches, nil, nil)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("mixed stale/missing anchor repair delta must remain executable: %v raw=%s", err, raw)
+	}
+	if len(delta.Failures) != len(mismatches) {
+		t.Fatalf("mixed relation failure set was lost: got=%d want=%d delta=%+v", len(delta.Failures), len(mismatches), delta)
+	}
+	if lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions); lease == nil {
+		t.Fatalf("mixed relation delta must install a live lease: %+v", delta)
+	}
+	for _, failure := range delta.Failures {
+		if failure.FromNode == "Extractor" && failure.ToNode == "Mutable" {
+			if failure.FromIdentity != "" || failure.ToIdentity != "" ||
+				!failure.AllowsAction("remove") || failure.AllowsAction("replace") {
+				t.Fatalf("half-resolved identity must narrow to node-local remove-only repair: %+v", failure)
+			}
+			return
+		}
+	}
+	t.Fatal("half-resolved missing-anchor failure was dropped")
+}
+
+func TestDiagramRelationRepairDeltaKeepsHalfIdentityFailClosedWhenPriorAnchorExists(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n    A --> B\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "pkg.A", ToIdentity: "pkg.B", RelationKind: types.DiagramRelCall,
+		}},
+	}}}
+	raw := diagramRelationRepairDeltaJSON(doc, nil, []DiagramCallEdgeEvidenceMismatch{{
+		BlockID: "flow", Issue: diagramCallEdgeIssueMissingGroundedAnchor,
+		FromNode: "A", ToNode: "B", FromSymbol: "pkg.A", Relation: types.DiagramRelCall,
+	}}, nil, nil)
+	if raw != "" {
+		t.Fatalf("half identity overlapping a prior anchor must stay fail-closed: %s", raw)
+	}
+}
+
 func TestEmitFixHintsRepairDoesNotInstallPartialRelationDelta(t *testing.T) {
 	valid := `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B"}],"preserve_unlisted_edges":true}`
 	repair := emitFixHintsRepair([]emitFixHint{

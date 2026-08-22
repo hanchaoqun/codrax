@@ -57333,6 +57333,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r833`。
 
+### §123.1359 B1317：半解析 identity 收窄为无 prior-anchor 的 node-local remove-only（2026-08-21）
+
+1. `B1317-HALFIDENTITYRELATIONDELTA1/P1` 已在 relation-delta 单一 producer 决策点施工。每条 failure 仍先接收 validator 的结构化
+   block/node/relation/identity；只有 node pair 两端完整、identity 恰好只解析出一端，并且用当前 node/relation 在 patch base 中找不到任何 prior
+   anchor candidate 时，才同时清空这两个可选 identity 字段。完整 node pair 继续精确定位模型已画出的 body edge，不会因一个不可用的半 identity
+   让同代所有兄弟 failures 消失。
+2. 权限严格收窄而非放宽。被归一化的 missing-anchor failure 没有完整 typed tuple，因此只发布 `remove`，不能 `replace/attach/add`；模型仍决定是否
+   删除该可见边。系统不补另一端 identity，不重定向、不反向、不铸造 relation/edge/label/layout/conclusion。若同 node/relation 已有 prior anchor，
+   半 identity 可能代表真实 anchor 冲突，保持原样并继续让整份不完整 locator fail-closed；node pair 不完整、identity 歧义等旧边界也不变。
+3. 新回归复现 r833 的同代混合形：两条同 pair stale anchors、一个完整 identity missing anchor、一个只有单侧 identity 的 missing anchor。修前
+   `diagram_relation_repair_delta_json` 为空；修后四条 failure 全部保留，lease 可安装，半 identity 行的 identity 对为空且只有 remove 能力。独立负 pin
+   在同 node pair 已存在 prior anchor 时要求 raw delta 继续为空，防止归一化臂成为绕过 anchor 关系权威的逃口；identity-only 合法 locator 与 malformed
+   partial-delta 既有测试保持。
+4. 该修复不读取请求、模型 reasoning、答案 prose、Mermaid message 或业务标签，只处理 validator 已铸造的 typed locator 与精确 base anchor 集；
+   evaluator 现有 joint-delta 和 preserve-all 重验路径无需改写即可在下一轮安装当前代 refs。`go test ./internal/tool -count=1` 通过（179.255s）；
+   完整 `go test ./... -count=1` 全绿（tool 193.680s、hitraceconv 97.840s、tracequery 85.651s、types 33.189s）；CGO
+   release-tag `make` 与 `git diff --check` 通过。
+5. 下一步从本提交重建不可变二进制，继续严格并发恰好 2 路复放 read 图表与显式窗 Trace。read 验收同一混合拒绝是否携带完整 failures/current refs、
+   preserve-all 后是否仍有 live lease、拒绝轮数是否从 20 次显著收敛；Trace 继续守护完整因果投影、自动补采、链上-only 根因、实际占时/规则可消双轴、
+   业务线索与活动流不按固定 4ms/4m 降级。
+
+状态：
+
+`B1317=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`half-identity+complete-node+zero-prior-anchor=drop-optional-identity-pair`；
+`normalized-capability=node-local-remove-only`；
+`prior-anchor/partial-node/ambiguous-locator=fail-closed`；
+`same-cycle-sibling-failures=preserved`；
+`system-answer/member/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1356 r832：B1316 去重臂生产转正；B1315 跨样本确认为“错 ID 优先 + 旧 citation 池泄漏”（2026-08-21）
 
 1. 从已推送 `4944761c8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 154s、read
