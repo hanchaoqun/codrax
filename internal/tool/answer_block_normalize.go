@@ -578,9 +578,13 @@ func stripOuterDiagramFence(body string) string {
 //
 // Partition: the visible half keeps the declared kind plus
 // id/title/text/columns/items/claim_uses/facet_ids/surface_role and
-// every verdict field; the diagram half carries ONLY the diagram
-// payload + edge_anchors under a derived unique id, inserted
-// immediately after the visible half so narrative order survives.
+// every verdict field; the diagram half carries the diagram payload +
+// edge_anchors under a derived unique id, inserted immediately after the
+// visible half so narrative order survives. Edge anchors are also retained on
+// a principal structured visible half that already declares a typed directed
+// relation: those anchors are that list/table's relation ownership as well as
+// the diagram's. All other visible halves keep the historical diagram-only
+// partition.
 //
 // Trigger is a precise typed signal (no prose inspection):
 // diagram payload present AND body non-empty even after the full
@@ -723,6 +727,41 @@ func splitFusedDiagramBlocks(logLabel string, blocks []emitAnswerBlockV2) []spli
 	return splitFusedDiagramBlockEntries(logLabel, entries)
 }
 
+// splitFusedDiagramVisibleHalf removes only the diagram-owned fields from a
+// fused block. A principal ordered-list/bullet-list/table that already declares
+// a typed directed relation keeps the exact model-authored edge anchors because
+// the standalone relation contract requires those same anchors on the visible
+// carrier after splitting. This predicate reads only schema-validated block
+// kind, role, claim forms, and anchor presence. It never infers a relation from
+// items, labels, Mermaid messages, request text, or prose.
+func splitFusedDiagramVisibleHalf(b emitAnswerBlockV2) emitAnswerBlockV2 {
+	visible := b
+	visible.Diagram = nil
+	visible.ParticipantBoundaries = nil
+	visible.RequestedRelationScope = ""
+	if !fusedVisibleHalfOwnsDirectedRelation(b) {
+		visible.EdgeAnchors = nil
+	}
+	return visible
+}
+
+func fusedVisibleHalfOwnsDirectedRelation(b emitAnswerBlockV2) bool {
+	if len(b.EdgeAnchors) == 0 || strings.TrimSpace(b.SurfaceRole) != string(types.SurfacePrincipal) {
+		return false
+	}
+	switch types.AnswerBlockKind(strings.TrimSpace(b.Kind)) {
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+	default:
+		return false
+	}
+	for _, use := range b.ClaimUses {
+		if types.IsCallChainPrincipalRelationClaimForm(use.ClaimForm) {
+			return true
+		}
+	}
+	return false
+}
+
 func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntry) []splitEmitBlockEntry {
 	fused := 0
 	for _, entry := range entries {
@@ -778,11 +817,7 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 				dup = true
 				if s.didSplit {
 					dupsOfSplit++
-					visible := b
-					visible.Diagram = nil
-					visible.EdgeAnchors = nil
-					visible.ParticipantBoundaries = nil
-					visible.RequestedRelationScope = ""
+					visible := splitFusedDiagramVisibleHalf(b)
 					out = append(out, splitEmitBlockEntry{raw: visible, modelIndex: i})
 				} else {
 					out = append(out, splitEmitBlockEntry{raw: b, modelIndex: i})
@@ -799,11 +834,7 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 			continue
 		}
 		seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: true})
-		visible := b
-		visible.Diagram = nil
-		visible.EdgeAnchors = nil
-		visible.ParticipantBoundaries = nil
-		visible.RequestedRelationScope = ""
+		visible := splitFusedDiagramVisibleHalf(b)
 		diagramHalf := emitAnswerBlockV2{
 			ID:                     deriveSplitDiagramBlockID(b.ID, used),
 			Kind:                   string(types.BlockDiagram),
@@ -1158,11 +1189,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 			outReplace = append(outReplace, b)
 			continue
 		}
-		visible := b
-		visible.Diagram = nil
-		visible.EdgeAnchors = nil
-		visible.ParticipantBoundaries = nil
-		visible.RequestedRelationScope = ""
+		visible := splitFusedDiagramVisibleHalf(b)
 		outReplace = append(outReplace, visible)
 		if half != nil {
 			systemHalves = append(systemHalves, *half)
@@ -1178,11 +1205,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 			outAdd = append(outAdd, b)
 			continue
 		}
-		visible := b
-		visible.Diagram = nil
-		visible.EdgeAnchors = nil
-		visible.ParticipantBoundaries = nil
-		visible.RequestedRelationScope = ""
+		visible := splitFusedDiagramVisibleHalf(b)
 		outAdd = append(outAdd, visible)
 		if half != nil {
 			systemHalves = append(systemHalves, *half)

@@ -57786,6 +57786,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r840`。
 
+### §123.1373 B1326：融合图拆分保留可见主链关系所有权（2026-08-22）
+
+1. `B1326-FUSEDEDGERETENTION1/P1` 已施工。根因不是模型遗漏关系，而是系统把一个合法的 `ordered_list + diagram` 融合块拆成两个块时，
+   机械地只把 `edge_anchors` 分给 diagram half；visible half 却继续保留 principal role、directed relation claim 与 principal-path facet，随后被
+   下游精确空锚门拒绝。模型在 full emit 与 patch 中重复提交相同 anchors 仍会被系统重复删除，属于确定性自冲突。
+2. 新的单一拆分 helper 同时覆盖 full、patch、重复融合三条生产路径。diagram half 始终保留模型原始 anchors；visible half 仅在
+   `ordered_list|bullet_list|table + surface_role=principal + typed call/callback/registration relation claim + anchors present` 的精确合取成立时，
+   保留同一批模型 anchors。普通定义/事实表、非 principal 块、summary/prose 或没有 directed claim 的块维持旧的 diagram-only ownership，
+   不因图中存在箭头而扩张可见关系权威。
+3. 判定只读取 schema-validated kind、surface role、claim form 和 anchor presence；不读取用户请求、模型 reasoning、items/labels、Mermaid message、
+   最终答案 prose 或 facet label，不创建、选择、反转、补写任何节点/关系/业务 wording。两个 half 共享的是模型已提交的关系元数据，不是系统推导的
+   新事实；模型答案、结论、成员顺序、图布局和可见文本均保持不变。
+4. 回归覆盖 full 与 patch 两条拆分，并把拆分后的两个 typed block 送入实际 standalone call-chain 精确门，证明不再制造 empty-anchor reject；
+   既有全字段 forensic fixture 继续证明非关系事实表的 visible half 不携带 anchors。`go test ./internal/tool -count=1`、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+5. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 TypeScript relation path 与显式窗 Trace。前者验收融合首稿不再被系统拆空关系；
+   后者验收用户时间窗、自动补采、完整 `Trace 因果投影`、链上根因与业务线索、实际占时/规则可消双账户全部不变，且活动流不按固定 4ms/4m
+   或其他耗时阈值降级。
+
+状态：
+
+`B1326=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`fused-diagram-half=model-anchors-preserved`；
+`fused-visible-relation-owner=typed-principal-structured-directed-conjunction`；
+`nonrelation/nonprincipal/prose-visible-half=diagram-only-anchor-ownership`；
+`full/patch/duplicate-split=single-helper`；
+`system-edge/action/member/order/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/item-label/mermaid-message/facet-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read

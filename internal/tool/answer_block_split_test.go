@@ -93,6 +93,71 @@ func TestSplitFusedDiagramBlocksForensicShape(t *testing.T) {
 	}
 }
 
+func fusedPrincipalRelationBlock() emitAnswerBlockV2 {
+	return emitAnswerBlockV2{
+		ID:          "call-chain",
+		Kind:        string(types.BlockOrderedList),
+		SurfaceRole: string(types.SurfacePrincipal),
+		FacetIDs:    []string{string(types.FacetCurrentCodePath), string(types.FacetPrincipalPathEdge)},
+		Items: []emitAnswerBlockItemV2{{
+			ID: "hop-1", Label: "run -> send", Text: "run calls send",
+		}},
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, FacetID: string(types.FacetPrincipalPathEdge)}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "run", ToNode: "send", FromIdentity: "run", ToIdentity: "send",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "calls",
+		}},
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramSequence), Language: "mermaid", Body: "sequenceDiagram\n  run->>send: calls",
+		},
+	}
+}
+
+func TestSplitFusedDiagramBlocksRetainsDirectedVisibleRelationOwnership(t *testing.T) {
+	in := fusedPrincipalRelationBlock()
+	out := splitFusedDiagramBlocks("test", []emitAnswerBlockV2{in})
+	if len(out) != 2 {
+		t.Fatalf("expected visible and diagram halves, got %+v", out)
+	}
+	visible, diagram := out[0].raw, out[1].raw
+	if visible.Diagram != nil || !reflect.DeepEqual(visible.EdgeAnchors, in.EdgeAnchors) {
+		t.Fatalf("principal directed visible half lost its model-authored relation ownership: %+v", visible)
+	}
+	if diagram.Diagram == nil || !reflect.DeepEqual(diagram.EdgeAnchors, in.EdgeAnchors) {
+		t.Fatalf("diagram half lost the same model-authored relation ownership: %+v", diagram)
+	}
+	visibleTyped, err := NormalizeEmitAnswerBlock(visible, "blocks[0]")
+	if err != nil {
+		t.Fatalf("directed visible half failed normalize: %v", err)
+	}
+	diagramTyped, err := NormalizeEmitAnswerBlock(diagram, "blocks[1]")
+	if err != nil {
+		t.Fatalf("diagram half failed normalize: %v", err)
+	}
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks:        []types.AnswerBlock{visibleTyped, diagramTyped},
+	}
+	if hints := preCheckStandaloneCallChainRelationAnchorPresence(doc, &types.AnswerSemanticView{Family: types.QFCallChain}); len(hints) != 0 {
+		t.Fatalf("split must not fabricate the precise standalone relation empty-anchor reject: %+v", hints)
+	}
+}
+
+func TestSplitFusedDiagramPatchBlocksRetainsDirectedVisibleRelationOwnership(t *testing.T) {
+	in := fusedPrincipalRelationBlock()
+	replace, add := splitFusedDiagramPatchBlocks("test", maxBlocksPerDoc, nil, nil, nil,
+		[]emitAnswerBlockV2{in}, nil)
+	if len(replace) != 1 || len(add) != 1 {
+		t.Fatalf("expected one visible replace and one diagram add: replace=%+v add=%+v", replace, add)
+	}
+	if replace[0].Diagram != nil || !reflect.DeepEqual(replace[0].EdgeAnchors, in.EdgeAnchors) {
+		t.Fatalf("patch visible half lost directed relation ownership: %+v", replace[0])
+	}
+	if add[0].Diagram == nil || !reflect.DeepEqual(add[0].EdgeAnchors, in.EdgeAnchors) {
+		t.Fatalf("patch diagram half lost directed relation ownership: %+v", add[0])
+	}
+}
+
 // Reflection partition lock: every emitAnswerBlockV2 field populated
 // on a fused block must surface on EXACTLY one half (ID/Kind exist on
 // both by construction). A future field addition fails here until the
