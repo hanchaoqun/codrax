@@ -57568,6 +57568,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 状态：
 
 `B1334=implemented/full-suite-pass/build-pass/pending-production-replay`；
+
 `dynamic-selector-path-version=2`；
 `callback-carrier=entry-to-receiver-call+receiver-to-callable-handoff`；
 `optional+required-diagram-repair-focus=request-scoped-candidate-first`；
@@ -57578,6 +57579,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1397 r855：candidate 焦点本身正确，但精确工厂返回载体尚未进入编译器（2026-08-22）
+
+1. 在干净 `main@a4e5e3a75` 上严格并行 2 个用例：
+   `trace_query_wakeup_causal_io_chain` 169s、0 次成文拒绝；
+   `sr_py_registry_dispatch` 202s、5 次成文拒绝。runner 为 2/2 PASS，人工质量不能据此自动签绿。
+2. Trace 用例完整保留明确时间窗、系统补齐、Trace 因果投影、链上根因排序、实际占时/可消除量双轴以及邻近/背景隔离；本批图关系修补未改变这些能力。模型正文把多段上游等待写成“共同叠加/等待传导”，强于唤醒锚本身，暂记模型结论强度观察项，不以答案文本扫描设硬门。
+3. Python 用例的正文与有序链已正确回答 `run_pipeline → resolve → JsonPlugin` 和 `@register` 的绑定职责，但最终图在 5 次拒绝后退化成无关的 `pipeline.registry.register → ValueError`。这不是可接受的质量 PASS。
+4. B1334 的 request-scoped candidate repair payload 没有在生产路径触发。精确日志为：
+   `entry="run_pipeline" candidates=0 rejected=2 reasons=return_unavailable=2`。探索证据已经引用
+   `pipeline/registry.py:34 return cls()`，但模型把该行 `EvidenceItem.Object` 写成语义化的“JsonPlugin 实例”；当前编译器要求 Object 自身仍能解析出调用表达式，因而丢失返回席。
+5. 新 P1 `B1335-DYNAMICRETURNCARRIER1` 已确认：动态选择器的返回关系仍把模型自由措辞当成精确端点载体。最优方案不是扫描/改写模型正文，而是由 repomap/源码解析层在精确返回语句处发布稳定、可引用的 typed return carrier，至少包括 owner、原始返回调用、callee、文件/行和 grounding；编译器只消费该 typed 事实。所有语言共用关系模型，语言提取器只负责填充精确字段。
+6. 施工与回放冻结：先确认既有 `B1330-E` 返回保留实现为何没有覆盖该生产形，再补 deterministic return carrier、跨语言契约测试和版本 bump；之后以同一 Trace/Python 对在 r856 回放，要求 Trace 零回归、Python `candidates>0`、candidate 焦点实际进入修补提示，且最终图不再退化到无关异常边。
+
+状态：
+
+`B1334=implemented/production-path-not-reached-by-r855`；
+`B1335=confirmed/P1/next`；
+`r855=runner-2-of-2-pass/manual-trace-uncertain/manual-python-uncertain`。
 
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
