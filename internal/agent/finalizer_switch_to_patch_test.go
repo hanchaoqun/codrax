@@ -1203,7 +1203,7 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 			`"body_occurrence":1`, "omit block_id, match, occurrence, and body_occurrence",
 			`"allowed_additions"`, `"from_identity":"Orchestrator.applyStageOutput"`,
 			"The allowed rows are permissions, not required edges",
-			"diagram_edge_edits", "Choose exactly one current tool-schema branch",
+			"diagram_edge_edits", "This generation publishes no action=attach capability",
 			"system has not selected, added, removed, relabelled, reversed, or reconnected",
 		} {
 			if !strings.Contains(signal.Hint, want) {
@@ -1265,6 +1265,47 @@ func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority
 	))
 	if !fullEvaluator.preferPatchNext {
 		t.Fatal("full reject compact relation recovery must switch to patch mode")
+	}
+}
+
+func TestDiagramRelationRetryDoesNotAdvertiseAttachWithoutExactCapability(t *testing.T) {
+	result := &types.ToolResult{ToolName: "emit_answer_document", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract",
+		Metadata: map[string]string{types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{
+			"version":1,
+			"failures":[{"failure_ref":"rf1-visible","block_id":"flow","issue":"missing_call_anchor","relation_kind":"call","from_node":"A","to_node":"B","from_identity":"pkg.A","to_identity":"pkg.B","target_carrier":"visible_body_edge","allowed_actions":["remove","replace"],"body_occurrence":1}],
+			"preserve_unlisted_edges":true,
+			"allowed_additions":[{"addition_ref":"ra1-unpaired","block_id":"flow","relation_kind":"callback","from_identity":"pkg.C","to_identity":"pkg.D","source":"source.go:10"}]
+		}`},
+	}}
+	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, false)
+	if !ok || !strings.Contains(hint, "This generation publishes no action=attach capability") ||
+		!strings.Contains(hint, "never combine a failure_ref and addition_ref") {
+		t.Fatalf("unpaired generation must publish the exact negative capability: ok=%v\n%s", ok, hint)
+	}
+	for _, forbidden := range []string{
+		"an action=attach branch exists", "attach requires both refs", "action=attach is valid only",
+	} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("unpaired retry advertised an unavailable attach grammar %q:\n%s", forbidden, hint)
+		}
+	}
+}
+
+func TestDiagramRelationRetryMentionsAttachOnlyForExactLivePair(t *testing.T) {
+	result := &types.ToolResult{ToolName: "emit_answer_document", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract",
+		Metadata: map[string]string{types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{
+			"version":1,
+			"failures":[{"failure_ref":"rf1-visible","block_id":"flow","issue":"missing_relation_anchor","from_node":"A","to_node":"B","from_identity":"pkg.A","to_identity":"pkg.B","target_carrier":"visible_body_edge","allowed_actions":["remove","attach"],"body_occurrence":1}],
+			"preserve_unlisted_edges":true,
+			"allowed_additions":[{"addition_ref":"ra1-paired","block_id":"flow","relation_kind":"argument_flow","from_identity":"pkg.A","to_identity":"pkg.B","source":"source.go:10"}]
+		}`},
+	}}
+	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, false)
+	if !ok || !strings.Contains(hint, "action=attach is valid only from a schema branch that fixes both exact opaque ref values") ||
+		strings.Contains(hint, "publishes no action=attach capability") {
+		t.Fatalf("exact live pair must be taught only through the paired schema branch: ok=%v\n%s", ok, hint)
 	}
 }
 

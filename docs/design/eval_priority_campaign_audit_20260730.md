@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1414 r862 与 B1347：无配对代际仍教学 attach，系统自诱导后再拒绝（2026-08-22）
+
+1. 从已推送 `420c326f0` 重建干净不可变二进制，严格并发恰好 2 路复放 Python 动态注册链与显式窗 Trace，runner 2/2
+   PASS：Python 296s、Trace 211s。Trace 人工 pass：显式 2.000–2.020s 主窗、四跳唤醒链、11.000ms 链上 IO 第一席、三个
+   1.000ms 优先级反转候选、实际占时/规则可消双账、链上业务下钻、邻近/背景隔离和完整 `Trace 因果投影` 均在；finalizer
+   reject=0，未按 4ms、4m、活跃流年龄或上下文比例降级。
+2. Python 人工 partial。事实正文正确覆盖 `JsonPlugin`、import-time `@register`、`REGISTRY` 查找、`cls()` 实例化、executor
+   callback 与 MRO；最终普通关系列表也保留四条有 typed identity 的边。但 Mermaid 经四轮修补后只剩一个 participant 与 MRO Note，
+   没有向用户呈现主链关系。最终 `resolve` 项仍引用函数定义行而非 lookup/instantiate 精确行；B1346 的 `candidate_evidence` 未自然触发，
+   因为同轮机械 citation normalizer 先修复了候选 carrier，所以 B1346 保持 unit-positive、等待自然生产触发，不能据本轮 runner 绿升级。
+3. 新 P1 `B1347-ATTACHCAPABILITYPROJECTION1` 确认为确定性系统 gap。首轮 relation lease 中图的四个 visible-body failure
+   仅发布 `allowed_actions=[remove,replace]`，普通 chain carrier 仅发布 remove；当前宽兼容 patch schema 的 action enum 同样只有
+   relabel/remove/replace/add，没有 attach。可是 retry hint 和全局 patch 教学仍主动介绍“action=attach + failure_ref + addition_ref”，同时把互不配对
+   的两组 ref 并置。模型照教学提交两个 attach，执行器随即以“failure 不允许 attach”拒绝；由于 patch 原子提交，已经正确写出的 chain1
+   replacement 一并回滚，后续模型只重放删边而漏掉 sibling replacement，又产生两轮 `claim_uses` 有向而 `edge_anchors` 为空的级联拒绝。
+4. B1347 采用能力投影根修，不放宽执行器、不从 Mermaid 文案或模型 prose 猜关系：新增共享 typed predicate，只有 failure 明确含 attach、
+   failure/addition 两个 live opaque ref 完整、block/direction/relation/identity 精确兼容时才视为可执行 attach pair。全局 patch 教学退役 attach
+   语法；relation retry 按本代能力分支输出：无 pair 时明确“本代无 attach，不得组合 refs”，有 pair 时只允许使用动态 schema 中同时固定两个
+   ref 的 exact branch。宽兼容 schema 的 description 明确无 paired attach；窄 schema 也只在真实 pair 存在时提及 attach。
+5. 系统仍只投影可执行能力，不替模型选择 remove/replace/add/attach，不创建、删除、反转、重连或改写任何边、节点、可见标签、图布局、答案文字
+   和结论。普通 block 与 Mermaid 同轮失败仍允许模型通过 whole-block replacement + atomic graph edit 一次修复；本批不针对 JsonPlugin、Python
+   或某个标签拟合。Trace 查询、窗口选择、自动补采、链上根因、实际/可消双轴、因果投影均未改动。
+6. 回归钉住无 pair retry 不得出现“attach branch exists/requires”教学且必须明确禁止组合 ref；精确 pair 只通过 exact schema branch 教学；
+   mixed diagram+ordinary 宽 schema 的 action enum 继续不含 attach，description 同步披露；真正 single-diagram pair 仍保留 remove+attach 两个
+   exact branch，不能退化为重复 add。定向测试、完整 `go test ./internal/types ./internal/tool ./internal/agent -count=1`、全仓
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+
+状态：
+
+`r862=runner-pass-2/2,human-python-partial+trace-pass`；
+`B1346=unit-positive/no-natural-trigger-r862`；
+`B1347=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`attach-authority=exact-live-pair+exact-schema-branch-only`；
+`broad-or-unpaired-generation=attach-unavailable/no-ref-combination`；
+`python-final-diagram=valid-but-relation-poor/follow-up-general-audit`；
+`system-relation/action/node/label/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r862`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r862`。
+
 ### §123.1413 B1346：错引候选位置与可执行 evidence ID 同代配对，软建议不新增重试（2026-08-22）
 
 1. `B1346-ITEMCITATIONCANDIDATEEXECUTABILITY1/P1` 已施工。item/citation alignment 仍先用既有 typed

@@ -444,6 +444,49 @@ func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachN
 	if !seen["remove"] || !seen["attach"] || seen["replace"] || seen["add"] {
 		t.Fatalf("paired schema advertised a contradictory or duplicate-producing path: %v", seen)
 	}
+	description := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut})
+	if !strings.Contains(description, "exact action=attach schema branch") ||
+		!strings.Contains(description, "never infer a pair from adjacent rows") {
+		t.Fatalf("paired schema description did not bind attach to its exact branch: %s", description)
+	}
+}
+
+func TestEmitAnswerDocumentPatchBroadMixedLeaseDoesNotAdvertiseAttach(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B\n",
+		}},
+		{ID: "chain", Kind: types.BlockOrderedList, EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "X", ToNode: "Y", FromIdentity: "pkg.X", ToIdentity: "pkg.Y", RelationKind: types.DiagramRelCall,
+		}}},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B", BodyOccurrence: 1},
+		{BlockID: "chain", Issue: "standalone_relation_endpoint_identity_missing", FromNode: "X", ToNode: "Y", RelationKind: types.DiagramRelCall},
+	}, nil)
+	if lease == nil {
+		t.Fatal("mixed relation lease setup failed")
+	}
+	mut := types.NewMutableState("mixed broad relation schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	ctx := &types.AgentContext{Mutable: mut}
+	description := (&EmitAnswerDocumentPatch{}).DescriptionFor(ctx)
+	if !strings.Contains(description, "broad compatibility schema publishes no paired attach branch") ||
+		!strings.Contains(description, "never combine a failure_ref and addition_ref") {
+		t.Fatalf("mixed broad schema must explicitly withhold attach: %s", description)
+	}
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(ctx), &root); err != nil {
+		t.Fatalf("mixed schema must parse: %v", err)
+	}
+	item := root["properties"].(map[string]any)["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)
+	actions := item["properties"].(map[string]any)["action"].(map[string]any)["enum"].([]any)
+	for _, action := range actions {
+		if action == "attach" {
+			t.Fatalf("mixed broad schema exposed attach without an exact paired branch: %v", actions)
+		}
+	}
 }
 
 func TestEmitAnswerDocumentPatchParametersFor_NoLeaseHidesGenerationScopedCapabilities(t *testing.T) {
@@ -541,8 +584,19 @@ func TestEmitAnswerDocumentPatchParametersFor_NonDiagramLeaseKeepsCompatibilityS
 			t.Fatalf("non-diagram/mixed lease must retain compatibility field %q", field)
 		}
 	}
-	if got := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); got != (&EmitAnswerDocumentPatch{}).Description() {
-		t.Fatal("non-diagram compatibility schema must retain its matching compatibility description")
+	description := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut})
+	for _, want := range []string{
+		"executable compatibility operations shown in this tool's current parameter schema",
+		"failure_ref only with an action listed in that row",
+		"broad compatibility schema publishes no paired attach branch",
+		"Whole-block edits remain available",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("non-diagram compatibility description missing %q: %s", want, description)
+		}
+	}
+	if strings.Contains(description, "action=attach pair that binds both refs") {
+		t.Fatalf("broad compatibility description advertised an unavailable attach operation: %s", description)
 	}
 }
 

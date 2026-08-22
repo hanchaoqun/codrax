@@ -18143,6 +18143,13 @@ type answerDocDiagramRelationRepairVisibleDelta struct {
 	OptionalOrphanCleanups []types.AnswerDiagramOrphanCleanupCandidate  `json:"optional_orphan_cleanups,omitempty"`
 }
 
+func answerDocDiagramRelationRepairBranchTeaching(delta answerDocDiagramRelationRepairDelta) string {
+	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(delta.Failures, delta.AllowedAdditions) {
+		return "For relation_delta, use only an exact current tool-schema branch: a failure branch uses its displayed allowed action, an addition branch uses action=add with one selected candidate, and action=attach is valid only from a schema branch that fixes both exact opaque ref values. Never infer or combine a pair from adjacent failure/addition rows. "
+	}
+	return "For relation_delta, a failure_ref may use only an action displayed on that failure row, and an addition_ref may use only action=add with model-authored from_node/to_node/visible_label. This generation publishes no action=attach capability: never combine a failure_ref and addition_ref in one edit. "
+}
+
 func parseAnswerDocDiagramParticipantRepairDelta(result *types.ToolResult) (answerDocDiagramParticipantRepairDelta, string, bool) {
 	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
 		return answerDocDiagramParticipantRepairDelta{}, "", false
@@ -18324,7 +18331,8 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 		} else {
 			b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. Do not repair one family while carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. ")
 		}
-		b.WriteString("For relation_delta, choose exactly one current tool-schema branch. A failure-only branch uses its displayed action; an addition-only branch adds the selected candidate with model-authored from_node/to_node/visible_label; an action=attach branch exists only when the schema explicitly pairs one failure_ref and one addition_ref for an existing visible edge, and it requires both refs plus the model-authored edge fields. Do not invent or combine refs outside a published branch. If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and preserve every unmentioned boundary; retain inherited sibling/citation content. ")
+		b.WriteString(answerDocDiagramRelationRepairBranchTeaching(relationDelta))
+		b.WriteString("If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and preserve every unmentioned boundary; retain inherited sibling/citation content. ")
 	}
 	b.WriteString("You still own every action, visible node/edge, business wording, order, grouping, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n{\"participant_delta\":")
 	b.WriteString(participantRaw)
@@ -18410,7 +18418,9 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 		b.WriteString(" by a local typed source-diagram relation mismatch. ")
 	}
 	b.WriteString(action)
-	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. Choose exactly one current tool-schema branch: a failure-only branch uses its displayed action, an addition-only branch adds one selected typed candidate, and an action=attach branch is valid only when that branch explicitly pairs one failure_ref with one addition_ref for an existing visible edge. attach requires both refs plus your complete from_node/to_node/visible_label and does not add a second body edge. For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. Do not invent or combine refs outside a published branch. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. If the selected edits isolate an `optional_orphan_cleanups` row, add `diagram_participant_edits` and explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
+	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. ")
+	b.WriteString(answerDocDiagramRelationRepairBranchTeaching(delta))
+	b.WriteString("For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. If the selected edits isolate an `optional_orphan_cleanups` row, add `diagram_participant_edits` and explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
 	if diagramRequired {
 		b.WriteString("The diagram is required, so keep its block and repair only with the published local capabilities. ")
 	} else {

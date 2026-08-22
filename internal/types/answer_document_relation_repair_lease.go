@@ -245,6 +245,31 @@ func AnswerDiagramRelationRepairFailureCanAttachCandidate(
 		AnswerCodeIdentitySurfacesEquivalent(failure.ToIdentity, candidate.ToIdentity)
 }
 
+// AnswerDiagramRelationRepairHasExecutableAttachPair reports whether a retry
+// generation owns at least one complete, explicitly paired attach capability.
+// Adjacent failure/addition rows are not a pair: both opaque refs, the
+// failure-owned attach action, and the shared typed compatibility predicate
+// must all agree. Prompt and schema projection use this helper so they never
+// advertise attach merely because the broad patch protocol knows the word.
+func AnswerDiagramRelationRepairHasExecutableAttachPair(
+	failures []AnswerDiagramRelationRepairFailure,
+	candidates []AnswerDiagramRelationRepairCandidate,
+) bool {
+	for _, failure := range failures {
+		if strings.TrimSpace(failure.FailureRef) == "" ||
+			!failure.AllowsAction(string(AnswerDiagramRelationRepairActionAttach)) {
+			continue
+		}
+		for _, candidate := range candidates {
+			if strings.TrimSpace(candidate.AdditionRef) != "" &&
+				AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func answerDiagramRelationRepairCompiledFailures(
 	base *AnswerDocumentV2,
 	failures []AnswerDiagramRelationRepairFailure,
