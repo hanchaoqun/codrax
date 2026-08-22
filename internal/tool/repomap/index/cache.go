@@ -233,13 +233,13 @@ const cacheFileInfosChunkSize = 1024
 var extractorVersions = map[string]int{
 	types.LangGo:         10, // explicit composite member-owner identity
 	types.LangJava:       9,  // parser-owned lexical control branches
-	types.LangPython:     10, // parser-owned lexical control branches
+	types.LangPython:     11, // generic assignment node publishes assignment line features
 	types.LangJavaScript: 8,  // parser-owned lexical control branches
 	types.LangTypeScript: 11, // explicit typed object member-owner identity
 	types.LangArkTS:      12, // TS-backed explicit typed object member-owner identity
 	types.LangCangjie:    8,  // lexer-backed guard features and balanced control branches
 	types.LangKotlin:     9,  // parser-owned lexical control branches
-	types.LangRuby:       5,  // parser-owned lexical control branches
+	types.LangRuby:       6,  // generic assignment node publishes assignment line features
 	types.LangSwift:      8,  // parser-owned lexical control branches
 	types.LangLua:        6,  // parser-owned lexical control branches
 	types.LangProto:      3,  // message fields carry parser-owned declared types

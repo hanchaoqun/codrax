@@ -622,6 +622,103 @@ func TestBuildRuntimeTargetDecoratorApplications_PreservesSelectorRoleWithoutReg
 	}
 }
 
+func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStaticCandidates(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", "eval", "fixtures", "python-plugin-mro"))
+	entries, err := repomap.ScanFiles(repoRoot)
+	if err != nil {
+		t.Fatalf("scan production-shaped Python fixture: %v", err)
+	}
+	graph := repomap.BuildGraph(repoRoot, repomap.ParseFiles(entries, repoRoot))
+	eval := runtimeTargetRelationEvaluator(graph)
+	eval.structuredEvidence = []types.EvidenceItem{
+		{
+			ID: "E-entry", Kind: types.EvidenceRelationship, Subject: "run_pipeline", Predicate: "calls", Object: "resolve",
+			OwnerSymbol: "run_pipeline", Source: "pipeline/runner.py", LineStart: 15, LineEnd: 15, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "resolve", Snippet: "plugin = resolve(kind)", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "E-resolve-def", Kind: types.EvidenceDirect, Subject: "resolve", Predicate: "definition",
+			OwnerSymbol: "resolve", Source: "pipeline/registry.py", LineStart: 24, LineEnd: 24, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "resolve", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	readSet := map[string]bool{
+		"pipeline/runner.py":   true,
+		"pipeline/registry.py": true,
+		"pipeline/plugins.py":  true,
+	}
+	closure := types.NewEvidenceClosure(repoRoot)
+	closure.SetReadSet(readSet)
+	closure.AddReadRanges(map[string][]types.LineRange{
+		"pipeline/runner.py":   {{Start: 1, End: 30}},
+		"pipeline/registry.py": {{Start: 1, End: 40}},
+		"pipeline/plugins.py":  {{Start: 1, End: 40}},
+	})
+
+	got := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, closure)
+	all := mergeEvidenceItems(eval.structuredEvidence, got.evidence)
+	compiled := types.CompileDynamicSelectorResolutionPaths(all, "run_pipeline")
+	if len(compiled.Candidates) != 2 || len(compiled.Rejected) != 0 {
+		t.Fatalf("csv/json decorator applications should each retain one complete static candidate: compiled=%+v\nregistry=%+v\nevidence=%+v\nmarkdown=%s", compiled, graph.FileIndex["pipeline/registry.py"], got.evidence, got.markdown)
+	}
+	producerCounts := map[string]int{}
+	for _, item := range got.evidence {
+		producerCounts[item.Producer]++
+	}
+	if producerCounts[types.EvidenceProducerRepoMapDynamicSelectorAssignment] != 2 ||
+		producerCounts[types.EvidenceProducerRepoMapDynamicSelectorArgument] != 1 {
+		t.Fatalf("expected exact binding+lookup assignments and one entry argument, got producers=%+v evidence=%+v", producerCounts, got.evidence)
+	}
+	for _, candidate := range compiled.Candidates {
+		if candidate.EntryIdentity != "run_pipeline" || candidate.SelectorArgument != "kind" ||
+			candidate.ContainerIdentity != "REGISTRY" || candidate.LookupIdentity != "resolve" || len(candidate.Hops) != 6 ||
+			candidate.Hops[3].RelationKind != types.DiagramRelAssignment {
+			t.Fatalf("unexpected static candidate path: %+v", candidate)
+		}
+	}
+	for _, want := range []string{
+		"Typed Dynamic Selector Flow Facts",
+		"selector-side indexed assignment",
+		"lookup assignment",
+		"entry call argument",
+		"do not prove that an entry argument equals a declaration selector",
+	} {
+		if !strings.Contains(got.markdown, want) {
+			t.Fatalf("dynamic selector flow handoff missing %q:\n%s", want, got.markdown)
+		}
+	}
+	prompt := renderAnswerDocDynamicSelectorResolutionCandidates(&types.AgentContext{EvidenceItems: all}, "run_pipeline")
+	for _, want := range []string{
+		"Typed dynamic-selection candidates",
+		"declared_candidate=`JsonPlugin`",
+		"relation_kind=`assignment`: `REGISTRY` -> `cls`",
+		"relation_kind=`argument_flow`: `kind` -> `resolve`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("complete production evidence did not reach finalizer soft context %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "relation_kind=`call`: `run_pipeline` -> `JsonPlugin`") ||
+		strings.Contains(prompt, "runtime-selected implementation is `JsonPlugin`") {
+		t.Fatalf("static selector candidate was upgraded to a runtime/direct-call conclusion:\n%s", prompt)
+	}
+
+	restricted := types.NewEvidenceClosure(repoRoot)
+	restricted.SetReadSet(readSet)
+	restricted.AddReadRanges(map[string][]types.LineRange{
+		"pipeline/runner.py":   {{Start: 1, End: 30}},
+		"pipeline/registry.py": {{Start: 1, End: 14}, {Start: 20, End: 30}},
+		"pipeline/plugins.py":  {{Start: 1, End: 40}},
+	})
+	withheld := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, restricted)
+	for _, item := range withheld.evidence {
+		if item.Producer == types.EvidenceProducerRepoMapDynamicSelectorAssignment ||
+			item.Producer == types.EvidenceProducerRepoMapDynamicSelectorArgument {
+			t.Fatalf("unread assignment coordinates must not produce selector-flow authority: %+v", withheld.evidence)
+		}
+	}
+}
+
 func TestMergeConcreteValuesResults_PreservesEveryDeterministicLaneWithoutLiterals(t *testing.T) {
 	merged := mergeConcreteValuesResults(
 		concreteValuesResult{markdown: "types\n", evidence: []types.EvidenceItem{{ID: "E-type"}}},

@@ -29,6 +29,20 @@ func f() {
 			want: types.LineFeatureAssignment,
 		},
 		{
+			name: "python assignment node",
+			lang: types.LangPython,
+			src:  "def f():\n    REGISTRY[name] = cls\n",
+			line: 2,
+			want: types.LineFeatureAssignment,
+		},
+		{
+			name: "ruby assignment node",
+			lang: types.LangRuby,
+			src:  "def f\n  registry[name] = handler\nend\n",
+			line: 2,
+			want: types.LineFeatureAssignment,
+		},
+		{
 			name: "go keyed composite literal",
 			lang: types.LangGo,
 			src: `package p

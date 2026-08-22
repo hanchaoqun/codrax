@@ -14302,6 +14302,8 @@ const runtimeTargetDecoratorApplicationLimit = 16
 
 const runtimeTargetTerminalBodyCallLimit = 12
 
+const runtimeTargetDynamicSelectorFlowLimit = 48
+
 // runtimeTargetStructuralRelationFiles separates exact read authority from
 // the volatile concrete-value frontier. filesToScan is intentionally narrowed
 // as exploration focus moves, which is appropriate for broad literal scans;
@@ -15162,6 +15164,258 @@ func (e *explorerEvaluator) buildRuntimeTargetDecoratorApplications(
 	b.WriteString("\n")
 	result.markdown = b.String()
 	return result
+}
+
+// buildRuntimeTargetDynamicSelectorFlows supplies the exact assignment and
+// call-argument facts that a dynamic selector path needs between its parsed
+// declaration application and the already-grounded entry call. It is gated by
+// parser-authored selector applications and parser-owned assignment features;
+// source text is parsed only at those exact, already-read coordinates.
+//
+// The producer intentionally keeps an indexed write as ClaimAssignmentFact.
+// It never relabels the write as registration, equates the entry argument with
+// a selector literal, selects a declaration as the runtime implementation, or
+// creates a direct call across the dynamic boundary.
+func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
+	graph *repomap.Graph,
+	repoRoot string,
+	filesToScan map[string]bool,
+	readSet map[string]bool,
+	closure *types.EvidenceClosure,
+	selectorApplications []types.EvidenceItem,
+	loadFileLines func(string) []string,
+) concreteValuesResult {
+	if e == nil || graph == nil || len(selectorApplications) == 0 || loadFileLines == nil ||
+		!e.runtimeTargetStructuralRelationsActive() {
+		return concreteValuesResult{}
+	}
+
+	selectorOwners := make([]string, 0, len(selectorApplications))
+	for _, item := range selectorApplications {
+		if !item.IsCitable() || item.SelectorApplication == nil {
+			continue
+		}
+		owner := strings.TrimSpace(item.SelectorApplication.Owner)
+		if owner != "" {
+			selectorOwners = appendUniqueConcreteString(selectorOwners, owner)
+		}
+	}
+	if len(selectorOwners) == 0 {
+		return concreteValuesResult{}
+	}
+
+	type row struct {
+		item types.EvidenceItem
+		role string
+	}
+	rows := make([]row, 0)
+	lookupOwners := make([]string, 0)
+	seen := make(map[string]struct{})
+	files := make([]string, 0, len(filesToScan))
+	for file := range filesToScan {
+		files = append(files, canonicalExplorerPath(file))
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		fi := graph.FileIndex[file]
+		if fi == nil {
+			continue
+		}
+		source := canonicalExplorerPath(fi.RelPath)
+		if source == "" {
+			source = file
+		}
+		lines := loadFileLines(filepath.Join(repoRoot, fi.RelPath))
+		if len(lines) == 0 {
+			continue
+		}
+		featureLines := make([]int, 0, len(fi.LineFeatures))
+		for line, features := range fi.LineFeatures {
+			if runtimeTargetHasLineFeature(features, repotypes.LineFeatureAssignment) {
+				featureLines = append(featureLines, line)
+			}
+		}
+		sort.Ints(featureLines)
+		for _, line := range featureLines {
+			if line <= 0 || line > len(lines) || !runtimeTargetReadLineAllowed(source, line, readSet, closure) {
+				continue
+			}
+			callable := runtimeTargetEnclosingCallable(fi, line)
+			if callable == nil {
+				continue
+			}
+			owner := runtimeTargetQualifiedCallable(*callable)
+			if owner == "" {
+				continue
+			}
+			raw := strings.TrimSpace(lines[line-1])
+			if raw == "" {
+				continue
+			}
+			item := types.EvidenceItem{
+				Kind:        types.EvidenceConcrete,
+				Source:      source,
+				LineStart:   line,
+				LineEnd:     line,
+				Confidence:  repotypes.ConfidenceAST,
+				Producer:    types.EvidenceProducerRepoMapDynamicSelectorAssignment,
+				Scope:       types.ScopeLine,
+				AnchorKind:  types.AnchorAssignment,
+				OwnerSymbol: owner,
+				Snippet:     raw,
+			}
+			receiver, value, ok := types.AssignmentEvidenceEndpoints(item)
+			indexedReceiver, _, bindingValue, indexedOK := types.IndexedAssignmentEvidenceEndpoints(item)
+			bindingOwner := indexedOK && dynamicSelectorOwnerMatchesAny(owner, selectorOwners)
+			_, lookupOK := types.IndexedAssignmentValueContainer(item)
+			if !ok {
+				lookupOK = false
+			}
+			if !bindingOwner && !lookupOK {
+				continue
+			}
+			if bindingOwner {
+				receiver = indexedReceiver
+				value = bindingValue
+			}
+			item.Subject = receiver
+			item.Predicate = "assigns"
+			item.Object = value
+			item.AnchorSymbol = receiver
+			item.Summary = fmt.Sprintf("parser-authored exact assignment in `%s`: `%s` = `%s`", owner, receiver, value)
+			item.ID = types.StableEvidenceID(item)
+			key := item.ID + "\x00" + source + "\x00" + strconv.Itoa(line)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			role := "lookup assignment"
+			if bindingOwner {
+				role = "selector-side indexed assignment"
+			}
+			rows = append(rows, row{item: item, role: role})
+			if lookupOK {
+				lookupOwners = appendUniqueConcreteString(lookupOwners, owner)
+			}
+		}
+	}
+
+	// An argument row is admitted only for an already-citable direct call to a
+	// callable whose exact body contains a retained indexed lookup assignment.
+	// The call and argument share one source coordinate, and the parser returns
+	// every complete argument. Multiple arguments stay visible so the downstream
+	// compiler can fail closed rather than select by position.
+	if len(lookupOwners) > 0 {
+		for _, call := range e.currentStructuredEvidence() {
+			if !call.IsCitable() || types.ClaimFormOf(call) != types.ClaimCallEdge || call.LineStart <= 0 ||
+				!dynamicSelectorOwnerMatchesAny(call.Object, lookupOwners) {
+				continue
+			}
+			source := canonicalExplorerPath(call.Source)
+			if source == "" || !runtimeTargetReadLineAllowed(source, call.LineStart, readSet, closure) {
+				continue
+			}
+			fi := graph.FileIndex[source]
+			if fi == nil {
+				continue
+			}
+			lines := loadFileLines(filepath.Join(repoRoot, fi.RelPath))
+			if call.LineStart > len(lines) {
+				continue
+			}
+			raw := lines[call.LineStart-1]
+			gc := &ground.Context{LineIndex: map[string]map[int]string{
+				source: {call.LineStart: raw},
+			}}
+			for _, flow := range ground.DetectArgumentFlowsAtLine(gc, source, call.LineStart, call.Object) {
+				item := types.EvidenceItem{
+					Kind:         types.EvidenceRelationship,
+					Subject:      flow.Argument,
+					Predicate:    "passes argument",
+					Object:       flow.Receiver,
+					Source:       source,
+					LineStart:    call.LineStart,
+					LineEnd:      call.LineStart,
+					Confidence:   repotypes.ConfidenceAST,
+					Producer:     types.EvidenceProducerRepoMapDynamicSelectorArgument,
+					Summary:      fmt.Sprintf("parser-authored exact argument flow: `%s` -> `%s`", flow.Argument, flow.Receiver),
+					Scope:        types.ScopeLine,
+					AnchorKind:   types.AnchorArgument,
+					AnchorSymbol: flow.Argument,
+					OwnerSymbol:  firstNonEmptyString(call.OwnerSymbol, call.Subject),
+					Snippet:      strings.TrimSpace(raw),
+				}
+				item.ID = types.StableEvidenceID(item)
+				key := item.ID + "\x00" + source + "\x00" + strconv.Itoa(call.LineStart)
+				if _, duplicate := seen[key]; duplicate {
+					continue
+				}
+				seen[key] = struct{}{}
+				rows = append(rows, row{item: item, role: "entry call argument"})
+			}
+		}
+	}
+
+	if len(rows) == 0 {
+		return concreteValuesResult{}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].item.Source != rows[j].item.Source {
+			return rows[i].item.Source < rows[j].item.Source
+		}
+		if rows[i].item.LineStart != rows[j].item.LineStart {
+			return rows[i].item.LineStart < rows[j].item.LineStart
+		}
+		if rows[i].item.AnchorKind != rows[j].item.AnchorKind {
+			return rows[i].item.AnchorKind < rows[j].item.AnchorKind
+		}
+		return rows[i].item.Subject < rows[j].item.Subject
+	})
+	if len(rows) > runtimeTargetDynamicSelectorFlowLimit {
+		rows = rows[:runtimeTargetDynamicSelectorFlowLimit]
+	}
+
+	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
+	var b strings.Builder
+	b.WriteString("## Typed Dynamic Selector Flow Facts (parser grounded)\n\n")
+	b.WriteString("These exact assignment and argument-flow rows are static candidates only. Preserve their original relation kinds; they do not prove that an entry argument equals a declaration selector or that one declaration was selected at runtime.\n\n")
+	b.WriteString("| Evidence | File:Line | Role | From | Relation | To |\n")
+	b.WriteString("|----------|-----------|------|------|----------|----|\n")
+	for _, entry := range rows {
+		result.evidence = append(result.evidence, entry.item)
+		fmt.Fprintf(&b, "| `%s` | `%s:%d` | `%s` | `%s` | `%s` | `%s` |\n",
+			entry.item.ID, entry.item.Source, entry.item.LineStart, entry.role,
+			entry.item.Subject, types.ClaimFormOf(entry.item), entry.item.Object)
+	}
+	b.WriteString("\n")
+	result.markdown = b.String()
+	return result
+}
+
+func runtimeTargetHasLineFeature(features []repotypes.LineFeature, want repotypes.LineFeature) bool {
+	for _, feature := range features {
+		if feature == want {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeTargetReadLineAllowed(source string, line int, readSet map[string]bool, closure *types.EvidenceClosure) bool {
+	if closure != nil {
+		return closure.HasReadLine(source, line)
+	}
+	return readSetContains(readSet, source)
+}
+
+func dynamicSelectorOwnerMatchesAny(owner string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if types.AnswerCodeIdentitySurfacesEquivalent(owner, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeTargetUniqueDeclaredOwner(owner string, candidates []string) string {
@@ -16164,6 +16418,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 		return strings.Join(lines[start:end], "\n")
 	}
+	dynamicSelectorFlows := e.buildRuntimeTargetDynamicSelectorFlows(
+		graph, repoRoot, structuralRelationFiles, readSet, closure,
+		decoratorApplications.evidence, loadFileLines,
+	)
 
 	// Extract concrete values from executable symbols. Three tiers:
 	//
@@ -16460,7 +16718,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 		}
 	}
 	if len(allValues) == 0 {
-		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications, terminalBodyCalls)
+		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications, dynamicSelectorFlows, terminalBodyCalls)
 	}
 
 	// Pre-filter: strip prose-like values at the source so they
@@ -16626,7 +16884,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	logging.Debug("[explorer] concrete values: %d relevant after multi-pass tracing", len(relevant))
 
 	if len(relevant) == 0 {
-		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications, terminalBodyCalls)
+		return mergeConcreteValuesResults(structuralRelations, cooperativeCalls, cooperativeMethods, decoratorApplications, dynamicSelectorFlows, terminalBodyCalls)
 	}
 
 	// Sort by usefulness: bindings first (they anchor chains), then
@@ -16723,6 +16981,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	}
 	if decoratorApplications.markdown != "" {
 		b.WriteString(decoratorApplications.markdown)
+	}
+	if dynamicSelectorFlows.markdown != "" {
+		b.WriteString(dynamicSelectorFlows.markdown)
 	}
 	if terminalBodyCalls.markdown != "" {
 		b.WriteString(terminalBodyCalls.markdown)
@@ -17134,6 +17395,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(ctx context.Context, repo
 	cvEvidence = append(cvEvidence, cooperativeCalls.evidence...)
 	cvEvidence = append(cvEvidence, cooperativeMethods.evidence...)
 	cvEvidence = append(cvEvidence, decoratorApplications.evidence...)
+	cvEvidence = append(cvEvidence, dynamicSelectorFlows.evidence...)
 	cvEvidence = append(cvEvidence, terminalBodyCalls.evidence...)
 	for i, v := range allRelevantForEvidence {
 		if i%1024 == 0 && ctx.Err() != nil {

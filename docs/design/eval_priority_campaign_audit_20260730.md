@@ -57395,6 +57395,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `request/model/final-prose/mermaid-text-hard-scan=none`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1384 B1330：补齐动态 selector 的 parser-authored assignment/argument 生产链（2026-08-22）
+
+1. `B1330-DYNAMICSELECTORPRODUCER1/P1` 已按“补 typed 事实、模型保有结论”施工。生产复现揭示的第一层根因不是 finalizer 不会消费，
+   而是 Python/Ruby tree-sitter 使用通用 `assignment` 节点，既有 LineFeature 映射未覆盖该节点；因此 `REGISTRY[name] = cls`、
+   `cls = REGISTRY[name]` 等已读源码从未进入 assignment typed producer。现已在通用 AST feature 层补入该节点，并按缓存协议分别提升
+   Python/Ruby extractor version，避免暖缓存继续复用缺字段的旧索引；其他语言既有 assignment node 映射不变。
+2. 新 producer 只在 parser 已发现 selector application、文件/行位于精确 read closure、且 assignment 行属于可确定 enclosing callable 时运行。
+   它接受两类严格、语言无关的简单赋值：selector owner 内的单一 indexed write，以及 RHS 为单一 indexed lookup 的 assignment；解构、链式、
+   复合表达式、普通属性赋值、缺失索引与歧义语法继续 fail-closed。indexed write 保持 `ClaimAssignmentFact/DiagramRelAssignment`，不会被系统
+   重命名为 registration，也不证明 selector literal 与索引值相等。
+3. 参数流只从已经 citable 的 direct-call 行产生，并且 callee 必须是包含已保留 indexed lookup 的精确 callable；call 与 argument 共用同一源码坐标，
+   parser 返回的所有完整实参均保留。多实参因此会在下游构成歧义并 fail-closed，系统不按位置挑一个、不从请求或模型文字猜 selector argument，
+   更不据此宣布本次运行选中了哪个声明候选。
+4. 动态路径 compiler 现在可消费 registration edge 或 selector-side indexed assignment，但逐 hop 保留原 relation kind；lookup 进一步收紧为必须有
+   精确 indexed RHS，普通 `cls = REGISTRY` 不再被误当 keyed lookup。严格 diagram evidence gate 同步支持 parser 派生的 container endpoint，
+   只允许 assignment 关系；同一行若被画成 register、反向 assignment 或其他关系仍拒绝。这样 finalizer 教学与 validator 使用同一 typed 权威，
+   不再形成“系统教模型画 assignment、系统又因看不懂 indexed receiver 而拒绝”的自矛盾合同。
+5. 真实 `eval/fixtures/python-plugin-mro` 回归直接从 production graph/read closure 生成两条 selector assignment 与一条 argument-flow，静态编译出
+   `csv/json` 两个各六 hop 的 `candidate_only` 路径；prompt 必须携带 lookup/assignment/argument/return 原关系和 Evidence ID，不得产生
+   `run_pipeline -> JsonPlugin` synthetic call，也不得宣称 `JsonPlugin` 已在运行时被选择。缩窄 read closure 后三类行全部不发，证明未读源码不会
+   通过邻近扫描获得关系权限。类型、索引、工具和 agent 相关包已通过，完整套件与构建结果见本节最终状态更新。
+6. 本批不读取用户请求、模型 reasoning、答案正文、Mermaid、文件扩展名或语言名来铸造事实或作硬门，不改模型答案、图、布局、业务结论，
+   也不触碰 Trace 窗口选举、自动补采、因果投影、链上根因排序、实际占时/规则可消双账户或活动流策略。下一步从不可变提交严格并发恰好 2 路
+   回放 Python 动态分派与显式时间窗 Trace，以生产答案确认关系闭包转正并继续守护 Trace 能力。
+
+状态：
+
+`B1330=implemented/relevant-packages-pass/full-suite-pass/build-pass`；
+`assignment-source=parser-authored+read-closure-bounded`；
+`indexed-write=assignment-not-registration`；
+`runtime-selection=candidate-only/model-owned`；
+`ambiguous/malformed/unread=fail-closed`；
+`diagram-assignment-authority=same-typed-source`；
+`request/model/final-prose/mermaid-text/file-extension/language-name-fact-scan=none`；
+`system-answer/conclusion/edge/wording/layout-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
 
 1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read

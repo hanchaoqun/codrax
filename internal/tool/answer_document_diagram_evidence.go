@@ -994,17 +994,24 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 	}
 	assignmentEndpoint := func(ev types.EvidenceItem, receiver bool) []string {
 		lhs, rhs, ok := types.AssignmentEvidenceEndpoints(ev)
-		if !ok {
+		if ok {
+			if receiver {
+				// Subject/Object were already checked against this exact tuple.
+				// Retain both the source spelling and its safe model-authored local
+				// qualification so `o.field` may be displayed as `field` without
+				// letting an unrelated owner mint authority.
+				return []string{lhs, ev.Subject}
+			}
+			return []string{rhs, ev.Object}
+		}
+		indexedReceiver, container, value, indexed := types.IndexedAssignmentEvidenceEndpoints(ev)
+		if !indexed {
 			return nil
 		}
 		if receiver {
-			// Subject/Object were already checked against this exact tuple.
-			// Retain both the source spelling and its safe model-authored local
-			// qualification so `o.field` may be displayed as `field` without
-			// letting an unrelated owner mint authority.
-			return []string{lhs, ev.Subject}
+			return []string{container, indexedReceiver}
 		}
-		return []string{rhs, ev.Object}
+		return []string{value, ev.Object}
 	}
 	sourceCandidates := func(ev types.EvidenceItem) []string { return []string{ev.Subject} }
 	targetCandidates := func(ev types.EvidenceItem) []string { return []string{ev.Object} }
@@ -1023,7 +1030,8 @@ func diagramValueFlowEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSym
 			if types.ClaimFormOf(ev) != wantForm {
 				return false
 			}
-			return wantForm != types.ClaimAssignmentFact || types.AssignmentEvidenceEndpointsMatch(ev)
+			return wantForm != types.ClaimAssignmentFact ||
+				types.AssignmentEvidenceEndpointsMatch(ev) || types.IndexedAssignmentEvidenceEndpointsMatch(ev)
 		},
 		sourceCandidates,
 		targetCandidates,

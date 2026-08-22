@@ -86,6 +86,35 @@ func TestCompileDynamicSelectorResolutionPaths_PreservesTypedHopKindsAndEvidence
 	}
 }
 
+func TestCompileDynamicSelectorResolutionPaths_AcceptsExactIndexedAssignmentWithoutRelabelingRegistration(t *testing.T) {
+	evidence := dynamicSelectorCompleteEvidence()
+	evidence[1].Kind = EvidenceConcrete
+	evidence[1].Predicate = "assigns"
+
+	compiled := CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
+	if len(compiled.Rejected) != 0 || len(compiled.Candidates) != 1 {
+		t.Fatalf("exact selector-owner indexed assignment should complete one candidate: %+v", compiled)
+	}
+	binding := compiled.Candidates[0].Hops[3]
+	if binding.Role != DynamicSelectorHopRegistration || binding.RelationKind != DiagramRelAssignment ||
+		binding.ClaimForm != ClaimAssignmentFact || binding.FromIdentity != "REGISTRY" || binding.ToIdentity != "cls" || binding.EvidenceID != "E-bind" {
+		t.Fatalf("indexed assignment must preserve assignment semantics and evidence identity: %+v", binding)
+	}
+}
+
+func TestCompileDynamicSelectorResolutionPaths_OrdinarySelectorOwnerPropertyAssignmentIsNotBinding(t *testing.T) {
+	evidence := dynamicSelectorCompleteEvidence()
+	evidence[1].Kind = EvidenceConcrete
+	evidence[1].Subject = "cls.plugin_name"
+	evidence[1].Object = "name"
+	evidence[1].Snippet = "cls.plugin_name = name"
+
+	compiled := CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
+	if len(compiled.Candidates) != 0 || len(compiled.Rejected) != 1 || compiled.Rejected[0].Reason != DynamicSelectorRejectBindingUnavailable {
+		t.Fatalf("ordinary property assignment must not become selector binding authority: %+v", compiled)
+	}
+}
+
 func TestCompileDynamicSelectorResolutionPaths_ArgumentFlowMustMatchCallSiteAndBeUnique(t *testing.T) {
 	evidence := dynamicSelectorCompleteEvidence()
 	evidence[5].LineStart = 11
@@ -103,6 +132,17 @@ func TestCompileDynamicSelectorResolutionPaths_ArgumentFlowMustMatchCallSiteAndB
 	compiled = CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
 	if len(compiled.Candidates) != 0 || len(compiled.Rejected) != 1 || compiled.Rejected[0].Reason != DynamicSelectorRejectAmbiguousArgument {
 		t.Fatalf("two exact selector arguments at one call site must fail closed: %+v", compiled)
+	}
+}
+
+func TestCompileDynamicSelectorResolutionPaths_LookupMustBeExactIndexedRead(t *testing.T) {
+	evidence := dynamicSelectorCompleteEvidence()
+	evidence[2].Object = "REGISTRY"
+	evidence[2].Snippet = "cls = REGISTRY"
+
+	compiled := CompileDynamicSelectorResolutionPaths(evidence, "run_pipeline")
+	if len(compiled.Candidates) != 0 || len(compiled.Rejected) != 1 || compiled.Rejected[0].Reason != DynamicSelectorRejectLookupUnavailable {
+		t.Fatalf("whole-container assignment must not masquerade as selector lookup: %+v", compiled)
 	}
 }
 

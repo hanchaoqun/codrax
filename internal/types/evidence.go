@@ -74,6 +74,17 @@ const (
 	// bridge, diagram edge, runtime target, or answer conclusion.
 	EvidenceProducerRepoMapSelectedCallableBodyCall = "repomap_selected_callable_body_call"
 	EvidenceProducerRepoMapDecoratorApplication     = "repomap_decorator_application"
+	// EvidenceProducerRepoMapDynamicSelectorAssignment marks one exact simple
+	// assignment recovered from a parser-owned assignment line inside an
+	// already-read callable. It remains an assignment fact; consumers must not
+	// relabel it as registration or runtime selection merely because it occurs
+	// near a decorator/selector implementation.
+	EvidenceProducerRepoMapDynamicSelectorAssignment = "repomap_dynamic_selector_assignment"
+	// EvidenceProducerRepoMapDynamicSelectorArgument marks one parser-enumerated
+	// complete argument of an already-grounded direct call on the same source
+	// line. It proves argument -> receiver transfer only, never callee-side use
+	// or equality with a selector literal.
+	EvidenceProducerRepoMapDynamicSelectorArgument = "repomap_dynamic_selector_argument"
 	// EvidenceProducerAutoPairRoleDescription marks a doc-comment companion
 	// emitted beside one grounded definition. It carries role/WHAT context but
 	// is not a second declaration identity and must not make a unique-definition

@@ -3053,7 +3053,7 @@ func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext,
 	}
 	var b strings.Builder
 	b.WriteString("### Typed dynamic-selection candidates (soft context; model-owned)\n\n")
-	b.WriteString("Each candidate below is an exact static-evidence composition, not proof of the runtime-selected implementation. Preserve every hop's stated relation; do not replace registration, argument flow, assignment, return, callback, or type relation with a direct call.\n\n")
+	b.WriteString("Each candidate below is an exact static-evidence composition, not proof of the runtime-selected implementation. Preserve every hop's stated relation; a selector-side binding may remain an assignment rather than a registration edge. Do not replace registration, argument flow, assignment, return, callback, or type relation with a direct call.\n\n")
 	for i := 0; i < limit; i++ {
 		path := compiled.Candidates[i]
 		fmt.Fprintf(&b, "- candidate `%d`: entry=`%s`; selector_argument=`%s`; selector_literal=`%s`; registry_container=`%s`; lookup=`%s`; declared_candidate=`%s`\n",

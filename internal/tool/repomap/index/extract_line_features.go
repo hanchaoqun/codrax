@@ -61,7 +61,7 @@ func extractLineFeatures(root *sitter.Node, src []byte) map[int][]types.LineFeat
 //   - throw_statement (Java/JS/TS) → LineFeatureThrowStmt
 //   - call_expression / method_invocation → LineFeatureCallExpression
 //   - new_expression / object_creation_expression → LineFeatureNewExpression
-//   - assignment_statement / assignment_expression / short_var_declaration
+//   - assignment / assignment_statement / assignment_expression / short_var_declaration
 //     / variable_declarator / init_declarator / let_declaration
 //     / property_declaration → LineFeatureAssignment
 //   - keyed_element / pair / field_initializer / initializer_pair
@@ -111,7 +111,8 @@ func walkLineFeatures(node *sitter.Node, src []byte, add func(int, types.LineFea
 		}
 	case "new_expression", "object_creation_expression":
 		add(line, types.LineFeatureNewExpression)
-	case "assignment_statement", "assignment_expression",
+	case "assignment", // Python and Ruby grammars
+		"assignment_statement", "assignment_expression",
 		"augmented_assignment",
 		"short_var_declaration",
 		"variable_declarator", "init_declarator",

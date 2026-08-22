@@ -38,6 +38,55 @@ func TestAssignmentEvidenceEndpointsMatchCrossLanguageSimpleTransfers(t *testing
 	}
 }
 
+func TestIndexedAssignmentEvidenceEndpointsPreserveKeyedWriteAndReadWithoutChangingGeneralGate(t *testing.T) {
+	write := EvidenceItem{AnchorKind: AnchorAssignment, Snippet: "REGISTRY[name] = cls"}
+	receiver, container, value, ok := IndexedAssignmentEvidenceEndpoints(write)
+	if !ok || receiver != "REGISTRY[name]" || container != "REGISTRY" || value != "cls" {
+		t.Fatalf("unexpected indexed write parse: receiver=%q container=%q value=%q ok=%v", receiver, container, value, ok)
+	}
+	write.Subject, write.Object = receiver, value
+	if !IndexedAssignmentEvidenceEndpointsMatch(write) {
+		t.Fatalf("exact indexed source tuple must match its structured row: %+v", write)
+	}
+	containerOnly := write
+	containerOnly.Subject = container
+	if IndexedAssignmentEvidenceEndpointsMatch(containerOnly) {
+		t.Fatalf("container-only model endpoint must not masquerade as the exact indexed source tuple: %+v", containerOnly)
+	}
+	if _, _, ok := AssignmentEvidenceEndpoints(write); ok {
+		t.Fatal("the general relation gate must continue rejecting indexed receivers")
+	}
+
+	read := EvidenceItem{AnchorKind: AnchorAssignment, Snippet: "cls = REGISTRY[name]"}
+	if container, ok := IndexedAssignmentValueContainer(read); !ok || container != "REGISTRY" {
+		t.Fatalf("unexpected indexed read container: container=%q ok=%v", container, ok)
+	}
+	if receiver, value, ok := AssignmentEvidenceEndpoints(read); !ok || receiver != "cls" || value != "REGISTRY" {
+		t.Fatalf("ordinary assignment endpoints changed: receiver=%q value=%q ok=%v", receiver, value, ok)
+	}
+}
+
+func TestIndexedAssignmentEvidenceEndpointsRejectAmbiguousAndNonIndexedShapes(t *testing.T) {
+	for _, snippet := range []string{
+		"target = value",
+		"REGISTRY[name] = first = second",
+		"REGISTRY[name] += cls",
+		"REGISTRY[] = cls",
+		"REGISTRY[name] = true",
+	} {
+		item := EvidenceItem{AnchorKind: AnchorAssignment, Snippet: snippet}
+		if receiver, container, value, ok := IndexedAssignmentEvidenceEndpoints(item); ok {
+			t.Fatalf("unsupported indexed write %q parsed as receiver=%q container=%q value=%q", snippet, receiver, container, value)
+		}
+	}
+	for _, snippet := range []string{"cls = REGISTRY", "cls = REGISTRY[name] + fallback", "cls = FIRST[name] = SECOND[name]"} {
+		item := EvidenceItem{AnchorKind: AnchorAssignment, Snippet: snippet}
+		if container, ok := IndexedAssignmentValueContainer(item); ok {
+			t.Fatalf("unsupported indexed read %q parsed as container=%q", snippet, container)
+		}
+	}
+}
+
 func TestAssignmentEvidenceEndpointsQualifiesParserStampedInitializerContainer(t *testing.T) {
 	item := EvidenceItem{
 		AnchorKind: AnchorInitializer, InitializerContainer: "AgentContext",

@@ -48,6 +48,118 @@ func AssignmentEvidenceEndpoints(item EvidenceItem) (receiver, value string, ok 
 	return receiver, value, true
 }
 
+// IndexedAssignmentEvidenceEndpoints returns one exact indexed receiver, its
+// keyed container, and the canonical assigned value from a simple assignment
+// such as `REGISTRY[name] = cls`. Ordinary AssignmentEvidenceEndpoints
+// deliberately rejects indexed receivers because they are not plain code
+// identities; this companion preserves the source receiver for selector/map
+// binding analysis without weakening the general assignment relation gate.
+//
+// The helper is syntax-only. It does not call the assignment a registration,
+// interpret the index expression, or equate a later lookup with this write.
+func IndexedAssignmentEvidenceEndpoints(item EvidenceItem) (receiver, container, value string, ok bool) {
+	if item.AnchorKind != AnchorAssignment {
+		return "", "", "", false
+	}
+	lhs, rhs, ok := assignmentEvidenceSourceSides(item)
+	if !ok {
+		return "", "", "", false
+	}
+	value, ok = assignmentPrimaryValueSurface(rhs)
+	if !ok {
+		return "", "", "", false
+	}
+	receiver, container, ok = assignmentIndexedReceiverSurface(lhs)
+	if !ok {
+		return "", "", "", false
+	}
+	return receiver, container, value, true
+}
+
+// IndexedAssignmentValueContainer returns the keyed container read by the RHS
+// of one simple assignment such as `cls = REGISTRY[name]`. The ordinary
+// assignment endpoint remains the canonical container identity (`REGISTRY`);
+// this helper only preserves the source fact that the value came through an
+// indexed lookup. It does not interpret the index or join the read to a write.
+func IndexedAssignmentValueContainer(item EvidenceItem) (container string, ok bool) {
+	if item.AnchorKind != AnchorAssignment {
+		return "", false
+	}
+	_, rhs, ok := assignmentEvidenceSourceSides(item)
+	if !ok {
+		return "", false
+	}
+	canonical, ok := assignmentPrimaryValueSurface(rhs)
+	if !ok {
+		return "", false
+	}
+	_, container, ok = assignmentIndexedReceiverSurface(rhs)
+	if !ok || !AnswerCodeIdentitySurfacesEquivalent(container, canonical) {
+		return "", false
+	}
+	return container, true
+}
+
+// IndexedAssignmentEvidenceEndpointsMatch reports whether the structured row
+// preserves the exact indexed receiver and assigned value parsed from source.
+// The container-only projection is intentionally not accepted here; only a
+// downstream renderer that explicitly understands indexed assignments may
+// display that parser-derived container as a shorter endpoint.
+func IndexedAssignmentEvidenceEndpointsMatch(item EvidenceItem) bool {
+	receiver, _, value, ok := IndexedAssignmentEvidenceEndpoints(item)
+	return ok && strings.TrimSpace(item.Subject) == receiver &&
+		assignmentEvidenceEndpointCompatible(item.Object, value)
+}
+
+func assignmentIndexedReceiverSurface(lhs string) (receiver, container string, ok bool) {
+	lhs = strings.TrimSpace(strings.Trim(lhs, "{}();"))
+	if lhs == "" || assignmentHasTopLevelComma(lhs) || !strings.HasSuffix(lhs, "]") {
+		return "", "", false
+	}
+	open := strings.IndexByte(lhs, '[')
+	if open <= 0 || strings.TrimSpace(lhs[open+1:len(lhs)-1]) == "" {
+		return "", "", false
+	}
+	container = strings.TrimSpace(lhs[:open])
+	if !IsCodeIdentitySurface(container) {
+		return "", "", false
+	}
+	depth := 0
+	quote := byte(0)
+	escaped := false
+	for i := open; i < len(lhs); i++ {
+		ch := lhs[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			quote = ch
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 && i != len(lhs)-1 {
+				return "", "", false
+			}
+			if depth < 0 {
+				return "", "", false
+			}
+		}
+	}
+	if depth != 0 || quote != 0 {
+		return "", "", false
+	}
+	return lhs, container, true
+}
+
 // AssignmentNavigationReceiverCandidates returns the exact receiver surfaces
 // written by one simple assignment/initializer source line.  Unlike
 // AssignmentEvidenceEndpoints it may return every receiver of a tuple/multi-

@@ -199,16 +199,31 @@ func CompileDynamicSelectorResolutionPaths(evidence []EvidenceItem, entryIdentit
 func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app EvidenceItem, requestedEntry string) (DynamicSelectorResolutionPath, DynamicSelectorResolutionRejectionReason, []string) {
 	selector := app.SelectorApplication
 	appID := dynamicSelectorEvidenceID(app)
-	ownerKey := AnswerCodeIdentitySurfaceKey(selector.Owner)
 
 	var bindings []dynamicSelectorBindingCandidate
 	for _, item := range evidence {
-		if !item.IsCitable() || ClaimFormOf(item) != ClaimRegistrationEdge ||
-			AnswerCodeIdentitySurfaceKey(item.OwnerSymbol) != ownerKey {
+		if !item.IsCitable() || !dynamicSelectorIdentityEquivalent(item.OwnerSymbol, selector.Owner) {
 			continue
 		}
-		container := dynamicSelectorContainerIdentity(item.Subject)
-		value := dynamicSelectorValueIdentity(item.Object)
+		var container, value string
+		switch ClaimFormOf(item) {
+		case ClaimRegistrationEdge:
+			container = dynamicSelectorContainerIdentity(item.Subject)
+			value = dynamicSelectorValueIdentity(item.Object)
+		case ClaimAssignmentFact:
+			_, indexedContainer, assigned, ok := IndexedAssignmentEvidenceEndpoints(item)
+			if !ok {
+				continue
+			}
+			// An ordinary property/local assignment inside a selector helper
+			// is not a selector binding. The exact indexed receiver is the
+			// minimum source fact that supplies a keyed container without
+			// upgrading assignment semantics to registration.
+			container = dynamicSelectorValueIdentity(indexedContainer)
+			value = dynamicSelectorValueIdentity(assigned)
+		default:
+			continue
+		}
 		if container == "" || value == "" {
 			continue
 		}
@@ -228,16 +243,17 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimAssignmentFact || !AssignmentEvidenceEndpointsMatch(item) {
 			continue
 		}
-		receiver, value, ok := AssignmentEvidenceEndpoints(item)
-		if !ok || !dynamicSelectorIdentityEquivalent(receiver, bindingRow.value) ||
-			AnswerCodeIdentitySurfaceKey(dynamicSelectorContainerIdentity(value)) != bindingRow.containerKey {
+		receiver, _, ok := AssignmentEvidenceEndpoints(item)
+		indexedContainer, indexed := IndexedAssignmentValueContainer(item)
+		if !ok || !indexed || !dynamicSelectorIdentityEquivalent(receiver, bindingRow.value) ||
+			AnswerCodeIdentitySurfaceKey(indexedContainer) != bindingRow.containerKey {
 			continue
 		}
 		owner := strings.TrimSpace(item.OwnerSymbol)
 		if AnswerCodeIdentitySurfaceKey(owner) == "" {
 			continue
 		}
-		lookups = append(lookups, dynamicSelectorLookupCandidate{item: item, owner: owner, receiver: receiver, container: dynamicSelectorContainerIdentity(value)})
+		lookups = append(lookups, dynamicSelectorLookupCandidate{item: item, owner: owner, receiver: receiver, container: indexedContainer})
 	}
 	lookups = uniqueDynamicSelectorLookups(lookups)
 	if len(lookups) == 0 {
@@ -327,7 +343,7 @@ func compileOneDynamicSelectorResolutionPath(evidence []EvidenceItem, app Eviden
 			dynamicSelectorHop(DynamicSelectorHopEntryCall, DiagramRelCall, entry.item, entry.from, lookupRow.owner),
 			dynamicSelectorHop(DynamicSelectorHopSelectorArgument, DiagramRelArgumentFlow, argument.item, argument.argument, lookupRow.owner),
 			dynamicSelectorHop(DynamicSelectorHopSelectorApplication, DiagramRelUnknown, app, strings.TrimSpace(selector.Owner), strings.TrimSpace(app.Object)),
-			dynamicSelectorHop(DynamicSelectorHopRegistration, DiagramRelRegister, bindingRow.item, bindingRow.container, bindingRow.value),
+			dynamicSelectorHop(DynamicSelectorHopRegistration, dynamicSelectorBindingRelationKind(bindingRow.item), bindingRow.item, bindingRow.container, bindingRow.value),
 			dynamicSelectorHop(DynamicSelectorHopLookupAssignment, DiagramRelAssignment, lookupRow.item, lookupRow.container, lookupRow.receiver),
 			dynamicSelectorHop(DynamicSelectorHopFactoryReturn, DiagramRelReturn, returnRow.item, lookupRow.owner, returnRow.expression),
 		},
@@ -413,6 +429,13 @@ func dynamicSelectorContainerIdentity(raw string) string {
 		raw = strings.TrimSpace(raw[:idx])
 	}
 	return dynamicSelectorValueIdentity(raw)
+}
+
+func dynamicSelectorBindingRelationKind(item EvidenceItem) DiagramRelationKind {
+	if ClaimFormOf(item) == ClaimAssignmentFact {
+		return DiagramRelAssignment
+	}
+	return DiagramRelRegister
 }
 
 func dynamicSelectorValueIdentity(raw string) string {

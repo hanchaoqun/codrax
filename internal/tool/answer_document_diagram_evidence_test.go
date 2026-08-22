@@ -2905,6 +2905,40 @@ func TestDiagramCallEdgeEvidenceMismatches_ValueFlowRequiresSameDirectionTypedEv
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_IndexedAssignmentUsesParserContainerWithoutRelabelingRegistration(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "selector-binding", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n  R[REGISTRY] --> C[cls]\n",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "R", ToNode: "C", RelationKind: types.DiagramRelAssignment,
+		}},
+	}}}
+	view := &types.AnswerSemanticView{Family: types.QFCallChain}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceConcrete, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorAssignment, Subject: "REGISTRY[name]", Object: "cls",
+		OwnerSymbol: "register", Source: "pipeline/registry.py", LineStart: 17,
+		GroundingStatus: types.GroundingGrounded, Snippet: "REGISTRY[name] = cls",
+	}}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 0 {
+		t.Fatalf("parser-proved indexed assignment container must authorize only the assignment view: %+v", got)
+	}
+	doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelRegister
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramRegistrationEdgeIssueNoEvidence {
+		t.Fatalf("indexed assignment must not be relabeled as registration authority: %+v", got)
+	}
+	doc.Blocks[0].EdgeAnchors[0].RelationKind = types.DiagramRelAssignment
+	doc.Blocks[0].Diagram.Body = "flowchart LR\n  C[cls] --> R[REGISTRY]\n"
+	doc.Blocks[0].EdgeAnchors[0].FromNode = "C"
+	doc.Blocks[0].EdgeAnchors[0].ToNode = "R"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, view, evidence); len(got) != 1 || got[0].Issue != diagramAssignmentEdgeIssueNoEvidence {
+		t.Fatalf("reverse indexed assignment must fail closed: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_DataFlowUsesExactRHSIntoLHSDirection(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "data-flow", Kind: types.BlockDiagram,
