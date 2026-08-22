@@ -660,18 +660,40 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 	// Production investigators may independently ground the same source write
 	// as a registration relation. It must corroborate, not conflict with, the
 	// deterministic assignment row at the identical source occurrence.
-	all = append(all, types.EvidenceItem{
+	registration := types.EvidenceItem{
 		ID: "E-grounded-register", Kind: types.EvidenceRegistration, Subject: "REGISTRY", Predicate: "binds", Object: "cls",
 		OwnerSymbol: "register", Source: "pipeline/registry.py", LineStart: 17, LineEnd: 17, Scope: types.ScopeLine,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "REGISTRY", Snippet: "REGISTRY[name] = cls", GroundingStatus: types.GroundingGrounded,
-	})
+	}
+	all = append(all, registration)
 	compiled := types.CompileDynamicSelectorResolutionPaths(all, "run_pipeline")
 	if len(compiled.Candidates) != 2 || len(compiled.Rejected) != 0 {
 		t.Fatalf("csv/json decorator applications should each retain one complete static candidate: compiled=%+v\nregistry=%+v\nevidence=%+v\nmarkdown=%s", compiled, graph.FileIndex["pipeline/registry.py"], got.evidence, got.markdown)
 	}
+	// A model may accurately cite the return line while describing its value in
+	// reader-facing semantic words (for example "JsonPlugin instance"). The
+	// parser-owned exact carrier must still retain `cls()` for downstream typed
+	// compilation; otherwise free-form wording silently erases a precise source
+	// fact at the same revision coordinate.
+	semanticReturn := types.EvidenceItem{
+		ID: "E-semantic-return", Kind: types.EvidenceDirect, Subject: "resolve", Predicate: "returns",
+		Object: "JsonPlugin instance", OwnerSymbol: "resolve", Source: "pipeline/registry.py",
+		LineStart: 34, LineEnd: 34, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn,
+		AnchorSymbol: "resolve", Snippet: "return cls()", GroundingStatus: types.GroundingGrounded,
+		GroundingTier: types.TierLineText, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}
+	semanticFirst := mergeEvidenceItems(append(eval.structuredEvidence, semanticReturn), got.evidence, []types.EvidenceItem{registration})
+	semanticCompiled := types.CompileDynamicSelectorResolutionPaths(semanticFirst, "run_pipeline")
+	if len(semanticCompiled.Candidates) != 2 || len(semanticCompiled.Rejected) != 0 {
+		t.Fatalf("semantic model wording must not erase parser-owned exact return carrier: compiled=%+v evidence=%+v", semanticCompiled, semanticFirst)
+	}
 	producerCounts := map[string]int{}
 	for _, item := range got.evidence {
 		producerCounts[item.Producer]++
+		if item.Producer == types.EvidenceProducerRepoMapDynamicSelectorReturn &&
+			(item.Object != "cls()" || item.GroundingStatus != types.GroundingGrounded || item.GroundingTier != types.TierLineText) {
+			t.Fatalf("parser-owned return carrier must preserve exact expression and line authority: %+v", item)
+		}
 	}
 	if producerCounts[types.EvidenceProducerRepoMapDynamicSelectorAssignment] != 2 ||
 		producerCounts[types.EvidenceProducerRepoMapDynamicSelectorReturn] != 1 ||
@@ -772,11 +794,17 @@ func TestRuntimeTargetExactReturnExpression_CrossLanguageExplicitReturns(t *test
 	}{
 		{name: "python", lang: "python", raw: "return cls()", want: "cls()"},
 		{name: "go", lang: "go", raw: "return newHandler()", want: "newHandler()"},
+		{name: "javascript", lang: "javascript", raw: "return Handler.create();", want: "Handler.create()"},
+		{name: "typescript", lang: "typescript", raw: "return Handler.create();", want: "Handler.create()"},
 		{name: "java", lang: "java", raw: "return new Handler();", want: "new Handler()"},
+		{name: "kotlin", lang: "kotlin", raw: "return Handler()", want: "Handler()"},
 		{name: "arkts", lang: "arkts", raw: "return Handler.create();", want: "Handler.create()"},
 		{name: "cangjie", lang: "cangjie", raw: "return Handler()", want: "Handler()"},
 		{name: "rust", lang: "rust", raw: "return Handler::new();", want: "Handler::new()"},
+		{name: "c", lang: "c", raw: "return make_handler();", want: "make_handler()"},
 		{name: "swift", lang: "swift", raw: "return Handler()", want: "Handler()"},
+		{name: "ruby", lang: "ruby", raw: "return Handler.new", want: "Handler.new"},
+		{name: "lua", lang: "lua", raw: "return Handler.new()", want: "Handler.new()"},
 		{name: "cpp inline", lang: "cpp", raw: "if (ready) { return make_handler(); }", want: "make_handler()"},
 	}
 	for _, tt := range tests {

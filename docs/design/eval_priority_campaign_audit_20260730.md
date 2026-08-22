@@ -57599,6 +57599,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1335=confirmed/P1/next`；
 `r855=runner-2-of-2-pass/manual-trace-uncertain/manual-python-uncertain`。
 
+### §123.1398 B1335：解析器精确返回载体不再被同坐标模型释义覆盖（2026-08-22）
+
+1. `B1335-DYNAMICRETURNCARRIER1/P1` 已施工。先红回归复现生产根因：同一
+   `pipeline/registry.py:34 return cls()` 上，模型可正确引用源码但把 Object 写成读者语义“JsonPlugin instance”；旧合并器因模型行已是
+   `grounded`、deterministic return 行仍为空 grounding，把 parser 精确 `cls()` 覆盖掉，compiler 随后稳定报
+   `return_unavailable`。因此 r855 中 producer 并非没有运行，精确载体是在合并阶段丢失。
+2. 根修不解析模型 prose。`repomap_dynamic_selector_return` 仍须满足原三重精确条件：解析器拥有 return node；对应单行在 read closure
+   内或由同坐标可引用证据授权；源码表达式完整且括号/引号平衡。满足后，该 parser-owned row 在进入合并前携带
+   `grounded + line_text`，明确其精确 triple 是同一源码行的结构事实。这样同坐标自然语言释义仍保留摘要价值，但不能覆盖
+   Subject/Predicate/Object/Owner/Snippet 的精确 carrier。
+3. 权限边界不变：`return cls()` 只发布 `resolve --return--> cls()`，不证明 `cls` 此次就是 JsonPlugin，不创建
+   `run_pipeline → JsonPlugin` 直接调用，不选择 selector literal、候选类、图边、业务 wording、布局或最终结论。运行时实现选择仍由模型根据完整
+   candidate alternatives 与 grounded argument/runtime evidence 决定。
+4. 回归钉住生产合并序：先放一个 line-text grounded、Object 为“JsonPlugin instance”的模型 return，再合并 parser 精确 return；最终
+   `CompileDynamicSelectorResolutionPaths` 必须得到 csv/json 两个完整 candidate 且零 rejection。producer 本身另钉 exact `cls()`、
+   `grounded`、`line_text` 三字段，防止未来又退回“legacy deterministic 空等级”而被覆盖。
+5. 单行 return 表达式合同覆盖所有支持执行式 return 的读模式语言：Go、Python、JavaScript、TypeScript、Java、Kotlin、Rust、C、C++、
+   Ruby、Swift、Lua、ArkTS、Cangjie；Proto 没有函数 return 语义，不伪造适配。`DynamicSelectorResolutionPathVersion` 2→3，禁止暖态消费者
+   把新合并语义当旧载体复用。
+6. 定向先红后绿；`go test ./internal/types ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make`
+   与 `git diff --check` 全绿。下一步从本提交构建不可变二进制，严格并发恰好 2 路执行 r856 Python+显式窗 Trace，验收
+   `candidates>0`、B1334 candidate 焦点真实触发、图不再退化为异常边，同时守住 Trace 因果投影和链上/背景分层。
+
+状态：
+
+`B1335=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`dynamic-selector-path-version=3`；
+`exact-parser-return=grounded-line-text-before-merge`；
+`semantic-model-paraphrase=may-enrich-summary/cannot-erase-exact-return-triple`；
+`system-runtime-selection/edge/action/wording/layout/conclusion=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

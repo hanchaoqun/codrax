@@ -15366,6 +15366,15 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 					AnchorSymbol: owner,
 					OwnerSymbol:  owner,
 					Snippet:      raw,
+					// This row is not an ungrounded model assertion: the parser
+					// proved the return node, the exact source line was admitted by
+					// the read/evidence closure above, and the expression was
+					// extracted from that same line. Stamp that authority before
+					// merging so a reader-facing paraphrase at the same coordinate
+					// cannot erase the exact typed expression needed downstream.
+					GroundingStatus: types.GroundingGrounded,
+					GroundingTier:   types.TierLineText,
+					GroundingNote:   "parser-owned return expression verified at an exact admitted source line",
 				}
 				item.ID = types.StableEvidenceID(item)
 				key := item.ID + "\x00" + source + "\x00" + strconv.Itoa(line)

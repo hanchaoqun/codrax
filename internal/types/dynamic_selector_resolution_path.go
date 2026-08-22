@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const DynamicSelectorResolutionPathVersion = 2
+const DynamicSelectorResolutionPathVersion = 3
 
 type EvidenceSelectorApplication struct {
 	Owner   string `json:"owner"`
