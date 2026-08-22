@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1409 r860：Trace 零回归；原子事务回滚重放与删边后孤点能力缺口导致十一拒绝（2026-08-22）
+
+1. 从已推送 `29e789ec8` 重建不可变二进制，严格并发恰好 2 路复放 Python 关系图与显式窗 Trace。Trace runner PASS
+   210s、finalizer reject=0；Python runner FAIL 375s、finalizer reject=11、patch=10，最终触发
+   `answer_document_retry_state_recovered` 并回退到陈腐结构化草稿。活动流未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级。
+2. Trace 人工验收通过：请求主窗仍是 2.000000..2.020000s，typed 唤醒链
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 完整；11.000ms 链上 iowait 为第一席，三个彼此独立的
+   1.000ms 调度/优先级候选未丢；实际占时与规则可消双账户、业务下钻、链旁/背景隔离和完整 `Trace 因果投影` 均在。模型把
+   fscache 调用点与唤醒先后写成“直接延迟整链”的措辞仍是软观察，不以正文扫描拒绝或改写模型结论。
+3. B1339 的精确候选生产继续生效：首稿 `Caller -> Factory` 与 `Caller -> Thread` 都拿到模型已选 claim form 对应的 typed
+   call candidate；本轮失败不是 B1340/B1341/B1342 回归。B1341 未自然触发，因为本例是 sequence diagram，不是内联 shaped-node
+   flowchart carrier；B1342 的 failure+addition 双 ref 传输别名也未自然触发。
+4. 新 P1 `B1343-POSTEDITORPHANCAPABILITY1` 已确认。模型同一原子事务删除 `Factory -> Registry` 后，`Registry` 才成为孤立
+   participant；lease 的 `optional_orphan_cleanups` 仅从旧图/旧失败面预铸，没有该行。系统即使能从精确 post-edit 图证明该声明唯一、零 incident
+   relation、无 note/lifecycle/typed-boundary 等非边引用，仍以“不在 roster”硬拒模型明确选择的 `remove_if_isolated`。最优形不是系统自动删节点，
+   而是允许模型显式选择同块 post-edit orphan：唯一声明、零可见/typed edge、零非边引用、非 protected participant 且 action 仅
+   `remove_if_isolated` 时执行；任何歧义、仍有引用或未选择都 fail-closed。
+5. 新 P1 `B1344-ATOMICROLLBACKREPAIRREPLAY1` 已确认，且是本轮重试放大的主因。一个含两条 replace、三条 remove 和参与者处置的
+   原子 patch 因其中一个 participant 仍有 incident edge 整体失败；系统事务性不落半批是正确红线，但返回提示只说单点 executor error，未明确
+   “本次所有操作均已回滚，下一轮必须在同一调用重发完整 relation delta”。模型随后只修 participant，误以为删边已经生效，于是旧图上必然再次失败；
+   后续又在 whole-block lease 禁令、陈腐孤点 roster 与 incident participant 之间循环，直至十一拒绝降级。
+6. 施工顺序冻结为两个可独立回退的批次：先做 B1344，在任何 live relation lease 的原子执行失败上重发同代完整 typed delta，并明确整个事务
+   未提交、下一次须重发全部仍需操作；failure/addition/orphan refs 与 generation 保持不变，系统不替模型选择。再做 B1343，只扩展由同次模型删边
+   精确导出的安全孤点处置能力，并复用 participant liveness/protected-boundary 判定。两批都覆盖 flowchart/sequence/class 与多语言，不读取用户请求、
+   模型正文、最终答案或 Mermaid message/label 猜关系。
+
+状态：
+
+`r860=runner-trace-pass+python-fail,human-trace-pass+python-fail`；
+`B1339=production-positive-r860`；
+`B1340/B1341/B1342=no-natural-trigger-r860`；
+`B1343=confirmed/P1-after-B1344`；
+`B1344=confirmed/P1-next`；
+`atomic-failure=whole-transaction-rollback-correct+full-replay-instruction-missing`；
+`post-edit-orphan=model-choice-required/system-auto-delete-forbidden`；
+`system-edge/action/participant/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r860`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r860`。
+
 ### §123.1408 B1341：原子删边/换边保留模型原写业务节点声明，不保留被删关系（2026-08-22）
 
 1. `B1341-DIAGRAMEDGEREMOVENODECARRIER1/P1` 已施工。Mermaid flowchart/graph 的一个 edge statement 若同时承载 shaped node declaration，
