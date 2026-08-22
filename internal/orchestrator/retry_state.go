@@ -251,8 +251,9 @@ func summarizeAnswerDocV2ForRetry(doc *types.AnswerDocumentV2) types.RetryStateS
 		return types.RetryStateSummary{}
 	}
 	out := types.RetryStateSummary{
-		CitationsCount:     len(doc.Citations),
-		HasExactResolution: doc.ExactResolution != nil,
+		CitationsCount:         len(doc.Citations),
+		HasExactResolution:     doc.ExactResolution != nil,
+		BlockCompanionLineages: types.NormalizeAnswerBlockCompanionLineages(doc.BlockCompanionLineages),
 	}
 	if len(doc.Citations) > 0 {
 		// Top-N (cap 8) verbatim file paths so the LLM can

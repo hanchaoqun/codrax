@@ -843,8 +843,13 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 			ParticipantBoundaries:  b.ParticipantBoundaries,
 			RequestedRelationScope: b.RequestedRelationScope,
 		}
+		lineage := types.AnswerBlockCompanionLineage{
+			Kind:           types.AnswerBlockCompanionLineageFusedDiagramSplit,
+			VisibleBlockID: strings.TrimSpace(b.ID),
+			DiagramBlockID: diagramHalf.ID,
+		}
 		out = append(out,
-			splitEmitBlockEntry{raw: visible, modelIndex: i},
+			splitEmitBlockEntry{raw: visible, modelIndex: i, companionLineage: &lineage},
 			splitEmitBlockEntry{raw: diagramHalf, modelIndex: i})
 		split++
 	}
@@ -864,8 +869,9 @@ func splitFusedDiagramBlockEntries(logLabel string, entries []splitEmitBlockEntr
 // system-shifted and point retry hints at the wrong block of the
 // model's emission.
 type splitEmitBlockEntry struct {
-	raw        emitAnswerBlockV2
-	modelIndex int
+	raw              emitAnswerBlockV2
+	modelIndex       int
+	companionLineage *types.AnswerBlockCompanionLineage
 }
 
 // fusedSeen records one processed fused entry for the duplicate memo.
@@ -1043,6 +1049,16 @@ func peekSplitDiagramBlockID(baseID string, used map[string]bool) string {
 // must never fabricate a cap reject for a patch whose merged count
 // was within the cap as the model emitted it.
 func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.AnswerDocumentV2, removeIDs, unchangedIDs []string, replaceBlocks, addBlocks []emitAnswerBlockV2) ([]emitAnswerBlockV2, []emitAnswerBlockV2) {
+	replace, add, _ := splitFusedDiagramPatchBlocksWithLineage(logLabel, budget, prev, removeIDs, unchangedIDs, replaceBlocks, addBlocks)
+	return replace, add
+}
+
+// splitFusedDiagramPatchBlocksWithLineage is the production companion to the
+// compatibility wrapper above. It additionally returns exact provenance for
+// every fresh split pair. Refreshes of an existing diagram half do not mint
+// provenance: they retain the previous document's typed lineage when one
+// exists and never infer ownership from an id suffix alone.
+func splitFusedDiagramPatchBlocksWithLineage(logLabel string, budget int, prev *types.AnswerDocumentV2, removeIDs, unchangedIDs []string, replaceBlocks, addBlocks []emitAnswerBlockV2) ([]emitAnswerBlockV2, []emitAnswerBlockV2, []types.AnswerBlockCompanionLineage) {
 	fused := 0
 	for _, b := range replaceBlocks {
 		if isFusedDiagramBlock(b) {
@@ -1055,7 +1071,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 		}
 	}
 	if fused == 0 {
-		return replaceBlocks, addBlocks
+		return replaceBlocks, addBlocks, nil
 	}
 	used := make(map[string]bool, len(replaceBlocks)+len(addBlocks)+fused)
 	for _, b := range replaceBlocks {
@@ -1090,6 +1106,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 	outReplace := make([]emitAnswerBlockV2, 0, len(replaceBlocks))
 	outAdd := make([]emitAnswerBlockV2, 0, len(addBlocks)+fused)
 	systemHalves := make([]emitAnswerBlockV2, 0, fused)
+	newLineages := make([]types.AnswerBlockCompanionLineage, 0, fused)
 	// Duplicates get identical treatment: the downstream
 	// identical-duplicate tolerance (normalizePatchBlockList) can only
 	// absorb a model stutter-emit when both copies stay dedup-equal
@@ -1168,6 +1185,11 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 			refreshes++
 		} else {
 			split++
+			newLineages = append(newLineages, types.AnswerBlockCompanionLineage{
+				Kind:           types.AnswerBlockCompanionLineageFusedDiagramSplit,
+				VisibleBlockID: strings.TrimSpace(b.ID),
+				DiagramBlockID: target,
+			})
 		}
 		seen = append(seen, fusedSeen{raw: b, canonical: canonical, canonicalOK: canonicalOK, didSplit: true})
 		return &emitAnswerBlockV2{
@@ -1218,7 +1240,7 @@ func splitFusedDiagramPatchBlocks(logLabel string, budget int, prev *types.Answe
 	if skipped := fused - split - refreshes - dupsOfSplit; skipped > 0 {
 		logging.Warning("[%s] %d fused diagram block(s) in patch ops passed through unsplit (no headroom under the %d-block cap, or derived-id suffix space exhausted): discriminator repair keeps the diagram and drops the rows (lossy accept) instead of fabricating a reject", logLabel, skipped, maxBlocksPerDoc)
 	}
-	return outReplace, outAdd
+	return outReplace, outAdd, types.NormalizeAnswerBlockCompanionLineages(newLineages)
 }
 
 // fusedPatchSplitBudget projects the MERGED document's block count

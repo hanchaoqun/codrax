@@ -3981,6 +3981,9 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 	if len(in.Snippets) > 0 {
 		out.Snippets = append([]CodeSnippet(nil), in.Snippets...)
 	}
+	if len(in.BlockCompanionLineages) > 0 {
+		out.BlockCompanionLineages = append([]AnswerBlockCompanionLineage(nil), in.BlockCompanionLineages...)
+	}
 	if len(in.ReadOwnerAnchors) > 0 {
 		out.ReadOwnerAnchors = NormalizeOwnerAnchorView(OwnerAnchorView{Items: in.ReadOwnerAnchors}, 0).Items
 	}

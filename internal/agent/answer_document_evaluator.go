@@ -2663,6 +2663,14 @@ func renderRetryPrevEmit(rs *types.RetryState) string {
 	if rs.PrevEmitSummary.HasExactResolution {
 		out.WriteString("exact_resolution: present (preserve byte-identical)\n\n")
 	}
+	if len(rs.PrevEmitSummary.BlockCompanionLineages) > 0 {
+		out.WriteString("Compatibility split companions (both are model-visible; if removing one, explicitly retain, replace, or remove the other in the same patch):\n")
+		for _, lineage := range types.NormalizeAnswerBlockCompanionLineages(rs.PrevEmitSummary.BlockCompanionLineages) {
+			fmt.Fprintf(&out, "  - visible=%q diagram=%q lineage=%s\n",
+				lineage.VisibleBlockID, lineage.DiagramBlockID, lineage.Kind)
+		}
+		out.WriteString("\n")
+	}
 	return out.String()
 }
 

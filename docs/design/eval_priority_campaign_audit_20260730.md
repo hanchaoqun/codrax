@@ -57401,6 +57401,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r867`。
 
+### §123.1420 B1352：融合块拆分谱系与双半显式处置（2026-08-22）
+
+1. `B1352-FUSEDDIAGRAMCOMPANION1/P1` 已施工。根因不是“空标题”文字本身，而是兼容 splitter 将一个模型融合块无损拆为可见正文半与 diagram
+   半后，持久化文档没有记录两者来自同一模型载体；后续 patch 只知道两个普通 block id。模型删除 diagram 半时，既有 patch 语义会隐式保留未提及的
+   正文半，工具又没有同伴清单可提示，于是空标题或重复章节可以合法残留。
+2. 新 `AnswerBlockCompanionLineage` 只由确实执行过的 lossless fused split 铸造，精确记录
+   `kind=fused_diagram_split + visible_block_id + diagram_block_id`。全量 emit 与 patch 内新拆分均接线；MutableState 防御拷贝、retry canonical JSON 与
+   RetryStateSummary 均保留该谱系。刷新已有 diagram half 时不根据 `_diagram` 后缀猜 provenance；没有既存 typed lineage 的旧/巧合同名块不会被反向确权。
+3. 重试提示现在列出 exact companion pair。patch 只在模型明确把其中一半放进 `remove_block_ids` 时读取该精确信号：另一半必须在同一事务里明确列为
+   `unchanged_block_ids`、完整 `replace_blocks` 或 `remove_block_ids`；直接 block-id 的原子图编辑也算显式保留/编辑。若缺失，只返回 typed repair，整个
+   patch 回滚。系统不级联删除、不自动保留、不改标题/正文、不选择关系/节点/措辞/布局或结论。
+4. 模型选择保留另一半时，块字节保持；选择两半都删时，两块一起删除；选择完整替换时继续走原 patch 合同。任一半退出最终文档后，pair lineage 自动退休，
+   不把已不存在的 companion 债带入后续轮次。新 patch 内刚拆出的 fresh pair 写入 sidecar；已有 pair 的 refresh 继承原谱系，不重复铸造。
+5. 判据只读取 executor-created lineage、block ids 与结构化 patch operations；不扫描用户请求、thinking、模型/最终 prose、标题、Mermaid body/message/label，
+   也不把 diagram 变成必交项。普通原生答案、没有 fused split 的普通 patch、显式窗 Trace 因果投影和自动补采路径均未改变。
+6. 验证：full emit/patch split 均钉 exact lineage；单边删除无同伴选择先红后绿；显式 retain 与 remove-both 两臂通过且谱系退休；RetryState summary/JSON
+   round-trip 与模型提示接线有 pin。关键工具测试 20 次稳定通过，四个核心包套件、完整 `go test ./... -count=1` 与 CGO release-tag
+   `make` 全绿。
+
+状态：
+
+`B1352=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`fused-split-provenance=exact-executor-created-lineage`；
+`one-half-removal=explicit-sibling-retain|replace|remove-required`；
+`missing-disposition=transactional-reject/no-cascade`；
+`suffix/prose/title/mermaid-inference=none`；
+`system-answer/relation/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、

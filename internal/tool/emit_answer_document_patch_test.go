@@ -648,6 +648,92 @@ func TestEmitAnswerDocumentPatch_SplitsFusedProseAndDiagramWithoutDroppingEither
 	if doc.Blocks[2].Kind != types.BlockDiagram || doc.Blocks[2].Diagram == nil || doc.Blocks[2].Diagram.Body != "flowchart TD\n  Request --> Result" {
 		t.Fatalf("split diagram half missing from merged patch: %+v", doc.Blocks)
 	}
+	if got := doc.BlockCompanionLineages; len(got) != 1 || got[0].VisibleBlockID != "s1" || got[0].DiagramBlockID != doc.Blocks[2].ID {
+		t.Fatalf("patch-created split companion provenance missing: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_SplitCompanionRemovalRequiresExplicitSiblingDisposition(t *testing.T) {
+	bus := newPatchTestBusContext()
+	base := bus.Mutable.AnswerDocumentV2()
+	base.Blocks[0].Title = "Call path diagram"
+	base.Blocks = append(base.Blocks, types.AnswerBlock{
+		ID:   "s1_diagram",
+		Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  A --> B",
+		},
+	})
+	base.BlockCompanionLineages = []types.AnswerBlockCompanionLineage{{
+		Kind: types.AnswerBlockCompanionLineageFusedDiagramSplit, VisibleBlockID: "s1", DiagramBlockID: "s1_diagram",
+	}}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["list1"],
+		"remove_block_ids":["s1_diagram"]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != "answer_doc_split_companion_disposition_required" {
+		t.Fatalf("one-sided companion removal must reject with typed repair: %+v", res)
+	}
+	for _, want := range []string{"s1_diagram", "s1", "unchanged_block_ids"} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("repair hint missing %q: %+v", want, res.Repair)
+		}
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 3 || len(got.BlockCompanionLineages) != 1 {
+		t.Fatalf("rejected disposition must not mutate accepted document: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_SplitCompanionExplicitRetainOrRemoveIsModelOwned(t *testing.T) {
+	newBus := func() *types.BusContext {
+		bus := newPatchTestBusContext()
+		base := bus.Mutable.AnswerDocumentV2()
+		base.Blocks = append(base.Blocks, types.AnswerBlock{
+			ID: "s1_diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  A --> B"},
+		})
+		base.BlockCompanionLineages = []types.AnswerBlockCompanionLineage{{
+			Kind: types.AnswerBlockCompanionLineageFusedDiagramSplit, VisibleBlockID: "s1", DiagramBlockID: "s1_diagram",
+		}}
+		bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+		return bus
+	}
+
+	t.Run("retain visible companion", func(t *testing.T) {
+		bus := newBus()
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+			"unchanged_block_ids":["s1","list1"],
+			"remove_block_ids":["s1_diagram"]
+		}`))
+		if err != nil || !res.Success {
+			t.Fatalf("explicit retain must succeed: result=%+v err=%v", res, err)
+		}
+		doc := bus.Mutable.AnswerDocumentV2()
+		if doc == nil || len(doc.Blocks) != 2 || doc.Blocks[0].ID != "s1" || len(doc.BlockCompanionLineages) != 0 {
+			t.Fatalf("explicit retain outcome changed or stale lineage survived: %+v", doc)
+		}
+	})
+
+	t.Run("remove both companions", func(t *testing.T) {
+		bus := newBus()
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+			"unchanged_block_ids":["list1"],
+			"remove_block_ids":["s1","s1_diagram"]
+		}`))
+		if err != nil || !res.Success {
+			t.Fatalf("explicit pair removal must succeed: result=%+v err=%v", res, err)
+		}
+		doc := bus.Mutable.AnswerDocumentV2()
+		if doc == nil || len(doc.Blocks) != 1 || doc.Blocks[0].ID != "list1" || len(doc.BlockCompanionLineages) != 0 {
+			t.Fatalf("explicit pair removal outcome changed or stale lineage survived: %+v", doc)
+		}
+	})
 }
 
 func TestEmitAnswerDocumentPatch_EmptyOptionalDiagramObjectOnProseBlockIsAbsent(t *testing.T) {

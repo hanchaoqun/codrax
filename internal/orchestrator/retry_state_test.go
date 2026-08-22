@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -19,6 +20,9 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	mut := &types.MutableState{}
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
+		BlockCompanionLineages: []types.AnswerBlockCompanionLineage{{
+			Kind: types.AnswerBlockCompanionLineageFusedDiagramSplit, VisibleBlockID: "s1", DiagramBlockID: "list1",
+		}},
 		Citations: []types.Citation{
 			{File: "x.go", Line: 10},
 			{File: "y.go", Line: 20},
@@ -73,6 +77,10 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	if got := len(rs.PrevEmitSummary.BlockSummaries); got != 2 {
 		t.Fatalf("BlockSummaries len = %d, want 2", got)
 	}
+	if got := rs.PrevEmitSummary.BlockCompanionLineages; len(got) != 1 ||
+		got[0].VisibleBlockID != "s1" || got[0].DiagramBlockID != "list1" {
+		t.Fatalf("retry summary lost exact split companion lineage: %+v", got)
+	}
 	bs0 := rs.PrevEmitSummary.BlockSummaries[0]
 	if bs0.ID != "s1" {
 		t.Errorf("block[0].ID = %q, want s1", bs0.ID)
@@ -98,6 +106,10 @@ func TestPopulateRetryState_RoundTrip(t *testing.T) {
 	// PrevEmitJSON populated
 	if len(rs.PrevEmitJSON) == 0 {
 		t.Error("PrevEmitJSON must be non-empty after marshal")
+	}
+	var roundTrip types.AnswerDocumentV2
+	if err := json.Unmarshal(rs.PrevEmitJSON, &roundTrip); err != nil || len(roundTrip.BlockCompanionLineages) != 1 {
+		t.Fatalf("PrevEmitJSON lost companion lineage: doc=%+v err=%v", roundTrip, err)
 	}
 
 	// Active violations

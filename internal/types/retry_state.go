@@ -192,6 +192,9 @@ type RetryStateSummary struct {
 	CitationsCount     int                 `json:"citations_count"`
 	CitationFiles      []string            `json:"citation_files,omitempty"`
 	HasExactResolution bool                `json:"has_exact_resolution,omitempty"`
+	// BlockCompanionLineages exposes only exact system-created split pairs so
+	// the model can make a deliberate retain/replace/remove choice on retries.
+	BlockCompanionLineages []AnswerBlockCompanionLineage `json:"block_companion_lineages,omitempty"`
 }
 
 // RetryState is the typed contract surfaced to the LLM on every

@@ -300,7 +300,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			return failEmit(toolName, now, "%s", err.Error())
 		}
 		doc.Blocks = append(doc.Blocks, blk)
+		if entry.companionLineage != nil {
+			doc.BlockCompanionLineages = append(doc.BlockCompanionLineages, *entry.companionLineage)
+		}
 	}
+	doc.BlockCompanionLineages = types.NormalizeAnswerBlockCompanionLineages(doc.BlockCompanionLineages)
 	if changed, fields := normalizeAnswerDocumentBlockIDSurface(doc); changed {
 		logging.Warning("[emit_answer_document] id duplicate(s) normalized via transactional tolerance: %s",
 			strings.Join(fields, ", "))

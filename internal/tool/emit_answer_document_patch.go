@@ -928,6 +928,90 @@ func localDiagramLeaseWholeBlockMutationViolation(
 	return nil
 }
 
+type splitCompanionDispositionFailure struct {
+	Kind             types.AnswerBlockCompanionLineageKind
+	RemovedBlockID   string
+	CompanionBlockID string
+}
+
+// splitCompanionDispositionViolation requires an explicit model choice for
+// both halves of a system-created fused-block split whenever one half is
+// removed. The exact typed lineage is the only trigger: block titles, prose,
+// Mermaid bodies/messages, and id suffix guesses are never inspected.
+func splitCompanionDispositionViolation(prev *types.AnswerDocumentV2, p *emitAnswerDocumentPatchParams) *splitCompanionDispositionFailure {
+	if prev == nil || p == nil || len(prev.BlockCompanionLineages) == 0 || len(p.RemoveBlockIDs) == 0 {
+		return nil
+	}
+	removed := make(map[string]bool, len(p.RemoveBlockIDs))
+	explicit := make(map[string]bool, len(p.RemoveBlockIDs)+len(p.UnchangedBlockIDs)+len(p.ReplaceBlocks))
+	for _, rawID := range p.RemoveBlockIDs {
+		if id := strings.TrimSpace(rawID); id != "" {
+			removed[id] = true
+			explicit[id] = true
+		}
+	}
+	for _, rawID := range p.UnchangedBlockIDs {
+		if id := strings.TrimSpace(rawID); id != "" {
+			explicit[id] = true
+		}
+	}
+	for _, block := range p.ReplaceBlocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			explicit[id] = true
+		}
+	}
+	// Atomic operations are explicit retain/edit decisions for their exact
+	// carrier. Failure-ref-only operations can still name the sibling in
+	// unchanged_block_ids, which is deliberately accepted as redundant.
+	for _, edit := range p.DiagramEdgeEdits {
+		if id := strings.TrimSpace(edit.BlockID); id != "" {
+			explicit[id] = true
+		}
+	}
+	for _, edit := range p.DiagramBoundaryReplacements {
+		if id := strings.TrimSpace(edit.BlockID); id != "" {
+			explicit[id] = true
+		}
+	}
+	for _, edit := range p.DiagramParticipantEdits {
+		if id := strings.TrimSpace(edit.BlockID); id != "" {
+			explicit[id] = true
+		}
+	}
+	for _, lineage := range types.NormalizeAnswerBlockCompanionLineages(prev.BlockCompanionLineages) {
+		pairs := [][2]string{
+			{lineage.VisibleBlockID, lineage.DiagramBlockID},
+			{lineage.DiagramBlockID, lineage.VisibleBlockID},
+		}
+		for _, pair := range pairs {
+			if removed[pair[0]] && !explicit[pair[1]] {
+				return &splitCompanionDispositionFailure{
+					Kind:             lineage.Kind,
+					RemovedBlockID:   pair[0],
+					CompanionBlockID: pair[1],
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func splitCompanionDispositionRepair(failure splitCompanionDispositionFailure) *types.ToolRepair {
+	metadata := map[string]string{
+		"lineage_kind":       string(failure.Kind),
+		"removed_block_id":   failure.RemovedBlockID,
+		"companion_block_id": failure.CompanionBlockID,
+	}
+	return &types.ToolRepair{
+		Code:     "answer_doc_split_companion_disposition_required",
+		Fields:   []string{"remove_block_ids", "unchanged_block_ids", "replace_blocks"},
+		Metadata: metadata,
+		Hint: fmt.Sprintf(
+			"Blocks %q and %q are the two model-visible halves of one earlier lossless fused prose/diagram split. You chose to remove %q. In the same patch, explicitly choose the sibling's disposition: add %q to unchanged_block_ids to retain it byte-identical, replace it with a complete model-authored block, or add it to remove_block_ids. The system will not cascade-delete, rewrite its title/text, or choose the disposition for you.",
+			failure.RemovedBlockID, failure.CompanionBlockID, failure.RemovedBlockID, failure.CompanionBlockID),
+	}
+}
+
 // Execute applies the patch to the previous V2 emit. Failure paths
 // surface as Success=false ToolResult so the LLM sees the error
 // and can retry with corrected params (the patch validator's
@@ -1035,6 +1119,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			"local diagram repair lease requires atomic diagram operations for block=%q; whole-block operation=%s is not authorized",
 			violation.BlockID, violation.Issue)
 	}
+	if violation := splitCompanionDispositionViolation(prev, &p); violation != nil {
+		return failEmitWithRepair(t.Name(), now, splitCompanionDispositionRepair(*violation),
+			"patch removes split companion block %q but does not explicitly dispose sibling %q",
+			violation.RemovedBlockID, violation.CompanionBlockID)
+	}
 	if changed, fields := inheritMissingPatchReplacementKinds(prev, p.ReplaceBlocks); changed {
 		logging.Warning("[emit_answer_document_patch] inherited omitted replacement block kind from exact previous block id: %s",
 			strings.Join(fields, ", "))
@@ -1055,7 +1144,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// the derived ids collision-disciplined: a half may only ever
 	// collide with (and thereby refresh, budget-free) a prior
 	// split's unclaimed kind=diagram block.
-	p.ReplaceBlocks, p.AddBlocks = splitFusedDiagramPatchBlocks(t.Name(),
+	var addedCompanionLineages []types.AnswerBlockCompanionLineage
+	p.ReplaceBlocks, p.AddBlocks, addedCompanionLineages = splitFusedDiagramPatchBlocksWithLineage(t.Name(),
 		fusedPatchSplitBudget(prev, p.RemoveBlockIDs, p.ReplaceBlocks, p.AddBlocks),
 		prev, p.RemoveBlockIDs, p.UnchangedBlockIDs,
 		p.ReplaceBlocks, p.AddBlocks)
@@ -1070,6 +1160,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		ReplaceMissingRequestedRoles: p.ReplaceMissingRequestedRoles,
 		ReplaceCaveats:               p.ReplaceCaveats,
 		ReplaceSnippets:              convertEmitCodeSnippetsToTyped(p.ReplaceSnippets),
+		AddBlockCompanionLineages:    addedCompanionLineages,
 	}
 	if len(p.ReplaceBlocks) > 0 {
 		converted, err := convertEmitBlocksToTyped(t.Name(), p.ReplaceBlocks, "replace_blocks")

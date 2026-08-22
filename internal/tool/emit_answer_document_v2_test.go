@@ -190,6 +190,11 @@ func TestEmitAnswerDocumentV2_SplitsFusedProseAndDiagramWithoutDroppingEither(t 
 	if doc.Blocks[1].Kind != types.BlockDiagram || doc.Blocks[1].Diagram == nil || doc.Blocks[1].Diagram.Body != "flowchart LR\n  A --> B" {
 		t.Fatalf("diagram payload was not preserved: %+v", doc.Blocks[1])
 	}
+	if got := doc.BlockCompanionLineages; len(got) != 1 ||
+		got[0].Kind != types.AnswerBlockCompanionLineageFusedDiagramSplit ||
+		got[0].VisibleBlockID != "s1" || got[0].DiagramBlockID != doc.Blocks[1].ID {
+		t.Fatalf("split companion provenance missing or imprecise: %+v", got)
+	}
 }
 
 func TestEmitAnswerDocumentV2_EmptyOptionalDiagramObjectOnProseBlockIsAbsent(t *testing.T) {

@@ -145,6 +145,13 @@ type AnswerDocumentV2 struct {
 	// LLM-facing emit_answer_document schema field.
 	ReadReasoningGraph *AnswerReasoningGraphSummary `json:"read_reasoning_graph,omitempty"`
 
+	// BlockCompanionLineages records exact system-side provenance for block
+	// pairs created by a lossless compatibility split. It is not part of the
+	// LLM-facing emit schema and never authorizes a visible edit. Retry and patch
+	// paths consume it only to require the model to make an explicit disposition
+	// for both halves when it removes one member of a pair.
+	BlockCompanionLineages []AnswerBlockCompanionLineage `json:"block_companion_lineages,omitempty"`
+
 	// CurrentStatusVerdictDowngrade is the typed evidence downgrade for the
 	// current-status decision verdict (SPR #72, RTC ledger §8.3). Stamped by
 	// the tool runtime at persist time when the origin-lane observation
@@ -154,6 +161,56 @@ type AnswerDocumentV2 struct {
 	// CurrentStatusVerdict field is never modified — it is the audit
 	// position. Not an LLM-facing emit_answer_document schema field.
 	CurrentStatusVerdictDowngrade *CurrentStatusVerdictDowngrade `json:"current_status_verdict_downgrade,omitempty"`
+}
+
+// AnswerBlockCompanionLineageKind identifies the deterministic compatibility
+// operation that created a pair of independently visible blocks.
+type AnswerBlockCompanionLineageKind string
+
+const (
+	AnswerBlockCompanionLineageFusedDiagramSplit AnswerBlockCompanionLineageKind = "fused_diagram_split"
+)
+
+// AnswerBlockCompanionLineage binds the two exact block ids emitted by one
+// lossless fused prose/diagram split. The visible and diagram blocks remain
+// model-owned; this record supplies provenance only, never a delete/retain
+// decision.
+type AnswerBlockCompanionLineage struct {
+	Kind           AnswerBlockCompanionLineageKind `json:"kind"`
+	VisibleBlockID string                          `json:"visible_block_id"`
+	DiagramBlockID string                          `json:"diagram_block_id"`
+}
+
+// NormalizeAnswerBlockCompanionLineages validates, trims, and de-duplicates
+// split provenance without inferring pairs from id suffixes or block content.
+func NormalizeAnswerBlockCompanionLineages(in []AnswerBlockCompanionLineage) []AnswerBlockCompanionLineage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]AnswerBlockCompanionLineage, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, raw := range in {
+		row := AnswerBlockCompanionLineage{
+			Kind:           raw.Kind,
+			VisibleBlockID: strings.TrimSpace(raw.VisibleBlockID),
+			DiagramBlockID: strings.TrimSpace(raw.DiagramBlockID),
+		}
+		if row.Kind != AnswerBlockCompanionLineageFusedDiagramSplit ||
+			row.VisibleBlockID == "" || row.DiagramBlockID == "" ||
+			row.VisibleBlockID == row.DiagramBlockID {
+			continue
+		}
+		key := string(row.Kind) + "\x00" + row.VisibleBlockID + "\x00" + row.DiagramBlockID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // AnswerReasoningGraphSummary is the compact read-mode evidence-ledger header

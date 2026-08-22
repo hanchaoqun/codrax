@@ -157,6 +157,11 @@ type AnswerDocumentV2Patch struct {
 	// ReplaceCaveats / ReplaceSnippets: when non-nil, replace.
 	ReplaceCaveats  []string      `json:"replace_caveats,omitempty"`
 	ReplaceSnippets []CodeSnippet `json:"replace_snippets,omitempty"`
+
+	// AddBlockCompanionLineages is an executor-only sidecar created when a
+	// model-authored fused block is losslessly split during this patch. It is
+	// never decoded from the model payload and never selects a visible action.
+	AddBlockCompanionLineages []AnswerBlockCompanionLineage `json:"-"`
 }
 
 // AnswerDocumentPatchOperationTeaching is the one compact, shared explanation
@@ -320,6 +325,24 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	}
 	// Append new blocks.
 	out.Blocks = append(out.Blocks, p.AddBlocks...)
+
+	// Companion provenance follows only pairs that still exist after the
+	// model-authored patch. Removing either half retires the pair; retaining or
+	// replacing both keeps it. New split pairs are appended by the executor.
+	present := make(map[string]bool, len(out.Blocks))
+	for _, block := range out.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			present[id] = true
+		}
+	}
+	lineages := append([]AnswerBlockCompanionLineage(nil), prev.BlockCompanionLineages...)
+	lineages = append(lineages, p.AddBlockCompanionLineages...)
+	lineages = NormalizeAnswerBlockCompanionLineages(lineages)
+	for _, lineage := range lineages {
+		if present[lineage.VisibleBlockID] && present[lineage.DiagramBlockID] {
+			out.BlockCompanionLineages = append(out.BlockCompanionLineages, lineage)
+		}
+	}
 
 	return out, nil
 }
