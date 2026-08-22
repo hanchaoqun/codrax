@@ -85,6 +85,12 @@ const (
 	// line. It proves argument -> receiver transfer only, never callee-side use
 	// or equality with a selector literal.
 	EvidenceProducerRepoMapDynamicSelectorArgument = "repomap_dynamic_selector_argument"
+	// EvidenceProducerRepoMapDynamicSelectorReturn marks one exact return
+	// expression recovered from a parser-owned return node inside the same
+	// callable as a retained dynamic-selector lookup. It remains a return fact;
+	// consumers must not promote the returned invocation to a runtime-selected
+	// implementation or a direct call across the selector boundary.
+	EvidenceProducerRepoMapDynamicSelectorReturn = "repomap_dynamic_selector_return"
 	// EvidenceProducerAutoPairRoleDescription marks a doc-comment companion
 	// emitted beside one grounded definition. It carries role/WHAT context but
 	// is not a second declaration identity and must not make a unique-definition

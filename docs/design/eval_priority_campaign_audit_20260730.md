@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1390 r850/B1330-E：返回跳空产根因闭合；补 parser-authored 精确 return 通道（2026-08-22）
+
+1. 从已推送 `945ca3be2` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 167s、Python
+   221s。Python 仍发生 4 次成文拒绝/4 次 patch；新 diagnostic 给出精确结果：entry=`run_pipeline`、candidate=0、rejected=2、
+   `return_unavailable=2`。两个 `csv/json` selector 候选均在同一个 return hop 失败，不再需要从模型 prose 或 Mermaid 反推。
+2. 生产 ledger 已同时拥有 parser-authored selector application、indexed write、indexed lookup、entry call 与同坐标 argument flow；普通
+   concrete-value 扫描也曾在探索上下文展示 `resolve returns cls()`，但该普通行没有稳定进入 dynamic-selector compiler 的 handoff evidence pool。
+   模型补发的 return 行又出现空 subject，不能可靠证明它属于 lookup owner。故 r849 所称“六类最终均可消费”需要纠正：源码信息存在，不等于
+   专用 typed consumer 实际拿到 owner-qualified、可引用的 return 载体；这是确定性系统 gap，不是模型波动。
+3. `B1330-E/P1` 按 producer 根修：只有 repomap 已把精确源码行标为 `LineFeatureReturnStmt`、该行位于 read closure 或已有 citable 单行坐标、
+   enclosing callable 唯一且属于已保留 indexed lookup owner 时，才在 dynamic-selector flow 中发射 `ClaimReturnFact`。表达式解析复用跨语言
+   concrete-value 语法，仅作为 parser-authorized 坐标上的取值器；不完整、多行、引号/括号失衡或多义表达式继续不发。系统不从用户请求、模型输出、
+   最终答案、Mermaid message、文件扩展名或语言名猜返回关系。
+4. 新 return 载体保持原始 `return` 关系、精确 owner/source/line/Evidence ID，只补足 `lookup owner -> returned invocation` 的静态候选跳；它不会
+   铸造 `run_pipeline -> JsonPlugin` direct call，不会宣布某次运行选择了 `JsonPlugin`，也不会替模型生成关系图、业务解释或结论。候选编译器仍要求
+   returned invocation callee 与 indexed lookup receiver 精确同一，歧义继续 fail-closed。
+5. 回归直接使用真实 Python plugin fixture，要求 dynamic flow 恰好产生 2 条 assignment、1 条 lookup return、1 条 entry argument，`csv/json`
+   两个六跳 candidate 均完整；缩窄 read closure 后 return 与其他 flow 全部扣留，追加 line 34 的 grounded 单行坐标后只恢复该精确 return。
+   另覆盖 Python、Go、Java、ArkTS、Cangjie、Rust、Swift、C++ 显式 return 形与不完整行拒绝，证明实现依赖共享 parser feature 而非单语言特判。
+6. Python 人工判 uncertain：最终文字事实基本正确，但 typed candidate 缺席使模型自行拼关系并连续 4 次被精确关系合同拒绝，最终图缩水；这不能由
+   runner substring PASS 收账。Trace 系统面继续通过：显式 2.000..2.020s 窗、完整唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   候选、实际占时/规则可消双账户、邻近/背景隔离和完整 `Trace 因果投影` 均保留，零成文拒绝。模型一处“逐级传递阻塞影响”仍按既裁作为软遵循
+   观察，不扫描或改写正文。
+7. 定向测试、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。下一步独立提交推送，从该不可变提交重建二进制，
+   再以同一两例严格并发恰好 2 路 r851 回放：Python 必须真实出现 typed dynamic-selection candidates，并审计关系完整性与成文拒绝是否收敛；
+   Trace 必须继续守住窗口、自动补采、链上根因和因果投影。
+
+状态：
+
+`r850=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1330-D=production-positive/exact-return_unavailable-diagnosis`；
+`B1330-E=implemented/targeted-pass/full-suite-pass/build-pass/pending-production-replay`；
+`return-authority=parser-line-feature+exact-read-or-citable-coordinate+lookup-owner`；
+`multiline/ambiguous/unbalanced/unread=fail-closed`；
+`runtime-selection=candidate-only/model-owned`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r850`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r850`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

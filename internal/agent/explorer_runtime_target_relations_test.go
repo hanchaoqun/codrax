@@ -674,8 +674,9 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 		producerCounts[item.Producer]++
 	}
 	if producerCounts[types.EvidenceProducerRepoMapDynamicSelectorAssignment] != 2 ||
+		producerCounts[types.EvidenceProducerRepoMapDynamicSelectorReturn] != 1 ||
 		producerCounts[types.EvidenceProducerRepoMapDynamicSelectorArgument] != 1 {
-		t.Fatalf("expected exact binding+lookup assignments and one entry argument, got producers=%+v evidence=%+v", producerCounts, got.evidence)
+		t.Fatalf("expected exact binding+lookup assignments, one lookup return, and one entry argument, got producers=%+v evidence=%+v", producerCounts, got.evidence)
 	}
 	for _, candidate := range compiled.Candidates {
 		if candidate.EntryIdentity != "run_pipeline" || candidate.SelectorArgument != "kind" ||
@@ -688,6 +689,7 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 		"Typed Dynamic Selector Flow Facts",
 		"selector-side indexed assignment",
 		"lookup assignment",
+		"lookup return",
 		"entry call argument",
 		"do not prove that an entry argument equals a declaration selector",
 	} {
@@ -721,6 +723,7 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 	withheld := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, restricted)
 	for _, item := range withheld.evidence {
 		if item.Producer == types.EvidenceProducerRepoMapDynamicSelectorAssignment ||
+			item.Producer == types.EvidenceProducerRepoMapDynamicSelectorReturn ||
 			item.Producer == types.EvidenceProducerRepoMapDynamicSelectorArgument {
 			t.Fatalf("unread assignment coordinates must not produce selector-flow authority: %+v", withheld.evidence)
 		}
@@ -742,6 +745,11 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 			Source: "pipeline/registry.py", LineStart: 31, LineEnd: 31, Scope: types.ScopeLine,
 			AnchorKind: types.AnchorAssignment, AnchorSymbol: "REGISTRY", Snippet: "cls = REGISTRY[name]", GroundingStatus: types.GroundingGrounded,
 		},
+		types.EvidenceItem{
+			ID: "E-return-line", Kind: types.EvidenceDirect, Subject: "resolve", Predicate: "return observed",
+			Source: "pipeline/registry.py", LineStart: 34, LineEnd: 34, Scope: types.ScopeLine,
+			AnchorKind: types.AnchorReturn, AnchorSymbol: "resolve", Snippet: "return cls()", GroundingStatus: types.GroundingGrounded,
+		},
 	)
 	authorized := eval.buildConcreteValuesSection(context.Background(), repoRoot, readSet, restricted)
 	authorizedCounts := map[string]int{}
@@ -749,8 +757,40 @@ func TestBuildConcreteValuesSection_RealPythonSelectorFlowProducesCompleteStatic
 		authorizedCounts[item.Producer]++
 	}
 	if authorizedCounts[types.EvidenceProducerRepoMapDynamicSelectorAssignment] != 2 ||
+		authorizedCounts[types.EvidenceProducerRepoMapDynamicSelectorReturn] != 1 ||
 		authorizedCounts[types.EvidenceProducerRepoMapDynamicSelectorArgument] != 1 {
 		t.Fatalf("exact citable assignment/call coordinates should authorize only their parser enrichments: counts=%+v evidence=%+v", authorizedCounts, authorized.evidence)
+	}
+}
+
+func TestRuntimeTargetExactReturnExpression_CrossLanguageExplicitReturns(t *testing.T) {
+	tests := []struct {
+		name string
+		lang string
+		raw  string
+		want string
+	}{
+		{name: "python", lang: "python", raw: "return cls()", want: "cls()"},
+		{name: "go", lang: "go", raw: "return newHandler()", want: "newHandler()"},
+		{name: "java", lang: "java", raw: "return new Handler();", want: "new Handler()"},
+		{name: "arkts", lang: "arkts", raw: "return Handler.create();", want: "Handler.create()"},
+		{name: "cangjie", lang: "cangjie", raw: "return Handler()", want: "Handler()"},
+		{name: "rust", lang: "rust", raw: "return Handler::new();", want: "Handler::new()"},
+		{name: "swift", lang: "swift", raw: "return Handler()", want: "Handler()"},
+		{name: "cpp inline", lang: "cpp", raw: "if (ready) { return make_handler(); }", want: "make_handler()"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := runtimeTargetExactReturnExpression(tt.raw, tt.lang)
+			if !ok || got != tt.want {
+				t.Fatalf("runtimeTargetExactReturnExpression(%q, %q) = %q, %v; want %q, true", tt.raw, tt.lang, got, ok, tt.want)
+			}
+		})
+	}
+	for _, raw := range []string{"return", "return (", "continued())"} {
+		if got, ok := runtimeTargetExactReturnExpression(raw, "python"); ok {
+			t.Fatalf("incomplete return line %q must fail closed, got %q", raw, got)
+		}
 	}
 }
 

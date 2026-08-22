@@ -15166,11 +15166,12 @@ func (e *explorerEvaluator) buildRuntimeTargetDecoratorApplications(
 	return result
 }
 
-// buildRuntimeTargetDynamicSelectorFlows supplies the exact assignment and
-// call-argument facts that a dynamic selector path needs between its parsed
-// declaration application and the already-grounded entry call. It is gated by
-// parser-authored selector applications and parser-owned assignment features;
-// source text is parsed only at those exact, already-read coordinates.
+// buildRuntimeTargetDynamicSelectorFlows supplies the exact assignment,
+// return, and call-argument facts that a dynamic selector path needs between
+// its parsed declaration application and the already-grounded entry call. It
+// is gated by parser-authored selector applications and parser-owned line
+// features; source text is parsed only at those exact, already-read
+// coordinates.
 //
 // The producer intentionally keeps an indexed write as ClaimAssignmentFact.
 // It never relabels the write as registration, equates the entry argument with
@@ -15303,6 +15304,80 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 		}
 	}
 
+	// A return row is admitted only at a parser-owned return node inside a
+	// callable whose exact body already yielded the retained indexed lookup.
+	// The source-line extractor recovers the expression, but the parser feature
+	// is the authority that the line is a return statement. Ambiguous or
+	// multi-line expressions stay absent and the downstream compiler fails
+	// closed. This producer preserves ClaimReturnFact and never turns the
+	// invocation into a direct-call or runtime-selection assertion.
+	if len(lookupOwners) > 0 {
+		for _, file := range files {
+			fi := graph.FileIndex[file]
+			if fi == nil {
+				continue
+			}
+			source := canonicalExplorerPath(fi.RelPath)
+			if source == "" {
+				source = file
+			}
+			lines := loadFileLines(filepath.Join(repoRoot, fi.RelPath))
+			if len(lines) == 0 {
+				continue
+			}
+			featureLines := make([]int, 0, len(fi.LineFeatures))
+			for line, features := range fi.LineFeatures {
+				if runtimeTargetHasLineFeature(features, repotypes.LineFeatureReturnStmt) {
+					featureLines = append(featureLines, line)
+				}
+			}
+			sort.Ints(featureLines)
+			for _, line := range featureLines {
+				if line <= 0 || line > len(lines) ||
+					!runtimeTargetReadOrExactEvidenceLineAllowed(source, line, readSet, closure, structuredEvidence) {
+					continue
+				}
+				callable := runtimeTargetEnclosingCallable(fi, line)
+				if callable == nil {
+					continue
+				}
+				owner := runtimeTargetQualifiedCallable(*callable)
+				if owner == "" || !dynamicSelectorOwnerMatchesAny(owner, lookupOwners) {
+					continue
+				}
+				raw := strings.TrimSpace(lines[line-1])
+				expression, ok := runtimeTargetExactReturnExpression(raw, fi.Language)
+				if !ok {
+					continue
+				}
+				item := types.EvidenceItem{
+					Kind:         types.EvidenceConcrete,
+					Subject:      owner,
+					Predicate:    "returns",
+					Object:       expression,
+					Source:       source,
+					LineStart:    line,
+					LineEnd:      line,
+					Confidence:   repotypes.ConfidenceAST,
+					Producer:     types.EvidenceProducerRepoMapDynamicSelectorReturn,
+					Summary:      fmt.Sprintf("parser-authored exact return in `%s`: `%s`", owner, expression),
+					Scope:        types.ScopeLine,
+					AnchorKind:   types.AnchorReturn,
+					AnchorSymbol: owner,
+					OwnerSymbol:  owner,
+					Snippet:      raw,
+				}
+				item.ID = types.StableEvidenceID(item)
+				key := item.ID + "\x00" + source + "\x00" + strconv.Itoa(line)
+				if _, duplicate := seen[key]; duplicate {
+					continue
+				}
+				seen[key] = struct{}{}
+				rows = append(rows, row{item: item, role: "lookup return"})
+			}
+		}
+	}
+
 	// An argument row is admitted only for an already-citable direct call to a
 	// callable whose exact body contains a retained indexed lookup assignment.
 	// The call and argument share one source coordinate, and the parser returns
@@ -15382,7 +15457,7 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 	result := concreteValuesResult{evidence: make([]types.EvidenceItem, 0, len(rows))}
 	var b strings.Builder
 	b.WriteString("## Typed Dynamic Selector Flow Facts (parser grounded)\n\n")
-	b.WriteString("These exact assignment and argument-flow rows are static candidates only. Preserve their original relation kinds; they do not prove that an entry argument equals a declaration selector or that one declaration was selected at runtime.\n\n")
+	b.WriteString("These exact assignment, return, and argument-flow rows are static candidates only. Preserve their original relation kinds; they do not prove that an entry argument equals a declaration selector or that one declaration was selected at runtime.\n\n")
 	b.WriteString("| Evidence | File:Line | Role | From | Relation | To |\n")
 	b.WriteString("|----------|-----------|------|------|----------|----|\n")
 	for _, entry := range rows {
@@ -15394,6 +15469,66 @@ func (e *explorerEvaluator) buildRuntimeTargetDynamicSelectorFlows(
 	b.WriteString("\n")
 	result.markdown = b.String()
 	return result
+}
+
+// runtimeTargetExactReturnExpression extracts one complete expression from an
+// exact source line that the caller has already proved to be a parser-owned
+// return node. The generic concrete-value parser is reused for cross-language
+// syntax parity; it is not itself an authority signal. Multiple return shapes,
+// continuation-only lines, and expressions that are not complete on this line
+// fail closed.
+func runtimeTargetExactReturnExpression(raw, lang string) (string, bool) {
+	values := make([]string, 0, 1)
+	for _, entry := range extractConcreteValues(raw, lang) {
+		value := strings.TrimSpace(entry.value)
+		if entry.kind != concreteValueKindReturns || entry.lineOffset != 0 || value == "" ||
+			!runtimeTargetReturnExpressionBalanced(value) {
+			continue
+		}
+		values = appendUniqueConcreteString(values, value)
+	}
+	if len(values) != 1 {
+		return "", false
+	}
+	return values[0], true
+}
+
+func runtimeTargetReturnExpressionBalanced(value string) bool {
+	stack := make([]rune, 0, 4)
+	var quote rune
+	escaped := false
+	for _, r := range value {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"', '`':
+			quote = r
+		case '(', '[', '{':
+			stack = append(stack, r)
+		case ')', ']', '}':
+			if len(stack) == 0 {
+				return false
+			}
+			want := map[rune]rune{')': '(', ']': '[', '}': '{'}[r]
+			if stack[len(stack)-1] != want {
+				return false
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	return quote == 0 && len(stack) == 0
 }
 
 func runtimeTargetHasLineFeature(features []repotypes.LineFeature, want repotypes.LineFeature) bool {
