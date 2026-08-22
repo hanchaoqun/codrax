@@ -57951,6 +57951,55 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1378 r844：运行时选择教学生产未遵循；动态注册路径仍缺精确组合载体（2026-08-22）
+
+1. 从已推送 `ab2a686ed` 构建不可变二进制，严格并发恰好 2 路复放 Python 装饰器/注册表动态分发 read 与显式窗 Trace，runner
+   2/2 PASS：Trace 255s、Python 380s。两路活动流均未按固定 4ms、4m、首字节、stall、累计年龄或上下文比例降级；没有旧稿回退、
+   空答案或系统代写模型结论。
+2. Trace 人工判 pass-with-model-wording-caveat：显式 2.000000..2.020000 用户窗、两次 target-filtered typed query、四线程三条
+   wakeup edge `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   runnable/优先级候选、实际占时/规则可消双账户、链上业务下钻、邻近/背景隔离和完整 `Trace 因果投影` 全部保留，0 次成文拒绝。
+   系统投影没有把背景 IO 活动指数或邻近 sleep 升为主因。
+3. Trace 模型导语把彼此重叠、包含关系明显的 network 14ms 与 cookie 17ms sleep 写成“随后各级唤醒延迟逐跳叠加”，后面的系统投影却
+   正确说明墙钟不可相加；并再次把四个线程称作“四跳”，严格说是四节点三条 edge。typed 排名、数值、守恒和双轴没有错误，故本轮继续
+   作为 `B1269/B1271/B1253` 的模型措辞遵循观察，不扫描或拒绝模型原文，也不由系统改写结论。
+4. `B1328` 生产回放为 negative。新教学常量逐字进入 analyzer prompt，模型 reasoning 也明确说“use discover to find runtime selected
+   destination”，但最终 structured emit 仍给出 `runtime_selection_profile=false`，并把只由 repo_map 预扫描发现的 `JsonPlugin` 填入
+   `sink_mode=discover` 的非空 sink。既有 wire 自愈随后诚实地把它降为 `discover_terminal`。因此 B1328 只能记
+   tests-positive/production-not-followed，不能用 r843→r844 的 reject 6→3 或时长 285s→380s 宣称性能/质量收益。
+5. Python 人工内容判 pass、视觉/过程判 partial：终稿正确回答 JsonPlugin、`run_pipeline -> resolve`、REGISTRY 查表、`cls()` 实例化、
+   executor callback、协作式 handle 链和 `@register("json")` 导入期绑定。但 typed 上下文仍把静态 call、decorator selector、register
+   binding、lookup/return、callback、declared type 与 cooperative-super 分成多个关系岛；模型三轮尝试把它们拼成连续 call 图均被正确关系门
+   拒绝，最终删除可选图。终稿关系列表还把 `resolve -> cls()` 显示成“cls() 查找并返回类”，说明孤立 recipe 仍不足以表达动态选择的业务路径。
+6. 新确认 `B1329-DYNAMICSELECTORRESOLUTIONPATH1/P1`。最优形不是放松 call gate，也不是继续堆 prompt：由确定性探索/编译层对现有 typed
+   evidence 做精确 join，发布 versioned、candidate-only 的“动态选择解析路径”载体。每个 hop 保留自身 relation kind 与 Evidence ID：请求入口到
+   selector 参数、selector 到同一 registry/factory/service-locator 身份、注册键到候选类型、lookup 返回/实例化、callback handoff，以及所选类型的
+   member/MRO roster；任何 selector 值、容器身份、返回值或候选多义都 fail-closed，不铸直接 call。该载体只给模型可组合拓扑和证据边界，模型仍决定
+   是否选候选、如何解释、是否画图及全部业务 wording。
+7. B1329 必须跨语言落地而非 Python 特判：统一消费既有 registration/assignment/return/argument-flow/callback/type-relation/call typed
+   families，覆盖 map/registry/factory/service locator/dependency injection 等结构，对 Go、C/C++、Java/Kotlin、Rust、Swift、Python、
+   JavaScript/TypeScript/ArkTS、Cangjie 等项目使用同一 join contract；语言提取器只负责生产原子事实，组合器不得读文件扩展名、用户请求、模型
+   reasoning、最终 prose 或 Mermaid message 来猜桥。先交付 typed carrier+歧义 fail-close 单测，再单独接 finalizer advisory/diagram recipe，
+   避免一批同时改证据生产和显示消费。
+8. r844 还给长期开放的 `B1244-SOURCEANCHOROWNER1` 增加了新 witness：模型答案讨论 `pipeline/plugins.py:18` 的 JsonPlugin，系统末尾
+   “源码定位锚点核对”却只显示同文件无关的 `CsvPlugin@pipeline/plugins.py:9`。当前 last-mile 先按“路径未引用”触发，再按路径选 rank 最小 owner，
+   没有要求该 owner 与模型已选择的结构化主体/证据相同；故它会把同文件兄弟声明误当成缺失定位补充。下一小批应先按 exact typed
+   block item/edge/evidence identity 收窄候选，再在同路径内选最强锚；没有同主体锚则不发成功补充，不能用全文 substring 猜主体。
+
+状态：
+
+`r844=runner-pass-2/2,human-trace-pass-with-model-wording-caveat+python-content-pass/process-visual-partial`；
+`B1328=tests-positive/production-negative-soft-guidance-only`；
+`B1329=confirmed/P1/two-batch-typed-carrier-then-consumer`；
+`B1244=reconfirmed/P2/exact-subject-filter-next-small-batch`；
+`python-finalizer-rejects=3/diagram-removed`；
+`dynamic-selector-path=typed-exact-join/candidate-only/no-synthetic-call`；
+`system-runtime-target/edge/action/wording/layout/answer/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r844`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r844`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
