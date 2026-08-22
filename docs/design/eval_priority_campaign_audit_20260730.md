@@ -57361,6 +57361,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1383 r846：B1329 消费链已接线但生产证据不闭合；Trace 投影保真而模型仍有过度归因（2026-08-22）
+
+1. 从不可变提交 `197096733` 重建二进制，严格并发恰好 2 路复放 Python 动态注册与显式窗 Trace，runner 均 PASS。Python 用时 693s，
+   finalizer 拒绝 11 次；Trace 用时 207s，拒绝 3 次。人工结论均为 `uncertain`，不能用 runner 的宽 `answer_contains` 替代答案正确性审计。
+2. Python 可见答案正确识别 `JsonPlugin`、`run_pipeline -> resolve`、registry lookup、`cls()` factory、callback 与 mixin，但结构关系最后仅保留
+   两条直接 call；lookup/return 的正文断言也没有引用实际 lookup/return 行。可选图在反复把 lookup、return、MRO、callback 误画成直接 call 后被删除，
+   因而仍是“正确结论 + 关系层不完整”，不是 B1329 已获得生产正证。
+3. 代码与生产日志对照确认 B1329-A/B 的编译器和 finalizer consumer 均已接线，扣留是诚实 fail-closed：证据池已有 parser-authored selector
+   application、factory return、callback 与 type relation，却没有 registration、lookup assignment、入口同调用点 argument-flow；完整候选无法铸造，
+   `Typed dynamic-selection candidates` 不应发射。新立 `B1330-DYNAMICSELECTORPRODUCER1/P1`：在确定性 parser/grounding 层补齐跨语言、精确坐标、
+   原 Evidence ID 的 assignment/argument/registration 生产链；不得从请求、模型正文、最终答案、Mermaid 或相邻节点猜桥，也不得把 selector 声明直接
+   升级成本次 runtime selection。
+4. Trace 回放保留 2.000..2.020s 显式窗、四节点三条 typed wakeup edge、11.000ms 链上 IO 席、三个独立 1.000ms runnable/优先级候选、
+   实际占时/规则可消双账户、链上业务线索、背景隔离、`Trace 因果投影` 与系统补齐；证明 B1329 两批没有侵入窗口选举、补采或因果投影，也没有按
+   固定 4ms/4m、活动流年龄或上下文比例降级答案。
+5. Trace 模型正文仍把“链上首席候选”写成“主要阻塞原因/完成后才触发后续”，又同时披露直接帧因果未证，并把四节点三边称为“四跳”。这是既有
+   B1269/B1271/B1253 的 soft-guidance 跟随不稳与同文一致性问题；继续通过 typed 事实和低心智教学改善，禁止扫描模型/最终 prose 后由系统改写结论。
+6. 三次 Trace 成文拒绝没有发现矛盾合同：一次是首轮把 `blocks` 发成 JSON 字符串；两次是模型把仅允许位于 principal summary 的
+   `trace_causal_claim_caliber` 重复放进 section/list，prompt 与 schema 对作用域描述一致。立 `B1331-REDUNDANTTYPEDMETADATARECOVERY1/P2` 作为通用
+   自愈候选：只有 principal summary 已含同值合法元数据时，才可在解析/规范化层移除其他 block 上完全相同的冗余隐藏字段；冲突值、主字段缺失或可见
+   内容变化继续 fail-closed。该操作不得改正文、因果等级、主根因、图或模型结论。
+
+状态：
+
+`r846=runner-2/2-pass+human-2/2-uncertain`；
+`B1329-A/B=consumer-wired+production-positive-not-yet`；
+`B1330=confirmed/P1/next-generalized-producer-batch`；
+`B1331=confirmed/P2/hidden-identical-metadata-normalization-only`；
+`Trace explicit-window/causal projection/auto-supplement=preserved`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/edge/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-text-hard-scan=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1358 r833：B1315 生产转正；半 identity 使整代关系修补能力原子清空（2026-08-21）
 
 1. 从已推送 `b1e5ff41a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 188s PASS、read
