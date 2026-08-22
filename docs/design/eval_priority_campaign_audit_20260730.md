@@ -57443,6 +57443,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1362 r835：read 从 20 次拒绝降至 2 次正常成文；B1318 无回归但未命中 stale-scope 生产形（2026-08-22）
+
+1. 从已推送 `550c47b3d` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 234s、
+   read 411s。Trace 0 次成文拒绝；read 2 次拒绝/2 次 patch、正常结构化出厂，无旧稿恢复、无降级说明、无上下文裁剪。相对 r834 的
+   1228s、20 次拒绝、19 次 patch 与 degraded old draft，重试风暴已消失。
+2. Trace 人工判 pass：2.000..2.020s 显式窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四线程三跳链、
+   11.000ms 链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、实际占时/规则可消双账户、链上业务下钻、邻近/背景隔离和完整
+   `Trace 因果投影` 全部保留；帧因果未证作为独立限定，不摘除已证链上排序。活动流未按固定 4ms、4m、累计年龄或上下文比例降级。
+3. read 首稿同代 joint delta 一次发布并处理 10 条 relation failure、三条 relabel、三条 model-selected addition 与 orphan/context 处置；下一稿只剩
+   BusContext 已连边但仍保留 unproven boundary 的精确 stale-boundary 问题，模型按一个 live `boundary_ref` 删除后通过。最终 Mermaid 语法合法，
+   三条阶段 precedence、BusContext→BuildAgentContext 参数传递及 Mutable→AgentContext.Mutable 数据传递仍在，没有靠删除全部关系通过；可见边标签
+   使用业务动作词，没有泄漏 relation enum、ref 或 validator 术语。
+4. 本轮没有自然产生 stale/unknown relation ref，因此 B1318 只能记为 tests-positive + production-no-regression，不能虚报
+   `answer_doc_relation_repair_scope` additions-only 直传的生产触发正证。日志中不存在 `patch_relation_repair_scope`、`patch_correct` 或历史 ref 循环；
+   这证明新路由未干扰正常 joint/boundary 两步闭环，但独立 production-shape 仍待后续自然命中。
+5. read 人工判 uncertain，原因不是图合同。Explorer 段声称“通过 `extractorEvaluator.BuildInitialInstruction` 间接感知提取任务”，最终 citation 却落在
+   `internal/agent/extractor.go:79` 的 `extractorToolObligationView` 结构体结束行；全仓也没有 Explorer 调用该方法。这是已 filed
+   `EVAL-B14-RC1`（relation/statement row 与 citation semantic alignment）的新增 witness，而非新类型 GAP。按红线不扫描模型/最终 prose 做硬门、
+   不由系统改写句子；后续在 typed claim/evidence owner 层统一解决，当前不为该单句过拟合。
+6. 下一批切换异构高优先维度，不继续只拟合同一 read case：严格 exact-2 选择一条 write 模式真实 apply/verify 用例与一条非 Go/不同图关系表达的
+   read 用例，审计 analyzer 上下文、关系/时序/逻辑图完整性、JSON 教学与最终答案。Trace 显式窗守护已连续通过，仍在后续关系/Trace 改动批重新加入，
+   不能因本轮通过而删除。
+
+状态：
+
+`r835=runner-pass-2/2,human-trace-pass+read-uncertain`；
+`B1317=production-positive/core-closed`；
+`B1318=tests-positive+production-no-regression/pending-natural-scope-trigger`；
+`read-finalizer=2-rejects/no-stale-ref-loop/no-degraded-draft`；
+`diagram=syntax-valid+stage-spine+typed-local-relations-preserved`；
+`EVAL-B14-RC1=existing-P2/additional-witness`；
+`system-answer/member/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r835`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r835`。
+
 ### §123.1356 r832：B1316 去重臂生产转正；B1315 跨样本确认为“错 ID 优先 + 旧 citation 池泄漏”（2026-08-21）
 
 1. 从已推送 `4944761c8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 154s、read
