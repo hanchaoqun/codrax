@@ -57521,6 +57521,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r869`。
 
+### §123.1423 r870/B1355：局部 typed 关系是有限进展，不能被 missing-set 收敛键吞掉（2026-08-22）
+
+1. 从已推送 `0dacb0f62` 重建干净二进制，严格并发恰好 2 路复放同一逻辑图 read 与显式窗 Trace，runner 2/2 PASS：Trace 174s、read
+   312s。人工判定 Trace pass、read partial，逐轮证据见
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r870_20260822_manual_audit.md`。B1354 获得生产正证：第一次缺失 BusContext 后，系统直接导航到
+   `internal/orchestrator/extract_work.go:3-27`，模型发出 `o.busCtx -> BuildAgentContext` exact argument flow；下一次又进入
+   `internal/context/builder.go:47-71`，发出 line 59 的 `Mutable: bus.Mutable` initializer，不再被旧 cgec 同名局部操作锁死。
+2. Trace 守护继续完整通过：精确 2.000000..2.020000s 窗、app-100 四态、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 及逐跳 CPU、11.000ms 链上 IO 第一席、三个互不相加的 1.000ms
+   runnable/优先级候选、实际占时/规则可消双账户、链外背景隔离、链上业务下钻和完整 `Trace 因果投影` 均在。两次 typed query 均带目标与窗，
+   finalizer 零拒绝；没有按固定 4ms、4m、流年龄或上下文比例降级，也没有系统代写根因、关系或修向。
+3. 新确认并施工 `B1355-FLOWTYPEDPROGRESSCONVERGENCE1/P1`。read 在第二次 completion 时缺失集合已经缩到 `[Mutable]`；读取
+   builder.go 后新增的 exact initializer 又把 Mutable 从 `source_operation_missing` 推进为 `local_typed_incident_only`。旧
+   `flowParticipantCoverageBlockerKey` 只哈希 missing participant 名称集合，故键保持 `4289906116`，把新 typed 关系错误计为第二次无进展并立即
+   force-complete。最终 handoff 虽诚实披露 Mutable 未接入请求图，但模型已失去继续沿 `AgentContext.Mutable -> agent Execute` 查桥的机会。
+4. 根修没有改成 evidence count、游标、文件、轮数或文本启发式。`flowParticipantCoverageAssessment` 只新增一个有限 typed 阶段：当前仍缺失的
+   participant 是否每个都已有可引用 parser-owned 局部 operation。blocker key 仅在缺失集合改变，或该阶段由
+   `operation_missing` 单调推进到 `local_operation_available` 时重置一次；新的 parser 坐标、无关 operation、read 次数和 closure churn 均不刷新预算。
+   该状态不证明请求范围关系，只给模型一次 bridge-focused 调查；相同局部阶段下一次仍无连接就按原 threshold 带 unproven 边界收敛。
+5. 回归覆盖三条不变量：同一 missing set 获得 local-operation typed 进展时 key 必须变化且不能当轮 force-complete；重复/重排同一参与者集合与相同阶段
+   key 字节稳定；一次无新增 bridge 的后续 close 仍按有界 threshold 形成 typed caveat。既有“导航坐标推进不重置”、无进展第三次收敛、relation-only
+   第二次收敛、strict provider subset、全语言导航和 Trace 排除测试继续通过。`go test ./internal/tool -count=1`、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿；提交推送后再从不可变新提交做 B1355 生产回放。
+6. r870 最终 read 图语法合法但人工仍为 partial：四阶段责任和正文载体路径比 r869 明显改善，图却用隐式 `ctxbuilder`、`orchestrator` 技术节点表示两个
+   局部事实，没有清楚表达共享载体怎样进入四阶段。三次 finalizer reject 均对应真实的 label/typed relation/boundary 缺口，未见互相矛盾合同；B1355
+   恢复进一步取证机会，但不授权系统创建 BusContext→阶段关系、业务标签、布局或结论。
+
+状态：
+
+`r870=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1354=production-positive/core-closed`；
+`B1355=implemented/targeted+tool-suite+full-suite+build-pass/pending-production-replay`；
+`convergence-key=typed-missing-set+finite-local-operation-stage`；
+`navigation/evidence-count/read-count/prose=non-authoritative-for-reset`；
+`local-operation-stage=repair-budget-only/not-relation-proof`；
+`system-evidence/relation/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r870`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r870`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、

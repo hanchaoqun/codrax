@@ -2250,7 +2250,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			flowParticipantCoverageRepairBase(missingFlowParticipants), files, keywords)
 		navigationHint := flowParticipantCoverageNavigationHint(ctx, missingFlowParticipants, evidenceSnapshot, files, keywords)
 		participantBlockerKey, hasExactParticipantFrontier := flowParticipantCoverageBlockerKey(
-			ctx, missingFlowParticipants,
+			ctx, missingFlowParticipants, participantCoverage.missingHaveLocalOperations,
 		)
 		relationOnlyDeficit := flowMissingParticipantsHaveLocalOperations(ctx, evidenceSnapshot, missingFlowParticipants)
 		recordToolRuntimeTiming(&runtimeTimings, "flow_participant_repair_plan", participantRepairStart, len(files)+len(keywords))
@@ -3890,6 +3890,13 @@ func queueFlowOperationCarrierRepair(ctx *types.BusContext, evidence []types.Evi
 type flowParticipantCoverageAssessment struct {
 	missing                         []string
 	boundedPartialUnprovenAvailable bool
+	// missingHaveLocalOperations is a finite typed progress state for the
+	// still-uncovered participant set. It becomes true only when every missing
+	// participant has a citable parser-owned local operation. That does not
+	// prove the requested relation, but it is genuine progress from operation
+	// discovery into relation-bridge investigation and must reset a bounded
+	// low-delta window exactly once.
+	missingHaveLocalOperations bool
 }
 
 func flowParticipantCoverageConvergenceThreshold(
@@ -3962,6 +3969,9 @@ func assessFlowParticipantCoverage(ctx *types.BusContext, evidence []types.Evide
 		}
 	}
 	assessment.missing = missing
+	assessment.missingHaveLocalOperations = flowParticipantIndexesHaveLocalOperations(
+		relationScope, missingIndexes,
+	)
 	if relationScope.requestScopedSubsetIncomplete && len(missingIndexes) > 0 {
 		assessment.boundedPartialUnprovenAvailable = true
 		for _, i := range missingIndexes {
@@ -3992,10 +4002,27 @@ func assessFlowParticipantCoverage(ctx *types.BusContext, evidence []types.Evide
 	for i, participant := range participants {
 		if !relationScope.completionParticipantConnectedCovered(i) {
 			missing = append(missing, strings.TrimSpace(participant.Identity))
+			missingIndexes = append(missingIndexes, i)
 		}
 	}
 	assessment.missing = missing
+	assessment.missingHaveLocalOperations = flowParticipantIndexesHaveLocalOperations(
+		relationScope, missingIndexes,
+	)
 	return assessment
+}
+
+func flowParticipantIndexesHaveLocalOperations(scope flowParticipantRelationScope, indexes []int) bool {
+	if len(indexes) == 0 {
+		return false
+	}
+	for _, index := range indexes {
+		if index < 0 || index >= len(scope.participantLocalOperation) ||
+			!scope.participantLocalOperation[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func flowParticipantCoverageRepairHint(missing, files, keywords []string) string {
@@ -4198,14 +4225,25 @@ func flowOperationNavigationHintForMissing(ctx *types.BusContext, missing, files
 // the search cursor used to investigate it. A new parser-owned coordinate is a
 // better next read, but it is not relation proof: allowing carrier/callee/
 // caller navigation churn to change this key grants an unbounded retry budget
-// while the same requested participants remain disconnected. Only a genuine
-// change in the typed missing-participant set resets convergence. The exact
-// frontier is still returned as a boolean so the caller can retain the larger
-// locate-then-read allowance; it remains navigation-only authority.
-func flowParticipantCoverageBlockerKey(ctx *types.BusContext, missing []string) (uint32, bool) {
+// while the same requested participants remain disconnected. Two finite typed
+// changes reset convergence: the missing-participant set changes, or every
+// member of that same set advances from no local operation to at least one
+// citable parser-owned local operation. The latter is not relation proof; it
+// grants only the bounded bridge-investigation turn that r870 previously lost.
+// The exact frontier is still returned as a boolean so the caller can retain
+// the larger locate-then-read allowance; it remains navigation-only authority.
+func flowParticipantCoverageBlockerKey(
+	ctx *types.BusContext,
+	missing []string,
+	missingHaveLocalOperations bool,
+) (uint32, bool) {
 	_, ok := flowOperationRepairReadTargetForMissing(ctx, missing)
+	progressStage := "operation_missing"
+	if missingHaveLocalOperations {
+		progressStage = "local_operation_available"
+	}
 	return types.ComputeDowngradeTypedIdentifierSetKey(
-		string(types.DowngradeLaneFlowParticipantCoverage), missing,
+		string(types.DowngradeLaneFlowParticipantCoverage)+"|"+progressStage, missing,
 	), ok
 }
 

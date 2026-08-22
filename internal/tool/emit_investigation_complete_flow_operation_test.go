@@ -689,7 +689,7 @@ func TestEmitInvestigationComplete_FlowParticipantCoverageRequestsOneFocusedPass
 		t.Fatalf("participant repair must reuse the flow-operation teaching source without a divergent contract: %q", repairs[0].Rationale)
 	}
 	wantBlocker := types.ComputeDowngradeTypedIdentifierSetKey(
-		string(types.DowngradeLaneFlowParticipantCoverage), []string{"Analyzer"},
+		string(types.DowngradeLaneFlowParticipantCoverage)+"|operation_missing", []string{"Analyzer"},
 	)
 	if got := ctx.Mutable.EvidenceClosure().LatestProgressDecision().Delta.BlockerKey; got != wantBlocker {
 		t.Fatalf("production participant gate must key convergence on the exact missing set: got=%d want=%d", got, wantBlocker)
@@ -2003,7 +2003,7 @@ func TestFlowOperationNavigationReturnsToRequestedSiblingArgumentAfterCalleeBody
 			t.Fatalf("sibling-argument extraction guidance missing %q:\n%s", want, hint)
 		}
 	}
-	keyWithSiblingFrontier, hasFrontier := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"})
+	keyWithSiblingFrontier, hasFrontier := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"}, false)
 	if !hasFrontier {
 		t.Fatal("parser-owned sibling argument must participate in the typed progress frontier")
 	}
@@ -2015,7 +2015,7 @@ func TestFlowOperationNavigationReturnsToRequestedSiblingArgumentAfterCalleeBody
 	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); len(got) != 0 {
 		t.Fatalf("model-authored sibling argument should join the requested carrier component: %v", got)
 	}
-	keyAfterJoin, _ := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"})
+	keyAfterJoin, _ := flowParticipantCoverageBlockerKey(ctx, []string{"BusContext", "Mutable"}, false)
 	if keyAfterJoin != keyWithSiblingFrontier {
 		t.Fatal("navigation cursor changes must not reset convergence while the typed missing set is unchanged")
 	}
@@ -2036,7 +2036,7 @@ func TestFlowParticipantCoverageBlockerKeyIgnoresAdvancingNavigationCursor(t *te
 		}},
 	}
 	missing := []string{"Analyzer"}
-	before, _ := flowParticipantCoverageBlockerKey(ctx, missing)
+	before, _ := flowParticipantCoverageBlockerKey(ctx, missing, false)
 
 	// An unrelated but precise source operation can advance the parser-owned
 	// repair cursor. It does not cover Analyzer and therefore is not progress on
@@ -2044,12 +2044,41 @@ func TestFlowParticipantCoverageBlockerKeyIgnoresAdvancingNavigationCursor(t *te
 	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
 		flowOperationEvidence(types.AnchorCall, "BuildContext", "local.Load", 43),
 	})
-	after, _ := flowParticipantCoverageBlockerKey(ctx, missing)
+	after, _ := flowParticipantCoverageBlockerKey(ctx, missing, false)
 	if before != after {
 		t.Fatalf("same typed missing set must keep one convergence identity: before=%d after=%d", before, after)
 	}
 	if got := flowParticipantCoverageMissing(ctx, ctx.Mutable.EmittedEvidence()); !flowTestSliceContains(got, "Analyzer") {
 		t.Fatalf("fixture accidentally resolved the requested participant: %v", got)
+	}
+}
+
+func TestFlowParticipantCoverageBlockerKeyResetsOnceForTypedLocalOperationProgress(t *testing.T) {
+	ctx := flowOperationCompletionContext(nil)
+	missing := []string{"Mutable"}
+	before, _ := flowParticipantCoverageBlockerKey(ctx, missing, false)
+	after, _ := flowParticipantCoverageBlockerKey(ctx, missing, true)
+	if before == after {
+		t.Fatal("a missing participant gaining citable local-operation coverage must reset the bounded relation-repair window")
+	}
+	stable, _ := flowParticipantCoverageBlockerKey(ctx, []string{" Mutable ", "Mutable"}, true)
+	if stable != after {
+		t.Fatal("the finite local-operation progress stage must remain set-stable and cannot churn the retry budget")
+	}
+
+	closure := ctx.Mutable.EvidenceClosure()
+	lane := types.DowngradeLaneFlowParticipantCoverage
+	if preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(ctx, lane, before, 2) {
+		t.Fatal("first operation-discovery blocker must request repair")
+	}
+	if preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(ctx, lane, after, 2) {
+		t.Fatal("typed local-operation progress must reset convergence instead of force-completing")
+	}
+	if !preCompleteDowngradeConvergesWithTypedBlockerKeyAtThreshold(ctx, lane, after, 2) {
+		t.Fatal("one unchanged bridge-focused retry must still converge at the bounded threshold")
+	}
+	if !closure.HasCompletionCaveat(types.DowngradeLaneFlowParticipantCoverage) {
+		t.Fatal("unchanged bridge deficit must retain the typed convergence caveat")
 	}
 }
 
@@ -3324,6 +3353,9 @@ func TestFlowParticipantStrictProviderSubsetWithLocalBoundaryUsesOneFocusedPass(
 	}
 	if !assessment.boundedPartialUnprovenAvailable {
 		t.Fatalf("an exact publishable local-only candidate must make the partial boundary convergent: %+v", assessment)
+	}
+	if !assessment.missingHaveLocalOperations {
+		t.Fatalf("the missing participant's exact local operation must advance the finite convergence stage: %+v", assessment)
 	}
 	if got := flowParticipantCoverageConvergenceThreshold(assessment, true, true); got != 2 {
 		t.Fatalf("an advancing navigation cursor must not require a third close after one focused pass, threshold=%d", got)
