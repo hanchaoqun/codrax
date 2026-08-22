@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1356 r832：B1316 去重臂生产转正；B1315 跨样本确认为“错 ID 优先 + 旧 citation 池泄漏”（2026-08-21）
+
+1. 从已推送 `4944761c8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 154s、read
+   427s。Trace 0 次成文拒绝，read 6 次拒绝/6 次 patch；相对 r831 的 read 626s、13 次拒绝/11 次 patch 明显收敛，但 runner PASS 仍不替代
+   人工答案审计。
+2. Trace 人工判 pass：2.000..2.020s 显式窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四线程三跳链、
+   threadpool-400 的 11.000ms 链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级反转候选、实际占时/规则可消双账户、链上业务
+   下钻和完整 `Trace 因果投影` 全部保留。邻近与背景未升为根因；read 图表修补未侵入窗口选举、自动补采、链上排序或投影，活动流未按固定
+   4ms/4m、累计年龄或上下文比例降级。
+3. B1316 获得一条生产正证：r831 曾把已存在的 Analyzer→Explorer、Explorer→Extractor、Extractor→Finalizer 三条 stage anchor 以仅大小写
+   不同的 identity 再发布为 allowed additions；r832 只发布真正新增的 BusContext→BuildAgentContext，重复 stage additions 消失。缺外层 kind、
+   evidence-negative remove-only、structural replace hidden tuple 与多行 context label 本轮未自然触发，保持回归闭合、生产 witness 待命中，不能虚报。
+4. read 人工仍判 partial。最终 Mermaid 语法合法，阶段链和 BusContext→BuildAgentContext 在，但 Orchestrator 独立、Mutable 仅位于 subgraph，
+   用户要求的数据关系表达仍偏薄；系统不得为追求饱满而自造边。修补过程还出现同一 label `failure_ref` 被提交两次、relation lease 消费后复用 stale
+   ref、以及同一 remove operation 重复提交；执行器均正确拒绝，但是否能对字节/语义完全相同的重复结构操作做输入层去重，需异构样本后另案，不能把
+   不同 label 的重复 ref 当成可合并。
+5. `B1315-CITATIONSUBJECTLINECONSISTENCY1` 获得第二类独立 witness 并可冻结根因。r830 中 `SetResult` 条目显式选择了
+   `ev-fdae6baa362d5259`，该 ID 的真实 typed 行是 `SetExploreBudget@4602`；系统已精确算出唯一候选 `SetResult@4532`，却只发 soft advisory，
+   最终仍让错误 ID 覆盖先前的 label/citation 修复。r832 中模型最初又铸造 `internal/types/context.go:51 = type Orchestrator struct`；源码核验正确
+   把 quote 改回真实注释，后续 patch 也已用正确 evidence IDs 替换可见条目，但 patch 合并合同保留整份 inherited citation pool，导致无人再引用的
+   `context.go:51` 仍出现在文末。两例共同说明：条目已修正不等于 citation 池已修正。
+6. B1315 最优通用施工冻结为两个隐藏载体修复，不改模型答案：(a) 仅当结构化 symbol-like item 恰有一个显式 evidence ID、该 ID 与 label 的 typed
+   endpoint 不相容、且 accepted current-source evidence 中恰有一个可引用的同身份候选时，改绑该隐藏 evidence ID；多 ID、非代码标签、同名多候选、
+   无候选、未接地或跨 origin 均不猜。(b) patch 已完成合并及所有 typed supplements 后，删除无人被任何 item 引用的 citation slot 并原子 remap
+   其余 citation indexes；全池无 item refs 的 citation-only 文档继续保留，避免改变既有表达合同。两臂只读 schema 字段、typed evidence 和引用索引，
+   不扫描请求、thinking、block prose、最终答案或 Mermaid message，不选择事实、关系、成员、措辞、布局或结论。
+
+状态：
+
+`r832=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1316=production-positive-case-equivalent-addition-suppression/core-closed`；
+`B1315=confirmed-cross-case/P1-next`；
+`wrong-single-evidence-id=unique-typed-identity-rebind-planned`；
+`unused-inherited-citation=post-merge-prune+index-remap-planned`；
+`ambiguous/multi-evidence/composite-item=no-auto-rebind`；
+`system-answer/member/relation/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r832`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r832`。
+
 ### §123.1354 r831：B1313/B1314 生产转正；局部图修补合同仍有四类不可执行分支（2026-08-21）
 
 1. 从已推送 `456e1cac8` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：
