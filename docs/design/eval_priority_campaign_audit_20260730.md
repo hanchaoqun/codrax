@@ -57368,6 +57368,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r866`。
 
+### §123.1419 r867：B1351 生产闭环，C++ 可选图与显式窗 Trace 同时守住（2026-08-22）
+
+1. 从已推送 `07bcf94ae` 重建干净二进制，严格并发恰好 2 路复放 C++ 虚调用链与显式窗 Trace，runner 2/2 PASS：C++ 179s、Trace
+   167s，两个用例均零成文拒绝、零降级。C++ 第一轮直接发出原生 `blocks[]`，因此本轮生产证据覆盖 B1351 的正常能力投影；字符串化
+   `blocks[]` 的“无损恢复后按同一 dispatch schema 复验”分支由本批单测与全量套件守护，未伪称本次模型自然触发了该形。
+2. C++ 人工 pass。finalizer 的 requested outputs 只有 `summary, trace`，可选 diagram 不再被升级成必交项；同一 semantic view 仍发布
+   `summary, ordered_list, diagram` 作为当前证据允许的可选载体，模型自主选择了一张图并首稿通过。日志中的 `has_diagram=false` 只表示
+   DiagramPlan 非 required，并不等于能力不存在；此处“非必交”和“允许可选”没有合同矛盾。
+3. C++ 答案准确分开 `Logger::log -> Sink::write`、`ConsoleSink::write -> std::fputs(stderr)` 与
+   `make_sink -> SinkRegistry::create -> ConsoleSink` 两段。可选图只画有显式 typed 边的两个片段；对源码没有直接调用点的
+   `Sink::write -> ConsoleSink::write` 虚分发边，模型选择不画箭头并在正文披露运行时绑定边界，没有系统补桥、删改结论或虚构关系；r866 的
+   flush 过度主张也未复现。
+4. Trace 人工 pass。显式 2.000..2.020s 窗、app-100 五态账、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点唤醒链、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   runnable/优先级候选、实际占时/规则可消双账户、链上业务线索、邻近/背景隔离、root_cause_rank 与 critical_blocking_calls 自动补采及完整
+   `Trace 因果投影` 全部保留。模型还明确说明候选标签不证明锁持有者、同步阻塞或资源竞争，IO 活动综合指数不参与墙钟排序。
+5. 本轮证明 B1351 核心闭环：soft hint 不铸成硬要求，typed optional plan 仍可供模型选择，支持车道与实时工具 schema 同源，正常原生答案一次通过。
+   系统没有读取请求词、thinking、模型/最终 prose 或 Mermaid message/label 来决定是否出图，也没有选择图中节点、边、文字、布局或结论。
+   B1352 仍只指历史恢复稿/旧客户端可能携带 fused companion 的谱系；r867 没有触发该形，继续作为独立 P1，不能与 B1351 混账关闭。
+
+状态：
+
+`r867=runner-pass-2/2,human-cpp-pass+trace-pass`；
+`B1351=production-positive/core-closed`；
+`optional-diagram=not-requested/model-owned/typed-plan-allowed`；
+`string-wrapped-blocks=schema-revalidation-unit-pinned/not-production-triggered-r867`；
+`B1352=confirmed/P1/history-recovery-lineage-open`；
+`system-answer/relation/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r867`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r867`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、
