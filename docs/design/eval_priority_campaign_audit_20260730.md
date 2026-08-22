@@ -57509,6 +57509,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1366 r837：写模式交付恢复；关系路径被误铸成员清单后触发自冲突修补（2026-08-22）
+
+从已推送 `ec6357e75` 构建不可变二进制，严格并发恰好 2 路复放：
+
+- `patch_c_typo`：124s，runner PASS，0 成文拒绝；
+- `sr_rust_cross_module_chain`：170s，runner PASS，2 次拒绝、2 次 patch，最终未降级空答案/旧失败稿。
+
+1. C 写交付人工判 pass：只把 `main.c:19` 的 `retrun buf;` 改为 `return buf;`，真实 `make test` 退出 0，最终状态
+   `已验证`，没有再进入 verify-only 循环；编译产生的未跟踪 `main` 被明确披露为 retained/not committed。必须收窄生产证据：
+   本轮 write analyzer 把 `greet-compiles` 校准成 `operator=satisfies + planning_only`，因此 S1319 新增的
+   `source_contract_refs` **没有被激活**。这轮证明 write 车道没有回归，但不能冒充 hard source receipt 的生产正证；
+   `B1319` 仍需一个具有 plan-owned hard exact source contract 的后续异构回放。
+2. S1320 的 canonical path 获得正证：Rust 首稿用手工 citation index 被正确拒绝后，模型第二轮使用规范
+   `replace_blocks`，复制 6 个 stable `evidence_ids` 并携带 6 条 `call` edge anchors；patch 被接受，最终答案保留
+   `main -> run -> walker::collect_files -> walk -> fs::read_dir` 与 `run -> index_file -> Matcher.is_match` 的逐跳源码引用，
+   walker 的文件枚举职责也被明确解释。未再出现 `replace_snippets` 静默 quarantine 或连续 7 轮同错，说明新 JSON 教学与
+   可执行操作面显著收敛；但本轮没有实际触发 full/partial 错载兼容臂，因此该臂仍只有精确单测正证。
+3. 新确认 `B1321-RELATIONDIMMEMBERCOLLISION1/P1`，不是答案正文关键词问题。analyzer 把第 1 维“跨模块调用链”铸成
+   `role=member_set`，同时 typed predicates 明确 `is_category_enumeration=false`、`has_per_member_table=false`，
+   `completeness_obligation.required=false`。explorer 又提交了“完整调用链节点” member_set，但后续 authority 明确标为
+   `fact_authority=advisory_model_inference/principal_contract=not_authorized`。尽管如此，call-chain compiler 和 requested-dimension
+   gate 仍把同一维硬解释为“用户另要成员清单”，要求独立 `facet_ids:["member_set"]`。同页上下文因此同时出现“不是必需 roster”
+   与“必须补 roster”的矛盾合同。
+4. 该矛盾造成真实损害：第二稿已经具备正确 evidence IDs、`claim_uses` 和 6 条 anchors；系统随后发起缺维修补，模型按提示给
+   同一个 hop block 加 `member_set`，但 full replacement 漏复制 `claim_uses/edge_anchors`，第三稿被再次拒绝。恢复机制最终保留了
+   第二稿，所以 runner 绿且关系文本仍在；这只是安全网，不代表合同正确。最优修向是新增语言无关的 typed
+   `relation_path` requested-dimension role，并在 analyzer 校验层用同一份 typed question kind/predicates 检查：call-chain 自身的
+   路径维度使用 `relation_path`；`member_set` 只在另有 enumeration/per-member/completeness typed 需求时合法。最终覆盖 receipt
+   读取 principal-path facet + directed claim/anchor，不扫描用户原文或答案 prose，也不由系统生成任何边、标签或结论。
+5. 人工质量另记 `B1322-CALLORDERWORDING1/P2-observe`：最终摘要声称文件收集与文件处理“并行推进”，源码实际是
+   `collect_files` 返回后才进入 `for` 循环，严格顺序执行。模型自己的生成前推理一度已写出“first collects then indexes”，最终却
+   发生措辞漂移。当前只出现一次，且系统已给出逐跳源码与“无 typed order 不宣称顺序/并行”的软指导；按模型波动留观，禁止新增
+   最终正文关键词硬门。若异构回放复现，再设计 typed control-flow precedence/data-handoff carrier，而不是针对“并行”一词拟合。
+
+状态：
+
+`r837=runner-pass-2/2,human-write-pass+read-partial`；
+`B1319=unit-closed/production-hard-receipt-still-unexercised`；
+`B1320-canonical-replace-blocks=production-positive`；
+`B1320-misroute-compat=unit-positive/production-unexercised`；
+`B1321=confirmed/P1-next/typed-contract-self-conflict`；
+`B1322=P2-observe/single-model-wording-drift/no-hard-prose-gate`；
+`system-answer/member/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
