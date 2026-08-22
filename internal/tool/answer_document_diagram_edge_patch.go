@@ -909,9 +909,11 @@ func atomicDiagramParticipantSurfaceKey(raw string) string {
 
 func atomicDiagramParticipantProtected(protected map[string]bool, surfaces ...string) bool {
 	for _, surface := range surfaces {
-		key := atomicDiagramParticipantSurfaceKey(surface)
-		if key != "" && protected[key] {
-			return true
+		for _, candidate := range []string{surface, types.DiagramPrimaryVisibleIdentity(surface)} {
+			key := atomicDiagramParticipantSurfaceKey(candidate)
+			if key != "" && protected[key] {
+				return true
+			}
 		}
 	}
 	return false

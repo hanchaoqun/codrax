@@ -2,6 +2,33 @@ package types
 
 import "strings"
 
+// DiagramPrimaryVisibleIdentity projects one Mermaid display label onto its
+// exact first-line identity carrier. Later lines commonly contain file/line or
+// type metadata and must not make two structural consumers disagree about
+// whether a requested participant is present. This is presentation identity
+// only: it never resolves source symbols, proves relations, or scans prose.
+func DiagramPrimaryVisibleIdentity(raw string) string {
+	label := strings.TrimSpace(raw)
+	cut := len(label)
+	for _, separator := range []string{"<br/>", "<br>", `\n`, "\n"} {
+		if idx := strings.Index(label, separator); idx >= 0 && idx < cut {
+			cut = idx
+		}
+	}
+	label = strings.TrimSpace(label[:cut])
+	if symbol, _, ok := ParseAnswerSupportRefMemberLocation(label); ok && strings.TrimSpace(symbol) != "" {
+		label = strings.TrimSpace(symbol)
+	}
+	if len(label) >= 3 && label[0] == '`' && label[len(label)-1] == '`' &&
+		strings.Count(label, "`") == 2 {
+		identity := label[1 : len(label)-1]
+		if IsCodeIdentitySurface(identity) {
+			return identity
+		}
+	}
+	return label
+}
+
 // DiagramParticipantIdentitySurfaces resolves a schema-valid participant's
 // presentation label to a code-identity surface for SOFT planning consumers.
 // Analyzer models sometimes preserve a useful display qualifier (for example

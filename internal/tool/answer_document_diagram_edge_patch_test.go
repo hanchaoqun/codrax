@@ -192,6 +192,22 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 	})
 }
 
+func TestAtomicDiagramParticipantProtectionUsesDecoratedPrimaryIdentity(t *testing.T) {
+	protected := map[string]bool{"buscontext": true}
+	for _, surface := range []string{
+		`BusContext<br/>internal/types/context.go:7593`,
+		`BusContext\\ninternal/types/context.go:7593`,
+		"BusContext\ninternal/types/context.go:7593",
+	} {
+		if !atomicDiagramParticipantProtected(protected, "BC", surface) {
+			t.Fatalf("decorated primary requested identity was not protected: %q", surface)
+		}
+	}
+	if atomicDiagramParticipantProtected(protected, "MS", `MutableState<br/>context.go:113`) {
+		t.Fatal("unrelated first-line identity must not become protected by metadata projection")
+	}
+}
+
 func TestEmitAnswerDocumentPatch_WiresOptionalOrphanCleanupThroughProductionEnvelope(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{

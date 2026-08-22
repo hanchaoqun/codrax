@@ -18577,9 +18577,11 @@ func answerDocDiagramParticipantSurfaceKey(raw string) string {
 
 func answerDocDiagramSurfaceProtected(protected map[string]bool, surfaces ...string) bool {
 	for _, surface := range surfaces {
-		key := answerDocDiagramParticipantSurfaceKey(surface)
-		if key != "" && protected[key] {
-			return true
+		for _, candidate := range []string{surface, types.DiagramPrimaryVisibleIdentity(surface)} {
+			key := answerDocDiagramParticipantSurfaceKey(candidate)
+			if key != "" && protected[key] {
+				return true
+			}
 		}
 	}
 	return false

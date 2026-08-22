@@ -1445,6 +1445,48 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 	}
 }
 
+func TestRequiredDiagramRelationRetryNeverOffersDecoratedRequestedParticipantAsOrphan(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			` BC["BusContext<br/>internal/types/context.go:7593"]`,
+			` X["InternalController<br/>internal/controller.go:7"]`,
+			` A["Analyze"]`,
+			" BC --> A",
+			" X --> A",
+		}, "\n")},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "BC", ToNode: "A", FromIdentity: "BusContext.Read", ToIdentity: "Analyze.Run", RelationKind: types.DiagramRelCall},
+			{FromNode: "X", ToNode: "A", FromIdentity: "InternalController.Run", ToIdentity: "Analyze.Run", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "call_edge_unproven", FromNode: "BC", ToNode: "A", FromIdentity: "BusContext.Read", ToIdentity: "Analyze.Run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+		{BlockID: "flow", Issue: "call_edge_unproven", FromNode: "X", ToNode: "A", FromIdentity: "InternalController.Run", ToIdentity: "Analyze.Run", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+	}, nil)
+	if lease == nil {
+		t.Fatal("test setup did not create a relation lease")
+	}
+	view := &types.AnswerSemanticView{DiagramParticipantObligations: []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}}
+	got := answerDocDiagramOptionalOrphanCleanupCandidates(base, lease, view)
+	foundX := false
+	for _, candidate := range got {
+		if candidate.ParticipantID == "BC" {
+			t.Fatalf("decorated requested participant leaked into the orphan cleanup roster: %+v", got)
+		}
+		foundX = foundX || candidate.ParticipantID == "X"
+	}
+	if !foundX {
+		t.Fatalf("unrelated removable participant should remain model-owned: %+v", got)
+	}
+}
+
 func TestRequiredDiagramRelationRetryDoesNotPublishUnfulfillableRepeatedPairOrphanCleanup(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

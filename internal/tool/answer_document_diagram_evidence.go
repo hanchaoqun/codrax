@@ -1730,18 +1730,7 @@ func diagramEvidenceIdentityAppearsExactly(evidence []types.EvidenceItem, candid
 // not a fuzzy symbol matcher: no prefix, token-overlap, or prose inference is
 // accepted after the exact first-line projection.
 func diagramEvidenceLabelSymbol(label string) string {
-	label = strings.TrimSpace(label)
-	cut := len(label)
-	for _, separator := range []string{"<br/>", "<br>", `\n`, "\n"} {
-		if idx := strings.Index(label, separator); idx >= 0 && idx < cut {
-			cut = idx
-		}
-	}
-	label = strings.TrimSpace(label[:cut])
-	if symbol, _, ok := types.ParseAnswerSupportRefMemberLocation(label); ok && strings.TrimSpace(symbol) != "" {
-		label = strings.TrimSpace(symbol)
-	}
-	return diagramEvidenceExactInlineCodeIdentity(label)
+	return diagramEvidenceExactInlineCodeIdentity(types.DiagramPrimaryVisibleIdentity(label))
 }
 
 // diagramEvidenceExactInlineCodeIdentity removes one Markdown presentation

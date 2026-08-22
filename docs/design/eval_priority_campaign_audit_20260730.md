@@ -57562,6 +57562,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r870`。
 
+### §123.1424 r871/B1356：请求参与者的第一行主标签不能被孤点修补反向删除（2026-08-22）
+
+1. 从已推送 `9d3a067b7` 重建干净二进制，严格并发恰好 2 路复放同一逻辑图 read 与显式窗 Trace，runner 2/2 PASS：Trace 188s、read
+   408s。人工判定 Trace pass、read partial，见
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r871_20260822_manual_audit.md`。两路均未因固定 4ms、4m、首字节、流年龄、墙钟或上下文比例
+   降级，系统没有替模型写关系、根因、业务词或修向。
+2. Trace 守护连续通过：2.000000..2.020000s 精确窗、app-100 四态、四跳唤醒链及逐跳 CPU、11.000ms 链上 IO 第一席、三个独立
+   1.000ms 调度/优先级候选、实际占时/规则可消双账户、背景隔离、链上业务下钻和完整 `Trace 因果投影` 均在。finalizer 零拒绝；一次 patch 是
+   结构化回答局部修补而非恢复旧稿或系统代写。
+3. B1355 本轮只签无回归，不能虚报自然正证。模型在 extract_work.go 将字段读取与 getter 调用误发为 `anchor_kind=assignment`，subject/object 也不是
+   源码赋值两端；typed provider 正确没有把它们提升为关系，最终仍为
+   `no_incident_typed_relation=[Mutable BusContext]`、`source_operation_missing=[BusContext]`。因此没有发生
+   `operation_missing -> local_operation_available` 阶段跃迁；第二个 Explorer dispatch 对同一 blocker 第三次收敛是原有有界止损，不是 B1355 吞进展。
+4. read 最终四阶段职责和三条 precedence 基本准确，Mermaid 合法；共享载体仍以 disconnected/unproven 形存在，未满足用户要看的阶段数据流。模型删掉
+   未证虚线后仍在 caveat 写“图中以虚线表示”，属于单案可见答案漂移，继续观察而不扫描/重写模型 prose。23 次 read、两次 Explorer dispatch、三次 prune
+   和五次 finalizer reject 仍偏高。
+5. 新确认并施工 `B1356-DECORATEDREQUESTEDORPHAN1/P1`。首次 rejected draft 的
+   `bc["BusContext\\ninternal/types/context.go:7593"]` 以 BusContext 为精确第一行主身份，后续行只是文件位置；participant coverage 已按该规则确认可见。
+   `answerDocDiagramOptionalOrphanCleanupCandidates` 与 atomic patch executor 却把完整 label 做整串相等，因而把 bc 错列进
+   `optional_orphan_cleanups`。模型按同代 typed joint repair 删除失败边和 bc 后，兄弟 participant gate 立即以
+   `boundary_participant_not_visible` 拒绝 BusContext：同一结构事实在两套解析器中结论相反，是确定性合同自冲突。
+6. 根修抽出一个共享精确投影：Mermaid display label 只取 `<br/>`、`<br>`、字面 `\\n` 或真实换行之前的第一行身份，并可剥一层完整、合法的
+   inline-code 包装；后续类型/源码位置不参与 identity。producer 与 executor 都用它保护 request/boundary participant，既防止错误 capability 发给模型，
+   也防止陈腐/伪造 lease 删除受保护声明。它不做前缀、token、同义词或 prose 匹配；`MutableState` 不会被当作 `Mutable`；更不证明关系或替模型选择
+   retain/remove、label、edge、layout、结论。
+7. 新回归覆盖共享 helper 的 `<br/>`、Mermaid `\\n`、真实换行、合法 inline code 和非法多词包装；agent producer 以同一图同时放入 decorated
+   BusContext 与普通 InternalController，要求只排除前者、保留后者为模型可选 cleanup；tool executor 以三种换行形钉住二次保护，并验证
+   `MutableState != Mutable`。专项 `internal/types`、`internal/agent`、`internal/tool` 回归、完整 `go test ./... -count=1`、CGO release-tag
+   `make` 与 `git diff --check` 全绿；提交推送后从不可变新提交做生产回放。
+
+状态：
+
+`r871=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1355=production-no-regression/natural-progress-transition-not-triggered`；
+`B1356=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`requested/boundary-participant-protection=exact-primary-visible-identity`；
+`display-metadata-after-first-line=non-identity`；
+`prefix/token/prose/fuzzy-matching=none`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r871`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r871`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、

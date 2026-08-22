@@ -2,6 +2,23 @@ package types
 
 import "testing"
 
+func TestDiagramPrimaryVisibleIdentityUsesOnlyExactFirstLineCarrier(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{`BusContext<br/>internal/types/context.go:7593`, "BusContext"},
+		{`Mutable\n*MutableState`, "Mutable"},
+		{"Analyzer\nsource.go:7", "Analyzer"},
+		{"`ArkTS.Service`<br/>service.ets:9", "ArkTS.Service"},
+		{"business participant label", "business participant label"},
+		{"`two tokens`", "`two tokens`"},
+	} {
+		if got := DiagramPrimaryVisibleIdentity(tc.in); got != tc.want {
+			t.Fatalf("primary identity for %q=%q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestDiagramParticipantIdentitySurfacesResolvesUniqueTypedDisplayAlias(t *testing.T) {
 	rm := RequestModel{AnalyzerHints: AnalyzerHints{Entities: []string{
 		"Analyzer", "Explorer", "Mutable", "BusContext",
