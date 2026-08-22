@@ -57458,6 +57458,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r853`。
 
+### §123.1394 B1333：动态候选非 call hop 接入统一关系配方与重试凭证（2026-08-22）
+
+1. `B1333-DYNAMICCANDIDATERELATIONRECIPE1/P1` 已施工。成功通过既有 typed compiler 的每个动态选择 candidate 现在在统一
+   `Typed relation authoring capsule` 内获得逐 hop、可复制的关系配方：call、argument flow、registration/assignment、factory return、
+   callback handoff 与 declared type relation 均保留原 relation kind、exact endpoint、Evidence ID 和 source occurrence；装饰器/
+   selector application 仍只发 note/table recipe，明确禁止转成 edge。系统不再一面给出完整文字 candidate，另一面只给 call/callback
+   的不完整 `edge_recipe`。
+2. 每个 candidate/hop 使用 occurrence-local 稳定 node id，重复 `REGISTRY -> cls` 端点也不会因字面相同被折叠；每条 recipe 同时给出
+   exact `edge_anchor_json`。配方有 24 条 typed hop 的显示上限，超限只披露 authoring view 截断，不能由截断推断唯一性或证据不存在。
+   candidate group 之间不自动连边，也不把 declaration、assignment、return、type relation 伪装成 call。
+3. 同一批把这些 candidate anchors 写入 `MutableState.FinalizerTypedRelationRecipeAnchors`。因此初次成文与后续 typed repair 都消费同一份
+   schema-native receipt，重试不再退回仅有 generic guard/call/callback 的旧配方。该 carrier 只提供可用关系权限；模型仍决定哪个
+   candidate 与问题相关、是否存在运行时选中证据、采用哪些边、是否画图、业务可见标签、布局与最终结论。系统不生成可见答案，也不要求
+   把所有候选/所有边画入图。
+4. 信号边界保持精确：输入只来自已 citable 的 typed evidence 与成功 compiler 输出，不扫描用户请求、模型 thinking、最终正文、
+   Mermaid message 或错误 prose；入口仍使用已统一的 call `Subject` first、legacy `OwnerSymbol` fallback exact identity，compiler 的唯一性/
+   歧义 fail-closed 不变。该实现适用于 registry、factory、DI、callback、interface/inheritance 等跨语言动态选择结构，不绑定 Python 名字、
+   fixture 路径或行号。
+5. 回归钉住完整 candidate 的七类关系：argument、两条同端点不同 occurrence 的 register/assignment、return、callback 与 type receipt 必须
+   原样进入 Mutable；selector application 必须保持 note；禁止 synthetic `entry -> declared_candidate` call 和 runtime-selected 结论。
+   定向 `go test ./internal/agent ./internal/types ./internal/tool -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放同一 Python+显式窗 Trace。Python 验收初次与重试提示均携带 candidate
+   relation recipe、关系拒绝是否收敛且用户要求的图是否保留；Trace 验收显式窗、自动补采、链上根因、实际占时/规则可消双轴、业务线索与
+   `Trace 因果投影` 零回归，活动流不得因固定 4ms/4m 或其他耗时阈值降级。
+
+状态：
+
+`B1333=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`dynamic-candidate-authoring=single-capsule/schema-native/per-occurrence`；
+`selector-application=note-only/no-edge`；
+`candidate-recipe-receipt=initial+retry-shared`；
+`candidate-runtime-selection=model-owned`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`B1332=confirmed/P1/open`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

@@ -1828,6 +1828,7 @@ func TestAnswerDocumentEvaluator_DiscoverPathReceivesTypedRelationCompositionWit
 
 func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWithoutSyntheticCall(t *testing.T) {
 	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("explain dynamic selector dispatch"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:        types.IntentTrace,
 			PredicateAxis: types.AxisCall,
@@ -1846,6 +1847,9 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedRelationFamiliesWith
 			{ID: "E-return", Kind: types.EvidenceConcrete, Subject: "resolve", Predicate: "returns", Object: "cls()", Source: "pipeline/registry.py", LineStart: 19, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
 			{ID: "E-noise", Kind: types.EvidenceConcrete, Subject: "CsvPlugin.content_type", Predicate: "returns", Object: `"text/csv"`, Source: "pipeline/plugins.py", LineStart: 14, Scope: types.ScopeLine, AnchorKind: types.AnchorReturn, Producer: "concrete_values"},
 		},
+	}
+	for i := range ctx.EvidenceItems {
+		ctx.EvidenceItems[i].GroundingStatus = types.GroundingGrounded
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
@@ -1892,6 +1896,7 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 		SelectorApplication: &types.EvidenceSelectorApplication{Owner: "register", Literal: "json"},
 	}
 	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState("explain dynamic selector dispatch"),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
 			CallChainEndpointProfile: &types.CallChainEndpointProfile{Source: "run_pipeline", SinkMode: types.CallChainSinkResolutionDiscover},
@@ -1909,6 +1914,9 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 			{ID: "E-type", Kind: types.EvidenceRelationship, Subject: "JsonPlugin", Predicate: "inheritance", Object: "BasePlugin", OwnerSymbol: "JsonPlugin", Source: "pipeline/plugins.py", LineStart: 8, LineEnd: 8, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, Producer: types.EvidenceProducerRepoMapStructuralRelation, RelationOrdinal: 1},
 		},
 	}
+	for i := range ctx.EvidenceItems {
+		ctx.EvidenceItems[i].GroundingStatus = types.GroundingGrounded
+	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"### Typed dynamic-selection candidates (soft context; model-owned)",
@@ -1923,6 +1931,12 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 		"optional declared-type row, relation_kind=`type_relation`: `JsonPlugin` -> `BasePlugin` [E-type]",
 		"model decides whether the candidate is relevant",
 		"never add a synthetic `entry -> declared_candidate` call",
+		"dynamic_candidate_relation_group[1]: selector_literal=`json`; declared_candidate=`JsonPlugin`; status=`candidate_only`",
+		"dynamic_candidate_edge_recipe[1.1]=`dc1r1f -> dc1r1t`; role=`core`; relation_kind=`call`; evidence=`E-entry`",
+		`edge_anchor_json=` + "`" + `{"from_node":"dc1r3f","to_node":"dc1r3t","from_identity":"REGISTRY","to_identity":"cls","relation_kind":"register"}` + "`",
+		`edge_anchor_json=` + "`" + `{"from_node":"dc1r4f","to_node":"dc1r4t","from_identity":"REGISTRY","to_identity":"cls","relation_kind":"assignment"}` + "`",
+		`edge_anchor_json=` + "`" + `{"from_node":"dc1r5f","to_node":"dc1r5t","from_identity":"resolve","to_identity":"cls()","relation_kind":"return"}` + "`",
+		"dynamic_candidate_note_recipe[1]: selector owner=`register`; literal=`json`; declared candidate=`JsonPlugin`; evidence=`E-app`; this is a declaration note/table fact and never an edge",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("typed dynamic-selector candidate missing %q:\n%s", want, prompt)
@@ -1935,6 +1949,25 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("candidate context minted a runtime conclusion or synthetic call %q:\n%s", forbidden, prompt)
+		}
+	}
+	receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+	for _, want := range []types.DiagramEdgeAnchor{
+		{FromNode: "dc1r2f", ToNode: "dc1r2t", FromIdentity: "kind", ToIdentity: "resolve", RelationKind: types.DiagramRelArgumentFlow},
+		{FromNode: "dc1r4f", ToNode: "dc1r4t", FromIdentity: "REGISTRY", ToIdentity: "cls", RelationKind: types.DiagramRelAssignment},
+		{FromNode: "dc1r5f", ToNode: "dc1r5t", FromIdentity: "resolve", ToIdentity: "cls()", RelationKind: types.DiagramRelReturn},
+		{FromNode: "dc1r6f", ToNode: "dc1r6t", FromIdentity: "loop.run_in_executor", ToIdentity: "plugin.handle", RelationKind: types.DiagramRelCallback},
+		{FromNode: "dc1r7f", ToNode: "dc1r7t", FromIdentity: "JsonPlugin", ToIdentity: "BasePlugin", RelationKind: types.DiagramRelTypeRelation},
+	} {
+		found := false
+		for _, got := range receipts {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("dynamic candidate recipe receipt missing %+v: %+v", want, receipts)
 		}
 	}
 }

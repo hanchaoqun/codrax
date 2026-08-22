@@ -3040,8 +3040,9 @@ const (
 // It does not select the runtime target, invent a continuous call chain, draw a
 // diagram, or rewrite an answer. Incomplete or ambiguous groups stay withheld.
 func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext, entryIdentity string) string {
+	pool := answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entryIdentity)
 	compiled := types.CompileDynamicSelectorResolutionPaths(
-		answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entryIdentity),
+		pool,
 		entryIdentity,
 	)
 	// Keep compilation failures observable without putting internal rejection
@@ -3124,6 +3125,118 @@ func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext,
 	}
 	b.WriteString("\n- Use these rows as evidence options. The model decides whether the candidate is relevant, whether separate runtime evidence proves that the argument equals the selector literal, which relations to explain or draw, the reader-facing business wording, and the final conclusion. Do not expose carrier role/status names in the reader-facing answer, and never add a synthetic `entry -> declared_candidate` call.\n")
 	return strings.TrimRight(b.String(), "\n")
+}
+
+const answerDocDynamicSelectorCandidateRecipeLimit = 24
+
+// renderAnswerDocDynamicSelectorRelationRecipes appends schema-native,
+// copy-ready relation recipes for complete dynamic-selection candidates to
+// the shared relation-authoring capsule. The selector compiler already proved
+// each hop from citable typed evidence; this function changes only the
+// authoring shape. It does not select a candidate, join the candidate to a
+// runtime invocation, author reader wording, or require a diagram.
+func renderAnswerDocDynamicSelectorRelationRecipes(b *strings.Builder, ctx *types.AgentContext) []types.DiagramEdgeAnchor {
+	if b == nil || ctx == nil || ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.CallChainEndpointProfile == nil {
+		return nil
+	}
+	entry := strings.TrimSpace(ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.Source)
+	if entry == "" {
+		return nil
+	}
+	pool := answerDocDynamicSelectorEvidencePool(ctx, answerDocDynamicSelectorEvidenceLimit, entry)
+	compiled := types.CompileDynamicSelectorResolutionPaths(pool, entry)
+	if len(compiled.Candidates) == 0 {
+		return nil
+	}
+
+	var anchors []types.DiagramEdgeAnchor
+	recipeCount := 0
+	b.WriteString("- Dynamic-selection candidates also have schema-native relation recipes below. They are candidate-only permissions, not a runtime-selection conclusion or a requirement to draw every edge. Keep each selected recipe's exact node ids, endpoint identities, direction, relation kind, and source occurrence; add one model-authored business `visible_label` and use it byte-identically on the matching Mermaid edge. Do not connect separate candidate groups, collapse repeated source occurrences, or turn assignment, argument flow, return, callback, or type relation into `call`.\n")
+	for candidateIndex, path := range compiled.Candidates {
+		if recipeCount >= answerDocDynamicSelectorCandidateRecipeLimit {
+			break
+		}
+		fmt.Fprintf(b, "- dynamic_candidate_relation_group[%d]: selector_literal=`%s`; declared_candidate=`%s`; status=`candidate_only`; choose this group only when the model's evidence-backed runtime/argument reasoning selects it.\n",
+			candidateIndex+1, answerDocCallChainInline(path.SelectorLiteral), answerDocCallChainInline(path.CandidateIdentity))
+
+		type recipeHop struct {
+			hop  types.DynamicSelectorResolutionHop
+			kind string
+		}
+		hops := make([]recipeHop, 0, len(path.Hops)+len(path.CallbackHops)+len(path.TypeRoster))
+		for _, hop := range path.Hops {
+			if hop.Role == types.DynamicSelectorHopSelectorApplication || !hop.RelationKind.IsValid() {
+				continue
+			}
+			hops = append(hops, recipeHop{hop: hop, kind: "core"})
+		}
+		for _, hop := range path.CallbackHops {
+			if hop.RelationKind.IsValid() {
+				hops = append(hops, recipeHop{hop: hop, kind: "optional_callback"})
+			}
+		}
+		for _, hop := range path.TypeRoster {
+			if hop.RelationKind.IsValid() {
+				hops = append(hops, recipeHop{hop: hop, kind: "optional_type"})
+			}
+		}
+		for hopIndex, row := range hops {
+			if recipeCount >= answerDocDynamicSelectorCandidateRecipeLimit {
+				break
+			}
+			from := strings.TrimSpace(row.hop.FromIdentity)
+			to := strings.TrimSpace(row.hop.ToIdentity)
+			if from == "" || to == "" || strings.ContainsAny(from+to, "\x00\r\n") {
+				continue
+			}
+			fromNode := fmt.Sprintf("dc%dr%df", candidateIndex+1, hopIndex+1)
+			toNode := fmt.Sprintf("dc%dr%dt", candidateIndex+1, hopIndex+1)
+			anchor := types.DiagramEdgeAnchor{
+				FromNode: fromNode, ToNode: toNode,
+				FromIdentity: from, ToIdentity: to,
+				RelationKind: row.hop.RelationKind,
+			}
+			payload, err := json.Marshal(anchor)
+			if err != nil {
+				continue
+			}
+			loc := ""
+			for _, item := range pool {
+				if strings.TrimSpace(item.ID) == strings.TrimSpace(row.hop.EvidenceID) {
+					loc = item.DisplayLocation(true)
+					break
+				}
+			}
+			fmt.Fprintf(b, "  - dynamic_candidate_node_alias[%d.%d.from]=`%s` -> `%s`; dynamic_candidate_node_alias[%d.%d.to]=`%s` -> `%s`\n",
+				candidateIndex+1, hopIndex+1, fromNode, answerDocCallChainInline(from),
+				candidateIndex+1, hopIndex+1, toNode, answerDocCallChainInline(to))
+			fmt.Fprintf(b, "  - dynamic_candidate_edge_recipe[%d.%d]=`%s -> %s`; role=`%s`; relation_kind=`%s`; evidence=`%s`; edge_anchor_json=`%s`",
+				candidateIndex+1, hopIndex+1, fromNode, toNode, row.kind, row.hop.RelationKind,
+				answerDocCallChainInline(row.hop.EvidenceID), payload)
+			if loc != "" {
+				fmt.Fprintf(b, " @ %s", loc)
+			}
+			b.WriteString("\n")
+			anchors = append(anchors, anchor)
+			recipeCount++
+		}
+		for _, hop := range path.Hops {
+			if hop.Role == types.DynamicSelectorHopSelectorApplication {
+				fmt.Fprintf(b, "  - dynamic_candidate_note_recipe[%d]: selector owner=`%s`; literal=`%s`; declared candidate=`%s`; evidence=`%s`; this is a declaration note/table fact and never an edge.\n",
+					candidateIndex+1, answerDocCallChainInline(path.SelectorOwner), answerDocCallChainInline(path.SelectorLiteral),
+					answerDocCallChainInline(path.CandidateIdentity), answerDocCallChainInline(hop.EvidenceID))
+				break
+			}
+		}
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	if recipeCount >= answerDocDynamicSelectorCandidateRecipeLimit {
+		b.WriteString("- Additional dynamic candidate relation recipes were omitted only from this bounded authoring view; do not infer uniqueness or absence from the displayed subset.\n")
+	}
+	return anchors
 }
 
 func answerDocDynamicSelectorEvidencePool(ctx *types.AgentContext, limit int, entryIdentity string) []types.EvidenceItem {
@@ -8833,6 +8946,15 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			answerDocMechanismCopyReadyDiagramKind(ctx, edges, semanticHandoffs),
 			answerDocMechanismRequestedDiagramKind(ctx, edges),
 		)
+		// A complete dynamic-selection candidate may carry precise non-call
+		// hops that the general grounded-mechanism inventory intentionally does
+		// not infer (indexed assignment, argument flow, factory return, declared
+		// type). Publish those already-compiled hops in the same recipe section
+		// and receipt so initial authoring and retry repair consume one contract.
+		// This remains candidate-only and never selects or connects a runtime
+		// implementation on the model's behalf.
+		receipts.relationAnchors = append(receipts.relationAnchors,
+			renderAnswerDocDynamicSelectorRelationRecipes(&b, ctx)...)
 		if ctx.Mutable != nil {
 			ctx.Mutable.SetFinalizerTypedRelationRecipeAnchors(receipts.relationAnchors)
 			ctx.Mutable.SetFinalizerTypedRelationSemanticHandoffAnchors(receipts.semanticHandoffAnchors)
