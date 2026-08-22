@@ -57367,6 +57367,60 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1363 r836：C 写交付被不可增强证明循环降级；Rust 完整 block 修补被片段操作静默隔离（2026-08-22）
+
+从已推送 `550c47b3d` 构建不可变二进制，严格并发恰好 2 路执行异构 write+read：
+
+- `patch_c_typo`：147s，runner FAIL，`write_final_verdict=unverified:verification_proof_incomplete`；
+- `sr_rust_cross_module_chain`：270s，runner FAIL，finalizer reject=8、patch=7，最终恢复旧稿。
+
+两项均为可确定复现的系统合同 GAP，不按单次模型波动处理。
+
+1. `B1319-WRITESOURCECONTRACTOBS1/P1`：C 补丁本身正确且范围精确，仅把 `main.c:19` 的 `retrun buf;` 改为
+   `return buf;`。真实 `make test` 退出 0，report 明确给出 `main.c capability=target_behavior`；原批次已签
+   `verified/tests_passed`。但 write analyzer 同时铸造了 hard contract
+   `operator=equals expected="return buf;" evidence_ref=main.c:19`，当前 proof ledger 只承认带相同
+   `contract_ref` 的 inline probe 或 exact project assertion，无法使用 post-apply 源码精确值。因此 cumulative review
+   追加 verify-only 批次后只能再次运行同一 `make test`，合同仍为 0/1；C 又不在 inline probe runtime roster，已有
+   probe-planning bridge确定性无法进入，最终把已正确应用且真实测试通过的交付降为未验证。
+2. B1319 的最优方案不是把 aggregate green suite 直接等同所有合同，也不是给 C 增加语言特判。新增语言无关、权限更窄的
+   post-apply source-contract observation：仅当 hard contract 的 `evidence_ref` 可唯一解析为 plan-owned repo-relative
+   `path:line`，operator 属于可在单行源码上精确执行的值运算，且不可变工作树读取成功时，按 contract 自身 typed
+   expected 做机械比较并携带 exact `contract_ref`。它只证明源码断言；运行时返回值、异常、状态、时序、输出和跨行语义仍必须由
+   verification probe 或 exact project assertion 证明。这样本例由 source observation 关闭源码值轴、`make test`
+   关闭 target-behavior 轴，既不抬高弱 runner，也不制造第二次同质验证。
+3. `B1320-PATCHOPERATIONSHAPE1/P1`：Rust 首稿已正确列出 8 个跨模块调用 hop、8 个源码坐标和可用 Mermaid 主体。
+   current-source citation gate 正确拒绝手工 `citation_ref` pool index，并要求模型改用 handoff 中的 stable `evidence_ids`；
+   同轮 participant+relation joint delta 也正确发布。模型第二轮确实复制了全部 8 个合法 evidence ID，却把完整
+   `call-chain-list` block 放进 `replace_snippets`。兼容层先把 string-wrapped array 无损解包，随后把其中
+   `block_id/items` 当 schema-unknown 字段 quarantine；旧 block 未被替换，8 个手工 citation index 因而一直留在 patch base。
+   后续每轮虽然再次提交正确 ID，仍重复同一拒绝并最终降级。这不是 evidence ID 错，也不是 Rust 关系缺失，而是“carrier 已声称修复、
+   唯一可判定的完整 block 操作又被静默丢弃”的 patch operation 合同断层。
+4. B1320 的最优方案是 schema-normalization 前的窄兼容：仅当 `replace_snippets` 的每个元素都完整满足 AnswerBlock 形、
+   都有唯一现存 block id、没有 snippet selector 字段、且请求没有同时提交 `replace_blocks` 时，把整个数组原样重映射到
+   `replace_blocks`。混合 snippet/block、缺 id、重复目标、并存两类替换或字段损失风险继续 fail-closed；不能按模型 prose 猜意图，
+   不能由系统选择 block 内容、证据 ID、关系增删、可见标签或结论。schema/repair hint 同时把“列表 item 字段修复使用
+   replace_blocks；关系局部修复使用 ref edits”放在一个短、无冲突的操作映射中，减少 JSON 心智。
+5. 施工批次冻结：S1319 先落 post-apply source-contract observation、proof ledger 单源消费和正/负/歧义 pin；S1320 再落
+   完整 block operation shape 归一、冲突 fail-closed 与 r836 string-wrapped 生产形 pin。每批分别跑受影响测试、全仓测试和构建，
+   分别提交推送；之后从新二进制严格并发恰好 2 路复放同一 C write + Rust read，再用显式窗 Trace 异构回归确认因果投影、
+   自动补齐、链上根因、业务线索与双轴性能归因未受影响。
+
+状态：
+
+`r836=runner-fail-0/2,human-system-fail-2/2`；
+`B1319=confirmed/P1/S1319-next`；
+`B1320=confirmed/P1/S1320-after-S1319`；
+`C-patch=correct+make-test-passed`；
+`C-final-verdict=false-unverified-by-uncloseable-source-contract`；
+`Rust-evidence-ids=correctly-selected-but-operation-quarantined`；
+`patch-shape-recovery=lossless-only/no-content-selection`；
+`system-answer/relation/action/label/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read
