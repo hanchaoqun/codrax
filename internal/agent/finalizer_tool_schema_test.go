@@ -119,6 +119,10 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 	if patchSchema == nil {
 		t.Fatal("retry dispatch must expose emit_answer_document_patch")
 	}
+	if !strings.Contains(patchSchema.Description, "`replace_snippets` is only for code snippets") ||
+		!strings.Contains(patchSchema.Description, "block items, diagrams, evidence_ids") {
+		t.Fatalf("retry patch teaching does not distinguish snippet and block operations:\n%s", patchSchema.Description)
+	}
 	if strings.Contains(patchSchema.Description, "failure_ref") || strings.Contains(patchSchema.Description, "addition_ref") {
 		t.Fatalf("retry dispatch without a live lease must not teach generation-scoped refs:\n%s", patchSchema.Description)
 	}
@@ -178,6 +182,17 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 			}
 		}
 	}
+	snippetProps := paramsSchema.Properties["replace_snippets"].Items.Properties
+	for _, field := range []string{"file", "start_line", "end_line", "language", "code"} {
+		if _, ok := snippetProps[field]; !ok {
+			t.Fatalf("replace_snippets schema omitted canonical snippet field %q: %v", field, snippetProps)
+		}
+	}
+	for _, forbidden := range []string{"block_id", "id", "kind", "items", "diagram", "evidence_ids"} {
+		if _, ok := snippetProps[forbidden]; ok {
+			t.Fatalf("replace_snippets schema leaked answer-block field %q: %v", forbidden, snippetProps)
+		}
+	}
 }
 
 func TestFinalizerToolSchemas_LiveRelationLeaseUsesMatchingExecutableDescriptionAndParameters(t *testing.T) {
@@ -221,7 +236,7 @@ func TestFinalizerToolSchemas_LiveRelationLeaseUsesMatchingExecutableDescription
 		t.Fatal("live relation retry must expose emit_answer_document_patch")
 	}
 	if !strings.Contains(patchSchema.Description, "current schema is the sole capability authority") ||
-		strings.Contains(patchSchema.Description, "replace_blocks") {
+		!strings.Contains(patchSchema.Description, "only unrelated existing blocks") {
 		t.Fatalf("agent dispatch leaked the broad compatibility description into a narrow lease: %q", patchSchema.Description)
 	}
 	var root map[string]any
@@ -229,10 +244,20 @@ func TestFinalizerToolSchemas_LiveRelationLeaseUsesMatchingExecutableDescription
 		t.Fatalf("decode live patch parameters: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+	for _, field := range []string{"add_blocks", "remove_block_ids"} {
 		if _, ok := props[field]; ok {
 			t.Fatalf("agent dispatch leaked unavailable whole mutation %q", field)
 		}
+	}
+	replaceBlocks, ok := props["replace_blocks"].(map[string]any)
+	if !ok {
+		t.Fatal("live relation retry hid replacement of unrelated existing blocks")
+	}
+	replaceItem := replaceBlocks["items"].(map[string]any)
+	replaceProps := replaceItem["properties"].(map[string]any)
+	idEnum := replaceProps["id"].(map[string]any)["enum"].([]any)
+	if len(idEnum) != 1 || idEnum[0] != "summary" {
+		t.Fatalf("live relation retry replacement roster=%v, want only unrelated summary block", idEnum)
 	}
 	branches := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
 	if len(branches) != 1 {

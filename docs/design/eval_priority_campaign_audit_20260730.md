@@ -57463,6 +57463,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1365 S1320：活跃关系修复不再封死无关块；错载 block 操作仅在无损可判时自愈（2026-08-22）
+
+1. 冷读生产 payload 后修正 §123.1363 的一个前提：r836 不是规范的“完整 AnswerBlock 放进
+   `replace_snippets`”，而是 string-wrapped 数组里的 `{block_id, items|diagram|participant_boundaries}` **局部块操作**。
+   更深的合同矛盾是：活跃 relation-repair lease 把 `replace_blocks/add_blocks/remove_block_ids` 全部从当轮 schema
+   删除，但同一 validator 拒绝又要求模型修正非目标列表块的 `evidence_ids`。因此模型即使选中全部正确 stable evidence ID，
+   也没有可执行的块字段车道，只能误借 `replace_snippets`；旧 quarantine 随后静默删除 `block_id/items`，让工具声称成功兼容
+   JSON、实际却没有应用任何答案块修复。
+2. 根修先消除 schema 自冲突。局部关系 lease 现在只禁止目标 diagram 的 whole-block mutation，并继续只向该目标发布
+   exact-ref 原子关系/边界操作；`add_blocks/remove_block_ids` 仍隐藏。若当前 patch base 存在**唯一且不属于 lease target**
+   的模型块，则 `replace_blocks.items.properties.id.enum` 只发布这些精确 ID，并以 `maxItems` 限定 roster。带不可伪造
+   `SystemGeneratedKind` 的系统补充块不会进入 roster。文档只有目标图/系统块、block ID 重复或无法恢复精确 base 时，
+   `replace_blocks` 仍完全隐藏。这样同一轮可以修正无关列表块的证据引用，但不能借机
+   整块改写目标图、变更 block roster 或绕过 typed relation authority。
+3. 在 schema normalization 与 quarantine 之间新增窄的 operation-carrier 自愈。只有 `replace_snippets` 数组整体可结构化判定为
+   同一种块操作时才进入：规范 `{id,kind,...}` full block 原样移入 `replace_blocks`；生产形
+   `{block_id,...explicit fields}` 则从唯一精确、非系统生成的 prior block 展开完整载体，并且只用模型显式提交字段覆盖。显式
+   `citation_ref:0`、items、diagram、typed annotations 和其余未提字段均保持。真实 snippet 不触碰；snippet/block 混合、full/partial
+   混合、未知/嵌套未知字段、重复/不存在/歧义目标、无实际 mutation、或同时提交 `replace_blocks` 均返回
+   `answer_doc_patch_block_operation_misrouted` typed repair，绝不猜意图或继续静默 quarantine。
+4. JSON 教学和静态 schema 同步减负：`replace_snippets` 明确且仅允许
+   `{file,start_line,end_line,language?,code}`，关闭 `additionalProperties`；block items、diagram、`evidence_ids` 等统一指向
+   `replace_blocks`。活跃 lease 的动态描述与 schema 同源披露“目标图 whole replace 不可用、仅无关既有精确 ID 可替换”。
+   该兼容层不读取请求、模型 reasoning、答案 prose、Mermaid message 或业务标签，也不替模型选择 block 内容、证据 ID、关系、
+   action、可见 wording、layout 或 conclusion。
+5. 回归覆盖 full/partial 错载、string-wrapped r836 形、显式零 citation 保真、真实 snippet 不改、混合/冲突/未知/重复/未知目标/
+   系统生成目标 fail-closed，以及活跃 edge/boundary lease 的无关块精确 roster；反向 pin 保证仅有目标图或仅余系统块时不暴露
+   whole replacement。
+   完整 `go test ./... -count=1` 全绿（tool 196.820s、hitraceconv 98.073s、tracequery 85.744s、types 31.548s）；CGO
+   release-tag `make` 与 `git diff --check` 通过。生产成效尚不以单测代签：下一步从本提交构建不可变二进制，严格并发恰好
+   2 路复放同一 C write + Rust read，分别验证 S1319 source receipt 与 S1320 关系/证据修补是否真实收敛。
+
+状态：
+
+`B1320=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`live-lease-target-diagram=atomic-exact-ref-only`；
+`unrelated-existing-block-replacement=exact-id-roster-only`；
+`add/remove-block-under-live-lease=unavailable`；
+`misrouted-full/partial-block=lossless-structural-recovery-only`；
+`mixed/unknown/duplicate/conflict/ambiguous=typed-fail-closed`；
+`system-answer/evidence/relation/action/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1360 r834：B1317 生产转正；活动关系租约被消费者不等价重建后丢失（2026-08-22）
 
 1. 从已推送 `4db3384f1` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace。Trace 292s PASS、read

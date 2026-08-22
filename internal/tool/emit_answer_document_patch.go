@@ -61,7 +61,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `diagram_participant_edits`: model-authored disposition of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row. If your same-patch edge edits leave that candidate isolated, explicitly choose remove_if_isolated, or retain_as_context with a non-empty model-authored visible_label. The executor rejects requested/boundary participants, uncovered or remaining edges, and ambiguous declarations. The system never chooses the disposition or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
-		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats` / `replace_snippets`: when present, replace the corresponding document-level field.\n\n" +
+		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats`: when present, replace the corresponding document-level field. `replace_snippets` replaces only document-level code snippets shaped as {file,start_line,end_line,language?,code}; use a full `replace_blocks` entry for block items, diagrams, evidence_ids, or any other answer-block field.\n\n" +
 		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. A live local diagram lease exposes its target only through atomic diagram operations; whole replace/add/remove of that target is unavailable, while unrelated blocks remain editable. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
 		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the accepted answer. When a patch was structurally applicable and only a merged-document validator rejected it, that exact model-authored merged draft remains a retry-local staging base for the next patch; it is never user-visible until a later patch passes every validator. Earlier accepted/rejected-full documents remain unchanged. The retry prompt publishes the live staging block roster, so correct the named failure against that current base.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
@@ -213,7 +213,22 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
       }
     },
     "replace_caveats":  {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL. When present, replaces previous caveats."},
-    "replace_snippets": {"type": "array", "items": {"type": "object"}, "description": "OPTIONAL. When present, replaces previous snippets."}
+    "replace_snippets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {"type": "string"},
+          "start_line": {"type": "integer"},
+          "end_line": {"type": "integer"},
+          "language": {"type": "string"},
+          "code": {"type": "string"}
+        },
+        "required": ["file", "start_line", "end_line", "code"],
+        "additionalProperties": false
+      },
+      "description": "OPTIONAL. Replaces only document-level code snippets. Never place block_id/id/kind/items/diagram/evidence_ids or other answer-block fields here—use a full replace_blocks entry for an existing block."
+    }
   }
 }`
 	return json.RawMessage(schema)
@@ -236,7 +251,17 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	if lease == nil {
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
-	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease)
+	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
+	if prev == nil {
+		prev = ctx.Mutable.AnswerDocumentV2()
+	}
+	if prev == nil {
+		prev = recoverPrevFromRetryState(ctx.Mutable)
+	}
+	if prev == nil {
+		prev = recoverPrevFromRejectedDraft(ctx.Mutable)
+	}
+	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev)
 }
 
 // DescriptionFor keeps the prose surface aligned with the per-dispatch schema.
@@ -252,6 +277,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if lease == nil {
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
+			"`replace_snippets` is only for code snippets {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other block fields belong in `replace_blocks`. " +
 			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
 			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
 			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
@@ -262,7 +288,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	}
 	return "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
 		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, an action=attach pair that binds both refs to one existing visible edge, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. " +
-		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, relation kinds, and whole-block mutations are unavailable in this dispatch. " +
+		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. Whole-block mutation of a lease-target diagram is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
 
@@ -310,7 +336,7 @@ func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage
 // surface that previously burned retries after a precise lease had already
 // been published. A malformed or mixed non-diagram lease keeps the broad
 // compatibility schema and remains fail-closed in the executor.
-func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease) json.RawMessage {
+func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2) json.RawMessage {
 	targets := localDiagramLeaseTargetBlockIDs(lease)
 	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
 		return raw
@@ -328,9 +354,16 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if !edgeOK && !boundaryOK {
 		return raw
 	}
-	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
-		delete(properties, field)
+	allowedReplacementIDs := unrelatedAnswerDocumentPatchBlockIDs(prev, targets)
+	if len(allowedReplacementIDs) == 0 || !narrowAnswerDocumentPatchReplacementIDs(properties, allowedReplacementIDs) {
+		delete(properties, "replace_blocks")
 	}
+	// Adding/removing blocks is not needed for a local relation repair and can
+	// change the document roster. Exact replacement of an unrelated existing
+	// block remains available because the same validation round may publish a
+	// non-diagram item/citation failure alongside the relation lease.
+	delete(properties, "add_blocks")
+	delete(properties, "remove_block_ids")
 	edgeEdits, _ := properties["diagram_edge_edits"].(map[string]any)
 	if edgeOK && len(branches) > 0 {
 		if edgeEdits == nil {
@@ -381,6 +414,51 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 		return raw
 	}
 	return out
+}
+
+func unrelatedAnswerDocumentPatchBlockIDs(prev *types.AnswerDocumentV2, targets []string) []string {
+	if prev == nil {
+		return nil
+	}
+	targetSet := make(map[string]bool, len(targets))
+	for _, id := range targets {
+		if id = strings.TrimSpace(id); id != "" {
+			targetSet[id] = true
+		}
+	}
+	counts := map[string]int{}
+	for _, block := range prev.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			counts[id]++
+		}
+	}
+	var out []string
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id != "" && counts[id] == 1 && !targetSet[id] && block.SystemGeneratedKind == types.AnswerSystemGeneratedBlockUnknown {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func narrowAnswerDocumentPatchReplacementIDs(properties map[string]any, allowed []string) bool {
+	replaceBlocks, _ := properties["replace_blocks"].(map[string]any)
+	items, _ := replaceBlocks["items"].(map[string]any)
+	blockProperties, _ := items["properties"].(map[string]any)
+	idSchema, _ := blockProperties["id"].(map[string]any)
+	if replaceBlocks == nil || items == nil || blockProperties == nil || idSchema == nil || len(allowed) == 0 {
+		return false
+	}
+	values := make([]any, 0, len(allowed))
+	for _, id := range allowed {
+		values = append(values, id)
+	}
+	idSchema["enum"] = values
+	replaceBlocks["maxItems"] = len(allowed)
+	replaceBlocks["description"] = "FULL replacement payloads for unrelated existing blocks only. The id enum is the complete executable roster for this live relation-repair dispatch; lease-target diagram blocks must use the published atomic relation/boundary operations."
+	return true
 }
 
 func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLease, targets []string) bool {
@@ -890,6 +968,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				strings.Join(paths, ", "))
 			params = repaired
 		}
+	}
+	if repaired, blockIDs, violation := normalizeMisroutedPatchBlockOperations(params, prev); violation != "" {
+		return failEmitWithRepair(t.Name(), now, &types.ToolRepair{
+			Code:   "answer_doc_patch_block_operation_misrouted",
+			Fields: []string{"replace_snippets", "replace_blocks"},
+			Hint:   "`replace_snippets` accepts only code-snippet objects {file,start_line,end_line,language?,code}. To edit an existing answer block or its items/diagram/typed annotations, use `replace_blocks` with that existing block id and the complete block payload. Do not mix snippet and block shapes or submit both replacement fields.",
+		}, "answer_document patch placed a block operation in replace_snippets, but it could not be remapped losslessly: %s", violation)
+	} else if len(blockIDs) > 0 {
+		logging.Warning("[emit_answer_document_patch] losslessly remapped block operation(s) from replace_snippets to replace_blocks: %s",
+			strings.Join(blockIDs, ", "))
+		params = repaired
 	}
 	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(params, answerDocumentPatchQuarantineProfile); ok {
 		logging.Warning("[emit_answer_document_patch] quarantined schema-unknown answer-document patch field(s) without retry: %s",

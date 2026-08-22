@@ -129,10 +129,19 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 		t.Fatalf("projected patch schema must parse: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, field := range []string{"replace_blocks", "add_blocks", "remove_block_ids"} {
+	for _, field := range []string{"add_blocks", "remove_block_ids"} {
 		if _, ok := props[field]; ok {
-			t.Fatalf("live local lease must hide non-executable whole mutation %q", field)
+			t.Fatalf("live local lease must hide roster-changing mutation %q", field)
 		}
+	}
+	replaceBlocks, ok := props["replace_blocks"].(map[string]any)
+	if !ok {
+		t.Fatal("live local lease hid replacement of an unrelated existing block")
+	}
+	replaceItem := replaceBlocks["items"].(map[string]any)
+	replaceProps := replaceItem["properties"].(map[string]any)
+	if got := replaceProps["id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"summary"}) {
+		t.Fatalf("whole-block replacement roster=%v, want only unrelated summary block", got)
 	}
 	edgeEdits := props["diagram_edge_edits"].(map[string]any)
 	if edgeEdits["minItems"] != float64(1) || edgeEdits["maxItems"] != float64(2) || edgeEdits["uniqueItems"] != true {
@@ -214,7 +223,8 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	if !participantActions["remove_if_isolated"] || !participantActions["retain_as_context"] {
 		t.Fatalf("orphan disposition actions=%v", participantActions)
 	}
-	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); strings.Contains(desc, "replace_blocks") || !strings.Contains(desc, "current schema is the sole capability authority") {
+	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); !strings.Contains(desc, "current schema is the sole capability authority") ||
+		!strings.Contains(desc, "only unrelated existing blocks") {
 		t.Fatalf("live description must match the executable schema: %q", desc)
 	}
 }
@@ -246,10 +256,19 @@ func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranche
 		t.Fatalf("projected patch schema must parse: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, forbidden := range []string{"replace_blocks", "add_blocks", "remove_block_ids", "diagram_boundary_replacements", "diagram_edge_edits"} {
+	for _, forbidden := range []string{"add_blocks", "remove_block_ids", "diagram_boundary_replacements", "diagram_edge_edits"} {
 		if _, exists := props[forbidden]; exists {
 			t.Fatalf("boundary-only generation must hide broader capability %q: %v", forbidden, props)
 		}
+	}
+	replaceBlocks, ok := props["replace_blocks"].(map[string]any)
+	if !ok {
+		t.Fatal("boundary-only generation hid replacement of an unrelated existing block")
+	}
+	replaceItem := replaceBlocks["items"].(map[string]any)
+	replaceProps := replaceItem["properties"].(map[string]any)
+	if got := replaceProps["id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"summary"}) {
+		t.Fatalf("boundary-only replacement roster=%v, want only unrelated summary block", got)
 	}
 	field := props["diagram_boundary_edits"].(map[string]any)
 	branches := field["items"].(map[string]any)["oneOf"].([]any)
@@ -271,6 +290,58 @@ func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranche
 		if want[ref] != action {
 			t.Fatalf("schema branch is not lease-owned: ref=%q action=%q want=%v", ref, action, want)
 		}
+	}
+}
+
+func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseHidesWholeReplacementWhenOnlyTargetExists(t *testing.T) {
+	base := atomicPatchTestDocument()
+	base.Blocks = append([]types.AnswerBlock(nil), base.Blocks[1])
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil {
+		t.Fatal("test setup: expected live local lease")
+	}
+	mut := types.NewMutableState("target-only schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	if _, exists := props["replace_blocks"]; exists {
+		t.Fatalf("target-only relation lease must not expose whole replacement of its diagram: %v", props)
+	}
+}
+
+func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseHidesSystemGeneratedUnrelatedBlock(t *testing.T) {
+	base := atomicPatchTestDocument()
+	base.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedEvidenceSupplement
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil {
+		t.Fatal("test setup: expected live local lease")
+	}
+	mut := types.NewMutableState("system-unrelated schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	if _, exists := props["replace_blocks"]; exists {
+		t.Fatalf("system-generated unrelated block must not be exposed for model replacement: %v", props)
 	}
 }
 
