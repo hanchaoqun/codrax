@@ -1681,6 +1681,8 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		`participant_endpoint_side:"to"`,
 		`participant_node_id:"BusContext"`,
 		`participant_node_side:"to"`,
+		`existing_visible_participant_endpoint_ids["BusContext"]=["B"]`,
+		"reuse one of those already-authored node/subgraph IDs",
 		`technical_endpoint_identity_stays_in_edge_anchor:true`,
 		`edge_anchor_identity_fields:{from_identity:"output.EvidenceItems",to_identity:"o.busCtx.EvidenceItems",relation_kind:"data_flow"}`,
 		`edge_action:"reuse_one_existing_typed_candidate_as_one_edge_and_map_only_its_declared_participant_endpoint_side_to_the_exact_participant_node_id_without_adding_a_bridge_edge"`,
@@ -1709,7 +1711,8 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		t.Fatalf("compact delta lost exact mismatch identity: %+v", delta)
 	}
 	if strings.Count(delta.Candidates, "typed_candidate[BusContext]") != 1 ||
-		!strings.Contains(delta.Candidates, `from_identity:"output.EvidenceItems"`) {
+		!strings.Contains(delta.Candidates, `from_identity:"output.EvidenceItems"`) ||
+		!strings.Contains(delta.Candidates, `existing_visible_participant_endpoint_ids["BusContext"]=["B"]`) {
 		t.Fatalf("patch delta must carry one bounded executable candidate: %+v", delta)
 	}
 	if strings.Contains(raw, "For every typed incident_required participant") || len(raw) >= len(hints[0].ExpectedShape) {
@@ -1728,6 +1731,28 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 	if addition.AdditionRef != "" || addition.BlockID != "flow" || addition.RelationKind != types.DiagramRelDataFlow ||
 		addition.FromIdentity != "output.EvidenceItems" || addition.ToIdentity != "o.busCtx.EvidenceItems" || addition.Source != "src/pipeline.go:20" {
 		t.Fatalf("participant addition capability drifted from the same typed candidate provider: %+v", addition)
+	}
+}
+
+func TestDiagramParticipantExistingVisibleEndpointGuidancePreservesModelAuthoredAlias(t *testing.T) {
+	rm, _, doc, _ := diagramParticipantCoverageFixture()
+	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}
+	doc.Blocks[0].Diagram.Body = strings.Join([]string{
+		"flowchart TD",
+		`  subgraph BC["BusContext"]`,
+		`    MS["MutableState"]`,
+		"  end",
+	}, "\n")
+	got := diagramParticipantExistingVisibleEndpointGuidance(doc, rm, []DiagramParticipantCoverageMismatch{{
+		BlockID: doc.Blocks[0].ID, Participant: "BusContext", Issue: DiagramParticipantCoverageTypedEdgeMissing,
+	}})
+	if got != `existing_visible_participant_endpoint_ids["BusContext"]=["BC"]` {
+		t.Fatalf("repair guidance must preserve the exact already-authored participant alias, got %q", got)
+	}
+	if strings.Contains(got, "BuildAgentContext") || strings.Contains(got, "argument_flow") {
+		t.Fatalf("visible endpoint reuse guidance must not create or select a relation: %q", got)
 	}
 }
 

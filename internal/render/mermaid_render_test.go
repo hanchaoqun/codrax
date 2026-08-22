@@ -644,6 +644,47 @@ func TestRenderMermaidBlocks_FlattensSubgraphs(t *testing.T) {
 	}
 }
 
+func TestFlattenMermaidSubgraphsPreservesIncidentGroupIdentityAsFlatNode(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    subgraph BC["BusContext"]`,
+		`        MS["MutableState"]`,
+		"    end",
+		`    BC -->|"作为参数传递"| BuildAgentContext`,
+	}, "\n")
+	got := flattenMermaidSubgraphs(in)
+	for _, want := range []string{
+		`BC["BusContext"]`,
+		`MS["MutableState"]`,
+		`BC -->|"作为参数传递"| BuildAgentContext`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("flattened incident subgraph lost %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "subgraph ") || strings.Contains(got, "\n    end") {
+		t.Fatalf("terminal compatibility body still contains subgraph syntax:\n%s", got)
+	}
+	if strings.Count(got, `BC["BusContext"]`) != 1 {
+		t.Fatalf("incident subgraph identity must become exactly one flat node:\n%s", got)
+	}
+}
+
+func TestFlattenMermaidSubgraphsDoesNotDuplicateExistingIncidentNodeCarrier(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    BC["BusContext"]`,
+		`    subgraph BC["BusContext"]`,
+		`        MS["MutableState"]`,
+		"    end",
+		`    BC --> Next`,
+	}, "\n")
+	got := flattenMermaidSubgraphs(in)
+	if strings.Count(got, `BC["BusContext"]`) != 1 {
+		t.Fatalf("flattening must reuse the existing exact node carrier:\n%s", got)
+	}
+}
+
 func TestRenderMermaidBlocks_MalformedSplitCylinderLabelRenders(t *testing.T) {
 	in := strings.Join([]string{
 		"```mermaid",

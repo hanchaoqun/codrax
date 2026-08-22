@@ -25,6 +25,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeFlowchartQuotedEdgeFragments(body)
 	body = NormalizeFlowchartSplitNodeLabels(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
+	body = NormalizeFlowchartRedundantNodeSubgraphDeclarations(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
 	body = NormalizeFlowchartMalformedBracketLabels(body)
 	body = NormalizeFlowchartMismatchedShapeClosers(body)
@@ -39,6 +40,83 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartRedundantNodeSubgraphDeclarations removes one exact
+// standalone node declaration when the same Mermaid ID is also used by one
+// subgraph with the same visible label. Mermaid has one identifier namespace
+// for nodes and subgraphs; emitting both carriers is therefore not two
+// meaningful objects and is rejected or rendered inconsistently across
+// viewers. Keeping the subgraph preserves its label and membership while
+// leaving the ID available as an edge endpoint.
+//
+// The repair is deliberately narrow and syntax-only. It runs only when both
+// declarations are unique, their visible labels are byte-equivalent after
+// trimming, and the collided ID is not already used by an edge. An incident
+// edge makes node-versus-subgraph intent ambiguous, so that shape is left for
+// the model to resolve instead of being guessed here.
+func NormalizeFlowchartRedundantNodeSubgraphDeclarations(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "subgraph") {
+		return body
+	}
+	type subgraphDecl struct {
+		id    string
+		label string
+		count int
+	}
+	subgraphs := make(map[string]subgraphDecl)
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(strings.ToLower(line), "subgraph ") {
+			continue
+		}
+		rest := strings.TrimSpace(line[len("subgraph "):])
+		id, label := ParseNodeToken(rest)
+		id, label = strings.TrimSpace(id), strings.TrimSpace(label)
+		if id == "" || label == "" {
+			continue
+		}
+		key := id
+		row := subgraphs[key]
+		if row.count == 0 {
+			row.id, row.label = id, label
+		}
+		row.count++
+		subgraphs[key] = row
+	}
+	if len(subgraphs) == 0 {
+		return body
+	}
+
+	edgeEndpoints := make(map[string]bool)
+	for _, edge := range ParseEdges(body) {
+		edgeEndpoints[strings.TrimSpace(edge.From)] = true
+		edgeEndpoints[strings.TrimSpace(edge.To)] = true
+	}
+	nodeDecls := RemovableNodeDeclarations(body)
+	nodeCount := make(map[string]int, len(nodeDecls))
+	for _, decl := range nodeDecls {
+		nodeCount[strings.TrimSpace(decl.Ident)]++
+	}
+
+	out := body
+	for _, decl := range nodeDecls {
+		key := strings.TrimSpace(decl.Ident)
+		subgraph, ok := subgraphs[key]
+		if !ok || subgraph.count != 1 || nodeCount[key] != 1 || edgeEndpoints[key] {
+			continue
+		}
+		if strings.TrimSpace(decl.Label) == "" ||
+			strings.TrimSpace(decl.Label) != strings.TrimSpace(subgraph.label) {
+			continue
+		}
+		var removed int
+		out, removed = RemoveRemovableNodeDeclaration(out, decl.Ident)
+		if removed != 1 {
+			return body
+		}
+	}
+	return out
 }
 
 // NormalizeFlowchartInlineEdgeLabels converts Mermaid's inline link-text

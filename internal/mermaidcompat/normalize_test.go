@@ -1077,6 +1077,59 @@ func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *
 	}
 }
 
+func TestNormalizeSourceForMarkdown_RemovesRedundantStandaloneNodeSharingSubgraphID(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    BC["BusContext"]`,
+		`    MS["MutableState"]`,
+		`    subgraph BC["BusContext"]`,
+		"        MS",
+		"    end",
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, `    BC["BusContext"]`) {
+		t.Fatalf("redundant node/subgraph declaration survived:\n%s", got)
+	}
+	for _, want := range []string{`subgraph BC["BusContext"]`, `MS["MutableState"]`, "        MS"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("meaning-preserving collision repair lost %q:\n%s", want, got)
+		}
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("node/subgraph collision repair must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_LeavesIncidentOrDifferentlyLabelledNodeSubgraphCollisionForModel(t *testing.T) {
+	for _, in := range []string{
+		strings.Join([]string{
+			"flowchart TD",
+			`    BC["BusContext"] --> Next`,
+			`    subgraph BC["BusContext"]`,
+			"        MS",
+			"    end",
+		}, "\n"),
+		strings.Join([]string{
+			"flowchart TD",
+			`    BC["Context endpoint"]`,
+			`    subgraph BC["BusContext"]`,
+			"        MS",
+			"    end",
+		}, "\n"),
+		strings.Join([]string{
+			"flowchart TD",
+			`    BC["BusContext"]`,
+			`    subgraph bc["BusContext"]`,
+			"        MS",
+			"    end",
+		}, "\n"),
+	} {
+		if got := NormalizeSourceForMarkdown(in); got != in {
+			t.Fatalf("ambiguous node/subgraph collision must remain model-owned:\nin:\n%s\nout:\n%s", in, got)
+		}
+	}
+}
+
 func TestNormalizeSourceForMarkdown_RepairsMismatchedDecisionClosersBeforeAliasing(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

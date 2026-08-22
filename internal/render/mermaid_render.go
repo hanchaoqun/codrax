@@ -723,6 +723,9 @@ func normalizeMermaidLabels(body string) string {
 // flowchart parser rejects subgraph syntax; flattening keeps the
 // graph structure renderable as a flat flowchart at the cost of
 // losing the visual cluster boundary (acceptable in terminal).
+// When an edge explicitly targets the subgraph ID, retain that exact
+// ID and visible title as one flat node so terminal rendering does not
+// degrade a business-facing group name to a bare internal alias.
 //
 // Algorithm: scan line-by-line, drop lines whose trimmed content
 // starts with "subgraph " or equals "end" at any indentation. A
@@ -733,11 +736,39 @@ func flattenMermaidSubgraphs(body string) string {
 	if !strings.Contains(body, "subgraph") {
 		return body
 	}
+	edgeEndpoints := make(map[string]bool)
+	for _, edge := range mermaidcompat.ParseEdges(body) {
+		edgeEndpoints[strings.TrimSpace(edge.From)] = true
+		edgeEndpoints[strings.TrimSpace(edge.To)] = true
+	}
+	explicitNodes := make(map[string]bool)
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(strings.ToLower(line), "subgraph ") {
+			continue
+		}
+		for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+			explicitNodes[strings.TrimSpace(decl.Ident)] = true
+		}
+	}
 	var b strings.Builder
 	b.Grow(len(body))
 	for _, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "subgraph ") || trimmed == "subgraph" {
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "subgraph"))
+			id, label := mermaidcompat.ParseNodeToken(rest)
+			id, label = strings.TrimSpace(id), strings.TrimSpace(label)
+			if id != "" && label != "" && edgeEndpoints[id] && !explicitNodes[id] {
+				indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+				b.WriteString(indent)
+				b.WriteString(id)
+				b.WriteString(`["`)
+				b.WriteString(strings.ReplaceAll(label, `"`, `&quot;`))
+				b.WriteString(`"]`)
+				b.WriteByte('\n')
+				explicitNodes[id] = true
+			}
 			continue
 		}
 		if trimmed == "end" {

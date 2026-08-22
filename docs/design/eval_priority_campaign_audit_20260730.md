@@ -57433,6 +57433,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1421 r868/B1353：参与者修补复用既有 Mermaid 身份，消除 node/subgraph 同 ID 与隐式重复节点（2026-08-22）
+
+1. 从已推送 `9dc09d20e` 重建干净二进制，严格并发恰好 2 路复放逻辑图 read 与 C typo write，runner 2/2 PASS：write 106s、read
+   352s。人工判定 write pass、read partial。write 只把 `main.c` 的 `retrun buf;` 改为 `return buf;`，计划、应用、fingerprint 与
+   post-apply verify 闭合，`make test` 真实编译运行通过；验证生成的未跟踪二进制被如实披露，没有进入补丁。Analyzer 首稿把
+   `is_dimensioned_answer=true` 与空 dimensions 同时提交，精确单合同拒绝后第二稿纠正，属于一次可恢复模型表单错误，不是 schema/教学/执行器互斥。
+2. read 的最低关键字、正则与 Mermaid 边数 oracle 均通过，但人工不能判 pass。正文对 Analyzer→Explorer→Extractor→Finalizer 四阶段责任与三条
+   checkout-verified precedence 基本准确，也诚实保留 `Mutable` 的 requested-relation 未证边界；图却没有完整表达用户明确要求的共享状态数据流。
+   Explorer 已读到 `internal/context/builder.go:59` 的 `bus.Mutable -> AgentContext.Mutable` 局部 typed 值传递，但该行在完整 requested relation
+   未闭合时保持 local-only，模型最终未选择展示。该缺项不能靠关键词硬门或由系统升级成端到端关系，因此本轮保持人工 partial。
+3. 新 P1 `B1353-VISIBLEPARTICIPANTENDPOINTREUSE1` 为确定性、泛化的图身份 gap。第一稿同时写了独立
+   `BC["BusContext"]` 与同 ID/同标题的 `subgraph BC["BusContext"]`；Mermaid 节点和 subgraph 共用标识命名空间，不同查看器会拒绝或产生不一致
+   拓扑。participant coverage 随后正确识别 BusContext 有 typed argument-flow 候选，却把 `participant_node_id=BusContext` 教成必须新用的端点；模型
+   按教学追加 `BusContext -> BuildAgentContext`，终图于是同时保留 `BC` 和新的隐式 `BusContext`，把同一业务参与者裂成两个节点。这个重复身份由
+   系统修补提示诱发，不是单纯模型画图波动。
+4. B1353 第一臂进入共享 `NormalizeSourceForMarkdown`：仅当一个 flowchart 中存在唯一 standalone node 与唯一 subgraph，二者 ID 相同、可见标签精确
+   相同，且该 ID 尚未出现在任何边端点时，机械移除冗余 standalone declaration，保留 subgraph、成员、标签和可继续作为端点的原 ID。任一已有边、
+   异名、重复声明、空标签或歧义形全部原样保留，由模型处理。该 pass 只修 Mermaid 命名空间的无歧义语法冗余，不创建/删除关系，不改方向、标签、成员或
+   业务结论，并同时服务 full/patch 与 Markdown/HTML。终端 Mermaid 子集会扁平化 subgraph；兼容 shim 仅在该 subgraph ID 本身是已有边端点时，
+   把同 ID/同标题保留为一个 flat node，使终端继续显示业务名称而不是退化为裸 alias；已存在同 ID 节点时不重复生成。
+5. 第二臂让 participant retry 从模型现有 diagram body 精确枚举可见 node/subgraph ID；只有 ID 或首要可见标签与 analyzer typed participant identity
+   精确匹配时，才在 candidate capsule 发布
+   `existing_visible_participant_endpoint_ids[participant]=[...]`。教学要求模型在 candidate 声明的 endpoint side 自主选择并复用一个已有 ID；没有
+   现有 ID 时才使用 `participant_node_id` 作为 fallback。该列表不是关系证据，不改变 canonical from/to identity、relation kind 或 lease；系统仍不选择
+   candidate、端点、箭头标签、布局或结论，也不读取请求、thinking、final prose 或 Mermaid message 的业务文字作事实门。
+6. 回归覆盖：同 ID/同标签/无边的 standalone+subgraph 被归一且幂等；已有 incident edge、大小写不同 ID 或异名冲突保持字节不动；终端 flatten
+   对 incident subgraph 保留一个同名 flat carrier，已有 carrier 时不重复；participant full reject 与 compact retry delta 都携带 exact 既有 alias；
+   subgraph alias `BC` 保持大小写，不被 map key 降格；guidance 不携带或生成任何 call/data-flow relation。
+   targeted tests、`internal/mermaidcompat/internal/tool/internal/agent/internal/orchestrator/internal/render` 核心套件、完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一步独立提交推送，再从该不可变提交严格 2 路复放逻辑图 read + 显式窗 Trace，
+   验证模型一次复用 `BC` 且 Trace 能力不回归。
+
+状态：
+
+`r868=runner-pass-2/2,human-write-pass+read-partial`；
+`B1352=implemented/tests-positive/pending-natural-fused-split-replay`；
+`B1353=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`same-id+same-label+nonincident-node/subgraph=syntax-normalized-to-one-group-carrier`；
+`ambiguous/incident/different-label-collision=model-owned-unchanged`；
+`participant-repair=existing-exact-visible-endpoint-ids-first/fallback-participant-identity`；
+`system-answer/relation/node-label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1416 r864 与 B1350：孤点处置完整清单及 typed 进展代次（2026-08-22）
 
 1. 从已推送 `1c1bfb657` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。Python PASS，285s、
