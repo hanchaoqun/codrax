@@ -57932,15 +57932,16 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 2. write 人工判 pass：计划、应用、验证和 finish 均由 typed 状态推进，实际变更只有 `main.c` 的 `retrun buf; -> return buf;` 一行，`make test` 真实通过，ChangeReport、verification evidence、交付 ref 与 changed-path 闭环齐全。编译产生的未跟踪 `main` 被 worktree audit 明确披露、未提交、未混入交付；没有 T7-1 式累计验证域清空或空证据签绿复发。
 3. Python 终稿事实判 pass：完整解释 `run_pipeline -> resolve`、`REGISTRY[name]` 查找、`cls()` 实例化、executor callback、`JsonPlugin` 的协同 `handle` 链，以及 `@register("json")` 在导入期把类绑定进注册表的作用。最终答案没有 raw `call/register` reader label、`AUTHOR_BUSINESS_ACTION`、内部 component/status 枚举或系统代写结论。
 4. 过程/视觉判 partial：首稿到第六稿持续把动态分发拼成无 typed 权威的连续 call 图，关系门正确拒绝 `resolve -> REGISTRY` call、`run_pipeline -> JsonPlugin` call 和反向 `JsonPlugin -> REGISTRY` register；第七稿删除可选图后通过。6 次拒绝不是该放宽证据门，终稿正文虽正确但关系视觉完全丢失，正是用户持续反馈“图层表达不足”的同类症状。
-5. 新 P1 `B1328-DISCOVERSELECTIONPROFILECOHERENCE1` 为精确 typed 自一致性 gap。分析器原始输出同时携带 `call_chain_endpoints.sink_mode=discover` 与 `runtime_selection_profile.is_selection_question=false`；前者在唯一教学/类型定义中明确表示“需要发现被选择的运行时 implementation/class/handler”，后者却关闭同一选择证据义务。当前 reconciler 只检查 legacy boolean，不检查 discover enum；随后两端点 wire 归一和未证 sink 降级把该案改成 `discover_terminal`，动态选择车道因此静默丢失。
-6. B1328 最优小批只做 schema-to-schema 冲突拒绝：非 runtime-artifact 的 `sink_mode=discover` 若配 `runtime_selection_profile=false`，在任何 endpoint wire 归一前 fail loud，要求分析器重发一致 typed profile；true 车道仍必须携带当前请求的连续 verbatim source quote。该判据不扫描请求、thinking、模型答案、Mermaid label 或最终正文来分类，不推断目标类、不铸动态桥、不替模型画图，也不影响 exact/discover_terminal/discover_path、Trace RuntimeTarget 或既有静态关系门。
-7. B1328 修复后须用同一 Python case 与显式窗 Trace 严格并发恰好 2 路复放。Python 先验收 analyzer 能否打开 typed runtime-selection 调查义务并减少无效成文；若静态 binding/selector/lookup/return 仍只形成断开组件，再单独立案跨语言 `B1329` 精确动态分发 join，不能在 finalizer 用 prose 或节点相邻猜桥。Trace 继续守护链上根因、业务线索、实际占时/规则可消双账户和完整投影。
+5. B1328 冷读施工时纠正了初判：原始 `sink_mode=discover` 同时带非空 `sink=JsonPlugin`，自身先是 wire-shape 矛盾，不能把该 enum 单独当成已成立的运行时选择权威。尝试在归一前硬拒 `discover + runtime_selection_profile=false` 后，全仓已有 6 个异构回归立即变红：文件路径候选、两端点误用 discover、未证端点和 mechanism→call-chain 提升本来都应安全归一/降权。该否证证明硬拒会把可恢复模型 JSON 变成额外失败，已撤销，未以单个 Python case 破坏通用 wire 自愈。
+6. 新 P1 `B1328-RUNTIMESELECTIONLOWMINDTEACHING1` 的根因收窄为分析器教学遵循 gap：请求问“一个明确 discriminator 值由哪个 class/handler 处理”，模型却把 `runtime_selection_profile` 置 false，并把 repo_map 发现的候选类提前塞入 discover sink。唯一教学源现明确两条跨语言规则：单一 kind/type/mode 条件下询问 class/handler 已是 selection question，不要求比较两个分支；源码 discover 形固定为当前请求入口 + 空 sink，禁止用 pre-scan/search/evidence 候选填 sink。schema description 与 analyzer skill 共用同一常量，继续由模型从当前请求产生 true/原文 quote；系统不扫描请求或答案做硬分类。
+7. 该软修不推断 `JsonPlugin`、不铸动态桥、不替模型画图，不改变 endpoint 归一/降权、关系证据门、finalizer、Trace RuntimeTarget 或因果投影。定向回归同时钉住新低心智教学、合法 discover、六种既有安全归一及 runtime-artifact 陈旧 endpoint 丢弃车道。下一步以同一 Python case + 显式窗 Trace exact-2 复放；若 analyzer 仍波动或静态 binding/selector/lookup/return 仍只形成断开组件，再用跨语言样本决定是否立 `B1329`，禁止靠 finalizer prose/相邻节点猜桥。
+8. `go test ./internal/tool -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。施工中先红的过硬方案及其临时测试已完全撤销；最终 diff 只有单源教学常量、schema 教学 pin 与本审计记录。
 
 状态：
 
 `r843=runner-pass-2/2,human-write-pass+python-content-pass/process-visual-partial`；
 `write-plan/apply/verify/final-ref=production-positive`；
-`B1328=confirmed/P1-next`；
+`B1328=implemented-soft-teaching/full-suite-pass/build-pass/pending-production-replay`；
 `B1329=conditional-after-B1328-replay/not-filed`；
 `python-finalizer-rejects=6/unsupported-dynamic-bridges`；
 `relation-gate=correct/fail-closed/not-weakened`；

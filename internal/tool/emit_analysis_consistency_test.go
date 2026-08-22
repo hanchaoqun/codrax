@@ -313,7 +313,14 @@ func TestEmitAnalysisSchemaDeclaresDedicatedRuntimeSelectionProfile(t *testing.T
 			t.Fatalf("runtime_selection_profile missing property %q", field)
 		}
 	}
-	for _, want := range []string{"initial/full output", "retry/error/patch", "independent of call-chain"} {
+	for _, want := range []string{
+		"one stated discriminator value",
+		"initial/full output",
+		"retry/error/patch",
+		"sink=\"\", sink_mode=discover",
+		"never fill sink from repository pre-scan/search/evidence",
+		"independent of call-chain",
+	} {
 		if !strings.Contains(prop.Description, want) {
 			t.Fatalf("runtime_selection_profile teaching missing %q: %s", want, prop.Description)
 		}
