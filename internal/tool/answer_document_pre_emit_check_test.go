@@ -8923,6 +8923,89 @@ func TestPreCheckDiagramCallEdgeEvidenceAlignmentCarriesActualOffendingBlockKind
 	}
 }
 
+func TestPreCheckStandaloneRelationFailurePublishesExactLocalTypedAlternative(t *testing.T) {
+	callback := types.EvidenceItem{
+		ID: "ev-callback", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "loop.run_in_executor", Object: "handle", Predicate: "passes callback",
+		Source: "pipeline/runner.py", LineStart: 17, LineEnd: 17,
+		AnchorKind: types.AnchorCallback, GroundingStatus: types.GroundingGrounded,
+	}
+	unrelated := types.EvidenceItem{
+		ID: "ev-unrelated", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "Other.start", Object: "Other.finish", Predicate: "calls",
+		Source: "other.py", LineStart: 9, LineEnd: 9,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "executor", ToNode: "handler",
+			FromIdentity: "loop.run_in_executor", ToIdentity: "handle",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "submit callback",
+		}},
+	}}}
+	ctx := &types.BusContext{
+		Mutable:       types.NewMutableState("standalone relation repair candidates"),
+		EvidenceItems: []types.EvidenceItem{callback, unrelated},
+	}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		doc, &types.AnswerSemanticView{Family: types.QFCallChain}, newPreEmitCheckContext(ctx),
+	)
+	if len(hints) != 1 {
+		t.Fatalf("expected one standalone relation hint, got %+v", hints)
+	}
+	for _, want := range []string{
+		`Exact citable relation alternatives for the same endpoint pair(s)`,
+		`relation_kind:"callback"`,
+		`from_identity:"loop.run_in_executor"`,
+		`to_identity:"handle"`,
+		`evidence_id:"ev-callback"`,
+		`source:"pipeline/runner.py:17"`,
+		`Select a row only when it expresses the relation you intend`,
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("local typed repair guidance missing %q: %s", want, hints[0].ExpectedShape)
+		}
+	}
+	if strings.Contains(hints[0].ExpectedShape, "Other.start") ||
+		strings.Contains(hints[0].ExpectedShape, "ev-unrelated") {
+		t.Fatalf("unrelated typed evidence escaped the exact endpoint-pair bound: %s", hints[0].ExpectedShape)
+	}
+}
+
+func TestPreCheckStandaloneRelationFailureDoesNotPublishUngroundedAlternative(t *testing.T) {
+	callback := types.EvidenceItem{
+		ID: "ev-untrusted", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "loop.run_in_executor", Object: "handle", Predicate: "passes callback",
+		Source: "pipeline/runner.py", LineStart: 17, LineEnd: 17,
+		AnchorKind: types.AnchorCallback, GroundingStatus: types.GroundingUngrounded,
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "executor", ToNode: "handler",
+			FromIdentity: "loop.run_in_executor", ToIdentity: "handle",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "submit callback",
+		}},
+	}}}
+	ctx := &types.BusContext{
+		Mutable:       types.NewMutableState("ungrounded standalone relation repair candidate"),
+		EvidenceItems: []types.EvidenceItem{callback},
+	}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		doc, &types.AnswerSemanticView{Family: types.QFCallChain}, newPreEmitCheckContext(ctx),
+	)
+	if len(hints) != 1 {
+		t.Fatalf("expected the original relation rejection, got %+v", hints)
+	}
+	if strings.Contains(hints[0].ExpectedShape, "Exact citable relation alternatives") ||
+		strings.Contains(hints[0].ExpectedShape, "ev-untrusted") {
+		t.Fatalf("ungrounded relation must not become repair guidance: %s", hints[0].ExpectedShape)
+	}
+}
+
 func TestPreCheckDiagramRelationFailurePublishesCompactRepairDelta(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

@@ -57849,6 +57849,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r858`。
 
+### §123.1405 B1339：普通结构关系失败局部重投影精确 typed 候选（2026-08-22）
+
+1. `B1339-STANDALONERELATIONLOCALCANDIDATE1/P1` 已施工。ordered_list、bullet_list、table 的关系 authority 失败仍按原合同硬拒；拒绝提示
+   现在额外从同轮已经 citable 的 typed evidence 中，重投影至多 6 条与失败端点对完全一致的可选关系候选。候选携带 relation kind、精确
+   from/to identity、已有 evidence ID 和 source location，使局部 patch 不必回到数千行 finalizer 上下文重新猜 tuple。
+2. 候选边界是同一端点集合：同向 exact pair 优先，反向 exact pair 次之；无关关系即使来自同一仓或同一 evidence pool 也不发布。未 grounded、
+   recovered、无完整端点、无有效 relation kind、或不能再通过现有 authority helper 的行全部排除。call、callback、argument flow、registration、
+   type relation、assignment/data flow、return 与 guard/control/import/precedence/observe 等语言无关 typed family 共用同一映射，不按 Java/Python/
+   ArkTS/Cangjie/C/C++ 等文件类型写特例。
+3. 该清单只是 repair guidance，不是执行 capability：系统不自动替换 relation kind、端点、anchor、item、正文或结论；模型必须决定选择某条精确
+   候选还是删除不受支持的 anchor，下一稿仍完整经过原普通关系/evidence gate。没有相关候选时不生成建议行，继续只报告 mismatch 并 fail-closed。
+4. 实现不读取用户请求、模型 reasoning、item prose、最终答案、visible label、Mermaid message 或错误 prose。候选来自 `EvidenceItem` 的
+   ClaimForm/Subject/Object/OwnerSymbol/AnchorSymbol/assignment endpoints 与 grounding/citation 状态；失败侧只读结构化 mismatch endpoint，因而没有
+   新增关键词硬门，也没有把嘈声信号提升为 authority。
+5. 回归钉住 r858 原形：`loop.run_in_executor -> handle` 被误标 call 时，提示精确给出同 pair 的 callback 候选、`ev-callback` 和
+   `pipeline/runner.py:17`；无关 `Other.start -> Other.finish` 不泄漏；同 pair 但 ungrounded 的 callback 也不发布。既有普通关系 hard reject、
+   B1337 ordinary-block lease、diagram opaque ref repair 和所有关系证据门保持通过。
+6. `go test ./internal/tool ./internal/types ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。Trace query/runtime、显式窗、自动补采、因果投影、链上根因、业务线索、实际占时/规则可消双轴和活动流策略未改动。
+   下一轮继续严格并发恰好 2 路，复放同一 Python 动态选择与显式窗 Trace，观察普通关系拒绝是否从 3 次收敛到 1 次以内，同时守住 Trace 全面性。
+
+状态：
+
+`B1339=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`standalone-relation-local-candidates=exact-endpoint-pair/citable-typed-evidence/max-6`；
+`unrelated/ungrounded/incomplete/unauthorized-candidate=excluded`；
+`candidate-effect=soft-repair-guidance-only/ordinary-authority-revalidates`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/item-prose/visible-label/mermaid-message-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python

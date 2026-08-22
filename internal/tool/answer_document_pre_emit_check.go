@@ -5023,11 +5023,16 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 				mismatch.FromSymbol, mismatch.ToSymbol,
 			))
 		}
+		localCandidates := preEmitStandaloneRelationRepairCandidateGuidance(standaloneMismatches, evidence, 6)
+		expectedShape := "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. Keep from_node/to_node as stable local presentation ids; correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; ")
+		if localCandidates != "" {
+			expectedShape += ". Exact citable relation alternatives for the same endpoint pair(s), supplied only as optional local repair choices: " + localCandidates + ". Select a row only when it expresses the relation you intend; otherwise remove the unsupported anchor."
+		}
 		hints = append(hints, emitFixHint{
 			Field:                          "blocks[kind=ordered_list|bullet_list|table].edge_anchors[]",
 			HardSignal:                     preEmitHardSignalTypedCallEdgeEvidence,
 			OffendingBlockKinds:            preEmitDiagramMismatchBlockKinds(doc, standaloneMismatches),
-			ExpectedShape:                  "a principal structured relation list/table may carry edge_anchors without a Mermaid block, but every row must preserve the exact typed relation and include both from_identity and to_identity from one citable recipe. Keep from_node/to_node as stable local presentation ids; correct/remove only unsupported rows. No diagram is required. Mismatches: " + strings.Join(parts, "; "),
+			ExpectedShape:                  expectedShape,
 			Reason:                         "the model explicitly attached schema-valid typed relations to a principal structured carrier. Those assertions must use the same source authority as a diagram; silently dropping their metadata would let block kind change relation truth. This check reads only claim_uses, edge_anchors, and citable typed evidence, never list prose, labels, request text, or rendered output.",
 			DiagramRelationFailurePairs:    diagramRelationFailurePairFingerprints(standaloneMismatches),
 			DiagramRelationFailureIssues:   diagramRelationFailureIssueValues(standaloneMismatches),
@@ -5170,6 +5175,183 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 		})
 	}
 	return hints
+}
+
+type preEmitStandaloneRelationRepairCandidate struct {
+	relation   types.DiagramRelationKind
+	from       string
+	to         string
+	evidenceID string
+	source     string
+	rank       int
+}
+
+// preEmitStandaloneRelationRepairCandidateGuidance re-projects a small set of
+// already-citable typed relations next to a local list/table repair. It is
+// deliberately guidance-only: the model still chooses whether to keep,
+// replace, or remove an anchor, and ordinary relation authority validates the
+// next draft. Only exact endpoint pairs (in either direction) participate;
+// request text, item prose, visible labels, Mermaid messages, and error prose
+// never enter the candidate set.
+func preEmitStandaloneRelationRepairCandidateGuidance(
+	mismatches []DiagramCallEdgeEvidenceMismatch,
+	evidence []types.EvidenceItem,
+	limit int,
+) string {
+	if len(mismatches) == 0 || len(evidence) == 0 || limit <= 0 {
+		return ""
+	}
+	candidates := make([]preEmitStandaloneRelationRepairCandidate, 0, limit)
+	seen := make(map[string]bool)
+	for _, ev := range evidence {
+		if !ev.IsCitable() {
+			continue
+		}
+		for _, candidate := range preEmitStandaloneRelationCandidatesFromEvidence(ev) {
+			rank, ok := preEmitStandaloneRelationCandidateMismatchRank(candidate, mismatches)
+			if !ok || !preEmitStandaloneRelationCandidateHasAuthority(candidate, evidence) {
+				continue
+			}
+			candidate.rank = rank
+			key := strings.Join([]string{
+				string(candidate.relation), strings.TrimSpace(candidate.from), strings.TrimSpace(candidate.to),
+				strings.TrimSpace(candidate.evidenceID), strings.TrimSpace(candidate.source),
+			}, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			candidates = append(candidates, candidate)
+		}
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		if left.rank != right.rank {
+			return left.rank < right.rank
+		}
+		if left.relation != right.relation {
+			return left.relation < right.relation
+		}
+		if left.from != right.from {
+			return left.from < right.from
+		}
+		if left.to != right.to {
+			return left.to < right.to
+		}
+		if left.source != right.source {
+			return left.source < right.source
+		}
+		return left.evidenceID < right.evidenceID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	rows := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		row := fmt.Sprintf("{relation_kind:%s,from_identity:%s,to_identity:%s",
+			strconv.Quote(string(candidate.relation)), strconv.Quote(candidate.from), strconv.Quote(candidate.to))
+		if candidate.evidenceID != "" {
+			row += ",evidence_id:" + strconv.Quote(candidate.evidenceID)
+		}
+		if candidate.source != "" {
+			row += ",source:" + strconv.Quote(candidate.source)
+		}
+		rows = append(rows, row+"}")
+	}
+	return strings.Join(rows, "; ")
+}
+
+func preEmitStandaloneRelationCandidatesFromEvidence(ev types.EvidenceItem) []preEmitStandaloneRelationRepairCandidate {
+	from, to := strings.TrimSpace(ev.Subject), strings.TrimSpace(ev.Object)
+	relation := types.RelationForClaimForm(types.ClaimFormOf(ev))
+	if types.IsRepoMapTypeRelationEvidence(ev) {
+		relation = types.DiagramRelTypeRelation
+	}
+	switch relation {
+	case types.DiagramRelCall:
+		if to == "" {
+			to = strings.TrimSpace(ev.AnchorSymbol)
+		}
+	case types.DiagramRelGuard:
+		if owner := strings.TrimSpace(ev.OwnerSymbol); owner != "" {
+			from = owner
+		}
+		if to == "" {
+			to = strings.TrimSpace(ev.AnchorSymbol)
+		}
+	case types.DiagramRelAssignment:
+		if lhs, rhs, ok := types.AssignmentEvidenceEndpoints(ev); ok {
+			from, to = strings.TrimSpace(lhs), strings.TrimSpace(rhs)
+		}
+	}
+	if !relation.IsValid() || from == "" || to == "" {
+		return nil
+	}
+	id := strings.TrimSpace(ev.ID)
+	source := currentSourceEvidenceLocation(ev)
+	base := preEmitStandaloneRelationRepairCandidate{
+		relation: relation, from: from, to: to, evidenceID: id, source: source,
+	}
+	if relation == types.DiagramRelAssignment &&
+		diagramValueFlowEdgeHasTypedEvidence([]types.EvidenceItem{ev}, to, from, types.DiagramRelDataFlow) {
+		return []preEmitStandaloneRelationRepairCandidate{
+			base,
+			{relation: types.DiagramRelDataFlow, from: to, to: from, evidenceID: id, source: source},
+		}
+	}
+	return []preEmitStandaloneRelationRepairCandidate{base}
+}
+
+func preEmitStandaloneRelationCandidateMismatchRank(
+	candidate preEmitStandaloneRelationRepairCandidate,
+	mismatches []DiagramCallEdgeEvidenceMismatch,
+) (int, bool) {
+	for _, mismatch := range mismatches {
+		from, to := strings.TrimSpace(mismatch.FromSymbol), strings.TrimSpace(mismatch.ToSymbol)
+		if from == "" {
+			from = strings.TrimSpace(mismatch.FromNode)
+		}
+		if to == "" {
+			to = strings.TrimSpace(mismatch.ToNode)
+		}
+		if types.AnswerCodeIdentitySurfacesEquivalent(candidate.from, from) &&
+			types.AnswerCodeIdentitySurfacesEquivalent(candidate.to, to) {
+			return 0, true
+		}
+		if types.AnswerCodeIdentitySurfacesEquivalent(candidate.from, to) &&
+			types.AnswerCodeIdentitySurfacesEquivalent(candidate.to, from) {
+			return 1, true
+		}
+	}
+	return 0, false
+}
+
+func preEmitStandaloneRelationCandidateHasAuthority(
+	candidate preEmitStandaloneRelationRepairCandidate,
+	evidence []types.EvidenceItem,
+) bool {
+	switch candidate.relation {
+	case types.DiagramRelCall:
+		return diagramCallEdgeHasTypedEvidence(evidence, nil, candidate.from, candidate.to, "")
+	case types.DiagramRelCallback:
+		return diagramCallbackEdgeHasTypedEvidence(evidence, candidate.from, candidate.to)
+	case types.DiagramRelArgumentFlow:
+		return diagramArgumentFlowEdgeHasTypedEvidence(evidence, candidate.from, candidate.to)
+	case types.DiagramRelTypeRelation:
+		return diagramTypeRelationEdgeHasTypedEvidence(evidence, candidate.from, candidate.to)
+	case types.DiagramRelRegister:
+		return diagramRegistrationEdgeHasTypedEvidence(evidence, candidate.from, candidate.to)
+	case types.DiagramRelAssignment, types.DiagramRelDataFlow, types.DiagramRelReturn:
+		return diagramValueFlowEdgeHasTypedEvidence(evidence, candidate.from, candidate.to, candidate.relation)
+	case types.DiagramRelGuard, types.DiagramRelControlFlow, types.DiagramRelImport,
+		types.DiagramRelPrecedence, types.DiagramRelObserve, types.DiagramRelTemporal:
+		return diagramLogicalRelationEdgeHasTypedEvidence(evidence, candidate.from, candidate.to, candidate.relation)
+	default:
+		return false
+	}
 }
 
 // preCheckPrincipalTypedRelationDiagramMembership keeps a model-authored
