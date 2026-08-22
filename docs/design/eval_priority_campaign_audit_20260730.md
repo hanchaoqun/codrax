@@ -57332,6 +57332,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r862`。
 
+### §123.1415 r863 与 B1348：无动作租约和 optional 删除教学/执行自冲突（2026-08-22）
+
+1. 从已推送 `1054cfd2e` 重建干净二进制，严格并发恰好 2 路复放 Python 动态注册与 C++ 虚调用链。runner 0/2：Python
+   691s、finalizer reject=9；C++ 1146s、finalizer reject=20，两案均最终走恢复稿。B1347 的目标行为生产验证成功：两案 retry 都明确
+   “本代不发布 attach，不得拼接 failure/addition refs”，且没有再次提交非法 attach；因此 B1347 的能力否定投影从 pending 升为
+   production-positive，但整案仍被更深层合同死锁拖红。
+2. Python 人工 partial：正文正确覆盖 import-time `@register`、`REGISTRY` lookup/实例化、`run_in_executor` 与 MRO，恢复稿图也保留主链；
+   但系统一面明确教学 optional diagram 可用 `remove_block_ids`，一面在 live relation lease 动态 schema 删除该字段、执行器又报
+   `whole_remove_not_authorized`。模型两次主动选择删图均被系统拒绝。另有模型把刚重加的 EX incident edge 与 `remove_if_isolated`
+   放进同一原子 patch，执行器正确 fail-closed；此部分属模型选择，不以系统代改关系解决。
+3. C++ 人工 partial：正文完整给出 `Logger::log -> Sink::write` 多态分发、`ConsoleSink::write -> fputs/fputc` 与
+   `SinkRegistry::create(kind==console)` 选择机制。但最终四条 failure 均为 `target_carrier=unknown,allowed_actions=[]`，无 typed addition；
+   系统仍安装局部租约、隐藏 whole replace/remove 并要求继续 `diagram_edge_edits`。模型从第 4 轮起已准确指出无可执行动作，到第 20 轮仍被
+   同一死合同拒绝。这是确定性 P0 `B1348-EXECUTABLERELATIONLEASE1`，不是模型波动。
+4. B1348 根修采用单一 typed 可执行性判据，不读请求、模型 prose、final prose、Mermaid 消息或标签：每个无直接 action 的 failure
+   必须由同 block 当前代 `allowed_additions` 覆盖，或由 typed presentation contract 明确授权 exact optional-target removal；否则 required
+   场景不安装局部租约，回到模型拥有的宽 patch/whole-block repair。可选图删除新增 `AllowTargetDiagramRemoval` 能力位；动态 schema 仅发布
+   exact target id enum，执行器只接受该显式模型选择，lease validator 将整图及其 anchors 一并消费。required diagram 继续隐藏并拒绝删除，
+   optional 删除也不放宽 replace/add。schema、description、executor 与 post-merge lease validation 共读同一能力。
+5. 原子回滚语义、证据关系门和模型关系所有权不变：系统不替模型选删图，不自动删除 participant/edge，不修写关系、标签、布局、正文或结论。
+   同 block additions-only 的既有合法补全车道保留；identity-only/ambiguous diagnostic 仍可在 producer delta 中披露，但不能单独铸造无动作租约。
+6. r863 同时确认独立 P1 `B1349-DEGRADEDMERMAIDFAILSAFE1`：C++ 恢复稿把多个 participant/Note 折进 quoted alias，最终 Mermaid
+   无法正常表达关系。应在 B1348 回放后审计降级恢复稿是否绕过最终 Mermaid compat/L7 text fallback；不得借 B1348 顺手按 C++ 样例改写图。
+
+状态：
+
+`r863=runner-fail-0/2,human-partial+partial`；
+`B1347=production-positive-negative-capability-projection`；
+`B1348=implemented/relevant-full-pass/full-suite-pass/build-pass/pending-production-replay`；
+`dead-local-lease=no-action+no-same-block-addition+no-optional-removal=>not-installed`；
+`optional-diagram-removal=exact-typed-target+explicit-model-choice`；
+`required-diagram-removal=forbidden/unchanged`；
+`B1349=filed/pending-after-B1348-replay`；
+`system-relation/action/node/label/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1413 B1346：错引候选位置与可执行 evidence ID 同代配对，软建议不新增重试（2026-08-22）
 
 1. `B1346-ITEMCITATIONCANDIDATEEXECUTABILITY1/P1` 已施工。item/citation alignment 仍先用既有 typed

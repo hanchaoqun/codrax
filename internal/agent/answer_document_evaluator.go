@@ -17405,7 +17405,7 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 	// table citation, participant boundary, or another independent field. Arm
 	// the typed lease before choosing the user-facing repair hint so a mixed
 	// failure cannot turn a local diagram fix into a cross-kind graph rewrite.
-	installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+	installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult, e.diagramRequired)
 	if e.diagramRequired {
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
 	}
@@ -17538,8 +17538,10 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// lease, even though the executor returned a non-empty live capability
 	// roster. Preserve the producer as the single generation authority and
 	// validate/render its versioned delta below.
+	relationLeaseInstalled := repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope &&
+		ctx != nil && ctx.Mutable != nil && ctx.Mutable.AnswerDiagramRelationRepairLease() != nil
 	if repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
-		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+		relationLeaseInstalled = installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult, e.diagramRequired)
 	}
 	if e.diagramRequired && repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
@@ -17548,7 +17550,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// defects, keep them in the same retry generation. Serially selecting the
 	// participant lane hides live failure refs that the model could have fixed
 	// in the same atomic patch, guaranteeing another reject for no new evidence.
-	if e.diagramRequired && ctx != nil && ctx.Mutable != nil && ctx.Mutable.AnswerDiagramRelationRepairLease() != nil {
+	if e.diagramRequired && relationLeaseInstalled {
 		if hint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, true); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
@@ -17564,7 +17566,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// same bounded graph carrier instead of falling through to the generic patch
 	// handbook, which would re-open the whole diagram and recreate failure-set
 	// migration.
-	if repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope {
+	if repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope && relationLeaseInstalled {
 		if hint, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, true, e.diagramRequired); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
@@ -17621,7 +17623,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// the model does not have to recopy fragile block/node/occurrence selectors.
 	// The model still decides whether to edit the graph or remove the optional
 	// block; neither action is performed here.
-	if !e.diagramRequired {
+	if !e.diagramRequired && relationLeaseInstalled {
 		if hint, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, true, false); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
@@ -17655,7 +17657,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// place the required diagram, while the system stops teaching two subtly
 	// different JSON/identity forms in one dispatch.
 	if e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
-		if installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult) {
+		if relationLeaseInstalled {
 			if hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, true); ok {
 				e.rejectHintsUsed++
 				e.preferPatchNext = true
@@ -18579,7 +18581,7 @@ func answerDocDiagramSurfaceProtected(protected map[string]bool, surfaces ...str
 // relation delta into a retry-local typed scope. It reads only the structured
 // delta plus the exact patch base. The helper authors no graph content and is
 // fail-open when either carrier is malformed or missing.
-func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary *types.MutableState, result *types.ToolResult) bool {
+func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary *types.MutableState, result *types.ToolResult, diagramRequired bool) bool {
 	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
 		return false
 	}
@@ -18601,8 +18603,21 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 	if base == nil {
 		base = answerDocumentPatchBaseDocumentInMutable(primary)
 	}
-	lease := types.NewAnswerDiagramRelationRepairLease(base, delta.Failures, delta.AllowedAdditions)
+	lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+		base, delta.Failures, delta.AllowedAdditions, !diagramRequired,
+	)
 	if lease == nil {
+		// A recognized current-generation delta with no executable local action
+		// must not inherit an older lease. The generic patch surface remains the
+		// model-owned escape for a broader block repair.
+		if result.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairScope {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.SetAnswerDiagramRelationRepairLease(nil)
+			}
+			if primary != nil && (ctx == nil || primary != ctx.Mutable) {
+				primary.SetAnswerDiagramRelationRepairLease(nil)
+			}
+		}
 		return false
 	}
 	var ordinaryBlockIDs []string
@@ -18941,8 +18956,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	rejectCode := answerDocRejectCodeFromRepair(repair)
 
 	hasPatchBase := answerDocumentPatchBaseAvailable(ctx, e.mu)
+	relationLeaseInstalled := false
 	if hasPatchBase {
-		installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
+		relationLeaseInstalled = installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult, e.diagramRequired)
 	}
 	if hasPatchBase && e.diagramRequired {
 		installAnswerDocDiagramParticipantBoundaryRepairLease(ctx, e.mu, obs.LastToolResult)
@@ -18963,7 +18979,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// Both deltas were produced by the same validation generation. Present
 	// them together before either single-family lane so the model can submit one
 	// bounded atomic patch without losing any already-known failure carrier.
-	if hasPatchBase && e.diagramRequired {
+	if hasPatchBase && e.diagramRequired && relationLeaseInstalled {
 		if jointHint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, false); ok {
 			hint = jointHint
 			reasonKey = "required-diagram-joint-delta"
@@ -18988,7 +19004,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// structured block. This replaces fragile coordinate copying with the live
 	// opaque-ref lease while leaving keep/remove and every visible edit to the
 	// model.
-	if !diagramCallEdgePatchRecovery && hasPatchBase && !e.diagramRequired {
+	if !diagramCallEdgePatchRecovery && hasPatchBase && !e.diagramRequired && relationLeaseInstalled {
 		if compact, ok := answerDocDiagramRelationDeltaPatchHint(obs.LastToolResult, false, false); ok {
 			hint = compact
 			reasonKey = "optional-diagram-relation-delta"
@@ -19024,12 +19040,13 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// instead of making the model hunt through the original long prompt and
 	// hand-recreate aliases/JSON.
 	if !diagramCallEdgePatchRecovery && hasPatchBase && e.diagramRequired && answerDocumentRejectIsRequiredDiagramTypedRelationRepair(obs.LastToolResult) {
-		if compact, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, false); ok {
-			installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult)
-			hint = compact
-			reasonKey = "required-diagram-relation-delta"
-			diagramCallEdgePatchRecovery = true
-			e.preferPatchNext = true
+		if relationLeaseInstalled {
+			if compact, ok := answerDocRequiredDiagramRelationDeltaPatchHint(obs.LastToolResult, false); ok {
+				hint = compact
+				reasonKey = "required-diagram-relation-delta"
+				diagramCallEdgePatchRecovery = true
+				e.preferPatchNext = true
+			}
 		}
 		if !diagramCallEdgePatchRecovery {
 			if compact, ok := e.repeatedTypedUnprovenFlowRepairHint(ctx, false); ok {

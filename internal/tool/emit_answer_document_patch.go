@@ -62,7 +62,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats`: when present, replace the corresponding document-level field. `replace_snippets` replaces only document-level code snippets shaped as {file,start_line,end_line,language?,code}; use a full `replace_blocks` entry for block items, diagrams, evidence_ids, or any other answer-block field.\n\n" +
-		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. A live local diagram lease exposes its target only through atomic diagram operations; whole replace/add/remove of that target is unavailable, while unrelated blocks remain editable. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
+		"Validation: every id named in `unchanged_block_ids` / `replace_blocks` MUST exist in the previous emit; `remove_block_ids` is idempotent and may name an already-absent block; every `add_blocks` id MUST NOT exist. Cross-op conflicts (Replace + Remove same id, etc.) are rejected. A live local diagram lease exposes its target through atomic diagram operations; whole replace/add is unavailable, and exact target removal is available only when the typed presentation contract marks that diagram optional. Unrelated blocks remain editable. Block kind is validated against the canonical block-kind enum. The merged document is stored as if you had called `emit_answer_document` with the full payload.\n\n" +
 		"Transactional rejection: if any patch validation fails, NONE of that patch's edits become the accepted answer. When a patch was structurally applicable and only a merged-document validator rejected it, that exact model-authored merged draft remains a retry-local staging base for the next patch; it is never user-visible until a later patch passes every validator. Earlier accepted/rejected-full documents remain unchanged. The retry prompt publishes the live staging block roster, so correct the named failure against that current base.\n\n" +
 		"Empty patches are rejected — every retry MUST declare some change (set `unchanged_block_ids` to assert preservation if no edits are needed).\n\n" +
 		"BLOCK CONTRACT (same shape replace_blocks / add_blocks payloads must follow as a full emit):\n\n" +
@@ -248,7 +248,7 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 		return raw
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
-	if lease == nil {
+	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
 	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
@@ -275,7 +275,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		return t.Description()
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
-	if lease == nil {
+	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
 			"`replace_snippets` is only for code snippets {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other block fields belong in `replace_blocks`. " +
 			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
@@ -294,8 +294,11 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
 		description += "Only an exact action=attach schema branch that fixes both opaque ref values may bind a typed relation to one existing visible edge; never infer a pair from adjacent rows. "
 	}
+	if lease.AllowTargetDiagramRemoval {
+		description += "The optional target diagram may instead be removed only through the exact remove_block_ids enum published in this schema. "
+	}
 	return description +
-		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. Whole-block mutation of a lease-target diagram is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
+		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. Whole replacement/addition of a lease-target diagram is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
 
@@ -365,12 +368,25 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if len(allowedReplacementIDs) == 0 || !narrowAnswerDocumentPatchReplacementIDs(properties, allowedReplacementIDs) {
 		delete(properties, "replace_blocks")
 	}
-	// Adding/removing blocks is not needed for a local relation repair and can
-	// change the document roster. Exact replacement of an unrelated existing
-	// block remains available because the same validation round may publish a
-	// non-diagram item/citation failure alongside the relation lease.
+	// Adding blocks is not needed for a local relation repair and can change the
+	// document roster. Exact replacement of an unrelated existing block remains
+	// available because the same validation round may publish a non-diagram
+	// item/citation failure alongside the relation lease. An optional diagram
+	// contract additionally exposes one exact, model-selected target-removal
+	// branch; required diagrams keep that operation absent.
 	delete(properties, "add_blocks")
-	delete(properties, "remove_block_ids")
+	if lease.AllowTargetDiagramRemoval {
+		removeIDs, _ := properties["remove_block_ids"].(map[string]any)
+		if removeIDs == nil {
+			return raw
+		}
+		removeIDs["items"] = map[string]any{"type": "string", "enum": stringsToAny(targets)}
+		removeIDs["maxItems"] = len(targets)
+		removeIDs["uniqueItems"] = true
+		removeIDs["description"] = "Explicitly remove one exact optional lease-target diagram. This is a model-selected presentation choice; no other block id is executable on this branch."
+	} else {
+		delete(properties, "remove_block_ids")
+	}
 	edgeEdits, _ := properties["diagram_edge_edits"].(map[string]any)
 	if edgeOK && len(branches) > 0 {
 		if edgeEdits == nil {
@@ -473,7 +489,7 @@ func narrowAnswerDocumentPatchReplacementIDs(properties map[string]any, allowed 
 }
 
 func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLease, targets []string) bool {
-	if lease == nil || len(targets) == 0 {
+	if lease == nil || len(targets) == 0 || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		return false
 	}
 	targetSet := make(map[string]bool, len(targets))
@@ -869,8 +885,11 @@ type emitAnswerDiagramParticipantEdit struct {
 
 // localDiagramLeaseWholeBlockMutationViolation guards the execution path as
 // well as the projected schema. Tool callers can bypass or lag the current
-// schema, but they still cannot widen a typed local diagram lease into a whole
-// block replacement/removal. Atomic compiler-generated ReplaceBlocks are not
+// schema, but they still cannot widen a typed local diagram lease into roster
+// mutation outside the projected capabilities: unrelated exact replacement is
+// preserved, additions are unavailable, and removal is limited to an exact
+// optional target when explicitly granted. Atomic compiler-generated
+// ReplaceBlocks are not
 // inspected here: this function runs on the model's decoded envelope before
 // atomic edits are compiled, so it distinguishes the authorized internal
 // carrier from a model-authored whole-block mutation without reading prose or
@@ -896,14 +915,15 @@ func localDiagramLeaseWholeBlockMutationViolation(
 		}
 	}
 	for _, block := range p.AddBlocks {
-		if id := strings.TrimSpace(block.ID); targetSet[id] {
-			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"}
-		}
+		id := strings.TrimSpace(block.ID)
+		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"}
 	}
 	for _, rawID := range p.RemoveBlockIDs {
-		if id := strings.TrimSpace(rawID); targetSet[id] {
-			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_remove_not_authorized"}
+		id := strings.TrimSpace(rawID)
+		if targetSet[id] && lease != nil && lease.AllowTargetDiagramRemoval {
+			continue
 		}
+		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_remove_not_authorized"}
 	}
 	return nil
 }
@@ -1007,6 +1027,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		return failStrictDecode(t.Name(), now, err, answerDocumentV2MisplacedHints, params)
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		lease = nil
+	}
 	if violation := localDiagramLeaseWholeBlockMutationViolation(&p, lease); violation != nil {
 		return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, []types.AnswerDiagramRelationRepairScopeViolation{*violation}),
 			"local diagram repair lease requires atomic diagram operations for block=%q; whole-block operation=%s is not authorized",
@@ -1303,6 +1326,10 @@ func validateAndConsumeAnswerDiagramRelationRepairLease(
 	}
 	lease := mut.AnswerDiagramRelationRepairLease()
 	if lease == nil {
+		return nil, nil
+	}
+	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		mut.SetAnswerDiagramRelationRepairLease(nil)
 		return nil, nil
 	}
 	violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged)

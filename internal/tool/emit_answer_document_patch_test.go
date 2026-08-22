@@ -113,10 +113,16 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) {
 	bus := newPatchTestBusContext()
 	base := bus.Mutable.AnswerDocumentV2()
+	base.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "Analyze", ToNode: "Explore", FromIdentity: "Analyze", ToIdentity: "Explore",
+		RelationKind: types.DiagramRelCall,
+	}}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
 	bus.Mutable.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(base,
 		[]types.AnswerDiagramRelationRepairFailure{{
-			BlockID: "list1", Issue: "call_edge_unproven",
-			FromNode: "Analyze", ToNode: "Explore",
+			BlockID: "list1", Issue: "typed_anchor_without_visible_edge",
+			FromNode: "Analyze", ToNode: "Explore", FromIdentity: "Analyze", ToIdentity: "Explore",
+			RelationKind: types.DiagramRelCall,
 		}}, nil))
 
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
@@ -140,7 +146,7 @@ func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) 
 		strings.TrimSpace(res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]) == "" {
 		t.Fatalf("scope rejection must carry compact typed retry metadata: %+v", res)
 	}
-	if got := bus.Mutable.AnswerDocumentV2(); got == nil || len(got.Blocks[1].EdgeAnchors) != 0 {
+	if got := bus.Mutable.AnswerDocumentV2(); got == nil || len(got.Blocks[1].EdgeAnchors) != 1 {
 		t.Fatalf("rejected patch must not mutate accepted base: %+v", got)
 	}
 }

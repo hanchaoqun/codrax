@@ -1051,6 +1051,49 @@ func TestLocalDiagramLeaseWholeBlockMutationViolation_TargetOnly(t *testing.T) {
 	}, lease); got != nil {
 		t.Fatalf("unrelated sibling replacement must remain available: %+v", got)
 	}
+	for name, params := range map[string]*emitAnswerDocumentPatchParams{
+		"unpublished sibling removal":  {RemoveBlockIDs: []string{"summary"}},
+		"unpublished sibling addition": {AddBlocks: []emitAnswerBlockV2{{ID: "new"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := localDiagramLeaseWholeBlockMutationViolation(params, lease); got == nil {
+				t.Fatalf("executor must reject a roster operation omitted by the live local schema: %+v", params)
+			}
+		})
+	}
+	lease.AllowTargetDiagramRemoval = true
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		RemoveBlockIDs: []string{"diag"},
+	}, lease); got != nil {
+		t.Fatalf("typed optional presentation contract must admit exact model-selected target removal: %+v", got)
+	}
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		ReplaceBlocks: []emitAnswerBlockV2{{ID: "diag"}},
+	}, lease); got == nil || got.Issue != "whole_replace_not_authorized" {
+		t.Fatalf("optional removal must not broaden into whole target replacement: %+v", got)
+	}
+	removed := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "keep",
+	}}}
+	if violations := types.ValidateAnswerDiagramRelationRepairLease(lease, removed); len(violations) != 0 {
+		t.Fatalf("optional exact removal must consume the target body and anchors together: %+v", violations)
+	}
+	mut := types.NewMutableState("optional target removal execution")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	result, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"remove_block_ids":["diag"]
+	}`))
+	if err != nil || !result.Success {
+		t.Fatalf("production patch path must execute explicit optional target removal: err=%v result=%+v", err, result)
+	}
+	if got := mut.AnswerDocumentV2(); got == nil || len(got.Blocks) != 1 || got.Blocks[0].ID != "summary" {
+		t.Fatalf("optional target removal changed the wrong roster: %+v", got)
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
+		t.Fatalf("successful optional target removal must consume the lease: %+v", got)
+	}
 }
 
 func TestApplyModelAuthoredDiagramAtomicEdits_RestoresTypedFailedAnchorWithoutBody(t *testing.T) {
@@ -1493,7 +1536,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_MixedCarrierBatchRemainsExecutable
 	}
 }
 
-func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefIdentityDriftStillFailsClosedOnAmbiguousCarrier(t *testing.T) {
+func TestApplyModelAuthoredDiagramAtomicEdits_AmbiguousCarrierDoesNotMintLocalLease(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: first\n    A->>B: second\n"
 	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
@@ -1505,12 +1548,8 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefIdentityDriftStillFailsC
 			BlockID: "diag", Issue: diagramCallEdgeIssueNoEvidence,
 			FromNode: "A", ToNode: "B", FromIdentity: "Resolved.call", ToIdentity: "Resolved.target",
 		}}, nil)
-	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
-	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
-		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
-	}}, nil, lease)
-	if err == nil || !strings.Contains(err.Error(), "carrier=unknown") || !strings.Contains(err.Error(), "allowed_actions=[]") {
-		t.Fatalf("identity drift must not guess between repeated same-pair operations: %v", err)
+	if lease != nil {
+		t.Fatalf("identity drift must fail before a dead local capability reaches the executor: %+v", lease)
 	}
 }
 

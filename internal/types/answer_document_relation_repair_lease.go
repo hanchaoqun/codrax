@@ -740,7 +740,12 @@ type AnswerDiagramRelationRepairLeaseBlock struct {
 // relation remains unchanged. The lease never authors, deletes, relabels, or
 // reconnects an edge itself.
 type AnswerDiagramRelationRepairLease struct {
-	Version                     int                                             `json:"version"`
+	Version int `json:"version"`
+	// AllowTargetDiagramRemoval is a presentation capability, not a repair
+	// decision. It is set only when the current typed answer contract says the
+	// diagram is optional; the model must still explicitly select the exact
+	// target id through remove_block_ids.
+	AllowTargetDiagramRemoval   bool                                            `json:"allow_target_diagram_removal,omitempty"`
 	Failures                    []AnswerDiagramRelationRepairFailure            `json:"failures"`
 	AllowedAdditions            []AnswerDiagramRelationRepairCandidate          `json:"allowed_additions,omitempty"`
 	OptionalOrphanCleanups      []AnswerDiagramOrphanCleanupCandidate           `json:"optional_orphan_cleanups,omitempty"`
@@ -768,6 +773,20 @@ func NewAnswerDiagramRelationRepairLease(
 	base *AnswerDocumentV2,
 	failures []AnswerDiagramRelationRepairFailure,
 	allowedAdditions []AnswerDiagramRelationRepairCandidate,
+) *AnswerDiagramRelationRepairLease {
+	return NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(base, failures, allowedAdditions, false)
+}
+
+// NewAnswerDiagramRelationRepairLeaseWithTargetRemoval builds the same local
+// capability while admitting one additional model-owned exit when the typed
+// presentation contract says the target diagram is optional. A diagnostic row
+// with no direct edge action is executable only when its block also owns a
+// typed addition candidate or exact target removal is allowed.
+func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+	base *AnswerDocumentV2,
+	failures []AnswerDiagramRelationRepairFailure,
+	allowedAdditions []AnswerDiagramRelationRepairCandidate,
+	allowTargetDiagramRemoval bool,
 ) *AnswerDiagramRelationRepairLease {
 	if base == nil || (len(failures) == 0 && len(allowedAdditions) == 0) ||
 		len(failures) > AnswerDiagramRelationRepairDeltaMaxEntries ||
@@ -879,9 +898,47 @@ func NewAnswerDiagramRelationRepairLease(
 			return nil
 		}
 	}
-	return &AnswerDiagramRelationRepairLease{
-		Version: 1, Failures: clean, AllowedAdditions: allowed, Blocks: blocks,
+	lease := &AnswerDiagramRelationRepairLease{
+		Version: 1, AllowTargetDiagramRemoval: allowTargetDiagramRemoval,
+		Failures: clean, AllowedAdditions: allowed, Blocks: blocks,
 	}
+	if !AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		return nil
+	}
+	return lease
+}
+
+// AnswerDiagramRelationRepairLeaseIsLocallyExecutable is the shared typed
+// admission predicate for retry routing, schema projection, and execution.
+// It never reads request text, model prose, labels, or Mermaid messages.
+func AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease *AnswerDiagramRelationRepairLease) bool {
+	if lease == nil || lease.Version != 1 {
+		return false
+	}
+	additionsByBlock := make(map[string]bool, len(lease.AllowedAdditions))
+	diagramBlocks := make(map[string]bool, len(lease.Blocks))
+	for _, block := range lease.Blocks {
+		if block.Kind == BlockDiagram {
+			diagramBlocks[strings.TrimSpace(block.BlockID)] = true
+		}
+	}
+	for _, candidate := range lease.AllowedAdditions {
+		if strings.TrimSpace(candidate.AdditionRef) == "" {
+			return false
+		}
+		additionsByBlock[strings.TrimSpace(candidate.BlockID)] = true
+	}
+	for _, failure := range lease.Failures {
+		if strings.TrimSpace(failure.FailureRef) == "" {
+			return false
+		}
+		if len(failure.AllowedActions) == 0 &&
+			!additionsByBlock[strings.TrimSpace(failure.BlockID)] &&
+			!(lease.AllowTargetDiagramRemoval && diagramBlocks[strings.TrimSpace(failure.BlockID)]) {
+			return false
+		}
+	}
+	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures) > 0
 }
 
 // BindAnswerDiagramRelationRepairOrdinaryValidationBlocks grants a bounded
@@ -1072,6 +1129,7 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 		}
 	}
 	var violations []AnswerDiagramRelationRepairScopeViolation
+	removedOptionalDiagramIDs := make(map[string]bool)
 	if len(baseDiagramIDs) > 0 {
 		baseDiagramOrder := make([]string, 0, len(baseDiagramIDs))
 		for id := range baseDiagramIDs {
@@ -1082,7 +1140,11 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 			kind, exists := resultKinds[id]
 			switch {
 			case !exists:
-				violations = append(violations, AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "relation_diagram_carrier_removed"})
+				if lease.AllowTargetDiagramRemoval {
+					removedOptionalDiagramIDs[id] = true
+				} else {
+					violations = append(violations, AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "relation_diagram_carrier_removed"})
+				}
 			case kind != BlockDiagram:
 				violations = append(violations, AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "relation_diagram_carrier_kind_changed"})
 			}
@@ -1115,6 +1177,11 @@ func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepair
 	sort.Strings(orderedIDs)
 
 	for _, blockID := range orderedIDs {
+		if removedOptionalDiagramIDs[blockID] {
+			// Explicit removal of an optional target consumes its visible body and
+			// structured anchors together. It is not an unlisted relation edit.
+			continue
+		}
 		if ordinaryValidationIDs[blockID] {
 			if kind, exists := resultKinds[blockID]; !exists || answerDiagramRelationRepairOrdinaryValidationKind(kind) {
 				continue
@@ -1335,7 +1402,9 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 	if in == nil {
 		return nil
 	}
-	out := &AnswerDiagramRelationRepairLease{Version: in.Version}
+	out := &AnswerDiagramRelationRepairLease{
+		Version: in.Version, AllowTargetDiagramRemoval: in.AllowTargetDiagramRemoval,
+	}
 	if len(in.Failures) > 0 {
 		out.Failures = make([]AnswerDiagramRelationRepairFailure, len(in.Failures))
 		for i, failure := range in.Failures {

@@ -1309,7 +1309,7 @@ func TestDiagramRelationRetryMentionsAttachOnlyForExactLivePair(t *testing.T) {
 	}
 }
 
-func TestRequiredDiagramRelationRetryAcceptsIdentityOnlyFailureLocator(t *testing.T) {
+func TestRequiredDiagramRelationRetryDoesNotInstallIdentityOnlyDeadLease(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"block_id":"pipeline-diagram","issue":"typed_anchor_without_visible_edge","relation_kind":"precedence","from_identity":"analyzer","to_identity":"explorer"}],"preserve_unlisted_edges":true}`
 	result := &types.ToolResult{
 		ToolName: "emit_answer_document_patch", Success: false,
@@ -1323,13 +1323,12 @@ func TestRequiredDiagramRelationRetryAcceptsIdentityOnlyFailureLocator(t *testin
 		t.Fatalf("identity-only typed locator must reach the model-owned patch lane: ok=%v hint=%s", ok, hint)
 	}
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
-	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
-		t.Fatal("identity-only typed locator must install a retry-local lease")
+	if installAnswerDocDiagramRelationRepairLease(ctx, nil, result, true) {
+		t.Fatal("identity-only typed locator without an executable carrier must not install a local lease")
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
-	if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FromNode != "" ||
-		lease.Failures[0].FromIdentity != "analyzer" {
-		t.Fatalf("identity-only locator changed across consumer boundary: %+v", lease)
+	if lease != nil {
+		t.Fatalf("dead identity-only lease leaked into the dynamic patch surface: %+v", lease)
 	}
 }
 
@@ -1353,7 +1352,7 @@ func TestRequiredDiagramRelationRetryInstallsLabelPairRelabelRef(t *testing.T) {
 			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
 		}},
 	}
-	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
+	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result, true) {
 		t.Fatal("label-pair producer delta must install a retry-local lease")
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
@@ -1414,7 +1413,7 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
 		},
 	}}
-	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result) {
+	if !installAnswerDocDiagramRelationRepairLease(ctx, nil, result, true) {
 		t.Fatal("relation lease installation failed")
 	}
 	if lease := ctx.Mutable.AnswerDiagramRelationRepairLease(); lease == nil ||
@@ -1567,7 +1566,7 @@ func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolatio
 				got = e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
 			}
 			lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
-			if !got.HintRequested || lease == nil || len(lease.Failures) != 1 ||
+			if !got.HintRequested || lease == nil || !lease.AllowTargetDiagramRemoval || len(lease.Failures) != 1 ||
 				!reflect.DeepEqual(lease.OrdinaryValidationBlockIDs, []string{"ol1"}) {
 				t.Fatalf("optional mixed reject must install one live local relation lease: signal=%+v lease=%+v", got, lease)
 			}
@@ -1595,6 +1594,15 @@ func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolatio
 func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	const delta = `{"version":1,"failures":[{"failure_ref":"rf1-current-executor-generation","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer"}],"preserve_unlisted_edges":true}`
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
+	ctx.Mutable.SetAnswerDiagramRelationRepairLease(&types.AnswerDiagramRelationRepairLease{
+		Version: 1,
+		Failures: []types.AnswerDiagramRelationRepairFailure{{
+			FailureRef: "rf1-current-executor-generation", BlockID: "pipeline-diagram",
+			Issue: "data_flow_edge_unproven", TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchor,
+			AllowedActions: []types.AnswerDiagramRelationRepairAction{types.AnswerDiagramRelationRepairActionRemove},
+		}},
+		Blocks: []types.AnswerDiagramRelationRepairLeaseBlock{{BlockID: "pipeline-diagram", Kind: types.BlockDiagram}},
+	})
 	e := &answerDocumentEvaluator{diagramRequired: true}
 	result := &types.ToolResult{
 		ToolName: "emit_answer_document_patch", Success: false,
@@ -1637,6 +1645,14 @@ func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEm
 	}}
 	mut := types.NewMutableState("live relation delta forwarding")
 	mut.SetLastRejectedAnswerDocumentV2(base)
+	mut.SetAnswerDiagramRelationRepairLease(&types.AnswerDiagramRelationRepairLease{
+		Version: 1,
+		AllowedAdditions: []types.AnswerDiagramRelationRepairCandidate{{
+			AdditionRef: liveRef, BlockID: "pipeline-diagram", RelationKind: types.DiagramRelArgumentFlow,
+			FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/extract_work.go:15",
+		}},
+		Blocks: []types.AnswerDiagramRelationRepairLeaseBlock{{BlockID: "pipeline-diagram", Kind: types.BlockDiagram}},
+	})
 	ctx := &types.AgentContext{Mutable: mut}
 	e := &answerDocumentEvaluator{diagramRequired: true, mu: mut}
 	result := &types.ToolResult{
@@ -1652,7 +1668,7 @@ func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEm
 	// The evaluator's patch base is a later generation in which the candidate
 	// is already anchored. Re-signing against it correctly produces no lease;
 	// this must not erase the executor's still-live generation returned above.
-	if installAnswerDocDiagramRelationRepairLease(ctx, mut, result) {
+	if installAnswerDocDiagramRelationRepairLease(ctx, mut, result, true) {
 		t.Fatal("consumer-side rebuild should be empty for a candidate already anchored in its later patch base")
 	}
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})

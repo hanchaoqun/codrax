@@ -229,6 +229,39 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_OptionalLeasePublishesExactTargetRemoval(t *testing.T) {
+	base := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "missing", ToIdentity: "carrier",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil, true)
+	if lease == nil {
+		t.Fatal("test setup: optional target removal must make the otherwise ambiguous generation executable")
+	}
+	mut := types.NewMutableState("optional local diagram schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	removeIDs, ok := props["remove_block_ids"].(map[string]any)
+	if !ok {
+		t.Fatalf("optional lease must expose its exact model-selected removal branch: %v", props)
+	}
+	items := removeIDs["items"].(map[string]any)
+	if got := items["enum"].([]any); !reflect.DeepEqual(got, []any{"diag"}) {
+		t.Fatalf("optional target-removal roster=%v, want only diag", got)
+	}
+	if _, ok := props["add_blocks"]; ok {
+		t.Fatal("optional target removal must not reopen arbitrary roster additions")
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranchesOnly(t *testing.T) {
 	base := atomicPatchTestDocument()
 	for i := range base.Blocks {

@@ -415,7 +415,7 @@ func TestAnswerDiagramRelationRepairLeasePairsExistingBodyWithExactTypedCandidat
 	}
 }
 
-func TestAnswerDiagramRelationRepairLeaseDoesNotAdvertiseAmbiguousRefAction(t *testing.T) {
+func TestAnswerDiagramRelationRepairLeaseRejectsAmbiguousFailureWithoutExecutableExit(t *testing.T) {
 	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
 		ID: "flow", Kind: BlockDiagram,
 		EdgeAnchors: []DiagramEdgeAnchor{
@@ -427,12 +427,16 @@ func TestAnswerDiagramRelationRepairLeaseDoesNotAdvertiseAmbiguousRefAction(t *t
 		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall,
 		FromNode: "A", ToNode: "B", FromIdentity: "Resolved", ToIdentity: "Unknown",
 	}}, nil)
-	if lease == nil || len(lease.Failures) != 1 {
-		t.Fatalf("ambiguous diagnostic should remain visible without granting an action: %+v", lease)
+	if lease != nil {
+		t.Fatalf("an ambiguous diagnostic with no local action must not mint a dead lease: %+v", lease)
 	}
-	failure := lease.Failures[0]
-	if failure.TargetCarrier != AnswerDiagramRelationRepairCarrierUnknown || len(failure.AllowedActions) != 0 || failure.FailureRef == "" {
-		t.Fatalf("ambiguous ref must not advertise an executable action: %+v", failure)
+	optional := NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(base, []AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: DiagramRelCall,
+		FromNode: "A", ToNode: "B", FromIdentity: "Resolved", ToIdentity: "Unknown",
+	}}, nil, true)
+	if optional == nil || !optional.AllowTargetDiagramRemoval ||
+		!AnswerDiagramRelationRepairLeaseIsLocallyExecutable(optional) {
+		t.Fatalf("an optional diagram's exact removal branch must be an executable model-owned exit: %+v", optional)
 	}
 }
 

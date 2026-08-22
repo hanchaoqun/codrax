@@ -9117,8 +9117,8 @@ func TestDiagramRelationRepairDeltaCarriesIdentityOnlyFailedAnchor(t *testing.T)
 		t.Fatalf("identity-only locator was dropped or rewritten: %+v", delta)
 	}
 	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, nil)
-	if lease == nil || lease.Failures[0].FailureRef != delta.Failures[0].FailureRef {
-		t.Fatalf("producer-visible ref and executor lease ref must be byte-identical: delta=%+v lease=%+v", delta.Failures, lease)
+	if lease != nil {
+		t.Fatalf("identity-only diagnostic without a selectable carrier must not mint a dead executor lease: delta=%+v lease=%+v", delta.Failures, lease)
 	}
 	repair := emitFixHintsRepair([]emitFixHint{{
 		Field: "blocks[0].edge_anchors", DiagramRelationRepairDeltaJSON: raw,
