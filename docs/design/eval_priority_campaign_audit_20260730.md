@@ -57706,6 +57706,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1401 r857：可选图局部协议生产转正；同批兄弟关系修补与 lease 自冲突（2026-08-22）
+
+1. 从已推送 `f9fb75b99` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态选择与显式窗 Trace，runner 2/2 PASS：Trace
+   168s、Python 183s。两路活动流均未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级；没有恢复旧稿或由系统代写答案。
+2. `B1336-OPTIONALRELATIONLOCALREPAIR1` 获得生产正证。Python 第一稿的可选 sequence 图同时出现可见标签不一致、无 authority 的图边、
+   endpoint identity 冲突和兄弟 `chain-1` 缺关系锚；拒绝后系统正确安装 same-generation lease，向模型发布当前 `failure_ref`，模型直接选择
+   4 条局部删除、3 个可选孤儿清理，并主动在同一 patch 给有序链补 `run_pipeline -> resolve` 精确锚。required/optional 图已统一进入 opaque
+   ref 协议，r856 的 legacy 坐标复制分叉关闭。
+3. 新 P1 `B1337-RELATIONLEASESIBLING1` 已确认。B1336 的 compact hint 明确要求同轮修复 list/table/citation 等兄弟字段，但 lease 校验把所有
+   新出现 `edge_anchors` 的块都纳入冻结图，并以 `block=chain-1 issue=unlisted_relation_added` 拒绝兄弟 validator 刚刚要求补的精确关系。
+   模型只能先完成图修补、再等 lease 消费后补兄弟锚；随后又误用陈腐 ref、尝试无精确证据的 callback，最终共 5 次拒绝/5 次 patch。该现象是
+   同一代 typed 合同互相冲突，不是模型波动，也不能靠放宽全部非图块或继续加教学解决。
+4. B1337 最优形冻结为 producer-owned ordinary-validation block grant：关系 ownership validator 把本代确切要求普通校验的非图 block ID 写入
+   typed metadata；安装 lease 时只接受 patch base 中唯一存在且 kind 为 ordered_list/bullet_list/table 的 exact ID。lease 对这些块不做“与旧锚
+   字节恒等”比较，随后既有普通关系/evidence validator 仍完整验证其新增、删除和修改。未被 producer 点名的任何块继续冻结；不从用户请求、模型
+   prose、错误文本、最终答案或 Mermaid 标签猜 block，也不授予全局关系权限。
+5. 新 P1 `B1338-DIAGRAMORPHANNOTEREF1` 同时确认。模型显式选择 `remove_if_isolated` 清理 `JP/H` participant 后，原
+   `Note over JP,H: pipeline/runner.py:17` 仍留在最终 Mermaid 中。当前“孤立”只按箭头/anchor census，不把 Note/activate/deactivate 等引用算作
+   participant liveness，可能产出悬空或由查看器隐式补 actor 的弱图。修复应统一所有 sequence participant reference 载体：只要仍被 Note、生命周期
+   或分组语法引用就不得判 isolated；系统只保留模型已有内容，不自动删除 Note、补 participant 或选择关系。
+6. Trace 系统面继续通过：明确窗、3 次 typed trace_query、四跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms 调度供给候选、实际占时/规则可消
+   双轴、业务下钻、邻近/背景隔离和完整 `Trace 因果投影` 全在，零成文拒绝。模型仍把唤醒先后扩写为“传导叠加”，与后文“未证同步阻塞/锁持有”
+   限定存在张力，继续作为软教学遵循观察；不以正文关键词硬拒，也不由系统改写结论。
+
+状态：
+
+`r857=runner-pass-2/2,human-python-uncertain+trace-uncertain`；
+`B1336=production-positive/core-closed`；
+`B1337=confirmed/P1-next`；
+`B1338=confirmed/P1-after-B1337`；
+`optional-relation-repair=typed-ref-route-production-positive`；
+`same-patch-sibling-relation=current-lease-conflict`；
+`sequence-orphan-liveness=current-arrow-only/misses-note-reference`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r857`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r857`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
