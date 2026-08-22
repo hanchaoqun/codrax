@@ -1927,6 +1927,7 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 		"relation_kind=`register`: `REGISTRY` -> `cls` [E-bind]",
 		"relation_kind=`assignment`: `REGISTRY` -> `cls` [E-lookup]",
 		"relation_kind=`return`: `resolve` -> `cls()` [E-return]",
+		"optional callback receiver call, relation_kind=`call`: `run_pipeline` -> `loop.run_in_executor` [E-callback-call]",
 		"optional callback handoff, relation_kind=`callback`: `loop.run_in_executor` -> `plugin.handle` [E-callback]",
 		"optional declared-type row, relation_kind=`type_relation`: `JsonPlugin` -> `BasePlugin` [E-type]",
 		"model decides whether the candidate is relevant",
@@ -1956,8 +1957,9 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 		{FromNode: "dc1r2f", ToNode: "dc1r2t", FromIdentity: "kind", ToIdentity: "resolve", RelationKind: types.DiagramRelArgumentFlow},
 		{FromNode: "dc1r4f", ToNode: "dc1r4t", FromIdentity: "REGISTRY", ToIdentity: "cls", RelationKind: types.DiagramRelAssignment},
 		{FromNode: "dc1r5f", ToNode: "dc1r5t", FromIdentity: "resolve", ToIdentity: "cls()", RelationKind: types.DiagramRelReturn},
-		{FromNode: "dc1r6f", ToNode: "dc1r6t", FromIdentity: "loop.run_in_executor", ToIdentity: "plugin.handle", RelationKind: types.DiagramRelCallback},
-		{FromNode: "dc1r7f", ToNode: "dc1r7t", FromIdentity: "JsonPlugin", ToIdentity: "BasePlugin", RelationKind: types.DiagramRelTypeRelation},
+		{FromNode: "dc1r6f", ToNode: "dc1r6t", FromIdentity: "run_pipeline", ToIdentity: "loop.run_in_executor", RelationKind: types.DiagramRelCall},
+		{FromNode: "dc1r7f", ToNode: "dc1r7t", FromIdentity: "loop.run_in_executor", ToIdentity: "plugin.handle", RelationKind: types.DiagramRelCallback},
+		{FromNode: "dc1r8f", ToNode: "dc1r8t", FromIdentity: "JsonPlugin", ToIdentity: "BasePlugin", RelationKind: types.DiagramRelTypeRelation},
 	} {
 		found := false
 		for _, got := range receipts {
@@ -1969,6 +1971,40 @@ func TestAnswerDocumentEvaluator_TargetDiscoveryRendersTypedDynamicSelectorCandi
 		if !found {
 			t.Fatalf("dynamic candidate recipe receipt missing %+v: %+v", want, receipts)
 		}
+	}
+	repairHint := answerDocOptionalDiagramCallEdgePatchHint(ctx, true)
+	for _, want := range []string{
+		"request-scoped typed dynamic-selection carrier",
+		"contains every complete candidate group, but selects none",
+		"dynamic_candidate_relation_group[1]",
+		"dynamic_candidate_edge_recipe[1.6]=`dc1r6f -> dc1r6t`; role=`optional_callback_receiver_call`; relation_kind=`call`; evidence=`E-callback-call`",
+		"dynamic_candidate_edge_recipe[1.7]=`dc1r7f -> dc1r7t`; role=`optional_callback_handoff`; relation_kind=`callback`; evidence=`E-callback`",
+		"Prefer these request-shaped recipes over unrelated generic helper, exception, or constructor fragments",
+	} {
+		if !strings.Contains(repairHint, want) {
+			t.Fatalf("dynamic candidate repair focus missing %q:\n%s", want, repairHint)
+		}
+	}
+	for _, forbidden := range []string{
+		"typed topology authoring template is available below",
+		"whole-diagram skeleton is intentionally unavailable",
+		"Typed topology component templates follow",
+	} {
+		if strings.Contains(repairHint, forbidden) {
+			t.Fatalf("generic relation repair displaced the dynamic candidate focus %q:\n%s", forbidden, repairHint)
+		}
+	}
+	requiredCallHint, ok := answerDocRequiredDiagramCallEdgePatchHint(ctx, true)
+	if !ok || !strings.Contains(requiredCallHint, "request-scoped typed dynamic-selection carrier") ||
+		!strings.Contains(requiredCallHint, "dynamic_candidate_relation_group[1]") ||
+		strings.Contains(requiredCallHint, "Preserve the following typed topology template") {
+		t.Fatalf("required call-edge repair did not prioritize the dynamic candidate carrier: ok=%t\n%s", ok, requiredCallHint)
+	}
+	requiredBoundaryHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, true)
+	if !ok || !strings.Contains(requiredBoundaryHint, "request-scoped typed dynamic-selection compiler") ||
+		!strings.Contains(requiredBoundaryHint, "dynamic_candidate_relation_group[1]") ||
+		strings.Contains(requiredBoundaryHint, "complete principal relation spine") {
+		t.Fatalf("required relation-boundary repair did not prioritize the dynamic candidate carrier: ok=%t\n%s", ok, requiredBoundaryHint)
 	}
 }
 

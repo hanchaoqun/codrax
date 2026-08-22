@@ -3101,12 +3101,21 @@ func renderAnswerDocDynamicSelectorResolutionCandidates(ctx *types.AgentContext,
 			)
 		}
 		for _, hop := range path.CallbackHops {
-			fmt.Fprintf(&b, "  - optional callback handoff, relation_kind=`%s`: `%s` -> `%s` [%s]; it proves transfer of a callable, not later execution.\n",
-				hop.RelationKind,
-				answerDocCallChainInline(hop.FromIdentity),
-				answerDocCallChainInline(hop.ToIdentity),
-				answerDocCallChainInline(hop.EvidenceID),
-			)
+			if hop.Role == types.DynamicSelectorHopCallbackReceiverCall {
+				fmt.Fprintf(&b, "  - optional callback receiver call, relation_kind=`%s`: `%s` -> `%s` [%s]; this proves the receiving API call, not execution of the transferred callback.\n",
+					hop.RelationKind,
+					answerDocCallChainInline(hop.FromIdentity),
+					answerDocCallChainInline(hop.ToIdentity),
+					answerDocCallChainInline(hop.EvidenceID),
+				)
+			} else {
+				fmt.Fprintf(&b, "  - optional callback handoff, relation_kind=`%s`: `%s` -> `%s` [%s]; it proves transfer of a callable, not later execution.\n",
+					hop.RelationKind,
+					answerDocCallChainInline(hop.FromIdentity),
+					answerDocCallChainInline(hop.ToIdentity),
+					answerDocCallChainInline(hop.EvidenceID),
+				)
+			}
 		}
 		for _, hop := range path.TypeRoster {
 			fmt.Fprintf(&b, "  - optional declared-type row, relation_kind=`%s`: `%s` -> `%s` [%s]; it does not prove runtime MRO or invocation.\n",
@@ -3173,7 +3182,7 @@ func renderAnswerDocDynamicSelectorRelationRecipes(b *strings.Builder, ctx *type
 		}
 		for _, hop := range path.CallbackHops {
 			if hop.RelationKind.IsValid() {
-				hops = append(hops, recipeHop{hop: hop, kind: "optional_callback"})
+				hops = append(hops, recipeHop{hop: hop, kind: "optional_" + string(hop.Role)})
 			}
 		}
 		for _, hop := range path.TypeRoster {
@@ -18028,14 +18037,17 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 	if alreadyPatching {
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 	}
+	dynamicCandidatePayload := answerDocDynamicSelectorRelationRepairPayload(ctx)
 	copyReadyPayload := answerDocMechanismCopyReadyRepairPayload(ctx)
 	boundaryPayload := ""
-	if copyReadyPayload == "" {
+	if dynamicCandidatePayload == "" && copyReadyPayload == "" {
 		boundaryPayload = answerDocMechanismTypedRelationBoundaryRepairPayload(ctx)
 	}
 	hint := prefix + " only because an OPTIONAL diagram contains invocation edges that are not authorized by the existing typed call-edge evidence, or its typed edge metadata no longer matches the visible Mermaid arrows. " +
 		"Use `emit_answer_document_patch`; do not invent an edge, rename endpoints repeatedly, or reopen files. "
 	switch {
+	case dynamicCandidatePayload != "":
+		hint += "A request-scoped typed dynamic-selection carrier is available below. It contains every complete candidate group, but selects none of them: use only the group that your existing grounded argument/runtime reasoning makes relevant, and do not combine groups. Prefer these request-shaped recipes over unrelated generic helper, exception, or constructor fragments when repairing the dynamic-resolution explanation. Preserve each selected recipe's exact local node IDs, endpoint identities, direction, relation kind, and source occurrence; selector application remains a Note/table fact rather than an arrow. Mixed call, assignment, return, callback, and type relations are often clearer in a flow/call-DAG view than as invented sequence replies, but the diagram kind and visible business wording remain yours. "
 	case copyReadyPayload != "":
 		hint += "A typed topology authoring template is available below. It is not acceptance-ready because its directed arrows carry the literal placeholder `AUTHOR_BUSINESS_ACTION` and its anchors omit `visible_label`. When it carries useful verified relationship structure, prefer replacing only the rejected diagram with the template's exact node IDs, edge topology, unanchored annotations, and complete identity fields in `edge_anchors_json`; then replace each placeholder with one business/domain action and copy it into both the Mermaid message and anchor `visible_label`. Do not emit the template unchanged or compose a third graph. "
 	case boundaryPayload != "":
@@ -18047,7 +18059,9 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		"If you keep the diagram, replace only that block. Preserve unrelated blocks in `unchanged_block_ids` and preserve the inherited `citations[]` pool. " + types.AnswerDocumentPatchOperationTeaching +
 		answerDocDiagramBusinessDisplayRepairGuidance() +
 		" The system will not remove or rewrite the diagram for you; choose the honest presentation and submit the patch."
-	if copyReadyPayload != "" {
+	if dynamicCandidatePayload != "" {
+		hint += " This carrier is candidate-only authoring input, not a runtime-selection or complete-flow conclusion; preserve only the candidate group and relations you choose to show, and author all visible business wording yourself:\n\n" + dynamicCandidatePayload
+	} else if copyReadyPayload != "" {
 		hint += " To minimize reconstruction work, preserve this verified carrier's topology and anchor array while authoring only the visible business wording if you retain the diagram:\n\n" + copyReadyPayload
 	} else if boundaryPayload != "" {
 		hint += " This is a typed relation boundary, not a complete-flow claim; preserve only the recipes you choose to show and author their visible business wording:\n\n" + boundaryPayload
@@ -18056,8 +18070,9 @@ func answerDocOptionalDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 }
 
 func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
+	dynamicCandidatePayload := answerDocDynamicSelectorRelationRepairPayload(ctx)
 	payload := answerDocMechanismCopyReadyRepairPayload(ctx)
-	if payload == "" {
+	if dynamicCandidatePayload == "" && payload == "" {
 		return "", false
 	}
 	prefix := "Your last `emit_answer_document` call was rejected"
@@ -18066,12 +18081,23 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 		prefix = "Your last `emit_answer_document_patch` call was rejected"
 		action = "Keep using `emit_answer_document_patch`"
 	}
-	return prefix + " only because the REQUIRED diagram still contains invocation edges outside the existing typed call-edge authority. " +
+	hint := prefix + " only because the REQUIRED diagram still contains invocation edges outside the existing typed call-edge authority. " +
 		action + "; put the rejected diagram block in `replace_blocks`, list every retained sibling block in `unchanged_block_ids`, and preserve the inherited `citations[]` pool. Do not add or delete blocks in this repair. " +
-		"Do not remove the required diagram, rename endpoints, reopen files, or reconstruct a different graph/JSON shape. Preserve the following typed topology template's exact node IDs, edge topology, and complete identity fields in `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator. The template is intentionally not acceptance-ready: replace every literal `AUTHOR_BUSINESS_ACTION` placeholder with one concise business/domain action and copy it byte-identically into the Mermaid message and matching anchor `visible_label`; do not emit the template unchanged:\n\n" +
-		payload + "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
-		answerDocDiagramBusinessDisplayRepairGuidance() +
-		" The system supplies only verified topology/identity input and does not write a visible label or rewrite the model's prose, ordering, or conclusions. Do not write free-form prose outside the tool call.", true
+		"Do not remove the required diagram, rename endpoints, or reopen files. "
+	if dynamicCandidatePayload != "" {
+		hint += "A request-scoped typed dynamic-selection carrier is available below. It contains every complete candidate group but selects none: use only the group your existing grounded argument/runtime reasoning makes relevant, do not combine groups, and prefer these request-shaped relations over unrelated helper, exception, or constructor calls. Preserve each selected recipe's exact local node IDs, endpoint identities, direction, relation kind, and source occurrence; keep selector application as a Note/table fact rather than an arrow. Author the diagram kind, topology subset, and visible business wording yourself:\n\n" + dynamicCandidatePayload
+	} else {
+		hint += "Preserve the following typed topology template's exact node IDs, edge topology, and complete identity fields in `edge_anchors_json` as one unit; it is derived from the same typed evidence consumed by the validator. The template is intentionally not acceptance-ready: replace every literal `AUTHOR_BUSINESS_ACTION` placeholder with one concise business/domain action and copy it byte-identically into the Mermaid message and matching anchor `visible_label`; do not emit the template unchanged:\n\n" + payload
+	}
+	hint += "\n\nFollow the projected patch tool schema's native field types; the Mermaid body is a string, `edge_anchors` is an array of objects, and neither may be wrapped in an additional JSON string. " +
+		answerDocDiagramBusinessDisplayRepairGuidance()
+	if dynamicCandidatePayload != "" {
+		hint += " The system supplies only verified candidate identity input and does not select a candidate, write a visible label, or rewrite the model's prose, ordering, or conclusions."
+	} else {
+		hint += " The system supplies only verified topology/identity input and does not write a visible label or rewrite the model's prose, ordering, or conclusions."
+	}
+	hint += " Do not write free-form prose outside the tool call."
+	return hint, true
 }
 
 type answerDocDiagramParticipantRepairDelta struct {
@@ -18563,11 +18589,17 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 // disconnected with an uncertainty note; the system neither deletes the
 // required block nor authors a synthetic bridge.
 func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, alreadyPatching bool) (string, bool) {
-	authority := renderAnswerDocMechanismRelationAuthority(ctx)
-	payload := answerDocMechanismPrincipalRelationRepairPayloadFromAuthority(authority)
-	principalOnly := payload != ""
-	if !principalOnly {
-		payload = answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(authority)
+	dynamicCandidatePayload := answerDocDynamicSelectorRelationRepairPayload(ctx)
+	payload := dynamicCandidatePayload
+	dynamicCandidateOnly := payload != ""
+	principalOnly := false
+	if !dynamicCandidateOnly {
+		authority := renderAnswerDocMechanismRelationAuthority(ctx)
+		payload = answerDocMechanismPrincipalRelationRepairPayloadFromAuthority(authority)
+		principalOnly = payload != ""
+		if !principalOnly {
+			payload = answerDocMechanismTypedRelationBoundaryRepairPayloadFromAuthority(authority)
+		}
 	}
 	if payload == "" {
 		return "", false
@@ -18585,6 +18617,8 @@ func answerDocRequiredDiagramRelationBoundaryPatchHint(ctx *types.AgentContext, 
 		"Keep the required diagram, but use each exact relation recipe below at most once unless another distinct grounded call-site row proves another occurrence. Do not connect recipes into a longer path, relabel them, or infer missing bridges. Requested participants without a proven directed incident relation must retain an unproven boundary. They may remain without directed edges, but an independently proved no-arrow ownership/grouping relation must not be flattened into unrelated peer nodes merely because its directed bridge is unproved. "
 	if principalOnly {
 		hint += "A request-scoped typed provider already proves the complete principal relation spine, so this repair intentionally repeats only that compact spine. Grounded sibling relations outside it remain valid supporting facts, but do not insert them into, replace, or truncate this principal diagram. "
+	} else if dynamicCandidateOnly {
+		hint += "A request-scoped typed dynamic-selection compiler produced the complete candidate groups below. They are alternatives, not one combined graph: use only the group your existing grounded argument/runtime reasoning makes relevant, and prefer its request-shaped relations over unrelated generic helper, exception, or constructor calls. The system selects no candidate. "
 	}
 	hint +=
 		"The following is a typed relation boundary, not a complete-flow claim:\n\n" + payload +
@@ -18634,6 +18668,21 @@ func answerDocMechanismCopyReadyRepairPayload(ctx *types.AgentContext) string {
 		anchorEnd = len(section) - anchorStart
 	}
 	return strings.TrimSpace(section[fenceStart : anchorStart+anchorEnd])
+}
+
+// answerDocDynamicSelectorRelationRepairPayload repeats only the complete,
+// request-scoped candidate relation groups already published in the initial
+// Finalizer prompt. It deliberately excludes generic grounded helper/callee
+// fragments so a diagram repair cannot replace the requested dynamic
+// resolution with merely true but irrelevant nearby calls. Candidate
+// selection, visible wording, diagram kind, topology subset, and conclusion
+// remain model-owned.
+func answerDocDynamicSelectorRelationRepairPayload(ctx *types.AgentContext) string {
+	var b strings.Builder
+	if anchors := renderAnswerDocDynamicSelectorRelationRecipes(&b, ctx); len(anchors) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func answerDocMechanismTypedRelationBoundaryRepairPayload(ctx *types.AgentContext) string {

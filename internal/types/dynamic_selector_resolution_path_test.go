@@ -78,8 +78,10 @@ func TestCompileDynamicSelectorResolutionPaths_PreservesTypedHopKindsAndEvidence
 			t.Fatalf("hop[%d]=%+v, want role=%q relation=%q evidence=%q", i, path.Hops[i], wantRoles[i], wantRelations[i], wantEvidence[i])
 		}
 	}
-	if len(path.CallbackHops) != 1 || path.CallbackHops[0].RelationKind != DiagramRelCallback || path.CallbackHops[0].EvidenceID != "E-callback" {
-		t.Fatalf("callback handoff was not preserved independently: %+v", path.CallbackHops)
+	if len(path.CallbackHops) != 2 ||
+		path.CallbackHops[0].Role != DynamicSelectorHopCallbackReceiverCall || path.CallbackHops[0].RelationKind != DiagramRelCall || path.CallbackHops[0].EvidenceID != "E-callback-call" ||
+		path.CallbackHops[1].Role != DynamicSelectorHopCallbackHandoff || path.CallbackHops[1].RelationKind != DiagramRelCallback || path.CallbackHops[1].EvidenceID != "E-callback" {
+		t.Fatalf("callback receiver call and handoff were not preserved independently: %+v", path.CallbackHops)
 	}
 	if len(path.TypeRoster) != 1 || path.TypeRoster[0].RelationKind != DiagramRelTypeRelation || path.TypeRoster[0].EvidenceID != "E-type" {
 		t.Fatalf("candidate type roster was not preserved independently: %+v", path.TypeRoster)

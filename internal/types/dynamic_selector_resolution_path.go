@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const DynamicSelectorResolutionPathVersion = 1
+const DynamicSelectorResolutionPathVersion = 2
 
 type EvidenceSelectorApplication struct {
 	Owner   string `json:"owner"`
@@ -20,14 +20,15 @@ const DynamicSelectorResolutionCandidateOnly DynamicSelectorResolutionStatus = "
 type DynamicSelectorResolutionHopRole string
 
 const (
-	DynamicSelectorHopEntryCall           DynamicSelectorResolutionHopRole = "entry_call"
-	DynamicSelectorHopSelectorArgument    DynamicSelectorResolutionHopRole = "selector_argument_flow"
-	DynamicSelectorHopSelectorApplication DynamicSelectorResolutionHopRole = "selector_application"
-	DynamicSelectorHopRegistration        DynamicSelectorResolutionHopRole = "registration"
-	DynamicSelectorHopLookupAssignment    DynamicSelectorResolutionHopRole = "lookup_assignment"
-	DynamicSelectorHopFactoryReturn       DynamicSelectorResolutionHopRole = "factory_return"
-	DynamicSelectorHopCallbackHandoff     DynamicSelectorResolutionHopRole = "callback_handoff"
-	DynamicSelectorHopTypeRelation        DynamicSelectorResolutionHopRole = "type_relation"
+	DynamicSelectorHopEntryCall            DynamicSelectorResolutionHopRole = "entry_call"
+	DynamicSelectorHopSelectorArgument     DynamicSelectorResolutionHopRole = "selector_argument_flow"
+	DynamicSelectorHopSelectorApplication  DynamicSelectorResolutionHopRole = "selector_application"
+	DynamicSelectorHopRegistration         DynamicSelectorResolutionHopRole = "registration"
+	DynamicSelectorHopLookupAssignment     DynamicSelectorResolutionHopRole = "lookup_assignment"
+	DynamicSelectorHopFactoryReturn        DynamicSelectorResolutionHopRole = "factory_return"
+	DynamicSelectorHopCallbackReceiverCall DynamicSelectorResolutionHopRole = "callback_receiver_call"
+	DynamicSelectorHopCallbackHandoff      DynamicSelectorResolutionHopRole = "callback_handoff"
+	DynamicSelectorHopTypeRelation         DynamicSelectorResolutionHopRole = "type_relation"
 )
 
 type DynamicSelectorResolutionHop struct {
@@ -375,7 +376,8 @@ func compileDynamicSelectorCallbackHops(evidence []EvidenceItem, entry string) [
 		}
 	}
 	var out []DynamicSelectorResolutionHop
-	seen := make(map[string]bool)
+	seenCalls := make(map[string]bool)
+	seenHandoffs := make(map[string]bool)
 	for _, item := range evidence {
 		if !item.IsCitable() || ClaimFormOf(item) != ClaimCallbackHandoff {
 			continue
@@ -384,9 +386,20 @@ func compileDynamicSelectorCallbackHops(evidence []EvidenceItem, entry string) [
 			if !dynamicSelectorIdentityEquivalent(call.Object, item.Subject) {
 				continue
 			}
-			id := dynamicSelectorEvidenceID(item)
-			if !seen[id] {
-				seen[id] = true
+			callID := dynamicSelectorEvidenceID(call)
+			if !seenCalls[callID] {
+				seenCalls[callID] = true
+				out = append(out, dynamicSelectorHop(
+					DynamicSelectorHopCallbackReceiverCall,
+					DiagramRelCall,
+					call,
+					firstNonEmptyDynamicSelectorIdentity(call.Subject, call.OwnerSymbol),
+					call.Object,
+				))
+			}
+			handoffID := dynamicSelectorEvidenceID(item)
+			if !seenHandoffs[handoffID] {
+				seenHandoffs[handoffID] = true
 				out = append(out, dynamicSelectorHop(DynamicSelectorHopCallbackHandoff, DiagramRelCallback, item, item.Subject, item.Object))
 			}
 		}

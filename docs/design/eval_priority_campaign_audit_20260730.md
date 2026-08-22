@@ -57541,6 +57541,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r854`。
 
+### §123.1396 B1334：动态候选成为三条图修补车道的 request-scoped 当前焦点（2026-08-22）
+
+1. `B1334-DYNAMICCANDIDATERETRYFOCUS1/P1` 已施工。新增的 candidate repair payload 直接复用同一个 typed compiler 与
+   `renderAnswerDocDynamicSelectorRelationRecipes`；只要存在完整 candidate，可选图 call-edge 修补、必需图 call-edge 修补和必需图
+   relation-boundary 修补三条车道都优先重复所有完整候选组，不再先发 generic helper/exception/constructor topology。无完整候选时原
+   copy-ready template/boundary 行为字节保持，既有 pin 继续通过。
+2. 修补提示明确区分“请求相关”与“系统选择”：candidate groups 是彼此独立的 alternatives，模型必须用已经存在的 grounded argument/
+   runtime reasoning 选择相关组，禁止跨组拼接；系统不选择 literal、class、edge、diagram kind、可见业务标签、布局或结论。generic 已证边仍在
+   初稿 evidence/authority 中，可作为支撑，但不能在动态解析图修补时用事实为真却偏题的异常/构造分支替换请求关系。
+3. candidate callback 载体补齐为两条独立 typed 关系：入口调用 callback receiver API 与 receiver 接收 callable 的 callback handoff。
+   只有 entry exact-call 与 callback handoff 的 endpoint 精确合取时才同时发布；前者不证明 callback 后来执行，后者也不伪装成普通 call。
+   `DynamicSelectorResolutionPathVersion` 从 1 升至 2，避免任何版本化消费者把新增语义当旧载体复用。
+4. 初始 prompt、Mutable receipt 与三条 retry focus 现在来自同一 compiler/renderer。每条关系保留 Evidence ID/source occurrence；selector
+   application 继续是 Note/table fact，不变成边；assignment/argument/return/callback/type 不重标为 call。提示建议混合关系可由 flow/
+   call-DAG 表达，属于软作者指导，不硬改模型选择的图类型，也不要求模型必须保留可选图。
+5. 信号边界不变：仅消费 typed endpoint profile、citable evidence 与 compiler success；不扫描用户请求、thinking、最终正文、Mermaid
+   message、可见标签或错误 prose，不增加关键词门。普通调用链、读写模式与 Trace 请求没有成功 dynamic candidate 时完全不进入该分支。
+6. 回归覆盖 single candidate 的初稿文本、九条 receipt（含 callback receiver call+handoff）、optional repair、required call-edge repair、
+   required relation-boundary repair和 generic fallback 原 pin；定向/相关包、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。下一步严格并发恰好 2 路复放同一 Python+显式窗 Trace，人工验收重试是否真的聚焦 candidate、拒绝是否收敛、
+   图是否不再被 generic support fragment 替换，并守住 Trace 因果投影。
+7. r854 暴露的 literal-specific composite registration 与 occurrence/semantic-node 分层仍是独立后续项；本批没有把装饰器 application
+   系统升级成运行时选择或直接调用，也不以尚未回放的图效果提前关账。
+
+状态：
+
+`B1334=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`dynamic-selector-path-version=2`；
+`callback-carrier=entry-to-receiver-call+receiver-to-callable-handoff`；
+`optional+required-diagram-repair-focus=request-scoped-candidate-first`；
+`generic-nondynamic-repair=unchanged`；
+`candidate-runtime-selection=model-owned`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1389 r849：六类动态分派事实齐备但 compiler 静默拒绝；补 typed 诊断（2026-08-22）
 
 1. 从已推送 `89b34ecb3` 重建不可变二进制，严格并发恰好 2 路复放 Python 动态分派与显式窗 Trace，runner 2/2 PASS：Trace 135s、Python
