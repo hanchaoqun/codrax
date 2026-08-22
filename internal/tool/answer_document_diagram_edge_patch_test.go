@@ -302,6 +302,37 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RequiresExplicitNe
 	})
 }
 
+func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_UnlistedCleanupExplainsRemainingReply(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"    participant Factory as resolve",
+			"    participant Registry as REGISTRY",
+			"    Factory->>Registry: lookup",
+			"    Registry-->>Factory: class result",
+		}, "\n")},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "missing_call_anchor", FromNode: "Factory", ToNode: "Registry",
+		RelationKind: types.DiagramRelCall, BodyOccurrence: 1,
+	}}, nil)
+	if lease == nil || len(lease.Failures) != 1 || !lease.Failures[0].AllowsAction("remove") {
+		t.Fatalf("test setup: expected one remove-capable forward relation: %+v", lease)
+	}
+	err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+		prev, &types.AnswerDocumentV2Patch{},
+		[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+		[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "Registry", Action: "remove_if_isolated"}},
+		nil, lease,
+	)
+	if err == nil || !strings.Contains(err.Error(), "Registry-->>Factory") ||
+		!strings.Contains(err.Error(), "remains connected after the selected relation edits") ||
+		!strings.Contains(err.Error(), "it is not isolated") {
+		t.Fatalf("unlisted cleanup must report the exact surviving reply carrier: %v", err)
+	}
+}
+
 func TestAtomicDiagramBaseIncidentEdgesRequireOneVisibleRemovalRefPerOccurrence(t *testing.T) {
 	base := types.AnswerBlock{
 		ID: "diag", Kind: types.BlockDiagram,

@@ -57291,6 +57291,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1411 B1343 否证与 B1345：不放宽孤点能力，精确披露删边后仍存关系（2026-08-22）
+
+1. 对 r860 原始 Mermaid、原子 edit 和 parser 做冷读复算后，`B1343-POSTEDITORPHANCAPABILITY1` 被否证。原图同时包含
+   `Factory ->> Registry` 请求与 `Registry -->> Factory` 回复；模型只选择删除前者，后者仍在 post-edit graph。`Registry` 因而不是孤点，
+   不应获得 `remove_if_isolated` capability。现有 roster 生产器遍历所有可见 incident edge，并且只有每条都被独立 remove-capable live failure
+   覆盖时才发布 cleanup row；真正由本批删边产生的孤点已经在既有能力范围内。
+2. 原 B1343 方案若实施会让模型借“删了一条边”删除仍承载另一条回复/数据/时序关系的 participant，直接造成用户指出的图关系丢失；因此不扩
+   lease、不动态自铸 post-edit cleanup、不自动删节点。旧 §123.1409 已改为当时的待否证记录，状态以本节最终裁定为准。
+3. 新 P1 `B1345-ORPHANREJECTLIVENESSDETAIL1` 已施工。对于模型选择了未发布 participant cleanup 的情况，executor 现在先在同次 edge edits
+   已应用的精确 working graph 上检查唯一声明、requested/unproven protection、Note/lifecycle 等 sequence directive、可见 edge 和 typed anchor。
+   若仍连接，错误列出最多四条精确 endpoint+operator，不读取或回显 Mermaid message 文案；r860 形会明确报告
+   `Registry-->>Factory` 仍存在且 participant 并未孤立。
+4. 零 incident 但未发布的 participant 仍不被自动授权：原图已孤立的无关节点、受保护节点、重复/隐式声明、存在 lease 外 incident relation 或
+   陈腐 roster 都继续 fail-closed，并分别给出结构原因。系统只解释拒绝依据，不选择是否删除其他关系，不生成新 failure/ref，不改变模型的业务措辞、
+   图布局或结论。
+5. 回归用真实同构 sequence：删除 forward lookup、保留 reply result、再请求删除 Registry；钉住整批拒绝且错误必须包含
+   `Registry-->>Factory`、`remains connected` 与 `not isolated`。既有 sequence Note、flow standalone、protected participant、typed anchor、
+   explicit disposition 测试继续覆盖其他安全面。定向 `go test ./internal/tool ./internal/mermaidcompat ./internal/agent -count=1`、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+
+状态：
+
+`B1343=false-positive/closed-no-code`；
+`B1345=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`cleanup-capability=all-base-incident-visible-edges-remove-capable-only`；
+`surviving-reply/note/lifecycle/typed-anchor=deletion-denied+precisely-explained`；
+`system-edge/action/participant/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1409 r860：Trace 零回归；原子事务回滚重放与删边后孤点能力缺口导致十一拒绝（2026-08-22）
 
 1. 从已推送 `29e789ec8` 重建不可变二进制，严格并发恰好 2 路复放 Python 关系图与显式窗 Trace。Trace runner PASS
@@ -57303,11 +57335,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 3. B1339 的精确候选生产继续生效：首稿 `Caller -> Factory` 与 `Caller -> Thread` 都拿到模型已选 claim form 对应的 typed
    call candidate；本轮失败不是 B1340/B1341/B1342 回归。B1341 未自然触发，因为本例是 sequence diagram，不是内联 shaped-node
    flowchart carrier；B1342 的 failure+addition 双 ref 传输别名也未自然触发。
-4. 新 P1 `B1343-POSTEDITORPHANCAPABILITY1` 已确认。模型同一原子事务删除 `Factory -> Registry` 后，`Registry` 才成为孤立
-   participant；lease 的 `optional_orphan_cleanups` 仅从旧图/旧失败面预铸，没有该行。系统即使能从精确 post-edit 图证明该声明唯一、零 incident
-   relation、无 note/lifecycle/typed-boundary 等非边引用，仍以“不在 roster”硬拒模型明确选择的 `remove_if_isolated`。最优形不是系统自动删节点，
-   而是允许模型显式选择同块 post-edit orphan：唯一声明、零可见/typed edge、零非边引用、非 protected participant 且 action 仅
-   `remove_if_isolated` 时执行；任何歧义、仍有引用或未选择都 fail-closed。
+4. 初读候选 `B1343-POSTEDITORPHANCAPABILITY1` 在本轮先记为待否证：模型声称删除 `Factory -> Registry` 后 `Registry` 成为孤点，
+   但旧日志同时显示 `Registry -->> Factory` reply relation。必须先用同一 Mermaid parser 和 post-edit graph 核对该 reply 是否仍在，不能据模型推理
+   直接放宽 cleanup roster；若仍有 incident carrier，拒绝删除才是正确行为。
 5. 新 P1 `B1344-ATOMICROLLBACKREPAIRREPLAY1` 已确认，且是本轮重试放大的主因。一个含两条 replace、三条 remove 和参与者处置的
    原子 patch 因其中一个 participant 仍有 incident edge 整体失败；系统事务性不落半批是正确红线，但返回提示只说单点 executor error，未明确
    “本次所有操作均已回滚，下一轮必须在同一调用重发完整 relation delta”。模型随后只修 participant，误以为删边已经生效，于是旧图上必然再次失败；
@@ -57322,7 +57352,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `r860=runner-trace-pass+python-fail,human-trace-pass+python-fail`；
 `B1339=production-positive-r860`；
 `B1340/B1341/B1342=no-natural-trigger-r860`；
-`B1343=confirmed/P1-after-B1344`；
+`B1343=pending-adversarial-audit/not-authorized-for-implementation`；
 `B1344=confirmed/P1-next`；
 `atomic-failure=whole-transaction-rollback-correct+full-replay-instruction-missing`；
 `post-edit-orphan=model-choice-required/system-auto-delete-forbidden`；

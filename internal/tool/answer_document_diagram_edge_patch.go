@@ -372,13 +372,23 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			return fmt.Errorf("diagram_participant_edits[%d] duplicates block_id=%q participant_id=%q", i, blockID, participantID)
 		}
 		participantSeen[key] = true
-		candidate, ok := atomicDiagramLeaseOrphanCandidate(lease, blockID, participantID)
-		if !ok || !candidate.AllowsAction(action) {
-			return fmt.Errorf("diagram_participant_edits[%d] is not one allowed live optional_orphan_cleanups decision", i)
-		}
 		block, err := loadBlock(blockID, i, "diagram_participant_edits", true)
 		if err != nil {
 			return err
+		}
+		candidate, ok := atomicDiagramLeaseOrphanCandidate(lease, blockID, participantID)
+		if !ok {
+			return fmt.Errorf(
+				"diagram_participant_edits[%d] block_id=%q participant_id=%q is not one allowed live optional_orphan_cleanups decision: %s",
+				i, blockID, participantID,
+				atomicDiagramParticipantCleanupIneligibility(block, previous[blockID], participantID, protectedParticipants, lease),
+			)
+		}
+		if !candidate.AllowsAction(action) {
+			return fmt.Errorf(
+				"diagram_participant_edits[%d] block_id=%q participant_id=%q action=%q is not allowed by the live optional_orphan_cleanups row",
+				i, blockID, participantID, action,
+			)
 		}
 		base := previous[blockID]
 		if err := applyOneModelAuthoredDiagramParticipantEdit(
@@ -541,6 +551,71 @@ func atomicDiagramLeaseOrphanCandidate(
 		}
 	}
 	return found, count == 1
+}
+
+// atomicDiagramParticipantCleanupIneligibility explains only syntax/typed
+// liveness from the exact post-edit block. It does not infer a relationship
+// from a message label or choose whether the model should keep another edge.
+// The bounded endpoint list gives the next retry enough information to avoid
+// repeatedly treating a still-connected participant as an orphan.
+func atomicDiagramParticipantCleanupIneligibility(
+	current, base types.AnswerBlock,
+	participantID string,
+	protectedParticipants []string,
+	lease *types.AnswerDiagramRelationRepairLease,
+) string {
+	participantID = strings.TrimSpace(participantID)
+	decl, count := atomicDiagramUniqueRemovableDeclaration(current.Diagram.Body, participantID)
+	if count != 1 {
+		return fmt.Sprintf("the current graph has %d uniquely removable declaration rows for this participant; the local cleanup contract requires exactly one", count)
+	}
+	if atomicDiagramParticipantEditProtected(base, current, participantID, decl.Label, protectedParticipants) {
+		return "the participant is protected by the requested-participant slate or an unproven boundary"
+	}
+	const maxIncident = 4
+	incident := make([]string, 0, maxIncident)
+	totalIncident := 0
+	if current.Diagram != nil {
+		for _, edge := range mermaidcompat.ParseEdges(current.Diagram.Body) {
+			from, to := strings.TrimSpace(edge.From), strings.TrimSpace(edge.To)
+			if from != participantID && to != participantID {
+				continue
+			}
+			totalIncident++
+			if len(incident) < maxIncident {
+				incident = append(incident, from+strings.TrimSpace(edge.Operator)+to)
+			}
+		}
+		if mermaidcompat.SequenceParticipantReferenced(current.Diagram.Body, participantID) {
+			return "the participant remains referenced by a visible sequence directive after the selected relation edits"
+		}
+	}
+	for _, anchor := range current.EdgeAnchors {
+		if strings.TrimSpace(anchor.FromNode) == participantID || strings.TrimSpace(anchor.ToNode) == participantID {
+			totalIncident++
+		}
+	}
+	if totalIncident > 0 {
+		suffix := ""
+		if totalIncident > len(incident) {
+			suffix = fmt.Sprintf(" (+%d additional visible/typed incident carriers)", totalIncident-len(incident))
+		}
+		if len(incident) == 0 {
+			return fmt.Sprintf("the participant remains connected by %d typed incident carrier(s) after the selected relation edits", totalIncident)
+		}
+		return fmt.Sprintf(
+			"the participant remains connected after the selected relation edits by %s%s; it is not isolated",
+			strings.Join(incident, ", "), suffix,
+		)
+	}
+	incidentBase, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, participantID, lease)
+	if incidentBase == 0 {
+		return "the participant was already disconnected in the immutable base; this local relation-repair lease cannot authorize an unrelated declaration deletion"
+	}
+	if !allFailed {
+		return "at least one immutable-base incident relation is outside the current remove-capable failure set"
+	}
+	return "the participant is not published by the current lease; the executor cannot widen the model's cleanup capability"
 }
 
 // requireExplicitAtomicDiagramOrphanDispositions does not choose a graph
