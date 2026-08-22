@@ -364,6 +364,49 @@ func TestEmitAnswerDocumentPatch_OrphanDispositionOmissionRepublishesLiveChoices
 	}
 }
 
+func TestEmitAnswerDocumentPatch_AtomicParticipantFailurePublishesWholeRollbackReplay(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+	}}, nil)
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A", "C")
+	mut := types.NewMutableState("atomic participant failure rollback replay")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}],
+		"diagram_participant_edits":[
+			{"block_id":"diag","participant_id":"A","action":"remove_if_isolated"},
+			{"block_id":"diag","participant_id":"C","action":"remove_if_isolated"}
+		]
+	}`, lease.Failures[0].FailureRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || res.Success || res.Repair == nil || res.Repair.Code != types.ToolRepairCodeAnswerDocRelationRepairScope {
+		t.Fatalf("one invalid participant operation must reject the complete transaction on the live lane: err=%v res=%+v", err, res)
+	}
+	for _, want := range []string{
+		"whole rejected patch transaction was rolled back",
+		"none of its edge, boundary, participant, block, or citation operations were committed",
+		"resubmit every operation you still choose together in one new atomic patch",
+		"do not assume a valid sibling operation from the rejected call already applied",
+	} {
+		if !strings.Contains(res.Repair.Hint, want) {
+			t.Fatalf("rollback replay hint missing %q: %+v", want, res.Repair)
+		}
+	}
+	if raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; !strings.Contains(raw, lease.Failures[0].FailureRef) || !strings.Contains(raw, `"participant_id":"A"`) {
+		t.Fatalf("rollback response must republish the same live complete delta: %s", raw)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || !strings.Contains(got.Blocks[1].Diagram.Body, "A->>B: old label") ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, "participant A") {
+		t.Fatalf("rejected transaction must preserve the entire accepted base: %+v", got)
+	}
+}
+
 func testDiagramOrphanCandidates(blockID string, participantIDs ...string) []types.AnswerDiagramOrphanCleanupCandidate {
 	out := make([]types.AnswerDiagramOrphanCleanupCandidate, 0, len(participantIDs))
 	for _, participantID := range participantIDs {

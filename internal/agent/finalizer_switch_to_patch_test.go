@@ -1057,6 +1057,17 @@ func TestRequiredDiagramMixedParticipantAndRelationDeltasStayInOneRetryGeneratio
 					t.Fatalf("joint retry missing %q:\n%s", want, signal.Hint)
 				}
 			}
+			if toolName == "emit_answer_document_patch" {
+				for _, want := range []string{
+					"committed no operation",
+					"Resubmit every edge, boundary, participant, sibling-block, and citation operation",
+					"do not assume any valid-looking operation from the rejected call already applied",
+				} {
+					if !strings.Contains(signal.Hint, want) {
+						t.Fatalf("joint rejected transaction missing replay instruction %q:\n%s", want, signal.Hint)
+					}
+				}
+			}
 			if strings.Contains(signal.Hint, staleProducerRef) ||
 				strings.Contains(signal.Hint, "use each exact relation recipe below at most once") {
 				t.Fatalf("joint retry leaked stale/full-authority carrier:\n%s", signal.Hint)
@@ -1556,7 +1567,10 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
 	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
 		!strings.Contains(signal.Hint, "do not add any other relation") ||
-		!strings.Contains(signal.Hint, "diagram_edge_edits") {
+		!strings.Contains(signal.Hint, "diagram_edge_edits") ||
+		!strings.Contains(signal.Hint, "committed no operation") ||
+		!strings.Contains(signal.Hint, "Resubmit every edge, boundary, participant, sibling-block, and citation operation") ||
+		!strings.Contains(signal.Hint, "do not assume any valid-looking operation from the rejected call already applied") {
 		t.Fatalf("lease rejection must remain on compact local repair lane: %+v", signal)
 	}
 	if strings.Contains(signal.Hint, "Typed topology authoring template") || strings.Contains(signal.Hint, "Verified component fragment") {

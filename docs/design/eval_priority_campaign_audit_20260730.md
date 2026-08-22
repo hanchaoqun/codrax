@@ -57332,6 +57332,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r860`。
 
+### §123.1410 B1344：失败的原子图修补显式零提交，并要求完整重放同代选择（2026-08-22）
+
+1. `B1344-ATOMICROLLBACKREPAIRREPLAY1/P1` 已施工。live relation lease 下任一 atomic edge/boundary/participant executor
+   错误仍使整份 patch 事务失败，accepted base 零变化；工具 repair 现在明确披露该调用的 edge、boundary、participant、block 与 citation
+   操作全部未提交，禁止模型把同一失败调用里的“看似正确兄弟操作”当成已经生效。
+2. evaluator 的 relation-only 与 participant+relation joint 两条 capsule 都在 patch retry 上发出相同事务语义：下一次必须把模型仍选择执行的
+   全部 edge/boundary/participant/sibling-block/citation 操作放进一个新原子 patch 重发。完整 current-generation typed delta 原样重发，
+   failure_ref、addition_ref、optional orphan row 与 generation 不刷新；系统不选择、补写、删减或部分提交模型操作。
+3. full `emit_answer_document` 首次拒绝不伪称“旧 patch 回滚”；只有实际 `emit_answer_document_patch` 失败才显示重放语义。普通 pre-emit
+   relation scope reject 同样属于零提交事务，因此共享该规则；这覆盖 flowchart/sequence/class、required/optional diagram 和所有源码语言，
+   不按 Python 样例或错误字符串分支。
+4. 新回归构造一个同时包含有效删边、有效孤点删除与无效 still-incident participant 删除的生产 patch：断言整批失败、旧边/旧声明完整保留、
+   repair 重发同一 live ref/cleanup delta，并包含四个零提交/完整重放语义钉。另钉 relation-only 与 joint capsule 均带重放提示，首次 full emit 不误报。
+5. 定向 `go test ./internal/tool ./internal/agent`、完整 `go test ./... -count=1`、CGO release-tag `make` 与
+   `git diff --check` 全绿。Trace runtime/query、显式窗、自动补采、因果投影、链上根因、业务线索、实际占时/规则可消双轴、JSON 教学与
+   活动流降级策略均未修改。
+
+状态：
+
+`B1344=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`rejected-atomic-patch=zero-commit/accepted-base-byte-preserved`；
+`next-retry=model-resubmits-all-still-selected-operations-in-one-call`；
+`lease-generation/ref/delta=unchanged`；
+`partial-commit/system-operation-selection=forbidden`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1408 B1341：原子删边/换边保留模型原写业务节点声明，不保留被删关系（2026-08-22）
 
 1. `B1341-DIAGRAMEDGEREMOVENODECARRIER1/P1` 已施工。Mermaid flowchart/graph 的一个 edge statement 若同时承载 shaped node declaration，
