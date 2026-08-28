@@ -170,6 +170,70 @@ func TestEmitAnswerDocumentPatch_BlockFieldEditV1ConflictsWithWholeReplace(t *te
 	}
 }
 
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1ExactReplacementAssignmentIsAbsorbed(t *testing.T) {
+	bus := newPatchTestBusContext()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["list1"],
+		"block_field_edits_v1":[{"block_id":"s1","field":"surface_role","value":"principal"}],
+		"replace_blocks":[{
+			"id":"s1",
+			"kind":"summary",
+			"text":"replacement with a second metadata repair",
+			"surface_role":"principal",
+			"facet_ids":["current_code_path"]
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("exact duplicate assignment carried by replacement must be absorbed: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[0].Text != "replacement with a second metadata repair" ||
+		got.Blocks[0].SurfaceRole != types.SurfacePrincipal || !reflect.DeepEqual(got.Blocks[0].FacetIDs, []string{"current_code_path"}) {
+		t.Fatalf("full replacement content/metadata was not preserved: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1DifferentReplacementAssignmentStillConflicts(t *testing.T) {
+	bus := newPatchTestBusContext()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"block_field_edits_v1":[{"block_id":"s1","field":"trace_causal_claim_caliber","value":"bounded_window_candidate"}],
+		"replace_blocks":[{
+			"id":"s1",
+			"kind":"summary",
+			"text":"replacement",
+			"trace_causal_claim_caliber":"typed_chain_cause"
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("structural rejection must return a tool result: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "also in replace_blocks") {
+		t.Fatalf("different local/whole assignments must remain a conflict: %+v", res)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1OmittedReplacementAssignmentStillConflicts(t *testing.T) {
+	bus := newPatchTestBusContext()
+	base := bus.Mutable.AnswerDocumentV2()
+	base.Blocks[1].SurfaceRole = types.SurfacePrincipal
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["s1"],
+		"block_field_edits_v1":[{"block_id":"list1","field":"surface_role","value":"principal"}],
+		"replace_blocks":[{
+			"id":"list1",
+			"kind":"ordered_list",
+			"items":[{"id":"i1","label":"replacement","citation_ref":0}]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("structural rejection must return a tool result: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "also in replace_blocks") {
+		t.Fatalf("an inherited but not explicitly authored replacement field must remain a conflict: %+v", res)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) {
 	bus := newPatchTestBusContext()
 	base := bus.Mutable.AnswerDocumentV2()

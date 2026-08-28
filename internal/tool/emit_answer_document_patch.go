@@ -1364,6 +1364,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
+	if changed, fields := normalizeRedundantPatchBlockFieldEditsV1(params, patch); changed {
+		logging.Warning("[emit_answer_document_patch] absorbed exact block-field assignment(s) already carried by full replacement: %s",
+			strings.Join(fields, ", "))
+	}
 	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 ||
 		len(p.DiagramRelationScopeEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
 		view := types.BuildAnswerSemanticViewForBusContext(ctx)
@@ -1552,6 +1556,118 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// normalizeRedundantPatchBlockFieldEditsV1 absorbs only an exact assignment
+// already made explicitly by a full replacement of the same block. It is a
+// compatibility normalization, not merge semantics: a missing replacement
+// field, a different value, an invalid value, or any non-whitelisted field is
+// left intact so ApplyAnswerDocumentV2Patch rejects the cross-op conflict.
+// No prose or nested carrier is inspected and no value is inferred.
+func normalizeRedundantPatchBlockFieldEditsV1(raw json.RawMessage, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if patch == nil || len(patch.BlockFieldEditsV1) == 0 || len(patch.ReplaceBlocks) == 0 {
+		return false, nil
+	}
+	explicitFields := explicitPatchReplacementFields(raw)
+	replacements := make(map[string]types.AnswerBlock, len(patch.ReplaceBlocks))
+	duplicates := map[string]bool{}
+	for _, block := range patch.ReplaceBlocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := replacements[id]; exists {
+			duplicates[id] = true
+			continue
+		}
+		replacements[id] = block
+	}
+	kept := make([]types.AnswerBlockFieldEditV1, 0, len(patch.BlockFieldEditsV1))
+	var fields []string
+	for _, edit := range patch.BlockFieldEditsV1 {
+		id := strings.TrimSpace(edit.BlockID)
+		replacement, exists := replacements[id]
+		if !exists || duplicates[id] || !explicitFields[id][edit.Field] ||
+			!patchBlockFieldEditV1EqualsExplicitReplacement(edit, replacement) {
+			kept = append(kept, edit)
+			continue
+		}
+		fields = append(fields, fmt.Sprintf("block_field_edits_v1[%q].%s", id, edit.Field))
+	}
+	if len(fields) == 0 {
+		return false, nil
+	}
+	patch.BlockFieldEditsV1 = kept
+	return true, fields
+}
+
+// explicitPatchReplacementFields preserves the distinction between a field
+// authored on this replacement and one inherited by retry compatibility.
+// Duplicate replacement ids intentionally publish no explicit-field grant.
+func explicitPatchReplacementFields(raw json.RawMessage) map[string]map[types.AnswerBlockEditableFieldV1]bool {
+	result := make(map[string]map[types.AnswerBlockEditableFieldV1]bool)
+	if len(raw) == 0 {
+		return result
+	}
+	var envelope struct {
+		ReplaceBlocks []map[string]json.RawMessage `json:"replace_blocks"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return result
+	}
+	duplicates := make(map[string]bool)
+	for _, candidate := range envelope.ReplaceBlocks {
+		var id string
+		if idRaw, ok := candidate["id"]; ok {
+			_ = json.Unmarshal(idRaw, &id)
+		}
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, exists := result[id]; exists {
+			duplicates[id] = true
+			continue
+		}
+		fields := make(map[types.AnswerBlockEditableFieldV1]bool, 5)
+		for _, field := range []types.AnswerBlockEditableFieldV1{
+			types.AnswerBlockFieldTraceCausalClaimCaliber,
+			types.AnswerBlockFieldCurrentStatusVerdict,
+			types.AnswerBlockFieldErrorGranularityVerdict,
+			types.AnswerBlockFieldScopeDisclosure,
+			types.AnswerBlockFieldSurfaceRole,
+		} {
+			_, fields[field] = candidate[string(field)]
+		}
+		result[id] = fields
+	}
+	for id := range duplicates {
+		delete(result, id)
+	}
+	return result
+}
+
+func patchBlockFieldEditV1EqualsExplicitReplacement(edit types.AnswerBlockFieldEditV1, block types.AnswerBlock) bool {
+	value := strings.TrimSpace(edit.Value)
+	switch edit.Field {
+	case types.AnswerBlockFieldTraceCausalClaimCaliber:
+		v, ok := types.NormalizeTraceCausalClaimCaliber(value)
+		return ok && block.Kind == types.BlockSummary && block.TraceCausalClaimCaliber != "" && block.TraceCausalClaimCaliber == v
+	case types.AnswerBlockFieldCurrentStatusVerdict:
+		v, ok := types.NormalizeCurrentStatusVerdict(value)
+		return ok && block.Kind == types.BlockDecision && block.CurrentStatusVerdict != "" && block.CurrentStatusVerdict == v
+	case types.AnswerBlockFieldErrorGranularityVerdict:
+		v, ok := types.NormalizeErrorGranularityVerdict(value)
+		return ok && block.Kind == types.BlockDecision && block.ErrorGranularityVerdict != "" && block.ErrorGranularityVerdict == v
+	case types.AnswerBlockFieldScopeDisclosure:
+		v, ok := types.NormalizeScopeDisclosureKind(value)
+		return ok && block.ScopeDisclosure != "" && block.ScopeDisclosure == v
+	case types.AnswerBlockFieldSurfaceRole:
+		v, ok := types.NormalizeSurfaceRole(value)
+		return ok && block.SurfaceRole != "" && block.SurfaceRole == v
+	default:
+		return false
+	}
 }
 
 // annotateAnswerDocumentPatchFailureOutcome exposes the executor's exact

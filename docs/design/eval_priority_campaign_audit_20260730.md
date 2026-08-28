@@ -57691,7 +57691,8 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    replacement，遗漏字段仍删除；没有把它偷改成 merge，也没有改变明确空值的既有语义。
 5. fail-closed 面覆盖非法/未投影枚举、错误 block kind、不存在或系统所有 block、同 block+field 重复、同目标 replace/remove，以及 live diagram
    lease 目标越权；任一失败均在持久化前回滚，accepted base 不变。`unchanged_block_ids` 与同一 local edit 可冗余共存，因为前者只是保留声明；不同
-   白名单字段可在同一块上由模型原子选择。工具层另限制单次最多 128 个局部赋值，schema 与 executor 同值。
+   白名单字段可在同一块上由模型原子选择。初版同目标 replace 一律冲突，r887 暴露的“整块显式携带完全同值”兼容形在 §123.1443 收窄处理；remove、字段
+   缺省、异值与非法值仍冲突。工具层另限制单次最多 128 个局部赋值，schema 与 executor 同值。
 6. 回归已钉住五字段类覆盖、r886 summary 原形的逐字段 DeepEqual（仅 caliber 改变）、非法 value/kind/field/stale id、系统块、重复与整块冲突、动态
    evidence ceiling、exact kind/id 投影、lease/system 排除、tool decoder/执行接线及失败不污染基线。`go test ./internal/types -count=1`、
    `go test ./internal/tool -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 已全绿；下一步从提交后的干净版本构建不可变二进制，严格
@@ -57710,6 +57711,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1443 r887/B1380/B1381：局部字段协议生产接线通过；等价双写与关系验收合同分治（2026-08-28）
+
+1. 从已推送 `4078d92dc` 的干净二进制严格并发恰好 2 路复放同一 read 图表与显式窗 Trace。Trace runner PASS（208s、2 次 finalizer reject、1 次
+   patch）；read runner FAIL（526s、7 次 reject、8 次 patch），唯一 runner 原因是 `mermaid_incident_nodes:4<6`。两路均未因 4ms、4m、首字节、stall、
+   活动流年龄或上下文比例降级，也未恢复旧答案或由系统代写模型结论、关系、标签和布局。
+2. Trace 人工判定 partial，但系统 Trace 能力继续通过：显式 2.000..2.020s 窗、threadpool-400→network-300→cookie-200→app-100 四跳链、
+   11.000ms 链上 IO 第一根因、三个独立 1.000ms 优先级候选、真实占时/规则可消双账户、业务下钻、邻近/背景隔离、自动补采与完整 `Trace 因果投影`
+   均保留。模型把 `fscache_page_wait_on_page_bit` 进一步断言成缓存未命中或后端 IO 根源，并把多个线程有重叠的状态跨度描述为可相加且“基本吻合 20ms”；
+   typed 证据不支持，按模型推理波动留观，不新增用户/模型/答案原文扫描、硬门或系统正文改写。
+3. `B1379` 获得生产 schema/工具接线正证，但本轮未形成纯 local-only 成功样本。模型先修复 relation-path 维度：同轮提交
+   `block_field_edits_v1(section-wakeup-chain.surface_role=principal)`，又在同一 `replace_blocks` 完整块中显式携带相同 `surface_role=principal` 以补
+   `facet_ids`。初版结构门把二者一律判成同目标冲突，虽已有 accepted draft 可回退渲染，仍浪费了一次正确的等价修补。该形不是模型值冲突，也不能靠
+   系统选值解决。
+4. `B1380-BLOCKFIELDSAMEREPLACE1/P1` 已按最窄结构兼容施工：tool decoder 完成 typed block conversion 后，只在本次原始
+   `replace_blocks` 对同一唯一 id **明确写出**同一白名单字段，且 normalized closed-enum value 与 local edit 完全相等时，丢弃冗余 local assignment，
+   保留完整 replacement 语义。replacement 字段缺省（即使 retry 兼容从旧块继承出同值）、异值、非法值、错误 kind、重复 id、remove 或非白名单字段均不
+   吸收，继续由原 patch validator fail-closed；不读取 prose、diagram、关系、label/message，不推断或选择值，也不把全替换改成 merge。回归钉住 r887
+   同值+同块补 facet 成功、异值仍冲突，以及“旧块同值但 replacement 未显式写字段”仍冲突。focused tool 回归、完整
+   `go test ./internal/tool -count=1`、全仓 `go test ./... -count=1` 与 CGO release-tag `make` 均通过。
+5. read 人工判定 partial。四阶段责任、Analyzer→Explorer→Extractor→Finalizer 主链与 Mermaid 语法正确；BusContext/Mutable 以无箭头分组和 typed
+   unproven boundary 诚实披露。修补过程先出现同一 `failure_ref` 的 remove+replace 双动作、随后跨代旧 ref 重放和 isolated participant 清理级联；后续
+   模型用 typed `o.busCtx→BuildAgentContext` 锚把可见目标错误映射成 Extractor，关系门正确拒绝并删除。最终图只剩 4 个 incident 节点，但没有虚构
+   BusContext/Mutable 的请求关系。
+6. `B1381-EVALINCIDENTBOUNDARYCONFLICT1/P1` 确认是 eval 合同 gap，尚未动生产关系门：case 无条件要求 6 个 Mermaid incident nodes，而生产 typed
+   合同明确允许某请求 participant 的完整关系未证时，以 exact visible participant + `participant_boundaries{status:unproven}` + no-arrow grouping 诚实
+   覆盖。两者同时存在时，runner 会把证据诚实的 4 节点图签红，并反向施压模型给 BusContext/Mutable 虚构箭头。最优方向不是删除关系质量验收，也不是从
+   最终答案 prose/label 推断，而是新增 eval-only 结构化 requested-participant coverage receipt：每个精确请求 participant 必须二选一由 evidence-backed
+   incident edge 覆盖，或由 production validator 已接受的 typed unproven/no-arrow boundary 覆盖；仍须保留最少真实边与语法 oracle。该项独立成下一批，
+   先定位可复用的 typed receipt 来源与 runner 接线，不能用本 case 名称或节点词硬拟合。
+
+状态：
+
+`r887=runner-trace-pass+read-fail,human-trace-partial+read-partial`；
+`B1379=production-schema/tool-positive,pure-local-production-success-pending`；
+`B1380=implemented/full-suite-green/build-green`；
+`same-target-same-explicit-enum=compat-absorbed`；
+`same-target-omitted-or-different-enum=fail-closed`；
+`replace_blocks=full-replacement-semantics-unchanged`；
+`B1381=confirmed/P1-next/eval-only-production-gate-unchanged`；
+`model-owned=field-value+prose+relation+label+layout+conclusion`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r887`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r887`。
 
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
