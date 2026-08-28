@@ -57510,6 +57510,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r882`。
 
+### §123.1438 r883/B1376：安全技术端点生产转正；补丁重试基线阶段缺少精确即时披露（2026-08-28）
+
+1. 从已推送 `f9a22ef5a` 重建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 146s、read
+   604s。两路都自然完成，没有按 4ms、4m、首字节、stall、活动流年龄或上下文比例降级，也没有恢复旧稿或由系统代写答案。
+2. B1375 获得生产正证：participant-only repair delta 第一轮即给两条共享 `ctxbuilder.BuildAgentContext` 候选发布同一个安全 technical
+   node id `ctxbuilderBuildAgentContext_860bba75bb1a60fb`。模型最初少写哈希被 exact carrier gate 正确拒绝，随后复制 producer-listed id
+   即可执行；最终模型自写图以 BusContext 与 Extractor 两条 `argument_flow` 接入同一 BuildAgentContext 交接点，并保留
+   Analyzer→Explorer→Extractor→Finalizer 主链。系统没有选择关系、动作、label、布局或结论。
+3. 新 P1 `B1376-PATCHOUTCOMEPHASE1` 为通用重试协议可见性缺口，不是矛盾事务实现，也不是模型随机波动。现有事务本就有两种精确阶段：
+   decode/apply/atomic operation 失败时，本次 patch 全部回滚且 live retry base 不变，模型必须把本次仍选择的完整操作一起重交；patch 已结构化合并、仅被
+   merged-document hard validator 拒绝时，系统会把该 exact merged draft 保存为不可见 retry-local base，下一轮只需交新增修正。Description 与长 hint
+   分散描述过两条规则，但即时 tool result 没有一等 outcome；同一 read 回放因此先丢整批 21 条 removal，又重复旧 addition ref，9 次拒绝中多次是在猜
+   “上一轮是否已进基线”。
+4. 根修在 patch executor 单点记录 `stagedByThisCall`，每个失败结果都附 producer-owned closed metadata
+   `answer_document_patch_outcome=not_staged|staged_for_retry`，并给出与该值一一对应的短动作：前者“基线未变，完整重交本次意图”，后者“exact merged
+   draft 已是基线，只交新增修正”。Finalizer 的所有 patch-reject hint 统一在首句消费该 typed outcome；不存在 metadata 时不从 Summary、Hint、模型
+   thinking、用户请求、答案正文或 Mermaid 文本猜状态。
+5. 该披露只降低模型记忆与状态推断负担：不修改 accepted answer，不把 rejected staging 暴露给用户，不放宽任何 relation/evidence/participant gate，
+   也不代选 block、edge、participant disposition、wording、order、layout 或 conclusion。关系 lease 的“旧 ref 不可重放”规则保持；“failed call was
+   not published”收窄为“not published as the answer”，避免把“用户不可见”误读成“没有进入 retry-local base”。
+6. 回归分别钉住结构失败 `not_staged + complete patch`、merged-document 失败 `staged_for_retry + only new corrections`，以及 Summary 即使伪装包含两个
+   enum 也不能铸造 teaching；既有 joint/relation compact-delta lane 继续保持 current-generation ref、完整 patch preservation 和模型关系所有权。
+7. Trace 人工判定 pass：用户主窗 2.000..2.020s、四跳唤醒链、threadpool-400 链上 11.000ms IO 第一席、三个 1.000ms 优先级候选、真实耗时/
+   规则可消双维度、业务下钻、邻近/背景隔离与完整 Trace 因果投影均在；系统补采没有改窗。read 人工判定 partial：最终图和正文正确，但 9 次拒绝及
+   Orchestrator 孤立声明仍说明重试效率与 eval 指定角色 incidence 量尺可继续优化；后者只改 eval oracle，不授权 production 强造关系。
+
+状态：
+
+`r883=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1375=production-positive/core-closed`；
+`B1376=implemented/full-suite-green/build-green/pending-production-r884`；
+`patch-outcome=executor-typed/not-prose-inferred`；
+`not_staged=retry-base-unchanged/resubmit-complete-intended-patch`；
+`staged_for_retry=exact-merged-draft-base/submit-only-new-corrections`；
+`accepted-answer/relation/action/wording/layout/conclusion=unchanged-model-owned`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r883`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r883`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

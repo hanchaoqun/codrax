@@ -1757,6 +1757,45 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	}
 }
 
+func TestAnswerDocPatchOutcomeRetryTeachingUsesOnlyTypedExecutorState(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome string
+		want    []string
+	}{
+		{
+			name:    "rolled back",
+			outcome: types.AnswerDocumentPatchOutcomeNotStaged,
+			want:    []string{"not staged", "retry base is unchanged", "Resubmit the complete intended"},
+		},
+		{
+			name:    "merged draft staged",
+			outcome: types.AnswerDocumentPatchOutcomeStagedForRetry,
+			want:    []string{"exact merged draft", "live retry base", "Submit only new corrections"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &types.ToolResult{
+				Summary: "arbitrary error prose must not affect routing",
+				Repair: &types.ToolRepair{Metadata: map[string]string{
+					types.ToolRepairMetaAnswerDocumentPatchOutcome: tc.outcome,
+				}},
+			}
+			got := answerDocPatchOutcomeRetryTeaching(result)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Fatalf("typed outcome %q missing %q: %s", tc.outcome, want, got)
+				}
+			}
+		})
+	}
+	if got := answerDocPatchOutcomeRetryTeaching(&types.ToolResult{
+		Summary: "not_staged staged_for_retry",
+	}); got != "" {
+		t.Fatalf("summary prose must not mint patch outcome teaching: %q", got)
+	}
+}
+
 func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEmpty(t *testing.T) {
 	const liveRef = "ra1-current-executor-generation"
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{

@@ -7022,6 +7022,14 @@ const (
 	// exact lease state for ref admission failures. The current closed value is
 	// `absent`; consumers must not infer it from Summary/error prose.
 	ToolRepairMetaDiagramRelationRepairLeaseStatus = "diagram_relation_repair_lease_status"
+	// ToolRepairMetaAnswerDocumentPatchOutcome carries the exact transaction
+	// outcome of one rejected emit_answer_document_patch call. It is derived
+	// only from the executor phase, never from model/error prose. Retry teaching
+	// uses it to distinguish a rolled-back call from a merged draft that became
+	// the retry-local patch base; it is guidance only and never answer evidence.
+	ToolRepairMetaAnswerDocumentPatchOutcome = "answer_document_patch_outcome"
+	AnswerDocumentPatchOutcomeNotStaged      = "not_staged"
+	AnswerDocumentPatchOutcomeStagedForRetry = "staged_for_retry"
 	// DiagramRelationFailureMissingGroundedCallAnchor is the producer-owned
 	// closed issue value for a visible call edge whose direction/endpoints are
 	// already supported by accepted typed evidence and whose only defect is a

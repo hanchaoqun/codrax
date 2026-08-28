@@ -109,6 +109,12 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	if res.Success {
 		t.Error("empty patch must reject")
 	}
+	if res.Repair == nil || res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeNotStaged {
+		t.Fatalf("structurally rejected patch must publish exact not-staged outcome: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "live retry base is unchanged") || !strings.Contains(res.Summary, "Resubmit the complete intended patch") {
+		t.Fatalf("not-staged summary must give the executable retry action: %q", res.Summary)
+	}
 }
 
 func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) {
@@ -1668,6 +1674,12 @@ func TestEmitAnswerDocumentPatch_RejectedPatchStagesCandidateWithoutAdvancingAcc
 	}
 	if res.Success || !strings.Contains(res.Summary, `blocks[id="path"].edge_anchors`) {
 		t.Fatalf("invalid relation patch must reach the ordinary hard gate: %+v", res)
+	}
+	if res.Repair == nil || res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeStagedForRetry {
+		t.Fatalf("merged-document rejection must publish exact staged-for-retry outcome: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "exact merged draft is the live retry base") || !strings.Contains(res.Summary, "Submit only new corrections") {
+		t.Fatalf("staged summary must give the executable retry action: %q", res.Summary)
 	}
 	if got := mut.AnswerDocumentV2(); got != nil {
 		t.Fatalf("rejected-draft patch must not create an accepted document: %+v", got)

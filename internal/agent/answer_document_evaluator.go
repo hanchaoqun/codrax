@@ -17576,7 +17576,15 @@ func answerDocPatchBaseBlockRosterHint(ctx *types.AgentContext, primary *types.M
 	return b.String()
 }
 
-func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.AgentContext, obs LoopObservation) (signal LoopSignal) {
+	defer func() {
+		if !signal.HintRequested {
+			return
+		}
+		if state := answerDocPatchOutcomeRetryTeaching(obs.LastToolResult); state != "" {
+			signal.Hint = state + signal.Hint
+		}
+	}()
 	if obs.LastToolResult == nil ||
 		obs.LastToolResult.ToolName != "emit_answer_document_patch" ||
 		obs.LastToolResult.Success {
@@ -17835,6 +17843,26 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
+	}
+}
+
+// answerDocPatchOutcomeRetryTeaching turns the patch executor's precise
+// transaction outcome into one short instruction at the front of every patch
+// retry hint. It never parses Summary/Hint/model text. This keeps the two
+// legitimate retry phases from becoming a memory test: rolled-back calls must
+// be resubmitted completely, while a validator-rejected merged draft needs
+// only the next correction.
+func answerDocPatchOutcomeRetryTeaching(result *types.ToolResult) string {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return ""
+	}
+	switch strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome]) {
+	case types.AnswerDocumentPatchOutcomeNotStaged:
+		return "Precise patch state: the rejected call was not staged; the live retry base is unchanged. Resubmit the complete intended current-generation patch, including every sibling operation you still choose. "
+	case types.AnswerDocumentPatchOutcomeStagedForRetry:
+		return "Precise patch state: the rejected call's exact merged draft is already the live retry base. Submit only new corrections against that base; do not replay operations already present there. "
+	default:
+		return ""
 	}
 }
 
@@ -18481,7 +18509,7 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 	}
 	b.WriteString(prefix)
 	if alreadyPatching {
-		b.WriteString(". The failed call was not published. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: submit only current-generation operations you still choose, do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
+		b.WriteString(". The failed call was not published as the answer. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
 	}
 	if len(relationDelta.Failures) == 0 {
 		b.WriteString(" by one local participant-coverage defect whose exact typed candidate now has a current-generation atomic addition capability. ")
@@ -18580,7 +18608,7 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	var b strings.Builder
 	b.WriteString(prefix)
 	if alreadyPatching {
-		b.WriteString(". The failed call was not published. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: submit only current-generation operations you still choose, do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
+		b.WriteString(". The failed call was not published as the answer. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
 	}
 	if len(delta.Failures) == 0 {
 		b.WriteString(" because the last atomic relation operation was not executable under the current additions-only lease. The patch executor has returned the complete current additions-only typed capability roster. ")

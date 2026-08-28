@@ -1039,8 +1039,12 @@ func splitCompanionDispositionRepair(failure splitCompanionDispositionFailure) *
 // surface as Success=false ToolResult so the LLM sees the error
 // and can retry with corrected params (the patch validator's
 // reject messages name the offending id / op verbatim).
-func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
 	now := time.Now()
+	stagedByThisCall := false
+	defer func() {
+		result = annotateAnswerDocumentPatchFailureOutcome(result, stagedByThisCall)
+	}()
 	if ctx == nil || ctx.Mutable == nil {
 		return failEmit(t.Name(), now,
 			"emit_answer_document_patch requires a writable context")
@@ -1352,6 +1356,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// patch only refines it. This keeps live failure refs and block
 					// rosters on one generation without making a rejected answer visible.
 					ctx.Mutable.SetPendingAnswerDocumentPatchBase(merged)
+					stagedByThisCall = true
 					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
 						"%s", formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints))
 				}
@@ -1386,6 +1391,46 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+// annotateAnswerDocumentPatchFailureOutcome exposes the executor's exact
+// transaction phase on every rejected patch call. A structural/apply failure
+// leaves the live retry base unchanged and requires the complete intended
+// patch to be resubmitted. A merged-document hard failure stores the exact
+// merged draft as the new retry base and requires only new corrections. This
+// is retry guidance from a precise boolean; it never reads request/model prose,
+// never changes the accepted answer, and never selects diagram content.
+func annotateAnswerDocumentPatchFailureOutcome(result types.ToolResult, stagedByThisCall bool) types.ToolResult {
+	if result.Success || strings.TrimSpace(result.ToolName) != (&EmitAnswerDocumentPatch{}).Name() {
+		return result
+	}
+	repair := &types.ToolRepair{}
+	if result.Repair != nil {
+		copyRepair := *result.Repair
+		copyRepair.Fields = append([]string(nil), result.Repair.Fields...)
+		copyRepair.Targets = append([]types.ToolRepairTarget(nil), result.Repair.Targets...)
+		copyRepair.Metadata = make(map[string]string, len(result.Repair.Metadata)+1)
+		for key, value := range result.Repair.Metadata {
+			copyRepair.Metadata[key] = value
+		}
+		repair = &copyRepair
+	} else {
+		repair.Metadata = make(map[string]string, 1)
+	}
+	if repair.Metadata == nil {
+		repair.Metadata = make(map[string]string, 1)
+	}
+
+	outcome := types.AnswerDocumentPatchOutcomeNotStaged
+	prefix := "Patch transaction state: this call was not staged; the live retry base is unchanged. Resubmit the complete intended patch. "
+	if stagedByThisCall {
+		outcome = types.AnswerDocumentPatchOutcomeStagedForRetry
+		prefix = "Patch transaction state: this call's exact merged draft is the live retry base. Submit only new corrections. "
+	}
+	repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] = outcome
+	result.Repair = repair
+	result.Summary = prefix + result.Summary
+	return result
 }
 
 // answerDiagramRelationRepairLeaseAbsentRepair classifies only structured
