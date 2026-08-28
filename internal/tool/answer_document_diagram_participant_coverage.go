@@ -315,11 +315,7 @@ func diagramParticipantRepairAdditionDeltaJSON(
 			continue
 		}
 		for _, blockID := range blockIDs {
-			row := types.AnswerDiagramRelationRepairCandidate{
-				BlockID: blockID, RelationKind: candidate.relation,
-				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
-				Source: strings.TrimSpace(candidate.location),
-			}
+			row := newDiagramRelationRepairCandidate(blockID, candidate)
 			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
 			key := strings.Join([]string{row.BlockID, string(row.RelationKind), row.FromIdentity, row.ToIdentity}, "\x00")
 			if index, exists := seen[key]; exists {
@@ -2442,12 +2438,7 @@ func diagramRelationRepairAllowedAdditions(
 			continue
 		}
 		for _, blockID := range targets {
-			row := types.AnswerDiagramRelationRepairCandidate{
-				BlockID: blockID, RelationKind: candidate.relation,
-				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
-				Source: strings.TrimSpace(candidate.location),
-			}
-			bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+			row := newDiagramRelationRepairCandidate(blockID, candidate)
 			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
 				row.FromIdentity + "\x00" + row.ToIdentity)
@@ -2463,6 +2454,24 @@ func diagramRelationRepairAllowedAdditions(
 		}
 	}
 	return out
+}
+
+// newDiagramRelationRepairCandidate is the single typed tuple constructor for
+// ordinary relation retries and participant-coverage retries. Qualified or
+// path-like endpoint identities receive the same deterministic Mermaid-safe
+// carriers on every lane before any independently authorized participant-side
+// display aliases are added. It does not choose a relation or visible edge.
+func newDiagramRelationRepairCandidate(
+	blockID string,
+	candidate diagramParticipantTypedIncidentCandidate,
+) types.AnswerDiagramRelationRepairCandidate {
+	row := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: blockID, RelationKind: candidate.relation,
+		FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
+		Source: strings.TrimSpace(candidate.location),
+	}
+	bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+	return row
 }
 
 // bindDiagramRelationRepairCandidateTechnicalNodeIDs publishes the one stable

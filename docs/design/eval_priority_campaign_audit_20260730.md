@@ -57468,6 +57468,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r881`。
 
+### §123.1437 r882/B1375：多边 join 生产转正；参与者专用 lease 漏发安全技术端点（2026-08-28）
+
+1. 从已推送 `8fbd9043f` 构建不可变二进制，严格并发恰好 2 路复放 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 161s、read
+   611s。两路都自然完成，没有按 4ms、4m、首字节、stall、活动流年龄或上下文比例降级，也没有恢复旧稿或由系统代写答案。
+2. B1374 获得生产正证：read 的 component-split provider 在同一代发布两条共享
+   `ctxbuilder.BuildAgentContext` 的 typed `argument_flow`，模型也在同一个 atomic patch 中同时选择
+   `o.busCtx -> ctxbuilder.BuildAgentContext` 与 `types.AgentExtractor -> ctxbuilder.BuildAgentContext`。最终图把
+   Analyzer→Explorer→Extractor→Finalizer 主链与 BusContext→Mutable 岛通过同一技术交接点接通；因此“没有单条边直接跨岛”不再导致完整 typed
+   多边路径被漏判。该结果也否证了“patch 只能逐条应用或缺少 atomic group”假说。
+3. 新 P1 `B1375-PARTICIPANTLEASETECHNICALNODEPARITY1` 为确定性的兄弟构造路径漂移。普通 relation-repair 候选先调用
+   `bindDiagramRelationRepairCandidateTechnicalNodeIDs`，会把限定名编译为稳定 Mermaid-safe ID；participant-only coverage lease
+   只绑定 participant-side alias，漏掉同一步。r882 的 live lease 因此只有 `from_node_ids=[BusContext]/[Extractor]`，没有共享 target 的
+   `to_node_ids`。executor 仍正确要求 exact technical identity 或 producer-listed ID，于是模型先后猜安全哈希 ID、Analyzer/Finalizer，连续失败，
+   第 7 轮才改用原始限定名并由渲染兼容层二次改写为 `codraxNode1`。这是系统没有把自己能验证的精确载体交给模型，不是模型波动。
+4. 根修保持单权威：participant-only lease 在叠加 independently typed participant aliases 之前，也调用同一个 technical-node binder；
+   qualified/path-like/generic 等不便直接作为 Mermaid ID 的端点因此获得确定性、冲突安全、同侧的 `from_node_ids/to_node_ids`。模型仍选择是否使用
+   candidate，并自行写 from/to 可见节点、业务 label、图布局和答案结论；系统不扫描请求、thinking、答案 prose 或 Mermaid message 来选关系。
+5. 回归把 B1374 的共享新技术节点改成生产同形限定名 `ctxbuilder.BuildAgentContext`，先红证明 participant-only delta 的两条 addition 都漏
+   target carrier，再钉住两条 row 必须共同发布同一个 canonical safe ID。既有 executor pin 继续证明只有 exact endpoint 或 producer-listed
+   side-specific carrier 可执行，跨侧、业务节点冒充或猜测 alias 仍 fail-closed。专项、相关四包、完整 `go test ./... -count=1`、CGO
+   release-tag `make` 与 `git diff --check` 全绿。
+6. Trace 人工判定 pass：显式 2.000..2.020s 窗、2 次 typed query、四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 IO 第一席、三个各 1.000ms runnable/优先级候选、实际占时/
+   规则可消双账户、业务下钻、邻近/背景隔离和完整 `Trace 因果投影` 全在。模型把“直接阻塞”额外系于业务请求关联，属于偏保守措辞，不改变
+   typed 链上选举，本轮不以正文关键词做硬门。
+7. read 人工判定 partial：图的 typed 关系闭合已达成，但 6 次拒绝和 611s 暴露 B1375；正文还把 `Mutable: bus.Mutable` 的共享指针误写成
+   “各阶段独立副本、互不影响”，而探索证据本身已经精确给出赋值行。后者先按模型解释漂移留观，不由系统改写模型结论；后续异构 read 回放继续审计
+   是否重复，若跨模型重复再从 context hierarchy/证据显著性做软引导优化。
+
+状态：
+
+`r882=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1374=production-positive/core-closed`；
+`B1375=implemented/full-suite-green/build-green/pending-production-r883`；
+`participant-only-lease=technical-carrier+participant-alias-parity`；
+`multi-edge-join=same-generation+same-atomic-model-owned-patch`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r882`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r882`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

@@ -947,7 +947,7 @@ func TestDiagramParticipantCoveragePublishesMultiEdgeJoinThroughNewTechnicalNode
 	}}
 	argument := func(id, subject string) types.EvidenceItem {
 		return types.EvidenceItem{ID: id, Producer: types.EvidenceProducerExplorerEmitEvidence,
-			Kind: types.EvidenceRelationship, Subject: subject, Predicate: "passes argument", Object: "BuildAgentContext",
+			Kind: types.EvidenceRelationship, Subject: subject, Predicate: "passes argument", Object: "ctxbuilder.BuildAgentContext",
 			Source: "internal/orchestrator/explore.go", LineStart: 15,
 			AnchorKind: types.AnchorArgument, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
 			OwnerIdentity: "Orchestrator.exploreStage"}
@@ -985,8 +985,8 @@ func TestDiagramParticipantCoveragePublishesMultiEdgeJoinThroughNewTechnicalNode
 			flowParticipantTypedIncidentCandidateGuidance(rm, evidence, precedence, nil, 8))
 	}
 	wantPairs := map[string]bool{
-		"types.AgentExplorer\x00BuildAgentContext": false,
-		"o.busCtx\x00BuildAgentContext":            false,
+		"types.AgentExplorer\x00ctxbuilder.BuildAgentContext": false,
+		"o.busCtx\x00ctxbuilder.BuildAgentContext":            false,
 	}
 	for _, candidate := range join {
 		key := candidate.from + "\x00" + candidate.to
@@ -1016,11 +1016,17 @@ func TestDiagramParticipantCoveragePublishesMultiEdgeJoinThroughNewTechnicalNode
 	if len(delta.AllowedAdditions) != 2 {
 		t.Fatalf("multi-edge join repair must carry the complete shortest path in one patch generation: %+v", delta)
 	}
+	toAlias := mermaidcompat.CanonicalFlowchartNodeID("ctxbuilder.BuildAgentContext")
+	for _, candidate := range delta.AllowedAdditions {
+		if !atomicDiagramNodeIDListed(toAlias, candidate.ToNodeIDs) {
+			t.Fatalf("participant-only join lease omitted the producer-owned safe technical carrier %q: %+v", toAlias, candidate)
+		}
+	}
 
 	doc.Blocks[0].Diagram.Body += "\n Explorer --> BuildAgentContext\n BusContext --> BuildAgentContext"
 	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors,
-		types.DiagramEdgeAnchor{FromNode: "Explorer", ToNode: "BuildAgentContext", FromIdentity: "types.AgentExplorer", ToIdentity: "BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
-		types.DiagramEdgeAnchor{FromNode: "BusContext", ToNode: "BuildAgentContext", FromIdentity: "o.busCtx", ToIdentity: "BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+		types.DiagramEdgeAnchor{FromNode: "Explorer", ToNode: "BuildAgentContext", FromIdentity: "types.AgentExplorer", ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+		types.DiagramEdgeAnchor{FromNode: "BusContext", ToNode: "BuildAgentContext", FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
 	)
 	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
 		t.Fatalf("the model-authored complete two-edge join should close the visible requested graph: %+v", got)
