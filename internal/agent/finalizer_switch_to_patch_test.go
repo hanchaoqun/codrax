@@ -1744,7 +1744,7 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 		},
 	}
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
-	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
+	if !signal.HintRequested || !strings.HasPrefix(signal.HintKey, "answer_doc.patch_relation_repair_scope.cap-v1-") ||
 		!strings.Contains(signal.Hint, "do not add any other relation") ||
 		!strings.Contains(signal.Hint, "diagram_edge_edits") ||
 		!strings.Contains(signal.Hint, "failed call was not published") ||
@@ -1796,6 +1796,88 @@ func TestAnswerDocPatchOutcomeRetryTeachingUsesOnlyTypedExecutorState(t *testing
 	}
 }
 
+func TestAnswerDocPatchCapabilityHintKeyTracksTypedGenerationOnly(t *testing.T) {
+	const base = "answer_doc.patch_relation_repair_scope"
+	result := func(ref, outcome, summary, hint string) *types.ToolResult {
+		return &types.ToolResult{
+			ToolName: "emit_answer_document_patch", Success: false, Summary: summary,
+			Repair: &types.ToolRepair{
+				Code: types.ToolRepairCodeAnswerDocRelationRepairScope, Hint: hint,
+				Metadata: map[string]string{
+					types.ToolRepairMetaAnswerDocumentPatchOutcome:     outcome,
+					types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{"version":1,"failures":[{"failure_ref":"` + ref + `","block_id":"flow","issue":"edge_anchor_node_identity_conflict","relation_kind":"call","from_node":"A","to_node":"B","from_identity":"Owner.run","to_identity":"Worker.run","target_carrier":"prior_anchor","allowed_actions":["remove"]}],"preserve_unlisted_edges":true}`,
+				},
+			},
+		}
+	}
+	first := result("rf1-generation-a", types.AnswerDocumentPatchOutcomeStagedForRetry,
+		"reader-visible summary A", "repair wording A")
+	same := result("rf1-generation-a", types.AnswerDocumentPatchOutcomeStagedForRetry,
+		"completely different summary B", "completely different hint B")
+	next := result("rf1-generation-b", types.AnswerDocumentPatchOutcomeStagedForRetry,
+		"reader-visible summary A", "repair wording A")
+	rolledBack := result("rf1-generation-a", types.AnswerDocumentPatchOutcomeNotStaged,
+		"reader-visible summary A", "repair wording A")
+
+	keyA := answerDocPatchCapabilityHintKey(base, first)
+	if keyA == base || !strings.HasPrefix(keyA, base+".cap-v1-") {
+		t.Fatalf("typed capability generation must suffix the lane key: %q", keyA)
+	}
+	if got := answerDocPatchCapabilityHintKey(base, same); got != keyA {
+		t.Fatalf("Summary/Hint prose must not perturb the hard dedup key: first=%q same=%q", keyA, got)
+	}
+	if got := answerDocPatchCapabilityHintKey(base, next); got == keyA {
+		t.Fatalf("new live failure_ref generation must receive a fresh key: %q", got)
+	}
+	if got := answerDocPatchCapabilityHintKey(base, rolledBack); got == keyA {
+		t.Fatalf("typed staged/not-staged transaction states need distinct retry teaching keys: %q", got)
+	}
+	if got := answerDocPatchCapabilityHintKey(base, &types.ToolResult{
+		Summary: "rf1-generation-c staged_for_retry",
+		Repair:  &types.ToolRepair{Hint: "boundary_ref=rb1-visible-only"},
+	}); got != base {
+		t.Fatalf("untyped visible text must not mint a capability generation: %q", got)
+	}
+}
+
+func TestAnswerDocPatchCapabilityHintKeyTracksBoundaryCapabilitiesAndLoopDedup(t *testing.T) {
+	const base = "answer_doc.patch_required_diagram_relation_boundary"
+	boundaryResult := func(ref string) *types.ToolResult {
+		return &types.ToolResult{Repair: &types.ToolRepair{Metadata: map[string]string{
+			types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: `{"version":1,"mismatches":[{"block_id":"flow","participant":"Worker","issue":"missing_unproven_boundary","boundary_ref":"` + ref + `","allowed_boundary_actions":["add_unproven"]}]}`,
+		}}}
+	}
+	keyA := answerDocPatchCapabilityHintKey(base, boundaryResult("rb1-generation-a"))
+	keyB := answerDocPatchCapabilityHintKey(base, boundaryResult("rb1-generation-b"))
+	if keyA == base || keyA == keyB {
+		t.Fatalf("boundary capability generations must be independently deliverable: A=%q B=%q", keyA, keyB)
+	}
+
+	policy := DefaultLoopPolicy()
+	policy.MinInjectInterval = 0
+	policy.MaxMidLoopInjects = 0
+	policy.MaxPerKeyInjects = 0
+	state := newLoopPolicyState(policy)
+	first := state.Apply(PhaseMidLoop, LoopObservation{Iteration: 1}, LoopSignal{
+		HintRequested: true, HintKey: keyA, Hint: "generation A", BypassBudget: true,
+	})
+	if first.Outcome != OutcomeInjectHint {
+		t.Fatalf("first capability generation must inject: %+v", first)
+	}
+	same := state.Apply(PhaseMidLoop, LoopObservation{Iteration: 2}, LoopSignal{
+		HintRequested: true, HintKey: keyA, Hint: "same generation", BypassBudget: true,
+	})
+	if same.Outcome != OutcomeContinue || !strings.Contains(same.Reason, "hint deduped") {
+		t.Fatalf("same generation must remain deduped: %+v", same)
+	}
+	next := state.Apply(PhaseMidLoop, LoopObservation{Iteration: 3}, LoopSignal{
+		HintRequested: true, HintKey: keyB, Hint: "generation B", BypassBudget: true,
+	})
+	if next.Outcome != OutcomeInjectHint {
+		t.Fatalf("new boundary generation must bypass stale-key dedup: %+v", next)
+	}
+}
+
 func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEmpty(t *testing.T) {
 	const liveRef = "ra1-current-executor-generation"
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
@@ -1841,7 +1923,7 @@ func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEm
 		t.Fatal("consumer-side rebuild should be empty for a candidate already anchored in its later patch base")
 	}
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
-	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
+	if !signal.HintRequested || !strings.HasPrefix(signal.HintKey, "answer_doc.patch_relation_repair_scope.cap-v1-") ||
 		!signal.BypassBudget || !signal.BypassThrottle || !strings.Contains(signal.Hint, `"addition_ref":"`+liveRef+`"`) ||
 		!strings.Contains(signal.Hint, "complete current additions-only typed capability roster") {
 		t.Fatalf("scope retry must forward the executor-owned current generation unchanged: %+v", signal)
@@ -1895,7 +1977,7 @@ func TestRelationRepairScopeFindsExecutorLeaseOnEvaluatorMutable(t *testing.T) {
 	}
 
 	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
-	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
+	if !signal.HintRequested || !strings.HasPrefix(signal.HintKey, "answer_doc.patch_relation_repair_scope.cap-v1-") ||
 		!strings.Contains(signal.Hint, `"addition_ref":"`+liveRef+`"`) || strings.Contains(signal.Hint, "answer_doc.patch_correct") {
 		t.Fatalf("split mutable scope retry must keep the executor generation: %+v", signal)
 	}

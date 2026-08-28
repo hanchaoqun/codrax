@@ -57590,6 +57590,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r884`。
 
+### §123.1440 r885/B1378：新代关系修复能力不得被同车道静态键吞掉（2026-08-28）
+
+1. 从已推送 `bdb6dbf70` 重建不可变二进制，严格并发恰好 2 路复放同一 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 168s、read
+   690s。两路均未按 4ms、4m、首字节、stall、活动流年龄或上下文比例降级，也没有恢复旧答案或由系统替模型写结论、关系、节点、标签和布局。
+2. Trace 人工判定 partial，但核心系统面完整：显式 2.000..2.020s 主窗、四跳唤醒链、threadpool-400 链上 11.000ms IO 第一席、三个独立
+   1.000ms 优先级候选、真实占时/规则可消双账户、业务下钻、邻近/背景隔离、自动补采和完整 `Trace 因果投影` 均保留；r884 的 14ms 合并与
+   6ms 尾段算术错没有复现。模型仍同时写“延迟完全由上游唤醒链路传导”和“当前证据未建立直接同步阻塞”，属于同页因果措辞偏强；继续按
+   `B1269/B1271` 模型遵循波动留观，不扫描、硬拒或改写模型正文。
+3. read 最终 runner PASS、人工 partial：四阶段责任与 analyze→explore→extract→finalize 主链完整，Mermaid 可解析；但 subgraph 内声明的是小写
+   `mutable`，可见边却连到另一个大写 `Mutable` 节点，`hasReuse` 仍孤立，BusContext/Mutable 与阶段的关系表达偏薄。B1377 的
+   `participant_endpoint_mapping_required` 本轮没有自然触发，因此保持结构化接线/执行测试已闭环、等待生产形正证，不能把本轮 PASS 记成 B1377 转正。
+4. 新 P1 `B1378-CAPABILITYHINTGEN1` 是确定性 retry 路由 gap。read iter 2 的 patch 已通过结构操作并因 merged-document 校验失败形成精确
+   `staged_for_retry` 新基线，同时 validator/executor 签发了新一代 `failure_ref`/`boundary_ref`；evaluator 也构造了联合 typed delta，但
+   LoopPolicy 只看到固定 `answer_doc.patch_required_diagram_joint_delta`，日志明确记为 `hint deduped`。模型没有收到新代 refs，随后 10 轮只能重放
+   旧 `rf1-723...` 等引用并被 live lease 正确拒绝；直到失败车道切成 relation-only、静态键变化后，当前 `rf1-8dd...` 才被投递，模型下一轮即成功。
+   这证明根因不是模型忽略已收到的 ref，也不是 lease 应放宽，而是能力代次被分类级去重键遮蔽。
+5. 根修在所有 patch-reject 车道的统一出口为 HintKey 增加 typed 能力代次后缀，而不是只修 joint 分支。代次只由已解析且版本合法的当前
+   `failure_ref + allowed_actions`、`addition_ref + add`、`boundary_ref + allowed_boundary_actions`、closed patch outcome
+   (`not_staged|staged_for_retry`) 与合法 producer progress signature 构成，稳定排序后哈希；同一代保持同键并继续去重，新 refs、权限或事务阶段产生
+   新键并必须重新投递。没有 opaque capability/outcome/progress 的普通车道保持原键，避免无意义 churn。
+6. 该硬路由不读取用户请求、ToolResult Summary/Hint、模型 thinking/正文、最终答案、Mermaid body、节点 label 或 edge message；可见文字即使完全变化也
+   不能改变代次键。系统仍不选择 add/remove/replace、relation、endpoint、label、wording、order、layout 或 conclusion，只保证模型能及时看到
+   executor 已经签发的当前代精确权限和补丁基线。live lease 的 stale-ref fail-closed、不透明 ref 单代消费及 per-key 防洪上限均保持。
+7. 回归钉住四条结构面：同 refs/outcome 在 Summary/Hint 任意变化下键字节恒等并被 LoopPolicy 去重；新 `failure_ref` 必得新键；新
+   `boundary_ref` 必得新键并可立即注入；相同 refs 的 `not_staged` 与 `staged_for_retry` 因所需动作不同必须重新教学；仅在可见 prose 伪装 refs/enums
+   不能铸代次。`go test ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+
+状态：
+
+`r885=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1377=tests-positive/pending-natural-production-trigger`；
+`B1378=implemented/full-suite-green/build-green/pending-production-r886`；
+`hint-dedup=lane+typed-capability-generation`；
+`same-generation=dedupe+per-key-cap-preserved`；
+`new-generation-ref/action/outcome=must-redeliver`；
+`model-owned=action+relation+endpoint+label+wording+layout+conclusion`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r885`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r885`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

@@ -20,6 +20,7 @@ package agent
 // both stages.
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -17584,6 +17585,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		if state := answerDocPatchOutcomeRetryTeaching(obs.LastToolResult); state != "" {
 			signal.Hint = state + signal.Hint
 		}
+		signal.HintKey = answerDocPatchCapabilityHintKey(signal.HintKey, obs.LastToolResult)
 	}()
 	if obs.LastToolResult == nil ||
 		obs.LastToolResult.ToolName != "emit_answer_document_patch" ||
@@ -17864,6 +17866,90 @@ func answerDocPatchOutcomeRetryTeaching(result *types.ToolResult) string {
 	default:
 		return ""
 	}
+}
+
+// answerDocPatchCapabilityHintKey makes hint dedup generation-aware whenever
+// the patch executor publishes opaque relation/boundary capabilities. Static
+// lane names remain the stable prefix, while a short suffix is derived only
+// from closed typed refs, their allowed actions, the typed transaction outcome
+// and the producer-owned disposition progress signature. Request/model/final
+// prose and Mermaid bodies, node labels, messages and visible wording are not
+// read, so reader-authored content cannot steer this hard retry route.
+//
+// The same generation deliberately keeps the same key and is still deduped.
+// A newly minted live generation gets a different key, so its executable refs
+// and patch-state teaching cannot be suppressed by an earlier retry on the
+// same broad validation lane.
+func answerDocPatchCapabilityHintKey(base string, result *types.ToolResult) string {
+	base = strings.TrimSpace(base)
+	if base == "" || result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return base
+	}
+	type capabilityGeneration struct {
+		Outcome    string   `json:"outcome,omitempty"`
+		Failures   []string `json:"failures,omitempty"`
+		Additions  []string `json:"additions,omitempty"`
+		Boundaries []string `json:"boundaries,omitempty"`
+		Progress   string   `json:"progress,omitempty"`
+	}
+	generation := capabilityGeneration{}
+	switch outcome := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome]); outcome {
+	case types.AnswerDocumentPatchOutcomeNotStaged, types.AnswerDocumentPatchOutcomeStagedForRetry:
+		generation.Outcome = outcome
+	}
+	if delta, _, ok := parseAnswerDocDiagramRelationRepairDelta(result); ok {
+		for _, failure := range delta.Failures {
+			ref := strings.TrimSpace(failure.FailureRef)
+			if ref == "" {
+				continue
+			}
+			actions := make([]string, 0, len(failure.AllowedActions))
+			for _, action := range failure.AllowedActions {
+				if value := strings.TrimSpace(string(action)); value != "" {
+					actions = append(actions, value)
+				}
+			}
+			sort.Strings(actions)
+			generation.Failures = append(generation.Failures, ref+"\x1f"+strings.Join(actions, ","))
+		}
+		for _, candidate := range delta.AllowedAdditions {
+			if ref := strings.TrimSpace(candidate.AdditionRef); ref != "" {
+				generation.Additions = append(generation.Additions, ref+"\x1fadd")
+			}
+		}
+	}
+	if delta, _, ok := parseAnswerDocDiagramParticipantRepairDelta(result); ok {
+		for _, mismatch := range delta.Mismatches {
+			ref := strings.TrimSpace(mismatch.BoundaryRef)
+			if ref == "" {
+				continue
+			}
+			actions := make([]string, 0, len(mismatch.AllowedBoundaryActions))
+			for _, action := range mismatch.AllowedBoundaryActions {
+				if value := strings.TrimSpace(string(action)); value != "" {
+					actions = append(actions, value)
+				}
+			}
+			sort.Strings(actions)
+			generation.Boundaries = append(generation.Boundaries, ref+"\x1f"+strings.Join(actions, ","))
+		}
+	}
+	if progress := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature]); validDiagramRelationProgressSignature(progress) {
+		generation.Progress = progress
+	}
+	sort.Strings(generation.Failures)
+	sort.Strings(generation.Additions)
+	sort.Strings(generation.Boundaries)
+	if generation.Outcome == "" && len(generation.Failures) == 0 && len(generation.Additions) == 0 &&
+		len(generation.Boundaries) == 0 && generation.Progress == "" {
+		return base
+	}
+	raw, err := json.Marshal(generation)
+	if err != nil {
+		return base
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%s.cap-v1-%x", base, sum[:8])
 }
 
 // currentAnswerDocRelationRepairLeaseAcrossMutableState locates the executor's
