@@ -57332,6 +57332,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r877`。
 
+### §123.1432 r878/B1366：系统自愈把多行边标签误铸成节点；按精确语法形机械合并（2026-08-28）
+
+1. 从已推送 `620d78ee7` 重建不可变二进制，严格并发恰好 2 路运行 read 架构图与 Python write plan，runner 2/2 PASS：write 51s、read
+   527s。两路均保持活动到自然完成，没有按 4ms、4m、首字节、stall、累计活动年龄或上下文比例降级。write 人工 pass：只读取两个文件并列举一次，
+   plan 以一个 `kind=patch` unified diff 和一个结构化 replace edit 精确把 `main.py:20` 的 `retrun` 改为 `return`，Python dry-build 通过，另有一个
+   导入并调用 `greet` 的有界 verification probe；没有 JSON 修复、replan、finalizer 重试或旁路文件改动。
+2. read runner PASS、人工 FAIL。模型首稿在 pipe-delimited edge label 内放入物理换行，例如
+   `A -->|BuildInitialInstruction\n调用 SetSearchGraph| M`。`NormalizeSourceForMarkdown` 没有先识别该完整语法形；后续 unsafe-node pass 把续行
+   `调用 SetSearchGraph| M` 中的标签文字当成节点身份，系统自己铸出 `codraxNode1["调用"] SetSearchGraph| M`。最终答案包含三条同形残片：无箭头、
+   悬空 pipe、重复 node ID，Mermaid 无法渲染。模型两次 patch 已按 typed relation delta 修补关系，最后损坏来自系统兼容层，不能归为模型波动。
+3. `B1366-MULTILINEPIPEMERMAIDREPAIR1/P0` 已按精确结构根修。兼容层现在只在 flowchart/graph 中机械识别“已有箭头 + 未闭合 pipe label + 后续
+   唯一闭合 pipe + 明确目标”这一完整形，把作者原有标签片段用 `<br/>` 合并并加 Mermaid 引号；from/to、箭头方向、标签字节顺序和业务措辞均不变。
+   遇到空续行、另一条边、header、subgraph、directive、comment、无闭合 pipe、无目标、目标后再链箭头或半边引号时保持原文，交给既有校验/降级路径，
+   不猜关系或文字。unsafe-node pass 另加精确防线：带未匹配 pipe 且不是完整 edge 的语句不能铸造 synthetic `codraxNode`。
+4. 回归覆盖 r878 三条生产原形、拓扑 from/to 不变、无 synthetic node、幂等、歧义续行 fail-open，以及真实
+   `NormalizeEmitAnswerBlock` 结构化答案接线。该修复不扫描用户请求、模型/最终 prose、Mermaid label 或错误消息来推断事实；系统不创建、选择、删除或改写
+   关系、节点、业务标签、布局和结论，只修复确定的分隔符/物理换行语法。
+5. r878 同时确认两个独立后续 gap。`B1367-EVALREQUESTEDPARTICIPANTINCIDENCE1/P2`：B1364 的 incident-node 下界比纯 edge count 更强，但该答案用
+   6 条技术局部边/10 个 incident node 达标，而用户点名的 Mutable/BusContext 仍只有独立边界，说明通用下界可被无关技术端点填满；后续 eval-only
+   oracle 应消费 case 作者显式给出的请求参与者 ID/alias 集，按“每个请求参与者是否 incident 或 typed-unproven”计覆盖，不能从请求 prose 自动猜。
+   `B1368-MERMAIDPOSTNORMALIZEGRAMMAR1/P1`：正常 answer 接受路径没有在所有兼容修复后执行受支持 Mermaid 子集的最终 grammar postcondition，因此一个
+   source repair 自己制造的残片仍可签发；应建立只验证结构语法、不推断关系语义的 post-normalization 检查，失败时遵守 L7 改写为 `text` fence 并显示警告，
+   而不是让 finalizer 围绕系统错误反复修改业务内容。
+6. `B1369-READEXPLORERCHURN1/P2` 继续观察：read 使用 33 次 read、60 次 explorer iteration、14 次 midloop、9 次 completion 调用和 2 次
+   finalizer reject，527s 才完成。该样本不能授权固定轮次/耗时截断；后续应按 typed frontier、已接受 completion、证据/失败代次是否新增来识别无进展，活动流与
+   有新增证据的修补必须继续完成。
+7. focused Mermaid/tool/render/preview 套件、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一步从本提交重建不可变二进制，严格并发
+   恰好 2 路回放 read 图表与显式窗 Trace，关闭 B1366 生产验证并确保语法自愈不影响 Trace 因果投影、自动补采、链上根因、业务线索、实际占时/规则
+   可消双账户和背景隔离；随后按高 ROI 分批处理 B1368、B1367。
+
+状态：
+
+`r878=runner-pass-2/2,human-write-pass+read-fail`；
+`B1364=production-partial/incident-lower-bound-can-be-filled-by-unrelated-endpoints`；
+`B1366=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1367=confirmed/P2-eval-only`；`B1368=confirmed/P1`；`B1369=confirmed/P2-observe`；
+`multiline-pipe-label-repair=exact-structural-shape-only`；
+`ambiguous-pipe-fragment=no-synthetic-node/no-system-inference`；
+`system-edge/node/label/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r878`。
+
 ### §123.1425 r872/B1357+B1358：patch 暂存基线如实教学；关系范围提供同代局部可执行编辑（2026-08-27）
 
 1. 从已推送 `5565044ea` 的干净二进制严格并发恰好 2 路回放逻辑图 read 与显式窗 Trace，runner 2/2 PASS：Trace 161s、read

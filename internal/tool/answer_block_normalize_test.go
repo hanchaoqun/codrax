@@ -751,6 +751,36 @@ func TestNormalizeEmitAnswerBlock_PreservesQuotedPipeEdgeLabels(t *testing.T) {
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_RepairsPhysicalNewlineInsidePipeEdgeLabel(t *testing.T) {
+	body := strings.Join([]string{
+		"flowchart TD",
+		`  A -->|BuildInitialInstruction`,
+		`调用 SetSearchGraph| M`,
+	}, "\n")
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "d1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind:     string(types.DiagramArchitecture),
+			Language: "mermaid",
+			Body:     body,
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil {
+		t.Fatal("normalized diagram is nil")
+	}
+	want := `  A -->|"BuildInitialInstruction<br/>调用 SetSearchGraph"| M`
+	if !strings.Contains(got.Diagram.Body, want) {
+		t.Fatalf("structured answer path did not repair the edge label:\nwant line: %s\ngot:\n%s", want, got.Diagram.Body)
+	}
+	if strings.Contains(got.Diagram.Body, "codraxNode") {
+		t.Fatalf("structured answer path minted a synthetic endpoint from label text: %s", got.Diagram.Body)
+	}
+}
+
 func TestNormalizeEmitAnswerBlock_ConvertsPortableClassDiagramWithoutChangingSemanticKind(t *testing.T) {
 	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "types",

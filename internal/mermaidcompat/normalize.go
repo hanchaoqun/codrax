@@ -20,6 +20,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceParticipantDisplayLabels(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartMultilineSubgraphLabels(body)
+	body = NormalizeFlowchartMultilinePipeEdgeLabels(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
 	body = NormalizeFlowchartClassRelationEdges(body)
 	body = NormalizeFlowchartInlineEdgeLabels(body)
@@ -41,6 +42,97 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartMultilinePipeEdgeLabels repairs the exact source shape
+// produced when a model puts a physical newline inside a pipe-delimited edge
+// label:
+//
+//	A -->|prepare request
+//	hand off work| B
+//
+// Mermaid requires that statement on one physical line. The authored label
+// bytes are folded with <br/> and quoted; the endpoints, direction, and label
+// order are preserved. Ambiguous continuations (another edge/directive, no
+// closing pipe, or no target after the pipe) remain untouched for the normal
+// validator/model-repair path. This pass never infers a relation or wording.
+func NormalizeFlowchartMultilinePipeEdgeLabels(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "|") || !strings.Contains(body, "\n") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	changed := false
+	for i := 0; i < len(lines); i++ {
+		merged, consumed, ok := mergeFlowchartMultilinePipeEdgeLabelAt(lines, i)
+		if !ok {
+			out = append(out, lines[i])
+			continue
+		}
+		out = append(out, merged)
+		i += consumed
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(out, "\n")
+}
+
+func mergeFlowchartMultilinePipeEdgeLabelAt(lines []string, index int) (string, int, bool) {
+	line := lines[index]
+	arrowAt, arrow := FindFlowchartArrow(line)
+	if arrowAt < 0 {
+		return "", 0, false
+	}
+	labelStart := arrowAt + len(arrow)
+	for labelStart < len(line) && (line[labelStart] == ' ' || line[labelStart] == '\t') {
+		labelStart++
+	}
+	if labelStart >= len(line) || line[labelStart] != '|' ||
+		findUnescapedPipe(line, labelStart+1) >= 0 {
+		return "", 0, false
+	}
+	fragments := []string{strings.TrimSpace(line[labelStart+1:])}
+	for j := index + 1; j < len(lines); j++ {
+		continuation := strings.TrimSpace(lines[j])
+		lower := strings.ToLower(continuation)
+		continuationArrowAt, _ := FindFlowchartArrow(continuation)
+		if continuation == "" || flowchartLineIsHeader(continuation) || continuation == "end" ||
+			strings.HasPrefix(lower, "subgraph ") ||
+			flowchartLineStartsWithAny(lower, "classdef ", "linkstyle ", "click ", "style ", "class ") ||
+			strings.HasPrefix(continuation, "%%") || continuationArrowAt >= 0 {
+			return "", 0, false
+		}
+		closeAt := findUnescapedPipe(continuation, 0)
+		if closeAt < 0 {
+			fragments = append(fragments, continuation)
+			continue
+		}
+		target := strings.TrimSpace(continuation[closeAt+1:])
+		if target == "" {
+			return "", 0, false
+		}
+		if at, _ := FindFlowchartArrow(target); at >= 0 {
+			return "", 0, false
+		}
+		fragments = append(fragments, strings.TrimSpace(continuation[:closeAt]))
+		label := strings.TrimSpace(strings.Join(fragments, "<br/>"))
+		if label == "" {
+			return "", 0, false
+		}
+		if len(label) >= 2 && label[0] == '"' && label[len(label)-1] == '"' {
+			label = label[1 : len(label)-1]
+		} else if strings.HasPrefix(label, `"`) || strings.HasSuffix(label, `"`) {
+			return "", 0, false
+		}
+		merged := line[:labelStart+1] + quoteFlowchartLabel(label) + "| " + target
+		if !flowchartLineIsCompleteEdge(merged) {
+			return "", 0, false
+		}
+		return merged, j - index, true
+	}
+	return "", 0, false
 }
 
 // CanonicalFlowchartNodeID returns a stable Mermaid-safe carrier ID for one
@@ -1354,6 +1446,12 @@ func normalizeFlowchartUnsafeNodeIDsInLine(line string, aliases map[string]strin
 	}
 	if flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
 		return normalizeFlowchartDirectiveNodeRef(line, aliases)
+	}
+	// An unmatched pipe is not a node identity. Leave any non-edge statement
+	// carrying one untouched so an ambiguous multiline label cannot be turned
+	// into a synthetic codraxNode declaration by this later syntax pass.
+	if strings.Contains(trimmed, "|") && !flowchartLineIsCompleteEdge(trimmed) {
+		return line, false
 	}
 	var b strings.Builder
 	changed := false

@@ -603,6 +603,52 @@ func TestNormalizeSourceForMarkdown_MergesSplitPipeEdgeLabelsBeforeAliasing(t *t
 	}
 }
 
+func TestNormalizeSourceForMarkdown_MergesPhysicalMultilinePipeLabelsBeforeAliasing(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A -->|BuildInitialInstruction`,
+		`调用 SetSearchGraph| M`,
+		`    A -->|Observe`,
+		`调用 AppendAnalyzerDecision| M`,
+		`    E -->|ParseOutput`,
+		`调用 SetTurnAArtifacts| M`,
+	}, "\n")
+	want := strings.Join([]string{
+		"flowchart TD",
+		`    A -->|"BuildInitialInstruction<br/>调用 SetSearchGraph"| M`,
+		`    A -->|"Observe<br/>调用 AppendAnalyzerDecision"| M`,
+		`    E -->|"ParseOutput<br/>调用 SetTurnAArtifacts"| M`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if got != want {
+		t.Fatalf("physical multiline pipe-label repair mismatch:\nwant:\n%s\ngot:\n%s", want, got)
+	}
+	if strings.Contains(got, "codraxNode") {
+		t.Fatalf("multiline edge label was aliased as a node:\n%s", got)
+	}
+	edges := ParseEdges(got)
+	if len(edges) != 3 || edges[0].From != "A" || edges[0].To != "M" ||
+		edges[1].From != "A" || edges[1].To != "M" ||
+		edges[2].From != "E" || edges[2].To != "M" {
+		t.Fatalf("multiline edge repair changed topology: %+v", edges)
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("multiline edge-label repair must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_AmbiguousMultilinePipeLabelDoesNotMintNode(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A -->|first line`,
+		`    B -->|separate edge| C`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if got != in || strings.Contains(got, "codraxNode") {
+		t.Fatalf("ambiguous multiline label must remain model-owned and must not mint aliases:\n%s", got)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_DropsStandaloneHiddenMarkerBeforeAliasing(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",
