@@ -58951,6 +58951,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1478 r903：B1404 生产转正；解析责任域、已解决工具观察和 scalar/count 所有权仍有缺口（2026-08-28）
+
+1. 从已推送 `3efc035c7` 构建不可变二进制，严格并发恰好 2 路复放配置解释与显式窗 Trace，runner 2/2 PASS：Trace 167s、配置
+   174s。两路都没有固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有旧稿回退或系统代写模型结论。
+2. `B1404` 获得生产正证。配置调查再次经历早期错误 claim shape 与后续精确 call/condition 证据，但合法 `pipeline-max-steps` 没有进入 stale durable
+   denial，L3 不再把最终答案中的 CLI 名称判为 denied token；终稿没有“答案前后某些表述存在不完全一致”或新的“名称未核验”附注。真实
+   fabricated token 的反臂仍由单测证明，故本项记为 production-positive/core-closed，而非全局关闭 negative-knowledge 保护。
+3. 配置人工 fail，`B1405-DIMENSIONRESPONSIBILITYOPERATION1/P1` 再获正证。模型读取了字段、默认常量、merge、CLI registration/Changed guard，
+   但仍未读取 `LoadRuntimeSettings` 内 `yaml.NewDecoder`、`KnownFields(true)` 与 `Decode(&s)` 的执行体；最终用结构体 yaml tag 替代用户所问的“怎么解析”。
+   下一批必须让每个 required explanation dimension 绑定自己的 typed responsibility/file 与 executable operation，不能把 sibling merge/override operation
+   当作解析维度的关闭凭证，也不能硬编码 YAML、配置键、Go 或本用例。
+4. 同轮给 `B1396-SAMEFILEFINALIZERCONTEXT1/P2` 增加更强 witness。Explorer 已对 `codrax.yaml.example` 精确 grep 到 485/487 行并发射 grounded evidence，
+   finalizer 却只看到早期 full-file read 的 truncated observation/advisory，没有消费后续已解决证据，因而写出“示例是否存在、文件是否实际读取仍需确认”的反事实
+   caveat。该问题不是证据不存在，也不能由系统替模型删除 caveat；应让同一工具目标的后续精确成功观察关闭旧 truncation advisory，并把 resolving evidence
+   保留在相应 responsibility 的小型上下文内。
+5. 新 P2 `B1407-AGGREGATECOUNTSCALARCOLLISION1` 为 typed ownership gap。配置终稿中的代码默认值 `50` 被 count-claim validator 当成
+   “配置解析流程节点”的 `visible_count=50`，再与 aggregate cardinality=4 比较，产生错误 soft advisory/repair。当前未触发重试或用户 caveat，但若被运维
+   strict promotion 会拒绝正确答案。最优形是只校验模型显式绑定到该 aggregate/member-set 的 typed count claim；普通 scalar value 即使位于同一 block/prose
+   也不归该集合所有。禁止继续扩大数字/文本 regex 或按配置问题特判。
+6. Trace 人工 partial、系统合同通过：显式 20ms 窗、目标状态完整归账、3 次 target-filtered query、四跳唤醒链、11ms 链上 IO 第一席、三个互相独立的
+   1ms 低优先级 runnable 候选、实际占时/规则可消双账户、背景隔离、自动补齐和完整 `Trace 因果投影` 全在。模型仍把
+   `fscache_page_wait_on_page_bit` 扩写为页面预取/缓存预热修向，并提出跨 CPU 唤醒效率；reader-facing typed context 已明确该调用点不识别资源/子系统且
+   不授权预取类方案。继续归入既有 `B1269/B1271` 模型遵循波动，不扫描/拒绝/改写正文。
+7. 施工顺序保持高 ROI：先 B1405 关闭“有维度无责任 operation”；再 B1396 吸收“已解决工具观察仍以陈腐 advisory 污染 finalizer”的上下文 gap；
+   B1407 作为独立 validator 小批跟进。每批全测、文档、提交推送后再恰好 2 路异构回放，Trace 显式窗守护持续保留。
+
+状态：
+
+`r903=runner-pass-2/2,human-trace-partial+config-fail`；
+`B1404=production-positive/core-closed`；
+`B1405=production-confirmed/P1-next/missing-parse-operation`；
+`B1396=production-confirmed/P2/resolved-grep-evidence-dropped`；
+`B1407=confirmed/P2/scalar-50-misread-as-member-count`；
+`B1269/B1271=repeat-partial/model-guidance-open`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r903`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r903`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
