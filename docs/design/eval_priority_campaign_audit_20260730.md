@@ -59326,6 +59326,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1488 r910：B1417 生产转正；重叠席位重组与未证机制升级仍属模型遵循边界（2026-08-28）
+
+1. 从已推送 `bb79600d3` 重建不可变二进制，严格并发恰好 2 路复放配置解释与显式窗 Donghu Trace，runner 2/2 PASS：Trace 219s、配置
+   243s。两路自然完成，没有固定 4ms/4m、流式活跃度、首字节、stall、累计年龄或上下文比例降级；没有系统生成答案、结论、根因、关系、措辞或布局。
+2. B1417 获生产正证。配置 finalizer 的 `accepted_evidence_handoff` 由 r909 的 grounded+unspecified 混合面收窄为 `grounded=10`；错误的
+   `internal/config/runtime.go:1702` 导航候选和对应终稿引用均消失，正确 `cmd/root.go:2590-2591` YAML 合并证据仍在。该过滤没有删除 Turn A、
+   evidence ledger 或 hard-gate 输入，B1417 可从 pending-replay 升为 production-positive。
+3. 配置人工判定 partial：终稿正确给出默认 50、`RuntimeSettings.PipelineMaxSteps`、CLI `Changed` 守卫和相关源码，但又声称未显式 CLI 时
+   `flagMaxSteps` 保持零值；实际 `cmd/root.go:2689-2690` 会直接赋 `mergedMaxSteps`。优先级表还把 YAML 标为低于 code constant，和同答正文
+   code→YAML→CLI 冲突。explorer/finalizer 已携带准确赋值和顺序，故按模型自相矛盾/波动留观，不为一次自由正文错误新增扫描、替换或硬拒。
+4. Trace 系统面完整通过：显式 `34579.472865..34579.587805` 窗、16 次 typed query/自动补采、四节点唤醒链、链上根因排序、实际占时与规则可消
+   双账户、链上业务 span、邻近/背景隔离和完整「Trace 因果投影」均在。投影继续披露 frame evidence absent/unproven，根因只从 on-chain 席产生；
+   背景压力没有进入主因。活动流没有因固定毫秒/分钟阈值降级。
+5. Trace 人工判定 partial。模型把同一 `lock_priority` 方向、已明确成员区间重叠的 23.994ms 与 19.041ms 相加为 43.035ms/37%，又把 wakeup
+   时序升级为“等待下游完成工作后发出唤醒”，并把 `fscache_page_wait_o` 调用点扩写成已证文件系统缓存页面读完成。finalizer 输入已同位给出
+   `cross_seat_aggregation_authority=forbidden`、同 scope 行可能重叠不得相加、`work_completion_dependency_authority=not_provided`、
+   `direct_blocking_authority=not_provided` 以及 backend/holder/resource identity 未提供；确定性投影随后也正确显示“成员区间重叠，合计不可直加”。
+6. 这不是上下文缺失，也不新建与 `EVAL-B407-TRACESEATRECOMPOSITION1` 重复的 case 件：r910 是 B407 跨回放复现；机制扩写继续并入
+   `B1269/B1271`。相同精确信号在其他回放可被模型正确消费，当前保留为模型遵循波动，不扫描用户请求、thinking、终稿 prose 或 Mermaid 做硬门，
+   不让系统删改模型结论。
+7. 后续高 ROI 设计边界冻结为 `B1419-MODELDECLAREDDERIVEDQUANTITY1/P1-design-first`，它不是针对 43.035 的词面补丁：仅当模型主动要发布派生量时，
+   允许其在 answer document 中声明结构化 `operand_refs + operator(sum|max|union|range) + value/unit`；验证器只对模型选择的这条派生主张核对现有 typed
+   pair/additivity authority。没有声明就不从 prose 猜操作数；无 exact pair authority 时不允许把重叠席位声明为 sum。系统不替模型选择 operand、运算、
+   数值、结论或措辞。该载体需要先与既有 `claim_uses`、B15 arithmetic relation 和 Trace pair authority 统一设计，不能为本样例仓促加第二套语义。
+8. r910 的一次 finalizer reject 是 caveat JSON 缺少分隔符，模型下一轮自行修正且终稿存在；暂不升级 B1418。下一批严格并发恰好 2 路，包含写模式
+   与异构关系/读模式，继续人工审计 JSON 教学、图表关系、上下文精度和最终答案；显式窗 Trace 投影与自动补齐保持不可回归面。
+
+状态：
+
+`r910=runner-pass-2/2,human-config-partial+trace-partial`；
+`B1417=production-positive/core-closed`；
+`B1418=P2-observe/not-escalated-by-single-malformed-json-retry`；
+`B1419=P1-design-first/model-authored-derived-quantity-carrier`；
+`B407=repeat-production-partial/exact-soft-context-present`；
+`B1269/B1271=repeat-production-partial/exact-mechanism-boundary-present`；
+`system-operand/operator/value/conclusion/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r910`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r910`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
