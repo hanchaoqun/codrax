@@ -58509,6 +58509,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1465 r898：B1390 软教学部分转正；缺口提示与降级脚注错误污染完整答案（2026-08-28）
+
+1. 从已推送 `770e62ed7` 重建不可变二进制，严格并发恰好 2 路复放配置优先级 read + Python plan/write，runner 2/2 PASS：read
+   235s、write 69s。两路都自然闭环，没有按固定 4ms/4m/首字节/活动流年龄降级，也没有 JSON 恢复、系统答案代写或第三路任务。
+2. `B1393` 获生产正证：read 最终答案只保留 5 个相关配置锚点，没有再追加
+   `rootPreRun`/`enforceStdinExclusivity`/`cliRuntimeAnalysisKickoffLines`/`rsMCPServers` 等同文件兄弟行。主体正确说明
+   默认 50、YAML 覆盖、显式 CLI 最高优先级及最终 `SetMaxSteps` 注入。
+3. `B1390` 仅部分转正。首次 completion 前的 typed guide 已真实到达模型，但第一批 evidence 把 `[1,3]` 错挂在
+   `PipelineMaxSteps` definition 行，真正的 YAML/CLI condition operation 行仍无 index；直到 completion 明确指出缺席后才补正。相对 r897，
+   completion call 8→5、explorer iteration 23→20，但 read 11→13，不能宣称首发闭环。新 P2
+   `B1394-DIMENSIONOWNERSHIPPOSTEMITADVISORY1`：当 typed 多席已激活、发射批次含合格 operation row、但 index 只落在非 operation 或仍缺席时，在
+   `emit_evidence` 成功结果追加精确软 advisory，允许模型下一轮元数据 amendment；不拒绝 evidence、不读请求/summary/答案、不自动挂 index。
+4. 新 P1 `B1395-UNCERTAINTYFACETAUTHORITY1` 含两个同源用户面污染。其一，`uncertaintyBoundaryFacet` 接受裸
+   `ClaimTextReferenceFact`，导致普通“code default → codrax.yaml → CLI flag”注释被当作不确定性边界证据，随后系统错误追加“已核查范围与未确认边界”。
+   仓内其实已有更精确 `uncertaintySupportItemEligible`，只接受 absence_support、EvidenceAbsent、DriftReason 或 conditional authority；facet candidate
+   应复用同类 typed 资格，不能由任意注释铸造。其二，探索期 `config_precedence_role` 曾 hard→soft 的 telemetry 在最终表已声明同一 facet 后仍 sticky，
+   脚注继续发布“因证据不足改为建议项”。最优形是在最后渲染时按 outgoing doc 的 typed facet IDs/claim uses 消解已恢复 softening；不扫描正文。
+5. 新 P2 `B1396-SAMEFILEFINALIZERCONTEXT1`：B1393 已切断可见补充污染，但 finalizer prompt 的 unit affinity 仍带 54+ 条无关 `cmd/root.go`
+   concrete-value 行，总 evidence 到 94、context 约 42.9k tokens。后续应在 finalizer context 选择面按精确 typed identity/ownership 收窄，不删除 ledger
+   证据、不以最终答案文字倒推相关性。
+6. write 人工 pass：读取真实 Python owner，只生成一条 `main.py` patch，仅将 `retrun` 改为 `return`，unified diff 可应用，验收覆盖 import、greet 与
+   main；零 plan reject/replan/JSON recovery/无关文件。B1390 的多席 predicate 对该单一 write-plan 维度不激活，写模式无回归。
+
+状态：
+
+`r898=runner-pass-2/2,human-read-partial+write-pass`；
+`B1393=production-positive/core-closed-visible-supplement`；
+`B1390=production-partial/guide-arrived-but-operation-first-emission-missed`；
+`B1394=confirmed/P2-next-precise-soft-post-emit-advisory`；
+`B1395=confirmed/P1-next/typed-uncertainty+resolved-softening`；
+`B1396=confirmed/P2/finalizer-context-selection-open`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r898`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
