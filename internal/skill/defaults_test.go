@@ -2078,6 +2078,51 @@ func TestRuntimeTriageSkills_DoNotAdvertiseReadFileAsAlwaysAvailable(t *testing.
 	}
 }
 
+func TestRuntimeTriageSkillsKeepPreStageCapabilityLocal(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	for _, name := range []string{"log-triage-skill", "perf-triage-skill"} {
+		t.Run(name, func(t *testing.T) {
+			sk, err := r.Get(name)
+			if err != nil {
+				t.Fatalf("%s missing: %v", name, err)
+			}
+			if got := strings.Count(sk.OutputFormat, preTriageStageLocalCapabilityDirective); got != 1 {
+				t.Fatalf("%s must carry the shared stage-local capability boundary exactly once, got %d:\n%s", name, got, sk.OutputFormat)
+			}
+			for _, want := range []string{
+				"belongs only to this extraction dispatch",
+				"does not prove it is unavailable to the overall investigation",
+				"leave untested source/runtime relationships unresolved",
+			} {
+				if !strings.Contains(sk.OutputFormat, want) {
+					t.Fatalf("%s capability-boundary teaching missing %q:\n%s", name, want, sk.OutputFormat)
+				}
+			}
+		})
+	}
+}
+
+func TestPerfTriageSkillDefersDeterministicQueriesWithoutGlobalUnavailableClaim(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	perf, err := r.Get("perf-triage-skill")
+	if err != nil {
+		t.Fatalf("perf-triage-skill missing: %v", err)
+	}
+	if got := strings.Count(perf.OutputFormat, perfTriageLaterQueryAuthorityDirective); got != 1 {
+		t.Fatalf("perf triage must carry the later trace-query boundary exactly once, got %d:\n%s", got, perf.OutputFormat)
+	}
+	for _, want := range []string{
+		"Deterministic scheduler, relation, selected-window, and causal verification belongs to later trace_query evidence collection",
+		"intentionally absent from this pre-stage schema",
+	} {
+		if !strings.Contains(perf.OutputFormat, want) {
+			t.Fatalf("perf triage later-query teaching missing %q:\n%s", want, perf.OutputFormat)
+		}
+	}
+}
+
 func stringSliceContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

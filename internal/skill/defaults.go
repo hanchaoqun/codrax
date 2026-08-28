@@ -50,6 +50,18 @@ const runtimeRuleInstantiationDirective = "RUNTIME RULE INSTANTIATION: source co
 // introduced in the product runtime.
 const generatedArtifactVerificationDirective = "GENERATED-ARTIFACT VERIFICATION: when a change edits a template, generator, transpiler, serializer, code emitter, or build step, verify the produced artifact rather than only scanning the producer source. Any declaration, helper, guard, import, or reference used by generated code must exist in the generated artifact's own lexical/runtime scope and in emission order. A source-token or regex check can show that text exists in the generator, but cannot prove that the generated output parses, resolves names, executes, or preserves behavior; add a bounded probe that renders/builds the artifact and then parses, imports, compiles, or executes it at the closest available boundary. If the native runtime is unavailable, use a deterministic generated-output parser/scope check and disclose that narrower boundary."
 
+// preTriageStageLocalCapabilityDirective prevents a narrow preprocessing
+// dispatch from turning its deliberately small tool schema into a claim about
+// the whole investigation. It is prompt guidance only: no runtime gate scans,
+// rejects, or rewrites model prose. Both log and performance pre-triage share
+// this exact source so their capability boundary cannot drift.
+const preTriageStageLocalCapabilityDirective = "CAPABILITY BOUNDARY: the tool schema visible now belongs only to this extraction dispatch. A tool omitted here was not executed in this pre-stage; that omission does not prove it is unavailable to the overall investigation. Emit only artifact facts and locators in summaries, observations, and residue; leave untested source/runtime relationships unresolved for later evidence collection instead of making investigation-wide capability claims."
+
+// perfTriageLaterQueryAuthorityDirective is the performance-channel companion:
+// pre-triage locates evidence, while the later deterministic query lane owns
+// scheduler, relation, selected-window, and causal verification.
+const perfTriageLaterQueryAuthorityDirective = "Deterministic scheduler, relation, selected-window, and causal verification belongs to later trace_query evidence collection; do not describe trace_query as globally unavailable merely because it is intentionally absent from this pre-stage schema."
+
 // RegisterDefaults registers all built-in skill configurations.
 //
 // The analyzer's "analysis-skill" is built programmatically from the
@@ -1149,9 +1161,9 @@ Two-axis enumeration contract: when the user asks for every principal member plu
 			"read_file", // blob pagination only
 			"emit_log_triage",
 		},
-		OutputFormat: types.LogTriageJSONShapeFirstTeaching + `
+		OutputFormat: types.LogTriageJSONShapeFirstTeaching + "\n\n" + preTriageStageLocalCapabilityDirective + `
 
-You have ONE required emit tool: emit_log_triage. The current tool schema is authoritative for whether an attachment-pagination read tool is available; use only listed tools. You do NOT have grep / repo_map / list_files — path resolution is handled automatically.
+You have ONE required emit tool: emit_log_triage. The current tool schema is authoritative for this extraction dispatch only, including whether an attachment-pagination read tool is available; use only listed tools. Repository path resolution is handled automatically after this dispatch.
 
 Schema in one glance:
 - meta.lang        (required) — the dominant runtime language
@@ -1219,7 +1231,9 @@ You emit exactly one emit_log_triage call per dispatch. Do NOT write prose — t
 			"read_file",
 			"emit_perf_trace",
 		},
-		OutputFormat: `You have ONE required emit tool: emit_perf_trace. The current tool schema is authoritative for whether an attachment-pagination read tool is available; use only listed tools. No grep / repo_map — path resolution is automatic.
+		OutputFormat: preTriageStageLocalCapabilityDirective + "\n" + perfTriageLaterQueryAuthorityDirective + `
+
+You have ONE required emit tool: emit_perf_trace. The current tool schema is authoritative for this extraction dispatch only, including whether an attachment-pagination read tool is available; use only listed tools. Repository path resolution is handled automatically after this dispatch.
 
 Schema in one glance:
 - meta.source        (required) — one of: hitrace / atrace / systrace / perfetto / unknown

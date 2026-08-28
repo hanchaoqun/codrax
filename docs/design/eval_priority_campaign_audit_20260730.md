@@ -58013,6 +58013,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1451 B1385：预处理工具表只描述本阶段能力，禁止升级成全流程不可用（2026-08-28）
+
+1. `B1385-PRETRIAGESTAGELOCALCAPABILITY1/P1` 已施工。r890 的 perf pre-stage 只暴露 `emit_perf_trace` 与按需分页读取，这是刻意收窄的局部
+   schema；模型却把“本阶段没有 `trace_query`”写成“无法使用 trace_query 进行确定性验证/无 trace_query 工具可用”，并把尚未由该阶段验证的
+   app waker 写成缺失。后续 explorer 实际持有 `trace_query`，且在同一调查中恢复了 cookie-200→app-100 精确边，因此这是阶段能力边界污染，不是
+   trace 数据缺失或整个调查能力缺失。
+2. 日志与性能预处理现在共用单源 `preTriageStageLocalCapabilityDirective`：当前 tool schema 只对 extraction dispatch 有效；某工具未列出只表示它未在
+   本 pre-stage 执行，不能证明整体调查不可用。summary、observation、residue 只承载附件事实和 locator，未经验证的源码/runtime 关系留给后续证据采集，
+   不再鼓励从局部 allowlist 生成全局权限结论。两条车道的 OutputFormat 同时把“schema authoritative”收窄为“for this extraction dispatch only”。
+3. perf 车道另用单源短句明确 deterministic scheduler、relation、selected-window 与 causal verification 属于后续 `trace_query` evidence collection；
+   `trace_query` 在本 pre-stage schema 中刻意缺席，不等于 globally unavailable。该教学不把 query 工具前移，也不要求预处理模型猜窗口、根因或关系，因而
+   降低模型心智且保持预处理只做导航定位的单职责。
+4. 没有增加 residue/summary 关键词过滤、模型原文拒绝、答案改写或系统代答。既有 typed 下游收敛继续作为精确信号：finalizer 持有成功的 deterministic
+   trace query 时会投影掉 pre-triage model observation、stall 与 residue，只保留 validator-owned 行；没有 deterministic query 时仍保留 raw trace
+   fallback。显式窗、Trace 因果投影、自动补采、链上根因、实际占时/规则可消双账户和邻近背景隔离均未修改。
+5. 新回归钉住日志/性能两车道都只携带一次共享边界，且 perf 必须明确后续 trace-query 权限、禁止把本阶段缺席升级为全局不可用。既有 finalizer
+   `TestBuildPromptContext_FinalizerSuppressesPerfResidueAfterTraceQuery` 继续覆盖确定性结果到场后的 typed 收敛。`go test ./internal/skill -count=1`、完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放显式窗 Trace 与另一高优先级 read/write 用例；Trace 重点验收 pre-stage 不再发布全局
+   unavailable/缺证结论、B1383 不再重复发现 probe，同时因果投影、自动补采、链上根因、业务线索和双账户不缩水。活动流不得按固定 4ms/4m、首字节、
+   stall 或累计年龄降级。
+
+状态：
+
+`B1385=implemented/full-suite-green/build-green/pending-production-replay`；
+`pre-triage-tool-schema=stage-local-only`；
+`later-trace-query-authority=explicit-soft-teaching`；
+`downstream-model-candidate/residue=typed-query-superseded`；
+`system-query/result/root/relation/answer-selection=none`；
+`request/model/final-prose/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
