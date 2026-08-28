@@ -57291,6 +57291,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1433 r879/B1370：关系修补当前代租约分裂在两个 MutableState；按 typed ref 闭包择真并同步（2026-08-28）
+
+1. 从已推送 `e3ae92b1b` 重建不可变二进制，严格并发恰好 2 路回放同一 read 架构图与显式窗 Trace。Trace runner PASS，244s；read
+   runner FAIL，638s，原因是 7 次 finalizer reject 后只能降级恢复上一版结构化草稿。两路均保持活动到自然完成，没有按 4ms、4m、首字节、
+   stall、累计活动流年龄或上下文比例提前降级；系统也没有代写模型结论、关系、节点、标签或布局。
+2. `B1366` 获得生产正证：read 最终输出没有再出现 `codraxNode`、悬空 pipe 或“多行 pipe 标签被续行铸成节点”的损坏，说明精确语法修复已进入
+   生产。read 仍失败源于独立状态流问题，不能把本轮整体失败误归给 B1366，也不能据此撤销只修语法、不猜关系的边界。
+3. `B1370-SPLITMUTABLERELATIONLEASE1/P0` 是确定性系统 gap。首个 relation addition patch 已成功消费
+   `ra1-f418...`，validator 随即为新的 relation/participant 问题铸造下一代 lease。patch executor 把当前代 lease 发布到 evaluator 捕获的
+   `MutableState`，而下一轮 hint/schema 从 `AgentContext.Mutable` 读取；旧路由只检查后者，因而把专用
+   `answer_doc.patch_relation_repair_scope` 错降为通用 `answer_doc.patch_correct`。模型看不到当前 opaque refs，只能猜新 ref 或复用已消费旧 ref，
+   连续得到 unknown/stale，最后耗尽重试。该问题是 typed 状态载体分裂，不是模型波动或 Mermaid 文案错误。
+4. B1370 已按同代 typed 闭包施工。relation-scope ToolResult 先解析版本化 relation delta；仅当某一载体上的本地可执行 lease 与 delta 的
+   failure refs、allowed-addition refs，以及存在时的 participant boundary refs 集合逐项完全一致，才把它认作 executor 当前代。选中后把同一个
+   lease 镜像到 evaluator 与 AgentContext 两个载体，保证 retry hint 和下一轮工具 schema 看到相同 generation。陈旧但仍可执行的另一租约因为 ref
+   集合不匹配不能胜出；delta 畸形、缺字段、重复 ref、数量不闭合或无精确 lease 时仍走既有 fail-closed fallback。
+5. 该根修只读取 ToolResult typed metadata 与本地 lease 的不透明 ref 集合；不扫描用户请求、模型 thinking、答案 prose、Mermaid node/label/
+   message 或错误文本，不从 relation identity 猜边，也不创建、删除、翻转、选择或改写模型的操作。新增回归精确构造“AgentContext 带陈旧可执行代、
+   evaluator 带当前执行器代”的生产形，要求专用 hint 只发布当前 ref、陈旧 ref 不泄漏，并把当前租约同步到下一 schema 载体；原 live-addition 与 malformed
+   delta fail-closed 回归保持通过。
+6. Trace 人工判定 partial、系统能力面通过：显式 2.000000..2.020000s 窗、7 次 typed query、完整四跳
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100`、11.000ms 链上 iowait 第一席、三项独立 1.000ms runnable/优先级候选、实际占时/
+   规则可消双账户、背景隔离、自动补采与完整 `Trace 因果投影` 均在。模型仍把 `fscache_page_wait_on_page_bit` 调用点扩写成已知磁盘/网络缓存来源，
+   把普通 sleep 猜成网络 IO，并把非墙钟 IO 活动指数当作系统高负载印证；归入既有 `B1269/B1271` 软教学观察，不增加答案关键词硬门、不拒绝或改写模型结论。
+7. 新 P2 `B1372-TRACEBACKGROUNDDEDUP1`：系统投影把同一个“窗口IO活动综合指数(聚合) 16.000”背景行在 overview、树和指标表中各重复发射
+   两次。数值口径仍明确为非墙钟且未进入主因排序，所以不影响本轮根因正确性，但会让客户误以为存在两份独立背景证据。后续应按 typed source identity+
+   metric kind+scope 去重同源重复发布，不能按最终显示文字去重，也不能把两个真实不同 scope 的观测合并。
+8. `B1367` 请求参与者关系覆盖 eval oracle、`B1368` post-normalization Mermaid grammar/L7 和 `B1369` read 探索 churn 保持独立排队；本批只关闭
+   当前代 lease 传递，避免把生产 P0 与 eval 量尺、语法终验或性能策略混修。下一轮从本批提交重建后继续严格并发恰好 2 路 read+显式窗 Trace 回放，
+   验收专用 relation-scope hint 是否携带当前 ref 并自然收敛，同时继续守住 Trace 投影/自动补采/链上根因及无固定时长降级。
+
+状态：
+
+`r879=runner-trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1366=production-positive/core-closed`；
+`B1370=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1371=B1269/B1271-repeat-model-guidance-only/no-prose-hard-gate`；
+`B1372=confirmed/P2`；`B1367=confirmed/P2-eval-only`；`B1368=confirmed/P1`；`B1369=confirmed/P2-observe`；
+`relation-current-generation=exact-typed-ref-set-across-two-mutable-carriers`；
+`stale-locally-executable-generation=must-not-win`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r879`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r879`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

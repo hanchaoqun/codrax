@@ -17579,8 +17579,12 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// lease, even though the executor returned a non-empty live capability
 	// roster. Preserve the producer as the single generation authority and
 	// validate/render its versioned delta below.
-	relationLeaseInstalled := repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope &&
-		ctx != nil && ctx.Mutable != nil && ctx.Mutable.AnswerDiagramRelationRepairLease() != nil
+	relationLeaseInstalled := false
+	if repairCode == types.ToolRepairCodeAnswerDocRelationRepairScope {
+		relationLeaseInstalled = currentAnswerDocRelationRepairLeaseAcrossMutableState(
+			ctx, e.mu, obs.LastToolResult,
+		) != nil
+	}
 	if repairCode != types.ToolRepairCodeAnswerDocRelationRepairScope {
 		relationLeaseInstalled = installAnswerDocDiagramRelationRepairLease(ctx, e.mu, obs.LastToolResult, e.diagramRequired)
 	}
@@ -17814,6 +17818,111 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+// currentAnswerDocRelationRepairLeaseAcrossMutableState locates the executor's
+// exact live retry generation across the dispatch-local and evaluator-captured
+// MutableState carriers. Recovery/continuation lanes may temporarily expose
+// two different MutableState pointers: the patch executor can publish its
+// lease on one while the next model-tool schema is built from the other.
+//
+// A relation-scope ToolResult already carries the complete typed opaque-ref
+// roster read by the executor. We therefore select a carrier only when its
+// live lease has the exact same failure/addition (and, when present, boundary)
+// refs, then mirror that same lease to both carriers. This reads no request,
+// model prose, Mermaid label, or visible relation and authors no operation.
+func currentAnswerDocRelationRepairLeaseAcrossMutableState(
+	ctx *types.AgentContext,
+	primary *types.MutableState,
+	result *types.ToolResult,
+) *types.AnswerDiagramRelationRepairLease {
+	delta, _, ok := parseAnswerDocDiagramRelationRepairDelta(result)
+	if !ok {
+		return nil
+	}
+	participantDelta, _, participantOK := parseAnswerDocDiagramParticipantRepairDelta(result)
+	mutables := make([]*types.MutableState, 0, 2)
+	if ctx != nil && ctx.Mutable != nil {
+		mutables = append(mutables, ctx.Mutable)
+	}
+	if primary != nil && (len(mutables) == 0 || primary != mutables[0]) {
+		mutables = append(mutables, primary)
+	}
+	var selected *types.AnswerDiagramRelationRepairLease
+	for _, mut := range mutables {
+		lease := mut.AnswerDiagramRelationRepairLease()
+		if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) ||
+			!answerDocRelationRepairLeaseMatchesDeltaRefs(lease, delta, participantDelta, participantOK) {
+			continue
+		}
+		selected = lease
+		break
+	}
+	if selected == nil {
+		return nil
+	}
+	for _, mut := range mutables {
+		mut.SetAnswerDiagramRelationRepairLease(selected)
+	}
+	return selected
+}
+
+func answerDocRelationRepairLeaseMatchesDeltaRefs(
+	lease *types.AnswerDiagramRelationRepairLease,
+	delta answerDocDiagramRelationRepairDelta,
+	participantDelta answerDocDiagramParticipantRepairDelta,
+	participantOK bool,
+) bool {
+	if lease == nil || len(lease.Failures) != len(delta.Failures) ||
+		len(lease.AllowedAdditions) != len(delta.AllowedAdditions) {
+		return false
+	}
+	failureRefs := make(map[string]bool, len(lease.Failures))
+	for _, row := range lease.Failures {
+		ref := strings.TrimSpace(row.FailureRef)
+		if ref == "" || failureRefs[ref] {
+			return false
+		}
+		failureRefs[ref] = true
+	}
+	for _, row := range delta.Failures {
+		if !failureRefs[strings.TrimSpace(row.FailureRef)] {
+			return false
+		}
+	}
+	additionRefs := make(map[string]bool, len(lease.AllowedAdditions))
+	for _, row := range lease.AllowedAdditions {
+		ref := strings.TrimSpace(row.AdditionRef)
+		if ref == "" || additionRefs[ref] {
+			return false
+		}
+		additionRefs[ref] = true
+	}
+	for _, row := range delta.AllowedAdditions {
+		if !additionRefs[strings.TrimSpace(row.AdditionRef)] {
+			return false
+		}
+	}
+	if !participantOK {
+		return len(lease.ParticipantBoundaryFailures) == 0
+	}
+	if len(lease.ParticipantBoundaryFailures) != len(participantDelta.Mismatches) {
+		return false
+	}
+	boundaryRefs := make(map[string]bool, len(lease.ParticipantBoundaryFailures))
+	for _, row := range lease.ParticipantBoundaryFailures {
+		ref := strings.TrimSpace(row.BoundaryRef)
+		if ref == "" || boundaryRefs[ref] {
+			return false
+		}
+		boundaryRefs[ref] = true
+	}
+	for _, row := range participantDelta.Mismatches {
+		if !boundaryRefs[strings.TrimSpace(row.BoundaryRef)] {
+			return false
+		}
+	}
+	return true
 }
 
 // answerDocumentPatchRejectIsDiagramCallEdge selects a typed diagram-only

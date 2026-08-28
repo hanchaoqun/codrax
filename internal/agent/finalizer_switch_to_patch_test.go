@@ -1813,6 +1813,59 @@ func TestRelationRepairScopeForwardsExecutorLiveAdditionsWhenConsumerRebuildIsEm
 	}
 }
 
+func TestRelationRepairScopeFindsExecutorLeaseOnEvaluatorMutable(t *testing.T) {
+	const liveRef = "ra1-executor-evaluator-mutable"
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "pipeline-diagram", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B",
+		},
+	}}}
+	executorMutable := types.NewMutableState("executor relation lease")
+	executorMutable.SetLastRejectedAnswerDocumentV2(base)
+	executorMutable.SetAnswerDiagramRelationRepairLease(&types.AnswerDiagramRelationRepairLease{
+		Version: 1,
+		AllowedAdditions: []types.AnswerDiagramRelationRepairCandidate{{
+			AdditionRef: liveRef, BlockID: "pipeline-diagram", RelationKind: types.DiagramRelDataFlow,
+			FromIdentity: "producer.Value", ToIdentity: "consumer.Value", Source: "pipeline.go:10",
+		}},
+		Blocks: []types.AnswerDiagramRelationRepairLeaseBlock{{BlockID: "pipeline-diagram", Kind: types.BlockDiagram}},
+	})
+	// Recovery can temporarily give the evaluator and AgentContext different
+	// MutableState carriers. The scope ToolResult was produced from the former;
+	// the latter may still carry an older executable generation and must not make
+	// the exact current generation look absent.
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("agent context without lease")}
+	ctx.Mutable.SetAnswerDiagramRelationRepairLease(&types.AnswerDiagramRelationRepairLease{
+		Version: 1,
+		AllowedAdditions: []types.AnswerDiagramRelationRepairCandidate{{
+			AdditionRef: "ra1-stale-agent-context", BlockID: "pipeline-diagram", RelationKind: types.DiagramRelDataFlow,
+			FromIdentity: "old.Producer", ToIdentity: "old.Consumer", Source: "old.go:1",
+		}},
+		Blocks: []types.AnswerDiagramRelationRepairLeaseBlock{{BlockID: "pipeline-diagram", Kind: types.BlockDiagram}},
+	})
+	e := &answerDocumentEvaluator{diagramRequired: true, mu: executorMutable}
+	result := &types.ToolResult{
+		ToolName: "emit_answer_document_patch", Success: false,
+		Repair: &types.ToolRepair{
+			Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
+			Metadata: map[string]string{
+				types.ToolRepairMetaDiagramRelationRepairDeltaJSON: `{"version":1,"failures":[],"preserve_unlisted_edges":true,"allowed_additions":[{"addition_ref":"` + liveRef + `","block_id":"pipeline-diagram","relation_kind":"data_flow","from_identity":"producer.Value","to_identity":"consumer.Value","source":"pipeline.go:10"}]}`,
+			},
+		},
+	}
+
+	signal := e.emitPatchRejectFullRewriteSignal(ctx, LoopObservation{LastToolResult: result})
+	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
+		!strings.Contains(signal.Hint, `"addition_ref":"`+liveRef+`"`) || strings.Contains(signal.Hint, "answer_doc.patch_correct") {
+		t.Fatalf("split mutable scope retry must keep the executor generation: %+v", signal)
+	}
+	mirrored := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if mirrored == nil || len(mirrored.AllowedAdditions) != 1 || mirrored.AllowedAdditions[0].AdditionRef != liveRef {
+		t.Fatalf("next tool schema carrier did not receive the exact executor lease: %+v", mirrored)
+	}
+}
+
 func TestRelationRepairScopeMalformedDeltaStillFallsBackWithoutMintingCapabilities(t *testing.T) {
 	ctx := ctxWithAnswerPatchBaseAndSequenceCallCapsule()
 	e := &answerDocumentEvaluator{diagramRequired: true}
