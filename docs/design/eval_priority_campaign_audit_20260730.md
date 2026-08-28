@@ -58155,6 +58155,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1455 B1387：路径型日志的栈值与状态错误统一 observation-only 因果权限（2026-08-28）
+
+1. `B1387-PATHLOGCAUSALCALIBRATION1/P1` 已施工。r892 的路径型 `.log` 经 analyzer/runtime artifact carrier 正确进入 observation-only lane，
+   explorer 也已经得到“直接观察与上游推断分开”的软教学；但 finalizer 主权限块只强调 artifact/source 引用边界，更具体的 caller/value 权限只藏在较远的
+   investigation advisory note。模型因此在最终成文重新把 `Get(0x0, …)` 和 `context deadline exceeded` 扩张成调用方、初始化缺口、timeout policy
+   与下游慢结论。
+2. 本批新增一份单源软教学，仅在 typed observation-only runtime-artifact authority 已成立后渲染，并由 explorer 的起始指令与 finalizer 的
+   `Runtime Grounding Disposition` 共同复用。栈帧、渲染出的 argument/receiver 值和栈内顺序只证明该帧看到该值以及栈内上下文；不能单独证明哪个
+   caller 创建/传入值、值归属、缺初始化/guard 或上游构造路径。runtime error/status 只证明该帧/时点的观察状态；不能单独证明 entry-time state、
+   caller policy/config、下游慢或唯一机理。
+3. 独立 typed artifact row 或已落地 current-source operation 仍可把上述假设升级为事实；系统不禁止模型得出有证据的因果结论。无独立证据时，模型可把它们
+   写成后续排查假设。该规则覆盖所有语言与运行时，不按 Go、nil、deadline、文件后缀或具体 case 分流；路径型日志、附件日志、错误栈、状态错误共享同一
+   authority 口径。
+4. 为降低模型心智，旧 investigation narrative 中同义的 caller/value advisory 行已删除；finalizer 只在主权限块看一份两行校准。没有新增
+   answer validator、重试、关键词扫描、prose 拦截或系统改写；模型继续决定答案结构、结论、措辞与排查方向。普通 mixed artifact+current-source 车道仍可
+   使用已落地源码证据，Trace 的 typed on-chain root、实际占时/规则可消双账户、业务线索与背景隔离未修改。
+5. 回归钉住 explorer 和 finalizer 两个消费点，并要求 caller producer、missing init/guard、caller policy/config 与 downstream slowness 四类权限边界
+   同时在场；现有 runtime grounding、closure narrative、mixed-source 与 Trace query 套件保持。定向测试、完整 `go test ./... -count=1` 与 CGO
+   release-tag `make` 全绿。
+6. 下一步从已推送 B1386/B1387 代码重建不可变二进制，严格并发恰好 2 路复放路径型日志 + 一个不同模式高优先 case。验收 analyzer 是否用最短逐字 quote
+   保留“不分析代码”、finalizer 是否把上游来源/timeout 策略降回边界，同时人工审计整个答案而不是只看 runner oracle。
+
+状态：
+
+`B1387=implemented/full-suite-green/build-green/pending-production-replay`；
+`runtime-observation-calibration=one-shared-soft-directive/explorer+finalizer`；
+`stack/value/order=observed-frame-context-only`；
+`producer/ownership/init/guard/policy/downstream-speed/mechanism=needs-independent-typed-proof`；
+`system-causal-conclusion/answer/relation/wording-selection=none`；
+`request/model/final-prose/file-suffix/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

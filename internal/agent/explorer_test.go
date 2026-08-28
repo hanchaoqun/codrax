@@ -2480,7 +2480,9 @@ func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
 		t.Fatalf("runtime-only prompt should keep artifact facts out of current-source evidence tool:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "Keep direct observations and inferred upstream causes separate") ||
-		!strings.Contains(prompt, "which variable/parameter/caller supplied the bad value") {
+		!strings.Contains(prompt, "which caller created or supplied a value") ||
+		!strings.Contains(prompt, "caller policy/configuration") ||
+		!strings.Contains(prompt, "downstream slowness") {
 		t.Fatalf("runtime-only prompt should prevent artifact frames from becoming caller-side provenance:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "Breadth Scan") || strings.Contains(prompt, "Focused Depth Start") || strings.Contains(prompt, "fixture_test.go") {

@@ -7963,7 +7963,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		"trace-observed cause/risk",
 		"model-authored closure reason omitted from this authority section",
 		"Accepted runtime closure reason (advisory only",
-		"possible upstream investigation direction",
+		"Observation causality calibration",
+		"which caller created or supplied a value",
+		"missing initialization/guard",
+		"caller policy/configuration",
+		"downstream slowness",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -8260,7 +8264,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 		"model-authored closure reason omitted from this authority section",
 		"Accepted runtime closure reason (advisory only",
 		"artifact line 12 shows RuntimeError",
-		"possible upstream investigation direction",
+		"follow-up hypotheses",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

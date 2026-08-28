@@ -8363,9 +8363,6 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 	b.WriteString("- These are bounded, model-authored exploration notes from the accepted investigation window. They are advisory synthesis only: not citations, not source code, not a hard gate, and not a replacement for typed support lanes.\n")
 	b.WriteString("- Use them to preserve scope boundaries, negative-search conclusions, cross-bucket / cross-repository distinctions, and investigator caveats that would otherwise be lost when the structured evidence is one-sided.\n")
 	b.WriteString("- If these notes conflict with typed support lanes, structured aggregate facts, current citations, or tool outputs, prefer the typed/structured evidence and disclose the boundary instead of silently dropping a user-requested side.\n\n")
-	if runtimeObservationOnlyForAnswerDoc(ctx) {
-		b.WriteString("- For observation-only runtime artifacts, any note that names a variable/parameter, caller-owned value, or upstream data construction is only a possible upstream investigation direction unless the typed observed-artifact lane or current-source evidence independently proves it.\n\n")
-	}
 	if len(raw) > len(notes) {
 		fmt.Fprintf(&b, "*(showing the %d most recent usable note(s) of %d total)*\n\n", len(notes), len(raw))
 	}
@@ -12641,6 +12638,9 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
 		b.WriteString("- This dispatch is runtime-artifact scoped: current checkout/source evidence is not required. Leave current-repo files, helper symbols, and citations out of the answer unless a separate typed current-source anchor is present.\n")
 		b.WriteString("- Do not emit `current_status_verdict`, and do not use visible `still_present` / `fixed` status wording or claim the current checkout lacks a fix. State the trace-observed cause/risk only, then name any current-code check as a possible follow-up if needed.\n\n")
+		b.WriteString("Observation causality calibration:\n")
+		b.WriteString(runtimeArtifactObservationCausalityCalibration())
+		b.WriteString("\n")
 	} else {
 		b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n")
 		if !plan.CurrentStatusDiagnosticRequired {
