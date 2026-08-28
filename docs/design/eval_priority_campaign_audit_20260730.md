@@ -59093,6 +59093,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r873`。
 
+### §123.1427 r874：B1359 生产转正；新增关系许可缺少同代冲突闭包（2026-08-28）
+
+1. 从已推送 `1e9e96604` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 175s、read
+   546s。Trace 人工 pass：显式 2.000..2.020s、3 次 bounded typed query、四跳链、11.000ms iowait 第一席、三个独立 1.000ms
+   优先级候选、实际占时/规则可消双账户、业务下钻和完整「Trace 因果投影」均在；成文零拒绝，没有 fixed 4ms/4m 或流年龄降级。
+2. `B1359-PARAMFLOWIDENT1` 获生产正证。read 第一稿直接绘制 `BusContext -> Mutable`，技术 anchor 精确为
+   `bus.Mutable -> AgentContext.Mutable`；finalizer 发布的同一 candidate 对 BusContext 标 from、对 Mutable 标 to，且排在
+   `append -> ToolResults/MCPResponses` 等单参与者局部候选之前。最终图仍保留这条业务表达，旧 r873 的 Objective 弱链不再替代核心载体边。
+3. read 最终职责正文与四阶段 precedence 基本正确，但人工仍为 partial：共 9 次 finalizer reject/9 次 patch。whole-block 越权、JSON 字段层级与
+   多填孤立节点决定包含模型修补失误；更高 ROI 的确定性系统问题是新 P0/P1 `B1361-DIAGRAMADDITIONATOMICITY1`，不能归为模型波动。
+4. B1361 第一臂：完整 precedence spine 校验要求新增 stage 边时，immutable base 已有同一 typed tuple 映射在非规范 artifact node pair；add recipe
+   没有预检或同轮披露该冲突。模型按系统要求 add 后，下一代 tuple-reuse 门才要求删除重复映射，形成“先补、后撞”的串行隐藏合同。
+5. B1361 第二臂：一个 technical tuple 为 `append -> o.busCtx.ToolResults` 的 `addition_ref` 被执行器接受为 reader-visible
+   `Analyzer -> Mutable`。执行器恢复了 technical identity，却没有在 mutation 前复验 candidate 指定的 participant endpoint side/node mapping；错误映射
+   进入下一草稿后才被 node-identity/participant collision 门拒绝。精确信号已经在 recipe 中，晚一代拒绝属于接线 gap。
+6. 最优方案是同代冲突闭包，不是放宽门或系统代画：生成 add permission 时，对 immutable base 中相同 technical tuple 的所有 visible occurrence
+   做精确预检；若 add 会冲突，则同一 relation delta 同时携带这些 occurrence 的 live failure refs 与 allowed actions，或不发布不可原子完成的 add。
+   执行 addition_ref 前，逐侧校验 model-authored from_node/to_node 是否只把 recipe 声明的 participant side 映射到允许的现有 participant node；technical
+   identity、direction、relation kind 保持字节不动。系统不选择 add/remove/retain，不写 label、布局或结论。
+7. `B1360-REGISTRATIONSHAPE1` 在 r874 未自然复现，保留 P1 并排在 B1361 之后；不得按 BuildAgentContext 函数名或模型/请求 prose 硬过滤。
+   Trace 正文一句“占用 20ms 以外的全部可归因时段”是不严谨模型措辞，系统精确投影仍给出 20ms sleep、11ms IO 与三个独立 1ms 候选，按模型波动
+   留观，不新增 prose 扫描/替写。
+
+状态：
+
+`r874=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1359=production-positive/core-closed`；
+`B1361=confirmed/P0-P1-next`；
+`B1360=confirmed/P1-after-B1361/not-reproduced-r874`；
+`direct-carrier-candidate=BusContext(from)+Mutable(to)/production-positive`；
+`addition-permission=current=no-same-generation-tuple-conflict-closure`；
+`addition-ref-visible-endpoint-mapping=current=validated-next-generation-too-late`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r874`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r874`。
+
 ### §123.1364 S1319：计划自有单行源码合同获得语言无关的 post-apply 精确观察（2026-08-22）
 
 1. `B1319-WRITESOURCECONTRACTOBS1/P1` 已施工。`run_tests` 在非 dry-run 的 post-apply 报告封口处新增独立
