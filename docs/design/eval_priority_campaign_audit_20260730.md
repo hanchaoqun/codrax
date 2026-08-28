@@ -58785,6 +58785,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `request/model/final-prose/path-keyword/mermaid-content-hard-gate=none`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r901`。
 
+### §123.1473 B1401：解释 operation 权限改由可执行 anchor 单源铸造（2026-08-28）
+
+1. `B1401-DEFINITIONMECHANISMOPERATION1/P1` 已施工。`EvidenceCarriesExplanationOperation` 不再因 evidence kind 是
+   `mechanism/relationship/registration/conditional/dataflow/controlflow` 就直接授予 operation 权限；唯一正向来源收敛为 typed executable anchor：
+   call、callback handoff、argument handoff、condition、return、assignment、initializer。
+2. definition、text-reference、string-literal、import、precedence 等非执行 anchor 无论模型填写何种 evidence kind，都不能关闭 required
+   `function_or_purpose/branch_behavior` operation seat。由此同时保护 legacy unscoped seat、B1400 file-scoped seat、post-emit advisory 与 completion gate，
+   不在多个消费点复制第二份判断。
+3. Generic ROLE-DESCRIPTION 教学保留 `mechanism+definition` 的合法用途，但明确它只是从 doc-comment/定义得到的角色说明上下文，不得携带
+   producer/consumer/branch operation 席的 `requested_dimension_indices`；需要闭席时必须另发真实 call/condition/return/assignment/initializer 等行。
+   Explorer 的 requested-dimension 指南同步说明 evidence kind 不能把定义行升级成 operation，消除 r901 的系统自相矛盾引导。
+4. 回归穷举六种曾可旁路的 evidence kind × definition anchor，全部必须拒绝；同一行改为 grounded call anchor 后才允许闭席。原 exact-file/wrong-file、
+   independent dimension、early advisory、wire 接线测试全部改用真实 executable anchor 并保持通过。完整 `go test ./... -count=1` 与 CGO release-tag
+   `make` 全绿。
+5. 本批不扫描用户请求、模型 reasoning、答案 prose、路径关键词或 Mermaid 内容，不判断具体 parser 名称，也不替模型补结论；它仅修复 typed authority。
+   下一批处理 B1402：noisy enum symbol oracle 不得在同一 accepted document 已有 grounded exact-token source line 时发布错误系统疑问；B1403 与 B1396
+   继续独立，避免把输出附注和 context selection 混入本权限提交。
+
+状态：
+
+`B1401=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`operation-authority=typed-executable-anchor-only`；
+`mechanism+definition=descriptive-context/not-operation-ownership`；
+`legacy/file-scoped/post-emit/completion=single-predicate`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

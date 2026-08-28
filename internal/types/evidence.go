@@ -1373,15 +1373,13 @@ func MergeEvidenceRequestedDimensionIndices(dst, src []int) []int {
 
 // EvidenceCarriesExplanationOperation reports whether one evidence row owns
 // an executable/behavioral operation for requested explanation dimensions.
-// It deliberately reads only typed evidence kind and anchor kind. Identity,
-// definition, labels, summaries, request prose, and answer prose cannot mint
-// operation ownership.
+// It deliberately reads only the typed anchor kind. Evidence kind describes
+// the semantic role of a row, but does not prove that its cited location is
+// executable: a mechanism-shaped role description may still be anchored at a
+// type or field definition. Identity, definition, labels, summaries, request
+// prose, and answer prose therefore cannot mint operation ownership by merely
+// changing EvidenceItem.Kind.
 func EvidenceCarriesExplanationOperation(item EvidenceItem) bool {
-	switch item.Kind {
-	case EvidenceMechanism, EvidenceRelationship, EvidenceRegistration,
-		EvidenceConditional, EvidenceDataflowPath, EvidenceControlFlow:
-		return true
-	}
 	switch item.AnchorKind {
 	case AnchorCall, AnchorCallback, AnchorArgument, AnchorCondition,
 		AnchorReturn, AnchorAssignment, AnchorInitializer:

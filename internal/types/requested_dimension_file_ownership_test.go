@@ -19,7 +19,7 @@ func TestRequestedExplanationOperationNeedsUsesOnlyExplicitHighConfidenceFileBin
 		t.Fatalf("needs=%+v", needs)
 	}
 
-	wrongFile := EvidenceItem{Kind: EvidenceMechanism, Source: "cmd/root.go", GroundingStatus: GroundingGrounded, RequestedDimensionIndices: []int{1}}
+	wrongFile := EvidenceItem{Kind: EvidenceMechanism, AnchorKind: AnchorCall, Source: "cmd/root.go", GroundingStatus: GroundingGrounded, RequestedDimensionIndices: []int{1}}
 	if RequestedExplanationOperationNeedCovered(needs[0], wrongFile) {
 		t.Fatal("sibling-file operation must not close the config/load.go seat")
 	}
@@ -27,6 +27,31 @@ func TestRequestedExplanationOperationNeedsUsesOnlyExplicitHighConfidenceFileBin
 	rightFile.Source = "./config/load.go"
 	if !RequestedExplanationOperationNeedCovered(needs[0], rightFile) {
 		t.Fatal("exact file-scoped grounded operation should close its seat")
+	}
+}
+
+func TestRequestedExplanationOperationNeedRejectsDefinitionRegardlessOfEvidenceKind(t *testing.T) {
+	need := RequestedExplanationOperationNeed{Dimension: RequestedAnswerDimension{
+		Index: 1, Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true,
+	}}
+	for _, kind := range []EvidenceKind{
+		EvidenceMechanism, EvidenceRelationship, EvidenceRegistration,
+		EvidenceConditional, EvidenceDataflowPath, EvidenceControlFlow,
+	} {
+		item := EvidenceItem{
+			Kind: kind, AnchorKind: AnchorDefinition,
+			GroundingStatus: GroundingGrounded, RequestedDimensionIndices: []int{1},
+		}
+		if RequestedExplanationOperationNeedCovered(need, item) {
+			t.Fatalf("definition anchor must not become an operation through evidence kind %q", kind)
+		}
+	}
+	item := EvidenceItem{
+		Kind: EvidenceMechanism, AnchorKind: AnchorCall,
+		GroundingStatus: GroundingGrounded, RequestedDimensionIndices: []int{1},
+	}
+	if !RequestedExplanationOperationNeedCovered(need, item) {
+		t.Fatal("grounded call anchor should close the unscoped operation seat")
 	}
 }
 

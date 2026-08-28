@@ -41,6 +41,7 @@ func TestRenderExplorerRequestedDimensionEvidenceOwnershipGuideUsesTypedRoster(t
 		"index=3 source=cmd/root.go",
 		"exact source",
 		"requested_dimension_indices",
+		"evidence_kind is mechanism",
 		"aggregate_facts",
 		"does not choose, phrase, or rewrite the answer conclusion",
 	} {
