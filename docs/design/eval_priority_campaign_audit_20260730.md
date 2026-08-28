@@ -57291,6 +57291,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1491 r912：B1420 生产转正；退化 target_cpu 同时被授权与否定（2026-08-28）
+
+1. 从已推送 `540ef627f` 重建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与显式窗 Trace，runner 2/2 PASS：Rust 74s、
+   Trace 193s。两路自然完成，没有固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统代写模型结论、关系、业务措辞或布局。
+2. Rust 人工 pass。B1420 获生产正证：唯一模型摘要始终在场；五条跨模块调用关系、精确方向和调用点齐全，walker 被正确解释为递归遍历/过滤并向
+   后续逐文件逐行匹配供给路径的前置层。一次 finalizer reject 仅因首稿五条 anchor 漏填 exact endpoint identity；模型按局部 typed alternatives 补齐
+   后一次闭合。B1421 的 zero-anchor 特定分支本轮未触发，故只记无回归，不夸大为生产特定臂转正。
+3. Trace 核心系统面完整：显式 34579.472865..34579.587805 窗、4 次 windowed typed query、
+   `ThreadPoolForeg→NetworkService→CookieMonsterCl→target` 唤醒链、链上优先级/调度/D-IO/算力供给与 VerifyClass 业务线索、实际占时/规则可消双账户、
+   邻近/背景隔离以及完整 `Trace 因果投影` 均保留。frame/deadline 因果未证按席位披露，没有摘除已证链上可消除量加冕。
+4. 新高危 `B1422-WAKEUPTARGETCPUDEGRADEDAUTHORITY1` 是确定性系统合同冲突。WindowStats 已用精确条件识别窗内 1697 条有效
+   sched_wakeup/sched_waking 的 target_cpu 全为 0、且事件头来自多个 CPU，发布 `wakeup_target_cpu_degraded=true`；但同一结果中的 wakeup edge 仍逐行携带
+   `wakee_target_cpu=0,cpu_relation=cross_cpu`，finalizer context 进一步宣称这些 exact rows “prove cross-CPU placement”。模型据此写“36 次唤醒均跨
+   CPU”；答案后置事实附注又说该字段疑退化、按 target_cpu 归账不可靠。同一 typed 信号在前后两层同时授权和否定，不是模型波动。
+5. B1422 最优形不是删唤醒边。退化判据成立时，只撤销该查询窗内所有 wakeup edge 的 `WakeeTargetCPUKnown/CPURelation` 权威并发布 typed
+   unknown/degraded reason；waker CPU、waker→wakee 方向、时间戳、优先级、睡眠退出和整条依赖链全部保留。所有 finalizer/事实对照/观察账本消费者必须
+   从同一降级后的结构读取，禁止后置附注才纠正。健康多核、真实单核与小样本边界保持现有行为。
+6. 新 P2 `B1423-TRACEINTERNALENUMWORDING1`：模型正文直接复制 `causal_conclusion=unproven` 与
+   `frame_evidence_status=absent`，虽语义正确但属于用户不可读内部枚举。先走 soft context 教学/读者语言映射，不以终稿字符串扫描硬拒，也不由系统改写
+   正文；与 B1422 分批，避免把证据权限根修和措辞优化混在一起。
+
+状态：
+
+`r912=runner-pass-2/2,human-rust-pass+trace-partial`；
+`B1420=production-positive/core-closed`；
+`B1421=unit-closed/production-no-regression/specific-zero-anchor-arm-not-fired`；
+`B1422=confirmed/P0-P1-next/typed-authority-conflict`；
+`B1423=confirmed/P2/soft-reader-language`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r912`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/relation/conclusion/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-content-new-hard-scan=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r912`。
+
 ### §123.1490 B1421：关系修复候选保持模型选择与证据账本顺序（2026-08-28）
 
 1. `B1421-RELATIONREPAIRCANDIDATEORDER1/P1` 已施工。零 anchor 的结构化关系块仍只按模型在
