@@ -5019,7 +5019,7 @@ func requestedDimensionEvidenceOwnershipDowngrade(ctx *types.BusContext, evidenc
 		if item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered {
 			continue
 		}
-		if !evidenceCarriesExplanationOperation(item) {
+		if !types.EvidenceCarriesExplanationOperation(item) {
 			continue
 		}
 		for _, index := range item.RequestedDimensionIndices {
@@ -5038,21 +5038,6 @@ func requestedDimensionEvidenceOwnershipDowngrade(ctx *types.BusContext, evidenc
 	return EmitInvestigationCompleteDowngradePrefix + " — independent requested explanation dimensions lack grounded operation ownership.\n\n" +
 		"Missing requested dimension indices: " + strings.Join(missing, ", ") + ".\n" +
 		"Read the actual producer/consumer/branch operation for each missing dimension, emit grounded evidence for that operation, and set that evidence item's requested_dimension_indices to the exact index it supports. A definition/default/example for one dimension and an operation for a sibling do not cross-satisfy each other. Re-emitting an existing grounded row with added indices is a metadata amendment; ownership is never inferred from labels, summaries, request text, or answer prose."
-}
-
-func evidenceCarriesExplanationOperation(item types.EvidenceItem) bool {
-	switch item.Kind {
-	case types.EvidenceMechanism, types.EvidenceRelationship, types.EvidenceRegistration,
-		types.EvidenceConditional, types.EvidenceDataflowPath, types.EvidenceControlFlow:
-		return true
-	}
-	switch item.AnchorKind {
-	case types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorCondition,
-		types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
-		return true
-	default:
-		return false
-	}
 }
 
 // completionDenialBreakerMaxStreak is how many CONSECUTIVE identical

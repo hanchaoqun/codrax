@@ -1196,6 +1196,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
 	}
+	if advisory := renderRequestedDimensionOperationOwnershipAdvisory(ctx, built, allEvidence); advisory != "" {
+		summary = strings.TrimRight(summary, "\n") + "\n\n" + advisory + "\n"
+	}
 	if len(surfaceTermDrops) > 0 {
 		summary = strings.TrimRight(summary, "\n") +
 			"\n\nsurface_terms compatibility: dropped ungrounded optional term(s); evidence items were kept:\n  - " +
@@ -5940,6 +5943,95 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 	}
 	if shouldNudgeDiagramRoleHints(ctx, items) {
 		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
+	}
+	return b.String()
+}
+
+// renderRequestedDimensionOperationOwnershipAdvisory gives the model an early,
+// soft correction after a successful evidence emission. Completion retains its
+// exact hard contract, but the model no longer needs to reach completion before
+// learning that definition/context rows do not own independent operation
+// dimensions. The advisory never rejects evidence and never attaches an index
+// on the model's behalf.
+func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, current, all []types.EvidenceItem) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	required := types.RequestedExplanationOperationOwnershipDimensions(ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions)
+	if len(required) == 0 {
+		return ""
+	}
+	requiredByIndex := make(map[int]types.RequestedAnswerDimension, len(required))
+	for _, dimension := range required {
+		requiredByIndex[dimension.Index] = dimension
+	}
+	grounded := func(item types.EvidenceItem) bool {
+		return item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered
+	}
+
+	// This is per-emission guidance, not a sticky session warning. Only a
+	// current accepted operation row or a current typed index on a non-operation
+	// row makes the missing ownership actionable in this result.
+	actionable := false
+	for _, item := range current {
+		if !grounded(item) {
+			continue
+		}
+		if types.EvidenceCarriesExplanationOperation(item) {
+			actionable = true
+			break
+		}
+		for _, index := range item.RequestedDimensionIndices {
+			if _, ok := requiredByIndex[index]; ok {
+				actionable = true
+				break
+			}
+		}
+		if actionable {
+			break
+		}
+	}
+	if !actionable {
+		return ""
+	}
+
+	covered := make(map[int]bool, len(required))
+	nonOperationOwned := make(map[int]bool, len(required))
+	for _, item := range all {
+		if !grounded(item) {
+			continue
+		}
+		operation := types.EvidenceCarriesExplanationOperation(item)
+		for _, index := range item.RequestedDimensionIndices {
+			if _, ok := requiredByIndex[index]; !ok {
+				continue
+			}
+			if operation {
+				covered[index] = true
+			} else {
+				nonOperationOwned[index] = true
+			}
+		}
+	}
+	var missing []string
+	misassigned := false
+	for _, dimension := range required {
+		if covered[dimension.Index] {
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("%d (%s)", dimension.Index, dimension.Role))
+		misassigned = misassigned || nonOperationOwned[dimension.Index]
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("Requested-dimension operation ownership advisory (accepted evidence is unchanged): missing operation-owned indices ")
+	b.WriteString(strings.Join(missing, ", "))
+	b.WriteString(". Add each exact index only to the grounded producer/consumer/branch operation row that actually supports that dimension; ownership is never inferred or copied automatically.")
+	if misassigned {
+		b.WriteString(" One or more missing indices currently appear only on identity/definition/context rows; those metadata links do not establish operation ownership.")
 	}
 	return b.String()
 }

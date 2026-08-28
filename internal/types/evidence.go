@@ -1371,6 +1371,26 @@ func MergeEvidenceRequestedDimensionIndices(dst, src []int) []int {
 	return out
 }
 
+// EvidenceCarriesExplanationOperation reports whether one evidence row owns
+// an executable/behavioral operation for requested explanation dimensions.
+// It deliberately reads only typed evidence kind and anchor kind. Identity,
+// definition, labels, summaries, request prose, and answer prose cannot mint
+// operation ownership.
+func EvidenceCarriesExplanationOperation(item EvidenceItem) bool {
+	switch item.Kind {
+	case EvidenceMechanism, EvidenceRelationship, EvidenceRegistration,
+		EvidenceConditional, EvidenceDataflowPath, EvidenceControlFlow:
+		return true
+	}
+	switch item.AnchorKind {
+	case AnchorCall, AnchorCallback, AnchorArgument, AnchorCondition,
+		AnchorReturn, AnchorAssignment, AnchorInitializer:
+		return true
+	default:
+		return false
+	}
+}
+
 // evidenceCarrierMayReplace compares two versions of the same stable fact.
 // Grounding authority is primary. Within the same authority, typed carrier
 // coherence and completeness are monotonic: a condition anchor with a typed

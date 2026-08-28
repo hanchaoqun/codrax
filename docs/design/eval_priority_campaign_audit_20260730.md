@@ -58576,6 +58576,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1467 B1394：成功证据发射即时披露 typed operation 归属缺口（2026-08-28）
+
+1. `B1394-DIMENSIONOWNERSHIPPOSTEMITADVISORY1/P2` 已施工。此前多解释席位的 `requested_dimension_indices` 归属只在
+   `emit_investigation_complete` 才检查；r898 因而先把 1/3 两个索引都挂在 `PipelineMaxSteps` 定义行，实际 YAML/CLI 操作行没有索引，直到完成门才
+   知道错误并多烧轮次。现在 `emit_evidence` 在证据成功写入累计缓冲后，用同一 typed operation predicate 立即计算哪些 required
+   `function_or_purpose/branch_behavior` 席仍缺 operation-owned index，并在当次成功摘要追加精确软提示。
+2. 提示只在本次已接受批次出现 grounded/recovered operation row，或 required index 本次落到非 operation row 时发出；无关 identity emit 不重复轰炸。
+   已由 grounded/recovered operation row 覆盖的席位不再列出，全部覆盖后零字节。单解释席继续走既有 evidence floor，显式 Trace 的
+   causal/observed dimensions 不在该解释席集合中，因此不会触发或削弱 Trace 因果投影与自动补采。
+3. completion 与 post-emit 现共用 `types.EvidenceCarriesExplanationOperation`：仅 typed evidence kind/anchor kind 能证明 operation；定义、identity、label、
+   summary、请求或答案 prose 均不能铸造归属。post-emit 是 advisory，不拒绝、回滚或修改已接受 evidence，也不自动从定义行把 index 复制给某个操作行；
+   由模型根据读到的 producer/consumer/branch 事实选择精确行和索引。
+4. 回归覆盖：索引只挂定义行而操作行无索引时列出 1/3 且证据仍提交；grounded+recovered 操作行分别覆盖全部席位时零提示；无关 identity 批次和单解释
+   profile 零提示；真实 `EmitEvidence.Execute` 成功路径必须携带 advisory、不得转成 reject。内部术语 tripwire 首轮还捕获并移除了 `the system will`
+   主语泄漏；最终提示改成中性规则说明。完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+5. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放 `qf_config_precedence` 与显式窗 Donghu Trace。配置题验收 B1394 是否在首次完成前促成
+   operation-owned indices、B1395 是否消除虚假边界与陈腐降级脚注；Trace 验收完整窗、唤醒链、链上根因家族、业务线索、实际占时/规则可消双账户、背景
+   分层与 `Trace 因果投影` 均保持，且活动流不因固定 4ms/4m 阈值降级。
+
+状态：
+
+`B1394=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`post-emit-dimension-ownership=typed/current-successful-batch/soft-advisory`；
+`accepted-evidence=unchanged/no-reject/no-rollback`；
+`index-attachment=model-owned/no-auto-copy`；
+`operation-authority=typed-kind+anchor-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

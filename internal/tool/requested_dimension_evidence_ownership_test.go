@@ -1,6 +1,9 @@
 package tool
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,5 +65,98 @@ func TestRequestedDimensionEvidenceOwnershipLeavesSingleExplanationOnExistingFlo
 	)
 	if got := requestedDimensionEvidenceOwnershipDowngrade(ctx, nil); got != "" {
 		t.Fatalf("single explanation must keep existing floor contract, got %q", got)
+	}
+}
+
+func TestEmitEvidenceDimensionOwnershipAdvisoryAcceptsRowsAndNamesMissingOperationIndices(t *testing.T) {
+	ctx := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		types.RequestedAnswerDimension{Index: 3, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+	)
+	definition := types.EvidenceItem{
+		Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition,
+		GroundingStatus: types.GroundingGrounded, RequestedDimensionIndices: []int{1, 3},
+	}
+	operation := types.EvidenceItem{
+		Kind: types.EvidenceMechanism, AnchorKind: types.AnchorCall,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	got := renderRequestedDimensionOperationOwnershipAdvisory(ctx,
+		[]types.EvidenceItem{definition, operation}, []types.EvidenceItem{definition, operation})
+	for _, want := range []string{
+		"accepted evidence is unchanged",
+		"1 (function_or_purpose)",
+		"3 (function_or_purpose)",
+		"identity/definition/context rows",
+		"ownership is never inferred or copied automatically",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("advisory missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestEmitEvidenceDimensionOwnershipAdvisoryClearsWhenOperationsOwnEveryIndex(t *testing.T) {
+	ctx := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		types.RequestedAnswerDimension{Index: 3, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	)
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceMechanism, GroundingStatus: types.GroundingGrounded, RequestedDimensionIndices: []int{1}},
+		{Kind: types.EvidenceConditional, GroundingStatus: types.GroundingRecovered, RequestedDimensionIndices: []int{3}},
+	}
+	if got := renderRequestedDimensionOperationOwnershipAdvisory(ctx, items, items); got != "" {
+		t.Fatalf("fully owned dimensions must not produce advisory: %q", got)
+	}
+}
+
+func TestEmitEvidenceDimensionOwnershipAdvisorySkipsUnrelatedAndSingleDimensionCalls(t *testing.T) {
+	multi := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		types.RequestedAnswerDimension{Index: 2, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	)
+	unrelated := []types.EvidenceItem{{
+		Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := renderRequestedDimensionOperationOwnershipAdvisory(multi, unrelated, unrelated); got != "" {
+		t.Fatalf("unrelated identity emit must not be spammed: %q", got)
+	}
+
+	single := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+	)
+	operation := []types.EvidenceItem{{Kind: types.EvidenceMechanism, GroundingStatus: types.GroundingGrounded}}
+	if got := renderRequestedDimensionOperationOwnershipAdvisory(single, operation, operation); got != "" {
+		t.Fatalf("single explanation keeps the existing floor: %q", got)
+	}
+}
+
+func TestEmitEvidenceExecutePublishesDimensionOwnershipAdvisoryWithoutRejectingEvidence(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "x.go"), []byte("package p\nfunc F() {}\nfunc G() { F() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		types.RequestedAnswerDimension{Index: 3, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+	)
+	ctx.RepoRoot = repo
+	ctx.WorkDir = repo
+	seedReadFileHistory(ctx, "x.go", 1, "package p", "func F() {}", "func G() { F() }")
+	result, err := (&EmitEvidence{}).Execute(ctx, json.RawMessage(`{
+		"items":[
+			{"scope":"line","evidence_kind":"direct","source":"x.go","line_start":2,"anchor_kind":"definition","anchor_symbol":"F","requested_dimension_indices":[1,3]},
+			{"scope":"line","evidence_kind":"mechanism","subject":"G","predicate":"calls","object":"F","source":"x.go","line_start":3,"anchor_kind":"call","anchor_symbol":"F"}
+		]
+	}`))
+	if err != nil || !result.Success {
+		t.Fatalf("evidence should remain accepted: err=%v result=%+v", err, result)
+	}
+	if got := len(ctx.Mutable.EmittedEvidence()); got < 2 {
+		t.Fatalf("accepted evidence was not committed: got=%d summary=%s", got, result.Summary)
+	}
+	if !strings.Contains(result.Summary, "Requested-dimension operation ownership advisory") ||
+		!strings.Contains(result.Summary, "accepted evidence is unchanged") {
+		t.Fatalf("successful result did not carry the early soft advisory: %s", result.Summary)
 	}
 }
