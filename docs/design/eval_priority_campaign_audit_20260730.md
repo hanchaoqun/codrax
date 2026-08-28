@@ -57789,6 +57789,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `model-owned=relation+endpoint+label+wording+layout+conclusion`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1445 r888/B1382/B1383：typed 覆盖生产转正；全量拓扑载体反向淹没逻辑视图（2026-08-28）
+
+1. 从已推送 `a39d5577e` 重建干净二进制，严格并发恰好 2 路复放 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 241s、read
+   427s。两路都没有按 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有恢复旧稿或由系统代写模型结论、关系、标签和布局。
+2. `B1381` 获得生产正证。read 控制日志只在整份合同通过后铸造
+   `diagram_participant_coverage_receipt version=1 status=accepted required=6 covered=6 unproven_boundaries=2`，runner 从最后一条 accepted receipt
+   精确签绿。Mermaid 保留至少一条真实边，Analyzer→Explorer→Extractor→Finalizer 三条阶段 precedence 有 typed 方向权威；Mutable 与 BusContext
+   以无箭头 `unproven` boundary 诚实覆盖。生产参与者、关系、方向、scope 和 Mermaid 语法门均未放宽。
+3. Trace 系统面继续完整：显式 2.000..2.020s 窗、四跳 `threadpool-400 -> network-300 -> cookie-200 -> app-100` 唤醒链、11.000ms
+   链上 IO 第一席、三个互相独立的 1.000ms runnable/优先级反转候选、实际占时与规则可消双账户、链上业务线索、背景隔离、自动补采和完整
+   `Trace 因果投影` 全在，成文拒绝 0。模型仍把 `fscache_page_wait_on_page_bit` 候选下钻扩写到具体页缓存/块设备机理，但 caveat 同页明确调用点
+   不证明资源持有者、文件系统或后端；继续按模型推理波动留观，不扫描、拒绝或改写正文。
+4. `B1380` 本轮没有自然触发。Trace 唯一 patch 是针对同 id section 的 add/replace 合并，不含 `block_field_edits_v1` 与同字段同值 full replacement；
+   因而 B1380 保持结构化回归与全仓测试闭环，不能把 r888 记作其生产正证。
+5. 新 P1 `B1382-TYPEDTOPOLOGYGRANULARITYCONFLICT1` 已由日志和代码双证确认。finalizer 同一 prompt 一侧要求每个 incident participant 只选一个相关
+   typed candidate、明确“Do not render every candidate”；另一侧却把 authoring receipt 中所有 relation anchors（本轮 30 余条 retry/checkpoint 内部关系）与
+   boundary 合成 `diagram_block_sibling_fields_json`，并要求模型“Copy both arrays together”“do not selectively omit”。模型照后一硬教学把
+   `len`、`strings.TrimSpace`、`mergeCheckpointEvidenceItems`、`countSuccessfulToolResults` 等内部实现全部画进阶段逻辑图。关系各自可能为真，但完整复制命令
+   把支持证据集合误当成 principal presentation 集合，答案因此技术噪声过载；这不是 Mermaid 语法错误，也不是缺关系模型波动。
+6. B1382 最优泛化修向冻结：保留全量 typed relation authority 供验证和下钻，但只有“已证覆盖完整的同一 requested relation subset”才能发布原子
+   whole-topology copy carrier；requested participant coverage 仍不完整时，撤销整图全量复制命令，只发布逐参与者有限候选、精确 relation recipe 与
+   typed unproven boundary，让模型选择 principal edges、业务 wording 和布局。系统不得按方法名/标签/正文关键词删边，不得自行归纳业务关系，也不能为简图
+   降低证据门；低层关系继续可进正文、表格或模型另选的细节图。
+7. 新 P1 观察项 `B1383-PROBEFLOWREPAIRDUPLICATION1` 单独立案，尚未与 B1382 合批。read 的 probe dispatch 已读 10 个文件、产出 61 条 grounded
+   evidence，并因 Mutable/BusContext requested-flow 未证被 flow participant repair 连续驱动到低增量强制闭环；随后 DAG evidence dispatch 仍再次执行，
+   又因一条已知 schema-invalid relationship item 多次拒绝 completion，最终 read_file=22、investigation_complete=7、unavailable grep=1。下一步先核对
+   probe/evidence node ownership、repair-debt 代次和已接受事实复用；不得按固定轮数、耗时、上下文比例或文件名截断，也不得削弱复杂 read 与 Trace 自动补齐。
+
+状态：
+
+`r888=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1381=production-positive/core-closed`；
+`B1380=tests-positive/no-natural-production-trigger-r888`；
+`B1382=confirmed/P1-next`；
+`B1383=confirmed-observation/P1-audit-next`；
+`typed-participant-receipt=required6/covered6/unproven2`；
+`full-relation-authority!=principal-diagram-selection`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r888`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r888`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
