@@ -57291,6 +57291,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1490 B1421：关系修复候选保持模型选择与证据账本顺序（2026-08-28）
+
+1. `B1421-RELATIONREPAIRCANDIDATEORDER1/P1` 已施工。零 anchor 的结构化关系块仍只按模型在
+   `claim_uses[].claim_form` 中选择的关系族发布 bounded optional candidates；候选集合仍来自 accepted+citable typed evidence，并继续通过既有
+   relation authority 复核。系统不从请求、条目文字、最终答案、Mermaid label/message 或错误 prose 推断调用关系。
+2. 候选优先级现在同时读取模型已填写的 `claim_uses[].evidence_id` 与 `items[].evidence_ids`。这两类载体都只是模型已经选择的精确证据身份；只有该
+   evidence 本身能铸成合法、有 authority 的 typed relation 时才会进入候选。任意未知、未接纳、不可引用或非关系 evidence id 均不能借此生成关系。
+3. 同 rank 候选不再按 relation/from/to/source 的字母序重排，而是稳定保持 accepted evidence ledger 的原顺序。于是模型丢失 block-level
+   evidence id 后，局部修复提示不会因符号名排序把主入口链截掉；模型自己在 item 上保留的关系证据优先，其余由原已验收证据顺序补位。limit=6 与
+   guidance-only 语义保持不变，系统不替模型选择、添加、删除、保留或排序最终可见关系。
+4. 回归构造七条合法 call evidence：模型只在 item 选择一条末端关系，候选必须先给该条，再按 ledger 顺序给 `main→run`、
+   `run→collect` 等关系；禁止字母序靠后的第七条挤进六条上限。测试中的 label/text 明确为无关噪声，证明可见文本不进入判定。既有
+   claim-use evidence 选择、关系族隔离、ungrounded 排除继续通过。
+5. 聚焦 tool 测试、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。改动仅位于 answer-document 关系修复提示排序，不触碰
+   Trace query、显式时间窗、因果投影、自动补采、链上根因排序、业务线索、实际占时/规则可消双账户或写模式 controller。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与显式窗 Trace。Rust 验收 B1420 必须摘要与 B1421 主链候选是否在
+   自然重试中生效；Trace 验收完整因果投影与系统补齐不回归。活动流不得因固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级。
+
+状态：
+
+`B1421=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`candidate-priority=model-selected-typed-evidence+stable-accepted-ledger-order`；
+`candidate-limit=6/guidance-only`；
+`system-relation/action/conclusion/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1433 r879/B1370：关系修补当前代租约分裂在两个 MutableState；按 typed ref 闭包择真并同步（2026-08-28）
 
 1. 从已推送 `e3ae92b1b` 重建不可变二进制，严格并发恰好 2 路回放同一 read 架构图与显式窗 Trace。Trace runner PASS，244s；read

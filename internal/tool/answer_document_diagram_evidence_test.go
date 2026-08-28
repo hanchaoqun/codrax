@@ -3359,6 +3359,56 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresencePublishesClaimScopedTy
 	}
 }
 
+func TestPreCheckStandaloneCallChainRelationAnchorPresencePrioritizesModelSelectedItemEvidenceThenLedgerOrder(t *testing.T) {
+	call := func(id, from, to string, line int) types.EvidenceItem {
+		return types.EvidenceItem{
+			ID: id, Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+			Subject: from, Object: to, Predicate: "calls",
+			Source: "src/main.rs", LineStart: line, LineEnd: line,
+			AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		}
+	}
+	evidence := []types.EvidenceItem{
+		call("ev-main-run", "main", "run", 10),
+		call("ev-run-collect", "run", "walker::collect_files", 20),
+		call("ev-run-index", "run", "index_file", 23),
+		call("ev-index-match", "index_file", "Matcher.is_match", 30),
+		call("ev-alpha-terminal", "AlphaMatcher.is_match", "str.contains", 40),
+		call("ev-selected-terminal", "RegexLikeMatcher.is_match", "str.find", 50),
+		call("ev-zeta-terminal", "ZetaMatcher.is_match", "str.ends_with", 60),
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		Items: []types.AnswerBlockItem{{
+			Label:       "visible text is not read",
+			Text:        "nor is this prose",
+			EvidenceIDs: []string{"ev-selected-terminal"},
+		}},
+	}}}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("typed candidate order"), EvidenceItems: evidence}
+	hints := preCheckStandaloneCallChainRelationAnchorPresence(
+		doc, &types.AnswerSemanticView{Family: types.QFCallChain}, newPreEmitCheckContext(ctx),
+	)
+	if len(hints) != 1 {
+		t.Fatalf("expected one zero-anchor hint, got %+v", hints)
+	}
+	got := hints[0].ExpectedShape
+	selectedAt := strings.Index(got, `evidence_id:"ev-selected-terminal"`)
+	mainAt := strings.Index(got, `evidence_id:"ev-main-run"`)
+	collectAt := strings.Index(got, `evidence_id:"ev-run-collect"`)
+	alphaAt := strings.Index(got, `evidence_id:"ev-alpha-terminal"`)
+	if selectedAt < 0 || mainAt < 0 || collectAt < 0 || alphaAt < 0 {
+		t.Fatalf("expected selected and evidence-ledger candidates in bounded hint: %s", got)
+	}
+	if !(selectedAt < mainAt && mainAt < collectAt && collectAt < alphaAt) {
+		t.Fatalf("candidate order must be model-selected item evidence first, then stable evidence-ledger order: %s", got)
+	}
+	if strings.Contains(got, `evidence_id:"ev-zeta-terminal"`) {
+		t.Fatalf("bounded hint must retain the six highest-priority candidates: %s", got)
+	}
+}
+
 func TestPreCheckStandaloneCallChainRelationAnchorPresenceRejectsOnlyUnownedTypedKind(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "principal-path", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,

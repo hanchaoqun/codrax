@@ -5361,8 +5361,10 @@ func preEmitStandaloneRelationRepairCandidateGuidance(
 
 // preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms gives a
 // zero-anchor structured block a bounded set of recipes that match relation
-// families the model already selected in claim_uses. It does not infer a path,
-// choose a recipe, or read any reader-visible text.
+// families the model already selected in claim_uses. Model-selected item
+// evidence identities receive the same local priority as claim-use evidence
+// identities, then the accepted evidence-ledger order is preserved. It does
+// not infer a path, choose a recipe, or read any reader-visible text.
 func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
 	block types.AnswerBlock,
 	evidence []types.EvidenceItem,
@@ -5381,6 +5383,11 @@ func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
 			allowed[relation] = true
 		}
 		if id := strings.TrimSpace(use.EvidenceID); id != "" {
+			selectedEvidence[id] = true
+		}
+	}
+	for _, item := range block.Items {
+		for _, id := range normalizeAnswerItemEvidenceIDs(item.EvidenceIDs) {
 			selectedEvidence[id] = true
 		}
 	}
@@ -5423,22 +5430,7 @@ func preEmitFormatStandaloneRelationRepairCandidates(
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		left, right := candidates[i], candidates[j]
-		if left.rank != right.rank {
-			return left.rank < right.rank
-		}
-		if left.relation != right.relation {
-			return left.relation < right.relation
-		}
-		if left.from != right.from {
-			return left.from < right.from
-		}
-		if left.to != right.to {
-			return left.to < right.to
-		}
-		if left.source != right.source {
-			return left.source < right.source
-		}
-		return left.evidenceID < right.evidenceID
+		return left.rank < right.rank
 	})
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
