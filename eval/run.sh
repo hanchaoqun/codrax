@@ -111,6 +111,7 @@ EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
 EXPECT_MERMAID_MIN_EDGES="${EXPECT_MERMAID_MIN_EDGES:-}"
 EXPECT_MERMAID_MIN_INCIDENT_NODES="${EXPECT_MERMAID_MIN_INCIDENT_NODES:-}"
+EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE="${EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE:-}"
 EXPECT_PRINCIPAL_CONTAINS="${EXPECT_PRINCIPAL_CONTAINS:-}"
 EXPECT_PRINCIPAL_NOT_CONTAINS="${EXPECT_PRINCIPAL_NOT_CONTAINS:-}"
 EXPECT_PRINCIPAL_MATCHES_REGEX="${EXPECT_PRINCIPAL_MATCHES_REGEX:-}"
@@ -1633,6 +1634,20 @@ run_one() {
       extra_reasons+=("$operation_terminal_reason")
     done < <(
       eval_operation_terminal_reasons "$log" "$OUTDIR/run-$i.operation-terminal.tsv"
+    )
+  fi
+
+  # Typed diagram coverage is minted only after the production participant
+  # incidence/unproven-boundary and whole-relation-scope validators accept the
+  # final document. This eval oracle therefore does not infer coverage from
+  # answer prose, Mermaid labels, or an arbitrary incident-node count.
+  if [[ -n "$EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE" ]]; then
+    local diagram_participant_reason
+    while IFS= read -r diagram_participant_reason; do
+      [[ -z "$diagram_participant_reason" ]] && continue
+      extra_reasons+=("$diagram_participant_reason")
+    done < <(
+      eval_diagram_participant_coverage_reasons "$log" "$OUTDIR/run-$i.diagram-participant-coverage.tsv"
     )
   fi
 

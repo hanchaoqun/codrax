@@ -451,6 +451,46 @@ eval_operation_terminal_reasons() {
   fi
 }
 
+# eval_diagram_participant_coverage_reasons <control-log> <receipt-tsv>
+#
+# Consumes only the last production-minted typed coverage receipt. The receipt
+# is emitted after the same participant/boundary and whole-relation-scope gates
+# accept the final AnswerDocumentV2; no answer prose or Mermaid label/message
+# is parsed here. EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE is the exact typed
+# incident_required participant count declared by the eval case.
+eval_diagram_participant_coverage_reasons() {
+  local log_file="$1" receipt_file="$2"
+  local expected="${EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE:-}"
+  if ! [[ "$expected" =~ ^[1-9][0-9]*$ ]]; then
+    echo "invalid_typed_diagram_participant_coverage:${expected:-missing}"
+    return 0
+  fi
+  if [[ -z "$log_file" || ! -f "$log_file" ]]; then
+    echo "diagram_participant_coverage_receipt_missing"
+    return 0
+  fi
+  local line
+  line="$(LC_ALL=C grep -aE ' INFO \[diagram_participant_coverage_receipt\] version=1 status=accepted required=[0-9]+ covered=[0-9]+ unproven_boundaries=[0-9]+' "$log_file" | tail -1 || true)"
+  if [[ -z "$line" ]]; then
+    echo "diagram_participant_coverage_receipt_missing"
+    return 0
+  fi
+  local required covered boundaries
+  required="$(LC_ALL=C sed -E 's/.* required=([0-9]+).*/\1/' <<<"$line")"
+  covered="$(LC_ALL=C sed -E 's/.* covered=([0-9]+).*/\1/' <<<"$line")"
+  boundaries="$(LC_ALL=C sed -E 's/.* unproven_boundaries=([0-9]+).*/\1/' <<<"$line")"
+  {
+    printf 'expected_required\tactual_required\tactual_covered\tunproven_boundaries\n'
+    printf '%s\t%s\t%s\t%s\n' "$expected" "$required" "$covered" "$boundaries"
+  } >"$receipt_file"
+  if [[ "$required" != "$expected" ]]; then
+    echo "diagram_participant_required:${required}:expected:${expected}"
+  fi
+  if [[ "$covered" != "$expected" ]]; then
+    echo "diagram_participant_covered:${covered}:expected:${expected}"
+  fi
+}
+
 eval_case_oracle_surface() {
   local file="$1"
   local surfaces=""
@@ -513,6 +553,9 @@ eval_case_oracle_surface() {
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_MERMAID_MIN_INCIDENT_NODES=' "$file"; then
     eval_case_oracle_surface_add "mermaid_incident_node_count"
+  fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=' "$file"; then
+    eval_case_oracle_surface_add "typed_diagram_participant_coverage"
   fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_PRINCIPAL_(CONTAINS|NOT_CONTAINS|MATCHES_REGEX|MATCHES_TEXT_REGEX)=' "$file"; then
     eval_case_oracle_surface_add "principal_answer"

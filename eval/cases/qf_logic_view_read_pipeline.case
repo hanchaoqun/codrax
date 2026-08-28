@@ -10,5 +10,5 @@ EXPECT_CONTAINS="analyzer explorer extractor finalizer Mutable BusContext"
 EXPECT_MATCHES_REGEX='(```mermaid|flowchart|graph[[:space:]]+(TD|LR))
 (AnalysisIR|EvidenceItems|AnswerDocument|Mutable|BusContext)'
 EXPECT_MERMAID_MIN_EDGES=1
-EXPECT_MERMAID_MIN_INCIDENT_NODES=6
+EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=6
 EXPECT_NOT_CONTAINS="Spring Django"

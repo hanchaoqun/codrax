@@ -15,6 +15,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -157,6 +158,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		c.CitationReq.MinCitations = 0
 		c.AcceptanceTests = dropCitationCountGEContract(c.AcceptanceTests)
 	}
+	var diagramParticipantCoverageView *types.AnswerSemanticView
 	if mut != nil {
 		c = types.RelaxAnalyzerEntityMustIncludeWithAggregateMemberSet(
 			c,
@@ -242,6 +244,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		if docV2 := mut.AnswerDocumentV2(); docV2 != nil && o != nil && o.busCtx != nil {
 			view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
 			if view != nil {
+				diagramParticipantCoverageView = view
 				// Oracle-aware variant so validators that opt in
 				// (today: validateEnumerationItemLabelExtractorMatch,
 				// Fix B 2026-05-07) verify finalizer-emitted labels
@@ -668,8 +671,38 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	// every legacy kind so pre-commit-53 behaviour is byte-identical;
 	// only the 3 new kinds (P2/P4) default to soft.
 	result.Passed = !hasAnyStrictViolationForBus(result.Violations, contractBus)
+	if fields, ok := acceptedDiagramParticipantCoverageReceiptLogFields(result.Passed, mut, o, diagramParticipantCoverageView); ok {
+		logging.Info("[diagram_participant_coverage_receipt] %s", fields)
+	}
 
 	return result
+}
+
+// acceptedDiagramParticipantCoverageReceiptLogFields projects only the typed
+// production validator's accepted counts into the operator log. The eval
+// harness can consume this precise receipt without reading user/model prose or
+// Mermaid labels/messages, and without weakening the production gate.
+func acceptedDiagramParticipantCoverageReceiptLogFields(
+	contractPassed bool,
+	mut *types.MutableState,
+	o *Orchestrator,
+	view *types.AnswerSemanticView,
+) (string, bool) {
+	if !contractPassed || mut == nil || o == nil || o.busCtx == nil || view == nil {
+		return "", false
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil {
+		return "", false
+	}
+	receipt, ok := tool.AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext(
+		o.busCtx, doc, view, mut.EmittedEvidence(),
+	)
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("version=%d status=accepted required=%d covered=%d unproven_boundaries=%d",
+		receipt.Version, receipt.Required, receipt.Covered, receipt.UnprovenBoundaries), true
 }
 
 func runtimeArtifactCitationFloorWaived(mut *types.MutableState, o *Orchestrator) bool {

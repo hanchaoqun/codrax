@@ -3576,6 +3576,62 @@ func DiagramParticipantCoverageMismatchesWithRuntimeContext(
 	)
 }
 
+// DiagramParticipantCoverageReceipt is a control-plane receipt for the exact
+// typed participant-coverage contract already enforced by the production
+// validator. It contains counts only: no request text, answer prose, Mermaid
+// label/message, relation, endpoint, or model conclusion is copied into it.
+// Covered equals Required only when both the participant validator and the
+// whole requested-relation scope validator accept the same document.
+type DiagramParticipantCoverageReceipt struct {
+	Version            int
+	Required           int
+	Covered            int
+	UnprovenBoundaries int
+}
+
+// AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext returns an
+// accepted receipt only for an active non-Trace diagram participant contract.
+// It deliberately delegates to the same mismatch providers as the hard gate;
+// it is observability for an already-accepted typed fact, not a second or
+// weaker acceptance algorithm.
+func AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext(
+	ctx *types.BusContext,
+	doc *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+	evidence []types.EvidenceItem,
+) (DiagramParticipantCoverageReceipt, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || doc == nil || view == nil || view.DiagramPlan == nil ||
+		!view.DiagramPlan.Required || types.ResolveQuestionFamily(ctx.AnalysisIR.RequestModel) == types.QFRootCauseTrace ||
+		!answerDocumentContainsDiagramPayload(doc) {
+		return DiagramParticipantCoverageReceipt{}, false
+	}
+	obligations := diagramIncidentParticipantObligations(view)
+	if len(obligations) == 0 {
+		return DiagramParticipantCoverageReceipt{}, false
+	}
+	if len(DiagramParticipantCoverageMismatchesWithRuntimeContext(ctx, doc, view, evidence)) > 0 ||
+		len(DiagramRequestedRelationScopeMismatchesWithRuntimeContext(ctx, doc, view, evidence)) > 0 {
+		return DiagramParticipantCoverageReceipt{}, false
+	}
+	boundaries := 0
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		for _, boundary := range block.ParticipantBoundaries {
+			if boundary.Status == types.DiagramParticipantBoundaryUnproven {
+				boundaries++
+			}
+		}
+	}
+	return DiagramParticipantCoverageReceipt{
+		Version:            1,
+		Required:           len(obligations),
+		Covered:            len(obligations),
+		UnprovenBoundaries: boundaries,
+	}, true
+}
+
 func diagramParticipantBlockHasVisibleNode(block types.AnswerBlock, surfaces []string) bool {
 	if block.Kind != types.BlockDiagram || block.Diagram == nil {
 		return false

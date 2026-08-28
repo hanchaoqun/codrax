@@ -2,10 +2,12 @@ package orchestrator
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -49,6 +51,9 @@ func TestRunV2BlockOracles_PreservesTypedParticipantOrExplicitUnprovenBoundary(t
 	if violations := runV2BlockOraclesWithOracleContext(context.Background(), doc, view, mut, nil, nil, bus); !hasParticipantViolation(violations) {
 		t.Fatalf("post-emit chokepoint accepted a required participant with neither relation nor boundary: %+v", violations)
 	}
+	if receipt, ok := tool.AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext(bus, doc, view, mut.EmittedEvidence()); ok {
+		t.Fatalf("rejected participant coverage must not mint an accepted receipt: %+v", receipt)
+	}
 
 	doc.Blocks[0].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
 		Participant: "MutableState", Status: types.DiagramParticipantBoundaryUnproven,
@@ -64,8 +69,29 @@ func TestRunV2BlockOracles_PreservesTypedParticipantOrExplicitUnprovenBoundary(t
 	if violations := runV2BlockOraclesWithOracleContext(context.Background(), persisted, view, mut, nil, nil, bus); hasParticipantViolation(violations) {
 		t.Fatalf("model-authored exact unproven boundary should satisfy participant coverage without an invented edge: %+v", violations)
 	}
+	receipt, ok := tool.AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext(bus, persisted, view, mut.EmittedEvidence())
+	if !ok || receipt.Version != 1 || receipt.Required != 3 || receipt.Covered != 3 || receipt.UnprovenBoundaries != 1 {
+		t.Fatalf("accepted participant/boundary shape lost its typed coverage receipt: ok=%t receipt=%+v", ok, receipt)
+	}
+	if fields, ok := acceptedDiagramParticipantCoverageReceiptLogFields(true, mut, &Orchestrator{busCtx: bus}, view); !ok ||
+		!strings.Contains(fields, "version=1 status=accepted required=3 covered=3 unproven_boundaries=1") {
+		t.Fatalf("accepted receipt was not projected onto the control-plane log shape: ok=%t fields=%q", ok, fields)
+	}
+	if fields, ok := acceptedDiagramParticipantCoverageReceiptLogFields(false, mut, &Orchestrator{busCtx: bus}, view); ok || fields != "" {
+		t.Fatalf("failed whole contract must not publish an accepted coverage receipt: ok=%t fields=%q", ok, fields)
+	}
 	if len(persisted.Blocks[0].EdgeAnchors) != 1 {
 		t.Fatalf("participant coverage check mutated model relations: %+v", persisted.Blocks[0].EdgeAnchors)
+	}
+}
+
+func TestRunContractCheckPublishesAcceptedDiagramParticipantCoverageReceipt(t *testing.T) {
+	source, err := os.ReadFile("contract_check.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "acceptedDiagramParticipantCoverageReceiptLogFields(result.Passed, mut, o, diagramParticipantCoverageView)") {
+		t.Fatal("runContractCheck no longer publishes the accepted typed diagram participant receipt")
 	}
 }
 
@@ -158,5 +184,8 @@ func TestRunV2BlockOracles_DiagramParticipantCoverageNeverEntersTrace(t *testing
 		if violation.Kind == types.ViolDiagramParticipantCoverage {
 			t.Fatalf("source-flow participant contract leaked into Trace causal authority: %+v", violation)
 		}
+	}
+	if receipt, ok := tool.AcceptedDiagramParticipantCoverageReceiptWithRuntimeContext(bus, doc, view, nil); ok {
+		t.Fatalf("source-flow participant receipt leaked into Trace causal authority: %+v", receipt)
 	}
 }

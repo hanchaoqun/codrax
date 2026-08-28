@@ -57757,6 +57757,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r887`。
 
+### §123.1444 B1381：eval 关系覆盖改读生产 typed receipt，不再以任意 incident 节点逼造箭头（2026-08-28）
+
+1. `B1381-EVALINCIDENTBOUNDARYCONFLICT1/P1` 已按生产合同同源方案施工。生产参与者覆盖门、关系证据门、方向门、whole requested-relation scope 门和
+   Mermaid 语法门均未改弱；`EXPECT_MERMAID_MIN_INCIDENT_NODES` 通用旧能力也保留，未全局删除。只将明确声明 typed participant coverage 的 eval case
+   从“必须有 N 个箭头端点”迁移到新 `EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=N`，同时继续要求至少一条真实 Mermaid 边。
+2. 新 receipt 不是从最终答案正文、Mermaid node label/message 或 case 名称反推。`runContractCheck` 复用本轮实际执行 V2 participant validator 的同一个
+   `AnswerSemanticView`；仅当整个合同 `Passed=true`，并且相同文档再次通过 participant mismatch 与 requested-relation-scope mismatch 两个同源 provider
+   时，控制面记录 `version=1,status=accepted,required,covered,unproven_boundaries` 四个计数。Trace family、无 active diagram contract、无 typed
+   incident_required participant、无 diagram payload、任一 mismatch 或整个合同失败均不铸 receipt。
+3. receipt 不创造第二套接受算法：`covered=required` 只由生产 validator 已接受这一精确信号铸造；`unproven_boundaries` 只是已验收块上的 typed enum 行数，
+   不携带模型正文、关系、端点、可见标签、布局或结论。eval runner 只读取最后一条 accepted control-log receipt，要求 `required==covered==case 声明值`；
+   receipt 缺失、声明值非法、required 少报或 covered 不足均 fail-closed，并落独立 TSV 供人工审计。
+4. `qf_logic_view_read_pipeline` 从 `EXPECT_MERMAID_MIN_INCIDENT_NODES=6` 改为 typed coverage=6，仍保留 `EXPECT_MERMAID_MIN_EDGES=1`、六个请求实体与
+   Mermaid/业务载体的原有答案 oracle。因此节点堆砌、无边图、analyzer 少报参与者、生产边界/关系合同未通过、runner 无 receipt 均不能签绿；唯一被移除的
+   是“两个已明确未证且无箭头的边界也必须伪装成 incident endpoint”这一矛盾要求。
+5. 回归覆盖：缺边界文档不铸 accepted receipt；已证 Analyzer→Explorer 加 MutableState unproven boundary 的三参与者文档铸
+   required=covered=3/boundaries=1；整个合同失败时不发布；Trace 不进入该车道；`runContractCheck` M4 接线源 pin；runner 选择最后 accepted receipt、
+   缺 receipt/required mismatch 负臂、oracle surface 标记与完整 fake-binary wire PASS。focused orchestrator、完整 `eval/runner_lib_test.sh`、全仓
+   `go test ./... -count=1` 与 CGO release-tag `make` 均通过；下一步单独提交推送，再从干净二进制严格并发恰好 2 路回放 read+Trace。
+
+状态：
+
+`B1381=implemented/full-suite-green/build-green`；
+`eval-relation-coverage=production-typed-receipt`；
+`typed-covered=evidence-backed-incident-or-accepted-unproven-boundary`；
+`mermaid-min-real-edge=preserved`；
+`production-relation/evidence/direction/scope-gates=unchanged`；
+`receipt=user/model/final-prose+mermaid-label/message-free`；
+`Trace-family-receipt=forbidden/pinned`；
+`model-owned=relation+endpoint+label+wording+layout+conclusion`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

@@ -2139,6 +2139,69 @@ if ! grep -qF 'mermaid_incident_nodes:0<3' "$mermaid_edge_dir/run-1.verdict"; th
   fail "run.sh did not reject insufficient incident-node coverage"
 fi
 
+cat >"$tmp/diagram-participant-coverage.log" <<'LOG'
+2026-08-28T07:00:00.000 INFO [diagram_participant_coverage_receipt] version=1 status=accepted required=4 covered=4 unproven_boundaries=0
+2026-08-28T07:00:01.000 INFO [diagram_participant_coverage_receipt] version=1 status=accepted required=6 covered=6 unproven_boundaries=2
+LOG
+EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=6
+assert_eq "$(eval_diagram_participant_coverage_reasons "$tmp/diagram-participant-coverage.log" "$tmp/diagram-participant-coverage.tsv")" "" \
+  "last accepted typed diagram participant receipt"
+if ! grep -q $'6\t6\t6\t2' "$tmp/diagram-participant-coverage.tsv"; then
+  fail "typed diagram participant receipt lost exact required/covered/boundary counts"
+fi
+EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=7
+diagram_participant_missing="$(eval_diagram_participant_coverage_reasons "$tmp/diagram-participant-coverage.log" "$tmp/diagram-participant-coverage-mismatch.tsv")"
+for want in 'diagram_participant_required:6:expected:7' 'diagram_participant_covered:6:expected:7'; do
+  if ! grep -qF "$want" <<<"$diagram_participant_missing"; then
+    fail "typed diagram participant mismatch did not report $want: $diagram_participant_missing"
+  fi
+done
+EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=6
+if ! eval_diagram_participant_coverage_reasons "$tmp/no-such-diagram-receipt.log" "$tmp/no-receipt.tsv" | \
+  grep -qF 'diagram_participant_coverage_receipt_missing'; then
+  fail "missing typed diagram participant receipt must fail closed"
+fi
+cat >"$tmp/typed-diagram-coverage.case" <<'CASE'
+ID="typed_diagram_coverage"
+NAME="typed diagram coverage"
+QUESTION="draw a grounded flow"
+EXPECT_MERMAID_MIN_EDGES=1
+EXPECT_TYPED_DIAGRAM_PARTICIPANT_COVERAGE=6
+CASE
+assert_eq "$(eval_case_oracle_surface "$tmp/typed-diagram-coverage.case")" "mermaid_edge_count,typed_diagram_participant_coverage" \
+  "typed diagram participant case oracle surface"
+
+cat >"$tmp/fake-codrax-typed-diagram-coverage" <<'SH'
+#!/usr/bin/env bash
+logdir=""
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--log-dir" && $# -gt 1 ]]; then
+    logdir="$2"
+    shift 2
+    continue
+  fi
+  shift
+done
+mkdir -p "$logdir"
+printf '%s\n' '2026-08-28T07:00:01.000 INFO [diagram_participant_coverage_receipt] version=1 status=accepted required=6 covered=6 unproven_boundaries=2' >"$logdir/codrax-fake.log"
+echo '━━━'
+echo '```mermaid'
+echo 'flowchart TD'
+echo '  Analyze --> Explore'
+echo '```'
+echo 'typed relation coverage answer has enough content'
+SH
+chmod +x "$tmp/fake-codrax-typed-diagram-coverage"
+CODRAX_BIN="$tmp/fake-codrax-typed-diagram-coverage" EVAL_RESULTS_ROOT="$tmp/typed-diagram-coverage-results" CODRAX_PROVIDER_ARGS_RAW="" \
+  eval/run.sh "$tmp/typed-diagram-coverage.case" 1 >/dev/null || fail "typed diagram coverage wire eval failed to run"
+typed_diagram_dir="$(eval_latest_result_dir "$tmp/typed-diagram-coverage-results" typed_diagram_coverage 00000000-000000 || true)"
+[[ -n "$typed_diagram_dir" ]] || fail "typed diagram coverage wire result dir missing"
+assert_eq "$(cat "$typed_diagram_dir/run-1.verdict")" "PASS" \
+  "typed accepted boundaries must satisfy coverage without arbitrary incident-node inflation"
+if [[ ! -f "$typed_diagram_dir/run-1.diagram-participant-coverage.tsv" ]]; then
+  fail "typed diagram coverage wire receipt file missing"
+fi
+
 cat >"$tmp/fake-codrax-operation-terminal" <<'SH'
 #!/usr/bin/env bash
 logdir=""
