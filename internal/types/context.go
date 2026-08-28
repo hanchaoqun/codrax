@@ -7231,6 +7231,14 @@ type ToolRuntimeArtifactRead struct {
 	// TraceQueryBlob is true when the read targeted a trace_query
 	// published blob opened through the escape lane.
 	TraceQueryBlob bool `json:"trace_query_blob,omitempty"`
+	// LineStart/LineEnd/TotalLines and RawRef are producer-stamped read
+	// coordinates. They let downstream ledgers retain a direct observation of
+	// the runtime-artifact bytes without parsing the rendered read_file banner
+	// or promoting any model interpretation of those bytes.
+	LineStart  int    `json:"line_start,omitempty"`
+	LineEnd    int    `json:"line_end,omitempty"`
+	TotalLines int    `json:"total_lines,omitempty"`
+	RawRef     string `json:"raw_ref,omitempty"`
 }
 
 // TraceEvidenceAuthority is trace_query's compact typed statement of what the

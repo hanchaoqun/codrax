@@ -1341,8 +1341,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 	for i, fact := range facts {
 		role := AnswerAggregateFactRoleForRequest(fact, rm)
 		claimAuthority := ObservationClaimAuthorityModelInference
-		if !AggregateFactIsRuntimeObservationAdvisory(rm, fact) &&
-			(AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) || aggregateFactHasTypedSupportRef(fact)) {
+		if aggregateFactHasIndependentTypedAuthority(fact, rm) {
 			claimAuthority = ObservationClaimAuthorityIndependentlyProven
 		}
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
@@ -1997,11 +1996,82 @@ func compileToolResultCarrierObservations(index int, result ToolResult, rowSetWr
 			}
 		}
 	}
+	if result.RuntimeArtifactRead != nil {
+		covered = true
+		if record, ok := observationRecordForRuntimeArtifactRead(index, result, *result.RuntimeArtifactRead, observedAt); ok {
+			if !seen[record.ID] {
+				seen[record.ID] = true
+				add(record)
+			}
+		}
+	}
 	if result.SourceInventory != nil {
 		covered = true
 		compileToolResultSourceInventoryObservations(index, result, *result.SourceInventory, rowSetWriter, seen, add)
 	}
 	return covered
+}
+
+func observationRecordForRuntimeArtifactRead(index int, result ToolResult, read ToolRuntimeArtifactRead, observedAt string) (ObservationRecord, bool) {
+	path := strings.TrimSpace(read.RequestedPath)
+	if path == "" {
+		return ObservationRecord{}, false
+	}
+	visiblePath := path
+	rawRef := firstNonEmptyString(strings.TrimSpace(read.RawRef), strings.TrimSpace(result.RawRef))
+	if read.TraceQueryBlob {
+		// A trace_query blob path is a private paging implementation detail.
+		// Its typed presence/range may prove that runtime bytes were observed,
+		// but neither its session path nor blob ref belongs in model-facing
+		// answer context.
+		visiblePath = ""
+		rawRef = ""
+	}
+	lineStart := read.LineStart
+	lineEnd := read.LineEnd
+	if lineStart < 0 {
+		lineStart = 0
+	}
+	if lineEnd < lineStart {
+		lineEnd = lineStart
+	}
+	scope := ScopeLineRange
+	if read.TotalLines > 0 && lineStart == 1 && lineEnd >= read.TotalLines {
+		scope = ScopeFile
+	} else if lineStart > 0 && lineStart == lineEnd {
+		scope = ScopeLine
+	}
+	count := lineEnd - lineStart + 1
+	if lineStart == 0 || count < 0 {
+		count = 0
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#runtime_artifact_read", index),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        strings.TrimSpace(result.ToolName),
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingDisplayOnly,
+		ProvenanceLane:  ObservationProvenanceArtifactSpan,
+		ClaimAuthority:  ObservationClaimAuthorityDirectObservation,
+		SourceRef: ObservationSourceRef{
+			Kind:         ObservationSourceRuntimeArtifact,
+			Path:         visiblePath,
+			RawRef:       rawRef,
+			ArtifactKind: strings.TrimSpace(read.Kind),
+		},
+		Span: ObservationSpan{
+			LineStart: lineStart,
+			LineEnd:   lineEnd,
+		},
+		EvidenceKind:    EvidenceDirect,
+		EvidenceScope:   scope,
+		GroundingStatus: GroundingGrounded,
+		ClaimKey:        firstNonEmptyString(visiblePath, "runtime_artifact_page"),
+		ResultCount:     &count,
+		Summary:         "read_file observed runtime artifact bytes",
+		ObservedAt:      observedAt,
+		Confidence:      1,
+	}, true
 }
 
 func observationRecordForCommandMeasurement(index int, result ToolResult, measurement ToolCommandMeasurement, observedAt string) (ObservationRecord, bool) {

@@ -58307,17 +58307,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    support。仅在可见 aggregate renderer 隐藏一行不足以解决问题，因为 Investigation Narrative Handoff、extractor 输入和 reviewer 摘要仍会
    从兄弟消费面把同一推断重新引入。
 2. ObservationRecord 新增只由 typed 生产路径铸造的 `claim_authority`：原始日志/Trace 生产者行标为 `direct_observation`；模型 aggregate、closure
-   与 pre-triage 归纳标为 `model_inference`；只有存在精确 typed support 或独立 principal contract witness 时才可标为
-   `independently_proven`。模型即使在内容中自称 `origin=runtime_artifact` 也不能自行升权；merge 只保留已经由结构化生产者铸造的最高权限。
+   与 pre-triage 归纳标为 `model_inference`；只有 system-stamped typed relation/source-inventory authority，或被当前请求允许的精确 current-source
+   坐标，才可把整个 aggregate 标为 `independently_proven`。运行时 support ref 只能说明模型引用了哪个 artifact 坐标，不能证明它在同一 member note
+   中补写的 caller ownership、数据来源或机理。模型即使在内容中自称 `origin=runtime_artifact` 也不能自行升权；merge 只保留结构化生产者铸造的权限。
 3. 新共享投影 `ProjectDirectRuntimeAggregateFacts` 同时供 extractor 与 finalizer 使用：当答案是 runtime-only、ledger 中确有直接原始观察，且
-   aggregate 只是无独立证明的 runtime/system inference 时，该归纳不再作为 grounded aggregate 输入重复交付；精确 typed support、非运行时来源、
+   aggregate 只是无独立证明的 runtime/system inference 时，该归纳不再作为 grounded aggregate 输入重复交付；system-stamped 独立权限、非运行时来源、
    mixed artifact+current-source 和没有直接观察的兼容车道继续保留。Mutable/Turn-A 的耐久审计记录不删除原 aggregate，而是保留其模型所有权，
    确保可追责、可复核而不把它伪装成事实。
 4. Investigation Narrative Handoff 只在 typed 条件同时成立时省略模型 closure 内容：runtime-only、有直接原始观察，且存在 deterministic runtime query
    或同一 ledger 中存在无证明的运行时模型归纳。单日志且没有重复 aggregate 的既有 advisory narrative 继续保留，避免业务线索无故缩水；省略时只给
    中性权限回执，不生成 nil/timeout/调度/利用率机理，也不替模型选择结论。Semantic reviewer 现在同时读取 `claim_authority`，明确
    `model_inference` 不能单独满足 grounding/coverage，`direct_observation` 只证明生产者实际观察到的内容。
-5. 回归覆盖四类关键边界：直接原始观察、模型 aggregate、自带 runtime origin 的伪升权、具有精确 typed support 的独立证明；finalizer 与 extractor
+5. 回归覆盖四类关键边界：直接原始观察、模型 aggregate、自带 runtime origin 的伪升权、system-stamped typed authority 的独立证明；finalizer 与 extractor
    都钉住“伪因果 aggregate/closure 不再进入回答上下文、原始栈/错误/Trace 行仍在”，并钉住单日志兼容和 Mutable audit 原文保留。实现没有扫描用户请求、
    模型原文、最终答案、文件后缀、nil/deadline/线程名、Trace label 或 Mermaid 文本，也没有新增 answer hard reject、重试、系统改写或结论替换。
 6. 定向 `go test ./internal/types ./internal/agent ./internal/orchestrator -count=1`、完整 `go test ./... -count=1` 与 CGO
@@ -58327,13 +58328,79 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B1388=implemented/full-suite-green/build-green/pending-production-replay`；
+`B1388=implemented/full-suite-green/build-green/production-partial-r895/superseded-by-B1391-residual`；
 `observation-authority=direct_observation|model_inference|independently_proven`；
 `model-self-claimed-origin=cannot-escalate-authority`；
 `extractor/finalizer/reviewer=shared-authority-consumers`；
 `durable-audit-record=preserved/model-owned`；
 `system-answer/conclusion/relation/wording-selection=none`；
 `request/model/final-prose/file-suffix/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-time/rule-eliminable=separate-ledgers-unchanged`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1460 r895：Trace 权限分层获生产正证；日志 support ref 整行升权与 cell-only 静默丢失（2026-08-28）
+
+1. 从已推送 `7b4c544f6` 重建不可变二进制，严格并发恰好 2 路复放路径日志 + 东湖真实显式帧窗 Trace。Trace 191s PASS；日志 130s
+   runner FAIL，失败原因为最终可见答案没有命中“关键栈帧+位置”的旧 regex。两路均保持活动到自然结束，没有按 4ms、4m、首字节、stall、活动流年龄或
+   上下文比例降级，也没有恢复旧稿或系统代写结论。
+2. Trace 人工为 pass，B1388 在 deterministic trace_query 车道获得生产正证。明确 34579.472865..34579.587805s 主窗、五次 typed query、
+   `ThreadPoolForeg→NetworkService→CookieMonsterCl→com.baidu.tieba` 四跳、链上优先级/调度、D/IO、算力供给、VerifyClass 业务线索、目标实际占时与
+   规则可消双账、邻近/背景隔离、代表窗和完整 `Trace 因果投影` 全在；上一轮“目标被唤醒却得不到调度”“26ms 接近满载”两条越权推断没有再出现。
+   模型给出链上第一席 CookieMonsterCl 23.994ms、修向与证据边界，系统投影没有替代模型总结。
+3. 日志 FAIL 由两个确定性残余叠加，不是回答模型完全不会列帧。Finalizer 第一稿已经写出两个日志的错误类型、两层关键栈帧与直接触发帧；维度检查要求
+   把关键栈帧改为显式 item 后，模型第二稿在两个 `section.items[].cells` 中逐行提交函数、位置和说明，patch 被接受。V2 schema 与维度检查都消费了
+   cells，但 renderer 的 section/list item 只渲染 Label/Text，导致 cells 在最终用户面静默消失，runner 因此正确判 FAIL。
+4. 同一 finalizer prompt 还暴露 `B1388` 的权限粒度残余：两个 runtime member_set 带 `customer.log:line` support ref 后，Observation Ledger 把整行
+   铸成 `independently_proven`，于是 member_note 中“Handler 传入 nil receiver”等模型解释也一起升权；同时 runtime `read_file` 明确读取了原始字节，
+   ToolResult 却没有 direct-observation ledger 行，`HasDirectRuntimeObservation` 无法触发共享投影，Investigation Narrative Handoff 又把同一 closure
+   重新交付。support ref 证明坐标存在，不证明坐标旁的每句模型解释；这是载体粒度 gap，而非需要扫描 nil/deadline 文本的特例。
+5. 新 P1 `B1391-RUNTIMEBYTEREADAUTHORITYANDCELLSURFACE1` 立即施工：runtime-artifact read marker 增加 producer-stamped 行范围、总行数与 raw ref，ledger
+   只发布“读取到该 artifact 字节”的 direct observation，不解析字节或生成语义；模型 runtime aggregate 保持 model inference，除非另有 system-stamped
+   typed authority。渲染器同时把 cell-only item 按模型原顺序输出，系统只提供中性分隔符，不生成列名、结论或业务词。
+
+状态：
+
+`r895=runner-pass-1/fail-1,human-trace-pass+log-fail`；
+`B1388=production-positive-on-trace/partial-on-runtime-read`；
+`B1391=confirmed+implemented-in-next-section`；
+`log-failure=schema-accepted-section-cells/render-invisible`；
+`runtime-support-ref=coordinate-only/not-whole-note-proof`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r895`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-time/rule-eliminable=separate-ledgers-present`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r895`。
+
+### §123.1461 B1391：runtime read 直接观测载体与 cell-only 用户面闭环（2026-08-28）
+
+1. `B1391-RUNTIMEBYTEREADAUTHORITYANDCELLSURFACE1/P1` 已施工。`ToolRuntimeArtifactRead` 现在携带 read_file 生产时已知的 line_start、line_end、
+   total_lines 与 raw_ref；Observation Ledger 从该 typed carrier 铸造 `producer=read_file + claim_authority=direct_observation` 的 runtime artifact span。
+   该行只证明模型实际读取了哪段 artifact 字节，不解析 panic/timeout/线程名等内容，不证明错误机理，也不进入 current-source citation lane。
+2. aggregate 整行权限改为最小权限：普通模型 aggregate 即使带合法 runtime support ref 仍是 `model_inference`；只有 system-stamped typed relation、
+   source-inventory principal row set，或当前请求允许的精确 current-source coordinate 可以标为 `independently_proven`。finalizer/extractor 的共享投影
+   在 direct runtime row 存在时移除无独立权限的 runtime aggregate 和 closure 内容，Mutable/Turn-A 耐久审计原文不变。这样帧坐标仍可从 raw tool
+   payload/producer row 读取，但 caller ownership、上游构造、timeout 策略或利用率解释不能借一个 support ref 整体升权。
+3. trace_query 私有 blob 是精确例外：ledger 保留“读取了一个 runtime page”的 direct authority 与范围，但不公开 `.codrax/blob/session/...` path 或 raw ref；
+   完整全仓测试中的既有私有路径负 pin 通过。普通客户 log/trace 路径仍保留为 artifact-local 位置，便于模型列出用户请求的帧/行号。
+4. V2 renderer 对 section/ordered_list/bullet_list 共用 item 的 cell-only 形增加可见 fallback：逐 cell 调用既有 user-surface sanitizer，保持作者顺序并以
+   中性 ` | ` 分隔。它不推断表头、角色、关系或结论；Label/Text 在场时行为字节不变，独立 table renderer 仍按 columns/cells 生成表格。回归直接钉住
+   r895 的“schema 接受 + 维度检查计数 + 用户面消失”断层。
+5. 新回归覆盖 runtime read→direct ledger、runtime support ref 不升级 aggregate notes、direct row 触发 finalizer 共享投影、trace_query blob 私密路径、
+   section cell-only 可见化及普通 current-source read 不回归。完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交构建不可变二进制，仍严格并发恰好 2 路复放同一日志 + 显式窗 Trace：日志验收关键帧 cells 最终可见、runtime aggregate/closure
+   不再作为权威输入；Trace 验收因果投影、自动补采、链上根因、优先级/调度/算力/D/IO/确定性语义、业务线索和双账继续完整。
+
+状态：
+
+`B1391=implemented/full-suite-green/build-green/pending-production-replay`；
+`runtime-read-authority=producer-stamped-byte-span/direct-observation`；
+`runtime-aggregate-support-ref=coordinate-only/model-inference`；
+`section-cell-only=visible/model-order/system-neutral-delimiter`；
+`private-trace-query-blob-path=not-model-facing`；
+`durable-audit-record=preserved/model-owned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/file-suffix/runtime-content/mermaid-content-scan=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `actual-time/rule-eliminable=separate-ledgers-unchanged`；

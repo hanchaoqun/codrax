@@ -5019,7 +5019,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:              ref,
 		Refinement:          readFileResultRefinement(ctx, p.Path, fsPath, sliceStart+1, sliceEnd, totalLines, lineOffset, limit, clampedByInlineBudget),
 		ReadCoverage:        readFileTypedCoverage(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
-		RuntimeArtifactRead: readFileRuntimeArtifactMarker(ctx, p.Path, fsPath),
+		RuntimeArtifactRead: readFileRuntimeArtifactMarker(ctx, p.Path, fsPath, ref, sliceStart+1, sliceEnd, totalLines),
 		EnumerationAuthority: readFileEnumerationAuthority(
 			p.Path, sliceStart+1, sliceEnd, totalLines, clampedByInlineBudget,
 		),
@@ -5064,7 +5064,7 @@ func readFileEnumerationAuthority(requestedPath string, lineStart, lineEnd, tota
 // the classification never has to be re-derived from the banner string
 // (Q5-A P1-2). Returns nil for genuine current-source reads so ordinary
 // reads carry no marker and behave byte-identically.
-func readFileRuntimeArtifactMarker(ctx *types.BusContext, requestedPath, fsPath string) *types.ToolRuntimeArtifactRead {
+func readFileRuntimeArtifactMarker(ctx *types.BusContext, requestedPath, fsPath, rawRef string, lineStart, lineEnd, totalLines int) *types.ToolRuntimeArtifactRead {
 	if readFileTypedSourcePath(ctx, requestedPath, fsPath) != "" {
 		return nil // genuine current source — not a runtime artifact
 	}
@@ -5072,7 +5072,13 @@ func readFileRuntimeArtifactMarker(ctx *types.BusContext, requestedPath, fsPath 
 	if requested == "" {
 		return nil
 	}
-	marker := &types.ToolRuntimeArtifactRead{RequestedPath: requested}
+	marker := &types.ToolRuntimeArtifactRead{
+		RequestedPath: requested,
+		LineStart:     lineStart,
+		LineEnd:       lineEnd,
+		TotalLines:    totalLines,
+		RawRef:        strings.TrimSpace(rawRef),
+	}
 	if ctx != nil && ctx.Mutable != nil {
 		if _, ok := ctx.Mutable.ResolveTraceQueryBlobRef(requested); ok {
 			marker.TraceQueryBlob = true

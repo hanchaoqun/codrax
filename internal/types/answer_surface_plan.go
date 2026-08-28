@@ -2181,8 +2181,8 @@ func ProjectDirectRuntimeAggregateFacts(facts []AnswerAggregateFact, rm *Request
 	withheld := false
 	for _, fact := range facts {
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
-		if AggregateFactIsRuntimeObservationAdvisory(rm, fact) &&
-			modelAggregateIsTraceRestatementOnly(origins) {
+		if modelAggregateIsTraceRestatementOnly(origins) &&
+			!aggregateFactHasIndependentTypedAuthority(fact, rm) {
 			withheld = true
 			continue
 		}

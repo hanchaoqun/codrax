@@ -113,7 +113,7 @@ func TestProjectDirectRuntimeObservationAuthorityWithholdsUnsupportedModelRestat
 	}
 }
 
-func TestProjectDirectRuntimeObservationAuthorityPreservesTypedSupport(t *testing.T) {
+func TestProjectDirectRuntimeObservationAuthorityWithholdsModelAggregateDespiteRuntimeSupportRef(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
 		ExternalObservationPolicy: &ExternalObservationPolicy{
@@ -134,8 +134,8 @@ func TestProjectDirectRuntimeObservationAuthorityPreservesTypedSupport(t *testin
 
 	projectDirectRuntimeObservationAuthority(plan, &rm, ledger)
 
-	if len(plan.StableAggregateFacts) != 1 || plan.StableAggregateFacts[0].Label != "typed duration" {
-		t.Fatalf("independently typed aggregate support must survive: %+v", plan.StableAggregateFacts)
+	if len(plan.StableAggregateFacts) != 0 {
+		t.Fatalf("a runtime support coordinate cannot upgrade the whole model-authored aggregate: %+v", plan.StableAggregateFacts)
 	}
 }
 

@@ -2832,6 +2832,25 @@ func aggregateFactHasTypedSupportRef(fact AnswerAggregateFact) bool {
 	return false
 }
 
+// aggregateFactHasIndependentTypedAuthority is deliberately narrower than a
+// non-empty support_refs entry. Aggregate facts are model-authored: a runtime
+// log/trace coordinate can show where the model looked, but it cannot prove
+// every member note, causal gloss, ownership statement, or mechanism the model
+// placed beside that coordinate. Only system-stamped typed-relation/source-
+// inventory carriers or an exact current-source coordinate admitted by the
+// current-source contract can elevate the aggregate as a whole. Producer-owned
+// runtime observations remain separate ObservationRecords.
+func aggregateFactHasIndependentTypedAuthority(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if AnswerAggregateFactHasTypedRelationPrincipalAuthority(fact) ||
+		strings.Contains(fact.Provenance, SourceInventoryPrincipalRowSetAggregateProvenance) {
+		return true
+	}
+	if !answerAggregateFactHasExactCurrentSourceSupportRef(fact) {
+		return false
+	}
+	return rm == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource()
+}
+
 func runtimeObservationMemberSetIsAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {
 	if rm == nil || fact.Kind != AnswerAggregateMemberSet {
 		return false

@@ -1122,7 +1122,7 @@ func TestCompileObservationLedger_SeparatesDirectRuntimeObservationFromModelInfe
 	}
 }
 
-func TestCompileObservationLedger_TypedAggregateSupportCanBeIndependentlyProven(t *testing.T) {
+func TestCompileObservationLedger_RuntimeAggregateSupportDoesNotUpgradeModelNotes(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		RequestModel: &RequestModel{Intent: IntentTrace},
 		AggregateFacts: []AnswerAggregateFact{{
@@ -1134,11 +1134,40 @@ func TestCompileObservationLedger_TypedAggregateSupportCanBeIndependentlyProven(
 		}},
 	})
 	record := findObservationRecord(t, ledger, "aggregate:0#runtime_artifact")
-	if record.ClaimAuthority != ObservationClaimAuthorityIndependentlyProven {
-		t.Fatalf("explicit typed support should upgrade the aggregate authority: %+v", record)
+	if record.ClaimAuthority != ObservationClaimAuthorityModelInference {
+		t.Fatalf("runtime support coordinates must not upgrade the whole model-authored aggregate: %+v", record)
 	}
 	if ledger.HasDirectRuntimeObservation() {
 		t.Fatal("an aggregate proof is not a producer-owned direct observation")
+	}
+}
+
+func TestCompileObservationLedger_RuntimeArtifactReadIsDirectObservation(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{{
+		ToolName: "read_file",
+		Success:  true,
+		RawRef:   "blob://raw/runtime-log",
+		RuntimeArtifactRead: &ToolRuntimeArtifactRead{
+			RequestedPath: "customer.log",
+			Kind:          "log",
+			LineStart:     1,
+			LineEnd:       8,
+			TotalLines:    8,
+			RawRef:        "blob://raw/runtime-log",
+		},
+	}}})
+	record := findObservationRecord(t, ledger, "tool:0#runtime_artifact_read")
+	if record.ClaimAuthority != ObservationClaimAuthorityDirectObservation ||
+		record.Origin != AnswerEvidenceOriginRuntimeArtifact ||
+		record.SourceRef.Path != "customer.log" ||
+		record.SourceRef.RawRef != "blob://raw/runtime-log" ||
+		record.SourceRef.ArtifactKind != "log" ||
+		record.Span.LineStart != 1 || record.Span.LineEnd != 8 ||
+		record.EvidenceScope != ScopeFile {
+		t.Fatalf("runtime read carrier did not become a direct artifact observation: %+v", record)
+	}
+	if !ledger.HasDirectRuntimeObservation() {
+		t.Fatal("typed runtime read must activate direct-observation authority")
 	}
 }
 

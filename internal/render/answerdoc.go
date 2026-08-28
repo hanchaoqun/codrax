@@ -1611,6 +1611,21 @@ func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ 
 	if t := renderUserSurfaceText(it.Text); t != "" {
 		parts = append(parts, t)
 	}
+	if len(parts) == 0 && len(it.Cells) > 0 {
+		cells := make([]string, 0, len(it.Cells))
+		for _, cell := range it.Cells {
+			if visible := renderUserSurfaceText(cell); visible != "" {
+				cells = append(cells, visible)
+			}
+		}
+		if len(cells) > 0 {
+			// Section/list schemas accept structured cells, so a cell-only item
+			// must not disappear merely because the model omitted Label/Text.
+			// The renderer contributes only a neutral delimiter; every visible
+			// value remains model-authored and in original order.
+			parts = append(parts, strings.Join(cells, " | "))
+		}
+	}
 	out := strings.Join(parts, " — ")
 	if strings.TrimSpace(out) == "" {
 		return ""

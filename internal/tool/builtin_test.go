@@ -5332,6 +5332,14 @@ func TestReadFile_RuntimeArtifactDoesNotPublishCurrentSourceCoverage(t *testing.
 	if len(result.Observations) != 0 {
 		t.Fatalf("runtime artifact read must not publish current-source observations: %+v", result.Observations)
 	}
+	if result.RuntimeArtifactRead == nil ||
+		result.RuntimeArtifactRead.RequestedPath != target ||
+		result.RuntimeArtifactRead.Kind != "trace" ||
+		result.RuntimeArtifactRead.LineStart != 1 ||
+		result.RuntimeArtifactRead.LineEnd < result.RuntimeArtifactRead.LineStart ||
+		result.RuntimeArtifactRead.TotalLines <= 0 {
+		t.Fatalf("runtime artifact read must publish typed byte-span authority: %+v", result.RuntimeArtifactRead)
+	}
 }
 
 func TestReadFile_PathMissPublishesTypedRepair(t *testing.T) {

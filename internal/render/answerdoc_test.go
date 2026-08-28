@@ -1395,6 +1395,25 @@ func TestRenderV2_SkipsCitationOnlyListItems(t *testing.T) {
 	}
 }
 
+func TestRenderV2_SectionCellOnlyItemsRemainVisible(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "frames",
+		Kind:  types.BlockSection,
+		Title: "关键栈帧",
+		Items: []types.AnswerBlockItem{{
+			ID:    "frame-1",
+			Cells: []string{"1", "cache.(*Store).Get", "store.go:88", "日志中的崩溃帧"},
+		}},
+	}}}
+
+	out := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{"关键栈帧", "cache.(*Store).Get", "store.go:88", "日志中的崩溃帧"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("section cell-only item lost %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_NilSafe(t *testing.T) {
 	if got := RenderAnswerDocument(nil, "en"); got != "" {
 		t.Errorf("nil doc should return empty; got %q", got)

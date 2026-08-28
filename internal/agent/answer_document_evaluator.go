@@ -8453,28 +8453,11 @@ func answerDocHasUnsupportedRuntimeModelSynthesis(ctx *types.AgentContext) bool 
 	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 		facts = append(facts, ta.AcceptedAggregateFacts...)
 	}
-	rm := &ctx.AnalysisIR.RequestModel
-	for _, fact := range facts {
-		if !types.AggregateFactIsRuntimeObservationAdvisory(rm, fact) {
-			continue
-		}
-		origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
-		if len(origins) == 0 {
-			return true
-		}
-		runtimeOnly := true
-		for _, origin := range origins {
-			if origin != types.AnswerEvidenceOriginRuntimeArtifact &&
-				origin != types.AnswerEvidenceOriginSystemInference {
-				runtimeOnly = false
-				break
-			}
-		}
-		if runtimeOnly {
-			return true
-		}
-	}
-	return false
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
+	input.AggregateFacts = facts
+	ledger := types.CompileObservationLedger(input)
+	_, withheld := types.ProjectDirectRuntimeAggregateFacts(facts, &ctx.AnalysisIR.RequestModel, ledger)
+	return withheld
 }
 
 func recentSanitizedInvestigationNarrativeNotes(raw []string) []string {

@@ -8341,6 +8341,67 @@ func TestAnswerDocumentEvaluator_DirectRuntimeRowsWithholdUnsupportedModelSynthe
 	}
 }
 
+func TestAnswerDocumentEvaluator_RuntimeReadBytesDoNotUpgradeAggregateNotes(t *testing.T) {
+	mut := types.NewMutableState("q")
+	const unsupported = "the caller supplied the nil receiver"
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "panic frames",
+		Value:       "1",
+		Members:     []string{"cache.(*Store).Get @ store.go:88"},
+		MemberNotes: []string{unsupported},
+		SupportRefs: []string{"customer.log:4"},
+	}}
+	mut.SetInvestigationComplete(unsupported)
+	mut.SetInvestigationAggregateFacts(facts)
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason:  unsupported,
+		AcceptedAggregateFacts: facts,
+		ToolResults: []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[customer.log: showing lines 1-4 of 4 total]\n     4│ cache.(*Store).Get(0x0, ...)",
+			RawRef:   "blob://raw/customer-log",
+			RuntimeArtifactRead: &types.ToolRuntimeArtifactRead{
+				RequestedPath: "customer.log",
+				Kind:          "log",
+				LineStart:     1,
+				LineEnd:       4,
+				TotalLines:    4,
+				RawRef:        "blob://raw/customer-log",
+			},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"only analyze the log"},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"claim_authority=`direct_observation`",
+		"read_file observed runtime artifact bytes",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("runtime read authority prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{unsupported, "label=panic frames", "## Investigation Narrative Handoff"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("runtime support coordinate upgraded model interpretation %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SkipsRuntimeClosureNarrativeWhenTraceQueryRowsPresent(t *testing.T) {
 	perf := &types.PerfBundle{
 		Observations: []types.PerfObservation{{
