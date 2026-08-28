@@ -1879,23 +1879,64 @@ func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
 // caller must only use it after structural identity has already established
 // that both summaries describe the same evidence row.
 func MergeEvidenceSummaries(existing, incoming string) string {
-	existing = strings.Join(strings.Fields(strings.TrimSpace(existing)), " ")
-	incoming = strings.Join(strings.Fields(strings.TrimSpace(incoming)), " ")
-	if existing == "" {
-		return incoming
+	existingSegments := evidenceSummarySegments(existing)
+	incomingSegments := evidenceSummarySegments(incoming)
+	if len(existingSegments) == 0 {
+		return strings.Join(incomingSegments, "；")
 	}
-	if incoming == "" {
-		return existing
+	if len(incomingSegments) == 0 {
+		return strings.Join(existingSegments, "；")
 	}
-	existingKey := evidenceSummaryDedupKey(existing)
-	incomingKey := evidenceSummaryDedupKey(incoming)
-	if existingKey == incomingKey || strings.Contains(existingKey, incomingKey) {
-		return existing
+
+	// A later merge can carry a bundle which already contains summaries
+	// accepted by an earlier merge ("A；B" + "B；C"). Comparing only the
+	// two whole strings appends B twice, and repeated exploration handoffs can
+	// amplify that duplicate on the user-visible member note. Reconcile the
+	// same delimiter-bounded summary atoms instead. This is still content
+	// neutral: byte-normalized equality/containment is the only arbiter, the
+	// first-seen order is stable, and genuinely distinct model-authored atoms
+	// remain present.
+	merged := append([]string(nil), existingSegments...)
+	for _, candidate := range incomingSegments {
+		candidateKey := evidenceSummaryDedupKey(candidate)
+		if candidateKey == "" {
+			continue
+		}
+		covered := false
+		for i, current := range merged {
+			currentKey := evidenceSummaryDedupKey(current)
+			switch {
+			case currentKey == candidateKey || strings.Contains(currentKey, candidateKey):
+				covered = true
+			case strings.Contains(candidateKey, currentKey):
+				merged[i] = candidate
+				covered = true
+			}
+			if covered {
+				break
+			}
+		}
+		if !covered {
+			merged = append(merged, candidate)
+		}
 	}
-	if strings.Contains(incomingKey, existingKey) {
-		return incoming
+	return strings.Join(merged, "；")
+}
+
+func evidenceSummarySegments(summary string) []string {
+	summary = strings.Join(strings.Fields(strings.TrimSpace(summary)), " ")
+	if summary == "" {
+		return nil
 	}
-	return existing + "；" + incoming
+	parts := strings.Split(summary, "；")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.Join(strings.Fields(strings.TrimSpace(part)), " ")
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func evidenceSummaryDedupKey(s string) string {

@@ -59146,7 +59146,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    typed evidence、`deterministic-exhaustive-review missing=0` 后没有被清除。该缺口改记 `B1411-STALEENUMERATIONADVISORYAFTERCOMPLETEPROOF1/P1`：
    只能用后代 typed completeness/evidence coverage 解除旧债，不扫描终稿或模型原文。
 4. 新 P1 `B1412-AGGREGATEMEMBERNOTEEXACTDEDUP1`：配置主体事实正确，但系统 supplement 中同一成员备注重复最多 6 次。代码路径为同一 accepted
-   member 多轮 merge 后反复调用 `MergeEvidenceSummaries`；完全相同文本可去重，相近但不同的模型说明仍应全部保留，系统不得判哪句“更好”。
+   member 多轮 merge 后反复调用 `MergeEvidenceSummaries`；旧实现只比较整个摘要串，`A；B` 再与 `B；C` 汇合会把 B 重复附加。现已在共享 typed
+   同锚摘要合并层按既有中文分号边界拆成规范化 atom，以精确相等/既有 containment 语义去重并保持首次顺序；不同模型说明仍全部保留，更完整的同句继续
+   取代较短句，系统不判断哪条独立主张“更好”。新增 overlapping bundles、不同 atom 顺序和 richer atom 三臂回归；完整 `go test ./... -count=1`、
+   `git diff --check` 与 CGO release-tag `make` 全绿。
 5. 新 P2 `B1413-AGGREGATESUPPLEMENTREDUNDANTWITHMODELROSTER1`：模型主体已经用三行表完整表达 default→YAML→CLI，系统仍追加同一三项 principal
    checklist。最优方向是只凭 typed block/facet/member binding 判断主体已承载 accepted set，从而不再补重复块；不读可见措辞，不删除或改写模型答案。
 6. 新 P1 `B1414-PATCHMETADATAEDITUNPUBLISHED1` 来自枚举 5 次 finalizer reject。首稿 table row 形和首列身份是模型结构错误；但系统随后要求删除
@@ -59155,7 +59158,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 配置人工仍 partial：15 次 read/26 个 explorer iteration 偏重；Decode/merge/Changed 主张虽然正文正确，引用只落在字段定义、默认值与 flag 注册，
    B1409 继续开放；B1408 与 B1396 也未因本轮事实正确而自动关闭。完整逐轮记录见
    `eval/parallel_selected_summary_evalcampaign_config_count_replay_r906_20260828_manual_audit.md`。
-8. 下一施工顺序冻结为：先 B1412 exact-note 去重（小而安全）；再 B1414 让系统修向与 patch surface 同源；随后 B1411 typed advisory 清账；B1413
+8. 下一施工顺序冻结为：B1412 已完成；接着 B1414 让系统修向与 patch surface 同源；随后 B1411 typed advisory 清账；B1413
    需先设计 typed coverage equivalence，避免系统以 prose 相似度删除模型输出。完成后再恰好并发 2 路复放，并回到 read/write/Trace 异构高优先级样本。
 
 状态：
@@ -59163,7 +59166,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `r906=runner-pass-2/2,human-enumeration-fact-pass+process-partial,config-partial`；
 `B1410=production-positive/core-closed`；
 `B1411=confirmed/P1/reclassified-stale-advisory`；
-`B1412=confirmed/P1/next`；
+`B1412=implemented/full-suite-pass+build-pass/pending-production-replay`；
 `B1413=confirmed/P2/design-first`；
 `B1414=confirmed/P1`；
 `B1408/B1409/B1396=open`；
