@@ -55,6 +55,13 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 	}
 	hit := make(map[string]bool, len(violations))
 	for _, v := range violations {
+		if genericSelfContradictionCaveatIsRepairTelemetry(v) {
+			// A self-consistency reviewer result without the exact SUMMARY/BODY
+			// pair is not an actionable user fact. Preserve the violation in
+			// operator telemetry, but do not let its family fallback accuse an
+			// accepted answer of an unspecified contradiction.
+			continue
+		}
 		spec, ok := types.ViolKindSpecFor(v.Kind)
 		if !ok {
 			continue

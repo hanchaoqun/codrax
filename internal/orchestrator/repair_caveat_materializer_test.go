@@ -114,6 +114,23 @@ func TestAppendSoftContractCaveatsToAnswer_MaterializesSpecificSelfContradiction
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_SuppressesGenericSelfContradictionTelemetry(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	violations := []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		Detail:     "reviewer reported a possible mismatch without paired claims",
+		ClusterKey: types.TopicClusterKey("config precedence", "answer_summary_body_consistency"),
+	}}
+	if caveats := MaterializeUnresolvedViolationsAsCaveats(violations, "zh"); len(caveats) != 0 {
+		t.Fatalf("generic contradiction telemetry must not materialize: %v", caveats)
+	}
+	if out := AppendSoftContractCaveatsToAnswer("正文", violations, "zh"); out != "正文" {
+		t.Fatalf("generic contradiction telemetry must not alter the accepted answer:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCaveat(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -307,7 +324,7 @@ func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceUsesPrincipalLikeBl
 	}
 }
 
-func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsMixedVisibleBlocks(t *testing.T) {
+func TestAppendUserCaveatsToAnswerForBus_RuntimeMixedBlocksStillSuppressGenericContradictionTelemetry(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
 
@@ -324,8 +341,8 @@ func TestAppendUserCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsMixedVisibleBl
 		Kind:       types.ViolSelfContradiction,
 		ClusterKey: types.TopicClusterKey("trace metrics", "answer_summary_body_consistency"),
 	}}, "zh", ctx)
-	if !strings.Contains(out, "答案前后某些表述") {
-		t.Fatalf("mixed visible blocks should keep generic caveat disclosure:\n%s", out)
+	if out != "正文" {
+		t.Fatalf("mixed visible blocks do not make an unpaired reviewer signal actionable:\n%s", out)
 	}
 }
 

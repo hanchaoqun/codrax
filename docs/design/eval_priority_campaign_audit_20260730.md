@@ -58845,6 +58845,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1475 B1403：无成对声明的矛盾 reviewer 只留运维遥测（2026-08-28）
+
+1. `B1403-GENERICCONTRADICTIONTELEMETRY1/P2` 已施工。`ViolSelfContradiction` 只有在 detail 可解析出精确
+   `SUMMARY: <claim> ⇄ BODY: <claim>` 成对声明时，才允许物化为用户可执行的一致性 caveat；仅有“可能不一致”、cluster key 或 reviewer
+   分类而没有具体冲突对的结果，继续保留 violation/operator telemetry，但不再借 violation family 的 generic fallback 修改已接受答案。
+2. 该边界不依赖答案是否同时含普通段落、表格、枚举、图表等 block。旧测试把 mixed visible blocks 当作足以发布泛化矛盾提示的条件，实质上是用
+   展示形状替代事实载荷；现已修正为无精确成对声明时答案字节保持不变。已有具体 summary/body 冲突的中英文披露、去重与定位行为保持不变。
+3. 修复只读取 typed violation kind 与既有结构化 contradiction pair parser，不扫描用户请求、模型 reasoning、最终答案 prose、Mermaid 标签、路径关键词
+   或相似度，也不判断模型结论对错，不代写或改写正文。由此消除 r901 的“答案前后某些表述存在不完全一致”空泛系统附注，同时保留真正可执行冲突的
+   用户知情权。
+4. 回归覆盖两条相反臂：无 pair 的 reviewer telemetry 不产生 caveat 且 `AppendSoftContractCaveatsToAnswer` 返回原答案；有精确 pair 的现有测试继续要求
+   披露两侧声明。`go test ./internal/orchestrator -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+5. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放配置解释与异构高优先级用例，联合验收 B1401/B1402/B1403：真实执行锚是否补齐、已落证据
+   是否不再误报警、无具体 pair 的泛化矛盾提示是否消失。显式窗 Trace 的因果投影、自动补采、链上根因、双账户与活动流不降级合同未修改，继续由后续
+   Trace 生产回放守护。
+
+状态：
+
+`B1403=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`specific-summary/body-pair=user-actionable-caveat-preserved`；
+`unpaired-self-contradiction=operator-telemetry-only`；
+`visible-block-shape=not-contradiction-authority`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
