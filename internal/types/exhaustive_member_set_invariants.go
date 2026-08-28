@@ -129,12 +129,29 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 	matched := make(map[string]bool, len(memberKeys))
 	var unexpected []string
 
-	blocks := exhaustiveMemberCoverageBlocks(doc.Blocks, fact)
+	// A source_inventory_row_id is the exact typed binding from one accepted
+	// EnumerationDisplaySet to one visible item. Prefer that set identity over
+	// block titles whenever it is present. A single table can carry several
+	// sibling member_set facts, and a separately emitted empty section heading
+	// may share one fact's label; title-first selection would otherwise choose
+	// the heading, hide the real table rows, and report every member missing.
+	//
+	// The fallback remains the historical title/id selection for documents that
+	// predate row IDs. No visible text, request prose, or rendered Markdown is
+	// inspected to decide the exact-row path.
+	typedSetID := exhaustiveMemberCoverageTypedSetID(doc.Blocks, fact)
+	blocks := doc.Blocks
+	if typedSetID == "" {
+		blocks = exhaustiveMemberCoverageBlocks(doc.Blocks, fact)
+	}
 	for _, block := range blocks {
 		if !exhaustiveBlockCarriesPrincipalMembers(block) {
 			continue
 		}
 		for _, item := range block.Items {
+			if typedSetID != "" && !strings.HasPrefix(strings.TrimSpace(item.SourceInventoryRowID), typedSetID+"-row-") {
+				continue
+			}
 			labels := exhaustiveItemMemberSurfaces(item)
 			if len(labels) == 0 {
 				continue
@@ -194,6 +211,29 @@ func ComputeExhaustiveMemberCoverage(doc *AnswerDocumentV2, fact AnswerAggregate
 	cov.DuplicateCitations = duplicateCitationRefs(citationSeen)
 	sort.Ints(cov.InvalidCitationRefs)
 	return cov
+}
+
+// exhaustiveMemberCoverageTypedSetID returns the compiler-owned set identity
+// only when at least one visible item actually carries an exact row from that
+// set. The set ID is generated from the structured aggregate label by the same
+// EnumerationDisplaySet compiler; it is not inferred from block titles or
+// answer prose. Requiring a present row keeps legacy/manual documents on the
+// established title/id fallback.
+func exhaustiveMemberCoverageTypedSetID(blocks []AnswerBlock, fact AnswerAggregateFact) string {
+	label := sanitizeEnumerationDisplayID(fact.Label)
+	if label == "" {
+		return ""
+	}
+	setID := "enum-set-" + label
+	prefix := setID + "-row-"
+	for _, block := range blocks {
+		for _, item := range block.Items {
+			if strings.HasPrefix(strings.TrimSpace(item.SourceInventoryRowID), prefix) {
+				return setID
+			}
+		}
+	}
+	return ""
 }
 
 func exhaustiveMemberCoverageBlocks(blocks []AnswerBlock, fact AnswerAggregateFact) []AnswerBlock {

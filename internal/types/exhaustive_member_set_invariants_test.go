@@ -183,6 +183,78 @@ func TestComputeExhaustiveMemberCoverage_SetEquality(t *testing.T) {
 		}
 	})
 
+	t.Run("exact row set binding outranks empty matching section and sibling table rows", func(t *testing.T) {
+		factWithLabel := AnswerAggregateFact{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind constants",
+			Value:   "2",
+			Members: []string{"KindAlpha", "KindBeta"},
+		}
+		doc := &AnswerDocumentV2{
+			Citations: []Citation{
+				{File: "kind.go", Line: 10},
+				{File: "kind.go", Line: 11},
+				{File: "types.go", Line: 5},
+			},
+			Blocks: []AnswerBlock{
+				{
+					ID:          "kind-heading",
+					Kind:        BlockSection,
+					Title:       "Kind constants",
+					SurfaceRole: SurfacePrincipal,
+				},
+				{
+					ID:          "all-members",
+					Kind:        BlockTable,
+					SurfaceRole: SurfacePrincipal,
+					FacetIDs:    []string{string(FacetEnumerationItem), "member_set"},
+					Items: []AnswerBlockItem{
+						{Label: "TypeOnly", SourceInventoryRowID: "enum-set-types-row-typeonly", CitationRef: 2},
+						{Label: "KindAlpha", SourceInventoryRowID: "enum-set-kind-constants-row-kindalpha", CitationRef: 0},
+						{Label: "KindBeta", SourceInventoryRowID: "enum-set-kind-constants-row-kindbeta", CitationRef: 1},
+					},
+				},
+			},
+		}
+
+		cov := ComputeExhaustiveMemberCoverage(doc, factWithLabel)
+		if cov.HasFailures() {
+			t.Fatalf("exact row-set identity should select the two bound rows only: %+v", cov)
+		}
+		if cov.PrincipalItemCount != 2 {
+			t.Fatalf("principal item count=%d, want 2 exact rows", cov.PrincipalItemCount)
+		}
+	})
+
+	t.Run("partial exact row binding still reports the unbound member missing", func(t *testing.T) {
+		factWithLabel := AnswerAggregateFact{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind constants",
+			Value:   "2",
+			Members: []string{"KindAlpha", "KindBeta"},
+		}
+		doc := &AnswerDocumentV2{
+			Citations: []Citation{{File: "kind.go", Line: 10}},
+			Blocks: []AnswerBlock{{
+				ID:          "all-members",
+				Kind:        BlockTable,
+				SurfaceRole: SurfacePrincipal,
+				Items: []AnswerBlockItem{
+					{Label: "KindAlpha", SourceInventoryRowID: "enum-set-kind-constants-row-kindalpha", CitationRef: 0},
+					{Label: "KindBeta", SourceInventoryRowID: "enum-set-other-row-kindbeta", CitationRef: 0},
+				},
+			}},
+		}
+
+		cov := ComputeExhaustiveMemberCoverage(doc, factWithLabel)
+		if len(cov.MissingMembers) != 1 || cov.MissingMembers[0] != "KindBeta" {
+			t.Fatalf("partial exact binding must stay fail-closed, got %+v", cov)
+		}
+		if cov.PrincipalItemCount != 1 {
+			t.Fatalf("principal item count=%d, want only the one exact bound row", cov.PrincipalItemCount)
+		}
+	})
+
 	t.Run("missing member flagged", func(t *testing.T) {
 		doc := &AnswerDocumentV2{
 			Citations: []Citation{{File: "x.go", Line: 1}, {File: "x.go", Line: 2}, {File: "x.go", Line: 3}},

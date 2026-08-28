@@ -59206,6 +59206,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/member/wording/layout-selection=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`。
 
+### §123.1485 r907/B1415：完整元数据修补生效；同名空小节遮蔽多集合共享表（2026-08-28）
+
+1. 从已推送 `1213b8f66` 后的新二进制严格并发恰好 2 路复放配置解释与多集合枚举，runner 2/2 PASS：配置 157s、枚举 450s。
+   两路均未按固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统代写模型结论、关系、成员、措辞或布局。
+2. B1412 获得生产正证。配置终稿正确给出代码默认 50、YAML 字段、CLI 显式覆盖和最终消费链；r906 同一 evidence-summary atom 最多重复
+   6 次的补充块已经消失。人工事实判定 pass，过程仍有 15 次 read/18 个 explorer iteration，且 Decode/merge/Changed 的深层实现引用不足，
+   B1408/B1409/B1396 不因本轮正文正确而关闭。
+3. B1414 获得部分生产正证。枚举 finalizer 在被要求补数组元数据后，模型使用完整 `replace_blocks` 保住 38 行、全部
+   `source_inventory_row_id` 与逐行 citation，并成功令主表携带 `facet_ids=[enumeration_item,member_set]`；旧版“把 replace 当字段合并”没有复现。
+   但首轮仍尝试未发布的 `source_inventory_family` field-edit，总计 3 次 reject，因此只关闭核心不可执行教学，不宣称所有重试成本已清零。
+4. 新 P1 `B1415-EXACTROWSETTITLESHADOW1` 是最终错误 caveat 的真实根因。accepted 文档同时包含一个标题为“Kind 常量”的空 section 和一个承载
+   type/function/constant 三个 sibling set 的 38 行共享 table。旧 `ComputeExhaustiveMemberCoverage` 先按 aggregate label 选择同名 block，空 section
+   因此遮蔽真实 table，日志错误铸成 `members=30 principal_items=0 missing=30 unexpected=0`；随后用户可见层追加“部分项证据支持稍弱”，尽管
+   30 个 Kind 行及其引用全部在场。这不是模型遗漏、引用缺失或 source-inventory completion 债。
+5. B1415 已按精确 typed identity 根修。每个编译器生成的枚举行已有 `source_inventory_row_id=<set-id>-row-<member-id>`；覆盖计算现在只要发现
+   当前 aggregate 的 exact set row，就扫描所有 principal blocks、仅消费该 set-id 的行。这样共享表中的 sibling rows 不会变成 unexpected，空同名标题也
+   不能抢占载体；只有完全没有 exact row ID 的旧/手工文档才保留历史 block title/id 回退。partial exact binding 继续 fail-closed，不能因为找到一行就
+   假造其余成员完整。
+6. 回归覆盖“空同名小节 + sibling rows + 完整 exact set”必须 2/2、“仅绑定一行”必须报告另一行缺失。该修复不读取用户请求、模型原文、最终
+   prose、Markdown 或 Mermaid label，不生成/删除成员，也不改变模型可见答案；完整 `go test ./... -count=1` 已通过，构建与生产复放在本节提交后继续。
+   r907 完整人工记录见 `eval/parallel_selected_summary_evalcampaign_config_count_replay_r907_20260828_manual_audit.md`。
+
+状态：
+
+`r907=runner-pass-2/2,human-config-pass+enumeration-partial`；
+`B1412=production-positive/core-closed`；
+`B1414=production-positive-core/prompt-retry-tail-observe`；
+`B1415=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`B1411=invalid-as-independent-root/merged-into-B1414`；
+`B1413=confirmed/P2/design-first`；
+`B1408/B1409/B1396=open`；
+`exhaustive-member-coverage=exact-compiler-row-set-first/legacy-title-fallback-only`；
+`system-answer/conclusion/member/relation/wording/layout-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
