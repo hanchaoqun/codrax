@@ -57863,6 +57863,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1447 r889：B1382 生产转正；未发布 JSON 分支的底层报错缺少可执行修向（2026-08-28）
+
+1. 从已推送 `5843780b1` 重建干净二进制，严格并发恰好 2 路复放 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 152s、read 261s。
+   两路均未按 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级，没有恢复旧稿，也没有由系统代写模型结论、关系、标签或布局。
+2. `B1382` 获得生产正证。read finalizer 只收到精确 `diagram_participant_boundaries_json`，没有旧
+   `diagram_block_sibling_fields_json`、`Copy both arrays together` 或全量 `edge_anchors`。最终主图只保留模型选择的
+   analyzer→explorer→extractor→finalizer 阶段链；30 余条 retry/checkpoint/helper 关系不再被系统强迫进入主图。完整 grounded relation authority
+   仍留在 Mutable 供校验与模型选择，accepted coverage receipt 为 required=6/covered=6/unproven_boundaries=2，Mutable/BusContext 的未证边界没有丢失。
+3. read 人工判定 partial：相对 r888，read_file 22→8、墙钟 427s→261s，但单次回放只能证明本轮收敛，不能把全部性能差异归因给 B1382。
+   最终四个阶段 subgraph 为空，Mutable/BusContext 诚实但孤立，可见节点还携带内部源码路径，业务逻辑层表达仍不完整。首个 patch 同时提交局部 diagram
+   操作和未获当前 lease 授权的整块替换，工具精确拒绝；第二个只用局部操作即通过。这是模型没有遵循已经发布的局部修补能力，不是互相矛盾的系统合同。
+4. Trace 系统面继续完整：显式 2.000..2.020s 窗、四节点/三条唤醒边、11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级反转候选、实际占时与
+   规则可消双账户、链上业务线索、背景隔离、自动补采和完整 `Trace 因果投影` 全在。人工判定 partial：模型同页先称“四次唤醒”后又列三次，并把
+   `fscache_page_wait_on_page_bit` 调用点扩写为页缓存层和整链直接阻断，随后 caveat 又承认等待对象、持有者、文件系统和后端未证，属于模型答案内部
+   数量/因果口径矛盾；不据单一样本扫描正文做硬门或由系统改写结论。
+5. 新 P1 `B1384-PATCHUNPUBLISHEDFIELDERROR1` 经 schema、类型与生产 payload 复核后重裁：它不是“同一字段既要求数组又只接收字符串”的合同自冲突。
+   当前 `block_field_edits_v1` 的动态 oneOf 只发布闭集字符串字段，`facet_ids` 从未成为合法分支；共享教学也明确要求只用当前 schema 的精确分支。
+   模型在推理中承认该限制后仍自造 `field:"facet_ids",value:[...]`，属于结构化调用不遵循 schema。系统真实 gap 是 strict decode 只返回
+   `cannot unmarshal array ... value of type string`，没有指出“字段分支未发布”、没有列出当前可用字段，也没有说明数组/对象元数据必须用完整 block 通道，
+   因而增加无效重试和 JSON 心智。
+6. B1384 的最优边界冻结为两层：首先在 strict decode 前只按 JSON key/type 与动态 schema 精确识别未发布 field，返回 typed、可执行、事务状态明确的
+   repair，禁止从请求、thinking、答案 prose 或 Mermaid 内容推断意图；其次评估把隐藏、模型自选、枚举数组元数据做成独立字段类型安全局部操作，只有能从
+   投影 schema 得到精确值域且不会系统选择 facet/claim 时才施工。不能静默丢弃坏 edit、不能部分提交同批其他操作、不能把任意数组塞进 string/any，
+   也不能为了本样例自动替模型选择 `facet_ids`、`claim_uses` 或新增块。
+
+状态：
+
+`r889=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1382=production-positive/core-closed`；
+`B1383=confirmed-observation/P1-audit-open`；
+`B1384=confirmed/P1-next/error-guidance-root`；
+`boundary-carrier=production-boundary-only/no-full-edge-inventory`；
+`read-final-diagram=stage-chain+two-honest-unproven-isolates`；
+`patch-invalid-field=no-partial-commit/no-silent-drop`；
+`system-facet/claim/block/relation/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r889`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r889`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
