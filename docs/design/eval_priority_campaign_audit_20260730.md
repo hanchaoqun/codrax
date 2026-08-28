@@ -58047,6 +58047,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1452 r891：B1383/B1385 生产转正；Trace 权威完整，模型因果措辞仍按软服从观察（2026-08-28）
+
+1. 从已推送 `9b33ed840` 重建不可变二进制，严格并发恰好 2 路复放显式窗 Trace 与 read pipeline 图：runner 2/2 PASS，Trace 215s、read
+   403s。两路活动流均未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或由系统代写模型答案、关系、标签与布局。
+2. `B1383-PROBEFLOWREPAIRDUPLICATION1` 获得生产正证。与 r890 相同 Trace 输入从 explorer dispatch=2、trace_query=8 收敛到
+   explorer dispatch=1、trace_query=4；当前四次分别是 wakeup_chain、window_stats、root_cause_rank、critical_blocking_calls，全部发生在 evidence
+   调查内，没有独立 discovery probe 重放。精确 2.000..2.020s 窗、四节点三边链、11.000ms 链上 IO 第一席、三个互不直接相加的 1.000ms
+   调度/优先级候选、实际占时/规则可消双账户、背景隔离、自动补采和完整 `Trace 因果投影` 均保留，因此省 probe 没有削弱因果能力。
+3. `B1385-PRETRIAGESTAGELOCALCAPABILITY1` 的结构化载体获得生产正证。r890 的 perf emission 含三条 residue：“无法使用 trace_query”“唤醒来源
+   未明确”“无 trace_query 工具可用”；r891 emission 的 residue 为空，meta/observations 已直接保留 cookie-200 唤醒点与四节点链，后续 typed query
+   正常执行。模型 hidden reasoning 仍短暂把局部 schema 解读为能力矛盾，但未把该句写进 summary/observation/residue 或最终答案；软教学不能保证模型内心
+   字节一致，也不应升级为 thinking/prose 扫描硬门。下游 typed 权威收敛按设计阻断了污染传播。
+4. Trace 人工判 partial，不把 runner PASS 直接签成答案全绿。模型正文把唤醒先后扩写为“等待下游工作完成/整个链由 IO 决定”，把 network/cookie 的
+   sleep-before-wakeup 描述成 wakeup 后 sleep，并把目标睡眠定性为正常协作；这些都超过 wakeup edge 与状态区间权限。确定性上下文和系统核对已正确披露
+   跨 CPU 不证明竞争、等待对象/持有者未证、睡眠只是症状，故属于既有模型服从波动；禁止用关键词扫描正文、拒绝答案或系统替写结论来修单样本。
+5. read 人工亦为 partial：正文四阶段职责及 BusContext/Mutable 载体有可核引用，Mermaid 可解析、typed incident participant 6/6、boundary=0；同一
+   reject 的 participant+relation delta 被一次原子 patch 消费，只移除一条无锚 return edge并替换一条失败 data-flow edge。模型选择后的图仍偏技术：
+   BuildAgentContext 成为无出边汇点，而精确 `bus.Mutable→AgentContext.Mutable` 以读者节点 `BusContext→AgentContext` 表达，需要结合正文理解；系统未替
+   模型选择该边或文字。22 次 read、503 条 evidence、14 次 mid-loop、9 次 completion call 显示复杂度偏高，但本轮两个 evidence unit 的 repair 均有精确
+   typed 理由，尚不足以铸造新的硬门或按轮数/耗时截断，先作为异构回放观察。
+6. 下一批继续按优先级选择严格并发恰好 2 个不同模式 eval，优先审计上下文是否让模型区分“状态发生在唤醒前/后”“唤醒关系/完成关系”和业务描述；最优
+   修向只能是 typed 时间关系载体或更低心智的软教学，不得读取答案原文硬门，也不得由系统接管主因、机理或业务结论。
+
+状态：
+
+`r891=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1383=production-positive/core-closed`；
+`B1385=production-positive-typed-carrier/core-closed+hidden-reasoning-model-watch`；
+`trace-query-count=r890-8→r891-4/no-discovery-probe`；
+`pre-triage-global-unavailable-residue=3→0`；
+`read-diagram=syntax-pass+typed-participant-6/6+one-joint-patch/usability-partial`；
+`system-query/result/root/relation/answer-selection=none`；
+`request/model/final-prose/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r891`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r891`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
