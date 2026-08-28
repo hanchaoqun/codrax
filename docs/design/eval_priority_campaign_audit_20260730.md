@@ -58264,6 +58264,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1458 r894：B1389 生产转正；Trace 全能力守住，观测到解释的越权仍是下一根修（2026-08-28）
+
+1. 从已推送 `e471bbae2` 重建不可变二进制，严格并发恰好 2 路复放配置优先级 + 东湖真实显式帧窗 Trace，runner 2/2 PASS：
+   Trace 167s、配置 186s。两路零成文拒绝、零 answer patch、零旧稿恢复，均未按 4ms、4m、首字节、stall、活动流年龄或上下文比例降级；
+   系统没有代写模型结论、关系、业务词或图布局。
+2. `B1389` 获得生产正证。Explorer 初次闭环因两个 required 解释维度没有各自的 grounded operation owner 被 typed gate 拒绝；随后读取
+   `LoadRuntimeSettings` 实际函数体和 CLI `Changed` 分支，分别把 `yaml.NewDecoder + KnownFields + Decode` 与显式 CLI 覆盖条件绑定到对应
+   dimension。最终答案不再出现仓库不存在的 Viper，默认 50、代码默认→YAML→显式 CLI 三层优先级和严格 YAML 解析均正确。
+3. B1389 结果正确但过程仍 partial：模型先发出 10 条未绑定 dimension 的 evidence，并连续尝试三次 completion 后才理解
+   `requested_dimension_indices`，最终产生 19 次 read、14 次 midloop。新 P2 `B1390-DIMENSIONOWNERSHIPFIRSTEMISSION1` 记档：当且仅当现有 typed
+   roster 已满足“至少两个 required 源码解释维度”结构条件时，应在 Explorer 首次取证前软提示逐席绑定 operation evidence；不从维度 label、请求、
+   thinking 或答案 prose 猜 owner，不新增硬拒规则，也不让系统生成机制结论。配置最终另有一句把显式 CLI 值写成进入 `mergedMaxSteps`；真实最终载体为
+   `flagMaxSteps`，先作为同一 evidence-carrier 解读观察项，不对变量名或正文做硬门。
+4. Trace 系统面完整通过：明确 34579.472865..34579.587805s 主窗、五次 typed query、
+   `ThreadPoolForeg→NetworkService→CookieMonsterCl→com.baidu.tieba` 四跳、链上优先级/调度候选、D/IO、算力供给、VerifyClass 业务语义线索、
+   实际占时与规则可消双账、邻近/背景隔离、代表窗和完整 `Trace 因果投影` 均在。模型首段还给出根因排序与修向，系统投影没有替代模型总结。
+5. Trace 人工仍为 partial，新增两个 `B1388` 异构 witness：模型把上游 Cookie/Network runnable 延迟写成目标线程“被唤醒后无法及时获得调度”；
+   又把目标线程在 CPU0/1/2 合计约 26.2ms 的 running residence 写成“接近满载”，但分母为 114.9ms 且该值不是 CPU utilization。
+   这与 r893 的 nil/deadline 例同根：typed observation 没有和 model inference / independently proven authority 分层。不能靠扫描“满载”、线程名、
+   trace 文本或最终答案来拒绝/改写；下一高 ROI 批继续施工 B1388 的 authority carrier，只给模型精确可主张边界与独立证明，不接管结论。
+
+状态：
+
+`r894=runner-pass-2/2,human-config-partial+trace-partial`；
+`B1389=production-positive/core-closed`；
+`B1390=confirmed/P2/typed-first-emission-soft-teaching-next-after-B1388`；
+`B1388=confirmed/P1/multi-domain-production-witness-next`；
+`config-parser=yaml.v3/NewDecoder+KnownFields+Decode`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/variable-name/trace-label/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r894`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-time/rule-eliminable=separate-ledgers-present`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r894`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
