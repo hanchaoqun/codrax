@@ -938,11 +938,22 @@ func aggregateMemberSetFactsSameBucketForSuperset(a, b AnswerAggregateFact) bool
 	if !aggregateFactDimensionsCompatible(a.Dimensions, b.Dimensions) {
 		return false
 	}
-	if strings.TrimSpace(a.Unit) != "" && strings.TrimSpace(b.Unit) != "" &&
-		!strings.EqualFold(strings.TrimSpace(a.Unit), strings.TrimSpace(b.Unit)) {
+	if !aggregateMemberSetLabelsCompatibleForSuperset(a.Label, b.Label) {
 		return false
 	}
-	return aggregateMemberSetLabelsCompatibleForSuperset(a.Label, b.Label)
+	aUnit := strings.TrimSpace(a.Unit)
+	bUnit := strings.TrimSpace(b.Unit)
+	if aUnit == "" || bUnit == "" || strings.EqualFold(aUnit, bUnit) {
+		return true
+	}
+	// Unit is free-form display metadata. Permit language/wording drift only
+	// when the concrete member identities independently establish a strict
+	// superset relationship. Equal or crossing sets with conflicting units do
+	// not gain compatibility from their labels alone.
+	aSet := aggregateMemberSetProjectionKeySet(a.Members)
+	bSet := aggregateMemberSetProjectionKeySet(b.Members)
+	return aggregateMemberProjectionStrictSubsetOf(aSet, bSet) ||
+		aggregateMemberProjectionStrictSubsetOf(bSet, aSet)
 }
 
 func aggregateMemberSetLabelsCompatibleForSuperset(a, b string) bool {
@@ -1051,7 +1062,13 @@ func AnswerAggregateStableMemberSetCanCarryAcrossLabelDrift(stable, current Answ
 	if AnswerAggregateFactRoleForRequest(stable, nil) != AnswerAggregateFactRoleForRequest(current, nil) {
 		return false
 	}
-	if !aggregateMemberSetFactsSameBucketForSuperset(current, stable) {
+	// Unit is a model-authored display string rather than a typed bucket key;
+	// the same accepted roster may legitimately move from "functions" to
+	// "个函数" in a later completion. Exact structural subset identity plus
+	// compatible dimensions and labels is the authority here. Requiring byte-
+	// equal Unit would let display-language drift delete an accepted superset.
+	if !aggregateFactDimensionsCompatible(current.Dimensions, stable.Dimensions) ||
+		!aggregateMemberSetLabelsCompatibleForSuperset(current.Label, stable.Label) {
 		return false
 	}
 	currentSet := aggregateMemberSetProjectionKeySet(current.Members)
@@ -1060,6 +1077,43 @@ func AnswerAggregateStableMemberSetCanCarryAcrossLabelDrift(stable, current Answ
 		return false
 	}
 	return aggregateMemberSetSupportCompatibleForSuperset(current, stable)
+}
+
+// AnswerAggregateStableMemberSetCanRestoreAfterRejectedCurrent reports
+// whether a previously accepted principal member_set is covered by a later
+// current fact which has already failed typed same-member grounding and will
+// be excluded. A rejected fact has no authority to erase accepted closure
+// state. Restoration preserves the earlier model-authored fact; it does not
+// accept any member from the rejected fact or synthesize a union.
+//
+// The exact-member containment test intentionally does not depend on labels
+// or Unit: a failing retry may drift both display strings, while its concrete
+// attempted roster still proves which accepted set it was trying to replace.
+// This helper is only safe at a caller that has already classified current as
+// semantically rejected through typed evidence, never for an accepted current
+// fact or a prose-derived suspicion.
+func AnswerAggregateStableMemberSetCanRestoreAfterRejectedCurrent(stable, rejected AnswerAggregateFact) bool {
+	if !answerAggregateFactCarriesCompleteMemberSet(stable) ||
+		!answerAggregateFactCarriesCompleteMemberSet(rejected) ||
+		stable.Kind != AnswerAggregateMemberSet ||
+		rejected.Kind != AnswerAggregateMemberSet {
+		return false
+	}
+	if AnswerAggregateFactRoleForRequest(stable, nil) != AnswerAggregateRolePrincipalAnswer ||
+		AnswerAggregateFactRoleForRequest(rejected, nil) != AnswerAggregateRolePrincipalAnswer {
+		return false
+	}
+	stableSet := aggregateMemberSetProjectionKeySet(stable.Members)
+	rejectedSet := aggregateMemberSetProjectionKeySet(rejected.Members)
+	if len(stableSet) == 0 || len(rejectedSet) == 0 || len(stableSet) > len(rejectedSet) {
+		return false
+	}
+	for member := range stableSet {
+		if !rejectedSet[member] {
+			return false
+		}
+	}
+	return aggregateMemberSetSupportCoverage(stable) == len(stable.Members)
 }
 
 func appendAggregateFactProvenance(current, addition string) string {

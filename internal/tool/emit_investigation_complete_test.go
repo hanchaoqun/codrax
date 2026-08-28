@@ -445,6 +445,7 @@ func TestEffectiveCompletionAggregateFacts_PreservesAcceptedStrictSupersetAcross
 		Label: "公开函数（function，不含测试函数）",
 		Value: "5",
 		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Unit:  "functions",
 		Members: []string{
 			"Eval", "EvalAll", "SetExternalArtifactFloor", "IsRegistered", "RegisteredKinds",
 		},
@@ -459,6 +460,7 @@ func TestEffectiveCompletionAggregateFacts_PreservesAcceptedStrictSupersetAcross
 		Label:       "公开函数（function）",
 		Value:       "4",
 		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "个函数",
 		Members:     []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds"},
 		SupportRefs: []string{"eval.go:15", "eval.go:36", "grammar.go:110", "grammar.go:116"},
 	}
@@ -478,6 +480,90 @@ func TestEffectiveCompletionAggregateFacts_PreservesAcceptedStrictSupersetAcross
 	}
 	if principal != 1 {
 		t.Fatalf("principal facts = %d in %+v, want exactly one", principal, got)
+	}
+}
+
+func TestRestoreStableAggregateFactsAfterRejectedCurrent_PreservesAcceptedContainedRoster(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	stable := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "Kind 常量（Kind const block）",
+		Value:       "3",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "constants",
+		Members:     []string{"KindAlpha", "KindBeta", "KindGamma"},
+		SupportRefs: []string{"grammar.go:10", "grammar.go:11", "grammar.go:12"},
+	}
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{stable})
+	mut.SetInvestigationComplete("accepted exact constant roster")
+	mut.RetainInvestigationAggregateFacts()
+
+	remaining := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "公开类型",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Env"},
+		SupportRefs: []string{"grammar.go:50"},
+	}}
+	rejected := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "Kind Constants",
+		Value:       "5",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "个常量",
+		Members:     []string{"KindAlpha", "KindBeta", "KindGamma", "KindInventedA", "KindInventedB"},
+		SupportRefs: []string{"grammar.go:10", "grammar.go:11", "grammar.go:12", "nowhere.go:1", "nowhere.go:2"},
+	}}
+
+	got := restoreStableAggregateFactsAfterRejectedCurrent(bus, remaining, rejected)
+	if len(got) != 2 {
+		t.Fatalf("restored facts = %+v, want independent current fact plus accepted constant roster", got)
+	}
+	foundStable := false
+	for _, fact := range got {
+		if len(fact.Members) == 3 && fact.Members[0] == "KindAlpha" {
+			foundStable = true
+			if fact.Value != "3" || fact.Members[2] != "KindGamma" {
+				t.Fatalf("restored fact changed accepted roster: %+v", fact)
+			}
+		}
+		for _, member := range fact.Members {
+			if strings.HasPrefix(member, "KindInvented") {
+				t.Fatalf("rejected member leaked into restored facts: %+v", got)
+			}
+		}
+	}
+	if !foundStable {
+		t.Fatalf("accepted stable roster was not restored: %+v", got)
+	}
+}
+
+func TestRestoreStableAggregateFactsAfterRejectedCurrent_DoesNotRestoreCrossingRoster(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "production functions",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval", "EvalAll"},
+		SupportRefs: []string{"eval.go:15", "eval.go:36"},
+	}})
+	mut.SetInvestigationComplete("accepted production functions")
+	mut.RetainInvestigationAggregateFacts()
+
+	rejected := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "test functions",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"TestEval", "TestEvalAll"},
+		SupportRefs: []string{"eval_test.go:15", "eval_test.go:36"},
+	}}
+	if got := restoreStableAggregateFactsAfterRejectedCurrent(bus, nil, rejected); len(got) != 0 {
+		t.Fatalf("crossing rejected roster must not restore unrelated stable facts: %+v", got)
 	}
 }
 

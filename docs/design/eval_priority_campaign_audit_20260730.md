@@ -59244,6 +59244,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1486 r908/B1416：错误后写被排除时仍擦除已验收成员集（2026-08-28）
+
+1. 从已推送 `4c158f454` 的不可变二进制严格并发恰好 2 路复放配置解释与多集合枚举，runner 1 PASS/1 FAIL：配置 185s、枚举 488s。
+   两路活动流未按固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级，也没有旧稿替换或系统代写模型结论。枚举 runner 以动态 checkout
+   基准正确报 `dynamic_scalar_binding_missing:kind_constants:30`，不是过期 oracle。
+2. 配置人工事实判定 pass：`Decode`、默认 50、YAML 覆盖和 CLI `Changed` 分支均正确；B1412 重叠摘要重复未回归。但本轮 21 次 read、15 次
+   midloop，并有一次三 summary 合一的 finalizer reject；模型主体表已经完整承载默认→YAML→CLI 后，系统仍追加同义“成员清单补充”，B1413 保持开放。
+3. 枚举人工判定 fail。第 14 轮 completion 已成功验收 3 个 type、5 个 function、30 个 Kind constants 及完整成员/notes/support refs；随后仍在运行的
+   调查分支先报 41、再报 45 个常量，并加入 15 个源码不存在的 Kind 名称。typed same-member support gate 正确把这份错误常量 aggregate 排除，但 accepted
+   state 被后写为只剩 3 个 type 与 3 个 function。finalizer 的 `Structured Aggregate Facts` 因此只有两席、`Principal Enumeration Rows` 只有 6 行；虽然
+   preserved Note 仍明确写 3/5/30，模型最终选择错误的 45 并只列 26 个常量，答案事实和完整性同时失败。
+4. 新 P1 `B1416-REJECTEDCURRENTERASESACCEPTEDSET1` 是系统单调性 gap，不是单纯模型波动。B1410 只在 current 是 stable 的严格子集且 bucket 的
+   free-form `unit` 字节相等时携带 stable；本轮 `functions`→`个函数` 令 5 行 superset 未保留。对 constants，错误 current 是 stable 30 的超集，先未触发
+   subset carry，后续 typed validator 删除 current 时也没有恢复 stable，于是一个已明确判错的 retry 反而缩减了已验收闭包。
+5. B1416 已按 accepted-closure 单调性施工。共享 superset bucket 仲裁继续要求 compatible dimensions+labels+精确 strict member subset，但当成员包含关系
+   已成立时不再让中英文/free-form unit 漂移否决同一集合；普通等集、crossing set 或标签不兼容仍不合并。对 typed same-member grounding 明确排除的
+   current fact，删除前保留其结构化 roster；删除后只恢复此前 accepted、完整有 support、且成员全集被该 rejected roster 包含的 stable fact。错误 current
+   的新增成员一个也不复制，完全不相关 stable fact 也不恢复。
+6. 该实现不读取请求、模型 thinking、最终 prose、Markdown、Mermaid label 或数字字符串，不让系统选择最终数量/成员/措辞；它只保护已由模型提交且通过
+   全部 completion gate 的事实不被后来明确判错的结构化事实删除。回归覆盖 unit 中英文漂移下 5→4 保留 superset、30→45 错误超集被排除后恢复 30、
+   invented rows 不泄漏，以及 crossing roster 不恢复。聚焦 types/tool 测试通过；全仓测试、构建与 r909 生产复放待本批完成。
+7. B1415 本轮未获得生产正证：常量 stable fact 在 finalizer 前已经丢失，因而 exact-row coverage 根本没有常量行可消费。B1415 继续保持
+   implemented/pending-replay，不能把 r908 FAIL 误归成其算法失败。完整人工记录见
+   `eval/parallel_selected_summary_evalcampaign_config_count_replay_r908_20260828_manual_audit.md`。
+
+状态：
+
+`r908=runner-pass-1/fail-1,human-config-pass+enumeration-fail`；
+`B1412=production-positive/core-closed`；
+`B1413=confirmed/P2/design-first`；
+`B1414=production-positive-core/prompt-retry-tail-observe`；
+`B1415=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`B1416=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`accepted-complete-fact=not-deletable-by-typed-rejected-current`；
+`free-form-unit=display-only/not-sole-bucket-veto-when-exact-subset-proves-identity`；
+`system-answer/conclusion/member/relation/wording/layout-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

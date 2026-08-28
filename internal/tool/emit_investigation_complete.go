@@ -2523,8 +2523,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		if validationErr, ok := err.(*aggregateMemberSetSupportValidationError); ok {
 			groundingFacts := validationErr.groundingFactIndexes()
 			if len(groundingFacts) > 0 {
+				rejectedFacts := completionAggregateFactsAtIndexes(effectiveAggregateFacts, groundingFacts)
 				var dropped []string
 				effectiveAggregateFacts, dropped = dropCompletionAggregateFactsByIndex(effectiveAggregateFacts, groundingFacts)
+				effectiveAggregateFacts = restoreStableAggregateFactsAfterRejectedCurrent(
+					ctx, effectiveAggregateFacts, rejectedFacts)
 				preflight = preflight.WithAggregateFacts(effectiveAggregateFacts, structuredRelationAuthorityFacts)
 				aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes,
 					"excluded model-authored member aggregates whose selected support refs remained semantically ungrounded after bounded repair")
@@ -9009,6 +9012,51 @@ func dropCompletionAggregateFactsByIndex(
 		dropped = append(dropped, label)
 	}
 	return out, dropped
+}
+
+func completionAggregateFactsAtIndexes(
+	facts []types.AnswerAggregateFact,
+	indexes map[int]struct{},
+) []types.AnswerAggregateFact {
+	if len(facts) == 0 || len(indexes) == 0 {
+		return nil
+	}
+	out := make([]types.AnswerAggregateFact, 0, len(indexes))
+	for i, fact := range facts {
+		if _, selected := indexes[i]; selected {
+			out = append(out, fact)
+		}
+	}
+	return out
+}
+
+// restoreStableAggregateFactsAfterRejectedCurrent protects accepted closure
+// state from a later fact that the typed same-member evidence gate has already
+// rejected. Only an accepted stable roster wholly contained in one rejected
+// current roster is restored. Members from rejected are never copied, and
+// unrelated stable facts are not reintroduced.
+func restoreStableAggregateFactsAfterRejectedCurrent(
+	ctx *types.BusContext,
+	remaining []types.AnswerAggregateFact,
+	rejected []types.AnswerAggregateFact,
+) []types.AnswerAggregateFact {
+	if ctx == nil || ctx.Mutable == nil || len(rejected) == 0 {
+		return remaining
+	}
+	stable := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(stable) == 0 {
+		return remaining
+	}
+	restored := cloneCompletionAggregateFacts(remaining)
+	for _, stableFact := range stable {
+		for _, rejectedFact := range rejected {
+			if types.AnswerAggregateStableMemberSetCanRestoreAfterRejectedCurrent(stableFact, rejectedFact) {
+				restored = append(restored, stableFact)
+				break
+			}
+		}
+	}
+	return types.MergeAnswerAggregateFacts(restored)
 }
 
 func completionDroppedAggregateLabelSuffix(labels []string) string {
