@@ -57337,6 +57337,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r879`。
 
+### §123.1434 r880/B1373：当前代租约生产转正；已锚定 join tuple 缺少可执行端点重映射权限（2026-08-28）
+
+1. 从已推送 `c6ecda345` 重建不可变二进制，严格并发恰好 2 路回放 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 137s、read
+   502s。两路均保持活动到自然完成，没有按 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级；没有恢复旧稿，也没有系统代写模型结论、
+   关系、节点、标签或布局。
+2. `B1370` 获得生产正证并关闭核心。read 第二次 patch 因模型把 whole-block replace 与局部 edge edits 混用而被拒后，路由立即发出专用
+   `answer_doc.patch_relation_repair_scope`，提示和动态 schema 继续携带当前代 9 个 `failure_ref`；后续日志没有 unknown/stale ref、旧代重放或
+   `patch_correct` 泛化降级。模型下一轮只用 atomic edits 成功消费同一代 refs，最终正常成文。说明两个 MutableState 载体的 exact typed-ref 闭包
+   选择与镜像已在真实恢复链生效。
+3. read runner PASS、人工 partial。最终 Mermaid 语法可解析，四阶段 precedence、Explorer 写 Mutable、Extractor 读 Mutable、builder 参数流及
+   `Mutable -> AgentContext` 数据流都在，职责说明与源码引用基本准确；但 7 次 finalizer reject 仍不健康，最终图还出现
+   `codraxNode1["o.busCtx"]` 等面向实现的节点，读者关系表达偏内部结构。B1366 的多行 pipe 破坏没有复现，这个合法 synthetic node 不是同一语法故障。
+4. 新 P0 `B1373-ANCHOREDJOINRETARGETCAPABILITY1` 是确定性、可泛化的 repair escape gap。component-split provider 选出的跨岛 typed tuple
+   `bus.Mutable -> AgentContext.Mutable` 已作为旧可见边 `BusContext -> AgentContext` 的 exact anchor 存在；`diagramParticipantRepairCandidateAlreadyAnchored`
+   因 canonical tuple 已有而正确过滤 duplicate allowed-addition，但 relation gate 又把该边判为证据有效，不生成 failure row。participant hard gate 继续要求
+   把请求参与者 Mutable 接到该 tuple 的正确可见端点，当前 schema 却既无 addition_ref，也无针对已有 occurrence 的 replace capability。
+5. 结果是一个“硬要求有出口、局部 schema 无出口”的合同洞：模型先反复清 boundary/scope，再手写 `BusContext -> Mutable`，被 relation gate 以
+   unproven 拒绝；删除后 split 仍在；随后手写 exact hidden tuple 的 `Mutable -> AgentContext`，造成同一 canonical relation 两条可见边；最后再用新
+   failure_ref 删除旧重复边才通过。四轮没有新增证据，只是在补足系统没有表达的“重映射现有可见 carrier”能力，不应归为模型波动。
+6. 最优方案不是允许重复关系，也不是系统自动改图。component-split 的 typed join candidate 若尚未锚定，继续发布现有
+   `{addition_ref,action:add,edge:{from_node,to_node,visible_label}}`；若 canonical tuple 已精确锚定但当前 body occurrence 没有把 candidate 声明的请求参与者
+   映射到可见端点，则从同一 rejected draft 铸造一个 occurrence-bound `failure_ref`，`target_carrier=prior_anchor`、`allowed_actions=[replace]`，hidden
+   relation/from/to identities 固定不变。模型只选择是否 replace，并自行写 from_node/to_node/visible_label；系统不选择端点、边、措辞或布局。若 anchor/
+   body occurrence 不唯一、candidate side 歧义或不能证明该 replacement 会落在请求参与者的 typed incident side，则不发权限并 fail-closed。
+7. Trace 系统面继续通过：显式 2.000000..2.020000s 窗、3 次 typed query、完整四跳链、11.000ms 链上 iowait 第一席、三项独立
+   1.000ms runnable/优先级候选、实际占时/规则可消双账户、背景隔离、自动补采和完整 `Trace 因果投影` 均在。r879 的重复 IO 指数本轮未复现，
+   `B1372` 保留为跨查询组合条件下的 typed 去重观察项。模型仍把调用点名扩写为缓存页机理并提出缓存未命中/预取等未证分支，继续归入
+   `B1269/B1271` 软教学；禁止答案原文扫描硬门和系统结论改写。
+8. 下一小批先为 B1373 增加“已锚定且唯一 occurrence 的 join retarget”typed capability、歧义 fail-closed 和动态 schema/执行 pin，专项、全仓与
+   构建通过后立即提交推送，再严格并发恰好 2 路回放 read+显式窗 Trace。`B1368` post-normalization grammar、`B1367` eval 请求参与者 incidence、
+   `B1372` Trace 背景去重和 `B1369` 探索 churn 继续独立排队，不混入本 P0。
+
+状态：
+
+`r880=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1370=production-positive/core-closed`；
+`B1373=confirmed/P0-next`；
+`B1372=confirmed-on-r879/not-reproduced-r880/P2-observe`；
+`B1367=confirmed/P2-eval-only`；`B1368=confirmed/P1`；`B1369=confirmed/P2-observe`；
+`component-join-unanchored=addition-ref-existing-path`；
+`component-join-already-anchored-but-visibly-misbound=missing-occurrence-bound-replace-capability`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r880`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r880`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
