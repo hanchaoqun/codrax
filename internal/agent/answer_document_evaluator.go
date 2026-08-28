@@ -592,6 +592,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "requested_dimension_evidence_ownership", func() string {
+		return renderAnswerDocRequestedDimensionEvidenceOwnership(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "current_run_stage_lane_authority", func() string {
 		return renderAnswerDocCurrentRunStageLaneAuthority(ctx)
 	}) {
@@ -8179,6 +8184,46 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocRequestedDimensionEvidenceOwnership(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+		return ""
+	}
+	byIndex := map[int][]types.EvidenceItem{}
+	for _, item := range ctx.Mutable.EmittedEvidence() {
+		if item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered {
+			continue
+		}
+		for _, index := range item.RequestedDimensionIndices {
+			byIndex[index] = append(byIndex[index], item)
+		}
+	}
+	if len(byIndex) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Requested Dimension Evidence Ownership\n\n")
+	b.WriteString("The model selected these grounded evidence rows for independent requested dimensions. Use only a row listed under that dimension to support its mechanism; sibling evidence does not cross-satisfy it. This map does not author the conclusion.\n\n")
+	for _, dim := range view.Presentation.RequestedDimensions {
+		items := byIndex[dim.Index]
+		if len(items) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- Dimension %d:\n", dim.Index)
+		for _, item := range items {
+			location := strings.TrimSpace(item.Source)
+			if item.LineStart > 0 {
+				location = fmt.Sprintf("%s:%d", location, item.LineStart)
+			}
+			fmt.Fprintf(&b, "  - [%s] kind=%s anchor=%s subject=%q object=%q\n", location, item.Kind, item.AnchorKind, item.Subject, item.Object)
+		}
+	}
 	return b.String()
 }
 

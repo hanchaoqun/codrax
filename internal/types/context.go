@@ -3140,6 +3140,7 @@ func cloneEvidenceItemForMutableStorage(in EvidenceItem) EvidenceItem {
 	}
 	out.DerivedFrom = append([]string(nil), in.DerivedFrom...)
 	out.SurfaceTerms = append([]string(nil), in.SurfaceTerms...)
+	out.RequestedDimensionIndices = append([]int(nil), in.RequestedDimensionIndices...)
 	return out
 }
 

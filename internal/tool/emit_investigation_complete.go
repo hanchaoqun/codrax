@@ -4508,6 +4508,11 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 	if cleared := clearUnavailablePendingReadsAfterFailedRead(ctx, closure); cleared > 0 {
 		logging.Info("[CGEC] cleared %d unavailable PendingRead(s) after failed read_file proof", cleared)
 	}
+	if justification == "" {
+		if downgrade := requestedDimensionEvidenceOwnershipDowngrade(ctx, evidence); downgrade != "" {
+			return downgrade
+		}
+	}
 
 	// Session 12 phase1-unread gate. When the LLM calls complete on a
 	// breadth-intent question (mechanism / call_chain / conditional)
@@ -4995,6 +5000,71 @@ func preCompleteContractCheckWithPreflight(ctx *types.BusContext, justification 
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
 	return b.String()
+}
+
+// requestedDimensionEvidenceOwnershipDowngrade prevents one source mechanism
+// row from silently satisfying several independent explanation dimensions.
+// The trigger and association are both schema-validated integers/roles; labels,
+// request text, evidence summaries, and answer prose are never inspected.
+func requestedDimensionEvidenceOwnershipDowngrade(ctx *types.BusContext, evidence []types.EvidenceItem) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions == nil {
+		return ""
+	}
+	var required []types.RequestedAnswerDimension
+	for _, dim := range ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions {
+		if !dim.Required || dim.Index <= 0 {
+			continue
+		}
+		switch dim.Role {
+		case types.RequestedAnswerDimensionFunctionOrPurpose,
+			types.RequestedAnswerDimensionBranchBehavior:
+			required = append(required, dim)
+		}
+	}
+	// A single explanation dimension cannot be cross-satisfied by a sibling;
+	// keep the longstanding evidence-floor contract for that simpler shape.
+	if len(required) < 2 {
+		return ""
+	}
+	covered := map[int]bool{}
+	for _, item := range evidence {
+		if item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered {
+			continue
+		}
+		if !evidenceCarriesExplanationOperation(item) {
+			continue
+		}
+		for _, index := range item.RequestedDimensionIndices {
+			covered[index] = true
+		}
+	}
+	var missing []string
+	for _, dim := range required {
+		if !covered[dim.Index] {
+			missing = append(missing, fmt.Sprintf("%d (%s)", dim.Index, dim.Role))
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return EmitInvestigationCompleteDowngradePrefix + " — independent requested explanation dimensions lack grounded operation ownership.\n\n" +
+		"Missing requested dimension indices: " + strings.Join(missing, ", ") + ".\n" +
+		"Read the actual producer/consumer/branch operation for each missing dimension, emit grounded evidence for that operation, and set that evidence item's requested_dimension_indices to the exact index it supports. A definition/default/example for one dimension and an operation for a sibling do not cross-satisfy each other. Re-emitting an existing grounded row with added indices is a metadata amendment; ownership is never inferred from labels, summaries, request text, or answer prose."
+}
+
+func evidenceCarriesExplanationOperation(item types.EvidenceItem) bool {
+	switch item.Kind {
+	case types.EvidenceMechanism, types.EvidenceRelationship, types.EvidenceRegistration,
+		types.EvidenceConditional, types.EvidenceDataflowPath, types.EvidenceControlFlow:
+		return true
+	}
+	switch item.AnchorKind {
+	case types.AnchorCall, types.AnchorCallback, types.AnchorArgument, types.AnchorCondition,
+		types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
+		return true
+	default:
+		return false
+	}
 }
 
 // completionDenialBreakerMaxStreak is how many CONSECUTIVE identical

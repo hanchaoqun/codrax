@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/canonpath"
@@ -726,6 +727,10 @@ type EvidenceItem struct {
 	ContextRole          EvidenceContextRole `json:"context_role,omitempty"`
 	DiagramRole          EvidenceDiagramRole `json:"diagram_role,omitempty"`
 	RequestedDiagramRole EvidenceDiagramRole `json:"requested_diagram_role,omitempty"`
+	// RequestedDimensionIndices are model-selected links from this grounded
+	// fact to the analyzer's schema-validated visible answer dimensions. They
+	// are metadata only: they do not change the claim, grounding, or authority.
+	RequestedDimensionIndices []int `json:"requested_dimension_indices,omitempty"`
 
 	// Anchor fields: required for ScopeLine / ScopeLineRange; let the
 	// grounder dispatch Tier 2 and the recovery tiers without guessing.
@@ -1306,6 +1311,7 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 	if src.RequestedDiagramRole != EvidenceDiagramRoleUnknown {
 		dst.RequestedDiagramRole = src.RequestedDiagramRole
 	}
+	dst.RequestedDimensionIndices = MergeEvidenceRequestedDimensionIndices(dst.RequestedDimensionIndices, src.RequestedDimensionIndices)
 	if groundingStatusRank(src.GroundingStatus) >= groundingStatusRank(dst.GroundingStatus) && src.GroundingStatus != "" {
 		dst.GroundingStatus = src.GroundingStatus
 		dst.GroundingTier = src.GroundingTier
@@ -1349,6 +1355,20 @@ func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
 		dst.ID = StableEvidenceID(dst)
 	}
 	return dst
+}
+
+func MergeEvidenceRequestedDimensionIndices(dst, src []int) []int {
+	seen := make(map[int]bool, len(dst)+len(src))
+	out := make([]int, 0, len(dst)+len(src))
+	for _, index := range append(append([]int(nil), dst...), src...) {
+		if index <= 0 || seen[index] {
+			continue
+		}
+		seen[index] = true
+		out = append(out, index)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // evidenceCarrierMayReplace compares two versions of the same stable fact.

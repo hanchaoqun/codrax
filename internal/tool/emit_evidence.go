@@ -156,16 +156,17 @@ type emitEvidenceItem struct {
 	// LineStart / LineEnd use FlexInt so LLMs that emit numeric
 	// strings ("42") or floats (42.0) pass strict schema validation
 	// instead of failing the whole batch on format pedantry.
-	LineStart    FlexInt  `json:"line_start,omitempty"`
-	LineEnd      FlexInt  `json:"line_end,omitempty"`
-	Condition    string   `json:"condition,omitempty"`
-	Summary      string   `json:"summary,omitempty"`
-	AnchorKind   string   `json:"anchor_kind,omitempty"`
-	AnchorSymbol string   `json:"anchor_symbol,omitempty"`
-	Snippet      string   `json:"snippet,omitempty"`
-	ContextRole  string   `json:"context_role_hint,omitempty"`
-	DiagramRole  string   `json:"diagram_role_hint,omitempty"`
-	SurfaceTerms []string `json:"surface_terms,omitempty"`
+	LineStart                 FlexInt  `json:"line_start,omitempty"`
+	LineEnd                   FlexInt  `json:"line_end,omitempty"`
+	Condition                 string   `json:"condition,omitempty"`
+	Summary                   string   `json:"summary,omitempty"`
+	AnchorKind                string   `json:"anchor_kind,omitempty"`
+	AnchorSymbol              string   `json:"anchor_symbol,omitempty"`
+	Snippet                   string   `json:"snippet,omitempty"`
+	ContextRole               string   `json:"context_role_hint,omitempty"`
+	DiagramRole               string   `json:"diagram_role_hint,omitempty"`
+	SurfaceTerms              []string `json:"surface_terms,omitempty"`
+	RequestedDimensionIndices []int    `json:"requested_dimension_indices,omitempty"`
 	// LoadBearingSummary opts the summary into authoritative surface
 	// rendering for downstream stages. Default false: typed fields are
 	// the canonical surface and free-form summary text gets stripped
@@ -452,6 +453,10 @@ func buildEmitEvidenceParametersSchema() json.RawMessage {
 							"items":       map[string]any{"type": "string"},
 							"description": "OPTIONAL. Model-authored exact strings from the already-read source/log/trace lines that the final answer should preserve as visible aliases or labels, but that are not already captured by subject/object/anchor_symbol. Use for original file labels, route names, package/module names, config keys, macro names, trace span names, runtime object labels, or labels in leading documentation/header comments attached to the cited anchor. Every accepted term must appear verbatim in the cited source window; ungrounded optional terms are dropped with a summary note.",
 						},
+						"requested_dimension_indices": map[string]any{
+							"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "uniqueItems": true,
+							"description": "OPTIONAL typed ownership link to requested_answer_dimensions.dimensions[].index. When the request has multiple required current-source explanation dimensions, tag each evidence row with every dimension it actually supports. Copy indices only; do not infer them from labels or prose. Re-emitting the same grounded row with added indices is a metadata amendment.",
+						},
 						"anchor_kind": map[string]any{
 							"type":        "string",
 							"enum":        emitAnchorKindNames(),
@@ -668,6 +673,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 			if emitEvidenceAbsenceCompletionRepairApplies(in) {
 				absenceCompletionRejectedItems = append(absenceCompletionRejectedItems, rejection)
 			}
+			continue
+		}
+		if err := validateEvidenceRequestedDimensionIndices(ctx, i, in.RequestedDimensionIndices); err != nil {
+			rejectedItems = append(rejectedItems, err.Error())
 			continue
 		}
 		if primaryEntity != "" && isSelfRefEvidence(&ev, primaryEntity) {
@@ -2704,27 +2713,28 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	}
 
 	item := types.EvidenceItem{
-		Kind:                 kind,
-		Subject:              subject,
-		Predicate:            predicate,
-		Object:               object,
-		Summary:              summary,
-		Condition:            condition,
-		Source:               source,
-		LineStart:            lineStart,
-		LineEnd:              lineEnd,
-		Confidence:           0.78, // matches parseEvidenceLine's confidence floor
-		Producer:             EmitEvidenceProducer,
-		ContextRole:          contextRole,
-		DiagramRole:          diagramRole,
-		RequestedDiagramRole: diagramRole,
-		AnchorKind:           anchorKind,
-		AnchorSymbol:         anchorSymbol,
-		Snippet:              snippet,
-		Scope:                scope,
-		LoadBearingSummary:   in.LoadBearingSummary,
-		Salience:             salience,
-		SurfaceTerms:         normalizeEvidenceSurfaceTerms(in.SurfaceTerms),
+		Kind:                      kind,
+		Subject:                   subject,
+		Predicate:                 predicate,
+		Object:                    object,
+		Summary:                   summary,
+		Condition:                 condition,
+		Source:                    source,
+		LineStart:                 lineStart,
+		LineEnd:                   lineEnd,
+		Confidence:                0.78, // matches parseEvidenceLine's confidence floor
+		Producer:                  EmitEvidenceProducer,
+		ContextRole:               contextRole,
+		DiagramRole:               diagramRole,
+		RequestedDiagramRole:      diagramRole,
+		AnchorKind:                anchorKind,
+		AnchorSymbol:              anchorSymbol,
+		Snippet:                   snippet,
+		Scope:                     scope,
+		LoadBearingSummary:        in.LoadBearingSummary,
+		Salience:                  salience,
+		SurfaceTerms:              normalizeEvidenceSurfaceTerms(in.SurfaceTerms),
+		RequestedDimensionIndices: normalizeRequestedDimensionIndices(in.RequestedDimensionIndices),
 	}
 
 	// Reject load_bearing_summary=true on items whose Summary is empty —
@@ -2771,6 +2781,30 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 
 	item.ID = types.StableEvidenceID(item)
 	return item, nil
+}
+
+func normalizeRequestedDimensionIndices(in []int) []int {
+	return types.MergeEvidenceRequestedDimensionIndices(nil, in)
+}
+
+func validateEvidenceRequestedDimensionIndices(ctx *types.BusContext, itemIndex int, indices []int) error {
+	if len(indices) == 0 {
+		return nil
+	}
+	valid := map[int]bool{}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions != nil {
+		for _, dim := range ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions {
+			if dim.Required && dim.Index > 0 {
+				valid[dim.Index] = true
+			}
+		}
+	}
+	for _, index := range indices {
+		if !valid[index] {
+			return fmt.Errorf("items[%d]: requested_dimension_indices contains %d, but that is not a required current-request dimension index", itemIndex, index)
+		}
+	}
+	return nil
 }
 
 // parseAnchorFields validates anchor_kind + anchor_symbol for the
@@ -5643,7 +5677,8 @@ func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
 		return false
 	}
 	if !emitEvidenceStringSliceContainsAll(existing.SurfaceTerms, incoming.SurfaceTerms) ||
-		!emitEvidenceStringSliceContainsAll(existing.DerivedFrom, incoming.DerivedFrom) {
+		!emitEvidenceStringSliceContainsAll(existing.DerivedFrom, incoming.DerivedFrom) ||
+		!emitEvidenceIntSliceContainsAll(existing.RequestedDimensionIndices, incoming.RequestedDimensionIndices) {
 		return false
 	}
 	if existing.ContextRole == types.EvidenceContextRoleUnknown && incoming.ContextRole != types.EvidenceContextRoleUnknown {
@@ -5654,6 +5689,19 @@ func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
 	}
 	if existing.RequestedDiagramRole == types.EvidenceDiagramRoleUnknown && incoming.RequestedDiagramRole != types.EvidenceDiagramRoleUnknown {
 		return false
+	}
+	return true
+}
+
+func emitEvidenceIntSliceContainsAll(haystack, needles []int) bool {
+	set := map[int]bool{}
+	for _, value := range haystack {
+		set[value] = true
+	}
+	for _, value := range needles {
+		if !set[value] {
+			return false
+		}
 	}
 	return true
 }

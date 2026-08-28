@@ -58230,6 +58230,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1457 B1389：多解释维度改为 grounded operation 逐席所有权，禁止兄弟证据串席（2026-08-28）
+
+1. `B1389-REQUESTEDMECHANISMEVIDENCECLOSURE1/P1` 已施工。根因不是缺一个 YAML 提示，而是多个独立的
+   `function_or_purpose/branch_behavior` 请求维度共用全局 evidence pool；“CLI 覆盖”的条件/调用证据因此能让“解析机制”在没有 loader operation
+   的情况下签闭环。任何只看全局 anchor kind/evidence count 的修复都会继续串席。
+2. `emit_evidence.items[]` 新增可选 `requested_dimension_indices`。索引只能引用 analyzer 已通过当前请求逐字 provenance 校验、且 required 的
+   `requested_answer_dimensions.dimensions[].index`；未知、可选或越界索引逐项拒绝。相同 StableEvidenceID 的 grounded row 可在后续重发时只增加索引，
+   Mutable merge 取有序并集；索引不进入事实 stable ID，也不改变 claim、grounding、authority、关系或可见文本。
+3. 硬闭包只在同一请求至少有两个独立 required 源码解释维度时启用，这是精确的“可能串席”结构信号；单解释问题继续沿既有 evidence floor，避免给所有
+   read 问题增加 JSON 心智。每席至少要有一个由模型显式绑定、且已 grounded/recovered 的 operation-shaped row：mechanism/relationship/
+   registration/conditional/dataflow/control-flow，或 call/callback/argument/condition/return/assignment/initializer anchor。identity-only definition、
+   default/example 不能冒充机制。缺席时修补提示只列 dimension index+role，并允许给已有 grounded row 增补索引，不从 label、summary、请求或答案
+   prose 推断 ownership。
+4. finalizer 新增只读 `Requested Dimension Evidence Ownership` 块，逐 index 展示模型已选择的 file:line、kind、anchor 与 typed endpoints，并明确兄弟席
+   不互相满足。该块只提供证据权限，不生成维度结论、机制说明、标题、引用或答案正文；模型仍可基于每席证据给出自己的总结，证据不足则自行披露边界。
+5. 回归覆盖两席只绑定一席必须拒绝、两席各自 operation row 可闭环、definition 即使绑定也不能充当机制、单解释保持旧合同、Evidence amendment 合并，
+   以及 finalizer 真实消费点。完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿；内部词汇静态钉也通过。没有修改 Trace query、显式窗、
+   唤醒链、链上根因、实际占时/规则可消双账户、因果投影或自动补采。
+6. 下一步用本提交构建不可变二进制，严格并发恰好 2 路复放配置优先级 + 显式窗 Trace。配置验收模型是否补读真实 `LoadRuntimeSettings`/decoder
+   operation、是否消除 Viper 补空和错误引用；Trace 验收所有投影与链上规则不回归。B1388 保持独立下一批，不能借本机制维度 gate 扫描或修订日志
+   因果结论。
+
+状态：
+
+`B1389=implemented/full-suite-green/build-green/pending-production-replay`；
+`multi-source-explanation-dimensions=per-index-grounded-operation-ownership`；
+`single-explanation=existing-evidence-floor-unchanged`；
+`evidence-dimension-link=model-selected/typed-index/metadata-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/label-summary/file-suffix/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
