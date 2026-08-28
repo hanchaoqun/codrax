@@ -57291,6 +57291,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1425 r872/B1357+B1358：patch 暂存基线如实教学；关系范围提供同代局部可执行编辑（2026-08-27）
+
+1. 从已推送 `5565044ea` 的干净二进制严格并发恰好 2 路回放逻辑图 read 与显式窗 Trace，runner 2/2 PASS：Trace 161s、read
+   647s；人工判定 Trace pass、read partial，见
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r872_20260822_manual_audit.md`。Trace finalizer 零拒绝；read 24 次 read、2 个 Explorer
+   dispatch、42 次 Explorer iteration、9 次 finalizer reject、8 次 patch，重试成本仍不可接受。
+2. Trace 红线继续完整通过：精确 `2.000000..2.020000s`、app-100 完整状态分区、四跳唤醒链及逐跳 CPU、11.000ms 链上 IO 第一席、三个独立
+   1.000ms 调度/优先级候选、实际占时/规则可消双账户、链上业务下钻、背景隔离和完整 `Trace 因果投影` 全在。邻近信息没有升为主因；活动流没有按
+   4ms、4m、首字节、流年龄、墙钟或上下文比例降级；系统没有替模型撰写根因、修向或结论。
+3. B1356 获得生产正证。带 `file:line` 第二行装饰的 BusContext 主身份没有进入任何 `optional_orphan_cleanups` 清单，模型也没有再删除请求参与者。
+   read 最终职责说明基本准确且 Mermaid 可渲染，但修补九轮后只剩三条 stage precedence 与一条局部
+   `BusContext -> BuildAgentContext -> Mutable -> objective` 链，Mutable/BusContext 到四阶段的数据流仍不足，因此不能把 runner PASS 记成人工闭环。
+4. 新确认 `B1357-PATCHBASETRUTH1/P1`。patch 的结构合并成功、终验拒绝时，草稿对用户仍未发布，但生产代码会写入
+   `PendingAnswerDocumentPatchBase` 作为下一轮 live base；旧 retry hint 却声称“事务未提交任何操作，重放全部操作”。这把“用户可见发布状态”与“下一轮
+   patch 计算基线”混成一个概念，诱导模型重放陈腐 ref/operation。根修后的提示明确：失败调用未发布；当前新发 refs/delta 是唯一可执行权限；只提交
+   本代仍选择的操作，未列载体由 patch preservation 保留。真正执行前的原子失败仍保留零操作回滚文案，两条语义不混用。
+5. 新确认并施工 `B1358-SCOPEEDITDEADEND1/P1`。同一 rejected draft 上，typed request-spine checker 要求删除陈腐
+   `requested_relation_scope`，local relation lease 又正确禁止对目标图 `replace_blocks`，而旧 patch schema 没有局部 scope operation，形成无可执行交集。
+   模型因此在畸形 JSON、只修 boundary、不可用 full emit、整块替换和 lease 拒绝之间循环；JSON 错误只是级联症状，不是根因。
+6. 新 `diagram_relation_scope_edits` 只从 live typed `DiagramRequestedRelationScopeMismatches` 投影精确 `block_id/action` 分支：stale/duplicate 只给
+   `remove_scope`，missing 只给现有模型图的 `set_partial_unproven` 候选。无 mismatch 时字段完全从 schema 删除；有 relation lease 时字段仍在，而 lease-target
+   whole replace 继续删除。执行器再次用 live base、typed request model、evidence pool 与 stage provider 复验，陈腐/反向/重复/超限动作 fail-closed。
+7. 该 operation 只修改 block-level typed disclosure；系统不读用户请求、thinking、答案 prose 或 Mermaid message/label，不选择图、节点、关系、动作、
+   业务措辞、布局或结论。已有 atomic edge/boundary edit 生成同块 replacement 时只在该 replacement 上改 scope，否则逐字段克隆原块；Mermaid body、
+   edge anchors、participant declarations、标题和兄弟块保持。typed wire quarantine、动态 schema/执行上限、无 mismatch 隐藏、lease 共存、图字节保持与陈腐动作
+   拒绝均有回归钉。
+8. 专项 agent/types/tool 测试、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。从新提交的严格 2 路生产回放在本批后续
+   完成；回放重点不是只看 reject 数，而是验证 scope edit 的真实使用、陈腐 ref 不再重放、最终数据流不缩水，并再次守住显式窗 Trace 全能力。
+
+状态：
+
+`r872=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1356=production-positive/core-closed`；
+`B1357=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`B1358=implemented/targeted+tool-suite+full-suite+build-pass/pending-production-replay`；
+`patch-user-publication-status!=retry-local-live-base`；
+`scope-edit-authority=typed-request-spine-mismatch-only`；
+`lease-target-whole-replace=still-forbidden`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r872`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r872`。
+
 ### §123.1417 r865/B1351：实时 JSON schema 与教学自冲突，融合图旁路留下空标题（2026-08-22）
 
 1. 从已推送 `ea654b3fc` 构建不可变二进制，严格并发恰好 2 路复放 C++ 虚调用链与显式窗 Trace，runner 2/2 PASS：Trace 153s、C++

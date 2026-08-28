@@ -116,7 +116,7 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 		t.Fatalf("patch projected schema must parse: %v", err)
 	}
 	patchProps := patchRoot["properties"].(map[string]any)
-	for _, field := range []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_participant_edits"} {
+	for _, field := range []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_relation_scope_edits", "diagram_participant_edits"} {
 		if _, ok := patchProps[field]; !ok {
 			t.Fatalf("patch projected schema lost atomic diagram field %q", field)
 		}
@@ -126,6 +126,9 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	}
 	if got := patchProps["diagram_participant_edits"].(map[string]any)["maxItems"]; got != float64(maxModelAuthoredDiagramParticipantEdits) {
 		t.Fatalf("diagram participant edit schema/executor limit drift: schema=%v executor=%d", got, maxModelAuthoredDiagramParticipantEdits)
+	}
+	if got := patchProps["diagram_relation_scope_edits"].(map[string]any)["maxItems"]; got != float64(maxModelAuthoredDiagramRelationScopeEdits) {
+		t.Fatalf("diagram relation-scope edit schema/executor limit drift: schema=%v executor=%d", got, maxModelAuthoredDiagramRelationScopeEdits)
 	}
 	edgeEditItem := patchProps["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)
 	edgeEditProps := edgeEditItem["properties"].(map[string]any)

@@ -18321,7 +18321,7 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 	}
 	b.WriteString(prefix)
 	if alreadyPatching {
-		b.WriteString(". The rejected patch was one atomic transaction and committed no operation. Resubmit every edge, boundary, participant, sibling-block, and citation operation you still choose together in the next patch; do not assume any valid-looking operation from the rejected call already applied. ")
+		b.WriteString(". The failed call was not published. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: submit only current-generation operations you still choose, do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
 	}
 	if len(relationDelta.Failures) == 0 {
 		b.WriteString(" by one local participant-coverage defect whose exact typed candidate now has a current-generation atomic addition capability. ")
@@ -18420,7 +18420,7 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	var b strings.Builder
 	b.WriteString(prefix)
 	if alreadyPatching {
-		b.WriteString(". The rejected patch was one atomic transaction and committed no operation. Resubmit every edge, boundary, participant, sibling-block, and citation operation you still choose together in the next patch; do not assume any valid-looking operation from the rejected call already applied. ")
+		b.WriteString(". The failed call was not published. For this retry, the newly issued refs/delta are the sole executable authority over the live patch base: submit only current-generation operations you still choose, do not replay refs or operations from older attempts, and rely on patch preservation for every unlisted carrier. ")
 	}
 	if len(delta.Failures) == 0 {
 		b.WriteString(" because the last atomic relation operation was not executable under the current additions-only lease. The patch executor has returned the complete current additions-only typed capability roster. ")

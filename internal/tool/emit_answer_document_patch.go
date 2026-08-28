@@ -51,13 +51,14 @@ func (t *EmitAnswerDocumentPatch) Name() string { return "emit_answer_document_p
 func (t *EmitAnswerDocumentPatch) Description() string {
 	return "Emit a DELTA against your previous `emit_answer_document` call instead of re-emitting the whole document. Use ONLY on retry paths (when `## Hard Rule (retry attempt N)` appears in the system prompt and a `## Previous Emit` section is present). On first dispatches, use `emit_answer_document` instead.\n\n" +
 		"Patch fields (all optional, but at least one MUST be non-empty):\n\n" +
-		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, facet_ids, surface_role, source_inventory_family, items[].cells, items[].candidate_role, items[].source_inventory_row_id, items[].evidence_ids, items[].citation_ref, items[].citation_refs) on blocks you do NOT need to edit. If an id is also targeted by `diagram_edge_edits`, `diagram_boundary_replacements`, or `diagram_participant_edits`, that unchanged entry is redundant and is absorbed because atomic editing already preserves every unmentioned carrier from the immutable base.\n" +
+		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, facet_ids, surface_role, source_inventory_family, items[].cells, items[].candidate_role, items[].source_inventory_row_id, items[].evidence_ids, items[].citation_ref, items[].citation_refs) on blocks you do NOT need to edit. If an id is also targeted by `diagram_edge_edits`, `diagram_boundary_replacements`, `diagram_boundary_edits`, `diagram_relation_scope_edits`, or `diagram_participant_edits`, that unchanged entry is redundant and is absorbed because atomic editing already preserves every unmentioned carrier from the immutable base.\n" +
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
 		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
+		"- `diagram_relation_scope_edits`: model-selected local edit of the block-level `requested_relation_scope` disclosure. This field is exposed only when the current typed request-spine authority proves an exact missing/stale/duplicate scope mismatch. Choose one exact block_id/action branch from the current schema; the executor changes only that typed disclosure and preserves the diagram, relations, labels, layout, and conclusion.\n" +
 		"- `diagram_participant_edits`: model-authored disposition of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row. If your same-patch edge edits leave that candidate isolated, explicitly choose remove_if_isolated, or retain_as_context with a non-empty model-authored visible_label. The executor rejects requested/boundary participants, uncovered or remaining edges, and ambiguous declarations. The system never chooses the disposition or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
@@ -174,6 +175,19 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
         "required": ["boundary_ref", "action"]
       }
     },
+    "diagram_relation_scope_edits": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Generation-scoped model-selected edits of one diagram block's typed requested_relation_scope disclosure. This surface is projected to exact block_id/action branches only when the current typed request-spine authority reports a missing, stale, or duplicate declaration. It changes no Mermaid content, relation, label, layout, or conclusion.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "block_id": {"type": "string"},
+          "action": {"type": "string", "enum": ["set_partial_unproven", "remove_scope"]}
+        },
+        "required": ["block_id", "action"]
+      }
+    },
     "diagram_participant_edits": {
       "type": "array",
       "maxItems": 64,
@@ -247,10 +261,6 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	if ctx == nil || ctx.Mutable == nil {
 		return raw
 	}
-	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
-	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
-		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
-	}
 	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
 	if prev == nil {
 		prev = ctx.Mutable.AnswerDocumentV2()
@@ -260,6 +270,11 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	}
 	if prev == nil {
 		prev = recoverPrevFromRejectedDraft(ctx.Mutable)
+	}
+	raw = projectAnswerDocumentPatchRelationScopeEdits(raw, ctx, prev)
+	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev)
 }
@@ -298,7 +313,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		description += "The optional target diagram may instead be removed only through the exact remove_block_ids enum published in this schema. "
 	}
 	return description +
-		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. Whole replacement/addition of a lease-target diagram is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
+		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Whole replacement/addition of a lease-target diagram is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
 
@@ -434,7 +449,7 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 		return raw
 	}
 	if unchanged, ok := properties["unchanged_block_ids"].(map[string]any); ok {
-		unchanged["description"] = "Block ids from the previous emit to preserve. A block also named by diagram_edge_edits, diagram_boundary_replacements, or diagram_participant_edits may be listed redundantly; the atomic compiler absorbs that id because every unmentioned carrier is already preserved from the immutable base."
+		unchanged["description"] = "Block ids from the previous emit to preserve. A block also named by diagram_edge_edits, diagram_boundary_replacements, diagram_boundary_edits, diagram_relation_scope_edits, or diagram_participant_edits may be listed redundantly; the atomic compiler absorbs that id because every unmentioned carrier is already preserved from the immutable base."
 	}
 	out, err := json.Marshal(root)
 	if err != nil || !json.Valid(out) {
@@ -838,6 +853,7 @@ type emitAnswerDocumentPatchParams struct {
 	DiagramEdgeEdits             []emitAnswerDiagramEdgeEdit            `json:"diagram_edge_edits,omitempty"`
 	DiagramBoundaryReplacements  []emitAnswerDiagramBoundaryReplacement `json:"diagram_boundary_replacements,omitempty"`
 	DiagramBoundaryEdits         []emitAnswerDiagramBoundaryEdit        `json:"diagram_boundary_edits,omitempty"`
+	DiagramRelationScopeEdits    []emitAnswerDiagramRelationScopeEdit   `json:"diagram_relation_scope_edits,omitempty"`
 	DiagramParticipantEdits      []emitAnswerDiagramParticipantEdit     `json:"diagram_participant_edits,omitempty"`
 	ReplaceCitations             []emitAnswerCitationV2                 `json:"replace_citations,omitempty"`
 	AppendCitations              []emitAnswerCitationV2                 `json:"append_citations,omitempty"`
@@ -874,6 +890,11 @@ type emitAnswerDiagramBoundaryReplacement struct {
 type emitAnswerDiagramBoundaryEdit struct {
 	BoundaryRef string `json:"boundary_ref"`
 	Action      string `json:"action"`
+}
+
+type emitAnswerDiagramRelationScopeEdit struct {
+	BlockID string `json:"block_id"`
+	Action  string `json:"action"`
 }
 
 type emitAnswerDiagramParticipantEdit struct {
@@ -1176,7 +1197,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
-	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
+	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 ||
+		len(p.DiagramRelationScopeEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
 		view := types.BuildAnswerSemanticViewForBusContext(ctx)
 		stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
 		protectedParticipants := make([]string, 0)
@@ -1200,7 +1222,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			// or rewrite any model-authored operation or visible relation.
 			if lease != nil {
 				repair := answerDiagramRelationRepairScopeRepair(lease, nil)
-				repair.Fields = []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_boundary_edits", "diagram_participant_edits"}
+				repair.Fields = []string{"diagram_edge_edits", "diagram_boundary_replacements", "diagram_boundary_edits", "diagram_relation_scope_edits", "diagram_participant_edits"}
 				if rosterJSON, progressSignature := atomicDiagramParticipantDispositionRosterMetadata(err); rosterJSON != "" {
 					repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON] = rosterJSON
 					repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature] = progressSignature
@@ -1215,6 +1237,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
 			}
 			return failEmit(t.Name(), now, "diagram atomic edits: %s", err.Error())
+		}
+		if err := applyModelAuthoredDiagramRelationScopeEdits(prev, patch, p.DiagramRelationScopeEdits, ctx); err != nil {
+			return failEmitWithRepair(t.Name(), now, &types.ToolRepair{
+				Code:   "answer_doc_relation_scope_edit_invalid",
+				Fields: []string{"diagram_relation_scope_edits"},
+				Hint:   "Use only one exact block_id/action branch currently published in diagram_relation_scope_edits. The branch changes only requested_relation_scope; do not replace the lease-target diagram or replay older refs.",
+			}, "diagram relation-scope edits: %s", err.Error())
 		}
 	}
 	// Stamp only blocks the model submitted in this patch. Unchanged blocks

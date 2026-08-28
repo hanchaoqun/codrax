@@ -129,7 +129,7 @@ func preCheckDiagramRequestedRelationScope(
 			types.BlockDiagram,
 		},
 		ExpectedShape: "Typed requested-relation scope mismatch: " + strings.Join(parts, "; ") +
-			". When the typed request-spine authority is partial, put requested_relation_scope=partial_unproven on exactly one model-authored diagram block that presents the requested relation. Preserve all proved local edges and exact anchors, but do not invent a bridge. Remove this field when the typed authority is not partial, and remove duplicate declarations. The field is block-level, never nested inside diagram; it is rendered as reader-facing coverage language, so do not repeat the raw enum in prose or labels.",
+			". When the typed request-spine authority is partial, put requested_relation_scope=partial_unproven on exactly one model-authored diagram block that presents the requested relation. Preserve all proved local edges and exact anchors, but do not invent a bridge. Remove this field when the typed authority is not partial, and remove duplicate declarations. On a patch retry, if the current schema publishes diagram_relation_scope_edits, choose its exact block_id/action branch; it is the local executable field edit, so do not use replace_blocks for a lease-target diagram. The field is block-level, never nested inside diagram; it is rendered as reader-facing coverage language, so do not repeat the raw enum in prose or labels.",
 		Reason: "the parser-owned request-scoped relation component covers only a strict subset of the typed incident participant slate; per-participant local incidence cannot prove one complete requested relation",
 	}}
 }

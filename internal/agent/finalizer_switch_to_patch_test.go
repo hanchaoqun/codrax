@@ -1059,12 +1059,13 @@ func TestRequiredDiagramMixedParticipantAndRelationDeltasStayInOneRetryGeneratio
 			}
 			if toolName == "emit_answer_document_patch" {
 				for _, want := range []string{
-					"committed no operation",
-					"Resubmit every edge, boundary, participant, sibling-block, and citation operation",
-					"do not assume any valid-looking operation from the rejected call already applied",
+					"failed call was not published",
+					"newly issued refs/delta are the sole executable authority over the live patch base",
+					"do not replay refs or operations from older attempts",
+					"patch preservation for every unlisted carrier",
 				} {
 					if !strings.Contains(signal.Hint, want) {
-						t.Fatalf("joint rejected transaction missing replay instruction %q:\n%s", want, signal.Hint)
+						t.Fatalf("joint rejected transaction missing current-generation instruction %q:\n%s", want, signal.Hint)
 					}
 				}
 			}
@@ -1659,9 +1660,9 @@ func TestRelationRepairScopeRejectStaysOnCompactDeltaLane(t *testing.T) {
 	if !signal.HintRequested || signal.HintKey != "answer_doc.patch_relation_repair_scope" ||
 		!strings.Contains(signal.Hint, "do not add any other relation") ||
 		!strings.Contains(signal.Hint, "diagram_edge_edits") ||
-		!strings.Contains(signal.Hint, "committed no operation") ||
-		!strings.Contains(signal.Hint, "Resubmit every edge, boundary, participant, sibling-block, and citation operation") ||
-		!strings.Contains(signal.Hint, "do not assume any valid-looking operation from the rejected call already applied") {
+		!strings.Contains(signal.Hint, "failed call was not published") ||
+		!strings.Contains(signal.Hint, "newly issued refs/delta are the sole executable authority over the live patch base") ||
+		!strings.Contains(signal.Hint, "do not replay refs or operations from older attempts") {
 		t.Fatalf("lease rejection must remain on compact local repair lane: %+v", signal)
 	}
 	if strings.Contains(signal.Hint, "Typed topology authoring template") || strings.Contains(signal.Hint, "Verified component fragment") {
