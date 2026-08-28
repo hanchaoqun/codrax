@@ -58546,6 +58546,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r898`。
 
+### §123.1466 B1395：边界 facet 只认 typed 权威；已恢复软化不再污染出厂答案（2026-08-28）
+
+1. `B1395-UNCERTAINTYFACETAUTHORITY1/P1` 已施工。新增共享 typed predicate
+   `uncertaintyBoundaryEvidenceAuthority`：只有 `absence_support`、negative scope/`EvidenceAbsent`、`DriftReason` 或 conditional authority 才能提供
+   不确定性/边界资格。`FacetUncertaintyBoundary` 的 candidate binder 与既有 support lane 共用该资格；普通 `ClaimTextReferenceFact` 即使可引用，也不再因
+   “只是注释”而升级成用户必须看到的边界声明。
+2. 该收窄不扫描 summary、源码文本、用户请求、模型输出或最终答案；typed negative evidence 与显式 absence-support text reference 的正向车道保留。
+   因此 r898 的普通配置优先级注释不能再触发“已核查范围与未确认边界”，真正的零命中、漂移、条件权威仍能生成诚实 caveat。
+3. 最后出厂脚注同时改为 current-document resolution。`richness_facet_softened` 仍完整保留在 operator ledger；用户面渲染时，对每个 telemetry 的
+   `FacetKind/FacetID` 只检查 outgoing `AnswerDocumentV2.blocks[].facet_ids` 与 typed `claim_uses[].facet_id`。最终文档已声明同 facet 时，该早期软化已恢复，
+   不再发布陈旧“因证据不足改为建议项”；未声明的其他软化继续按实际数量披露，直接 ledger 计数也不丢失。
+4. 这是去除陈旧系统附注，不修改模型 block、表格、结论、引用、关系或措辞，也不通过正文字符串判断是否“回答好了”。回归覆盖普通 text reference
+   不升级、typed absence-support/negative 正向升级、FacetIDs 恢复、ClaimUses 恢复及一恢复一未恢复只披露 1 项；完整 `go test ./... -count=1` 与 CGO
+   release-tag `make` 全绿。
+5. 下一批处理 `B1394`：在成功 `emit_evidence` 结果中，用同一 typed ownership predicate 提前指出“索引落在非 operation 或 operation 仍缺 index”；仅软
+   advisory，不拒绝 evidence、不自动挂载 index、不从 labels/summary/request/answer 猜归属。
+
+状态：
+
+`B1395=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`uncertainty-authority=typed-absence/drift/conditional-only`；
+`ordinary-text-reference=not-boundary-authority`；
+`richness-softening-footer=outgoing-typed-facet-resolved`；
+`operator-ledger=unchanged/full-history`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

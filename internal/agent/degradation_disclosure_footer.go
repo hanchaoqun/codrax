@@ -123,7 +123,12 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, doc *types.Answe
 	var groups []footerGroup
 	genericIdx := -1
 	for _, entry := range entries {
-		if entry.Count <= 0 {
+		entryCount := entry.Count
+		if entry.Lane == types.DegradeLaneRichnessFacetSoftened {
+			all, unresolved := outgoingDocumentUnresolvedRichnessSoftenings(ctx, doc)
+			entryCount = entryCount - all + unresolved
+		}
+		if entryCount <= 0 {
 			continue
 		}
 		spec, registered := types.DegradationLaneRegistry[entry.Lane]
@@ -146,13 +151,13 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, doc *types.Answe
 			if en {
 				label = spec.EN
 			}
-			groups = append(groups, footerGroup{label: label, count: entry.Count})
+			groups = append(groups, footerGroup{label: label, count: entryCount})
 			continue
 		}
 		// Defensive arm: unregistered lane → generic word, count kept,
 		// all unregistered lanes merged into one group.
 		if genericIdx >= 0 {
-			groups[genericIdx].count += entry.Count
+			groups[genericIdx].count += entryCount
 			continue
 		}
 		label := degradationLaneGenericZH
@@ -160,7 +165,7 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, doc *types.Answe
 			label = degradationLaneGenericEN
 		}
 		genericIdx = len(groups)
-		groups = append(groups, footerGroup{label: label, count: entry.Count})
+		groups = append(groups, footerGroup{label: label, count: entryCount})
 	}
 	if len(groups) == 0 {
 		return ""
@@ -177,4 +182,43 @@ func renderDegradationDisclosureFooter(ctx *types.AgentContext, doc *types.Answe
 		return "Evidence boundary: " + strings.Join(parts, "; ") + " (details are available in the run logs)"
 	}
 	return "证据边界说明：" + strings.Join(parts, "；") + "（具体原因见运行日志）"
+}
+
+func outgoingDocumentUnresolvedRichnessSoftenings(ctx *types.AgentContext, doc *types.AnswerDocumentV2) (all, unresolved int) {
+	if ctx == nil || ctx.Mutable == nil {
+		return 0, 0
+	}
+	for _, signal := range ctx.Mutable.RichnessTelemetry() {
+		if signal.Kind != "facet_softened" {
+			continue
+		}
+		all++
+		facet := strings.TrimSpace(signal.FacetKind)
+		if facet == "" {
+			facet = strings.TrimSpace(signal.FacetID)
+		}
+		if facet == "" || !answerDocumentDeclaresTypedFacet(doc, facet) {
+			unresolved++
+		}
+	}
+	return all, unresolved
+}
+
+func answerDocumentDeclaresTypedFacet(doc *types.AnswerDocumentV2, facet string) bool {
+	if doc == nil || strings.TrimSpace(facet) == "" {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		for _, declared := range block.FacetIDs {
+			if strings.TrimSpace(declared) == facet {
+				return true
+			}
+		}
+		for _, claim := range block.ClaimUses {
+			if strings.TrimSpace(claim.FacetID) == facet {
+				return true
+			}
+		}
+	}
+	return false
 }

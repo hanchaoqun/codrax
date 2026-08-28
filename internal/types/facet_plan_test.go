@@ -742,6 +742,72 @@ func TestCompileFacetCoverage_UncertaintyBoundaryIgnoresOrdinaryDefinitionEviden
 	}
 }
 
+func TestCompileFacetCoverage_UncertaintyBoundaryIgnoresOrdinaryTextReference(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	surface := []EvidenceItem{{
+		ID:           "precedence-comment",
+		Kind:         EvidenceDirect,
+		Source:       "cmd/root.go",
+		LineStart:    10,
+		Scope:        ScopeLine,
+		AnchorKind:   AnchorTextReference,
+		AnchorSymbol: "precedence",
+		ContextRole:  EvidenceContextRoleRelatedContext,
+	}}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind != FacetUncertaintyBoundary {
+			continue
+		}
+		if len(req.SourceCandidate) != 0 || req.IsPromoted() {
+			t.Fatalf("ordinary text reference minted uncertainty authority: %+v", req)
+		}
+		return
+	}
+	t.Fatal("expected family uncertainty facet")
+}
+
+func TestCompileFacetCoverage_UncertaintyBoundaryAcceptsTypedAbsenceSupportTextReference(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	surface := []EvidenceItem{{
+		ID:           "bounded-comment",
+		Kind:         EvidenceDirect,
+		Source:       "cmd/root.go",
+		LineStart:    10,
+		Scope:        ScopeLine,
+		AnchorKind:   AnchorTextReference,
+		AnchorSymbol: "scope",
+		ContextRole:  EvidenceContextRoleAbsenceSupport,
+	}}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind != FacetUncertaintyBoundary {
+			continue
+		}
+		if len(req.SourceCandidate) != 1 || req.SourceCandidate[0] != "bounded-comment" || !req.IsPromoted() {
+			t.Fatalf("typed absence-support text reference lost uncertainty authority: %+v", req)
+		}
+		return
+	}
+	t.Fatal("expected family uncertainty facet")
+}
+
 func TestCompileFacetCoverage_UncertaintyBoundaryPromotesOnNegativeEvidence(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentEnumerate,

@@ -92,6 +92,40 @@ func TestDegradationFooterCleanRunZeroBytes(t *testing.T) {
 	}
 }
 
+func TestDegradationFooterSuppressesFacetSofteningRecoveredByOutgoingDocument(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.AppendRichnessTelemetry(types.RichnessTelemetrySignal{
+		Kind:      "facet_softened",
+		FacetKind: string(types.FacetConfigPrecedenceRole),
+		Reason:    "early evidence unavailable",
+	})
+	doc := degradationFooterTestDoc()
+	doc.Blocks[0].FacetIDs = []string{string(types.FacetConfigPrecedenceRole)}
+	if footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: mu}, doc, "zh"); footer != "" {
+		t.Fatalf("outgoing typed facet recovered the earlier softening; stale footer=%q", footer)
+	}
+}
+
+func TestDegradationFooterKeepsOnlyUnresolvedFacetSoftenings(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.AppendRichnessTelemetry(types.RichnessTelemetrySignal{
+		Kind:      "facet_softened",
+		FacetKind: string(types.FacetConfigPrecedenceRole),
+		Reason:    "early evidence unavailable",
+	})
+	mu.AppendRichnessTelemetry(types.RichnessTelemetrySignal{
+		Kind:      "facet_softened",
+		FacetKind: string(types.FacetCurrentCodePath),
+		Reason:    "still unavailable",
+	})
+	doc := degradationFooterTestDoc()
+	doc.Blocks[0].ClaimUses = []types.RenderedClaimUse{{FacetID: string(types.FacetConfigPrecedenceRole)}}
+	footer := renderDegradationDisclosureFooter(&types.AgentContext{Mutable: mu}, doc, "zh")
+	if !strings.Contains(footer, "因证据不足改为建议项的原定内容 1 项") || strings.Contains(footer, "2 项") {
+		t.Fatalf("footer must retain only unresolved typed softening: %q", footer)
+	}
+}
+
 // TestDegradationFooterKnobOffRestoresByteIdenticalOutput pins the
 // pipeline_degradation_footer escape: with entries present, knob-off
 // output equals knob-on output minus exactly the appended footer line —

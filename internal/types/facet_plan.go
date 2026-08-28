@@ -1041,6 +1041,9 @@ func bindSourceCandidates(req FacetRequirement, surface []EvidenceItem) FacetReq
 		if matches := claimFormMatches(req.AcceptableForms, ClaimFormOf(item)); !matches {
 			continue
 		}
+		if req.Kind == FacetUncertaintyBoundary && !uncertaintyBoundaryEvidenceAuthority(item) {
+			continue
+		}
 		// Sub-kind narrowing (2026-05-02): when RequiredSubKind is
 		// set, the candidate evidence must additionally carry a
 		// matching LogPerfSubKind. Empty RequiredSubKind disables

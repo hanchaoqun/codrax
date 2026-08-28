@@ -2452,7 +2452,17 @@ func uncertaintySupportItemEligible(item EvidenceItem) bool {
 	if !item.IsCitable() {
 		return false
 	}
+	return uncertaintyBoundaryEvidenceAuthority(item)
+}
+
+// uncertaintyBoundaryEvidenceAuthority is the shared typed authority for an
+// uncertainty/boundary disclosure. A generic text reference is not enough: it
+// may be an ordinary implementation comment with no absence, drift, or proof
+// boundary semantics. Callers must not inspect Summary, source text, request
+// prose, or answer prose to upgrade it.
+func uncertaintyBoundaryEvidenceAuthority(item EvidenceItem) bool {
 	return item.ContextRole == EvidenceContextRoleAbsenceSupport ||
+		item.Scope == ScopeNegative ||
 		item.Kind == EvidenceAbsent ||
 		item.DriftReason != "" ||
 		item.Authority == AuthorityConditional
