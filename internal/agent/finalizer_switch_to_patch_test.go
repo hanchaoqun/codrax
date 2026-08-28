@@ -1333,6 +1333,93 @@ func TestRequiredDiagramRelationRetryDoesNotInstallIdentityOnlyDeadLease(t *test
 	}
 }
 
+func TestRequiredDiagramRelationRetryKeepsExecutableRowsWhenOneTypedRowCannotBind(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart LR\n A -->|unsupported| B",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Alpha.Run", ToIdentity: "Beta.Handle",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "unsupported",
+		}},
+	}}}
+	mut := types.NewMutableState("mixed executable relation rows")
+	mut.SetPendingAnswerDocumentPatchBase(base)
+	ctx := &types.AgentContext{Mutable: mut}
+	const delta = `{"version":1,"failures":[` +
+		`{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B","from_identity":"Alpha.Run","to_identity":"Beta.Handle","body_occurrence":1},` +
+		`{"block_id":"flow","issue":"typed_anchor_without_visible_edge","relation_kind":"call","from_identity":"Ghost.Run","to_identity":"Missing.Handle"}` +
+		`],"preserve_unlisted_edges":true,"allowed_additions":[` +
+		`{"block_id":"flow","relation_kind":"argument_flow","from_identity":"Input.Value","to_identity":"Worker.Accept","source":"worker.go:17"},` +
+		`{"block_id":"flow","relation_kind":"data_flow","from_identity":"Bad.Value","to_identity":"Bad.Accept","from_node_ids":[""],"source":"worker.go:18"}` +
+		`]}`
+	result := &types.ToolResult{ToolName: "emit_answer_document_patch", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract", Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+		},
+	}}
+	if !installAnswerDocDiagramRelationRepairLease(ctx, mut, result, true) {
+		t.Fatal("one non-bindable typed row must not suppress unrelated executable repair capabilities")
+	}
+	lease := mut.AnswerDiagramRelationRepairLease()
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 ||
+		lease.Failures[0].FromNode != "A" || lease.AllowedAdditions[0].FromIdentity != "Input.Value" {
+		t.Fatalf("unexpected executable subset: %+v", lease)
+	}
+	raw := result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
+	for _, want := range []string{`"failure_ref":"` + lease.Failures[0].FailureRef + `"`, `"addition_ref":"` + lease.AllowedAdditions[0].AdditionRef + `"`} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("canonical live subset missing %q: %s", want, raw)
+		}
+	}
+	if strings.Contains(raw, "Ghost.Run") || strings.Contains(raw, "Missing.Handle") {
+		t.Fatalf("non-executable typed row leaked as a live capability: %s", raw)
+	}
+}
+
+func TestRelationRepairPatchBasePrefersPendingGenerationAcrossMutableCarriers(t *testing.T) {
+	stale := types.NewMutableState("stale dispatch carrier")
+	stale.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "stale-summary", Kind: types.BlockSummary, Text: "old",
+	}, {
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n X"},
+	}}})
+	fresh := types.NewMutableState("fresh evaluator carrier")
+	fresh.SetPendingAnswerDocumentPatchBase(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "fresh-summary", Kind: types.BlockSummary, Text: "new",
+	}, {
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A -->|unsupported| B"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Alpha.Run", ToIdentity: "Beta.Handle",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "unsupported",
+		}},
+	}}})
+	ctx := &types.AgentContext{Mutable: stale}
+	const delta = `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"A","to_node":"B","from_identity":"Alpha.Run","to_identity":"Beta.Handle","body_occurrence":1}],"preserve_unlisted_edges":true}`
+	result := &types.ToolResult{ToolName: "emit_answer_document_patch", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract", Metadata: map[string]string{
+			types.ToolRepairMetaDiagramRelationRepairDeltaJSON: delta,
+		},
+	}}
+	if !installAnswerDocDiagramRelationRepairLease(ctx, fresh, result, true) {
+		t.Fatal("new pending generation must win over an older rejected document on another mutable carrier")
+	}
+	for name, mut := range map[string]*types.MutableState{"dispatch": stale, "evaluator": fresh} {
+		lease := mut.AnswerDiagramRelationRepairLease()
+		if lease == nil || len(lease.Failures) != 1 || lease.Failures[0].FromNode != "A" {
+			t.Fatalf("%s mutable did not receive the fresh generation lease: %+v", name, lease)
+		}
+	}
+	roster := answerDocPatchBaseBlockRosterHint(ctx, fresh, "")
+	if !strings.Contains(roster, `"id":"fresh-summary"`) || strings.Contains(roster, `"id":"stale-summary"`) {
+		t.Fatalf("retry roster did not follow the fresh pending generation: %s", roster)
+	}
+}
+
 func TestRequiredDiagramRelationRetryInstallsLabelPairRelabelRef(t *testing.T) {
 	mut := types.NewMutableState("label pair retry")
 	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{

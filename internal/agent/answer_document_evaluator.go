@@ -17448,13 +17448,49 @@ func (e *answerDocumentEvaluator) emitSwitchToPatchSignal(ctx *types.AgentContex
 }
 
 func answerDocumentPatchBaseAvailable(ctx *types.AgentContext, primary *types.MutableState) bool {
-	if answerDocumentPatchBaseDocumentInMutable(primary) != nil {
-		return true
+	return answerDocumentPatchBaseDocumentAcrossMutableState(ctx, primary) != nil
+}
+
+// answerDocumentPatchBaseDocumentAcrossMutableState preserves the patch
+// tool's state-tier precedence across both mutable carriers. A dispatch-local
+// AgentContext and the evaluator's captured MutableState normally point at the
+// same object, but recovery/continuation lanes may temporarily expose two
+// carriers. In that shape, a newer pending patch base must beat an older
+// accepted/retry/rejected document regardless of which carrier owns it.
+// Selecting one carrier's complete fallback chain before consulting the other
+// can bind freshly issued opaque refs to the wrong draft generation.
+func answerDocumentPatchBaseDocumentAcrossMutableState(ctx *types.AgentContext, primary *types.MutableState) *types.AnswerDocumentV2 {
+	mutables := make([]*types.MutableState, 0, 2)
+	if ctx != nil && ctx.Mutable != nil {
+		mutables = append(mutables, ctx.Mutable)
 	}
-	if ctx == nil || ctx.Mutable == nil || ctx.Mutable == primary {
-		return false
+	if primary != nil && (len(mutables) == 0 || primary != mutables[0]) {
+		mutables = append(mutables, primary)
 	}
-	return answerDocumentPatchBaseDocumentInMutable(ctx.Mutable) != nil
+	for _, mut := range mutables {
+		if doc := mut.PendingAnswerDocumentPatchBase(); doc != nil && len(doc.Blocks) > 0 {
+			return doc
+		}
+	}
+	for _, mut := range mutables {
+		if doc := mut.AnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+			return doc
+		}
+	}
+	for _, mut := range mutables {
+		if rs := mut.RetryState(); rs != nil && len(rs.PrevEmitJSON) > 0 {
+			var doc types.AnswerDocumentV2
+			if err := json.Unmarshal(rs.PrevEmitJSON, &doc); err == nil && len(doc.Blocks) > 0 {
+				return &doc
+			}
+		}
+	}
+	for _, mut := range mutables {
+		if doc := mut.LastRejectedAnswerDocumentV2(); doc != nil && len(doc.Blocks) > 0 {
+			return doc
+		}
+	}
+	return nil
 }
 
 // answerDocumentPatchBaseDocumentInMutable mirrors the patch tool's base
@@ -17493,10 +17529,7 @@ type answerDocumentPatchBaseBlockRosterEntry struct {
 // model's original payload. The roster is a typed projection of the live patch
 // base, not a scan of request/answer prose, and deliberately omits block text.
 func answerDocPatchBaseBlockRosterHint(ctx *types.AgentContext, primary *types.MutableState, focusKind types.AnswerBlockKind) string {
-	var doc *types.AnswerDocumentV2
-	if doc = answerDocumentPatchBaseDocumentInMutable(primary); doc == nil && ctx != nil && ctx.Mutable != primary {
-		doc = answerDocumentPatchBaseDocumentInMutable(ctx.Mutable)
-	}
+	doc := answerDocumentPatchBaseDocumentAcrossMutableState(ctx, primary)
 	if doc == nil {
 		return ""
 	}
@@ -18606,14 +18639,8 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 		!delta.PreserveUnlistedEdges {
 		return false
 	}
-	var base *types.AnswerDocumentV2
-	if ctx != nil && ctx.Mutable != nil {
-		base = answerDocumentPatchBaseDocumentInMutable(ctx.Mutable)
-	}
-	if base == nil {
-		base = answerDocumentPatchBaseDocumentInMutable(primary)
-	}
-	lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+	base := answerDocumentPatchBaseDocumentAcrossMutableState(ctx, primary)
+	lease, omittedFailures, omittedAdditions := executableAnswerDocDiagramRelationRepairLease(
 		base, delta.Failures, delta.AllowedAdditions, !diagramRequired,
 	)
 	if lease == nil {
@@ -18629,6 +18656,16 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 			}
 		}
 		return false
+	}
+	if omittedFailures > 0 || omittedAdditions > 0 {
+		// The ordinary merged-document validators remain authoritative for all
+		// omitted rows and will re-issue any still-live mismatch after this
+		// bounded patch. Publishing the maximal executable subset avoids a
+		// contradictory retry that advertises opaque refs while installing no
+		// matching capability. This filters only typed producer rows against the
+		// exact patch base; it never reads or authors Mermaid/prose relations.
+		logging.Warning("[answer_document] relation repair delta retained executable subset: failures=%d/%d additions=%d/%d",
+			len(lease.Failures), len(delta.Failures), len(lease.AllowedAdditions), len(delta.AllowedAdditions))
 	}
 	var ordinaryBlockIDs []string
 	if rawOrdinary := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON]); rawOrdinary != "" {
@@ -18668,6 +18705,55 @@ func installAnswerDocDiagramRelationRepairLease(ctx *types.AgentContext, primary
 		primary.SetAnswerDiagramRelationRepairLease(lease)
 	}
 	return true
+}
+
+// executableAnswerDocDiagramRelationRepairLease first preserves the all-or-
+// nothing fast path. If one producer row cannot bind to the exact retry base,
+// it derives a deterministic maximal executable subset by adding typed failure
+// and optional-candidate rows one at a time and retaining a row only when the
+// shared lease constructor accepts the complete accumulated set. The ordinary
+// validators are not weakened: omitted mismatches remain hard failures on the
+// next merged document. This helper only prevents one malformed/stale local
+// capability row from suppressing every unrelated executable repair ref.
+func executableAnswerDocDiagramRelationRepairLease(
+	base *types.AnswerDocumentV2,
+	failures []types.AnswerDiagramRelationRepairFailure,
+	allowedAdditions []types.AnswerDiagramRelationRepairCandidate,
+	allowTargetDiagramRemoval bool,
+) (*types.AnswerDiagramRelationRepairLease, int, int) {
+	if lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+		base, failures, allowedAdditions, allowTargetDiagramRemoval,
+	); lease != nil {
+		return lease, 0, 0
+	}
+	if base == nil {
+		return nil, len(failures), len(allowedAdditions)
+	}
+	selectedFailures := make([]types.AnswerDiagramRelationRepairFailure, 0, len(failures))
+	for _, failure := range failures {
+		trial := append(append([]types.AnswerDiagramRelationRepairFailure(nil), selectedFailures...), failure)
+		if types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+			base, trial, nil, allowTargetDiagramRemoval,
+		) != nil {
+			selectedFailures = trial
+		}
+	}
+	selectedAdditions := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(allowedAdditions))
+	for _, candidate := range allowedAdditions {
+		trial := append(append([]types.AnswerDiagramRelationRepairCandidate(nil), selectedAdditions...), candidate)
+		if types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+			base, selectedFailures, trial, allowTargetDiagramRemoval,
+		) != nil {
+			selectedAdditions = trial
+		}
+	}
+	lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
+		base, selectedFailures, selectedAdditions, allowTargetDiagramRemoval,
+	)
+	if lease == nil {
+		return nil, len(failures), len(allowedAdditions)
+	}
+	return lease, len(failures) - len(selectedFailures), len(allowedAdditions) - len(selectedAdditions)
 }
 
 // answerDocRequiredDiagramRelationBoundaryPatchHint handles a required source

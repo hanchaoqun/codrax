@@ -59211,6 +59211,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r875`。
 
+### §123.1430 r876/B1363：局部关系许可跨 staging 代次失活，runner 宽 oracle 掩盖状态流缺失（2026-08-28）
+
+1. 从已推送 `c2c83d2e8` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 261s、read
+   453s。Trace 人工 pass：显式 2.000..2.020s、9 次 typed query、四跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   调度/优先级候选、实际占时/规则可消双账户、链上业务下钻、背景隔离和完整「Trace 因果投影」均在；成文零拒绝，活动流没有按 4ms、4m、
+   首字节、stall 或累计年龄降级。模型对 `pre_wakeup_dependency` 仍有“向上传导/连锁效应”的过强措辞，后文又明确 completion dependency
+   未证；继续归 `B1269/B1271` 软遵循观察，不以原文扫描拒绝或改写。
+2. `B1362` 获得生产正证：read 最终 Mermaid 已无 `codraxNode`、残缺引号、带点 unsafe node id 或多行 subgraph 误拆，说明 typed safe endpoint
+   与 syntax-only bracket 修复生效。但 read 人工仍 fail：最终图只剩
+   `Analyzer -> Explorer -> Extractor -> Finalizer` 三条 precedence；用户明确要求的 BusContext/Mutable 状态与数据流关系没有入图，二者成为孤立节点，
+   Orchestrator 被删除，并残留空 `stage_artifacts` subgraph。runner 的 `mermaid_edge_count`/关键词宽 oracle 仍判 PASS，不能替代人工关系完整性审计。
+3. 新 P0/P1 `B1363-RELATIONLEASESTAGINGGEN1` 是确定性合同交接 gap。模型第一次按 live refs 同时修正两条 label 并加入三条 verified precedence 后，
+   旧 lease 对该 model-authored merged draft 已满足并被消费；普通 merged-document validator 随即发现同一草稿里其余 call/return/assignment/artifact
+   边未证。系统把草稿正确保存在不可见 retry staging，但新 relation delta 没有成功绑定为同代可执行 lease，路由却退回完整关系边界教学。模型因此复用上一代
+   `failure_ref/addition_ref`，executor 报 `not present in a live relation-repair lease`；下一轮又被要求提交“所有 block unchanged、零 diagram edit”的 no-op，
+   只为重新触发同一批 validator。这里既浪费一轮，也形成“提示要求继续局部修关系，但 schema/executor 没有对应权限”的自冲突。
+4. 深层原因分两类，需共用同代 typed 修复而不是 case 特判。第一，recovery/continuation 可能同时暴露 dispatch-local 与 evaluator-captured 两个
+   MutableState；旧选择逻辑会先走其中一个状态源的 accepted/retry/rejected 完整回退链，再查看另一个状态源，导致旧 rejected draft 抢在新 pending
+   staging 前面。第二，一个 delta 中任一不能与当前 base 精确绑定的 failure/candidate 会让整个 lease 构造返回 nil，即使同批其余 failure refs 可精确执行；
+   普通 validator 仍持有完整失败集，但局部 patch surface 变成全空。
+5. 本批根修保持两层权威。patch base 选择改为跨两个 Mutable carrier 先统一比较状态层级：所有 pending staging 优先于所有 accepted，再依次是 retry
+   snapshot 与 rejected draft；block roster 与 lease installer 共用该单源。lease 仍先尝试完整 delta；若完整形不能执行，则只用 typed failure/candidate
+   rows 对当前 exact base 逐行构造确定性的最大可执行子集，重签并仅发布真实 live refs。未投影行不会被当成已修或放行，普通 merged-document validators
+   在下一稿继续 hard reject 并重发；因此这是 capability handoff 的韧性修复，不是关系证据门降级。
+6. 系统仍不选择 add/remove/replace/relabel，不选择边、方向、业务 label、分组、布局或答案结论；子集判定不读取用户请求、模型 thinking、最终 prose、
+   Mermaid message/label 或错误文本，只消费 versioned typed delta、exact patch base 与共享 lease constructor。新增 pin 覆盖：旧 carrier 的 rejected draft
+   不得遮蔽另一 carrier 的 pending generation；一个畸形 optional candidate/不可绑定 failure 不得抹掉同批可执行 removal 和 addition 权限；canonical retry
+   metadata 只发新 lease 的 refs，省略行继续由普通 validator 管辖。
+7. r876 同时保留两个后续项：`B1364-EVALRELATIONORACLE1/P2` 需让 eval 人工/typed oracle 能区分“边数够”与“请求的关系维度真的被表达”，但不能把
+   case 节点名写进生产硬门；空且无成员/边的 subgraph 属 `B1365-EMPTYDIAGRAMGROUP1/P2` syntax/presentation 清理候选，必须证明只移除空载体、不推导或
+   重排模型分组后再施工。本批优先闭环 B1363，不把低优先显示项混入许可生命周期修复。
+
+状态：
+
+`r876=runner-pass-2/2,human-trace-pass+read-fail`；
+`B1362=production-positive/core-closed`；
+`B1363=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1364=confirmed/P2-eval-oracle`；`B1365=confirmed/P2-syntax-presentation`；
+`relation-patch-base=all-pending>all-accepted>all-retry>all-rejected`；
+`relation-lease=full-delta-first+typed-executable-subset-fallback`；
+`omitted-repair-rows=ordinary-validator-still-authoritative`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-or-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r876`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r876`。
+
 ### §123.1364 S1319：计划自有单行源码合同获得语言无关的 post-apply 精确观察（2026-08-22）
 
 1. `B1319-WRITESOURCECONTRACTOBS1/P1` 已施工。`run_tests` 在非 dry-run 的 post-apply 报告封口处新增独立
