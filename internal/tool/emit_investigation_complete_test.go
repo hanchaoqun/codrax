@@ -437,6 +437,78 @@ func TestEmitInvestigationComplete_RefreshesStaleMemberSetWithLaterCompleteSet(t
 	}
 }
 
+func TestEffectiveCompletionAggregateFacts_PreservesAcceptedStrictSupersetAcrossNarrowLabelDrift(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	stable := types.AnswerAggregateFact{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "公开函数（function，不含测试函数）",
+		Value: "5",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"Eval", "EvalAll", "SetExternalArtifactFloor", "IsRegistered", "RegisteredKinds",
+		},
+		SupportRefs: []string{"eval.go:15", "eval.go:36", "eval.go:1126", "grammar.go:110", "grammar.go:116"},
+	}
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{stable})
+	mut.SetInvestigationComplete("accepted complete production function roster")
+	mut.RetainInvestigationAggregateFacts()
+
+	current := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "公开函数（function）",
+		Value:       "4",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval", "EvalAll", "IsRegistered", "RegisteredKinds"},
+		SupportRefs: []string{"eval.go:15", "eval.go:36", "grammar.go:110", "grammar.go:116"},
+	}
+	got := effectiveCompletionAggregateFacts(bus, []types.AnswerAggregateFact{current})
+	if len(got) != 2 {
+		t.Fatalf("effective facts = %+v, want accepted superset plus later subset for reconciliation", got)
+	}
+	principal := 0
+	for _, fact := range got {
+		if types.AnswerAggregateFactRoleForRequest(fact, nil) != types.AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		principal++
+		if len(fact.Members) != 5 || fact.Members[2] != "SetExternalArtifactFloor" {
+			t.Fatalf("principal fact = %+v, want accepted five-member superset", fact)
+		}
+	}
+	if principal != 1 {
+		t.Fatalf("principal facts = %d in %+v, want exactly one", principal, got)
+	}
+}
+
+func TestEffectiveCompletionAggregateFacts_DoesNotCarryCrossingLabelVariant(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "public functions production",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval", "EvalAll"},
+		SupportRefs: []string{"eval.go:15", "eval.go:36"},
+	}})
+	mut.SetInvestigationComplete("accepted production roster")
+	mut.RetainInvestigationAggregateFacts()
+
+	current := types.AnswerAggregateFact{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "public functions tests",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"TestEval", "TestEvalAll"},
+		SupportRefs: []string{"eval_test.go:15", "eval_test.go:36"},
+	}
+	got := effectiveCompletionAggregateFacts(bus, []types.AnswerAggregateFact{current})
+	if len(got) != 1 || got[0].Members[0] != "TestEval" {
+		t.Fatalf("crossing label variant must not carry the accepted unrelated set: %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_DropsPartialCountMembers(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

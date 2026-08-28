@@ -5095,7 +5095,8 @@ func completionMonotonicStableAggregateFacts(ctx *types.BusContext, current []ty
 	var out []types.AnswerAggregateFact
 	for _, stableFact := range stable {
 		for _, currentFact := range current {
-			if completionAggregateFactsMonotonicCompatible(stableFact, currentFact) {
+			if completionAggregateFactsMonotonicCompatible(stableFact, currentFact) ||
+				types.AnswerAggregateStableMemberSetCanCarryAcrossLabelDrift(stableFact, currentFact) {
 				out = append(out, stableFact)
 				break
 			}

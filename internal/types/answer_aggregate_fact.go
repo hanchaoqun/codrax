@@ -1029,6 +1029,39 @@ func aggregateMemberSetSupportCompatibleForSuperset(candidate, superset AnswerAg
 	return supersetCoverage == len(superset.Members)
 }
 
+// AnswerAggregateStableMemberSetCanCarryAcrossLabelDrift reports whether an
+// already-accepted principal member_set may remain in the reconciliation pool
+// when a later completion emits a narrower spelling of the same structured
+// set. It does not decide which member is true and it does not union crossing
+// sets: the later set must be a strict subset of the accepted set, the typed
+// bucket axes must remain compatible, and the accepted superset must have at
+// least as much per-member support. The existing superset arbiter then keeps
+// the larger model-authored handoff principal and demotes the stale subset.
+//
+// This helper deliberately consumes only aggregate_facts structure. It never
+// reads the request, investigation prose, rendered answer, Mermaid labels, or
+// repository-language keywords.
+func AnswerAggregateStableMemberSetCanCarryAcrossLabelDrift(stable, current AnswerAggregateFact) bool {
+	if !answerAggregateFactCarriesCompleteMemberSet(stable) ||
+		!answerAggregateFactCarriesCompleteMemberSet(current) ||
+		stable.Kind != AnswerAggregateMemberSet ||
+		current.Kind != AnswerAggregateMemberSet {
+		return false
+	}
+	if AnswerAggregateFactRoleForRequest(stable, nil) != AnswerAggregateFactRoleForRequest(current, nil) {
+		return false
+	}
+	if !aggregateMemberSetFactsSameBucketForSuperset(current, stable) {
+		return false
+	}
+	currentSet := aggregateMemberSetProjectionKeySet(current.Members)
+	stableSet := aggregateMemberSetProjectionKeySet(stable.Members)
+	if !aggregateMemberProjectionStrictSubsetOf(currentSet, stableSet) {
+		return false
+	}
+	return aggregateMemberSetSupportCompatibleForSuperset(current, stable)
+}
+
 func appendAggregateFactProvenance(current, addition string) string {
 	current = strings.TrimSpace(current)
 	addition = strings.TrimSpace(addition)

@@ -59100,6 +59100,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1482 r905/B1410：scalar 所有权回放转正；principal 成员集因标签窄化被后写覆盖（2026-08-28）
+
+1. 从已推送 `6148f6927` 构建不可变二进制，严格并发恰好 2 路复放配置解释与多集合枚举：配置 runner PASS/152s，枚举 runner FAIL/375s。
+   两路均无固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统代写模型答案。
+2. B1407 获得生产正证。配置答案继续显示默认 scalar `50`，但日志不再出现 `visible_count=50` 或把它与优先级集合基数比较；真正 aggregate count
+   校验仍启用。B1407 记为 production-positive/core-closed。配置人工仍为 partial：解析与 merge 被模型混写，已读 Decode/Changed 证据没有形成完整引用链，
+   B1408、B1409、B1396 继续开放。
+3. 新 P1 `B1410-PRINCIPALMEMBERSETSUPERSETLABELDRIFT1` 是枚举失败根因。仓库动态基准为 5 个 exported production functions；前两个调查单元也
+   分别提交含 `SetExternalArtifactFloor` 的 5 项 principal member_set 与逐项支持。第三个单元提交 4 项窄集合，因三份标签不是逐字相同，旧 monotonic
+   carry-forward 没把 5 项事实交给既有 strict-superset arbiter，stable pool 被 4 项末值覆盖。Finalizer 虽仍看到该函数 grounded evidence，却受错误 4 项
+   principal roster 约束并漏发成员。
+4. B1410 已按“模型内容不丢、系统不裁内容”施工：新增 typed helper 只在 accepted/current 都是 complete principal member_set、later 是 accepted 的严格子集、
+   bucket axes 与结构化标签族兼容且 accepted 逐项支持不少于 later 时，把 accepted superset 留在 reconciliation pool；随后沿用既有 superset arbiter 让大集合
+   保持 principal、窄集合降 supporting。交叉集合、等大不同集合、无子集关系和不兼容 bucket 不 carry，不做 union 猜测。
+5. 回归精确复现 5→4 与标签窄化，要求最终恰一份 5 项 principal 且保留 `SetExternalArtifactFloor`；反例 production/tests 两个交叉集合不得合并。
+   该实现不扫描请求、模型 reasoning、终稿、路径关键词或 Mermaid，不生成新成员，也不选择关系、结论、措辞或布局。`internal/types`、`internal/tool`
+   全包、完整 `go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。
+6. 新 P2 `B1411-STRUCTUREDROSTERCARDINALITYUNDERCOUNT1` 独立记档：答案表真实列出全部 30 个 Kind 常量，soft validator 却报
+   `expected_count=30 visible_count=28` 并追加弱证据 caveat。下一批应让已完整绑定的 structured roster 直接提供 cardinality，禁止继续扩大局部文本扫描。
+7. 本批完整人工记录见 `eval/parallel_selected_summary_evalcampaign_config_count_r905_20260828_manual_audit.md`。B1410 全测/构建/提交后，从新 revision 再恰好
+   2 路复放 config+enumeration；通过后回到 B1408 架构根修。Trace 显式窗、因果投影、自动补齐、链上根因、业务线索和双账户路径未修改。
+
+状态：
+
+`r905=runner-pass-1/fail-1,human-config-partial+enumeration-fail`；
+`B1407=production-positive/core-closed`；
+`B1410=implemented/full-suite-pass+build-pass/pending-replay`；
+`B1411=confirmed/P2`；
+`B1408/B1409/B1396=open`；
+`system-answer/conclusion/member/relation/wording/layout-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
