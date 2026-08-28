@@ -73,8 +73,16 @@ flowchart TD
   Analyze[Analyze] --> Explore[Explore]
   Explore -.-> Extract[Extract]
 ```'
+isolated_mermaid='```mermaid
+flowchart TD
+  Analyze[Analyze] --> Explore[Explore]
+  Extract[Extract]
+```'
 assert_eq "$(eval_mermaid_edge_count "$node_only_mermaid")" "0" "node-only Mermaid must expose zero eval edges"
 assert_eq "$(eval_mermaid_edge_count "$edge_mermaid")" "2" "Mermaid eval edge counter must stay fence-local and structural"
+assert_eq "$(eval_mermaid_incident_node_count "$node_only_mermaid")" "0" "node-only Mermaid must expose zero incident nodes"
+assert_eq "$(eval_mermaid_incident_node_count "$edge_mermaid")" "3" "Mermaid incident-node counter must deduplicate shared endpoints"
+assert_eq "$(eval_mermaid_incident_node_count "$isolated_mermaid")" "2" "isolated Mermaid declarations must not count as relationship participants"
 
 cat >"$tmp/repair-metrics.txt" <<'METRICS'
 repair_plan_lines=2
@@ -2104,8 +2112,9 @@ ID="mermaid_edge"
 NAME="mermaid edge"
 QUESTION="draw a flow"
 EXPECT_MERMAID_MIN_EDGES=1
+EXPECT_MERMAID_MIN_INCIDENT_NODES=3
 CASE
-assert_eq "$(eval_case_oracle_surface "$tmp/mermaid-edge.case")" "mermaid_edge_count" \
+assert_eq "$(eval_case_oracle_surface "$tmp/mermaid-edge.case")" "mermaid_edge_count,mermaid_incident_node_count" \
   "Mermaid edge case oracle surface"
 
 cat >"$tmp/fake-codrax-node-only-mermaid" <<'SH'
@@ -2125,6 +2134,9 @@ mermaid_edge_dir="$(eval_latest_result_dir "$tmp/mermaid-edge-results" mermaid_e
 [[ -n "$mermaid_edge_dir" ]] || fail "Mermaid edge wire result dir missing"
 if ! grep -qF 'mermaid_edges:0<1' "$mermaid_edge_dir/run-1.verdict"; then
   fail "run.sh did not reject a node-only explicit Mermaid flow case"
+fi
+if ! grep -qF 'mermaid_incident_nodes:0<3' "$mermaid_edge_dir/run-1.verdict"; then
+  fail "run.sh did not reject insufficient incident-node coverage"
 fi
 
 cat >"$tmp/fake-codrax-operation-terminal" <<'SH'

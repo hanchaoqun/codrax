@@ -57291,6 +57291,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
+
+1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
+   547s。两路均未因 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统代写模型结论、关系、节点、标签或布局。
+2. `B1363` 获得生产烟测正证：read 只发生一次真实 node/identity relation reject，系统直接发布当前代 live `failure_ref`，模型下一轮以
+   `diagram_edge_edits={action:remove,failure_ref:...}` 局部修补并通过。日志没有 stale/unknown ref、`lease_absent`、复用旧 generation 或要求
+   “所有 block unchanged”的 no-op bootstrap。此次自然样本没有触发“跨两个 Mutable carrier 的 pending 优先选择”和“完整 delta 不可绑定时的最大
+   可执行子集”两条特定 fallback，因此 B1363 记为生命周期生产无回归、两条 fallback 仍由结构化回归证明，不夸大为所有分支生产转正。
+3. read 人工判定 partial。第一稿把 typed `bus.Mutable -> AgentContext.Mutable` 技术端点错误投影为抽象
+   `BusContext -> Mutable`，且可见边漏掉模型自写 label；关系门正确拒绝。模型随后选择删除而不是按同轮已提供的 component fragment 使用精确端点，
+   最终图只剩 Analyzer→Explorer→Extractor→Finalizer 三条 precedence，Mutable 与 BusContext 虽被声明并在正文解释，却完全不参与任何图上关系。
+   这不是系统可代画的空缺；生产层继续只给精确 typed 权限和软教学，由模型决定是否保留、替换、分组与如何表述。
+4. `B1364-EVALRELATIONORACLE1/P2` 已按 eval-only 通用量尺施工。旧 `EXPECT_MERMAID_MIN_EDGES` 只能证明图内至少有若干箭头，r876/r877 都因四阶段
+   三条边误签 PASS，无法发现用户点名参与者孤立。新 `EXPECT_MERMAID_MIN_INCIDENT_NODES` 只解析显式 Mermaid fence 和结构箭头操作符，统计真正出现
+   在 from/to 端点的不同 node ID；孤立声明不计数、共享端点去重、edge label 与周围答案 prose 完全不读。它不进入生产 answer validator，也不从请求
+   自动猜门槛；每个 eval case 由作者显式声明其最小拓扑覆盖。
+5. read pipeline case 现在声明最少 6 个关系参与节点。对 r877 最终答案离线回算得到 `edges=3, incident_nodes=4`，因此新量尺会以
+   `mermaid_incident_nodes:4<6` 正确判失败；以后即使答案保留足够关键词、节点声明和三条无关边，也不能代替所请求的组件/状态关系覆盖。该 oracle 是
+   关系完整性的下界，不判断边的业务语义，人工审计仍负责判断方向、身份与用户问题是否真正匹配。
+6. Trace 人工判定 partial：系统面继续保留显式 2.000..2.020s 窗、5 个 typed 查询维度、四跳链、11.000ms 链上 IO 第一席、三个独立
+   1.000ms 调度/优先级候选、实际占时/规则可消双账户、链上业务线索、背景隔离和完整「Trace 因果投影」。模型仍把
+   `fscache_page_wait_on_page_bit` 与 pre-wakeup 先后扩写成具体磁盘/cache-page 机理和“阻塞唤醒信号传递”，尽管 typed 上下文已明确
+   completion/direct-blocking dependency 未提供；继续作为 `B1269/B1271` 跨回放软遵循项，不扫描、拒绝或改写模型正文。
+7. 回归覆盖 node-only、两边三节点去重、孤立声明不计数、oracle surface 声明与 `run.sh` 失败原因接线；shell syntax 与完整 eval runner 套件通过。
+   下一轮继续严格并发恰好 2 路，改用异构 read/write 或 read/Trace 组合，优先观察关系权限是否促使模型删除正确候选以及 JSON/图表教学是否继续产生
+   无新增事实的成文重试；Trace 显式窗、投影、自动补齐和链上根因仍是不可回归面。
+
+状态：
+
+`r877=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1363=production-lifecycle-positive/fallback-branches-tests-positive`；
+`B1364=implemented/eval-runner-tests-pass/pending-next-production-eval`；
+`mermaid-eval-coverage=edge-count+distinct-incident-node-count`；
+`isolated-node-declaration=not-relation-coverage`；
+`production-answer-gates=unchanged`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-or-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r877`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r877`。
+
 ### §123.1425 r872/B1357+B1358：patch 暂存基线如实教学；关系范围提供同代局部可执行编辑（2026-08-27）
 
 1. 从已推送 `5565044ea` 的干净二进制严格并发恰好 2 路回放逻辑图 read 与显式窗 Trace，runner 2/2 PASS：Trace 161s、read

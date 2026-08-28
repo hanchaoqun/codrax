@@ -110,6 +110,7 @@ EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_MATCHES_TEXT_REGEX="${EXPECT_MATCHES_TEXT_REGEX:-}"
 EXPECT_MERMAID_MIN_EDGES="${EXPECT_MERMAID_MIN_EDGES:-}"
+EXPECT_MERMAID_MIN_INCIDENT_NODES="${EXPECT_MERMAID_MIN_INCIDENT_NODES:-}"
 EXPECT_PRINCIPAL_CONTAINS="${EXPECT_PRINCIPAL_CONTAINS:-}"
 EXPECT_PRINCIPAL_NOT_CONTAINS="${EXPECT_PRINCIPAL_NOT_CONTAINS:-}"
 EXPECT_PRINCIPAL_MATCHES_REGEX="${EXPECT_PRINCIPAL_MATCHES_REGEX:-}"
@@ -1037,6 +1038,23 @@ write_verdict() {
       if (( mermaid_edges < EXPECT_MERMAID_MIN_EDGES )); then
         pass=0
         reasons+=("mermaid_edges:${mermaid_edges}<${EXPECT_MERMAID_MIN_EDGES}")
+      fi
+    fi
+  fi
+
+  # Eval-only topology coverage oracle. Unlike the edge-count check, this
+  # distinguishes a connected relationship view from a graph that declares
+  # requested participants but leaves most of them isolated.
+  if [[ -n "$EXPECT_MERMAID_MIN_INCIDENT_NODES" ]]; then
+    if ! [[ "$EXPECT_MERMAID_MIN_INCIDENT_NODES" =~ ^[0-9]+$ ]]; then
+      pass=0
+      reasons+=("invalid_mermaid_min_incident_nodes:${EXPECT_MERMAID_MIN_INCIDENT_NODES}")
+    else
+      local mermaid_incident_nodes
+      mermaid_incident_nodes="$(eval_mermaid_incident_node_count "$cleaned")"
+      if (( mermaid_incident_nodes < EXPECT_MERMAID_MIN_INCIDENT_NODES )); then
+        pass=0
+        reasons+=("mermaid_incident_nodes:${mermaid_incident_nodes}<${EXPECT_MERMAID_MIN_INCIDENT_NODES}")
       fi
     fi
   fi

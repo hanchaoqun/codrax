@@ -511,6 +511,9 @@ eval_case_oracle_surface() {
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_MERMAID_MIN_EDGES=' "$file"; then
     eval_case_oracle_surface_add "mermaid_edge_count"
   fi
+  if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_MERMAID_MIN_INCIDENT_NODES=' "$file"; then
+    eval_case_oracle_surface_add "mermaid_incident_node_count"
+  fi
   if LC_ALL=C grep -aEq '^[[:space:]]*EXPECT_PRINCIPAL_(CONTAINS|NOT_CONTAINS|MATCHES_REGEX|MATCHES_TEXT_REGEX)=' "$file"; then
     eval_case_oracle_surface_add "principal_answer"
   fi
@@ -542,6 +545,56 @@ eval_mermaid_edge_count() {
     in_mermaid && /^[[:space:]]*```[[:space:]]*$/ { in_mermaid=0; next }
     in_mermaid && /(-->|-\.->|==>|->>|-->>|-\)|--\)|-x|--x)/ { count++ }
     END { print count + 0 }
+  ' <<<"$text"
+}
+
+# eval_mermaid_incident_node_count <answer-text>
+#
+# Counts distinct Mermaid node IDs that actually occur as an edge endpoint.
+# Isolated declarations do not count. This is intentionally an eval-only,
+# topology-only oracle: it neither reads edge labels nor assigns meaning to a
+# node, and it has no role in production answer validation.
+eval_mermaid_incident_node_count() {
+  local text="${1:-}"
+  LC_ALL=C awk '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    function endpoint_id(fragment, value) {
+      value = trim(fragment)
+      if (value ~ /^\|[^|]*\|/) {
+        sub(/^\|[^|]*\|[[:space:]]*/, "", value)
+      }
+      if (match(value, /^[A-Za-z_][A-Za-z0-9_-]*/)) {
+        return substr(value, RSTART, RLENGTH)
+      }
+      return ""
+    }
+    /^[[:space:]]*```mermaid[[:space:]]*$/ { in_mermaid=1; next }
+    in_mermaid && /^[[:space:]]*```[[:space:]]*$/ { in_mermaid=0; next }
+    in_mermaid {
+      line=$0
+      sub(/[[:space:]]*%%.*/, "", line)
+      gsub(/-->>|--\)|--x|-->|-\.->|==>|->>|-\)|-x/, "\034", line)
+      part_count=split(line, parts, "\034")
+      if (part_count < 2) {
+        next
+      }
+      for (i=1; i<=part_count; i++) {
+        id=endpoint_id(parts[i])
+        if (id != "") {
+          incident[id]=1
+        }
+      }
+    }
+    END {
+      for (id in incident) {
+        count++
+      }
+      print count + 0
+    }
   ' <<<"$text"
 }
 
