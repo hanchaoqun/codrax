@@ -8931,6 +8931,12 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- principal_relation_scope=`typed_endpoint_boundary`; supporting_directed_relations_outside_boundary=`%d`. The omitted relations remain grounded support facts, but they are not principal intermediate hops or principal diagram edges for this exact endpoint answer.\n", len(allEdges)-len(edges))
 	}
 	renderAnswerDocFlowParticipantCoverageGuidance(&b, ctx, edges, evidence)
+	participantCoverage := answerDocResolveFlowParticipantCoverage(
+		ctx.AnalysisIR.RequestModel,
+		edges,
+		evidence,
+		answerDocVerifiedReadModeStagePrecedenceForRequest(ctx),
+	)
 	if topology, ok := answerDocMechanismRelationGraphTopology(edges); ok {
 		fmt.Fprintf(&b,
 			"- typed_relation_graph: unique_endpoint_relations=%d; nodes=%d; weak_components=%d; max_out_degree=%d; max_in_degree=%d; fan_out_present=%t; fan_in_present=%t; disconnected_present=%t; single_linear_relation_graph=%t.\n",
@@ -8962,6 +8968,7 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 			answerDocMechanismCopyReadyRelationLimit(ctx),
 			answerDocMechanismCopyReadyDiagramKind(ctx, edges, semanticHandoffs),
 			answerDocMechanismRequestedDiagramKind(ctx, edges),
+			participantCoverage.requestScopedRelationComplete,
 		)
 		// A complete dynamic-selection candidate may carry precise non-call
 		// hops that the general grounded-mechanism inventory intentionally does
@@ -9300,6 +9307,7 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	limit int,
 	copyReadyKind types.DiagramKind,
 	requestedKind types.DiagramKind,
+	requestScopedRelationComplete bool,
 ) answerDocMechanismAuthoringReceipts {
 	if b == nil || len(edges)+len(unaryAnnotations) == 0 || limit <= 0 {
 		return answerDocMechanismAuthoringReceipts{}
@@ -9369,7 +9377,9 @@ func renderAnswerDocMechanismRelationAuthoringCapsule(
 	b.WriteString("\n### Typed relation authoring capsule (advisory)\n\n")
 	handoffRows := answerDocMechanismSemanticHandoffRows(aliases, semanticHandoffs)
 	handoffAnchors := answerDocMechanismSemanticHandoffAnchors(handoffRows)
-	renderAnswerDocMechanismRelationComponentBoundary(b, aliases, recipes, handoffRows)
+	renderAnswerDocMechanismRelationComponentBoundary(
+		b, aliases, recipes, handoffRows, requestScopedRelationComplete,
+	)
 	for i, anchor := range handoffAnchors {
 		payload, err := json.Marshal(anchor)
 		if err != nil {
@@ -9892,6 +9902,7 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	aliases []answerDocMechanismAliasRow,
 	recipes []answerDocMechanismRecipeRow,
 	semanticHandoffs []answerDocMechanismSemanticHandoffRow,
+	requestScopedRelationComplete bool,
 ) {
 	if b == nil || len(aliases) == 0 || len(recipes) == 0 {
 		return
@@ -9919,6 +9930,8 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 		bridgeStatus = "unproven_between_components"
 		if len(crossComponentHandoffs) > 0 {
 			bridgeStatus = "registered_export_binding_between_components"
+		} else if requestScopedRelationComplete {
+			bridgeStatus = "typed_participant_carrier_join_available"
 		}
 	}
 	requestSpineComponents := 0
@@ -9951,6 +9964,9 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 	if requestSpineComponents > 0 {
 		fmt.Fprintf(b, "- requested_relation_spine_component_count=%d; this role comes only from a request-scoped typed authority provider and does not promote sibling facts or invent a bridge.\n", requestSpineComponents)
 		renderAnswerDocMechanismPrincipalDiagramRecipe(b, aliases, recipes)
+	} else if requestScopedRelationComplete {
+		b.WriteString("- requested_relation_spine_status=`proved_through_typed_participant_carrier_join`. The exact typed endpoint rows form one complete requested-participant relation only when the model reuses each candidate-declared participant node on its declared endpoint side. Preserve the listed edge identities and directions; do not replace the bounded join with a direct synthetic edge, and do not emit requested_relation_scope=partial_unproven for this proved shape.\n")
+		b.WriteString("- Multi-edge join guidance (soft): when two listed relations share one exact technical endpoint, keep that endpoint as one Mermaid node and attach each relation to its candidate-authorized requested participant node. The model still selects the useful rows and authors every visible label, node ID, layout, diagram, and conclusion; this authority creates or rewrites none of them.\n")
 	} else if requestScopedRelations > 0 {
 		fmt.Fprintf(b, "- requested_relation_spine_status=`unproven`; request_scoped_typed_relation_subset_count=%d. The verified subset does not cover every typed incident participant, so it remains supporting evidence and is not a complete answer to the requested relation.\n", requestScopedRelations)
 		b.WriteString("- requested_relation_scope_recipe={requested_relation_scope:`partial_unproven`,placement:`exactly_one_requested_relation_diagram_block`}. Copy this typed model-authored field so the renderer can disclose the bounded whole-diagram scope in reader language. The field creates no edge and does not replace your conclusion; never copy the raw enum into visible prose or Mermaid labels.\n")
@@ -9967,8 +9983,10 @@ func renderAnswerDocMechanismRelationComponentBoundary(
 			}
 		}
 		b.WriteString("- Reader-facing language boundary: `verified_component`, component indices, `relation_segment_class`, `answer_role`, and bridge/status tokens in this authority block are internal validation metadata. Do not copy those tokens into Mermaid labels/Notes, titles, tables, or answer prose. Express each proved segment with the repository's domain participants and operations; if no useful domain annotation exists, omit the visible Note. This does not authorize a cross-component edge.\n")
-		if len(crossComponentHandoffs) == 0 {
+		if len(crossComponentHandoffs) == 0 && !requestScopedRelationComplete {
 			b.WriteString("- These are separate components in the bounded citable relation projection. This means the current typed carrier has no proved bridge between them; it does NOT prove the program can never connect them. Present them as independently proved segments in sibling sections/bullets, disclose the missing bridge, or investigate a citable bridge. Do not place the components as consecutive numbered hops. Do not narrate them as one continuous end-to-end path.\n")
+		} else if len(crossComponentHandoffs) == 0 {
+			b.WriteString("- The exact operation endpoints remain separate components only in this compact technical projection. The shared typed participant-carrier mapping proves a bounded model-authorable join through the listed rows; reuse those participant nodes and the shared technical endpoint instead of inventing a direct inter-component arrow.\n")
 		} else {
 			b.WriteString("- Source-level call components remain separate because a registered-export binding is not a source call edge. The exact handoff rows above are nevertheless proved semantic bridges between only their named aliases. When composing those invocation fragments, preserve each selected bridge as a visibly labelled relation_kind=register edge with its exact typed owner; keep every unlisted component pair disconnected, and do not turn the binding into execution order.\n")
 		}

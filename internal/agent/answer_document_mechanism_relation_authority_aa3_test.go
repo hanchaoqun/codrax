@@ -1090,7 +1090,7 @@ func TestRegisteredExportHandoffMapsToVisibleSequenceBindingEndpointsAA3(t *test
 	renderAnswerDocMechanismRelationAuthoringCapsule(&rendered, []answerDocMechanismRelationEdge{
 		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
 		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
-	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence, types.DiagramSequence)
+	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramSequence, types.DiagramSequence, false)
 	for _, want := range []string{
 		"n2->>n3: AUTHOR_BUSINESS_ACTION",
 		"replace that placeholder with a concise business/domain binding action",
@@ -1115,7 +1115,7 @@ func TestRegisteredExportHandoffMapsToVisibleSequenceBindingEndpointsAA3(t *test
 	renderAnswerDocMechanismRelationAuthoringCapsule(&fragmented, []answerDocMechanismRelationEdge{
 		{from: "FastTokenizer.tokenize", to: "_fastlex.tokenize_bytes", relation: types.DiagramRelCall},
 		{from: "py.tokenize_bytes", to: "tokenize_bytes", relation: types.DiagramRelCall},
-	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramNone, types.DiagramSequence)
+	}, nil, []answerDocRegisteredExportHandoff{handoff}, 8, types.DiagramNone, types.DiagramSequence, false)
 	for _, want := range []string{
 		"Source-level call arrows remain local to their fragments",
 		"handoff_aware_composition_recipe[1]=`n2 -> n3`",
@@ -1145,7 +1145,7 @@ func TestWithheldWholeFlowComponentFragmentsStayMermaidParseableAA3(t *testing.T
 			var rendered strings.Builder
 			renderAnswerDocMechanismRelationAuthoringCapsule(&rendered, []answerDocMechanismRelationEdge{{
 				from: "Checkout.submit", to: "Payment.authorize", relation: types.DiagramRelCall,
-			}}, nil, nil, 8, types.DiagramNone, kind)
+			}}, nil, nil, 8, types.DiagramNone, kind, false)
 			parts := strings.SplitN(rendered.String(), "```mermaid\n", 2)
 			if len(parts) != 2 {
 				t.Fatalf("withheld whole-flow capsule did not emit a component fragment:\n%s", rendered.String())
@@ -1163,6 +1163,48 @@ func TestWithheldWholeFlowComponentFragmentsStayMermaidParseableAA3(t *testing.T
 				t.Fatalf("component fragment lost its exact sibling anchor array:\n%s", rendered.String())
 			}
 		})
+	}
+}
+
+func TestCompleteParticipantCarrierJoinDoesNotTeachPartialRelationScopeAA3(t *testing.T) {
+	aliases := []answerDocMechanismAliasRow{
+		{alias: "n1", identity: "analyzer"},
+		{alias: "n2", identity: "explorer"},
+		{alias: "n3", identity: "types.AgentExplorer"},
+		{alias: "n4", identity: "BuildAgentContext"},
+		{alias: "n5", identity: "o.busCtx"},
+	}
+	recipes := []answerDocMechanismRecipeRow{
+		{from: "n1", to: "n2", edge: answerDocMechanismRelationEdge{
+			from: "analyzer", to: "explorer", relation: types.DiagramRelPrecedence, requestScoped: true,
+		}},
+		{from: "n3", to: "n4", edge: answerDocMechanismRelationEdge{
+			from: "types.AgentExplorer", to: "BuildAgentContext", relation: types.DiagramRelArgumentFlow,
+		}},
+		{from: "n5", to: "n4", edge: answerDocMechanismRelationEdge{
+			from: "o.busCtx", to: "BuildAgentContext", relation: types.DiagramRelArgumentFlow,
+		}},
+	}
+	var rendered strings.Builder
+	renderAnswerDocMechanismRelationComponentBoundary(&rendered, aliases, recipes, nil, true)
+	for _, want := range []string{
+		"inter_component_bridge_status=`typed_participant_carrier_join_available`",
+		"requested_relation_spine_status=`proved_through_typed_participant_carrier_join`",
+		"Multi-edge join guidance (soft)",
+		"model still selects the useful rows and authors every visible label",
+	} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("complete typed participant join lost prompt/gate parity %q:\n%s", want, rendered.String())
+		}
+	}
+	for _, forbidden := range []string{
+		"requested_relation_spine_status=`unproven`",
+		"requested_relation_scope_recipe={requested_relation_scope:`partial_unproven`",
+		"current typed carrier has no proved bridge",
+	} {
+		if strings.Contains(rendered.String(), forbidden) {
+			t.Fatalf("complete typed participant join received contradictory partial teaching %q:\n%s", forbidden, rendered.String())
+		}
 	}
 }
 

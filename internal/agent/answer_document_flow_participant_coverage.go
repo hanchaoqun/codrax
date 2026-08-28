@@ -15,6 +15,7 @@ type answerDocFlowParticipantCoverage struct {
 	unproved                      []string
 	contextOnly                   []string
 	requestScopedSubsetIncomplete bool
+	requestScopedRelationComplete bool
 }
 
 func (c answerDocFlowParticipantCoverage) boundaryParticipants() []string {
@@ -106,6 +107,7 @@ func answerDocResolveFlowParticipantCoverage(
 			rm, typedParticipants, typedParticipantSurfaces, evidence, stagePrecedence,
 		)
 		result.requestScopedSubsetIncomplete = sharedCoverage.RequestScopedSubsetIncomplete
+		result.requestScopedRelationComplete = sharedCoverage.RequestScopedRelationComplete
 	} else {
 		result.requestScopedSubsetIncomplete = requestScopedRelations > 0 && requestSpineRelations == 0
 	}

@@ -57417,6 +57417,57 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1436 r881/B1374：单边 join 能力生产正证；共享新技术节点的多边关系路径被漏判（2026-08-28）
+
+1. 从已推送 `32b130c85` 重建不可变二进制，严格并发恰好 2 路回放 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 191s、read
+   245s。两路都保持活动到自然完成，没有按 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级；没有恢复旧稿，也没有系统代写模型结论、
+   关系、节点、标签或布局。
+2. Trace 系统面继续通过：显式 2.000000..2.020000s 窗、5 次 typed query、完整
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、实际占时/规则
+   可消双账户、背景隔离、自动补采与完整「Trace 因果投影」均在。模型仍把 `fscache_page_wait_on_page_bit` 调用点扩写为具体缓存页/文件系统 IO
+   同步机理，虽保留资源 owner/backend 未知限定，继续作为 `B1269/B1271` 软教学观察；禁止答案原文扫描硬门或系统改写模型结论。
+3. B1373 获得生产无回归正证：read 第一稿只有两条模型自写 `Mutable -> Extractor/Finalizer` 直连缺少 typed anchor，关系门一次拒绝并发布当前代
+   remove refs；模型第二轮原子删除后正常成文，没有 stale lease、重复 tuple 或已锚定 join 的反复重映射。该样本没有自然触发 replace-only 分支，故记为
+   生产无回归而非该分支的独立生产覆盖。
+4. read runner PASS、人工 partial。最终图保留 Analyzer→Explorer→Extractor→Finalizer 与 BusContext→Mutable 两个分别正确的关系片段，职责和源码说明
+   基本准确、Mermaid 可解析；但两个片段互不连接，用户明确要求的阶段与共享状态之间数据流仍未在图里表达。旧 eval 只检查 edge 数与 incident node 数，
+   两个孤岛同样能达到 6 个 incident node，因而误签 PASS。
+5. 新 P0 `B1374-MULTIEDGECOMPONENTJOIN1` 已确认并施工。typed evidence 实际给出
+   `types.AgentExtractor -> BuildAgentContext` 与 `o.busCtx -> BuildAgentContext` 两条 argument-flow；两条边共享一个尚未出现在 Mermaid 中的精确技术节点，
+   通过 candidate 声明的 Extractor/BusContext endpoint side 可把两个可见组件连接。旧 join provider 只接受“单条候选的两端已经落在两个可见组件”形，
+   因此两条边单独看都不 crossing，component-split 硬门不触发；这不是模型波动，也不是缺少证据。
+6. 根修把 join frontier 从单边谓词提升为 bounded typed shortest path：以 exact relation endpoint identity 建图，参与者 carrier 只能按 typed
+   `participant_endpoint_side` 绑定到现有可见组件；先保留单边最小修复，再搜索最多 4 条真实候选边组成的最短路径。共享技术节点、每条 relation kind/
+   direction/source 均保持原样；`from_or_to` 歧义不投影成多边硬路径。命中后一次 patch generation 发布整条 allowed-addition path，由模型选择是否使用并
+   自行创作节点 ID、业务标签、布局和结论；系统不压成直连边、不自动改图。
+7. 同批收敛范围合同。`requestScopedSubsetIncomplete` 不再只数“多少参与者带 request-scoped 标记”，还要求所有 incident-required 参与者处于同一个
+   typed 连通分量：全名单分裂为多个 provider 岛时仍是 partial，要求一个模型撰写的 `requested_relation_scope=partial_unproven`；证据经 typed
+   participant-carrier 路径已连通时则标为 complete，不再同时教模型写 partial。Current-Source capsule 对后一形发布
+   `proved_through_typed_participant_carrier_join` 与软性的多边组合说明，明确不能虚构直连；提示与 hard gate 共享同一结构化覆盖结论。
+8. 回归覆盖：两条 argument-flow 经新 BuildAgentContext 节点连接两个可见岛，provider 必须返回两条完整最短路径、participant mismatch 必须保持
+   component-split、relation repair delta 必须同代携带两条 addition，模型加入两条边后闭环；两组 request-scoped typed 岛即使覆盖全名单也必须 partial；
+   完整 participant-carrier join 的 finalizer authority 禁止再发 unproven/partial 自冲突。所有判定只读 schema 参与者、typed evidence endpoint、
+   relation enum、anchor 与 Mermaid AST 端点，不读请求原文、模型推理、最终 prose 或可见 edge label/message。
+9. r881 原始 summary 与人工审计已落档。专项、`go test ./internal/tool ./internal/agent -count=1`、`go test ./internal/orchestrator -count=1`、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。下一步从 clean commit 严格并发恰好 2 路回放同一 read+Trace，验收
+   read 图出现 typed 多边连接或诚实范围披露，Trace 显式窗、投影、自动补齐、链上根因与背景隔离不回归。eval 的“多个孤岛仍满足 incident-node 下界”
+   另记 `B1367` oracle 扩展，不能反向进入生产硬门。
+
+状态：
+
+`r881=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1373=production-no-regression/core-closed`；
+`B1374=implemented/full-suite-green/build-green/pending-production-r882`；
+`single-edge-visible-component-join=preserved`；
+`multi-edge-shared-technical-node-join=bounded-shortest-typed-path/max4`；
+`typed-source-disconnected=partial-unproven-model-disclosure/no-forced-bridge`；
+`typed-source-connected-visible-split=model-selectable-complete-path/no-system-authored-edge`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r881`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r881`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

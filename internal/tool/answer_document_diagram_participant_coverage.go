@@ -289,7 +289,7 @@ func diagramParticipantRepairAdditionDeltaJSON(
 	}
 	var typed []diagramParticipantTypedIncidentCandidate
 	if componentSplit {
-		typed = diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 2)
+		typed = diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 4)
 	} else if len(failed) > 0 {
 		obligations, allSurfaces := diagramParticipantCandidateObligations(rm)
 		relationScope := buildFlowParticipantRelationScope(rm, obligations, allSurfaces, evidence, stagePrecedence)
@@ -1037,7 +1037,7 @@ func DiagramParticipantCoverageMismatches(
 	// is useful exploration authority but is not itself a copyable diagram edge.
 	// Without a crossing candidate, keep the split as an honest bounded result
 	// instead of forcing the model to guess a bridge through repeated retries.
-	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 1)
+	joinCandidates := diagramParticipantTypedJoinCandidates(doc, rm, evidence, stagePrecedence, 4)
 	if evidenceParticipantGraphComplete && !requestedParticipantGraphComplete && len(joinCandidates) > 0 {
 		principal := diagramParticipantRequestedGraphPrincipalCovered(doc, allSurfaces, requestedRelationEvidence, stagePrecedence)
 		outsidePrincipal := make(map[string]bool, len(states))
@@ -1717,7 +1717,7 @@ func diagramParticipantCoverageCompactCandidateGuidance(
 	}
 	if componentSplit {
 		return joinDiagramParticipantCandidateGuidance(
-			diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 2),
+			diagramParticipantTypedJoinCandidateGuidance(doc, rm, evidence, stagePrecedence, 4),
 			diagramParticipantExistingVisibleEndpointGuidance(doc, rm, mismatches),
 		)
 	}
@@ -1916,28 +1916,196 @@ func diagramParticipantTypedJoinCandidates(
 		poolLimit = 8
 	}
 	seen := make(map[string]bool)
-	out := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
+	pool := make([]diagramParticipantTypedIncidentCandidate, 0, poolLimit)
 	for obligationIndex, obligation := range obligations {
 		candidates := diagramParticipantTypedIncidentCandidateValuesWithScope(
 			rm, obligation, evidence, stagePrecedence, poolLimit,
 			obligations, allSurfaces, obligationIndex, relationScope,
 		)
 		for _, candidate := range candidates {
-			if !diagramParticipantTypedCandidateCrossesVisibleComponents(candidate, allSurfaces[obligationIndex], indexes) {
-				continue
-			}
 			key := strings.ToLower(candidate.participant + "\x00" + string(candidate.relation) + "\x00" +
 				candidate.from + "\x00" + candidate.to + "\x00" + candidate.participantEndpointSide)
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			out = append(out, candidate)
-			if len(out) >= limit {
-				return out
+			pool = append(pool, candidate)
+		}
+	}
+	// Preserve the established one-edge frontier first. It is the smallest
+	// exact repair and keeps existing replacement leases stable.
+	out := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
+	for _, candidate := range pool {
+		participantIndex := -1
+		for i, obligation := range obligations {
+			if strings.EqualFold(strings.TrimSpace(obligation.Identity), strings.TrimSpace(candidate.participant)) {
+				participantIndex = i
+				break
+			}
+		}
+		if participantIndex < 0 ||
+			!diagramParticipantTypedCandidateCrossesVisibleComponents(candidate, allSurfaces[participantIndex], indexes) {
+			continue
+		}
+		out = append(out, candidate)
+		if len(out) >= limit {
+			return out
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+
+	// A complete typed relation may need two or more already-proved edges
+	// through a technical handoff node that is not yet visible. No individual
+	// edge crosses the current visible islands in that shape, so the historical
+	// single-edge predicate silently accepted a disconnected answer. Resolve a
+	// bounded shortest path over exact typed endpoint identities instead. The
+	// path is only a model-selectable candidate roster: it does not choose node
+	// IDs, visible labels, layout, or a conclusion, and ambiguity still fails
+	// closed.
+	return diagramParticipantTypedMultiEdgeJoinCandidates(pool, obligations, allSurfaces, indexes, limit)
+}
+
+const maxDiagramParticipantTypedJoinPathEdges = 4
+
+type diagramParticipantTypedJoinGraphEdge struct {
+	from      int
+	to        int
+	candidate diagramParticipantTypedIncidentCandidate
+}
+
+func diagramParticipantTypedMultiEdgeJoinCandidates(
+	pool []diagramParticipantTypedIncidentCandidate,
+	obligations []types.DiagramParticipantHint,
+	allSurfaces [][]string,
+	indexes []diagramParticipantVisibleComponentIndex,
+	limit int,
+) []diagramParticipantTypedIncidentCandidate {
+	if len(pool) < 2 || len(obligations) < 2 || len(indexes) == 0 || limit < 2 {
+		return nil
+	}
+	participantSurfaces := func(candidate diagramParticipantTypedIncidentCandidate) []string {
+		for i, obligation := range obligations {
+			if i < len(allSurfaces) && strings.EqualFold(
+				strings.TrimSpace(obligation.Identity), strings.TrimSpace(candidate.participant),
+			) {
+				return allSurfaces[i]
+			}
+		}
+		return nil
+	}
+	for _, index := range indexes {
+		groups := make([]string, 0, len(pool)*2)
+		groupFor := func(identity string) int {
+			identity = strings.TrimSpace(identity)
+			if identity == "" {
+				return -1
+			}
+			for i, current := range groups {
+				if diagramParticipantTypedIdentityEquivalent(current, identity) {
+					return i
+				}
+			}
+			groups = append(groups, identity)
+			return len(groups) - 1
+		}
+		edges := make([]diagramParticipantTypedJoinGraphEdge, 0, len(pool))
+		groupComponents := make([]map[int]bool, 0, len(pool)*2)
+		ensureComponentSlots := func() {
+			for len(groupComponents) < len(groups) {
+				groupComponents = append(groupComponents, make(map[int]bool))
+			}
+		}
+		for _, candidate := range pool {
+			from, to := groupFor(candidate.from), groupFor(candidate.to)
+			if from < 0 || to < 0 || from == to {
+				continue
+			}
+			ensureComponentSlots()
+			for component := range diagramParticipantVisibleComponentsForIdentity(index, candidate.from) {
+				groupComponents[from][component] = true
+			}
+			for component := range diagramParticipantVisibleComponentsForIdentity(index, candidate.to) {
+				groupComponents[to][component] = true
+			}
+			participantComponents := diagramParticipantVisibleComponentsForParticipant(index, participantSurfaces(candidate))
+			switch candidate.participantEndpointSide {
+			case "from":
+				for component := range participantComponents {
+					groupComponents[from][component] = true
+				}
+			case "to":
+				for component := range participantComponents {
+					groupComponents[to][component] = true
+				}
+				// from_or_to is deliberately not projected onto both endpoints. Its
+				// display side is ambiguous, so it cannot create a multi-edge hard
+				// repair path; exact identity matches above remain usable.
+			}
+			edges = append(edges, diagramParticipantTypedJoinGraphEdge{from: from, to: to, candidate: candidate})
+		}
+		if len(edges) < 2 || len(groups) < 3 {
+			continue
+		}
+		adjacency := make([][]int, len(groups))
+		for edgeIndex, edge := range edges {
+			adjacency[edge.from] = append(adjacency[edge.from], edgeIndex)
+			adjacency[edge.to] = append(adjacency[edge.to], edgeIndex)
+		}
+		type state struct {
+			group int
+			path  []int
+		}
+		for startGroup, startComponents := range groupComponents {
+			if len(startComponents) == 0 {
+				continue
+			}
+			for _, startComponent := range diagramParticipantSortedComponentIDs(startComponents) {
+				queue := []state{{group: startGroup}}
+				bestDepth := map[int]int{startGroup: 0}
+				for len(queue) > 0 {
+					current := queue[0]
+					queue = queue[1:]
+					if len(current.path) >= maxDiagramParticipantTypedJoinPathEdges {
+						continue
+					}
+					for _, edgeIndex := range adjacency[current.group] {
+						edge := edges[edgeIndex]
+						next := edge.from
+						if next == current.group {
+							next = edge.to
+						}
+						path := append(append([]int(nil), current.path...), edgeIndex)
+						for _, component := range diagramParticipantSortedComponentIDs(groupComponents[next]) {
+							if component == startComponent || len(path) < 2 || len(path) > limit {
+								continue
+							}
+							out := make([]diagramParticipantTypedIncidentCandidate, 0, len(path))
+							for _, selected := range path {
+								out = append(out, edges[selected].candidate)
+							}
+							return out
+						}
+						if prior, seen := bestDepth[next]; seen && prior <= len(path) {
+							continue
+						}
+						bestDepth[next] = len(path)
+						queue = append(queue, state{group: next, path: path})
+					}
+				}
 			}
 		}
 	}
+	return nil
+}
+
+func diagramParticipantSortedComponentIDs(values map[int]bool) []int {
+	out := make([]int, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Ints(out)
 	return out
 }
 

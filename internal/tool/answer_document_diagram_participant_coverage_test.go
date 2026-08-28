@@ -927,6 +927,144 @@ func TestFlowParticipantRelationScopeJoinsVerifiedStageAndCarrierArguments(t *te
 	}
 }
 
+func TestDiagramParticipantCoveragePublishesMultiEdgeJoinThroughNewTechnicalNode(t *testing.T) {
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}
+	precedence := []stageauthority.PrecedenceRelation{{From: rows[0], To: rows[1]}}
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	rm.AnalyzerHints.EntityProvenance = []types.EntityProvenance{{
+		Surface: "Explorer", ResolvedAs: "types.AgentExplorer",
+		Resolution: types.EntityResolutionSymbol, Resolved: true, UseForSearch: true, UseForShape: true,
+	}}
+	argument := func(id, subject string) types.EvidenceItem {
+		return types.EvidenceItem{ID: id, Producer: types.EvidenceProducerExplorerEmitEvidence,
+			Kind: types.EvidenceRelationship, Subject: subject, Predicate: "passes argument", Object: "BuildAgentContext",
+			Source: "internal/orchestrator/explore.go", LineStart: 15,
+			AnchorKind: types.AnchorArgument, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			OwnerIdentity: "Orchestrator.exploreStage"}
+	}
+	busArgument := argument("arg-bus", "o.busCtx")
+	busArgument.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator",
+	}}
+	evidence := []types.EvidenceItem{
+		argument("arg-explorer", "types.AgentExplorer"),
+		busArgument,
+		diagramEvidenceTestCall("BusContext.SetMutable", "Mutable.Load"),
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan:                   &types.DiagramFacetGraph{Kind: types.DiagramArchitecture, Required: true},
+		DiagramParticipantObligations: append([]types.DiagramParticipantHint(nil), participants...),
+	}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart LR",
+			" Analyzer[\"Analyzer\"] --> Explorer[\"Explorer\"]",
+			" BusContext[\"BusContext\"] --> Mutable[\"Mutable\"]",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "Analyzer", ToNode: "Explorer", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "BusContext", ToNode: "Mutable", FromIdentity: "BusContext.SetMutable", ToIdentity: "Mutable.Load", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+
+	join := diagramParticipantTypedJoinCandidates(doc, rm, evidence, precedence, 4)
+	if len(join) != 2 {
+		t.Fatalf("two exact argument rows sharing one new technical node should be one executable join path: %+v; candidates=%s", join,
+			flowParticipantTypedIncidentCandidateGuidance(rm, evidence, precedence, nil, 8))
+	}
+	wantPairs := map[string]bool{
+		"types.AgentExplorer\x00BuildAgentContext": false,
+		"o.busCtx\x00BuildAgentContext":            false,
+	}
+	for _, candidate := range join {
+		key := candidate.from + "\x00" + candidate.to
+		if _, ok := wantPairs[key]; ok {
+			wantPairs[key] = true
+		}
+	}
+	for pair, seen := range wantPairs {
+		if !seen {
+			t.Fatalf("multi-edge join path omitted typed row %q: %+v", pair, join)
+		}
+	}
+	mismatches := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...)
+	componentSplit := false
+	for _, mismatch := range mismatches {
+		componentSplit = componentSplit || mismatch.Issue == DiagramParticipantCoverageComponentSplit
+	}
+	if !componentSplit {
+		t.Fatalf("typed-complete two-edge join must keep a split visible graph open for repair: %+v", mismatches)
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	deltaJSON := diagramParticipantRepairAdditionDeltaJSON(doc, ctx, mismatches, evidence, precedence)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(deltaJSON), &delta); err != nil {
+		t.Fatalf("multi-edge join repair must publish one executable typed delta: err=%v raw=%s", err, deltaJSON)
+	}
+	if len(delta.AllowedAdditions) != 2 {
+		t.Fatalf("multi-edge join repair must carry the complete shortest path in one patch generation: %+v", delta)
+	}
+
+	doc.Blocks[0].Diagram.Body += "\n Explorer --> BuildAgentContext\n BusContext --> BuildAgentContext"
+	doc.Blocks[0].EdgeAnchors = append(doc.Blocks[0].EdgeAnchors,
+		types.DiagramEdgeAnchor{FromNode: "Explorer", ToNode: "BuildAgentContext", FromIdentity: "types.AgentExplorer", ToIdentity: "BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+		types.DiagramEdgeAnchor{FromNode: "BusContext", ToNode: "BuildAgentContext", FromIdentity: "o.busCtx", ToIdentity: "BuildAgentContext", RelationKind: types.DiagramRelArgumentFlow},
+	)
+	if got := DiagramParticipantCoverageMismatches(doc, view, rm, evidence, precedence...); len(got) != 0 {
+		t.Fatalf("the model-authored complete two-edge join should close the visible requested graph: %+v", got)
+	}
+}
+
+func TestFlowParticipantRelationScopeTreatsDisconnectedFullRequestRosterAsPartial(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Explorer", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants}}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: stageauthority.StageRow{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+			To: stageauthority.StageRow{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"}},
+		{From: stageauthority.StageRow{StageIdent: "StageExtract", StageValue: "extract", AgentIdent: "AgentExtractor", AgentValue: "extractor"},
+			To: stageauthority.StageRow{StageIdent: "StageFinalize", StageValue: "finalize", AgentIdent: "AgentFinalizer", AgentValue: "finalizer"}},
+	}
+	scope := buildFlowParticipantRelationScope(
+		rm, participants,
+		[][]string{{"Analyzer"}, {"Explorer"}, {"Extractor"}, {"Finalizer"}},
+		nil, precedence,
+	)
+	for i, covered := range scope.participantRequestScopedCovered {
+		if !covered {
+			t.Fatalf("both provider-owned islands should retain typed request scope for participant %d: %+v", i, scope)
+		}
+	}
+	if scope.requestScopedRelationComplete || !scope.requestScopedSubsetIncomplete {
+		t.Fatalf("a full name roster split across two typed components remains partial: %+v", scope)
+	}
+	exported := ResolveFlowParticipantRelationCoverage(
+		rm, participants,
+		[][]string{{"Analyzer"}, {"Explorer"}, {"Extractor"}, {"Finalizer"}},
+		nil, precedence,
+	)
+	if exported.RequestScopedRelationComplete || !exported.RequestScopedSubsetIncomplete {
+		t.Fatalf("prompt and hard-gate consumers must receive the same disconnected-scope verdict: %+v", exported)
+	}
+}
+
 func TestDiagramParticipantCoverageKeepsDisconnectedLocalPairOutsideRequestScopedProvider(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
 		{Identity: "Analyzer", Role: types.DiagramParticipantIncidentRequired},

@@ -31,6 +31,7 @@ type flowParticipantRelationScope struct {
 	participantLocalOperation            []bool
 	operationRelevant                    []bool
 	requestScopedSubsetIncomplete        bool
+	requestScopedRelationComplete        bool
 }
 
 // FlowParticipantRelationCoverage is the package-boundary projection consumed
@@ -48,6 +49,7 @@ type FlowParticipantRelationCoverage struct {
 	// actually expose.
 	ParticipantLocalCandidateAvailable []bool
 	RequestScopedSubsetIncomplete      bool
+	RequestScopedRelationComplete      bool
 }
 
 // ResolveFlowParticipantRelationCoverage exposes the one typed relation-scope
@@ -80,6 +82,7 @@ func ResolveFlowParticipantRelationCoverage(
 		ParticipantRequestScopedCovered:    append([]bool(nil), scope.participantRequestScopedCovered...),
 		ParticipantLocalCandidateAvailable: localCandidates,
 		RequestScopedSubsetIncomplete:      scope.requestScopedSubsetIncomplete,
+		RequestScopedRelationComplete:      scope.requestScopedRelationComplete,
 	}
 }
 
@@ -366,9 +369,6 @@ func buildFlowParticipantRelationScope(
 			requestScopedCovered++
 		}
 	}
-	scope.requestScopedSubsetIncomplete = requestScopedCovered > 0 &&
-		requestScopedCovered < incidentParticipants
-
 	// Build a second, participant-level connectivity view. A uniquely matched
 	// participant may legitimately bridge multiple technical endpoint
 	// components, so union participant identities that occur in the same typed
@@ -442,6 +442,25 @@ func buildFlowParticipantRelationScope(
 			scope.participantPrincipalComponentCovered[participantIndex] = true
 		}
 	}
+	scope.requestScopedRelationComplete = incidentParticipants >= 2 && requestScopedCovered == incidentParticipants
+	if scope.requestScopedRelationComplete {
+		for i, participant := range participants {
+			if participant.Role != types.DiagramParticipantIncidentRequired {
+				continue
+			}
+			if !scope.completionParticipantConnectedCovered(i) {
+				scope.requestScopedRelationComplete = false
+				break
+			}
+		}
+	}
+	// A request-scoped provider that names every participant but leaves them in
+	// separate typed components is still partial. Counting names alone made an
+	// honest disconnected answer look complete and suppressed the model-owned
+	// whole-diagram scope disclosure. Conversely, one connected typed graph is
+	// complete even when its exact operation endpoints need participant carrier
+	// nodes for reader-facing composition.
+	scope.requestScopedSubsetIncomplete = requestScopedCovered > 0 && !scope.requestScopedRelationComplete
 	for edgeIndex, edge := range edges {
 		if edge.operation == nil || edge.index < 0 || edge.index >= len(scope.operationRelevant) {
 			continue
