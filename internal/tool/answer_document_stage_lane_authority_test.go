@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -135,6 +136,65 @@ func TestRequestedStagePrecedenceSpineRequiresOneConnectedDiagram(t *testing.T) 
 	if got := DiagramRequestedStagePrecedenceSpineMismatches(supportOnly,
 		&types.AnswerSemanticView{Family: types.QFRootCauseTrace, RelationAxis: types.AxisFlow}, relations); len(got) != 0 {
 		t.Fatalf("Trace diagrams must remain outside read-mode stage spine authority: %+v", got)
+	}
+}
+
+func TestRequestedStageSpineRepairReusesEquivalentTuplesInOneGeneration(t *testing.T) {
+	relations := diagramTestReadModePrecedence()
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "disconnected", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n  A[Analyzer] --> E1[Explorer]\n  E2[Explorer] --> X1[Extractor]\n  X2[Extractor] --> F[Finalizer]\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "E1", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "E2", ToNode: "X1", FromIdentity: "explorer", ToIdentity: "extractor", RelationKind: types.DiagramRelPrecedence},
+			{FromNode: "X2", ToNode: "F", FromIdentity: "extractor", ToIdentity: "finalizer", RelationKind: types.DiagramRelPrecedence},
+		},
+	}}}
+	mismatches := DiagramRequestedStagePrecedenceSpineMismatches(doc, view, relations)
+	if len(mismatches) != 3 {
+		t.Fatalf("fixture must begin with one disconnected verified spine: %+v", mismatches)
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true},
+	}}}
+	raw := diagramRelationRepairDeltaJSON(doc, ctx, mismatches, nil, relations)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("stage-spine repair delta must remain valid: %v raw=%s", err, raw)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions)
+	if lease == nil || len(lease.Failures) != 3 || len(lease.AllowedAdditions) != 0 {
+		t.Fatalf("existing equivalent tuples must become replacement targets, not duplicate additions: %+v", lease)
+	}
+	desired := map[string][2]string{
+		"analyzer": {"A", "E1"}, "explorer": {"E1", "X1"}, "extractor": {"X1", "F"},
+	}
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, len(lease.Failures))
+	for _, failure := range lease.Failures {
+		if !failure.AllowsAction("replace") {
+			t.Fatalf("equivalent tuple carrier must expose exact replace: %+v", failure)
+		}
+		nodes, ok := desired[failure.FromIdentity]
+		if !ok {
+			t.Fatalf("unexpected stage tuple: %+v", failure)
+		}
+		edits = append(edits, emitAnswerDiagramEdgeEdit{
+			FailureRef: failure.FailureRef, Action: "replace",
+			Edge: &types.DiagramEdgeAnchor{FromNode: nodes[0], ToNode: nodes[1], VisibleLabel: "model-authored transition"},
+		})
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	if err := applyModelAuthoredDiagramAtomicEdits(doc, patch, edits, nil, lease, relations); err != nil {
+		t.Fatalf("one atomic generation must reconnect the verified spine: %v", err)
+	}
+	merged, err := types.ApplyAnswerDocumentV2Patch(doc, patch)
+	if err != nil {
+		t.Fatalf("compiled stage patch must apply: %v", err)
+	}
+	if got := DiagramRequestedStagePrecedenceSpineMismatches(merged, view, relations); len(got) != 0 {
+		t.Fatalf("same-generation repair left a disconnected spine: %+v\n%+v", got, merged.Blocks[0])
 	}
 }
 

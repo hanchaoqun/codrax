@@ -306,7 +306,7 @@ func diagramParticipantRepairAdditionDeltaJSON(
 	}
 
 	allowed := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(typed)*len(blockIDs))
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	for _, candidate := range typed {
 		if !candidate.relation.IsValid() || strings.TrimSpace(candidate.from) == "" ||
 			strings.TrimSpace(candidate.to) == "" || strings.TrimSpace(candidate.location) == "" {
@@ -318,11 +318,13 @@ func diagramParticipantRepairAdditionDeltaJSON(
 				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
 				Source: strings.TrimSpace(candidate.location),
 			}
+			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
 			key := strings.Join([]string{row.BlockID, string(row.RelationKind), row.FromIdentity, row.ToIdentity}, "\x00")
-			if seen[key] {
+			if index, exists := seen[key]; exists {
+				mergeDiagramRelationRepairCandidateNodeIDs(&allowed[index], row)
 				continue
 			}
-			seen[key] = true
+			seen[key] = len(allowed)
 			allowed = append(allowed, row)
 		}
 	}
@@ -2124,6 +2126,7 @@ func diagramRelationRepairLocalCandidateGuidance(
 // stage authority and typed evidence construct it directly. The model still
 // chooses whether to use a row and owns node ids, labels, and layout.
 func diagramRelationRepairAllowedAdditions(
+	doc *types.AnswerDocumentV2,
 	rm types.RequestModel,
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
@@ -2181,7 +2184,7 @@ func diagramRelationRepairAllowedAdditions(
 		return left.location < right.location
 	})
 
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	out := make([]types.AnswerDiagramRelationRepairCandidate, 0, totalLimit)
 	for _, candidate := range typed {
 		if !candidate.relation.IsValid() || strings.TrimSpace(candidate.from) == "" ||
@@ -2194,18 +2197,123 @@ func diagramRelationRepairAllowedAdditions(
 				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
 				Source: strings.TrimSpace(candidate.location),
 			}
+			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
 				row.FromIdentity + "\x00" + row.ToIdentity)
-			if seen[key] {
+			if index, exists := seen[key]; exists {
+				mergeDiagramRelationRepairCandidateNodeIDs(&out[index], row)
 				continue
 			}
-			seen[key] = true
+			seen[key] = len(out)
 			out = append(out, row)
 			if len(out) >= totalLimit {
 				return out
 			}
 		}
 	}
+	return out
+}
+
+func mergeDiagramRelationRepairCandidateNodeIDs(
+	target *types.AnswerDiagramRelationRepairCandidate,
+	source types.AnswerDiagramRelationRepairCandidate,
+) {
+	if target == nil {
+		return
+	}
+	merge := func(left, right []string) []string {
+		seen := make(map[string]bool, len(left)+len(right))
+		out := make([]string, 0, len(left)+len(right))
+		for _, raw := range append(append([]string(nil), left...), right...) {
+			value := strings.TrimSpace(raw)
+			key := strings.ToLower(value)
+			if value == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, value)
+		}
+		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+		return out
+	}
+	target.FromNodeIDs = merge(target.FromNodeIDs, source.FromNodeIDs)
+	target.ToNodeIDs = merge(target.ToNodeIDs, source.ToNodeIDs)
+}
+
+// bindDiagramRelationRepairCandidateParticipantNodes carries only the exact
+// display-side permission already minted by the typed participant provider.
+// It never derives an endpoint from Mermaid messages or reader wording. The
+// participant identity itself is the stable fallback ID; exact pre-existing
+// declaration IDs are admitted only when their parsed primary identity is one
+// of that participant's typed analyzer surfaces.
+func bindDiagramRelationRepairCandidateParticipantNodes(
+	row *types.AnswerDiagramRelationRepairCandidate,
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	candidate diagramParticipantTypedIncidentCandidate,
+) {
+	if row == nil || strings.TrimSpace(candidate.participant) == "" {
+		return
+	}
+	nodeIDs := []string{strings.TrimSpace(candidate.participant)}
+	nodeIDs = append(nodeIDs, diagramParticipantExactVisibleEndpointIDs(
+		doc, rm, candidate.participant, row.BlockID,
+	)...)
+	switch strings.TrimSpace(candidate.participantEndpointSide) {
+	case "from":
+		row.FromNodeIDs = append(row.FromNodeIDs, nodeIDs...)
+	case "to":
+		row.ToNodeIDs = append(row.ToNodeIDs, nodeIDs...)
+	case "from_or_to":
+		row.FromNodeIDs = append(row.FromNodeIDs, nodeIDs...)
+		row.ToNodeIDs = append(row.ToNodeIDs, nodeIDs...)
+	}
+}
+
+func diagramParticipantExactVisibleEndpointIDs(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	participantIdentity string,
+	blockID string,
+) []string {
+	if doc == nil || rm.DiagramHint == nil || strings.TrimSpace(participantIdentity) == "" {
+		return nil
+	}
+	var surfaces []string
+	for _, participant := range rm.DiagramHint.Participants {
+		if !strings.EqualFold(strings.TrimSpace(participant.Identity), strings.TrimSpace(participantIdentity)) {
+			continue
+		}
+		surfaces = append(surfaces, strings.TrimSpace(participant.Identity))
+		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
+		break
+	}
+	if len(surfaces) == 0 {
+		return nil
+	}
+	ids := make(map[string]string)
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(blockID) ||
+			block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		for _, raw := range strings.Split(block.Diagram.Body, "\n") {
+			for _, decl := range mermaidcompat.NodeDeclarationsAll(strings.TrimSpace(raw)) {
+				nodeID := strings.TrimSpace(decl.Ident)
+				labelIdentity := diagramEvidenceLabelSymbol(strings.TrimSpace(decl.Label))
+				if nodeID == "" || (!diagramParticipantSurfaceListContainsExact(surfaces, nodeID) &&
+					!diagramParticipantSurfaceListContainsExact(surfaces, labelIdentity)) {
+					continue
+				}
+				ids[strings.ToLower(nodeID)] = nodeID
+			}
+		}
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
 	return out
 }
 

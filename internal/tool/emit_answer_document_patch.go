@@ -879,7 +879,9 @@ type emitAnswerDiagramEdgeEdit struct {
 	VisibleLabel        string                   `json:"visible_label,omitempty"`
 	failureRefResolved  bool
 	failureRefCarrier   types.AnswerDiagramRelationRepairTargetCarrier
+	failureIssue        string
 	attachPairResolving bool
+	additionCandidate   *types.AnswerDiagramRelationRepairCandidate
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {

@@ -554,7 +554,9 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 			FromNode: "StageAnalyze", ToNode: "StageExplore", RelationKind: types.DiagramRelPrecedence,
 		}}, []types.AnswerDiagramRelationRepairCandidate{{
 			BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
-			FromIdentity: "dispatcher", ToIdentity: "finalizer", Source: "internal/types/enums.go:120-121",
+			FromIdentity: "dispatcher", ToIdentity: "finalizer",
+			FromNodeIDs: []string{"businessAnalyze"}, ToNodeIDs: []string{"businessExplore"},
+			Source: "internal/types/enums.go:120-121",
 		}})
 	if lease == nil || len(lease.AllowedAdditions) != 1 || lease.AllowedAdditions[0].AdditionRef == "" {
 		t.Fatalf("expected one live referenced addition: %+v", lease)
@@ -613,6 +615,22 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		}
 	})
 
+	t.Run("unlisted visible endpoint mapping fails in the selected generation", func(t *testing.T) {
+		got := &types.AnswerDocumentV2Patch{}
+		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
+			Action: "add", AdditionRef: additionRef,
+			Edge: &types.DiagramEdgeAnchor{
+				FromNode: "Analyzer", ToNode: "Mutable", VisibleLabel: "model label",
+			},
+		}}, nil, lease)
+		if err == nil || !strings.Contains(err.Error(), "is not a typed carrier") {
+			t.Fatalf("one hidden tuple must not be stamped onto unrelated visible entities: %v", err)
+		}
+		if len(got.ReplaceBlocks) != 0 {
+			t.Fatalf("endpoint-binding rejection must be transactional: %+v", got)
+		}
+	})
+
 	t.Run("duplicate ref fails closed", func(t *testing.T) {
 		got := &types.AnswerDocumentV2Patch{}
 		edge := func(from, to string) emitAnswerDiagramEdgeEdit {
@@ -634,7 +652,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
 			Action: "add", AdditionRef: additionRef,
 			Edge: &types.DiagramEdgeAnchor{
-				FromNode: "X", ToNode: "Y", FromIdentity: "other", ToIdentity: "explorer",
+				FromNode: "businessAnalyze", ToNode: "businessExplore", FromIdentity: "other", ToIdentity: "explorer",
 				RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model label",
 			},
 		}}, nil, lease)
@@ -642,12 +660,37 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 			t.Fatalf("a live addition ref must quarantine hidden mirrors: err=%v patch=%+v", err, got)
 		}
 		added := got.ReplaceBlocks[0].EdgeAnchors[2]
-		if added.FromNode != "X" || added.ToNode != "Y" || added.VisibleLabel != "model label" ||
+		if added.FromNode != "businessAnalyze" || added.ToNode != "businessExplore" || added.VisibleLabel != "model label" ||
 			added.FromIdentity != "dispatcher" || added.ToIdentity != "finalizer" ||
 			added.RelationKind != types.DiagramRelPrecedence {
 			t.Fatalf("ref must preserve visible authorship and restore only selected hidden fields: %+v", added)
 		}
 	})
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefRejectsUnrelatedParticipantMapping(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, nil, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diag", RelationKind: types.DiagramRelDataFlow,
+		FromIdentity: "append", ToIdentity: "o.busCtx.ToolResults",
+		ToNodeIDs: []string{"BusContext"}, Source: "typed-operation",
+	}})
+	if lease == nil || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("expected one exact production-shaped addition: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		Action: "add", AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "Analyzer", ToNode: "Mutable", VisibleLabel: "model-authored data flow",
+		},
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "is not a typed carrier") {
+		t.Fatalf("append -> ToolResults must not sign Analyzer -> Mutable: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 0 {
+		t.Fatalf("rejected production-shaped mapping must leave no partial mutation: %+v", patch)
+	}
 }
 
 func TestApplyModelAuthoredDiagramAtomicEdits_AttachBindsSelectedCandidateToExistingBody(t *testing.T) {
@@ -1843,7 +1886,9 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 	}
 	allowed := types.AnswerDiagramRelationRepairCandidate{
 		BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
-		FromIdentity: "Extractor", ToIdentity: "Finalizer", Source: "stageauthority",
+		FromIdentity: "Extractor", ToIdentity: "Finalizer",
+		FromNodeIDs: []string{"BusinessExtract"}, ToNodeIDs: []string{"BusinessFinalize"},
+		Source: "stageauthority",
 	}
 	recipe := types.DiagramEdgeAnchor{
 		FromNode: "C", ToNode: "F", FromIdentity: "Extractor", ToIdentity: "Finalizer",

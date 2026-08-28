@@ -6517,6 +6517,7 @@ func diagramRelationRepairDeltaJSON(
 			ToIdentity:     strings.TrimSpace(mismatch.ToSymbol),
 			BodyOccurrence: mismatch.BodyOccurrence,
 		}
+		failure = bindDiagramRelationRepairEquivalentTupleCarrier(doc, failure)
 		failure = normalizeDiagramRelationRepairFailureLocator(doc, failure)
 		failure = bindDiagramRelationRepairAnchorBodyCarrier(doc, failure)
 		if failure.BlockID == "" || failure.Issue == "" ||
@@ -6565,7 +6566,7 @@ func diagramRelationRepairDeltaJSON(
 		)
 		blockIDs := diagramRelationRepairAdditionTargetBlockIDs(doc, failures)
 		allowedAdditions = diagramRelationRepairAllowedAdditions(
-			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, 8,
+			doc, ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, 8,
 		)
 		if ctx.Mutable != nil {
 			receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
@@ -6585,6 +6586,50 @@ func diagramRelationRepairDeltaJSON(
 		return ""
 	}
 	return string(raw)
+}
+
+// bindDiagramRelationRepairEquivalentTupleCarrier prevents a contradictory
+// retry contract when the requested typed tuple already exists under an
+// equivalent identity dialect but is mapped to the wrong visible pair. The
+// existing exact base anchor becomes the repair target; the producer therefore
+// offers replace/remove instead of also authorizing a duplicate add. This reads
+// only block ownership, relation kind, and typed endpoint equivalence.
+func bindDiagramRelationRepairEquivalentTupleCarrier(
+	doc *types.AnswerDocumentV2,
+	failure diagramRelationRepairDeltaFailure,
+) diagramRelationRepairDeltaFailure {
+	if doc == nil || failure.Issue != diagramRequestedStageSpineIncomplete ||
+		!failure.RelationKind.IsValid() || strings.TrimSpace(failure.FromIdentity) == "" ||
+		strings.TrimSpace(failure.ToIdentity) == "" {
+		return failure
+	}
+	var matched *types.DiagramEdgeAnchor
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(failure.BlockID) {
+			continue
+		}
+		for i := range block.EdgeAnchors {
+			anchor := block.EdgeAnchors[i]
+			if anchor.RelationKind != failure.RelationKind || !anchor.HasEndpointIdentityPair() ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(anchor.FromIdentity, failure.FromIdentity) ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(anchor.ToIdentity, failure.ToIdentity) {
+				continue
+			}
+			if matched != nil {
+				return failure
+			}
+			copyAnchor := anchor
+			matched = &copyAnchor
+		}
+	}
+	if matched == nil {
+		return failure
+	}
+	failure.FromNode = strings.TrimSpace(matched.FromNode)
+	failure.ToNode = strings.TrimSpace(matched.ToNode)
+	failure.FromIdentity = strings.TrimSpace(matched.FromIdentity)
+	failure.ToIdentity = strings.TrimSpace(matched.ToIdentity)
+	return failure
 }
 
 // diagramRelationRepairAdditionTargetBlockIDs returns only exact existing

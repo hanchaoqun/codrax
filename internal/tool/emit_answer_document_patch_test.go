@@ -434,7 +434,8 @@ func TestEmitAnswerDocumentPatch_ParticipantOnlyAdditionRefExecutesAndConsumes(t
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
 	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{{
 		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
-		FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", Source: "internal/orchestrator/extract_work.go:15",
+		FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext",
+		FromNodeIDs: []string{"BusContext"}, Source: "internal/orchestrator/extract_work.go:15",
 	}})
 	if lease == nil || len(lease.Failures) != 0 || len(lease.AllowedAdditions) != 1 {
 		t.Fatalf("expected one additions-only live lease: %+v", lease)

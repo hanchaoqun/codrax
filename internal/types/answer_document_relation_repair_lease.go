@@ -201,7 +201,8 @@ func answerDiagramRelationRepairFailureCapabilities(
 func answerDiagramRelationRepairIssueAllowsReplacement(issue string) bool {
 	switch strings.TrimSpace(issue) {
 	case "call_reply_operator_conflict", "sequence_relation_reply_operator_conflict",
-		"typed_endpoints_collapsed_to_self_edge", "edge_anchor_node_identity_conflict":
+		"typed_endpoints_collapsed_to_self_edge", "edge_anchor_node_identity_conflict",
+		"requested_stage_precedence_spine_incomplete":
 		return true
 	default:
 		// Fail closed for newly introduced issue values. A producer must classify
@@ -552,6 +553,8 @@ type AnswerDiagramRelationRepairCandidate struct {
 	RelationKind DiagramRelationKind `json:"relation_kind"`
 	FromIdentity string              `json:"from_identity"`
 	ToIdentity   string              `json:"to_identity"`
+	FromNodeIDs  []string            `json:"from_node_ids,omitempty"`
+	ToNodeIDs    []string            `json:"to_node_ids,omitempty"`
 	Source       string              `json:"source"`
 }
 
@@ -823,7 +826,7 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		return answerDiagramRelationRepairFailureKey(clean[i]) < answerDiagramRelationRepairFailureKey(clean[j])
 	})
 	allowed := make([]AnswerDiagramRelationRepairCandidate, 0, len(allowedAdditions))
-	allowedSeen := make(map[string]bool, len(allowedAdditions))
+	allowedIndex := make(map[string]int, len(allowedAdditions))
 	baseBlockCounts := make(map[string]int, len(base.Blocks))
 	for _, block := range base.Blocks {
 		if id := strings.TrimSpace(block.ID); id != "" {
@@ -835,6 +838,15 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		candidate.BlockID = strings.TrimSpace(candidate.BlockID)
 		candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
 		candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
+		var ok bool
+		candidate.FromNodeIDs, ok = answerDiagramRelationRepairCandidateNodeIDs(candidate.FromNodeIDs)
+		if !ok {
+			return nil
+		}
+		candidate.ToNodeIDs, ok = answerDiagramRelationRepairCandidateNodeIDs(candidate.ToNodeIDs)
+		if !ok {
+			return nil
+		}
 		candidate.Source = strings.TrimSpace(candidate.Source)
 		if candidate.BlockID == "" || baseBlockCounts[candidate.BlockID] != 1 || !candidate.RelationKind.IsValid() ||
 			candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
@@ -852,10 +864,16 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 			targetBlocks[candidate.BlockID] = true
 		}
 		key := answerDiagramRelationRepairCandidateKey(candidate)
-		if allowedSeen[key] {
+		if index, exists := allowedIndex[key]; exists {
+			allowed[index].FromNodeIDs = answerDiagramRelationRepairCandidateNodeIDUnion(
+				allowed[index].FromNodeIDs, candidate.FromNodeIDs,
+			)
+			allowed[index].ToNodeIDs = answerDiagramRelationRepairCandidateNodeIDUnion(
+				allowed[index].ToNodeIDs, candidate.ToNodeIDs,
+			)
 			continue
 		}
-		allowedSeen[key] = true
+		allowedIndex[key] = len(allowed)
 		allowed = append(allowed, candidate)
 	}
 	if len(clean) == 0 && len(allowed) == 0 {
@@ -1017,13 +1035,57 @@ func answerDiagramRelationRepairCandidateAlreadyAnchored(
 		}
 		for _, anchor := range block.EdgeAnchors {
 			if anchor.RelationKind == candidate.RelationKind &&
-				strings.EqualFold(strings.TrimSpace(anchor.FromIdentity), strings.TrimSpace(candidate.FromIdentity)) &&
-				strings.EqualFold(strings.TrimSpace(anchor.ToIdentity), strings.TrimSpace(candidate.ToIdentity)) {
+				AnswerCodeIdentitySurfacesEquivalent(anchor.FromIdentity, candidate.FromIdentity) &&
+				AnswerCodeIdentitySurfacesEquivalent(anchor.ToIdentity, candidate.ToIdentity) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+const answerDiagramRelationRepairCandidateMaxNodeIDsPerSide = 16
+
+// answerDiagramRelationRepairCandidateNodeIDs closes the display-carrier
+// permission as typed data. These are producer-owned Mermaid node IDs, not
+// labels: a model may still choose wording and layout, while the executor can
+// reject a selected technical tuple placed on an unrelated visible entity in
+// the same patch generation. Empty means no broader participant carrier was
+// authorized; the exact technical endpoint itself remains admissible.
+func answerDiagramRelationRepairCandidateNodeIDs(values []string) ([]string, bool) {
+	if len(values) > answerDiagramRelationRepairCandidateMaxNodeIDsPerSide {
+		return nil, false
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" || strings.ContainsAny(value, "\r\n") {
+			return nil, false
+		}
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i]) < strings.ToLower(out[j])
+	})
+	return out, true
+}
+
+func answerDiagramRelationRepairCandidateNodeIDUnion(left, right []string) []string {
+	combined := append(append([]string(nil), left...), right...)
+	out, ok := answerDiagramRelationRepairCandidateNodeIDs(combined)
+	if !ok {
+		// Both inputs were individually admitted, so only the bounded union can
+		// overflow. Preserve the earlier deterministic permission set rather
+		// than widening or invalidating the whole lease.
+		return append([]string(nil), left...)
+	}
+	return out
 }
 
 // answerDiagramRelationRepairCandidateRef binds one optional addition to the
@@ -1414,6 +1476,10 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 		}
 	}
 	out.AllowedAdditions = append([]AnswerDiagramRelationRepairCandidate(nil), in.AllowedAdditions...)
+	for i := range out.AllowedAdditions {
+		out.AllowedAdditions[i].FromNodeIDs = append([]string(nil), in.AllowedAdditions[i].FromNodeIDs...)
+		out.AllowedAdditions[i].ToNodeIDs = append([]string(nil), in.AllowedAdditions[i].ToNodeIDs...)
+	}
 	out.OrdinaryValidationBlockIDs = append([]string(nil), in.OrdinaryValidationBlockIDs...)
 	if len(in.ParticipantBoundaryFailures) > 0 {
 		out.ParticipantBoundaryFailures = make([]AnswerDiagramParticipantBoundaryRepairFailure, len(in.ParticipantBoundaryFailures))

@@ -1922,7 +1922,7 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 		{From: stage("explore", "explorer"), To: stage("extract", "extractor"), SourceFile: "internal/types/enums.go", LineStart: 121, LineEnd: 122},
 		{From: stage("extract", "extractor"), To: stage("finalize", "finalizer"), SourceFile: "internal/types/enums.go", LineStart: 122, LineEnd: 123},
 	}
-	got := diagramRelationRepairAllowedAdditions(rm, nil, precedence, []string{"diagram-1"}, 8)
+	got := diagramRelationRepairAllowedAdditions(nil, rm, nil, precedence, []string{"diagram-1"}, 8)
 	if len(got) != 3 {
 		t.Fatalf("complete checkout-verified stage spine must remain selectable in one local repair, got %+v", got)
 	}
@@ -1933,6 +1933,42 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 			got[i].FromIdentity != want.from || got[i].ToIdentity != want.to || got[i].Source == "" {
 			t.Fatalf("stage candidate %d drifted: got=%+v want=%s->%s", i, got[i], want.from, want.to)
 		}
+	}
+}
+
+func TestDiagramRelationRepairCandidateCarriesTypedParticipantEndpointPermissions(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  BUS[BusContext]\n  MUT[Mutable]\n"},
+	}}}
+	rm := types.RequestModel{DiagramHint: &types.DiagramHint{Participants: []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}}}
+	row := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelDataFlow,
+		FromIdentity: "bus.Mutable", ToIdentity: "AgentContext.Mutable", Source: "typed",
+	}
+	from := diagramParticipantTypedIncidentCandidate{
+		participant: "BusContext", relation: types.DiagramRelDataFlow,
+		from: row.FromIdentity, to: row.ToIdentity, participantEndpointSide: "from",
+	}
+	to := diagramParticipantTypedIncidentCandidate{
+		participant: "Mutable", relation: types.DiagramRelDataFlow,
+		from: row.FromIdentity, to: row.ToIdentity, participantEndpointSide: "to",
+	}
+	left, right := row, row
+	bindDiagramRelationRepairCandidateParticipantNodes(&left, doc, rm, from)
+	bindDiagramRelationRepairCandidateParticipantNodes(&right, doc, rm, to)
+	mergeDiagramRelationRepairCandidateNodeIDs(&left, right)
+	if !atomicDiagramNodeIDListed("BUS", left.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("BusContext", left.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("MUT", left.ToNodeIDs) ||
+		!atomicDiagramNodeIDListed("Mutable", left.ToNodeIDs) {
+		t.Fatalf("typed participant-side permissions did not survive tuple merge: %+v", left)
+	}
+	if atomicDiagramNodeIDListed("MUT", left.FromNodeIDs) || atomicDiagramNodeIDListed("BUS", left.ToNodeIDs) {
+		t.Fatalf("participant permission crossed its typed endpoint side: %+v", left)
 	}
 }
 

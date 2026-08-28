@@ -59131,6 +59131,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r874`。
 
+### §123.1428 B1361：addition_ref 可见端点与等价 tuple 在同一代原子闭包（2026-08-28）
+
+1. `B1361-DIAGRAMADDITIONATOMICITY1/P0-P1` 已施工。`AnswerDiagramRelationRepairCandidate` 现在除隐藏的
+   `relation_kind/from_identity/to_identity` 外，还按端点侧携带 producer-owned `from_node_ids/to_node_ids`。这些 ID 只来自同一 typed
+   participant provider：精确参与者身份以及 immutable base 中已经由 analyzer participant surfaces 唯一绑定的 Mermaid 声明 ID；同一
+   technical tuple 分别由多个参与者命中时逐侧合并，不能因旧的 first-row 去重丢掉另一侧权限。
+2. `addition_ref` 执行器仍让模型决定是否添加、from_node/to_node、业务 label 和布局，但在写入 working copy 前逐侧闭合：节点必须是该侧
+   technical endpoint 的精确/兼容 identity，或是 candidate 在该侧列出的 typed participant carrier。`Analyzer -> Mutable` 不再能借
+   `append -> o.busCtx.ToolResults` 的隐藏 tuple 通过本轮；错误事务当轮整体回滚，不再留到下一稿由 node-identity collision 追杀。
+   verified read-stage precedence 继续使用 checkout provider 的 pair-scoped alias authority，未扩域到 call/data-flow；校验不读取 Mermaid
+   message、可见 label、请求、推理或最终答案 prose。
+3. 断开的 verified stage spine 改为同代 tuple 复用。若目标 block 已有一个 relation kind 与双端 typed identity 等价的唯一 base anchor，
+   relation delta 将该 anchor 本身绑定为 live failure carrier，并开放精确 remove/replace；等价 tuple 同时从 allowed additions 中抑制。因此系统
+   不再先要求新增第二份 tuple、下一轮再报 tuple reuse。replace 后的可见节点仍须在同一事务内匹配 checkout-verified stage pair；系统不替模型
+   选择保留哪条边、不写 transition wording、不重排图。
+4. 新 pin 覆盖：未列出的 visible endpoint mapping 在 selected generation fail-closed 且零局部提交；BusContext(from)+Mutable(to) 同 tuple
+   权限合并且不跨侧；三个分别有效但 E1/E2、X1/X2 断开的 precedence tuple 产生 3 个 replace failure、0 个 duplicate addition，并可由模型
+   在一个原子 patch 中连成完整 spine。旧 addition-ref typed mirror 隔离、receipt dialect、participant-only addition、sequence declaration
+   canonicalization 继续通过。
+5. 完整 `go test ./... -count=1` 全绿，覆盖 `internal/tool` 关系/finalizer 长套件、Trace convert/query/tracediag、read/write controller；CGO
+   release-tag `make` 全绿。该批没有改 Trace 路由、因果投影、自动补采、根因选举、4ms/4m/流年龄策略，也没有新增用户/模型/最终答案原文或
+   Mermaid label 扫描硬门。
+6. 下一步从本提交重建不可变二进制，仍严格并发恰好 2 路复放同一 read 图表与显式窗 Trace。read 验收 B1359 的
+   `BusContext -> Mutable` 正确载体边继续保留、B1361 两类跨代冲突不再出现、finalizer reject/patch 明显收敛且答案不缩水；Trace 验收显式窗、
+   四跳链、链上 IO/调度/算力候选、业务线索、实际占时/规则可消双账户与完整「Trace 因果投影」继续存在，活动流不按固定耗时阈值降级。
+
+状态：
+
+`B1361=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`addition-ref-endpoint-binding=typed-side-specific/current-generation`；
+`equivalent-stage-tuple=replace-existing/no-duplicate-add`；
+`same-generation-transaction=fail-closed/rollback-complete`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-or-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1364 S1319：计划自有单行源码合同获得语言无关的 post-apply 精确观察（2026-08-22）
 
 1. `B1319-WRITESOURCECONTRACTOBS1/P1` 已施工。`run_tests` 在非 dry-run 的 post-apply 报告封口处新增独立

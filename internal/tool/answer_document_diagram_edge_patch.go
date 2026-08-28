@@ -1137,6 +1137,7 @@ func resolveAtomicDiagramFailureRef(
 		}
 		edit.Match = &match
 		edit.failureRefResolved = true
+		edit.failureIssue = strings.TrimSpace(failure.Issue)
 		return edit, nil
 	}
 	if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor &&
@@ -1169,6 +1170,7 @@ func resolveAtomicDiagramFailureRef(
 		}
 		edit.Match = &match
 		edit.failureRefResolved = true
+		edit.failureIssue = strings.TrimSpace(failure.Issue)
 		return edit, nil
 	case 0:
 		return edit, fmt.Errorf("failure_ref=%q no longer selects its %s in block_id=%q", ref, failure.TargetCarrier, blockID)
@@ -1236,6 +1238,10 @@ func resolveAtomicDiagramAdditionRef(
 	edit.Edge.RelationKind = selected.RelationKind
 	edit.Edge.FromIdentity = strings.TrimSpace(selected.FromIdentity)
 	edit.Edge.ToIdentity = strings.TrimSpace(selected.ToIdentity)
+	selectedCopy := *selected
+	selectedCopy.FromNodeIDs = append([]string(nil), selected.FromNodeIDs...)
+	selectedCopy.ToNodeIDs = append([]string(nil), selected.ToNodeIDs...)
+	edit.additionCandidate = &selectedCopy
 	return edit, nil
 }
 
@@ -1313,6 +1319,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
 			return err
 		}
+		if err := validateAtomicDiagramAdditionEndpointBindings(block, edit.Edge, edit.additionCandidate, stagePrecedence); err != nil {
+			return err
+		}
 		if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
 			return err
 		}
@@ -1335,6 +1344,17 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		block.Diagram.Body = body + "\n" + line + "\n"
 		block.EdgeAnchors = append(block.EdgeAnchors, *edit.Edge)
 		return nil
+	}
+	if action == "replace" && edit.failureIssue == diagramRequestedStageSpineIncomplete {
+		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
+			return err
+		}
+		if edit.Edge == nil || block.Diagram == nil ||
+			!diagramStagePrecedenceAnchorBindsVisibleNodes(
+				stagePrecedence, *edit.Edge, diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind),
+			) {
+			return fmt.Errorf("requested stage-spine replacement must keep one checkout-verified stage pair on its matching visible endpoints")
+		}
 	}
 	if action == string(types.AnswerDiagramRelationRepairActionAttach) &&
 		(strings.TrimSpace(edit.FailureRef) == "" || strings.TrimSpace(edit.AdditionRef) == "") {
@@ -1520,6 +1540,61 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
 	return nil
+}
+
+// validateAtomicDiagramAdditionEndpointBindings closes the generation gap
+// between an addition_ref's hidden typed tuple and the model-authored visible
+// endpoints. Exact technical endpoint spellings remain valid. A broader
+// business/component carrier is valid only when the typed producer listed its
+// node ID on that exact side. Verified read-stage aliases retain their existing
+// pair-scoped authority. Labels, messages, request prose, and answer prose are
+// never inspected here.
+func validateAtomicDiagramAdditionEndpointBindings(
+	block *types.AnswerBlock,
+	edge *types.DiagramEdgeAnchor,
+	candidate *types.AnswerDiagramRelationRepairCandidate,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) error {
+	if block == nil || edge == nil || candidate == nil {
+		return nil
+	}
+	if edge.RelationKind == types.DiagramRelPrecedence && block.Diagram != nil &&
+		diagramStagePrecedenceAnchorBindsVisibleNodes(
+			stagePrecedence, *edge, diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind),
+		) {
+		return nil
+	}
+	type endpoint struct {
+		name     string
+		node     string
+		identity string
+		allowed  []string
+	}
+	for _, endpoint := range []endpoint{
+		{name: "from_node", node: edge.FromNode, identity: edge.FromIdentity, allowed: candidate.FromNodeIDs},
+		{name: "to_node", node: edge.ToNode, identity: edge.ToIdentity, allowed: candidate.ToNodeIDs},
+	} {
+		node := strings.TrimSpace(endpoint.node)
+		identity := strings.TrimSpace(endpoint.identity)
+		if diagramEvidenceNodeIdentityBindsEndpoint(node, identity) ||
+			atomicDiagramNodeIDListed(node, endpoint.allowed) {
+			continue
+		}
+		return fmt.Errorf(
+			"addition_ref=%q edge.%s=%q is not a typed carrier for %s=%q; use the exact technical endpoint or one producer-listed node id on this side",
+			strings.TrimSpace(candidate.AdditionRef), endpoint.name, node, strings.TrimSuffix(endpoint.name, "_node")+"_identity", identity,
+		)
+	}
+	return nil
+}
+
+func atomicDiagramNodeIDListed(node string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(node), strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
 }
 
 // atomicDiagramInlineNodeDeclarationsToLift preserves only model-authored
