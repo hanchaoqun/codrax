@@ -59068,6 +59068,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r904`。
 
+### §123.1481 B1407：aggregate count 与普通 scalar 按 typed ownership 隔离（2026-08-28）
+
+1. `B1407-AGGREGATECOUNTSCALARCOLLISION1/P1` 已施工。根因是 `preEmitBlockBindsToAggregateCount` 的旧兜底：只要 block kind 为
+   `scalar` 就无条件绑定当前 aggregate member-set，不要求请求是 count/scalar，也不要求该 aggregate 是该数值的 count support。于是 config 解释中的
+   默认值 50、超时、阈值、版本号等独立 literal 都可能与唯一 principal roster 的成员数比较。
+2. `preEmitAggregateCardinalityRef` 现在携带内部 `ScalarBlockBinding` 权限。该权限只由 typed RequestModel 与 aggregate fact 共同通过
+   `AggregateMemberSetIsScalarCountSupport` 铸造：请求整体必须是 scalar/count 语义，且该 member-set 是该 count 的结构化支撑。没有该权限时，裸
+   `BlockScalar` 不进入集合 cardinality 对账；不会从 scalar 文本、标题、默认值大小或附近集合存在性猜 ownership。
+3. 已有精确/软边界保留：纯 count 答案的 scalar 仍与支撑 member-set 基数对账，错数继续提示；summary/section/scalar 若显式命名 aggregate label 并给出
+   数量，仍视为该集合的 scoped count claim；完整 structured roster 和已有 member-binding 规则不变。换言之，只删除“block kind=scalar 即自动属于集合”这一
+   无权借位臂，不关闭真正集合计数校验。
+4. 新回归按 r904 生产形构造 5 个 `pipeline_max_steps` 优先级操作成员和独立 literal scalar=50：配置解释形不得产生
+   `visible_count=50`；同一 scalar 改为显式“该集合共有 50 个”后必须继续产生 mismatch。原纯 scalar count 正/反臂、显式 label、structured roster、
+   multi-set、source line number 与系统 supplement 测试保持通过。
+5. 该批不扫描请求、模型 reasoning、终稿或 Mermaid 关键词来决定新硬门；已有可见数量解析仍只在 typed/explicitly scoped ownership 后产生 advisory，
+   不改模型答案。完整 `internal/tool`、`go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放 config precedence 与纯 scalar count：前者验收默认值 50 不再触发集合计数假 caveat，后者
+   验收合法 count 仍受 typed cardinality 保护。通过后继续 B1408 架构根修，先撤销“prescan 模型猜测可直接成为硬语义权威”的风险，避免继续堆 analyzer
+   教学和重试。
+
+状态：
+
+`B1407=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`scalar-block!=aggregate-count-without-typed-ownership`；
+`typed-scalar-count-support=cardinality-check-preserved`；
+`explicit-aggregate-label-count=advisory-check-preserved`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

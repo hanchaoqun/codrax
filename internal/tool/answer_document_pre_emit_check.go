@@ -10289,7 +10289,7 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 			})
 			continue
 		}
-		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, ref.MemberBindingMin, refs) {
+		for _, claim := range preEmitAggregateScopedCountClaims(doc, fact, ref.MemberBindingMin, ref.ScalarBlockBinding, refs) {
 			if claim.value == expected {
 				continue
 			}
@@ -10333,6 +10333,11 @@ type preEmitAggregateCardinalityRef struct {
 	Index            int
 	Fact             types.AnswerAggregateFact
 	MemberBindingMin int
+	// ScalarBlockBinding is true only when the typed request and aggregate
+	// fact jointly declare that a scalar answer is this member set's count.
+	// A scalar block is otherwise an independent literal/value surface and
+	// must not be captured merely because one principal member set exists.
+	ScalarBlockBinding bool
 }
 
 func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []preEmitAggregateCardinalityRef {
@@ -10349,10 +10354,16 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 		if uniquePrincipalSet {
 			min = 1
 		}
+		scalarBlockBinding := false
+		if ctx != nil && ctx.AnalysisIR != nil {
+			rm := ctx.AnalysisIR.RequestModel
+			scalarBlockBinding = types.AggregateMemberSetIsScalarCountSupport(&rm, ref.Fact)
+		}
 		out = append(out, preEmitAggregateCardinalityRef{
-			Index:            ref.Index,
-			Fact:             ref.Fact,
-			MemberBindingMin: min,
+			Index:              ref.Index,
+			Fact:               ref.Fact,
+			MemberBindingMin:   min,
+			ScalarBlockBinding: scalarBlockBinding,
 		})
 	}
 	if ctx == nil || ctx.AnalysisIR == nil {
@@ -10364,9 +10375,10 @@ func preEmitAggregateCardinalityFactRefs(ctx *types.BusContext, facts []types.An
 			continue
 		}
 		out = append(out, preEmitAggregateCardinalityRef{
-			Index:            idx,
-			Fact:             fact,
-			MemberBindingMin: 0,
+			Index:              idx,
+			Fact:               fact,
+			MemberBindingMin:   0,
+			ScalarBlockBinding: true,
 		})
 	}
 	for _, ref := range types.PrincipalAggregateMemberSetFactRefs(facts) {
@@ -10490,7 +10502,7 @@ func preEmitParseAggregateFactCount(value string) (int, bool) {
 	return n, true
 }
 
-func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, memberBindingMin int, refs []preEmitAggregateCardinalityRef) []preEmitAggregateCountClaim {
+func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, memberBindingMin int, scalarBlockBinding bool, refs []preEmitAggregateCardinalityRef) []preEmitAggregateCountClaim {
 	if doc == nil {
 		return nil
 	}
@@ -10516,7 +10528,7 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 		if surface == "" {
 			continue
 		}
-		for _, scopedSurface := range preEmitAggregateCountClaimSurfaces(block, surface, fact, memberBindingMin, refs) {
+		for _, scopedSurface := range preEmitAggregateCountClaimSurfaces(block, surface, fact, memberBindingMin, scalarBlockBinding, refs) {
 			for _, value := range preEmitScopedCountValues(scopedSurface, expected) {
 				out = append(out, preEmitAggregateCountClaim{
 					value:   value,
@@ -10536,7 +10548,7 @@ func preEmitSystemEnumerationRowSupplementBlock(block types.AnswerBlock) bool {
 	return block.SystemGeneratedKind.IsPrincipalEnumerationSupplement()
 }
 
-func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) bool {
+func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int, scalarBlockBinding bool) bool {
 	if preEmitAggregateDisplayPartAppears(strings.TrimSpace(fact.Label), surface) {
 		return true
 	}
@@ -10553,19 +10565,19 @@ func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, 
 	}
 	switch block.Kind {
 	case types.BlockScalar:
-		return true
+		return scalarBlockBinding
 	default:
 		return false
 	}
 }
 
-func preEmitAggregateCountClaimSurfaces(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int, refs []preEmitAggregateCardinalityRef) []string {
+func preEmitAggregateCountClaimSurfaces(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int, scalarBlockBinding bool, refs []preEmitAggregateCardinalityRef) []string {
 	var out []string
 	for _, segment := range preEmitAggregateCountLocalSegments(surface) {
 		if preEmitAggregateCountSegmentMentionsMultipleAggregateLabels(segment, fact, refs) {
 			continue
 		}
-		if preEmitBlockBindsToAggregateCount(block, segment, fact, memberBindingMin) {
+		if preEmitBlockBindsToAggregateCount(block, segment, fact, memberBindingMin, scalarBlockBinding) {
 			out = append(out, segment)
 		}
 	}

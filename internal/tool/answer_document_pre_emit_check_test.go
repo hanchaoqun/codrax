@@ -2072,6 +2072,55 @@ func TestPreCheckAggregateMemberSetCoverage_ScalarCountTreatsMembersAsSupportOnl
 	}
 }
 
+func TestPreCheckAggregateCardinalityConsistency_ExplanationScalarDoesNotBorrowMemberSetCountOwnership(t *testing.T) {
+	mu := types.NewMutableState("config default plus precedence explanation")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "pipeline_max_steps 优先级链操作节点",
+		Value: "5",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"defaultMaxSteps=50",
+			"CLI flag registration",
+			"YAML override",
+			"Changed guard",
+			"SetMaxSteps handoff",
+		},
+	}})
+	mu.SetInvestigationComplete("structured precedence operation set accepted")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer:  false,
+				IsCountQuestion: false,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "default-value",
+		Kind:        types.BlockScalar,
+		SurfaceRole: types.SurfacePrincipal,
+		Text:        "50",
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimLiteralValueFact,
+		}},
+	}}}
+
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("an independently typed default scalar is not the member-set count: %+v", got)
+	}
+
+	// Explicitly naming the aggregate alongside a conflicting count remains a
+	// scoped model-authored count claim and must still be checked.
+	doc.Blocks[0].Text = "pipeline_max_steps 优先级链操作节点共有 50 个"
+	hints := preCheckAggregateCardinalityConsistency(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "visible_count=50") {
+		t.Fatalf("explicit aggregate-label count mismatch must remain visible: %+v", hints)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStructuredRows(t *testing.T) {
 	mu := types.NewMutableState("source inventory structured carrier")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
