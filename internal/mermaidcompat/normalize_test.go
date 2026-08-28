@@ -979,6 +979,63 @@ func TestNormalizeFlowchartUnsafeNodeIDs_AliasesPathLikeEndpoints(t *testing.T) 
 	}
 }
 
+func TestCanonicalFlowchartNodeIDIsStableReadableAndCollisionResistant(t *testing.T) {
+	got := CanonicalFlowchartNodeID("ctxbuilder.BuildAgentContext")
+	if !strings.HasPrefix(got, "ctxbuilderBuildAgentContext_") || !flowchartNodeIDIsSafe(got) {
+		t.Fatalf("unsafe technical identity did not receive a readable safe carrier: %q", got)
+	}
+	if again := CanonicalFlowchartNodeID("ctxbuilder.BuildAgentContext"); again != got {
+		t.Fatalf("safe carrier must be stable: first=%q second=%q", got, again)
+	}
+	if collision := CanonicalFlowchartNodeID("ctxbuilder/BuildAgentContext"); collision == got {
+		t.Fatalf("different exact identities must not collapse onto one node id: %q", got)
+	}
+	if safe := CanonicalFlowchartNodeID("BusContext"); safe != "BusContext" {
+		t.Fatalf("already-safe model node id must remain byte-identical: %q", safe)
+	}
+}
+
+func TestNormalizeSourceForMarkdownRepairsMultilineSubgraphLabelsWithoutChangingRelations(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"    subgraph Analyzer [",
+		"        **Analyzer**\\nStageAnalyze\\n`analyzerEvaluator`\\n@ internal/agent/analyzer.go:49",
+		"    ]",
+		"    subgraph BusContext [",
+		"        **BusContext**\\n@ internal/types/context.go:7593\\n---",
+		"`Mutable *MutableState` (:7598)\\n`PipelineStage` (:7602)",
+		"    ]",
+		"    Analyzer -->|确定分析范围后收集证据| BusContext",
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		`subgraph Analyzer["**Analyzer**<br/>StageAnalyze<br/>` + "`analyzerEvaluator`" + `<br/>@ internal/agent/analyzer.go:49"]`,
+		`subgraph BusContext["**BusContext**<br/>@ internal/types/context.go:7593<br/>---<br/>` + "`Mutable *MutableState`" + ` (:7598)<br/>` + "`PipelineStage`" + ` (:7602)"]`,
+		`Analyzer -->|确定分析范围后收集证据| BusContext`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("multiline subgraph repair missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "codraxNode") || strings.Contains(got, "subgraph Analyzer_") {
+		t.Fatalf("subgraph label repair must not fabricate nodes or retarget group ids:\n%s", got)
+	}
+	if again := NormalizeSourceForMarkdown(got); again != got {
+		t.Fatalf("subgraph syntax repair must be idempotent:\nfirst:\n%s\nsecond:\n%s", got, again)
+	}
+	parsed := ParseEdges(got)
+	if len(parsed) != 1 || parsed[0].From != "Analyzer" || parsed[0].To != "BusContext" {
+		t.Fatalf("syntax repair changed model-authored relation topology: %+v\n%s", parsed, got)
+	}
+}
+
+func TestNormalizeFlowchartMultilineSubgraphLabelsLeavesTopologyBearingBlockUntouched(t *testing.T) {
+	in := "flowchart TD\n  subgraph Group [\n    A --> B\n  ]\n"
+	if got := NormalizeFlowchartMultilineSubgraphLabels(in); got != in {
+		t.Fatalf("ambiguous topology-bearing block must not be swallowed as a label:\n%s", got)
+	}
+}
+
 func TestNormalizeFlowchartUnsafeNodeIDs_PreservesExistingLabelsAndEdgeLabels(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

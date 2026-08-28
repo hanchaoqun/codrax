@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -463,6 +464,50 @@ func TestEmitAnswerDocumentPatch_ParticipantOnlyAdditionRefExecutesAndConsumes(t
 		anchor.FromIdentity != "o.busCtx" || anchor.ToIdentity != "ctxbuilder.BuildAgentContext" ||
 		anchor.RelationKind != types.DiagramRelArgumentFlow || anchor.VisibleLabel != "作为参数传递" {
 		t.Fatalf("addition ref must stamp only the selected hidden tuple and preserve model wording: %+v", anchor)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_AdditionRefAcceptsPublishedSafeTechnicalEndpointID(t *testing.T) {
+	mut := types.NewMutableState("safe technical endpoint addition")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n BusContext[BusContext]",
+		}},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	toAlias := mermaidcompat.CanonicalFlowchartNodeID("ctxbuilder.BuildAgentContext")
+	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "flow", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext",
+		FromNodeIDs: []string{"BusContext"}, ToNodeIDs: []string{toAlias},
+		Source: "internal/orchestrator/extract_work.go:15",
+	}})
+	if lease == nil || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("expected one safe-alias addition: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"action":"add","addition_ref":%q,
+			"edge":{"from_node":"BusContext","to_node":%q,"visible_label":"作为参数传递"}}]
+	}`, lease.AllowedAdditions[0].AdditionRef, toAlias)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(params))
+	if err != nil || !res.Success {
+		t.Fatalf("producer-listed safe technical endpoint must execute in the same generation: err=%v res=%+v", err, res)
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].EdgeAnchors) != 1 {
+		t.Fatalf("safe-alias addition did not persist one typed edge: %+v", doc)
+	}
+	anchor := doc.Blocks[1].EdgeAnchors[0]
+	if anchor.FromNode != "BusContext" || anchor.ToNode != toAlias ||
+		anchor.FromIdentity != "o.busCtx" || anchor.ToIdentity != "ctxbuilder.BuildAgentContext" ||
+		anchor.VisibleLabel != "作为参数传递" {
+		t.Fatalf("safe alias changed model wording or typed identity: %+v", anchor)
+	}
+	if !strings.Contains(doc.Blocks[1].Diagram.Body, "BusContext -->|作为参数传递| "+toAlias) {
+		t.Fatalf("safe alias was not preserved in visible Mermaid source:\n%s", doc.Blocks[1].Diagram.Body)
 	}
 }
 

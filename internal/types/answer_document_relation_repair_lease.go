@@ -544,9 +544,12 @@ func answerDiagramRelationRepairFailureRef(base *AnswerDocumentV2, failure Answe
 
 // AnswerDiagramRelationRepairCandidate is one producer-owned relation tuple
 // that the model may choose to add while clearing the current failure set.
-// Node ids and visible labels stay outside the permission so layout and reader
-// wording remain model-authored; the ordinary diagram authority gate still
-// validates the selected endpoint mapping after the lease admits it.
+// Visible labels stay outside the permission so reader wording remains
+// model-authored. Node-id lists contain only syntax-safe aliases derived from
+// the exact typed identities or exact participant-side carriers already minted
+// by the typed producer; they do not select a relation, label, or layout. The
+// ordinary diagram authority gate still validates the selected endpoint
+// mapping after the lease admits it.
 type AnswerDiagramRelationRepairCandidate struct {
 	AdditionRef  string              `json:"addition_ref,omitempty"`
 	BlockID      string              `json:"block_id"`

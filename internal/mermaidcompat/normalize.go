@@ -19,6 +19,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceParticipantDisplayLabels(body)
 	body = NormalizeSequenceStops(body)
+	body = NormalizeFlowchartMultilineSubgraphLabels(body)
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
 	body = NormalizeFlowchartClassRelationEdges(body)
 	body = NormalizeFlowchartInlineEdgeLabels(body)
@@ -40,6 +41,122 @@ func NormalizeSourceForMarkdown(body string) string {
 			sourceRepairHash(original, body), len(original), len(body))
 	}
 	return body
+}
+
+// CanonicalFlowchartNodeID returns a stable Mermaid-safe carrier ID for one
+// exact technical identity. Safe IDs are preserved byte-for-byte. Unsafe IDs
+// keep a readable alphanumeric stem plus a stable hash, so two identities that
+// normalize to the same stem cannot silently collapse onto one graph node.
+// This is a syntax carrier only: it does not infer a participant, relation,
+// direction, label, or layout.
+func CanonicalFlowchartNodeID(identity string) string {
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return ""
+	}
+	if flowchartNodeIDIsSafe(identity) {
+		return identity
+	}
+	var stem strings.Builder
+	upperNext := false
+	for _, r := range identity {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			if stem.Len() == 0 && r >= '0' && r <= '9' {
+				stem.WriteString("node")
+			}
+			if upperNext && r >= 'a' && r <= 'z' {
+				r -= 'a' - 'A'
+			}
+			stem.WriteRune(r)
+			upperNext = false
+			continue
+		}
+		upperNext = stem.Len() > 0
+	}
+	base := strings.Trim(stem.String(), "_")
+	if base == "" {
+		base = "node"
+	}
+	if len(base) > 48 {
+		base = base[:48]
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(identity))
+	return base + "_" + strconv.FormatUint(h.Sum64(), 16)
+}
+
+// NormalizeFlowchartMultilineSubgraphLabels repairs the exact malformed form
+// where a model opens a subgraph title with `subgraph ID [` and closes that
+// title with a standalone `]` instead of using Mermaid's `ID["title"] ... end`
+// syntax. The bytes between those delimiters are already authored display
+// text; this pass only joins them into one quoted title and supplies `end`.
+// A block containing an edge or nested Mermaid statement is left untouched so
+// syntax repair cannot swallow model-authored topology.
+func NormalizeFlowchartMultilineSubgraphLabels(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "subgraph") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	changed := false
+	for i := 0; i < len(lines); i++ {
+		indent, id, ok := flowchartMultilineSubgraphLabelHeader(lines[i])
+		if !ok {
+			out = append(out, lines[i])
+			continue
+		}
+		closeAt := -1
+		parts := make([]string, 0, 4)
+		ambiguous := false
+		for j := i + 1; j < len(lines); j++ {
+			trimmed := strings.TrimSpace(lines[j])
+			if trimmed == "]" {
+				closeAt = j
+				break
+			}
+			lower := strings.ToLower(trimmed)
+			if flowchartLineIsHeader(trimmed) || trimmed == "end" ||
+				strings.HasPrefix(lower, "subgraph ") || flowchartLineIsCompleteEdge(trimmed) ||
+				flowchartLineStartsWithAny(lower, "classdef ", "linkstyle ", "click ", "style ", "class ") {
+				ambiguous = true
+				break
+			}
+			if trimmed != "" {
+				parts = append(parts, trimmed)
+			}
+		}
+		if ambiguous || closeAt < 0 || len(parts) == 0 {
+			out = append(out, lines[i])
+			continue
+		}
+		label := strings.Join(parts, "<br/>")
+		out = append(out, indent+"subgraph "+id+"["+quoteFlowchartLabel(label)+"]")
+		out = append(out, indent+"end")
+		i = closeAt
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(out, "\n")
+}
+
+func flowchartMultilineSubgraphLabelHeader(line string) (indent, id string, ok bool) {
+	leading := len(line) - len(strings.TrimLeftFunc(line, unicode.IsSpace))
+	indent = line[:leading]
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "subgraph ") {
+		return "", "", false
+	}
+	rest := strings.TrimSpace(trimmed[len("subgraph "):])
+	if !strings.HasSuffix(rest, "[") {
+		return "", "", false
+	}
+	id = strings.TrimSpace(strings.TrimSuffix(rest, "["))
+	if !flowchartNodeIDIsSafe(id) {
+		return "", "", false
+	}
+	return indent, id, true
 }
 
 // NormalizeFlowchartRedundantNodeSubgraphDeclarations removes one exact

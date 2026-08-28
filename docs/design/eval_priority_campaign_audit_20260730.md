@@ -59169,6 +59169,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1429 r875/B1362：addition endpoint 安全 ID 与多行 subgraph 修复合同必须同源（2026-08-28）
+
+1. 从已推送 `e61e59fd5` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 173s、read
+   338s。Trace 人工 pass：显式 2.000..2.020s、3 次 typed query、四跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   优先级候选、实际占时/规则可消双账户、业务下钻、背景隔离和完整「Trace 因果投影」均在；成文零拒绝，没有 fixed 4ms/4m、首字节、stall
+   或活动流年龄降级。
+2. `B1361` 的核心方向获得生产正证：模型选择 `append -> o.busCtx.ToolResults` 的 addition 后把它显示映射为无关参与者时，endpoint gate
+   在同一代拒绝，错误关系未进入 accepted base。此前 r874 的“先接受、下一代再追杀”已消失；断开 precedence tuple 冲突没有在本轮自然复现，
+   继续由完整回归承担。
+3. read 人工 fail，并确认新 P0/P1 `B1362-DIAGRAMSAFEENDPOINTSYNTAX1`。typed candidate 的技术终点是
+   `ctxbuilder.BuildAgentContext`；模型第一次主动使用合法、可读的 Mermaid 安全 ID `ctxbuilderBuildAgentContext`，但 producer 的
+   `to_node_ids` 没发布该技术端点别名，executor 以“not a typed carrier”拒绝。模型按诊断改用带点的精确 technical identity 后才通过 endpoint
+   gate，说明“精确 identity 被允许”与“Mermaid node ID 必须可移植”两条合同没有共享同一个可执行表示。
+4. 第二层同根损坏发生在 syntax shim。原草稿使用 `subgraph Analyzer [`、若干显示文本、独立 `]` 的多行标题形；既有
+   `NormalizeFlowchartSubgraphTitles` 把开头误修为另一 ID，后续 unsafe-node pass 又把显示文本拆成一串 `codraxNodeN`。带点 technical endpoint
+   同时被上下文序号别名化为 `codraxNode1`，与前面伪节点复用；最终图出现两个关系指向同一错误节点、残缺引号与裸字段，runner 的边数宽 oracle
+   未发现，但用户面已不具备可靠可渲染性。这不是模型关系选择波动，而是系统语法层把原图进一步损坏。
+5. 最优方案按 typed/syntax 两层同源而不接管图语义：candidate 对每个 unsafe technical endpoint 发布一个只由精确 identity 派生的稳定、可读、
+   带哈希防碰撞 Mermaid ID，严格留在原 from/to 侧；模型仍选择是否 add、使用哪个已许可端点、可见 label 和布局。多行 subgraph 语法修复必须在
+   title/unsafe-node pass 前运行，仅在 `subgraph ID [` 到独立 `]` 之间没有 edge、nested subgraph 或 directive 时，将模型已写显示字节合并为 quoted
+   title 并补 `end`；节点、边、方向、标签和正文不得被创造或改写。
+6. 本批已实现上述两臂并加泛化 pin：技术 identity 的安全 ID 稳定、可读、不同 identity 不碰撞、已安全 ID 字节不变；candidate 双端权限不跨侧；
+   r875 同形安全 endpoint 能在同一 generation 执行；完整多行 subgraph fixture 修复后边数/from/to 不变、无 `codraxNode`、二次归一化幂等；
+   含真实 edge 的歧义 bracket block 保持不动，不吞拓扑。聚焦 Mermaid/render/preview/tool/agent 套件、完整 `go test ./... -count=1` 与 CGO
+   release-tag `make` 全部通过。
+7. 该批不读取用户请求、模型 thinking、final prose、Mermaid message 或 label 来判断事实；安全 ID 只来自 typed endpoint identity，subgraph
+   修复只认精确语法 delimiter/AST。系统没有选择关系、动作、业务词、布局或结论，也没有修改 Trace query、投影、自动补采、根因排序、唤醒链、
+   窗内可消除量、read/write controller 或 JSON 答案教学。
+
+状态：
+
+`r875=runner-pass-2/2,human-trace-pass+read-fail`；
+`B1361=production-positive/endpoint-gate-core-closed`；
+`B1362=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`technical-endpoint-safe-id=typed-identity-only+side-specific+stable-hash`；
+`multiline-subgraph-repair=syntax-only+topology-byte-preserving+ambiguous-fail-open`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-or-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r875`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r875`。
+
 ### §123.1364 S1319：计划自有单行源码合同获得语言无关的 post-apply 精确观察（2026-08-22）
 
 1. `B1319-WRITESOURCECONTRACTOBS1/P1` 已施工。`run_tests` 在非 dry-run 的 post-apply 报告封口处新增独立

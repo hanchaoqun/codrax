@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1969,6 +1970,24 @@ func TestDiagramRelationRepairCandidateCarriesTypedParticipantEndpointPermission
 	}
 	if atomicDiagramNodeIDListed("MUT", left.FromNodeIDs) || atomicDiagramNodeIDListed("BUS", left.ToNodeIDs) {
 		t.Fatalf("participant permission crossed its typed endpoint side: %+v", left)
+	}
+}
+
+func TestDiagramRelationRepairCandidatePublishesStableSafeTechnicalEndpointIDs(t *testing.T) {
+	row := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "o.busCtx", ToIdentity: "ctxbuilder.BuildAgentContext", Source: "typed",
+	}
+	bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+	fromAlias := mermaidcompat.CanonicalFlowchartNodeID(row.FromIdentity)
+	toAlias := mermaidcompat.CanonicalFlowchartNodeID(row.ToIdentity)
+	if !atomicDiagramNodeIDListed(fromAlias, row.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed(toAlias, row.ToNodeIDs) {
+		t.Fatalf("typed technical aliases were not published on their exact sides: %+v", row)
+	}
+	if atomicDiagramNodeIDListed(toAlias, row.FromNodeIDs) ||
+		atomicDiagramNodeIDListed(fromAlias, row.ToNodeIDs) {
+		t.Fatalf("typed technical aliases crossed endpoint sides: %+v", row)
 	}
 }
 

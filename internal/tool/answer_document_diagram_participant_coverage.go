@@ -2197,6 +2197,7 @@ func diagramRelationRepairAllowedAdditions(
 				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
 				Source: strings.TrimSpace(candidate.location),
 			}
+			bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
 			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
 				row.FromIdentity + "\x00" + row.ToIdentity)
@@ -2212,6 +2213,26 @@ func diagramRelationRepairAllowedAdditions(
 		}
 	}
 	return out
+}
+
+// bindDiagramRelationRepairCandidateTechnicalNodeIDs publishes the one stable
+// syntax-safe alias for each exact typed endpoint when Mermaid cannot use that
+// identity as a portable node ID. It reads no request prose, model prose,
+// visible labels, messages, or inferred topology. The model remains free to
+// use or ignore these endpoint carriers and still authors every visible label
+// and relation choice.
+func bindDiagramRelationRepairCandidateTechnicalNodeIDs(row *types.AnswerDiagramRelationRepairCandidate) {
+	if row == nil {
+		return
+	}
+	fromIdentity := strings.TrimSpace(row.FromIdentity)
+	toIdentity := strings.TrimSpace(row.ToIdentity)
+	if alias := mermaidcompat.CanonicalFlowchartNodeID(fromIdentity); alias != "" && alias != fromIdentity {
+		row.FromNodeIDs = append(row.FromNodeIDs, alias)
+	}
+	if alias := mermaidcompat.CanonicalFlowchartNodeID(toIdentity); alias != "" && alias != toIdentity {
+		row.ToNodeIDs = append(row.ToNodeIDs, alias)
+	}
 }
 
 func mergeDiagramRelationRepairCandidateNodeIDs(
