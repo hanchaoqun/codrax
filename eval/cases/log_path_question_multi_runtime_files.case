@@ -7,6 +7,9 @@ ID="log_path_question_multi_runtime_files"
 NAME="log triage — multiple log paths mentioned in question"
 QUESTION="只分析 eval/fixtures/runtime_path_panic.log 和 eval/fixtures/runtime_path_timeout.log 这两个日志文件，不分析代码。请分别说明两个日志里的错误类型、关键栈帧和直接触发点。"
 EXPECT_CONTAINS="runtime_path_panic runtime_path_timeout Fetch"
-EXPECT_MATCHES_REGEX="(panic|nil pointer|空指针).*(\\(\\*Store\\)\\.Get|Store\\.Get|store\\.go:88)|(\\(\\*Store\\)\\.Get|Store\\.Get|store\\.go:88).*(panic|nil pointer|空指针)
+# Each error and its key frame may be rendered in adjacent paragraphs/list
+# items. Use the existing folded-text co-occurrence surface instead of forcing
+# both facts onto one physical line merely to satisfy grep's line semantics.
+EXPECT_MATCHES_TEXT_REGEX="(panic|nil pointer|空指针).*(\\(\\*Store\\)\\.Get|Store\\.Get|store\\.go:88)|(\\(\\*Store\\)\\.Get|Store\\.Get|store\\.go:88).*(panic|nil pointer|空指针)
 (context deadline exceeded|deadline|超时).*(\\(\\*Client\\)\\.Fetch|Client\\.Fetch|client\\.go:41)|(\\(\\*Client\\)\\.Fetch|Client\\.Fetch|client\\.go:41).*(context deadline exceeded|deadline|超时)"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

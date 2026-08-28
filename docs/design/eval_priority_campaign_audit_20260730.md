@@ -58406,6 +58406,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `actual-time/rule-eliminable=separate-ledgers-unchanged`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1462 r896/B1392：runtime 直接观察与 cell 用户面获生产正证；跨段共现误用逐行量尺（2026-08-28）
+
+1. 从已推送 `81945fad2` 重建不可变二进制，严格并发恰好 2 路复放同一双日志 + 东湖真实显式帧窗 Trace。Trace 137s PASS；日志 130s
+   runner FAIL，但人工答案为 pass-with-model-caveat。两路均自然完成，没有按 4ms、4m、首字节、stall、流年龄或上下文比例降级。
+2. `B1391` 两个生产目标均生效。日志 finalizer 的 Observation Ledger 只发布两个 `producer=read_file + direct_observation` 的完整 1..8 行
+   runtime byte span；旧的 runtime aggregate 与 closure prose 不再借 support ref 伪装成独立证明或重复进入 handoff。最终用户答案同时保留两个错误消息、
+   四个关键栈帧/位置及直接观测到的触发位置；r895 的 cell-only 静默消失没有复现。
+3. runner FAIL 是测量假阴性，不是用户答案缺字段。case 用 `EXPECT_MATCHES_REGEX` 要求“错误类型”和“关键帧”共现，而该量尺由 `grep -E` 逐物理行
+   匹配；结构化答案把两者放在相邻段落/list item 后，两个事实都可见却永远无法同一行命中。仓内已有专为跨段共现设计的
+   `EXPECT_MATCHES_TEXT_REGEX`，它只在 eval 中折叠换行/tab，不进入生产 prompt/validator。`B1392-EVALMULTILINECOOCCURRENCE1/P2` 将本 case
+   切到该通用量尺；不改变 231 个既有逐行/锚定 regex 的语义，也不要求模型为了 runner 把丰富答案压成一行。
+4. 模型仍把“首个观测栈帧”扩写为 receiver 为 nil/字段未初始化，把 deadline 状态扩写为下游慢/网络/超时配置。四个 explorer/finalizer prompt
+   已共享同一通用 evidence-caliber 教学：栈帧只证明帧和值，runtime status 不证明入口状态、caller policy、下游慢或唯一机理；B1391 又去除了伪权威
+   aggregate。因此当前残余是模型未遵循精确上下文，不是上下文缺失或系统合同冲突。按用户裁定暂留软观察，不新增 nil/deadline/帧名扫描、正文 hard gate、
+   强制重试或系统改写；后续异构 runtime 回放再判断是否值得调整结构化交付，而非重复加同义 prompt。
+5. Trace 人工 pass。明确 34579.472865..34579.587805s、五个 typed 维度、
+   `ThreadPoolForeg→NetworkService→CookieMonsterCl→com.baidu.tieba` 四跳、链上优先级/调度、D/IO、算力供给、VerifyClass 确定性业务线索、目标实际占时与
+   规则可消双账、代表窗、邻近/背景隔离和完整 `Trace 因果投影` 全在。模型保留首席链上候选、证据边界与修向；系统投影/核对只提供证据，不代写结论。
+
+状态：
+
+`r896=runner-pass-1/fail-1,human-pass-2/2-one-model-caveat`；
+`B1391=production-positive/core-closed`；
+`B1392=implemented/eval-only/pending-next-sweep-measurement`；
+`runtime-read-authority=producer-stamped-direct-observation`；
+`runtime-model-aggregate=not-independently-proven-by-support-ref`；
+`section-cell-only=production-visible`；
+`cross-paragraph-cooccurrence=EXPECT_MATCHES_TEXT_REGEX`；
+`model-mechanism-overstatement=soft-observation/no-text-gate/no-rewrite`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r896`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-time/rule-eliminable=separate-ledgers-present`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r896`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
