@@ -57631,6 +57631,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r885`。
 
+### §123.1441 r886/B1379：关系修补收敛；块内单字段缺少保真局部 patch 能力（2026-08-28）
+
+1. 从已推送 `30b511661` 的干净二进制严格并发恰好 2 路复放同一 read 图表与显式窗 Trace，runner 2/2 PASS：Trace 260s、read
+   374s。read 从 r885 的 690s/13 次 finalizer reject 收敛为 374s/1 次，Trace 为 3 次 reject；两路均未按 4ms、4m、首字节、stall、活动流年龄或
+   上下文比例降级，也没有恢复旧答案或系统代写模型结论。
+2. read 人工判定 pass：四阶段责任与 analyze→explore→extract→finalize 主链完整，Mermaid 可解析。唯一关系拒绝后，模型在一个 patch 中用 live refs
+   删除 4 条无 typed 关系支撑的 BusContext→stage 边，并选择两个当前 additions，形成 BusContext→BuildAgentContext 与
+   Extractor→BuildAgentContext argument-flow；BusContext→Mutable 仍保留。r885 的小写 `mutable`/大写 `Mutable` 双节点和孤立 `hasReuse` 没有复现，
+   系统没有替模型选择可见 label、布局或结论。
+3. B1378 获得生产冒烟而非核心转正：Trace 的普通 patch correction/cardinality 信号已带 `.cap-v1-...` typed 后缀且正常投递，说明统一出口接线在生产生效；
+   read 本轮只有“full reject→一次成功 patch”，没有自然产生“同一 lane、旧代已投递、随后新代 refs 再签发”的关键形。因此 B1378 的跨代必送仍由
+   LoopPolicy/typed delta 回归直接证明，继续等待自然同车道换代正证，不能把墙钟下降全部归因于该修复。
+4. Trace 系统面继续通过：显式 2.000..2.020s 窗、四跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms 优先级候选、真实占时/规则可消双账户、
+   业务下钻、邻近/背景隔离、自动补采与完整 `Trace 因果投影` 全在。模型仍把 14ms 睡眠跨度误写为 threadpool 自身等待，并把 17−11=6ms 猜成
+   IO 完成后的处理/跨 CPU 传递开销；typed 证据没有这两个归因，按模型推理波动留观，不新增用户/模型/答案原文硬门或系统正文改写。
+5. 新 P1 `B1379-BLOCKFIELDPATCHCAPABILITY1` 为精确结构能力缺口。首稿 principal summary 的模型正文、title、surface_role 与 claims 均已存在，唯一
+   hard reject 只是缺少 closed enum `trace_causal_claim_caliber`。现有 patch 对块内字段只有 `replace_blocks` 全块替换；模型按提示仅提交
+   `{id,kind,trace_causal_claim_caliber}` 后，工具依全替换语义正确删除了未重抄的 text/title/surface_role，merged draft 随即变成“缺 principal summary”。
+   下一提示要求 `add_blocks`，模型新增完整 summary 又触发 `summary max=1`，第三轮再删除旧空 summary 才通过。三次拒绝没有新增证据，只是在弥补 patch
+   粒度与模型可见基线之间的能力断层。
+6. 最优方案不是系统替模型选择 caliber，也不是偷偷把所有 `replace_blocks` 改成 merge。应增加一个版本化、白名单、block-id 精确选择的局部字段 patch
+   载体：模型显式选择目标 block、字段与 closed typed value，executor 在不可变基线上只改该字段并字节保留其余模型正文/标题/claims/显示属性；字段不在
+   白名单、block 歧义/不存在、kind 不兼容、值非法、与同轮 replace/remove 冲突均 fail-closed。先覆盖能由 schema enum 精确表达且不含正文内容的块级元数据，
+   不能读取或重写模型 prose，不能由 validator 自动代选值；文档正文/关系/diagram 仍走既有模型所有权车道。
+7. 施工需同时钉住：r886 原形一个 local field edit 成功且 text/title/surface_role/claim_uses 字节保留；模型可在允许枚举中自行选值；错误 kind/value、陈腐
+   block id、重复字段、replace/remove/diagram op 冲突全部拒绝；未声明字段不能借 generic map 扩权；旧 `replace_blocks` 全替换语义和明确空值删除语义
+   保持不变。该批与 B1378 分开提交，避免把能力代次和局部字段权限混为一项。
+
+状态：
+
+`r886=runner-pass-2/2,human-trace-partial+read-pass`；
+`B1378=production-smoke-positive/core-cross-generation-natural-trigger-pending`；
+`B1379=confirmed/P1-next`；
+`read-finalizer-rejects=13→1`；
+`trace-finalizer-rejects=3/local-field-capability-gap`；
+`target-local-patch=exact-block+closed-whitelisted-field+model-selected-value`；
+`replace_blocks=full-replacement-semantics-preserved`；
+`model-owned=field-value+prose+relation+label+layout+conclusion`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r886`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r886`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
