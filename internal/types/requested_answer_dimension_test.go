@@ -2,6 +2,35 @@ package types
 
 import "testing"
 
+func TestRequestedExplanationOperationOwnershipDimensionsUsesTypedRolesOnly(t *testing.T) {
+	profile := &RequestedAnswerDimensionProfile{Dimensions: []RequestedAnswerDimension{
+		{Index: 1, Label: "first", Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		{Index: 2, Label: "ignored", Role: RequestedAnswerDimensionImpact, Required: true},
+		{Index: 3, Label: "second", Role: RequestedAnswerDimensionBranchBehavior, Required: true},
+		{Index: 4, Label: "optional", Role: RequestedAnswerDimensionFunctionOrPurpose},
+	}}
+	dimensions := RequestedExplanationOperationOwnershipDimensions(profile)
+	if len(dimensions) != 2 || dimensions[0].Index != 1 || dimensions[1].Index != 3 {
+		t.Fatalf("ownership dimensions=%+v want indices [1 3]", dimensions)
+	}
+}
+
+func TestRequestedExplanationOperationOwnershipDimensionsNeedsSiblingRisk(t *testing.T) {
+	for _, profile := range []*RequestedAnswerDimensionProfile{
+		nil,
+		{},
+		{Dimensions: []RequestedAnswerDimension{{Index: 1, Role: RequestedAnswerDimensionFunctionOrPurpose, Required: true}}},
+		{Dimensions: []RequestedAnswerDimension{
+			{Index: 1, Role: RequestedAnswerDimensionCausalAttribution, Required: true},
+			{Index: 2, Role: RequestedAnswerDimensionObservedValue, Required: true},
+		}},
+	} {
+		if got := RequestedExplanationOperationOwnershipDimensions(profile); len(got) != 0 {
+			t.Fatalf("single/non-operation profile unexpectedly activated ownership: %+v", got)
+		}
+	}
+}
+
 func TestRequestedAnswerDimensionRelationPathIsDeclaredAndValid(t *testing.T) {
 	if !RequestedAnswerDimensionRelationPath.IsValid() {
 		t.Fatal("relation_path must be a declared requested-answer dimension role")

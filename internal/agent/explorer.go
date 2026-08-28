@@ -830,9 +830,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.investigationComplete = false
 
 	writeExplorationPrefix := renderExplorerWriteExplorationRequest(ctx)
+	dimensionEvidenceOwnershipGuide := renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx)
+	composeInitialInstruction := func(body string) string {
+		return joinExplorerInstructionSections(writeExplorationPrefix, dimensionEvidenceOwnershipGuide, body)
+	}
 	if explorerDurableProgressContinuationActive(ctx) {
 		e.phase = 1
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildDurableProgressContinuationInstruction(ctx))
+		return composeInitialInstruction(e.buildDurableProgressContinuationInstruction(ctx))
 	}
 
 	// Self-loop detection: if we already have investigation notes from
@@ -898,61 +902,61 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		}
 		b.WriteString(renderExplorerCallChainEdgeEvidenceGuide(ctx))
 		b.WriteString("**User question:** " + e.userQuestion)
-		return joinExplorerInstructionSections(writeExplorationPrefix, b.String())
+		return composeInitialInstruction(b.String())
 	}
 
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
 		e.phase = 1
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 	}
 
 	if observationOnlyRuntimeArtifactForExplorer(ctx) {
 		e.phase = 1
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
+		return composeInitialInstruction(e.buildRuntimeObservationOnlyStartInstruction(ctx))
 	}
 
 	if runtimeArtifactObservationOnlySurfaceForExplorer(ctx) {
 		e.phase = 1
 		if explorerHasTraceQueryRuntimeTraceCarrier(ctx) {
-			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 		}
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
+		return composeInitialInstruction(e.buildRuntimeObservationOnlyStartInstruction(ctx))
 	}
 
 	if runtimeArtifactSourceOptionalMixedSurfaceForExplorer(ctx) {
 		e.phase = 1
 		if runtimeSourceTraceProbePromptPreferred(ctx) {
-			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 		}
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
 	if externalObservationFirstSourceOptionalForExplorer(ctx) {
 		e.phase = 1
 		if runtimeSourceTraceProbePromptPreferred(ctx) {
-			return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+			return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 		}
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
 	if runtimeSourceTraceProbePromptPreferred(ctx) {
 		e.phase = 1
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 	}
 
 	if runtimeTraceSourceOptionalPromptShouldStayOnTraceQuery(ctx) {
 		e.phase = 1
-		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
+		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 	}
 
 	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventory() {
 		e.phase = 0
-		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
+		return composeInitialInstruction(renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
 	}
 
 	if ctx != nil && ctx.ReadDispatchPolicy.IsActive() {
 		e.phase = 0
-		return joinExplorerInstructionSections(writeExplorationPrefix, renderExplorerReadDispatchPolicyInstruction(ctx))
+		return composeInitialInstruction(renderExplorerReadDispatchPolicyInstruction(ctx))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
@@ -984,6 +988,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Abbreviations and full forms (e.g. config → configuration, ctx → context)\n")
 	b.WriteString("- CamelCase and snake_case variants (e.g. getUser, get_user, GetUser)\n")
 	b.WriteString("Keep variants tied to the user's concrete nouns, symbols, config keys, or error frames; do not let generic domain words expand the search frontier by themselves.\n\n")
+	if dimensionEvidenceOwnershipGuide != "" {
+		b.WriteString(dimensionEvidenceOwnershipGuide)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("### Completion Handoff\n\n")
 	b.WriteString("When you call `emit_investigation_complete`, make `reason` the concise investigation conclusion you want later answer writing to preserve, not just a generic \"done\" statement.\n")
 	b.WriteString("- Include the terminal judgment, important scope boundaries, cross-repository or cross-component distinctions, no-hit/exclusion findings, and caveats that should not disappear.\n")
@@ -1744,28 +1752,28 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			if capabilityQuery := detectStageToolCapabilityQueryFromContext(ctx); capabilityQuery != nil {
 				e.phase = 1
 				e.requiredFiles = capabilityFocusedFiles(capabilityQuery, e.requiredFiles)
-				return e.buildCapabilityFocusedStartInstruction(ctx, analyzerKeywords, capabilityQuery)
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildCapabilityFocusedStartInstruction(ctx, analyzerKeywords, capabilityQuery))
 			}
 			if e.shouldStartFocusedDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenFocusedFrontier()
-				return e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords)
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords))
 			}
 			if e.shouldStartDeclarativeDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenDeclarativeFrontier()
-				return e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords)
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords))
 			}
 			if e.shouldStartDeclarativeCandidateDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenDeclarativeCandidateFrontier()
-				return e.buildDeclarativeCandidateStartInstruction(ctx, analyzerKeywords)
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildDeclarativeCandidateStartInstruction(ctx, analyzerKeywords))
 			}
 			if e.shouldStartPrimaryEntityDepth(analyzerKind) {
 				e.phase = 1
 				e.requiredFiles = e.filterRequiredFiles(e.requiredFiles, ctx)
 				e.tightenPrimaryEntityFrontier()
-				return e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords)
+				return joinExplorerInstructionSections(dimensionEvidenceOwnershipGuide, e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords))
 			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
@@ -1866,6 +1874,29 @@ func joinExplorerInstructionSections(sections ...string) string {
 		}
 	}
 	return strings.Join(out, "\n\n")
+}
+
+func renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	dimensions := types.RequestedExplanationOperationOwnershipDimensions(
+		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
+	)
+	if len(dimensions) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Requested Explanation Evidence Ownership\n\n")
+	b.WriteString("Before the first completion attempt, keep independent requested explanation dimensions attached to the operation evidence that actually supports each one:\n")
+	for _, dimension := range dimensions {
+		fmt.Fprintf(&b, "- index=%d role=%s\n", dimension.Index, dimension.Role)
+	}
+	b.WriteString("- When `emit_evidence` records the actual producer, consumer, call, return, assignment, initializer, condition, or branch effect for one of these dimensions, set that evidence item's `requested_dimension_indices` to the exact supported index.\n")
+	b.WriteString("- One operation row may carry multiple indices only when that same operation independently proves every listed dimension; otherwise emit separate operation evidence. A definition, default, or example for one dimension does not prove a sibling mechanism.\n")
+	b.WriteString("- `aggregate_facts` and completion `reason` preserve useful results but do not assign source-evidence ownership. Record the indices while emitting evidence instead of waiting for a completion retry.\n")
+	b.WriteString("- This typed map only preserves evidence ownership. It does not choose, phrase, or rewrite the answer conclusion.\n")
+	return strings.TrimSpace(b.String())
 }
 
 func explorerDurableProgressContinuationActive(ctx *types.AgentContext) bool {

@@ -58477,6 +58477,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r897`。
 
+### §123.1464 B1390：首次完成前交付 typed 维度证据归属软教学（2026-08-28）
+
+1. `B1390-DIMENSIONOWNERSHIPFIRSTEMISSION1/P2` 已施工。根因不是 completion 硬门过严，而是同一精确合同只在模型首次漏填
+   `requested_dimension_indices` 后才给补救说明；模型此前已经读到操作证据，却会先用无归属 evidence、`aggregate_facts` 或 `reason` 多次尝试闭环，造成
+   可避免的 completion 往返和额外 read。
+2. 新增唯一 typed 判定 `RequestedExplanationOperationOwnershipDimensions`，由 explorer 软教学与既有 completion gate 共用。它只选择 required、有效
+   index 且 role 为 `function_or_purpose` / `branch_behavior` 的维度，并且只有至少两席、确实存在兄弟维度交叉满足风险时才激活。判定不读取 label、
+   source quote、用户请求、模型输出、最终答案或 Mermaid 内容；单一说明维度及 Trace 的 `causal_attribution`、`causal_contributor_set`、
+   `observed_value` 等维度保持原路径。
+3. explorer 在首次 completion 前明确给出 index/role roster，并提示模型在发射真实 producer/consumer/call/return/assignment/initializer/condition/branch
+   操作证据时填写相应 index；同一操作只有在独立证明多席时才可携带多个 index，定义/default/example 不得替代兄弟机制。`aggregate_facts` 与
+   completion `reason` 仍保存结果，但不铸造源码证据 ownership。
+4. 这是纯软教学，不新增拒绝条件、不降低既有 hard gate，也不让系统选择、措辞或改写解释结论。所有初始 explorer 车道均能收到同一提示；当 typed 形状
+   不激活时，原指令字节结构和路由保持不变。显式窗 Trace 的因果投影、自动补采、链上根因排序、业务线索、实际占时/规则可消双账均未变。
+5. 回归覆盖 typed 角色筛选、少于两席不激活、Trace 因果/观测维度不激活、非操作维度不进入 roster、首次 breadth prompt 中提示先于 Completion
+   Handoff 且只出现一次；completion 侧原测试继续使用同一 predicate。定向测试、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放配置优先级 read 与异构 write。read 验收首批 operation evidence 是否立即携带 index、
+   completion/read/iteration 是否收敛，以及 B1393 是否不再追加同文件无关源码锚点；write 验收计划、应用、累计验证、JSON/图表合同与答案保真不受影响。
+
+状态：
+
+`B1390=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`ownership-predicate=typed-required-index+operation-role+multi-seat-only`；
+`first-emission-guidance=soft/schema-based`；
+`completion-hard-gate=unchanged/shared-predicate`；
+`aggregate/reason=not-evidence-ownership`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

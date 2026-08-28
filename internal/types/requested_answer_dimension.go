@@ -272,6 +272,33 @@ func (p *RequestedAnswerDimensionProfile) Active() bool {
 	return p != nil && p.IsDimensionedAnswer && len(p.Dimensions) > 0
 }
 
+// RequestedExplanationOperationOwnershipDimensions returns the independent
+// explanation dimensions that need explicit evidence ownership. The result is
+// intentionally empty for a single dimension: without a sibling explanation
+// there is no cross-satisfaction risk, so the longstanding evidence floor is
+// sufficient. Consumers must not inspect labels, quotes, request text, or
+// answer prose to change this classification.
+func RequestedExplanationOperationOwnershipDimensions(profile *RequestedAnswerDimensionProfile) []RequestedAnswerDimension {
+	if profile == nil {
+		return nil
+	}
+	var dimensions []RequestedAnswerDimension
+	for _, dimension := range profile.Dimensions {
+		if !dimension.Required || dimension.Index <= 0 {
+			continue
+		}
+		switch dimension.Role {
+		case RequestedAnswerDimensionFunctionOrPurpose,
+			RequestedAnswerDimensionBranchBehavior:
+			dimensions = append(dimensions, dimension)
+		}
+	}
+	if len(dimensions) < 2 {
+		return nil
+	}
+	return dimensions
+}
+
 // RequiresRuntimeCausalDiagnosis reports whether the model explicitly chose a
 // user-visible full causal answer surface. This is a typed schema decision:
 // labels, source quotes, request prose, and answer prose are deliberately not

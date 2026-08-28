@@ -5010,20 +5010,8 @@ func requestedDimensionEvidenceOwnershipDowngrade(ctx *types.BusContext, evidenc
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions == nil {
 		return ""
 	}
-	var required []types.RequestedAnswerDimension
-	for _, dim := range ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions {
-		if !dim.Required || dim.Index <= 0 {
-			continue
-		}
-		switch dim.Role {
-		case types.RequestedAnswerDimensionFunctionOrPurpose,
-			types.RequestedAnswerDimensionBranchBehavior:
-			required = append(required, dim)
-		}
-	}
-	// A single explanation dimension cannot be cross-satisfied by a sibling;
-	// keep the longstanding evidence-floor contract for that simpler shape.
-	if len(required) < 2 {
+	required := types.RequestedExplanationOperationOwnershipDimensions(ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions)
+	if len(required) == 0 {
 		return ""
 	}
 	covered := map[int]bool{}
