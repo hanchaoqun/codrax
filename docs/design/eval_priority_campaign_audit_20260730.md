@@ -58873,6 +58873,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1476 r902：operation 权限根修生效；陈腐 denial 借一致性词面误报（2026-08-28）
+
+1. 从已推送 `15a43ade0` 构建不可变二进制，严格并发恰好 2 路复放配置解释与 Go write apply，runner 2/2 PASS：配置 177s、写模式
+   93s。两路都没有固定 4ms/4m、首字节、stall、累计流年龄或上下文比例降级；runner PASS 仅代表声明 oracle 通过，以下人工审计另行裁定。
+2. write 人工 pass：计划只对 `main.go:25` 发射一条 `kind=patch`，apply 后 same-package verification probe、current-plan
+   `post_apply_verify` 报告和最终 workflow verdict 全部通过，零 replan、零 JSON repair、零跨路径改动。probe 内嵌 `go build ./...` 对 main package
+   生成未跟踪 `patch_typo_fixture` 二进制；系统正确排除交付并披露保留，安全边界未破，但确认 P2 `B1406-VERIFICATIONBUILDSIDEEFFECT1`：可预测验证产物
+   应由隔离/显式 ownership 吸收，不能长期把正常验证写成用户警告，也不能自动删除未知文件。
+3. 配置人工 fail，但 B1401 的目标旁路获得生产正证。第一次 completion 不能再用 definition/mechanism 关闭解释 operation 席，模型随后补发并落地真实
+   `orch.SetMaxSteps(flagMaxSteps)` call 与 `!cmd.Flags().Changed(...)` condition；B1402 同样生产通过，最终无错误“枚举标签核对”系统附注。
+4. 新 P1 `B1404-STALEEVIDENCESUBJECTDENIAL1` 是用户可见泛化 gap。早期 evidence 把 `pipeline-max-steps` 错标为 definition，grounder 正确置
+   ungrounded；同一 `cmd/root.go:653` 后续已有 grounded `f.IntVar` call，但 `stampUngroundedEvidenceDenials` 逐条扫描 append-only 结果，不对当前精确支持做
+   reconciliation，仍把配置字面量铸成 durable `TypedDenialEvidenceSubjectUnverified`。L3 因此把答案合法出现的 CLI 名称判为
+   `ViolDeniedTokenUndeclared`。最优形不是按该 token 白名单，而是区分“这条 claim shape 未落证”与“该 token 全局不存在”，只有后者才可进入全局 denial。
+5. B1403 的精确 self-reviewer 修复本身保持成立，但生产回放证明同一表面症状另有入口：`ViolDeniedTokenUndeclared` 与
+   `ViolSelfContradiction` 共用 `CaveatFamilyConsistency`，于是 stale denial 被渲染成“答案前后某些表述存在不完全一致”。B1404 同批必须同时钉住
+   denial 生命周期和 violation-specific 可执行披露；真实 denied external token 仍需保留，不能全局静音。
+6. 新 P1 `B1405-DIMENSIONRESPONSIBILITYOPERATION1`：可执行 anchor 权限仍缺“解释责任域”。模型从未读取
+   `LoadRuntimeSettings` 内 `yaml.NewDecoder(...).KnownFields(true)` / `Decode`，却用 merge guard/`SetMaxSteps` 关闭解析机制维度，最终误写“Go 标准库的
+   yaml”。修复须把 analyzer 已有的 typed requested dimension 绑定到相应 required responsibility/file 的 executable operation，不扫描用户/模型/答案 prose，
+   不硬编码 YAML、配置名或 Go。
+7. `B1396-SAMEFILEFINALIZERCONTEXT1/P2` 再次复现：finalizer 收到 97 条 evidence、只引用 4 条，并明确列出 70 条 additional shared rows；系统派生池里虽有
+   `LoadRuntimeSettings.Decode`，但它不是模型已读并选中的解释证据，既不能替代调查，也增加错误拼接概率。下一施工顺序冻结为 B1404 → B1405 → B1396，
+   每批独立全测、提交、推送；B1406 在 write 异构批跟进。
+
+状态：
+
+`r902=runner-pass-2/2,human-config-fail+write-pass`；
+`B1401=production-positive/definition-bypass-closed`；
+`B1402=production-positive/no-false-enum-supplement`；
+`B1403=unit-positive/surface-symptom-partial-distinct-family-remains`；
+`B1404=confirmed/P1-next/stale-ungrounded-row-global-denial`；
+`B1405=confirmed/P1/dimension-responsibility-operation-gap`；
+`B1396=confirmed/P2/97-collected-4-cited`；
+`B1406=confirmed/P2/predictable-verification-build-side-effect`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r902`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
