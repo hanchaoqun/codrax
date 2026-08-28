@@ -59141,10 +59141,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    两路均无固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统代写模型结论、关系、成员、措辞或布局。
 2. B1410 获得生产正证并 core-close。枚举答案恢复 3 个 type、5 个 function、30 个 Kind constants，共 38 项；`SetExternalArtifactFloor`
    保留且具有独立源码支持。accepted complete principal superset 的保留没有生成新成员，也没有跨 production/tests 等交叉集合做 union。
-3. B1411 重裁。r905 的 `expected_count=30 visible_count=28` 是 summary 可见计数解析误读；r906 的最终表 30/30、日志也不再出现该 mismatch。
-   但系统仍附加“部分项证据支持稍弱” caveat，根因是第一次 source-inventory 分页的 `followup_debt/truncated=true` 会话 advisory 在后续 30 个成员均有
-   typed evidence、`deterministic-exhaustive-review missing=0` 后没有被清除。该缺口改记 `B1411-STALEENUMERATIONADVISORYAFTERCOMPLETEPROOF1/P1`：
-   只能用后代 typed completeness/evidence coverage 解除旧债，不扫描终稿或模型原文。
+3. B1411 初判（本节后由 §123.1484 冷读纠正）。r905 的 `expected_count=30 visible_count=28` 是 summary 可见计数解析误读；r906 的最终表
+   30/30、日志也不再出现该 mismatch。当时把最终“部分项证据支持稍弱” caveat 归到早期 source-inventory `followup_debt/truncated=true` 未清账；
+   后续逐条追踪 caveat 的实际 violation 与最终 patch 事务后，确认该归因不成立，见 §123.1484。
 4. 新 P1 `B1412-AGGREGATEMEMBERNOTEEXACTDEDUP1`：配置主体事实正确，但系统 supplement 中同一成员备注重复最多 6 次。代码路径为同一 accepted
    member 多轮 merge 后反复调用 `MergeEvidenceSummaries`；旧实现只比较整个摘要串，`A；B` 再与 `B；C` 汇合会把 B 重复附加。现已在共享 typed
    同锚摘要合并层按既有中文分号边界拆成规范化 atom，以精确相等/既有 containment 语义去重并保持首次顺序；不同模型说明仍全部保留，更完整的同句继续
@@ -59161,14 +59160,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 配置人工仍 partial：15 次 read/26 个 explorer iteration 偏重；Decode/merge/Changed 主张虽然正文正确，引用只落在字段定义、默认值与 flag 注册，
    B1409 继续开放；B1408 与 B1396 也未因本轮事实正确而自动关闭。完整逐轮记录见
    `eval/parallel_selected_summary_evalcampaign_config_count_replay_r906_20260828_manual_audit.md`。
-8. 下一施工顺序冻结为：B1412、B1414 已完成；接着 B1411 typed advisory 清账；B1413
-   需先设计 typed coverage equivalence，避免系统以 prose 相似度删除模型输出。完成后再恰好并发 2 路复放，并回到 read/write/Trace 异构高优先级样本。
+8. 原施工顺序由 §123.1484 更新：B1412、B1414 已完成；B1411 不另做宽泛 caveat 抑制，先随 B1414 做生产复放；B1413
+   需先设计 typed coverage equivalence，避免系统以 prose 相似度删除模型输出。完成后再回到 read/write/Trace 异构高优先级样本。
 
 状态：
 
 `r906=runner-pass-2/2,human-enumeration-fact-pass+process-partial,config-partial`；
 `B1410=production-positive/core-closed`；
-`B1411=confirmed/P1/reclassified-stale-advisory`；
+`B1411=initial-attribution-superseded-by-§123.1484`；
 `B1412=implemented/full-suite-pass+build-pass/pending-production-replay`；
 `B1413=confirmed/P2/design-first`；
 `B1414=implemented/full-suite-pass+build-pass/pending-production-replay`；
@@ -59178,6 +59177,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1484 B1411 冷读纠正：最终 caveat 来自未完成的 typed 成文元数据修补，归并 B1414（2026-08-28）
+
+1. 对 r906 从最终 `v2_block_oracles`、最后一次 patch 事务、accepted AnswerDocument 和 caveat materializer 逐层回溯后，确认最终
+   “枚举类条目中部分项的证据支持稍弱”并不是 `DowngradeLaneSourceInventoryCompletion` 的 navigation caveat 直接渲染。该 completion caveat
+   只留在 typed closure/调度遥测；用户可见枚举 caveat 来自终稿仍未满足 `member_set` 可见载体元数据。模型已经正确生成 38 行表和逐行引用，
+   但最后一次只提交 `replace_blocks=[{id,kind,title,surface_role,facet_ids}]`，把 replace 误当局部字段更新；事务因完整 table rows 缺失而拒绝，live base
+   保持原状，最终表仍只有 `enumeration_item` 而没有要求的 `member_set` facet。
+2. 代码已有正确的后代 typed 解除规则：`AnswerDocumentAcceptedEnumerationDisplayCoverage` 只基于 accepted aggregate row sets、结构化 principal
+   items 与行级 citation 计算 `Complete()+RowsFullyCited()`；成立时会把 `ViolEnumerationEvidenceUnderspecified` 等泛化枚举 caveat 降为 operator telemetry。
+   r906 未进入该臂不是 30/30 或证据收据被忽略，而是最终 typed block/member-set binding 修补没有成功落地。`deterministic-exhaustive-review missing=0`
+   只证明“终稿覆盖模型已提交的成员集”，不能证明 block 已携带全部答面元数据，也不能替代失败的 patch 事务。
+3. 因此 `B1411-STALEENUMERATIONADVISORYAFTERCOMPLETEPROOF1` 独立根因撤销并归并到
+   `B1414-PATCHMETADATAEDITUNPUBLISHED1`。不新增“看见 30/30 就消警”的抑制器：这种修法会在结构载体确实缺失时静默吞掉真实 typed 债，且把
+   exhaustive review 的成员一致性权限越权扩成答面合同确权。已提交的 B1414 修向才是根修：没有发布数组字段的原子编辑 branch 时，明确要求完整
+   `replace_blocks`、列出必须复制的 sibling fields，并说明 replace 不是 field merge。
+4. 下一步从 `1213b8f66` 后的新二进制严格并发恰好 2 路复放同一配置+枚举样本：枚举验收模型是否按可执行修向完整替换并保留 38 行，最终是否不再产生
+   泛化 caveat；配置同时验收 B1412 重叠摘要 atom 去重。若元数据已成功而 caveat 仍在，再以当轮具体 typed violation 立新件，不能沿用本次已否证归因。
+
+状态：
+
+`B1411=invalid-as-independent-root/merged-into-B1414`；
+`B1414=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`enumeration-caveat-clearance=accepted-typed-row-coverage+row-local-citations`；
+`exhaustive-review-authority=member-consistency-only/no-answer-contract-upgrade`；
+`request/model/final-prose/mermaid-content-scan=none`；
+`system-answer/member/wording/layout-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`。
 
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
