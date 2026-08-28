@@ -59026,6 +59026,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1480 r904：真实 Decode 已补读；责任自声明、scalar/count 所有权与引用关联暴露新缺口（2026-08-28）
+
+1. 从已推送 `7f59b6673` 构建不可变二进制，严格并发恰好 2 路复放配置解释与显式窗 Trace，runner 2/2 PASS：Trace 182s、配置
+   306s。两路都没有固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有旧稿回退或系统替换模型结论；以下人工审计不继承 runner
+   PASS。
+2. Trace 人工 partial、系统核心继续通过：显式 20ms 主窗、目标四态完整归账、3 次 target-filtered query、四跳唤醒链、11ms 链上 IO 第一席、三个
+   独立 1ms lower-priority runnable/供给候选、实际占时/现规则可消双账户、邻近/背景隔离、自动补齐与完整 `Trace 因果投影` 全在。一次 finalizer
+   轻量拒绝只补 typed summary/caliber，两个 patch 都是 add-block，没有删除模型正文。
+3. Trace 模型仍越过 reader-facing typed 边界：系统明确 `fscache_page_wait_on_page_bit` 只证明调用点、不识别对象/子系统/holder、不授权
+   prefetch/cache 方案，终稿仍扩写“页面缓存未就绪”、预取/缓存预热和锁持有者/优先级继承。继续归入 `B1269/B1271` 模型遵循波动；禁止用请求、模型
+   reasoning、终稿或关键词扫描做硬门，也禁止系统代写结论。
+4. B1405 获得部分生产正证。Explorer 这次真正读取 `LoadRuntimeSettings`，发射 `yaml.NewDecoder`、`KnownFields(true)` 与 `Decode(&s)` call，
+   终稿的默认值与覆盖顺序主事实正确。但 analyzer 用 5 iteration 才成功：一个独立 field-value 错误后，先漏掉高置信责任，再把 owner 全标
+   navigation-only，最终把 `runtime.go` 绑定 `[1,2,3]`。结构化 correction 能列全缺口，却仍给 analyzer 增加明显心智。
+5. 新 P1 `B1408-DIMENSIONOWNERSELFAUTHORITY1` 是 B1405 的剩余红线风险。CLI override 的真实 operation 在 `cmd/root.go`，analyzer 却把维度 3
+   owner 绑定 `runtime.go`；Explorer 后续虽发射真实 `Changed/IntVar`，完成门仍能由同一 `runtime.go:1635 Decode` 行自标 `[1,3]` 关闭两个席。
+   schema-typed 只证明载体有效，不证明 prescan 阶段的模型语义判断为真。后续不能继续加路径/语言特判；应把独立 operation 维度的可区分 executable
+   evidence matching 与探索导航建议分开，避免 noisy semantic guess 成为硬权威。
+6. `B1407-AGGREGATECOUNTSCALARCOLLISION1` 从后台 advisory 升级为用户可见 false caveat。默认值 scalar `50` 被当作
+   `pipeline_max_steps 优先级链操作节点` 的 `visible_count`，与 aggregate cardinality=5 比较；答案因而附加“部分验收检查未达到预期标准”。下一小批先
+   修 typed count ownership：只有显式属于该 aggregate/member-set 的 count claim 可参与 cardinality 对账，普通 scalar block 永不借位。
+7. 新 P2 `B1409-BLOCKCITATIONASSOCIATION1`：finalizer 提交 9 个真实 citation，summary/section 却没有 item/evidence carrier，emit-time 将其中 8 个
+   当 unused 裁掉，用户只看到 default=50 一条引用，无法从引用面核对解析/覆盖链。修复应提供 block-level 结构化关联/更低心智教学，不得从正文中的
+   `file:line` 正则回推引用。B1396 本轮未复现仅是调查路径变化，不据此关单。
+8. 下一施工顺序调整为 B1407 小批（确定性、用户可见且边界清楚）→ B1408 设计根修（先否证 analyzer 硬权威方案）→ B1409/B1396。每批保持全测、文档、
+   提交推送后再恰好 2 路异构回放。
+
+状态：
+
+`r904=runner-pass-2/2,human-trace-partial+config-fail`；
+`B1405=production-partial/real-decode-read+wrong-owner-self-authority`；
+`B1407=production-confirmed/user-visible-false-caveat/P1-next`；
+`B1408=confirmed/P1/model-authored-owner-not-semantic-authority`；
+`B1409=confirmed/P2/8-of-9-citations-pruned`；
+`B1396=not-reproduced-this-run/still-open`；
+`B1269/B1271=repeat-partial/model-guidance-open`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r904`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r904`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
