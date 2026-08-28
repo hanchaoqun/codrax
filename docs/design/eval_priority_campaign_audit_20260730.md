@@ -59135,6 +59135,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1483 r906：B1410 生产转正；枚举 caveat、备注合并与 patch 可执行性新缺口（2026-08-28）
+
+1. 从已推送 `322cd2db6` 构建不可变二进制，严格并发恰好 2 路复放配置解释与多集合枚举，runner 2/2 PASS：配置 208s、枚举 388s。
+   两路均无固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统代写模型结论、关系、成员、措辞或布局。
+2. B1410 获得生产正证并 core-close。枚举答案恢复 3 个 type、5 个 function、30 个 Kind constants，共 38 项；`SetExternalArtifactFloor`
+   保留且具有独立源码支持。accepted complete principal superset 的保留没有生成新成员，也没有跨 production/tests 等交叉集合做 union。
+3. B1411 重裁。r905 的 `expected_count=30 visible_count=28` 是 summary 可见计数解析误读；r906 的最终表 30/30、日志也不再出现该 mismatch。
+   但系统仍附加“部分项证据支持稍弱” caveat，根因是第一次 source-inventory 分页的 `followup_debt/truncated=true` 会话 advisory 在后续 30 个成员均有
+   typed evidence、`deterministic-exhaustive-review missing=0` 后没有被清除。该缺口改记 `B1411-STALEENUMERATIONADVISORYAFTERCOMPLETEPROOF1/P1`：
+   只能用后代 typed completeness/evidence coverage 解除旧债，不扫描终稿或模型原文。
+4. 新 P1 `B1412-AGGREGATEMEMBERNOTEEXACTDEDUP1`：配置主体事实正确，但系统 supplement 中同一成员备注重复最多 6 次。代码路径为同一 accepted
+   member 多轮 merge 后反复调用 `MergeEvidenceSummaries`；完全相同文本可去重，相近但不同的模型说明仍应全部保留，系统不得判哪句“更好”。
+5. 新 P2 `B1413-AGGREGATESUPPLEMENTREDUNDANTWITHMODELROSTER1`：模型主体已经用三行表完整表达 default→YAML→CLI，系统仍追加同一三项 principal
+   checklist。最优方向是只凭 typed block/facet/member binding 判断主体已承载 accepted set，从而不再补重复块；不读可见措辞，不删除或改写模型答案。
+6. 新 P1 `B1414-PATCHMETADATAEDITUNPUBLISHED1` 来自枚举 5 次 finalizer reject。首稿 table row 形和首列身份是模型结构错误；但系统随后要求删除
+   `source_inventory_family`，当轮却未发布该 field-edit；又要求“只补 `facet_ids`”，而 `replace_blocks` 要求模型完整重发 38 行表。系统产生的精确修向必须
+   在同轮工具 surface 可执行，否则会制造合同自冲突与无效重试。
+7. 配置人工仍 partial：15 次 read/26 个 explorer iteration 偏重；Decode/merge/Changed 主张虽然正文正确，引用只落在字段定义、默认值与 flag 注册，
+   B1409 继续开放；B1408 与 B1396 也未因本轮事实正确而自动关闭。完整逐轮记录见
+   `eval/parallel_selected_summary_evalcampaign_config_count_replay_r906_20260828_manual_audit.md`。
+8. 下一施工顺序冻结为：先 B1412 exact-note 去重（小而安全）；再 B1414 让系统修向与 patch surface 同源；随后 B1411 typed advisory 清账；B1413
+   需先设计 typed coverage equivalence，避免系统以 prose 相似度删除模型输出。完成后再恰好并发 2 路复放，并回到 read/write/Trace 异构高优先级样本。
+
+状态：
+
+`r906=runner-pass-2/2,human-enumeration-fact-pass+process-partial,config-partial`；
+`B1410=production-positive/core-closed`；
+`B1411=confirmed/P1/reclassified-stale-advisory`；
+`B1412=confirmed/P1/next`；
+`B1413=confirmed/P2/design-first`；
+`B1414=confirmed/P1`；
+`B1408/B1409/B1396=open`；
+`system-answer/conclusion/member/relation/wording/layout-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
