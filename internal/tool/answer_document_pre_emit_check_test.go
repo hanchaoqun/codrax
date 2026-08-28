@@ -9382,6 +9382,72 @@ func TestNormalizeCurrentSourceCitationSupplement_DoesNotAppendGenericAnchorAppe
 	}
 }
 
+func TestNormalizeCurrentSourceCitationSupplement_MentionedFileDoesNotAuthorizeSiblingEvidence(t *testing.T) {
+	newContext := func() *types.BusContext {
+		mu := types.NewMutableState("pipeline_max_steps precedence")
+		mu.AppendEvidence([]types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "defaultMaxSteps",
+				Source:          "cmd/root.go",
+				LineStart:       88,
+				Scope:           types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded,
+				Origin:          types.ClaimOriginCurrentRepo,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				AnchorKind:      types.AnchorReturn,
+				AnchorSymbol:    "rootPreRun",
+				Source:          "cmd/root.go",
+				LineStart:       602,
+				Scope:           types.ScopeLine,
+				GroundingStatus: types.GroundingGrounded,
+				Origin:          types.ClaimOriginCurrentRepo,
+			},
+		})
+		return &types.BusContext{
+			Mutable: mu,
+			AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent:   types.IntentConfigQuery,
+				Scenario: types.ScenarioConfigTrace,
+				Language: "zh",
+			}},
+		}
+	}
+
+	t.Run("exact visible location needs no appendix", func(t *testing.T) {
+		ctx := newContext()
+		doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			Text:        "`defaultMaxSteps` 在 `cmd/root.go:88` 定义默认值。",
+			SurfaceRole: types.SurfacePrincipal,
+		}}}
+		if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+			t.Fatalf("one exact location must not authorize a same-file appendix, fixed=%d doc=%+v", fixed, doc.Blocks)
+		}
+	})
+
+	t.Run("named identity recovers only its own location", func(t *testing.T) {
+		ctx := newContext()
+		doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			Text:        "`defaultMaxSteps` 提供配置默认值。",
+			SurfaceRole: types.SurfacePrincipal,
+		}}}
+		if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+			t.Fatalf("only the explicitly named evidence identity should be recovered, fixed=%d doc=%+v", fixed, doc.Blocks)
+		}
+		visible := answerDocumentVisibleText(doc)
+		if !strings.Contains(visible, "cmd/root.go:88") || strings.Contains(visible, "cmd/root.go:602") || strings.Contains(visible, "rootPreRun") {
+			t.Fatalf("same-file sibling evidence leaked into supplement:\n%s", visible)
+		}
+	})
+}
+
 func TestNormalizeCurrentSourceCitationSupplement_IgnoresOrdinarySummaryVisibility(t *testing.T) {
 	newContext := func(loadBearing bool) (*types.AnswerDocumentV2, *types.BusContext) {
 		mu := types.NewMutableState("结合当前源码说明当前状态")

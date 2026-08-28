@@ -58442,6 +58442,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `actual-time/rule-eliminable=separate-ledgers-present`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r896`。
 
+### §123.1463 r897/B1393：日志跨段量尺转正；系统源码锚点按同文件扩域污染答案（2026-08-28）
+
+1. 从已推送 `2b6ce9c89` 重建不可变二进制，严格并发恰好 2 路复放双日志 + 配置优先级 read，runner 2/2 PASS：日志 194s、read 188s。
+   两路均自然完成，没有固定 4ms/4m/首字节/流龄降级。日志人工 pass，`B1392` 获测量正证：同一结构化跨段答案通过 folded-text 共现量尺，两个错误、
+   四个关键帧与位置完整；本轮模型没有扩写 receiver ownership、下游慢、网络或 timeout policy，结合 r896 证明该残余是模型波动，不应硬化为正文扫描/改写。
+2. read runner PASS、人工 partial。模型主体正确给出代码默认 50 → YAML 非空覆盖 → 显式 CLI flag 优先的三层链，但系统随后追加
+   “系统按已验证证据补充关键源码锚点（6）”。其中 `PipelineMaxSteps` / `pipeline-max-steps` 与主题有关，`rootPreRun`、
+   `enforceStdinExclusivity`、`cliRuntimeAnalysisKickoffLines`、`rsMCPServers` 只是同在 `cmd/root.go` 的无关 concrete-values 行。
+3. 新确认并施工 `B1393-SAMEFILESOURCESUPPLEMENT1/P1`。根因是 document-wide `currentSourceCitationSupplementVisibleHit` 复用了局部 item matcher；后者允许
+   “label 等于 source file”作为行选择信号，但 document-wide 调用把整份答案当 label，于是一个 `cmd/root.go` 可见路径授权同文件所有证据。修复保留局部 matcher
+   原语义，只在系统补充器使用更窄的 typed 身份：Subject/Object/AnchorSymbol/OwnerSymbol 精确可见、producer-stamped SurfaceTerms，或显式
+   LoadBearingSummary/note。文件路径本身不再授权同文件兄弟证据。
+4. 新回归覆盖两臂：答案已显示 `defaultMaxSteps @ cmd/root.go:88` 时补充为 0，不能顺带追加 `rootPreRun @ :602`；答案只点名
+   `defaultMaxSteps` 且漏位置时仍精确补 `:88` 一行，不能带出 `:602`。这保持真正漏锚点的系统证据补充能力，同时切断无关整文件扩域。runtime-only/Trace
+   在该 normalizer 入口已 fail-open skip，显式窗因果投影、自动补采、链上根因与双账不受影响。
+5. `B1390-DIMENSIONOWNERSHIPFIRSTEMISSION1/P2` 仍确认开放。read 使用 23 个 explorer iteration、11 次 read、8 次 completion call；模型在多次完成时未给
+   维度 1/3 的 operation evidence 加 `requested_dimension_indices`，并在 typed remedy 后继续尝试 aggregate facts，直到第 14 轮才发射两条索引证据。
+   下一批应从 typed requested-dimension roster 在首次 completion 前做 schema/软教学绑定，不能从请求/答案原文猜，也不能让系统代写解释。最终一句把显式 CLI 值
+   说成进入 `mergedMaxSteps`（源码实际保留在 `flagMaxSteps`）记模型精度残余；已有 typed operation 足够，不授权系统改答案。
+
+状态：
+
+`r897=runner-pass-2/2,human-log-pass+read-partial`；
+`B1392=production-measurement-positive/core-closed`；
+`B1393=implemented/targeted+full-suite+build-green/pending-production-replay`；
+`B1390=confirmed-open/P2`；
+`source-supplement-authority=exact-typed-identity/not-file-wide`；
+`same-file-sibling-evidence=not-authorized`；
+`model-imprecision=no-system-rewrite/no-text-gate`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r897`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

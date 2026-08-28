@@ -1479,7 +1479,18 @@ func answerDocumentHasOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) bool {
 }
 
 func currentSourceCitationSupplementVisibleHit(ev types.EvidenceItem, visible string) bool {
-	if preEmitItemSurfaceMentionsEvidence("", visible, ev) {
+	// This document-wide supplement is allowed to recover a specifically
+	// mentioned evidence identity, not every row from a mentioned file. The
+	// ordinary item matcher also treats an exact source filename as a useful
+	// local row-selection signal; applying that rule to the whole document
+	// makes one `cmd/root.go` mention authorize unrelated functions from the
+	// same file. Keep only producer-stamped identities and surface terms here.
+	for _, endpoint := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+		if preEmitCodeSurfaceAppearsVerbatim(endpoint, visible) {
+			return true
+		}
+	}
+	if preEmitItemSurfaceMentionsEvidenceSurfaceTerm("", visible, ev) {
 		return true
 	}
 	note := currentSourceCitationSupplementNote(ev)
