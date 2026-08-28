@@ -150,12 +150,28 @@ type Symbol struct {
 	// contribute distinct entries deduplicated case-sensitively.
 	ReturnTypeNames []string `json:"return_type_names,omitempty"`
 
+	// ParameterBindings preserves parser-owned callable parameter names and
+	// their explicit static types.  It is identity metadata only: consumers
+	// may align an exact operation endpoint such as `bus.Mutable` with the
+	// declared `bus *BusContext` binding, but the binding never creates a call,
+	// assignment, data-flow edge, or execution-order claim by itself.
+	ParameterBindings []CallableParameterBinding `json:"parameter_bindings,omitempty"`
+
 	// ID is the canonical drift-proof identity. Re-derived at
 	// BuildGraph time from Name/Receiver/Parent/Arity + the containing
 	// FileInfo.Language and FileInfo.Package, so it is NOT persisted
 	// in the cache — omitted from JSON to keep the cache schema
 	// stable across versions that introduce the ID format.
 	ID SymbolID `json:"-"`
+}
+
+// CallableParameterBinding is one syntax-explicit parameter declaration on a
+// callable symbol. Untyped, destructured, or ambiguous parameters are omitted.
+// Binding is the source-level parameter identity and Type is its exact static
+// type spelling (possibly qualified/wrapped); both are parser-owned.
+type CallableParameterBinding struct {
+	Binding string `json:"binding"`
+	Type    string `json:"type"`
 }
 
 // Import represents an import/include/require statement.

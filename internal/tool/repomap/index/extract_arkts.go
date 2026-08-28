@@ -107,6 +107,7 @@ func tryTSGrammarForArkTS(src []byte, file string) ([]types.Symbol, []types.Impo
 	// extractJS owns its own walk; we throw away `pkg` (ArkTS has
 	// no package keyword) and pass isTS=true.
 	_, syms, imps, rels := extractJS(root, src, file, true)
+	backfillCallableParameterBindings(root, src, syms)
 	return syms, imps, rels, extractLineFeatures(root, src),
 		extractMemberInitializerBindings(root, src, types.LangArkTS),
 		extractControlFlowBranches(root, src), true

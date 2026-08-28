@@ -354,7 +354,7 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 	name := p.cur().Text
 	p.advance()
 	p.skipGenerics()
-	arity := p.countAndSkipParams()
+	arity, parameterBindings := p.countAndSkipParamsWithBindings()
 	// Return type `: T` — opaque, skip.
 	cjReturnTypes := p.skipReturnType()
 	p.skipWhereClause()
@@ -364,16 +364,17 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 		kind = "method"
 	}
 	p.syms = append(p.syms, types.Symbol{
-		Name:            name,
-		Kind:            kind,
-		File:            p.file,
-		Line:            start.Line,
-		EndLine:         start.Line,
-		Exported:        hasExportModifier(mods) || parent == "" && len(decorators) > 0,
-		Parent:          parent,
-		Arity:           arity,
-		Doc:             modifierDoc(mods),
-		ReturnTypeNames: cjReturnTypes,
+		Name:              name,
+		Kind:              kind,
+		File:              p.file,
+		Line:              start.Line,
+		EndLine:           start.Line,
+		Exported:          hasExportModifier(mods) || parent == "" && len(decorators) > 0,
+		Parent:            parent,
+		Arity:             arity,
+		ParameterBindings: parameterBindings,
+		Doc:               modifierDoc(mods),
+		ReturnTypeNames:   cjReturnTypes,
 	})
 	idx := len(p.syms) - 1
 
@@ -396,18 +397,19 @@ func (p *cangjieParser) parseForeignFunc(mods, decorators []string) {
 	name := p.cur().Text
 	p.advance()
 	p.skipGenerics()
-	p.countAndSkipParams()
+	_, parameterBindings := p.countAndSkipParamsWithBindings()
 	cjReturnTypes := p.skipReturnType()
 	p.consumeOptionalSemi()
 	p.syms = append(p.syms, types.Symbol{
-		Name:            name,
-		Kind:            "foreign-func",
-		File:            p.file,
-		Line:            start.Line,
-		EndLine:         start.Line,
-		Exported:        true,
-		Doc:             strings.TrimSpace("foreign " + modifierDoc(mods)),
-		ReturnTypeNames: cjReturnTypes,
+		Name:              name,
+		Kind:              "foreign-func",
+		File:              p.file,
+		Line:              start.Line,
+		EndLine:           start.Line,
+		Exported:          true,
+		Doc:               strings.TrimSpace("foreign " + modifierDoc(mods)),
+		ParameterBindings: parameterBindings,
+		ReturnTypeNames:   cjReturnTypes,
 	})
 }
 
@@ -452,19 +454,20 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 		// Unknown token shape — advance defensively to avoid stall.
 		p.advance()
 	}
-	p.countAndSkipParams()
+	_, parameterBindings := p.countAndSkipParamsWithBindings()
 	cjReturnTypes := p.skipReturnType()
 	p.skipWhereClause()
 	p.syms = append(p.syms, types.Symbol{
-		Name:            "operator " + opText,
-		Kind:            "operator",
-		File:            p.file,
-		Line:            start.Line,
-		EndLine:         start.Line,
-		Exported:        hasExportModifier(mods),
-		Parent:          parent,
-		Doc:             strings.TrimSpace("operator " + modifierDoc(mods)),
-		ReturnTypeNames: cjReturnTypes,
+		Name:              "operator " + opText,
+		Kind:              "operator",
+		File:              p.file,
+		Line:              start.Line,
+		EndLine:           start.Line,
+		Exported:          hasExportModifier(mods),
+		Parent:            parent,
+		Doc:               strings.TrimSpace("operator " + modifierDoc(mods)),
+		ReturnTypeNames:   cjReturnTypes,
+		ParameterBindings: parameterBindings,
 	})
 	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
@@ -476,16 +479,17 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 func (p *cangjieParser) parseInit(mods, decorators []string, parent string) {
 	start := p.cur()
 	p.advance() // 'init'
-	p.countAndSkipParams()
+	_, parameterBindings := p.countAndSkipParamsWithBindings()
 	p.syms = append(p.syms, types.Symbol{
-		Name:     "init",
-		Kind:     "ctor",
-		File:     p.file,
-		Line:     start.Line,
-		EndLine:  start.Line,
-		Exported: hasExportModifier(mods) || parent != "",
-		Parent:   parent,
-		Doc:      strings.TrimSpace(modifierDoc(mods) + " init"),
+		Name:              "init",
+		Kind:              "ctor",
+		File:              p.file,
+		Line:              start.Line,
+		EndLine:           start.Line,
+		Exported:          hasExportModifier(mods) || parent != "",
+		Parent:            parent,
+		Doc:               strings.TrimSpace(modifierDoc(mods) + " init"),
+		ParameterBindings: parameterBindings,
 	})
 	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
@@ -500,17 +504,18 @@ func (p *cangjieParser) parseMainEntry() {
 	if p.cur().Kind != cjTokLParen {
 		return // not a main-entry shorthand
 	}
-	p.countAndSkipParams()
+	_, parameterBindings := p.countAndSkipParamsWithBindings()
 	cjReturnTypes := p.skipReturnType()
 	p.syms = append(p.syms, types.Symbol{
-		Name:            "main",
-		Kind:            "function",
-		File:            p.file,
-		Line:            start.Line,
-		EndLine:         start.Line,
-		Exported:        true,
-		Doc:             "main entry",
-		ReturnTypeNames: cjReturnTypes,
+		Name:              "main",
+		Kind:              "function",
+		File:              p.file,
+		Line:              start.Line,
+		EndLine:           start.Line,
+		Exported:          true,
+		Doc:               "main entry",
+		ReturnTypeNames:   cjReturnTypes,
+		ParameterBindings: parameterBindings,
 	})
 	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
@@ -776,29 +781,39 @@ func (p *cangjieParser) skipReturnType() []string {
 	return out
 }
 
-// countAndSkipParams consumes a parenthesised parameter list and
-// returns the top-level comma count + 1 (the parameter arity).
-// Nested parens (default values / lambda types) are balance-
-// tracked so their commas do not inflate the count.
-func (p *cangjieParser) countAndSkipParams() int {
+// countAndSkipParamsWithBindings consumes a parenthesised parameter list and
+// returns both arity and exact `name: Type` bindings. Nested defaults, generic
+// types, and lambda types are balance-tracked; untyped or ambiguous segments
+// contribute to arity but publish no identity binding.
+func (p *cangjieParser) countAndSkipParamsWithBindings() (int, []types.CallableParameterBinding) {
 	if p.cur().Kind != cjTokLParen {
-		return 0
+		return 0, nil
 	}
 	p.advance()
 	depth := 0
 	arity := 0
 	hasAny := false
+	var segment []cangjieToken
+	var bindings []types.CallableParameterBinding
+	flush := func() {
+		if binding, ok := cangjieCallableParameterBinding(segment); ok {
+			bindings = append(bindings, binding)
+		}
+		segment = nil
+	}
 	for p.cur().Kind != cjTokEOF {
 		t := p.cur()
 		if depth == 0 {
 			switch t.Kind {
 			case cjTokRParen:
+				flush()
 				p.advance()
 				if hasAny {
-					return arity + 1
+					return arity + 1, bindings
 				}
-				return 0
+				return 0, nil
 			case cjTokComma:
+				flush()
 				arity++
 				p.advance()
 				continue
@@ -809,18 +824,78 @@ func (p *cangjieParser) countAndSkipParams() int {
 			depth++
 		case cjTokRParen, cjTokRBracket, cjTokRAngle, cjTokRBrace:
 			if depth == 0 {
+				flush()
 				p.advance()
 				if hasAny {
-					return arity + 1
+					return arity + 1, bindings
 				}
-				return 0
+				return 0, nil
 			}
 			depth--
 		}
 		hasAny = true
+		segment = append(segment, t)
 		p.advance()
 	}
-	return 0
+	return 0, nil
+}
+
+func cangjieCallableParameterBinding(tokens []cangjieToken) (types.CallableParameterBinding, bool) {
+	colon := -1
+	depth := 0
+	for i, token := range tokens {
+		switch token.Kind {
+		case cjTokLParen, cjTokLBracket, cjTokLAngle, cjTokLBrace:
+			depth++
+		case cjTokRParen, cjTokRBracket, cjTokRAngle, cjTokRBrace:
+			if depth > 0 {
+				depth--
+			}
+		case cjTokColon:
+			if depth == 0 {
+				colon = i
+			}
+		}
+		if colon >= 0 {
+			break
+		}
+	}
+	if colon <= 0 || colon+1 >= len(tokens) {
+		return types.CallableParameterBinding{}, false
+	}
+	name := ""
+	for i := colon - 1; i >= 0; i-- {
+		if tokens[i].Kind == cjTokIdent {
+			name = strings.TrimSpace(tokens[i].Text)
+			break
+		}
+	}
+	if name == "" {
+		return types.CallableParameterBinding{}, false
+	}
+	depth = 0
+	var typeParts []string
+	for _, token := range tokens[colon+1:] {
+		if depth == 0 && token.Kind == cjTokEq {
+			break
+		}
+		if token.Text != "" {
+			typeParts = append(typeParts, token.Text)
+		}
+		switch token.Kind {
+		case cjTokLParen, cjTokLBracket, cjTokLAngle, cjTokLBrace:
+			depth++
+		case cjTokRParen, cjTokRBracket, cjTokRAngle, cjTokRBrace:
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	declaredType := strings.TrimSpace(strings.Join(typeParts, ""))
+	if declaredType == "" {
+		return types.CallableParameterBinding{}, false
+	}
+	return types.CallableParameterBinding{Binding: name, Type: declaredType}, true
 }
 
 // skipBalanced skips a matching pair of `open`/`close` tokens.

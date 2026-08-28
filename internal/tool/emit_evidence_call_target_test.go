@@ -227,6 +227,28 @@ func TestEmitEvidenceStampsExactOperationBindingWithoutDeclarationEvidence(t *te
 	}
 }
 
+func TestEmitEvidenceStampsCallableParameterBindingOnExactOperationEndpoint(t *testing.T) {
+	const source = "internal/context/builder.go"
+	graph := callTargetTestGraph(&repomap.FileInfo{
+		RelPath: source, Language: repomap.LangGo, Package: "context",
+		Symbols: []repomap.Symbol{{
+			Name: "BuildAgentContext", Kind: "function", File: source, Line: 26, EndLine: 80,
+			ParameterBindings: []repomap.CallableParameterBinding{{Binding: "bus", Type: "*types.BusContext"}},
+		}},
+	})
+	item := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Subject: "Mutable", Predicate: "assigns", Object: "bus.Mutable",
+		Source: source, LineStart: 59, Scope: types.ScopeLine, AnchorKind: types.AnchorInitializer,
+		AnchorSymbol: "Mutable", Snippet: "Mutable: bus.Mutable,", GroundingStatus: types.GroundingGrounded,
+	}
+	stampEvidenceTypedIdentityBindings(&item, &ground.Context{Graph: graph})
+	if item.OwnerIdentity != "context.BuildAgentContext" || len(item.DeclaredIdentityBindings) != 1 ||
+		item.DeclaredIdentityBindings[0].Binding != "context.BuildAgentContext.bus" ||
+		item.DeclaredIdentityBindings[0].Type != "*types.BusContext" {
+		t.Fatalf("exact callable parameter identity was not stamped on the operation: %+v", item)
+	}
+}
+
 func TestNormalizeCallEvidenceDirectionPrefersResolvedSemanticCallee(t *testing.T) {
 	caller := &repomap.FileInfo{
 		RelPath: "VisitController.java", Language: repomap.LangJava, Package: "com.clinic",

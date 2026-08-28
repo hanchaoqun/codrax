@@ -59053,6 +59053,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1426 r873/B1359：参数静态身份丢失使精确载体边在候选编译前消失（2026-08-28）
+
+1. 从已推送 `dae32cf7e` 重建不可变二进制，严格并发恰好 2 路复放 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 183s、read
+   436s。Trace 人工 pass：2.000..2.020s 窗、6 次 bounded typed query、四跳唤醒链、11.000ms iowait 第一席、三个独立
+   1.000ms 优先级候选、实际占时/规则可消双账户、链上业务线索和完整「Trace 因果投影」均在；无 fixed 4ms/4m、首字节或活动流年龄降级。
+2. read 人工 partial。四阶段职责与三条 typed precedence 正确，但最终图把核心载体关系表达成
+   `BusContext -> BuildAgentContext -> Mutable -> objective`。源码中的精确 `Mutable: bus.Mutable` 已被模型读取、经 parser-owned shape repair
+   重发并接受，完整证据池也保留 `bus.Mutable -> Mutable`，所以不是模型没探索或 Mermaid 语法波动。
+3. 新 P1 `B1359-PARAMFLOWIDENT1` 根因有两层。repomap 只发布 callable 符号，未保留参数名到静态类型的声明身份，因此 operation endpoint
+   `bus.Mutable` 同时可被 BusContext 容器与 Mutable 字段/值匹配；关系域又逐端点独立要求唯一，未利用对端已经唯一命中 Mutable 的事实，最终把
+   本可唯一确定的 BusContext→Mutable 直接边整体丢弃。bounded candidate 只剩 `bus.Mutable.Objective -> objective` 与
+   `BuildAgentContext -> bus.Mutable.Objective` 等弱局部操作，模型被要求从这个截断 roster 选择，三轮修补也无法恢复不存在的候选。
+4. 最优方案分四层且不扩大关系权威：repomap 在 callable 上保存 parser-owned `{binding,type}`；emit_evidence 仅当 operation endpoint 含精确参数
+   segment 且 callable owner 一致时，把声明身份 stamp 到该 operation；participant scope 在整条边上求唯一 distinct pairing，而非逐侧独立判歧义；
+   同一 typed 轴内，把能直接覆盖两个不同请求参与者的候选排在局部单参与者操作前。声明永远只做身份连接，operation 继续单独决定 relation kind、
+   direction、endpoint 与 source line；孤立歧义、无类型和多配对继续 fail-closed。
+5. 语言面统一覆盖 Go、Java、Python 类型注解、TypeScript、ArkTS、Kotlin、Rust、C、C++、Swift 与仓颉。JavaScript、Ruby、Lua 无静态类型参数时
+   保持空 binding，不从参数名或源码 prose 猜类型。所有 extractor version 同步 bump，阻止暖缓存保留旧身份结果。回归钉住通用 parser、
+   `parseOneFile` 生产接线、operation-local stamp、BusContext→Mutable 双参与者直接候选和孤立歧义 fail-closed。
+6. 同轮另确认独立 P1 `B1360-REGISTRATIONSHAPE1`，与本批隔离：普通
+   `BuildAgentContext(o.busCtx, AgentExtractor, StageExtract)` 调用被模型发成 registration，现有校验因 object 在真实源码行可见而接受。下一批需从
+   parser-owned source shape 判定 registry/decorator/table binding，不能靠函数名、请求/答案 prose 或这个单一样例过滤，也不能误伤真实注册和
+   runtime-selection 证据。
+7. 本批不改 Trace query、显式窗选举、自动补采、因果投影、链上根因排序、实际占时/规则可消量或背景隔离；不扫描用户输入、模型原文、答案 prose
+   或 Mermaid label 做硬门；系统只发布更完整的 typed candidate，最终边、标签、布局、说明与结论仍由模型选择。
+
+状态：
+
+`r873=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1357+B1358=production-positive/no-hidden-same-generation-delta`；
+`B1359=implemented/focused+full-suite+build-pass/pending-production-replay`；
+`B1360=confirmed/P1-next/separate-source-shape-batch`；
+`callable-parameter-identity=parser-owned/cross-language/versioned`；
+`edge-resolution=joint-unique-distinct-pairing/lone-ambiguity-fail-closed`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r873`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r873`。
+
 ### §123.1364 S1319：计划自有单行源码合同获得语言无关的 post-apply 精确观察（2026-08-22）
 
 1. `B1319-WRITESOURCECONTRACTOBS1/P1` 已施工。`run_tests` 在非 dry-run 的 post-apply 报告封口处新增独立

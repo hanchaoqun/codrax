@@ -231,21 +231,21 @@ const cacheFileInfosChunkSize = 1024
 // would be cheaper but adds complexity we don't need until scan
 // latency is a real bottleneck.
 var extractorVersions = map[string]int{
-	types.LangGo:         10, // explicit composite member-owner identity
-	types.LangJava:       9,  // parser-owned lexical control branches
-	types.LangPython:     11, // generic assignment node publishes assignment line features
-	types.LangJavaScript: 8,  // parser-owned lexical control branches
-	types.LangTypeScript: 11, // explicit typed object member-owner identity
-	types.LangArkTS:      12, // TS-backed explicit typed object member-owner identity
-	types.LangCangjie:    8,  // lexer-backed guard features and balanced control branches
-	types.LangKotlin:     9,  // parser-owned lexical control branches
-	types.LangRuby:       6,  // generic assignment node publishes assignment line features
-	types.LangSwift:      8,  // parser-owned lexical control branches
-	types.LangLua:        6,  // parser-owned lexical control branches
-	types.LangProto:      3,  // message fields carry parser-owned declared types
-	types.LangRust:       10, // explicit struct member-owner identity
-	types.LangC:          9,  // explicit designated-initializer owner identity
-	types.LangCpp:        10, // explicit designated-initializer owner identity
+	types.LangGo:         11, // callable parameter identity bindings
+	types.LangJava:       10, // callable parameter identity bindings
+	types.LangPython:     12, // callable parameter identity bindings
+	types.LangJavaScript: 9,  // callable parameter identity bindings (typed rows only)
+	types.LangTypeScript: 12, // callable parameter identity bindings
+	types.LangArkTS:      13, // TS-backed callable parameter identity bindings
+	types.LangCangjie:    9,  // lexer-backed callable parameter identity bindings
+	types.LangKotlin:     10, // callable parameter identity bindings
+	types.LangRuby:       7,  // callable parameter identity bindings (typed rows only)
+	types.LangSwift:      9,  // callable parameter identity bindings
+	types.LangLua:        7,  // callable parameter identity bindings (typed rows only)
+	types.LangProto:      4,  // typed callable surface epoch shared with cache schema
+	types.LangRust:       11, // callable parameter identity bindings
+	types.LangC:          10, // callable parameter identity bindings
+	types.LangCpp:        11, // callable parameter identity bindings
 }
 
 type cacheFileInfosManifest struct {

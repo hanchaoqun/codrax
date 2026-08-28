@@ -423,6 +423,7 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 	// wiring (goExtractFunc / goExtractMethod) is preserved — the
 	// post-pass only sets the field when currently empty.
 	backfillReturnTypeNames(root, source, fi.Symbols)
+	backfillCallableParameterBindings(root, source, fi.Symbols)
 
 	return fi
 }

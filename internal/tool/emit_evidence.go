@@ -5072,6 +5072,42 @@ func parserDeclaredIdentityBindingsForOperation(graph *repomap.Graph, fi *repoma
 	for idx := range fi.Symbols {
 		add(fi.Symbols[idx], true)
 	}
+	// Callable parameters are not ordinary repository members and therefore do
+	// not enter the public symbol roster.  The parser preserves them on the
+	// enclosing callable instead.  Admit only a parameter whose exact binding
+	// segment occurs in this operation's endpoints; this is the missing typed
+	// identity bridge for shapes such as `Mutable: bus.Mutable`, where `bus`
+	// was declared `*BusContext`.  The operation remains the only relation
+	// authority and the parameter declaration creates no edge on its own.
+	if callable := enclosingCallableSymbol(fi, it.LineStart); callable != nil {
+		owner := qualifiedEvidenceSymbolNameInFile(fi, callable)
+		operationOwner := strings.TrimSpace(it.OwnerIdentity)
+		if owner != "" && (operationOwner == "" ||
+			types.AnswerCodeIdentityOwnsEndpoint(owner, operationOwner) ||
+			types.AnswerCodeIdentitySurfacesCompatible(owner, operationOwner)) {
+			for _, parameter := range callable.ParameterBindings {
+				name := strings.TrimSpace(parameter.Binding)
+				declaredType := strings.TrimSpace(parameter.Type)
+				if name == "" || declaredType == "" ||
+					(!types.AnswerCodeIdentityContainsExactSegment(it.Subject, name) &&
+						!types.AnswerCodeIdentityContainsExactSegment(it.Object, name)) {
+					continue
+				}
+				binding := types.EvidenceDeclaredIdentityBinding{
+					Binding: owner + "." + name,
+					Type:    declaredType,
+					Owner:   owner,
+				}
+				if prior, ok := byBinding[binding.Binding]; ok {
+					if prior.Type != binding.Type || prior.Owner != binding.Owner {
+						ambiguous[binding.Binding] = true
+					}
+					continue
+				}
+				byBinding[binding.Binding] = binding
+			}
+		}
+	}
 	// Methods and their receiver fields commonly live in different source
 	// files (Go package receivers are the production witness).  Once the
 	// operation owner is parser-stamped, consult only exact endpoint segments

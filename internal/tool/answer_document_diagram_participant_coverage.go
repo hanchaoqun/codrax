@@ -64,6 +64,7 @@ type diagramParticipantTypedIncidentCandidate struct {
 	location                string
 	participantEndpointSide string
 	stageAuthority          bool
+	directParticipantPair   bool
 	visibleLabel            string
 	// localOnly keeps an independently grounded operation visible without
 	// allowing it to close the requested multi-participant relation.  The
@@ -2362,7 +2363,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 	}
 	seen := make(map[string]bool)
 	candidates := make([]diagramParticipantTypedIncidentCandidate, 0, limit)
-	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide, visibleLabel string, stageAuthority, localOnly bool) {
+	add := func(relation types.DiagramRelationKind, anchor types.AnchorKind, from, to, location, participantEndpointSide, visibleLabel string, stageAuthority, directParticipantPair, localOnly bool) {
 		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
 		participantEndpointSide = strings.TrimSpace(participantEndpointSide)
 		if !relation.IsValid() || from == "" || to == "" || participantEndpointSide == "" {
@@ -2377,7 +2378,8 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 			participant: strings.TrimSpace(obligation.Identity),
 			relation:    relation, anchor: anchor, from: from, to: to, location: location,
 			participantEndpointSide: participantEndpointSide, stageAuthority: stageAuthority,
-			visibleLabel: strings.TrimSpace(visibleLabel), localOnly: localOnly,
+			directParticipantPair: directParticipantPair,
+			visibleLabel:          strings.TrimSpace(visibleLabel), localOnly: localOnly,
 		})
 	}
 	for _, relation := range stagePrecedence {
@@ -2391,7 +2393,7 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 				fmt.Sprintf("%s:%d-%d", relation.SourceFile, relation.LineStart, relation.LineEnd),
 				diagramParticipantCandidateEndpointSide(fromIncident, toIncident),
 				stageauthority.ReadModeTransitionReaderLabel(relation.From.StageValue, relation.To.StageValue,
-					strings.HasPrefix(strings.ToLower(strings.TrimSpace(rm.Language)), "zh")), true, false)
+					strings.HasPrefix(strings.ToLower(strings.TrimSpace(rm.Language)), "zh")), true, true, false)
 		}
 	}
 	for operationIndex, operation := range diagramRequestedRelationEvidenceForRequest(evidence, rm) {
@@ -2416,12 +2418,25 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 			}
 			relation, from, to = types.DiagramRelDataFlow, value, receiver
 		}
-		fromIncident := diagramParticipantCandidateEndpointMatches(surfaces, from, operation, evidence)
-		toIncident := diagramParticipantCandidateEndpointMatches(surfaces, to, operation, evidence)
+		resolvedFrom, resolvedTo := flowResolvedOperationParticipantEndpoints(
+			rm, obligations, allSurfaces, from, to, operation, evidence, stagePrecedence,
+		)
+		fromIncident, toIncident := false, false
+		for _, participantIndex := range resolvedFrom {
+			fromIncident = fromIncident || participantIndex == obligationIndex
+		}
+		for _, participantIndex := range resolvedTo {
+			toIncident = toIncident || participantIndex == obligationIndex
+		}
+		if obligationIndex < 0 {
+			fromIncident = diagramParticipantCandidateEndpointMatches(surfaces, from, operation, evidence)
+			toIncident = diagramParticipantCandidateEndpointMatches(surfaces, to, operation, evidence)
+		}
 		if fromIncident || toIncident {
+			directPair := len(resolvedFrom) == 1 && len(resolvedTo) == 1 && resolvedFrom[0] != resolvedTo[0]
 			add(relation, operation.AnchorKind, from, to, operation.DisplayLocation(true),
 				diagramParticipantCandidateEndpointSide(fromIncident, toIncident), "", false,
-				localOnlyParticipant)
+				directPair, localOnlyParticipant)
 		}
 	}
 	// Candidate ordering is selection guidance only: it never creates, removes,
@@ -2436,6 +2451,9 @@ func diagramParticipantTypedIncidentCandidateValuesWithScope(
 		rightRank := diagramParticipantTypedCandidateRank(rm.PredicateAxis, right.relation, right.anchor, right.stageAuthority)
 		if leftRank != rightRank {
 			return leftRank < rightRank
+		}
+		if left.directParticipantPair != right.directParticipantPair {
+			return left.directParticipantPair
 		}
 		if left.location != right.location {
 			return left.location < right.location

@@ -498,6 +498,44 @@ func TestDiagramParticipantTypedIncidentCandidatesRankByTypedAxisBeforeBound(t *
 	}
 }
 
+func TestDiagramParticipantTypedCandidatesResolveContainerFieldOverlapAcrossEdge(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants},
+	}
+	operation := diagramEvidenceTestCall("Mutable", "bus.Mutable")
+	operation.ID = "ev-bus-mutable-copy"
+	operation.Predicate = "assigns"
+	operation.AnchorKind = types.AnchorInitializer
+	operation.AnchorSymbol = "Mutable"
+	operation.InitializerContainer = "AgentContext"
+	operation.Snippet = "Mutable: bus.Mutable,"
+	operation.Source, operation.LineStart = "internal/context/builder.go", 59
+	operation.OwnerIdentity = "context.BuildAgentContext"
+	operation.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "context.BuildAgentContext.bus", Type: "*types.BusContext", Owner: "context.BuildAgentContext",
+	}}
+	surfaces := [][]string{{"BusContext"}, {"Mutable"}}
+	scope := buildFlowParticipantRelationScope(rm, participants, surfaces, []types.EvidenceItem{operation}, nil)
+	if !scope.participantCovered[0] || !scope.participantCovered[1] || !scope.operationRelevant[0] {
+		t.Fatalf("the unique BusContext-owned field -> Mutable receiver pair must stay request-scoped: %+v", scope)
+	}
+	for i, wantSide := range []string{"from", "to"} {
+		rows := diagramParticipantTypedIncidentCandidateValuesWithScope(
+			rm, participants[i], []types.EvidenceItem{operation}, nil, 2,
+			participants, surfaces, i, scope,
+		)
+		if len(rows) != 1 || rows[0].from != "bus.Mutable" || rows[0].to != "AgentContext.Mutable" ||
+			rows[0].participantEndpointSide != wantSide || !rows[0].directParticipantPair {
+			t.Fatalf("participant %s lost the same direct typed copy on side %s: %+v", participants[i].Identity, wantSide, rows)
+		}
+	}
+}
+
 func TestDiagramParticipantTypedIncidentCandidatesRetainStageAndOperationDiversityWithinCap(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
 		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},

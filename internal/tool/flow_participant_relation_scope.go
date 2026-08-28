@@ -262,23 +262,16 @@ func buildFlowParticipantRelationScope(
 		if edge.stageFrom != nil && edge.stageTo != nil {
 			componentRequestScoped[root] = true
 		}
-		fromMatches := make([]int, 0, 1)
-		toMatches := make([]int, 0, 1)
-		for participantIndex, participant := range participants {
-			if participant.Role != types.DiagramParticipantIncidentRequired ||
-				participantIndex >= len(participantSurfaces) {
-				continue
-			}
-			if edge.operation != nil {
-				if diagramParticipantCandidateEndpointMatches(participantSurfaces[participantIndex], edge.from, *edge.operation, evidence) ||
-					stageauthority.ParticipantMatchesStageEndpoint(rm, participant, edge.from, stagePrecedence) {
-					fromMatches = append(fromMatches, participantIndex)
+		var fromMatches, toMatches []int
+		if edge.operation != nil {
+			fromMatches, toMatches = flowResolvedOperationParticipantEndpoints(
+				rm, participants, participantSurfaces, edge.from, edge.to, *edge.operation, evidence, stagePrecedence,
+			)
+		} else if edge.stageFrom != nil && edge.stageTo != nil {
+			for participantIndex, participant := range participants {
+				if participant.Role != types.DiagramParticipantIncidentRequired || participantIndex >= len(participantSurfaces) {
+					continue
 				}
-				if diagramParticipantCandidateEndpointMatches(participantSurfaces[participantIndex], edge.to, *edge.operation, evidence) ||
-					stageauthority.ParticipantMatchesStageEndpoint(rm, participant, edge.to, stagePrecedence) {
-					toMatches = append(toMatches, participantIndex)
-				}
-			} else if edge.stageFrom != nil && edge.stageTo != nil {
 				if stageauthority.ParticipantMatchesStageRow(rm, participant, *edge.stageFrom) {
 					fromMatches = append(fromMatches, participantIndex)
 				}
@@ -458,6 +451,104 @@ func buildFlowParticipantRelationScope(
 		}
 	}
 	return scope
+}
+
+// flowResolvedOperationParticipantEndpoints resolves endpoint incidence at
+// the whole-edge level. A qualified member endpoint may precisely carry two
+// identities at once: its declared receiver/container type and its field/value
+// type. Resolving each side independently treated that legitimate overlap as
+// ambiguity and discarded relations such as `bus.Mutable -> Mutable` even
+// when the opposite endpoint uniquely selected Mutable. We now admit only the
+// unique distinct pairing across both endpoints. A lone ambiguous endpoint
+// (for example Foo versus pkg.Foo with no opposite typed participant) remains
+// fail-closed. No prose, labels, or model output participates.
+func flowResolvedOperationParticipantEndpoints(
+	rm types.RequestModel,
+	participants []types.DiagramParticipantHint,
+	participantSurfaces [][]string,
+	from, to string,
+	operation types.EvidenceItem,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) ([]int, []int) {
+	fromCandidates := flowOperationEndpointParticipantCandidates(
+		rm, participants, participantSurfaces, from, operation, evidence, stagePrecedence,
+	)
+	toCandidates := flowOperationEndpointParticipantCandidates(
+		rm, participants, participantSurfaces, to, operation, evidence, stagePrecedence,
+	)
+	if len(participants) <= 1 {
+		return uniqueParticipantEndpointCandidate(fromCandidates), uniqueParticipantEndpointCandidate(toCandidates)
+	}
+	fromResolved := uniqueParticipantEndpointCandidate(fromCandidates)
+	toResolved := uniqueParticipantEndpointCandidate(toCandidates)
+	if len(fromResolved) == 0 && len(fromCandidates) > 1 && len(toResolved) == 1 {
+		fromResolved = uniqueParticipantEndpointCandidateExcluding(fromCandidates, toResolved[0])
+	}
+	if len(toResolved) == 0 && len(toCandidates) > 1 && len(fromResolved) == 1 {
+		toResolved = uniqueParticipantEndpointCandidateExcluding(toCandidates, fromResolved[0])
+	}
+	if len(fromResolved) == 0 && len(toResolved) == 0 && len(fromCandidates) > 1 && len(toCandidates) > 1 {
+		type pair struct{ from, to int }
+		var pairs []pair
+		for _, fromIndex := range fromCandidates {
+			for _, toIndex := range toCandidates {
+				if fromIndex != toIndex {
+					pairs = append(pairs, pair{from: fromIndex, to: toIndex})
+				}
+			}
+		}
+		if len(pairs) == 1 {
+			fromResolved, toResolved = []int{pairs[0].from}, []int{pairs[0].to}
+		}
+	}
+	return fromResolved, toResolved
+}
+
+func flowOperationEndpointParticipantCandidates(
+	rm types.RequestModel,
+	participants []types.DiagramParticipantHint,
+	participantSurfaces [][]string,
+	endpoint string,
+	operation types.EvidenceItem,
+	evidence []types.EvidenceItem,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) []int {
+	var out []int
+	for i, participant := range participants {
+		if participant.Role != types.DiagramParticipantIncidentRequired || i >= len(participantSurfaces) {
+			continue
+		}
+		if diagramParticipantCandidateEndpointMatches(participantSurfaces[i], endpoint, operation, evidence) ||
+			stageauthority.ParticipantMatchesStageEndpoint(rm, participant, endpoint, stagePrecedence) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func uniqueParticipantEndpointCandidate(candidates []int) []int {
+	if len(candidates) == 1 {
+		return []int{candidates[0]}
+	}
+	return nil
+}
+
+func uniqueParticipantEndpointCandidateExcluding(candidates []int, excluded int) []int {
+	selected := -1
+	for _, candidate := range candidates {
+		if candidate == excluded {
+			continue
+		}
+		if selected >= 0 && selected != candidate {
+			return nil
+		}
+		selected = candidate
+	}
+	if selected < 0 {
+		return nil
+	}
+	return []int{selected}
 }
 
 // diagramRequestedRelationEvidenceForRequest is the single typed evidence
