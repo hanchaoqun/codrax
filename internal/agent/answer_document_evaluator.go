@@ -8986,26 +8986,16 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 		}
 		if dc := answerDocDiagramContract(ctx); dc != nil {
 			if boundaries, _ := answerDocDiagramUnprovenParticipantBoundaries(ctx, dc); len(boundaries) > 0 {
-				// The typed topology body and edge anchors used to be followed by a
-				// separate participant-boundary recipe. A model could correctly
-				// copy the first carrier and miss the second, then be rejected by
-				// the participant gate even though both values came from the same
-				// typed coverage decision. Publish one atomic block-sibling object
-				// instead. It remains authoring input only: it creates no visible
-				// edge, node, wording, or conclusion.
-				anchors := make([]types.DiagramEdgeAnchor, 0, len(receipts.relationAnchors)+len(receipts.semanticHandoffAnchors))
-				anchors = append(anchors, receipts.relationAnchors...)
-				anchors = append(anchors, receipts.semanticHandoffAnchors...)
-				payload, err := json.Marshal(struct {
-					EdgeAnchors           []types.DiagramEdgeAnchor          `json:"edge_anchors"`
-					ParticipantBoundaries []types.DiagramParticipantBoundary `json:"participant_boundaries"`
-				}{
-					EdgeAnchors:           anchors,
-					ParticipantBoundaries: boundaries,
-				})
-				if err == nil {
-					fmt.Fprintf(&b, "- diagram_block_sibling_fields_json=`%s`; this single object is the complete block-level typed metadata carrier for the topology template. Copy both arrays together into the same model-authored diagram block; do not reconstruct or selectively omit one array. Replace every `AUTHOR_BUSINESS_ACTION` placeholder with your business/domain message and copy it into the matching anchor visible_label. The boundary rows constrain only the still-unproved requested relation, while independently proved local arrows remain unchanged. Do not display this JSON, boundary status, or validator vocabulary in reader-facing prose.\n", payload)
-				}
+				// A participant boundary is a required block sibling, but it is not
+				// a request to copy every grounded relation recipe into the visible
+				// diagram. Keep the exact boundary rows copy-ready while leaving edge
+				// selection with the model. The prior combined carrier bundled the
+				// full relation-authority inventory with these rows and contradicted
+				// the bounded per-participant guidance above: a model following the
+				// atomic-copy command had to render every local helper relation.
+				// This carrier still creates no visible edge, node, wording, layout,
+				// or conclusion and reads no request/model/answer prose.
+				renderAnswerDocDiagramParticipantBoundaryCarrier(&b, boundaries)
 			}
 		}
 	}
@@ -9018,6 +9008,20 @@ func renderAnswerDocMechanismRelationAuthority(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderAnswerDocDiagramParticipantBoundaryCarrier(
+	b *strings.Builder,
+	boundaries []types.DiagramParticipantBoundary,
+) {
+	if b == nil || len(boundaries) == 0 {
+		return
+	}
+	payload, err := json.Marshal(boundaries)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(b, "- diagram_participant_boundaries_json=`%s`; copy this exact array into the `participant_boundaries` sibling field of the one model-authored diagram that presents the requested relation. Select `edge_anchors` only for the typed candidate/recipe edges you actually choose to draw; do not copy the full relation-authority inventory merely because these boundary rows are required. The boundary rows constrain only the still-unproved requested relation, while independently selected proved arrows keep their own exact anchors. Do not display this JSON, boundary status, or validator vocabulary in reader-facing prose.\n", payload)
 }
 
 // answerDocMechanismEndpointBoundaryEdges narrows the copy-ready relation

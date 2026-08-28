@@ -57832,6 +57832,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r888`。
 
+### §123.1446 B1382：参与者边界与关系权威解耦，完整证据池不再被命令画入主图（2026-08-28）
+
+1. `B1382-TYPEDTOPOLOGYGRANULARITYCONFLICT1/P1` 已按 typed carrier 单职责根修。旧
+   `diagram_block_sibling_fields_json` 把所有 authoring receipt relation anchors 与少量 `participant_boundaries` 合并成一个对象，并要求模型两数组整份复制；
+   对 requested-flow 尚未闭合的图，这等价于把完整支持证据池硬提升成 principal diagram，直接违反同 prompt 的“每个参与者只选相关候选、不要画全部候选”。
+2. 新生产形只发布 `diagram_participant_boundaries_json`：数组逐字保留 validator 需要的 participant/status typed 行，并明确放入同一个模型自写 requested
+   relation diagram 的 `participant_boundaries` sibling 字段。它不再携带任何 `edge_anchors`，因此不会把 `len`、`TrimSpace`、checkpoint 计数器、retry helper
+   等低层关系偷偷变成整图复制义务。
+3. 关系权威没有删除或降级。完整 grounded relation receipt 仍写入 Mutable 供 hard validator、局部失败 lease、后续下钻和模型选择使用；逐参与者 first-pass
+   candidates、单边 recipe、component fragment 与 exact identity/direction/relation 均保持。模型只为自己实际选择绘制的边复制对应 anchor，并继续拥有关系取舍、
+   节点、业务 wording、分组、布局和结论。系统不按方法名、图标签、用户请求或模型/答案 prose 判断“太技术”并删边。
+4. 该拆分也保留诚实未证出口：未证明的 Mutable/BusContext requested relation 仍必须以 typed boundary 披露，不能因主图简化而消失；已经独立证明的局部
+   operation 仍可由模型放进参与者分组、正文、表格或单独细节图，但不得借 boundary 自动入主图或伪造跨参与者 bridge。Trace family 继续走独立运行时因果
+   权威，不消费本载体。
+5. 新回归直接钉住 boundary-only carrier：必须含两个精确 unproven participant、选择实际 candidate/recipe edge 的低心智教学；不得含
+   `diagram_block_sibling_fields_json`、`Copy both arrays together` 或任何 `edge_anchors` 全量对象。既有 fully incident 图不得发布陈腐 boundary 的回归保持；
+   `go test ./internal/agent -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一步从本提交重建二进制，严格并发恰好 2 路复放
+   read 架构图与显式窗 Trace，验收 read 主图是否收敛到 requested participants，同时 Trace 投影与自动补采无回归。
+
+状态：
+
+`B1382=implemented/full-suite-green/build-green/pending-production-replay`；
+`participant-boundary-carrier=exact-boundary-array-only`；
+`full-grounded-relation-authority=preserved-for-validation+model-selection`；
+`principal-diagram-edge-selection=model-owned`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

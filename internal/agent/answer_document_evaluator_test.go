@@ -11152,6 +11152,34 @@ func TestVerifiedStageAuthorityDoesNotPromoteStageSubsetAcrossRequestedCarriers(
 	}
 }
 
+func TestDiagramParticipantBoundaryCarrierDoesNotBundleRelationInventory(t *testing.T) {
+	var got strings.Builder
+	renderAnswerDocDiagramParticipantBoundaryCarrier(&got, []types.DiagramParticipantBoundary{
+		{Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven},
+		{Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven},
+	})
+	for _, want := range []string{
+		"diagram_participant_boundaries_json=",
+		`"participant":"BusContext","status":"unproven"`,
+		`"participant":"Mutable","status":"unproven"`,
+		"Select `edge_anchors` only for the typed candidate/recipe edges you actually choose to draw",
+		"do not copy the full relation-authority inventory",
+	} {
+		if !strings.Contains(got.String(), want) {
+			t.Fatalf("bounded participant carrier missing %q:\n%s", want, got.String())
+		}
+	}
+	for _, forbidden := range []string{
+		"diagram_block_sibling_fields_json=",
+		"Copy both arrays together",
+		`"edge_anchors"`,
+	} {
+		if strings.Contains(got.String(), forbidden) {
+			t.Fatalf("participant carrier leaked full relation inventory via %q:\n%s", forbidden, got.String())
+		}
+	}
+}
+
 func TestVerifiedStageAuthorityKeepsLocalCarrierOperationAndRequestedBoundarySeparate(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
