@@ -537,6 +537,66 @@ func TestDiagramParticipantTypedCandidatesResolveContainerFieldOverlapAcrossEdge
 	}
 }
 
+func TestDiagramParticipantRepairDeltaRetargetsExistingTypedJoinWithoutDuplicate(t *testing.T) {
+	participants := []types.DiagramParticipantHint{
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture, Required: true, Participants: participants},
+	}
+	initializer := diagramEvidenceTestCall("Mutable", "bus.Mutable")
+	initializer.ID = "ev-bus-mutable-copy"
+	initializer.Predicate = "assigns"
+	initializer.AnchorKind = types.AnchorInitializer
+	initializer.AnchorSymbol = "Mutable"
+	initializer.InitializerContainer = "AgentContext"
+	initializer.Snippet = "Mutable: bus.Mutable,"
+	initializer.Source, initializer.LineStart = "internal/context/builder.go", 59
+	initializer.OwnerIdentity = "context.BuildAgentContext"
+	initializer.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "context.BuildAgentContext.bus", Type: "*types.BusContext", Owner: "context.BuildAgentContext",
+	}}
+	local := diagramEvidenceTestCall("AgentContext.Mutable.Load", "consumer.Apply")
+	local.Source, local.LineStart = "internal/context/read.go", 20
+	evidence := []types.EvidenceItem{initializer, local}
+
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart LR",
+			" BusContext --> AgentContext",
+			" Mutable --> LocalConsumer",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "BusContext", ToNode: "AgentContext", FromIdentity: "bus.Mutable", ToIdentity: "AgentContext.Mutable", RelationKind: types.DiagramRelDataFlow},
+			{FromNode: "Mutable", ToNode: "LocalConsumer", FromIdentity: "AgentContext.Mutable.Load", ToIdentity: "consumer.Apply", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	raw := diagramParticipantRepairAdditionDeltaJSON(doc, ctx, []DiagramParticipantCoverageMismatch{{
+		BlockID: "flow", Participant: "Mutable", Issue: DiagramParticipantCoverageComponentSplit,
+	}}, evidence, nil)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("anchored component repair delta must parse: raw=%q err=%v", raw, err)
+	}
+	if len(delta.AllowedAdditions) != 0 || len(delta.Failures) != 1 {
+		t.Fatalf("existing typed tuple must publish one replacement carrier and no duplicate addition: %+v", delta)
+	}
+	failure := delta.Failures[0]
+	if failure.Issue != diagramParticipantComponentJoinEndpointMappingIssue ||
+		failure.FromNode != "BusContext" || failure.ToNode != "AgentContext" ||
+		failure.FromIdentity != "bus.Mutable" || failure.ToIdentity != "AgentContext.Mutable" ||
+		failure.BodyOccurrence != 1 ||
+		failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		len(failure.AllowedActions) != 1 || failure.AllowedActions[0] != types.AnswerDiagramRelationRepairActionReplace ||
+		strings.TrimSpace(failure.FailureRef) == "" {
+		t.Fatalf("anchored join must be uniquely occurrence-bound and replace-only: %+v", failure)
+	}
+}
+
 func TestDiagramParticipantTypedIncidentCandidatesRetainStageAndOperationDiversityWithinCap(t *testing.T) {
 	participants := []types.DiagramParticipantHint{
 		{Identity: "Extractor", Role: types.DiagramParticipantIncidentRequired},

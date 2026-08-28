@@ -25,6 +25,8 @@ const (
 	DiagramParticipantCoverageBoundaryConnected  DiagramParticipantCoverageIssue = "unproven_boundary_has_visible_incident_edge"
 	DiagramParticipantCoverageEndpointRetargeted DiagramParticipantCoverageIssue = "participant_visible_on_nonincident_endpoint"
 	DiagramParticipantCoverageComponentSplit     DiagramParticipantCoverageIssue = "typed_requested_component_not_connected"
+
+	diagramParticipantComponentJoinEndpointMappingIssue = types.AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping
 )
 
 // DiagramParticipantCoverageMismatch is derived only from the analyzer's
@@ -337,25 +339,105 @@ func diagramParticipantRepairAdditionDeltaJSON(
 		allowed = diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, 8)
 	}
 	filtered := allowed[:0]
+	anchoredFailures := make([]types.AnswerDiagramRelationRepairFailure, 0, len(allowed))
 	for _, candidate := range allowed {
 		if diagramParticipantRepairCandidateAlreadyAnchored(doc, candidate) {
+			// A component-join tuple can already exist on an exact prior anchor
+			// while its model-authored visible endpoint still belongs to the wrong
+			// reader component. Re-advertising the tuple as an addition would create
+			// a duplicate relation; dropping it altogether leaves the participant
+			// hard gate with no executable local escape. Publish only a unique
+			// occurrence-bound replacement carrier in that narrow shape. The model
+			// still chooses whether to replace it and authors both visible endpoints
+			// and the label; the hidden typed tuple remains immutable.
+			if componentSplit {
+				if failure, ok := diagramParticipantRepairAnchoredJoinReplacementFailure(doc, candidate); ok {
+					anchoredFailures = append(anchoredFailures, failure)
+				}
+			}
 			continue
 		}
 		filtered = append(filtered, candidate)
 	}
 	allowed = filtered
-	if len(allowed) == 0 {
+	if len(anchoredFailures) > 0 {
+		anchoredFailures = types.AssignAnswerDiagramRelationRepairFailureRefs(doc, anchoredFailures)
+		for _, failure := range anchoredFailures {
+			if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
+				len(failure.AllowedActions) != 1 ||
+				failure.AllowedActions[0] != types.AnswerDiagramRelationRepairActionReplace ||
+				strings.TrimSpace(failure.FailureRef) == "" {
+				// One ambiguous or over-broad carrier must not turn the whole
+				// component retry into a misleading executable contract.
+				anchoredFailures = nil
+				break
+			}
+		}
+	}
+	if len(allowed) == 0 && len(anchoredFailures) == 0 {
 		return ""
 	}
 	raw, err := json.Marshal(types.AnswerDiagramRelationRepairDelta{
 		Version:  types.AnswerDiagramRelationRepairDeltaVersion,
-		Failures: []types.AnswerDiagramRelationRepairFailure{}, PreserveUnlistedEdges: true,
+		Failures: anchoredFailures, PreserveUnlistedEdges: true,
 		AllowedAdditions: allowed,
 	})
 	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
 		return ""
 	}
 	return string(raw)
+}
+
+// diagramParticipantRepairAnchoredJoinReplacementFailure binds one exact
+// already-authored relation tuple to its unique visible body occurrence. It is
+// used only after the typed component-split provider selected this tuple as a
+// crossing frontier. Ambiguous blocks, anchors, or body occurrences fail
+// closed; labels and message text never participate in the selection.
+func diagramParticipantRepairAnchoredJoinReplacementFailure(
+	doc *types.AnswerDocumentV2,
+	candidate types.AnswerDiagramRelationRepairCandidate,
+) (types.AnswerDiagramRelationRepairFailure, bool) {
+	if doc == nil || strings.TrimSpace(candidate.BlockID) == "" ||
+		!candidate.RelationKind.IsValid() || strings.TrimSpace(candidate.FromIdentity) == "" ||
+		strings.TrimSpace(candidate.ToIdentity) == "" {
+		return types.AnswerDiagramRelationRepairFailure{}, false
+	}
+	var selected *types.DiagramEdgeAnchor
+	for blockIndex := range doc.Blocks {
+		block := &doc.Blocks[blockIndex]
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) ||
+			block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		for anchorIndex := range block.EdgeAnchors {
+			anchor := &block.EdgeAnchors[anchorIndex]
+			if anchor.RelationKind != candidate.RelationKind ||
+				strings.TrimSpace(anchor.FromIdentity) != strings.TrimSpace(candidate.FromIdentity) ||
+				strings.TrimSpace(anchor.ToIdentity) != strings.TrimSpace(candidate.ToIdentity) {
+				continue
+			}
+			if selected != nil {
+				return types.AnswerDiagramRelationRepairFailure{}, false
+			}
+			copy := *anchor
+			selected = &copy
+		}
+	}
+	if selected == nil || strings.TrimSpace(selected.FromNode) == "" || strings.TrimSpace(selected.ToNode) == "" {
+		return types.AnswerDiagramRelationRepairFailure{}, false
+	}
+	failure := bindDiagramRelationRepairAnchorBodyCarrier(doc, types.AnswerDiagramRelationRepairFailure{
+		BlockID:      strings.TrimSpace(candidate.BlockID),
+		Issue:        diagramParticipantComponentJoinEndpointMappingIssue,
+		RelationKind: candidate.RelationKind,
+		FromNode:     strings.TrimSpace(selected.FromNode), ToNode: strings.TrimSpace(selected.ToNode),
+		FromIdentity: strings.TrimSpace(selected.FromIdentity), ToIdentity: strings.TrimSpace(selected.ToIdentity),
+	})
+	if failure.BodyOccurrence < 1 ||
+		!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+		return types.AnswerDiagramRelationRepairFailure{}, false
+	}
+	return failure, true
 }
 
 // diagramParticipantRepairCandidateAlreadyAnchored prevents the participant

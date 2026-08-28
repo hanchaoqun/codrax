@@ -268,6 +268,42 @@ func TestAnswerDiagramRelationRepairLeaseSupportsAdditionOnlyGeneration(t *testi
 	}
 }
 
+func TestAnswerDiagramRelationRepairLeaseAnchoredComponentJoinIsReplaceOnly(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramArchitecture, Language: "mermaid", Body: "flowchart LR\n TechnicalExtractor --> BuildAgentContext"},
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "TechnicalExtractor", ToNode: "BuildAgentContext",
+			FromIdentity: "types.AgentExtractor", ToIdentity: "BuildAgentContext",
+			RelationKind: DiagramRelArgumentFlow,
+		}},
+	}}}
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping,
+		FromNode: "TechnicalExtractor", ToNode: "BuildAgentContext",
+		FromIdentity: "types.AgentExtractor", ToIdentity: "BuildAgentContext",
+		RelationKind: DiagramRelArgumentFlow, BodyOccurrence: 1,
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("exact anchored component join must publish one local capability: %+v", lease)
+	}
+	got := lease.Failures[0]
+	if got.TargetCarrier != AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		len(got.AllowedActions) != 1 || got.AllowedActions[0] != AnswerDiagramRelationRepairActionReplace ||
+		!strings.HasPrefix(got.FailureRef, "rf1-") {
+		t.Fatalf("anchored component join must be occurrence-bound and replace-only: %+v", got)
+	}
+
+	ambiguous := *base
+	ambiguous.Blocks = append([]AnswerBlock(nil), base.Blocks...)
+	ambiguous.Blocks[0].EdgeAnchors = append([]DiagramEdgeAnchor(nil), base.Blocks[0].EdgeAnchors...)
+	ambiguous.Blocks[0].EdgeAnchors = append(ambiguous.Blocks[0].EdgeAnchors, base.Blocks[0].EdgeAnchors[0])
+	if got := NewAnswerDiagramRelationRepairLease(&ambiguous, []AnswerDiagramRelationRepairFailure{failure}, nil); got != nil {
+		t.Fatalf("duplicate prior anchors must fail closed instead of publishing a guessed replacement: %+v", got)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLeaseNeverMintsAdditionForExistingCanonicalTuple(t *testing.T) {
 	existing := DiagramEdgeAnchor{
 		FromNode: "A", ToNode: "B", FromIdentity: "analyzer",

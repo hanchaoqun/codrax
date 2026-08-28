@@ -668,6 +668,62 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	})
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_AnchoredComponentJoinRetargetsVisibleEndpointOnly(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart LR",
+			` Extractor["提炼阶段"]`,
+			` TechnicalExtractor["提炼实现"] --> BuildAgentContext["构造共享上下文"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "TechnicalExtractor", ToNode: "BuildAgentContext",
+			FromIdentity: "types.AgentExtractor", ToIdentity: "BuildAgentContext",
+			RelationKind: types.DiagramRelArgumentFlow,
+		}},
+	}}}
+	failure := bindDiagramRelationRepairAnchorBodyCarrier(prev, types.AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: diagramParticipantComponentJoinEndpointMappingIssue,
+		FromNode: "TechnicalExtractor", ToNode: "BuildAgentContext",
+		FromIdentity: "types.AgentExtractor", ToIdentity: "BuildAgentContext",
+		RelationKind: types.DiagramRelArgumentFlow,
+	})
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		len(lease.Failures[0].AllowedActions) != 1 ||
+		lease.Failures[0].AllowedActions[0] != types.AnswerDiagramRelationRepairActionReplace {
+		t.Fatalf("anchored join fixture must expose one replace-only capability: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef,
+		Action:     string(types.AnswerDiagramRelationRepairActionReplace),
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "Extractor", ToNode: "BuildAgentContext",
+			VisibleLabel: "将提炼阶段接入共享上下文",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("replace-only anchored join capability must execute: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 || len(patch.ReplaceBlocks[0].EdgeAnchors) != 1 {
+		t.Fatalf("replacement must stay local to one existing relation carrier: %+v", patch)
+	}
+	got := patch.ReplaceBlocks[0]
+	anchor := got.EdgeAnchors[0]
+	if anchor.FromNode != "Extractor" || anchor.ToNode != "BuildAgentContext" ||
+		anchor.VisibleLabel != "将提炼阶段接入共享上下文" ||
+		anchor.FromIdentity != "types.AgentExtractor" || anchor.ToIdentity != "BuildAgentContext" ||
+		anchor.RelationKind != types.DiagramRelArgumentFlow {
+		t.Fatalf("executor must preserve the hidden tuple and apply only model-authored presentation: %+v", anchor)
+	}
+	edges := mermaidcompat.ParseEdges(got.Diagram.Body)
+	if len(edges) != 1 || edges[0].From != "Extractor" || edges[0].To != "BuildAgentContext" ||
+		strings.Contains(got.Diagram.Body, "TechnicalExtractor --> BuildAgentContext") {
+		t.Fatalf("visible carrier must be replaced once without duplicating the relation: edges=%+v\n%s", edges, got.Diagram.Body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefRejectsUnrelatedParticipantMapping(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev, nil, []types.AnswerDiagramRelationRepairCandidate{{

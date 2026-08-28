@@ -13,6 +13,12 @@ const (
 	AnswerDiagramRelationRepairDeltaMaxEntries              = 128
 	AnswerDiagramRelationRepairDeltaMaxJSONBytes            = 64 * 1024
 	AnswerDiagramRelationRepairOrdinaryValidationMaxEntries = 16
+
+	// AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping
+	// identifies an already-proved typed crossing tuple whose unique existing
+	// anchor is bound to the wrong model-authored visible endpoint. The matching
+	// capability is intentionally replace-only.
+	AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping = "participant_component_join_endpoint_mapping_required"
 )
 
 // AnswerDiagramRelationRepairFailure is the producer-owned tuple for one
@@ -152,6 +158,21 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 	issue := strings.TrimSpace(failure.Issue)
+	if issue == AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping {
+		// The typed crossing tuple is already proved and already exists on one
+		// exact prior anchor; only its model-authored visible endpoint mapping is
+		// wrong. Removing that relation cannot satisfy the component-join
+		// obligation, while re-advertising it as an addition creates a duplicate.
+		// Expose the narrow replacement capability only when the exact prior
+		// carrier is unique. Replacement keeps the hidden typed tuple immutable;
+		// the model still authors both visible endpoints and the reader label.
+		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
+			return AnswerDiagramRelationRepairCarrierPriorAnchor, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionReplace,
+			}
+		}
+		return AnswerDiagramRelationRepairCarrierUnknown, nil
+	}
 	switch issue {
 	case "missing_call_anchor", DiagramRelationFailureMissingGroundedCallAnchor, "missing_relation_anchor":
 		if strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {

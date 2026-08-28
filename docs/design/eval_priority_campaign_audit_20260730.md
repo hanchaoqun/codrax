@@ -57384,6 +57384,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r880`。
 
+### §123.1435 B1373：已锚定 component join 获得唯一 occurrence 的 replace-only 能力（2026-08-28）
+
+1. `B1373-ANCHOREDJOINRETARGETCAPABILITY1` 已完成施工。participant component-split provider 仍先从 typed evidence 选择跨岛 candidate；未锚定
+   tuple 继续走既有 `addition_ref + action=add`。若同一 canonical tuple 已存在，则不再静默丢弃候选，也不发布 duplicate addition，而是只在目标
+   diagram、prior anchor 和 Mermaid body occurrence 都唯一时铸造
+   `participant_component_join_endpoint_mapping_required` failure，绑定 `target_carrier=prior_anchor`、`allowed_actions=[replace]`。
+2. 能力语义是 replace-only，不包含 remove。删除已证 join 无法满足 participant 连通义务；允许 remove 会重新形成“硬门要求连接、工具允许逃避连接”的
+   矛盾合同。替换执行时 hidden `relation_kind/from_identity/to_identity` 从当前代 lease 恢复并保持不变，模型仍独立决定是否替换，并自行创作
+   `from_node/to_node/visible_label`。系统没有选择关系、端点、标签、布局或答案结论。
+3. 所有歧义形 fail-closed：重复 block、多个 exact anchor、无法唯一绑定 body occurrence、缺少完整 typed tuple 或能力重算后不再是 prior-anchor+
+   replace-only，均不发布本地权限。整个选择过程只读取 typed candidate、结构化 anchor 与 Mermaid AST 端点，不读取用户请求原文、模型推理、最终答案 prose、
+   Mermaid label/message 文本；因此没有新增 noisy-signal hard gate。
+4. 四层回归已钉住：types 层验证唯一 anchor 只发 replace 且重复 anchor 不发 lease；participant provider 层复现生产形
+   `bus.Mutable -> AgentContext.Mutable` 已锚定在 `BusContext -> AgentContext`，要求 Mutable incident 时只发一个 failure、零 addition；动态 schema
+   只公开一个 `replace + failure_ref + model-owned edge` 分支；执行层验证旧可见 endpoint 被一次替换、hidden tuple 字节语义保持且不产生 duplicate edge。
+5. 验证通过：上述专项测试；`go test ./internal/types ./internal/agent ./internal/tool -count=1`；`go test ./... -count=1`；`make`；
+   `git diff --check`。下一步从本批 clean commit 重建，严格并发恰好 2 路回放 read 架构图与显式窗 Trace，验证生产 reject 数下降且 Trace 因果投影、
+   自动补齐、链上根因和背景隔离均保持。
+
+状态：
+
+`B1373=implemented/full-suite-green/build-green/pending-r881-production-replay`；
+`component-join-unanchored=addition-ref-preserved`；
+`component-join-already-anchored-unique-occurrence=prior-anchor-replace-only`；
+`component-join-ambiguous=fail-closed`；
+`hidden-typed-tuple=lease-owned-immutable`；
+`visible-endpoints/label/layout=model-owned`；
+`system-edge/action-selection/wording/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged/full-suite-green`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

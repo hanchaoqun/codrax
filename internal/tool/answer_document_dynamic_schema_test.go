@@ -500,6 +500,56 @@ func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelRefO
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_AnchoredComponentJoinPublishesReplaceRefOnly(t *testing.T) {
+	base := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramParticipantComponentJoinEndpointMappingIssue,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 ||
+		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		len(lease.Failures[0].AllowedActions) != 1 ||
+		lease.Failures[0].AllowedActions[0] != types.AnswerDiagramRelationRepairActionReplace {
+		t.Fatalf("test setup did not produce one replace-only anchored join capability: %+v", lease)
+	}
+	mut := types.NewMutableState("anchored component join schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut}), &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	edits := props["diagram_edge_edits"].(map[string]any)
+	branches := edits["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 1 || edits["minItems"] != float64(1) || edits["maxItems"] != float64(1) {
+		t.Fatalf("anchored component join lease must expose exactly one branch: %+v", edits)
+	}
+	branch := branches[0].(map[string]any)
+	branchProps := branch["properties"].(map[string]any)
+	if got := branchProps["action"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"replace"}) {
+		t.Fatalf("anchored component join action=%v", got)
+	}
+	if got := branchProps["failure_ref"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{lease.Failures[0].FailureRef}) {
+		t.Fatalf("anchored component join ref=%v", got)
+	}
+	if _, ok := branchProps["visible_label"]; ok {
+		t.Fatalf("replace-only branch must carry reader wording inside edge, not a competing top-level label: %+v", branchProps)
+	}
+	edge := branchProps["edge"].(map[string]any)
+	edgeProps := edge["properties"].(map[string]any)
+	if edge["additionalProperties"] != false || len(edgeProps) != 3 {
+		t.Fatalf("replacement edge must expose exactly the three model-authored presentation fields: %+v", edge)
+	}
+	for _, field := range []string{"from_node", "to_node", "visible_label"} {
+		if _, ok := edgeProps[field]; !ok {
+			t.Fatalf("replace-only branch lost model-owned field %q: %+v", field, edgeProps)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachNotDuplicateAdd(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,
