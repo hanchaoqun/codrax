@@ -144,9 +144,10 @@ var emitAnalysisRuntimePresenceRequiredFields = []string{
 // confidence ≥ 0.5 entries (the threshold below which the entry is
 // dropped anyway).
 type emitRequiredFileParam struct {
-	Path       string  `json:"path"`
-	Confidence float64 `json:"confidence"`
-	Rationale  string  `json:"rationale,omitempty"`
+	Path                      string  `json:"path"`
+	Confidence                float64 `json:"confidence"`
+	Rationale                 string  `json:"rationale,omitempty"`
+	RequestedDimensionIndices []int   `json:"requested_dimension_indices,omitempty"`
 }
 
 type emitAnalysisSubTopic struct {
@@ -962,13 +963,14 @@ func buildEmitAnalysisSchema() {
 			},
 			"required_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. When a high-confidence file owns the implementation operation for one or more required function_or_purpose/branch_behavior requested dimensions, set requested_dimension_indices to those exact 1-based indices. Use this only for a file-local structural responsibility you can identify from prescan; omit it for navigation-only files or when ownership is uncertain. If one mechanism genuinely crosses files, list its index on every file whose operation is independently required. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"path":       map[string]any{"type": "string", "description": "Repo-relative POSIX path copied from the prescan results (e.g. 'internal/analysis/gate/gate.go')."},
-						"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Recommendation strength in [0,1]. Threshold bands: ≥0.8 primary + pre-read; 0.5–0.79 pre-read only; <0.5 discarded."},
-						"rationale":  map[string]any{"type": "string", "description": "Short reason for the recommendation. Why this file is structurally needed for the answer (e.g. 'directly implements the entry function the question asks about')."},
+						"path":                        map[string]any{"type": "string", "description": "Repo-relative POSIX path copied from the prescan results (e.g. 'internal/analysis/gate/gate.go')."},
+						"confidence":                  map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Recommendation strength in [0,1]. Threshold bands: ≥0.8 primary + pre-read; 0.5–0.79 pre-read only; <0.5 discarded."},
+						"rationale":                   map[string]any{"type": "string", "description": "Short reason for the recommendation. Why this file is structurally needed for the answer (e.g. 'directly implements the entry function the question asks about')."},
+						"requested_dimension_indices": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "uniqueItems": true, "description": "Optional exact required requested_answer_dimensions indices whose implementation operation this file owns. Omit for navigation-only or uncertain file responsibility."},
 					},
 					"required": []string{"path", "confidence"},
 				},
@@ -2272,6 +2274,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	sanitizedSubTopics := sanitizeSubTopics(subTopics)
 
 	requiredFileHints := validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val)
+	requiredFileHints = normalizeRequiredFileDimensionOwnership(requiredFileHints, requestedAnswerDimensions, &val)
 	irrelevantFiles := validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val)
 
 	rm := types.RequestModel{
@@ -7898,10 +7901,12 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 		if len(rationale) > requiredFileHintRationaleMaxChars {
 			rationale = types.CutPrefixRuneSafe(rationale, requiredFileHintRationaleMaxChars-1) + "…"
 		}
+		indices := types.MergeEvidenceRequestedDimensionIndices(nil, e.RequestedDimensionIndices)
 		out = append(out, types.RequiredFileHint{
-			Path:       canon,
-			Confidence: conf,
-			Rationale:  rationale,
+			Path:                      canon,
+			Confidence:                conf,
+			Rationale:                 rationale,
+			RequestedDimensionIndices: indices,
 		})
 	}
 	if val != nil {
@@ -7926,6 +7931,49 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 		return nil
 	}
 	return out
+}
+
+// normalizeRequiredFileDimensionOwnership keeps the optional file-scope
+// contract precise. Only high-confidence required files may own the required
+// explanation-operation dimensions compiled from the analyzer's typed
+// dimension profile. Invalid or inapplicable indices are dropped fail-soft so
+// this optional carrier never causes an analyzer retry storm. No rationale or
+// request/answer prose participates.
+func normalizeRequiredFileDimensionOwnership(in []types.RequiredFileHint, profile *types.RequestedAnswerDimensionProfile, val *analysisValidationResult) []types.RequiredFileHint {
+	if len(in) == 0 {
+		return in
+	}
+	allowed := map[int]bool{}
+	for _, dimension := range types.RequestedExplanationOperationOwnershipDimensions(profile) {
+		allowed[dimension.Index] = true
+	}
+	dropped := 0
+	for i := range in {
+		if len(in[i].RequestedDimensionIndices) == 0 {
+			continue
+		}
+		if in[i].Confidence < 0.8 {
+			dropped += len(in[i].RequestedDimensionIndices)
+			in[i].RequestedDimensionIndices = nil
+			continue
+		}
+		filtered := make([]int, 0, len(in[i].RequestedDimensionIndices))
+		for _, index := range in[i].RequestedDimensionIndices {
+			if allowed[index] {
+				filtered = append(filtered, index)
+			} else {
+				dropped++
+			}
+		}
+		in[i].RequestedDimensionIndices = filtered
+	}
+	if dropped > 0 && val != nil {
+		val.Warnings = append(val.Warnings, fmt.Sprintf(
+			"required_files: dropped %d requested_dimension_indices that were low-confidence or not required explanation-operation dimensions",
+			dropped,
+		))
+	}
+	return in
 }
 
 func softenModelAuthoredRequiredFilesForSourceInventory(raw string, profile *types.SourceInventoryProfile, attempted *emitSourceInventoryProfileParam, in []types.RequiredFileHint, val *analysisValidationResult) []types.RequiredFileHint {

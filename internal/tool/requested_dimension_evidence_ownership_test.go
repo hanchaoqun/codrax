@@ -68,6 +68,30 @@ func TestRequestedDimensionEvidenceOwnershipLeavesSingleExplanationOnExistingFlo
 	}
 }
 
+func TestRequestedDimensionEvidenceOwnershipRequiresExactBoundFileOperation(t *testing.T) {
+	ctx := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		types.RequestedAnswerDimension{Index: 3, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+	)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{
+		{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1}},
+		{Path: "cmd/root.go", Confidence: 0.95, RequestedDimensionIndices: []int{3}},
+	}
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceMechanism, Source: "cmd/root.go", GroundingStatus: types.GroundingGrounded, RequestedDimensionIndices: []int{1, 3}},
+	}
+	got := requestedDimensionEvidenceOwnershipDowngrade(ctx, evidence)
+	if !strings.Contains(got, "1 (function_or_purpose) @ config/load.go") || strings.Contains(got, "3 (function_or_purpose) @ cmd/root.go") {
+		t.Fatalf("file-scoped downgrade=%q", got)
+	}
+	evidence = append(evidence, types.EvidenceItem{
+		Kind: types.EvidenceMechanism, Source: "config/load.go", GroundingStatus: types.GroundingGrounded, RequestedDimensionIndices: []int{1},
+	})
+	if got := requestedDimensionEvidenceOwnershipDowngrade(ctx, evidence); got != "" {
+		t.Fatalf("exact file operations should close all seats: %q", got)
+	}
+}
+
 func TestEmitEvidenceDimensionOwnershipAdvisoryAcceptsRowsAndNamesMissingOperationIndices(t *testing.T) {
 	ctx := dimensionOwnershipContext(
 		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
@@ -107,6 +131,26 @@ func TestEmitEvidenceDimensionOwnershipAdvisoryClearsWhenOperationsOwnEveryIndex
 	}
 	if got := renderRequestedDimensionOperationOwnershipAdvisory(ctx, items, items); got != "" {
 		t.Fatalf("fully owned dimensions must not produce advisory: %q", got)
+	}
+}
+
+func TestEmitEvidenceDimensionOwnershipAdvisoryNamesWrongFileSeat(t *testing.T) {
+	ctx := dimensionOwnershipContext(
+		types.RequestedAnswerDimension{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		types.RequestedAnswerDimension{Index: 3, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{
+		{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1}},
+		{Path: "cmd/root.go", Confidence: 0.95, RequestedDimensionIndices: []int{3}},
+	}
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceMechanism, Source: "cmd/root.go", GroundingStatus: types.GroundingGrounded, RequestedDimensionIndices: []int{1, 3}},
+	}
+	got := renderRequestedDimensionOperationOwnershipAdvisory(ctx, items, items)
+	for _, want := range []string{"1 (function_or_purpose) @ config/load.go", "sibling file", "exact file"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("wrong-file advisory missing %q: %q", want, got)
+		}
 	}
 }
 

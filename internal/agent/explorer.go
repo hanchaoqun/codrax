@@ -1892,8 +1892,26 @@ func renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx *types.AgentCont
 	for _, dimension := range dimensions {
 		fmt.Fprintf(&b, "- index=%d role=%s\n", dimension.Index, dimension.Role)
 	}
+	needs := types.RequestedExplanationOperationNeeds(
+		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
+		ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
+	)
+	fileScoped := false
+	for _, need := range needs {
+		if need.Source == "" {
+			continue
+		}
+		if !fileScoped {
+			b.WriteString("- Exact file-scoped operation seats declared by analysis:\n")
+			fileScoped = true
+		}
+		fmt.Fprintf(&b, "  - index=%d source=%s\n", need.Dimension.Index, need.Source)
+	}
 	b.WriteString("- When `emit_evidence` records the actual producer, consumer, call, return, assignment, initializer, condition, or branch effect for one of these dimensions, set that evidence item's `requested_dimension_indices` to the exact supported index.\n")
 	b.WriteString("- One operation row may carry multiple indices only when that same operation independently proves every listed dimension; otherwise emit separate operation evidence. A definition, default, or example for one dimension does not prove a sibling mechanism.\n")
+	if fileScoped {
+		b.WriteString("- A file-scoped seat is satisfied only by a grounded/recovered operation row from that exact source. An indexed operation in a sibling file remains useful for its own responsibility but does not close this seat.\n")
+	}
 	b.WriteString("- `aggregate_facts` and completion `reason` preserve useful results but do not assign source-evidence ownership. Record the indices while emitting evidence instead of waiting for a completion retry.\n")
 	b.WriteString("- This typed map only preserves evidence ownership. It does not choose, phrase, or rewrite the answer conclusion.\n")
 	return strings.TrimSpace(b.String())

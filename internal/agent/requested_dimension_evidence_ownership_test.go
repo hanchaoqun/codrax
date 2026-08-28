@@ -29,10 +29,17 @@ func TestRenderRequestedDimensionEvidenceOwnershipUsesTypedIndices(t *testing.T)
 
 func TestRenderExplorerRequestedDimensionEvidenceOwnershipGuideUsesTypedRoster(t *testing.T) {
 	ctx := requestedDimensionEvidenceOwnershipContext()
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{
+		{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1}},
+		{Path: "cmd/root.go", Confidence: 0.95, RequestedDimensionIndices: []int{3}},
+	}
 	guide := renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx)
 	for _, want := range []string{
 		"index=1 role=function_or_purpose",
 		"index=3 role=branch_behavior",
+		"index=1 source=config/load.go",
+		"index=3 source=cmd/root.go",
+		"exact source",
 		"requested_dimension_indices",
 		"aggregate_facts",
 		"does not choose, phrase, or rewrite the answer conclusion",

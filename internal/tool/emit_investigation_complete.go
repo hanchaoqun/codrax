@@ -5010,34 +5010,38 @@ func requestedDimensionEvidenceOwnershipDowngrade(ctx *types.BusContext, evidenc
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions == nil {
 		return ""
 	}
-	required := types.RequestedExplanationOperationOwnershipDimensions(ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions)
-	if len(required) == 0 {
+	needs := types.RequestedExplanationOperationNeeds(
+		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
+		ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
+	)
+	if len(needs) == 0 {
 		return ""
 	}
-	covered := map[int]bool{}
+	covered := map[string]bool{}
 	for _, item := range evidence {
-		if item.GroundingStatus != types.GroundingGrounded && item.GroundingStatus != types.GroundingRecovered {
-			continue
-		}
-		if !types.EvidenceCarriesExplanationOperation(item) {
-			continue
-		}
-		for _, index := range item.RequestedDimensionIndices {
-			covered[index] = true
+		for _, need := range needs {
+			if types.RequestedExplanationOperationNeedCovered(need, item) {
+				covered[types.RequestedExplanationOperationNeedKey(need)] = true
+			}
 		}
 	}
 	var missing []string
-	for _, dim := range required {
-		if !covered[dim.Index] {
-			missing = append(missing, fmt.Sprintf("%d (%s)", dim.Index, dim.Role))
+	for _, need := range needs {
+		if covered[types.RequestedExplanationOperationNeedKey(need)] {
+			continue
 		}
+		seat := fmt.Sprintf("%d (%s)", need.Dimension.Index, need.Dimension.Role)
+		if need.Source != "" {
+			seat += " @ " + need.Source
+		}
+		missing = append(missing, seat)
 	}
 	if len(missing) == 0 {
 		return ""
 	}
 	return EmitInvestigationCompleteDowngradePrefix + " — independent requested explanation dimensions lack grounded operation ownership.\n\n" +
-		"Missing requested dimension indices: " + strings.Join(missing, ", ") + ".\n" +
-		"Read the actual producer/consumer/branch operation for each missing dimension, emit grounded evidence for that operation, and set that evidence item's requested_dimension_indices to the exact index it supports. A definition/default/example for one dimension and an operation for a sibling do not cross-satisfy each other. Re-emitting an existing grounded row with added indices is a metadata amendment; ownership is never inferred from labels, summaries, request text, or answer prose."
+		"Missing requested dimension operation seats: " + strings.Join(missing, ", ") + ".\n" +
+		"Read the actual producer/consumer/branch operation for each missing seat, emit grounded evidence for that operation, and set that evidence item's requested_dimension_indices to the exact index it supports. When a seat names a file, an operation from a sibling file cannot satisfy it. A definition/default/example for one dimension and an operation for a sibling do not cross-satisfy each other. Re-emitting an existing grounded row with added indices is a metadata amendment; ownership is never inferred from labels, summaries, file-name keywords, rationale, request text, or answer prose."
 }
 
 // completionDenialBreakerMaxStreak is how many CONSECUTIVE identical

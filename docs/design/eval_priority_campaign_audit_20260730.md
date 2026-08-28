@@ -58713,6 +58713,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1471 B1400：解释维度按显式 required-file 责任闭环，兄弟文件操作不再冒领（2026-08-28）
+
+1. `B1400-DIMENSIONFILESCOPEOWNERSHIP1/P1` 已施工。`RequiredFileHint` 与 `emit_analysis.required_files[]` 新增可选
+   `requested_dimension_indices`：analyzer 仅在高置信度文件确实拥有某个 required `function_or_purpose/branch_behavior` 维度的实现操作时填写精确索引；
+   导航性文件或不确定责任留空，一个机制确需跨文件时可把同一索引显式绑定到多个文件。
+2. 绑定经 schema integer、required dimension index、typed role、required-file confidence≥0.8 与已解析 repo-relative path 五重约束；低置信度、observed/count/Trace
+   causal 等非 explanation-operation 席或无效索引 fail-soft 丢弃并留 warning。没有显式绑定的历史/单解释/Trace 请求继续使用旧 any-source 合同，避免把所有
+   required file 粗暴升级为硬事实门。
+3. Explorer 首轮现在展示精确 `index + source` 席位；post-emit advisory 与 completion gate 共同消费一个
+   `RequestedExplanationOperationNeeds` 编译器。一个席位只有在 evidence 为 grounded/recovered、typed operation、携带该精确 index，且 source 等于绑定文件时
+   才闭环；兄弟文件里的 assignment/call/condition 即使误带同索引，也只保留为其自身证据并提示 wrong-file，不得替 loader/producer 责任背书。
+4. 该批不扫描 required-file rationale、用户请求、模型 reasoning、最终答案、路径关键词或 Mermaid 内容；系统不判断 “Viper/YAML” 等可见词，也不代写解析结论。
+   它只把 analyzer 已显式声明的源码责任交给模型补读/补证，模型仍决定事实、结论、措辞和布局。
+5. 回归覆盖：高置信度绑定保留、低置信度/非解释席索引丢弃；wire→RequestModel 完整接线；无绑定旧合同字节语义不变；同索引 wrong-file operation 不能闭环；
+   exact-file grounded operation 成功闭环；post-emit 首部提示列出 exact source；Explorer 指南列出 file-scoped seats。完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 `qf_config_precedence` 与显式窗 Donghu Trace：配置题验收 analyzer 是否自然声明
+   loader/CLI 文件席、Explorer 是否读取 `LoadRuntimeSettings` 并消除无证据熟悉框架补全；Trace 验收显式窗、链上根因家族、业务线索、实际占时/规则可消双账户、
+   背景分层、自动补采与完整 `Trace 因果投影` 不回归。`B1396` 仍为后续独立上下文选择批。
+
+状态：
+
+`B1400=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`required-file-dimension-binding=optional/high-confidence/typed-index-only`；
+`bound-seat-closure=exact-source+grounded-operation+exact-index`；
+`unbound/single/Trace-shape=legacy-contract-unchanged`；
+`wrong-file-operation=accepted-evidence/not-seat-authority`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

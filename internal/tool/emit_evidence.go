@@ -5960,13 +5960,16 @@ func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, c
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	required := types.RequestedExplanationOperationOwnershipDimensions(ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions)
-	if len(required) == 0 {
+	needs := types.RequestedExplanationOperationNeeds(
+		ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions,
+		ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints,
+	)
+	if len(needs) == 0 {
 		return ""
 	}
-	requiredByIndex := make(map[int]types.RequestedAnswerDimension, len(required))
-	for _, dimension := range required {
-		requiredByIndex[dimension.Index] = dimension
+	requiredByIndex := make(map[int]bool, len(needs))
+	for _, need := range needs {
+		requiredByIndex[need.Dimension.Index] = true
 	}
 	grounded := func(item types.EvidenceItem) bool {
 		return item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered
@@ -5985,7 +5988,7 @@ func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, c
 			break
 		}
 		for _, index := range item.RequestedDimensionIndices {
-			if _, ok := requiredByIndex[index]; ok {
+			if requiredByIndex[index] {
 				actionable = true
 				break
 			}
@@ -5998,32 +6001,49 @@ func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, c
 		return ""
 	}
 
-	covered := make(map[int]bool, len(required))
-	nonOperationOwned := make(map[int]bool, len(required))
+	covered := make(map[string]bool, len(needs))
+	nonOperationOwned := make(map[int]bool, len(needs))
+	wrongFileOwned := make(map[int]bool, len(needs))
 	for _, item := range all {
 		if !grounded(item) {
 			continue
 		}
 		operation := types.EvidenceCarriesExplanationOperation(item)
 		for _, index := range item.RequestedDimensionIndices {
-			if _, ok := requiredByIndex[index]; !ok {
+			if !requiredByIndex[index] {
 				continue
 			}
-			if operation {
-				covered[index] = true
-			} else {
+			if !operation {
 				nonOperationOwned[index] = true
+				continue
+			}
+			matched := false
+			for _, need := range needs {
+				if need.Dimension.Index != index || !types.RequestedExplanationOperationNeedCovered(need, item) {
+					continue
+				}
+				covered[types.RequestedExplanationOperationNeedKey(need)] = true
+				matched = true
+			}
+			if !matched {
+				wrongFileOwned[index] = true
 			}
 		}
 	}
 	var missing []string
 	misassigned := false
-	for _, dimension := range required {
-		if covered[dimension.Index] {
+	wrongFile := false
+	for _, need := range needs {
+		if covered[types.RequestedExplanationOperationNeedKey(need)] {
 			continue
 		}
-		missing = append(missing, fmt.Sprintf("%d (%s)", dimension.Index, dimension.Role))
-		misassigned = misassigned || nonOperationOwned[dimension.Index]
+		seat := fmt.Sprintf("%d (%s)", need.Dimension.Index, need.Dimension.Role)
+		if need.Source != "" {
+			seat += " @ " + need.Source
+		}
+		missing = append(missing, seat)
+		misassigned = misassigned || nonOperationOwned[need.Dimension.Index]
+		wrongFile = wrongFile || wrongFileOwned[need.Dimension.Index]
 	}
 	if len(missing) == 0 {
 		return ""
@@ -6035,6 +6055,9 @@ func renderRequestedDimensionOperationOwnershipAdvisory(ctx *types.BusContext, c
 	b.WriteString(". Add each exact index only to the grounded producer/consumer/branch operation row that actually supports that dimension; ownership is never inferred or copied automatically.")
 	if misassigned {
 		b.WriteString(" One or more missing indices currently appear only on identity/definition/context rows; those metadata links do not establish operation ownership.")
+	}
+	if wrongFile {
+		b.WriteString(" One or more indexed operations come from a sibling file; an explicit file-scoped seat requires the operation evidence from that exact file.")
 	}
 	return b.String()
 }

@@ -1031,6 +1031,12 @@ type RequiredFileHint struct {
 	// (the threshold below which the field is discarded anyway).
 	// Length cap 200 chars to keep prompt budget bounded.
 	Rationale string `json:"rationale,omitempty"`
+	// RequestedDimensionIndices optionally binds this exact source file to the
+	// required current-request explanation dimensions whose implementation it
+	// owns. The association is analyzer-authored typed planning state; consumers
+	// must never infer it from Rationale, path names, request prose, or answer
+	// text. Empty preserves the legacy navigation-only required-file contract.
+	RequestedDimensionIndices []int `json:"requested_dimension_indices,omitempty"`
 }
 
 type EntityOrigin string

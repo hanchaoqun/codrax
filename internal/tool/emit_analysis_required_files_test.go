@@ -63,6 +63,77 @@ func TestValidateAndBuildRequiredFileHints_HappyPath(t *testing.T) {
 	}
 }
 
+func TestNormalizeRequiredFileDimensionOwnershipKeepsOnlyHighConfidenceExplanationSeats(t *testing.T) {
+	profile := &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{
+		{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		{Index: 2, Role: types.RequestedAnswerDimensionObservedValue, Required: true},
+		{Index: 3, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	}}
+	val := &analysisValidationResult{}
+	got := normalizeRequiredFileDimensionOwnership([]types.RequiredFileHint{
+		{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1, 2}},
+		{Path: "cmd/root.go", Confidence: 0.7, RequestedDimensionIndices: []int{3}},
+	}, profile, val)
+	if len(got[0].RequestedDimensionIndices) != 1 || got[0].RequestedDimensionIndices[0] != 1 {
+		t.Fatalf("high-confidence ownership=%+v", got[0].RequestedDimensionIndices)
+	}
+	if len(got[1].RequestedDimensionIndices) != 0 {
+		t.Fatalf("low-confidence ownership must be dropped: %+v", got[1].RequestedDimensionIndices)
+	}
+	if len(val.Warnings) != 1 || !strings.Contains(val.Warnings[0], "dropped 2 requested_dimension_indices") {
+		t.Fatalf("warnings=%+v", val.Warnings)
+	}
+}
+
+func TestEmitAnalysisExecutePersistsRequiredFileDimensionOwnership(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"config/load.go", "cmd/root.go"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu := types.NewMutableState("解释解析机制、默认值和 CLI 覆盖方式")
+	payload := withV4Required(`{
+		"intent":"explain",
+		"scenario":"config_trace",
+		"complexity":"moderate",
+		"keywords":["config","parse","default","override"],
+		"entities":["Config"],
+		"question_kind":"config_mapping",
+		"predicate_axis":"configure",
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.95,
+			"dimensions":[
+				{"index":1,"label":"解析机制","role":"function_or_purpose","required":true,"source_quote":"解析机制"},
+				{"index":2,"label":"默认值","role":"observed_value","required":true,"source_quote":"默认值"},
+				{"index":3,"label":"CLI 覆盖方式","role":"function_or_purpose","required":true,"source_quote":"CLI 覆盖方式"}
+			]
+		},
+		"required_files":[
+			{"path":"config/load.go","confidence":0.95,"requested_dimension_indices":[1]},
+			{"path":"cmd/root.go","confidence":0.95,"requested_dimension_indices":[3]}
+		]
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
+	if err != nil || !res.Success {
+		t.Fatalf("emit_analysis: err=%v result=%+v", err, res)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.AnalyzerHints.RequiredFileHints) != 2 {
+		t.Fatalf("request model hints=%+v", rm)
+	}
+	if got := rm.AnalyzerHints.RequiredFileHints[0].RequestedDimensionIndices; len(got) != 1 || got[0] != 1 {
+		t.Fatalf("loader ownership=%+v", got)
+	}
+	if got := rm.AnalyzerHints.RequiredFileHints[1].RequestedDimensionIndices; len(got) != 1 || got[0] != 3 {
+		t.Fatalf("CLI ownership=%+v", got)
+	}
+}
+
 func TestEmitAnalysisExecute_RepairsRequiredFilesStringEntries(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -843,6 +914,9 @@ func TestEmitAnalysisSchema_RequiredFilesPresent(t *testing.T) {
 	}
 	if !strings.Contains(string(emitAnalysisSchemaCache), `"rationale"`) {
 		t.Error("required_files items should declare rationale property")
+	}
+	if !strings.Contains(string(emitAnalysisSchemaCache), `"requested_dimension_indices"`) {
+		t.Error("required_files items should declare optional requested dimension ownership")
 	}
 	// Threshold bands documented in description (LLM-facing).
 	if !strings.Contains(string(emitAnalysisSchemaCache), `0.8`) {
