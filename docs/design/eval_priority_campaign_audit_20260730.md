@@ -57903,6 +57903,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r889`。
 
+### §123.1448 B1384：动态 JSON schema 与执行端共用精确字段分支，坏调用整批不提交（2026-08-28）
+
+1. `B1384-PATCHUNPUBLISHEDFIELDERROR1/P1` 已按“发布能力即执行能力”根修。`emit_answer_document_patch` 现在在通用 Go decode 之前，从同一个
+   `AnswerSemanticView` 构建 dispatch-projected patch schema，并按当前 previous document、模型拥有的 block、block kind 与 live diagram lease 再投影
+   可执行目标；执行端据此逐条校验 `block_field_edits_v1` 的 field、block_id、JSON value 类型和 enum value。提供商即使转发违反 tool schema 的 payload，
+   也不能借 executor 的宽类型路径执行未发布能力。
+2. r889 原形 `field:"facet_ids",value:[...]` 现在精确归类为 `field_not_published`，不再泄漏
+   `cannot unmarshal array ... Value string` 这类实现错误。typed repair 同时给出失败条目路径、当前可用字段族、目标块/值域（适用时）、事务未 staged 状态，
+   并要求重发完整意图；数组/对象元数据只有在当前 schema 发布完整 `replace_blocks` 及其目标 id 时才能走整块通道。修向不会建议静默删除字段，也不会替
+   模型选择 facet、claim、目标块或可见内容。
+3. 同一精确门同时覆盖另外三类泛化错误：合法字段指向未发布 block id、字符串字段收到 array/object、值不在本轮投影 enum。它们都在任何 sibling edit、
+   add/remove、citation 或 diagram operation 生效前整批拒绝；合法 sibling 操作不会被部分提交，live retry base 保持不变。JSON 语法本身无损可修的既有
+   string-carrier/nested-array 容错仍先运行，只有不能证明等价的能力扩张才 fail-closed。
+4. 该门只读取结构化 tool-call JSON、typed semantic view、previous block roster 与 live lease，不扫描用户请求、模型 thinking、最终答案 prose、Mermaid
+   node/label/message 或错误自然语言。它不改变正常 full emit/patch 的答案、Trace 因果选举、自动补采、链上根因、双账户、读写模式或图表关系证据规则。
+5. 回归覆盖 r889 的“一个合法 scalar edit + 一个自造 facet array + add block”混合事务，钉住 typed repair、无底层 decoder 泄漏、完整事务重发提示与
+   accepted base 字节等价；另覆盖未发布 target、错误 value 类型、错误 enum value。定向 block-field 套件、内部词汇静态红线、完整
+   `go test ./internal/tool -count=1`、全仓 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+
+状态：
+
+`B1384=implemented/full-suite-green/build-green/pending-production-replay`；
+`dynamic-tool-schema=executor-enforced`；
+`unpublished-field/target/value=typed-repair+transaction-not-staged`；
+`lossless-json-compat=preserved-before-capability-gate`；
+`partial-commit/silent-drop/automatic-facet-selection=forbidden`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

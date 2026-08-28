@@ -156,6 +156,76 @@ func TestEmitAnswerDocumentPatch_BlockFieldEditV1IllegalValueDoesNotStage(t *tes
 	}
 }
 
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1RejectsUnpublishedArrayFieldWithTypedRepair(t *testing.T) {
+	bus := newPatchTestBusContext()
+	before := bus.Mutable.AnswerDocumentV2()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"add_blocks":[{"id":"extra","kind":"section","text":"model-authored"}],
+		"block_field_edits_v1":[
+			{"block_id":"s1","field":"surface_role","value":"principal"},
+			{"block_id":"s1","field":"facet_ids","value":["relation_path","observed_artifact_fact"]}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("schema rejection must stay a tool-level repair: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != "answer_doc_patch_field_branch_not_published" {
+		t.Fatalf("unpublished array field must get typed branch repair: %+v", res)
+	}
+	if res.Repair.Metadata["reason"] != "field_not_published" ||
+		res.Repair.Metadata["field"] != "facet_ids" ||
+		!strings.Contains(res.Repair.Metadata["available_fields"], "surface_role") {
+		t.Fatalf("repair must name the invalid field and exact available family: %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "complete intended transaction") ||
+		!strings.Contains(res.Repair.Hint, "complete replace_blocks entry") ||
+		strings.Contains(res.Summary, "cannot unmarshal") {
+		t.Fatalf("repair must replace the low-level decoder error with an executable route: %+v", res)
+	}
+	if res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeNotStaged {
+		t.Fatalf("invalid mixed patch must disclose the exact transaction outcome: %+v", res.Repair)
+	}
+	if got := bus.Mutable.AnswerDocumentV2(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("invalid field must not partially commit valid sibling edits: got=%+v want=%+v", got, before)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1EnforcesProjectedTargetAndValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		params string
+		reason string
+	}{
+		{
+			name:   "target",
+			params: `{"block_field_edits_v1":[{"block_id":"list1","field":"trace_causal_claim_caliber","value":"bounded_window_candidate"}]}`,
+			reason: "block_id_not_published",
+		},
+		{
+			name:   "value_type",
+			params: `{"block_field_edits_v1":[{"block_id":"s1","field":"surface_role","value":["principal"]}]}`,
+			reason: "value_must_be_string",
+		},
+		{
+			name:   "value_enum",
+			params: `{"block_field_edits_v1":[{"block_id":"s1","field":"surface_role","value":"support"}]}`,
+			reason: "value_not_published",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus := newPatchTestBusContext()
+			res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(tt.params))
+			if err != nil || res.Success || res.Repair == nil {
+				t.Fatalf("projected branch violation must be a typed tool rejection: res=%+v err=%v", res, err)
+			}
+			if got := res.Repair.Metadata["reason"]; got != tt.reason {
+				t.Fatalf("reason=%q want %q repair=%+v", got, tt.reason, res.Repair)
+			}
+		})
+	}
+}
+
 func TestEmitAnswerDocumentPatch_BlockFieldEditV1ConflictsWithWholeReplace(t *testing.T) {
 	bus := newPatchTestBusContext()
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{

@@ -1009,6 +1009,169 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceSnippets              []emitCodeSnippetV2                    `json:"replace_snippets,omitempty"`
 }
 
+type answerDocumentPatchFieldEditSchemaViolation struct {
+	Index           int
+	BlockID         string
+	Field           string
+	Reason          string
+	AllowedFields   []string
+	AllowedBlockIDs []string
+	AllowedValues   []string
+}
+
+// validateAnswerDocumentPatchFieldEditsAgainstSchema closes the executor side
+// of the dispatch-projected block-field protocol. Tool schemas are normally
+// enforced by the provider, but malformed model calls must not widen the
+// executable surface when a provider forwards them anyway. The check consumes
+// only structured patch JSON plus the exact projected schema: no request,
+// reasoning, visible answer text, or Mermaid carrier participates.
+func validateAnswerDocumentPatchFieldEditsAgainstSchema(raw, schema json.RawMessage) *answerDocumentPatchFieldEditSchemaViolation {
+	var envelope map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
+		return nil
+	}
+	editsRaw, present := envelope["block_field_edits_v1"]
+	if !present {
+		return nil
+	}
+	var edits []json.RawMessage
+	if json.Unmarshal(editsRaw, &edits) != nil {
+		return nil
+	}
+
+	type branch struct {
+		blockIDs []string
+		values   []string
+	}
+	branches := map[string]branch{}
+	var allowedFields []string
+	var root map[string]any
+	if json.Unmarshal(schema, &root) == nil {
+		properties, _ := root["properties"].(map[string]any)
+		editsNode, _ := properties["block_field_edits_v1"].(map[string]any)
+		items, _ := editsNode["items"].(map[string]any)
+		rawBranches, _ := items["oneOf"].([]any)
+		for _, rawBranch := range rawBranches {
+			branchNode, _ := rawBranch.(map[string]any)
+			branchProperties, _ := branchNode["properties"].(map[string]any)
+			fieldNode, _ := branchProperties["field"].(map[string]any)
+			field, _ := fieldNode["const"].(string)
+			if field == "" {
+				continue
+			}
+			if _, duplicate := branches[field]; !duplicate {
+				allowedFields = append(allowedFields, field)
+			}
+			blockIDNode, _ := branchProperties["block_id"].(map[string]any)
+			valueNode, _ := branchProperties["value"].(map[string]any)
+			branches[field] = branch{
+				blockIDs: schemaStringValues(blockIDNode["enum"]),
+				values:   schemaStringValues(valueNode["enum"]),
+			}
+		}
+	}
+	for i, editRaw := range edits {
+		var edit map[string]json.RawMessage
+		if json.Unmarshal(editRaw, &edit) != nil {
+			continue
+		}
+		var field, blockID string
+		if json.Unmarshal(edit["field"], &field) != nil {
+			continue
+		}
+		_ = json.Unmarshal(edit["block_id"], &blockID)
+		allowed, ok := branches[field]
+		if !ok {
+			return &answerDocumentPatchFieldEditSchemaViolation{
+				Index: i, BlockID: blockID, Field: field, Reason: "field_not_published",
+				AllowedFields: append([]string(nil), allowedFields...),
+			}
+		}
+		if len(allowed.blockIDs) > 0 && !stringInSlice(blockID, allowed.blockIDs) {
+			return &answerDocumentPatchFieldEditSchemaViolation{
+				Index: i, BlockID: blockID, Field: field, Reason: "block_id_not_published",
+				AllowedFields:   append([]string(nil), allowedFields...),
+				AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
+				AllowedValues:   append([]string(nil), allowed.values...),
+			}
+		}
+		var value string
+		if json.Unmarshal(edit["value"], &value) != nil {
+			return &answerDocumentPatchFieldEditSchemaViolation{
+				Index: i, BlockID: blockID, Field: field, Reason: "value_must_be_string",
+				AllowedFields:   append([]string(nil), allowedFields...),
+				AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
+				AllowedValues:   append([]string(nil), allowed.values...),
+			}
+		}
+		if len(allowed.values) > 0 && !stringInSlice(value, allowed.values) {
+			return &answerDocumentPatchFieldEditSchemaViolation{
+				Index: i, BlockID: blockID, Field: field, Reason: "value_not_published",
+				AllowedFields:   append([]string(nil), allowedFields...),
+				AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
+				AllowedValues:   append([]string(nil), allowed.values...),
+			}
+		}
+	}
+	return nil
+}
+
+func schemaStringValues(raw any) []string {
+	values, _ := raw.([]any)
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func stringInSlice(value string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentPatchFieldEditSchemaRepair(v answerDocumentPatchFieldEditSchemaViolation) *types.ToolRepair {
+	fields := []string{fmt.Sprintf("block_field_edits_v1[%d].field", v.Index)}
+	if v.Reason == "value_must_be_string" || v.Reason == "value_not_published" {
+		fields = append(fields, fmt.Sprintf("block_field_edits_v1[%d].value", v.Index))
+	}
+	metadata := map[string]string{
+		"reason":           v.Reason,
+		"field":            v.Field,
+		"block_id":         v.BlockID,
+		"available_fields": strings.Join(v.AllowedFields, ","),
+	}
+	if len(v.AllowedBlockIDs) > 0 {
+		metadata["available_block_ids"] = strings.Join(v.AllowedBlockIDs, ",")
+	}
+	if len(v.AllowedValues) > 0 {
+		metadata["available_values"] = strings.Join(v.AllowedValues, ",")
+	}
+	hint := "Use only one exact block_id/field/value branch published by the current block_field_edits_v1 schema, then resubmit the complete intended transaction."
+	switch v.Reason {
+	case "field_not_published":
+		hint += " This field has no local-edit branch. Preserve the intended metadata and use a complete replace_blocks entry only when that operation and block id are present in the current schema; otherwise choose another exact published operation. Arrays or objects must not be placed in this string-value protocol; no entry is silently dropped and no content is chosen automatically."
+	case "block_id_not_published":
+		hint += " The selected field is valid, but this block id is not an executable target for it in the current dispatch. Do not substitute another block unless it is the block you intend to edit."
+	case "value_must_be_string":
+		hint += " The selected local field accepts one native JSON string enum value; array/object values belong to a different published operation or a complete block replacement."
+	case "value_not_published":
+		hint += " Copy one exact enum value from the current branch; do not invent, paraphrase, or coerce it."
+	}
+	return &types.ToolRepair{
+		Code:     "answer_doc_patch_field_branch_not_published",
+		Fields:   fields,
+		Hint:     hint,
+		Metadata: metadata,
+	}
+}
+
 // emitAnswerDiagramEdgeEdit is a model-authored semantic delta over one
 // existing diagram edge. The tool renders the declared operation into the
 // previous model-authored Mermaid carrier; it never chooses an endpoint,
@@ -1282,6 +1445,18 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] quarantined schema-unknown answer-document patch field(s) without retry: %s",
 			strings.Join(paths, ", "))
 		params = repaired
+	}
+	fieldEditSchema := BuildAnswerDocumentPatchParametersFor(types.BuildAnswerSemanticViewForBusContext(ctx))
+	leaseForFieldProjection := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	var excludedFieldEditTargets []string
+	if types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(leaseForFieldProjection) {
+		excludedFieldEditTargets = localDiagramLeaseTargetBlockIDs(leaseForFieldProjection)
+	}
+	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, excludedFieldEditTargets)
+	if violation := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); violation != nil {
+		return failEmitWithRepair(t.Name(), now, answerDocumentPatchFieldEditSchemaRepair(*violation),
+			"block_field_edits_v1[%d] does not match any exact field-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
+			violation.Index, violation.Reason, violation.Field, violation.BlockID)
 	}
 
 	// Decode params.
