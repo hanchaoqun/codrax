@@ -58084,6 +58084,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r891`。
 
+### §123.1453 r892：C 写模式精准闭环；路径型日志暴露源码排除载体与因果口径缺口（2026-08-28）
+
+1. 从已推送 `12181af5f` 构建不可变二进制，严格并发恰好 2 路运行路径型日志 read 与 C typo write，runner 2/2 PASS：write 86s、log
+   104s。两路活动流都自然完成，没有按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，也没有恢复旧稿或系统代写答案。
+2. C write 人工 pass：计划、应用树与交付 ref 都只把 `main.c:19` 的 `retrun buf;` 改为 `return buf;`，没有修改第二行或第二个文件；
+   repository-owned `make test` exit=0，apply/verify/fingerprint/changed-path coverage 均闭合。验证在保留 worktree 生成未跟踪构建产物 `main`，系统如实披露
+   且没有把它加入交付提交，因此这不是范围泄漏。
+3. log runner PASS、人工 partial。两个文件保持独立标题，panic/deadline 错误、四个栈帧、源路径和最内层触发帧均正确；但模型把
+   `Get(0x0, …)` 扩写成“`ServeHTTP` 传入 nil、初始化缺失或条件判断遗漏”，又把 `context deadline exceeded` 扩写成“传入 context 已过期、调用方
+   超时窗口不足或下游过慢”。日志只能证明该栈帧观测到 nil receiver 和 deadline 错误，不能证明值的生产者、初始化机制、超时策略或下游速度；末尾“需看
+   代码确认”的 caveat 不能给前文越界主张补权。
+4. 新 P1 `B1386-EXPLICITSOURCEEXCLUSIONCARRIERLOSS1` 经 typed 日志确认。当前请求逐字写有“不分析代码”；Analyzer 也选择
+   `current_source_mode=exclude`，却把引用写成较长的“只分析日志文件，不分析代码”，不是当前请求逐字连续片段。解析器按既有 fail-safe 丢弃该 quote，随后把
+   exclude 降为 default；Router 的独立 typed 车道也误给 optional。本轮最终没有读源码只是因为 required logs 足够，并不表示显式边界已可靠保留。修复不能
+   接受近似引用、不能扫描请求关键词替模型裁定边界，也不能默默放宽 quote 校验；应在模型已经显式选择 exclude+explicit exclusion 且 quote 不锚定时发布一个
+   精确、低心智、可修补的 typed 重试，要求模型复制最短逐字片段或撤回 exclude，而不是把无效选择悄悄降成 default。
+5. 新 P1 `B1387-PATHLOGCAUSALCALIBRATION1` 为权限教学分流 gap。请求中点名的 `.log` 按架构走 `required_files + read_file`，不是
+   AttachedLog/log-triage pre-stage；因此 log-triage 已有的“栈调用者和参数只证明调用上下文，不证明调用者制造坏值”的校准没有进入 explorer/finalizer。
+   最优形不是按后缀强制重路由，也不是扫描答案后拒绝或改写，而是由 AnalysisIR 中已验证的 runtime artifact + external observation typed scope 选择共享软教学：
+   栈帧/打印参数只授权观测位置、值和调用上下文，值来源、初始化缺口、timeout policy、下游慢与具体机理须有工件明文或另一路证据。
+6. 本轮唯一 investigation-complete 拒绝是两个 `member_set` 的 value=1 而 members 各有 3 项；精确反馈后一次修成 value=3。它是普通结构一致性
+   校验，不是“同一内容必带又必拒”的合同自冲突。B1386 的方案须限制为模型已选择的 typed exclusion carrier 修复，避免把所有缺引号都变成无意义重试；
+   B1387 保持软教学，不建立用户/模型/答案 prose 或文件后缀硬门。
+7. 下一批先按 B1386、B1387 分离施工和测试，再从各自提交构建不可变二进制，严格并发恰好 2 路复放路径型日志 + 异构 read/write。验收显式源码
+   排除不再静默丢失、日志结论不越过工件 authority，同时不削弱普通混合日志+源码诊断、显式窗 Trace 因果投影、自动补采和链上主因能力。
+
+状态：
+
+`r892=runner-pass-2/2,human-write-pass+log-partial`；
+`B1386=confirmed/P1-next/typed-explicit-exclude-repair`；
+`B1387=confirmed/P1-after-B1386/path-log-typed-soft-calibration`；
+`log-artifact-facts=error+frame+observed-value+call-context-only`；
+`value-producer/init-gap/timeout-policy/downstream-slowness=unproven-without-separate-evidence`；
+`system-exclusion/causal-conclusion/answer-selection=none`；
+`request/model/final-prose/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
