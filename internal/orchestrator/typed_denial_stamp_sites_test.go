@@ -104,9 +104,9 @@ func TestHallucinationSitesStampAdvisoryNotSymbolDenial(t *testing.T) {
 }
 
 // Finalize-entry evidence stamping: only the final-Ungrounded +
-// dual-oracle-miss shape stamps; grounded rows and short/prose
-// subjects never do. This is the KEPT precise lane — F8 removed only
-// the answer-surface oracle-miss stamps.
+// dual-oracle-miss shape with no exact current-source support stamps;
+// grounded rows and short/prose subjects never do. This is the KEPT
+// precise lane — F8 removed only the answer-surface oracle-miss stamps.
 func TestStampUngroundedEvidenceDenials(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{
@@ -134,6 +134,65 @@ func TestStampUngroundedEvidenceDenials(t *testing.T) {
 	stampUngroundedEvidenceDenials(denials2, mut, vouching)
 	if denials2.Len() != 0 {
 		t.Fatalf("oracle-vouched subjects must never stamp, got %d", denials2.Len())
+	}
+}
+
+func TestStampUngroundedEvidenceDenialsReconcilesExactCurrentSourceSupport(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status types.GroundingStatus
+	}{
+		{name: "grounded", status: types.GroundingGrounded},
+		{name: "recovered", status: types.GroundingRecovered},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mut := types.NewMutableState("q")
+			mut.AppendEvidence([]types.EvidenceItem{
+				{
+					ID: "bad-shape", AnchorSymbol: "pipeline-max-steps",
+					Snippet:         `model-authored snippet is never authority`,
+					GroundingStatus: types.GroundingUngrounded,
+				},
+				{
+					ID: "current-call", Source: "cmd/root.go", LineStart: 653,
+					AnchorSymbol: "IntVar", Snippet: `f.IntVar(&flagMaxSteps, "pipeline-max-steps", 0, "maximum steps")`,
+					GroundingStatus: tc.status,
+				},
+			})
+
+			denials := types.NewTypedDenialSet()
+			stampUngroundedEvidenceDenials(denials, mut, denialStubOracle{})
+			if denials.IsSymbolDenied("pipeline-max-steps") {
+				t.Fatalf("exact token on a current source line must reconcile an earlier claim-shape failure")
+			}
+		})
+	}
+}
+
+func TestStampUngroundedEvidenceDenialsCurrentSourceReconciliationIsBounded(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID: "bad-shape", AnchorSymbol: "fabricatedEvidenceAnchor",
+			Snippet:         `fabricatedEvidenceAnchor`,
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			ID: "different-token", Source: "main.go", LineStart: 9,
+			AnchorSymbol: "realCall", Snippet: `fabricatedEvidenceAnchorExtra()`,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "missing-source-coordinate", AnchorSymbol: "fabricatedEvidenceAnchor",
+			Snippet:         `fabricatedEvidenceAnchor()`,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+
+	denials := types.NewTypedDenialSet()
+	stampUngroundedEvidenceDenials(denials, mut, denialStubOracle{})
+	if !denials.IsSymbolDenied("fabricatedEvidenceAnchor") {
+		t.Fatalf("a prefix collision, ungrounded self-snippet, or coordinate-free row must not erase a real denial")
 	}
 }
 

@@ -19,7 +19,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-var snippetSelectorTokenRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b`)
+var (
+	snippetSelectorTokenRE       = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b`)
+	evidenceDenialSupportTokenRE = regexp.MustCompile(`[A-Za-z0-9_-]+`)
+)
 
 func blockClusterKey(blockID string, rootField string) string {
 	return types.BlockClusterKey(blockID, rootField)
@@ -3955,7 +3958,9 @@ func stampUngroundedEvidenceDenials(denials *types.TypedDenialSet, mut *types.Mu
 	if denials == nil || mut == nil || oracle == nil {
 		return
 	}
-	for _, ev := range mut.EmittedEvidence() {
+	items := mut.EmittedEvidence()
+	currentSourceSupport := currentSourceEvidenceDenialTokenSupport(items)
+	for _, ev := range items {
 		if ev.GroundingStatus != types.GroundingUngrounded {
 			continue
 		}
@@ -3964,6 +3969,14 @@ func stampUngroundedEvidenceDenials(denials *types.TypedDenialSet, mut *types.Mu
 			token = strings.TrimSpace(ev.Subject)
 		}
 		if len(token) < labelHallucinationGateLengthFloor || !contract.IsIdentifierShaped(token) {
+			continue
+		}
+		if currentSourceSupport[token] {
+			// A failed claim shape must not create durable negative knowledge
+			// for a token that another current, grounded source row proves is
+			// present. Only system-attached source snippets and parser-authored
+			// identities participate; model prose and the ungrounded row's own
+			// snippet never do.
 			continue
 		}
 		if found, tier := oracle.SymbolExists(token); found && tier < 3 {
@@ -3978,6 +3991,41 @@ func stampUngroundedEvidenceDenials(denials *types.TypedDenialSet, mut *types.Mu
 			Reason: fmt.Sprintf("evidence row %s stayed ungrounded after repair and %q resolves to no declared symbol", ev.ID, token),
 		})
 	}
+}
+
+// currentSourceEvidenceDenialTokenSupport returns exact identifier-shaped
+// tokens proved by the current grounded/recovered evidence snapshot. GroundItem
+// replaces Snippet with the actual source line only after it fixes a valid
+// Source/LineStart pair, so this lane reconciles stale claim-shape failures
+// without consulting request text, model prose, final prose, or fuzzy matches.
+func currentSourceEvidenceDenialTokenSupport(items []types.EvidenceItem) map[string]bool {
+	support := make(map[string]bool)
+	for _, ev := range items {
+		if ev.GroundingStatus != types.GroundingGrounded && ev.GroundingStatus != types.GroundingRecovered {
+			continue
+		}
+		if strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+			continue
+		}
+		for _, token := range []string{
+			ev.AnchorSymbol,
+			ev.OwnerIdentity,
+			ev.DeclaredBinding,
+			ev.DeclaredType,
+			ev.DeclaredOwner,
+		} {
+			token = strings.TrimSpace(token)
+			if contract.IsIdentifierShaped(token) {
+				support[token] = true
+			}
+		}
+		for _, token := range evidenceDenialSupportTokenRE.FindAllString(ev.Snippet, -1) {
+			if contract.IsIdentifierShaped(token) {
+				support[token] = true
+			}
+		}
+	}
+	return support
 }
 
 // stampOracleSymbolAdvisory records an oracle-unverified identifier

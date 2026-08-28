@@ -131,6 +131,37 @@ func TestAppendSoftContractCaveatsToAnswer_SuppressesGenericSelfContradictionTel
 	}
 }
 
+func TestMaterializeDeniedTokenCaveatUsesVerificationSemantics(t *testing.T) {
+	violations := []types.Violation{{
+		Kind:       types.ViolDeniedTokenUndeclared,
+		Detail:     `answer block "summary" names token "pipeline-max-steps" without disclosing it as unverified / external`,
+		ClusterKey: "denied_token_undeclared:summary",
+	}}
+
+	zh := MaterializeUnresolvedViolationsAsCaveats(violations, "zh")
+	if len(zh) != 1 || !strings.Contains(zh[0], "pipeline-max-steps") || !strings.Contains(zh[0], "尚未由当前证据确认") {
+		t.Fatalf("denied-token caveat must disclose its exact verification boundary: %v", zh)
+	}
+	if strings.Contains(zh[0], "前后") || strings.Contains(zh[0], "矛盾") {
+		t.Fatalf("denied-token caveat must not accuse the answer of contradiction: %v", zh)
+	}
+
+	en := MaterializeUnresolvedViolationsAsCaveats(violations, "en")
+	if len(en) != 1 || !strings.Contains(en[0], "pipeline-max-steps") || !strings.Contains(en[0], "does not yet verify") {
+		t.Fatalf("English denied-token caveat must preserve the exact verification boundary: %v", en)
+	}
+}
+
+func TestMaterializeDeniedTokenCaveatMalformedDetailKeepsTypedBoundary(t *testing.T) {
+	got := MaterializeUnresolvedViolationsAsCaveats([]types.Violation{{
+		Kind:   types.ViolDeniedTokenUndeclared,
+		Detail: "malformed producer detail",
+	}}, "zh")
+	if len(got) != 1 || !strings.Contains(got[0], "名称尚未由当前证据确认") || strings.Contains(got[0], "前后") {
+		t.Fatalf("malformed detail must retain denial semantics without inventing a contradiction: %v", got)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCaveat(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -364,8 +395,11 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsDenied
 		Detail:     `answer block "d1" names token "trace中无UI渲染span可关联" without disclosing it as unverified / external`,
 		ClusterKey: "denied_token_undeclared:d1",
 	}}, "zh", ctx)
-	if !strings.Contains(out, "答案前后某些表述") {
+	if !strings.Contains(out, "trace中无UI渲染span可关联") || !strings.Contains(out, "尚未由当前证据确认") {
 		t.Fatalf("mixed visible blocks should keep typed-denial caveat disclosure:\n%s", out)
+	}
+	if strings.Contains(out, "答案前后某些表述") {
+		t.Fatalf("a denied-token disclosure must not be rendered as answer inconsistency:\n%s", out)
 	}
 }
 

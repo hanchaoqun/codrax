@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -89,7 +90,7 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 			body = fam.ZH
 		}
 		if fam.ID == types.CaveatFamilyConsistency {
-			if specific := materializeSelfContradictionCaveat(violations, useChinese); specific != "" {
+			if specific := materializeConsistencyCaveat(violations, useChinese); specific != "" {
 				body = specific
 			}
 		}
@@ -264,6 +265,76 @@ func materializeSelfContradictionCaveat(violations []types.Violation, useChinese
 		return prefix + ": the body says \"" + trimUserVisibleQuote(body, 120) + "\"; verify that item against the citations and summary."
 	}
 	return ""
+}
+
+// materializeConsistencyCaveat preserves the specific paired-claim disclosure
+// for a real self-contradiction, while giving denied-token violations their own
+// user-facing semantics. ViolDeniedTokenUndeclared shares the historical
+// consistency family for registry compatibility, but it means "this name was
+// not verified", not "the answer contradicts itself".
+func materializeConsistencyCaveat(violations []types.Violation, useChinese bool) string {
+	if specific := materializeSelfContradictionCaveat(violations, useChinese); specific != "" {
+		return specific
+	}
+
+	var tokens []string
+	seen := make(map[string]bool)
+	deniedOnly := false
+	for _, v := range violations {
+		spec, ok := types.ViolKindSpecFor(v.Kind)
+		if !ok || spec.CaveatFamilyID != types.CaveatFamilyConsistency || genericSelfContradictionCaveatIsRepairTelemetry(v) {
+			continue
+		}
+		if v.Kind != types.ViolDeniedTokenUndeclared {
+			return ""
+		}
+		deniedOnly = true
+		if token := parseDeniedTokenViolationDetail(v.Detail); token != "" && !seen[token] {
+			seen[token] = true
+			tokens = append(tokens, token)
+		}
+	}
+	if !deniedOnly {
+		return ""
+	}
+	sort.Strings(tokens)
+	if len(tokens) > 3 {
+		tokens = tokens[:3]
+	}
+	if useChinese {
+		if len(tokens) == 0 {
+			return "答案中有一项名称尚未由当前证据确认；请将它明确标为外部或未验证信息，或补充可核验来源。"
+		}
+		return "答案中提到的“" + strings.Join(tokens, "”、“") + "”尚未由当前证据确认；请将其明确标为外部或未验证信息，或补充可核验来源。"
+	}
+	if len(tokens) == 0 {
+		return "One name in the answer is not yet verified by the current evidence; mark it as external or unverified, or add a verifiable source."
+	}
+	quoted := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		quoted = append(quoted, `"`+token+`"`)
+	}
+	return "The answer names " + strings.Join(quoted, ", ") + ", which the current evidence does not yet verify; mark it as external or unverified, or add a verifiable source."
+}
+
+func parseDeniedTokenViolationDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	const prefix = "answer block "
+	const marker = " names token "
+	const suffix = " without disclosing it as unverified / external"
+	if !strings.HasPrefix(detail, prefix) || !strings.HasSuffix(detail, suffix) {
+		return ""
+	}
+	idx := strings.Index(detail, marker)
+	if idx < len(prefix) {
+		return ""
+	}
+	quoted := strings.TrimSpace(detail[idx+len(marker) : len(detail)-len(suffix)])
+	token, err := strconv.Unquote(quoted)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 func parseSelfContradictionClaims(detail string) (summary, body string) {

@@ -58914,6 +58914,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r902`。
 
+### §123.1477 B1404：当前源码精确证据消解陈腐 evidence denial；未核验名称不再伪装成答案矛盾（2026-08-28）
+
+1. `B1404-STALEEVIDENCESUBJECTDENIAL1/P1` 已施工。根因不是 `pipeline-max-steps` 特例：早期 evidence 的 claim shape 错误会正确落为
+   `GroundingUngrounded`，但旧 finalize-entry stamp 把该行 token 与后续当前源码证据割裂，只要双 oracle 未命中就铸成 run 级 durable negative
+   knowledge。于是“这条声明没落证”被错误放大为“该名称全局不存在”，即使同轮另一条 grounded call 的真实源码行已经包含该 token，L3 仍会拒绝
+   最终答案合法引用它。
+2. 新 reconciliation 在 stamp 前只建立当前 `GroundingGrounded/GroundingRecovered` 证据的精确 token 支持集。支持来源被收窄为 GroundItem 在有效
+   `Source+LineStart` 后系统附着的真实源码行，以及 parser/grounder 已确权的 anchor/owner/binding/type identity；完整 token 大小写一致才可消解。
+   ungrounded 行自己的 snippet、无源码坐标的伪 grounded 行、前缀碰撞、summary/subject/object 自由语义 prose、请求、最终答案、Mermaid、路径关键词和
+   SymbolOracle 相似度都不能消解。真实 fabricated token 仍按原双 oracle 门进入 durable denial。
+3. 用户可见词面同时按 violation kind 校正。`ViolDeniedTokenUndeclared` 为兼容注册表仍归入 consistency family，但物化器现在明确说“该名称尚未由当前证据
+   确认，请标为外部/未验证或补来源”，不再借用“答案前后不一致”模板。只有 detail 含可解析 `SUMMARY ⇄ BODY` 成对声明的
+   `ViolSelfContradiction` 才能发射真实矛盾说明；malformed denied-token detail 也保持“名称未核验”的保守语义，不凭空指控答案矛盾。
+4. 该批不读取或改写模型结论，不扫描用户输入/模型 reasoning/最终 prose 做新硬门，也不按 config/YAML/Go、某个 token 或某个 eval case 拟合。
+   系统只纠正 negative-knowledge 生命周期和自身告警的语义，模型仍决定答案正文、关系、业务修向与结论。显式窗 Trace 的 typed query、自动补采、
+   唤醒链、链上根因、实际占时/规则可消双账户和因果投影均未修改。
+5. 回归覆盖 grounded/recovered 两条精确消解臂，以及三条反臂：前缀 token 不得消解、无坐标行不得消解、ungrounded 自带 snippet 不得自证；原真实
+   fabricated denial 与 oracle-vouched 保护保持。中英文物化测试要求 denied token 显示精确验证边界且不得出现“前后/矛盾”，malformed detail 也不得
+   回落旧模板。聚焦测试、完整 `go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。
+6. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放配置解释与显式窗 Trace：配置验收合法 CLI token 不再被 stale denial 拒绝、泛化矛盾
+   caveat 消失；Trace 验收因果投影、自动补采、链上根因、业务线索、实际占时与可消量继续完整，活动流不按固定 4ms/4m 或累计年龄降级。生产正证后
+   转入已冻结的 `B1405-DIMENSIONRESPONSIBILITYOPERATION1`。
+
+状态：
+
+`B1404=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`ungrounded-claim-shape!=global-token-absence`；
+`current-source-reconciliation=exact-grounded/recovered-source-token-only`；
+`prefix/self-snippet/coordinate-free-support=denied`；
+`real-fabricated-token=durable-denial-preserved`；
+`denied-token-caveat=verification-boundary-not-contradiction`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
