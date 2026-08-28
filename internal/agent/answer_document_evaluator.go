@@ -7178,6 +7178,36 @@ func answerDocToolHandoffCarriersForFinalizer(ctx *types.AgentContext, carriers 
 	if len(carriers) == 0 {
 		return carriers
 	}
+	// The accepted-evidence handoff is an authority surface, not a navigation
+	// dump. Keep only evidence whose typed grounding state has actually reached
+	// grounded or recovered. Empty/ungrounded rows remain in the lossless Turn A
+	// artifacts and evidence ledger for diagnostics and downstream hard gates,
+	// but exposing them beside accepted rows invites the finalizer to promote a
+	// merely similar repo-map candidate into the answer. This projection reads
+	// only the typed grounding enum; it never scans request or answer prose.
+	projected := make([]types.ToolHandoffCarrier, 0, len(carriers))
+	for _, carrier := range carriers {
+		originalRefCount := len(carrier.AcceptedEvidence)
+		refs := make([]types.AcceptedEvidenceRef, 0, originalRefCount)
+		for _, ref := range carrier.AcceptedEvidence {
+			if ref.GroundingStatus == types.GroundingGrounded ||
+				ref.GroundingStatus == types.GroundingRecovered {
+				refs = append(refs, ref)
+			}
+		}
+		carrier.AcceptedEvidence = refs
+		if originalRefCount > 0 && len(refs) == 0 &&
+			len(carrier.ObservationRefs) == 0 && carrier.Repair == nil &&
+			carrier.Refinement == nil && carrier.PlanRepairPack == nil &&
+			carrier.SupportedJSON == nil {
+			continue
+		}
+		projected = append(projected, carrier)
+	}
+	carriers = types.NormalizeToolHandoffCarriers(projected)
+	if len(carriers) == 0 {
+		return carriers
+	}
 	// Keep handoff observation refs on the same explicit-window projection as
 	// the Observation Ledger prompt. The carrier remains intact for repair,
 	// supported-JSON, and accepted-evidence duties; only refs whose producer-

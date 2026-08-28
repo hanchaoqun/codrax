@@ -234,10 +234,11 @@ func TestRenderAnswerDocToolHandoffCarriersConsumesTurnA(t *testing.T) {
 			ToolName:   "emit_evidence",
 			ReasonCode: "accepted_evidence_handoff",
 			AcceptedEvidence: []types.AcceptedEvidenceRef{{
-				ID:          "ev-accepted",
-				Source:      "src/owner.ts",
-				LineStart:   5,
-				OwnerSymbol: "Owner",
+				ID:              "ev-accepted",
+				Source:          "src/owner.ts",
+				LineStart:       5,
+				OwnerSymbol:     "Owner",
+				GroundingStatus: types.GroundingGrounded,
 			}},
 		}},
 	})
@@ -246,6 +247,57 @@ func TestRenderAnswerDocToolHandoffCarriersConsumesTurnA(t *testing.T) {
 	if !strings.Contains(out, "## Typed Repair And Evidence Handoff") ||
 		!strings.Contains(out, "evidence=`ev-accepted` @ `src/owner.ts:5`") {
 		t.Fatalf("finalizer handoff not rendered:\n%s", out)
+	}
+}
+
+func TestRenderAnswerDocToolHandoffCarriersOmitsNonAuthoritativeAcceptedEvidence(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		HandoffCarriers: []types.ToolHandoffCarrier{
+			{
+				Version:    types.ToolHandoffCarrierVersion,
+				ToolName:   "emit_evidence",
+				ReasonCode: "accepted_evidence_handoff",
+				AcceptedEvidence: []types.AcceptedEvidenceRef{
+					{ID: "grounded", Source: "src/right.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+					{ID: "recovered", Source: "src/recovered.go", LineStart: 20, GroundingStatus: types.GroundingRecovered},
+					{ID: "unspecified", Source: "src/similar.go", LineStart: 30},
+					{ID: "ungrounded", Source: "src/wrong.go", LineStart: 40, GroundingStatus: types.GroundingUngrounded},
+				},
+			},
+			{
+				Version:    types.ToolHandoffCarrierVersion,
+				ToolName:   "emit_evidence",
+				ReasonCode: "accepted_evidence_handoff",
+				AcceptedEvidence: []types.AcceptedEvidenceRef{
+					{ID: "only-unspecified", Source: "src/no-authority.go", LineStart: 50},
+				},
+			},
+		},
+	})
+
+	out := renderAnswerDocToolHandoffCarriers(&types.AgentContext{Mutable: mut})
+	for _, want := range []string{
+		"evidence_refs=2",
+		"evidence_grounding=`grounded:1,recovered:1`",
+		"evidence=`grounded` @ `src/right.go:10`",
+		"evidence=`recovered` @ `src/recovered.go:20`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("authoritative handoff missing %q:\n%s", want, out)
+		}
+	}
+	for _, forbidden := range []string{
+		"unspecified",
+		"src/similar.go",
+		"ungrounded",
+		"src/wrong.go",
+		"only-unspecified",
+		"src/no-authority.go",
+	} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("non-authoritative evidence escaped finalizer projection %q:\n%s", forbidden, out)
+		}
 	}
 }
 
@@ -464,13 +516,13 @@ func TestRenderAnswerDocToolHandoffCarriersMixedRuntimeSourceUsesCompactBudget(t
 			ToolName:   fmt.Sprintf("emit_evidence_%d", i),
 			ReasonCode: fmt.Sprintf("accepted_evidence_handoff_%d", i),
 			AcceptedEvidence: []types.AcceptedEvidenceRef{
-				{ID: fmt.Sprintf("ev-a-%d", i), Source: "src/a.go", LineStart: 1},
-				{ID: fmt.Sprintf("ev-b-%d", i), Source: "src/b.go", LineStart: 2},
-				{ID: fmt.Sprintf("ev-c-%d", i), Source: "src/c.go", LineStart: 3},
-				{ID: fmt.Sprintf("ev-d-%d", i), Source: "src/d.go", LineStart: 4},
-				{ID: fmt.Sprintf("ev-e-%d", i), Source: "src/e.go", LineStart: 5},
-				{ID: fmt.Sprintf("ev-f-%d", i), Source: "src/f.go", LineStart: 6},
-				{ID: fmt.Sprintf("ev-g-%d", i), Source: "src/g.go", LineStart: 7},
+				{ID: fmt.Sprintf("ev-a-%d", i), Source: "src/a.go", LineStart: 1, GroundingStatus: types.GroundingGrounded},
+				{ID: fmt.Sprintf("ev-b-%d", i), Source: "src/b.go", LineStart: 2, GroundingStatus: types.GroundingGrounded},
+				{ID: fmt.Sprintf("ev-c-%d", i), Source: "src/c.go", LineStart: 3, GroundingStatus: types.GroundingGrounded},
+				{ID: fmt.Sprintf("ev-d-%d", i), Source: "src/d.go", LineStart: 4, GroundingStatus: types.GroundingGrounded},
+				{ID: fmt.Sprintf("ev-e-%d", i), Source: "src/e.go", LineStart: 5, GroundingStatus: types.GroundingGrounded},
+				{ID: fmt.Sprintf("ev-f-%d", i), Source: "src/f.go", LineStart: 6, GroundingStatus: types.GroundingGrounded},
+				{ID: fmt.Sprintf("ev-g-%d", i), Source: "src/g.go", LineStart: 7, GroundingStatus: types.GroundingGrounded},
 			},
 		})
 	}

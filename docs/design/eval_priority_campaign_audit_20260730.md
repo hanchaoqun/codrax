@@ -59285,6 +59285,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1487 r909/B1417：枚举单调性生产闭环；未落地导航候选污染 finalizer 权威面（2026-08-28）
+
+1. 从已推送 `fd1dc53b9` 重建不可变二进制，严格并发恰好 2 路复放配置解释与多集合枚举，runner 2/2 PASS：配置 106s、枚举 428s。
+   两路均自然完成，没有固定 4ms/4m、流式活跃度、首字节、stall、累计年龄或上下文比例降级；没有系统生成答案、结论、成员、关系、措辞或布局。
+2. 枚举人工判定 pass：终稿准确给出 3 个公开类型、5 个 production 函数、30 个 Kind 常量和唯一 const block，逐成员表无遗漏、无 invented
+   row。finalizer 前 deterministic exact-row review 连续两次均为 `members=30 principal_items=30 missing=0 unexpected=0`。这证明 B1416 已在真实并行
+   investigation 顺序下保住 accepted closure，B1415 也终于在完整 30 行常量载体上获得 exact `source_inventory_row_id` 生产正证；二者可从
+   pending-replay 升为 production-positive。
+3. 枚举过程仍发生 4 次 finalizer 结构拒绝：首稿未落完整成员载体，后续依次补 principal/facet 元数据、逐行 bucket cell，并有一次空 table patch
+   未 staged。最终答案未丢事实，但 428s 和 4 reject 表明 JSON 教学/合同分阶段披露仍增加模型心智。暂记
+   `B1418-FINALIZERENUMSCHEMACHURN1/P2-observe`，先跨异构样本确认是否反复出现；不得为该单例让系统选择 table/list、列、标题或可见措辞。
+4. 配置人工判定 partial。默认 50、`RuntimeSettings.PipelineMaxSteps`、CLI `Changed` 守卫和 code→YAML→CLI 优先级均正确，B1412 重复 atom 未
+   回归，B1413 同义系统补充本轮未复现。但正文把 YAML 合并赋值定位为 `internal/config/runtime.go:1702`；该行实际属于旧配置键 rename map，真正赋值
+   位于 `cmd/root.go:2590-2591`。
+5. 新 P1 `B1417-UNSPECIFIEDNAVASEVIDENCE1` 不是单次 finalizer 幻觉。Turn A 的 `accepted_evidence_handoff` 同时发布 6 条 grounded 和 18 条
+   `grounding=unspecified` 引用；错误 `internal/config/runtime.go:1702` 正以 unspecified `assignment_fact` 混入该 typed 权威表面，finalizer 仅从此处取得
+   该 evidence ID。其来源是 repo-map/关系导航对相似 `pipeline_*` 旧键映射的候选，不是已由 emit_evidence 校验的当前配置赋值。
+6. B1417 按 typed authority projection 根修：finalizer 的 accepted-evidence prompt 只保留 `grounded` / `recovered` 引用，剔除 unspecified 与
+   ungrounded；若 carrier 只剩这类非权威引用且没有 repair/refinement/observation 等独立职责，则整条不再投影。完整 Turn A 工具结果、EvidenceItems、
+   observation/audit ledger 和下游 hard-gate 输入均不删除，因而仍可诊断，也不会影响明确窗口 Trace 权威、自动补齐或写模式验证。
+7. 该过滤只读取 `GroundingStatus` typed enum，不扫描请求、模型 thinking、终稿 prose、文件行号字符串、Markdown 或 Mermaid。它不判定哪一行是正确
+   答案、不把 `cmd/root.go:2590` 代写给模型，只防止“未证导航候选”冒充 accepted authority。回归覆盖 grounded+recovered 保留、unspecified+ungrounded
+   不发布、纯非权威 carrier 消失，以及混合 runtime/source 紧凑预算仍保持原上限。
+
+状态：
+
+`r909=runner-pass-2/2,human-enumeration-pass+config-partial`；
+`B1415=production-positive/exact-row-30-of-30`；
+`B1416=production-positive/accepted-closure-monotonicity`；
+`B1417=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`B1418=P2-observe/cross-case-confirm-before-design`；
+`B1412=production-positive/core-closed`；
+`B1413=confirmed/P2/not-reproduced-r909`；
+`finalizer-accepted-evidence-prompt=grounded-or-recovered-only`；
+`lossless-TurnA/evidence-ledger/hard-gate-input=unchanged`；
+`system-answer/conclusion/member/relation/wording/layout-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
