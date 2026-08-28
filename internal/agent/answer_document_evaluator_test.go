@@ -11675,7 +11675,7 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthorityAcceptsFormattingRefactor(t 
 	}
 }
 
-func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuotes(t *testing.T) {
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionSourceQuotes(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		DocumentModel: "v2",
@@ -11704,14 +11704,12 @@ func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuot
 	if err != nil {
 		t.Fatalf("ParseOutput err: %v", err)
 	}
-	for _, want := range []string{
-		"系统补充：输出维度核对",
-		"第 1 维：时序图；用户原话：必须给一张时序图",
-		"第 2 维：阶段状态表；用户原话：再给一张表列出每个阶段的输入、输出和状态载体，例如 甲/乙",
-	} {
-		if !strings.Contains(out.FinalAnswer, want) {
-			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
-		}
+	if strings.Contains(out.FinalAnswer, "系统补充：输出维度核对") ||
+		strings.Contains(out.FinalAnswer, "用户原话：") {
+		t.Fatalf("last-mile rendering must not turn uncovered dimensions into a system-authored answer block:\n%s", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "模型答案已经给出图和表") {
+		t.Fatalf("retiring the supplement must preserve the model-authored answer:\n%s", out.FinalAnswer)
 	}
 }
 

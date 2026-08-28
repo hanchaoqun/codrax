@@ -74,6 +74,22 @@ func TestAppendSoftContractCaveatsToAnswer_MaterializesDefaultSoftConcerns(t *te
 	}
 }
 
+func TestAcceptedSurfaceSuppressesResolvedInvestigationHistoryConsistencyCaveats(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable: types.NewMutableState("resolved investigation"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+	got := suppressGenericSoftCaveatsForAcceptedSurface([]types.Violation{
+		{Kind: types.ViolPreCompleteDowngrade},
+		{Kind: types.ViolSelfRefLiteral},
+	}, ctx)
+	if len(got) != 0 {
+		t.Fatalf("resolved investigation telemetry must not become a final-answer inconsistency caveat: %+v", got)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_MaterializesSpecificSelfContradiction(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)

@@ -754,6 +754,13 @@ func enumerationDepthCaveatIsRepairTelemetry(kind types.ViolationKind) bool {
 
 func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {
 	switch v.Kind {
+	case types.ViolPreCompleteDowngrade,
+		types.ViolSelfRefLiteral:
+		// These describe investigation history, not the accepted answer.
+		// A later successful completion has resolved the preflight debt, and a
+		// self-reference row is already demoted before answer selection. Keep
+		// both in operator telemetry; neither proves final-answer inconsistency.
+		return true
 	case types.ViolPrincipalClaimUseMissing,
 		types.ViolLaneBlockKindMismatch,
 		types.ViolRichnessRegression,

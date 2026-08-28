@@ -21560,7 +21560,6 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	if supplementDoc := readAuditSupplementDocumentForAnswer(ctx, doc, readAuditSupplementOwnerAnchor); supplementDoc != nil {
 		prose = appendAnswerSupplementDeduped(prose, renderReadOwnerAnchorSupplement(ctx, supplementDoc, e.language), e.language)
 	}
-	prose = appendAnswerSupplementDeduped(prose, renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, doc, e.language), e.language)
 	// EVALFIX-2E (CLASS 5): the degradation-disclosure footer renders
 	// here and ONLY here — the last-mile chokepoint every FinalAnswer
 	// path is already pinned to (TRUNC family) — so no render path can
@@ -22534,78 +22533,6 @@ func readOwnerAnchorSupplementStrength(strength types.SourceLocalizationAnchorSt
 		}
 		return "limited location evidence"
 	}
-}
-
-func renderRequestedAnswerDimensionSourceQuoteSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
-	rows := requestedAnswerDimensionSourceQuoteRows(ctx, doc)
-	if len(rows) == 0 {
-		return ""
-	}
-	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
-	var b strings.Builder
-	if zh {
-		b.WriteString("---\n\n")
-		b.WriteString("> **系统补充：输出维度核对**\n>\n")
-		b.WriteString("> 以下条目来自本轮已通过来源校验的用户原话，只用于保留显式展示要求；它不是新的证据，也不替代模型答案。\n>\n")
-		for _, row := range rows {
-			fmt.Fprintf(&b, "> - 第 %d 维：%s；用户原话：%s\n", row.Index, row.Label, row.SourceQuote)
-		}
-		return strings.TrimRight(b.String(), "\n")
-	}
-	b.WriteString("---\n\n")
-	b.WriteString("> **System supplement: requested output dimensions**\n>\n")
-	b.WriteString("> These entries come from source-checked wording in the current request. They preserve explicit presentation requirements only; they are not new evidence and do not replace the model-authored answer.\n>\n")
-	for _, row := range rows {
-		fmt.Fprintf(&b, "> - Dimension %d: %s; request wording: %s\n", row.Index, row.Label, row.SourceQuote)
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-type requestedAnswerDimensionSourceQuoteRow struct {
-	Index       int
-	Label       string
-	SourceQuote string
-}
-
-func requestedAnswerDimensionSourceQuoteRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []requestedAnswerDimensionSourceQuoteRow {
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
-		return nil
-	}
-	dimensions := view.Presentation.RequestedDimensions
-	if doc != nil {
-		dimensions = missingRequestedAnswerDimensionsInDocument(ctx, doc)
-	}
-	if len(dimensions) == 0 {
-		return nil
-	}
-	rows := make([]requestedAnswerDimensionSourceQuoteRow, 0, len(dimensions))
-	seen := map[string]bool{}
-	for _, dim := range dimensions {
-		label := strings.TrimSpace(dim.Label)
-		quote := strings.TrimSpace(dim.SourceQuote)
-		if label == "" || quote == "" {
-			continue
-		}
-		if strings.EqualFold(normalizedRequestedDimensionText(label), normalizedRequestedDimensionText(quote)) {
-			continue
-		}
-		key := normalizedRequestedDimensionText(label) + "\x00" + normalizedRequestedDimensionText(quote)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		index := dim.Index
-		if index <= 0 {
-			index = len(rows) + 1
-		}
-		rows = append(rows, requestedAnswerDimensionSourceQuoteRow{
-			Index:       index,
-			Label:       label,
-			SourceQuote: quote,
-		})
-	}
-	return rows
 }
 
 type traceQueryObservationSupplementRow struct {

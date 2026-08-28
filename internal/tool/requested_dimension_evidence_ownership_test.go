@@ -159,4 +159,7 @@ func TestEmitEvidenceExecutePublishesDimensionOwnershipAdvisoryWithoutRejectingE
 		!strings.Contains(result.Summary, "accepted evidence is unchanged") {
 		t.Fatalf("successful result did not carry the early soft advisory: %s", result.Summary)
 	}
+	if advisory, accepted := strings.Index(result.Summary, "Requested-dimension operation ownership advisory"), strings.Index(result.Summary, "emit_evidence accepted"); advisory < 0 || accepted < 0 || advisory > accepted {
+		t.Fatalf("actionable advisory must precede the long evidence audit: %s", result.Summary)
+	}
 }

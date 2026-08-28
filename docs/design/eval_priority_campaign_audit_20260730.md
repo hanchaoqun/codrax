@@ -58608,6 +58608,74 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1468 r899：Trace 不变量生产通过；正确软提示被长摘要尾部吞没，系统附注仍污染答案（2026-08-28）
+
+1. 从已推送 `319ba0bb3` 构建不可变二进制，严格并发恰好 2 路复放配置 read 与显式窗 Donghu Trace，runner 2/2 PASS：配置 251s、Trace
+   217s；无第三用例。两路都没有按 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级。
+2. Trace 人工通过：完整保留 34579.472865..34579.587805s、
+   `ThreadPoolForeg-60555 -> NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566`、链上优先级反转/调度供给/算力供给/
+   D-state/IO、`VerifyClass` 业务语义工作、实际占时与规则可消双账户、邻近/背景隔离、代表窗及完整 `Trace 因果投影`。主根因只从已证链上选举，
+   frame/deadline 因果未证则诚实限定。导语单个 `strongest` 中英混用属模型措辞波动，不为此增加正文硬门。
+3. `B1395` 获生产正证：r898 的虚假“不确定性边界”与陈腐“因证据不足改为建议项”脚注均消失；operator ledger 仍记录
+   `richness_facet_softened`，说明只是正确收窄用户披露，没有删审计历史。
+4. `B1394` 仅部分转正。首次包含 4 个 conditional/relationship operation rows 的成功证据摘要长 4.1KB；模型下一轮仍直接完成，并在完成门才收到
+   1/3 席 operation ownership 缺口，随后补 `Orchestrator.SetMaxSteps` 才闭环。正确 advisory 位于逐条 grounding/audit 尾部，debug 可见摘要本身已被截断，
+   生产效果等同“提示过晚”。立案 `B1397-POSTEMITADVISORYTAIL1/P1`：把已计算的 typed actionable delta 放在成功摘要首部，不改变判据。
+5. 新确认两个系统代写/误披露 P1。`B1398-REQUESTDIMENSIONSOURCEQUOTEBACKFILL1` 用 final answer visible-text 相似度判断“解析方式”未覆盖，然后追加只复述
+   “是怎么解析的”的系统块；它不补事实却污染已完整模型答案。`B1399-RESOLVEDPREFLIGHTCONSISTENCYCAVEAT1` 把已解决的
+   `ViolPreCompleteDowngrade` 历史映射成“答案前后不一致”，而最终 contract 逐节 0 violation、日志也无 reviewer contradiction；这是 telemetry 生命周期
+   串面，不是真矛盾。
+6. `B1396` 仍开放：finalizer 收到 79 条 evidence，Unit 2 仍混入 profiler registry、write audit 等 49+ 条无关同文件 shared rows；可见答案未再追加它们，
+   但 43k token 上下文与模型心智负担没有闭环。后续必须按 typed ownership/selected evidence 收窄，不按 symbol/file/prose 关键词过滤。
+
+状态：
+
+`r899=runner-pass-2/2,human-trace-pass+config-partial`；
+`B1394=production-partial/correct-advisory-not-consumed-before-completion`；
+`B1395=production-positive/core-closed`；
+`B1396=confirmed/P2/finalizer-context-selection-open`；
+`B1397=confirmed/P1-next/advisory-tail-starvation`；
+`B1398=confirmed/P1-next/fact-free-system-source-quote-backfill`；
+`B1399=confirmed/P1-next/resolved-preflight-telemetry-as-consistency`；
+`system-answer/conclusion/relation/wording-selection=none-required`；
+`request/model/final-prose/runtime-token/mermaid-content-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r899`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r899`。
+
+### §123.1469 B1397–B1399：行动提示前置；退役无事实系统补充与陈腐一致性脚注（2026-08-28）
+
+1. `B1397` 已施工。`emit_evidence` 仍在证据成功 commit 后计算同一 typed operation ownership delta，但现在把 advisory 放在逐条 grounding/audit 之前；
+   证据接收、Grounding、Repair 和累计账本均不变。接线回归钉住 advisory 必须先于 `emit_evidence accepted` 长审计，防止后续增加更多 note 又把行动项推到尾部。
+2. `B1398` 已施工：彻底退役 `renderRequestedAnswerDimensionSourceQuoteSupplement` 及其 last-mile append。用户原话继续存在于 analyzer 的 typed
+   `RequestedAnswerDimension`，用于 explorer 软教学和 precise structural patch retry；但若模型答案漏了非结构化解释，系统不能把原问题复述成“答案”。diagram、
+   member_set、relation_path、count、source location/attribute、boundary、evidence source 等可精确判断的结构面仍由模型 patch 车道补齐，未降级。
+3. `B1399` 已施工。在已接受 AnswerDocument 的 generic caveat 收口器中，`ViolPreCompleteDowngrade` 与 `ViolSelfRefLiteral` 明确定义为调查历史 telemetry：前者
+   已被后续成功 completion 解决，后者在证据选择前已降权。二者不再物化为 consistency caveat；operator ledger、严格提升配置和修补统计不变。真正
+   `ViolSelfContradiction` 携带 summary/body 成对声明时仍生成具体不一致披露，未以“少报”为由掩盖真实冲突。
+4. 以上修复均不扫描用户请求、模型 reasoning、最终正文或 Mermaid 内容作硬门；B1398 是删除系统后写答案，B1399 读 typed violation kind 与 accepted surface，
+   B1397 只调整同一 typed advisory 的交付顺序。回归还钉住 rejected first draft 中的旧 source-quote supplement 不得在 accepted answer 复活。完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+5. 下一步从本提交重建不可变二进制，仍严格并发恰好 2 路复放配置 read 与一条高优先级异构用例：配置验收首次 operation evidence 后 advisory 是否在首部并
+   减少完成门重试、两类系统附注归零；异构用例验收 last-mile 删除不影响显式结构化维度、模型答案保真与活动流。`B1396` 作为后续独立 typed context-selection 批，
+   不与本批输出修复混写。
+
+状态：
+
+`B1397=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1398=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1399=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`post-emit-actionable-advisory=head-before-audit`；
+`requested-dimension-source-quote-backfill=retired`；
+`precise-typed-dimension-patch-retry=preserved`；
+`resolved-precomplete/selfref-telemetry=operator-only`；
+`specific-self-contradiction-disclosure=preserved`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

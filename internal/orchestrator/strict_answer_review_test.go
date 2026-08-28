@@ -62,7 +62,7 @@ func TestAttachFirstDraftReference_UnstructuredFallbackStillPreservesModelDraft(
 	}
 }
 
-func TestAttachFirstDraftReference_AcceptedAnswerRendersRequestedDimensionSupplementOnce(t *testing.T) {
+func TestAttachFirstDraftReference_AcceptedAnswerDoesNotReviveRequestedDimensionSupplement(t *testing.T) {
 	mut := types.NewMutableState("x")
 	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "已接受结构化答案。",
@@ -87,8 +87,8 @@ func TestAttachFirstDraftReference_AcceptedAnswerRendersRequestedDimensionSupple
 
 	o.attachFirstDraftReference(out, firstDraft, []types.Violation{{Kind: types.ViolMustInclude}}, true, nil)
 
-	if got := strings.Count(out.FinalAnswer, "系统补充：输出维度核对"); got != 1 {
-		t.Fatalf("accepted answer must render the current typed supplement exactly once, got %d:\n%s", got, out.FinalAnswer)
+	if got := strings.Count(out.FinalAnswer, "系统补充：输出维度核对"); got != 0 {
+		t.Fatalf("accepted answer must not revive the retired source-quote supplement, got %d:\n%s", got, out.FinalAnswer)
 	}
 	if strings.Contains(out.FinalAnswer, "被拒第一稿") || strings.Contains(out.FinalAnswer, "旧稿补充") {
 		t.Fatalf("rejected draft and its stale supplement escaped into the accepted answer:\n%s", out.FinalAnswer)

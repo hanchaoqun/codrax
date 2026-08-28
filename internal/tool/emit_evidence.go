@@ -1197,7 +1197,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
 	}
 	if advisory := renderRequestedDimensionOperationOwnershipAdvisory(ctx, built, allEvidence); advisory != "" {
-		summary = strings.TrimRight(summary, "\n") + "\n\n" + advisory + "\n"
+		// Put the actionable delta before the potentially long per-item audit.
+		// Tail placement made a correct advisory easy to miss once grounding
+		// notes and repair history filled several kilobytes.
+		summary = advisory + "\n\n" + strings.TrimLeft(summary, "\n")
 	}
 	if len(surfaceTermDrops) > 0 {
 		summary = strings.TrimRight(summary, "\n") +
