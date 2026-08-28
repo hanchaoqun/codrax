@@ -171,6 +171,87 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	}
 }
 
+func TestBuildAnswerDocumentPatchParametersForProjectsClosedEnumFieldEdits(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		TraceCausalClaimContract: &types.TraceCausalClaimContract{
+			Allowed: []types.TraceCausalClaimCaliber{
+				types.TraceCausalClaimNoConclusion,
+				types.TraceCausalClaimBoundedWindow,
+			},
+			Ceiling: types.TraceCausalClaimBoundedWindow,
+		},
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{IsGranularityQuestion: true},
+	}
+	var root map[string]any
+	if err := json.Unmarshal(BuildAnswerDocumentPatchParametersFor(view), &root); err != nil {
+		t.Fatalf("patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	edits := props["block_field_edits_v1"].(map[string]any)
+	branches := edits["items"].(map[string]any)["oneOf"].([]any)
+	seen := map[string][]any{}
+	for _, raw := range branches {
+		branchProps := raw.(map[string]any)["properties"].(map[string]any)
+		field := branchProps["field"].(map[string]any)["const"].(string)
+		seen[field] = branchProps["value"].(map[string]any)["enum"].([]any)
+		if open, _ := raw.(map[string]any)["additionalProperties"].(bool); open {
+			t.Fatalf("local field branch must stay closed: %+v", raw)
+		}
+	}
+	if got := seen[string(types.AnswerBlockFieldTraceCausalClaimCaliber)]; !reflect.DeepEqual(got, []any{"no_causal_conclusion", "bounded_window_candidate"}) {
+		t.Fatalf("trace local edit widened the dispatch ceiling: %v", got)
+	}
+	for _, field := range []types.AnswerBlockEditableFieldV1{
+		types.AnswerBlockFieldScopeDisclosure,
+		types.AnswerBlockFieldSurfaceRole,
+	} {
+		if len(seen[string(field)]) == 0 {
+			t.Fatalf("generic safe enum field missing from v1 projection: %s", field)
+		}
+	}
+}
+
+func TestAnswerDocumentPatchFieldEditTargetsUseExactKindAndExcludeSystemOrLeaseBlocks(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		TraceCausalClaimContract: &types.TraceCausalClaimContract{
+			Allowed: []types.TraceCausalClaimCaliber{types.TraceCausalClaimBoundedWindow},
+			Ceiling: types.TraceCausalClaimBoundedWindow,
+		},
+		CurrentStatusDiagnostic: &types.CurrentStatusDiagnosticContract{Required: true},
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{IsGranularityQuestion: true},
+	}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary},
+		{ID: "decision", Kind: types.BlockDecision},
+		{ID: "support", Kind: types.BlockSection},
+		{ID: "system", Kind: types.BlockSummary, SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+	}}
+	raw := projectAnswerDocumentPatchFieldEditTargets(
+		BuildAnswerDocumentPatchParametersFor(view), prev, []string{"support"},
+	)
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	branches := root["properties"].(map[string]any)["block_field_edits_v1"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	idsByField := map[string][]any{}
+	for _, rawBranch := range branches {
+		props := rawBranch.(map[string]any)["properties"].(map[string]any)
+		field := props["field"].(map[string]any)["const"].(string)
+		idsByField[field] = props["block_id"].(map[string]any)["enum"].([]any)
+	}
+	if got := idsByField[string(types.AnswerBlockFieldTraceCausalClaimCaliber)]; !reflect.DeepEqual(got, []any{"summary"}) {
+		t.Fatalf("trace field targets=%v want exact model summary only", got)
+	}
+	if got := idsByField[string(types.AnswerBlockFieldCurrentStatusVerdict)]; !reflect.DeepEqual(got, []any{"decision"}) {
+		t.Fatalf("current-status field targets=%v want exact decision only", got)
+	}
+	if got := idsByField[string(types.AnswerBlockFieldSurfaceRole)]; !reflect.DeepEqual(got, []any{"summary", "decision"}) {
+		t.Fatalf("surface-role targets=%v; excluded/system blocks leaked", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableCapabilities(t *testing.T) {
 	base := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(base,

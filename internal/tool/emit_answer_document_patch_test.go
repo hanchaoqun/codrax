@@ -117,6 +117,59 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1PreservesWholeBlock(t *testing.T) {
+	bus := newPatchTestBusContext()
+	base := bus.Mutable.AnswerDocumentV2()
+	base.Blocks[0].SurfaceRole = ""
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	before := bus.Mutable.AnswerDocumentV2().Blocks[0]
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"block_field_edits_v1":[{"block_id":"s1","field":"surface_role","value":"principal"}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("local field edit must execute: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	want := before
+	want.SurfaceRole = types.SurfacePrincipal
+	if got == nil || len(got.Blocks) != 2 || !reflect.DeepEqual(got.Blocks[0], want) {
+		t.Fatalf("tool-local edit changed unrelated carrier fields: got=%+v want=%+v", got, want)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1IllegalValueDoesNotStage(t *testing.T) {
+	bus := newPatchTestBusContext()
+	before := bus.Mutable.AnswerDocumentV2()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"block_field_edits_v1":[{"block_id":"s1","field":"trace_causal_claim_caliber","value":"unproven"}]
+	}`))
+	if err != nil {
+		t.Fatalf("structural rejection must return a tool result: %v", err)
+	}
+	if res.Success || res.Repair == nil ||
+		res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeNotStaged {
+		t.Fatalf("illegal enum must fail before staging: %+v", res)
+	}
+	if got := bus.Mutable.AnswerDocumentV2(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("rejected local edit mutated accepted base: got=%+v want=%+v", got, before)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockFieldEditV1ConflictsWithWholeReplace(t *testing.T) {
+	bus := newPatchTestBusContext()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"block_field_edits_v1":[{"block_id":"s1","field":"surface_role","value":"principal"}],
+		"replace_blocks":[{"id":"s1","kind":"summary","text":"replacement"}]
+	}`))
+	if err != nil {
+		t.Fatalf("structural rejection must return a tool result: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "also in replace_blocks") {
+		t.Fatalf("mixed local/whole mutation must reject precisely: %+v", res)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_EnforcesTypedRelationRepairLease(t *testing.T) {
 	bus := newPatchTestBusContext()
 	base := bus.Mutable.AnswerDocumentV2()

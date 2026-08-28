@@ -43,6 +43,8 @@ import (
 //	|                                    | (3) Add∩Remove ∅
 //	|                                    | (4) Unchanged ⊆ prev.ids
 //
+// Block metadata   | BlockFieldEditsV1                | (6) FieldEdit∩Replace/Remove ∅
+//
 // Citations        | Replace | Append                  | (5) Replace XOR Append
 // ExactResolution  | Replace                           | nil = inherit prev
 // MissingRequestedRoles | Replace                      | nil = inherit prev
@@ -68,6 +70,12 @@ import (
 //     this lets a retry repeat an already-satisfied removal without
 //     learning the rejected-draft base's incidental shape. id MUST NOT
 //     also appear in ReplaceBlocks (1) or AddBlocks (3).
+//   - BlockFieldEditsV1: exact, model-authored assignment of one closed-enum
+//     metadata field on one existing model block. Every unmentioned field is
+//     copied from the immutable previous block. The v1 whitelist excludes all
+//     visible prose, diagram, relation, evidence, citation, item, and layout
+//     carriers. A field edit cannot target a whole-block Replace/Remove in the
+//     same patch (6); Unchanged is accepted as a redundant preservation claim.
 //   - Citations: ReplaceCitations and AppendCitations are mutually
 //     exclusive (5); use Replace for holistic re-pick, Append for
 //     additive (e.g. negative-pattern citation without rewriting
@@ -134,10 +142,11 @@ import (
 // emit patches MUST select exactly one op per field group; validators
 // MUST treat the merged doc as truth, NOT inspect the patch shape.
 type AnswerDocumentV2Patch struct {
-	UnchangedBlockIDs []string      `json:"unchanged_block_ids,omitempty"`
-	ReplaceBlocks     []AnswerBlock `json:"replace_blocks,omitempty"`
-	AddBlocks         []AnswerBlock `json:"add_blocks,omitempty"`
-	RemoveBlockIDs    []string      `json:"remove_block_ids,omitempty"`
+	UnchangedBlockIDs []string                 `json:"unchanged_block_ids,omitempty"`
+	ReplaceBlocks     []AnswerBlock            `json:"replace_blocks,omitempty"`
+	AddBlocks         []AnswerBlock            `json:"add_blocks,omitempty"`
+	RemoveBlockIDs    []string                 `json:"remove_block_ids,omitempty"`
+	BlockFieldEditsV1 []AnswerBlockFieldEditV1 `json:"block_field_edits_v1,omitempty"`
 	// ReplaceCitations is OPTIONAL. When non-nil, the resulting
 	// doc's Citations slice is REPLACED entirely (used when the
 	// LLM needs to re-pick citations holistically). When nil,
@@ -164,12 +173,37 @@ type AnswerDocumentV2Patch struct {
 	AddBlockCompanionLineages []AnswerBlockCompanionLineage `json:"-"`
 }
 
+// AnswerBlockEditableFieldV1 is the closed first-version field vocabulary for
+// lossless local block metadata repair. Adding a field is a protocol change:
+// it must remain non-visible, closed-enum, model-selected, and have explicit
+// validation below. Free-form strings and nested carriers are intentionally
+// not representable.
+type AnswerBlockEditableFieldV1 string
+
+const (
+	AnswerBlockFieldTraceCausalClaimCaliber AnswerBlockEditableFieldV1 = "trace_causal_claim_caliber"
+	AnswerBlockFieldCurrentStatusVerdict    AnswerBlockEditableFieldV1 = "current_status_verdict"
+	AnswerBlockFieldErrorGranularityVerdict AnswerBlockEditableFieldV1 = "error_granularity_verdict"
+	AnswerBlockFieldScopeDisclosure         AnswerBlockEditableFieldV1 = "scope_disclosure"
+	AnswerBlockFieldSurfaceRole             AnswerBlockEditableFieldV1 = "surface_role"
+)
+
+// AnswerBlockFieldEditV1 assigns one model-selected enum value to one exact
+// existing block. The operation carries no inference/default branch: Value is
+// always supplied by the model and checked by the ordinary merged-document
+// validators after this structural validation.
+type AnswerBlockFieldEditV1 struct {
+	BlockID string                     `json:"block_id"`
+	Field   AnswerBlockEditableFieldV1 `json:"field"`
+	Value   string                     `json:"value"`
+}
+
 // AnswerDocumentPatchOperationTeaching is the one compact, shared explanation
 // of patch operation semantics used by finalizer prompts and retry hints. The
 // projected tool schema remains the sole authority for JSON field types and
 // required shapes; this text prevents two easy semantic mistakes: assuming
 // an unmentioned block is deleted, or assuming ReplaceBlocks merges fields.
-const AnswerDocumentPatchOperationTeaching = "Patch semantics: preserve an existing block with `unchanged_block_ids`, edit it with `replace_blocks`, append with `add_blocks`, and intentionally delete with `remove_block_ids`; omitting a previous block id from all four operations does not delete it. `replace_snippets` is only for code snippets shaped as {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other answer-block fields belong in a full `replace_blocks` entry. For a local diagram relation fix, prefer model-authored `diagram_edge_edits`; every unmentioned carrier remains preserved. A block named by `diagram_edge_edits`, `diagram_boundary_edits`, `diagram_boundary_replacements`, `diagram_relation_scope_edits`, or `diagram_participant_edits` is already preserved, and a redundant unchanged id is absorbed. Choose only an exact branch present in the current tool schema. A failure-only branch selects one live carrier; an addition-only branch selects one typed candidate and still requires model-authored visible nodes and label. A published boundary_ref/action branch changes only that participant-boundary row and preserves every unmentioned boundary and visible graph carrier; use whole-array `diagram_boundary_replacements` only when no local boundary branch is published. When the schema publishes `diagram_relation_scope_edits`, use its exact block_id/action branch to change only the block-level coverage disclosure; do not replace the lease-target diagram. Omit legacy coordinates and hidden technical fields for every ref-selected branch, and never combine refs outside a single published branch. Refs never choose an action, relation, or visible wording. If selected edge edits isolate an optional_orphan_cleanups row, use `diagram_participant_edits` to choose remove_if_isolated or retain_as_context with your visible_label. Every `replace_blocks` entry replaces the whole existing block rather than merging fields; copy unchanged fields because an omitted field is deleted. Follow native schema types and never wrap an array or object payload in a JSON string."
+const AnswerDocumentPatchOperationTeaching = "Patch semantics: preserve an existing block with `unchanged_block_ids`, edit it with `replace_blocks`, append with `add_blocks`, and intentionally delete with `remove_block_ids`; omitting a previous block id from all four operations does not delete it. For one projected closed-enum metadata field, use `block_field_edits_v1`: it preserves every unmentioned field and never chooses the value; use only the exact block_id/field/value branch in the current schema. `replace_snippets` is only for code snippets shaped as {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other answer-block fields belong in a full `replace_blocks` entry. For a local diagram relation fix, prefer model-authored `diagram_edge_edits`; every unmentioned carrier remains preserved. A block named by `diagram_edge_edits`, `diagram_boundary_edits`, `diagram_boundary_replacements`, `diagram_relation_scope_edits`, or `diagram_participant_edits` is already preserved, and a redundant unchanged id is absorbed. Choose only an exact branch present in the current tool schema. A failure-only branch selects one live carrier; an addition-only branch selects one typed candidate and still requires model-authored visible nodes and label. A published boundary_ref/action branch changes only that participant-boundary row and preserves every unmentioned boundary and visible graph carrier; use whole-array `diagram_boundary_replacements` only when no local boundary branch is published. When the schema publishes `diagram_relation_scope_edits`, use its exact block_id/action branch to change only the block-level coverage disclosure; do not replace the lease-target diagram. Omit legacy coordinates and hidden technical fields for every ref-selected branch, and never combine refs outside a single published branch. Refs never choose an action, relation, or visible wording. If selected edge edits isolate an optional_orphan_cleanups row, use `diagram_participant_edits` to choose remove_if_isolated or retain_as_context with your visible_label. Every `replace_blocks` entry replaces the whole existing block rather than merging fields; copy unchanged fields because an omitted field is deleted. Follow native schema types and never wrap an array or object payload in a JSON string."
 
 // IsEmpty reports whether the patch carries zero modifications.
 // Empty patches are explicitly rejected at Apply time — every
@@ -183,6 +217,7 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 		len(p.ReplaceBlocks) == 0 &&
 		len(p.AddBlocks) == 0 &&
 		len(p.RemoveBlockIDs) == 0 &&
+		len(p.BlockFieldEditsV1) == 0 &&
 		p.ReplaceCitations == nil &&
 		len(p.AppendCitations) == 0 &&
 		p.ReplaceExactResolution == nil &&
@@ -308,12 +343,31 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	for _, b := range p.ReplaceBlocks {
 		replacedBy[b.ID] = b
 	}
+	editedBy := make(map[string]AnswerBlock, len(p.BlockFieldEditsV1))
+	for _, edit := range p.BlockFieldEditsV1 {
+		block, ok := answerDocumentBlockByID(prev, edit.BlockID)
+		if !ok {
+			return nil, fmt.Errorf("patch: block_field_edits_v1 target %q disappeared after validation", edit.BlockID)
+		}
+		if current, exists := editedBy[edit.BlockID]; exists {
+			block = current
+		}
+		updated, err := applyAnswerBlockFieldEditV1(block, edit)
+		if err != nil {
+			return nil, err
+		}
+		editedBy[edit.BlockID] = updated
+	}
 	for _, prevBlock := range prev.Blocks {
 		if removed[prevBlock.ID] {
 			continue
 		}
 		if replacement, ok := replacedBy[prevBlock.ID]; ok {
 			out.Blocks = append(out.Blocks, replacement)
+			continue
+		}
+		if edited, ok := editedBy[prevBlock.ID]; ok {
+			out.Blocks = append(out.Blocks, edited)
 			continue
 		}
 		// Inherit prev block as-is. This is the load-bearing
@@ -406,6 +460,41 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 		replaceSet[id] = true
 	}
 
+	// BlockFieldEditsV1: exact existing model block, one assignment per
+	// block+field, valid closed-enum value, and no whole-block mutation of the
+	// same target. Redundant Unchanged is intentionally harmless.
+	fieldEditSet := make(map[string]bool, len(p.BlockFieldEditsV1))
+	for _, edit := range p.BlockFieldEditsV1 {
+		id := strings.TrimSpace(edit.BlockID)
+		if id == "" {
+			return fmt.Errorf("patch: block_field_edits_v1 contains empty block_id")
+		}
+		if id != edit.BlockID {
+			return fmt.Errorf("patch: block_field_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID)
+		}
+		block, ok := answerDocumentBlockByID(prev, id)
+		if !ok {
+			return fmt.Errorf("patch: block_field_edits_v1[%q] not present in previous emit", id)
+		}
+		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
+			return fmt.Errorf("patch: block_field_edits_v1[%q] cannot edit a system-generated block", id)
+		}
+		if removeSet[id] {
+			return fmt.Errorf("patch: block_field_edits_v1[%q] also in remove_block_ids — pick one", id)
+		}
+		if replaceSet[id] {
+			return fmt.Errorf("patch: block_field_edits_v1[%q] also in replace_blocks — pick one", id)
+		}
+		key := id + "\x00" + string(edit.Field)
+		if fieldEditSet[key] {
+			return fmt.Errorf("patch: block_field_edits_v1[%q].%s duplicated", id, edit.Field)
+		}
+		if _, err := applyAnswerBlockFieldEditV1(block, edit); err != nil {
+			return err
+		}
+		fieldEditSet[key] = true
+	}
+
 	// AddBlocks: each must have non-empty id, id NOT in prev,
 	// no dup within Add, no overlap with Replace / Remove.
 	addSet := make(map[string]bool, len(p.AddBlocks))
@@ -460,6 +549,67 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 	}
 
 	return nil
+}
+
+func answerDocumentBlockByID(doc *AnswerDocumentV2, id string) (AnswerBlock, bool) {
+	if doc == nil {
+		return AnswerBlock{}, false
+	}
+	for _, block := range doc.Blocks {
+		if block.ID == id {
+			return block, true
+		}
+	}
+	return AnswerBlock{}, false
+}
+
+func applyAnswerBlockFieldEditV1(block AnswerBlock, edit AnswerBlockFieldEditV1) (AnswerBlock, error) {
+	id := strings.TrimSpace(edit.BlockID)
+	value := strings.TrimSpace(edit.Value)
+	switch edit.Field {
+	case AnswerBlockFieldTraceCausalClaimCaliber:
+		if block.Kind != BlockSummary {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].trace_causal_claim_caliber requires kind=summary", id)
+		}
+		v, ok := NormalizeTraceCausalClaimCaliber(value)
+		if !ok {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].trace_causal_claim_caliber=%q is invalid", id, edit.Value)
+		}
+		block.TraceCausalClaimCaliber = v
+	case AnswerBlockFieldCurrentStatusVerdict:
+		if block.Kind != BlockDecision {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].current_status_verdict requires kind=decision", id)
+		}
+		v, ok := NormalizeCurrentStatusVerdict(value)
+		if !ok || v == CurrentStatusUnknown {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].current_status_verdict=%q is invalid", id, edit.Value)
+		}
+		block.CurrentStatusVerdict = v
+	case AnswerBlockFieldErrorGranularityVerdict:
+		if block.Kind != BlockDecision {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].error_granularity_verdict requires kind=decision", id)
+		}
+		v, ok := NormalizeErrorGranularityVerdict(value)
+		if !ok || v == ErrorGranularityUnknown {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].error_granularity_verdict=%q is invalid", id, edit.Value)
+		}
+		block.ErrorGranularityVerdict = v
+	case AnswerBlockFieldScopeDisclosure:
+		v, ok := NormalizeScopeDisclosureKind(value)
+		if !ok || v == ScopeDisclosureUnknown {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].scope_disclosure=%q is invalid", id, edit.Value)
+		}
+		block.ScopeDisclosure = v
+	case AnswerBlockFieldSurfaceRole:
+		v, ok := NormalizeSurfaceRole(value)
+		if !ok || v == "" {
+			return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].surface_role=%q is invalid", id, edit.Value)
+		}
+		block.SurfaceRole = v
+	default:
+		return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
+	}
+	return block, nil
 }
 
 func answerBlockHasCitationRefs(b AnswerBlock) bool {

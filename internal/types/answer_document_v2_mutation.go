@@ -134,6 +134,9 @@ func (m AnswerDocumentMutation) Summary() string {
 		base := fmt.Sprintf("partial unchanged=%d replace=%d add=%d remove=%d",
 			len(m.Patch.UnchangedBlockIDs), len(m.Patch.ReplaceBlocks),
 			len(m.Patch.AddBlocks), len(m.Patch.RemoveBlockIDs))
+		if len(m.Patch.BlockFieldEditsV1) > 0 {
+			base += fmt.Sprintf(" field_edits_v1=%d", len(m.Patch.BlockFieldEditsV1))
+		}
 		switch {
 		case m.Patch.ReplaceCitations != nil:
 			base += fmt.Sprintf(" citations_replaced=%d", len(m.Patch.ReplaceCitations))

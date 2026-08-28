@@ -99,6 +99,106 @@ func TestApplyPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestApplyPatch_BlockFieldEditV1PreservesOriginalSummaryShape(t *testing.T) {
+	prev := samplePrevDoc()
+	before := prev.Blocks[0]
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		BlockFieldEditsV1: []AnswerBlockFieldEditV1{{
+			BlockID: "s1", Field: AnswerBlockFieldTraceCausalClaimCaliber,
+			Value: string(TraceCausalClaimBoundedWindow),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := before
+	want.TraceCausalClaimCaliber = TraceCausalClaimBoundedWindow
+	if !reflect.DeepEqual(got.Blocks[0], want) {
+		t.Fatalf("local enum assignment changed unrelated summary fields:\n got=%+v\nwant=%+v", got.Blocks[0], want)
+	}
+	if !reflect.DeepEqual(got.Blocks[1:], prev.Blocks[1:]) {
+		t.Fatalf("local enum assignment changed unrelated blocks: got=%+v want=%+v", got.Blocks[1:], prev.Blocks[1:])
+	}
+}
+
+func TestApplyPatch_BlockFieldEditV1WhitelistAndKindFailClosed(t *testing.T) {
+	prev := samplePrevDoc()
+	cases := []AnswerBlockFieldEditV1{
+		{BlockID: "s1", Field: AnswerBlockFieldTraceCausalClaimCaliber, Value: "unproven"},
+		{BlockID: "lifecycle", Field: AnswerBlockFieldTraceCausalClaimCaliber, Value: string(TraceCausalClaimBoundedWindow)},
+		{BlockID: "s1", Field: AnswerBlockEditableFieldV1("text"), Value: "system-authored prose"},
+		{BlockID: "missing", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal)},
+		{BlockID: " s1 ", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal)},
+	}
+	for _, edit := range cases {
+		if _, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{BlockFieldEditsV1: []AnswerBlockFieldEditV1{edit}}); err == nil {
+			t.Fatalf("invalid local field edit must reject: %+v", edit)
+		}
+	}
+}
+
+func TestApplyPatch_BlockFieldEditV1CoversClosedEnumMetadataClass(t *testing.T) {
+	prev := samplePrevDoc()
+	prev.Blocks = append(prev.Blocks, AnswerBlock{ID: "decision", Kind: BlockDecision, Text: "model verdict"})
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		BlockFieldEditsV1: []AnswerBlockFieldEditV1{
+			{BlockID: "s1", Field: AnswerBlockFieldTraceCausalClaimCaliber, Value: string(TraceCausalClaimTypedChain)},
+			{BlockID: "decision", Field: AnswerBlockFieldCurrentStatusVerdict, Value: string(CurrentStatusStillPresent)},
+			{BlockID: "decision", Field: AnswerBlockFieldErrorGranularityVerdict, Value: string(ErrorGranularityPartialSuccess)},
+			{BlockID: "lifecycle", Field: AnswerBlockFieldScopeDisclosure, Value: string(ScopeDisclosureInactiveScopeNamed)},
+			{BlockID: "list1", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("all v1 enum fields must be executable: %v", err)
+	}
+	if got.Blocks[0].TraceCausalClaimCaliber != TraceCausalClaimTypedChain ||
+		got.Blocks[1].ScopeDisclosure != ScopeDisclosureInactiveScopeNamed ||
+		got.Blocks[2].SurfaceRole != SurfacePrincipal ||
+		got.Blocks[3].CurrentStatusVerdict != CurrentStatusStillPresent ||
+		got.Blocks[3].ErrorGranularityVerdict != ErrorGranularityPartialSuccess {
+		t.Fatalf("v1 enum assignments incomplete: %+v", got.Blocks)
+	}
+	if got.Blocks[3].Text != "model verdict" {
+		t.Fatalf("enum assignments must preserve model verdict text: %+v", got.Blocks[3])
+	}
+}
+
+func TestApplyPatch_BlockFieldEditV1RejectsWholeBlockConflictsAndDuplicates(t *testing.T) {
+	prev := samplePrevDoc()
+	valid := AnswerBlockFieldEditV1{BlockID: "s1", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal)}
+	cases := []*AnswerDocumentV2Patch{
+		{BlockFieldEditsV1: []AnswerBlockFieldEditV1{valid}, RemoveBlockIDs: []string{"s1"}},
+		{BlockFieldEditsV1: []AnswerBlockFieldEditV1{valid}, ReplaceBlocks: []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "replacement"}}},
+		{BlockFieldEditsV1: []AnswerBlockFieldEditV1{valid, valid}},
+	}
+	for _, patch := range cases {
+		if _, err := ApplyAnswerDocumentV2Patch(prev, patch); err == nil {
+			t.Fatalf("conflicting local field patch must reject: %+v", patch)
+		}
+	}
+	// A preservation assertion is not a second mutation and is intentionally
+	// absorbed by the local edit.
+	if _, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		UnchangedBlockIDs: []string{"s1"}, BlockFieldEditsV1: []AnswerBlockFieldEditV1{valid},
+	}); err != nil {
+		t.Fatalf("redundant unchanged claim must remain executable: %v", err)
+	}
+}
+
+func TestApplyPatch_BlockFieldEditV1RejectsSystemGeneratedTarget(t *testing.T) {
+	prev := samplePrevDoc()
+	prev.Blocks[0].SystemGeneratedKind = AnswerSystemGeneratedRuntimeTrace
+	_, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		BlockFieldEditsV1: []AnswerBlockFieldEditV1{{
+			BlockID: "s1", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal),
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "system-generated") {
+		t.Fatalf("system-owned block field edit must fail closed: %v", err)
+	}
+}
+
 // TestApplyPatch_PureUnchangedPreservesAllFields is the **R16
 // load-bearing test**: when the LLM declares "all blocks unchanged",
 // every typed annotation field on every block flows through

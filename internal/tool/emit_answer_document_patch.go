@@ -46,6 +46,8 @@ type EmitAnswerDocumentPatch struct {
 	NonEvidenceTool
 }
 
+const maxModelAuthoredBlockFieldEditsV1 = 128
+
 func (t *EmitAnswerDocumentPatch) Name() string { return "emit_answer_document_patch" }
 
 func (t *EmitAnswerDocumentPatch) Description() string {
@@ -53,6 +55,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"Patch fields (all optional, but at least one MUST be non-empty):\n\n" +
 		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, facet_ids, surface_role, source_inventory_family, items[].cells, items[].candidate_role, items[].source_inventory_row_id, items[].evidence_ids, items[].citation_ref, items[].citation_refs) on blocks you do NOT need to edit. If an id is also targeted by `diagram_edge_edits`, `diagram_boundary_replacements`, `diagram_boundary_edits`, `diagram_relation_scope_edits`, or `diagram_participant_edits`, that unchanged entry is redundant and is absorbed because atomic editing already preserves every unmentioned carrier from the immutable base.\n" +
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
+		"- `block_field_edits_v1`: lossless local assignment for one projected closed-enum block metadata field. Choose the exact existing block_id, field, and value branch shown by the current schema. Every other field on that block is copied from the immutable patch base. This branch never edits text, title, items, diagrams, relations, labels, evidence, citations, or layout, and the system never chooses the value. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
@@ -83,6 +86,21 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
       "type": "array",
       "description": "FULL replacement payloads, not general field merges. Copy all previous display and typed fields not named by the repair (especially title/text/columns/diagram/facet_ids/claim_uses/surface_role), then change only the requested field. Narrow retry safety: for the exact same block id/kind with a unique stable item-id overlap, truly omitted facet_ids/surface_role retain their prior carrier values; explicit empty/value is never inherited. Each entry has the full block shape and the same id as an existing block.",
       "items": {"type": "object"}
+    },
+    "block_field_edits_v1": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "description": "Version-1 lossless local assignments for projected closed-enum block metadata. Select an exact branch; every unmentioned block field is preserved from the immutable patch base. The model selects the value. Free-form text, diagrams, relations, labels, evidence, citations, items, and layout are not representable here.",
+      "items": {
+        "oneOf": [
+          {"type":"object","additionalProperties":false,"properties":{"block_id":{"type":"string"},"field":{"const":"trace_causal_claim_caliber"},"value":{"type":"string","enum":["no_causal_conclusion","bounded_window_candidate","typed_chain_cause","typed_frame_cause"]}},"required":["block_id","field","value"]},
+          {"type":"object","additionalProperties":false,"properties":{"block_id":{"type":"string"},"field":{"const":"current_status_verdict"},"value":{"type":"string","enum":["still_present","fixed","not_enough_evidence"]}},"required":["block_id","field","value"]},
+          {"type":"object","additionalProperties":false,"properties":{"block_id":{"type":"string"},"field":{"const":"error_granularity_verdict"},"value":{"type":"string","enum":["per_item_rejection","whole_batch_failure","partial_success","fail_fast","collect_errors","not_enough_evidence"]}},"required":["block_id","field","value"]},
+          {"type":"object","additionalProperties":false,"properties":{"block_id":{"type":"string"},"field":{"const":"scope_disclosure"},"value":{"type":"string","enum":["inactive_scope_named","out_of_active_scope","requires_workspace_adjust"]}},"required":["block_id","field","value"]},
+          {"type":"object","additionalProperties":false,"properties":{"block_id":{"type":"string"},"field":{"const":"surface_role"},"value":{"type":"string","enum":["principal"]}},"required":["block_id","field","value"]}
+        ]
+      }
     },
     "add_blocks": {
       "type": "array",
@@ -274,8 +292,10 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	raw = projectAnswerDocumentPatchRelationScopeEdits(raw, ctx, prev)
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, nil)
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
+	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, localDiagramLeaseTargetBlockIDs(lease))
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev)
 }
 
@@ -293,6 +313,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
 			"`replace_snippets` is only for code snippets {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other block fields belong in `replace_blocks`. " +
+			"For one projected closed-enum block metadata field, prefer `block_field_edits_v1`; it preserves all unmentioned content and you still select the value. " +
 			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
 			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
 			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
@@ -834,11 +855,135 @@ func BuildAnswerDocumentPatchParametersFor(view *types.AnswerSemanticView) json.
 		}
 		arraySchema["items"] = blockItem
 	}
+	projectAnswerDocumentPatchFieldEditBranches(patchProperties, blockItem)
 	out, err := json.Marshal(patchRoot)
 	if err != nil || !json.Valid(out) {
 		return (&EmitAnswerDocumentPatch{}).Parameters()
 	}
 	return out
+}
+
+// projectAnswerDocumentPatchFieldEditBranches derives the local field-edit
+// vocabulary from the same dispatch-projected block schema used by a full
+// emit. A field omitted by the active typed contract cannot be resurrected by
+// the patch surface. Values are copied from the projected enum; no request or
+// answer prose participates.
+func projectAnswerDocumentPatchFieldEditBranches(patchProperties map[string]any, blockItem map[string]any) {
+	edits, _ := patchProperties["block_field_edits_v1"].(map[string]any)
+	items, _ := edits["items"].(map[string]any)
+	blockProps, _ := blockItem["properties"].(map[string]any)
+	if edits == nil || items == nil || blockProps == nil {
+		delete(patchProperties, "block_field_edits_v1")
+		return
+	}
+	fields := []string{
+		string(types.AnswerBlockFieldTraceCausalClaimCaliber),
+		string(types.AnswerBlockFieldCurrentStatusVerdict),
+		string(types.AnswerBlockFieldErrorGranularityVerdict),
+		string(types.AnswerBlockFieldScopeDisclosure),
+		string(types.AnswerBlockFieldSurfaceRole),
+	}
+	branches := make([]any, 0, len(fields))
+	for _, field := range fields {
+		node, _ := blockProps[field].(map[string]any)
+		values, _ := node["enum"].([]any)
+		if node == nil || len(values) == 0 {
+			continue
+		}
+		branches = append(branches, map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"block_id": map[string]any{"type": "string"},
+				"field":    map[string]any{"const": field},
+				"value":    map[string]any{"type": "string", "enum": append([]any(nil), values...)},
+			},
+			"required": []any{"block_id", "field", "value"},
+		})
+	}
+	if len(branches) == 0 {
+		delete(patchProperties, "block_field_edits_v1")
+		return
+	}
+	items["oneOf"] = branches
+}
+
+// projectAnswerDocumentPatchFieldEditTargets narrows every field branch to
+// exact existing model-owned blocks of a compatible kind. excluded contains
+// lease-target diagram ids whose current repair capability must stay atomic.
+// The projection is typed state only and never reads visible content.
+func projectAnswerDocumentPatchFieldEditTargets(raw json.RawMessage, prev *types.AnswerDocumentV2, excluded []string) json.RawMessage {
+	if prev == nil {
+		return raw
+	}
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return raw
+	}
+	properties, _ := root["properties"].(map[string]any)
+	edits, _ := properties["block_field_edits_v1"].(map[string]any)
+	items, _ := edits["items"].(map[string]any)
+	branches, _ := items["oneOf"].([]any)
+	if properties == nil || edits == nil || items == nil || len(branches) == 0 {
+		return raw
+	}
+	excludedSet := make(map[string]bool, len(excluded))
+	for _, id := range excluded {
+		if id = strings.TrimSpace(id); id != "" {
+			excludedSet[id] = true
+		}
+	}
+	var projected []any
+	for _, rawBranch := range branches {
+		branch, _ := rawBranch.(map[string]any)
+		branchProps, _ := branch["properties"].(map[string]any)
+		fieldNode, _ := branchProps["field"].(map[string]any)
+		field, _ := fieldNode["const"].(string)
+		if branch == nil || branchProps == nil || field == "" {
+			continue
+		}
+		var ids []any
+		for _, block := range prev.Blocks {
+			id := strings.TrimSpace(block.ID)
+			if id == "" || excludedSet[id] || block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+				!answerBlockFieldEditV1KindCompatible(field, block.Kind) {
+				continue
+			}
+			ids = append(ids, id)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		blockID, _ := branchProps["block_id"].(map[string]any)
+		if blockID == nil {
+			continue
+		}
+		blockID["enum"] = ids
+		projected = append(projected, branch)
+	}
+	if len(projected) == 0 {
+		delete(properties, "block_field_edits_v1")
+	} else {
+		items["oneOf"] = projected
+	}
+	out, err := json.Marshal(root)
+	if err != nil || !json.Valid(out) {
+		return raw
+	}
+	return out
+}
+
+func answerBlockFieldEditV1KindCompatible(field string, kind types.AnswerBlockKind) bool {
+	switch types.AnswerBlockEditableFieldV1(field) {
+	case types.AnswerBlockFieldTraceCausalClaimCaliber:
+		return kind == types.BlockSummary
+	case types.AnswerBlockFieldCurrentStatusVerdict, types.AnswerBlockFieldErrorGranularityVerdict:
+		return kind == types.BlockDecision
+	case types.AnswerBlockFieldScopeDisclosure, types.AnswerBlockFieldSurfaceRole:
+		return types.IsValidAnswerBlockKind(kind)
+	default:
+		return false
+	}
 }
 
 // emitAnswerDocumentPatchParams mirrors AnswerDocumentV2Patch
@@ -850,6 +995,7 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceBlocks                []emitAnswerBlockV2                    `json:"replace_blocks,omitempty"`
 	AddBlocks                    []emitAnswerBlockV2                    `json:"add_blocks,omitempty"`
 	RemoveBlockIDs               []string                               `json:"remove_block_ids,omitempty"`
+	BlockFieldEditsV1            []types.AnswerBlockFieldEditV1         `json:"block_field_edits_v1,omitempty"`
 	DiagramEdgeEdits             []emitAnswerDiagramEdgeEdit            `json:"diagram_edge_edits,omitempty"`
 	DiagramBoundaryReplacements  []emitAnswerDiagramBoundaryReplacement `json:"diagram_boundary_replacements,omitempty"`
 	DiagramBoundaryEdits         []emitAnswerDiagramBoundaryEdit        `json:"diagram_boundary_edits,omitempty"`
@@ -941,6 +1087,11 @@ func localDiagramLeaseWholeBlockMutationViolation(
 		id := strings.TrimSpace(block.ID)
 		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"}
 	}
+	for _, edit := range p.BlockFieldEditsV1 {
+		if id := strings.TrimSpace(edit.BlockID); targetSet[id] {
+			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_field_edit_not_authorized"}
+		}
+	}
 	for _, rawID := range p.RemoveBlockIDs {
 		id := strings.TrimSpace(rawID)
 		if targetSet[id] && lease != nil && lease.AllowTargetDiagramRemoval {
@@ -980,6 +1131,11 @@ func splitCompanionDispositionViolation(prev *types.AnswerDocumentV2, p *emitAns
 	}
 	for _, block := range p.ReplaceBlocks {
 		if id := strings.TrimSpace(block.ID); id != "" {
+			explicit[id] = true
+		}
+	}
+	for _, edit := range p.BlockFieldEditsV1 {
+		if id := strings.TrimSpace(edit.BlockID); id != "" {
 			explicit[id] = true
 		}
 	}
@@ -1137,6 +1293,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// schema for blocks); R4 sanitization always applies.
 		return failStrictDecode(t.Name(), now, err, answerDocumentV2MisplacedHints, params)
 	}
+	if len(p.BlockFieldEditsV1) > maxModelAuthoredBlockFieldEditsV1 {
+		return failEmit(t.Name(), now, "too many block_field_edits_v1: got %d, max %d",
+			len(p.BlockFieldEditsV1), maxModelAuthoredBlockFieldEditsV1)
+	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		lease = nil
@@ -1181,6 +1341,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	patch := &types.AnswerDocumentV2Patch{
 		UnchangedBlockIDs:            append([]string(nil), p.UnchangedBlockIDs...),
 		RemoveBlockIDs:               append([]string(nil), p.RemoveBlockIDs...),
+		BlockFieldEditsV1:            append([]types.AnswerBlockFieldEditV1(nil), p.BlockFieldEditsV1...),
 		ReplaceCitations:             convertEmitCitationsToTyped(p.ReplaceCitations),
 		AppendCitations:              convertEmitCitationsToTyped(p.AppendCitations),
 		ReplaceExactResolution:       p.ReplaceExactResolution,

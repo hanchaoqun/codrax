@@ -57674,6 +57674,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r886`。
 
+### §123.1442 B1379：闭集枚举元数据获得保真局部 patch，整块替换语义不变（2026-08-28）
+
+1. `B1379-BLOCKFIELDPATCHCAPABILITY1/P1` 已按版本化闭集施工。新增 `block_field_edits_v1`，模型必须在当前 schema 的精确分支中显式提交
+   `block_id + field + value`；executor 从不可变 patch base 复制原块，只赋值该一个枚举字段。系统不推断默认值、不根据 validator 自动选值，也不读取
+   用户请求、模型推理、答案正文、Mermaid body/label/message 来决定字段或内容。
+2. v1 不是针对 Trace 单枚举的特判，而是统一覆盖五类安全块级元数据：`trace_causal_claim_caliber`、`current_status_verdict`、
+   `error_granularity_verdict`、`scope_disclosure`、`surface_role`。它们都已有 closed enum 与明确类型校验；`text/title/items/diagram/edge_anchors/
+   relation_claims/evidence/citation/layout` 等自由文本、事实、关系和显示载体均不可表达，后续新增字段必须显式升级白名单与回归，不能用 generic map 扩权。
+3. 动态 schema 与 full emit 同源：当前 typed 视图未投影的字段不会被 patch 重新暴露；Trace caliber 与 status/granularity 的 value enum 直接复用当前
+   证据合同允许值，不能超过 report-local ceiling。每个分支的 block_id 又收窄到上一版中 kind 兼容、唯一存在、模型所有的精确块；summary/decision
+   分别只进入其合法字段分支，系统生成块与 live diagram lease 目标从该能力面排除。
+4. r886 原形现可一次提交
+   `{block_id:"summary-block",field:"trace_causal_claim_caliber",value:<模型选择的当前允许值>}`：summary 的 text、title、surface_role、claim_uses、
+   facet_ids、items 与其余块全部结构保留，不再制造空 summary→补新 summary→超 cardinality→再删旧块的三级级联。原 `replace_blocks` 仍是 full
+   replacement，遗漏字段仍删除；没有把它偷改成 merge，也没有改变明确空值的既有语义。
+5. fail-closed 面覆盖非法/未投影枚举、错误 block kind、不存在或系统所有 block、同 block+field 重复、同目标 replace/remove，以及 live diagram
+   lease 目标越权；任一失败均在持久化前回滚，accepted base 不变。`unchanged_block_ids` 与同一 local edit 可冗余共存，因为前者只是保留声明；不同
+   白名单字段可在同一块上由模型原子选择。工具层另限制单次最多 128 个局部赋值，schema 与 executor 同值。
+6. 回归已钉住五字段类覆盖、r886 summary 原形的逐字段 DeepEqual（仅 caliber 改变）、非法 value/kind/field/stale id、系统块、重复与整块冲突、动态
+   evidence ceiling、exact kind/id 投影、lease/system 排除、tool decoder/执行接线及失败不污染基线。`go test ./internal/types -count=1`、
+   `go test ./internal/tool -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 已全绿；下一步从提交后的干净版本构建不可变二进制，严格
+   并发恰好 2 路回放 read+显式窗 Trace，验证自然 missing-caliber 形是否一次 local edit 收敛并确认 Trace 能力无回归。
+
+状态：
+
+`B1379=implemented/full-suite-green/build-green/pending-production-replay`；
+`local-field-protocol=block_field_edits_v1/closed-enum-only`；
+`field-value=model-selected/current-projected-enum-only`；
+`unmentioned-block-carriers=structurally-preserved`；
+`replace_blocks=full-replacement-semantics-unchanged`；
+`free-text/diagram/relation/evidence/citation/layout=not-representable`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
