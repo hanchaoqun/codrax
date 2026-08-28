@@ -58299,6 +58299,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `actual-time/rule-eliminable=separate-ledgers-present`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r894`。
 
+### §123.1459 B1388：原始运行时观测、模型推断与独立证明分权，禁止模型归纳借 typed ledger 升格（2026-08-28）
+
+1. `B1388-MODELAUTHOREDOBSERVATIONPROMOTION1/P1` 已施工。根因不是 finalizer 缺少一句“谨慎表述”，而是
+   `emit_investigation_complete` 的 aggregate/closure 与 producer-owned 原始运行时观察进入同一 Observation Ledger 后没有事实权限差异；
+   finalizer、extractor 与 semantic reviewer 因而可能把模型写出的 nil producer、timeout 机理、线程调度归属或 CPU“满载”等推断当成答案级
+   support。仅在可见 aggregate renderer 隐藏一行不足以解决问题，因为 Investigation Narrative Handoff、extractor 输入和 reviewer 摘要仍会
+   从兄弟消费面把同一推断重新引入。
+2. ObservationRecord 新增只由 typed 生产路径铸造的 `claim_authority`：原始日志/Trace 生产者行标为 `direct_observation`；模型 aggregate、closure
+   与 pre-triage 归纳标为 `model_inference`；只有存在精确 typed support 或独立 principal contract witness 时才可标为
+   `independently_proven`。模型即使在内容中自称 `origin=runtime_artifact` 也不能自行升权；merge 只保留已经由结构化生产者铸造的最高权限。
+3. 新共享投影 `ProjectDirectRuntimeAggregateFacts` 同时供 extractor 与 finalizer 使用：当答案是 runtime-only、ledger 中确有直接原始观察，且
+   aggregate 只是无独立证明的 runtime/system inference 时，该归纳不再作为 grounded aggregate 输入重复交付；精确 typed support、非运行时来源、
+   mixed artifact+current-source 和没有直接观察的兼容车道继续保留。Mutable/Turn-A 的耐久审计记录不删除原 aggregate，而是保留其模型所有权，
+   确保可追责、可复核而不把它伪装成事实。
+4. Investigation Narrative Handoff 只在 typed 条件同时成立时省略模型 closure 内容：runtime-only、有直接原始观察，且存在 deterministic runtime query
+   或同一 ledger 中存在无证明的运行时模型归纳。单日志且没有重复 aggregate 的既有 advisory narrative 继续保留，避免业务线索无故缩水；省略时只给
+   中性权限回执，不生成 nil/timeout/调度/利用率机理，也不替模型选择结论。Semantic reviewer 现在同时读取 `claim_authority`，明确
+   `model_inference` 不能单独满足 grounding/coverage，`direct_observation` 只证明生产者实际观察到的内容。
+5. 回归覆盖四类关键边界：直接原始观察、模型 aggregate、自带 runtime origin 的伪升权、具有精确 typed support 的独立证明；finalizer 与 extractor
+   都钉住“伪因果 aggregate/closure 不再进入回答上下文、原始栈/错误/Trace 行仍在”，并钉住单日志兼容和 Mutable audit 原文保留。实现没有扫描用户请求、
+   模型原文、最终答案、文件后缀、nil/deadline/线程名、Trace label 或 Mermaid 文本，也没有新增 answer hard reject、重试、系统改写或结论替换。
+6. 定向 `go test ./internal/types ./internal/agent ./internal/orchestrator -count=1`、完整 `go test ./... -count=1` 与 CGO
+   release-tag `make` 全绿。
+   下一步从已推送提交重建不可变二进制，严格并发恰好 2 路复放路径日志 + 东湖显式帧窗 Trace：日志验收 direct observation 是否保留且伪机制不再
+   借 ledger 升权；Trace 验收显式窗、因果投影、自动补采、链上根因、优先级/调度/算力/D/IO/确定性语义与业务线索、实际占时/规则可消双账均不缩水。
+
+状态：
+
+`B1388=implemented/full-suite-green/build-green/pending-production-replay`；
+`observation-authority=direct_observation|model_inference|independently_proven`；
+`model-self-claimed-origin=cannot-escalate-authority`；
+`extractor/finalizer/reviewer=shared-authority-consumers`；
+`durable-audit-record=preserved/model-owned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/file-suffix/runtime-token/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-time/rule-eliminable=separate-ledgers-unchanged`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

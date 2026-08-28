@@ -40,6 +40,7 @@ type ObservationPromptRecord struct {
 	Role            AnswerAggregateRole
 	GroundingPolicy ClaimGroundingPolicy
 	ProvenanceLane  ObservationProvenanceLane
+	ClaimAuthority  ObservationClaimAuthority
 	Source          string
 	Span            string
 	Claim           string
@@ -100,6 +101,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 			Role:            record.Role,
 			GroundingPolicy: record.GroundingPolicy,
 			ProvenanceLane:  record.ProvenanceLane,
+			ClaimAuthority:  record.ClaimAuthority,
 			Source:          FormatObservationSourceRef(record.SourceRef, opts.SourceMaxLen),
 			Span:            FormatObservationSpan(record.Span, 80),
 			Claim:           observationPromptClaim(record.ClaimKey, summary, value),

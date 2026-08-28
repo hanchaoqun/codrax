@@ -1939,6 +1939,9 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 		written++
 		renderedIDs[strings.TrimSpace(record.ID)] = true
 		fmt.Fprintf(&b, "%d. origin=`%s`", written, record.Origin)
+		if record.ClaimAuthority.IsValid() {
+			fmt.Fprintf(&b, " claim_authority=`%s`", record.ClaimAuthority)
+		}
 		if record.Source != "" {
 			fmt.Fprintf(&b, " source=%s", record.Source)
 		}

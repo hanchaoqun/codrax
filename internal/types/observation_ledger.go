@@ -152,6 +152,36 @@ func NormalizeObservationProvenanceLane(raw string) ObservationProvenanceLane {
 	}
 }
 
+// ObservationClaimAuthority states who owns the factual content of an
+// ObservationRecord. It is compiled from typed producer/origin/grounding
+// carriers only; user text, model prose, answer prose, and display labels are
+// never inspected.
+//
+// Keep this separate from ProvenanceLane. ProvenanceLane describes what a
+// runtime row means (error occurrence, artifact span, bounded upstream
+// possibility), while ClaimAuthority describes whether the row is a
+// producer-owned observation, retained model synthesis, or independently
+// witnessed proof.
+type ObservationClaimAuthority string
+
+const (
+	ObservationClaimAuthorityUnknown             ObservationClaimAuthority = ""
+	ObservationClaimAuthorityDirectObservation   ObservationClaimAuthority = "direct_observation"
+	ObservationClaimAuthorityModelInference      ObservationClaimAuthority = "model_inference"
+	ObservationClaimAuthorityIndependentlyProven ObservationClaimAuthority = "independently_proven"
+)
+
+func (a ObservationClaimAuthority) IsValid() bool {
+	switch a {
+	case ObservationClaimAuthorityDirectObservation,
+		ObservationClaimAuthorityModelInference,
+		ObservationClaimAuthorityIndependentlyProven:
+		return true
+	default:
+		return false
+	}
+}
+
 // TraceObservationUnitCompositeScore is the typed caliber token an
 // ObservationRecord.Unit carries when the record's Value is a COMPOSITE
 // SCORE over mixed units, not wall-clock milliseconds (终判⑧ §29.96.2,
@@ -175,6 +205,7 @@ type ObservationRecord struct {
 	Role            AnswerAggregateRole       `json:"role,omitempty"`
 	GroundingPolicy ClaimGroundingPolicy      `json:"grounding_policy,omitempty"`
 	ProvenanceLane  ObservationProvenanceLane `json:"provenance_lane,omitempty"`
+	ClaimAuthority  ObservationClaimAuthority `json:"claim_authority,omitempty"`
 	SourceRef       ObservationSourceRef      `json:"source_ref,omitempty"`
 	Span            ObservationSpan           `json:"span,omitempty"`
 	EvidenceKind    EvidenceKind              `json:"evidence_kind,omitempty"`
@@ -258,6 +289,20 @@ func (l ObservationLedger) Empty() bool {
 // ledger, not on user prose or model-authored answer text.
 func (l ObservationLedger) HasDeterministicRuntimeQueryObservation() bool {
 	return hasDeterministicRuntimeQueryObservation(l.Records)
+}
+
+// HasDirectRuntimeObservation reports whether a producer-owned runtime row is
+// available independently of investigator aggregate/closure synthesis. The
+// authority is compiled at the ledger choke point; callers do not inspect log
+// text, trace labels, model prose, or answer prose.
+func (l ObservationLedger) HasDirectRuntimeObservation() bool {
+	for _, record := range l.Records {
+		if record.Origin == AnswerEvidenceOriginRuntimeArtifact &&
+			record.ClaimAuthority == ObservationClaimAuthorityDirectObservation {
+			return true
+		}
+	}
+	return false
 }
 
 // PrioritizeObservationRecords returns a stable, budgeted view of ledger records
@@ -573,6 +618,9 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 			!ObservationRecordHasCurrentSourceLineSpan(record) {
 			record.GroundingPolicy = ClaimGroundingRepairable
 		}
+		if !record.ClaimAuthority.IsValid() {
+			record.ClaimAuthority = inferObservationClaimAuthority(record)
+		}
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
@@ -598,11 +646,35 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compileMCPResponseObservations(input.MCPResponses, add)
 	out = reconcileRuntimeObservationProducerPrecedence(out)
 	out = dedupeObservationRecords(out)
+	for i := range out {
+		// Reconciliation can demote a pre-triage row after the central add
+		// throat. Recompute only when that typed demotion makes the previous
+		// direct default stale; producer-stamped explicit authorities survive.
+		if out[i].ProvenanceLane == ObservationProvenanceInferredUpstreamPossibility {
+			out[i].ClaimAuthority = ObservationClaimAuthorityModelInference
+		} else if !out[i].ClaimAuthority.IsValid() {
+			out[i].ClaimAuthority = inferObservationClaimAuthority(out[i])
+		}
+	}
 	return ObservationLedger{
 		Records:                     out,
 		RuntimeArtifactScopeProfile: observationLedgerRuntimeArtifactScopeProfile(input.RequestModel),
 		AnchorUserEntities:          observationLedgerAnchorEntities(input.RequestModel),
 	}
+}
+
+func inferObservationClaimAuthority(record ObservationRecord) ObservationClaimAuthority {
+	if record.ProvenanceLane == ObservationProvenanceInferredUpstreamPossibility ||
+		record.Origin == AnswerEvidenceOriginSystemInference ||
+		strings.EqualFold(strings.TrimSpace(record.Producer), "aggregate_facts") {
+		return ObservationClaimAuthorityModelInference
+	}
+	if record.Origin == AnswerEvidenceOriginCurrentSource &&
+		(record.GroundingStatus == GroundingGrounded || record.GroundingStatus == GroundingRecovered ||
+			ObservationRecordHasCurrentSourceLineSpan(record)) {
+		return ObservationClaimAuthorityIndependentlyProven
+	}
+	return ObservationClaimAuthorityDirectObservation
 }
 
 func observationLedgerRuntimeArtifactScopeProfile(rm *RequestModel) *RuntimeArtifactScopeProfile {
@@ -857,6 +929,9 @@ func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
 	if observationProvenanceLanePriority(src.ProvenanceLane) > observationProvenanceLanePriority(dst.ProvenanceLane) {
 		dst.ProvenanceLane = src.ProvenanceLane
 	}
+	if observationClaimAuthorityPriority(src.ClaimAuthority) > observationClaimAuthorityPriority(dst.ClaimAuthority) {
+		dst.ClaimAuthority = src.ClaimAuthority
+	}
 	if dst.Summary == "" {
 		dst.Summary = strings.TrimSpace(src.Summary)
 	}
@@ -876,6 +951,19 @@ func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
 		dst.Confidence = src.Confidence
 	}
 	return dst
+}
+
+func observationClaimAuthorityPriority(authority ObservationClaimAuthority) int {
+	switch authority {
+	case ObservationClaimAuthorityIndependentlyProven:
+		return 3
+	case ObservationClaimAuthorityDirectObservation:
+		return 2
+	case ObservationClaimAuthorityModelInference:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func mergeObservationRecordRichNotes(dst, src ObservationRecord) []string {
@@ -1252,6 +1340,11 @@ func runtimeArtifactKindForEvidenceItem(ev EvidenceItem) string {
 func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, currentSourceSupport currentSourceSupportWitnessIndex, add func(ObservationRecord)) {
 	for i, fact := range facts {
 		role := AnswerAggregateFactRoleForRequest(fact, rm)
+		claimAuthority := ObservationClaimAuthorityModelInference
+		if !AggregateFactIsRuntimeObservationAdvisory(rm, fact) &&
+			(AnswerAggregateFactAuthorizesPrincipalContract(fact, rm) || aggregateFactHasTypedSupportRef(fact)) {
+			claimAuthority = ObservationClaimAuthorityIndependentlyProven
+		}
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
 		if len(origins) == 0 {
 			// CSP-RM (§29.21): the ledger-side re-stamp is the second copy of
@@ -1311,6 +1404,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				Role:            role,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
 				ProvenanceLane:  observationProvenanceLaneForAggregateFact(dims),
+				ClaimAuthority:  claimAuthority,
 				SourceRef:       sourceRef,
 				Span:            span,
 				ClaimKey:        firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], dims["predicate"], fact.Label),

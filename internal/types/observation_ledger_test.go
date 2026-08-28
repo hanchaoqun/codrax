@@ -1074,6 +1074,74 @@ func TestCompileObservationLedger_ThreadSnapshotIsAlwaysSupportOnly(t *testing.T
 	}
 }
 
+func TestCompileObservationLedger_SeparatesDirectRuntimeObservationFromModelInference(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"only analyze the log"},
+			Confidence:        0.9,
+		},
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		RequestModel: rm,
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateBehaviorOutcome,
+			Label: "caller supplied the bad receiver",
+			Value: "panic",
+			Dimensions: []AnswerAggregateDimension{{
+				Name: "origin", Value: "runtime_artifact",
+			}},
+		}},
+		ToolResults: []ToolResult{{
+			ToolName: "log_triage",
+			Success:  true,
+			Observations: []ObservationRecord{{
+				ID:       "log:error:direct",
+				Origin:   AnswerEvidenceOriginRuntimeArtifact,
+				Producer: "log_triage",
+				SourceRef: ObservationSourceRef{
+					Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached.log", ArtifactKind: "log",
+				},
+				Summary: "panic: invalid memory address",
+			}},
+		}},
+	})
+
+	model := findObservationRecord(t, ledger, "aggregate:0#runtime_artifact")
+	if model.ClaimAuthority != ObservationClaimAuthorityModelInference {
+		t.Fatalf("unsupported investigator aggregate must remain model inference: %+v", model)
+	}
+	direct := findObservationRecord(t, ledger, "log:error:direct")
+	if direct.ClaimAuthority != ObservationClaimAuthorityDirectObservation {
+		t.Fatalf("producer-owned runtime row must remain direct observation: %+v", direct)
+	}
+	if !ledger.HasDirectRuntimeObservation() {
+		t.Fatal("direct runtime observation should activate the typed answer-authority projection")
+	}
+}
+
+func TestCompileObservationLedger_TypedAggregateSupportCanBeIndependentlyProven(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		RequestModel: &RequestModel{Intent: IntentTrace},
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateScalar,
+			Label:       "typed target duration",
+			Value:       "7.000",
+			Unit:        "ms",
+			SupportRefs: []string{"trace_query:window_stats:E7"},
+		}},
+	})
+	record := findObservationRecord(t, ledger, "aggregate:0#runtime_artifact")
+	if record.ClaimAuthority != ObservationClaimAuthorityIndependentlyProven {
+		t.Fatalf("explicit typed support should upgrade the aggregate authority: %+v", record)
+	}
+	if ledger.HasDirectRuntimeObservation() {
+		t.Fatal("an aggregate proof is not a producer-owned direct observation")
+	}
+}
+
 func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		AggregateFacts: []AnswerAggregateFact{{

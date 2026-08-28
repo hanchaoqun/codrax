@@ -8275,6 +8275,72 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 	}
 }
 
+func TestAnswerDocumentEvaluator_DirectRuntimeRowsWithholdUnsupportedModelSynthesis(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{
+		Type:   "panic: invalid memory address",
+		Frames: []types.LogFrame{{Func: "cache.(*Store).Get", Raw: "cache.(*Store).Get(0x0, ...)"}},
+	}}})
+	const unsupported = "caller supplied the receiver and Store.Get accessed its field"
+	mut.SetInvestigationComplete(unsupported)
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateBehaviorOutcome,
+		Label: unsupported,
+		Value: "root cause",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name: "origin", Value: "runtime_artifact",
+		}},
+		MemberNotes: []string{"upstream caller created the invalid value"},
+	}})
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason:  unsupported,
+		AcceptedAggregateFacts: mut.StableInvestigationAggregateFacts(),
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario:  types.ScenarioRootCause,
+			Intent:    types.IntentRootCause,
+			LogTriage: mut.LogTriage(),
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"只分析日志"},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"claim_authority=`direct_observation`",
+		"cache.(*Store).Get",
+		"model-authored closure reason omitted from this authority section",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("direct runtime authority prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		unsupported,
+		"upstream caller created the invalid value",
+		"## Investigation Narrative Handoff",
+		"## Structured Aggregate Facts",
+		"## Advisory Model-Inferred Member Sets",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("unsupported model synthesis leaked through %q:\n%s", forbidden, prompt)
+		}
+	}
+	if got := mut.StableInvestigationCompleteReason(); got != unsupported {
+		t.Fatalf("audit carrier must retain the model closure, got %q", got)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 1 || got[0].Label != unsupported {
+		t.Fatalf("audit carrier must retain the model aggregate: %+v", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_SkipsRuntimeClosureNarrativeWhenTraceQueryRowsPresent(t *testing.T) {
 	perf := &types.PerfBundle{
 		Observations: []types.PerfObservation{{

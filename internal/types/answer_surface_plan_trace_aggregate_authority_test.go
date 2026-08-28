@@ -81,6 +81,89 @@ func TestProjectTypedTraceAnswerAuthorityNeedsDeterministicTraceRows(t *testing.
 	}
 }
 
+func TestProjectDirectRuntimeObservationAuthorityWithholdsUnsupportedModelRestatement(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"only analyze the log"},
+			Confidence:        0.9,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableInvestigationReason: "caller supplied the bad receiver",
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind: AnswerAggregateBehaviorOutcome, Label: "caller ownership", Value: "nil receiver",
+			Dimensions: []AnswerAggregateDimension{{Name: "origin", Value: "runtime_artifact"}},
+		}},
+	}
+	ledger := ObservationLedger{Records: []ObservationRecord{{
+		ID: "log:error:0", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "log_triage",
+		ClaimAuthority: ObservationClaimAuthorityDirectObservation,
+	}}}
+
+	projectDirectRuntimeObservationAuthority(plan, &rm, ledger)
+
+	if len(plan.StableAggregateFacts) != 0 {
+		t.Fatalf("unsupported model restatement must leave the answer evidence pool: %+v", plan.StableAggregateFacts)
+	}
+	if plan.StableInvestigationReason == "" {
+		t.Fatal("durable closure reason must remain for the transparent omission receipt and audit")
+	}
+}
+
+func TestProjectDirectRuntimeObservationAuthorityPreservesTypedSupport(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"only analyze the log"},
+			Confidence:        0.9,
+		},
+	}
+	plan := &AnswerSurfacePlan{StableAggregateFacts: []AnswerAggregateFact{{
+		Kind: AnswerAggregateScalar, Label: "typed duration", Value: "7.000", Unit: "ms",
+		SupportRefs: []string{"trace_query:window_stats:E7"},
+	}}}
+	ledger := ObservationLedger{Records: []ObservationRecord{{
+		ID: "log:error:0", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "log_triage",
+		ClaimAuthority: ObservationClaimAuthorityDirectObservation,
+	}}}
+
+	projectDirectRuntimeObservationAuthority(plan, &rm, ledger)
+
+	if len(plan.StableAggregateFacts) != 1 || plan.StableAggregateFacts[0].Label != "typed duration" {
+		t.Fatalf("independently typed aggregate support must survive: %+v", plan.StableAggregateFacts)
+	}
+}
+
+func TestProjectDirectRuntimeObservationAuthorityNeedsDirectProducerRow(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"only analyze the log"},
+			Confidence:        0.9,
+		},
+	}
+	plan := &AnswerSurfacePlan{StableAggregateFacts: []AnswerAggregateFact{{
+		Kind: AnswerAggregateBehaviorOutcome, Label: "only retained hypothesis", Value: "possible",
+	}}}
+	ledger := ObservationLedger{Records: []ObservationRecord{{
+		ID: "aggregate:0#runtime_artifact", Origin: AnswerEvidenceOriginRuntimeArtifact, Producer: "aggregate_facts",
+		ClaimAuthority: ObservationClaimAuthorityModelInference,
+	}}}
+
+	projectDirectRuntimeObservationAuthority(plan, &rm, ledger)
+
+	if len(plan.StableAggregateFacts) != 1 {
+		t.Fatalf("without direct producer rows, the model handoff remains the only available context: %+v", plan.StableAggregateFacts)
+	}
+}
+
 func typedTraceProjectionLedgerForAggregateAuthorityTest() ObservationLedger {
 	return ObservationLedger{Records: []ObservationRecord{{
 		ID:              "trace_query:result#root_cause_rank:1",

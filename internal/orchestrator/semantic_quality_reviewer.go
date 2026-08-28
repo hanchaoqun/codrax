@@ -169,6 +169,7 @@ type SemanticObservationSummary struct {
 	Role            string
 	Policy          string
 	Lane            string
+	ClaimAuthority  string
 	Source          string
 	Span            string
 	Claim           string
@@ -722,12 +723,15 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.Observations) > 0 {
 		b.WriteString("\n## OBSERVATION LEDGER (typed evidence / external-resource view)\n")
-		b.WriteString("Each row: record_id / origin / producer / role / policy / lane / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support. Use `producer` to distinguish trace_query rows from perf/log preprocessing rows.\n\n")
+		b.WriteString("Each row: record_id / origin / producer / role / policy / lane / claim_authority / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support. Use `producer` to distinguish trace_query rows from perf/log preprocessing rows. A `claim_authority=model_inference` row is a retained investigator hypothesis, not typed evidence and cannot by itself satisfy coverage or grounding; `direct_observation` states only what its producer observed, while `independently_proven` carries a separate typed witness.\n\n")
 		for _, obs := range in.Observations {
 			fmt.Fprintf(&b, "- record_id=%q origin=`%s` producer=`%s` role=`%s` policy=`%s`",
 				obs.ID, obs.Origin, obs.Producer, obs.Role, obs.Policy)
 			if obs.Lane != "" {
 				fmt.Fprintf(&b, " lane=`%s`", obs.Lane)
+			}
+			if obs.ClaimAuthority != "" {
+				fmt.Fprintf(&b, " claim_authority=`%s`", obs.ClaimAuthority)
 			}
 			fmt.Fprintf(&b, " source=%q", obs.Source)
 			if obs.Span != "" {
@@ -819,6 +823,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Role:            string(record.Role),
 			Policy:          string(record.GroundingPolicy),
 			Lane:            string(record.ProvenanceLane),
+			ClaimAuthority:  string(record.ClaimAuthority),
 			Source:          strings.TrimSpace(record.Source),
 			Span:            strings.TrimSpace(record.Span),
 			Claim:           strings.TrimSpace(record.Claim),

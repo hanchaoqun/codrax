@@ -5904,6 +5904,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		if record.ProvenanceLane.IsValid() {
 			fmt.Fprintf(&b, "; lane=`%s`", record.ProvenanceLane)
 		}
+		if record.ClaimAuthority.IsValid() {
+			fmt.Fprintf(&b, "; claim_authority=`%s`", record.ClaimAuthority)
+		}
 		if span := strings.TrimSpace(record.Span); span != "" {
 			fmt.Fprintf(&b, "; span=%s", span)
 		}
@@ -8368,13 +8371,16 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		// give the finalizer only the typed bundle/ledger and the tail boundary.
 		return ""
 	}
-	if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocHasDeterministicRuntimeQueryObservation(ctx) {
-		// Deterministic runtime queries already provide the answer-grade fact,
-		// window, value, and relation lanes. Replaying an earlier model-authored
-		// investigation narrative beside them creates a second, stale authority
-		// that can reintroduce a broad probe window or raw control vocabulary.
+	if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocHasDirectRuntimeObservation(ctx) &&
+		(answerDocHasDeterministicRuntimeQueryObservation(ctx) || answerDocHasUnsupportedRuntimeModelSynthesis(ctx)) {
+		// Producer-owned runtime rows already provide the answer-grade artifact
+		// facts. Replaying an earlier model-authored investigation narrative
+		// beside them creates a second authority that can promote caller-side
+		// provenance, upstream construction, or stale trace windows without an
+		// independent witness.
 		// Keep the notes in TurnAArtifacts for audit; the Finalizer receives the
-		// typed ledger/projection and reader-ready decision cards instead.
+		// typed ledger/projection and reader-ready decision cards instead. The
+		// decision is typed producer authority only; no narrative is scanned.
 		return ""
 	}
 	ta := ctx.Mutable.TurnAArtifacts()
@@ -8428,6 +8434,47 @@ func answerDocHasDeterministicRuntimeQueryObservation(ctx *types.AgentContext) b
 	// An inline exact-match here previously diverged from the two other
 	// channels and missed those ids.
 	return ledger.HasDeterministicRuntimeQueryObservation()
+}
+
+func answerDocHasDirectRuntimeObservation(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
+	input.AggregateFacts = answerDocStableAggregateFacts(ctx)
+	return types.CompileObservationLedger(input).HasDirectRuntimeObservation()
+}
+
+func answerDocHasUnsupportedRuntimeModelSynthesis(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	facts := append([]types.AnswerAggregateFact(nil), ctx.Mutable.StableInvestigationAggregateFacts()...)
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		facts = append(facts, ta.AcceptedAggregateFacts...)
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	for _, fact := range facts {
+		if !types.AggregateFactIsRuntimeObservationAdvisory(rm, fact) {
+			continue
+		}
+		origins := types.AnswerAggregateFactEvidenceOrigins(fact, rm)
+		if len(origins) == 0 {
+			return true
+		}
+		runtimeOnly := true
+		for _, origin := range origins {
+			if origin != types.AnswerEvidenceOriginRuntimeArtifact &&
+				origin != types.AnswerEvidenceOriginSystemInference {
+				runtimeOnly = false
+				break
+			}
+		}
+		if runtimeOnly {
+			return true
+		}
+	}
+	return false
 }
 
 func recentSanitizedInvestigationNarrativeNotes(raw []string) []string {

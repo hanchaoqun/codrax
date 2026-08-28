@@ -2087,6 +2087,7 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 		plan.ExternalObservationSeeds = filterPreTriagePerfExternalObservationSeeds(plan.ExternalObservationSeeds)
 		projectTypedTraceAnswerAuthority(plan, &ir.RequestModel, ledger)
 	}
+	projectDirectRuntimeObservationAuthority(plan, &ir.RequestModel, ledger)
 	authority := BuildRuntimeSourceAnswerAuthoritySnapshot(RuntimeSourceAnswerAuthorityInput{
 		RequestModel:      &ir.RequestModel,
 		RouteHint:         routeHint,
@@ -2148,6 +2149,49 @@ func applyRuntimeTraceSourceOptionalSurfacePlan(plan *AnswerSurfacePlan, ir *Ana
 			plan.RuntimeGroundingDisposition = sourceOptionalRuntimeArtifactDisposition(ir.RequestModel, attachedRuntimeArtifact, ledger)
 		}
 	}
+}
+
+// projectDirectRuntimeObservationAuthority keeps producer-owned runtime rows
+// from competing with an investigator's unsupported aggregate/closure
+// restatement as a second factual authority. The original completion payload
+// remains in MutableState / TurnAArtifacts for audit; this narrows only the
+// answer-writing context. Exact typed support or a non-runtime evidence origin
+// preserves a fact. No request, artifact, model, answer, or diagram prose is
+// inspected.
+func projectDirectRuntimeObservationAuthority(plan *AnswerSurfacePlan, rm *RequestModel, ledger ObservationLedger) {
+	if plan == nil || rm == nil {
+		return
+	}
+	plan.StableAggregateFacts, _ = ProjectDirectRuntimeAggregateFacts(plan.StableAggregateFacts, rm, ledger)
+	// StableInvestigationReason stays in the plan so the finalizer can publish
+	// the existing transparent "model-authored reason omitted" receipt. The
+	// narrative renderer independently withholds its content when these direct
+	// rows exist; the durable Mutable/TurnA audit carrier remains unchanged.
+}
+
+// ProjectDirectRuntimeAggregateFacts returns the answer-grade aggregate view
+// shared by extractor and finalizer consumers. It removes only unsupported
+// runtime/system-inference restatements when a producer-owned runtime row is
+// already present. The caller retains the original facts for durable audit.
+func ProjectDirectRuntimeAggregateFacts(facts []AnswerAggregateFact, rm *RequestModel, ledger ObservationLedger) ([]AnswerAggregateFact, bool) {
+	if len(facts) == 0 || rm == nil || !ledger.HasDirectRuntimeObservation() {
+		return facts, false
+	}
+	kept := make([]AnswerAggregateFact, 0, len(facts))
+	withheld := false
+	for _, fact := range facts {
+		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
+		if AggregateFactIsRuntimeObservationAdvisory(rm, fact) &&
+			modelAggregateIsTraceRestatementOnly(origins) {
+			withheld = true
+			continue
+		}
+		kept = append(kept, fact)
+	}
+	if !withheld {
+		return facts, false
+	}
+	return kept, true
 }
 
 // projectTypedTraceAnswerAuthority keeps deterministic trace rows from

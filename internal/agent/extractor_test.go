@@ -1198,6 +1198,54 @@ func TestExtractor_BuildPrompt_NaturalizesResolvedClosureWithTypedBoundary(t *te
 	}
 }
 
+func TestExtractor_BuildPrompt_WithholdsUnsupportedRuntimeSynthesisBesideDirectRows(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{
+		Type:   "panic: invalid memory address",
+		Frames: []types.LogFrame{{Func: "cache.(*Store).Get", Raw: "cache.(*Store).Get(0x0, ...)"}},
+	}}})
+	const unsupported = "caller constructed and supplied the invalid receiver"
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateBehaviorOutcome,
+		Label: unsupported,
+		Value: "root cause",
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name: "origin", Value: "runtime_artifact",
+		}},
+	}}
+	mu.SetInvestigationComplete(unsupported)
+	mu.SetInvestigationAggregateFacts(facts)
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason:  unsupported,
+		AcceptedAggregateFacts: facts,
+	})
+	ctx := &types.AgentContext{
+		Objective: "explain the attached panic",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			LogTriage: mu.LogTriage(),
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"only analyze the log"},
+				Confidence:        0.9,
+			},
+		}},
+	}
+
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "model-authored runtime closure reason omitted from the extraction evidence pool") {
+		t.Fatalf("extractor missing typed omission receipt:\n%s", prompt)
+	}
+	if contains(prompt, unsupported) || contains(prompt, "structured aggregate facts") {
+		t.Fatalf("unsupported model synthesis leaked into the extraction evidence pool:\n%s", prompt)
+	}
+	if got := mu.StableInvestigationCompleteReason(); got != unsupported {
+		t.Fatalf("durable audit closure changed: %q", got)
+	}
+}
+
 func TestRenderExtractorStageReportNaturalizesResolvedWithTypedBoundary(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{AcceptedResultKind: "resolved"})

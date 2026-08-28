@@ -746,6 +746,16 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	if len(aggregateFacts) > 0 && ctx != nil && ctx.AnalysisIR != nil {
 		aggregateFacts = types.NormalizeAggregateFactRolesForRequest(aggregateFacts, &ctx.AnalysisIR.RequestModel)
 	}
+	withheldRuntimeSynthesis := false
+	if len(aggregateFacts) > 0 && ctx != nil && ctx.AnalysisIR != nil {
+		input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
+		ledger := types.CompileObservationLedger(input)
+		aggregateFacts, withheldRuntimeSynthesis = types.ProjectDirectRuntimeAggregateFacts(
+			aggregateFacts,
+			&ctx.AnalysisIR.RequestModel,
+			ledger,
+		)
+	}
 	if reason == "" && resultKind == "" && len(aggregateFacts) == 0 {
 		return ""
 	}
@@ -755,7 +765,9 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 		renderAcceptedInvestigationDisposition(&b, ctx, resultKind)
 	}
 	if reason != "" {
-		if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
+		if withheldRuntimeSynthesis {
+			b.WriteString("- model-authored runtime closure reason omitted from the extraction evidence pool because producer-owned runtime observations are available and the matching unsupported aggregate synthesis was withheld. The durable audit record remains unchanged.\n")
+		} else if suppressUnstructuredClosureReasonForTypedMechanism(ctx) {
 			b.WriteString("- model-authored closure reason omitted because grounded current-source facts and typed flow carriers are authoritative for mechanism roles and relations; unstructured exploration synthesis cannot mint runtime identities, pairing keys, call edges, or ordered paths.\n")
 		} else if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
