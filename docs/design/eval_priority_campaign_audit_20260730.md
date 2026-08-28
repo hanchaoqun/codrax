@@ -58123,6 +58123,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1454 B1386：显式源码排除引用失配改为精确修补，禁止静默丢边界（2026-08-28）
+
+1. `B1386-EXPLICITSOURCEEXCLUSIONCARRIERLOSS1/P1` 已施工。旧链路在模型提交
+   `current_source_mode=exclude + exclusion_kind=explicit_user_exclusion + 非空 quote` 后，若 quote 不是当前请求逐字连续片段，会先丢 quote、再把 exclude
+   静默降成 default；r892 因此把真实“不分析代码”边界变成源码可选。本批保留逐字 provenance 红线，但不再把该结构化冲突签成成功。
+2. 新行为只覆盖这一种精确可修补形：模型已经主动声明显式用户排除、又提交非空 quote、而该 quote 无法逐字锚定。`emit_analysis` 整体 fail-loud，提示模型
+   在下一份完整对象中二选一：复制最短连续禁止片段，或把 mode 改为 default 并清空 exclusion kind/quote。拒绝的 payload 不写 RequestModel，因此不会让
+   伪引用关闭源码 lane，也不会让真实边界在成功对象里静默消失。
+3. 这不是从请求关键词推断排除。系统不搜索“不分析代码”等词来自动选择 mode，也不截取、拼接或修写用户原句；它只对模型已选择的 typed quote 做既有
+   verbatim provenance 校验。缺 quote、缺 exclusion kind、普通 default/allow、citation-only external_only 和 mixed artifact+current-source 分支保持原
+   fail-safe。模型若虚构 exclude，也只能显式撤回或提供真实逐字依据，不能把 source lane 直接写死。
+4. Analyzer schema 与共享教学把心智压到最小：复制请求里最短连续 clause，例如请求含 `不分析代码` 就只复制这五字，不要添加“只分析日志文件”等摘要词、
+   不要翻译，也不要把相隔的请求片段组合成新句。这样比接受模糊 overlap 安全，也比静默 warning 更能保持用户授权边界；新增的重试只发生在模型已经提交
+   自相矛盾 typed carrier 时，不把普通请求纳入重试。
+5. 回归覆盖中文逐字 quote 保留 exclude、中文转述 quote 精确拒绝、普通无 runtime artifact 的显式伪 quote 不落 RequestModel、runtime artifact 伪 quote
+   不落 source 决策、纯 Trace 幻觉 exclude 必须撤回，以及 route-backed 缺 kind/正向 mixed-source/citation-only 既有分支不回归。
+   `go test ./internal/tool ./internal/skill -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 下一批施工 B1387：复用 typed runtime-artifact observation-only authority，在 explorer 与 finalizer 同源提供栈帧、参数值、状态错误的因果权限校准；只做软
+   教学，不扫描/拒绝/改写模型答案，也不影响显式窗 Trace 的链上根因、因果投影、自动补采或混合日志+源码的独立证据 lane。
+
+状态：
+
+`B1386=implemented/full-suite-green/build-green/pending-production-replay`；
+`explicit-exclude+explicit-kind+nonempty-unanchored-quote=one-precise-analysis-repair`；
+`accepted-source-exclusion=verbatim-model-selected-quote-only`；
+`missing/untyped/default/allow/citation-only/mixed-source=existing-fail-safe-unchanged`；
+`system-request-phrase/exclusion/answer-selection=none`；
+`request-keyword/model-prose/final-prose/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

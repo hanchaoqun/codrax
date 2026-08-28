@@ -3,15 +3,14 @@ package tool
 import (
 	"strings"
 	"testing"
-
-	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestParseExternalObservationPolicy_ChineseVerbatimQuote pins the exact
 // customer trace_repl.log (2026-07-02) request shape: a Chinese negative
 // boundary "不分析代码" glued into a longer sentence. A verbatim quote must
-// anchor and keep the exclude; a translated/paraphrased quote must demote the
-// exclude with an audit warning (never silently).
+// anchor and keep the exclude; a translated/paraphrased explicit-exclusion
+// quote must be rejected for one precise repair rather than silently losing
+// the source boundary.
 func TestParseExternalObservationPolicy_ChineseVerbatimQuote(t *testing.T) {
 	raw := "你是Android手机性能问题分析专家, 完成以下丢帧原因分析, 分析东湖Trace:record_trace_20260605224432@3279-299954687.sys.ftrace里面这一帧Choreographer#doFrame 94410, 注意是Activity Resume后的首帧, 不分析代码"
 	conf := 0.9
@@ -36,23 +35,20 @@ func TestParseExternalObservationPolicy_ChineseVerbatimQuote(t *testing.T) {
 		}
 	})
 
-	t.Run("paraphrased_quote_demotes_with_warning", func(t *testing.T) {
+	t.Run("paraphrased_explicit_quote_requests_precise_repair", func(t *testing.T) {
 		policy, errStr, warnings := parseExternalObservationPolicy(raw, &emitExternalObservationPolicyParam{
 			CurrentSourceMode:           "exclude",
 			ExclusionKind:               "explicit_user_exclusion",
 			CurrentSourceExclusionQuote: "不要分析源代码",
 			Confidence:                  &conf,
 		})
-		if errStr != "" {
-			t.Fatalf("unexpected error: %s", errStr)
+		if errStr == "" {
+			t.Fatalf("paraphrased explicit-exclusion quote must request repair, got policy=%+v warnings=%v", policy, warnings)
 		}
-		if policy != nil && policy.CurrentSourceMode == types.ExternalObservationCurrentSourceExclude {
-			t.Fatalf("paraphrased quote must demote the exclude, got %+v", policy)
-		}
-		joined := strings.Join(warnings, "\n")
-		if !strings.Contains(joined, "not copied from the current request") ||
-			!strings.Contains(joined, "exclude ignored because no current_source_exclusion_quote survived") {
-			t.Fatalf("demotion must leave an audit warning, got %v", warnings)
+		for _, want := range []string{"not a verbatim CURRENT-request phrase", "copy the shortest exact forbidding phrase", "change current_source_mode to default"} {
+			if !strings.Contains(errStr, want) {
+				t.Fatalf("repair error missing %q: %s", want, errStr)
+			}
 		}
 	})
 }

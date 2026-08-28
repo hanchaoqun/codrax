@@ -879,7 +879,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"external_observation_policy": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source/citation policy for external observations. This is the only carrier for excluding source-code/current-checkout evidence; do not duplicate that source boundary into answer_exclusion_policy. Omit it or use default/allow unless the CURRENT request explicitly forbids current source. The minimal active exclude shape must put current_source_mode=exclude, exclusion_kind=explicit_user_exclusion, and one verbatim current_source_exclusion_quote in this same object. artifact_citation_quotes never activate source exclusion. Missing/unanchored exclusion proof is safely softened to allow.",
+				"description": "Optional typed source/citation policy for external observations. This is the only carrier for excluding source-code/current-checkout evidence; do not duplicate that source boundary into answer_exclusion_policy. Omit it or use default/allow unless the CURRENT request explicitly forbids current source. The minimal active exclude shape must put current_source_mode=exclude, exclusion_kind=explicit_user_exclusion, and one verbatim current_source_exclusion_quote in this same object. Copy the shortest contiguous forbidding phrase exactly; do not construct a longer paraphrase from separated request words. artifact_citation_quotes never activate source exclusion. A non-empty unanchored explicit-exclusion quote is rejected for one precise repair; missing/untyped exclusion proof still falls back safely.",
 				"properties": map[string]any{
 					"current_source_mode":    map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow permits current-source analysis but does not require it. Mixed artifact+current-source obligation must use current_source_explanation_profile. exclude suppresses current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
 					"exclusion_kind":         map[string]any{"type": "string", "enum": externalObservationCurrentSourceExclusionKindValues(), "description": "Set to explicit_user_exclusion only when current_source_mode=exclude is justified by a user-authored phrase that forbids current checkout/source evidence. Leave empty otherwise."},
@@ -6059,6 +6059,20 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		} else {
 			warnings = append(warnings, "external_observation_policy.current_source_exclusion_quote ignored because it is not copied from the current request")
 		}
+	}
+	// A model that explicitly selects the user-exclusion authority and also
+	// supplies a non-empty quote has made a repairable typed claim. Silently
+	// demoting that claim to default loses a real user boundary when the quote
+	// was merely paraphrased (B1386), while accepting it would let a fabricated
+	// quote close the source lane. Fail this one precise shape loudly so the
+	// model must either copy a shortest verbatim phrase or withdraw exclude.
+	// This is provenance validation of a model-selected carrier, not request
+	// keyword classification or inference of an exclusion from raw prose.
+	if mode == types.ExternalObservationCurrentSourceExclude &&
+		exclusionKind == types.ExternalObservationSourceExclusionExplicitUserBoundary &&
+		exclusionQuote != "" &&
+		!exclusionQuoteAnchored {
+		return nil, "external_observation_policy.current_source_exclusion_quote is not a verbatim CURRENT-request phrase. You selected current_source_mode=exclude with exclusion_kind=explicit_user_exclusion: re-emit one complete analysis and either copy the shortest exact forbidding phrase character-for-character (for example only the words that forbid source analysis) or change current_source_mode to default and clear the exclusion kind/quote. Do not paraphrase, translate, or combine separated request fragments", warnings
 	}
 	for _, quote := range p.ArtifactCitationQuotes {
 		trimmed := strings.TrimSpace(quote)

@@ -9441,7 +9441,7 @@ func TestEmitAnalysis_CurrentSourceExplanationSoftensConflictingExternalExclude(
 	}
 }
 
-func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *testing.T) {
+func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExplicitExcludeRejects(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{
@@ -9468,15 +9468,16 @@ func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *test
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("unanchored exclude should become a warning, got %q", res.Summary)
+	if res.Success {
+		t.Fatalf("unanchored explicit exclude must request repair, got %q", res.Summary)
 	}
-	rm := mu.RequestModel()
-	if rm == nil || (rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
-		t.Fatalf("unanchored exclude must not suppress current source: %+v", rm)
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected exclusion must not commit a request model: %+v", rm)
 	}
-	if !strings.Contains(res.Summary, "exclude ignored") {
-		t.Fatalf("summary should explain ignored exclusion, got %q", res.Summary)
+	for _, want := range []string{"not a verbatim CURRENT-request phrase", "copy the shortest exact forbidding phrase", "change current_source_mode to default"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary should explain exact repair %q, got %q", want, res.Summary)
+		}
 	}
 }
 
@@ -9735,7 +9736,7 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 	}
 }
 
-func TestEmitAnalysis_RuntimeArtifactInvalidExcludeFallsBackToOptionalDefault(t *testing.T) {
+func TestEmitAnalysis_RuntimeArtifactInvalidExplicitExcludeRequestsRepair(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{
@@ -9774,32 +9775,16 @@ func TestEmitAnalysis_RuntimeArtifactInvalidExcludeFallsBackToOptionalDefault(t 
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("invalid runtime-artifact exclude should be repaired, got %q", res.Summary)
+	if res.Success {
+		t.Fatalf("invalid explicit runtime-artifact exclude must request repair, got %q", res.Summary)
 	}
-	rm := mu.RequestModel()
-	if rm == nil || rm.ExternalObservationPolicy == nil {
-		t.Fatalf("policy should survive as default/artifact-only citation: %+v", rm)
-	}
-	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
-		t.Fatalf("CurrentSourceMode=%q, want default", got)
-	}
-	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
-		t.Fatalf("invalid exclude must not suppress current source: %+v", rm.ExternalObservationPolicy)
-	}
-	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
-		t.Fatalf("ArtifactCitationMode=%q, want external_only", got)
-	}
-	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
-		t.Fatalf("CurrentSourceLaneDecision=%s, want allowed_optional", got)
-	}
-	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
-		t.Fatalf("invalid exclude fallback must not force a runtime-only turn into broad source scanning: %+v", rm)
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected explicit exclusion must not commit a request model: %+v", rm)
 	}
 	for _, want := range []string{
-		"current_source_exclusion_quote ignored",
-		"invalid current_source_mode=exclude fell back to default",
-		"external_observation_policy=default",
+		"not a verbatim CURRENT-request phrase",
+		"copy the shortest exact forbidding phrase",
+		"change current_source_mode to default",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary should contain %q, got %q", want, res.Summary)
@@ -9807,7 +9792,7 @@ func TestEmitAnalysis_RuntimeArtifactInvalidExcludeFallsBackToOptionalDefault(t 
 	}
 }
 
-func TestEmitAnalysis_TraceOnlyHallucinatedExcludeDoesNotForceSourceLane(t *testing.T) {
+func TestEmitAnalysis_TraceOnlyHallucinatedExplicitExcludeCannotCommitSourceLane(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -9846,24 +9831,14 @@ func TestEmitAnalysis_TraceOnlyHallucinatedExcludeDoesNotForceSourceLane(t *test
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.Success {
-		t.Fatalf("trace-only analysis should accept neutral source fallback, got %q", res.Summary)
+	if res.Success {
+		t.Fatalf("hallucinated explicit exclusion must request repair, got %q", res.Summary)
 	}
-	rm := mu.RequestModel()
-	if rm == nil || rm.ExternalObservationPolicy == nil {
-		t.Fatalf("normalized policy missing: %+v", rm)
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected hallucinated exclusion must not commit any source-lane decision: %+v", rm)
 	}
-	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
-		t.Fatalf("hallucinated source exclusion forced mode=%q, want default", got)
-	}
-	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
-		t.Fatalf("hallucinated source exclusion forced current-source lane=%s: %+v", got, rm)
-	}
-	if !types.RuntimeArtifactRequestSourceNavigationNotRequired(*rm, true) {
-		t.Fatalf("trace-only source navigation should remain optional: %+v", rm)
-	}
-	if !strings.Contains(res.Summary, "invalid current_source_mode=exclude fell back to default") {
-		t.Fatalf("neutral fallback not disclosed: %q", res.Summary)
+	if !strings.Contains(res.Summary, "change current_source_mode to default") {
+		t.Fatalf("repair must offer safe withdrawal of hallucinated exclude: %q", res.Summary)
 	}
 }
 
