@@ -57934,6 +57934,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1449 r890/B1383/B1385：动态 patch 门无回归；Trace probe 与 evidence 重复执行，预处理权限边界污染上下文（2026-08-28）
+
+1. 从已推送 `ad1ac4810` 重建干净二进制，严格并发恰好 2 路复放显式窗 Trace + write typo，runner 2/2 PASS：write 119s、Trace
+   215s。两路活动流均未按 4ms、4m、首字节、stall、累计年龄或上下文比例降级，没有恢复旧稿，也没有由系统代写模型答案、Trace 根因、关系、标签
+   或布局。
+2. write 人工判定 pass：唯一源码变化是把 `main.go` 的 `retrun` 改为 `return`；应用 diff、changed-path coverage、真实
+   `go test -json ./...`、恢复引用和 clean worktree audit 全部闭合。Analyzer 首轮误用未发布字段、planner 首轮发出畸形 JSON，系统均返回精确
+   可执行的结构化修向并在下一次成功；这是模型 structured-call 噪声，不是相互矛盾的合同，也没有扩大写范围或跳过风险/验证门。
+3. Trace 系统输出面继续完整：显式 2.000..2.020s 窗、四节点三条唤醒边、11.000ms 链上 IO 第一席、三个互相独立的 1.000ms
+   优先级候选、实际占时/规则可消双账户、链上业务线索、背景隔离、自动补采和完整 `Trace 因果投影` 均在。B1384 本轮没有自然产生坏
+   `block_field_edits_v1`；唯一 patch 是合法整块替换，因此只记 no-regression，仍不冒充生产坏分支正证。
+4. `B1383-PROBEFLOWREPAIRDUPLICATION1/P1` 获得第二种生产形并从观察项升级为 confirmed。DAG 先以 `n0_probe` 调度一次 explorer，模型已经在精确
+   目标与显式窗上运行 `window_stats`、`wakeup_chain`、`root_cause_rank`、`critical_blocking_calls` 四个完整证据视图并成功闭环；随后系统仍调度
+   `n1_evidence_t0+t1+t2`，再次运行同窗同四视图。根因不是简单模型重复：runtime-artifact IR 重写把三个原本不同的 sub-topic objective 全部覆盖成
+   同一句通用 trace_query 目标；同时 multi-topic structural scope 不允许 probe 的 accepted closure 结清尚未执行的 evidence 节点。当前 typed 请求已经
+   同时具有 validated named target 与 validated explicit time window，probe 的 target/window 发现职责已被结构化输入满足，却仍作为必跑硬前驱。
+5. B1383 的最优泛化边界冻结：仅当 attached trace、验证后的 named target 和有效 explicit time window 三个 typed 条件同时成立时，分析 IR 可移除
+   只负责 target/window discovery 的通用 probe，并把 evidence 节点直接接到根；full artifact、bounded selector、unspecified scope、无 named target、
+   混合 current-source obligation 或无有效窗口任一形仍保留 probe。runtime-artifact 重写必须保留每个 analyzer sub-topic 的 objective/typed unit identity，
+   只添加共同的 Trace 证据与覆盖边界要求，不能再次把多个维度抹成同一任务。该裁定不按耗时、调用次数、文件名或用户/模型/答案 prose 截断，且不缓存猜测
+   query 等价；证据阶段仍完整拥有 trace_query 与自动补采。
+6. 新 P1 `B1385-PRESTAGETOOLAUTHORITYLEAK1` 经日志与 prompt 双证确认。perf pre-stage 的可用 schema 只有本阶段 emit/read 能力，模型因此在
+   `meta.summary`/`residue` 写出“无 trace_query 工具可用/无法执行用户请求”，并把原始 `cookie-200 ... sched_wakeup: app-100` 行误说成“唤醒来源未明确”。
+   后续 explorer 实际拥有 trace_query 并正确恢复 cookie-200，最终成文也使用 typed Trace 权威；但错误的“全局能力缺失”曾进入下一 explorer 的预处理上下文。
+   这是阶段局部 tool surface 与整条 pipeline capability 没有显式区分的上下文 gap，不是 trace_query 真缺失。
+7. B1385 最优形冻结为软教学 + typed 权限边界：perf/log 预处理阶段明确自己只做导航提取，当前 schema 缺少某工具仅表示
+   `not_executed_in_this_prestage`，不得声称 pipeline 全局 unavailable；确定性 Trace 查询属于后续 explorer。下游在 deterministic query authority 已存在时继续
+   隐藏 pre-triage 自由文本观察/摘要/残留的因果语义，只保留 validator rows 与位置载体；不通过扫描 residue 字符串做硬门，也不从预处理 prose 推断
+   “缺证”。本条与 B1383 分批施工，避免规划去重与权限语义耦合。
+8. Trace 人工判定 partial：最终模型仍把 `fscache_page_wait_on_page_bit` 调用点扩写为具体缓存未就绪/热文件方向，并从跨 CPU 唤醒提出迁移/亲和性
+   优化；typed 证据只证明调用点和 waker/target CPU 不同，没有证明等待对象、文件系统后端或迁移成本。继续作为跨回放模型遵循观察项，不新增正文关键词硬门，
+   不由系统重写结论。
+
+状态：
+
+`r890=runner-pass-2/2,human-write-pass+trace-partial`；
+`B1384=no-regression/no-natural-invalid-field-trigger`；
+`B1383=confirmed/P1-next/typed-probe-elision+subtopic-preservation`；
+`B1385=confirmed/P1-after-B1383/stage-local-capability-boundary`；
+`trace-query-calls=8(current)/4(target-for-this-shape)`；
+`system-query/result/conclusion/relation-selection=none`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r890`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r890`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
