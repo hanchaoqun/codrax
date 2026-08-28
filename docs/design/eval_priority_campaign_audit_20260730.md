@@ -59367,6 +59367,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r910`。
 
+### §123.1489 r911/B1420：写模式精准通过；唯一主摘要从软提示恢复为 typed 所有权底线（2026-08-28）
+
+1. 从已推送 `266bf46e7` 重建不可变二进制，严格并发恰好 2 路复放 Python 写计划与 Rust 跨模块调用链，runner 2/2 PASS：write 47s、read
+   178s。两路自然完成，没有固定 4ms/4m、流式活跃度、首字节、stall、累计年龄或上下文比例降级；没有系统生成答案、结论、关系、措辞或布局。
+2. write 人工判定 pass：计划只把 `main.py:20` 的 `retrun` 改成 `return`，统一 diff、单文件 scope、`greet` owner anchor、低风险、验收条件与
+   Python import+返回值 verification probe 一致；没有扩大修改面，也没有绕过 controller、risk、plan 或验证合同。
+3. Rust 事实主线基本正确：终稿解释 `main→run`、`run→walker::collect_files/index_file`、`collect_files→walk`、
+   `index_file→Matcher.is_match` 与两个具体实现，并把 walker 定位为深度优先文件发现/过滤前置阶段，不参与逐行匹配。模型将
+   `RegexLikeMatcher` 的 `pattern.split(".*")` 后逐 token `find` 简写为“正则匹配/正则查找”，严格说不是通用正则，人工判定 partial；源码上下文准确，
+   该点按模型抽象漂移留观，不加语言名或术语关键词硬门。
+4. 新 P1 `B1420-REQUIREDSUMMARYSOFTESCAPE1` 是系统合同自冲突。所有 answer family 通过 canonical `requireSummaryBlock` 声明恰好一个
+   model-authored opening summary，finalizer 教学也写 Required Answer Blocks mandatory；模型第二稿却只保留 ordered_list。pre-emit 精确算出
+   `kind=summary currently emitted:0`，但 `preEmitMissingBlockRequiresSameTurnRetry` 只把 diagram 与 sole-table 视为同回合硬修，summary 被作为 soft
+   advisory 放行，后续 patch 最终以 0 个 summary 签绿。用户可因此收到只有证据清单、没有综合结论的答案。
+5. B1420 按最小 typed ownership 边界施工：missing required `BlockSummary` 与 required diagram 一样进入已有
+   `typed_required_block_kind` same-turn hard lane。判据只读 `RequiredBlocks.Kind/MinCount` 与当前 native `blocks[].kind`；不读请求、thinking、答案 prose、
+   Markdown、Mermaid 或语言词汇。系统只要求模型补回它自己的主摘要，不生成摘要内容、不选择结论或措辞。list/table/section 等普通表达选择仍按原策略，
+   flexible enumeration 不因包含 table 选项而硬化。
+6. 回归钉住 summary 缺失必须进入 hard split、typed kind 保持 `BlockSummary`、diagram/sole-table 旧边界与 flexible enumeration advisory 不变。
+   聚焦 tool 测试、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿；Trace 因果投影、自动补采、根因排序和写模式工作流均未修改。
+7. r911 的 3 次 finalizer reject 暴露两类后续项。JSON-string 首稿同时含第三 block 数组畸形，lossless recovery 正确拒绝，模型下一轮改为 native array；
+   缺 edge anchors 与缺 from/to identity 均已有精确教学，属于模型字段遗漏。`B1418-FINALIZERENUMSCHEMACHURN1` 因跨枚举/Rust 两种形态复现升为
+   confirmed-P2，但不得用自动删字段或系统代写 visible block 处理。
+8. 新 P1 `B1421-RELATIONREPAIRCANDIDATEORDER1` 单独排队。初始 Rust finalizer context 已有完整 main 主链 typed component recipes；第二稿丢掉
+   claim_uses 的 evidence IDs 后，零 anchor 修补候选把所有 call evidence 设为同 rank，再按 endpoint 字母序截断 6 条，只剩末端 matcher body calls，
+   主链 recipes 没进入局部 copy-ready hint。最优方案应让可选候选优先沿既有 compiled typed flow/component spine 排序，再用其他 citable relation 补位；
+   它只能改变 advisory 候选顺序，不能替模型选择、添加或保留关系，也不能读取列表 prose、请求关键词或 Mermaid label。与 B1420 分批，避免把答案所有权
+   和关系选择混成一项。
+
+状态：
+
+`r911=runner-pass-2/2,human-write-pass+rust-partial`；
+`B1420=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`B1421=confirmed/P1-next/typed-spine-first-advisory-candidate-order`；
+`B1418=confirmed/P2/cross-shape-schema-churn-observe`；
+`required-summary=typed-same-turn-hard/model-authored-content-only`；
+`flexible-list/table/section-presentation=unchanged-model-choice`；
+`system-relation/action/summary/conclusion/wording/layout-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

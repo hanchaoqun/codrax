@@ -73,6 +73,15 @@ func TestPrinciplePreEmitBlockHardGateUsesTypedBlockKindNotHintText(t *testing.T
 		t.Fatal("typed sole-kind table requirement should remain a same-turn hard gate")
 	}
 
+	typedSummary := emitFixHint{
+		Kind:               types.ViolBlockCoverageMissing,
+		ExpectedBlockKinds: []types.AnswerBlockKind{types.BlockSummary},
+		Reason:             "the compiled view requires the model-authored lead synthesis",
+	}
+	if !preEmitMissingBlockRequiresSameTurnRetry(typedSummary) || !preEmitHintHardByDefault(typedSummary) {
+		t.Fatal("typed summary requirement should preserve the model-authored answer ownership floor")
+	}
+
 	flexibleEnumeration := emitFixHint{
 		Kind: types.ViolBlockCoverageMissing,
 		ExpectedBlockKinds: []types.AnswerBlockKind{

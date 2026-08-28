@@ -7731,6 +7731,25 @@ func TestPreEmitBlockCoverageMissingIsHardAtToolBoundary(t *testing.T) {
 	}
 }
 
+func TestPreEmitMissingRequiredSummaryIsHardAtToolBoundary(t *testing.T) {
+	view := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{{
+		Kind: types.BlockSummary, Required: true, MinCount: 1, MaxCount: 1,
+		Rationale: "every answer retains one model-authored lead synthesis",
+	}}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "details", Kind: types.BlockOrderedList,
+	}}}
+
+	hints := tagPreEmitHints(types.ViolBlockCoverageMissing, preCheckRequiredBlocks(doc, view))
+	hard, advisory := splitPreEmitHintsByGate(hints)
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("missing required summary must be repaired before acceptance: hard=%+v advisory=%+v", hard, advisory)
+	}
+	if len(hard[0].ExpectedBlockKinds) != 1 || hard[0].ExpectedBlockKinds[0] != types.BlockSummary {
+		t.Fatalf("summary repair must remain a typed block-kind obligation: %+v", hard[0])
+	}
+}
+
 // TestPreCheckRequiredBlocks_MaxCount — required block kind over-emitted.
 func TestPreCheckRequiredBlocks_MaxCount(t *testing.T) {
 	view := &types.AnswerSemanticView{

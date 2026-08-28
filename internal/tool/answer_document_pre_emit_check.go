@@ -825,10 +825,17 @@ func preEmitLocalHardSignalAllowed(hint emitFixHint, signal preEmitSameTurnHardS
 
 func preEmitMissingBlockRequiresSameTurnRetry(hint emitFixHint) bool {
 	for _, kind := range hint.ExpectedBlockKinds {
-		if kind == types.BlockDiagram {
+		if kind == types.BlockSummary || kind == types.BlockDiagram {
 			return true
 		}
 	}
+	// The canonical semantic view requires exactly one opening summary for
+	// every answer family. Unlike a list/table/section presentation choice,
+	// this is the model-authored answer-ownership carrier: accepting zero
+	// summaries can leave a structurally valid evidence list with no synthesis
+	// or conclusion. The signal is the closed RequiredBlocks kind/count tuple;
+	// no request or answer prose is inspected and the system does not author
+	// the missing summary.
 	// A table becomes hard here only when the compiled semantic view exposes
 	// it as the sole accepted carrier. In particular, ordinary enumeration
 	// requirements include table among list/bullet/section alternatives and
