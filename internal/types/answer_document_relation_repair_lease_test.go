@@ -304,6 +304,34 @@ func TestAnswerDiagramRelationRepairLeaseAnchoredComponentJoinIsReplaceOnly(t *t
 	}
 }
 
+func TestAnswerDiagramRelationRepairLeaseParticipantEndpointMappingIsReplaceOnly(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramFlow, Language: "mermaid", Body: "flowchart LR\n Writer --> Mutable"},
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "Writer", ToNode: "Mutable",
+			FromIdentity: "appendEvidence", ToIdentity: "MutableState.AppendEvidence",
+			RelationKind: DiagramRelCall,
+		}},
+	}}}
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "flow", Issue: AnswerDiagramRelationRepairIssueParticipantEndpointMapping,
+		FromNode: "Writer", ToNode: "Mutable",
+		FromIdentity: "appendEvidence", ToIdentity: "MutableState.AppendEvidence",
+		RelationKind: DiagramRelCall, BodyOccurrence: 1,
+	}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{failure}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("exact participant endpoint mapping must publish one local capability: %+v", lease)
+	}
+	got := lease.Failures[0]
+	if got.TargetCarrier != AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		len(got.AllowedActions) != 1 || got.AllowedActions[0] != AnswerDiagramRelationRepairActionReplace ||
+		!strings.HasPrefix(got.FailureRef, "rf1-") {
+		t.Fatalf("participant endpoint mapping must be occurrence-bound and replace-only: %+v", got)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLeaseNeverMintsAdditionForExistingCanonicalTuple(t *testing.T) {
 	existing := DiagramEdgeAnchor{
 		FromNode: "A", ToNode: "B", FromIdentity: "analyzer",

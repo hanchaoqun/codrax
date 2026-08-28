@@ -57550,6 +57550,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r883`。
 
+### §123.1439 r884/B1377：补丁阶段披露生产转正；端点冲突获得同代 replace-only 能力（2026-08-28）
+
+1. 从已推送 `a35e8505b` 重建不可变二进制，严格并发恰好 2 路复放同一 read 图表与显式窗 Trace。runner 为 Trace PASS 253s、read
+   FAIL 1091s；两路均自然运行，没有按 4ms、4m、首字节、stall、活动流年龄或上下文比例提前降级。
+2. B1376 获得生产正证。read 的结构/原子操作失败稳定发布 `answer_document_patch_outcome=not_staged`，即时说明 live retry base 未变、须完整重交
+   本次意图；merged-document hard reject 稳定发布 `staged_for_retry`，即时说明 exact merged draft 已是下一轮基线、只交新增修正。Finalizer 同轮教学与
+   tool result 一致，没有从 Summary、模型原文或错误 prose 猜阶段；因此 r884 的失败不是事务阶段继续自冲突，B1376 核心闭环。
+3. 新 P1 `B1377-ENDPOINTCOLLISIONCAPABILITY1` 为确定性结构能力缺口。participant gate 已从同一被拒稿精确定位唯一
+   `typed_endpoint_collision`：block、可见 from/to、冲突侧、canonical identities、relation kind 与 direction 全齐，并要求模型把冲突侧改为新的
+   非 participant 技术节点。但 producer 只把该结果渲染成文字，没有把唯一既有边注册为 live relation failure；整块替换又被局部 repair lease 正确
+   禁止，模型只能猜旧 node/occurrence，连续得到 `match did not select occurrence`，20 轮后降级。最终恢复稿正文仍可读，Mermaid 却只剩残缺关系片段，
+   属系统能力合同不完整而非模型随机波动。
+4. 根修复用已有 `diagram_edge_edits action=replace`，新增 closed issue
+   `participant_endpoint_mapping_required`。仅当“唯一既有可见边 + 唯一 prior typed anchor + 唯一正文 occurrence”同时成立时，producer 才为该 exact
+   carrier 铸造 current-generation opaque `failure_ref`，能力固定为 `prior_anchor + replace-only`；歧义边、歧义 anchor、空 block id 或不完整 locator
+   均不发引用并保留原 fail-closed 指导。participant addition delta 与 endpoint failure delta 在同一验证代原子合并，避免一个修补面遮住另一个。
+5. 该能力不携带建议 replacement node、label、relation、direction、layout 或 conclusion。模型仍选择是否 replace，并创作新可见端点与业务标签；
+   executor 只从拒绝基线恢复不可变的 from_identity、to_identity、relation_kind 和方向。系统不扫描用户请求、模型/答案 prose、Mermaid label/message
+   来铸造权限，也不降低关系证据门或替模型画图。
+6. 接线回归从真实 participant precheck 产生 delta，经 live lease 重签后实际执行 replace，验证可见 endpoint/label 采用模型输入，typed identities、relation
+   与基数保持不变；同时钉住歧义 body edge 和歧义 anchor 均没有 guidance tuple 或 opaque selector。受影响完整包测试、完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿；提交本批后从该提交执行 r885 生产回放。
+7. Trace 人工判定 partial，但主系统能力没有回归：显式 2.000..2.020s 窗、四跳链、threadpool-400 链上 11.000ms IO 第一席、三个 1.000ms
+   优先级候选、实际占时/规则可消双账户、背景隔离、业务下钻、自动补采和完整 Trace 因果投影均在。模型正文把不可相加的修向错误合成 14ms，又把
+   2.020000→2.020020 的 0.020ms 尾段写成约 6ms/3ms；系统投影已明确“跨方向不可相加”，本轮按模型推理波动留观，不新增正文扫描硬门、不改写模型结论。
+
+状态：
+
+`r884=runner-trace-pass+read-fail,human-trace-partial+read-fail`；
+`B1376=production-positive/core-closed`；
+`B1377=implemented/full-suite-green/build-green/pending-production-r885`；
+`endpoint-collision-capability=unique-prior-anchor+unique-body-occurrence+replace-only`；
+`ambiguous-collision=no-opaque-selector/fail-closed`；
+`model-owned=replacement-node+label+action-choice+layout+conclusion`；
+`system-restored=typed-identities+relation-kind+direction-only`；
+`request/model/final-prose/mermaid-label-or-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r884`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r884`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

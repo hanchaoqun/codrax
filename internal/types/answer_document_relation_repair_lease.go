@@ -19,6 +19,11 @@ const (
 	// anchor is bound to the wrong model-authored visible endpoint. The matching
 	// capability is intentionally replace-only.
 	AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping = "participant_component_join_endpoint_mapping_required"
+	// AnswerDiagramRelationRepairIssueParticipantEndpointMapping identifies an
+	// already-proved typed relation whose unique model-authored visible endpoint
+	// collides with an explicitly unproven participant identity. The relation is
+	// preserved; only the model-owned visible endpoint mapping may be replaced.
+	AnswerDiagramRelationRepairIssueParticipantEndpointMapping = "participant_endpoint_mapping_required"
 )
 
 // AnswerDiagramRelationRepairFailure is the producer-owned tuple for one
@@ -158,7 +163,8 @@ func answerDiagramRelationRepairFailureCapabilities(
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 	issue := strings.TrimSpace(failure.Issue)
-	if issue == AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping {
+	if issue == AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping ||
+		issue == AnswerDiagramRelationRepairIssueParticipantEndpointMapping {
 		// The typed crossing tuple is already proved and already exists on one
 		// exact prior anchor; only its model-authored visible endpoint mapping is
 		// wrong. Removing that relation cannot satisfy the component-join

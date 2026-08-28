@@ -228,6 +228,53 @@ func TestPreCheckDiagramParticipantCoveragePublishesUniqueEndpointCollisionTuple
 	if doc.Blocks[0].Diagram.Body != bodyBefore || doc.Blocks[0].EdgeAnchors[0] != anchorBefore {
 		t.Fatalf("precheck guidance must not rewrite the model diagram: body=%q anchor=%+v", doc.Blocks[0].Diagram.Body, doc.Blocks[0].EdgeAnchors[0])
 	}
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(hints[0].DiagramRelationRepairDeltaJSON), &delta); err != nil {
+		t.Fatalf("endpoint collision must publish a structured local repair capability: %v\n%s", err, hints[0].DiagramRelationRepairDeltaJSON)
+	}
+	if len(delta.Failures) != 1 || len(delta.AllowedAdditions) != 0 || !delta.PreserveUnlistedEdges {
+		t.Fatalf("endpoint collision must publish exactly one existing-edge capability: %+v", delta)
+	}
+	failure := delta.Failures[0]
+	if failure.Issue != diagramParticipantEndpointMappingIssue || failure.BlockID != "flow" ||
+		failure.FromNode != "W" || failure.ToNode != "Mutable" || failure.BodyOccurrence != 1 ||
+		failure.FromIdentity != "appendStageOutputEvidenceToMutable" || failure.ToIdentity != "MutableState.AppendEvidence" ||
+		failure.RelationKind != types.DiagramRelCall ||
+		failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		len(failure.AllowedActions) != 1 || failure.AllowedActions[0] != types.AnswerDiagramRelationRepairActionReplace ||
+		!strings.HasPrefix(failure.FailureRef, "rf1-") {
+		t.Fatalf("endpoint collision capability must bind the exact prior edge and be replace-only: %+v", failure)
+	}
+
+	// Exercise the real retry executor, not only the producer schema. The model
+	// chooses the fresh endpoint ID and reader wording; the opaque capability
+	// restores only the typed relation tuple from the rejected draft.
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions)
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(doc, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef,
+		Action:     string(types.AnswerDiagramRelationRepairActionReplace),
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "W", ToNode: "MutableAppendOperation", VisibleLabel: "提交分析证据",
+		},
+	}}, nil, lease)
+	if err != nil || len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("published endpoint capability must execute as one local replacement: err=%v patch=%+v", err, patch)
+	}
+	replaced := patch.ReplaceBlocks[0]
+	if len(replaced.EdgeAnchors) != 1 {
+		t.Fatalf("local endpoint replacement must preserve relation cardinality: %+v", replaced.EdgeAnchors)
+	}
+	anchor := replaced.EdgeAnchors[0]
+	if anchor.FromNode != "W" || anchor.ToNode != "MutableAppendOperation" || anchor.VisibleLabel != "提交分析证据" ||
+		anchor.FromIdentity != "appendStageOutputEvidenceToMutable" || anchor.ToIdentity != "MutableState.AppendEvidence" ||
+		anchor.RelationKind != types.DiagramRelCall {
+		t.Fatalf("executor must preserve hidden authority while applying model-authored presentation: %+v", anchor)
+	}
+	edges := mermaidcompat.ParseEdges(replaced.Diagram.Body)
+	if len(edges) != 1 || edges[0].From != "W" || edges[0].To != "MutableAppendOperation" {
+		t.Fatalf("visible body must replace exactly the selected occurrence: edges=%+v\n%s", edges, replaced.Diagram.Body)
+	}
 }
 
 func TestPreCheckDiagramParticipantCoveragePublishesCollisionForBusinessLabelOnShortNodeID(t *testing.T) {
@@ -284,11 +331,17 @@ func TestDiagramParticipantEndpointCollisionGuidanceFailsOpenWhenAmbiguous(t *te
 	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches, nil); got != "" {
 		t.Fatalf("ambiguous body edges must retain generic fail-open guidance, got %s", got)
 	}
+	if guidance, delta := diagramParticipantEndpointConflictRepair(doc, rm, mismatches, nil); guidance != "" || delta != "" {
+		t.Fatalf("ambiguous body edges must not publish an opaque selector: guidance=%q delta=%q", guidance, delta)
+	}
 
 	doc.Blocks[0].Diagram.Body = "flowchart LR\n W1 --> Mutable"
 	doc.Blocks[0].EdgeAnchors[1].FromNode = "W1"
 	if got := diagramParticipantEndpointConflictGuidance(doc, rm, mismatches, nil); got != "" {
 		t.Fatalf("ambiguous anchors for one body edge must retain generic fail-open guidance, got %s", got)
+	}
+	if guidance, delta := diagramParticipantEndpointConflictRepair(doc, rm, mismatches, nil); guidance != "" || delta != "" {
+		t.Fatalf("ambiguous anchors must not publish an opaque selector: guidance=%q delta=%q", guidance, delta)
 	}
 }
 

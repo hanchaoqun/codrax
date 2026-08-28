@@ -27,6 +27,7 @@ const (
 	DiagramParticipantCoverageComponentSplit     DiagramParticipantCoverageIssue = "typed_requested_component_not_connected"
 
 	diagramParticipantComponentJoinEndpointMappingIssue = types.AnswerDiagramRelationRepairIssueParticipantComponentJoinEndpointMapping
+	diagramParticipantEndpointMappingIssue              = types.AnswerDiagramRelationRepairIssueParticipantEndpointMapping
 )
 
 // DiagramParticipantCoverageMismatch is derived only from the analyzer's
@@ -209,7 +210,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
 	actions := diagramParticipantCoverageRepairActions(mismatches)
-	endpointConflicts := diagramParticipantEndpointConflictGuidance(
+	endpointConflicts, endpointConflictDelta := diagramParticipantEndpointConflictRepair(
 		doc,
 		pctx.ctx.AnalysisIR.RequestModel,
 		mismatches,
@@ -223,6 +224,10 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		doc, pctx.ctx, mismatches, evidence,
 		diagramVerifiedReadModeStagePrecedence(pctx.ctx, view),
 	)
+	participantRelationDelta := types.MergeAnswerDiagramRelationRepairDeltaJSON([]string{
+		participantAdditionDelta,
+		endpointConflictDelta,
+	})
 	// This precheck runs only after the document has already parsed into the
 	// block-level ParticipantBoundaries field. Do not prepend a generic JSON
 	// placement warning here: doing so falsely tells a model with valid JSON to
@@ -246,7 +251,7 @@ func preCheckDiagramParticipantCoverage(doc *types.AnswerDocumentV2, view *types
 		ExpectedShape:                     expected,
 		Reason:                            "the typed participant slate is precise completeness authority for participant presence, but never relation evidence; an explicit typed boundary preserves honesty when exploration did not prove an incident relation.",
 		DiagramParticipantRepairDeltaJSON: compactDelta,
-		DiagramRelationRepairDeltaJSON:    participantAdditionDelta,
+		DiagramRelationRepairDeltaJSON:    participantRelationDelta,
 	}}
 }
 
@@ -579,8 +584,24 @@ func diagramParticipantEndpointConflictGuidance(
 	mismatches []DiagramParticipantCoverageMismatch,
 	evidence []types.EvidenceItem,
 ) string {
+	guidance, _ := diagramParticipantEndpointConflictRepair(doc, rm, mismatches, evidence)
+	return guidance
+}
+
+// diagramParticipantEndpointConflictRepair preserves the human-readable
+// collision tuple and additionally publishes one opaque replace-only selector
+// when that tuple owns exactly one live prior anchor and visible body
+// occurrence. The selector carries no replacement endpoint, label, relation,
+// direction, or conclusion: the model authors presentation while the executor
+// restores the immutable typed relation tuple from the rejected draft.
+func diagramParticipantEndpointConflictRepair(
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	mismatches []DiagramParticipantCoverageMismatch,
+	evidence []types.EvidenceItem,
+) (string, string) {
 	if doc == nil || rm.DiagramHint == nil || len(mismatches) == 0 {
-		return ""
+		return "", ""
 	}
 	participantSurfaces := make(map[string][]string)
 	allParticipantSurfaces := make([][]string, 0, len(rm.DiagramHint.Participants))
@@ -601,6 +622,7 @@ func diagramParticipantEndpointConflictGuidance(
 	requestedRelationEvidence := diagramRequestedRelationEvidenceForRequest(evidence, rm)
 	blockCounts := diagramEvidenceBodyEdgeBlockCounts(doc)
 	rows := make([]string, 0)
+	failures := make([]types.AnswerDiagramRelationRepairFailure, 0)
 	seen := make(map[string]bool)
 	for _, mismatch := range mismatches {
 		if mismatch.Issue != DiagramParticipantCoverageBoundaryConnected &&
@@ -707,8 +729,39 @@ func diagramParticipantEndpointConflictGuidance(
 			strconv.Quote(selected.conflictSurface), selected.visibleLabelConflict, strconv.Quote(nodeFields), strconv.Quote(selected.anchor.FromIdentity),
 			strconv.Quote(selected.anchor.ToIdentity), strconv.Quote(string(selected.anchor.RelationKind)),
 		))
+		failure := bindDiagramRelationRepairAnchorBodyCarrier(doc, types.AnswerDiagramRelationRepairFailure{
+			BlockID: strings.TrimSpace(selected.blockID), Issue: diagramParticipantEndpointMappingIssue,
+			RelationKind: selected.anchor.RelationKind,
+			FromNode:     strings.TrimSpace(selected.fromNode), ToNode: strings.TrimSpace(selected.toNode),
+			FromIdentity: strings.TrimSpace(selected.anchor.FromIdentity),
+			ToIdentity:   strings.TrimSpace(selected.anchor.ToIdentity),
+		})
+		if failure.BlockID != "" && failure.BodyOccurrence > 0 &&
+			types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+			failures = append(failures, failure)
+		}
 	}
-	return strings.Join(rows, "; ")
+	guidance := strings.Join(rows, "; ")
+	if len(failures) == 0 {
+		return guidance, ""
+	}
+	failures = types.AssignAnswerDiagramRelationRepairFailureRefs(doc, failures)
+	for _, failure := range failures {
+		if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
+			len(failure.AllowedActions) != 1 ||
+			failure.AllowedActions[0] != types.AnswerDiagramRelationRepairActionReplace ||
+			strings.TrimSpace(failure.FailureRef) == "" {
+			return guidance, ""
+		}
+	}
+	raw, err := json.Marshal(types.AnswerDiagramRelationRepairDelta{
+		Version:  types.AnswerDiagramRelationRepairDeltaVersion,
+		Failures: failures, PreserveUnlistedEdges: true,
+	})
+	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return guidance, ""
+	}
+	return guidance, string(raw)
 }
 
 func diagramParticipantIdentityIncidentToAnyRequestedParticipant(
