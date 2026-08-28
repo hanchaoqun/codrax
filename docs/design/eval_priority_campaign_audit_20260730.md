@@ -58676,6 +58676,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1470 r900：系统附注退役生产转正；解析维度可被错误文件的操作行冒领（2026-08-28）
+
+1. 从已推送 `b431ad4c5` 构建不可变二进制，严格并发恰好 2 路复放配置 read 与 Python write-plan，runner 2/2 PASS：配置 148s、write
+   46s；无第三用例。write 人工通过：仅读取 fixture 与 `main.py`，生成一个 `kind=patch` unified diff 和一个精确 replace edit，把
+   `main.py:20` 的 `retrun` 改成 `return`；验证计划包含有界 import/`greet("Test")` probe，无 JSON 修补、replan、合同拒绝或额外路径。
+2. `B1398/B1399` 获生产正证：配置最终答案不再出现“系统补充：输出维度核对”，也没有把已解决的 pre-completion 历史物化为“答案前后不一致”；
+   `richness_facet_softened` 仍留在 operator ledger，没有删除内部审计事实。相对 r899，配置墙钟 251s→148s、read 24→8、completion
+   8/2→2/0、finalizer reject 1→0。`B1397` 的提示头部结构回归保持，但此次首批证据已给 operation rows 标索引，没有自然触发 advisory，故只记
+   production no-regression，不夸大为自然分支转正。
+3. runner 的弱关键词 oracle 再次假绿，人工判定配置 FAIL。主摘要声称 `pipeline_max_steps` 通过 “Viper/Cobra” 解析；仓库没有 Viper 依赖，真实链是
+   `config.LoadRuntimeSettings` 读取文件后用 `gopkg.in/yaml.v3` 的 `yaml.NewDecoder(...).KnownFields(true)`/`Decode` 填充
+   `RuntimeSettings.PipelineMaxSteps`，随后 `initApp` 做 code default→YAML overlay→显式 CLI 保留。Explorer 没有读取 loader body，finalizer 却用字段定义证据为
+   整段摘要的额外框架主张背书。
+4. 新 P1 `B1400-DIMENSIONFILESCOPEOWNERSHIP1` 是 B1389/B1394 的深一层缺口。现门能判断某 evidence 是 operation，也能读取模型填写的
+   `requested_dimension_indices`，却不知道“该维度必须由哪个 required file/责任边界的 operation 证明”。本轮模型把 `root.go` 的
+   `mergedMaxSteps` assignment、CLI `Changed` condition 等同时标为 `[1,3]`，于是“解析机制”席被错误冒领，虽然真正 parser 在
+   `internal/config/runtime.go`。
+5. 最优泛化形冻结为 typed `dimension × required-file × operation` 所有权：analyzer 在 required-file carrier 上显式列出它负责的 required dimension
+   indices；完成门仅允许该文件内 grounded/recovered operation row 闭合对应席位。未声明 file scope 的旧请求保持现合同，导航性 required file 不自动变成
+   事实门；不从 rationale、用户请求、模型 reasoning、答案正文、文件名关键词或 Mermaid 内容推断归属。系统只要求模型补读/补证，绝不替模型写解析结论。
+6. `B1396` 继续开放且本轮再次量化：finalizer 收到 82 条 evidence，仅引用 3 条。可见附录污染虽已消失，过宽上下文仍会增加模型心智和无证据熟悉框架补全的
+   概率；它与 B1400 分批，后续按 typed accepted evidence/load-bearing ownership 收窄，禁止 same-file、symbol/prose 相似度或固定 token/耗时阈值截断。
+
+状态：
+
+`r900=runner-pass-2/2,human-write-pass+config-fail`；
+`B1397=production-no-regression/natural-advisory-branch-not-fired`；
+`B1398=production-positive/core-closed`；
+`B1399=production-positive/core-closed`；
+`B1400=confirmed/P1-next/dimension-file-scope-ownership`；
+`B1396=confirmed/P2/finalizer-evidence-82-cited-3`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/runtime-token/mermaid-content-hard-gate=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
