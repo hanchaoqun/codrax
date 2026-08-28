@@ -85,6 +85,102 @@ func TestNormalizeRequiredFileDimensionOwnershipKeepsOnlyHighConfidenceExplanati
 	}
 }
 
+func TestValidateRequiredFileDimensionResponsibilityDeclarationsRequiresClassificationAndCompleteOwnership(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"config/load.go", "cmd/root.go"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	profile := &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{
+		{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		{Index: 2, Role: types.RequestedAnswerDimensionObservedValue, Required: true},
+		{Index: 3, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	}}
+	raw := []emitRequiredFileParam{
+		{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1}},
+		{Path: "cmd/root.go", Confidence: 0.95},
+	}
+	hints := normalizeRequiredFileDimensionOwnership(validateAndBuildRequiredFileHintsWithContext(
+		&types.BusContext{RepoRoot: root}, raw, nil,
+	), profile, nil)
+	got := validateRequiredFileDimensionResponsibilityDeclarations(
+		&types.BusContext{RepoRoot: root}, raw, hints, profile,
+	)
+	for _, want := range []string{
+		"unclassified high-confidence files=[cmd/root.go]",
+		"dimensions without a high-confidence file owner=[3]",
+		"requested_dimension_navigation_only=true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("responsibility rejection missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestValidateRequiredFileDimensionResponsibilityDeclarationsAcceptsOwnerAndNavigationOnly(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"config/load.go", "docs/navigation.go"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	navigationOnly := true
+	profile := &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{
+		{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		{Index: 2, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	}}
+	raw := []emitRequiredFileParam{
+		{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1, 2}},
+		{Path: "docs/navigation.go", Confidence: 0.9, RequestedDimensionNavigationOnly: &navigationOnly},
+	}
+	hints := normalizeRequiredFileDimensionOwnership(validateAndBuildRequiredFileHintsWithContext(
+		&types.BusContext{RepoRoot: root}, raw, nil,
+	), profile, nil)
+	if got := validateRequiredFileDimensionResponsibilityDeclarations(
+		&types.BusContext{RepoRoot: root}, raw, hints, profile,
+	); got != "" {
+		t.Fatalf("complete typed responsibility declaration rejected: %s", got)
+	}
+}
+
+func TestValidateRequiredFileDimensionResponsibilityDeclarationsRejectsOwnerNavigationConflictOnce(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config/load.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	navigationOnly := true
+	profile := &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{
+		{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		{Index: 2, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	}}
+	raw := []emitRequiredFileParam{{
+		Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1, 2},
+		RequestedDimensionNavigationOnly: &navigationOnly,
+	}}
+	hints := normalizeRequiredFileDimensionOwnership(validateAndBuildRequiredFileHintsWithContext(
+		&types.BusContext{RepoRoot: root}, raw, nil,
+	), profile, nil)
+	got := validateRequiredFileDimensionResponsibilityDeclarations(
+		&types.BusContext{RepoRoot: root}, raw, hints, profile,
+	)
+	if !strings.Contains(got, "files declared both operation-owner and navigation-only=[config/load.go]") {
+		t.Fatalf("owner/navigation conflict not reported precisely: %s", got)
+	}
+}
+
 func TestEmitAnalysisExecutePersistsRequiredFileDimensionOwnership(t *testing.T) {
 	root := t.TempDir()
 	for _, rel := range []string{"config/load.go", "cmd/root.go"} {
@@ -131,6 +227,56 @@ func TestEmitAnalysisExecutePersistsRequiredFileDimensionOwnership(t *testing.T)
 	}
 	if got := rm.AnalyzerHints.RequiredFileHints[1].RequestedDimensionIndices; len(got) != 1 || got[0] != 3 {
 		t.Fatalf("CLI ownership=%+v", got)
+	}
+}
+
+func TestEmitAnalysisExecuteRejectsAmbiguousHighConfidenceFileResponsibility(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config/load.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("解释解析机制和覆盖方式")
+	payload := withV4Required(`{
+		"intent":"explain",
+		"scenario":"config_trace",
+		"complexity":"moderate",
+		"keywords":["config","parse","override"],
+		"entities":["Config"],
+		"question_kind":"config_mapping",
+		"predicate_axis":"configure",
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.95,
+			"dimensions":[
+				{"index":1,"label":"解析机制","role":"function_or_purpose","required":true,"source_quote":"解析机制"},
+				{"index":2,"label":"覆盖方式","role":"branch_behavior","required":true,"source_quote":"覆盖方式"}
+			]
+		},
+		"required_files":[
+			{"path":"config/load.go","confidence":0.95,"rationale":"implementation entry"}
+		]
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success {
+		t.Fatalf("ambiguous high-confidence responsibility must be rejected: %+v", res)
+	}
+	for _, want := range []string{
+		"unclassified high-confidence files=[config/load.go]",
+		"dimensions without a high-confidence file owner=[1 2]",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("rejection missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if rm := mu.RequestModel(); rm != nil {
+		t.Fatalf("rejected responsibility must not persist a request model: %+v", rm)
 	}
 }
 
@@ -917,6 +1063,9 @@ func TestEmitAnalysisSchema_RequiredFilesPresent(t *testing.T) {
 	}
 	if !strings.Contains(string(emitAnalysisSchemaCache), `"requested_dimension_indices"`) {
 		t.Error("required_files items should declare optional requested dimension ownership")
+	}
+	if !strings.Contains(string(emitAnalysisSchemaCache), `"requested_dimension_navigation_only"`) {
+		t.Error("required_files items should declare the explicit navigation-only alternative")
 	}
 	// Threshold bands documented in description (LLM-facing).
 	if !strings.Contains(string(emitAnalysisSchemaCache), `0.8`) {

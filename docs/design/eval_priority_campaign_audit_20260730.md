@@ -58991,6 +58991,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r903`。
 
+### §123.1479 B1405：多解释维度的高置信文件责任改为显式二选一，阻断兄弟 operation 冒领（2026-08-28）
+
+1. `B1405-DIMENSIONRESPONSIBILITYOPERATION1/P1` 已施工。r902/r903 的共同根因不是 YAML、Go 或配置问题特例，而是 analyzer 同时声明了多个
+   `function_or_purpose/branch_behavior` 必答维度和高置信 `required_files`，却允许文件保持“既可能是实现 owner、也可能只是导航”的空责任状态。
+   B1400 虽能消费显式 `requested_dimension_indices`，但缺少激活合同；模型不填时，各维度退回 unscoped seat，兄弟文件中的任意 executable anchor 仍可
+   互相顶替。
+2. 新合同只读取 analyzer schema-validated 的 typed planning state。存在至少两个独立解释 operation 且有 surviving high-confidence required file 时，每个
+   高置信文件必须二选一：用 `requested_dimension_indices` 绑定其真实负责的 1-based 维度，或显式
+   `requested_dimension_navigation_only=true` 声明它只负责定位/导航。operation owner 与 navigation-only 同时出现是冲突；同时要求每个必答解释 operation
+   至少有一个高置信 owner。遗漏文件、冲突文件和缺失维度一次性汇总在同一 correction 中，禁止逐文件串行拒绝形成重试风暴。
+3. 边界保持收窄：单一解释 operation 不启用该门；没有 surviving high-confidence required file 时沿用旧 unscoped 合同；低置信提示不承担 owner 义务；
+   无法解析或被 source-inventory/scope 归一化移除的文件不参加校验。字符串兼容修复得到的旧式 required-file shorthand 被明确标为 navigation-only，避免
+   JSON shape 自愈反过来制造职责歧义。系统后续投影的 prescan 文件在该门之后加入，因此不会伪装成 analyzer 已声明的 operation owner。
+4. 该实现不从 rationale、文件路径词、请求正文、模型 reasoning、最终答案、Mermaid 或编程语言语法推断责任，也不硬编码 YAML/配置键/Go。它只确保
+   analyzer 自己选择的高置信调查边界内部职责闭合；Explorer 仍负责读取执行体，模型仍负责结论、关系、业务含义与修向，系统没有删除、替换或代写答案。
+5. 回归覆盖四条关键臂：未分类文件与缺失维度同次拒绝；完整 owner+navigation-only 通过；owner/navigation 冲突精确拒绝；Execute 接线删除即失败。
+   原 B1400 owner 持久化用例、schema 教学 pin、`internal/tool` 全包、完整 `go test ./... -count=1`、`git diff --check` 与 CGO release-tag
+   `make` 全绿。`RequiredFileHint` 持久结构未改，未触发 key-first/schema hash 漂移。
+6. 下一步从本提交构建不可变二进制，严格并发恰好 2 路复放配置解释与显式窗 Trace。配置验收 analyzer 是否把解析实现文件绑定解析维度、Explorer 是否
+   真正读取 parse operation、兄弟 merge/CLI operation 不再替代解析席；Trace 验收显式窗、自动补采、唤醒链、链上根因、实际占时/规则可消双账户与
+   `Trace 因果投影` 字节面继续存在。生产正证后进入 B1396；若模型明确选择低置信/无 owner，记为模型调查不确定性，不扩大成正文扫描硬门。
+
+状态：
+
+`B1405=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`high-confidence-required-file=operation-owner-xor-navigation-only`；
+`required-explanation-operation=at-least-one-exact-file-owner`；
+`single-dimension/no-high-confidence/low-confidence=legacy-compatible`；
+`all-declaration-defects=one-consolidated-correction`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

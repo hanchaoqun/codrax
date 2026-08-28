@@ -144,10 +144,11 @@ var emitAnalysisRuntimePresenceRequiredFields = []string{
 // confidence ≥ 0.5 entries (the threshold below which the entry is
 // dropped anyway).
 type emitRequiredFileParam struct {
-	Path                      string  `json:"path"`
-	Confidence                float64 `json:"confidence"`
-	Rationale                 string  `json:"rationale,omitempty"`
-	RequestedDimensionIndices []int   `json:"requested_dimension_indices,omitempty"`
+	Path                             string  `json:"path"`
+	Confidence                       float64 `json:"confidence"`
+	Rationale                        string  `json:"rationale,omitempty"`
+	RequestedDimensionIndices        []int   `json:"requested_dimension_indices,omitempty"`
+	RequestedDimensionNavigationOnly *bool   `json:"requested_dimension_navigation_only,omitempty"`
 }
 
 type emitAnalysisSubTopic struct {
@@ -963,14 +964,15 @@ func buildEmitAnalysisSchema() {
 			},
 			"required_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. When a high-confidence file owns the implementation operation for one or more required function_or_purpose/branch_behavior requested dimensions, set requested_dimension_indices to those exact 1-based indices. Use this only for a file-local structural responsibility you can identify from prescan; omit it for navigation-only files or when ownership is uncertain. If one mechanism genuinely crosses files, list its index on every file whose operation is independently required. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. When two or more required function_or_purpose/branch_behavior dimensions exist, every high-confidence file has one explicit responsibility choice: set requested_dimension_indices to the exact 1-based dimensions whose implementation operation this file owns, OR set requested_dimension_navigation_only=true when it is only a location/navigation aid. Never set both. If ownership is uncertain, keep confidence below 0.8. If one mechanism genuinely crosses files, list its index on every file whose operation is independently required. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"path":                        map[string]any{"type": "string", "description": "Repo-relative POSIX path copied from the prescan results (e.g. 'internal/analysis/gate/gate.go')."},
-						"confidence":                  map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Recommendation strength in [0,1]. Threshold bands: ≥0.8 primary + pre-read; 0.5–0.79 pre-read only; <0.5 discarded."},
-						"rationale":                   map[string]any{"type": "string", "description": "Short reason for the recommendation. Why this file is structurally needed for the answer (e.g. 'directly implements the entry function the question asks about')."},
-						"requested_dimension_indices": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "uniqueItems": true, "description": "Optional exact required requested_answer_dimensions indices whose implementation operation this file owns. Omit for navigation-only or uncertain file responsibility."},
+						"path":                                map[string]any{"type": "string", "description": "Repo-relative POSIX path copied from the prescan results (e.g. 'internal/analysis/gate/gate.go')."},
+						"confidence":                          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Recommendation strength in [0,1]. Threshold bands: ≥0.8 primary + pre-read; 0.5–0.79 pre-read only; <0.5 discarded."},
+						"rationale":                           map[string]any{"type": "string", "description": "Short reason for the recommendation. Why this file is structurally needed for the answer (e.g. 'directly implements the entry function the question asks about')."},
+						"requested_dimension_indices":         map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "uniqueItems": true, "description": "Exact required requested_answer_dimensions indices whose implementation operation this file owns. With two or more explanation-operation dimensions, use this for every high-confidence implementation owner; do not combine it with requested_dimension_navigation_only=true."},
+						"requested_dimension_navigation_only": map[string]any{"type": "boolean", "description": "Set true only when this high-confidence file is a location/navigation aid and does not own any required explanation operation. With two or more explanation-operation dimensions, this is the explicit alternative to requested_dimension_indices. Omit for low-confidence hints."},
 					},
 					"required": []string{"path", "confidence"},
 				},
@@ -2430,6 +2432,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		warning := fmt.Sprintf("normalized %d excess source_location answer dimension(s) to source_attribute from typed source_inventory requested_fields; labels and ordering were preserved", changed)
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
+	}
+	if conflict := validateRequiredFileDimensionResponsibilityDeclarations(
+		ctx,
+		p.RequiredFiles,
+		rm.AnalyzerHints.RequiredFileHints,
+		rm.RequestedAnswerDimensions,
+	); conflict != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + conflict,
+			Timestamp: time.Now(),
+		}, nil
 	}
 	if warning := normalizeSingleTargetExplicitWindowCausalSubTopics(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
@@ -7976,6 +7991,113 @@ func normalizeRequiredFileDimensionOwnership(in []types.RequiredFileHint, profil
 	return in
 }
 
+// validateRequiredFileDimensionResponsibilityDeclarations prevents a
+// high-confidence navigation hint from silently becoming an unscoped evidence
+// owner when the request contains multiple independent explanation operations.
+// The decision is analyzer-authored typed state only: rationale, path tokens,
+// request prose, answer prose, and source-language heuristics are not read.
+//
+// The gate is deliberately inactive for a single explanation operation and
+// for requests without any surviving high-confidence required file. Once the
+// analyzer does assert high-confidence file responsibility, however, every
+// surviving file must be explicitly classified and every required operation
+// dimension must have at least one exact file owner. All defects are reported
+// in one correction so the analyzer does not enter a one-file-at-a-time retry
+// loop.
+func validateRequiredFileDimensionResponsibilityDeclarations(
+	ctx *types.BusContext,
+	raw []emitRequiredFileParam,
+	hints []types.RequiredFileHint,
+	profile *types.RequestedAnswerDimensionProfile,
+) string {
+	dimensions := types.RequestedExplanationOperationOwnershipDimensions(profile)
+	if len(dimensions) == 0 || len(hints) == 0 {
+		return ""
+	}
+
+	navigationOnly := make(map[string]bool, len(raw))
+	for _, entry := range raw {
+		if entry.RequestedDimensionNavigationOnly == nil || !*entry.RequestedDimensionNavigationOnly {
+			continue
+		}
+		path, _, ok := resolveRequiredFileHintPath(ctx, entry.Path)
+		if !ok || path == "" {
+			continue
+		}
+		navigationOnly[types.CanonicalRequestedDimensionSource(path)] = true
+	}
+
+	required := make(map[int]bool, len(dimensions))
+	for _, dimension := range dimensions {
+		required[dimension.Index] = true
+	}
+	owned := make(map[int]bool, len(dimensions))
+	ambiguous := make(map[string]bool)
+	conflicting := make(map[string]bool)
+	hasHighConfidence := false
+	for _, hint := range hints {
+		if hint.Confidence < 0.8 {
+			continue
+		}
+		path := types.CanonicalRequestedDimensionSource(hint.Path)
+		if path == "" {
+			continue
+		}
+		hasHighConfidence = true
+		ownsOperation := false
+		for _, index := range hint.RequestedDimensionIndices {
+			if !required[index] {
+				continue
+			}
+			owned[index] = true
+			ownsOperation = true
+		}
+		if ownsOperation && navigationOnly[path] {
+			conflicting[path] = true
+			continue
+		}
+		if !ownsOperation && !navigationOnly[path] {
+			ambiguous[path] = true
+		}
+	}
+	if !hasHighConfidence {
+		return ""
+	}
+
+	missing := make([]int, 0, len(dimensions))
+	for _, dimension := range dimensions {
+		if !owned[dimension.Index] {
+			missing = append(missing, dimension.Index)
+		}
+	}
+	if len(ambiguous) == 0 && len(conflicting) == 0 && len(missing) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, 3)
+	if len(ambiguous) > 0 {
+		paths := make([]string, 0, len(ambiguous))
+		for path := range ambiguous {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
+		parts = append(parts, "unclassified high-confidence files=["+strings.Join(paths, ", ")+"]")
+	}
+	if len(conflicting) > 0 {
+		paths := make([]string, 0, len(conflicting))
+		for path := range conflicting {
+			paths = append(paths, path)
+		}
+		sort.Strings(paths)
+		parts = append(parts, "files declared both operation-owner and navigation-only=["+strings.Join(paths, ", ")+"]")
+	}
+	if len(missing) > 0 {
+		parts = append(parts, fmt.Sprintf("required explanation-operation dimensions without a high-confidence file owner=%v", missing))
+	}
+	return "required_files responsibility declaration is incomplete: " + strings.Join(parts, "; ") +
+		". For each high-confidence file, either set requested_dimension_indices to the exact 1-based dimensions whose implementation operation it owns, or set requested_dimension_navigation_only=true. Every required explanation-operation dimension must have at least one owner; lower confidence below 0.8 when responsibility is uncertain."
+}
+
 func softenModelAuthoredRequiredFilesForSourceInventory(raw string, profile *types.SourceInventoryProfile, attempted *emitSourceInventoryProfileParam, in []types.RequiredFileHint, val *analysisValidationResult) []types.RequiredFileHint {
 	// A malformed optional role list must not turn a model-guessed navigation
 	// file into the hard universe of an otherwise explicit inventory request.
@@ -8471,10 +8593,12 @@ func repairEmitAnalysisRequiredFileStringEntries(raw json.RawMessage) (json.RawM
 				changed = true
 				continue
 			}
+			navigationOnly := true
 			objEntry := emitRequiredFileParam{
-				Path:       strings.TrimSpace(path),
-				Confidence: 0.8,
-				Rationale:  "compat repaired from string path",
+				Path:                             strings.TrimSpace(path),
+				Confidence:                       0.8,
+				Rationale:                        "compat repaired from string path",
+				RequestedDimensionNavigationOnly: &navigationOnly,
 			}
 			encoded, err := json.Marshal(objEntry)
 			if err != nil {
