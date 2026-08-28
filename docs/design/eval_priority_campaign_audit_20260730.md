@@ -58189,6 +58189,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1456 r893：显式源码排除生产转正；运行时因果与请求机制仍缺 typed 权限闭包（2026-08-28）
+
+1. 从已推送 `ca799cbd7` 重建二进制，严格并发恰好 2 路运行路径日志 + 配置优先级，runner 2/2 PASS：日志 157s、配置 192s。
+   两路没有按 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有系统替模型生成结论、关系、图或答案正文。
+2. `B1386` 获得生产正证。Analyzer 第一稿已明确选择 `exclude + explicit_user_exclusion`，但提交的是合并后的非逐字 quote；工具只拒绝本次
+   `emit_analysis`，没有提交半成品 RequestModel，并要求复制最短逐字排除短语或撤回 exclude。第二稿复制 `不分析代码` 后通过，最终
+   `external_observation_policy=exclude`，调查只读取两个目标日志。随后另一次修补是既有的
+   `root_cause × bounded_fact_set` 分类冲突，模型切到 `causal_diagnosis` 后通过；它不属于 B1386 的循环，也不是成文合同冲突。
+3. `B1387` 的 explorer/finalizer 双消费接线生产在场，但结果为负：模型仍把 `Get(0x0, …)` 扩写成调用方传入 nil、方法内部访问字段，把
+   `context deadline exceeded` 扩写成等待响应、内部抛出并向上传播。日志只证明观察帧、该帧渲染值、栈顺序和错误状态，不能证明这些生产者、
+   ownership、内部语句、超时策略或下游状态。连续两轮同类回放且本轮已收到精确软教学，不能再只记成“教学未送达”。
+4. 新 P1 `B1388-MODELAUTHOREDOBSERVATIONPROMOTION1` 确认：原始 artifact 观察进入 typed lane 后，模型在
+   `emit_investigation_complete` 中写出的 aggregate fact/closure 没有 `direct_observation / model_inference / independently_proven`
+   权限差异；这些模型归纳随后以答案级 support 被 finalizer 消费。最优方案是让 producer-owned 原始观察保持 observation authority，模型推断保留
+   model-owned hypothesis 身份，只有独立 typed artifact 关系或当前源码 operation proof 才能升级。系统只发布权限与证据，不选择、删除或改写模型
+   结论；禁止按 `.log`、nil、deadline、请求/模型/最终 prose 或 Mermaid 文本建立硬门。
+5. 配置案例 runner PASS、人工 partial。默认 `50`、YAML 覆盖、显式 CLI 覆盖以及最终 `SetMaxSteps` 注入均正确；但答案声称
+   “Viper/cobra 自动把 YAML 键绑定到指针字段”，仓库没有 Viper 依赖。真实解析入口是 `config.LoadRuntimeSettings`：读取文件后用
+   `gopkg.in/yaml.v3` 的 `yaml.NewDecoder(bytes.NewReader(data))`、`KnownFields(true)` 解码为 `RuntimeSettings`，调用方再按 pointer presence
+   合并。Explorer 虽完成了字段、默认、merge、flag 与消费点，却没有读取 loader，仍被允许声明“解析机制”闭环；finalizer随后用常见库补空。
+6. 新 P1 `B1389-REQUESTEDMECHANISMEVIDENCECLOSURE1` 确认：requested dimension 已 typed 声明为“解析机制”，但调查闭环只按有无任意支持项，
+   没要求该维度绑定 operation/provider 证据。最优方案是在 EvidencePlan/closure 中给机制类维度保留 typed provider/operation obligation；definition、
+   example、default、merge consumer 可以分别支持各自维度，但不能替代解析 operation。缺失时继续调查或明确披露证据边界，不能让 finalizer 自补熟悉
+   机制。禁止针对 Viper、YAML 或该配置键写特判，也不扫描答案文字。
+7. 配置答案还把 `codrax.yaml.example:485` 错写成 `codrax.yaml.example（cmd/root.go:485）`，且可见引用只有字段定义，不能支撑全部多跳机制。
+   先把它归入 B1389 的同一 evidence-to-dimension ownership，而不是另设路径字符串硬校验。下一施工顺序：B1389 先以 typed 机制闭包小批落地；
+   B1388 需先完成 carrier 设计和正反 authority fixture，再独立施工，避免把软教学失败误修成系统接管答案。
+
+状态：
+
+`r893=runner-pass-2/2,human-log-partial+config-partial`；
+`B1386=production-positive/core-closed`；
+`B1387=delivery-positive/outcome-negative/superseded-by-B1388`；
+`B1388=confirmed/P1/typed-observation-vs-model-inference-authority-next-after-design`；
+`B1389=confirmed/P1/typed-requested-mechanism-closure-next`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/file-suffix/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
