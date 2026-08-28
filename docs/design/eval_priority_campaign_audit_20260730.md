@@ -59153,12 +59153,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 5. 新 P2 `B1413-AGGREGATESUPPLEMENTREDUNDANTWITHMODELROSTER1`：模型主体已经用三行表完整表达 default→YAML→CLI，系统仍追加同一三项 principal
    checklist。最优方向是只凭 typed block/facet/member binding 判断主体已承载 accepted set，从而不再补重复块；不读可见措辞，不删除或改写模型答案。
 6. 新 P1 `B1414-PATCHMETADATAEDITUNPUBLISHED1` 来自枚举 5 次 finalizer reject。首稿 table row 形和首列身份是模型结构错误；但系统随后要求删除
-   `source_inventory_family`，当轮却未发布该 field-edit；又要求“只补 `facet_ids`”，而 `replace_blocks` 要求模型完整重发 38 行表。系统产生的精确修向必须
-   在同轮工具 surface 可执行，否则会制造合同自冲突与无效重试。
+   `source_inventory_family`，当轮却未发布该 field-edit；又要求“只补 `facet_ids`”，而 `replace_blocks` 要求模型完整重发 38 行表。现已统一两处修向：
+   requested-dimension hint 明确 `facet_ids` 是数组，禁止塞进只接受字符串枚举的 `block_field_edits_v1`；source-inventory family reject 同样声明只有 schema
+   真正发布该 branch 时才能用 local edit。否则两者都明确要求完整 `replace_blocks`，逐字段列出必须复制的 id/kind/title/text/columns/items/diagram 与全部
+   sibling typed metadata，并声明 replace 不是 field merge。模型仍选择目标块和值/删除动作，系统不自动修改 accepted answer。中英文 member-set hint、family
+   repair shape、既有 unpublished-array typed repair 回归通过；完整 `go test ./... -count=1`、`git diff --check` 与 CGO release-tag `make` 全绿。
 7. 配置人工仍 partial：15 次 read/26 个 explorer iteration 偏重；Decode/merge/Changed 主张虽然正文正确，引用只落在字段定义、默认值与 flag 注册，
    B1409 继续开放；B1408 与 B1396 也未因本轮事实正确而自动关闭。完整逐轮记录见
    `eval/parallel_selected_summary_evalcampaign_config_count_replay_r906_20260828_manual_audit.md`。
-8. 下一施工顺序冻结为：B1412 已完成；接着 B1414 让系统修向与 patch surface 同源；随后 B1411 typed advisory 清账；B1413
+8. 下一施工顺序冻结为：B1412、B1414 已完成；接着 B1411 typed advisory 清账；B1413
    需先设计 typed coverage equivalence，避免系统以 prose 相似度删除模型输出。完成后再恰好并发 2 路复放，并回到 read/write/Trace 异构高优先级样本。
 
 状态：
@@ -59168,7 +59171,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1411=confirmed/P1/reclassified-stale-advisory`；
 `B1412=implemented/full-suite-pass+build-pass/pending-production-replay`；
 `B1413=confirmed/P2/design-first`；
-`B1414=confirmed/P1`；
+`B1414=implemented/full-suite-pass+build-pass/pending-production-replay`；
 `B1408/B1409/B1396=open`；
 `system-answer/conclusion/member/relation/wording/layout-selection=none`；
 `request/model/final-prose/path-keyword/mermaid-content-new-hard-scan=none`；

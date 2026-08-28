@@ -16594,6 +16594,13 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	missing = requestedDimensionsSortedForHint(missing)
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	memberLocationsRequired := answerDocumentRelationMemberSetRequestsVisibleLocations(ctx)
+	memberSetMetadataRepair := false
+	for _, dim := range missing {
+		if dim.Role == types.RequestedAnswerDimensionMemberSet {
+			memberSetMetadataRepair = true
+			break
+		}
+	}
 	var b strings.Builder
 	if zh {
 		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
@@ -16601,6 +16608,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString("按维度序号恢复独立输出面；图不能替代另行要求的清单、表格或解释。")
 		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
 		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
+		if memberSetMetadataRepair {
+			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把它塞进只接受字符串枚举的 `block_field_edits_v1`。若当前工具 schema 没有发布专用原子分支，请使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
+		}
 		b.WriteString("缺失维度：\n")
 		for _, dim := range missing {
 			index := dim.Index
@@ -16631,6 +16641,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	b.WriteString("Restore independent output surfaces in dimension order; a diagram does not replace a separately requested roster, table, or explanation. ")
 	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
 	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
+	if memberSetMetadataRepair {
+		b.WriteString("Executable patch shape: `facet_ids` is array metadata; do not put it in string-enum-only `block_field_edits_v1`. If the current tool schema publishes no dedicated atomic branch, use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
+	}
 	b.WriteString("Missing dimensions:\n")
 	for _, dim := range missing {
 		index := dim.Index

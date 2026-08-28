@@ -9643,11 +9643,10 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		rows, strict, allowedFamilies, invalidFamily := preEmitSourceInventoryHardRowsForBlock(block, sets)
 		if invalidFamily {
 			hints = append(hints, emitFixHint{
-				Field: fmt.Sprintf("blocks[%d].source_inventory_family", blockIdx),
-				ExpectedShape: "copy one exact typed surface_family value from Principal Enumeration Rows, or omit source_inventory_family for a global/mixed-family block; allowed values: " +
-					strings.Join(allowedFamilies, ", "),
-				Reason:    "source_inventory_family is a structured partition key; block titles and prose are presentation only and cannot repair or replace it.",
-				ForceHard: true,
+				Field:         fmt.Sprintf("blocks[%d].source_inventory_family", blockIdx),
+				ExpectedShape: sourceInventoryFamilyRepairExpectedShape(allowedFamilies),
+				Reason:        "source_inventory_family is a structured partition key; block titles and prose are presentation only and cannot repair or replace it.",
+				ForceHard:     true,
 			})
 			continue
 		}
@@ -9706,6 +9705,12 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 		})
 	}
 	return hints
+}
+
+func sourceInventoryFamilyRepairExpectedShape(allowedFamilies []string) string {
+	return "copy one exact typed surface_family value from Principal Enumeration Rows, or omit source_inventory_family for a global/mixed-family block; allowed values: " +
+		strings.Join(allowedFamilies, ", ") +
+		". On a patch retry, do not send source_inventory_family through block_field_edits_v1 unless the current schema publishes that exact branch. Otherwise use replace_blocks with the complete previous id/kind/title/text/columns/items/diagram/facet_ids/claim_uses/surface_role payload and change or omit only source_inventory_family; replace_blocks is not a field merge"
 }
 
 // preEmitSourceInventoryComparisonMatrixAllowsDimensionRows separates the

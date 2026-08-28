@@ -8830,6 +8830,20 @@ func TestPreEmitSourceInventoryHardRowsForBlock_UsesTypedFamilyNotTitle(t *testi
 	}
 }
 
+func TestSourceInventoryFamilyRepairExpectedShapePublishesExecutablePatchRoute(t *testing.T) {
+	got := sourceInventoryFamilyRepairExpectedShape([]string{"extend", "public class"})
+	for _, want := range []string{
+		"allowed values: extend, public class",
+		"do not send source_inventory_family through block_field_edits_v1",
+		"replace_blocks with the complete previous id/kind/title/text/columns/items/diagram/facet_ids/claim_uses/surface_role payload",
+		"replace_blocks is not a field merge",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repair shape missing executable route %q: %s", want, got)
+		}
+	}
+}
+
 // TestFormatEmitFixHints_RedlineAudit — pin the rejection envelope
 // prose for R6 (no internal vocab leak) + R4 (generic) + LLM-facing
 // purity (no third natural language).

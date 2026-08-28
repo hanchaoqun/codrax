@@ -7785,6 +7785,11 @@ func TestRequestedAnswerDimensionCoverageHint_UsesOnlyUserFacingLabels(t *testin
 		if !strings.Contains(hint, `facet_ids:["member_set"]`) {
 			t.Fatalf("lang=%s hint missing exact hidden member-set carrier:\n%s", lang, hint)
 		}
+		for _, executable := range []string{"block_field_edits_v1", "replace_blocks", "title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family"} {
+			if !strings.Contains(hint, executable) {
+				t.Fatalf("lang=%s hint does not publish executable full-block fallback %q:\n%s", lang, executable, hint)
+			}
+		}
 		for _, internal := range []string{"source_location", "function_or_purpose"} {
 			if strings.Contains(hint, internal) {
 				t.Fatalf("lang=%s hint exposed internal dimension role %q:\n%s", lang, internal, hint)
