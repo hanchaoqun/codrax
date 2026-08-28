@@ -58815,6 +58815,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1474 B1402：grounded 精确端点压过 noisy 枚举声明 oracle miss（2026-08-28）
+
+1. `B1402-ENUMSUPPLEMENTFALSEDOUBT1/P1` 已施工。结构化枚举/table item 的标签若为 `identifier + separator + display prose`，证据核对只提取已有
+   `labelLeadingSymbolIdentifier` 语法定义的 leading identifier；例如 `flagMaxSteps (Changed guard)` 以 `flagMaxSteps` 对照 typed evidence，
+   括号内说明不参与源码身份判断。bare identity 语义不变。
+2. `validateEnumerationItemLabelHallucination` 现会在 SymbolOracle miss 之前复用 accepted Turn-A/emitted evidence：grounded/recovered row 的
+   subject/object/anchor/owner/surface-term 若支持该 leading identity，则不铸造 hallucination violation，也不写 advisory token。真实无证据或只在 summary/prose
+   中出现的标签仍走原有软校验，未关闭枚举真实性保护。
+3. last-mile 另加 stale-proof 防线：当前 accepted document 中仍可见的 advisory label，若每个 token 都由 grounded/recovered typed endpoint **精确、大小写一致**
+   证明，则 specific “枚举标签核对”与 generic enumeration-depth caveat 同时不发布。该精确闭合不读 summary、snippet、请求、答案 prose、路径关键词、
+   SymbolOracle 相似度或 Mermaid 内容；operator denial/violation telemetry 保留。
+4. 方案是对现有 bare-label evidence escape 的一致化，不是 config 或 `flagMaxSteps` 特例。回归覆盖 decorated grounded endpoint 不产生 violation/advisory；
+   即使注入 legacy/current typed violation 与 denial token，accepted exact endpoint 也不得产生用户可见系统疑问。原 fabricated decorated label、Tier-3 oracle、
+   无证据 enum 和跨语言身份测试保持通过。完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+5. 本批只消除错误系统疑问，不修改、补写或替换模型答案。下一批继续独立处理 B1403 的 generic contradiction telemetry 泄漏；之后从新 HEAD 构建不可变二进制，
+   以恰好 2 路配置+异构高优先级用例复放 B1401/B1402/B1403，并继续守护显式窗 Trace、因果投影、链上根因与活动流不降级。
+
+状态：
+
+`B1402=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`decorated-label-identity=typed-leading-identifier`；
+`grounded-exact-endpoint=pre-oracle-authority`；
+`stale-enum-advisory=operator-only-when-exactly-resolved`；
+`real-unsupported-enumeration-label=soft-check-preserved`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/path-keyword/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

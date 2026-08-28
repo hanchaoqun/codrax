@@ -392,6 +392,13 @@ func softContractCaveatPayloadForBus(violations []types.Violation, lang string, 
 	// established disclosure path below.
 	if !enumerationLabelVerificationAuthorized(ctx) {
 		violations = suppressEnumerationLabelVerificationCaveats(violations)
+	} else if enumerationLabelAdvisoriesResolvedByGroundedEvidence(ctx) {
+		// A noisy/stale declaration-oracle miss cannot survive after the
+		// accepted evidence pool proves every still-visible advisory token as
+		// an exact typed source endpoint. Keep the operator telemetry, but do
+		// not turn it into either the specific supplement or its generic
+		// enumeration-depth fallback.
+		violations = suppressEnumerationLabelVerificationCaveats(violations)
 	}
 	supplement := enumerationLabelVerificationSupplement(violations, ctx, lang)
 	if supplement != "" {
@@ -1411,6 +1418,21 @@ func suppressEnumerationLabelVerificationCaveats(violations []types.Violation) [
 // order. Tokens that the model repaired away between rounds drop out
 // here, keeping the supplement stale-proof.
 func unverifiedEnumerationLabelIdentsInCurrentDoc(ctx *types.BusContext) []string {
+	idents := advisoryEnumerationLabelIdentsInCurrentDoc(ctx)
+	if len(idents) == 0 || ctx == nil || ctx.Mutable == nil {
+		return idents
+	}
+	out := idents[:0]
+	for _, ident := range idents {
+		if groundedEvidenceCarriesExactSurfaceToken(ctx.Mutable, ident) {
+			continue
+		}
+		out = append(out, ident)
+	}
+	return out
+}
+
+func advisoryEnumerationLabelIdentsInCurrentDoc(ctx *types.BusContext) []string {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil
 	}
@@ -1442,6 +1464,39 @@ func unverifiedEnumerationLabelIdentsInCurrentDoc(ctx *types.BusContext) []strin
 		}
 	}
 	return out
+}
+
+func enumerationLabelAdvisoriesResolvedByGroundedEvidence(ctx *types.BusContext) bool {
+	visible := advisoryEnumerationLabelIdentsInCurrentDoc(ctx)
+	return len(visible) > 0 && len(unverifiedEnumerationLabelIdentsInCurrentDoc(ctx)) == 0
+}
+
+// groundedEvidenceCarriesExactSurfaceToken is deliberately stricter than the
+// general label-support matcher. It reads only accepted typed endpoint fields
+// and validated surface terms, requires grounded/recovered authority, and uses
+// exact case-sensitive equality. Summary, snippet, request, answer prose, path
+// keywords, and SymbolOracle similarity cannot suppress a real warning.
+func groundedEvidenceCarriesExactSurfaceToken(mut *types.MutableState, token string) bool {
+	token = strings.TrimSpace(token)
+	if mut == nil || token == "" {
+		return false
+	}
+	for _, ev := range answerItemLabelSupportEvidenceItems(mut) {
+		if ev.GroundingStatus != types.GroundingGrounded && ev.GroundingStatus != types.GroundingRecovered {
+			continue
+		}
+		for _, surface := range []string{ev.Subject, ev.Object, ev.AnchorSymbol, ev.OwnerSymbol} {
+			if strings.TrimSpace(surface) == token {
+				return true
+			}
+		}
+		for _, surface := range ev.SurfaceTerms {
+			if strings.TrimSpace(surface) == token {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isChineseLang accepts the same set of variants the renderer

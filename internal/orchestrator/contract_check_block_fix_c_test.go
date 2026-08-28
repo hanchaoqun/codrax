@@ -450,6 +450,24 @@ func TestEnumerationItemLabelHallucination_LabelWithSeparator(t *testing.T) {
 	}
 }
 
+func TestEnumerationItemLabelHallucination_DecoratedGroundedEndpointPasses(t *testing.T) {
+	doc := docWithEnumItems("config", "flagMaxSteps (Changed guard)")
+	mut := mutWithEvidence([]types.EvidenceItem{{
+		ID: "ev-flag", Kind: types.EvidenceRegistration,
+		Subject: "flagMaxSteps", AnchorSymbol: "pipeline-max-steps",
+		Source: "cmd/root.go", LineStart: 653, AnchorKind: types.AnchorCall,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	denials := types.NewTypedDenialSet()
+	oracle := &stubOracleFixB{tiers: map[string]int{}}
+	if vs := validateEnumerationItemLabelHallucination(doc, oracle, denials, mut); len(vs) != 0 {
+		t.Fatalf("decorated label with an exact grounded endpoint must not be doubted by the declaration oracle: %+v", vs)
+	}
+	if got := denials.AdvisoryAnswerSurfaceSymbolTokens(); len(got) != 0 {
+		t.Fatalf("grounded decorated label must not stamp an advisory token: %v", got)
+	}
+}
+
 func TestEnumerationItemLabelHallucination_CitedCrossLanguageMemberSubjectPasses(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{

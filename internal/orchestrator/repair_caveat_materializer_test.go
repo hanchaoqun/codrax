@@ -1258,6 +1258,39 @@ func TestAppendSoftContractCaveatsToAnswer_SuppressesEnumDepthWhenMemberSetFully
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_GroundedExactTokenSuppressesFalseEnumerationDoubt(t *testing.T) {
+	mut := types.NewMutableState("list the config layers")
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	mut.SetRequestModel(rm)
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID: "ev-flag", Kind: types.EvidenceRegistration,
+		Subject: "flagMaxSteps", AnchorSymbol: "pipeline-max-steps",
+		Source: "cmd/root.go", LineStart: 653, AnchorKind: types.AnchorCall,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID: "config", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			Items: []types.AnswerBlockItem{{ID: "cli", Label: "flagMaxSteps (Changed guard)"}},
+		}},
+	})
+	denials := types.NewTypedDenialSet()
+	denials.AddAnswerSurfaceAdvisory("flagMaxSteps", "repository symbol oracle miss")
+	ctx := &types.BusContext{Mutable: mut, TypedDenials: denials, Language: "zh"}
+	out := AppendSoftContractCaveatsToAnswerForBus("模型答案", []types.Violation{{
+		Kind: types.ViolEnumerationLabelHallucinated, Detail: "symbol oracle miss",
+	}}, "zh", ctx)
+	if out != "模型答案" {
+		t.Fatalf("exact grounded endpoint must suppress both false supplement and generic doubt:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_RelationRowVisibleCoverageSuppressesEnumDepth(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)

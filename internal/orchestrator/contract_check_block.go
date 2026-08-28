@@ -3029,7 +3029,8 @@ func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2,
 	if types.AnswerLocationLabelMatchesCitation(label, cit) {
 		return true
 	}
-	if mut == nil || !types.IsCodeIdentitySurface(label) {
+	evidenceIdentity := answerItemLabelEvidenceIdentity(label)
+	if mut == nil || evidenceIdentity == "" {
 		return false
 	}
 	citFile := strings.TrimSpace(cit.File)
@@ -3047,7 +3048,7 @@ func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2,
 		if !citationLineMatchesEvidence(cit.Line, ev) {
 			continue
 		}
-		if answerCodeSurfaceMatchesEvidenceEndpoint(label, ev) {
+		if answerCodeSurfaceMatchesEvidenceEndpoint(evidenceIdentity, ev) {
 			return true
 		}
 	}
@@ -3058,8 +3059,8 @@ func answerItemLabelSupportedByCitedEvidenceSubject(doc *types.AnswerDocumentV2,
 }
 
 func answerItemLabelSupportedByEvidenceEndpoint(label string, mut *types.MutableState) bool {
-	label = strings.TrimSpace(label)
-	if mut == nil || !types.IsCodeIdentitySurface(label) {
+	evidenceIdentity := answerItemLabelEvidenceIdentity(label)
+	if mut == nil || evidenceIdentity == "" {
 		return false
 	}
 	evidence := answerItemLabelSupportEvidenceItems(mut)
@@ -3070,11 +3071,28 @@ func answerItemLabelSupportedByEvidenceEndpoint(label string, mut *types.Mutable
 		if ev.GroundingStatus == types.GroundingUngrounded {
 			continue
 		}
-		if answerCodeSurfaceMatchesEvidenceEndpoint(label, ev) {
+		if answerCodeSurfaceMatchesEvidenceEndpoint(evidenceIdentity, ev) {
 			return true
 		}
 	}
 	return false
+}
+
+// answerItemLabelEvidenceIdentity returns the exact code-identity carrier of
+// a structured item label. Bare identities keep their full surface. Decorated
+// labels such as `flagMaxSteps (Changed guard)` use only the already-defined
+// leading-identifier grammar shared with the enumeration oracle; display prose
+// after the separator is never compared with source evidence.
+func answerItemLabelEvidenceIdentity(label string) string {
+	label = strings.TrimSpace(label)
+	if types.IsCodeIdentitySurface(label) {
+		return label
+	}
+	ident := labelLeadingSymbolIdentifier(label)
+	if !types.IsCodeIdentitySurface(ident) {
+		return ""
+	}
+	return ident
 }
 
 func answerItemLabelSupportEvidenceItems(mut *types.MutableState) []types.EvidenceItem {
