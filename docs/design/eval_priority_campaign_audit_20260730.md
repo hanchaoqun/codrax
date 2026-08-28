@@ -58746,6 +58746,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1472 r901：Trace 双维度生产通过；定义行可伪装 operation 绕过解释席（2026-08-28）
+
+1. 从已推送 `653db6ae6` 构建不可变二进制，严格并发恰好 2 路复放 `qf_config_precedence` 与显式窗 Donghu Trace，runner
+   2/2 PASS：Trace 156s、配置 281s；没有第三用例。Trace 人工通过：保留 34579.472865..34579.587805 的 114.940ms 主窗、
+   ThreadPoolForeg→NetworkService→CookieMonsterCl→目标线程四跳链、链上优先级反转/D-IO/算力供给/调度供给四族、实际占时与规则可消双账户、
+   VerifyClass 业务线索、邻近/背景隔离和完整「Trace 因果投影」。帧流未证只追加席位级限定，没有摘除已证链上主根因；无 4ms/4m/活动流降级。
+2. 配置 runner 弱 oracle 再次假绿，人工 FAIL。默认值 50 与 code default→YAML→CLI 顺序正确，但 Explorer 仍未读取
+   `LoadRuntimeSettings` 内 `yaml.NewDecoder(...).KnownFields(true)`/`Decode` 的实际 parser operation。B1400 的 analyzer 可选 file binding 本轮没有自然发射，
+   因此只能记 wiring no-regression，不能宣称 production-positive。
+3. 新 P1 `B1401-DEFINITIONMECHANISMOPERATION1` 为确定性合同漏洞。完成门第一次正确拒绝 `PipelineMaxSteps` 字段定义，明确要求实际
+   producer/consumer/branch operation；模型随后照 generic ROLE-DESCRIPTION 教学发射同一行的
+   `evidence_kind=mechanism + anchor_kind=definition + requested_dimension_indices=[1]`。`EvidenceCarriesExplanationOperation` 先按 kind
+   返回 true、未先排除 definition/identity/label anchor，第二次 completion 因而错误签绿。同一字段定义仅换 evidence kind 就从“不得闭席”变成“operation”，
+   是所有解释维度共享的 authority inversion，不是本配置 key 的单点拟合。
+4. 最优泛化形：operation ownership 必须由 typed executable anchor 正向证明；definition/identity/label/text-reference 无论 evidence kind 为何均不得铸造
+   operation 权限。ROLE-DESCRIPTION 的 `mechanism+definition` 可继续作为角色说明上下文，但教学须明确其不关闭 producer/consumer/branch seat。
+   post-emit advisory、file-scoped B1400 与 completion 继续共同消费同一谓词，禁止摘要/标签/请求/路径关键词/模型正文或 Mermaid 扫描。
+5. 同轮另确认两个独立输出 gap。`B1402-ENUMSUPPLEMENTFALSEDOUBT1/P1`：accepted table 已带 `cmd/root.go:653` 的精确 token，系统仍发布
+   “枚举标签核对”称 `flagMaxSteps` 无法匹配声明；noisy symbol-oracle miss 不得压过 accepted grounded same-document source token。
+   `B1403-GENERICCONTRADICTIONTELEMETRY1/P2`：答案发布没有 summary/body 成对内容的“前后表述不完全一致”，对用户不可执行；真正携带成对声明的
+   self-contradiction 披露必须保留，空泛 telemetry 只进 operator ledger。二者与 B1401 分批施工。
+6. `B1396` 再次量化为 finalizer evidence 116/cited 2。该项继续独立按 typed load-bearing/accepted ownership 做 context selection；禁止按固定 token、
+   墙钟、4ms、4m 或流活跃度截断。下一批先根修 B1401 并全仓验证、提交推送，再分别处理 B1402/B1403，随后仍以恰好 2 路生产回放验收。
+
+状态：
+
+`r901=runner-pass-2/2,human-trace-pass+config-fail`；
+`B1400=implemented/production-no-regression/analyzer-binding-natural-branch-not-fired`；
+`B1401=confirmed/P1-next/definition-mechanism-operation-authority-inversion`；
+`B1402=confirmed/P1/false-enumeration-label-system-supplement`；
+`B1403=confirmed/P2/generic-contradiction-telemetry-leak`；
+`B1396=confirmed/P2/finalizer-evidence-116-cited-2`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r901`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`actual-occupancy/rule-eliminable=dual-ledger-production-positive`；
+`system-answer/conclusion/relation/wording-selection=none-required`；
+`request/model/final-prose/path-keyword/mermaid-content-hard-gate=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r901`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read
