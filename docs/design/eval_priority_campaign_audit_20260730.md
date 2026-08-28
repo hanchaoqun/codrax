@@ -57980,6 +57980,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r890`。
 
+### §123.1450 B1383：typed 目标与显式窗已闭合时省略发现 probe，子题证据职责保持独立（2026-08-28）
+
+1. `B1383-PROBEFLOWREPAIRDUPLICATION1/P1` 已按分析 IR 单职责施工。runtime-artifact source-optional 后处理现在先在图中精确识别“非 optional、非
+   counterfactual、以 hard dependency 指向 evidence”的主发现 probe；只有 attached Trace 车道同时持有 validated
+   `RuntimeTargetProfile.NamedTarget()`、至少一个非 explorer-cursor 的 active `RuntimeTarget`，以及 validated
+   `RuntimeArtifactScopeProfile.ExplicitTimeWindow()` 时，才在 scheduler 构建前删除该 probe、相关边和 critical-path 席位。evidence 节点直接读取
+   `runtime_targets` 与 `requested_artifact_scope`，原 validate/extract/finalize 依赖不变。
+2. full artifact、bounded selector、unspecified/not-applicable scope、缺目标、inactive target、只有 trace_query explorer cursor、无效时间窗、非 Trace
+   runtime artifact 任一形都保留发现 probe。混合 current-source 请求根本不会进入 source-optional 重写，因此也不会借该臂跳过源码定位。判据不读取请求、
+   sub-topic/模型摘要、答案 prose、Mermaid 内容、耗时、调用次数、上下文比例或固定 4ms/4m 阈值。
+3. runtime-artifact 重写不再把多个 evidence 子题全部覆盖成同一句 objective：已有 analyzer-authored unit objective 保留为软调查范围，随后附加共同的
+   deterministic trace_query/coverage 约束。源码搜索 hints 仍统一清空，避免路径/关键词候选混入外部 Trace 权威；因此 r890 的三条子题不再失去身份，
+   也不重新开放 checkout 搜索。
+4. optional source-inventory/refinement probe 与 counterfactual probe 不再被通用 runtime probe 文案覆盖；它们保留各自 objective、entry condition 和
+   lifecycle。移除主 probe 的 helper 同步清除 node、相连 edge 与 critical path，并由回归逐项检查无 dangling edge；它不缓存、比较或猜测两个
+   trace_query payload 是否等价，也不选择查询结果、根因、关系或答案。
+5. 回归覆盖生产正臂、optional probe 不变、两条 sub-topic objective 不被压平、evidence 直接 typed inputs、critical path/edge 清理，以及非 Trace、无命名
+   目标、inactive target、explorer cursor、full artifact、无效显式窗六个负臂。既有 preflight source-optional Trace 套件继续钉住无源码目标/hints；
+   `go test ./internal/agent -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+
+状态：
+
+`B1383=implemented/full-suite-green/build-green/pending-production-replay`；
+`probe-elision-authority=validated-named-target+active-user-target+validated-explicit-window`；
+`full-artifact/selector/no-target/mixed-source=probe-preserved`；
+`multi-topic-objective=preserved+shared-trace-contract`；
+`source-search-hints=cleared`；
+`system-query/result/root/relation/answer-selection=none`；
+`request/model/final-prose/mermaid-content-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=evidence-stage-unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1431 r877/B1364：关系租约生命周期生产烟测通过；eval 以关系参与节点识别孤立图（2026-08-28）
 
 1. 从已推送 `b3d33fd0e` 重建不可变二进制，严格并发恰好 2 路复放同一 read 架构图与显式窗 Trace，runner 2/2 PASS：Trace 235s、read

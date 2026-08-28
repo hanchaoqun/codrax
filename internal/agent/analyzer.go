@@ -2574,7 +2574,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 	if runtimeArtifactSourceOptional {
-		applyRuntimeArtifactSourceOptionalIR(&out, analyzerRuntimeTraceContext(ctx, rm))
+		applyRuntimeArtifactSourceOptionalIR(&out, rm, analyzerRuntimeTraceContext(ctx, rm))
 		compiler.RecomputeBudget(&out, rm, sig)
 	}
 
@@ -2772,24 +2772,40 @@ func analyzerPerfEntityHints(bundle *types.PerfBundle) []string {
 	return out
 }
 
-func applyRuntimeArtifactSourceOptionalIR(out *compiler.Output, traceRuntime bool) {
+func applyRuntimeArtifactSourceOptionalIR(out *compiler.Output, rm types.RequestModel, traceRuntime bool) {
 	if out == nil {
 		return
+	}
+	primaryProbeIDs := runtimeArtifactPrimaryDiscoveryProbeIDs(out.TaskGraph)
+	probeElided := traceRuntime && runtimeArtifactTraceDiscoveryInputsComplete(rm)
+	if probeElided {
+		removeRuntimeArtifactTaskGraphNodes(&out.TaskGraph, primaryProbeIDs)
 	}
 	for i := range out.TaskGraph.Nodes {
 		node := &out.TaskGraph.Nodes[i]
 		switch node.Type {
 		case types.NodeProbe:
+			if !primaryProbeIDs[node.ID] {
+				continue
+			}
 			node.Objective = "Identify artifact-local runtime targets, windows, threads, and coverage boundaries relevant to the user's question."
 			node.Inputs = []string{"user_question", "runtime_artifact_context"}
 			node.Outputs = []string{"runtime_targets", "artifact_coverage_plan"}
 		case types.NodeEvidence:
+			sharedObjective := "Collect typed runtime-artifact observations and preserve artifact-local evidence, coverage boundaries, and unsupported-coverage caveats."
 			if traceRuntime {
-				node.Objective = "Collect deterministic trace evidence through trace_query and preserve windows, thread IDs, causal links, and unsupported-coverage caveats."
-			} else {
-				node.Objective = "Collect typed runtime-artifact observations and preserve artifact-local evidence, coverage boundaries, and unsupported-coverage caveats."
+				sharedObjective = "Collect deterministic trace evidence through trace_query and preserve windows, thread IDs, causal links, and unsupported-coverage caveats."
 			}
-			node.Inputs = []string{"runtime_targets", "artifact_coverage_plan"}
+			if len(rm.SubTopics) >= 2 {
+				node.Objective = appendRuntimeArtifactEvidenceObjective(node.Objective, sharedObjective)
+			} else {
+				node.Objective = sharedObjective
+			}
+			if probeElided {
+				node.Inputs = []string{"user_question", "runtime_artifact_context", "runtime_targets", "requested_artifact_scope"}
+			} else {
+				node.Inputs = []string{"runtime_targets", "artifact_coverage_plan"}
+			}
 			node.Outputs = []string{"runtime_observations", "artifact_evidence_items", "coverage_caveats"}
 		case types.NodeValidate:
 			node.Objective = "Validate the artifact-local observations against the requested runtime question; source-owner proof is not required unless a typed current-source lane opens."
