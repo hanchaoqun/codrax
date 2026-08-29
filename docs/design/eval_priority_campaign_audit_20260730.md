@@ -57415,6 +57415,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1510 r929/B1443：混合图/非图修复权限取交集，8 次重试后被迫删图（2026-08-29）
+
+1. 从已推送 `8ccf2e4a7` 干净构建，严格并发恰好 2 路复放 Java 与 TypeScript workspace 调用链。TypeScript 393s runner/human PASS；Java 175s runner FAIL、human PASS。两路均正常等待活跃流，没有固定 4ms、4m、首字节、累计活动年龄或上下文比例降级，也没有旧稿恢复、系统代写结论或关系。
+2. Java 的五条调用、容量 guard、内存 `rows.add` 与 `AuditLog.record -> System.out.println` 均准确，终稿明确写“内存列表”和“标准输出”，未把主体操作宣称为数据库持久化。runner 仍要求固定顺序的显式否定词再连接“落库/持久/数据库”，故机器 FAIL 是表达 oracle 更严，不是关系/事实失败；不得新增请求、thinking、备注或终稿词面硬门。
+3. B1441 继续获得生产正证。B1442 的一般 aggregate authority 上限已在上下文，但本轮 Analyzer 未激活 source-operation-site 专用合同，故不把本轮改善虚记为 B1442 转正；仍待自然 typed activation witness。
+4. TypeScript 最终事实答案完整：`run -> ApiClient.fetchUser -> HttpTransport.send -> dispatchOnce -> fetch`、重试 guard/delay、`@app/core` 的 `paths` 与 `extends` 均有源码证据。但 Finalizer 连续 8 次被拒，最终删除可选 sequenceDiagram，暴露新 P1 `B1443-MIXEDREPAIRCAPABILITYINTERSECTION1`。
+5. 精确机制为同轮异类错误的能力取交集。首稿同时有两个 summary、非图 relation list 缺 endpoint identity、图 label mismatch 与无 anchor reply。relation lease 的实际 target selector 只纳入 diagram block，却要求 lease 全部 failure 都属于 target；一个非图 failure 使窄 schema 整体退回 legacy `block_id/match/body_occurrence`。执行门同时允许无关 block replace、禁止任何无关 block remove，模型合并 summary 后删除 `alias1` 被 `whole_remove_not_authorized` 拒绝，随后反复猜不可见 prior anchor 与 occurrence，最后只能删图。
+6. B1443 按 typed 权限并集根修：同一 lease 中的实际 diagram rows 始终投影 generation-scoped `failure_ref/action` 精确分支；非图 relation rows 留在精确 unrelated whole-block replacement 车道，不再让 diagram 降回手工坐标。非系统生成、非 lease-target 的现有 block replace/remove ID 从不可变 patch base 精确枚举，使独立 summary/list 结构修复可与 atomic diagram edit 同事务提交。
+7. 安全边界不放宽：`add_blocks` 在 local lease 下仍关闭；lease-target diagram 仍不能 whole replace；必需图不能 remove；可选目标仅在 typed `AllowTargetDiagramRemoval` 时出现；所有关系方向、action、reader label、节点、布局与删留均由模型选择，系统只投影当前可执行 capability。合并后仍经过普通 schema/evidence/relation/topology gates。
+8. 回归覆盖混合 diagram+non-diagram lease 的 exact-ref schema、legacy selector 负 pin、unrelated replace/remove 精确 roster，以及一个事务执行“删除无关 summary + failure_ref 原子移除失败边”。定向 tool/agent/types、全仓 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿；待下一轮 exact-2 生产验证重试数和图保留率。
+
+状态：
+
+`r929=runner-1/2-pass+human-2/2-pass`；
+`B1441=production-positive/core-closed`；
+`B1442=implemented/full-suite-pass/pending-natural-activation-replay`；
+`B1443=implemented+full-suite-pass+build-pass/pending-production-replay`；
+`mixed-repair-capability=typed-union-not-intersection`；
+`legacy-diagram-coordinate-selector=hidden-when-live-diagram-ref-exists`；
+`request/model/final-prose-hard-gate=forbidden/none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r929`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner

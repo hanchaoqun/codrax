@@ -1364,15 +1364,15 @@ func TestLocalDiagramLeaseWholeBlockMutationViolation_TargetOnly(t *testing.T) {
 	}, lease); got != nil {
 		t.Fatalf("unrelated sibling replacement must remain available: %+v", got)
 	}
-	for name, params := range map[string]*emitAnswerDocumentPatchParams{
-		"unpublished sibling removal":  {RemoveBlockIDs: []string{"summary"}},
-		"unpublished sibling addition": {AddBlocks: []emitAnswerBlockV2{{ID: "new"}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := localDiagramLeaseWholeBlockMutationViolation(params, lease); got == nil {
-				t.Fatalf("executor must reject a roster operation omitted by the live local schema: %+v", params)
-			}
-		})
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		RemoveBlockIDs: []string{"summary"},
+	}, lease); got != nil {
+		t.Fatalf("unrelated sibling removal must remain available for a simultaneous structural repair: %+v", got)
+	}
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		AddBlocks: []emitAnswerBlockV2{{ID: "new"}},
+	}, lease); got == nil {
+		t.Fatal("executor must reject an addition omitted by the live local schema")
 	}
 	lease.AllowTargetDiagramRemoval = true
 	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
@@ -1406,6 +1406,37 @@ func TestLocalDiagramLeaseWholeBlockMutationViolation_TargetOnly(t *testing.T) {
 	}
 	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
 		t.Fatalf("successful optional target removal must consume the lease: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_LocalDiagramLeaseAllowsUnrelatedRemovalInSameTransaction(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: "call_edge_unproven",
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		}}, nil)
+	if lease == nil || len(lease.Failures) != 1 || strings.TrimSpace(lease.Failures[0].FailureRef) == "" {
+		t.Fatalf("test setup: expected one executable diagram failure: %+v", lease)
+	}
+	mut := types.NewMutableState("diagram relation plus unrelated structural repair")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"remove_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, lease.Failures[0].FailureRef))
+	result, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || !result.Success {
+		t.Fatalf("one transaction must admit an unrelated exact removal plus the selected atomic diagram repair: err=%v result=%+v", err, result)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 1 || got.Blocks[0].ID != "diag" || strings.Contains(got.Blocks[0].Diagram.Body, "A->>B") {
+		t.Fatalf("combined repair changed the wrong carriers: %+v", got)
+	}
+	if mut.AnswerDiagramRelationRepairLease() != nil {
+		t.Fatal("successful combined repair must consume the relation lease")
 	}
 }
 

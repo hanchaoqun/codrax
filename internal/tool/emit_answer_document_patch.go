@@ -411,21 +411,27 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 		delete(properties, "replace_blocks")
 	}
 	// Adding blocks is not needed for a local relation repair and can change the
-	// document roster. Exact replacement of an unrelated existing block remains
-	// available because the same validation round may publish a non-diagram
-	// item/citation failure alongside the relation lease. An optional diagram
-	// contract additionally exposes one exact, model-selected target-removal
-	// branch; required diagrams keep that operation absent.
+	// document roster. Exact replacement or removal of an unrelated existing
+	// model-authored block remains available because the same validation round
+	// may publish a non-diagram structural failure alongside the relation lease.
+	// The exact existing-id enums keep that permission bounded. An optional
+	// diagram contract additionally exposes its exact target-removal branch;
+	// required diagrams keep target removal absent.
 	delete(properties, "add_blocks")
+	removableIDs := append([]string(nil), allowedReplacementIDs...)
 	if lease.AllowTargetDiagramRemoval {
+		removableIDs = append(removableIDs, targets...)
+	}
+	if len(removableIDs) > 0 {
+		sort.Strings(removableIDs)
 		removeIDs, _ := properties["remove_block_ids"].(map[string]any)
 		if removeIDs == nil {
 			return raw
 		}
-		removeIDs["items"] = map[string]any{"type": "string", "enum": stringsToAny(targets)}
-		removeIDs["maxItems"] = len(targets)
+		removeIDs["items"] = map[string]any{"type": "string", "enum": stringsToAny(removableIDs)}
+		removeIDs["maxItems"] = len(removableIDs)
 		removeIDs["uniqueItems"] = true
-		removeIDs["description"] = "Explicitly remove one exact optional lease-target diagram. This is a model-selected presentation choice; no other block id is executable on this branch."
+		removeIDs["description"] = "Remove only an exact existing model-authored block selected from this dispatch's id enum. Unrelated blocks may be removed for a simultaneously reported structural correction; a lease-target diagram appears only when its typed presentation contract makes that diagram optional."
 	} else {
 		delete(properties, "remove_block_ids")
 	}
@@ -435,7 +441,7 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 			return raw
 		}
 		edgeEdits["minItems"] = 1
-		edgeEdits["maxItems"] = len(lease.Failures) + len(lease.AllowedAdditions)
+		edgeEdits["maxItems"] = localDiagramLeaseTargetSelectorCapacity(lease, targets)
 		edgeEdits["uniqueItems"] = true
 		edgeDescription := "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition endpoints and all visible labels remain model-authored. Omitted legacy coordinates and hidden identity fields are unavailable."
 		if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
@@ -539,13 +545,18 @@ func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLe
 		targetSet[target] = true
 	}
 	for _, failure := range lease.Failures {
+		// A single validation round can contain both an actual diagram
+		// mismatch and relation metadata on a sibling list/table. The diagram
+		// row uses an opaque atomic selector; the non-diagram row remains
+		// repairable through an exact unrelated whole-block replacement. Do not
+		// make that mixed typed batch fall back to legacy diagram coordinates.
 		if !targetSet[strings.TrimSpace(failure.BlockID)] {
-			return false
+			continue
 		}
 	}
 	for _, candidate := range lease.AllowedAdditions {
 		if !targetSet[strings.TrimSpace(candidate.BlockID)] {
-			return false
+			continue
 		}
 	}
 	for _, failure := range lease.ParticipantBoundaryFailures {
@@ -601,8 +612,15 @@ func localDiagramLeaseExecutableEdgeBranches(
 		return nil, false
 	}
 	seenRefs := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions))
+	targetSet := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		targetSet[strings.TrimSpace(target)] = true
+	}
 	branches := make([]any, 0, len(lease.Failures)*2+len(lease.AllowedAdditions))
 	for _, failure := range lease.Failures {
+		if !targetSet[strings.TrimSpace(failure.BlockID)] {
+			continue
+		}
 		ref := strings.TrimSpace(failure.FailureRef)
 		if ref == "" || seenRefs[ref] || len(failure.AllowedActions) == 0 {
 			return nil, false
@@ -640,6 +658,9 @@ func localDiagramLeaseExecutableEdgeBranches(
 		}
 	}
 	for _, candidate := range lease.AllowedAdditions {
+		if !targetSet[strings.TrimSpace(candidate.BlockID)] {
+			continue
+		}
 		ref := strings.TrimSpace(candidate.AdditionRef)
 		if ref == "" || seenRefs[ref] {
 			return nil, false
@@ -661,6 +682,31 @@ func localDiagramLeaseExecutableEdgeBranches(
 		))
 	}
 	return branches, true
+}
+
+func localDiagramLeaseTargetSelectorCapacity(lease *types.AnswerDiagramRelationRepairLease, targets []string) int {
+	if lease == nil {
+		return 0
+	}
+	targetSet := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		targetSet[strings.TrimSpace(target)] = true
+	}
+	count := 0
+	for _, failure := range lease.Failures {
+		if targetSet[strings.TrimSpace(failure.BlockID)] {
+			count++
+		}
+	}
+	for _, candidate := range lease.AllowedAdditions {
+		if targetSet[strings.TrimSpace(candidate.BlockID)] {
+			count++
+		}
+	}
+	if count < 1 {
+		return 1
+	}
+	return count
 }
 
 func exactLocalDiagramAttachBranch(failureRef, additionRef string) map[string]any {
@@ -1406,9 +1452,9 @@ type emitAnswerDiagramParticipantEdit struct {
 // localDiagramLeaseWholeBlockMutationViolation guards the execution path as
 // well as the projected schema. Tool callers can bypass or lag the current
 // schema, but they still cannot widen a typed local diagram lease into roster
-// mutation outside the projected capabilities: unrelated exact replacement is
-// preserved, additions are unavailable, and removal is limited to an exact
-// optional target when explicitly granted. Atomic compiler-generated
+// mutation outside the projected capabilities: unrelated exact replacement or
+// removal is preserved, additions are unavailable, and target removal is
+// limited to an exact optional target when explicitly granted. Atomic compiler-generated
 // ReplaceBlocks are not
 // inspected here: this function runs on the model's decoded envelope before
 // atomic edits are compiled, so it distinguishes the authorized internal
@@ -1445,6 +1491,9 @@ func localDiagramLeaseWholeBlockMutationViolation(
 	}
 	for _, rawID := range p.RemoveBlockIDs {
 		id := strings.TrimSpace(rawID)
+		if !targetSet[id] {
+			continue
+		}
 		if targetSet[id] && lease != nil && lease.AllowTargetDiagramRemoval {
 			continue
 		}

@@ -285,10 +285,14 @@ func TestFinalizerToolSchemas_LiveRelationLeaseUsesMatchingExecutableDescription
 		t.Fatalf("decode live patch parameters: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, field := range []string{"add_blocks", "remove_block_ids"} {
+	for _, field := range []string{"add_blocks"} {
 		if _, ok := props[field]; ok {
 			t.Fatalf("agent dispatch leaked unavailable whole mutation %q", field)
 		}
+	}
+	removeIDs := props["remove_block_ids"].(map[string]any)["items"].(map[string]any)["enum"].([]any)
+	if len(removeIDs) != 1 || removeIDs[0] != "summary" {
+		t.Fatalf("live relation retry removal roster=%v, want only unrelated summary block", removeIDs)
 	}
 	replaceBlocks, ok := props["replace_blocks"].(map[string]any)
 	if !ok {

@@ -286,10 +286,14 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 		t.Fatalf("projected patch schema must parse: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, field := range []string{"add_blocks", "remove_block_ids"} {
+	for _, field := range []string{"add_blocks"} {
 		if _, ok := props[field]; ok {
 			t.Fatalf("live local lease must hide roster-changing mutation %q", field)
 		}
+	}
+	removeIDs := props["remove_block_ids"].(map[string]any)
+	if got := removeIDs["items"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"summary"}) {
+		t.Fatalf("unrelated exact removal roster=%v, want only summary", got)
 	}
 	replaceBlocks, ok := props["replace_blocks"].(map[string]any)
 	if !ok {
@@ -416,8 +420,8 @@ func TestEmitAnswerDocumentPatchParametersFor_OptionalLeasePublishesExactTargetR
 		t.Fatalf("optional lease must expose its exact model-selected removal branch: %v", props)
 	}
 	items := removeIDs["items"].(map[string]any)
-	if got := items["enum"].([]any); !reflect.DeepEqual(got, []any{"diag"}) {
-		t.Fatalf("optional target-removal roster=%v, want only diag", got)
+	if got := items["enum"].([]any); !reflect.DeepEqual(got, []any{"diag", "summary"}) {
+		t.Fatalf("optional target-removal roster=%v, want exact target plus unrelated summary", got)
 	}
 	if _, ok := props["add_blocks"]; ok {
 		t.Fatal("optional target removal must not reopen arbitrary roster additions")
@@ -451,10 +455,13 @@ func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranche
 		t.Fatalf("projected patch schema must parse: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, forbidden := range []string{"add_blocks", "remove_block_ids", "diagram_boundary_replacements", "diagram_edge_edits"} {
+	for _, forbidden := range []string{"add_blocks", "diagram_boundary_replacements", "diagram_edge_edits"} {
 		if _, exists := props[forbidden]; exists {
 			t.Fatalf("boundary-only generation must hide broader capability %q: %v", forbidden, props)
 		}
+	}
+	if got := props["remove_block_ids"].(map[string]any)["items"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"summary"}) {
+		t.Fatalf("boundary-only unrelated removal roster=%v", got)
 	}
 	replaceBlocks, ok := props["replace_blocks"].(map[string]any)
 	if !ok {
@@ -513,10 +520,13 @@ func TestEmitAnswerDocumentPatchParametersFor_VisibilityLeasePublishesModelAutho
 		t.Fatalf("projected patch schema must parse: %v", err)
 	}
 	props := root["properties"].(map[string]any)
-	for _, forbidden := range []string{"add_blocks", "remove_block_ids", "diagram_edge_edits", "diagram_boundary_edits"} {
+	for _, forbidden := range []string{"add_blocks", "diagram_edge_edits", "diagram_boundary_edits"} {
 		if _, exists := props[forbidden]; exists {
 			t.Fatalf("visibility-only generation must hide broader capability %q", forbidden)
 		}
+	}
+	if got := props["remove_block_ids"].(map[string]any)["items"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"summary"}) {
+		t.Fatalf("visibility-only unrelated removal roster=%v", got)
 	}
 	field := props["diagram_participant_edits"].(map[string]any)
 	branches := field["items"].(map[string]any)["oneOf"].([]any)
@@ -834,8 +844,10 @@ func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachN
 	}
 }
 
-func TestEmitAnswerDocumentPatchBroadMixedLeaseDoesNotAdvertiseAttach(t *testing.T) {
+func TestEmitAnswerDocumentPatchMixedLeaseNarrowsDiagramAndKeepsNonDiagramBlockRepair(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep or merge"},
+		{ID: "alias", Kind: types.BlockSummary, Text: "remove after merge"},
 		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
 			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B\n",
 		}},
@@ -850,25 +862,40 @@ func TestEmitAnswerDocumentPatchBroadMixedLeaseDoesNotAdvertiseAttach(t *testing
 	if lease == nil {
 		t.Fatal("mixed relation lease setup failed")
 	}
-	mut := types.NewMutableState("mixed broad relation schema")
+	mut := types.NewMutableState("mixed exact relation schema")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
 	mut.SetAnswerDiagramRelationRepairLease(lease)
 	ctx := &types.AgentContext{Mutable: mut}
-	description := (&EmitAnswerDocumentPatch{}).DescriptionFor(ctx)
-	if !strings.Contains(description, "broad compatibility schema publishes no paired attach branch") ||
-		!strings.Contains(description, "never combine a failure_ref and addition_ref") {
-		t.Fatalf("mixed broad schema must explicitly withhold attach: %s", description)
-	}
 	var root map[string]any
 	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(ctx), &root); err != nil {
 		t.Fatalf("mixed schema must parse: %v", err)
 	}
-	item := root["properties"].(map[string]any)["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)
-	actions := item["properties"].(map[string]any)["action"].(map[string]any)["enum"].([]any)
-	for _, action := range actions {
-		if action == "attach" {
-			t.Fatalf("mixed broad schema exposed attach without an exact paired branch: %v", actions)
+	props := root["properties"].(map[string]any)
+	branches := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 1 {
+		t.Fatalf("mixed lease must expose only the exact diagram failure branch: %+v", branches)
+	}
+	branchProps := branches[0].(map[string]any)["properties"].(map[string]any)
+	if _, ok := branchProps["failure_ref"]; !ok {
+		t.Fatalf("mixed lease fell back to legacy coordinates: %+v", branchProps)
+	}
+	for _, forbidden := range []string{"block_id", "match", "occurrence", "body_occurrence"} {
+		if _, ok := branchProps[forbidden]; ok {
+			t.Fatalf("mixed exact branch leaked %q: %+v", forbidden, branchProps)
 		}
+	}
+	replaceIDs := props["replace_blocks"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["id"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(replaceIDs, []any{"alias", "chain", "summary"}) {
+		t.Fatalf("mixed lease unrelated replacement roster=%v", replaceIDs)
+	}
+	removeIDs := props["remove_block_ids"].(map[string]any)["items"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(removeIDs, []any{"alias", "chain", "summary"}) {
+		t.Fatalf("mixed lease unrelated removal roster=%v", removeIDs)
+	}
+	description := (&EmitAnswerDocumentPatch{}).DescriptionFor(ctx)
+	if !strings.Contains(description, "current schema is the sole capability authority") ||
+		!strings.Contains(description, "only unrelated existing blocks") {
+		t.Fatalf("mixed exact description drifted from schema: %s", description)
 	}
 }
 
