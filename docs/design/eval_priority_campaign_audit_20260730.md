@@ -57835,6 +57835,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r941`。
 
+### §123.1525 r942/B1455/B1456：有限事实分类转正；附件-only 被当前仓可用性污染（2026-08-29）
+
+1. 从已推送 `6bda4df16` 的干净二进制严格并发恰好 2 路复放同一混合日志与 Go write/apply。runner 2/2 PASS：write 104s、日志
+   325s；人工分别判 pass、partial。两路无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统代写答案。
+2. B1455 获得生产正证并关闭核心问题。analyzer 首稿直接形成 `intent=enumerate + scenario=generic + question_kind=enumeration + bounded_fact_set`，
+   相比 r941 的 4 次 emit 不再发生 root-cause/call-chain/member-set 连锁冲突。两语言首帧、路径、调用者和跨栈因果未证结论继续正确。
+3. 新 P1 `B1456-ARTIFACTONLYCHECKOUTAUTHORITY1` 为更前置的上下文权威漂移。TurnPolicy 模型虽然拿到 artifact-only/optional 教学，却仍因
+   “当前仓库可用 + route=repo + needs_repo_access=true”把 `current_source_evidence_mode` 设为 required。Explorer 随后扫描当前仓，找到与客户附件无关的
+   `eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj:9`，把它与附件自己的 `src/bridge/Bridge.cj:18` 并置成“当前仓定义/日志行号偏移”，制造
+   不存在的同源关联；read=2、midloop=2，日志回放由 r941 140s 拉长到 325s。附件路径像源码、符号同名、仓库可用都不是当前源码关联凭证。
+4. `2c1c78ddd` 已按权限分层根修并推送。TurnPolicy schema 与低心智决策顺序现在明确：仓库可用、`route=repo`、`needs_repo_access=true` 只是进入分析
+   管道的 capability，不能铸造当前源码证据义务；只有当前消息明确要求 current source/code/repository implementation 或 artifact-to-current-source
+   correlation 时才设 required，否则 artifact-only 一律选择 optional。源码形路径或同名 checkout 文件也不得据此自动关联。
+5. 修复只影响模型看到的 typed routing field 说明，不扫描请求、thinking、附件、源码名或终稿 prose 做硬判，不自动归一化模型选择，不删除日志路径，
+   不改变 repo/hybrid/write 路由能力，也不触碰 Trace 因果投影与自动补采。定向 external-observation 路由回归、完整 repl 套件、完整
+   `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿；下一轮需复放确认 source mode 为 optional、repo reads 归零且终稿不再并置样例源码。
+6. write 人工通过：ChangePlan 仅含 `main.go` 单行 patch，applied commit 精确 1 insertion/1 deletion，`retrun`→`return`；测试、changed-path
+   coverage、fingerprint、recovery ref 与 clean worktree audit 全闭合。write analyzer 首稿误造指向生产文件的 `preserve_regression_test` 约束，第二稿删除
+   后通过，列 P2 教学心智观察，不因一次样本新增约束类型硬门。
+
+状态：
+
+`r942=runner-pass-2/2+human-write-pass+mixed-log-partial`；
+`B1455=production-positive/core-closed`；
+`B1456=implemented/full-suite-pass+build-pass+pushed/pending-production-replay`；
+`repository-availability/pipeline-access!=current-source-evidence-authority`；
+`artifact-only=source-optional/unrelated-checkout-match-forbidden`；
+`system-answer/conclusion/intent/relation/wording-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r942`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
