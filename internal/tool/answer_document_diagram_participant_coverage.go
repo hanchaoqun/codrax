@@ -94,7 +94,12 @@ type diagramParticipantEndpointCarrierAuthority struct {
 // from the same typed provider used by participant coverage and repair
 // guidance. RequestModel participant identities are typed planning input, not
 // relation evidence, so these rows can never mint an edge or satisfy relation
-// authority on their own. Local-only candidates are deliberately excluded.
+// authority on their own. A local-only candidate may still carry its exact
+// participant on the provider-declared display side: the ordinary relation
+// gate independently proves its technical tuple, while participant coverage
+// continues to exclude local-only rows from requested-relation closure and
+// retains the unproven boundary. Excluding it here would let an addition_ref
+// authorize a visible carrier that the post-emit identity gate then rejects.
 func diagramParticipantEndpointCarrierAuthorities(
 	rm types.RequestModel,
 	evidence []types.EvidenceItem,
@@ -114,7 +119,7 @@ func diagramParticipantEndpointCarrierAuthorities(
 			obligations, allSurfaces, i, relationScope,
 		)
 		for _, candidate := range candidates {
-			if candidate.localOnly || !candidate.relation.IsValid() ||
+			if !candidate.relation.IsValid() ||
 				strings.TrimSpace(candidate.participant) == "" ||
 				strings.TrimSpace(candidate.from) == "" || strings.TrimSpace(candidate.to) == "" {
 				continue

@@ -57339,6 +57339,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r915`。
 
+### §123.1497 r916/B1428：local-only typed 关系的显示权限不得被后置身份门否定（2026-08-28）
+
+1. 从已推送 `ee0b46acc` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace：Trace 207s PASS，
+   read 433s PASS。runner 2/2 PASS 不代替人工审计：Trace 人工 pass，read 因用户要求的 Mutable/BusContext 数据流仍缺席判
+   partial。
+2. B1427 已获得生产正证：r915 中“半 identity sibling 吞掉无锚坏边”不再出现；首代拒绝的所有精确关系失败均进入
+   同一 delta，模型可用 live `failure_ref` 原子选择 remove。成文拒绝从 16 次降到 3 次，不再恢复含坏边的旧稿。
+3. r916 同时确认新高危 `B1428-LOCALONLYADDITIONPOSTIDENTITYCONTRADICTION1/P0-P1`：系统从已证局部调用/数据流生成
+   `addition_ref`，且 `from_node_ids/to_node_ids` 明确允许模型在 provider 指定一侧使用 `BusContext` 或
+   `Mutable` 参与者节点；原子执行器也依该 allowlist 接受。但同一 typed candidate 标记为 `localOnly` 时，
+   `diagramParticipantEndpointCarrierAuthorities` 把它整行排除；后置 `edge_anchor_node_identity_conflict` 遂把已接受的
+   参与者显示端点判为与技术 identity 冲突。同一声明同时“允许”与“拒绝”，是精确合同自冲突，非模型波动。
+4. 根修不放宽关系证据：`localOnly` 只恢复同一 typed provider 指定侧的请求参与者 display-carrier authority。普通
+   relation/evidence gate 仍必须独立证明 relation/from/to/source；参与者节点只能在 provider 指定的 from/to 侧可见；
+   反向、错侧、任意 alias、无证关系仍 fail-closed。系统不选关系、不补边、不写标签或布局。
+5. “局部关系已证”与“用户要求的端到端关系已证”仍严格分离：
+   `diagramParticipantHasRenderedRequestScopedCandidate` 继续排除 `localOnly`，后者不能满足 requested-relation closure；
+   `independentLocalIncidenceAllowed` 继续要求保留 `unproven` participant boundary。因此本修复只消除显示合同矛盾，不会把局部事实升级成
+   完整管线结论。
+6. 新回归从 producer 真实生成 local-only `addition_ref`，由模型作者形原子增边，再跑后置精确身份门和 participant
+   coverage：同一 display permission 必须通过，两个 requested-relation boundary 必须原样保留。反向/错参与者既有负臂不变。定向回归、
+   完整 `internal/tool` 套件（189.881s）、全仓 `go test ./... -count=1` 和 CGO release-tag `make` 均通过；全仓覆盖
+   hitraceconv、mermaidcompat、orchestrator、tracequery、tracediag、REPL 与 writeflow。仍需生产回放才能转正。
+7. Trace 人工正证：显式 2.000..2.020s 窗、四跳链、11.000ms 链上 iowait 主席、三个 1.000ms 调度供给验证候选、
+   实际占时/现规则可消双账户、业务下钻、链外背景隔离、完整 `Trace 因果投影` 与自动补采全在，无固定 4ms/4m
+   或活动流降级。摘要的 3.000cpu·ms 供给压力与补充表的 9.000cpu·ms 进程总 CPU 占用是不同 typed lane，
+   数值不矛盾但用户可读性尚可提升，记 `B1429-PRESSURELANECALIBER1/P2`，不扫描模型正文做硬门。
+
+状态：
+
+`r916=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1427=production-positive/closed`；
+`B1428=implemented/full-suite+build-pass/pending-production-replay`；
+`local-only-relation-authority=ordinary-typed-gate-required`；
+`local-only-display-authority=provider-side-only`；
+`local-only-requested-relation-closure=forbidden`；
+`unproven-participant-boundary=retained`；
+`model-edge/relation/label/layout-choice=preserved`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r916`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r916`。
+
 ### §123.1491 r912：B1420 生产转正；退化 target_cpu 同时被授权与否定（2026-08-28）
 
 1. 从已推送 `540ef627f` 重建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与显式窗 Trace，runner 2/2 PASS：Rust 74s、

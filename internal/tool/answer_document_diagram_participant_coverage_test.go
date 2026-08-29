@@ -1878,6 +1878,105 @@ func TestDiagramParticipantCandidateCarrierAuthorityAllowsExactParticipantBeside
 	}
 }
 
+func TestDiagramParticipantLocalOnlyAdditionCarrierSurvivesPostEmitIdentityGate(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "Mutable", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "Finalizer", Role: types.DiagramParticipantIncidentRequired},
+			}},
+	}
+	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric, RelationAxis: types.AxisFlow,
+		DiagramPlan: &types.DiagramFacetGraph{Kind: types.DiagramFlow, Required: true},
+		DiagramParticipantObligations: append(
+			[]types.DiagramParticipantHint(nil), rm.DiagramHint.Participants...,
+		),
+	}
+	call := diagramEvidenceTestCall("BuildAgentContext", "bus.Mutable.Objective")
+	call.DeclaredIdentityBindings = []types.EvidenceDeclaredIdentityBinding{{
+		Binding: "bus.Mutable", Type: "*MutableState", Owner: "BusContext",
+	}}
+	evidence := []types.EvidenceItem{
+		call,
+		{
+			ID: "builder", Kind: types.EvidenceMechanism, Subject: "BuildAgentContext",
+			AnchorSymbol: "BuildAgentContext", Source: "internal/context/builder.go", LineStart: 17,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "mutable-type", Kind: types.EvidenceMechanism, Subject: "MutableState",
+			AnchorSymbol: "MutableState", Source: "internal/types/context.go", LineStart: 113,
+			Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{
+			ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+				"flowchart LR",
+				`  BuildAgentContext["BuildAgentContext"]`,
+				`  Mutable["Mutable<br/>MutableState"]`,
+				`  Finalizer["Finalizer"]`,
+			}, "\n")},
+			ParticipantBoundaries: []types.DiagramParticipantBoundary{
+				{Participant: "Mutable", Status: types.DiagramParticipantBoundaryUnproven},
+				{Participant: "Finalizer", Status: types.DiagramParticipantBoundaryUnproven},
+			},
+		},
+	}}
+	allowed := diagramRelationRepairAllowedAdditions(base, rm, evidence, nil, []string{"flow"}, 8)
+	var selected *types.AnswerDiagramRelationRepairCandidate
+	for i := range allowed {
+		if allowed[i].RelationKind == types.DiagramRelCall &&
+			allowed[i].FromIdentity == "BuildAgentContext" &&
+			allowed[i].ToIdentity == "bus.Mutable.Objective" {
+			selected = &allowed[i]
+			break
+		}
+	}
+	if selected == nil || !atomicDiagramNodeIDListed("Mutable", selected.ToNodeIDs) {
+		t.Fatalf("local-only provider must publish its exact participant display side: %+v", allowed)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{*selected})
+	if lease == nil || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("local-only typed addition must install one executable lease: %+v", lease)
+	}
+	mut := types.NewMutableState("show bounded local operation")
+	mut.AppendEvidence(evidence)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params, err := json.Marshal(map[string]any{
+		"unchanged_block_ids": []string{"summary"},
+		"diagram_edge_edits": []map[string]any{{
+			"action": "add", "addition_ref": lease.AllowedAdditions[0].AdditionRef,
+			"edge": map[string]any{
+				"from_node": "BuildAgentContext", "to_node": "Mutable", "visible_label": "updates local state",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("producer-authorized local participant carrier must execute: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(got, view, evidence, nil, &rm); len(mismatches) != 0 {
+		t.Fatalf("post-emit identity gate must accept the same exact local display permission: %+v", mismatches)
+	}
+	if mismatches := DiagramParticipantCoverageMismatches(got, view, rm, evidence); len(mismatches) != 0 {
+		t.Fatalf("local operation must remain visible without closing either requested-relation boundary: %+v", mismatches)
+	}
+	if len(got.Blocks[1].ParticipantBoundaries) != 2 {
+		t.Fatalf("local display permission must not remove or prove requested-relation boundaries: %+v", got.Blocks[1])
+	}
+}
+
 func TestDiagramParticipantCoverageDoesNotLetHiddenTypedOperationReplaceBusinessParticipant(t *testing.T) {
 	rm, view, doc, _ := diagramParticipantCoverageFixture()
 	rm.DiagramHint.Participants = []types.DiagramParticipantHint{{
