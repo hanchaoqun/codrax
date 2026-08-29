@@ -370,11 +370,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 
 	// planSources tags each queued plan with its typed provenance for
-	// the ExecutedCommands audit rows; executedKeys feeds the
-	// escalation picker; surfaceEscalations bounds dead-end recovery
-	// without assuming only one runner can be unavailable or empty.
+	// the ExecutedCommands audit rows; scheduledKeys feeds the
+	// escalation picker and includes both already-executed and not-yet-run
+	// queue entries. surfaceEscalations bounds dead-end recovery without
+	// assuming only one runner can be unavailable or empty.
 	planSources := map[string]string{}
-	executedKeys := map[string]bool{}
+	scheduledKeys := map[string]bool{}
 	surfaceEscalations := 0
 	var executedCmds []types.ExecutedCommand
 	var carriedVerificationDiagnostics []types.VerificationDiagnostic
@@ -737,6 +738,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// elsewhere. The model's explicit runner choice always runs first;
 	// this only adds candidates after prior choices produced no real
 	// verification.
+	for _, plan := range plans {
+		scheduledKeys[testSurfaceCandidateKey(plan.Runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = true
+	}
 	escalateToSurfaceCandidate := func(source string, priorPlans ...runnerPlan) *runnerPlan {
 		if surfaceEscalations >= maxTestSurfaceEscalations {
 			return nil
@@ -745,7 +749,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if source == "zero_tests_escalation" || source == "execution_capability_escalation" {
 			preferredRunner = preferredRunnerFromChangePlan(ctx)
 		}
-		cand := nextTestSurfaceEscalationForRunner(surface, executedKeys, preferredRunner)
+		cand := nextTestSurfaceEscalationForRunner(surface, scheduledKeys, preferredRunner)
 		if cand == nil {
 			return nil
 		}
@@ -758,7 +762,9 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				next.Suite = suite
 			}
 		}
-		planSources[testSurfaceCandidateKey(next.Runner, next.Framework, runnerPlanRel(ctx.RepoRoot, next))] = source
+		key := testSurfaceCandidateKey(next.Runner, next.Framework, runnerPlanRel(ctx.RepoRoot, next))
+		scheduledKeys[key] = true
+		planSources[key] = source
 		logging.Info("[run_tests] test-surface escalation (%s): queueing %s suite=%q after current candidate produced no real verification",
 			source, cand.ID, next.Suite)
 		return &next
@@ -774,7 +780,6 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		plan := plans[planIdx]
 		runnerRoot := plan.Root
 		runner := plan.Runner
-		executedKeys[testSurfaceCandidateKey(runner, plan.Framework, runnerPlanRel(ctx.RepoRoot, plan))] = true
 
 		if runner == "cmake" || runner == "meson" {
 			if detectNativeBuildDir(runnerRoot) == "" {

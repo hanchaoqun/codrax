@@ -57291,6 +57291,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
+
+1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
+   150s，失败码为 `write_final_verdict:unverified:runner_missing`。两路均没有按 4ms、4m、活动流累计年龄或上下文比例降级，也没有系统代写模型结论、关系、节点或业务词面。
+2. data 人工 PASS。系统完整消费 `instructions.md`、labels、observations、targets 四份材料；过滤 inactive、映射 canonical label、形成 3 条 contribution、以差值 0 完成
+   reconcile，并按目标顺序严格只输出 `17,0,5`。模型初始一次提出四层相依动作，确定性执行器拒绝同批依赖并安全拆成后续批次，最终无 repair；先记为安全吸收后的过程观察，禁止按动作数、轮数或题面新增硬门。
+3. write 的实现人工 PASS、运行时诚实未验证。模型正确定位并只修改 `LazilyParsedNumber.java`，按内部 `value` 补齐 equals/hashCode，测试文件未动；仓库 Make
+   source-static 检查 1 项通过。宿主没有 Java runtime，故真实 Java 行为测试不可执行；`runner_missing/unverified` 与 `allow_unverified=false` 的 runner FAIL 都正确。禁止把 source-static
+   提升为行为证明，也禁止放宽 eval 来伪造绿灯。
+4. 新 P2 `B1436-TESTSURFACEQUEUEIDENTITY1` 已由生产日志精确确认。初始 `run_tests` 队列已经同时包含 Make 与 Java direct-main；Make 静态检查结束后，执行能力升级器只把
+   “已经执行”的 candidate key 传给选择器，没有把“已经排队但尚未执行”的 Java key 纳入。它因此把同一 Java candidate 再追加一次，最终相同
+   `javac <manifestless-java-main sources=2>` 以同一 cwd/framework 连续失败并向用户披露两次。
+5. 根修使用既有 typed identity `(runner, framework, working_dir)`，把队列状态改为 scheduled set：在执行前登记全部初始计划；每个升级候选在 append 前原子登记。升级器只从既未执行也未排队的
+   filesystem-derived TestSurface 候选中选择，suite、命令输出、用户请求、模型 prose 和 runner 错误文本均不参与去重。不同 framework/working_dir 仍是不同候选，既有多级真实升级能力不缩窄。
+6. 新 e2e 回归构造 source-static Make + 已排队 manifestless Java + 缺 javac：Make 恰好执行一次、Java missing 恰好披露一次、最终仍必须是
+   `runner_missing/unavailable`。既有 manifestless Java missing、Make→Node 行为升级回归同批通过；该测试在旧实现会稳定看到两条 Java missing，能直接钉住接线而非只测 helper。
+7. 本批不修改 read/trace 路由、Trace 窗选择、唤醒链、根因选举、双账户、因果投影/自动补齐、JSON/Mermaid 或活跃流时限路径。
+
+状态：
+
+`r921=runner-data-pass+write-runner-missing,human-data-pass+write-implementation-pass/honest-unverified`；
+`B1436=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`test-surface-escalation-identity=runner+framework+working_dir`；
+`candidate-scheduling=initial-queue+dynamic-append-single-source`；
+`source-static-to-behavior-promotion=forbidden`；
+`missing-runtime=false-pass-forbidden`；
+`request/model/final-prose/runner-output-hard-dedup-scan=none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1501 r920/B1435：端点显示名义务随精确修补底稿投影，重试同名重放幂等（2026-08-28）
 
 1. 从已推送 `60b8b0c64` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace，runner 2/2 PASS：Trace 186s、read

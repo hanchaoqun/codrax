@@ -3405,6 +3405,83 @@ func TestRunTestsManifestlessJavaRunnerMissingIsNotPass(t *testing.T) {
 	}
 }
 
+func TestRunTestsStaticMakePassDoesNotDuplicateQueuedManifestlessJava(t *testing.T) {
+	fakeBin := t.TempDir()
+	for name, script := range map[string]string{
+		"make":  "#!/bin/sh\necho source-static-check-passed\nexit 0\n",
+		"javac": "#!/bin/sh\necho javac-missing >&2\nexit 127\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(script), 0o755); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+	// The fake PATH shadows javac with a deterministic missing-runner result
+	// while retaining the host shell utilities. This produces the
+	// same typed surface as a repository check followed by a queued Java
+	// behavior candidate on a host without javac.
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "main", "java", "example"), 0o755); err != nil {
+		t.Fatalf("mkdir production: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src", "test", "java", "example"), 0o755); err != nil {
+		t.Fatalf("mkdir tests: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main", "java", "example", "Widget.java"), []byte("package example; class Widget {}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "test", "java", "example", "WidgetTest.java"), []byte(`package example;
+public class WidgetTest {
+    public static void main(String[] args) {}
+}
+`), 0o644); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("check: src/main/java/example/Widget.java\n\t@grep -q 'class Widget' src/main/java/example/Widget.java\n"), 0o644); err != nil {
+		t.Fatalf("write Makefile: %v", err)
+	}
+
+	mu := types.NewMutableState("static check then unavailable Java behavior")
+	mu.SetChangePlan(&types.ChangePlan{
+		ID:          "plan-static-then-java-runner-missing",
+		Status:      types.PlanStatusPending,
+		TargetPaths: []string{"src/main/java/example/Widget.java"},
+		ProjectTestObservations: []types.ProjectTestObservation{{
+			ID:             "widget-main",
+			TestPath:       "src/test/java/example/WidgetTest.java",
+			AssertionSuite: "WidgetTest",
+			AssertionID:    "main",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable:       mu,
+		Mode:          types.ModeApply,
+		PipelineStage: types.StageVerify,
+		RepoRoot:      root,
+		MainRepoRoot:  root,
+	}
+	result, err := (&RunTests{}).Execute(ctx, runTestsJSONParams(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	report := mu.ChangeReport()
+	if result.Success || report == nil || report.Passed || report.FailureKind != types.FailureKindRunnerMissing {
+		t.Fatalf("missing Java behavior runner must remain unavailable: result=%+v report=%+v", result, report)
+	}
+	var makeCount, javaMissingCount int
+	for _, cmd := range report.ExecutedCommands {
+		switch {
+		case cmd.Runner == "make" && cmd.Outcome == "executed":
+			makeCount++
+		case cmd.Runner == "java" && cmd.Framework == javaFrameworkDirectMain && cmd.Outcome == "runner_missing":
+			javaMissingCount++
+		}
+	}
+	if makeCount != 1 || javaMissingCount != 1 {
+		t.Fatalf("each initially queued candidate must execute once; make=%d java_missing=%d commands=%+v", makeCount, javaMissingCount, report.ExecutedCommands)
+	}
+}
+
 func TestRunTestsCrossLanguageExactPathProbeDoesNotPreemptTypedProjectSurface(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not on PATH; skip")
