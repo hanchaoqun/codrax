@@ -57364,6 +57364,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1493 r913/B1424：退化 target_cpu 权限获生产正证；唤醒路径上下文去机器字段名（2026-08-28）
+
+1. 从已推送 `0d4f35bad` 重建不可变二进制，严格并发恰好 2 路复放东湖显式窗 Trace 与写模式单行修复，runner 2/2 PASS：write 81s、
+   Trace 192s。两路均自然完成，没有按固定 4ms/4m、首字节、stall、累计活动流年龄或上下文比例降级，也没有恢复旧稿或由系统代写模型结论。
+2. write 人工 pass：应用树只把 `main.go` 的 `retrun` 改为 `return`，没有第二处改动；ChangePlan、fingerprint、apply ref、changed-path
+   coverage、clean worktree audit 与最终 verified 状态闭合，真实 `go test -json ./...` 1/1 通过。controller 没有跳过风险、隔离 worktree、apply 或 verify 门。
+3. `B1422` 获生产正证。窗内 1697 条有效 wakeup 的 `target_cpu` 全为 0、发起事件覆盖 6 个 CPU 时，最终答案仍保留 36 次目标唤醒、34 次主要
+   waker、四跳 `ThreadPoolForeg→NetworkService→CookieMonsterCl→target` 依赖路径、waker CPU、目标线程真实 running CPU 分布、链上席位与全部时长；
+   同时明确“实际投递 CPU 未确认，不能断言跨核/同核”。最终上下文和后置事实没有再发布互斥的精确 cross-CPU 结论，证明 scoped advisory 未删边、
+   未改排名/算术，也没有污染目标真实运行 CPU 车道。
+4. Trace 主能力完整：请求窗 34579.472865..34579.587805、8 次 typed query 与成文前自动补采、完整 `Trace 因果投影`、链上-only 根因排序、
+   优先级/调度/D-IO/算力供给、业务线程线索、实际时间占用与现有规则可消除量双轴、邻近/背景降格以及 frame/deadline 未证边界均在。
+5. r913 新确认 `B1424-WAKEUPPATHREADERLABEL1/P2`：final decision handoff 虽有全局“机器字段不得进正文”提醒，却在高显著位置直接写
+   `elected_wakeup_path=...` 与 `wakeup_path_semantics:`；模型逐字复制前者。两条教学彼此反向，不能把结果仅归为模型波动。根修不扫描模型答案，
+   也不删除或翻译已成文内容，而是在 typed 路径生产处直接改成 `Confirmed wakeup dependency path` 与 `Reader meaning`。路径成员、方向、顺序、
+   证据上限与模型结论权全部保持；新增负 pin 禁止这两个机器标签重新进入该通用 handoff。该修复覆盖所有 Trace 唤醒依赖路径，不绑定本 trace/thread/type。
+6. 人工 Trace 仍判 partial：模型把 `fscache_page_wait_o`/`page_lock_timeout` 调用点词面扩写为具体文件系统缓存页/页面锁对象，并把 typed 的
+   “目标直接阻塞未建立”反写为“直接阻塞并非 IO 或锁竞争”。这是既登记 `B1269/B1271` 的模型软边界遵循重复；本批不新增终稿关键词硬门、不由系统
+   替写诊断。原 `B1423` 的 `causal_conclusion`/`frame_evidence_status` 原值本轮未进入正文，继续按异构模型遵循观察，不夸大为全局闭环。
+
+状态：
+
+`r913=runner-pass-2/2,human-write-pass+trace-partial`；
+`B1422=production-positive/core-closed`；
+`B1424=implemented/focused-pass/pending-production-replay`；
+`B1423=no-repeat-r913/model-adherence-observe`；
+`wakeup-path-context=reader-label+unchanged-typed-value`；
+`system-answer/relation/conclusion/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r913`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r913`。
+
 ### §123.1490 B1421：关系修复候选保持模型选择与证据账本顺序（2026-08-28）
 
 1. `B1421-RELATIONREPAIRCANDIDATEORDER1/P1` 已施工。零 anchor 的结构化关系块仍只按模型在

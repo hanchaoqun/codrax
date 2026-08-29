@@ -114,8 +114,8 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"already carried automatically",
 		"Prefer omitting optional `blocks[i].relation_claims`",
 		"omission does not trigger a retry",
-		"elected_wakeup_path=`ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
-		"wakeup_path_semantics:",
+		"Confirmed wakeup dependency path: `ThreadPool-300 -> Network-200 -> Cookie-150 -> target-100`",
+		"Reader meaning: an edge `A -> B` proves the recorded wakeup/dependency relation",
 		"does not prove that B synchronously blocked waiting for A",
 		"Use stronger blocked-wait/holder wording only when a separate typed blocking or holder relation provides that authority",
 		"axis_A_actual_occupancy_candidates",
@@ -158,6 +158,11 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	}
 	if strings.Contains(got, "closed four-state partition") {
 		t.Fatalf("five engine lanes must not be taught as a four-state partition:\n%s", got)
+	}
+	for _, forbidden := range []string{"elected_wakeup_path=", "wakeup_path_semantics:"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("wakeup path handoff leaked machine-facing label %q:\n%s", forbidden, got)
+		}
 	}
 }
 
