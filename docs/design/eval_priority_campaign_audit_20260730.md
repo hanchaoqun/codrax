@@ -57323,6 +57323,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1504 r923：B1437/B1438 生产闭环；清单主权与附件主答案均恢复（2026-08-28）
+
+1. 从已推送 `3f5cc9ce7` 重建不可变二进制，严格并发恰好 2 路原样复放 oversized log 与 Cangjie source inventory。
+   runner 2/2 PASS：分别 128s、321s；人工逐读最终答案、全日志与 metrics 后同为 PASS。
+2. B1438 获得生产正证。log 最终答案以附件运行时栈为主，直接定位 `main.crashy()`（`internal/agent/analyzer.go:100`）及调用者
+   `main.main()`（`:200`）；当前 checkout 无匹配文件只作为证据边界，未再铸造 current-status verdict 或全局
+   “证据不足—无法判断”。全程 `finalizer_rejects=0`。
+3. B1437 获得生产正证。Cangjie 最终答案保持 2 个 extend、2 个 foreign func、8 个 public class 三组 principal，逐项给出符号、
+   完整路径、精确行号与 package；没有 `out_of_requested_universe` 错降级，也没有 row-id/row-set 内部术语泄漏。格式中立 oracle 同时转绿。
+4. Cangjie 仍有一次成文拒绝：模型首稿把清单成员放在 section 文本中，没有选择 structured item label/hidden typed carrier；精确 repair 后
+   原位改为 items，后续只补 `member_set` facet，成员、分组和结论均未变化。它暂归模型结构遵循/投影心智成本观察；单次可恢复波动不升级为产品硬门，
+   后续须用异构语言枚举重复验证后才裁通用 schema/教学简化。`unavailable_tool_attempts=7` 同样没有造成事实损失。
+5. 本批仅新增回放工件与审计记录；不改 Trace 查询、显式窗、唤醒链、链上根因、双账户、因果投影/自动补齐、JSON/Mermaid 或活跃流时限。
+   没有基于请求、thinking、答案 prose 的硬扫描，也没有系统代写/改写模型结论、成员、关系、分组、节点、标签或布局。
+
+状态：
+
+`r923=runner-2/2-pass+human-2/2-pass`；
+`B1437=production-positive/core-closed`；
+`B1438=production-positive/core-closed`；
+`inventory-format-neutral-oracle=production-positive/core-closed`；
+`structured-item-first-draft-friction=P2-watch/requires-heterogeneous-recurrence`；
+`request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/member/group/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1503 r922/B1437/B1438：typed 短路径唯一绑定；附件可选当前仓不得升级全局裁决（2026-08-28）
 
 1. 从已推送 `51a0506e9` 重建不可变二进制，严格并发恰好 2 路复放 oversized log 与 Cangjie source inventory。runner 为 log PASS、inventory FAIL：分别
