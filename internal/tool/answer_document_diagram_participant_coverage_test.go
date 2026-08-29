@@ -2028,6 +2028,11 @@ func TestPreCheckDiagramParticipantCoverageMapsBoundedTypedCandidatesPerParticip
 		addition.FromIdentity != "output.EvidenceItems" || addition.ToIdentity != "o.busCtx.EvidenceItems" || addition.Source != "src/pipeline.go:20" {
 		t.Fatalf("participant addition capability drifted from the same typed candidate provider: %+v", addition)
 	}
+	if len(addition.ToNodeIDs) != 1 || addition.ToNodeIDs[0] != "B" ||
+		atomicDiagramNodeIDListed("BusContext", addition.ToNodeIDs) ||
+		atomicDiagramNodeIDListed(mermaidcompat.CanonicalFlowchartNodeID(addition.ToIdentity), addition.ToNodeIDs) {
+		t.Fatalf("an existing exact participant node must be the only mapped-side repair permission: %+v", addition)
+	}
 }
 
 func TestDiagramParticipantExistingVisibleEndpointGuidancePreservesModelAuthoredAlias(t *testing.T) {
@@ -2216,17 +2221,54 @@ func TestDiagramRelationRepairCandidateCarriesTypedParticipantEndpointPermission
 		from: row.FromIdentity, to: row.ToIdentity, participantEndpointSide: "to",
 	}
 	left, right := row, row
+	bindDiagramRelationRepairCandidateTechnicalNodeIDs(&left)
+	bindDiagramRelationRepairCandidateTechnicalNodeIDs(&right)
 	bindDiagramRelationRepairCandidateParticipantNodes(&left, doc, rm, from)
 	bindDiagramRelationRepairCandidateParticipantNodes(&right, doc, rm, to)
 	mergeDiagramRelationRepairCandidateNodeIDs(&left, right)
+	bindDiagramRelationRepairCandidateParticipantNodes(&left, doc, rm, from)
+	bindDiagramRelationRepairCandidateParticipantNodes(&left, doc, rm, to)
 	if !atomicDiagramNodeIDListed("BUS", left.FromNodeIDs) ||
-		!atomicDiagramNodeIDListed("BusContext", left.FromNodeIDs) ||
-		!atomicDiagramNodeIDListed("MUT", left.ToNodeIDs) ||
-		!atomicDiagramNodeIDListed("Mutable", left.ToNodeIDs) {
+		!atomicDiagramNodeIDListed("MUT", left.ToNodeIDs) {
 		t.Fatalf("typed participant-side permissions did not survive tuple merge: %+v", left)
+	}
+	for _, forbidden := range []string{
+		"BusContext", "Mutable",
+		mermaidcompat.CanonicalFlowchartNodeID(row.FromIdentity),
+		mermaidcompat.CanonicalFlowchartNodeID(row.ToIdentity),
+	} {
+		if atomicDiagramNodeIDListed(forbidden, left.FromNodeIDs) ||
+			atomicDiagramNodeIDListed(forbidden, left.ToNodeIDs) {
+			t.Fatalf("existing participant nodes must exclude fallback/technical duplicates %q: %+v", forbidden, left)
+		}
 	}
 	if atomicDiagramNodeIDListed("MUT", left.FromNodeIDs) || atomicDiagramNodeIDListed("BUS", left.ToNodeIDs) {
 		t.Fatalf("participant permission crossed its typed endpoint side: %+v", left)
+	}
+}
+
+func TestDiagramRelationRepairCandidateUsesParticipantFallbackOnlyWithoutExistingNode(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  helper[Helper]\n"},
+	}}}
+	rm := types.RequestModel{DiagramHint: &types.DiagramHint{Participants: []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}}}
+	row := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelArgumentFlow,
+		FromIdentity: "o.busCtx", ToIdentity: "BuildAgentContext", Source: "typed",
+	}
+	bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+	bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, diagramParticipantTypedIncidentCandidate{
+		participant: "BusContext", relation: types.DiagramRelArgumentFlow,
+		from: row.FromIdentity, to: row.ToIdentity, participantEndpointSide: "from",
+	})
+	if len(row.FromNodeIDs) != 1 || row.FromNodeIDs[0] != "BusContext" {
+		t.Fatalf("missing visible participant must get only the stable participant fallback: %+v", row)
+	}
+	if len(row.ToNodeIDs) != 0 {
+		t.Fatalf("portable technical node aliases are needed only when the exact identity is not already Mermaid-safe: %+v", row)
 	}
 }
 

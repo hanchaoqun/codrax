@@ -57397,6 +57397,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r913`。
 
+### §123.1494 r914/B1425/B1426：JSON 正向；关系修补许可不得分裂既有参与者节点（2026-08-28）
+
+1. 从已推送 `fca4bfcc6` 重建不可变二进制，严格并发恰好 2 路复放 data strict-JSON 与 read-mode 六参与者逻辑架构图，runner 2/2 PASS：
+   JSON 35s、read 750s。两路活动流均未按固定 4ms/4m、首字节、stall、累计年龄或上下文比例降级；没有恢复旧答案或系统代写模型结论/关系。
+2. JSON 人工 pass：data lane 同时消费完整 `instructions.md` 与 `users.json`，按源顺序筛出 active 用户；最终用户答案严格只有
+   `{"ids":["u1","u3"]}`，无代码围栏、解释、内部状态或控制枚举，首批闭合且零重试。模型评估阶段曾自疑 instructions 是否消费，但 typed
+   material coverage 与实际计划输入均已证明完整，未污染用户结果，暂不从 thinking 文本制造硬门。
+3. read 人工 partial：最终 Mermaid 语法可渲染，Analyzer→Explorer→Extractor→Finalizer 三条 checkout-verified precedence 与六组件职责基本
+   正确；关系修补却经历 7 次 reject/patch。首稿中 17 条没有逐边 typed anchor 的细节箭头被关系门列明并由模型删除，这部分 fail-closed 正确；问题在
+   BusContext/Mutable 的 participant repair permission，不在“证据不足也应保留边”。
+4. 新 P1 `B1425-PARTICIPANTEXISTINGNODELEASE1` 为确定性自冲突。同一 typed `bus.Mutable -> AgentContext.Mutable` operation 同时证明
+   BusContext 的 from 侧与 Mutable 的 to 侧；当前草稿已经有 `BusContext` subgraph 和 `BC_mutable[Mutable]`。提示文本要求非空
+   `existing_visible_participant_endpoint_ids` 必须复用，但可执行 allowed-addition lease 在相同 mapped side 仍并列提供 participant fallback
+   `Mutable` 与技术 alias。模型第 2–5 轮分别把 `BC_mutable` 错放到 BuildAgentContext/to 或 bus.Mutable/from，事务正确拒绝；第 7 轮最终选 fallback
+   新建隐式 `Mutable` 才通过，于是同一请求参与者同时以 `BC_mutable` 和 `Mutable` 两个节点出现。runner 的参与者覆盖/连通计数为绿，但图的语义身份已分裂。
+5. B1425 根修收敛同一 typed 单权威：relation kind、from/to identity、source 与方向不变；对于 candidate 声明的 participant mapped side，若模型草稿
+   已有一个或多个按 typed identity surfaces 精确匹配的可见 node/subgraph ID，lease 只允许这些既有 ID；仅当一个也没有时才允许稳定 participant ID
+   fallback。该侧生成的 technical alias 被排除，但 exact technical identity 仍逐字留在 edge anchor；未映射另一侧仍可使用必要的 Mermaid-safe
+   technical carrier。多个既有精确 ID 全部保留给模型选择，系统不选择关系、节点、边、label、布局或结论。
+6. 回归覆盖 production-shaped precheck→relation delta：已有 `B[BusContext]` 时 mapped side 只能是 `B`，不能再发 `BusContext` 或技术 alias；同一
+   relation 的 from/to 两个 participant candidate 合并后分别只保留既有 `BUS`/`MUT`，不能由另一候选重新并入技术 alias；确无可见节点时只给稳定
+   participant fallback；未映射的非 Mermaid-safe 技术端仍保留 portable alias。聚焦与完整 `internal/tool` 套件通过。
+7. 新 P1 `B1426-RELATIONSCOPEFANOUT1` 与 B1425 分批。该请求是一个 required architecture relation scope，却被 analyzer 生成为 5 个按组件拆开的
+   sub-topic；orchestrator 据此把 explorer 20→35 轮并启动 5 条高度重叠调查路，累计 43 次 read、3 次 repo_map、22 次 completion call、42 次
+   midloop，750s 才成文。最优形是从 typed diagram relation scope/incident-required participant roster 建一个共享证据目标：完全被同一关系域覆盖的
+   participant sub-topic 不增加 fork/scaling；真正独立的问题仍保留。不能按文件名、模型文本、固定轮数、4ms/4m 或 elapsed time 截断，也不能降低
+   复杂 read、Trace 因果投影或自动补采预算。
+
+状态：
+
+`r914=runner-pass-2/2,human-json-pass+read-partial`；
+`B1425=implemented/focused+tool-suite-pass/pending-production-replay`；
+`B1426=confirmed/P1-next/typed-relation-scope-fanout`；
+`existing-participant-node=sole-mapped-side-permission`；
+`technical-endpoint-identity=edge-anchor-byte-preserved`；
+`system-edge/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r914`。
+
 ### §123.1490 B1421：关系修复候选保持模型选择与证据账本顺序（2026-08-28）
 
 1. `B1421-RELATIONREPAIRCANDIDATEORDER1/P1` 已施工。零 anchor 的结构化关系块仍只按模型在

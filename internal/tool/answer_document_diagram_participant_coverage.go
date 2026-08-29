@@ -2485,6 +2485,18 @@ func diagramRelationRepairAllowedAdditions(
 
 	seen := make(map[string]int)
 	out := make([]types.AnswerDiagramRelationRepairCandidate, 0, totalLimit)
+	normalizeParticipantSides := func() {
+		for rowIndex := range out {
+			for _, candidate := range typed {
+				if out[rowIndex].RelationKind != candidate.relation ||
+					!strings.EqualFold(strings.TrimSpace(out[rowIndex].FromIdentity), strings.TrimSpace(candidate.from)) ||
+					!strings.EqualFold(strings.TrimSpace(out[rowIndex].ToIdentity), strings.TrimSpace(candidate.to)) {
+					continue
+				}
+				bindDiagramRelationRepairCandidateParticipantNodes(&out[rowIndex], doc, rm, candidate)
+			}
+		}
+	}
 	for _, candidate := range typed {
 		if !candidate.relation.IsValid() || strings.TrimSpace(candidate.from) == "" ||
 			strings.TrimSpace(candidate.to) == "" || strings.TrimSpace(candidate.location) == "" {
@@ -2502,10 +2514,12 @@ func diagramRelationRepairAllowedAdditions(
 			seen[key] = len(out)
 			out = append(out, row)
 			if len(out) >= totalLimit {
+				normalizeParticipantSides()
 				return out
 			}
 		}
 	}
+	normalizeParticipantSides()
 	return out
 }
 
@@ -2575,10 +2589,13 @@ func mergeDiagramRelationRepairCandidateNodeIDs(
 
 // bindDiagramRelationRepairCandidateParticipantNodes carries only the exact
 // display-side permission already minted by the typed participant provider.
-// It never derives an endpoint from Mermaid messages or reader wording. The
-// participant identity itself is the stable fallback ID; exact pre-existing
-// declaration IDs are admitted only when their parsed primary identity is one
-// of that participant's typed analyzer surfaces.
+// It never derives an endpoint from Mermaid messages or reader wording. An
+// exact pre-existing declaration is the sole permission on the mapped side;
+// the participant identity is a stable fallback only when no such declaration
+// exists. Technical endpoint identities remain byte-preserved in the sibling
+// edge anchor, so excluding their generated aliases from the mapped visible
+// side loses no evidence and prevents one participant from splitting into a
+// second implicit Mermaid node during repair.
 func bindDiagramRelationRepairCandidateParticipantNodes(
 	row *types.AnswerDiagramRelationRepairCandidate,
 	doc *types.AnswerDocumentV2,
@@ -2588,15 +2605,17 @@ func bindDiagramRelationRepairCandidateParticipantNodes(
 	if row == nil || strings.TrimSpace(candidate.participant) == "" {
 		return
 	}
-	nodeIDs := []string{strings.TrimSpace(candidate.participant)}
-	nodeIDs = append(nodeIDs, diagramParticipantExactVisibleEndpointIDs(
+	nodeIDs := diagramParticipantExactVisibleEndpointIDs(
 		doc, rm, candidate.participant, row.BlockID,
-	)...)
+	)
+	if len(nodeIDs) == 0 {
+		nodeIDs = []string{strings.TrimSpace(candidate.participant)}
+	}
 	switch strings.TrimSpace(candidate.participantEndpointSide) {
 	case "from":
-		row.FromNodeIDs = append(row.FromNodeIDs, nodeIDs...)
+		row.FromNodeIDs = append([]string(nil), nodeIDs...)
 	case "to":
-		row.ToNodeIDs = append(row.ToNodeIDs, nodeIDs...)
+		row.ToNodeIDs = append([]string(nil), nodeIDs...)
 	case "from_or_to":
 		row.FromNodeIDs = append(row.FromNodeIDs, nodeIDs...)
 		row.ToNodeIDs = append(row.ToNodeIDs, nodeIDs...)
