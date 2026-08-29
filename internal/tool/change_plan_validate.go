@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -2382,7 +2383,11 @@ func pythonModuleCandidatesForPath(relPath string) []string {
 
 func pythonImportDeclarations(code string) map[string]struct{} {
 	out := map[string]struct{}{}
-	lines := strings.Split(code, "\n")
+	// Coupling is an authority boundary: import-shaped text inside a string or
+	// comment must not mint a changed-module edge.  Use the same stateful
+	// Python lexer surface as the executable-signal validator so multiline
+	// docstrings are masked across physical lines as well.
+	lines := strings.Split(stripPythonProbeStringsAndComments(code), "\n")
 	for _, line := range lines {
 		for _, statement := range splitPythonSimpleStatements(line) {
 			parsePythonImportDeclaration(statement, out)
@@ -2491,19 +2496,9 @@ func parsePythonImportDeclaration(line string, out map[string]struct{}) {
 
 func javascriptImportDeclarations(probe types.VerificationProbe) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, line := range strings.Split(probe.Code, "\n") {
-		line = strings.TrimSpace(stripCLikeLineComment(line))
-		if line == "" {
-			continue
-		}
-		collectQuotedCallArgs(line, "require(", out, normalizeSlashModuleRef)
-		collectQuotedCallArgs(line, "import(", out, normalizeSlashModuleRef)
-		if strings.HasPrefix(line, "import ") {
-			if idx := strings.LastIndex(line, " from "); idx >= 0 {
-				addNormalizedQuotedString(line[idx+len(" from "):], out, normalizeSlashModuleRef)
-				continue
-			}
-			addNormalizedQuotedString(line, out, normalizeSlashModuleRef)
+	for _, ref := range javascriptProbeModuleRefs(probe.Code) {
+		if ref = normalizeSlashModuleRef(ref); ref != "" {
+			out[ref] = struct{}{}
 		}
 	}
 	return out
@@ -2511,14 +2506,9 @@ func javascriptImportDeclarations(probe types.VerificationProbe) map[string]stru
 
 func rubyRequireDeclarations(probe types.VerificationProbe) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, line := range strings.Split(probe.Code, "\n") {
-		line = strings.TrimSpace(stripPythonLineComment(line))
-		for _, keyword := range []string{"require_relative", "require", "load"} {
-			if !strings.HasPrefix(line, keyword) {
-				continue
-			}
-			rest := strings.TrimSpace(strings.TrimPrefix(line, keyword))
-			addNormalizedQuotedString(rest, out, normalizeSlashModuleRef)
+	for _, ref := range rubyProbeModuleRefs(probe.Code) {
+		if ref = normalizeSlashModuleRef(ref); ref != "" {
+			out[ref] = struct{}{}
 		}
 	}
 	return out
@@ -2553,7 +2543,11 @@ func javaProductionClassCandidates(repoRoot string, changes []types.FileChange) 
 
 func javaImportDeclarations(probe types.VerificationProbe) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, line := range strings.Split(probe.Code, "\n") {
+	// Java type names are identifiers, never string literals.  Mask all
+	// comments and literals before collecting imports/direct type references;
+	// otherwise text such as Runtime.exec("javac Main.java") falsely proves
+	// that the probe exercises the changed Main class.
+	for _, line := range strings.Split(stripCLikeProbeStringsAndComments(probe.Code), "\n") {
 		line = strings.TrimSpace(stripCLikeLineComment(line))
 		if strings.HasPrefix(line, "import ") {
 			ref := strings.TrimSpace(strings.TrimPrefix(line, "import "))
@@ -2740,30 +2734,21 @@ func goProductionPackageCandidates(repoRoot string, changes []types.FileChange) 
 
 func goImportDeclarations(probe types.VerificationProbe) map[string]struct{} {
 	out := map[string]struct{}{}
-	inBlock := false
-	for _, line := range strings.Split(probe.Code, "\n") {
-		line = strings.TrimSpace(stripCLikeLineComment(line))
-		if line == "" {
+	file, err := parser.ParseFile(token.NewFileSet(), "codrax_verification_probe.go", probe.Code, parser.ImportsOnly)
+	if err != nil || file == nil {
+		return out
+	}
+	for _, spec := range file.Imports {
+		if spec == nil || spec.Path == nil {
 			continue
 		}
-		if inBlock {
-			if strings.HasPrefix(line, ")") {
-				inBlock = false
-				continue
-			}
-			addNormalizedQuotedString(line, out, strings.TrimSpace)
+		ref, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
 			continue
 		}
-		if !strings.HasPrefix(line, "import") {
-			continue
+		if ref = strings.TrimSpace(ref); ref != "" {
+			out[ref] = struct{}{}
 		}
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "import"))
-		if strings.HasPrefix(rest, "(") {
-			inBlock = true
-			addNormalizedQuotedString(strings.TrimSpace(strings.TrimPrefix(rest, "(")), out, strings.TrimSpace)
-			continue
-		}
-		addNormalizedQuotedString(rest, out, strings.TrimSpace)
 	}
 	return out
 }
@@ -2842,61 +2827,6 @@ func stripCLikeLineComment(line string) string {
 		}
 	}
 	return line
-}
-
-func collectQuotedCallArgs(line, token string, out map[string]struct{}, normalize func(string) string) {
-	for {
-		idx := strings.Index(line, token)
-		if idx < 0 {
-			return
-		}
-		line = line[idx+len(token):]
-		addNormalizedQuotedString(line, out, normalize)
-	}
-}
-
-func addNormalizedQuotedString(s string, out map[string]struct{}, normalize func(string) string) {
-	value, ok := firstQuotedString(s)
-	if !ok {
-		return
-	}
-	if normalize != nil {
-		value = normalize(value)
-	}
-	value = strings.TrimSpace(value)
-	if value != "" {
-		out[value] = struct{}{}
-	}
-}
-
-func firstQuotedString(s string) (string, bool) {
-	s = strings.TrimSpace(s)
-	for i := 0; i < len(s); i++ {
-		quote := s[i]
-		if quote != '\'' && quote != '"' && quote != '`' {
-			continue
-		}
-		var b strings.Builder
-		escaped := false
-		for j := i + 1; j < len(s); j++ {
-			ch := s[j]
-			if escaped {
-				b.WriteByte(ch)
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == quote {
-				return b.String(), true
-			}
-			b.WriteByte(ch)
-		}
-		return "", false
-	}
-	return "", false
 }
 
 func normalizeSlashModuleRef(raw string) string {
