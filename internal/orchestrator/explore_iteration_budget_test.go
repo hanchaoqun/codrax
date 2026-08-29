@@ -60,3 +60,33 @@ func TestApplyExploreIterationScalingForMultiTopicStillUsesSharedHelper(t *testi
 		t.Fatalf("reason=%q", reason)
 	}
 }
+
+func TestApplyExploreIterationScalingForRequiredRelationUsesIndependentGroupCount(t *testing.T) {
+	ctx := &types.AgentContext{}
+	rm := types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		Complexity:    types.ComplexityComplex,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{
+			Kind:     types.DiagramArchitecture,
+			Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "A", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "B", Role: types.DiagramParticipantIncidentRequired},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Entities: []string{"A"}},
+			{Entities: []string{"B"}},
+			{Entities: []string{"independent"}},
+		},
+	}
+	base, adjusted, reason, ok := applyExploreIterationScalingForRequest(ctx, rm, testAgentSettingsForExploreBudget())
+	if !ok || base != 20 || adjusted != 26 || ctx.MaxIterOverride != 26 {
+		t.Fatalf("grouped relation scaling = ok:%t base:%d adjusted:%d override:%d", ok, base, adjusted, ctx.MaxIterOverride)
+	}
+	if reason != "multi-topic" {
+		t.Fatalf("reason=%q", reason)
+	}
+}

@@ -132,6 +132,82 @@ func TestCompileInvestigationPlan_RuntimeArtifactCurrentVerificationIsSharedCont
 	}
 }
 
+func TestCompileExploreSubTopicGroups_GroupsRequiredRelationParticipantFacets(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisFlow,
+		DiagramHint: &DiagramHint{
+			Kind:     DiagramArchitecture,
+			Required: true,
+			Participants: []DiagramParticipantHint{
+				{Identity: "Analyzer", Role: DiagramParticipantIncidentRequired},
+				{Identity: "BusContext", Role: DiagramParticipantIncidentRequired},
+				{Identity: "Decoration", Role: DiagramParticipantContextOnly},
+			},
+		},
+		SubTopics: []SubTopic{
+			{Summary: "first facet", Entities: []string{"Analyzer", "BusContext"}},
+			{Summary: "second facet", Entities: []string{"buscontext"}},
+			{Summary: "independent owner", Entities: []string{"Orchestrator"}},
+		},
+	}
+	got := CompileExploreSubTopicGroups(rm)
+	if len(got) != 2 || len(got[0]) != 2 || got[0][0] != 0 || got[0][1] != 1 ||
+		len(got[1]) != 1 || got[1][0] != 2 {
+		t.Fatalf("groups=%v, want [[0 1] [2]]", got)
+	}
+	if count := ExploreSchedulingUnitCount(rm); count != 2 {
+		t.Fatalf("scheduling units=%d, want 2", count)
+	}
+}
+
+func TestCompileExploreSubTopicGroups_ConservativeBoundariesStayIndependent(t *testing.T) {
+	base := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisFlow,
+		DiagramHint: &DiagramHint{
+			Kind:     DiagramFlow,
+			Required: true,
+			Participants: []DiagramParticipantHint{
+				{Identity: "A", Role: DiagramParticipantIncidentRequired},
+				{Identity: "B", Role: DiagramParticipantIncidentRequired},
+			},
+		},
+		SubTopics: []SubTopic{
+			{Entities: []string{"A"}},
+			{Entities: []string{"B"}},
+		},
+	}
+
+	tests := map[string]func(*RequestModel){
+		"optional diagram": func(rm *RequestModel) { rm.DiagramHint.Required = false },
+		"axis mismatch":    func(rm *RequestModel) { rm.PredicateAxis = AxisCall },
+		"extra entity":     func(rm *RequestModel) { rm.SubTopics[1].Entities = []string{"B", "Helper"} },
+		"explicit scope":   func(rm *RequestModel) { rm.SubTopics[1].Scopes = []string{"module-b"} },
+		"trace family":     func(rm *RequestModel) { rm.Intent = IntentTrace },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			rm := base
+			hint := *base.DiagramHint
+			hint.Participants = append([]DiagramParticipantHint(nil), base.DiagramHint.Participants...)
+			rm.DiagramHint = &hint
+			rm.SubTopics = append([]SubTopic(nil), base.SubTopics...)
+			for i := range rm.SubTopics {
+				rm.SubTopics[i].Entities = append([]string(nil), base.SubTopics[i].Entities...)
+				rm.SubTopics[i].Scopes = append([]string(nil), base.SubTopics[i].Scopes...)
+			}
+			mutate(&rm)
+			got := CompileExploreSubTopicGroups(rm)
+			if len(got) != 2 || len(got[0]) != 1 || len(got[1]) != 1 {
+				t.Fatalf("groups=%v, want independent singletons", got)
+			}
+		})
+	}
+}
+
 func containsAnswerEvidenceOrigin(in []AnswerEvidenceOrigin, want AnswerEvidenceOrigin) bool {
 	for _, got := range in {
 		if got == want {

@@ -413,20 +413,9 @@ func exploreLaneUnitIDsForWindow(window []*types.TaskNode) map[string]bool {
 }
 
 func exploreLaneUnitIDFromEvidenceNodeID(id string) (string, bool) {
-	id = strings.TrimSpace(id)
-	if id == "" {
+	n, ok := exploreSubTopicIndexFromEvidenceNodeID(id)
+	if !ok {
 		return "", false
-	}
-	idx := strings.LastIndex(id, "_t")
-	if idx < 0 || idx+2 >= len(id) {
-		return "", false
-	}
-	n := 0
-	for _, r := range id[idx+2:] {
-		if r < '0' || r > '9' {
-			return "", false
-		}
-		n = n*10 + int(r-'0')
 	}
 	return fmt.Sprintf("subtopic-%d", n+1), true
 }
@@ -681,10 +670,11 @@ func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext
 	if o == nil || agentCtx == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
 		return
 	}
-	nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
+	declaredSubTopics := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
+	nSub := types.ExploreSchedulingUnitCount(o.busCtx.AnalysisIR.RequestModel)
 	if base, adjusted, reason, ok := applyExploreIterationScalingForRequest(agentCtx, o.busCtx.AnalysisIR.RequestModel, o.settings.Agent); ok {
-		logging.Debug("[orchestrator] parallel explorer scaling: reason=%s sub-topics=%d iterations %d → %d",
-			reason, nSub, base, adjusted)
+		logging.Debug("[orchestrator] parallel explorer scaling: reason=%s declared-sub-topics=%d scheduling-units=%d iterations %d → %d",
+			reason, declaredSubTopics, nSub, base, adjusted)
 	}
 	applyExploreLaneHandoffIterationCap(agentCtx)
 }

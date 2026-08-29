@@ -759,6 +759,62 @@ func dagIRMultiTopic(siblingCount int) *types.AnalysisIR {
 	}
 }
 
+func TestSplitExploreWindowForDispatchByTopicGroups_CoDispatchesOnlyRelationFacets(t *testing.T) {
+	probe := &types.TaskNode{ID: "probe", Type: types.NodeProbe}
+	e0 := &types.TaskNode{ID: "evidence_t0", Type: types.NodeEvidence}
+	e1 := &types.TaskNode{ID: "evidence_t1", Type: types.NodeEvidence}
+	e2 := &types.TaskNode{ID: "evidence_t2", Type: types.NodeEvidence}
+	validate := &types.TaskNode{ID: "validate", Type: types.NodeValidate}
+
+	got := splitExploreWindowForDispatchByTopicGroups(
+		[]*types.TaskNode{probe, e0, e1, e2, validate},
+		[][]int{{0, 1}, {2}},
+	)
+	if len(got) != 2 {
+		t.Fatalf("dispatch groups=%d, want 2: %+v", len(got), got)
+	}
+	if len(got[0]) != 4 || got[0][0] != probe || got[0][1] != e0 || got[0][2] != e1 || got[0][3] != validate {
+		t.Fatalf("first group lost companion/declaration order: %+v", got[0])
+	}
+	if len(got[1]) != 1 || got[1][0] != e2 {
+		t.Fatalf("independent topic was absorbed: %+v", got[1])
+	}
+}
+
+func TestExploreWindowDispatchGroups_UsesTypedRequiredRelationGrouping(t *testing.T) {
+	probe := &types.TaskNode{ID: "probe", Type: types.NodeProbe}
+	e0 := &types.TaskNode{ID: "evidence_t0", Type: types.NodeEvidence}
+	e1 := &types.TaskNode{ID: "evidence_t1", Type: types.NodeEvidence}
+	e2 := &types.TaskNode{ID: "evidence_t2", Type: types.NodeEvidence}
+	validate := &types.TaskNode{ID: "validate", Type: types.NodeValidate}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{
+			Kind:     types.DiagramArchitecture,
+			Required: true,
+			Participants: []types.DiagramParticipantHint{
+				{Identity: "A", Role: types.DiagramParticipantIncidentRequired},
+				{Identity: "B", Role: types.DiagramParticipantIncidentRequired},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Entities: []string{"A"}},
+			{Entities: []string{"B"}},
+			{Entities: []string{"independent"}},
+		},
+	}}}
+
+	got := exploreWindowDispatchGroups(ctx, []*types.TaskNode{probe, e0, e1, e2, validate})
+	if len(got) != 2 || len(got[0]) != 4 || len(got[1]) != 1 {
+		t.Fatalf("production dispatch groups=%v, want relation pair plus one independent topic", got)
+	}
+	if got[0][1] != e0 || got[0][2] != e1 || got[1][0] != e2 {
+		t.Fatalf("production grouping changed relation/independent ownership: %+v", got)
+	}
+}
+
 // TestRunTaskGraph_PerNodeDispatch_TwoEvidenceSiblings is the E'
 // load-bearing e2e test: when the analyzer produces 2 independent
 // evidence sibling nodes, the scheduler dispatches the root probe, then

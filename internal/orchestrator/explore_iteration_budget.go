@@ -15,7 +15,7 @@ func applyExploreIterationScalingForRequest(agentCtx *types.AgentContext, rm typ
 		ceil = 35
 	}
 	adjusted = base
-	if nSub := len(rm.SubTopics); nSub > 1 {
+	if nSub := types.ExploreSchedulingUnitCount(rm); nSub > 1 {
 		extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
 		adjusted = base + extra
 		reason = "multi-topic"

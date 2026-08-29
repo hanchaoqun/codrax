@@ -1,6 +1,11 @@
 package orchestrator
 
-import "github.com/hanchaoqun/codrax/internal/types"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 // E' (2026-05-17 architecture §1.5/§1.6) — DAG node-level dispatch.
 //
@@ -242,10 +247,110 @@ func exploreWindowDispatchGroups(ctx *types.BusContext, window []*types.TaskNode
 	if shouldDispatchExploreNodesIndividually(window) &&
 		!shouldKeepSourceInventoryExploreWindowUnified(ctx, window) &&
 		!shouldKeepCoupledExploreWindowUnified(ctx, window) {
+		if ctx != nil && ctx.AnalysisIR != nil {
+			return splitExploreWindowForDispatchByTopicGroups(
+				window,
+				types.CompileExploreSubTopicGroups(ctx.AnalysisIR.RequestModel),
+			)
+		}
 		return splitExploreWindowForDispatch(window)
 	}
 	cp := append([]*types.TaskNode(nil), window...)
 	return [][]*types.TaskNode{cp}
+}
+
+// splitExploreWindowForDispatchByTopicGroups preserves independent evidence
+// siblings while co-dispatching the typed participant facets of one required
+// relation diagram. Non-evidence companion nodes retain the existing policy:
+// they travel with the first evidence dispatch. Unknown/non-topic evidence
+// nodes remain singleton groups, so a future DAG shape fails open rather than
+// being absorbed accidentally.
+func splitExploreWindowForDispatchByTopicGroups(window []*types.TaskNode, topicGroups [][]int) [][]*types.TaskNode {
+	if len(window) == 0 || len(topicGroups) == 0 {
+		return splitExploreWindowForDispatch(window)
+	}
+	groupForTopic := make(map[int]int)
+	hasMulti := false
+	for groupID, indices := range topicGroups {
+		if len(indices) > 1 {
+			hasMulti = true
+		}
+		for _, idx := range indices {
+			if idx >= 0 {
+				groupForTopic[idx] = groupID
+			}
+		}
+	}
+	if !hasMulti {
+		return splitExploreWindowForDispatch(window)
+	}
+
+	type dispatchGroup struct {
+		key   string
+		nodes []*types.TaskNode
+	}
+	groups := make([]dispatchGroup, 0, len(topicGroups))
+	positions := map[string]int{}
+	for _, node := range window {
+		if node == nil || node.Type != types.NodeEvidence {
+			continue
+		}
+		key := "node:" + node.ID
+		if topicIndex, ok := exploreSubTopicIndexFromEvidenceNodeID(node.ID); ok {
+			if groupID, grouped := groupForTopic[topicIndex]; grouped {
+				key = fmt.Sprintf("topic-group:%d", groupID)
+			}
+		}
+		pos, ok := positions[key]
+		if !ok {
+			pos = len(groups)
+			positions[key] = pos
+			groups = append(groups, dispatchGroup{key: key})
+		}
+		groups[pos].nodes = append(groups[pos].nodes, node)
+	}
+	if len(groups) == 0 {
+		return splitExploreWindowForDispatch(window)
+	}
+	firstKey := groups[0].key
+	firstNodes := make([]*types.TaskNode, 0, len(window))
+	for _, node := range window {
+		if node == nil || node.Type != types.NodeEvidence {
+			firstNodes = append(firstNodes, node)
+			continue
+		}
+		key := "node:" + node.ID
+		if topicIndex, ok := exploreSubTopicIndexFromEvidenceNodeID(node.ID); ok {
+			if groupID, grouped := groupForTopic[topicIndex]; grouped {
+				key = fmt.Sprintf("topic-group:%d", groupID)
+			}
+		}
+		if key == firstKey {
+			firstNodes = append(firstNodes, node)
+		}
+	}
+	groups[0].nodes = firstNodes
+	out := make([][]*types.TaskNode, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, group.nodes)
+	}
+	return out
+}
+
+func exploreSubTopicIndexFromEvidenceNodeID(id string) (int, bool) {
+	id = strings.TrimSpace(id)
+	idx := strings.LastIndex(id, "_t")
+	if idx < 0 || idx+2 >= len(id) {
+		return 0, false
+	}
+	n := 0
+	for _, r := range id[idx+2:] {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n, true
 }
 
 // sourceInventoryLensFirstWindow returns a lens-only dispatch window when the

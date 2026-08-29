@@ -57438,6 +57438,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r914`。
 
+### §123.1495 B1426：关系参与者子题共享证据目标，独立子题与 Trace 扇出保持（2026-08-28）
+
+1. `B1426-RELATIONSCOPEFANOUT1/P1` 已按 typed investigation scheduling view 施工。Analyzer 原始 `SubTopics`、用户 `Buckets`、
+   `AnswerContract`、最终图表参与者和正文分区均不删不改；调度层只派生 declaration-ordered group。只有同时满足 required+valid diagram、
+   diagram kind 与 `PredicateAxis` 一致、至少两个 `incident_required` participant，且至少两个 sub-topic 的 typed `Entities` 全部精确落在该 roster
+   内时，这些 participant facets 才共享一个 explorer 证据目标。
+2. 任一 sub-topic 带 roster 外实体、显式 source scope、空实体，或 diagram 为 optional、axis 不一致、participant 仅 context-only 时，继续按独立
+   singleton 调度。多个匹配 facet 与一个真实独立问题的形被编译为 `[[relation facets...], [independent], ...]`，不会把独立 owner、额外范围或答案
+   维度吸进关系调查。身份比较仅对 schema 字段做 trim+case fold，不读取 summary、请求原文、thinking、答案 prose 或 Mermaid message。
+3. DAG 生产分发现在只把同一 relation group 的 evidence sibling 放进一次 explorer dispatch；probe/validate/reconcile companion 仍按原规则随第一个
+   evidence group，声明顺序不变。未知 node ID 和未来非 `_tN` evidence 节点保持 singleton，fail-open 到既有 splitter。已有 source-inventory
+   unified guard 与 shared/sequential coupling guard 仍先执行，不被新分组绕过。
+4. Explorer 的单次迭代上限改按 independent scheduling-unit 数计算，而不是原始 participant sub-topic 数。r914 的 5 个 sub-topic 中，四个完全位于
+   required relation roster、一个独立 Orchestrator owner，因此调度计数为 2，不再因五个组件 facet 把每个 explorer 从 20 拉到 35。read scheduler
+   的全局 step ceiling 保持原实现和 L1 body 字节边界；它只是保守上限，不产生额外 dispatch，避免为本性能修复改动 read 主循环。
+5. Trace/root-cause family 与 `IntentTrace` 明确保持 singleton fan-out，显式时间窗、trace_query 补采、唤醒链、链上根因排序、业务线索、实际占时/
+   规则可消双账户和 `Trace 因果投影` 不进入关系分组。write planner/controller 的 sub-topic 预算与工作树、风险、验证路径也未修改；本修复跨语言，
+   不识别 Java/Go/ArkTS/Cangjie 等语言词面。
+6. 回归覆盖：四个关系 facet+独立 owner 的 group/count；optional diagram、axis mismatch、额外实体、显式 scope、Trace 的五个 fail-open 负臂；
+   迭代预算按 2 个独立 group 计算；production `exploreWindowDispatchGroups` 保留 probe→两 relation evidence→validate 的顺序并把独立 evidence 单列。
+   完整 `internal/types` 与 `internal/orchestrator` 套件、CGO release-tag `make` 均通过。
+7. 下一步从本提交重建不可变二进制，严格并发恰好 2 路：复放同一 read logic view 验收 explorer dispatch/read/completion/墙钟是否收敛且 B1425 不再
+   分裂参与者节点；并行显式窗 Trace 验收 causal projection、自动补采与链上根因不回归。活动流不得因固定 4ms/4m、首字节、stall、累计年龄或
+   上下文比例降级。
+
+状态：
+
+`B1426=implemented/types+orchestrator-suite-pass/build-pass/pending-production-replay`；
+`relation-participant-facets=one-shared-evidence-group`；
+`extra-entity/scoped/optional/mismatched-axis-subtopic=independent`；
+`analysis-ir/answer-partitions=unchanged`；
+`read-scheduler-L1-body=unchanged`；
+`write-planner/controller=unchanged`；
+`system-edge/node/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=explicitly-excluded+unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1490 B1421：关系修复候选保持模型选择与证据账本顺序（2026-08-28）
 
 1. `B1421-RELATIONREPAIRCANDIDATEORDER1/P1` 已施工。零 anchor 的结构化关系块仍只按模型在

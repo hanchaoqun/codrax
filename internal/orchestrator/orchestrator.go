@@ -8136,14 +8136,14 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	}
 
 	if o.busCtx.AnalysisIR != nil {
-		nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
+		nSub := types.ExploreSchedulingUnitCount(o.busCtx.AnalysisIR.RequestModel)
 		complexity := o.busCtx.AnalysisIR.RequestModel.Complexity
 		agentCfg := o.settings.Agent
 		switch stage {
 		case types.StageExplore:
 			if base, adjusted, reason, ok := applyExploreIterationScalingForRequest(agentCtx, o.busCtx.AnalysisIR.RequestModel, agentCfg); ok {
-				logging.Debug("[orchestrator] explorer scaling: reason=%s sub-topics=%d iterations %d → %d",
-					reason, nSub, base, adjusted)
+				logging.Debug("[orchestrator] explorer scaling: reason=%s declared-sub-topics=%d scheduling-units=%d iterations %d → %d",
+					reason, len(o.busCtx.AnalysisIR.RequestModel.SubTopics), nSub, base, adjusted)
 			}
 			if agentCtx.CompletionOnlySurface {
 				// Completion-obligation lane: emit-only surface needs
