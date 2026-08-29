@@ -57577,6 +57577,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r933`。
 
+### §123.1517 r934/B1448：Trace 双轴与因果投影保持；现有图别名未进入可执行候选（2026-08-29）
+
+1. 从已推送 `6b4ae2334` 的干净二进制严格并发恰好 2 路运行 Donghu 显式窗 Trace 与 Rust 跨模块调用链。runner 2/2 PASS：Trace 190s、Rust 455s；finalizer reject 分别为 0、6，人工判定分别 pass、partial。两路均无固定 4ms、4m、活动流年龄、上下文比例降级，无 JSON salvage、旧稿恢复或系统替写结论。
+2. Trace 主能力完整：精确 `34579.472865..34579.587805` 窗、`ThreadPoolForeg -> NetworkService -> CookieMonsterCl -> com.baidu.tieba` 唤醒链、链上优先级反转/调度供给/算力供给/D-state/IO 席位、确定性 `VerifyClass` 业务线索、代表窗、实际时间占用与规则可消量双账户、自动补齐和完整 `Trace 因果投影` 均在。邻近 `os.FusionSearch` 与跨线程压力保持背景，未升为主因；帧流因果未证被明确限定。`sched_wakeup.target_cpu` 的 1697 条有效记录全为 0，答案诚实声明字段疑退化，没有借该字段猜目标放置；独立 sched_switch CPU 运行分布仍正常发布。
+3. Rust 的 citable typed graph 足够且终稿图本身正确表达分支：`run -> walker::collect_files -> walk` 与 `run -> index_file -> Matcher::is_match` 是 sibling fan-out，不存在 `walk -> index_file`。模型结尾却把两支串成一条连续链，并把 6 个节点/5 条有向边写成“6 个跳跃”；同页列表和 Mermaid 已反证该句。该残余属于模型对精确上下文的遵循/算术波动，本轮不新增用户/模型/答案 prose 关键词硬门，不让系统删改或代写总结。
+4. 新 P1 `B1448-RELATIONREPAIRALIASPARITY1` 是 455s/6 reject 中前三轮的确定性系统 gap。首稿已有合法 `participant walker as "walker::collect_files"`，typed evidence 也证明 `collect_files -> walk`；B1446 的 `allowed_additions` 却只携带 technical identity/生成 id，没有携带当前图中既有 `walker` node id。模型第一次按当前图使用 `walker` 被报“不是 typed carrier”；改成 `collect_files` 又与已声明 participant 集不一致并被归回 `walker` 后再次拒绝，形成不可执行候选与普通 relation resolver 的别名权限漂移。
+5. `2ef3fdd96` 已按同一证据解析合同根修。candidate provider 在生成每条 allowed addition 时检查精确 block 的 Mermaid declaration；只有 declaration 经 accepted citable evidence 唯一解析为候选该侧的等价或无歧义 qualified/unqualified identity，才把其 node id 加入该侧 `FromNodeIDs/ToNodeIDs`。它不读取 message payload、请求、thinking、答案 prose 或模糊相似度；owner/class 不能借此代表任意 method；一个短端点同时匹配多个 qualified declaration 时零授权、继续 fail-closed。
+6. 回归覆盖 sequence participant alias 与 flow node alias 两种图族的生产 provider→allowed addition→atomic executor 全链；无 evidence 的显示 alias 不获权限，多 qualified alias 歧义不获权限，另一侧独立唯一 alias 仍可用。完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿并已推送。
+7. Rust 后三次拒绝另有两个分量：模型给 standalone list 写了 5 条 node pair 却漏双端 identity，系统正确发布 `attach`；模型随后在 atomic lease 下整块 replace，被正确拒绝，末轮才逐行 attach。最终接受时另有 citation-role soft advisory，但可见引用仍覆盖各函数定义/调用点；这些没有构成新的高 ROI 硬合同矛盾，先随异构 case 继续观察。
+
+状态：
+
+`r934=runner-pass-2/2+human-trace-pass+rust-partial`；
+`B1448=implemented+full-suite-pass+build-pass+pushed/pending-production-replay`；
+`existing-alias-authority=exact-declaration+unique-citable-evidence-resolution`；
+`ambiguous/untyped-visible-alias=fail-closed`；
+`rust-branch-linearization+6-vs-5=model-adherence-observe/no-hard-gate`；
+`system-relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r934`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r934`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
