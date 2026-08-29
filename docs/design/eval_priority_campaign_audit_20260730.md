@@ -57798,6 +57798,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1524 r941/B1454/B1455：双通道污染转正；有限运行时事实的场景与关系形统一（2026-08-29）
+
+1. 从已推送 `862742f8e` 的干净二进制严格并发恰好 2 路复放 ArkTS/仓颉混合日志与 Donghu 显式窗 Trace。runner 2/2 PASS：日志
+   140s、Trace 188s；人工均判 partial。两路无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写答案。
+2. B1454 的双通道根修获得生产正证。混合日志终稿准确列出 ArkTS 第一帧 `NativeBridge.invokeOhSum:33`、仓颉第一帧
+   `demo.bridge.ohSum:18` 及各自调用者；`<unverified-external-source>` 不再进入下游或终稿，上一轮已消失的 JVM/VM 标签臆造继续没有回归。
+   两条栈仍被正确声明为未证 peer，但模型后续清单又写“ArkTS 桥接层收到仓颉异常后向外传播”，形成同页跨栈因果矛盾；这是模型对已给边界的
+   遵循波动，禁止系统扫描正文、替换结论或按样例硬拟合，继续作为软教学与异构复放观察。
+3. 新 P1 `B1455-RUNTIMESCENARIORELATIONSHAPECONTRACT1` 是本轮 4 次 analyzer emit 的确定性根。B1454 已收窄 `intent=root_cause`，但同一枚举表
+   仍把 `scenario=root_cause` 粗写成 `debug a failure`，使任何崩溃附件上的有限帧定位再次被扩大成根因诊断；`question_kind=call_chain` 又只写
+   caller→callee，两条独立栈各自携带 caller frame 时模型仍误选调用链。随后 bounded scope、root-cause scenario、call-chain 与 member-set
+   依次冲突，直到第 4 稿才切为 generic+enumeration。这不是模型 JSON 畸形，而是同一 prompt 的类型边界不闭合。
+4. `a3f7401ec` 已按语义形根修并推送。`scenario=root_cause` 现在只描述开放式 cause/contributor/remediation/current-risk/regression 诊断，并明确
+   不包含独立观测到的 frame/value/state/count/time/type/message 有限查询；`scenario=generic` 明确承接不请求因果关系的有限运行时观察。
+   `question_kind=call_chain` 只在当前请求明确要求有序 caller/source→callee/sink、wakeup、invocation、dependency 或 causal path 时成立；每个运行时
+   occurrence 各自的首帧、位置、类型、数值、状态、次数、时间或消息，即使结构化 bundle 同时携带 caller，也仍是 bounded fact/enumeration。
+5. 该修复只校准模型所见 enum/低心智决策说明，不读取或扫描用户原始输入、thinking、模型正文、终稿 prose 或附件标签来做硬门；没有新增 deterministic
+   intent/关系选择器，更没有改写模型答案。新增回归分别钉住 runtime intent、scenario 与 call-chain 三个互斥边界。完整 `go test ./... -count=1`、
+   CGO release-tag `make`、定向 skill 测试与 `git diff --check` 全绿。
+6. Trace 主能力在 r941 继续 production-positive：精确 `34579.472865..34579.587805` 窗、四跳唤醒链、链上优先级反转、调度供给、算力供给、
+   D/IO、`VerifyClass` 业务语义点、主要真实占时/规则可消双账户、完整 `Trace 因果投影` 与成文前自动补采均在；邻近/背景没有进入主根因排序。
+   模型导语把目标 84.358ms 全部 sleep 概括为由四个排序方向共同解释，而 typed 投影只证明部分链上归因，列为既有总结口径软观察，禁止由系统
+   确权替写；下一轮用新二进制复放混合日志，验收 analyzer 是否一次形成 generic+bounded+non-call-chain 一致形。
+
+状态：
+
+`r941=runner-pass-2/2+human-mixed-log-partial+Trace-partial`；
+`B1454=production-positive/core-closed`；
+`B1455=implemented/full-suite-pass+build-pass+pushed/pending-production-replay`；
+`finite-runtime-observation!=root-cause-scenario-or-call-chain`；
+`call-chain=current-request-explicit-ordered-relation-only`；
+`system-answer/conclusion/intent/relation/wording-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r941`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r941`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
