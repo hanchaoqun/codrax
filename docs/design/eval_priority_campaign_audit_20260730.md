@@ -57763,6 +57763,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1523 r940/B1453/B1454：关系图已证主链保住；运行时意图合同冲突与外部占位符通道根修（2026-08-29）
+
+1. 从已推送 `0efc190bd` 的干净二进制严格并发恰好 2 路原样复放混合日志与 `qf_architecture`。runner 2/2 PASS：日志 148s、
+   architecture 354s；人工分别判 partial、pass。两路无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写答案。
+2. B1452 部分生产转正。日志答案保持两语言首帧/调用者和 peer 未证边界，上一轮按 opaque 标签臆造的“JVM 线程”消失；analyzer emit 从 5 次降为
+   3 次。但第 1 次仍把有限帧定位分类为 root-cause。代码冷读确认共享 `analysisIntents` 的 root-cause 描述仍写着“附加 runtime log 并问代码位置”即
+   root-cause，与同一 prompt 后面的“locating each observed crash frame 是 bounded fact，必须 non-root-cause intent/scenario”构成确定性合同自冲突。
+3. 新 P1 `B1454-RUNTIMEINTENTCONTRACTANDRAWPLACEHOLDER1` 的第二根是双通道权威漂移。B1450 已使完整外部结构化 bundle 保存精确
+   `ArtifactFile`，但 `shouldSuppressAttachedRuntimeLog` 仍对所有 external source 强制保留 raw；raw 经过 repo-read denial sanitizer 后含
+   `<unverified-external-source>`，模型把该内部占位符复制到终稿。路径不是丢失，问题是较弱的 raw channel 在完整 typed channel 已足够时仍并排竞争。
+4. `627f3fa47` 已根修并推送。root-cause intent 只描述真正的 cause/mechanism/contributor/remediation/current-risk/regression 请求，明确附件只是证据上下文；
+   finite frame/value/state/count/time/message 继续走 non-root-cause + bounded scope。结构化 crash authority 从“当前仓 resolved file”扩为“resolved File 或
+   精确 ArtifactFile”：至少 2 个不同位置或覆盖至少半数顶层帧时，下游抑制 raw channel；不完整 bundle 继续保留 raw，producer 自己始终能读 raw。
+   仓库读取与 citation denial 未放宽，系统未选择 analyzer intent，也未写答案。
+5. B1453 获得 production-positive/core-closed。architecture 最终图保留 `analyze -> explore -> extract -> finalize` 三条已证顺序边，并删除无 typed
+   relation 的 CondPre 聚合入口与两个隐藏 stale anchors，没有再删除整图。两次成文拒绝中第 1 次是精确关系/可见标签失败，第 2 次是模型把局部 lease
+   错用为 whole replace；第 3 次六个 local edge edit 成功。关系保真核心闭环，patch schema 心智和 354s 时延降为 P2 观察，禁止系统代模型选边。
+6. 新测试钉住“附件存在不铸 root-cause 意图”、finite crash frame 合同一致性、完整外部 artifact frames 抑制 raw、不完整 1/5 bundle 保留 raw、
+   log triager 始终读取 raw。完整 `go test ./... -count=1`、CGO release-tag `make`、定向 context/skill 与 `git diff --check` 全绿。
+
+状态：
+
+`r940=runner-pass-2/2+human-mixed-log-partial+architecture-pass`；
+`B1452=production-positive/partial-superseded-by-B1454`；
+`B1453=production-positive/core-closed+patch-mindload-P2-watch`；
+`B1454=implemented/full-suite-pass+build-pass+pushed/pending-production-replay`；
+`runtime-artifact-presence!=root-cause-intent`；
+`complete-structured-external-log=suppress-weaker-raw-channel`；
+`partial-structured-log=raw-channel-preserved`；
+`system-answer/conclusion/intent/relation/wording-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
