@@ -1603,6 +1603,57 @@ func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefsSelectAndRemoveRepeated
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_RepeatedPriorAnchorsReceiveExecutableBodyRefs(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n" +
+		"    participant A\n" +
+		"    participant B\n" +
+		"    A->>B: first unproven flow\n" +
+		"    A->>B: second unproven flow\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{
+		{FromNode: "A", ToNode: "B", FromIdentity: "applyStageOutput", ToIdentity: "BusContext",
+			RelationKind: types.DiagramRelDataFlow, VisibleLabel: "first unproven flow"},
+		{FromNode: "A", ToNode: "B", FromIdentity: "applyStageOutput", ToIdentity: "BusContext",
+			RelationKind: types.DiagramRelDataFlow, VisibleLabel: "second unproven flow"},
+	}
+	failures := []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: diagramDataFlowEdgeIssueNoEvidence,
+			FromNode: "A", ToNode: "B", FromIdentity: "applyStageOutput", ToIdentity: "BusContext",
+			RelationKind: types.DiagramRelDataFlow, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: diagramDataFlowEdgeIssueNoEvidence,
+			FromNode: "A", ToNode: "B", FromIdentity: "applyStageOutput", ToIdentity: "BusContext",
+			RelationKind: types.DiagramRelDataFlow, BodyOccurrence: 2},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, failures, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("repeated prior-anchor failures must produce one live capability per body occurrence: %+v", lease)
+	}
+	seenRefs := make(map[string]bool)
+	edits := make([]emitAnswerDiagramEdgeEdit, 0, len(lease.Failures))
+	for _, failure := range lease.Failures {
+		if failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
+			!failure.AllowsAction("remove") || len(failure.AllowedActions) != 1 ||
+			failure.BodyOccurrence < 1 || failure.BodyOccurrence > 2 ||
+			failure.FailureRef == "" || seenRefs[failure.FailureRef] {
+			t.Fatalf("repeated prior anchor published a non-executable or ambiguous ref: %+v", failure)
+		}
+		seenRefs[failure.FailureRef] = true
+		edits = append(edits, emitAnswerDiagramEdgeEdit{FailureRef: failure.FailureRef, Action: "remove"})
+	}
+
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, edits, nil, lease); err != nil {
+		t.Fatalf("occurrence-bound repeated prior-anchor refs must execute atomically: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("compiled replacements=%d, want one diagram", len(patch.ReplaceBlocks))
+	}
+	got := patch.ReplaceBlocks[0]
+	if len(got.EdgeAnchors) != 0 || len(mermaidcompat.ParseEdges(got.Diagram.Body)) != 0 {
+		t.Fatalf("both selected body and anchor occurrences must be removed exactly: anchors=%+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_FailureRefRejectsUnlistedAction(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev,

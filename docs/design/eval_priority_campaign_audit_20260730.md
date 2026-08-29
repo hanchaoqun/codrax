@@ -57291,6 +57291,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1498 r917/B1430：local relation 显示权限生产转正；重复 prior anchor 发布不可执行失败引用（2026-08-28）
+
+1. 从已推送 `e2ea498e4` 重建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 177s、read
+   636s。两路均未因 4ms、4m、首字节、stall、累计活动流年龄或上下文比例降级；没有恢复旧答案或由系统代写结论。
+2. Trace 人工判定 pass：显式 2.000..2.020s 窗、3 次 typed 查询、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳唤醒链、11.000ms 链上 IO 第一席、三个互相独立的
+   1.000ms runnable/优先级候选、主要实际占用/规则可消双账户、背景隔离和完整 `Trace 因果投影` 全部保留。正文还明确 IO
+   等待是链上前置工作重叠，当前未证明它直接同步阻塞 app-100；邻近/背景没有升为主因，零成文拒绝。
+3. B1428 获生产正证。read repair producer 发布的 `BusContext -> BuildAgentContext`、`Extractor -> BuildAgentContext` 和
+   `BusContext -> Mutable` 三条 exact typed addition 均通过后置 endpoint identity gate 并保留到最终图，不再复现 r916 的
+   `edge_anchor_node_identity_conflict`。三条边与 read-stage precedence 组合后，typed evidence 图已连接六个请求参与者，因此后续把
+   BusContext/Mutable 的 `unproven` 边界判为 stale 并由模型删除是正确闭环，不是 local-only 关系与边界合同冲突。
+4. 新 P1 `B1430-REPEATEDPRIORANCHORFAILURECAPABILITY1` 为确定性重试合同 GAP。read 初稿对同一可见 pair
+   `applyStageOutput -> BusContext` 画了两条不同说明的 data_flow，并附两条技术 tuple 相同的 prior anchors；两条均被 typed
+   relation gate 正确判为 `data_flow_edge_unproven`，各自的 parser-owned `body_occurrence` 也已存在。failure capability 编译却只接受
+   “唯一 prior anchor”；看到两条相同 tuple 后将 failure ref 发射成 `target_carrier=unknown, allowed_actions=[]`。同一修补提示又要求模型
+   correct-or-remove，该 ref 实际不能执行 remove，形成“必须修、但无动作能力”的局部死路。
+5. 该死路直接贡献 r917 的 10 次成文拒绝：模型先按 failure ref 删除，工具以 `allowed_actions=[]` 拒绝；随后被迫绕过当前 lease、等待新代次，
+   最终才用通用 match+block_id 删除两条边。B1277 已解决“重复 body-only、无 prior anchor”形，但没有覆盖“重复 body + 重复同 tuple prior
+   anchor”形；B1430 必须把每条失败的不可变 body occurrence 同时绑定到对应 anchor occurrence，发射两个独立
+   `visible_body_edge/remove` ref，并保持同 pair 从大 occurrence 到小 occurrence 的既有原子执行次序。
+6. 修复边界冻结：只读已解析 Mermaid AST 的 block/node pair/body occurrence、typed anchor tuple 与当前 lease 代次；不读取用户请求、模型
+   thinking、最终正文或 Mermaid message 作为事实/硬门，不自动选择 remove/replace/add，不修改关系、方向、节点、业务标签、布局或结论。
+   一个 occurrence 单独处理时必须删除同位置 body 与 anchor；歧义、越界、跨 block、陈腐 ref 和未允许 action 继续 fail-closed。
+7. read 最终人工判定 partial：最终图语法合法并保留 B1428 的三条载体关系，但阶段 precedence 被重复显示，状态载体与各阶段的细粒度读写关系仍
+   偏薄。前者先作为 B1430 后的异构回放观察，不扫描模型输出做硬拒；后者只有取得 exact typed 操作时才可增强，禁止系统为图形完整度补造桥。
+8. B1430 已按 occurrence 级载体施工。failure capability 在唯一 prior anchor 解析失败、但 producer 已提供完整 node pair 与正数
+   `body_occurrence` 时，改发 `visible_body_edge` 且只允许 `remove`；不把 evidence-negative 关系升级为 replace/add。opaque ref resolver 同时把
+   同一个 parser-owned occurrence 绑定为 anchor occurrence，确保第 N 条可见边与第 N 条同 tuple anchor 同位删除。既有同 pair 操作仍按拒绝草稿
+   occurrence 从大到小执行，模型只需提交两个 `{failure_ref,action:"remove"}`，无需重填 block/match/occurrence。
+9. 新回归覆盖 r917 原形：两条相同 from/to、相同 data_flow 身份 tuple、不同 visible label 的 prior anchors 必须得到两个不同、可执行、remove-only
+   refs，并在一个原子 patch 后同时清空对应 body/anchor；B1277 的四条 body-only occurrence、共享载体多 issue、陈腐/反向/越界 ref 等原回归保持。
+   `go test ./internal/types ./internal/tool -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+
+状态：
+
+`r917=runner-pass-2/2,human-trace-pass+read-partial`；
+`B1428=production-positive/core-closed`；
+`B1430=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`repeated-same-tuple-prior-failure=occurrence-bound-visible-remove-ref`；
+`body-occurrence=anchor-occurrence=same-immutable-base-position`；
+`system-edge/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r917`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r917`。
+
 ### §123.1496 r915/B1427：半身份失败不得吞掉同轮无锚坏边的原子修补能力（2026-08-28）
 
 1. 从已推送 `a29cde68a` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace：Trace 145s PASS，read 648s

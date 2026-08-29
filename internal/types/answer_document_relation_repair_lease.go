@@ -221,6 +221,20 @@ func answerDiagramRelationRepairFailureCapabilities(
 			}
 			return AnswerDiagramRelationRepairCarrierPriorAnchor, actions
 		}
+		// The evidence gate already assigns a parser-owned 1-based body
+		// occurrence to every failed visible relation.  When several rejected
+		// prior anchors have the same node/relation/identity tuple, the tuple is
+		// not a unique prior-anchor selector, but each visible occurrence is still
+		// an exact independent carrier.  Publish remove-only body capabilities
+		// instead of an unusable target_carrier=unknown row.  The executor binds
+		// the matching anchor occurrence from the same immutable base and the
+		// ordinary post-edit validators remain authoritative.
+		if failure.BodyOccurrence > 0 &&
+			strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" {
+			return AnswerDiagramRelationRepairCarrierVisibleBodyEdge, []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove,
+			}
+		}
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
 	}
 }

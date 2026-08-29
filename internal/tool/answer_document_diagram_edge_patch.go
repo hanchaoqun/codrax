@@ -1090,6 +1090,15 @@ func resolveAtomicDiagramFailureRef(
 	edit.Occurrence = 0
 	edit.BodyOccurrence = 0
 	edit.BodyOccurrence = failure.BodyOccurrence
+	// A visible-body failure's occurrence is minted against the same immutable
+	// rejected draft as its anchor snapshot.  Reuse that position for the
+	// matching prior anchor as well.  This matters when two failed visible rows
+	// carry identical technical tuples: selecting occurrence 2 must remove
+	// anchor 2, not whichever identical anchor happens to be found first.
+	if failure.TargetCarrier == types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge &&
+		failure.BodyOccurrence > 0 {
+		edit.Occurrence = failure.BodyOccurrence
+	}
 	if !failure.AllowsAction(action) {
 		return edit, fmt.Errorf(
 			"failure_ref=%q targets carrier=%s and does not allow action=%s; allowed_actions=%v",
