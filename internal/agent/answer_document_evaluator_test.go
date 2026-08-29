@@ -3976,8 +3976,14 @@ func TestRenderAnswerDocAggregateFacts_SourceOperationSiteCitationGuidance(t *te
 	}
 	prompt := renderAnswerDocAggregateFacts(ctx)
 	if !strings.Contains(prompt, "Source operation-site contract") ||
+		!strings.Contains(prompt, "Treat `member_notes` as model-authored candidate descriptions") ||
+		!strings.Contains(prompt, "calibrate every behavior or effect") ||
+		!strings.Contains(prompt, "describe the exact observed operation or disclose the evidence boundary") ||
 		!strings.Contains(prompt, "Do not borrow a nearby constant/path citation") {
 		t.Fatalf("aggregate fact prompt missing source operation-site citation guidance:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "preserve per-member details from `member_notes`") {
+		t.Fatalf("aggregate fact prompt must not require uncalibrated model-authored member notes:\n%s", prompt)
 	}
 }
 

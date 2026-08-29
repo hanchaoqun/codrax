@@ -57393,6 +57393,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1509 r928/B1442：逐跳操作边界到达后仍被非权威成员备注反向覆盖（2026-08-29）
+
+1. 从已推送 `d80072e1e` 重建不可变二进制，严格并发恰好 2 路复放 Java 与 Rust 跨模块调用链。Rust 172s runner/human PASS；Java 173s runner/human FAIL。两路均未按固定 4ms、4m、首字节、累计活动年龄或上下文比例降级，没有旧稿恢复、系统代写结论或关系。
+2. B1441 获得生产正证：Java 与 Rust 的一源空终点都按 typed `runtime_selection_profile=false` 归一为 `discover_terminal`；共享 observed-operation/effect 软边界进入两种语言的 Explorer 与 Finalizer。Rust 保留完整 `main -> run -> walker -> index_file -> Matcher.is_match` 链、两种 matcher 实现与 walker 的业务职责，说明该修复没有按 Java 或 stdout 过拟合，也没有压缩真实关系。
+3. Java 的六条 typed call、容量 guard、`AuditLog.record -> System.out.println` 与 Mermaid 均完整，故失败不在 parser、关系传递、endpoint 或图层。终稿仍把仅执行 `rows.add(...)` 的 `VisitRepository.insert` 称为“持久化新的就诊记录”，并沿用“审计落库”而未说明终点只是标准输出。
+4. 新 P1 `B1442-AGGREGATENOTEAUTHORITYCONFLICT1` 为第二个确定性上下文合同冲突。同一 Finalizer prompt 先声明 aggregate facts 与 `member_notes` 是模型生成、`fact_authority=advisory_model_inference` 只能作候选，`member_note_support_authority` 是逐成员行为主张的 typed 上限；随后 source-operation contract 又要求无条件“preserve per-member details from member_notes”。后一条把未经主体操作证明的“持久化/落库”概念描述重新抬回成文面，压过 B1441 已正确到达的逐跳操作边界。
+5. 本批按 typed 权限根修，不处理特定词或语言：保留每个 principal member identity 与对齐 support location；把 `member_notes` 明确为模型生成的候选描述，每个行为/效果必须服从该行 `member_note_support_authority` 与 accepted grounded operation。definition-only 只证明存在；grounded operation 更窄时，模型陈述真实操作或披露证据边界，不得被要求保留更强备注。
+6. 新 pin 同时要求正向权限教学与旧冲突句负向退役。该改动是 soft model context，不扫描请求、thinking、evidence summary、member note 或 final prose 做硬拒；不删除 aggregate rows，不创建、删除、反转关系，不替模型写业务结论。Trace 车道、显式时间窗、唤醒链、链上根因、因果投影、自动补齐、实际占时/规则可消双轴与 4ms/4m 禁降级均未修改。
+7. Rust 首稿有一次关系锚精度拒绝，修补只校准已画关系 metadata，最终主链/角色/图均完整，暂不新增 case-specific validator 放宽；作为跨图族重试率观察项继续进入后续两路异构复放。
+
+状态：
+
+`r928=runner-1/2-pass+human-rust-pass+java-fail`；
+`B1441=production-positive/core-closed`；
+`B1442=implemented+full-suite-pass+build-pass/pending-production-replay`；
+`member_identity+support_location=preserve`；`member_note_effect=typed-support-ceiling`；
+`request/model/final-prose/member-note-hard-gate=forbidden/none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
