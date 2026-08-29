@@ -57661,6 +57661,73 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1520 r937/B1450：附件内栈帧位置被仓库解析失败一起抹除，混合语言错误事实失真（2026-08-29）
+
+1. 从已推送 `59e9d48e2` 的干净二进制严格并发恰好 2 路运行 Donghu 显式窗 Trace 与 ArkTS/仓颉混合日志。runner 2/2 PASS：
+   Trace 161s、日志 114s；人工分别判 pass、fail。两路均无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写结论。
+2. Trace 主能力完整：精确 `34579.472865..34579.587805` 用户窗、四跳唤醒链、链上优先级反转/调度供给/算力供给/D-state/IO、
+   `VerifyClass` 业务线索、实际占时与规则可消量双轴、邻近/背景隔离、完整 `Trace 因果投影` 与自动补齐均在；帧因果未证被如实限定。
+3. 新 P1 `B1450-ARTIFACTFRAMEAUTHORITY1` 是日志答案人工失败的确定性系统 gap。`LogFrame.File` 同时承担“附件中逐字出现的路径”和
+   “当前仓库中可打开/引用的路径”；仓库解析失败后 validator 清空 `File`，downstream 只收到函数名、行号和
+   `<unverified-external-source>`。最终答案因此把 ArkTS 第一帧 `NativeBridge.invokeOhSum:33` 错换成调用者
+   `HomePage.computeTotal:54`，并泄漏 `peer error occurrence`、`cross_error_relation=unproven` 与内部占位符。
+4. `a43a9e9d8` 已按双权威根修。新增 system-derived、非 JSON 输入的 `LogFrame.ArtifactFile`，在仓库解析前保存附件内精确 token；
+   `File/ResolvedFiles/TypedDenials` 继续独占当前仓库读取与 citation 权限。结构化日志与 finalizer 只在验证后的日志区段恢复精确附件路径，并明确标注
+   “附件内位置、未映射当前仓库、不是仓库引用”；原始附加日志和其他 prompt 区段仍全量消毒，tool read denial 未放宽。
+5. 最终成文新增按每个顶层 error occurrence 的读者交接：各自 error type/message、`first observed frame` 和 `caller frame N`；peer 关系以读者语言
+   说明，不再发射原始关系枚举。回归钉住 ArkTS、仓颉两个语言栈、嵌套 cause walk、精确路径恢复、原始日志不回流和 TypedDenial 继续拒绝路径读取。
+   完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿并已推送。
+
+状态：
+
+`r937=runner-pass-2/2+human-trace-pass+mixed-log-fail`；
+`B1450=implemented/full-suite-pass+build-pass+pushed/pending-production-replay`；
+`artifact-file-authority=attached-log-observation-only`；
+`repo-file-authority=resolved-file+typed-denial-unchanged`；
+`system-answer/conclusion/relation-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r937`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r937`。
+
+### §123.1521 r938/B1451：附件路径权威转正；重复质疑与 peer 栈分类心智负担继续收敛（2026-08-29）
+
+1. 从已推送 `a43a9e9d8` 的干净二进制严格并发恰好 2 路复放同一混合日志与显式窗 Trace。runner 2/2 PASS：日志 131s、Trace
+   234s；人工均判 partial。两路均无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写结论。
+2. B1450 获得生产核心正证。日志答案准确发布 ArkTS 第一帧 `NativeBridge.invokeOhSum:33`、调用者 `HomePage.computeTotal:54`，仓颉第一帧
+   `demo.bridge.ohSum:18`、调用者 `demo.bridge.checkout:42`；精确附件路径完整保留，两个无显式链标记的顶层错误不再被最终答案硬连成因果关系，
+   原始 `cross_error_relation` 等关系枚举不再泄漏。
+3. 新 P1 `B1451-ARTIFACTBOUNDARYANDPEERMINDLOAD1` 有两个同根残余。第一，模型已用 typed `uncertainty_boundary` caveat 说明路径来自附加日志，
+   soft materializer 仍把同一路径按 `ViolDeniedTokenUndeclared` 追加成“尚未由当前证据确认”，混淆“附件事实”和“仓库源码引用”两种权威。第二，
+   log triager 先把相邻 peer 栈误铸为 cause、再重复生成非逐字 observation，耗 3 轮；analyzer 又在 `root_cause/call_chain` 与
+   `bounded_fact_set` 之间耗 3 轮。validators 均正确 fail-closed，但靠重试纠偏造成不必要模型心智与时延。
+4. `cc47c299d` 已按 typed topology 根修并推送。caveat materializer 只用验证后的 `LogFrame.ArtifactFile` 精确集合匹配 denied token：若当前文档已有
+   `caveat + uncertainty_boundary` typed 块则不重复追加；若没有，则发射准确的“来自附加日志、未映射当前仓库、不是源码引用”边界；完全未观测 token
+   继续保持原保守提示。全程不扫描请求或答案 prose，仓库 read/citation denial 不变。
+5. log-triage shape-first 教学前置说明：相邻顶层错误头默认是 peer，只有支持的逐字显式链标记才能构造 cause；相似消息、bridge/native 名称、时间邻近
+   均无因果权威；已经进入 `errors[]` 的错误头/栈不再重复写 observation。analyzer 另从验证后 `len(top-level errors)>1` 的结构信号获得软边界：有限的
+   type/message/frame 查询可选 `bounded_fact_set + other_observed_value`；真正因果问题仍允许宽诊断，但跨 occurrence 关系保持未证。模型继续拥有意图、
+   范围和最终结论，系统没有按用户词、模型 thinking 或终稿句子做硬分类。
+6. Trace 系统能力继续完整，唯一 `read_file` 目标是 `.codrax/blob/.../trace-query-result-*.json` 运行时工件，不是源码回退。模型正文仍把明确重叠的
+   两个优先级席相加为 43.035ms、把 D/IO 重叠席相加为 17.819ms，并在无绝对标尺时称压力“中等”、目标线程“轻载”；typed 因果投影已经正确写明
+   同向成员重叠不可加、方向取最大 23.994ms/10.433ms。该残余继续定性为模型对精确上下文的遵循波动，不增加正文关键词硬门，也不由系统替换模型总结。
+7. 新增测试覆盖附件 token/仓库 token 分流、已有 typed 边界去重、缺边界时准确补充、未知 token 保守提示、peer topology analyzer 软教学、单错误不触发、
+   JSON shape-first peer/cause/observation 边界。定向四包、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+
+状态：
+
+`r938=runner-pass-2/2+human-mixed-log-partial+trace-partial`；
+`B1450=production-positive/core-closed`；
+`B1451=implemented/full-suite-pass+build-pass+pushed/pending-production-replay`；
+`artifact-path-disclosure=typed-document-boundary-or-precise-system-boundary`；
+`peer-error-shape=validated-topology-soft-guidance`；
+`trace-overlap+severity-wording=model-adherence-observe/no-prose-hard-gate`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r938`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r938`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
