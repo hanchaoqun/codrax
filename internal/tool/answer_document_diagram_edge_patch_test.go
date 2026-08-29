@@ -1354,35 +1354,48 @@ func TestLocalDiagramLeaseWholeBlockMutationViolation_TargetOnly(t *testing.T) {
 		"remove target":  {RemoveBlockIDs: []string{"diag"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := localDiagramLeaseWholeBlockMutationViolation(params, lease); got == nil || got.BlockID != "diag" {
+			if got := localDiagramLeaseWholeBlockMutationViolation(params, lease, prev, nil); got == nil || got.BlockID != "diag" {
 				t.Fatalf("whole target mutation must be rejected from typed lease: %+v", got)
 			}
 		})
 	}
 	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
 		ReplaceBlocks: []emitAnswerBlockV2{{ID: "summary"}},
-	}, lease); got != nil {
+	}, lease, prev, nil); got != nil {
 		t.Fatalf("unrelated sibling replacement must remain available: %+v", got)
 	}
 	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
 		RemoveBlockIDs: []string{"summary"},
-	}, lease); got != nil {
+	}, lease, prev, nil); got != nil {
 		t.Fatalf("unrelated sibling removal must remain available for a simultaneous structural repair: %+v", got)
 	}
 	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
 		AddBlocks: []emitAnswerBlockV2{{ID: "new"}},
-	}, lease); got == nil {
+	}, lease, prev, nil); got == nil {
 		t.Fatal("executor must reject an addition omitted by the live local schema")
+	}
+	requiredSummaryView := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{{
+		Kind: types.BlockSummary, MinCount: 2, MaxCount: 2, Required: true,
+	}}}
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		AddBlocks: []emitAnswerBlockV2{{ID: "required-summary", Kind: "summary", Text: "model-authored"}},
+	}, lease, prev, requiredSummaryView); got != nil {
+		t.Fatalf("executor must admit an addition that strictly closes a typed required-block deficit: %+v", got)
+	}
+	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
+		AddBlocks: []emitAnswerBlockV2{{ID: "optional-caveat", Kind: "caveat", Text: "extra"}},
+	}, lease, prev, requiredSummaryView); got == nil || got.Issue != "whole_add_not_authorized" {
+		t.Fatalf("typed required-block addition must not widen into optional roster growth: %+v", got)
 	}
 	lease.AllowTargetDiagramRemoval = true
 	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
 		RemoveBlockIDs: []string{"diag"},
-	}, lease); got != nil {
+	}, lease, prev, nil); got != nil {
 		t.Fatalf("typed optional presentation contract must admit exact model-selected target removal: %+v", got)
 	}
 	if got := localDiagramLeaseWholeBlockMutationViolation(&emitAnswerDocumentPatchParams{
 		ReplaceBlocks: []emitAnswerBlockV2{{ID: "diag"}},
-	}, lease); got == nil || got.Issue != "whole_replace_not_authorized" {
+	}, lease, prev, nil); got == nil || got.Issue != "whole_replace_not_authorized" {
 		t.Fatalf("optional removal must not broaden into whole target replacement: %+v", got)
 	}
 	removed := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
@@ -1394,12 +1407,13 @@ func TestLocalDiagramLeaseWholeBlockMutationViolation_TargetOnly(t *testing.T) {
 	mut := types.NewMutableState("optional target removal execution")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
 	mut.SetAnswerDiagramRelationRepairLease(lease)
-	result, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{
+	result, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(fmt.Sprintf(`{
 		"unchanged_block_ids":["summary"],
-		"remove_block_ids":["diag"]
-	}`))
+		"remove_block_ids":["diag"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, lease.Failures[0].FailureRef)))
 	if err != nil || !result.Success {
-		t.Fatalf("production patch path must execute explicit optional target removal: err=%v result=%+v", err, result)
+		t.Fatalf("production patch path must absorb a redundant local edit shadowed by explicit optional target removal: err=%v result=%+v", err, result)
 	}
 	if got := mut.AnswerDocumentV2(); got == nil || len(got.Blocks) != 1 || got.Blocks[0].ID != "summary" {
 		t.Fatalf("optional target removal changed the wrong roster: %+v", got)

@@ -899,6 +899,45 @@ func TestEmitAnswerDocumentPatchMixedLeaseNarrowsDiagramAndKeepsNonDiagramBlockR
 	}
 }
 
+func TestLocalDiagramLeaseSchemaPublishesOnlyMissingTypedRequiredBlockAddition(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n A --> B\n",
+		}},
+		{ID: "chain", Kind: types.BlockOrderedList, Text: "model-authored path"},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(base,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "flow", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B", BodyOccurrence: 1,
+		}}, nil, true)
+	if lease == nil {
+		t.Fatal("missing-required mixed lease setup failed")
+	}
+	view := &types.AnswerSemanticView{RequiredBlocks: []types.BlockRequirement{
+		{Kind: types.BlockSummary, MinCount: 1, MaxCount: 1, Required: true},
+		{Kind: types.BlockOrderedList, MinCount: 1, MaxCount: 1, Required: true},
+	}}
+	raw := narrowAnswerDocumentPatchParametersForLocalDiagramLease(
+		BuildAnswerDocumentPatchParametersFor(view), lease, base, view,
+	)
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("missing-required mixed schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	addBlocks, ok := props["add_blocks"].(map[string]any)
+	if !ok {
+		t.Fatal("typed summary deficit must remain executable alongside the diagram lease")
+	}
+	if addBlocks["minItems"] != float64(1) || addBlocks["maxItems"] != float64(1) {
+		t.Fatalf("typed addition capacity=%+v, want exactly one missing carrier", addBlocks)
+	}
+	kinds := addBlocks["items"].(map[string]any)["properties"].(map[string]any)["kind"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(kinds, []any{"summary"}) {
+		t.Fatalf("typed addition kinds=%v, want only missing summary", kinds)
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_NoLeaseHidesGenerationScopedCapabilities(t *testing.T) {
 	mut := types.NewMutableState("retry without a relation lease")
 	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})

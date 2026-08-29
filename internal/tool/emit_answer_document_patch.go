@@ -301,7 +301,7 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
 	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, localDiagramLeaseTargetBlockIDs(lease))
-	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev)
+	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
 }
 
 // DescriptionFor keeps the prose surface aligned with the per-dispatch schema.
@@ -387,7 +387,7 @@ func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage
 // surface that previously burned retries after a precise lease had already
 // been published. A malformed or mixed non-diagram lease keeps the broad
 // compatibility schema and remains fail-closed in the executor.
-func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2) json.RawMessage {
+func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2, view *types.AnswerSemanticView) json.RawMessage {
 	targets := localDiagramLeaseTargetBlockIDs(lease)
 	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
 		return raw
@@ -410,14 +410,16 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if len(allowedReplacementIDs) == 0 || !narrowAnswerDocumentPatchReplacementIDs(properties, allowedReplacementIDs) {
 		delete(properties, "replace_blocks")
 	}
-	// Adding blocks is not needed for a local relation repair and can change the
-	// document roster. Exact replacement or removal of an unrelated existing
-	// model-authored block remains available because the same validation round
-	// may publish a non-diagram structural failure alongside the relation lease.
-	// The exact existing-id enums keep that permission bounded. An optional
-	// diagram contract additionally exposes its exact target-removal branch;
-	// required diagrams keep target removal absent.
-	delete(properties, "add_blocks")
+	// A relation failure can share one validation generation with an independent
+	// typed block-cardinality failure. Keep arbitrary roster growth closed, but
+	// expose the exact missing required kind(s) from AnswerSemanticView. The
+	// model still authors the id, wording, evidence bindings, and conclusion;
+	// this projection only makes the already-required structural carrier
+	// executable in the same atomic retry.
+	missingKinds, additionCapacity := missingRequiredAnswerBlockAdditionCapabilities(prev, view)
+	if additionCapacity == 0 || !narrowAnswerDocumentPatchRequiredAdditionKinds(properties, missingKinds, additionCapacity) {
+		delete(properties, "add_blocks")
+	}
 	removableIDs := append([]string(nil), allowedReplacementIDs...)
 	if lease.AllowTargetDiagramRemoval {
 		removableIDs = append(removableIDs, targets...)
@@ -489,6 +491,58 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 		return raw
 	}
 	return out
+}
+
+// missingRequiredAnswerBlockAdditionCapabilities derives the only safe
+// roster-add surface during a live local diagram lease. It reads the compiled
+// typed answer contract plus the rejected document's block metadata; it never
+// parses request text, model reasoning, visible answer prose, or Mermaid.
+func missingRequiredAnswerBlockAdditionCapabilities(prev *types.AnswerDocumentV2, view *types.AnswerSemanticView) ([]string, int) {
+	if prev == nil || view == nil {
+		return nil, 0
+	}
+	seen := map[string]bool{}
+	var kinds []string
+	capacity := 0
+	for _, requirement := range view.RequiredBlocks {
+		if !requirement.Required || requirement.MinCount <= 0 {
+			continue
+		}
+		got := types.CountAnswerBlocksForRequirement(prev.Blocks, requirement)
+		if got >= requirement.MinCount {
+			continue
+		}
+		capacity += requirement.MinCount - got
+		for _, kind := range requirement.AcceptedKinds() {
+			value := strings.TrimSpace(string(kind))
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			kinds = append(kinds, value)
+		}
+	}
+	sort.Strings(kinds)
+	if len(kinds) == 0 {
+		return nil, 0
+	}
+	return kinds, capacity
+}
+
+func narrowAnswerDocumentPatchRequiredAdditionKinds(properties map[string]any, kinds []string, capacity int) bool {
+	addBlocks, _ := properties["add_blocks"].(map[string]any)
+	items, _ := addBlocks["items"].(map[string]any)
+	blockProperties, _ := items["properties"].(map[string]any)
+	kindSchema, _ := blockProperties["kind"].(map[string]any)
+	if addBlocks == nil || items == nil || blockProperties == nil || kindSchema == nil || len(kinds) == 0 || capacity <= 0 {
+		return false
+	}
+	kindSchema["enum"] = stringsToAny(kinds)
+	delete(kindSchema, "const")
+	addBlocks["minItems"] = 1
+	addBlocks["maxItems"] = capacity
+	addBlocks["description"] = "Add only a missing model-authored carrier required by this dispatch's typed block contract. The kind enum and maxItems are the complete executable deficit for the immutable rejected draft; author the id, visible content, evidence bindings, and conclusion yourself. This permission does not authorize another diagram or an optional extra block."
+	return true
 }
 
 func unrelatedAnswerDocumentPatchBlockIDs(prev *types.AnswerDocumentV2, targets []string) []string {
@@ -1463,6 +1517,8 @@ type emitAnswerDiagramParticipantEdit struct {
 func localDiagramLeaseWholeBlockMutationViolation(
 	p *emitAnswerDocumentPatchParams,
 	lease *types.AnswerDiagramRelationRepairLease,
+	prev *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
 ) *types.AnswerDiagramRelationRepairScopeViolation {
 	if p == nil {
 		return nil
@@ -1480,8 +1536,8 @@ func localDiagramLeaseWholeBlockMutationViolation(
 			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_replace_not_authorized"}
 		}
 	}
-	for _, block := range p.AddBlocks {
-		id := strings.TrimSpace(block.ID)
+	if len(p.AddBlocks) > 0 && !requiredAnswerBlockAdditionsAuthorized(prev, view, p.AddBlocks) {
+		id := strings.TrimSpace(p.AddBlocks[0].ID)
 		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_add_not_authorized"}
 	}
 	for _, edit := range p.BlockFieldEditsV1 {
@@ -1500,6 +1556,167 @@ func localDiagramLeaseWholeBlockMutationViolation(
 		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_remove_not_authorized"}
 	}
 	return nil
+}
+
+// requiredAnswerBlockAdditionsAuthorized is the executor-side mirror of the
+// projected add_blocks capability. Every submitted addition must strictly
+// reduce the compiled required-block deficit on the immutable retry base. This
+// prevents a stale or bypassed tool schema from turning a local diagram lease
+// into arbitrary roster growth while admitting a simultaneously missing
+// summary/list/table carrier.
+func requiredAnswerBlockAdditionsAuthorized(prev *types.AnswerDocumentV2, view *types.AnswerSemanticView, additions []emitAnswerBlockV2) bool {
+	if prev == nil || view == nil || len(additions) == 0 {
+		return false
+	}
+	working := append([]types.AnswerBlock(nil), prev.Blocks...)
+	deficit := requiredAnswerBlockDeficit(working, view)
+	if deficit <= 0 {
+		return false
+	}
+	for _, addition := range additions {
+		candidate := types.AnswerBlock{
+			ID:          strings.TrimSpace(addition.ID),
+			Kind:        types.AnswerBlockKind(strings.TrimSpace(addition.Kind)),
+			FacetIDs:    append([]string(nil), addition.FacetIDs...),
+			ClaimUses:   append([]types.RenderedClaimUse(nil), addition.ClaimUses...),
+			SurfaceRole: types.SurfaceRole(strings.TrimSpace(addition.SurfaceRole)),
+		}
+		working = append(working, candidate)
+		next := requiredAnswerBlockDeficit(working, view)
+		if next >= deficit {
+			return false
+		}
+		deficit = next
+	}
+	return true
+}
+
+func requiredAnswerBlockDeficit(blocks []types.AnswerBlock, view *types.AnswerSemanticView) int {
+	if view == nil {
+		return 0
+	}
+	deficit := 0
+	for _, requirement := range view.RequiredBlocks {
+		if !requirement.Required || requirement.MinCount <= 0 {
+			continue
+		}
+		if got := types.CountAnswerBlocksForRequirement(blocks, requirement); got < requirement.MinCount {
+			deficit += requirement.MinCount - got
+		}
+	}
+	return deficit
+}
+
+// absorbAtomicDiagramEditsShadowedByOptionalRemoval treats an explicit typed
+// optional-diagram removal as the terminal disposition for that same carrier.
+// Local edits against a block the model also chose to remove are structurally
+// redundant, so retaining them would only manufacture an operation conflict.
+// The function never chooses removal: it runs only when remove_block_ids names
+// an exact lease target and the typed presentation contract authorized target
+// removal.
+func absorbAtomicDiagramEditsShadowedByOptionalRemoval(p *emitAnswerDocumentPatchParams, lease *types.AnswerDiagramRelationRepairLease) []string {
+	if p == nil || lease == nil || !lease.AllowTargetDiagramRemoval || len(p.RemoveBlockIDs) == 0 {
+		return nil
+	}
+	targets := map[string]bool{}
+	for _, id := range localDiagramLeaseTargetBlockIDs(lease) {
+		targets[strings.TrimSpace(id)] = true
+	}
+	removed := map[string]bool{}
+	for _, id := range p.RemoveBlockIDs {
+		id = strings.TrimSpace(id)
+		if targets[id] {
+			removed[id] = true
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	var fields []string
+	edges := p.DiagramEdgeEdits[:0]
+	for i, edit := range p.DiagramEdgeEdits {
+		if removed[diagramEdgeEditLeaseBlockID(edit, lease)] {
+			fields = append(fields, fmt.Sprintf("diagram_edge_edits[%d]", i))
+			continue
+		}
+		edges = append(edges, edit)
+	}
+	p.DiagramEdgeEdits = edges
+	boundaries := p.DiagramBoundaryReplacements[:0]
+	for i, replacement := range p.DiagramBoundaryReplacements {
+		if removed[strings.TrimSpace(replacement.BlockID)] {
+			fields = append(fields, fmt.Sprintf("diagram_boundary_replacements[%d]", i))
+			continue
+		}
+		boundaries = append(boundaries, replacement)
+	}
+	p.DiagramBoundaryReplacements = boundaries
+	boundaryEdits := p.DiagramBoundaryEdits[:0]
+	for i, edit := range p.DiagramBoundaryEdits {
+		if removed[diagramBoundaryEditLeaseBlockID(edit, lease)] {
+			fields = append(fields, fmt.Sprintf("diagram_boundary_edits[%d]", i))
+			continue
+		}
+		boundaryEdits = append(boundaryEdits, edit)
+	}
+	p.DiagramBoundaryEdits = boundaryEdits
+	scopeEdits := p.DiagramRelationScopeEdits[:0]
+	for i, edit := range p.DiagramRelationScopeEdits {
+		if removed[strings.TrimSpace(edit.BlockID)] {
+			fields = append(fields, fmt.Sprintf("diagram_relation_scope_edits[%d]", i))
+			continue
+		}
+		scopeEdits = append(scopeEdits, edit)
+	}
+	p.DiagramRelationScopeEdits = scopeEdits
+	participantEdits := p.DiagramParticipantEdits[:0]
+	for i, edit := range p.DiagramParticipantEdits {
+		if removed[diagramParticipantEditLeaseBlockID(edit, lease)] {
+			fields = append(fields, fmt.Sprintf("diagram_participant_edits[%d]", i))
+			continue
+		}
+		participantEdits = append(participantEdits, edit)
+	}
+	p.DiagramParticipantEdits = participantEdits
+	return fields
+}
+
+func diagramEdgeEditLeaseBlockID(edit emitAnswerDiagramEdgeEdit, lease *types.AnswerDiagramRelationRepairLease) string {
+	if id := strings.TrimSpace(edit.BlockID); id != "" {
+		return id
+	}
+	for _, failure := range lease.Failures {
+		if strings.TrimSpace(edit.FailureRef) != "" && strings.TrimSpace(edit.FailureRef) == strings.TrimSpace(failure.FailureRef) {
+			return strings.TrimSpace(failure.BlockID)
+		}
+	}
+	for _, candidate := range lease.AllowedAdditions {
+		if strings.TrimSpace(edit.AdditionRef) != "" && strings.TrimSpace(edit.AdditionRef) == strings.TrimSpace(candidate.AdditionRef) {
+			return strings.TrimSpace(candidate.BlockID)
+		}
+	}
+	return ""
+}
+
+func diagramBoundaryEditLeaseBlockID(edit emitAnswerDiagramBoundaryEdit, lease *types.AnswerDiagramRelationRepairLease) string {
+	for _, failure := range lease.ParticipantBoundaryFailures {
+		if strings.TrimSpace(edit.BoundaryRef) != "" && strings.TrimSpace(edit.BoundaryRef) == strings.TrimSpace(failure.BoundaryRef) {
+			return strings.TrimSpace(failure.BlockID)
+		}
+	}
+	return ""
+}
+
+func diagramParticipantEditLeaseBlockID(edit emitAnswerDiagramParticipantEdit, lease *types.AnswerDiagramRelationRepairLease) string {
+	if id := strings.TrimSpace(edit.BlockID); id != "" {
+		return id
+	}
+	for _, failure := range lease.ParticipantVisibilityFailures {
+		if strings.TrimSpace(edit.ParticipantRef) != "" && strings.TrimSpace(edit.ParticipantRef) == strings.TrimSpace(failure.ParticipantRef) {
+			return strings.TrimSpace(failure.BlockID)
+		}
+	}
+	return ""
 }
 
 type splitCompanionDispositionFailure struct {
@@ -1713,7 +1930,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		lease = nil
 	}
-	if violation := localDiagramLeaseWholeBlockMutationViolation(&p, lease); violation != nil {
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if fields := absorbAtomicDiagramEditsShadowedByOptionalRemoval(&p, lease); len(fields) > 0 {
+		logging.Warning("[emit_answer_document_patch] absorbed atomic diagram operation(s) shadowed by explicit optional target removal: %s",
+			strings.Join(fields, ", "))
+	}
+	if violation := localDiagramLeaseWholeBlockMutationViolation(&p, lease, prev, view); violation != nil {
 		return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, []types.AnswerDiagramRelationRepairScopeViolation{*violation}),
 			"local diagram repair lease requires atomic diagram operations for block=%q; whole-block operation=%s is not authorized",
 			violation.BlockID, violation.Issue)

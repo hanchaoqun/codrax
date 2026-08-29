@@ -57440,6 +57440,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r929`。
 
+### §123.1511 r930/B1444：局部图修补与 typed 必需块新增权限合成（2026-08-29）
+
+1. 从已推送 `c204533c6` 干净构建，严格并发恰好 2 路复放 TypeScript workspace 与 C++ virtual-dispatch 调用链。runner 2/2 PASS：C++ 223s、TypeScript 263s；人工 2/2 PASS。两路均无固定 4ms、4m、首字节、累计活动年龄或上下文比例降级，无旧稿恢复、JSON salvage、系统答案替写或关系补造。
+2. C++ 最终准确分开两段已证调用：`Logger.log -> Sink.write` 与 `ConsoleSink.write -> fputs/fputc`，说明虚分派和 `SinkRegistry.create` 的三种后端选择，并诚实披露当前源码没有证明 factory 返回值如何到达 Logger 构造调用者。唯一一次成文拒绝是两个模型列表声明 `call_edge` 却漏 `edge_anchors`，模型一次局部补齐通过；暂不为这一轮 JSON 遗漏新增硬门。
+3. B1443 获得生产正证但仍为 partial。相同 TypeScript case 从 r929 的 8 拒/393s 降到 4 拒/263s；实际 diagram failure 已使用 generation-scoped `failure_ref/action`，无关 block 删除也成功，不再猜 legacy block/match/body occurrence。最终调用链、retry guard/delay 和 `@app/core` 路径映射均准确，但模型仍在第四轮删除了可选 sequenceDiagram。
+4. 新 P1 `B1444-MIXEDREPAIRREQUIREDADDITION1` 为剩余确定性合同冲突。首稿同时缺少 typed 必需 `summary`、非图列表缺关系 metadata、可选图有重复调用边。局部图 lease 旧逻辑无条件删除 `add_blocks`，执行器也无条件拒绝 whole add；模型按 validator 要求补 summary 仍报 `whole_add_not_authorized`。随后模型同一事务明确删除 optional diagram 并提交该图的 edge remove，执行器又把“删载体”与“改载体”视为冲突。两次都不是证据不足或模型波动。
+5. B1444 按 typed capability union 根修。schema 仅从 `AnswerSemanticView.RequiredBlocks` 和不可变拒绝草稿计算真实 deficit，开放缺少的 kind 与最大数量；执行器逐个验证每个模型新增块必须严格降低同一 typed deficit，任何 optional extra、第二个无贡献块或 lease-target whole add 继续 fail-closed。模型仍作者化 block id、可见内容、证据绑定和结论，系统不构造 summary。
+6. typed `AllowTargetDiagramRemoval` 且模型明确把 exact target 放入 `remove_block_ids` 时，删除是该载体的终态；同 target 的 edge/boundary/participant/scope 原子操作作为被删载体上的结构冗余吸收。系统不替模型选择删除，不吸收其他图或正文操作；必需图、未授权目标、跨 target 与没有显式 remove 的局部操作保持原门。
+7. 回归覆盖：混合 lease 只发布缺少的 `summary` 且容量为 1；执行器允许一个严格降低 deficit 的 summary、拒绝额外 caveat；可选图同事务 `remove target + failure_ref edge remove` 一次通过；unrelated replace/remove、必需图不可删、普通 relation lease 与 no-lease 兼容面保持。`go test ./internal/tool -count=1`、全仓 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+
+状态：
+
+`r930=runner-pass-2/2+human-pass-2/2`；
+`B1443=production-positive/partial`；
+`B1444=implemented+full-suite-pass+build-pass/pending-production-replay`；
+`local-lease-add=typed-required-deficit-only`；
+`optional-target-remove=explicit-model-choice+shadowed-local-ops-absorbed`；
+`system-summary/relation/action/node/label/layout/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r930`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
