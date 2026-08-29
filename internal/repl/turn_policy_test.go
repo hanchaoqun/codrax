@@ -1897,6 +1897,11 @@ func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
 		"runtime_artifact_kind=<log|trace|mixed>",
 		"Never use this signal to enter write unless",
 		"current_source_evidence_mode is orthogonal to needs_repo_access",
+		"Repository availability is capability, not evidence authority",
+		"MUST NOT\n  turn an artifact-only question into a current-source question",
+		"first ask whether the CURRENT message explicitly requests",
+		"an artifact frame has a source-looking path do not change that answer",
+		"matching the frame to a similarly named checkout file",
 		"结合这段客户日志和当前源码解释超时发生在哪一层",
 	} {
 		if !strings.Contains(system, want) {

@@ -361,7 +361,7 @@ var turnPolicyTool = llm.ToolSchema{
     "current_source_evidence_mode": {
       "type": "string",
       "enum": ["required", "optional"],
-      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Set required for current-source questions and ANY explicit artifact+current-source correlation, even when source=artifact describes the primary attachment. If your reason says current source/code must be analyzed, optional is self-contradictory. Never infer this field from answer prose."
+      "description": "Whether evidence from the current repository checkout must participate in this answer. This is orthogonal to needs_repo_access: artifact-only log/trace/MCP investigation still uses route=repo and needs_repo_access=true to enter the analysis pipeline, but sets optional. Repository availability, route=repo, and needs_repo_access=true are pipeline capabilities and NEVER by themselves make current source required. Set required only when the CURRENT request explicitly asks about current source/code/repository implementation or explicitly asks to correlate the artifact with current source; otherwise an artifact-only question sets optional. If your reason says current source/code must be analyzed, optional is self-contradictory. Never infer this field from answer prose."
     },
     "needs_operation_access": {
       "type": "boolean",
@@ -572,6 +572,9 @@ Current repository context:
   This is a code-analysis REPL with a current repository available.
   Fresh questions about the current project/system/codebase should use
   route=repo even when the user does not spell out the project name.
+  Repository availability is capability, not evidence authority. It MUST NOT
+  turn an artifact-only question into a current-source question or authorize
+  searching the checkout for a similarly named frame, type, path, or symbol.
   Do NOT choose clarify merely because last_answer_present=false or
   because the current system/project name is omitted. The missing-prior
   signal only applies when the turn asks to transform, summarize,
@@ -591,6 +594,12 @@ current_source_evidence_mode is orthogonal to needs_repo_access:
              needs_repo_access=true are still required to enter the analysis
              pipeline. Runtime observations remain answer-grade evidence and
              must not be erased merely because the current checkout differs.
+Low-mind precedence: first ask whether the CURRENT message explicitly requests
+current source/code/repository implementation or an artifact-to-current-source
+correlation. If no, choose optional for an artifact-only question. The facts
+that a repository is available, route=repo is required, needs_repo_access=true,
+or an artifact frame has a source-looking path do not change that answer and do
+not authorize matching the frame to a similarly named checkout file.
 This is typed routing metadata, not evidence. Do not derive answer facts from it.
 If the current request asks to combine an artifact with current source, emit
 source=mixed and current_source_evidence_mode=required. Do not emit optional
