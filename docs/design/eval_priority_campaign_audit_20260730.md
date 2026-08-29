@@ -57624,6 +57624,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1519 r936：B1449 生产转正；Java 终点效应证据充足但模型未正面纠正“审计落库”前提（2026-08-29）
+
+1. 从已推送 `9401fdef7` 的干净二进制严格并发恰好 2 路运行 Java 分层调用链读模式与 Gson
+   `LazilyParsedNumber` 写模式。runner 0/2：read 126s 因严格答案语义正则未命中，write 171s 因本机缺少 Java runtime 而
+   `unverified/runner_missing`；人工分别判 partial、pass。两路均无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写结论。
+2. read 的代码事实与主要答案结构正确：`VisitController.create -> VisitService.schedule`，在 `VisitService.schedule:18` 用
+   `countOpenVisits >= max` 做容量守卫，通过后 `VisitRepository.insert` 仅写内存 `rows`，再调用 `AuditLog.record`；终点真实操作是
+   `AuditLog.record -> System.out.println`。终稿同时写出了“内存存储”和“当前实现为 System.out.println 打印”，没有把终点伪造为数据库 API。
+3. 人工仍判 partial，因为请求把概念终点写成“审计落库”，终稿没有正面说“审计事件没有数据库/持久化落点”；严格 oracle 要求该边界显式出现，
+   因此本次 runner false 不是纯词形误报。系统上下文并不缺证据：parser-grounded terminal body、`AuditLog.java:6` 调用坐标、
+   `effect_scope=exact_call_only` 以及“终点名/层名不证明 durability/storage”的成文教学全部在场。故本轮残余定性为模型对精确上下文的遵循波动，
+   不增加请求/模型/最终 prose 关键词硬门，不由系统强制追加否定句，也不为单个 fixture 改写模型答案。
+4. read 仅一次成文拒绝：模型在 `ordered_list` 声明 typed `call_edge`，却漏了同块 `edge_anchors`；工具给出精确候选，模型用一次局部 patch
+   补齐后通过。没有关系被系统删除、没有整稿重写、没有重试风暴。可见关联边列表没有单独重复打印容量计数边，但第 3 条步骤已明确该调用与条件；
+   继续用异构关系用例观察，不据本例新增展示硬约束。
+5. write 获 B1449 的生产正证。计划只修改 `LazilyParsedNumber.java`，新增基于 `value` 的 `equals/hashCode`，不改测试期望；真实 Java probe
+   直接构造 `LazilyParsedNumber`、比较相等/哈希并执行 `HashMap` 命中，因此 executable type carrier 被新门正确接受。r935 的
+   `"javac Main.java"` command literal 不能再伪造耦合，而本轮合法 target-coupled probe 未被误伤，`B1449` 转为 core-closed。
+6. 写模式的 `make check` source-static 校验通过；probe 与 manifestless Java direct-main 因本机无 JDK 而 unavailable，workflow 正确保留
+   `runner_missing` 并以 `accept_unverified` 结束，没有把静态脚本冒充运行时行为通过。runner FAIL 反映验证口径不足，不是补丁失败、测试绕过或
+   authority 漏洞；后续有 JDK 的异构环境再补 runtime-positive，不为本机环境缺失降低验证红线。
+
+状态：
+
+`r936=runner-fail-0/2+human-java-read-partial+gson-write-pass-honest-unverified`；
+`B1449=production-positive/core-closed`；
+`java-terminal-effect-context=typed+exact+finalizer-visible`；
+`audit-durability-boundary=model-adherence-observe/no-prose-hard-gate`；
+`write-probe=direct-target-reference-accepted`；
+`literal/comment/command-text=zero-coupling-authority`；
+`java-runtime=runner-missing/honestly-unverified`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
