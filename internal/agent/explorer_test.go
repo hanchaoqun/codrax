@@ -2511,14 +2511,20 @@ func TestExplorerBoundedPeerErrorsKeepCompletionHandoffFactOnly(t *testing.T) {
 
 	prompt := (&explorerEvaluator{}).buildRuntimeObservationOnlyStartInstruction(ctx)
 	for _, want := range []string{
-		"### Typed Peer-Error Fact Scope",
-		"runtime_question_scope=`bounded_fact_set`",
-		"complete the requested finite facts independently",
-		"Do not widen `emit_investigation_complete.reason` into a cross-error root-cause",
+		"### Separate Runtime Error Stacks",
+		"user requested a finite set of facts",
+		"Complete them independently for each top-level error stack",
+		"Do not turn adjacency, similar wording, shared identifiers, or bridge-like names into a cross-stack root cause",
 		"Literal error-message wording remains an observation",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("bounded peer-error explorer scope missing %q:\n%s", want, prompt)
+		}
+	}
+	scopePrompt := renderExplorerPeerErrorFactScope(ctx)
+	for _, forbidden := range []string{"runtime_question_scope=", "cross_error_relation=", "emit_investigation_complete.reason"} {
+		if strings.Contains(scopePrompt, forbidden) {
+			t.Fatalf("bounded peer-error scope leaked internal contract token %q:\n%s", forbidden, scopePrompt)
 		}
 	}
 
@@ -9093,7 +9099,7 @@ func TestObserveMidLoop_ExternalSourceLogRedirect(t *testing.T) {
 	if sig.HintKey != "explorer.mid-loop.external-log-no-anchor" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.external-log-no-anchor", sig.HintKey)
 	}
-	if !strings.Contains(sig.Hint, "resolved_files=0") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+	if !strings.Contains(sig.Hint, "no stack-frame or span location verified in the current repository") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
 		t.Fatalf("hint should redirect to external-log closure path, got: %s", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "not caller-side value provenance") {

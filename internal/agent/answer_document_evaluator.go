@@ -5822,6 +5822,13 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		return ""
 	}
 	records = answerDocObservationRecordsWithoutReaderAuthorityDuplicates(ctx, promptLedger, records)
+	if len(records) == 0 && answerDocLogPeerRelationUnproven(ctx) {
+		// The dedicated reader-ready peer-error section below republishes the
+		// complete per-occurrence messages and ordered frames in natural
+		// language. Keep machine relation keys in the lossless audit ledger,
+		// not in the answer-writing prompt where they can leak into prose.
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("## Observation Ledger\n\n")
 	b.WriteString("- This is a compact typed view of accepted observations from exploration: current source evidence, structured aggregate facts, VCS/diff or command tool banners, runtime artifacts, cross-repo index rows, external documents, web pages, MCP resources, and connector resources.\n")
@@ -7662,12 +7669,16 @@ func answerDocObservationRecordsWithoutReaderAuthorityDuplicates(
 	records []types.ObservationPromptRecord,
 ) []types.ObservationPromptRecord {
 	shadowed := answerDocReaderAuthorityShadowedObservationIDs(ctx, ledger)
-	if len(shadowed) == 0 || len(records) == 0 {
+	peerReaderAuthority := answerDocLogPeerRelationUnproven(ctx)
+	if (len(shadowed) == 0 && !peerReaderAuthority) || len(records) == 0 {
 		return records
 	}
 	out := make([]types.ObservationPromptRecord, 0, len(records))
 	for _, record := range records {
 		if shadowed[strings.TrimSpace(record.ID)] {
+			continue
+		}
+		if peerReaderAuthority && (strings.HasPrefix(strings.TrimSpace(record.ID), "log:error:") || strings.TrimSpace(record.ID) == "log:cross_error_relation") {
 			continue
 		}
 		out = append(out, record)

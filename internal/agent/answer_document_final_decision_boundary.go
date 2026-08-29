@@ -1346,15 +1346,43 @@ func renderAnswerDocLogPeerFinalDecisionBoundary(ctx *types.AgentContext) string
 	if !answerDocLogPeerRelationUnproven(ctx) {
 		return ""
 	}
+	bundle := ctx.Mutable.LogTriage()
 	scopeBoundary := "- If relationship attribution matters, keep the cross-error relationship unproven or present it only as a follow-up hypothesis. The final wording and conclusion remain model-authored.\n"
 	if runtimePeerErrorBoundedFactSet(ctx) {
-		scopeBoundary = "- runtime_question_scope=`bounded_fact_set`: the requested answer is the finite per-occurrence facts and carries no causal-attribution dimension. Do not add a cross-error root-cause/propagation conclusion; mention the relationship only as unproven when needed for clarity. The final wording and conclusion remain model-authored.\n"
+		scopeBoundary = "- The user requested finite per-occurrence facts, not a cross-stack causal attribution. Do not add a cross-error root-cause or propagation conclusion; when needed for clarity, say only that the relationship is not proved by the artifact. The final wording and conclusion remain model-authored.\n"
 	}
-	return "## Final Runtime Error Relation Boundary (Typed Facts; Model-Owned Conclusion)\n\n" +
-		"- The attached artifact contains multiple top-level peer error occurrences. Each occurrence's own type, message, frames, and within-stack order are available observations.\n" +
-		"- cross_error_relation=`unproven`: no validated explicit artifact marker connects one top-level error as the direct cause, caller/callee continuation, or propagation of another. Similar wording, adjacent lines/timestamps, bridge-like names, and shared IDs do not establish that edge.\n" +
-		"- Answer the requested per-error/frame dimensions independently from the typed occurrences: identify each occurrence's own first observed frame and its within-stack callers. Do not label either peer occurrence as the other's true/underlying trigger, capture point, received failure, propagation, caller, or callee; those are cross-peer claims not established by this artifact shape. A message may be quoted as that occurrence's literal text without upgrading it into an edge.\n" +
-		scopeBoundary + "\n"
+	var b strings.Builder
+	b.WriteString("## Final Runtime Error Relationship Evidence\n\n")
+	b.WriteString("- The attached artifact contains multiple top-level peer error occurrences. Each occurrence's own type, message, frames, and within-stack order are available observations.\n")
+	b.WriteString("- No validated explicit artifact marker connects one top-level error as the direct cause, caller/callee continuation, or propagation of another. Similar wording, adjacent lines or timestamps, bridge-like names, and shared IDs do not establish that edge.\n")
+	b.WriteString("- Answer the requested per-error/frame dimensions independently from the observations below. The first frame listed for each stack is its first observed (innermost failure-site) frame; later frames are callers within that same stack.\n")
+	for i, observedError := range bundle.Errors {
+		fmt.Fprintf(&b, "  - Error occurrence %d: type `%s`", i+1, types.TruncateBytesEllipsis(strings.TrimSpace(observedError.Type), 120))
+		if message := strings.TrimSpace(observedError.Message); message != "" {
+			fmt.Fprintf(&b, "; message `%s`", types.TruncateBytesEllipsis(message, 180))
+		}
+		b.WriteString(".\n")
+		for frameIndex, frame := range observedError.Frames {
+			role := "First observed frame"
+			if frameIndex > 0 {
+				role = fmt.Sprintf("Caller frame %d", frameIndex)
+			}
+			fmt.Fprintf(&b, "    - %s: `%s`", role, types.TruncateBytesEllipsis(strings.TrimSpace(frame.Func), 140))
+			switch {
+			case frame.File != "" && frame.Line > 0:
+				fmt.Fprintf(&b, " at current-repository `%s:%d`", frame.File, frame.Line)
+			case frame.ArtifactFile != "" && frame.Line > 0:
+				fmt.Fprintf(&b, " at artifact-local `%s:%d` (not verified in the current repository; not a repository citation)", frame.ArtifactFile, frame.Line)
+			case frame.Line > 0:
+				fmt.Fprintf(&b, " at artifact-local line %d (file path unavailable)", frame.Line)
+			}
+			b.WriteString(".\n")
+		}
+	}
+	b.WriteString("- Do not label either peer occurrence as the other's true or underlying trigger, capture point, received failure, propagation, caller, or callee. A message may be quoted as that occurrence's literal text without upgrading it into an edge.\n")
+	b.WriteString(scopeBoundary)
+	b.WriteString("\n")
+	return b.String()
 }
 
 // renderAnswerDocPerfSampleStatisticalBoundary gives the answer model the

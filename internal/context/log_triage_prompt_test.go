@@ -219,7 +219,7 @@ func TestFormatLogTriageStructured_ProvenanceLegendPresent(t *testing.T) {
 	for _, want := range []string{
 		"Provenance legend",
 		"safe to cite as `file:line`",
-		"do NOT cite",
+		"do not use them as repository citations",
 		"Cross-check",
 	} {
 		if !strings.Contains(got, want) {
@@ -430,9 +430,8 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 		"Peer-observation authority boundary",
 		"observation summaries have no typed occurrence binding",
 		"observed_evidence: Error: native call failed",
-		"cross_error_relation=unproven",
-		"observed_scope=peer_error_occurrences_only",
-		"independent observed error occurrences",
+		"separately printed top-level error stacks",
+		"Treat each top-level stack as its own observed occurrence",
 		"similar messages do not establish a cross-error call/causal edge",
 		"explicit artifact marker proves an error-wrapping relation",
 		"do not call one peer the established cause of another",
@@ -443,6 +442,11 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 	}
 	if strings.Contains(got, "the first peer captured and propagated the second peer panic") {
 		t.Fatalf("unbound peer observation interpretation must not compete with typed relation authority:\n%s", got)
+	}
+	for _, forbidden := range []string{"cross_error_relation=", "observed_scope="} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("internal relationship enum leaked into LLM-facing context %q:\n%s", forbidden, got)
+		}
 	}
 }
 
@@ -549,8 +553,8 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 	got := formatLogTriageStructured(bundle, nil)
 	for _, want := range []string{
 		"External-source log",
-		"resolved_files=0",
-		"attached-log observation lane",
+		"none of the attached log's stack-frame paths were verified",
+		"exact locations below remain valid observations",
 		"keep two lanes",
 		"leave the value uncited",
 		"literal-grounding gate",
@@ -574,6 +578,57 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 		if strings.Contains(got, forbidden) {
 			t.Errorf("external-source directive must not mention retired V1/V1.5 channels %q:\n%s", forbidden, got)
 		}
+	}
+}
+
+func TestBuildPromptContext_ExternalLogPreservesArtifactLocationsWithoutOpeningRepositoryLane(t *testing.T) {
+	const firstPath = "entry/src/main/ets/bridges/NativeBridge.ets"
+	const callerPath = "entry/src/main/ets/pages/Home.ets"
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "arkts", Signals: []types.LogSignal{types.SignalCrash}},
+		Errors: []types.LogError{{
+			Type: "Error",
+			Frames: []types.LogFrame{
+				{ArtifactFile: firstPath, Line: 33, Func: "NativeBridge.invokeOhSum", Raw: "at NativeBridge.invokeOhSum (" + firstPath + ":33:11)", Confidence: 0.95},
+				{ArtifactFile: callerPath, Line: 54, Func: "HomePage.computeTotal", Raw: "at HomePage.computeTotal (" + callerPath + ":54:7)", Confidence: 0.95},
+			},
+		}},
+	}
+	denials := &types.TypedDenialSet{}
+	for _, path := range []string{firstPath, callerPath} {
+		denials.Add(types.TypedDenial{Class: types.TypedDenialExternalLogFrameUnresolved, Token: path})
+	}
+	ac := &types.AgentContext{
+		AgentName:    types.AgentExplorer,
+		Stage:        types.StageExplore,
+		LogTriage:    bundle,
+		TypedDenials: denials,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explore", Goal: "inspect the log"})
+	var section string
+	for _, candidate := range pc.UserSections {
+		if candidate.Title == SectionLogTriageExtraction {
+			section = candidate.Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"first observed frame",
+		"caller frame 1",
+		"artifact-local `" + firstPath + ":33`",
+		"artifact-local `" + callerPath + ":54`",
+		"not verified in the current repository",
+		"not a repository citation",
+	} {
+		if !strings.Contains(section, want) {
+			t.Fatalf("structured external-log context missing %q:\n%s", want, section)
+		}
+	}
+	if strings.Contains(section, "<unverified-external-source>") {
+		t.Fatalf("system-derived artifact-local locations must not be collapsed to an opaque placeholder:\n%s", section)
+	}
+	if !denials.IsPathDenied(firstPath) || !denials.IsPathDenied(callerPath) {
+		t.Fatal("presentation carrier must not weaken the repository-read denial")
 	}
 }
 

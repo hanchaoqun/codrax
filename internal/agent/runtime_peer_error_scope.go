@@ -33,10 +33,10 @@ func renderExplorerPeerErrorFactScope(ctx *types.AgentContext) string {
 		return ""
 	}
 	return strings.Join([]string{
-		"### Typed Peer-Error Fact Scope",
+		"### Separate Runtime Error Stacks",
 		"",
-		"- runtime_question_scope=`bounded_fact_set`: complete the requested finite facts independently for each top-level error occurrence (for example its own message, first observed frame, and within-stack callers).",
-		"- This scope carries no causal-attribution request. Do not widen `emit_investigation_complete.reason` into a cross-error root-cause, capture, propagation, caller/callee, or wrapper chain when `cross_error_relation=unproven`; preserve that relationship only as unproven if it must be mentioned.",
+		"- The user requested a finite set of facts. Complete them independently for each top-level error stack, including that stack's own message, first observed frame, and within-stack callers when available.",
+		"- No explicit artifact marker connects the peer stacks. Do not turn adjacency, similar wording, shared identifiers, or bridge-like names into a cross-stack root cause, propagation, caller/callee, or wrapper chain. If the relationship must be discussed, say that the log does not prove it.",
 		"- Literal error-message wording remains an observation of that occurrence, not a relation edge to a peer occurrence.",
 		"",
 	}, "\n")

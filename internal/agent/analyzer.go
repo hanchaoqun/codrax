@@ -192,12 +192,12 @@ func renderAnalyzerExplicitRuntimeArtifactPathShortcut() string {
 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 	return "## Runtime Artifact Classification Shortcut\n\n" +
-		"The structured Log/Trace Triage for this dispatch is external to the current checkout (`resolved_files=0`) and the typed external_observation_policy explicitly excludes current checkout/source analysis. " +
+		"The structured log or trace for this dispatch has no verified current-repository source locations, and the request classification explicitly excludes current checkout/source analysis. " +
 		"Do not run repo pre-scan just to classify stack-frame or trace literals from the artifact; classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
 		"Without that typed exclusion, keep the default mixed external-observation plus current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express useful source leads through structured required_files / exact_targets when concrete files or targets are found. " +
 		"Use diagnostic_profile.current_version_check only for current-status / still-present / fixed-style diagnostics; for mechanism explanations backed by current code, required_files or exact_targets are the current-source anchor and current_version_check can remain false. " +
 		"When the typed exclude policy is valid, emit diagnostic_profile.current_risk/current_version_check/historical_regression=false because current-checkout verification is out of scope. " +
-		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external.\n\n"
+		"Do not collapse a mixed artifact plus current-code request into observation-only merely because its frame locations are external; only the artifact frame literals are outside the current source lane.\n\n"
 }
 
 func renderAnalyzerRuntimeSourceOptionalShortcut() string {

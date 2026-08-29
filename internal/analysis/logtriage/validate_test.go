@@ -19,6 +19,33 @@ func TestValidateBundle_EmptyInputReturnsNil(t *testing.T) {
 	}
 }
 
+func TestValidateBundle_PreservesArtifactFileWhenRepositoryResolutionFails(t *testing.T) {
+	const artifactPath = "entry/src/main/ets/bridges/NativeBridge.ets"
+	got, cleared := ValidateBundleWithDenials(ValidateInput{
+		Meta: types.LogMeta{Lang: "arkts"},
+		Errors: []types.LogError{{
+			Type: "Error",
+			Frames: []types.LogFrame{{
+				Lang: "arkts", File: artifactPath, Line: 33,
+				Func: "NativeBridge.invokeOhSum", Raw: "at NativeBridge.invokeOhSum (" + artifactPath + ":33:11)", Confidence: 0.95,
+			}},
+		}},
+	}, t.TempDir())
+	if got == nil || len(got.Errors) != 1 || len(got.Errors[0].Frames) != 1 {
+		t.Fatalf("validated bundle lost the external frame: %+v", got)
+	}
+	frame := got.Errors[0].Frames[0]
+	if frame.File != "" {
+		t.Fatalf("external path must not become a repository source anchor: %q", frame.File)
+	}
+	if frame.ArtifactFile != artifactPath {
+		t.Fatalf("artifact-local path was erased: got %q want %q", frame.ArtifactFile, artifactPath)
+	}
+	if len(cleared) != 1 || cleared[0].OriginalFile != artifactPath {
+		t.Fatalf("repository-read denial witness was not retained: %+v", cleared)
+	}
+}
+
 // TestValidateBundle_ResolvesPathsAndDropsHallucinations builds a
 // repo with one real file, emits two frames (one real, one fake), and
 // verifies the hallucinated path is cleared while the real one flows

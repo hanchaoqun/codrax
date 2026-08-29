@@ -6924,7 +6924,7 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       hintKey,
-			Hint: fmt.Sprintf("Progress check: the attached %s is an external-source runtime artifact (resolved_files=0). ", artifactLabel) +
+			Hint: fmt.Sprintf("Progress check: the attached %s has no stack-frame or span location verified in the current repository. ", artifactLabel) +
 				"Runtime frames / spans that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
 				"Keep direct observations separate from inferred upstream causes: artifact bytes prove observed messages/frames/spans, not caller-side value provenance unless the artifact literally says so. " +
 				"If the structured runtime artifact already answers the question, call `emit_investigation_complete` now — the answer can be composed from the log / trace semantics alone. " +

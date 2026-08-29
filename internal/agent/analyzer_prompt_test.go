@@ -318,12 +318,12 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
 	for _, want := range []string{
 		"Runtime Artifact Classification Shortcut",
-		"external to the current checkout",
+		"no verified current-repository source locations",
 		"Do not run repo pre-scan just to classify stack-frame or trace literals",
 		"default mixed external-observation plus current-source lane",
 		"required_files / exact_targets",
 		"mechanism explanations backed by current code",
-		"Do not collapse a mixed artifact + current-code request into observation-only",
+		"Do not collapse a mixed artifact plus current-code request into observation-only",
 		"diagnostic_profile.current_risk/current_version_check/historical_regression=false",
 		"call `emit_analysis` now",
 	} {
@@ -980,7 +980,7 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 		"external-source log / trace",
 		"explicit runtime artifact paths",
 		".log",
-		"resolved_files=0",
+		"no stack-frame locations were verified in the current repository",
 		"do NOT run a source-code pre-scan",
 		"External observations default to mixed external + current-source analysis",
 		"external_observation_policy.current_source_mode=exclude",

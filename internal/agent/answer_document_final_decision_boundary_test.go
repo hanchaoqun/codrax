@@ -628,23 +628,29 @@ func TestFinalLogPeerDecisionBoundarySuppressesNoisyRelationSynthesisButKeepsMod
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
-		"## Final Runtime Error Relation Boundary (Typed Facts; Model-Owned Conclusion)",
-		"cross_error_relation=`unproven`",
-		"no validated explicit artifact marker connects one top-level error",
-		"Answer the requested per-error/frame dimensions independently from the typed occurrences",
-		"identify each occurrence's own first observed frame",
-		"Do not label either peer occurrence as the other's true/underlying trigger",
+		"## Final Runtime Error Relationship Evidence",
+		"No validated explicit artifact marker connects one top-level error",
+		"Answer the requested per-error/frame dimensions independently from the observations below",
+		"first frame listed for each stack is its first observed",
+		"Error occurrence 1: type `cangjie_panic`; message `native panic`",
+		"Error occurrence 2: type `arkts_error`; message `bridge invocation failed`",
+		"Do not label either peer occurrence as the other's true or underlying trigger",
 		"A message may be quoted as that occurrence's literal text without upgrading it into an edge",
-		"the requested answer is the finite per-occurrence facts and carries no causal-attribution dimension",
-		"Do not add a cross-error root-cause/propagation conclusion",
+		"user requested finite per-occurrence facts, not a cross-stack causal attribution",
+		"Do not add a cross-error root-cause or propagation conclusion",
 		"The final wording and conclusion remain model-authored",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("peer-log final boundary missing %q:\n%s", want, prompt)
 		}
 	}
-	if strings.LastIndex(prompt, "## Final Runtime Error Relation Boundary") < strings.LastIndex(prompt, "## Submission Checklist") {
+	if strings.LastIndex(prompt, "## Final Runtime Error Relationship Evidence") < strings.LastIndex(prompt, "## Submission Checklist") {
 		t.Fatalf("peer-log final boundary must follow generic guidance:\n%s", prompt)
+	}
+	for _, forbidden := range []string{"cross_error_relation=", "runtime_question_scope="} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("final peer-error context leaked internal enum %q:\n%s", forbidden, prompt)
+		}
 	}
 	for _, forbidden := range []string{
 		"## Investigation Narrative Handoff",

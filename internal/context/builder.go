@@ -812,7 +812,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		// degrade for single-shot CLI flows).
 		locator := authority.LocatorFromMultiGraph(ac.MultiGraph)
 		if section := formatLogTriageStructured(ac.LogTriage, locator); section != "" {
-			section = sanitiseSectionForLLM(section, ac)
+			section = sanitiseLogTriageSectionForLLM(section, ac.LogTriage, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionLogTriageExtraction,
 				Content: section,
@@ -3452,6 +3452,79 @@ func sanitiseSectionForLLM(section string, ac *types.AgentContext) string {
 	return ac.TypedDenials.Sanitise(section)
 }
 
+// sanitiseLogTriageSectionForLLM keeps the L1 repository-read denial and the
+// general L2 sanitiser intact while preserving a narrower, system-derived
+// fact: the exact file token printed by an attached runtime artifact.
+//
+// Only ArtifactFile values copied by ValidateBundle are protected, and only
+// inside the structured log-triage section. Arbitrary raw attached-log text
+// and every other prompt section still pass through the ordinary all-token
+// sanitizer. The rendered section labels these locations as artifact-local
+// and not verified in the current repository, so they cannot be mistaken for
+// repository source anchors. Tool calls remain denied by TypedDenials.
+func sanitiseLogTriageSectionForLLM(section string, bundle *types.LogBundle, ac *types.AgentContext) string {
+	if ac == nil || ac.TypedDenials == nil || ac.TypedDenials.Len() == 0 || bundle == nil {
+		return section
+	}
+
+	seen := make(map[string]bool)
+	paths := make([]string, 0, 8)
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		if frame.File != "" || strings.TrimSpace(frame.ArtifactFile) == "" {
+			return
+		}
+		path := frame.ArtifactFile
+		if !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	})
+	if len(paths) == 0 {
+		return sanitiseSectionForLLM(section, ac)
+	}
+
+	// Longest first prevents a basename token from partially consuming a
+	// longer artifact path. Each placeholder is checked against the section,
+	// so even adversarial input cannot pre-seed a token that we later restore.
+	sort.Slice(paths, func(i, j int) bool { return len(paths[i]) > len(paths[j]) })
+	type protectedValue struct {
+		placeholder string
+		value       string
+	}
+	protected := make([]protectedValue, 0, len(paths)*2)
+	working := section
+	serial := 0
+	protect := func(value string) {
+		if value == "" || !strings.Contains(working, value) {
+			return
+		}
+		var placeholder string
+		for {
+			placeholder = fmt.Sprintf("\x1fCODRAX_ARTIFACT_LOCATION_%d\x1f", serial)
+			serial++
+			if !strings.Contains(working, placeholder) {
+				break
+			}
+		}
+		working = strings.ReplaceAll(working, value, placeholder)
+		protected = append(protected, protectedValue{placeholder: placeholder, value: value})
+	}
+	for _, path := range paths {
+		protect(path)
+		if strings.Contains(path, "/") && !strings.Contains(path, "\\") {
+			protect(strings.ReplaceAll(path, "/", "\\"))
+		} else if strings.Contains(path, "\\") && !strings.Contains(path, "/") {
+			protect(strings.ReplaceAll(path, "\\", "/"))
+		}
+	}
+
+	working = sanitiseSectionForLLM(working, ac)
+	for _, item := range protected {
+		working = strings.ReplaceAll(working, item.placeholder, item.value)
+	}
+	return working
+}
+
 const (
 	attachedLogInlineCap = 4 * 1024 // ≤ 4 KB → inline whole body
 	attachedLogHeadCap   = 2 * 1024 // head preview when blobbed
@@ -4195,7 +4268,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// finalizer) sees it in iter 0 and can act before any tool
 	// call is burned on a dead-end.
 	if bundle.IsExternalSource() {
-		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). Facts drawn from the log must stay in the attached-log observation lane — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
+		b.WriteString("⚠ **External-source log**: none of the attached log's stack-frame paths were verified in the current repository. The exact locations below remain valid observations of the attached log, but they are not current-repository source anchors and must not be opened or cited as though they were.\n")
 		b.WriteString("  - If the current request separately asks to explain or verify current-checkout code, keep two lanes: attached-log observations for what happened, and current-source evidence for how this repo implements the related behavior. Do not collapse a mixed request into observation-only just because the log frames are external.\n")
 		b.WriteString("  - For a BlockScalar answer (single literal, optionally with config-key facet), leave the value uncited and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
 		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; do not borrow an unrelated repo citation just to satisfy a source habit.\n")
@@ -4303,9 +4376,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 		if len(bundle.Errors) > 1 {
 			fmt.Fprintf(&b, "### Errors (%d explicit occurrences)\n\n", len(bundle.Errors))
 			b.WriteString("**Cross-error relationship authority**\n\n")
-			b.WriteString("- `cross_error_relation=unproven`\n")
-			b.WriteString("- `observed_scope=peer_error_occurrences_only`\n")
-			b.WriteString("- Top-level entries are independent observed error occurrences. Their order, timestamps, tags, shared IDs, or similar messages do not establish a cross-error call/causal edge.\n")
+			b.WriteString("- The log contains separately printed top-level error stacks, and no explicit cause-chain marker connects one stack to another.\n")
+			b.WriteString("- Treat each top-level stack as its own observed occurrence. Their order, timestamps, tags, shared IDs, or similar messages do not establish a cross-error call/causal edge.\n")
 			b.WriteString("- Only an indented `caused by` child carrying an explicit artifact marker proves an error-wrapping relation. You may present an unproven bridge/propagation hypothesis as a follow-up, but do not call one peer the established cause of another.\n\n")
 		} else {
 			b.WriteString("### Error\n\n")
@@ -4356,11 +4428,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	b.WriteString("- `★ resolved` on a frame means the file path was verified to " +
 		"exist in the repository. These frames are safe to cite as `file:line` " +
 		"in answers and evidence.\n")
-	b.WriteString("- Frames without `★ resolved` had their File cleared because " +
-		"the path could not be verified in the repo (build-prefix strip failed, " +
-		"path escaped the repo, file does not exist) or their confidence fell " +
-		"below the 0.6 cite floor. Use them for context (function name, package, " +
-		"error type) but do NOT cite their line numbers.\n")
+	b.WriteString("- Frames without `★ resolved` were not verified against current-repository source. Their artifact-local path and line may still be reported as observations from the attached log, with that limitation stated; do not use them as repository citations or tool-read targets.\n")
 	b.WriteString("- Each frame carries the `raw:` original log text. Cross-check " +
 		"this against any quote you attribute to that frame in your answer.\n")
 
@@ -4724,7 +4792,7 @@ func renderLogError(b *strings.Builder, e *types.LogError, depth, index int, inc
 	b.WriteString("\n")
 
 	for i := range e.Frames {
-		renderLogFrame(b, &e.Frames[i], depth)
+		renderLogFrame(b, &e.Frames[i], depth, i)
 	}
 
 	if e.Cause != nil {
@@ -4738,11 +4806,15 @@ func renderLogError(b *strings.Builder, e *types.LogError, depth, index int, inc
 // logtriage.ValidateBundle and are citeable; other frames render
 // without the ★ marker and without a file:line column so the LLM
 // cannot accidentally cite them as authoritative.
-func renderLogFrame(b *strings.Builder, f *types.LogFrame, depth int) {
+func renderLogFrame(b *strings.Builder, f *types.LogFrame, depth, frameIndex int) {
 	indent := strings.Repeat("   ", depth+1)
+	role := "first observed frame"
+	if frameIndex > 0 {
+		role = fmt.Sprintf("caller frame %d", frameIndex)
+	}
 	resolved := f.File != "" && f.Line > 0
 	if resolved {
-		fmt.Fprintf(b, "%s- ★ resolved `%s:%d`", indent, f.File, f.Line)
+		fmt.Fprintf(b, "%s- %s: ★ resolved `%s:%d`", indent, role, f.File, f.Line)
 		if f.Func != "" {
 			fmt.Fprintf(b, " in `%s`", f.Func)
 		}
@@ -4757,7 +4829,12 @@ func renderLogFrame(b *strings.Builder, f *types.LogFrame, depth int) {
 		default:
 			head = "(no symbol)"
 		}
-		fmt.Fprintf(b, "%s- (unresolved) %s", indent, head)
+		fmt.Fprintf(b, "%s- %s: %s", indent, role, head)
+		if f.ArtifactFile != "" && f.Line > 0 {
+			fmt.Fprintf(b, " at artifact-local `%s:%d` (not verified in the current repository; not a repository citation)", f.ArtifactFile, f.Line)
+		} else {
+			b.WriteString(" (location not verified in the current repository)")
+		}
 	}
 	if f.Pkg != "" && resolved {
 		fmt.Fprintf(b, " (pkg: `%s`)", f.Pkg)

@@ -469,6 +469,11 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 	if f.File == "" {
 		return
 	}
+	// Preserve the exact artifact-local location before any repository
+	// normalisation or corroboration can clear File. This carrier does not
+	// make the path readable/citeable as current source; it only prevents a
+	// truthful runtime location from being erased from downstream context.
+	f.ArtifactFile = f.File
 	// Runtime internals never resolve inside user repos.
 	if IsRuntimeInternalFile(f.File) {
 		f.File = ""

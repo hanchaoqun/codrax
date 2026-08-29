@@ -379,6 +379,16 @@ type LogFrame struct {
 	// to ResolvedFiles.
 	File string `json:"file,omitempty"`
 
+	// ArtifactFile preserves the exact file token observed in the attached
+	// runtime artifact before repository resolution. It is system-derived,
+	// never accepted from the emit tool, and deliberately omitted from the
+	// wire shape. An empty File with a non-empty ArtifactFile means that the
+	// location is valid as an artifact-local observation but is not a
+	// current-repository source anchor. Tool-call denial and answer citation
+	// rules continue to use File / TypedDenials; this field is presentation
+	// evidence only.
+	ArtifactFile string `json:"-"`
+
 	// Line is the 1-indexed line number. 0 is a legal value meaning
 	// "LLM could not determine"; the frame is kept but not promoted
 	// to ResolvedFiles.
