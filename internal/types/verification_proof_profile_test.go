@@ -871,6 +871,82 @@ func TestBuildVerificationProofLedgerTreatsProbeParserErrorCommandAsUnavailable(
 	}
 }
 
+func TestBuildVerificationProofLedgerNonAuthoritativeProbeCannotVetoProjectPass(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:             "plan-project-pass-after-probe",
+		VerificationStatus: VerificationStatusPassed,
+		Passed:             true,
+		TestResults: []TestResult{{
+			Kind:        TestResultKindUnit,
+			Suite:       "example.com/app",
+			AssertionID: "TestGreet",
+			Passed:      true,
+		}},
+		ExecutedCommands: []ExecutedCommand{{
+			Runner: "verification_probe", Framework: "go", WorkingDir: ".",
+			Source: "pre_suite_verification_probe", Outcome: "executed", ExitCode: 1,
+		}, {
+			Runner: "go", WorkingDir: ".", Source: "probe_primary_suite_continued",
+			Outcome: "suite_continued", ReasonCode: "probe_non_authoritative", ExitCode: 0,
+		}, {
+			Runner: "go", WorkingDir: ".", Source: "test_surface_default",
+			Outcome: "executed", ExitCode: 0,
+		}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{{
+			Path:       "main.go",
+			Status:     ChangedPathVerificationCovered,
+			Caliber:    ChangedPathVerificationProjectRunner,
+			Capability: VerificationCapabilityTargetBehavior,
+		}},
+	}
+
+	got := BuildVerificationProofLedger(nil, report, nil)
+	if got.State != VerificationProofLedgerVerified || got.CapabilityFailedCount != 0 {
+		t.Fatalf("typed non-authoritative probe vetoed project pass: %+v", got)
+	}
+	if !verificationProofLedgerHasCapability(got, "executed_command", VerificationProofLedgerItemAdvisory, "non_authoritative_probe_superseded_by_project_pass") {
+		t.Fatalf("failed probe advisory receipt missing: %+v", got.Capabilities)
+	}
+
+	withoutContinuation := *report
+	withoutContinuation.ExecutedCommands = append([]ExecutedCommand(nil), report.ExecutedCommands[0], report.ExecutedCommands[2])
+	got = BuildVerificationProofLedger(nil, &withoutContinuation, nil)
+	if got.State != VerificationProofLedgerFailed || got.CapabilityFailedCount != 1 {
+		t.Fatalf("probe failure without typed continuation was laundered: %+v", got)
+	}
+
+	withoutAssertion := *report
+	withoutAssertion.TestResults = nil
+	got = BuildVerificationProofLedger(nil, &withoutAssertion, nil)
+	if got.State != VerificationProofLedgerFailed || got.CapabilityFailedCount != 1 {
+		t.Fatalf("aggregate pass without a concrete assertion laundered probe failure: %+v", got)
+	}
+
+	withUncoveredContract := &ChangePlan{
+		ID: report.PlanID,
+		BehaviorContracts: []WriteBehaviorContract{{
+			ID: "greet-output", Kind: WriteBehaviorObservable,
+			Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpSatisfies,
+			Expected: "the changed greeting is directly observed", Required: true,
+		}},
+	}
+	got = BuildVerificationProofLedger(withUncoveredContract, report, nil)
+	if got.State != VerificationProofLedgerFailed || got.CapabilityFailedCount != 1 || got.UncoveredCount == 0 {
+		t.Fatalf("uncovered behavior contract lost its bounded probe-rebind path: %+v", got)
+	}
+
+	withProjectFailure := *report
+	withProjectFailure.ExecutedCommands = append([]ExecutedCommand(nil), report.ExecutedCommands...)
+	withProjectFailure.ExecutedCommands = append(withProjectFailure.ExecutedCommands, ExecutedCommand{
+		Runner: "go", WorkingDir: ".", Source: "test_surface_default",
+		Outcome: "executed", ExitCode: 1,
+	})
+	got = BuildVerificationProofLedger(nil, &withProjectFailure, nil)
+	if got.State != VerificationProofLedgerFailed || got.CapabilityFailedCount != 1 {
+		t.Fatalf("real project failure was hidden by probe downgrade: %+v", got)
+	}
+}
+
 func TestBuildVerificationProofLedgerResolvesExactRunnerMissingEscalation(t *testing.T) {
 	newReport := func(escalationSuite string) *ChangeReport {
 		return &ChangeReport{

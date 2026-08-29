@@ -9275,6 +9275,71 @@ func TestControllerTruthLedgerFailedFinishRequiresReplan(t *testing.T) {
 	}
 }
 
+func TestControllerTruthLedgerDoesNotReplanProjectPassForNonAuthoritativeProbeFailure(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:           "plan-project-pass-after-probe",
+		Status:       types.PlanStatusApplied,
+		TargetPaths:  []string{"main.go"},
+		WorktreePath: t.TempDir(),
+		Changes: []types.FileChange{{
+			Path:  "main.go",
+			Kind:  "patch",
+			Apply: &types.FileChangeApplyRecord{Status: "applied"},
+		}},
+		LocalizationReview: &types.SourceLocalizationReview{
+			Status:              types.SourceLocalizationSupported,
+			SourcePaths:         []string{"main.go"},
+			OwnerSupportedPaths: []string{"main.go"},
+		},
+	}
+	report := &types.ChangeReport{
+		PlanID:             plan.ID,
+		Channel:            types.ChangeReportChannelPostApplyVerify,
+		VerificationStatus: types.VerificationStatusPassed,
+		Passed:             true,
+		TestResults: []types.TestResult{{
+			Kind: types.TestResultKindUnit, Suite: "example.com/app", AssertionID: "TestGreet", Passed: true,
+		}},
+		ExecutedCommands: []types.ExecutedCommand{{
+			Runner: "verification_probe", Framework: "go", WorkingDir: ".",
+			Source: "pre_suite_verification_probe", Outcome: "executed", ExitCode: 1,
+		}, {
+			Runner: "go", WorkingDir: ".", Source: "probe_primary_suite_continued",
+			Outcome: "suite_continued", ReasonCode: "probe_non_authoritative", ExitCode: 0,
+		}, {
+			Runner: "go", WorkingDir: ".", Source: "test_surface_default",
+			Outcome: "executed", ExitCode: 0,
+		}},
+		ChangedPathCoverage: []types.ChangedPathVerificationCoverage{{
+			Path: "main.go", Status: types.ChangedPathVerificationCovered,
+			Caliber: types.ChangedPathVerificationProjectRunner, Capability: types.VerificationCapabilityTargetBehavior,
+		}},
+	}
+	run := &types.WriteWorkflowRun{
+		RunID: "wf-project-pass-after-probe", Status: types.WriteWorkflowRunInProgress,
+		ActiveBatchID: "batch-1",
+		Batches: []types.WriteWorkflowBatch{{
+			ID: "batch-1", Goal: "repair one source typo", PlanID: plan.ID,
+			Status: types.WriteWorkflowBatchComplete,
+			Attempts: []types.WriteWorkflowAttempt{{
+				Kind: "apply", Status: "applied", PlanID: plan.ID,
+			}, {
+				Kind: "verify", Status: "passed", ReasonCode: "tests_passed", PlanID: plan.ID,
+			}},
+		}},
+	}
+	mu := types.NewMutableState("project pass after non-authoritative probe")
+	mu.SetChangePlan(plan)
+	mu.SetChangeReport(report)
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, Mode: types.ModeApply}}
+
+	if got, ok := o.controllerTruthLedgerDecision(writeflow.WriteWorkflowDecision{
+		Action: writeflow.ActionFinish, FinishDisposition: writeflow.FinishDispositionAllVerified,
+	}, run); ok {
+		t.Fatalf("non-authoritative probe failure overrode exact project pass: %+v", got)
+	}
+}
+
 func TestControllerTruthLedgerWeakProofWithoutActionableBatchFinishesUnverified(t *testing.T) {
 	got, ok := controllerTruthLedgerDecisionFromView(
 		writeflow.WriteWorkflowDecision{Action: writeflow.ActionFinish, ReasonCode: "done"},

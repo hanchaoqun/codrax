@@ -415,10 +415,82 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 		out.addRequiredBehaviorContractLedgerItems(artifact.Plan)
 	}
 	out.resolveHistoricalVerificationFailures(primaryReport)
+	out.resolveNonAuthoritativeProbeFailures(primaryReport)
 	out.resolveSuccessfulRunnerMissingEscalations(primaryReport)
 	out.resolveCumulativeChangedPathObligations(primaryPlan, primaryReport)
 	out.State = verificationProofLedgerStateFromProfile(profile)
 	return NormalizeVerificationProofLedger(out)
+}
+
+// resolveNonAuthoritativeProbeFailures preserves a failed model-authored
+// pre-suite probe as advisory evidence when the verifier explicitly stamped
+// that probe non-authoritative and then obtained a concrete passing project
+// result in the same terminal report. The three typed receipts must agree:
+//
+//   - the report itself is passed, contains a passed project assertion, and
+//     leaves no proof obligation unresolved;
+//   - the failed command is the pre_suite_verification_probe command; and
+//   - probe_primary_suite_continued carries probe_non_authoritative.
+//
+// This does not turn the probe into proof and does not erase its command row.
+// It only prevents a deliberately non-authoritative model comparator/fixture
+// failure from vetoing the authoritative project verdict. Any failed project
+// runner, build command, unclassified command source, or report without the
+// exact continuation receipt remains failed.
+func (ledger *VerificationProofLedger) resolveNonAuthoritativeProbeFailures(primary *ChangeReport) {
+	if ledger == nil || primary == nil || primary.NormalizeVerificationStatus() != VerificationStatusPassed ||
+		!changeReportHasConcretePassedAssertion(primary) || verificationProofLedgerHasUnresolvedObligation(ledger) {
+		return
+	}
+	hasContinuation := false
+	for _, cmd := range primary.ExecutedCommands {
+		if strings.TrimSpace(cmd.Source) == "probe_primary_suite_continued" &&
+			strings.TrimSpace(cmd.Outcome) == "suite_continued" &&
+			strings.TrimSpace(cmd.ReasonCode) == "probe_non_authoritative" &&
+			cmd.ExitCode == 0 {
+			hasContinuation = true
+			break
+		}
+	}
+	if !hasContinuation {
+		return
+	}
+	planID := strings.TrimSpace(primary.PlanID)
+	for i := range ledger.Capabilities {
+		item := &ledger.Capabilities[i]
+		if item.Kind != "executed_command" || item.Status != VerificationProofLedgerItemFailed ||
+			strings.TrimSpace(item.ReportPlanID) != planID ||
+			item.Category != string(VerificationProofRunnerVerificationProbe) ||
+			strings.TrimSpace(item.Source) != "pre_suite_verification_probe" {
+			continue
+		}
+		item.Status = VerificationProofLedgerItemAdvisory
+		item.ReasonCode = "non_authoritative_probe_superseded_by_project_pass"
+	}
+}
+
+func verificationProofLedgerHasUnresolvedObligation(ledger *VerificationProofLedger) bool {
+	if ledger == nil {
+		return true
+	}
+	for _, item := range resolveVerificationProofLedgerObligations(ledger.Obligations) {
+		if item.Status != VerificationProofLedgerItemCovered && item.Status != VerificationProofLedgerItemAdvisory {
+			return true
+		}
+	}
+	return false
+}
+
+func changeReportHasConcretePassedAssertion(report *ChangeReport) bool {
+	if report == nil {
+		return false
+	}
+	for _, result := range report.TestResults {
+		if result.Passed && strings.TrimSpace(result.AssertionID) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func NormalizeVerificationProofLedger(in VerificationProofLedger) VerificationProofLedger {

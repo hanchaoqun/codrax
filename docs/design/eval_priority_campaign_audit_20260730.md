@@ -57507,6 +57507,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1514 r932：关系候选权限双轨漂移与非权威探针反向否决（2026-08-29）
+
+1. 从已推送 `cc1029644` 干净构建，严格并发恰好 2 路复放 TypeScript workspace 读模式与 Go typo 写模式。runner 为 1 PASS / 1 FAIL：TypeScript 194s、写模式 532s；人工判 TypeScript pass、写模式 fail。两路均未按固定 4ms、4m、首字节或活动年龄降级，没有 JSON salvage、旧稿恢复或系统代写答案。
+2. TypeScript 最终答案事实与关系完整：`run -> ApiClient.fetchUser -> HttpTransport.send -> dispatchOnce -> fetch`、retry guard、`nextDelay`、`sleep` 和 `@app/core` paths/extends 均有源码引用，图与列表方向一致。但成文仍发生 3 次拒绝。validator 的拒绝说明能从 typed evidence 列出 6 条精确 citable alternatives，generation capability 却同时声明没有 `action=attach`；模型先尝试局部修图与整块替换列表，遭 whole-replace 权限拒绝，继续重试后才成文。因此 `B1445=tests-positive/production-negative/partial`，不能以最终 PASS 虚记闭环。
+3. 新 P1 `B1446-RELATIONCANDIDATEAUTHORITYPARITY1`：关系修复的提示面和可执行权限面消费不同候选源。`preEmitStandaloneRelationRepairCandidateGuidance` / `diagramRelationRepairLocalCandidateGuidance` 能把 evidence candidates 渲染给模型；`diagramRelationRepairAllowedAdditions` 只消费 stage precedence、DiagramHint 与 receipts，对本轮非必需图/list 的同一 evidence pool 没有发布 addition refs。系统因此同时告诉模型“可选这些精确关系”和“没有 attach 权限”。最优方案是抽出一个 typed candidate provider，让 guidance 与 allowed additions 消费同一结构化结果；严禁解析已经渲染的提示文本、请求原文、模型推理或最终答案来补权限。
+4. Go 写模式的用户目标实际上已经完成：`main.go` typo 被改正，真实项目 `TestGreet` 与 `go test -json ./...` 通过，`main.go` target behavior 为 covered，worktree clean。失败来自新 P0 `B1447-NONAUTHORITATIVEPROBEVETO1`：同一 terminal report 中，模型编写的预探针因重复声明 `TestGreet` 失败；verifier 已用 typed 行 `probe_primary_suite_continued / suite_continued / probe_non_authoritative` 明确该探针不具裁决权，并继续取得项目通过结果，但 `BuildVerificationProofLedger` 仍把预探针 command 计为 hard failed capability，Truth Ledger 覆盖 finish 并要求 replan。
+5. B1447 的级联合同构成不可完成状态：receipt 明确 2/2 edits 已应用且禁止重加；ordinary replan 又拒绝 `changes:[]`、已应用 patch、full-content no-op 和 structured no-op。模型在真实源码已正确的情况下被迫反复发射不合法改动，最终 workflow blocked、完成答案缺席。这里不应放宽空计划或 no-op 编辑，而应在更上游修正 proof authority。
+6. B1447 已按精确信号施工：只有 terminal report 自身 passed、包含 concrete passed assertion、失败 command 精确来自 `pre_suite_verification_probe`，并在同 report 存在 exit=0 的 `probe_primary_suite_continued + suite_continued + probe_non_authoritative` 时，该一条 probe capability 从 failed 降为 advisory；原 command receipt 保留，探针不被提升为 proof。缺 continuation、仅 aggregate pass 无 assertion、真实 project/build failure、未知 source 与其他 report 均继续 fail-closed。
+7. 新回归覆盖 proof ledger 正/负四臂与 controller finish 接线：精确非权威探针不能再覆盖真实项目通过；没有 typed continuation、没有具体 assertion 或另有真实项目失败时仍必须失败。修复没有读取用户原文、模型推理、最终答案或错误字符串，也不授权无变更计划。
+8. 后续批次冻结：先完成 B1447 全仓测试、构建、提交推送；再以独立提交施工 B1446 的单一 typed candidate provider，并加入“同一候选同时出现在 guidance 与 allowed additions”的生产形 pin。随后用最新不可变二进制严格并发恰好 2 路复放同两 case，分别验收列表身份一次原子收口和写流程真实项目通过后正常 finish。
+
+状态：
+
+`r932=runner-ts-pass+write-fail/human-ts-pass+write-fail`；
+`B1445=tests-positive/production-negative/partial`；
+`B1446=confirmed/P1-next`；
+`B1447=implemented+targeted-tests-positive/pending-full-suite-build-replay`；
+`non-authoritative-probe=advisory-only-under-exact-typed-project-pass`；
+`real-project/build-failure=fail-closed`；
+`empty/no-op/repeated-change-escape=forbidden`；
+`system-relation/wording/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-negative-none-fired`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
