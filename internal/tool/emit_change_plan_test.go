@@ -3213,6 +3213,79 @@ func TestEmitChangePlan_OldTextMismatchSuggestsTypedRelocationCandidate(t *testi
 	}
 }
 
+func TestEmitChangePlan_MissingPatchPathSuggestsUniqueExistingTypedCandidate(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "relativedelta.py", "class relativedelta:\n    pass\n")
+	ctx := &types.BusContext{Mutable: types.NewMutableState("repair stale nested path"), RepoRoot: root}
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "repair relativedelta"},
+		ScopeAnchors: []string{"relativedelta.py", "test_relativedelta.py"},
+	}})
+	params := json.RawMessage(`{
+		"request":"repair float handling",
+		"summary":"Patch the existing implementation.",
+		"changes":[{
+			"path":"dateutil/relativedelta.py",
+			"kind":"patch",
+			"rationale":"repair the implementation",
+			"edits":[{"kind":"replace","start_line":1,"old_text":"class relativedelta:\n","content":"class relativedelta:\n"}]
+		}]
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("patching a missing stale path must reject")
+	}
+	pack := mustPlanRepairPack(t, res)
+	if pack.ReasonCode != "patch_path_missing" || len(pack.FailingPaths) != 1 || pack.FailingPaths[0] != "dateutil/relativedelta.py" {
+		t.Fatalf("unexpected missing-path repair pack: %+v", pack)
+	}
+	if len(pack.CurrentBytes) != 1 || len(pack.CurrentBytes[0].RelocationCandidates) != 1 {
+		t.Fatalf("missing-path repair must publish one typed relocation candidate: %+v", pack.CurrentBytes)
+	}
+	got := pack.CurrentBytes[0].RelocationCandidates[0]
+	if got.Path != "relativedelta.py" || got.StartLine != 1 || got.EndLine != 2 || got.Source != "write_analysis_scope_anchor" {
+		t.Fatalf("unexpected typed relocation candidate: %+v", got)
+	}
+	if !strings.Contains(pack.RetryInstruction, "sole existing typed candidate") {
+		t.Fatalf("retry instruction does not explain bounded candidate authority: %q", pack.RetryInstruction)
+	}
+}
+
+func TestEmitChangePlan_MissingPatchPathKeepsAmbiguousTypedCandidatesFailClosed(t *testing.T) {
+	root := t.TempDir()
+	writeSurfaceFile(t, root, "relativedelta.py", "ROOT = 1\n")
+	writeSurfaceFile(t, root, "vendor/relativedelta.py", "VENDOR = 1\n")
+	ctx := &types.BusContext{Mutable: types.NewMutableState("ambiguous stale path"), RepoRoot: root}
+	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{Request: types.WriteRequestModel{
+		Task:         types.WriteTask{Kind: types.WriteTaskBugfix, Scope: types.ScopePackage, Summary: "repair relativedelta"},
+		ScopeAnchors: []string{"relativedelta.py", "vendor/relativedelta.py"},
+	}})
+	params := json.RawMessage(`{
+		"request":"repair float handling",
+		"summary":"Patch the implementation.",
+		"changes":[{
+			"path":"dateutil/relativedelta.py",
+			"kind":"patch",
+			"rationale":"repair the implementation",
+			"edits":[{"kind":"replace","start_line":1,"old_text":"ROOT = 1\n","content":"ROOT = 2\n"}]
+		}]
+	}`)
+	res, err := (&EmitChangePlan{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	pack := mustPlanRepairPack(t, res)
+	if pack.ReasonCode != "patch_path_missing" {
+		t.Fatalf("reason_code=%q, want patch_path_missing", pack.ReasonCode)
+	}
+	if len(pack.CurrentBytes) != 0 || strings.Contains(pack.RetryInstruction, "relocation_candidates") {
+		t.Fatalf("ambiguous candidates must remain fail-closed: %+v", pack)
+	}
+}
+
 func mustPlanRepairPack(t *testing.T, res types.ToolResult) types.PlanRepairPack {
 	t.Helper()
 	if res.Repair == nil {

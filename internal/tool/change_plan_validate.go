@@ -882,10 +882,12 @@ func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, cha
 			}
 		case "modify", "patch":
 			if !exists {
-				rej := fmt.Sprintf("change %q has kind=%s but the file does not exist; use kind=create for a new file", path, kind)
-				return rej, planRepairPackWithEnums(toolName, kind+"_path_missing", rej, []string{"$.changes[].kind", "$.changes[].path"}, map[string][]string{
+				rej := fmt.Sprintf("change %q has kind=%s but the file does not exist; use kind=create only for a genuinely new file, or select a verified existing path", path, kind)
+				pack := planRepairPackWithEnums(toolName, kind+"_path_missing", rej, []string{"$.changes[].kind", "$.changes[].path"}, map[string][]string{
 					"$.changes[].kind": {"create", kind},
 				})
+				annotateMissingPlanPathRelocationCandidate(ctx, changes, path, pack)
+				return rej, pack
 			}
 			if isDir {
 				rej := fmt.Sprintf("change %q has kind=%s but the path is a directory; choose a regular file path", path, kind)
@@ -929,6 +931,59 @@ func validatePlanPathStateWithRepair(ctx *types.BusContext, toolName string, cha
 		}
 	}
 	return "", nil
+}
+
+// annotateMissingPlanPathRelocationCandidate publishes a bounded, typed
+// recovery option when a model chose a stale directory prefix for a file that
+// the write analyzer/explorer had already localized elsewhere. It deliberately
+// requires one exact basename match among existing regular files. Multiple
+// candidates remain ambiguous and produce no recommendation; this function
+// never rewrites the plan or changes patch/create semantics on the model's
+// behalf.
+func annotateMissingPlanPathRelocationCandidate(ctx *types.BusContext, changes []types.FileChange, missingPath string, pack *types.PlanRepairPack) {
+	if ctx == nil || pack == nil {
+		return
+	}
+	missingPath = normalizeStructuredEditRepairCandidatePath(missingPath)
+	missingBase := filepath.Base(filepath.FromSlash(missingPath))
+	if missingPath == "" || missingBase == "" || missingBase == "." {
+		return
+	}
+	var match *types.PlanRepairRelocationCandidate
+	for _, candidate := range structuredEditRepairCandidatePaths(ctx, changes) {
+		if candidate.Path == "" || candidate.Path == missingPath ||
+			filepath.Base(filepath.FromSlash(candidate.Path)) != missingBase {
+			continue
+		}
+		lines, ok := readStructuredEditCandidateLines(ctx.RepoRoot, candidate.Path)
+		if !ok {
+			continue
+		}
+		current := types.PlanRepairRelocationCandidate{
+			Path:      candidate.Path,
+			StartLine: 1,
+			EndLine:   len(lines),
+			Source:    candidate.Source,
+		}
+		if current.EndLine < 1 {
+			current.EndLine = 1
+		}
+		if match != nil {
+			return
+		}
+		match = &current
+	}
+	if match == nil {
+		return
+	}
+	pack.FailingPaths = append(pack.FailingPaths, missingPath)
+	pack.CurrentBytes = append(pack.CurrentBytes, types.PlanRepairCurrentBytes{
+		Path:                 missingPath,
+		RelocationCandidates: []types.PlanRepairRelocationCandidate{*match},
+	})
+	pack.RetryInstruction = "relocation_candidates[0] is the sole existing typed candidate with the same basename; inspect and select that path for this patch/modify instead of creating the stale missing path"
+	normalized := types.NormalizePlanRepairPack(*pack)
+	*pack = normalized
 }
 
 func planPathState(rootAbs, repoRel string) (exists bool, isDir bool, statErr error, ok bool) {

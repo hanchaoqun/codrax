@@ -57338,6 +57338,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r917`。
 
+### §123.1499 r918：写规划读取预算自冲突；图参与者修复无动作；prose 转义泄漏（2026-08-28）
+
+1. 从已推送 `f196a5aa8` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与 write dateutil：read runner PASS
+   421s，write FAIL 346s。两路均没有按 4ms、4m、活动流年龄或上下文比例降级，也没有系统代写答案、结论、关系、节点或业务词面。
+2. write 人工判定 fail，并确认 `B1431-FAILEDREADBUDGETCONFLICT1/P0-P1` 为确定性合同 GAP。planner 首轮读取不存在的
+   `dateutil/relativedelta.py` 失败，typed tool repair 正确建议用 `repo_map` 重定位；同轮另一次 test 文件读取成功。当前 evaluator 却只按工具名计数，
+   把失败读取与成功读取都算入 2 次 handoff synthesis read budget。下一轮 schema 已移除 `repo_map/read_file/grep`，模型按刚收到的精确建议调用
+   `repo_map` 时得到 unavailable；controller 再派发后同形重演，最终只能以猜测路径、错误行号和不匹配 old bytes 反复提交，计划没有安装、apply 未运行。
+3. 同根恢复载体还少一臂：`validatePlanPathStateWithRepair` 对不存在的 patch/modify 路径只发“改成 create 或换路径”的枚举，没有携带
+   WriteAnalysisIR、exploration handoff/context pack 中已经存在且同 basename 的 root-level 候选。最优方案不是自动改计划，而是只在 typed candidate
+   集中恰有一个同 basename 的真实普通文件时，发布其 repo-relative path、全文件行域与 carrier source 作为 relocation candidate，继续由模型选择。
+4. B1431 施工冻结为双计数器：成功 repository-read result 才消耗 content-acquisition budget；失败执行进入独立且更小的 failure cap，防止错误路径无限循环；
+   unavailable-tool-surface 仍由既有两次违规上限处理，不免费。基础成功读取预算由 2 提至 3，以容纳“读取已知测试/候选 → typed 定位 → 读取精确源码”的最小安全闭环；
+   复杂 handoff 的现有上浮与总上限保持有界。所有计数只读 typed ToolResult name/success/repair code，不读请求或模型文字。
+5. read 人工判定 partial。最终 Mermaid 语法合法、已证 stage precedence 保留；本轮 typed evidence 没有证明 `BusContext`/`Mutable` 的 exact directed
+   relationship，最终将其作为 disconnected/unproven context 是诚实的，没有把邻近或无证据关系写成主链。但 13 次 finalizer 拒绝确认新
+   `B1432-PARTICIPANTVISIBILITYCAPABILITY1/P1`：`boundary_participant_not_visible` 要求补足可见 participant，而 generation-scoped local lease 只有
+   boundary add/remove/dedupe 与 orphan remove/retain，没有模型可选择的 ensure-visible/add-disconnected capability；整块 diagram replacement 又在 local lease
+   内正确禁止，形成只能等待换代再整块重写的修补死路。后续能力必须只允许在指定 block 声明/对齐 participant，不得生成边、关系、结论、标签或布局。
+6. 同一 read 最终摘要出现字面 `\\n\\n`，确认 `B1433-PROSEESCAPEVISIBLE1/P2`。修向限定在 renderer 的 prose-only layout normalization：只把非代码、
+   非 scalar 正文中的双转义段落符恢复为物理换行；代码块、inline code、证据标识和值字段保持字节不动。该显示修复不得读取文本语义决定事实，也不得改写结论。
+7. 本轮不把“最终没有 BusContext/Mutable 精确关系”误立为证据丢失：explorer 曾产生的一条关系仍未通过 grounding，最终 candidate roster 只有三条 stage
+   precedence。B1428/B1430 的 exact typed relation addition 与 occurrence-bound removal 能力没有回归。图层关系丰富度只能由后续 exact typed read/explore evidence
+   增强，禁止为了连通性补造桥。
+
+状态：
+
+`r918=runner-pass-1/2,human-write-fail+read-partial`；
+`B1431=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1432=confirmed/pending`；
+`B1433=confirmed/pending`；
+`write-read-budget=successful-content-acquisition+independent-failure-cap`；
+`missing-path-relocation=unique-existing-typed-candidate/advisory-only`；
+`system-plan/path/answer/conclusion/edge/node/label/layout-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1496 r915/B1427：半身份失败不得吞掉同轮无锚坏边的原子修补能力（2026-08-28）
 
 1. 从已推送 `a29cde68a` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace：Trace 145s PASS，read 648s

@@ -175,6 +175,59 @@ func TestPlannerShouldStop_HandoffSynthesisAllowsReadOnlyAtSoftCap(t *testing.T)
 	}
 }
 
+func TestPlannerHandoffSynthesisReadBudget_SeparatesSuccessfulAcquisitionFromFailures(t *testing.T) {
+	newContext := func() *types.AgentContext {
+		mu := types.NewMutableState("handoff synthesis")
+		mu.SetWriteContextPack(&types.WriteContextPack{Items: []types.WriteContextItem{{
+			Priority: types.WriteContextP1, Kind: "target_file", Text: "relativedelta.py", SourceStage: "explore",
+		}}})
+		return &types.AgentContext{Mutable: mu}
+	}
+	schemas := []llm.ToolSchema{{Name: "read_file"}, {Name: "repo_map"}, {Name: "grep"}, {Name: emitChangePlanToolName}}
+
+	ctx := newContext()
+	e := newPlannerEvaluatorForTest(t)
+	_ = e.BuildInitialInstruction(ctx, nil)
+	if e.handoffSynthesisReadBudget != plannerHandoffSynthesisBaseReadBudget {
+		t.Fatalf("base read budget=%d, want %d", e.handoffSynthesisReadBudget, plannerHandoffSynthesisBaseReadBudget)
+	}
+	e.ObserveToolResults(ctx, LoopObservation{CurrentToolResults: []types.ToolResult{{
+		ToolName: "read_file", Success: false,
+	}}})
+	e.ObserveToolResults(ctx, LoopObservation{CurrentToolResults: []types.ToolResult{{
+		ToolName: "read_file", Success: true,
+	}}})
+	if e.handoffSynthesisReadCalls != 1 || e.handoffSynthesisReadFailures != 1 {
+		t.Fatalf("read counters success=%d failure=%d, want 1/1", e.handoffSynthesisReadCalls, e.handoffSynthesisReadFailures)
+	}
+	if e.handoffSynthesisReadBudgetExhausted() {
+		t.Fatal("one failed lookup plus one successful read must not exhaust successful content-acquisition budget")
+	}
+	if names := strings.Join(toolSchemaNamesForTest(e.FilterToolSchemas(ctx, schemas)), ","); names != "read_file,repo_map,grep,emit_change_plan" {
+		t.Fatalf("typed locator/read tools disappeared after one failed lookup: %s", names)
+	}
+	for i := 1; i < plannerHandoffSynthesisBaseReadBudget; i++ {
+		e.ObserveToolResults(ctx, LoopObservation{CurrentToolResults: []types.ToolResult{{
+			ToolName: "repo_map", Success: true,
+		}}})
+	}
+	if !e.handoffSynthesisReadBudgetExhausted() {
+		t.Fatalf("%d successful acquisitions must exhaust the bounded read budget", plannerHandoffSynthesisBaseReadBudget)
+	}
+
+	failureCtx := newContext()
+	failureEval := newPlannerEvaluatorForTest(t)
+	_ = failureEval.BuildInitialInstruction(failureCtx, nil)
+	for i := 0; i < plannerReadFailureBudget; i++ {
+		failureEval.ObserveToolResults(failureCtx, LoopObservation{CurrentToolResults: []types.ToolResult{{
+			ToolName: "read_file", Success: false,
+		}}})
+	}
+	if !failureEval.handoffSynthesisReadBudgetExhausted() {
+		t.Fatalf("%d executed read failures must close the bounded recovery surface", plannerReadFailureBudget)
+	}
+}
+
 func TestPlannerHandoffSynthesisReadBudget_ExplorationPackIsTight(t *testing.T) {
 	mu := types.NewMutableState("handoff synthesis")
 	mu.SetWriteContextPack(&types.WriteContextPack{
