@@ -58,7 +58,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `block_field_edits_v1`: lossless local assignment for one projected closed-enum block metadata field. Choose the exact existing block_id, field, and value branch shown by the current schema. Every other field on that block is copied from the immutable patch base. This branch never edits text, title, items, diagrams, relations, labels, evidence, citations, or layout, and the system never chooses the value. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
-		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
+		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. For add/replace, reuse every endpoint that already has an explicit declaration. If edge.from_node or edge.to_node is new/implicit, also author its corresponding from_node_visible_label or to_node_visible_label; the executor encodes only that model-authored name and never derives one from the technical identity. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
 		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
 		"- `diagram_relation_scope_edits`: model-selected local edit of the block-level `requested_relation_scope` disclosure. This field is exposed only when the current typed request-spine authority proves an exact missing/stale/duplicate scope mismatch. Choose one exact block_id/action branch from the current schema; the executor changes only that typed disclosure and preserves the diagram, relations, labels, layout, and conclusion.\n" +
@@ -115,14 +115,14 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "diagram_edge_edits": {
       "type": "array",
       "maxItems": 128,
-      "description": "Atomic model-authored relation edits for an existing block (maximum 128 operations). Visible relabel/remove/replace/add requires a diagram; a non-diagram block accepts only a live remove-only prior_anchor_metadata ref and preserves visible content. Prefer this during a local typed relation retry so unmentioned content stays byte-identical. A live failures[] failure_ref may replace block_id+match+occurrence+body_occurrence only with an action listed by that row's allowed_actions; target_carrier states whether it selects a mapped prior anchor/body pair, remove-only prior anchor metadata with no unique visible body occurrence, visible body-only edge, stale anchor, or label pair. If multiple live rows share one positive body_occurrence and you choose remove for all, submit every ref in the same patch; the shared statement is removed once with all selected anchors. replace requires a complete model-authored edge and visible_label. For add, prefer a live allowed_additions[].addition_ref plus edge.from_node/to_node/visible_label; omit edge.relation_kind/from_identity/to_identity and block_id because the ref supplies those hidden fields. When a sequenceDiagram already has explicit participant declarations, reuse their exact ids for edge.from_node/to_node instead of introducing implicit duplicate participants. Legacy add requires block_id+complete edge. add always rejects failure_ref. occurrence is 1-based among exact duplicate anchors and defaults to 1. Without failure_ref, body_occurrence selects the 1-based visible Mermaid edge for an otherwise ambiguous from_node/to_node pair. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
+      "description": "Atomic model-authored relation edits for an existing block (maximum 128 operations). Visible relabel/remove/replace/add requires a diagram; a non-diagram block accepts only a live remove-only prior_anchor_metadata ref and preserves visible content. Prefer this during a local typed relation retry so unmentioned content stays byte-identical. A live failures[] failure_ref may replace block_id+match+occurrence+body_occurrence only with an action listed by that row's allowed_actions; target_carrier states whether it selects a mapped prior anchor/body pair, remove-only prior anchor metadata with no unique visible body occurrence, visible body-only edge, stale anchor, or label pair. If multiple live rows share one positive body_occurrence and you choose remove for all, submit every ref in the same patch; the shared statement is removed once with all selected anchors. replace requires a complete model-authored edge and visible_label. For add, prefer a live allowed_additions[].addition_ref plus edge.from_node/to_node/visible_label; omit edge.relation_kind/from_identity/to_identity and block_id because the ref supplies those hidden fields. For add/replace, reuse explicitly declared endpoint ids; when an endpoint is new/implicit, provide its matching from_node_visible_label/to_node_visible_label so the reader never sees an unlabeled technical id. When a sequenceDiagram already has explicit participant declarations, reuse their exact ids for edge.from_node/to_node instead of introducing implicit duplicate participants. Legacy add requires block_id+complete edge. add always rejects failure_ref. occurrence is 1-based among exact duplicate anchors and defaults to 1. Without failure_ref, body_occurrence selects the 1-based visible Mermaid edge for an otherwise ambiguous from_node/to_node pair. The system applies only the declared operation and then runs the ordinary typed relation/evidence gates; it never chooses an edge or visible label.",
       "items": {
         "type": "object",
         "properties": {
           "block_id": {"type": "string"},
           "action": {"type": "string", "enum": ["relabel", "remove", "replace", "add"]},
           "failure_ref": {"type": "string", "description": "Opaque selector copied exactly from the live failures[] row. Use only an action listed in that row's allowed_actions. It replaces match, occurrence, and body_occurrence; omit those coordinates because any legacy copies are quarantined after the live ref/action is validated. Omit failure_ref for add. Unknown, stale, disallowed-action, explicit cross-block, ambiguous, or reused refs fail closed."},
-          "addition_ref": {"type": "string", "description": "Opaque selector copied exactly from one live allowed_additions[] row. Use only with action=add. It supplies that selected candidate's block_id, relation_kind, from_identity, and to_identity; you still author edge.from_node, edge.to_node, and edge.visible_label. If the sequence body already declares participants, copy those exact declared ids into edge.from_node/to_node. Omit failure_ref and hidden technical fields; legacy hidden-field copies are quarantined after the live ref/action is validated. Unknown, stale, duplicate, explicit cross-block, or wrong-action refs fail closed."},
+          "addition_ref": {"type": "string", "description": "Opaque selector copied exactly from one live allowed_additions[] row. Use only with action=add. It supplies that selected candidate's block_id, relation_kind, from_identity, and to_identity; you still author edge.from_node, edge.to_node, and edge.visible_label. Reuse explicit endpoint declarations; for a new/implicit endpoint also author its corresponding from_node_visible_label/to_node_visible_label. If the sequence body already declares participants, copy those exact declared ids into edge.from_node/to_node. Omit failure_ref and hidden technical fields; legacy hidden-field copies are quarantined after the live ref/action is validated. Unknown, stale, duplicate, explicit cross-block, or wrong-action refs fail closed."},
           "occurrence": {"type": "integer", "minimum": 1},
           "body_occurrence": {"type": "integer", "minimum": 1, "description": "1-based visible Mermaid edge occurrence for the selected from_node/to_node pair. Omit when the pair is unique or body edges map one-to-one to exact prior anchors; required when the body pair is otherwise ambiguous."},
           "match": {
@@ -148,7 +148,9 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
             },
             "required": ["from_node", "to_node"]
           },
-          "visible_label": {"type": "string", "description": "Model-authored reader-facing message for relabel. It updates the matched Mermaid message and anchor.visible_label together."}
+          "visible_label": {"type": "string", "description": "Model-authored reader-facing message for relabel. It updates the matched Mermaid message and anchor.visible_label together."},
+          "from_node_visible_label": {"type": "string", "description": "Model-authored reader-facing node name. Required by the executor for add/replace only when edge.from_node has no explicit declaration in the current diagram; omit for an already-declared endpoint."},
+          "to_node_visible_label": {"type": "string", "description": "Model-authored reader-facing node name. Required by the executor for add/replace only when edge.to_node has no explicit declaration in the current diagram; omit for an already-declared endpoint."}
         },
         "required": ["action"],
         "anyOf": [
@@ -697,6 +699,14 @@ func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsL
 			"required": []any{"from_node", "to_node", "visible_label"},
 		}
 		required = append(required, "edge")
+		properties["from_node_visible_label"] = map[string]any{
+			"type": "string", "minLength": 1,
+			"description": "Model-authored reader-facing name for edge.from_node. Supply it only when that node id has no explicit declaration in the current diagram; the executor requires it for a newly implicit endpoint.",
+		}
+		properties["to_node_visible_label"] = map[string]any{
+			"type": "string", "minLength": 1,
+			"description": "Model-authored reader-facing name for edge.to_node. Supply it only when that node id has no explicit declaration in the current diagram; the executor requires it for a newly implicit endpoint.",
+		}
 	}
 	if needsLabel {
 		properties["visible_label"] = map[string]any{"type": "string", "minLength": 1}
@@ -1217,20 +1227,22 @@ func answerDocumentPatchFieldEditSchemaRepair(v answerDocumentPatchFieldEditSche
 // previous model-authored Mermaid carrier; it never chooses an endpoint,
 // relation kind, or reader-facing label.
 type emitAnswerDiagramEdgeEdit struct {
-	BlockID             string                   `json:"block_id"`
-	Action              string                   `json:"action"`
-	FailureRef          string                   `json:"failure_ref,omitempty"`
-	AdditionRef         string                   `json:"addition_ref,omitempty"`
-	Occurrence          int                      `json:"occurrence,omitempty"`
-	BodyOccurrence      int                      `json:"body_occurrence,omitempty"`
-	Match               *types.DiagramEdgeAnchor `json:"match,omitempty"`
-	Edge                *types.DiagramEdgeAnchor `json:"edge,omitempty"`
-	VisibleLabel        string                   `json:"visible_label,omitempty"`
-	failureRefResolved  bool
-	failureRefCarrier   types.AnswerDiagramRelationRepairTargetCarrier
-	failureIssue        string
-	attachPairResolving bool
-	additionCandidate   *types.AnswerDiagramRelationRepairCandidate
+	BlockID              string                   `json:"block_id"`
+	Action               string                   `json:"action"`
+	FailureRef           string                   `json:"failure_ref,omitempty"`
+	AdditionRef          string                   `json:"addition_ref,omitempty"`
+	Occurrence           int                      `json:"occurrence,omitempty"`
+	BodyOccurrence       int                      `json:"body_occurrence,omitempty"`
+	Match                *types.DiagramEdgeAnchor `json:"match,omitempty"`
+	Edge                 *types.DiagramEdgeAnchor `json:"edge,omitempty"`
+	VisibleLabel         string                   `json:"visible_label,omitempty"`
+	FromNodeVisibleLabel string                   `json:"from_node_visible_label,omitempty"`
+	ToNodeVisibleLabel   string                   `json:"to_node_visible_label,omitempty"`
+	failureRefResolved   bool
+	failureRefCarrier    types.AnswerDiagramRelationRepairTargetCarrier
+	failureIssue         string
+	attachPairResolving  bool
+	additionCandidate    *types.AnswerDiagramRelationRepairCandidate
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {

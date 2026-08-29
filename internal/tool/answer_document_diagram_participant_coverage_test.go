@@ -252,8 +252,9 @@ func TestPreCheckDiagramParticipantCoveragePublishesUniqueEndpointCollisionTuple
 	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions)
 	patch := &types.AnswerDocumentV2Patch{}
 	err := applyModelAuthoredDiagramAtomicEdits(doc, patch, []emitAnswerDiagramEdgeEdit{{
-		FailureRef: lease.Failures[0].FailureRef,
-		Action:     string(types.AnswerDiagramRelationRepairActionReplace),
+		FailureRef:         lease.Failures[0].FailureRef,
+		Action:             string(types.AnswerDiagramRelationRepairActionReplace),
+		ToNodeVisibleLabel: "共享状态写入",
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "W", ToNode: "MutableAppendOperation", VisibleLabel: "提交分析证据",
 		},

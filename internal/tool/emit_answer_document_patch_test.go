@@ -639,6 +639,7 @@ func TestEmitAnswerDocumentPatch_ParticipantOnlyAdditionRefExecutesAndConsumes(t
 	params := fmt.Sprintf(`{
 		"unchanged_block_ids":["summary"],
 		"diagram_edge_edits":[{"action":"add","addition_ref":%q,
+			"to_node_visible_label":"构造分析上下文",
 			"edge":{"from_node":"BusContext","to_node":"BuildAgentContext","visible_label":"作为参数传递"}}]
 	}`, lease.AllowedAdditions[0].AdditionRef)
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
@@ -683,6 +684,7 @@ func TestEmitAnswerDocumentPatch_AdditionRefAcceptsPublishedSafeTechnicalEndpoin
 	params := fmt.Sprintf(`{
 		"unchanged_block_ids":["summary"],
 		"diagram_edge_edits":[{"action":"add","addition_ref":%q,
+			"to_node_visible_label":"构造分析上下文",
 			"edge":{"from_node":"BusContext","to_node":%q,"visible_label":"作为参数传递"}}]
 	}`, lease.AllowedAdditions[0].AdditionRef, toAlias)
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(params))
@@ -699,8 +701,9 @@ func TestEmitAnswerDocumentPatch_AdditionRefAcceptsPublishedSafeTechnicalEndpoin
 		anchor.VisibleLabel != "作为参数传递" {
 		t.Fatalf("safe alias changed model wording or typed identity: %+v", anchor)
 	}
-	if !strings.Contains(doc.Blocks[1].Diagram.Body, "BusContext -->|作为参数传递| "+toAlias) {
-		t.Fatalf("safe alias was not preserved in visible Mermaid source:\n%s", doc.Blocks[1].Diagram.Body)
+	if !strings.Contains(doc.Blocks[1].Diagram.Body, toAlias+`["构造分析上下文"]`) ||
+		!strings.Contains(doc.Blocks[1].Diagram.Body, "BusContext -->|作为参数传递| "+toAlias) {
+		t.Fatalf("safe alias must retain its typed id behind a model-authored reader name:\n%s", doc.Blocks[1].Diagram.Body)
 	}
 }
 

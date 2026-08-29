@@ -1062,6 +1062,94 @@ func AddRemovableNodeDeclaration(body, ident, visibleLabel string) (string, bool
 	return strings.Join(lines, "\n"), true
 }
 
+// AddExplicitNodeDeclaration inserts one model-authored visible declaration
+// for an endpoint that Mermaid would otherwise create implicitly from an edge.
+// Unlike AddRemovableNodeDeclaration, an already-referenced implicit endpoint
+// is allowed: the purpose of this adapter is to give that exact node a reader
+// label before an atomic add/replace writes another relation. Existing explicit
+// declarations remain immutable and make the operation fail closed.
+//
+// The helper is syntax-only. The caller supplies both the node id and visible
+// label; no technical identity, edge message, or prose is translated here.
+func AddExplicitNodeDeclaration(body, ident, visibleLabel string) (string, bool) {
+	ident = strings.TrimSpace(ident)
+	visibleLabel = strings.TrimSpace(visibleLabel)
+	if !safeStandaloneNodeIdentifier(ident) || visibleLabel == "" ||
+		strings.ContainsAny(visibleLabel, "\r\n\x00") {
+		return body, false
+	}
+	family := mermaidBodyFamily(body)
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		var declarations []NodeDecl
+		switch family {
+		case "sequence":
+			declarations = SequenceParticipantDeclarations(line)
+		case "flow":
+			declarations = NodeDeclarationsAll(line)
+		case "class":
+			declarations = classNodeDeclarations(line)
+		default:
+			return body, false
+		}
+		for _, declaration := range declarations {
+			if strings.TrimSpace(declaration.Ident) == ident {
+				return body, false
+			}
+		}
+	}
+
+	label := strings.ReplaceAll(visibleLabel, `"`, `&quot;`)
+	var declaration string
+	switch family {
+	case "sequence":
+		declaration = `    participant ` + ident + ` as "` + label + `"`
+	case "flow":
+		declaration = `    ` + ident + `["` + label + `"]`
+	case "class":
+		declaration = `    class ` + ident + `["` + label + `"]`
+	default:
+		return body, false
+	}
+	lines := strings.Split(body, "\n")
+	header := -1
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		header = i
+		break
+	}
+	if header < 0 {
+		return body, false
+	}
+	lines = append(lines, "")
+	copy(lines[header+2:], lines[header+1:])
+	lines[header+1] = declaration
+	return strings.Join(lines, "\n"), true
+}
+
+func classNodeDeclarations(line string) []NodeDecl {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "class ") {
+		return nil
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "class "))
+	if rest == "" || strings.ContainsAny(rest, "{}") {
+		return nil
+	}
+	declarations := NodeDeclarationsAll(rest)
+	if len(declarations) == 1 {
+		return declarations
+	}
+	fields := strings.Fields(rest)
+	if len(fields) != 1 || !safeStandaloneNodeIdentifier(fields[0]) {
+		return nil
+	}
+	return []NodeDecl{{Ident: fields[0], Label: fields[0]}}
+}
+
 func safeStandaloneNodeIdentifier(ident string) bool {
 	if ident == "" || len(ident) > 128 {
 		return false
@@ -1152,6 +1240,8 @@ func mermaidBodyFamily(body string) string {
 			return "sequence"
 		case strings.HasPrefix(line, "flowchart"), strings.HasPrefix(line, "graph"):
 			return "flow"
+		case strings.HasPrefix(line, "classdiagram"):
+			return "class"
 		default:
 			return ""
 		}

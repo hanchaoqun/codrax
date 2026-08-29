@@ -138,6 +138,11 @@ func TestBuildAnswerDocumentPatchParametersForReusesProjectedBlockSchema(t *test
 	if _, ok := edgeEditProps["addition_ref"]; !ok {
 		t.Fatalf("diagram atomic edit schema lost the live allowed-addition selector: %v", edgeEditProps)
 	}
+	for _, field := range []string{"from_node_visible_label", "to_node_visible_label"} {
+		if _, ok := edgeEditProps[field]; !ok {
+			t.Fatalf("diagram atomic edit schema lost model-owned endpoint presentation field %q: %v", field, edgeEditProps)
+		}
+	}
 	edgePayload := edgeEditProps["edge"].(map[string]any)
 	edgeRequired := edgePayload["required"].([]any)
 	if len(edgeRequired) != 2 || edgeRequired[0] != "from_node" || edgeRequired[1] != "to_node" {
@@ -334,6 +339,11 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 			for _, visible := range []string{"from_node", "to_node", "visible_label"} {
 				if _, ok := edgeProps[visible]; !ok {
 					t.Fatalf("edge branch lost model-owned field %q: %+v", visible, edgeProps)
+				}
+			}
+			for _, visible := range []string{"from_node_visible_label", "to_node_visible_label"} {
+				if _, ok := branchProps[visible]; !ok {
+					t.Fatalf("edge branch lost model-owned endpoint presentation field %q: %+v", visible, branchProps)
 				}
 			}
 		}

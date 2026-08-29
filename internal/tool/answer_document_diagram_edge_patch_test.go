@@ -565,6 +565,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
 		Action: "add", AdditionRef: additionRef,
+		FromNodeVisibleLabel: "分析阶段", ToNodeVisibleLabel: "探索阶段",
 		Edge: &types.DiagramEdgeAnchor{
 			FromNode: "businessAnalyze", ToNode: "businessExplore",
 			VisibleLabel: "确定分析范围后收集证据",
@@ -619,6 +620,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		got := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
 			Action: "add", AdditionRef: additionRef,
+			FromNodeVisibleLabel: "分析阶段", ToNodeVisibleLabel: "探索阶段",
 			Edge: &types.DiagramEdgeAnchor{
 				FromNode: "Analyzer", ToNode: "Mutable", VisibleLabel: "model label",
 			},
@@ -651,6 +653,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 		got := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEdits(prev, got, []emitAnswerDiagramEdgeEdit{{
 			Action: "add", AdditionRef: additionRef,
+			FromNodeVisibleLabel: "分析阶段", ToNodeVisibleLabel: "探索阶段",
 			Edge: &types.DiagramEdgeAnchor{
 				FromNode: "businessAnalyze", ToNode: "businessExplore", FromIdentity: "other", ToIdentity: "explorer",
 				RelationKind: types.DiagramRelPrecedence, VisibleLabel: "model label",
@@ -666,6 +669,98 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 			t.Fatalf("ref must preserve visible authorship and restore only selected hidden fields: %+v", added)
 		}
 	})
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_RequiresModelVisibleNameForNewEndpointAcrossFamilies(t *testing.T) {
+	tests := []struct {
+		name            string
+		kind            types.DiagramKind
+		body            string
+		wantDeclaration string
+		wantEdge        string
+	}{
+		{
+			name: "flow", kind: types.DiagramFlow,
+			body: `flowchart LR
+  Existing["已有组件"]`,
+			wantDeclaration: `InternalHandler_a1b2["业务处理器"]`,
+			wantEdge:        `Existing -->|提交任务| InternalHandler_a1b2`,
+		},
+		{
+			name: "sequence", kind: types.DiagramSequence,
+			body: `sequenceDiagram
+  participant Existing as "已有组件"`,
+			wantDeclaration: `participant InternalHandler_a1b2 as "业务处理器"`,
+			wantEdge:        `Existing->>InternalHandler_a1b2: 提交任务`,
+		},
+		{
+			name: "class", kind: types.DiagramArchitecture,
+			body: `classDiagram
+  class Existing["已有组件"]`,
+			wantDeclaration: `class InternalHandler_a1b2["业务处理器"]`,
+			wantEdge:        `Existing --> InternalHandler_a1b2 : 提交任务`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+				ID: "diag", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: tc.kind, Language: "mermaid", Body: tc.body},
+			}}}
+			patch := &types.AnswerDocumentV2Patch{}
+			err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+				BlockID: "diag", Action: "add", ToNodeVisibleLabel: "业务处理器",
+				Edge: &types.DiagramEdgeAnchor{
+					FromNode: "Existing", ToNode: "InternalHandler_a1b2",
+					FromIdentity: "pkg.Existing", ToIdentity: "pkg.InternalHandler",
+					RelationKind: types.DiagramRelCall, VisibleLabel: "提交任务",
+				},
+			}}, nil, nil)
+			if err != nil {
+				t.Fatalf("model-authored endpoint declaration rejected: %v", err)
+			}
+			if len(patch.ReplaceBlocks) != 1 || patch.ReplaceBlocks[0].Diagram == nil {
+				t.Fatalf("compiled patch missing diagram: %+v", patch)
+			}
+			body := patch.ReplaceBlocks[0].Diagram.Body
+			for _, want := range []string{tc.wantDeclaration, tc.wantEdge} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("compiled %s diagram lost %q:\n%s", tc.name, want, body)
+				}
+			}
+			if len(patch.ReplaceBlocks[0].EdgeAnchors) != 1 {
+				t.Fatalf("relation anchor count changed: %+v", patch.ReplaceBlocks[0].EdgeAnchors)
+			}
+			anchor := patch.ReplaceBlocks[0].EdgeAnchors[0]
+			if anchor.FromIdentity != "pkg.Existing" || anchor.ToIdentity != "pkg.InternalHandler" ||
+				anchor.RelationKind != types.DiagramRelCall || anchor.VisibleLabel != "提交任务" {
+				t.Fatalf("display declaration changed the selected relation tuple: %+v", anchor)
+			}
+		})
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_RejectsImplicitEndpointWithoutModelVisibleName(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: `flowchart LR
+  Existing["已有组件"]`},
+	}}}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		BlockID: "diag", Action: "add",
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "Existing", ToNode: "InternalHandler_a1b2",
+			FromIdentity: "pkg.Existing", ToIdentity: "pkg.InternalHandler",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "提交任务",
+		},
+	}}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "to_node_visible_label is required") {
+		t.Fatalf("implicit technical endpoint must require a model-authored display name: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 0 {
+		t.Fatalf("rejected declaration must remain transactional: %+v", patch)
+	}
 }
 
 func TestApplyModelAuthoredDiagramAtomicEdits_AnchoredComponentJoinRetargetsVisibleEndpointOnly(t *testing.T) {
@@ -1959,7 +2054,7 @@ func TestEmitAnswerDocumentPatch_AtomicRelationEditsHonorTypedLease(t *testing.T
 		"unchanged_block_ids":["summary"],
 		"diagram_edge_edits":[
 			{"block_id":"diag","action":"remove","match":{"from_node":"A","to_node":"B","from_identity":"Analyzer","to_identity":"Explorer","relation_kind":"precedence"}},
-			{"block_id":"diag","action":"add","edge":{"from_node":"C","to_node":"F","from_identity":"Extractor","to_identity":"Finalizer","relation_kind":"precedence","visible_label":"结构化事实就绪后组织答案"}}
+			{"block_id":"diag","action":"add","to_node_visible_label":"答案组织阶段","edge":{"from_node":"C","to_node":"F","from_identity":"Extractor","to_identity":"Finalizer","relation_kind":"precedence","visible_label":"结构化事实就绪后组织答案"}}
 		]
 	}`)
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)
@@ -2003,7 +2098,7 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 	}
 	raw := json.RawMessage(`{
 		"unchanged_block_ids":["summary"],
-		"diagram_edge_edits":[{"block_id":"diag","action":"add","edge":{
+		"diagram_edge_edits":[{"block_id":"diag","action":"add","to_node_visible_label":"答案组织阶段","edge":{
 			"from_node":"C","to_node":"F","relation_kind":"precedence","visible_label":"结构化事实就绪后组织答案"
 		}}]
 	}`)
@@ -2016,7 +2111,8 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 		}
 		params := fmt.Sprintf(`{
 			"unchanged_block_ids":["summary"],
-			"diagram_edge_edits":[{"action":"add","addition_ref":%q,"edge":{
+			"diagram_edge_edits":[{"action":"add","addition_ref":%q,
+				"from_node_visible_label":"事实提炼阶段","to_node_visible_label":"答案组织阶段","edge":{
 				"from_node":"BusinessExtract","to_node":"BusinessFinalize","visible_label":"结构化事实就绪后组织答案"
 			}}]
 		}`, lease.AllowedAdditions[0].AdditionRef)
@@ -2102,7 +2198,7 @@ func TestEmitAnswerDocumentPatch_AtomicUnlistedAdditionStillRejectedByLease(t *t
 		}}, nil))
 	bus := &types.BusContext{Mutable: mut}
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
-		"diagram_edge_edits":[{"block_id":"diag","action":"add","edge":{"from_node":"C","to_node":"F","from_identity":"Extractor","to_identity":"Finalizer","relation_kind":"precedence","visible_label":"组织答案"}}]
+		"diagram_edge_edits":[{"block_id":"diag","action":"add","to_node_visible_label":"答案组织阶段","edge":{"from_node":"C","to_node":"F","from_identity":"Extractor","to_identity":"Finalizer","relation_kind":"precedence","visible_label":"组织答案"}}]
 	}`))
 	if err != nil {
 		t.Fatalf("unexpected execution error: %v", err)

@@ -1570,3 +1570,31 @@ func TestAddRemovableNodeDeclarationAddsOnlyModelAuthoredStandaloneCarrier(t *te
 		t.Fatal("unsupported family must fail closed instead of guessing syntax")
 	}
 }
+
+func TestAddExplicitNodeDeclarationNamesImplicitEndpointAcrossSupportedFamilies(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "flow", body: "flowchart LR\n  Existing --> NewNode", want: `NewNode["业务节点"]`},
+		{name: "sequence", body: "sequenceDiagram\n  Existing->>NewNode: call", want: `participant NewNode as "业务节点"`},
+		{name: "class", body: "classDiagram\n  Existing --> NewNode : uses", want: `class NewNode["业务节点"]`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := AddExplicitNodeDeclaration(tc.body, "NewNode", "业务节点")
+			if !ok || !strings.Contains(got, tc.want) {
+				t.Fatalf("explicit declaration not added: ok=%t\n%s", ok, got)
+			}
+			if _, ok := AddExplicitNodeDeclaration(got, "NewNode", "duplicate"); ok {
+				t.Fatalf("existing explicit declaration must fail closed:\n%s", got)
+			}
+		})
+	}
+	for _, body := range []string{"stateDiagram-v2\n A --> B", "flowchart LR\n A --> B"} {
+		if _, ok := AddExplicitNodeDeclaration(body, "bad-id", "label"); ok {
+			t.Fatalf("unsafe/unsupported declaration accepted for %q", body)
+		}
+	}
+}

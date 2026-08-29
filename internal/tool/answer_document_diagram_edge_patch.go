@@ -1386,6 +1386,10 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		action != string(types.AnswerDiagramRelationRepairActionAttach) {
 		return fmt.Errorf("unsupported action %q", edit.Action)
 	}
+	if action != "add" && action != "replace" &&
+		(strings.TrimSpace(edit.FromNodeVisibleLabel) != "" || strings.TrimSpace(edit.ToNodeVisibleLabel) != "") {
+		return fmt.Errorf("from_node_visible_label/to_node_visible_label are valid only for action=add or action=replace")
+	}
 	occurrence := edit.Occurrence
 	if occurrence == 0 {
 		occurrence = 1
@@ -1440,6 +1444,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			if atomicDiagramAnchorSameTuple(anchor, *edit.Edge) {
 				return fmt.Errorf("action=add duplicates an existing exact anchor")
 			}
+		}
+		if err := ensureAtomicDiagramEndpointDeclarations(block, edit); err != nil {
+			return err
 		}
 		line, err := renderAtomicMermaidEdgeLine(block.Diagram.Body, *edit.Edge)
 		if err != nil {
@@ -1542,6 +1549,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			if strings.TrimSpace(edit.Edge.VisibleLabel) == "" {
 				return fmt.Errorf("action=replace requires edge.visible_label authored by the model")
 			}
+			if err := ensureAtomicDiagramEndpointDeclarations(block, edit); err != nil {
+				return err
+			}
 			line, err := renderAtomicMermaidEdgeLine(block.Diagram.Body, *edit.Edge)
 			if err != nil {
 				return err
@@ -1574,6 +1584,9 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			if strings.TrimSpace(edit.Edge.VisibleLabel) == "" {
 				return fmt.Errorf("action=replace requires edge.visible_label authored by the model")
 			}
+			if err := ensureAtomicDiagramEndpointDeclarations(block, edit); err != nil {
+				return err
+			}
 			line, err := renderAtomicMermaidEdgeLine(block.Diagram.Body, *edit.Edge)
 			if err != nil {
 				return err
@@ -1583,6 +1596,11 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			block.EdgeAnchors[anchorIndex] = *edit.Edge
 		}
 		return nil
+	}
+	if action == "replace" {
+		if err := ensureAtomicDiagramEndpointDeclarations(block, edit); err != nil {
+			return err
+		}
 	}
 	bodyOccurrence, err := atomicDiagramBodyOccurrence(
 		block.Diagram.Body, block.EdgeAnchors, edit.Match.FromNode, edit.Match.ToNode,
@@ -1644,6 +1662,60 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		}
 	}
 	block.Diagram.Body = strings.Join(lines, "\n")
+	return nil
+}
+
+// ensureAtomicDiagramEndpointDeclarations prevents an atomic edge edit from
+// making Mermaid invent an unlabeled implicit node. The model owns both the
+// endpoint id and the optional reader-facing node labels. Existing explicit
+// declarations remain byte-identical; each newly introduced endpoint requires
+// its matching model-authored label and is encoded through a family-specific
+// syntax adapter. No identity or wording is inferred from the relation lease.
+func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emitAnswerDiagramEdgeEdit) error {
+	if block == nil || block.Diagram == nil || edit.Edge == nil {
+		return fmt.Errorf("edge endpoint declarations require an existing diagram and edge")
+	}
+	type endpoint struct {
+		field string
+		node  string
+		label string
+	}
+	endpoints := []endpoint{
+		{field: "from_node", node: strings.TrimSpace(edit.Edge.FromNode), label: strings.TrimSpace(edit.FromNodeVisibleLabel)},
+		{field: "to_node", node: strings.TrimSpace(edit.Edge.ToNode), label: strings.TrimSpace(edit.ToNodeVisibleLabel)},
+	}
+	labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+	pending := make(map[string]string, 2)
+	order := make([]string, 0, 2)
+	for _, endpoint := range endpoints {
+		if endpoint.node == "" {
+			return fmt.Errorf("edge.%s must be non-empty", endpoint.field)
+		}
+		if _, declared := labels[strings.ToLower(endpoint.node)]; declared {
+			if endpoint.label != "" {
+				return fmt.Errorf("%s_visible_label must be omitted because edge.%s=%q already has an explicit declaration", endpoint.field, endpoint.field, endpoint.node)
+			}
+			continue
+		}
+		if endpoint.label == "" {
+			return fmt.Errorf("%s_visible_label is required because edge.%s=%q has no explicit declaration; author one reader-facing node name", endpoint.field, endpoint.field, endpoint.node)
+		}
+		if prior, exists := pending[endpoint.node]; exists {
+			if prior != endpoint.label {
+				return fmt.Errorf("self-edge endpoint %q has conflicting model-authored visible labels", endpoint.node)
+			}
+			continue
+		}
+		pending[endpoint.node] = endpoint.label
+		order = append(order, endpoint.node)
+	}
+	for _, node := range order {
+		body, ok := mermaidcompat.AddExplicitNodeDeclaration(block.Diagram.Body, node, pending[node])
+		if !ok {
+			return fmt.Errorf("cannot add an explicit model-authored declaration for endpoint %q in this Mermaid family; use an existing declared node id or a supported flow/sequence/class carrier", node)
+		}
+		block.Diagram.Body = body
+	}
 	return nil
 }
 

@@ -57291,6 +57291,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1500 r919：三项修复无回归；关系 addition 泄漏隐式技术端点（2026-08-28）
+
+1. 从已推送 `d802a1354` 重建不可变二进制，严格并发恰好 2 路复放 write dateutil 与 read logic-view，runner 2/2 PASS：write 181s、read 310s。
+   两路均未按 4ms、4m、活动流年龄或上下文比例降级，也没有系统代写答案、结论、关系、节点 id 或业务词面。
+2. write 人工 PASS：正确定位 root-level `relativedelta.py`，生成并安装单文件 patch，应用后独立行为 probe 与完整 unittest 共 5 项验证全绿，应用树只修改实现且未改测试。
+   但本轮 repo map 首次即返回正确路径，6 次 read 全成功，没有复现 failed-read；所以 B1431 只能记无回归，不能冒记生产转正。
+3. read 人工 PARTIAL：最终四阶段 precedence、已证 BusContext/Mutable 局部数据流、组件责任和合法 Mermaid 均在；没有字面 `\\n\\n`。
+   本轮也没有出现 `boundary_participant_not_visible`，所以 B1432/B1433 均为无回归、待对应生产触发。首个 reject 同时发布 participant+relation delta，模型同一 patch
+   完成两族修补；第二 reject 只清理模型自行增加的 stale boundary，联合 repair 没有回归。
+4. 新 P1 `B1434-IMPLICITENDPOINTDISPLAYIDENTITY1` 已确认。relation addition 的 schema 只要求 edge from/to/label；若模型选择的端点在原图没有显式声明，executor
+   直接追加边，Mermaid 会隐式创建节点。最终图因此把 `ctxbuilderBuildAgentContext_860bba75bb1a60fb` 这种技术 identity/hash 直接当用户可见节点，关系证据虽真，显示身份合同却缺席。
+5. 根修不是按该字符串过滤：对 add/replace 引入的每个未声明端点，必须由模型同时填写 reader-facing endpoint label；executor 只做 family-specific declaration 编码与 parser
+   round-trip。既有声明复用；空/多行、unsafe、重复、歧义、冲突或不支持 family 均 fail-closed。系统不得从技术 identity、请求、thinking、edge message 或答案 prose 生成名称。
+6. flow/graph、sequence 与 class 三族统一纳入；from/to 同一端点只接受一份一致的模型声明。回归必须钉住 r919 新端点、三 family、既有端点不重写、缺 label 拒绝，且 relation tuple、
+   edge anchor、模型边文案和其他图内容保持。
+7. read 的 5 次 completion call 中，前三次依次获得新的 extract/builder/consumer 证据，第四次已一次披露全部 9 个 member support-ref 违规。先记串行补证成本观察项，禁止据单例按轮数、
+   文件名、耗时或答案关键词硬截断。
+8. B1434 已按“模型命名、系统只编码”施工。`diagram_edge_edits` 的 add/replace 若复用已有显式 node/participant/class 声明，必须省略新字段并保持原声明字节不动；若端点只会被
+   Mermaid 隐式创建，则模型必须分别提供 `from_node_visible_label` / `to_node_visible_label`。执行器只把该模型原文编码成对应 family 的 standalone declaration，绝不从
+   technical identity、hash、edge label、请求或答案正文推导业务名称；edge tuple、relation kind、direction 与 visible edge label 的既有模型所有权不变。
+9. flow/graph、sequenceDiagram、classDiagram 三族共用同一执行合同，并各走本族语法；新增端点 id 仍须通过既有安全 identifier 约束，空/多行 label、已有声明重复命名、self-edge 两侧命名冲突、
+   unsupported family 均在事务提交前 fail-closed。关系 lease 与 typed evidence 终验没有放宽；无权关系的负例即使提供完整显示名，仍必须以 `unlisted_relation_added` 拒绝。
+10. schema、共享 patch 教学与执行器同步接线并加 pin；回归覆盖三 family、新端点、既有声明复用、缺显示名事务回滚、safe technical alias 只作为隐藏 id 且必须由模型命名，以及 typed relation 负例。
+    `go test ./internal/mermaidcompat ./internal/types ./internal/tool ./internal/agent -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+
+状态：
+
+`r919=runner-pass-2/2,human-write-pass+read-partial`；
+`B1431=no-regression/no-production-failed-read-trigger`；
+`B1432=no-regression/no-production-visibility-trigger`；
+`B1433=no-regression/no-production-escape-trigger`；
+`B1434=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`implicit-endpoint-visible-identity=model-authored-label+family-specific-syntax-only`；
+`existing-explicit-endpoint=byte-preserved+no-relabel`；
+`system-relation/action/node-id/visible-label/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r919`。
+
 ### §123.1498 r917/B1430：local relation 显示权限生产转正；重复 prior anchor 发布不可执行失败引用（2026-08-28）
 
 1. 从已推送 `e2ea498e4` 重建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace，runner 2/2 PASS：Trace 177s、read
