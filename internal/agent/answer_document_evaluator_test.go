@@ -1737,6 +1737,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCallChainTargetD
 		"## Call-chain runtime target discovery",
 		"grounded source endpoint: `run_pipeline`",
 		"destination mode: `discover`",
+		"Keep each exact observed operation, especially the terminal operation, separate from any stronger business effect",
+		"not proof of durability, storage, delivery, mutation",
 		"registration/binding is not a source-level call",
 		"runtime class from the class or mixin that owns an inherited method definition",
 		"model owns the final destination conclusion",

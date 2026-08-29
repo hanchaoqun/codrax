@@ -13150,7 +13150,8 @@ func TestRenderExplorerCallChainEdgeEvidenceGuide_CoversEndpointLocalTopologyWit
 		"Conceptual-terminal discovery preserves the exact requested source",
 		"does not preselect a code sink or assert runtime selection",
 		"inspect the grounded leaf callable's body",
-		"do not infer a business effect from an identifier",
+		"Keep each exact observed operation, especially the terminal operation, separate from any stronger business effect",
+		"not proof of durability, storage, delivery, mutation",
 	} {
 		if !strings.Contains(discoverTerminalGuide, want) {
 			t.Fatalf("discover-terminal edge handoff missing %q:\n%s", want, discoverTerminalGuide)

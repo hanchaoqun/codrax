@@ -57357,6 +57357,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r926`。
 
+### §123.1508 r927/B1441：调用关系完整但“代码操作→业务效果”被概念词污染（2026-08-28）
+
+1. 从已推送 `41ed5341f` 的不可变二进制严格并发恰好 2 路复放 Java read+write。runner 0/2 PASS：read 154s 因语义边界 oracle
+   失败；write 131s 因 `runner_missing/unverified` 失败。两路均未按固定 4ms、4m、首字节、累计活动年龄或上下文比例降级，没有旧稿恢复、系统代写结论或关系。
+2. write 实现人工 PASS、验证诚实未闭合。模型只改生产 `LazilyParsedNumber.java`，以内部 `value` 实现 `equals(Object)` 与
+   `hashCode()`，测试和检查脚本未动；`make check` 通过。宿主的 `/usr/bin/java`/`javac` 无实际 Java runtime，行为测试不可执行，系统正确发布
+   `runner_missing/unverified`，没有把 source-static 检查冒充行为验证。这不是可由产品代码安全伪绿的 gap。
+3. read 的关系和图本身完整：六条 typed call 依次覆盖 controller→service、配置读取、容量计数、insert、audit 与
+   `AuditLog.record -> System.out.println`，容量 guard 有精确源码行，最终 sequenceDiagram 语法/方向均合法。失败不是 parser、关系传递或 Mermaid 丢边。
+4. 人工 FAIL 的原因是逐跳操作语义被概念目标污染：`VisitRepository.insert` 的真实主体只是内存 `rows.add`，答案却称“持久化新的就诊记录”；
+   `AuditLog.record` 的终点已精确读到 `System.out.println`，答案仍沿用“审计落库”而未明确标准输出不等于数据库/持久化。该 case 在至少 8 次历史回放中持续同形失败，
+   排除单次模型波动。
+5. 新 P1 `B1441-CALLCHAINOBSERVEDEFFECT1` 的第一根因是 typed endpoint 合同自相矛盾：Analyzer 同时发出
+   `sink_mode=discover`（只适用于需要证明运行时实现选择的 destination）与 `runtime_selection_profile=false`。wire normalizer 注释已经承诺“一源空 sink 时按
+   typed selection flag 在 discover/discover_terminal 二选一”，实现却只修正输入为 discover_path 的情况，使本应进入 conceptual-terminal 教学的请求落入运行时选择车道。
+6. 本批用精确信号根修 mode：source 非空、sink 为空且处于三种 discovery enum 时，`RuntimeSelectionRequired=true` 唯一归一为
+   `discover`，false 唯一归一为 `discover_terminal`；旧 enum 与新 typed profile 冲突时留下可审计 warning。显式双端点、role-bound discover_path 与请求 identity provenance
+   门保持不变。
+7. 同批建立跨语言单源 `CallChainObservedEffectBoundaryTeaching`，Explorer 与 Finalizer 共同消费：逐跳真实操作，尤其终点操作，必须与用户概念词、方法/类/代码层命名
+   暗示的更强业务效果分开；durability/storage/delivery/mutation 等效果只能由独立 grounded operation 证明，否则由模型披露证据边界。该合同适用于 Go、Java/Kotlin、
+   C/C++、Rust、Python、JavaScript/TypeScript/ArkTS、Cangjie 等全部 source-code call-chain，不为 stdout/落库或 Java 写特例。
+8. 这仍是 soft context：不扫描请求、thinking、evidence summary、Mermaid label 或 final prose 做硬拒，不由系统创建、删除、反转关系，也不替模型选择业务结论。
+   Trace root-cause 车道不经过该 endpoint 归一化；显式时间窗、唤醒链、链上根因、因果投影、自动补齐、实际占时/规则可消双轴与 4ms/4m 禁降级均未修改。
+
+状态：
+
+`r927=runner-read-fail+write-runner-missing,human-read-fail+write-implementation-pass/honest-unverified`；
+`B1441=implemented/full-suite-pass/pending-production-replay`；
+`typed-discovery-mode=runtime-selection-boolean-single-source`；
+`observed-operation!=name-or-concept-implied-business-effect`；
+`request/model/final-prose-hard-gate=forbidden/none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner

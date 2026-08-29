@@ -94,14 +94,21 @@ func normalizeCallChainEndpointWireShape(profile *types.CallChainEndpointProfile
 	}
 	source := strings.TrimSpace(profile.Source)
 	sink := strings.TrimSpace(profile.Sink)
-	if profile.SinkMode == types.CallChainSinkResolutionDiscoverPath && source != "" && sink == "" {
-		normalized := *profile
-		if normalized.RuntimeSelectionRequired {
-			normalized.SinkMode = types.CallChainSinkResolutionDiscover
-		} else {
-			normalized.SinkMode = types.CallChainSinkResolutionDiscoverTerminal
+	if source != "" && sink == "" &&
+		(profile.SinkMode == types.CallChainSinkResolutionDiscover ||
+			profile.SinkMode == types.CallChainSinkResolutionDiscoverTerminal ||
+			profile.SinkMode == types.CallChainSinkResolutionDiscoverPath) {
+		wanted := types.CallChainSinkResolutionDiscoverTerminal
+		if profile.RuntimeSelectionRequired {
+			wanted = types.CallChainSinkResolutionDiscover
 		}
-		return &normalized, "normalized call_chain_endpoints sink_mode from discover_path to " + string(normalized.SinkMode) +
+		if profile.SinkMode == wanted {
+			return profile, ""
+		}
+		normalized := *profile
+		previousMode := normalized.SinkMode
+		normalized.SinkMode = wanted
+		return &normalized, "normalized call_chain_endpoints sink_mode from " + string(previousMode) + " to " + string(normalized.SinkMode) +
 			" because the structured carrier preserves one named source and leaves the destination for grounded exploration; current-request provenance checks still apply"
 	}
 	if (profile.SinkMode != types.CallChainSinkResolutionDiscover &&

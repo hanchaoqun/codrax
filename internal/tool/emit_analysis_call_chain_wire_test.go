@@ -10,16 +10,19 @@ import (
 func TestNormalizeCallChainEndpointWireShapePreservesSingleNamedSource(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
+		inputMode        types.CallChainSinkResolutionMode
 		runtimeSelection bool
 		wantMode         types.CallChainSinkResolutionMode
 	}{
-		{name: "static conceptual terminal", wantMode: types.CallChainSinkResolutionDiscoverTerminal},
-		{name: "runtime-selected destination", runtimeSelection: true, wantMode: types.CallChainSinkResolutionDiscover},
+		{name: "path mode becomes static conceptual terminal", inputMode: types.CallChainSinkResolutionDiscoverPath, wantMode: types.CallChainSinkResolutionDiscoverTerminal},
+		{name: "path mode becomes runtime-selected destination", inputMode: types.CallChainSinkResolutionDiscoverPath, runtimeSelection: true, wantMode: types.CallChainSinkResolutionDiscover},
+		{name: "false selection corrects discover", inputMode: types.CallChainSinkResolutionDiscover, wantMode: types.CallChainSinkResolutionDiscoverTerminal},
+		{name: "true selection corrects discover terminal", inputMode: types.CallChainSinkResolutionDiscoverTerminal, runtimeSelection: true, wantMode: types.CallChainSinkResolutionDiscover},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			profile := &types.CallChainEndpointProfile{
 				Source:                   "FastTokenizer.tokenize",
-				SinkMode:                 types.CallChainSinkResolutionDiscoverPath,
+				SinkMode:                 tc.inputMode,
 				RuntimeSelectionRequired: tc.runtimeSelection,
 			}
 			got, warning := normalizeCallChainEndpointWireShape(profile)
@@ -29,7 +32,7 @@ func TestNormalizeCallChainEndpointWireShapePreservesSingleNamedSource(t *testin
 			if !strings.Contains(warning, "structured carrier preserves one named source") {
 				t.Fatalf("normalization must remain auditable: %q", warning)
 			}
-			if profile.SinkMode != types.CallChainSinkResolutionDiscoverPath {
+			if profile.SinkMode != tc.inputMode {
 				t.Fatalf("normalization mutated the caller-owned profile: %+v", profile)
 			}
 		})

@@ -1862,7 +1862,8 @@ func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *t
 		"entities":["run_pipeline","kind=json"],
 		"question_kind":"call_chain",
 		"predicate_axis":"call",
-		"call_chain_endpoints":{"source":"run_pipeline","sink":"","sink_mode":"discover"}
+		"call_chain_endpoints":{"source":"run_pipeline","sink":"","sink_mode":"discover"},
+		"runtime_selection_profile":{"is_selection_question":true,"source_quote":"最终由哪个类处理","confidence":0.95}
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
 	if !res.Success || mu.RequestModel() == nil {
@@ -1874,6 +1875,36 @@ func TestEmitAnalysis_SourceCallChainMayDiscoverRequestedRuntimeDestination(t *t
 	}
 	if source, sink, ok := types.CallChainOrderedEndpointHints(*mu.RequestModel()); ok || source != "" || sink != "" {
 		t.Fatalf("discover profile must not become an exact hard-gate pair: %q %q %t", source, sink, ok)
+	}
+}
+
+func TestEmitAnalysis_DiscoverWithoutRuntimeSelectionNormalizesToConceptualTerminal(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	objective := "从 VisitController.create 到审计终点的完整调用链是什么？"
+	payload := `{
+		"intent":"trace",
+		"scenario":"architecture_explain",
+		"complexity":"complex",
+		"keywords":["VisitController.create","审计终点","调用链"],
+		"entities":["VisitController.create","审计终点"],
+		"question_kind":"call_chain",
+		"predicate_axis":"call",
+		"call_chain_endpoints":{"source":"VisitController.create","sink":"","sink_mode":"discover"},
+		"runtime_selection_profile":{"is_selection_question":false,"source_quote":"","confidence":0.95}
+	}`
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("conceptual terminal normalization failed: success=%t summary=%q", res.Success, res.Summary)
+	}
+	profile := mu.RequestModel().CallChainEndpointProfile
+	if profile == nil || !profile.DiscoverTerminalActive() || profile.RequiresRuntimeSelectionEvidence() {
+		t.Fatalf("typed false runtime-selection signal must select conceptual-terminal lane: %+v", profile)
+	}
+	if !strings.Contains(res.Summary, "from discover to discover_terminal") {
+		t.Fatalf("normalization must remain auditable: %q", res.Summary)
 	}
 }
 
@@ -2539,7 +2570,7 @@ func TestEmitAnalysis_SourceCallChainRejectsDiscoverEmptyWithUniqueTypedExactDes
 		"call_chain_endpoints":{"source":"buildAnalysisIR","sink":"","sink_mode":"discover"}
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
-	if res.Success || !strings.Contains(res.Summary, "sink_mode=discover contradicts typed exact_targets") ||
+	if res.Success || !strings.Contains(res.Summary, "sink_mode=discover_terminal contradicts typed exact_targets") ||
 		!strings.Contains(res.Summary, `unique named destination is "gate.Run"`) ||
 		!strings.Contains(res.Summary, "typed no_directed_path") {
 		t.Fatalf("unique typed destination must not be silently discarded by discover-empty: success=%t summary=%q", res.Success, res.Summary)
@@ -2688,7 +2719,8 @@ func TestEmitAnalysis_MechanismWithProvenancedOrderedCallProfilePromotesToCallCh
 		"entities":["run_pipeline","kind=json"],
 		"question_kind":"mechanism",
 		"predicate_axis":"call",
-		"call_chain_endpoints":{"source":"run_pipeline","sink":"","sink_mode":"discover"}
+		"call_chain_endpoints":{"source":"run_pipeline","sink":"","sink_mode":"discover"},
+		"runtime_selection_profile":{"is_selection_question":true,"source_quote":"处理 kind=json 的输入时","confidence":0.95}
 	}`
 	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
 	if !res.Success || mu.RequestModel() == nil {

@@ -2997,7 +2997,7 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 		b.WriteString("## Call-chain conceptual terminal discovery\n\n")
 		fmt.Fprintf(&b, "- grounded source endpoint: `%s`\n", strings.TrimSpace(profile.Source))
 		b.WriteString("- destination mode: `discover_terminal`; the request supplied a conceptual destination, not a preselected code sink or a runtime-selection claim\n")
-		b.WriteString("- Identify the terminal code endpoint from grounded static call edges, inspect its body, and keep the exact observed operations separate from the user's conceptual wording. A graph leaf is an investigation boundary, not proof that its name or body has the requested business effect.\n")
+		b.WriteString("- Identify the terminal code endpoint from grounded static call edges and inspect its body before selecting the destination.\n")
 	} else if profile.DiscoverPathActive() {
 		b.WriteString("## Call-chain role-bound relation composition\n\n")
 		b.WriteString("- endpoint mode: `discover_path`; the request supplied conceptual path boundaries, not preselected code endpoints\n")
@@ -3012,6 +3012,7 @@ func renderAnswerDocCallChainTargetDiscovery(ctx *types.AgentContext) string {
 			b.WriteString("- Preserve the grounded selection/availability fact and its connected operation or owner. Do not invent endpoint identities merely to make a continuous path.\n")
 		}
 	}
+	b.WriteString("- " + types.CallChainObservedEffectBoundaryTeaching + "\n")
 	b.WriteString("- Keep relation kinds honest: registration/binding is not a source-level call. When dispatch is dynamic, show the grounded static prefix and the typed binding/dispatch boundary separately; do not invent a direct invocation merely to make one continuous arrow.\n")
 	b.WriteString("- Distinguish the selected runtime class from the class or mixin that owns an inherited method definition. State both when they differ, with their own grounded citations. The model owns the final destination conclusion; this section only preserves the evidence boundary.\n")
 	b.WriteString("- A diagram is optional unless the Required Answer Blocks section explicitly requires one. If the dynamic boundary cannot be drawn without turning a binding, return, inheritance, or method-owner relation into a call arrow, omit the diagram and use a grounded ordered list, table, or prose section instead.\n")
