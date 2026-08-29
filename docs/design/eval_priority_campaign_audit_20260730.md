@@ -57554,6 +57554,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1516 r933：B1446 生产出厂并执行；B1447 正常路径转绿但精确探针臂未自然触发（2026-08-29）
+
+1. 从已推送 `089348b53` 干净构建，版本固定为 `089348b53d81`，严格并发恰好 2 路原样复放 r932 的 TypeScript workspace 读模式与 Go typo 写模式。runner 2/2 PASS：Go 97s、TypeScript 257s；人工分别判 pass、partial。两路均无固定 4ms、4m、首字节或活动年龄降级，无 JSON salvage、旧稿恢复或系统替写结论。
+2. Go 写模式相对 r932 的 532s blocked 恢复为 97s verified finish。变更只含 `main.go` 的 `retrun -> return`；`TestGreet` 与真实项目 `go test -json ./...` 通过，changed path 为 target_behavior covered，worktree clean；controller 首次终局决策即 `finish/all_verified`，没有 truth-ledger override、replan 或 no-op churn，最终交付状态为“已验证”。
+3. 但本轮 planner 根据已有 probe-optional 教学发射 `verification_probes=0`，report 只有真实项目 runner，没有 `pre_suite_verification_probe / probe_non_authoritative`。因此 r933 证明 B1447 修复没有伤害正常写流程，但不能虚记“非权威失败探针 reconciliation”自然 production-positive；该精确分支仍由 proof-ledger 正/负四臂、既有 proof-followup 保护面和 controller finish 接线测试覆盖，等待异构生产自然触发。
+4. B1446 获得生产正证。首轮 validator 仍给出 6 条 citable call candidates；后续同代 delta 发布 grounded `HttpTransport.send -> HttpTransport.dispatchOnce` 的 `addition_ref`，失败行获得 `remove/replace/attach`，模型最终提交 `failure_ref + addition_ref + action=attach`，执行器只补该 visible `Send -> Dispatch` 的 typed anchor 并通过全量重校验。系统没有选择 visible edge、label、方向或结论。
+5. TypeScript 仍有 3 次拒绝，但根因已变化：首稿把 `Send -> Dispatch` 同一 call-site 画两次，又画出未与调用者配对的 `Fetch -->> Send` 回包；第二轮删除这两条并通过 bounded whole-block replacement 补齐 zero-anchor list。随后只剩已接地 `Send -> Dispatch` 缺 metadata，系统已发布 attach；模型却先尝试 whole-block replace，被 atomic lease 正确拒绝，下一轮才使用 attach。故 B1446 可记 production-positive，拒绝 churn 不能再归因于“没有可执行候选”。
+6. TypeScript 人工 partial 来自终稿语义自相矛盾：首段称“状态码小于 500 且重试次数未达上限时调用 nextDelay/sleep”，源码、同页列表与时序图均明确 `<500` 直接返回、`>=500` 才重试。typed 上下文含 `transport.ts:22-29` 原文和正确 mechanism evidence，属于模型对精确信息的遵循波动；本轮不新增用户/模型/答案正文关键词硬门，不让系统替模型改写，只作为 B1269 类异构复现观察。
+7. 本轮 list 是 `edge_anchors=[]`，与 B1445 的“唯一 prior-anchor metadata 行只缺双端 identity”不同。没有既有 row 可供 failure-ref 原子重绑，bounded whole-block replacement 已一次补齐且读者内容仍由模型决定；不因单一 TypeScript case 扩张为系统自动创建列表关系。后续优先转向更高优先级异构 read/write/Trace exact-2，而非继续拟合此 case。
+
+状态：
+
+`r933=runner-pass-2/2+human-go-pass+ts-partial`；
+`B1446=production-positive/core-wiring-closed`；
+`B1447=full-suite+controller-pin-positive/normal-production-path-positive/exact-probe-arm-pending-natural-activation`；
+`write-project-pass->finish=production-positive-r933`；
+`ts-final-semantic-contradiction=model-adherence-observe/no-hard-gate`；
+`system-relation/wording/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r933`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
