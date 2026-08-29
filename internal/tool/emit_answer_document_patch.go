@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -58,7 +59,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `block_field_edits_v1`: lossless local assignment for one projected closed-enum block metadata field. Choose the exact existing block_id, field, and value branch shown by the current schema. Every other field on that block is copied from the immutable patch base. This branch never edits text, title, items, diagrams, relations, labels, evidence, citations, or layout, and the system never chooses the value. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
-		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. For add/replace, reuse every endpoint that already has an explicit declaration. If edge.from_node or edge.to_node is new/implicit, also author its corresponding from_node_visible_label or to_node_visible_label; the executor encodes only that model-authored name and never derives one from the technical identity. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
+		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. For add/replace, reuse every endpoint that already has an explicit declaration. The live branch schema derives endpoint declaration state from the exact current patch base: it requires from_node_visible_label/to_node_visible_label for a new endpoint, permits omission for an existing endpoint, and accepts an exact current-label replay after a staged retry. It never derives a name from technical identity. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
 		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
 		"- `diagram_relation_scope_edits`: model-selected local edit of the block-level `requested_relation_scope` disclosure. This field is exposed only when the current typed request-spine authority proves an exact missing/stale/duplicate scope mismatch. Choose one exact block_id/action branch from the current schema; the executor changes only that typed disclosure and preserves the diagram, relations, labels, layout, and conclusion.\n" +
@@ -399,7 +400,7 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if properties == nil {
 		return raw
 	}
-	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, targets)
+	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, targets, prev)
 	boundaryBranches, boundaryOK := localDiagramLeaseExecutableBoundaryBranches(lease, targets)
 	participantOK := len(lease.OptionalOrphanCleanups) > 0 || len(lease.ParticipantVisibilityFailures) > 0
 	if !edgeOK && !boundaryOK && !participantOK {
@@ -594,6 +595,7 @@ func localDiagramLeaseExecutableBoundaryBranches(
 func localDiagramLeaseExecutableEdgeBranches(
 	lease *types.AnswerDiagramRelationRepairLease,
 	targets []string,
+	prev *types.AnswerDocumentV2,
 ) ([]any, bool) {
 	if lease == nil || !localDiagramLeaseRowsAllTargeted(lease, targets) {
 		return nil, false
@@ -609,6 +611,7 @@ func localDiagramLeaseExecutableEdgeBranches(
 		added := 0
 		for _, allowed := range failure.AllowedActions {
 			action := strings.TrimSpace(string(allowed))
+			endpointDeclarations := explicitDiagramEndpointDeclarations(prev, failure.BlockID)
 			var branch map[string]any
 			switch action {
 			case string(types.AnswerDiagramRelationRepairActionRemove):
@@ -616,7 +619,7 @@ func localDiagramLeaseExecutableEdgeBranches(
 			case string(types.AnswerDiagramRelationRepairActionRelabel):
 				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, false, true)
 			case string(types.AnswerDiagramRelationRepairActionReplace):
-				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, true, false)
+				branch = exactLocalDiagramEdgeBranch("failure_ref", ref, action, true, false, endpointDeclarations)
 			case string(types.AnswerDiagramRelationRepairActionAttach):
 				for _, candidate := range lease.AllowedAdditions {
 					if !types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
@@ -652,7 +655,10 @@ func localDiagramLeaseExecutableEdgeBranches(
 		if attachedToExistingBody {
 			continue
 		}
-		branches = append(branches, exactLocalDiagramEdgeBranch("addition_ref", ref, "add", true, false))
+		branches = append(branches, exactLocalDiagramEdgeBranch(
+			"addition_ref", ref, "add", true, false,
+			explicitDiagramEndpointDeclarations(prev, candidate.BlockID),
+		))
 	}
 	return branches, true
 }
@@ -681,13 +687,81 @@ func exactLocalDiagramAttachBranch(failureRef, additionRef string) map[string]an
 	}
 }
 
-func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsLabel bool) map[string]any {
+type explicitDiagramEndpointDeclaration struct {
+	ID    string
+	Label string
+}
+
+// explicitDiagramEndpointDeclarations projects only syntax-owned declarations
+// from the exact immutable patch base. It never reads request prose, answer
+// prose, relation messages, or inferred identities. Conflicting declarations
+// stay absent, matching the executor's fail-closed label registry.
+func explicitDiagramEndpointDeclarations(prev *types.AnswerDocumentV2, blockID string) []explicitDiagramEndpointDeclaration {
+	if prev == nil || strings.TrimSpace(blockID) == "" {
+		return nil
+	}
+	var diagram *types.AnswerDiagramBlock
+	count := 0
+	for i := range prev.Blocks {
+		if strings.TrimSpace(prev.Blocks[i].ID) != strings.TrimSpace(blockID) {
+			continue
+		}
+		count++
+		diagram = prev.Blocks[i].Diagram
+	}
+	if count != 1 || diagram == nil {
+		return nil
+	}
+	uniqueLabels := diagramEvidenceNodeLabels(diagram.Body, diagram.Kind)
+	if len(uniqueLabels) == 0 {
+		return nil
+	}
+	byFoldedID := make(map[string]explicitDiagramEndpointDeclaration, len(uniqueLabels))
+	sequenceSyntax := diagramEvidenceUsesSequenceSyntax(diagram.Body, diagram.Kind)
+	for _, line := range strings.Split(diagram.Body, "\n") {
+		var declarations []mermaidcompat.NodeDecl
+		if sequenceSyntax {
+			declarations = mermaidcompat.SequenceParticipantDeclarations(line)
+		} else {
+			declarations = mermaidcompat.NodeDeclarationsAll(line)
+		}
+		for _, declaration := range declarations {
+			id := strings.TrimSpace(declaration.Ident)
+			key := strings.ToLower(id)
+			label, ok := uniqueLabels[key]
+			if id == "" || !ok || strings.TrimSpace(declaration.Label) != strings.TrimSpace(label) {
+				continue
+			}
+			if _, exists := byFoldedID[key]; !exists {
+				byFoldedID[key] = explicitDiagramEndpointDeclaration{ID: id, Label: label}
+			}
+		}
+	}
+	declarations := make([]explicitDiagramEndpointDeclaration, 0, len(byFoldedID))
+	for _, declaration := range byFoldedID {
+		declarations = append(declarations, declaration)
+	}
+	sort.Slice(declarations, func(i, j int) bool {
+		return declarations[i].ID < declarations[j].ID
+	})
+	return declarations
+}
+
+func exactLocalDiagramEdgeBranch(
+	refField, ref, action string,
+	needsEdge, needsLabel bool,
+	explicitEndpoints ...[]explicitDiagramEndpointDeclaration,
+) map[string]any {
 	properties := map[string]any{
 		refField: map[string]any{"type": "string", "enum": []any{ref}},
 		"action": map[string]any{"type": "string", "enum": []any{action}},
 	}
 	required := []any{refField, "action"}
 	if needsEdge {
+		declarations := []explicitDiagramEndpointDeclaration(nil)
+		if len(explicitEndpoints) > 0 {
+			declarations = explicitEndpoints[0]
+		}
 		properties["edge"] = map[string]any{
 			"type":                 "object",
 			"additionalProperties": false,
@@ -701,12 +775,18 @@ func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsL
 		required = append(required, "edge")
 		properties["from_node_visible_label"] = map[string]any{
 			"type": "string", "minLength": 1,
-			"description": "Model-authored reader-facing name for edge.from_node. Supply it only when that node id has no explicit declaration in the current diagram; the executor requires it for a newly implicit endpoint.",
+			"description": "Model-authored reader-facing name for edge.from_node. The current branch requires it for a new endpoint. For an already explicit endpoint, omit it or replay only the exact current label.",
 		}
 		properties["to_node_visible_label"] = map[string]any{
 			"type": "string", "minLength": 1,
-			"description": "Model-authored reader-facing name for edge.to_node. Supply it only when that node id has no explicit declaration in the current diagram; the executor requires it for a newly implicit endpoint.",
+			"description": "Model-authored reader-facing name for edge.to_node. The current branch requires it for a new endpoint. For an already explicit endpoint, omit it or replay only the exact current label.",
 		}
+		return exactLocalDiagramEndpointLabelContract(map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties":           properties,
+			"required":             required,
+		}, declarations)
 	}
 	if needsLabel {
 		properties["visible_label"] = map[string]any{"type": "string", "minLength": 1}
@@ -718,6 +798,60 @@ func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsL
 		"properties":           properties,
 		"required":             required,
 	}
+}
+
+// exactLocalDiagramEndpointLabelContract makes the endpoint-name obligation
+// state-dependent in the tool schema itself. New endpoints require a visible
+// name. Existing exact IDs may omit it; a retry may also replay only the exact
+// current label. The executor repeats the same check transactionally.
+func exactLocalDiagramEndpointLabelContract(
+	branch map[string]any,
+	declarations []explicitDiagramEndpointDeclaration,
+) map[string]any {
+	if len(declarations) == 0 {
+		branch["required"] = append(branch["required"].([]any), "from_node_visible_label", "to_node_visible_label")
+		return branch
+	}
+	explicitIDs := make([]any, 0, len(declarations))
+	allOf := make([]any, 0, 2+2*len(declarations))
+	for _, declaration := range declarations {
+		explicitIDs = append(explicitIDs, declaration.ID)
+		for _, endpoint := range []string{"from", "to"} {
+			allOf = append(allOf, map[string]any{
+				"if": map[string]any{
+					"properties": map[string]any{
+						"edge": map[string]any{
+							"properties": map[string]any{endpoint + "_node": map[string]any{"enum": []any{declaration.ID}}},
+							"required":   []any{endpoint + "_node"},
+						},
+					},
+					"required": []any{"edge"},
+				},
+				"then": map[string]any{
+					"properties": map[string]any{
+						endpoint + "_node_visible_label": map[string]any{"enum": []any{declaration.Label}},
+					},
+				},
+			})
+		}
+	}
+	for _, endpoint := range []string{"from", "to"} {
+		allOf = append(allOf, map[string]any{
+			"if": map[string]any{
+				"properties": map[string]any{
+					"edge": map[string]any{
+						"properties": map[string]any{endpoint + "_node": map[string]any{"enum": explicitIDs}},
+						"required":   []any{endpoint + "_node"},
+					},
+				},
+				"required": []any{"edge"},
+			},
+			"else": map[string]any{"required": []any{endpoint + "_node_visible_label"}},
+		})
+	}
+	branch["allOf"] = allOf
+	branch["description"] = "Endpoint declaration state is derived from the exact current diagram base. Existing endpoint IDs may omit a visible-label field or replay their exact current label; every other endpoint ID requires a model-authored visible label."
+	return branch
 }
 
 func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *types.AnswerDiagramRelationRepairLease) bool {

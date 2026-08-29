@@ -763,6 +763,31 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RejectsImplicitEndpointWithoutMode
 	}
 }
 
+func TestEnsureAtomicDiagramEndpointDeclarations_ExactExistingLabelReplayIsIdempotent(t *testing.T) {
+	base := atomicPatchTestDocument()
+	block := base.Blocks[1]
+	original := block.Diagram.Body
+	edit := emitAnswerDiagramEdgeEdit{
+		FromNodeVisibleLabel: "A",
+		ToNodeVisibleLabel:   "C",
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "A", ToNode: "C", RelationKind: types.DiagramRelPrecedence,
+		},
+	}
+	if err := ensureAtomicDiagramEndpointDeclarations(&block, edit); err != nil {
+		t.Fatalf("an exact current-label replay after a staged retry must be idempotent: %v", err)
+	}
+	if block.Diagram.Body != original {
+		t.Fatalf("an idempotent replay changed the model-authored diagram:\n%s", block.Diagram.Body)
+	}
+
+	edit.FromNodeVisibleLabel = "分析阶段"
+	if err := ensureAtomicDiagramEndpointDeclarations(&block, edit); err == nil ||
+		!strings.Contains(err.Error(), `exactly match the current explicit label "A"`) {
+		t.Fatalf("a conflicting replay must remain fail-closed: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AnchoredComponentJoinRetargetsVisibleEndpointOnly(t *testing.T) {
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

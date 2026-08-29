@@ -1691,9 +1691,9 @@ func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emit
 		if endpoint.node == "" {
 			return fmt.Errorf("edge.%s must be non-empty", endpoint.field)
 		}
-		if _, declared := labels[strings.ToLower(endpoint.node)]; declared {
-			if endpoint.label != "" {
-				return fmt.Errorf("%s_visible_label must be omitted because edge.%s=%q already has an explicit declaration", endpoint.field, endpoint.field, endpoint.node)
+		if declaredLabel, declared := labels[strings.ToLower(endpoint.node)]; declared {
+			if endpoint.label != "" && endpoint.label != strings.TrimSpace(declaredLabel) {
+				return fmt.Errorf("%s_visible_label must be omitted or exactly match the current explicit label %q because edge.%s=%q already has an explicit declaration", endpoint.field, strings.TrimSpace(declaredLabel), endpoint.field, endpoint.node)
 			}
 			continue
 		}

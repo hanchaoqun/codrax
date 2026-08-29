@@ -57291,6 +57291,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1501 r920/B1435：端点显示名义务随精确修补底稿投影，重试同名重放幂等（2026-08-28）
+
+1. 从已推送 `60b8b0c64` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace，runner 2/2 PASS：Trace 186s、read
+   457s。两路均未按 4ms、4m、首字节、stall、活动流累计年龄或上下文比例降级，也没有系统代写答案、结论、关系、节点、业务名称或布局。
+2. Trace 人工判定 partial，但系统主能力无回归：显式 2.000..2.020s 窗、3 次 typed query、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳链、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   runnable/优先级候选、实际占时/规则可消双账户、背景隔离和完整 `Trace 因果投影` 均保留，零成文拒绝。模型仍把
+   `fscache_page_wait_on_page_bit` blocked_reason 调用点扩写成确定的页面缓存 IO 完成路径，同时又承认等待对象、后端与目标直接阻塞关系未证；
+   继续归入 `B1269/B1271` 的软证据口径/模型遵循项，禁止扫描、拒绝或改写正文。
+3. B1434 获得生产正证。read 最终图对新技术端点分别显式声明模型写的读者名称 `BuildAgentContext` 与
+   `cloneMultiRepoFocusDecision`，技术 id 只作 Mermaid carrier；图语法合法、typed relation gate 未放宽。最终答案仍为 partial：四阶段先后和若干上下文关系在，
+   但 Mutable/BusContext 到各阶段的数据流偏薄，并留下一个没有关系的 `bus.Mutable` 可见节点。后续继续通过异构 read 回放观察关系覆盖，不能由系统补边或机械删节点。
+4. 新 P1 `B1435-ENDPOINTLABELSTATECONTRACT1` 为确定性 JSON 合同缺口。端点是否需要可见名取决于当前不可变 patch base：隐式新端点必须命名，已有
+   explicit declaration 的端点应复用。旧 schema 却只发布两个泛化 optional 字段，没有告诉模型当前 exact roster；一次被拒 patch 暂存后，前轮刚新增的节点在下一轮已经变成
+   explicit，于是同一名称从“必填”瞬间变成“禁止”。read 的 7 次 finalizer reject 中有 3 次由此产生：新节点漏填名称、已有节点多填名称、暂存底稿新增节点后同名重放被拒。
+5. B1435 按结构状态单源根修。每个 add/replace branch 现在只从 exact pending/accepted/rejected patch base 的 Mermaid parser 声明表生成条件 schema：
+   edge 端点不在当前显式 roster 时，对应 `*_node_visible_label` 为 required；端点为当前精确 id 时该字段可省略，若模型在重试中重放，则值只能等于当前显式 label。
+   roster 来自 flow/graph、sequence、class 的语法声明，不读取 request、thinking、答案 prose、edge message 或技术 identity 推导名称。
+6. executor 与 schema 使用同一状态语义：已有端点省略名称继续保持原声明字节不动；完全相同的模型名称重放按幂等输入吸收，不产生第二声明；任何冲突名称仍在修改正文前
+   fail-closed。新端点仍必须由模型命名，系统只调用 family-specific syntax adapter 编码；关系、方向、节点 id、边文案、业务名称、排序、分组与结论的模型所有权均未改变。
+7. 回归钉住当前 accepted base 与 same-generation pending base 两条车道，逐端点验证 schema 的 exact-id/exact-label 条件、新端点名称必填、同名重放不改图、冲突重放拒绝；
+   B1434 三 family、新端点缺名、无权 typed relation 等回归保持。`go test ./internal/tool -count=1`、完整 `go test ./... -count=1` 与
+   CGO release-tag `make` 全绿。
+
+状态：
+
+`r920=runner-pass-2/2,human-trace-partial+read-partial`；
+`B1434=production-positive/core-closed`；
+`B1435=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`endpoint-label-obligation=exact-current-patch-base+parsed-declaration-state`；
+`new-endpoint=model-authored-visible-label-required`；
+`existing-endpoint=omit-or-exact-label-idempotent-replay`；
+`conflicting-existing-label=fail-closed-before-body-mutation`；
+`system-relation/action/node-id/visible-label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r920`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r920`。
+
 ### §123.1500 r919：三项修复无回归；关系 addition 泄漏隐式技术端点（2026-08-28）
 
 1. 从已推送 `d802a1354` 重建不可变二进制，严格并发恰好 2 路复放 write dateutil 与 read logic-view，runner 2/2 PASS：write 181s、read 310s。

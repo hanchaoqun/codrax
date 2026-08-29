@@ -688,6 +688,95 @@ func TestEmitAnswerDocumentPatchParametersFor_AnchoredComponentJoinPublishesRepl
 			t.Fatalf("replace-only branch lost model-owned field %q: %+v", field, edgeProps)
 		}
 	}
+	assertEndpointLabelStateContract(t, branch, "A", "A", "B", "B", "C", "C")
+}
+
+func TestEmitAnswerDocumentPatchParametersFor_EndpointLabelStateUsesPendingPatchBase(t *testing.T) {
+	accepted := atomicPatchTestDocument()
+	staged := atomicPatchTestDocument()
+	staged.Blocks[1].Diagram.Body = strings.Replace(
+		staged.Blocks[1].Diagram.Body,
+		"    participant C\n",
+		"    participant C\n    participant BusinessHandler as \"业务处理器\"\n",
+		1,
+	)
+	lease := types.NewAnswerDiagramRelationRepairLease(staged,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramParticipantComponentJoinEndpointMappingIssue,
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+		}}, nil)
+	if lease == nil {
+		t.Fatal("test setup did not produce a staged relation lease")
+	}
+	mut := types.NewMutableState("pending endpoint state")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, accepted)
+	mut.SetPendingAnswerDocumentPatchBase(staged)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut}), &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	branches := root["properties"].(map[string]any)["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 1 {
+		t.Fatalf("staged lease must expose one exact branch: %+v", branches)
+	}
+	assertEndpointLabelStateContract(t, branches[0].(map[string]any),
+		"A", "A", "B", "B", "BusinessHandler", "业务处理器", "C", "C")
+}
+
+func assertEndpointLabelStateContract(t *testing.T, branch map[string]any, idLabels ...string) {
+	t.Helper()
+	if len(idLabels)%2 != 0 {
+		t.Fatalf("test setup id/label pairs are unbalanced: %v", idLabels)
+	}
+	allOf, ok := branch["allOf"].([]any)
+	if !ok {
+		t.Fatalf("edge branch did not publish a state-dependent endpoint-label contract: %+v", branch)
+	}
+	want := make(map[string]string, len(idLabels)/2)
+	for i := 0; i < len(idLabels); i += 2 {
+		want[idLabels[i]] = idLabels[i+1]
+	}
+	seen := map[string]map[string]bool{"from": {}, "to": {}}
+	newEndpointRequired := map[string]bool{}
+	for _, rawRule := range allOf {
+		rule := rawRule.(map[string]any)
+		ifNode := rule["if"].(map[string]any)
+		edge := ifNode["properties"].(map[string]any)["edge"].(map[string]any)
+		edgeProps := edge["properties"].(map[string]any)
+		for _, side := range []string{"from", "to"} {
+			nodeRule, exists := edgeProps[side+"_node"]
+			if !exists {
+				continue
+			}
+			ids := nodeRule.(map[string]any)["enum"].([]any)
+			if elseNode, hasElse := rule["else"].(map[string]any); hasElse {
+				required := elseNode["required"].([]any)
+				newEndpointRequired[side] = reflect.DeepEqual(required, []any{side + "_node_visible_label"}) && len(ids) == len(want)
+				continue
+			}
+			if len(ids) != 1 {
+				continue
+			}
+			id := ids[0].(string)
+			labelRule := rule["then"].(map[string]any)["properties"].(map[string]any)[side+"_node_visible_label"].(map[string]any)
+			labels := labelRule["enum"].([]any)
+			if len(labels) == 1 && labels[0] == want[id] {
+				seen[side][id] = true
+			}
+		}
+	}
+	for side := range seen {
+		if !newEndpointRequired[side] {
+			t.Fatalf("%s-side new endpoint did not require a model-authored visible label: %+v", side, allOf)
+		}
+		for id := range want {
+			if !seen[side][id] {
+				t.Fatalf("%s-side existing endpoint %q did not permit only its exact current label: %+v", side, id, allOf)
+			}
+		}
+	}
 }
 
 func TestEmitAnswerDocumentPatchParametersFor_ExistingBodyPublishesPairedAttachNotDuplicateAdd(t *testing.T) {
