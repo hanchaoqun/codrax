@@ -74,14 +74,34 @@ func sourceInventoryPrincipalFactsExactlyCoverRows(refs []AnswerAggregateFactRef
 		if aggregateMemberSetSupportCoverage(ref.Fact) == 0 {
 			continue
 		}
-		for key := range sourceInventoryAggregateFactRowKeys(ref.Fact) {
+		factKeys := sourceInventoryAggregateFactRowKeys(ref.Fact)
+		overlaps := false
+		for key := range factKeys {
+			if want[key] {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			// A separate typed selection family may legitimately share the same
+			// answer while remaining outside this row-set universe. It neither
+			// proves nor contaminates row-set coverage.
+			continue
+		}
+		for key := range factKeys {
+			if !want[key] {
+				// A fact that overlaps the typed universe and also adds an
+				// out-of-universe member is still an unsafe superset.
+				return false
+			}
 			covered[key] = true
 		}
 	}
-	// Coverage alone is insufficient: a model member_set may contain every
-	// requested production row and also append test/generated rows. Treating
-	// that superset as equivalent makes those out-of-universe rows hard answer
-	// obligations. Equality is the precise typed contract here.
+	// Coverage alone is insufficient: an overlapping model member_set may
+	// contain every requested production row and append test/generated rows.
+	// Treating that superset as equivalent makes those out-of-universe rows hard
+	// answer obligations. Equality remains the precise typed contract for the
+	// facts that actually overlap this row-set universe.
 	if len(covered) != len(want) {
 		return false
 	}

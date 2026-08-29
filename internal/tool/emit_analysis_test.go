@@ -129,6 +129,37 @@ func withV4Required(partial string) string {
 	return body + defaults + "}"
 }
 
+func withDiagnosticCurrentVersionCheck(t *testing.T, partial string) string {
+	t.Helper()
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(withV4Required(partial)), &object); err != nil {
+		t.Fatalf("decode diagnostic test payload: %v", err)
+	}
+	object["predicates"] = json.RawMessage(`{
+		"is_scalar_answer":false,
+		"is_role_locate_lookup":false,
+		"is_count_question":false,
+		"is_cross_component":false,
+		"is_relational_lookup":false,
+		"is_category_enumeration":false,
+		"is_history_lookup":false,
+		"is_diagnostic_question":true,
+		"has_per_member_table":false
+	}`)
+	object["diagnostic_profile"] = json.RawMessage(`{
+		"is_diagnostic":true,
+		"current_risk":false,
+		"historical_regression":false,
+		"current_version_check":true,
+		"confidence":0.95
+	}`)
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		t.Fatalf("encode diagnostic test payload: %v", err)
+	}
+	return string(encoded)
+}
+
 func withRequiredAnswerRoleProfile(payload string) string {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(payload), &obj); err != nil {
@@ -9299,6 +9330,159 @@ func TestEmitAnalysis_ArtifactPipelineAccessDoesNotSynthesizeCurrentSourceAllow(
 	}
 	if strings.Contains(res.Summary, "synthesized as allow") {
 		t.Fatalf("summary must not claim synthesized current-source allow: %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ArtifactOptionalRouteClearsUnbackedCurrentVersionCheck(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("这个大日志里的 panic 从哪里发出？")
+	mu.SetLogTriage(&types.LogBundle{Observations: []types.LogObservation{{
+		Kind: types.LogObservationRuntimeEvent, Subject: "main.crashy", Summary: "panic frame", LineStart: 643,
+	}}})
+	payload := withDiagnosticCurrentVersionCheck(t, `{
+		"intent":"root_cause",
+		"scenario":"root_cause",
+		"complexity":"moderate",
+		"keywords":["panic","stack frame"],
+		"entities":["main.crashy","main.main"],
+		"question_kind":"mechanism"
+	}`)
+	ctx := &types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route: "repo", Source: "artifact", Operation: "investigate", NeedsRepoAccess: true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.95,
+		},
+	}
+	res, err := (&EmitAnalysis{}).Execute(ctx, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("artifact diagnostic should remain analyzable: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("request model missing")
+	}
+	if !rm.DiagnosticProfile.IsDiagnostic || !rm.Predicates.IsDiagnosticQuestion {
+		t.Fatalf("artifact root-cause intent was incorrectly softened: %+v", rm.DiagnosticProfile)
+	}
+	if rm.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("optional artifact route retained unbacked current-version verdict: %+v", rm.DiagnosticProfile)
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != types.CurrentSourceLaneAllowedOptional {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want allowed_optional", got)
+	}
+	if !strings.Contains(res.Summary, "no independent typed current-source obligation is active") {
+		t.Fatalf("typed reconciliation warning missing: %s", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ArtifactRequiredRouteKeepsCurrentVersionCheck(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("请结合当前代码确认这份 panic 是否仍然存在")
+	mu.SetLogTriage(&types.LogBundle{Observations: []types.LogObservation{{
+		Kind: types.LogObservationRuntimeEvent, Subject: "main.crashy", Summary: "panic frame", LineStart: 643,
+	}}})
+	payload := withDiagnosticCurrentVersionCheck(t, `{
+		"intent":"root_cause",
+		"scenario":"root_cause",
+		"complexity":"moderate",
+		"keywords":["panic","current code"],
+		"entities":["main.crashy","current implementation"],
+		"question_kind":"mechanism"
+	}`)
+	ctx := &types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route: "repo", Source: "mixed", Operation: "investigate", NeedsRepoAccess: true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceRequired,
+			Confidence:                0.95,
+		},
+	}
+	res, err := (&EmitAnalysis{}).Execute(ctx, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("required mixed diagnostic should remain analyzable: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || !rm.DiagnosticProfile.CurrentVersionCheck {
+		t.Fatalf("typed required route lost current-version verdict: %+v", rm)
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint:    ctx.TurnRouteHint,
+	})
+	if !authority.CurrentSourceRequired {
+		t.Fatalf("typed required route did not retain current-source authority: %+v", authority)
+	}
+	if strings.Contains(res.Summary, "current_version_check true→false") {
+		t.Fatalf("required route was unexpectedly softened: %s", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ArtifactOptionalRouteKeepsIndependentlyAnchoredCurrentVersionCheck(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("请结合 src/parser.go 确认这份 panic 是否仍然存在")
+	mu.SetLogTriage(&types.LogBundle{Observations: []types.LogObservation{{
+		Kind: types.LogObservationRuntimeEvent, Subject: "main.crashy", Summary: "panic frame", LineStart: 643,
+	}}})
+	payload := withDiagnosticCurrentVersionCheck(t, `{
+		"intent":"root_cause",
+		"scenario":"root_cause",
+		"complexity":"moderate",
+		"keywords":["panic","parser"],
+		"entities":["main.crashy","parser"],
+		"question_kind":"mechanism",
+		"current_source_explanation_profile":{
+			"is_current_source_explanation_requested":true,
+			"modes":["verify_current_status"],
+			"source_quotes":["src/parser.go"],
+			"confidence":0.95
+		}
+	}`)
+	ctx := &types.BusContext{
+		Mutable: mu,
+		TurnRouteHint: types.TurnRouteHint{
+			Route: "repo", Source: "artifact", Operation: "investigate", NeedsRepoAccess: true,
+			CurrentSourceEvidenceMode: types.TurnRouteCurrentSourceEvidenceOptional,
+			Confidence:                0.95,
+		},
+	}
+	res, err := (&EmitAnalysis{}).Execute(ctx, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("precisely anchored mixed diagnostic should remain analyzable: %s", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || !rm.DiagnosticProfile.CurrentVersionCheck ||
+		rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		t.Fatalf("independent precise current-source authority was softened: %+v", rm)
+	}
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
+		RequestModel: rm,
+		RouteHint:    ctx.TurnRouteHint,
+	})
+	if !authority.CurrentSourceRequired {
+		t.Fatalf("precisely anchored optional route did not require current source: %+v", authority)
+	}
+	if strings.Contains(res.Summary, "current_version_check true→false") {
+		t.Fatalf("independent typed obligation was unexpectedly softened: %s", res.Summary)
 	}
 }
 

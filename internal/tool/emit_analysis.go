@@ -2481,6 +2481,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeUnbackedExternalObservationCurrentVersionCheck(ctx, &rm); warning != "" {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 
@@ -6533,6 +6537,35 @@ func normalizeUnbackedExternalObservationAllowToDefault(ctx *types.BusContext, r
 	}
 	rm.ExternalObservationPolicy = &normalized
 	return "external_observation_policy unbacked current_source_mode=allow fell back to default for runtime artifact: an isolated analyzer enum cannot upgrade an optional source lane without independent typed current-source authority"
+}
+
+// normalizeUnbackedExternalObservationCurrentVersionCheck prevents an
+// analyzer-only status flag from upgrading a typed artifact-first, optional
+// current-source route into a mandatory current-checkout verdict. The probe
+// clears only that flag and asks the shared typed authority compiler whether
+// any independent current-source carrier remains. Runtime/artifact diagnosis
+// itself stays intact, and required routes or precise source obligations are
+// never softened.
+func normalizeUnbackedExternalObservationCurrentVersionCheck(ctx *types.BusContext, rm *types.RequestModel) string {
+	if ctx == nil || rm == nil || !rm.DiagnosticProfile.CurrentVersionCheck ||
+		!ctx.TurnRouteHint.ExternalObservationParticipates() ||
+		types.NormalizeTurnRouteCurrentSourceEvidenceMode(string(ctx.TurnRouteHint.CurrentSourceEvidenceMode)) != types.TurnRouteCurrentSourceEvidenceOptional ||
+		!emitAnalysisHasRuntimeArtifactCarrier(ctx) {
+		return ""
+	}
+
+	probe := *rm
+	probe.DiagnosticProfile.CurrentVersionCheck = false
+	authority := types.BuildRuntimeSourceAnswerAuthoritySnapshot(types.RuntimeSourceAnswerAuthorityInput{
+		RequestModel: &probe,
+		RouteHint:    ctx.TurnRouteHint,
+	})
+	if authority.CurrentSourceRequired {
+		return ""
+	}
+
+	rm.DiagnosticProfile.CurrentVersionCheck = false
+	return "diagnostic_profile.current_version_check true→false for typed external-observation route with optional current-source evidence: no independent typed current-source obligation is active"
 }
 
 func emitAnalysisHasRuntimeArtifactCarrier(ctx *types.BusContext) bool {

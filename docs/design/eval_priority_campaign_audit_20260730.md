@@ -57323,6 +57323,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1503 r922/B1437/B1438：typed 短路径唯一绑定；附件可选当前仓不得升级全局裁决（2026-08-28）
+
+1. 从已推送 `51a0506e9` 重建不可变二进制，严格并发恰好 2 路复放 oversized log 与 Cangjie source inventory。runner 为 log PASS、inventory FAIL：分别
+   166s 与 448s；两路均未按 4ms、4m、活动流累计年龄或上下文比例降级，也没有修改 Trace 窗、链上根因、因果投影或自动补齐。
+2. log 人工 partial。附件已经精确证明 `main.crashy()` 是 panic 最深发出帧、`main.main()` 是调用者，并引用
+   `eval/fixtures/oversized_log.txt:643/:645`；当前 checkout 找不到对应实现也被诚实披露。但最终答案同时把“当前仓无法验证”渲染成全局“证据不足—无法判断”，与附件主结论自相矛盾。
+3. 新 P1 `B1438-ARTIFACTOPTIONALCURRENTSTATUS1`：路由已有精确 typed 信号 `source=artifact + current_source_evidence_mode=optional`，analyzer 却发射
+   `CurrentVersionCheck=true`，finalizer 随即强制 current-status decision。最优方案是在分析 IR 接纳处交叉归一 typed authority：当不存在独立 current-source explanation obligation 时，optional
+   路由不得被 analyzer 单方升级；required 路由或有效 current-source profile 仍保留当前状态合同。禁止扫描请求、模型或答案 prose。
+4. Cangjie 的 2 个 extend、2 个 foreign func、8 个 public class 事实、位置和 package 均由模型逐项查实；runner 还因合法列表未含表格管道字面而报
+   `missing_inventory_group`，属于 eval oracle 表达过窄，禁止反向要求产品固定表格格式。
+5. inventory 人工 partial 的产品主因不是模型波动：系统只把带完整路径身份的 4 行铸成 synthetic principal set，把明确请求且有 typed row 的 public class 标成
+   `out_of_requested_universe`，连续 6 次拒绝正确 carrier，最终迫使模型降为“补充”并泄漏内部 row-set/row-id 术语。
+6. 新 P1 `B1437-SHORTSUPPORTTYPEDROWIDENTITY1`：结构化 support ref 的 `Bridge.cj:15` 等 basename+line 在 typed row set 中可唯一解析，但现有 canonicalizer 仅接受完整路径精确相等。
+   根修采用“完整路径优先；规范化路径段后缀 + 精确行号 + 兼容成员标签唯一匹配”的 typed resolver；只有唯一 principal key 才绑定，歧义继续 fail-closed。它只补隐藏身份，不创建、删除、改写模型成员、结论或分组，且无语言/case 分支。
+7. B1437 已按冻结方案实现。完整坐标仍优先；短路径 resolver 仅以规范化路径段后缀、精确行号、support/member 双标签兼容和唯一 principal key 绑定；同 basename+line 的两个不同 typed key 保持 fail-closed。
+   覆盖等式同时改为只统计与该 row-set 相交的 fact：完全不相交的独立 typed 选择家族不证明也不污染 row-set；只要某个相交 fact 混入额外成员仍拒绝 unsafe superset。系统只补隐藏 identity，模型的 2/2/8 分组、成员与结论所有权不变。
+8. B1438 已在 `emit_analysis` 接纳末端用共享 `RuntimeSourceAnswerAuthoritySnapshot` 实现：仅当路由明确 external-observation + current source optional、存在运行时载体、且清除孤立
+   `CurrentVersionCheck` 后没有任何独立 typed current-source requirement 时，清除该状态旗标并告警。artifact root-cause intent、诊断谓词和附件证据保持；typed required 路由完整保留当前状态合同。
+9. eval oracle 已独立修正：Cangjie case 删除表格管道 marker，只验证 heading/row 中同一 typed 成员、路径、package 与精确基数；heading-scoped list 回归钉住 2/2/8 合法形。该改动不进入产品提示或成文合同。
+10. 定向类型/工具回归、source-inventory 收敛钉、`bash eval/runner_lib_test.sh`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。新增 resolver 遵守文件 LOC ratchet，并登记 64 行显式下降阈值，没有抬高既有 111 行阈值。
+
+状态：
+
+`r922=runner-log-pass+inventory-fail,human-both-partial`；
+`B1437=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1438=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`short-support-binding=typed-path-suffix+exact-line+compatible-label+unique-key-only`；
+`ambiguous-basename-line=fail-closed`；
+`artifact-current-source=optional-cannot-be-promoted-without-independent-typed-obligation`；
+`inventory-table-literal-oracle=implemented/list+table-format-neutral/pending-production-replay`；
+`request/model/final-prose-hard-gate=none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1501 r920/B1435：端点显示名义务随精确修补底稿投影，重试同名重放幂等（2026-08-28）
 
 1. 从已推送 `60b8b0c64` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace，runner 2/2 PASS：Trace 186s、read

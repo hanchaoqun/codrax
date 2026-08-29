@@ -896,6 +896,15 @@ assert_eq "$(eval_inventory_rowset_reasons "$inventory_banned")" "banned_invento
 unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
 unset EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC EXPECT_INVENTORY_ROWS_FOREIGN_FUNC EXPECT_INVENTORY_COUNT_FOREIGN_FUNC EXPECT_INVENTORY_BANNED_ROWS_FOREIGN_FUNC
 
+cangjie_list_reasons="$(
+  # The case asks for typed rows, not a Markdown table. A heading-scoped list
+  # with exact row tokens is an equivalent principal carrier.
+  source eval/cases/harmony/cangjie_repomap.case
+  cangjie_list_answer=$'### extend 块\n- **String** — demo.stringext (`04_extend_operator.cj:6`)\n- **Cart** — demo.cart (`Cart.cj:30`)\n\n### foreign func 声明\n- **native_add** — demo.ffi (`07_foreign_ffi.cj:6`)\n- **native_add** — demo.bridge (`Bridge.cj:6`)\n\n### public class（补充）\n- **App** — demo.app (`main.cj:11`)\n- **Cart** — demo.cart (`Cart.cj:14`)\n- **Bridge** — demo.bridge (`Bridge.cj:15`)\n- **Greeter** — demo.greeter (`02_class_init_methods.cj:6`)\n- **Animal** — demo.modifiers (`08_modifiers_combos.cj:6`)\n- **Dog** — demo.modifiers (`08_modifiers_combos.cj:22`)\n- **Service** — demo.modifiers (`08_modifiers_combos.cj:32`)\n- **Version** — demo.generics (`06_generic_where.cj:18`)'
+  eval_inventory_rowset_reasons "$cangjie_list_answer"
+)"
+assert_eq "$cangjie_list_reasons" "" "Cangjie inventory case must accept heading-scoped lists without table-pipe markers"
+
 EXPECT_INVENTORY_ROWSETS="extend public_class"
 EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
 EXPECT_INVENTORY_ROWS_EXTEND=$'Cart|Cart.cj|demo.cart'

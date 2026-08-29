@@ -322,6 +322,84 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_UpgradesShortSuppor
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_PreservesDisjointSelectionAndBindsUniqueRowSetPaths(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction}
+	rm.SourceInventoryProfile.SourceQuotes = []string{"extend", "foreign func", "public class"}
+	obs := SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType, Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "String", Role: AnswerCandidateRoleType, File: "internal/thirdparty/cangjie/sources/04_extend_operator.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"extend"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Cart", Role: AnswerCandidateRoleType, File: "eval/fixtures/cangjie/cart/Cart.cj", Line: 30, Language: "cangjie", SurfaceTerms: []string{"extend"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "App", Role: AnswerCandidateRoleType, File: "eval/fixtures/cangjie/main.cj", Line: 11, Language: "cangjie", SurfaceTerms: []string{"public class"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Bridge", Role: AnswerCandidateRoleType, File: "eval/fixtures/cangjie/bridge/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}, {
+			Role: AnswerCandidateRoleFunction, Complete: true,
+			Members: []SourceInventoryObservationMember{
+				{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "eval/fixtures/cangjie/bridge/Bridge.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"foreign func"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "native_add", Role: AnswerCandidateRoleFunction, File: "internal/thirdparty/cangjie/sources/07_foreign_ffi.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"foreign func"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	facts := []AnswerAggregateFact{{
+		Kind: AnswerAggregateMemberSet, Label: "extend", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{"String", "Cart"}, SupportRefs: []string{"String: 04_extend_operator.cj:6", "Cart: Cart.cj:30"},
+	}, {
+		Kind: AnswerAggregateMemberSet, Label: "foreign func", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{"native_add", "native_add"}, SupportRefs: []string{"native_add: Bridge.cj:6", "native_add: 07_foreign_ffi.cj:6"},
+	}, {
+		Kind: AnswerAggregateMemberSet, Label: "public class", Value: "2", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{"App", "Bridge"}, SupportRefs: []string{"App: main.cj:11", "Bridge: Bridge.cj:15"},
+	}}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	if len(got) != len(facts) {
+		t.Fatalf("unique short paths should preserve all model-owned requested partitions, got %+v", got)
+	}
+	for i, fact := range got {
+		if fact.Provenance != "explorer" || fact.Role != AnswerAggregateRolePrincipalAnswer {
+			t.Fatalf("partition %d was synthesized or demoted: %+v", i, fact)
+		}
+		if i == 0 {
+			// The extend partition is carried by a separate typed selection
+			// universe; it remains model-owned and does not need row-set identity.
+			continue
+		}
+		for _, ref := range fact.SupportRefs {
+			_, loc, ok := ParseAnswerSupportRefMemberLocation(ref)
+			if !ok || !strings.Contains(normalizeAnswerSupportPath(loc.File), "/") {
+				t.Fatalf("partition %d did not receive canonical typed support paths: %+v", i, fact.SupportRefs)
+			}
+		}
+	}
+}
+
+func TestSourceInventoryCanonicalizePrincipalFactMemberIdentities_AmbiguousShortPathFailsClosed(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet, Label: "public class", Value: "1", Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{"Bridge"}, SupportRefs: []string{"Bridge: Bridge.cj:15"},
+	}
+	rowSet := SourceInventoryPrincipalRowSet{
+		Active: true, PrincipalTotal: 2,
+		PrincipalRows: []SourceInventoryRow{{
+			Lane:   SourceInventoryRowLanePrincipal,
+			Member: SourceInventoryObservationMember{Name: "Bridge", File: "src/one/Bridge.cj", Line: 15, Role: AnswerCandidateRoleType},
+		}, {
+			Lane:   SourceInventoryRowLanePrincipal,
+			Member: SourceInventoryObservationMember{Name: "Bridge", File: "src/two/Bridge.cj", Line: 15, Role: AnswerCandidateRoleType},
+		}},
+	}
+
+	got := sourceInventoryCanonicalizePrincipalFactMemberIdentities([]AnswerAggregateFact{fact}, rowSet, rm)
+	if len(got) != 1 || strings.Join(got[0].SupportRefs, "") != "Bridge: Bridge.cj:15" {
+		t.Fatalf("ambiguous basename+line must remain byte-preserved for fail-closed projection, got %+v", got)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesIncompleteModelFact(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(
