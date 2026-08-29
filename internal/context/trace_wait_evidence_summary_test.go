@@ -243,6 +243,46 @@ func TestTraceWaitEvidence_WakeupEdges(t *testing.T) {
 	}
 }
 
+func TestTraceWaitEvidence_WakeupTargetCPUDegradationKeepsDependencyButWithholdsPlacement(t *testing.T) {
+	ledger := traceWaitTestLedger()
+	for i := range ledger.Records {
+		ledger.Records[i].SourceRef = types.ObservationSourceRef{
+			Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace", ArtifactID: "customer.systrace",
+		}
+	}
+	integrity := traceWaitTestRecord(
+		"trace_query:t#wakeup_target_cpu_integrity", "sched_wakeup.target_cpu",
+		"suspected_degraded_all_zero", "wakeup_target_cpu_integrity", "1697",
+		types.TraceNoteKeyWakeupTargetCPUIntegrityStatus+"=suspected_degraded_all_zero",
+		types.TraceNoteKeyWakeupTargetCPUObservedCount+"=1697",
+		types.TraceNoteKeyWakeupTargetCPUZeroCount+"=1697",
+		types.TraceNoteKeyWakeupTargetCPUEmitterCPUCount+"=6",
+	)
+	integrity.SourceRef = types.ObservationSourceRef{
+		Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace", ArtifactID: "customer.systrace",
+	}
+	integrity.GroundingPolicy = types.ClaimGroundingHard
+	integrity.Span = types.ObservationSpan{StartTs: 13762, EndTs: 13763}
+	ledger.Records = append(ledger.Records, integrity)
+
+	summary := formatTraceWaitWakeEvidenceFromLedger(ledger, nil)
+	for _, want := range []string{
+		"target-CPU evidence boundary: all 1697 valid target_cpu values",
+		"Preserve the wakeup dependency",
+		"gpu-token-id4-2931 → CompThread_0-2955 at 13762.801234",
+		"waker_cpu=2",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("degraded wakeup guidance missing %q:\n%s", want, summary)
+		}
+	}
+	for _, forbidden := range []string{"wakee_target_cpu=1", "cpu_relation=cross_cpu"} {
+		if strings.Contains(summary, forbidden) {
+			t.Fatalf("degraded target placement leaked as authority through %q:\n%s", forbidden, summary)
+		}
+	}
+}
+
 // TestTraceWaitEvidence_SilentWithoutTypedNotes — zero-emission anti-noise:
 // a trace run whose records carry no blocked_reason/wakeup-edge typed notes,
 // and a non-trace run, both stay silent.

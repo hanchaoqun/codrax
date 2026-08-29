@@ -25,6 +25,7 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		return ""
 	}
 	ledger := answerDocObservationLedger(ctx)
+	wakeupTargetCPUIntegrity := types.BuildTraceWakeupTargetCPUIntegrity(ledger)
 	projectionSet := types.CompileTraceCausalProjectionSet(ledger)
 	stateAllowed := types.RuntimeTraceTargetStateMaterializationAllowed(authorityRM, projectionSet)
 	waitAllowed := types.RuntimeTraceTargetWaitMaterializationAllowed(authorityRM, projectionSet)
@@ -45,6 +46,12 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	var wakeupEdges []types.TraceWakeupEdgeRoleAuthority
 	if wakeupAllowed {
 		wakeupEdges = types.BuildTraceWakeupEdgeRoleAuthorities(ledger, authorityRM)
+	}
+	wakeupTargetCPUDegradedRecord := make(map[string]bool)
+	for _, record := range ledger.Records {
+		if wakeupTargetCPUIntegrity.AffectsWakeupRecord(record) {
+			wakeupTargetCPUDegradedRecord[strings.TrimSpace(record.ID)] = true
+		}
 	}
 	stateRosterTruncated := stateAllowed && len(projectionSet.OmittedArtifactLabels) > 0
 	if len(states) == 0 && len(waits) == 0 && len(blocking) == 0 && len(wakeupEdges) == 0 && !stateRosterTruncated {
@@ -67,6 +74,9 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 	}
 	b.WriteString("- `sched_blocked_reason.caller` is the kernel-reported wait call-site/symbol associated with that target interval. It can describe where the target blocked, but it is not a typed resource identity, lock owner, or holder thread. Only a separate typed holder/owner relation may authorize holder language.\n\n")
 	b.WriteString("- Wakeup endpoint values are role-bound. Never swap a waker's priority/class/CPU with the wakee's values, and do not compare or strengthen the relation beyond its row-local caliber.\n\n")
+	if len(wakeupTargetCPUDegradedRecord) > 0 {
+		fmt.Fprintf(&b, "- Wakeup target-CPU integrity boundary: %d valid target_cpu values in the affected query window are all zero while wakeups originate on %d CPUs. Keep the raw waker CPU and every endpoint/priority/dependency fact, but do not use affected target_cpu values or their derived same/cross-CPU labels as strong placement authority; this advisory changes no chain, rank, or arithmetic.\n\n", wakeupTargetCPUIntegrity.ObservedCount, wakeupTargetCPUIntegrity.EmitterCPUCount)
+	}
 	if zh {
 		b.WriteString("- 不同 authority 行的数值差本身不是关系证据；除非另有 explicit typed relation 证明，不得把 record/occurrence/partition 的差值解释成窗口边界、重叠、精度误差或缺失闭合。\n\n")
 	} else {
@@ -244,11 +254,15 @@ func renderAnswerDocTracePrincipalValueAuthority(ctx *types.AgentContext) string
 		if edge.WakerCPU != "" {
 			fmt.Fprintf(&b, "; waker_cpu=%s", edge.WakerCPU)
 		}
-		if edge.WakeeTargetCPU != "" {
+		targetCPUDegraded := wakeupTargetCPUDegradedRecord[strings.TrimSpace(edge.SourceRecordID)]
+		if edge.WakeeTargetCPU != "" && !targetCPUDegraded {
 			fmt.Fprintf(&b, "; wakee_target_cpu=%s", edge.WakeeTargetCPU)
 		}
-		if edge.CPURelation != "" {
+		if edge.CPURelation != "" && !targetCPUDegraded {
 			fmt.Fprintf(&b, "; cpu_relation=`%s`", edge.CPURelation)
+		}
+		if targetCPUDegraded {
+			b.WriteString("; target_cpu_placement_authority=`withheld_by_window_scoped_integrity_advisory`")
 		}
 		b.WriteString("; role_binding=`exact_row_local`; conclusion_owner=`model`\n")
 	}

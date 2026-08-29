@@ -1524,6 +1524,13 @@ func (w TimeWindow) StartsAtDeterminedZero() bool {
 type WindowStats struct {
 	Window      TimeWindow        `json:"window"`
 	EventCounts map[EventType]int `json:"event_counts,omitempty"`
+	// WakeupTargetCPUIntegrity is an advisory integrity observation for the
+	// scheduler wakeup target_cpu field in this exact query window.  The
+	// all-zero/multi-emitter shape is deterministic, but its converter-cause
+	// interpretation is intentionally only suspected: consumers may use it to
+	// qualify target-CPU placement wording, never to reject otherwise valid raw
+	// wakeup rows or alter chain/rank arithmetic.
+	WakeupTargetCPUIntegrity *WakeupTargetCPUIntegritySummary `json:"wakeup_target_cpu_integrity,omitempty"`
 	// CPUFrequencySampleRowCount counts strict in-window positive
 	// cpu_frequency rows admitted by the shared per-CPU sample predicate.
 	// ClockSetRateEventCount is a separate clock-activity census, including
@@ -1787,6 +1794,19 @@ type WindowStats struct {
 	IdleWholeWindowSleepers *IdleWholeWindowSleeperFold `json:"idle_whole_window_sleepers,omitempty"`
 	PerfSamples             *PerfContext                `json:"perf_samples,omitempty"`
 	Caveats                 []string                    `json:"caveats,omitempty"`
+}
+
+const WakeupTargetCPUIntegritySuspectedDegradedAllZero = "suspected_degraded_all_zero"
+
+// WakeupTargetCPUIntegritySummary keeps the observed census separate from its
+// advisory interpretation.  ObservedCount and ZeroCount refer only to valid,
+// in-window sched_wakeup/sched_waking target_cpu values; EmitterCPUCount is the
+// number of distinct event-header CPUs in the same population.
+type WakeupTargetCPUIntegritySummary struct {
+	Status          string `json:"status"`
+	ObservedCount   int    `json:"observed_count"`
+	ZeroCount       int    `json:"zero_count"`
+	EmitterCPUCount int    `json:"emitter_cpu_count"`
 }
 
 // IdleWholeWindowSleeperFold is the typed aggregate of whole-window sleeper

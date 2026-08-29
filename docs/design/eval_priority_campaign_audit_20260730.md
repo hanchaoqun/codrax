@@ -57305,9 +57305,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    sched_wakeup/sched_waking 的 target_cpu 全为 0、且事件头来自多个 CPU，发布 `wakeup_target_cpu_degraded=true`；但同一结果中的 wakeup edge 仍逐行携带
    `wakee_target_cpu=0,cpu_relation=cross_cpu`，finalizer context 进一步宣称这些 exact rows “prove cross-CPU placement”。模型据此写“36 次唤醒均跨
    CPU”；答案后置事实附注又说该字段疑退化、按 target_cpu 归账不可靠。同一 typed 信号在前后两层同时授权和否定，不是模型波动。
-5. B1422 最优形不是删唤醒边。退化判据成立时，只撤销该查询窗内所有 wakeup edge 的 `WakeeTargetCPUKnown/CPURelation` 权威并发布 typed
-   unknown/degraded reason；waker CPU、waker→wakee 方向、时间戳、优先级、睡眠退出和整条依赖链全部保留。所有 finalizer/事实对照/观察账本消费者必须
-   从同一降级后的结构读取，禁止后置附注才纠正。健康多核、真实单核与小样本边界保持现有行为。
+5. B1422 最优形不是删唤醒边，也不是以嘈声判据硬改 producer 的原始字段。退化形成立时，原始 wakeup edge 及其逐行
+   `WakeeTargetCPU/CPURelation` 观测仍完整保留给审计/调试；另铸查询窗+工件范围的 typed advisory，所有面向最终判断的
+   finalizer/事实对照/主值摘要/模型等待证据只撤销受影响行的“精确同核/跨核放置”强结论权限并说明原因。waker CPU、waker→wakee 方向、时间戳、
+   优先级、睡眠退出和整条依赖链全部保留。禁止后置附注才纠正，也禁止把 advisory 升格为 hard reject、删边或根因/数值变化；健康多核、真实单核、
+   小样本、同工件其他时间窗和其他工件保持现有行为。
 6. 新 P2 `B1423-TRACEINTERNALENUMWORDING1`：模型正文直接复制 `causal_conclusion=unproven` 与
    `frame_evidence_status=absent`，虽语义正确但属于用户不可读内部枚举。先走 soft context 教学/读者语言映射，不以终稿字符串扫描硬拒，也不由系统改写
    正文；与 B1422 分批，避免把证据权限根修和措辞优化混在一起。
@@ -57324,6 +57326,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `system-answer/relation/conclusion/wording/layout-selection=none`；
 `request/model/final-prose/mermaid-content-new-hard-scan=none`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r912`。
+
+### §123.1492 B1422：target_cpu 完整性改为窗/工件 scoped typed advisory，前后权威单源（2026-08-28）
+
+1. `B1422-WAKEUPTARGETCPUDEGRADEDAUTHORITY1/P0-P1` 已施工。引擎在原有“大样本、有效 target_cpu 全零、事件头来自至少两个 CPU”的确定性形上，
+   除保留 caveat 外新增 `WindowStats.WakeupTargetCPUIntegrity` 结构化 census；trace_query 再把它投影为带原工件身份和精确 query window 的
+   `wakeup_target_cpu_integrity` observation。下游不再从 summary/caveat 正则解析该状态。
+2. 该检测结果仍明确是 advisory：原始 wakeup edge、`waker_cpu`、`wakee_target_cpu`、`cpu_relation`、waker→wakee 方向、时间戳、优先级、
+   睡眠退出、唤醒链、根因排序和所有时长/可消量均不删除、不改写。只有“这些受影响 target_cpu 能证明精确同核/跨核放置”的面向结论权限被降级；
+   系统不会据此硬拒答案、重写模型正文或改变因果席位。
+3. scope 编译同时绑定 artifact identity 与 window timestamp。相同 trace 的窗外边、另一工件的边和健康查询继续保留原精确 CPU 放置权限，避免把一次
+   探索查询做成会话级 ANY-sticky。重复 observation 按 MAX 折叠而不求和；计数不一致、单 emitter、小样本、非 deterministic producer 或无 hard
+   grounding 的行均不能铸造 advisory。
+4. 四个关键消费面统一：Trace wait/wakeup 模型上下文保留依赖、时间、端点、优先级和发起 CPU，但省略受影响目标 CPU/同跨核标签；final decision
+   boundary 与 reader-ready facts 给自然语言证据边界；principal values 保留 row-local 端点/优先级并显式标记 placement 权限被降级；成文后事实对照
+   不再同时发布“精确跨核”与“target_cpu 疑退化”两条互斥事实。健康路径继续共享原 `BuildTraceWakeupCPUTopologyAuthorities` 原始审计编译器，判断面走
+   scoped decision-safe 编译器。
+5. tracediag 完成 R2' ritual：新字段有唯一 key-first 渲染所有者，与 scheduler completeness 同行以避免小行数预算挤掉 engine compaction；generic
+   detail 副本被显式跳过，WindowStats schema hash 在逐字段审计后重钉。诊断行明确 `advisory_only/raw_rows=preserved`，不能被误读成解析行丢失。
+6. 回归覆盖引擎 census、typed observation 铸造、坏 census/非 typed producer 静默、同窗同工件命中、同工件窗外/异工件不污染、raw compiler
+   保留全部 tuple、decision compiler 只降级受影响 tuple、四个消费面一致、健康 cross-CPU 原行为及 key-first 单次渲染。本批不扫描用户请求、模型原文、
+   最终正文或 Mermaid，不修改显式窗选举、Trace 因果投影、自动补采、链上根因、业务线索、实际占时/规则可消双账户或活动流时限。
+7. `B1423` 经复核降为模型遵循观察项：final decision prompt 已明确内部 JSON 字段/枚举只能留在结构化控制域、正文必须用自然语言，r912 仍复制原值属于
+   单次模型 adherence 波动。继续通过读者语言事实卡与异构回放观察，不新增正文字符串硬门、不做系统替写。
+
+状态：
+
+`B1422=implemented/focused-pass+full-suite-pass+build-pass/pending-production-replay`；
+`integrity-signal=typed-artifact+query-window-scoped/advisory-only`；
+`raw-wakeup-rows=preserved`；`affected-placement-authority=soft-withheld`；
+`waker/direction/timestamp/priority/chain/rank/arithmetic=preserved`；
+`session-any-sticky=forbidden`；
+`B1423=model-adherence-observe/no-hard-prose-gate`；
+`system-answer/relation/conclusion/wording/layout-selection=none`；
+`request/model/final-prose/mermaid-content-new-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
 ### §123.1490 B1421：关系修复候选保持模型选择与证据账本顺序（2026-08-28）
 

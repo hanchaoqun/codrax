@@ -403,6 +403,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 	if !ledger.HasDeterministicRuntimeQueryObservation() {
 		return ""
 	}
+	wakeupTargetCPUIntegrity := types.BuildTraceWakeupTargetCPUIntegrity(ledger)
 	threads := map[string]*traceWaitThreadFacts{}
 	var threadOrder []string
 	get := func(subject string) *traceWaitThreadFacts {
@@ -434,6 +435,7 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		waker, wakee, ts, latency, latencyCaliber string
 		wakerCPU, wakeeTargetCPU, cpuRelation     string
 		tsValue                                   float64
+		targetCPUPlacementDegraded                bool
 	}
 	var edges []wakeupEdge
 	seenEdges := map[string]bool{}
@@ -507,9 +509,10 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			edge := wakeupEdge{
 				waker: subject, wakee: wakee, ts: ts,
 				latency: strings.TrimSpace(notes["latency"]), latencyCaliber: caliber,
-				wakerCPU:       strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakerCPU]),
-				wakeeTargetCPU: strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakeeTargetCPU]),
-				cpuRelation:    strings.TrimSpace(notes[types.TraceNoteKeyWakeupCPURelation]),
+				wakerCPU:                   strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakerCPU]),
+				wakeeTargetCPU:             strings.TrimSpace(notes[types.TraceNoteKeyWakeupWakeeTargetCPU]),
+				cpuRelation:                strings.TrimSpace(notes[types.TraceNoteKeyWakeupCPURelation]),
+				targetCPUPlacementDegraded: wakeupTargetCPUIntegrity.AffectsWakeupRecord(record),
 			}
 			edge.tsValue, _ = strconv.ParseFloat(ts, 64)
 			edges = append(edges, edge)
@@ -1120,7 +1123,17 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 		}
 	}
 	if len(selectedEdges) > 0 {
-		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay). A cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
+		b.WriteString("Measured wakeup edges (sched_wakeup; waker → wakee at timestamp; pre-wakeup wait is sleep/blocking start → sched_wakeup, never sched_wakeup → switch-in scheduling delay). A healthy cross-CPU tag proves only that the recorded waker CPU and wakee target CPU differ; it does not prove NUMA placement, migration, inter-core communication cost, direct CPU competition, or the cause of any delay:\n")
+		degradedPlacement := false
+		for _, edge := range selectedEdges {
+			if edge.targetCPUPlacementDegraded {
+				degradedPlacement = true
+				break
+			}
+		}
+		if degradedPlacement {
+			fmt.Fprintf(&b, "- target-CPU evidence boundary: all %d valid target_cpu values in the affected query window are zero while wakeups originate on %d CPUs. Preserve the wakeup dependency, timestamp, endpoint roles, priorities, and raw waker CPU; affected target placement and same/cross-CPU classification are not established and are omitted below. This is advisory only and changes no chain, rank, or arithmetic.\n", wakeupTargetCPUIntegrity.ObservedCount, wakeupTargetCPUIntegrity.EmitterCPUCount)
+		}
 		for _, edge := range selectedEdges {
 			line := "- " + edge.waker + " → " + edge.wakee
 			if edge.ts != "" {
@@ -1129,15 +1142,15 @@ func formatTraceWaitWakeEvidenceFromLedgerWithOptions(
 			if edge.latency != "" {
 				line += " (pre-wakeup wait: sleep/blocking start → sched_wakeup " + edge.latency + "ms; latency_caliber=" + edge.latencyCaliber + ")"
 			}
-			if edge.wakerCPU != "" || edge.wakeeTargetCPU != "" || edge.cpuRelation != "" {
+			if edge.wakerCPU != "" || (!edge.targetCPUPlacementDegraded && (edge.wakeeTargetCPU != "" || edge.cpuRelation != "")) {
 				var topology []string
 				if edge.wakerCPU != "" {
 					topology = append(topology, "waker_cpu="+edge.wakerCPU)
 				}
-				if edge.wakeeTargetCPU != "" {
+				if edge.wakeeTargetCPU != "" && !edge.targetCPUPlacementDegraded {
 					topology = append(topology, "wakee_target_cpu="+edge.wakeeTargetCPU)
 				}
-				if edge.cpuRelation != "" {
+				if edge.cpuRelation != "" && !edge.targetCPUPlacementDegraded {
 					topology = append(topology, "cpu_relation="+edge.cpuRelation)
 				}
 				if edge.cpuRelation == string(types.TraceWakeupCPUTopologyCrossCPU) {

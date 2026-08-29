@@ -34,6 +34,19 @@ type TraceWakeupCPUTopologyAuthority struct {
 // trace_query edge rows. Missing, unknown, or internally inconsistent CPU
 // relations remain unpublished/unknown rather than being guessed from prose.
 func BuildTraceWakeupCPUTopologyAuthorities(ledger ObservationLedger) []TraceWakeupCPUTopologyAuthority {
+	return buildTraceWakeupCPUTopologyAuthorities(ledger, TraceWakeupTargetCPUIntegrity{}, false)
+}
+
+// BuildTraceWakeupCPUTopologyDecisionAuthorities retains the raw authority
+// compiler above for audit/debug consumers but withholds a strong same/cross
+// placement statement for exact artifact/window rows covered by a suspected
+// target_cpu integrity advisory.  This remains soft answer guidance: no raw
+// observation, wakeup relation, rank, or eliminable amount is removed.
+func BuildTraceWakeupCPUTopologyDecisionAuthorities(ledger ObservationLedger, integrity TraceWakeupTargetCPUIntegrity) []TraceWakeupCPUTopologyAuthority {
+	return buildTraceWakeupCPUTopologyAuthorities(ledger, integrity, true)
+}
+
+func buildTraceWakeupCPUTopologyAuthorities(ledger ObservationLedger, integrity TraceWakeupTargetCPUIntegrity, decisionSafe bool) []TraceWakeupCPUTopologyAuthority {
 	seen := make(map[string]bool)
 	out := make([]TraceWakeupCPUTopologyAuthority, 0, TraceWakeupCPUTopologyAuthorityLimit)
 	for _, record := range ledger.Records {
@@ -44,6 +57,9 @@ func BuildTraceWakeupCPUTopologyAuthorities(ledger ObservationLedger) []TraceWak
 			!RuntimeObservationProducerIsDeterministicQuery(record.Producer) ||
 			record.GroundingPolicy != ClaimGroundingHard ||
 			strings.TrimSpace(record.Predicate) != "wakeup_chain_edge" {
+			continue
+		}
+		if decisionSafe && integrity.AffectsWakeupRecord(record) {
 			continue
 		}
 		waker := strings.TrimSpace(record.Subject)

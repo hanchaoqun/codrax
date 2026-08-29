@@ -83,10 +83,6 @@ var proseFactFreqTokenRE = regexp.MustCompile(`(?i)[0-9]\s*(?:GHz|MHz|kHz)\b|fre
 // — ≈/约 forms never match, 宁松勿严).
 var proseFactEquationRE = regexp.MustCompile(`((?:[0-9]+(?:\.[0-9]+)?\s*(?:ms|毫秒)?\s*\+\s*)+[0-9]+(?:\.[0-9]+)?)\s*(?:ms|毫秒)?\s*[=＝]\s*([0-9]+(?:\.[0-9]+)?)`)
 
-// proseFactWakeupDegradedRE reads the engine's typed degradation caveat off
-// the tool-result banner (wakeup_target_cpu_degraded=true total=N).
-var proseFactWakeupDegradedRE = regexp.MustCompile(`wakeup_target_cpu_degraded=true\s+total=([0-9]+)`)
-
 // proseFactAnyNumeralRE harvests every numeral (integer or decimal) off an
 // evidence surface for the implicit-subtraction arm's negative published-
 // value gate. Over-inclusion is the SAFE direction here: a richer published
@@ -194,8 +190,8 @@ func proseFactJuxtapositionFindings(doc *types.AnswerDocumentV2, bus *types.BusC
 	return out
 }
 
-func proseFactWakeupCPUTopologyFindings(ledger types.ObservationLedger) []proseScalarBindingFinding {
-	rows := types.BuildTraceWakeupCPUTopologyAuthorities(ledger)
+func proseFactWakeupCPUTopologyFindings(ledger types.ObservationLedger, integrity types.TraceWakeupTargetCPUIntegrity) []proseScalarBindingFinding {
+	rows := types.BuildTraceWakeupCPUTopologyDecisionAuthorities(ledger, integrity)
 	out := make([]proseScalarBindingFinding, 0, len(rows))
 	for _, row := range rows {
 		if row.Relation == types.TraceWakeupCPUTopologyCrossCPU {
@@ -248,6 +244,7 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 	}
 	facts, freqByCPU, freqSeen := buildProseFactEvidence(ledger)
 	prose := collectModelProseUnits(doc)
+	wakeupTargetCPUIntegrity := types.BuildTraceWakeupTargetCPUIntegrity(ledger)
 
 	var out []proseScalarBindingFinding
 	seen := map[string]bool{}
@@ -265,16 +262,16 @@ func proseTypedFactJuxtapositionFindingsImpl(doc *types.AnswerDocumentV2, bus *t
 	// the neutral appendix whether or not the model happened to repeat either
 	// CPU token. This is an information carrier only: it never interprets,
 	// rejects, or rewrites the model's conclusion.
-	for _, finding := range proseFactWakeupCPUTopologyFindings(ledger) {
+	for _, finding := range proseFactWakeupCPUTopologyFindings(ledger, wakeupTargetCPUIntegrity) {
 		add(finding)
 	}
 
 	// ── engine typed degradation fact (target_cpu 退化) ──────────────────
-	if total, ok := proseFactWakeupDegradation(bus, mut); ok && proseFactMentionsCPU(prose) {
+	if wakeupTargetCPUIntegrity.AffectsAnyWakeupRecord(ledger) && proseFactMentionsCPU(prose) {
 		add(proseScalarBindingFinding{
-			entry: fmt.Sprintf("Evidence reference: this trace's in-window sched_wakeup target_cpu field is suspected degraded (%d events, all zero) — per-CPU accounting keyed on target_cpu is unreliable", total),
+			entry: fmt.Sprintf("Evidence reference: this trace's in-window sched_wakeup target_cpu field is suspected degraded (%d events, all zero) — the raw waker CPU remains available, but target placement and same/cross-CPU conclusions are unreliable; the wakeup dependency itself remains intact", wakeupTargetCPUIntegrity.ObservedCount),
 			entryZH: fmt.Sprintf("事实对照：本 trace 窗内 sched_wakeup 的 target_cpu 字段疑退化(%d 条全 0),按 target_cpu 归账的 per-CPU 口径不可靠",
-				total),
+				wakeupTargetCPUIntegrity.ObservedCount),
 		})
 	}
 
@@ -1015,32 +1012,6 @@ func proseFactImplicitSubtractionMatch(unit proseTextUnit, xs, ys, zs []proseFac
 		}
 	}
 	return proseScalarBindingFinding{}, false
-}
-
-// proseFactWakeupDegradation reads the engine's typed target_cpu degradation
-// marker off the run's deterministic tool banners.
-func proseFactWakeupDegradation(bus *types.BusContext, mut *types.MutableState) (int, bool) {
-	scan := func(text string) (int, bool) {
-		if m := proseFactWakeupDegradedRE.FindStringSubmatch(text); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil {
-				return n, true
-			}
-		}
-		return 0, false
-	}
-	for _, tr := range bus.ToolResults {
-		if n, ok := scan(tr.Summary); ok {
-			return n, true
-		}
-	}
-	if ta := mut.TurnAArtifacts(); ta != nil {
-		for _, tr := range ta.ToolResults {
-			if n, ok := scan(tr.Summary); ok {
-				return n, true
-			}
-		}
-	}
-	return 0, false
 }
 
 // proseFactStatePartitionFindings — FACT-REL arm a (§29.55.4 F2 互斥状态

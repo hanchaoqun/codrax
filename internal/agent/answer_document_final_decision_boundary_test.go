@@ -165,6 +165,7 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 	}
 	got := renderTraceFinalReaderDecisionCards(
 		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}}, contract, "zh-CN", nil,
+		types.TraceWakeupTargetCPUIntegrity{}, false,
 	)
 	for _, want := range []string{
 		"## 面向读者的 Trace 成文事实卡（结论由模型给出）",
@@ -228,7 +229,7 @@ func TestTraceFinalReaderDecisionCardUsesEnglishReaderLabels(t *testing.T) {
 	got := renderTraceFinalReaderDecisionCards(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
 		ArtifactLabel: "customer.systrace", RankedSeats: []types.TraceCausalProjectionNode{node},
 		OnChainCauses: []types.TraceCausalProjectionNode{node},
-	}}}, nil, "en", nil)
+	}}}, nil, "en", nil, types.TraceWakeupTargetCPUIntegrity{}, false)
 	for _, want := range []string{
 		"## Reader-ready Trace facts (the model owns the conclusion)",
 		"Measured time concentrations",
@@ -262,7 +263,7 @@ func TestTraceFinalReaderDecisionCardExplainsWaitCallsiteAndWakeupPlacementBound
 	}}}, nil, "zh-CN", []types.TraceWakeupCPUTopologyAuthority{{
 		Waker: "cookie-200", Wakee: "app-100", WakerCPU: 2, WakeeTargetCPU: 1,
 		Relation: types.TraceWakeupCPUTopologyCrossCPU,
-	}})
+	}}, types.TraceWakeupTargetCPUIntegrity{}, false)
 	for _, want := range []string{
 		"链上等待证据边界",
 		"threadpool-400：IO 等待，已测 11.000 毫秒",
@@ -282,6 +283,53 @@ func TestTraceFinalReaderDecisionCardExplainsWaitCallsiteAndWakeupPlacementBound
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("reader-ready wait/CPU boundary leaked control token %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestTraceFinalWakeupCPUAuthorityDowngradesOnlyAffectedPlacement(t *testing.T) {
+	ref := types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace", ArtifactID: "customer.systrace"}
+	integrityRow := types.ObservationRecord{
+		ID: "trace_query:t#wakeup_target_cpu_integrity", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span: types.ObservationSpan{StartTs: 1, EndTs: 2}, Subject: "sched_wakeup.target_cpu",
+		Predicate: "wakeup_target_cpu_integrity", Object: "suspected_degraded_all_zero", Value: "1697",
+		RichNotes: []string{
+			types.TraceNoteKeyWakeupTargetCPUIntegrityStatus + "=suspected_degraded_all_zero",
+			types.TraceNoteKeyWakeupTargetCPUObservedCount + "=1697",
+			types.TraceNoteKeyWakeupTargetCPUZeroCount + "=1697",
+			types.TraceNoteKeyWakeupTargetCPUEmitterCPUCount + "=6",
+		},
+	}
+	edge := types.ObservationRecord{
+		ID: "trace_query:t#wakeup_chain_edge:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span: types.ObservationSpan{StartTs: 1.5, EndTs: 1.5}, Subject: "worker-200",
+		Predicate: "wakeup_chain_edge", Object: "app-100", RichNotes: []string{
+			types.TraceNoteKeyWakeupTs + "=1.500000",
+			types.TraceNoteKeyWakeupWakerCPU + "=3",
+			types.TraceNoteKeyWakeupWakeeTargetCPU + "=0",
+			types.TraceNoteKeyWakeupCPURelation + "=cross_cpu",
+		},
+	}
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{integrityRow, edge}}
+	integrity := types.BuildTraceWakeupTargetCPUIntegrity(ledger)
+	got := renderTraceFinalWakeupCPUTopologyAuthority(ledger, integrity)
+	for _, want := range []string{"suspected converter degradation", "observed_rows=1697", "raw waker CPU observations remain available", "rank/arithmetic change"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("integrity boundary missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"wakeup_cpu_topology_authority", "proves cross-CPU wakeup placement"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("affected placement remained strong authority through %q:\n%s", forbidden, got)
+		}
+	}
+
+	reader := renderTraceFinalReaderDecisionCards(types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{ArtifactLabel: "customer.systrace"}}}, nil, "zh-CN", nil, integrity, true)
+	for _, want := range []string{"疑似转换字段退化", "当前不能据此确认目标投递 CPU", "唤醒依赖关系本身不受影响"} {
+		if !strings.Contains(reader, want) {
+			t.Fatalf("reader-facing integrity boundary missing %q:\n%s", want, reader)
 		}
 	}
 }

@@ -458,6 +458,63 @@ func TestRenderAnswerDocTracePrincipalValueAuthorityBindsWakeupEndpointRolesAL(t
 	}
 }
 
+func TestRenderAnswerDocTracePrincipalValueAuthorityWithholdsDegradedTargetCPUPlacementAL(t *testing.T) {
+	const subject = "app-100"
+	ref := types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact, Path: "/tmp/customer.systrace", ArtifactID: "customer.systrace"}
+	edge := types.ObservationRecord{
+		ID: "trace_query:window#wakeup_chain_edge:1", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Predicate: "wakeup_chain_edge", Subject: "worker-200", Object: subject,
+		RichNotes: []string{
+			types.TraceNoteKeyWakeupTs + "=1.010000",
+			types.TraceNoteKeyWakerPriority + "=20/ohos_cfs",
+			types.TraceNoteKeyWakeePriority + "=52/ohos_rt",
+			types.TraceNoteKeyWakeupWakerCPU + "=2",
+			types.TraceNoteKeyWakeupWakeeTargetCPU + "=0",
+			types.TraceNoteKeyWakeupCPURelation + "=cross_cpu",
+		},
+	}
+	integrity := types.ObservationRecord{
+		ID: "trace_query:window#wakeup_target_cpu_integrity", Origin: types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard, SourceRef: ref,
+		Span: types.ObservationSpan{StartTs: 1, EndTs: 2}, Subject: "sched_wakeup.target_cpu",
+		Predicate: "wakeup_target_cpu_integrity", Object: "suspected_degraded_all_zero", Value: "1697",
+		RichNotes: []string{
+			types.TraceNoteKeyWakeupTargetCPUIntegrityStatus + "=suspected_degraded_all_zero",
+			types.TraceNoteKeyWakeupTargetCPUObservedCount + "=1697",
+			types.TraceNoteKeyWakeupTargetCPUZeroCount + "=1697",
+			types.TraceNoteKeyWakeupTargetCPUEmitterCPUCount + "=6",
+		},
+	}
+	ctx := tracePrincipalValueAuthorityTestContext(subject, 100, []types.ObservationRecord{edge, integrity})
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.Intent = types.IntentExplain
+	rm.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope:        types.RuntimeQuestionScopeBoundedFactSet,
+		FactFamilies: []types.RuntimeQuestionFactFamily{types.RuntimeQuestionFactDirectWaker},
+	}
+	ctx.Mutable.SetRequestModel(*rm)
+
+	got := renderAnswerDocTracePrincipalValueAuthority(ctx)
+	for _, want := range []string{
+		"Wakeup target-CPU integrity boundary: 1697 valid target_cpu values",
+		"waker=`worker-200`; wakee=`app-100`",
+		"waker_priority=`20/ohos_cfs`",
+		"wakee_priority=`52/ohos_rt`",
+		"waker_cpu=2",
+		"target_cpu_placement_authority=`withheld_by_window_scoped_integrity_advisory`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("degraded target-CPU recap missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"wakee_target_cpu=0", "cpu_relation=`cross_cpu`"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("degraded target placement leaked through %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocTracePrincipalValueAuthorityStatesZeroReasonBoundaryAL(t *testing.T) {
 	const subject = "app-100"
 	state := types.ObservationRecord{

@@ -22,6 +22,10 @@ func TestRenderStepBodyWindowStatsKeyFirstSurvivesSmallLineCap(t *testing.T) {
 		}},
 		WindowStats: &tracequery.WindowStats{
 			Window: tracequery.TimeWindow{StartTs: 5, EndTs: 5.007},
+			WakeupTargetCPUIntegrity: &tracequery.WakeupTargetCPUIntegritySummary{
+				Status:        tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero,
+				ObservedCount: 1697, ZeroCount: 1697, EmitterCPUCount: 6,
+			},
 			SchedulerHeadCoverage: &tracequery.SchedulerHeadCoverage{
 				Status: "unknown", BoundaryTs: 5, Reason: "missing pre-window checkpoint",
 				MissingCPUCount: 1, MissingCPUs: []int{7},
@@ -58,6 +62,7 @@ func TestRenderStepBodyWindowStatsKeyFirstSurvivesSmallLineCap(t *testing.T) {
 	for _, want := range []string{
 		"engine_diagnostics(引擎原文去重账目): caveats=1 compactions=1",
 		"key_first.completeness window_stats: status=unknown",
+		"wakeup_target_cpu_integrity={status=suspected_degraded_all_zero observed=1697 zero=1697 emitter_cpus=6 authority=advisory_only raw_rows=preserved placement_conclusion=withheld_when_suspected}",
 		"key_first.counter_quality window_stats: rows=12",
 		"key_first.pairing window_stats: storage={groups=1 paired=2 unpaired_start=1 unpaired_done=1 ambiguous=1 suppressed=2}",
 		"engine_caveat source=result",
@@ -69,6 +74,9 @@ func TestRenderStepBodyWindowStatsKeyFirstSurvivesSmallLineCap(t *testing.T) {
 	}
 	if strings.Contains(report, "frequency_residency") || strings.Contains(report, "1600000") {
 		t.Fatalf("bulk CPU residency displaced key-first fields:\n%s", report)
+	}
+	if strings.Count(report, "wakeup_target_cpu_integrity") != 1 {
+		t.Fatalf("target_cpu integrity must render exactly once through key-first policy:\n%s", report)
 	}
 	if len(body.lines) != step.EffectiveMaxLines() || body.total <= len(body.lines) {
 		t.Fatalf("cap accounting lines=%d total=%d cap=%d", len(body.lines), body.total, step.EffectiveMaxLines())

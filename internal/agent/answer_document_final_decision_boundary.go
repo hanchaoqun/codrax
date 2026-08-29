@@ -139,6 +139,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	ledger := answerDocObservationLedger(ctx)
 	set := types.CompileTraceCausalProjectionSet(ledger)
+	wakeupTargetCPUIntegrity := types.BuildTraceWakeupTargetCPUIntegrity(ledger)
 	var requestModel *types.RequestModel
 	if ctx.AnalysisIR != nil {
 		requestModel = &ctx.AnalysisIR.RequestModel
@@ -171,7 +172,7 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	}
 	b.WriteString("- scheduler_state_interval_authority=`typed_state_segments`: a typed wakeup ends the preceding sleep/io_wait segment; time from wakeup until the next sched-in is runnable_wait. Do not extend an IO/D/sleep duration to the later run timestamp or relabel the two state segments as one wait state.\n")
 	b.WriteString("- trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`: measured state occupancy/cumulative duration and effective attribution are different axes. Effective attribution is the published ranking/eliminable value; never call it an actual wait/state duration when a distinct measured occupancy is provided.\n")
-	b.WriteString(renderTraceFinalWakeupCPUTopologyAuthority(ledger))
+	b.WriteString(renderTraceFinalWakeupCPUTopologyAuthority(ledger, wakeupTargetCPUIntegrity))
 	b.WriteString(renderTraceFinalSemanticRelationOnlyAuthority(set))
 	b.WriteString(renderTraceFinalStateValueAuthority(set))
 	b.WriteString(renderTraceFinalSupplyFoldValueAuthority(set))
@@ -203,7 +204,14 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 	// control tokens makes them disproportionately easy for the model to copy
 	// into visible prose. This card is derived from the same compiled projection
 	// and does not inspect, classify, or rewrite any model-authored text.
-	b.WriteString(renderTraceFinalReaderDecisionCards(set, causalClaimContract, lang, types.BuildTraceWakeupCPUTopologyAuthorities(ledger)))
+	b.WriteString(renderTraceFinalReaderDecisionCards(
+		set,
+		causalClaimContract,
+		lang,
+		types.BuildTraceWakeupCPUTopologyDecisionAuthorities(ledger, wakeupTargetCPUIntegrity),
+		wakeupTargetCPUIntegrity,
+		wakeupTargetCPUIntegrity.AffectsAnyWakeupRecord(ledger),
+	))
 	return b.String()
 }
 
@@ -318,7 +326,7 @@ func traceFinalReaderCausalScopeOptions(contract *types.TraceCausalClaimContract
 // diagnosis, prioritization, optimization direction, and wording. Exact
 // typed admission/ranking stays upstream; this function performs display-only
 // mapping over those admitted rows and never scans request or answer prose.
-func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string, wakeupRows []types.TraceWakeupCPUTopologyAuthority) string {
+func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, contract *types.TraceCausalClaimContract, lang string, wakeupRows []types.TraceWakeupCPUTopologyAuthority, wakeupIntegrity types.TraceWakeupTargetCPUIntegrity, wakeupIntegrityAffectsRows bool) string {
 	if len(set.Projections) == 0 {
 		return ""
 	}
@@ -514,6 +522,13 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 					fmt.Fprintf(&b, "  - %s issued a wakeup for %s on CPU %d with the same target CPU %d; this proves only matching recorded placement. Direct competition, preemption, or post-wakeup delay still requires separate running/runnable overlap evidence.\n", waker, wakee, row.WakerCPU, row.WakeeTargetCPU)
 				}
 			}
+		}
+	}
+	if wakeupIntegrityAffectsRows {
+		if zh {
+			fmt.Fprintf(&b, "\n- 唤醒目标 CPU 的证据边界：本窗口 %d 条有效记录的目标 CPU 均为 0，但唤醒事件来自 %d 个 CPU，疑似转换字段退化。发起唤醒所在 CPU 仍可按原始事件读取，但当前不能据此确认目标投递 CPU，也不能断言同核或跨核放置；唤醒依赖关系本身不受影响。\n", wakeupIntegrity.ObservedCount, wakeupIntegrity.EmitterCPUCount)
+		} else {
+			fmt.Fprintf(&b, "\n- Wakeup target-CPU evidence boundary: all %d valid target-CPU values in this window are zero while wakeups originate on %d CPUs, a suspected conversion-field degradation. The raw waker CPU remains observable, but the target placement and same/cross-CPU conclusion are not established here; the wakeup dependency itself remains intact.\n", wakeupIntegrity.ObservedCount, wakeupIntegrity.EmitterCPUCount)
 		}
 	}
 	if zh {
@@ -907,12 +922,16 @@ func traceFinalDifferentWindowRankedSeats(projection types.TraceCausalProjection
 // correction from disagreeing with what the model saw while synthesizing.
 // This is evidence guidance only: it neither inspects nor rewrites prose and
 // it does not choose a cause.
-func renderTraceFinalWakeupCPUTopologyAuthority(ledger types.ObservationLedger) string {
-	rows := types.BuildTraceWakeupCPUTopologyAuthorities(ledger)
-	if len(rows) == 0 {
+func renderTraceFinalWakeupCPUTopologyAuthority(ledger types.ObservationLedger, integrity types.TraceWakeupTargetCPUIntegrity) string {
+	rows := types.BuildTraceWakeupCPUTopologyDecisionAuthorities(ledger, integrity)
+	affected := integrity.AffectsAnyWakeupRecord(ledger)
+	if len(rows) == 0 && !affected {
 		return ""
 	}
 	var b strings.Builder
+	if affected {
+		fmt.Fprintf(&b, "- wakeup_target_cpu_integrity_boundary=`suspected converter degradation`: observed_rows=%d; emitter_cpu_count=%d; raw waker CPU observations remain available, but affected target_cpu and derived same/cross-CPU placement are not strong conclusion authority. Preserve the wakeup dependency/path and every non-CPU endpoint fact; do not turn this advisory into a hard rejection, a missing edge, or a rank/arithmetic change.\n", integrity.ObservedCount, integrity.EmitterCPUCount)
+	}
 	for _, row := range rows {
 		fmt.Fprintf(&b, "- wakeup_cpu_topology_authority waker=`%s`; wakee=`%s`; waker_cpu=`%d`; wakee_target_cpu=`%d`; cpu_relation=`%s`; ",
 			traceDecisionPromptScalar(row.Waker), traceDecisionPromptScalar(row.Wakee),

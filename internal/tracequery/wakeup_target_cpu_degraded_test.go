@@ -49,6 +49,11 @@ func TestWakeupTargetCPUDegradedCaveat(t *testing.T) {
 	if !containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded=true total=160") {
 		t.Fatalf("the all-zero degradation caveat must render: %v", stats.Caveats)
 	}
+	if integrity := stats.WakeupTargetCPUIntegrity; integrity == nil ||
+		integrity.Status != WakeupTargetCPUIntegritySuspectedDegradedAllZero ||
+		integrity.ObservedCount != 160 || integrity.ZeroCount != 160 || integrity.EmitterCPUCount != 4 {
+		t.Fatalf("the typed window-scoped integrity census must match the caveat: %+v", integrity)
+	}
 }
 
 // TestWakeupTargetCPUHealthyAndSingleCoreSilent — a healthy target spread
@@ -56,15 +61,15 @@ func TestWakeupTargetCPUDegradedCaveat(t *testing.T) {
 // stays silent; a sub-floor population stays silent.
 func TestWakeupTargetCPUHealthyAndSingleCoreSilent(t *testing.T) {
 	healthy := wakeupDegradedTrace(t, false, 4, 160)
-	if stats := ComputeWindowStats(healthy, Query{TimeStart: 9, TimeEnd: 11}); containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded") {
+	if stats := ComputeWindowStats(healthy, Query{TimeStart: 9, TimeEnd: 11}); containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded") || stats.WakeupTargetCPUIntegrity != nil {
 		t.Fatalf("healthy target spread must stay silent: %v", stats.Caveats)
 	}
 	singleCore := wakeupDegradedTrace(t, true, 1, 160)
-	if stats := ComputeWindowStats(singleCore, Query{TimeStart: 9, TimeEnd: 11}); containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded") {
+	if stats := ComputeWindowStats(singleCore, Query{TimeStart: 9, TimeEnd: 11}); containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded") || stats.WakeupTargetCPUIntegrity != nil {
 		t.Fatalf("a single-emitter trace legitimately targets cpu0: %v", stats.Caveats)
 	}
 	small := wakeupDegradedTrace(t, true, 4, 20)
-	if stats := ComputeWindowStats(small, Query{TimeStart: 9, TimeEnd: 11}); containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded") {
+	if stats := ComputeWindowStats(small, Query{TimeStart: 9, TimeEnd: 11}); containsSubstring(stats.Caveats, "wakeup_target_cpu_degraded") || stats.WakeupTargetCPUIntegrity != nil {
 		t.Fatalf("a sub-floor population must stay silent: %v", stats.Caveats)
 	}
 }

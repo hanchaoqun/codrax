@@ -26,7 +26,7 @@ var nonEventDetailPolicy = detailRenderPolicy{skipped: map[reflect.Type]map[stri
 		"HeadState": true, "IntegrityFailure": true, "Caveats": true,
 	},
 	reflect.TypeOf(tracequery.WindowStats{}): {
-		"SchedulerHeadCoverage": true, "Caveats": true,
+		"SchedulerHeadCoverage": true, "WakeupTargetCPUIntegrity": true, "Caveats": true,
 	},
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): {
 		"Rows": true, "ValidIdentityRows": true, "NumericRows": true,
@@ -457,11 +457,23 @@ func renderNonEventKeyFirstSummaries(res *tracequery.Result, emit func(string)) 
 		emit("- key_first.completeness timeline: " + clampToken(strings.Join(parts, " ")))
 	}
 	if stats := res.WindowStats; stats != nil {
+		integrityFields := ""
+		if integrity := stats.WakeupTargetCPUIntegrity; integrity != nil {
+			integrityFields = fmt.Sprintf("status=%s observed=%d zero=%d emitter_cpus=%d authority=advisory_only raw_rows=preserved placement_conclusion=withheld_when_suspected",
+				clampToken(integrity.Status), integrity.ObservedCount, integrity.ZeroCount, integrity.EmitterCPUCount)
+		}
 		if coverage := stats.SchedulerHeadCoverage; coverage != nil {
-			emit(fmt.Sprintf("- key_first.completeness window_stats: status=%s boundary_ts=%s missing_cpus=%d%s missing_threads=%d%s reason=%s",
+			line := fmt.Sprintf("- key_first.completeness window_stats: status=%s boundary_ts=%s missing_cpus=%d%s missing_threads=%d%s reason=%s",
 				coverage.Status, formatSecondsToken(coverage.BoundaryTs), coverage.MissingCPUCount,
 				formatIntRoster(coverage.MissingCPUs), coverage.MissingThreadCount,
-				formatIntRoster(coverage.MissingThreadPIDs), strconv.Quote(clampToken(coverage.Reason))))
+				formatIntRoster(coverage.MissingThreadPIDs), strconv.Quote(clampToken(coverage.Reason)))
+			if integrityFields != "" {
+				line += " wakeup_target_cpu_integrity={" + integrityFields + "}"
+			}
+			emit(line)
+		}
+		if stats.SchedulerHeadCoverage == nil && integrityFields != "" {
+			emit("- key_first.wakeup_target_cpu_integrity window_stats: " + integrityFields)
 		}
 		if quality := stats.CounterQuality; quality != nil {
 			emit(fmt.Sprintf("- key_first.counter_quality window_stats: rows=%d valid_identity_rows=%d numeric_rows=%d invalid_rows=%d non_numeric_rows=%d derived_invalid_series=%d total_series=%d total_series_status=%s published_series=%d suppressed_series=%d truncated_series=%d series_budget=%d series_budget_exceeded=%t overflow_rows=%d baseline_policy=%s unit_policy=%s issues=%d",
@@ -862,7 +874,13 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// facts owned by the generic detail lane; they neither replace the public
 	// rows nor establish task scheduling wait/causality. No skip, priority, or
 	// duplicate key-first owner is required; hash re-pinned after review.
-	reflect.TypeOf(tracequery.WindowStats{}):                "7cdb171a3e2887e4a910b13eb1c477b1d3bd6f2dec05874e0013c1df5721439f",
+	// WAKEUP-TARGET-CPU-INTEGRITY (2026-08-28): WindowStats gained a compact
+	// query-window-scoped advisory census. It has one guaranteed-visible
+	// key-first line and is skipped by the reflective detail walker, so a line
+	// cap cannot hide it and no duplicate ruler is published. The line retains
+	// raw-row preservation plus the placement-only authority boundary; it is
+	// never a hard reject or a chain/rank/arithmetic input.
+	reflect.TypeOf(tracequery.WindowStats{}):                "3b5e146de889c217f9a64c4278e725f329c9afa211013063ef2cf513c6ceda58",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	// PERF raw quality disclosure: ParserCaveats is rendered once in the

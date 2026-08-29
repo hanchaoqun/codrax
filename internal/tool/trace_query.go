@@ -8588,6 +8588,43 @@ func traceQueryTypedObservations(result tracequery.Result, sourceLabel, payloadR
 	}
 	at := observedAt.Format("2006-01-02T15:04:05Z07:00")
 	var out []types.ObservationRecord
+	if stats := result.WindowStats; stats != nil && stats.WakeupTargetCPUIntegrity != nil {
+		integrity := stats.WakeupTargetCPUIntegrity
+		if integrity.Status == tracequery.WakeupTargetCPUIntegritySuspectedDegradedAllZero &&
+			integrity.ObservedCount > 0 && integrity.ZeroCount == integrity.ObservedCount &&
+			integrity.EmitterCPUCount >= 2 {
+			out = append(out, types.ObservationRecord{
+				ID:              fmt.Sprintf("trace_query:%s#wakeup_target_cpu_integrity", scope),
+				Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "trace_query",
+				Role:            types.AnswerAggregateRoleSupportingCoverage,
+				GroundingPolicy: types.ClaimGroundingHard,
+				ProvenanceLane:  types.ObservationProvenanceArtifactSpan,
+				SourceRef:       ref,
+				Span: types.ObservationSpan{
+					StartTs: stats.Window.StartTs,
+					EndTs:   stats.Window.EndTs,
+				},
+				ClaimKey:  fmt.Sprintf("wakeup_target_cpu_integrity:%.6f..%.6f", stats.Window.StartTs, stats.Window.EndTs),
+				Subject:   "sched_wakeup.target_cpu",
+				Predicate: "wakeup_target_cpu_integrity",
+				Object:    integrity.Status,
+				Value:     strconv.Itoa(integrity.ObservedCount),
+				Unit:      "events",
+				Summary: fmt.Sprintf("in-window wakeup target_cpu integrity advisory: %d/%d valid values are zero while events originate on %d CPUs; exact same/cross-CPU placement conclusions are not authoritative in this window",
+					integrity.ZeroCount, integrity.ObservedCount, integrity.EmitterCPUCount),
+				RichNotes: traceQueryTypedKVNotes([][2]string{
+					{types.TraceNoteKeyWakeupTargetCPUIntegrityStatus, integrity.Status},
+					{types.TraceNoteKeyWakeupTargetCPUObservedCount, strconv.Itoa(integrity.ObservedCount)},
+					{types.TraceNoteKeyWakeupTargetCPUZeroCount, strconv.Itoa(integrity.ZeroCount)},
+					{types.TraceNoteKeyWakeupTargetCPUEmitterCPUCount, strconv.Itoa(integrity.EmitterCPUCount)},
+					{types.TraceNoteKeyWakeupTargetCPUPlacementAuthority, "advisory_suspected_degraded;raw_rows_preserved;strong_same_cross_cpu_conclusion_withheld"},
+				}),
+				ObservedAt: at,
+				Confidence: 1,
+			})
+		}
+	}
 	if perf := traceQueryResultPrimaryPerfContext(result); perf != nil && perf.SampleCount > 0 {
 		lineStart, lineEnd := traceQueryPerfContextLineRange(perf)
 		out = append(out, types.ObservationRecord{

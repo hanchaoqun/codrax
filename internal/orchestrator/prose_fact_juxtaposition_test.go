@@ -289,10 +289,29 @@ func TestCR4Fact_EquationVerdict(t *testing.T) {
 // TestCR4Fact_WakeupTargetCPUDegradation — 引擎 typed 退化事实: the banner
 // marker + a prose CPU token render the degradation fact line.
 func TestCR4Fact_WakeupTargetCPUDegradation(t *testing.T) {
-	mut := psgTraceMutable(cr4FactRecords()...)
+	degraded := psgTraceRecord("trace_query:t#wakeup_target_cpu_integrity", "wakeup_target_cpu_integrity:1.000000..2.000000", "1697",
+		types.TraceNoteKeyWakeupTargetCPUIntegrityStatus+"=suspected_degraded_all_zero",
+		types.TraceNoteKeyWakeupTargetCPUObservedCount+"=1697",
+		types.TraceNoteKeyWakeupTargetCPUZeroCount+"=1697",
+		types.TraceNoteKeyWakeupTargetCPUEmitterCPUCount+"=6")
+	degraded.Subject = "sched_wakeup.target_cpu"
+	degraded.Predicate = "wakeup_target_cpu_integrity"
+	degraded.Object = "suspected_degraded_all_zero"
+	degraded.Span = types.ObservationSpan{StartTs: 1, EndTs: 2}
+	edge := psgTraceRecord("trace_query:t#wakeup_chain_edge:1", "wakeup_chain_edge:worker-1:app-2", "",
+		types.TraceNoteKeyWakeupTs+"=1.500000",
+		types.TraceNoteKeyWakeupWakerCPU+"=3",
+		types.TraceNoteKeyWakeupWakeeTargetCPU+"=0",
+		types.TraceNoteKeyWakeupCPURelation+"=cross_cpu")
+	edge.Subject = "worker-1"
+	edge.Predicate = "wakeup_chain_edge"
+	edge.Object = "app-2"
+	edge.Span = types.ObservationSpan{StartTs: 1.5, EndTs: 1.5}
+	records := append(cr4FactRecords(), degraded, edge)
+	mut := psgTraceMutable(records...)
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
 		ToolName: "trace_query", Success: true,
-		Observations: cr4FactRecords(),
+		Observations: records,
 		Summary:      "- caveat=wakeup_target_cpu_degraded=true total=1697 — in-window sched_wakeup target_cpu all zero",
 	}}})
 	bus := psgBus(mut)
@@ -311,6 +330,11 @@ func TestCR4Fact_WakeupTargetCPUDegradation(t *testing.T) {
 	}
 	if !strings.Contains(hit, "1697 条全 0") {
 		t.Fatalf("the degradation fact must carry the typed count: %s", hit)
+	}
+	for _, fact := range facts {
+		if strings.Contains(fact.userReadable("zh"), "唤醒拓扑 worker-1") {
+			t.Fatalf("a degraded target_cpu row must not simultaneously publish exact cross-CPU authority: %+v", facts)
+		}
 	}
 }
 

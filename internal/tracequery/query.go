@@ -2893,6 +2893,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	wakeupTargetCPUDegraded := wakeupTargetCPUTotal >= wakeupTargetCPUDegradedFloor &&
 		wakeupTargetCPUZero == wakeupTargetCPUTotal && len(wakeupHeaderCPUs) >= 2
 	if wakeupTargetCPUDegraded {
+		stats.WakeupTargetCPUIntegrity = &WakeupTargetCPUIntegritySummary{
+			Status:          WakeupTargetCPUIntegritySuspectedDegradedAllZero,
+			ObservedCount:   wakeupTargetCPUTotal,
+			ZeroCount:       wakeupTargetCPUZero,
+			EmitterCPUCount: len(wakeupHeaderCPUs),
+		}
 		stats.Caveats = append(stats.Caveats, fmt.Sprintf(
 			"wakeup_target_cpu_degraded=true total=%d — every in-window sched_wakeup/sched_waking target_cpu is 0 while wakeups are emitted from %d CPUs (suspected converter degradation; advisory only); runnable CPU attribution remains governed segment-by-segment by exact migration/sched-in endpoints",
 			wakeupTargetCPUTotal, len(wakeupHeaderCPUs)))

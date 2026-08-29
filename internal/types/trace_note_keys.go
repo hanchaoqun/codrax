@@ -1336,9 +1336,17 @@ const (
 	// Wakeup-edge CPU topology is row-local scheduler placement authority.
 	// It qualifies the mechanism wording only; it never changes chain
 	// construction, causal rank, or eliminable-impact arithmetic.
-	TraceNoteKeyWakeupWakerCPU                      = "waker_cpu"
-	TraceNoteKeyWakeupWakeeTargetCPU                = "wakee_target_cpu"
-	TraceNoteKeyWakeupCPURelation                   = "cpu_relation"
+	TraceNoteKeyWakeupWakerCPU       = "waker_cpu"
+	TraceNoteKeyWakeupWakeeTargetCPU = "wakee_target_cpu"
+	TraceNoteKeyWakeupCPURelation    = "cpu_relation"
+	// The target_cpu integrity census is a query-window-scoped advisory.  It
+	// qualifies the raw row-local CPU tuple without deleting that observation
+	// or changing wakeup-chain/rank arithmetic.
+	TraceNoteKeyWakeupTargetCPUIntegrityStatus      = "wakeup_target_cpu_integrity_status"
+	TraceNoteKeyWakeupTargetCPUObservedCount        = "wakeup_target_cpu_observed_count"
+	TraceNoteKeyWakeupTargetCPUZeroCount            = "wakeup_target_cpu_zero_count"
+	TraceNoteKeyWakeupTargetCPUEmitterCPUCount      = "wakeup_target_cpu_emitter_cpu_count"
+	TraceNoteKeyWakeupTargetCPUPlacementAuthority   = "wakeup_target_cpu_placement_authority"
 	TraceNoteKeyPrioritySource                      = "priority_source"
 	TraceNoteKeyPriorityArtifactSource              = "priority_artifact_source"
 	TraceNoteKeyTargetPrioritySource                = "target_priority_source"
