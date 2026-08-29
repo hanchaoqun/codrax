@@ -4619,6 +4619,29 @@ func TestFormatPerfTriageStructured_KeepsDeterministicObservationSemantics(t *te
 	}
 }
 
+func TestFormatPerfTriageStructured_ArtifactCapabilityIsNotRequestIntent(t *testing.T) {
+	bundle := &types.PerfBundle{
+		Meta:       types.PerfMeta{Source: "hitrace"},
+		IntentHint: "performance",
+		Observations: []types.PerfObservation{{
+			Authority: types.PerfObservationAuthorityDeterministicValidator,
+			Kind:      "scheduler_phase",
+		}},
+	}
+	got := formatPerfTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"Artifact evidence capability: validated performance observations are available",
+		"not the current request's intent or required answer breadth",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("performance artifact capability missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Intent hint:") {
+		t.Fatalf("performance capability must not be presented as request intent:\n%s", got)
+	}
+}
+
 func TestFormatPerfTriageStructured_LabelsPreTriageJankCauseAsCandidate(t *testing.T) {
 	bundle := &types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace"},

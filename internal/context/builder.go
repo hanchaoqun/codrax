@@ -4212,6 +4212,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 		"language and runtime) are observation-only encodings. Do NOT map their positional values to a specific receiver, " +
 		"source parameter, caller-side provenance, or exact downstream branch unless a current cited code line explicitly " +
 		"proves that mapping.\n\n")
+	b.WriteString("Logger, process, thread, domain, and channel labels printed before an error message are opaque artifact labels unless the artifact explicitly defines their semantics. " +
+		"Do not infer a virtual machine, language runtime, process role, or causal relationship from a label's spelling alone.\n\n")
 
 	if semantics := render.RenderLogOperationalSemanticsForPrompt(bundle.OperationalSemantics); semantics != "" {
 		b.WriteString("### System-decoded operational semantics\n\n")
@@ -4318,7 +4320,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	}
 	b.WriteString("\n")
 	if bundle.IntentHint != "" {
-		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
+		b.WriteString("- Artifact evidence capability: validated failure or source-location observations are available. " +
+			"This describes the attachment, not the current request's intent or required answer breadth; classify those from the current request.\n")
 	}
 	b.WriteString("\n")
 
@@ -4531,7 +4534,8 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 		b.WriteString("  Perf pre-triage signals are routing/navigation tags, not device-deadline, mechanism, or causal verdicts; keep typed measurements and validator-owned semantics separate.\n")
 	}
 	if bundle.IntentHint != "" {
-		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
+		b.WriteString("- Artifact evidence capability: validated performance observations are available. " +
+			"This describes the attachment, not the current request's intent or required answer breadth; classify those from the current request.\n")
 	}
 	fmt.Fprintf(&b, "- Coverage: %.2f\n\n", bundle.Coverage)
 	resolvedFile := make(map[string]bool, len(bundle.ResolvedFiles))

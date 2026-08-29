@@ -26,9 +26,10 @@ func TestFormatLogTriageStructured_EmptyBundle_EmptyString(t *testing.T) {
 	}
 }
 
-// TestFormatLogTriageStructured_MetaRendered verifies the Meta block
-// surfaces Lang / Signals / Coverage / IntentHint while omitting the
-// triager's auxiliary free-form Summary from downstream prompts.
+// TestFormatLogTriageStructured_MetaRendered verifies the Meta block surfaces
+// Lang / Signals / Coverage and translates the artifact-level IntentHint into
+// an evidence-capability statement. The internal enum must not be presented as
+// current-request intent to downstream models.
 func TestFormatLogTriageStructured_MetaRendered(t *testing.T) {
 	bundle := &types.LogBundle{
 		Meta: types.LogMeta{
@@ -45,14 +46,37 @@ func TestFormatLogTriageStructured_MetaRendered(t *testing.T) {
 		"Language: java",
 		"Signals: panic, db",
 		"Coverage: 0.92",
-		"Intent hint: root_cause",
+		"Artifact evidence capability: validated failure or source-location observations are available",
+		"not the current request's intent or required answer breadth",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in render:\n%s", want, got)
 		}
 	}
+	if strings.Contains(got, "Intent hint:") || strings.Contains(got, "root_cause") {
+		t.Fatalf("artifact capability must not leak an internal intent enum into model context:\n%s", got)
+	}
 	if strings.Contains(got, "Summary: database connection refused") {
 		t.Fatalf("structured log prompt must not surface auxiliary summary prose:\n%s", got)
+	}
+}
+
+func TestFormatLogTriageStructured_OpaqueRuntimeLabelsDoNotMintRuntimeIdentity(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "mixed"},
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{ArtifactFile: "src/bridge/Bridge.cj", Line: 18}},
+		}},
+	}
+	got := formatLogTriageStructured(bundle, nil)
+	for _, want := range []string{
+		"opaque artifact labels",
+		"Do not infer a virtual machine, language runtime, process role, or causal relationship",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime-label authority boundary missing %q:\n%s", want, got)
+		}
 	}
 }
 
