@@ -80,9 +80,8 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"fully explained/composed by listed Axis B seats only when one exact typed additive carrier publishes that same subtotal",
 		"remaining on-chain work as unpriced or unresolved instead of treating the arithmetic remainder as zero",
 		"Do not compute a residual by adding or subtracting overlapping rows unless a typed partition authorizes that arithmetic",
-		"causal_conclusion=`unproven`",
-		"frame_evidence_status=`absent`",
-		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",
+		"Causal evidence boundary: the selected evidence does not prove a dropped-frame or frame-deadline cause",
+		"Frame evidence boundary: the selected evidence produced no frame or deadline observation bound to the target",
 		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"phase_semantics: `pre_wakeup_dependency`",
 		"upstream on-chain work overlapping the downstream consumer's pre-wakeup interval",
@@ -138,7 +137,7 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 		"source_lane=`deterministic_system_supplement`",
 		"cross_row_additivity=`not_authorized_without_exact_pair_carrier`",
 		"contextual_noncausal_rows",
-		"lane=`background`; subject=`scheduler-demand`; kind=`supply_pressure`; value=3.500; unit=`ms`; caliber=`aggregate_context_non_target_wall_clock`",
+		"lane=`background`; subject=`scheduler-demand`; kind=`supply_pressure`; value=3.500ms; reader_calibration=`window-level background measurement in the stated unit; not target-causal or recoverable time`",
 		"target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`deterministic_system_supplement`",
 		"relation_authority=`typed_pair_only`",
 		"closed engine-state partition",
@@ -147,6 +146,11 @@ func TestTraceDecisionHandoffLeavesConclusionToModelAndCarriesBothAxes(t *testin
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("decision handoff missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"causal_conclusion=", "frame_evidence_status=", "frame_evidence_status_semantics="} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("model-facing trace handoff leaked raw control metadata %q:\n%s", forbidden, got)
 		}
 	}
 	axisA := got[strings.Index(got, "axis_A_actual_occupancy_candidates"):strings.Index(got, "axis_B_existing_rule_eliminable")]
@@ -582,8 +586,8 @@ func TestTraceDecisionContextCapKeepsTypedBackgroundLane(t *testing.T) {
 		runtimeTraceGuidanceView{},
 	)
 	for _, want := range []string{
-		"lane=`background`; subject=`supply_pressure`; kind=`supply_pressure`; value=604.528; unit=`cpu·ms`",
-		"caliber=`aggregate_context_non_target_wall_clock`",
+		"lane=`background`; subject=`supply_pressure`; kind=`supply_pressure`; value=604.528cpu·ms",
+		"reader_calibration=`window-level background measurement in the stated unit; not target-causal or recoverable time`",
 		"target_causal_authority=`not_provided`",
 		"cross_axis_addition=`forbidden`",
 	} {
@@ -660,8 +664,9 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 			Predicate:       "scheduler_iowait", Value: "4340", Unit: "score",
 			RichNotes: []string{
 				"type=io_pressure", "subject_kind=aggregate_metric", "chain_relevance=background",
-				"selected_window=10.000000..10.114940", "absolute_level=high",
-				"comparison_scope=same_caliber_only", "io_pressure_score_caliber=count_weighted_composite",
+				"selected_window=10.000000..10.114940", "absolute_level=not_defined",
+				"comparison_scope=same_caliber_only", "io_pressure_score_caliber=cross_unit_activity_index",
+				"io_pressure_evidence_quality=wall_clock_or_latency_corroborated",
 			},
 		},
 	}
@@ -678,8 +683,8 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 		"All available background rows are included in this bounded handoff",
 		"kind=`supply_pressure`; signal=`cpu_pressure`; value=604.528; unit=`cpu·ms`",
 		"pressure_density=`5.259`",
-		"kind=`io_pressure`; signal=`scheduler_iowait`; value=4340.000; unit=`score`",
-		"absolute_level=`high`",
+		"kind=`io_pressure`; signal=`scheduler_iowait`; value=4340.000; unit=`mixed-unit activity index (not wall-clock)`",
+		"reader_calibration=`mixed-unit activity index, not elapsed time, target-causal time, or a recoverable amount; absolute high/low is undefined; compare only the same caliber, capture conditions, and window duration; separate latency evidence exists but does not convert this index into time or prove absolute severity`",
 		"target_causal_authority=`not_provided`",
 		"cross_axis_addition=`forbidden`",
 		"do not infer severity from the raw number alone when no calibration field is present",
@@ -692,6 +697,11 @@ func TestTraceDecisionHandoffCarriesIndependentAggregateFactsWithoutProjectionAu
 	}
 	if strings.Contains(got, "complete=`") {
 		t.Fatalf("machine complete enum leaked into the aggregate handoff:\n%s", got)
+	}
+	for _, forbidden := range []string{"wall_clock_or_latency_corroborated", "cross_unit_activity_index", "absolute_level=`", "comparison_scope=`", "kind=`io_pressure`; signal=`scheduler_iowait`; value=4340.000; unit=`score`"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("aggregate handoff leaked raw calibration token %q:\n%s", forbidden, got)
+		}
 	}
 	projection := types.CompileTraceCausalProjectionSet(types.ObservationLedger{Records: records})
 	if len(projection.Projections) != 1 || len(projection.Projections[0].PrimaryRootCauses) != 0 ||
@@ -730,6 +740,38 @@ func TestTraceDecisionHandoffCarriesAcceptedModelRelationClaimsWithoutAuthoringC
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("accepted relation handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTraceDecisionContextUsesSharedNonWallClockCaliber(t *testing.T) {
+	projection := types.TraceCausalProjection{
+		ArtifactLabel: "customer.trace",
+		BackgroundCauses: []types.TraceCausalProjectionNode{
+			{Subject: "reclaim", TypeToken: "page_cache_churn", Object: "page_cache_churn", ImpactMS: 7.2, Unit: "ms"},
+			{Subject: "io-window", TypeToken: "io_pressure", Object: "io_pressure", ImpactMS: 551.6, Unit: "score", SubjectKind: types.TraceCausalSubjectKindAggregateMetric},
+			{Subject: "cpu-window", TypeToken: "supply_pressure", Object: "supply_pressure", ImpactMS: 3.5, Unit: "cpu·ms", SubjectKind: types.TraceCausalSubjectKindAggregateMetric},
+		},
+	}
+	got := renderAnswerDocTraceDecisionHandoffSet(
+		types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{projection}},
+		runtimeTraceGuidanceView{},
+	)
+	for _, want := range []string{
+		"kind=`page_cache_churn`; value=7.200; reader_calibration=`count-derived observation (not elapsed time)`",
+		"kind=`io_pressure`; value=551.600; reader_calibration=`mixed-unit activity index (not elapsed time or a recoverable amount; absolute high/low is undefined)`",
+		"kind=`supply_pressure`; value=3.500cpu·ms; reader_calibration=`window-level background measurement in the stated unit; not target-causal or recoverable time`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("non-wall-clock context missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"kind=`page_cache_churn`; value=7.200; unit=`ms`",
+		"kind=`io_pressure`; value=551.600; unit=`score`",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("non-wall-clock context leaked false unit %q:\n%s", forbidden, got)
 		}
 	}
 }

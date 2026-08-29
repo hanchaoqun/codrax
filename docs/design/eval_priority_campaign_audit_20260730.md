@@ -57323,6 +57323,29 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1505 r924：Trace 核心能力无回退；内部枚举复发与非墙钟上下文冲突（2026-08-28）
+
+1. 从已推送 `8d8fb183a` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 Python write。runner 2/2 PASS，分别 255s、219s；人工判定 Trace partial、write PASS。
+2. Python write 只修改生产 `relativedelta.py`，整数值 float 归一为 int、非整数 float 明确拒绝；精确探针、4 个 unittest 及其余 typed verifier 共 6 项全部通过，测试文件未改，零成文拒绝或系统替写。
+3. Trace 主能力完整：精确 `34579.472865..34579.587805` 窗、5 次带窗/PID/线程约束查询、四跳 wakeup path、四个链上主席、IO issue/complete 与 D/io_wait、实际占用/现规则可消除双轴、确定性语义工作、代表窗、因果投影和自动补齐均在。邻近/背景没有进入主因人口；没有固定 4ms/4m 活跃流降级，零 finalizer reject。
+4. `B1423-TRACEINTERNALENUMWORDING1` 从 P2 模型遵循观察升级为 P1 confirmed。r912 首见、r913 未复现、r924 再次出现：模型正文复制 `causal_conclusion=unproven`、`frame_evidence_status=absent`、`storage latency corroborated` 及内部 view 名。代码亲证多个高显著度 finalizer/decision prompt 一面暴露原始 key/value、一面要求模型不要复述；98K 级上下文中这会反向启动复述，不能再归为一次性波动。
+5. B1423 根修冻结为 typed→reader-language 边界收敛：raw causal/frame/evidence-quality 枚举只保留在隐藏 IR、tool schema 和 validator；模型前方只给出自然语义，例如“所选证据未建立具体帧/截止期绑定，既不证明发生也不证明未发生”“当前仅能给出窗内候选，不能宣称已证帧因果”。不扫描 request/thinking/final prose，不硬拒、不 salvage、不改写模型答案，也不删除模型诊断所有权。
+6. 新 P1 `B1439-TRACECONTEXTNONWALLCLOCK1`。同一事实的系统投影已正确显示“计数当量 7.200（非墙钟）”，模型前方 `contextual_noncausal_rows` 却把 `page_cache_churn` 无条件兜底为 `unit=ms`；模型据此写成“页缓存抖动 7.200ms”。IO pressure 551.6 明明是跨单位活动指数且绝对高低未定义，原始 evidence-quality/score-caliber 枚举仍被暴露，模型又升级为“整体高负载”。这是 prompt 两面冲突，不是 trace 数据缺失。
+7. B1439 最优方案冻结为复用共享 typed token registry：count class 发布“计数派生观测，非耗时”；composite-score/value-wire 发布“跨单位活动指数，非耗时/非可消除量，绝对高低未定义，只能同口径同采集条件同窗比较”。普通墙钟量保持原单位。禁止按 case、线程名、业务词或答案正文拟合；新 producer 只需登记共享 registry 即自动获得正确模型口径。
+8. 施工 pin：raw causal/frame 枚举不得进入决策/尾部软上下文；先粗探 unproven 后已证仍保持席位级语义；page-cache 节点即使 legacy `Unit=ms` 也必须发布非墙钟计数语义；io-pressure 必须发布自然标定且不暴露 evidence-quality/score-caliber 原值；普通 `supply_pressure cpu·ms` 不受影响。显式窗、链上根因、双账户、因果投影/自动补齐和模型结论所有权列为负回归面。
+
+状态：
+
+`r924=runner-2/2-pass+human-write-pass+trace-partial`；
+`B1423=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`B1439=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`non-wall-clock-classification=shared-token-registry-only`；
+`request/model/final-prose-hard-gate=forbidden/none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r924`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r924`。
+
 ### §123.1504 r923：B1437/B1438 生产闭环；清单主权与附件主答案均恢复（2026-08-28）
 
 1. 从已推送 `3f5cc9ce7` 重建不可变二进制，严格并发恰好 2 路原样复放 oversized log 与 Cangjie source inventory。

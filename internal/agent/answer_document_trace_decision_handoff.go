@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -82,10 +83,9 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 	traceDecisionWriteRepairDirectionAuthority(&b, set)
 	traceDecisionWriteRelationClaimHandoff(&b, set, acceptedClaims)
 	if authority.CausalUnproven {
-		b.WriteString("- causal_conclusion=`unproven`: keep the synthesis useful but calibrated as the strongest candidate / first validation direction, not a proven dropped-frame cause.\n")
+		b.WriteString("- Causal evidence boundary: the selected evidence does not prove a dropped-frame or frame-deadline cause. Keep the synthesis useful as the strongest bounded-window candidate or first validation direction.\n")
 	}
 	if authority.FrameEvidenceStatus != "" {
-		fmt.Fprintf(&b, "- frame_evidence_status=`%s`: no stronger frame/deadline attribution may be invented.\n", authority.FrameEvidenceStatus)
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
 	if traceDecisionHasPreWakeupDependency(set) {
@@ -212,17 +212,10 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				if node.IsAggregateMetric() && !types.TraceCausalProjectionKnownSubject(subject) {
 					subject = traceDecisionNodeKind(node)
 				}
-				unit := strings.TrimSpace(node.Unit)
-				if unit == "" {
-					unit = "ms"
-				}
-				caliber := "context_observation"
-				if node.IsAggregateMetric() {
-					caliber = "aggregate_context_non_target_wall_clock"
-				}
-				fmt.Fprintf(&b, "  - lane=`%s`; subject=`%s`; kind=`%s`; value=%.3f; unit=`%s`; caliber=`%s`; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`%s`",
-					row.lane, subject, traceDecisionNodeKind(node), node.ImpactMS,
-					unit, caliber, traceDecisionNodeSourceLane(node))
+				valueText, readerCalibration := traceDecisionContextValuePresentation(node)
+				fmt.Fprintf(&b, "  - lane=`%s`; subject=`%s`; kind=`%s`; value=%s; reader_calibration=`%s`; target_causal_authority=`not_provided`; cross_axis_addition=`forbidden`; source_lane=`%s`",
+					row.lane, subject, traceDecisionNodeKind(node), valueText,
+					readerCalibration, traceDecisionNodeSourceLane(node))
 				traceDecisionWriteNodeIdentity(&b, node)
 				traceDecisionWriteNodeRelations(&b, node)
 				b.WriteString("\n")
@@ -615,9 +608,9 @@ func traceDecisionWriteRepairDirectionPresentationPlan(b *strings.Builder, proje
 func renderTraceFrameEvidenceStatusSemantics(status string) string {
 	switch strings.TrimSpace(status) {
 	case "absent":
-		return "- frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`; this proves neither that a frame drop occurred nor that no frame drop occurred. Do not state either frame-outcome verdict without separate typed frame/deadline evidence.\n"
+		return "- Frame evidence boundary: the selected evidence produced no frame or deadline observation bound to the target. This proves neither that a frame drop occurred nor that no frame drop occurred; do not state either outcome without separate typed frame/deadline evidence.\n"
 	case "unavailable":
-		return "- frame_evidence_status_semantics=`frame/deadline evidence could not be evaluated on the available coverage`; this proves neither that a frame drop occurred nor that no frame drop occurred. Disclose the coverage limit and do not state either frame-outcome verdict without separate typed frame/deadline evidence.\n"
+		return "- Frame evidence boundary: the available coverage could not evaluate frame or deadline evidence. This proves neither that a frame drop occurred nor that no frame drop occurred; disclose the coverage limit and do not state either outcome without separate typed frame/deadline evidence.\n"
 	default:
 		return ""
 	}
@@ -729,14 +722,63 @@ func traceDecisionWriteTypedAggregateFacts(b *strings.Builder, facts []traceDeci
 		fmt.Fprintf(b, "  - artifact=`%s`; selected_window=`%.6f..%.6f`; kind=`%s`; signal=`%s`; value=%.3f; unit=`%s`; evidence_id=`%s`; source_lane=`%s`",
 			traceDecisionPromptScalar(fact.Artifact), fact.WindowStart, fact.WindowEnd,
 			traceDecisionPromptScalar(fact.Kind), traceDecisionPromptScalar(fact.Signal),
-			fact.Value, traceDecisionPromptScalar(fact.Unit), traceDecisionPromptScalar(fact.EvidenceID),
+			fact.Value, traceDecisionAggregateDisplayUnit(fact), traceDecisionPromptScalar(fact.EvidenceID),
 			map[bool]string{true: "system_supplement", false: "model_exploration"}[fact.SystemDerived])
 		for _, calibration := range fact.Calibration {
+			if traceDecisionAggregateCalibrationHasReaderMeaning(fact.Kind, calibration[0]) {
+				continue
+			}
 			fmt.Fprintf(b, "; %s=`%s`", traceDecisionPromptScalar(calibration[0]), traceDecisionPromptScalar(calibration[1]))
+		}
+		if readerCalibration := traceDecisionAggregateReaderCalibration(fact); readerCalibration != "" {
+			fmt.Fprintf(b, "; reader_calibration=`%s`", readerCalibration)
 		}
 		b.WriteString("\n")
 	}
 	b.WriteString("  These facts describe window-level pressure/caliber, not a target-thread cause or a recoverable amount. Use their typed calibration when explaining scale; do not infer severity from the raw number alone when no calibration field is present.\n\n")
+}
+
+func traceDecisionAggregateDisplayUnit(fact traceDecisionAggregateFact) string {
+	if strings.TrimSpace(fact.Kind) == "io_pressure" {
+		return "mixed-unit activity index (not wall-clock)"
+	}
+	return traceDecisionPromptScalar(fact.Unit)
+}
+
+func traceDecisionAggregateCalibrationHasReaderMeaning(kind, key string) bool {
+	if strings.TrimSpace(kind) != "io_pressure" {
+		return false
+	}
+	switch strings.TrimSpace(key) {
+	case types.TraceNoteKeyIOPressureEvidenceQuality,
+		types.TraceNoteKeyIOPressureScoreCaliber,
+		"absolute_level", "comparison_scope", "score_breakdown":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceDecisionAggregateReaderCalibration(fact traceDecisionAggregateFact) string {
+	if strings.TrimSpace(fact.Kind) != "io_pressure" {
+		return ""
+	}
+	evidenceQuality := ""
+	for _, calibration := range fact.Calibration {
+		if strings.TrimSpace(calibration[0]) == types.TraceNoteKeyIOPressureEvidenceQuality {
+			evidenceQuality = strings.TrimSpace(calibration[1])
+			break
+		}
+	}
+	base := "mixed-unit activity index, not elapsed time, target-causal time, or a recoverable amount; absolute high/low is undefined; compare only the same caliber, capture conditions, and window duration"
+	switch evidenceQuality {
+	case tracequery.IOPressureEvidenceQualityActivityMarkerOnly:
+		return base + "; count-only activity evidence does not prove high IO pressure"
+	case tracequery.IOPressureEvidenceQualityWallClockOrLatencyCorroborated:
+		return base + "; separate latency evidence exists but does not convert this index into time or prove absolute severity"
+	default:
+		return base
+	}
 }
 
 func traceDecisionRichNoteValue(notes []string, key string) string {
@@ -1209,6 +1251,39 @@ func traceDecisionSameWindow(aStart, aEnd, bStart, bEnd float64) bool {
 type traceDecisionContextRow struct {
 	lane string
 	node types.TraceCausalProjectionNode
+}
+
+// traceDecisionContextValuePresentation maps the producer-owned token class to
+// a model-facing value ruler. It shares tracequery's exact token registry with
+// ranking and the deterministic projection renderer, so legacy records that
+// still carry Unit=ms cannot turn count-derived or mixed-unit values into
+// elapsed time. This is prompt context only; it does not change the value,
+// rank, lane, causal authority, or the model's conclusion.
+func traceDecisionContextValuePresentation(node types.TraceCausalProjectionNode) (value, readerCalibration string) {
+	for _, token := range []string{node.TypeToken, node.Object, node.Predicate} {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		switch tracequery.CausalTokenCaliberSideClass(token) {
+		case tracequery.CausalCaliberSideCount:
+			return fmt.Sprintf("%.3f", node.ImpactMS), "count-derived observation (not elapsed time)"
+		case tracequery.CausalCaliberSideCompositeScore:
+			return fmt.Sprintf("%.3f", node.ImpactMS), "mixed-unit activity index (not elapsed time or a recoverable amount; absolute high/low is undefined)"
+		}
+		if tracequery.CausalTokenCompositeValueWire(token) {
+			return fmt.Sprintf("%.3f", node.ImpactMS), "mixed-unit activity index (not elapsed time or a recoverable amount; absolute high/low is undefined)"
+		}
+	}
+	unit := strings.TrimSpace(node.Unit)
+	if unit == "" {
+		unit = "ms"
+	}
+	calibration := "measured in the stated unit; adjacent/background context only, not target-causal or recoverable time"
+	if node.IsAggregateMetric() {
+		calibration = "window-level background measurement in the stated unit; not target-causal or recoverable time"
+	}
+	return fmt.Sprintf("%.3f%s", node.ImpactMS, unit), calibration
 }
 
 // traceDecisionNonCausalContextRows carries the bounded adjacent/background

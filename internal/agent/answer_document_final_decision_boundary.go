@@ -157,10 +157,9 @@ func renderAnswerDocTraceFinalDecisionBoundary(ctx *types.AgentContext) string {
 		b.WriteString("- Trace JSON field scope: set `trace_causal_claim_caliber` exactly once on that principal summary and omit it from every section, table, diagram, list, decision, and caveat block. `candidate_role` is not a runtime entity type: omit it from thread, process, CPU, frame, and span rows unless the active typed answer-role contract explicitly requires one value present in the projected enum.\n")
 	}
 	if authority.CausalUnproven {
-		b.WriteString("- causal_conclusion=`unproven`: the strongest supported synthesis is a bounded candidate or first validation direction, not a proven dropped-frame/frame-deadline cause.\n")
+		b.WriteString("- Causal evidence boundary: the selected evidence supports at most a bounded-window candidate or first validation direction; it does not prove a dropped-frame or frame-deadline cause.\n")
 	}
 	if authority.FrameEvidenceStatus != "" {
-		fmt.Fprintf(&b, "- frame_evidence_status=`%s`: do not infer a stronger frame/deadline attribution.\n", authority.FrameEvidenceStatus)
 		b.WriteString(renderTraceFrameEvidenceStatusSemantics(authority.FrameEvidenceStatus))
 	}
 	b.WriteString(renderTraceFinalSelectedWindowAuthority(set, authority.FrameEvidenceStatus))
@@ -1642,7 +1641,7 @@ func renderTraceFinalSelectedWindowAuthority(set types.TraceCausalProjectionSet,
 		fmt.Fprintf(&b, "- selected_window_authority artifact=`%s`; selected_window=`%.6f..%.6f`; out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`; a preview/triage row outside this interval cannot establish selected-window state, event order, duration, frame boundary, completion, or deadline unless a separate typed relation explicitly binds it into this projection.\n",
 			traceDecisionPromptScalar(label), projection.WindowStartTs, projection.WindowEndTs)
 		if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
-			fmt.Fprintf(&b, "  frame_boundary_authority=`not_provided`; frame_evidence_status=`%s`; do not turn an unbound preview marker into this selected window's frame boundary or cadence explanation.\n", frameEvidenceStatus)
+			b.WriteString("  No target-bound frame boundary, completion, or deadline is provided; do not turn an unbound preview marker into this selected window's frame boundary or cadence explanation.\n")
 		}
 	}
 	return b.String()
@@ -1805,7 +1804,7 @@ func renderTraceFinalSynthesisScope(set types.TraceCausalProjectionSet, frameEvi
 	}
 	b.WriteString(renderTraceFinalLeaderMechanismCeiling(set))
 	if frameEvidenceStatus == "absent" || frameEvidenceStatus == "unavailable" {
-		fmt.Fprintf(&b, "  - frame_claim_scope=`selected_window_observations_only`; frame_evidence_status=`%s`; out_of_window_marker_role=`navigation_only`; frame_boundary_completion_deadline_authority=`not_provided`.\n", frameEvidenceStatus)
+		b.WriteString("  - Frame attribution is limited to selected-window observations. Out-of-window markers are navigation only, and no target-bound frame boundary, completion, or deadline is provided.\n")
 	}
 	return b.String()
 }

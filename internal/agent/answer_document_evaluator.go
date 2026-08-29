@@ -13996,11 +13996,10 @@ func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
 		}
 	}
 	if view.RuntimeTrace && view.CausalUnproven {
-		b.WriteString("- Runtime causal ceiling hint: this run's typed evidence authority reports `causal_conclusion=unproven` — no frame/deadline or typed causal row proves the frame-drop or root-cause mechanism in the analyzed window. State scheduler/IO/frequency observations as bounded window facts and candidates; do not write a definite causation sentence such as `导致丢帧`/`caused the dropped frame` from background context alone, and keep the conclusion ceiling consistent with the system coverage block instead of overriding it.\n")
+		b.WriteString("- Runtime causal ceiling hint: no frame/deadline or typed causal row proves the frame-drop or root-cause mechanism in the analyzed window. State scheduler/IO/frequency observations as bounded-window facts and candidates; do not write a definite causation sentence such as `导致丢帧`/`caused the dropped frame` from background context alone, and keep the conclusion ceiling consistent with the supplied evidence boundary instead of overriding it.\n")
 	}
 	if view.RuntimeTrace && view.FrameFlowUnproven {
-		fmt.Fprintf(&b, "- Runtime frame-edge authority hint: typed frame authority reports `frame_flow_causality=unproven`, `relation=%s`, `edges=%d`. %s\n",
-			firstNonEmptyString(view.FrameFlowRelation, "temporal_sequence"),
+		fmt.Fprintf(&b, "- Runtime frame-edge authority hint: the typed frame view contains %d ordering edge(s), but those edges establish temporal order rather than a proven causal mechanism. %s\n",
 			view.FrameFlowEdgeCount,
 			types.RuntimeTraceTemporalDiagramRelationContract,
 		)

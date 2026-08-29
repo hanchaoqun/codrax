@@ -493,15 +493,14 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"omit it from every section, table, diagram, list, decision, and caveat block",
 		"`candidate_role` is not a runtime entity type",
 		"omit it from thread, process, CPU, frame, and span rows",
-		"causal_conclusion=`unproven`",
-		"frame_evidence_status=`absent`",
-		"frame_evidence_status_semantics=`no target-bound frame/deadline evidence was produced in the selected evidence`",
+		"Causal evidence boundary: the selected evidence supports at most a bounded-window candidate or first validation direction",
+		"Frame evidence boundary: the selected evidence produced no frame or deadline observation bound to the target",
 		"proves neither that a frame drop occurred nor that no frame drop occurred",
 		"selected_window_authority artifact=`customer.systrace`; selected_window=`10.000000..10.020000`",
 		"time_role_authority artifact=`customer.systrace`; selected_query_window=`10.000000..10.020000`; selected_query_window_duration=20.000ms",
 		"attachment_extent_role=`artifact_navigation_only_not_selected_window_duration`",
 		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
-		"frame_boundary_authority=`not_provided`",
+		"No target-bound frame boundary, completion, or deadline is provided",
 		"scheduler_state_interval_authority=`typed_state_segments`",
 		"time from wakeup until the next sched-in is runnable_wait",
 		"trace_value_caliber_authority=`measured_occupancy_vs_effective_attribution`",
@@ -531,8 +530,8 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"final_synthesis_scope: principal_root_cause_population=`typed_on_chain_only`",
 		"adjacent_and_background_role=`supporting_context_and_additional_investigation_only`",
 		"actual_occupancy_and_existing_rule_eliminable=`separate_decision_axes`",
-		"frame_claim_scope=`selected_window_observations_only`",
-		"out_of_window_marker_role=`navigation_only`",
+		"Frame attribution is limited to selected-window observations",
+		"Out-of-window markers are navigation only",
 		"does not prove physical independence",
 		"does not prove synchronous blocking, lock ownership, post-wakeup preemption, or physical coupling",
 		"## Reader-ready Trace facts (the model owns the conclusion)",
@@ -541,6 +540,11 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("trace final boundary missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{"causal_conclusion=", "frame_evidence_status=", "frame_evidence_status_semantics="} {
+		if strings.Contains(renderAnswerDocTraceFinalDecisionBoundary(ctx), forbidden) {
+			t.Fatalf("final decision boundary leaked raw control metadata %q:\n%s", forbidden, renderAnswerDocTraceFinalDecisionBoundary(ctx))
 		}
 	}
 	decisionBoundary := renderAnswerDocTraceFinalDecisionBoundary(ctx)
@@ -1129,7 +1133,7 @@ func TestTraceFinalSelectedWindowAuthorityKeepsPreviewOutsideTypedWindow(t *test
 		"out_of_window_artifact_preview=`navigation_only_not_selected_window_evidence`",
 		"cannot establish selected-window state, event order, duration, frame boundary, completion, or deadline",
 		"unless a separate typed relation explicitly binds it into this projection",
-		"frame_boundary_authority=`not_provided`",
+		"No target-bound frame boundary, completion, or deadline is provided",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("selected-window final authority missing %q:\n%s", want, got)
@@ -1338,9 +1342,9 @@ func TestTraceFinalSynthesisScopeCalibratesCandidateWithoutChangingPopulation(t 
 		"this seat does not establish a synchronous blocker, a lock or resource holder, or a holder/waiter relation",
 		"priority_candidate_scope=`dependency_scheduler_supply_before_downstream_wakeup`",
 		"post_wakeup_preemption_authority=`not_provided_by_this_seat`",
-		"frame_evidence_status=`absent`",
-		"out_of_window_marker_role=`navigation_only`",
-		"frame_boundary_completion_deadline_authority=`not_provided`",
+		"Frame attribution is limited to selected-window observations",
+		"Out-of-window markers are navigation only",
+		"no target-bound frame boundary, completion, or deadline is provided",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("final synthesis scope missing %q:\n%s", want, got)

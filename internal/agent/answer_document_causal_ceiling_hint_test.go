@@ -1,8 +1,8 @@
 package agent
 
 // NW-05 软臂 (P3, 2026-07-24) — the composition prompt gains ONE causal-ceiling
-// directive when a typed evidence authority published causal_conclusion=
-// unproven. Precise trigger (typed authority field), soft effect (prompt hint
+// directive when a typed evidence authority says causality is unproven.
+// Precise trigger (typed authority field), soft effect (prompt hint
 // only); absence of the authority keeps the prompt byte-identical.
 
 import (
@@ -53,13 +53,16 @@ func TestAnswerDocumentEvaluatorRendersCausalCeilingHintOnUnprovenAuthority(t *t
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(answerDocCausalCeilingTestContext(true), nil)
 	for _, want := range []string{
 		"Runtime causal ceiling hint",
-		"`causal_conclusion=unproven`",
-		"bounded window facts and candidates",
+		"no frame/deadline or typed causal row proves",
+		"bounded-window facts and candidates",
 		"`导致丢帧`/`caused the dropped frame`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "causal_conclusion=unproven") {
+		t.Fatalf("causal ceiling hint leaked raw control metadata:\n%s", prompt)
 	}
 }
 
@@ -86,9 +89,8 @@ func TestAnswerDocumentEvaluatorRendersTemporalFrameEdgeAuthorityHint(t *testing
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"Runtime frame-edge authority hint",
-		"`frame_flow_causality=unproven`",
-		"`relation=temporal_sequence`",
-		"`edges=3`",
+		"contains 3 ordering edge(s)",
+		"establish temporal order rather than a proven causal mechanism",
 		"Note over <participant>",
 		"relation_kind=temporal",
 		"temporal adjacency (unproven)",
@@ -98,6 +100,11 @@ func TestAnswerDocumentEvaluatorRendersTemporalFrameEdgeAuthorityHint(t *testing
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("frame-edge prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{"frame_flow_causality=unproven", "relation=temporal_sequence"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("frame-edge hint leaked raw control metadata %q:\n%s", forbidden, prompt)
 		}
 	}
 }
