@@ -57600,6 +57600,30 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r934`。
 
+### §123.1518 r935/B1449：Rust 分支总结转正；验证探针字符串伪造目标耦合权限（2026-08-29）
+
+1. 从已推送 `05f2d2988` 的干净二进制严格并发恰好 2 路运行 Rust 跨模块调用链读模式与 Java typo 计划模式。runner 2/2 PASS：Java 84s、Rust 146s；finalizer reject 均为 0，人工分别判 partial、pass。两路均无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写结论。
+2. Rust 终稿正确保留两条 sibling branch：`run -> walker::collect_files -> walk -> fs::read_dir` 与 `run -> index_file -> read_to_string / Matcher::is_match`；不再虚构 `walk -> index_file`，也不再把 6 个节点写成“6 跳”。walker 的文件发现职责、过滤规则和调用坐标完整。模型本轮选择 prose/list 而非 Mermaid，属于请求允许的表达形；因此 B1448 获无回归和 455s→146s/6→0 的生产改善信号，但 existing-alias repair arm 没有自然触发，继续保持 tests-positive/pending-production-shape，不能虚报转正。
+3. Java 源码计划本身精确：只把 `Main.java:16` 的 `retrun` 改为 `return`。但 planner 同轮发射 Java `verification_probe`，其程序通过 `Runtime.getRuntime().exec("javac Main.java")` 再启动编译器，完全没有 import、实例化或调用 `Main`。prompt 已逐字给出“本地语法/构建修复优先省略 probe”和“probe 是 source-level program、不能包装 compiler/test command”两条正确教学；故该输出首先是模型不遵循软教学，但计划硬入口继续接纳它暴露了独立系统 authority gap。
+4. 新 P1 `B1449-PROBECOUPLINGLITERALAUTHORITY1` 的确定性根因是 Java coupling extractor 把字符串字面量当代码：`javaTypeTokens` 从 `"javac Main.java"` 中提取大写 token `Main`，继而把 command text 伪装成“探针真实引用了修改类”。`changed_symbol_refs=[path:Main.java]` 只是模型声明，原本必须由 executable import/type carrier 交叉证明；旧 lexer 的 literal 污染让该交叉门反向失效。问题不应修成扫描 `Runtime.exec`、`javac` 或模型原文关键词，因为产品行为本身可能合法启动子进程。
+5. `fcbc48a97` 已按五种内联运行时统一根修 typed carrier。Python 先用跨行状态 lexer 屏蔽字符串/注释再解析 import，Java 同样屏蔽 literal/block comment 后才收集 import/type；Go 改由标准 AST 的 `ImportsOnly` 精确读取 import spec；JavaScript/Ruby 改为 comment/string-aware token stream，只在真实 `import/require/load` 语法位提取其 string argument。硬门仍只消费 schema-valid `verification_probes[].code` 这一结构化可执行载体，不读取 request、thinking、最终答案、可见图标签或模糊相似度。
+6. 回归覆盖 Python 多行 docstring、JavaScript/Ruby literal+comment、Java command string、Go raw string 均不能铸造目标 module edge；真实 Python/JS/Ruby/Java/Go import/reference 正臂保持。r935 原形的 Java compiler wrapper 现在因没有 changed Java production module coupling 被拒绝；直接 import/调用修改类的合法 Java probe 继续通过。该修复不禁止 probe 或产品代码产生子进程，只要求验证权威来自真实触达修改目标，而不能来自命令字符串里提到文件名。
+7. `go test ./internal/tool -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿，代码批已独立推送。下一轮继续严格并发恰好 2 个异构高优先 case；优先观察实际 apply/verify 的 probe authority 与关系图族，不为单个 Java typo 增加语言/命令专用硬规则。
+
+状态：
+
+`r935=runner-pass-2/2+human-rust-pass+java-plan-partial`；
+`B1448=tests-positive+production-no-regression-r935/pending-natural-alias-repair-shape`；
+`B1449=implemented+full-suite-pass+build-pass+pushed/pending-production-replay`；
+`probe-coupling-authority=executable-import/type-carrier-only`；
+`literal/comment/command-text=zero-coupling-authority`；
+`subprocess-behavior=not-keyword-banned`；
+`system-probe/answer/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
