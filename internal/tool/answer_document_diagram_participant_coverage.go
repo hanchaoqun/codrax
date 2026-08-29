@@ -2435,6 +2435,7 @@ func diagramRelationRepairAllowedAdditions(
 	evidence []types.EvidenceItem,
 	stagePrecedence []stageauthority.PrecedenceRelation,
 	blockIDs []string,
+	exactCandidates []preEmitStandaloneRelationRepairCandidate,
 	totalLimit int,
 ) []types.AnswerDiagramRelationRepairCandidate {
 	if totalLimit <= 0 {
@@ -2453,6 +2454,36 @@ func diagramRelationRepairAllowedAdditions(
 	sort.Strings(targets)
 	if len(targets) == 0 {
 		return nil
+	}
+	seen := make(map[string]int)
+	out := make([]types.AnswerDiagramRelationRepairCandidate, 0, totalLimit)
+	for _, candidate := range exactCandidates {
+		if !candidate.relation.IsValid() || strings.TrimSpace(candidate.from) == "" ||
+			strings.TrimSpace(candidate.to) == "" || strings.TrimSpace(candidate.source) == "" {
+			continue
+		}
+		for _, blockID := range candidate.blockIDs {
+			blockID = strings.TrimSpace(blockID)
+			if !targetSeen[blockID] {
+				continue
+			}
+			row := types.AnswerDiagramRelationRepairCandidate{
+				BlockID: blockID, RelationKind: candidate.relation,
+				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
+				Source: strings.TrimSpace(candidate.source),
+			}
+			bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
+				row.FromIdentity + "\x00" + row.ToIdentity)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = len(out)
+			out = append(out, row)
+			if len(out) >= totalLimit {
+				return out
+			}
+		}
 	}
 
 	typed := make([]diagramParticipantTypedIncidentCandidate, 0, len(stagePrecedence)+4)
@@ -2488,8 +2519,6 @@ func diagramRelationRepairAllowedAdditions(
 		return left.location < right.location
 	})
 
-	seen := make(map[string]int)
-	out := make([]types.AnswerDiagramRelationRepairCandidate, 0, totalLimit)
 	normalizeParticipantSides := func() {
 		for rowIndex := range out {
 			for _, candidate := range typed {

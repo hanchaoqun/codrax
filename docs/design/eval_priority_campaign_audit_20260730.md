@@ -57533,6 +57533,27 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-negative-none-fired`。
 
+### §123.1515 B1446：关系候选提示与原子执行权限统一为单一 typed provider（2026-08-29）
+
+1. `B1447-NONAUTHORITATIVEPROBEVETO1` 已由 `32a62b72e` 独立提交并推送。全仓 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿；全仓套件额外发现并守住 proof-followup 边界：只要 ledger 仍有 missing/unverified/unavailable/failed 的行为证明义务，失败探针继续保留为 failed 并进入受限补采，不会被项目 aggregate pass 洗白。因此 B1447 的降级条件最终为 exact non-authoritative continuation + concrete passed assertion + 零未完成 proof obligation。
+2. `B1446-RELATIONCANDIDATEAUTHORITYPARITY1` 已按结构化单源施工。新增的候选 provider 从 citable typed evidence 与当前 relation mismatches 构造候选，并把每条候选绑定到精确匹配的 block id；guidance 只负责渲染这组候选，`allowed_additions` 直接消费同一个结构化切片，不解析已渲染字符串、错误说明、Mermaid message、请求、模型推理或最终答案。
+3. 精确失败匹配优先于广域 participant/stage 候选，避免 8 行容量被无关候选占满。每条 executable row 仍要求 relation kind 合法、双端 identity 完整、source 非空、block 属于当前 generation target；按 `block + relation + from + to` 去重并生成语法安全 technical node id。候选只表达“模型可选择”，系统不新增可见边、不选 candidate、不写 label、不改 item、claim、正文、布局或结论。
+4. 同时修正一处生产接线：standalone list/table failure hint 现在也携带与图失败相同的 `DiagramRelationRepairDeltaJSON`。此前只有同轮另有 diagram mismatch 时，合并路径才可能间接带出 delta；纯列表失败即使 guidance 给出精确候选也没有 generation lease。修后载体类型不再决定 repair authority 是否出厂，diagram participant/boundary/scope 与 optional whole-diagram removal 权限仍保持 diagram-only。
+5. 生产形 pin 构造一个 ordered-list 的 identity-missing call anchor 与一条 grounded typed call：断言同一 `relation_kind/from_identity/to_identity/source` 同时存在于 guidance 与 `allowed_additions`，并经 `NewAnswerDiagramRelationRepairLease` 形成可执行 `failure_ref + addition_ref + attach`。同样的 evidence 改为 ungrounded 后，原 failure 保留但 additions 必须为空。既有 standalone remove-only、异 relation、半 identity、可选图删除与 participant local-only 套件继续通过。
+6. 定向生产形、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿；本批将独立提交推送。随后以最新不可变二进制严格并发恰好 2 路重放 r932 两 case。验收不以最终 PASS 单独代替过程证据：TypeScript 需要观察 attach capability 自然出厂且不再 whole-replace churn；Go write 需要观察真实项目通过后 workflow 正常 finish，不进入无剩余源码义务 replan。
+
+状态：
+
+`B1447=implemented+full-suite-pass+build-pass+pushed/pending-production-replay`；
+`B1446=implemented+full-suite-pass+build-pass/pending-production-replay`；
+`relation-guidance/executable-candidates=one-typed-provider`；
+`standalone-only-failure=repair-delta-wired`；
+`candidate-selection/visible-relation/label/layout/conclusion=model-owned`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner

@@ -9127,6 +9127,76 @@ func TestDiagramRelationRepairAdditionTargetsIncludeOnlyExactStandaloneIdentityG
 	}
 }
 
+func TestStandaloneRelationGuidanceAndExecutableCandidateShareTypedProvider(t *testing.T) {
+	call := types.EvidenceItem{
+		ID: "ev-call", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "pkg.Caller.run", Object: "pkg.Callee.accept", Predicate: "calls",
+		Source: "src/call.go", LineStart: 10, LineEnd: 10,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+		ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "pkg.Caller.run", ToNode: "pkg.Callee.accept", RelationKind: types.DiagramRelCall,
+			VisibleLabel: "calls",
+		}},
+	}}}
+	ctx := &types.BusContext{
+		Mutable:       types.NewMutableState("standalone typed candidate parity"),
+		EvidenceItems: []types.EvidenceItem{call},
+		AnalysisIR:    &types.AnalysisIR{RequestModel: types.RequestModel{}},
+	}
+	hints := preCheckDiagramCallEdgeEvidenceAlignment(
+		doc, &types.AnswerSemanticView{Family: types.QFCallChain}, newPreEmitCheckContext(ctx),
+	)
+	if len(hints) != 1 || strings.TrimSpace(hints[0].DiagramRelationRepairDeltaJSON) == "" {
+		t.Fatalf("standalone typed failure lost its executable delta: %+v", hints)
+	}
+	var delta diagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(hints[0].DiagramRelationRepairDeltaJSON), &delta); err != nil {
+		t.Fatalf("standalone repair delta invalid: %v", err)
+	}
+	if len(delta.Failures) != 1 || len(delta.AllowedAdditions) != 1 {
+		t.Fatalf("guidance candidate did not reach the executable lease carrier: %+v", delta)
+	}
+	candidate := delta.AllowedAdditions[0]
+	if candidate.BlockID != "chain" || candidate.RelationKind != types.DiagramRelCall ||
+		candidate.FromIdentity != "pkg.Caller.run" || candidate.ToIdentity != "pkg.Callee.accept" ||
+		candidate.Source != "src/call.go:10" {
+		t.Fatalf("executable candidate drifted from typed provider: %+v", candidate)
+	}
+	for _, want := range []string{
+		`relation_kind:"call"`, `from_identity:"pkg.Caller.run"`,
+		`to_identity:"pkg.Callee.accept"`, `source:"src/call.go:10"`,
+	} {
+		if !strings.Contains(hints[0].ExpectedShape, want) {
+			t.Fatalf("guidance and executable candidate diverged at %q: %s", want, hints[0].ExpectedShape)
+		}
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions)
+	if lease == nil || !types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
+		t.Fatalf("same-generation standalone candidate must publish an executable attach pair: %+v", lease)
+	}
+
+	untrusted := call
+	untrusted.GroundingStatus = types.GroundingUngrounded
+	ctx.EvidenceItems = []types.EvidenceItem{untrusted}
+	hints = preCheckDiagramCallEdgeEvidenceAlignment(
+		doc, &types.AnswerSemanticView{Family: types.QFCallChain}, newPreEmitCheckContext(ctx),
+	)
+	if len(hints) != 1 {
+		t.Fatalf("ungrounded fixture lost original failure: %+v", hints)
+	}
+	delta = diagramRelationRepairDelta{}
+	if err := json.Unmarshal([]byte(hints[0].DiagramRelationRepairDeltaJSON), &delta); err != nil {
+		t.Fatalf("ungrounded failure delta invalid: %v", err)
+	}
+	if len(delta.AllowedAdditions) != 0 {
+		t.Fatalf("ungrounded evidence minted executable repair authority: %+v", delta.AllowedAdditions)
+	}
+}
+
 func TestPreCheckDiagramRelationFailurePublishesCompactRepairDelta(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

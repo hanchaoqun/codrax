@@ -5167,6 +5167,7 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 			DiagramRelationFailurePairs:    diagramRelationFailurePairFingerprints(standaloneMismatches),
 			DiagramRelationFailureIssues:   diagramRelationFailureIssueValues(standaloneMismatches),
 			RelationRepairOrdinaryBlockIDs: preEmitDiagramMismatchBlockIDs(standaloneMismatches),
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	mismatches = diagramMismatches
@@ -5314,6 +5315,7 @@ type preEmitStandaloneRelationRepairCandidate struct {
 	evidenceID string
 	source     string
 	rank       int
+	blockIDs   []string
 }
 
 // preEmitStandaloneRelationRepairCandidateGuidance re-projects a small set of
@@ -5328,36 +5330,73 @@ func preEmitStandaloneRelationRepairCandidateGuidance(
 	evidence []types.EvidenceItem,
 	limit int,
 ) string {
+	return preEmitFormatStandaloneRelationRepairCandidates(
+		preEmitStandaloneRelationRepairCandidates(mismatches, evidence, limit), limit,
+	)
+}
+
+// preEmitStandaloneRelationRepairCandidates is the single structured
+// candidate provider shared by reader guidance and executable repair
+// permissions. It binds every candidate to the exact mismatch block(s) whose
+// endpoint pair selected it. Consumers must not reconstruct this authority by
+// parsing the rendered guidance string.
+func preEmitStandaloneRelationRepairCandidates(
+	mismatches []DiagramCallEdgeEvidenceMismatch,
+	evidence []types.EvidenceItem,
+	limit int,
+) []preEmitStandaloneRelationRepairCandidate {
 	if len(mismatches) == 0 || len(evidence) == 0 || limit <= 0 {
-		return ""
+		return nil
 	}
 	candidates := make([]preEmitStandaloneRelationRepairCandidate, 0, limit)
-	seen := make(map[string]bool)
+	seen := make(map[string]int)
 	for _, ev := range evidence {
 		if !ev.IsCitable() {
 			continue
 		}
 		for _, candidate := range preEmitStandaloneRelationCandidatesFromEvidence(ev) {
-			rank, ok := preEmitStandaloneRelationCandidateMismatchRank(candidate, mismatches)
+			rank, blockIDs, ok := preEmitStandaloneRelationCandidateMismatchSelection(candidate, mismatches)
 			if !ok || !preEmitStandaloneRelationCandidateHasAuthority(candidate, evidence) {
 				continue
 			}
 			candidate.rank = rank
+			candidate.blockIDs = blockIDs
 			key := strings.Join([]string{
 				string(candidate.relation), strings.TrimSpace(candidate.from), strings.TrimSpace(candidate.to),
 				strings.TrimSpace(candidate.evidenceID), strings.TrimSpace(candidate.source),
 			}, "\x00")
-			if seen[key] {
+			if index, exists := seen[key]; exists {
+				candidates[index].blockIDs = preEmitAppendUniqueSortedFold(candidates[index].blockIDs, blockIDs...)
 				continue
 			}
-			seen[key] = true
+			seen[key] = len(candidates)
 			candidates = append(candidates, candidate)
 		}
 	}
 	if len(candidates) == 0 {
-		return ""
+		return nil
 	}
-	return preEmitFormatStandaloneRelationRepairCandidates(candidates, limit)
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].rank < candidates[j].rank })
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates
+}
+
+func preEmitAppendUniqueSortedFold(values []string, additions ...string) []string {
+	seen := make(map[string]bool, len(values)+len(additions))
+	out := make([]string, 0, len(values)+len(additions))
+	for _, value := range append(append([]string(nil), values...), additions...) {
+		value = strings.TrimSpace(value)
+		key := strings.ToLower(value)
+		if value == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+	return out
 }
 
 // preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms gives a
@@ -5492,10 +5531,12 @@ func preEmitStandaloneRelationCandidatesFromEvidence(ev types.EvidenceItem) []pr
 	return []preEmitStandaloneRelationRepairCandidate{base}
 }
 
-func preEmitStandaloneRelationCandidateMismatchRank(
+func preEmitStandaloneRelationCandidateMismatchSelection(
 	candidate preEmitStandaloneRelationRepairCandidate,
 	mismatches []DiagramCallEdgeEvidenceMismatch,
-) (int, bool) {
+) (int, []string, bool) {
+	rank := 2
+	blockIDs := make([]string, 0, 1)
 	for _, mismatch := range mismatches {
 		from, to := strings.TrimSpace(mismatch.FromSymbol), strings.TrimSpace(mismatch.ToSymbol)
 		if from == "" {
@@ -5506,14 +5547,19 @@ func preEmitStandaloneRelationCandidateMismatchRank(
 		}
 		if types.AnswerCodeIdentitySurfacesEquivalent(candidate.from, from) &&
 			types.AnswerCodeIdentitySurfacesEquivalent(candidate.to, to) {
-			return 0, true
+			rank = 0
+			blockIDs = preEmitAppendUniqueSortedFold(blockIDs, mismatch.BlockID)
+			continue
 		}
 		if types.AnswerCodeIdentitySurfacesEquivalent(candidate.from, to) &&
 			types.AnswerCodeIdentitySurfacesEquivalent(candidate.to, from) {
-			return 1, true
+			if rank > 1 {
+				rank = 1
+			}
+			blockIDs = preEmitAppendUniqueSortedFold(blockIDs, mismatch.BlockID)
 		}
 	}
-	return 0, false
+	return rank, blockIDs, len(blockIDs) > 0
 }
 
 func preEmitStandaloneRelationCandidateHasAuthority(
@@ -6580,12 +6626,13 @@ func diagramRelationRepairDeltaJSON(
 	candidates := ""
 	var allowedAdditions []types.AnswerDiagramRelationRepairCandidate
 	if ctx != nil && ctx.AnalysisIR != nil {
+		standaloneCandidates := preEmitStandaloneRelationRepairCandidates(mismatches, evidence, 8)
 		candidates = diagramRelationRepairLocalCandidateGuidance(
 			ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, 4,
 		)
 		blockIDs := diagramRelationRepairAdditionTargetBlockIDs(doc, failures)
 		allowedAdditions = diagramRelationRepairAllowedAdditions(
-			doc, ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, 8,
+			doc, ctx.AnalysisIR.RequestModel, evidence, stagePrecedence, blockIDs, standaloneCandidates, 8,
 		)
 		if ctx.Mutable != nil {
 			receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()

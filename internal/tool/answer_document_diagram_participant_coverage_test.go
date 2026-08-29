@@ -1928,7 +1928,7 @@ func TestDiagramParticipantLocalOnlyAdditionCarrierSurvivesPostEmitIdentityGate(
 			},
 		},
 	}}
-	allowed := diagramRelationRepairAllowedAdditions(base, rm, evidence, nil, []string{"flow"}, 8)
+	allowed := diagramRelationRepairAllowedAdditions(base, rm, evidence, nil, []string{"flow"}, nil, 8)
 	var selected *types.AnswerDiagramRelationRepairCandidate
 	for i := range allowed {
 		if allowed[i].RelationKind == types.DiagramRelCall &&
@@ -2285,7 +2285,7 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 		{From: stage("explore", "explorer"), To: stage("extract", "extractor"), SourceFile: "internal/types/enums.go", LineStart: 121, LineEnd: 122},
 		{From: stage("extract", "extractor"), To: stage("finalize", "finalizer"), SourceFile: "internal/types/enums.go", LineStart: 122, LineEnd: 123},
 	}
-	got := diagramRelationRepairAllowedAdditions(nil, rm, nil, precedence, []string{"diagram-1"}, 8)
+	got := diagramRelationRepairAllowedAdditions(nil, rm, nil, precedence, []string{"diagram-1"}, nil, 8)
 	if len(got) != 3 {
 		t.Fatalf("complete checkout-verified stage spine must remain selectable in one local repair, got %+v", got)
 	}
