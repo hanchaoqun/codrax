@@ -478,6 +478,55 @@ func TestEmitAnswerDocumentPatchParametersFor_BoundaryLeasePublishesLocalBranche
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_VisibilityLeasePublishesModelAuthoredDeclarationBranch(t *testing.T) {
+	base := atomicPatchTestDocument()
+	for i := range base.Blocks {
+		if base.Blocks[i].ID == "diag" {
+			base.Blocks[i].ParticipantBoundaries = []types.DiagramParticipantBoundary{{
+				Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+			}}
+		}
+	}
+	lease := types.WithAnswerDiagramParticipantVisibilityRepairFailures(base, nil,
+		[]types.AnswerDiagramParticipantVisibilityRepairFailure{{
+			BlockID: "diag", Participant: "BusContext", Issue: "boundary_participant_not_visible",
+		}})
+	if lease == nil || len(lease.ParticipantVisibilityFailures) != 1 {
+		t.Fatalf("test setup: expected one visibility capability: %+v", lease)
+	}
+	mut := types.NewMutableState("visibility schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	raw := (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	for _, forbidden := range []string{"add_blocks", "remove_block_ids", "diagram_edge_edits", "diagram_boundary_edits"} {
+		if _, exists := props[forbidden]; exists {
+			t.Fatalf("visibility-only generation must hide broader capability %q", forbidden)
+		}
+	}
+	field := props["diagram_participant_edits"].(map[string]any)
+	branches := field["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 1 || field["minItems"] != float64(1) || field["maxItems"] != float64(1) {
+		t.Fatalf("expected one exact visibility branch: %+v", field)
+	}
+	branchProps := branches[0].(map[string]any)["properties"].(map[string]any)
+	ref := branchProps["participant_ref"].(map[string]any)["enum"].([]any)[0].(string)
+	if ref != lease.ParticipantVisibilityFailures[0].ParticipantRef ||
+		branchProps["action"].(map[string]any)["enum"].([]any)[0] != "ensure_visible" {
+		t.Fatalf("schema branch is not bound to the live visibility failure: %+v", branchProps)
+	}
+	if _, ok := branchProps["node_id"]; !ok {
+		t.Fatal("model-authored node_id field missing")
+	}
+	if _, ok := branchProps["visible_label"]; !ok {
+		t.Fatal("model-authored visible_label field missing")
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseHidesWholeReplacementWhenOnlyTargetExists(t *testing.T) {
 	base := atomicPatchTestDocument()
 	base.Blocks = append([]types.AnswerBlock(nil), base.Blocks[1])

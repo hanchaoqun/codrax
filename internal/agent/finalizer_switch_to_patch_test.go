@@ -1176,6 +1176,41 @@ func TestRequiredDiagramStaleBoundariesGetLiveLocalRefsOnFullAndPatchRejects(t *
 	}
 }
 
+func TestRequiredDiagramMissingBoundaryParticipantGetsLiveVisibilityRef(t *testing.T) {
+	const delta = `{"version":1,"mismatches":[{"block_id":"flow","participant":"BusContext","issue":"boundary_participant_not_visible"}],"actions":"ensure visible participant"}`
+	mut := types.NewMutableState("participant visibility ref")
+	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "flow", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A --> B"},
+			ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+				Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+			}},
+		},
+	}})
+	ctx := &types.AgentContext{Mutable: mut}
+	result := &types.ToolResult{ToolName: "emit_answer_document", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract",
+		Metadata: map[string]string{
+			types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: delta,
+			"violation_kinds":                       string(types.ViolDiagramParticipantCoverage),
+			types.ToolRepairMetaOffendingBlockKinds: string(types.BlockDiagram),
+		},
+	}}
+	e := &answerDocumentEvaluator{diagramRequired: true, mu: mut}
+	signal := e.emitAnswerDocumentRejectSignal(ctx, LoopObservation{LastToolResult: result})
+	lease := mut.AnswerDiagramRelationRepairLease()
+	if !signal.HintRequested || lease == nil || len(lease.ParticipantVisibilityFailures) != 1 {
+		t.Fatalf("node-missing mismatch must install one live visibility capability: signal=%+v lease=%+v", signal, lease)
+	}
+	failure := lease.ParticipantVisibilityFailures[0]
+	if failure.ParticipantRef == "" || !failure.AllowsParticipantAction("ensure_visible") ||
+		!strings.Contains(signal.Hint, `"participant_ref":"`+failure.ParticipantRef+`"`) ||
+		!strings.Contains(signal.Hint, "diagram_participant_edits") {
+		t.Fatalf("hint/schema authority did not expose the exact visibility ref: failure=%+v hint=%s", failure, signal.Hint)
+	}
+}
+
 func TestRequiredDiagramRelationRetryUsesProducerCompactDeltaBeforeFullAuthority(t *testing.T) {
 	const staleProducerRef = "rf1-000000000000000000000000"
 	const delta = `{"version":1,"failures":[{"failure_ref":"` + staleProducerRef + `","block_id":"pipeline-diagram","issue":"data_flow_edge_unproven","relation_kind":"data_flow","from_node":"BC","to_node":"E","from_identity":"BusContext","to_identity":"Explorer","body_occurrence":1}],"preserve_unlisted_edges":true,"allowed_additions":[{"block_id":"pipeline-diagram","relation_kind":"call","from_identity":"Orchestrator.applyStageOutput","to_identity":"o.busCtx.Mutable.SetTurnAArtifacts","source":"internal/orchestrator/orchestrator.go:8442"}],"candidate_alternatives":"typed_candidate[BusContext][1]={relation_kind:\"call\",from_identity:\"Orchestrator.applyStageOutput\",to_identity:\"o.busCtx.Mutable.SetTurnAArtifacts\",candidate_scope:\"local_operation_only\",requested_relation_closure:\"unproven\",retain_participant_boundary:true}"}`

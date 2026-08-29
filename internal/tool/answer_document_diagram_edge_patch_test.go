@@ -2626,6 +2626,61 @@ func TestApplyModelAuthoredDiagramAtomicEdits_BoundaryRefsPreserveUnmentionedRow
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_VisibilityRefAddsDeclarationWithoutRelation(t *testing.T) {
+	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n A-->|work|B"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "work",
+		}},
+		ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+			Participant: "BusContext", Status: types.DiagramParticipantBoundaryUnproven,
+		}},
+	}}}
+	lease := types.WithAnswerDiagramParticipantVisibilityRepairFailures(prev, nil,
+		[]types.AnswerDiagramParticipantVisibilityRepairFailure{{
+			BlockID: "flow", Participant: "BusContext", Issue: "boundary_participant_not_visible",
+		}})
+	if lease == nil || len(lease.ParticipantVisibilityFailures) != 1 {
+		t.Fatalf("test setup: expected one visibility ref: %+v", lease)
+	}
+	edit := emitAnswerDiagramParticipantEdit{
+		ParticipantRef: lease.ParticipantVisibilityFailures[0].ParticipantRef,
+		Action:         "ensure_visible",
+		NodeID:         "BusContextNode",
+		VisibleLabel:   "BusContext",
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	if err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		prev, patch, nil, nil, nil, []emitAnswerDiagramParticipantEdit{edit}, nil, lease,
+	); err != nil {
+		t.Fatalf("exact visibility ref should execute: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("expected one local replacement: %+v", patch.ReplaceBlocks)
+	}
+	got := patch.ReplaceBlocks[0]
+	if got.Diagram == nil || !strings.Contains(got.Diagram.Body, `BusContextNode["BusContext"]`) ||
+		len(mermaidcompat.ParseEdges(got.Diagram.Body)) != 1 || len(got.EdgeAnchors) != 1 ||
+		got.EdgeAnchors[0] != prev.Blocks[0].EdgeAnchors[0] || len(got.ParticipantBoundaries) != 1 {
+		t.Fatalf("visibility edit changed a relation/anchor/boundary or missed declaration: %+v", got)
+	}
+
+	stale := *prev
+	stale.Blocks = append([]types.AnswerBlock(nil), prev.Blocks...)
+	diagram := *prev.Blocks[0].Diagram
+	diagram.Body += "\n C"
+	stale.Blocks[0].Diagram = &diagram
+	err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		&stale, &types.AnswerDocumentV2Patch{}, nil, nil, nil,
+		[]emitAnswerDiagramParticipantEdit{edit}, nil, lease,
+	)
+	if err == nil || !strings.Contains(err.Error(), "current diagram generation") {
+		t.Fatalf("stale visibility ref must fail closed: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AttachAndBoundaryRefShareOneTransaction(t *testing.T) {
 	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,

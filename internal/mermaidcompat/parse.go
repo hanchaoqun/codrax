@@ -1010,6 +1010,72 @@ func RewriteRemovableNodeDeclarationLabel(body, ident, visibleLabel string) (str
 	return strings.Join(lines, "\n"), 1
 }
 
+// AddRemovableNodeDeclaration inserts one syntax-only standalone declaration
+// after the Mermaid family header. The caller owns the node identifier and
+// visible label; this helper only applies quoting/shape syntax for the two
+// families whose standalone declarations are parsed losslessly here. It never
+// creates an edge or infers a relationship.
+func AddRemovableNodeDeclaration(body, ident, visibleLabel string) (string, bool) {
+	ident = strings.TrimSpace(ident)
+	visibleLabel = strings.TrimSpace(visibleLabel)
+	if !safeStandaloneNodeIdentifier(ident) || visibleLabel == "" ||
+		strings.ContainsAny(visibleLabel, "\r\n\x00") {
+		return body, false
+	}
+	for _, decl := range RemovableNodeDeclarations(body) {
+		if strings.TrimSpace(decl.Ident) == ident {
+			return body, false
+		}
+	}
+	for _, edge := range ParseEdges(body) {
+		if strings.TrimSpace(edge.From) == ident || strings.TrimSpace(edge.To) == ident {
+			return body, false
+		}
+	}
+	family := mermaidBodyFamily(body)
+	label := strings.ReplaceAll(visibleLabel, `"`, `&quot;`)
+	var declaration string
+	switch family {
+	case "sequence":
+		declaration = `    participant ` + ident + ` as "` + label + `"`
+	case "flow":
+		declaration = `    ` + ident + `["` + label + `"]`
+	default:
+		return body, false
+	}
+	lines := strings.Split(body, "\n")
+	header := -1
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "%%") {
+			continue
+		}
+		header = i
+		break
+	}
+	if header < 0 {
+		return body, false
+	}
+	lines = append(lines, "")
+	copy(lines[header+2:], lines[header+1:])
+	lines[header+1] = declaration
+	return strings.Join(lines, "\n"), true
+}
+
+func safeStandaloneNodeIdentifier(ident string) bool {
+	if ident == "" || len(ident) > 128 {
+		return false
+	}
+	for i, r := range ident {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' ||
+			(i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func rewriteRemovableNodeDeclarationLine(raw, family, ident, visibleLabel string) (string, bool) {
 	indent := raw[:len(raw)-len(strings.TrimLeft(raw, " \t"))]
 	line := strings.TrimSpace(raw)

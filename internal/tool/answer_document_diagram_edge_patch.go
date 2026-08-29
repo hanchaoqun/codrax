@@ -440,9 +440,28 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		}
 		working[blockID] = block
 	}
-	participantSeen := make(map[string]bool, len(participantEdits))
-	participantCandidates := make(map[string]types.AnswerDiagramOrphanCleanupCandidate, len(participantEdits))
+	orphanParticipantEdits := make([]emitAnswerDiagramParticipantEdit, 0, len(participantEdits))
+	visibilityParticipantEdits := make([]emitAnswerDiagramParticipantEdit, 0, len(participantEdits))
 	for i, edit := range participantEdits {
+		switch strings.TrimSpace(edit.Action) {
+		case string(types.AnswerDiagramParticipantVisibilityRepairEnsureVisible):
+			if strings.TrimSpace(edit.ParticipantRef) == "" || strings.TrimSpace(edit.NodeID) == "" ||
+				strings.TrimSpace(edit.VisibleLabel) == "" || strings.TrimSpace(edit.BlockID) != "" || strings.TrimSpace(edit.ParticipantID) != "" {
+				return fmt.Errorf("diagram_participant_edits[%d] ensure_visible requires participant_ref, node_id, and visible_label; omit block_id and participant_id", i)
+			}
+			visibilityParticipantEdits = append(visibilityParticipantEdits, edit)
+		case string(types.AnswerDiagramOrphanDispositionRemove), string(types.AnswerDiagramOrphanDispositionRetain):
+			if strings.TrimSpace(edit.ParticipantRef) != "" || strings.TrimSpace(edit.NodeID) != "" {
+				return fmt.Errorf("diagram_participant_edits[%d] orphan disposition must omit participant_ref and node_id", i)
+			}
+			orphanParticipantEdits = append(orphanParticipantEdits, edit)
+		default:
+			return fmt.Errorf("diagram_participant_edits[%d].action=%q is invalid", i, edit.Action)
+		}
+	}
+	participantSeen := make(map[string]bool, len(orphanParticipantEdits))
+	participantCandidates := make(map[string]types.AnswerDiagramOrphanCleanupCandidate, len(orphanParticipantEdits))
+	for i, edit := range orphanParticipantEdits {
 		blockID := strings.TrimSpace(edit.BlockID)
 		participantID := strings.TrimSpace(edit.ParticipantID)
 		if blockID == "" || participantID == "" {
@@ -468,12 +487,12 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		}
 	}
 	if err := validateAtomicDiagramParticipantDispositionRoster(
-		previous, working, participantEdits, participantSeen, participantCandidates,
+		previous, working, orphanParticipantEdits, participantSeen, participantCandidates,
 		protectedParticipants, lease,
 	); err != nil {
 		return err
 	}
-	for i, edit := range participantEdits {
+	for i, edit := range orphanParticipantEdits {
 		blockID := strings.TrimSpace(edit.BlockID)
 		participantID := strings.TrimSpace(edit.ParticipantID)
 		key := blockID + "\x00" + participantID
@@ -483,6 +502,34 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			&block, base, edit, participantCandidates[key], protectedParticipants, lease,
 		); err != nil {
 			return fmt.Errorf("diagram_participant_edits[%d] block_id=%q participant_id=%q: %w", i, blockID, participantID, err)
+		}
+		working[blockID] = block
+	}
+	usedParticipantRefs := make(map[string]bool, len(visibilityParticipantEdits))
+	usedVisibilityNodes := make(map[string]bool, len(visibilityParticipantEdits))
+	for i, edit := range visibilityParticipantEdits {
+		ref := strings.TrimSpace(edit.ParticipantRef)
+		if usedParticipantRefs[ref] {
+			return fmt.Errorf("diagram_participant_edits[%d] reuses participant_ref=%q", i, ref)
+		}
+		usedParticipantRefs[ref] = true
+		failure, ok := atomicDiagramLeaseParticipantVisibilityFailure(lease, ref)
+		if !ok || !failure.AllowsParticipantAction(strings.TrimSpace(edit.Action)) {
+			return fmt.Errorf("diagram_participant_edits[%d] participant_ref=%q is stale, unknown, or does not allow action=%q", i, ref, edit.Action)
+		}
+		blockID := strings.TrimSpace(failure.BlockID)
+		nodeKey := blockID + "\x00" + strings.TrimSpace(edit.NodeID)
+		if usedVisibilityNodes[nodeKey] {
+			return fmt.Errorf("diagram_participant_edits[%d] duplicates block_id=%q node_id=%q", i, blockID, edit.NodeID)
+		}
+		usedVisibilityNodes[nodeKey] = true
+		block, err := loadBlock(blockID, i, "diagram_participant_edits", true)
+		if err != nil {
+			return err
+		}
+		base := previous[blockID]
+		if err := applyOneModelAuthoredDiagramParticipantVisibilityEdit(&block, base, edit, failure); err != nil {
+			return fmt.Errorf("diagram_participant_edits[%d] participant_ref=%q: %w", i, ref, err)
 		}
 		working[blockID] = block
 	}
@@ -506,6 +553,55 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		}
 		patch.UnchangedBlockIDs = kept
 	}
+	return nil
+}
+
+func atomicDiagramLeaseParticipantVisibilityFailure(
+	lease *types.AnswerDiagramRelationRepairLease,
+	ref string,
+) (types.AnswerDiagramParticipantVisibilityRepairFailure, bool) {
+	ref = strings.TrimSpace(ref)
+	var found types.AnswerDiagramParticipantVisibilityRepairFailure
+	count := 0
+	if lease != nil {
+		for _, failure := range lease.ParticipantVisibilityFailures {
+			if strings.TrimSpace(failure.ParticipantRef) != ref {
+				continue
+			}
+			found = failure
+			count++
+		}
+	}
+	return found, ref != "" && count == 1
+}
+
+func applyOneModelAuthoredDiagramParticipantVisibilityEdit(
+	block *types.AnswerBlock,
+	base types.AnswerBlock,
+	edit emitAnswerDiagramParticipantEdit,
+	failure types.AnswerDiagramParticipantVisibilityRepairFailure,
+) error {
+	if block == nil || block.Kind != types.BlockDiagram || block.Diagram == nil ||
+		base.Kind != types.BlockDiagram || base.Diagram == nil {
+		return fmt.Errorf("ensure_visible requires one existing diagram block")
+	}
+	if got := types.AnswerDiagramParticipantVisibilityFingerprint(base); got == "" || got != failure.BaseDiagramFingerprint {
+		return fmt.Errorf("participant_ref does not match the current diagram generation")
+	}
+	visibleLabel, ok := normalizeAtomicMermaidParticipantVisibleLabel(edit.VisibleLabel)
+	if !ok {
+		return fmt.Errorf("ensure_visible requires a non-empty model-authored visible_label of at most 512 bytes")
+	}
+	nodeID := strings.TrimSpace(edit.NodeID)
+	body, ok := mermaidcompat.AddRemovableNodeDeclaration(block.Diagram.Body, nodeID, visibleLabel)
+	if !ok {
+		return fmt.Errorf("node_id is unsafe, already used, or the diagram family has no lossless standalone declaration form")
+	}
+	labels := diagramEvidenceNodeLabels(body, block.Diagram.Kind)
+	if !diagramParticipantEndpointExplicitlyDisplaysIdentity([]string{failure.Participant}, nodeID, labels) {
+		return fmt.Errorf("the model-authored node_id/visible_label does not visibly carry the exact required participant identity")
+	}
+	block.Diagram.Body = body
 	return nil
 }
 

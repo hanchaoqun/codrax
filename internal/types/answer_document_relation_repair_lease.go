@@ -792,13 +792,14 @@ type AnswerDiagramRelationRepairLease struct {
 	// decision. It is set only when the current typed answer contract says the
 	// diagram is optional; the model must still explicitly select the exact
 	// target id through remove_block_ids.
-	AllowTargetDiagramRemoval   bool                                            `json:"allow_target_diagram_removal,omitempty"`
-	Failures                    []AnswerDiagramRelationRepairFailure            `json:"failures"`
-	AllowedAdditions            []AnswerDiagramRelationRepairCandidate          `json:"allowed_additions,omitempty"`
-	OptionalOrphanCleanups      []AnswerDiagramOrphanCleanupCandidate           `json:"optional_orphan_cleanups,omitempty"`
-	ParticipantBoundaryFailures []AnswerDiagramParticipantBoundaryRepairFailure `json:"participant_boundary_failures,omitempty"`
-	OrdinaryValidationBlockIDs  []string                                        `json:"ordinary_validation_block_ids,omitempty"`
-	Blocks                      []AnswerDiagramRelationRepairLeaseBlock         `json:"blocks"`
+	AllowTargetDiagramRemoval     bool                                              `json:"allow_target_diagram_removal,omitempty"`
+	Failures                      []AnswerDiagramRelationRepairFailure              `json:"failures"`
+	AllowedAdditions              []AnswerDiagramRelationRepairCandidate            `json:"allowed_additions,omitempty"`
+	OptionalOrphanCleanups        []AnswerDiagramOrphanCleanupCandidate             `json:"optional_orphan_cleanups,omitempty"`
+	ParticipantBoundaryFailures   []AnswerDiagramParticipantBoundaryRepairFailure   `json:"participant_boundary_failures,omitempty"`
+	ParticipantVisibilityFailures []AnswerDiagramParticipantVisibilityRepairFailure `json:"participant_visibility_failures,omitempty"`
+	OrdinaryValidationBlockIDs    []string                                          `json:"ordinary_validation_block_ids,omitempty"`
+	Blocks                        []AnswerDiagramRelationRepairLeaseBlock           `json:"blocks"`
 }
 
 // AnswerDiagramRelationRepairScopeViolation is a compact typed explanation of
@@ -1000,7 +1001,12 @@ func AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease *AnswerDiagramRel
 			return false
 		}
 	}
-	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures) > 0
+	for _, failure := range lease.ParticipantVisibilityFailures {
+		if strings.TrimSpace(failure.ParticipantRef) == "" || len(failure.AllowedParticipantActions) == 0 {
+			return false
+		}
+	}
+	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures)+len(lease.ParticipantVisibilityFailures) > 0
 }
 
 // BindAnswerDiagramRelationRepairOrdinaryValidationBlocks grants a bounded
@@ -1205,7 +1211,7 @@ func answerDiagramRelationRepairCandidateRef(base *AnswerDocumentV2, candidate A
 // authority for whether a corrected relation is true.
 func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepairLease, merged *AnswerDocumentV2) []AnswerDiagramRelationRepairScopeViolation {
 	if lease == nil || lease.Version != 1 || merged == nil ||
-		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0) {
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0) {
 		return nil
 	}
 	resultBlocks := make(map[string][]DiagramEdgeAnchor, len(merged.Blocks))
@@ -1531,6 +1537,15 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 			out.ParticipantBoundaryFailures[i] = failure
 			out.ParticipantBoundaryFailures[i].AllowedBoundaryActions = append(
 				[]AnswerDiagramParticipantBoundaryRepairAction(nil), failure.AllowedBoundaryActions...,
+			)
+		}
+	}
+	if len(in.ParticipantVisibilityFailures) > 0 {
+		out.ParticipantVisibilityFailures = make([]AnswerDiagramParticipantVisibilityRepairFailure, len(in.ParticipantVisibilityFailures))
+		for i, failure := range in.ParticipantVisibilityFailures {
+			out.ParticipantVisibilityFailures[i] = failure
+			out.ParticipantVisibilityFailures[i].AllowedParticipantActions = append(
+				[]AnswerDiagramParticipantVisibilityRepairAction(nil), failure.AllowedParticipantActions...,
 			)
 		}
 	}

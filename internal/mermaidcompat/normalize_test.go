@@ -1541,3 +1541,32 @@ func TestRewriteRemovableNodeDeclarationLabelPreservesCarrier(t *testing.T) {
 		}
 	})
 }
+
+func TestAddRemovableNodeDeclarationAddsOnlyModelAuthoredStandaloneCarrier(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "flow", body: "flowchart TD\n A-->B\n", want: `BusContextNode["BusContext"]`},
+		{name: "sequence", body: "sequenceDiagram\n A->>B: work\n", want: `participant BusContextNode as "BusContext"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := AddRemovableNodeDeclaration(tc.body, "BusContextNode", "BusContext")
+			if !ok || !strings.Contains(got, tc.want) || len(ParseEdges(got)) != len(ParseEdges(tc.body)) {
+				t.Fatalf("standalone declaration failed or changed edges: ok=%v body=%q", ok, got)
+			}
+			if _, ok := AddRemovableNodeDeclaration(got, "BusContextNode", "duplicate"); ok {
+				t.Fatal("duplicate node id must fail closed")
+			}
+		})
+	}
+	for _, nodeID := range []string{"", "A-B", "A B", "1A"} {
+		if _, ok := AddRemovableNodeDeclaration("flowchart TD\n A-->B", nodeID, "label"); ok {
+			t.Fatalf("unsafe node id %q was accepted", nodeID)
+		}
+	}
+	if _, ok := AddRemovableNodeDeclaration("classDiagram\n class A", "B", "Business"); ok {
+		t.Fatal("unsupported family must fail closed instead of guessing syntax")
+	}
+}

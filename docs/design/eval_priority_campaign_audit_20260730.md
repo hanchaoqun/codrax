@@ -57362,12 +57362,22 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 7. 本轮不把“最终没有 BusContext/Mutable 精确关系”误立为证据丢失：explorer 曾产生的一条关系仍未通过 grounding，最终 candidate roster 只有三条 stage
    precedence。B1428/B1430 的 exact typed relation addition 与 occurrence-bound removal 能力没有回归。图层关系丰富度只能由后续 exact typed read/explore evidence
    增强，禁止为了连通性补造桥。
+8. B1432 已施工为独立的 generation-scoped participant visibility lease。producer 只把精确
+   `boundary_participant_not_visible` mismatch 绑定到被拒 diagram 的结构指纹并发 `participant_ref + allowed_action=ensure_visible`；其他 identity、edge、component
+   mismatch 不借机扩权。相同不可变 base 的 ref 稳定，diagram body/kind/id 任一变化都会使旧 ref 失效。
+9. 动态 patch schema 只发当前 ref 的一个分支，模型必须显式复制 participant_ref、选择 ensure_visible，并自行填写 node_id 与 visible_label。executor 只把这两个
+   模型字段编码成一个 disconnected standalone declaration，原有 edge、edge_anchor、boundary、方向、关系、块顺序和答案结论全部保持；node id 已占用、unsafe、label
+   不显式承载目标 participant、跨代 ref、重复 ref 或不支持无损声明的 Mermaid family 均 fail-closed。系统不从请求、thinking、答案 prose 或 Mermaid message 猜 node/label。
+10. 当前 lossless adapter 只覆盖系统已有完整 parser/rewriter 的 flowchart/graph 与 sequenceDiagram。class/state/er 等 family 不猜语法、不降级成系统代写；后续统一图层
+    扩展必须按 family adapter + parser round-trip + renderer 自愈矩阵增加。该边界是泛化安全限制，不是针对 BusContext/Mutable 的特判。
+11. 新回归钉住四层接线：typed capability 铸造/跨代失效、动态 schema 仅一 exact branch、原子执行只增 declaration 且边/anchor/boundary 字节不变、full/patch reject
+    均把同一 live ref 带回模型。相关 `mermaidcompat/types/tool/agent` 完整套件已通过；全仓与正式构建正在本批提交前执行。
 
 状态：
 
 `r918=runner-pass-1/2,human-write-fail+read-partial`；
 `B1431=implemented/full-suite-pass/build-pass/pending-production-replay`；
-`B1432=confirmed/pending`；
+`B1432=implemented/full-suite-pass/build-pass/pending-production-replay`；
 `B1433=confirmed/pending`；
 `write-read-budget=successful-content-acquisition+independent-failure-cap`；
 `missing-path-relocation=unique-existing-typed-candidate/advisory-only`；

@@ -62,7 +62,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
 		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
 		"- `diagram_relation_scope_edits`: model-selected local edit of the block-level `requested_relation_scope` disclosure. This field is exposed only when the current typed request-spine authority proves an exact missing/stale/duplicate scope mismatch. Choose one exact block_id/action branch from the current schema; the executor changes only that typed disclosure and preserves the diagram, relations, labels, layout, and conclusion.\n" +
-		"- `diagram_participant_edits`: model-authored disposition of one explicit participant/node declaration during a live local relation repair. Use only an `optional_orphan_cleanups` row. If your same-patch edge edits leave that candidate isolated, explicitly choose remove_if_isolated, or retain_as_context with a non-empty model-authored visible_label. The executor rejects requested/boundary participants, uncovered or remaining edges, and ambiguous declarations. The system never chooses the disposition or wording.\n" +
+		"- `diagram_participant_edits`: generation-scoped model-authored declaration edits. For an `optional_orphan_cleanups` row, choose remove_if_isolated or retain_as_context with visible_label. For an exact participant-visibility row, copy participant_ref, choose ensure_visible, and author node_id plus visible_label; the executor adds one disconnected standalone declaration only and creates no edge, anchor, relation, or conclusion. The executor rejects stale refs, unsafe/used node ids, unsupported Mermaid families, protected participants, remaining edges, and ambiguous declarations. The system never chooses the action, node id, or wording.\n" +
 		"- `replace_citations`: when present, REPLACES the citation pool entirely. Otherwise the previous citations are inherited. Prefer `append_citations` for additive citation repairs. If you accidentally replace the pool while preserving previous citation-bearing blocks, the tool will keep the previous pool, append genuinely new citations, and remap citation_ref values inside your replace/add blocks.\n" +
 		"- `append_citations`: when present and `replace_citations` is absent, appended to the inherited pool.\n" +
 		"- `replace_exact_resolution` / `replace_missing_requested_roles` / `replace_caveats`: when present, replace the corresponding document-level field. `replace_snippets` replaces only document-level code snippets shaped as {file,start_line,end_line,language?,code}; use a full `replace_blocks` entry for block items, diagrams, evidence_ids, or any other answer-block field.\n\n" +
@@ -209,13 +209,15 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
     "diagram_participant_edits": {
       "type": "array",
       "maxItems": 64,
-      "description": "Model-authored disposition during a live local relation-repair lease. Copy one exact optional_orphan_cleanups row as block_id+participant_id. If the same patch removes every incident edge, choose remove_if_isolated, or choose retain_as_context and author visible_label. The executor rechecks isolation and protections; the system chooses no action, wording, edge, relation, or conclusion.",
+      "description": "Generation-scoped model-authored declaration edits. For optional_orphan_cleanups, copy block_id+participant_id and choose remove_if_isolated or retain_as_context with visible_label. For an exact participant visibility failure, copy participant_ref, choose ensure_visible, and author node_id+visible_label. The latter inserts only one disconnected standalone declaration and never creates an edge, anchor, relation, or conclusion.",
       "items": {
         "type": "object",
         "properties": {
           "block_id": {"type": "string"},
           "participant_id": {"type": "string"},
-          "action": {"type": "string", "enum": ["remove_if_isolated", "retain_as_context"]},
+          "participant_ref": {"type": "string"},
+          "node_id": {"type": "string"},
+          "action": {"type": "string", "enum": ["remove_if_isolated", "retain_as_context", "ensure_visible"]},
           "visible_label": {"type": "string", "description": "Required and model-authored only for action=retain_as_context; omitted for remove_if_isolated."}
         },
         "required": ["block_id", "participant_id", "action"]
@@ -397,7 +399,8 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	}
 	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, targets)
 	boundaryBranches, boundaryOK := localDiagramLeaseExecutableBoundaryBranches(lease, targets)
-	if !edgeOK && !boundaryOK {
+	participantOK := len(lease.OptionalOrphanCleanups) > 0 || len(lease.ParticipantVisibilityFailures) > 0
+	if !edgeOK && !boundaryOK && !participantOK {
 		return raw
 	}
 	allowedReplacementIDs := unrelatedAnswerDocumentPatchBlockIDs(prev, targets)
@@ -548,7 +551,13 @@ func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLe
 			return false
 		}
 	}
-	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures) > 0
+	for _, failure := range lease.ParticipantVisibilityFailures {
+		if !targetSet[strings.TrimSpace(failure.BlockID)] || strings.TrimSpace(failure.ParticipantRef) == "" ||
+			len(failure.AllowedParticipantActions) == 0 {
+			return false
+		}
+	}
+	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures)+len(lease.ParticipantVisibilityFailures) > 0
 }
 
 func localDiagramLeaseExecutableBoundaryBranches(
@@ -702,7 +711,7 @@ func exactLocalDiagramEdgeBranch(refField, ref, action string, needsEdge, needsL
 }
 
 func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *types.AnswerDiagramRelationRepairLease) bool {
-	if len(lease.OptionalOrphanCleanups) == 0 {
+	if len(lease.OptionalOrphanCleanups) == 0 && len(lease.ParticipantVisibilityFailures) == 0 {
 		delete(properties, "diagram_participant_edits")
 		return true
 	}
@@ -710,7 +719,7 @@ func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *t
 	if participantEdits == nil {
 		return false
 	}
-	branches := make([]any, 0, len(lease.OptionalOrphanCleanups)*2)
+	branches := make([]any, 0, len(lease.OptionalOrphanCleanups)*2+len(lease.ParticipantVisibilityFailures))
 	for _, candidate := range lease.OptionalOrphanCleanups {
 		blockID := strings.TrimSpace(candidate.BlockID)
 		participantID := strings.TrimSpace(candidate.ParticipantID)
@@ -741,8 +750,26 @@ func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *t
 			})
 		}
 	}
+	for _, failure := range lease.ParticipantVisibilityFailures {
+		ref := strings.TrimSpace(failure.ParticipantRef)
+		if ref == "" || len(failure.AllowedParticipantActions) != 1 ||
+			failure.AllowedParticipantActions[0] != types.AnswerDiagramParticipantVisibilityRepairEnsureVisible {
+			return false
+		}
+		branches = append(branches, map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"participant_ref": map[string]any{"type": "string", "enum": []any{ref}},
+				"action":          map[string]any{"type": "string", "enum": []any{string(types.AnswerDiagramParticipantVisibilityRepairEnsureVisible)}},
+				"node_id":         map[string]any{"type": "string", "minLength": 1, "maxLength": 128},
+				"visible_label":   map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+			},
+			"required": []any{"participant_ref", "action", "node_id", "visible_label"},
+		})
+	}
 	participantEdits["minItems"] = 1
-	participantEdits["maxItems"] = len(lease.OptionalOrphanCleanups)
+	participantEdits["maxItems"] = len(lease.OptionalOrphanCleanups) + len(lease.ParticipantVisibilityFailures)
 	participantEdits["uniqueItems"] = true
 	participantEdits["items"] = map[string]any{"oneOf": branches}
 	return true
@@ -758,7 +785,7 @@ func stringsToAny(in []string) []any {
 
 func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
 	if lease == nil || lease.Version != 1 ||
-		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0) {
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0) {
 		return nil
 	}
 	diagramBlocks := make(map[string]bool, len(lease.Blocks))
@@ -773,8 +800,8 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 		}
 		diagramBlocks[id] = block.Kind == types.BlockDiagram
 	}
-	seen := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures))
-	out := make([]string, 0, len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures))
+	seen := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures)+len(lease.ParticipantVisibilityFailures))
+	out := make([]string, 0, len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures)+len(lease.ParticipantVisibilityFailures))
 	for _, failure := range lease.Failures {
 		id := strings.TrimSpace(failure.BlockID)
 		if id == "" || strings.TrimSpace(failure.FailureRef) == "" ||
@@ -814,6 +841,19 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 	for _, failure := range lease.ParticipantBoundaryFailures {
 		id := strings.TrimSpace(failure.BlockID)
 		if id == "" || strings.TrimSpace(failure.BoundaryRef) == "" || len(failure.AllowedBoundaryActions) == 0 {
+			return nil
+		}
+		if ambiguousBlocks[id] || !diagramBlocks[id] {
+			continue
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, failure := range lease.ParticipantVisibilityFailures {
+		id := strings.TrimSpace(failure.BlockID)
+		if id == "" || strings.TrimSpace(failure.ParticipantRef) == "" || len(failure.AllowedParticipantActions) == 0 {
 			return nil
 		}
 		if ambiguousBlocks[id] || !diagramBlocks[id] {
@@ -1209,10 +1249,12 @@ type emitAnswerDiagramRelationScopeEdit struct {
 }
 
 type emitAnswerDiagramParticipantEdit struct {
-	BlockID       string `json:"block_id"`
-	ParticipantID string `json:"participant_id"`
-	Action        string `json:"action"`
-	VisibleLabel  string `json:"visible_label,omitempty"`
+	BlockID        string `json:"block_id"`
+	ParticipantID  string `json:"participant_id"`
+	ParticipantRef string `json:"participant_ref"`
+	NodeID         string `json:"node_id"`
+	Action         string `json:"action"`
+	VisibleLabel   string `json:"visible_label,omitempty"`
 }
 
 // localDiagramLeaseWholeBlockMutationViolation guards the execution path as
@@ -1994,16 +2036,44 @@ func answerDiagramRelationRepairScopeRepair(
 		if raw, err := json.Marshal(delta); err == nil {
 			metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON] = string(raw)
 		}
-		if len(lease.ParticipantBoundaryFailures) > 0 {
+		if len(lease.ParticipantBoundaryFailures) > 0 || len(lease.ParticipantVisibilityFailures) > 0 {
 			participantDelta := struct {
-				Version    int                                                   `json:"version"`
-				Mismatches []types.AnswerDiagramParticipantBoundaryRepairFailure `json:"mismatches"`
+				Version    int `json:"version"`
+				Mismatches []struct {
+					BlockID                   string                                                 `json:"block_id"`
+					Participant               string                                                 `json:"participant"`
+					Issue                     string                                                 `json:"issue"`
+					BoundaryRef               string                                                 `json:"boundary_ref,omitempty"`
+					AllowedBoundaryActions    []types.AnswerDiagramParticipantBoundaryRepairAction   `json:"allowed_boundary_actions,omitempty"`
+					ParticipantRef            string                                                 `json:"participant_ref,omitempty"`
+					AllowedParticipantActions []types.AnswerDiagramParticipantVisibilityRepairAction `json:"allowed_participant_actions,omitempty"`
+				} `json:"mismatches"`
 			}{
 				Version: 1,
-				Mismatches: append(
-					[]types.AnswerDiagramParticipantBoundaryRepairFailure(nil),
-					lease.ParticipantBoundaryFailures...,
-				),
+			}
+			for _, failure := range lease.ParticipantBoundaryFailures {
+				participantDelta.Mismatches = append(participantDelta.Mismatches, struct {
+					BlockID                   string                                                 `json:"block_id"`
+					Participant               string                                                 `json:"participant"`
+					Issue                     string                                                 `json:"issue"`
+					BoundaryRef               string                                                 `json:"boundary_ref,omitempty"`
+					AllowedBoundaryActions    []types.AnswerDiagramParticipantBoundaryRepairAction   `json:"allowed_boundary_actions,omitempty"`
+					ParticipantRef            string                                                 `json:"participant_ref,omitempty"`
+					AllowedParticipantActions []types.AnswerDiagramParticipantVisibilityRepairAction `json:"allowed_participant_actions,omitempty"`
+				}{BlockID: failure.BlockID, Participant: failure.Participant, Issue: failure.Issue,
+					BoundaryRef: failure.BoundaryRef, AllowedBoundaryActions: failure.AllowedBoundaryActions})
+			}
+			for _, failure := range lease.ParticipantVisibilityFailures {
+				participantDelta.Mismatches = append(participantDelta.Mismatches, struct {
+					BlockID                   string                                                 `json:"block_id"`
+					Participant               string                                                 `json:"participant"`
+					Issue                     string                                                 `json:"issue"`
+					BoundaryRef               string                                                 `json:"boundary_ref,omitempty"`
+					AllowedBoundaryActions    []types.AnswerDiagramParticipantBoundaryRepairAction   `json:"allowed_boundary_actions,omitempty"`
+					ParticipantRef            string                                                 `json:"participant_ref,omitempty"`
+					AllowedParticipantActions []types.AnswerDiagramParticipantVisibilityRepairAction `json:"allowed_participant_actions,omitempty"`
+				}{BlockID: failure.BlockID, Participant: failure.Participant, Issue: failure.Issue,
+					ParticipantRef: failure.ParticipantRef, AllowedParticipantActions: failure.AllowedParticipantActions})
 			}
 			if raw, err := json.Marshal(participantDelta); err == nil {
 				metadata[types.ToolRepairMetaDiagramParticipantRepairDeltaJSON] = string(raw)

@@ -18158,10 +18158,7 @@ func answerDocRelationRepairLeaseMatchesDeltaRefs(
 		}
 	}
 	if !participantOK {
-		return len(lease.ParticipantBoundaryFailures) == 0
-	}
-	if len(lease.ParticipantBoundaryFailures) != len(participantDelta.Mismatches) {
-		return false
+		return len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0
 	}
 	boundaryRefs := make(map[string]bool, len(lease.ParticipantBoundaryFailures))
 	for _, row := range lease.ParticipantBoundaryFailures {
@@ -18171,12 +18168,36 @@ func answerDocRelationRepairLeaseMatchesDeltaRefs(
 		}
 		boundaryRefs[ref] = true
 	}
-	for _, row := range participantDelta.Mismatches {
-		if !boundaryRefs[strings.TrimSpace(row.BoundaryRef)] {
+	visibilityRefs := make(map[string]bool, len(lease.ParticipantVisibilityFailures))
+	for _, row := range lease.ParticipantVisibilityFailures {
+		ref := strings.TrimSpace(row.ParticipantRef)
+		if ref == "" || visibilityRefs[ref] {
 			return false
 		}
+		visibilityRefs[ref] = true
 	}
-	return true
+	seenBoundary := make(map[string]bool, len(boundaryRefs))
+	seenVisibility := make(map[string]bool, len(visibilityRefs))
+	for _, row := range participantDelta.Mismatches {
+		boundaryRef := strings.TrimSpace(row.BoundaryRef)
+		participantRef := strings.TrimSpace(row.ParticipantRef)
+		if boundaryRef != "" && participantRef != "" {
+			return false
+		}
+		if boundaryRef != "" {
+			if !boundaryRefs[boundaryRef] || seenBoundary[boundaryRef] {
+				return false
+			}
+			seenBoundary[boundaryRef] = true
+		}
+		if participantRef != "" {
+			if !visibilityRefs[participantRef] || seenVisibility[participantRef] {
+				return false
+			}
+			seenVisibility[participantRef] = true
+		}
+	}
+	return len(seenBoundary) == len(boundaryRefs) && len(seenVisibility) == len(visibilityRefs)
 }
 
 // answerDocumentPatchRejectIsDiagramCallEdge selects a typed diagram-only
@@ -18528,11 +18549,13 @@ func answerDocRequiredDiagramCallEdgePatchHint(ctx *types.AgentContext, alreadyP
 type answerDocDiagramParticipantRepairDelta struct {
 	Version    int `json:"version"`
 	Mismatches []struct {
-		BlockID                string                                               `json:"block_id,omitempty"`
-		Participant            string                                               `json:"participant"`
-		Issue                  string                                               `json:"issue"`
-		BoundaryRef            string                                               `json:"boundary_ref,omitempty"`
-		AllowedBoundaryActions []types.AnswerDiagramParticipantBoundaryRepairAction `json:"allowed_boundary_actions,omitempty"`
+		BlockID                   string                                                 `json:"block_id,omitempty"`
+		Participant               string                                                 `json:"participant"`
+		Issue                     string                                                 `json:"issue"`
+		BoundaryRef               string                                                 `json:"boundary_ref,omitempty"`
+		AllowedBoundaryActions    []types.AnswerDiagramParticipantBoundaryRepairAction   `json:"allowed_boundary_actions,omitempty"`
+		ParticipantRef            string                                                 `json:"participant_ref,omitempty"`
+		AllowedParticipantActions []types.AnswerDiagramParticipantVisibilityRepairAction `json:"allowed_participant_actions,omitempty"`
 	} `json:"mismatches"`
 	Actions           string `json:"actions,omitempty"`
 	Candidates        string `json:"candidates,omitempty"`
@@ -18603,13 +18626,18 @@ func installAnswerDocDiagramParticipantBoundaryRepairLease(ctx *types.AgentConte
 		current = primary.AnswerDiagramRelationRepairLease()
 	}
 	inputs := make([]types.AnswerDiagramParticipantBoundaryRepairFailure, 0, len(delta.Mismatches))
+	visibilityInputs := make([]types.AnswerDiagramParticipantVisibilityRepairFailure, 0, len(delta.Mismatches))
 	for _, mismatch := range delta.Mismatches {
 		inputs = append(inputs, types.AnswerDiagramParticipantBoundaryRepairFailure{
 			BlockID: mismatch.BlockID, Participant: mismatch.Participant, Issue: mismatch.Issue,
 		})
+		visibilityInputs = append(visibilityInputs, types.AnswerDiagramParticipantVisibilityRepairFailure{
+			BlockID: mismatch.BlockID, Participant: mismatch.Participant, Issue: mismatch.Issue,
+		})
 	}
 	lease := types.WithAnswerDiagramParticipantBoundaryRepairFailures(base, current, inputs)
-	if lease == nil || len(lease.ParticipantBoundaryFailures) == 0 {
+	lease = types.WithAnswerDiagramParticipantVisibilityRepairFailures(base, lease, visibilityInputs)
+	if lease == nil || (len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0) {
 		return false
 	}
 	byKey := make(map[string]types.AnswerDiagramParticipantBoundaryRepairFailure, len(lease.ParticipantBoundaryFailures))
@@ -18625,6 +18653,22 @@ func installAnswerDocDiagramParticipantBoundaryRepairLease(ctx *types.AgentConte
 			delta.Mismatches[i].BoundaryRef = failure.BoundaryRef
 			delta.Mismatches[i].AllowedBoundaryActions = append(
 				[]types.AnswerDiagramParticipantBoundaryRepairAction(nil), failure.AllowedBoundaryActions...,
+			)
+		}
+	}
+	visibilityByKey := make(map[string]types.AnswerDiagramParticipantVisibilityRepairFailure, len(lease.ParticipantVisibilityFailures))
+	for _, failure := range lease.ParticipantVisibilityFailures {
+		key := strings.ToLower(strings.TrimSpace(failure.BlockID)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(failure.Participant)) + "\x00" + strings.TrimSpace(failure.Issue)
+		visibilityByKey[key] = failure
+	}
+	for i := range delta.Mismatches {
+		key := strings.ToLower(strings.TrimSpace(delta.Mismatches[i].BlockID)) + "\x00" +
+			strings.ToLower(strings.TrimSpace(delta.Mismatches[i].Participant)) + "\x00" + strings.TrimSpace(delta.Mismatches[i].Issue)
+		if failure, exists := visibilityByKey[key]; exists {
+			delta.Mismatches[i].ParticipantRef = failure.ParticipantRef
+			delta.Mismatches[i].AllowedParticipantActions = append(
+				[]types.AnswerDiagramParticipantVisibilityRepairAction(nil), failure.AllowedParticipantActions...,
 			)
 		}
 	}
@@ -18709,10 +18753,13 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 	}
 	var b strings.Builder
 	hasBoundaryRefs := false
+	hasParticipantRefs := false
 	for _, mismatch := range participantDelta.Mismatches {
 		if strings.TrimSpace(mismatch.BoundaryRef) != "" && len(mismatch.AllowedBoundaryActions) > 0 {
 			hasBoundaryRefs = true
-			break
+		}
+		if strings.TrimSpace(mismatch.ParticipantRef) != "" && len(mismatch.AllowedParticipantActions) > 0 {
+			hasParticipantRefs = true
 		}
 	}
 	b.WriteString(prefix)
@@ -18723,6 +18770,9 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 		b.WriteString(" by one local participant-coverage defect whose exact typed candidate now has a current-generation atomic addition capability. ")
 	} else {
 		b.WriteString(" by two independent local defects in the same required diagram: participant coverage and typed relation authority. ")
+	}
+	if hasParticipantRefs {
+		b.WriteString("For each participant_delta row with participant_ref, use its exact current `diagram_participant_edits` ensure_visible branch and author node_id plus visible_label. That branch inserts one disconnected declaration only; it does not authorize an edge, anchor, relation, direction, or conclusion. ")
 	}
 	b.WriteString(action)
 	if len(relationDelta.Failures) == 0 {
@@ -18771,16 +18821,22 @@ func answerDocRequiredDiagramParticipantDeltaPatchHint(result *types.ToolResult,
 	b.WriteString(" by a local required-diagram participant/edge mismatch. ")
 	b.WriteString(action)
 	hasBoundaryRefs := false
+	hasParticipantRefs := false
 	for _, mismatch := range delta.Mismatches {
 		if strings.TrimSpace(mismatch.BoundaryRef) != "" && len(mismatch.AllowedBoundaryActions) > 0 {
 			hasBoundaryRefs = true
-			break
+		}
+		if strings.TrimSpace(mismatch.ParticipantRef) != "" && len(mismatch.AllowedParticipantActions) > 0 {
+			hasParticipantRefs = true
 		}
 	}
 	if hasBoundaryRefs {
 		b.WriteString("; use `diagram_boundary_edits` for every mismatch row that publishes a boundary_ref/action branch, and combine it with `diagram_edge_edits` only when you explicitly select one of the typed candidates below. The current tool schema is the executable authority; do not replace the whole participant_boundaries array or re-emit the diagram through `replace_blocks` when a local ref is published. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Apply only the producer-owned delta below. Preserve every visible edge, anchor, and unmentioned boundary. A candidate is an existing typed choice, not a required edge: select at most one candidate needed for each failed participant, keep its canonical identities/relation kind/direction, and author the visible business wording yourself. If no candidate applies and no boundary ref is published, keep the participant visible and follow the typed structural action without inventing a bridge. Action names, issue values, refs, recipe indexes, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
 	} else {
 		b.WriteString("; prefer `diagram_boundary_replacements` when only participant_boundaries change, and combine it with `diagram_edge_edits` only when you explicitly select one of the typed candidates below. Do not re-emit the whole diagram in `replace_blocks` for this local repair. Retain unrelated blocks through `unchanged_block_ids` and preserve inherited citations. Apply only the producer-owned delta below. Preserve every visible edge and anchor not named by the immediately preceding tool error; that error remains the authority for any separately listed failing edge pair. A candidate is an existing typed choice, not a required edge: select at most one candidate needed for each failed participant, copy its canonical identities/relation kind/direction unchanged, and author the visible business wording yourself. If no candidate applies, keep the participant visible and use the delta's unproven-boundary action instead of inventing a bridge. Action names, issue values, recipe indexes, and source locations are repair metadata and must not become visible diagram wording.\n\n```json\n")
+	}
+	if hasParticipantRefs {
+		b.WriteString(" For every row that publishes participant_ref, use the exact current `diagram_participant_edits` ensure_visible branch and author node_id plus visible_label. This is a declaration-only capability: it creates no edge, anchor, relation, direction, or conclusion.")
 	}
 	b.WriteString(raw)
 	b.WriteString("\n```\n\n")
