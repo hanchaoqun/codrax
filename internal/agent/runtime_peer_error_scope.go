@@ -6,6 +6,33 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// renderAnalyzerPeerErrorClassificationBoundary exposes the validated
+// top-level error topology before the analyzer chooses a request shape.  It is
+// deliberately soft guidance: the model still owns intent and breadth.  The
+// carrier prevents independently printed stacks from being mistaken for one
+// source-code call chain merely because their messages or frame names look
+// related.
+func renderAnalyzerPeerErrorClassificationBoundary(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	bundle := ctx.LogTriage
+	if bundle == nil && ctx.Mutable != nil {
+		bundle = ctx.Mutable.LogTriage()
+	}
+	if bundle == nil || len(bundle.Errors) < 2 {
+		return ""
+	}
+	return strings.Join([]string{
+		"## Validated Runtime Error Topology",
+		"",
+		"- The attached artifact contains multiple top-level peer error occurrences. This topology is already validated; frames inside one occurrence preserve only that occurrence's stack order.",
+		"- Do not classify a source-code call chain, wrapper chain, propagation path, or cross-stack root cause from adjacency, similar messages, language-bridge names, or frame order across peer occurrences.",
+		"- Choose answer breadth from the current request. A request for each occurrence's type, message, or frame location is a coherent `bounded_fact_set` with `other_observed_value`; a genuine causal-diagnosis request may remain broad but must preserve that the cross-occurrence relation is unproven unless an explicit artifact relation exists.",
+		"",
+	}, "\n")
+}
+
 // runtimePeerErrorBoundedFactSet is the shared typed carrier for a finite
 // per-occurrence runtime-log question. It deliberately reads neither the user
 // request nor any model/final prose: the analyzer-owned runtime scope says the

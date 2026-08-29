@@ -419,7 +419,7 @@ func materializedUserCaveatBulletsForBus(violations []types.Violation, lang stri
 	if len(filtered) == 0 {
 		return nil
 	}
-	return MaterializeUnresolvedViolationsAsCaveats(filtered, lang)
+	return materializeUnresolvedViolationsAsCaveatsForBus(filtered, lang, ctx)
 }
 
 // AppendSoftContractCaveatsToAnswer appends user-facing caveats only
@@ -512,7 +512,7 @@ func softContractCaveatBulletsForBusFiltered(violations []types.Violation, lang 
 				caveats = append(caveats, boundary)
 			}
 		}
-		return append(caveats, MaterializeUnresolvedViolationsAsCaveats(remaining, lang)...)
+		return append(caveats, materializeUnresolvedViolationsAsCaveatsForBus(remaining, lang, ctx)...)
 	}
 	if historyNarrativeCaveatContext(ctx) {
 		remaining := filterPureHistoryNarrativeCaveats(soft)
@@ -520,13 +520,126 @@ func softContractCaveatBulletsForBusFiltered(violations []types.Violation, lang 
 		if len(remaining) == 0 {
 			return nil
 		}
-		return MaterializeUnresolvedViolationsAsCaveats(remaining, lang)
+		return materializeUnresolvedViolationsAsCaveatsForBus(remaining, lang, ctx)
 	}
 	soft = suppressGenericSoftCaveatsForAcceptedSurface(soft, ctx)
 	if len(soft) == 0 {
 		return nil
 	}
-	return MaterializeUnresolvedViolationsAsCaveats(soft, lang)
+	return materializeUnresolvedViolationsAsCaveatsForBus(soft, lang, ctx)
+}
+
+// materializeUnresolvedViolationsAsCaveatsForBus distinguishes two authorities
+// which used to be collapsed by ViolDeniedTokenUndeclared:
+//
+//   - a name that has no current evidence at all; and
+//   - an exact file token observed in the attached runtime artifact which is
+//     intentionally denied as a current-repository read/citation target.
+//
+// The second token is authoritative as an artifact-local location even though
+// it is not a repository source location.  Preserve the L1 tool denial, but do
+// not tell the user that the attachment itself failed to verify the token.  A
+// model-authored typed uncertainty block already carries that boundary; when it
+// is absent, emit one precise system boundary instead.  This consumes only the
+// validated LogBundle and the typed answer-document shape -- never request or
+// answer prose.
+func materializeUnresolvedViolationsAsCaveatsForBus(violations []types.Violation, lang string, ctx *types.BusContext) []string {
+	remaining, artifactFiles := splitArtifactLocalFrameDeniedTokenViolations(violations, ctx)
+	out := MaterializeUnresolvedViolationsAsCaveats(remaining, lang)
+	if len(artifactFiles) == 0 || answerDocumentHasArtifactLocationBoundary(ctx) || len(out) >= MaxMaterializedCaveats {
+		return out
+	}
+	return append(out, artifactLocationBoundaryCaveat(artifactFiles, lang))
+}
+
+func splitArtifactLocalFrameDeniedTokenViolations(violations []types.Violation, ctx *types.BusContext) (remaining []types.Violation, artifactFiles []string) {
+	if len(violations) == 0 {
+		return nil, nil
+	}
+	bundle := logBundleForCaveatContext(ctx)
+	if bundle == nil {
+		return violations, nil
+	}
+	known := make(map[string]bool)
+	types.WalkLogFrames(bundle, func(frame types.LogFrame) {
+		if token := strings.TrimSpace(frame.ArtifactFile); token != "" {
+			known[token] = true
+		}
+	})
+	if len(known) == 0 {
+		return violations, nil
+	}
+	seen := make(map[string]bool)
+	remaining = make([]types.Violation, 0, len(violations))
+	for _, v := range violations {
+		token := ""
+		if v.Kind == types.ViolDeniedTokenUndeclared {
+			token = parseDeniedTokenViolationDetail(v.Detail)
+		}
+		if !known[token] {
+			remaining = append(remaining, v)
+			continue
+		}
+		if !seen[token] {
+			seen[token] = true
+			artifactFiles = append(artifactFiles, token)
+		}
+	}
+	sort.Strings(artifactFiles)
+	return remaining, artifactFiles
+}
+
+func logBundleForCaveatContext(ctx *types.BusContext) *types.LogBundle {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	return ctx.Mutable.LogTriage()
+}
+
+func answerDocumentHasArtifactLocationBoundary(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	doc := ctx.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockCaveat {
+			continue
+		}
+		for _, facet := range block.FacetIDs {
+			if facet == string(types.FacetUncertaintyBoundary) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func artifactLocationBoundaryCaveat(files []string, lang string) string {
+	shown := files
+	more := false
+	if len(shown) > 3 {
+		shown = shown[:3]
+		more = true
+	}
+	quoted := make([]string, 0, len(shown))
+	for _, file := range shown {
+		quoted = append(quoted, "`"+file+"`")
+	}
+	if isChineseLang(lang) {
+		suffix := ""
+		if more {
+			suffix = "等"
+		}
+		return "路径 " + strings.Join(quoted, "、") + suffix + " 来自附加运行时日志，可作为附件内的精确栈帧位置；它们尚未映射到当前仓库，因此不是当前仓库源码引用。"
+	}
+	suffix := ""
+	if more {
+		suffix = " and others"
+	}
+	return "The paths " + strings.Join(quoted, ", ") + suffix + " are exact stack-frame locations from the attached runtime log; they are not mapped to the current repository and are not current-source citations."
 }
 
 func suppressRuntimeObservationOnlyLowPrecisionCaveats(violations []types.Violation, ctx *types.BusContext) []types.Violation {

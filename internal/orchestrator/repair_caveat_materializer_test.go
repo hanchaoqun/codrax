@@ -403,6 +403,94 @@ func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsDenied
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_ArtifactLocalFrameUsesTypedBoundary(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	const artifactFile = "entry/src/main/ets/bridges/NativeBridge.ets"
+	ctx := runtimeAnswerSurfaceOnlyCaveatTestContext(false)
+	ctx.Mutable.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Frames: []types.LogFrame{{
+		ArtifactFile: artifactFile,
+		Line:         33,
+		Func:         "NativeBridge.invokeOhSum",
+	}}}}})
+	doc := ctx.Mutable.AnswerDocumentV2()
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:   "unannotated",
+		Kind: types.BlockSection,
+		Text: "mixed current-source context",
+	})
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:       "boundary",
+		Kind:     types.BlockCaveat,
+		Text:     "这些位置来自附加日志，未映射到当前仓库。",
+		FacetIDs: []string{string(types.FacetUncertaintyBoundary)},
+	})
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文已有边界", []types.Violation{{
+		Kind:       types.ViolDeniedTokenUndeclared,
+		Detail:     `answer block "summary" names token "` + artifactFile + `" without disclosing it as unverified / external`,
+		ClusterKey: "denied_token_undeclared:summary",
+	}}, "zh", ctx)
+	if out != "正文已有边界" {
+		t.Fatalf("typed artifact boundary must suppress a duplicate denied-token caveat:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_ArtifactLocalFrameGetsPreciseBoundary(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	const artifactFile = "src/bridge/Bridge.cj"
+	ctx := runtimeAnswerSurfaceOnlyCaveatTestContext(false)
+	ctx.Mutable.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Frames: []types.LogFrame{{
+		ArtifactFile: artifactFile,
+		Line:         18,
+		Func:         "demo.bridge.ohSum",
+	}}}}})
+	doc := ctx.Mutable.AnswerDocumentV2()
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: "unannotated", Kind: types.BlockSection, Text: "mixed current-source context"})
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolDeniedTokenUndeclared,
+		Detail:     `answer block "summary" names token "` + artifactFile + `" without disclosing it as unverified / external`,
+		ClusterKey: "denied_token_undeclared:summary",
+	}}, "zh", ctx)
+	for _, want := range []string{"**补充说明：**", artifactFile, "来自附加运行时日志", "不是当前仓库源码引用"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("precise artifact-local boundary missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "尚未由当前证据确认") {
+		t.Fatalf("artifact-local evidence must not be described as absent evidence:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_UnrelatedDeniedTokenKeepsVerificationCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	ctx := runtimeAnswerSurfaceOnlyCaveatTestContext(false)
+	ctx.Mutable.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Frames: []types.LogFrame{{
+		ArtifactFile: "src/bridge/Bridge.cj",
+		Line:         18,
+	}}}}})
+	doc := ctx.Mutable.AnswerDocumentV2()
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{ID: "unannotated", Kind: types.BlockSection, Text: "mixed current-source context"})
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{{
+		Kind:       types.ViolDeniedTokenUndeclared,
+		Detail:     `answer block "summary" names token "not-observed.go" without disclosing it as unverified / external`,
+		ClusterKey: "denied_token_undeclared:summary",
+	}}, "zh", ctx)
+	if !strings.Contains(out, "not-observed.go") || !strings.Contains(out, "尚未由当前证据确认") {
+		t.Fatalf("unrelated denial must keep the conservative verification caveat:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_RuntimeAnswerSurfaceKeepsUncertaintyForMixedBlocks(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)

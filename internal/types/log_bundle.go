@@ -8,7 +8,7 @@ import "strings"
 // serializing native collections twice or treating the recursive cause pointer
 // as a peer-error array. Runtime decoding remains fail-closed unless a malformed
 // carrier can be repaired without changing this tree shape.
-const LogTriageJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one JSON object; meta, errors[].cause, and errors[].cause_relation are native objects, while errors, every frames field, observations, meta.signals, and unknown_chunks are native arrays. Never quote or escape an object/array as a JSON string. errors[].cause is one recursive error object, never an array; every cause requires a sibling cause_relation object carrying a verbatim explicit artifact marker; independent error occurrences are separate errors[] entries."
+const LogTriageJSONShapeFirstTeaching = "JSON SHAPE FIRST: emit one JSON object; meta, errors[].cause, and errors[].cause_relation are native objects, while errors, every frames field, observations, meta.signals, and unknown_chunks are native arrays. Never quote or escape an object/array as a JSON string. errors[].cause is one recursive error object, never an array; every cause requires a sibling cause_relation object carrying a verbatim explicit artifact marker. Adjacent top-level error headers are separate errors[] entries unless the artifact prints a supported explicit chain marker; similar messages, bridge/native wording, timestamps, and visual adjacency do not create cause. Do not duplicate an error header or its stack as an observation merely to restate an errors[] entry."
 
 // LogBundle is the validated output of the log_triage pre-stage.
 // It carries the LLM's structured view of the user-attached runtime

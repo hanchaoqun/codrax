@@ -130,25 +130,25 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	}
 
 	if observationOnlyRuntimeArtifactForAnalyzer(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeObservationOnlyShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeObservationOnlyShortcut()+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if runtimeArtifactWithoutRequiredSourceForAnalyzer(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeSourceOptionalShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeSourceOptionalShortcut()+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if runtimeArtifactAttachmentPendingAnalysisForAnalyzer(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerAttachedRuntimeArtifactShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerAttachedRuntimeArtifactShortcut()+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if runtimeArtifactPreflightForAnalyzer(ctx).SourceNavigationOptionalForAnalyze() {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if explicitRuntimeArtifactPathInObjective(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeArtifactPathShortcut()+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if externalObservationFirstTurnHintForAnalyzer(ctx) {
-		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExternalObservationFirstShortcut(ctx.TurnRouteHint)))
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExternalObservationFirstShortcut(ctx.TurnRouteHint)+renderAnalyzerPeerErrorClassificationBoundary(ctx)))
 	}
 	if structuredWriteRouteForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerStructuredWriteRouteShortcut(ctx)))
