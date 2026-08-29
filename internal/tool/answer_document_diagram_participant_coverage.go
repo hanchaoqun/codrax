@@ -2473,6 +2473,7 @@ func diagramRelationRepairAllowedAdditions(
 				Source: strings.TrimSpace(candidate.source),
 			}
 			bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+			bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&row, doc, evidence)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
 				row.FromIdentity + "\x00" + row.ToIdentity)
 			if _, exists := seen[key]; exists {
@@ -2539,6 +2540,7 @@ func diagramRelationRepairAllowedAdditions(
 		for _, blockID := range targets {
 			row := newDiagramRelationRepairCandidate(blockID, candidate)
 			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
+			bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&row, doc, evidence)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
 				row.FromIdentity + "\x00" + row.ToIdentity)
 			if index, exists := seen[key]; exists {
@@ -2549,11 +2551,17 @@ func diagramRelationRepairAllowedAdditions(
 			out = append(out, row)
 			if len(out) >= totalLimit {
 				normalizeParticipantSides()
+				for i := range out {
+					bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&out[i], doc, evidence)
+				}
 				return out
 			}
 		}
 	}
 	normalizeParticipantSides()
+	for i := range out {
+		bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&out[i], doc, evidence)
+	}
 	return out
 }
 
@@ -2592,6 +2600,79 @@ func bindDiagramRelationRepairCandidateTechnicalNodeIDs(row *types.AnswerDiagram
 	}
 	if alias := mermaidcompat.CanonicalFlowchartNodeID(toIdentity); alias != "" && alias != toIdentity {
 		row.ToNodeIDs = append(row.ToNodeIDs, alias)
+	}
+}
+
+// bindDiagramRelationRepairCandidateExistingTypedNodeIDs carries a Mermaid
+// node alias only when the current block declares it and the accepted evidence
+// resolves that declaration to one unique code identity on the candidate's
+// exact endpoint side. This makes an executable repair use the same alias
+// authority as the ordinary relation validator instead of forcing the model to
+// create a duplicate technical node. Message payloads, request text, answer
+// prose, and fuzzy label similarity never participate. A class/owner label is
+// deliberately insufficient for one of its methods: only equivalent or
+// unambiguous qualified/unqualified identity surfaces are admitted.
+func bindDiagramRelationRepairCandidateExistingTypedNodeIDs(
+	row *types.AnswerDiagramRelationRepairCandidate,
+	doc *types.AnswerDocumentV2,
+	evidence []types.EvidenceItem,
+) {
+	if row == nil || doc == nil || len(evidence) == 0 ||
+		strings.TrimSpace(row.BlockID) == "" {
+		return
+	}
+	appendUnique := func(values []string, additions ...string) []string {
+		seen := make(map[string]bool, len(values)+len(additions))
+		out := make([]string, 0, len(values)+len(additions))
+		for _, raw := range append(append([]string(nil), values...), additions...) {
+			value := strings.TrimSpace(raw)
+			key := strings.ToLower(value)
+			if value == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, value)
+		}
+		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+		return out
+	}
+	binds := func(resolved, endpoint string) bool {
+		return types.AnswerCodeIdentitySurfacesEquivalent(resolved, endpoint) ||
+			types.AnswerCodeIdentitySurfacesCompatible(resolved, endpoint)
+	}
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(row.BlockID) ||
+			block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind)
+		nodeIDs := make([]string, 0, len(labels))
+		for nodeID := range labels {
+			nodeIDs = append(nodeIDs, nodeID)
+		}
+		sort.Slice(nodeIDs, func(i, j int) bool { return strings.ToLower(nodeIDs[i]) < strings.ToLower(nodeIDs[j]) })
+		var fromMatches, toMatches []string
+		for _, nodeID := range nodeIDs {
+			resolved, ok := diagramEvidenceExactNodeIdentity(nodeID, labels, evidence)
+			if !ok {
+				continue
+			}
+			if binds(resolved, row.FromIdentity) {
+				fromMatches = append(fromMatches, nodeID)
+			}
+			if binds(resolved, row.ToIdentity) {
+				toMatches = append(toMatches, nodeID)
+			}
+		}
+		// A short endpoint such as collect_files may be compatible with more
+		// than one qualified declaration. Do not let that tail match choose an
+		// alias; an executable permission is added only for one unique node.
+		if len(fromMatches) == 1 {
+			row.FromNodeIDs = appendUnique(row.FromNodeIDs, fromMatches[0])
+		}
+		if len(toMatches) == 1 {
+			row.ToNodeIDs = appendUnique(row.ToNodeIDs, toMatches[0])
+		}
 	}
 }
 

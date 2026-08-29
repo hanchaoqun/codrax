@@ -2390,6 +2390,130 @@ func TestDiagramRelationRepairCandidatePublishesStableSafeTechnicalEndpointIDs(t
 	}
 }
 
+func TestDiagramRelationRepairCandidateCarriesExistingEvidenceBoundAliasAcrossDiagramFamilies(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			ID: "ev-run-collect", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+			Subject: "run", Object: "walker::collect_files", Predicate: "calls",
+			Source: "src/main.rs", LineStart: 20, LineEnd: 20,
+			AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "ev-collect-walk", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+			Subject: "collect_files", Object: "walk", Predicate: "calls",
+			Source: "src/walker.rs", LineStart: 6, LineEnd: 6,
+			AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	for _, tc := range []struct {
+		name string
+		kind types.DiagramKind
+		body string
+	}{
+		{
+			name: "sequence participant alias", kind: types.DiagramSequence,
+			body: "sequenceDiagram\n    participant walker as \"walker::collect_files\"\n    participant walk\n",
+		},
+		{
+			name: "flow node alias", kind: types.DiagramFlow,
+			body: "flowchart LR\n    walker[walker::collect_files]\n    walk[walk]\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+				ID: "call-diagram", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: tc.kind, Language: "mermaid", Body: tc.body},
+			}}}
+			got := diagramRelationRepairAllowedAdditions(
+				doc, types.RequestModel{}, evidence, nil, []string{"call-diagram"},
+				[]preEmitStandaloneRelationRepairCandidate{{
+					relation: types.DiagramRelCall, from: "collect_files", to: "walk",
+					evidenceID: "ev-collect-walk", source: "src/walker.rs:6", blockIDs: []string{"call-diagram"},
+				}}, 8,
+			)
+			if len(got) != 1 {
+				t.Fatalf("production candidate provider returned %+v", got)
+			}
+			candidate := got[0]
+			if !atomicDiagramNodeIDListed("walker", candidate.FromNodeIDs) ||
+				!atomicDiagramNodeIDListed("walk", candidate.ToNodeIDs) {
+				t.Fatalf("existing evidence-bound aliases were not published on their exact sides: %+v", candidate)
+			}
+			candidate.AdditionRef = "ra1-existing-alias"
+			edge := types.DiagramEdgeAnchor{
+				FromNode: "walker", ToNode: "walk", FromIdentity: candidate.FromIdentity,
+				ToIdentity: candidate.ToIdentity, RelationKind: candidate.RelationKind,
+			}
+			if err := validateAtomicDiagramAdditionEndpointBindings(
+				&doc.Blocks[0], &edge, &candidate, nil,
+			); err != nil {
+				t.Fatalf("the producer-listed existing alias must be executable: %v", err)
+			}
+		})
+	}
+}
+
+func TestDiagramRelationRepairCandidateRejectsVisibleAliasWithoutUniqueTypedBinding(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "call-diagram", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant walker as \"walker::collect_files\"\n    participant walk\n",
+		},
+	}}}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "call-diagram", RelationKind: types.DiagramRelCall,
+		FromIdentity: "collect_files", ToIdentity: "walk", Source: "src/walker.rs:6",
+	}
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&candidate, doc, nil)
+	if atomicDiagramNodeIDListed("walker", candidate.FromNodeIDs) ||
+		atomicDiagramNodeIDListed("walk", candidate.ToNodeIDs) {
+		t.Fatalf("reader-visible declarations without unique typed evidence must not become executable authority: %+v", candidate)
+	}
+}
+
+func TestDiagramRelationRepairCandidateRejectsAmbiguousQualifiedAliases(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "call-diagram", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant left as \"left::collect_files\"\n    participant right as \"right::collect_files\"\n    participant walk\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		{
+			ID: "ev-left", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+			Subject: "caller", Object: "left::collect_files", Predicate: "calls",
+			Source: "src/left.rs", LineStart: 6, LineEnd: 6,
+			AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "ev-right", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+			Subject: "caller", Object: "right::collect_files", Predicate: "calls",
+			Source: "src/right.rs", LineStart: 6, LineEnd: 6,
+			AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID: "ev-edge", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+			Subject: "collect_files", Object: "walk", Predicate: "calls",
+			Source: "src/walker.rs", LineStart: 6, LineEnd: 6,
+			AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "call-diagram", RelationKind: types.DiagramRelCall,
+		FromIdentity: "collect_files", ToIdentity: "walk", Source: "src/walker.rs:6",
+	}
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&candidate, doc, evidence)
+	if atomicDiagramNodeIDListed("left", candidate.FromNodeIDs) ||
+		atomicDiagramNodeIDListed("right", candidate.FromNodeIDs) {
+		t.Fatalf("an unqualified endpoint must not select among multiple qualified aliases: %+v", candidate)
+	}
+	if !atomicDiagramNodeIDListed("walk", candidate.ToNodeIDs) {
+		t.Fatalf("the independently unique destination alias should remain available: %+v", candidate)
+	}
+}
+
 func TestDiagramRelationRepairDeltaPublishesAdditionsOnlyForDiagramCarriers(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
 		{ID: "diagram-1", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
