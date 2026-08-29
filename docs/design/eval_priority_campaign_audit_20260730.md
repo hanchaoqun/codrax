@@ -57372,13 +57372,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
     扩展必须按 family adapter + parser round-trip + renderer 自愈矩阵增加。该边界是泛化安全限制，不是针对 BusContext/Mutable 的特判。
 11. 新回归钉住四层接线：typed capability 铸造/跨代失效、动态 schema 仅一 exact branch、原子执行只增 declaration 且边/anchor/boundary 字节不变、full/patch reject
     均把同一 live ref 带回模型。相关 `mermaidcompat/types/tool/agent` 完整套件已通过；全仓与正式构建正在本批提交前执行。
+12. B1433 已按 prose-only 显示恢复施工。summary/section/list 引导正文、decision、diagram 图注、caveat 与列表说明中的字面双转义段落符
+    `\\n\\n` 在最终 Markdown 中恢复为真实空行；scalar、表格/单元格、关系标签、证据值、代码 snippet 和 Mermaid body 仍走原字节保真车道。
+    prose 内的 inline code 与 fenced code 也明确跳过。该逻辑只识别 JSON 布局转义的精确字节形，不按请求、答案语义、关键词或模型结论决定是否改写，
+    不产生、删除或重排任何事实。新增回归同时钉住正文恢复与 scalar/Mermaid/snippet/inline/fence 不变。
 
 状态：
 
 `r918=runner-pass-1/2,human-write-fail+read-partial`；
 `B1431=implemented/full-suite-pass/build-pass/pending-production-replay`；
 `B1432=implemented/full-suite-pass/build-pass/pending-production-replay`；
-`B1433=confirmed/pending`；
+`B1433=implemented/full-suite-pass/build-pass/pending-production-replay`；
 `write-read-budget=successful-content-acquisition+independent-failure-cap`；
 `missing-path-relocation=unique-existing-typed-candidate/advisory-only`；
 `system-plan/path/answer/conclusion/edge/node/label/layout-selection=none`；

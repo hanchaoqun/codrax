@@ -348,7 +348,7 @@ func renderV2BlockSummary(b *strings.Builder, blk types.AnswerBlock, _ answerDoc
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "## %s\n\n", blk.Title)
 	}
-	if text := renderUserSurfaceText(blk.Text); text != "" {
+	if text := renderUserSurfaceProseText(blk.Text); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
@@ -369,7 +369,7 @@ func renderV2BlockSection(b *strings.Builder, blk types.AnswerBlock, doc *types.
 	} else {
 		fmt.Fprintf(b, "### %s\n\n", heading)
 	}
-	if text := renderUserSurfaceText(blk.Text); text != "" {
+	if text := renderUserSurfaceProseText(blk.Text); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
@@ -396,7 +396,7 @@ func renderV2BlockOrderedList(b *strings.Builder, blk types.AnswerBlock, doc *ty
 	if heading := renderV2ListHeading(blk, lang); heading != "" {
 		renderV2ListOrTableHeading(b, blk, heading)
 	}
-	if text := renderUserSurfaceText(blk.Text); text != "" {
+	if text := renderUserSurfaceProseText(blk.Text); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
@@ -418,7 +418,7 @@ func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *typ
 	if heading := renderV2ListHeading(blk, lang); heading != "" {
 		renderV2ListOrTableHeading(b, blk, heading)
 	}
-	if text := renderUserSurfaceText(blk.Text); text != "" {
+	if text := renderUserSurfaceProseText(blk.Text); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
@@ -600,7 +600,7 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	if lang == answerDocLangZH {
 		prefix = "结论："
 	}
-	body := renderUserSurfaceText(blk.Text)
+	body := renderUserSurfaceProseText(blk.Text)
 	if blk.CurrentStatusVerdict != "" {
 		rawVerdict := string(blk.CurrentStatusVerdict)
 		body = stripLeadingDecisionVerdict(body, rawVerdict)
@@ -1100,7 +1100,7 @@ func renderV2BlockDiagram(b *strings.Builder, blk types.AnswerBlock, lang answer
 	if strings.TrimSpace(blk.Title) != "" {
 		fmt.Fprintf(b, "**%s**\n\n", blk.Title)
 	}
-	if text := renderUserSurfaceText(blk.Text); text != "" {
+	if text := renderUserSurfaceProseText(blk.Text); text != "" {
 		b.WriteString(text)
 		b.WriteString("\n\n")
 	}
@@ -1586,7 +1586,7 @@ func diagramBodyDedupKey(body string) string {
 }
 
 func renderV2BlockCaveat(b *strings.Builder, blk types.AnswerBlock, _ answerDocLang) {
-	body := renderUserSurfaceText(blk.Text)
+	body := renderUserSurfaceProseText(blk.Text)
 	if body == "" {
 		return
 	}
@@ -1608,7 +1608,7 @@ func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ 
 	if l := renderUserSurfaceText(it.Label); l != "" {
 		parts = append(parts, "**"+l+"**")
 	}
-	if t := renderUserSurfaceText(it.Text); t != "" {
+	if t := renderUserSurfaceProseText(it.Text); t != "" {
 		parts = append(parts, t)
 	}
 	if len(parts) == 0 && len(it.Cells) > 0 {
@@ -1791,6 +1791,92 @@ func renderUserSurfaceText(s string) string {
 	s = StripAuthorityArtifactsForRender(s)
 	s = normalizeMermaidFencesForAnswerMarkdown(s)
 	return strings.TrimSpace(s)
+}
+
+// renderUserSurfaceProseText performs one display-only recovery that is safe
+// for narrative fields: JSON models occasionally emit the four literal bytes
+// `\\n\\n` where they meant a Markdown paragraph break.  The structured value
+// remains untouched; only its rendered prose form receives real newlines.
+//
+// This intentionally is not part of renderUserSurfaceText. Scalar values,
+// table cells, relation labels, evidence literals, snippets, and Mermaid bodies
+// must remain byte-faithful. Inline and fenced code inside a prose field are
+// likewise excluded so a visible escape sequence in an example is preserved.
+func renderUserSurfaceProseText(s string) string {
+	s = renderUserSurfaceText(s)
+	return strings.TrimSpace(normalizeLiteralParagraphEscapesInProse(s))
+}
+
+func normalizeLiteralParagraphEscapesInProse(s string) string {
+	if !strings.Contains(s, `\n\n`) {
+		return s
+	}
+
+	var out strings.Builder
+	out.Grow(len(s))
+	inFence := false
+	var fenceChar byte
+	fenceWidth := 0
+	inlineTicks := 0
+
+	for _, line := range strings.SplitAfter(s, "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		if width, ch := markdownFenceMarker(trimmed); width >= 3 {
+			if !inFence {
+				inFence = true
+				fenceChar = ch
+				fenceWidth = width
+			} else if ch == fenceChar && width >= fenceWidth {
+				inFence = false
+				fenceChar = 0
+				fenceWidth = 0
+			}
+			out.WriteString(line)
+			continue
+		}
+		if inFence {
+			out.WriteString(line)
+			continue
+		}
+
+		for i := 0; i < len(line); {
+			if line[i] == '`' {
+				j := i + 1
+				for j < len(line) && line[j] == '`' {
+					j++
+				}
+				width := j - i
+				if inlineTicks == 0 {
+					inlineTicks = width
+				} else if inlineTicks == width {
+					inlineTicks = 0
+				}
+				out.WriteString(line[i:j])
+				i = j
+				continue
+			}
+			if inlineTicks == 0 && strings.HasPrefix(line[i:], `\n\n`) {
+				out.WriteString("\n\n")
+				i += len(`\n\n`)
+				continue
+			}
+			out.WriteByte(line[i])
+			i++
+		}
+	}
+	return out.String()
+}
+
+func markdownFenceMarker(line string) (int, byte) {
+	if len(line) < 3 || (line[0] != '`' && line[0] != '~') {
+		return 0, 0
+	}
+	ch := line[0]
+	i := 1
+	for i < len(line) && line[i] == ch {
+		i++
+	}
+	return i, ch
 }
 
 func normalizeMermaidFencesForAnswerMarkdown(text string) string {
