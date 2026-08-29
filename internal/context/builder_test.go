@@ -4776,6 +4776,21 @@ func TestBundleHasAuthoritativeCrashFrames_ResolutionThreshold(t *testing.T) {
 		{name: "2 of 5 (≥2 absolute)", bundle: mk([]string{"a", "b"}, 5), want: true},
 		{name: "3 of 5 (≥50%)", bundle: mk([]string{"a", "b", "c"}, 5), want: true},
 		{name: "header-only crash", bundle: mk([]string{"a"}, 0), want: true},
+		{name: "external artifact 1 of 5 low rate", bundle: &types.LogBundle{
+			Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			Errors: []types.LogError{{Frames: []types.LogFrame{
+				{ArtifactFile: "external/a.go", Line: 10}, {}, {}, {}, {},
+			}}},
+		}, want: false},
+		{name: "external artifact majority is authoritative", bundle: &types.LogBundle{
+			Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			Errors: []types.LogError{{Frames: []types.LogFrame{
+				{ArtifactFile: "external/a.go", Line: 10},
+				{ArtifactFile: "external/b.go", Line: 20},
+				{ArtifactFile: "external/c.go", Line: 30},
+				{},
+			}}},
+		}, want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -4783,6 +4798,25 @@ func TestBundleHasAuthoritativeCrashFrames_ResolutionThreshold(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestShouldSuppressAttachedRuntimeLog_CompleteExternalStructuredFrames(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{{Frames: []types.LogFrame{
+			{ArtifactFile: "entry/src/main/ets/NativeBridge.ets", Line: 33},
+			{ArtifactFile: "src/bridge/Bridge.cj", Line: 18},
+		}}},
+	}
+	if !bundle.IsExternalSource() {
+		t.Fatal("fixture must exercise an external structured log")
+	}
+	if !shouldSuppressAttachedRuntimeLog(&types.AgentContext{AgentName: types.AgentAnalyzer, LogTriage: bundle}) {
+		t.Fatal("complete artifact-local frame bundle should suppress the weaker raw-log channel")
+	}
+	if shouldSuppressAttachedRuntimeLog(&types.AgentContext{AgentName: types.AgentLogTriager, LogTriage: bundle}) {
+		t.Fatal("log producer must still receive the raw attachment")
 	}
 }
 

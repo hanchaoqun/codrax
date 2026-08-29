@@ -85,7 +85,7 @@ const AnalysisRuntimeScopeFromDimensionTeaching = "Choose runtime scope only aft
 // internal/types/analysis_ir.go.
 var analysisIntents = []AnalysisEnumChoice{
 	{string(types.IntentExplain), "the user wants to understand how something works — the answer describes mechanism or behaviour"},
-	{string(types.IntentRootCause), "the user is debugging a failure and wants its cause, OR has attached a runtime log (panic / exception trace / sanitizer diagnostic / traceback) and wants the code location responsible"},
+	{string(types.IntentRootCause), "the user asks to discover why a failure happened, its causal mechanism, contributors, remediation, current risk, or regression status. An attached runtime artifact is evidence context, not intent authority: a finite request for observed frame locations, values, states, counts, times, or messages uses a non-root-cause intent and the matching bounded runtime scope"},
 	{string(types.IntentTrace), "the user wants a data flow or call chain followed end to end"},
 	{string(types.IntentEnumerate), "the answer is a set of distinct named items, each independently valid — mutually exclusive with return_value (see predicates.is_count_question for the scalar/set boundary)"},
 	{string(types.IntentConfigQuery), "the subject is a configuration key and the answer describes what the key controls"},

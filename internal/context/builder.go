@@ -1325,7 +1325,7 @@ func shouldSuppressAttachedRuntimeLog(ac *types.AgentContext) bool {
 		return true
 	}
 	bundle := ac.LogTriage
-	if bundle == nil || bundle.IsExternalSource() {
+	if bundle == nil {
 		return false
 	}
 	return bundleHasAuthoritativeCrashFrames(bundle)
@@ -4962,31 +4962,62 @@ func logBundleSignalsIncludeCrash(bundle *types.LogBundle) bool {
 //  1. At least one signal is panic / crash / oom — non-crash logs
 //     route through different downstream lanes that still need raw
 //     prose.
-//  2. The bundle resolved at least 2 files OR a majority (≥50%) of
-//     its top-level frames. The bare ">=1 resolved file" gate was
-//     too lax: Java-basename-glob commonly resolves only 1 of 5
-//     frames, and suppressing the raw log there hides the 4
-//     unresolved frames the LLM would otherwise be able to read in
-//     prose. Either of these signals proves the structured view
-//     has enough coverage to stand alone.
+//  2. The bundle preserved source locations for at least 2 distinct files OR
+//     for a majority (≥50%) of its top-level frames. A source location may be
+//     repository-resolved (`File`) or an exact artifact-local token
+//     (`ArtifactFile`). The latter is sufficient for answering from an
+//     external attachment while retaining the repository read/citation
+//     denial. The bare ">=1 location" gate remains too lax: a partial parse
+//     commonly locates only 1 of 5 frames, and suppressing raw input there
+//     would hide the unresolved remainder.
 //
 // The constants are package-private — they encode a correctness
 // boundary (when does the typed view actually substitute for the
 // raw text), not a tuning knob for operators.
 func bundleHasAuthoritativeCrashFrames(bundle *types.LogBundle) bool {
-	if bundle == nil || len(bundle.ResolvedFiles) == 0 {
+	if bundle == nil {
 		return false
 	}
 	if !logBundleSignalsIncludeCrash(bundle) {
 		return false
 	}
-	const minResolvedAbsolute = 2
-	if len(bundle.ResolvedFiles) >= minResolvedAbsolute {
-		return true
+	locatedFiles := make(map[string]bool, len(bundle.ResolvedFiles)+4)
+	for _, file := range bundle.ResolvedFiles {
+		if file = strings.TrimSpace(file); file != "" {
+			locatedFiles[file] = true
+		}
 	}
+	locatedFrames := 0
 	totalTopFrames := 0
-	for _, e := range bundle.Errors {
-		totalTopFrames += len(e.Frames)
+	for _, occurrence := range bundle.Errors {
+		for _, frame := range occurrence.Frames {
+			totalTopFrames++
+			file := strings.TrimSpace(frame.File)
+			if file == "" {
+				file = strings.TrimSpace(frame.ArtifactFile)
+			}
+			if file != "" && frame.Line > 0 {
+				locatedFrames++
+				locatedFiles[file] = true
+			}
+		}
+	}
+	// ResolvedFiles is the validator-owned unique-file census. Older bundles
+	// and compact fixtures may carry that census without copying File onto
+	// every frame, so retain its conservative lower bound without double
+	// counting frames that already carry an exact location.
+	if resolved := len(bundle.ResolvedFiles); resolved > locatedFrames {
+		if resolved > totalTopFrames && totalTopFrames > 0 {
+			resolved = totalTopFrames
+		}
+		locatedFrames = resolved
+	}
+	if len(locatedFiles) == 0 {
+		return false
+	}
+	const minResolvedAbsolute = 2
+	if len(locatedFiles) >= minResolvedAbsolute {
+		return true
 	}
 	if totalTopFrames == 0 {
 		// Header-only bundle (signal present but no frames). Stay on
@@ -4994,8 +5025,8 @@ func bundleHasAuthoritativeCrashFrames(bundle *types.LogBundle) bool {
 		// to hide either way.
 		return true
 	}
-	// resolved/total ≥ 1/2  ⇔  2*resolved ≥ total
-	return 2*len(bundle.ResolvedFiles) >= totalTopFrames
+	// located/total ≥ 1/2  ⇔  2*located ≥ total
+	return 2*locatedFrames >= totalTopFrames
 }
 
 // bundleHasAuthoritativePerfFrames mirrors
