@@ -24750,21 +24750,24 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	evidence := answerDocumentAuthorityEvidencePool(ctx)
 	selection := stageauthority.WorkflowSelection{}
 	if ctx.AnalysisIR != nil {
-		selection = stageauthority.SelectRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority)
+		selection = stageauthority.SelectAvailableReadModeStageEdges(ctx.AnalysisIR.RequestModel, evidence, authority)
+	}
+	// Some direct evaluator tests and defensive recovery paths have no
+	// AnalysisIR. Preserve the historical exact membership-only prompt in that
+	// shape; production requests with an AnalysisIR always use the shared typed
+	// selector above, so Trace/non-flow exclusions cannot be bypassed.
+	if len(selection.Main) == 0 && ctx.AnalysisIR == nil && answerDocumentHasGroundedReadModeMembershipAuthority(ctx) {
+		selection.Main = append([]stageauthority.StageRow(nil), authority.Main...)
+		selection.Precedence = append([]stageauthority.PrecedenceRelation(nil), authority.Precedence...)
 	}
 	if len(selection.Main) > 0 && !answerDocumentHasPipelineStageAuthoritySource(ctx, nil) {
 		selection = stageauthority.WorkflowSelection{}
 	}
-	groundedMembership := answerDocumentHasGroundedReadModeMembershipAuthority(ctx)
-	if len(selection.Main) == 0 && !groundedMembership {
+	if len(selection.Main) == 0 {
 		return ""
 	}
 	main := selection.Main
 	precedence := selection.Precedence
-	if len(main) == 0 {
-		main = authority.Main
-		precedence = authority.Precedence
-	}
 	pre := authority.ConditionalPreStages
 	if len(main) == 0 {
 		return ""

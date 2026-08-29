@@ -281,6 +281,46 @@ func SelectRequiredReadModeWorkflow(rm types.RequestModel, evidence []types.Evid
 	return copyWorkflowSelection(authority.Main[start:end+1], authority.Precedence[start:end])
 }
 
+// SelectAvailableReadModeStageEdges returns checkout-verified adjacent stage
+// precedence that an answer author may choose to render even when the typed
+// request does not require a diagram.  This is deliberately distinct from
+// SelectRequiredReadModeWorkflow: optional, model-authored diagrams need the
+// same exact relation authority published by the finalizer prompt, but their
+// existence must not turn a non-required diagram into a completeness gate.
+//
+// Admission remains precise and fail-closed.  Trace and non-flow questions are
+// excluded, the checkout provider must be intact, and current-source evidence
+// must ground the read-pipeline authority.  When grounded stage identities
+// select a narrower contiguous span, only that span is returned.  An exact
+// membership-provider definition may expose the full canonical lane because
+// it proves that lane's membership; the returned rows still authorize only
+// their own adjacent precedence, never calls, data flow, participant coverage,
+// or a system-authored diagram.
+func SelectAvailableReadModeStageEdges(rm types.RequestModel, evidence []types.EvidenceItem, authority ReadModeAuthority) WorkflowSelection {
+	if required := SelectRequiredReadModeWorkflow(rm, evidence, authority); len(required.Precedence) > 0 {
+		return required
+	}
+	flowScoped := rm.PredicateAxis == types.AxisFlow || hasRequiredStageWorkflowDimension(rm)
+	if len(authority.Main) == 0 || len(authority.Precedence) != len(authority.Main)-1 ||
+		rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
+		!flowScoped {
+		return WorkflowSelection{}
+	}
+	groundedAuthority := hasGroundedReadModeAuthorityEvidence(evidence)
+	groundedMembership := hasGroundedReadModeMembershipDefinition(evidence)
+	if !groundedAuthority && !groundedMembership {
+		return WorkflowSelection{}
+	}
+	if start, end, ok := groundedReadModeEvidenceStageSpan(evidence, authority.Main); ok &&
+		start >= 0 && end < len(authority.Main) && start < end {
+		return copyWorkflowSelection(authority.Main[start:end+1], authority.Precedence[start:end])
+	}
+	if !groundedMembership {
+		return WorkflowSelection{}
+	}
+	return copyWorkflowSelection(authority.Main, authority.Precedence)
+}
+
 func copyWorkflowSelection(main []StageRow, precedence []PrecedenceRelation) WorkflowSelection {
 	return WorkflowSelection{
 		Main:       append([]StageRow(nil), main...),
@@ -298,6 +338,21 @@ func hasGroundedReadModeAuthorityEvidence(evidence []types.EvidenceItem) bool {
 			continue
 		}
 		if authorityFiles[normalizedReadModeAuthorityPath(item.Source)] {
+			return true
+		}
+	}
+	return false
+}
+
+func hasGroundedReadModeMembershipDefinition(evidence []types.EvidenceItem) bool {
+	for _, item := range evidence {
+		if item.LineStart <= 0 || item.GroundingStatus != types.GroundingGrounded ||
+			normalizedReadModeAuthorityPath(item.Source) != normalizedReadModeAuthorityPath(types.ReadModePipelineStageBindingFile) ||
+			item.AnchorKind != types.AnchorDefinition {
+			continue
+		}
+		switch strings.TrimSpace(item.AnchorSymbol) {
+		case "ReadModeMainStageBindings", "ReadModeConditionalPreStageBindings":
 			return true
 		}
 	}

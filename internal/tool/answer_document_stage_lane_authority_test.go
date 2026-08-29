@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/stageauthority"
@@ -81,6 +82,53 @@ func TestDiagramVerifiedReadModeStagePrecedenceWiresPostValidation(t *testing.T)
 	traceView := &types.AnswerSemanticView{Family: types.QFRootCauseTrace, RelationAxis: types.AxisFlow}
 	if got := diagramVerifiedReadModeStagePrecedence(ctx, traceView); len(got) != 0 {
 		t.Fatalf("Trace must retain its independent relation authority: %+v", got)
+	}
+}
+
+func TestOptionalReadModeStageDiagramSharesPromptEdgeAuthorityWithoutCompletenessGate(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: false},
+	}
+	mu := types.NewMutableState("optional model-authored stage diagram")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceDirect, Source: types.ReadModePipelineStageBindingFile, LineStart: 142, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ReadModeMainStageBindings", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 34, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageAnalyze", Subject: "StageAnalyze", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 35, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "StageExplore", Subject: "StageExplore", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 131, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "AgentAnalyzer", Subject: "AgentAnalyzer", GroundingStatus: types.GroundingGrounded},
+		{Kind: types.EvidenceDirect, Source: types.ReadModePipelineEnumsFile, LineStart: 132, Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "AgentExplorer", Subject: "AgentExplorer", GroundingStatus: types.GroundingGrounded},
+	})
+	ctx := &types.BusContext{RepoRoot: repoRoot, Mode: types.ModeRead, AnalysisIR: &types.AnalysisIR{RequestModel: rm}, Mutable: mu}
+	view := &types.AnswerSemanticView{Family: types.QFArchitecture, RelationAxis: types.AxisFlow}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "read-lane", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramArchitecture, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			`  StageAnalyze["analyze\nAgentAnalyzer"] --> StageExplore["explore\nAgentExplorer"]`,
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "StageAnalyze", ToNode: "StageExplore",
+			FromIdentity: "StageAnalyze", ToIdentity: "StageExplore",
+			RelationKind: types.DiagramRelPrecedence,
+		}},
+	}}}
+	if got := diagramVerifiedReadModeStagePrecedence(ctx, view); len(got) != 0 {
+		t.Fatalf("optional diagram must not activate requested completeness, got %+v", got)
+	}
+	if got := diagramVerifiedReadModeStageEdgeAuthority(ctx, view); len(got) != 1 {
+		t.Fatalf("optional authored edge must see the same evidence-selected prompt recipe, got %+v", got)
+	}
+	if got := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, doc, view, mu.EmittedEvidence()); len(got) != 0 {
+		t.Fatalf("one truthful optional stage edge must pass without forcing the full spine: %+v", got)
+	}
+	doc.Blocks[0].EdgeAnchors[0].FromIdentity = "StageExplore"
+	doc.Blocks[0].EdgeAnchors[0].ToIdentity = "StageAnalyze"
+	if got := DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(ctx, doc, view, mu.EmittedEvidence()); len(got) == 0 {
+		t.Fatal("reversed typed identities must remain rejected")
 	}
 }
 

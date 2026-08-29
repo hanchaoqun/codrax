@@ -57,6 +57,7 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	// and every ordinary call remain visible to the unchanged evidence matcher.
 	doc = documentWithoutStandaloneSemanticHandoffAnchors(doc, ctx)
 	stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
+	stageEdgeAuthority := diagramVerifiedReadModeStageEdgeAuthority(ctx, view)
 	var requestModel *types.RequestModel
 	if ctx != nil && ctx.AnalysisIR != nil {
 		requestModel = &ctx.AnalysisIR.RequestModel
@@ -69,7 +70,7 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 		// gate-eligible provider rows; it never adds or rewrites a visible edge.
 		evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, ctx, evidence)
 		mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(
-			doc, view, evidence, stagePrecedence, requestModel,
+			doc, view, evidence, stageEdgeAuthority, requestModel,
 		)
 		if ctx != nil && ctx.Mutable != nil {
 			mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(
@@ -90,7 +91,7 @@ func DiagramCallEdgeEvidenceMismatchesWithRuntimeContext(
 	}
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(&copyDoc, ctx, evidence)
 	mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(
-		&copyDoc, view, evidence, stagePrecedence, requestModel,
+		&copyDoc, view, evidence, stageEdgeAuthority, requestModel,
 	)
 	if ctx != nil && ctx.Mutable != nil {
 		mismatches = diagramMismatchesWithoutExactSemanticHandoffReceipts(

@@ -419,6 +419,32 @@ func TestSelectRequiredReadModeWorkflowUsesGroundedCanonicalEvidenceSpan(t *test
 	}
 }
 
+func TestSelectAvailableReadModeStageEdgesDoesNotTurnOptionalDiagramIntoCompleteness(t *testing.T) {
+	authority, ok := LoadReadMode(writeReadModeAuthorityFixture(t))
+	if !ok {
+		t.Fatal("expected checkout-verified read-mode authority")
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: false},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: types.ReadModePipelineStageBindingFile, LineStart: 142,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "ReadModeMainStageBindings",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	if got := SelectRequiredReadModeWorkflow(rm, evidence, authority); len(got.Precedence) != 0 {
+		t.Fatalf("an optional diagram must not create requested completeness: %+v", got)
+	}
+	if got := SelectAvailableReadModeStageEdges(rm, evidence, authority); len(got.Precedence) != 3 {
+		t.Fatalf("grounded membership must authorize three optional adjacent edges, got %+v", got)
+	}
+	rm.Intent = types.IntentTrace
+	if got := SelectAvailableReadModeStageEdges(rm, evidence, authority); len(got.Precedence) != 0 {
+		t.Fatalf("Trace must not borrow source-stage edge authority: %+v", got)
+	}
+}
+
 func writeReadModeAuthorityFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

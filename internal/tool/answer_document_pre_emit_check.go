@@ -5079,12 +5079,13 @@ func preCheckDiagramCallEdgeEvidenceAlignment(doc *types.AnswerDocumentV2, view 
 	// add an edge, choose a member, or inspect labels/request/prose.
 	evidence = preEmitEvidenceWithExactTypedDiagramRelations(doc, pctx.ctx, evidence)
 	stagePrecedence := diagramVerifiedReadModeStagePrecedence(pctx.ctx, view)
+	stageEdgeAuthority := diagramVerifiedReadModeStageEdgeAuthority(pctx.ctx, view)
 	var requestModel *types.RequestModel
 	if pctx.ctx != nil && pctx.ctx.AnalysisIR != nil {
 		requestModel = &pctx.ctx.AnalysisIR.RequestModel
 	}
 	mismatches := diagramCallEdgeEvidenceMismatchesWithRequestModel(
-		doc, view, evidence, stagePrecedence, requestModel,
+		doc, view, evidence, stageEdgeAuthority, requestModel,
 	)
 	var semanticHandoffs []types.DiagramEdgeAnchor
 	if pctx.ctx != nil && pctx.ctx.Mutable != nil {

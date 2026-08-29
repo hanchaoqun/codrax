@@ -1734,7 +1734,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 ||
 		len(p.DiagramRelationScopeEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
 		view := types.BuildAnswerSemanticViewForBusContext(ctx)
-		stagePrecedence := diagramVerifiedReadModeStagePrecedence(ctx, view)
+		stagePrecedence := diagramVerifiedReadModeStageEdgeAuthority(ctx, view)
 		protectedParticipants := make([]string, 0)
 		if view != nil {
 			for _, obligation := range view.DiagramParticipantObligations {

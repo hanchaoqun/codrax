@@ -57323,6 +57323,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
+
+1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
+   2/2 PASS：Trace 168s、architecture 192s；人工均判 partial。两路活动流均未按固定 4ms、4m、首字节、累计年龄或上下文比例降级，
+   没有旧稿恢复、JSON salvage 或系统替写答案。
+2. Trace 主能力无回退：精确 `34579.472865..34579.587805` 窗、5 次带窗/PID/线程约束查询、四跳 wakeup path、四个链上主席、
+   IO issue/complete 与 D/io_wait、实际占时/规则可消双轴、确定性语义工作、业务下钻、代表窗、完整 `Trace 因果投影` 与自动补齐全部在；
+   邻近/背景没有升为主因。
+3. B1423 获得生产正证。finalizer 上下文和模型终稿均不再出现 `causal_conclusion=unproven`、`frame_evidence_status=absent`
+   或 evidence-quality 原始枚举；帧/因果上限只以读者自然语言提供，模型答案所有权保持不变。
+4. B1439 的单位边界获得生产正证。`page_cache_churn=7.200` 被发布为计数派生观测而非 `7.200ms`；IO 551.600 被发布为跨单位
+   活动指数、非耗时/非可消除量，绝对高低未定义，只允许同口径同采集条件同窗比较。模型没有再把 page-cache 写成毫秒，但仍无视精确校准称
+   CPU/IO“中高”，又把两个明确可能重叠的主席相加为 38%，并把优先级候选扩写为“大幅倒置/队列占满”。系统投影已明确同向成员重叠不可加，
+   所以这些记为 B1269/B1271 与算术遵循的重复 witness；不得新增请求/模型/终稿关键词硬门，也不得由系统改写结论。
+5. 新 P1 `B1440-OPTIONALSTAGEEDGEAUTHORITYDRIFT1` 为 architecture 图关系全失的确定性根因。首稿已画出正确的
+   `analyze -> explore -> extract -> finalize` 及三条条件入口，共 6 条可见边；模型提示中的 Current Run Stage-Lane Authority 也已发布三条
+   checkout-verified 主链 precedence recipe。可 analyzer 的 `diagram_hint.required=false`，工具校验只加载“用户要求完整图”权限，未加载“模型可选绘制
+   已证边”权限。节点标签同时携带 `analyze + AgentAnalyzer` 后，普通 identity resolver 唯一选中 Agent，而 anchor 合法选用 Stage；同一 provider
+   的别名被误判冲突。修补器随后又禁止新建 Agent 节点和 whole replace，模型只能删掉全部箭头，终图退化为 7 个孤立节点。
+6. B1440 已按权限分层施工。共享 stageauthority 新增 optional authored-edge selector：只在当前 read、flow/stage-workflow、checkout provider 完整且
+   当前源码证据接地时返回最窄连续阶段区间；Trace、write、非 flow、无证据和反向边继续 fail-closed。提示层与 pre/post validator、原子 edge patch
+   共同消费这一路“已证边可画/可验”权限；原 `SelectRequiredReadModeWorkflow` 继续单独驱动“必须覆盖完整 spine”、participant scope 与
+   requested relation scope。故可选图不被强制出现，也不会因画了一条真实边而被要求补齐整图；系统不创建、选择、保留或改写任何边。
+7. 新回归覆盖：optional diagram + 双行 stage/agent label + Stage identity anchor 可通过；同一请求的 required completeness 仍为空；反向 identity
+   仍拒绝；Trace 不借源码阶段 authority。定向 stageauthority/tool/agent 套件、三个完整包、全仓 `go test ./... -count=1`、CGO release-tag
+   `make` 与 `git diff --check` 全绿。待下一 exact-2 architecture/Trace 生产回放确认三条主链不再因同一冲突被删除；未发布 recipe 的 pre-stage 边
+   仍需独立证据，不能随 B1440 放宽。
+
+状态：
+
+`r925=runner-2/2-pass+human-trace-partial+architecture-partial`；
+`B1423=production-positive/core-closed`；
+`B1439=count+composite-calibration-production-positive/model-severity-adherence-observe`；
+`B1440=implemented/full-suite-pass/build-pass/pending-production-replay`；
+`optional-authored-edge-authority!=required-diagram-completeness`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r925`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r925`。
+
 ### §123.1505 r924：Trace 核心能力无回退；内部枚举复发与非墙钟上下文冲突（2026-08-28）
 
 1. 从已推送 `8d8fb183a` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 Python write。runner 2/2 PASS，分别 255s、219s；人工判定 Trace partial、write PASS。

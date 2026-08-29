@@ -29,6 +29,31 @@ func diagramVerifiedReadModeStagePrecedence(ctx *types.BusContext, view *types.A
 	return stageauthority.SelectRequiredReadModeWorkflow(ctx.AnalysisIR.RequestModel, evidence, authority).Precedence
 }
 
+// diagramVerifiedReadModeStageEdgeAuthority is the optional-edge counterpart
+// of diagramVerifiedReadModeStagePrecedence.  The latter drives requested
+// completeness and participant scope; this helper only validates a relation
+// the model already chose to author.  Keeping the two lanes separate prevents
+// an optional truthful diagram from being rejected while also preventing its
+// presence from manufacturing a new must-draw contract.
+func diagramVerifiedReadModeStageEdgeAuthority(ctx *types.BusContext, view *types.AnswerSemanticView) []stageauthority.PrecedenceRelation {
+	if ctx == nil || ctx.AnalysisIR == nil || view == nil || view.Family == types.QFRootCauseTrace ||
+		view.RelationAxis != types.AxisFlow ||
+		(ctx.Mode != "" && ctx.Mode != types.ModeRead) {
+		return nil
+	}
+	authority, ok := stageauthority.LoadReadMode(ctx.RepoRoot)
+	if !ok {
+		return nil
+	}
+	var evidence []types.EvidenceItem
+	if ctx.Mutable != nil {
+		evidence = ctx.Mutable.EmittedEvidence()
+	}
+	return stageauthority.SelectAvailableReadModeStageEdges(
+		ctx.AnalysisIR.RequestModel, evidence, authority,
+	).Precedence
+}
+
 // DiagramRequestedStagePrecedenceSpineMismatches verifies that one
 // model-authored diagram visibly carries the complete checkout-verified
 // requested stage spine. Supporting diagrams may show other grounded calls or
