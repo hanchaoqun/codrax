@@ -57728,6 +57728,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r938`。
 
+### §123.1522 r939/B1452：附件诊断能力被误呈现为用户意图；opaque 日志标签诱发运行时臆造（2026-08-29）
+
+1. 从已推送 `1ebb58fab` 的干净二进制严格并发恰好 2 路运行 ArkTS/仓颉混合日志与 `qf_architecture`。runner 2/2 PASS：日志 161s、
+   architecture 209s；人工均判 partial。两路均无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复或系统替写答案。
+2. B1450/B1451 核心获得生产正证：日志答案准确给出 ArkTS 第一帧 `NativeBridge.invokeOhSum:33`、仓颉第一帧
+   `demo.bridge.ohSum:18` 及各自栈内调用者，附件路径不再被重复质疑，两个顶层错误的跨栈因果保持未证。
+3. 新 P1 `B1452-ARTIFACTCAPABILITYINTENT1` 为确定性上下文 gap。`LogBundle.IntentHint=root_cause` 本意只是“附件含 failure/frame 诊断证据”，
+   共享 prompt 却逐字发布 `Intent hint: root_cause`。模型明确引用这条系统提示，先把有限的“两种语言分别在哪一帧”分类成 root-cause，再与
+   `bounded_fact_set` 合同连续冲突，合计 5 次 emit 才接纳。最终答案又把日志头 `A0c0d/JsApp`、`A0c0d/CjApp` 擅自扩写为“JVM 线程”；
+   artifact 标签没有 typed 定义，不能铸造虚拟机或进程角色。
+4. `9e291296d` 已按权威分层根修并推送。内部 `IntentHint` 派生、日志/性能 typed 证据、路由与 downstream provenance 均保留；模型上下文不再显示
+   `root_cause/performance` 请求意图枚举，改为读者化的“附件具备 failure/source-location 或 performance 证据能力”，并明确当前请求意图和答案宽度仍由
+   当前问题决定。日志结构化上下文新增通用 opaque-label 边界：logger/process/thread/domain/channel 标签只有附件显式定义时才可解释，禁止按拼写臆造 VM、
+   runtime role 或因果关系。没有扫描请求、thinking 或终稿 prose，也没有硬改 analyzer 选择或最终结论。
+5. architecture 正文完整且主要事实正确。首稿图只有三条主阶段 precedence 有 typed 证据，其余 dispatch/event/context 箭头无关系证据，validator 正确
+   fail-closed；模型修补却直接删除整张可选图，连已证主链一起丢失。该项暂列 `B1453-OPTIONALDIAGRAMPATCHMINDLOAD1` P2 观察：系统不得代模型选择、
+   保留或改写关系；先用异构 architecture/flow 图验证是否重复，再决定是否把“当前已证可画边集合”以前置 typed recipe 降低心智，而非按本例硬补。
+6. 新回归钉住日志与性能附件能力不再泄漏为请求意图、现有内部能力字段仍可派生、opaque 运行时标签不得自生身份。`go test ./internal/context
+   ./internal/agent -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。
+
+状态：
+
+`r939=runner-pass-2/2+human-mixed-log-partial+architecture-partial`；
+`B1450=production-positive/core-closed`；
+`B1451=production-positive/core-closed`；
+`B1452=implemented/full-suite-pass+build-pass+pushed/pending-production-replay`；
+`B1453=P2-watch/needs-heterogeneous-recurrence`；
+`artifact-capability!=current-request-intent`；
+`opaque-artifact-label!=runtime/process/causal-authority`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
