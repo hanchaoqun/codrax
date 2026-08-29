@@ -57463,6 +57463,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r930`。
 
+### §123.1512 r931/B1445：非图结构关系载体缺少精确原子修补通道（2026-08-29）
+
+1. 从已推送 `dd48fb323` 干净构建，严格并发恰好 2 路复放 TypeScript workspace 与显式窗 IO 唤醒链 Trace。runner 2/2 PASS：TypeScript 182s、Trace 205s；人工分别判 pass、partial。两路都没有按固定 4ms、4m、首字节、累计活动年龄或上下文比例降级，没有旧稿恢复、JSON salvage 或系统代写结论/关系。
+2. TypeScript 最终事实完整：`run -> ApiClient.fetchUser -> HttpTransport.send -> dispatchOnce -> fetch`、retry guard/delay、sleep/nextDelay 与 `@app/core` paths/extends 均正确。相对 r929 的 8 拒/393s 与 r930 的 4 拒/263s，本轮降为 2 拒/182s，说明 B1443 的 capability union 已生产生效；但 B1444 两条新臂都没有自然触发：初稿本就已有 summary，删除可选图时也没有同时提交该图的局部操作，故 B1444 仍只具测试正证，不虚记生产转正。
+3. 新 P1 `B1445-NONDIAGRAMRELATIONATOMICREPAIR1` 是剩余两次拒绝的确定性高 ROI 根因。首稿的 ordered-list 与 optional sequenceDiagram 都发布了 typed relation failure；局部 repair lease 只把真正 diagram block 纳入 generation-scoped `failure_ref/action` 原子分支，非图列表继续只能 whole-block replacement。模型先删除图并重写列表，却在保留 `call_edge` claim 时清空全部 `edge_anchors`，下一轮才用 validator 已给的 6 条 typed recipe 补回。该过程没有新增证据，只是在不同结构载体之间重复翻译同一关系。
+4. 最优方案不是系统补边，也不是扫描列表文字猜关系：把 relation failure/addition 的 exact ref 原子操作扩展到所有携带结构化 `edge_anchors` 的关系载体；participant、boundary、scope 与 optional target removal 仍严格只适用于真正 diagram。每条 ref 继续绑定同代 failure、目标 block、endpoint identity、relation kind 与 allowed action，模型决定 add/remove/replace、可见内容和结论；whole-block 车道只作为无精确 ref 时的兼容回退。
+5. Trace 系统面获得完整正证。最终上下文与答案保留 2.000..2.020s 用户窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100` 四跳、11.000ms 链上 IO 第一席、三个独立 1.000ms runnable/优先级候选、目标实际状态与既有规则可消双轴，以及完整 `Trace 因果投影`；邻近/背景未升主席，活动流未降级。
+6. Trace 人工 partial 来自模型对精确上下文的遵循波动，而非系统漏证：typed wakeup 时刻明确为 threadpool 2.014、network 2.016、cookie 2.018、app 2.020，模型把前三项错写成随后各自唤醒下游的时刻；上下文明确 `holder_authority=not_provided_by_caller` 与 `aggregate_absolute_level_authority=not_provided`，模型仍写“IO 等待持有者”和压力“偏高”。继续登记为 B1269/B1271 的重复 witness；不得据此扫描模型正文加硬门，也不得由系统替换结论。后续优先简化 typed 教学的时刻角色名称并做异构回放，只有确定性复现合同歧义才施工。
+
+状态：
+
+`r931=runner-pass-2/2+human-ts-pass+trace-partial`；
+`B1443=production-positive/partial-further-improved`；
+`B1444=implemented+tests-positive/pending-natural-activation-replay`；
+`B1445=confirmed/P1-next`；
+`non-diagram-relation-repair=whole-block-only/current-gap`；
+`system-relation/action/wording/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r931`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r931`。
+
+### §123.1513 B1445：非图结构关系改为同代双引用原子重绑（2026-08-29）
+
+1. `B1445-NONDIAGRAMRELATIONATOMICREPAIR1/P1` 已按结构载体而非语言/case 施工。局部 lease 现在把两类权限分开：relation target 可来自 diagram，也可来自携带 `edge_anchors` 的 list/table；participant、boundary、scope 与 optional target removal 继续只接受真正 diagram。原子 target 从 whole-block replacement、remove 和 field-edit roster 中排除，非图 relation 不会借“可选图可删”权限整块删除。
+2. 非图新增能力严格收窄为一个 closed shape：已有唯一 `prior_anchor_metadata`、issue 精确为 `standalone_relation_endpoint_identity_missing`、本地 from/to node 完整、隐藏 from/to identity 同时为空、typed candidate 同 block 且 relation kind 相同。只有此形可获得 `failure_ref + addition_ref + action=attach`；evidence-negative、未知 issue、半边 identity、反向/异 relation、歧义 block 和 stale ref 都不能进入。
+3. 模型仍选择是否保留该关系以及选择哪条 typed candidate。选 attach 后，执行器只把候选的 relation kind 与两端 identity 写入那一条精确 anchor；原模型的 local node ids、visible label、列表标题、正文、items、claim 与同块其他 anchors 全部保持。schema 明确不接收 edge payload，避免要求模型重抄已经存在的可见内容；系统没有创造节点、标签、业务措辞、方向或关系候选。
+4. remove 分支仍保留为模型可选退出，但只删除精确 metadata 行；不删除 list/table，不碰读者正文。candidate 仍来自既有 typed evidence/stage/receipt provider，生产者不再一概排除非图 carrier；只把上述 identity-missing 精确形加入候选 target，其他非图失败继续原有 fail-closed/兼容车道。
+5. 回归覆盖四层：types 层同 relation attach 与异 relation/错误 issue/半 identity 负例；producer target 只纳入精确 standalone identity gap；动态 schema 只发布 remove 与三字段双 ref attach、whole replace/remove roster 不含 target；production executor 证明 attach 后 reader-visible ordered-list 字节语义不变且只补齐两端 typed identity。既有 mixed diagram+non-diagram、non-diagram remove-only、optional diagram removal 与 required-block addition 套件保持通过。
+6. 验证：定向新增/相关回归通过；`go test ./internal/tool ./internal/types -count=1`、完整 `go test ./... -count=1`、CGO release-tag `make` 与 `git diff --check` 全绿。下一轮需用同一 TypeScript case 配另一个读/写或多语言关系 case 严格并发恰好 2 路，观察列表身份缺口是否一次原子收口、可选图是否不再因 sibling repair 被删除；在自然触发前不虚记 production-positive。
+
+状态：
+
+`B1445=implemented+full-suite-pass+build-pass/pending-production-replay`；
+`standalone-metadata-attach=exact-failure-ref+model-selected-addition-ref`；
+`visible-list/table-content=preserved`；
+`non-diagram-whole-remove=forbidden`；
+`diagram-participant/boundary/scope/optional-removal=diagram-only`；
+`system-relation/direction/label/wording/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner

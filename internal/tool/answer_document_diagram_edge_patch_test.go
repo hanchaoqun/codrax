@@ -2712,6 +2712,71 @@ func TestEmitAnswerDocumentPatch_NonDiagramFailureRefRemovesOnlyExactAnchorMetad
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NonDiagramFailureAndCandidateRefsRebindOnlyExactAnchorMetadata(t *testing.T) {
+	anchor := types.DiagramEdgeAnchor{
+		FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall,
+		VisibleLabel: "model-authored business wording",
+	}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep summary"},
+		{ID: "chain", Kind: types.BlockOrderedList, Title: "keep title", Text: "keep text", SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge}},
+			Items:       []types.AnswerBlockItem{{ID: "step", Label: "keep label", Text: "keep item"}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{anchor}},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "chain", Issue: diagramStandaloneRelationIdentityMissing,
+		FromNode: anchor.FromNode, ToNode: anchor.ToNode, RelationKind: anchor.RelationKind,
+		TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "chain", RelationKind: types.DiagramRelCall,
+		FromIdentity: "pkg.Caller.run", ToIdentity: "pkg.Callee.accept", Source: "src/call.go:10",
+	}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 ||
+		!lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("test setup missing standalone metadata attach capability: %+v", lease)
+	}
+	mut := types.NewMutableState("non diagram metadata attach")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "ev-call", Kind: types.EvidenceRelationship, Subject: "pkg.Caller.run", Object: "pkg.Callee.accept",
+			Predicate: "calls", Source: "src/call.go", LineStart: 10, LineEnd: 10,
+			AnchorKind: types.AnchorCall, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		}},
+	}
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"addition_ref":%q,"action":"attach"}]
+	}`, lease.Failures[0].FailureRef, lease.AllowedAdditions[0].AdditionRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("exact standalone metadata attach must pass production executor: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("patched document missing: %+v", got)
+	}
+	block := got.Blocks[1]
+	if block.Kind != types.BlockOrderedList || block.Title != "keep title" || block.Text != "keep text" ||
+		len(block.Items) != 1 || block.Items[0].Label != "keep label" || block.Items[0].Text != "keep item" ||
+		len(block.EdgeAnchors) != 1 {
+		t.Fatalf("metadata attach changed reader-visible ordered-list content: %+v", block)
+	}
+	gotAnchor := block.EdgeAnchors[0]
+	if gotAnchor.FromNode != anchor.FromNode || gotAnchor.ToNode != anchor.ToNode ||
+		gotAnchor.VisibleLabel != anchor.VisibleLabel || gotAnchor.RelationKind != types.DiagramRelCall ||
+		gotAnchor.FromIdentity != "pkg.Caller.run" || gotAnchor.ToIdentity != "pkg.Callee.accept" {
+		t.Fatalf("metadata attach did not preserve local carrier and install only selected typed identities: %+v", gotAnchor)
+	}
+}
+
 func TestRelabelAtomicMermaidEdgeLine_AllSupportedFamilies(t *testing.T) {
 	for name, tc := range map[string][3]string{
 		"sequence": {"sequenceDiagram\n  A->>B: old", "  A->>B: old", "A->>B: new"},

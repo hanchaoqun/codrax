@@ -899,6 +899,62 @@ func TestEmitAnswerDocumentPatchMixedLeaseNarrowsDiagramAndKeepsNonDiagramBlockR
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_StandaloneRelationPublishesExactMetadataAttach(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep"},
+		{ID: "chain", Kind: types.BlockOrderedList, Title: "model title", EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall, VisibleLabel: "model wording",
+		}}},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "chain", Issue: diagramStandaloneRelationIdentityMissing,
+		FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall,
+		TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "chain", RelationKind: types.DiagramRelCall,
+		FromIdentity: "pkg.Caller.run", ToIdentity: "pkg.Callee.accept", Source: "src/call.go:10",
+	}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 ||
+		!lease.Failures[0].AllowsAction("attach") {
+		t.Fatalf("standalone metadata attach lease setup failed: %+v", lease)
+	}
+	mut := types.NewMutableState("standalone metadata attach schema")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	ctx := &types.AgentContext{Mutable: mut}
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(ctx), &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	branches := props["diagram_edge_edits"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 2 {
+		t.Fatalf("standalone metadata row must expose exact remove and typed attach branches: %+v", branches)
+	}
+	seen := map[string]map[string]any{}
+	for _, rawBranch := range branches {
+		branch := rawBranch.(map[string]any)
+		branchProps := branch["properties"].(map[string]any)
+		action := branchProps["action"].(map[string]any)["enum"].([]any)[0].(string)
+		seen[action] = branch
+	}
+	attach := seen["attach"]
+	if attach == nil || !reflect.DeepEqual(attach["required"], []any{"failure_ref", "addition_ref", "action"}) {
+		t.Fatalf("metadata attach branch must require only the two exact refs and model-selected action: %+v", attach)
+	}
+	if _, ok := attach["properties"].(map[string]any)["edge"]; ok {
+		t.Fatalf("metadata attach must preserve the existing visible row instead of asking the model to replay it: %+v", attach)
+	}
+	replaceIDs := props["replace_blocks"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["id"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(replaceIDs, []any{"summary"}) {
+		t.Fatalf("atomic standalone carrier must be excluded from whole replacement roster: %v", replaceIDs)
+	}
+	removeIDs := props["remove_block_ids"].(map[string]any)["items"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(removeIDs, []any{"summary"}) {
+		t.Fatalf("optional diagram removal must not widen to a standalone relation carrier: %v", removeIDs)
+	}
+}
+
 func TestLocalDiagramLeaseSchemaPublishesOnlyMissingTypedRequiredBlockAddition(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
 		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{

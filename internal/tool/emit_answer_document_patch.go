@@ -300,7 +300,7 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, nil)
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
-	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, localDiagramLeaseTargetBlockIDs(lease))
+	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, localLeaseAtomicTargetBlockIDs(lease))
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
 }
 
@@ -323,8 +323,8 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
 			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
 	}
-	targets := localDiagramLeaseTargetBlockIDs(lease)
-	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
+	targets := localLeaseAtomicTargetBlockIDs(lease)
+	if len(targets) == 0 {
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
 			"For live relation rows, use a failure_ref only with an action listed in that row, or use one addition_ref with action=add and model-authored visible endpoints and label. " +
 			"This broad compatibility schema publishes no paired attach branch: never combine a failure_ref and addition_ref in one edit. Whole-block edits remain available for broader model-authored repairs. " +
@@ -333,13 +333,13 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	description := "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
 		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. "
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
-		description += "Only an exact action=attach schema branch that fixes both opaque ref values may bind a typed relation to one existing visible edge; never infer a pair from adjacent rows. "
+		description += "Only an exact action=attach schema branch that fixes both opaque ref values may bind a typed relation to one existing relation carrier; never infer a pair from adjacent rows. "
 	}
 	if lease.AllowTargetDiagramRemoval {
 		description += "The optional target diagram may instead be removed only through the exact remove_block_ids enum published in this schema. "
 	}
 	return description +
-		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Whole replacement/addition of a lease-target diagram is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
+		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Whole replacement/addition of a lease-target relation carrier is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 }
 
@@ -388,8 +388,10 @@ func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage
 // been published. A malformed or mixed non-diagram lease keeps the broad
 // compatibility schema and remains fail-closed in the executor.
 func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2, view *types.AnswerSemanticView) json.RawMessage {
-	targets := localDiagramLeaseTargetBlockIDs(lease)
-	if len(targets) == 0 || !localDiagramLeaseRowsAllTargeted(lease, targets) {
+	relationTargets := localRelationLeaseTargetBlockIDs(lease)
+	diagramTargets := localDiagramLeaseTargetBlockIDs(lease)
+	targets := unionSortedBlockIDs(relationTargets, diagramTargets)
+	if len(targets) == 0 {
 		return raw
 	}
 	var root map[string]any
@@ -400,8 +402,8 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if properties == nil {
 		return raw
 	}
-	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, targets, prev)
-	boundaryBranches, boundaryOK := localDiagramLeaseExecutableBoundaryBranches(lease, targets)
+	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, relationTargets, prev)
+	boundaryBranches, boundaryOK := localDiagramLeaseExecutableBoundaryBranches(lease, diagramTargets)
 	participantOK := len(lease.OptionalOrphanCleanups) > 0 || len(lease.ParticipantVisibilityFailures) > 0
 	if !edgeOK && !boundaryOK && !participantOK {
 		return raw
@@ -422,7 +424,7 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	}
 	removableIDs := append([]string(nil), allowedReplacementIDs...)
 	if lease.AllowTargetDiagramRemoval {
-		removableIDs = append(removableIDs, targets...)
+		removableIDs = append(removableIDs, diagramTargets...)
 	}
 	if len(removableIDs) > 0 {
 		sort.Strings(removableIDs)
@@ -443,11 +445,11 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 			return raw
 		}
 		edgeEdits["minItems"] = 1
-		edgeEdits["maxItems"] = localDiagramLeaseTargetSelectorCapacity(lease, targets)
+		edgeEdits["maxItems"] = localDiagramLeaseTargetSelectorCapacity(lease, relationTargets)
 		edgeEdits["uniqueItems"] = true
 		edgeDescription := "Choose one or more exact current branches. failure_ref/addition_ref and action are lease-owned choices; replacement/addition endpoints and all visible labels remain model-authored. Omitted legacy coordinates and hidden identity fields are unavailable."
 		if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
-			edgeDescription += " An exact action=attach branch fixes both opaque ref values and binds that selected typed relation to one existing visible edge without adding a duplicate body edge."
+			edgeDescription += " An exact action=attach branch fixes both opaque ref values and binds that selected typed relation to one existing relation carrier without adding a duplicate relation row."
 		}
 		edgeEdits["description"] = edgeDescription
 		edgeEdits["items"] = map[string]any{"oneOf": branches}
@@ -471,14 +473,16 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 		delete(properties, "diagram_boundary_edits")
 	}
 
-	if boundaries, ok := properties["diagram_boundary_replacements"].(map[string]any); ok {
+	if boundaries, ok := properties["diagram_boundary_replacements"].(map[string]any); ok && len(diagramTargets) > 0 {
 		item, _ := boundaries["items"].(map[string]any)
 		itemProperties, _ := item["properties"].(map[string]any)
 		blockID, _ := itemProperties["block_id"].(map[string]any)
 		if blockID == nil {
 			return raw
 		}
-		blockID["enum"] = stringsToAny(targets)
+		blockID["enum"] = stringsToAny(diagramTargets)
+	} else if len(diagramTargets) == 0 {
+		delete(properties, "diagram_boundary_replacements")
 	}
 	if !narrowLocalDiagramParticipantEditSchema(properties, lease) {
 		return raw
@@ -586,7 +590,7 @@ func narrowAnswerDocumentPatchReplacementIDs(properties map[string]any, allowed 
 	}
 	idSchema["enum"] = values
 	replaceBlocks["maxItems"] = len(allowed)
-	replaceBlocks["description"] = "FULL replacement payloads for unrelated existing blocks only. The id enum is the complete executable roster for this live relation-repair dispatch; lease-target diagram blocks must use the published atomic relation/boundary operations."
+	replaceBlocks["description"] = "FULL replacement payloads for unrelated existing blocks only. The id enum is the complete executable roster for this live relation-repair dispatch; lease-target relation carriers must use the published atomic operations."
 	return true
 }
 
@@ -662,7 +666,7 @@ func localDiagramLeaseExecutableEdgeBranches(
 	targets []string,
 	prev *types.AnswerDocumentV2,
 ) ([]any, bool) {
-	if lease == nil || !localDiagramLeaseRowsAllTargeted(lease, targets) {
+	if lease == nil || len(targets) == 0 || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		return nil, false
 	}
 	seenRefs := make(map[string]bool, len(lease.Failures)+len(lease.AllowedAdditions))
@@ -697,7 +701,11 @@ func localDiagramLeaseExecutableEdgeBranches(
 					if !types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
 						continue
 					}
-					branches = append(branches, exactLocalDiagramAttachBranch(ref, candidate.AdditionRef))
+					if failure.TargetCarrier == types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata {
+						branches = append(branches, exactLocalRelationMetadataAttachBranch(ref, candidate.AdditionRef))
+					} else {
+						branches = append(branches, exactLocalDiagramAttachBranch(ref, candidate.AdditionRef))
+					}
 					added++
 				}
 				continue
@@ -784,6 +792,25 @@ func exactLocalDiagramAttachBranch(failureRef, additionRef string) map[string]an
 		"additionalProperties": false,
 		"properties":           properties,
 		"required":             []any{"failure_ref", "addition_ref", "action", "edge"},
+	}
+}
+
+// exactLocalRelationMetadataAttachBranch binds one exact standalone
+// relation-anchor failure to one model-selected typed candidate. The visible
+// node ids and label already belong to the rejected model draft and are
+// preserved byte-for-byte, so this branch intentionally asks for no edge
+// replay fields.
+func exactLocalRelationMetadataAttachBranch(failureRef, additionRef string) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"failure_ref":  map[string]any{"type": "string", "enum": []any{strings.TrimSpace(failureRef)}},
+			"addition_ref": map[string]any{"type": "string", "enum": []any{strings.TrimSpace(additionRef)}},
+			"action":       map[string]any{"type": "string", "enum": []any{string(types.AnswerDiagramRelationRepairActionAttach)}},
+		},
+		"required":    []any{"failure_ref", "addition_ref", "action"},
+		"description": "Bind the selected typed relation to this exact existing structured relation row. Its model-authored local node ids and visible label are preserved; no edge payload is accepted.",
 	}
 }
 
@@ -1104,6 +1131,100 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 			continue
 		}
 		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// localRelationLeaseTargetBlockIDs returns carriers whose relation rows can be
+// edited through current generation-scoped refs. Diagram carriers keep their
+// existing operations. A non-diagram carrier is admitted only for the exact
+// prior-anchor-metadata capability supported by the executor; participant,
+// boundary, scope, and target-removal permissions remain diagram-only.
+func localRelationLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
+	if lease == nil || lease.Version != 1 ||
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0) {
+		return nil
+	}
+	kinds := make(map[string]types.AnswerBlockKind, len(lease.Blocks))
+	ambiguous := make(map[string]bool)
+	for _, block := range lease.Blocks {
+		id := strings.TrimSpace(block.BlockID)
+		if id == "" {
+			continue
+		}
+		if _, exists := kinds[id]; exists {
+			ambiguous[id] = true
+		}
+		kinds[id] = block.Kind
+	}
+	seen := make(map[string]bool)
+	var out []string
+	add := func(id string) {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, failure := range lease.Failures {
+		id := strings.TrimSpace(failure.BlockID)
+		if id == "" || strings.TrimSpace(failure.FailureRef) == "" ||
+			!types.AnswerDiagramRelationRepairFailureHasCompleteLocator(failure) {
+			return nil
+		}
+		kind, known := kinds[id]
+		if ambiguous[id] || !known {
+			continue
+		}
+		if kind == types.BlockDiagram ||
+			(failure.TargetCarrier == types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata &&
+				(failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionRemove)) ||
+					failure.AllowsAction(string(types.AnswerDiagramRelationRepairActionAttach)))) {
+			add(id)
+		}
+	}
+	for _, candidate := range lease.AllowedAdditions {
+		id := strings.TrimSpace(candidate.BlockID)
+		if id == "" || strings.TrimSpace(candidate.AdditionRef) == "" ||
+			!candidate.RelationKind.IsValid() || strings.TrimSpace(candidate.FromIdentity) == "" ||
+			strings.TrimSpace(candidate.ToIdentity) == "" || strings.TrimSpace(candidate.Source) == "" {
+			return nil
+		}
+		kind, known := kinds[id]
+		if ambiguous[id] || !known {
+			continue
+		}
+		if kind == types.BlockDiagram {
+			add(id)
+			continue
+		}
+		for _, failure := range lease.Failures {
+			if types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
+				add(id)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func localLeaseAtomicTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
+	return unionSortedBlockIDs(localRelationLeaseTargetBlockIDs(lease), localDiagramLeaseTargetBlockIDs(lease))
+}
+
+func unionSortedBlockIDs(groups ...[]string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, group := range groups {
+		for _, raw := range group {
+			id := strings.TrimSpace(raw)
+			if id == "" || seen[id] {
+				continue
+			}
 			seen[id] = true
 			out = append(out, id)
 		}
@@ -1477,6 +1598,7 @@ type emitAnswerDiagramEdgeEdit struct {
 	failureIssue         string
 	attachPairResolving  bool
 	additionCandidate    *types.AnswerDiagramRelationRepairCandidate
+	metadataAttach       bool
 }
 
 type emitAnswerDiagramBoundaryReplacement struct {
@@ -1523,7 +1645,7 @@ func localDiagramLeaseWholeBlockMutationViolation(
 	if p == nil {
 		return nil
 	}
-	targets := localDiagramLeaseTargetBlockIDs(lease)
+	targets := localLeaseAtomicTargetBlockIDs(lease)
 	if len(targets) == 0 {
 		return nil
 	}
@@ -1550,12 +1672,23 @@ func localDiagramLeaseWholeBlockMutationViolation(
 		if !targetSet[id] {
 			continue
 		}
-		if targetSet[id] && lease != nil && lease.AllowTargetDiagramRemoval {
+		if targetSet[id] && lease != nil && lease.AllowTargetDiagramRemoval &&
+			containsExactBlockID(localDiagramLeaseTargetBlockIDs(lease), id) {
 			continue
 		}
 		return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_remove_not_authorized"}
 	}
 	return nil
+}
+
+func containsExactBlockID(ids []string, id string) bool {
+	id = strings.TrimSpace(id)
+	for _, candidate := range ids {
+		if strings.TrimSpace(candidate) == id {
+			return true
+		}
+	}
+	return false
 }
 
 // requiredAnswerBlockAdditionsAuthorized is the executor-side mirror of the
@@ -1904,7 +2037,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	leaseForFieldProjection := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	var excludedFieldEditTargets []string
 	if types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(leaseForFieldProjection) {
-		excludedFieldEditTargets = localDiagramLeaseTargetBlockIDs(leaseForFieldProjection)
+		excludedFieldEditTargets = localLeaseAtomicTargetBlockIDs(leaseForFieldProjection)
 	}
 	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, excludedFieldEditTargets)
 	if violation := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); violation != nil {
@@ -1937,7 +2070,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 	if violation := localDiagramLeaseWholeBlockMutationViolation(&p, lease, prev, view); violation != nil {
 		return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, []types.AnswerDiagramRelationRepairScopeViolation{*violation}),
-			"local diagram repair lease requires atomic diagram operations for block=%q; whole-block operation=%s is not authorized",
+			"local relation repair lease requires atomic operations for block=%q; whole-block operation=%s is not authorized",
 			violation.BlockID, violation.Issue)
 	}
 	if violation := splitCompanionDispositionViolation(prev, &p); violation != nil {

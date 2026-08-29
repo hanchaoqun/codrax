@@ -6651,11 +6651,12 @@ func bindDiagramRelationRepairEquivalentTupleCarrier(
 	return failure
 }
 
-// diagramRelationRepairAdditionTargetBlockIDs returns only exact existing
-// Mermaid carriers. Relation failures on non-diagram blocks remain visible so
-// their stale metadata can be removed, but they must never receive an
-// addition_ref: the atomic addition executor has no visible diagram body to
-// update and whole-block synthesis is outside a local repair lease.
+// diagramRelationRepairAdditionTargetBlockIDs returns exact existing Mermaid
+// carriers plus the one supported standalone-relation metadata shape. A
+// non-diagram block is eligible only when one exact prior-anchor-metadata row
+// is missing both endpoint identities; a later failure_ref+addition_ref pair
+// can then rebind that hidden tuple while preserving every reader-visible
+// field. Other non-diagram failures remain remove-only/whole-block compatible.
 func diagramRelationRepairAdditionTargetBlockIDs(
 	doc *types.AnswerDocumentV2,
 	failures []diagramRelationRepairDeltaFailure,
@@ -6670,8 +6671,9 @@ func diagramRelationRepairAdditionTargetBlockIDs(
 		}
 	}
 	type carrierState struct {
-		count   int
-		diagram bool
+		count              int
+		diagram            bool
+		standaloneRebindOK bool
 	}
 	states := make(map[string]carrierState, len(targeted))
 	for _, block := range doc.Blocks {
@@ -6682,11 +6684,24 @@ func diagramRelationRepairAdditionTargetBlockIDs(
 		state := states[id]
 		state.count++
 		state.diagram = state.diagram || (block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != "")
+		if block.Kind != types.BlockDiagram && block.Diagram == nil {
+			for _, failure := range failures {
+				if strings.TrimSpace(failure.BlockID) != id ||
+					failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata ||
+					strings.TrimSpace(failure.Issue) != diagramStandaloneRelationIdentityMissing ||
+					strings.TrimSpace(failure.FromNode) == "" || strings.TrimSpace(failure.ToNode) == "" ||
+					strings.TrimSpace(failure.FromIdentity) != "" || strings.TrimSpace(failure.ToIdentity) != "" {
+					continue
+				}
+				state.standaloneRebindOK = true
+				break
+			}
+		}
 		states[id] = state
 	}
 	out := make([]string, 0, len(states))
 	for id, state := range states {
-		if state.count == 1 && state.diagram {
+		if state.count == 1 && (state.diagram || state.standaloneRebindOK) {
 			out = append(out, id)
 		}
 	}

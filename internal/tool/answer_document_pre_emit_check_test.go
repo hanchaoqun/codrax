@@ -9105,6 +9105,28 @@ func TestPreCheckStandaloneRelationFailureDoesNotPublishUngroundedAlternative(t 
 	}
 }
 
+func TestDiagramRelationRepairAdditionTargetsIncludeOnlyExactStandaloneIdentityGap(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "chain", Kind: types.BlockOrderedList, EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall,
+		}}},
+		{ID: "other", Kind: types.BlockTable, EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "x", ToNode: "y", RelationKind: types.DiagramRelCall,
+		}}},
+	}}
+	failures := []diagramRelationRepairDeltaFailure{
+		{BlockID: "chain", Issue: diagramStandaloneRelationIdentityMissing,
+			FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall,
+			TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata},
+		{BlockID: "other", Issue: "call_edge_unproven",
+			FromNode: "x", ToNode: "y", RelationKind: types.DiagramRelCall,
+			TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata},
+	}
+	if got := diagramRelationRepairAdditionTargetBlockIDs(doc, failures); !reflect.DeepEqual(got, []string{"chain"}) {
+		t.Fatalf("only the exact standalone endpoint-identity gap may receive typed metadata candidates: %v", got)
+	}
+}
+
 func TestPreCheckDiagramRelationFailurePublishesCompactRepairDelta(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "pipeline", Kind: types.BlockDiagram,

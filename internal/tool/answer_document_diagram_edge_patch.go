@@ -1289,8 +1289,9 @@ func resolveAtomicDiagramFailureRef(
 // does not infer a relation from node names, labels, request prose, or Mermaid
 // messages. The model still authors both visible endpoints and the visible
 // label. Repeated hidden technical fields are quarantined because the selected
-// candidate already owns them; visible endpoints and wording remain model
-// authored and are never inferred from those discarded mirrors.
+// candidate already owns them. For standalone metadata attach, the visible
+// endpoints and wording are preserved from the exact model-authored base row;
+// for diagram add/attach they remain authored in the current model call.
 func resolveAtomicDiagramAdditionRef(
 	edit emitAnswerDiagramEdgeEdit,
 	lease *types.AnswerDiagramRelationRepairLease,
@@ -1321,23 +1322,31 @@ func resolveAtomicDiagramAdditionRef(
 	if declared := strings.TrimSpace(edit.BlockID); declared != "" && declared != blockID {
 		return edit, fmt.Errorf("addition_ref=%q belongs to block_id=%q, not %q", ref, blockID, declared)
 	}
-	if edit.Edge == nil {
-		return edit, fmt.Errorf("addition_ref=%q requires a model-authored edge with from_node, to_node, and visible_label", ref)
-	}
 	if action == string(types.AnswerDiagramRelationRepairActionAttach) {
-		if !edit.failureRefResolved || edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
-			edit.Match == nil || edit.BodyOccurrence < 1 {
-			return edit, fmt.Errorf("addition_ref=%q action=attach requires one exact live visible_body_edge failure", ref)
+		if !edit.failureRefResolved || edit.Match == nil {
+			return edit, fmt.Errorf("addition_ref=%q action=attach requires one exact live failure", ref)
 		}
 		failure := types.AnswerDiagramRelationRepairFailure{
 			BlockID: strings.TrimSpace(edit.BlockID), TargetCarrier: edit.failureRefCarrier,
+			Issue:    strings.TrimSpace(edit.failureIssue),
 			FromNode: strings.TrimSpace(edit.Match.FromNode), ToNode: strings.TrimSpace(edit.Match.ToNode),
 			FromIdentity: strings.TrimSpace(edit.Match.FromIdentity), ToIdentity: strings.TrimSpace(edit.Match.ToIdentity),
 			RelationKind: edit.Match.RelationKind, BodyOccurrence: edit.BodyOccurrence,
 		}
 		if !types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, *selected) {
-			return edit, fmt.Errorf("addition_ref=%q is not compatible with the selected visible-body failure", ref)
+			return edit, fmt.Errorf("addition_ref=%q is not compatible with the selected failure carrier", ref)
 		}
+		if edit.failureRefCarrier == types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata {
+			if edit.Edge != nil {
+				return edit, fmt.Errorf("addition_ref=%q metadata attach preserves the existing local nodes and visible label; omit edge", ref)
+			}
+			preserved := *edit.Match
+			edit.Edge = &preserved
+			edit.metadataAttach = true
+		}
+	}
+	if edit.Edge == nil {
+		return edit, fmt.Errorf("addition_ref=%q requires a model-authored edge with from_node, to_node, and visible_label", ref)
 	}
 	edit.BlockID = blockID
 	edit.Edge.RelationKind = selected.RelationKind
@@ -1407,16 +1416,37 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	if block.Diagram == nil {
 		if !edit.failureRefResolved ||
 			edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata ||
-			action != "remove" || edit.BodyOccurrence != 0 || edit.Match == nil ||
-			edit.Edge != nil || strings.TrimSpace(edit.VisibleLabel) != "" {
-			return fmt.Errorf("non-diagram carrier permits only live prior_anchor_metadata action=remove")
+			edit.BodyOccurrence != 0 || edit.Match == nil || strings.TrimSpace(edit.VisibleLabel) != "" {
+			return fmt.Errorf("non-diagram carrier requires one live prior_anchor_metadata operation")
 		}
 		anchorIndex, _, err := findAtomicDiagramAnchor(block.EdgeAnchors, *edit.Match, 1)
 		if err != nil {
 			return err
 		}
-		block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
-		return nil
+		switch action {
+		case "remove":
+			if edit.Edge != nil || edit.metadataAttach {
+				return fmt.Errorf("non-diagram metadata remove does not accept an edge")
+			}
+			block.EdgeAnchors = append(block.EdgeAnchors[:anchorIndex], block.EdgeAnchors[anchorIndex+1:]...)
+			return nil
+		case string(types.AnswerDiagramRelationRepairActionAttach):
+			if !edit.metadataAttach || edit.Edge == nil || strings.TrimSpace(edit.FailureRef) == "" ||
+				strings.TrimSpace(edit.AdditionRef) == "" || !edit.Edge.HasEndpointIdentityPair() ||
+				!edit.Edge.RelationKind.IsValid() {
+				return fmt.Errorf("non-diagram metadata attach requires one exact failure_ref+addition_ref pair")
+			}
+			prior := block.EdgeAnchors[anchorIndex]
+			if strings.TrimSpace(edit.Edge.FromNode) != strings.TrimSpace(prior.FromNode) ||
+				strings.TrimSpace(edit.Edge.ToNode) != strings.TrimSpace(prior.ToNode) ||
+				strings.TrimSpace(edit.Edge.VisibleLabel) != strings.TrimSpace(prior.VisibleLabel) {
+				return fmt.Errorf("non-diagram metadata attach must preserve existing local nodes and visible label")
+			}
+			block.EdgeAnchors[anchorIndex] = *edit.Edge
+			return nil
+		default:
+			return fmt.Errorf("non-diagram prior_anchor_metadata permits only action=remove or paired action=attach")
+		}
 	}
 	if action == "add" {
 		if strings.TrimSpace(edit.FailureRef) != "" {

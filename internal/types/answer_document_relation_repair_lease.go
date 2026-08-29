@@ -75,7 +75,8 @@ const (
 	AnswerDiagramRelationRepairActionRemove  AnswerDiagramRelationRepairAction = "remove"
 	AnswerDiagramRelationRepairActionReplace AnswerDiagramRelationRepairAction = "replace"
 	// Attach binds one model-selected typed addition candidate to one exact
-	// model-authored visible-body occurrence. It is published only as a paired
+	// model-authored relation carrier: either a visible-body occurrence or the
+	// supported standalone metadata row. It is published only as a paired
 	// failure_ref+addition_ref capability; neither ref can select the other.
 	AnswerDiagramRelationRepairActionAttach AnswerDiagramRelationRepairAction = "attach"
 )
@@ -262,19 +263,15 @@ func answerDiagramRelationRepairFailureHasReplacementTuple(failure AnswerDiagram
 // AnswerDiagramRelationRepairFailureCanAttachCandidate is the single precise
 // compatibility predicate shared by lease publication, schema projection and
 // execution. It reads only typed identities, direction, relation kind, block
-// ownership and the exact visible occurrence. No Mermaid label, request text,
+// ownership and an exact structural carrier. No Mermaid label, request text,
 // reasoning or final prose participates.
 func AnswerDiagramRelationRepairFailureCanAttachCandidate(
 	failure AnswerDiagramRelationRepairFailure,
 	candidate AnswerDiagramRelationRepairCandidate,
 ) bool {
-	if failure.TargetCarrier != AnswerDiagramRelationRepairCarrierVisibleBodyEdge ||
-		failure.BodyOccurrence < 1 ||
-		strings.TrimSpace(failure.BlockID) == "" ||
+	if strings.TrimSpace(failure.BlockID) == "" ||
 		strings.TrimSpace(failure.BlockID) != strings.TrimSpace(candidate.BlockID) ||
 		!candidate.RelationKind.IsValid() ||
-		strings.TrimSpace(failure.FromIdentity) == "" ||
-		strings.TrimSpace(failure.ToIdentity) == "" ||
 		strings.TrimSpace(candidate.FromIdentity) == "" ||
 		strings.TrimSpace(candidate.ToIdentity) == "" {
 		return false
@@ -283,8 +280,26 @@ func AnswerDiagramRelationRepairFailureCanAttachCandidate(
 		relation != candidate.RelationKind {
 		return false
 	}
-	return AnswerCodeIdentitySurfacesEquivalent(failure.FromIdentity, candidate.FromIdentity) &&
-		AnswerCodeIdentitySurfacesEquivalent(failure.ToIdentity, candidate.ToIdentity)
+	switch failure.TargetCarrier {
+	case AnswerDiagramRelationRepairCarrierVisibleBodyEdge:
+		return failure.BodyOccurrence >= 1 &&
+			strings.TrimSpace(failure.FromIdentity) != "" &&
+			strings.TrimSpace(failure.ToIdentity) != "" &&
+			AnswerCodeIdentitySurfacesEquivalent(failure.FromIdentity, candidate.FromIdentity) &&
+			AnswerCodeIdentitySurfacesEquivalent(failure.ToIdentity, candidate.ToIdentity)
+	case AnswerDiagramRelationRepairCarrierPriorAnchorMetadata:
+		// A standalone list/table relation with missing endpoint identities has
+		// one exact model-authored metadata row but no Mermaid body. Pairing its
+		// failure ref with a model-selected typed candidate may rebind only the
+		// hidden identity tuple while preserving the existing local node ids and
+		// visible label. No other metadata defect receives this capability.
+		return failure.BodyOccurrence == 0 &&
+			strings.TrimSpace(failure.Issue) == "standalone_relation_endpoint_identity_missing" &&
+			strings.TrimSpace(failure.FromNode) != "" && strings.TrimSpace(failure.ToNode) != "" &&
+			strings.TrimSpace(failure.FromIdentity) == "" && strings.TrimSpace(failure.ToIdentity) == ""
+	default:
+		return false
+	}
 }
 
 // AnswerDiagramRelationRepairHasExecutableAttachPair reports whether a retry

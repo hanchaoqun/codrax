@@ -479,6 +479,36 @@ func TestAnswerDiagramRelationRepairLeasePairsExistingBodyWithExactTypedCandidat
 	}
 }
 
+func TestAnswerDiagramRelationRepairFailureCanAttachCandidate_StandaloneMetadataIdentityRepair(t *testing.T) {
+	failure := AnswerDiagramRelationRepairFailure{
+		BlockID: "chain", Issue: "standalone_relation_endpoint_identity_missing",
+		FromNode: "caller", ToNode: "callee", RelationKind: DiagramRelCall,
+		TargetCarrier: AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+	}
+	candidate := AnswerDiagramRelationRepairCandidate{
+		BlockID: "chain", RelationKind: DiagramRelCall,
+		FromIdentity: "pkg.Caller.run", ToIdentity: "pkg.Callee.accept", Source: "src/call.go:10",
+	}
+	if !AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
+		t.Fatal("one exact standalone identity-missing metadata row must accept a model-selected same-relation typed candidate")
+	}
+	wrongRelation := candidate
+	wrongRelation.RelationKind = DiagramRelDataFlow
+	if AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, wrongRelation) {
+		t.Fatal("standalone metadata repair must not change the declared relation kind")
+	}
+	wrongIssue := failure
+	wrongIssue.Issue = "call_edge_unproven"
+	if AnswerDiagramRelationRepairFailureCanAttachCandidate(wrongIssue, candidate) {
+		t.Fatal("evidence-negative standalone metadata must remain remove-only")
+	}
+	halfIdentity := failure
+	halfIdentity.FromIdentity = "pkg.Caller.run"
+	if AnswerDiagramRelationRepairFailureCanAttachCandidate(halfIdentity, candidate) {
+		t.Fatal("a partially populated hidden identity tuple must fail closed")
+	}
+}
+
 func TestAnswerDiagramRelationRepairLeaseRejectsAmbiguousFailureWithoutExecutableExit(t *testing.T) {
 	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
 		ID: "flow", Kind: BlockDiagram,
