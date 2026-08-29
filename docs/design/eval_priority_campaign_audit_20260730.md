@@ -57323,6 +57323,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1507 r926：B1440 生产转正，Trace 显式窗与链上双轴无回退（2026-08-28）
+
+1. 从已推送 `0d06cd206` 重建不可变二进制，严格并发恰好 2 路复放 `qf_architecture` 与 Donghu 显式窗 Trace。runner
+   2/2 PASS：Trace 199s、architecture 222s；人工判定 architecture PASS、Trace partial。两路活动流均未按固定 4ms、4m、首字节、累计年龄或
+   上下文比例降级，没有旧稿恢复、JSON salvage 或系统替写答案。
+2. `B1440-OPTIONALSTAGEEDGEAUTHORITYDRIFT1` 获得生产正证并闭环。architecture 最终 Mermaid 保留首稿全部 6 条关系，其中
+   `analyze -> explore -> extract -> finalize` 三条主链使用 checkout-verified precedence anchor；日志中零
+   `edge_anchor_node_identity_conflict`、零 relation reject、零关系删除。可选图仍未变成“必须完整覆盖 spine”，反向边、Trace 借权与未接地关系
+   仍没有获得权限；关系、标签、节点和布局均由模型选择，系统只验证模型提交的 typed anchor。
+3. architecture 唯一成文拒绝是表格行同时携带恰好 6 个 `cells` 与额外可见 `label/text` 的结构形错误。工具给出局部精确修向，模型下一稿只删除
+   冗余字段并通过；随后 patch 仅补 `member_set` facet，关系块字节保持。该形没有形成相互矛盾合同，也未造成答案或关系丢失，当前不立新 GAP；
+   继续由异构 inventory/table 用例观察是否成为高频结构负担。
+4. Trace 主能力无回退：精确 `34579.472865..34579.587805` 窗、4 次带窗/PID/线程约束查询、四跳 wakeup path、链上根因席、
+   issue/complete IO 与 D/io_wait、主要实际占时/规则可消双轴、确定性语义工作、业务线索、代表窗、完整 `Trace 因果投影` 与自动补齐均在；
+   邻近和背景没有进入主因，计数当量 7.200 与 IO 活动指数 551.600 均未被伪装为毫秒或可消除时长。
+5. Trace 人工仍为 partial：模型开头把 typed“优先级反转候选”概括成“显著的优先级反转卡顿/两段式阻塞”，并把仅能定位内核等待调用位的
+   fscache/page-lock 方向写得偏具体；同一答案后文又正确披露锁持有、等待对象、后端与帧因果未证。系统上下文和确定性投影已给出正确边界，故继续记为
+   `B1269/B1271` 的模型遵循重复 witness，不新增请求/模型/终稿关键词硬门，也不由系统重写模型结论。
+6. 本轮同时验证权限域隔离：源码阶段关系修复没有改变 Trace 窗选择、唤醒链判定、根因选举、频率折算、IO 等待、实际占时/可消除量双账户、
+   因果投影/自动补齐或成文所有权。
+
+状态：
+
+`r926=runner-2/2-pass+human-architecture-pass+trace-partial`；
+`B1440=production-positive/core-closed`；
+`optional-authored-edge-authority=checkout-verified+model-selected`；
+`required-diagram-completeness=separate+unchanged`；
+`B1269/B1271=model-guidance-repeat/open`；
+`request/model/final-prose/mermaid-message-hard-gate=forbidden/none`；
+`system-answer/conclusion/relation/node/label/layout-authorship=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r926`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r926`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
