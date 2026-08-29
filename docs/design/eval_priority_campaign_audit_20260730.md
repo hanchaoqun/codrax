@@ -57868,6 +57868,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r942`。
 
+### §123.1526 r943：B1456 生产转正；Trace optional 源码模式负回归通过（2026-08-29）
+
+1. 从已推送 `52a98b4e8` 的干净二进制严格并发恰好 2 路复放混合日志与 Donghu 显式窗 Trace。runner 与人工均 2/2 PASS：日志
+   133s、Trace 214s。两路无固定 4ms、4m、活动流年龄或上下文比例降级，无 JSON salvage、旧稿恢复、成文拒绝或系统代写答案。
+2. B1456 获得生产正证并关闭核心问题。TurnPolicy 明确将 artifact-only 置为 current-source optional；日志一路 `read=0, repo_map=0`，相对 r942
+   的 325s/2 次无关 read 回落到 133s。终稿只列附件自己的 `NativeBridge.ets:33`、`Home.ets:54`、`Bridge.cj:18/42`，明确这些路径未映射
+   当前仓，不再出现无关 `cangjie_minimal/Bridge.cj:9`、行号偏移或当前仓定义权威。
+3. B1455 的 prompt 合同没有结构回退，但模型类型选择出现波动：r942 首稿为 generic+enumeration+bounded，本轮虽保持 generic+bounded，却又发出
+   `question_kind=call_chain`。该调用一次通过、未引发 repo 读取、关系硬拒或错误答案，终稿准确回答两条独立首帧并声明跨栈直接因果未证。因 r942/r943
+   异构表现相反，当前归为模型对清晰类型教学的遵循波动；不增加请求/模型/终稿关键词门，不由系统重写 question kind，继续软观察。
+4. Trace 是 B1456 的高风险负回归正证。source optional 没有削弱精确 `34579.472865..34579.587805` 窗、36 次唤醒、四跳依赖链、链上优先级反转、
+   调度供给、算力供给、D/IO、`VerifyClass`、主要真实占时/规则可消双账户、完整 `Trace 因果投影` 与成文前自动补采；邻近/背景未进入主因，
+   帧/截止期因果未证边界明确。
+5. Trace analyzer 首稿把 `causal_diagnosis` 与 `fact_families` 同时提交，第二稿移除后通过；该互斥合同已在共享教学中逐字明确，暂按模型波动留观。
+   Explorer 本轮 trace_query=10、context=48%、prune=1，相对 r941 的 3/39% 成本增加但答案更完整、无错误扩域；列 P2 调查效率观察，禁止按固定轮数、
+   4ms/4m、上下文比例或 case 名硬截断，后续从不同 Trace 复放判断是否为稳定系统浪费。
+
+状态：
+
+`r943=runner-pass-2/2+human-pass-2/2`；
+`B1456=production-positive/core-closed`；
+`B1455=contract-implemented+functional-positive/model-adherence-watch`；
+`artifact-only=current-source-optional+repo-read-zero`；
+`unrelated-checkout-name/path=no-evidence-authority`；
+`Trace query-cost=P2-observe/no-hard-time-or-round-cutoff`；
+`system-answer/conclusion/intent/relation/wording-selection=none`；
+`request/model/final-prose-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r943`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r943`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
