@@ -6390,14 +6390,16 @@ func diagramRelationFailureIssueValues(mismatches []DiagramCallEdgeEvidenceMisma
 type diagramRelationRepairDelta = types.AnswerDiagramRelationRepairDelta
 type diagramRelationRepairDeltaFailure = types.AnswerDiagramRelationRepairFailure
 
-// normalizeDiagramRelationRepairFailureLocator keeps a visible body-edge
-// failure executable when the relation validator resolved only one technical
-// endpoint. A missing-anchor mismatch is still precisely located by its
-// complete model-authored node pair; retaining a half identity pair would make
-// the whole same-cycle delta malformed and discard unrelated executable
-// failures. Drop both optional identities only when no prior anchor matches
-// the node pair, so this remains a remove-only body-edge capability and can
-// never be mistaken for authority to restore or retarget a typed relation.
+// normalizeDiagramRelationRepairFailureLocator keeps a relation failure
+// executable when the evidence resolver produced only one technical endpoint.
+// A complete node pair plus one unique same-node/same-relation base anchor is
+// already an exact structural carrier: bind the optional identity pair to that
+// immutable anchor (or omit it when the anchor itself has no complete pair).
+// This gives the model a remove-only prior-anchor capability without treating
+// a partially resolved display identity as relation authority. When there is
+// no prior anchor, the complete body pair remains an exact remove-only carrier;
+// ambiguous prior anchors stay malformed and fail closed. This helper never
+// reads Mermaid labels, request text, model prose, or final-answer wording.
 func normalizeDiagramRelationRepairFailureLocator(
 	doc *types.AnswerDocumentV2,
 	failure diagramRelationRepairDeltaFailure,
@@ -6410,7 +6412,13 @@ func normalizeDiagramRelationRepairFailureLocator(
 	if fromNode == "" || toNode == "" || !identityPartial {
 		return failure
 	}
-	if len(types.AnswerDiagramRelationRepairFailureBaseAnchorCandidates(doc, failure)) != 0 {
+	candidates := types.AnswerDiagramRelationRepairFailureBaseAnchorCandidates(doc, failure)
+	if len(candidates) > 1 {
+		return failure
+	}
+	if len(candidates) == 1 && candidates[0].HasEndpointIdentityPair() {
+		failure.FromIdentity = strings.TrimSpace(candidates[0].FromIdentity)
+		failure.ToIdentity = strings.TrimSpace(candidates[0].ToIdentity)
 		return failure
 	}
 	failure.FromIdentity = ""

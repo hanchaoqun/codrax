@@ -57291,6 +57291,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1496 r915/B1427：半身份失败不得吞掉同轮无锚坏边的原子修补能力（2026-08-28）
+
+1. 从已推送 `a29cde68a` 重建不可变二进制，严格并发恰好 2 路复放 read logic-view 与显式窗 Trace：Trace 145s PASS，read 648s
+   FAIL。read 本轮 Analyzer 没有产生 `SubTopics`，因此 B1426 的 typed participant-grouping 没有匹配生产触发；两次 explorer dispatch 来自其他
+   调查结构，不能把本轮写成 B1426 生产转正，只能记无回归、仍待与 r914 同构的 sub-topic 形复放。
+2. Trace 人工判定 partial，但系统主能力完整：显式 2.000..2.020s 窗、`threadpool-400 -> network-300 -> cookie-200 -> app-100`
+   唤醒链、11.000ms 链上 iowait 第一席、三个 1.000ms 优先级/调度供给候选、实际占时与现规则可消双账户、邻近/背景隔离、完整
+   `Trace 因果投影` 和成文前自动补采都在；没有按 4ms、4m、活动流年龄或上下文比例降级。模型正文把内核等待调用点扩写为“fscache 或页面缓存
+   预取”修向，并把单列为 0 的“非 IO D-state”误述成线程不是不可中断等待；同页系统事实随后已正确披露“非 IO D-state 0 + iowait
+   11ms”。这继续属于 B1269/B1271 的模型语义遵循观察，不扫描正文做硬门、不由系统替写结论。
+3. read 的 16 次成文拒绝确认新高危 `B1427-HALFIDENTITYSIBLINGSUPPRESSRELATIONLEASE1/P0-P1`。同一拒绝代有两个精确结构问题：
+   `BusContext -> Mutable` 的 data_flow anchor 无证据且 endpoint resolver 只产出一侧 identity；`Mutable -> Finalizer` 是一个无
+   anchor 的可见 Mermaid 边。后者本应得到 `visible_body_edge + failure_ref + remove`，由模型明确选择是否删除。
+4. 旧 producer 在“半 identity + 存在 prior anchor”时刻意保留半 pair；共享 complete-locator 合同又明确拒绝任何半 pair，导致整份
+   relation delta 返回空。participant coverage 的 additions 仍可单独建 lease，于是 retry 表面成为 additions-only：整块 diagram 替换被正确
+   禁止，但无锚坏边的 failure ref 也一起消失。模型随后只能退回 legacy 坐标，先把数组错误包装为 JSON string，再在 edge edit 的
+   `block_id` 与 boundary-ref 的无 `block_id` 分支之间反复猜测，最后猜 `precedence` 删除 `Mutable -> Finalizer`；exact prior-anchor roster
+   不可能命中这条本来就无 anchor 的边，系统停止同类错误并恢复仍含坏边的旧稿。runner 的
+   `degraded_answer_checks_skipped + diagram_participant_coverage_receipt_missing` 是真实失败，不是假阴性。
+5. B1427 根修只闭合 typed capability，不替模型修图：当完整 block/from/to/relation 已唯一定位一个 prior anchor，而 evidence resolver 只给半个
+   optional identity 时，producer 将 identity pair 绑定到该不可变 anchor 的完整 pair；若该 anchor 本身没有完整 pair，则同时省略两个可选 identity，
+   继续用唯一 node/relation carrier。零 prior anchor 仍按完整 body pair 发布 remove-only；多个 prior anchor 的歧义形继续保留半 pair 并
+   fail-closed。系统不选择 remove/replace、不生成关系/方向/标签/布局，也不读取 Mermaid message、请求、thinking 或答案 prose。
+6. 新回归覆盖 r915 同构双失败：无 identity 的 data_flow prior anchor 与 `Mutable -> Finalizer` body-only 边必须同时进入同一 delta、安装为
+   `prior_anchor` 与 `visible_body_edge` 两个独立 live ref，且均只允许模型选择 remove；任一半身份 sibling 不得再吞掉另一条可执行失败。
+   原 complete-locator 对原始半 pair 的拒绝、多个候选歧义、malformed sibling 全量抑制、mixed stale/body carrier 与普通单边路径继续保持。
+7. 错误文案仍有一个 P2 可用性观察：legacy edge edit 的“empty block_id”没有直接点明数组字段，模型一轮把它误归到
+   `diagram_boundary_edits`。B1427 的 live ref 分支会绕开该坐标心智，但后续异构回放若仍复现，应将执行器错误改为字段级 typed path；不能因此放宽
+   schema 或让系统自动删边。
+8. 验证已闭合：定向回归、`internal/tool`/`internal/agent`/`internal/types` 分包套件、完整 `go test ./... -count=1`
+   与 CGO release-tag `make` 均通过；全仓覆盖 hitraceconv、mermaidcompat、orchestrator、tracequery、tracediag、REPL 与
+   writeflow。生产回放仍是
+   B1427 转正的必要一步，不以单测或全仓绿代替。
+
+状态：
+
+`r915=runner-pass-1/2,human-trace-partial+read-fail`；
+`B1426=no-regression/no-matching-production-trigger/pending-r914-shaped-replay`；
+`B1427=implemented/full-suite+build-pass/pending-production-replay`；
+`relation-delta=all-same-cycle-exact-failures`；
+`half-identity+unique-prior-anchor=canonical-exact-carrier`；
+`ambiguous-prior-anchor=fail-closed`；
+`model-repair-choice=preserved`；`system-edge/relation/label/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r915`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r915`。
+
 ### §123.1491 r912：B1420 生产转正；退化 target_cpu 同时被授权与否定（2026-08-28）
 
 1. 从已推送 `540ef627f` 重建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与显式窗 Trace，runner 2/2 PASS：Rust 74s、

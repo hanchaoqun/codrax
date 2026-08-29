@@ -9248,20 +9248,78 @@ func TestDiagramRelationRepairDeltaCarriesMixedStaleAndMissingAnchorFailures(t *
 	t.Fatal("half-resolved missing-anchor failure was dropped")
 }
 
-func TestDiagramRelationRepairDeltaKeepsHalfIdentityFailClosedWhenPriorAnchorExists(t *testing.T) {
+func TestDiagramRelationRepairDeltaBindsHalfIdentityToUniquePriorAnchor(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,
 		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart TD\n    A --> B\n"},
 		EdgeAnchors: []types.DiagramEdgeAnchor{{
-			FromNode: "A", ToNode: "B", FromIdentity: "pkg.A", ToIdentity: "pkg.B", RelationKind: types.DiagramRelCall,
+			FromNode: "A", ToNode: "B", FromIdentity: "pkg.A", ToIdentity: "pkg.B", RelationKind: types.DiagramRelDataFlow,
 		}},
 	}}}
 	raw := diagramRelationRepairDeltaJSON(doc, nil, []DiagramCallEdgeEvidenceMismatch{{
-		BlockID: "flow", Issue: diagramCallEdgeIssueMissingGroundedAnchor,
-		FromNode: "A", ToNode: "B", FromSymbol: "pkg.A", Relation: types.DiagramRelCall,
+		BlockID: "flow", Issue: diagramDataFlowEdgeIssueNoEvidence,
+		FromNode: "A", ToNode: "B", FromSymbol: "pkg.A", Relation: types.DiagramRelDataFlow,
 	}}, nil, nil)
-	if raw != "" {
-		t.Fatalf("half identity overlapping a prior anchor must stay fail-closed: %s", raw)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("unique prior anchor must close the optional identity pair: %v raw=%s", err, raw)
+	}
+	if len(delta.Failures) != 1 || delta.Failures[0].FromIdentity != "pkg.A" ||
+		delta.Failures[0].ToIdentity != "pkg.B" ||
+		delta.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchor ||
+		!delta.Failures[0].AllowsAction("remove") || delta.Failures[0].AllowsAction("replace") {
+		t.Fatalf("unique prior anchor must yield one exact remove-only carrier: %+v", delta)
+	}
+	if lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, nil); lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("canonical failure must install one executable lease: %+v", lease)
+	}
+}
+
+func TestDiagramRelationRepairDeltaKeepsAnchoredAndBodyOnlyFailuresExecutableTogether(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: strings.Join([]string{
+			"flowchart TD",
+			"    BusContext --> Mutable",
+			"    Mutable -.-> Finalizer",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "BusContext", ToNode: "Mutable",
+			RelationKind: types.DiagramRelDataFlow,
+		}},
+	}}}
+	raw := diagramRelationRepairDeltaJSON(doc, nil, []DiagramCallEdgeEvidenceMismatch{
+		{
+			BlockID: "flow", Issue: diagramDataFlowEdgeIssueNoEvidence,
+			FromNode: "BusContext", ToNode: "Mutable", FromSymbol: "BusContext",
+			Relation: types.DiagramRelDataFlow,
+		},
+		{
+			BlockID: "flow", Issue: diagramCallEdgeIssueMissingRelationAnchor,
+			FromNode: "Mutable", ToNode: "Finalizer", BodyOccurrence: 1,
+		},
+	}, nil, nil)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil {
+		t.Fatalf("mixed anchored/body-only failures must publish one delta: %v raw=%s", err, raw)
+	}
+	if len(delta.Failures) != 2 {
+		t.Fatalf("one half-resolved anchor must not suppress an unrelated body-only failure: %+v", delta)
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("both exact remove choices must survive lease compilation: %+v", lease)
+	}
+	carriers := map[types.AnswerDiagramRelationRepairTargetCarrier]bool{}
+	for _, failure := range lease.Failures {
+		if !failure.AllowsAction("remove") || failure.AllowsAction("replace") || failure.FailureRef == "" {
+			t.Fatalf("evidence-negative rows must stay model-selected remove-only choices: %+v", failure)
+		}
+		carriers[failure.TargetCarrier] = true
+	}
+	if !carriers[types.AnswerDiagramRelationRepairCarrierPriorAnchor] ||
+		!carriers[types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge] {
+		t.Fatalf("expected one anchored and one body-only carrier: %+v", lease.Failures)
 	}
 }
 
