@@ -2,7 +2,7 @@ package types
 
 import "testing"
 
-func TestConceptualTerminalResolutionContractUsesOnlyTypedTerminalBodyCalls(t *testing.T) {
+func TestConceptualTerminalResolutionContractUsesCanonicalParserGroundedOperationRows(t *testing.T) {
 	profile := &CallChainEndpointProfile{
 		Source:   "VisitController.create",
 		SinkMode: CallChainSinkResolutionDiscoverTerminal,
@@ -25,8 +25,16 @@ func TestConceptualTerminalResolutionContractUsesOnlyTypedTerminalBodyCalls(t *t
 	noise.Producer = "test_non_terminal_call"
 	duplicateCoordinate := good
 	duplicateCoordinate.ID = "ev-terminal-duplicate"
-	contract := BuildConceptualTerminalResolutionContract(profile, []EvidenceItem{noise, good, good, duplicateCoordinate})
-	if contract == nil || len(contract.Rows) != 1 {
+	selectedCallable := good
+	selectedCallable.ID = "ev-selected-callable"
+	selectedCallable.Subject = "Repository.flush"
+	selectedCallable.Object = "storage.commit"
+	selectedCallable.Source = "src/Repository.java"
+	selectedCallable.LineStart = 12
+	selectedCallable.LineEnd = 12
+	selectedCallable.Producer = EvidenceProducerRepoMapSelectedCallableBodyCall
+	contract := BuildConceptualTerminalResolutionContract(profile, []EvidenceItem{noise, good, good, duplicateCoordinate, selectedCallable})
+	if contract == nil || len(contract.Rows) != 2 {
 		t.Fatalf("conceptual terminal rows=%+v", contract)
 	}
 	row := contract.Rows[0]
@@ -36,6 +44,10 @@ func TestConceptualTerminalResolutionContractUsesOnlyTypedTerminalBodyCalls(t *t
 	}
 	if len(row.AllowedConclusions) != 3 {
 		t.Fatalf("model-owned conclusion choices=%v", row.AllowedConclusions)
+	}
+	if selected := contract.Rows[1]; selected.EvidenceID != "ev-selected-callable" ||
+		selected.TerminalCallable != "Repository.flush" || selected.ExactOperation != "storage.commit" {
+		t.Fatalf("selected-callable exact body operation was not admitted: %+v", selected)
 	}
 
 	receipt := &AnswerConceptualTerminalResolutionReceipt{
@@ -51,6 +63,36 @@ func TestConceptualTerminalResolutionContractUsesOnlyTypedTerminalBodyCalls(t *t
 	}
 	if BindConceptualTerminalResolutionReceipt(bad, contract) {
 		t.Fatal("non-published evidence must not bind")
+	}
+	selectedReceipt := &AnswerConceptualTerminalResolutionReceipt{
+		EvidenceID: "ev-selected-callable",
+		Conclusion: ConceptualTerminalResolutionDestinationUnproven,
+	}
+	if !BindConceptualTerminalResolutionReceipt(selectedReceipt, contract) ||
+		selectedReceipt.BoundRow.ExactOperation != "storage.commit" {
+		t.Fatalf("selected-callable model selection did not bind: %+v", selectedReceipt)
+	}
+}
+
+func TestConceptualTerminalOperationPredicateKeepsBehaviorCandidatesOutOfTopologyAuthority(t *testing.T) {
+	for _, producer := range []string{
+		EvidenceProducerRepoMapTerminalBodyCall,
+		EvidenceProducerRepoMapSelectedCallableBodyCall,
+	} {
+		item := EvidenceItem{
+			ID: "ev", Kind: EvidenceRelationship, Subject: "Leaf.run", Predicate: "calls", Object: "sink.write",
+			Source: "src/Leaf.java", LineStart: 8, Scope: ScopeLine, AnchorKind: AnchorCall, Producer: producer,
+		}
+		if !IsConceptualTerminalOperationEvidence(item) || !IsCallChainBodyEnrichmentEvidence(item) {
+			t.Fatalf("parser body candidate lost shared classification: %+v", item)
+		}
+	}
+	principal := EvidenceItem{
+		ID: "principal", Kind: EvidenceRelationship, Subject: "Root.run", Predicate: "calls", Object: "Leaf.run",
+		Source: "src/Root.java", LineStart: 4, Scope: ScopeLine, AnchorKind: AnchorCall,
+	}
+	if IsConceptualTerminalOperationEvidence(principal) || IsCallChainBodyEnrichmentEvidence(principal) {
+		t.Fatal("principal call edge must not be relabeled as body enrichment")
 	}
 }
 

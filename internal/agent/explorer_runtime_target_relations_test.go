@@ -400,6 +400,7 @@ func TestBuildRuntimeTargetTerminalBodyCalls_ConceptualTerminalUsesGroundedStati
 		{ID: "first", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitController.create", Object: "VisitService.createVisit", Source: "src/main/java/com/clinic/controller/VisitController.java", LineStart: 18, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 		{ID: "second", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitService.createVisit", Object: "VisitRepository.insert", Source: "src/main/java/com/clinic/service/VisitService.java", LineStart: 17, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
 		{ID: "third", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "VisitRepository.insert", Object: "AuditLog.record", Source: "src/main/java/com/clinic/repo/VisitRepository.java", LineStart: 23, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded},
+		{ID: "existing-body", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "AuditLog.record", Object: "System.out.println", Source: "src/main/java/com/clinic/repo/AuditLog.java", LineStart: 6, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapSelectedCallableBodyCall},
 	}
 	readSet := map[string]bool{"src/main/java/com/clinic/repo/AuditLog.java": true}
 	closure := types.NewEvidenceClosure(repoRoot)
@@ -410,7 +411,7 @@ func TestBuildRuntimeTargetTerminalBodyCalls_ConceptualTerminalUsesGroundedStati
 
 	got := eval.buildRuntimeTargetTerminalBodyCalls(graph, readSet, readSet, closure)
 	if len(got.evidence) != 1 || got.evidence[0].Subject != "AuditLog.record" || got.evidence[0].Object != "System.out.println" {
-		t.Fatalf("grounded conceptual-terminal leaf must expose its exact body effect without a fabricated runtime-selection fact: evidence=%+v markdown=%s", got.evidence, got.markdown)
+		t.Fatalf("body enrichment must not redefine the principal graph leaf or suppress its exact operation: owners=%v evidence=%+v markdown=%s", eval.callChainTerminalBodyOwners(), got.evidence, got.markdown)
 	}
 	if eval.callChainDiscoverySelectionPending() || eval.analysisIR.RequestModel.CallChainEndpointProfile.RequiresRuntimeSelectionEvidence() {
 		t.Fatal("static conceptual-terminal discovery must not request registration/binding/initializer evidence")

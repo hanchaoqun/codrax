@@ -147,7 +147,7 @@ func projectConceptualTerminalResolutionField(blockProps map[string]any, view *t
 			}
 			choices = append(choices, map[string]any{
 				"type":        "object",
-				"description": fmt.Sprintf("evidence_id=%s maps to exact terminal operation %s -> %s at %s; the model still selects the conceptual-destination conclusion", row.EvidenceID, row.TerminalCallable, row.ExactOperation, row.Source),
+				"description": fmt.Sprintf("evidence_id=%s maps to exact terminal operation %s -> %s at %s. %s The system publishes the operation but never chooses this conclusion.", row.EvidenceID, row.TerminalCallable, row.ExactOperation, row.Source, conclusion.SchemaDescription()),
 				"properties": map[string]any{
 					"evidence_id": map[string]any{"const": row.EvidenceID},
 					"conclusion":  map[string]any{"const": string(conclusion)},

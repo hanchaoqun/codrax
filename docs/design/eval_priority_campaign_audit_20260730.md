@@ -57701,6 +57701,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r992`。
 
+### §123.1590 B1516：主调用拓扑与 parser body 候选分层，概念终点 prompt/contract 共用单一候选宇宙（2026-08-31）
+
+1. `B1516-TERMINALCANDIDATETOPOLOGY1/P1` 已按跨语言通用形施工。新增唯一 typed predicate，只有
+   `repomap_terminal_body_call` 或 `repomap_selected_callable_body_call`、`ClaimCallEdge` 且 citable 的 parser 行才进入概念终点 operation
+   候选；Java、Kotlin、Go、C/C++、Rust、Python、ArkTS、Cangjie 等语言共同消费 producer/caliber，不按符号名、库名或业务词做分支。
+2. leaf owner 计算明确排除上述两类 body enrichment producer。主调用图的叶子只由 principal grounded call-edge universe 决定；已读函数体里的
+   精确调用只描述候选行为，不能扩展主图、选择路径、选择终点或把自身 caller 从叶子清单中删除。无效/不完整 enrichment 同样不能获得拓扑权限。
+3. `BuildConceptualTerminalResolutionRows` 成为唯一候选构造器，负责 typed 坐标校验、去重、稳定排序和 16 行上限。`discover_terminal` 的最后提示与
+   动态 receipt schema/contract 均直接消费这组行，候选 ID、caller、operation、source 不再由两份 producer filter 分别计算。
+   `discover_path` 与 exact endpoint 继续保留原有有界 body 事实提示，但不继承概念终点 receipt 义务。
+4. `repomap_selected_callable_body_call` 现在可作为模型 receipt 的精确 operation 行；它仍不证明所选 operation 达到用户概念目标。三种 conclusion
+   对每条行全部开放，并补充通用 schema 语义：supported 需要 exact operation 本身支持目标；differs 需要 exact operation 证明实质不同终点；
+   两者均不能建立时选 unproven。该教学不依据名称收窄 enum，也不替模型选择值。
+5. 回归钉住 selected-callable row 可绑定、普通 principal edge 不能冒充 body candidate、两类 enrichment 不拥有拓扑权限、prompt/contract 两个
+   candidate ID 完全一致，以及生产形 `AuditLog.record -> System.out.println` enrichment 不再让 `AuditLog.record` 从 leaf owners 消失。
+6. 验证结果：定向 `internal/types + internal/agent + internal/tool` 测试全绿；三包完整套件全绿（types 25.807s、agent 14.246s、tool
+   189.536s）；`go test ./... -count=1` 全绿（tool 218.717s、tracequery 92.230s、hitraceconv 127.473s）；`make` 通过。
+   Trace 查询、链上根因、显式窗、实际占时/规则可消、因果投影和自动补齐代码均未改动。
+
+状态：
+
+`B1516=implemented/full-suite+build-pass/pending-production-replay`；
+`principal-call-topology=principal-grounded-call-edges-only`；
+`body-enrichment=exact-operation-candidate-only/no-topology-authority`；
+`conceptual-terminal-prompt/schema/contract=one-canonical-typed-row-universe`；
+`conceptual-terminal-operation-selection/conclusion=model-owned`；
+`system-answer/conclusion/relation/wording/terminal-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

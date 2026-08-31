@@ -398,6 +398,42 @@ func TestSelectedTerminalImplementationBoundaryConceptualDestinationKeepsOneOper
 	}
 }
 
+func TestSelectedTerminalImplementationBoundaryDiscoverTerminalMatchesReceiptCandidateIDs(t *testing.T) {
+	profile := &types.CallChainEndpointProfile{
+		Source: "Controller.run", SinkMode: types.CallChainSinkResolutionDiscoverTerminal,
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		CallChainEndpointProfile: profile,
+	}}}
+	for _, item := range []types.EvidenceItem{
+		{
+			ID: "ev-terminal", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "Leaf.run", Predicate: "calls", Object: "sink.write", Source: "src/Leaf.java", LineStart: 8,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			Producer: types.EvidenceProducerRepoMapTerminalBodyCall,
+		},
+		{
+			ID: "ev-selected", Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall,
+			Subject: "Audit.record", Predicate: "calls", Object: "console.print", Source: "src/Audit.java", LineStart: 9,
+			Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+			Producer: types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+		},
+	} {
+		ctx.EvidenceItems = append(ctx.EvidenceItems, item)
+	}
+	contract := types.BuildConceptualTerminalResolutionContract(profile, ctx.EvidenceItems)
+	got := renderAnswerDocSelectedTerminalImplementationBoundary(ctx)
+	if contract == nil || len(contract.Rows) != 2 || !strings.Contains(got, "candidate_count=`2`") {
+		t.Fatalf("prompt/contract candidate universe drifted: contract=%+v\nprompt=%s", contract, got)
+	}
+	for _, row := range contract.Rows {
+		needle := "evidence_id=`" + row.EvidenceID + "`"
+		if strings.Count(got, needle) != 1 {
+			t.Fatalf("schema-published candidate %q must appear exactly once in prompt:\n%s", row.EvidenceID, got)
+		}
+	}
+}
+
 func TestSelectedTerminalImplementationBoundaryExactSinkRetainsBoundedBodyDetail(t *testing.T) {
 	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		CallChainEndpointProfile: &types.CallChainEndpointProfile{

@@ -42,71 +42,82 @@ func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentConte
 		callee     string
 		location   string
 	}
-	groups := make(map[string][]row)
-	var groupOrder []string
-	seen := make(map[string]bool)
-	for _, item := range ctx.EvidenceItems {
-		if item.Producer != types.EvidenceProducerRepoMapTerminalBodyCall ||
-			types.ClaimFormOf(item) != types.ClaimCallEdge || !item.IsCitable() {
-			continue
-		}
-		caller := strings.TrimSpace(item.Subject)
-		callee := strings.TrimSpace(item.Object)
-		location := strings.TrimSpace(item.DisplayLocation(true))
-		if caller == "" || callee == "" || location == "" {
-			continue
-		}
-		key := strings.ToLower(caller + "\x00" + callee + "\x00" + location)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		groupKey := strings.ToLower(caller)
-		if _, ok := groups[groupKey]; !ok {
-			groupOrder = append(groupOrder, groupKey)
-		}
-		groups[groupKey] = append(groups[groupKey], row{
-			evidenceID: strings.TrimSpace(item.ID), caller: caller, callee: callee, location: location,
-		})
-	}
-	rows := make([]row, 0, 8)
 	profile := (*types.CallChainEndpointProfile)(nil)
 	if ctx.AnalysisIR != nil {
 		profile = ctx.AnalysisIR.RequestModel.CallChainEndpointProfile
 	}
 	candidateMode := profile == nil || profile.DiscoverTerminalActive() || profile.DiscoverPathActive()
-	if candidateMode {
-		// A conceptual destination can leave several grounded graph leaves. Keep
-		// one exact operation from every leaf instead of letting a utility-heavy
-		// helper monopolize the prompt tail. These remain candidates: endpoint
-		// selection and business interpretation stay with the model.
-		for _, key := range groupOrder {
-			if len(groups[key]) == 0 {
-				continue
-			}
-			rows = append(rows, groups[key][0])
-			if len(rows) >= 8 {
-				break
-			}
+	rows := make([]row, 0, 8)
+	if profile != nil && profile.DiscoverTerminalActive() {
+		// The conceptual-terminal prompt and dynamic receipt schema must publish
+		// the same exact candidate IDs. Both therefore consume the canonical
+		// typed row constructor rather than maintaining parallel producer filters.
+		for _, candidate := range types.BuildConceptualTerminalResolutionRows(ctx.EvidenceItems) {
+			rows = append(rows, row{
+				evidenceID: candidate.EvidenceID,
+				caller:     candidate.TerminalCallable,
+				callee:     candidate.ExactOperation,
+				location:   candidate.Source,
+			})
 		}
 	} else {
-		// Exact endpoints and runtime-selected destinations have typed selection
-		// authority, so a bounded set of operations from the selected body is
-		// useful and cannot be confused with unrelated graph leaves.
-		for depth := 0; len(rows) < 8; depth++ {
-			added := false
+		groups := make(map[string][]row)
+		var groupOrder []string
+		seen := make(map[string]bool)
+		for _, item := range ctx.EvidenceItems {
+			if !types.IsConceptualTerminalOperationEvidence(item) {
+				continue
+			}
+			caller := strings.TrimSpace(item.Subject)
+			callee := strings.TrimSpace(item.Object)
+			location := strings.TrimSpace(item.DisplayLocation(true))
+			if caller == "" || callee == "" || location == "" {
+				continue
+			}
+			key := strings.ToLower(caller + "\x00" + callee + "\x00" + location)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			groupKey := strings.ToLower(caller)
+			if _, ok := groups[groupKey]; !ok {
+				groupOrder = append(groupOrder, groupKey)
+			}
+			groups[groupKey] = append(groups[groupKey], row{
+				evidenceID: strings.TrimSpace(item.ID), caller: caller, callee: callee, location: location,
+			})
+		}
+		if candidateMode {
+			// A role-bound path can leave several grounded graph leaves. Keep one
+			// exact operation from every leaf instead of letting a utility-heavy
+			// helper monopolize the prompt tail.
 			for _, key := range groupOrder {
-				if depth >= len(groups[key]) {
+				if len(groups[key]) == 0 {
 					continue
 				}
-				rows = append(rows, groups[key][depth])
-				added = true
+				rows = append(rows, groups[key][0])
 				if len(rows) >= 8 {
 					break
 				}
 			}
-			if !added {
-				break
+		} else {
+			// Exact endpoints and runtime-selected destinations have typed selection
+			// authority, so retain a bounded set of selected-body operations.
+			for depth := 0; len(rows) < 8; depth++ {
+				added := false
+				for _, key := range groupOrder {
+					if depth >= len(groups[key]) {
+						continue
+					}
+					rows = append(rows, groups[key][depth])
+					added = true
+					if len(rows) >= 8 {
+						break
+					}
+				}
+				if !added {
+					break
+				}
 			}
 		}
 	}

@@ -14898,7 +14898,8 @@ func (e *explorerEvaluator) callChainTerminalBodyOwners() []string {
 	}
 	var calls []types.EvidenceItem
 	for _, item := range e.currentStructuredEvidence() {
-		if item.IsCitable() && types.ClaimFormOf(item) == types.ClaimCallEdge &&
+		if !types.IsCallChainBodyEnrichmentEvidence(item) && item.IsCitable() &&
+			types.ClaimFormOf(item) == types.ClaimCallEdge &&
 			strings.TrimSpace(item.Subject) != "" && strings.TrimSpace(item.Object) != "" {
 			calls = append(calls, item)
 		}

@@ -30,9 +30,26 @@ func (c ConceptualTerminalResolutionConclusion) IsValid() bool {
 	}
 }
 
+// SchemaDescription explains the model-owned conclusion choices without
+// narrowing them from operation names or request prose. All exact operations
+// keep all three choices; this text is guidance, never a semantic hard gate.
+func (c ConceptualTerminalResolutionConclusion) SchemaDescription() string {
+	switch c {
+	case ConceptualTerminalResolutionDestinationSupported:
+		return "Choose only when the selected exact operation itself supports the requested conceptual destination; names, comments, and layer labels are not sufficient."
+	case ConceptualTerminalResolutionCurrentTerminalDiffers:
+		return "Choose when the selected exact operation establishes a materially different current terminal behavior from the requested conceptual destination."
+	case ConceptualTerminalResolutionDestinationUnproven:
+		return "Choose when the selected exact operation does not establish either that the requested destination is supported or that a materially different terminal is proven."
+	default:
+		return ""
+	}
+}
+
 // ConceptualTerminalResolutionRow is one exact parser-grounded operation from
-// a grounded call-graph leaf. It is evidence for what the current endpoint
-// does, not a system classification of the operation's business meaning.
+// a grounded terminal candidate or an explicitly selected callable body. It
+// is evidence for what that callable does, not a system classification of the
+// operation's business meaning or a declaration that it is the graph leaf.
 type ConceptualTerminalResolutionRow struct {
 	EvidenceID         string
 	TerminalCallable   string
@@ -91,18 +108,43 @@ func BindConceptualTerminalResolutionReceipt(r *AnswerConceptualTerminalResoluti
 	return false
 }
 
-// BuildConceptualTerminalResolutionContract consumes only schema-validated
-// endpoint mode plus exact parser evidence. It does not read the current
-// request, evidence summaries, model reasoning, or answer text.
-func BuildConceptualTerminalResolutionContract(profile *CallChainEndpointProfile, evidence []EvidenceItem) *ConceptualTerminalResolutionContract {
-	if profile == nil || !profile.DiscoverTerminalActive() {
-		return nil
+// IsConceptualTerminalOperationEvidence is the single producer/caliber
+// predicate for parser-grounded operations that the model may compare with a
+// requested conceptual destination. Selected-callable body enrichment is as
+// exact as terminal-body enrichment, but neither producer chooses the path,
+// terminal, business meaning, or conclusion.
+func IsConceptualTerminalOperationEvidence(item EvidenceItem) bool {
+	switch strings.TrimSpace(item.Producer) {
+	case EvidenceProducerRepoMapTerminalBodyCall,
+		EvidenceProducerRepoMapSelectedCallableBodyCall:
+		return ClaimFormOf(item) == ClaimCallEdge && item.IsCitable()
+	default:
+		return false
 	}
+}
+
+// IsCallChainBodyEnrichmentEvidence reports parser body-call rows that enrich
+// a candidate's behavior after the principal call graph has been established.
+// These rows must not extend that graph or redefine which principal callable
+// is a leaf.
+func IsCallChainBodyEnrichmentEvidence(item EvidenceItem) bool {
+	switch strings.TrimSpace(item.Producer) {
+	case EvidenceProducerRepoMapTerminalBodyCall,
+		EvidenceProducerRepoMapSelectedCallableBodyCall:
+		return true
+	default:
+		return false
+	}
+}
+
+// BuildConceptualTerminalResolutionRows constructs the canonical exact
+// operation candidate universe shared by the prompt and receipt contract.
+// It reads typed evidence coordinates only and never interprets identifiers.
+func BuildConceptualTerminalResolutionRows(evidence []EvidenceItem) []ConceptualTerminalResolutionRow {
 	seen := make(map[string]bool)
 	rows := make([]ConceptualTerminalResolutionRow, 0, 8)
 	for _, item := range evidence {
-		if item.Producer != EvidenceProducerRepoMapTerminalBodyCall ||
-			ClaimFormOf(item) != ClaimCallEdge || !item.IsCitable() {
+		if !IsConceptualTerminalOperationEvidence(item) {
 			continue
 		}
 		id := strings.TrimSpace(item.ID)
@@ -141,7 +183,17 @@ func BuildConceptualTerminalResolutionContract(profile *CallChainEndpointProfile
 	if len(rows) > 16 {
 		rows = rows[:16]
 	}
-	return &ConceptualTerminalResolutionContract{Rows: rows}
+	return rows
+}
+
+// BuildConceptualTerminalResolutionContract consumes only schema-validated
+// endpoint mode plus exact parser evidence. It does not read the current
+// request, evidence summaries, model reasoning, or answer text.
+func BuildConceptualTerminalResolutionContract(profile *CallChainEndpointProfile, evidence []EvidenceItem) *ConceptualTerminalResolutionContract {
+	if profile == nil || !profile.DiscoverTerminalActive() {
+		return nil
+	}
+	return &ConceptualTerminalResolutionContract{Rows: BuildConceptualTerminalResolutionRows(evidence)}
 }
 
 func conceptualTerminalConclusionAllowed(got ConceptualTerminalResolutionConclusion, allowed []ConceptualTerminalResolutionConclusion) bool {
