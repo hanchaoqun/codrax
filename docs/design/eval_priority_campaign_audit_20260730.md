@@ -57291,6 +57291,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1545 B1477：生产同形结构校验通过，独立根因暂不成立（2026-08-31）
+
+1. 逐行复核 r960 首稿与三轮 patch：`extend Cart` 的可见 Markdown 行、hidden sidecar label/cells、精确
+   `source_inventory_row_id` 与 `Cart.cj:30` 均存在；同组 `extend String` 被判 present，只有同名跨 family 的 Cart 被判 missing。
+2. 新增语言无关的生产同形回归：同一 symbol 在 `extend`/`public class` 两个 family、model aggregate 使用带 path/package 的装饰 member 和裸
+   location support refs、可见 Markdown 使用 category-first、hidden sidecar 使用精确 row ID，且事实顺序与表格顺序相反。当前共同校验核直接通过，
+   不能复现 r960 的 missing。
+3. 因此不按 `Cart`、Cangjie、字符串相似度或答案文本增加例外，也不声称已有新的 production fix。最符合当前证据的解释是：r960 上游重复 exact
+   universe 制造的同轮派生 plan/obligation 状态与该症状同源；B1476 修复后必须由真实流程复放证实或否证。若仍复现，再采集同代 stable fact、
+   selection family、member/support-ref index 与 normalized sidecar receipt 后修共同 identity 核。
+4. 生产同形针对性测试已通过。跑批器也正确拒绝基于未提交 Go 测试构建验收；本 pin 与审计结论先独立提交，随后从干净提交重建并严格并发 2 路
+   复放。
+
+状态：
+
+`B1477=not-independently-reproduced/production-shape-pin-pass/pending-clean-production-replay`；
+`case-name/language/final-prose-exemption=none`；
+`system-answer/member/wording-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1537 r955/B1470：typed 清单正确但自由摘要重数漂移；发布精确家族计数上下文（2026-08-30）
 
 1. 从 `b924f591d` 构建不可变二进制，严格并发恰好 2 路运行 Cangjie source-inventory 与显式 10ms Trace 守卫；runner 2/2 PASS：
@@ -68032,7 +68054,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1474=contract-positive/production-role-not-selected`；
 `B1475=implemented/relevant-full-suite-pass/pending-production-replay-see-§123.1544`；
 `B1476=implemented/targeted-tests+full-internal-tool-suite-pass/pending-production-replay`；
-`B1477=confirmed/pending-structured-patch-chain-audit`；
+`B1477=not-independently-reproduced/production-shape-pin-pass/pending-clean-production-replay-see-§123.1545`；
 `exact-universe-identity=typed-location+surface-family+member-identity`；
 `ambiguous/missing-coordinate=fail-open/no-collapse`；
 `system-answer/conclusion/relation/wording/member-selection=none`；

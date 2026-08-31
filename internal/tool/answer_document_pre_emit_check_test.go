@@ -6653,6 +6653,76 @@ func TestPreCheckAggregateMemberSetCoverage_MarkdownCategoryFirstExactTypedSidec
 	}
 }
 
+func TestPreCheckAggregateMemberSetCoverage_ProductionDecoratedDuplicateFamilyRow(t *testing.T) {
+	mu := types.NewMutableState("list extend and public class declarations")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 3, Total: 3,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 30, Language: "cangjie", SurfaceTerms: []string{"extend", "extend Cart"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Cart", Role: types.AnswerCandidateRoleType, File: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", Line: 14, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Cart"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "String", Role: types.AnswerCandidateRoleType, File: "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj", Line: 6, Language: "cangjie", SurfaceTerms: []string{"extend", "extend String"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "extend 块", Value: "2",
+		Role: types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"extend Cart (eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30, package demo.cart)",
+			"extend String (internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6, package demo.stringext)",
+		},
+		SupportRefs: []string{
+			"eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30",
+			"internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			HasPerMemberTable:     true,
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:      []string{"extend", "public class"},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation, types.SourceInventoryFieldPackage},
+			Confidence:        0.95,
+		},
+	}}}
+	var cartID, stringID string
+	for id, row := range preEmitSourceInventoryRowsByIDFromSets(preEmitSourceInventoryTypedPrincipalSets(ctx)) {
+		switch {
+		case row.Source == "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj" && row.LineStart == 30:
+			cartID = id
+		case row.Source == "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj" && row.LineStart == 6:
+			stringID = id
+		}
+	}
+	if cartID == "" || stringID == "" {
+		t.Fatalf("production-shaped extend rows missing typed ids: cart=%q string=%q", cartID, stringID)
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "s1", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+		ClaimUses: []types.RenderedClaimUse{{
+			FacetID: string(types.FacetEnumerationItem), ClaimForm: types.ClaimDefinitionFact,
+		}},
+		Text: "| category | member | location | package |\n|---|---|---|---|\n| extend | String | internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6 | demo.stringext |\n| extend | Cart | eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30 | demo.cart |",
+		Items: []types.AnswerBlockItem{
+			{ID: "r1", Label: "extend String", Cells: []string{"extend", "String", "internal/thirdparty/tree-sitter-cangjie/corpus/sources/04_extend_operator.cj:6", "demo.stringext"}, SourceInventoryRowID: stringID},
+			{ID: "r2", Label: "extend Cart", Cells: []string{"extend", "Cart", "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj:30", "demo.cart"}, SourceInventoryRowID: cartID},
+		},
+	}}}
+
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("production-shaped decorated duplicate-family row is visibly and structurally present: %+v", hints)
+	}
+}
+
 func sourceInventoryPerMemberBucketTableTestContext(t *testing.T) (*types.BusContext, string, string) {
 	t.Helper()
 	mu := types.NewMutableState("compare extend and public class declarations")
