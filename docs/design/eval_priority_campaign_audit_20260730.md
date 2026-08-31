@@ -57448,6 +57448,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r952`。
 
+### §123.1535 r953/B1469：同一 Mermaid statement 的两个合法 ref 联合后无可执行动作（2026-08-30）
+
+1. 从已推送 `7c915f84b` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace。Trace 198s PASS；read 876s 被 runner
+   以 `degraded_answer_checks_skipped:1` 正确判 FAIL。两路均未按固定 4ms/4m、活动流年龄、轮次或上下文比例提前降级；read 的失败发生在最终
+   typed repair 合同，不能用恢复稿“仍有文字和图”掩盖。
+2. Trace 人工判定 pass：显式 34579.490..34579.500s 窗、3 次 target-filtered typed query、1 个最终因果投影、
+   `NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566` 已证链、5.951ms 链上第一席、目标五态账、
+   实际占时/规则可消双账户、类校验语义线索和邻近/背景隔离均在。背景 IO/D 没有被升格为主因；帧级因果未证的边界仍明确披露。
+3. read 恢复稿有完整四阶段表与可解析 sequence diagram，但最终结构化答案未通过，人工判 system fail。B1468 的
+   `multiple declared sequence participants` 错误未复发；本轮图结构没有自然形成多声明 stage，故 B1468 仍是 deterministic tests 正证、
+   production no-regression，不能虚报自然触发闭环。
+4. 新 P1 `B1469-SHAREDBODYCAPABILITYINTERSECTION1` 是可执行的确定性合同矛盾。同一 block/from/to/body occurrence 同时发布
+   `label_pair + [relabel]` 与 `visible_body_edge + [remove,replace]` 两个 ref；atomic executor 正确禁止对同一 Mermaid statement 同轮执行
+   relabel+remove/replace。各 ref 单看合法，联合 action 交集为空；模型连续 7 轮在两者间切换，最后把 label ref 当 remove 又被其
+   `allowed_actions=[relabel]` 拒绝，最终恢复旧稿。这不是模型随机波动，而是生产者没有按物理载体组合 capability。
+5. `c21f10e85` 已按“精确信号作硬门、能力按安全交集组合”施工：同一精确 statement 同时含 label-pair 与 visible-body failure 时，
+   相关 ref 全部只发布共同可执行的 model-selected `remove`；label ref 转为其唯一 prior-anchor carrier，使已有 shared-body executor 能删除
+   statement 一次并删除每个模型选中的 anchor 一次。模型仍决定是否删除，并可另选 typed addition 重建；系统不选择 action、边、关系、方向、
+   标签、布局或结论。请求、thinking、答案 prose、Mermaid message 与相似度均不参与。
+6. 回归覆盖 capability 与接线两层：lease 必须保留两个语义 target 但共同仅有 remove，禁止 relabel/replace/attach；真实 patch 同时选择两 ref
+   后正文只删一次、anchor 只删一次。既有多 typed anchor 共用一行的共同删除与 mixed-action fail-closed 回归保持。
+   `go test ./internal/types -count=1`（29.173s）及 `go test ./internal/tool -count=1`（183.219s）全绿。下一轮从新提交继续严格双并行复放。
+
+状态：
+
+`r953=runner-trace-pass+read-fail/human-trace-pass+read-system-fail`；
+`B1468=tests-positive+production-no-regression/pending-natural-production-shape`；
+`B1469=implemented+types/tool-full-suite-pass+pushed/pending-production-replay`；
+`same-physical-statement-capability=typed-safe-intersection`；
+`label+visible-body-joint-action=model-selected-remove-only`；
+`mixed-action/unknown/stale-ref=fail-closed-unchanged`；
+`system-answer/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r953`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r953`。
+
 ### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
 
 1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
