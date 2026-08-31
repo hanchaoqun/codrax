@@ -57650,6 +57650,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r982`。
 
+### §123.1569 r983/B1498 闭环：typed continuation 零不可用调用；两类 JSON 合同重试进入统一审计（2026-08-31）
+
+1. 从已推送 `55deb1b4d` 干净构建，严格并发恰好 2 路复放相同 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS，
+   Cangjie 238s、Trace 277s。Cangjie 的 unavailable tool call 从 r980/r981/r982 的 6/3/1 次降至 0，completion fail 也为 0，证明 typed
+   mechanical landing/read/completion 分支先于通用 self-loop 后，当前工具面与初始教学终于一致。B1498 据此获得生产闭环。
+2. Cangjie 人工 PASS：12 条精确声明、`extend=2 / foreign func=2 / public class=8`、符号、文件和 package 均正确。Trace 人工 PASS：
+   显式 10ms 窗、12 次 typed 查询、唤醒链、链上根因排序、实际占时/规则可消双账户、业务线索、自动补齐及最终 `Trace 因果投影` 均保留；
+   邻近/背景没有进入主因。两路都没有按 4ms、4m、活动流年龄、轮次或上下文比例降级。
+3. r982 的内部枚举复述与宿主 runnable 被写成 semantic work 有效归因本轮均未复现。`B1499/B1500` 因此继续作为 soft-context/模型波动
+   观察项，不新增正文扫描、硬拒、删除、替换或系统代写；只有异构复现才能升级。
+4. 两路各有一次可避免 final reject。Trace 首稿把只属于 principal summary 的 `trace_causal_claim_caliber` 冗余放入 section；Cangjie 首稿
+   的每个 `source_inventory_row_id` 都正确，符号也位于结构化第二列，但 validator 要求第一可见值是该成员。二者共同指向
+   `B1501-PROJECTEDSCHEMAVALIDATORPARITY1/P1` 候选：模型可否提交 schema 接受、运行时必拒的结构。下一批先以代码和可执行 schema pin
+   证明或否证；若确认，从字段作用域和 typed row 可见身份的共同合同根修，不分别针对 Trace/Cangjie 或某种语言打补丁。
+
+状态：
+
+`r983=runner-pass-2/2,human-pass-2/2`；
+`B1498=production-positive/closed`；
+`B1499/B1500=not-reproduced/soft-observation-only`；
+`B1501=candidate/code-audit-in-progress`；
+`explorer-unavailable-tools=6->3->1->0`；
+`system-answer/conclusion/member/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r983`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r983`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
