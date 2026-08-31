@@ -57662,6 +57662,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1589 r992/B1516–B1518：概念终点 receipt 生产触发，但候选行为反向污染主拓扑；富 receipt 缺原子修补面（2026-08-31）
+
+1. 从已推送 `96c09a30c` 干净构建，严格并发恰好 2 路复放 Java 调用链与 H8 显式窗 Trace。Trace runner PASS 173s，
+   Java runner FAIL 289s；人工审计两路均判 fail。两路都没有按固定 4ms/4m、活动流年龄、轮次、首字节或上下文比例降级。
+2. Trace 的显式 10ms 窗、7 次 typed 查询、链上根因排序、目标状态账、实际占时/规则可消双账户、最终 `Trace 因果投影` 和自动补齐
+   全部保留；概念终点合同没有泄漏到 Trace schema。模型首稿仍漏掉单独请求的 VerifyClass 关系结论，随后提交精确
+   `runtime_work_relation` receipt 的原子字段编辑，却被 `field_not_published` 拒绝。系统投影正确显示 relation-only/unproven 与规则可消 0，
+   但系统补齐不能替代模型回答，因此确认 `B1518-TYPEDRECEIPTATOMICPATCH1/P1`：富 typed receipt 缺少保留同块其他内容字节不变的原子 patch 通道。
+3. B1515 在 Java 生产真实触发。模型独立找到 parser-grounded `AuditLog.record -> System.out.println` 行并提交概念终点 receipt；系统没有替它
+   选择 operation 或 conclusion。但 schema/prompt 候选只接收 `repomap_terminal_body_call`，而该行来自
+   `repomap_selected_callable_body_call`，因此 exact-pair 门将真实证据拒绝。
+4. 更深层确认 `B1516-TERMINALCANDIDATETOPOLOGY1/P1`：leaf owner 的主调用拓扑错误消费了 terminal-body 与 selected-callable-body
+   enrichment 边。候选行为行一旦出现，便会把原本的 leaf callable 变成“还有下游”的非叶子，反向把自己从候选清单中删除。这不是 Java、stdout
+   或持久化单例问题；所有 parser-backed 语言都受同一 producer/topology 混层影响。根修应让主图 leaf 只由 principal call-edge universe 决定，
+   两类 body enrichment 只扩充可供模型选择的 exact operation rows；prompt 与 receipt contract 必须消费同一个 typed predicate。
+5. Java 模型的 reasoning 已说明 stdout 不等于持久化，却提交 `requested_destination_supported`，属于模型内部结论不一致。系统不得据 operation
+   名称或用户/模型 prose 强制改成 `current_terminal_differs`；只能在动态 schema 中用通用语义明确三种 conclusion 的边界，让模型自行重选。
+6. Java 另有 7 次成文拒绝，涉及独立 ordered-list guard relation、diagram relation anchor、字段 patch 形态反复抖动。先记
+   `B1517-GUARDRELATIONRETRYDRIFT1/P1` 独立调查：当前证据尚不足以把它和 B1516 合并，也禁止按本 case 的 label/词面豁免。后续须基于规范化前后
+   的 typed relation identity 做可执行复现，再决定是否施工。
+7. 下一批优先修 B1516：新增唯一 typed conceptual-terminal-operation 谓词，同时供 schema/prompt/contract 使用；主拓扑 leaf 计算排除两类
+   enrichment producer；回归覆盖 selected-callable row 可提交、prompt/contract 候选完全同源、enrichment 不改变 leaf owner、invented row
+   继续 fail-closed。随后修 B1518：只开放当轮动态 schema 已发布的 receipt exact pairs，模型选择值，系统只做结构绑定。
+
+状态：
+
+`r992=runner-trace-pass+java-fail,human-both-fail`；
+`B1515=production-triggered/contract-candidate-drift-exposed`；
+`B1516=confirmed-P1/next-generalized-fix`；
+`B1517=confirmed-retry-churn/pending-typed-reproduction`；
+`B1518=confirmed-P1/typed-receipt-atomic-patch-missing`；
+`principal-call-topology!=body-enrichment-candidate-rows`；
+`conceptual-terminal-operation-selection/conclusion=model-owned`；
+`system-answer/conclusion/relation/wording/terminal-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r992`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r992`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
