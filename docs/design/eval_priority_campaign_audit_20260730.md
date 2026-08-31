@@ -67960,3 +67960,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1542 r959/B1474：类别边界生效但核心运行时关系子问仍可静默丢失（2026-08-30）
+
+1. 从已推送 `c1e05b03b` 构建不可变二进制，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
+   Cangjie 272s、Trace 232s。两路均未按 4ms、4m、活动流年龄或上下文比例降级；Trace 的显式窗、typed 查询、唤醒链、根因排序、
+   实际占时/规则可消双账户、自动补齐和最终 `Trace 因果投影` 全部保留。
+2. B1472 获得生产正证。Cangjie finalizer 上下文从统一 canonical typed declaration universe 发布 12 条 principal row、12 个 obligation、
+   `extend=2 / foreign func=2 / public class=8 / coverage=12/12`；最终答案完整列出 12 条声明、文件和 package，不再出现装饰显示名导致的
+   `foreign func=4 / 14/14` 污染。仍有 2 次表格 schema/row identity 修补，作为独立流程成本继续观察。
+3. B1473 获得部分生产正证。Trace 模型不再把 NetworkService runnable 调度等待误称为“确定性优化工作”，说明 scheduler-state 与
+   semantic-span 的 soft typed 类别边界有效；但模型主回答完全漏掉用户核心子问中的 `VerifyClass` 0.285ms 以及它与目标延迟的关系判断。
+   系统补齐投影随后正确显示 T7 semantic span、直接 host→target 唤醒锚、semantic completion/target-wait binding 未证及规则可消 0，
+   因此本轮人工仍判 fail。系统投影不能替代模型回答，也不能据投影反写模型结论。
+4. 新确认 `B1474-RUNTIMEWORKRELATIONDIMENSION1/P1`。现有 requested-answer schema 能表达 measured value、一般 relation path、总体根因和根因
+   roster，却没有独立表达“某个测得的 runtime work/span/operation 是否及如何关联指定 target/outcome”的可见答案席。分析器因此可以在
+   `causal_diagnosis` 保留根因排序的同时，合法地漏掉这个独立子问题；继续叠加 soft prose 教学无法提供结构化完成义务。
+5. 根修新增 analyzer-emitted `runtime_work_relation` 角色：用户要求该关系时，分析器把它与 `causal_attribution`/`causal_contributor_set`
+   并列，而不是相互替代。finalizer 要求模型在可见 principal block 上以
+   `runtime_work_relation + observed_artifact_fact + external_observation` hidden receipt 声明所有权，并由模型命名 typed work/span、报告测得
+   时长、解释已证关系凭证和未证边界。该 receipt 只证明模型没有漏答；typed Trace rows 与投影仍拥有事实/因果权威。
+6. 系统不从用户原文、模型 thinking、最终 prose、表格或 Mermaid 标签推断该角色，也不扫描可见答案判断“是否有关”；system-generated
+   Trace projection、背景 block 或只有相似文字的块均不能占用模型席。系统不选择 yes/no/mixed/unproven，不补写、删除或替换模型结论。
+   新回归钉住 schema roster、分析器教学、typed-only coverage、principal/model-owned 限制及中英文修补提示。
+
+状态：
+
+`r959=runner-pass-2/2,human-cangjie-pass+trace-fail`；
+`B1472=production-positive/core-closed`；
+`B1473=production-partial/category-confusion-fixed/core-subquestion-still-omitted`；
+`B1474=implemented/relevant-full-suite-pass/pending-production-replay`；
+`runtime-work-relation=analyzer-typed-request+model-owned-visible-conclusion`；
+`runtime-work-fact/causal-authority=typed-trace-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

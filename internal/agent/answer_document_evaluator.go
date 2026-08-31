@@ -8206,6 +8206,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 				b.WriteString("  - Keep visible directed steps in the model-authored principal source-relation block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every edge still needs existing typed claim/anchor evidence; never invent a relation from member names.\n")
 			}
 		}
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+			if lang == "zh" {
+				b.WriteString("  - 在模型成文、可见的主结论块上设置隐藏 ownership 标记 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]`，并用 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]` 保留运行时证据权威。回答必须由模型命名 typed 工作/span、报告其测得时长，并说明它与目标之间已证的关系凭证和未证边界；例如只有 host→target 唤醒锚时，不得把它扩写成“该工作完成导致唤醒”。系统不会替模型选择有关、无关或证据不足的结论。\n")
+			} else {
+				b.WriteString("  - On the model-authored visible principal conclusion block, set the hidden ownership marker `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` and preserve runtime-evidence authority with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. The model must name the typed work/span, report its measured duration, and explain the proved relation credential and unproved boundary to the target; for example, a host-to-target wake anchor alone must not be expanded into a claim that completion of the work caused the wakeup. The system does not choose a related, unrelated, or insufficient-evidence conclusion for the model.\n")
+			}
+		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
 			if lang == "zh" {
 				b.WriteString("  - 在这个维度的位置呈现请求的图；图只承载有证据的关系，不替代相邻维度要求的清单、表格或文字解释。\n")
@@ -15928,7 +15935,8 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 		// typed marker; the system neither reads answer wording nor chooses or
 		// writes members on the model's behalf.
 		if dim.Role == types.RequestedAnswerDimensionMemberSet ||
-			dim.Role == types.RequestedAnswerDimensionRelationPath {
+			dim.Role == types.RequestedAnswerDimensionRelationPath ||
+			dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 			missing = append(missing, dim)
 			continue
 		}
@@ -15951,6 +15959,8 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 		return answerDocumentCoversRequestedMemberSetDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionRelationPath:
 		return answerDocumentHasRelationPathPayload(ctx, doc)
+	case types.RequestedAnswerDimensionRuntimeWorkRelation:
+		return answerDocumentHasRuntimeWorkRelationPayload(ctx, doc)
 	case types.RequestedAnswerDimensionSourceLocation:
 		return answerDocumentCoversRequestedSourceLocationDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceAttribute:
@@ -15964,6 +15974,32 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 	default:
 		return false
 	}
+}
+
+// answerDocumentHasRuntimeWorkRelationPayload recognizes only a visible,
+// model-authored principal block that explicitly owns the requested runtime
+// work-to-target explanation and preserves external-observation authority.
+// The marker is an omission receipt: it does not prove a causal relation,
+// select a verdict, inspect visible wording, or authorize the system to write a
+// conclusion. Existing typed Trace evidence and projection gates retain those
+// responsibilities.
+func answerDocumentHasRuntimeWorkRelationPayload(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+			block.SurfaceRole != types.SurfacePrincipal ||
+			strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		if answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) &&
+			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
+			answerBlockHasClaimForm(block, types.ClaimExternalObservation) {
+			return true
+		}
+	}
+	return false
 }
 
 // answerDocumentHasRelationPathPayload recognizes only a model-authored,
@@ -16163,6 +16199,7 @@ func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerD
 	case types.RequestedAnswerDimensionCount,
 		types.RequestedAnswerDimensionMemberSet,
 		types.RequestedAnswerDimensionRelationPath,
+		types.RequestedAnswerDimensionRuntimeWorkRelation,
 		types.RequestedAnswerDimensionSourceLocation,
 		types.RequestedAnswerDimensionSourceAttribute,
 		types.RequestedAnswerDimensionBoundary,
@@ -16849,6 +16886,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 					b.WriteString("  - 请让承载这条源码关系路径的模型成文主块保留可见的有向步骤/关系，并设置 `surface_role:\"principal\"` 与 `facet_ids:[\"principal_path_edge\"]`；每条有向边仍需使用现有 typed claim/anchor 证据，不能从成员名推造关系。\n")
 				}
 			}
+			if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+				b.WriteString("  - 请在模型成文、可见的主结论块上设置 `surface_role:\"principal\"`、`facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`。由模型命名 typed 工作/span、报告其测得时长，并说明与目标之间已证的关系凭证及未证边界；不要把 host→target 唤醒锚扩写成工作完成因果。不要让系统替模型选择结论。\n")
+			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
 		return b.String()
@@ -16881,6 +16921,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			} else {
 				b.WriteString("  - Keep the visible directed steps/relations in the model-authored principal source-relation block and set `surface_role:\"principal\"` with `facet_ids:[\"principal_path_edge\"]`. Every directed edge still needs the existing typed claim/anchor evidence; never invent a relation from member names.\n")
 			}
+		}
+		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+			b.WriteString("  - In a model-authored visible principal conclusion block, set `surface_role:\"principal\"`, `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]`, and `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. The model must name the typed work/span, report its measured duration, and explain the proved relation credential and unproved target boundary; do not expand a host-to-target wake anchor into work-completion causality. Do not let the system choose the conclusion for the model.\n")
 		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")

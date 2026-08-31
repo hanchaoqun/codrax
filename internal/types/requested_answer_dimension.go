@@ -60,6 +60,15 @@ const (
 	// RuntimeQuestionProfile.FactFamilies; duplicating those enums here caused
 	// models to emit schema-invalid dimension roles that silently became other.
 	RequestedAnswerDimensionObservedValue RequestedAnswerDimensionRole = "observed_value"
+	// RequestedAnswerDimensionRuntimeWorkRelation identifies one visible
+	// explanation of whether and how a measured runtime work item (for example
+	// a span, compilation, class verification, upload, or GC pause) relates to
+	// the requested target/outcome. It is distinct from a generic relation_path:
+	// the user is asking for the work item's measured cost plus the exact
+	// relation credential and causal boundary, not merely an endpoint path.
+	// This role is presentation ownership only; typed runtime evidence still
+	// determines what is proved, and the model still owns the conclusion.
+	RequestedAnswerDimensionRuntimeWorkRelation RequestedAnswerDimensionRole = "runtime_work_relation"
 	// RequestedAnswerDimensionTargetEffectVerdict identifies one finite visible
 	// verdict about whether a specified condition constrained, bound, caused, or
 	// materially affected one specified target/outcome. It is paired with
@@ -102,6 +111,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionDiagram,
 		RequestedAnswerDimensionStageWorkflow,
 		RequestedAnswerDimensionObservedValue,
+		RequestedAnswerDimensionRuntimeWorkRelation,
 		RequestedAnswerDimensionTargetEffectVerdict,
 		RequestedAnswerDimensionCausalAttribution,
 		RequestedAnswerDimensionCausalContributorSet,

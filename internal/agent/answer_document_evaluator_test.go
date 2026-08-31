@@ -650,6 +650,110 @@ func TestRequestedRelationPathCoverageHintIsFamilyAware(t *testing.T) {
 	}
 }
 
+func TestRequestedRuntimeWorkRelationRequiresModelOwnedPrincipalObservationCarrier(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	dimension := types.RequestedAnswerDimension{
+		Index: 1, Label: "whether VerifyClass relates to the delayed frame",
+		Role: types.RequestedAnswerDimensionRuntimeWorkRelation, Required: true,
+	}
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause,
+			LogTriage:              mut.LogTriage(),
+			DiagnosticProfile:      types.DiagnosticIntentProfile{IsDiagnostic: true},
+			RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{dimension},
+			},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+				SourceQuotes:      []string{"trace only"}, Confidence: 1,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "runtime-work", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+		Text:     "VerifyClass lasted 0.285 ms; the typed wake relation is proved but completion causality is unproven.",
+		FacetIDs: []string{string(types.RequestedAnswerDimensionRuntimeWorkRelation), string(types.FacetObservedArtifactFact)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+			FacetID:   string(types.FacetObservedArtifactFact),
+		}},
+	}}}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("model-owned principal runtime-work observation must cover runtime_work_relation")
+	}
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 0 {
+		t.Fatalf("complete typed runtime-work relation reported missing: %+v", missing)
+	}
+
+	doc.Blocks[0].FacetIDs = []string{string(types.FacetObservedArtifactFact)}
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("visible wording plus a generic observation must not replace the typed ownership receipt")
+	}
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 1 {
+		t.Fatalf("visible wording alone must remain missing without a prose scan: %+v", missing)
+	}
+
+	doc.Blocks[0].FacetIDs = []string{string(types.RequestedAnswerDimensionRuntimeWorkRelation), string(types.FacetObservedArtifactFact)}
+	doc.Blocks[0].SurfaceRole = ""
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("supporting/background runtime work must not consume the requested principal conclusion")
+	}
+	doc.Blocks[0].SurfaceRole = types.SurfacePrincipal
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedEvidenceSupplement
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("a system Trace projection must not replace the model-owned runtime-work conclusion")
+	}
+
+	// The ownership receipt is valid for any analyzer-declared runtime work
+	// relation surface; it is not coupled to one question-family classifier.
+	// Evidence validators still decide whether the external observation is
+	// grounded in that family.
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedBlockUnknown
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.Scenario = types.ScenarioPerformanceBottleneck
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.Scope = types.RuntimeQuestionScopeRelationAnalysis
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
+		t.Fatal("runtime-work ownership must not be hard-wired to one Trace question family")
+	}
+}
+
+func TestRequestedRuntimeWorkRelationPromptAndRepairKeepModelConclusionOwnership(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	dimension := types.RequestedAnswerDimension{
+		Index: 1, Label: "运行时工作与目标的关系",
+		Role: types.RequestedAnswerDimensionRuntimeWorkRelation, Required: true,
+	}
+	ctx := &types.AgentContext{Language: "zh", Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause, LogTriage: mut.LogTriage(),
+		DiagnosticProfile:      types.DiagnosticIntentProfile{IsDiagnostic: true},
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis},
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{dimension},
+		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			ExclusionKind:     types.ExternalObservationSourceExclusionExplicitUserBoundary,
+			SourceQuotes:      []string{"trace only"}, Confidence: 1,
+		},
+	}}}
+	for surface, got := range map[string]string{
+		"prompt": renderAnswerDocRequestedAnswerDimensions(ctx),
+		"repair": requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{dimension}, "zh"),
+	} {
+		for _, want := range []string{`facet_ids:["runtime_work_relation","observed_artifact_fact"]`, `"claim_form":"external_observation"`, "测得时长", "关系凭证", "替模型"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s omitted runtime-work ownership guidance %q:\n%s", surface, want, got)
+			}
+		}
+	}
+}
+
 func TestRequestedPerMemberSourceLocationsCannotUseSingleCitationReceipt(t *testing.T) {
 	mut := types.NewMutableState("typed member location authority")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

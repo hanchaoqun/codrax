@@ -116,6 +116,11 @@ func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence
 			t.Fatalf("dimension-role schema lost finite passive-effect guidance %q: %q", want, roleDescription)
 		}
 	}
+	for _, want := range []string{"runtime_work_relation", "measured runtime work item/span/operation", "exact relation credential and causal boundary"} {
+		if !strings.Contains(roleDescription, want) {
+			t.Fatalf("dimension-role schema lost runtime-work relation guidance %q: %q", want, roleDescription)
+		}
+	}
 	if strings.Contains(roleDescription, skill.AnalysisRuntimeScopeFromDimensionTeaching) {
 		t.Fatalf("dimension-role schema must not repeat the runtime scope consequence: %q", roleDescription)
 	}

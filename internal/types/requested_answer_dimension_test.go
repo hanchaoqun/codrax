@@ -47,6 +47,22 @@ func TestRequestedAnswerDimensionRelationPathIsDeclaredAndValid(t *testing.T) {
 	}
 }
 
+func TestRequestedAnswerDimensionRuntimeWorkRelationIsDeclaredAndValid(t *testing.T) {
+	if !RequestedAnswerDimensionRuntimeWorkRelation.IsValid() {
+		t.Fatal("runtime_work_relation must be a declared requested-answer dimension role")
+	}
+	found := false
+	for _, role := range AllRequestedAnswerDimensionRoles() {
+		if role == RequestedAnswerDimensionRuntimeWorkRelation {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("runtime_work_relation missing from the schema-facing role roster")
+	}
+}
+
 func TestNormalizeRequestedAnswerDimensionProfilePreservesRelationPath(t *testing.T) {
 	raw := "请说明跨模块调用链"
 	profile, warnings := NormalizeRequestedAnswerDimensionProfile(raw, &RequestedAnswerDimensionProfile{
