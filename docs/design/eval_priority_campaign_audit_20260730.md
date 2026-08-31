@@ -57291,6 +57291,52 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1531 r949/B1463–B1465：载体成员误升格、语义拒绝漏计与陈旧 Trace oracle（2026-08-30）
+
+1. 从已推送 `ccddb0fd4` 构建不可变二进制，严格并发恰好 2 路复放 H8 显式窗 Trace 与 read 四阶段时序用例。Trace 232s，
+   runner 因缺少旧词 `边锚定` 判 FAIL；read 851s PASS。两路活动流均未按 4ms、4m、首字节、累计年龄、轮次或上下文比例降级，
+   没有恢复旧稿或由系统代写答案。
+2. Trace runner 红灯是 `B1465-H8STALESEMANTICORACLE1/eval`，不是产品因果投影丢失。最终答案保留显式
+   34579.490..34579.500s 窗、typed 查询、根因排序、实际占时/规则可消双账户与完整 `Trace 因果投影`；类校验
+   `VerifyClass com.baidu.zeus.mml.lac.LacUtils` 的原始窗内占时为 0.285ms，并携带
+   `最晚相关边 34579.496810s·凭证=直接裸边`。当前合同明确规定：非目标语义 span 仅因宿主随后唤醒目标，只能证明线程关系，不能证明
+   语义完成触发唤醒；因此 effective=0，并显示 `仅关系凭证` 与 `确定性优化点(优化项,非根因)`。旧 case 仍声称该关系应铸造可排名
+   semantic seat，并要求 2026-07 已退役的 `边锚定`，与生产合同和回归测试自相矛盾。
+3. H8 oracle 已在 `a0c035f0f` 更新为当前精确信号：类校验、0.285ms、`唤醒锚定`、直接裸边、关系限定和非根因优化位置必须同时在场。
+   这没有放宽 Trace 根因门，也没有把邻近/背景提升为主因。模型导语把普通 runnable 延迟称作“一项确定性优化工作”属于本次正文措辞偏差；
+   typed 投影与详细行仍正确，本轮不以请求/答案原文扫描、拒绝或改写来拟合该样本。
+4. read 最终答案人工 pass：四阶段输入、输出与状态载体表完整，合法 sequenceDiagram 保留
+   analyze→explore→extract→finalize 三条已证 precedence；BusContext 在关系证据不足时明确作为孤立参与者披露，没有补画虚构边。
+   但过程为 partial：26 次 read、53 次 explorer iteration、21 次 midloop、7 次 completion、3 次 finalizer reject、48% 上下文、851s。
+5. `B1463-CARRIERMEMBERARGUMENTOVERMATCH1/P1` 是主要泛化根因。普通调用参数补采把“参数端点含某个 parser-stamped 载体绑定字段”当作
+   “参数自身就是该载体”，于是模型已选择真实 `runAnalyzePhase` 操作后，系统额外强制
+   `o.busCtx.Mode -> string` 与 `o.busCtx.Language -> softTransportRetryHintForStage`；这两个标量自身类型并非 BusContext，只因 owner
+   binding 相同就制造整载体关系债务，并继续触发 call-result assignment 级联。
+6. B1463 已在 `7e72e91e6` 根修并推送。普通 call-argument repair 只有参数自身终止于 typed carrier binding 时才命中，例如
+   `o.busCtx`、`self.bus_ctx`、`this->busContext_`；`o.busCtx.Mode`/`.Language` 不再继承整载体身份。赋值/合并调用中精确成员值仍保留原有
+   selected-data-flow 通道，避免误伤 `o.busCtx.EvidenceItems` 一类真实成员流。多语言整载体、跨文件 receiver field、赋值成员正臂和
+   descendant 负臂均通过，`go test ./internal/tool -count=1` 全绿。
+7. `B1464-SEMANTICREJECTMETRIC1/P2` 同批确认：emit 工具用 transport `ok=true` 携带 typed repair reject，旧 runner 只数
+   `TOOLRESULT ... ok=false`，所以 r949 的两次明确 `emit_investigation_complete rejected:` 被记为 0。`a0c035f0f` 现在同时统计显式 transport
+   failure 与行首 control-plane semantic reject；assistant/prompt 中引用同串文本不计。对 r949 原日志离线复算为 2，runner 合同套件全绿。
+8. 下一步从 `a0c035f0f` 重建不可变二进制，仍严格并发恰好 2 路复放同一 H8+read：H8 应按当前关系/因果边界转绿；read 验收
+   Mode/Language 伪债务消失、completion reject 与总时长收敛，同时表格和三条阶段关系不缩水。任何剩余模型措辞波动仅记录观察，不转成原文硬门。
+
+状态：
+
+`r949=runner-trace-false-red+read-pass/human-trace-partial+read-pass`；
+`B1463=implemented+pushed+full-tool-suite-pass/pending-production-replay`；
+`B1464=implemented+pushed+offline-positive+runner-suite-pass`；
+`B1465=oracle-corrected+pushed/pending-production-replay`；
+`ordinary-carrier-argument=whole-binding-only`；
+`assignment-call-member-flow=preserved`；
+`semantic-reject-metric=transport-failure+anchored-typed-reject`；
+`system-answer/relation/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r949`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r949`。
+
 ### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
 
 1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
