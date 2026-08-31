@@ -1414,7 +1414,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 		"surface_family=`extend`",
 		"typed_surface_family_row_counts=[`extend`:1]",
 		"family_coverage=1/1, complete=true",
-		"copy them exactly when reporting family counts and do not recount the row prose",
+		"copy them exactly when reporting top-level family counts and do not recount the row prose",
+		"Finer row-local modifiers remain item detail and do not create additional top-level members",
+		"omit derived per-family file counts or modifier totals unless another typed fact supplies them",
 		"source_inventory_family",
 		"attributes=[`package:demo.cart`]",
 		"do not infer them from paths",
@@ -1425,23 +1427,24 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 	}
 }
 
-func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_PreservesIndependentTypedFamilies(t *testing.T) {
+func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_UsesCanonicalRowPartition(t *testing.T) {
 	sets := []types.EnumerationDisplaySet{{
 		Rows: []types.EnumerationDisplayRow{
 			{SurfaceTerms: []string{"foreign func", "foreign func native_add"}},
 			{SurfaceTerms: []string{"extend", "extend Cart"}},
 			{SurfaceTerms: []string{"public class", "public class Bridge"}},
-			{SurfaceTerms: []string{"@entry", "public class", "public class App"}},
+			{SurfaceTerms: []string{"public class", "public class Animal", "public sealed class", "public sealed class Animal"}},
+			{SurfaceTerms: []string{"public class", "public class Service", "public abstract class", "public abstract class Service"}},
 			{},
 		},
 	}}
 
 	got, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(sets)
-	if want := "`@entry`:1, `extend`:1, `foreign func`:1, `public class`:2"; got != want {
+	if want := "`extend`:1, `foreign func`:1, `public class`:3"; got != want {
 		t.Fatalf("typed family counts = %q, want %q", got, want)
 	}
-	if covered != 4 || total != 5 {
-		t.Fatalf("typed family coverage = %d/%d, want 4/5", covered, total)
+	if covered != 5 || total != 6 {
+		t.Fatalf("typed family coverage = %d/%d, want 5/6", covered, total)
 	}
 }
 

@@ -11436,7 +11436,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	if counts, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(sets); counts != "" {
-		fmt.Fprintf(&b, "- typed_surface_family_row_counts=[%s], family_coverage=%d/%d, complete=%t. These counts are computed from each row's typed `surface_family`; copy them exactly when reporting family counts and do not recount the row prose. One row may carry multiple independent families, so family counts need not sum to the total row count.\n\n",
+		fmt.Fprintf(&b, "- typed_surface_family_row_counts=[%s], family_coverage=%d/%d, complete=%t. These mutually exclusive counts are computed from the same single typed `surface_family` rendered on each principal row; copy them exactly when reporting top-level family counts and do not recount the row prose. Finer row-local modifiers remain item detail and do not create additional top-level members. These row counts are the only numeric family summary authorized by this carrier; omit derived per-family file counts or modifier totals unless another typed fact supplies them. The counts sum to `family_coverage`, not necessarily to all rows when some rows have no typed family.\n\n",
 			counts, covered, total, covered == total)
 	}
 	for _, set := range sets {
@@ -11492,12 +11492,15 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	return b.String()
 }
 
-// answerDocPrincipalEnumerationSurfaceFamilyCounts publishes exact row-family
-// cardinalities beside the authoritative principal rows. The finalizer should
-// not have to recount a long Markdown-like list, and shadowed model aggregates
-// must not regain numeric authority merely because their labels resemble one
-// of these families. This projection consumes only typed row SurfaceTerms; it
-// never reads the request, model reasoning, answer prose, or rendered output.
+// answerDocPrincipalEnumerationSurfaceFamilyCounts publishes exact canonical
+// row-family cardinalities beside the authoritative principal rows. It uses
+// the same single family selector as the row renderer; finer independent
+// parser markers remain row-local detail rather than becoming overlapping
+// top-level buckets. The finalizer should not have to recount a long
+// Markdown-like list, and shadowed model aggregates must not regain numeric
+// authority merely because their labels resemble one of these families. This
+// projection consumes only typed row SurfaceTerms; it never reads the request,
+// model reasoning, answer prose, or rendered output.
 func answerDocPrincipalEnumerationSurfaceFamilyCounts(sets []types.EnumerationDisplaySet) (string, int, int) {
 	counts := map[string]int{}
 	covered := 0
@@ -11505,14 +11508,12 @@ func answerDocPrincipalEnumerationSurfaceFamilyCounts(sets []types.EnumerationDi
 	for _, set := range sets {
 		for _, row := range set.Rows {
 			total++
-			families := types.SourceInventorySurfaceFamilyKeys(row.SurfaceTerms)
-			if len(families) == 0 {
+			family := types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms)
+			if family == "" {
 				continue
 			}
 			covered++
-			for _, family := range families {
-				counts[family]++
-			}
+			counts[family]++
 		}
 	}
 	if len(counts) == 0 {

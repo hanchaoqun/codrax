@@ -67863,3 +67863,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r956`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r956`。
+
+### §123.1539 r957/B1471：主家族计数转正但子型被误作额外集合；统一 canonical family 分区（2026-08-30）
+
+1. 从 `dbd13982e` 构建不可变二进制，严格并发恰好 2 路复放 Cangjie inventory 与显式窗 Trace；runner 2/2 PASS：Cangjie 264s、
+   Trace 163s。Trace 人工通过：4 次 typed query、最终 `Trace 因果投影`、NetworkService 链上第一席、四态账、实际占时/规则可消双账户、
+   `VerifyClass` 业务线索与邻近/背景隔离完整，无固定 4ms/4m 或活动流年龄降级。
+2. B1470 获得部分生产正证。finalizer prompt 收到精确 `extend=2 / foreign func=2 / public class=8`，模型三个主家族计数已正确；12 条结构化行、
+   文件、符号、package 与 row id 也无丢失。说明把 deterministic family count 放入 evidence context、继续由模型写答案的架构方向正确。
+3. Cangjie 人工仍判 fail，发现新 P1 `B1471-CANONICALFAMILYPARTITION1`。B1470 helper 展开每行全部独立 SurfaceTerms，又发布
+   `public abstract class=1 / public sealed class=1`；模型写成“public class 8，另有 abstract 1、sealed 1”，把 8 行内的 Animal/Service 子型呈现成
+   额外成员。summary 还自行声称 public class 分布 5 个文件，实际为 6；上游没有该 distinct-file scalar，属于模型未授权派生算术。
+4. 根修与 `Principal Enumeration Rows` 逐行输出单源：计数 helper 改为同一个 `SourceInventorySurfaceFamilyKey` 单值 selector，每行只进入一个
+   canonical 顶层 bucket；Cangjie 因此只发布 2/2/8。sealed/abstract 等更细 modifier 继续保留在行内 declaration detail，不被删除，也不再产生
+   额外顶层 count。canonical counts 之和等于 `family_coverage`；缺 family 的行只降低 coverage，绝不从名称、路径或 prose 猜类别。
+5. soft teaching 同时标明该 carrier 只授权这些 row counts；没有另一个 typed fact 时，模型应省略 per-family distinct-file count 或 modifier total。
+   系统不扫描、拒绝或改写 summary，不选择模型是否陈述计数，不从用户请求、thinking、最终答案或 Markdown table 提取数字；runner rowset oracle
+   仍只负责结构，人工审计继续覆盖自由摘要一致性。
+6. 定向 canonical partition 回归与完整 `go test ./internal/agent -count=1` 全绿。下一批需用相同 inventory + 显式窗 Trace 做 production replay：
+   inventory 验收 summary 只陈述 2/2/8 且不再把 modifier/文件数作为额外派生计数，Trace 继续守住因果投影与自动补齐。
+
+状态：
+
+`r957=runner-pass-2/2,human-trace-pass+cangjie-fail`；
+`B1470=production-partial/top-level-counts-positive`；
+`B1471=implemented/agent-full-suite-pass/pending-production-replay`；
+`canonical-family-count=one-principal-row/one-top-level-family`；
+`row-local-modifiers=preserved/detail-only/not-additive-members`；
+`untyped-derived-file/modifier-count=soft-omit`；
+`system-answer/conclusion/member/category/count-wording-selection=none`；
+`request/model/final-prose/markdown-table-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r957`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r957`。
