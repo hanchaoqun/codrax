@@ -57378,6 +57378,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r950`。
 
+### §123.1533 r951/B1467：多词参与者身份陷入 Mermaid ID 与代码身份过滤的确定性自锁（2026-08-30）
+
+1. 从已推送 `acfd25da2` 构建不可变二进制，严格并发恰好 2 路复放 read+显式窗 Trace。Trace 153s PASS；read 447s 被 runner 以
+   `degraded_answer_checks_skipped:1` 正确判 FAIL。该失败不是模型没有答案，也不是 Mermaid 渲染器随机波动：模型已经多次提交
+   Mermaid-safe `node_id=readmode` 和精确 `visible_label=read mode`，但系统连续 5 次拒绝相同的合法表达；改用带空格的 node id 又被语法
+   安全门拒绝，最终耗尽 6 次成文重试并恢复旧稿。
+2. 根因 `B1467-MULTIWORDPARTICIPANTDISPLAY1/P1` 位于共享 participant visibility identity gate。请求分析产出的 typed participant 不限于
+   源码 symbol，也可为完整业务/组件身份；但旧 gate 在读取 parsed node label 后立即投影到 `diagramEvidenceLabelIdentityCandidates`，该函数按设计
+   只保留代码身份并拒绝带空格字符串。因此“多词参与者必须精确可见”与“Mermaid node id 不得带空格”在 executor 中组成不可满足合同。
+3. `8022a6314` 已按完整显示载体根修：parsed display label 先与 typed participant 做精确整值匹配，再进入原代码身份候选解析。由此安全 node id
+   可以承载精确多词业务标签；`read` 不得冒充 `read mode`，限定词、邻近词、message、请求/模型/答案 prose 均不产生权限。该规则在共享参与者
+   覆盖函数生效，不按 Java/Python/Go/ArkTS/Cangjie 或单一图样例分叉。
+4. 修补器仍要求模型明确给出 `participant_ref`、安全 `node_id` 与完整 `visible_label`，只新增一个独立声明；不创建、删除、反向或重标任何关系，
+   不选择参与者、标签、布局、文案或结论。回归覆盖 sequence 多词身份通过、子串失败，以及关系边计数在修补前后恒等；完整
+   `go test ./internal/tool -count=1` 190.391s 全绿。
+5. r951 Trace 人工判定 pass：显式 34579.490..34579.500s 窗、6 次 windowed typed query、1 个最终投影、
+   `NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566` 已证链、5.951ms 链上第一席、实际占时/规则可消双账户、
+   背景 IO/D/调度观测隔离与业务线索均在；零成文拒绝。系统没有把邻近/背景升为根因，也没有按固定 4ms/4m、轮次、上下文比例或流年龄降级。
+6. read 分析阶段把 `codrax`、`read mode`、`analyze`、`finalizer` 全列为 requested participant；其中前两项是否应属于用户所求“阶段时序”的主关系
+   参与者仍是模型/分析器语义选择问题。当前只有 noisy actorhood 判断，不能据此新增 raw request 关键词硬门；先保留为 P2 跨异构回放观察，除非后续找到
+   精确 typed 角色矛盾。下一步从 `8022a6314` 重建二进制并严格双并行复验同一 read+Trace，验证多词 participant 一轮可执行且 Trace 护栏不回退。
+
+状态：
+
+`r951=runner-trace-pass+read-fail/human-trace-pass+read-system-fail`；
+`B1466=tests-positive/no-regression/pending-natural-production-shape`；
+`B1467=implemented/full-tool-suite-pass/pending-production-replay`；
+`multiword-participant=exact-parsed-display-label`；
+`substring/qualifier/nearby-prose=not-authority`；
+`system-participant/node/label/relation/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r951`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r951`。
+
 ### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
 
 1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
