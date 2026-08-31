@@ -5,9 +5,11 @@ import "strings"
 // sourceInventoryCanonicalizePrincipalFactMemberIdentities separates a
 // model-owned source-inventory selection from presentation detail embedded in
 // its structured member strings. It is deliberately all-or-nothing per fact:
-// every member must have an index-aligned support_ref and both model labels
-// must agree with one unique typed row. Full coordinates win; short paths need
-// exact line, compatible labels, and one unique key. Ambiguity stays fail-closed.
+// every member must have an index-aligned support_ref, the member label must
+// agree with one unique typed row, and any support-ref label must agree too.
+// An unlabeled exact coordinate is sufficient location authority. Full
+// coordinates win; short paths need exact line and one unique key. Ambiguity
+// stays fail-closed.
 func sourceInventoryCanonicalizePrincipalFactMemberIdentities(
 	facts []AnswerAggregateFact,
 	rowSet SourceInventoryPrincipalRowSet,
@@ -44,8 +46,8 @@ func sourceInventoryCanonicalizePrincipalFactMemberIdentities(
 			}
 			canonical := sourceInventoryPrincipalRowMemberLabel(row)
 			if canonical == "" ||
-				!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, refLabel) ||
-				!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, memberLabel) {
+				!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, memberLabel) ||
+				strings.TrimSpace(refLabel) != "" && !sourceInventoryPrincipalRowAcceptsStructuredLabel(row, refLabel) {
 				complete = false
 				break
 			}

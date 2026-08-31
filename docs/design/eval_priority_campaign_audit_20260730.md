@@ -57291,6 +57291,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1548 r963/B1481：运行时工作关系席生产转正；无标签精确坐标被误作身份冲突（2026-08-31）
+
+1. 从已推送 `9a5f55064` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
+   Trace 208s、Cangjie 485s。两路均未按固定 4ms/4m、活动流年龄、轮次、首字节或上下文比例降级。
+2. B1478 获生产正证。Analyzer 的最终 typed answer dimensions 同时包含 `causal_contributor_set`、`runtime_work_relation`、
+   `evidence_source` 与 `observed_value`；finalizer 的模型 principal block 实际声明 `runtime_work_relation` ownership，并回答
+   `VerifyClass LacUtils` 原始墙钟 0.285ms、规则有效归因 0。显式 10ms 窗、3 次 typed query、已证唤醒链、NetworkService 5.951ms
+   链上第一席、目标状态账、实际占时/规则可消双账户、自动补齐、最终 `Trace 因果投影` 与非链 D/IO 背景隔离全部保留。
+3. Trace 人工仍判 fail，原因收窄为模型语义表达：模型把 NetworkService 的 runnable 调度等待称为“确定性优化工作”，并未在主回答清楚保留
+   VerifyClass 的 semantic-completion/target-wait binding 未证边界。typed handoff 和投影已正确分开两类事实，不能由系统投影替换模型正文；
+   单次措辞漂移继续按模型波动/soft-context 观察，不以请求、thinking、答案原文或关键词增加硬拒绝或系统代写。
+4. B1480 同轮获生产正证。Cangjie 最终答案精确为 `extend=2 / foreign func=2 / public class=8`，12 条唯一声明的路径、符号与 package
+   完整；Cat/Vehicle 错名和 Bridge/Service 等同声明多展示别名均未进入 typed roster 或最终答案。runner 从 r962 的 got14/want8 恢复为 PASS，
+   finalizer reject 从 15 次降为 1 次。
+5. 新确认 `B1481-INVENTORYUNLABELEDPOSITIONIDENTITY1/P1`：模型 member 为 `String (extend operator)`，index-aligned support_ref 仅为
+   `path:line`。该位置唯一指向 typed `String` declaration，成员装饰也可由精确 base 复认；旧 canonicalizer 却要求 support_ref 中还必须存在
+   非空且匹配的 label，把“没有 ref label”误当“ref label 冲突”。因此规范 roster 仍携带展示别名，第一稿使用正确的 `String` 反被拒绝一次。
+6. 根修维持 typed fail-closed 边界：member label 必须精确匹配唯一声明；support_ref 的 file+line 必须唯一解析到同一 typed row；只有
+   support_ref 实际携带 label 时才要求该 label 同样匹配。无标签精确坐标是位置凭证，不是矛盾。歧义短路径、同坐标不同身份、错误 member、
+   有标签但不一致均不 canonicalize；同名不同位置继续保留。实现不扫描用户请求、模型 reasoning、最终答案、Markdown 或 Mermaid。
+7. 新回归覆盖 `String (extend operator) + unlabeled exact path:line` 归一为 `String`，以及 `Other + same coordinate` 不得借位置改名；
+   既有 verbose member、同声明 alias collapse、歧义短路径与错名负臂继续通过。`go test ./internal/types ./internal/tool -count=1` 全绿
+   （types 29.814s、tool 194.388s）。下一步从本提交重建并继续恰好 2 路回放，验收首稿不再因展示备注被拒，Trace 红线继续守住。
+
+状态：
+
+`r963=runner-pass-2/2,human-cangjie-pass+trace-fail`；
+`B1478=production-positive/core-role-closed`；
+`B1473=model-semantic-wording-unstable/observe-soft/no-hard-prose-gate`；
+`B1480=production-positive/core-closed`；
+`B1481=implemented/full-types+tool-suite-pass/pending-production-replay`；
+`unlabeled-exact-coordinate=typed-location-authority/not-conflict`；
+`wrong-or-ambiguous-member=fail-closed/no-canonicalization`；
+`system-answer/conclusion/relation/wording/member/count-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r963`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r963`。
+
 ### §123.1546 r961/B1478–B1479：待发现运行时工作未获席；同坐标错名被铸成 typed 清单（2026-08-31）
 
 1. 从已推送 `e615461ca` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 156s、Cangjie runner

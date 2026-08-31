@@ -182,6 +182,51 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CanonicalizesVerbos
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CanonicalizesDecoratedMemberWithUnlabeledExactLocation(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
+	obs := SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType, Complete: true, Count: 1, Total: 1,
+			Members: []SourceInventoryObservationMember{{
+				Name: "String", Role: AnswerCandidateRoleType, File: "src/extend.cj", Line: 6,
+				Language: "cangjie", SurfaceTerms: []string{"extend", "extend String"}, CoverageState: SourceInventoryCoverageObserved,
+			}},
+		}},
+	}
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet, Label: "extend", Value: "1",
+		Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{"String (extend operator)"}, SupportRefs: []string{"src/extend.cj:6"},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{fact}, obs, rm)
+	if len(got) != 1 || strings.Join(got[0].Members, ",") != "String" ||
+		strings.Join(got[0].SupportRefs, ",") != "String @ src/extend.cj:6" {
+		t.Fatalf("unique typed coordinate should canonicalize presentation-only member decoration: %+v", got)
+	}
+}
+
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_UnlabeledCoordinateRejectsContradictoryMember(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "String", Role: AnswerCandidateRoleFunction, File: "src/extend.cj", Line: 6, Language: "cangjie"},
+	)
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet, Label: "functions", Value: "1",
+		Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{"Other"}, SupportRefs: []string{"src/extend.cj:6"},
+	}
+
+	got := sourceInventoryCanonicalizePrincipalFactMemberIdentities(
+		[]AnswerAggregateFact{fact}, BuildSourceInventoryPrincipalRowSet(SourceInventoryPrincipalRowSetInput{Observation: obs, RequestModel: rm}), rm,
+	)
+	if len(got) != 1 || got[0].Members[0] != "Other" || got[0].SupportRefs[0] != "src/extend.cj:6" {
+		t.Fatalf("typed coordinate must not override a contradictory member label: %+v", got)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CollapsesPresentationAliasesAtSameTypedDeclaration(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
