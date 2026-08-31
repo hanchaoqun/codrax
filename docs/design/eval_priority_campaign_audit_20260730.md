@@ -57812,6 +57812,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r985`。
 
+### §123.1574 B1503：owner-exclusive 隐藏元数据仅按精确同值去重（2026-08-31）
+
+1. `B1503-OWNERHIDDENMETADATADUP1/P1` 已施工。provider 已提交语法合法 JSON、但把 principal summary 的
+   `trace_causal_claim_caliber` 原样复制到 sibling block 时，finalizer 参数兼容层现在先寻找唯一
+   `kind=summary + surface_role=principal` owner，并验证其值属于当前四值类型域；只有每个非 owner 副本都与 owner 字符串精确相等时，才删除
+   sibling 上的冗余 hidden field。
+2. 该操作不改 owner 值，不改任何 block 的 id/kind/title/text/items/claims/引用/关系/顺序，也不新增、删除或替换可见答案。它不读取用户请求、
+   模型 reasoning、最终 prose、Markdown、Mermaid 标签或业务关键词；因此不会由系统选择根因、关系、口径或措辞，只把同一隐藏值恢复为
+   owner-exclusive JSON 形。
+3. 冲突 sibling 值、owner 缺字段、非法 caliber、多个 principal summary owner、blocks/字段畸形都不修复，保持原 payload 进入严格 schema/runtime
+   fail-closed。没有把 section 的字段重新合法化，也没有降低 typed evidence ceiling；动态 projected schema 仍明确禁止所有非 owner 持有该字段。
+4. 新执行级回归使用真实 `BuildAnswerDocumentParametersFor` projected schema，复现 r985 的 summary+section 同值形：归一后 owner 值和可见
+   section 字段不变、sibling 字段消失、schema 校验通过，并验证二次归一 fixed-point。另以冲突值、缺 owner 和双 owner 三个负臂证明不安全形
+   不会被兼容层吞掉，严格 executable schema 继续拒绝。
+5. 定向测试、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一批恰好 2 路异构复放必须包含一个会自然形成复杂答案结构的
+   read/diagram 用例和一个不同语言/模式用例；若再运行显式窗 Trace，必须继续守住自动补齐、链上根因、实际占时/规则可消双账户、业务线索与最终
+   因果投影，且不得把本次隐藏字段修复扩张为正文校验或系统代答。
+
+状态：
+
+`B1503=implemented/targeted-tests+full-suite+build-pass/pending-production-replay`；
+`owner-hidden-metadata-repair=unique-owner+exact-identical-sibling-only`；
+`conflict/missing-owner/multi-owner/malformed=fail-closed`；
+`visible-answer/model-caliber/trace-evidence-ceiling=unchanged`；
+`system-answer/conclusion/fact/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

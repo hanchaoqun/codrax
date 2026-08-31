@@ -7,6 +7,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -197,6 +198,123 @@ func TestNormalizeToolCallParams_RepairsNestedEchoedPropertyEnumFragment(t *test
 	}
 	if got[0].ParamSchemaFingerprint == "" || got[0].ParamSchemaValidationError != "" {
 		t.Fatalf("schema-valid repaired call must carry authority: %+v", got[0])
+	}
+}
+
+func TestNormalizeToolCallParams_RemovesOnlyExactDuplicateTraceCaliberFromNonOwner(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentFinalizer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentFinalizer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true, MinCount: 1, MaxCount: 1},
+			{Kind: types.BlockSection, Required: true, MinCount: 1},
+		},
+		TraceCausalClaimContract: &types.TraceCausalClaimContract{
+			Allowed: []types.TraceCausalClaimCaliber{types.TraceCausalClaimBoundedWindow},
+			Ceiling: types.TraceCausalClaimBoundedWindow,
+		},
+	}
+	schema := toolpkg.BuildAnswerDocumentParametersFor(view)
+	call := llm.ToolCall{
+		ID:     "trace-caliber-owner-duplicate",
+		Name:   "emit_answer_document",
+		Params: json.RawMessage(`{"blocks":[{"id":"lead","kind":"summary","surface_role":"principal","text":"model lead","trace_causal_claim_caliber":"bounded_window_candidate"},{"id":"detail","kind":"section","title":"model title","text":"model detail","trace_causal_claim_caliber":"bounded_window_candidate"}]}`),
+	}
+
+	got := base.normalizeToolCallParams([]llm.ToolCall{call}, []llm.ToolSchema{{
+		Name:       "emit_answer_document",
+		Parameters: schema,
+	}})
+	if string(got[0].Params) == string(call.Params) {
+		t.Fatal("expected exact duplicate non-owner caliber to be removed")
+	}
+	if got[0].ParamSchemaFingerprint == "" || got[0].ParamSchemaValidationError != "" {
+		t.Fatalf("repaired production-shaped payload must satisfy projected schema: %+v", got[0])
+	}
+	if err := toolparam.Validate(got[0].Params, schema); err != nil {
+		t.Fatalf("repaired payload failed executable projected schema: %v\n%s", err, got[0].Params)
+	}
+	var decoded struct {
+		Blocks []map[string]json.RawMessage `json:"blocks"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("decode repaired payload: %v", err)
+	}
+	if len(decoded.Blocks) != 2 {
+		t.Fatalf("blocks=%d want=2", len(decoded.Blocks))
+	}
+	if value, ok := rawJSONString(decoded.Blocks[0]["trace_causal_claim_caliber"]); !ok || value != "bounded_window_candidate" {
+		t.Fatalf("owner caliber changed: %s", decoded.Blocks[0]["trace_causal_claim_caliber"])
+	}
+	if _, exists := decoded.Blocks[1]["trace_causal_claim_caliber"]; exists {
+		t.Fatalf("non-owner duplicate caliber survived: %s", got[0].Params)
+	}
+	for field, want := range map[string]string{"id": "detail", "kind": "section", "title": "model title", "text": "model detail"} {
+		if value, ok := rawJSONString(decoded.Blocks[1][field]); !ok || value != want {
+			t.Fatalf("visible non-owner field %s changed: got=%q ok=%t want=%q", field, value, ok, want)
+		}
+	}
+
+	second := base.normalizeToolCallParams(got, []llm.ToolSchema{{Name: "emit_answer_document", Parameters: schema}})
+	if string(second[0].Params) != string(got[0].Params) {
+		t.Fatalf("normalization is not a fixed point:\nfirst=%s\nsecond=%s", got[0].Params, second[0].Params)
+	}
+}
+
+func TestNormalizeToolCallParams_DoesNotRepairConflictingOrOwnerlessTraceCaliber(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentFinalizer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentFinalizer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true, MinCount: 1, MaxCount: 1},
+			{Kind: types.BlockSection, Required: true, MinCount: 1},
+		},
+		TraceCausalClaimContract: &types.TraceCausalClaimContract{
+			Allowed: []types.TraceCausalClaimCaliber{types.TraceCausalClaimBoundedWindow, types.TraceCausalClaimTypedChain},
+			Ceiling: types.TraceCausalClaimTypedChain,
+		},
+	}
+	schema := toolpkg.BuildAnswerDocumentParametersFor(view)
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{
+			name: "conflicting sibling",
+			raw:  json.RawMessage(`{"blocks":[{"id":"lead","kind":"summary","surface_role":"principal","text":"lead","trace_causal_claim_caliber":"bounded_window_candidate"},{"id":"detail","kind":"section","surface_role":"principal","text":"detail","trace_causal_claim_caliber":"typed_chain_cause"}]}`),
+		},
+		{
+			name: "owner missing caliber",
+			raw:  json.RawMessage(`{"blocks":[{"id":"lead","kind":"summary","surface_role":"principal","text":"lead"},{"id":"detail","kind":"section","surface_role":"principal","text":"detail","trace_causal_claim_caliber":"bounded_window_candidate"}]}`),
+		},
+		{
+			name: "ambiguous principal summary owner",
+			raw:  json.RawMessage(`{"blocks":[{"id":"lead-a","kind":"summary","surface_role":"principal","text":"lead a","trace_causal_claim_caliber":"bounded_window_candidate"},{"id":"lead-b","kind":"summary","surface_role":"principal","text":"lead b","trace_causal_claim_caliber":"bounded_window_candidate"},{"id":"detail","kind":"section","surface_role":"principal","text":"detail","trace_causal_claim_caliber":"bounded_window_candidate"}]}`),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			call := llm.ToolCall{ID: tt.name, Name: "emit_answer_document", Params: tt.raw}
+			got := base.normalizeToolCallParams([]llm.ToolCall{call}, []llm.ToolSchema{{Name: "emit_answer_document", Parameters: schema}})
+			if string(got[0].Params) != string(tt.raw) {
+				t.Fatalf("unsafe owner metadata shape was repaired:\nbefore=%s\nafter=%s", tt.raw, got[0].Params)
+			}
+			if err := toolparam.Validate(got[0].Params, schema); err == nil {
+				t.Fatal("unsafe owner metadata shape unexpectedly satisfied strict projected schema")
+			}
+		})
 	}
 }
 

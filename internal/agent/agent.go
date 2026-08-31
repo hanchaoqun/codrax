@@ -4118,9 +4118,102 @@ func normalizeKnownLocalModelToolParams(toolName string, raw json.RawMessage) (j
 	switch toolName {
 	case "emit_analysis":
 		return normalizeEmitAnalysisLocalModelParams(raw)
+	case "emit_answer_document":
+		return normalizeEmitAnswerDocumentOwnerMetadata(raw)
 	default:
 		return raw, nil, false
 	}
+}
+
+// normalizeEmitAnswerDocumentOwnerMetadata removes only a redundant copy of
+// owner-exclusive hidden metadata. The model-authored owner value remains
+// untouched, as do all visible block fields. A conflicting value, malformed
+// block, or ambiguous/missing owner is not repairable and must reach the
+// strict projected schema unchanged.
+func normalizeEmitAnswerDocumentOwnerMetadata(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {
+		return raw, nil, false
+	}
+	var blocks []map[string]json.RawMessage
+	if err := json.Unmarshal(obj["blocks"], &blocks); err != nil || len(blocks) == 0 {
+		return raw, nil, false
+	}
+
+	const field = "trace_causal_claim_caliber"
+	ownerIndex := -1
+	ownerValue := ""
+	principalSummaryCount := 0
+	for i, block := range blocks {
+		kind, kindOK := rawJSONString(block["kind"])
+		if !kindOK {
+			return raw, nil, false
+		}
+		if kind != string(types.BlockSummary) {
+			continue
+		}
+		surfaceRole, roleOK := rawJSONString(block["surface_role"])
+		if !roleOK || surfaceRole != "principal" {
+			continue
+		}
+		principalSummaryCount++
+		value, ok := rawJSONString(block[field])
+		if !ok || !isTraceCausalClaimCaliber(value) {
+			return raw, nil, false
+		}
+		ownerIndex = i
+		ownerValue = value
+	}
+	if principalSummaryCount != 1 || ownerIndex < 0 {
+		return raw, nil, false
+	}
+
+	duplicateIndexes := make([]int, 0)
+	for i, block := range blocks {
+		if i == ownerIndex {
+			continue
+		}
+		valueRaw, exists := block[field]
+		if !exists {
+			continue
+		}
+		value, ok := rawJSONString(valueRaw)
+		if !ok || value != ownerValue {
+			return raw, nil, false
+		}
+		duplicateIndexes = append(duplicateIndexes, i)
+	}
+	if len(duplicateIndexes) == 0 {
+		return raw, nil, false
+	}
+	for _, i := range duplicateIndexes {
+		delete(blocks[i], field)
+	}
+	patchedBlocks, err := json.Marshal(blocks)
+	if err != nil {
+		return raw, nil, false
+	}
+	obj["blocks"] = patchedBlocks
+	patched, err := json.Marshal(obj)
+	if err != nil {
+		return raw, nil, false
+	}
+	return patched, []string{fmt.Sprintf("$.blocks[*].%s redundant_non_owner_copy_removed=%d via owner_exact_duplicate", field, len(duplicateIndexes))}, true
+}
+
+func rawJSONString(raw json.RawMessage) (string, bool) {
+	if len(bytesTrimSpace(raw)) == 0 {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func isTraceCausalClaimCaliber(value string) bool {
+	return types.TraceCausalClaimCaliber(value).IsValid()
 }
 
 func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage, []string, bool) {
