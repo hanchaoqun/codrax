@@ -57381,6 +57381,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/r975-no-degrade`。
 
+### §123.1561 r976/B1493–B1494：参与者修补别名合同与 live-base 边序号分裂，20 次确定性拒绝后降级（2026-08-31）
+
+1. 从已推送 `7dec7c0f1` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
+   50s；仍只规划 `Main.java:16 retrun -> return`、保持 `pending_approval`、不修改源码。sequence 970s 后 runner/human FAIL，原因是
+   `degraded_answer_checks_skipped:1`：20 次 finalizer reject、19 次 patch 后恢复旧稿。该失败来自确定性修补合同循环，不是 timeout、固定 4ms/4m、
+   活动流年龄、轮次、首字节或上下文比例降级。
+2. sequence 恢复稿的事实与关系可用：明确不存在 `buildAnalysisIR -> gate.Run` 连续有向路径，只展示两侧汇聚到 `RunWith` 的已证关系；
+   Mermaid 语法有效，18 项关键函数及引用完整。B1492 获得过程正证：图块已经排在关键函数清单之前，模型提交的 `model_block_order` 生效且没有
+   修改块正文。但恢复稿携带“最终重试未能产出有效 answer_document”与降级说明，所以 B1492 只能维持 production-partial，不能以正确旧稿冒充闭环。
+3. 新确认 P0 `B1493-PARTICIPANTRELATIONALIASPARITY1`。普通关系修补候选会绑定当前图中 evidence-backed participant alias；参与者覆盖的
+   additions-only 生产者只绑定 request participant。生产底稿声明 `Analyzer as agent.buildAnalysisIR`、`Norm as analyzerGraphForNormalize`，typed
+   关系为 `buildAnalysisIR -> analyzerGraphForNormalize`，但候选只允许技术端点 `buildAnalysisIR`，同时教学又要求复用现有 participant。
+   模型选择 `Analyzer` 被判“not a typed carrier”，选择技术 ID 又产生重复/隐式 participant；这是同一系统发布两份不可同时满足的合同。
+4. B1493 根修让 participant-only producer 先保留 participant-side 映射，再调用与普通关系修补相同的 existing typed node binder。binder 只消费
+   candidate 的精确 typed endpoint、citable evidence identity 与解析后的 node declaration；只有唯一 evidence-compatible identity 才加入该端点的
+   node-id enum，owner-only 或多解标签继续 fail closed。系统不读 message/visible relation label/request/thinking/final prose，也不选择、生成或替换边。
+5. 独立确认 P0 `B1494-REPAIRBASEOCCURRENCE1`。producer 可在确定性 normalized view 上铸造 `Gate -> RunWith body_occurrence=2`，lease installer
+   则针对原始 rejected patch base 重新铸 ref；该 live base 实际只有 1 条对应可见边，旧逻辑没有重绑结构坐标，executor 稳定拒绝
+   `body_occurrence=2 exceeds 1 visible edge(s)`。这解释了别名循环之后仍无法退出的最后一层确定性失败。
+6. B1494 根修在 lease 编译边界对 exact live base 做窄重绑：同一唯一 block 内、精确 `from_node/to_node` 恰好只有一条 parsed visible edge 且 producer
+   occurrence 大于 1 时，重绑为唯一的 1；零条、多条、重复 block、缺端点或本来为 0/1 全部保持原值，继续由现有 constructor/executor fail closed。
+   该过程只读取 typed failure coordinate 与 Mermaid 结构，不读取 label/message、业务语言或关系语义。
+7. 回归覆盖生产接线而非只测 helper：participant-only delta 必须发布现有 `Analyzer/Norm` 别名；executor lease 对唯一 live pair 将陈旧 2 重绑为 1，
+   对两条同向边不得折叠。聚焦 tool/agent 测试全绿；完整 `go test ./...` 与从提交构建的 r977 恰好 2 路回放待执行。
+8. 本批不改变 Trace 显式时间窗、自动查询补齐、唤醒链、链上根因、优先级反转/调度或算力供给/D/IO/确定性语义工作、实际占时/规则可消双账户、
+   链上业务线索或最终因果投影。系统仍不扫描原始请求、模型推理、最终 prose 或 Mermaid 业务标签作事实硬门，也不接管模型事实、关系、文案、结论和布局。
+
+状态：
+
+`r976=runner-java-pass+sequence-fail/human-java-pass+sequence-fail`；
+`B1492=production-partial/model-order-applied-but-final-degraded`；
+`B1493=implemented/producer-wiring-pin-pass/pending-production-replay`；
+`B1494=implemented/executor-unique-coordinate-pin-pass/pending-production-replay`；
+`participant/ordinary-relation-alias-authority=shared-evidence-bound-declaration-binder`；
+`normalized-view/live-base-coordinate=unique-only-rebind/ambiguous-fail-closed`；
+`system-answer/conclusion/relation/node/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-business-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/r976-failure-was-contract-retry-exhaustion`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

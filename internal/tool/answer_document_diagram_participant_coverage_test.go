@@ -2552,6 +2552,96 @@ func TestDiagramRelationRepairCandidateCarriesUniqueQualifiedAliasForExactShortE
 	}
 }
 
+func TestDiagramRelationRepairCandidateCarriesUnquotedQualifiedAliasForExactShortEvidenceEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "d1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant Analyzer as agent.buildAnalysisIR\n    participant Norm as analyzerGraphForNormalize\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{{
+		ID: "ev-build-normalize", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "buildAnalysisIR", Object: "analyzerGraphForNormalize", Predicate: "calls",
+		Source: "internal/agent/analyzer.go", LineStart: 1921, LineEnd: 1921,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "analyzerGraphForNormalize",
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		AdditionRef: "ra1-build-normalize", BlockID: "d1", RelationKind: types.DiagramRelCall,
+		FromIdentity: "buildAnalysisIR", ToIdentity: "analyzerGraphForNormalize",
+		EvidenceID: "ev-build-normalize", Source: "internal/agent/analyzer.go:1921",
+	}
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&candidate, doc, evidence)
+	if !atomicDiagramNodeIDListed("Analyzer", candidate.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("Norm", candidate.ToNodeIDs) {
+		t.Fatalf("unquoted evidence-bound aliases must be executable on their exact endpoint sides: %+v", candidate)
+	}
+}
+
+func TestDiagramRelationRepairAllowedAdditionRetainsExistingAliasWhenParticipantCarrierIsAlsoPresent(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "d1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant Analyzer as agent.buildAnalysisIR\n    participant Norm as analyzerGraphForNormalize\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{{
+		ID: "ev-build-normalize", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "buildAnalysisIR", Object: "analyzerGraphForNormalize", Predicate: "calls",
+		Source: "internal/agent/analyzer.go", LineStart: 1921, LineEnd: 1921,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "analyzerGraphForNormalize",
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerExplorerEmitEvidence,
+	}}
+	rm := types.RequestModel{Intent: types.IntentExplain, PredicateAxis: types.AxisFlow, DiagramHint: &types.DiagramHint{
+		Kind: types.DiagramSequence, Required: true,
+		Participants: []types.DiagramParticipantHint{{
+			Identity: "buildAnalysisIR", Role: types.DiagramParticipantIncidentRequired,
+		}},
+	}}
+	got := diagramRelationRepairAllowedAdditions(
+		doc, rm, evidence, nil, []string{"d1"},
+		[]preEmitStandaloneRelationRepairCandidate{{
+			relation: types.DiagramRelCall, from: "buildAnalysisIR", to: "analyzerGraphForNormalize",
+			evidenceID: "ev-build-normalize", source: "internal/agent/analyzer.go:1921", blockIDs: []string{"d1"},
+		}}, 8,
+	)
+	if len(got) == 0 || !atomicDiagramNodeIDListed("Analyzer", got[0].FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("Norm", got[0].ToNodeIDs) {
+		t.Fatalf("participant-side normalization must retain exact evidence-bound existing aliases: %+v", got)
+	}
+	participantOnly := newDiagramRelationRepairCandidate("d1", diagramParticipantTypedIncidentCandidate{
+		participant: "buildAnalysisIR", relation: types.DiagramRelCall,
+		from: "buildAnalysisIR", to: "analyzerGraphForNormalize",
+		location: "internal/agent/analyzer.go:1921", participantEndpointSide: "from",
+	})
+	bindDiagramRelationRepairCandidateParticipantAndExistingNodeIDs(
+		&participantOnly, doc, rm, diagramParticipantTypedIncidentCandidate{
+			participant: "buildAnalysisIR", relation: types.DiagramRelCall,
+			from: "buildAnalysisIR", to: "analyzerGraphForNormalize",
+			location: "internal/agent/analyzer.go:1921", participantEndpointSide: "from",
+		}, evidence,
+	)
+	if !atomicDiagramNodeIDListed("Analyzer", participantOnly.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("Norm", participantOnly.ToNodeIDs) {
+		t.Fatalf("participant-only producer must publish the existing evidence-bound aliases: %+v", participantOnly)
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+	raw := diagramParticipantRepairAdditionDeltaJSON(doc, ctx, []DiagramParticipantCoverageMismatch{{
+		BlockID: "d1", Participant: "buildAnalysisIR", Issue: DiagramParticipantCoverageTypedEdgeMissing,
+	}}, evidence, nil)
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(raw), &delta); err != nil || len(delta.AllowedAdditions) != 1 {
+		t.Fatalf("participant-only production delta must carry one executable typed addition: err=%v raw=%s delta=%+v", err, raw, delta)
+	}
+	addition := delta.AllowedAdditions[0]
+	if !atomicDiagramNodeIDListed("Analyzer", addition.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("Norm", addition.ToNodeIDs) {
+		t.Fatalf("participant-only production wiring must retain exact evidence-bound existing aliases: %+v", addition)
+	}
+}
+
 func TestDiagramRelationRepairAllowedAdditionCarriesUnquotedQualifiedParticipantForShortEndpoint(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "d1", Kind: types.BlockDiagram,

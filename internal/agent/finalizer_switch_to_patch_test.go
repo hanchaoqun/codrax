@@ -2678,3 +2678,43 @@ func TestAnswerDocumentEvaluator_RepeatedTypedUnprovenFlowUsesCompactNodeOnlyExi
 		t.Fatalf("a real typed relation must retain exact-recipe repair, got ok=%v hint=%q", ok, hint)
 	}
 }
+
+func TestExecutableDiagramRelationLeaseRebindsOnlyUniqueLiveBodyOccurrence(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "d1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n participant A\n participant B\n A->>B: call",
+		},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "pkg.A.run", ToIdentity: "pkg.B.accept",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "call",
+		}},
+	}}}
+	failure := types.AnswerDiagramRelationRepairFailure{
+		BlockID: "d1", Issue: "call_edge_occurrence_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "pkg.A.run", ToIdentity: "pkg.B.accept",
+		RelationKind: types.DiagramRelCall, BodyOccurrence: 2,
+	}
+	lease, omittedFailures, omittedAdditions := executableAnswerDocDiagramRelationRepairLease(
+		base, []types.AnswerDiagramRelationRepairFailure{failure}, nil, false,
+	)
+	if lease == nil || omittedFailures != 0 || omittedAdditions != 0 || len(lease.Failures) != 1 ||
+		lease.Failures[0].BodyOccurrence != 1 {
+		t.Fatalf("a normalized-view coordinate must rebind to the sole exact live body edge: lease=%+v omitted=%d/%d",
+			lease, omittedFailures, omittedAdditions)
+	}
+
+	ambiguous := *base
+	ambiguous.Blocks = append([]types.AnswerBlock(nil), base.Blocks...)
+	ambiguous.Blocks[0].Diagram = &types.AnswerDiagramBlock{
+		Kind: types.DiagramSequence, Language: "mermaid",
+		Body: "sequenceDiagram\n participant A\n participant B\n A->>B: first\n A->>B: second",
+	}
+	got := answerDocDiagramRebindUniqueBaseBodyOccurrences(
+		&ambiguous, []types.AnswerDiagramRelationRepairFailure{failure},
+	)
+	if len(got) != 1 || got[0].BodyOccurrence != 2 {
+		t.Fatalf("a genuinely repeated live pair must keep its exact occurrence: %+v", got)
+	}
+}

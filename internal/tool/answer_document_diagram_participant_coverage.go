@@ -326,7 +326,7 @@ func diagramParticipantRepairAdditionDeltaJSON(
 		}
 		for _, blockID := range blockIDs {
 			row := newDiagramRelationRepairCandidate(blockID, candidate)
-			bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, candidate)
+			bindDiagramRelationRepairCandidateParticipantAndExistingNodeIDs(&row, doc, rm, candidate, evidence)
 			key := strings.Join([]string{row.BlockID, string(row.RelationKind), row.FromIdentity, row.ToIdentity}, "\x00")
 			if index, exists := seen[key]; exists {
 				mergeDiagramRelationRepairCandidateNodeIDs(&allowed[index], row)
@@ -2875,6 +2875,26 @@ func bindDiagramRelationRepairCandidateParticipantNodes(
 		row.FromNodeIDs = append(row.FromNodeIDs, nodeIDs...)
 		row.ToNodeIDs = append(row.ToNodeIDs, nodeIDs...)
 	}
+}
+
+// bindDiagramRelationRepairCandidateParticipantAndExistingNodeIDs keeps the
+// participant-only producer on the same executable alias contract as ordinary
+// relation repair. A request participant may be the short endpoint
+// (`buildAnalysisIR`) while an already-authored declaration carries its exact
+// qualified evidence identity (`agent.buildAnalysisIR`). The participant
+// mapper intentionally understands only request identities, so the second
+// step rebinds unique evidence-backed declarations before the lease freezes.
+// Both steps read typed structures only; neither inspects message/prose labels
+// nor chooses a visible edge.
+func bindDiagramRelationRepairCandidateParticipantAndExistingNodeIDs(
+	row *types.AnswerDiagramRelationRepairCandidate,
+	doc *types.AnswerDocumentV2,
+	rm types.RequestModel,
+	candidate diagramParticipantTypedIncidentCandidate,
+	evidence []types.EvidenceItem,
+) {
+	bindDiagramRelationRepairCandidateParticipantNodes(row, doc, rm, candidate)
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(row, doc, evidence)
 }
 
 func diagramParticipantExactVisibleEndpointIDs(

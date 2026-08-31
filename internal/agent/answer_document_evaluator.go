@@ -19563,6 +19563,7 @@ func executableAnswerDocDiagramRelationRepairLease(
 	allowedAdditions []types.AnswerDiagramRelationRepairCandidate,
 	allowTargetDiagramRemoval bool,
 ) (*types.AnswerDiagramRelationRepairLease, int, int) {
+	failures = answerDocDiagramRebindUniqueBaseBodyOccurrences(base, failures)
 	if lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		base, failures, allowedAdditions, allowTargetDiagramRemoval,
 	); lease != nil {
@@ -19596,6 +19597,65 @@ func executableAnswerDocDiagramRelationRepairLease(
 		return nil, len(failures), len(allowedAdditions)
 	}
 	return lease, len(failures) - len(selectedFailures), len(allowedAdditions) - len(selectedAdditions)
+}
+
+// answerDocDiagramRebindUniqueBaseBodyOccurrences closes the coordinate split
+// between a validator's deterministically normalized view and the immutable
+// rejected draft used as the patch base. If normalization observed a repeated
+// pair but the exact live base contains one and only one visible statement for
+// that same node pair, a positive occurrence greater than one is stale by
+// construction; rebind it to the sole live occurrence before minting refs.
+// Multiple or absent body edges remain untouched and fail closed. This reads
+// only typed failure coordinates plus parsed Mermaid structure, never labels,
+// messages, request text, model prose, or relation meaning.
+func answerDocDiagramRebindUniqueBaseBodyOccurrences(
+	base *types.AnswerDocumentV2,
+	failures []types.AnswerDiagramRelationRepairFailure,
+) []types.AnswerDiagramRelationRepairFailure {
+	out := append([]types.AnswerDiagramRelationRepairFailure(nil), failures...)
+	if base == nil || len(out) == 0 {
+		return out
+	}
+	type blockCarrier struct {
+		count int
+		body  string
+	}
+	blocks := make(map[string]blockCarrier, len(base.Blocks))
+	for i := range base.Blocks {
+		block := &base.Blocks[i]
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		carrier := blocks[id]
+		carrier.count++
+		if block.Kind == types.BlockDiagram && block.Diagram != nil {
+			carrier.body = block.Diagram.Body
+		}
+		blocks[id] = carrier
+	}
+	for i := range out {
+		failure := &out[i]
+		if failure.BodyOccurrence <= 1 || strings.TrimSpace(failure.FromNode) == "" ||
+			strings.TrimSpace(failure.ToNode) == "" {
+			continue
+		}
+		carrier := blocks[strings.TrimSpace(failure.BlockID)]
+		if carrier.count != 1 || strings.TrimSpace(carrier.body) == "" {
+			continue
+		}
+		matches := 0
+		for _, edge := range mermaidcompat.ParseEdges(carrier.body) {
+			if strings.TrimSpace(edge.From) == strings.TrimSpace(failure.FromNode) &&
+				strings.TrimSpace(edge.To) == strings.TrimSpace(failure.ToNode) {
+				matches++
+			}
+		}
+		if matches == 1 {
+			failure.BodyOccurrence = 1
+		}
+	}
+	return out
 }
 
 // answerDocRequiredDiagramRelationBoundaryPatchHint handles a required source
