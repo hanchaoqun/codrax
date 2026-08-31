@@ -57291,6 +57291,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1537 r955/B1470：typed 清单正确但自由摘要重数漂移；发布精确家族计数上下文（2026-08-30）
+
+1. 从 `b924f591d` 构建不可变二进制，严格并发恰好 2 路运行 Cangjie source-inventory 与显式 10ms Trace 守卫；runner 2/2 PASS：
+   Cangjie 220s、Trace 146s。Trace 人工通过：typed query、最终 `Trace 因果投影`、NetworkService 链上第一席、实际占时/规则可消双账户、
+   确定性语义工作线索、邻近/背景隔离均完整，没有固定 4ms/4m 或活动流年龄降级。
+2. Cangjie 人工判 fail，runner 绿灯不代表答案正确。结构化表的 12 行精确为 `foreign func=2 / extend=2 / public class=8`，每行路径、符号、
+   `package` 与 typed row id 均正确；summary 却写成 2/3/9，同页算术为 14 又声称总数 12。不是 Cangjie 提取器或 package 解析丢失，
+   是自由摘要分类计数与同页 typed roster 自相矛盾。
+3. 新 P1 `B1470-INVENTORYFAMILYCOUNTCONTEXT1` 定位为上下文/验收复合 gap。正确的三个 explorer aggregate 值在 authoritative principal-row
+   投影后被刻意隐藏为 `shadowed_by_authoritative_principal_rows`，避免陈腐或错误旁路 roster 与主清单争权；finalizer 只收到逐行
+   `surface_family` 和总数 12，因而需要自行重数。模型违反既有“deterministic count 必须来自上游证据”软教学；eval 的
+   `typed_inventory_rowset` oracle 只验行集，未暴露自由摘要自报计数漂移，于是形成 runner PASS / human FAIL。
+4. 根修保持单权威并降低模型心智：从 `Principal Enumeration Rows` 每行的 typed `SurfaceTerms` 机械计算
+   `typed_surface_family_row_counts`，在同一行内对独立 family 去重，排序后与 `family_coverage=covered/total`、`complete` 一并发布给 finalizer。
+   family 不存在时不猜；一行可能属于多个独立 family，因此明确 family counts 不必加和为总行数。被降权 aggregate 的 value/member/support refs
+   继续隐藏，不能借标签相似重新获得数字权威。
+5. 该修复只增强模型可消费的精确事实上下文：不读请求、thinking、最终答案、Markdown/表格 prose、Mermaid label 或路径关键词；不扫描摘要做硬门，
+   不修改模型答案，不选择成员、类别、计数陈述、措辞或结论。`go test ./internal/agent -count=1` 全绿；下一次异构 inventory 回放验收模型是否直接复制
+   typed family counts，同时以显式窗 Trace 守住因果投影与自动补齐。
+
+状态：
+
+`r955=runner-pass-2/2,human-trace-pass+cangjie-fail`；
+`B1470=implemented/agent-full-suite-pass/pending-production-replay`；
+`source-inventory-principal-rows=authoritative+unchanged`；
+`typed-surface-family-counts=exact-row-derived/context-only`；
+`shadowed-model-aggregate-values=still-hidden`；
+`eval-rowset-oracle=structure-positive/free-summary-count-blind`；
+`system-answer/conclusion/member/category/count-wording-selection=none`；
+`request/model/final-prose/markdown-table-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r955`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r955`。
+
 ### §123.1531 r949/B1463–B1465：载体成员误升格、语义拒绝漏计与陈旧 Trace oracle（2026-08-30）
 
 1. 从已推送 `ccddb0fd4` 构建不可变二进制，严格并发恰好 2 路复放 H8 显式窗 Trace 与 read 四阶段时序用例。Trace 232s，

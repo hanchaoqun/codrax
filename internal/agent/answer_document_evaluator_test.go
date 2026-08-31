@@ -1412,6 +1412,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 		"## Principal Enumeration Rows",
 		"member=`extend Cart`",
 		"surface_family=`extend`",
+		"typed_surface_family_row_counts=[`extend`:1]",
+		"family_coverage=1/1, complete=true",
+		"copy them exactly when reporting family counts and do not recount the row prose",
 		"source_inventory_family",
 		"attributes=[`package:demo.cart`]",
 		"do not infer them from paths",
@@ -1419,6 +1422,26 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalRowAttr
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q for row attributes:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_PreservesIndependentTypedFamilies(t *testing.T) {
+	sets := []types.EnumerationDisplaySet{{
+		Rows: []types.EnumerationDisplayRow{
+			{SurfaceTerms: []string{"foreign func", "foreign func native_add"}},
+			{SurfaceTerms: []string{"extend", "extend Cart"}},
+			{SurfaceTerms: []string{"public class", "public class Bridge"}},
+			{SurfaceTerms: []string{"@entry", "public class", "public class App"}},
+			{},
+		},
+	}}
+
+	got, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(sets)
+	if want := "`@entry`:1, `extend`:1, `foreign func`:1, `public class`:2"; got != want {
+		t.Fatalf("typed family counts = %q, want %q", got, want)
+	}
+	if covered != 4 || total != 5 {
+		t.Fatalf("typed family coverage = %d/%d, want 4/5", covered, total)
 	}
 }
 

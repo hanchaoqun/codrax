@@ -11435,6 +11435,10 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString(guidance)
 		b.WriteString("\n")
 	}
+	if counts, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(sets); counts != "" {
+		fmt.Fprintf(&b, "- typed_surface_family_row_counts=[%s], family_coverage=%d/%d, complete=%t. These counts are computed from each row's typed `surface_family`; copy them exactly when reporting family counts and do not recount the row prose. One row may carry multiple independent families, so family counts need not sum to the total row count.\n\n",
+			counts, covered, total, covered == total)
+	}
 	for _, set := range sets {
 		title := answerDocPrincipalEnumerationSetAuthorityLabel(set)
 		if title == "" {
@@ -11486,6 +11490,44 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// answerDocPrincipalEnumerationSurfaceFamilyCounts publishes exact row-family
+// cardinalities beside the authoritative principal rows. The finalizer should
+// not have to recount a long Markdown-like list, and shadowed model aggregates
+// must not regain numeric authority merely because their labels resemble one
+// of these families. This projection consumes only typed row SurfaceTerms; it
+// never reads the request, model reasoning, answer prose, or rendered output.
+func answerDocPrincipalEnumerationSurfaceFamilyCounts(sets []types.EnumerationDisplaySet) (string, int, int) {
+	counts := map[string]int{}
+	covered := 0
+	total := 0
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			total++
+			families := types.SourceInventorySurfaceFamilyKeys(row.SurfaceTerms)
+			if len(families) == 0 {
+				continue
+			}
+			covered++
+			for _, family := range families {
+				counts[family]++
+			}
+		}
+	}
+	if len(counts) == 0 {
+		return "", covered, total
+	}
+	families := make([]string, 0, len(counts))
+	for family := range counts {
+		families = append(families, family)
+	}
+	sort.Strings(families)
+	parts := make([]string, 0, len(families))
+	for _, family := range families {
+		parts = append(parts, fmt.Sprintf("`%s`:%d", family, counts[family]))
+	}
+	return strings.Join(parts, ", "), covered, total
 }
 
 func answerDocPrincipalEnumerationSetAuthorityLabel(set types.EnumerationDisplaySet) string {
