@@ -67935,3 +67935,28 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r958`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r958`。
+
+### §123.1541 B1473：调度状态与确定性语义工作建立 typed 类别边界（2026-08-30）
+
+1. `B1473-TRACESEMANTICCLASSBOUNDARY1/P1` 已施工。finalizer 的 deterministic semantic inventory 仍逐行发布 span 名、semantic class、宿主、
+   原始墙钟、行号与 source lane；在同一 typed carrier 旁新增类别边界：runnable/running/sleep/D-state/IO wait 即便位于已证链上，仍是调度
+   状态占用，不能改名为确定性语义工作；若模型判断存在确定性工作，必须引用该 inventory 中对应的 typed span，并保留它自己的时长与关系边界。
+2. 这是 soft reasoning guidance，不是答案硬门。系统不扫描用户问题、模型 thinking、最终正文或 Mermaid 标签，不因模型是否使用“确定性优化”等词而
+   拒绝、删除、替换或补写答案，也不替模型判断 VerifyClass/JIT/GC 等工作是否造成目标等待。是否入链仍只来自 projection 编译出的 typed relation；
+   没有 work-completion/target-wait 绑定时继续披露未证，规则可消量保持 0，不从时序邻近补造因果。
+3. 回归钉住两条必须同时出现的教学：scheduler-state row 不变成 semantic work；semantic-work statement 必须落到 typed span row。既有
+   semantic member roster、去重、关系边界与 Trace decision handoff 测试全绿。下一步必须从本提交重建二进制，以相同 Cangjie inventory + H8
+   显式窗 Trace 严格并发恰好 2 路回放；Cangjie 验收 B1472 的 prompt 已收敛为 12 行、2/2/8，Trace 验收模型是否准确区分
+   NetworkService runnable 与 T7 VerifyClass，同时守住因果投影、自动补齐和链上根因。
+
+状态：
+
+`B1473=implemented/targeted-tests-pass/pending-production-replay`；
+`scheduler-state-occupancy!=deterministic-semantic-span`；
+`semantic-work-visible-name/duration=typed-span-row-only`；
+`semantic-causal/eliminable-authority=typed-relation-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

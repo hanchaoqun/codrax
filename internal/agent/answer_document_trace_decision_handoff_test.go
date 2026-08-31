@@ -325,6 +325,8 @@ func TestTraceDecisionHandoffKeepsSemanticMembersOutsideGenericTopN(t *testing.T
 		"member_1 span=`JIT compiling TextView.<init>()`; duration=1.781ms; lines=5969..6114",
 		"member_2 span=`JIT compiling DecimalQuantity.readIntToBcd()`; duration=0.607ms; lines=12611..12664",
 		"Its presence neither proves an effect on the target nor proves no effect",
+		"Scheduler-state rows such as runnable, running, sleep, D-state, and IO wait remain scheduler-state occupancy even when they are on-chain",
+		"A deterministic semantic-work statement must name the corresponding typed span row from this inventory",
 		"Its absence must not be inferred from a target-thread-only keyword search",
 		"Every member row is a distinct typed span",
 	} {
