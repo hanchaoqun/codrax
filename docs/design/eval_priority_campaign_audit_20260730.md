@@ -57336,6 +57336,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1552 r967/B1485：权威 public-class 行被合成全局桶反向覆盖；逐行 bucket 绑定回 typed principal row（2026-08-31）
+
+1. 从已推送 `1075d3f86` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS
+   212s；Cangjie runner FAIL 704s，最终 oracle 为 `extend got13 want2 / foreign_func got13`。两路均未按固定 4ms/4m、
+   活动流年龄、轮次、首字节或上下文比例降级。
+2. `B1484` 的原故障没有复现：已携带 exact `source_inventory_row_id` 的逐行载体没有再被 requested-dimension 检查误报缺少符号名，
+   也没有再提示复制第二套清单。该批的新失败发生在更前面的 per-member bucket gate，是独立且更精确的合同冲突。
+3. Cangjie 首稿确有模型错误：把同一个 `native_add` 同时放入 extend 与 foreign-func，形成 13 行；该次拒绝正确。模型随后已经收敛为
+   `extend=2 / foreign func=2 / public class=8` 的 exact 12 行，每行 identity、文件、package 与 typed row id 正确。但 Animal 和
+   Service 两行连续 11 轮被要求把可见 bucket 从 `public class` 改成内部通用标签 `source inventory principal rows`，最终正确稿仍
+   无法被接受并进入 degraded fallback。日志中的 principal-row authority 对两行都明确发布 `surface_family=public class`，模型也准确
+   判断 validator 自相矛盾，因此该失败不是模型波动。
+4. 根因是 row-local bucket 存在双权威：canonical principal row 以 exact `surface family + file:line` 发布 `public class`；由并行
+   aggregate 合成的全局 display set 却给每行继承通用 `SetLabel=source inventory principal rows`。旧投影只有在一个成员的全部
+   `SurfaceTerms` 可收敛为单一 family 时才替换 SetLabel；Animal/Service 同时携带 `public class` 与 sealed/abstract modifier 细分词，
+   所以错误的通用标签幸存并被 hard gate 当成用户必须显示的 bucket。
+5. `B1485-SOURCEINVENTORYROWFAMILYAUTHORITY1/P0` 根修不从请求、模型回答、表格文本或 modifier 词义猜 family。共享 canonicalizer
+   记录唯一 typed principal row 的精确 family；只有当前 SetLabel 为空或仍是合成全局通用标签时，才用同一 typed coordinate 的
+   family 替换。预发射投影同样只接受 authority `PrincipalRows` 中 exact `file:line + family` 的匹配；真实的模型/用户 bucket（例如
+   `extend block`）保持不变，坐标缺失或歧义则不猜合。
+6. 新回归覆盖带多个 modifier 的 Animal：typed row 同时含 `public class`、`public sealed class` 等展示词时，逐行 bucket 仍必须是
+   requested canonical family `public class`，并能通过 exact row-id bucket gate；generic aggregate label 必须被替换，而独立真实 bucket
+   不得被系统重写。`go test ./internal/agent ./internal/types ./internal/tool -count=1` 全绿（agent 14.120s、types 26.092s、tool
+   184.118s）。
+7. Trace 人工审计为正：显式 10ms 窗、目标状态分区、NetworkService→CookieMonster→目标两跳唤醒链、链上根因排序、实际占时与
+   可消除量双轴、业务/邻近/背景隔离、自动补采与 `Trace 因果投影` 均完整。VerifyClass 0.285ms 只作为链上宿主线程的确定性工作
+   线索展示，completion→target-wait 仍未证、规则可消为 0.000ms，没有挤入根因排序。一次 finalizer reject 仅因模型把 summary-only
+   字段放入 table，第二轮按精确 schema 错误修正即接受，不是合同互斥或系统降级。
+
+状态：
+
+`r967=runner-pass-1/2,human-trace-pass+cangjie-system-contract-fail`；
+`B1484=no-regression-r967/pending-clean-cangjie-acceptance`；
+`B1485=implemented/full-agent+types+tool-suite-pass/pending-production-replay`；
+`source-inventory-row-bucket=exact-typed-principal-row-family`；
+`modifier-surface-terms=detail-only/not-canonical-family-authority`；
+`generic-global-set-label=never-user-required-bucket`；
+`system-answer/conclusion/relation/wording/member/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r967`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r967`。
+
 ### §123.1550 r965/B1483：正确 12 行首稿被陈旧并行事实强制扩成 17 行；源码枚举消费面统一为单一 typed 投影（2026-08-31）
 
 1. 从已推送 `14c52bacb` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 278s；

@@ -2728,7 +2728,8 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 	if !hasGlobal {
 		out = append(out, canonical...)
 	}
-	return preEmitSourceInventoryProjectSyntheticRowBuckets(out)
+	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, preEmitStableAggregateFacts(ctx))
+	return preEmitSourceInventoryProjectSyntheticRowBuckets(out, authority.View.PrincipalRows)
 }
 
 // preEmitSourceInventoryProjectSyntheticRowBuckets keeps a synthetic global
@@ -2742,15 +2743,35 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 // This projection reads neither request/model prose nor rendered table text.
 // The set-level label and stable row IDs remain unchanged; only the row-local
 // bucket used by exact source_inventory_row_id contracts is refined.
-func preEmitSourceInventoryProjectSyntheticRowBuckets(sets []types.EnumerationDisplaySet) []types.EnumerationDisplaySet {
+func preEmitSourceInventoryProjectSyntheticRowBuckets(sets []types.EnumerationDisplaySet, principalRows []types.SourceInventoryRow) []types.EnumerationDisplaySet {
+	authoritativeFamilies := map[string]string{}
+	for _, row := range principalRows {
+		family := strings.TrimSpace(row.SurfaceFamily)
+		file := strings.TrimSpace(row.Member.File)
+		line := row.Member.Line
+		if (file == "" || line <= 0) && strings.TrimSpace(row.Member.SupportRef) != "" {
+			if _, location, ok := types.ParseAnswerSupportRefMemberLocation(row.Member.SupportRef); ok {
+				file = location.File
+				line = location.LineStart
+			}
+		}
+		if family == "" || file == "" || line <= 0 {
+			continue
+		}
+		key := preEmitNormalizeLocation(fmt.Sprintf("%s:%d", file, line)) + "\x00" +
+			types.SourceInventorySurfaceTermKey(family)
+		authoritativeFamilies[key] = family
+	}
 	for si := range sets {
 		if strings.TrimSpace(sets[si].Label) != "source inventory principal rows" {
 			continue
 		}
 		for ri := range sets[si].Rows {
-			families := types.SourceInventorySurfaceFamilyKeys(sets[si].Rows[ri].SurfaceTerms)
-			if len(families) == 1 {
-				sets[si].Rows[ri].SetLabel = families[0]
+			row := sets[si].Rows[ri]
+			family := types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms)
+			key := preEmitNormalizeLocation(row.Location) + "\x00" + types.SourceInventorySurfaceTermKey(family)
+			if exact := strings.TrimSpace(authoritativeFamilies[key]); exact != "" {
+				sets[si].Rows[ri].SetLabel = exact
 			}
 		}
 	}

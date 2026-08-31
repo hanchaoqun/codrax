@@ -6957,6 +6957,7 @@ func TestPreEmitSourceInventoryProjectSyntheticRowBuckets_UsesSingleTypedFamilyO
 					RowID:        "public-service",
 					SetLabel:     "source inventory principal rows",
 					Member:       "Service",
+					Location:     "src/Service.cj:1",
 					SurfaceTerms: []string{"public class", "public class Service"},
 				},
 				{
@@ -6979,7 +6980,10 @@ func TestPreEmitSourceInventoryProjectSyntheticRowBuckets_UsesSingleTypedFamilyO
 		},
 	}
 
-	got := preEmitSourceInventoryProjectSyntheticRowBuckets(sets)
+	got := preEmitSourceInventoryProjectSyntheticRowBuckets(sets, []types.SourceInventoryRow{{
+		SurfaceFamily: "public class",
+		Member:        types.SourceInventoryObservationMember{Name: "Service", File: "src/Service.cj", Line: 1},
+	}})
 	if got[0].Label != "source inventory principal rows" || got[0].Rows[0].RowID != "public-service" ||
 		got[0].Rows[0].SetLabel != "public class" {
 		t.Fatalf("single typed family must refine only the synthetic row bucket: %+v", got[0])
@@ -7003,6 +7007,71 @@ func TestPreEmitSourceInventoryProjectSyntheticRowBuckets_UsesSingleTypedFamilyO
 	}
 	if wired["ExtendCart"] != "extend" || wired["PublicCart"] != "public class" {
 		t.Fatalf("production typed-row registry lost row-local buckets: %+v", wired)
+	}
+}
+
+func TestPreEmitSourceInventoryTypedPrincipalSets_UsesAuthorityFamilyForModifierRows(t *testing.T) {
+	mu := types.NewMutableState("compare public class declarations")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 1, Total: 1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name: "Animal", Role: types.AnswerCandidateRoleType,
+				File: "src/Animal.cj", Line: 6, Language: "cangjie",
+				SurfaceTerms: []string{
+					"public class", "public class Animal",
+					"public sealed class", "public sealed class Animal",
+				},
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "source inventory principal rows",
+		Value: "1", Role: types.AnswerAggregateRolePrincipalAnswer,
+		Provenance:  types.SourceInventoryPrincipalRowSetAggregateProvenance,
+		Members:     []string{"Animal @ src/Animal.cj:6"},
+		SupportRefs: []string{"Animal @ src/Animal.cj:6"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true, HasPerMemberTable: true},
+		Buckets:    []types.QuestionBucket{{Label: "public class", Index: 1}},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:      []string{"public class"},
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+			},
+			Confidence: 0.95,
+		},
+	}}}
+
+	var row types.EnumerationDisplayRow
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		for _, candidate := range set.Rows {
+			if candidate.Member == "Animal" {
+				row = candidate
+			}
+		}
+	}
+	if row.RowID == "" || row.SetLabel != "public class" {
+		t.Fatalf("authority family must win over the generic aggregate label and finer modifier terms: %+v", row)
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "comparison", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem), string(types.FacetBucketLabel), string(types.FacetComponentRelation)},
+		Items: []types.AnswerBlockItem{{
+			ID: "animal", Label: "Animal", Cells: []string{"public class", "src/Animal.cj:6"},
+			SourceInventoryRowID: row.RowID,
+		}},
+	}}}
+	if hints := preCheckSourceInventoryPerMemberBucketCells(doc, ctx); len(hints) != 0 {
+		t.Fatalf("canonical public-class bucket must satisfy the per-member table contract: %+v", hints)
 	}
 }
 

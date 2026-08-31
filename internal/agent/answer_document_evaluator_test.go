@@ -1705,6 +1705,11 @@ func TestAnswerDocCanonicalizeSourceInventoryPrincipalEnumerationSets_DedupesDec
 	if len(got) != 1 || got[0].ID != "bare" || len(got[0].Rows) != 2 {
 		t.Fatalf("canonicalized sets = %+v, want one two-row bare-symbol set", got)
 	}
+	for _, row := range got[0].Rows {
+		if row.SetLabel != "foreign func" {
+			t.Fatalf("canonical typed family must replace a generic/raw aggregate bucket label: %+v", row)
+		}
+	}
 	counts, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(got)
 	if counts != "`foreign func`:2" || covered != 2 || total != 2 {
 		t.Fatalf("canonical counts = %q coverage=%d/%d, want foreign func=2 coverage=2/2", counts, covered, total)

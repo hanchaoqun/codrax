@@ -25,6 +25,7 @@ func CanonicalizeSourceInventoryPrincipalEnumerationSets(
 		return sets
 	}
 	canonicalNames := map[string]string{}
+	canonicalFamilies := map[string]string{}
 	ambiguous := map[string]bool{}
 	for _, row := range principalRows {
 		coord := sourceInventoryPrincipalEnumerationCoordinate(row.SurfaceFamily, sourceInventoryPrincipalEnumerationLocation(row))
@@ -37,9 +38,11 @@ func CanonicalizeSourceInventoryPrincipalEnumerationSets(
 			continue
 		}
 		canonicalNames[coord] = name
+		canonicalFamilies[coord] = strings.TrimSpace(row.SurfaceFamily)
 	}
 	for coord := range ambiguous {
 		delete(canonicalNames, coord)
+		delete(canonicalFamilies, coord)
 	}
 	if len(canonicalNames) == 0 {
 		return sets
@@ -72,6 +75,17 @@ func CanonicalizeSourceInventoryPrincipalEnumerationSets(
 			winner, canonical := winners[coord]
 			if canonical && (winner.setIndex != setIndex || winner.rowIndex != rowIndex) {
 				continue
+			}
+			if canonical && (strings.TrimSpace(row.SetLabel) == "" ||
+				strings.EqualFold(strings.TrimSpace(row.SetLabel), "source inventory principal rows")) {
+				// The exact source-inventory row owns its row-local construct
+				// family. SetLabel on a raw aggregate row is presentation prose
+				// (often the generic "source inventory principal rows" label)
+				// and must not override the typed family in per-member tables.
+				// This also keeps finer modifiers such as public sealed/abstract
+				// class as row detail when the canonical requested family is
+				// public class.
+				row.SetLabel = canonicalFamilies[coord]
 			}
 			rows = append(rows, row)
 		}
