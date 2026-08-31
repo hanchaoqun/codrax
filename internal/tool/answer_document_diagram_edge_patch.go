@@ -1927,7 +1927,11 @@ func canonicalizeAtomicSequenceAdditionNodeRefs(
 
 func atomicSequenceNodeIsDeclared(node string, declarations []mermaidcompat.NodeDecl) bool {
 	for _, declaration := range declarations {
-		if strings.EqualFold(strings.TrimSpace(declaration.Ident), strings.TrimSpace(node)) {
+		// Mermaid participant IDs are case-sensitive. EqualFold here made
+		// `participant Analyze` appear to declare an `analyze` message
+		// endpoint, so Mermaid silently created a second implicit actor while
+		// the typed anchor gate believed the original participant was reused.
+		if strings.TrimSpace(declaration.Ident) == strings.TrimSpace(node) {
 			return true
 		}
 	}

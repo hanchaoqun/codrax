@@ -1200,6 +1200,33 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefReusesUniqueDeclaredTyp
 	})
 }
 
+func TestCanonicalizeAtomicSequenceAdditionNodeRefs_UsesExactCaseSensitiveParticipantID(t *testing.T) {
+	block := types.AnswerBlock{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant Analyze as StageAnalyze\n    participant Explore as StageExplore\n",
+		},
+	}
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}
+	edge := types.DiagramEdgeAnchor{
+		FromNode: "analyze", ToNode: "Explore",
+		FromIdentity: "analyzer", ToIdentity: "explorer",
+		RelationKind: types.DiagramRelPrecedence,
+	}
+	if err := canonicalizeAtomicSequenceAdditionNodeRefs(
+		&block, &edge, []stageauthority.PrecedenceRelation{{From: rows[0], To: rows[1]}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if edge.FromNode != "Analyze" || edge.ToNode != "Explore" {
+		t.Fatalf("case-mismatched implicit endpoint was not rebound to exact participant IDs: %+v", edge)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_ProductionWiresDeclaredStageParticipantReuse(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
