@@ -210,7 +210,7 @@ func projectTraceCausalClaimCaliberField(blockProps map[string]any, blockItems m
 	}
 	node["enum"] = enum
 	node["description"] = traceCausalClaimCaliberSchemaDescription(contract)
-	appendPrincipalKindRequiredFieldsConditional(blockItems, string(types.BlockSummary), "trace_causal_claim_caliber")
+	appendPrincipalKindExclusiveFieldConditional(blockItems, string(types.BlockSummary), "trace_causal_claim_caliber")
 }
 
 func traceCausalClaimCaliberSchemaDescription(contract *types.TraceCausalClaimContract) string {
@@ -263,6 +263,42 @@ func appendPrincipalKindRequiredFieldsConditional(blockItems map[string]any, kin
 			},
 		},
 		"then": map[string]any{"required": required},
+	})
+	blockItems["allOf"] = conditionals
+}
+
+// appendPrincipalKindExclusiveFieldConditional keeps a report-level control
+// field on exactly one structural owner. The ordinary required-field helper
+// only says that a principal block of kind K must carry the field; without the
+// else/false-property arm the same projected JSON schema also admits that field on every
+// sibling block and leaves the runtime normalizer to reject it later. That is
+// a self-contradictory model contract and burns an avoidable repair round.
+//
+// This predicate reads typed block discriminators only. It neither inspects
+// nor rewrites answer prose, and the model remains the sole author of the
+// field value allowed by its dispatch-local enum.
+func appendPrincipalKindExclusiveFieldConditional(blockItems map[string]any, kind string, fields ...string) {
+	if blockItems == nil || strings.TrimSpace(kind) == "" || len(fields) == 0 {
+		return
+	}
+	required := append([]string{"id", "kind", "surface_role"}, fields...)
+	forbiddenProperties := make(map[string]any, len(fields))
+	for _, field := range fields {
+		forbiddenProperties[field] = false
+	}
+	conditionals := schemaAllOfEntries(blockItems)
+	conditionals = append(conditionals, map[string]any{
+		"if": map[string]any{
+			"required": []string{"kind", "surface_role"},
+			"properties": map[string]any{
+				"kind":         map[string]any{"const": kind},
+				"surface_role": map[string]any{"const": string(types.SurfacePrincipal)},
+			},
+		},
+		"then": map[string]any{"required": required},
+		"else": map[string]any{
+			"properties": forbiddenProperties,
+		},
 	})
 	blockItems["allOf"] = conditionals
 }

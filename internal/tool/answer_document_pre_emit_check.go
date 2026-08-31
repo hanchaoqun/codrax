@@ -2999,10 +2999,11 @@ func preEmitSourceInventoryPreferredRowIDsByIdentity(sets []types.EnumerationDis
 // structured principal source-inventory item. The row id is the single typed
 // identity for member/family/location/citation; requiring it even for a unique
 // label prevents two neighboring rows from exchanging payloads or lets a
-// display decorator hide a duplicate declaration. The decision reads only the
-// structured item's primary visible value (label, or cells[0] for a cells-only
-// table row), row ids/families, and the typed row registry; later cells,
-// visible prose, request text, and titles never participate.
+// display decorator hide a duplicate declaration. Once that exact row id is
+// present, its member/display identity may occupy item.label or any exact
+// structured cells[] value: table column order is presentation, not identity
+// authority. Free-form item text, request text, titles, and substrings never
+// participate.
 func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
 	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
 		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
@@ -3036,13 +3037,13 @@ func preCheckSourceInventoryRowIDBindings(doc *types.AnswerDocumentV2, ctxOpt ..
 					expected := "copy the exact row_id for this item from Principal Enumeration Rows; remove the field only when this is not a source-inventory row"
 					reason := "the submitted typed row id is unknown or lies outside this block's typed source_inventory_family partition; titles and prose cannot repair row identity."
 					if ok && preEmitSourceInventoryRowsContainAliasIdentity(allowedRows, row) {
-						expected = fmt.Sprintf("keep source_inventory_row_id=%q and make the item's first visible value identify that row (exact member/display_label %q, or its exact parenthesized base %q)", rowID, principalEnumerationPreferredRowDisplay(row), principalEnumerationParenthesizedRowBase(row))
-						reason = fmt.Sprintf("the row_id is valid and selects member %q, but the item's structured first visible value is %q; repair the display identity rather than changing or removing the exact row_id.", principalEnumerationPreferredRowDisplay(row), identity)
+						expected = fmt.Sprintf("keep source_inventory_row_id=%q and make one exact structured visible value identify that row (item.label or one cells[] value equal to member/display_label %q, or its exact parenthesized base %q)", rowID, principalEnumerationPreferredRowDisplay(row), principalEnumerationParenthesizedRowBase(row))
+						reason = fmt.Sprintf("the row_id is valid and selects member %q, but no exact structured label/cell identifies it (the first visible value is %q); repair the visible member cell rather than changing or removing the exact row_id.", principalEnumerationPreferredRowDisplay(row), identity)
 						if block.Kind == types.BlockTable &&
 							preEmitBlockSharesFacet(block, []string{string(types.FacetBucketLabel)}) &&
 							strings.TrimSpace(row.SetLabel) != "" {
-							expected = fmt.Sprintf("keep source_inventory_row_id=%q; set item.label to the exact member/display_label %q (or use that exact member as cells[0] in a cells-only row), and keep the exact bucket label %q as a separate visible cells value with a matching table column; do not replace the bucket with the member or discard either field", rowID, principalEnumerationPreferredRowDisplay(row), strings.TrimSpace(row.SetLabel))
-							reason = fmt.Sprintf("the exact row id selects member %q in typed bucket %q, but this table used the bucket as row identity (%q). Member identity and visible bucket are two independent required axes; move the bucket to its own cell rather than deleting it while repairing the identity.", principalEnumerationPreferredRowDisplay(row), strings.TrimSpace(row.SetLabel), identity)
+							expected = fmt.Sprintf("keep source_inventory_row_id=%q; keep one exact member/display_label value %q in item.label or cells[], and keep the exact bucket label %q as a separate visible cells value with a matching table column; either member-first or category-first column order is valid", rowID, principalEnumerationPreferredRowDisplay(row), strings.TrimSpace(row.SetLabel))
+							reason = fmt.Sprintf("the exact row id selects member %q in typed bucket %q, but this row exposes the bucket without any exact member label/cell. Member identity and visible bucket are two independent required axes; preserve both rather than changing the row id.", principalEnumerationPreferredRowDisplay(row), strings.TrimSpace(row.SetLabel))
 						}
 					}
 					hints = append(hints, sourceInventoryRowIDHardHint(
@@ -3264,7 +3265,7 @@ func preCheckSourceInventoryPerMemberBucketCells(doc *types.AnswerDocumentV2, ct
 			rowID := strings.TrimSpace(item.SourceInventoryRowID)
 			row, ok := rowsByID[rowID]
 			bucket := strings.TrimSpace(row.SetLabel)
-			if rowID == "" || !ok || bucket == "" || preEmitStructuredCellsContainExactValue(item.Cells, bucket) {
+			if rowID == "" || !ok || bucket == "" || preEmitStructuredItemContainsExactValue(item, bucket) {
 				continue
 			}
 			missing = append(missing, missingBucket{
@@ -3282,7 +3283,7 @@ func preCheckSourceInventoryPerMemberBucketCells(doc *types.AnswerDocumentV2, ct
 		}
 		hints = append(hints, sourceInventoryTypedRowHardHint(
 			fmt.Sprintf("blocks[%d].items[].cells", bi),
-			"keep every source_inventory_row_id and exact member identity unchanged; add each row's exact typed bucket as a separate visible cells value and add/align the corresponding table column. Do not use the bucket as item.label, do not replace the member with the bucket, and do not collapse the bucket only into the summary. Missing per-row bucket cells: "+strings.Join(parts, "; "),
+			"keep every source_inventory_row_id and exact member identity unchanged; add each row's exact typed bucket as a separate structured visible value and add/align the corresponding table column. Member-first and category-first column order are both valid; do not replace or drop either axis, and do not collapse the bucket only into the summary. Missing per-row bucket values: "+strings.Join(parts, "; "),
 			"this typed comparison requires one per-member table carrying both independent axes: exact source-inventory member identity and that member's user-visible bucket. A block-level bucket_label facet or summary mention cannot recover row-to-bucket membership after the row cell is omitted.",
 		))
 	}
@@ -3302,20 +3303,68 @@ func preEmitStructuredCellsContainExactValue(cells []string, want string) bool {
 	return false
 }
 
-// principalEnumerationItemExactRowIDDisplayMatchesRow validates only the
-// visible display identity attached to an already exact row-id selection. The
-// typed row may expose a language-kind qualifier such as "Index (struct)"
-// while the reader-facing item uses its exact base "Index". Once row_id has
-// selected that one member/family/location tuple, accepting the base does not
-// guess or merge rows; duplicate bases remain disambiguated by the row id.
-// Arbitrary substrings and item prose are deliberately excluded.
-func principalEnumerationItemExactRowIDDisplayMatchesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
-	if principalEnumerationItemExactLabelMatchesRow(item, row) {
+func preEmitStructuredItemContainsExactValue(item types.AnswerBlockItem, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	if strings.TrimSpace(item.Label) == want {
 		return true
 	}
-	identityKey := normalizeEnumerationDisplayTableKey(principalEnumerationItemPrimaryIdentity(item))
+	return preEmitStructuredCellsContainExactValue(item.Cells, want)
+}
+
+// principalEnumerationItemExactRowIDDisplayMatchesRow validates only exact
+// structured visible values attached to an already exact row-id selection.
+// Column order is reader presentation: a category may precede the member, so
+// item.label and each cells[] value are equal candidates. The typed row may
+// expose a language-kind qualifier such as "Index (struct)" while the visible
+// table uses its exact base "Index". Once row_id has selected that one
+// member/family/location tuple, accepting the base does not guess or merge
+// rows; duplicate bases remain disambiguated by the row id. Arbitrary
+// substrings and free-form item text are deliberately excluded.
+func principalEnumerationItemExactRowIDDisplayMatchesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
+	keys := principalEnumerationVisibleMemberKeySet(row)
 	baseKey := normalizeEnumerationDisplayTableKey(principalEnumerationParenthesizedRowBase(row))
-	return identityKey != "" && baseKey != "" && identityKey == baseKey
+	candidates := make([]string, 0, len(item.Cells)+1)
+	candidates = append(candidates, item.Label)
+	candidates = append(candidates, item.Cells...)
+	for _, raw := range candidates {
+		identityKey := normalizeEnumerationDisplayTableKey(raw)
+		if identityKey == "" {
+			continue
+		}
+		if keys[identityKey] || (baseKey != "" && identityKey == baseKey) {
+			return true
+		}
+		if base, _, ok := types.AnswerAggregateDecoratedLabelParts(raw); ok &&
+			keys[normalizeEnumerationDisplayTableKey(base)] {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationVisibleMemberKeySet(row types.EnumerationDisplayRow) map[string]bool {
+	keys := map[string]bool{}
+	add := func(raw string) {
+		if key := normalizeEnumerationDisplayTableKey(raw); key != "" {
+			keys[key] = true
+		}
+		if base, _, ok := types.AnswerAggregateDecoratedLabelParts(raw); ok {
+			if key := normalizeEnumerationDisplayTableKey(base); key != "" {
+				keys[key] = true
+			}
+		}
+		if member, _, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok {
+			if key := normalizeEnumerationDisplayTableKey(member); key != "" {
+				keys[key] = true
+			}
+		}
+	}
+	add(row.Member)
+	add(row.DisplayLabel)
+	return keys
 }
 
 func principalEnumerationParenthesizedRowBase(row types.EnumerationDisplayRow) string {
@@ -9933,8 +9982,8 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 		"apply this exact structured source-inventory row recipe: "+
 			"(1) use a section/ordered_list/bullet_list/table carrying block with surface_role=%q; "+
 			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
-			"(3) copy each roster member exactly into items[].label; only when label is omitted may cells[0] carry that member identity in the ordinary row shape; item.text and later cells do not select row identity in that ordinary shape, and a category-first row must keep the member in label. A typed columns[] table may instead place the member in its dedicated member/symbol cells[] column while preserving the exact source_inventory_row_id and row-local citation; "+
-			"(4) roster set_label is the row's visible aggregate/category value; when the principal table carries bucket_label, copy it to a separate cells entry with a matching column while keeping item.label for the member. selection_family remains the exact typed membership boundary, while display_group/set_label is presentation only and cannot add exclusions, subtract rows, or change the typed count — if they conflict, preserve the roster and rewrite the display wording yourself; never copy a group label into item.label in place of member and never discard the group while repairing identity; "+
+			"(3) when source_inventory_row_id is present, expose its exact roster member in item.label or one exact cells[] value; table column order is presentation, so a category-first row may keep the member in its dedicated member/symbol cell. Without an exact row id, item.label (or cells[0] when label is omitted) remains the conservative identity selector; item.text never selects row identity; "+
+			"(4) roster set_label is the row's visible aggregate/category value; when the principal table carries bucket_label, copy it to a separate structured value with a matching column while keeping the exact member visible in label or cells. selection_family remains the exact typed membership boundary, while display_group/set_label is presentation only and cannot add exclusions, subtract rows, or change the typed count — if they conflict, preserve the roster and rewrite the display wording yourself; never replace the exact member value with a group label and never discard the group while repairing identity; "+
 			"(5) when rows expose one exact surface_family and this block is deliberately family-specific, copy it to blocks[].source_inventory_family; omit that field for a global/mixed-family block and never infer it from title/prose; "+
 			"(6) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
 			"(7) ADD means add item rows inside the chosen carrier, not necessarily add_blocks; repair an existing carrier in place when it already renders the roster. ",

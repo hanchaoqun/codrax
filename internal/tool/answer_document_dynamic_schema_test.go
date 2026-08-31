@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1977,11 +1978,36 @@ func TestBuildAnswerDocumentParametersForProjectsTraceCausalClaimCaliberOnlyWhen
 	if !schemaPrincipalBlockKindRequiresField(blockItems, "summary", "trace_causal_claim_caliber") {
 		t.Fatalf("Trace causal caliber must be required only by the principal-summary conditional: %+v", blockItems["allOf"])
 	}
+	if !schemaPrincipalBlockKindForbidsFieldElsewhere(blockItems, "summary", "trace_causal_claim_caliber") {
+		t.Fatalf("Trace causal caliber must be schema-forbidden on every non-principal-summary block: %+v", blockItems["allOf"])
+	}
 
 	inactive := &types.AnswerSemanticView{RequiredBlocks: active.RequiredBlocks}
 	_, blockProps = answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(inactive))
 	if _, ok := blockProps["trace_causal_claim_caliber"]; ok {
 		t.Fatalf("non-Trace/narrow answer schema must not expose a causal claim carrier: %+v", blockProps)
+	}
+}
+
+func TestBuildAnswerDocumentParametersFor_TraceCaliberExecutableSchemaRejectsNonPrincipalOwner(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{
+			{Kind: types.BlockSummary, Required: true, MinCount: 1, MaxCount: 1},
+			{Kind: types.BlockSection, Required: true, MinCount: 1},
+		},
+		TraceCausalClaimContract: &types.TraceCausalClaimContract{
+			Allowed: []types.TraceCausalClaimCaliber{types.TraceCausalClaimBoundedWindow},
+			Ceiling: types.TraceCausalClaimBoundedWindow,
+		},
+	}
+	schema := BuildAnswerDocumentParametersFor(view)
+	valid := json.RawMessage(`{"blocks":[{"id":"lead","kind":"summary","surface_role":"principal","text":"bounded model conclusion","trace_causal_claim_caliber":"bounded_window_candidate"},{"id":"detail","kind":"section","surface_role":"principal","text":"model detail"}]}`)
+	if err := toolparam.Validate(valid, schema); err != nil {
+		t.Fatalf("principal-summary-only caliber shape must satisfy the executable schema: %v", err)
+	}
+	invalid := json.RawMessage(`{"blocks":[{"id":"lead","kind":"summary","surface_role":"principal","text":"bounded model conclusion","trace_causal_claim_caliber":"bounded_window_candidate"},{"id":"detail","kind":"section","surface_role":"principal","text":"model detail","trace_causal_claim_caliber":"bounded_window_candidate"}]}`)
+	if err := toolparam.Validate(invalid, schema); err == nil {
+		t.Fatal("projected schema admitted trace_causal_claim_caliber on a section that the runtime must reject")
 	}
 }
 
@@ -2242,6 +2268,26 @@ func schemaPrincipalBlockKindRequiresField(blockItems map[string]any, kind, fiel
 			if req == field {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func schemaPrincipalBlockKindForbidsFieldElsewhere(blockItems map[string]any, kind, field string) bool {
+	allOf, _ := blockItems["allOf"].([]any)
+	for _, raw := range allOf {
+		entry, _ := raw.(map[string]any)
+		ifNode, _ := entry["if"].(map[string]any)
+		ifProps, _ := ifNode["properties"].(map[string]any)
+		kindNode, _ := ifProps["kind"].(map[string]any)
+		roleNode, _ := ifProps["surface_role"].(map[string]any)
+		if kindNode["const"] != kind || roleNode["const"] != string(types.SurfacePrincipal) {
+			continue
+		}
+		elseNode, _ := entry["else"].(map[string]any)
+		properties, _ := elseNode["properties"].(map[string]any)
+		if allowed, exists := properties[field]; exists && allowed == false {
+			return true
 		}
 	}
 	return false

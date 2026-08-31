@@ -57678,6 +57678,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r983`。
 
+### §123.1570 B1501：投影 JSON Schema、运行时校验器与 typed 行展示恢复单一合同（2026-08-31）
+
+1. 代码审计确认 r983 两次 reject 都不是仅靠模型波动可以解释。Trace 的动态 schema 只声明 principal summary 必须携带
+   `trace_causal_claim_caliber`，却仍把该属性开放给所有 sibling block；运行时 normalizer 又明确拒绝任何非 summary owner。因此模型提交了
+   schema 可接受、执行时必失败的 section。新增 executable schema pin 复现旧错，证明 `B1501-PROJECTEDSCHEMAVALIDATORPARITY1/P1` 成立。
+2. Trace 根修把该字段改为一个 owner-exclusive conditional：`kind=summary + surface_role=principal` 分支必填，所有其他分支在同一 JSON Schema
+   中把该属性置为 `false`。这不是事后删除冗余字段；模型在调用前就看到并受同一可执行合同约束，runtime 的证据 ceiling、模型选择的 caliber、
+   可见结论和最终 `Trace 因果投影` 均不变。
+3. Cangjie/源码枚举行存在同根的教学—校验冲突。既有 repair recipe 已声称 typed columns 可把成员放在专用 symbol cell，实际 row-id gate 仍只读
+   `item.label/cells[0]`，把合法的“类别、符号、路径、package”表强制改为符号第一列。根修维持 exact `source_inventory_row_id` 为
+   member/family/location/citation 单权威；有精确 row ID 时，成员可以出现在 `item.label` 或任一**精确相等**的结构化 `cells[]` 值，列顺序只负责展示。
+   没有 row ID 时仍只允许保守的 label/cells[0] 选择器，不能从任意后续 cell 猜身份。
+4. 安全边界没有放宽为字符串包含：只比较 row 的 typed member/display_label/受控括号 base 与完整结构化 cell；不读取 item text、block title、
+   用户请求、模型 thinking、最终 prose、Markdown 或语言关键词。错 row ID、错 family、没有任何精确成员 cell、交换成员且不保留本行身份仍 fail closed；
+   row-local path/package/bucket 与 citation 继续由独立 typed gate 校验。bucket 和 member 都可按 member-first/category-first 可见列顺序呈现，但任何一轴
+   缺失仍拒绝。
+5. JSON 教学、Principal Enumeration Rows 教学、repair recipe 与 validator 已统一；新增测试覆盖 category-first 正臂、成员缺失负臂、装饰 base、
+   重名精确 row ID、bucket 双轴和 Trace 非 owner executable-schema 拒绝。`go test ./... -count=1` 与 `make` 全绿。下一步必须从本提交严格恰好
+   2 路复放相同 Trace+Cangjie，验收两路 `fin_reject=0`，同时再次审计 Trace 链上根因、实际/规则可消双账户、业务线索、自动补齐与因果投影。
+
+状态：
+
+`B1501=implemented/targeted-tests-pass/full-suite-pass/build-pass/pending-production-replay`；
+`trace-caliber-owner=principal-summary-only/schema+runtime-parity`；
+`typed-row-identity=exact-row-id+exact-visible-member-cell`；
+`table-column-order=presentation/member-first-or-category-first`；
+`unknown/wrong-row-id/member-absent=fail-closed`；
+`system-answer/conclusion/member/relation/wording/order-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

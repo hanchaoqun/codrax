@@ -2172,7 +2172,7 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryHardGateRequiresStruc
 		!strings.Contains(hints[0].ExpectedShape, `surface_role="principal"`) ||
 		!strings.Contains(hints[0].ExpectedShape, `facet_ids includes "enumeration_item"`) ||
 		!strings.Contains(hints[0].ExpectedShape, "claim_uses contains a contract-allowed claim_form") ||
-		!strings.Contains(hints[0].ExpectedShape, "item.text and later cells do not select row identity") ||
+		!strings.Contains(hints[0].ExpectedShape, "item.text never selects row identity") ||
 		!strings.Contains(hints[0].ExpectedShape, "roster set_label is the row's visible aggregate/category value") ||
 		!strings.Contains(hints[0].ExpectedShape, "citation_ref to the same member's compatible citation") ||
 		!strings.Contains(hints[0].ExpectedShape, `[✗ MISSING] set_label="Kind constants" member="KindA"`) {
@@ -2246,10 +2246,10 @@ func TestPreCheckAggregateMemberSetCoverage_SourceInventoryRepairRecipeNamesPrin
 		`surface_role="principal"`,
 		`facet_ids includes "enumeration_item"`,
 		"claim_uses contains a contract-allowed claim_form",
-		"only when label is omitted may cells[0] carry that member identity",
-		"category-first row must keep the member in label",
+		"source_inventory_row_id is present, expose its exact roster member",
+		"category-first row may keep the member in its dedicated member/symbol cell",
 		"set_label is the row's visible aggregate/category value",
-		"copy it to a separate cells entry with a matching column",
+		"copy it to a separate structured value with a matching column",
 		"citation_ref to the same member's compatible citation",
 		`[✗ MISSING] set_label="opaque category" member="Alpha"`,
 	} {
@@ -6157,6 +6157,30 @@ func TestPreCheckSourceInventoryRowIDBindings_AcceptsExactDecoratedRowBaseDispla
 	}
 }
 
+func TestPreCheckSourceInventoryRowIDBindings_AcceptsExactMemberInCategoryFirstStructuredTable(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "mixed", Kind: types.BlockTable,
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Columns:     []string{"类别", "符号名称", "定义位置"},
+		Items: []types.AnswerBlockItem{{
+			ID: "cart", Cells: []string{"public class", "Cart", "cart/Cart.cj:14"},
+			SourceInventoryRowID: classID,
+		}},
+	}}}
+
+	if hints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact row id plus an exact member cell must allow category-first presentation: %+v", hints)
+	}
+	doc.Blocks[0].Items[0].Cells[1] = "Other"
+	hints := preCheckSourceInventoryRowIDBindings(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, classID) ||
+		!strings.Contains(hints[0].ExpectedShape, "one exact structured visible value") {
+		t.Fatalf("row id without any exact visible member cell must still fail closed: %+v", hints)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_RequiresTypedIDForDuplicateLabel(t *testing.T) {
 	ctx, extendID, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
@@ -6921,7 +6945,7 @@ func TestPreCheckSourceInventoryPerMemberBucketCells_RequiresIndependentVisibleB
 	hints := preCheckSourceInventoryPerMemberBucketCells(doc, ctx)
 	if len(hints) != 1 || !hints[0].ForceHard || hints[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID ||
 		!strings.Contains(hints[0].ExpectedShape, `bucket="extend block"`) ||
-		!strings.Contains(hints[0].ExpectedShape, "separate visible cells value") {
+		!strings.Contains(hints[0].ExpectedShape, "separate structured visible value") {
 		t.Fatalf("missing row-local bucket must produce one exact typed repair: %+v", hints)
 	}
 	wired := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
@@ -6939,11 +6963,11 @@ func TestPreCheckSourceInventoryPerMemberBucketCells_RequiresIndependentVisibleB
 	doc.Blocks[0].Items[0] = types.AnswerBlockItem{
 		ID: "extend", Label: "extend block", Cells: []string{"cart/Cart.cj:30", "ExtendCart"}, SourceInventoryRowID: extendID,
 	}
-	identityHints := preCheckSourceInventoryRowIDBindings(doc, ctx)
-	if len(identityHints) == 0 ||
-		!strings.Contains(identityHints[0].ExpectedShape, `bucket label "extend block" as a separate visible cells value`) ||
-		!strings.Contains(identityHints[0].ExpectedShape, "do not replace the bucket with the member or discard either field") {
-		t.Fatalf("bucket-as-identity repair must preserve both axes in one turn: %+v", identityHints)
+	if identityHints := preCheckSourceInventoryRowIDBindings(doc, ctx); len(identityHints) != 0 {
+		t.Fatalf("exact row id permits category-first presentation when an exact member cell remains visible: %+v", identityHints)
+	}
+	if bucketHints := preCheckSourceInventoryPerMemberBucketCells(doc, ctx); len(bucketHints) != 0 {
+		t.Fatalf("exact visible bucket label and exact member cell must preserve both comparison axes: %+v", bucketHints)
 	}
 }
 
