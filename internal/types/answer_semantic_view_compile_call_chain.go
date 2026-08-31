@@ -79,6 +79,18 @@ func compileCallChain(ir *AnalysisIR, plan *AnswerSurfacePlan) *AnswerSemanticVi
 			SurfaceRoleHint:      SurfacePrincipal,
 		},
 	}
+	if callChainHasRequiredMemberRoster(ir) {
+		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
+			Kind:     BlockBulletList,
+			MinCount: 1,
+			MaxCount: 0,
+			Required: true,
+			FacetIDs: []string{string(FacetEnumerationItem)},
+			Rationale: "List the requested key functions or members as independent grounded facts. " +
+				"This is a sibling roster, not a directed call path: do not add principal_path_edge, " +
+				"directed claim ownership, or edge_anchors unless a row itself states a separately proved relation.",
+		})
+	}
 	if diagramRequiredByUserIntent(plan) {
 		view.RequiredBlocks = append(view.RequiredBlocks, BlockRequirement{
 			Kind:     BlockDiagram,

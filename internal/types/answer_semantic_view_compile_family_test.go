@@ -675,16 +675,25 @@ func TestCompileCallChain_SeparatesRequestedMemberRosterFromPrincipalEndpointEdg
 	}
 	view := BuildAnswerSemanticView(ir, nil)
 	var rationale string
+	var memberRoster *BlockRequirement
 	for _, requirement := range view.RequiredBlocks {
 		if requirement.Kind == BlockOrderedList && containsString(requirement.FacetIDs, string(FacetPrincipalPathEdge)) {
 			rationale = requirement.Rationale
-			break
+		}
+		if requirement.Kind == BlockBulletList && containsString(requirement.FacetIDs, string(FacetEnumerationItem)) {
+			copyRequirement := requirement
+			memberRoster = &copyRequirement
 		}
 	}
 	for _, want := range []string{"separate block responsibility", "without principal_path_edge", "ordinary key-function/member rows"} {
 		if !strings.Contains(rationale, want) {
 			t.Fatalf("call-chain/member-set ownership teaching missing %q: %q", want, rationale)
 		}
+	}
+	if memberRoster == nil || !memberRoster.Required || memberRoster.MinCount != 1 ||
+		containsString(memberRoster.FacetIDs, string(FacetPrincipalPathEdge)) ||
+		len(memberRoster.AcceptableClaimForms) != 0 || memberRoster.SurfaceRoleHint != "" {
+		t.Fatalf("call-chain member roster must be one independent required sibling without directed authority: %+v", memberRoster)
 	}
 }
 
