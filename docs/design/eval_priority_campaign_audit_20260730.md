@@ -57334,6 +57334,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r987`。
 
+### §123.1579 B1507：精确调用边可选择其唯一 parser caller 的分支事实（2026-08-31）
+
+1. `B1507-CALLERSELECTEDBRANCHHANDOFF1/P1` 已施工。call-chain 调查不再要求模型为每个已选 caller 重复发 definition row；本轮已接受的
+   exact call row 可以选择其所属 callable，但必须同时满足：relationship+call+line+citable、call-site 已读、同坐标存在 Tree-sitter/Cangjie
+   parser call relation 且 `ResolvedBy` 非空、提交 caller/callee 与 exact parser tuple 一致、call-site 只落入一个同身份 function/method。
+2. definition lane 仍优先，模型同时发 definition 与 call row 时沿用原 definition provenance；call-row lane 只对 active call-chain 生效，不扩到普通
+   mechanism 问题。related_context、absence_support、illustrative_only、regex fallback、caller/callee 不符、重叠同名 callable 或未读 call-site
+   全部 fail-open。选择结果与既有 definition lane 共用同一 dedupe 和 parser-owned branch-effect projector。
+3. 生产形回归直接复现 r987：模型只发 `run -> collect_files` call row、没有 `run` definition，系统仍从唯一已读 `run` body 交付
+   `if fixed -> LiteralMatcher::new(pattern)` 与 `else of fixed -> RegexLikeMatcher::new(pattern)` 两条独立 branch_effect；两条均保留 owner、方向、极性
+   和 DerivedFrom call evidence。另有负臂钉住 related-only、错误 caller、fallback relation 与重叠 callable。
+4. 实现不读取用户请求、模型 thinking/summary、最终 prose、Markdown 或 Mermaid 标签，不按源码邻接推断 arm，不要求模型在可见答案中复述这些
+   行，也不改写模型的分支结论。系统只提高 typed evidence 供给精度。
+5. 定向回归、完整 `go test ./internal/tool -count=1` 与 `go test ./... -count=1` 全绿；提交后仍需从新 revision 构建并严格并发恰好 2 路复放，不能用
+   单测代替生产验收。B1508/B1509 继续独立施工。
+
+状态：
+
+`B1507=implemented/positive+negative+integration-pins/full-suite-pass/pending-production-replay`；
+`call-chain-caller-selection=exact-call-row+parser-relation+unique-read-callable`；
+`definition-selection=preferred/unchanged`；
+`fallback/ambiguous/unread/context-only=no-new-authority`；
+`system-answer/conclusion/branch/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

@@ -4260,9 +4260,11 @@ type selectedDefinitionBodySelection struct {
 }
 
 // selectedDefinitionBodySelections is the single typed admission seam shared
-// by selected-body call and branch-effect enrichment. Keeping the selection in
-// one helper prevents the two evidence classes from drifting into different
-// question lanes or admitting nearby/context-only definitions.
+// by selected-body call and branch-effect enrichment. A callable can be
+// selected in two exact ways: an emitted definition row, or (for call-chain
+// questions only) an emitted parser-owned call row whose call site belongs to
+// one unique already-read parser callable. Keeping both lanes here prevents
+// call and branch enrichment from drifting into different question scopes.
 func selectedDefinitionBodySelections(
 	ctx *types.BusContext,
 	built []types.EvidenceItem,
@@ -4286,6 +4288,27 @@ func selectedDefinitionBodySelections(
 	}
 	seenCallable := make(map[string]bool)
 	out := make([]selectedDefinitionBodySelection, 0, 2)
+	appendSelection := func(selected types.EvidenceItem, graph *repomap.Graph, fi *repomap.FileInfo, visibleSource string, callable *repomap.Symbol) {
+		if graph == nil || fi == nil || callable == nil {
+			return
+		}
+		callableKey := canonicalRelationSourcePath(visibleSource) + "\x00" + strconv.Itoa(callable.Line) + "\x00" + strings.TrimSpace(callable.Name)
+		if seenCallable[callableKey] {
+			return
+		}
+		owner := qualifiedEvidenceSymbolNameInFile(fi, callable)
+		if owner == "" {
+			return
+		}
+		seenCallable[callableKey] = true
+		out = append(out, selectedDefinitionBodySelection{
+			selected: selected, graph: graph, file: fi, visibleSource: visibleSource,
+			callable: callable, owner: owner,
+		})
+	}
+
+	// Prefer explicit definition selections. This preserves the existing
+	// provenance when a model emits both a definition and body call rows.
 	for _, selected := range built {
 		if selected.AnchorKind != types.AnchorDefinition || !selected.IsCitable() ||
 			(selected.Scope != types.ScopeLine && selected.Scope != types.ScopeLineRange) {
@@ -4311,21 +4334,88 @@ func selectedDefinitionBodySelections(
 		if callable == nil {
 			continue
 		}
-		callableKey := canonicalRelationSourcePath(visibleSource) + "\x00" + strconv.Itoa(callable.Line) + "\x00" + strings.TrimSpace(callable.Name)
-		if seenCallable[callableKey] {
-			continue
+		appendSelection(selected, graph, fi, visibleSource, callable)
+	}
+
+	// A call-chain investigation commonly emits exact call-site rows without a
+	// redundant definition row for every caller. The row already represents a
+	// model-selected hop, but it may select its owner only when the accepted
+	// parser relation and one unique enclosing callable agree on the caller.
+	// Mechanism lanes retain the explicit-definition requirement.
+	if callChainLane {
+		for _, selected := range built {
+			graph, fi, visibleSource, callable, ok := selectedCallEdgeBodySelection(selected, gc)
+			if !ok {
+				continue
+			}
+			appendSelection(selected, graph, fi, visibleSource, callable)
 		}
-		owner := qualifiedEvidenceSymbolNameInFile(fi, callable)
-		if owner == "" {
-			continue
-		}
-		seenCallable[callableKey] = true
-		out = append(out, selectedDefinitionBodySelection{
-			selected: selected, graph: graph, file: fi, visibleSource: visibleSource,
-			callable: callable, owner: owner,
-		})
 	}
 	return out
+}
+
+// selectedCallEdgeBodySelection resolves one emitted call-chain hop back to
+// its unique parser-owned caller. It never searches nearby source text and
+// never reads request, reasoning, summary, answer, Markdown, or Mermaid text.
+// A parser relation, exact accepted endpoints, visible call site, and unique
+// enclosing function/method must all agree; ambiguity fails open.
+func selectedCallEdgeBodySelection(
+	selected types.EvidenceItem,
+	gc *ground.Context,
+) (*repomap.Graph, *repomap.FileInfo, string, *repomap.Symbol, bool) {
+	if gc == nil || selected.Kind != types.EvidenceRelationship ||
+		selected.AnchorKind != types.AnchorCall || !selected.IsCitable() ||
+		selected.Scope != types.ScopeLine || selected.LineStart <= 0 {
+		return nil, nil, "", nil, false
+	}
+	switch selected.ContextRole {
+	case types.EvidenceContextRoleRelatedContext,
+		types.EvidenceContextRoleAbsenceSupport,
+		types.EvidenceContextRoleIllustrativeOnly:
+		return nil, nil, "", nil, false
+	}
+	graph, fi, _, visibleSource, ok := ground.ResolveSourceGraphFile(gc, selected.Source)
+	if !ok || graph == nil || fi == nil ||
+		strings.TrimSpace(evidenceVisibleLineText(gc, visibleSource, selected.LineStart)) == "" {
+		return nil, nil, "", nil, false
+	}
+	rel, found := findCallRelationAtLineForCandidates(fi, selected.LineStart, emitPreferredCallTargetNames(&selected))
+	if !found || rel == nil || rel.Kind != "call" ||
+		(rel.Provenance != repomap.ProvenanceTreeSitter && rel.Provenance != repomap.ProvenanceCangjieParser) ||
+		strings.TrimSpace(rel.ResolvedBy) == "" {
+		return nil, nil, "", nil, false
+	}
+	caller, callee, ok := exactCallEvidenceDirection(&selected, gc)
+	if !ok || !types.AnswerCodeIdentitySurfacesCompatible(selected.Subject, caller) ||
+		!types.AnswerCodeIdentitySurfacesCompatible(selected.Object, callee) {
+		return nil, nil, "", nil, false
+	}
+	var matched *repomap.Symbol
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if (sym.Kind != "function" && sym.Kind != "method") || sym.Line <= 0 {
+			continue
+		}
+		end := sym.EndLine
+		if end < sym.Line {
+			end = sym.Line
+		}
+		if selected.LineStart < sym.Line || selected.LineStart > end {
+			continue
+		}
+		owner := qualifiedEvidenceSymbolNameInFile(fi, sym)
+		if owner == "" || !types.AnswerCodeIdentitySurfacesCompatible(owner, caller) {
+			continue
+		}
+		if matched != nil {
+			return nil, nil, "", nil, false
+		}
+		matched = sym
+	}
+	if matched == nil {
+		return nil, nil, "", nil, false
+	}
+	return graph, fi, visibleSource, matched, true
 }
 
 // autoPairSelectedDefinitionBodyControlFlowEvidence projects only

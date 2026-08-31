@@ -7910,6 +7910,117 @@ func TestEmitEvidence_SelectedDefinitionAutoPairsExactParserBranchEffects(t *tes
 	}
 }
 
+func TestEmitEvidence_SelectedCallEdgeAutoPairsCallerParserBranchEffects(t *testing.T) {
+	const source = "src/main.rs"
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}
+	seedReadFileHistory(ctx, source, 14,
+		"fn run(pattern: &str, fixed: bool) -> i32 {",
+		"let m = if fixed {",
+		"LiteralMatcher::new(pattern)",
+		"} else {",
+		"RegexLikeMatcher::new(pattern)",
+		"};",
+		"let files = walker::collect_files(\".\");",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangRust,
+			Symbols: []repomap.Symbol{{Name: "run", Kind: "function", File: source, Line: 14, EndLine: 26}},
+			Relations: []repomap.Relation{{
+				Kind: "call", File: source, Line: 20,
+				FromEP: repomap.RelationEndpoint{Name: "run"}, ToEP: repomap.RelationEndpoint{Name: "collect_files"},
+				Confidence: repomap.ConfidenceAST, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "rust_parser_call",
+			}},
+			ControlFlowBranches: []repomap.ControlFlowBranch{
+				{Condition: "fixed", GuardLine: 15, Arm: repomap.ControlFlowArmConsequence, BodyLineStart: 16, BodyLineEnd: 16, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "tree_sitter_control_branch", Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "LiteralMatcher::new(pattern)", LineStart: 16, LineEnd: 16}}},
+				{Condition: "fixed", GuardLine: 15, Arm: repomap.ControlFlowArmAlternative, BodyLineStart: 18, BodyLineEnd: 18, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "tree_sitter_control_branch", Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "RegexLikeMatcher::new(pattern)", LineStart: 18, LineEnd: 18}}},
+			},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"relationship","subject":"run","predicate":"calls","object":"collect_files","source":"src/main.rs","line_start":20,"anchor_kind":"call","anchor_symbol":"collect_files"}]}`)
+	res, err := (&EmitEvidence{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("selected call edge should accept and pair caller branches, err=%v result=%+v", err, res)
+	}
+	var branchEffects []types.EvidenceItem
+	for _, item := range ctx.Mutable.EmittedEvidence() {
+		if types.ClaimFormOf(item) == types.ClaimBranchEffect {
+			branchEffects = append(branchEffects, item)
+		}
+	}
+	if len(branchEffects) != 2 || branchEffects[0].Subject != "if fixed" ||
+		branchEffects[0].Object != "LiteralMatcher::new(pattern)" ||
+		branchEffects[1].Subject != "else of fixed" ||
+		branchEffects[1].Object != "RegexLikeMatcher::new(pattern)" {
+		t.Fatalf("call-edge-selected caller did not preserve branch polarity: %+v", branchEffects)
+	}
+	for _, item := range branchEffects {
+		if item.OwnerSymbol != "run" || len(item.DerivedFrom) != 1 {
+			t.Fatalf("call-edge branch provenance lost: %+v", item)
+		}
+	}
+}
+
+func TestSelectedCallEdgeBodySelectionFailsOpenWithoutExactParserOwner(t *testing.T) {
+	const source = "src/main.rs"
+	baseItem := types.EvidenceItem{
+		ID: "call", Kind: types.EvidenceRelationship, Subject: "run", Predicate: "calls", Object: "collect_files",
+		Source: source, LineStart: 20, LineEnd: 20, Scope: types.ScopeLine,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "collect_files",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}
+	baseFile := repomap.FileInfo{
+		RelPath: source, Language: repomap.LangRust,
+		Symbols: []repomap.Symbol{{Name: "run", Kind: "function", File: source, Line: 14, EndLine: 26}},
+		Relations: []repomap.Relation{{
+			Kind: "call", File: source, Line: 20,
+			FromEP: repomap.RelationEndpoint{Name: "run"}, ToEP: repomap.RelationEndpoint{Name: "collect_files"},
+			Confidence: repomap.ConfidenceAST, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "rust_parser_call",
+		}},
+	}
+	makeGround := func(fi repomap.FileInfo) *ground.Context {
+		return &ground.Context{
+			Graph:     &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: &fi}},
+			LineIndex: map[string]map[int]string{source: {20: "walker::collect_files(\".\")"}},
+		}
+	}
+	tests := []struct {
+		name string
+		item types.EvidenceItem
+		file repomap.FileInfo
+	}{
+		{name: "related context", item: func() types.EvidenceItem {
+			v := baseItem
+			v.ContextRole = types.EvidenceContextRoleRelatedContext
+			return v
+		}(), file: baseFile},
+		{name: "caller mismatch", item: func() types.EvidenceItem { v := baseItem; v.Subject = "other"; return v }(), file: baseFile},
+		{name: "fallback relation", item: baseItem, file: func() repomap.FileInfo {
+			v := baseFile
+			v.Relations = append([]repomap.Relation(nil), baseFile.Relations...)
+			v.Relations[0].Provenance = repomap.ProvenanceRegexFallback
+			return v
+		}()},
+		{name: "ambiguous callable", item: baseItem, file: func() repomap.FileInfo {
+			v := baseFile
+			v.Symbols = append(v.Symbols, repomap.Symbol{Name: "run", Kind: "function", File: source, Line: 10, EndLine: 30})
+			return v
+		}()},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, _, _, ok := selectedCallEdgeBodySelection(tc.item, makeGround(tc.file)); ok {
+				t.Fatalf("%s must not select a callable", tc.name)
+			}
+		})
+	}
+}
+
 func TestAutoPairSelectedDefinitionBodyCallEvidence_MechanismFunctionDimension(t *testing.T) {
 	const source = "src/clock.c"
 	fi := &repomap.FileInfo{
