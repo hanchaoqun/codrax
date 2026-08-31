@@ -57336,6 +57336,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1558 r973/B1490：现有 Mermaid 别名与 typed 端点候选合同断裂，16 次修补耗尽后降级（2026-08-31）
+
+1. 从已推送 `9801f6f0f` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
+   53s；精确规划 `Main.java:16 retrun -> return` 单行 patch、状态 `pending_approval`、源码未修改。sequence 在约 720s 后 runner FAIL，原因是
+   `degraded_answer_checks_skipped:1`；不是 runner timeout、固定时长、4ms/4m、活动流年龄或上下文比例降级，而是 16 次 finalizer 合同拒绝耗尽后
+   系统恢复上一版结构化草稿。恢复稿事实、引用和 Mermaid 两侧汇合关系仍有用，但带“最终重试未能产出有效 answer_document”披露，人工必须判 fail。
+2. B1489 两个修复获得过程正证：关系归属提示和模型补丁均使用 stable `evidence_ids`，没有再陷入 citation pool 位置重排；唯一关键函数清单
+   获得并成功使用 `enumeration_item`，不再出现 `field_not_published`。r973 的终局失败属于新的独立 P0
+   `B1490-DIAGRAMTYPEDALIASEXEC1`。
+3. 精确冲突形：图已显式声明 `participant buildIR as "agent.buildAnalysisIR"` 与
+   `participant runWith as "gate.RunWith"`；typed candidate 的关系端点是 `buildAnalysisIR -> gate.RunWith`。修补教学要求复用现有 node id，
+   但 additions lease 只发布 `buildAnalysisIR` 与 canonical `gateRunWith_…`，没有发布现有 `buildIR/runWith`。模型按图使用 `buildIR/runWith`
+   时，执行器报 “not a typed carrier”；改用技术 id 后，声明归一层又回到现有 `buildIR` 再被同一执行门拒绝。该生产者/执行器闭环自相矛盾，
+   不是模型 JSON、关系方向或措辞波动。
+4. 根修不放宽到可见标签猜测。候选席在既有 `diagramEvidenceExactNodeIdentity` 之外，增加 candidate-local bridge：只有 exact typed endpoint
+   自身出现在可引用 EvidenceItem，显式声明中恰好一个 code-identity candidate 与该 endpoint 等价或合法短/限定名兼容，且当前图块该侧只有
+   一个匹配 node 时，才把现有 node id 放入 `FromNodeIDs/ToNodeIDs`。因此 `agent.buildAnalysisIR` 可为 evidence 中的
+   `buildAnalysisIR` 承载，但无 evidence 的显示别名、两个 qualified declaration 同时兼容同一短端点、owner/class 代 method 均继续 fail-closed。
+5. 回归覆盖生产形 sequence participant alias 的候选发布和原子执行；另钉无 typed evidence、同短名多限定声明歧义、owner-only label 三个负臂，
+   既有 sequence/flow evidence-bound alias 用例继续通过。实现不读取 request、thinking、最终 prose、消息标签或图中业务词，不生成关系、节点、
+   文案、结论或布局，只让 producer 发布与普通关系校验同源的精确可执行 node choice。聚焦测试及
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 25.617s、tool 183.107s、agent 14.364s）。
+6. 本批不改变 Trace 显式时间窗、查询补齐、唤醒链、链上根因、优先级反转/调度与算力供给/D/IO/确定性语义工作、实际占时/规则可消双账户、
+   业务线索、自动补齐或因果投影。邻近与背景继续只能作为支持方向。修复后必须从新提交构建，同一 sequence+Java 两路严格并发回放；
+   sequence 验收零降级且 existing alias 原子关系修补可在同代闭环，Java 继续守写模式。
+
+状态：
+
+`r973=runner-java-pass+sequence-fail/human-java-pass+sequence-fail`；
+`B1489-CITATIONIDENTITY1=production-positive`；
+`B1489-MEMBERFACETPROVENANCE1=production-positive`；
+`B1490=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`existing-diagram-alias-authority=exact-evidence-endpoint+unique-compatible-declaration`；
+`ambiguous/no-evidence/owner-only=fail-closed`；
+`system-answer/conclusion/relation/node/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-business-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/r973-failure-was-retry-exhaustion`。
+
 ### §123.1557 r972/B1489：可见答案正确但关系归属陷入 citation pool 索引循环；成员清单证据被误当路径载体（2026-08-31）
 
 1. 从已推送 `44fbf6af0` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner

@@ -2655,6 +2655,45 @@ func bindDiagramRelationRepairCandidateExistingTypedNodeIDs(
 		return types.AnswerCodeIdentitySurfacesEquivalent(resolved, endpoint) ||
 			types.AnswerCodeIdentitySurfacesCompatible(resolved, endpoint)
 	}
+	// An existing declaration may carry a qualified presentation identity
+	// while the selected typed relation uses the exact short endpoint recorded
+	// by evidence (for example `agent.buildAnalysisIR` versus
+	// `buildAnalysisIR`). The ordinary relation validator already treats those
+	// surfaces as compatible, but diagramEvidenceExactNodeIdentity deliberately
+	// requires an equivalent evidence spelling. Bridge that representational
+	// split only inside this candidate's exact endpoint seat: the endpoint must
+	// itself appear in citable evidence, and exactly one identity candidate in
+	// the declaration may bind it. Multiple compatible qualified identities
+	// remain ambiguous and owner-only labels still cannot stand for a method.
+	declaredNodeBindsEndpoint := func(nodeID string, labels map[string]string, endpoint string) bool {
+		if resolved, ok := diagramEvidenceExactNodeIdentity(nodeID, labels, evidence); ok {
+			return binds(resolved, endpoint)
+		}
+		if !diagramEvidenceIdentityAppearsExactly(evidence, endpoint) {
+			return false
+		}
+		label := strings.TrimSpace(labels[strings.ToLower(strings.TrimSpace(nodeID))])
+		if label == "" {
+			return false
+		}
+		matches := make([]string, 0, 1)
+		for _, candidate := range diagramEvidenceLabelIdentityCandidates(label) {
+			if !binds(candidate, endpoint) {
+				continue
+			}
+			duplicate := false
+			for _, existing := range matches {
+				if types.AnswerCodeIdentitySurfacesEquivalent(existing, candidate) {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				matches = append(matches, candidate)
+			}
+		}
+		return len(matches) == 1
+	}
 	for _, block := range doc.Blocks {
 		if strings.TrimSpace(block.ID) != strings.TrimSpace(row.BlockID) ||
 			block.Kind != types.BlockDiagram || block.Diagram == nil {
@@ -2668,14 +2707,10 @@ func bindDiagramRelationRepairCandidateExistingTypedNodeIDs(
 		sort.Slice(nodeIDs, func(i, j int) bool { return strings.ToLower(nodeIDs[i]) < strings.ToLower(nodeIDs[j]) })
 		var fromMatches, toMatches []string
 		for _, nodeID := range nodeIDs {
-			resolved, ok := diagramEvidenceExactNodeIdentity(nodeID, labels, evidence)
-			if !ok {
-				continue
-			}
-			if binds(resolved, row.FromIdentity) {
+			if declaredNodeBindsEndpoint(nodeID, labels, row.FromIdentity) {
 				fromMatches = append(fromMatches, nodeID)
 			}
-			if binds(resolved, row.ToIdentity) {
+			if declaredNodeBindsEndpoint(nodeID, labels, row.ToIdentity) {
 				toMatches = append(toMatches, nodeID)
 			}
 		}

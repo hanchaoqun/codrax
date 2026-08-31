@@ -2520,6 +2520,90 @@ func TestDiagramRelationRepairCandidateRejectsVisibleAliasWithoutUniqueTypedBind
 	}
 }
 
+func TestDiagramRelationRepairCandidateCarriesUniqueQualifiedAliasForExactShortEvidenceEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "call-diagram", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant buildIR as \"agent.buildAnalysisIR\"\n    participant runWith as \"gate.RunWith\"\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{{
+		ID: "ev-build-gate", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "buildAnalysisIR", Object: "gate.RunWith", Predicate: "calls",
+		Source: "internal/agent/analyzer.go", LineStart: 2724, LineEnd: 2724,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		AdditionRef: "ra1-build-gate", BlockID: "call-diagram", RelationKind: types.DiagramRelCall,
+		FromIdentity: "buildAnalysisIR", ToIdentity: "gate.RunWith", Source: "internal/agent/analyzer.go:2724",
+	}
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&candidate, doc, evidence)
+	if !atomicDiagramNodeIDListed("buildIR", candidate.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("runWith", candidate.ToNodeIDs) {
+		t.Fatalf("unique evidence-backed existing aliases must be executable on their exact endpoint sides: %+v", candidate)
+	}
+	edge := types.DiagramEdgeAnchor{
+		FromNode: "buildIR", ToNode: "runWith", FromIdentity: candidate.FromIdentity,
+		ToIdentity: candidate.ToIdentity, RelationKind: candidate.RelationKind,
+	}
+	if err := validateAtomicDiagramAdditionEndpointBindings(&doc.Blocks[0], &edge, &candidate, nil); err != nil {
+		t.Fatalf("the published existing aliases must satisfy the atomic executor: %v", err)
+	}
+}
+
+func TestDiagramRelationRepairCandidateRejectsAmbiguousQualifiedLabelsForExactShortEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "call-diagram", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant left as \"left.collect_files\"\n    participant right as \"right.collect_files\"\n    participant walk\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{{
+		ID: "ev-edge", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "collect_files", Object: "walk", Predicate: "calls",
+		Source: "src/walker.rs", LineStart: 6, LineEnd: 6,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "call-diagram", RelationKind: types.DiagramRelCall,
+		FromIdentity: "collect_files", ToIdentity: "walk", Source: "src/walker.rs:6",
+	}
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&candidate, doc, evidence)
+	if atomicDiagramNodeIDListed("left", candidate.FromNodeIDs) ||
+		atomicDiagramNodeIDListed("right", candidate.FromNodeIDs) {
+		t.Fatalf("one exact short endpoint must not choose among multiple compatible qualified declarations: %+v", candidate)
+	}
+	if !atomicDiagramNodeIDListed("walk", candidate.ToNodeIDs) {
+		t.Fatalf("the independently unique destination must remain available: %+v", candidate)
+	}
+}
+
+func TestDiagramRelationRepairCandidateRejectsOwnerLabelForExactMethodEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "call-diagram", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant agentNode as \"agent\"\n    participant gateNode as \"gate.RunWith\"\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{{
+		ID: "ev-build-gate", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "agent.buildAnalysisIR", Object: "gate.RunWith", Predicate: "calls",
+		Source: "internal/agent/analyzer.go", LineStart: 2724, LineEnd: 2724,
+		AnchorKind: types.AnchorCall, GroundingStatus: types.GroundingGrounded,
+	}}
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "call-diagram", RelationKind: types.DiagramRelCall,
+		FromIdentity: "agent.buildAnalysisIR", ToIdentity: "gate.RunWith", Source: "internal/agent/analyzer.go:2724",
+	}
+	bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&candidate, doc, evidence)
+	if atomicDiagramNodeIDListed("agentNode", candidate.FromNodeIDs) {
+		t.Fatalf("an owner-only declaration must not become a method endpoint carrier: %+v", candidate)
+	}
+}
+
 func TestDiagramRelationRepairCandidateRejectsAmbiguousQualifiedAliases(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "call-diagram", Kind: types.BlockDiagram,
