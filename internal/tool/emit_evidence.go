@@ -1131,6 +1131,32 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (r
 		logging.Debug("[emit_evidence] auto-paired %d parser-owned selected-definition body call evidence item(s)", len(selectedBodyCalls))
 	}
 
+	// A model-selected callable may also contain parser-proved branch ownership.
+	// Keep that condition/arm -> effect polarity beside the ordinary body calls
+	// so downstream reasoning never has to infer `if` versus `else` from source
+	// adjacency or from two independent call rows. These rows pass the same
+	// selected-definition, unique-callable, parser-provenance and read-coverage
+	// gates as body-call enrichment and remain independent answer facts.
+	selectedBodyControlFlow := autoPairSelectedDefinitionBodyControlFlowEvidence(ctx, built, gc)
+	if len(selectedBodyControlFlow) > 0 {
+		for i := range selectedBodyControlFlow {
+			proj := authority.ComputeForEvidence(selectedBodyControlFlow[i], ctx)
+			selectedBodyControlFlow[i].Origin = proj.Origin
+			selectedBodyControlFlow[i].Authority = proj.Authority
+			selectedBodyControlFlow[i].AuthorityReason = proj.Reason
+			selectedBodyControlFlow[i].DriftReason = proj.DriftReason
+		}
+		built = append(built, selectedBodyControlFlow...)
+		for _, branch := range selectedBodyControlFlow {
+			reports = append(reports, ground.Report{
+				ItemID: branch.ID, Status: branch.GroundingStatus, Tier: branch.GroundingTier,
+				OriginalLine: branch.LineStart, AdjustedLine: branch.LineStart,
+				Note: branch.GroundingNote,
+			})
+		}
+		logging.Debug("[emit_evidence] auto-paired %d parser-owned selected-definition branch-effect evidence item(s)", len(selectedBodyControlFlow))
+	}
+
 	// Plan 2 v2 (2026-05-05) — deterministic role-description pairing.
 	// For every grounded definition-anchor item, attempt to extract the
 	// leading doc comment from the same source's read_file gutter and
@@ -4148,61 +4174,17 @@ func autoPairSelectedDefinitionBodyCallEvidence(
 	built []types.EvidenceItem,
 	gc *ground.Context,
 ) []types.EvidenceItem {
-	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || gc == nil || len(built) == 0 {
+	selections := selectedDefinitionBodySelections(ctx, built, gc)
+	if len(selections) == 0 {
 		return nil
 	}
-	rm := ctx.AnalysisIR.RequestModel
-	callChainLane := types.ResolveQuestionFamily(rm) == types.QFCallChain &&
-		rm.CallChainEndpointProfile.Active()
-	mechanismQuestion := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqMechanism
-	mechanismDimensionLane := mechanismQuestion &&
-		requestedFunctionOrPurposeDimensionRequired(rm.RequestedAnswerDimensions)
-	mechanismSymbolTargets := append([]string(nil), rm.AnalyzerHints.ExactTargets...)
-	mechanismSymbolTargets = append(mechanismSymbolTargets, rm.AnalyzerHints.PrimaryEntities...)
-	mechanismSymbolTargetLane := mechanismQuestion && len(mechanismSymbolTargets) > 0
-	mechanismLane := mechanismDimensionLane || mechanismSymbolTargetLane
-	if !callChainLane && !mechanismLane {
-		return nil
-	}
-	seenCallable := make(map[string]bool)
 	seenCall := make(map[string]bool)
 	existingEvidence := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
 	existingEvidence = append(existingEvidence, built...)
 	out := make([]types.EvidenceItem, 0, 4)
-	for _, selected := range built {
-		if selected.AnchorKind != types.AnchorDefinition || !selected.IsCitable() ||
-			(selected.Scope != types.ScopeLine && selected.Scope != types.ScopeLineRange) {
-			continue
-		}
-		if mechanismLane && !callChainLane {
-			switch selected.ContextRole {
-			case types.EvidenceContextRoleRelatedContext,
-				types.EvidenceContextRoleAbsenceSupport,
-				types.EvidenceContextRoleIllustrativeOnly:
-				continue
-			}
-			if !mechanismDimensionLane &&
-				!selectedDefinitionMatchesTypedMechanismTarget(selected, mechanismSymbolTargets) {
-				continue
-			}
-		}
-		graph, fi, _, visibleSource, ok := ground.ResolveSourceGraphFile(gc, selected.Source)
-		if !ok || graph == nil || fi == nil {
-			continue
-		}
-		callable := selectedDefinitionCallable(fi, selected)
-		if callable == nil {
-			continue
-		}
-		callableKey := canonicalRelationSourcePath(visibleSource) + "\x00" + strconv.Itoa(callable.Line) + "\x00" + strings.TrimSpace(callable.Name)
-		if seenCallable[callableKey] {
-			continue
-		}
-		seenCallable[callableKey] = true
-		caller := qualifiedEvidenceSymbolNameInFile(fi, callable)
-		if caller == "" {
-			continue
-		}
+	for _, selection := range selections {
+		selected, graph, fi := selection.selected, selection.graph, selection.file
+		visibleSource, callable, caller := selection.visibleSource, selection.callable, selection.owner
 		end := callable.EndLine
 		if end < callable.Line {
 			end = callable.Line
@@ -4264,6 +4246,245 @@ func autoPairSelectedDefinitionBodyCallEvidence(
 		}
 	}
 	return out
+}
+
+const autoPairedSelectedDefinitionBodyControlFlowLimit = 24
+
+type selectedDefinitionBodySelection struct {
+	selected      types.EvidenceItem
+	graph         *repomap.Graph
+	file          *repomap.FileInfo
+	visibleSource string
+	callable      *repomap.Symbol
+	owner         string
+}
+
+// selectedDefinitionBodySelections is the single typed admission seam shared
+// by selected-body call and branch-effect enrichment. Keeping the selection in
+// one helper prevents the two evidence classes from drifting into different
+// question lanes or admitting nearby/context-only definitions.
+func selectedDefinitionBodySelections(
+	ctx *types.BusContext,
+	built []types.EvidenceItem,
+	gc *ground.Context,
+) []selectedDefinitionBodySelection {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || gc == nil || len(built) == 0 {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	callChainLane := types.ResolveQuestionFamily(rm) == types.QFCallChain &&
+		rm.CallChainEndpointProfile.Active()
+	mechanismQuestion := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqMechanism
+	mechanismDimensionLane := mechanismQuestion &&
+		requestedFunctionOrPurposeDimensionRequired(rm.RequestedAnswerDimensions)
+	mechanismSymbolTargets := append([]string(nil), rm.AnalyzerHints.ExactTargets...)
+	mechanismSymbolTargets = append(mechanismSymbolTargets, rm.AnalyzerHints.PrimaryEntities...)
+	mechanismSymbolTargetLane := mechanismQuestion && len(mechanismSymbolTargets) > 0
+	mechanismLane := mechanismDimensionLane || mechanismSymbolTargetLane
+	if !callChainLane && !mechanismLane {
+		return nil
+	}
+	seenCallable := make(map[string]bool)
+	out := make([]selectedDefinitionBodySelection, 0, 2)
+	for _, selected := range built {
+		if selected.AnchorKind != types.AnchorDefinition || !selected.IsCitable() ||
+			(selected.Scope != types.ScopeLine && selected.Scope != types.ScopeLineRange) {
+			continue
+		}
+		if mechanismLane && !callChainLane {
+			switch selected.ContextRole {
+			case types.EvidenceContextRoleRelatedContext,
+				types.EvidenceContextRoleAbsenceSupport,
+				types.EvidenceContextRoleIllustrativeOnly:
+				continue
+			}
+			if !mechanismDimensionLane &&
+				!selectedDefinitionMatchesTypedMechanismTarget(selected, mechanismSymbolTargets) {
+				continue
+			}
+		}
+		graph, fi, _, visibleSource, ok := ground.ResolveSourceGraphFile(gc, selected.Source)
+		if !ok || graph == nil || fi == nil {
+			continue
+		}
+		callable := selectedDefinitionCallable(fi, selected)
+		if callable == nil {
+			continue
+		}
+		callableKey := canonicalRelationSourcePath(visibleSource) + "\x00" + strconv.Itoa(callable.Line) + "\x00" + strings.TrimSpace(callable.Name)
+		if seenCallable[callableKey] {
+			continue
+		}
+		owner := qualifiedEvidenceSymbolNameInFile(fi, callable)
+		if owner == "" {
+			continue
+		}
+		seenCallable[callableKey] = true
+		out = append(out, selectedDefinitionBodySelection{
+			selected: selected, graph: graph, file: fi, visibleSource: visibleSource,
+			callable: callable, owner: owner,
+		})
+	}
+	return out
+}
+
+// autoPairSelectedDefinitionBodyControlFlowEvidence projects only
+// parser-proved branch arm ownership from the exact model-selected callable.
+// The guard and effect endpoint lines must both be present in the immutable
+// read gutter. Adjacency, source words, model summaries and final prose never
+// create this authority.
+func autoPairSelectedDefinitionBodyControlFlowEvidence(
+	ctx *types.BusContext,
+	built []types.EvidenceItem,
+	gc *ground.Context,
+) []types.EvidenceItem {
+	selections := selectedDefinitionBodySelections(ctx, built, gc)
+	if len(selections) == 0 {
+		return nil
+	}
+	existing := append([]types.EvidenceItem(nil), ctx.Mutable.EmittedEvidence()...)
+	existing = append(existing, built...)
+	seen := make(map[string]bool)
+	out := make([]types.EvidenceItem, 0, 4)
+	for _, selection := range selections {
+		callableEnd := selection.callable.EndLine
+		if callableEnd < selection.callable.Line {
+			callableEnd = selection.callable.Line
+		}
+		for _, branch := range selection.file.ControlFlowBranches {
+			if branch.GuardLine < selection.callable.Line || branch.GuardLine > callableEnd ||
+				(branch.Provenance != repomap.ProvenanceTreeSitter && branch.Provenance != repomap.ProvenanceCangjieParser) ||
+				strings.TrimSpace(branch.ResolvedBy) == "" ||
+				strings.TrimSpace(evidenceVisibleLineText(gc, selection.visibleSource, branch.GuardLine)) == "" {
+				continue
+			}
+			for _, effect := range branch.Effects {
+				if effect.LineStart < selection.callable.Line || effect.LineEnd > callableEnd ||
+					effect.LineStart <= 0 || effect.LineEnd < effect.LineStart ||
+					strings.TrimSpace(evidenceVisibleLineText(gc, selection.visibleSource, effect.LineStart)) == "" ||
+					strings.TrimSpace(evidenceVisibleLineText(gc, selection.visibleSource, effect.LineEnd)) == "" {
+					continue
+				}
+				item, ok := selectedDefinitionBranchEffectEvidence(selection, branch, effect)
+				if !ok || selectedDefinitionBranchEffectAlreadyPresent(existing, item) {
+					continue
+				}
+				key := strings.Join([]string{
+					canonicalRelationSourcePath(item.Source), strconv.Itoa(item.LineStart), strconv.Itoa(item.LineEnd),
+					item.Subject, item.Predicate, item.Object, item.OwnerSymbol,
+				}, "\x00")
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, item)
+				if len(out) >= autoPairedSelectedDefinitionBodyControlFlowLimit {
+					return out
+				}
+			}
+		}
+	}
+	return out
+}
+
+func selectedDefinitionBranchEffectEvidence(
+	selection selectedDefinitionBodySelection,
+	branch repomap.ControlFlowBranch,
+	effect repomap.ControlFlowEffect,
+) (types.EvidenceItem, bool) {
+	predicate, subject := selectedDefinitionBranchPredicateAndSubject(branch)
+	if predicate == "" || subject == "" || strings.TrimSpace(effect.Expression) == "" {
+		return types.EvidenceItem{}, false
+	}
+	anchorKind := types.AnchorTextReference
+	switch effect.Kind {
+	case repomap.ControlFlowEffectCall:
+		anchorKind = types.AnchorCall
+	case repomap.ControlFlowEffectReturn:
+		anchorKind = types.AnchorReturn
+	case repomap.ControlFlowEffectAssignment:
+		anchorKind = types.AnchorAssignment
+	case repomap.ControlFlowEffectExit:
+		anchorKind = types.AnchorTextReference
+	default:
+		return types.EvidenceItem{}, false
+	}
+	lineStart, lineEnd := branch.GuardLine, effect.LineEnd
+	if effect.LineStart < lineStart {
+		lineStart = effect.LineStart
+	}
+	if branch.GuardLine > lineEnd {
+		lineEnd = branch.GuardLine
+	}
+	item := types.EvidenceItem{
+		Kind: types.EvidenceControlFlow, Subject: subject, Predicate: predicate,
+		Object: strings.TrimSpace(effect.Expression), Condition: strings.TrimSpace(branch.Condition),
+		Source: selection.visibleSource, LineStart: lineStart, LineEnd: lineEnd,
+		Confidence: 1.0, Producer: types.EvidenceProducerDataflowLowererPrefix + selection.file.Language,
+		Summary: fmt.Sprintf("parser-authored branch effect in model-selected callable: `%s` owns `%s` in `%s`", subject, strings.TrimSpace(effect.Expression), selection.owner),
+		Scope:   types.ScopeLine, AnchorKind: anchorKind, AnchorSymbol: selectedDefinitionBranchEffectAnchorSymbol(effect.Expression),
+		OwnerSymbol: selection.owner, DerivedFrom: []string{selection.selected.ID},
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		GroundingNote: "parser-owned branch effect from an already-read model-selected callable body",
+	}
+	if lineEnd > lineStart {
+		item.Scope = types.ScopeLineRange
+	}
+	item.ID = types.StableEvidenceID(item)
+	return item, types.IsDeterministicControlFlowEvidence(item)
+}
+
+func selectedDefinitionBranchEffectAnchorSymbol(expression string) string {
+	candidates := emitEvidenceIdentifierCandidates(expression)
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0]
+}
+
+func selectedDefinitionBranchPredicateAndSubject(branch repomap.ControlFlowBranch) (string, string) {
+	condition, selector := strings.TrimSpace(branch.Condition), strings.TrimSpace(branch.Selector)
+	switch branch.Arm {
+	case repomap.ControlFlowArmConsequence:
+		if condition != "" {
+			return types.ControlFlowPredicateConsequence, "if " + condition
+		}
+	case repomap.ControlFlowArmAlternative:
+		if condition != "" {
+			return types.ControlFlowPredicateAlternative, "else of " + condition
+		}
+	case repomap.ControlFlowArmCase:
+		if condition != "" && selector != "" {
+			return types.ControlFlowPredicateCase, "case " + condition + " of " + selector
+		}
+		if condition != "" {
+			return types.ControlFlowPredicateCase, "case " + condition
+		}
+	case repomap.ControlFlowArmDefault:
+		if selector != "" {
+			return types.ControlFlowPredicateDefault, "default of " + selector
+		}
+		if condition != "" {
+			return types.ControlFlowPredicateDefault, "else of " + condition
+		}
+		return types.ControlFlowPredicateDefault, "default branch"
+	}
+	return "", ""
+}
+
+func selectedDefinitionBranchEffectAlreadyPresent(existing []types.EvidenceItem, candidate types.EvidenceItem) bool {
+	for _, item := range existing {
+		if types.ClaimFormOf(item) == types.ClaimBranchEffect &&
+			canonicalRelationSourcePath(item.Source) == canonicalRelationSourcePath(candidate.Source) &&
+			item.LineStart == candidate.LineStart && item.LineEnd == candidate.LineEnd &&
+			strings.TrimSpace(item.Subject) == strings.TrimSpace(candidate.Subject) &&
+			strings.TrimSpace(item.Predicate) == strings.TrimSpace(candidate.Predicate) &&
+			strings.TrimSpace(item.Object) == strings.TrimSpace(candidate.Object) &&
+			strings.TrimSpace(item.OwnerSymbol) == strings.TrimSpace(candidate.OwnerSymbol) {
+			return true
+		}
+	}
+	return false
 }
 
 // requestedFunctionOrPurposeDimensionRequired consumes only the normalized

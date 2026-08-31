@@ -57880,6 +57880,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1576 B1506：模型已选 callable 的 parser-owned 分支极性进入 typed handoff（2026-08-31）
+
+1. `B1506-BRANCHPOLARITYHANDOFF1/P1` 已施工。`emit_evidence` 对模型已选 callable 的自动补齐不再只投影普通 body call；同一 selection
+   admission 现在同时消费 `FileInfo.ControlFlowBranches`，把 parser 已证明的 consequence/alternative/case/default arm 到
+   call/return/assignment/exit effect 作为独立 `branch_effect` 证据写入 evidence pool。`if fixed -> LiteralMatcher::new` 与
+   `else of fixed -> RegexLikeMatcher::new` 因而以方向和极性都明确的 typed 行进入 finalizer，而不是让模型从 line 16/18 两条调用猜条件。
+2. 两类自动补证共用唯一 selection helper：仅 QFCallChain active endpoint，或 typed mechanism function/purpose/exact-target lane；定义必须可引用，
+   source 必须唯一解析到 callable，related/absence/illustrative context 不得晋升。branch effect 还要求 parser provenance 为 Tree-sitter/Cangjie、
+   `ResolvedBy` 非空、guard 与 effect 两端均在不可变 read gutter，且 effect 完整落在 callable 边界内。任一条件缺失即不发射。
+3. 系统没有从用户请求、模型 reasoning/summary、最终 prose、Markdown 或 Mermaid 标签读取分支词，也没有按源码邻接推断 arm。已有完全相同的
+   source+range+subject+predicate+object+owner branch effect 会被 typed identity 去重；条件不完整、未知 effect、regex fallback、未读端点继续
+   fail-open。模型仍决定是否、如何在答案或图中使用这些事实，系统不选择分支结论或可见措辞。
+4. 回归覆盖所有 14 种受支持可执行语言（Go/Python/JavaScript/TypeScript/ArkTS/Cangjie/Kotlin/Ruby/Swift/Lua/Java/Rust/C/C++）的
+   selected-definition branch handoff，另钉 Rust `let m = if fixed { ... } else { ... }` 生产形 parser 极性、未读 effect 负臂、重复 typed 行负臂和
+   完整 `EmitEvidence.Execute` 入池链。Proto 无可执行 branch，不被伪造为该矩阵成员。
+5. 定向测试、`go test ./internal/tool ./internal/analysis/dataflow ./internal/tool/repomap/index -count=1`、完整
+   `go test ./... -count=1` 与 CGO release-tag `make` 全绿。下一步进入独立 B1505 图修补批；完成后再从新提交构建并严格并发恰好 2 路复放
+   Rust/组合架构，验收分支极性转正和图主干不再被修补删除。
+
+状态：
+
+`B1506=implemented/polyglot+negative+integration-pins/full-suite+build-pass/pending-production-replay`；
+`selected-callable-call+branch-admission=single-typed-source`；
+`branch-polarity-authority=parser-owned+read-endpoints-only`；
+`unread/ambiguous/fallback/duplicate=no-new-authority`；
+`system-answer/conclusion/branch/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

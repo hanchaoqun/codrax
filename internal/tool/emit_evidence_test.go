@@ -7758,6 +7758,158 @@ func TestAutoPairSelectedDefinitionBodyCallEvidence_PolyglotParserMatrix(t *test
 	}
 }
 
+func TestAutoPairSelectedDefinitionBodyControlFlowEvidence_PolyglotParserMatrix(t *testing.T) {
+	languages := []string{
+		repomap.LangGo, repomap.LangPython, repomap.LangJavaScript,
+		repomap.LangTypeScript, repomap.LangArkTS, repomap.LangCangjie,
+		repomap.LangKotlin, repomap.LangRuby, repomap.LangSwift,
+		repomap.LangLua, repomap.LangJava, repomap.LangRust,
+		repomap.LangC, repomap.LangCpp,
+	}
+	for _, language := range languages {
+		t.Run(language, func(t *testing.T) {
+			const source = "src/branch.txt"
+			provenance := repomap.ProvenanceTreeSitter
+			if language == repomap.LangCangjie {
+				provenance = repomap.ProvenanceCangjieParser
+			}
+			fi := &repomap.FileInfo{
+				RelPath: source, Language: language,
+				Symbols: []repomap.Symbol{{Name: "run", Kind: "function", File: source, Line: 5, EndLine: 9}},
+				ControlFlowBranches: []repomap.ControlFlowBranch{
+					{
+						Condition: "fixed", GuardLine: 6, Arm: repomap.ControlFlowArmConsequence,
+						BodyLineStart: 7, BodyLineEnd: 7, Provenance: provenance, ResolvedBy: language + "_parser_branch",
+						Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "LiteralMatcher::new(pattern)", LineStart: 7, LineEnd: 7}},
+					},
+					{
+						Condition: "fixed", GuardLine: 6, Arm: repomap.ControlFlowArmAlternative,
+						BodyLineStart: 8, BodyLineEnd: 8, Provenance: provenance, ResolvedBy: language + "_parser_branch",
+						Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "RegexLikeMatcher::new(pattern)", LineStart: 8, LineEnd: 8}},
+					},
+				},
+			}
+			gc := &ground.Context{
+				Graph: &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: fi}},
+				LineIndex: map[string]map[int]string{source: {
+					5: "fn run(pattern, fixed)", 6: "if fixed", 7: "LiteralMatcher::new(pattern)", 8: "RegexLikeMatcher::new(pattern)",
+				}},
+			}
+			ctx := newEmitCtx()
+			ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+				AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+				CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+			}}
+			selected := types.EvidenceItem{
+				ID: "selected", Kind: types.EvidenceMechanism, Subject: "run", Source: source, LineStart: 5,
+				Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "run",
+				GroundingStatus: types.GroundingGrounded,
+			}
+			got := autoPairSelectedDefinitionBodyControlFlowEvidence(ctx, []types.EvidenceItem{selected}, gc)
+			if len(got) != 2 {
+				t.Fatalf("language %s: branch-effect count=%d want 2: %+v", language, len(got), got)
+			}
+			if got[0].Subject != "if fixed" || got[0].Object != "LiteralMatcher::new(pattern)" ||
+				got[0].Predicate != types.ControlFlowPredicateConsequence ||
+				got[1].Subject != "else of fixed" || got[1].Object != "RegexLikeMatcher::new(pattern)" ||
+				got[1].Predicate != types.ControlFlowPredicateAlternative {
+				t.Fatalf("language %s: branch polarity changed: %+v", language, got)
+			}
+			for _, item := range got {
+				if types.ClaimFormOf(item) != types.ClaimBranchEffect || !item.IsCitable() || item.OwnerSymbol != "run" {
+					t.Fatalf("language %s: invalid typed branch carrier: %+v", language, item)
+				}
+			}
+		})
+	}
+}
+
+func TestAutoPairSelectedDefinitionBodyControlFlowEvidence_RequiresReadEndpointsAndAvoidsDuplicate(t *testing.T) {
+	const source = "src/branch.rs"
+	branch := repomap.ControlFlowBranch{
+		Condition: "fixed", GuardLine: 6, Arm: repomap.ControlFlowArmConsequence,
+		BodyLineStart: 7, BodyLineEnd: 7, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "rust_parser_branch",
+		Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "LiteralMatcher::new(pattern)", LineStart: 7, LineEnd: 7}},
+	}
+	fi := &repomap.FileInfo{
+		RelPath: source, Language: repomap.LangRust,
+		Symbols:             []repomap.Symbol{{Name: "run", Kind: "function", File: source, Line: 5, EndLine: 9}},
+		ControlFlowBranches: []repomap.ControlFlowBranch{branch},
+	}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}
+	selected := types.EvidenceItem{
+		ID: "selected", Kind: types.EvidenceMechanism, Subject: "run", Source: source, LineStart: 5,
+		Scope: types.ScopeLine, AnchorKind: types.AnchorDefinition, AnchorSymbol: "run",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	gc := &ground.Context{
+		Graph:     &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{source: fi}},
+		LineIndex: map[string]map[int]string{source: {5: "fn run()", 6: "if fixed"}},
+	}
+	if got := autoPairSelectedDefinitionBodyControlFlowEvidence(ctx, []types.EvidenceItem{selected}, gc); len(got) != 0 {
+		t.Fatalf("unread effect endpoint must fail open: %+v", got)
+	}
+	gc.LineIndex[source][7] = "LiteralMatcher::new(pattern)"
+	got := autoPairSelectedDefinitionBodyControlFlowEvidence(ctx, []types.EvidenceItem{selected}, gc)
+	if len(got) != 1 {
+		t.Fatalf("fully read parser branch should project once: %+v", got)
+	}
+	if duplicate := autoPairSelectedDefinitionBodyControlFlowEvidence(ctx, []types.EvidenceItem{selected, got[0]}, gc); len(duplicate) != 0 {
+		t.Fatalf("exact existing branch effect must suppress duplicate: %+v", duplicate)
+	}
+}
+
+func TestEmitEvidence_SelectedDefinitionAutoPairsExactParserBranchEffects(t *testing.T) {
+	const source = "src/main.rs"
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisCall,
+		AnalyzerHints:            types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}
+	seedReadFileHistory(ctx, source, 14,
+		"fn run(pattern: &str, fixed: bool) -> i32 {",
+		"let m = if fixed {",
+		"LiteralMatcher::new(pattern)",
+		"} else {",
+		"RegexLikeMatcher::new(pattern)",
+		"};",
+	)
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		source: {
+			RelPath: source, Language: repomap.LangRust,
+			Symbols: []repomap.Symbol{{Name: "run", Kind: "function", File: source, Line: 14, EndLine: 19}},
+			ControlFlowBranches: []repomap.ControlFlowBranch{
+				{Condition: "fixed", GuardLine: 15, Arm: repomap.ControlFlowArmConsequence, BodyLineStart: 16, BodyLineEnd: 16, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "tree_sitter_control_branch", Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "LiteralMatcher::new(pattern)", LineStart: 16, LineEnd: 16}}},
+				{Condition: "fixed", GuardLine: 15, Arm: repomap.ControlFlowArmAlternative, BodyLineStart: 18, BodyLineEnd: 18, Provenance: repomap.ProvenanceTreeSitter, ResolvedBy: "tree_sitter_control_branch", Effects: []repomap.ControlFlowEffect{{Kind: repomap.ControlFlowEffectCall, Expression: "RegexLikeMatcher::new(pattern)", LineStart: 18, LineEnd: 18}}},
+			},
+		},
+	}})
+	params := json.RawMessage(`{"items":[{"scope":"line","evidence_kind":"mechanism","subject":"run","predicate":"implements","object":"matcher selection","source":"src/main.rs","line_start":14,"summary":"selected callable body","anchor_kind":"definition","anchor_symbol":"run"}]}`)
+	res, err := (&EmitEvidence{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("selected definition should accept and pair parser branches, err=%v result=%+v", err, res)
+	}
+	var branchEffects []types.EvidenceItem
+	for _, item := range ctx.Mutable.EmittedEvidence() {
+		if types.ClaimFormOf(item) == types.ClaimBranchEffect {
+			branchEffects = append(branchEffects, item)
+		}
+	}
+	if len(branchEffects) != 2 || branchEffects[0].Subject != "if fixed" ||
+		branchEffects[0].Object != "LiteralMatcher::new(pattern)" ||
+		branchEffects[1].Subject != "else of fixed" ||
+		branchEffects[1].Object != "RegexLikeMatcher::new(pattern)" {
+		t.Fatalf("exact if/else polarity did not reach typed evidence pool: %+v", branchEffects)
+	}
+}
+
 func TestAutoPairSelectedDefinitionBodyCallEvidence_MechanismFunctionDimension(t *testing.T) {
 	const source = "src/clock.c"
 	fi := &repomap.FileInfo{

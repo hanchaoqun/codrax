@@ -33,6 +33,20 @@ func TestExtractControlFlowBranches_IfArmsAcrossExecutableTreeSitterLanguages(t 
 	}
 }
 
+func TestExtractControlFlowBranches_RustIfExpressionPreservesMatcherPolarity(t *testing.T) {
+	src := `fn run(pattern: &str, fixed: bool) {
+    let m = if fixed {
+        Box::new(LiteralMatcher::new(pattern))
+    } else {
+        Box::new(RegexLikeMatcher::new(pattern))
+    };
+}`
+	root := parseSourceFor(t, types.LangRust, src)
+	branches := extractControlFlowBranches(root, []byte(src))
+	assertControlFlowArmCall(t, branches, types.ControlFlowArmConsequence, "LiteralMatcher::new")
+	assertControlFlowArmCall(t, branches, types.ControlFlowArmAlternative, "RegexLikeMatcher::new")
+}
+
 func TestExtractControlFlowBranches_CaseArmsAcrossBranchingLanguages(t *testing.T) {
 	cases := []struct{ lang, src string }{
 		{types.LangGo, "package p\nfunc f(x int) { switch x { case 1: one(); default: other() } }"},
