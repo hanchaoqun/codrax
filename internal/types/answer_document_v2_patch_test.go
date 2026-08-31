@@ -276,6 +276,69 @@ func TestApplyPatch_BlockFieldEditV1RejectsSystemGeneratedTarget(t *testing.T) {
 	}
 }
 
+func TestApplyPatch_BlockReceiptEditV1PreservesWholeBlockAndKeepsModelSelection(t *testing.T) {
+	prev := samplePrevDoc()
+	before := prev.Blocks[0]
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{{
+			BlockID: "s1",
+			Field:   AnswerBlockReceiptFieldRuntimeWorkRelation,
+			Value: AnswerBlockReceiptEditValueV1{
+				ObservationID: "trace_query:test#trace_semantic_span:1",
+				Conclusion:    string(RuntimeWorkRelationConclusionRelatedCausalityUnproven),
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := before
+	want.RuntimeWorkRelation = &AnswerRuntimeWorkRelationReceipt{
+		ObservationID: "trace_query:test#trace_semantic_span:1",
+		Conclusion:    RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+	}
+	if !reflect.DeepEqual(got.Blocks[0], want) {
+		t.Fatalf("local receipt assignment changed unrelated block fields:\n got=%+v\nwant=%+v", got.Blocks[0], want)
+	}
+	if !reflect.DeepEqual(got.Blocks[1:], prev.Blocks[1:]) {
+		t.Fatalf("local receipt assignment changed unrelated blocks: got=%+v want=%+v", got.Blocks[1:], prev.Blocks[1:])
+	}
+}
+
+func TestApplyPatch_BlockReceiptEditV1SupportsConceptualEmptyEvidenceAndFailsClosed(t *testing.T) {
+	prev := samplePrevDoc()
+	valid := AnswerBlockReceiptEditV1{
+		BlockID: "s1", Field: AnswerBlockReceiptFieldConceptualTerminalResolution,
+		Value: AnswerBlockReceiptEditValueV1{Conclusion: string(ConceptualTerminalResolutionDestinationUnproven)},
+	}
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{valid}})
+	if err != nil || got.Blocks[0].ConceptualTerminalResolution == nil ||
+		got.Blocks[0].ConceptualTerminalResolution.Conclusion != ConceptualTerminalResolutionDestinationUnproven {
+		t.Fatalf("conceptual empty-evidence receipt must remain model-authored and executable: got=%+v err=%v", got, err)
+	}
+	invalid := []AnswerBlockReceiptEditV1{
+		{BlockID: "s1", Field: AnswerBlockReceiptFieldRuntimeWorkRelation, Value: AnswerBlockReceiptEditValueV1{EvidenceID: "wrong-domain", Conclusion: string(RuntimeWorkRelationConclusionRelationUnproven)}},
+		{BlockID: "s1", Field: AnswerBlockReceiptFieldConceptualTerminalResolution, Value: AnswerBlockReceiptEditValueV1{ObservationID: "wrong-domain", Conclusion: string(ConceptualTerminalResolutionDestinationUnproven)}},
+		{BlockID: "s1", Field: AnswerBlockReceiptEditableFieldV1("visible_text"), Value: AnswerBlockReceiptEditValueV1{Conclusion: "invented"}},
+		{BlockID: "missing", Field: AnswerBlockReceiptFieldConceptualTerminalResolution, Value: valid.Value},
+		{BlockID: " s1 ", Field: AnswerBlockReceiptFieldConceptualTerminalResolution, Value: valid.Value},
+	}
+	for _, edit := range invalid {
+		if _, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{edit}}); err == nil {
+			t.Fatalf("invalid local receipt edit must fail closed: %+v", edit)
+		}
+	}
+	for _, patch := range []*AnswerDocumentV2Patch{
+		{BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{valid}, RemoveBlockIDs: []string{"s1"}},
+		{BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{valid}, ReplaceBlocks: []AnswerBlock{{ID: "s1", Kind: BlockSummary, Text: "replacement"}}},
+		{BlockReceiptEditsV1: []AnswerBlockReceiptEditV1{valid, valid}},
+	} {
+		if _, err := ApplyAnswerDocumentV2Patch(prev, patch); err == nil {
+			t.Fatalf("conflicting/duplicate receipt edit must reject: %+v", patch)
+		}
+	}
+}
+
 // TestApplyPatch_PureUnchangedPreservesAllFields is the **R16
 // load-bearing test**: when the LLM declares "all blocks unchanged",
 // every typed annotation field on every block flows through

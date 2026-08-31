@@ -44,6 +44,7 @@ import (
 //	|                                    | (4) Unchanged ⊆ prev.ids
 //
 // Block metadata   | BlockFieldEditsV1                | (6) FieldEdit∩Replace/Remove ∅
+// Typed receipts   | BlockReceiptEditsV1              | (7) ReceiptEdit∩Replace/Remove ∅
 //
 // Citations        | Replace | Append                  | (5) Replace XOR Append
 // ExactResolution  | Replace                           | nil = inherit prev
@@ -76,6 +77,10 @@ import (
 //     visible prose, diagram, relation, evidence, citation, item, and layout
 //     carriers. A field edit cannot target a whole-block Replace/Remove in the
 //     same patch (6); Unchanged is accepted as a redundant preservation claim.
+//   - BlockReceiptEditsV1: exact, model-authored selection of one schema-
+//     published typed receipt pair on one existing model block. Every other
+//     block field is copied unchanged. The executor binds the selected id and
+//     conclusion against the current dispatch contract; it never chooses one.
 //   - Citations: ReplaceCitations and AppendCitations are mutually
 //     exclusive (5); use Replace for holistic re-pick, Append for
 //     additive (e.g. negative-pattern citation without rewriting
@@ -156,8 +161,9 @@ type AnswerDocumentV2Patch struct {
 	// cannot be combined with add_blocks or remove_block_ids. Whole-block
 	// replacement and local metadata edits remain compatible because they do not
 	// change the model-owned id roster.
-	ModelBlockOrder   []string                 `json:"model_block_order,omitempty"`
-	BlockFieldEditsV1 []AnswerBlockFieldEditV1 `json:"block_field_edits_v1,omitempty"`
+	ModelBlockOrder     []string                   `json:"model_block_order,omitempty"`
+	BlockFieldEditsV1   []AnswerBlockFieldEditV1   `json:"block_field_edits_v1,omitempty"`
+	BlockReceiptEditsV1 []AnswerBlockReceiptEditV1 `json:"block_receipt_edits_v1,omitempty"`
 	// ReplaceCitations is OPTIONAL. When non-nil, the resulting
 	// doc's Citations slice is REPLACED entirely (used when the
 	// LLM needs to re-pick citations holistically). When nil,
@@ -216,6 +222,34 @@ type AnswerBlockFieldEditV1 struct {
 	Value   string                     `json:"value"`
 }
 
+// AnswerBlockReceiptEditableFieldV1 is the closed typed-receipt vocabulary
+// for lossless local retry repair. Values remain model-authored and are later
+// bound to the exact dispatch-local contract.
+type AnswerBlockReceiptEditableFieldV1 string
+
+const (
+	AnswerBlockReceiptFieldRuntimeWorkRelation          AnswerBlockReceiptEditableFieldV1 = "runtime_work_relation"
+	AnswerBlockReceiptFieldConceptualTerminalResolution AnswerBlockReceiptEditableFieldV1 = "conceptual_terminal_resolution"
+)
+
+// AnswerBlockReceiptEditValueV1 carries the union of exact receipt selectors.
+// Structural validation rejects fields that do not belong to the selected
+// receipt kind, so a runtime observation id cannot leak into a conceptual
+// terminal receipt and vice versa.
+type AnswerBlockReceiptEditValueV1 struct {
+	ObservationID string `json:"observation_id,omitempty"`
+	EvidenceID    string `json:"evidence_id,omitempty"`
+	Conclusion    string `json:"conclusion"`
+}
+
+// AnswerBlockReceiptEditV1 applies one model-selected schema-published receipt
+// pair to an existing block without replaying any visible or typed siblings.
+type AnswerBlockReceiptEditV1 struct {
+	BlockID string                            `json:"block_id"`
+	Field   AnswerBlockReceiptEditableFieldV1 `json:"field"`
+	Value   AnswerBlockReceiptEditValueV1     `json:"value"`
+}
+
 // AnswerDocumentPatchOperationTeaching is the one compact, shared explanation
 // of patch operation semantics used by finalizer prompts and retry hints. The
 // projected tool schema remains the sole authority for JSON field types and
@@ -237,6 +271,7 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 		len(p.RemoveBlockIDs) == 0 &&
 		len(p.ModelBlockOrder) == 0 &&
 		len(p.BlockFieldEditsV1) == 0 &&
+		len(p.BlockReceiptEditsV1) == 0 &&
 		p.ReplaceCitations == nil &&
 		len(p.AppendCitations) == 0 &&
 		p.ReplaceExactResolution == nil &&
@@ -362,7 +397,7 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	for _, b := range p.ReplaceBlocks {
 		replacedBy[b.ID] = b
 	}
-	editedBy := make(map[string]AnswerBlock, len(p.BlockFieldEditsV1))
+	editedBy := make(map[string]AnswerBlock, len(p.BlockFieldEditsV1)+len(p.BlockReceiptEditsV1))
 	for _, edit := range p.BlockFieldEditsV1 {
 		block, ok := answerDocumentBlockByID(prev, edit.BlockID)
 		if !ok {
@@ -372,6 +407,20 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 			block = current
 		}
 		updated, err := applyAnswerBlockFieldEditV1(block, edit)
+		if err != nil {
+			return nil, err
+		}
+		editedBy[edit.BlockID] = updated
+	}
+	for _, edit := range p.BlockReceiptEditsV1 {
+		block, ok := answerDocumentBlockByID(prev, edit.BlockID)
+		if !ok {
+			return nil, fmt.Errorf("patch: block_receipt_edits_v1 target %q disappeared after validation", edit.BlockID)
+		}
+		if current, exists := editedBy[edit.BlockID]; exists {
+			block = current
+		}
+		updated, err := applyAnswerBlockReceiptEditV1(block, edit)
 		if err != nil {
 			return nil, err
 		}
@@ -574,6 +623,40 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 		fieldEditSet[key] = true
 	}
 
+	// BlockReceiptEditsV1: exact existing model block, one assignment per
+	// block+receipt field, and no whole-block mutation of the same target.
+	receiptEditSet := make(map[string]bool, len(p.BlockReceiptEditsV1))
+	for _, edit := range p.BlockReceiptEditsV1 {
+		id := strings.TrimSpace(edit.BlockID)
+		if id == "" {
+			return fmt.Errorf("patch: block_receipt_edits_v1 contains empty block_id")
+		}
+		if id != edit.BlockID {
+			return fmt.Errorf("patch: block_receipt_edits_v1 block_id=%q must match the exact previous block id without surrounding whitespace", edit.BlockID)
+		}
+		block, ok := answerDocumentBlockByID(prev, id)
+		if !ok {
+			return fmt.Errorf("patch: block_receipt_edits_v1[%q] not present in previous emit", id)
+		}
+		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
+			return fmt.Errorf("patch: block_receipt_edits_v1[%q] cannot edit a system-generated block", id)
+		}
+		if removeSet[id] {
+			return fmt.Errorf("patch: block_receipt_edits_v1[%q] also in remove_block_ids — pick one", id)
+		}
+		if replaceSet[id] {
+			return fmt.Errorf("patch: block_receipt_edits_v1[%q] also in replace_blocks — pick one", id)
+		}
+		key := id + "\x00" + string(edit.Field)
+		if receiptEditSet[key] {
+			return fmt.Errorf("patch: block_receipt_edits_v1[%q].%s duplicated", id, edit.Field)
+		}
+		if _, err := applyAnswerBlockReceiptEditV1(block, edit); err != nil {
+			return err
+		}
+		receiptEditSet[key] = true
+	}
+
 	// AddBlocks: each must have non-empty id, id NOT in prev,
 	// no dup within Add, no overlap with Replace / Remove.
 	addSet := make(map[string]bool, len(p.AddBlocks))
@@ -698,6 +781,41 @@ func applyAnswerBlockFieldEditV1(block AnswerBlock, edit AnswerBlockFieldEditV1)
 		block.FacetIDs = append(block.FacetIDs, string(facet))
 	default:
 		return AnswerBlock{}, fmt.Errorf("patch: block_field_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
+	}
+	return block, nil
+}
+
+func applyAnswerBlockReceiptEditV1(block AnswerBlock, edit AnswerBlockReceiptEditV1) (AnswerBlock, error) {
+	id := strings.TrimSpace(edit.BlockID)
+	conclusion := strings.TrimSpace(edit.Value.Conclusion)
+	switch edit.Field {
+	case AnswerBlockReceiptFieldRuntimeWorkRelation:
+		observationID := strings.TrimSpace(edit.Value.ObservationID)
+		if observationID == "" || strings.TrimSpace(edit.Value.EvidenceID) != "" {
+			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].runtime_work_relation requires only observation_id and conclusion", id)
+		}
+		value := RuntimeWorkRelationConclusion(conclusion)
+		if !value.IsValid() {
+			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].runtime_work_relation conclusion=%q is invalid", id, edit.Value.Conclusion)
+		}
+		block.RuntimeWorkRelation = &AnswerRuntimeWorkRelationReceipt{
+			ObservationID: observationID,
+			Conclusion:    value,
+		}
+	case AnswerBlockReceiptFieldConceptualTerminalResolution:
+		if strings.TrimSpace(edit.Value.ObservationID) != "" {
+			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].conceptual_terminal_resolution does not accept observation_id", id)
+		}
+		value := ConceptualTerminalResolutionConclusion(conclusion)
+		if !value.IsValid() {
+			return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].conceptual_terminal_resolution conclusion=%q is invalid", id, edit.Value.Conclusion)
+		}
+		block.ConceptualTerminalResolution = &AnswerConceptualTerminalResolutionReceipt{
+			EvidenceID: strings.TrimSpace(edit.Value.EvidenceID),
+			Conclusion: value,
+		}
+	default:
+		return AnswerBlock{}, fmt.Errorf("patch: block_receipt_edits_v1[%q].field=%q is not in the v1 whitelist", id, edit.Field)
 	}
 	return block, nil
 }

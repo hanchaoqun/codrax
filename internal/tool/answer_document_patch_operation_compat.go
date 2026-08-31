@@ -210,6 +210,18 @@ func emitAnswerBlockFromTyped(block types.AnswerBlock) emitAnswerBlockV2 {
 		FacetIDs:                append([]string(nil), block.FacetIDs...),
 		SurfaceRole:             string(block.SurfaceRole),
 	}
+	if block.RuntimeWorkRelation != nil {
+		out.RuntimeWorkRelation = &emitRuntimeWorkRelationReceipt{
+			ObservationID: block.RuntimeWorkRelation.ObservationID,
+			Conclusion:    string(block.RuntimeWorkRelation.Conclusion),
+		}
+	}
+	if block.ConceptualTerminalResolution != nil {
+		out.ConceptualTerminalResolution = &emitConceptualTerminalResolutionReceipt{
+			EvidenceID: block.ConceptualTerminalResolution.EvidenceID,
+			Conclusion: string(block.ConceptualTerminalResolution.Conclusion),
+		}
+	}
 	if block.Diagram != nil {
 		out.Diagram = &emitAnswerDiagramV2{
 			Kind: string(block.Diagram.Kind), Language: block.Diagram.Language, Body: block.Diagram.Body,

@@ -57733,6 +57733,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1591 B1518：富 typed receipt 获得独立原子 patch 通道，模型选择值而系统只做精确绑定（2026-08-31）
+
+1. `B1518-TYPEDRECEIPTATOMICPATCH1/P1` 已按通用合同施工。新增 `block_receipt_edits_v1`，只承载动态 schema 当轮明确发布的
+   `runtime_work_relation` 与 `conceptual_terminal_resolution`；模型必须同时给出精确既有 `block_id`、receipt field 和原生 JSON value，
+   其中 observation/evidence row 与 conclusion 均由模型选择。执行器只校验该三元组属于当前 dispatch 的 exact branch 并绑定，不推断、替换或
+   兜底选择任何关系结论。
+2. 该操作从不可变 patch base 复制目标 block 的全部既有字段，只替换一个 receipt；标题、正文、items、diagram、claim、citation、facet、关系和布局
+   均保持不变。它不能与同块 `replace_blocks`/`remove_block_ids` 混用，不能指向 system-generated block，也不能越过正在生效的局部图关系 lease。
+   因此模型可在 retry 中补回先前已经表达的关系结论，而不必重抄整块或承担丢失其他 typed carrier 的风险。
+3. 动态 patch schema 直接复用完整 answer block schema 已投影的 receipt `oneOf`，再只加入当前可编辑的 model-owned block id；inactive field、旧轮
+   pair、虚构 id/conclusion、错 block 和非原生 object 均事务性拒绝，不会静默丢弃或把早轮结论带入新问题。运行时与概念终点两类 receipt 共用同一
+   投影/验证骨架，不按 Java、Trace、符号名、业务词或最终正文分支。
+4. 对生产中已经出现的旧载体误用只提供无损自愈：若模型把原生 receipt object 放进旧 `block_field_edits_v1`，且完整 block/field/value 已与当前
+   schema 的一个 exact branch 字节级匹配，执行器仅把该条移动到新操作；任何不完整或不匹配值保持原样并走 typed repair。自愈不补 id、不猜
+   conclusion、不读取用户输入、模型 thinking、答案 prose、Markdown 或 Mermaid 标签。
+5. JSON 教学分层保持低心智：正常 patch 说明和动态 schema 告知 receipt 操作；关系专用紧凑重试不携带无关 receipt 教学，继续守住原有 6000-byte
+   上限，而不是抬高预算掩盖膨胀。用户可见修补提示采用中性合同措辞，不泄漏内部执行主体。
+6. 回归覆盖 runtime/conceptual 两种 exact branch、conceptual 空 evidence-id 合法臂、未知 field、错 target、虚构 pair、操作冲突、系统块拒绝、
+   旧载体精确自愈、partial-block compatibility 保留两类 receipt、关系紧凑提示预算和事务回滚。`go test ./internal/types ./internal/agent
+   ./internal/tool -count=1` 全绿（types 26.816s、agent 15.668s、tool 187.748s）；`go test ./... -count=1` 全绿（tool 216.360s、
+   tracequery 91.782s、hitraceconv 127.884s）；`make` 通过。Trace 查询、显式窗、链上根因、实际占时/规则可消、因果投影与自动补齐实现未改。
+
+状态：
+
+`B1518=implemented/full-suite+build-pass/pending-production-replay`；
+`typed-receipt-patch=exact-dispatch-branch+model-owned-block-only`；
+`receipt-row/conclusion-selection=model-owned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`legacy-carrier-repair=exact-lossless-move-only/no-inference`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

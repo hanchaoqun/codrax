@@ -158,6 +158,84 @@ func TestEmitAnswerDocumentPatch_BlockFieldEditV1PreservesWholeBlock(t *testing.
 	}
 }
 
+func TestEmitAnswerDocumentPatch_BlockReceiptEditV1BindsExactConceptualPairAndSelfHealsLegacyCarrier(t *testing.T) {
+	bus := newPatchTestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Scenario: types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisCall, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "A", SinkMode: types.CallChainSinkResolutionDiscoverTerminal,
+		},
+	}}
+	bus.EvidenceItems = []types.EvidenceItem{{
+		ID: "ev-terminal", Kind: types.EvidenceRelationship, Subject: "Audit.record", Predicate: "calls", Object: "console.print",
+		Source: "src/Audit.java", LineStart: 9, Scope: types.ScopeLine, AnchorKind: types.AnchorCall,
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+	}}
+	base := bus.Mutable.AnswerDocumentV2()
+	base.Blocks[0].FacetIDs = append(base.Blocks[0].FacetIDs, string(types.RequestedAnswerDimensionConceptualTerminalResolution))
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	before := bus.Mutable.AnswerDocumentV2().Blocks[0]
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"block_field_edits_v1":[{
+			"block_id":"s1",
+			"field":"conceptual_terminal_resolution",
+			"value":{"evidence_id":"ev-terminal","conclusion":"current_terminal_differs"}
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("exact typed receipt edit must execute: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.AnswerDocumentV2().Blocks[0]
+	if got.ConceptualTerminalResolution == nil || !got.ConceptualTerminalResolution.IsBound() ||
+		got.ConceptualTerminalResolution.BoundRow.ExactOperation != "console.print" ||
+		got.ConceptualTerminalResolution.Conclusion != types.ConceptualTerminalResolutionCurrentTerminalDiffers {
+		t.Fatalf("model-selected exact receipt was not contract-bound: %+v", got.ConceptualTerminalResolution)
+	}
+	got.ConceptualTerminalResolution = nil
+	if !reflect.DeepEqual(got, before) {
+		t.Fatalf("atomic receipt edit changed unrelated block content: got=%+v want=%+v", got, before)
+	}
+	accepted := bus.Mutable.AnswerDocumentV2()
+	bad, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"block_receipt_edits_v1":[{
+			"block_id":"s1",
+			"field":"conceptual_terminal_resolution",
+			"value":{"evidence_id":"invented","conclusion":"current_terminal_differs"}
+		}]
+	}`))
+	if err != nil || bad.Success || bad.Repair == nil || bad.Repair.Metadata["reason"] != "value_not_published" {
+		t.Fatalf("invented receipt pair must fail against the exact dispatch schema: res=%+v err=%v", bad, err)
+	}
+	if after := bus.Mutable.AnswerDocumentV2(); !reflect.DeepEqual(after, accepted) {
+		t.Fatalf("rejected exact-pair edit changed accepted state: got=%+v want=%+v", after, accepted)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockReceiptEditV1RejectsInactiveOrInventedPairTransactionally(t *testing.T) {
+	bus := newPatchTestBusContext()
+	before := bus.Mutable.AnswerDocumentV2()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"add_blocks":[{"id":"extra","kind":"section","text":"must roll back"}],
+		"block_receipt_edits_v1":[{
+			"block_id":"s1",
+			"field":"runtime_work_relation",
+			"value":{"observation_id":"invented","conclusion":"relation_unproven"}
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("schema rejection must stay a tool-level repair: %v", err)
+	}
+	if res.Success || res.Repair == nil || res.Repair.Code != "answer_doc_patch_receipt_branch_not_published" ||
+		res.Repair.Metadata["reason"] != "field_not_published" {
+		t.Fatalf("inactive receipt field must fail with typed repair: %+v", res)
+	}
+	if got := bus.Mutable.AnswerDocumentV2(); !reflect.DeepEqual(got, before) {
+		t.Fatalf("invalid receipt edit partially committed sibling operations: got=%+v want=%+v", got, before)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_BlockFieldEditV1IllegalValueDoesNotStage(t *testing.T) {
 	bus := newPatchTestBusContext()
 	before := bus.Mutable.AnswerDocumentV2()

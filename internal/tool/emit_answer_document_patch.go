@@ -48,6 +48,7 @@ type EmitAnswerDocumentPatch struct {
 }
 
 const maxModelAuthoredBlockFieldEditsV1 = 128
+const maxModelAuthoredBlockReceiptEditsV1 = 128
 
 func (t *EmitAnswerDocumentPatch) Name() string { return "emit_answer_document_patch" }
 
@@ -57,6 +58,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `unchanged_block_ids`: ids of blocks from the previous emit to copy over byte-identical. Use this to assert preservation of every typed annotation/display field (columns, claim_uses, edge_anchors, relation_claims, runtime_work_relation, conceptual_terminal_resolution, facet_ids, surface_role, source_inventory_family, items[].cells, items[].candidate_role, items[].source_inventory_row_id, items[].evidence_ids, items[].citation_ref, items[].citation_refs) on blocks you do NOT need to edit. If an id is also targeted by `diagram_edge_edits`, `diagram_boundary_replacements`, `diagram_boundary_edits`, `diagram_relation_scope_edits`, or `diagram_participant_edits`, that unchanged entry is redundant and is absorbed because atomic editing already preserves every unmentioned carrier from the immutable base.\n" +
 		"- `replace_blocks`: FULL block payloads, not general field merges. Each entry replaces the previous block with the same id and must carry a non-empty existing id. Copy every previous display/typed field that the required repair does not name (especially title, text, columns, diagram, facet_ids, claim_uses, surface_role), then change only the named field. One narrow retry-safety exception applies: when the exact previous block id and kind are retained, at least one unique stable item id overlaps, and `facet_ids` or `surface_role` is truly omitted, the system retains only those omitted carrier fields; an explicit empty/value remains model-owned. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `block_field_edits_v1`: lossless local operation for one projected closed-enum block metadata value. Choose the exact existing block_id, field, and value branch shown by the current schema. Scalar branches assign one field; add_facet_id adds one facet membership without replacing existing facet_ids. Every other field on that block is copied from the immutable patch base. This branch never edits text, title, items, diagrams, relations, labels, evidence, citations, or layout, and the system never chooses the value. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
+		"- `block_receipt_edits_v1`: lossless local operation for one schema-published typed receipt. Choose one exact block_id/field/value branch for runtime_work_relation or conceptual_terminal_resolution. Every other field on that block is copied from the immutable patch base. The model chooses the exact evidence row and conclusion; the system only validates and binds that pair. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
 		"- `model_block_order`: optional complete permutation of every model-authored block id from the previous emit. Use it when only the reader-facing block order must change. The model chooses the complete order; the executor changes no content and never derives a layout. System-generated blocks retain their slots and relative order. Do not combine with add_blocks or remove_block_ids.\n" +
@@ -103,6 +105,13 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
           {"type":"object","additionalProperties":false,"properties":{"block_id":{"type":"string"},"field":{"const":"surface_role"},"value":{"type":"string","enum":["principal"]}},"required":["block_id","field","value"]}
         ]
       }
+    },
+    "block_receipt_edits_v1": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "description": "Version-1 lossless local operations for dispatch-published typed receipts. Select one exact block_id/field/value branch. The model chooses the evidence row and conclusion; every unmentioned block field is preserved and the system never chooses a value.",
+      "items": {"oneOf": []}
     },
     "add_blocks": {
       "type": "array",
@@ -306,9 +315,12 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, nil)
+		raw = projectAnswerDocumentPatchReceiptEditTargets(raw, prev, nil)
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
-	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, localLeaseAtomicTargetBlockIDs(lease, prev))
+	excludedTargets := localLeaseAtomicTargetBlockIDs(lease, prev)
+	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, excludedTargets)
+	raw = projectAnswerDocumentPatchReceiptEditTargets(raw, prev, excludedTargets)
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
 }
 
@@ -366,6 +378,7 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
 			"`replace_snippets` is only for code snippets {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other block fields belong in `replace_blocks`. " +
 			"For one projected closed-enum block metadata operation, prefer `block_field_edits_v1`; it preserves all unmentioned content and you still select the value. When add_facet_id is published, it adds only that membership and never copies or changes a relation. " +
+			"For one schema-published typed receipt, prefer `block_receipt_edits_v1`; copy one exact native JSON branch and keep the evidence row and conclusion model-selected. " +
 			"Atomic diagram edge edits identify an existing block and carry the complete model-authored local match or replacement/addition edge. " +
 			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
 			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
@@ -1404,11 +1417,53 @@ func BuildAnswerDocumentPatchParametersFor(view *types.AnswerSemanticView) json.
 		arraySchema["items"] = blockItem
 	}
 	projectAnswerDocumentPatchFieldEditBranches(patchProperties, blockItem, view)
+	projectAnswerDocumentPatchReceiptEditBranches(patchProperties, blockItem)
 	out, err := json.Marshal(patchRoot)
 	if err != nil || !json.Valid(out) {
 		return (&EmitAnswerDocumentPatch{}).Parameters()
 	}
 	return out
+}
+
+// projectAnswerDocumentPatchReceiptEditBranches copies the exact receipt
+// choices from the canonical full-block schema. A receipt absent from the
+// dispatch contract cannot be introduced by patch, and no model value is
+// synthesized here.
+func projectAnswerDocumentPatchReceiptEditBranches(patchProperties map[string]any, blockItem map[string]any) {
+	edits, _ := patchProperties["block_receipt_edits_v1"].(map[string]any)
+	items, _ := edits["items"].(map[string]any)
+	blockProps, _ := blockItem["properties"].(map[string]any)
+	if edits == nil || items == nil || blockProps == nil {
+		delete(patchProperties, "block_receipt_edits_v1")
+		return
+	}
+	fields := []string{
+		string(types.AnswerBlockReceiptFieldRuntimeWorkRelation),
+		string(types.AnswerBlockReceiptFieldConceptualTerminalResolution),
+	}
+	branches := make([]any, 0, len(fields))
+	for _, field := range fields {
+		valueNode, _ := blockProps[field].(map[string]any)
+		choices, _ := valueNode["oneOf"].([]any)
+		if valueNode == nil || len(choices) == 0 {
+			continue
+		}
+		branches = append(branches, map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"block_id": map[string]any{"type": "string"},
+				"field":    map[string]any{"const": field},
+				"value":    valueNode,
+			},
+			"required": []any{"block_id", "field", "value"},
+		})
+	}
+	if len(branches) == 0 {
+		delete(patchProperties, "block_receipt_edits_v1")
+		return
+	}
+	items["oneOf"] = branches
 }
 
 // projectAnswerDocumentPatchFieldEditBranches derives the local field-edit
@@ -1767,6 +1822,59 @@ func projectAnswerDocumentPatchFieldEditTargets(raw json.RawMessage, prev *types
 	return out
 }
 
+// projectAnswerDocumentPatchReceiptEditTargets narrows typed receipt edits to
+// exact existing model-owned blocks. Receipt values were already copied from
+// the dispatch-local full schema; this pass adds only target identity and does
+// not inspect visible block content or choose a receipt pair.
+func projectAnswerDocumentPatchReceiptEditTargets(raw json.RawMessage, prev *types.AnswerDocumentV2, excluded []string) json.RawMessage {
+	if prev == nil {
+		return raw
+	}
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return raw
+	}
+	properties, _ := root["properties"].(map[string]any)
+	edits, _ := properties["block_receipt_edits_v1"].(map[string]any)
+	items, _ := edits["items"].(map[string]any)
+	branches, _ := items["oneOf"].([]any)
+	if properties == nil || edits == nil || items == nil || len(branches) == 0 {
+		return raw
+	}
+	excludedSet := make(map[string]bool, len(excluded))
+	for _, rawID := range excluded {
+		if id := strings.TrimSpace(rawID); id != "" {
+			excludedSet[id] = true
+		}
+	}
+	var ids []any
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" || block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+			!types.IsValidAnswerBlockKind(block.Kind) || excludedSet[id] {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		delete(properties, "block_receipt_edits_v1")
+	} else {
+		for _, rawBranch := range branches {
+			branch, _ := rawBranch.(map[string]any)
+			branchProps, _ := branch["properties"].(map[string]any)
+			blockID, _ := branchProps["block_id"].(map[string]any)
+			if blockID != nil {
+				blockID["enum"] = append([]any(nil), ids...)
+			}
+		}
+	}
+	out, err := json.Marshal(root)
+	if err != nil || !json.Valid(out) {
+		return raw
+	}
+	return out
+}
+
 func answerBlockFieldEditV1KindCompatible(field string, kind types.AnswerBlockKind) bool {
 	switch types.AnswerBlockEditableFieldV1(field) {
 	case types.AnswerBlockFieldTraceCausalClaimCaliber:
@@ -1798,6 +1906,7 @@ type emitAnswerDocumentPatchParams struct {
 	RemoveBlockIDs               []string                               `json:"remove_block_ids,omitempty"`
 	ModelBlockOrder              []string                               `json:"model_block_order,omitempty"`
 	BlockFieldEditsV1            []types.AnswerBlockFieldEditV1         `json:"block_field_edits_v1,omitempty"`
+	BlockReceiptEditsV1          []types.AnswerBlockReceiptEditV1       `json:"block_receipt_edits_v1,omitempty"`
 	DiagramEdgeEdits             []emitAnswerDiagramEdgeEdit            `json:"diagram_edge_edits,omitempty"`
 	DiagramBoundaryReplacements  []emitAnswerDiagramBoundaryReplacement `json:"diagram_boundary_replacements,omitempty"`
 	DiagramBoundaryEdits         []emitAnswerDiagramBoundaryEdit        `json:"diagram_boundary_edits,omitempty"`
@@ -1819,6 +1928,22 @@ type answerDocumentPatchFieldEditSchemaViolation struct {
 	AllowedFields   []string
 	AllowedBlockIDs []string
 	AllowedValues   []string
+}
+
+type answerDocumentPatchReceiptEditSchemaViolation struct {
+	Index           int
+	BlockID         string
+	Field           string
+	Reason          string
+	AllowedFields   []string
+	AllowedBlockIDs []string
+	AllowedPairs    []string
+}
+
+type answerDocumentPatchReceiptSchemaChoice struct {
+	observationID string
+	evidenceID    string
+	conclusion    string
 }
 
 // validateAnswerDocumentPatchFieldEditsAgainstSchema closes the executor side
@@ -1918,6 +2043,184 @@ func validateAnswerDocumentPatchFieldEditsAgainstSchema(raw, schema json.RawMess
 	return nil
 }
 
+// validateAnswerDocumentPatchReceiptEditsAgainstSchema makes the projected
+// receipt oneOf executable even when a provider forwards a malformed tool
+// call. It compares only native JSON selectors with exact schema constants.
+func validateAnswerDocumentPatchReceiptEditsAgainstSchema(raw, schema json.RawMessage) *answerDocumentPatchReceiptEditSchemaViolation {
+	var envelope map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
+		return nil
+	}
+	editsRaw, present := envelope["block_receipt_edits_v1"]
+	if !present {
+		return nil
+	}
+	var edits []json.RawMessage
+	if json.Unmarshal(editsRaw, &edits) != nil {
+		return nil
+	}
+	type branch struct {
+		blockIDs []string
+		choices  []answerDocumentPatchReceiptSchemaChoice
+	}
+	branches := map[string]branch{}
+	var allowedFields []string
+	var root map[string]any
+	if json.Unmarshal(schema, &root) == nil {
+		properties, _ := root["properties"].(map[string]any)
+		editsNode, _ := properties["block_receipt_edits_v1"].(map[string]any)
+		items, _ := editsNode["items"].(map[string]any)
+		rawBranches, _ := items["oneOf"].([]any)
+		for _, rawBranch := range rawBranches {
+			branchNode, _ := rawBranch.(map[string]any)
+			branchProps, _ := branchNode["properties"].(map[string]any)
+			fieldNode, _ := branchProps["field"].(map[string]any)
+			field, _ := fieldNode["const"].(string)
+			if field == "" {
+				continue
+			}
+			blockIDNode, _ := branchProps["block_id"].(map[string]any)
+			valueNode, _ := branchProps["value"].(map[string]any)
+			valueChoices, _ := valueNode["oneOf"].([]any)
+			entry := branch{blockIDs: schemaStringValues(blockIDNode["enum"])}
+			for _, rawChoice := range valueChoices {
+				choiceNode, _ := rawChoice.(map[string]any)
+				choiceProps, _ := choiceNode["properties"].(map[string]any)
+				entry.choices = append(entry.choices, answerDocumentPatchReceiptSchemaChoice{
+					observationID: schemaConstString(choiceProps, "observation_id"),
+					evidenceID:    schemaConstString(choiceProps, "evidence_id"),
+					conclusion:    schemaConstString(choiceProps, "conclusion"),
+				})
+			}
+			allowedFields = append(allowedFields, field)
+			branches[field] = entry
+		}
+	}
+	for i, editRaw := range edits {
+		var edit struct {
+			BlockID string                              `json:"block_id"`
+			Field   string                              `json:"field"`
+			Value   types.AnswerBlockReceiptEditValueV1 `json:"value"`
+		}
+		if json.Unmarshal(editRaw, &edit) != nil {
+			continue
+		}
+		allowed, ok := branches[edit.Field]
+		if !ok {
+			return &answerDocumentPatchReceiptEditSchemaViolation{
+				Index: i, BlockID: edit.BlockID, Field: edit.Field, Reason: "field_not_published",
+				AllowedFields: append([]string(nil), allowedFields...),
+			}
+		}
+		if len(allowed.blockIDs) > 0 && !stringInSlice(edit.BlockID, allowed.blockIDs) {
+			return &answerDocumentPatchReceiptEditSchemaViolation{
+				Index: i, BlockID: edit.BlockID, Field: edit.Field, Reason: "block_id_not_published",
+				AllowedFields: append([]string(nil), allowedFields...), AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
+				AllowedPairs: receiptChoiceSurfaces(allowed.choices),
+			}
+		}
+		matched := false
+		for _, candidate := range allowed.choices {
+			if edit.Value.ObservationID == candidate.observationID && edit.Value.EvidenceID == candidate.evidenceID &&
+				edit.Value.Conclusion == candidate.conclusion {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return &answerDocumentPatchReceiptEditSchemaViolation{
+				Index: i, BlockID: edit.BlockID, Field: edit.Field, Reason: "value_not_published",
+				AllowedFields: append([]string(nil), allowedFields...), AllowedBlockIDs: append([]string(nil), allowed.blockIDs...),
+				AllowedPairs: receiptChoiceSurfaces(allowed.choices),
+			}
+		}
+	}
+	return nil
+}
+
+// normalizeMisroutedPatchReceiptFieldEdits absorbs the production-observed
+// carrier mistake where a native receipt value object was submitted through
+// block_field_edits_v1. It moves only entries that already match one exact
+// block_receipt_edits_v1 branch in the current projected schema. No id,
+// conclusion, target, or visible content is inferred or rewritten.
+func normalizeMisroutedPatchReceiptFieldEdits(raw, schema json.RawMessage) (json.RawMessage, []string) {
+	var envelope map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
+		return raw, nil
+	}
+	fieldRaw, present := envelope["block_field_edits_v1"]
+	if !present {
+		return raw, nil
+	}
+	var fieldEdits []json.RawMessage
+	if json.Unmarshal(fieldRaw, &fieldEdits) != nil || len(fieldEdits) == 0 {
+		return raw, nil
+	}
+	var receiptEdits []json.RawMessage
+	if existing, ok := envelope["block_receipt_edits_v1"]; ok {
+		if json.Unmarshal(existing, &receiptEdits) != nil {
+			return raw, nil
+		}
+	}
+	kept := make([]json.RawMessage, 0, len(fieldEdits))
+	var moved []string
+	for i, editRaw := range fieldEdits {
+		var header struct {
+			BlockID string          `json:"block_id"`
+			Field   string          `json:"field"`
+			Value   json.RawMessage `json:"value"`
+		}
+		if json.Unmarshal(editRaw, &header) != nil ||
+			(header.Field != string(types.AnswerBlockReceiptFieldRuntimeWorkRelation) &&
+				header.Field != string(types.AnswerBlockReceiptFieldConceptualTerminalResolution)) ||
+			len(bytes.TrimSpace(header.Value)) == 0 || bytes.TrimSpace(header.Value)[0] != '{' {
+			kept = append(kept, editRaw)
+			continue
+		}
+		probe, err := json.Marshal(map[string]any{
+			"block_receipt_edits_v1": []json.RawMessage{editRaw},
+		})
+		if err != nil || validateAnswerDocumentPatchReceiptEditsAgainstSchema(probe, schema) != nil {
+			kept = append(kept, editRaw)
+			continue
+		}
+		receiptEdits = append(receiptEdits, append(json.RawMessage(nil), editRaw...))
+		moved = append(moved, fmt.Sprintf("block_field_edits_v1[%d]->block_receipt_edits_v1[%d]", i, len(receiptEdits)-1))
+	}
+	if len(moved) == 0 {
+		return raw, nil
+	}
+	if len(kept) == 0 {
+		delete(envelope, "block_field_edits_v1")
+	} else {
+		envelope["block_field_edits_v1"], _ = json.Marshal(kept)
+	}
+	envelope["block_receipt_edits_v1"], _ = json.Marshal(receiptEdits)
+	out, err := json.Marshal(envelope)
+	if err != nil || !json.Valid(out) {
+		return raw, nil
+	}
+	return out, moved
+}
+
+func schemaConstString(properties map[string]any, field string) string {
+	node, _ := properties[field].(map[string]any)
+	value, _ := node["const"].(string)
+	return value
+}
+
+func receiptChoiceSurfaces(choices []answerDocumentPatchReceiptSchemaChoice) []string {
+	out := make([]string, 0, len(choices))
+	for _, candidate := range choices {
+		selector := "evidence_id=" + candidate.evidenceID
+		if candidate.observationID != "" {
+			selector = "observation_id=" + candidate.observationID
+		}
+		out = append(out, selector+";conclusion="+candidate.conclusion)
+	}
+	return out
+}
+
 func schemaStringValues(raw any) []string {
 	values, _ := raw.([]any)
 	out := make([]string, 0, len(values))
@@ -1968,6 +2271,37 @@ func answerDocumentPatchFieldEditSchemaRepair(v answerDocumentPatchFieldEditSche
 	}
 	return &types.ToolRepair{
 		Code:     "answer_doc_patch_field_branch_not_published",
+		Fields:   fields,
+		Hint:     hint,
+		Metadata: metadata,
+	}
+}
+
+func answerDocumentPatchReceiptEditSchemaRepair(v answerDocumentPatchReceiptEditSchemaViolation) *types.ToolRepair {
+	fields := []string{fmt.Sprintf("block_receipt_edits_v1[%d]", v.Index)}
+	metadata := map[string]string{
+		"reason":           v.Reason,
+		"field":            v.Field,
+		"block_id":         v.BlockID,
+		"available_fields": strings.Join(v.AllowedFields, ","),
+	}
+	if len(v.AllowedBlockIDs) > 0 {
+		metadata["available_block_ids"] = strings.Join(v.AllowedBlockIDs, ",")
+	}
+	if len(v.AllowedPairs) > 0 {
+		metadata["available_pairs"] = strings.Join(v.AllowedPairs, " | ")
+	}
+	hint := "Use one exact block_id/field/value branch published by the current block_receipt_edits_v1 schema and resubmit the complete intended transaction. Select the evidence row and conclusion explicitly; neither value is inferred or substituted."
+	switch v.Reason {
+	case "field_not_published":
+		hint += " This receipt field is inactive in the current dispatch; do not copy it from an earlier retry or another question family."
+	case "block_id_not_published":
+		hint += " Keep the intended receipt pair, but attach it only to the exact existing model block you intend to own that visible conclusion."
+	case "value_not_published":
+		hint += " Copy the complete native JSON value object from one current schema branch; do not paraphrase ids, conclusions, or wrap the object in a string."
+	}
+	return &types.ToolRepair{
+		Code:     "answer_doc_patch_receipt_branch_not_published",
 		Fields:   fields,
 		Hint:     hint,
 		Metadata: metadata,
@@ -2065,6 +2399,11 @@ func localDiagramLeaseWholeBlockMutationViolation(
 				continue
 			}
 			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_field_edit_not_authorized"}
+		}
+	}
+	for _, edit := range p.BlockReceiptEditsV1 {
+		if id := strings.TrimSpace(edit.BlockID); targetSet[id] {
+			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "block_receipt_edit_not_authorized"}
 		}
 	}
 	for _, rawID := range p.RemoveBlockIDs {
@@ -2289,6 +2628,11 @@ func splitCompanionDispositionViolation(prev *types.AnswerDocumentV2, p *emitAns
 			explicit[id] = true
 		}
 	}
+	for _, edit := range p.BlockReceiptEditsV1 {
+		if id := strings.TrimSpace(edit.BlockID); id != "" {
+			explicit[id] = true
+		}
+	}
 	// Atomic operations are explicit retain/edit decisions for their exact
 	// carrier. Failure-ref-only operations can still name the sibling in
 	// unchanged_block_ids, which is deliberately accepted as redundant.
@@ -2440,9 +2784,19 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		excludedFieldEditTargets = localLeaseAtomicTargetBlockIDs(leaseForFieldProjection, prev)
 	}
 	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, types.BuildAnswerSemanticViewForBusContext(ctx), excludedFieldEditTargets)
+	fieldEditSchema = projectAnswerDocumentPatchReceiptEditTargets(fieldEditSchema, prev, excludedFieldEditTargets)
+	if repaired, paths := normalizeMisroutedPatchReceiptFieldEdits(params, fieldEditSchema); len(paths) > 0 {
+		logging.Warning("[emit_answer_document_patch] losslessly remapped exact typed receipt edit(s): %s", strings.Join(paths, ", "))
+		params = repaired
+	}
 	if violation := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); violation != nil {
 		return failEmitWithRepair(t.Name(), now, answerDocumentPatchFieldEditSchemaRepair(*violation),
 			"block_field_edits_v1[%d] does not match any exact field-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
+			violation.Index, violation.Reason, violation.Field, violation.BlockID)
+	}
+	if violation := validateAnswerDocumentPatchReceiptEditsAgainstSchema(params, fieldEditSchema); violation != nil {
+		return failEmitWithRepair(t.Name(), now, answerDocumentPatchReceiptEditSchemaRepair(*violation),
+			"block_receipt_edits_v1[%d] does not match any exact receipt-edit branch published for this dispatch: reason=%s field=%q block_id=%q",
 			violation.Index, violation.Reason, violation.Field, violation.BlockID)
 	}
 
@@ -2458,6 +2812,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	if len(p.BlockFieldEditsV1) > maxModelAuthoredBlockFieldEditsV1 {
 		return failEmit(t.Name(), now, "too many block_field_edits_v1: got %d, max %d",
 			len(p.BlockFieldEditsV1), maxModelAuthoredBlockFieldEditsV1)
+	}
+	if len(p.BlockReceiptEditsV1) > maxModelAuthoredBlockReceiptEditsV1 {
+		return failEmit(t.Name(), now, "too many block_receipt_edits_v1: got %d, max %d",
+			len(p.BlockReceiptEditsV1), maxModelAuthoredBlockReceiptEditsV1)
 	}
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
@@ -2510,6 +2868,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		RemoveBlockIDs:               append([]string(nil), p.RemoveBlockIDs...),
 		ModelBlockOrder:              append([]string(nil), p.ModelBlockOrder...),
 		BlockFieldEditsV1:            append([]types.AnswerBlockFieldEditV1(nil), p.BlockFieldEditsV1...),
+		BlockReceiptEditsV1:          append([]types.AnswerBlockReceiptEditV1(nil), p.BlockReceiptEditsV1...),
 		ReplaceCitations:             convertEmitCitationsToTyped(p.ReplaceCitations),
 		AppendCitations:              convertEmitCitationsToTyped(p.AppendCitations),
 		ReplaceExactResolution:       p.ReplaceExactResolution,

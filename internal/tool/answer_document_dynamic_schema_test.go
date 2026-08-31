@@ -125,6 +125,79 @@ func TestBuildAnswerDocumentParametersForProjectsConceptualTerminalChoicesAndEmp
 	}
 }
 
+func TestAnswerDocumentPatchReceiptEditProjectionReusesExactDispatchChoices(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		RuntimeWorkRelationContract: &types.RuntimeWorkRelationContract{Rows: []types.RuntimeWorkRelationRow{{
+			ObservationID: "obs-semantic",
+			AllowedConclusions: []types.RuntimeWorkRelationConclusion{
+				types.RuntimeWorkRelationConclusionRelationUnproven,
+			},
+		}},
+		},
+		ConceptualTerminalResolutionContract: &types.ConceptualTerminalResolutionContract{Rows: []types.ConceptualTerminalResolutionRow{{
+			EvidenceID: "ev-terminal",
+			AllowedConclusions: []types.ConceptualTerminalResolutionConclusion{
+				types.ConceptualTerminalResolutionCurrentTerminalDiffers,
+			},
+		}},
+		},
+	}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "principal", Kind: types.BlockSummary, Text: "model answer", SurfaceRole: types.SurfacePrincipal},
+		{ID: "support", Kind: types.BlockSection, Text: "model support"},
+		{ID: "system", Kind: types.BlockSection, Text: "system", SystemGeneratedKind: types.AnswerSystemGeneratedEvidenceSupplement},
+	}}
+	raw := projectAnswerDocumentPatchReceiptEditTargets(BuildAnswerDocumentPatchParametersFor(view), prev, nil)
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected receipt patch schema must parse: %v", err)
+	}
+	properties := root["properties"].(map[string]any)
+	edits, ok := properties["block_receipt_edits_v1"].(map[string]any)
+	if !ok {
+		t.Fatal("active typed receipt contracts must expose the atomic patch lane")
+	}
+	branches := edits["items"].(map[string]any)["oneOf"].([]any)
+	if len(branches) != 2 {
+		t.Fatalf("receipt edit fields=%d, want runtime + conceptual", len(branches))
+	}
+	seen := map[string]bool{}
+	for _, rawBranch := range branches {
+		props := rawBranch.(map[string]any)["properties"].(map[string]any)
+		field := props["field"].(map[string]any)["const"].(string)
+		seen[field] = true
+		if got := props["block_id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"principal", "support"}) {
+			t.Fatalf("receipt edit targets=%v, want exact model-owned ids only", got)
+		}
+		choices := props["value"].(map[string]any)["oneOf"].([]any)
+		if len(choices) != 1 {
+			t.Fatalf("field=%s exact value choices=%v", field, choices)
+		}
+		choiceProps := choices[0].(map[string]any)["properties"].(map[string]any)
+		switch field {
+		case string(types.AnswerBlockReceiptFieldRuntimeWorkRelation):
+			if got := choiceProps["observation_id"].(map[string]any)["const"]; got != "obs-semantic" {
+				t.Fatalf("runtime observation const=%v", got)
+			}
+		case string(types.AnswerBlockReceiptFieldConceptualTerminalResolution):
+			if got := choiceProps["evidence_id"].(map[string]any)["const"]; got != "ev-terminal" {
+				t.Fatalf("conceptual evidence const=%v", got)
+			}
+		}
+	}
+	if !seen[string(types.AnswerBlockReceiptFieldRuntimeWorkRelation)] ||
+		!seen[string(types.AnswerBlockReceiptFieldConceptualTerminalResolution)] {
+		t.Fatalf("projected receipt fields=%v", seen)
+	}
+	var inactive map[string]any
+	if err := json.Unmarshal(BuildAnswerDocumentPatchParametersFor(&types.AnswerSemanticView{}), &inactive); err != nil {
+		t.Fatalf("inactive patch schema must parse: %v", err)
+	}
+	if _, exposed := inactive["properties"].(map[string]any)["block_receipt_edits_v1"]; exposed {
+		t.Fatal("unrelated dispatch must not expose typed receipt patch mental load")
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectedBlockObjectIsClosedAndTeachingMatchesKindEnum(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFRoleLookup,

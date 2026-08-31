@@ -12,6 +12,12 @@ func TestNormalizeMisroutedPatchBlockOperationsExpandsExactPartialBlock(t *testi
 	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "chain", Kind: types.BlockOrderedList, Title: "old title",
 		Items: []types.AnswerBlockItem{{ID: "old", Label: "kept", CitationRef: 0}},
+		RuntimeWorkRelation: &types.AnswerRuntimeWorkRelationReceipt{
+			ObservationID: "obs-semantic", Conclusion: types.RuntimeWorkRelationConclusionRelationUnproven,
+		},
+		ConceptualTerminalResolution: &types.AnswerConceptualTerminalResolutionReceipt{
+			EvidenceID: "ev-terminal", Conclusion: types.ConceptualTerminalResolutionDestinationUnproven,
+		},
 	}}}
 	raw := json.RawMessage(`{"replace_snippets":[{"block_id":"chain","title":"new title"}],"unchanged_block_ids":["summary"]}`)
 
@@ -31,7 +37,9 @@ func TestNormalizeMisroutedPatchBlockOperationsExpandsExactPartialBlock(t *testi
 	}
 	block := envelope.ReplaceBlocks[0]
 	if block.ID != "chain" || block.Kind != string(types.BlockOrderedList) || block.Title != "new title" ||
-		len(block.Items) != 1 || block.Items[0].Label != "kept" || block.Items[0].CitationRef == nil || block.Items[0].CitationRef.Int() != 0 {
+		len(block.Items) != 1 || block.Items[0].Label != "kept" || block.Items[0].CitationRef == nil || block.Items[0].CitationRef.Int() != 0 ||
+		block.RuntimeWorkRelation == nil || block.RuntimeWorkRelation.ObservationID != "obs-semantic" ||
+		block.ConceptualTerminalResolution == nil || block.ConceptualTerminalResolution.EvidenceID != "ev-terminal" {
 		t.Fatalf("partial expansion did not preserve the exact prior block fields: %+v", block)
 	}
 }
