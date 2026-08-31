@@ -117,6 +117,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		FacetIDs:       raw.FacetIDs,
 		SurfaceRole:    types.SurfaceRole(raw.SurfaceRole),
 	}
+	if raw.RuntimeWorkRelation != nil {
+		receipt := &types.AnswerRuntimeWorkRelationReceipt{
+			ObservationID: strings.TrimSpace(raw.RuntimeWorkRelation.ObservationID),
+			Conclusion:    types.RuntimeWorkRelationConclusion(strings.TrimSpace(raw.RuntimeWorkRelation.Conclusion)),
+		}
+		if receipt.ObservationID == "" || !receipt.Conclusion.IsValid() {
+			return types.AnswerBlock{}, fmt.Errorf("%s: runtime_work_relation requires a non-empty schema-published observation_id and valid conclusion", fieldPath)
+		}
+		blk.RuntimeWorkRelation = receipt
+	}
 	if len(blk.ParticipantBoundaries) > 0 && kind != types.BlockDiagram {
 		return types.AnswerBlock{}, fmt.Errorf("%s: participant_boundaries is only valid on kind=diagram blocks", fieldPath)
 	}

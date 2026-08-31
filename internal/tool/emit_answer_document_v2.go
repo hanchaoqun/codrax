@@ -75,6 +75,7 @@ type emitAnswerBlockV2 struct {
 	TraceCausalClaimCaliber string                             `json:"trace_causal_claim_caliber,omitempty"`
 	ScopeDisclosure         string                             `json:"scope_disclosure,omitempty"`
 	SourceInventoryFamily   string                             `json:"source_inventory_family,omitempty"`
+	RuntimeWorkRelation     *emitRuntimeWorkRelationReceipt    `json:"runtime_work_relation,omitempty"`
 	Columns                 []string                           `json:"columns,omitempty"`
 	Items                   []emitAnswerBlockItemV2            `json:"items,omitempty"`
 	Diagram                 *emitAnswerDiagramV2               `json:"diagram,omitempty"`
@@ -85,6 +86,11 @@ type emitAnswerBlockV2 struct {
 	RelationClaims          []types.AnswerRelationClaim        `json:"relation_claims,omitempty"`
 	FacetIDs                []string                           `json:"facet_ids,omitempty"`
 	SurfaceRole             string                             `json:"surface_role,omitempty"`
+}
+
+type emitRuntimeWorkRelationReceipt struct {
+	ObservationID string `json:"observation_id"`
+	Conclusion    string `json:"conclusion"`
 }
 
 type emitAnswerBlockItemV2 struct {

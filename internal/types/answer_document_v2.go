@@ -312,6 +312,11 @@ type AnswerBlock struct {
 	// from Title, Text, item prose, or the user's wording.
 	SourceInventoryFamily string `json:"source_inventory_family,omitempty"`
 
+	// RuntimeWorkRelation is a model-selected exact typed work-row receipt.
+	// The model chooses the observation and conclusion; the tool validates and
+	// binds the row's measured facts without reading or rewriting block.Text.
+	RuntimeWorkRelation *AnswerRuntimeWorkRelationReceipt `json:"runtime_work_relation,omitempty"`
+
 	// Columns is the optional header row for structured table blocks.
 	// It is never required: table blocks may still carry a complete
 	// model-authored markdown table in Text. When Text is empty, either put

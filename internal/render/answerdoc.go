@@ -173,6 +173,60 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 		renderV2BlockCaveat(b, blk, lang)
 	}
 	renderV2StandaloneTypedRelations(b, blk, doc)
+	renderV2RuntimeWorkRelationReceipt(b, blk, lang)
+}
+
+func renderV2RuntimeWorkRelationReceipt(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
+	receipt := blk.RuntimeWorkRelation
+	if b == nil || receipt == nil || !receipt.IsBound() || blk.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
+		return
+	}
+	row := receipt.BoundRow
+	if lang == answerDocLangZH {
+		fmt.Fprintf(b, "**运行时工作关系判断**：`%s`", row.WorkLabel)
+		if row.Subject != "" {
+			fmt.Fprintf(b, "（线程 `%s`）", row.Subject)
+		}
+		fmt.Fprintf(b, "实测 %.3fms；%s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionZH(receipt.Conclusion, row.Credential))
+		return
+	}
+	fmt.Fprintf(b, "**Runtime-work relation conclusion**: `%s`", row.WorkLabel)
+	if row.Subject != "" {
+		fmt.Fprintf(b, " (thread `%s`)", row.Subject)
+	}
+	fmt.Fprintf(b, " measured %.3fms; %s\n\n", row.MeasuredDurationMS, runtimeWorkRelationConclusionEN(receipt.Conclusion, row.Credential))
+}
+
+func runtimeWorkRelationConclusionZH(conclusion types.RuntimeWorkRelationConclusion, credential string) string {
+	switch conclusion {
+	case types.RuntimeWorkRelationConclusionRelatedCausalityUnproven:
+		if credential == "host_direct_wakeup_edge" {
+			return "已证实该宿主线程随后直接唤醒目标，但尚未证明工作完成触发唤醒、目标等待该工作或该工作造成丢帧"
+		}
+		return "已证实它与链上区间存在关系，但尚未证明目标等待其完成或它造成丢帧"
+	case types.RuntimeWorkRelationConclusionTargetSelfWorkObserved:
+		return "已证实这是目标自身执行的工作；是否造成该帧超时仍需独立帧或截止期证据"
+	case types.RuntimeWorkRelationConclusionCausalContributionSupported:
+		return "现有链上证据支持其构成因果贡献，结论范围受该证据链约束"
+	default:
+		return "已观测到该工作，但当前证据尚未建立它与目标的关系"
+	}
+}
+
+func runtimeWorkRelationConclusionEN(conclusion types.RuntimeWorkRelationConclusion, credential string) string {
+	switch conclusion {
+	case types.RuntimeWorkRelationConclusionRelatedCausalityUnproven:
+		if credential == "host_direct_wakeup_edge" {
+			return "the host thread is proved to wake the target directly afterward, but work-completion, target-wait, and dropped-frame causality remain unproved"
+		}
+		return "a typed chain-interval relation is proved, but target wait/completion and dropped-frame causality remain unproved"
+	case types.RuntimeWorkRelationConclusionTargetSelfWorkObserved:
+		return "this is proved target-self work; whether it caused the frame or deadline miss needs separate frame evidence"
+	case types.RuntimeWorkRelationConclusionCausalContributionSupported:
+		return "typed on-chain evidence supports a causal contribution within that evidence boundary"
+	default:
+		return "the work is observed, but its relation to the target is not established by current evidence"
+	}
 }
 
 // renderV2StandaloneTypedRelations makes model-authored relation metadata

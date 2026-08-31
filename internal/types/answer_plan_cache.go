@@ -315,6 +315,15 @@ func cloneAnswerSemanticView(in *AnswerSemanticView) *AnswerSemanticView {
 		contract.Allowed = append([]TraceCausalClaimCaliber(nil), in.TraceCausalClaimContract.Allowed...)
 		out.TraceCausalClaimContract = &contract
 	}
+	if in.RuntimeWorkRelationContract != nil {
+		contract := *in.RuntimeWorkRelationContract
+		contract.Rows = make([]RuntimeWorkRelationRow, len(in.RuntimeWorkRelationContract.Rows))
+		for i, row := range in.RuntimeWorkRelationContract.Rows {
+			contract.Rows[i] = row
+			contract.Rows[i].AllowedConclusions = append([]RuntimeWorkRelationConclusion(nil), row.AllowedConclusions...)
+		}
+		out.RuntimeWorkRelationContract = &contract
+	}
 	return &out
 }
 

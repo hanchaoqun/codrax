@@ -176,7 +176,9 @@ func renderAnswerDocTraceDecisionHandoffSetWithAggregateFacts(set types.TraceCau
 				if node.LineStart > 0 {
 					fmt.Fprintf(&b, "; lines=%d..%d", node.LineStart, maxInt(node.LineStart, node.LineEnd))
 				}
-				fmt.Fprintf(&b, "; source_lane=`%s`\n", traceDecisionNodeSourceLane(node))
+				fmt.Fprintf(&b, "; source_lane=`%s`", traceDecisionNodeSourceLane(node))
+				traceDecisionWriteNodeIdentity(&b, node)
+				b.WriteString("\n")
 				traceDecisionWriteSemanticMembers(&b, node, 8)
 			}
 			b.WriteString("  This inventory is a dedicated visibility lane: state separately whether a span ran on the selected target, another on-chain thread, or only a process/window peer. Its presence neither proves an effect on the target nor proves no effect; the relationship stays unresolved without a typed relation. Scheduler-state rows such as runnable, running, sleep, D-state, and IO wait remain scheduler-state occupancy even when they are on-chain; do not rename one as deterministic semantic work. A deterministic semantic-work statement must name the corresponding typed span row from this inventory and preserve its own duration and relationship boundary. Its absence must not be inferred from a target-thread-only keyword search when this typed inventory is non-empty. Every member row is a distinct typed span: copy that member's own span name, duration, and line range instead of reusing the family representative's name.\n")

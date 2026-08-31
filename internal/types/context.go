@@ -3963,6 +3963,11 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 			if len(b.RelationClaims) > 0 {
 				cloned.RelationClaims = CloneAnswerRelationClaims(b.RelationClaims)
 			}
+			if b.RuntimeWorkRelation != nil {
+				receipt := *b.RuntimeWorkRelation
+				receipt.BoundRow.AllowedConclusions = append([]RuntimeWorkRelationConclusion(nil), b.RuntimeWorkRelation.BoundRow.AllowedConclusions...)
+				cloned.RuntimeWorkRelation = &receipt
+			}
 			out.Blocks[i] = cloned
 		}
 	}

@@ -64,6 +64,7 @@ var (
 		"trace_causal_claim_caliber",
 		"scope_disclosure",
 		"source_inventory_family",
+		"runtime_work_relation",
 		"columns",
 		"items",
 		"diagram",

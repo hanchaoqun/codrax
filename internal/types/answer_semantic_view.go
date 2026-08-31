@@ -151,6 +151,11 @@ type AnswerSemanticView struct {
 	// The model declares the caliber; validators only enforce the typed ceiling.
 	TraceCausalClaimContract *TraceCausalClaimContract
 
+	// RuntimeWorkRelationContract publishes exact semantic-work rows only when
+	// the analyzer declared the independent runtime work-to-target subquestion.
+	// It is a structured receipt contract, not a system-authored conclusion.
+	RuntimeWorkRelationContract *RuntimeWorkRelationContract
+
 	// MissingRequestedRoles carries the subset of user-requested
 	// precedence roles that the current grounded config-precedence
 	// surface still shows as absent for the exact target. This is a

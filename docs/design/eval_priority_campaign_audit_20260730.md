@@ -57496,6 +57496,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/r978-no-degrade`。
 
+### §123.1564 r979/B1496：运行时工作席已激活但 marker-only 假闭环；改为模型选择的精确证据行回执（2026-08-31）
+
+1. 从已推送 `d9fd5446e` 构建不可变二进制，严格并发恰好 2 路复放 H8 显式窗 Trace 与 Cangjie inventory；runner 2/2 PASS，
+   Trace 199s、Cangjie 200s，均无 finalizer reject、旧稿降级或固定 4ms/4m、活动流年龄、上下文比例降级。
+2. Trace 的 B1495 typed 布尔声明已生效；显式 `34579.490..34579.500s`、8 次 typed query、已证唤醒链、NetworkService 链上第一席、
+   目标四态账、实际占时/规则可消双账户、业务 span、自动补齐与最终 `Trace 因果投影` 均完整，非链项仍只作背景。但模型自己的 principal
+   回答没有明确交付 `VerifyClass ...` 0.285ms 的精确关系凭证和“工作完成/目标等待/帧因果未证”边界；这些事实只在系统投影出现。
+   `fin_reject=0` 说明 B1495 的 marker-only completion 把 facet/claim 标记误当成真实回答，人工判 fail。
+3. 新确认并施工 `B1496-RUNTIMEWORKROWRECEIPT1/P1`。当 analyzer 的 typed `runtime_work_relation_requested=true` 且 Trace 投影存在精确
+   semantic-work 行时，finalizer schema 只发布该证据池的 `observation_id + 允许结论集合`。模型必须在一个可见、principal、model-owned block
+   选择精确行和结论；系统只校验该 pair 没有超出 typed evidence ceiling，并把同一行的工作名、主体、实测时长、关系凭证和边界本地化显示。
+4. 为守住“系统不替模型下结论”红线，每个 observation 可以发布多个证据允许的结论，而不是由系统预填唯一 verdict。例如 host 直接唤醒凭证
+   允许模型选择“存在关联但完成/等待/帧因果未证”，也允许选择更保守的“工作到目标关系未证”；更强的“已证因果贡献”在没有 effective
+   attribution 时不进入 schema。系统不从请求、thinking、答案正文、Markdown 或 Mermaid 文字推断或选择该结论。
+5. system-generated Trace supplement 不能占用此模型席；只有 exact pair 成功绑定的模型 block 才能完成义务。重试/patch/MultiState 深拷贝同时保留
+   public receipt 与内部绑定行，避免首轮正确、后轮字段静默丢失。中英文渲染只翻译模型所选 enum，不泄漏内部枚举值。
+6. Cangjie 的 12 条 typed 主表、逐行路径/符号/package 和 2/2/8 类别均正确，但自由摘要自行声称 5 个 package（表中实际 8 个），并把 String
+   说成出现两种声明形。该错误不影响 typed roster authority，但严格人工仍判 fail；它属于未请求派生计数/概括的模型波动，暂不增加原文数值扫描、
+   case 专用修补或系统代写。后续异构回放继续观察。
+
+状态：
+
+`r979=runner-pass-2/2,human-trace-fail+cangjie-fail`；
+`B1495=production-partial/typed-demand-active-marker-only-completion-insufficient`；
+`B1496=implemented/full-suite-pass/pending-production-replay`；
+`runtime-work-observation/conclusion=model-selected-from-exact-typed-schema`；
+`runtime-work-fact/causal-ceiling=typed-trace-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r979`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r979`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

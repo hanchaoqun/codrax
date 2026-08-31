@@ -32,6 +32,47 @@ func TestBuildAnswerDocumentParametersFor_NilViewReturnsCanonical(t *testing.T) 
 	}
 }
 
+func TestBuildAnswerDocumentParametersForProjectsExactRuntimeWorkReceiptChoices(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family:         types.QFRootCauseTrace,
+		RequiredBlocks: []types.BlockRequirement{{Kind: types.BlockSummary, Required: true}},
+		RuntimeWorkRelationContract: &types.RuntimeWorkRelationContract{Rows: []types.RuntimeWorkRelationRow{{
+			ObservationID: "trace_query:test#trace_semantic_span:1",
+			AllowedConclusions: []types.RuntimeWorkRelationConclusion{
+				types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+				types.RuntimeWorkRelationConclusionRelationUnproven,
+			},
+		}}},
+	}
+	_, props := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	node, ok := props["runtime_work_relation"].(map[string]any)
+	if !ok {
+		t.Fatal("active typed work-relation contract must expose its exact receipt field")
+	}
+	choices, ok := node["oneOf"].([]any)
+	if !ok || len(choices) != 2 {
+		t.Fatalf("runtime-work receipt choices=%T %+v", node["oneOf"], node["oneOf"])
+	}
+	choice := choices[0].(map[string]any)
+	choiceProps := choice["properties"].(map[string]any)
+	if got := choiceProps["observation_id"].(map[string]any)["const"]; got != "trace_query:test#trace_semantic_span:1" {
+		t.Fatalf("observation const=%v", got)
+	}
+	if got := choiceProps["conclusion"].(map[string]any)["const"]; got != string(types.RuntimeWorkRelationConclusionRelatedCausalityUnproven) {
+		t.Fatalf("conclusion const=%v", got)
+	}
+	second := choices[1].(map[string]any)["properties"].(map[string]any)
+	if got := second["conclusion"].(map[string]any)["const"]; got != string(types.RuntimeWorkRelationConclusionRelationUnproven) {
+		t.Fatalf("second model-selectable conclusion const=%v", got)
+	}
+
+	view.RuntimeWorkRelationContract = nil
+	_, props = answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	if _, exposed := props["runtime_work_relation"]; exposed {
+		t.Fatal("unrelated dispatch must not expose runtime-work receipt mental load")
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectedBlockObjectIsClosedAndTeachingMatchesKindEnum(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFRoleLookup,

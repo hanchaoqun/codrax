@@ -66,6 +66,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectRequestedRelationScopeField(blockProps, view)
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
+			projectRuntimeWorkRelationField(blockProps, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
 			projectItemEvidenceIdentityField(blockProps, view)
 			projectDiagramPayloadOwnership(blockItems, blockProps)
@@ -95,6 +96,39 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 		return canonical
 	}
 	return out
+}
+
+func projectRuntimeWorkRelationField(blockProps map[string]any, view *types.AnswerSemanticView) {
+	contract := view.RuntimeWorkRelationContract
+	if contract == nil || !contract.Active() {
+		delete(blockProps, "runtime_work_relation")
+		return
+	}
+	choices := make([]any, 0, len(contract.Rows))
+	for _, row := range contract.Rows {
+		for _, conclusion := range row.AllowedConclusions {
+			if !conclusion.IsValid() {
+				continue
+			}
+			choices = append(choices, map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"observation_id": map[string]any{"const": row.ObservationID},
+					"conclusion":     map[string]any{"const": string(conclusion)},
+				},
+				"required":             []string{"observation_id", "conclusion"},
+				"additionalProperties": false,
+			})
+		}
+	}
+	if len(choices) == 0 {
+		delete(blockProps, "runtime_work_relation")
+		return
+	}
+	blockProps["runtime_work_relation"] = map[string]any{
+		"description": "Select exactly one typed runtime-work row and its evidence-bounded conclusion. The system resolves the selected id to exact measured facts for visible rendering; it never chooses the row or conclusion and never scans block text.",
+		"oneOf":       choices,
+	}
 }
 
 // projectDiagramPayloadOwnership makes the native diagram carrier

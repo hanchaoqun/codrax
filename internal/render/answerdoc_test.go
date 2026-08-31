@@ -25,6 +25,42 @@ func TestRenderV2_BlockSummary(t *testing.T) {
 	}
 }
 
+func TestRenderV2_RuntimeWorkRelationReceiptIsVisibleWithoutInternalEnums(t *testing.T) {
+	receipt := &types.AnswerRuntimeWorkRelationReceipt{
+		ObservationID: "trace_query:test#trace_semantic_span:1",
+		Conclusion:    types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+		BoundRow: types.RuntimeWorkRelationRow{
+			ObservationID: "trace_query:test#trace_semantic_span:1",
+			WorkLabel:     "VerifyClass Demo", Subject: "worker-7", MeasuredDurationMS: 0.285,
+			AllowedConclusions: []types.RuntimeWorkRelationConclusion{
+				types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+			},
+			Credential: "host_direct_wakeup_edge",
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "模型给出的分析与优化方向。",
+		RuntimeWorkRelation: receipt,
+	}}}
+	zh := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{"运行时工作关系判断", "VerifyClass Demo", "worker-7", "0.285ms", "直接唤醒目标", "尚未证明"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh runtime-work receipt missing %q:\n%s", want, zh)
+		}
+	}
+	for _, leaked := range []string{"related_causality_unproven", "host_direct_wakeup_edge"} {
+		if strings.Contains(zh, leaked) {
+			t.Fatalf("internal runtime-work enum leaked to reader: %q\n%s", leaked, zh)
+		}
+	}
+	en := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{"Runtime-work relation conclusion", "VerifyClass Demo", "0.285ms", "wake the target directly", "remain unproved"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en runtime-work receipt missing %q:\n%s", want, en)
+		}
+	}
+}
+
 func TestRenderV2_CitationDisplayNeverPrintsLineZero(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

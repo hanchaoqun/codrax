@@ -725,6 +725,17 @@ func TestRequestedRuntimeWorkRelationRequiresModelOwnedPrincipalObservationCarri
 			ClaimForm: types.ClaimExternalObservation,
 			FacetID:   string(types.FacetObservedArtifactFact),
 		}},
+		RuntimeWorkRelation: &types.AnswerRuntimeWorkRelationReceipt{
+			ObservationID: "trace_query:test#trace_semantic_span:1",
+			Conclusion:    types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+			BoundRow: types.RuntimeWorkRelationRow{
+				ObservationID: "trace_query:test#trace_semantic_span:1",
+				WorkLabel:     "VerifyClass Demo", MeasuredDurationMS: 0.285,
+				AllowedConclusions: []types.RuntimeWorkRelationConclusion{
+					types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+				},
+			},
+		},
 	}}}
 	if !requestedDimensionCoveredByTypedDocumentShape(ctx, dimension, doc) {
 		t.Fatal("model-owned principal runtime-work observation must cover runtime_work_relation")
@@ -789,7 +800,7 @@ func TestRequestedRuntimeWorkRelationPromptAndRepairKeepModelConclusionOwnership
 		"prompt": renderAnswerDocRequestedAnswerDimensions(ctx),
 		"repair": requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{dimension}, "zh"),
 	} {
-		for _, want := range []string{`facet_ids:["runtime_work_relation","observed_artifact_fact"]`, `"claim_form":"external_observation"`, "测得时长", "关系凭证", "替模型"} {
+		for _, want := range []string{`runtime_work_relation:{observation_id,conclusion}`, "模型选择", "typed 行"} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("%s omitted runtime-work ownership guidance %q:\n%s", surface, want, got)
 			}
@@ -815,7 +826,7 @@ func TestRuntimeQuestionProfileWorkRelationDemandCannotBeLostWithoutPresentation
 	if len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionRuntimeWorkRelation {
 		t.Fatalf("typed work-relation demand must create one omission obligation without a presentation row: %+v", missing)
 	}
-	for _, want := range []string{`facet_ids:["runtime_work_relation","observed_artifact_fact"]`, "语义回答义务", "替模型选择"} {
+	for _, want := range []string{`runtime_work_relation:{observation_id,conclusion}`, "模型选择"} {
 		if prompt := renderAnswerDocRequestedAnswerDimensions(ctx); !strings.Contains(prompt, want) {
 			t.Fatalf("typed work-relation prompt missing %q:\n%s", want, prompt)
 		}
@@ -829,6 +840,17 @@ func TestRuntimeQuestionProfileWorkRelationDemandCannotBeLostWithoutPresentation
 			ClaimForm: types.ClaimExternalObservation,
 			FacetID:   string(types.FacetObservedArtifactFact),
 		}},
+		RuntimeWorkRelation: &types.AnswerRuntimeWorkRelationReceipt{
+			ObservationID: "trace_query:test#trace_semantic_span:1",
+			Conclusion:    types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+			BoundRow: types.RuntimeWorkRelationRow{
+				ObservationID: "trace_query:test#trace_semantic_span:1",
+				WorkLabel:     "VerifyClass Demo", MeasuredDurationMS: 0.285,
+				AllowedConclusions: []types.RuntimeWorkRelationConclusion{
+					types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+				},
+			},
+		},
 	})
 	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 0 {
 		t.Fatalf("model-owned runtime-work carrier did not satisfy typed demand: %+v", missing)

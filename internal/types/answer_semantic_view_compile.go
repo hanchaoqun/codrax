@@ -380,6 +380,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	if cached := ac.cachedAnswerSemanticView(); cached != nil {
 		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 		applyTraceCausalClaimContractForAgent(cached, ac)
+		applyRuntimeWorkRelationContractForAgent(cached, ac)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
@@ -387,6 +388,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	ac.storeAnswerSemanticView(view)
 	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 	applyTraceCausalClaimContractForAgent(view, ac)
+	applyRuntimeWorkRelationContractForAgent(view, ac)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -402,6 +404,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	if cached := bus.cachedAnswerSemanticView(); cached != nil {
 		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 		applyTraceCausalClaimContractForBus(cached, bus)
+		applyRuntimeWorkRelationContractForBus(cached, bus)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
@@ -409,6 +412,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	bus.storeAnswerSemanticView(view)
 	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 	applyTraceCausalClaimContractForBus(view, bus)
+	applyRuntimeWorkRelationContractForBus(view, bus)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -429,6 +433,26 @@ func applyTraceCausalClaimContractForBus(view *AnswerSemanticView, ctx *BusConte
 	view.TraceCausalClaimContract = BuildTraceCausalClaimContract(
 		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit),
 	)
+}
+
+func applyRuntimeWorkRelationContractForAgent(view *AnswerSemanticView, ctx *AgentContext) {
+	if view == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return
+	}
+	requested := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
+		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.RequestsRuntimeWorkRelation()
+	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
+		ObservationLedgerInputFromAgentContext(ctx, ObservationPromptRecordLimit), requested)
+}
+
+func applyRuntimeWorkRelationContractForBus(view *AnswerSemanticView, ctx *BusContext) {
+	if view == nil || ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return
+	}
+	requested := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile != nil &&
+		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.RequestsRuntimeWorkRelation()
+	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
+		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit), requested)
 }
 
 func principalSpanWaiverFromMutable(mutable *MutableState) *PrincipalSpanWaiver {

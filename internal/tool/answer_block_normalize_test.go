@@ -977,7 +977,11 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		Title:                 "Title",
 		Text:                  "body text",
 		SourceInventoryFamily: "public class",
-		Columns:               []string{"维度", "结论"},
+		RuntimeWorkRelation: &emitRuntimeWorkRelationReceipt{
+			ObservationID: "trace_query:test#trace_semantic_span:1",
+			Conclusion:    string(types.RuntimeWorkRelationConclusionRelatedCausalityUnproven),
+		},
+		Columns: []string{"维度", "结论"},
 		Items: []emitAnswerBlockItemV2{
 			{ID: "i1", Label: "L", Text: "T", Cells: []string{"C1", "C2"}, CandidateRole: string(types.AnswerCandidateRoleFunction), SourceInventoryRowID: "row-1", CitationRef: flexIntPtr(3)},
 		},
@@ -1070,6 +1074,11 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 		},
 		"SourceInventoryFamily": func() bool {
 			return got.SourceInventoryFamily == "public class"
+		},
+		"RuntimeWorkRelation": func() bool {
+			return got.RuntimeWorkRelation != nil &&
+				got.RuntimeWorkRelation.ObservationID == "trace_query:test#trace_semantic_span:1" &&
+				got.RuntimeWorkRelation.Conclusion == types.RuntimeWorkRelationConclusionRelatedCausalityUnproven
 		},
 	}
 	for name, check := range checks {

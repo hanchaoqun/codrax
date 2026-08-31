@@ -8235,9 +8235,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 			if lang == "zh" {
-				b.WriteString("  - 在模型成文、可见的主结论块上设置隐藏 ownership 标记 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]`，并用 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]` 保留运行时证据权威。回答必须由模型命名 typed 工作/span、报告其测得时长，并说明它与目标之间已证的关系凭证和未证边界；例如只有 host→target 唤醒锚时，不得把它扩写成“该工作完成导致唤醒”。系统不会替模型选择有关、无关或证据不足的结论。\n")
+				b.WriteString("  - 在模型成文、可见的主结论块上设置 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与外部观测 claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择工作行和结论；系统仅把该 typed 行的工作名、实测时长、关系凭证和未证边界显示出来，不扫描或改写正文。\n")
 			} else {
-				b.WriteString("  - On the model-authored visible principal conclusion block, set the hidden ownership marker `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` and preserve runtime-evidence authority with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. The model must name the typed work/span, report its measured duration, and explain the proved relation credential and unproved boundary to the target; for example, a host-to-target wake anchor alone must not be expanded into a claim that completion of the work caused the wakeup. The system does not choose a related, unrelated, or insufficient-evidence conclusion for the model.\n")
+				b.WriteString("  - On a model-authored visible principal conclusion block, set `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` plus the external-observation claim and select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the work row and conclusion; the system only displays that typed row's work name, measured duration, relation credential, and unproved boundary without scanning or rewriting prose.\n")
 			}
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
@@ -8264,9 +8264,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	}
 	if runtimeWorkRelationRequested && !hasRuntimeWorkRelationDimension {
 		if lang == "zh" {
-			b.WriteString("- 本轮 typed 运行时问题另行声明了一个运行时工作/span/operation 与目标关系子问；它是语义回答义务，不要求复制为另一条展示维度。请在模型成文、可见的主结论块上设置隐藏 ownership 标记 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`，由模型命名 typed 工作、报告测得时长，并说明已证关系凭证和未证边界。不要让系统替模型选择有关、无关或证据不足的结论。\n")
+			b.WriteString("- 本轮 typed 运行时问题另行声明了一个运行时工作/span/operation 与目标关系子问。请在模型成文、可见的主结论块上保留运行时关系与外部观测 facet/claim，并从 schema 精确选择 `runtime_work_relation:{observation_id,conclusion}`。模型选择工作行和结论；系统仅显示该 typed 行的工作名、实测时长、关系凭证和未证边界，不扫描或改写正文。\n")
 		} else {
-			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target semantic subquestion; this is an answer obligation and need not be duplicated as another presentation-dimension row. In a model-authored visible principal conclusion block, set the hidden ownership marker `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. The model must name the typed work, report measured duration, and explain the proved relation credential and unproved boundary. Do not let the system choose a related, unrelated, or insufficient-evidence conclusion.\n")
+			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target subquestion. On a model-authored visible principal conclusion block keep the runtime-relation and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the schema. The model chooses the row and conclusion; the system only displays its typed name, duration, credential, and boundary without scanning or rewriting prose.\n")
 		}
 	}
 	b.WriteString("\n")
@@ -16037,7 +16037,8 @@ func requestedAnswerDimensionRoleOwnedByBlock(ctx *types.AgentContext, role type
 		return visible && block.SurfaceRole == types.SurfacePrincipal &&
 			answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) &&
 			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
-			answerBlockHasClaimForm(block, types.ClaimExternalObservation)
+			answerBlockHasClaimForm(block, types.ClaimExternalObservation) &&
+			block.RuntimeWorkRelation != nil && block.RuntimeWorkRelation.IsBound()
 	case types.RequestedAnswerDimensionCount:
 		return block.Kind == types.BlockScalar && visible
 	case types.RequestedAnswerDimensionBoundary:
@@ -16131,12 +16132,10 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 }
 
 // answerDocumentHasRuntimeWorkRelationPayload recognizes only a visible,
-// model-authored principal block that explicitly owns the requested runtime
-// work-to-target explanation and preserves external-observation authority.
-// The marker is an omission receipt: it does not prove a causal relation,
-// select a verdict, inspect visible wording, or authorize the system to write a
-// conclusion. Existing typed Trace evidence and projection gates retain those
-// responsibilities.
+// model-authored principal block with an exact, contract-bound runtime-work
+// row receipt. The model selects both row and evidence-bounded conclusion; no
+// request/final prose is inspected and system-generated projection blocks
+// cannot satisfy the obligation.
 func answerDocumentHasRuntimeWorkRelationPayload(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
 	if ctx == nil || doc == nil {
 		return false
@@ -16149,7 +16148,8 @@ func answerDocumentHasRuntimeWorkRelationPayload(ctx *types.AgentContext, doc *t
 		}
 		if answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) &&
 			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
-			answerBlockHasClaimForm(block, types.ClaimExternalObservation) {
+			answerBlockHasClaimForm(block, types.ClaimExternalObservation) &&
+			block.RuntimeWorkRelation != nil && block.RuntimeWorkRelation.IsBound() {
 			return true
 		}
 	}
@@ -17128,7 +17128,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 				}
 			}
 			if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-				b.WriteString("  - 请在模型成文、可见的主结论块上设置 `surface_role:\"principal\"`、`facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`。由模型命名 typed 工作/span、报告其测得时长，并说明与目标之间已证的关系凭证及未证边界；不要把 host→target 唤醒锚扩写成工作完成因果。不要让系统替模型选择结论。\n")
+				b.WriteString("  - 请在模型成文、可见的主结论块上设置 principal、运行时关系与外部观测 facet/claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择行和结论；系统只显示该 typed 行的精确事实，不扫描或改写正文。\n")
 			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
@@ -17168,7 +17168,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			}
 		}
 		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-			b.WriteString("  - In a model-authored visible principal conclusion block, set `surface_role:\"principal\"`, `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]`, and `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. The model must name the typed work/span, report its measured duration, and explain the proved relation credential and unproved target boundary; do not expand a host-to-target wake anchor into work-completion causality. Do not let the system choose the conclusion for the model.\n")
+			b.WriteString("  - On a model-authored visible principal conclusion block set the principal, runtime-relation, and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the row and conclusion; the system only displays its exact typed facts without scanning or rewriting prose.\n")
 		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")
