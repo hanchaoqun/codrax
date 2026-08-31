@@ -8797,6 +8797,7 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	if len(facts) == 0 {
 		return nil
 	}
+	facts = preEmitAggregateFactsWithTypedSourceInventoryPrincipalRoster(ctxOpt[0], facts)
 	if ctxOpt[0].AnalysisIR != nil {
 		facts = types.NormalizeAggregateFactRolesForRequest(facts, &ctxOpt[0].AnalysisIR.RequestModel)
 	}
@@ -9477,7 +9478,20 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	// contract evidence-authorized even when its eventual gate would be soft;
 	// retained model inference is rendered once in the advisory prompt lane and
 	// must not acquire a second, contradictory "preserve every member" voice.
+	structuredPrincipalCarrierRequired := forceHard && sourceInventoryPrincipalAnswerIsModelOwned(ctx)
 	principalRefs := preEmitAuthoritativePrincipalAggregateMemberSetFactRefs(ctx, facts)
+	// The finalizer receives source-inventory rows from the admitted typed row
+	// registry, after exact declaration coordinates have collapsed overlapping
+	// explorer aliases. The hard checker must consume that same registry. Reading
+	// raw merged member_sets here creates two simultaneous authorities: a correct
+	// typed prompt roster and a stale/wrong retry roster. This replacement is
+	// limited to the precise structured source-inventory lane; ordinary and
+	// relation member sets keep their existing model-owned contracts.
+	if structuredPrincipalCarrierRequired {
+		if typedRefs := preEmitTypedSourceInventoryPrincipalMemberSetFactRefs(ctx, facts); len(typedRefs) > 0 {
+			principalRefs = typedRefs
+		}
+	}
 	if len(principalRefs) == 0 {
 		return nil
 	}
@@ -9491,7 +9505,6 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	// This branch reads only RequestModel + aggregate facts + structured answer
 	// item identity fields. Narrative/advisory member sets retain the legacy
 	// soft visible-surface behavior below.
-	structuredPrincipalCarrierRequired := forceHard && sourceInventoryPrincipalAnswerIsModelOwned(ctx)
 	selectionFamilies := preEmitPrincipalSelectionFamiliesByFactIndex(ctx)
 	surface := preEmitVisibleAnswerSurface(doc)
 	if strings.TrimSpace(surface) == "" {
@@ -9611,6 +9624,164 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}}
 }
 
+// preEmitTypedSourceInventoryPrincipalMemberSetFactRefs converts the exact
+// answer-facing row registry into the legacy member-set coverage shape. It is
+// an adapter, not a second compiler: membership, family, source coordinate and
+// display identity all come from preEmitSourceInventoryTypedPrincipalSets,
+// which is also used by row-id, citation and extraneous-row validation.
+// Duplicate views of one declaration coordinate collapse here so a model alias
+// cannot regain authority merely because it survived in a raw merged fact.
+func preEmitTypedSourceInventoryPrincipalMemberSetFactRefs(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFactRef {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, plan)
+	principalSets := sets[:0]
+	for _, set := range sets {
+		if set.FactIndex < 0 || set.FactIndex >= len(plan.StableAggregateFacts) {
+			continue
+		}
+		if types.EnumerationDisplaySetAuthorizesPrincipalContract(
+			&ctx.AnalysisIR.RequestModel,
+			plan.StableAggregateFacts[set.FactIndex],
+			set,
+		) {
+			principalSets = append(principalSets, set)
+		}
+	}
+	authority := BuildSourceInventoryAnswerPreEmitAuthority(ctx, facts)
+	if !authority.View.PrincipalAuthority || len(authority.View.PrincipalRows) == 0 {
+		return nil
+	}
+	sets = types.CanonicalizeSourceInventoryPrincipalEnumerationSets(principalSets, authority.View.PrincipalRows)
+	if len(sets) == 0 {
+		return nil
+	}
+	type factRows struct {
+		factIndex       int
+		label           string
+		selectionFamily string
+		members         []string
+		refs            []string
+		rowIDs          []string
+	}
+	groups := make([]factRows, 0, len(sets))
+	groupByLabel := map[string]int{}
+	seen := map[string]bool{}
+	for _, set := range sets {
+		for _, row := range set.Rows {
+			identity := preEmitSourceInventoryRowAliasIdentityKey(row)
+			if identity == "" {
+				identity = principalEnumerationRowIdentityKey(row)
+			}
+			if identity == "" || seen[identity] {
+				continue
+			}
+			member := strings.TrimSpace(row.Member)
+			if member == "" {
+				member = strings.TrimSpace(row.DisplayLabel)
+			}
+			if member == "" {
+				continue
+			}
+			seen[identity] = true
+			label := strings.TrimSpace(row.SetLabel)
+			if label == "" || label == "source inventory principal rows" {
+				label = strings.TrimSpace(set.SelectionFamily)
+			}
+			if label == "" {
+				label = strings.TrimSpace(set.Label)
+			}
+			selectionFamily := strings.TrimSpace(set.SelectionFamily)
+			key := strings.ToLower(selectionFamily) + "\x00" + strings.ToLower(label)
+			idx, ok := groupByLabel[key]
+			if !ok {
+				idx = len(groups)
+				groupByLabel[key] = idx
+				groups = append(groups, factRows{
+					factIndex:       set.FactIndex,
+					label:           label,
+					selectionFamily: selectionFamily,
+				})
+			}
+			groups[idx].members = append(groups[idx].members, member)
+			location := strings.TrimSpace(row.Location)
+			if location == "" && strings.TrimSpace(row.Source) != "" && row.LineStart > 0 {
+				location = preEmitCitationLocationKey(types.Citation{File: row.Source, Line: row.LineStart, LineEnd: row.LineEnd})
+			}
+			if location != "" {
+				groups[idx].refs = append(groups[idx].refs, member+" @ "+location)
+			} else {
+				groups[idx].refs = append(groups[idx].refs, "")
+			}
+			groups[idx].rowIDs = append(groups[idx].rowIDs, preEmitTypedSourceInventoryRowIDNotePrefix+strings.TrimSpace(row.RowID))
+		}
+	}
+	out := make([]types.AnswerAggregateFactRef, 0, len(groups))
+	for _, group := range groups {
+		if len(group.members) == 0 {
+			continue
+		}
+		out = append(out, types.AnswerAggregateFactRef{
+			// Preserve the originating fact index so the existing selection-family
+			// map stays aligned with this canonical projection. Synthetic ordinal
+			// indices can accidentally borrow another bucket's family.
+			Index: group.factIndex,
+			Fact: types.AnswerAggregateFact{
+				Kind:        types.AnswerAggregateMemberSet,
+				Label:       group.label,
+				Value:       strconv.Itoa(len(group.members)),
+				Role:        types.AnswerAggregateRolePrincipalAnswer,
+				Provenance:  types.SourceInventoryPrincipalRowSetAggregateProvenance,
+				Members:     group.members,
+				SupportRefs: group.refs,
+				MemberNotes: group.rowIDs,
+			},
+		})
+	}
+	return out
+}
+
+const preEmitTypedSourceInventoryRowIDNotePrefix = "typed_source_inventory_row_id:"
+
+// preEmitAggregateFactsWithTypedSourceInventoryPrincipalRoster replaces only
+// the principal member-set roster axis with the exact answer-facing typed
+// projection. Scalar facts, relation evidence, supporting coverage and audit
+// facts remain untouched. Count/cardinality validators use this view so they
+// cannot reintroduce a stale 4/11 model count after completeness has correctly
+// selected a 2/8 typed roster.
+func preEmitAggregateFactsWithTypedSourceInventoryPrincipalRoster(
+	ctx *types.BusContext,
+	facts []types.AnswerAggregateFact,
+) []types.AnswerAggregateFact {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		!preEmitAggregateMemberSetCoverageHardGate(ctx) ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctx) {
+		return facts
+	}
+	typedRefs := preEmitTypedSourceInventoryPrincipalMemberSetFactRefs(ctx, facts)
+	if len(typedRefs) == 0 {
+		return facts
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	out := make([]types.AnswerAggregateFact, 0, len(facts)+len(typedRefs))
+	for _, fact := range facts {
+		if fact.Kind == types.AnswerAggregateMemberSet &&
+			types.AnswerAggregateFactRoleForRequest(fact, rm) == types.AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		out = append(out, fact)
+	}
+	for _, ref := range typedRefs {
+		out = append(out, ref.Fact)
+	}
+	return out
+}
+
 // preEmitStructuredPrincipalMarkdownRepairTargets turns an already-visible
 // authored Markdown table into an exact patch target when the typed
 // source-inventory contract requires renderer-visible structured rows. The
@@ -9667,7 +9838,7 @@ func preEmitStructuredPrincipalMemberRepairRecipe() string {
 		"apply this exact structured source-inventory row recipe: "+
 			"(1) use a section/ordered_list/bullet_list/table carrying block with surface_role=%q; "+
 			"(2) keep the contract's enumeration metadata: facet_ids includes %q and claim_uses contains a contract-allowed claim_form; "+
-			"(3) copy each roster member exactly into items[].label; only when label is omitted may cells[0] carry that member identity, so a category-first row must keep the member in label even if the visible Markdown table places category before member; item.text and later cells do not select row identity; "+
+			"(3) copy each roster member exactly into items[].label; only when label is omitted may cells[0] carry that member identity in the ordinary row shape; item.text and later cells do not select row identity in that ordinary shape, and a category-first row must keep the member in label. A typed columns[] table may instead place the member in its dedicated member/symbol cells[] column while preserving the exact source_inventory_row_id and row-local citation; "+
 			"(4) roster set_label is the row's visible aggregate/category value; when the principal table carries bucket_label, copy it to a separate cells entry with a matching column while keeping item.label for the member. selection_family remains the exact typed membership boundary, while display_group/set_label is presentation only and cannot add exclusions, subtract rows, or change the typed count — if they conflict, preserve the roster and rewrite the display wording yourself; never copy a group label into item.label in place of member and never discard the group while repairing identity; "+
 			"(5) when rows expose one exact surface_family and this block is deliberately family-specific, copy it to blocks[].source_inventory_family; omit that field for a global/mixed-family block and never infer it from title/prose; "+
 			"(6) when the handoff provides row-local support/citation, set that item's citation_ref to the same member's compatible citation and never borrow another row's citation; "+
@@ -9696,6 +9867,32 @@ func preEmitAggregateMemberAppearsInStructuredPrincipalIdentity(fact types.Answe
 	}
 	if len(blocks) == 0 {
 		return false
+	}
+	// The typed adapter carries the exact row id in an audit-only positional
+	// note. Prefer that identity over presentation aliases. A Markdown-text
+	// table still needs byte-for-byte visible sidecar parity; a rendered
+	// structured table exposes its items directly.
+	if memberIdx >= 0 && memberIdx < len(fact.MemberNotes) {
+		note := strings.TrimSpace(fact.MemberNotes[memberIdx])
+		rowID := strings.TrimPrefix(note, preEmitTypedSourceInventoryRowIDNotePrefix)
+		if rowID != "" && rowID != note {
+			for _, block := range blocks {
+				for _, item := range block.Items {
+					if strings.TrimSpace(item.SourceInventoryRowID) != rowID {
+						continue
+					}
+					if block.Kind == types.BlockTable && types.AnswerTextLooksLikeMarkdownTable(block.Text) &&
+						!preEmitMarkdownTableHasExactStructuredSidecarRow(block.Text, item) {
+						continue
+					}
+					return true
+				}
+			}
+			// Equivalent typed views may assign different stable row IDs to the
+			// same admitted family+location. Let the exact structured member and
+			// coordinate fallback below decide; the independent row-id gate still
+			// rejects an actually invalid selector.
+		}
 	}
 
 	// Prefer the block carrying the aggregate's typed label when one exists.
@@ -9880,7 +10077,8 @@ func preCheckSourceInventoryExtraneousPrincipalItems(doc *types.AnswerDocumentV2
 			// the synthetic source-inventory roster. That sibling authority
 			// is precise and must not be rejected; supporting coverage remains
 			// unable to widen this hard gate.
-			if principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
+			if !principalEnumerationItemConflictsWithTypedSourceInventoryCoordinate(item, doc, rows) &&
+				principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
 				continue
 			}
 			// A typed per-member comparison table has two orthogonal axes:
@@ -9991,8 +10189,10 @@ func preEmitSourceInventoryIdentityRows(item types.AnswerBlockItem, rows []types
 	var out []types.EnumerationDisplayRow
 	seen := map[string]bool{}
 	for _, row := range rows {
-		if !principalEnumerationItemExactLabelMatchesRow(item, row) &&
-			!principalEnumerationItemStronglyIdentifiesRow(item, row) {
+		// Location alone cannot turn an unknown name into a known typed row.
+		// This helper distinguishes "right member, wrong binding" from a truly
+		// extraneous member, so the structured primary identity must match first.
+		if !principalEnumerationItemStructuredIdentityMatchesRow(item, row) {
 			continue
 		}
 		key := preEmitSourceInventoryRowAliasIdentityKey(row)
@@ -10476,7 +10676,8 @@ func preCheckAggregateCardinalityConsistency(doc *types.AnswerDocumentV2, ctxOpt
 	if answerDocumentRuntimeObservationOnly(ctx) {
 		return nil
 	}
-	refs := preEmitAggregateCardinalityFactRefs(ctx, preEmitStableAggregateFacts(ctx))
+	facts := preEmitAggregateFactsWithTypedSourceInventoryPrincipalRoster(ctx, preEmitStableAggregateFacts(ctx))
+	refs := preEmitAggregateCardinalityFactRefs(ctx, facts)
 	if len(refs) == 0 {
 		return nil
 	}

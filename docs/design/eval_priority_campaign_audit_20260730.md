@@ -57291,6 +57291,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1550 r965/B1483：正确 12 行首稿被陈旧并行事实强制扩成 17 行；源码枚举消费面统一为单一 typed 投影（2026-08-31）
+
+1. 从已推送 `14c52bacb` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 278s；
+   Cangjie runner FAIL 507s，精确 oracle 为 `extend got4 want2 / public_class got11 want8`。两路均没有固定 4ms/4m、活动流年龄、轮次、
+   首字节或上下文比例降级。
+2. Cangjie 的第一次 finalizer 草稿实际已经正确：同一张可见结构表精确列出 `extend=2 / foreign func=2 / public class=8` 共 12 行，
+   每行都有正确符号、文件、package 与 typed row id。预发射却要求追加 `extend String`、`extend Cart`，以及源码不存在的
+   `Container/Vehicle/Machine`；模型经过 4 次成文拒绝和 5 次 patch 后被系统合同拉成 17 行。该失败不是模型首稿能力不足。
+3. 根因是同一问题同一轮存在两套答案权威：finalizer 教学已经用 `PrincipalRows` 按精确 `surface family + source coordinate + member`
+   canonicalize，得到正确 12 行；member completeness、scalar count 和 cardinality 校验仍直接读取并行 explorer 合并后的 raw
+   `StableAggregateFacts`。某个 explorer 的陈旧错名/展示别名因此在教学中失权，却能在 hard retry 中重新加冕，形成系统自相矛盾。
+4. `B1483-SOURCEINVENTORYSINGLEPROJECTION1/P0` 的根修不是添加 Cangjie 名字特例，而是把 canonicalizer 下沉到共享 `types` 投影：
+   finalizer 教学、完整成员校验、scalar count、cardinality 与 strict extraneous lane 均消费同一 answer-facing typed row registry；普通
+   member_set、关系集合、support/audit facts 保持原合同，不受 source-inventory 特例扩域。
+5. 投影的收敛条件只读 typed 数据：同一个 `family + location` 有唯一机械成员身份时，选择与 canonical member 相符的展示行；坐标身份
+   歧义则 fail-open，不猜合。此前“只要任一 exact fact 完整就保留所有重叠 raw facts”的早退被移除，因为它会让一个正确事实为同坐标错名
+   授权。新增回归证明 `Dog/Service` 的正确 exact fact 不能替 `Cat/Vehicle` 同坐标错名背书。
+6. strict carrier 身份同时保持兼容与防串线：合法 typed family 修饰名（如 `extend Cart`、带括号展示限定的等价形）可由
+   `SurfaceTerms + member` 精确识别；精确 row id 让错误绑定进入“保留该行并纠正绑定”车道，不与“删除额外行”指令冲突；错名仍不能仅凭真实
+   file:line 借权。typed columns 表可在明确 member/symbol 列承载身份，普通行仍维持 label/cells[0] 主身份合同。
+7. 对 Cangjie 正确首稿的 hard roster 现只包含 12 个 canonical typed rows；成员、标量和 cardinality 三个校验面不再分别产生 12/17、
+   2/4、8/11 的冲突值。完整 `go test ./internal/types ./internal/agent ./internal/tool` 全绿（types 25.936s、agent 15.137s、
+   tool 186.945s）；生产效果仍需从本提交重建后的下一轮恰好 2 路回放确认。
+8. Trace 结构面继续为正：显式 10ms 窗、4 次 typed query、目标四态、唤醒链、链上根因排序、真实占时/规则可消双账户、业务线索、
+   链外背景隔离、自动补齐和最终 `Trace 因果投影` 完整。人工仍判 fail，因为模型一处同时陈述“NetworkService 被 CookieMonster 唤醒”与
+   “NetworkService 唤醒 CookieMonster”，并把 typed 上下文明确限定为候选/未证直接阻塞的优先级现象写成直接锁/阻塞方向。typed 证据方向和
+   未证边界本身正确，因此本批只记模型语义漂移，不以答案关键词硬拒，也不由系统替换结论。
+
+状态：
+
+`r965=runner-trace-pass+cangjie-fail,human-trace-fail+cangjie-fail`；
+`B1482=production-positive/core-closed`；
+`B1483=implemented/full-types+agent+tool-suite-pass/pending-production-replay`；
+`source-inventory-answer-authority=single-canonical-typed-projection`；
+`wrong-name-at-real-coordinate=not-authorized`；
+`typed-family-decorated-member=exact-compatible`；
+`ordinary/relation/support-member-set=unchanged`；
+`system-answer/conclusion/relation/wording/member-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r965`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r965`。
+
 ### §123.1548 r963/B1481：运行时工作关系席生产转正；无标签精确坐标被误作身份冲突（2026-08-31）
 
 1. 从已推送 `9a5f55064` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

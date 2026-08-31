@@ -11452,12 +11452,6 @@ func answerDocPrincipalEnumerationSets(ctx *types.AgentContext, plan *types.Answ
 	return answerDocCanonicalizeSourceInventoryPrincipalEnumerationSets(out, view.PrincipalRows)
 }
 
-type answerDocPrincipalEnumerationRowRef struct {
-	setIndex int
-	rowIndex int
-	score    int
-}
-
 // answerDocCanonicalizeSourceInventoryPrincipalEnumerationSets collapses
 // overlapping model aggregate facts onto the exact typed declaration universe.
 // A model may describe one declaration once by its bare symbol and again by a
@@ -11473,108 +11467,7 @@ func answerDocCanonicalizeSourceInventoryPrincipalEnumerationSets(
 	sets []types.EnumerationDisplaySet,
 	principalRows []types.SourceInventoryRow,
 ) []types.EnumerationDisplaySet {
-	if len(sets) == 0 || len(principalRows) == 0 {
-		return sets
-	}
-	canonicalNames := map[string]string{}
-	ambiguous := map[string]bool{}
-	for _, row := range principalRows {
-		coord := answerDocSourceInventoryPrincipalCoordinate(row.SurfaceFamily, answerDocSourceInventoryPrincipalLocation(row))
-		if coord == "" {
-			continue
-		}
-		name := strings.TrimSpace(row.Member.Name)
-		if previous, ok := canonicalNames[coord]; ok && !strings.EqualFold(previous, name) {
-			ambiguous[coord] = true
-			continue
-		}
-		canonicalNames[coord] = name
-	}
-	for coord := range ambiguous {
-		delete(canonicalNames, coord)
-	}
-	if len(canonicalNames) == 0 {
-		return sets
-	}
-
-	winners := map[string]answerDocPrincipalEnumerationRowRef{}
-	for setIndex, set := range sets {
-		for rowIndex, row := range set.Rows {
-			coord := answerDocSourceInventoryPrincipalCoordinate(types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms), row.Location)
-			canonicalName, ok := canonicalNames[coord]
-			if !ok {
-				continue
-			}
-			candidate := answerDocPrincipalEnumerationRowRef{
-				setIndex: setIndex,
-				rowIndex: rowIndex,
-				score:    answerDocPrincipalEnumerationCanonicalRowScore(row, canonicalName),
-			}
-			if previous, exists := winners[coord]; !exists || candidate.score > previous.score {
-				winners[coord] = candidate
-			}
-		}
-	}
-
-	out := make([]types.EnumerationDisplaySet, 0, len(sets))
-	for setIndex, set := range sets {
-		rows := make([]types.EnumerationDisplayRow, 0, len(set.Rows))
-		for rowIndex, row := range set.Rows {
-			coord := answerDocSourceInventoryPrincipalCoordinate(types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms), row.Location)
-			winner, canonical := winners[coord]
-			if canonical && (winner.setIndex != setIndex || winner.rowIndex != rowIndex) {
-				continue
-			}
-			rows = append(rows, row)
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		set.Rows = rows
-		out = append(out, set)
-	}
-	return out
-}
-
-func answerDocSourceInventoryPrincipalCoordinate(family, location string) string {
-	family = strings.ToLower(strings.TrimSpace(family))
-	location = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(location, `\`, `/`)))
-	if family == "" || location == "" {
-		return ""
-	}
-	return family + "\x00" + location
-}
-
-func answerDocSourceInventoryPrincipalLocation(row types.SourceInventoryRow) string {
-	if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(row.Member.SupportRef); ok {
-		file := strings.TrimSpace(strings.ReplaceAll(loc.File, `\`, `/`))
-		if file != "" && loc.LineStart > 0 {
-			return fmt.Sprintf("%s:%d", file, loc.LineStart)
-		}
-	}
-	file := strings.TrimSpace(strings.ReplaceAll(row.Member.File, `\`, `/`))
-	if file == "" || row.Member.Line <= 0 {
-		return ""
-	}
-	return fmt.Sprintf("%s:%d", file, row.Member.Line)
-}
-
-func answerDocPrincipalEnumerationCanonicalRowScore(row types.EnumerationDisplayRow, canonicalName string) int {
-	score := 0
-	canonicalName = strings.TrimSpace(canonicalName)
-	if canonicalName != "" && strings.EqualFold(strings.TrimSpace(row.Member), canonicalName) {
-		score += 8
-	}
-	if canonicalName != "" && strings.EqualFold(strings.TrimSpace(row.DisplayLabel), canonicalName) {
-		score += 4
-	}
-	if row.MemberSurface == types.PrincipalMemberSurfaceSymbolLike {
-		score += 2
-	}
-	if strings.TrimSpace(row.EvidenceID) != "" {
-		score++
-	}
-	return score
+	return types.CanonicalizeSourceInventoryPrincipalEnumerationSets(sets, principalRows)
 }
 
 func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *types.AnswerSurfacePlan) string {

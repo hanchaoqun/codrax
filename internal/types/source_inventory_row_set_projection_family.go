@@ -11,19 +11,6 @@ type sourceInventoryProjectionFamily struct {
 	language    string
 }
 
-func sourceInventoryPrincipalFactUniverseComplete(refs []AnswerAggregateFactRef, want map[string]bool) bool {
-	if len(refs) == 0 || len(want) == 0 {
-		return false
-	}
-	for _, ref := range refs {
-		got := sourceInventoryAggregateFactRowKeys(ref.Fact)
-		if sourceInventoryRowKeySetsEqual(got, want) && aggregateMemberSetSupportCoverage(ref.Fact) >= len(want) {
-			return true
-		}
-	}
-	return false
-}
-
 func sourceInventoryPrincipalRowSetDisjointFromExistingPrincipal(refs []AnswerAggregateFactRef, rowSet SourceInventoryPrincipalRowSet) bool {
 	rowFamilies := sourceInventoryProjectionFamiliesFromRowSet(rowSet)
 	if len(refs) == 0 || len(rowFamilies) == 0 {

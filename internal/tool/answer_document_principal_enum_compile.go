@@ -442,7 +442,9 @@ func prunePrincipalEnumerationExtraneousItems(doc *types.AnswerDocumentV2, ctx *
 			if !keep && !strictSourceInventoryRows && principalEnumerationItemBackedByAcceptedMemberSetMember(ctx, item) {
 				keep = true
 			}
-			if !keep && strictSourceInventoryRows && principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
+			if !keep && strictSourceInventoryRows &&
+				!principalEnumerationItemConflictsWithTypedSourceInventoryCoordinate(item, doc, rows) &&
+				principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx, item) {
 				keep = true
 			}
 			// Call-chain endpoint identity and principal member-set identity are
@@ -552,6 +554,79 @@ func principalEnumerationItemBackedByAcceptedPrincipalMemberSetMember(ctx *types
 	return false
 }
 
+// principalEnumerationItemConflictsWithTypedSourceInventoryCoordinate reports
+// whether a proposed sibling row occupies an exact file:line already owned by
+// a different typed declaration identity. The compound-inventory rescue is
+// valid only for genuinely disjoint parser roles; it must not let a stale or
+// hallucinated model name borrow another declaration's exact coordinate.
+// Inputs are structured item cells/citations and typed rows only. Titles,
+// request text, item prose and rendered answer prose are never consulted.
+func principalEnumerationItemConflictsWithTypedSourceInventoryCoordinate(
+	item types.AnswerBlockItem,
+	doc *types.AnswerDocumentV2,
+	rows []types.EnumerationDisplayRow,
+) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	type coordinate struct {
+		file string
+		line int
+	}
+	var coords []coordinate
+	appendCoordinate := func(file string, line int) {
+		file = preEmitNormalizePath(file)
+		if file == "" || line <= 0 {
+			return
+		}
+		for _, existing := range coords {
+			if existing.line == line && preEmitPathMatches(existing.file, file) {
+				return
+			}
+		}
+		coords = append(coords, coordinate{file: file, line: line})
+	}
+	for _, cell := range item.Cells {
+		if loc, ok := types.ParseAnswerSourceLocationSurface(strings.TrimSpace(cell)); ok {
+			appendCoordinate(loc.File, loc.LineStart)
+			continue
+		}
+		if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(strings.TrimSpace(cell)); ok {
+			appendCoordinate(loc.File, loc.LineStart)
+		}
+	}
+	if doc != nil {
+		for _, ref := range types.AnswerBlockItemCitationRefs(item) {
+			if ref < 0 || ref >= len(doc.Citations) {
+				continue
+			}
+			appendCoordinate(doc.Citations[ref].File, doc.Citations[ref].Line)
+		}
+	}
+	if len(coords) == 0 {
+		return false
+	}
+	for _, row := range rows {
+		rowFile := preEmitNormalizePath(row.Source)
+		rowLine := row.LineStart
+		if (rowFile == "" || rowLine <= 0) && strings.TrimSpace(row.Location) != "" {
+			if loc, ok := types.ParseAnswerSourceLocationSurface(row.Location); ok {
+				rowFile = preEmitNormalizePath(loc.File)
+				rowLine = loc.LineStart
+			}
+		}
+		if rowFile == "" || rowLine <= 0 {
+			continue
+		}
+		for _, coord := range coords {
+			if coord.line == rowLine && preEmitPathMatches(coord.file, rowFile) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func principalEnumerationPruneRowsForBlock(block types.AnswerBlock, sets []types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
 	rows, _ := principalEnumerationPruneRowsForBlockWithMode(block, sets)
 	return rows
@@ -585,8 +660,12 @@ func principalEnumerationPruneRowsForBlockWithMode(block types.AnswerBlock, sets
 
 func principalEnumerationItemCoversAnySourceInventoryScopedRow(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) bool {
 	for _, row := range rows {
-		if !principalEnumerationItemExactLabelMatchesRow(item, row) &&
-			!principalEnumerationItemStronglyIdentifiesRow(item, row) {
+		// A source coordinate proves where a declaration lives, not which
+		// declaration name occupies it. Require the structured primary identity
+		// to name the typed row before citation/location can complete the match;
+		// otherwise a stale alias at another declaration's exact line borrows the
+		// real row and escapes both completeness and extraneous checks.
+		if !principalEnumerationItemStructuredIdentityMatchesRow(item, row) {
 			continue
 		}
 		// An exact prompt-visible row id is the strongest member/family
@@ -607,6 +686,68 @@ func principalEnumerationItemCoversAnySourceInventoryScopedRow(item types.Answer
 		}
 		surface := strings.Join([]string{item.Label, item.Text, strings.Join(item.Cells, " ")}, " ")
 		if principalEnumerationCandidateLocationCompatible(surface, row) {
+			return true
+		}
+	}
+	return false
+}
+
+// principalEnumerationItemStructuredIdentityMatchesRow accepts either the
+// normal primary identity or one exact typed table cell naming the member.
+// The caller must still prove the row's exact id/citation/location, so a later
+// descriptive cell or a bare file:line cannot mint identity by itself. This
+// supports schema-valid columns such as file | line | symbol without reopening
+// prose scanning or location-only alias borrowing.
+func principalEnumerationItemStructuredIdentityMatchesRow(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
+	// A valid typed row id identifies the row even when the visible member is a
+	// family-decorated equivalent (for example "extend Cart"). Label/row-id
+	// disagreements are still rejected by the independent exact-row binding
+	// check; treating the row as known here prevents that repair from being
+	// contradicted by an extraneous-row removal instruction.
+	if id := strings.TrimSpace(item.SourceInventoryRowID); id != "" && id == strings.TrimSpace(row.RowID) {
+		return true
+	}
+	if principalEnumerationSourceInventoryIdentityValueMatchesRow(item.Label, row) {
+		return true
+	}
+	for _, cell := range item.Cells {
+		if principalEnumerationSourceInventoryIdentityValueMatchesRow(cell, row) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationSourceInventoryIdentityValueMatchesRow(value string, row types.EnumerationDisplayRow) bool {
+	values := []string{strings.TrimSpace(value)}
+	if base, _, ok := types.AnswerAggregateDecoratedLabelParts(value); ok {
+		values = append(values, strings.TrimSpace(base))
+	}
+	wants := map[string]bool{}
+	for _, candidate := range values {
+		if key := normalizeEnumerationDisplayTableKey(candidate); key != "" {
+			wants[key] = true
+		}
+	}
+	if len(wants) == 0 {
+		return false
+	}
+	raw := []string{row.Member, row.DisplayLabel}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(row.Member); ok {
+		raw = append(raw, label)
+	}
+	raw = append(raw, principalEnumerationRowDecoratedBaseCandidates(row)...)
+	baseNames := append([]string(nil), raw...)
+	for _, family := range types.SourceInventorySurfaceFamilyKeys(row.SurfaceTerms) {
+		for _, base := range baseNames {
+			base = strings.TrimSpace(base)
+			if base != "" {
+				raw = append(raw, strings.TrimSpace(family+" "+base))
+			}
+		}
+	}
+	for _, candidate := range raw {
+		if wants[normalizeEnumerationDisplayTableKey(candidate)] {
 			return true
 		}
 	}

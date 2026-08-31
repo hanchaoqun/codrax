@@ -5778,6 +5778,10 @@ func sourceInventoryObservedSiblingFunctionTestContext(t *testing.T) (*types.Bus
 	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:     types.IntentEnumerate,
 		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		CompletenessObligation: &types.CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all public classes",
+		},
 		SourceInventoryProfile: &types.SourceInventoryProfile{
 			IsSourceInventory: true,
 			// Deliberately mirrors the production analyzer projection: the
@@ -6776,12 +6780,20 @@ func TestPreEmitSourceInventoryTypedPrincipalSets_RejectsWrongMemberBorrowingRea
 			},
 		}},
 	})
-	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
-		Kind: types.AnswerAggregateMemberSet, Label: "public class", Value: "2",
-		Role:        types.AnswerAggregateRolePrincipalAnswer,
-		Members:     []string{"Cat", "Vehicle"},
-		SupportRefs: []string{path + ":22", path + ":32"},
-	}})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "public class", Value: "2",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"Dog", "Service"},
+			SupportRefs: []string{"Dog @ " + path + ":22", "Service @ " + path + ":32"},
+		},
+		{
+			Kind: types.AnswerAggregateMemberSet, Label: "public class stale alias", Value: "7",
+			Role:        types.AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"Cat", "Vehicle"},
+			SupportRefs: []string{"Cat @ " + path + ":22", "Vehicle @ " + path + ":32"},
+		},
+	})
 	mu.RetainInvestigationAggregateFacts()
 	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 		Intent:     types.IntentEnumerate,
@@ -6795,10 +6807,12 @@ func TestPreEmitSourceInventoryTypedPrincipalSets_RejectsWrongMemberBorrowingRea
 		},
 	}}}
 	got := map[string]bool{}
+	rowIDs := map[string]string{}
 	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
 		for _, row := range set.Rows {
 			if row.Source == path && (row.LineStart == 22 || row.LineStart == 32) {
 				got[row.Member] = true
+				rowIDs[row.Member] = row.RowID
 			}
 		}
 	}
@@ -6807,6 +6821,31 @@ func TestPreEmitSourceInventoryTypedPrincipalSets_RejectsWrongMemberBorrowingRea
 	}
 	if !got["Dog"] || !got["Service"] {
 		t.Fatalf("exact mechanical declaration identities were lost: %+v", got)
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "classes", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:  []string{string(types.FacetEnumerationItem)},
+		ClaimUses: []types.RenderedClaimUse{{FacetID: string(types.FacetEnumerationItem), ClaimForm: types.ClaimDefinitionFact}},
+		Text:      "| member | location |\n|---|---|\n| Dog | " + path + ":22 |\n| Service | " + path + ":32 |",
+		Items: []types.AnswerBlockItem{
+			{ID: "dog", Label: "Dog", Cells: []string{"Dog", path + ":22"}, SourceInventoryRowID: rowIDs["Dog"]},
+			{ID: "service", Label: "Service", Cells: []string{"Service", path + ":32"}, SourceInventoryRowID: rowIDs["Service"]},
+		},
+	}}}
+	if hints := preCheckAggregateMemberSetCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("exact typed answer must not inherit the conflicting model roster: %+v", hints)
+	}
+	if hints := preCheckAggregateScalarValueCoverage(doc, ctx); len(hints) != 0 {
+		t.Fatalf("typed count authority must replace the stale model count: %+v", hints)
+	}
+	if hints := preCheckAggregateCardinalityConsistency(doc, ctx); len(hints) != 0 {
+		t.Fatalf("typed cardinality authority must replace the stale model roster cardinality: %+v", hints)
+	}
+
+	doc.Blocks[0].Items = append(doc.Blocks[0].Items, types.AnswerBlockItem{ID: "cat", Label: "Cat", Cells: []string{"Cat", path + ":22"}})
+	doc.Blocks[0].Text += "\n| Cat | " + path + ":22 |"
+	if hints := preCheckSourceInventoryExtraneousPrincipalItems(doc, ctx); len(hints) == 0 {
+		t.Fatal("a conflicting model alias must remain extraneous to the typed principal roster")
 	}
 }
 

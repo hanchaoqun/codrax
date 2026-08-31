@@ -540,6 +540,47 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DemotesIncompleteMo
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_OneExactFactCannotAuthorizeConflictingOverlap(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	obs := sourceInventoryProjectionObservation(
+		SourceInventoryObservationMember{Name: "Run", Role: AnswerCandidateRoleFunction, File: "thirdparty/cangjie/run.cj", Line: 7, Language: "cangjie"},
+		SourceInventoryObservationMember{Name: "Serve", Role: AnswerCandidateRoleFunction, File: "src/serve.cj", Line: 12, Language: "cangjie"},
+	)
+	facts := []AnswerAggregateFact{
+		{
+			Kind: AnswerAggregateMemberSet, Label: "exact functions", Value: "2",
+			Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer-a",
+			Members:     []string{"Run", "Serve"},
+			SupportRefs: []string{"Run @ thirdparty/cangjie/run.cj:7", "Serve @ src/serve.cj:12"},
+		},
+		{
+			Kind: AnswerAggregateMemberSet, Label: "conflicting functions", Value: "2",
+			Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer-b",
+			Members:     []string{"Run", "Container"},
+			SupportRefs: []string{"Run @ thirdparty/cangjie/run.cj:7", "Container @ src/serve.cj:12"},
+		},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts, obs, rm)
+	if len(got) != 3 {
+		t.Fatalf("typed projection should retain two audit facts plus one canonical fact, got %+v", got)
+	}
+	for i := 0; i < 2; i++ {
+		if got[i].Role != AnswerAggregateRoleSupportingCoverage ||
+			!strings.Contains(got[i].Provenance, "demoted:shadowed_by_source_inventory_principal_row_set") {
+			t.Fatalf("overlapping model fact %d remained a principal authority: %+v", i, got[i])
+		}
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm)
+	if len(refs) != 1 || refs[0].Fact.Provenance != SourceInventoryPrincipalRowSetAggregateProvenance {
+		t.Fatalf("principal contract must have one typed authority, refs=%+v facts=%+v", refs, got)
+	}
+	if !stringSliceContains(refs[0].Fact.Members, "Run") || !stringSliceContains(refs[0].Fact.Members, "Serve") ||
+		stringSliceContains(refs[0].Fact.Members, "Container") {
+		t.Fatalf("canonical typed roster changed: %+v", refs[0].Fact.Members)
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_IgnoresIncompleteObservation(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(

@@ -49,9 +49,6 @@ func ProjectSourceInventoryPrincipalRowSetAggregateFacts(facts []AnswerAggregate
 	if sourceInventoryPrincipalFactsExactlyCoverRows(refs, rowKeys) {
 		return out
 	}
-	if sourceInventoryPrincipalFactUniverseComplete(refs, rowKeys) {
-		return out
-	}
 	if sourceInventoryPrincipalRowSetDisjointFromExistingPrincipal(refs, rowSet) {
 		return out
 	}
