@@ -6277,10 +6277,18 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 		relationForms = dedupPreEmitStringCandidates(relationForms)
 		localCandidates := preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(block, evidence, 6)
 		relationRepairDelta := preEmitStandaloneRelationClaimRepairDeltaJSON(doc, block, evidence)
-		expectedShape := fmt.Sprintf(
-			"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
-			block.ID, strings.Join(relationForms, ", "),
-		)
+		var expectedShape string
+		if relationRepairDelta != "" {
+			expectedShape = fmt.Sprintf(
+				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation with emit_answer_document_patch diagram_edge_edits action=add and the current addition_ref row(s) published in the patch tool schema; author only from_node, to_node, and visible_label for each selected ref. Do not use replace_blocks and do not copy or rewrite the block's visible title, text, items, diagram, or wording. Add one row for each relation the block intends to assert. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+				block.ID, strings.Join(relationForms, ", "),
+			)
+		} else {
+			expectedShape = fmt.Sprintf(
+				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+				block.ID, strings.Join(relationForms, ", "),
+			)
+		}
 		if localCandidates != "" {
 			expectedShape += ". Exact citable relation candidates matching this block's model-selected claim_form(s), supplied only as optional local repair choices: " + localCandidates + ". Select only the row(s) the block intends to assert; these candidates do not require the block to render every available relation."
 		}

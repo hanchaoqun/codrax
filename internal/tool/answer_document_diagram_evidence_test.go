@@ -3352,6 +3352,8 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresencePublishesClaimScopedTy
 		t.Fatalf("model-selected claim/item evidence must publish exact additions-only repair authority: err=%v delta=%+v", err, delta)
 	}
 	for _, want := range []string{
+		`diagram_edge_edits action=add`, `current addition_ref row(s)`,
+		`Do not use replace_blocks`, `do not copy or rewrite the block's visible title`,
 		`Exact citable relation candidates matching this block's model-selected claim_form(s)`,
 		`relation_kind:"call"`, `from_identity:"run_pipeline"`, `to_identity:"resolve"`,
 		`evidence_id:"ev-call"`, `source:"pipeline/runner.py:15"`,

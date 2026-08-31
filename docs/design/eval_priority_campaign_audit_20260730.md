@@ -57336,6 +57336,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1556 r971/B1488：隐藏元数据原子通道生产命中；首次修补教学仍把模型引向整块替换（2026-08-31）
+
+1. 从已推送 `a7e65a3fd` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner
+   2/2 PASS：Java 74s、sequence 226s。两路都没有按固定 4ms/4m、活动流年龄、轮次、首字节、上下文比例或“尚未出答案”状态降级。
+2. Java 人工通过：精确定位 `Main.java:16` 并只规划 `retrun -> return`，状态保持 `pending_approval`，源码未修改。写前分析先误用
+   test-only constraint、计划器又尝试不与 `Main` 耦合的验证探针，既有 typed 校验均纠正且最终计划正确；这是软教学效率观察，不新增
+   request/prose 硬门。
+3. sequence 人工通过：最终答案准确表达 `buildAnalysisIR -> gate.RunWith <- gate.Run`，明确没有证据支持端点直达；关键中间函数清单、
+   引用与 Mermaid 均完整，图只画两条真实有向边，没有系统补边、删边、改向或替换模型结论。
+4. B1487 两个 production 分支均真实命中。首稿 relation list 已用 exact `claim_uses[].evidence_id` 与可见 item 选择两条边但缺隐藏锚；模型
+   第三轮选择 live `diagram_edge_edits[action=add,addition_ref=…]` 两行后，执行器只向同一个非 diagram list 追加两条隐藏 anchor，保留首稿
+   title/text/items/order/diagram/wording。随后 `block_field_edits_v1[{field:add_facet_id,value:member_set}]` 只补关键函数清单归属，零整块复制。
+5. 相比 r970 的 4 次 finalizer reject，本轮降为 2 次且不再出现 JSON string/`undefined`；但剩余第二次拒绝不是随机波动。连续两轮中，首次
+   zero-anchor 拒绝虽然已经铸造 additions-only lease 与动态 refs，错误正文仍先要求“copy complete recipe into edge_anchors”，通用 patch 教学
+   又先解释 `replace_blocks`。模型因此稳定地先重发整块，再被同代 lease 以 `whole_replace_not_authorized` 拒绝；下一轮明确说
+   `diagram_edge_edits + addition_ref` 后立即成功。
+6. 新 P1 `B1488-METADATAREPAIRTEACH1` 根修精确合同的教学顺序，而非放松校验。仅当同一个 typed zero-anchor hint 已生成非空
+   additions-only delta 时，首个 ExpectedShape 直接要求使用当前工具 schema 发布的 `diagram_edge_edits action=add + addition_ref`，并明确
+   只作者 local `from_node/to_node/visible_label`、禁止 `replace_blocks` 与复制可见内容。没有 executable delta 时仍保留旧的完整 recipe 后备；
+   系统仍不替模型选择 ref、endpoint label、关系、图、成员或结论。
+7. 新提示分支只读取既有 schema-valid claim/item evidence 与 typed repair delta，不扫描请求、thinking、模型正文、最终答案、Markdown 或
+   Mermaid 标签。回归新增 exact atomic action/front-loaded no-replace pin，并复跑 non-diagram additions-only 与唯一 member-set 分支；聚焦测试全绿。
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 25.730s、tool 186.373s、agent 14.328s）；r972 干净生产回放待本小批推送后执行。
+8. 本批不改变 Trace 查询、显式窗、唤醒链、链上根因排序、优先级反转/调度与算力供给/D/IO/确定性语义工作、实际占时与规则可消双账户、
+   业务线索、因果投影或自动补齐。邻近/背景仍只可作为支持方向，不能成为主因。
+
+状态：
+
+`r971=runner-pass-2/2,human-java+sequence-pass`；
+`B1487=production-covered/closed`；
+`B1488=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`relation-anchor-repair=exact-addition-ref/hidden-only/no-visible-block-rewrite`；
+`member_set-repair=exact-add_facet_id/hidden-only`；
+`system-answer/conclusion/relation/member/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r971`。
+
 ### §123.1555 r970/B1487：关系/清单可见内容已完成，隐藏元数据缺口仍迫使整块重写（2026-08-31）
 
 1. 从已推送 `a108e347d` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner
