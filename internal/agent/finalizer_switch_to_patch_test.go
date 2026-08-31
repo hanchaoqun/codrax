@@ -1455,7 +1455,7 @@ func TestRelationRepairPatchBasePrefersPendingGenerationAcrossMutableCarriers(t 
 	}
 }
 
-func TestRequiredDiagramRelationRetryInstallsLabelPairRelabelRef(t *testing.T) {
+func TestRequiredDiagramRelationRetryInstallsLabelPairPresentationRef(t *testing.T) {
 	mut := types.NewMutableState("label pair retry")
 	mut.SetLastRejectedAnswerDocumentV2(&types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,
@@ -1481,17 +1481,18 @@ func TestRequiredDiagramRelationRetryInstallsLabelPairRelabelRef(t *testing.T) {
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if lease == nil || len(lease.Failures) != 1 ||
 		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
-		!lease.Failures[0].AllowsAction("relabel") || lease.Failures[0].FailureRef == "" {
+		!lease.Failures[0].AllowsAction("relabel") || !lease.Failures[0].AllowsAction("remove") ||
+		lease.Failures[0].FailureRef == "" {
 		t.Fatalf("label-pair lease is not executable: %+v", lease)
 	}
 	raw := result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
 	if !strings.Contains(raw, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
-		!strings.Contains(raw, `"allowed_actions":["relabel"]`) {
-		t.Fatalf("retry metadata did not publish the live relabel ref: %s", raw)
+		!strings.Contains(raw, `"allowed_actions":["relabel","remove"]`) {
+		t.Fatalf("retry metadata did not publish the live presentation ref: %s", raw)
 	}
 	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, false)
 	if !ok || !strings.Contains(hint, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
-		!strings.Contains(hint, `"allowed_actions":["relabel"]`) {
+		!strings.Contains(hint, `"allowed_actions":["relabel","remove"]`) {
 		t.Fatalf("model retry hint did not receive the exact label-pair capability: ok=%v\n%s", ok, hint)
 	}
 }
@@ -1561,7 +1562,7 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 	if !ok {
 		t.Fatal("relation delta hint missing")
 	}
-	for _, want := range []string{"diagram_participant_edits", "remove_if_isolated", "retain_as_context", "selected edits isolate", `"participant_id":"X"`} {
+	for _, want := range []string{"diagram_participant_edits", "remove_if_isolated", "retain_as_context", "choice is conditional", "do not predict a second post-edit roster", `"participant_id":"X"`} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("model-owned cleanup teaching missing %q:\n%s", want, hint)
 		}

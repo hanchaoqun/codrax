@@ -117,15 +117,14 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 		}
 	})
 
-	t.Run("requested boundary and still-connected declarations fail closed", func(t *testing.T) {
+	t.Run("conditional cleanup is a no-op for protected live candidates", func(t *testing.T) {
 		for name, tc := range map[string]struct {
 			participant string
 			protected   []string
 			addBoundary bool
 		}{
-			"requested":       {participant: "A", protected: []string{"A"}},
-			"boundary":        {participant: "A", addBoundary: true},
-			"still connected": {participant: "B"},
+			"requested": {participant: "A", protected: []string{"A"}},
+			"boundary":  {participant: "A", addBoundary: true},
 		} {
 			t.Run(name, func(t *testing.T) {
 				prev := atomicPatchTestDocument()
@@ -141,14 +140,29 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 					[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: tc.participant, Action: "remove_if_isolated"}},
 					tc.protected, lease,
 				)
-				if err == nil {
-					t.Fatal("unsafe participant cleanup unexpectedly passed")
+				if err != nil {
+					t.Fatalf("protected conditional cleanup should be a safe no-op: %v", err)
 				}
 			})
 		}
 	})
 
-	t.Run("sequence Note reference prevents declaration removal", func(t *testing.T) {
+	t.Run("unlisted still-connected declaration remains rejected", func(t *testing.T) {
+		prev := atomicPatchTestDocument()
+		lease := newLease(prev)
+		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+			prev, &types.AnswerDocumentV2Patch{},
+			[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
+			[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "B", Action: "remove_if_isolated"}},
+			nil, lease,
+		)
+		if err == nil || !strings.Contains(err.Error(), "unexpected/ineligible decisions") ||
+			!strings.Contains(err.Error(), "diag/B") {
+			t.Fatalf("unlisted participant cleanup must fail closed: %v", err)
+		}
+	})
+
+	t.Run("sequence Note reference turns conditional removal into a no-op", func(t *testing.T) {
 		prev := atomicPatchTestDocument()
 		prev.Blocks[1].Diagram.Body += "    Note over A,C: keep authored context\n"
 		lease := newLease(prev)
@@ -156,14 +170,18 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenN
 		// syntax-liveness recheck. Current production candidate generation no
 		// longer publishes this row in the first place.
 		lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+		patch := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
-			prev, &types.AnswerDocumentV2Patch{},
+			prev, patch,
 			[]emitAnswerDiagramEdgeEdit{{FailureRef: lease.Failures[0].FailureRef, Action: "remove"}}, nil,
 			[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "A", Action: "remove_if_isolated"}},
 			nil, lease,
 		)
-		if err == nil || !strings.Contains(err.Error(), "referenced by a visible sequence directive") {
-			t.Fatalf("Note-referenced participant removal must fail closed: %v", err)
+		if err != nil || len(patch.ReplaceBlocks) != 1 ||
+			!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "participant A") ||
+			!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "Note over A,C") ||
+			strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, "A->>B") {
+			t.Fatalf("Note-referenced conditional removal must preserve the declaration and Note: err=%v patch=%+v", err, patch)
 		}
 	})
 
@@ -319,6 +337,43 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RequiresExplicitNe
 	})
 }
 
+func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_TypedAdditionMakesConditionalCleanupNoop(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "Analyzer", ToIdentity: "Extractor", Source: "pipeline.go:10",
+		FromNodeIDs: []string{"A"}, ToNodeIDs: []string{"C"},
+	}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("test setup did not produce remove+add capabilities: %+v", lease)
+	}
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
+		prev, patch,
+		[]emitAnswerDiagramEdgeEdit{
+			{FailureRef: lease.Failures[0].FailureRef, Action: "remove"},
+			{AdditionRef: lease.AllowedAdditions[0].AdditionRef, Action: "add", Edge: &types.DiagramEdgeAnchor{
+				FromNode: "A", ToNode: "C", VisibleLabel: "分析完成后提取",
+			}},
+		}, nil,
+		[]emitAnswerDiagramParticipantEdit{{BlockID: "diag", ParticipantID: "A", Action: "remove_if_isolated"}},
+		nil, lease,
+	)
+	if err != nil || len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("typed addition should make the conditional cleanup a one-pass no-op: err=%v patch=%+v", err, patch)
+	}
+	body := patch.ReplaceBlocks[0].Diagram.Body
+	if !strings.Contains(body, "participant A") || strings.Contains(body, "A->>B") ||
+		!strings.Contains(body, "A->>C: 分析完成后提取") {
+		t.Fatalf("conditional cleanup changed the model-selected connected graph:\n%s", body)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_ReportsCompleteDispositionRoster(t *testing.T) {
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "diag", Kind: types.BlockDiagram,
@@ -368,7 +423,7 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_ReportsCompleteDis
 		}
 	})
 
-	t.Run("missing and still-connected submissions are returned together", func(t *testing.T) {
+	t.Run("missing row remains while live connected conditional choice is a no-op", func(t *testing.T) {
 		patch := &types.AnswerDocumentV2Patch{}
 		err := applyModelAuthoredDiagramAtomicEditsWithParticipants(
 			prev, patch,
@@ -377,12 +432,11 @@ func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_ReportsCompleteDis
 			nil, lease,
 		)
 		var roster *atomicDiagramParticipantDispositionRosterError
-		if !errors.As(err, &roster) || len(roster.Missing) != 1 || len(roster.Unexpected) != 1 {
-			t.Fatalf("expected aggregate missing+unexpected roster, got err=%v roster=%+v", err, roster)
+		if !errors.As(err, &roster) || len(roster.Missing) != 1 || len(roster.Unexpected) != 0 {
+			t.Fatalf("expected only the genuinely isolated missing row, got err=%v roster=%+v", err, roster)
 		}
-		if roster.Missing[0].ParticipantID != "A" || roster.Unexpected[0].ParticipantID != "C" ||
-			!strings.Contains(roster.Unexpected[0].Detail, "C->>D") {
-			t.Fatalf("aggregate roster lacks exact structural state: %+v", roster)
+		if roster.Missing[0].ParticipantID != "A" {
+			t.Fatalf("roster lost the genuinely isolated participant: %+v", roster)
 		}
 		if len(patch.ReplaceBlocks) != 0 {
 			t.Fatal("failed roster validation must not author or commit a participant choice")
@@ -499,7 +553,7 @@ func TestEmitAnswerDocumentPatch_AtomicParticipantFailurePublishesWholeRollbackR
 		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}],
 		"diagram_participant_edits":[
 			{"block_id":"diag","participant_id":"A","action":"remove_if_isolated"},
-			{"block_id":"diag","participant_id":"C","action":"remove_if_isolated"}
+			{"block_id":"diag","participant_id":"B","action":"remove_if_isolated"}
 		]
 	}`, lease.Failures[0].FailureRef))
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
@@ -519,7 +573,7 @@ func TestEmitAnswerDocumentPatch_AtomicParticipantFailurePublishesWholeRollbackR
 	if raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]; !strings.Contains(raw, lease.Failures[0].FailureRef) || !strings.Contains(raw, `"participant_id":"A"`) {
 		t.Fatalf("rollback response must republish the same live complete delta: %s", raw)
 	}
-	if raw := res.Repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON]; !strings.Contains(raw, `"participant_id":"C"`) || !strings.Contains(raw, `"unexpected"`) {
+	if raw := res.Repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON]; !strings.Contains(raw, `"participant_id":"B"`) || !strings.Contains(raw, `"unexpected"`) {
 		t.Fatalf("rollback response must publish the exact participant mismatch roster: %s", raw)
 	}
 	if signature := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature]; len(signature) != 67 || !strings.HasPrefix(signature, "v1:") {
@@ -1939,6 +1993,32 @@ func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefRelabelsOnlyDisplaySur
 		got.EdgeAnchors[0].RelationKind != baseAnchor.RelationKind ||
 		got.EdgeAnchors[1] != prev.Blocks[1].EdgeAnchors[1] {
 		t.Fatalf("relabel must change only the selected body/anchor display wording: %+v", got)
+	}
+}
+
+func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefMayPruneSupportingCarrier(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	baseAnchor := prev.Blocks[1].EdgeAnchors[0]
+	lease := types.NewAnswerDiagramRelationRepairLease(prev,
+		[]types.AnswerDiagramRelationRepairFailure{{
+			BlockID: "diag", Issue: diagramTypedRecipeMissingVisibleLabel,
+			FromNode: baseAnchor.FromNode, ToNode: baseAnchor.ToNode,
+			FromIdentity: baseAnchor.FromIdentity, ToIdentity: baseAnchor.ToIdentity,
+			RelationKind: baseAnchor.RelationKind, BodyOccurrence: 1,
+		}}, nil)
+	if lease == nil || !lease.Failures[0].AllowsAction("remove") {
+		t.Fatalf("label-pair presentation carrier must expose model-owned pruning: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
+	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
+	}}, nil, lease); err != nil {
+		t.Fatalf("model-selected supporting-carrier pruning failed: %v", err)
+	}
+	got := patch.ReplaceBlocks[0]
+	if strings.Contains(got.Diagram.Body, "A->>B") || len(got.EdgeAnchors) != 1 ||
+		got.EdgeAnchors[0] != prev.Blocks[1].EdgeAnchors[1] {
+		t.Fatalf("pruning changed more than the selected display carrier: %+v\n%s", got.EdgeAnchors, got.Diagram.Body)
 	}
 }
 

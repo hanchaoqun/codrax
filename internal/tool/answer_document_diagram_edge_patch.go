@@ -498,6 +498,16 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		key := blockID + "\x00" + participantID
 		block := working[blockID]
 		base := previous[blockID]
+		// Orphan dispositions are conditional decisions against the
+		// producer-published pre-edit roster. A model-selected typed addition
+		// may keep this participant connected. In that case the disposition
+		// has no work to do; accepting it as a no-op preserves the model's
+		// relation and wording without a second topology-guessing round.
+		if !atomicDiagramParticipantDispositionIsRequired(
+			base, block, participantID, protectedParticipants, lease,
+		) {
+			continue
+		}
 		if err := applyOneModelAuthoredDiagramParticipantEdit(
 			&block, base, edit, participantCandidates[key], protectedParticipants, lease,
 		); err != nil {
@@ -841,12 +851,11 @@ func validateAtomicDiagramParticipantDispositionRoster(
 			})
 			continue
 		}
-		if !atomicDiagramParticipantDispositionIsRequired(base, current, participantID, protectedParticipants, lease) {
-			roster.Unexpected = append(roster.Unexpected, atomicDiagramParticipantDispositionRosterRow{
-				BlockID: blockID, ParticipantID: participantID, Issue: "not_isolated_or_ineligible",
-				Detail: atomicDiagramParticipantCleanupIneligibility(current, base, participantID, protectedParticipants, lease),
-			})
-		}
+		// This is a conditional disposition over a live, signed candidate. If
+		// other selected edits leave it connected or protected, the operation
+		// is an intentional no-op rather than an invalid topology prediction.
+		// Unknown candidates and actions still fail above, and an actually
+		// isolated row remains mandatory below.
 	}
 	if lease == nil {
 		return roster

@@ -57911,6 +57911,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1577 B1505：关系修补保持主链焦点，孤立节点改为同代条件选择（2026-08-31）
+
+1. `B1505-DIAGRAMREPAIRAUTOEROSION1/P1` 已施工。r986 不是 typed relation gate 过严：系统已经证明完整的
+   `analyze -> explore -> extract -> finalize` requested relation spine，并把 `runAnalyzePhase -> dispatchStage` 等调用片段标为
+   supporting grounded segment；真正缺口是 joint repair 只交付局部 failure/addition JSON，没有在同一高关注修补上下文重放 compact principal
+   recipe，模型因而把主链和旁证混在一图，再用 11 次删除把图修成两个互不连通的片段。
+2. joint participant+relation retry 现在从同一个 typed authority producer 重放 principal-only repair payload：完整主链按一个 principal visual
+   处理，旁证可保留在正文或独立有边界的图中，但不能替代、截断或作为不相干碎片留在主图。该 payload 只提供 exact aliases、方向、relation kind
+   与 anchor JSON；系统不选择模型是否画图、不选边、不生成可见标签、不重排答案，也不从请求、thinking、最终 prose 或 Mermaid 文案恢复关系。
+3. 已证 label-pair carrier 不再被迫只能 relabel。其 relation 事实已经 grounded，是否继续留在当前 principal visual 属于模型的呈现选择，因此 live
+   lease 同时暴露 `relabel` 与 `remove`；两者都必须由模型显式选择。remove 只删除该 exact visible statement 与 sibling anchor，普通 required-diagram
+   最小边数、requested participant coverage 和 typed relation gate 会在合并后重新校验，系统不能借此自动删图或把旁证当主链。
+4. `optional_orphan_cleanups` 改成真正的条件语义。模型对 pre-edit typed roster 一次性选择 `remove_if_isolated` 或
+   `retain_as_context`；若同一原子补丁新增的 typed edge 让该节点仍连通，选择安全 no-op，不修改节点、标签或关系，也不再要求模型预测 post-edit
+   roster。未知 participant/action 继续 fail-closed；实际变孤立而未作选择仍一次返回完整 missing roster；请求 participant、unproven boundary 与
+   sequence Note 等保护面不会被条件操作删除。
+5. 回归覆盖 label-pair relabel/remove 两个动态 schema 分支、remove 的 exact carrier 隔离、typed addition 后条件 cleanup no-op、保护节点/Note no-op、
+   未列节点拒绝、真实孤立节点缺少选择的完整 roster、生产 patch envelope，以及 joint retry 对 principal-only recipe 的 M4 接线 pin。针对性测试、
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1`、完整 `go test ./... -count=1` 与 CGO release-tag `make` 全绿。
+6. 本批没有放宽任何 relation evidence authority，也没有建立“修成系统期望答案”的硬门。下一步从本提交重建，严格并发恰好 2 路复放 r986 的
+   Rust/组合架构：Rust 验收 B1506 branch polarity；组合架构验收第一轮修补是否保住 compact 主链、旁证不再污染主图、patch 次数显著下降。
+
+状态：
+
+`B1505=implemented/principal-repair-focus+conditional-orphan/full-suite+build-pass/pending-production-replay`；
+`label-pair-presentation=model-owned-relabel-or-remove`；
+`orphan-disposition=model-owned-conditional/no-post-edit-topology-guess`；
+`principal/supporting-boundary=typed-authority/replayed-in-joint-repair`；
+`typed-relation-gates=unchanged/post-merge-revalidated`；
+`system-answer/conclusion/relation/label/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

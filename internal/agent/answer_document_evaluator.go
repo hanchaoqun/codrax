@@ -18237,7 +18237,7 @@ func (e *answerDocumentEvaluator) emitPatchRejectFullRewriteSignal(ctx *types.Ag
 	// participant lane hides live failure refs that the model could have fixed
 	// in the same atomic patch, guaranteeing another reject for no new evidence.
 	if e.diagramRequired && relationLeaseInstalled {
-		if hint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, true); ok {
+		if hint, ok := answerDocRequiredDiagramJointDeltaPatchHint(ctx, obs.LastToolResult, true); ok {
 			e.rejectHintsUsed++
 			e.preferPatchNext = true
 			hint += answerDocPatchBaseBlockRosterHint(ctx, e.mu, "")
@@ -19230,7 +19230,7 @@ func parseAnswerDocDiagramRelationRepairDelta(result *types.ToolResult) (answerD
 // function only presents those two carriers together so the model can choose
 // its boundary and edge operations in one atomic patch. It never chooses an
 // action, edge, label, relation, participant layout, or answer conclusion.
-func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alreadyPatching bool) (string, bool) {
+func answerDocRequiredDiagramJointDeltaPatchHint(ctx *types.AgentContext, result *types.ToolResult, alreadyPatching bool) (string, bool) {
 	participantDelta, participantRaw, participantOK := parseAnswerDocDiagramParticipantRepairDelta(result)
 	relationDelta, relationRaw, relationOK := parseAnswerDocDiagramRelationRepairDelta(result)
 	if !participantOK || !relationOK {
@@ -19279,13 +19279,18 @@ func answerDocRequiredDiagramJointDeltaPatchHint(result *types.ToolResult, alrea
 			b.WriteString(" and repair both producer-owned deltas in ONE atomic patch when you choose operations for both. `diagram_boundary_replacements` and `diagram_edge_edits` may appear together; `diagram_participant_edits` may join them. Do not repair one family while carrying the other failure into another round, and do not re-emit the whole diagram through `replace_blocks`. For participant_delta, follow only its exact mismatch/action/candidate rows; a candidate is permission, not a required edge. ")
 		}
 		b.WriteString(answerDocDiagramRelationRepairBranchTeaching(relationDelta))
-		b.WriteString("If those selected edits isolate an `optional_orphan_cleanups` row, explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Keep every unlisted edge because preserve_unlisted_edges=true, and preserve every unmentioned boundary; retain inherited sibling/citation content. ")
+		b.WriteString("For each `optional_orphan_cleanups` row whose incident failure refs you remove, choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label in this same patch. These are conditional decisions: when one of your selected typed additions keeps the participant connected, that disposition is a safe no-op. You do not need to predict the post-edit orphan roster. Keep every unlisted edge because preserve_unlisted_edges=true, and preserve every unmentioned boundary; retain inherited sibling/citation content. ")
 	}
 	b.WriteString("You still own every action, visible node/edge, business wording, order, grouping, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording.\n\n```json\n{\"participant_delta\":")
 	b.WriteString(participantRaw)
 	b.WriteString(",\"relation_delta\":")
 	b.Write(relationRaw)
 	b.WriteString("}\n```\n\n")
+	if principal := answerDocMechanismPrincipalRelationRepairPayload(ctx); principal != "" {
+		b.WriteString("The current request-scoped typed authority also proves the complete principal relation spine below. Treat it as one compact principal visual: supporting grounded fragments may stay in prose or a separate bounded visual, but must not replace, truncate, or remain as disconnected clutter inside that principal diagram. This is evidence and selection guidance only; you still choose the visible diagram, actions, labels, and wording.\n\n")
+		b.WriteString(principal)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
 	b.WriteString(" The system has not selected, added, removed, relabelled, reversed, reconnected, or rewritten any model-authored relation or answer text. Do not reopen files or write free-form prose outside the tool call.")
 	return b.String(), true
@@ -19373,7 +19378,7 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	b.WriteString(action)
 	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. ")
 	b.WriteString(answerDocDiagramRelationRepairBranchTeaching(delta))
-	b.WriteString("For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. If the selected edits isolate an `optional_orphan_cleanups` row, add `diagram_participant_edits` and explicitly choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
+	b.WriteString("For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. For each `optional_orphan_cleanups` row whose incident failure refs you remove, add `diagram_participant_edits` and choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. The choice is conditional and safely does nothing when another selected typed addition keeps that participant connected, so do not predict a second post-edit roster. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
 	if diagramRequired {
 		b.WriteString("The diagram is required, so keep its block and repair only with the published local capabilities. ")
 	} else {
@@ -20046,7 +20051,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// them together before either single-family lane so the model can submit one
 	// bounded atomic patch without losing any already-known failure carrier.
 	if hasPatchBase && e.diagramRequired && relationLeaseInstalled {
-		if jointHint, ok := answerDocRequiredDiagramJointDeltaPatchHint(obs.LastToolResult, false); ok {
+		if jointHint, ok := answerDocRequiredDiagramJointDeltaPatchHint(ctx, obs.LastToolResult, false); ok {
 			hint = jointHint
 			reasonKey = "required-diagram-joint-delta"
 			diagramCallEdgePatchRecovery = true

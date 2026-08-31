@@ -786,7 +786,7 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseHidesSystemGeneratedUnre
 	}
 }
 
-func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelRefOnly(t *testing.T) {
+func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelOrRemove(t *testing.T) {
 	base := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(base,
 		[]types.AnswerDiagramRelationRepairFailure{{
@@ -810,30 +810,37 @@ func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelRefO
 	props := root["properties"].(map[string]any)
 	edits := props["diagram_edge_edits"].(map[string]any)
 	branches := edits["items"].(map[string]any)["oneOf"].([]any)
-	if len(branches) != 1 || edits["minItems"] != float64(1) || edits["maxItems"] != float64(1) {
-		t.Fatalf("label-pair lease must expose exactly one branch: %+v", edits)
+	if len(branches) != 2 || edits["minItems"] != float64(1) || edits["maxItems"] != float64(1) {
+		t.Fatalf("label-pair lease must expose one relabel and one remove branch: %+v", edits)
 	}
-	branch := branches[0].(map[string]any)
-	branchProps := branch["properties"].(map[string]any)
-	if got := branchProps["action"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"relabel"}) {
-		t.Fatalf("label-pair action=%v", got)
-	}
-	if got := branchProps["failure_ref"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{lease.Failures[0].FailureRef}) {
-		t.Fatalf("label-pair ref=%v", got)
-	}
-	for _, required := range []string{"failure_ref", "action", "visible_label"} {
-		found := false
+	seenActions := map[string]bool{}
+	for _, rawBranch := range branches {
+		branch := rawBranch.(map[string]any)
+		branchProps := branch["properties"].(map[string]any)
+		actions := branchProps["action"].(map[string]any)["enum"].([]any)
+		if len(actions) != 1 {
+			t.Fatalf("label-pair branch action=%v", actions)
+		}
+		action := actions[0].(string)
+		seenActions[action] = true
+		if got := branchProps["failure_ref"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{lease.Failures[0].FailureRef}) {
+			t.Fatalf("label-pair ref=%v", got)
+		}
+		required := map[string]bool{}
 		for _, rawField := range branch["required"].([]any) {
-			found = found || rawField == required
+			required[rawField.(string)] = true
 		}
-		if !found {
-			t.Fatalf("label-pair branch did not require %q: %+v", required, branch)
+		if !required["failure_ref"] || !required["action"] || (action == "relabel") != required["visible_label"] {
+			t.Fatalf("label-pair branch has wrong required fields: action=%s branch=%+v", action, branch)
+		}
+		for _, hidden := range []string{"block_id", "match", "occurrence", "body_occurrence", "edge"} {
+			if _, exists := branchProps[hidden]; exists {
+				t.Fatalf("label-pair branch leaked hidden/legacy field %q: %+v", hidden, branchProps)
+			}
 		}
 	}
-	for _, hidden := range []string{"block_id", "match", "occurrence", "body_occurrence", "edge"} {
-		if _, exists := branchProps[hidden]; exists {
-			t.Fatalf("label-pair branch leaked hidden/legacy field %q: %+v", hidden, branchProps)
-		}
+	if !seenActions["relabel"] || !seenActions["remove"] {
+		t.Fatalf("label-pair actions=%v", seenActions)
 	}
 }
 

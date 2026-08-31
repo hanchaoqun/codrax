@@ -11594,6 +11594,32 @@ func TestVerifiedStageEndpointSpanMarksRequestedSpineApartFromDisconnectedSuppor
 			t.Fatalf("supporting relation %q must stay outside the principal repair payload:\n%s", forbidden, principalRepair)
 		}
 	}
+	jointResult := &types.ToolResult{ToolName: "emit_answer_document", Success: false, Repair: &types.ToolRepair{
+		Code: "answer_doc_pre_emit_contract", Metadata: map[string]string{
+			types.ToolRepairMetaDiagramParticipantRepairDeltaJSON: `{"version":1,"mismatches":[{"block_id":"flow","participant":"Analyzer","issue":"required_participant_identity_not_visible"}],"actions":"repair_action[Analyzer]=add_only_the_missing_visible_identity"}`,
+			types.ToolRepairMetaDiagramRelationRepairDeltaJSON:    `{"version":1,"failures":[{"block_id":"flow","issue":"call_edge_unproven","relation_kind":"call","from_node":"X","to_node":"Y","from_identity":"Support.Run","to_identity":"Helper.Do","body_occurrence":1}],"preserve_unlisted_edges":true}`,
+		},
+	}}
+	jointHint, ok := answerDocRequiredDiagramJointDeltaPatchHint(ctx, jointResult, false)
+	if !ok {
+		t.Fatal("mixed required-diagram retry did not compile the joint hint")
+	}
+	for _, want := range []string{
+		"complete principal relation spine",
+		"principal_diagram_recipe_source=`request_scoped_typed_authority`",
+		"principal_edge_recipe[1]=`n1 -> n2`; relation_kind=`precedence`",
+		"supporting_recipe_policy=`optional_prose_or_separate_visual`",
+		"conditional decisions", "do not need to predict the post-edit orphan roster",
+	} {
+		if !strings.Contains(jointHint, want) {
+			t.Fatalf("joint repair lost focused principal/no-op teaching %q:\n%s", want, jointHint)
+		}
+	}
+	for _, forbidden := range []string{"Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage"} {
+		if strings.Contains(jointHint, forbidden) {
+			t.Fatalf("joint repair re-promoted supporting relation %q into its principal recipe:\n%s", forbidden, jointHint)
+		}
+	}
 	repairHint, ok := answerDocRequiredDiagramRelationBoundaryPatchHint(ctx, false)
 	if !ok || !strings.Contains(repairHint, "request-scoped typed provider already proves the complete principal relation spine") {
 		t.Fatalf("required repair must select the principal-only lane:\n%s", repairHint)

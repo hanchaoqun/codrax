@@ -33,9 +33,9 @@ func requireVisibleLabelRelabelDelta(
 	}
 	failure := delta.Failures[0]
 	if failure.Issue != wantIssue || failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
-		!failure.AllowsAction("relabel") || len(failure.AllowedActions) != 1 ||
+		!failure.AllowsAction("relabel") || !failure.AllowsAction("remove") || len(failure.AllowedActions) != 2 ||
 		failure.FailureRef == "" || failure.BodyOccurrence != 1 {
-		t.Fatalf("visible-label delta is not one exact relabel capability: %+v", failure)
+		t.Fatalf("visible-label delta is not one exact presentation capability: %+v", failure)
 	}
 	lease := types.NewAnswerDiagramRelationRepairLease(doc, delta.Failures, delta.AllowedAdditions)
 	if lease == nil || len(lease.Failures) != 1 ||
