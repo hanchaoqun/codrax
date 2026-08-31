@@ -1282,6 +1282,17 @@ func diagramParticipantEndpointExplicitlyDisplaysIdentity(
 		return true
 	}
 	if label := strings.TrimSpace(labels[strings.ToLower(node)]); label != "" {
+		// A requested participant is not necessarily a source-code symbol. Keep
+		// the complete parsed display label as an exact first-class identity so
+		// business/component names such as "read mode" can be carried by a safe
+		// Mermaid node id such as readmode. The code-identity candidates below
+		// remain useful for qualified source labels, but deliberately reject
+		// whitespace-bearing business names. Exact whole-label matching here is
+		// therefore required before that code-only projection; substrings and
+		// presentation qualifiers still cannot create participant authority.
+		if diagramParticipantSurfaceListContainsExact(surfaces, label) {
+			return true
+		}
 		for _, candidate := range diagramEvidenceLabelIdentityCandidates(label) {
 			if diagramParticipantSurfaceListContainsExact(surfaces, candidate) {
 				return true

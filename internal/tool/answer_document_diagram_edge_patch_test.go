@@ -2939,6 +2939,62 @@ func TestApplyModelAuthoredDiagramAtomicEdits_VisibilityRefAddsDeclarationWithou
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_VisibilityRefAcceptsExactMultiwordDisplayIdentity(t *testing.T) {
+	base := func() *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "sequence", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{
+				Kind: types.DiagramSequence, Language: "mermaid",
+				Body: "sequenceDiagram\n participant Analyze\n Analyze->>Analyze: inspect",
+			},
+			ParticipantBoundaries: []types.DiagramParticipantBoundary{{
+				Participant: "read mode", Status: types.DiagramParticipantBoundaryUnproven,
+			}},
+		}}}
+	}
+	makeLease := func(prev *types.AnswerDocumentV2) *types.AnswerDiagramRelationRepairLease {
+		return types.WithAnswerDiagramParticipantVisibilityRepairFailures(prev, nil,
+			[]types.AnswerDiagramParticipantVisibilityRepairFailure{{
+				BlockID: "sequence", Participant: "read mode", Issue: "boundary_participant_not_visible",
+			}})
+	}
+
+	prev := base()
+	lease := makeLease(prev)
+	if lease == nil || len(lease.ParticipantVisibilityFailures) != 1 {
+		t.Fatalf("test setup: expected one visibility ref: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		prev, patch, nil, nil, nil,
+		[]emitAnswerDiagramParticipantEdit{{
+			ParticipantRef: lease.ParticipantVisibilityFailures[0].ParticipantRef,
+			Action:         "ensure_visible", NodeID: "readmode", VisibleLabel: "read mode",
+		}}, nil, lease,
+	)
+	if err != nil {
+		t.Fatalf("a safe node id with the exact multiword display identity should execute: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 || patch.ReplaceBlocks[0].Diagram == nil ||
+		!strings.Contains(patch.ReplaceBlocks[0].Diagram.Body, `participant readmode as "read mode"`) ||
+		len(mermaidcompat.ParseEdges(patch.ReplaceBlocks[0].Diagram.Body)) != 1 {
+		t.Fatalf("visibility edit missed the declaration or changed relations: %+v", patch.ReplaceBlocks)
+	}
+
+	prev = base()
+	lease = makeLease(prev)
+	err = applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
+		prev, &types.AnswerDocumentV2Patch{}, nil, nil, nil,
+		[]emitAnswerDiagramParticipantEdit{{
+			ParticipantRef: lease.ParticipantVisibilityFailures[0].ParticipantRef,
+			Action:         "ensure_visible", NodeID: "readmode", VisibleLabel: "read",
+		}}, nil, lease,
+	)
+	if err == nil || !strings.Contains(err.Error(), "exact required participant identity") {
+		t.Fatalf("a substring display label must remain rejected: %v", err)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_AttachAndBoundaryRefShareOneTransaction(t *testing.T) {
 	prev := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,
