@@ -57978,6 +57978,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r946`。
 
+### §123.1530 r947/r948：source-inventory 内部集合标签误作行级 bucket；合并表评测误报闭环（2026-08-30）
+
+1. r947 从 `8bbbbdeb3` 的同一不可变二进制严格并发恰好 2 路运行 TypeScript write 与 Cangjie read。TypeScript 在 193s
+   形成唯一正确单行补丁：仅字面值 `true`/`error` 强制 WASI，`false` 不再因非空字符串 truthy 进入强制分支，native 不可用时原 fallback
+   不变；项目 `make check` 通过。但测试表面只执行 Python 源码形状检查，报告能力为 `source_static`，没有执行 TypeScript 目标行为，故
+   `unverified:production_verification_source_static_only` 是诚实 fail-closed 边界，不是需要把静态检查升格成生产行为证明的系统 gap。
+2. Cangjie 首轮 592s 降级失败是确定性系统自冲突 `B1461-SYNTHETICINVENTORYROWBUCKET1/P1`，不是模型波动。typed slate 已有精确
+   2 个 extend、2 个 foreign func、8 个 public class；模型也形成正确 12 行表。可是系统为 synthetic global principal set 使用内部集合标签
+   `source inventory principal rows`，并把它复制到每一行的 `SetLabel`；行级完整性门随后要求该内部集合名成为每个可见单元格的 bucket，导致
+   同一正确答案连续 9 次 finalizer reject，最终只剩降级答案。内部集合身份与用户请求的成员类别被错误合并。
+3. B1461 以 `5722d5d69` 根修并推送。synthetic global set 保持集合级内部身份不变；只有某行由 parser/lens 的 typed
+   `SurfaceTerms` 唯一证明一个请求成员族时，才把行级 bucket 投影为该族（如 `extend`、`foreign func`、`public class`）。零族或多族行
+   fail-closed 保留全局标签，ArkTS 同行 `@Entry/@Component` 多族场景与模型自有 partition label 均不被改写。判据不读取请求、模型思考、
+   最终 prose 或表格文本；系统不选择、增加、删除成员，也不改写模型答案。
+4. r948 从 `5722d5d69` 重建后严格并发恰好 2 路复放 Cangjie+ArkTS。ArkTS 190s PASS，精确列出 4 个 `@Entry` 与 2 个
+   `@Builder`，路径/行号和 thirdparty fixture 边界正确，零 finalizer reject，证明多族 fail-closed 负臂无回退。Cangjie 262s 生成一个合并表，
+   精确包含 2/2/8 共 12 行、全部文件坐标与 package，零 finalizer reject；相对 r947 减少 330s 和 9 次成文拒绝，B1461 获生产正证。
+5. r948 的 Cangjie runner 红灯是独立评测器误报 `B1462-EVALMIXEDINVENTORYTABLE1`：旧自动 section fallback 在没有三个分立标题时，
+   对三个 rowset 都选中同一张合法合并表并分别计满 12 行，报 12/12/12。不能要求产品为迎合 oracle 把读者友好的合并表拆成三张。`0f7dd92ae`
+   只修改 eval：当无显式 section/marker 且 Markdown 表有明确 category/kind/type/bucket/group（含中文）列时，只在该列内按 rowset 分区；
+   其他列提到 `extend` 不会串组，显式 case scope 仍优先，unexpected member 仍精确失败。对 r948 原终稿离线复验得到空失败理由。
+6. 两批都没有触碰 Trace 查询、显式窗、因果投影、自动补采、链上根因、实际占时/规则可消双轴、JSON/Mermaid 修复或活动流终止逻辑；没有按
+   固定 4ms、4m、耗时、轮数或上下文比例降级。产品和 eval 修复均不扫描请求/模型原文/最终答案关键词作事实硬门，不替模型选择结论、关系、
+   成员、措辞或布局。
+
+状态：
+
+`r947=human-typescript-pass-with-honest-unverified-boundary+cangjie-system-contract-fail`；
+`B1461=production-positive/core-closed`；
+`r948=human-pass-2/2+runner-arkts-pass+cangjie-false-red`；
+`B1462=eval-only-closed/offline-production-answer-replay-pass`；
+`source-inventory-set-owner=synthetic-global-carrier`；`row-bucket-owner=unique-typed-family-only`；
+`multi-family/unknown-row=fail-closed-no-forced-user-bucket`；
+`write-static-check!=target-behavior-authority`；
+`system-answer/conclusion/relation/member/wording-selection=none`；
+`request/model/final-prose/mermaid-message-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
