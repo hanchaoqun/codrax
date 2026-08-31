@@ -940,6 +940,24 @@ unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTOR
 unset EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC EXPECT_INVENTORY_ROW_MARKER_FOREIGN_FUNC EXPECT_INVENTORY_ROWS_FOREIGN_FUNC EXPECT_INVENTORY_COUNT_FOREIGN_FUNC
 unset EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS EXPECT_INVENTORY_ROW_MARKER_PUBLIC_CLASS EXPECT_INVENTORY_ROWS_PUBLIC_CLASS EXPECT_INVENTORY_COUNT_PUBLIC_CLASS
 
+EXPECT_INVENTORY_ROWSETS="extend foreign_func public_class"
+EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
+EXPECT_INVENTORY_ROWS_EXTEND=$'String|String.cj|demo.stringext\nCart|Cart.cj|demo.cart'
+EXPECT_INVENTORY_COUNT_EXTEND=2
+EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC="line"
+EXPECT_INVENTORY_ROWS_FOREIGN_FUNC=$'native_add|FFI.cj|demo.ffi\nnative_add|Bridge.cj|demo.bridge'
+EXPECT_INVENTORY_COUNT_FOREIGN_FUNC=2
+EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS="line"
+EXPECT_INVENTORY_ROWS_PUBLIC_CLASS=$'Bridge|Bridge.cj|demo.bridge\nAnimal|Animal.cj|demo.modifiers'
+EXPECT_INVENTORY_COUNT_PUBLIC_CLASS=2
+inventory_unmarked_mixed_table=$'## Combined inventory\n\n| symbol | category | path | package |\n|---|---|---|---|\n| String | extend block | src/String.cj:6 | demo.stringext |\n| Cart | extend block | src/Cart.cj:30 | demo.cart |\n| native_add | foreign func declaration | src/FFI.cj:6 | demo.ffi |\n| native_add | foreign func declaration | src/Bridge.cj:6 | demo.bridge |\n| Bridge | public class | src/Bridge.cj:15 | demo.bridge |\n| Animal | public sealed class | src/Animal.cj:6 | demo.modifiers; extended by extend Cart |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_unmarked_mixed_table")" "" "category column must partition an unmarked combined inventory table"
+inventory_unmarked_mixed_table_extra="${inventory_unmarked_mixed_table}"$'\n| Extra | extend block | src/Extra.cj:9 | demo.extra |'
+assert_eq "$(eval_inventory_rowset_reasons "$inventory_unmarked_mixed_table_extra")" "inventory_count_mismatch:extend:got3:want2" "category-column partition must still reject an unexpected family member"
+unset EXPECT_INVENTORY_ROWSETS EXPECT_INVENTORY_ROW_SCOPE_EXTEND EXPECT_INVENTORY_ROWS_EXTEND EXPECT_INVENTORY_COUNT_EXTEND
+unset EXPECT_INVENTORY_ROW_SCOPE_FOREIGN_FUNC EXPECT_INVENTORY_ROWS_FOREIGN_FUNC EXPECT_INVENTORY_COUNT_FOREIGN_FUNC
+unset EXPECT_INVENTORY_ROW_SCOPE_PUBLIC_CLASS EXPECT_INVENTORY_ROWS_PUBLIC_CLASS EXPECT_INVENTORY_COUNT_PUBLIC_CLASS
+
 EXPECT_INVENTORY_ROWSETS="extend"
 EXPECT_INVENTORY_ROW_SCOPE_EXTEND="line"
 EXPECT_INVENTORY_ROWS_EXTEND=$'Cart|Cart.cj|demo.cart'

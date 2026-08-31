@@ -906,6 +906,60 @@ eval_inventory_marker_rows() {
   ' <<<"$text"
 }
 
+# eval_inventory_rowset_table_rows <text> <rowset> — selects rows from a
+# mixed-family Markdown table using only an explicit category/kind column.
+# This keeps the oracle presentation-neutral when one valid table carries
+# several requested rowsets. Matching the entire row is deliberately avoided:
+# a package/note cell may mention another family (for example an ordinary
+# public-class row saying it is extended by an `extend` block).
+eval_inventory_rowset_table_rows() {
+  local text="$1"
+  local rowset="$2"
+  local family_regex
+  family_regex="$(printf '%s' "$rowset" | LC_ALL=C sed -E 's/[_-]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]+/[^|]*/g')"
+  [[ -n "$family_regex" ]] || return 1
+  awk -F'|' -v family="$family_regex" '
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
+    function category_header(value, lower) {
+      lower = tolower(trim(value))
+      return lower == "category" || lower == "kind" || lower == "type" ||
+             lower == "bucket" || lower == "group" || lower == "类别" ||
+             lower == "分类" || lower == "类型" || lower == "分组"
+    }
+    BEGIN { in_table = 0; category_col = 0; found = 0 }
+    /^[[:space:]]*\|/ {
+      if (!in_table) {
+        in_table = 1
+        category_col = 0
+        for (i = 2; i < NF; i++) {
+          if (category_header($i)) {
+            category_col = i
+            break
+          }
+        }
+        next
+      }
+      compact = $0
+      gsub(/[[:space:]|:-]/, "", compact)
+      if (compact == "") next
+      if (category_col > 0 && tolower(trim($category_col)) ~ tolower(family)) {
+        print
+        found = 1
+      }
+      next
+    }
+    {
+      in_table = 0
+      category_col = 0
+    }
+    END { if (!found) exit 1 }
+  ' <<<"$text"
+}
+
 eval_inventory_row_visible() {
   local cleaned="$1"
   local row="$2"
@@ -936,7 +990,7 @@ eval_inventory_rowset_reasons() {
   [[ -n "$rowsets" ]] || return 0
 
   local rowset rowset_key rows_var rows count_var expected_count
-  local banned_var banned_rows scope_var row_scope section_var section_label marker_var row_marker rowset_text rowset_scoped marker_scoped old_ifs row matched total reason_row visible_count
+  local banned_var banned_rows banned_matched scope_var row_scope section_var section_label marker_var row_marker rowset_text rowset_scoped marker_scoped old_ifs row matched total reason_row visible_count
   for rowset in $rowsets; do
     rowset_key="$(eval_env_key "$rowset")"
     rows_var="EXPECT_INVENTORY_ROWS_${rowset_key}"
@@ -965,6 +1019,13 @@ eval_inventory_rowset_reasons() {
     # Use that section only when no presentation row carried the marker.
     elif [[ -n "$row_marker" ]] && rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset" "$row_marker")"; then
       rowset_scoped=1
+    # A combined table can carry several exact rowsets in one reader-friendly
+    # shape. When the table exposes a category/kind column, use that column as
+    # the row partition instead of counting the entire shared table for every
+    # rowset. Explicit case-declared section/marker scopes above still win.
+    elif [[ -z "$section_label$row_marker" ]] && rowset_text="$(eval_inventory_rowset_table_rows "$cleaned" "$rowset")"; then
+      rowset_scoped=1
+      marker_scoped=1
     elif [[ -z "$section_label" ]] && rowset_text="$(eval_inventory_rowset_section_text "$cleaned" "$rowset")"; then
       rowset_scoped=1
     elif [[ -n "$section_label" && -z "$row_marker" ]]; then
@@ -975,6 +1036,26 @@ eval_inventory_rowset_reasons() {
       continue
     else
       rowset_text="$cleaned"
+    fi
+
+    # An exact banned row is the stronger, actionable failure. Remember it
+    # before cardinality accounting so a category-scoped mixed table does not
+    # emit a redundant count mismatch for the same single offending row.
+    banned_var="EXPECT_INVENTORY_BANNED_ROWS_${rowset_key}"
+    banned_rows="${!banned_var:-}"
+    banned_matched=0
+    if [[ -n "$banned_rows" ]]; then
+      old_ifs="$IFS"
+      IFS=$'\n'
+      for row in $banned_rows; do
+        row="$(eval_trim "$row")"
+        [[ -z "$row" ]] && continue
+        if eval_inventory_row_visible "$rowset_text" "$row" "$row_scope"; then
+          banned_matched=1
+          break
+        fi
+      done
+      IFS="$old_ifs"
     fi
 
     matched=0
@@ -1010,15 +1091,13 @@ eval_inventory_rowset_reasons() {
           visible_count="$(eval_inventory_visible_row_count "$rowset_text" || true)"
         fi
       fi
-      if [[ -n "$visible_count" ]] && [[ "$visible_count" -ne "$expected_count" ]]; then
+      if [[ "$banned_matched" -eq 0 ]] && [[ -n "$visible_count" ]] && [[ "$visible_count" -ne "$expected_count" ]]; then
         printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$visible_count" "$expected_count"
-      elif [[ -z "$visible_count" ]] && [[ "$matched" -ne "$expected_count" ]]; then
+      elif [[ "$banned_matched" -eq 0 ]] && [[ -z "$visible_count" ]] && [[ "$matched" -ne "$expected_count" ]]; then
         printf 'inventory_count_mismatch:%s:got%s:want%s\n' "$rowset" "$matched" "$expected_count"
       fi
     fi
 
-    banned_var="EXPECT_INVENTORY_BANNED_ROWS_${rowset_key}"
-    banned_rows="${!banned_var:-}"
     if [[ -n "$banned_rows" ]]; then
       old_ifs="$IFS"
       IFS=$'\n'
