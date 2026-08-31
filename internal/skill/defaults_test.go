@@ -1396,6 +1396,8 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"Its canonical breadth tuple is only: fact_families omitted + one required causal dimension",
 		"do not need to repeat that decision",
 		"never demote them merely to make legacy labels agree",
+		"`runtime_work_relation_requested` is an independent model decision",
+		"a scope/fact_families structural repair must preserve its submitted value",
 		"rejected rather than silently normalized",
 		"Scope never pre-decides the finding",
 		"yes, no, mixed, or unproven",

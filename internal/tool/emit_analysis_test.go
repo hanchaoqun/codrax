@@ -1207,12 +1207,49 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	for _, want := range []string{
 		"fact_families conflicts with causal_diagnosis",
 		`causal_diagnosis_canonical_field_target={"scope":"causal_diagnosis"}`,
+		"repair only runtime_question_profile.fact_families",
+		"runtime_work_relation_requested is an independent model decision and must remain exactly false",
 		"preserve every required causal_attribution/causal_contributor_set dimension",
 		"no automatic rewrite or acceptance occurs",
 	} {
 		if res.Success || !strings.Contains(res.Summary, want) {
 			t.Fatalf("causal breadth conflict did not return unique repair target %q: success=%t summary=%q", want, res.Success, res.Summary)
 		}
+	}
+
+	causalWorkRosterWithRedundantFamilies := strings.Replace(
+		causalRosterWithRedundantFamilies,
+		`"runtime_work_relation_requested":false`,
+		`"runtime_work_relation_requested":true`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalWorkRosterWithRedundantFamilies))
+	if err != nil {
+		t.Fatalf("causal work roster with redundant families Execute: %v", err)
+	}
+	if res.Success || !strings.Contains(res.Summary, "repair only runtime_question_profile.fact_families") ||
+		!strings.Contains(res.Summary, "runtime_work_relation_requested is an independent model decision and must remain exactly true") {
+		t.Fatalf("causal scope repair did not preserve the independent true work-relation decision: success=%t summary=%q", res.Success, res.Summary)
+	}
+
+	causalWorkRoster := strings.Replace(
+		causalRoster,
+		`"runtime_work_relation_requested":false`,
+		`"runtime_work_relation_requested":true`,
+		1,
+	)
+	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
+	ctx.Mutable.SetPerfTrace(&types.PerfBundle{Meta: types.PerfMeta{Source: "attached.systrace", Signals: []string{"binder_transaction"}}})
+	res, err = (&EmitAnalysis{}).Execute(ctx, json.RawMessage(causalWorkRoster))
+	if err != nil {
+		t.Fatalf("corrected causal work roster Execute: %v", err)
+	}
+	gotRM = ctx.Mutable.RequestModel()
+	if !res.Success || gotRM == nil || gotRM.RuntimeQuestionProfile == nil ||
+		!gotRM.RuntimeQuestionProfile.RuntimeWorkRelationRequested {
+		t.Fatalf("field-local repair did not converge with the model's true work-relation decision intact: success=%t summary=%q model=%+v", res.Success, res.Summary, gotRM)
 	}
 
 	causalWithRedundantFamilies := strings.Replace(payload, `"scenario":"generic"`, `"scenario":"performance_bottleneck"`, 1)

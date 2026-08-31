@@ -57561,6 +57561,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1586 B1514：scope 结构修补不得重做独立 runtime-work relation 决策（2026-08-31）
+
+1. `B1514-ANALYSISRETRYINDEPENDENTDECISION1/P1` 已施工。`causal_diagnosis + fact_families` 的拒绝信息现在明确把修补范围限定为
+   `runtime_question_profile.fact_families`：下一次 COMPLETE model-owned object 只需省略该冲突字段，causal scope 与 required
+   `causal_attribution/causal_contributor_set` 继续保持。
+2. 同一提示把 analyzer 已提交的 `runtime_work_relation_requested` 值逐值带回：该布尔是与 scope/fact-families 正交的模型决策，在这次结构修补中
+   必须保持 exactly true/false，除非模型明确重新分类当前请求本身。generic non-bounded 冲突臂也携带相同边界，避免换一条错误分支后再次漂移。
+3. 分析教学的 one-way scope rule 同步声明：scope/fact_families repair 不能重新决定 runtime-work relation。该教学不是跨轮 sticky state，系统没有
+   自动复制或覆盖原对象，没有从用户请求、模型 thinking、trace_query、最终答案或投影推断 true/false；提交值及是否真正重分类仍由 analyzer 模型负责。
+4. 新回归覆盖两个方向：false 冲突对象收到 exactly false；true 冲突对象收到“只删 fact_families + exactly true”，按该局部修补重发后
+   `RuntimeQuestionProfile.RuntimeWorkRelationRequested=true` 被正常接受并进入 RequestModel。这样验证的是可执行收敛路径，不是只钉一段提示文字。
+5. 本批没有改变 runtime-work 最终席的事实/因果权限：是否存在 VerifyClass/JIT/GC 等 work、测得时长、是否与目标等待绑定以及有效可消量仍只能消费
+   typed Trace rows/relations，由模型形成可见判断；系统投影不能替代模型回答，也不反写模型结论。
+6. 验证结果：定向 tool/skill 正反臂通过；`go test ./internal/skill ./internal/tool -count=1` 全绿（tool 183.386s）；冻结代码上
+   `go test ./... -count=1` 全绿（其中 tool 215.131s、tracequery 92.620s、hitraceconv 124.905s），`make` 通过。提交后从干净构建严格并发
+   恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace，联合验收 B1512/B1513/B1514。
+
+状态：
+
+`B1514=implemented/true+false-field-local-retry-pins/full-suite+build-pass/pending-production-replay`；
+`scope/fact-families repair=field-local`；
+`runtime-work-relation-decision=model-owned/preserve-submitted-value/no-system-sticky-state`；
+`runtime-work fact/causal/eliminable authority=typed-trace-only`；
+`system-answer/conclusion/relation/wording/boolean-selection=none`；
+`request/model/final-prose/trace-query fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
