@@ -126,7 +126,7 @@ func projectRuntimeWorkRelationField(blockProps map[string]any, view *types.Answ
 		return
 	}
 	blockProps["runtime_work_relation"] = map[string]any{
-		"description": "Select exactly one typed runtime-work row and its evidence-bounded conclusion. The system resolves the selected id to exact measured facts for visible rendering; it never chooses the row or conclusion and never scans block text.",
+		"description": "Select exactly one typed runtime-work row and its evidence-bounded conclusion. The system resolves the selected id to exact measured facts for visible rendering; it never chooses the row or conclusion and never scans block text. Do not repeat machine conclusion tokens in visible block text or caveats; the renderer localizes the selected conclusion.",
 		"oneOf":       choices,
 	}
 }

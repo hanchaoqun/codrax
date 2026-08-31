@@ -57529,6 +57529,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r979`。
 
+### §123.1565 r980/B1497–B1498：精确工作行生产命中；保守结论丢凭证与 explorer 工具教学错配（2026-08-31）
+
+1. 从已推送 `f43fce7a2` 构建不可变二进制，严格并发恰好 2 路复放 H8 显式窗 Trace 与 Cangjie inventory；runner 2/2 PASS，
+   Trace 183s、Cangjie 270s。两路均无旧稿降级或固定 4ms/4m、活动流年龄、轮次、首字节、上下文比例降级。
+2. B1496 获核心生产正证。Trace 模型从动态 schema 精确选择 `VerifyClass com.baidu.zeus.mml.lac.LacUtils` observation 与较保守的
+   `relation_unproven` 结论；模型 principal 块和读者行均显示 T7、0.285ms，选择过程明确比较两个 schema 允许的结论，系统没有替模型下结论。
+   显式 10ms 窗、4 次 typed query、NetworkService 链上第一席、目标状态账、实际占时/规则可消双账户、业务线索、自动补齐和最终
+   `Trace 因果投影` 全部保留，邻近/背景未进入根因排序。
+3. Trace 人工仍判 fail，确认 `B1497-RUNTIMEWORKCREDENTIALDISPLAY1/P1`。当模型选择较保守的 `relation_unproven` 时，首版本地化只显示
+   “已观测、关系未证”，没有并列同一 typed row 已有的 `host_direct_wakeup_edge` 凭证和 work-completion/target-wait/frame-causality 边界；
+   模型又在 caveat 复述机器枚举 token。前者是确定性事实展示 gap；后者不能靠正文扫描或系统改写修复。
+4. B1497 已施工：四个模型可选结论仍不变；保守结论的 renderer 按 typed credential 显示精确已证事实，再保留模型选择的未证结论。
+   host 直接唤醒、chain interval、target-self 三类均有对应读者边界；未知凭证继续诚实退化。schema 和完成教学仅软提示不要在可见正文/caveat
+   重复机器枚举，系统不删除、替换或拒绝模型原文。中英文回归钉住凭证、边界及内部 enum 不从 renderer 泄漏。
+5. Cangjie 人工通过。最终 12 行、`extend=2 / foreign func=2 / public class=8`、符号/路径/package 全正确，r979 的 5/8 包数错误未复现。
+   但过程出现 6 次不可用 grep、7 次 investigation completion 中 6 次拒绝和 1 次标准 cells 修补；错误 explorer closure 曾声称只找到 1 个 extend、
+   5 个 class，最终被 typed source-inventory 单源正确隔离。
+6. 新确认 `B1498-EXPLORERTOOLCAPABILITYALIGN1/P1`：在调度已收窄到只允许 `emit_investigation_complete` 的 explorer 轮，模型仍收到或延续
+   “用 grep/read 验证”的软教学，因此反复调用不可用工具并用不完整记忆铸 closure。最优修向是按每轮真实 tool capability 裁剪搜索教学和完成提示，
+   保留 typed principal rows 作为事实权威；不得扫描用户/模型文本、不得为 Cangjie 或单个 case 加豁免。该项排入下一高 ROI 批。
+
+状态：
+
+`r980=runner-pass-2/2,human-trace-fail+cangjie-pass`；
+`B1496=production-positive/core-closed`；
+`B1497=implemented/targeted-tests-pass/full-suite-pass`；
+`B1498=confirmed/next-high-roi-batch`；
+`runtime-work-observation/conclusion=model-selected`；
+`runtime-work-credential/boundary=typed-row-reader-fact`；
+`machine-enum-visible-prose=soft-avoid/no-scan-no-rewrite`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r980`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r980`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

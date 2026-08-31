@@ -8235,9 +8235,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 			if lang == "zh" {
-				b.WriteString("  - 在模型成文、可见的主结论块上设置 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与外部观测 claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择工作行和结论；系统仅把该 typed 行的工作名、实测时长、关系凭证和未证边界显示出来，不扫描或改写正文。\n")
+				b.WriteString("  - 在模型成文、可见的主结论块上设置 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与外部观测 claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择工作行和结论；系统仅把该 typed 行的工作名、实测时长、关系凭证和未证边界显示出来，不扫描或改写正文。可见正文和 caveat 不要复述机器枚举 token，渲染器会把所选结论转成读者语言。\n")
 			} else {
-				b.WriteString("  - On a model-authored visible principal conclusion block, set `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` plus the external-observation claim and select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the work row and conclusion; the system only displays that typed row's work name, measured duration, relation credential, and unproved boundary without scanning or rewriting prose.\n")
+				b.WriteString("  - On a model-authored visible principal conclusion block, set `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` plus the external-observation claim and select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the work row and conclusion; the system only displays that typed row's work name, measured duration, relation credential, and unproved boundary without scanning or rewriting prose. Do not repeat machine enum tokens in visible prose or caveats; the renderer localizes the selected conclusion.\n")
 			}
 		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
@@ -8264,9 +8264,9 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	}
 	if runtimeWorkRelationRequested && !hasRuntimeWorkRelationDimension {
 		if lang == "zh" {
-			b.WriteString("- 本轮 typed 运行时问题另行声明了一个运行时工作/span/operation 与目标关系子问。请在模型成文、可见的主结论块上保留运行时关系与外部观测 facet/claim，并从 schema 精确选择 `runtime_work_relation:{observation_id,conclusion}`。模型选择工作行和结论；系统仅显示该 typed 行的工作名、实测时长、关系凭证和未证边界，不扫描或改写正文。\n")
+			b.WriteString("- 本轮 typed 运行时问题另行声明了一个运行时工作/span/operation 与目标关系子问。请在模型成文、可见的主结论块上保留运行时关系与外部观测 facet/claim，并从 schema 精确选择 `runtime_work_relation:{observation_id,conclusion}`。模型选择工作行和结论；系统仅显示该 typed 行的工作名、实测时长、关系凭证和未证边界，不扫描或改写正文。可见正文和 caveat 不要复述机器枚举 token。\n")
 		} else {
-			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target subquestion. On a model-authored visible principal conclusion block keep the runtime-relation and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the schema. The model chooses the row and conclusion; the system only displays its typed name, duration, credential, and boundary without scanning or rewriting prose.\n")
+			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target subquestion. On a model-authored visible principal conclusion block keep the runtime-relation and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the schema. The model chooses the row and conclusion; the system only displays its typed name, duration, credential, and boundary without scanning or rewriting prose. Do not repeat machine enum tokens in visible prose or caveats.\n")
 		}
 	}
 	b.WriteString("\n")
@@ -17128,7 +17128,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 				}
 			}
 			if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-				b.WriteString("  - 请在模型成文、可见的主结论块上设置 principal、运行时关系与外部观测 facet/claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择行和结论；系统只显示该 typed 行的精确事实，不扫描或改写正文。\n")
+				b.WriteString("  - 请在模型成文、可见的主结论块上设置 principal、运行时关系与外部观测 facet/claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择行和结论；系统只显示该 typed 行的精确事实，不扫描或改写正文。可见正文和 caveat 不要复述机器枚举 token。\n")
 			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
@@ -17168,7 +17168,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			}
 		}
 		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
-			b.WriteString("  - On a model-authored visible principal conclusion block set the principal, runtime-relation, and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the row and conclusion; the system only displays its exact typed facts without scanning or rewriting prose.\n")
+			b.WriteString("  - On a model-authored visible principal conclusion block set the principal, runtime-relation, and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the row and conclusion; the system only displays its exact typed facts without scanning or rewriting prose. Do not repeat machine enum tokens in visible prose or caveats.\n")
 		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")

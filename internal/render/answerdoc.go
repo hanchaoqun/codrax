@@ -208,6 +208,17 @@ func runtimeWorkRelationConclusionZH(conclusion types.RuntimeWorkRelationConclus
 		return "已证实这是目标自身执行的工作；是否造成该帧超时仍需独立帧或截止期证据"
 	case types.RuntimeWorkRelationConclusionCausalContributionSupported:
 		return "现有链上证据支持其构成因果贡献，结论范围受该证据链约束"
+	case types.RuntimeWorkRelationConclusionRelationUnproven:
+		switch credential {
+		case "host_direct_wakeup_edge":
+			return "已证实宿主线程随后直接唤醒目标；但尚未证明该工作完成触发唤醒、目标等待该工作或该工作造成丢帧，因此工作到目标的因果关系仍未证"
+		case "typed_chain_interval_overlap":
+			return "已证实该工作与链上区间存在关系；但尚未证明目标等待其完成或它造成丢帧，因此工作到目标的因果关系仍未证"
+		case "target_self_execution":
+			return "已证实这是目标自身执行的工作；是否造成该帧超时仍未证"
+		default:
+			return "已观测到该工作，但当前证据尚未建立它与目标的关系"
+		}
 	default:
 		return "已观测到该工作，但当前证据尚未建立它与目标的关系"
 	}
@@ -224,6 +235,17 @@ func runtimeWorkRelationConclusionEN(conclusion types.RuntimeWorkRelationConclus
 		return "this is proved target-self work; whether it caused the frame or deadline miss needs separate frame evidence"
 	case types.RuntimeWorkRelationConclusionCausalContributionSupported:
 		return "typed on-chain evidence supports a causal contribution within that evidence boundary"
+	case types.RuntimeWorkRelationConclusionRelationUnproven:
+		switch credential {
+		case "host_direct_wakeup_edge":
+			return "the host thread is proved to wake the target directly afterward; work-completion, target-wait, and dropped-frame causality remain unproved, so the work-to-target causal relation is still unproved"
+		case "typed_chain_interval_overlap":
+			return "a typed chain-interval relation is proved; target wait/completion and dropped-frame causality remain unproved, so the work-to-target causal relation is still unproved"
+		case "target_self_execution":
+			return "this is proved target-self work; whether it caused the frame or deadline miss remains unproved"
+		default:
+			return "the work is observed, but its relation to the target is not established by current evidence"
+		}
 	default:
 		return "the work is observed, but its relation to the target is not established by current evidence"
 	}

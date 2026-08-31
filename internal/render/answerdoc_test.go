@@ -61,6 +61,43 @@ func TestRenderV2_RuntimeWorkRelationReceiptIsVisibleWithoutInternalEnums(t *tes
 	}
 }
 
+func TestRenderV2_ConservativeRuntimeWorkConclusionKeepsExactCredentialVisible(t *testing.T) {
+	receipt := &types.AnswerRuntimeWorkRelationReceipt{
+		ObservationID: "trace_query:test#trace_semantic_span:1",
+		Conclusion:    types.RuntimeWorkRelationConclusionRelationUnproven,
+		BoundRow: types.RuntimeWorkRelationRow{
+			ObservationID:      "trace_query:test#trace_semantic_span:1",
+			WorkLabel:          "VerifyClass Demo",
+			Subject:            "worker-7",
+			MeasuredDurationMS: 0.285,
+			AllowedConclusions: []types.RuntimeWorkRelationConclusion{
+				types.RuntimeWorkRelationConclusionRelatedCausalityUnproven,
+				types.RuntimeWorkRelationConclusionRelationUnproven,
+			},
+			Credential: "host_direct_wakeup_edge",
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "模型选择保守结论。",
+		RuntimeWorkRelation: receipt,
+	}}}
+	zh := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{"宿主线程随后直接唤醒目标", "工作完成触发唤醒", "因果关系仍未证"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("conservative zh receipt dropped exact credential/boundary %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, string(types.RuntimeWorkRelationConclusionRelationUnproven)) {
+		t.Fatalf("conservative zh receipt leaked internal enum:\n%s", zh)
+	}
+	en := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{"wake the target directly afterward", "work-completion", "causal relation is still unproved"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("conservative en receipt dropped exact credential/boundary %q:\n%s", want, en)
+		}
+	}
+}
+
 func TestRenderV2_CitationDisplayNeverPrintsLineZero(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
