@@ -57413,6 +57413,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r951`。
 
+### §123.1534 r952/B1468：候选未发布多声明 stage 的精确可执行选择集（2026-08-30）
+
+1. 从已推送 `8022a6314` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace，runner 2/2 PASS：Trace 161s、read
+   706s。Trace 人工判定 pass：显式 34579.490..34579.500s 窗、4 次 typed query、最终因果投影、
+   `NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566` 已证链、链上第一席、实际占时/规则可消双账户、
+   确定性语义优化线索与邻近/背景隔离均在；没有按固定 4ms/4m、轮次、上下文比例或活动流年龄降级。
+2. read 最终答案人工判定 pass、过程 partial。最终 sequenceDiagram 使用精确声明的四个 Stage participant，三条 checkout-verified
+   precedence 完整，四阶段输入/输出/载体表齐全且没有系统代写答案。B1467 的多词 participant 自锁未复发，但本轮没有自然触发
+   `read mode` 精确多词显示修补，因此 B1467 仅记 deterministic tests+production no-regression，不能虚报自然生产正证。
+3. read 发生 14 次成文拒绝。模型 JSON 形状、whole-block 非授权操作和对条件孤儿清理 roster 的误用仍属教学/模型噪声；其中一项新 P1
+   `B1468-DECLAREDSTAGECHOICESET1` 是精确合同不对齐：同一 checkout-verified stage 在当前 sequence body 中可有多个合法显式载体，
+   例如 `S1 as StageAnalyze` 与 `StageAnalyze as StageAnalyze`。旧候选只发布抽象 `analyze`；atomic executor 则正确拒绝把该抽象值猜成
+   多个声明中的任一个，报告 `resolves ... as multiple declared sequence participants`。模型最终只能自行猜中精确 `StageAnalyze` 才通过。
+4. `3f150be9f` 已根修候选生产者而不放宽执行器。对 `relation_kind=precedence`，lease 从 checkout-verified stage authority 与当前
+   sequence participant declarations 交叉生成该端所有精确已声明 ID；多个合法 ID 全部作为选择集发布，由模型选择是否以及使用哪个。
+   一旦存在精确声明，该端剔除会让 Mermaid 静默创建重复隐式 actor 的未声明 fallback。请求、thinking、答案 prose、message、可见相似度
+   均不参与；系统不创建或选择节点、关系、方向、标签、布局或结论。
+5. 回归直接构造两侧各两个 stage carrier，要求四个精确 ID 全部进入 lease，并钉住 `analyze/explorer` 未声明 fallback 退出；既有完整
+   四阶段 spine 候选不缩水。定向回归与完整 `go test ./internal/tool -count=1`（183.286s）全绿。下一轮继续严格双并行复放 read+Trace，
+   若自然出现多声明载体，验收模型是否无需猜测即可使用 candidate choice set；同时继续拆分其余拒绝，禁止按样例增加请求/答案关键词硬门。
+
+状态：
+
+`r952=runner-pass-2/2/human-trace-pass+read-pass/process-partial`；
+`B1467=tests-positive+production-no-regression/pending-natural-production-shape`；
+`B1468=implemented+full-tool-suite-pass+pushed/pending-production-replay`；
+`precedence-stage-choice=all-exact-current-sequence-declarations`；
+`undeclared-stage-fallback=removed-when-exact-declaration-exists`；
+`atomic-executor-ambiguity=fail-closed-unchanged`；
+`system-answer/relation/participant/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r952`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r952`。
+
 ### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
 
 1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
