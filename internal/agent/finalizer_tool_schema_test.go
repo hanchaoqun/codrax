@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -215,6 +216,9 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 			t.Fatalf("patch field %q must carry its array/item shape structurally: %+v", field, property)
 		}
 	}
+	if _, exposed := rawProps["model_block_order"]; exposed {
+		t.Fatal("one-model-block retry must omit the meaningless model_block_order operation")
+	}
 	for _, field := range []string{"replace_blocks", "add_blocks"} {
 		itemProps := paramsSchema.Properties[field].Items.Properties
 		for _, required := range []string{"id", "kind", "diagram", "edge_anchors", "participant_boundaries"} {
@@ -233,6 +237,43 @@ func TestFinalizerToolSchemas_RetryPatchKeepsJSONShapeStructuralAndNonContradict
 		if _, ok := snippetProps[forbidden]; ok {
 			t.Fatalf("replace_snippets schema leaked answer-block field %q: %v", forbidden, snippetProps)
 		}
+	}
+}
+
+func TestFinalizerToolSchemas_RetryProjectsExactModelOwnedBlockOrderRoster(t *testing.T) {
+	agent := finalizerSchemaTestAgent()
+	sk := finalizerSchemaTestSkill()
+	mut := types.NewMutableState("retry block-order dispatch")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"},
+		{ID: "system", Kind: types.BlockCaveat, Text: "system", SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
+		{ID: "diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call"}},
+		{ID: "roster", Kind: types.BlockBulletList, Items: []types.AnswerBlockItem{{ID: "m", Text: "member"}}},
+	}})
+	ctx := &types.AgentContext{Mutable: mut}
+	var patchSchema *llm.ToolSchema
+	for _, schema := range agent.buildToolSchemas(sk, ctx) {
+		if schema.Name == "emit_answer_document_patch" {
+			s := schema
+			patchSchema = &s
+			break
+		}
+	}
+	if patchSchema == nil {
+		t.Fatal("accepted previous document must expose patch tool")
+	}
+	var root map[string]any
+	if err := json.Unmarshal(patchSchema.Parameters, &root); err != nil {
+		t.Fatalf("decode patch schema: %v", err)
+	}
+	order := root["properties"].(map[string]any)["model_block_order"].(map[string]any)
+	if order["minItems"] != float64(3) || order["maxItems"] != float64(3) {
+		t.Fatalf("model order length must be exact: %+v", order)
+	}
+	got := order["items"].(map[string]any)["enum"].([]any)
+	want := []any{"summary", "diagram", "roster"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("model order roster=%v want=%v; system block must stay hidden", got, want)
 	}
 }
 

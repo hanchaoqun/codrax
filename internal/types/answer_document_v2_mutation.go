@@ -137,6 +137,9 @@ func (m AnswerDocumentMutation) Summary() string {
 		if len(m.Patch.BlockFieldEditsV1) > 0 {
 			base += fmt.Sprintf(" field_edits_v1=%d", len(m.Patch.BlockFieldEditsV1))
 		}
+		if len(m.Patch.ModelBlockOrder) > 0 {
+			base += fmt.Sprintf(" model_order=%d", len(m.Patch.ModelBlockOrder))
+		}
 		switch {
 		case m.Patch.ReplaceCitations != nil:
 			base += fmt.Sprintf(" citations_replaced=%d", len(m.Patch.ReplaceCitations))

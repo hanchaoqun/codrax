@@ -99,6 +99,50 @@ func TestApplyPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestApplyPatch_ModelBlockOrderReordersOnlyModelOwnedSlots(t *testing.T) {
+	prev := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{
+		{ID: "summary", Kind: BlockSummary, Text: "summary"},
+		{ID: "system", Kind: BlockCaveat, Text: "system", SystemGeneratedKind: AnswerSystemGeneratedRuntimeTrace},
+		{ID: "roster", Kind: BlockBulletList, Items: []AnswerBlockItem{{ID: "i", Text: "member"}}},
+		{ID: "diagram", Kind: BlockDiagram, Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call"}},
+	}}
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{
+		ModelBlockOrder: []string{"summary", "diagram", "roster"},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := []string{"summary", "system", "diagram", "roster"}
+	for i, id := range want {
+		if got.Blocks[i].ID != id {
+			t.Fatalf("blocks[%d]=%q want %q; got=%v", i, got.Blocks[i].ID, id, []string{got.Blocks[0].ID, got.Blocks[1].ID, got.Blocks[2].ID, got.Blocks[3].ID})
+		}
+	}
+	if !reflect.DeepEqual(got.Blocks[1], prev.Blocks[1]) {
+		t.Fatalf("system block changed during model-only reorder: got=%+v want=%+v", got.Blocks[1], prev.Blocks[1])
+	}
+}
+
+func TestApplyPatch_ModelBlockOrderRequiresExactImmutableRoster(t *testing.T) {
+	prev := samplePrevDoc()
+	for _, tc := range []struct {
+		name  string
+		patch *AnswerDocumentV2Patch
+	}{
+		{name: "missing", patch: &AnswerDocumentV2Patch{ModelBlockOrder: []string{"s1", "list1"}}},
+		{name: "duplicate", patch: &AnswerDocumentV2Patch{ModelBlockOrder: []string{"s1", "lifecycle", "lifecycle"}}},
+		{name: "unknown", patch: &AnswerDocumentV2Patch{ModelBlockOrder: []string{"s1", "lifecycle", "other"}}},
+		{name: "add", patch: &AnswerDocumentV2Patch{ModelBlockOrder: []string{"s1", "lifecycle", "list1"}, AddBlocks: []AnswerBlock{{ID: "new", Kind: BlockSection, Text: "new"}}}},
+		{name: "remove", patch: &AnswerDocumentV2Patch{ModelBlockOrder: []string{"s1", "lifecycle", "list1"}, RemoveBlockIDs: []string{"list1"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ApplyAnswerDocumentV2Patch(prev, tc.patch); err == nil {
+				t.Fatal("invalid model-owned permutation must fail closed")
+			}
+		})
+	}
+}
+
 func TestApplyPatch_BlockFieldEditV1PreservesOriginalSummaryShape(t *testing.T) {
 	prev := samplePrevDoc()
 	before := prev.Blocks[0]

@@ -196,6 +196,14 @@ type answerDocumentEvaluator struct {
 	// display wording.
 	requestedDimensionCoverageHinted bool
 
+	// requestedDimensionOrderHinted bounds one layout-only repair when two or
+	// more analyzer-produced dimensions have a precise, unique model-owned block
+	// seat but those seats contradict their typed indices. It never reads the
+	// request, model prose, Mermaid labels, or rendered answer text, and it never
+	// reorders blocks itself: the model must select a complete permutation via
+	// model_block_order.
+	requestedDimensionOrderHinted bool
+
 	// externalObservationSelectorCoverageHinted latches a similarly bounded
 	// repair hint for typed external-observation selectors such as MCP rows.
 	// The selector is producer-provided structure, not user prose; the hint
@@ -411,6 +419,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.diagramKinds = nil
 	e.configTraceDiagram = false
 	e.requestedDimensionCoverageHinted = false
+	e.requestedDimensionOrderHinted = false
 	e.externalObservationSelectorCoverageHinted = false
 	e.traceProjectionHeadlineEntityHinted = false
 	if ctx != nil {
@@ -15697,6 +15706,9 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 				if sig := e.requestedAnswerDimensionCoverageSignal(ctx, docV2); sig.HintRequested {
 					return sig
 				}
+				if sig := e.requestedAnswerDimensionOrderSignal(ctx, docV2); sig.HintRequested {
+					return sig
+				}
 				if sig := e.externalObservationSelectorCoverageSignal(ctx, docV2); sig.HintRequested {
 					return sig
 				}
@@ -15827,6 +15839,173 @@ func (e *answerDocumentEvaluator) requestedAnswerDimensionCoverageSignal(ctx *ty
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
+	}
+}
+
+type requestedAnswerDimensionOrderViolation struct {
+	EarlierDimensionIndex int
+	LaterDimensionIndex   int
+	EarlierBlockID        string
+	LaterBlockID          string
+	ModelBlockIDs         []string
+}
+
+// requestedAnswerDimensionOrderSignal asks the model for one layout-only
+// repair when typed requested-dimension order and exact model-owned block seats
+// disagree. The hard signal is intentionally narrow: both dimensions must have
+// positive distinct indices, each role may occur only once, and each role must
+// resolve to exactly one structural carrier. Ambiguous/multi-block roles fail
+// open to the existing soft teaching instead of turning noisy presentation
+// inference into a hard gate.
+func (e *answerDocumentEvaluator) requestedAnswerDimensionOrderSignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
+	if e == nil || e.requestedDimensionOrderHinted {
+		return LoopSignal{}
+	}
+	violation, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, doc)
+	if !ok {
+		return LoopSignal{}
+	}
+	e.requestedDimensionOrderHinted = true
+	lang := e.language
+	if strings.TrimSpace(lang) == "" {
+		lang = extractAnswerDocLang(ctx)
+	}
+	idsJSON, _ := json.Marshal(violation.ModelBlockIDs)
+	hint := fmt.Sprintf("The typed presentation order requires dimension #%d block `%s` to appear before dimension #%d block `%s`, but the current model-authored block order is reversed. Keep every block byte-identical and use `emit_answer_document_patch` with `model_block_order` containing every current model-authored block id exactly once; choose the complete reader-facing placement of all other model blocks yourself. Current model block ids: `%s`. Do not use add/remove, do not rewrite prose or relations, and do not move system-generated supplements.", violation.EarlierDimensionIndex, violation.EarlierBlockID, violation.LaterDimensionIndex, violation.LaterBlockID, string(idsJSON))
+	if strings.EqualFold(lang, "zh") || strings.HasPrefix(strings.ToLower(lang), "zh-") {
+		hint = fmt.Sprintf("typed 展示顺序要求第 %d 维对应块 `%s` 位于第 %d 维对应块 `%s` 之前，但当前模型块顺序相反。请保持所有块内容字节不变，只调用 `emit_answer_document_patch`，在 `model_block_order` 中将当前全部模型自有块 ID 各列一次；其余模型块的完整阅读顺序仍由你选择。当前模型块 ID：`%s`。不要增删块，不要改写正文或关系，也不要移动系统补充块。", violation.EarlierDimensionIndex, violation.EarlierBlockID, violation.LaterDimensionIndex, violation.LaterBlockID, string(idsJSON))
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "answer_doc.requested_dimension_order",
+		Hint:           hint,
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+type requestedAnswerDimensionBlockSeat struct {
+	dimension types.RequestedAnswerDimension
+	blockID   string
+	blockPos  int
+}
+
+func requestedAnswerDimensionOrderViolationInDocument(ctx *types.AgentContext, doc *types.AnswerDocumentV2) (requestedAnswerDimensionOrderViolation, bool) {
+	if ctx == nil || doc == nil || len(doc.Blocks) < 2 {
+		return requestedAnswerDimensionOrderViolation{}, false
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil {
+		return requestedAnswerDimensionOrderViolation{}, false
+	}
+	dims := requestedDimensionsToCover(view.Presentation.RequestedDimensions)
+	roleCount := make(map[types.RequestedAnswerDimensionRole]int, len(dims))
+	indexCount := make(map[int]int, len(dims))
+	for _, dim := range dims {
+		roleCount[dim.Role]++
+		if dim.Index > 0 {
+			indexCount[dim.Index]++
+		}
+	}
+	seats := make([]requestedAnswerDimensionBlockSeat, 0, len(dims))
+	for _, dim := range dims {
+		if dim.Index <= 0 || indexCount[dim.Index] != 1 || roleCount[dim.Role] != 1 {
+			continue
+		}
+		pos, id, ok := uniqueRequestedAnswerDimensionBlockSeat(ctx, dim.Role, doc)
+		if !ok {
+			continue
+		}
+		seats = append(seats, requestedAnswerDimensionBlockSeat{dimension: dim, blockID: id, blockPos: pos})
+	}
+	if len(seats) < 2 {
+		return requestedAnswerDimensionOrderViolation{}, false
+	}
+	sort.SliceStable(seats, func(i, j int) bool { return seats[i].dimension.Index < seats[j].dimension.Index })
+	modelIDs := make([]string, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind == types.AnswerSystemGeneratedBlockUnknown && strings.TrimSpace(block.ID) != "" {
+			modelIDs = append(modelIDs, block.ID)
+		}
+	}
+	for i := 0; i < len(seats); i++ {
+		for j := i + 1; j < len(seats); j++ {
+			if seats[i].blockID == seats[j].blockID || seats[i].blockPos < seats[j].blockPos {
+				continue
+			}
+			return requestedAnswerDimensionOrderViolation{
+				EarlierDimensionIndex: seats[i].dimension.Index,
+				LaterDimensionIndex:   seats[j].dimension.Index,
+				EarlierBlockID:        seats[i].blockID,
+				LaterBlockID:          seats[j].blockID,
+				ModelBlockIDs:         modelIDs,
+			}, true
+		}
+	}
+	return requestedAnswerDimensionOrderViolation{}, false
+}
+
+func uniqueRequestedAnswerDimensionBlockSeat(ctx *types.AgentContext, role types.RequestedAnswerDimensionRole, doc *types.AnswerDocumentV2) (int, string, bool) {
+	positions := make([]int, 0, 2)
+	for i, block := range doc.Blocks {
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown || strings.TrimSpace(block.ID) == "" ||
+			!requestedAnswerDimensionRoleOwnedByBlock(ctx, role, block) {
+			continue
+		}
+		positions = append(positions, i)
+		if len(positions) > 1 {
+			return 0, "", false
+		}
+	}
+	if len(positions) != 1 {
+		return 0, "", false
+	}
+	pos := positions[0]
+	return pos, doc.Blocks[pos].ID, true
+}
+
+func requestedAnswerDimensionRoleOwnedByBlock(ctx *types.AgentContext, role types.RequestedAnswerDimensionRole, block types.AnswerBlock) bool {
+	visible := strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) != ""
+	switch role {
+	case types.RequestedAnswerDimensionDiagram:
+		return block.Kind == types.BlockDiagram && block.Diagram != nil && strings.TrimSpace(block.Diagram.Body) != ""
+	case types.RequestedAnswerDimensionMemberSet:
+		return visible && answerDocumentBlockHasVisibleMemberPayload(block) &&
+			(answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) || answerDocumentBlockCarriesExactSourceInventoryRoster(block))
+	case types.RequestedAnswerDimensionRelationPath:
+		if !visible || block.SurfaceRole != types.SurfacePrincipal {
+			return false
+		}
+		if answerDocRequestedRelationPathUsesRuntimeObservation(ctx) {
+			return answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRelationPath)) &&
+				answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
+				answerBlockHasClaimForm(block, types.ClaimExternalObservation)
+		}
+		if answerBlockHasFacet(block, string(types.FacetPrincipalPathEdge)) {
+			return true
+		}
+		for _, anchor := range block.EdgeAnchors {
+			relation := anchor.RelationKind
+			if !relation.IsValid() {
+				relation = types.RelationForClaimForm(anchor.ClaimForm)
+			}
+			if strings.TrimSpace(anchor.FromNode) != "" && strings.TrimSpace(anchor.ToNode) != "" && relation.IsValid() {
+				return true
+			}
+		}
+		return false
+	case types.RequestedAnswerDimensionRuntimeWorkRelation:
+		return visible && block.SurfaceRole == types.SurfacePrincipal &&
+			answerBlockHasFacet(block, string(types.RequestedAnswerDimensionRuntimeWorkRelation)) &&
+			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
+			answerBlockHasClaimForm(block, types.ClaimExternalObservation)
+	case types.RequestedAnswerDimensionCount:
+		return block.Kind == types.BlockScalar && visible
+	case types.RequestedAnswerDimensionBoundary:
+		return visible && (block.Kind == types.BlockCaveat || answerBlockHasFacet(block, string(types.FacetUncertaintyBoundary)))
+	default:
+		return false
 	}
 }
 

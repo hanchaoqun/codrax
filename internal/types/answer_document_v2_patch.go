@@ -142,10 +142,21 @@ import (
 // emit patches MUST select exactly one op per field group; validators
 // MUST treat the merged doc as truth, NOT inspect the patch shape.
 type AnswerDocumentV2Patch struct {
-	UnchangedBlockIDs []string                 `json:"unchanged_block_ids,omitempty"`
-	ReplaceBlocks     []AnswerBlock            `json:"replace_blocks,omitempty"`
-	AddBlocks         []AnswerBlock            `json:"add_blocks,omitempty"`
-	RemoveBlockIDs    []string                 `json:"remove_block_ids,omitempty"`
+	UnchangedBlockIDs []string      `json:"unchanged_block_ids,omitempty"`
+	ReplaceBlocks     []AnswerBlock `json:"replace_blocks,omitempty"`
+	AddBlocks         []AnswerBlock `json:"add_blocks,omitempty"`
+	RemoveBlockIDs    []string      `json:"remove_block_ids,omitempty"`
+	// ModelBlockOrder is an optional complete permutation of the previous
+	// document's model-authored block ids. It changes only their relative
+	// positions: system-generated blocks retain both their relative order and
+	// their occupied slots. The model must select every id exactly once; the
+	// executor never derives or chooses a reader-facing layout.
+	//
+	// To keep the permutation universe immutable and auditable, this operation
+	// cannot be combined with add_blocks or remove_block_ids. Whole-block
+	// replacement and local metadata edits remain compatible because they do not
+	// change the model-owned id roster.
+	ModelBlockOrder   []string                 `json:"model_block_order,omitempty"`
 	BlockFieldEditsV1 []AnswerBlockFieldEditV1 `json:"block_field_edits_v1,omitempty"`
 	// ReplaceCitations is OPTIONAL. When non-nil, the resulting
 	// doc's Citations slice is REPLACED entirely (used when the
@@ -210,7 +221,7 @@ type AnswerBlockFieldEditV1 struct {
 // projected tool schema remains the sole authority for JSON field types and
 // required shapes; this text prevents two easy semantic mistakes: assuming
 // an unmentioned block is deleted, or assuming ReplaceBlocks merges fields.
-const AnswerDocumentPatchOperationTeaching = "Patch semantics: preserve an existing block with `unchanged_block_ids`, edit it with `replace_blocks`, append with `add_blocks`, and intentionally delete with `remove_block_ids`; omitting a previous block id from all four operations does not delete it. For one projected closed-enum metadata operation, use `block_field_edits_v1`: it preserves every unmentioned field and never chooses the value; use only the exact block_id/field/value branch in the current schema. When add_facet_id is published, it adds only that model-selected membership and never copies or changes a relation. `replace_snippets` is only for code snippets shaped as {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other answer-block fields belong in a full `replace_blocks` entry. For a local diagram relation fix, prefer model-authored `diagram_edge_edits`; every unmentioned carrier remains preserved. A block named by `diagram_edge_edits`, `diagram_boundary_edits`, `diagram_boundary_replacements`, `diagram_relation_scope_edits`, or `diagram_participant_edits` is already preserved, and a redundant unchanged id is absorbed. Choose only an exact branch present in the current tool schema. A failure-only branch selects one live carrier; an addition-only branch selects one typed candidate and still requires model-authored visible nodes and label. Reuse endpoint ids that already have explicit declarations. For add/replace, if one chosen endpoint is new/implicit, also author its matching from_node_visible_label/to_node_visible_label so the system can encode your reader-facing node name instead of exposing an internal id; omit those fields for endpoints already declared. A published boundary_ref/action branch changes only that participant-boundary row and preserves every unmentioned boundary and visible graph carrier; use whole-array `diagram_boundary_replacements` only when no local boundary branch is published. When the schema publishes `diagram_relation_scope_edits`, use its exact block_id/action branch to change only the block-level coverage disclosure; do not replace the lease-target diagram. Omit legacy coordinates and hidden technical fields for every ref-selected branch, and never combine refs outside a single published branch. Refs never choose an action, relation, or visible wording. If selected edge edits isolate an optional_orphan_cleanups row, use `diagram_participant_edits` to choose remove_if_isolated or retain_as_context with visible_label. If a participant mismatch publishes participant_ref, use the exact ensure_visible branch and author node_id plus visible_label; it adds one disconnected declaration only and does not authorize an edge. Every `replace_blocks` entry replaces the whole existing block rather than merging fields; copy unchanged fields because an omitted field is deleted. Follow native schema types and never wrap an array or object payload in a JSON string."
+const AnswerDocumentPatchOperationTeaching = "Patch semantics: preserve an existing block with `unchanged_block_ids`, edit it with `replace_blocks`, append with `add_blocks`, and intentionally delete with `remove_block_ids`; omitting a previous block id from all four operations does not delete it. When only block positions change, `model_block_order` is a complete model-selected permutation of every previous model-authored block id; it changes no content, leaves system-generated slots untouched, and cannot be combined with add/remove. For one projected closed-enum metadata operation, use `block_field_edits_v1`: it preserves every unmentioned field and never chooses the value; use only the exact block_id/field/value branch in the current schema. When add_facet_id is published, it adds only that model-selected membership and never copies or changes a relation. `replace_snippets` is only for code snippets shaped as {file,start_line,end_line,language?,code}; block items, diagrams, evidence_ids, and other answer-block fields belong in a full `replace_blocks` entry. For a local diagram relation fix, prefer model-authored `diagram_edge_edits`; every unmentioned carrier remains preserved. A block named by `diagram_edge_edits`, `diagram_boundary_edits`, `diagram_boundary_replacements`, `diagram_relation_scope_edits`, or `diagram_participant_edits` is already preserved, and a redundant unchanged id is absorbed. Choose only an exact branch present in the current tool schema. A failure-only branch selects one live carrier; an addition-only branch selects one typed candidate and still requires model-authored visible nodes and label. Reuse endpoint ids that already have explicit declarations. For add/replace, if one chosen endpoint is new/implicit, also author its matching from_node_visible_label/to_node_visible_label so the system can encode your reader-facing node name instead of exposing an internal id; omit those fields for endpoints already declared. A published boundary_ref/action branch changes only that participant-boundary row and preserves every unmentioned boundary and visible graph carrier; use whole-array `diagram_boundary_replacements` only when no local boundary branch is published. When the schema publishes `diagram_relation_scope_edits`, use its exact block_id/action branch to change only the block-level coverage disclosure; do not replace the lease-target diagram. Omit legacy coordinates and hidden technical fields for every ref-selected branch, and never combine refs outside a single published branch. Refs never choose an action, relation, or visible wording. If selected edge edits isolate an optional_orphan_cleanups row, use `diagram_participant_edits` to choose remove_if_isolated or retain_as_context with visible_label. If a participant mismatch publishes participant_ref, use the exact ensure_visible branch and author node_id plus visible_label; it adds one disconnected declaration only and does not authorize an edge. Every `replace_blocks` entry replaces the whole existing block rather than merging fields; copy unchanged fields because an omitted field is deleted. Follow native schema types and never wrap an array or object payload in a JSON string."
 
 // IsEmpty reports whether the patch carries zero modifications.
 // Empty patches are explicitly rejected at Apply time — every
@@ -224,6 +235,7 @@ func (p *AnswerDocumentV2Patch) IsEmpty() bool {
 		len(p.ReplaceBlocks) == 0 &&
 		len(p.AddBlocks) == 0 &&
 		len(p.RemoveBlockIDs) == 0 &&
+		len(p.ModelBlockOrder) == 0 &&
 		len(p.BlockFieldEditsV1) == 0 &&
 		p.ReplaceCitations == nil &&
 		len(p.AppendCitations) == 0 &&
@@ -387,6 +399,32 @@ func ApplyAnswerDocumentV2Patch(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch
 	// Append new blocks.
 	out.Blocks = append(out.Blocks, p.AddBlocks...)
 
+	// A model-authored order operation is applied only after the ordinary
+	// content merge so replacement/local-edit semantics stay unchanged. The
+	// validated permutation supplies one model block for each existing model
+	// slot. System-authored blocks never enter the permutation and therefore
+	// keep their exact occupied slots and relative order.
+	if len(p.ModelBlockOrder) > 0 {
+		byID := make(map[string]AnswerBlock, len(p.ModelBlockOrder))
+		for _, block := range out.Blocks {
+			if block.SystemGeneratedKind == AnswerSystemGeneratedBlockUnknown {
+				byID[block.ID] = block
+			}
+		}
+		ordered := make([]AnswerBlock, 0, len(p.ModelBlockOrder))
+		for _, id := range p.ModelBlockOrder {
+			ordered = append(ordered, byID[id])
+		}
+		next := 0
+		for i := range out.Blocks {
+			if out.Blocks[i].SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown {
+				continue
+			}
+			out.Blocks[i] = ordered[next]
+			next++
+		}
+	}
+
 	// Companion provenance follows only pairs that still exist after the
 	// model-authored patch. Removing either half retires the pair; retaining or
 	// replacing both keeps it. New split pairs are appended by the executor.
@@ -445,6 +483,40 @@ func validatePatchStructure(prev *AnswerDocumentV2, p *AnswerDocumentV2Patch) er
 			return fmt.Errorf("patch: remove_block_ids[%q] duplicated", id)
 		}
 		removeSet[id] = true
+	}
+
+	// ModelBlockOrder is a complete, exact permutation of the immutable
+	// previous model-owned roster. This is deliberately stricter than a partial
+	// "move before" command: no executor choice or inferred residual order is
+	// possible. Add/remove would change the roster mid-transaction, so those
+	// combinations fail closed and the model must perform them in another patch.
+	if len(p.ModelBlockOrder) > 0 {
+		if len(p.AddBlocks) > 0 || len(p.RemoveBlockIDs) > 0 {
+			return fmt.Errorf("patch: model_block_order cannot be combined with add_blocks or remove_block_ids; first settle the block roster, then submit one complete model-owned permutation")
+		}
+		modelIDs := make(map[string]bool)
+		for _, block := range prev.Blocks {
+			if block.SystemGeneratedKind == AnswerSystemGeneratedBlockUnknown {
+				modelIDs[block.ID] = true
+			}
+		}
+		if len(p.ModelBlockOrder) != len(modelIDs) {
+			return fmt.Errorf("patch: model_block_order must list every model-authored previous block exactly once: got %d ids, want %d", len(p.ModelBlockOrder), len(modelIDs))
+		}
+		seen := make(map[string]bool, len(p.ModelBlockOrder))
+		for _, raw := range p.ModelBlockOrder {
+			id := strings.TrimSpace(raw)
+			if id == "" || id != raw {
+				return fmt.Errorf("patch: model_block_order contains an empty or whitespace-padded id")
+			}
+			if seen[id] {
+				return fmt.Errorf("patch: model_block_order[%q] duplicated", id)
+			}
+			if !modelIDs[id] {
+				return fmt.Errorf("patch: model_block_order[%q] is not a model-authored block in the previous emit", id)
+			}
+			seen[id] = true
+		}
 	}
 
 	// ReplaceBlocks: each must have non-empty id, id in prev, no

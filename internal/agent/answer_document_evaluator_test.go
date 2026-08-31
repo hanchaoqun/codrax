@@ -1128,13 +1128,13 @@ func TestAnswerDocumentEvaluator_ObserveStopsWhenTypedCountAndMemberSetShapesPre
 	_ = e.BuildInitialInstruction(ctx, nil)
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{
+			{ID: "count", Kind: types.BlockScalar, Text: "1"},
 			{
 				ID:       "members",
 				Kind:     types.BlockOrderedList,
 				FacetIDs: []string{string(types.RequestedAnswerDimensionMemberSet)},
 				Items:    []types.AnswerBlockItem{{ID: "explorer", Label: "explorer"}},
 			},
-			{ID: "count", Kind: types.BlockScalar, Text: "1"},
 		},
 	})
 
@@ -12065,6 +12065,73 @@ func TestMissingRequestedAnswerDimensions_DiagramRoleUsesTypedBlockShape(t *test
 	missing := missingRequestedAnswerDimensionsInDocument(ctx, doc)
 	if len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionDiagram {
 		t.Fatalf("absent diagram block must leave diagram dimension missing: %+v", missing)
+	}
+}
+
+func TestRequestedAnswerDimensionOrder_UsesTypedIndicesAndUniqueModelOwnedSeats(t *testing.T) {
+	ctx := &types.AgentContext{Language: "zh", AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{
+				{Index: 1, Label: "关系图", Role: types.RequestedAnswerDimensionDiagram, Required: true},
+				{Index: 2, Label: "成员清单", Role: types.RequestedAnswerDimensionMemberSet, Required: true},
+			},
+		},
+	}}}
+	diagram := types.AnswerBlock{ID: "diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+		Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call",
+	}}
+	roster := types.AnswerBlock{ID: "roster", Kind: types.BlockBulletList, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetMemberSet)}, Items: []types.AnswerBlockItem{{ID: "m1", Text: "member"}}}
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "summary"}, roster, diagram,
+	}}
+	violation, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, doc)
+	if !ok {
+		t.Fatal("typed diagram-before-roster order violation must be detected")
+	}
+	if violation.EarlierBlockID != "diagram" || violation.LaterBlockID != "roster" ||
+		violation.EarlierDimensionIndex != 1 || violation.LaterDimensionIndex != 2 {
+		t.Fatalf("unexpected violation: %+v", violation)
+	}
+	sig := (&answerDocumentEvaluator{language: "zh"}).requestedAnswerDimensionOrderSignal(ctx, doc)
+	for _, want := range []string{"model_block_order", "`diagram`", "`roster`", "全部模型自有块 ID 各列一次", "不要改写正文或关系"} {
+		if !sig.HintRequested || !strings.Contains(sig.Hint, want) {
+			t.Fatalf("order repair signal missing %q: %+v", want, sig)
+		}
+	}
+
+	doc.Blocks = []types.AnswerBlock{doc.Blocks[0], diagram, roster}
+	if got, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, doc); ok {
+		t.Fatalf("correct typed dimension order must pass: %+v", got)
+	}
+}
+
+func TestRequestedAnswerDimensionOrder_AmbiguousOrSystemOwnedSeatFailsOpen(t *testing.T) {
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []types.RequestedAnswerDimension{
+				{Index: 1, Label: "diagram", Role: types.RequestedAnswerDimensionDiagram, Required: true},
+				{Index: 2, Label: "members", Role: types.RequestedAnswerDimensionMemberSet, Required: true},
+			},
+		},
+	}}}
+	roster := func(id string) types.AnswerBlock {
+		return types.AnswerBlock{ID: id, Kind: types.BlockBulletList, SurfaceRole: types.SurfacePrincipal,
+			FacetIDs: []string{string(types.FacetMemberSet)}, Items: []types.AnswerBlockItem{{ID: id + "-row", Text: "member"}}}
+	}
+	diagram := types.AnswerBlock{ID: "diagram", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+		Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n A->>B: call",
+	}}
+	ambiguous := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{roster("r1"), roster("r2"), diagram}}
+	if got, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, ambiguous); ok {
+		t.Fatalf("ambiguous member-set ownership must stay soft/fail-open: %+v", got)
+	}
+	diagram.SystemGeneratedKind = types.AnswerSystemGeneratedRuntimeTrace
+	systemOwned := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{roster("r1"), diagram}}
+	if got, ok := requestedAnswerDimensionOrderViolationInDocument(ctx, systemOwned); ok {
+		t.Fatalf("system-generated diagram must not drive a model layout hard gate: %+v", got)
 	}
 }
 

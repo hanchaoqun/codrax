@@ -57336,6 +57336,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1560 r975/B1492：两个 typed 展示维度都存在，但块顺序合同只有教学、没有可执行局部修补（2026-08-31）
+
+1. 从已推送 `b46b37038` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo；runner 2/2 PASS：
+   Java 55s、sequence 363s。Java 人工 PASS，仍只规划 `Main.java:16 retrun -> return`、保持 `pending_approval`、未修改源码。
+   sequence 不再降级，B1490/B1491 获生产正证：模型提交 producer 列出的技术端点后，执行器正确归一到现有显式 participant，原先
+   “not a typed carrier” 确定性循环消失。
+2. sequence 的事实、关系、引用和图均正确：明确不存在 `buildAnalysisIR -> gate.Run` 连续有向路径，只画已证
+   `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith`；22 项关键中间函数均有当前源码引用，Mermaid 可渲染，且没有恢复旧稿或
+   “最终重试失败”说明。但人工总判只能 `partial`：分析器发出的 schema-valid 展示维度是 `#1 diagram,#2 member_set`，用户要求的结构也是
+   先图、图后清单；最终模型块却是 `summary -> principal path -> member roster -> diagram`，清单仍在图前。
+3. 根因是 P1 `B1492-TYPEDDIMENSIONORDERPATCH1`，不是事实推理或 Mermaid 语法波动。既有
+   `missingRequestedAnswerDimensionsInDocument` 只核验每个 typed 维度是否有载体，不核验载体相对位置；初始 prompt 虽有顺序教学，但 finalizer
+   没有结构化验收。更关键的是旧 patch 协议无法表达“只移动块”：replace/unchanged 固定原位，remove+add 同一既有 ID 会归一成原位 replace。
+   因此继续强化教学只会增加模型负担，不能提供可执行闭环。
+4. 根修新增 `model_block_order`，但不允许系统接管布局：该操作必须由模型提交当前全部模型自有块 ID 的完整 permutation，每个恰好一次；只改变
+   模型块所占槽位中的相对顺序，系统生成块保持原槽位和相对顺序，任何正文、标题、item、关系、引用和结论均不修改。为保证 roster 不漂移，
+   该操作禁止与 add/remove 同事务；replace 与 closed-enum 局部 field edit 可共存。每轮 schema 从精确 patch base 投影 model-owned ID enum 与
+   exact min/max count，系统块不进入模型可选清单。
+5. finalizer 新顺序信号只读取 `RequestedAnswerDimension.Index/Role` 与模型块的 typed kind/facet/claim/role：每个 dimension index 唯一、role 在请求中
+   唯一、且该 role 恰好映射一个可见模型自有块时才可比较；diagram/member_set/relation_path/runtime_work_relation/count/boundary 有精确所有权臂。
+   同一块承载多维、重复 role、多个候选块、无正 index、系统生成块或无法唯一归属全部 fail-open，继续只受软教学，不产生硬拒。检测到反序后只提示
+   一次，并要求模型用 `model_block_order` 自选完整阅读顺序；系统不推断剩余块位置。
+6. 回归覆盖：typed 图 #1/清单 #2 的反序必须产生精确一次 patch 信号，正序直接 stop；歧义双清单和系统生成图不得触发；patch types 层要求完整
+   permutation、拒绝缺项/重复/未知/system/add/remove 混合；执行端严格 JSON 解码后只重排模型块且内容字节不变；schema 只发布模型自有 ID 并钉 exact
+   count。聚焦及 `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 25.406s、tool 186.003s、agent 13.323s；修正一条
+   旧测试的反序 fixture 后 agent 复跑 13.323s 全绿）。
+7. 本批不改变 Trace 显式窗、查询自动补齐、唤醒链、链上根因、优先级反转/调度与算力供给/D/IO/确定性语义工作、实际占时/规则可消双账户、
+   链上业务线索或因果投影。系统仍不扫描 request/thinking/final prose/Mermaid 业务词，不生成或替换模型事实、关系、节点、文案、结论；新增的唯一布局
+   行为也必须由模型显式提交完整顺序。提交推送后需从新提交严格 2 路重放，验收图在清单前且 Java write 不回归。
+
+状态：
+
+`r975=runner-pass-2/2,human-java-pass+sequence-partial`；
+`B1490=production-positive`；
+`B1491=production-positive`；
+`B1492=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`dimension-order-authority=typed-index+unique-model-owned-structural-seat`；
+`layout-operation=model-selected-complete-permutation/system-slots-preserved`；
+`ambiguous/duplicate-role/system-owned/unseated=fail-open-soft-guidance`；
+`system-answer/conclusion/relation/node/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-business-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/r975-no-degrade`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

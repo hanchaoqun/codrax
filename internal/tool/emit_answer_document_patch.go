@@ -59,6 +59,7 @@ func (t *EmitAnswerDocumentPatch) Description() string {
 		"- `block_field_edits_v1`: lossless local operation for one projected closed-enum block metadata value. Choose the exact existing block_id, field, and value branch shown by the current schema. Scalar branches assign one field; add_facet_id adds one facet membership without replacing existing facet_ids. Every other field on that block is copied from the immutable patch base. This branch never edits text, title, items, diagrams, relations, labels, evidence, citations, or layout, and the system never chooses the value. Do not combine it with replace_blocks or remove_block_ids for the same block.\n" +
 		"- `add_blocks`: new block payloads to append. Each id must NOT already exist in the previous emit. Block payload shape matches the canonical block contract — see below.\n" +
 		"- `remove_block_ids`: ids that must be absent from the resulting document. Repeating an already-satisfied removal is an idempotent no-op.\n" +
+		"- `model_block_order`: optional complete permutation of every model-authored block id from the previous emit. Use it when only the reader-facing block order must change. The model chooses the complete order; the executor changes no content and never derives a layout. System-generated blocks retain their slots and relative order. Do not combine with add_blocks or remove_block_ids.\n" +
 		"- `diagram_edge_edits`: model-authored atomic relation edits against one existing block. Visible relabel/remove/replace/add operations require an existing diagram carrier; a non-diagram block may only remove one exact live prior_anchor_metadata row while preserving all visible block fields. Use this instead of `replace_blocks` for a local typed relation retry. Every live failures[] row publishes `target_carrier` and `allowed_actions`; when using its `failure_ref`, choose only an action listed on that row. The live lease resolves only the selected carriers; legacy coordinates and hidden fields are ignored after validation. prior_anchor identifies one mapped anchor/body pair; prior_anchor_metadata identifies exact anchor metadata with no unique visible body occurrence and is remove-only without changing visible content; visible_body_edge identifies an unanchored Mermaid edge; stale_anchor identifies metadata with no body edge; label_pair is relabel-only. If several live failure rows name the same positive body_occurrence and you choose remove for all of them, submit every `{failure_ref, action:\"remove\"}` in the same patch; the executor removes the shared visible statement once and every selected typed anchor transactionally. replace requires the complete model-authored edge/visible_label. For add, prefer one live allowed_additions[].addition_ref: the ref selects only that typed relation candidate while you still author from_node, to_node, visible_label, ordering, and layout; omit edge.relation_kind/from_identity/to_identity and block_id. For add/replace, reuse every endpoint that already has an explicit declaration. The live branch schema derives endpoint declaration state from the exact current patch base: it requires from_node_visible_label/to_node_visible_label for a new endpoint, permits omission for an existing endpoint, and accepts an exact current-label replay after a staged retry. It never derives a name from technical identity. In a sequenceDiagram that already declares participants, use those exact declared participant ids as from_node/to_node instead of creating implicit duplicates. The system preserves every unmentioned model-authored line, node, edge, label, and block field. The model still chooses every operation/relation and writes every visible label.\n" +
 		"- `diagram_boundary_replacements`: model-authored replacement of the complete `participant_boundaries` array on an existing diagram block. Use only when the current schema does not publish a narrower boundary ref.\n" +
 		"- `diagram_boundary_edits`: model-selected local participant-boundary action published by a live typed repair lease. Copy one exact boundary_ref/action branch from the current schema; the executor changes only that participant row and preserves every unmentioned boundary, Mermaid line, relation, and label.\n" +
@@ -112,6 +113,12 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
       "type": "array",
       "items": {"type": "string"},
       "description": "Block ids that must be absent from the resulting document. An id already absent from the previous emit is an idempotent no-op."
+    },
+    "model_block_order": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string"},
+      "description": "Optional complete permutation of every model-authored block id from the previous emit. It changes only model-owned block positions; content and system-generated block slots are preserved. The model selects every id exactly once. Do not combine with add_blocks or remove_block_ids."
     },
     "diagram_edge_edits": {
       "type": "array",
@@ -295,6 +302,7 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 		prev = recoverPrevFromRejectedDraft(ctx.Mutable)
 	}
 	raw = projectAnswerDocumentPatchRelationScopeEdits(raw, ctx, prev)
+	raw = projectAnswerDocumentPatchModelBlockOrder(raw, prev)
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, nil)
@@ -302,6 +310,45 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 	}
 	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, localLeaseAtomicTargetBlockIDs(lease, prev))
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
+}
+
+// projectAnswerDocumentPatchModelBlockOrder publishes only the exact immutable
+// model-owned id universe that the current patch base can reorder. The model
+// must still select a complete permutation; schema projection merely prevents
+// typos, system-block capture, and an operation whose executor could not
+// validate. No request text, block wording, diagram label, or conclusion is
+// inspected. With fewer than two model-owned blocks there is no meaningful
+// ordering action, so the field is omitted.
+func projectAnswerDocumentPatchModelBlockOrder(raw json.RawMessage, prev *types.AnswerDocumentV2) json.RawMessage {
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return raw
+	}
+	properties, _ := root["properties"].(map[string]any)
+	order, _ := properties["model_block_order"].(map[string]any)
+	items, _ := order["items"].(map[string]any)
+	if properties == nil || order == nil || items == nil || prev == nil {
+		return raw
+	}
+	ids := make([]any, 0, len(prev.Blocks))
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if block.SystemGeneratedKind == types.AnswerSystemGeneratedBlockUnknown && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) < 2 {
+		delete(properties, "model_block_order")
+	} else {
+		items["enum"] = ids
+		order["minItems"] = len(ids)
+		order["maxItems"] = len(ids)
+	}
+	out, err := json.Marshal(root)
+	if err != nil || !json.Valid(out) {
+		return raw
+	}
+	return out
 }
 
 // DescriptionFor keeps the prose surface aligned with the per-dispatch schema.
@@ -1749,6 +1796,7 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceBlocks                []emitAnswerBlockV2                    `json:"replace_blocks,omitempty"`
 	AddBlocks                    []emitAnswerBlockV2                    `json:"add_blocks,omitempty"`
 	RemoveBlockIDs               []string                               `json:"remove_block_ids,omitempty"`
+	ModelBlockOrder              []string                               `json:"model_block_order,omitempty"`
 	BlockFieldEditsV1            []types.AnswerBlockFieldEditV1         `json:"block_field_edits_v1,omitempty"`
 	DiagramEdgeEdits             []emitAnswerDiagramEdgeEdit            `json:"diagram_edge_edits,omitempty"`
 	DiagramBoundaryReplacements  []emitAnswerDiagramBoundaryReplacement `json:"diagram_boundary_replacements,omitempty"`
@@ -2460,6 +2508,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	patch := &types.AnswerDocumentV2Patch{
 		UnchangedBlockIDs:            append([]string(nil), p.UnchangedBlockIDs...),
 		RemoveBlockIDs:               append([]string(nil), p.RemoveBlockIDs...),
+		ModelBlockOrder:              append([]string(nil), p.ModelBlockOrder...),
 		BlockFieldEditsV1:            append([]types.AnswerBlockFieldEditV1(nil), p.BlockFieldEditsV1...),
 		ReplaceCitations:             convertEmitCitationsToTyped(p.ReplaceCitations),
 		AppendCitations:              convertEmitCitationsToTyped(p.AppendCitations),
@@ -3447,6 +3496,7 @@ func normalizeAnswerDocumentPatchIDSurface(patch *types.AnswerDocumentV2Patch) (
 	var fields []string
 	patch.UnchangedBlockIDs = normalizePatchIDList("unchanged_block_ids", patch.UnchangedBlockIDs, &fields)
 	patch.RemoveBlockIDs = normalizePatchIDList("remove_block_ids", patch.RemoveBlockIDs, &fields)
+	patch.ModelBlockOrder = normalizePatchIDList("model_block_order", patch.ModelBlockOrder, &fields)
 	patch.ReplaceBlocks = normalizePatchBlockList("replace_blocks", patch.ReplaceBlocks, &fields)
 	patch.AddBlocks = normalizePatchBlockList("add_blocks", patch.AddBlocks, &fields)
 	return len(fields) > 0, fields

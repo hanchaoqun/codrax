@@ -117,6 +117,26 @@ func TestEmitAnswerDocumentPatch_EmptyPatchRejects(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_ModelBlockOrderFlowsThroughStrictDecodeAndPersist(t *testing.T) {
+	bus := newPatchTestBusContext()
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"model_block_order":["list1","s1"]
+	}`))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("model-only order patch rejected: %+v", res)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[0].ID != "list1" || got.Blocks[1].ID != "s1" {
+		t.Fatalf("persisted block order=%+v", got)
+	}
+	if got.Blocks[0].Items[0].ID != "i1" || got.Blocks[1].Text != "summary text" {
+		t.Fatalf("layout-only patch changed block content: %+v", got.Blocks)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_BlockFieldEditV1PreservesWholeBlock(t *testing.T) {
 	bus := newPatchTestBusContext()
 	base := bus.Mutable.AnswerDocumentV2()
