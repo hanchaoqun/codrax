@@ -527,6 +527,7 @@ func logBuildAgentContextSubsection(stage types.PipelineStage, agent types.Agent
 // digest, resolved target shape, cardinality baseline, prior slate)
 // that this builder cannot produce generically.
 func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptContext {
+	availableTools := skillToolSet(sk)
 	pc := &types.PromptContext{
 		AgentName: ac.AgentName,
 		Stage:     ac.Stage,
@@ -854,12 +855,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// Size strategy (mirrors internal/tool/blob for tool results):
 	//   - ≤ inlineCap (4 KB): inline the whole body.
 	//   - > inlineCap: write to `<WorkDir>/attached_log.txt`, inline
-	//     head + tail preview, tell the LLM to read_file the blob path
-	//     for paginated access to the middle.
+	//     head + tail preview, and advertise paginated blob access only
+	//     when the projected stage schema actually includes read_file.
 	//
 	// Empty AttachedLog is a no-op.
 	if !shouldSuppressAttachedRuntimeLog(ac) {
-		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage)); section != "" {
+		if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir, attachedLogTriageState(ac), preStageDegradationSummaryFor(ac, types.StageLogTriage), attachedArtifactRenderOptions{
+			ReadFileAvailable: availableTools["read_file"],
+		}); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title:   SectionAttachedRuntimeLog,
@@ -879,7 +882,8 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// caller-provenance claims.
 	if !shouldSuppressAttachedRuntimeTrace(ac) {
 		if section := formatAttachedTrace(ac.AttachedHitrace, ac.WorkDir, attachedTraceTriageState(ac), preStageDegradationSummaryFor(ac, types.StagePerfTriage), attachedTraceRenderOptions{
-			PreferTraceQuery: attachedTraceQueryPreferredForAgentContext(ac),
+			PreferTraceQuery:  attachedTraceQueryPreferredForAgentContext(ac) && availableTools["trace_query"],
+			ReadFileAvailable: availableTools["read_file"],
 		}); section != "" {
 			section = sanitiseSectionForLLM(section, ac)
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
@@ -3532,7 +3536,12 @@ const (
 )
 
 type attachedTraceRenderOptions struct {
-	PreferTraceQuery bool
+	PreferTraceQuery  bool
+	ReadFileAvailable bool
+}
+
+type attachedArtifactRenderOptions struct {
+	ReadFileAvailable bool
 }
 
 type attachedRuntimeTriageState int
@@ -3884,9 +3893,8 @@ func renderAttachedArtifactPreviewBlock(preview attachedArtifactPreview, blobPat
 //   - > attachedLogInlineCap: write the full body to
 //     `<workDir>/attached_log.txt` (mirrors the tool/blob pattern),
 //     inline a head+tail preview with artifact-local line gutters for
-//     visible lines, and instruct the LLM to use `read_file` on the
-//     blob path for paginated access to the middle. The explorer has
-//     read_file in its tool allowlist. When the structured triage
+//     visible lines, and instruct the LLM to use `read_file` only when
+//     that tool is present in the current projected schema. When the structured triage
 //     bundle is absent, the preamble tells the LLM this raw artifact
 //     is unparsed instead of implying pre-stage success.
 //
@@ -3918,9 +3926,13 @@ func degradedTriageNote(summary string) string {
 		"Anchors must therefore be established from the raw text below.\n\n"
 }
 
-func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState, degradedSummary string) string {
+func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState, degradedSummary string, options ...attachedArtifactRenderOptions) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
+	}
+	var opts attachedArtifactRenderOptions
+	if len(options) > 0 {
+		opts = options[0]
 	}
 	raw = normalizeAttachedArtifactText(raw)
 	preamble := attachedLogPreamble(state)
@@ -3946,6 +3958,14 @@ func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState, de
 	preview := buildAttachedArtifactPreview(raw)
 
 	if blobPath != "" {
+		if !opts.ReadFileAvailable {
+			return preamble +
+				fmt.Sprintf("Total log size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
+					"the middle (%d B) is elided. The complete log is persisted for a later evidence stage, but this stage's projected tool schema has no raw-file reader. "+
+					"Use the typed artifact context and visible preview now; do not attempt to open the elided middle in this stage.\n\n",
+					len(raw), preview.elidedBytes) +
+				renderAttachedArtifactPreviewBlock(preview, "")
+		}
 		return preamble +
 			fmt.Sprintf("Total log size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 				"the middle (%d B) is elided. The complete log is saved to `%s` — "+
@@ -4006,12 +4026,26 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState, 
 
 	if blobPath != "" {
 		if opts.PreferTraceQuery {
+			readFallback := "The current tool surface has no raw-file reader; if trace_query reports unsupported/incomplete coverage, preserve that typed coverage boundary for a later evidence stage instead of attempting to open the blob here."
+			previewPath := ""
+			if opts.ReadFileAvailable {
+				readFallback = "use `read_file` on this blob only after trace_query reports unsupported/incomplete coverage or when a verbatim raw excerpt is required."
+				previewPath = blobPath
+			}
 			return preamble +
 				fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 					"the middle (%d B) is elided. The complete trace is saved to `%s` for `trace_query` and fallback/verbatim raw excerpts. "+
-					"Prefer `trace_query` with bounded time/line/window parameters for evidence; use `read_file` on this blob only after trace_query reports unsupported/incomplete coverage or when a verbatim raw excerpt is required. line_offset is a zero-based line coordinate, not a byte offset.\n\n",
-					len(raw), preview.elidedBytes, blobPath) +
-				renderAttachedArtifactPreviewBlock(preview, blobPath)
+					"Prefer `trace_query` with bounded time/line/window parameters for evidence. %s\n\n",
+					len(raw), preview.elidedBytes, blobPath, readFallback) +
+				renderAttachedArtifactPreviewBlock(preview, previewPath)
+		}
+		if !opts.ReadFileAvailable {
+			return preamble +
+				fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
+					"the middle (%d B) is elided. The complete trace is persisted for a later evidence stage, but this stage's projected tool schema has neither trace_query nor a raw-file reader. "+
+					"Use the typed artifact context and visible preview now; do not attempt to open the elided middle in this stage.\n\n",
+					len(raw), preview.elidedBytes) +
+				renderAttachedArtifactPreviewBlock(preview, "")
 		}
 		return preamble +
 			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+

@@ -57744,6 +57744,34 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r984`。
 
+### §123.1572 B1502：运行时附件分页教学与阶段实际 capability 单源（2026-08-31）
+
+1. `B1502-ANALYZERATTACHMENTTOOLPARITY1/P1` 已施工。`BuildPromptContext` 在构造附件段前从同一 dispatch 的
+   `ToolSuggestions` 建立 capability set；Trace 的 `PreferTraceQuery` 只有在阶段语义允许且 schema 实际发布 `trace_query` 时才成立，
+   日志/Trace 的 blob 分页教学也只有 schema 实际发布 `read_file` 时才出现。
+2. 当大附件已落 blob、但当前阶段没有 reader 时，提示只说明中段已为后续证据阶段持久化，要求当前阶段从 typed artifact context 与可见
+   head/tail preview 完成自己的职责；预览中的 elision marker 不再泄漏 `read <path>` 命令。该分支不把 blob path 伪装成当前可调用入口，
+   也不因无法读中段而声称附件不存在或内容为空。
+3. 根修同时覆盖 attached log 与 attached Trace，而非只针对 H8 case。新增执行级 prompt pin 使用真实 analysis skill，确认分类阶段两个附件段均不出现
+   `read_file`、`trace_query` 或 `— read <blob>` 教学，并保留“后续证据阶段拥有深读”的边界。已有 explorer/perf-triager 的 reader/query
+   正臂继续保留；没有开放 analyzer 深读或改变 analyze 的存在/位置分类职责。
+4. 实现只读取 typed stage skill capability，不读取用户请求、模型 thinking、最终答案、Markdown 或 Mermaid 文字；不产生、删除、替换任何模型结论。
+   Trace 显式时间窗、自动补齐、链上根因、实际占时/规则可消双账户、业务线索和最终因果投影路径均未改动。
+5. 验证：`go test ./internal/context -count=1`、`go test ./... -count=1` 与 `make` 全绿。下一次包含大 Trace 的生产回放应验收
+   analyzer unavailable call 从 1 降为 0；在自然命中前状态保持 implemented，不用静态测试冒充生产闭环。
+
+状态：
+
+`B1502=implemented/full-suite-pass+build-pass/pending-production-replay`；
+`runtime-attachment-teaching=dispatch-capability-projected`；
+`analyze-stage=typed-context+visible-preview/no-deep-read`；
+`explore-reader/query-positive=preserved`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

@@ -439,7 +439,7 @@ func TestFormatAttachedLog_BlobOffload(t *testing.T) {
 	// 8 KB payload above the 4 KB inline cap.
 	const N = 8 * 1024
 	payload := strings.Repeat("A", N)
-	got := formatAttachedLog(payload, dir, attachedTriageStructured, "")
+	got := formatAttachedLog(payload, dir, attachedTriageStructured, "", attachedArtifactRenderOptions{ReadFileAvailable: true})
 	if !strings.Contains(got, "bytes elided") {
 		t.Errorf("large payload missing elision marker")
 	}
@@ -463,7 +463,7 @@ func TestFormatAttachedLog_BlobPreviewKeepsArtifactLineGutters(t *testing.T) {
 		lines[i] = fmt.Sprintf("line-%03d %s", i+1, strings.Repeat("x", 12))
 	}
 	payload := strings.Join(lines, "\n")
-	got := formatAttachedLog(payload, dir, attachedTriageStructured, "")
+	got := formatAttachedLog(payload, dir, attachedTriageStructured, "", attachedArtifactRenderOptions{ReadFileAvailable: true})
 	if !strings.Contains(got, "     1│ line-001") {
 		t.Fatalf("head preview missing artifact line gutter:\n%s", got)
 	}
@@ -498,7 +498,7 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	dir := t.TempDir()
 	const N = 8 * 1024
 	payload := strings.Repeat("T", N)
-	got := formatAttachedTrace(payload, dir, attachedTriageStructured, "")
+	got := formatAttachedTrace(payload, dir, attachedTriageStructured, "", attachedTraceRenderOptions{ReadFileAvailable: true})
 	if !strings.Contains(got, AttachedTraceBlobName) {
 		t.Fatalf("trace blob path not referenced: %s", got)
 	}
@@ -521,7 +521,7 @@ func TestFormatAttachedTrace_BlobOffload_TraceQueryPreferredKeepsReadFileFallbac
 	dir := t.TempDir()
 	const N = 8 * 1024
 	payload := strings.Repeat("sched_switch: prev_comm=main next_comm=RenderThread\n", N/52)
-	got := formatAttachedTrace(payload, dir, attachedTriageStructured, "", attachedTraceRenderOptions{PreferTraceQuery: true})
+	got := formatAttachedTrace(payload, dir, attachedTriageStructured, "", attachedTraceRenderOptions{PreferTraceQuery: true, ReadFileAvailable: true})
 	if !strings.Contains(got, "Prefer `trace_query`") {
 		t.Fatalf("trace-query-preferred prompt should lead with trace_query:\n%s", got)
 	}
@@ -4181,6 +4181,51 @@ func TestShouldSuppressAttachedRuntimeTrace_NoBundle_StillRenders(t *testing.T) 
 	}
 	if !hasSection {
 		t.Fatal("raw perf trace must render when no typed PerfBundle is present")
+	}
+}
+
+// Large runtime attachments are persisted for later evidence stages, but the
+// classifier deliberately has no read_file/trace_query schema. Its prompt must
+// not advertise either unavailable tool or put a "read <blob>" imperative in
+// the preview elision marker. This pins prompt/tool parity for both attachment
+// lanes without widening the analyze-stage content boundary.
+func TestBuildPromptContext_AnalyzerLargeRuntimeAttachmentsDoNotTeachUnavailableReaders(t *testing.T) {
+	dir := t.TempDir()
+	largeLog := strings.Repeat("panic: boom\n", 600)
+	largeTrace := strings.Repeat("app-1 [000] .... 1.000000: sched_switch: prev_comm=app next_comm=worker\n", 120)
+	ac := &types.AgentContext{
+		AgentName:       types.AgentAnalyzer,
+		Stage:           types.StageAnalyze,
+		Objective:       "classify the attached runtime artifacts",
+		Mutable:         types.NewMutableState("classify the attached runtime artifacts"),
+		WorkDir:         dir,
+		AttachedLog:     largeLog,
+		AttachedHitrace: largeTrace,
+	}
+	pc := BuildPromptContext(ac, skill.BuildAnalysisSkill())
+	for _, title := range []string{SectionAttachedRuntimeLog, SectionAttachedPerfTrace} {
+		sec := findSectionTitle(pc, title)
+		if sec == nil {
+			t.Fatalf("missing %s section", title)
+		}
+		for _, forbidden := range []string{
+			"use `read_file`",
+			"Prefer `trace_query`",
+			"— read ",
+		} {
+			if strings.Contains(sec.Content, forbidden) {
+				t.Fatalf("%s taught unavailable capability %q:\n%s", title, forbidden, sec.Content)
+			}
+		}
+		for _, want := range []string{
+			"later evidence stage",
+			"this stage's projected tool schema",
+			"do not attempt to open the elided middle in this stage",
+		} {
+			if !strings.Contains(sec.Content, want) {
+				t.Fatalf("%s missing capability boundary %q:\n%s", title, want, sec.Content)
+			}
+		}
 	}
 }
 
