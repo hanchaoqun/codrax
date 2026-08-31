@@ -57291,6 +57291,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
+
+1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
+   Cangjie 287s、Trace 183s。两路均未按固定 4ms/4m、活动流年龄、轮次、首字节或上下文比例降级。
+2. `B1483` 获得生产正证。Cangjie 最终答案精确保留 `extend=2 / foreign func=2 / public class=8` 共 12 条声明，符号、文件、
+   package 与 exact row id 一致；此前陈旧并行 facts 中的 `Container/Vehicle/Machine` 和 raw alias 均未重新获得 hard authority。
+   成员、scalar、cardinality 与 strict extraneous 消费面已和 finalizer 教学收敛到同一个 canonical typed source-inventory 投影。
+3. 人工过程审计发现新 P1 `B1484-REQUESTEDDIMENSIONCARRIEREQUIVALENCE1`。模型第二轮 patch 已形成三段完整结构化主列表：12 个
+   `items[].label` 是精确符号名，每行携带 `source_inventory_row_id`，`item.text` 逐行显示路径与 package，且工具已接受该文档。由于
+   `replace_blocks` 是完整替换，模型没有复制冗余 block-level `source_inventory_family`；后置 requested-dimension evaluator 随即把同一文档
+   误报为“第 2 维：符号名缺失”，并提示改用 `columns[] + cells[]`。模型照提示新增三张同内容表，随后被正确的 exact-row multiplicity 门拒绝。
+   runner 最终恢复上一版已接受正确稿，所以可见答案通过，但系统额外消耗一轮并制造了自相矛盾的修补方向。
+4. 根因不是列表与表格的样式差异，而是同一 typed 事实存在两套 presentation 判据：预发射已用 exact row id、可见身份和绑定引用确认
+   12 行；后置维度检查却把易在 block replacement 中丢失、且混合/全局块本应省略的 `source_inventory_family` 当成成员集必要身份。
+   `source_inventory_family` 只能是单一家族块的分组提示，不能覆盖或否定逐行 typed identity。
+5. `B1484` 根修把 source-inventory member-set 的后置覆盖判断接入唯一 `SourceInventoryAnswerPreEmitAuthority`。authority 内部先用
+   `PrincipalRows` canonicalize 重叠 aggregate display sets，再发布同一 `EnumerationCoverage`；finalizer 不再局部重算行覆盖。只有 canonical
+   行全集已在模型主展示面可见并带兼容 typed citation 时才算覆盖；错身份、错引用或缺行仍 fail-closed，emit-time row-id binding 与 multiplicity
+   继续负责精确身份和唯一性。
+6. JSON/成文教学同步降低模型心智：list `items[].label/text` 与 table `columns[] + items[].cells[]` 都是合法逐行载体；只在单一 family
+   block 上保留 `source_inventory_family`，mixed/global block 省略；不得为了补字段复制第二份清单。该教学不要求统一表格样式，也不由系统选择
+   成员、分组、标题、顺序或措辞。
+7. 新回归钉住：无 `source_inventory_family` 的完整 exact principal list 可覆盖 member-set；非 principal carrier 与错 row-local citation
+   不能覆盖；source-inventory 消费面必须经过 shared authority 的 convergence tripwire。完整
+   `go test ./internal/agent ./internal/types ./internal/tool` 全绿（agent 14.471s、types 26.634s、tool 188.034s）。
+8. Trace 结构继续为正：显式 10ms 窗、3 次 typed query、目标四态、NetworkService→CookieMonster→目标的已证唤醒链、链上排序、实际占时/
+   规则可消双账户、VerifyClass 0.285ms、邻近/背景隔离、自动补齐与最终 `Trace 因果投影` 均完整。模型的 requested-dimension patch 仍把 runnable/
+   scheduler delay 写成“确定性语义工作”，而真正 VerifyClass 的 semantic completion→target-wait 关系仍未证、有效可消量为 0；typed 上下文和投影
+   已正确披露，按模型语义波动继续观察，不扫描或硬改正文，不让系统替模型给结论。
+
+状态：
+
+`r966=runner-pass-2/2,human-cangjie-final-pass+trace-model-semantic-fail`；
+`B1483=production-positive/core-closed`；
+`B1484=implemented/full-agent+types+tool-suite-pass/pending-clean-production-replay`；
+`source-inventory-row/display-coverage=single-SourceInventoryAnswerPreEmitAuthority`；
+`source_inventory_family=single-family-grouping-hint/not-row-identity`；
+`list-label+text/table-cells=equivalent-model-authored-visible-carriers`；
+`duplicate-roster-repair=forbidden`；
+`system-answer/conclusion/relation/wording/member/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r966`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
+
 ### §123.1550 r965/B1483：正确 12 行首稿被陈旧并行事实强制扩成 17 行；源码枚举消费面统一为单一 typed 投影（2026-08-31）
 
 1. 从已推送 `14c52bacb` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 278s；

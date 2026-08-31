@@ -85,14 +85,19 @@ func BuildSourceInventoryAnswerPreEmitAuthority(ctx *types.BusContext, facts []t
 			observation,
 		)
 	}
+	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
+	view := types.BuildSourceInventoryAnswerAuthorityView(snapshot)
 	enumCoverageView := types.AnswerDocumentAcceptedEnumerationDisplayCoverage(ctx, nil, doc)
 	enumSets := enumCoverageView.Sets
+	if view.PrincipalAuthority && len(view.PrincipalRows) > 0 {
+		enumSets = types.CanonicalizeSourceInventoryPrincipalEnumerationSets(enumSets, view.PrincipalRows)
+		enumCoverageView.Sets = enumSets
+		enumCoverageView.Coverage = types.AnswerDocumentEnumerationDisplayCoverage(doc, enumSets)
+	}
 	enumRowCount := 0
 	for _, set := range enumSets {
 		enumRowCount += len(set.Rows)
 	}
-	snapshot = types.NormalizeSourceInventoryAuthoritySnapshot(snapshot)
-	view := types.BuildSourceInventoryAnswerAuthorityView(snapshot)
 	out := SourceInventoryAnswerPreEmitAuthority{
 		Active:                    view.Active || candidate.IsActive() || requestedFile.IsActive() || duplicate.IsActive() || surfaceFamily.IsActive() || absenceBlocking,
 		Snapshot:                  snapshot,

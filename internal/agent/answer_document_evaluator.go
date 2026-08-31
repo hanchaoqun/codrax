@@ -8184,7 +8184,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if lang == "zh" {
 				if sourceInventoryMemberRoster {
-					b.WriteString("  - 当前清单由 `Principal Enumeration Rows` 的精确结构承担：每个模型成文主块保留对应 `source_inventory_family`、`facet_ids:[\"enumeration_item\"]`，每个可见结构化行保留精确 `source_inventory_row_id`。这些字段已经标识该成员集，不要再添加重复的 `member_set` 标记。需要逐行字段时使用 `columns[]` + 可见 `items[].cells[]`，不要使用 Markdown 表加隐藏 sidecar。\n")
+					b.WriteString("  - 当前清单由 `Principal Enumeration Rows` 的精确结构承担：每个模型成文主块保留 `facet_ids:[\"enumeration_item\"]`，每个可见结构化行保留精确 `source_inventory_row_id`；仅当一个块刻意只承载单一家族时才保留对应 `source_inventory_family`，混合/全局块应省略。精确行身份已经承担成员集，不要再添加重复的 `member_set` 标记。逐行字段可直接放在列表 `items[].label/text`，也可使用 `columns[]` + 可见 `items[].cells[]`；不要为了字段展示复制第二份清单，也不要使用 Markdown 表加隐藏 sidecar。\n")
 				} else {
 					b.WriteString("  - 在真正承载这组成员的可见列表/表格块上设置隐藏元数据 `facet_ids:[\"member_set\"]`；不要把 `member_set` 写进可见标题或正文，也不要把别的关系/边界清单标成这组成员。\n")
 				}
@@ -8193,7 +8193,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 				}
 			} else {
 				if sourceInventoryMemberRoster {
-					b.WriteString("  - This roster is structurally owned by the exact `Principal Enumeration Rows`: keep the corresponding `source_inventory_family` and `facet_ids:[\"enumeration_item\"]` on each model-authored principal block, and keep the exact `source_inventory_row_id` on every visible structured row. Those fields already identify the member set; do not add a duplicate `member_set` marker. When row-local fields are required, use `columns[]` plus visible `items[].cells[]`, not a Markdown table with hidden sidecars.\n")
+					b.WriteString("  - This roster is structurally owned by the exact `Principal Enumeration Rows`: keep `facet_ids:[\"enumeration_item\"]` on each model-authored principal block and the exact `source_inventory_row_id` on every visible structured row; keep `source_inventory_family` only when one block intentionally carries exactly one family, and omit it for a mixed/global block. Exact row identity already owns the member set; do not add a duplicate `member_set` marker. Row-local fields may stay in list `items[].label/text`, or use `columns[]` plus visible `items[].cells[]`; do not duplicate the roster merely to display fields, and do not use a Markdown table with hidden sidecars.\n")
 				} else {
 					b.WriteString("  - On the visible list/table block that actually carries this roster, set hidden metadata `facet_ids:[\"member_set\"]`. Do not print `member_set` in the visible title/body, and do not tag a different relation/boundary list as this roster.\n")
 				}
@@ -16349,13 +16349,41 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 	if requested == 0 {
 		return false
 	}
-	if answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(doc) < requested {
+	exactSourceInventoryRoster := answerDocumentCoversExactTypedSourceInventoryRoster(ctx, doc)
+	if !exactSourceInventoryRoster &&
+		answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(doc) < requested {
 		return false
 	}
 	if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
 		return answerDocumentCoversTypedPerMemberSourceLocations(ctx, doc)
 	}
 	return true
+}
+
+// answerDocumentCoversExactTypedSourceInventoryRoster recognizes the complete
+// accepted row-id carrier directly. A block-level source_inventory_family is a
+// useful grouping hint for a single-family block, but it is not row identity:
+// patch replacement may legitimately omit it and mixed-family blocks must omit
+// it. Requiring that redundant hint after emit-time row validation caused an
+// already accepted list to be reported as missing and encouraged the model to
+// duplicate it as a table.
+//
+// Coverage remains fail-closed and prose-independent. The shared source-
+// inventory answer authority owns the canonical row universe and requires its
+// visible principal enumeration surface to carry compatible typed citations.
+// Emit-time row-id binding and multiplicity checks remain the identity guard;
+// this post-acceptance presentation check does not rebuild them locally.
+func answerDocumentCoversExactTypedSourceInventoryRoster(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	authority := tool.BuildSourceInventoryAnswerPreEmitAuthority(
+		types.ToolBusContext(ctx, types.AgentFinalizer),
+		answerDocStableAggregateFacts(ctx),
+		doc,
+	)
+	return authority.View.PrincipalAuthority && authority.EnumerationRowCount > 0 &&
+		authority.EnumerationCoverage.Complete()
 }
 
 // answerDocumentRelationMemberSetRequestsVisibleLocations joins two precise,
@@ -16853,7 +16881,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			b.WriteByte('\n')
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
 				if sourceInventoryMemberRoster {
-					b.WriteString("  - 请恢复对应的模型成文主清单块：保留精确 `source_inventory_family`、`facet_ids:[\"enumeration_item\"]`，并让每个可见结构化行携带其 `source_inventory_row_id`。这些精确字段已承担成员集身份，不要补重复 `member_set`。需要逐行字段时使用 `columns[]` + 可见 `items[].cells[]`，不要使用 Markdown 表加隐藏 sidecar。\n")
+					b.WriteString("  - 请恢复对应的模型成文主清单块：保留 `facet_ids:[\"enumeration_item\"]`，并让每个可见结构化行携带其精确 `source_inventory_row_id`；仅单一家族块保留 `source_inventory_family`，混合/全局块省略。列表 `items[].label/text` 已可承载逐行字段，也可使用 `columns[]` + 可见 `items[].cells[]`；不要补重复 `member_set`，也不要为了字段展示复制第二份清单。\n")
 				} else {
 					b.WriteString("  - 请在真正承载该成员清单的可见列表/表格块上补隐藏元数据 `facet_ids:[\"member_set\"]`；不要把这个内部标记写进可见标题/正文，也不要标到别的关系或边界清单上。\n")
 				}
@@ -16893,7 +16921,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteByte('\n')
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if sourceInventoryMemberRoster {
-				b.WriteString("  - Restore the corresponding model-authored principal roster block with its exact `source_inventory_family`, `facet_ids:[\"enumeration_item\"]`, and `source_inventory_row_id` on every visible structured row. Those exact fields already own the member-set identity; do not add a duplicate `member_set` marker. When row-local fields are required, use `columns[]` plus visible `items[].cells[]`, not a Markdown table with hidden sidecars.\n")
+				b.WriteString("  - Restore the corresponding model-authored principal roster block with `facet_ids:[\"enumeration_item\"]` and the exact `source_inventory_row_id` on every visible structured row; keep `source_inventory_family` only for a single-family block and omit it for a mixed/global block. List `items[].label/text` may already carry row-local fields, or use `columns[]` plus visible `items[].cells[]`; do not add a duplicate `member_set` marker or copy the roster merely to display fields.\n")
 			} else {
 				b.WriteString("  - Add hidden metadata `facet_ids:[\"member_set\"]` to the visible list/table block that actually carries this roster. Do not print the marker in the visible title/body or attach it to another relation/boundary list.\n")
 			}

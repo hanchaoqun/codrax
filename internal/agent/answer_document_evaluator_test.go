@@ -472,6 +472,31 @@ func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows
 		t.Fatal("exact row identities with visible typed package values should cover source_attribute")
 	}
 	memberDimension := ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[2]
+	rosterDoc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "classes", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+	}}}
+	for i, row := range sets[0].Rows {
+		rosterDoc.Citations = append(rosterDoc.Citations, types.Citation{File: row.Source, Line: row.LineStart})
+		rosterDoc.Blocks[0].Items = append(rosterDoc.Blocks[0].Items, types.AnswerBlockItem{
+			Label: row.DisplayLabel, Text: row.Location, CitationRef: i,
+			SourceInventoryRowID: row.RowID,
+		})
+	}
+	if !requestedDimensionCoveredByTypedDocumentShape(ctx, memberDimension, rosterDoc) {
+		t.Fatal("complete exact principal row ids must cover the member-set dimension without redundant source_inventory_family or table cells")
+	}
+	rosterDoc.Blocks[0].SurfaceRole = ""
+	rosterDoc.Blocks[0].FacetIDs = nil
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, memberDimension, rosterDoc) {
+		t.Fatal("rows without a principal enumeration carrier must not consume the requested member-set dimension")
+	}
+	rosterDoc.Blocks[0].SurfaceRole = types.SurfacePrincipal
+	rosterDoc.Blocks[0].FacetIDs = []string{string(types.FacetEnumerationItem)}
+	rosterDoc.Blocks[0].Items[1].CitationRef = 0
+	if requestedDimensionCoveredByTypedDocumentShape(ctx, memberDimension, rosterDoc) {
+		t.Fatal("a wrong row-local citation must not consume the exact member-set dimension")
+	}
 	for _, surface := range []string{
 		renderAnswerDocRequestedAnswerDimensions(ctx),
 		requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{memberDimension}, "en"),
