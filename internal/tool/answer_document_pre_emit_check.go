@@ -980,6 +980,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	if h := preCheckItemCitationAlignmentWithContext(doc, view, pctx); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
+	if h := preCheckSourceInventoryPrincipalRowCarrierVisibility(doc, ctxOpt...); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolCitation, h)
+	}
 	if h := preCheckSourceInventoryRowIDBindings(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCitation, h)
 	}
@@ -3106,6 +3109,50 @@ func preCheckSourceInventoryExactRowMultiplicity(doc *types.AnswerDocumentV2, ct
 	return hints
 }
 
+// preCheckSourceInventoryPrincipalRowCarrierVisibility keeps typed row
+// identity and row-local visible fields on the same renderer-visible carrier.
+// A complete Markdown table makes Items citation-only sidecars, so their row
+// ids, labels, text, and cells are hidden even though the surrounding table is
+// visible. Principal Enumeration Rows therefore use structured items whenever
+// the block declares an exact source-inventory family or row id. The decision
+// is based only on typed block metadata and renderer shape; it never parses the
+// Markdown table, request prose, model reasoning, or answer wording.
+func preCheckSourceInventoryPrincipalRowCarrierVisibility(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil ||
+		!sourceInventoryPrincipalAnswerIsModelOwned(ctxOpt[0]) {
+		return nil
+	}
+	var hints []emitFixHint
+	for bi, block := range doc.Blocks {
+		if block.SurfaceRole != types.SurfacePrincipal ||
+			!principalEnumerationBlockCanCarryRows(block) ||
+			!principalEnumerationBlockHasEnumerationFacet(block) ||
+			types.AnswerBlockRendersStructuredItems(block) ||
+			preEmitSystemEnumerationRowSupplementBlock(block) ||
+			!sourceInventoryBlockDeclaresExactTypedRows(block) {
+			continue
+		}
+		hints = append(hints, sourceInventoryTypedRowHardHint(
+			fmt.Sprintf("blocks[%d].text/columns/items", bi),
+			"replace this one table block as a visible structured table: preserve its id/title and unrelated typed metadata; clear the complete Markdown table from block.text; copy the authored headers to columns[] and every authored row to one visible items[] row using cells[] (or label plus remaining cells); keep each exact source_inventory_row_id on the row it identifies and put every requested row-local field such as path/package in that same visible row; do not add hidden citation-only sidecars or a duplicate table",
+			"this principal source-inventory block declares exact typed rows, but its complete Markdown table causes items[] to become hidden citation sidecars; hidden fields cannot carry row identity or satisfy a requested visible row field.",
+		))
+	}
+	return hints
+}
+
+func sourceInventoryBlockDeclaresExactTypedRows(block types.AnswerBlock) bool {
+	if strings.TrimSpace(block.SourceInventoryFamily) != "" {
+		return true
+	}
+	for _, item := range block.Items {
+		if strings.TrimSpace(item.SourceInventoryRowID) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // preCheckSourceInventoryRequestedRowLocation enforces an explicit typed
 // request for the file location on the same visible row that carries the exact
 // source-inventory identity. The citation remains proof metadata, not a
@@ -3129,6 +3176,12 @@ func preCheckSourceInventoryRequestedRowLocation(doc *types.AnswerDocumentV2, ct
 			!principalEnumerationBlockCanCarryRows(block) ||
 			!principalEnumerationBlockHasEnumerationFacet(block) ||
 			preEmitSystemEnumerationRowSupplementBlock(block) {
+			continue
+		}
+		// A complete Markdown table hides every item field. The carrier-shape
+		// gate above owns that one structural repair; do not emit misleading
+		// per-sidecar "visible text/cells" hints for fields the renderer drops.
+		if !types.AnswerBlockRendersStructuredItems(block) {
 			continue
 		}
 		for ii, item := range block.Items {
@@ -9559,12 +9612,12 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 }
 
 // preEmitStructuredPrincipalMarkdownRepairTargets turns an already-visible
-// authored Markdown table into an exact patch target when its structured
-// citation sidecars are the only missing part of the source-inventory row
-// contract. The table classifier and first-column identity matcher are the
-// same precise structural signals used by the coverage gate; no request or
-// answer prose classifier participates. This is repair guidance only: the
-// model still chooses and emits the replacement block.
+// authored Markdown table into an exact patch target when the typed
+// source-inventory contract requires renderer-visible structured rows. The
+// table classifier and first-column identity matcher are the same precise
+// structural signals used by the coverage gate; no request or answer prose
+// classifier participates. This is repair guidance only: the model still
+// chooses and emits the replacement block.
 func preEmitStructuredPrincipalMarkdownRepairTargets(doc *types.AnswerDocumentV2, roster []preEmitMemberSetRosterEntry) string {
 	if doc == nil || len(roster) == 0 {
 		return ""
@@ -9602,7 +9655,7 @@ func preEmitStructuredPrincipalMarkdownRepairTargets(doc *types.AnswerDocumentV2
 		parts = append(parts, fmt.Sprintf("%q (%d visible obligation row(s))", target.id, target.visible))
 	}
 	return "Existing authored Markdown table carrier(s) already render obligation identities on their visible first-column axis: " +
-		strings.Join(parts, ", ") + ". On a patch retry, use replace_blocks for those existing block ids and attach matching items[] citation sidecars to the same rows; do not use add_blocks to create a second copy of that roster. A replace_blocks entry is the FULL replacement, not a field merge: copy the previous title/text/columns and every unrelated field byte-for-byte, then add the sidecar items. In particular, keep the complete Markdown table in text; do not convert it into cells[] or discard its authored headers. "
+		strings.Join(parts, ", ") + ". On a patch retry, use replace_blocks for those existing block ids and convert each one into the same single visible structured table; do not use add_blocks to create a second copy of that roster. A replace_blocks entry is the FULL replacement, not a field merge: preserve the previous id/title and every unrelated typed field, copy the authored headers into columns[], copy every authored row into one items[].cells[]/label row with its exact source_inventory_row_id and row-local fields, and clear the complete Markdown table from text. Hidden citation sidecars cannot satisfy this typed row contract. "
 }
 
 // preEmitStructuredPrincipalMemberRepairRecipe describes every schema field

@@ -5177,6 +5177,46 @@ func TestPreCheckSourceInventoryRequestedRowLocation_CitationDoesNotReplaceVisib
 	}
 }
 
+func TestPreCheckSourceInventoryPrincipalRowCarrierVisibility_RejectsHiddenMarkdownSidecars(t *testing.T) {
+	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "cart/Cart.cj", Line: 14}},
+		Blocks: []types.AnswerBlock{{
+			ID:                    "classes",
+			Kind:                  types.BlockTable,
+			SurfaceRole:           types.SurfacePrincipal,
+			SourceInventoryFamily: "public class",
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Text:                  "| name | location | package |\n| --- | --- | --- |\n| Cart | cart/Cart.cj:14 | demo.cart |",
+			Items: []types.AnswerBlockItem{{
+				ID: "class-cart", SourceInventoryRowID: classID, CitationRef: 0,
+			}},
+		}},
+	}
+
+	hints := preCheckSourceInventoryPrincipalRowCarrierVisibility(doc, ctx)
+	if len(hints) != 1 || !hints[0].ForceHard ||
+		hints[0].HardSignal != preEmitHardSignalTypedSourceInventoryRowID ||
+		!strings.Contains(hints[0].Field, "blocks[0].text/columns/items") ||
+		!strings.Contains(hints[0].ExpectedShape, "clear the complete Markdown table") ||
+		!strings.Contains(hints[0].ExpectedShape, "visible items[] row") {
+		t.Fatalf("typed Markdown carrier must receive one executable structured-row repair, got %+v", hints)
+	}
+	if hints := preCheckSourceInventoryRequestedRowLocation(doc, ctx); len(hints) != 0 {
+		t.Fatalf("hidden sidecars must not also receive misleading visible text/cells repairs, got %+v", hints)
+	}
+
+	doc.Blocks[0].Text = ""
+	doc.Blocks[0].Columns = []string{"name", "location", "package"}
+	doc.Blocks[0].Items[0].Cells = []string{"Cart", "cart/Cart.cj:14", "demo.cart"}
+	if hints := preCheckSourceInventoryPrincipalRowCarrierVisibility(doc, ctx); len(hints) != 0 {
+		t.Fatalf("visible structured exact row must pass the carrier gate, got %+v", hints)
+	}
+	if hints := preCheckSourceInventoryRequestedRowLocation(doc, ctx); len(hints) != 0 {
+		t.Fatalf("visible structured exact location must pass the row-local gate, got %+v", hints)
+	}
+}
+
 func TestPreCheckSourceInventoryRowIDBindings_CellsOnlyTableMatchesPrimaryColumn(t *testing.T) {
 	ctx, _, classID := sourceInventoryDuplicateCartRowIDTestContext(t)
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{

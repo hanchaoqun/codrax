@@ -1402,7 +1402,7 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 				}
 			case types.BlockTable:
 				items = append(items,
-					"Emit the principal `table` block as one canonical visible table. If you already authored a markdown table, put that complete table in block `text` and do not convert it. For a structured multi-column table, choose one row shape and keep it for every row: (A) omit `items[].label` and put one `cells[]` value per `columns[]` header; or (B) use `label` as the first visible value and put every remaining value in `cells[]`/`text` (then `columns[]` may include that first header or omit only it for a neutral Item/项目 header). Do not declare headers whose row values are absent. Use label/text without columns only when a two-column fallback is genuinely enough. If `text` already contains the markdown table, any `items[]` are citation/row-support carriers and MUST NOT be a second user-visible table. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
+					"Emit the principal `table` block as one canonical visible table. When Principal Enumeration Rows or another typed contract requires fields on each visible row, leave block `text` free of a complete Markdown table and use `columns[]` plus visible `items[].cells[]`/`label`, keeping each exact row carrier on the row it identifies; hidden sidecars cannot satisfy visible fields. Otherwise, an already-authored ordinary Markdown table may stay complete in block `text`. For a structured multi-column table, choose one row shape and keep it for every row: (A) omit `items[].label` and put one `cells[]` value per `columns[]` header; or (B) use `label` as the first visible value and put every remaining value in `cells[]`/`text` (then `columns[]` may include that first header or omit only it for a neutral Item/项目 header). Do not declare headers whose row values are absent. Use label/text without columns only when a two-column fallback is genuinely enough. Only an ordinary Markdown table without a typed row-local contract may use citation-only `items[]` sidecars. Each visible row must correspond to a grounded entity, with citations[] entries for every cited file:line.",
 				)
 			case types.BlockSummary:
 				items = append(items,
@@ -8142,6 +8142,7 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	}
 	lang := extractAnswerDocLang(ctx)
 	callChainMemberRoster := view.Family == types.QFCallChain && answerDocHasRequiredDimensionRole(view.Presentation.RequestedDimensions, types.RequestedAnswerDimensionMemberSet)
+	sourceInventoryMemberRoster := answerDocRequestedMemberSetUsesExactSourceInventoryRows(ctx)
 	var b strings.Builder
 	if lang == "zh" {
 		b.WriteString("## 用户要求的答案维度\n\n")
@@ -8182,12 +8183,20 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		b.WriteString("\n")
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if lang == "zh" {
-				b.WriteString("  - 在真正承载这组成员的可见列表/表格块上设置隐藏元数据 `facet_ids:[\"member_set\"]`；不要把 `member_set` 写进可见标题或正文，也不要把别的关系/边界清单标成这组成员。\n")
+				if sourceInventoryMemberRoster {
+					b.WriteString("  - 当前清单由 `Principal Enumeration Rows` 的精确结构承担：每个模型成文主块保留对应 `source_inventory_family`、`facet_ids:[\"enumeration_item\"]`，每个可见结构化行保留精确 `source_inventory_row_id`。这些字段已经标识该成员集，不要再添加重复的 `member_set` 标记。需要逐行字段时使用 `columns[]` + 可见 `items[].cells[]`，不要使用 Markdown 表加隐藏 sidecar。\n")
+				} else {
+					b.WriteString("  - 在真正承载这组成员的可见列表/表格块上设置隐藏元数据 `facet_ids:[\"member_set\"]`；不要把 `member_set` 写进可见标题或正文，也不要把别的关系/边界清单标成这组成员。\n")
+				}
 				if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
 					b.WriteString("  - 当前 typed 证据为每个成员提供了精确源码位置；在同一个成员块中，把各自路径或 file:line 放进该成员自己的可见行/单元格。引用只负责证明，不能代替用户要求看到的文件位置。\n")
 				}
 			} else {
-				b.WriteString("  - On the visible list/table block that actually carries this roster, set hidden metadata `facet_ids:[\"member_set\"]`. Do not print `member_set` in the visible title/body, and do not tag a different relation/boundary list as this roster.\n")
+				if sourceInventoryMemberRoster {
+					b.WriteString("  - This roster is structurally owned by the exact `Principal Enumeration Rows`: keep the corresponding `source_inventory_family` and `facet_ids:[\"enumeration_item\"]` on each model-authored principal block, and keep the exact `source_inventory_row_id` on every visible structured row. Those fields already identify the member set; do not add a duplicate `member_set` marker. When row-local fields are required, use `columns[]` plus visible `items[].cells[]`, not a Markdown table with hidden sidecars.\n")
+				} else {
+					b.WriteString("  - On the visible list/table block that actually carries this roster, set hidden metadata `facet_ids:[\"member_set\"]`. Do not print `member_set` in the visible title/body, and do not tag a different relation/boundary list as this roster.\n")
+				}
 				if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
 					b.WriteString("  - Exact typed source locations are available for every member. In the same roster block, put each path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
 				}
@@ -8237,6 +8246,27 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// answerDocRequestedMemberSetUsesExactSourceInventoryRows selects the one
+// typed roster lane whose family plus exact row ids already carries membership
+// ownership. It reads only the schema-validated source-inventory profile; raw
+// request text, dimension labels, answer prose, and model reasoning are absent.
+func answerDocRequestedMemberSetUsesExactSourceInventoryRows(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil ||
+		!ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() {
+		return false
+	}
+	for _, set := range answerDocPrincipalEnumerationSets(ctx, answerSurfacePlan(ctx)) {
+		for _, row := range set.Rows {
+			if strings.TrimSpace(row.RowID) != "" &&
+				strings.TrimSpace(types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms)) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func renderAnswerDocRequestedDimensionEvidenceOwnership(ctx *types.AgentContext) string {
@@ -16399,12 +16429,11 @@ func answerDocumentHasScalarPayload(doc *types.AnswerDocumentV2) bool {
 }
 
 // answerDocumentCoversRequestedMemberSetDimensions treats the analyzer's
-// schema-validated member_set role as the presentation authority. Every
-// requested roster needs one structured block explicitly carrying the hidden
-// facet_id=member_set marker. Requiring the marker even for one roster prevents
-// an unrelated endpoint-boundary, relation, or evidence list from silently
-// satisfying the user's requested member set after a patch replaces or drops
-// the real roster block.
+// schema-validated member_set role as the presentation authority. Ordinary
+// requested rosters need a structured block explicitly carrying the hidden
+// facet_id=member_set marker. An exact principal source-inventory block already
+// owns the same roster through source_inventory_family + enumeration_item +
+// source_inventory_row_id, so requiring a second marker on it is redundant.
 //
 // This is deliberately typed and shape-only: it does not inspect the raw
 // request, block prose, model reasoning, member names, or final rendered text.
@@ -16427,7 +16456,7 @@ func answerDocumentCoversRequestedMemberSetDimensions(ctx *types.AgentContext, d
 	if requested == 0 {
 		return false
 	}
-	if answerDocumentMemberSetPayloadBlockCount(doc, true) < requested {
+	if answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(doc) < requested {
 		return false
 	}
 	if answerDocumentRelationMemberSetRequestsVisibleLocations(ctx) {
@@ -16569,6 +16598,61 @@ func answerDocumentMemberSetPayloadBlockCount(doc *types.AnswerDocumentV2, requi
 		}
 	}
 	return count
+}
+
+func answerDocumentMemberSetOrExactSourceInventoryPayloadBlockCount(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	count := 0
+	for _, block := range doc.Blocks {
+		if !answerBlockHasFacet(block, string(types.RequestedAnswerDimensionMemberSet)) &&
+			!answerDocumentBlockCarriesExactSourceInventoryRoster(block) {
+			continue
+		}
+		if answerDocumentBlockHasVisibleMemberPayload(block) {
+			count++
+		}
+	}
+	return count
+}
+
+// answerDocumentBlockCarriesExactSourceInventoryRoster recognizes only the
+// closed structured identity tuple used by Principal Enumeration Rows. Every
+// visible row must carry an exact row id; one exact row cannot lend ownership
+// to unlabeled siblings, Markdown sidecars, relation lists, or boundary prose.
+func answerDocumentBlockCarriesExactSourceInventoryRoster(block types.AnswerBlock) bool {
+	if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+		block.SurfaceRole != types.SurfacePrincipal ||
+		strings.TrimSpace(block.SourceInventoryFamily) == "" ||
+		!answerBlockHasFacet(block, string(types.FacetEnumerationItem)) ||
+		!types.AnswerBlockRendersStructuredItems(block) {
+		return false
+	}
+	visible := 0
+	for _, item := range block.Items {
+		if strings.TrimSpace(types.AnswerBlockItemVisibleSurface(item)) == "" {
+			continue
+		}
+		visible++
+		if strings.TrimSpace(item.SourceInventoryRowID) == "" {
+			return false
+		}
+	}
+	return visible > 0
+}
+
+func answerDocumentBlockHasVisibleMemberPayload(block types.AnswerBlock) bool {
+	if types.AnswerBlockRendersStructuredItems(block) {
+		for _, item := range block.Items {
+			if strings.TrimSpace(types.AnswerBlockItemVisibleSurface(item)) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	return block.Kind == types.BlockTable &&
+		strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) != ""
 }
 
 func answerDocumentHasBoundaryPayload(doc *types.AnswerDocumentV2) bool {
@@ -16848,9 +16932,10 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	missing = requestedDimensionsSortedForHint(missing)
 	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
 	memberLocationsRequired := answerDocumentRelationMemberSetRequestsVisibleLocations(ctx)
+	sourceInventoryMemberRoster := answerDocRequestedMemberSetUsesExactSourceInventoryRows(ctx)
 	memberSetMetadataRepair := false
 	for _, dim := range missing {
-		if dim.Role == types.RequestedAnswerDimensionMemberSet {
+		if dim.Role == types.RequestedAnswerDimensionMemberSet && !sourceInventoryMemberRoster {
 			memberSetMetadataRepair = true
 			break
 		}
@@ -16874,7 +16959,11 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			fmt.Fprintf(&b, "- 第 %d 维：%s", index, strings.TrimSpace(dim.Label))
 			b.WriteByte('\n')
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
-				b.WriteString("  - 请在真正承载该成员清单的可见列表/表格块上补隐藏元数据 `facet_ids:[\"member_set\"]`；不要把这个内部标记写进可见标题/正文，也不要标到别的关系或边界清单上。\n")
+				if sourceInventoryMemberRoster {
+					b.WriteString("  - 请恢复对应的模型成文主清单块：保留精确 `source_inventory_family`、`facet_ids:[\"enumeration_item\"]`，并让每个可见结构化行携带其 `source_inventory_row_id`。这些精确字段已承担成员集身份，不要补重复 `member_set`。需要逐行字段时使用 `columns[]` + 可见 `items[].cells[]`，不要使用 Markdown 表加隐藏 sidecar。\n")
+				} else {
+					b.WriteString("  - 请在真正承载该成员清单的可见列表/表格块上补隐藏元数据 `facet_ids:[\"member_set\"]`；不要把这个内部标记写进可见标题/正文，也不要标到别的关系或边界清单上。\n")
+				}
 				if memberLocationsRequired {
 					b.WriteString("  - 当前证据为每个成员提供了精确源码位置；请把各自路径或 file:line 放在该成员自己的可见行/单元格中。引用只负责证明，不能代替用户要求看到的文件位置。\n")
 				}
@@ -16910,7 +16999,11 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		fmt.Fprintf(&b, "- Dimension %d: %s", index, strings.TrimSpace(dim.Label))
 		b.WriteByte('\n')
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
-			b.WriteString("  - Add hidden metadata `facet_ids:[\"member_set\"]` to the visible list/table block that actually carries this roster. Do not print the marker in the visible title/body or attach it to another relation/boundary list.\n")
+			if sourceInventoryMemberRoster {
+				b.WriteString("  - Restore the corresponding model-authored principal roster block with its exact `source_inventory_family`, `facet_ids:[\"enumeration_item\"]`, and `source_inventory_row_id` on every visible structured row. Those exact fields already own the member-set identity; do not add a duplicate `member_set` marker. When row-local fields are required, use `columns[]` plus visible `items[].cells[]`, not a Markdown table with hidden sidecars.\n")
+			} else {
+				b.WriteString("  - Add hidden metadata `facet_ids:[\"member_set\"]` to the visible list/table block that actually carries this roster. Do not print the marker in the visible title/body or attach it to another relation/boundary list.\n")
+			}
 			if memberLocationsRequired {
 				b.WriteString("  - Exact source locations are available for every member. Put each path or file:line in that member's own visible row/cell. A citation proves the row but does not replace the requested visible location.\n")
 			}

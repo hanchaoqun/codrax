@@ -57330,6 +57330,54 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r963`。
 
+### §123.1549 r964/B1482：展示别名闭环；隐藏 sidecar 被误作可见行且精确清单被重复索要（2026-08-31）
+
+1. 从已推送 `2dc23770c` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
+   Trace 172s、Cangjie 328s。两路均未按固定 4ms/4m、活动流年龄、轮次、首字节或上下文比例降级。
+2. B1481 获生产正证并关闭。Cangjie 的首稿与终稿都直接使用 canonical `String`，没有再携带 `String (extend operator)`；最终精确列出
+   `extend=2 / foreign func=2 / public class=8`，12 条声明的符号、文件与 package 齐全。说明“member 必须匹配 + 无标签唯一坐标只作位置凭证”
+   的 typed identity 根修正确，没有放宽错名或歧义声明。
+3. Cangjie 人工仍判 fail，确认新 P0 `B1482-INVENTORYTABLECARRIERSST1`。模型首稿已写出完整可见 Markdown 表，并在 `items[]` 中放置
+   精确 row id/citation sidecar。renderer 明确在这种形状下只渲染 `block.text`，sidecar 的 label/text/cells 全部隐藏；但 location precheck
+   又读取 sidecar 字段并要求“同一可见行补路径”，形成系统自相矛盾。模型按提示把路径写入隐藏 sidecar 后，表面校验通过，用户可见答案没有因此改变。
+4. 同轮第二个冗余合同来自 requested-dimension evaluator：`source_inventory_family + enumeration_item + 每行精确 source_inventory_row_id`
+   已唯一承载三个 source-inventory roster，仍要求每个块再加 `member_set`。第三次 patch 只增加隐藏 marker，不增加任何可见信息。这两处共同制造
+   2 次 finalizer reject、3 次 patch 与额外模型心智，且都不是模型事实错误。
+5. 根修统一到 renderer-visible typed carrier：任何模型成文 principal source-inventory 块，只要声明精确 family/row id，就必须使用
+   `columns[] + 可见 items[].cells[]/label`，完整 Markdown 表不得与隐藏 sidecar 混用。校验只看 block kind、surface role、enumeration facet、
+   family/row id 与共享 renderer shape，不解析 Markdown 内容、请求、thinking 或答案词面；普通无逐行 typed 合同的 Markdown 表继续允许 citation-only sidecar。
+6. 精确 source-inventory 清单的维度所有权改为单源：一个可见结构化 principal 块只有在 family 非空、含 enumeration facet、且每个可见行都有
+   row id 时，才可直接覆盖一个 `member_set` 维度；普通列表、关系/边界块、缺 family、缺 row id 或 Markdown 隐藏 sidecar 均不能借权。
+   初始教学与 retry hint 同步说明无需重复 marker；不删除普通 `member_set` 车道。
+7. 修补提示也从“保留 Markdown 并加 sidecar”改为同块 `replace_blocks` 转换：保留 id/title/其余 typed 元数据，复制 headers/rows 到
+   columns/items，清空完整 Markdown text，不新增第二张表。系统仍不转换或代写表内容，只要求模型提交 renderer 可见的结构形。
+8. 新回归覆盖隐藏 sidecar 单一 hard repair、结构化 row+path 正向、普通 Markdown sidecar 兼容、精确 inventory roster 免重复 marker、
+   缺 family/row id/隐藏 row 负臂及中英文教学。`go test ./internal/tool ./internal/agent ./internal/types -count=1` 全绿（tool 185.916s、
+   agent 14.828s、types 26.184s）。
+9. Trace 人工仍判 fail，但所有系统红线保持：显式 10ms 窗、6 次 typed query、唤醒链、NetworkService 5.951ms 链上第一席、四态账、
+   实际占时/规则可消双账户、自动补齐和最终 `Trace 因果投影` 完整；非链 D/IO/CPU 只作背景。模型再次把 NetworkService runnable 称为
+   “确定性工作”，而 typed VerifyClass 0.285ms/有效归因 0/semantic-completion 与 target-wait binding 未证在投影中正确。该重复语义漂移继续按
+   soft typed context 优化，不允许用请求/答案关键词硬拒或由系统改写模型结论。
+10. Cangjie 自由摘要另称“跨越 7 个包”，随后列出 9 项且包含不存在的裸 `demo`；实际 distinct package 为 8。用户未请求 package 总数，
+    上游也未发布该 typed scalar，因此记模型派生算术漂移；不从答案 prose 复算、硬门或系统替换。后续若用户明确请求该计数，应新增 typed
+    distinct-package fact，而不是让 validator 扫描文字。
+
+状态：
+
+`r964=runner-pass-2/2,human-cangjie-fail+trace-fail`；
+`B1481=production-positive/core-closed`；
+`B1482=implemented/full-tool+agent+types-suite-pass/pending-production-replay`；
+`principal-inventory-row-carrier=renderer-visible-structured-items-only`；
+`ordinary-markdown-table-sidecar=preserved`；
+`exact-source-inventory-roster-identity=family+enumeration-facet+all-visible-row-ids`；
+`duplicate-member_set-marker=not-required`；
+`model-derived-unrequested-package-count=soft-observe/no-prose-gate`；
+`system-answer/conclusion/relation/wording/member/count-selection=none`；
+`request/model/final-prose/markdown-content scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r964`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r964`。
+
 ### §123.1546 r961/B1478–B1479：待发现运行时工作未获席；同坐标错名被铸成 typed 清单（2026-08-31）
 
 1. 从已推送 `e615461ca` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 156s、Cangjie runner

@@ -420,8 +420,8 @@ func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows
 		Sets: []types.SourceInventoryObservationSet{{
 			Role: types.AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
 			Members: []types.SourceInventoryObservationMember{
-				{Name: "Alpha", Role: types.AnswerCandidateRoleType, File: "src/alpha.cj", Line: 10, Attributes: []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.alpha"}}},
-				{Name: "Beta", Role: types.AnswerCandidateRoleType, File: "src/beta.cj", Line: 20, Attributes: []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.beta"}}},
+				{Name: "Alpha", Role: types.AnswerCandidateRoleType, File: "src/alpha.cj", Line: 10, SurfaceTerms: []string{"public class", "public class Alpha"}, Attributes: []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.alpha"}}},
+				{Name: "Beta", Role: types.AnswerCandidateRoleType, File: "src/beta.cj", Line: 20, SurfaceTerms: []string{"public class", "public class Beta"}, Attributes: []types.SourceInventoryObservationAttribute{{Role: types.AnswerCandidateRolePackage, Name: "demo.beta"}}},
 			},
 		}},
 	})
@@ -445,6 +445,7 @@ func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows
 				Dimensions: []types.RequestedAnswerDimension{
 					{Index: 1, Label: "file", Role: types.RequestedAnswerDimensionSourceLocation, Required: true},
 					{Index: 2, Label: "package", Role: types.RequestedAnswerDimensionSourceAttribute, Required: true},
+					{Index: 3, Label: "declarations", Role: types.RequestedAnswerDimensionMemberSet, Required: true},
 				},
 			},
 		}},
@@ -469,6 +470,23 @@ func TestRequestedSourceInventoryLocationAndAttributeDimensionsUseExactTypedRows
 	}
 	if !answerDocumentCoversTypedPerMemberSourceAttributes(ctx, doc) {
 		t.Fatal("exact row identities with visible typed package values should cover source_attribute")
+	}
+	memberDimension := ctx.AnalysisIR.RequestModel.RequestedAnswerDimensions.Dimensions[2]
+	for _, surface := range []string{
+		renderAnswerDocRequestedAnswerDimensions(ctx),
+		requestedAnswerDimensionCoverageHint(ctx, []types.RequestedAnswerDimension{memberDimension}, "en"),
+	} {
+		for _, want := range []string{
+			"source_inventory_family",
+			`facet_ids:["enumeration_item"]`,
+			"source_inventory_row_id",
+			"do not add a duplicate `member_set` marker",
+			"visible `items[].cells[]`",
+		} {
+			if !strings.Contains(surface, want) {
+				t.Fatalf("exact source-inventory roster teaching missing %q:\n%s", want, surface)
+			}
+		}
 	}
 	doc.Blocks[0].Items[1].Text = sets[0].Rows[1].Location
 	if answerDocumentCoversTypedPerMemberSourceAttributes(ctx, doc) {
@@ -917,6 +935,66 @@ func TestAnswerDocumentMemberSetPayloadCountsVisibleMarkdownTableNotHiddenSideca
 	doc.Blocks[0].Items = nil
 	if got := answerDocumentMemberSetPayloadBlockCount(doc, false); got != 0 {
 		t.Fatalf("plain table prose without visible rows count=%d want 0", got)
+	}
+}
+
+func TestRequestedMemberSetDimensionsReuseExactSourceInventoryRosterIdentity(t *testing.T) {
+	ctx := &types.AgentContext{
+		Language: "en",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleType},
+				RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName},
+			},
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "functions", Role: types.RequestedAnswerDimensionMemberSet, Required: true},
+					{Index: 2, Label: "types", Role: types.RequestedAnswerDimensionMemberSet, Required: true},
+				},
+			},
+		}},
+	}
+	exactBlock := func(id, family, rowID, member string) types.AnswerBlock {
+		return types.AnswerBlock{
+			ID: id, Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+			SourceInventoryFamily: family,
+			FacetIDs:              []string{string(types.FacetEnumerationItem)},
+			Columns:               []string{"name"},
+			Items: []types.AnswerBlockItem{{
+				ID: id + "-row", Cells: []string{member}, SourceInventoryRowID: rowID,
+			}},
+		}
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		exactBlock("functions", "extend", "row-function", "String"),
+		exactBlock("types", "public class", "row-type", "Bridge"),
+	}}
+	if !answerDocumentCoversRequestedMemberSetDimensions(ctx, doc) {
+		t.Fatal("two exact source-inventory family/row carriers should cover two member-set dimensions without duplicate member_set facets")
+	}
+	doc.Blocks[1].Items[0].SourceInventoryRowID = ""
+	if answerDocumentCoversRequestedMemberSetDimensions(ctx, doc) {
+		t.Fatal("one exact row must not lend member-set ownership to a visible sibling without row identity")
+	}
+	doc.Blocks[1].Items[0].SourceInventoryRowID = "row-type"
+	doc.Blocks[1].Text = "| name | kind |\n| --- | --- |\n| Bridge | class |"
+	if answerDocumentCoversRequestedMemberSetDimensions(ctx, doc) {
+		t.Fatal("hidden Markdown sidecars must not cover an exact source-inventory member-set dimension")
+	}
+
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = nil
+	generic := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "generic", Kind: types.BlockTable, SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+		Columns:  []string{"name"},
+		Items:    []types.AnswerBlockItem{{ID: "row", Cells: []string{"Bridge"}, SourceInventoryRowID: "row-type"}},
+	}}}
+	if answerDocumentCoversRequestedMemberSetDimensions(ctx, generic) {
+		t.Fatal("an ordinary enumeration block without exact source-inventory family authority must still require member_set ownership")
 	}
 }
 
