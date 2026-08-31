@@ -57842,6 +57842,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1575 r986：分支效果未随已选定义进入上下文；图关系修补可删空执行主干（2026-08-31）
+
+1. 从已推送 `712058dca` 构建不可变二进制，严格并发恰好 2 路复放 Rust 跨模块调用链与 read-mode 流水线时序表；runner 2/2 PASS：
+   Rust 170s、组合架构 510s。两路都没有 unavailable tool 或固定 4ms/4m/活动流年龄降级，但人工均判 fail，说明声明式 oracle 仍不足以覆盖
+   分支极性和图关系连通/等价性。
+2. Rust 主链 `main -> run -> walker::collect_files -> walk`、逐文件 `index_file -> Matcher::is_match` 和 walker 角色均正确；但最终答案把
+   `fixed=false -> LiteralMatcher`、`fixed=true -> RegexLikeMatcher` 写反。源码 `src/main.rs:15-18` 明确为 `if fixed -> LiteralMatcher`、
+   `else -> RegexLikeMatcher`。日志中的最终 typed handoff 只有 line 16/18 两条调用/绑定，facet 的 `guard_condition/branch_effect candidates=0`，
+   因此这是上游精确上下文缺口，不应归为纯模型波动。
+3. 新确认 `B1506-BRANCHPOLARITYHANDOFF1/P1`。代码核验显示 repomap parser、cache 与 dataflow lowerer 已经为所有受支持可执行语言提供
+   parser-owned `condition/alternative -> call|return|assignment|exit` 的 `branch_effect`；但 `emit_evidence` 的 selected-definition 自动补齐只遍历
+   `fi.Relations` 投影 body call，没有投影 `fi.ControlFlowBranches`。最优修向是在同一个 typed admission 边界内，将模型已选 callable、唯一 parser
+   definition、已读行覆盖下的 branch effect 作为独立事实补齐；不能从源码邻接、用户问题或模型摘要推断极性，也不把 branch effect 强制写入答案。
+4. 组合架构首稿包含 Run、Phase1、Phase2、Dispatch、Analyzer/Explorer/Extractor/Finalizer、BusContext、AnalysisIR、AnswerDocument 及较完整
+   call/data-flow 边。关系门发现其中若干边缺 exact typed authority 后，repair delta 为大量 carrier 暴露 remove，模型一次性删除 11 条边，再添加
+   三条抽象 stage precedence 候选；随后因 label-pair 只能 relabel 以及孤立参与者 roster 先少后多，连续五次 patch 才通过。最终图仅剩互不连通的
+   `Phase1 -> Dispatch` 与 `Analyzer -> Explorer -> Extractor -> Finalizer`，语法合法但没有回答实际 analyze→finalizer 执行链。
+5. 新确认 `B1505-DIAGRAMREPAIRAUTOEROSION1/P1`。typed relation gate 不应放宽；缺口是修补协议把“删除不满足 authority 的边”与“添加任意
+   allowed typed 候选”并列，却没有保持模型原关系意图/覆盖主干的结构约束，因而可以用不等价概念链换取格式通过。根修按同一失败 carrier 优先提供
+   relabel/replace/attach；删除只在没有同语义 exact typed 替代时保留，并要求模型显式选择关系覆盖降级，不能把 precedence 候选冒充 call/data-flow
+   闭包。孤立节点处理应收敛为同代原子选择，避免模型反复猜完整 roster。系统仍不选边、不画图、不改写可见标签或结论。
+6. B1503 本轮没有自然命中 Trace caliber owner carrier，因此仍是 targeted/full-suite/build 通过、待生产复放；不能用本轮 read 两案宣称闭环。
+   下一批先交付边界清晰的 B1506，再单独施工 B1505，防止把证据生产和图修补两类风险混入同一提交。
+
+状态：
+
+`r986=runner-pass-2/2,human-fail-2/2`；
+`B1503=implemented/pending-production-replay`；
+`B1505=confirmed/design-frozen/next-diagram-batch`；
+`B1506=confirmed/next-small-batch`；
+`branch-polarity-authority=parser-owned-control-flow-only`；
+`diagram-repair=preserve-model-intent/no-system-edge-selection`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
