@@ -57492,6 +57492,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1584 r990/B1513–B1514：展示标签硬门诱导删图；分析重试误丢独立运行时工作席（2026-08-31）
+
+1. 从已推送 `0105b5254` 干净构建，严格并发恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace；runner 2/2 PASS：Java 344s、
+   Trace 198s，但人工两路均 fail。两路无 unavailable tool，也未按固定 4ms/4m、流式连接年龄、首字节、轮次或上下文比例降级。
+2. Trace 显式 `34579.490..34579.500s` 主窗、4 次 typed query、链上根因排序、目标四态、实际占时/规则可消双账户、业务线索/邻近/背景
+   隔离、系统补齐与最终 `Trace 因果投影` 完整。模型却没有独立回答 VerifyClass 工作关系：typed 行已有 T7 上 0.285ms、宿主随后直接唤醒目标、
+   semantic-completion/target-wait binding 未证和有效归因 0；模型只在占用表列 span，关系结论留给系统投影。投影不能替代模型答案。
+3. 新确认 `B1514-ANALYSISRETRYINDEPENDENTDECISION1/P1`。分析器首稿正确发出 `runtime_work_relation_requested=true`，仅因 causal scope
+   多发禁止的 `fact_families` 被拒；完整重发时模型把这个与冲突无关的独立布尔改成 false，runtime-work relation 模型席因此未激活。根修先把精确
+   错误改为只要求删除冲突字段并明确保持已提交的独立 work-relation 决策；加 true-through-retry 教学/错误 pin。系统不扫描请求或答案来猜布尔值，
+   不替模型选择 work、relation conclusion 或可见措辞。
+4. Java 首稿 sequence 图包含五条正确源码调用、容量分支及回复，但 `edge_anchors[].visible_label` 的 `schedule` 等短标签与 Mermaid message 的
+   `schedule(petId, reason)` 等完整标签不字节相等，presentation-only 检查被放入 typed call-edge 硬车道；叠加独立 relation repair 后产生
+   10 次 finalizer reject、13 次 midloop、49% 上下文，模型最终删除整张图才签绿。
+5. 新确认 `B1513-DIAGRAMDISPLAYHARDGATE1/P1`。两个字段都是模型展示面，既不创造 typed relation authority，也不决定 Mermaid 可解析性；对它们
+   做答案/标签原文硬门与“展示噪声只作软指导”红线不合。最优根修是把 exact mismatch、缺重复标签及 raw enum 展示建议统一降为 advisory/retry
+   companion；Mermaid 语法、typed relation、方向、endpoint identity、reply 顺序和 participant coverage 仍保持精确硬门。系统不得复制、翻译、
+   选择或重写模型可见标签。
+6. B1512 的 reply-before-future-call 负臂本轮没有再次出现，因此仍是实现/测试闭环、生产触发待证。Java 最终仍把内存 `rows.add` 与
+   `System.out.println` 称为“落库”，尽管 typed context 精确发布真实终点；维持模型消费波动，不新增 Java/println/落库正文关键词硬门。
+
+状态：
+
+`r990=runner-pass-2/2,human-fail-2/2`；
+`B1512=implemented/full-suite-pass/no-regression/pending-production-trigger-replay`；
+`B1513=confirmed/P1/next-small-batch`；
+`B1514=confirmed/P1/following-small-batch`；
+`diagram-display-wording=soft/model-owned`；
+`diagram-syntax/relation/direction/identity/reply-order=typed-hard`；
+`runtime-work-relation-decision=analyzer-model-owned/independent-of-causal-scope-repair`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r990`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r990`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
