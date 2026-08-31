@@ -57590,6 +57590,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1587 r991：结构重试保住运行时工作席；概念目标与真实实现终点仍缺模型所有的结论席（2026-08-31）
+
+1. 从已推送 `aa2b54e83` 构建不可变二进制，严格并发恰好 2 路复放 Java 调用链与 H8 显式窗 Trace。runner 为 Java FAIL
+   98s、Trace PASS 213s；人工审计均判 fail/partial。两路都没有按 4ms、4m、活动流年龄、轮次或上下文比例降级。
+2. `B1514-ANALYSISRETRYRUNTIMEWORK1` 获得生产正证。Trace 首次分析同时提交 `causal_diagnosis` 与不兼容的 `fact_families`，且明确
+   `runtime_work_relation_requested=true`；结构重试提示只要求去掉冲突字段，模型第二次也明确保留 true。最终专席选择 typed
+   `VerifyClass` 0.285ms 行并由模型给出 `relation_unproven`，证明结构修补不再静默清空独立子问题。
+3. Trace 的显式 10ms 窗、4 次 typed 查询、链上根因排序、目标状态账、实际占时/规则可消双账户、自动补齐和最终
+   `Trace 因果投影` 全部保留。模型导语仍把 scheduler-state 链称为“两条确定性工作链”，与后文正确的 VerifyClass 专席矛盾；
+   这是模型/soft-context 残余，禁止用最终 prose 关键词硬门、系统改写或系统替模型选结论。
+4. Java 本轮没有生成任何图：analyzer 为 `requires_diagram=false`，semantic view 为 `has_diagram=false`。唯一 finalizer reject 是独立有序列表
+   关系锚缺少精确 identity，patch 绑定 typed relation 后成功。因此 `B1512/B1513` 本轮没有生产触发，不能把“没出现图”误记成图标签
+   advisory 根修的生产闭环，也没有证据表明系统删除了图。
+5. Java 连续 r989/r990/r991 三轮在 typed context 已明确 `AuditLog.record -> System.out.println` 且 storage/durability/flushing/completion
+   未证的情况下，仍把 stdout 描述成“完成落库动作”。这已超出单轮模型波动，升级确认
+   `B1515-CONCEPTUALSINKRESOLUTION1/P1`：现有上下文能给出精确实现终点和未证边界，却没有一个模型所有、结构化可见的席位要求回答
+   “用户请求的概念目标是否被当前 grounded terminal 真正达到”。
+6. 下一批只设计通用概念终点解析合同：由 typed endpoint/sink profile 激活，由模型在 principal block 选择
+   `reached / terminal_differs / unproven` 并引用 producer-published terminal evidence；系统只校验席位与证据引用，不读取用户原文、
+   model thinking、final prose、Markdown 或 Mermaid 标签，不替模型决定结论，也不写入 Java/println/落库专用规则。
+
+状态：
+
+`r991=runner-java-fail+trace-pass,human-both-fail-or-partial`；
+`B1514=production-positive/core-closed`；
+`B1512/B1513=implemented/relevant-suite-pass/pending-production-trigger`；
+`B1515=confirmed-P1/next-generalized-design`；
+`conceptual-target/current-terminal-authority=typed-evidence-only`；
+`conceptual-terminal-conclusion=model-owned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r991`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r991`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
