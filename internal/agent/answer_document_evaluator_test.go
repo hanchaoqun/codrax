@@ -1448,6 +1448,81 @@ func TestAnswerDocPrincipalEnumerationSurfaceFamilyCounts_UsesCanonicalRowPartit
 	}
 }
 
+func TestAnswerDocCanonicalizeSourceInventoryPrincipalEnumerationSets_DedupesDecoratedAggregateAtTypedDeclaration(t *testing.T) {
+	sets := []types.EnumerationDisplaySet{
+		{
+			ID: "bare",
+			Rows: []types.EnumerationDisplayRow{
+				{
+					RowID:         "bare-bridge",
+					Member:        "native_add",
+					Location:      "src/Bridge.cj:6",
+					SurfaceTerms:  []string{"foreign func", "foreign func native_add"},
+					MemberSurface: types.PrincipalMemberSurfaceSymbolLike,
+				},
+				{
+					RowID:         "bare-ffi",
+					Member:        "native_add",
+					Location:      "src/FFI.cj:6",
+					SurfaceTerms:  []string{"foreign func", "foreign func native_add"},
+					MemberSurface: types.PrincipalMemberSurfaceSymbolLike,
+				},
+			},
+		},
+		{
+			ID: "decorated",
+			Rows: []types.EnumerationDisplayRow{
+				{
+					RowID:         "decorated-bridge",
+					Member:        "native_add (demo.bridge)",
+					Location:      "src/Bridge.cj:6",
+					SurfaceTerms:  []string{"foreign func", "foreign func native_add"},
+					MemberSurface: types.PrincipalMemberSurfaceDisplayLabel,
+				},
+				{
+					RowID:         "decorated-ffi",
+					Member:        "native_add (demo.ffi)",
+					Location:      "src/FFI.cj:6",
+					SurfaceTerms:  []string{"foreign func", "foreign func native_add"},
+					MemberSurface: types.PrincipalMemberSurfaceDisplayLabel,
+				},
+			},
+		},
+	}
+	principalRows := []types.SourceInventoryRow{
+		{SurfaceFamily: "foreign func", Member: types.SourceInventoryObservationMember{Name: "native_add", File: "src/Bridge.cj", Line: 6}},
+		{SurfaceFamily: "foreign func", Member: types.SourceInventoryObservationMember{Name: "native_add", File: "src/FFI.cj", Line: 6}},
+	}
+
+	got := answerDocCanonicalizeSourceInventoryPrincipalEnumerationSets(sets, principalRows)
+	if len(got) != 1 || got[0].ID != "bare" || len(got[0].Rows) != 2 {
+		t.Fatalf("canonicalized sets = %+v, want one two-row bare-symbol set", got)
+	}
+	counts, covered, total := answerDocPrincipalEnumerationSurfaceFamilyCounts(got)
+	if counts != "`foreign func`:2" || covered != 2 || total != 2 {
+		t.Fatalf("canonical counts = %q coverage=%d/%d, want foreign func=2 coverage=2/2", counts, covered, total)
+	}
+}
+
+func TestAnswerDocCanonicalizeSourceInventoryPrincipalEnumerationSets_AmbiguousCoordinateFailsOpen(t *testing.T) {
+	sets := []types.EnumerationDisplaySet{{
+		ID: "same-line",
+		Rows: []types.EnumerationDisplayRow{
+			{RowID: "a", Member: "alpha", Location: "src/Decl.cj:6", SurfaceTerms: []string{"foreign func", "foreign func alpha"}},
+			{RowID: "b", Member: "beta", Location: "src/Decl.cj:6", SurfaceTerms: []string{"foreign func", "foreign func beta"}},
+		},
+	}}
+	principalRows := []types.SourceInventoryRow{
+		{SurfaceFamily: "foreign func", Member: types.SourceInventoryObservationMember{Name: "alpha", File: "src/Decl.cj", Line: 6}},
+		{SurfaceFamily: "foreign func", Member: types.SourceInventoryObservationMember{Name: "beta", File: "src/Decl.cj", Line: 6}},
+	}
+
+	got := answerDocCanonicalizeSourceInventoryPrincipalEnumerationSets(sets, principalRows)
+	if len(got) != 1 || len(got[0].Rows) != 2 {
+		t.Fatalf("ambiguous typed coordinate must preserve both rows, got %+v", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTurnASourceInventoryAdvisoryHandoff(t *testing.T) {
 	mut := types.NewMutableState("explain configuration routes")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

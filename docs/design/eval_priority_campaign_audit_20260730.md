@@ -67896,3 +67896,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r957`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r957`。
+
+### §123.1540 r958/B1472–B1473：可见枚举正确但预收敛重复行污染权威计数；Trace 模型混淆调度态与语义工作（2026-08-30）
+
+1. 从 `ae5e51c41` 构建不可变二进制，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
+   Cangjie 334s、Trace 172s。两路均未按 4ms、4m、活动流年龄或上下文比例降级，Trace 的显式 10ms 窗、4 次 typed query、
+   唤醒链、根因排序、实际占时/规则可消双账户、最终 `Trace 因果投影` 与自动补齐均保留。
+2. B1471 获得可见生产正证：Cangjie 最终答案只陈述 `extend=2 / foreign func=2 / public class=8`，12 条声明、文件、package 与
+   row carrier 完整，没有再把 sealed/abstract 子型或自行计算的文件数升成额外总量，人工判 pass。
+3. 但人工过程审计确认新 P1 `B1472-INVENTORYAGGREGATEIDENTITY1`。同一两处 `native_add` 声明被两个完整 aggregate 描述：一组
+   member 是裸符号，另一组是 `native_add (package)` 显示名；两组具有不同 aggregate `row_id`，却落在同一 typed
+   `surface_family + source location`。最终 source-inventory principal universe 与 answer obligation 都是 12 行，新增 family-count helper
+   却在收敛前对 14 行计数，向 finalizer 错发 `foreign func=4, family_coverage=14/14`。模型本轮碰巧忽略错误计数写对，不能据此判系统闭环。
+4. 根修位于 principal enumeration 的共同入口，而不是给计数器打单例补丁：先用 source-inventory authority view 的 principal rows 建立
+   typed declaration coordinate；当且仅当一个 family+location 在权威清单中唯一时，跨 aggregate 只保留一个显示行，并优先裸的 canonical
+   member identity；typed 清单同一坐标存在多个声明时 fail-open，全部保留。这样最终izer 行、成员 obligation、family count 和 coverage
+   共同消费收敛后的同一集合。不能按 `row_id` 去重（重复 aggregate 的 id 本来不同），也不能按 label 去重（同名不同文件必须保留）。
+5. 新回归覆盖同一声明的裸符号/包名装饰双 aggregate 收敛为两条 foreign 行、计数 2/2，以及同 family+line 两个真实声明的歧义坐标
+   fail-open。实现只消费 typed source-inventory family、路径、行号与成员，不扫描请求、模型 reasoning、最终答案或 Markdown table；
+   `go test ./internal/agent -count=1` 全绿。
+6. Trace 人工判 fail，记新 P1 观察项 `B1473-TRACESEMANTICCLASSBOUNDARY1`。模型主摘要把 NetworkService 的 5.930ms runnable 调度等待
+   称为“确定性优化工作”，同时漏答真正的 `VerifyClass ...` 0.285ms semantic span。typed handoff 和系统投影其实已经正确发布：VerifyClass
+   位于 T7、T7 有到目标的直接唤醒锚、但语义完成/目标等待绑定未证，规则可消为 0；因此这是 scheduler-state 与 semantic-span 分类混淆，
+   不是 Trace 证据缺失。最优下一小批只在 typed semantic inventory 旁补类别边界 soft guidance：runnable/running/sleep/D/IO 是调度状态，
+   不能仅因在链上就改称语义工作；确定性工作名称只能来自 typed semantic rows。系统不得扫描、拒绝或改写模型正文，也不得替模型裁定关系。
+
+状态：
+
+`r958=runner-pass-2/2,human-cangjie-pass+trace-fail`；
+`B1470=production-positive/canonical-top-level-counts-visible`；
+`B1471=production-positive/core-closed`；
+`B1472=implemented/agent-full-suite-pass/pending-production-replay`；
+`B1473=confirmed/typed-context-soft-guidance-next`；
+`principal-enumeration/family-count/obligation=one-canonical-typed-row-universe`；
+`ambiguous-same-family+location=fail-open/no-collapse`；
+`system-answer/conclusion/member/relation/wording-selection=none`；
+`request/model/final-prose/markdown-table-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r958`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r958`。
