@@ -11,10 +11,14 @@
 #     in this fixture — VerifyClass com.baidu.zeus.mml.lac.LacUtils, span
 #     34579.495841..34579.496126 — and emits a direct bare wakeup edge
 #     61839→59566 at 34579.496810 (trace line 5639), INSIDE the window and
-#     entirely AFTER the span ⇒ the whole span is pre-edge ⇒ R3 mints an
-#     ON-CHAIN semantic seat worth EXACTLY 0.285ms
+#     entirely AFTER the span ⇒ the whole span is pre-edge ⇒ R3 preserves a
+#     relation-anchored semantic row with EXACT raw occupancy 0.285ms
 #     (rank_semantic_edge_anchor_r3.go; engine pin
 #     answer_document_projection_r3_edge_anchor_test.go).
+#     The wakeup edge proves host→target relation, not that semantic completion
+#     caused the target wakeup. Without an exact target-wait or semantic-
+#     completion binding, effective_impact stays 0 and this row must remain an
+#     optimization point outside root-cause Top N.
 #   · the seat wears the typed semantic-class display word 类校验
 #     (typelabels.go) — the raw span name VerifyClass
 #     com.baidu.zeus.mml.lac.LacUtils must also surface so the optimization
@@ -23,17 +27,19 @@
 #     the credential kind verbatim:
 #     「最晚相关边 34579.496810s,凭证=直接裸边」 (mutation_runtime_tree.go
 #     %.6fs form + single-source via word table 直接裸边/链上跳边).
-#   · the board membership chip 边锚定 must be present
+#   · the current credential chip 唤醒锚定 and its relation-only boundary must
+#     be present together with 确定性优化点(优化项,非根因)
 #     (runtimeTraceProjElimQualifier, OnChainBasis=host_wakeup_edge_pre_span
-#     — RNB-5B 默认小件e).
+#     — the wakeup relation is retained without minting semantic causality).
 # SOFT oracle (verdict-judged):
 #   · the sentinel geometry stays honest: no semantic seat is minted from
 #     edge-less or post-edge material (the twin NEGATIVE arm window
 #     34579.466..34579.4965 must keep the span on ◇ — sentinel pair stays
 #     pinned in the R3 engine test, not re-run here).
-#   · the seat's value is the pre-edge span's IN-WINDOW projection only; no
-#     out-of-window smuggling, no fabricated overlap (OverlapMs=0 law).
-#   · the credential sentence rides the tree 行2 of the seat, not free prose.
+#   · the row's raw value is the pre-edge span's IN-WINDOW projection only; no
+#     out-of-window smuggling, no fabricated effective attribution.
+#   · the credential and relation-only sentence ride the tree row, not free
+#     prose; other independently proven chain rows may still rank normally.
 ID="real_trace_h8_semantic_edge_anchor_sentinel"
 NAME="real trace tieba — R3 semantic edge-anchor sentinel positive arm"
 QUESTION="只分析这份 trace，不分析代码。请分析 com.baidu.tieba-59566（主线程）在 34579.490s 到 34579.500s 窗口内的等待与占用来源：窗口内有没有别的线程正在做的确定性优化工作跟它存在链上因果关系？如果有，对应席位凭什么证据入链、计入了多少时间？请给出根因排序。"
@@ -43,7 +49,7 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu_tieba_frame.systrace"
 # greps/reads cannot echo oracle witness strings (these .case files,
 # real_traces/PROFILE.md and tracequery tests all carry them verbatim).
 FIXTURE="eval/fixtures/stub_repo"
-EXPECT_CONTAINS="类校验 0.285 边锚定 直接裸边"
+EXPECT_CONTAINS="类校验 0.285 唤醒锚定 直接裸边 仅关系凭证 优化项,非根因"
 EXPECT_MATCHES_REGEX="最晚相关边 34579\\.496810s·凭证=直接裸边
 VerifyClass com\\.baidu\\.zeus\\.mml\\.lac\\.LacUtils"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"

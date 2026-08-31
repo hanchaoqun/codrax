@@ -2840,14 +2840,19 @@ eval_wait_for_slot() {
   done
 }
 
-# eval_count_tool_rejects <log> <tool> — control-plane count of
-# explicit tool-level rejections (phase=toolresult ok=false) for one
-# emit tool. Loop-churn diagnosis: each reject costs one agent round.
+# eval_count_tool_rejects <log> <tool> — control-plane count of explicit
+# transport failures plus typed semantic rejections for one emit tool.
+# Emit tools deliberately return ok=true when their typed result asks the
+# agent to repair evidence; the anchored "<tool> rejected:" result leader is
+# therefore also a rejection round. Assistant/prompt prose is not counted.
 eval_count_tool_rejects() {
   local file="$1" tool="$2"
   if [[ -z "$file" || ! -f "$file" || -z "$tool" ]]; then
     echo 0
     return
   fi
-  eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolresult TOOLRESULT ${tool} ok=false" "$file"
+  local transport semantic
+  transport="$(eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolresult TOOLRESULT ${tool} ok=false" "$file")"
+  semantic="$(LC_ALL=C grep -aEc "^${tool} rejected:" "$file" 2>/dev/null || true)"
+  echo $((transport + semantic))
 }

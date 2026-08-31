@@ -793,6 +793,14 @@ cat >"$tmp/finalizer-reject-asymmetric.log" <<'LOG'
 2026-05-24T00:00:00.030 INFO [render]   • 成文校验未通过
 LOG
 assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-reject-asymmetric.log")" "2" "finalizer reject asymmetric mirror count"
+
+cat >"$tmp/emit-semantic-reject.log" <<'LOG'
+2026-05-24T00:00:00.010 DEBUG [diag explorer] iter=0 phase=toolresult TOOLRESULT emit_investigation_complete ok=true len=128:
+emit_investigation_complete rejected: typed evidence repair remains
+2026-05-24T00:00:00.020 DEBUG [diag explorer] iter=1 ASSISTANT content: emit_investigation_complete rejected: quoted text is not control-plane authority
+2026-05-24T00:00:00.030 DEBUG [diag explorer] iter=2 phase=toolresult TOOLRESULT emit_investigation_complete ok=false len=12:
+LOG
+assert_eq "$(eval_count_tool_rejects "$tmp/emit-semantic-reject.log" emit_investigation_complete)" "2" "emit semantic and transport reject count"
 assert_eq "$(eval_count_finalizer_rewrites "$tmp/finalizer-control.log")" "1" "finalizer rewrite control count"
 assert_eq "$(eval_count_answer_document_patch_calls "$tmp/finalizer-control.log")" "1" "answer patch control count"
 assert_eq "$(eval_count_midloop_injects "$tmp/finalizer-control.log")" "1" "midloop inject control count"
