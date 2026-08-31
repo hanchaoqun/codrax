@@ -57291,6 +57291,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1578 r987：图主链修补闭环；分支补证生产接线与畸形 JSON 恢复仍有缺口（2026-08-31）
+
+1. 从已推送 `8a1ce8738` 重建不可变二进制，严格并发恰好 2 路复放
+   `read_combo_pipeline_sequence_table` 与 `sr_rust_cross_module_chain`。runner 2/2 PASS：组合架构 564s、Rust 99s；均无 unavailable tool、
+   固定 4ms/4m、活动流年龄或墙钟降级。人工为组合架构 pass、Rust fail。
+2. B1505 获得生产正证。组合架构最终 Mermaid 只保留完整的
+   `analyze -> explorer -> extractor -> finalizer` 主关系链，r986 的 Phase1/Dispatch 孤立碎片和主链截断均消失；同页表格与正文分别保留 stage
+   输入、输出、AnalysisIR/EvidenceItems/AnswerDocument/Mutable/BusContext。系统没有选择边、标签、布局或结论，模型从 typed
+   `requested_relation_spine` 自行选择三条边。B1505 核心关闭。
+3. 组合架构仍发生 3 次成文修补，较 r986 的 5 次收敛但未清零。第一次是 principal alias 与当前 Mermaid node id 同时进入提示，模型把 alias
+   当成新 node id 并多发 visible-label 字段；主链 patch 成功后，初代 relation delta 又没有一次暴露三条同端点 `Orch -> BC` 无锚边，迫使下一轮
+   再删除。新记 `B1509-RELATIONDELTAFIXPOINT1/P2`：先审计 failure roster 对重复可见边的同代穷尽性，不能放宽 typed relation gate，也不能由
+   系统代选删除。
+4. B1506 的单测权威成立但生产接线仅 partial。Rust 生产批只发出 `run -> collect_files`、`run -> index_file` 等 exact call rows，没有另发
+   `run` definition row；`selectedDefinitionBodySelections` 目前只从 definition row 选 callable，因此 `if fixed -> LiteralMatcher::new` 与
+   `else of fixed -> RegexLikeMatcher::new` 没有进入最终 typed handoff。最终答案没有再把极性写反，但只说“动态分发到两种实现”，不能用回避分支
+   代替 B1506 的生产验收。
+5. 新确认 `B1507-CALLERSELECTEDBRANCHHANDOFF1/P1`。最优修向仍完全 typed：仅在 call-chain lane 中，从模型本轮已发出的 exact、可引用、parser
+   call row 取 call-site；该行必须落在一个唯一、已读的 parser callable 内，row subject 必须与该 callable 的 parser identity 精确一致，再把同一
+   callable 的 parser-owned branch effects 投影。缺唯一 callable、缺 parser relation 对应、未读 guard/effect、fallback provenance 或 related-only
+   row 均 fail-open。不读取请求、thinking、summary、最终 prose、Markdown 或 Mermaid 文字，不按源码邻接猜分支，也不强制模型在答案中使用。
+6. Rust 同时暴露独立 `B1508-ANSWERDOCSTRINGRECOVERYCOVERAGE1/P1`。模型把 `blocks` 发成 nested JSON string；现有 brace-balanced recovery
+   从 3 个候选只结构化恢复 2 个 block，ordered_list 丢失，diagram 仅以“系统保留内容”附件显示。该机制保住了有用文本且明确披露降级，方向正确，
+   但 runner 仍因宽松 regex 签 PASS。后续须以 typed recovery accounting 区分 complete/partial，并在每个候选边界独立合法时尽量恢复完整 block；
+   不能从残片补写事实、关系或结论，也不能把 display attachment 冒充完整结构化答案。
+7. 完整人工记录见
+   `eval/parallel_selected_summary_evalcampaign_diagramrust_replay_r987_20260831_manual_audit.md`。下一小批先施工 B1507 并提交推送；B1508 与 B1509
+   保持独立批次，避免把 evidence admission、JSON recovery 与 diagram patch 三类风险混在一个提交。
+
+状态：
+
+`r987=runner-pass-2/2,human-combo-pass+rust-fail`；
+`B1505=production-positive/core-closed`；
+`B1506=targeted-positive/production-admission-partial`；
+`B1507=confirmed/next-small-batch`；
+`B1508=confirmed/separate-recovery-batch`；
+`B1509=confirmed/P2-separate-protocol-audit`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r987`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
