@@ -68030,7 +68030,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `r960=runner-trace-pass+cangjie-fail,human-trace-fail+cangjie-fail`；
 `B1474=contract-positive/production-role-not-selected`；
-`B1475=confirmed/analyzer-soft-role-routing-next`；
+`B1475=implemented/relevant-full-suite-pass/pending-production-replay-see-§123.1544`；
 `B1476=implemented/targeted-tests+full-internal-tool-suite-pass/pending-production-replay`；
 `B1477=confirmed/pending-structured-patch-chain-audit`；
 `exact-universe-identity=typed-location+surface-family+member-identity`；
@@ -68040,3 +68040,25 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r960`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r960`。
+
+### §123.1544 B1475：运行时工作关系与拓扑路径按 typed 可见席分流（2026-08-31）
+
+1. 完整 analyzer 决策表新增独立 `RUNTIME WORK RELATION` 类：询问 measured runtime work/span/operation 的身份、成本、与目标/结果的关系凭证及
+   因果边界时，发出 required `runtime_work_relation`。它拥有工作语义，但不预判该工作已构成根因。
+2. `relation_path` 仅拥有另行请求的拓扑、端点或 hop 序列；同一请求同时要工作关系和路径拓扑时发出两个 typed dimensions，任何一席不得吞掉
+   另一席。若还要求根因或排名，则与 `causal_attribution`/`causal_contributor_set` 并列，不相互替代。
+3. 完整 workflow 教学与紧凑 schema 教学使用相同边界，并新增 structural pins。实现没有读取用户请求、模型 thinking、答案 prose、Markdown 或
+   Mermaid 文字作为硬门，也没有新增系统结论、答案改写或发射词面。
+4. 针对性测试以及 `go test ./internal/skill ./internal/tool -count=1` 全部通过；生产效果必须由后续恰好 2 路复放验证，不能以 prompt 单测替代。
+
+状态：
+
+`B1475=implemented/relevant-full-suite-pass/pending-production-replay`；
+`runtime-work-relation=typed-visible-role/model-conclusion-owned`；
+`relation-path=separate-topology-role`；
+`work-relation+topology=emit-both`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

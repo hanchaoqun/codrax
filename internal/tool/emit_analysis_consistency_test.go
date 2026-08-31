@@ -116,7 +116,13 @@ func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence
 			t.Fatalf("dimension-role schema lost finite passive-effect guidance %q: %q", want, roleDescription)
 		}
 	}
-	for _, want := range []string{"runtime_work_relation", "measured runtime work item/span/operation", "exact relation credential and causal boundary"} {
+	for _, want := range []string{
+		"runtime_work_relation",
+		"measured runtime work item/span/operation",
+		"exact relation credential and causal boundary",
+		"relation_path owns only a separately requested topology, endpoint, or hop sequence",
+		"Emit both when both visible surfaces are requested",
+	} {
 		if !strings.Contains(roleDescription, want) {
 			t.Fatalf("dimension-role schema lost runtime-work relation guidance %q: %q", want, roleDescription)
 		}
