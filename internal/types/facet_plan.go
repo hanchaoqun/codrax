@@ -167,6 +167,11 @@ const (
 	// Required HARD per item when EnumerationBoundary is set.
 	FacetEnumerationItem AnswerFacetKind = "enumeration_item"
 
+	// FacetMemberSet marks the model-authored structured block that owns one
+	// requested roster. The roster members and wording remain model-owned;
+	// this facet is only hidden presentation membership.
+	FacetMemberSet AnswerFacetKind = "member_set"
+
 	// FacetBucketLabel: "this section answers the user-named bucket
 	// X". Required HARD per bucket when Buckets[] is set.
 	FacetBucketLabel AnswerFacetKind = "bucket_label"
@@ -204,6 +209,7 @@ func IsKnownAnswerFacetKind(kind AnswerFacetKind) bool {
 		FacetConfigPrecedenceRole,
 		FacetResolvedLiteralOrSymbol,
 		FacetEnumerationItem,
+		FacetMemberSet,
 		FacetBucketLabel,
 		FacetPrincipalPathEdge,
 		FacetBranchGuard,

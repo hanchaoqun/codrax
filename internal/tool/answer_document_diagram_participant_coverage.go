@@ -2481,13 +2481,14 @@ func diagramRelationRepairAllowedAdditions(
 			row := types.AnswerDiagramRelationRepairCandidate{
 				BlockID: blockID, RelationKind: candidate.relation,
 				FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
-				Source: strings.TrimSpace(candidate.source),
+				EvidenceID: strings.TrimSpace(candidate.evidenceID),
+				Source:     strings.TrimSpace(candidate.source),
 			}
 			bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
 			bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&row, doc, evidence)
 			bindDiagramRelationRepairCandidateExistingStageNodeIDs(&row, doc, stagePrecedence)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
-				row.FromIdentity + "\x00" + row.ToIdentity)
+				row.FromIdentity + "\x00" + row.ToIdentity + "\x00" + row.EvidenceID)
 			if _, exists := seen[key]; exists {
 				continue
 			}

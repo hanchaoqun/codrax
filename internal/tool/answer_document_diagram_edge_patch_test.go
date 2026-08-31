@@ -2841,6 +2841,58 @@ func TestEmitAnswerDocumentPatch_NonDiagramFailureAndCandidateRefsRebindOnlyExac
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NonDiagramAdditionRefAddsOnlySelectedHiddenAnchor(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep summary"},
+		{ID: "chain", Kind: types.BlockOrderedList, Title: "keep title", Text: "keep text", SurfaceRole: types.SurfacePrincipal,
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, EvidenceID: "ev-call"}},
+			Items:     []types.AnswerBlockItem{{ID: "step", Label: "caller to callee", Text: "keep item", EvidenceIDs: []string{"ev-call"}}}},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, nil, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "chain", RelationKind: types.DiagramRelCall,
+		FromIdentity: "pkg.Caller.run", ToIdentity: "pkg.Callee.accept", EvidenceID: "ev-call", Source: "src/call.go:10",
+	}})
+	if lease == nil || len(lease.AllowedAdditions) != 1 ||
+		!answerDocumentStandaloneRelationAdditionCandidateSelected(prev, lease.AllowedAdditions[0]) {
+		t.Fatalf("test setup missing exact model-selected standalone addition: %+v", lease)
+	}
+	mut := types.NewMutableState("standalone relation anchor addition")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		EvidenceItems: []types.EvidenceItem{{
+			ID: "ev-call", Kind: types.EvidenceRelationship, Subject: "pkg.Caller.run", Object: "pkg.Callee.accept",
+			Predicate: "calls", Source: "src/call.go", LineStart: 10, LineEnd: 10,
+			AnchorKind: types.AnchorCall, Scope: types.ScopeLine, GroundingStatus: types.GroundingGrounded,
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentTrace, PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}}},
+	}
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"addition_ref":%q,"action":"add","edge":{"from_node":"caller","to_node":"callee","visible_label":"调用"}}]
+	}`, lease.AllowedAdditions[0].AdditionRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, params)
+	if err != nil || !res.Success {
+		t.Fatalf("exact standalone hidden-anchor addition must pass: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 {
+		t.Fatalf("patched document missing: %+v", got)
+	}
+	block := got.Blocks[1]
+	if block.Title != "keep title" || block.Text != "keep text" || len(block.Items) != 1 ||
+		block.Items[0].Label != "caller to callee" || block.Items[0].Text != "keep item" || len(block.EdgeAnchors) != 1 {
+		t.Fatalf("hidden anchor addition changed model-visible relation carrier: %+v", block)
+	}
+	anchor := block.EdgeAnchors[0]
+	if anchor.FromIdentity != "pkg.Caller.run" || anchor.ToIdentity != "pkg.Callee.accept" ||
+		anchor.RelationKind != types.DiagramRelCall || anchor.VisibleLabel != "调用" {
+		t.Fatalf("typed hidden anchor was not bound to the model-selected evidence: %+v", anchor)
+	}
+}
+
 func TestRelabelAtomicMermaidEdgeLine_AllSupportedFamilies(t *testing.T) {
 	for name, tc := range map[string][3]string{
 		"sequence": {"sequenceDiagram\n  A->>B: old", "  A->>B: old", "A->>B: new"},

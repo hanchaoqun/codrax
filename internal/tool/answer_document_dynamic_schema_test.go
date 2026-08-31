@@ -489,6 +489,51 @@ func TestAnswerDocumentPatchFieldEditProjection_OffersExactExistingEndpointCarri
 	}
 }
 
+func TestAnswerDocumentPatchFieldEditProjection_OffersMemberSetOnlyForUniqueTypedRoster(t *testing.T) {
+	view := &types.AnswerSemanticView{Presentation: types.AnswerPresentationContract{RequestedDimensions: []types.RequestedAnswerDimension{{
+		Index: 1, Role: types.RequestedAnswerDimensionMemberSet, Required: true,
+	}}}}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "model summary"},
+		{ID: "roster", Kind: types.BlockBulletList, FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{
+			{ID: "a", EvidenceIDs: []string{"ev-a"}}, {ID: "b", EvidenceIDs: []string{"ev-b"}},
+		}},
+		{ID: "relation", Kind: types.BlockOrderedList, FacetIDs: []string{string(types.FacetEnumerationItem), string(types.FacetPrincipalPathEdge)},
+			Items: []types.AnswerBlockItem{{ID: "edge", EvidenceIDs: []string{"ev-edge"}}}, EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "A", ToNode: "B", FromIdentity: "A", ToIdentity: "B", RelationKind: types.DiagramRelCall,
+			}}},
+	}}
+	raw := projectAnswerDocumentPatchFieldEditTargets(BuildAnswerDocumentPatchParametersFor(view), prev, view, nil)
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	branches := root["properties"].(map[string]any)["block_field_edits_v1"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	found := false
+	for _, rawBranch := range branches {
+		props := rawBranch.(map[string]any)["properties"].(map[string]any)
+		if props["field"].(map[string]any)["const"] != string(types.AnswerBlockFieldAddFacetID) {
+			continue
+		}
+		values := props["value"].(map[string]any)["enum"].([]any)
+		if !reflect.DeepEqual(values, []any{string(types.FacetMemberSet)}) {
+			continue
+		}
+		found = true
+		if got := props["block_id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"roster"}) {
+			t.Fatalf("member_set targets=%v, want the unique typed roster only", got)
+		}
+	}
+	if !found {
+		t.Fatal("unique typed roster did not receive an atomic member_set membership branch")
+	}
+	prev.Blocks = append(prev.Blocks, types.AnswerBlock{ID: "second-roster", Kind: types.BlockTable,
+		FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{{ID: "c", EvidenceIDs: []string{"ev-c"}}}})
+	if got := answerDocumentMemberSetFacetAdditionCandidateBlockIDs(prev, view); len(got) != 0 {
+		t.Fatalf("ambiguous roster ownership must fail closed, got %v", got)
+	}
+}
+
 func TestEmitAnswerDocumentPatchParametersFor_OptionalLeasePublishesExactTargetRemoval(t *testing.T) {
 	base := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(base,

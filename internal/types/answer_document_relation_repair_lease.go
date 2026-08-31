@@ -668,6 +668,7 @@ type AnswerDiagramRelationRepairCandidate struct {
 	RelationKind DiagramRelationKind `json:"relation_kind"`
 	FromIdentity string              `json:"from_identity"`
 	ToIdentity   string              `json:"to_identity"`
+	EvidenceID   string              `json:"evidence_id,omitempty"`
 	FromNodeIDs  []string            `json:"from_node_ids,omitempty"`
 	ToNodeIDs    []string            `json:"to_node_ids,omitempty"`
 	Source       string              `json:"source"`
@@ -797,6 +798,7 @@ func MergeAnswerDiagramRelationRepairDeltaJSON(rawDeltas []string) string {
 			candidate.BlockID = strings.TrimSpace(candidate.BlockID)
 			candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
 			candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
+			candidate.EvidenceID = strings.TrimSpace(candidate.EvidenceID)
 			candidate.Source = strings.TrimSpace(candidate.Source)
 			if candidate.BlockID == "" || !candidate.RelationKind.IsValid() ||
 				candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
@@ -954,6 +956,7 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		candidate.BlockID = strings.TrimSpace(candidate.BlockID)
 		candidate.FromIdentity = strings.TrimSpace(candidate.FromIdentity)
 		candidate.ToIdentity = strings.TrimSpace(candidate.ToIdentity)
+		candidate.EvidenceID = strings.TrimSpace(candidate.EvidenceID)
 		var ok bool
 		candidate.FromNodeIDs, ok = answerDiagramRelationRepairCandidateNodeIDs(candidate.FromNodeIDs)
 		if !ok {
@@ -1497,6 +1500,7 @@ func answerDiagramRelationRepairCandidateKey(candidate AnswerDiagramRelationRepa
 	return strings.Join([]string{
 		strings.TrimSpace(candidate.BlockID), strings.TrimSpace(string(candidate.RelationKind)),
 		strings.TrimSpace(candidate.FromIdentity), strings.TrimSpace(candidate.ToIdentity),
+		strings.TrimSpace(candidate.EvidenceID),
 	}, "\x00")
 }
 

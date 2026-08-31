@@ -300,7 +300,7 @@ func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.Ra
 		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, nil)
 		return narrowAnswerDocumentPatchParametersWithoutRelationLease(raw)
 	}
-	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, localLeaseAtomicTargetBlockIDs(lease))
+	raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, localLeaseAtomicTargetBlockIDs(lease, prev))
 	return narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw, lease, prev, view)
 }
 
@@ -323,7 +323,11 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 			"Live opaque selectors and participant cleanup choices are unavailable until a typed relation-repair lease publishes them. " +
 			"Whole-block edits remain available for broader model-authored repairs. The system selects no action, relation, visible wording, layout, or conclusion."
 	}
-	targets := localLeaseAtomicTargetBlockIDs(lease)
+	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
+	if prev == nil {
+		prev = ctx.Mutable.AnswerDocumentV2()
+	}
+	targets := localLeaseAtomicTargetBlockIDs(lease, prev)
 	if len(targets) == 0 {
 		return "Repair the previous structured answer using the executable compatibility operations shown in this tool's current parameter schema. " +
 			"For live relation rows, use a failure_ref only with an action listed in that row, or use one addition_ref with action=add and model-authored visible endpoints and label. " +
@@ -388,7 +392,7 @@ func narrowAnswerDocumentPatchParametersWithoutRelationLease(raw json.RawMessage
 // been published. A malformed or mixed non-diagram lease keeps the broad
 // compatibility schema and remains fail-closed in the executor.
 func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage, lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2, view *types.AnswerSemanticView) json.RawMessage {
-	relationTargets := localRelationLeaseTargetBlockIDs(lease)
+	relationTargets := localRelationLeaseTargetBlockIDs(lease, prev)
 	diagramTargets := localDiagramLeaseTargetBlockIDs(lease)
 	targets := unionSortedBlockIDs(relationTargets, diagramTargets)
 	if len(targets) == 0 {
@@ -738,12 +742,43 @@ func localDiagramLeaseExecutableEdgeBranches(
 		if attachedToExistingBody {
 			continue
 		}
+		if answerDocumentStandaloneRelationAdditionCandidateSelected(prev, candidate) {
+			branches = append(branches, exactLocalStandaloneRelationMetadataAddBranch(ref))
+			continue
+		}
 		branches = append(branches, exactLocalDiagramEdgeBranch(
 			"addition_ref", ref, "add", true, false,
 			explicitDiagramEndpointDeclarations(prev, candidate.BlockID),
 		))
 	}
 	return branches, true
+}
+
+// exactLocalStandaloneRelationMetadataAddBranch appends one hidden relation
+// anchor to a model-authored list/table whose claim and visible item already
+// selected the same evidence id. Local endpoint ids and reader wording remain
+// model-authored; no Mermaid/body mutation is possible on this branch.
+func exactLocalStandaloneRelationMetadataAddBranch(additionRef string) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"addition_ref": map[string]any{"type": "string", "enum": []any{strings.TrimSpace(additionRef)}},
+			"action":       map[string]any{"type": "string", "enum": []any{"add"}},
+			"edge": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"from_node":     map[string]any{"type": "string", "minLength": 1},
+					"to_node":       map[string]any{"type": "string", "minLength": 1},
+					"visible_label": map[string]any{"type": "string", "minLength": 1},
+				},
+				"required": []any{"from_node", "to_node", "visible_label"},
+			},
+		},
+		"required":    []any{"addition_ref", "action", "edge"},
+		"description": "Append one hidden typed anchor to the exact model-selected structured relation carrier. The list/table content is preserved byte-for-byte; the model authors local endpoint ids and reader wording.",
+	}
 }
 
 func localDiagramLeaseTargetSelectorCapacity(lease *types.AnswerDiagramRelationRepairLease, targets []string) int {
@@ -1144,7 +1179,7 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 // existing operations. A non-diagram carrier is admitted only for the exact
 // prior-anchor-metadata capability supported by the executor; participant,
 // boundary, scope, and target-removal permissions remain diagram-only.
-func localRelationLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
+func localRelationLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2) []string {
 	if lease == nil || lease.Version != 1 ||
 		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0) {
 		return nil
@@ -1201,6 +1236,10 @@ func localRelationLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLe
 			add(id)
 			continue
 		}
+		if answerDocumentStandaloneRelationAdditionCandidateSelected(prev, candidate) {
+			add(id)
+			continue
+		}
 		for _, failure := range lease.Failures {
 			if types.AnswerDiagramRelationRepairFailureCanAttachCandidate(failure, candidate) {
 				add(id)
@@ -1212,8 +1251,65 @@ func localRelationLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLe
 	return out
 }
 
-func localLeaseAtomicTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
-	return unionSortedBlockIDs(localRelationLeaseTargetBlockIDs(lease), localDiagramLeaseTargetBlockIDs(lease))
+// answerDocumentStandaloneRelationAdditionCandidateSelected admits a hidden
+// anchor-only addition on a non-diagram carrier only when the model already
+// selected that exact typed relation in both its claim ownership and one
+// visible structured item. No list prose, item label, request text, or final
+// answer wording participates.
+func answerDocumentStandaloneRelationAdditionCandidateSelected(
+	prev *types.AnswerDocumentV2,
+	candidate types.AnswerDiagramRelationRepairCandidate,
+) bool {
+	if prev == nil || strings.TrimSpace(candidate.BlockID) == "" ||
+		strings.TrimSpace(candidate.EvidenceID) == "" || !candidate.RelationKind.IsValid() {
+		return false
+	}
+	wantForm := types.ClaimFormForRelation(candidate.RelationKind)
+	if wantForm == types.ClaimUnknown {
+		return false
+	}
+	matchedBlocks := 0
+	for _, block := range prev.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) {
+			continue
+		}
+		matchedBlocks++
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown || len(block.EdgeAnchors) != 0 {
+			return false
+		}
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			return false
+		}
+		claimSelected := false
+		for _, claim := range block.ClaimUses {
+			if claim.ClaimForm == wantForm && strings.TrimSpace(claim.EvidenceID) == strings.TrimSpace(candidate.EvidenceID) {
+				claimSelected = true
+				break
+			}
+		}
+		itemSelected := false
+		for _, item := range block.Items {
+			for _, evidenceID := range item.EvidenceIDs {
+				if strings.TrimSpace(evidenceID) == strings.TrimSpace(candidate.EvidenceID) {
+					itemSelected = true
+					break
+				}
+			}
+			if itemSelected {
+				break
+			}
+		}
+		if !claimSelected || !itemSelected {
+			return false
+		}
+	}
+	return matchedBlocks == 1
+}
+
+func localLeaseAtomicTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2) []string {
+	return unionSortedBlockIDs(localRelationLeaseTargetBlockIDs(lease, prev), localDiagramLeaseTargetBlockIDs(lease))
 }
 
 func unionSortedBlockIDs(groups ...[]string) []string {
@@ -1318,6 +1414,18 @@ func projectAnswerDocumentPatchFieldEditBranches(patchProperties map[string]any,
 			"required": []any{"block_id", "field", "value"},
 		})
 	}
+	if answerDocumentMemberSetFacetAdditionEnabled(view) {
+		branches = append(branches, map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"block_id": map[string]any{"type": "string"},
+				"field":    map[string]any{"const": string(types.AnswerBlockFieldAddFacetID)},
+				"value":    map[string]any{"type": "string", "enum": []any{string(types.FacetMemberSet)}},
+			},
+			"required": []any{"block_id", "field", "value"},
+		})
+	}
 	if len(branches) == 0 {
 		delete(patchProperties, "block_field_edits_v1")
 		return
@@ -1334,6 +1442,71 @@ func answerDocumentPrincipalPathFacetAdditionEnabled(view *types.AnswerSemanticV
 		return false
 	}
 	return true
+}
+
+func answerDocumentMemberSetFacetAdditionEnabled(view *types.AnswerSemanticView) bool {
+	if view == nil {
+		return false
+	}
+	count := 0
+	for _, dimension := range view.Presentation.RequestedDimensions {
+		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionMemberSet {
+			count++
+		}
+	}
+	return count == 1
+}
+
+// answerDocumentMemberSetFacetAdditionCandidateBlockIDs identifies one
+// unambiguous model-authored roster carrier that is missing only its hidden
+// member_set membership. Enumeration ownership and item evidence are typed;
+// titles, labels, item prose, request text, and rendered output are ignored.
+// Mixed relation/source-inventory carriers remain outside this atomic lane.
+func answerDocumentMemberSetFacetAdditionCandidateBlockIDs(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []string {
+	if doc == nil || !answerDocumentMemberSetFacetAdditionEnabled(view) {
+		return nil
+	}
+	var candidates []string
+	for _, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" || block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+			containsBlockFacet(block, types.FacetMemberSet) ||
+			!containsBlockFacet(block, types.FacetEnumerationItem) ||
+			containsBlockFacet(block, types.FacetPrincipalPathEdge) || len(block.EdgeAnchors) > 0 || len(block.Items) == 0 {
+			continue
+		}
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		valid := true
+		for _, claim := range block.ClaimUses {
+			if types.IsCallChainPrincipalRelationClaimForm(claim.ClaimForm) {
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
+		for _, item := range block.Items {
+			if strings.TrimSpace(item.SourceInventoryRowID) != "" || len(item.EvidenceIDs) == 0 {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			candidates = append(candidates, id)
+		}
+	}
+	// The system may expose a lossless membership operation only when typed
+	// shape leaves exactly one model-selected carrier. Ambiguity returns to the
+	// ordinary full-block authoring lane.
+	if len(candidates) != 1 {
+		return nil
+	}
+	return candidates
 }
 
 // answerDocumentPrincipalPathFacetAdditionCandidateBlockIDs identifies an
@@ -1470,6 +1643,10 @@ func projectAnswerDocumentPatchFieldEditTargets(raw json.RawMessage, prev *types
 	for _, id := range answerDocumentPrincipalPathFacetAdditionCandidateBlockIDs(prev, view) {
 		principalFacetCandidateSet[id] = true
 	}
+	memberSetFacetCandidateSet := make(map[string]bool)
+	for _, id := range answerDocumentMemberSetFacetAdditionCandidateBlockIDs(prev, view) {
+		memberSetFacetCandidateSet[id] = true
+	}
 	var projected []any
 	for _, rawBranch := range branches {
 		branch, _ := rawBranch.(map[string]any)
@@ -1479,6 +1656,15 @@ func projectAnswerDocumentPatchFieldEditTargets(raw json.RawMessage, prev *types
 		if branch == nil || branchProps == nil || field == "" {
 			continue
 		}
+		facetValue := ""
+		if field == string(types.AnswerBlockFieldAddFacetID) {
+			valueNode, _ := branchProps["value"].(map[string]any)
+			values, _ := valueNode["enum"].([]any)
+			if len(values) != 1 {
+				continue
+			}
+			facetValue, _ = values[0].(string)
+		}
 		var ids []any
 		for _, block := range prev.Blocks {
 			id := strings.TrimSpace(block.ID)
@@ -1487,7 +1673,9 @@ func projectAnswerDocumentPatchFieldEditTargets(raw json.RawMessage, prev *types
 				continue
 			}
 			if field == string(types.AnswerBlockFieldAddFacetID) {
-				if !principalFacetCandidateSet[id] {
+				allowed := facetValue == string(types.FacetPrincipalPathEdge) && principalFacetCandidateSet[id]
+				allowed = allowed || (facetValue == string(types.FacetMemberSet) && memberSetFacetCandidateSet[id])
+				if !allowed {
 					continue
 				}
 			} else if excludedSet[id] {
@@ -1791,7 +1979,7 @@ func localDiagramLeaseWholeBlockMutationViolation(
 	if p == nil {
 		return nil
 	}
-	targets := localLeaseAtomicTargetBlockIDs(lease)
+	targets := localLeaseAtomicTargetBlockIDs(lease, prev)
 	if len(targets) == 0 {
 		return nil
 	}
@@ -2186,7 +2374,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	leaseForFieldProjection := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	var excludedFieldEditTargets []string
 	if types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(leaseForFieldProjection) {
-		excludedFieldEditTargets = localLeaseAtomicTargetBlockIDs(leaseForFieldProjection)
+		excludedFieldEditTargets = localLeaseAtomicTargetBlockIDs(leaseForFieldProjection, prev)
 	}
 	fieldEditSchema = projectAnswerDocumentPatchFieldEditTargets(fieldEditSchema, prev, types.BuildAnswerSemanticViewForBusContext(ctx), excludedFieldEditTargets)
 	if violation := validateAnswerDocumentPatchFieldEditsAgainstSchema(params, fieldEditSchema); violation != nil {

@@ -1420,11 +1420,33 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	if edit.BodyOccurrence < 0 {
 		return fmt.Errorf("body_occurrence must be at least 1")
 	}
-	// Relation validators may find stale edge_anchors on a non-diagram block.
-	// Such a block has no visible Mermaid carrier to rewrite, but one live ref
-	// can still select one exact metadata row. Permit only that remove-only
-	// capability and preserve all reader-visible block fields byte-for-byte.
+	// Relation validators may find missing or stale edge_anchors on a
+	// non-diagram structured relation block. Such a block has no Mermaid body to
+	// rewrite. A live addition_ref may append only hidden anchor metadata after
+	// the lease proves that the model already selected the same evidence in its
+	// claim and visible item; existing-row refs retain remove/attach. Every
+	// reader-visible block field remains byte-identical.
 	if block.Diagram == nil {
+		if action == "add" {
+			if edit.failureRefResolved || strings.TrimSpace(edit.FailureRef) != "" || edit.Match != nil ||
+				edit.BodyOccurrence != 0 || edit.Occurrence > 1 || edit.additionCandidate == nil ||
+				strings.TrimSpace(edit.AdditionRef) == "" {
+				return fmt.Errorf("non-diagram metadata add requires one exact addition_ref")
+			}
+			if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {
+				return err
+			}
+			if strings.TrimSpace(edit.Edge.VisibleLabel) == "" {
+				return fmt.Errorf("non-diagram metadata add requires edge.visible_label authored by the model")
+			}
+			for _, anchor := range block.EdgeAnchors {
+				if atomicDiagramAnchorSameTuple(anchor, *edit.Edge) {
+					return fmt.Errorf("non-diagram metadata add duplicates an existing exact anchor")
+				}
+			}
+			block.EdgeAnchors = append(block.EdgeAnchors, *edit.Edge)
+			return nil
+		}
 		if !edit.failureRefResolved ||
 			edit.failureRefCarrier != types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata ||
 			edit.BodyOccurrence != 0 || edit.Match == nil || strings.TrimSpace(edit.VisibleLabel) != "" {

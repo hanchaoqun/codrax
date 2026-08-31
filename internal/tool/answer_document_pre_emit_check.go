@@ -5569,8 +5569,24 @@ func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
 	evidence []types.EvidenceItem,
 	limit int,
 ) string {
+	return preEmitFormatStandaloneRelationRepairCandidates(
+		preEmitStandaloneRelationRepairCandidatesForClaimForms(block, evidence, limit, false), limit,
+	)
+}
+
+// preEmitStandaloneRelationRepairCandidatesForClaimForms projects relation
+// recipes only from the model-owned structured claim/evidence selection.  The
+// selectedOnly form is executable repair authority: it requires an exact
+// evidence id already present on the block and never promotes a merely
+// same-kind candidate from the wider evidence ledger.
+func preEmitStandaloneRelationRepairCandidatesForClaimForms(
+	block types.AnswerBlock,
+	evidence []types.EvidenceItem,
+	limit int,
+	selectedOnly bool,
+) []preEmitStandaloneRelationRepairCandidate {
 	if len(evidence) == 0 || limit <= 0 {
-		return ""
+		return nil
 	}
 	allowed := make(map[types.DiagramRelationKind]bool)
 	selectedEvidence := make(map[string]bool)
@@ -5591,7 +5607,10 @@ func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
 		}
 	}
 	if len(allowed) == 0 {
-		return ""
+		return nil
+	}
+	if selectedOnly && len(selectedEvidence) == 0 {
+		return nil
 	}
 	candidates := make([]preEmitStandaloneRelationRepairCandidate, 0, limit)
 	seen := make(map[string]bool)
@@ -5603,9 +5622,14 @@ func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
 			if !allowed[candidate.relation] || !preEmitStandaloneRelationCandidateHasAuthority(candidate, evidence) {
 				continue
 			}
-			if !selectedEvidence[strings.TrimSpace(candidate.evidenceID)] {
+			selected := selectedEvidence[strings.TrimSpace(candidate.evidenceID)]
+			if selectedOnly && !selected {
+				continue
+			}
+			if !selected {
 				candidate.rank = 1
 			}
+			candidate.blockIDs = []string{strings.TrimSpace(block.ID)}
 			key := strings.Join([]string{
 				string(candidate.relation), strings.TrimSpace(candidate.from), strings.TrimSpace(candidate.to),
 				strings.TrimSpace(candidate.evidenceID), strings.TrimSpace(candidate.source),
@@ -5617,7 +5641,47 @@ func preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(
 			candidates = append(candidates, candidate)
 		}
 	}
-	return preEmitFormatStandaloneRelationRepairCandidates(candidates, limit)
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].rank < candidates[j].rank })
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates
+}
+
+// preEmitStandaloneRelationClaimRepairDeltaJSON turns only the exact
+// relations the model already selected through claim_uses/items evidence ids
+// into addition refs. The later patch still requires the model to choose each
+// ref and author local node ids plus reader wording; the system adds no visible
+// row, relation, label, or conclusion.
+func preEmitStandaloneRelationClaimRepairDeltaJSON(
+	doc *types.AnswerDocumentV2,
+	block types.AnswerBlock,
+	evidence []types.EvidenceItem,
+) string {
+	candidates := preEmitStandaloneRelationRepairCandidatesForClaimForms(block, evidence, 8, true)
+	if doc == nil || len(candidates) == 0 {
+		return ""
+	}
+	allowed := make([]types.AnswerDiagramRelationRepairCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		row := types.AnswerDiagramRelationRepairCandidate{
+			BlockID: strings.TrimSpace(block.ID), RelationKind: candidate.relation,
+			FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
+			EvidenceID: strings.TrimSpace(candidate.evidenceID), Source: strings.TrimSpace(candidate.source),
+		}
+		bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+		bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&row, doc, evidence)
+		allowed = append(allowed, row)
+	}
+	raw, err := json.Marshal(diagramRelationRepairDelta{
+		Version:               types.AnswerDiagramRelationRepairDeltaVersion,
+		PreserveUnlistedEdges: true,
+		AllowedAdditions:      allowed,
+	})
+	if err != nil || len(raw) > types.AnswerDiagramRelationRepairDeltaMaxJSONBytes {
+		return ""
+	}
+	return string(raw)
 }
 
 func preEmitFormatStandaloneRelationRepairCandidates(
@@ -6212,6 +6276,7 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 		sort.Strings(relationForms)
 		relationForms = dedupPreEmitStringCandidates(relationForms)
 		localCandidates := preEmitStandaloneRelationRepairCandidateGuidanceForClaimForms(block, evidence, 6)
+		relationRepairDelta := preEmitStandaloneRelationClaimRepairDeltaJSON(doc, block, evidence)
 		expectedShape := fmt.Sprintf(
 			"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation and copy at least one complete same-direction typed recipe into edge_anchors with from_node, to_node, relation_kind, from_identity, and to_identity. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
 			block.ID, strings.Join(relationForms, ", "),
@@ -6227,6 +6292,7 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 			Reason:                         types.GroundedStandaloneCallChainRelationOwnershipContract + " The check reads no item text, label, request text, reasoning, or final prose. No relation is created or chosen on the model's behalf.",
 			DiagramRelationFailureIssues:   []string{diagramStandaloneRelationClaimHasNoAnchor},
 			RelationRepairOrdinaryBlockIDs: []string{block.ID},
+			DiagramRelationRepairDeltaJSON: relationRepairDelta,
 		})
 	}
 	return hints

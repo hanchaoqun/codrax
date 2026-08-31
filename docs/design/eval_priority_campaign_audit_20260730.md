@@ -57336,6 +57336,53 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1555 r970/B1487：关系/清单可见内容已完成，隐藏元数据缺口仍迫使整块重写（2026-08-31）
+
+1. 从已推送 `a108e347d` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner
+   2/2 PASS：Java 63s、sequence 364s。两路均未按固定 4ms/4m、活动流年龄、轮次、首字节、上下文比例或“尚未出答案”状态降级。
+2. Java 人工通过：精确定位 `Main.java:16`，仅规划 `retrun -> return`，保持 `pending_approval` 且未修改源码。首个 plan 的
+   `old_text` 漏前导缩进，被当前字节诊断一次纠正；最终单行 patch、`javac` 与 `greet` 签名验收均正确，不新增生产硬门。
+3. sequence 最终事实、结论与 Mermaid 正确：`buildAnalysisIR -> gate.RunWith <- gate.Run`，明确不存在
+   `buildAnalysisIR -> gate.Run` 有向路径；关键中间函数清单完整。首稿本轮已自行把两条 endpoint edge 放进同一
+   `principal_path_edge` 块，因此 B1486 的 `add_facet_id=principal_path_edge` 没有命中；没有复制关系或旧缺口回归，故 B1486
+   静态全套已绿但原 production witness 仍等待下一次自然/构造命中。
+4. runner PASS 不能掩盖控制面 partial：sequence 仍有 4 次 finalizer reject。第一类是模型已经在 `claim_uses[].evidence_id`、可见
+   list item 和 Mermaid 中选择了两条 exact typed relation，但 standalone list 缺隐藏 `edge_anchors`；现有第一轮修补只给 prose recipe，
+   迫使模型重发整块。模型先漏 endpoint identity，随后 whole replace 又被同代 relation lease 正确拒绝，第三次才通过 attach refs。
+5. 第二类发生在关系修补已经接受之后：关键函数清单已经完整可见，只缺 requested-dimension 的隐藏 `member_set` facet。系统要求重发
+   整个 11 行列表；模型把数组错编码成含 `undefined` 的 JSON string，补丁拒绝。系统保留前一份已接受、用户可见维度完整的结构化答案，
+   因此不是“模型答案消失”或固定耗时降级；但这次无效修补把 finalizer 推到 5 轮、上下文约 63k，属于确定性高 ROI 控制面 gap。
+6. 新 P1 `B1487-METADATAATOMICCLOSURE1` 统一根修“只缺隐藏元数据却要求重写可见内容”。zero-anchor structured relation block
+   只有在同一个 exact `evidence_id` 同时被模型的 relation `claim_uses` 与至少一个可见 item 选择、typed evidence 又证明同向 relation 时，
+   才发布 additions-only relation ref。模型仍显式选择 ref，并作者 local `from_node/to_node/visible_label`；执行器只追加隐藏 anchor，
+   保留标题、正文、items、顺序、引用与全部可见关系字节不变。无 evidence id、claim/item 不同源、多 block/错 family/错 relation 仍 fail-closed。
+7. `block_field_edits_v1.add_facet_id` 同时扩为 `member_set` closed facet。仅当 typed presentation 精确要求一个 member-set，且上一稿恰好
+   只有一个 model-owned structured block 携带 `enumeration_item`、每行有 typed evidence、没有 source-inventory row id、没有 relation anchor/
+   `principal_path_edge` 时，动态 schema 才发布该 block id 与 `value=member_set`。第二个候选清单、混合关系清单、精确 source-inventory
+   载体或 system block 均不发布；系统不从标题、标签、item prose、请求、thinking、最终答案或 Mermaid 文本推断归属。
+8. relation lease candidate 新增 exact `evidence_id` 并纳入 generation ref，避免同 endpoint 的不同 evidence 被折叠后丢失模型选择。
+   non-diagram addition executor 只接受 live addition ref、模型本轮 authored local endpoints/label、零 failure ref/零 body occurrence；它不创建
+   Mermaid 边或可见列表行。普通 relation/evidence、facet、requested-dimension 与 lease topology 校验全部保留。
+9. 回归钉住：known `member_set` lossless append 与 unknown facet 拒绝；唯一 roster 动态发布、双 roster 不发布；claim+item exact evidence
+   生成 additions-only delta；生产 patch 只补一条隐藏 relation anchor 且列表可见字段不变。聚焦新增测试通过；完整
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 24.726s、tool 186.699s、agent 14.791s）。r971 将从本批
+   提交推送后的干净二进制再次严格并行 2 路验证真实修补轮次。
+10. 本批不改变 Trace 查询、显式窗、唤醒链、链上根因排序、实际占时/规则可消双账户、业务线索、因果投影或系统自动补齐；不让系统
+    选择/新增/删除/改向关系、成员、措辞、图、布局或结论，也不以模型波动、耗时或上下文比例触发降级。
+
+状态：
+
+`r970=runner-pass-2/2,human-java-pass+sequence-partial-4-deterministic-rejects`；
+`B1486=no-regression/static-covered/production-branch-not-hit-r970`；
+`B1487=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`standalone-anchor-add=exact-model-claim+item-evidence/model-authored-local-endpoints+label/hidden-only`；
+`member_set-add=unique-typed-enumeration-carrier/ambiguous-or-mixed-fail-closed`；
+`system-answer/conclusion/relation/member/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1554 r969/B1486：已证关系分块正确但 ownership 修补只能复制边；新增 typed 元数据原子通道（2026-08-31）
 
 1. 从已推送 `68c9c017d` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner

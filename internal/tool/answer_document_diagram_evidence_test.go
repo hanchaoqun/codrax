@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -3330,6 +3331,10 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresencePublishesClaimScopedTy
 			{ClaimForm: types.ClaimCallEdge, EvidenceID: "ev-call"},
 			{ClaimForm: types.ClaimCallbackHandoff, EvidenceID: "ev-callback"},
 		},
+		Items: []types.AnswerBlockItem{
+			{ID: "call", EvidenceIDs: []string{"ev-call"}},
+			{ID: "callback", EvidenceIDs: []string{"ev-callback"}},
+		},
 	}}}
 	ctx := &types.BusContext{
 		Mutable:       types.NewMutableState("zero-anchor candidate projection"),
@@ -3340,6 +3345,11 @@ func TestPreCheckStandaloneCallChainRelationAnchorPresencePublishesClaimScopedTy
 	)
 	if len(hints) != 1 {
 		t.Fatalf("expected one zero-anchor hint, got %+v", hints)
+	}
+	var delta types.AnswerDiagramRelationRepairDelta
+	if err := json.Unmarshal([]byte(hints[0].DiagramRelationRepairDeltaJSON), &delta); err != nil ||
+		len(delta.AllowedAdditions) != 2 || delta.AllowedAdditions[0].EvidenceID == "" || delta.AllowedAdditions[1].EvidenceID == "" {
+		t.Fatalf("model-selected claim/item evidence must publish exact additions-only repair authority: err=%v delta=%+v", err, delta)
 	}
 	for _, want := range []string{
 		`Exact citable relation candidates matching this block's model-selected claim_form(s)`,

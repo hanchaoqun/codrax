@@ -189,6 +189,12 @@ func TestApplyPatch_BlockFieldEditV1AddsFacetMembershipWithoutChangingRelationCa
 	}}}); err == nil {
 		t.Fatal("atomic metadata lane must reject an unknown facet value")
 	}
+	memberSet, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{BlockFieldEditsV1: []AnswerBlockFieldEditV1{{
+		BlockID: "list1", Field: AnswerBlockFieldAddFacetID, Value: string(FacetMemberSet),
+	}}})
+	if err != nil || !containsString(memberSet.Blocks[2].FacetIDs, string(FacetMemberSet)) {
+		t.Fatalf("known member_set membership must use the same lossless operation: err=%v block=%+v", err, memberSet.Blocks[2])
+	}
 }
 
 func TestApplyPatch_BlockFieldEditV1RejectsWholeBlockConflictsAndDuplicates(t *testing.T) {

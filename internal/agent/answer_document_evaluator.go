@@ -16869,7 +16869,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
 		b.WriteString("下面只列面向用户的标签；不要在可见答案中追加系统内部角色或枚举名。\n")
 		if memberSetMetadataRepair {
-			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把它塞进只接受字符串枚举的 `block_field_edits_v1`。若当前工具 schema 没有发布专用原子分支，请使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
+			b.WriteString("Patch 执行形：`facet_ids` 是数组元数据，不要把数组本身塞进 `block_field_edits_v1`。若当前工具 schema 发布精确的 `add_facet_id` 分支，直接选择其 block_id/value，只补该归属并保留整块内容；否则使用 `replace_blocks` 完整重发目标块：复制上一版的 id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family，只改 `facet_ids`；`replace_blocks` 不是字段合并。\n")
 		}
 		b.WriteString("缺失维度：\n")
 		for _, dim := range missing {
