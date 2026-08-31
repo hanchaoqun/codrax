@@ -57485,6 +57485,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r953`。
 
+### §123.1536 r954：共享载体修复无回归；切换异构批次而非继续单例拟合（2026-08-30）
+
+1. 从已推送 `fda7eecbb` 构建不可变二进制，严格并发恰好 2 路复放同一 read+显式窗 Trace，runner 2/2 PASS：Trace 147s、read
+   470s。两路均未按固定 4ms/4m、活动流年龄、轮次或上下文比例降级，也没有系统代写答案、关系、动作、业务词面或结论。
+2. Trace 人工判定 pass：显式 34579.490..34579.500s 窗、4 次 typed query、最终因果投影、
+   `NetworkService-60595 -> CookieMonsterCl-59843 -> com.baidu.tieba-59566` 已证链、5.951ms 链上第一席、目标五态账、
+   实际占时/规则可消双账户、类校验确定性语义线索和邻近/背景隔离均完整。背景 IO/D 未升格为主因，帧级因果未证边界仍披露。
+3. read 人工判定 pass：最终 Mermaid 只保留四阶段三条 checkout-verified precedence，四阶段输入/输出/Agent/主要状态载体表与 Orchestrator
+   调度链齐全，引用可定位；没有恢复旧稿。B1468 的多声明 executor 歧义未出现。r954 也没有自然形成 r953 的 label-pair + visible-body
+   同 occurrence，故 B1469 只可记 deterministic lease/e2e positive + production no-regression，不能虚报自然形转正。
+4. read 的 6 次拒绝分别为模型尝试 whole add/replace、把 `Expl` 错放到 analyzer 端、漏两个精确孤儿处置、以及对已连通 participant 保留
+   unproven boundary。每个 typed 错误均给出可执行下一步，最终成功；没有共同 action 为空、必带/必拒、陈腐 ref 或生产者/执行器互相矛盾的
+   新实例。相比 r953 的 876s/7 rejects/降级，本轮为 470s/6 rejects/有效答案，但模型路径不同，禁止据单样本宣称固定性能收益。
+5. 同一 read case 已连续覆盖 B1467–B1469，继续重复会增加样例拟合风险。下一批按用户要求切到异构高优先面：一个 write 或不同语言/图家族用例，
+   搭配一个显式窗 Trace 护栏，仍严格恰好 2 路；人工同时审计系统给模型的上下文是否精确、JSON 教学是否自洽、关系/时序/逻辑图表达是否完整。
+
+状态：
+
+`r954=runner-pass-2/2/human-trace-pass+read-pass/process-partial`；
+`B1468=tests-positive+production-no-regression/pending-natural-production-shape`；
+`B1469=deterministic-positive+production-no-regression/pending-natural-production-shape`；
+`read-final-diagram=three-typed-precedence-edges/no-degrade`；
+`remaining-six-rejects=model/teaching-compliance-no-new-contract-contradiction`；
+`next-batch=heterogeneous-write-or-language-diagram+explicit-window-trace`；
+`system-answer/relation/action/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r954`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r954`。
+
 ### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
 
 1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
