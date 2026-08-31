@@ -1996,7 +1996,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefRelabelsOnlyDisplaySur
 	}
 }
 
-func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefMayPruneSupportingCarrier(t *testing.T) {
+func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefCannotPruneGroundedCarrier(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	baseAnchor := prev.Blocks[1].EdgeAnchors[0]
 	lease := types.NewAnswerDiagramRelationRepairLease(prev,
@@ -2006,19 +2006,18 @@ func TestApplyModelAuthoredDiagramAtomicEdits_LabelPairRefMayPruneSupportingCarr
 			FromIdentity: baseAnchor.FromIdentity, ToIdentity: baseAnchor.ToIdentity,
 			RelationKind: baseAnchor.RelationKind, BodyOccurrence: 1,
 		}}, nil)
-	if lease == nil || !lease.Failures[0].AllowsAction("remove") {
-		t.Fatalf("label-pair presentation carrier must expose model-owned pruning: %+v", lease)
+	if lease == nil || lease.Failures[0].AllowsAction("remove") || !lease.Failures[0].AllowsAction("relabel") {
+		t.Fatalf("presentation-only label pair must remain relabel-only: %+v", lease)
 	}
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
-	if err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
 		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
-	}}, nil, lease); err != nil {
-		t.Fatalf("model-selected supporting-carrier pruning failed: %v", err)
+	}}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "does not allow action=remove") {
+		t.Fatalf("presentation-only repair must not authorize relation deletion: %v", err)
 	}
-	got := patch.ReplaceBlocks[0]
-	if strings.Contains(got.Diagram.Body, "A->>B") || len(got.EdgeAnchors) != 1 ||
-		got.EdgeAnchors[0] != prev.Blocks[1].EdgeAnchors[1] {
-		t.Fatalf("pruning changed more than the selected display carrier: %+v\n%s", got.EdgeAnchors, got.Diagram.Body)
+	if len(patch.ReplaceBlocks) != 0 {
+		t.Fatalf("rejected presentation deletion mutated the patch: %+v", patch.ReplaceBlocks)
 	}
 }
 

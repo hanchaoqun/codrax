@@ -528,7 +528,13 @@ type emitFixHint struct {
 	Reason        string
 	Kind          types.ViolationKind
 	ForceHard     bool
-	HardSignal    preEmitSameTurnHardSignal
+	// ForceAdvisoryOnly is the per-hint ownership boundary for presentation-
+	// only guidance that shares a broad violation family with a structural hard
+	// gate. It wins over ForceHard, HardSignal, and registry defaults: display
+	// wording can accompany an independently required retry, but can never
+	// create one by itself.
+	ForceAdvisoryOnly bool
+	HardSignal        preEmitSameTurnHardSignal
 	// RetryCompanion marks a soft hint that may be shown only when another,
 	// independently hard hint has already required the same candidate document
 	// to be retried. It never changes hard/advisory routing and can never create
@@ -747,6 +753,9 @@ func splitPreEmitHintsByGate(hints []emitFixHint) (hard []emitFixHint, advisory 
 }
 
 func preEmitHintHardByDefault(hint emitFixHint) bool {
+	if hint.ForceAdvisoryOnly {
+		return false
+	}
 	if hint.ForceHard {
 		// F5-T4 (2026-07-03): derive the hard signal from the hint's
 		// typed shape and consult preEmitSameTurnHardPolicyRows
@@ -5978,14 +5987,13 @@ const (
 
 // preCheckDiagramVisibleLabelConsistency compares only two model-authored
 // structured display surfaces: a diagram anchor's visible_label and the parsed
-// Mermaid edge/message label for the same occurrence. visible_label remains
-// optional for an ordinary diagram, but is required when the anchor's exact
-// endpoint identities, direction, and relation kind match a typed recipe that
-// was delivered in this finalizer dispatch. This prevents deleting the field
-// from turning an internal relation enum into reader copy. It never reads
-// request/final prose, derives wording from relation_kind, or rewrites a
-// diagram. Ambiguous compound/repeated pairings fail open. Runtime root-cause
-// diagrams retain their independent causal projection contract.
+// Mermaid edge/message label for the same occurrence. It produces presentation-
+// only advisory guidance: a mismatch never rejects an otherwise structurally
+// valid answer and can only accompany an independently required retry. It never
+// reads request/final prose, derives wording from relation_kind, or rewrites a
+// diagram. Typed relation authority, direction, endpoint identity, Mermaid
+// syntax, and runtime root-cause projection keep their independent contracts.
+// Ambiguous compound/repeated pairings fail open.
 func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) []emitFixHint {
 	if doc == nil || view == nil || view.Family == types.QFRootCauseTrace {
 		return nil
@@ -6078,10 +6086,11 @@ func preCheckDiagramVisibleLabelConsistency(doc *types.AnswerDocumentV2, view *t
 		}
 		hints = append(hints, emitFixHint{
 			Field:                        fmt.Sprintf("blocks[id=%q].diagram.body AND edge_anchors[].visible_label", block.ID),
-			HardSignal:                   preEmitHardSignalTypedCallEdgeEvidence,
+			ForceAdvisoryOnly:            true,
+			RetryCompanion:               true,
 			OffendingBlockKinds:          []types.AnswerBlockKind{types.BlockDiagram},
 			ExpectedShape:                types.DiagramVisibleLabelConsistencyContract + " Mismatches: " + strings.Join(mismatches, "; "),
-			Reason:                       "an edge selected from an exact dispatch-local typed recipe must keep one model-authored reader label on both structured display surfaces and must not expose its raw typed relation enum as display copy. This exact recipe/field/parsed-edge check does not inspect request or answer prose, choose final wording, translate relation_kind, rewrite the diagram, or change relation authority.",
+			Reason:                       "the two model-authored display surfaces differ. This is advisory presentation guidance only: it does not inspect request or answer prose, choose final wording, translate relation_kind, rewrite or remove the diagram, change relation authority, or independently require a retry.",
 			DiagramRelationFailureIssues: failureIssues,
 			DiagramRelationRepairDeltaJSON: diagramVisibleLabelRepairDeltaJSON(
 				doc, relationFailures,

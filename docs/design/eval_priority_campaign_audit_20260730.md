@@ -57528,6 +57528,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r990`。
 
+### §123.1585 B1513：图展示措辞只作建议，不能触发重试或授权删关系（2026-08-31）
+
+1. `B1513-DIAGRAMDISPLAYHARDGATE1/P1` 已施工。`preCheckDiagramVisibleLabelConsistency` 仍可精确比较同一结构化 occurrence 的
+   `edge_anchors[].visible_label` 与 Mermaid edge/message label，但产出的 hint 固定为 `ForceAdvisoryOnly + RetryCompanion`：它不能独立触发
+   finalizer 重试，只能在另一个结构性硬错误已经要求重试时作为展示建议同行。
+2. 新增 per-hint advisory override，优先于 broad violation family、`ForceHard`、`HardSignal` 和 registry default。这样展示标签检查即使继续归在
+   `diagram_call_edge_unproven` 大类，也不能借 typed call-edge hard lane 变成硬门；Mermaid 可解析性、typed relation evidence、方向、endpoint identity、
+   participant coverage 与 sequence reply order 仍走原有独立精确信号硬门，没有降杆。
+3. JSON schema 与共享合同同步声明：diagram 上 `visible_label` 可选；存在时建议与 Mermaid wording 一致、优先业务/仓库用语而非 raw enum，但 mismatch
+   永远不改变 relation authority、不拒绝 otherwise-valid answer。standalone non-diagram principal relation carrier 的可见标签义务保持不变，因为那里
+   `visible_label` 本身就是唯一模型可见关系措辞载体。
+4. 进一步收口 retry capability：纯 `label_pair` failure 从 `relabel|remove` 改成 `relabel-only`。展示差异即使随其他 hard failure 同行，也不能授权删除
+   一个已 grounded 的模型关系或整张图；如果同一物理 carrier 另有真正 evidence-negative/structural failure，既有 capability intersection 仍可把它
+   收窄到 remove-only，由那条独立 typed 失败负责，而不是由展示建议借权。
+5. 系统不复制、翻译、选择、生成或静默修复模型标签，不扫描用户请求、模型 thinking、最终 prose 或 Mermaid message 业务词来铸事实，也不替模型决定
+   是否保留图。回归覆盖 flow/architecture/call_dag/sequence、typed recipe 缺标签、raw enum、ambiguous occurrence fail-open、Trace root-cause 独立权限、
+   advisory override、relabel-only schema/executor/finalizer lease 和“删除必须拒绝”。
+6. 验证结果：定向 tool/types/agent 测试全绿；`go test ./internal/tool -count=1` 通过（187.248s）；最终冻结代码上
+   `go test ./... -count=1` 全绿（其中 tool 215.038s、tracequery 94.335s、hitraceconv 132.193s），`make` 通过。下一步单独施工 B1514，之后
+   从两批提交后的干净构建严格并发恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace。
+
+状态：
+
+`B1513=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`diagram-display-consistency=advisory-only/retry-companion`；
+`label-pair-capability=relabel-only/no-relation-deletion`；
+`diagram-syntax/relation/direction/identity/reply-order=typed-hard-unchanged`；
+`system-diagram/edge/relation/wording/conclusion-authorship=none`；
+`request/model/final-prose/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

@@ -39,10 +39,10 @@ const GroundedSourceDiagramEdgeOwnershipContract = "Every visible body edge in a
 // list labels, prose, or the request text.
 const GroundedStandaloneCallChainRelationOwnershipContract = "In a grounded call-chain answer, a principal ordered_list, bullet_list, or table that selects a directed relation claim form must include at least one model-authored edge_anchors row. Every row must preserve both exact from_identity and to_identity values from one typed recipe and carry a concise model-authored visible_label in the answer language. When the answer also contains a diagram, reuse that diagram's exact from_node/to_node identifiers for the same edge; when no diagram exists, use reader-facing endpoint labels as from_node/to_node and no Mermaid block is required. A descriptive block can omit edge_anchors only when it does not declare a directed relation claim form."
 
-// DiagramVisibleLabelConsistencyContract keeps the two model-authored display
-// carriers byte-consistent. It never derives wording from RelationKind and is
-// intentionally independent from relation/evidence authority.
-const DiagramVisibleLabelConsistencyContract = "When a non-runtime diagram edge_anchors row selects an exact endpoint/direction/relation recipe published for the current answer, it must include a model-authored visible_label; an ordinary diagram anchor without such a recipe may omit it. Whenever visible_label is present, the matching Mermaid edge/message must use exactly that same reader-facing wording. visible_label must not merely repeat its raw relation_kind enum token; use concise repository/domain action wording, with a published typed-candidate visible_arrow_label as a safe starting point when available. Change only the model-authored display wording while preserving node ids, direction, relation_kind, and exact endpoint identities. visible_label never creates relation evidence and the system never translates, writes, or silently repairs it."
+// DiagramVisibleLabelConsistencyContract is presentation-only guidance for the
+// two model-authored display carriers. It never derives wording from
+// RelationKind, changes relation/evidence authority, or rejects a document.
+const DiagramVisibleLabelConsistencyContract = "Diagram display guidance (advisory only): a non-runtime diagram edge_anchors row may include a model-authored visible_label. When present, prefer the same reader-facing wording as the matching Mermaid edge/message, and prefer repository/domain action wording over a raw relation_kind enum token. This guidance never rejects an otherwise valid answer, never changes typed relation authority, and the system never translates, writes, copies, or silently repairs model-authored wording."
 
 // GroundedSourceDiagramRelationEvidenceContract is the single-source authoring
 // rule for explicit logical non-call edges in every non-runtime diagram family.

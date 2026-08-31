@@ -206,13 +206,10 @@ func answerDiagramRelationRepairFailureCapabilities(
 		if len(answerDiagramRelationRepairFailureBaseAnchorCandidates(base, failure)) == 1 {
 			return AnswerDiagramRelationRepairCarrierLabelPair, []AnswerDiagramRelationRepairAction{
 				AnswerDiagramRelationRepairActionRelabel,
-				// The relation itself is already grounded, but whether it remains
-				// useful in this model-authored visual is still a presentation
-				// choice. Keeping remove available lets a repair prune a verified
-				// supporting fragment instead of forcing it to remain beside a
-				// complete requested-relation spine. Ordinary required-diagram and
-				// participant-coverage gates still reject destructive underfill.
-				AnswerDiagramRelationRepairActionRemove,
+				// A presentation-only discrepancy must never authorize deletion of
+				// a grounded model-authored relation. Independent structural or
+				// evidence failures may still compile the same physical carrier to
+				// remove-only through safe capability intersection below.
 			}
 		}
 		return AnswerDiagramRelationRepairCarrierUnknown, nil
@@ -378,8 +375,8 @@ func answerDiagramRelationRepairCompiledFailures(
 		// Several validator issues can describe one exact prior anchor. One
 		// remove/replace then resolves every issue on that carrier; publishing
 		// one ref per issue would make the second operation deterministically
-		// stale inside the same atomic patch. A label-only carrier keeps its
-		// model-owned relabel/remove presentation choices, while any non-label
+		// stale inside the same atomic patch. A label-only carrier remains
+		// relabel-only, while any non-label
 		// defect keeps the stronger remove/replace capability when every
 		// non-label defect is structural.
 		// An evidence-negative sibling narrows the merged carrier to remove-only:
@@ -415,7 +412,7 @@ func answerDiagramRelationRepairCompiledFailures(
 
 // answerDiagramRelationRepairNormalizeSharedBodyCapabilities keeps every
 // capability that selects one physical Mermaid statement jointly executable.
-// A label-pair ref normally owns relabel/remove, while an independently failed
+// A label-pair ref normally owns relabel only, while an independently failed
 // visible-body relation on the same exact occurrence owns remove/replace.
 // Publishing both unchanged creates an empty joint action set even though the
 // statement and its exact anchors can be removed together. Narrow every member

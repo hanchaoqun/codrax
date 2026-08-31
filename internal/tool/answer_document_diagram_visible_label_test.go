@@ -15,6 +15,9 @@ func requireVisibleLabelRelabelDelta(
 	wantIssue string,
 ) types.AnswerDiagramRelationRepairFailure {
 	t.Helper()
+	if !hint.ForceAdvisoryOnly || !hint.RetryCompanion || hint.ForceHard || hint.HardSignal != "" {
+		t.Fatalf("display-only label guidance must remain an advisory retry companion: %+v", hint)
+	}
 	raw := strings.TrimSpace(hint.DiagramRelationRepairDeltaJSON)
 	if raw == "" {
 		t.Fatal("exact visible-label mismatch did not publish a relation repair delta")
@@ -33,7 +36,7 @@ func requireVisibleLabelRelabelDelta(
 	}
 	failure := delta.Failures[0]
 	if failure.Issue != wantIssue || failure.TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
-		!failure.AllowsAction("relabel") || !failure.AllowsAction("remove") || len(failure.AllowedActions) != 2 ||
+		!failure.AllowsAction("relabel") || failure.AllowsAction("remove") || len(failure.AllowedActions) != 1 ||
 		failure.FailureRef == "" || failure.BodyOccurrence != 1 {
 		t.Fatalf("visible-label delta is not one exact presentation capability: %+v", failure)
 	}
@@ -64,7 +67,7 @@ func diagramVisibleLabelTestDocument(kind types.DiagramKind, body, anchorLabel s
 	}}}
 }
 
-func TestDiagramVisibleLabelConsistencyRejectsModelAuthoredDisplayConflictAcrossFamilies(t *testing.T) {
+func TestDiagramVisibleLabelConsistencyAdvisesOnModelAuthoredDisplayConflictAcrossFamilies(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		kind types.DiagramKind
@@ -102,7 +105,7 @@ func TestDiagramVisibleLabelConsistencyAcceptsExactModelAuthoredWording(t *testi
 	}
 }
 
-func TestDiagramVisibleLabelConsistencyRequiresModelLabelForDeliveredTypedRecipe(t *testing.T) {
+func TestDiagramVisibleLabelConsistencyAdvisesWhenDeliveredTypedRecipeOmitsModelLabel(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("show the declared type relations")}
 	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
 	bus.Mutable.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{{
@@ -131,7 +134,7 @@ func TestDiagramVisibleLabelConsistencyRequiresModelLabelForDeliveredTypedRecipe
 		!strings.Contains(hints[0].ExpectedShape, `typed_recipe_present=true diagram_label="type_relation" visible_label=<missing>`) ||
 		len(hints[0].DiagramRelationFailureIssues) != 1 ||
 		hints[0].DiagramRelationFailureIssues[0] != diagramTypedRecipeMissingVisibleLabel {
-		t.Fatalf("deleting visible_label bypassed the delivered typed-recipe display contract: %+v", hints)
+		t.Fatalf("missing optional display label did not receive bounded advisory guidance: %+v", hints)
 	}
 	requireVisibleLabelRelabelDelta(t, doc, hints[0], diagramTypedRecipeMissingVisibleLabel)
 	if doc.Blocks[0].EdgeAnchors[0].VisibleLabel != "" || !strings.Contains(doc.Blocks[0].Diagram.Body, "|type_relation|") {
@@ -203,7 +206,7 @@ func TestDiagramVisibleLabelConsistencyAcceptsRenderabilityQuotedWording(t *test
 	}
 }
 
-func TestDiagramVisibleLabelConsistencyRejectsRawRelationEnumWithoutChoosingFinalCopy(t *testing.T) {
+func TestDiagramVisibleLabelConsistencyAdvisesOnRawRelationEnumWithoutChoosingFinalCopy(t *testing.T) {
 	doc := diagramVisibleLabelTestDocument(
 		types.DiagramFlow,
 		"flowchart TD\n  A -->|call| B",
@@ -219,7 +222,7 @@ func TestDiagramVisibleLabelConsistencyRejectsRawRelationEnumWithoutChoosingFina
 	}
 	requireVisibleLabelRelabelDelta(t, doc, hints[0], diagramVisibleLabelRawRelationKind)
 	if doc.Blocks[0].EdgeAnchors[0].VisibleLabel != "call" || !strings.Contains(doc.Blocks[0].Diagram.Body, "|call|") {
-		t.Fatalf("display gate rewrote model-authored diagram instead of rejecting: %+v", doc.Blocks[0])
+		t.Fatalf("display guidance rewrote model-authored diagram: %+v", doc.Blocks[0])
 	}
 }
 
@@ -240,6 +243,32 @@ func TestRunPreEmitChecksWiresDiagramVisibleLabelConsistency(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("pre-emit chokepoint did not publish exact visible-label mismatch: %+v", hints)
+	}
+	var displayHints []emitFixHint
+	for _, hint := range hints {
+		for _, issue := range hint.DiagramRelationFailureIssues {
+			if issue == diagramVisibleLabelMismatch {
+				displayHints = append(displayHints, hint)
+				break
+			}
+		}
+	}
+	hard, advisory := splitPreEmitHintsByGate(displayHints)
+	if len(hard) != 0 || len(advisory) != 1 || !advisory[0].ForceAdvisoryOnly || !advisory[0].RetryCompanion {
+		t.Fatalf("display-only mismatch must not create a retry: hard=%+v advisory=%+v", hard, advisory)
+	}
+}
+
+func TestDiagramDisplayAdvisoryOverrideWinsOverBroadTypedHardLane(t *testing.T) {
+	hint := emitFixHint{
+		Kind:              types.ViolDiagramCallEdgeUnproven,
+		ForceHard:         true,
+		HardSignal:        preEmitHardSignalTypedCallEdgeEvidence,
+		ForceAdvisoryOnly: true,
+		RetryCompanion:    true,
+	}
+	if preEmitHintHardByDefault(hint) {
+		t.Fatal("presentation-only guidance must not become hard through its broad relation violation family")
 	}
 }
 

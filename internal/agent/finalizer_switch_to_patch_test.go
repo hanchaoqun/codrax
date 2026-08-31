@@ -1481,18 +1481,18 @@ func TestRequiredDiagramRelationRetryInstallsLabelPairPresentationRef(t *testing
 	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
 	if lease == nil || len(lease.Failures) != 1 ||
 		lease.Failures[0].TargetCarrier != types.AnswerDiagramRelationRepairCarrierLabelPair ||
-		!lease.Failures[0].AllowsAction("relabel") || !lease.Failures[0].AllowsAction("remove") ||
+		!lease.Failures[0].AllowsAction("relabel") || lease.Failures[0].AllowsAction("remove") ||
 		lease.Failures[0].FailureRef == "" {
 		t.Fatalf("label-pair lease is not executable: %+v", lease)
 	}
 	raw := result.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
 	if !strings.Contains(raw, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
-		!strings.Contains(raw, `"allowed_actions":["relabel","remove"]`) {
+		!strings.Contains(raw, `"allowed_actions":["relabel"]`) {
 		t.Fatalf("retry metadata did not publish the live presentation ref: %s", raw)
 	}
 	hint, ok := answerDocRequiredDiagramRelationDeltaPatchHint(result, false)
 	if !ok || !strings.Contains(hint, `"failure_ref":"`+lease.Failures[0].FailureRef+`"`) ||
-		!strings.Contains(hint, `"allowed_actions":["relabel","remove"]`) {
+		!strings.Contains(hint, `"allowed_actions":["relabel"]`) {
 		t.Fatalf("model retry hint did not receive the exact label-pair capability: ok=%v\n%s", ok, hint)
 	}
 }

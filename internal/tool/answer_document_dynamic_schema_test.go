@@ -786,7 +786,7 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeaseHidesSystemGeneratedUnre
 	}
 }
 
-func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelOrRemove(t *testing.T) {
+func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelOnly(t *testing.T) {
 	base := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(base,
 		[]types.AnswerDiagramRelationRepairFailure{{
@@ -810,8 +810,8 @@ func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelOrRe
 	props := root["properties"].(map[string]any)
 	edits := props["diagram_edge_edits"].(map[string]any)
 	branches := edits["items"].(map[string]any)["oneOf"].([]any)
-	if len(branches) != 2 || edits["minItems"] != float64(1) || edits["maxItems"] != float64(1) {
-		t.Fatalf("label-pair lease must expose one relabel and one remove branch: %+v", edits)
+	if len(branches) != 1 || edits["minItems"] != float64(1) || edits["maxItems"] != float64(1) {
+		t.Fatalf("presentation-only label-pair lease must expose one relabel branch: %+v", edits)
 	}
 	seenActions := map[string]bool{}
 	for _, rawBranch := range branches {
@@ -839,7 +839,7 @@ func TestEmitAnswerDocumentPatchParametersFor_LabelPairLeasePublishesRelabelOrRe
 			}
 		}
 	}
-	if !seenActions["relabel"] || !seenActions["remove"] {
+	if !seenActions["relabel"] || seenActions["remove"] {
 		t.Fatalf("label-pair actions=%v", seenActions)
 	}
 }
