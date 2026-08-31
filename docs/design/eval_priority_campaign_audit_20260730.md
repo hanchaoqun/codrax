@@ -57899,6 +57899,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r943`。
 
+### §123.1527 r944：时序关系修补合同自锁；数据动作 schema 暴露不可执行字段（2026-08-30）
+
+1. 从 `main@82d3d0fd6` 的干净不可变二进制严格并发恰好 2 路复放 `qf_sequence_analyzer_gate` 与
+   `data_json_strict_ids`。数据 runner PASS、人工答案 PASS；时序图 runner FAIL、人工判定为系统合同失败。两路都没有 Trace 输入，故本批只把
+   显式窗 Trace 因果投影、自动补采和链上根因权威列为强负回归不变量，不改其代码。
+2. 时序图的源码调查正确且边界诚实：`buildAnalysisIR` 直接调用 `gate.RunWith`，`gate.Run` 独立调用 `RunWith`，不存在
+   `buildAnalysisIR -> gate.Run` 的有向路径。第一稿已把两段画为汇聚到 `RunWith` 的断开边界；失败不是模型虚构关系，而是结构修补合同自锁。
+3. 新确认 `B1457-STALEOCC1/P0`：`resolveAtomicDiagramFailureRef` 先把 `BodyOccurrence` 清零，随后又无条件复制 producer 行的
+   `failure.BodyOccurrence`；`stale_anchor`/`prior_anchor_metadata` 执行分支却明确要求 occurrence 为零。只要 producer 为定位失败曾携带非零正文
+   occurrence，公开的 remove/replace 能力就确定性不可执行，模型会反复得到同一错误直到降级。最小根修是只给真正拥有可见正文边的 carrier
+   继承 occurrence，元数据/陈旧锚载体保持零； opaque ref、模型动作与可见 wording 均不由系统选择。
+4. 新确认 `B1458-CALLCHAINSPLIT1/P1`：同一 ordered-list 第一稿同时承载 `member_set` 与 `principal_path_edge`，校验器正确要求把
+   19 条普通关键函数移到 support/member 块；但局部关系 lease 同时禁止目标块整块替换，原子 edge edit 又没有移动 items/facets 的能力，形成第二个
+   不可满足合同。现有 prompt 已有“首稿分块”软教学，但仅靠 prose 不能保证可执行闭环。最优方案是在 typed requested-dimension 已明确
+   `member_set` 时，semantic view 直接要求一个独立 sibling member block；端点边块继续只承载精确有向边，不放宽证据门，也不从用户原文猜。
+5. 数据答案正确为 `{"ids":["u1","u3"]}`，但耗时 335s，并经历 custom transform、typed action 带 script、blocked 等多轮修补。
+   新确认 `B1459-DATAACTIONSCHEMA1/P1`：可执行 rank 已把动作枚举收窄为四个 typed action，却沿用共享 action schema，把 `script` 字段及
+   custom-transform 条件继续展示给这些分支；模型先被 schema 教会脚本，执行后才被 guard 告知脚本只属于当前又不允许的动作。最优方案是按当前
+   action kind 投影字段：typed 分支 schema 不出现 `script`，只有当前确实允许的 `custom_transform` 分支才要求并展示它；既有运行时 guard 保持
+   fail-closed，不能通过自动执行脚本或删除校验换速度。
+6. 施工冻结为三批并逐批提交推送：B1457 先修确定性 P0；B1458 把两个输出责任变成 typed 结构席；B1459 收窄动态 data schema。随后用新二进制
+   再次恰好并发 2 路复放原用例，人工审计答案、拒绝轮数、关系保真与 JSON 严格输出。任何一批都不得扫描请求/模型思考/最终 prose/Mermaid message
+   作为事实硬门，不得由系统选择、增加、删除或改写模型关系/结论，不得以固定 4ms、4m、活动流年龄、轮数或上下文比例降级。
+
+状态：
+
+`r944=runner-pass-1/2+human-data-pass+human-sequence-system-contract-fail`；
+`B1457=confirmed/P0/next`；`B1458=confirmed/P1/planned`；`B1459=confirmed/P1/planned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-message-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
