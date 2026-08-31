@@ -969,6 +969,75 @@ func TestDiagramEvidenceIdentityBeforeDisplayQualifierFailsClosedOnCallAndIdenti
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceParticipantSourceFileQualifiersStayDisplayOnly(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant main",
+			"  participant run as run (main.rs)",
+			"  participant walker as walker::collect_files",
+			"  participant walk as walk (walker.rs)",
+			"  participant index_file as index_file (main.rs)",
+			"  participant matcher as Matcher (matcher.rs)",
+			"  main->>run: run(&pattern, fixed)",
+			"  run->>walker: collect_files",
+			"  walker->>walk: walk(root, &mut out)",
+			"  run->>index_file: index_file(f, m.as_ref())",
+			"  index_file->>matcher: is_match (逐行)",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "main", ToNode: "run", RelationKind: types.DiagramRelCall},
+			{FromNode: "run", ToNode: "walker", RelationKind: types.DiagramRelCall},
+			{FromNode: "walker", ToNode: "walk", RelationKind: types.DiagramRelCall},
+			{FromNode: "run", ToNode: "index_file", RelationKind: types.DiagramRelCall},
+			{FromNode: "index_file", ToNode: "matcher", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("main", "run"),
+		diagramEvidenceTestCall("run", "walker::collect_files"),
+		diagramEvidenceTestCall("walker::collect_files", "walk"),
+		diagramEvidenceTestCall("run", "index_file"),
+		diagramEvidenceTestCall("index_file", "Matcher.is_match"),
+	}
+	evidence[0].AnchorSymbol = "run"
+	evidence[1].AnchorSymbol = "walker::collect_files"
+	evidence[2].AnchorSymbol = "walk"
+	evidence[3].AnchorSymbol = "index_file"
+	evidence[4].AnchorSymbol = "Matcher.is_match"
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("source-file display qualifiers must not erase exact typed call relations: %+v", got)
+	}
+}
+
+func TestDiagramEvidenceIdentityBeforeSourceFileQualifierAcrossLanguages(t *testing.T) {
+	for label, want := range map[string]string{
+		"run (main.rs)":                         "run",
+		"VisitService.schedule (Visit.java)":    "VisitService.schedule",
+		"Service::handle (service.cpp)":         "Service::handle",
+		"handle (src/service.c)":                "handle",
+		"visit (src/pages/visit.ets)":           "visit",
+		"clinic::schedule (src/clinic/main.cj)": "clinic::schedule",
+	} {
+		if identity, ok := diagramEvidenceIdentityBeforeSourceFileQualifier(label); !ok || identity != want {
+			t.Fatalf("source-file qualifier %q = (%q,%t), want %q", label, identity, ok, want)
+		}
+	}
+	for _, label := range []string{
+		"resolve(json)",
+		"resolve (Other.Run)",
+		"resolve (Rust core)",
+		"business service (main.rs)",
+		"resolve (main.rs",
+		"resolve (trace.txt)",
+	} {
+		if identity, ok := diagramEvidenceIdentityBeforeSourceFileQualifier(label); ok {
+			t.Fatalf("non-source-qualifier shape %q unexpectedly projected to %q", label, identity)
+		}
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_InlineCodeParticipantLabelsAcrossExecutableLanguages(t *testing.T) {
 	tests := []struct {
 		language string

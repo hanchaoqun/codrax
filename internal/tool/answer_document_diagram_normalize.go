@@ -340,6 +340,232 @@ func normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes(doc *types.AnswerDocum
 	return fixed
 }
 
+// normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses repairs the
+// one compatibility shape where the model authored a principal relation list
+// and a Mermaid diagram in the same block. The split keeps both visible halves
+// and records their exact lineage, but the copied anchors may omit canonical
+// endpoint identities even though the original block selected the exact
+// relation evidence through claim_uses/items.evidence_ids.
+//
+// This pass is intentionally narrower than general alias recovery:
+//   - only an executor-created fused_diagram_split lineage participates;
+//   - the visible half must select an exact citable evidence id;
+//   - that evidence must still own the relation and match one dispatch-scoped
+//     typed recipe identity pair;
+//   - one visible edge, one companion anchor, and one selected evidence row
+//     must form a unique mapping.
+//
+// It writes only the two hidden endpoint identity fields onto the two anchors
+// copied from the same model block. It never creates, deletes, reverses, or
+// relabels an edge; ambiguity and partial/conflicting identities fail open to
+// the ordinary validator. Participant labels are parsed only as exact
+// presentation identities, and sequence message text participates solely as
+// the existing exact method discriminator for an already-selected call row.
+func normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses(
+	doc *types.AnswerDocumentV2,
+	pctx *preEmitCheckContext,
+	recipes []types.DiagramEdgeAnchor,
+) int {
+	if doc == nil || pctx == nil || len(doc.BlockCompanionLineages) == 0 || len(recipes) == 0 {
+		return 0
+	}
+	evidence := pctx.evidenceItems()
+	if len(evidence) == 0 {
+		return 0
+	}
+	blocks := make(map[string]*types.AnswerBlock, len(doc.Blocks))
+	for i := range doc.Blocks {
+		blocks[strings.TrimSpace(doc.Blocks[i].ID)] = &doc.Blocks[i]
+	}
+	fixed := 0
+	for _, lineage := range types.NormalizeAnswerBlockCompanionLineages(doc.BlockCompanionLineages) {
+		if lineage.Kind != types.AnswerBlockCompanionLineageFusedDiagramSplit {
+			continue
+		}
+		visible := blocks[strings.TrimSpace(lineage.VisibleBlockID)]
+		diagram := blocks[strings.TrimSpace(lineage.DiagramBlockID)]
+		if visible == nil || diagram == nil || diagram.Kind != types.BlockDiagram || diagram.Diagram == nil ||
+			len(visible.EdgeAnchors) == 0 || len(diagram.EdgeAnchors) == 0 {
+			continue
+		}
+		candidates := preEmitStandaloneRelationRepairCandidatesForClaimForms(*visible, evidence, len(evidence), true)
+		selected := fusedCompanionSelectedRelationCandidates(candidates, evidence, recipes)
+		if len(selected) == 0 {
+			continue
+		}
+		labels := diagramEvidenceNodeLabels(diagram.Diagram.Body, diagram.Diagram.Kind)
+		edges := mermaidcompat.ParseEdges(diagram.Diagram.Body)
+		matches := make(map[int][]int)
+		demand := make(map[int]int)
+		for ai := range diagram.EdgeAnchors {
+			anchor := &diagram.EdgeAnchors[ai]
+			if strings.TrimSpace(anchor.FromIdentity) != "" || strings.TrimSpace(anchor.ToIdentity) != "" || !anchor.RelationKind.IsValid() {
+				continue
+			}
+			edge, ok := fusedCompanionUniqueVisibleEdge(*anchor, edges)
+			if !ok || fusedCompanionUniqueCopiedAnchor(visible, *anchor) == nil {
+				continue
+			}
+			fromSymbol := diagramEvidenceEndpointSymbol(anchor.FromNode, labels, evidence)
+			toSymbol := diagramEvidenceEndpointSymbol(anchor.ToNode, labels, evidence)
+			for ci := range selected {
+				if fusedCompanionSelectedCandidateMatchesVisibleEdge(selected[ci], *anchor, edge, fromSymbol, toSymbol) {
+					matches[ai] = append(matches[ai], ci)
+				}
+			}
+			if len(matches[ai]) == 1 {
+				demand[matches[ai][0]]++
+			}
+		}
+		for ai, candidateIndexes := range matches {
+			if len(candidateIndexes) != 1 || demand[candidateIndexes[0]] != 1 {
+				continue
+			}
+			anchor := &diagram.EdgeAnchors[ai]
+			companion := fusedCompanionUniqueCopiedAnchor(visible, *anchor)
+			if companion == nil || strings.TrimSpace(companion.FromIdentity) != "" || strings.TrimSpace(companion.ToIdentity) != "" {
+				continue
+			}
+			candidate := selected[candidateIndexes[0]].candidate
+			anchor.FromIdentity, anchor.ToIdentity = candidate.from, candidate.to
+			companion.FromIdentity, companion.ToIdentity = candidate.from, candidate.to
+			fixed += 2
+		}
+	}
+	return fixed
+}
+
+type fusedCompanionSelectedRelationCandidate struct {
+	candidate preEmitStandaloneRelationRepairCandidate
+	evidence  types.EvidenceItem
+}
+
+func fusedCompanionSelectedRelationCandidates(
+	candidates []preEmitStandaloneRelationRepairCandidate,
+	evidence []types.EvidenceItem,
+	recipes []types.DiagramEdgeAnchor,
+) []fusedCompanionSelectedRelationCandidate {
+	var out []fusedCompanionSelectedRelationCandidate
+	for _, candidate := range candidates {
+		if !fusedCompanionCandidateHasUniqueTypedRecipe(candidate, recipes) {
+			continue
+		}
+		var matched types.EvidenceItem
+		count := 0
+		for _, item := range evidence {
+			id := strings.TrimSpace(item.ID)
+			if id == "" {
+				id = strings.TrimSpace(types.StableEvidenceID(item))
+			}
+			if id != strings.TrimSpace(candidate.evidenceID) || !item.IsCitable() {
+				continue
+			}
+			owned := false
+			for _, projected := range preEmitStandaloneRelationCandidatesFromEvidence(item) {
+				if projected.relation == candidate.relation &&
+					strings.TrimSpace(projected.from) == strings.TrimSpace(candidate.from) &&
+					strings.TrimSpace(projected.to) == strings.TrimSpace(candidate.to) {
+					owned = true
+					break
+				}
+			}
+			if owned {
+				matched = item
+				count++
+			}
+		}
+		if count == 1 {
+			out = append(out, fusedCompanionSelectedRelationCandidate{candidate: candidate, evidence: matched})
+		}
+	}
+	return out
+}
+
+func fusedCompanionCandidateHasUniqueTypedRecipe(candidate preEmitStandaloneRelationRepairCandidate, recipes []types.DiagramEdgeAnchor) bool {
+	seen := make(map[string]bool)
+	for _, recipe := range recipes {
+		if recipe.RelationKind != candidate.relation || !recipe.HasEndpointIdentityPair() ||
+			strings.TrimSpace(recipe.FromIdentity) != strings.TrimSpace(candidate.from) ||
+			strings.TrimSpace(recipe.ToIdentity) != strings.TrimSpace(candidate.to) {
+			continue
+		}
+		seen[strings.TrimSpace(recipe.FromIdentity)+"\x00"+strings.TrimSpace(recipe.ToIdentity)+"\x00"+string(recipe.RelationKind)] = true
+	}
+	return len(seen) == 1
+}
+
+func fusedCompanionUniqueVisibleEdge(anchor types.DiagramEdgeAnchor, edges []mermaidcompat.Edge) (mermaidcompat.Edge, bool) {
+	want := diagramEvidenceEdgeKey(anchor.FromNode, anchor.ToNode)
+	var found mermaidcompat.Edge
+	count := 0
+	for _, edge := range edges {
+		if diagramEvidenceEdgeKey(edge.From, edge.To) != want {
+			continue
+		}
+		found = edge
+		count++
+	}
+	return found, count == 1
+}
+
+func fusedCompanionUniqueCopiedAnchor(block *types.AnswerBlock, want types.DiagramEdgeAnchor) *types.DiagramEdgeAnchor {
+	if block == nil {
+		return nil
+	}
+	var found *types.DiagramEdgeAnchor
+	for i := range block.EdgeAnchors {
+		candidate := &block.EdgeAnchors[i]
+		if diagramEvidenceEdgeKey(candidate.FromNode, candidate.ToNode) != diagramEvidenceEdgeKey(want.FromNode, want.ToNode) ||
+			candidate.RelationKind != want.RelationKind || strings.TrimSpace(candidate.VisibleLabel) != strings.TrimSpace(want.VisibleLabel) {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = candidate
+	}
+	return found
+}
+
+func fusedCompanionSelectedCandidateMatchesVisibleEdge(
+	selected fusedCompanionSelectedRelationCandidate,
+	anchor types.DiagramEdgeAnchor,
+	edge mermaidcompat.Edge,
+	fromSymbol, toSymbol string,
+) bool {
+	candidate := selected.candidate
+	if candidate.relation != anchor.RelationKind {
+		return false
+	}
+	if candidate.relation == types.DiagramRelCall && diagramCallEdgeHasTypedEvidence(
+		[]types.EvidenceItem{selected.evidence}, nil, fromSymbol, toSymbol, edge.Label,
+	) {
+		return true
+	}
+	fromOK := fusedCompanionSelectedEndpointMatches(candidate.from, fromSymbol)
+	toOK := fusedCompanionSelectedEndpointMatches(candidate.to, toSymbol)
+	if candidate.relation == types.DiagramRelCall && !toOK &&
+		diagramEvidenceEndpointMatchesQualifiedOwner(toSymbol, candidate.to) &&
+		diagramEvidenceCallLabelOperation(edge.Label) == diagramEvidenceQualifiedOperation(candidate.to) {
+		toOK = true
+	}
+	return fromOK && toOK
+}
+
+func fusedCompanionSelectedEndpointMatches(identity, surface string) bool {
+	identity = strings.TrimSpace(identity)
+	surface = strings.TrimSpace(surface)
+	if identity == "" || surface == "" {
+		return false
+	}
+	if types.AnswerCodeIdentitySurfacesEquivalent(identity, surface) {
+		return true
+	}
+	return diagramEvidenceQualifiedOwner(surface) != "" &&
+		diagramEvidenceQualifiedOwner(identity) == "" &&
+		diagramEvidenceQualifiedOperation(surface) == identity
+}
+
 // normalizeUniqueOneSidedDiagramEdgeAnchorIdentitiesFromTypedRecipes repairs
 // the narrow copy omission where a model-authored anchor preserved exactly
 // one endpoint identity from a dispatch-scoped typed recipe and omitted the

@@ -57371,14 +57371,15 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `else of fixed -> RegexLikeMatcher::new` 两条独立 branch-effect 均保留 owner 与极性。本轮 explorer 同时发出了 `run` definition，故只能证明
    共用投影与生产交付生效，不能把它冒充 call-row-only 新车道的独立生产正证；该窄验收继续 pending。
 3. Rust 暴露新的 `B1510-FUSEDBLOCKRELATIONIDENTITYHANDOFF1/P1`。模型首稿把 ordered-list 字段与 diagram 字段融合在同一个 block 中，系统按既有
-   自愈把图拆成 `chain-1_diagram`；模型已经选择了完整的 main→run→walker/collect→walk、run→index_file→matcher 关系和对应 evidence，
-   但拆分后的列表锚和图锚没有保住可验证的 endpoint identity/evidence 关联。关系门于是把正确边报成 unproven/missing anchor，修补协议又只给删除等
-   局部动作，四轮后把整图删成只剩 `sequenceDiagram`。正文调用链仍在，故不是源证据缺失，也不是模型没有关系，而是系统在结构自愈后丢失已选关系的
-   隐藏凭证。
-4. B1510 根修只能传递模型已经选择且可唯一验证的隐藏身份：fused split 时，对每条 visible edge/edge-anchor，以当前 block 已引用的 citable exact
-   relation recipe、端点方向和关系类型做唯一匹配；唯一时把 from/to identity 与 evidence association 带到拆出的 diagram carrier，零匹配或多匹配
-   fail-open 交给原校验。不得新增、删除、反向、改标签或改 relation_kind，不扫描用户请求、thinking、最终 prose 或 Mermaid 标签来猜事实。需用
-   emit→split→validate→patch 的 M4 回归证明完整关系不再被清空。
+   自愈把图拆成 `chain-1_diagram`；模型已经选择了完整的 main→run→walker/collect→walk、run→index_file→matcher 关系、对应 evidence 与可见锚，
+   split 也确实把可见锚复制到了列表/图两个载体。真正缺口是模型原锚没有填写 canonical endpoint identity，而 split 后的全组件 recipe 映射没有消费
+   当前 block 已精确选择的 evidence 子集：模型只画 5 条业务主链，authoring recipe 同时含同组件 8 条边，组件形状不同导致别名恢复失败。关系门于是把
+   正确边报成 unproven/missing anchor，修补协议又只给删除等局部动作，四轮后把整图删成只剩 `sequenceDiagram`。正文调用链仍在，故不是源证据缺失、
+   split 丢锚或模型没有关系，而是结构自愈后的隐藏身份恢复忽略了模型已选的精确关系子集。
+4. B1510 根修只能传递模型已经选择且可唯一验证的隐藏身份：对 executor 记录的 fused-split companion lineage，以当前 visible block 已引用的 citable
+   exact evidence id、typed relation recipe、端点方向、关系类型、唯一可见边与唯一复制锚做合取匹配；唯一时只把 from/to identity 同步到两个 companion
+   anchor，零匹配或多匹配 fail-open 交给原校验。不得新增、删除、反向、改标签或改 relation_kind，不从用户请求、thinking、最终 prose 或一般业务文案
+   推断关系；sequence message 只可作为已选 exact call row 的既有操作 discriminator。需用完整 emit→split→pre-emit→validate 回归证明关系不再被清空。
 5. Java 调用链与容量判断大体正确，最终正文也说 `System.out.println` 输出到标准输出，但标题和主叙述仍沿用“审计落库”，没有明确纠正它不是
    数据库/持久化。runner 与人工均据此判 fail。新记 `B1511-TERMINALEFFECTSEMANTICBOUNDARY1/P2-watch`：先观察是否能从 parser-owned exact
    operation identity 提供通用 terminal-effect soft guidance；不得按 `println`、落库或答案否定词增加 case-specific 硬门，也不得由系统改写模型结论。
@@ -57399,6 +57400,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r988`。
+
+### §123.1581 B1510：融合关系块按模型已选 evidence 子集恢复隐藏端点身份（2026-08-31）
+
+1. `B1510-FUSEDBLOCKRELATIONIDENTITYHANDOFF1/P1` 已施工。新增恢复车道只接受 executor 自铸的
+   `fused_diagram_split` companion lineage；visible half 必须已有模型选择的 `claim_uses[].evidence_id` 或 `items[].evidence_ids`，该 citable evidence
+   必须仍拥有同方向/同 relation 的 typed relation，并与本轮 finalizer 收到的唯一 recipe identity pair 一致。系统不从请求或答案文字决定是否修复。
+2. 对每条模型已画的 edge，必须同时找到一个可见有向边、一个完全相同的 companion anchor、一个 selected evidence candidate，且同一 candidate 只能被
+   一个 edge 消费；任一重复 edge、重复复制锚、重复 selected evidence、缺 recipe、缺 lineage、单边 identity 或其他歧义均不写入，继续由原 hard validator
+   fail-closed。成功时仅给列表锚和图锚同步补齐 hidden `from_identity/to_identity`；不创建/删除 edge 或 anchor，不改变方向、relation、visible label、
+   Mermaid body、列表正文或模型结论。
+3. participant 的紧凑显示形如 `run (main.rs)`、`Service::handle (src/service.cpp)` 现可把最后一个已知 source/config path 或精确 `file:line`
+   视为 display-only suffix；前缀仍必须是完整 code identity，关系仍必须由 exact typed evidence 证明。跨 Rust、Java、C/C++、ArkTS、Cangjie 的正 pin
+   与 `resolve(json)`、一般业务括注、其他身份括注、路径本身等负 pin 同批落地，未引入语言专用名称表或业务词扫描。
+4. M4 生产回归从原始 fused JSON 经过 `EmitAnswerDocument.Execute`，验证系统保留模型 summary/list/diagram 三个可见载体、记录 split lineage、在 pre-emit
+   chokepoint 同步恢复两份 anchor identity，并通过普通 relation evidence validator；另有五边真实形、无 lineage、双 evidence 歧义等正反回归。
+5. 验证全绿：新增定向回归；`go test ./internal/tool -count=1`（194.233s）；`go test ./... -count=1`（含 tool 210.789s、tracequery
+   93.649s、hitraceconv 131.175s）；`make` 成功。下一步从本提交重建不可变二进制，严格并发恰好 2 路复放 Rust/Java call-chain，验收 Rust 图不再被
+   修补清空；B1508 nested JSON 与 B1509 relation-delta fixpoint 保持独立批次。
+
+状态：
+
+`B1510=implemented/positive+negative+production-route-pins/full-suite-pass/pending-production-replay`；
+`fused-visible-relation-authority=model-selected-exact-evidence-only`；
+`system-repair=hidden-identity-copy-only/no-edge-or-conclusion-authorship`；
+`ambiguous/missing-lineage/missing-recipe/partial-identity=fail-closed`；
+`all-supported-language-display-suffix=closed-source-path-grammar`；
+`request/model/final-prose/business-label fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 

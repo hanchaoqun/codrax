@@ -1561,6 +1561,16 @@ func diagramEvidenceEndpointSymbol(node string, labels map[string]string, eviden
 	}
 	if label := strings.TrimSpace(labels[strings.ToLower(node)]); label != "" {
 		fallback := diagramEvidenceLabelSymbol(label)
+		// A compact participant label may put one source file in parentheses
+		// after the exact code identity (`run (main.rs)`). Treat that suffix like
+		// the already-supported newline file/line display metadata. This is a
+		// closed source-path grammar, not a prose/keyword projection; the prefix
+		// still has to be a complete cross-language code identity and the suffix
+		// a known source/config path. It therefore cannot turn call-shaped text or
+		// an arbitrary parenthetical into endpoint authority.
+		if identity, ok := diagramEvidenceIdentityBeforeSourceFileQualifier(label); ok {
+			fallback = identity
+		}
 		if len(evidenceOpt) == 0 {
 			return fallback
 		}
@@ -1609,6 +1619,9 @@ func diagramEvidenceLabelIdentityCandidates(label string) []string {
 	parts = append(parts, diagramEvidenceJoinedLabelIdentityCandidates(lines)...)
 	for _, line := range lines {
 		if identity, ok := diagramEvidenceIdentityBeforeDisplayQualifier(line); ok {
+			parts = append(parts, identity)
+		}
+		if identity, ok := diagramEvidenceIdentityBeforeSourceFileQualifier(line); ok {
 			parts = append(parts, identity)
 		}
 	}
@@ -1667,6 +1680,41 @@ func diagramEvidenceIdentityBeforeDisplayQualifier(label string) (string, bool) 
 		return "", false
 	}
 	return identity, true
+}
+
+// diagramEvidenceIdentityBeforeSourceFileQualifier separates one exact code
+// endpoint from a compact source-location display suffix such as
+// `run (main.rs)` or `Service::handle (src/service.cpp)`. It is deliberately
+// separate from the language/display qualifier helper above: only a known
+// source/config path (optionally with a numeric line range) is accepted.
+//
+// The returned prefix is presentation identity only. Callers still require a
+// unique citable typed endpoint and the ordinary relation evidence; this
+// helper never reads message text, request prose, answer prose, or repository
+// keywords and never creates an edge or relation.
+func diagramEvidenceIdentityBeforeSourceFileQualifier(label string) (string, bool) {
+	label = strings.TrimSpace(label)
+	if !strings.HasSuffix(label, ")") {
+		return "", false
+	}
+	open := strings.LastIndex(label, " (")
+	if open <= 0 {
+		return "", false
+	}
+	identity := diagramEvidenceExactInlineCodeIdentity(strings.TrimSpace(label[:open]))
+	location := strings.TrimSpace(label[open+2 : len(label)-1])
+	if identity == "" || location == "" || strings.ContainsAny(location, "\n\r") ||
+		types.HasCodeOrConfigPathSuffix(identity) ||
+		types.AnswerCodeIdentitySurfaceKey(identity) == "" {
+		return "", false
+	}
+	if types.HasCodeOrConfigPathSuffix(strings.ReplaceAll(location, `\\`, "/")) {
+		return identity, true
+	}
+	if _, ok := types.ParseAnswerSourceLocationSurface(location); ok {
+		return identity, true
+	}
+	return "", false
 }
 
 // diagramEvidenceJoinedLabelIdentityCandidates restores a code identity that

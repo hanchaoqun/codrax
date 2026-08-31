@@ -197,6 +197,57 @@ func TestEmitAnswerDocumentV2_SplitsFusedProseAndDiagramWithoutDroppingEither(t 
 	}
 }
 
+func TestEmitAnswerDocumentV2_FusedSelectedRelationSurvivesProductionSplit(t *testing.T) {
+	evidence := diagramEvidenceTestCall("main", "run")
+	evidence.ID = "ev-main-run"
+	evidence.AnchorSymbol = evidence.Object
+	bus := &types.BusContext{
+		Mutable:       types.NewMutableState("trace the call from main to run"),
+		EvidenceItems: []types.EvidenceItem{evidence},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace, Scenario: types.ScenarioGeneric,
+		}},
+	}
+	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus.Mutable.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{{
+		FromNode: "n1", ToNode: "n2", FromIdentity: "main", ToIdentity: "run", RelationKind: types.DiagramRelCall,
+	}})
+	raw := json.RawMessage(`{
+		"blocks": [
+			{"id":"summary","kind":"summary","text":"main calls run."},
+			{
+				"id":"chain","kind":"ordered_list","surface_role":"principal",
+				"facet_ids":["current_code_path","principal_path_edge"],
+				"items":[{"id":"hop-1","label":"main → run","text":"main invokes run.","evidence_ids":["ev-main-run"]}],
+				"claim_uses":[{"facet_id":"principal_path_edge","evidence_id":"ev-main-run","claim_form":"call_edge"}],
+				"edge_anchors":[{"from_node":"main","to_node":"run","visible_label":"run(&pattern)","relation_kind":"call"}],
+				"diagram":{"kind":"sequence","language":"mermaid","body":"sequenceDiagram\n  participant main\n  participant run as run (main.rs)\n  main->>run: run(&pattern)"}
+			}
+		],
+		"citations": []
+	}`)
+	res, err := (&EmitAnswerDocument{}).Execute(bus, raw)
+	if err != nil || !res.Success {
+		t.Fatalf("production fused split should preserve the exact selected relation: result=%+v err=%v", res, err)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("production split did not persist summary/list/diagram: %+v", doc)
+	}
+	for _, index := range []int{1, 2} {
+		if len(doc.Blocks[index].EdgeAnchors) != 1 {
+			t.Fatalf("block[%d] lost the selected relation anchor: %+v", index, doc.Blocks[index])
+		}
+		got := doc.Blocks[index].EdgeAnchors[0]
+		if got.FromIdentity != "main" || got.ToIdentity != "run" || got.RelationKind != types.DiagramRelCall {
+			t.Fatalf("block[%d] relation identity was not restored: %+v", index, got)
+		}
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, types.BuildAnswerSemanticViewForBusContext(bus), bus.EvidenceItems); len(got) != 0 {
+		t.Fatalf("persisted production document must pass ordinary relation evidence validation: %+v", got)
+	}
+}
+
 func TestEmitAnswerDocumentV2_EmptyOptionalDiagramObjectOnProseBlockIsAbsent(t *testing.T) {
 	bus := newV2TestBusContext()
 	raw := json.RawMessage(`{

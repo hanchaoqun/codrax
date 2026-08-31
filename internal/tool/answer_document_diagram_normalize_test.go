@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -801,6 +802,169 @@ func TestNormalizeAnswerDocumentForPreEmitWiresUniqueTopologyAfterMermaidAliasRe
 	}
 	if pctx.repairCounts["normalizeDiagramEdgeAnchorIdentitiesFromTypedRecipes"] != 2 {
 		t.Fatalf("production topology repair accounting missing: %+v", pctx.repairCounts)
+	}
+}
+
+func TestNormalizeAnswerDocumentForPreEmitPreservesSelectedRelationsAcrossFusedCompanionSplit(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("main", "run"),
+		diagramEvidenceTestCall("run", "walker::collect_files"),
+		diagramEvidenceTestCall("collect_files", "walk"),
+		diagramEvidenceTestCall("run", "index_file"),
+		diagramEvidenceTestCall("index_file", "Matcher.is_match"),
+	}
+	for i := range evidence {
+		evidence[i].ID = fmt.Sprintf("ev-%d", i+1)
+		evidence[i].LineStart = 10 + i
+		evidence[i].AnchorSymbol = evidence[i].Object
+	}
+	recipes := []types.DiagramEdgeAnchor{
+		{FromNode: "n1", ToNode: "n2", FromIdentity: "main", ToIdentity: "run", RelationKind: types.DiagramRelCall},
+		{FromNode: "n2", ToNode: "n3", FromIdentity: "run", ToIdentity: "walker::collect_files", RelationKind: types.DiagramRelCall},
+		{FromNode: "n3", ToNode: "n4", FromIdentity: "collect_files", ToIdentity: "walk", RelationKind: types.DiagramRelCall},
+		{FromNode: "n2", ToNode: "n5", FromIdentity: "run", ToIdentity: "index_file", RelationKind: types.DiagramRelCall},
+		{FromNode: "n5", ToNode: "n6", FromIdentity: "index_file", ToIdentity: "Matcher.is_match", RelationKind: types.DiagramRelCall},
+	}
+	anchors := []types.DiagramEdgeAnchor{
+		{FromNode: "main", ToNode: "run", RelationKind: types.DiagramRelCall, VisibleLabel: "run(&pattern, fixed)"},
+		{FromNode: "run", ToNode: "walker", RelationKind: types.DiagramRelCall, VisibleLabel: "collect_files"},
+		{FromNode: "walker", ToNode: "walk", RelationKind: types.DiagramRelCall, VisibleLabel: "walk(root, &mut out)"},
+		{FromNode: "run", ToNode: "index_file", RelationKind: types.DiagramRelCall, VisibleLabel: "index_file(f, m.as_ref())"},
+		{FromNode: "index_file", ToNode: "matcher", RelationKind: types.DiagramRelCall, VisibleLabel: "is_match (逐行)"},
+	}
+	uses := make([]types.RenderedClaimUse, len(evidence))
+	for i := range evidence {
+		uses[i] = types.RenderedClaimUse{ClaimForm: types.ClaimCallEdge, EvidenceID: evidence[i].ID}
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+				ClaimUses: uses, EdgeAnchors: append([]types.DiagramEdgeAnchor(nil), anchors...)},
+			{ID: "chain_diagram", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+					"sequenceDiagram",
+					"  participant main",
+					"  participant run as run (main.rs)",
+					"  participant walker as walker::collect_files",
+					"  participant walk as walk (walker.rs)",
+					"  participant index_file as index_file (main.rs)",
+					"  participant matcher as Matcher (matcher.rs)",
+					"  main->>run: run(&pattern, fixed)",
+					"  run->>walker: collect_files",
+					"  walker->>walk: walk(root, &mut out)",
+					"  run->>index_file: index_file(f, m.as_ref())",
+					"  index_file->>matcher: is_match (逐行)",
+				}, "\n")},
+				EdgeAnchors: append([]types.DiagramEdgeAnchor(nil), anchors...)},
+		},
+		BlockCompanionLineages: []types.AnswerBlockCompanionLineage{{
+			Kind: types.AnswerBlockCompanionLineageFusedDiagramSplit, VisibleBlockID: "chain", DiagramBlockID: "chain_diagram",
+		}},
+	}
+	bus := &types.BusContext{Mutable: types.NewMutableState("render selected Rust call chain"), EvidenceItems: evidence}
+	bus.Mutable.SetFinalizerTypedRelationRecipeAvailable(true)
+	bus.Mutable.SetFinalizerTypedRelationRecipeAnchors(recipes)
+	pctx := newPreEmitCheckContext(bus)
+	normalizeAnswerDocumentForPreEmit("emit_answer_document", doc,
+		&types.AnswerSemanticView{Family: types.QFCallChain}, bus, pctx)
+	for bi := range doc.Blocks {
+		for ai := range doc.Blocks[bi].EdgeAnchors {
+			got, want := doc.Blocks[bi].EdgeAnchors[ai], recipes[ai]
+			if got.FromIdentity != want.FromIdentity || got.ToIdentity != want.ToIdentity {
+				t.Fatalf("block[%d] anchor[%d]=%+v, want selected identity %q -> %q", bi, ai, got, want.FromIdentity, want.ToIdentity)
+			}
+		}
+	}
+	if pctx.repairCounts["normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses"] != 10 {
+		t.Fatalf("fused companion repair accounting missing: %+v", pctx.repairCounts)
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("exact model-selected relations must survive fused split and ordinary validation: %+v", got)
+	}
+}
+
+func TestNormalizeFusedDiagramCompanionEdgeAnchorIdentitiesRequiresExactSplitLineage(t *testing.T) {
+	evidence := diagramEvidenceTestCall("run", "index_file")
+	evidence.ID = "ev-call"
+	evidence.LineStart = 20
+	evidence.AnchorSymbol = evidence.Object
+	anchor := types.DiagramEdgeAnchor{
+		FromNode: "run", ToNode: "index_file", RelationKind: types.DiagramRelCall,
+		VisibleLabel: "index_file(f, matcher)",
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+			ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, EvidenceID: evidence.ID}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{anchor}},
+		{ID: "chain_diagram", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+				"sequenceDiagram",
+				"  participant run as run (main.rs)",
+				"  participant index_file as index_file (main.rs)",
+				"  run->>index_file: index_file(f, matcher)",
+			}, "\n")},
+			EdgeAnchors: []types.DiagramEdgeAnchor{anchor}},
+	}}
+	bus := &types.BusContext{Mutable: types.NewMutableState("no split lineage"), EvidenceItems: []types.EvidenceItem{evidence}}
+	pctx := newPreEmitCheckContext(bus)
+	recipes := []types.DiagramEdgeAnchor{{
+		FromNode: "n1", ToNode: "n2", FromIdentity: "run", ToIdentity: "index_file", RelationKind: types.DiagramRelCall,
+	}}
+	if fixed := normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses(doc, pctx, recipes); fixed != 0 {
+		t.Fatalf("blocks without executor split lineage must not be repaired, fixed=%d doc=%+v", fixed, doc)
+	}
+	for i := range doc.Blocks {
+		if got := doc.Blocks[i].EdgeAnchors[0]; got.FromIdentity != "" || got.ToIdentity != "" {
+			t.Fatalf("block[%d] gained identity without split lineage: %+v", i, got)
+		}
+	}
+}
+
+func TestNormalizeFusedDiagramCompanionEdgeAnchorIdentitiesRejectsAmbiguousSelectedEvidence(t *testing.T) {
+	first := diagramEvidenceTestCall("run", "index_file")
+	first.ID = "ev-call-a"
+	first.LineStart = 20
+	first.AnchorSymbol = first.Object
+	second := first
+	second.ID = "ev-call-b"
+	second.LineStart = 21
+	anchor := types.DiagramEdgeAnchor{
+		FromNode: "run", ToNode: "index_file", RelationKind: types.DiagramRelCall,
+		VisibleLabel: "index_file(f, matcher)",
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "chain", Kind: types.BlockOrderedList, SurfaceRole: types.SurfacePrincipal,
+				ClaimUses: []types.RenderedClaimUse{
+					{ClaimForm: types.ClaimCallEdge, EvidenceID: first.ID},
+					{ClaimForm: types.ClaimCallEdge, EvidenceID: second.ID},
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{anchor}},
+			{ID: "chain_diagram", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+					"sequenceDiagram",
+					"  participant run as run (main.rs)",
+					"  participant index_file as index_file (main.rs)",
+					"  run->>index_file: index_file(f, matcher)",
+				}, "\n")},
+				EdgeAnchors: []types.DiagramEdgeAnchor{anchor}},
+		},
+		BlockCompanionLineages: []types.AnswerBlockCompanionLineage{{
+			Kind: types.AnswerBlockCompanionLineageFusedDiagramSplit, VisibleBlockID: "chain", DiagramBlockID: "chain_diagram",
+		}},
+	}
+	bus := &types.BusContext{Mutable: types.NewMutableState("ambiguous selected evidence"), EvidenceItems: []types.EvidenceItem{first, second}}
+	pctx := newPreEmitCheckContext(bus)
+	recipes := []types.DiagramEdgeAnchor{{
+		FromNode: "n1", ToNode: "n2", FromIdentity: "run", ToIdentity: "index_file", RelationKind: types.DiagramRelCall,
+	}}
+	if fixed := normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses(doc, pctx, recipes); fixed != 0 {
+		t.Fatalf("ambiguous selected evidence must remain fail-closed, fixed=%d doc=%+v", fixed, doc)
+	}
+	for i := range doc.Blocks {
+		if got := doc.Blocks[i].EdgeAnchors[0]; got.FromIdentity != "" || got.ToIdentity != "" {
+			t.Fatalf("block[%d] gained identity from ambiguous evidence: %+v", i, got)
+		}
 	}
 }
 

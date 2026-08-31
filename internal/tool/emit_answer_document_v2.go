@@ -837,6 +837,14 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 		pctx.recordPreEmitRepair("normalizeDiagramEdgeAnchorMetadata", fixed)
 		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
 	}
+	if ctx != nil && ctx.Mutable != nil {
+		recipes := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+		recipes = append(recipes, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
+		if fixed := normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses(doc, pctx, recipes); fixed > 0 {
+			pctx.recordPreEmitRepair("normalizeFusedDiagramCompanionEdgeAnchorIdentitiesFromClaimUses", fixed)
+			logging.Warning("[%s] restored %d fused companion endpoint identity field(s) from exact model-selected relation evidence", toolName, fixed)
+		}
+	}
 	normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(toolName, doc, ctx, pctx)
 	// Capture an exact model-selected Principal Enumeration Row before any
 	// weaker candidate or aggregate citation repair can move its citation. The
