@@ -2485,6 +2485,7 @@ func diagramRelationRepairAllowedAdditions(
 			}
 			bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
 			bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&row, doc, evidence)
+			bindDiagramRelationRepairCandidateExistingStageNodeIDs(&row, doc, stagePrecedence)
 			key := strings.ToLower(row.BlockID + "\x00" + string(row.RelationKind) + "\x00" +
 				row.FromIdentity + "\x00" + row.ToIdentity)
 			if _, exists := seen[key]; exists {
@@ -2564,6 +2565,7 @@ func diagramRelationRepairAllowedAdditions(
 				normalizeParticipantSides()
 				for i := range out {
 					bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&out[i], doc, evidence)
+					bindDiagramRelationRepairCandidateExistingStageNodeIDs(&out[i], doc, stagePrecedence)
 				}
 				return out
 			}
@@ -2572,6 +2574,7 @@ func diagramRelationRepairAllowedAdditions(
 	normalizeParticipantSides()
 	for i := range out {
 		bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&out[i], doc, evidence)
+		bindDiagramRelationRepairCandidateExistingStageNodeIDs(&out[i], doc, stagePrecedence)
 	}
 	return out
 }
@@ -2684,6 +2687,96 @@ func bindDiagramRelationRepairCandidateExistingTypedNodeIDs(
 		if len(toMatches) == 1 {
 			row.ToNodeIDs = appendUnique(row.ToNodeIDs, toMatches[0])
 		}
+	}
+}
+
+// bindDiagramRelationRepairCandidateExistingStageNodeIDs publishes every
+// exact, already-declared sequence participant that denotes the verified read
+// stage on one side of a precedence candidate. Multiple declarations are a
+// model-owned presentation choice, not an ambiguity the system may resolve:
+// the lease therefore carries the complete executable choice set while the
+// atomic patch executor continues to fail closed if the model uses an
+// undeclared alias. Request prose, answer prose, message labels, and display
+// similarity never participate.
+func bindDiagramRelationRepairCandidateExistingStageNodeIDs(
+	row *types.AnswerDiagramRelationRepairCandidate,
+	doc *types.AnswerDocumentV2,
+	stagePrecedence []stageauthority.PrecedenceRelation,
+) {
+	if row == nil || doc == nil || row.RelationKind != types.DiagramRelPrecedence ||
+		len(stagePrecedence) == 0 || strings.TrimSpace(row.BlockID) == "" {
+		return
+	}
+	fromStage, fromOK := atomicSequenceUniqueStageIdentity(stagePrecedence, row.FromIdentity)
+	toStage, toOK := atomicSequenceUniqueStageIdentity(stagePrecedence, row.ToIdentity)
+	if !fromOK && !toOK {
+		return
+	}
+
+	exactUnique := func(values []string) []string {
+		seen := make(map[string]bool, len(values))
+		out := make([]string, 0, len(values))
+		for _, raw := range values {
+			value := strings.TrimSpace(raw)
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			out = append(out, value)
+		}
+		sort.Strings(out)
+		return out
+	}
+	retainDeclaredAndAppend := func(current, matches []string, declared map[string]bool) []string {
+		if len(matches) == 0 {
+			return current
+		}
+		out := make([]string, 0, len(current)+len(matches))
+		for _, value := range current {
+			value = strings.TrimSpace(value)
+			if declared[value] {
+				out = append(out, value)
+			}
+		}
+		out = append(out, matches...)
+		return exactUnique(out)
+	}
+
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(row.BlockID) ||
+			block.Kind != types.BlockDiagram || block.Diagram == nil ||
+			types.MermaidBodySyntaxFamily(block.Diagram.Body) != types.MermaidSyntaxSequence {
+			continue
+		}
+		declared := make(map[string]bool)
+		var fromMatches, toMatches []string
+		for _, line := range strings.Split(block.Diagram.Body, "\n") {
+			for _, declaration := range mermaidcompat.SequenceParticipantDeclarations(line) {
+				ident := strings.TrimSpace(declaration.Ident)
+				if ident == "" {
+					continue
+				}
+				declared[ident] = true
+				matchesStage := func(target string, ok bool) bool {
+					if !ok {
+						return false
+					}
+					if stage, matched := atomicSequenceUniqueStageIdentity(stagePrecedence, ident); matched && stage == target {
+						return true
+					}
+					stage, matched := atomicSequenceUniqueStageIdentity(stagePrecedence, declaration.Label)
+					return matched && stage == target
+				}
+				if matchesStage(fromStage, fromOK) {
+					fromMatches = append(fromMatches, ident)
+				}
+				if matchesStage(toStage, toOK) {
+					toMatches = append(toMatches, ident)
+				}
+			}
+		}
+		row.FromNodeIDs = retainDeclaredAndAppend(row.FromNodeIDs, fromMatches, declared)
+		row.ToNodeIDs = retainDeclaredAndAppend(row.ToNodeIDs, toMatches, declared)
 	}
 }
 

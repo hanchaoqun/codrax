@@ -2299,6 +2299,54 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 	}
 }
 
+func TestDiagramRelationRepairAllowedAdditionsPublishesEveryExactDeclaredStageChoice(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: `sequenceDiagram
+  participant S1 as StageAnalyze
+  participant StageAnalyze as "StageAnalyze"
+  participant S2 as StageExplore
+  participant StageExplore as "StageExplore"`},
+	}}}
+	stage := func(stageIdent, stageValue, agentIdent, agentValue string) stageauthority.StageRow {
+		return stageauthority.StageRow{
+			StageIdent: stageIdent, StageValue: stageValue,
+			AgentIdent: agentIdent, AgentValue: agentValue,
+		}
+	}
+	precedence := []stageauthority.PrecedenceRelation{{
+		From:       stage("StageAnalyze", "analyze", "AgentAnalyzer", "analyzer"),
+		To:         stage("StageExplore", "explore", "AgentExplorer", "explorer"),
+		SourceFile: "internal/types/enums.go", LineStart: 120, LineEnd: 121,
+	}}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence, Required: true},
+	}
+	got := diagramRelationRepairAllowedAdditions(doc, rm, nil, precedence, []string{"diagram-1"}, nil, 8)
+	if len(got) != 1 {
+		t.Fatalf("expected one verified precedence choice, got %+v", got)
+	}
+	for _, want := range []string{"S1", "StageAnalyze"} {
+		if !atomicDiagramNodeIDListed(want, got[0].FromNodeIDs) {
+			t.Fatalf("from-side lease omitted exact declared choice %q: %+v", want, got[0])
+		}
+	}
+	for _, want := range []string{"S2", "StageExplore"} {
+		if !atomicDiagramNodeIDListed(want, got[0].ToNodeIDs) {
+			t.Fatalf("to-side lease omitted exact declared choice %q: %+v", want, got[0])
+		}
+	}
+
+	seeded := got[0]
+	seeded.FromNodeIDs = append(seeded.FromNodeIDs, "analyze")
+	seeded.ToNodeIDs = append(seeded.ToNodeIDs, "explorer")
+	bindDiagramRelationRepairCandidateExistingStageNodeIDs(&seeded, doc, precedence)
+	if atomicDiagramNodeIDListed("analyze", seeded.FromNodeIDs) || atomicDiagramNodeIDListed("explorer", seeded.ToNodeIDs) {
+		t.Fatalf("undeclared fallback aliases must not remain beside exact sequence declarations: %+v", seeded)
+	}
+}
+
 func TestDiagramRelationRepairCandidateCarriesTypedParticipantEndpointPermissions(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "diagram-1", Kind: types.BlockDiagram,
