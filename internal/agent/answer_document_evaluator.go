@@ -8146,11 +8146,16 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		return ""
 	}
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+	var dimensions []types.RequestedAnswerDimension
+	if view != nil {
+		dimensions = view.Presentation.RequestedDimensions
+	}
+	runtimeWorkRelationRequested := answerDocTypedRuntimeWorkRelationRequested(ctx)
+	if len(dimensions) == 0 && !runtimeWorkRelationRequested {
 		return ""
 	}
 	lang := extractAnswerDocLang(ctx)
-	callChainMemberRoster := view.Family == types.QFCallChain && answerDocHasRequiredDimensionRole(view.Presentation.RequestedDimensions, types.RequestedAnswerDimensionMemberSet)
+	callChainMemberRoster := view != nil && view.Family == types.QFCallChain && answerDocHasRequiredDimensionRole(dimensions, types.RequestedAnswerDimensionMemberSet)
 	sourceInventoryMemberRoster := answerDocRequestedMemberSetUsesExactSourceInventoryRows(ctx)
 	var b strings.Builder
 	if lang == "zh" {
@@ -8176,7 +8181,11 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		}
 		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
 	}
-	for _, dim := range view.Presentation.RequestedDimensions {
+	hasRuntimeWorkRelationDimension := false
+	for _, dim := range dimensions {
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+			hasRuntimeWorkRelationDimension = true
+		}
 		label := strings.TrimSpace(dim.Label)
 		if label == "" {
 			continue
@@ -8253,8 +8262,37 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 			}
 		}
 	}
+	if runtimeWorkRelationRequested && !hasRuntimeWorkRelationDimension {
+		if lang == "zh" {
+			b.WriteString("- 本轮 typed 运行时问题另行声明了一个运行时工作/span/operation 与目标关系子问；它是语义回答义务，不要求复制为另一条展示维度。请在模型成文、可见的主结论块上设置隐藏 ownership 标记 `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` 与 `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`，由模型命名 typed 工作、报告测得时长，并说明已证关系凭证和未证边界。不要让系统替模型选择有关、无关或证据不足的结论。\n")
+		} else {
+			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target semantic subquestion; this is an answer obligation and need not be duplicated as another presentation-dimension row. In a model-authored visible principal conclusion block, set the hidden ownership marker `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` with `claim_uses:[{\"claim_form\":\"external_observation\",\"facet_id\":\"observed_artifact_fact\"}]`. The model must name the typed work, report measured duration, and explain the proved relation credential and unproved boundary. Do not let the system choose a related, unrelated, or insufficient-evidence conclusion.\n")
+		}
+	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// answerDocTypedRuntimeWorkRelationRequested reads only analyzer-emitted typed
+// request carriers.  The dedicated RuntimeQuestionProfile flag is the
+// canonical semantic obligation; the legacy requested-dimension role remains
+// a backward-compatible presentation carrier.  No request, reasoning, answer,
+// or Mermaid text participates in this decision.
+func answerDocTypedRuntimeWorkRelationRequested(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	if rm.RuntimeQuestionProfile != nil && rm.RuntimeQuestionProfile.RequestsRuntimeWorkRelation() {
+		return true
+	}
+	if rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		return false
+	}
+	return answerDocHasRequiredDimensionRole(
+		rm.RequestedAnswerDimensions.Dimensions,
+		types.RequestedAnswerDimensionRuntimeWorkRelation,
+	)
 }
 
 // answerDocRequestedMemberSetUsesExactSourceInventoryRows selects the one
@@ -16014,10 +16052,24 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 		return nil
 	}
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
-		return nil
+	var requested []types.RequestedAnswerDimension
+	if view != nil {
+		requested = view.Presentation.RequestedDimensions
 	}
-	dims := requestedDimensionsToCover(view.Presentation.RequestedDimensions)
+	dims := requestedDimensionsToCover(requested)
+	hasRuntimeWorkRelationDimension := false
+	for _, dim := range dims {
+		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+			hasRuntimeWorkRelationDimension = true
+			break
+		}
+	}
+	if answerDocTypedRuntimeWorkRelationRequested(ctx) && !hasRuntimeWorkRelationDimension {
+		dims = append(dims, types.RequestedAnswerDimension{
+			Role:     types.RequestedAnswerDimensionRuntimeWorkRelation,
+			Required: true,
+		})
+	}
 	if len(dims) == 0 {
 		return nil
 	}
@@ -17056,7 +17108,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			if index <= 0 {
 				index = 1
 			}
-			fmt.Fprintf(&b, "- 第 %d 维：%s", index, strings.TrimSpace(dim.Label))
+			fmt.Fprintf(&b, "- 第 %d 维：%s", index, requestedAnswerDimensionHintLabel(dim, true))
 			b.WriteByte('\n')
 			if dim.Role == types.RequestedAnswerDimensionMemberSet {
 				if sourceInventoryMemberRoster {
@@ -17096,7 +17148,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		if index <= 0 {
 			index = 1
 		}
-		fmt.Fprintf(&b, "- Dimension %d: %s", index, strings.TrimSpace(dim.Label))
+		fmt.Fprintf(&b, "- Dimension %d: %s", index, requestedAnswerDimensionHintLabel(dim, false))
 		b.WriteByte('\n')
 		if dim.Role == types.RequestedAnswerDimensionMemberSet {
 			if sourceInventoryMemberRoster {
@@ -17121,6 +17173,22 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")
 	return b.String()
+}
+
+func requestedAnswerDimensionHintLabel(dim types.RequestedAnswerDimension, zh bool) string {
+	if label := strings.TrimSpace(dim.Label); label != "" {
+		return label
+	}
+	if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+		if zh {
+			return "运行时工作与目标的关系"
+		}
+		return "runtime work-to-target relation"
+	}
+	if zh {
+		return "未命名的结构化答案维度"
+	}
+	return "unnamed structured answer dimension"
 }
 
 func requestedDimensionsSortedForHint(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {

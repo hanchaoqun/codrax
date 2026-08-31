@@ -57456,6 +57456,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/r977-no-degrade`。
 
+### §123.1563 r978/B1495：Trace 证据与投影完整，但运行时工作关系子问未进入模型完成合同（2026-08-31）
+
+1. 从已推送 `a34ba89f5` 干净构建，严格并发恰好 2 路复放 H8 显式窗 Trace 与 Cangjie inventory；runner 2/2 PASS：
+   Trace 162s、Cangjie 283s。Cangjie 人工 PASS，最终准确列出 `extend=2 / foreign func=2 / public class=8` 共 12 行，名称、文件、
+   package 全部与 typed inventory 一致；一次列序修补没有产生事实或权威漂移。
+2. Trace runner PASS 但人工 FAIL。显式 `34579.490..34579.500s`、3 次 typed query、链上调度根因排序、目标四态账、实际占时/规则可消双账户、
+   邻近/背景隔离和系统 `Trace 因果投影` 均完整。typed 投影明确给出 `VerifyClass com.baidu.zeus.mml.lac.LacUtils`、宿主
+   `T7@ZeusThreadPo-61839`、原始 `0.285ms`、`34579.496810s` 的直接裸唤醒边、仅关系凭证/语义完成与目标等待绑定未证、规则可消 0。
+   因此不是 Trace 证据缺失，也不能让系统投影替代模型回答。
+3. 模型自有主答案只讨论调度链和链上根因，完全漏答用户明确要求的“确定性运行时工作身份、计时、与目标的关系凭证及因果边界”。Analyzer 最终
+   `emit_analysis` 只发出 `causal_contributor_set/evidence_source/count` 等维度，没有 `runtime_work_relation`；finalizer 0 次 reject，证明遗漏在当前
+   合同下被视为合法。B1474 的下游 typed receipt 已完整，B1475 的两轮软角色教学仍会波动，不能继续靠叠加 prompt 句子闭环。
+4. 新确认并施工 `B1495-RUNTIMEWORKTYPEDDECLARATION1/P1`。`runtime_question_profile` 新增 schema-required
+   `runtime_work_relation_requested` 布尔分类位：每个 runtime-artifact 请求都必须明确 true/false；true 仅表示当前请求含独立的 measured 或待发现
+   work/span/operation-to-target 语义子问，不预判有关、无关或未证。该位与 scope/fact families 正交，并覆盖 VerifyClass/JIT/着色器编译/运行时编译/
+   纹理上传/GC 等整个工作类别，不绑定 H8 名字或单一 span type。
+5. 为减少模型心智和避免新的“双写矛盾合同”，true 直接激活既有模型自有 principal completion obligation；Analyzer 不必再复制一条
+   `requested_answer_dimensions.runtime_work_relation`。若后者已存在仍保持兼容。最终模型块必须用隐藏
+   `runtime_work_relation + observed_artifact_fact + external_observation` receipt 声明所有权；system-generated Trace projection、背景块或相似可见
+   文字都不能占席。系统不选择结论、工作身份、时长、关系、文案或布局。
+6. 实现和测试均只消费 schema-validated typed 布尔/枚举与现有 receipt，不扫描请求关键词、source quote、模型 thinking、最终 prose、Markdown 或
+   Mermaid 业务标签。新增测试钉住：runtime 请求缺分类位 fail loud；true 在没有 presentation row 时仍产生一份 completion obligation；模型自有
+   principal typed carrier 可闭环；系统投影不能替代；false/nil 不从 scope 反推。`internal/types/tool/agent/skill` 相关全套与完整
+   `go test ./... -count=1` 均通过。
+
+状态：
+
+`r978=runner-pass-2/2,human-cangjie-pass+trace-fail`；
+`B1474=downstream-contract-positive`；
+`B1475=teaching-insufficient/superseded-by-B1495-typed-declaration`；
+`B1495=implemented/full-suite-pass/pending-production-replay`；
+`runtime-work-semantic-demand=runtime-question-profile-required-boolean`；
+`presentation-dimension-duplication=not-required/backward-compatible`；
+`model-owned-visible-conclusion=required/system-projection-cannot-consume-seat`；
+`system-answer/conclusion/work/relation/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-business-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r978`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/r978-no-degrade`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

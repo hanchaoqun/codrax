@@ -306,11 +306,12 @@ type emitRuntimeTargetProfileParam struct {
 }
 
 type emitRuntimeQuestionProfileParam struct {
-	Scope        string   `json:"scope"`
-	FactFamilies []string `json:"fact_families,omitempty"`
-	SourceQuote  string   `json:"source_quote,omitempty"`
-	Confidence   *float64 `json:"confidence"`
-	Rationale    string   `json:"rationale,omitempty"`
+	Scope                        string   `json:"scope"`
+	RuntimeWorkRelationRequested *bool    `json:"runtime_work_relation_requested"`
+	FactFamilies                 []string `json:"fact_families,omitempty"`
+	SourceQuote                  string   `json:"source_quote,omitempty"`
+	Confidence                   *float64 `json:"confidence"`
+	Rationale                    string   `json:"rationale,omitempty"`
 }
 
 type emitHistorySelectionProfileParam struct {
@@ -764,13 +765,14 @@ func buildEmitAnalysisSchema() {
 					},
 				},
 				"properties": map[string]any{
-					"scope":         map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
-					"fact_families": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by bounded_fact_set or bounded_effect_verdict. Required and non-empty for both finite scopes; forbidden for broader scopes. " + skill.AnalysisRuntimeFactFamilyTeaching},
-					"source_quote":  map[string]any{"type": "string", "description": "Optional audit anchor for a concrete runtime scope. Prefer the shortest contiguous exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview (for example, copy `卡顿原因`, not a paraphrase assembled from separated words). An empty or unanchored quote is dropped with a warning; scope/fact_families remain the typed contract."},
-					"confidence":    map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
-					"rationale":     map[string]any{"type": "string", "description": "Short audit rationale."},
+					"scope":                           map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
+					"runtime_work_relation_requested": map[string]any{"type": "boolean", "description": "Required semantic subquestion decision. True only when the CURRENT runtime-artifact request independently asks whether measured or to-be-discovered runtime work/span/operation items relate to a target/outcome, including work identity, measured cost, exact relation credential, and causal boundary. This activates a model-owned answer obligation even when no separate presentation-dimension row is emitted; it never pre-decides related/unrelated/unproven. False outside runtime artifacts or when no such subquestion is requested. Never infer it from exploration or answer prose."},
+					"fact_families":                   map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by bounded_fact_set or bounded_effect_verdict. Required and non-empty for both finite scopes; forbidden for broader scopes. " + skill.AnalysisRuntimeFactFamilyTeaching},
+					"source_quote":                    map[string]any{"type": "string", "description": "Optional audit anchor for a concrete runtime scope. Prefer the shortest contiguous exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview (for example, copy `卡顿原因`, not a paraphrase assembled from separated words). An empty or unanchored quote is dropped with a warning; scope/fact_families remain the typed contract."},
+					"confidence":                      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
+					"rationale":                       map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
-				"required": []string{"scope", "confidence"},
+				"required": []string{"scope", "runtime_work_relation_requested", "confidence"},
 			},
 			"history_selection_profile": map[string]any{
 				"type":        "object",
@@ -5065,6 +5067,13 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	if strings.TrimSpace(p.Scope) == "" {
 		missing = append(missing, "scope")
 	}
+	// The projected provider schema requires this decision on every new call.
+	// Keep the executor backward-compatible for non-runtime fixtures/older
+	// callers because false is the only valid meaning without a runtime carrier;
+	// runtime requests still fail loud when the decision is absent.
+	if runtimeArtifactCarrier && p.RuntimeWorkRelationRequested == nil {
+		missing = append(missing, "runtime_work_relation_requested")
+	}
 	if p.Confidence == nil {
 		missing = append(missing, "confidence")
 	}
@@ -5087,17 +5096,19 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 			warnings = append(warnings, "runtime_question_profile normalized to not_applicable because no runtime artifact carrier is present")
 		}
 		return &types.RuntimeQuestionProfile{
-			Scope:      types.RuntimeQuestionScopeNotApplicable,
-			Confidence: *p.Confidence,
+			Scope:                        types.RuntimeQuestionScopeNotApplicable,
+			RuntimeWorkRelationRequested: false,
+			Confidence:                   *p.Confidence,
 		}, "", warnings
 	}
 	if scope == types.RuntimeQuestionScopeNotApplicable {
 		return nil, "runtime_question_profile not_applicable conflicts with the attached/referenced runtime request", nil
 	}
 	profile := &types.RuntimeQuestionProfile{
-		Scope:      scope,
-		Confidence: *p.Confidence,
-		Rationale:  strings.TrimSpace(p.Rationale),
+		Scope:                        scope,
+		RuntimeWorkRelationRequested: *p.RuntimeWorkRelationRequested,
+		Confidence:                   *p.Confidence,
+		Rationale:                    strings.TrimSpace(p.Rationale),
 	}
 	if len(p.FactFamilies) > 0 {
 		seen := make(map[types.RuntimeQuestionFactFamily]bool, len(p.FactFamilies))

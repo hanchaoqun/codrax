@@ -32,3 +32,21 @@ func TestRuntimeQuestionProfilePromptBreadthIsTyped(t *testing.T) {
 		t.Fatal("causal diagnosis must retain the full ranking and wait-evidence surfaces")
 	}
 }
+
+func TestRuntimeQuestionProfileRuntimeWorkRelationDemandIsExplicitTypedState(t *testing.T) {
+	profile := &RuntimeQuestionProfile{
+		Scope:                        RuntimeQuestionScopeCausalDiagnosis,
+		RuntimeWorkRelationRequested: true,
+	}
+	if !profile.RequestsRuntimeWorkRelation() {
+		t.Fatal("explicit runtime-work relation demand must survive on the typed profile")
+	}
+	profile.RuntimeWorkRelationRequested = false
+	if profile.RequestsRuntimeWorkRelation() {
+		t.Fatal("false typed demand must not be inferred back from scope")
+	}
+	var absent *RuntimeQuestionProfile
+	if absent.RequestsRuntimeWorkRelation() {
+		t.Fatal("nil profile must not mint a runtime-work relation demand")
+	}
+}

@@ -797,6 +797,48 @@ func TestRequestedRuntimeWorkRelationPromptAndRepairKeepModelConclusionOwnership
 	}
 }
 
+func TestRuntimeQuestionProfileWorkRelationDemandCannotBeLostWithoutPresentationDimension(t *testing.T) {
+	mut := types.NewMutableState("typed work relation")
+	mut.SetLogTriage(&types.LogBundle{Errors: []types.LogError{{Type: "trace observation"}}})
+	ctx := &types.AgentContext{Language: "zh", Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentRootCause, Scenario: types.ScenarioRootCause, LogTriage: mut.LogTriage(),
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope:                        types.RuntimeQuestionScopeCausalDiagnosis,
+			RuntimeWorkRelationRequested: true,
+		},
+	}}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "ranking", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+		Text: "NetworkService is the leading typed chain contributor.",
+	}}}
+	missing := missingRequestedAnswerDimensionsInDocument(ctx, doc)
+	if len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionRuntimeWorkRelation {
+		t.Fatalf("typed work-relation demand must create one omission obligation without a presentation row: %+v", missing)
+	}
+	for _, want := range []string{`facet_ids:["runtime_work_relation","observed_artifact_fact"]`, "语义回答义务", "替模型选择"} {
+		if prompt := renderAnswerDocRequestedAnswerDimensions(ctx); !strings.Contains(prompt, want) {
+			t.Fatalf("typed work-relation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "runtime-work", Kind: types.BlockSection, SurfaceRole: types.SurfacePrincipal,
+		Text:     "VerifyClass measured 0.285 ms; a direct wake credential exists, but work-completion causality is unproven.",
+		FacetIDs: []string{string(types.RequestedAnswerDimensionRuntimeWorkRelation), string(types.FacetObservedArtifactFact)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+			FacetID:   string(types.FacetObservedArtifactFact),
+		}},
+	})
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 0 {
+		t.Fatalf("model-owned runtime-work carrier did not satisfy typed demand: %+v", missing)
+	}
+	doc.Blocks[1].SystemGeneratedKind = types.AnswerSystemGeneratedEvidenceSupplement
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionRuntimeWorkRelation {
+		t.Fatalf("system projection must not replace the model-owned work-relation answer: %+v", missing)
+	}
+}
+
 func TestRequestedPerMemberSourceLocationsCannotUseSingleCitationReceipt(t *testing.T) {
 	mut := types.NewMutableState("typed member location authority")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

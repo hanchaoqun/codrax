@@ -103,11 +103,27 @@ func (s RuntimeQuestionScope) IsValid() bool {
 // use only the typed scope/families; they never scan the quote, raw request,
 // or model prose.
 type RuntimeQuestionProfile struct {
-	Scope        RuntimeQuestionScope        `json:"scope"`
-	FactFamilies []RuntimeQuestionFactFamily `json:"fact_families,omitempty"`
-	SourceQuote  string                      `json:"source_quote,omitempty"`
-	Confidence   float64                     `json:"confidence,omitempty"`
-	Rationale    string                      `json:"rationale,omitempty"`
+	Scope RuntimeQuestionScope `json:"scope"`
+	// RuntimeWorkRelationRequested is the analyzer's dedicated typed decision
+	// that the current runtime-artifact request contains an independent
+	// work/span/operation-to-target relation question.  It activates a
+	// model-owned answer obligation without requiring the analyzer to repeat
+	// the same semantic choice as a presentation-dimension row.  Consumers must
+	// never infer this value from request text, model prose, Mermaid labels, or
+	// exploration results, and the value never pre-decides the relation.
+	RuntimeWorkRelationRequested bool                        `json:"runtime_work_relation_requested"`
+	FactFamilies                 []RuntimeQuestionFactFamily `json:"fact_families,omitempty"`
+	SourceQuote                  string                      `json:"source_quote,omitempty"`
+	Confidence                   float64                     `json:"confidence,omitempty"`
+	Rationale                    string                      `json:"rationale,omitempty"`
+}
+
+// RequestsRuntimeWorkRelation reports the analyzer's explicit semantic
+// subquestion declaration.  This is answer-shape authority only: typed runtime
+// evidence still owns identity, duration, relation credentials, and causal
+// boundaries, while the model owns the visible conclusion.
+func (p *RuntimeQuestionProfile) RequestsRuntimeWorkRelation() bool {
+	return p != nil && p.RuntimeWorkRelationRequested
 }
 
 func (p *RuntimeQuestionProfile) BoundedFactSet() bool {

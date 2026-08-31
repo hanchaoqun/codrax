@@ -123,6 +123,7 @@ func withV4Required(partial string) string {
 		defaults += `,
 	"runtime_question_profile": {
 		"scope": "unspecified",
+		"runtime_work_relation_requested": false,
 		"confidence": 0.7
 	}`
 	}
@@ -180,7 +181,17 @@ func withRequiredAnswerRoleProfile(payload string) string {
 		}
 	}
 	if _, ok := obj["runtime_question_profile"]; !ok {
-		obj["runtime_question_profile"] = json.RawMessage(`{"scope":"unspecified","confidence":0.7}`)
+		obj["runtime_question_profile"] = json.RawMessage(`{"scope":"unspecified","runtime_work_relation_requested":false,"confidence":0.7}`)
+	} else {
+		var runtimeProfile map[string]json.RawMessage
+		if err := json.Unmarshal(obj["runtime_question_profile"], &runtimeProfile); err == nil {
+			if _, ok := runtimeProfile["runtime_work_relation_requested"]; !ok {
+				runtimeProfile["runtime_work_relation_requested"] = json.RawMessage(`false`)
+				if encoded, err := json.Marshal(runtimeProfile); err == nil {
+					obj["runtime_question_profile"] = encoded
+				}
+			}
+		}
 	}
 	if _, ok := obj["history_selection_profile"]; !ok {
 		isHistoryLookup := false
@@ -494,14 +505,16 @@ func TestParseRuntimeTargetProfileRequiresDeclaredNamedTarget(t *testing.T) {
 
 func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *testing.T) {
 	confidence := 0.95
+	workRelationRequested := false
 	if _, errText, _ := parseRuntimeQuestionProfile("分析这份 trace", true, nil, nil); errText == "" {
 		t.Fatal("runtime artifact analysis must fail loud when runtime_question_profile is missing")
 	}
 	bounded := &emitRuntimeQuestionProfileParam{
-		Scope:        "bounded_fact_set",
-		FactFamilies: []string{"target_scheduler_state", "target_wait_occurrences", "recorded_reason", "occurrence_time", "count_or_duration"},
-		SourceQuote:  "有没有进入过不可中断等待",
-		Confidence:   &confidence,
+		Scope:                        "bounded_fact_set",
+		RuntimeWorkRelationRequested: &workRelationRequested,
+		FactFamilies:                 []string{"target_scheduler_state", "target_wait_occurrences", "recorded_reason", "occurrence_time", "count_or_duration"},
+		SourceQuote:                  "有没有进入过不可中断等待",
+		Confidence:                   &confidence,
 	}
 	profile, errText, warnings := parseRuntimeQuestionProfile(
 		"这份 trace 里有没有进入过不可中断等待，时间、记录原因和总量是什么",
@@ -537,10 +550,36 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 		t.Fatalf("unanchored audit quote must warn without dropping typed scope: profile=%+v err=%q warnings=%v", gotProfile, errText, gotWarnings)
 	}
 	notApplicable := &emitRuntimeQuestionProfileParam{
-		Scope: "not_applicable", Confidence: &confidence,
+		Scope: "not_applicable", RuntimeWorkRelationRequested: &workRelationRequested, Confidence: &confidence,
 	}
 	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, notApplicable, nil); !strings.Contains(errText, "conflicts") {
 		t.Fatalf("runtime not_applicable must conflict with an attached artifact, got %q", errText)
+	}
+}
+
+func TestParseRuntimeQuestionProfileRequiresExplicitRuntimeWorkRelationDecision(t *testing.T) {
+	confidence := 0.95
+	if _, errText, _ := parseRuntimeQuestionProfile(
+		"分析这份 trace 的根因",
+		true,
+		&emitRuntimeQuestionProfileParam{Scope: "causal_diagnosis", Confidence: &confidence},
+		nil,
+	); !strings.Contains(errText, "runtime_work_relation_requested") {
+		t.Fatalf("runtime carrier must fail loud without the dedicated work-relation decision: %q", errText)
+	}
+	requested := true
+	profile, errText, _ := parseRuntimeQuestionProfile(
+		"分析这份 trace 的根因",
+		true,
+		&emitRuntimeQuestionProfileParam{
+			Scope:                        "causal_diagnosis",
+			RuntimeWorkRelationRequested: &requested,
+			Confidence:                   &confidence,
+		},
+		nil,
+	)
+	if errText != "" || profile == nil || !profile.RequestsRuntimeWorkRelation() {
+		t.Fatalf("explicit runtime-work relation decision did not survive: profile=%+v err=%q", profile, errText)
 	}
 }
 
@@ -1019,7 +1058,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.95},
 		"runtime_artifact_scope_profile":{"requested_scope":"full_artifact","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
 		"runtime_target_profile":{"declaration":"no_named_target","confidence":0.95},
-		"runtime_question_profile":{"scope":"causal_diagnosis","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
+		"runtime_question_profile":{"scope":"causal_diagnosis","runtime_work_relation_requested":false,"source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
 		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.95},
 		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
@@ -1197,13 +1236,15 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 
 func TestParseRuntimeQuestionProfileUnanchoredQuoteIsAuditWarningNotRetry(t *testing.T) {
 	confidence := 0.95
+	workRelationRequested := false
 	profile, errText, warnings := parseRuntimeQuestionProfile(
 		"请分析 com.demo 主线程这一帧窗口内的卡顿原因",
 		true,
 		&emitRuntimeQuestionProfileParam{
-			Scope:       string(types.RuntimeQuestionScopeCausalDiagnosis),
-			SourceQuote: "分析卡顿原因", // non-contiguous paraphrase
-			Confidence:  &confidence,
+			Scope:                        string(types.RuntimeQuestionScopeCausalDiagnosis),
+			RuntimeWorkRelationRequested: &workRelationRequested,
+			SourceQuote:                  "分析卡顿原因", // non-contiguous paraphrase
+			Confidence:                   &confidence,
 		},
 		nil,
 	)
@@ -1223,13 +1264,15 @@ func TestParseRuntimeQuestionProfileUnanchoredQuoteIsAuditWarningNotRetry(t *tes
 
 func TestParseRuntimeQuestionProfileExactQuoteRemainsForAudit(t *testing.T) {
 	confidence := 0.95
+	workRelationRequested := false
 	profile, errText, warnings := parseRuntimeQuestionProfile(
 		"请分析 com.demo 主线程这一帧窗口内的卡顿原因",
 		true,
 		&emitRuntimeQuestionProfileParam{
-			Scope:       string(types.RuntimeQuestionScopeCausalDiagnosis),
-			SourceQuote: "卡顿原因",
-			Confidence:  &confidence,
+			Scope:                        string(types.RuntimeQuestionScopeCausalDiagnosis),
+			RuntimeWorkRelationRequested: &workRelationRequested,
+			SourceQuote:                  "卡顿原因",
+			Confidence:                   &confidence,
 		},
 		nil,
 	)
@@ -2138,6 +2181,7 @@ func TestEmitAnalysis_RuntimeArtifactDropsStaleDiscoverWhenDedicatedSelectionIsF
 		}],
 		"runtime_question_profile":{
 			"scope":"bounded_fact_set",
+			"runtime_work_relation_requested":false,
 			"fact_families":["target_scheduler_state","frequency_residency"],
 			"confidence":0.95
 		}
@@ -8786,6 +8830,7 @@ func TestEmitAnalysis_RuntimeDiagnosticDropsAnalyzerArtifactValueAndSummary(t *t
 		"runtime_targets":[{"kind":"thread","thread":"app-100","source":"user_explicit","confidence":1.0}],
 		"runtime_question_profile":{
 			"scope":"causal_diagnosis",
+			"runtime_work_relation_requested":false,
 			"source_quote":"丢帧根因",
 			"confidence":0.95
 		},
@@ -9920,6 +9965,7 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 			},
 			"runtime_question_profile": {
 				"scope": "causal_diagnosis",
+				"runtime_work_relation_requested": false,
 				"source_quote": "卡顿原因",
 				"confidence": 0.95
 			},
