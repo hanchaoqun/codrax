@@ -406,7 +406,7 @@ func sourceInventoryExactUniverseSets(observation types.SourceInventoryObservati
 				groups[key] = group
 				order = append(order, key)
 			}
-			group.members = append(group.members, member)
+			group.members = sourceInventoryAppendCanonicalExactUniverseMember(group.members, member)
 		}
 	}
 	out := make([]sourceInventoryExactUniverseSet, 0, len(order))

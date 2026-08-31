@@ -67997,3 +67997,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1543 r960/B1475–B1477：新增运行时工作席未被分析器选中；重复精确观测制造不可满足清册（2026-08-30）
+
+1. 从已推送 `f355ad1c3` 构建不可变二进制，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS
+   170s；Cangjie runner FAIL 1601s，原因为 `degraded_answer_checks_skipped:1`。两路人工均判 fail，但失败机制不同，不能用一个 case 的
+   词面修另一个 case。
+2. Trace 保留显式 10ms 窗、4 次 typed query、链上根因排序、目标四态账、实际占时/规则可消双账户、自动补齐和最终
+   `Trace 因果投影`，没有固定 4ms、4m、活动流年龄或上下文比例降级。B1473 的类别教学仍不稳定：模型把 NetworkService runnable 与
+   CookieMonster sleep/runnable 调度状态再次称为“链上确定性工作”；虽然提到 `VerifyClass ...` 0.285ms，又把只有 host→target 原始唤醒锚、
+   缺 semantic-completion/target-wait binding 的 span 写成已在因果链上。typed 投影后来正确披露“仅关系凭证，语义完成/延迟机理未证”，但系统
+   投影不能替代模型回答或反写模型结论。
+3. `B1475-RUNTIMEWORKROLESELECTION1/P1` 确认：B1474 的 `runtime_work_relation` 已存在且 finalizer typed completion 合同可用，但本轮分析器仍把
+   “某项确定性工作与目标的关系、入链凭证和计时”只铸成 `relation_path + causal_contributor_set`，所以新席位没有激活。根修只增强 analyzer
+   schema/decision teaching：询问 measured work/span/operation 的名称、成本及其对 target/outcome 的关系时，`runtime_work_relation` 优先于只描述
+   拓扑的 `relation_path`；若同时要路径拓扑与工作关系则两个角色并列。它仍是 soft typed 分流教学，不扫描请求或模型/答案 prose，不预选
+   yes/no/mixed/unproven，不改写模型答案。
+4. Cangjie 可见恢复稿事实正确：12 条声明、`extend=2 / foreign func=2 / public class=8`、文件与 package 齐全；但过程出现 29 次
+   `emit_investigation_complete`、7 次 midloop、4 次 finalizer reject、3 次 patch，最终降级失败。直接原因是相同的
+   Greeter/Version/Animal/Dog/Service 精确声明被多次 lens 执行观察，`sourceInventoryExactUniverseSets` 按 role+scope 裸追加，制造
+   `exact_count=13 / covered=8 / missing=5`。模型即使重复这五个名字、复制 support refs 或明确排除 phantom 行也永远不能满足合同，因为 coverage
+   key 自身按成员身份去重；这是系统自相矛盾，不是模型波动。
+5. `B1476-EXACTUNIVERSECANONICALOBS1/P0` 已施工：exact universe 在共同入口按 typed declaration coordinate
+   `location + row-local surface family + member identity` 收敛重复观测；role+scope 已由外层 group 固定。只有三者均存在且完全相等才折叠；同一行
+   不同身份、同名不同位置、缺位置或缺 family 均 fail-open 保留，避免把多声明语法或重名声明误合。回归覆盖 repeated broad+narrow observations、
+   same-line distinct identities 和 same-name distinct locations；既有 broader exact-role closure 也继续通过。
+6. `B1477-FINALIZEROBLIGATIONPATCHIDENTITY1/P1` 单独留案：首稿可见表和恢复稿都含 `extend Cart`，但四轮成文校验仍把该 obligation 判 missing。
+   这不是 B1476 的 completion universe 同一故障，下一步须读取结构化 patch/base、obligation row id、family/location receipt 的同代链路定位；在证据
+   明确前不按 `Cart` 文字增加答案扫描或 case 专用豁免。
+
+状态：
+
+`r960=runner-trace-pass+cangjie-fail,human-trace-fail+cangjie-fail`；
+`B1474=contract-positive/production-role-not-selected`；
+`B1475=confirmed/analyzer-soft-role-routing-next`；
+`B1476=implemented/targeted-tests+full-internal-tool-suite-pass/pending-production-replay`；
+`B1477=confirmed/pending-structured-patch-chain-audit`；
+`exact-universe-identity=typed-location+surface-family+member-identity`；
+`ambiguous/missing-coordinate=fail-open/no-collapse`；
+`system-answer/conclusion/relation/wording/member-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r960`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r960`。

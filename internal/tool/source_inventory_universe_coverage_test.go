@@ -440,6 +440,83 @@ func TestSourceInventoryObservationFromLensDirectChildren_ExactUniverseForExplic
 	}
 }
 
+func TestSourceInventoryExactUniverseSets_DeduplicatesRepeatedExactDeclarationObservations(t *testing.T) {
+	row := sourceInventoryRequestedUniverseMember(
+		"Greeter",
+		types.AnswerCandidateRoleType,
+		"internal/thirdparty/tree-sitter-cangjie/corpus/sources/02_class_init_methods.cj",
+		6,
+	)
+	row.SurfaceTerms = []string{"public class", "public class Greeter"}
+	unique := []types.SourceInventoryObservationMember{row}
+	for _, spec := range []struct {
+		name string
+		file string
+		line int
+	}{
+		{name: "Bridge", file: "eval/fixtures/testdata/cangjie_minimal/bridge/Bridge.cj", line: 15},
+		{name: "Cart", file: "eval/fixtures/testdata/cangjie_minimal/cart/Cart.cj", line: 14},
+		{name: "App", file: "eval/fixtures/testdata/cangjie_minimal/main.cj", line: 11},
+	} {
+		member := sourceInventoryRequestedUniverseMember(spec.name, types.AnswerCandidateRoleType, spec.file, spec.line)
+		member.SurfaceTerms = []string{"public class", "public class " + spec.name}
+		unique = append(unique, member)
+	}
+	obs := types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleType,
+			Members: append(append([]types.SourceInventoryObservationMember(nil), unique...), row),
+		}, {
+			Role:    types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{row},
+		}},
+	}
+	universes := sourceInventoryExactUniverseSets(obs)
+	if len(universes) != 1 {
+		t.Fatalf("expected one exact type universe, got %+v", universes)
+	}
+	if got := len(universes[0].members); got != 4 {
+		t.Fatalf("repeated exact observations must not inflate the declaration universe: got=%d members=%+v", got, universes[0].members)
+	}
+}
+
+func TestSourceInventoryExactUniverseSets_PreservesAmbiguousSameLineDeclarations(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("First", types.AnswerCandidateRoleType, "src/paired.cj", 8)
+	first.SurfaceTerms = []string{"public class", "public class First"}
+	second := sourceInventoryRequestedUniverseMember("Second", types.AnswerCandidateRoleType, "src/paired.cj", 8)
+	second.SurfaceTerms = []string{"public class", "public class Second"}
+	obs := types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleType,
+			Members: []types.SourceInventoryObservationMember{first, second},
+		}},
+	}
+	universes := sourceInventoryExactUniverseSets(obs)
+	if len(universes) != 1 || len(universes[0].members) != 2 {
+		t.Fatalf("different identities at one coordinate must fail open: %+v", universes)
+	}
+}
+
+func TestSourceInventoryExactUniverseSets_PreservesSameNameAtDistinctLocations(t *testing.T) {
+	first := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "fixture/Bridge.cj", 6)
+	first.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
+	second := sourceInventoryRequestedUniverseMember("native_add", types.AnswerCandidateRoleFunction, "thirdparty/ffi.cj", 6)
+	second.SurfaceTerms = []string{"foreign func", "foreign func native_add"}
+	obs := types.SourceInventoryObservation{
+		Active: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:    types.AnswerCandidateRoleFunction,
+			Members: []types.SourceInventoryObservationMember{first, second},
+		}},
+	}
+	universes := sourceInventoryExactUniverseSets(obs)
+	if len(universes) != 1 || len(universes[0].members) != 2 {
+		t.Fatalf("same names at distinct declarations must remain distinct: %+v", universes)
+	}
+}
+
 func TestSourceInventoryObservationFromLensDirectChildren_MixedLanguageAndConfigRoles(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"app/routes", "app/components"} {

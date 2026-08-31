@@ -67,6 +67,7 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"source_inventory_context_attributes.go":                    150,
 	"source_inventory_construct_surface.go":                     70,
 	"source_inventory_duplicate_location_gap.go":                200,
+	"source_inventory_exact_universe_identity.go":               53, // B1476: isolated canonical exact-member identity; keep duplicate-observation collapse out of the universe aggregator.
 	"source_inventory_principal_coverage.go":                    22,
 	"source_inventory_pre_normalize_count.go":                   79,
 	"source_inventory_surface_family_gap.go":                    177,
