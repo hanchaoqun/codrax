@@ -444,6 +444,25 @@ func TestCurrentTurnToolSurfaceDirectiveCompletionOnlyLandsFromExistingTypedStat
 	}
 }
 
+func TestCurrentTurnToolSurfaceMessageUsesSystemPriority(t *testing.T) {
+	base := []llm.ToolSchema{{Name: "grep"}, {Name: "emit_investigation_complete"}}
+	effective := []llm.ToolSchema{{Name: "emit_investigation_complete"}}
+
+	got, ok := currentTurnToolSurfaceMessage(base, effective)
+	if !ok {
+		t.Fatal("narrowed surface should publish a capability message")
+	}
+	if got.Role != "system" {
+		t.Fatalf("runtime capability must match durable skill priority: role=%q", got.Role)
+	}
+	if !strings.Contains(got.Content, "Land the investigation now") {
+		t.Fatalf("system capability message lost completion-only landing instruction: %s", got.Content)
+	}
+	if _, ok := currentTurnToolSurfaceMessage(effective, effective); ok {
+		t.Fatal("unchanged surface must not add a redundant system message")
+	}
+}
+
 func TestToolSurfaceIsEmitOnlyRejectsMixedCapabilitySurface(t *testing.T) {
 	if !toolSurfaceIsEmitOnly([]string{"emit_evidence", "emit_investigation_complete"}) {
 		t.Fatal("structured emit-only surface should be recognized")

@@ -57581,7 +57581,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 状态：
 
-`B1498=implemented/targeted-tests-pass/full-suite-pass`；
+`B1498=partial-production-r981/system-priority-followup-implemented/targeted-tests-pass/full-suite-pass`；
 `tool-capability-signal=current-schema-exact-names`；
 `tool-teaching=per-turn-soft-capability-aligned`；
 `user/model/final-prose/markdown/mermaid scan=none`；
@@ -57589,6 +57589,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden`。
+
+### §123.1567 r981/B1498b：低优先级工具面尾指令无法覆盖 system 级通用教学（2026-08-31）
+
+1. 从已推送 `4ad43dbde` 干净构建，严格恰好 2 路复放相同显式窗 Trace 与 Cangjie inventory；runner 2/2 PASS，分别 188s/245s。
+   Trace 人工 PASS：B1497 的 `host_direct_wakeup_edge` 精确凭证、0.285ms 实测值和三条未证边界完整显示，模型仍自行选择较保守结论；显式窗、
+   typed query、链上排序、实际/规则可消双账户、业务线索、自动补齐和最终 Trace 因果投影均保留。
+2. Cangjie 最终答案人工 PASS：extend=2、foreign func=2、public class=8，12 行符号/路径/package 全正确。但过程仍有 3 次不可用 grep 和
+   2 次 completion 拒绝。第一个 explorer 的 completion-only 轮正确落地，说明 B1498 文义有效；后续独立 explorer 仍受通用 system prompt 中
+   broad grep/file-list 教学驱动，证明失败来自优先级合同，而非语言提取或单次模型波动。
+3. B1498b 根修：把每轮精确 tool schema 能力声明从追加的 `user` 消息提升为同级、末位 `system` 消息。它只声明本轮可调用工具和暂停已不可执行的
+   旧导航阶段，不改变用户目标、事实、completion payload 或模型结论。提示内容仍由当前 schema 精确工具名集合驱动，零用户/推理/答案文本扫描；
+   unchanged surface 不注入，read+emit 混合 surface 不暂停正常探索。
+4. 回归新增消息角色 pin：narrowed completion-only 必须生成 system-role 能力消息；unchanged surface 不生成冗余消息。定向 agent 测试已绿；
+   全仓测试、构建和下一轮恰好 2 路生产复放待执行。
+5. 新观察 `B1499-TRACEINTERNALTOKENLOCALIZATION1/P2`：Trace 模型正文仍复述 `chain_relevance=on_chain`、`confidence=0.91` 等内部 token。
+   这不影响 typed 事实，但降低读者可读性。后续只能通过跨 Trace typed 字段的软本地化教学修复，禁止扫描、删除、替换或拒绝模型正文。
+
+状态：
+
+`r981=runner-pass-2/2,human-trace-pass+cangjie-answer-pass/process-fail`；
+`B1497=production-positive/closed`；
+`B1498=system-priority-followup-implemented/targeted-tests-pass/full-suite-pass`；
+`B1499=confirmed/p2-soft-guidance-only`；
+`tool-capability-signal=current-schema-exact-names`；
+`tool-capability-message=system-priority/latest`；
+`request/model/final-prose/markdown/mermaid scan=none`；
+`system-answer/conclusion/fact-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r981`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r981`。
 
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 

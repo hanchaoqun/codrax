@@ -2348,8 +2348,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		effectiveToolNames := toolSchemaNameSet(effectiveTools)
 
 		requestMessages := messages
-		if directive := currentTurnToolSurfaceDirective(iterToolSchemas, effectiveTools); directive != "" {
-			requestMessages = append(requestMessages, llm.Message{Role: "user", Content: directive})
+		if directive, ok := currentTurnToolSurfaceMessage(iterToolSchemas, effectiveTools); ok {
+			requestMessages = append(requestMessages, directive)
 			logging.Debug("[diag %s] iter=%d phase=tool_surface directive injected tools=%s",
 				b.name, i, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
 		}
@@ -6859,6 +6859,21 @@ func currentTurnToolSurfaceDirective(base, effective []llm.ToolSchema) string {
 		directive += "\nLand the investigation now with `emit_investigation_complete`; do not issue speculative calls to tools omitted from the schema."
 	}
 	return directive
+}
+
+// currentTurnToolSurfaceMessage publishes the actual per-iteration tool
+// capability at system priority. The durable skill prompt is also a system
+// message and may describe a broader investigation workflow that was valid at
+// dispatch start. Once typed runtime state narrows the schema, a lower-priority
+// user tail cannot reliably suspend those now-impossible steps. Keeping this
+// correction at the same priority and maximum recency makes the tool contract
+// coherent without reading or rewriting user/model prose.
+func currentTurnToolSurfaceMessage(base, effective []llm.ToolSchema) (llm.Message, bool) {
+	directive := currentTurnToolSurfaceDirective(base, effective)
+	if directive == "" {
+		return llm.Message{}, false
+	}
+	return llm.Message{Role: "system", Content: directive}, true
 }
 
 func toolSurfaceIsEmitOnly(names []string) bool {
