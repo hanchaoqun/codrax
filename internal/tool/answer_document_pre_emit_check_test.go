@@ -6723,6 +6723,53 @@ func TestPreCheckAggregateMemberSetCoverage_ProductionDecoratedDuplicateFamilyRo
 	}
 }
 
+func TestPreEmitSourceInventoryTypedPrincipalSets_RejectsWrongMemberBorrowingRealCoordinate(t *testing.T) {
+	const path = "internal/thirdparty/tree-sitter-cangjie/corpus/sources/08_modifiers_combos.cj"
+	mu := types.NewMutableState("enumerate public classes")
+	mu.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role: types.AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "Dog", Role: types.AnswerCandidateRoleType, File: path, Line: 22, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Dog"}, CoverageState: types.SourceInventoryCoverageObserved},
+				{Name: "Service", Role: types.AnswerCandidateRoleType, File: path, Line: 32, Language: "cangjie", SurfaceTerms: []string{"public class", "public abstract class Service"}, CoverageState: types.SourceInventoryCoverageObserved},
+			},
+		}},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind: types.AnswerAggregateMemberSet, Label: "public class", Value: "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Cat", "Vehicle"},
+		SupportRefs: []string{path + ":22", path + ":32"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			SourceQuotes:      []string{"public class"},
+			RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+			Confidence:        0.95,
+		},
+	}}}
+	got := map[string]bool{}
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		for _, row := range set.Rows {
+			if row.Source == path && (row.LineStart == 22 || row.LineStart == 32) {
+				got[row.Member] = true
+			}
+		}
+	}
+	if got["Cat"] || got["Vehicle"] {
+		t.Fatalf("wrong model names borrowed exact mechanical coordinates: %+v", got)
+	}
+	if !got["Dog"] || !got["Service"] {
+		t.Fatalf("exact mechanical declaration identities were lost: %+v", got)
+	}
+}
+
 func sourceInventoryPerMemberBucketTableTestContext(t *testing.T) (*types.BusContext, string, string) {
 	t.Helper()
 	mu := types.NewMutableState("compare extend and public class declarations")

@@ -2689,12 +2689,12 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 	canonicalKeys := map[string]bool{}
 	for _, set := range canonical {
 		for _, row := range set.Rows {
-			if key := preEmitSourceInventoryRowAliasIdentityKey(row); key != "" {
+			for _, key := range preEmitSourceInventoryRowAdmissionIdentityKeys(row) {
 				canonicalKeys[key] = true
 			}
 		}
 	}
-	observedKeys := preEmitSourceInventoryObservedRowAliasIdentityKeys(ctx.Mutable.SourceInventoryObservation())
+	observedKeys := preEmitSourceInventoryObservedRowAdmissionIdentityKeys(ctx.Mutable.SourceInventoryObservation())
 	observedDeclarationKeys := preEmitSourceInventoryObservedDeclarationIdentityKeys(ctx.Mutable.SourceInventoryObservation())
 	var out []types.EnumerationDisplaySet
 	pctx := newPreEmitCheckContext(ctx)
@@ -2703,8 +2703,8 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 			filtered := set
 			filtered.Rows = nil
 			for _, row := range set.Rows {
-				if canonicalKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
-					observedKeys[preEmitSourceInventoryRowAliasIdentityKey(row)] ||
+				if preEmitSourceInventoryRowHasAdmissionIdentity(row, canonicalKeys) ||
+					preEmitSourceInventoryRowHasAdmissionIdentity(row, observedKeys) ||
 					observedDeclarationKeys[preEmitSourceInventoryDeclarationIdentityKey(row.Source, row.Member, row.SurfaceTerms)] ||
 					preEmitSourceInventoryPromptRowHasExactGroundedEvidence(row, pctx) {
 					filtered.Rows = append(filtered.Rows, row)
@@ -2800,15 +2800,18 @@ func preEmitSourceInventoryObservedDeclarationIdentityKeys(observation types.Sou
 	return out
 }
 
-// preEmitSourceInventoryObservedRowAliasIdentityKeys projects only exact,
-// positively observed repo-lens coordinates into the shared row registry.
+// preEmitSourceInventoryObservedRowAdmissionIdentityKeys projects only exact,
+// positively observed repo-lens declaration identities into the shared row
+// registry. Location and family alone are not enough: otherwise a model row
+// that renames Dog@line22 to Cat@line22 is promoted into typed authority even
+// though the mechanical observation still names Dog.
 // SourceInventoryObservation is structural navigation evidence rather than
 // final-answer authority, so this key does not itself promote a row. It merely
 // corroborates the identity of a row already accepted by the principal
-// aggregate compiler. Ambiguous/needs-read/no-index rows, rows without an
-// exact source coordinate, and rows without a typed surface family cannot
+// aggregate compiler. Ambiguous/needs-read/no-index rows and rows without an
+// exact source coordinate, typed surface family, or member identity cannot
 // widen the registry.
-func preEmitSourceInventoryObservedRowAliasIdentityKeys(observation types.SourceInventoryObservation) map[string]bool {
+func preEmitSourceInventoryObservedRowAdmissionIdentityKeys(observation types.SourceInventoryObservation) map[string]bool {
 	out := map[string]bool{}
 	if !observation.Active {
 		return out
@@ -2819,18 +2822,74 @@ func preEmitSourceInventoryObservedRowAliasIdentityKeys(observation types.Source
 				strings.TrimSpace(member.File) == "" || member.Line <= 0 {
 				continue
 			}
-			family := types.SourceInventorySurfaceFamilyKey(member.SurfaceTerms)
-			if family == "" {
-				continue
+			row := types.EnumerationDisplayRow{
+				Member:       member.Name,
+				DisplayLabel: member.Name,
+				Location:     preEmitCitationLocationKey(types.Citation{File: member.File, Line: member.Line}),
+				Source:       member.File,
+				LineStart:    member.Line,
+				SurfaceTerms: append([]string(nil), member.SurfaceTerms...),
 			}
-			location := preEmitCitationLocationKey(types.Citation{File: member.File, Line: member.Line})
-			if location == "" {
-				continue
+			for _, key := range preEmitSourceInventoryRowAdmissionIdentityKeys(row) {
+				out[key] = true
 			}
-			out[location+"\x00"+types.SourceInventorySurfaceTermKey(family)] = true
 		}
 	}
 	return out
+}
+
+// preEmitSourceInventoryRowAdmissionIdentityKeys is deliberately stronger
+// than preEmitSourceInventoryRowAliasIdentityKey. The latter is a
+// post-admission declaration-coordinate alias used for row-id preference and
+// citation binding; using it as an authority admission credential dropped the
+// member axis and let a wrong model name borrow a real declaration's location.
+// Admission therefore requires exact location + canonical family + one exact
+// typed member/display identity. Parenthesized display decoration may expose
+// its exact base, but surface-family terms, prose, titles, and nearby rows never
+// mint member aliases.
+func preEmitSourceInventoryRowAdmissionIdentityKeys(row types.EnumerationDisplayRow) []string {
+	location := preEmitNormalizeLocation(row.Location)
+	if location == "" && strings.TrimSpace(row.Source) != "" && row.LineStart > 0 {
+		location = preEmitCitationLocationKey(types.Citation{File: row.Source, Line: row.LineStart})
+	}
+	family := types.SourceInventorySurfaceTermKey(types.SourceInventorySurfaceFamilyKey(row.SurfaceTerms))
+	if location == "" || family == "" {
+		return nil
+	}
+	var identities []string
+	add := func(raw string) {
+		key := normalizeEnumerationDisplayTableKey(raw)
+		if key != "" {
+			identities = append(identities, key)
+		}
+		if base, _, ok := types.AnswerAggregateDecoratedLabelParts(raw); ok {
+			if key := normalizeEnumerationDisplayTableKey(base); key != "" {
+				identities = append(identities, key)
+			}
+		}
+		if label, _, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok {
+			if key := normalizeEnumerationDisplayTableKey(label); key != "" {
+				identities = append(identities, key)
+			}
+		}
+	}
+	add(row.Member)
+	add(row.DisplayLabel)
+	identities = dedupStringsPreserveOrder(identities)
+	out := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		out = append(out, strings.Join([]string{location, family, identity}, "\x00"))
+	}
+	return out
+}
+
+func preEmitSourceInventoryRowHasAdmissionIdentity(row types.EnumerationDisplayRow, accepted map[string]bool) bool {
+	for _, key := range preEmitSourceInventoryRowAdmissionIdentityKeys(row) {
+		if accepted[key] {
+			return true
+		}
+	}
+	return false
 }
 
 // preEmitSourceInventoryPromptRowHasExactGroundedEvidence is the narrow

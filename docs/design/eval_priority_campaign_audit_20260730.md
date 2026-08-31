@@ -57308,10 +57308,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    Dog/Service 的精确 file:line。机械 source-inventory 本身仍正确列 Dog/Service；但 finalizer typed registry 的 prompt-row 准入 key 只有
    `location + surface_family`、缺 member identity，于是错名借同坐标同家族升级为 `Principal Enumeration Rows`。首版答案已按源码纠正为 Dog/Service，
    patch 轮反被错误 typed roster 拉回 Cat/Vehicle。这不是单个模型波动：系统把与机械身份冲突的模型事实提升成了硬权威。
-6. B1479 最优修向冻结：保留现有 post-admission alias/dedup 行为，单独把 registry admission 收窄为
-   `exact location + canonical surface family + exact member identity`；装饰显示名仍可走 exact grounded evidence/base alias，未知/歧义不猜。
-   新回归必须用语言无关的 WrongName@RealRow 形证明错名不能进入 typed registry，同时确保同位置不同真实身份、同名不同位置及 Cangjie
-   `extend/native_add` 装饰行不回归。
+6. `B1479-INVENTORYROWMEMBERADMISSION1/P0` 已施工：保留现有 post-admission alias/dedup 行为，单独把 registry admission 收窄为
+   `exact location + canonical surface family + exact member identity`。准入键只读取 typed row 的 member/display identity；括号装饰名可提供其精确 base，
+   sibling family 仍可凭 exact grounded evidence 进入，surface terms、请求、标题、邻近行及答案 prose 均不能铸造成员别名。这样既阻断
+   WrongName@RealRow，也不把 row-id preference/citation binding 的坐标别名误改成另一套行为。
+7. 新语言无关回归以 `Cat/Vehicle @ Dog/Service coordinates` 证明错名不能进入 registry、机械 Dog/Service 仍保留；并与 B1477 的装饰
+   `extend Cart/extend String`、category-first sidecar parity 回归同批通过。完整 `go test ./internal/tool ./internal/skill -count=1` 全绿
+   （tool 182.562s、skill 1.047s）。下一步从本提交重建，继续严格并发恰好 2 路生产回放，验证 analyzer 是否选择 B1478 席、finalizer 是否只收到
+   Dog/Service，而不是以单测代替生产结论。
 
 状态：
 
@@ -57319,7 +57323,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1476=production-positive/core-closed`；
 `B1477=production-negative/closed-with-B1476`；
 `B1478=implemented/targeted-tests-pass/pending-production-replay`；
-`B1479=confirmed/next-batch`；
+`B1479=implemented/full-tool+skill-suite-pass/pending-production-replay`；
 `runtime-work-class-discovery=typed-visible-role/model-conclusion-owned`；
 `source-inventory-mechanical-row=correct-Dog/Service`；
 `prompt-row-location+family-without-member=unsafe-authority-escalation`；
