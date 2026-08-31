@@ -57422,6 +57422,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/r976-failure-was-contract-retry-exhaustion`。
 
+### §123.1562 r977：别名合同生产转正，块顺序闭环；live-base occurrence 分支维持静态正证（2026-08-31）
+
+1. 从已推送 `ed9471612` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo；runner 2/2 PASS：
+   Java 47s、sequence 333s。Java 人工 PASS，仍只规划 `Main.java:16 retrun -> return`、保持 `pending_approval`、不修改源码。
+2. sequence 人工 PASS。最终答案明确说明 `buildAnalysisIR` 与 `gate.Run` 没有连续有向调用路径，只展示
+   `buildAnalysisIR -> RunWith` 与 `gate.Run -> RunWith` 两条已证局部关系；Mermaid 可渲染，图后列出 13 个当前源码关键函数，全部带引用。
+   页面没有恢复稿、最终重试失败或降级说明。运行时从 r976 的 970s/20 rejects/19 patches 降为 333s/3 rejects/4 patches。
+3. B1492 获得生产正证并闭环：最终模型块顺序为 `summary -> diagram -> boundary path -> key-function roster`，typed `#1 diagram/#2 member_set`
+   被正确落实；系统没有移动、重写或重建任何模型块，只执行模型提交的结构化 patch/order。
+4. B1493 获得生产正证并闭环。初稿已有 `n1 as agent.buildAnalysisIR / n2 as RunWith / n3 as gate.Run`；participant-only additions lease
+   能把证据绑定的 `n1/n2/n3` 作为可执行 endpoint enum，模型第二次原子补丁直接复用它们并通过。r976 的 `not a typed carrier`、技术 ID 与可见
+   alias 相互矛盾、重复隐式 participant 均未复发。
+5. B1494 本轮未自然命中 normalized-view `body_occurrence=2` 分支，日志也没有 `exceeds 1 visible edge`。executor-level regression 已证明唯一 live
+   pair 可重绑、重复 pair fail closed，但不得用本轮 runner PASS 冒充 production branch witness；维持 `implemented/static-positive/pending-natural-hit`。
+6. 本轮 3 次 reject 不构成新的确定性合同闭环：初稿漏 hidden anchor/未证边界；模型随后把原子 addition 与 whole-diagram replacement 混用，
+   preserve-unlisted-edges 正确拒绝，下一轮仅提交已有 alias 的原子边即通过；最后两次是未证边界与 `member_set` facet 的局部补齐。单次模型过度修补先
+   观察，不据其增加答案原文、Mermaid 标签、请求关键词或 case-specific hard gate。
+7. 本批不含 Trace case，Trace 生产状态保持不变。下一批恰好 2 路必须包含显式窗 Trace，继续验证自动查询补齐、链上根因、优先级反转/调度和算力
+   供给/D/IO/确定性语义工作、实际占时/规则可消双账户、链上业务线索与最终因果投影；邻近/背景仍不得升格为主因。
+
+状态：
+
+`r977=runner-pass-2/2,human-java+sequence-pass`；
+`B1492=production-positive/core-closed`；
+`B1493=production-positive/core-closed`；
+`B1494=implemented/executor-pin-positive/pending-natural-production-hit`；
+`participant/ordinary-relation-alias-authority=shared/production-positive`；
+`model-block-order=production-positive/model-owned`；
+`system-answer/conclusion/relation/node/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-business-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged/not-exercised-r977`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/r977-no-degrade`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
