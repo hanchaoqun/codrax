@@ -57337,6 +57337,47 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r949`。
 
+### §123.1532 r950/B1466：载体参数修复生产转正；sequence participant 大小写分裂（2026-08-30）
+
+1. 从已推送 `d8211d9eb` 构建不可变二进制，严格并发恰好 2 路复放同一 H8 显式窗 Trace 与 read 四阶段时序用例，runner
+   2/2 PASS：Trace 192s、read 493s。两路活动流均未按固定 4ms、4m、首字节、累计年龄、轮次或上下文比例降级，没有旧稿恢复、JSON
+   salvage 或系统代写模型答案。
+2. B1465 获生产正证并闭环。H8 保留显式 34579.490..34579.500s 窗、5 次 typed query、链上根因排序、实际占时/规则可消双账户、
+   自动补采与完整 `Trace 因果投影`。类校验 span 的原始墙钟仍为 0.285ms，携带 34579.496810s 直接裸唤醒边，但 effective=0，明确显示
+   `仅关系凭证` 与 `确定性优化点(优化项,非根因)`；更新 oracle 没有把关系凭证放宽成语义完成因果，邻近/背景没有升为主因。
+3. B1463 获生产正证。read 不再出现要求 `o.busCtx.Mode` 或 `o.busCtx.Language` 作为 BusContext 整载体参数关系的 completion reject；
+   相对 r949，read 26→14、repo_map 3→1、explorer iteration 53→30、midloop 21→15、history prune 1→0、墙钟 851→493s。
+   唯一 investigation reject 是 `mergeEvidenceItems` 调用结果写入 `evidence` 的真实 assignment sibling，并被 B1464 新指标准确记为 1。
+4. read 表格人工 pass：StageAnalyze/Explore/Extract/Finalize 的输入、输出、AnalysisIR/EvidenceItems/AnswerSymbols/AnswerDocumentV2 及
+   BusContext/MutableState 载体均完整；三条 typed precedence 没有因提速被删除。但图人工判定 partial，并确认新 P1
+   `B1466-SEQUENCEPARTICIPANTCASEIDENTITY1`：body 声明 `participant Analyze`，原子关系补丁发出 `analyze->>Explore`。Mermaid participant ID
+   区分大小写，因此读者会看到一个隐式 `analyze` 与一个断开的显式 `Analyze`；validator/runner 却签绿。
+5. 根因是 `atomicSequenceNodeIsDeclared` 使用 `EqualFold`。该函数因此错误认为 lowercase endpoint 已精确复用 uppercase declaration，跳过已有
+   “唯一 typed endpoint → 唯一已声明 participant” canonicalizer。问题是结构化 ID 合同漏检，不是业务 label、关系证据或模型语义波动；同类风险覆盖
+   所有 sequenceDiagram 和所有源码语言，而非本用例特例。
+6. B1466 已在 `a11327ced` 根修并推送：participant 是否已声明改为 Mermaid 语义一致的 exact case-sensitive ID 比较；若模型 endpoint 仅在
+   case/alias 上不同，既有 typed canonicalizer 仍须证明它与恰好一个模型已声明 participant 对应，才把 edge/anchor 机械绑定回那个精确 ID；
+   多声明歧义继续 fail-closed。系统不创建/删除/反向关系，不选择 actor、标签、文案、布局或结论。新增 r950 原形红绿回归，既有 stage alias、
+   ambiguous duplicate 和 production wiring 回归同批通过。
+7. 下一批从 `a11327ced` 重建不可变二进制，严格并发恰好 2 路复放 read sequence 与一条显式窗 Trace：验收最终 body 的每个 edge endpoint
+   都精确复用声明 ID、无隐式重复 actor，同时 H8/Trace 的窗口、链上根因、业务线索、双账户、投影和自动补采不回退。若模型仍选择删减业务关系，
+   只按 typed relation/图表达完整性审计，不以答案原文硬门或系统替写图。
+
+状态：
+
+`r950=runner-pass-2/2/human-trace-pass+read-partial`；
+`B1463=production-positive/core-closed`；
+`B1464=production-metric-positive/core-closed`；
+`B1465=production-positive/core-closed`；
+`B1466=implemented+pushed+focused-tests-pass/pending-production-replay`；
+`sequence-participant-declaration=exact-case-sensitive-id`；
+`typed-alias-canonicalization=unique-declared-carrier-only`；
+`system-answer/relation/participant/wording/layout/conclusion-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r950`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r950`。
+
 ### §123.1502 r921/B1436：数据对账闭环；验证升级不得重复排入同一 typed 候选（2026-08-28）
 
 1. 从已推送 `c8160a783` 重建不可变二进制，严格并发恰好 2 路复放 data 多文件投影与 Java 症状驱动 write。runner 为 data PASS、write FAIL：data 138s；write
