@@ -4636,6 +4636,35 @@ func TestRequiredAssignmentCallArgumentFlowRepairUsesUniqueParserCall(t *testing
 	}
 }
 
+func TestRequiredCallArgumentFlowRepairDoesNotPromoteCarrierMemberToWholeCarrier(t *testing.T) {
+	const source = "pipeline.go"
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain, PredicateAxis: types.AxisFlow,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow, Required: true, Participants: []types.DiagramParticipantHint{{
+			Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+		}}},
+	}}
+	wholeCarrier := types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Scope: types.ScopeLine, Source: source, LineStart: 20,
+		AnchorKind: types.AnchorArgument, Subject: "o.busCtx", Predicate: "passes argument", Object: "builder.Build",
+		GroundingStatus: types.GroundingGrounded, OwnerIdentity: "Orchestrator.dispatch",
+		DeclaredIdentityBindings: []types.EvidenceDeclaredIdentityBinding{{Binding: "Orchestrator.busCtx", Type: "*types.BusContext", Owner: "Orchestrator"}},
+	}
+	if !argumentFlowCandidateTouchesIncidentParticipant(ctx.AnalysisIR.RequestModel, wholeCarrier, false) {
+		t.Fatal("the exact whole carrier argument must remain an incident participant")
+	}
+
+	member := wholeCarrier
+	member.Subject = "o.busCtx.Mode"
+	if argumentFlowCandidateTouchesIncidentParticipant(ctx.AnalysisIR.RequestModel, member, false) {
+		t.Fatal("a carrier member argument must not inherit the whole carrier participant type")
+	}
+	if !argumentFlowCandidateTouchesIncidentParticipant(ctx.AnalysisIR.RequestModel, member, true) {
+		t.Fatal("an exact assignment-call member path must retain the selected member data flow")
+	}
+}
+
 func TestRequiredCallResultAssignmentRepairContinuesSelectedValuePathAcrossLanguages(t *testing.T) {
 	for _, language := range repomap.SupportedReadLanguages() {
 		t.Run(string(language), func(t *testing.T) {

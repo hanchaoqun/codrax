@@ -6737,7 +6737,9 @@ func emitEvidenceArgumentFlowRepairsForExactCall(
 		candidate.DeclaredOwner = ""
 		candidate.DeclaredIdentityBindings = nil
 		stampEvidenceTypedIdentityBindings(&candidate, gc)
-		declaredParticipant := argumentFlowCandidateTouchesIncidentParticipant(rm, candidate)
+		declaredParticipant := argumentFlowCandidateTouchesIncidentParticipant(
+			rm, candidate, assignmentCallCompanion,
+		)
 		stageParticipant := argumentFlowCandidateVerifiedStageParticipant(rm, candidate.Subject, stagePrecedence)
 		if !declaredParticipant && stageParticipant == "" {
 			continue
@@ -6796,7 +6798,11 @@ func argumentFlowCandidateVerifiedStageParticipant(
 	return matched
 }
 
-func argumentFlowCandidateTouchesIncidentParticipant(rm types.RequestModel, candidate types.EvidenceItem) bool {
+func argumentFlowCandidateTouchesIncidentParticipant(
+	rm types.RequestModel,
+	candidate types.EvidenceItem,
+	allowDeclaredBindingDescendant bool,
+) bool {
 	if rm.DiagramHint == nil || len(candidate.DeclaredIdentityBindings) == 0 {
 		return false
 	}
@@ -6807,10 +6813,22 @@ func argumentFlowCandidateTouchesIncidentParticipant(rm types.RequestModel, cand
 		surfaces := []string{strings.TrimSpace(participant.Identity)}
 		surfaces = append(surfaces, types.DiagramParticipantIdentitySurfaces(rm, participant)...)
 		for _, surface := range surfaces {
-			if types.AnswerCodeIdentityIncidentViaDeclaredBinding(
-				surface, candidate.Subject, candidate, nil,
-			) {
-				return true
+			for _, binding := range candidate.DeclaredIdentityBindings {
+				if !types.AnswerCodeIdentitySurfacesCompatible(surface, binding.Type) {
+					continue
+				}
+				// A normal call-argument repair is for the requested carrier
+				// itself. A scalar/member descendant such as busCtx.Mode has
+				// its own value identity and must not inherit BusContext merely
+				// because the parser also stamped the containing field binding.
+				// Assignment-call companions deliberately retain the broader
+				// member path: an exact member value can be the selected data
+				// flowing through that assignment.
+				if allowDeclaredBindingDescendant ||
+					types.NormalizedSurfaceSymbolTail(candidate.Subject) ==
+						types.NormalizedSurfaceSymbolTail(binding.Binding) {
+					return true
+				}
 			}
 		}
 	}
