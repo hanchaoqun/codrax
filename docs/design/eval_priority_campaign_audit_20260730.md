@@ -57711,6 +57711,39 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1571 r984/B1501 生产闭环；B1502 分析器附件教学暴露未发布工具（2026-08-31）
+
+1. 从已推送 `fc4334186` 干净构建，严格并发恰好 2 路复放相同 H8 显式窗 Trace 与 Cangjie inventory；runner 2/2 PASS，
+   Trace 218s、Cangjie 230s。两路 `finalizer_rejects` 均从 r983 的 1 降为 0，证明 B1501 的 projected schema/runtime owner 合同和
+   exact typed row 可见身份合同已在生产路径生效。
+2. Cangjie 人工 PASS：12 条声明、`extend=2 / foreign func=2 / public class=8`、符号、文件和 package 全部正确。模型本轮采用
+   member-first 表格；category-first 的执行正臂由可执行结构测试钉住，本轮零拒绝只能证明无回归，不能冒充该具体布局的自然生产命中。
+3. Trace 人工 PASS：显式 `34579.490..34579.500s` 主窗、目标四态、NetworkService 链上第一席 5.951ms、实际占时/规则可消双账户、
+   `VerifyClass ...` 0.285ms、宿主到目标直接唤醒已证但工作完成触发/目标等待/丢帧因果未证的边界、自动补齐和最终 `Trace 因果投影`
+   均完整。邻近与背景没有进入主因；没有按 4ms、4m、活动流年龄、轮次或上下文比例降级。
+4. 补充投影同时承载为追溯上游而查询的更宽窗口，出现同一 semantic/status 行的多窗重复和大于 10ms 的跨窗账目；报告已明确“2 个查询窗”、
+   跨窗实际值及不可相加，并且主根因仍来自显式主窗，因此本轮不判事实错误。该形先记为压缩/可读性观察项；没有异构复现前，不扫描答案正文、
+   不按线程名/span 名或单 case 删除 typed 行，也不新增硬门。
+5. 新确认 `B1502-ANALYZERATTACHMENTTOOLPARITY1/P1`。analyzer 收到的 raw-trace 教学明确称完整附件已保存到 blob，并要求用
+   `read_file(line_offset,limit)` 分页；同一 analyze turn 的实际 schema 却只发布 `emit_analysis`。模型严格按系统教学调用后被执行器拒绝，产生
+   1 次 unavailable call 和一次额外轮次。后续 explore 的 `trace_query` 足以完成本轮，所以结果未损坏，但教学与可执行工具集自相矛盾属于
+   通用合同 gap，不能归为模型波动。
+6. B1502 最优修向是让附件教学由阶段实际 capability 派生：analyze 阶段只说明附件将由后续证据阶段/typed trace 查询读取，不教当前阶段调用
+   `read_file`；只有 schema 实际发布该工具时才发分页调用说明。不得为绕过问题在 analyzer 临时开放深读，也不得扫描模型 reasoning 后豁免拒绝。
+
+状态：
+
+`r984=runner-pass-2/2,human-pass-2/2`；
+`B1501=production-positive/core-closed`；
+`B1502=confirmed/next-small-batch`；
+`trace-analyzer-unavailable-call=1/system-teaching-schema-conflict`；
+`cross-window-duplicate-rows=readability-observation/no-hard-gate`；
+`system-answer/conclusion/member/relation/wording/order-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r984`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r984`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
