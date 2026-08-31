@@ -57431,6 +57431,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1582 r989：融合恢复未触发但普通图无回归；sequence reply 可借用未来另一调用（2026-08-31）
+
+1. 从已推送 `bc0fd3142` 重建不可变二进制，严格并发恰好 2 路复放 Rust/Java call-chain。Rust runner PASS 110s，Java runner FAIL
+   147s；Rust 人工 pass，Java 人工 fail。两路均无 unavailable tool，也没有固定 4ms/4m、活动流年龄、首字节、轮次或上下文比例降级。
+2. Rust 的五条源码调用边、matcher 分支、walker 递归文件收集职责与完整 sequenceDiagram 均保留；一次 reject 是模型在 principal list 声明
+   `principal_path_edge` 却漏发该 list 自己的 edge anchors，局部 patch 后闭合。本轮模型原生分开输出 list/diagram，没有 `fused_diagram_split` lineage，
+   所以只能证明 B1510 不影响普通图，不能把未触发修复的 PASS 冒充生产正证；B1510 保持 pending-trigger-replay。
+3. Java 的 typed context 足够精确：explorer、final evidence 与 Final Call-Chain Evidence Boundary 都发布
+   `AuditLog.record -> System.out.println @ AuditLog.java:6`，并明确 storage/durability/flushing/completion 未证；模型 thinking 也读取了该事实，最终仍把
+   内存 `rows.add` 与 stdout 称为“持久化/落库”。`B1511` 因此维持模型消费波动，不新增答案关键词硬门、不扫描/替换模型结论，也不按 Java/println
+   增加单例教学。
+4. 新确认 `B1512-SEQUENCEREPLYORDER1/P1`。Java 首稿把 `S->>R: countOpenVisits` 锚误标为 guard，关系门正确要求纠正/移除；模型删除该 forward
+   edge 后，图中 `R-->>S: n >= max` 出现在任何 S→R 调用之前，稍后才有 `S->>R: insert`。校验器仍把前者认成合法 structural reply，导致
+   countOpenVisits 调用从图中消失，返回语义借用了未来的另一个 operation。
+5. 代码亲证根因：`diagramSequenceStructuralReplyKeySet` 先扫描全图建立无序 forward endpoint set，再以反向 endpoint membership 判断 reply；不看
+   edge 顺序、尚未配对状态或 invocation 代次。最优根修是纯结构顺序配对：按 Mermaid edge 顺序扫描，`-->>` 只可消费此前最近一个尚未配对、节点恰好
+   反向的 forward invocation；没有先前 invocation 时继续进入普通 typed relation gate。显式 typed return 仍按自身 relation authority 处理。
+6. B1512 不读取 message label、请求、thinking、最终 prose 或业务方法名，不按 `countOpenVisits/insert` 特例，不自动新增、移动、删除或改写模型边；需覆盖
+   同 actor pair 多次调用、嵌套 actor、activation suffix、显式 return、先 reply 后 call 以及正常 call→reply 的结构正反 pin。完整回放记录见
+   `eval/parallel_selected_summary_evalcampaign_fusedrelation_replay_r989_20260831_manual_audit.md`。
+
+状态：
+
+`r989=runner-rust-pass+java-fail/human-rust-pass+java-fail`；
+`B1510=implemented/no-regression/pending-production-trigger-replay`；
+`B1511=model-variance/precise-context-present/no-hard-gate`；
+`B1512=confirmed/P1/next-small-batch`；
+`sequence-structural-reply=must-follow-and-consume-prior-reverse-endpoint-invocation`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-message-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r989`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
