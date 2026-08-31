@@ -57772,6 +57772,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1573 r985：附件能力合同生产闭环；owner 字段仍产生真实重试，语义类别边界再次波动（2026-08-31）
+
+1. 从已推送 `66ef0c6fe` 干净构建，严格并发恰好 2 路运行 H8 显式窗 Trace 与 Java plan-only typo；runner 2/2 PASS：
+   Trace 197s、Java 57s。两路均没有按 4ms、4m、活动流年龄、轮次或上下文比例降级。
+2. `B1502` 获得生产正证并关单。相同大 Trace 的 analyze 阶段 unavailable tool call 从 r984 的 1 降为 0，`read_file` 调用也为 0；
+   后续 evidence stage 仍通过 8 次 `trace_query` 完成显式窗分析。说明附件教学已经按 dispatch capability 投影，没有通过开放 analyzer 深读
+   或牺牲 Trace 查询、自动补齐和因果投影换取零拒绝。
+3. Java 人工 PASS：最终 ChangePlan 只有 `Main.java` 第 16 行 `retrun -> return` 的单行 patch，源码未改。planner 首稿却在已有明确教学和
+   枚举下提交 `verification_probes[0].language=shell`，工具正确拒绝后模型删除 probe 并成功。runner 的 `fin_reject=0` 不覆盖 plan tool reject；
+   先记 `B1504-WRITEPROBEENUMADHERENCE1/P2` 单次模型非遵循观察，不据单例增加请求/模型文本硬门，也不放宽 probe 运行时枚举。
+4. r984 据一次自然零拒绝把 `B1501` 标成生产闭环过早，现纠正为 partial。Trace 首稿再次把完全相同的
+   `trace_causal_claim_caliber=bounded_window_candidate` 同时放入 principal summary 与普通 section；动态 schema/runtime 正确拒绝 section，
+   产生 1 次 finalizer reject。可执行 schema pin 只证明合同严格一致，不保证 provider 永不提交 schema 外 valid JSON。
+5. 新确认 `B1503-OWNERHIDDENMETADATADUP1/P1`。最优修复不是放宽非 owner 字段，也不是删除模型结论：在模型参数兼容层只处理一个可证明
+   无语义差异的等价类——恰有一个 principal summary 持有合法 caliber，非 summary 块携带的值与 owner **字节完全相同**时，仅移除 sibling
+   上的冗余 hidden metadata。owner 值、所有可见 block 字段、正文、排序、事实、关系与投影不变；冲突值、缺 owner、多 owner、未知类型均
+   fail closed，继续交给严格 schema 拒绝。须补 fixed-point、冲突负臂和完整 projected-schema executable pin。
+6. Trace 的显式窗、目标四态、NetworkService 链上第一席 5.951ms、实际占时/规则可消双账户、VerifyClass 0.285ms 及其
+   `relation_unproven` 边界、邻近/背景隔离、自动补齐和最终 `Trace 因果投影` 均存在；但模型主摘要再次把 NetworkService runnable 与
+   CookieMonster sleep 调度状态称为“确定性工作”，与同页真正的 typed semantic span 关系结论冲突，人工判 fail。`B1499` 由偶发观察恢复为
+   repeated soft-adherence gap；仍禁止扫描/拒绝/改写可见正文，后续应从 typed runtime-work carrier 的精度、邻近位置和重复上下文压缩上改善，
+   不能让系统代模型选择结论。
+7. caveat 中“155 条目标 CPU 记录均为零”实际来自 typed `wakeup_target_cpu_integrity`：155 条窗内 wakeup/waking 事件的
+   `target_cpu` 字段全为 0，而目标线程运行段仍精确观测在 CPU1。证据判断本身有依据，但中文省略“唤醒事件的字段”会让用户误读成运行 CPU
+   也未知，记为 typed boundary 展示精度观察；不从最终 prose 做硬门或系统代写。
+
+状态：
+
+`r985=runner-pass-2/2,human-java-pass+trace-fail`；
+`B1502=production-positive/closed`；
+`B1501=projected-schema-runtime-parity-closed/provider-adherence-not-guaranteed`；
+`B1503=confirmed/next-small-batch`；
+`B1499=reproduced/typed-context-soft-stability-open`；
+`B1504=single-sample-model-nonadherence/observe-only`；
+`system-answer/conclusion/fact/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r985`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r985`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
