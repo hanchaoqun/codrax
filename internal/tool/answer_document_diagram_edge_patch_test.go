@@ -1285,7 +1285,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RemovesTypedFailedAnchorWithoutBod
 		[]types.AnswerDiagramRelationRepairFailure{{
 			BlockID: "diag", Issue: diagramCallEdgeIssueAnchorWithoutBodyEdge,
 			FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
-			RelationKind: types.DiagramRelPrecedence,
+			RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
 		}}, nil)
 	patch := &types.AnswerDocumentV2Patch{UnchangedBlockIDs: []string{"summary"}}
 	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
@@ -1506,7 +1506,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_UsesLiveFailureRefWithoutRetypingC
 		FailureRef: lease.Failures[0].FailureRef, Action: "remove",
 	}}, nil, lease)
 	if err != nil {
-		t.Fatalf("live ref must resolve the exact stale anchor: %v", err)
+		t.Fatalf("live ref must resolve the exact stale anchor even when the producer retained a diagnostic body occurrence: %v", err)
 	}
 	got := patch.ReplaceBlocks[0]
 	if len(got.EdgeAnchors) != 1 || got.EdgeAnchors[0].FromNode != "B" ||

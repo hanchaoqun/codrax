@@ -1185,7 +1185,18 @@ func resolveAtomicDiagramFailureRef(
 	edit.Match = nil
 	edit.Occurrence = 0
 	edit.BodyOccurrence = 0
-	edit.BodyOccurrence = failure.BodyOccurrence
+	// Only carriers that own a visible Mermaid statement inherit the
+	// producer's body occurrence.  stale_anchor and prior_anchor_metadata
+	// select metadata that has no visible body edge by definition; copying a
+	// producer-side diagnostic occurrence into those carriers makes the
+	// advertised remove/replace operation impossible because their executor
+	// correctly requires body_occurrence=0.
+	switch failure.TargetCarrier {
+	case types.AnswerDiagramRelationRepairCarrierVisibleBodyEdge,
+		types.AnswerDiagramRelationRepairCarrierPriorAnchor,
+		types.AnswerDiagramRelationRepairCarrierLabelPair:
+		edit.BodyOccurrence = failure.BodyOccurrence
+	}
 	// A visible-body failure's occurrence is minted against the same immutable
 	// rejected draft as its anchor snapshot.  Reuse that position for the
 	// matching prior anchor as well.  This matters when two failed visible rows
