@@ -6751,6 +6751,65 @@ func TestPreCheckSourceInventoryPerMemberBucketCells_RequiresIndependentVisibleB
 	}
 }
 
+func TestPreEmitSourceInventoryProjectSyntheticRowBuckets_UsesSingleTypedFamilyOnly(t *testing.T) {
+	sets := []types.EnumerationDisplaySet{
+		{
+			ID:    "enum-set-source-inventory-principal-rows",
+			Label: "source inventory principal rows",
+			Rows: []types.EnumerationDisplayRow{
+				{
+					RowID:        "public-service",
+					SetLabel:     "source inventory principal rows",
+					Member:       "Service",
+					SurfaceTerms: []string{"public class", "public class Service"},
+				},
+				{
+					RowID:        "entry-component",
+					SetLabel:     "source inventory principal rows",
+					Member:       "Index",
+					SurfaceTerms: []string{"@Entry", "@Component"},
+				},
+			},
+		},
+		{
+			ID:    "model-public-class",
+			Label: "public class",
+			Rows: []types.EnumerationDisplayRow{{
+				RowID:        "model-bridge",
+				SetLabel:     "public class",
+				Member:       "Bridge",
+				SurfaceTerms: []string{"public class", "public class Bridge"},
+			}},
+		},
+	}
+
+	got := preEmitSourceInventoryProjectSyntheticRowBuckets(sets)
+	if got[0].Label != "source inventory principal rows" || got[0].Rows[0].RowID != "public-service" ||
+		got[0].Rows[0].SetLabel != "public class" {
+		t.Fatalf("single typed family must refine only the synthetic row bucket: %+v", got[0])
+	}
+	if got[0].Rows[1].SetLabel != "source inventory principal rows" {
+		t.Fatalf("multi-family row must fail closed on the global label: %+v", got[0].Rows[1])
+	}
+	if got[1].Rows[0].SetLabel != "public class" {
+		t.Fatalf("model-owned partition must remain byte-stable: %+v", got[1].Rows[0])
+	}
+
+	ctx, _, _ := sourceInventoryPerMemberBucketTableTestContext(t)
+	wired := map[string]string{}
+	for _, set := range preEmitSourceInventoryTypedPrincipalSets(ctx) {
+		if set.Label != "source inventory principal rows" {
+			continue
+		}
+		for _, row := range set.Rows {
+			wired[row.Member] = row.SetLabel
+		}
+	}
+	if wired["ExtendCart"] != "extend" || wired["PublicCart"] != "public class" {
+		t.Fatalf("production typed-row registry lost row-local buckets: %+v", wired)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_AcceptsRelationDisplayVariants(t *testing.T) {
 	mu := types.NewMutableState("entry function aggregate handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

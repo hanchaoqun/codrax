@@ -2725,7 +2725,33 @@ func preEmitSourceInventoryTypedPrincipalSets(ctx *types.BusContext) []types.Enu
 	if !hasGlobal {
 		out = append(out, canonical...)
 	}
-	return out
+	return preEmitSourceInventoryProjectSyntheticRowBuckets(out)
+}
+
+// preEmitSourceInventoryProjectSyntheticRowBuckets keeps a synthetic global
+// roster's internal set label from becoming a reader-visible per-row bucket.
+// A row may carry one exact construct family from parser/lens SurfaceTerms
+// (for example "public class", "foreign func", or "extend"). In that narrow
+// case the row-local typed family is the bucket authority. Rows with no family
+// or more than one independent family remain on the global label so this path
+// cannot guess how a multi-marker declaration should be partitioned.
+//
+// This projection reads neither request/model prose nor rendered table text.
+// The set-level label and stable row IDs remain unchanged; only the row-local
+// bucket used by exact source_inventory_row_id contracts is refined.
+func preEmitSourceInventoryProjectSyntheticRowBuckets(sets []types.EnumerationDisplaySet) []types.EnumerationDisplaySet {
+	for si := range sets {
+		if strings.TrimSpace(sets[si].Label) != "source inventory principal rows" {
+			continue
+		}
+		for ri := range sets[si].Rows {
+			families := types.SourceInventorySurfaceFamilyKeys(sets[si].Rows[ri].SurfaceTerms)
+			if len(families) == 1 {
+				sets[si].Rows[ri].SetLabel = families[0]
+			}
+		}
+	}
+	return sets
 }
 
 // preEmitSourceInventoryDeclarationIdentityKey is the line-independent
