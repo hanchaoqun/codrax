@@ -1360,6 +1360,8 @@ func TestAnalysisSkill_RuntimeCausalAttributionTeachingUsesOneDecisionTableAndOn
 		"asking whether that target was constrained or affected is a verdict",
 		"use required `target_effect_verdict`",
 		"use required `runtime_work_relation`",
+		"measured or to-be-discovered runtime work items/spans/operations from a requested work class",
+		"work identity may be an investigation output",
 		"Use `relation_path` only for a separately requested topology, endpoint, or hop sequence",
 		"emit both dimensions instead of making either absorb the other",
 		"none of these roles pre-decides that the work is causal",

@@ -118,7 +118,8 @@ func TestEmitAnalysisSchemaSeparatesRuntimeDimensionDecisionFromScopeConsequence
 	}
 	for _, want := range []string{
 		"runtime_work_relation",
-		"measured runtime work item/span/operation",
+		"measured or to-be-discovered runtime work items/spans/operations from a requested work class",
+		"work identity may be an investigation output",
 		"exact relation credential and causal boundary",
 		"relation_path owns only a separately requested topology, endpoint, or hop sequence",
 		"Emit both when both visible surfaces are requested",

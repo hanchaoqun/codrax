@@ -57291,6 +57291,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1546 r961/B1478–B1479：待发现运行时工作未获席；同坐标错名被铸成 typed 清单（2026-08-31）
+
+1. 从已推送 `e615461ca` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 156s、Cangjie runner
+   FAIL 373s（`public_class got9 want8`），人工两路均判 fail。没有固定 4ms/4m、活动流年龄或上下文比例降级。
+2. Trace 的显式 10ms 窗、两次 typed query、链上根因排序、目标四态账、实际占时/规则可消双账户、自动补齐及最终 `Trace 因果投影` 均保留；
+   projection 也正确披露 VerifyClass 0.285ms 只有 host→target 唤醒凭证，semantic completion/target-wait binding 未证，规则可消 0。
+   但 analyzer 只发出 `function_or_purpose + relation_path + causal_contributor_set`，没有 `runtime_work_relation`；B1475 教学存在却只覆盖“已给名的 measured
+   work”，没有覆盖“先发现某类 work 是否存在，再判断成本/关系”的请求形。
+3. `B1478-RUNTIMEWORKCLASSDISCOVERY1/P1` 根修仍是软 typed 分流：`runtime_work_relation` 同时覆盖已知 work 身份和待调查发现的 work class；身份可以是
+   investigation output。若还要求拓扑与根因，仍分别并列 `relation_path` 和 causal role。系统不从请求/模型/答案 prose 做硬判，不预选是否存在、是否因果，
+   不补写或替换模型答案。对应完整决策表与紧凑 schema pins 已通过。
+4. B1476 获得生产正证：Cangjie 从 1601s 降至 373s，investigation completion 从 29 次降至 4 次，旧 `exact_count=13/covered=8` 不可满足循环消失；
+   r960 的 `extend Cart` missing 也未复现，B1477 作为独立根因暂时关闭。
+5. 新确认 `B1479-INVENTORYROWMEMBERADMISSION1/P0`。最后一次 explorer completion 把源码 `Dog/Service` 错写成 `Cat/Vehicle`，却绑定
+   Dog/Service 的精确 file:line。机械 source-inventory 本身仍正确列 Dog/Service；但 finalizer typed registry 的 prompt-row 准入 key 只有
+   `location + surface_family`、缺 member identity，于是错名借同坐标同家族升级为 `Principal Enumeration Rows`。首版答案已按源码纠正为 Dog/Service，
+   patch 轮反被错误 typed roster 拉回 Cat/Vehicle。这不是单个模型波动：系统把与机械身份冲突的模型事实提升成了硬权威。
+6. B1479 最优修向冻结：保留现有 post-admission alias/dedup 行为，单独把 registry admission 收窄为
+   `exact location + canonical surface family + exact member identity`；装饰显示名仍可走 exact grounded evidence/base alias，未知/歧义不猜。
+   新回归必须用语言无关的 WrongName@RealRow 形证明错名不能进入 typed registry，同时确保同位置不同真实身份、同名不同位置及 Cangjie
+   `extend/native_add` 装饰行不回归。
+
+状态：
+
+`r961=runner-trace-pass+cangjie-fail,human-trace-fail+cangjie-fail`；
+`B1476=production-positive/core-closed`；
+`B1477=production-negative/closed-with-B1476`；
+`B1478=implemented/targeted-tests-pass/pending-production-replay`；
+`B1479=confirmed/next-batch`；
+`runtime-work-class-discovery=typed-visible-role/model-conclusion-owned`；
+`source-inventory-mechanical-row=correct-Dog/Service`；
+`prompt-row-location+family-without-member=unsafe-authority-escalation`；
+`system-answer/conclusion/relation/wording/member-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r961`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r961`。
+
 ### §123.1545 B1477：生产同形结构校验通过，独立根因暂不成立（2026-08-31）
 
 1. 逐行复核 r960 首稿与三轮 patch：`extend Cart` 的可见 Markdown 行、hidden sidecar label/cells、精确
