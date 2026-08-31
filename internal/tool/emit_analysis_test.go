@@ -1797,6 +1797,22 @@ func TestValidateCallChainRequestedDimensionRolesAllowsIndependentRosterSignals(
 	}
 
 	cases := map[string]func(*types.RequestModel){
+		"separate diagram surface": func(rm *types.RequestModel) {
+			rm.RequestedAnswerDimensions.Dimensions = append(
+				rm.RequestedAnswerDimensions.Dimensions,
+				types.RequestedAnswerDimension{
+					Role: types.RequestedAnswerDimensionDiagram, Required: true,
+				},
+			)
+		},
+		"separate relation path surface": func(rm *types.RequestModel) {
+			rm.RequestedAnswerDimensions.Dimensions = append(
+				rm.RequestedAnswerDimensions.Dimensions,
+				types.RequestedAnswerDimension{
+					Role: types.RequestedAnswerDimensionRelationPath, Required: true,
+				},
+			)
+		},
 		"category enumeration": func(rm *types.RequestModel) { rm.Predicates.IsCategoryEnumeration = true },
 		"per-member table":     func(rm *types.RequestModel) { rm.Predicates.HasPerMemberTable = true },
 		"declared boundary": func(rm *types.RequestModel) {
@@ -1815,6 +1831,9 @@ func TestValidateCallChainRequestedDimensionRolesAllowsIndependentRosterSignals(
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			rm := base
+			profile := *base.RequestedAnswerDimensions
+			profile.Dimensions = append([]types.RequestedAnswerDimension(nil), profile.Dimensions...)
+			rm.RequestedAnswerDimensions = &profile
 			mutate(&rm)
 			if got := validateCallChainRequestedDimensionRoles(rm); got != "" {
 				t.Fatalf("independent roster signal must remain valid: %q", got)

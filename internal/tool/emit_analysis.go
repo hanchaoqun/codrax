@@ -3408,7 +3408,10 @@ func validateAuxiliaryPrincipalExclusionConflict(rm types.RequestModel) string {
 // accidentally minting a second, independent member-roster contract. A call
 // chain necessarily has endpoints and hops, but those identities are the
 // path's presentation payload; they are not evidence that the current request
-// also asks for a complete/listed member universe.
+// also asks for a complete/listed member universe. A separate required
+// diagram or relation-path dimension, however, already owns the path surface;
+// in that multi-surface shape a sibling member_set row is an independently
+// declared roster rather than a relabelled path.
 //
 // Every signal consumed here is a normalized typed field. The validator never
 // scans the request, labels, rationale, source quotes, or eventual answer text,
@@ -3422,16 +3425,24 @@ func validateCallChainRequestedDimensionRoles(rm types.RequestModel) string {
 		return ""
 	}
 	hasRequiredMemberSet := false
+	hasRequiredPathSurface := false
 	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
-		if dimension.Required && dimension.Role == types.RequestedAnswerDimensionMemberSet {
+		if !dimension.Required {
+			continue
+		}
+		switch dimension.Role {
+		case types.RequestedAnswerDimensionMemberSet:
 			hasRequiredMemberSet = true
-			break
+		case types.RequestedAnswerDimensionDiagram,
+			types.RequestedAnswerDimensionRelationPath:
+			hasRequiredPathSurface = true
 		}
 	}
 	if !hasRequiredMemberSet {
 		return ""
 	}
-	independentRoster := rm.Predicates.IsCategoryEnumeration ||
+	independentRoster := hasRequiredPathSurface ||
+		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.HasPerMemberTable ||
 		rm.EnumerationBoundary != nil ||
 		rm.CompletenessObligation.IsActive() ||
@@ -3439,7 +3450,7 @@ func validateCallChainRequestedDimensionRoles(rm types.RequestModel) string {
 	if independentRoster {
 		return ""
 	}
-	return "question_kind=call_chain has a required requested_answer_dimensions role=member_set, but no independent typed category-enumeration, per-member-table, enumeration-boundary, completeness, or active source-inventory signal declares a separate roster. Path endpoints and hops belong to role=relation_path and do not by themselves create a member roster. Re-emit the same model-owned path dimension with role=relation_path; reserve member_set for a separately requested roster and emit its independent typed boundary when one exists. The system will not relabel the dimension or infer this distinction from request/answer prose"
+	return "question_kind=call_chain has a required requested_answer_dimensions role=member_set, but no independent typed path surface, category-enumeration, per-member-table, enumeration-boundary, completeness, or active source-inventory signal declares a separate roster. Path endpoints and hops belong to role=relation_path and do not by themselves create a member roster. Re-emit the same model-owned path dimension with role=relation_path; reserve member_set for a separately requested roster and emit its independent typed boundary when one exists. The system will not relabel the dimension or infer this distinction from request/answer prose"
 }
 
 func sourceInventoryProfileRepairSourceQuotes(raw string, attempted *emitSourceInventoryProfileParam) []string {
