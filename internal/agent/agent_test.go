@@ -404,7 +404,7 @@ func TestCurrentTurnToolSurfaceDirectiveOnlyNamesCallableTools(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected directive for narrowed tool surface")
 	}
-	for _, want := range []string{"`emit_evidence`", "`emit_investigation_complete`", "current tool schema is authoritative", "must use one of these exact tool names", "Do not call unlisted tools to read"} {
+	for _, want := range []string{"`emit_evidence`", "`emit_investigation_complete`", "current tool schema is authoritative", "must use one of these exact tool names", "Do not call unlisted tools to read", "emit-only materialization turn", "Earlier instructions that start a new navigation", "do not create such a phase as a prerequisite"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("directive missing %q: %s", want, got)
 		}
@@ -413,6 +413,43 @@ func TestCurrentTurnToolSurfaceDirectiveOnlyNamesCallableTools(t *testing.T) {
 		if strings.Contains(got, unavailable) {
 			t.Fatalf("directive must not restate unavailable tool %s: %s", unavailable, got)
 		}
+	}
+}
+
+func TestCurrentTurnToolSurfaceDirectiveCompletionOnlyLandsFromExistingTypedState(t *testing.T) {
+	base := []llm.ToolSchema{
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "read_file"},
+		{Name: "emit_investigation_complete"},
+	}
+	effective := []llm.ToolSchema{{Name: "emit_investigation_complete"}}
+
+	got := currentTurnToolSurfaceDirective(base, effective)
+	for _, want := range []string{
+		"callable tools are: `emit_investigation_complete`",
+		"Earlier instructions that start a new navigation",
+		"file-list",
+		"Land the investigation now",
+		"do not issue speculative calls",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("completion-only directive missing %q: %s", want, got)
+		}
+	}
+	for _, unavailable := range []string{"`repo_map`", "`grep`", "`read_file`"} {
+		if strings.Contains(got, unavailable) {
+			t.Fatalf("completion-only directive must not advertise unavailable tool %s: %s", unavailable, got)
+		}
+	}
+}
+
+func TestToolSurfaceIsEmitOnlyRejectsMixedCapabilitySurface(t *testing.T) {
+	if !toolSurfaceIsEmitOnly([]string{"emit_evidence", "emit_investigation_complete"}) {
+		t.Fatal("structured emit-only surface should be recognized")
+	}
+	if toolSurfaceIsEmitOnly([]string{"read_file", "emit_investigation_complete"}) {
+		t.Fatal("mixed read/emit surface must keep normal investigation teaching active")
 	}
 }
 

@@ -57565,6 +57565,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r980`。
 
+### §123.1566 B1498：explorer 每轮教学与真实可调用工具面统一（2026-08-31）
+
+1. r980 的 6 次不可用 grep 不是 Cangjie 提取器或模型随机波动。生产日志明确显示当轮 schema 只有
+   `emit_investigation_complete`，但同一请求的通用 explorer 教学仍要求 broad grep、深读和产出 file list。末尾已有通用工具面声明，仍不足以消除
+   前文长教学的竞争，因此模型连续发出 3 次 grep，并在后续 completion 中把“工具不可用”误写成事实覆盖不足。
+2. 根修放在所有 agent 共用的每轮工具面投影点，信号仅取当前 schema 的精确工具名集合。当投影后只剩 `emit_*` 工具时，最末尾软教学明确暂停本轮
+   所有新导航、搜索、file-list、读取、trace、测试、浏览和取数阶段，要求从已有 typed observations、stable checkpoints 和已可见证据完成结构化落地；
+   只剩 `emit_investigation_complete` 时再明确直接完成调查。混合 read/emit 工具面不触发该教学，正常探索能力不受影响。
+3. 该修复不扫描用户请求、模型推理、模型正文、Markdown 或 Mermaid，不更改任何事实、结论或 completion payload，不把“不足”改成“足够”；若现有证据
+   确有边界，模型仍须在结构化完成中披露。它只消除“schema 已关工具、prompt 仍要求调用”的自相矛盾，适用于 source inventory、普通读模式、Trace、
+   write 探索以及其它语言，不为单一 case/语言做豁免。
+4. 回归钉住三臂：emit-only 双工具面必须暂停旧导航教学；completion-only 必须直接落地且不得再次广告被移除工具；read+emit 混合面不得误判为 emit-only。
+   定向 `internal/agent` 测试已通过；全仓测试与下一轮恰好 2 路生产复放待本小批完成后执行。
+
+状态：
+
+`B1498=implemented/targeted-tests-pass/full-suite-pass`；
+`tool-capability-signal=current-schema-exact-names`；
+`tool-teaching=per-turn-soft-capability-aligned`；
+`user/model/final-prose/markdown/mermaid scan=none`；
+`system-answer/conclusion/fact-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

@@ -6847,11 +6847,30 @@ func currentTurnToolSurfaceDirective(base, effective []llm.ToolSchema) string {
 	for _, name := range names {
 		quoted = append(quoted, "`"+name+"`")
 	}
-	return fmt.Sprintf(
+	directive := fmt.Sprintf(
 		"[current tool surface]\n"+
 			"For this turn, callable tools are: %s.\n"+
 			"The current tool schema is authoritative. Your next tool call, if any, must use one of these exact tool names. Do not call unlisted tools to read, search, inspect, browse, or fetch more context. Continue from the visible transcript and stable checkpoints; earlier workflow text, examples, or previous tool-call history may mention other tools, but they are not callable in this turn. If these tools are insufficient, state the limitation in the appropriate structured emit instead of calling an unlisted tool.",
 		strings.Join(quoted, ", "))
+	if toolSurfaceIsEmitOnly(names) {
+		directive += "\nThis is an emit-only materialization turn. Earlier instructions that start a new navigation, search, file-list, read, trace, test, browse, or fetch phase are inactive for this turn; do not create such a phase as a prerequisite. Use the existing typed observations, stable checkpoints, and already-visible evidence, then call one of the listed emit tools. Preserve any real evidence boundary inside that structured emit instead of claiming that unavailable discovery must run first."
+	}
+	if len(names) == 1 && names[0] == explorerCompletionToolName {
+		directive += "\nLand the investigation now with `emit_investigation_complete`; do not issue speculative calls to tools omitted from the schema."
+	}
+	return directive
+}
+
+func toolSurfaceIsEmitOnly(names []string) bool {
+	if len(names) == 0 {
+		return false
+	}
+	for _, name := range names {
+		if !strings.HasPrefix(strings.TrimSpace(name), "emit_") {
+			return false
+		}
+	}
+	return true
 }
 
 func toolSurfaceNarrowed(base, effective []llm.ToolSchema) bool {
