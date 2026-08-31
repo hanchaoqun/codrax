@@ -57336,6 +57336,40 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1553 r968：B1484/B1485 生产闭环；exact 12 行与显式窗 Trace 双路通过（2026-08-31）
+
+1. 从已推送 `c29414d77` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
+   Cangjie 256s、Trace 205s。两路均未按固定 4ms/4m、活动流年龄、轮次、首字节、上下文比例或“尚未出答案”状态降级。
+2. `B1484/B1485` 获得生产正证。Cangjie 最终答案精确枚举 `extend=2 / foreign func=2 / public class=8` 共 12 条，
+   每条符号、文件、package 与 exact typed citation 正确；Animal/Service 的 sealed/abstract 修饰细节完整保留，同时 canonical family
+   正确归入用户请求的 `public class`。可见答案没有内部 `source inventory principal rows` bucket、重复 roster、requested-dimension
+   误报、陈旧错名、旧稿恢复或 degraded answer。
+3. Cangjie 唯一一次 finalizer reject 是模型首轮 section 缺 projected schema 要求的 `text` 字段。系统从 string-shaped blocks 中恢复
+   有用结构并给出精确 JSON/schema 错误，模型第二轮补字段即接受；该过程没有要求同一事实同时携带/拒绝两个互斥值，不是 B1485
+   再现。三个 explorer 共 6 次尝试当前 dispatch schema 不提供的 grep，属于重复工具选择噪声；typed inventory 最终保持唯一答案权威，
+   本轮先记录观察，不通过请求/模型原文扫描或新 hard gate 做过拟合修补。
+4. Trace 首稿直接接受。模型正文保留显式 10ms 窗、目标四态、NetworkService→CookieMonster→目标两跳 typed 唤醒链、链上根因
+   排序、实际占时/规则可消双账户、业务线索与邻近/背景隔离；系统自动补采和 `Trace 因果投影` 完整。VerifyClass 0.285ms 被准确
+   表述为链上宿主线程的确定性工作线索、不是直接阻塞；typed 明细继续发布有效归因 0.000ms 与 completion→target-wait 未证边界，
+   没有让邻近/背景或无绑定 semantic span 进入主因席。
+5. 本轮无需新增代码。B1484/B1485 的验收以 production behavior 加 deterministic suites 双条件闭合；已有 agent/types/tool 全套仍为
+   `15.473s / 24.043s / 196.974s` 全绿。系统没有选择模型的成员、分组、标题、顺序、措辞、关系或结论，也未新增 Markdown、Mermaid、
+   请求、thinking 或最终 prose 事实扫描。
+
+状态：
+
+`r968=runner-pass-2/2,human-pass-2/2`；
+`B1484=production-positive/core-closed`；
+`B1485=production-positive/core-closed`；
+`source-inventory-final=exact-12/no-internal-bucket/no-duplicate-roster`；
+`malformed-json/schema-repair=precise-one-retry/no-conclusion-authorship`；
+`unavailable-grep-repetition=observed-low-priority/process-noise`；
+`system-answer/conclusion/relation/wording/member/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r968`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r968`。
+
 ### §123.1552 r967/B1485：权威 public-class 行被合成全局桶反向覆盖；逐行 bucket 绑定回 typed principal row（2026-08-31）
 
 1. 从已推送 `1075d3f86` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS
