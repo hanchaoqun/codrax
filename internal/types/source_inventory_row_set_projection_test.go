@@ -182,6 +182,71 @@ func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CanonicalizesVerbos
 	}
 }
 
+func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_CollapsesPresentationAliasesAtSameTypedDeclaration(t *testing.T) {
+	rm := sourceInventoryProjectionRequestModel(nil)
+	rm.SourceInventoryProfile.TargetRoles = []AnswerCandidateRole{AnswerCandidateRoleType}
+	obs := SourceInventoryObservation{
+		Active: true, Complete: true, Scopes: []string{"."},
+		Sets: []SourceInventoryObservationSet{{
+			Role: AnswerCandidateRoleType, Complete: true, Count: 2, Total: 2,
+			Members: []SourceInventoryObservationMember{
+				{Name: "Bridge", Role: AnswerCandidateRoleType, File: "src/Bridge.cj", Line: 15, Language: "cangjie", SurfaceTerms: []string{"public class", "public class Bridge"}, CoverageState: SourceInventoryCoverageObserved},
+				{Name: "Service", Role: AnswerCandidateRoleType, File: "src/Service.cj", Line: 32, Language: "cangjie", SurfaceTerms: []string{"public class", "public abstract class Service"}, CoverageState: SourceInventoryCoverageObserved},
+			},
+		}},
+	}
+	fact := AnswerAggregateFact{
+		Kind: AnswerAggregateMemberSet, Label: "public class", Value: "4",
+		Role: AnswerAggregateRolePrincipalAnswer, Provenance: "explorer",
+		Members: []string{
+			"Bridge",
+			"public class Bridge",
+			"Service (abstract)",
+			"public abstract class Service",
+		},
+		SupportRefs: []string{
+			"Bridge @ src/Bridge.cj:15",
+			"public class Bridge @ src/Bridge.cj:15",
+			"Service @ src/Service.cj:32",
+			"public abstract class Service @ src/Service.cj:32",
+		},
+		MemberNotes: []string{"short", "full", "short", "full"},
+	}
+
+	got := ProjectSourceInventoryPrincipalRowSetAggregateFacts([]AnswerAggregateFact{fact}, obs, rm)
+	if len(got) != 1 {
+		t.Fatalf("same-declaration aliases should remain one model-owned fact, got %+v", got)
+	}
+	if got[0].Value != "2" || strings.Join(got[0].Members, ",") != "Bridge,Service" {
+		t.Fatalf("same-declaration aliases should collapse by typed member+location, got %+v", got[0])
+	}
+	if strings.Join(got[0].SupportRefs, ",") != "Bridge @ src/Bridge.cj:15,Service @ src/Service.cj:32" {
+		t.Fatalf("canonical declaration locations were not preserved: %+v", got[0].SupportRefs)
+	}
+	if len(got[0].MemberNotes) != 2 || !strings.Contains(got[0].MemberNotes[0], "short") || !strings.Contains(got[0].MemberNotes[0], "full") {
+		t.Fatalf("alias notes should merge onto the canonical row: %+v", got[0].MemberNotes)
+	}
+}
+
+func TestSourceInventoryPrincipalRowAcceptsStructuredLabel_RejectsFamilyOnlyTerm(t *testing.T) {
+	row := SourceInventoryRow{
+		SurfaceFamily: "public class",
+		Member: SourceInventoryObservationMember{
+			Name:         "Bridge",
+			SurfaceTerms: []string{"public class", "public class Bridge"},
+		},
+	}
+	if sourceInventoryPrincipalRowAcceptsStructuredLabel(row, "public class") {
+		t.Fatal("a bare family term must not become a declaration member identity")
+	}
+	if !sourceInventoryPrincipalRowAcceptsStructuredLabel(row, "public class Bridge") {
+		t.Fatal("the exact typed declaration surface should remain a valid alias")
+	}
+	if sourceInventoryPrincipalRowAcceptsStructuredLabel(row, "public class Other") {
+		t.Fatal("a different member must not borrow this typed declaration")
+	}
+}
+
 func TestProjectSourceInventoryPrincipalRowSetAggregateFacts_DoesNotCanonicalizeContradictoryMemberLabel(t *testing.T) {
 	rm := sourceInventoryProjectionRequestModel(nil)
 	obs := sourceInventoryProjectionObservation(

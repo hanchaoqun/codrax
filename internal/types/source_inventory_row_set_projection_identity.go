@@ -44,8 +44,8 @@ func sourceInventoryCanonicalizePrincipalFactMemberIdentities(
 			}
 			canonical := sourceInventoryPrincipalRowMemberLabel(row)
 			if canonical == "" ||
-				!aggregateSupportRefCanDescribeMember(refLabel, canonical) ||
-				!aggregateSupportRefCanDescribeMember(memberLabel, canonical) {
+				!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, refLabel) ||
+				!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, memberLabel) {
 				complete = false
 				break
 			}
@@ -59,8 +59,7 @@ func sourceInventoryCanonicalizePrincipalFactMemberIdentities(
 		if !complete {
 			continue
 		}
-		facts[i].Members = members
-		facts[i].SupportRefs = refs
+		sourceInventoryApplyCanonicalPrincipalFact(&facts[i], members, refs)
 	}
 	return facts
 }

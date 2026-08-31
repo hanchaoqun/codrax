@@ -35,8 +35,8 @@ func sourceInventoryResolveUniquePrincipalRow(
 		}
 		canonical := sourceInventoryPrincipalRowMemberLabel(row)
 		if canonical == "" ||
-			!aggregateSupportRefCanDescribeMember(refLabel, canonical) ||
-			!aggregateSupportRefCanDescribeMember(memberLabel, canonical) {
+			!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, refLabel) ||
+			!sourceInventoryPrincipalRowAcceptsStructuredLabel(row, memberLabel) {
 			continue
 		}
 		key := sourceInventoryPrincipalRowKey(row)

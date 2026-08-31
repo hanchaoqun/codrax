@@ -161,6 +161,8 @@ var sourceInventoryFileLOCCeiling = map[string]int{
 	"../types/source_inventory_row_set_projection_lineage.go":        126,
 	"../types/source_inventory_row_set_projection_identity.go":       111,
 	"../types/source_inventory_identity_resolver.go":                 64,
+	"../types/source_inventory_principal_alias.go":                   48, // B1480: exact typed declaration aliases only; keep prose/similarity matching out of the resolver.
+	"../types/source_inventory_principal_alias_collapse.go":          22, // B1480: post-resolution canonical row collapse stays isolated from the principal projector.
 	"../types/source_inventory_row_set_projection_surface_family.go": 80,
 	"../types/source_inventory_row_set_projection.go":                351,
 	"../types/source_inventory_scope.go":                             119,

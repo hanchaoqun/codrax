@@ -57333,6 +57333,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r961`。
 
+### §123.1547 r962/B1480：错名借坐标已阻断；同一声明的展示别名仍被重复铸权（2026-08-31）
+
+1. 从已推送 `701848e4c` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace。Trace runner PASS 162s；
+   Cangjie runner FAIL 1272s（`public_class got14 want8`）。两路均未按固定 4ms/4m、活动流年龄、轮次或上下文比例降级。
+2. B1479 获得生产正证：机械 source inventory 继续给出 Dog/Service；前一轮借用真实坐标的 Cat/Vehicle 没有进入本轮
+   `Principal Enumeration Rows`，最终答案也不再出现这两个错名。说明 `location + family + exact member identity` 的准入收窄命中了原威胁。
+3. 新确认 `B1480-INVENTORYDECLARATIONALIASCANON1/P0`。同一个精确声明在多次已接受 explorer handoff 中可能有
+   `Bridge`、`public class Bridge`、带 package 的完整 declaration 等不同展示形。投影能把每个形解析回同一 typed declaration，
+   但 canonicalize 后没有再次按 canonical member + exact location 收敛；于是 8 个真实 public class 被发布成 14 个权威行，
+   extend/foreign func 也出现同坐标多 row-id 变体。finalizer 为满足自相矛盾清册发生 15 次 reject、16 次 patch，答案虽然最终保留真实声明，
+   仍以重复 18 行收尾并触发 runner 计数失败。这是跨 retry/handoff 的统一身份 gap，不是 Cangjie 名称特例或单纯模型波动。
+4. 根修位于 typed source-inventory principal projection：每个 model row 先以精确 typed declaration identity 解析；只有整组成员均能
+   安全解析时才 canonicalize。随后立即用既有 member+support-location 规范化器收敛同一声明的展示别名，并同步重算 value/label cardinality；
+   同名不同位置因 location 不同继续保留，同一位置身份冲突、缺 family/coordinate 或无法精确解析继续 fail-open。typed SurfaceTerms
+   仅作为该精确声明自身的别名凭据，例如 `public class Bridge`；不读取用户请求、模型 reasoning、答案 prose、表格标题或相似度。
+5. 回归覆盖一个声明的短名/完整 declaration 双形折叠、两个不同声明保留、member notes 合并、错误成员名不 canonicalize、同名不同位置
+   foreign declarations 不折叠。B1480 不修改 finalizer 可见文字、答案成员选择、计数措辞或结论，只修权威 row identity 的集合基数。
+6. Trace 人工仍判 fail，但主能力无回归：显式 10ms 窗、3 次 typed query、链上根因排序、实际占时/规则可消双账户、自动补采和最终
+   `Trace 因果投影` 完整，非链 D/IO 仍只作背景。B1478 本轮 analyzer 思考识别了确定性工作，typed dimensions 却仍只发
+   `causal_contributor_set`，没有 `runtime_work_relation`；因此维持 production-partial，继续异构复验，不以请求关键词或模型正文做硬门。
+
+状态：
+
+`r962=runner-trace-pass+cangjie-fail,human-trace-fail+cangjie-fail`；
+`B1479=production-positive/core-closed`；
+`B1480=implemented/full-types+tool-suite-pass/pending-production-replay`；
+`same-declaration-alias=canonical-member+exact-location-collapse`；
+`same-name-distinct-location=preserved`；
+`ambiguous-or-unresolved-identity=fail-open`；
+`B1478=production-partial/soft-route-replay-required`；
+`system-answer/conclusion/relation/wording/member/count-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r962`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r962`。
+
 ### §123.1545 B1477：生产同形结构校验通过，独立根因暂不成立（2026-08-31）
 
 1. 逐行复核 r960 首稿与三轮 patch：`extend Cart` 的可见 Markdown 行、hidden sidecar label/cells、精确
