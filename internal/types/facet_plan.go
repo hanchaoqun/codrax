@@ -191,6 +191,30 @@ const (
 	FacetDiagramSpine AnswerFacetKind = "diagram_spine"
 )
 
+// IsKnownAnswerFacetKind is the closed vocabulary used by lossless metadata
+// patch operations. Full answer validation still decides whether a known facet
+// is appropriate for a particular block; this predicate only prevents an
+// atomic patch from minting an untyped membership value.
+func IsKnownAnswerFacetKind(kind AnswerFacetKind) bool {
+	switch kind {
+	case FacetObservedArtifactFact,
+		FacetCurrentCodePath,
+		FacetNearestMechanism,
+		FacetUncertaintyBoundary,
+		FacetConfigPrecedenceRole,
+		FacetResolvedLiteralOrSymbol,
+		FacetEnumerationItem,
+		FacetBucketLabel,
+		FacetPrincipalPathEdge,
+		FacetBranchGuard,
+		FacetComponentRelation,
+		FacetDiagramSpine:
+		return true
+	default:
+		return false
+	}
+}
+
 // FacetRequiredness classifies how strictly a facet must be
 // covered. Phase 4 hard gates only fire on FacetHardRequired
 // missing; FacetSoftRequired surfaces as soft drift signal;

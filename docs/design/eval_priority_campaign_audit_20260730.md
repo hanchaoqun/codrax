@@ -57336,6 +57336,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1554 r969/B1486：已证关系分块正确但 ownership 修补只能复制边；新增 typed 元数据原子通道（2026-08-31）
+
+1. 从已推送 `68c9c017d` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner
+   2/2 PASS：Java 56s、sequence 357s。两路都没有按固定 4ms/4m、活动流年龄、轮次、首字节、上下文比例或“尚未出答案”状态降级。
+2. Java 人工审计通过：计划精确限定 `Main.java:16` 的 `retrun -> return`，保持 `pending_approval` 且没有修改源码。第一稿验证探针只编译
+   外部包装类、没有调用 `Main`，coupling gate 正确拒绝；第二稿直接覆盖 `Main.greet("Alice")` 与空串分支后通过。对这种语法级单行修复，
+   运行探针略重但不构成正确性/红线 gap，作为低优先级 soft teaching 观察，不加硬门。
+3. sequence 最终事实、结论和 Mermaid 方向正确：`buildAnalysisIR -> gate.RunWith <- gate.Run`，明确不存在
+   `buildAnalysisIR -> gate.Run` 有向路径；13 个关键中间函数也有独立列表。初稿其实已经分别在 `principal-ordered-list` 与
+   `gate-run-boundary` 正确展示、锚定并引用两条 endpoint-boundary 边，图内也有相同两边。
+4. 新 P1 `B1486-RELATIONFACETOWNERSHIPPATCH1` 不是探索或模型关系丢失：pre-emit ownership 门要求所有 endpoint-boundary 边由
+   声明 `principal_path_edge` 的块覆盖；第二条边所在 `gate-run-boundary` 只有 `current_code_path`。同轮图标签修补安装的
+   generation-local relation lease 又正确禁止向 `principal-ordered-list` 新增 `gate.Run -> gate.RunWith`。系统没有提供“只给现有精确
+   关系块补 ownership”的原子操作，模型按提示复制第二条边后被 `unlisted_relation_added` 拒绝；恢复正确分块又被 ownership 门拒绝，
+   最终只能再次复制边通过。最终结论虽正确，但产生一条可见重复关系与 3 次 finalizer reject。
+5. 根修不是放松 relation lease，也不是系统搬运关系。`block_field_edits_v1` 新增模型选择的 closed-enum `add_facet_id` 操作；当前仅在
+   typed no-directed-path endpoint capsule 有精确边且 existing model block 的每个 `items[].evidence_ids`、每个非空 claim evidence 和
+   每个 `edge_anchors[]` 都属于同一 exact endpoint-edge 集合时，动态发布精确 block id 与
+   `value=principal_path_edge`。混合旁支证据、非 call anchor、错向/错 endpoint、缺 typed item identity、system block 或歧义载体均不发布。
+6. 执行器只向所选块的隐藏 `facet_ids` 集合追加一个已知 membership，保留原有 facet、items、citations、claim uses、edge anchors、
+   Mermaid、标签、正文、顺序和布局；同代 relation lease 明确允许这个 topology-neutral 元数据操作，仍逐边比较原关系拓扑。普通 ownership
+   validator 继续负责最终授权，系统不选择 block/value、不创建/删除/复制/改向/改写任何关系或结论。
+7. 精确回归已钉住：已有 sink edge carrier 的动态 schema 只发布 `sink-boundary + add_facet_id=principal_path_edge`，已带 facet 的 source
+   block 与混合 support block 均不在 enum；即便该 block 是 live relation-lease target，metadata-only patch 仍可执行且所有 edge anchor
+   字节不变；未知 facet fail-closed；只补 membership 后完整 endpoint coverage 通过，不要求复制关系。完整
+   `go test ./internal/agent ./internal/types ./internal/tool -count=1` 全绿（agent 14.652s、types 25.453s、tool 183.824s）；
+   r970 生产回放待本批推送后执行。
+8. 本批只处理源码关系答案的隐藏 ownership 修补能力；不读取请求、thinking、模型正文、最终 prose 或 Mermaid label 来决定硬门，
+   不影响 Trace 查询、显式窗、唤醒链、链上根因排序、实际占时/规则可消双账户、业务线索、因果投影与系统自动补齐。
+
+状态：
+
+`r969=runner-pass-2/2,human-java-pass+sequence-partial-system-repair-conflict`；
+`B1486=implemented/full-agent+types+tool-suite-pass/pending-production-replay`；
+`facet-ownership-repair=model-selected-metadata-only/no-visible-relation-copy`；
+`mixed-or-ambiguous-carrier=no-capability/fail-closed`；
+`relation-lease=preserved/topology-comparison-unchanged`；
+`system-answer/conclusion/relation/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1553 r968：B1484/B1485 生产闭环；exact 12 行与显式窗 Trace 双路通过（2026-08-31）
 
 1. 从已推送 `c29414d77` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

@@ -16824,6 +16824,11 @@ func preCheckCallChainEndpointBoundaryFacetOwnership(doc *types.AnswerDocumentV2
 	}
 	if len(missingShapes) > 0 {
 		detail += " Missing endpoint-boundary edges: " + strings.Join(missingShapes, "; ") + "."
+		if candidates := answerDocumentPrincipalPathFacetAdditionCandidateBlockIDs(doc, view); len(candidates) > 0 {
+			detail += " Exact edge carrier(s) already present but missing only ownership metadata: " +
+				strings.Join(candidates, ", ") +
+				". On a patch retry, use the projected block_field_edits_v1 add_facet_id=principal_path_edge branch on the chosen existing carrier; do not copy the relation into another block."
+		}
 	}
 	return []emitFixHint{{
 		Field:         "blocks[facet_id=principal_path_edge].items[].citation_ref / blocks[].facet_ids",

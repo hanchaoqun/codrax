@@ -233,7 +233,7 @@ func TestAnswerDocumentPatchFieldEditTargetsUseExactKindAndExcludeSystemOrLeaseB
 		{ID: "system", Kind: types.BlockSummary, SystemGeneratedKind: types.AnswerSystemGeneratedRuntimeTrace},
 	}}
 	raw := projectAnswerDocumentPatchFieldEditTargets(
-		BuildAnswerDocumentPatchParametersFor(view), prev, []string{"support"},
+		BuildAnswerDocumentPatchParametersFor(view), prev, view, []string{"support"},
 	)
 	var root map[string]any
 	if err := json.Unmarshal(raw, &root); err != nil {
@@ -392,6 +392,100 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); !strings.Contains(desc, "current schema is the sole capability authority") ||
 		!strings.Contains(desc, "only unrelated existing blocks") {
 		t.Fatalf("live description must match the executable schema: %q", desc)
+	}
+}
+
+func TestAnswerDocumentPatchFieldEditProjection_OffersExactExistingEndpointCarrierFacetOnly(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family: types.QFCallChain,
+		CallChainEndpointBoundary: &types.CallChainEndpointBoundary{
+			Disposition:    types.CallChainEndpointNoDirectedPath,
+			SourceEndpoint: "agent.buildAnalysisIR",
+			RequestedSink:  "gate.Run",
+			EvidenceCapsule: &types.CallChainEndpointEvidenceCapsule{
+				Status: types.CallChainEndpointEvidenceSharedCalleeBoundary,
+				SourcePath: []types.CallChainEvidenceEdge{{
+					From: "agent.buildAnalysisIR", To: "gate.RunWith", EvidenceID: "source-edge",
+				}},
+				SinkPath: []types.CallChainEvidenceEdge{{
+					From: "gate.Run", To: "gate.RunWith", EvidenceID: "sink-edge",
+				}},
+			},
+		},
+	}
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{
+			ID: "source-path", Kind: types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetPrincipalPathEdge)},
+			Items:    []types.AnswerBlockItem{{ID: "source", EvidenceIDs: []string{"source-edge"}}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "buildAnalysisIR", ToNode: "gate.RunWith", FromIdentity: "buildAnalysisIR", ToIdentity: "gate.RunWith", RelationKind: types.DiagramRelCall,
+			}},
+		},
+		{
+			ID: "sink-boundary", Kind: types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetCurrentCodePath)},
+			Items:    []types.AnswerBlockItem{{ID: "sink", EvidenceIDs: []string{"sink-edge"}}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "gate.Run", ToNode: "gate.RunWith", FromIdentity: "Run", ToIdentity: "RunWith", RelationKind: types.DiagramRelCall,
+			}},
+		},
+		{
+			ID: "mixed-support", Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{
+				{ID: "sink", EvidenceIDs: []string{"sink-edge"}},
+				{ID: "other", EvidenceIDs: []string{"other-edge"}},
+			},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "gate.Run", ToNode: "gate.RunWith", FromIdentity: "Run", ToIdentity: "RunWith", RelationKind: types.DiagramRelCall,
+			}},
+		},
+	}}
+	raw := projectAnswerDocumentPatchFieldEditTargets(
+		BuildAnswerDocumentPatchParametersFor(view), prev, view, []string{"sink-boundary"},
+	)
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("projected patch schema must parse: %v", err)
+	}
+	branches := root["properties"].(map[string]any)["block_field_edits_v1"].(map[string]any)["items"].(map[string]any)["oneOf"].([]any)
+	found := false
+	for _, rawBranch := range branches {
+		props := rawBranch.(map[string]any)["properties"].(map[string]any)
+		if props["field"].(map[string]any)["const"] != string(types.AnswerBlockFieldAddFacetID) {
+			continue
+		}
+		found = true
+		if got := props["block_id"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{"sink-boundary"}) {
+			t.Fatalf("facet addition targets=%v, want exact unmixed existing edge carrier", got)
+		}
+		if got := props["value"].(map[string]any)["enum"].([]any); !reflect.DeepEqual(got, []any{string(types.FacetPrincipalPathEdge)}) {
+			t.Fatalf("facet addition value=%v, want closed exact ownership value", got)
+		}
+	}
+	if !found {
+		t.Fatal("exact metadata-only principal-path facet branch was not projected")
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "sink-boundary", Issue: "call_edge_display_repair",
+		FromNode: "gate.Run", ToNode: "gate.RunWith", FromIdentity: "Run", ToIdentity: "RunWith",
+		RelationKind: types.DiagramRelCall,
+	}}, nil)
+	if lease == nil {
+		t.Fatal("test setup did not create a same-generation relation lease")
+	}
+	params := &emitAnswerDocumentPatchParams{BlockFieldEditsV1: []types.AnswerBlockFieldEditV1{{
+		BlockID: "sink-boundary", Field: types.AnswerBlockFieldAddFacetID, Value: string(types.FacetPrincipalPathEdge),
+	}}}
+	if violation := localDiagramLeaseWholeBlockMutationViolation(params, lease, prev, view); violation != nil {
+		t.Fatalf("metadata-only facet ownership must remain executable on a live relation target: %+v", violation)
+	}
+	merged, err := types.ApplyAnswerDocumentV2Patch(prev, &types.AnswerDocumentV2Patch{BlockFieldEditsV1: params.BlockFieldEditsV1})
+	if err != nil {
+		t.Fatalf("metadata-only facet ownership patch failed: %v", err)
+	}
+	if violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(violations) != 0 {
+		t.Fatalf("unchanged relation topology must satisfy the live lease: %+v", violations)
 	}
 }
 

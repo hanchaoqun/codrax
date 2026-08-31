@@ -169,6 +169,30 @@ func TestPreCheckCallChainEndpointBoundaryFacetOwnership_RejectsSiblingCallsOnly
 		!strings.Contains(hints[0].ExpectedShape, "use citation_ref=1") {
 		t.Fatalf("principal boundary carrier must cover every exact boundary edge, got %+v", hints)
 	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID: "sink-boundary", Kind: types.BlockOrderedList,
+		FacetIDs: []string{string(types.FacetCurrentCodePath)},
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimCallEdge, EvidenceID: "sink-edge", FacetID: string(types.FacetCurrentCodePath),
+		}},
+		Items: []types.AnswerBlockItem{{ID: "sink", EvidenceIDs: []string{"sink-edge"}, CitationRef: 1}},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "gate.Run", ToNode: "gate.RunWith", FromIdentity: "Run", ToIdentity: "RunWith",
+			RelationKind: types.DiagramRelCall, VisibleLabel: "model-authored forwarding wording",
+		}},
+	})
+	hints = preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx))
+	if len(hints) != 1 ||
+		!strings.Contains(hints[0].ExpectedShape, "Exact edge carrier(s) already present but missing only ownership metadata: sink-boundary") ||
+		!strings.Contains(hints[0].ExpectedShape, "add_facet_id=principal_path_edge") ||
+		!strings.Contains(hints[0].ExpectedShape, "copy the relation into another block") {
+		t.Fatalf("existing exact edge carrier must publish the metadata-only repair route: %+v", hints)
+	}
+	doc.Blocks[len(doc.Blocks)-1].FacetIDs = append(doc.Blocks[len(doc.Blocks)-1].FacetIDs, string(types.FacetPrincipalPathEdge))
+	if hints := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("adding only typed ownership to the existing exact carrier must close coverage without duplicating a relation: %+v", hints)
+	}
 }
 
 func TestNormalizeAnswerDocumentRowsBeforePersist_NoDirectedPathDoesNotAuthorReachableRoster(t *testing.T) {

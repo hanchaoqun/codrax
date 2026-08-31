@@ -164,6 +164,33 @@ func TestApplyPatch_BlockFieldEditV1CoversClosedEnumMetadataClass(t *testing.T) 
 	}
 }
 
+func TestApplyPatch_BlockFieldEditV1AddsFacetMembershipWithoutChangingRelationCarrier(t *testing.T) {
+	prev := samplePrevDoc()
+	prev.Blocks[2].FacetIDs = []string{string(FacetCurrentCodePath)}
+	prev.Blocks[2].EdgeAnchors = []DiagramEdgeAnchor{{
+		FromNode: "gate.Run", ToNode: "gate.RunWith",
+		FromIdentity: "gate.Run", ToIdentity: "gate.RunWith",
+		RelationKind: DiagramRelCall, VisibleLabel: "model wording",
+	}}
+	before := prev.Blocks[2]
+	got, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{BlockFieldEditsV1: []AnswerBlockFieldEditV1{{
+		BlockID: "list1", Field: AnswerBlockFieldAddFacetID, Value: string(FacetPrincipalPathEdge),
+	}}})
+	if err != nil {
+		t.Fatalf("typed facet membership addition must execute: %v", err)
+	}
+	want := before
+	want.FacetIDs = []string{string(FacetCurrentCodePath), string(FacetPrincipalPathEdge)}
+	if !reflect.DeepEqual(got.Blocks[2], want) {
+		t.Fatalf("facet membership edit changed model-authored carrier: got=%+v want=%+v", got.Blocks[2], want)
+	}
+	if _, err := ApplyAnswerDocumentV2Patch(prev, &AnswerDocumentV2Patch{BlockFieldEditsV1: []AnswerBlockFieldEditV1{{
+		BlockID: "list1", Field: AnswerBlockFieldAddFacetID, Value: "invented_facet",
+	}}}); err == nil {
+		t.Fatal("atomic metadata lane must reject an unknown facet value")
+	}
+}
+
 func TestApplyPatch_BlockFieldEditV1RejectsWholeBlockConflictsAndDuplicates(t *testing.T) {
 	prev := samplePrevDoc()
 	valid := AnswerBlockFieldEditV1{BlockID: "s1", Field: AnswerBlockFieldSurfaceRole, Value: string(SurfacePrincipal)}

@@ -16909,7 +16909,7 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
 	b.WriteString("Only user-facing labels are listed below. Do not append internal system roles or enum names to the visible answer.\n")
 	if memberSetMetadataRepair {
-		b.WriteString("Executable patch shape: `facet_ids` is array metadata; do not put it in string-enum-only `block_field_edits_v1`. If the current tool schema publishes no dedicated atomic branch, use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
+		b.WriteString("Executable patch shape: `facet_ids` itself remains array metadata; do not send that array through `block_field_edits_v1`. When the current tool schema publishes an exact `add_facet_id` branch, select its block_id/value to add only that ownership membership while preserving the relation carrier byte-for-byte. Otherwise use `replace_blocks` with the COMPLETE target block: copy the previous id/kind/title/text/columns/items/diagram/claim_uses/surface_role/source_inventory_family and change only `facet_ids`; `replace_blocks` is not a field merge.\n")
 	}
 	b.WriteString("Missing dimensions:\n")
 	for _, dim := range missing {
