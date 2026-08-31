@@ -671,6 +671,49 @@ func TestApplyModelAuthoredDiagramAtomicEdits_AdditionRefStampsOnlySelectedHidde
 	})
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_ValidatesTechnicalEndpointBeforeUniqueSequenceAliasRewrite(t *testing.T) {
+	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant GateWith as gate.RunWith\n  participant Gate as gate.Run\n",
+		},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, nil, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diag", RelationKind: types.DiagramRelCall,
+		FromIdentity: "Run", ToIdentity: "RunWith",
+		FromNodeIDs: []string{"gate.Run"}, ToNodeIDs: []string{"GateWith"},
+		Source: "internal/analysis/gate/gate.go:135",
+	}})
+	if lease == nil || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("expected one live typed addition: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{{
+		Action: "add", AdditionRef: lease.AllowedAdditions[0].AdditionRef,
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "gate.Run", ToNode: "GateWith", VisibleLabel: "包装调用",
+		},
+	}}, nil, lease)
+	if err != nil {
+		t.Fatalf("an authorized technical endpoint must survive the trusted existing-alias rewrite: %v", err)
+	}
+	if len(patch.ReplaceBlocks) != 1 {
+		t.Fatalf("unexpected compiled patch: %+v", patch)
+	}
+	got := patch.ReplaceBlocks[0]
+	if !strings.Contains(got.Diagram.Body, "Gate->>GateWith: 包装调用") ||
+		strings.Contains(got.Diagram.Body, "gate.Run->>GateWith") || len(got.EdgeAnchors) != 1 {
+		t.Fatalf("the sequence edge must reuse the unique declared alias without creating an implicit duplicate: %+v", got)
+	}
+	anchor := got.EdgeAnchors[0]
+	if anchor.FromNode != "Gate" || anchor.ToNode != "GateWith" ||
+		anchor.FromIdentity != "Run" || anchor.ToIdentity != "RunWith" ||
+		anchor.RelationKind != types.DiagramRelCall {
+		t.Fatalf("alias normalization must preserve the selected hidden typed tuple: %+v", anchor)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_RequiresModelVisibleNameForNewEndpointAcrossFamilies(t *testing.T) {
 	tests := []struct {
 		name            string

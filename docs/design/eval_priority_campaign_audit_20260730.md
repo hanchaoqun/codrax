@@ -57336,6 +57336,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
+
+1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，
+   56s，仍只规划 `Main.java:16 retrun -> return`、保持 `pending_approval`、不修改源码。sequence 266s 后 runner/human FAIL，
+   `degraded_answer_checks_skipped:1`；过程由 r973 的 16 次 reject 降至 6 次，但同类错误重复 4 次触发防烧预算 stop，随后恢复旧稿。该停止来自
+   合同错误类重复，不是 timeout、固定 4ms/4m、活动流年龄、首字节或上下文比例降级。
+2. 恢复稿的事实、引用和图本身正确：明确不存在 `buildAnalysisIR -> gate.Run` 有向路径，只画
+   `buildAnalysisIR -> gate.RunWith <- gate.Run`；关键函数清单也可用。但带“最终重试未能产出有效 answer_document”说明，不能因可读草稿而
+   判生产通过。B1490 的原始 buildIR/runWith 形没有复发，r974 揭示同一根族下更底层的 P0
+   `B1491-ATOMICCANONICALIZEBEFOREVALIDATE1`。
+3. 精确执行链：当前图已声明 `participant Gate as gate.Run`、`participant GateWith as gate.RunWith`；lease 明确发布
+   `from_node_ids=[gate.Run]`。模型严格提交 `from_node=gate.Run,to_node=GateWith`。`canonicalizeAtomicSequenceAdditionNodeRefs`
+   为避免 Mermaid 创建第二个隐式 participant，先依据唯一 typed declaration 把 `gate.Run` 改写为 `Gate`；随后
+   `validateAtomicDiagramAdditionEndpointBindings` 却用 lease 原清单校验改写后的 `Gate`，报它不是 `from_identity=Run` 的 carrier。
+   错误提示继续让模型使用 `gate.Run`，下一轮又被系统改回 `Gate`，形成确定性闭环。
+4. 根修调整原子 add 的同事务顺序，而不放宽任何 authority：先对模型提交的 node 做 exact technical/producer-listed endpoint 校验；通过后再调用
+   sequence alias canonicalizer。后者自身已经要求模型 node 与 hidden endpoint 绑定、现有声明的 id/label 与同一 endpoint 绑定、且匹配声明唯一；
+   歧义会报错、无匹配不改写。因此系统可信归一化不会重新引入未经授权关系，且其输出不再被前一份候选清单反向拒绝。
+5. 新执行级回归完整复现生产形：typed candidate `Run -> RunWith` 只发布 `gate.Run/GateWith`，图声明 `Gate/GateWith`；模型提交技术 node 后，
+   executor 必须生成 `Gate->>GateWith`，隐藏 identity 保持 `Run -> RunWith`，不得生成隐式 `gate.Run` participant。既有 unrelated participant
+   拒绝、ref 复用、stale ref、跨图族声明测试继续守门；另保留 B1490 的 unquoted declaration producer pin。聚焦测试及
+   `go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 26.722s、tool 191.966s、agent 15.663s）。
+6. 本批不改变 Trace 显式窗、自动查询补齐、唤醒链、链上根因、优先级反转/调度和算力供给/D/IO/确定性语义工作、实际占时/规则可消双账户、
+   链上业务线索或因果投影。系统仍不扫描 request/thinking/final prose/Mermaid 业务词，不生成或替换模型关系、节点、文案、结论和布局。
+   完整测试通过并推送后，必须从新提交再次恰好 2 路回放，直到 sequence 不再降级才闭环。
+
+状态：
+
+`r974=runner-java-pass+sequence-fail/human-java-pass+sequence-fail`；
+`B1490=production-partial/original-buildIR-loop-not-repeated`；
+`B1491=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`atomic-add-order=model-endpoint-validate-before-trusted-unique-alias-canonicalize`；
+`unlisted/ambiguous-alias=fail-closed`；
+`system-answer/conclusion/relation/node/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-business-label-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/r974-failure-was-repeat-class-stop-after-contract-loop`。
+
 ### §123.1558 r973/B1490：现有 Mermaid 别名与 typed 端点候选合同断裂，16 次修补耗尽后降级（2026-08-31）
 
 1. 从已推送 `9801f6f0f` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

@@ -1488,10 +1488,18 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		if edit.Match != nil {
 			return fmt.Errorf("action=add must omit match")
 		}
-		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
+		// Validate the model-authored endpoint choice before the sequence
+		// deduplicator rewrites an exact technical node to the one uniquely
+		// declared alias for that typed endpoint. Validating after that trusted
+		// rewrite made the executor reject its own alias whenever the producer
+		// lease listed only the technical node. The canonicalizer has its own
+		// exact/unique typed binding checks, so this order preserves both gates:
+		// unlisted model choices still fail, while a system-selected existing
+		// declaration cannot invalidate an already-authorized choice.
+		if err := validateAtomicDiagramAdditionEndpointBindings(block, edit.Edge, edit.additionCandidate, stagePrecedence); err != nil {
 			return err
 		}
-		if err := validateAtomicDiagramAdditionEndpointBindings(block, edit.Edge, edit.additionCandidate, stagePrecedence); err != nil {
+		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
 			return err
 		}
 		if err := validateAtomicDiagramAnchor(edit.Edge, "edge"); err != nil {

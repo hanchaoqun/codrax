@@ -2552,6 +2552,37 @@ func TestDiagramRelationRepairCandidateCarriesUniqueQualifiedAliasForExactShortE
 	}
 }
 
+func TestDiagramRelationRepairAllowedAdditionCarriesUnquotedQualifiedParticipantForShortEndpoint(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "d1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant GateWith as gate.RunWith\n  participant Gate as gate.Run\n  Gate->>GateWith: wrapper\n",
+		},
+	}}}
+	evidence := []types.EvidenceItem{{
+		ID: "ev-run-runwith", Kind: types.EvidenceRelationship, Scope: types.ScopeLine,
+		Subject: "gate.Run", Object: "RunWith", Predicate: "calls",
+		Source: "internal/analysis/gate/gate.go", LineStart: 135, LineEnd: 135,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "RunWith", OwnerSymbol: "gate.Run",
+		GroundingStatus: types.GroundingGrounded,
+	}}
+	got := diagramRelationRepairAllowedAdditions(
+		doc, types.RequestModel{}, evidence, nil, []string{"d1"},
+		[]preEmitStandaloneRelationRepairCandidate{{
+			relation: types.DiagramRelCall, from: "Run", to: "RunWith",
+			evidenceID: "ev-run-runwith", source: "internal/analysis/gate/gate.go:135", blockIDs: []string{"d1"},
+		}}, 8,
+	)
+	if len(got) != 1 {
+		t.Fatalf("production addition provider returned %+v", got)
+	}
+	if !atomicDiagramNodeIDListed("Gate", got[0].FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("GateWith", got[0].ToNodeIDs) {
+		t.Fatalf("unquoted qualified sequence declarations must carry exact short typed endpoints: %+v", got[0])
+	}
+}
+
 func TestDiagramRelationRepairCandidateRejectsAmbiguousQualifiedLabelsForExactShortEndpoint(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "call-diagram", Kind: types.BlockDiagram,
