@@ -57620,6 +57620,36 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r981`。
 
+### §123.1568 r982/B1498c：typed 调度面被通用 self-loop 初始教学抢先（2026-08-31）
+
+1. 从已推送 `fc82a04dd` 干净构建，严格恰好 2 路复放相同 Trace/Cangjie；runner 2/2 PASS，分别 240s/259s。Cangjie 最终答案仍严格正确，
+   不可用调用由 r980 的 6 次、r981 的 3 次降至 1 次，证明 system 同级工具能力尾指令有效但尚未根治初始提示竞争。
+2. 唯一残余发生在后续 explorer dispatch：当前 schema 已只剩 `emit_investigation_complete`，但 `BuildInitialInstruction` 因保留了 prior
+   `investigationNotes`，先命中通用 `Retry: Depth Investigation`，主动教 repo_map/grep/read；调度器声明的 source-inventory landing/read policy
+   分支位于 self-loop 之后，永远没有机会构造一致的初始提示。末位 system 能力消息在第二轮纠正模型，但第一轮仍浪费一次 repo_map。
+3. B1498c 根修不再叠加更强尾文案，而是统一初始分支所有权：source-inventory mechanical landing、required-file verification、
+   completion-only、source-inventory lens/followup 与 read dispatch policy 均先于通用 self-loop；它们从同一 typed 状态生成当前允许工具和任务焦点。
+   普通无 typed continuation 的 self-loop 保持原样，正常搜索/读文件能力不受影响。
+4. 新测试构造“已有 investigation notes + 完整 typed inventory”生产形，钉住初始提示只能要求 completion，不能出现 retry/grep/read/Search broadly；
+   另钉 read-policy landing 也必须先于 self-loop。定向 agent 测试已绿，全仓与生产复放待执行。
+5. Trace 结构能力均保留，但人工判 fail，新增 `B1500-RUNTIMEWORKHOSTMETRICSEPARATION1/P1`：模型把宿主 T7 的 runnable 0.105ms 有效归因写成
+   VerifyClass 工作“计入”的有效归因，而 typed semantic work 自身为 0.000ms。该根族要求上下文明确分离 work wall-clock、work effective impact 与
+   host scheduler contribution；不得由系统修改模型答案。模型还复述 `relation_unproven`，继续归入 B1499 软本地化教学。
+
+状态：
+
+`r982=runner-pass-2/2,human-trace-fail+cangjie-answer-pass/process-fail`；
+`B1498=typed-surface-before-self-loop-implemented/targeted-tests-pass/full-suite-pass`；
+`B1499=confirmed/p2-soft-guidance-only`；
+`B1500=confirmed/p1-context-caliber-separation`；
+`tool-capability-signal=current-schema+typed-dispatch-state`；
+`typed-dispatch-prompt-precedence=before-generic-self-loop`；
+`request/model/final-prose/markdown/mermaid scan=none`；
+`system-answer/conclusion/fact-selection=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r982`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r982`。
+
 ### §123.1559 r974/B1491：候选端点被系统归一后再校验，执行器拒绝自己的 typed 别名改写（2026-08-31）
 
 1. 从已推送 `4ac09a472` 干净构建，严格并发恰好 2 路复放相同 QF sequence/no-directed-path 与 Java write typo。Java runner/human PASS，

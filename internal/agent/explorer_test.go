@@ -5165,6 +5165,65 @@ func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingSurface(t *t
 	}
 }
 
+func TestExplorer_BuildInitialInstructionTypedInventoryLandingPrecedesGenericSelfLoop(t *testing.T) {
+	objective := "list the bounded source declarations"
+	eval := &explorerEvaluator{
+		sourceInventoryLensSurfaceReleased: true,
+		investigationNotes:                 []string{"prior dispatch already investigated"},
+		userQuestion:                       objective,
+	}
+	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)
+	ctx.Objective = objective
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Scheduler-owned Typed Tool Surface",
+		"complete mechanical source-inventory row-set",
+		"callable tools: `emit_investigation_complete`",
+		"next action is `emit_investigation_complete`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("typed landing prompt missing %q:\n%s", want, got)
+		}
+	}
+	for _, stale := range []string{
+		"Retry: Depth Investigation",
+		"use `grep`",
+		"use `read_file`",
+		"Search broadly",
+	} {
+		if strings.Contains(got, stale) {
+			t.Fatalf("typed landing prompt retained stale self-loop teaching %q:\n%s", stale, got)
+		}
+	}
+}
+
+func TestExplorer_BuildInitialInstructionReadPolicyPrecedesGenericSelfLoop(t *testing.T) {
+	objective := "continue the bounded proof"
+	eval := &explorerEvaluator{
+		investigationNotes: []string{"prior dispatch already investigated"},
+		userQuestion:       objective,
+	}
+	ctx := &types.AgentContext{
+		Stage:     types.StageExplore,
+		Objective: objective,
+		ReadDispatchPolicy: types.ReadDispatchPolicy{
+			Active:         true,
+			Action:         types.ReadDispatchPolicyActionLandingRepair,
+			AllowedTools:   []string{"emit_investigation_complete"},
+			PreferredTools: []string{"emit_investigation_complete"},
+		},
+	}
+
+	got := eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(got, "Read Dispatch Policy") || !strings.Contains(got, "local structured-handoff landing repair") {
+		t.Fatalf("read-policy prompt was not selected:\n%s", got)
+	}
+	if strings.Contains(got, "Retry: Depth Investigation") || strings.Contains(got, "use `grep`") {
+		t.Fatalf("generic self-loop teaching must not override read policy:\n%s", got)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_SourceInventoryMechanicalLandingWaitsForMissingSourceClass(t *testing.T) {
 	eval := &explorerEvaluator{sourceInventoryLensSurfaceReleased: true}
 	ctx := sourceInventoryMechanicalLandingContextForExplorerTest(false)

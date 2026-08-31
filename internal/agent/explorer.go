@@ -512,6 +512,32 @@ func renderExplorerReadDispatchPolicyInstruction(ctx *types.AgentContext) string
 	return b.String()
 }
 
+func renderExplorerTypedToolSurfaceInstruction(allowed map[string]bool, focus string) string {
+	if len(allowed) == 0 {
+		return ""
+	}
+	names := sortedToolNames(allowed)
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, "`"+name+"`")
+	}
+	var b strings.Builder
+	b.WriteString("## Scheduler-owned Typed Tool Surface\n\n")
+	b.WriteString("This dispatch starts from a scheduler-selected typed continuation. The generic breadth-scan and retry-depth workflows are not active in this dispatch.\n")
+	if strings.TrimSpace(focus) != "" {
+		b.WriteString(focus)
+		b.WriteString("\n")
+	}
+	b.WriteString("- callable tools: ")
+	b.WriteString(strings.Join(quoted, ", "))
+	b.WriteString("\n")
+	b.WriteString("- Do not call or plan around tools outside that list. Use the existing typed observations, stable checkpoints, and already-visible evidence; preserve any remaining evidence boundary in the structured handoff.\n")
+	if len(names) == 1 && names[0] == explorerCompletionToolName {
+		b.WriteString("- The next action is `emit_investigation_complete`. Do not start a new search, file-list, read, or repo-map phase first.\n")
+	}
+	return b.String()
+}
+
 func sourceInventoryLensRoleLabels(ctx *types.AgentContext) []string {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil {
 		return nil
@@ -839,6 +865,44 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return composeInitialInstruction(e.buildDurableProgressContinuationInstruction(ctx))
 	}
 
+	// A typed scheduler continuation owns the current dispatch before the
+	// evaluator's generic self-loop retry prompt. Previously the retry branch
+	// below won merely because investigationNotes survived from an earlier
+	// dispatch. It then taught grep/read/repo_map even when FilterToolSchemas
+	// had already selected a source-inventory landing, exact required-file
+	// verification, read-policy, or completion-only surface. Keep prompt and
+	// schema on the same typed state authority; this ordering does not inspect
+	// user/model prose and does not decide whether any answer fact is true.
+	if e.sourceInventoryMechanicalLandingSurfaceActive(ctx) {
+		e.phase = 1
+		return composeInitialInstruction(renderExplorerTypedToolSurfaceInstruction(
+			investigationCompleteOnlyToolNames,
+			"The complete mechanical source-inventory row-set is already the principal answer authority. Land its exact members, counts, locations, and attributes without reopening discovery.",
+		))
+	}
+	if e.sourceInventoryRequiredFileVerificationSurfaceActive(ctx) {
+		e.phase = 1
+		return composeInitialInstruction(renderExplorerTypedToolSurfaceInstruction(
+			sourceInventoryRequiredFileVerificationToolNames,
+			"Verify only the still-required source-inventory file scope, materialize the bounded result, then complete. Do not broaden to sibling search tools.",
+		))
+	}
+	if ctx != nil && ctx.CompletionOnlySurface {
+		e.phase = 1
+		return composeInitialInstruction(renderExplorerTypedToolSurfaceInstruction(
+			completionOnlyToolSurface(ctx),
+			"Repair or land the pending structured completion from the existing evidence/context pack.",
+		))
+	}
+	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventory() {
+		e.phase = 0
+		return composeInitialInstruction(renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
+	}
+	if ctx != nil && ctx.ReadDispatchPolicy.IsActive() {
+		e.phase = 0
+		return composeInitialInstruction(renderExplorerReadDispatchPolicyInstruction(ctx))
+	}
+
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
 	// Phase 0 breadth scan and go directly to Phase 1 depth read with
@@ -947,16 +1011,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if runtimeTraceSourceOptionalPromptShouldStayOnTraceQuery(ctx) {
 		e.phase = 1
 		return composeInitialInstruction(e.buildExplicitRuntimeTracePathStartInstruction(ctx))
-	}
-
-	if ctx != nil && ctx.ExploreToolSurface.IsSourceInventory() {
-		e.phase = 0
-		return composeInitialInstruction(renderExplorerSourceInventoryLensSurfaceInstruction(ctx))
-	}
-
-	if ctx != nil && ctx.ReadDispatchPolicy.IsActive() {
-		e.phase = 0
-		return composeInitialInstruction(renderExplorerReadDispatchPolicyInstruction(ctx))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
