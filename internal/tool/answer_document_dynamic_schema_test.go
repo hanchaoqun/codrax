@@ -495,9 +495,10 @@ func TestAnswerDocumentPatchFieldEditProjection_OffersMemberSetOnlyForUniqueType
 	}}}}
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
 		{ID: "summary", Kind: types.BlockSummary, Text: "model summary"},
-		{ID: "roster", Kind: types.BlockBulletList, FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{
-			{ID: "a", EvidenceIDs: []string{"ev-a"}}, {ID: "b", EvidenceIDs: []string{"ev-b"}},
-		}},
+		{ID: "roster", Kind: types.BlockBulletList, FacetIDs: []string{string(types.FacetEnumerationItem)},
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimCallEdge, EvidenceID: "ev-a"}}, Items: []types.AnswerBlockItem{
+				{ID: "a", EvidenceIDs: []string{"ev-a"}}, {ID: "b", EvidenceIDs: []string{"ev-b"}},
+			}},
 		{ID: "relation", Kind: types.BlockOrderedList, FacetIDs: []string{string(types.FacetEnumerationItem), string(types.FacetPrincipalPathEdge)},
 			Items: []types.AnswerBlockItem{{ID: "edge", EvidenceIDs: []string{"ev-edge"}}}, EdgeAnchors: []types.DiagramEdgeAnchor{{
 				FromNode: "A", ToNode: "B", FromIdentity: "A", ToIdentity: "B", RelationKind: types.DiagramRelCall,
@@ -527,6 +528,11 @@ func TestAnswerDocumentPatchFieldEditProjection_OffersMemberSetOnlyForUniqueType
 	if !found {
 		t.Fatal("unique typed roster did not receive an atomic member_set membership branch")
 	}
+	prev.Blocks[1].ClaimUses[0].EvidenceID = "ev-outside-roster"
+	if got := answerDocumentMemberSetFacetAdditionCandidateBlockIDs(prev, view); len(got) != 0 {
+		t.Fatalf("relation provenance outside the roster items must fail closed, got %v", got)
+	}
+	prev.Blocks[1].ClaimUses[0].EvidenceID = "ev-a"
 	prev.Blocks = append(prev.Blocks, types.AnswerBlock{ID: "second-roster", Kind: types.BlockTable,
 		FacetIDs: []string{string(types.FacetEnumerationItem)}, Items: []types.AnswerBlockItem{{ID: "c", EvidenceIDs: []string{"ev-c"}}}})
 	if got := answerDocumentMemberSetFacetAdditionCandidateBlockIDs(prev, view); len(got) != 0 {

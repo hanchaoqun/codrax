@@ -160,13 +160,28 @@ func TestPreCheckCallChainEndpointBoundaryFacetOwnership_RejectsSiblingCallsOnly
 	if hints := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
 		t.Fatalf("exact endpoint-boundary pair must pass while support facts remain available: %+v", hints)
 	}
+	// Stable evidence identity must outrank a stale/remapped citation-pool
+	// position. Patch retries can append or normalize citations, but the model's
+	// exact current-source evidence selection does not change with that pool.
+	doc.Blocks[0].Items[0].EvidenceIDs = []string{"source-edge"}
+	doc.Blocks[0].Items[1].EvidenceIDs = []string{"sink-edge"}
+	doc.Blocks[0].Items[0].CitationRef = 2
+	doc.Blocks[0].Items[1].CitationRef = 2
+	if hints := preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx)); len(hints) != 0 {
+		t.Fatalf("stable item evidence ids must survive citation-pool index drift: %+v", hints)
+	}
+	doc.Blocks[0].Items[0].EvidenceIDs = nil
+	doc.Blocks[0].Items[1].EvidenceIDs = nil
+	doc.Blocks[0].Items[0].CitationRef = 0
+	doc.Blocks[0].Items[1].CitationRef = 1
 
 	doc.Blocks[0].Items = doc.Blocks[0].Items[:1]
 	hints = preCheckCallChainEndpointBoundaryFacetOwnership(doc, view, newPreEmitCheckContext(ctx))
 	if len(hints) != 1 ||
 		!strings.Contains(hints[0].ExpectedShape, "Missing endpoint-boundary edges") ||
 		!strings.Contains(hints[0].ExpectedShape, "gate.Run -> gate.RunWith at internal/analysis/gate/gate.go:135") ||
-		!strings.Contains(hints[0].ExpectedShape, "use citation_ref=1") {
+		!strings.Contains(hints[0].ExpectedShape, `use evidence_ids=["sink-edge"]`) ||
+		strings.Contains(hints[0].ExpectedShape, "use citation_ref=") {
 		t.Fatalf("principal boundary carrier must cover every exact boundary edge, got %+v", hints)
 	}
 

@@ -1481,17 +1481,32 @@ func answerDocumentMemberSetFacetAdditionCandidateBlockIDs(doc *types.AnswerDocu
 			continue
 		}
 		valid := true
-		for _, claim := range block.ClaimUses {
-			if types.IsCallChainPrincipalRelationClaimForm(claim.ClaimForm) {
+		itemEvidenceIDs := make(map[string]bool)
+		for _, item := range block.Items {
+			if strings.TrimSpace(item.SourceInventoryRowID) != "" || len(item.EvidenceIDs) == 0 {
 				valid = false
 				break
 			}
+			for _, rawEvidenceID := range item.EvidenceIDs {
+				if evidenceID := strings.TrimSpace(rawEvidenceID); evidenceID != "" {
+					itemEvidenceIDs[evidenceID] = true
+				}
+			}
 		}
-		if !valid {
+		if !valid || len(itemEvidenceIDs) == 0 {
 			continue
 		}
-		for _, item := range block.Items {
-			if strings.TrimSpace(item.SourceInventoryRowID) != "" || len(item.EvidenceIDs) == 0 {
+		// A member roster may cite a call/registration row as the evidence for
+		// one visible member without thereby becoming a topology carrier.  Keep
+		// that provenance only when every directed claim selects an exact item
+		// evidence id.  Edge anchors/principal_path_edge remain excluded above,
+		// so this relaxation cannot relabel an actual path block as a roster.
+		for _, claim := range block.ClaimUses {
+			if !types.IsCallChainPrincipalRelationClaimForm(claim.ClaimForm) {
+				continue
+			}
+			evidenceID := strings.TrimSpace(claim.EvidenceID)
+			if evidenceID == "" || !itemEvidenceIDs[evidenceID] {
 				valid = false
 				break
 			}

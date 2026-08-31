@@ -57336,6 +57336,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r966`。
 
+### §123.1557 r972/B1489：可见答案正确但关系归属陷入 citation pool 索引循环；成员清单证据被误当路径载体（2026-08-31）
+
+1. 从已推送 `44fbf6af0` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner
+   2/2 PASS：Java 49s、sequence 457s。Java 人工通过，仍是 `Main.java:16` 单行 `retrun -> return`、`pending_approval`、零源码修改。
+   两路均未按固定 4ms/4m、活动流年龄、轮次、首字节或上下文比例降级。
+2. sequence 的可见最终答案仍正确且有用：明确 `buildAnalysisIR` 与 `gate.Run` 没有已证直达路径，只分别调用 `RunWith`；Mermaid
+   两边方向正确，22 项关键中间函数与引用完整。runner PASS 不能掩盖 10 次 finalizer reject 和最后一次 metadata patch 失败，人工判
+   `partial`。
+3. 第一根新 P0 `B1489-CITATIONIDENTITY1` 是稳定身份与池位置混用。endpoint-boundary capsule 已给出 exact evidence id 与源码位置，模型新增
+   principal edge block 后，ownership 门却只读 `items[].citation_ref`；错误提示又明确要求 `citation_ref=21/22`。patch 的 append/replace/
+   preserved-pool normalization 会重排或扩展 citations，模型按提示重发后同一索引反复落到 1892/1895，系统继续宣称 2724/135 缺失，形成
+   确定性循环。直到模型放弃索引、改用 exact `items[].evidence_ids` 才通过。
+4. 根修将 endpoint ownership 的主身份切到 stable evidence id：先读取每个 item 的 schema-valid `evidence_ids` 与 typed capsule edge id；只有
+   兼容旧稿时才从 citation 反解 evidence。缺边提示直接给 `use evidence_ids=["…"]`，并明确禁止用 citation-pool position 做 current-source
+   ownership。引用池仍负责渲染引用，不再兼任关系成员身份；系统不从 item label/text、请求、thinking、最终 prose 或 Mermaid 文本猜边。
+5. 第二根 P1 `B1489-MEMBERFACETPROVENANCE1` 解释最后一次 `field_not_published`。唯一关键函数清单已有 `enumeration_item`、22 个逐项 evidence、
+   无 edge anchor/无 `principal_path_edge`，但每项来源本身是 call evidence，模型同时保留了 evidence-backed `call_edge` claim_uses。旧候选器
+   把任何 directed claim 一律视为“混合路径载体”，因此未发布 `member_set` 原子分支；模型依据通用“若发布则 add”教学误判分支存在。
+6. 修正后的边界是“关系证据可以证明一个成员，但关系拓扑载体仍不能冒充成员清单”：无 anchors、无 principal-path facet 的唯一 typed
+   enumeration roster 可保留 relation claim provenance，前提是每个 directed claim 都有非空 evidence id 且该 id 已被至少一个可见 item
+   精确选择。空 id、越出 item 集合、真实 edge anchor、principal-path block、source-inventory row、第二候选 roster 继续 fail-closed。
+   执行仍只追加隐藏 `member_set` membership，不写成员、关系、标题、正文、顺序或结论。
+7. 回归新增/更新：稳定 evidence ids 即使 citation refs 指向错误池位也必须通过 endpoint coverage；缺边提示只能给 evidence id、不得再教
+   citation index；evidence-backed call claim 的唯一 roster 获得 member-set branch，越出 item evidence 的 claim 与双 roster 均不得发布。
+   聚焦测试全绿；`go test ./internal/types ./internal/tool ./internal/agent -count=1` 全绿（types 25.765s、tool 184.401s、agent 14.343s）；r973 干净回放待本批推送后执行。
+8. r972 没有自然命中 B1488 的 standalone zero-anchor 首拒分支，因为模型首稿没有创建 endpoint edge list，而是后续新增载体；所以
+   B1488 静态已绿、r971 的原子执行已证，但“首次提示直达原子动作”的 production witness 仍待专门自然命中。该状态不能被 r972 PASS 伪装为已覆盖。
+9. 本批不改变 Trace 显式窗、查询补齐、唤醒链、链上根因、优先级反转/调度与算力供给/D/IO/确定性语义工作、实际占时/规则可消双账户、
+   业务线索或因果投影。邻近/背景仍只可作为支持方向，系统不替模型写主因或答案。
+
+状态：
+
+`r972=runner-pass-2/2,human-java-pass+sequence-partial-10-rejects`；
+`B1488=static-covered/production-first-hint-not-exercised-r972`；
+`B1489-CITATIONIDENTITY1=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`B1489-MEMBERFACETPROVENANCE1=implemented/focused+full-agent+types+tool-suite-pass/pending-production-replay`；
+`current-source-relation-ownership=stable-evidence-id-first/citation-fallback-only`；
+`member_set-claim-provenance=allowed-only-when-item-owned/no-topology-carrier`；
+`system-answer/conclusion/relation/member/wording/layout-selection=none`；
+`request/model/final-prose/markdown/mermaid-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r972`。
+
 ### §123.1556 r971/B1488：隐藏元数据原子通道生产命中；首次修补教学仍把模型引向整块替换（2026-08-31）
 
 1. 从已推送 `a7e65a3fd` 干净构建，严格并发恰好 2 路复放 QF sequence/no-directed-path 与 Java write typo；runner
