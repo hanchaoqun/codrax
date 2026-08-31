@@ -57362,6 +57362,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1580 r988：分支事实已到达成文上下文；融合块拆分使正确关系图被修补清空（2026-08-31）
+
+1. 从已推送 `e7cf633ff` 重建不可变二进制，严格并发恰好 2 路复放
+   `sr_rust_cross_module_chain` 与 `sr_java_call_chain`。Rust runner PASS 207s，Java runner FAIL 203s；两路人工均判 fail。没有 unavailable tool，
+   也没有固定 4ms/4m、活动流年龄、首字节、轮次或上下文比例降级。
+2. B1507 的 typed 分支事实已进入 Rust finalizer handoff：`if fixed -> LiteralMatcher::new` 与
+   `else of fixed -> RegexLikeMatcher::new` 两条独立 branch-effect 均保留 owner 与极性。本轮 explorer 同时发出了 `run` definition，故只能证明
+   共用投影与生产交付生效，不能把它冒充 call-row-only 新车道的独立生产正证；该窄验收继续 pending。
+3. Rust 暴露新的 `B1510-FUSEDBLOCKRELATIONIDENTITYHANDOFF1/P1`。模型首稿把 ordered-list 字段与 diagram 字段融合在同一个 block 中，系统按既有
+   自愈把图拆成 `chain-1_diagram`；模型已经选择了完整的 main→run→walker/collect→walk、run→index_file→matcher 关系和对应 evidence，
+   但拆分后的列表锚和图锚没有保住可验证的 endpoint identity/evidence 关联。关系门于是把正确边报成 unproven/missing anchor，修补协议又只给删除等
+   局部动作，四轮后把整图删成只剩 `sequenceDiagram`。正文调用链仍在，故不是源证据缺失，也不是模型没有关系，而是系统在结构自愈后丢失已选关系的
+   隐藏凭证。
+4. B1510 根修只能传递模型已经选择且可唯一验证的隐藏身份：fused split 时，对每条 visible edge/edge-anchor，以当前 block 已引用的 citable exact
+   relation recipe、端点方向和关系类型做唯一匹配；唯一时把 from/to identity 与 evidence association 带到拆出的 diagram carrier，零匹配或多匹配
+   fail-open 交给原校验。不得新增、删除、反向、改标签或改 relation_kind，不扫描用户请求、thinking、最终 prose 或 Mermaid 标签来猜事实。需用
+   emit→split→validate→patch 的 M4 回归证明完整关系不再被清空。
+5. Java 调用链与容量判断大体正确，最终正文也说 `System.out.println` 输出到标准输出，但标题和主叙述仍沿用“审计落库”，没有明确纠正它不是
+   数据库/持久化。runner 与人工均据此判 fail。新记 `B1511-TERMINALEFFECTSEMANTICBOUNDARY1/P2-watch`：先观察是否能从 parser-owned exact
+   operation identity 提供通用 terminal-effect soft guidance；不得按 `println`、落库或答案否定词增加 case-specific 硬门，也不得由系统改写模型结论。
+6. 完整记录见
+   `eval/parallel_selected_summary_evalcampaign_branchpolyglot_replay_r988_20260831_manual_audit.md`。下一小批先施工 B1510 并提交推送；B1508 的
+   nested-JSON 恢复和 B1509 的 relation-delta 穷尽性继续保持独立批次。
+
+状态：
+
+`r988=runner-rust-pass+java-fail/human-both-fail`；
+`B1507=typed-handoff-production-positive/call-row-only-production-pin-pending`；
+`B1510=confirmed/next-small-batch`；
+`B1511=P2-watch/no-hard-gate`；
+`B1508=confirmed/separate-recovery-batch`；
+`B1509=confirmed/P2-separate-protocol-audit`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r988`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
