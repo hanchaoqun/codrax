@@ -37,9 +37,10 @@ func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentConte
 		return "- selected_terminal_body_calls=`unproven`: use separately grounded terminal definition/mechanism facts when present; otherwise say only that the grounded chain reaches or invokes the endpoint.\n"
 	}
 	type row struct {
-		caller   string
-		callee   string
-		location string
+		evidenceID string
+		caller     string
+		callee     string
+		location   string
 	}
 	groups := make(map[string][]row)
 	var groupOrder []string
@@ -64,7 +65,9 @@ func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentConte
 		if _, ok := groups[groupKey]; !ok {
 			groupOrder = append(groupOrder, groupKey)
 		}
-		groups[groupKey] = append(groups[groupKey], row{caller: caller, callee: callee, location: location})
+		groups[groupKey] = append(groups[groupKey], row{
+			evidenceID: strings.TrimSpace(item.ID), caller: caller, callee: callee, location: location,
+		})
 	}
 	rows := make([]row, 0, 8)
 	profile := (*types.CallChainEndpointProfile)(nil)
@@ -118,8 +121,8 @@ func renderAnswerDocSelectedTerminalImplementationBoundary(ctx *types.AgentConte
 		b.WriteString("- selected_terminal_body_calls=`parser_grounded`; each row proves only its exact operation. Describe that operation and keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them; separately grounded terminal definition/mechanism facts remain valid:\n")
 	}
 	for _, row := range rows {
-		fmt.Fprintf(&b, "  - caller=`%s`; exact_operation=`%s`; source=`%s`; effect_scope=`exact_call_only`.\n",
-			answerDocCallChainInline(row.caller), answerDocCallChainInline(row.callee), answerDocCallChainInline(row.location))
+		fmt.Fprintf(&b, "  - evidence_id=`%s`; caller=`%s`; exact_operation=`%s`; source=`%s`; effect_scope=`exact_call_only`.\n",
+			answerDocCallChainInline(row.evidenceID), answerDocCallChainInline(row.caller), answerDocCallChainInline(row.callee), answerDocCallChainInline(row.location))
 	}
 	return b.String()
 }

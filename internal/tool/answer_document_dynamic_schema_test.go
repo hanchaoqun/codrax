@@ -74,6 +74,57 @@ func TestBuildAnswerDocumentParametersForProjectsExactRuntimeWorkReceiptChoices(
 	}
 }
 
+func TestBuildAnswerDocumentParametersForProjectsConceptualTerminalChoicesAndEmptyEvidenceForm(t *testing.T) {
+	view := &types.AnswerSemanticView{
+		Family:         types.QFCallChain,
+		RequiredBlocks: []types.BlockRequirement{{Kind: types.BlockSummary, Required: true}},
+		ConceptualTerminalResolutionContract: &types.ConceptualTerminalResolutionContract{Rows: []types.ConceptualTerminalResolutionRow{{
+			EvidenceID: "ev-terminal",
+			AllowedConclusions: []types.ConceptualTerminalResolutionConclusion{
+				types.ConceptualTerminalResolutionCurrentTerminalDiffers,
+				types.ConceptualTerminalResolutionDestinationUnproven,
+			},
+		}}},
+	}
+	_, props := answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	node, ok := props["conceptual_terminal_resolution"].(map[string]any)
+	if !ok {
+		t.Fatal("active conceptual-terminal contract must expose its model-owned receipt field")
+	}
+	choices := node["oneOf"].([]any)
+	if len(choices) != 2 {
+		t.Fatalf("conceptual-terminal choices=%+v", choices)
+	}
+	firstProps := choices[0].(map[string]any)["properties"].(map[string]any)
+	if got := choices[0].(map[string]any)["description"].(string); !strings.Contains(got, "ev-terminal") {
+		t.Fatalf("terminal choice did not publish its exact evidence mapping: %q", got)
+	}
+	if got := firstProps["evidence_id"].(map[string]any)["const"]; got != "ev-terminal" {
+		t.Fatalf("terminal evidence const=%v", got)
+	}
+	if got := firstProps["conclusion"].(map[string]any)["const"]; got != string(types.ConceptualTerminalResolutionCurrentTerminalDiffers) {
+		t.Fatalf("terminal conclusion const=%v", got)
+	}
+
+	view.ConceptualTerminalResolutionContract.Rows = nil
+	_, props = answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	node = props["conceptual_terminal_resolution"].(map[string]any)
+	emptyChoice := node["oneOf"].([]any)[0].(map[string]any)
+	emptyProps := emptyChoice["properties"].(map[string]any)
+	if _, hasEvidence := emptyProps["evidence_id"]; hasEvidence {
+		t.Fatal("no-row conceptual-terminal choice must not ask the model to invent an evidence id")
+	}
+	if got := emptyProps["conclusion"].(map[string]any)["const"]; got != string(types.ConceptualTerminalResolutionDestinationUnproven) {
+		t.Fatalf("empty-evidence conclusion const=%v", got)
+	}
+
+	view.ConceptualTerminalResolutionContract = nil
+	_, props = answerDocumentProjectedBlockSchema(t, BuildAnswerDocumentParametersFor(view))
+	if _, exposed := props["conceptual_terminal_resolution"]; exposed {
+		t.Fatal("non-conceptual dispatch must not expose terminal-resolution mental load")
+	}
+}
+
 func TestBuildAnswerDocumentParametersFor_ProjectedBlockObjectIsClosedAndTeachingMatchesKindEnum(t *testing.T) {
 	view := &types.AnswerSemanticView{
 		Family: types.QFRoleLookup,

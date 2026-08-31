@@ -156,6 +156,12 @@ type AnswerSemanticView struct {
 	// It is a structured receipt contract, not a system-authored conclusion.
 	RuntimeWorkRelationContract *RuntimeWorkRelationContract
 
+	// ConceptualTerminalResolutionContract publishes exact parser-grounded
+	// terminal operations for discover_terminal call-chain
+	// requests. The model selects the operation and destination conclusion;
+	// the deterministic system owns only the evidence rows and ceiling.
+	ConceptualTerminalResolutionContract *ConceptualTerminalResolutionContract
+
 	// MissingRequestedRoles carries the subset of user-requested
 	// precedence roles that the current grounded config-precedence
 	// surface still shows as absent for the exact target. This is a

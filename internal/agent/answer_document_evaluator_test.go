@@ -861,6 +861,75 @@ func TestRuntimeQuestionProfileWorkRelationDemandCannotBeLostWithoutPresentation
 	}
 }
 
+func TestConceptualTerminalDiscoveryRequiresModelOwnedResolutionWithoutProseScan(t *testing.T) {
+	ctx := &types.AgentContext{Language: "zh", Mutable: types.NewMutableState("conceptual terminal"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:        types.IntentTrace,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source:   "VisitController.create",
+			SinkMode: types.CallChainSinkResolutionDiscoverTerminal,
+		},
+	}}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+		Text: "当前实现最终调用标准输出，模型在这里解释概念目标。",
+	}}}
+	missing := missingRequestedAnswerDimensionsInDocument(ctx, doc)
+	if len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionConceptualTerminalResolution {
+		t.Fatalf("typed conceptual endpoint mode must create one model-owned conclusion obligation: %+v", missing)
+	}
+	for _, want := range []string{`conceptual_terminal_resolution:{evidence_id?,conclusion}`, "模型选择", "不替模型判断"} {
+		if prompt := renderAnswerDocRequestedAnswerDimensions(ctx); !strings.Contains(prompt, want) {
+			t.Fatalf("conceptual-terminal prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	doc.Blocks[0].FacetIDs = []string{string(types.RequestedAnswerDimensionConceptualTerminalResolution)}
+	doc.Blocks[0].ConceptualTerminalResolution = &types.AnswerConceptualTerminalResolutionReceipt{
+		EvidenceID: "ev-terminal",
+		Conclusion: types.ConceptualTerminalResolutionCurrentTerminalDiffers,
+		Bound:      true,
+		BoundRow: types.ConceptualTerminalResolutionRow{
+			EvidenceID:       "ev-terminal",
+			TerminalCallable: "AuditLog.record",
+			ExactOperation:   "System.out.println",
+		},
+	}
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 0 {
+		t.Fatalf("model-owned conceptual-terminal resolution remained missing: %+v", missing)
+	}
+	doc.Blocks[0].SystemGeneratedKind = types.AnswerSystemGeneratedEvidenceSupplement
+	if missing := missingRequestedAnswerDimensionsInDocument(ctx, doc); len(missing) != 1 || missing[0].Role != types.RequestedAnswerDimensionConceptualTerminalResolution {
+		t.Fatalf("system supplement must not replace the model-owned terminal conclusion: %+v", missing)
+	}
+
+	exactCtx := &types.AgentContext{Mutable: types.NewMutableState("exact endpoint"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Scenario: types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisCall, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "VisitController.create", Sink: "AuditLog.record", SinkMode: types.CallChainSinkResolutionExact,
+		},
+	}}}
+	if missing := missingRequestedAnswerDimensionsInDocument(exactCtx, &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "exact endpoint answer",
+	}}}); len(missing) != 0 {
+		t.Fatalf("exact code endpoint must not inherit conceptual destination resolution: %+v", missing)
+	}
+
+	discoverPathCtx := &types.AgentContext{Mutable: types.NewMutableState("role-bound path"), AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Scenario: types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisCall, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{SinkMode: types.CallChainSinkResolutionDiscoverPath},
+	}}}
+	if missing := missingRequestedAnswerDimensionsInDocument(discoverPathCtx, &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "role-bound path answer",
+	}}}); len(missing) != 0 {
+		t.Fatalf("ordinary role-bound path discovery must not inherit terminal-body conceptual resolution: %+v", missing)
+	}
+}
+
 func TestRequestedPerMemberSourceLocationsCannotUseSingleCitationReceipt(t *testing.T) {
 	mut := types.NewMutableState("typed member location authority")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

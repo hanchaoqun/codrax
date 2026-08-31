@@ -8151,7 +8151,8 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		dimensions = view.Presentation.RequestedDimensions
 	}
 	runtimeWorkRelationRequested := answerDocTypedRuntimeWorkRelationRequested(ctx)
-	if len(dimensions) == 0 && !runtimeWorkRelationRequested {
+	conceptualTerminalResolutionRequested := answerDocTypedConceptualTerminalResolutionRequested(ctx)
+	if len(dimensions) == 0 && !runtimeWorkRelationRequested && !conceptualTerminalResolutionRequested {
 		return ""
 	}
 	lang := extractAnswerDocLang(ctx)
@@ -8182,9 +8183,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
 	}
 	hasRuntimeWorkRelationDimension := false
+	hasConceptualTerminalResolutionDimension := false
 	for _, dim := range dimensions {
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 			hasRuntimeWorkRelationDimension = true
+		}
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
+			hasConceptualTerminalResolutionDimension = true
 		}
 		label := strings.TrimSpace(dim.Label)
 		if label == "" {
@@ -8240,6 +8245,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 				b.WriteString("  - On a model-authored visible principal conclusion block, set `facet_ids:[\"runtime_work_relation\",\"observed_artifact_fact\"]` plus the external-observation claim and select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the work row and conclusion; the system only displays that typed row's work name, measured duration, relation credential, and unproved boundary without scanning or rewriting prose. Do not repeat machine enum tokens in visible prose or caveats; the renderer localizes the selected conclusion.\n")
 			}
 		}
+		if dim.Required && dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
+			if lang == "zh" {
+				b.WriteString("  - 在模型成文、可见的主结论块上设置 `surface_role:\"principal\"` 与 `facet_ids:[\"conceptual_terminal_resolution\"]`，并从当前 schema 选择一个精确 `conceptual_terminal_resolution:{evidence_id?,conclusion}`。有候选行时选择一条 parser-grounded 终点操作及模型自己的结论；无候选行时只能选择未证形。系统只绑定并显示所选操作，不从名称、用户措辞或答案正文替你判断概念目标是否达到。可见正文不要复述机器枚举 token。\n")
+			} else {
+				b.WriteString("  - On a model-authored visible principal conclusion block set `surface_role:\"principal\"` and `facet_ids:[\"conceptual_terminal_resolution\"]`, then select one exact `conceptual_terminal_resolution:{evidence_id?,conclusion}` choice from the current schema. When candidate rows exist, choose one parser-grounded terminal operation and your conclusion; when none exist, only the unproven form is available. The system only binds and displays the selected operation and never decides from names, request wording, or answer prose whether the conceptual destination was reached. Do not repeat machine enum tokens in visible prose.\n")
+			}
+		}
 		if dim.Required && dim.Role == types.RequestedAnswerDimensionDiagram {
 			if lang == "zh" {
 				b.WriteString("  - 在这个维度的位置呈现请求的图；图只承载有证据的关系，不替代相邻维度要求的清单、表格或文字解释。\n")
@@ -8269,6 +8281,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 			b.WriteString("- The typed runtime profile independently declares a runtime work/span/operation-to-target subquestion. On a model-authored visible principal conclusion block keep the runtime-relation and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the schema. The model chooses the row and conclusion; the system only displays its typed name, duration, credential, and boundary without scanning or rewriting prose. Do not repeat machine enum tokens in visible prose or caveats.\n")
 		}
 	}
+	if conceptualTerminalResolutionRequested && !hasConceptualTerminalResolutionDimension {
+		if lang == "zh" {
+			b.WriteString("- 本轮 typed 调用链端点声明了概念终点发现。请在模型成文、可见的主结论块上设置 `surface_role:\"principal\"` 与 `facet_ids:[\"conceptual_terminal_resolution\"]`，并从 schema 精确选择 `conceptual_terminal_resolution:{evidence_id?,conclusion}`。模型选择终点操作和结论；系统只绑定并显示 typed 操作，不扫描或改写正文，也不替模型判断是否达到概念目标。\n")
+		} else {
+			b.WriteString("- The typed call-chain endpoint profile declares conceptual-terminal discovery. On a model-authored visible principal conclusion block set `surface_role:\"principal\"` and `facet_ids:[\"conceptual_terminal_resolution\"]`, then select one exact `conceptual_terminal_resolution:{evidence_id?,conclusion}` choice from the schema. The model chooses the terminal operation and conclusion; the system only binds and displays the typed operation without scanning or rewriting prose or deciding whether the conceptual destination was reached.\n")
+		}
+	}
 	b.WriteString("\n")
 	return b.String()
 }
@@ -8293,6 +8312,13 @@ func answerDocTypedRuntimeWorkRelationRequested(ctx *types.AgentContext) bool {
 		rm.RequestedAnswerDimensions.Dimensions,
 		types.RequestedAnswerDimensionRuntimeWorkRelation,
 	)
+}
+
+func answerDocTypedConceptualTerminalResolutionRequested(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.CallChainEndpointProfile == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.CallChainEndpointProfile.DiscoverTerminalActive()
 }
 
 // answerDocRequestedMemberSetUsesExactSourceInventoryRows selects the one
@@ -16039,6 +16065,10 @@ func requestedAnswerDimensionRoleOwnedByBlock(ctx *types.AgentContext, role type
 			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
 			answerBlockHasClaimForm(block, types.ClaimExternalObservation) &&
 			block.RuntimeWorkRelation != nil && block.RuntimeWorkRelation.IsBound()
+	case types.RequestedAnswerDimensionConceptualTerminalResolution:
+		return visible && block.SurfaceRole == types.SurfacePrincipal &&
+			answerBlockHasFacet(block, string(types.RequestedAnswerDimensionConceptualTerminalResolution)) &&
+			block.ConceptualTerminalResolution != nil && block.ConceptualTerminalResolution.IsBound()
 	case types.RequestedAnswerDimensionCount:
 		return block.Kind == types.BlockScalar && visible
 	case types.RequestedAnswerDimensionBoundary:
@@ -16059,15 +16089,24 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 	}
 	dims := requestedDimensionsToCover(requested)
 	hasRuntimeWorkRelationDimension := false
+	hasConceptualTerminalResolutionDimension := false
 	for _, dim := range dims {
 		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 			hasRuntimeWorkRelationDimension = true
-			break
+		}
+		if dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
+			hasConceptualTerminalResolutionDimension = true
 		}
 	}
 	if answerDocTypedRuntimeWorkRelationRequested(ctx) && !hasRuntimeWorkRelationDimension {
 		dims = append(dims, types.RequestedAnswerDimension{
 			Role:     types.RequestedAnswerDimensionRuntimeWorkRelation,
+			Required: true,
+		})
+	}
+	if answerDocTypedConceptualTerminalResolutionRequested(ctx) && !hasConceptualTerminalResolutionDimension {
+		dims = append(dims, types.RequestedAnswerDimension{
+			Role:     types.RequestedAnswerDimensionConceptualTerminalResolution,
 			Required: true,
 		})
 	}
@@ -16091,7 +16130,8 @@ func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *ty
 		// writes members on the model's behalf.
 		if dim.Role == types.RequestedAnswerDimensionMemberSet ||
 			dim.Role == types.RequestedAnswerDimensionRelationPath ||
-			dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
+			dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation ||
+			dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
 			missing = append(missing, dim)
 			continue
 		}
@@ -16116,6 +16156,8 @@ func requestedDimensionCoveredByTypedDocumentShape(ctx *types.AgentContext, dim 
 		return answerDocumentHasRelationPathPayload(ctx, doc)
 	case types.RequestedAnswerDimensionRuntimeWorkRelation:
 		return answerDocumentHasRuntimeWorkRelationPayload(ctx, doc)
+	case types.RequestedAnswerDimensionConceptualTerminalResolution:
+		return answerDocumentHasConceptualTerminalResolutionPayload(doc)
 	case types.RequestedAnswerDimensionSourceLocation:
 		return answerDocumentCoversRequestedSourceLocationDimensions(ctx, doc)
 	case types.RequestedAnswerDimensionSourceAttribute:
@@ -16150,6 +16192,28 @@ func answerDocumentHasRuntimeWorkRelationPayload(ctx *types.AgentContext, doc *t
 			answerBlockHasFacet(block, string(types.FacetObservedArtifactFact)) &&
 			answerBlockHasClaimForm(block, types.ClaimExternalObservation) &&
 			block.RuntimeWorkRelation != nil && block.RuntimeWorkRelation.IsBound() {
+			return true
+		}
+	}
+	return false
+}
+
+// answerDocumentHasConceptualTerminalResolutionPayload accepts only one
+// visible model-authored principal block with a contract-bound selection. It
+// never compares the block's prose with the request or the selected operation;
+// the model owns the conclusion carried by the receipt.
+func answerDocumentHasConceptualTerminalResolutionPayload(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown ||
+			block.SurfaceRole != types.SurfacePrincipal ||
+			strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) == "" {
+			continue
+		}
+		if answerBlockHasFacet(block, string(types.RequestedAnswerDimensionConceptualTerminalResolution)) &&
+			block.ConceptualTerminalResolution != nil && block.ConceptualTerminalResolution.IsBound() {
 			return true
 		}
 	}
@@ -16354,6 +16418,7 @@ func requestedAnswerDimensionCanUsePrecisePatchRetry(role types.RequestedAnswerD
 		types.RequestedAnswerDimensionMemberSet,
 		types.RequestedAnswerDimensionRelationPath,
 		types.RequestedAnswerDimensionRuntimeWorkRelation,
+		types.RequestedAnswerDimensionConceptualTerminalResolution,
 		types.RequestedAnswerDimensionSourceLocation,
 		types.RequestedAnswerDimensionSourceAttribute,
 		types.RequestedAnswerDimensionBoundary,
@@ -17130,6 +17195,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 			if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 				b.WriteString("  - 请在模型成文、可见的主结论块上设置 principal、运行时关系与外部观测 facet/claim，并从当前 schema 的精确二元组选一个 `runtime_work_relation:{observation_id,conclusion}`。模型选择行和结论；系统只显示该 typed 行的精确事实，不扫描或改写正文。可见正文和 caveat 不要复述机器枚举 token。\n")
 			}
+			if dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
+				b.WriteString("  - 请在模型成文、可见的主结论块上设置 `surface_role:\"principal\"`、`facet_ids:[\"conceptual_terminal_resolution\"]`，并从当前 schema 选择一个精确 `conceptual_terminal_resolution:{evidence_id?,conclusion}`。模型选择终点操作和结论；系统只绑定并显示 typed 操作，不扫描或改写正文，也不替模型判断概念目标是否达到。可见正文不要复述机器枚举 token。\n")
+			}
 		}
 		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
 		return b.String()
@@ -17170,6 +17238,9 @@ func requestedAnswerDimensionCoverageHint(ctx *types.AgentContext, missing []typ
 		if dim.Role == types.RequestedAnswerDimensionRuntimeWorkRelation {
 			b.WriteString("  - On a model-authored visible principal conclusion block set the principal, runtime-relation, and external-observation facet/claim, then select one exact `runtime_work_relation:{observation_id,conclusion}` pair from the current schema. The model chooses the row and conclusion; the system only displays its exact typed facts without scanning or rewriting prose. Do not repeat machine enum tokens in visible prose or caveats.\n")
 		}
+		if dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
+			b.WriteString("  - On a model-authored visible principal conclusion block set `surface_role:\"principal\"`, `facet_ids:[\"conceptual_terminal_resolution\"]`, and select one exact `conceptual_terminal_resolution:{evidence_id?,conclusion}` choice from the current schema. The model chooses the terminal operation and conclusion; the system only binds and displays the typed operation without scanning or rewriting prose or deciding whether the conceptual destination was reached. Do not repeat machine enum tokens in visible prose.\n")
+		}
 	}
 	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")
 	return b.String()
@@ -17184,6 +17255,12 @@ func requestedAnswerDimensionHintLabel(dim types.RequestedAnswerDimension, zh bo
 			return "运行时工作与目标的关系"
 		}
 		return "runtime work-to-target relation"
+	}
+	if dim.Role == types.RequestedAnswerDimensionConceptualTerminalResolution {
+		if zh {
+			return "概念目标与当前实现终点的关系"
+		}
+		return "conceptual destination versus current terminal"
 	}
 	if zh {
 		return "未命名的结构化答案维度"

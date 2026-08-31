@@ -354,7 +354,7 @@ func TestFinalCallChainEvidenceBoundaryAcceptsTypedTerminalBodyOperationWithoutU
 	for _, want := range []string{
 		"body_call_facts=`AuditLog.record -> System.out.println @ src/AuditLog.java:6`",
 		"selected_terminal_body_calls=`parser_grounded`",
-		"caller=`AuditLog.record`; exact_operation=`System.out.println`; source=`src/AuditLog.java:6`; effect_scope=`exact_call_only`",
+		"evidence_id=`body`; caller=`AuditLog.record`; exact_operation=`System.out.println`; source=`src/AuditLog.java:6`; effect_scope=`exact_call_only`",
 		"keep storage, durability, flushing, synchronization, and completion unproven unless separate typed evidence establishes them",
 	} {
 		if !strings.Contains(prompt, want) {

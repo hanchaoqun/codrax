@@ -3968,6 +3968,11 @@ func cloneAnswerDocumentV2(in *AnswerDocumentV2) *AnswerDocumentV2 {
 				receipt.BoundRow.AllowedConclusions = append([]RuntimeWorkRelationConclusion(nil), b.RuntimeWorkRelation.BoundRow.AllowedConclusions...)
 				cloned.RuntimeWorkRelation = &receipt
 			}
+			if b.ConceptualTerminalResolution != nil {
+				receipt := *b.ConceptualTerminalResolution
+				receipt.BoundRow.AllowedConclusions = append([]ConceptualTerminalResolutionConclusion(nil), b.ConceptualTerminalResolution.BoundRow.AllowedConclusions...)
+				cloned.ConceptualTerminalResolution = &receipt
+			}
 			out.Blocks[i] = cloned
 		}
 	}

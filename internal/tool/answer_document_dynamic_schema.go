@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -67,6 +68,7 @@ func BuildAnswerDocumentParametersFor(view *types.AnswerSemanticView) json.RawMe
 			projectTypedDecisionVerdictFields(blockProps, blockItems, view)
 			projectTraceCausalClaimCaliberField(blockProps, blockItems, view)
 			projectRuntimeWorkRelationField(blockProps, view)
+			projectConceptualTerminalResolutionField(blockProps, view)
 			projectSourceInventoryIdentityFields(blockProps, view)
 			projectItemEvidenceIdentityField(blockProps, view)
 			projectDiagramPayloadOwnership(blockItems, blockProps)
@@ -127,6 +129,46 @@ func projectRuntimeWorkRelationField(blockProps map[string]any, view *types.Answ
 	}
 	blockProps["runtime_work_relation"] = map[string]any{
 		"description": "Select exactly one typed runtime-work row and its evidence-bounded conclusion. The system resolves the selected id to exact measured facts for visible rendering; it never chooses the row or conclusion and never scans block text. Do not repeat machine conclusion tokens in visible block text or caveats; the renderer localizes the selected conclusion.",
+		"oneOf":       choices,
+	}
+}
+
+func projectConceptualTerminalResolutionField(blockProps map[string]any, view *types.AnswerSemanticView) {
+	contract := view.ConceptualTerminalResolutionContract
+	if contract == nil || !contract.Active() {
+		delete(blockProps, "conceptual_terminal_resolution")
+		return
+	}
+	choices := make([]any, 0, len(contract.Rows)*3)
+	for _, row := range contract.Rows {
+		for _, conclusion := range row.AllowedConclusions {
+			if !conclusion.IsValid() {
+				continue
+			}
+			choices = append(choices, map[string]any{
+				"type":        "object",
+				"description": fmt.Sprintf("evidence_id=%s maps to exact terminal operation %s -> %s at %s; the model still selects the conceptual-destination conclusion", row.EvidenceID, row.TerminalCallable, row.ExactOperation, row.Source),
+				"properties": map[string]any{
+					"evidence_id": map[string]any{"const": row.EvidenceID},
+					"conclusion":  map[string]any{"const": string(conclusion)},
+				},
+				"required":             []string{"evidence_id", "conclusion"},
+				"additionalProperties": false,
+			})
+		}
+	}
+	if len(choices) == 0 {
+		choices = append(choices, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"conclusion": map[string]any{"const": string(types.ConceptualTerminalResolutionDestinationUnproven)},
+			},
+			"required":             []string{"conclusion"},
+			"additionalProperties": false,
+		})
+	}
+	blockProps["conceptual_terminal_resolution"] = map[string]any{
+		"description": "Select one exact parser-grounded terminal operation and a model-owned conclusion about whether it satisfies the requested conceptual destination. The system binds and renders the selected operation but never infers this conclusion from names, request wording, or answer prose. When no terminal operation is published, select the schema's destination_unproven form without evidence_id.",
 		"oneOf":       choices,
 	}
 }

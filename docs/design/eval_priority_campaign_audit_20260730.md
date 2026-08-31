@@ -57625,6 +57625,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r991`。
 
+### §123.1588 B1515：概念终点结论改为模型所有的 typed receipt（2026-08-31）
+
+1. `B1515-CONCEPTUALSINKRESOLUTION1/P1` 已按通用形施工。激活信号只来自 schema-validated
+   `CallChainEndpointProfile.sink_mode=discover_terminal`；精确端点、普通 `discover_path`、Trace 查询及没有该 profile 的请求均不继承新义务。
+   系统不扫描用户请求、模型 thinking、最终正文、Markdown 或 Mermaid 标签，也没有 Java、`println`、落库等单例规则。
+2. semantic view 从 `repo_map_terminal_body_call + call_edge + citable` 的 typed evidence 构造有限候选行，每行发布精确
+   `evidence_id / terminal callable / exact operation / source`。重复坐标收敛，缺少任一精确坐标则不伪造行；最多发布 16 行以限制 schema
+   心智，但不根据名称或词义裁定哪一行代表用户概念目标。
+3. 模型必须在自己成文、可见的 principal block 上声明 `facet_ids:["conceptual_terminal_resolution"]`，并从当轮动态 schema 选择
+   `conceptual_terminal_resolution:{evidence_id?,conclusion}`。有证据行时，模型自主选择一条行及
+   `requested_destination_supported / current_terminal_differs / destination_unproven`；无证据行时 schema 只开放无 `evidence_id` 的
+   `destination_unproven`。系统只校验提交值属于当轮精确候选，绝不替模型选择结论。
+4. system-generated supplement、相似可见 prose、背景块和旧探索结果不能占用该模型席。模型选择的 receipt 被绑定到原始 typed 行，在中英文
+   渲染中显示精确终点操作、来源和“模型判断”边界；机器枚举不会泄漏。该呈现是模型提交值的结构化渲染，不删除、替换或改写模型正文。
+5. 完整链路已覆盖 full emit、patch unchanged carrier、字段 quarantine、normalizer、mutable clone、semantic-view cache clone、动态 schema、
+   exact receipt binder、requested-dimension completion 与中英文渲染。这样结构重试可保留已接受结论，不会因 patch 丢字段制造新的成文重试。
+6. 回归明确钉住：`discover_terminal` 才激活；`discover_path` 与 exact endpoint 不激活；无证据不能提交正向结论；invented evidence id
+   fail-closed；只有模型成文 principal receipt 才完成该席；系统补齐不能代答。Trace 事实、根因、链上权限、实际占时/规则可消量以及因果投影
+   代码均未改动。
+7. 验证结果：定向四包测试通过；`go test ./internal/types ./internal/render ./internal/agent -count=1` 全绿；
+   `go test ./internal/tool -count=1` 全绿（186.687s）；冻结工作树 `go test ./... -count=1` 全绿（tool 212.868s、tracequery 91.543s、
+   hitraceconv 134.129s）；`make` 通过。下一步从本提交干净构建，严格并发恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace，验证模型是否
+   正确消费 receipt，同时守住 Trace 因果投影和自动补齐。
+
+状态：
+
+`B1515=implemented/typed-model-owned-receipt/full-suite+build-pass/pending-production-replay`；
+`activation=discover_terminal-only`；
+`terminal-operation-authority=parser-grounded-typed-evidence`；
+`conceptual-terminal-conclusion=model-owned`；
+`system-answer/conclusion/relation/wording/terminal-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`exact-endpoint/discover-path/Trace=unaffected-by-contract`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

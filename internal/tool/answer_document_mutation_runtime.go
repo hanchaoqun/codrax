@@ -164,6 +164,9 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 		if err := bindRuntimeWorkRelationReceipts(merged, view); err != nil {
 			return failEmit(toolName, now, "%v", err)
 		}
+		if err := bindConceptualTerminalResolutionReceipts(merged, view); err != nil {
+			return failEmit(toolName, now, "%v", err)
+		}
 	}
 	// Runtime-trace IDs are a reserved system namespace. The model still owns
 	// arbitrary block IDs, so normalize an exact collision before any
@@ -358,6 +361,22 @@ func bindRuntimeWorkRelationReceipts(doc *types.AnswerDocumentV2, view *types.An
 		}
 		if view == nil || !types.BindRuntimeWorkRelationReceipt(receipt, view.RuntimeWorkRelationContract) {
 			return fmt.Errorf("blocks[%d].runtime_work_relation does not match an exact schema-published runtime-work observation/conclusion pair", i)
+		}
+	}
+	return nil
+}
+
+func bindConceptualTerminalResolutionReceipts(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) error {
+	if doc == nil {
+		return nil
+	}
+	for i := range doc.Blocks {
+		receipt := doc.Blocks[i].ConceptualTerminalResolution
+		if receipt == nil {
+			continue
+		}
+		if view == nil || !types.BindConceptualTerminalResolutionReceipt(receipt, view.ConceptualTerminalResolutionContract) {
+			return fmt.Errorf("blocks[%d].conceptual_terminal_resolution does not match an exact schema-published terminal-operation/conclusion pair", i)
 		}
 	}
 	return nil

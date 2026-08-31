@@ -65,32 +65,38 @@ type emitCodeSnippetV2 struct {
 }
 
 type emitAnswerBlockV2 struct {
-	ID                      string                             `json:"id"`
-	Kind                    string                             `json:"kind"`
-	Title                   string                             `json:"title,omitempty"`
-	Text                    string                             `json:"text,omitempty"`
-	Caveat                  string                             `json:"caveat,omitempty"`
-	ErrorGranularityVerdict string                             `json:"error_granularity_verdict,omitempty"`
-	CurrentStatusVerdict    string                             `json:"current_status_verdict,omitempty"`
-	TraceCausalClaimCaliber string                             `json:"trace_causal_claim_caliber,omitempty"`
-	ScopeDisclosure         string                             `json:"scope_disclosure,omitempty"`
-	SourceInventoryFamily   string                             `json:"source_inventory_family,omitempty"`
-	RuntimeWorkRelation     *emitRuntimeWorkRelationReceipt    `json:"runtime_work_relation,omitempty"`
-	Columns                 []string                           `json:"columns,omitempty"`
-	Items                   []emitAnswerBlockItemV2            `json:"items,omitempty"`
-	Diagram                 *emitAnswerDiagramV2               `json:"diagram,omitempty"`
-	ClaimUses               []types.RenderedClaimUse           `json:"claim_uses,omitempty"`
-	EdgeAnchors             []types.DiagramEdgeAnchor          `json:"edge_anchors,omitempty"`
-	ParticipantBoundaries   []types.DiagramParticipantBoundary `json:"participant_boundaries,omitempty"`
-	RequestedRelationScope  string                             `json:"requested_relation_scope,omitempty"`
-	RelationClaims          []types.AnswerRelationClaim        `json:"relation_claims,omitempty"`
-	FacetIDs                []string                           `json:"facet_ids,omitempty"`
-	SurfaceRole             string                             `json:"surface_role,omitempty"`
+	ID                           string                                   `json:"id"`
+	Kind                         string                                   `json:"kind"`
+	Title                        string                                   `json:"title,omitempty"`
+	Text                         string                                   `json:"text,omitempty"`
+	Caveat                       string                                   `json:"caveat,omitempty"`
+	ErrorGranularityVerdict      string                                   `json:"error_granularity_verdict,omitempty"`
+	CurrentStatusVerdict         string                                   `json:"current_status_verdict,omitempty"`
+	TraceCausalClaimCaliber      string                                   `json:"trace_causal_claim_caliber,omitempty"`
+	ScopeDisclosure              string                                   `json:"scope_disclosure,omitempty"`
+	SourceInventoryFamily        string                                   `json:"source_inventory_family,omitempty"`
+	RuntimeWorkRelation          *emitRuntimeWorkRelationReceipt          `json:"runtime_work_relation,omitempty"`
+	ConceptualTerminalResolution *emitConceptualTerminalResolutionReceipt `json:"conceptual_terminal_resolution,omitempty"`
+	Columns                      []string                                 `json:"columns,omitempty"`
+	Items                        []emitAnswerBlockItemV2                  `json:"items,omitempty"`
+	Diagram                      *emitAnswerDiagramV2                     `json:"diagram,omitempty"`
+	ClaimUses                    []types.RenderedClaimUse                 `json:"claim_uses,omitempty"`
+	EdgeAnchors                  []types.DiagramEdgeAnchor                `json:"edge_anchors,omitempty"`
+	ParticipantBoundaries        []types.DiagramParticipantBoundary       `json:"participant_boundaries,omitempty"`
+	RequestedRelationScope       string                                   `json:"requested_relation_scope,omitempty"`
+	RelationClaims               []types.AnswerRelationClaim              `json:"relation_claims,omitempty"`
+	FacetIDs                     []string                                 `json:"facet_ids,omitempty"`
+	SurfaceRole                  string                                   `json:"surface_role,omitempty"`
 }
 
 type emitRuntimeWorkRelationReceipt struct {
 	ObservationID string `json:"observation_id"`
 	Conclusion    string `json:"conclusion"`
+}
+
+type emitConceptualTerminalResolutionReceipt struct {
+	EvidenceID string `json:"evidence_id,omitempty"`
+	Conclusion string `json:"conclusion"`
 }
 
 type emitAnswerBlockItemV2 struct {

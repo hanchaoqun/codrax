@@ -174,6 +174,7 @@ func renderAnswerDocV2Block(b *strings.Builder, blk types.AnswerBlock, doc *type
 	}
 	renderV2StandaloneTypedRelations(b, blk, doc)
 	renderV2RuntimeWorkRelationReceipt(b, blk, lang)
+	renderV2ConceptualTerminalResolutionReceipt(b, blk, lang)
 }
 
 func renderV2RuntimeWorkRelationReceipt(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
@@ -248,6 +249,69 @@ func runtimeWorkRelationConclusionEN(conclusion types.RuntimeWorkRelationConclus
 		}
 	default:
 		return "the work is observed, but its relation to the target is not established by current evidence"
+	}
+}
+
+func renderV2ConceptualTerminalResolutionReceipt(b *strings.Builder, blk types.AnswerBlock, lang answerDocLang) {
+	receipt := blk.ConceptualTerminalResolution
+	if b == nil || receipt == nil || !receipt.IsBound() || blk.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
+		return
+	}
+	row := receipt.BoundRow
+	if lang == answerDocLangZH {
+		b.WriteString("**概念目标核对**：")
+		if row.TerminalCallable != "" && row.ExactOperation != "" {
+			fmt.Fprintf(b, "当前已证终点操作为 `%s` 调用 `%s`", row.TerminalCallable, row.ExactOperation)
+			if row.Source != "" {
+				fmt.Fprintf(b, "（`%s`）", row.Source)
+			}
+			b.WriteString("；")
+		}
+		b.WriteString(conceptualTerminalResolutionConclusionZH(receipt.Conclusion, row.TerminalCallable != ""))
+		b.WriteString("\n\n")
+		return
+	}
+	b.WriteString("**Conceptual-destination check**: ")
+	if row.TerminalCallable != "" && row.ExactOperation != "" {
+		fmt.Fprintf(b, "the grounded terminal operation is `%s` calling `%s`", row.TerminalCallable, row.ExactOperation)
+		if row.Source != "" {
+			fmt.Fprintf(b, " (`%s`)", row.Source)
+		}
+		b.WriteString("; ")
+	}
+	b.WriteString(conceptualTerminalResolutionConclusionEN(receipt.Conclusion, row.TerminalCallable != ""))
+	b.WriteString("\n\n")
+}
+
+func conceptualTerminalResolutionConclusionZH(conclusion types.ConceptualTerminalResolutionConclusion, hasOperation bool) string {
+	switch conclusion {
+	case types.ConceptualTerminalResolutionDestinationSupported:
+		return "模型判断该精确操作支持用户要求的概念目标；结论范围只到这条已证操作，不额外证明未观测的下游效果"
+	case types.ConceptualTerminalResolutionCurrentTerminalDiffers:
+		return "模型判断当前实现终止于该精确操作，并未达到用户所述的概念目标"
+	case types.ConceptualTerminalResolutionDestinationUnproven:
+		if hasOperation {
+			return "模型判断这条精确操作不足以确认用户所述的概念目标已经达到"
+		}
+		return "模型判断当前没有已证终点操作，无法确认用户所述的概念目标已经达到"
+	default:
+		return "模型判断现有证据不足以确认用户所述的概念目标已经达到"
+	}
+}
+
+func conceptualTerminalResolutionConclusionEN(conclusion types.ConceptualTerminalResolutionConclusion, hasOperation bool) string {
+	switch conclusion {
+	case types.ConceptualTerminalResolutionDestinationSupported:
+		return "the model concludes that this exact operation supports the requested conceptual destination; the conclusion extends only to this grounded operation and does not prove unobserved downstream effects"
+	case types.ConceptualTerminalResolutionCurrentTerminalDiffers:
+		return "the model concludes that the current implementation terminates at this exact operation and does not reach the requested conceptual destination"
+	case types.ConceptualTerminalResolutionDestinationUnproven:
+		if hasOperation {
+			return "the model concludes that this exact operation is insufficient to establish that the requested conceptual destination was reached"
+		}
+		return "the model concludes that no grounded terminal operation is available, so the requested conceptual destination remains unproven"
+	default:
+		return "the model concludes that the current evidence is insufficient to establish the requested conceptual destination"
 	}
 }
 

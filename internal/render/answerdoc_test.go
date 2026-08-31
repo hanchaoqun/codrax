@@ -98,6 +98,39 @@ func TestRenderV2_ConservativeRuntimeWorkConclusionKeepsExactCredentialVisible(t
 	}
 }
 
+func TestRenderV2ConceptualTerminalResolutionKeepsModelOwnershipAndHidesEnums(t *testing.T) {
+	receipt := &types.AnswerConceptualTerminalResolutionReceipt{
+		EvidenceID: "ev-terminal",
+		Conclusion: types.ConceptualTerminalResolutionCurrentTerminalDiffers,
+		Bound:      true,
+		BoundRow: types.ConceptualTerminalResolutionRow{
+			EvidenceID:       "ev-terminal",
+			TerminalCallable: "AuditLog.record",
+			ExactOperation:   "System.out.println",
+			Source:           "src/AuditLog.java:6",
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "模型给出的调用链结论。",
+		ConceptualTerminalResolution: receipt,
+	}}}
+	zh := RenderAnswerDocument(doc, "zh")
+	for _, want := range []string{"概念目标核对", "AuditLog.record", "System.out.println", "src/AuditLog.java:6", "模型判断", "并未达到"} {
+		if !strings.Contains(zh, want) {
+			t.Fatalf("zh conceptual-terminal receipt missing %q:\n%s", want, zh)
+		}
+	}
+	if strings.Contains(zh, string(types.ConceptualTerminalResolutionCurrentTerminalDiffers)) {
+		t.Fatalf("internal conceptual-terminal enum leaked:\n%s", zh)
+	}
+	en := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{"Conceptual-destination check", "AuditLog.record", "System.out.println", "the model concludes", "does not reach"} {
+		if !strings.Contains(en, want) {
+			t.Fatalf("en conceptual-terminal receipt missing %q:\n%s", want, en)
+		}
+	}
+}
+
 func TestRenderV2_CitationDisplayNeverPrintsLineZero(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

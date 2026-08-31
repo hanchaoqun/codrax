@@ -317,6 +317,11 @@ type AnswerBlock struct {
 	// binds the row's measured facts without reading or rewriting block.Text.
 	RuntimeWorkRelation *AnswerRuntimeWorkRelationReceipt `json:"runtime_work_relation,omitempty"`
 
+	// ConceptualTerminalResolution is a model-selected exact terminal-operation
+	// receipt for a conceptual call-chain destination. The bound row is rendered
+	// from typed parser evidence; the model remains the sole conclusion owner.
+	ConceptualTerminalResolution *AnswerConceptualTerminalResolutionReceipt `json:"conceptual_terminal_resolution,omitempty"`
+
 	// Columns is the optional header row for structured table blocks.
 	// It is never required: table blocks may still carry a complete
 	// model-authored markdown table in Text. When Text is empty, either put

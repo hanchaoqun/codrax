@@ -381,6 +381,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 		applyCallChainEndpointBoundary(cached, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 		applyTraceCausalClaimContractForAgent(cached, ac)
 		applyRuntimeWorkRelationContractForAgent(cached, ac)
+		applyConceptualTerminalResolutionContractForAgent(cached, ac)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForAgentContext(ac)
@@ -389,6 +390,7 @@ func BuildAnswerSemanticViewForAgentContext(ac *AgentContext) *AnswerSemanticVie
 	applyCallChainEndpointBoundary(view, ac.AnalysisIR, ac.Mutable, ac.EvidenceItems)
 	applyTraceCausalClaimContractForAgent(view, ac)
 	applyRuntimeWorkRelationContractForAgent(view, ac)
+	applyConceptualTerminalResolutionContractForAgent(view, ac)
 	emitSemanticViewTrace("agent", view, ac.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -405,6 +407,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 		applyCallChainEndpointBoundary(cached, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 		applyTraceCausalClaimContractForBus(cached, bus)
 		applyRuntimeWorkRelationContractForBus(cached, bus)
+		applyConceptualTerminalResolutionContractForBus(cached, bus)
 		return cached
 	}
 	plan := BuildAnswerSurfacePlanForBusContext(bus)
@@ -413,6 +416,7 @@ func BuildAnswerSemanticViewForBusContext(bus *BusContext) *AnswerSemanticView {
 	applyCallChainEndpointBoundary(view, bus.AnalysisIR, bus.Mutable, bus.EvidenceItems)
 	applyTraceCausalClaimContractForBus(view, bus)
 	applyRuntimeWorkRelationContractForBus(view, bus)
+	applyConceptualTerminalResolutionContractForBus(view, bus)
 	emitSemanticViewTrace("bus", view, bus.AnalysisIR, plan)
 	return cloneAnswerSemanticView(view)
 }
@@ -453,6 +457,26 @@ func applyRuntimeWorkRelationContractForBus(view *AnswerSemanticView, ctx *BusCo
 		ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.RequestsRuntimeWorkRelation()
 	view.RuntimeWorkRelationContract = BuildRuntimeWorkRelationContract(
 		ObservationLedgerInputFromBusContext(ctx, ObservationPromptRecordLimit), requested)
+}
+
+func applyConceptualTerminalResolutionContractForAgent(view *AnswerSemanticView, ctx *AgentContext) {
+	if view == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	view.ConceptualTerminalResolutionContract = BuildConceptualTerminalResolutionContract(
+		ctx.AnalysisIR.RequestModel.CallChainEndpointProfile,
+		ctx.EvidenceItems,
+	)
+}
+
+func applyConceptualTerminalResolutionContractForBus(view *AnswerSemanticView, ctx *BusContext) {
+	if view == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	view.ConceptualTerminalResolutionContract = BuildConceptualTerminalResolutionContract(
+		ctx.AnalysisIR.RequestModel.CallChainEndpointProfile,
+		ctx.EvidenceItems,
+	)
 }
 
 func principalSpanWaiverFromMutable(mutable *MutableState) *PrincipalSpanWaiver {

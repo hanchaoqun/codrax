@@ -324,6 +324,15 @@ func cloneAnswerSemanticView(in *AnswerSemanticView) *AnswerSemanticView {
 		}
 		out.RuntimeWorkRelationContract = &contract
 	}
+	if in.ConceptualTerminalResolutionContract != nil {
+		contract := *in.ConceptualTerminalResolutionContract
+		contract.Rows = make([]ConceptualTerminalResolutionRow, len(in.ConceptualTerminalResolutionContract.Rows))
+		for i, row := range in.ConceptualTerminalResolutionContract.Rows {
+			contract.Rows[i] = row
+			contract.Rows[i].AllowedConclusions = append([]ConceptualTerminalResolutionConclusion(nil), row.AllowedConclusions...)
+		}
+		out.ConceptualTerminalResolutionContract = &contract
+	}
 	return &out
 }
 

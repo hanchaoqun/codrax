@@ -69,6 +69,14 @@ const (
 	// This role is presentation ownership only; typed runtime evidence still
 	// determines what is proved, and the model still owns the conclusion.
 	RequestedAnswerDimensionRuntimeWorkRelation RequestedAnswerDimensionRole = "runtime_work_relation"
+	// RequestedAnswerDimensionConceptualTerminalResolution is an internal,
+	// derived completion role. It is intentionally excluded from
+	// AllRequestedAnswerDimensionRoles so the analyzer is never asked to repeat
+	// the already-typed discover_terminal decision and cannot create an
+	// impossible role/schema combination. The endpoint profile alone activates
+	// it downstream; the system validates the selected evidence receipt but
+	// never decides whether the destination was reached.
+	RequestedAnswerDimensionConceptualTerminalResolution RequestedAnswerDimensionRole = "conceptual_terminal_resolution"
 	// RequestedAnswerDimensionTargetEffectVerdict identifies one finite visible
 	// verdict about whether a specified condition constrained, bound, caused, or
 	// materially affected one specified target/outcome. It is paired with

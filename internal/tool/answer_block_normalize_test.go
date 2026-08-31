@@ -981,6 +981,10 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 			ObservationID: "trace_query:test#trace_semantic_span:1",
 			Conclusion:    string(types.RuntimeWorkRelationConclusionRelatedCausalityUnproven),
 		},
+		ConceptualTerminalResolution: &emitConceptualTerminalResolutionReceipt{
+			EvidenceID: "ev-terminal",
+			Conclusion: string(types.ConceptualTerminalResolutionCurrentTerminalDiffers),
+		},
 		Columns: []string{"维度", "结论"},
 		Items: []emitAnswerBlockItemV2{
 			{ID: "i1", Label: "L", Text: "T", Cells: []string{"C1", "C2"}, CandidateRole: string(types.AnswerCandidateRoleFunction), SourceInventoryRowID: "row-1", CitationRef: flexIntPtr(3)},
@@ -1079,6 +1083,11 @@ func TestNormalizeEmitAnswerBlock_AllFieldsPropagate(t *testing.T) {
 			return got.RuntimeWorkRelation != nil &&
 				got.RuntimeWorkRelation.ObservationID == "trace_query:test#trace_semantic_span:1" &&
 				got.RuntimeWorkRelation.Conclusion == types.RuntimeWorkRelationConclusionRelatedCausalityUnproven
+		},
+		"ConceptualTerminalResolution": func() bool {
+			return got.ConceptualTerminalResolution != nil &&
+				got.ConceptualTerminalResolution.EvidenceID == "ev-terminal" &&
+				got.ConceptualTerminalResolution.Conclusion == types.ConceptualTerminalResolutionCurrentTerminalDiffers
 		},
 	}
 	for name, check := range checks {

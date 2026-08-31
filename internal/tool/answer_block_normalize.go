@@ -127,6 +127,16 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 		}
 		blk.RuntimeWorkRelation = receipt
 	}
+	if raw.ConceptualTerminalResolution != nil {
+		receipt := &types.AnswerConceptualTerminalResolutionReceipt{
+			EvidenceID: strings.TrimSpace(raw.ConceptualTerminalResolution.EvidenceID),
+			Conclusion: types.ConceptualTerminalResolutionConclusion(strings.TrimSpace(raw.ConceptualTerminalResolution.Conclusion)),
+		}
+		if !receipt.Conclusion.IsValid() {
+			return types.AnswerBlock{}, fmt.Errorf("%s: conceptual_terminal_resolution requires a valid schema-published conclusion and an evidence_id whenever the dispatch schema publishes terminal operations", fieldPath)
+		}
+		blk.ConceptualTerminalResolution = receipt
+	}
 	if len(blk.ParticipantBoundaries) > 0 && kind != types.BlockDiagram {
 		return types.AnswerBlock{}, fmt.Errorf("%s: participant_boundaries is only valid on kind=diagram blocks", fieldPath)
 	}
