@@ -67834,3 +67834,32 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1538 r956：真实 write apply 与显式窗 Trace 双路通过；B1470 待同类生产回放（2026-08-30）
+
+1. 从已推送 `2ddae2ca6` 构建不可变二进制，严格并发恰好 2 路运行 `patch_go_typo` 真实 apply 与 H8 显式窗 Trace；runner 2/2 PASS：
+   write 89s、Trace 150s。两路均无 finalizer reject、无旧稿恢复、无固定 4ms/4m、活动流年龄或上下文比例降级。
+2. write 人工通过。ChangePlan 仅含 `main.go` 一个 `kind=patch` target；唯一 hunk 在第 25 行 1 删 1 增，把 `retrun` 精确改为 `return`。
+   改动在隔离 worktree 应用，medium/auto-safe 风险裁决、apply checkpoint/recovery ref、patch-effect fingerprint、changed-path coverage 与 clean
+   worktree 回执齐全；`go test -json ./...` 实际执行、退出码 0 并覆盖 `main.go`。主仓未修改，系统没有代写模型补丁或跳过计划、风险、应用、验证门。
+3. read-classifier 仍把明确 write 请求标成 `explain/mechanism`，但独立 write analyzer 与控制器精确收敛到 micro/low-risk，并完整走
+   plan→apply→verify→finish；本批无可见后果，暂记低优先上下文噪声，不以请求词、模型文本或一次样本增加硬分类门。
+4. Trace 人工通过。显式 `34579.490..34579.500s`、3 次 typed query、最终 `Trace 因果投影`、NetworkService 5.951ms 链上第一席、
+   目标四态账、实际占时/规则可消双账户、`VerifyClass` 业务线索、邻近/背景隔离均完整；非链 D/IO 只作背景，没有越权进入主因排序。
+5. r956 不包含 inventory 用例，因此 `B1470` 只能维持 deterministic context/test positive，不能用 write/Trace 无回归冒充 production positive。
+   下一批回放一个 typed surface-family inventory 与一个显式窗 Trace；前者验收 finalizer 是否复制精确 family counts 而非自行重数，后者继续守住
+   因果投影、自动补齐、链上根因、确定性语义线索和双账户。
+
+状态：
+
+`r956=runner-pass-2/2,human-write-pass+trace-pass`；
+`write-plan=single-file/single-line/model-authored-patch`；
+`write-apply=isolated-worktree+risk-gate+checkpoint`；
+`write-verify=executed-go-test/exit-0/changed-path-covered`；
+`read-classifier-write-label=low-priority-context-noise/no-hard-gate`；
+`B1470=tests-positive/pending-production-replay`；
+`system-answer/conclusion/patch/member/relation-selection=none`；
+`request/model/final-prose/mermaid-label-fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r956`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r956`。
