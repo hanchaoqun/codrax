@@ -396,10 +396,66 @@ func answerDiagramRelationRepairCompiledFailures(
 				}
 			}
 		}
-		failure.FailureRef = answerDiagramRelationRepairFailureRef(base, failure)
 		out = append(out, failure)
 	}
+	answerDiagramRelationRepairNormalizeSharedBodyCapabilities(out)
+	for i := range out {
+		out[i].FailureRef = answerDiagramRelationRepairFailureRef(base, out[i])
+	}
 	return out
+}
+
+// answerDiagramRelationRepairNormalizeSharedBodyCapabilities keeps every
+// capability that selects one physical Mermaid statement jointly executable.
+// A label-pair ref normally owns relabel only, while an independently failed
+// visible-body relation on the same exact occurrence owns remove/replace.
+// Publishing both unchanged creates an empty joint action set even though the
+// statement and its exact anchors can be removed together. Narrow every member
+// of that physical group to model-selected remove, and retarget the label ref
+// to its exact prior anchor so the shared-body executor can delete the line
+// once and every selected anchor once. This composes typed capabilities only;
+// it does not choose the action, a replacement relation, or visible wording.
+func answerDiagramRelationRepairNormalizeSharedBodyCapabilities(
+	failures []AnswerDiagramRelationRepairFailure,
+) {
+	groups := make(map[string][]int, len(failures))
+	for i, failure := range failures {
+		if failure.BodyOccurrence <= 0 || strings.TrimSpace(failure.BlockID) == "" ||
+			strings.TrimSpace(failure.FromNode) == "" || strings.TrimSpace(failure.ToNode) == "" {
+			continue
+		}
+		switch failure.TargetCarrier {
+		case AnswerDiagramRelationRepairCarrierLabelPair,
+			AnswerDiagramRelationRepairCarrierPriorAnchor,
+			AnswerDiagramRelationRepairCarrierVisibleBodyEdge:
+		default:
+			continue
+		}
+		key := strings.Join([]string{
+			strings.TrimSpace(failure.BlockID), strings.TrimSpace(failure.FromNode),
+			strings.TrimSpace(failure.ToNode), fmt.Sprintf("%d", failure.BodyOccurrence),
+		}, "\x00")
+		groups[key] = append(groups[key], i)
+	}
+	for _, indexes := range groups {
+		hasLabelPair := false
+		hasVisibleBody := false
+		for _, index := range indexes {
+			hasLabelPair = hasLabelPair || failures[index].TargetCarrier == AnswerDiagramRelationRepairCarrierLabelPair
+			hasVisibleBody = hasVisibleBody || failures[index].TargetCarrier == AnswerDiagramRelationRepairCarrierVisibleBodyEdge
+		}
+		if !hasLabelPair || !hasVisibleBody {
+			continue
+		}
+		for _, index := range indexes {
+			if failures[index].TargetCarrier == AnswerDiagramRelationRepairCarrierLabelPair {
+				failures[index].TargetCarrier = AnswerDiagramRelationRepairCarrierPriorAnchor
+			}
+			failures[index].AllowedActions = []AnswerDiagramRelationRepairAction{
+				AnswerDiagramRelationRepairActionRemove,
+			}
+		}
+	}
 }
 
 func answerDiagramRelationRepairFailureCarrierKey(base *AnswerDocumentV2, failure AnswerDiagramRelationRepairFailure) string {
@@ -969,6 +1025,13 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 			clean[i].AllowedActions = append(clean[i].AllowedActions, AnswerDiagramRelationRepairActionAttach)
 			break
 		}
+	}
+	// Attach is independently executable only when the selected carrier does
+	// not share one physical statement with a label-only anchor repair. Reapply
+	// physical-carrier composition after attach pairing so an empty joint action
+	// set cannot be reintroduced by candidate expansion.
+	answerDiagramRelationRepairNormalizeSharedBodyCapabilities(clean)
+	for i := range clean {
 		// allowed_actions is part of the generation-scoped capability. Rebind
 		// the opaque selector after the paired attach action is installed.
 		clean[i].FailureRef = answerDiagramRelationRepairFailureRef(base, clean[i])

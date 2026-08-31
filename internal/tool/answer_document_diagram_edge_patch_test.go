@@ -2670,6 +2670,43 @@ func TestEmitAnswerDocumentPatch_RemovesEverySelectedAnchorSharingOneVisibleBody
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RemovesSharedLabelAnchorAndUnanchoredVisibleRelation(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    A->>B: model wording\n"
+	prev.Blocks[1].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "A", ToNode: "B", FromIdentity: "State.Value", ToIdentity: "Bus.Value",
+		RelationKind: types.DiagramRelAssignment, VisibleLabel: "model wording",
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{
+		{BlockID: "diag", Issue: "diagram_visible_label_mismatch", FromNode: "A", ToNode: "B",
+			FromIdentity: "State.Value", ToIdentity: "Bus.Value", RelationKind: types.DiagramRelAssignment, BodyOccurrence: 1},
+		{BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B",
+			FromIdentity: "Caller.Run", ToIdentity: "Callee.Handle", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("shared statement must publish both exact semantic targets: %+v", lease)
+	}
+	mut := types.NewMutableState("shared label and visible relation carrier")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[
+			{"failure_ref":%q,"action":"remove"},
+			{"failure_ref":%q,"action":"remove"}
+		]
+	}`, lease.Failures[0].FailureRef, lease.Failures[1].FailureRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || !res.Success {
+		t.Fatalf("jointly advertised shared-body removal must execute atomically: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || len(got.Blocks[1].EdgeAnchors) != 0 ||
+		strings.Contains(got.Blocks[1].Diagram.Body, "A->>B") {
+		t.Fatalf("shared statement and its exact prior anchor must be removed once: %+v", got)
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEdits_SharedBodyRejectsMixedActions(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    A->>B: shared\n"

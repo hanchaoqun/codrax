@@ -578,6 +578,44 @@ func TestAnswerDiagramRelationRepairLeaseEvidenceNegativeLabelCarrierNarrowsToRe
 	}
 }
 
+func TestAnswerDiagramRelationRepairLeaseSharedBodyLabelAndVisibleFailuresHaveOneJointAction(t *testing.T) {
+	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{Kind: DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n    A->>B: model wording\n"},
+		EdgeAnchors: []DiagramEdgeAnchor{{
+			FromNode: "A", ToNode: "B", FromIdentity: "State.Value", ToIdentity: "Bus.Value",
+			RelationKind: DiagramRelAssignment, VisibleLabel: "model wording",
+		}},
+	}}}
+	lease := NewAnswerDiagramRelationRepairLease(base, []AnswerDiagramRelationRepairFailure{
+		{BlockID: "flow", Issue: "diagram_visible_label_mismatch", RelationKind: DiagramRelAssignment,
+			FromNode: "A", ToNode: "B", FromIdentity: "State.Value", ToIdentity: "Bus.Value", BodyOccurrence: 1},
+		{BlockID: "flow", Issue: "missing_call_anchor", RelationKind: DiagramRelCall,
+			FromNode: "A", ToNode: "B", FromIdentity: "Caller.Run", ToIdentity: "Callee.Handle", BodyOccurrence: 1},
+	}, nil)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("two semantic targets on one visible statement must remain explicitly selectable: %+v", lease)
+	}
+	seenPrior, seenBody := false, false
+	for _, failure := range lease.Failures {
+		if failure.FailureRef == "" || len(failure.AllowedActions) != 1 || !failure.AllowsAction("remove") ||
+			failure.AllowsAction("relabel") || failure.AllowsAction("replace") || failure.AllowsAction("attach") {
+			t.Fatalf("shared physical carrier must publish one common executable action: %+v", failure)
+		}
+		switch failure.TargetCarrier {
+		case AnswerDiagramRelationRepairCarrierPriorAnchor:
+			seenPrior = true
+		case AnswerDiagramRelationRepairCarrierVisibleBodyEdge:
+			seenBody = true
+		default:
+			t.Fatalf("unexpected shared physical target carrier: %+v", failure)
+		}
+	}
+	if !seenPrior || !seenBody {
+		t.Fatalf("joint removal must own the exact prior anchor and visible statement: %+v", lease.Failures)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLeaseSkipsCaseEquivalentExistingAddition(t *testing.T) {
 	base := &AnswerDocumentV2{Blocks: []AnswerBlock{{
 		ID: "flow", Kind: BlockDiagram,
