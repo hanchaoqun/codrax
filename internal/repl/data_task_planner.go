@@ -802,6 +802,15 @@ func dataTaskPlanToolForExecutableRank(rank dataTaskExecutableRankContract) (llm
 	for _, allowed := range rank.AllowedActionKinds {
 		allowedSet[strings.TrimSpace(allowed)] = true
 	}
+	// A continuation/repair rank is actions-only.  Do not keep teaching the
+	// legacy plan-level script carrier, and do not expose action.script when
+	// custom_transform is not executable in this exact rank.  The runtime guard
+	// remains fail-closed for stale/hand-written callers; this projection only
+	// removes an impossible choice from the model-facing schema.
+	delete(properties, "script")
+	if !allowedSet[string(dataquery.DataActionCustomTransform)] {
+		delete(itemProperties, "script")
+	}
 	if allOf, ok := items["allOf"].([]any); ok {
 		filtered := make([]any, 0, len(allOf))
 		for _, branch := range allOf {

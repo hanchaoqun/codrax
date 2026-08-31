@@ -36,6 +36,21 @@ func dataTaskToolActionKindEnum(t *testing.T, tool llm.ToolSchema) []string {
 	return out
 }
 
+func dataTaskToolScriptProperties(t *testing.T, tool llm.ToolSchema) (topLevel, action bool) {
+	t.Helper()
+	var schema map[string]any
+	if err := json.Unmarshal(tool.Parameters, &schema); err != nil {
+		t.Fatalf("tool schema JSON: %v", err)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	_, topLevel = properties["script"]
+	actions, _ := properties["actions"].(map[string]any)
+	items, _ := actions["items"].(map[string]any)
+	itemProperties, _ := items["properties"].(map[string]any)
+	_, action = itemProperties["script"]
+	return topLevel, action
+}
+
 func deriveRulesRuntimeView() dataTaskWorkflowRuntimeView {
 	contract := dataquery.CoverageContract{
 		RequiredMaterials: []dataquery.CoverageMaterial{
@@ -68,6 +83,9 @@ func TestDataTaskExecutableRankNarrowsToolAndPromptFromSameState(t *testing.T) {
 	if got := dataTaskToolActionKindEnum(t, tool); !slices.Equal(got, rank.AllowedActionKinds) {
 		t.Fatalf("tool action enum=%v, rank=%v", got, rank.AllowedActionKinds)
 	}
+	if topLevelScript, actionScript := dataTaskToolScriptProperties(t, tool); topLevelScript || actionScript {
+		t.Fatalf("typed executable rank must not teach any script carrier: top_level=%t action=%t schema=%s", topLevelScript, actionScript, tool.Parameters)
+	}
 	for _, futureKind := range []string{`"join_records"`, `"compute_contributions"`, `"reconcile_artifacts"`, `"assemble_answer"`, `"custom_transform"`} {
 		if !strings.Contains(string(tool.Parameters), futureKind) {
 			continue
@@ -85,6 +103,24 @@ func TestDataTaskExecutableRankNarrowsToolAndPromptFromSameState(t *testing.T) {
 	}
 	if strings.LastIndex(prompt, "## executable_next_rank") < strings.LastIndex(prompt, "## current_plan_emission_contract") {
 		t.Fatalf("current-rank carrier must be the final copyable contract")
+	}
+}
+
+func TestDataTaskExecutableRankKeepsOnlyActionScriptForCustomTransform(t *testing.T) {
+	rank := dataTaskExecutableRankContract{
+		NextStage:          "custom_transform",
+		AllowedActionKinds: []string{string(dataquery.DataActionCustomTransform)},
+		FutureRanks:        "read_only_roadmap",
+	}
+	tool, err := dataTaskPlanToolForExecutableRank(rank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if topLevelScript, actionScript := dataTaskToolScriptProperties(t, tool); topLevelScript || !actionScript {
+		t.Fatalf("custom-transform rank must expose only actions[].script: top_level=%t action=%t schema=%s", topLevelScript, actionScript, tool.Parameters)
+	}
+	if err := toolparam.Validate(json.RawMessage(`{"status":"ready","output_contract":{"format":"plain_single_line","explanation_allowed":false,"complete_reference":false},"actions":[{"kind":"custom_transform","script":"emit_result(1)"}]}`), tool.Parameters); err != nil {
+		t.Fatalf("custom-transform rank rejected its executable action script: %v", err)
 	}
 }
 
