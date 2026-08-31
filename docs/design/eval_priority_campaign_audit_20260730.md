@@ -57933,6 +57933,51 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1528 r945/r946：关系修补与数据 schema 三项转正；调用链多输出面硬冲突闭环（2026-08-30）
+
+1. B1457、B1458、B1459 已拆成独立小批提交推送。`a0eb95c21` 只让真正拥有可见正文边的 failure carrier 继承
+   `body_occurrence`，`stale_anchor`/metadata carrier 保持零；`0ad195dc5` 让 semantic view 在调用链同时存在 required
+   `member_set` 时发布独立 sibling member block，端点路径块仍只承载精确边；`2320bf849` 从不允许 `custom_transform` 的 data rank
+   动态 schema 中移除 `script`，运行时 fail-closed guard 保持。三批均分别通过定向测试，合并后完整 `go test ./... -count=1` 与
+   CGO release-tag `make` 全绿。
+2. r945 从 `2320bf849` 的同一二进制严格并发恰好 2 路复放 sequence+data，runner 2/2 PASS。data 从 r944 的 335s/多轮动作修补
+   收敛到 41s/零 repair，严格输出 `{"ids":["u1","u3"]}`，只执行一个当前 rank 允许的 `custom_transform` 并消费 `users.json`；
+   B1459 获生产正证。sequence 从降级失败恢复为 313s PASS，一次关系 patch 后保留两条真实汇聚边、明确否认请求端点间有向路径，并把普通
+   关键函数移到独立 support 块；B1457 获生产正证，B1458 的最终结构正向。
+3. r945 同时暴露 `B1460-CALLCHAINMULTISURFACEROLE1/P1`：Analyzer 已正确把“图”和“图后关键函数清单”铸成两个独立
+   requested-dimension row，但旧 `validateCallChainRequestedDimensionRoles` 仍只承认 category/table/completeness/source-inventory 为
+   roster 边界，硬拒 `diagram + member_set`，逼模型把清单改成 `relation_path`。这使下游首稿分块教学与上游硬门互相矛盾，不是模型波动。
+4. B1460 以 `634c2b6e1` 根修并推送。判据只读取 schema-validated required dimension role：同一 call-chain 中已有独立 required
+   `diagram` 或 `relation_path` 时，sibling `member_set` 合法；只有唯一路径面本身被误标为 member set、且无任何独立 roster 信号时仍精确拒绝。
+   不读取 label、source quote、请求、thinking、终稿或 Mermaid message，不自动改 role，也不放宽调用边证据门。回归同时钉住
+   `member_set-only` 继续失败、`diagram+member_set` 与 `relation_path+member_set` 通过。
+5. r946 从已推送 `634c2b6e1` 严格并发恰好 2 路复放同一 sequence 与显式窗 Trace，runner 2/2 PASS：Trace 179s、sequence
+   298s。sequence 的真实 analyzer toolcall 首次原样接受 required `diagram` + required `member_set`，B1460 获生产正证；最终图只画
+   `buildAnalysisIR -> gate.RunWith` 与 `gate.Run -> gate.RunWith`，明确不存在 `buildAnalysisIR -> gate.Run` 路径，图后成员清单保持独立。
+   一次 finalizer reject/两次 bounded patch 只补模型遗漏的 endpoint anchor、显示标签和 member facet，未出现 stale-loop、whole-answer
+   替换、关系伪造或降级恢复；按模型遵循波动留观，不再追加正文硬门。
+6. Trace 高风险负回归通过：精确 2.000..2.020s 用户窗、3 次带 PID/thread/window 的 typed query、
+   `threadpool-400 -> network-300 -> cookie-200 -> app-100` 四节点链、11.000ms 链上 IO 第一席、三个独立 1.000ms
+   调度/优先级候选、实际占时/规则可消双账户、业务下钻、成文前自动补采和完整 `Trace 因果投影` 全在。app-100 的 20.000ms sleep
+   保持“症状/关键路径占用”而非自动计价根因；邻近 runnable/sleep 和 IO 活动综合指数只作支撑/背景，没有升为主席。
+7. 两轮均未按固定 4ms、4m、首字节、stall、活动流年龄、轮数或上下文比例降级；系统没有选择、增加、删除、反向、改名或替写模型结论/关系。
+   r946 analyzer 曾两次提交非逐字 relation-scope quote 后自行修正，属于已有精确 provenance gate 下的模型遵循成本，列 P2 异构观察；当前证据不足以
+   为它增加新的提示重复、自动摘取或请求原文关键词门。
+
+状态：
+
+`r945=runner-pass-2/2+human-data-pass+sequence-pass-with-contract-residual`；
+`r946=runner-pass-2/2+human-pass-2/2`；
+`B1457/B1459=production-positive/core-closed`；
+`B1458=production-positive/final-structure-closed`；`B1460=production-positive/core-closed`；
+`call-chain-multi-surface=typed-path-owner+independent-member-roster`；
+`member-set-only-path-mislabel=still-fail-closed`；
+`system-answer/conclusion/relation/role/wording-selection=none`；
+`request/model/final-prose/mermaid-message-keyword-hard-gate=forbidden/none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r946`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r946`。
+
 ### §123.1506 r925/B1440：Trace 枚举与单位边界生产转正；可选真关系被必需图权限漂移删除（2026-08-28）
 
 1. 从已推送 `5a9f7d54e` 重建不可变二进制，严格并发恰好 2 路复放 Donghu 显式窗 Trace 与 `qf_architecture`。runner
