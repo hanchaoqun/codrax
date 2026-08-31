@@ -100,10 +100,10 @@ func diagramCallParticipantAliases(block *types.AnswerBlock, strictBodyOwnership
 	}
 	edges := mermaidcompat.ParseEdges(block.Diagram.Body)
 	typedRelations := diagramTypedAnchorRelationSet(block.EdgeAnchors)
-	structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, edges, typedRelations)
-	for _, edge := range edges {
+	structuralReplies := diagramSequenceStructuralReplyIndexSet(block.Diagram.Kind, edges, typedRelations)
+	for edgeIndex, edge := range edges {
 		key := diagramEvidenceEdgeKey(edge.From, edge.To)
-		if structuralReplies[key] ||
+		if structuralReplies[edgeIndex] ||
 			!diagramParsedEdgeRequiresCallAuthority(block.Diagram.Kind, typedRelations[key], false) {
 			continue
 		}

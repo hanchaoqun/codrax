@@ -57465,6 +57465,33 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r989`。
 
+### §123.1583 B1512：sequence reply 按可见顺序消费此前调用代次（2026-08-31）
+
+1. `B1512-SEQUENCEREPLYORDER1/P1` 已施工。`diagramSequenceStructuralReplyKeySet` 的全图无序 endpoint membership 被替换为 edge-index pairing：
+   Mermaid edges 按出现顺序扫描，每个 actor-pair 保存尚未配对的 prior forward invocation stack；`-->>` 只能消费反向 endpoint stack 中最近一条，
+   后来的调用不能追认先出现的 reply，同一调用也不能授权多个 reply。
+2. forward edge 只有在现有 closed relation matrix 将其视为 call-authority lane 时才进入 pending stack；已有 typed non-call owner 的 edge 不可被借作
+   invocation。显式 reverse call anchor 继续触发 reply-operator conflict，显式 typed return 继续由自己的 relation/evidence authority 合法化；activation
+   suffix 通过既有 `SequenceArrowBase` 归一，不改变节点、方向或显示内容。
+3. 修复是纯结构语法校验：不读取用户请求、模型 thinking、最终 prose、Mermaid message label 或业务方法名，不按 Java/countOpenVisits/insert
+   特例，也不新增、删除、移动、重标或替换模型 edge。未能顺序配对的 `-->>` 只是不再享受 metadata-free reply 豁免，随后由原 typed relation gate 给模型
+   可执行纠正，而非系统代画。
+4. 新回归覆盖 reply-before-future-call、one-call/two-replies 与 A→B→C 嵌套 LIFO；既有普通 call→reply、反向 typed call、unpaired reply 和 activation
+   reply pins 同批通过。验证结果：`go test ./internal/tool -count=1` 通过（186.778s），随后全仓 `go test ./... -count=1` 通过
+   （其中 `internal/tool` 208.019s、`internal/tracequery` 93.513s、`internal/hitraceconv` 126.602s），`make` 通过。提交后严格并发恰好 2 路
+   复放一个多次同 actor sequence case 与一个显式窗 Trace/其他图族防回归 case。
+
+状态：
+
+`B1512=implemented/targeted-positive+negative-pins/full-suite-pass/build-pass/pending-production-replay`；
+`reply-pairing=prior-only+nearest-unmatched+single-consumption`；
+`typed-non-call-forward=cannot-authorize-reply`；
+`system-diagram/edge/relation/wording-authorship=none`；
+`request/model/final-prose/mermaid-message scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

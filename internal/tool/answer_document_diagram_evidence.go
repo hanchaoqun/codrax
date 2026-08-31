@@ -222,10 +222,10 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				})
 			}
 			callAnchorKeys := diagramCallAnchorKeySet(effectiveAnchors)
-			structuralReplies := diagramSequenceStructuralReplyKeySet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
+			structuralReplies := diagramSequenceStructuralReplyIndexSet(block.Diagram.Kind, parsedEdges, typedAnchorRelations)
 			callOccurrenceUse := make(map[string]int)
 			bodyPairOccurrence := make(map[string]int)
-			for _, edge := range parsedEdges {
+			for edgeIndex, edge := range parsedEdges {
 				key := diagramEvidenceEdgeKey(edge.From, edge.To)
 				occurrence := bodyPairOccurrence[key]
 				bodyPairOccurrence[key] = occurrence + 1
@@ -246,7 +246,7 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 				// Unanchored sequence/call-DAG edges retain the fail-closed call
 				// default; flow/architecture edges must at least declare their
 				// canonical relation owner.
-				if structuralReplies[key] {
+				if structuralReplies[edgeIndex] {
 					continue
 				}
 				relations := typedAnchorRelations[key]
@@ -1246,34 +1246,42 @@ func diagramRequiresTypedBodyOwnership(kind types.DiagramKind, sourceCallChainFa
 	return kind == types.DiagramCallDAG || sourceCallChainFamily
 }
 
-// diagramSequenceStructuralReplyKeySet recognizes only a dashed reverse edge
-// paired with a visible forward sequence invocation. A standalone -->> edge is
-// not sufficient to self-declare as a reply, and an explicit call anchor keeps
-// the reverse edge inside the call-evidence contract. Typed evidence elsewhere
-// in the session cannot change the syntax role of a structurally paired reply.
-func diagramSequenceStructuralReplyKeySet(kind types.DiagramKind, edges []mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) map[string]bool {
-	out := make(map[string]bool)
+// diagramSequenceStructuralReplyIndexSet recognizes only a dashed reverse edge
+// that consumes a preceding, still-unpaired forward sequence invocation. A
+// later invocation cannot retroactively authorize an earlier reply, and one
+// invocation cannot authorize several replies. Pairing is LIFO per exact node
+// pair so nested calls and repeated calls between the same actors retain their
+// visible temporal order.
+//
+// A standalone -->> edge is not sufficient to self-declare as a reply, an
+// explicit reverse call anchor keeps that edge inside the call-evidence
+// contract, and a typed non-call forward edge cannot be borrowed as an
+// invocation. Message labels and endpoint evidence do not participate in this
+// structural syntax classification.
+func diagramSequenceStructuralReplyIndexSet(kind types.DiagramKind, edges []mermaidcompat.Edge, typedRelations map[string]map[types.DiagramRelationKind]bool) map[int]bool {
+	out := make(map[int]bool)
 	if kind != types.DiagramSequence {
 		return out
 	}
-	forward := make(map[string]bool)
-	for _, edge := range edges {
-		if mermaidcompat.SequenceArrowBase(edge.Operator) == "-->>" {
-			continue
-		}
-		forward[diagramEvidenceEdgeKey(edge.From, edge.To)] = true
-	}
-	for _, edge := range edges {
-		if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" {
-			continue
-		}
+	pending := make(map[string][]int)
+	for index, edge := range edges {
 		key := diagramEvidenceEdgeKey(edge.From, edge.To)
+		if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" {
+			if diagramParsedEdgeRequiresCallAuthority(kind, typedRelations[key], false) {
+				pending[key] = append(pending[key], index)
+			}
+			continue
+		}
 		if typedRelations[key][types.DiagramRelCall] {
 			continue
 		}
-		if forward[diagramEvidenceEdgeKey(edge.To, edge.From)] {
-			out[key] = true
+		reverseKey := diagramEvidenceEdgeKey(edge.To, edge.From)
+		stack := pending[reverseKey]
+		if len(stack) == 0 {
+			continue
 		}
+		out[index] = true
+		pending[reverseKey] = stack[:len(stack)-1]
 	}
 	return out
 }

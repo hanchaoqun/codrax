@@ -825,6 +825,63 @@ func TestDiagramCallEdgeEvidenceMismatches_UnpairedDashedEdgeIsNotSelfAuthorizin
 	}
 }
 
+func TestDiagramCallEdgeEvidenceMismatches_SequenceReplyCannotBorrowFutureInvocation(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body = strings.Join([]string{
+		"sequenceDiagram",
+		"  participant A as Alpha.Run",
+		"  participant B as Beta.Run",
+		"  B-->>A: early result",
+		"  A->>B: invoke",
+	}, "\n")
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{
+		diagramEvidenceTestCall("Alpha.Run", "Beta.Run"),
+	})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor ||
+		got[0].FromNode != "B" || got[0].ToNode != "A" {
+		t.Fatalf("a reply before its invocation must remain unpaired and fail closed: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequenceInvocationCannotAuthorizeSeveralReplies(t *testing.T) {
+	doc := diagramEvidenceTestDoc("A", "B")
+	doc.Blocks[0].Diagram.Body += "  B-->>A: first result\n  B-->>A: second result\n"
+	got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, []types.EvidenceItem{
+		diagramEvidenceTestCall("Alpha.Run", "Beta.Run"),
+	})
+	if len(got) != 1 || got[0].Issue != diagramCallEdgeIssueMissingAnchor ||
+		got[0].FromNode != "B" || got[0].ToNode != "A" || got[0].BodyOccurrence != 2 {
+		t.Fatalf("one invocation must authorize only its first structural reply: %+v", got)
+	}
+}
+
+func TestDiagramCallEdgeEvidenceMismatches_SequenceNestedRepliesConsumeNearestPriorInvocations(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "sequence", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			"  participant A as Alpha.Run",
+			"  participant B as Beta.Run",
+			"  participant C as Gamma.Run",
+			"  A->>B: invokeB",
+			"  B->>C: invokeC",
+			"  C-->>B: resultC",
+			"  B-->>A: resultB",
+		}, "\n")},
+		EdgeAnchors: []types.DiagramEdgeAnchor{
+			{FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall},
+			{FromNode: "B", ToNode: "C", RelationKind: types.DiagramRelCall},
+		},
+	}}}
+	evidence := []types.EvidenceItem{
+		diagramEvidenceTestCall("Alpha.Run", "Beta.Run"),
+		diagramEvidenceTestCall("Beta.Run", "Gamma.Run"),
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(doc, &types.AnswerSemanticView{Family: types.QFCallChain}, evidence); len(got) != 0 {
+		t.Fatalf("nested call replies must pair with their preceding reverse endpoints: %+v", got)
+	}
+}
+
 func TestDiagramCallEdgeEvidenceMismatches_ClassParticipantsResolveUniqueTypedMethods(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "sequence", Kind: types.BlockDiagram,
