@@ -57380,6 +57380,43 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1618 r1012：B1547 生产闭环与根因 JSON 默认旁路对照（2026-09-01）
+
+1. 从已推送 `e3f51d66e` 构建不可变二进制，严格并发恰好 2 路复放同一 read/Trace 组合；runner 2/2 PASS：Trace 173s、read
+   703s。机器汇总与人工复核分别在 `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1012_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1012_20260901_manual_audit.md`；read 人工判 pass，Trace 因模型同页因果措辞冲突判 fail。
+2. B1547 获直接生产正证：read finalizer 首稿只画 `Analyze -> Explore -> Extract -> Finalize` 三条相邻 precedence，
+   `finalizer_rejects=0`、relation patch=0；没有 r1011 的 `AgentAnalyzer -> AgentFinalizer` 首尾直连，也没有孤立
+   Orchestrator/Dispatcher/BusContext/MutableState。阶段输入/输出/状态载体表和阶段定义/调度锚可读。证明普通 evidence 的列表首尾压缩 tuple
+   已无法扩大 checkout stage authority，同时模型仍可自主选择三条相邻边和显示词。
+3. read 的 703s 主要花在 analyzer/explorer 证据闭包：analyzer 6 轮、一次 refine、read_file=42，finalizer 仅 1 轮且零拒绝；因此本轮不能把总时长
+   归因给“成文合同冲突”。末尾自动 member-set 又列出 3 个条件前置阶段并附“部分证据稍弱”，略显冗余但没有替代主四阶段图/表；先观察不同模型，
+   不因一个样例新增正文、标签或清单词扫描。
+4. Trace 本轮模型在原生 nested object 中精确提交 `schema_version=2` 与 5 个 candidate ID，默认 sibling
+   `20260901-062304.127-59287.root-causes.json` 正常生成，含 rank/category/thread/impact/evidence。与 r1011“模型完全不提交 carrier，默认文件缺失”
+   构成同输入同系统的直接对照：默认路径是 optional model-selection artifact，不是稳定程序化必达接口。B1544 的顶层 discriminator 搬移和 B1545 的
+   单次 encoded-object 解码本轮都未触发，不能虚报其生产正证；其结构回归保持绿。
+5. 稳定程序化接口继续是 `--root-causes-out <exact-path>`：无论本轮这种 valid selection 还是 r1011 的 omitted selection，指定路径都必须写
+   guaranteed envelope；调用方以 `status=available|unavailable` 和 typed `reason_code` 分支。默认 bare v2 文件只在可选选择成功时存在，二者不可混为
+   一个 availability 合同。显式写失败使命令失败；未指定 flag 的默认缺失不影响完整答案生成，但会影响错误依赖默认文件存在的程序化消费者。
+6. Trace 核心系统投影保持正确：链上 NetworkService-60595 仍是 5.951ms 第一席，实际占时/规则可消双轴、邻近背景隔离、业务线索、帧因果未证和
+   自动补采均在。人工失败只因模型 lead 把“确定性优化工作”写成与目标已有链上因果，后文 typed runtime-work relation 又明确该语义工作因果未证，
+   形成模型同页冲突。精确信号已到达；按用户红线不扫描/替换模型正文、不让系统代下结论，继续作跨模型服从性观察。
+
+状态：
+
+`r1012=runner-pass-2/2,human-read-pass+trace-fail`；
+`B1547=production-closed/r1012`；
+`B1543=explicit-guaranteed-envelope/structural-tests-closed/not-production-flag-exercised-r1012`；
+`B1544/B1545=implemented/not-production-exercised-r1012`；
+default sibling=`optional/model-valid-selection-dependent/production-positive-r1012`；
+explicit root output=`stable-programmatic-contract/available-or-typed-unavailable`；
+`system-root-selection/prose-inference/answer-rewrite=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1012`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1012`。
+
 ### §123.1615 r1009/B1544：根因选择侧车的固定判别值载体漂移（2026-09-01）
 
 1. 从已推送 `cbd60fec0` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 H8 显式窗 Trace；runner
