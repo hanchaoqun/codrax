@@ -247,6 +247,35 @@ func TestRecordTaskFinalizeWritesOutputDumpForFallbackAnswer(t *testing.T) {
 	}
 }
 
+func TestRecordTaskFinalizeRecordsRootCauseJSONPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "output")
+	mut := types.NewMutableState("分析 trace 根因")
+	impact := 0.004
+	mut.SetTraceRootCauseReport(&types.TraceRootCauseReportV2{
+		SchemaVersion: types.TraceRootCauseReportSchemaVersion,
+		RootCauses: []*types.TraceRootCauseItemV2{{
+			Rank: 1, Category: types.TraceRootCauseCPUSchedulingDelay,
+			ThreadName: "RenderThread", ImpactSeconds: &impact,
+			Summary: "RenderThread线程CPU调度延迟", Evidence: []string{"typed evidence"},
+		}},
+	})
+	o := &Orchestrator{
+		busCtx:        &types.BusContext{Mutable: mut},
+		outputDumpDir: dir,
+		outputDumpMax: 10,
+		emit:          func(render.Event) {},
+	}
+
+	o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: "answer body"})
+	rootPath := mut.FinalAnswerRootCauseJSONPath()
+	if rootPath == "" {
+		t.Fatal("structured root-cause path must be retained for programmatic discovery")
+	}
+	if _, err := os.Stat(rootPath); err != nil {
+		t.Fatalf("recorded structured path does not exist: %v", err)
+	}
+}
+
 func TestRecordTaskFinalizeSurfacesCJKGluedRequestArtifact(t *testing.T) {
 	// Regression: a trace named by path in the question (no --htrace flag),
 	// written flush against Chinese prose, must still surface as a runtime

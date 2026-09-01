@@ -204,6 +204,15 @@ JSON Schema 限制字段、类型和根因类别
 }
 ```
 
+因此默认同名旁路是“有有效模型选择才出现”的可选产物：文件缺失只表示本轮没有持久化有效选择，不能解释为“根因数量为 0”。需要稳定程序化接口时，使用单次 CLI 的显式路径：
+
+```bash
+codrax --htrace ./demo.systrace --request "分析这个 Trace 的丢帧根因" \
+  --root-causes-out ./artifacts/root-causes.json
+```
+
+显式文件使用稳定的 guaranteed-delivery envelope。有效选择时 `status=available` 且 `trace_root_causes` 内嵌上述 v2 报告；没有可选 typed 链上候选、模型未提交有效选择或最终答案未形成时，文件仍会生成，`status=unavailable` 并携带 typed `reason_code`，不会伪造成 `root_causes=[]`。父目录会创建、同名文件会覆盖；如果文件本身写失败，命令返回失败，不能静默成功。该 flag 即使在 `output_dump_enabled: false` 时仍生效，且不要求同时指定 `--report-md/--report-html`。
+
 ## 10. Trace 文件怎样传入
 
 建议显式传入，不要只把文件放到 exe 同一目录后等待自动发现：
@@ -224,7 +233,7 @@ JSON Schema 限制字段、类型和根因类别
 ## 11. 需要注意的边界
 
 - 根因候选选择、数量和顺序由最终模型完成；系统负责 typed 候选编译、字段绑定和校验，不会凭空替代模型诊断。
-- 简短 JSON 是可选旁路。缺失或字段级格式错误不会导致完整答案丢失；此时只是不生成新的 `.root-causes.json`。
+- 默认同名简短 JSON 是可选旁路。缺失或字段级格式错误不会导致完整答案丢失；此时只是不生成新的 `.root-causes.json`，也不能把缺失解释为“没有根因”。需要必达文件时使用 `--root-causes-out`，并检查 envelope 的 `status/reason_code`。
 - 如果 `trace_query` 返回 `trace_input_source_unavailable`，说明结构化查询没有成功读取 Trace。这时应先修复输入路径或文件格式。
 - JSON 格式正确，不等于诊断一定正确。仍要核对模型选择的候选顺序与完整长报告是否一致。
 - 简短根因功能不依赖批量聚类。单个 Trace 在模型提交有效候选选择时也可生成 `.root-causes.json`。
@@ -238,6 +247,7 @@ JSON Schema 限制字段、类型和根因类别
 - `internal/tool/final_answer_artifacts_mutation.go`：接收并校验根因报告。
 - `internal/tool/emit_answer_document_v2.go`：同时接收长答案和根因 JSON。
 - `internal/outputdump/output_dump.go`：把根因报告保存为 `.root-causes.json`。
+- `internal/outputdump/explicit_report.go`：实现 `--root-causes-out` 的必达状态 envelope；缺失选择只披露 unavailable，不代替模型选择。
 
 ## 13. 用一句话理解
 

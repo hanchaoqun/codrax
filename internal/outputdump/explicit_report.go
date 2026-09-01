@@ -1,12 +1,15 @@
 package outputdump
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // ExplicitReport carries CLI-requested extra output paths for the final
@@ -26,6 +29,12 @@ type ExplicitReport struct {
 	// pipeline as the default dump's .html sibling; the embedded <title>
 	// is this file's base name).
 	HTMLPath string
+	// RootCauseJSONPath, when non-empty, receives a guaranteed-delivery
+	// machine-readable Trace root-cause artifact. Unlike the optional default
+	// sibling, this target is written even when no valid model-owned root-cause
+	// selection is available; that state is represented by a typed unavailable
+	// envelope instead of a missing file or a fabricated empty conclusion.
+	RootCauseJSONPath string
 	// SuppressDefaultDir skips every write into Args.Dir (no MkdirAll, no
 	// prune, no dump files) while the explicit paths above still write.
 	// cmd sets it when output_dump_enabled=false but explicit report
@@ -35,7 +44,27 @@ type ExplicitReport struct {
 }
 
 func (r ExplicitReport) hasTarget() bool {
-	return strings.TrimSpace(r.MarkdownPath) != "" || strings.TrimSpace(r.HTMLPath) != ""
+	return strings.TrimSpace(r.MarkdownPath) != "" || strings.TrimSpace(r.HTMLPath) != "" ||
+		strings.TrimSpace(r.RootCauseJSONPath) != ""
+}
+
+const ExplicitRootCauseArtifactSchemaVersion = 1
+
+const (
+	ExplicitRootCauseStatusAvailable   = "available"
+	ExplicitRootCauseStatusUnavailable = "unavailable"
+)
+
+// ExplicitRootCauseArtifact is the stable guaranteed-delivery envelope used
+// only by --root-causes-out. The optional timestamped default sibling keeps
+// its historical bare TraceRootCauseReportV2 wire shape. Keeping availability
+// outside the report prevents a missing model selection from being serialized
+// as root_causes=[] and misread as a model conclusion that no cause exists.
+type ExplicitRootCauseArtifact struct {
+	ArtifactSchemaVersion int                           `json:"artifact_schema_version"`
+	Status                string                        `json:"status"`
+	TraceRootCauses       *types.TraceRootCauseReportV2 `json:"trace_root_causes,omitempty"`
+	ReasonCode            string                        `json:"reason_code,omitempty"`
 }
 
 // ExplicitReportWrite records one attempted explicit-report write so the
@@ -43,7 +72,7 @@ func (r ExplicitReport) hasTarget() bool {
 // "[plan written: …]" / "plan file write failed" precedent). Err == nil
 // means the file landed on disk.
 type ExplicitReportWrite struct {
-	Kind string // "markdown" | "html"
+	Kind string // "markdown" | "html" | "root-causes"
 	Path string
 	Err  error
 }
@@ -92,7 +121,7 @@ func recordExplicitReportWrite(w ExplicitReportWrite) {
 // are logged at WARN with the offending path and recorded for the CLI
 // status surface — like the default dump, they must never alter answer
 // delivery.
-func writeExplicitReportCopies(r ExplicitReport, body string) {
+func writeExplicitReportCopies(r ExplicitReport, body string, rootCauses *types.TraceRootCauseReportV2, unavailableReason string) string {
 	if p := strings.TrimSpace(r.MarkdownPath); p != "" {
 		recordExplicitReportWrite(ExplicitReportWrite{
 			Kind: "markdown",
@@ -101,20 +130,78 @@ func writeExplicitReportCopies(r ExplicitReport, body string) {
 		})
 	}
 	p := strings.TrimSpace(r.HTMLPath)
+	if p != "" {
+		htmlBody, err := BuildHTML(filepath.Base(p), body)
+		if err != nil {
+			logging.Warning("[output_dump] render html for explicit report %s failed: %v", p, err)
+			recordExplicitReportWrite(ExplicitReportWrite{Kind: "html", Path: p, Err: err})
+		} else {
+			recordExplicitReportWrite(ExplicitReportWrite{
+				Kind: "html",
+				Path: p,
+				Err:  writeExplicitReportFile(p, []byte(htmlBody)),
+			})
+		}
+	}
+	write := writeExplicitRootCauseArtifact(r, rootCauses, unavailableReason)
+	if write.Err == nil {
+		return write.Path
+	}
+	return ""
+}
+
+// EnsureExplicitRootCauseArtifact closes the no-final-answer lane. Normal
+// final-answer dumping writes the explicit artifact through WriteResult; if a
+// pipeline exits before that hook, the CLI calls this function at the outer
+// boundary so an explicitly requested path still receives a typed unavailable
+// artifact. It never derives a cause or reads model prose.
+func EnsureExplicitRootCauseArtifact(unavailableReason string) {
+	r := explicitReportSnapshot()
+	if strings.TrimSpace(r.RootCauseJSONPath) == "" || explicitRootCauseWriteRecorded() {
+		return
+	}
+	writeExplicitRootCauseArtifact(r, nil, unavailableReason)
+}
+
+func explicitRootCauseWriteRecorded() bool {
+	explicitReportMu.Lock()
+	defer explicitReportMu.Unlock()
+	for _, write := range explicitReportWrites {
+		if write.Kind == "root-causes" {
+			return true
+		}
+	}
+	return false
+}
+
+func writeExplicitRootCauseArtifact(r ExplicitReport, report *types.TraceRootCauseReportV2, unavailableReason string) ExplicitReportWrite {
+	p := strings.TrimSpace(r.RootCauseJSONPath)
 	if p == "" {
-		return
+		return ExplicitReportWrite{}
 	}
-	htmlBody, err := BuildHTML(filepath.Base(p), body)
-	if err != nil {
-		logging.Warning("[output_dump] render html for explicit report %s failed: %v", p, err)
-		recordExplicitReportWrite(ExplicitReportWrite{Kind: "html", Path: p, Err: err})
-		return
+	artifact := ExplicitRootCauseArtifact{
+		ArtifactSchemaVersion: ExplicitRootCauseArtifactSchemaVersion,
+		Status:                ExplicitRootCauseStatusAvailable,
+		TraceRootCauses:       report,
 	}
-	recordExplicitReportWrite(ExplicitReportWrite{
-		Kind: "html",
-		Path: p,
-		Err:  writeExplicitReportFile(p, []byte(htmlBody)),
-	})
+	if report == nil {
+		artifact.Status = ExplicitRootCauseStatusUnavailable
+		artifact.ReasonCode = strings.TrimSpace(unavailableReason)
+		if artifact.ReasonCode == "" {
+			artifact.ReasonCode = "valid_root_cause_selection_unavailable"
+		}
+	}
+	body, err := json.MarshalIndent(artifact, "", "  ")
+	if err == nil {
+		body = append(body, '\n')
+		err = writeExplicitReportFile(p, body)
+	} else {
+		err = fmt.Errorf("encode explicit root-cause artifact: %w", err)
+		logging.Warning("[output_dump] %v", err)
+	}
+	write := ExplicitReportWrite{Kind: "root-causes", Path: p, Err: err}
+	recordExplicitReportWrite(write)
+	return write
 }
 
 func writeExplicitReportFile(path string, data []byte) error {

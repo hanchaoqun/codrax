@@ -776,6 +776,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"plan-file":                 {},
 	"report-md":                 {},
 	"report-html":               {},
+	"root-causes-out":           {},
 	"data-resume":               {},
 	"auto-init-repo":            {},
 	"allow-scaffold":            {},
@@ -1635,11 +1636,15 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 // ANSI rendering) so the output is clean when piped to another tool
 // or written to a file. The REPL owns the glamour rendering step via
 // its own RenderResult callback.
-func runSingleShot(_ *cobra.Command, request string) error {
+func runSingleShot(_ *cobra.Command, request string) (runErr error) {
 	// OUT-1: report the fate of --report-md/--report-html on every exit
 	// path (including the data/operation lanes and pipeline errors, which
 	// produce no final-answer transcript and therefore no report copy).
-	defer printExplicitReportStatus()
+	defer func() {
+		if err := printExplicitReportStatus(); err != nil {
+			runErr = errors.Join(runErr, err)
+		}
+	}()
 	logging.Info("starting pipeline for request: %s", request)
 	configureSingleShotColor()
 	app.renderer.SetOutput(os.Stderr)

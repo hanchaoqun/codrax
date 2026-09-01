@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,10 +31,22 @@ func TestReportOutFlagsRegistered(t *testing.T) {
 	if _, ok := compatLongFlagNames["report-html"]; !ok {
 		t.Fatalf("report-html missing from compatLongFlagNames")
 	}
+	rootFlag := rootCmd.PersistentFlags().Lookup("root-causes-out")
+	if rootFlag == nil || rootFlag.DefValue != "" {
+		t.Fatalf("--root-causes-out must be registered and default off: %+v", rootFlag)
+	}
+	for _, want := range []string{"guaranteed-delivery", "unavailable", "output_dump_enabled=false", "command fail"} {
+		if !strings.Contains(rootFlag.Usage, want) {
+			t.Fatalf("--root-causes-out usage must mention %q; got: %s", want, rootFlag.Usage)
+		}
+	}
+	if _, ok := compatLongFlagNames["root-causes-out"]; !ok {
+		t.Fatalf("root-causes-out missing from compatLongFlagNames")
+	}
 }
 
 func TestResolveExplicitReportOutputsInactiveWithoutFlags(t *testing.T) {
-	reg, err := resolveExplicitReportOutputs("some request", "", "", "/tmp/.codrax/output")
+	reg, err := resolveExplicitReportOutputs("some request", "", "", "", "/tmp/.codrax/output")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +56,7 @@ func TestResolveExplicitReportOutputsInactiveWithoutFlags(t *testing.T) {
 }
 
 func TestResolveExplicitReportOutputsRejectsREPL(t *testing.T) {
-	_, err := resolveExplicitReportOutputs("", "/tmp/report.md", "", "/tmp/.codrax/output")
+	_, err := resolveExplicitReportOutputs("", "/tmp/report.md", "", "", "/tmp/.codrax/output")
 	if err == nil {
 		t.Fatalf("REPL launch (empty request) with --report-md must fail loud")
 	}
@@ -53,7 +66,7 @@ func TestResolveExplicitReportOutputsRejectsREPL(t *testing.T) {
 }
 
 func TestResolveExplicitReportOutputsEnabledDumpKeepsDefault(t *testing.T) {
-	reg, err := resolveExplicitReportOutputs("q", "/tmp/a/report.md", "/tmp/b/report.html", "/tmp/.codrax/output")
+	reg, err := resolveExplicitReportOutputs("q", "/tmp/a/report.md", "/tmp/b/report.html", "", "/tmp/.codrax/output")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +85,7 @@ func TestResolveExplicitReportOutputsEnabledDumpKeepsDefault(t *testing.T) {
 }
 
 func TestResolveExplicitReportOutputsDisabledDumpForcesHook(t *testing.T) {
-	reg, err := resolveExplicitReportOutputs("q", "/tmp/a/report.md", "", "")
+	reg, err := resolveExplicitReportOutputs("q", "/tmp/a/report.md", "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +98,7 @@ func TestResolveExplicitReportOutputsDisabledDumpForcesHook(t *testing.T) {
 }
 
 func TestResolveExplicitReportOutputsDisabledDumpHTMLOnly(t *testing.T) {
-	reg, err := resolveExplicitReportOutputs("q", "", "/tmp/b/report.html", "")
+	reg, err := resolveExplicitReportOutputs("q", "", "/tmp/b/report.html", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -94,15 +107,32 @@ func TestResolveExplicitReportOutputsDisabledDumpHTMLOnly(t *testing.T) {
 	}
 }
 
+func TestResolveExplicitReportOutputsDisabledDumpRootCausesOnly(t *testing.T) {
+	reg, err := resolveExplicitReportOutputs("q", "", "", "/tmp/c/root-causes.json", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reg.forceDumpDir != "/tmp/c" || reg.report.RootCauseJSONPath != "/tmp/c/root-causes.json" || !reg.report.SuppressDefaultDir {
+		t.Fatalf("root-causes-only registration must arm the hook and suppress default dump: %+v", reg)
+	}
+}
+
 func TestResolveExplicitReportOutputsRejectsSamePath(t *testing.T) {
-	_, err := resolveExplicitReportOutputs("q", "/tmp/x/same.out", "/tmp/x/same.out", "/tmp/.codrax/output")
+	_, err := resolveExplicitReportOutputs("q", "/tmp/x/same.out", "/tmp/x/same.out", "", "/tmp/.codrax/output")
 	if err == nil {
 		t.Fatalf("identical --report-md/--report-html paths must be rejected")
 	}
 }
 
+func TestResolveExplicitReportOutputsRejectsRootCausePathCollision(t *testing.T) {
+	_, err := resolveExplicitReportOutputs("q", "/tmp/x/same.out", "", "/tmp/x/same.out", "/tmp/.codrax/output")
+	if err == nil || !strings.Contains(err.Error(), "--root-causes-out") {
+		t.Fatalf("root-cause output path collision must fail loud: %v", err)
+	}
+}
+
 func TestResolveExplicitReportOutputsAbsolutizesRelativePaths(t *testing.T) {
-	reg, err := resolveExplicitReportOutputs("q", "rel/report.md", "", "/tmp/.codrax/output")
+	reg, err := resolveExplicitReportOutputs("q", "rel/report.md", "", "", "/tmp/.codrax/output")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -122,14 +152,16 @@ func TestResolveExplicitReportOutputsAbsolutizesRelativePaths(t *testing.T) {
 // the conflict check sits BEFORE runWriteAuditCLI, so no audit file is
 // needed and no side effects fire.
 func TestRootRunWriteAuditRejectsExplicitReportFlags(t *testing.T) {
-	oldAudit, oldMD, oldHTML := flagWriteAudit, flagReportMD, flagReportHTML
-	t.Cleanup(func() { flagWriteAudit, flagReportMD, flagReportHTML = oldAudit, oldMD, oldHTML })
-	flagWriteAudit, flagReportMD, flagReportHTML = "some-final.json", "r.md", "r.html"
+	oldAudit, oldMD, oldHTML, oldRoot := flagWriteAudit, flagReportMD, flagReportHTML, flagRootCausesOut
+	t.Cleanup(func() {
+		flagWriteAudit, flagReportMD, flagReportHTML, flagRootCausesOut = oldAudit, oldMD, oldHTML, oldRoot
+	})
+	flagWriteAudit, flagReportMD, flagReportHTML, flagRootCausesOut = "some-final.json", "r.md", "r.html", "roots.json"
 	err := rootRun(rootCmd, nil)
 	if err == nil {
 		t.Fatal("--report-md/--report-html under --write-audit must fail loud")
 	}
-	for _, want := range []string{"--write-audit", "--report-md", "--report-html", "cannot be combined"} {
+	for _, want := range []string{"--write-audit", "--report-md", "--report-html", "--root-causes-out", "cannot be combined"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("conflict error must name %q, got %v", want, err)
 		}
@@ -137,15 +169,15 @@ func TestRootRunWriteAuditRejectsExplicitReportFlags(t *testing.T) {
 }
 
 func TestExplicitReportFlagConflictsValueBased(t *testing.T) {
-	oldMD, oldHTML := flagReportMD, flagReportHTML
-	t.Cleanup(func() { flagReportMD, flagReportHTML = oldMD, oldHTML })
-	flagReportMD, flagReportHTML = "", ""
+	oldMD, oldHTML, oldRoot := flagReportMD, flagReportHTML, flagRootCausesOut
+	t.Cleanup(func() { flagReportMD, flagReportHTML, flagRootCausesOut = oldMD, oldHTML, oldRoot })
+	flagReportMD, flagReportHTML, flagRootCausesOut = "", "", ""
 	if got := explicitReportFlagConflicts(); len(got) != 0 {
 		t.Fatalf("defaults must report no conflicts, got %v", got)
 	}
-	flagReportMD, flagReportHTML = "a.md", "b.html"
+	flagReportMD, flagReportHTML, flagRootCausesOut = "a.md", "b.html", "roots.json"
 	got := explicitReportFlagConflicts()
-	if len(got) != 2 || got[0] != "--report-md" || got[1] != "--report-html" {
+	if len(got) != 3 || got[0] != "--report-md" || got[1] != "--report-html" || got[2] != "--root-causes-out" {
 		t.Fatalf("conflicts = %v", got)
 	}
 }
@@ -219,12 +251,12 @@ func TestArmExplicitReportOutputsInactiveNoop(t *testing.T) {
 func TestConfigureExplicitReportOutputsInstallsSink(t *testing.T) {
 	tmp := t.TempDir()
 	mdPath := filepath.Join(tmp, "wired.md")
-	oldMD, oldHTML, oldDir, oldMax := flagReportMD, flagReportHTML, app.outputDumpDir, app.outputDumpMax
+	oldMD, oldHTML, oldRoot, oldDir, oldMax := flagReportMD, flagReportHTML, flagRootCausesOut, app.outputDumpDir, app.outputDumpMax
 	t.Cleanup(func() {
-		flagReportMD, flagReportHTML, app.outputDumpDir, app.outputDumpMax = oldMD, oldHTML, oldDir, oldMax
+		flagReportMD, flagReportHTML, flagRootCausesOut, app.outputDumpDir, app.outputDumpMax = oldMD, oldHTML, oldRoot, oldDir, oldMax
 		outputdump.SetExplicitReport(outputdump.ExplicitReport{})
 	})
-	flagReportMD, flagReportHTML = mdPath, ""
+	flagReportMD, flagReportHTML, flagRootCausesOut = mdPath, "", ""
 	app.outputDumpDir, app.outputDumpMax = "", 10 // output_dump_enabled=false shape
 
 	if err := configureExplicitReportOutputs("some request"); err != nil {
@@ -233,5 +265,60 @@ func TestConfigureExplicitReportOutputsInstallsSink(t *testing.T) {
 	outputdump.WriteResult(outputdump.Args{Request: "q", Answer: "a"})
 	if _, err := os.Stat(mdPath); err != nil {
 		t.Fatalf("configured sink must write the explicit copy on WriteResult: %v", err)
+	}
+}
+
+func TestConfigureExplicitRootCauseOutputWritesTypedUnavailableArtifact(t *testing.T) {
+	tmp := t.TempDir()
+	rootPath := filepath.Join(tmp, "api", "root-causes.json")
+	oldMD, oldHTML, oldRoot, oldDir, oldMax := flagReportMD, flagReportHTML, flagRootCausesOut, app.outputDumpDir, app.outputDumpMax
+	t.Cleanup(func() {
+		flagReportMD, flagReportHTML, flagRootCausesOut, app.outputDumpDir, app.outputDumpMax = oldMD, oldHTML, oldRoot, oldDir, oldMax
+		outputdump.SetExplicitReport(outputdump.ExplicitReport{})
+	})
+	flagReportMD, flagReportHTML, flagRootCausesOut = "", "", rootPath
+	app.outputDumpDir, app.outputDumpMax = "", 10
+
+	if err := configureExplicitReportOutputs("trace request"); err != nil {
+		t.Fatalf("configure: %v", err)
+	}
+	result := outputdump.WriteResult(outputdump.Args{
+		Request: "trace request", Answer: "answer",
+		RootCauseUnavailableReason: "valid_model_root_cause_selection_unavailable",
+	})
+	if result.RootCauseJSONPath != rootPath {
+		t.Fatalf("guaranteed path not returned: %+v", result)
+	}
+	data, err := os.ReadFile(rootPath)
+	if err != nil {
+		t.Fatalf("read guaranteed artifact: %v", err)
+	}
+	var artifact outputdump.ExplicitRootCauseArtifact
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		t.Fatalf("decode guaranteed artifact: %v", err)
+	}
+	if artifact.Status != outputdump.ExplicitRootCauseStatusUnavailable || artifact.TraceRootCauses != nil {
+		t.Fatalf("missing model selection must stay unavailable, not become an empty conclusion: %+v", artifact)
+	}
+}
+
+func TestPrintExplicitReportStatusReturnsRootCauseWriteFailure(t *testing.T) {
+	tmp := t.TempDir()
+	blocker := filepath.Join(tmp, "blocker")
+	if err := os.WriteFile(blocker, []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	badPath := filepath.Join(blocker, "root-causes.json")
+	oldMD, oldHTML, oldRoot := flagReportMD, flagReportHTML, flagRootCausesOut
+	t.Cleanup(func() {
+		flagReportMD, flagReportHTML, flagRootCausesOut = oldMD, oldHTML, oldRoot
+		outputdump.SetExplicitReport(outputdump.ExplicitReport{})
+	})
+	flagReportMD, flagReportHTML, flagRootCausesOut = "", "", badPath
+	outputdump.SetExplicitReport(outputdump.ExplicitReport{RootCauseJSONPath: badPath, SuppressDefaultDir: true})
+
+	err := printExplicitReportStatus()
+	if err == nil || !strings.Contains(err.Error(), "--root-causes-out write failed") {
+		t.Fatalf("explicit root-cause write failure must affect command status: %v", err)
 	}
 }

@@ -59,6 +59,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	// dump never affects the rest of the pipeline.
 	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
 		dumpRequest := o.outputTranscriptRequestForDump()
+		rootCauses := o.busCtx.Mutable.TraceRootCauseReport()
 		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
@@ -74,11 +75,12 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 				outputdump.RuntimeArtifactsFromAttachment("log", o.attachedLog),
 				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace),
 			),
-			rootCauses: o.busCtx.Mutable.TraceRootCauseReport(),
-			now:        time.Now(),
-			pid:        os.Getpid(),
-		}); result.MarkdownPath != "" {
-			o.busCtx.Mutable.SetFinalAnswerOutputPaths(result.MarkdownPath, result.HTMLPath)
+			rootCauses:                 rootCauses,
+			rootCauseUnavailableReason: traceRootCauseUnavailableReason(o.busCtx.Mutable, rootCauses),
+			now:                        time.Now(),
+			pid:                        os.Getpid(),
+		}); result.MarkdownPath != "" || result.HTMLPath != "" || result.RootCauseJSONPath != "" {
+			o.busCtx.Mutable.SetFinalAnswerArtifactPaths(result.MarkdownPath, result.HTMLPath, result.RootCauseJSONPath)
 		}
 	}
 
@@ -87,6 +89,23 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		Timestamp: time.Now(),
 		Objective: o.busCtx.Mutable.Objective(),
 	})
+}
+
+func traceRootCauseUnavailableReason(mutable *types.MutableState, report *types.TraceRootCauseReportV2) string {
+	if report != nil {
+		return ""
+	}
+	if mutable == nil {
+		return "trace_root_cause_runtime_unavailable"
+	}
+	contract := mutable.TraceFindingContract()
+	if contract == nil {
+		return "trace_root_cause_contract_not_active"
+	}
+	if !contract.RootCauseReportEnabled {
+		return "no_selectable_typed_on_chain_candidates"
+	}
+	return "valid_model_root_cause_selection_unavailable"
 }
 
 func (o *Orchestrator) outputTranscriptRequestForDump() string {

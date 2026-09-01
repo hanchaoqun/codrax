@@ -54,8 +54,12 @@ type Args struct {
 	TraceBytes       int
 	RuntimeArtifacts []RuntimeArtifact
 	RootCauseReport  *types.TraceRootCauseReportV2
-	Now              time.Time
-	PID              int
+	// RootCauseUnavailableReason is a typed construction reason for the
+	// guaranteed --root-causes-out envelope when RootCauseReport is nil. It is
+	// never rendered into the user answer or used to derive a conclusion.
+	RootCauseUnavailableReason string
+	Now                        time.Time
+	PID                        int
 }
 
 type RuntimeArtifact struct {
@@ -134,7 +138,9 @@ func WriteResult(a Args) Result {
 	if writeDefault {
 		result = writeDefaultDump(a, body)
 	}
-	writeExplicitReportCopies(explicit, body)
+	if explicitRootCausePath := writeExplicitReportCopies(explicit, body, a.RootCauseReport, a.RootCauseUnavailableReason); explicitRootCausePath != "" {
+		result.RootCauseJSONPath = explicitRootCausePath
+	}
 	return result
 }
 

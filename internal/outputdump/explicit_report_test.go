@@ -1,11 +1,14 @@
 package outputdump
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func withExplicitReport(t *testing.T, r ExplicitReport) {
@@ -219,5 +222,73 @@ func TestWriteResultWithoutExplicitSinkKeepsEmptyDirNoop(t *testing.T) {
 	}
 	if writes := ExplicitReportWrites(); len(writes) != 0 {
 		t.Fatalf("no writes should be recorded without targets, got %+v", writes)
+	}
+}
+
+func TestExplicitRootCauseArtifactAvailable(t *testing.T) {
+	tmp := t.TempDir()
+	rootPath := filepath.Join(tmp, "api", "root-causes.json")
+	impact := 0.005
+	report := &types.TraceRootCauseReportV2{
+		SchemaVersion: types.TraceRootCauseReportSchemaVersion,
+		RootCauses: []*types.TraceRootCauseItemV2{{
+			Rank: 1, Category: types.TraceRootCausePriorityInversion,
+			ThreadName: "worker-7", ImpactSeconds: &impact,
+			Summary: "worker-7线程优先级反转", Evidence: []string{"typed evidence"},
+		}},
+	}
+	withExplicitReport(t, ExplicitReport{RootCauseJSONPath: rootPath, SuppressDefaultDir: true})
+	a := explicitReportArgs(filepath.Join(tmp, "default"))
+	a.RootCauseReport = report
+	result := WriteResult(a)
+	if result.RootCauseJSONPath != rootPath {
+		t.Fatalf("explicit root-cause path must be returned for programmatic discovery: %+v", result)
+	}
+
+	var got ExplicitRootCauseArtifact
+	if err := json.Unmarshal(readFileOrFatal(t, rootPath), &got); err != nil {
+		t.Fatalf("decode guaranteed artifact: %v", err)
+	}
+	if got.ArtifactSchemaVersion != ExplicitRootCauseArtifactSchemaVersion ||
+		got.Status != ExplicitRootCauseStatusAvailable || got.ReasonCode != "" ||
+		got.TraceRootCauses == nil || len(got.TraceRootCauses.RootCauses) != 1 {
+		t.Fatalf("available artifact mismatch: %+v", got)
+	}
+}
+
+func TestExplicitRootCauseArtifactUnavailableIsNotEmptyConclusion(t *testing.T) {
+	tmp := t.TempDir()
+	rootPath := filepath.Join(tmp, "root-causes.json")
+	withExplicitReport(t, ExplicitReport{RootCauseJSONPath: rootPath, SuppressDefaultDir: true})
+	a := explicitReportArgs(filepath.Join(tmp, "default"))
+	a.RootCauseUnavailableReason = "no_selectable_typed_on_chain_candidates"
+	WriteResult(a)
+
+	var got ExplicitRootCauseArtifact
+	if err := json.Unmarshal(readFileOrFatal(t, rootPath), &got); err != nil {
+		t.Fatalf("decode guaranteed artifact: %v", err)
+	}
+	if got.Status != ExplicitRootCauseStatusUnavailable ||
+		got.ReasonCode != "no_selectable_typed_on_chain_candidates" || got.TraceRootCauses != nil {
+		t.Fatalf("unavailable artifact must not mint an empty model conclusion: %+v", got)
+	}
+}
+
+func TestEnsureExplicitRootCauseArtifactClosesNoFinalAnswerLane(t *testing.T) {
+	tmp := t.TempDir()
+	rootPath := filepath.Join(tmp, "root-causes.json")
+	withExplicitReport(t, ExplicitReport{RootCauseJSONPath: rootPath, SuppressDefaultDir: true})
+
+	EnsureExplicitRootCauseArtifact("final_answer_transcript_not_available")
+	var got ExplicitRootCauseArtifact
+	if err := json.Unmarshal(readFileOrFatal(t, rootPath), &got); err != nil {
+		t.Fatalf("decode guaranteed artifact: %v", err)
+	}
+	if got.Status != ExplicitRootCauseStatusUnavailable || got.ReasonCode != "final_answer_transcript_not_available" {
+		t.Fatalf("no-answer artifact mismatch: %+v", got)
+	}
+	writes := ExplicitReportWrites()
+	if len(writes) != 1 || writes[0].Kind != "root-causes" || writes[0].Err != nil {
+		t.Fatalf("expected one successful guaranteed write, got %+v", writes)
 	}
 }

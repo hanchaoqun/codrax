@@ -2327,8 +2327,8 @@ agents:
 | `memory_dir` | `<CWD>/.codrax/memory/<repo>-<hash>` | 多轮对话记忆 |
 | `cache_dir` | 平台默认 cache 目录 | repomap 索引缓存 |
 | `search_exclude_roots` | 空 | 仓库相对 root 列表,从宽泛 search/list/repo_map 扫描中排除客户仓生成目录、运行产物或报告目录;显式 target 仍可读取 |
-| `output_dump_enabled` | `true` | 每次 read 模式答案落盘到 `<CWD>/.codrax/output/<时间戳>-<pid>.md`,并生成同名 `.html` 自包含预览;Markdown 两段 `# 问题` / `# 回答`,模型原文轻度排版 |
-| `output_max_files` | 10 | output 目录按 Markdown 保留最近 N 份,旧 `.md` 及同名 `.html` 按 mtime 自动删 |
+| `output_dump_enabled` | `true` | 每次 read 模式答案落盘到 `<CWD>/.codrax/output/<时间戳>-<pid>.md`,并生成同名 `.html` 自包含预览;有有效 Trace 根因选择时另写同名可选 `.root-causes.json` |
+| `output_max_files` | 10 | output 目录按 Markdown 保留最近 N 份,旧 `.md` 及同名 `.html`/`.root-causes.json` 按 mtime 自动删 |
 | `markdown_preview_server` | `auto` | REPL 在答案落盘后懒启动本地 Markdown 预览服务并显示浏览器 URL;`off` 关闭 |
 | `markdown_preview_host` | `0.0.0.0` | 预览服务监听地址;远程终端可保持默认全监听,本机私有可设 `127.0.0.1` |
 | `markdown_preview_port` | `0` | 预览服务端口;`0` 表示系统随机分配可用高位端口 |
@@ -2893,7 +2893,7 @@ CLI 单次模式输出:
 - **stderr**: 进度 / spinner / 调试信息
 - **stdout**: 最终答案纯文本(mermaid / markdown 都按源码输出,方便重定向到文件 / 转给其他工具)
 - **写模式 `.codrax/plans/`**: 单次 CLI 和 REPL 使用同一套 durable store;Auto Pilot 的 ChangePlan、workflow DAG、approval 状态和 context pack 会写到 `.codrax/plans/` / `.codrax/plans/workflows/`,用于 `/workflow show`、恢复和 SWE-bench adapter 审计遥测。终态写任务还会生成 `<plan>.final.json`,其中 `loop` 字段保存 typed event refs、active runtime unit、truth/proof/localization/permission authority 摘要,`patch.language_families` / `verification.runner_families` 记录补丁涉及语言族和本地验证 runner 覆盖语言族,方便审计补丁质量而不需要解析终端日志。`reasoning_graph` / `graph_audit` 字段由 reasoning graph projector/replay 层从 typed events 生成;外部字段保持稳定,内部不再要求用户或工具去解析终端输出补这些统计。高级 CLI `codrax --mode=write --write-audit <final-or-plan-path>` 会从这些 typed artifacts 输出 `final_audit` JSON;它不运行工具、不调用模型、不解析终端散文。
-- **`.codrax/output/<时间戳>-<pid>.md` + `.html`**: 每次 read 模式问答的最终答案落盘留底,Markdown 文件分两段 `# 问题` / `# 回答`,内容是模型原文的轻度排版版本;同名 HTML 由系统从 Markdown 派生,自包含 CSS 与 Mermaid 浏览器运行时,可直接用浏览器打开查看图表/表格/代码块。REPL 多轮对话每轮一组。默认按 Markdown 保留最近 10 份,旧 `.md` 及同名 `.html` 按 mtime 自动删。失败的中间重试不会写盘 — 只留用户实际看到的最后一版。写模式 plan / apply / verify / audit **不生成**这种文件。开关 `output_dump_enabled`、份数 `output_max_files` 见 5.2 节。
+- **`.codrax/output/<时间戳>-<pid>.md` + `.html` + 可选 `.root-causes.json`**: 每次 read 模式问答的最终答案落盘留底,Markdown 文件分两段 `# 问题` / `# 回答`,内容是模型原文的轻度排版版本;同名 HTML 由系统从 Markdown 派生。有有效的模型根因选择时，同名 `.root-causes.json` 保存从 typed 链上候选绑定出的结构化报告；缺少该文件不能解释为“没有根因”。需要稳定程序化产物时，单次 CLI 使用 `--root-causes-out <精确路径>`：无有效选择也会写 typed `unavailable` envelope，磁盘写失败会使命令失败；该 flag 在 `output_dump_enabled: false` 时仍生效。默认按 Markdown 保留最近 10 份并清理同名 siblings。失败的中间重试不会写默认 dump。写模式 plan / apply / verify / audit **不生成默认 dump**。
 - **REPL 浏览器预览**: 当 `markdown_preview_server: auto|on` 且 output dump 成功时,REPL 会在答案下方显示一个带随机 token 的本地 URL。预览服务只服务当前进程登记过的 `.md` 文件,默认监听 `0.0.0.0:0`(系统随机端口),可通过 `markdown_preview_host` / `markdown_preview_port` 固定。页面内嵌固定版本 Mermaid JS,适合查看终端里容易变形的 Mermaid、表格和长代码块。
 
 ---

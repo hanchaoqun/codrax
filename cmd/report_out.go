@@ -30,14 +30,16 @@ import (
 // artifact-scoped output-path flags; `--out` itself is already taken by
 // the tracediag lane.
 var (
-	flagReportMD   string
-	flagReportHTML string
+	flagReportMD      string
+	flagReportHTML    string
+	flagRootCausesOut string
 )
 
 func init() {
 	f := rootCmd.PersistentFlags()
 	f.StringVar(&flagReportMD, "report-md", "", "single-shot: additionally write the final-answer report markdown to this exact file path (byte-identical to the default .codrax/output dump; parent dirs created; existing file overwritten). The default .codrax/output dump is unaffected, and the copy is written even when output_dump_enabled=false.")
 	f.StringVar(&flagReportHTML, "report-html", "", "single-shot: additionally write the self-contained HTML rendering of the final-answer report to this exact file path (same renderer as the default .codrax/output .html sibling; parent dirs created; existing file overwritten). The default .codrax/output dump is unaffected, and the copy is written even when output_dump_enabled=false.")
+	f.StringVar(&flagRootCausesOut, "root-causes-out", "", "single-shot: write a guaranteed-delivery structured Trace root-cause artifact to this exact file path (typed available/unavailable status; no root cause is inferred when model selection is unavailable; parent dirs created; existing file overwritten). This path is attempted even when output_dump_enabled=false or the optional .codrax/output sibling would be absent; a write failure makes the command fail.")
 }
 
 // explicitReportRegistration is the resolved plan for arming the explicit
@@ -58,14 +60,15 @@ type explicitReportRegistration struct {
 // --report-html flags. request must be the resolved single-shot request
 // (empty = REPL launch, which is rejected). outputDumpDir is the resolved
 // default dump dir ("" ⇔ output_dump_enabled=false).
-func resolveExplicitReportOutputs(request, reportMD, reportHTML, outputDumpDir string) (explicitReportRegistration, error) {
+func resolveExplicitReportOutputs(request, reportMD, reportHTML, rootCausesOut, outputDumpDir string) (explicitReportRegistration, error) {
 	md := strings.TrimSpace(reportMD)
 	html := strings.TrimSpace(reportHTML)
-	if md == "" && html == "" {
+	rootCauses := strings.TrimSpace(rootCausesOut)
+	if md == "" && html == "" && rootCauses == "" {
 		return explicitReportRegistration{}, nil
 	}
 	if strings.TrimSpace(request) == "" {
-		return explicitReportRegistration{}, fmt.Errorf("--report-md/--report-html require a single-shot request (--request or a positional argument); they do not apply to REPL mode")
+		return explicitReportRegistration{}, fmt.Errorf("--report-md/--report-html/--root-causes-out require a single-shot request (--request or a positional argument); they do not apply to REPL mode")
 	}
 	var err error
 	if md != "" {
@@ -78,14 +81,31 @@ func resolveExplicitReportOutputs(request, reportMD, reportHTML, outputDumpDir s
 			return explicitReportRegistration{}, fmt.Errorf("--report-html %q: %w", reportHTML, err)
 		}
 	}
-	if md != "" && md == html {
-		return explicitReportRegistration{}, fmt.Errorf("--report-md and --report-html must be different paths (both resolve to %s)", md)
+	if rootCauses != "" {
+		if rootCauses, err = filepath.Abs(rootCauses); err != nil {
+			return explicitReportRegistration{}, fmt.Errorf("--root-causes-out %q: %w", rootCausesOut, err)
+		}
+	}
+	resolved := []struct {
+		name string
+		path string
+	}{{"--report-md", md}, {"--report-html", html}, {"--root-causes-out", rootCauses}}
+	for i := range resolved {
+		if resolved[i].path == "" {
+			continue
+		}
+		for j := i + 1; j < len(resolved); j++ {
+			if resolved[i].path == resolved[j].path {
+				return explicitReportRegistration{}, fmt.Errorf("%s and %s must be different paths (both resolve to %s)", resolved[i].name, resolved[j].name, resolved[i].path)
+			}
+		}
 	}
 	reg := explicitReportRegistration{
 		active: true,
 		report: outputdump.ExplicitReport{
 			MarkdownPath:       md,
 			HTMLPath:           html,
+			RootCauseJSONPath:  rootCauses,
 			SuppressDefaultDir: outputDumpDir == "",
 		},
 	}
@@ -93,6 +113,9 @@ func resolveExplicitReportOutputs(request, reportMD, reportHTML, outputDumpDir s
 		dir := md
 		if dir == "" {
 			dir = html
+		}
+		if dir == "" {
+			dir = rootCauses
 		}
 		reg.forceDumpDir = filepath.Dir(dir)
 	}
@@ -112,6 +135,9 @@ func explicitReportFlagConflicts() []string {
 	}
 	if strings.TrimSpace(flagReportHTML) != "" {
 		conflicts = append(conflicts, "--report-html")
+	}
+	if strings.TrimSpace(flagRootCausesOut) != "" {
+		conflicts = append(conflicts, "--root-causes-out")
 	}
 	return conflicts
 }
@@ -142,12 +168,12 @@ func armExplicitReportOutputs(reg explicitReportRegistration, orch outputDumpArm
 // configureExplicitReportOutputs resolves the CLI flags and applies the
 // registration against the live app state.
 func configureExplicitReportOutputs(request string) error {
-	reg, err := resolveExplicitReportOutputs(request, flagReportMD, flagReportHTML, app.outputDumpDir)
+	reg, err := resolveExplicitReportOutputs(request, flagReportMD, flagReportHTML, flagRootCausesOut, app.outputDumpDir)
 	if err != nil || !reg.active {
 		return err
 	}
-	logging.Info("[cmd] explicit report outputs armed: md=%q html=%q suppress_default_dir=%t",
-		reg.report.MarkdownPath, reg.report.HTMLPath, reg.report.SuppressDefaultDir)
+	logging.Info("[cmd] explicit report outputs armed: md=%q html=%q root_causes=%q suppress_default_dir=%t",
+		reg.report.MarkdownPath, reg.report.HTMLPath, reg.report.RootCauseJSONPath, reg.report.SuppressDefaultDir)
 	var orch outputDumpArmer
 	if app.orch != nil {
 		orch = app.orch
@@ -156,30 +182,36 @@ func configureExplicitReportOutputs(request string) error {
 	return nil
 }
 
-// printExplicitReportStatus reports the fate of --report-md/--report-html
+// printExplicitReportStatus reports the fate of all explicit output flags
 // after a single-shot run, mirroring the --plan-out status precedent:
 // success prints "[report written: <path>]" to stderr, failure prints a
-// stderr line plus a WARN log. Neither changes the exit code — the answer
-// already reached the terminal and the explicit copies follow the same
-// best-effort policy as the default dump.
-func printExplicitReportStatus() {
-	if strings.TrimSpace(flagReportMD) == "" && strings.TrimSpace(flagReportHTML) == "" {
-		return
+// stderr line plus a WARN log. Markdown/HTML remain best-effort presentation
+// copies. A --root-causes-out write failure is returned to the outer CLI so
+// the explicit machine-readable delivery contract cannot fail silently.
+func printExplicitReportStatus() error {
+	if strings.TrimSpace(flagReportMD) == "" && strings.TrimSpace(flagReportHTML) == "" && strings.TrimSpace(flagRootCausesOut) == "" {
+		return nil
 	}
+	outputdump.EnsureExplicitRootCauseArtifact("final_answer_transcript_not_available")
 	writes := outputdump.ExplicitReportWrites()
 	if len(writes) == 0 {
 		const msg = "report not written: this run produced no final-answer transcript (write/data/operation lanes and empty answers do not dump)"
 		logging.Warning("[cmd] %s", msg)
 		fmt.Fprintf(os.Stderr, "%s\n", msg)
-		return
+		return nil
 	}
+	var rootCauseWriteErr error
 	for _, w := range writes {
 		if w.Err != nil {
 			logging.Warning("[cmd] report %s write failed: %s: %v", w.Kind, w.Path, w.Err)
 			fmt.Fprintf(os.Stderr, "report %s write failed: %s: %v\n", w.Kind, w.Path, w.Err)
+			if w.Kind == "root-causes" {
+				rootCauseWriteErr = fmt.Errorf("--root-causes-out write failed: %s: %w", w.Path, w.Err)
+			}
 			continue
 		}
 		logging.Info("[cmd] report written: %s", w.Path)
 		fmt.Fprintf(os.Stderr, "\n[report written: %s]\n", w.Path)
 	}
+	return rootCauseWriteErr
 }

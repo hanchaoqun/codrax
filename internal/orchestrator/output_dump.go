@@ -11,36 +11,38 @@ import (
 // tests readable while the implementation lives in the shared
 // outputdump package used by both pipeline and REPL-local answers.
 type dumpFinalOutputArgs struct {
-	dir        string
-	max        int
-	language   string
-	request    string
-	answer     string
-	hasLog     bool
-	logBytes   int
-	hasTrace   bool
-	traceB     int
-	artifacts  []outputdump.RuntimeArtifact
-	rootCauses *types.TraceRootCauseReportV2
-	now        time.Time
-	pid        int
+	dir                        string
+	max                        int
+	language                   string
+	request                    string
+	answer                     string
+	hasLog                     bool
+	logBytes                   int
+	hasTrace                   bool
+	traceB                     int
+	artifacts                  []outputdump.RuntimeArtifact
+	rootCauses                 *types.TraceRootCauseReportV2
+	rootCauseUnavailableReason string
+	now                        time.Time
+	pid                        int
 }
 
 func (a dumpFinalOutputArgs) outputDumpArgs() outputdump.Args {
 	return outputdump.Args{
-		Dir:              a.dir,
-		Max:              a.max,
-		Language:         a.language,
-		Request:          a.request,
-		Answer:           a.answer,
-		HasLog:           a.hasLog,
-		LogBytes:         a.logBytes,
-		HasTrace:         a.hasTrace,
-		TraceBytes:       a.traceB,
-		RuntimeArtifacts: append([]outputdump.RuntimeArtifact(nil), a.artifacts...),
-		RootCauseReport:  a.rootCauses,
-		Now:              a.now,
-		PID:              a.pid,
+		Dir:                        a.dir,
+		Max:                        a.max,
+		Language:                   a.language,
+		Request:                    a.request,
+		Answer:                     a.answer,
+		HasLog:                     a.hasLog,
+		LogBytes:                   a.logBytes,
+		HasTrace:                   a.hasTrace,
+		TraceBytes:                 a.traceB,
+		RuntimeArtifacts:           append([]outputdump.RuntimeArtifact(nil), a.artifacts...),
+		RootCauseReport:            a.rootCauses,
+		RootCauseUnavailableReason: a.rootCauseUnavailableReason,
+		Now:                        a.now,
+		PID:                        a.pid,
 	}
 }
 

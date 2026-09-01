@@ -182,6 +182,10 @@ type MutableState struct {
 	// of finalAnswerMarkdownPath. It is presentation metadata only; model
 	// prompts and memory continue to use Result().
 	finalAnswerHTMLPath string
+	// finalAnswerRootCauseJSONPath is the optional timestamped structured
+	// Trace root-cause sibling. It is presentation/API metadata only; absence
+	// must not be interpreted as a root-cause conclusion.
+	finalAnswerRootCauseJSONPath string
 	// outputTranscriptRequest is the current Run's exact user request for
 	// final-answer output artifacts. REPL uses it to preserve paste-expanded
 	// text in .codrax/output markdown/html while keeping Mutable.objective free
@@ -1305,30 +1309,31 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	traceInputAdmissionTerminal := m.traceInputAdmissionTerminalLatchRef()
 	m.mu.RLock()
 	out := &MutableState{
-		objective:                           m.objective,
-		repoRoot:                            m.repoRoot,
-		result:                              m.result,
-		resultIsPlain:                       m.resultIsPlain,
-		finalAnswerMarkdownPath:             m.finalAnswerMarkdownPath,
-		finalAnswerHTMLPath:                 m.finalAnswerHTMLPath,
-		outputTranscriptRequest:             m.outputTranscriptRequest,
-		searchGraph:                         m.searchGraph,
-		preReadSourceLines:                  clonePreReadSourceLines(m.preReadSourceLines),
-		preReadSourceRevision:               m.preReadSourceRevision,
-		symbolOracle:                        m.symbolOracle,
-		logTriage:                           m.logTriage,
-		perfTrace:                           m.perfTrace,
-		multiRepoFocusDecision:              cloneMultiRepoFocusDecision(m.multiRepoFocusDecision),
-		writeAnalysisIR:                     m.writeAnalysisIR,
-		investigationComplete:               m.investigationComplete,
-		investigationCompleteReason:         m.investigationCompleteReason,
-		absenceJustification:                m.absenceJustification,
-		investigationResultKind:             m.investigationResultKind,
-		retainedAbsenceJustification:        m.retainedAbsenceJustification,
-		retainedInvestigationResultKind:     m.retainedInvestigationResultKind,
-		retainedInvestigationCompleteReason: m.retainedInvestigationCompleteReason,
-		answerSurfaceRevision:               m.answerSurfaceRevision,
-		traceQueryRuntimeObservationCount:   m.traceQueryRuntimeObservationCount,
+		objective:                                   m.objective,
+		repoRoot:                                    m.repoRoot,
+		result:                                      m.result,
+		resultIsPlain:                               m.resultIsPlain,
+		finalAnswerMarkdownPath:                     m.finalAnswerMarkdownPath,
+		finalAnswerHTMLPath:                         m.finalAnswerHTMLPath,
+		finalAnswerRootCauseJSONPath:                m.finalAnswerRootCauseJSONPath,
+		outputTranscriptRequest:                     m.outputTranscriptRequest,
+		searchGraph:                                 m.searchGraph,
+		preReadSourceLines:                          clonePreReadSourceLines(m.preReadSourceLines),
+		preReadSourceRevision:                       m.preReadSourceRevision,
+		symbolOracle:                                m.symbolOracle,
+		logTriage:                                   m.logTriage,
+		perfTrace:                                   m.perfTrace,
+		multiRepoFocusDecision:                      cloneMultiRepoFocusDecision(m.multiRepoFocusDecision),
+		writeAnalysisIR:                             m.writeAnalysisIR,
+		investigationComplete:                       m.investigationComplete,
+		investigationCompleteReason:                 m.investigationCompleteReason,
+		absenceJustification:                        m.absenceJustification,
+		investigationResultKind:                     m.investigationResultKind,
+		retainedAbsenceJustification:                m.retainedAbsenceJustification,
+		retainedInvestigationResultKind:             m.retainedInvestigationResultKind,
+		retainedInvestigationCompleteReason:         m.retainedInvestigationCompleteReason,
+		answerSurfaceRevision:                       m.answerSurfaceRevision,
+		traceQueryRuntimeObservationCount:           m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
 		toolResultMemo:                              cloneToolResultMemoMap(m.toolResultMemo),
@@ -2827,6 +2832,7 @@ func (m *MutableState) SetResult(s string) {
 	m.resultIsPlain = false
 	m.finalAnswerMarkdownPath = ""
 	m.finalAnswerHTMLPath = ""
+	m.finalAnswerRootCauseJSONPath = ""
 }
 
 // SetResultPlain stores a result string AND marks it as plain text
@@ -2854,6 +2860,7 @@ func (m *MutableState) SetResultPlain(s string) {
 	m.resultIsPlain = true
 	m.finalAnswerMarkdownPath = ""
 	m.finalAnswerHTMLPath = ""
+	m.finalAnswerRootCauseJSONPath = ""
 }
 
 // ResultIsPlain reports whether the current result was stored via
@@ -2881,12 +2888,20 @@ func (m *MutableState) SetFinalAnswerMarkdownPath(path string) {
 	defer m.mu.Unlock()
 	m.finalAnswerMarkdownPath = strings.TrimSpace(path)
 	m.finalAnswerHTMLPath = ""
+	m.finalAnswerRootCauseJSONPath = ""
 }
 
 // SetFinalAnswerOutputPaths stores all presentation artifacts for the current
 // answer in one lock acquisition. These paths are not answer content and must
 // not be fed back into prompts.
 func (m *MutableState) SetFinalAnswerOutputPaths(markdownPath, htmlPath string) {
+	m.SetFinalAnswerArtifactPaths(markdownPath, htmlPath, "")
+}
+
+// SetFinalAnswerArtifactPaths stores all final-answer presentation and
+// machine-readable artifact paths in one lock acquisition. The structured
+// root-cause path is metadata only and never enters model prompts.
+func (m *MutableState) SetFinalAnswerArtifactPaths(markdownPath, htmlPath, rootCauseJSONPath string) {
 	if m == nil {
 		return
 	}
@@ -2894,6 +2909,7 @@ func (m *MutableState) SetFinalAnswerOutputPaths(markdownPath, htmlPath string) 
 	defer m.mu.Unlock()
 	m.finalAnswerMarkdownPath = strings.TrimSpace(markdownPath)
 	m.finalAnswerHTMLPath = strings.TrimSpace(htmlPath)
+	m.finalAnswerRootCauseJSONPath = strings.TrimSpace(rootCauseJSONPath)
 }
 
 // FinalAnswerMarkdownPath returns the markdown transcript path for the current
@@ -2916,6 +2932,18 @@ func (m *MutableState) FinalAnswerHTMLPath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.finalAnswerHTMLPath
+}
+
+// FinalAnswerRootCauseJSONPath returns the optional structured Trace
+// root-cause sibling path, or empty when no validated report was persisted.
+// Empty means unavailable, not "no root cause".
+func (m *MutableState) FinalAnswerRootCauseJSONPath() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.finalAnswerRootCauseJSONPath
 }
 
 // RequestModel returns a pointer to the analyzer-emitted RequestModel,

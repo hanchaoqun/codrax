@@ -57291,6 +57291,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1614 B1543：Trace root-causes.json 可选旁路与程序化必达合同（2026-09-01）
+
+1. 生产目录抽样为 10 份 Markdown、2 份 `.root-causes.json`；代码证明这不是随机落盘：默认 sibling 只有在最终 Trace contract 存在
+   selectable typed on-chain candidates、模型提交 `trace_root_causes` 且绑定校验成功、`output_dump_enabled` 又允许默认 dump 时才写。字段缺失或
+   sidecar-only 校验失败会被有意忽略以保护完整答案。因此默认文件缺失只表示“没有持久化有效模型选择”，不能被程序化消费者解释为“根因数为 0”。
+2. `B1543-ROOTCAUSEARTIFACTDELIVERY1/P1` 确认三处接口 gap：现有 `--report-md/--report-html` 不复制根因旁路；默认 dump 关闭时即使已有
+   有效 report 也无指定路径；`outputdump.Result` 虽有 root path，orchestrator 只把 Markdown/HTML 路径写回 Mutable，程序内部无法稳定发现
+   structured sibling。默认旁路的 best-effort I/O 也只 WARN，不适合作为“调用者明确要求”的交付合同。
+3. 新增单次 CLI `--root-causes-out <exact-path>`，与 presentation report flags 共用同一输出咽喉但采用强交付语义：父目录创建、已有文件覆盖，
+   `output_dump_enabled=false` 时仍 arm final-answer hook；与 tracediag/write-audit 等不产最终答案的独立车道保持显式冲突。路径与 md/html 任一
+   重合时启动即拒绝，避免不同格式互相覆盖。
+4. 显式产物使用 `artifact_schema_version=1` 的稳定 envelope。有已验证的模型选择时发布 `status=available` 和原样嵌套的
+   `trace_root_causes` v2；没有 selectable typed 链上候选、模型未提交有效选择或没有最终 answer transcript 时，文件仍发布
+   `status=unavailable + reason_code`，不把缺失伪装成 `root_causes=[]`，不从请求、thinking、正文或 Mermaid 推断/选择任何根因。只有实际文件
+   写失败才使单次命令非零退出；Markdown/HTML 的既有 best-effort 语义不变。
+5. `outputdump.Result.RootCauseJSONPath` 现在对成功的显式路径也返回；Mutable 新增独立
+   `FinalAnswerRootCauseJSONPath()` 元数据，并在 SetResult/SetResultPlain/旧双路径 setter 时同步清空，避免跨轮陈腐。默认 timestamp sibling
+   的 bare v2 wire shape、retention、Trace 候选编译、模型排序权、显式时间窗、因果投影和自动补齐均未改变。
+6. 新回归覆盖 available/unavailable/no-final-answer 三臂、输出路径回传、默认 dump 关闭、路径冲突、写失败影响命令状态、orchestrator 路径
+   留存及 write-audit 冲突。`go test ./cmd ./internal/outputdump ./internal/orchestrator ./internal/types -count=1`、
+   `go test ./... -count=1`、`make`、help flag 实机检查和 `git diff --check` 全绿。
+
+状态：
+
+`B1543=implemented/P1/explicit-guaranteed-envelope/full-suite+build-pass/pending-production-replay`；
+default sibling=`optional/bare-v2/absence-is-not-zero-causes`；
+explicit path=`--root-causes-out/available-or-typed-unavailable/write-failure-is-command-failure`；
+`system-root-selection/prose-inference=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`。
+
 ### §123.1613 r1008：B1538/B1540 生产正证，Trace 不回归，图关系与原子编辑合同仍未闭环（2026-09-01）
 
 1. 从已推送 `ede921ba7` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 H8 显式窗 Trace。runner
