@@ -57308,10 +57308,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    CURRENT-request 锚的 alias，又把 sibling 表格中的 AnalysisIR/EvidenceItems 标为 incident-required。关系闭面计数在删除非法 alias 之前按原始
    identity 计算为 0；删除 alias 后，外部表格实体因“闭面未成立”逃过隔离，成为 finalizer 的硬 participant boundary。结果 12 次成文拒绝，最终图
    混入 n8/n9/n16、MergeEvidenceItemsIfChanged 和读者无从理解的未证边界，虽机器表面 PASS，人工明显 fail。
-5. B1546 最优修向不扫描请求关键词、不从正文补参与者：required diagram 的 raw roster 若含精确无请求锚的推断行，而同批没有至少两个能被
-   exact relation_scope_quote 直接复认的 participant，则 analyzer 不再静默删行后签绿，应在该精确信号处 fail-loud，让模型重交完整 diagram_hint。
-   当同批已有至少两个关系面精确参与者时，仍可安全删除额外 hallucinated row；合法“先点名 A/B，后说它们关系”的 anaphoric roster 若所有行均有
-   CURRENT-request 精确锚则不受影响。这样把一次 analyzer 结构修复替代 12 次 finalizer 错误义务修补，不生成/删除模型图边，也不扩大 hard gate 到 prose。
+5. B1546 最优修向不扫描请求关键词、不从正文补参与者：required diagram 的 raw roster 若含精确无请求锚的推断行，且 exact
+   relation_scope_quote 连一个 submitted participant 都不能直接复认，则 analyzer 不再静默删行后签绿，而在该非法行处 fail-loud，让模型重交完整
+   diagram_hint。当同批已有至少一个关系面精确参与者时，仍可安全删除额外 hallucinated row；合法“先点名 A/B，后说它们关系”的 anaphoric
+   roster 若每个 submitted participant 都有 CURRENT-request 精确锚也不受影响。这样把一次 analyzer 结构修复替代 12 次 finalizer 错误义务修补，
+   不生成/删除模型图边，也不扩大 hard gate 到 prose。实现与回归已覆盖这三个分支，focused `internal/tool`、
+   `go test ./... -count=1`、`make` 与 `git diff --check` 全绿。
 6. 同时纠正 r1009 的人工判断：其最终四阶段图正好覆盖 relation_scope，Orchestrator 与 BusContext 分别在正文/表格解释，属于正确的多展示面分工，
    不能作为 B1541“缺边”见证。只有用户明确把这些角色写入所请求图关系面时，才可审计其 typed relation coverage。
 
@@ -57319,7 +57321,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `r1010=runner-pass-2/2,human-fail-2/2`；
 `B1545=implemented/exact-double-encoded-structural-carrier/full-suite+build-pass/pending-replay`；
-`B1546=confirmed/P1/analyzer-fail-early-next`；
+`B1546=implemented/P1/precise-required-roster-fail-early/full-suite+build-pass/pending-replay`；
 `B1541=r1009-false-positive-corrected/needs-explicit-witness`；
 default sibling=`optional/bare-v2/selected-candidates-currently-lost-on-double-encoded-carrier`；
 `system-root-selection/prose-inference/answer-rewrite=none`；

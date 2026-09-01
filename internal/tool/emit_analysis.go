@@ -7087,6 +7087,22 @@ func parseDiagramHint(rawRequest string, p *emitDiagramHintParam, hardPresentati
 				}
 				return nil, fmt.Sprintf("diagram_hint.participants[%d].source_quote must be copied verbatim from the CURRENT request and contain identity %q", i, identity), warnings
 			}
+			// A required roster with no participant directly anchored by its
+			// exact relation_scope_quote has no safe floor after this inferred
+			// row is removed. Silently dropping it can leave identities from a
+			// sibling table/example as the only incident_required rows and turn
+			// those unrelated display names into finalizer hard obligations. Fail
+			// at the precise invalid row instead. A valid split-clause/anaphoric
+			// roster remains accepted when every submitted participant has exact
+			// CURRENT-request provenance; a roster with at least one exact
+			// relation-scope participant may still discard an extra hallucinated
+			// row without losing its scoped floor.
+			if required && relationScopeNamedParticipants == 0 {
+				return nil, fmt.Sprintf(
+					"diagram_hint.participants[%d] identity %q and source_quote are not anchored in the CURRENT request, while relation_scope_quote directly anchors none of the submitted participants; re-emit the complete diagram_hint using exact user-authored relation participants, or remove this inferred row without promoting sibling table/list/example identities into the diagram relation",
+					i, identity,
+				), warnings
+			}
 			// Participant rows are planning guidance, not diagram-shape
 			// authority. An inferred participant without current-request
 			// provenance must never become a hard relation obligation. Drop only

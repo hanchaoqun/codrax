@@ -5590,7 +5590,7 @@ func TestEmitAnalysis_Execute_DropsIncidentParticipantsFromSiblingPresentationSu
 	}
 }
 
-func TestEmitAnalysis_Execute_ReportsNormalizationBeforeEmptyParticipantConflict(t *testing.T) {
+func TestEmitAnalysis_Execute_RejectsUnanchoredRequiredRosterBeforeSiblingParticipantsEscape(t *testing.T) {
 	raw := "解释 codrax read mode 一次请求从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并再给一张表列出每个 stage 的输入、输出和主要状态载体（例如 AnalysisIR、EvidenceItems、AnswerDocument、Mutable/BusContext）。"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -5626,17 +5626,17 @@ func TestEmitAnalysis_Execute_ReportsNormalizationBeforeEmptyParticipantConflict
 		t.Fatalf("Execute: %v", err)
 	}
 	if res.Success || mu.RequestModel() != nil {
-		t.Fatalf("typed cross-component/empty-slate conflict must remain fail-loud: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+		t.Fatalf("invalid required roster must fail before sibling identities become hard participants: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
 	for _, want := range []string{
-		"participants is explicitly empty",
-		"all 4 submitted diagram participant row(s) were removed",
-		"empty-slate error refers to the normalized result",
-		"do not flip predicates.is_cross_component",
-		"Repository-discovered names remain investigation evidence",
+		`participants[0] identity "Orchestrator"`,
+		"not anchored in the CURRENT request",
+		"relation_scope_quote directly anchors none of the submitted participants",
+		"exact user-authored relation participants",
+		"without promoting sibling table/list/example identities",
 	} {
 		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("normalization receipt missing %q: %s", want, res.Summary)
+			t.Fatalf("early required-roster repair missing %q: %s", want, res.Summary)
 		}
 	}
 }
