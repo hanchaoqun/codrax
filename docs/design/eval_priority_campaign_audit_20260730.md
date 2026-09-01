@@ -70145,3 +70145,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r998`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r998`。
+
+### §123.1604 r999/B1527-B1528：参与者归一化回执与 read-mode 表达边界（2026-08-31）
+
+1. 从已推送 `490ed3fcb` 重建二进制，严格并发恰好 2 路复放基础 read-mode 流程图与“时序图+阶段表”组合题；runner
+   2/2 PASS：基础图 111s、组合题 339s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_diagram_relation_r999_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_relation_r999_20260831_manual_audit.md`。
+2. 基础流程图人工判 pass，B1526 获得生产正证：analyzer 两轮完成，`is_cross_component=false + participants=[]`
+   被直接接受，不再把宽泛 discovery entities 铸成 required actors；最终四阶段、三条业务化顺序边、职责和 Mermaid 均正确。
+3. 组合题 runner PASS、人工判 fail。第一、二次有效 analyzer 提交都给了 8 个 repository-discovered participants，但这些身份没有
+   current-request verbatim participant provenance，故精确归一化正确地全部删除。后续交叉字段门只回报“participants explicitly empty”，未披露
+   raw 8 行已被删除，模型误以为系统忽略 JSON，最终把独立事实 `is_cross_component` 从 true 改成 false 绕过门。
+4. `B1527-DIAGRAMPARTICIPANTNORMALIZATIONRECEIPT1/P1` 根修不改变 admission：cross-component + empty normalized
+   slate 仍 fail-loud；只在 raw rows>0 且 normalized rows=0 时追加 typed receipt，披露删除数量、current-request provenance/relation-scope
+   上限，并明确不得通过翻转 cross-component 绕过。系统不推导参与者、不选择关系，也不扫描任何 prose。
+5. 最终答案的核心阶段顺序和表格基本正确，普通关系门也正确删除了 9 条没有 typed operation evidence 的状态读写箭头；但答案仍把内部
+   `analyze\\x00explore` 复合键当成用户关系，保留两个无边的 BusContext/Mutable sequence participants，并把条件预阶段 guard 作为
+   Analyze/Explore note 展示。三者同根于 typed 上下文没有清楚区分 lookup literal、field containment 与 visible workflow relation。
+6. `B1528-READMODEPRESENTATIONBOUNDARY1/P1` 只补 finalizer soft authority：内部 separator-bearing key 不进入用户表达；state-carrier
+   row 只证明 containment，无独立 typed operation 时进入 sibling table/no-arrow group 而非断开的 sequence participant；条件预阶段若入图必须位于
+   Analyze 之前，否则留在表格。关系证据门不放宽，系统不删除、替换或重写模型答案。
+7. 本批没有读取用户问题、模型 thinking、最终正文、Markdown 或 Mermaid 文本作为事实硬门，没有新增系统结论/关系/词面选择，也没有改变
+   Trace 根因选举、显式时间窗、因果投影、自动补采或 active-stream 行为。
+
+状态：
+
+`r999=runner-pass-2/2,human-basic-pass+combo-fail`；
+`B1526=production-positive/core-closed`；
+`B1527=implemented/typed-normalization-receipt/pending-production-replay`；
+`B1528=implemented/typed-soft-presentation-boundary/pending-production-replay`；
+`diagram-participant-normalization=exact-current-request-provenance/removal-receipt-visible`；
+`state-carrier=containment-only/not-directed-operation`；
+`internal-composite-key=implementation-only/not-reader-surface`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

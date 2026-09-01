@@ -25454,6 +25454,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	fmt.Fprintf(&b, "- canonical_read_main_sequence=`%s`.\n", strings.Join(mainStageNames(main), " -> "))
 	if names := stageNames(pre); len(names) > 0 {
 		fmt.Fprintf(&b, "- conditional_pre_stages=`%s`; these run before `analyze` only when their typed attachment guards fire.\n", strings.Join(names, ", "))
+		b.WriteString("- Conditional pre-stages are separate execution steps before `analyze`. If you show them in the main sequence, place them before `analyze` behind their exact guards; otherwise keep them in a sibling table. Do not attach their guards as notes to `analyze`, `explore`, or another main-stage participant.\n")
 	}
 	b.WriteString("- A real stage symbol or function definition absent from both lists is cross-mode/background evidence, not a member of the current read path. You may explain it separately when relevant, but do not connect it into the read sequence or stage table without an independently grounded current-read control-flow edge.\n")
 	b.WriteString("- Evidence precedence: a declaration namespace, `AllStages`-style universe, global binding registry, or capability catalog proves existence/availability only. It cannot widen the active membership selected by these narrower mode-specific functions.\n")
@@ -25495,6 +25496,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	if carriers, ok := stageauthority.LoadReadModeStateCarriers(ctx.RepoRoot); ok && len(carriers) > 0 {
 		b.WriteString("\n### Verified shared state-carrier fields\n\n")
 		b.WriteString("- These are checkout-verified field-ownership facts, not stage edges or per-stage read/write claims. The shared context carrier accumulates cross-stage state, and its mutable pointer identifies the tool-writable region. A row authorizes only its exact owner/field/type containment: when useful, place the field/type node or subgroup inside the owner subgraph with no arrow and no edge_anchor. Keep all directed calls, reads, writes, transfers, and stage edges unproven unless separate typed operation evidence supplies them. If the owner has no directed incident operation, retain its `unproven` participant boundary; that boundary limits direct-flow claims and does not erase the proved containment.\n")
+		b.WriteString("- A state-carrier row does not require its owner to appear as a sequence-diagram participant. If no separately typed directed operation connects that owner, explain it in the requested state table or a no-arrow ownership group instead of leaving a disconnected participant in the sequence.\n")
 		b.WriteString("- The structured-answer field on the tool-writable carrier buffers the model-authored document; its existence does not authorize the system to replace the model's conclusion or answer.\n")
 		for i, carrier := range carriers {
 			fmt.Fprintf(&b, "- state_carrier[%d]: owner=`%s`; field=`%s`; type=`%s`; source=`%s:%d`.\n",
@@ -25512,6 +25514,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	}
 	b.WriteString("\n### User-facing workflow display guidance\n\n")
 	b.WriteString("- Use stable Mermaid-safe node/participant IDs and preserve the chosen exact stage or agent identity pair in `edge_anchors.from_identity/to_identity`; make the visible title/action understandable in the user's domain. The verified `responsibility` above is the wording basis; summarize or localize it instead of exposing agent names, Go function names, `relation_kind`, `claim_form`, or recipe vocabulary as the main visual copy.\n")
+	b.WriteString("- Internal lookup/composite keys are implementation details, including separator-bearing literals such as `analyze\\x00explore`. Never present or cite those keys as the workflow relation. Use `canonical_read_main_sequence`, the reader-facing transition labels, and the exact stage identities published here.\n")
 	b.WriteString("- For a two-line node/participant label, put the business action first and the exact stage identity second. For sequence messages, describe the user-relevant transition/order; do not label an arrow merely `precedence`, `call`, or `data_flow`. Business wording is display-only and cannot authorize a new edge or artifact transfer.\n")
 	b.WriteString("\n### Verified stage-order edge recipes\n\n")
 	b.WriteString("- Each row below is one complete, checkout-verified authoring recipe. If you choose to draw that stage-order edge, select either its stage identity pair or its agent identity pair, preserve that exact pair in `edge_anchors.from_identity/to_identity`, and set `relation_kind=precedence`. Diagram node IDs remain your choice and must match `from_node/to_node`; visible labels remain business/domain copy.\n")

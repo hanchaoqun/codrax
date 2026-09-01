@@ -2335,10 +2335,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Buckets:                         buckets,
 	}
 	if conflict := validateRequiredDiagramEmptyParticipantSlate(rm, diagramRelationScopeWasRequired); conflict != "" {
+		summary := "emit_analysis rejected: " + conflict
+		if receipt := diagramParticipantNormalizationConflictReceipt(p.DiagramHint, diagramHint); receipt != "" {
+			summary += "; " + receipt
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_analysis rejected: " + conflict,
+			Summary:   summary,
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -2496,6 +2500,27 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// diagramParticipantNormalizationConflictReceipt explains the otherwise
+// surprising shape where the model submitted participant rows but exact
+// current-request provenance normalization removed every row before a later
+// typed cross-field check. It consumes only the raw schema carrier and the
+// normalized typed hint; it does not inspect request prose or infer actors.
+//
+// Without this receipt the model sees "participants is explicitly empty",
+// concludes that the validator ignored its rows, and may incorrectly flip
+// is_cross_component to bypass the check. The receipt keeps repair ownership
+// with the model while directing it back to exact current-request identities.
+func diagramParticipantNormalizationConflictReceipt(raw *emitDiagramHintParam, normalized *types.DiagramHint) string {
+	if raw == nil || raw.Participants == nil || len(*raw.Participants) == 0 ||
+		normalized == nil || len(normalized.Participants) != 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"all %d submitted diagram participant row(s) were removed before this consistency check because they lacked exact current-request participant provenance or fell outside the typed relation scope; the empty-slate error refers to the normalized result, not the raw JSON. Re-emit exact user-visible actors and verbatim source_quote values from the CURRENT request; do not flip predicates.is_cross_component merely to bypass participant normalization. Repository-discovered names remain investigation evidence, not current-request participant authority",
+		len(*raw.Participants),
+	)
 }
 
 func missingEmitAnalysisRequiredTopLevelFields(params json.RawMessage, requiredDiagram bool) []string {

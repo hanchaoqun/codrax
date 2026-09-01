@@ -5590,7 +5590,7 @@ func TestEmitAnalysis_Execute_DropsIncidentParticipantsFromSiblingPresentationSu
 	}
 }
 
-func TestEmitAnalysis_Execute_InferredRosterDoesNotBecomeMissingParticipantAuthority(t *testing.T) {
+func TestEmitAnalysis_Execute_ReportsNormalizationBeforeEmptyParticipantConflict(t *testing.T) {
 	raw := "解释 codrax read mode 一次请求从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并再给一张表列出每个 stage 的输入、输出和主要状态载体（例如 AnalysisIR、EvidenceItems、AnswerDocument、Mutable/BusContext）。"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -5613,17 +5613,31 @@ func TestEmitAnalysis_Execute_InferredRosterDoesNotBecomeMissingParticipantAutho
 		]}
 	}`
 
+	finalPayload := strings.Replace(
+		withV4Required(payload),
+		`"is_cross_component": false`,
+		`"is_cross_component": true`,
+		1,
+	)
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{
 		Mutable: mu, PresentationDirective: "Mermaid sequenceDiagram", PresentationDiagramRequired: true,
-	}, json.RawMessage(withV4Required(payload)))
+	}, json.RawMessage(finalPayload))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
-		t.Fatalf("broad inferred roster must not become a participant hard gate: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("typed cross-component/empty-slate conflict must remain fail-loud: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
-	if got := mu.RequestModel().DiagramHint.Participants; got == nil || len(got) != 0 {
-		t.Fatalf("participants=%+v, want explicit empty slate after inferred/sibling rows are removed", got)
+	for _, want := range []string{
+		"participants is explicitly empty",
+		"all 4 submitted diagram participant row(s) were removed",
+		"empty-slate error refers to the normalized result",
+		"do not flip predicates.is_cross_component",
+		"Repository-discovered names remain investigation evidence",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("normalization receipt missing %q: %s", want, res.Summary)
+		}
 	}
 }
 
