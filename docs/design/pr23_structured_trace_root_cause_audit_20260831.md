@@ -93,3 +93,47 @@ prompt tests passed after the compact roster projection; `make` passed.
 The PR was merged with a regular two-parent merge. Commit `ea525ad93` remains
 reachable unchanged with the original author identity; remediation is recorded as a
 separate descendant commit so review can distinguish imported work from audit fixes.
+
+## 7. Current-main survivorship re-audit (2026-09-01)
+
+The requested PR merge is already complete and must not be repeated:
+
+- `git merge-base --is-ancestor ea525ad937f73c32aed197b5050a8faac1717816 main`
+  succeeds;
+- merge `80b6e0425a65240eff677446e3407be3635e6cd1` still has two parents,
+  `5ee4046b...` and the unchanged PR head `ea525ad93...`;
+- the imported commit still records `keruoya <keruoya@users.noreply.github.com>` as
+  author and committer. A new cherry-pick or empty merge would only duplicate history
+  and is therefore intentionally not created.
+
+All five remediation properties still survive current main:
+
+1. `BindRootCauseReportSelection` accepts only the model-selected ordered candidate
+   IDs and binds category, identity, duration and evidence from the frozen typed
+   contract.
+2. `SelectableRootCauseCandidates` and `boundRootCauseItem` still require
+   `PrimaryEligible`, a positive typed magnitude, `ms`, and
+   `wall_clock_per_thread`; background, score/count and cross-thread CPU-ms rows do
+   not enter the compact root selector.
+3. No current finalizer call automatically chooses `PrimaryCause`; the legacy
+   `SetTraceFinding` path remains documented as non-conclusion-selecting, while the
+   sidecar stores only the bound model selection.
+4. The long `AnswerDocumentV2` and optional root-cause report remain sibling
+   artifacts. The report setter does not render, replace, summarize or mutate the
+   long answer.
+5. Current dynamic-schema, binding, state, output-dump and mutation tests pass. The
+   focused current-main command covered `internal/analysis/tracefinding`,
+   `internal/types`, `internal/tool`, `internal/outputdump` and
+   `internal/orchestrator` with Trace root-cause/finding/final-artifact test families.
+
+The bounded taxonomy note in §4.1 has partially evolved since the original audit:
+v2 now has dedicated `jit_compilation`, `shader_compilation`, `gc_long_pause` and
+`compute_supply_shortage` categories. Other deterministic semantic work without a
+versioned public category can still fall back to `phase_high_load`; changing that
+remaining public vocabulary still requires an explicit compatibility decision.
+The CPU-ms unit boundary and syntactically unparseable whole-tool-call boundary in
+§4.2–§4.3 remain intentional and unchanged.
+
+Re-audit result: no new PR #23 gap was found, no code change was required, original
+author history is preserved, and the existing Trace explicit-window causal
+projection/automatic supplementation path remains untouched.
