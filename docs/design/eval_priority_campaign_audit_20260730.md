@@ -57318,13 +57318,18 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    关系证据与 Mermaid。生产复放需确认 patch 可进入后续 B1534 dependency closure/孤立参与者事务，而不是直接假定其闭环。
 8. 本批没有改变 read-mode 关系证据权威、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有扫描用户请求、
    模型 thinking、最终正文、Markdown 或 Mermaid message/label 作事实硬门，也没有系统替模型作答。
+9. `B1536` 已按上述窄边界实现。patch 路径先照常用 receipt 补齐新选 relation 的 canonical identity；lease 比较前只对基线未列 failure 的精确
+   directed node pair+relation group做 hidden identity 稳定。要求基线 identity 双空、基线/结果数目相同、结果 identity 完整且组内一致，并且只匹配
+   一条 exact typed recipe identity pair；任一歧义或可见拓扑变化即不处理并交回原 lease fail-closed。lease 消费后普通 pre-emit normalizer 与全部
+   关系证据/Mermaid/答案合同照常运行。回归钉住 r1005 的 removed+added 自冲突、真实未授权新增/删除、歧义 receipt，以及完整
+   lease→recipe normalization→patch persist 入口；`go test ./internal/tool -count=1`、`go test ./... -count=1` 与 `make` 全绿。
 
 状态：
 
 `r1005=runner-trace-pass+read-fail,human-trace-pass+read-fail`；
 `B1534=implemented/full-suite-pass/production-not-exercised-r1005`；
 `B1535=old-reject-absent/blocked-before-publication/pending-positive`；
-`B1536=confirmed/P0/system-hidden-metadata-vs-lease-self-conflict/planned`；
+`B1536=implemented/P0/exact-receipt-provenance+topology-strict/full-suite+build-pass/pending-production-replay`；
 `system-answer/conclusion/relation/wording-selection=none`；
 `request/model-final-prose/markdown/mermaid-message fact-scan=none`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1005`；

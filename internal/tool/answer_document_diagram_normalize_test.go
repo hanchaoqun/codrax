@@ -1112,3 +1112,88 @@ func TestNormalizeAnswerDocumentForPreEmit_RecordsOrphanAnchorRepair(t *testing.
 		t.Fatalf("pre-emit normalization retained orphan metadata: %+v", doc.Blocks[0].EdgeAnchors)
 	}
 }
+
+func TestStabilizeUnlistedRelationLeaseAnchorIdentitiesKeepsTopologyStrict(t *testing.T) {
+	retained := types.DiagramEdgeAnchor{
+		FromNode: "Orch", ToNode: "TP", RelationKind: types.DiagramRelCall,
+	}
+	failed := types.DiagramEdgeAnchor{
+		FromNode: "Bad", ToNode: "Target", RelationKind: types.DiagramRelCall,
+	}
+	base := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram, EdgeAnchors: []types.DiagramEdgeAnchor{retained, failed},
+	}}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "flow", Issue: "call_edge_unproven", RelationKind: types.DiagramRelCall,
+		FromNode: "Bad", ToNode: "Target",
+	}}, nil)
+	if lease == nil {
+		t.Fatal("expected executable local relation lease")
+	}
+	recipe := types.DiagramEdgeAnchor{
+		FromNode: "Orch", ToNode: "TP",
+		FromIdentity: "Orchestrator.Run", ToIdentity: "Orchestrator.runTaskPhase",
+		RelationKind: types.DiagramRelCall,
+	}
+	merged := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "flow", Kind: types.BlockDiagram, EdgeAnchors: []types.DiagramEdgeAnchor{recipe},
+	}}}
+	before := types.ValidateAnswerDiagramRelationRepairLease(lease, merged)
+	if len(before) != 2 {
+		t.Fatalf("identity enrichment must reproduce the removed+added self-conflict before stabilization: %+v", before)
+	}
+	if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(merged, lease, []types.DiagramEdgeAnchor{recipe}); fixed != 1 {
+		t.Fatalf("expected one exact inherited identity stabilization, got %d doc=%+v", fixed, merged)
+	}
+	if got := types.ValidateAnswerDiagramRelationRepairLease(lease, merged); len(got) != 0 {
+		t.Fatalf("the model-authored topology is unchanged and must pass its local scope: %+v", got)
+	}
+	if merged.Blocks[0].EdgeAnchors[0].HasEndpointIdentityPair() {
+		t.Fatalf("lease comparison carrier must retain the baseline identity shape: %+v", merged.Blocks[0].EdgeAnchors[0])
+	}
+
+	t.Run("ambiguous recipe identity stays fail closed", func(t *testing.T) {
+		candidate := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "flow", Kind: types.BlockDiagram, EdgeAnchors: []types.DiagramEdgeAnchor{recipe},
+		}}}
+		other := recipe
+		other.FromIdentity = "Other.Run"
+		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, []types.DiagramEdgeAnchor{recipe, other}); fixed != 0 {
+			t.Fatalf("ambiguous receipt must not be normalized through the lease: fixed=%d", fixed)
+		}
+		if got := types.ValidateAnswerDiagramRelationRepairLease(lease, candidate); len(got) == 0 {
+			t.Fatal("ambiguous identity enrichment must remain rejected")
+		}
+	})
+
+	t.Run("real unlisted removal stays rejected", func(t *testing.T) {
+		candidate := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{ID: "flow", Kind: types.BlockDiagram}}}
+		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, []types.DiagramEdgeAnchor{recipe}); fixed != 0 {
+			t.Fatalf("a missing visible edge must never be reconstructed: fixed=%d", fixed)
+		}
+		got := types.ValidateAnswerDiagramRelationRepairLease(lease, candidate)
+		if len(got) != 1 || got[0].Issue != "unlisted_relation_removed" {
+			t.Fatalf("true unlisted removal must remain precise: %+v", got)
+		}
+	})
+
+	t.Run("real unlisted addition stays rejected", func(t *testing.T) {
+		candidate := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+			ID: "flow", Kind: types.BlockDiagram,
+			EdgeAnchors: []types.DiagramEdgeAnchor{
+				recipe,
+				{
+					FromNode: "X", ToNode: "Y", FromIdentity: "X.run", ToIdentity: "Y.run",
+					RelationKind: types.DiagramRelCall,
+				},
+			},
+		}}}
+		if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(candidate, lease, []types.DiagramEdgeAnchor{recipe}); fixed != 1 {
+			t.Fatalf("only the inherited edge may be stabilized: fixed=%d", fixed)
+		}
+		got := types.ValidateAnswerDiagramRelationRepairLease(lease, candidate)
+		if len(got) != 1 || got[0].Issue != "unlisted_relation_added" || got[0].FromNode != "X" {
+			t.Fatalf("true unlisted addition must remain precise: %+v", got)
+		}
+	})
+}

@@ -3195,8 +3195,13 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// recipe metadata before the lease compares tuples. The repair cannot
 		// create or choose a visible relation, and an unlisted/ambiguous edge is
 		// still rejected by the unchanged lease below.
-		if ctx.Mutable.AnswerDiagramRelationRepairLease() != nil {
+		if relationLease := ctx.Mutable.AnswerDiagramRelationRepairLease(); relationLease != nil {
+			recipes := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
+			recipes = append(recipes, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
 			normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(t.Name(), merged, ctx, preEmitCtx)
+			if fixed := stabilizeUnlistedRelationLeaseAnchorIdentities(merged, relationLease, recipes); fixed > 0 {
+				logging.Warning("[%s] stabilized %d inherited relation anchor identity pair(s) for lease comparison", t.Name(), fixed)
+			}
 		}
 		if lease, violations := validateAndConsumeAnswerDiagramRelationRepairLease(ctx.Mutable, merged); len(violations) > 0 {
 			return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),

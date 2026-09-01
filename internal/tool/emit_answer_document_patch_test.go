@@ -1044,6 +1044,80 @@ func TestEmitAnswerDocumentPatch_RelationLeaseAllowsOnlyStructuredCandidateAddit
 	}
 }
 
+func TestEmitAnswerDocumentPatch_RelationLeaseIgnoresOnlySystemRecipeIdentityEnrichment(t *testing.T) {
+	mut := types.NewMutableState("relation recipe enrichment")
+	base := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "model summary"},
+			{
+				ID: "flow", Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind: types.DiagramSequence, Language: "mermaid",
+					Body: "sequenceDiagram\n    participant Orch as Orchestrator\n    participant TP as Task phase\n    participant analyze as Analyze\n    participant explorer as Explore\n    Orch->>TP: start",
+				},
+				EdgeAnchors: []types.DiagramEdgeAnchor{{
+					FromNode: "Orch", ToNode: "TP", RelationKind: types.DiagramRelCall, VisibleLabel: "start",
+				}},
+			},
+		},
+	}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	candidate := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "flow", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
+		FromNodeIDs: []string{"analyze"}, ToNodeIDs: []string{"explorer"},
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, nil, []types.AnswerDiagramRelationRepairCandidate{candidate})
+	if lease == nil || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("expected one live addition lease: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	mut.SetFinalizerTypedRelationRecipeAvailable(true)
+	mut.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{
+		{
+			FromNode: "Orch", ToNode: "TP",
+			FromIdentity: "Orchestrator.Run", ToIdentity: "Orchestrator.runTaskPhase",
+			RelationKind: types.DiagramRelCall,
+		},
+		{
+			FromNode: "analyze", ToNode: "explorer",
+			FromIdentity: "analyzer", ToIdentity: "explorer",
+			RelationKind: types.DiagramRelPrecedence,
+		},
+	})
+	bus := &types.BusContext{Mutable: mut}
+	additionRef := lease.AllowedAdditions[0].AdditionRef
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["s1"],
+		"diagram_edge_edits":[{
+			"action":"add","addition_ref":%q,
+			"edge":{"from_node":"analyze","to_node":"explorer","visible_label":"evidence ready"}
+		}]
+	}`, additionRef)))
+	if err != nil || !res.Success {
+		t.Fatalf("system-owned identity enrichment on an inherited edge must not poison the live lease: res=%+v err=%v", res, err)
+	}
+	doc := mut.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Blocks[1].EdgeAnchors) != 2 {
+		t.Fatalf("expected retained call plus model-selected precedence edge: %+v", doc)
+	}
+	retained := doc.Blocks[1].EdgeAnchors[0]
+	if retained.FromNode != "Orch" || retained.ToNode != "TP" || retained.RelationKind != types.DiagramRelCall ||
+		retained.VisibleLabel != "start" {
+		t.Fatalf("the inherited model-authored visible relation must remain byte-stable: %+v", retained)
+	}
+	added := doc.Blocks[1].EdgeAnchors[1]
+	if added.FromNode != "analyze" || added.ToNode != "explorer" ||
+		added.FromIdentity != "analyzer" || added.ToIdentity != "explorer" ||
+		added.RelationKind != types.DiagramRelPrecedence || added.VisibleLabel != "evidence ready" {
+		t.Fatalf("the selected addition must remain entirely model-authored on the visible surface: %+v", added)
+	}
+	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
+		t.Fatalf("successful exact generation must consume the relation lease: %+v", got)
+	}
+}
+
 func TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration(t *testing.T) {
 	mut := types.NewMutableState("relation repair generation")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{

@@ -1107,6 +1107,169 @@ func normalizeDiagramEdgeAnchorIdentitiesFromFinalizerTypedRecipes(
 	return fixed
 }
 
+// stabilizeUnlistedRelationLeaseAnchorIdentities keeps the local relation
+// lease scoped to model-authored topology when a later, system-owned recipe
+// pass enriches hidden endpoint identities on an otherwise untouched edge.
+//
+// The lease is minted from the rejected draft before every retry-only receipt
+// is necessarily available. The patch path must normalize newly selected
+// additions before the lease can validate their canonical tuple, but applying
+// that same normalizer to an inherited identity-less edge changes its lease
+// semantic key from (nodes, empty identities, relation) to (nodes, canonical
+// identities, relation). Without this reconciliation, one untouched edge is
+// reported as both removed and added.
+//
+// This function restores only the baseline identity metadata used by the
+// lease comparison. It requires one exact directed node pair/relation group,
+// equal base/result multiplicity, no failure on that group, an identity-less
+// baseline, and one unique exact recipe pair matching every enriched result
+// anchor. Ambiguous groups and all visible topology changes remain fail-closed.
+// The ordinary pre-emit normalization runs again after the lease is consumed,
+// so the accepted document still receives and validates the canonical pair.
+func stabilizeUnlistedRelationLeaseAnchorIdentities(
+	doc *types.AnswerDocumentV2,
+	lease *types.AnswerDiagramRelationRepairLease,
+	recipes []types.DiagramEdgeAnchor,
+) int {
+	if doc == nil || lease == nil || len(recipes) == 0 {
+		return 0
+	}
+	type visibleKey struct {
+		blockID string
+		from    string
+		to      string
+		kind    types.DiagramRelationKind
+	}
+	type identityPair struct {
+		from string
+		to   string
+	}
+	trimPair := func(anchor types.DiagramEdgeAnchor) identityPair {
+		return identityPair{from: strings.TrimSpace(anchor.FromIdentity), to: strings.TrimSpace(anchor.ToIdentity)}
+	}
+	sameUnorderedPair := func(aFrom, aTo, bFrom, bTo string) bool {
+		aFrom, aTo = strings.TrimSpace(aFrom), strings.TrimSpace(aTo)
+		bFrom, bTo = strings.TrimSpace(bFrom), strings.TrimSpace(bTo)
+		return (aFrom == bFrom && aTo == bTo) || (aFrom == bTo && aTo == bFrom)
+	}
+	failureMatches := func(blockID string, anchor types.DiagramEdgeAnchor) bool {
+		for _, failure := range lease.Failures {
+			if strings.TrimSpace(failure.BlockID) != blockID {
+				continue
+			}
+			if sameUnorderedPair(failure.FromNode, failure.ToNode, anchor.FromNode, anchor.ToNode) {
+				return true
+			}
+			basePair := trimPair(anchor)
+			if basePair.from != "" && basePair.to != "" &&
+				sameUnorderedPair(failure.FromIdentity, failure.ToIdentity, basePair.from, basePair.to) {
+				return true
+			}
+		}
+		return false
+	}
+
+	recipePairs := make(map[visibleKey]map[identityPair]bool)
+	for _, recipe := range recipes {
+		pair := trimPair(recipe)
+		if strings.TrimSpace(recipe.FromNode) == "" || strings.TrimSpace(recipe.ToNode) == "" ||
+			!recipe.RelationKind.IsValid() || pair.from == "" || pair.to == "" {
+			continue
+		}
+		key := visibleKey{
+			from: strings.TrimSpace(recipe.FromNode), to: strings.TrimSpace(recipe.ToNode), kind: recipe.RelationKind,
+		}
+		if recipePairs[key] == nil {
+			recipePairs[key] = make(map[identityPair]bool)
+		}
+		recipePairs[key][pair] = true
+	}
+
+	resultBlocks := make(map[string]*types.AnswerBlock, len(doc.Blocks))
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if id := strings.TrimSpace(block.ID); id != "" {
+			resultBlocks[id] = block
+		}
+	}
+	fixed := 0
+	for _, leaseBlock := range lease.Blocks {
+		blockID := strings.TrimSpace(leaseBlock.BlockID)
+		resultBlock := resultBlocks[blockID]
+		if blockID == "" || resultBlock == nil {
+			continue
+		}
+		baseGroups := make(map[visibleKey][]types.DiagramEdgeAnchor)
+		for _, anchor := range leaseBlock.BaseAnchors {
+			if failureMatches(blockID, anchor) {
+				continue
+			}
+			key := visibleKey{
+				blockID: blockID,
+				from:    strings.TrimSpace(anchor.FromNode),
+				to:      strings.TrimSpace(anchor.ToNode),
+				kind:    anchor.RelationKind,
+			}
+			if key.from == "" || key.to == "" || !key.kind.IsValid() {
+				continue
+			}
+			baseGroups[key] = append(baseGroups[key], anchor)
+		}
+		for key, baseAnchors := range baseGroups {
+			basePair := trimPair(baseAnchors[0])
+			if basePair.from != "" || basePair.to != "" {
+				continue
+			}
+			baseUniform := true
+			for _, anchor := range baseAnchors[1:] {
+				if trimPair(anchor) != basePair {
+					baseUniform = false
+					break
+				}
+			}
+			if !baseUniform {
+				continue
+			}
+			var resultIndexes []int
+			for i := range resultBlock.EdgeAnchors {
+				anchor := &resultBlock.EdgeAnchors[i]
+				if strings.TrimSpace(anchor.FromNode) == key.from && strings.TrimSpace(anchor.ToNode) == key.to &&
+					anchor.RelationKind == key.kind {
+					resultIndexes = append(resultIndexes, i)
+				}
+			}
+			if len(resultIndexes) != len(baseAnchors) || len(resultIndexes) == 0 {
+				continue
+			}
+			resultPair := trimPair(resultBlock.EdgeAnchors[resultIndexes[0]])
+			if resultPair.from == "" || resultPair.to == "" {
+				continue
+			}
+			resultUniform := true
+			for _, index := range resultIndexes[1:] {
+				if trimPair(resultBlock.EdgeAnchors[index]) != resultPair {
+					resultUniform = false
+					break
+				}
+			}
+			if !resultUniform {
+				continue
+			}
+			recipeKey := visibleKey{from: key.from, to: key.to, kind: key.kind}
+			pairs := recipePairs[recipeKey]
+			if len(pairs) != 1 || !pairs[resultPair] {
+				continue
+			}
+			for _, index := range resultIndexes {
+				resultBlock.EdgeAnchors[index].FromIdentity = ""
+				resultBlock.EdgeAnchors[index].ToIdentity = ""
+				fixed++
+			}
+		}
+	}
+	return fixed
+}
+
 func normalizeOutOfRangeCitationRefsBeforePoolGrowth(doc *types.AnswerDocumentV2) int {
 	if doc == nil {
 		return 0
