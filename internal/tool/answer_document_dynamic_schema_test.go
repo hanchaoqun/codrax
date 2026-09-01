@@ -537,6 +537,16 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 		!strings.Contains(desc, "following dispatch publishes the complete remove/retain roster") {
 		t.Fatalf("relation phase teaching did not explain the staged second phase: %q", desc)
 	}
+	for _, want := range []string{"only when the current schema publishes it", "submit relation edits only", "later schema publishes the exact orphan roster"} {
+		if !strings.Contains(types.AnswerDocumentPatchOperationTeaching, want) {
+			t.Fatalf("shared patch teaching lost schema-first two-phase rule %q: %s", want, types.AnswerDocumentPatchOperationTeaching)
+		}
+	}
+	for _, forbidden := range []string{"in this same patch", "choice is conditional", "do not predict a second post-edit roster"} {
+		if strings.Contains(types.AnswerDocumentPatchOperationTeaching, forbidden) {
+			t.Fatalf("shared patch teaching retained contradictory same-call orphan rule %q: %s", forbidden, types.AnswerDocumentPatchOperationTeaching)
+		}
+	}
 	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); !strings.Contains(desc, "current schema is the sole capability authority") ||
 		!strings.Contains(desc, "only unrelated existing blocks") {
 		t.Fatalf("live description must match the executable schema: %q", desc)

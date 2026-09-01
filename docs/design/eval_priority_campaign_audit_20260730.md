@@ -57318,6 +57318,10 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 8. 本批不改变 read-mode 关系证据权威或 Trace 合同。没有扫描用户请求、模型 thinking、最终正文、Markdown、Mermaid label/message 作为事实硬门；
    不做系统答案/结论/关系/词面选择。显式时间窗、链上根因、邻近/背景 support-only、实际占时/规则可消双账户、因果投影、自动补齐及禁止固定
    4ms/4m/活跃流降级继续保持。
+9. `B1539` 已实现：共享 patch teaching、relation-only retry hint、joint participant/relation hint 与工具描述统一服从当前动态 schema。字段缺席时只允许
+   提交 relation edits，并明确下一 schema 才发布 exact post-edit orphan roster；只有 schema 实际发布 participant branch 时才教学 remove/retain。
+   新 pin 同时钉住两阶段正向说明与旧“same patch/conditional no-op”词族不得回流。聚焦测试、`internal/agent+tool+types` 包测试、`go test ./...`
+   和 `make` 全绿；没有改动关系/参与者执行器或任何答案事实。
 
 状态：
 
@@ -57327,7 +57331,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1536=old-symptom-absent/exact-production-branch-pending`；
 `B1537=confirmed/planned/typed-transaction-conflict`；
 `B1538=confirmed-symptom/conditional-after-B1537+B1539-replay`；
-`B1539=confirmed/P0/teaching-schema-conflict/planned`；
+`B1539=implemented/P0/teaching-schema-single-authority/full-suite-pass`；
 `system-answer/conclusion/relation/wording-selection=none`；
 `request/model-final-prose/markdown/mermaid-message fact-scan=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；

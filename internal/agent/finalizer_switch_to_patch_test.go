@@ -1562,9 +1562,14 @@ func TestRequiredDiagramRelationRetryPublishesOptionalModelOwnedOrphanCleanup(t 
 	if !ok {
 		t.Fatal("relation delta hint missing")
 	}
-	for _, want := range []string{"diagram_participant_edits", "remove_if_isolated", "retain_as_context", "choice is conditional", "do not predict a second post-edit roster", `"participant_id":"X"`} {
+	for _, want := range []string{"diagram_participant_edits", "only when the current schema publishes it", "submit relation edits only", "next schema publishes the exact post-edit orphan roster", "Do not predict that roster", `"participant_id":"X"`} {
 		if !strings.Contains(hint, want) {
 			t.Fatalf("model-owned cleanup teaching missing %q:\n%s", want, hint)
+		}
+	}
+	for _, forbidden := range []string{"in this same patch", "choice is conditional", "do not predict a second post-edit roster"} {
+		if strings.Contains(hint, forbidden) {
+			t.Fatalf("two-phase relation hint retained contradictory same-call orphan teaching %q:\n%s", forbidden, hint)
 		}
 	}
 }

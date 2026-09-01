@@ -11686,11 +11686,14 @@ func TestVerifiedStageEndpointSpanMarksRequestedSpineApartFromDisconnectedSuppor
 		"principal_diagram_recipe_source=`request_scoped_typed_authority`",
 		"principal_edge_recipe[1]=`n1 -> n2`; relation_kind=`precedence`",
 		"supporting_recipe_policy=`optional_prose_or_separate_visual`",
-		"conditional decisions", "do not need to predict the post-edit orphan roster",
+		"only when the current schema publishes it", "next schema publishes the exact post-edit orphan roster",
 	} {
 		if !strings.Contains(jointHint, want) {
 			t.Fatalf("joint repair lost focused principal/no-op teaching %q:\n%s", want, jointHint)
 		}
+	}
+	if strings.Contains(jointHint, "in this same patch") || strings.Contains(jointHint, "conditional decisions") {
+		t.Fatalf("joint repair retained contradictory same-call orphan teaching:\n%s", jointHint)
 	}
 	for _, forbidden := range []string{"Orchestrator.runAnalyzePhase", "Orchestrator.dispatchStage"} {
 		if strings.Contains(jointHint, forbidden) {
