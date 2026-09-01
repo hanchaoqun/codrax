@@ -342,7 +342,7 @@ func diagramParticipantRepairAdditionDeltaJSON(
 	if ctx.Mutable != nil {
 		receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
 		receipts = append(receipts, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
-		allowed = diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, 8)
+		allowed = diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, doc, 8)
 	}
 	filtered := allowed[:0]
 	anchoredFailures := make([]types.AnswerDiagramRelationRepairFailure, 0, len(allowed))
@@ -2947,22 +2947,89 @@ func diagramParticipantExactVisibleEndpointIDs(
 // diagramRelationRepairAllowedAdditionsWithTypedReceipts keeps the retry
 // lease in the same exact identity dialect as the authoring receipt consumed
 // by the metadata normalizer. A provider may expose equivalent declaration
-// and runtime enum surfaces (for example AgentAnalyzer and analyzer), while a
-// model-authored alias topology uniquely maps to the receipt's participant
-// surface (Analyzer). If the lease lists only another equivalent surface, the
-// normalizer can deterministically produce a tuple that the lease itself then
-// rejects. Expand only an already-allowed typed tuple to an equivalent exact
-// dispatch receipt; no Mermaid text, visible label, request, or answer prose
-// participates and no new relation/direction is authorized.
+// and runtime enum surfaces (for example AgentAnalyzer and analyzer), while the
+// initial typed authoring capsule may assign one exact local node alias (for
+// example n1) to that endpoint. If the retry lease omits either exact carrier,
+// the model can follow the initial recipe and then be rejected by the same
+// system. Expand only an already-allowed typed tuple to an equivalent exact
+// dispatch receipt and add only a two-way-unique, syntax-safe receipt alias
+// that does not conflict with the current block. No Mermaid message, visible
+// label, request, or answer prose participates and no new relation/direction
+// is authorized.
 func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
 	allowed []types.AnswerDiagramRelationRepairCandidate,
 	receipts []types.DiagramEdgeAnchor,
+	doc *types.AnswerDocumentV2,
 	totalLimit int,
 ) []types.AnswerDiagramRelationRepairCandidate {
 	if totalLimit <= 0 || len(allowed) == 0 || len(receipts) == 0 {
 		return allowed
 	}
 	out := append([]types.AnswerDiagramRelationRepairCandidate(nil), allowed...)
+	type aliasBinding struct {
+		node     string
+		identity string
+	}
+	bindings := make([]aliasBinding, 0, len(receipts)*2)
+	for _, receipt := range receipts {
+		for _, binding := range []aliasBinding{
+			{node: strings.TrimSpace(receipt.FromNode), identity: strings.TrimSpace(receipt.FromIdentity)},
+			{node: strings.TrimSpace(receipt.ToNode), identity: strings.TrimSpace(receipt.ToIdentity)},
+		} {
+			if binding.node == "" || binding.identity == "" || strings.ContainsAny(binding.node, "\r\n") ||
+				mermaidcompat.CanonicalFlowchartNodeID(binding.node) != binding.node {
+				continue
+			}
+			bindings = append(bindings, binding)
+		}
+	}
+	uniqueReceiptAlias := func(node, identity string) bool {
+		node, identity = strings.TrimSpace(node), strings.TrimSpace(identity)
+		if node == "" || identity == "" {
+			return false
+		}
+		seenNode, seenIdentity := false, false
+		for _, binding := range bindings {
+			if strings.EqualFold(binding.node, node) {
+				seenNode = true
+				if !types.AnswerCodeIdentitySurfacesEquivalent(binding.identity, identity) {
+					return false
+				}
+			}
+			if types.AnswerCodeIdentitySurfacesEquivalent(binding.identity, identity) {
+				seenIdentity = true
+				if !strings.EqualFold(binding.node, node) {
+					return false
+				}
+			}
+		}
+		return seenNode && seenIdentity
+	}
+	appendUniqueNode := func(values []string, node string) []string {
+		if atomicDiagramNodeIDListed(node, values) {
+			return values
+		}
+		out := append(append([]string(nil), values...), node)
+		sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+		return out
+	}
+	bindReceiptNodes := func(candidate *types.AnswerDiagramRelationRepairCandidate, receipt types.DiagramEdgeAnchor) {
+		if candidate == nil || candidate.RelationKind != receipt.RelationKind ||
+			!types.AnswerCodeIdentitySurfacesEquivalent(candidate.FromIdentity, receipt.FromIdentity) ||
+			!types.AnswerCodeIdentitySurfacesEquivalent(candidate.ToIdentity, receipt.ToIdentity) {
+			return
+		}
+		fromNode := strings.TrimSpace(receipt.FromNode)
+		toNode := strings.TrimSpace(receipt.ToNode)
+		if uniqueReceiptAlias(fromNode, receipt.FromIdentity) &&
+			diagramRelationRepairReceiptAliasAllowedByCurrentBlock(doc, candidate.BlockID, fromNode, receipt.FromIdentity, candidate.FromNodeIDs) {
+			candidate.FromNodeIDs = appendUniqueNode(candidate.FromNodeIDs, fromNode)
+		}
+		if uniqueReceiptAlias(toNode, receipt.ToIdentity) &&
+			diagramRelationRepairReceiptAliasAllowedByCurrentBlock(doc, candidate.BlockID, toNode, receipt.ToIdentity, candidate.ToNodeIDs) {
+			candidate.ToNodeIDs = appendUniqueNode(candidate.ToNodeIDs, toNode)
+		}
+	}
 	seen := make(map[string]bool, len(out))
 	for _, candidate := range out {
 		seen[strings.Join([]string{
@@ -2974,15 +3041,18 @@ func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
 		if !receipt.RelationKind.IsValid() || !receipt.HasEndpointIdentityPair() {
 			continue
 		}
-		for _, candidate := range allowed {
+		for candidateIndex := range out {
+			candidate := out[candidateIndex]
 			if candidate.RelationKind != receipt.RelationKind ||
 				!types.AnswerCodeIdentitySurfacesEquivalent(candidate.FromIdentity, receipt.FromIdentity) ||
 				!types.AnswerCodeIdentitySurfacesEquivalent(candidate.ToIdentity, receipt.ToIdentity) {
 				continue
 			}
+			bindReceiptNodes(&out[candidateIndex], receipt)
 			expanded := candidate
 			expanded.FromIdentity = strings.TrimSpace(receipt.FromIdentity)
 			expanded.ToIdentity = strings.TrimSpace(receipt.ToIdentity)
+			bindReceiptNodes(&expanded, receipt)
 			key := strings.Join([]string{
 				strings.TrimSpace(expanded.BlockID), string(expanded.RelationKind),
 				expanded.FromIdentity, expanded.ToIdentity,
@@ -2998,6 +3068,68 @@ func diagramRelationRepairAllowedAdditionsWithTypedReceipts(
 		}
 	}
 	return out
+}
+
+// diagramRelationRepairReceiptAliasAllowedByCurrentBlock keeps prompt-time
+// recipe aliases and retry-time endpoint capabilities on one typed source
+// without letting a stale alias override the model's current graph. A receipt
+// alias is admitted only when it does not conflict with an existing typed
+// anchor and no different already-declared candidate node is available on the
+// same endpoint side. Labels, messages, request text and answer prose are not
+// identity inputs.
+func diagramRelationRepairReceiptAliasAllowedByCurrentBlock(
+	doc *types.AnswerDocumentV2,
+	blockID, alias, identity string,
+	currentNodeIDs []string,
+) bool {
+	alias, identity = strings.TrimSpace(alias), strings.TrimSpace(identity)
+	if alias == "" || identity == "" {
+		return false
+	}
+	if doc == nil {
+		return true
+	}
+	for _, block := range doc.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(blockID) || block.Kind != types.BlockDiagram || block.Diagram == nil {
+			continue
+		}
+		declared := make(map[string]bool)
+		for nodeID := range diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind) {
+			if nodeID = strings.TrimSpace(nodeID); nodeID != "" {
+				declared[strings.ToLower(nodeID)] = true
+			}
+		}
+		aliasDeclared := declared[strings.ToLower(alias)]
+		for _, nodeID := range currentNodeIDs {
+			if declared[strings.ToLower(strings.TrimSpace(nodeID))] && !strings.EqualFold(strings.TrimSpace(nodeID), alias) {
+				return false
+			}
+		}
+		for _, anchor := range block.EdgeAnchors {
+			if strings.EqualFold(strings.TrimSpace(anchor.FromNode), alias) && strings.TrimSpace(anchor.FromIdentity) != "" &&
+				!types.AnswerCodeIdentitySurfacesEquivalent(anchor.FromIdentity, identity) {
+				return false
+			}
+			if strings.EqualFold(strings.TrimSpace(anchor.ToNode), alias) && strings.TrimSpace(anchor.ToIdentity) != "" &&
+				!types.AnswerCodeIdentitySurfacesEquivalent(anchor.ToIdentity, identity) {
+				return false
+			}
+		}
+		// An undeclared alias is safe to introduce only when no current
+		// declared candidate owns this endpoint. A declared receipt alias is
+		// itself the current model-authored carrier and remains eligible.
+		return aliasDeclared || len(declared) == 0 || !diagramRelationRepairHasDeclaredCandidateNode(currentNodeIDs, declared)
+	}
+	return true
+}
+
+func diagramRelationRepairHasDeclaredCandidateNode(currentNodeIDs []string, declared map[string]bool) bool {
+	for _, nodeID := range currentNodeIDs {
+		if declared[strings.ToLower(strings.TrimSpace(nodeID))] {
+			return true
+		}
+	}
+	return false
 }
 
 func diagramParticipantCandidateObligations(rm types.RequestModel) ([]types.DiagramParticipantHint, [][]string) {

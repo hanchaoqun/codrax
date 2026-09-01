@@ -2639,6 +2639,48 @@ func TestEmitAnswerDocumentPatch_AtomicAllowedAdditionRestoresTypedIdentityBefor
 		}
 	})
 
+	t.Run("initial typed recipe alias remains executable in retry schema and executor", func(t *testing.T) {
+		prev := atomicPatchTestDocument()
+		receipt := types.DiagramEdgeAnchor{
+			FromNode: "n7", ToNode: "n8", FromIdentity: "Extractor", ToIdentity: "Finalizer",
+			RelationKind: types.DiagramRelPrecedence,
+		}
+		compiled := diagramRelationRepairAllowedAdditionsWithTypedReceipts(
+			[]types.AnswerDiagramRelationRepairCandidate{allowed}, []types.DiagramEdgeAnchor{receipt}, prev, 8,
+		)
+		if len(compiled) != 1 || !atomicDiagramNodeIDListed("n7", compiled[0].FromNodeIDs) ||
+			!atomicDiagramNodeIDListed("n8", compiled[0].ToNodeIDs) {
+			t.Fatalf("initial recipe aliases did not reach the retry candidate: %+v", compiled)
+		}
+		mut := types.NewMutableState("initial recipe alias retry")
+		mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+		mut.SetFinalizerTypedRelationRecipeAvailable(true)
+		mut.SetFinalizerTypedRelationRecipeAnchors([]types.DiagramEdgeAnchor{receipt})
+		mut.SetAnswerDiagramRelationRepairLease(types.NewAnswerDiagramRelationRepairLease(prev, nil, compiled))
+		lease := mut.AnswerDiagramRelationRepairLease()
+		if lease == nil || len(lease.AllowedAdditions) != 1 || lease.AllowedAdditions[0].AdditionRef == "" {
+			t.Fatalf("expected one executable alias addition: %+v", lease)
+		}
+		params := fmt.Sprintf(`{
+			"unchanged_block_ids":["summary"],
+			"diagram_edge_edits":[{"action":"add","addition_ref":%q,"edge":{
+				"from_node":"n7","to_node":"n8","visible_label":"结构化事实就绪后组织答案"
+			}}]
+		}`, lease.AllowedAdditions[0].AdditionRef)
+		bus := &types.BusContext{Mutable: mut}
+		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(params))
+		if err != nil || !res.Success {
+			t.Fatalf("the exact initial recipe alias must execute in the retry lane: err=%v res=%+v", err, res)
+		}
+		got := mut.AnswerDocumentV2()
+		if got == nil || len(got.Blocks) != 2 ||
+			!strings.Contains(got.Blocks[1].Diagram.Body, `participant n7 as "n7"`) ||
+			!strings.Contains(got.Blocks[1].Diagram.Body, `participant n8 as "n8"`) ||
+			!strings.Contains(got.Blocks[1].Diagram.Body, "n7->>n8: 结构化事实就绪后组织答案") {
+			t.Fatalf("retry executor did not preserve the model-selected recipe aliases:\n%+v", got)
+		}
+	})
+
 	t.Run("missing receipt remains fail closed", func(t *testing.T) {
 		bus := newBus(allowed, nil)
 		res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, raw)

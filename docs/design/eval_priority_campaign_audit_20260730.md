@@ -70377,12 +70377,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    participant 优先/Trace 隔离”回归。
 7. 本批没有改变 read-mode 关系证据权威、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有使用用户请求、
    模型 thinking、最终正文、Markdown、Mermaid message/label 做事实硬门，也没有系统删除、替换或补写模型答案。
+8. `B1535` 已按共同 typed receipt 根修。初稿 authoring capsule 存入 Mutable 的 `FinalizerTypedRelationRecipeAnchors` 现在同时驱动 retry
+   identity dialect 与 endpoint node candidate：只有 node ID 语法安全、同一 alias 在全部 receipt 中只绑定一个等价 identity、同一 identity 也只绑定
+   一个 alias、且当前块没有相反 typed owner 时，alias 才进入该 relation side 的 `FromNodeIDs/ToNodeIDs`。当前图若已有另一条 candidate-listed
+   显式 participant，则已有 participant 优先，seed alias 不再扩入；当前图已经逐字声明同一 seed alias 时可继续复用。
+9. 动态 schema 与 executor 已经消费同一 lease candidate，无第二份端点判定。回归覆盖：`n1/n2` 初稿 alias 到 retry candidate、等价 identity
+   dialect、同 identity 多 alias/同 alias 多 identity fail-closed、既有 participant 优先、当前 typed owner 冲突拒绝，以及完整
+   prompt-receipt→lease ref→patch schema→executor→Mermaid 显式声明生产 envelope。相关 targeted、完整 `internal/tool`、`go test ./... -count=1`
+   与 `make` 全绿。
 
 状态：
 
 `r1004=runner-read-pass+write-fail,human-pass-2/2`；
 `B1534=implemented/full-suite-pass/production-not-exercised`；
-`B1535=confirmed/P1/planned-next`；
+`B1535=implemented/P1/shared-typed-receipt-candidate/full-suite+build-pass/pending-production-replay`；
 `write-source-static-boundary=honest-user-visible-unverified`；
 `diagram-initial-seed/retry-endpoint-capability=must-share-one-typed-candidate-source`；
 `system-answer/conclusion/relation/wording-selection=none`；

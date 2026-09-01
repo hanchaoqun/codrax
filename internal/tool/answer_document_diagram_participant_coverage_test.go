@@ -2826,18 +2826,71 @@ func TestDiagramRelationRepairAllowedAdditionsAcceptsEquivalentExactTypedReceipt
 		FromNode: "n1", ToNode: "n2", FromIdentity: "Analyzer", ToIdentity: "Explorer",
 		RelationKind: types.DiagramRelPrecedence,
 	}}
-	got := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, 8)
+	got := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, nil, 8)
 	if len(got) != 2 || got[1].BlockID != "diagram-1" ||
 		got[1].FromIdentity != "Analyzer" || got[1].ToIdentity != "Explorer" ||
 		got[1].RelationKind != types.DiagramRelPrecedence || got[1].Source != allowed[0].Source {
 		t.Fatalf("lease must admit the exact equivalent identity tuple that its typed-recipe normalizer can stamp: %+v", got)
 	}
+	for i, candidate := range got {
+		if !atomicDiagramNodeIDListed("n1", candidate.FromNodeIDs) ||
+			!atomicDiagramNodeIDListed("n2", candidate.ToNodeIDs) {
+			t.Fatalf("candidate[%d] must execute the same unique typed aliases taught by the initial recipe: %+v", i, candidate)
+		}
+	}
 
 	nonEquivalent := []types.DiagramEdgeAnchor{{
 		FromIdentity: "Unrelated.Run", ToIdentity: "Other.Run", RelationKind: types.DiagramRelPrecedence,
 	}}
-	if unchanged := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, nonEquivalent, 8); len(unchanged) != 1 {
+	if unchanged := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, nonEquivalent, nil, 8); len(unchanged) != 1 {
 		t.Fatalf("an unrelated receipt must not broaden the allowed relation set: %+v", unchanged)
+	}
+}
+
+func TestDiagramRelationRepairTypedReceiptAliasFailsClosedOnAmbiguityAndPrefersDeclaredCarrier(t *testing.T) {
+	allowed := []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer",
+		FromNodeIDs: []string{"SB"}, ToNodeIDs: []string{"SE"}, Source: "internal/types/enums.go:120-121",
+	}}
+	ambiguous := []types.DiagramEdgeAnchor{
+		{FromNode: "n1", ToNode: "n2", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+		{FromNode: "n9", ToNode: "n2", FromIdentity: "analyzer", ToIdentity: "explorer", RelationKind: types.DiagramRelPrecedence},
+	}
+	got := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, ambiguous, nil, 8)
+	if atomicDiagramNodeIDListed("n1", got[0].FromNodeIDs) || atomicDiagramNodeIDListed("n9", got[0].FromNodeIDs) {
+		t.Fatalf("one identity mapped to multiple receipt aliases must fail closed: %+v", got[0])
+	}
+
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n    participant SB as Analyzer\n    participant SE as Explorer"},
+	}}}
+	unique := ambiguous[:1]
+	got = diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, unique, doc, 8)
+	if atomicDiagramNodeIDListed("n1", got[0].FromNodeIDs) || atomicDiagramNodeIDListed("n2", got[0].ToNodeIDs) ||
+		!atomicDiagramNodeIDListed("SB", got[0].FromNodeIDs) || !atomicDiagramNodeIDListed("SE", got[0].ToNodeIDs) {
+		t.Fatalf("existing declared typed carriers must win over undeclared seed aliases: %+v", got[0])
+	}
+}
+
+func TestDiagramRelationRepairTypedReceiptAliasRejectsCurrentTypedCollision(t *testing.T) {
+	allowed := []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "internal/types/enums.go:120-121",
+	}}
+	receipts := []types.DiagramEdgeAnchor{{
+		FromNode: "n1", ToNode: "n2", FromIdentity: "analyzer", ToIdentity: "explorer",
+		RelationKind: types.DiagramRelPrecedence,
+	}}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram:     &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n    participant n1 as Other\n    participant n2 as Explorer"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "n1", ToNode: "x", FromIdentity: "unrelated", ToIdentity: "sink", RelationKind: types.DiagramRelCall}},
+	}}}
+	got := diagramRelationRepairAllowedAdditionsWithTypedReceipts(allowed, receipts, doc, 8)
+	if atomicDiagramNodeIDListed("n1", got[0].FromNodeIDs) {
+		t.Fatalf("a receipt alias already owned by another typed identity must be rejected: %+v", got[0])
 	}
 }
 

@@ -6929,7 +6929,7 @@ func diagramRelationRepairDeltaJSON(
 			receipts := ctx.Mutable.FinalizerTypedRelationRecipeAnchors()
 			receipts = append(receipts, ctx.Mutable.FinalizerTypedRelationSemanticHandoffAnchors()...)
 			allowedAdditions = diagramRelationRepairAllowedAdditionsWithTypedReceipts(
-				allowedAdditions, receipts, 8,
+				allowedAdditions, receipts, doc, 8,
 			)
 		}
 	}
