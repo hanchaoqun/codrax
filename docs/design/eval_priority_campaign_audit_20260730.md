@@ -57343,6 +57343,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1612 r1007/B1538-B1540：写模式诚实弱证明；已有参与者别名与孤立处置跨代丢失（2026-09-01）
+
+1. 从已推送 `26358719c` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 write-mode falsy
+   prefault 修复。runner 为 1/2 PASS：read 685s PASS、write 135s 因 `unverified/proof_weak` FAIL。机器汇总和人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1007_20260901.md` 与
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1007_20260901_manual_audit.md`；人工为 write pass、read fail。
+2. write 实际修改正确：truthy 检查改为 `!== undefined`，补齐 false/0/空串和已有 default 保留测试。目标 fixture 的
+   `make check` 只声明 source-static 能力，无法证明新增测试真实执行，控制器据此拒绝签发 verified。该 runner FAIL 是 B1530
+   的诚实 fail-close 正证，不应为了 eval 分数伪造运行时证明或降低终验。
+3. `B1539` 获生产正证：relation schema 未发布 participant 分支时，模型没有再照旧教学提交预测性 orphan disposition；后续
+   participant edits 均发生在 schema 实际发布该分支后。`B1537` 的旧 replace+add 双 producer 循环没有复现，但本轮未直接触发
+   新的 typed transaction-conflict 分支，继续保留待生产正证。
+4. `B1538-DIAGRAMSTAGEDORPHANLINEAGE1/P1` 由条件项升级为独立 confirmed。本轮没有 B1537 双 producer 干扰；关系删除、dependent
+   reply 闭包和普通参与者校验跨多个 generation 后，Orchestrator 等节点已经精确变成孤立节点，但后续 schema 没再发布完整的
+   remove/retain roster，最终图保留多名断开参与者。根修必须用 staged generation fingerprint 携带系统已算出的精确孤立集合，直至
+   模型逐项处置或基础图变化使其失效；系统不得替模型删除、保留或改写节点。
+5. `B1540-DIAGRAMPARTICIPANTDECLARATIONALIASBINDING1/P1` 新确认，并将 B1535 的剩余 alias 面纳入同根修。图已声明
+   `participant BC as BusContext`，但 `o.busCtx.AnalysisIR -> BusContext` 的 typed data-flow candidate 没把 `BC` 加入允许的目标端点。
+   模型两次使用 `BC` 均被判“not a typed carrier”，最终只能新建第二个名为 `BusContext` 的 participant。最优修向是由 Mermaid
+   parser 拥有的 declaration ID/label 表和 typed participant/stage identity 建立唯一绑定，把所有唯一匹配的既有声明 ID 发布为端点选择；
+   多个匹配保持 fail-closed。不得扫描请求、answer prose、消息文字或用业务相似度猜绑定。
+6. 同一缺口也使 stage precedence 只公开合成 `n1..n4`，而已有 `AP/EX/XT/FN` 的可见标签没有被统一复用，最终泄露内部节点 ID。
+   不新增针对 `n1` 字样的硬门；先修 typed existing-declaration reuse。只有修后仍出现无业务标签的模型自选节点，才另案审计模型教学与
+   parser-owned display contract。
+7. read 最终正文和阶段表基本正确，但 sequenceDiagram 同时保留两套参与者、两个 BusContext、内部 `n1..n4` 和多名断开 actor；
+   14 次 finalizer reject、73% context，故人工 fail。这是端点能力和跨代 roster 的系统 gap，不按模型波动遗留。
+8. 本批只审计并排期，不改变 Trace。显式时间窗、typed 链上根因、邻近/背景 support-only、实际占时/规则可消双账户、因果投影、
+   自动补齐和业务线索继续保持；禁止基于固定 4ms/4m 或活跃流年龄降级，禁止系统代写结论、关系或节点处置。
+
+状态：
+
+`r1007=runner-pass-1/2,human-pass-1/2`；
+`B1530=production-positive/honest-proof-weak`；
+`B1537=old-cycle-absent/exact-production-branch-pending`；
+`B1538=confirmed-independent/P1/pending`；
+`B1539=production-positive/core-closed`；
+`B1540=confirmed/P1/pending`；
+`system-answer/conclusion/relation/node-disposition-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1610 r1005/B1536：Trace 正证与关系租约被系统 identity 补全自冲突（2026-09-01）
 
 1. 从已推送 `d68897aee` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 H8 显式窗 Trace；Trace
