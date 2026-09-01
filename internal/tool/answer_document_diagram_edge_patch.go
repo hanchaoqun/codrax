@@ -42,6 +42,10 @@ type atomicDiagramParticipantDispositionRosterError struct {
 	Unexpected []atomicDiagramParticipantDispositionRosterRow `json:"unexpected,omitempty"`
 }
 
+func (e *atomicDiagramParticipantDispositionRosterError) missingOnly() bool {
+	return e != nil && len(e.Missing) > 0 && len(e.Unexpected) == 0
+}
+
 func (e *atomicDiagramParticipantDispositionRosterError) Error() string {
 	if e == nil {
 		return "diagram participant disposition roster mismatch"
@@ -110,6 +114,91 @@ func atomicDiagramParticipantDispositionRosterMetadata(err error) (rosterJSON, p
 	}
 	sum := sha256.Sum256([]byte(rosterJSON))
 	return rosterJSON, fmt.Sprintf("v1:%x", sum[:])
+}
+
+// newAtomicDiagramOrphanDispositionLease freezes the exact unpublished graph
+// produced by phase-one relation edits. Every candidate must be one row from
+// the old producer lease and one uniquely declared, currently isolated node in
+// the staged base. The new capability carries no relation edit at all: the
+// model only chooses remove or retain (and retain wording) in phase two.
+func newAtomicDiagramOrphanDispositionLease(
+	base *types.AnswerDocumentV2,
+	roster *atomicDiagramParticipantDispositionRosterError,
+	source *types.AnswerDiagramRelationRepairLease,
+) *types.AnswerDiagramRelationRepairLease {
+	if base == nil || roster == nil || !roster.missingOnly() || source == nil {
+		return nil
+	}
+	blockCounts := make(map[string]int, len(base.Blocks))
+	blocks := make(map[string]types.AnswerBlock, len(base.Blocks))
+	for _, block := range base.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		blockCounts[id]++
+		blocks[id] = block
+	}
+	findSource := func(blockID, participantID string) (types.AnswerDiagramOrphanCleanupCandidate, bool) {
+		var found types.AnswerDiagramOrphanCleanupCandidate
+		count := 0
+		for _, candidate := range source.OptionalOrphanCleanups {
+			if strings.TrimSpace(candidate.BlockID) == blockID && strings.TrimSpace(candidate.ParticipantID) == participantID {
+				found = candidate
+				count++
+			}
+		}
+		return found, count == 1
+	}
+	candidates := make([]types.AnswerDiagramOrphanCleanupCandidate, 0, len(roster.Missing))
+	seen := make(map[string]bool, len(roster.Missing))
+	for _, row := range roster.Missing {
+		blockID := strings.TrimSpace(row.BlockID)
+		participantID := strings.TrimSpace(row.ParticipantID)
+		key := blockID + "\x00" + participantID
+		block, ok := blocks[blockID]
+		candidate, candidateOK := findSource(blockID, participantID)
+		if blockID == "" || participantID == "" || seen[key] || !ok || blockCounts[blockID] != 1 ||
+			block.Kind != types.BlockDiagram || block.Diagram == nil || !candidateOK ||
+			atomicDiagramParticipantHasIncidentCarrier(block, participantID) {
+			return nil
+		}
+		if _, count := atomicDiagramUniqueRemovableDeclaration(block.Diagram.Body, participantID); count != 1 {
+			return nil
+		}
+		candidate.DispositionBaseFingerprint = types.AnswerDiagramParticipantVisibilityFingerprint(block)
+		if candidate.DispositionBaseFingerprint == "" || len(candidate.AllowedActions) == 0 {
+			return nil
+		}
+		seen[key] = true
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].BlockID != candidates[j].BlockID {
+			return candidates[i].BlockID < candidates[j].BlockID
+		}
+		return candidates[i].ParticipantID < candidates[j].ParticipantID
+	})
+	lease := &types.AnswerDiagramRelationRepairLease{
+		Version: 1, OrphanDispositionOnly: true, OptionalOrphanCleanups: candidates,
+	}
+	for _, block := range base.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" || (block.Kind != types.BlockDiagram && len(block.EdgeAnchors) == 0) {
+			continue
+		}
+		lease.Blocks = append(lease.Blocks, types.AnswerDiagramRelationRepairLeaseBlock{
+			BlockID: id, Kind: block.Kind,
+			BaseAnchors: append([]types.DiagramEdgeAnchor(nil), block.EdgeAnchors...),
+		})
+	}
+	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		return nil
+	}
+	return lease
 }
 
 // applyModelAuthoredDiagramAtomicEdits turns model-declared edge and boundary
@@ -486,10 +575,37 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			participantCandidates[key] = candidate
 		}
 	}
+	stageWorkingBlocks := func() {
+		for _, blockID := range order {
+			patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
+		}
+		// An atomic diagram operation is itself the model's edit declaration
+		// for the block. A redundant unchanged id is absorbed only for exact
+		// blocks already materialized into this transaction.
+		if len(working) > 0 && len(patch.UnchangedBlockIDs) > 0 {
+			kept := patch.UnchangedBlockIDs[:0]
+			for _, rawID := range patch.UnchangedBlockIDs {
+				if _, edited := working[strings.TrimSpace(rawID)]; edited {
+					continue
+				}
+				kept = append(kept, rawID)
+			}
+			patch.UnchangedBlockIDs = kept
+		}
+	}
 	if err := validateAtomicDiagramParticipantDispositionRoster(
 		previous, working, orphanParticipantEdits, participantSeen, participantCandidates,
 		protectedParticipants, lease,
 	); err != nil {
+		// A missing-only roster is a precise post-edit fact that cannot be
+		// known before applying the model's relation choices. Preserve those
+		// exact relation/boundary edits in the caller-owned patch so Execute can
+		// stage one unpublished merged base and issue an orphan-only lease. Do
+		// not stage mixed participant operations or any unexpected decision.
+		if roster, ok := err.(*atomicDiagramParticipantDispositionRosterError); ok &&
+			roster.missingOnly() && len(participantEdits) == 0 {
+			stageWorkingBlocks()
+		}
 		return err
 	}
 	for i, edit := range orphanParticipantEdits {
@@ -504,7 +620,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		// has no work to do; accepting it as a no-op preserves the model's
 		// relation and wording without a second topology-guessing round.
 		if !atomicDiagramParticipantDispositionIsRequired(
-			base, block, participantID, protectedParticipants, lease,
+			base, block, participantID, participantCandidates[key], protectedParticipants, lease,
 		) {
 			continue
 		}
@@ -543,26 +659,7 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		}
 		working[blockID] = block
 	}
-	for _, blockID := range order {
-		patch.ReplaceBlocks = append(patch.ReplaceBlocks, working[blockID])
-	}
-	// An atomic diagram operation is itself the model's edit declaration for
-	// the block. Listing that same block in unchanged_block_ids is therefore a
-	// redundant preservation assertion, not a competing whole-block mutation:
-	// the compiler starts from the immutable base and preserves every unlisted
-	// carrier byte. Absorb the redundant id after all target blocks have been
-	// resolved, while leaving unknown/unrelated unchanged ids for the ordinary
-	// patch validator to check. Replace/add/remove remain true conflicts above.
-	if len(working) > 0 && len(patch.UnchangedBlockIDs) > 0 {
-		kept := patch.UnchangedBlockIDs[:0]
-		for _, rawID := range patch.UnchangedBlockIDs {
-			if _, edited := working[strings.TrimSpace(rawID)]; edited {
-				continue
-			}
-			kept = append(kept, rawID)
-		}
-		patch.UnchangedBlockIDs = kept
-	}
+	stageWorkingBlocks()
 	return nil
 }
 
@@ -659,9 +756,16 @@ func applyOneModelAuthoredDiagramParticipantEdit(
 	if atomicDiagramParticipantProtected(protected, participantID, baseDecl.Label) {
 		return fmt.Errorf("participant is protected by the typed requested-participant slate or an unproven boundary")
 	}
-	incident, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, participantID, lease)
-	if incident == 0 || !allFailed {
-		return fmt.Errorf("base participant must have incident edges and every incident edge must be covered by a remove-capable live failure")
+	if lease.OrphanDispositionOnly {
+		if strings.TrimSpace(candidate.DispositionBaseFingerprint) == "" ||
+			candidate.DispositionBaseFingerprint != types.AnswerDiagramParticipantVisibilityFingerprint(base) {
+			return fmt.Errorf("orphan-only decision does not match the staged diagram generation")
+		}
+	} else {
+		incident, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(base, participantID, lease)
+		if incident == 0 || !allFailed {
+			return fmt.Errorf("base participant must have incident edges and every incident edge must be covered by a remove-capable live failure")
+		}
 	}
 	for _, edge := range mermaidcompat.ParseEdges(block.Diagram.Body) {
 		if strings.TrimSpace(edge.From) == participantID || strings.TrimSpace(edge.To) == participantID {
@@ -868,7 +972,7 @@ func validateAtomicDiagramParticipantDispositionRoster(
 		if !baseOK || !changed || current.Diagram == nil || base.Diagram == nil {
 			continue
 		}
-		if !atomicDiagramParticipantDispositionIsRequired(base, current, participantID, protectedParticipants, lease) {
+		if !atomicDiagramParticipantDispositionIsRequired(base, current, participantID, candidate, protectedParticipants, lease) {
 			continue
 		}
 		if !participantDecisions[blockID+"\x00"+participantID] {
@@ -887,6 +991,7 @@ func validateAtomicDiagramParticipantDispositionRoster(
 func atomicDiagramParticipantDispositionIsRequired(
 	base, current types.AnswerBlock,
 	participantID string,
+	candidate types.AnswerDiagramOrphanCleanupCandidate,
 	protectedParticipants []string,
 	lease *types.AnswerDiagramRelationRepairLease,
 ) bool {
@@ -897,8 +1002,14 @@ func atomicDiagramParticipantDispositionIsRequired(
 	if count != 1 || atomicDiagramParticipantEditProtected(base, current, participantID, decl.Label, protectedParticipants) {
 		return false
 	}
-	return !atomicDiagramParticipantHasIncidentCarrier(current, participantID) &&
-		atomicDiagramBaseCandidateStillAuthorized(base, participantID, lease)
+	if atomicDiagramParticipantHasIncidentCarrier(current, participantID) {
+		return false
+	}
+	if lease != nil && lease.OrphanDispositionOnly {
+		return strings.TrimSpace(candidate.DispositionBaseFingerprint) != "" &&
+			candidate.DispositionBaseFingerprint == types.AnswerDiagramParticipantVisibilityFingerprint(base)
+	}
+	return atomicDiagramBaseCandidateStillAuthorized(base, participantID, lease)
 }
 
 func atomicDiagramParticipantEditProtected(

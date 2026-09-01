@@ -25,3 +25,8 @@ This scaffold is for human review. The runner records typed metrics and declared
 
 - `B1532-DIAGRAMREPLACEDECLAREDALIASREUSE1/P1`：sequence add 车道已有 typed 唯一声明复用，但 generic replace 车道缺席。精确修向是在任何 add/replace precedence 或 exact typed endpoint 上复用原图中唯一匹配的显式 participant ID；有多个匹配时 fail-closed，零匹配时保留模型选择。只复用既有 carrier，不生成关系、方向、label 或结论。
 - `B1533-DIAGRAMORPHANPOSTEDITTRANSACTION1/P1`：边编辑后的孤立参与者集合是 post-edit typed 事实，当前未落地事务要求模型在同一调用里预测它，导致完整大补丁反复重交。精确修向是先把模型选定的边编辑保存为未发布的 pending draft，再用该 draft 铸造完整 orphan roster；下一次只要求模型为每个精确 row 选择 remove/retain，发布前仍跑全部关系、participant 和 Mermaid 校验。系统不替模型选择处置。
+
+## Implementation Status
+
+- `B1532`：已由 `f802ef98f` 实现并推送；generic replace 现与其他 typed add/replace 车道共用唯一既有 participant 复用规则。
+- `B1533`：已实现 typed 两阶段事务并通过 production-envelope 与动态 schema 回归；第一阶段只保存未发布关系结果，第二阶段只接收完整孤立节点处置，系统不选择删除、保留或可见措辞。待全量测试、提交推送与 r1003 生产回放。

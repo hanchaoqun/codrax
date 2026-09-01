@@ -698,10 +698,11 @@ const (
 // rechecks former incident edges, current isolation, requested participants,
 // and uncertainty boundaries before applying either mutation.
 type AnswerDiagramOrphanCleanupCandidate struct {
-	BlockID        string                                 `json:"block_id"`
-	ParticipantID  string                                 `json:"participant_id"`
-	VisibleLabel   string                                 `json:"visible_label,omitempty"`
-	AllowedActions []AnswerDiagramOrphanDispositionAction `json:"allowed_actions"`
+	BlockID                    string                                 `json:"block_id"`
+	ParticipantID              string                                 `json:"participant_id"`
+	VisibleLabel               string                                 `json:"visible_label,omitempty"`
+	AllowedActions             []AnswerDiagramOrphanDispositionAction `json:"allowed_actions"`
+	DispositionBaseFingerprint string                                 `json:"-"`
 }
 
 func (c AnswerDiagramOrphanCleanupCandidate) AllowsAction(action string) bool {
@@ -870,6 +871,12 @@ type AnswerDiagramRelationRepairLeaseBlock struct {
 // reconnects an edge itself.
 type AnswerDiagramRelationRepairLease struct {
 	Version int `json:"version"`
+	// OrphanDispositionOnly marks the second half of a two-phase local patch.
+	// The pending base already contains every model-authored relation edit; the
+	// only remaining capability is an explicit remove/retain choice for each
+	// exact isolated declaration. It is control-plane state and is deliberately
+	// absent from the model-facing delta.
+	OrphanDispositionOnly bool `json:"-"`
 	// AllowTargetDiagramRemoval is a presentation capability, not a repair
 	// decision. It is set only when the current typed answer contract says the
 	// diagram is optional; the model must still explicitly select the exact
@@ -1067,6 +1074,31 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 func AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease *AnswerDiagramRelationRepairLease) bool {
 	if lease == nil || lease.Version != 1 {
 		return false
+	}
+	if lease.OrphanDispositionOnly {
+		if len(lease.Failures) != 0 || len(lease.AllowedAdditions) != 0 ||
+			len(lease.ParticipantBoundaryFailures) != 0 || len(lease.ParticipantVisibilityFailures) != 0 ||
+			len(lease.OptionalOrphanCleanups) == 0 || len(lease.Blocks) == 0 {
+			return false
+		}
+		diagramBlocks := make(map[string]bool, len(lease.Blocks))
+		for _, block := range lease.Blocks {
+			if block.Kind == BlockDiagram && strings.TrimSpace(block.BlockID) != "" {
+				diagramBlocks[strings.TrimSpace(block.BlockID)] = true
+			}
+		}
+		seen := make(map[string]bool, len(lease.OptionalOrphanCleanups))
+		for _, candidate := range lease.OptionalOrphanCleanups {
+			blockID := strings.TrimSpace(candidate.BlockID)
+			participantID := strings.TrimSpace(candidate.ParticipantID)
+			key := blockID + "\x00" + participantID
+			if !diagramBlocks[blockID] || participantID == "" || seen[key] ||
+				strings.TrimSpace(candidate.DispositionBaseFingerprint) == "" || len(candidate.AllowedActions) == 0 {
+				return false
+			}
+			seen[key] = true
+		}
+		return true
 	}
 	additionsByBlock := make(map[string]bool, len(lease.AllowedAdditions))
 	diagramBlocks := make(map[string]bool, len(lease.Blocks))
@@ -1301,7 +1333,7 @@ func answerDiagramRelationRepairCandidateRef(base *AnswerDocumentV2, candidate A
 // authority for whether a corrected relation is true.
 func ValidateAnswerDiagramRelationRepairLease(lease *AnswerDiagramRelationRepairLease, merged *AnswerDocumentV2) []AnswerDiagramRelationRepairScopeViolation {
 	if lease == nil || lease.Version != 1 || merged == nil ||
-		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0) {
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0 && !lease.OrphanDispositionOnly) {
 		return nil
 	}
 	resultBlocks := make(map[string][]DiagramEdgeAnchor, len(merged.Blocks))
@@ -1607,6 +1639,7 @@ func cloneAnswerDiagramRelationRepairLease(in *AnswerDiagramRelationRepairLease)
 	}
 	out := &AnswerDiagramRelationRepairLease{
 		Version: in.Version, AllowTargetDiagramRemoval: in.AllowTargetDiagramRemoval,
+		OrphanDispositionOnly: in.OrphanDispositionOnly,
 	}
 	if len(in.Failures) > 0 {
 		out.Failures = make([]AnswerDiagramRelationRepairFailure, len(in.Failures))

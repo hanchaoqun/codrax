@@ -510,7 +510,7 @@ func TestAtomicDiagramBaseIncidentEdgesRequireOneVisibleRemovalRefPerOccurrence(
 	}
 }
 
-func TestEmitAnswerDocumentPatch_OrphanDispositionOmissionRepublishesLiveChoices(t *testing.T) {
+func TestEmitAnswerDocumentPatch_StagesRelationThenPublishesExplicitOrphanDisposition(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
 		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
@@ -527,13 +527,52 @@ func TestEmitAnswerDocumentPatch_OrphanDispositionOmissionRepublishesLiveChoices
 	}`, lease.Failures[0].FailureRef))
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
 	if err != nil || res.Success || res.Repair == nil {
-		t.Fatalf("omitted disposition must remain on the live repair lane: err=%v res=%+v", err, res)
+		t.Fatalf("relation-only phase must stage the exact graph and request dispositions: err=%v res=%+v", err, res)
+	}
+	if got := res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome]; got != types.AnswerDocumentPatchOutcomeStagedForRetry {
+		t.Fatalf("relation-only phase outcome=%q, want staged_for_retry: %+v", got, res.Repair)
 	}
 	raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
 	for _, want := range []string{`"participant_id":"A"`, `"remove_if_isolated"`, `"retain_as_context"`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("republished live delta missing %q: %s", want, raw)
 		}
+	}
+	accepted := mut.AnswerDocumentV2()
+	if accepted == nil || !strings.Contains(accepted.Blocks[1].Diagram.Body, "A->>B: old label") {
+		t.Fatalf("phase one must not publish the staged relation edit: %+v", accepted)
+	}
+	staged := mut.PendingAnswerDocumentPatchBase()
+	if staged == nil || strings.Contains(staged.Blocks[1].Diagram.Body, "A->>B: old label") ||
+		!strings.Contains(staged.Blocks[1].Diagram.Body, "participant A") {
+		t.Fatalf("phase one did not preserve the exact unpublished relation result: %+v", staged)
+	}
+	orphanLease := mut.AnswerDiagramRelationRepairLease()
+	if orphanLease == nil || !orphanLease.OrphanDispositionOnly || len(orphanLease.Failures) != 0 ||
+		len(orphanLease.OptionalOrphanCleanups) != 1 || orphanLease.OptionalOrphanCleanups[0].ParticipantID != "A" {
+		t.Fatalf("phase one did not replace old edge refs with an exact orphan-only lease: %+v", orphanLease)
+	}
+
+	res, err = (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(`{
+		"diagram_participant_edits":[{
+			"block_id":"diag",
+			"participant_id":"A",
+			"action":"retain_as_context",
+			"visible_label":"分析入口（背景，关系未证明）"
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("explicit orphan disposition did not publish the staged graph: err=%v res=%+v", err, res)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || strings.Contains(got.Blocks[1].Diagram.Body, "A->>B: old label") ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, `participant A as "分析入口（背景，关系未证明）"`) ||
+		!strings.Contains(got.Blocks[1].Diagram.Body, "B->>C: keep label") {
+		t.Fatalf("phase two did not preserve relation edits and the model-owned retain choice: %+v", got)
+	}
+	if mut.PendingAnswerDocumentPatchBase() != nil || mut.AnswerDiagramRelationRepairLease() != nil {
+		t.Fatalf("successful phase two must consume retry-only state: pending=%+v lease=%+v",
+			mut.PendingAnswerDocumentPatchBase(), mut.AnswerDiagramRelationRepairLease())
 	}
 }
 

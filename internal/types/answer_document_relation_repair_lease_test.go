@@ -785,6 +785,54 @@ func TestMutableState_AnswerDiagramRelationRepairLeaseLifecycle(t *testing.T) {
 	}
 }
 
+func TestAnswerDiagramRelationRepairLease_OrphanDispositionOnlyIsGenerationBound(t *testing.T) {
+	base := AnswerBlock{
+		ID: "flow", Kind: BlockDiagram,
+		Diagram: &AnswerDiagramBlock{
+			Kind: DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n    participant A\n",
+		},
+	}
+	lease := &AnswerDiagramRelationRepairLease{
+		Version:               1,
+		OrphanDispositionOnly: true,
+		OptionalOrphanCleanups: []AnswerDiagramOrphanCleanupCandidate{{
+			BlockID: "flow", ParticipantID: "A",
+			DispositionBaseFingerprint: AnswerDiagramParticipantVisibilityFingerprint(base),
+			AllowedActions: []AnswerDiagramOrphanDispositionAction{
+				AnswerDiagramOrphanDispositionRemove,
+				AnswerDiagramOrphanDispositionRetain,
+			},
+		}},
+		Blocks: []AnswerDiagramRelationRepairLeaseBlock{{BlockID: "flow", Kind: BlockDiagram}},
+	}
+	if !AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
+		t.Fatalf("complete orphan-only lease must be executable: %+v", lease)
+	}
+	m := NewMutableState("orphan generation")
+	m.SetAnswerDiagramRelationRepairLease(lease)
+	got := m.AnswerDiagramRelationRepairLease()
+	if got == nil || !got.OrphanDispositionOnly ||
+		got.OptionalOrphanCleanups[0].DispositionBaseFingerprint != lease.OptionalOrphanCleanups[0].DispositionBaseFingerprint {
+		t.Fatalf("defensive lease copy lost phase or generation authority: %+v", got)
+	}
+	got.OptionalOrphanCleanups[0].DispositionBaseFingerprint = "mutated"
+	if fresh := m.AnswerDiagramRelationRepairLease(); fresh.OptionalOrphanCleanups[0].DispositionBaseFingerprint != lease.OptionalOrphanCleanups[0].DispositionBaseFingerprint {
+		t.Fatal("orphan generation fingerprint must be defensively copied")
+	}
+
+	invalid := cloneAnswerDiagramRelationRepairLease(lease)
+	invalid.OptionalOrphanCleanups[0].DispositionBaseFingerprint = ""
+	if AnswerDiagramRelationRepairLeaseIsLocallyExecutable(invalid) {
+		t.Fatal("orphan-only lease without an exact staged-generation fingerprint must fail closed")
+	}
+	invalid = cloneAnswerDiagramRelationRepairLease(lease)
+	invalid.Failures = []AnswerDiagramRelationRepairFailure{{BlockID: "flow", FailureRef: "stale"}}
+	if AnswerDiagramRelationRepairLeaseIsLocallyExecutable(invalid) {
+		t.Fatal("orphan-only lease must not retain old relation capabilities")
+	}
+}
+
 func TestMutableState_PendingAnswerDocumentPatchBaseLifecycle(t *testing.T) {
 	m := NewMutableState("test")
 	staged := &AnswerDocumentV2{DocumentModel: "v2", Blocks: []AnswerBlock{{

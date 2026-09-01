@@ -397,6 +397,9 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 			"This broad compatibility schema publishes no paired attach branch: never combine a failure_ref and addition_ref in one edit. Whole-block edits remain available for broader model-authored repairs. " +
 			"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
 	}
+	if lease.OrphanDispositionOnly {
+		return "The exact model-authored relation edits are already stored in an unpublished retry base. This dispatch exposes only the complete typed orphan roster. Submit exactly one `diagram_participant_edits` branch for every row: choose `remove_if_isolated`, or choose `retain_as_context` and author its visible_label. Do not replay old edge, boundary, block, or citation operations. The system selects no disposition, wording, relation, layout, or conclusion."
+	}
 	description := "Repair the previous structured answer using only the exact current relation-repair choices shown in this tool's parameter schema. " +
 		"Select one exact schema branch. A branch may use one published failure_ref, one published addition_ref, or one boundary_ref/action pair that changes only a named participant-boundary row; author every visible endpoint and label required by relation branches. "
 	if types.AnswerDiagramRelationRepairHasExecutableAttachPair(lease.Failures, lease.AllowedAdditions) {
@@ -474,6 +477,21 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	properties, _ := root["properties"].(map[string]any)
 	if properties == nil {
 		return raw
+	}
+	if lease.OrphanDispositionOnly {
+		if !narrowLocalDiagramParticipantEditSchema(properties, lease) {
+			return raw
+		}
+		for key := range properties {
+			if key != "diagram_participant_edits" {
+				delete(properties, key)
+			}
+		}
+		out, err := json.Marshal(root)
+		if err != nil || !json.Valid(out) {
+			return raw
+		}
+		return out
 	}
 	branches, edgeOK := localDiagramLeaseExecutableEdgeBranches(lease, relationTargets, prev)
 	boundaryBranches, boundaryOK := localDiagramLeaseExecutableBoundaryBranches(lease, diagramTargets)
@@ -562,7 +580,20 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	} else if len(diagramTargets) == 0 {
 		delete(properties, "diagram_boundary_replacements")
 	}
-	if !narrowLocalDiagramParticipantEditSchema(properties, lease) {
+	// Relation edits and their post-edit orphan decisions are two distinct
+	// model-owned choices. When a live edge branch can isolate one of the
+	// producer-listed declarations, do not ask the model to predict that
+	// post-edit topology in the same payload. The executor stages the exact
+	// model-authored edge result without publishing it; the next schema exposes
+	// only the complete typed orphan roster. Visibility refs from the old graph
+	// are re-evaluated instead of being carried across generations.
+	if !lease.OrphanDispositionOnly && edgeOK && len(branches) > 0 && len(lease.OptionalOrphanCleanups) > 0 {
+		delete(properties, "diagram_participant_edits")
+		if edgeEdits != nil {
+			description, _ := edgeEdits["description"].(string)
+			edgeEdits["description"] = description + " Submit only relation edits in this phase. If they isolate a producer-listed declaration, the exact unpublished merged graph becomes the next retry base and the following dispatch publishes the complete remove/retain roster; do not predict participant dispositions in this call."
+		}
+	} else if !narrowLocalDiagramParticipantEditSchema(properties, lease) {
 		return raw
 	}
 	if unchanged, ok := properties["unchanged_block_ids"].(map[string]any); ok {
@@ -750,7 +781,15 @@ func localDiagramLeaseRowsAllTargeted(lease *types.AnswerDiagramRelationRepairLe
 			return false
 		}
 	}
-	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures)+len(lease.ParticipantVisibilityFailures) > 0
+	if lease.OrphanDispositionOnly {
+		for _, candidate := range lease.OptionalOrphanCleanups {
+			if !targetSet[strings.TrimSpace(candidate.BlockID)] || strings.TrimSpace(candidate.ParticipantID) == "" ||
+				strings.TrimSpace(candidate.DispositionBaseFingerprint) == "" || len(candidate.AllowedActions) == 0 {
+				return false
+			}
+		}
+	}
+	return len(lease.Failures)+len(lease.AllowedAdditions)+len(lease.ParticipantBoundaryFailures)+len(lease.ParticipantVisibilityFailures)+len(lease.OptionalOrphanCleanups) > 0
 }
 
 func localDiagramLeaseExecutableBoundaryBranches(
@@ -1177,6 +1216,9 @@ func narrowLocalDiagramParticipantEditSchema(properties map[string]any, lease *t
 		})
 	}
 	participantEdits["minItems"] = 1
+	if lease.OrphanDispositionOnly {
+		participantEdits["minItems"] = len(lease.OptionalOrphanCleanups)
+	}
 	participantEdits["maxItems"] = len(lease.OptionalOrphanCleanups) + len(lease.ParticipantVisibilityFailures)
 	participantEdits["uniqueItems"] = true
 	participantEdits["items"] = map[string]any{"oneOf": branches}
@@ -1193,7 +1235,7 @@ func stringsToAny(in []string) []any {
 
 func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease) []string {
 	if lease == nil || lease.Version != 1 ||
-		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0) {
+		(len(lease.Failures) == 0 && len(lease.AllowedAdditions) == 0 && len(lease.ParticipantBoundaryFailures) == 0 && len(lease.ParticipantVisibilityFailures) == 0 && !lease.OrphanDispositionOnly) {
 		return nil
 	}
 	diagramBlocks := make(map[string]bool, len(lease.Blocks))
@@ -1270,6 +1312,19 @@ func localDiagramLeaseTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLea
 		if !seen[id] {
 			seen[id] = true
 			out = append(out, id)
+		}
+	}
+	if lease.OrphanDispositionOnly {
+		for _, candidate := range lease.OptionalOrphanCleanups {
+			id := strings.TrimSpace(candidate.BlockID)
+			if id == "" || strings.TrimSpace(candidate.ParticipantID) == "" ||
+				strings.TrimSpace(candidate.DispositionBaseFingerprint) == "" || ambiguousBlocks[id] || !diagramBlocks[id] {
+				return nil
+			}
+			if !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
 		}
 	}
 	sort.Strings(out)
@@ -2965,6 +3020,32 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			prev, patch, p.DiagramEdgeEdits, p.DiagramBoundaryReplacements,
 			p.DiagramBoundaryEdits, p.DiagramParticipantEdits, protectedParticipants, lease, stagePrecedence,
 		); err != nil {
+			// Missing orphan decisions are not a malformed relation patch: they
+			// are exact post-edit facts that did not exist before this call. When
+			// phase one contained no participant or scope operation, materialize
+			// the already-compiled patch into retry-local state, replace the old
+			// relation lease with an orphan-only lease, and ask the model only for
+			// those decisions next. The staged document is never published and
+			// still passes every ordinary pre/post-emit gate in phase two.
+			if roster, ok := err.(*atomicDiagramParticipantDispositionRosterError); ok && roster.missingOnly() &&
+				len(p.DiagramParticipantEdits) == 0 && len(p.DiagramRelationScopeEdits) == 0 {
+				if staged, applyErr := types.NewPartialMutation(patch).Apply(prev); applyErr == nil && staged != nil {
+					if orphanLease := newAtomicDiagramOrphanDispositionLease(staged, roster, lease); orphanLease != nil {
+						ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
+						ctx.Mutable.SetAnswerDiagramRelationRepairLease(orphanLease)
+						stagedByThisCall = true
+						repair := answerDiagramRelationRepairScopeRepair(orphanLease, nil)
+						repair.Fields = []string{"diagram_participant_edits"}
+						if rosterJSON, progressSignature := atomicDiagramParticipantDispositionRosterMetadata(err); rosterJSON != "" {
+							repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON] = rosterJSON
+							repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature] = progressSignature
+						}
+						repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. The old edge refs are consumed. Submit only one remove_if_isolated or retain_as_context decision for every exact row in optional_orphan_cleanups; retain_as_context also requires your visible_label. The system chooses no disposition or wording."
+						return failEmitWithRepair(t.Name(), now, repair,
+							"diagram relation phase staged; explicit orphan disposition is required for %d participant(s)", len(roster.Missing))
+					}
+				}
+			}
 			// A live relation lease is the current generation's complete
 			// capability surface. Returning only the first executor error here
 			// strands the retry on an old failure_ref/action/selector while hiding

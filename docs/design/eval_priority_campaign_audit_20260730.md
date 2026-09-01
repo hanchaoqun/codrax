@@ -70285,14 +70285,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    模型选择每个 row 的 remove/retain 与 retain label，最终发布前仍执行全部关系、participant、结构和 Mermaid 校验。系统不替模型选择处置。
 6. 本批没有改变 read-mode 关系证据门、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有用用户问题、模型
    thinking、最终正文、Markdown 或 Mermaid message 关键词作事实硬门。
+7. `B1532` 已于 `f802ef98f` 实现并推送：generic replace 与 add/特定 stage replace 共用唯一 typed participant 复用器；只复用当前图中唯一声明，
+   多匹配继续 fail-closed，零匹配保留模型 node id。`B1533` 已实现两阶段事务：第一阶段 schema 在关系编辑可能产生孤立节点时隐藏预测性 participant
+   处置；executor 只把模型已选关系结果保存为未发布 pending base，并销毁旧 edge refs；第二阶段 schema 只发布完整精确 orphan roster，要求每行恰好一个
+   remove/retain 选择，retain wording 仍由模型给出。候选用 staged diagram generation fingerprint 绑定，最终发布仍经过普通关系、participant、结构、Mermaid
+   与答案合同校验。生产入口回归钉住“第一阶段不改变 accepted answer、第二阶段才发布、成功后清理 pending/lease”。
 
 状态：
 
 `r1002=runner-write-fail+read-pass,human-write-pass+read-fail`；
 `B1530=production-positive/core-closed`；
 `B1531=production-positive/core-closed`；
-`B1532=confirmed/pending-implementation`；
-`B1533=confirmed/pending-implementation`；
+`B1532=implemented+targeted/full-suite-pass/pushed/pending-production-replay`；
+`B1533=implemented/typed-two-phase/targeted-pass/pending-full-suite+production-replay`；
 `diagram-stage-alias=one-typed-stage-one-reader-actor-required`；
 `post-edit-orphan=typed-roster/model-owned-disposition`；
 `system-answer/conclusion/relation/wording-selection=none`；

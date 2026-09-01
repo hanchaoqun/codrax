@@ -530,9 +530,50 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 		t.Fatalf("boundary repair must stay within the live diagram target: %v", got)
 	}
 
+	if _, ok := props["diagram_participant_edits"]; ok {
+		t.Fatal("relation phase must not ask the model to predict post-edit orphan dispositions")
+	}
+	if desc, _ := edgeEdits["description"].(string); !strings.Contains(desc, "Submit only relation edits in this phase") ||
+		!strings.Contains(desc, "following dispatch publishes the complete remove/retain roster") {
+		t.Fatalf("relation phase teaching did not explain the staged second phase: %q", desc)
+	}
+	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); !strings.Contains(desc, "current schema is the sole capability authority") ||
+		!strings.Contains(desc, "only unrelated existing blocks") {
+		t.Fatalf("live description must match the executable schema: %q", desc)
+	}
+
+	orphanLease := &types.AnswerDiagramRelationRepairLease{
+		Version:               1,
+		OrphanDispositionOnly: true,
+		OptionalOrphanCleanups: []types.AnswerDiagramOrphanCleanupCandidate{{
+			BlockID: "diag", ParticipantID: "C",
+			DispositionBaseFingerprint: types.AnswerDiagramParticipantVisibilityFingerprint(base.Blocks[1]),
+			AllowedActions: []types.AnswerDiagramOrphanDispositionAction{
+				types.AnswerDiagramOrphanDispositionRemove,
+				types.AnswerDiagramOrphanDispositionRetain,
+			},
+		}},
+		Blocks: []types.AnswerDiagramRelationRepairLeaseBlock{{
+			BlockID: "diag", Kind: types.BlockDiagram,
+			BaseAnchors: append([]types.DiagramEdgeAnchor(nil), base.Blocks[1].EdgeAnchors...),
+		}},
+	}
+	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(orphanLease) {
+		t.Fatalf("test setup: orphan-only lease is not executable: %+v", orphanLease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(orphanLease)
+	raw = (&EmitAnswerDocumentPatch{}).ParametersFor(&types.AgentContext{Mutable: mut})
+	root = nil
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatalf("orphan-only patch schema must parse: %v", err)
+	}
+	props = root["properties"].(map[string]any)
+	if len(props) != 1 {
+		t.Fatalf("orphan-only phase leaked unrelated operations: %+v", props)
+	}
 	participantEdits := props["diagram_participant_edits"].(map[string]any)
 	participantBranches := participantEdits["items"].(map[string]any)["oneOf"].([]any)
-	if len(participantBranches) != 2 || participantEdits["maxItems"] != float64(1) {
+	if len(participantBranches) != 2 || participantEdits["minItems"] != float64(1) || participantEdits["maxItems"] != float64(1) {
 		t.Fatalf("participant cleanup must expose one exact candidate with its two choices: %+v", participantEdits)
 	}
 	participantActions := make(map[string]bool)
@@ -555,9 +596,10 @@ func TestEmitAnswerDocumentPatchParametersFor_LocalLeasePublishesOnlyExecutableC
 	if !participantActions["remove_if_isolated"] || !participantActions["retain_as_context"] {
 		t.Fatalf("orphan disposition actions=%v", participantActions)
 	}
-	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); !strings.Contains(desc, "current schema is the sole capability authority") ||
-		!strings.Contains(desc, "only unrelated existing blocks") {
-		t.Fatalf("live description must match the executable schema: %q", desc)
+	if desc := (&EmitAnswerDocumentPatch{}).DescriptionFor(&types.AgentContext{Mutable: mut}); !strings.Contains(desc, "unpublished retry base") ||
+		!strings.Contains(desc, "only the complete typed orphan roster") ||
+		!strings.Contains(desc, "Do not replay old edge") {
+		t.Fatalf("orphan-only description must match the executable schema: %q", desc)
 	}
 }
 
