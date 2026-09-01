@@ -139,21 +139,24 @@ func IsCallChainBodyEnrichmentEvidence(item EvidenceItem) bool {
 
 // BuildConceptualTerminalResolutionRows constructs the canonical exact
 // operation candidate universe shared by the prompt and receipt contract.
-// It reads typed evidence coordinates only and never interprets identifiers.
+// It combines parser body enrichment with the incoming edge of every leaf in
+// the principal typed call graph. The latter closes a legitimate timing lane:
+// a deeper grounded call edge may arrive after parser body enrichment ran, but
+// it is still the exact operation that made that principal branch terminal.
+// Body enrichment is excluded from principal leaf calculation, so it cannot
+// redefine topology. The construction reads typed evidence coordinates only
+// and never interprets identifiers or business wording.
 func BuildConceptualTerminalResolutionRows(evidence []EvidenceItem) []ConceptualTerminalResolutionRow {
 	seen := make(map[string]bool)
-	rows := make([]ConceptualTerminalResolutionRow, 0, 8)
-	for _, item := range evidence {
-		if !IsConceptualTerminalOperationEvidence(item) {
-			continue
-		}
+	rows := make([]ConceptualTerminalResolutionRow, 0, 16)
+	appendRow := func(item EvidenceItem) {
 		id := strings.TrimSpace(item.ID)
 		caller := strings.TrimSpace(item.Subject)
 		operation := strings.TrimSpace(item.Object)
 		source := strings.TrimSpace(item.DisplayLocation(true))
 		coordinate := strings.ToLower(caller + "\x00" + operation + "\x00" + source)
 		if id == "" || caller == "" || operation == "" || source == "" || seen[coordinate] {
-			continue
+			return
 		}
 		seen[coordinate] = true
 		rows = append(rows, ConceptualTerminalResolutionRow{
@@ -168,6 +171,33 @@ func BuildConceptualTerminalResolutionRows(evidence []EvidenceItem) []Conceptual
 			},
 		})
 	}
+	// Parser-authored body rows remain exact behavior candidates but never
+	// contribute subject/object nodes to the principal topology below.
+	for _, item := range evidence {
+		if !IsConceptualTerminalOperationEvidence(item) {
+			continue
+		}
+		appendRow(item)
+	}
+	principalSubjects := make(map[string]bool)
+	for _, item := range evidence {
+		if !isConceptualTerminalPrincipalCallEdge(item) {
+			continue
+		}
+		if key := conceptualTerminalEndpointKey(item.Subject); key != "" {
+			principalSubjects[key] = true
+		}
+	}
+	for _, item := range evidence {
+		if !isConceptualTerminalPrincipalCallEdge(item) {
+			continue
+		}
+		objectKey := conceptualTerminalEndpointKey(item.Object)
+		if objectKey == "" || principalSubjects[objectKey] {
+			continue
+		}
+		appendRow(item)
+	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].Source != rows[j].Source {
 			return rows[i].Source < rows[j].Source
@@ -180,10 +210,54 @@ func BuildConceptualTerminalResolutionRows(evidence []EvidenceItem) []Conceptual
 		}
 		return rows[i].EvidenceID < rows[j].EvidenceID
 	})
-	if len(rows) > 16 {
-		rows = rows[:16]
+	return roundRobinConceptualTerminalRows(rows, 16)
+}
+
+func isConceptualTerminalPrincipalCallEdge(item EvidenceItem) bool {
+	return !IsCallChainBodyEnrichmentEvidence(item) &&
+		ClaimFormOf(item) == ClaimCallEdge && item.IsCitable() &&
+		strings.TrimSpace(item.ID) != "" && strings.TrimSpace(item.Subject) != "" &&
+		strings.TrimSpace(item.Object) != "" && strings.TrimSpace(item.DisplayLocation(true)) != ""
+}
+
+func conceptualTerminalEndpointKey(raw string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(raw)), " "))
+}
+
+// roundRobinConceptualTerminalRows prevents one utility-heavy callable from
+// consuming the bounded schema before another principal leaf contributes one
+// exact operation. Ordering inside each callable stays source-stable.
+func roundRobinConceptualTerminalRows(rows []ConceptualTerminalResolutionRow, limit int) []ConceptualTerminalResolutionRow {
+	if len(rows) <= limit || limit <= 0 {
+		return rows
 	}
-	return rows
+	groups := make(map[string][]ConceptualTerminalResolutionRow)
+	order := make([]string, 0)
+	for _, row := range rows {
+		key := conceptualTerminalEndpointKey(row.TerminalCallable)
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], row)
+	}
+	out := make([]ConceptualTerminalResolutionRow, 0, limit)
+	for depth := 0; len(out) < limit; depth++ {
+		added := false
+		for _, key := range order {
+			if depth >= len(groups[key]) {
+				continue
+			}
+			out = append(out, groups[key][depth])
+			added = true
+			if len(out) == limit {
+				break
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out
 }
 
 // BuildConceptualTerminalResolutionContract consumes only schema-validated

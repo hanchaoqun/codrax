@@ -57834,6 +57834,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1594 B1519：概念终点 operation 宇宙合并 parser body 与 principal graph 终端入边（2026-08-31）
+
+1. `B1519-CONCEPTUALTERMINALCANDIDATEDRIFT1/P1` 已施工。canonical `BuildConceptualTerminalResolutionRows` 现在合并两类 exact
+   typed operation：`repomap_terminal_body_call` / `repomap_selected_callable_body_call` 的 parser body enrichment，以及 principal citable
+   call graph 中每个 leaf 的 terminal incoming edge。后者覆盖“更深的已验调用边在 parser enrichment 批次之后才进入 evidence ledger”的合法时序；
+   r993 的 `AuditLog.record -> System.out.println [ev-f632b19f56f19361]` 因而成为可供模型选择的 exact receipt pair。
+2. 权限仍分层。body enrichment 在 principal subject census 之前被排除，不能把 utility call 变成主图节点、扩展路径或改变 leaf；terminal incoming
+   edge 只在其 object 没有 principal outgoing call 时进入 operation 候选，中间边不能冒充终点。两类行都必须是 citable `call_edge`，ID、caller、
+   operation、source 坐标完整；同坐标去重，缺失/模糊行 fail-closed。
+3. 16 行上限继续保留以控制模型心智，但不再按全局 source 顺序让一个 utility-heavy callable 独占：先在 callable 内保持稳定顺序，再跨 callable
+   round-robin 取行，确保每个候选叶至少有机会发布一个 exact operation。该公平策略只决定证据行展示预算，不选择哪个 leaf 是业务终点，也不选择
+   supported/differs/unproven。
+4. prompt、dynamic full/patch schema、receipt binder 仍共用同一个 rows 构造器；系统不从用户请求、标识符、模型 thinking、最终 prose、Markdown 或
+   Mermaid 标签推断业务效果，不替模型填写 conclusion 或更改可见答案。调用链拓扑、图关系、Trace 查询与因果投影均未改动。
+5. 新回归钉住 late principal terminal edge 可发布/绑定、非终端中间边拒绝、body enrichment 不改变 leaf、principal leaf 与其 body operation 分席、
+   utility-heavy 分组公平；相关三包完整套件全绿（types 25.616s、agent 14.409s、tool 189.759s），`go test ./... -count=1` 全绿
+   （tool 217.785s、tracequery 95.264s、hitraceconv 130.418s），`make` 通过。
+
+状态：
+
+`B1519=implemented/full-suite+build-pass/pending-production-replay`；
+`conceptual-operation-universe=parser-body-enrichment+principal-terminal-incoming-edge`；
+`principal-intermediate-edge=excluded`；
+`candidate-bound=16/callable-fair-round-robin`；
+`operation/conclusion/model-visible-wording=model-owned`；
+`system-answer/conclusion/relation/terminal-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

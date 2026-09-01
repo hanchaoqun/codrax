@@ -96,6 +96,86 @@ func TestConceptualTerminalOperationPredicateKeepsBehaviorCandidatesOutOfTopolog
 	}
 }
 
+func TestConceptualTerminalResolutionAdmitsLatePrincipalLeafIncomingEdge(t *testing.T) {
+	profile := &CallChainEndpointProfile{
+		Source:   "VisitController.create",
+		SinkMode: CallChainSinkResolutionDiscoverTerminal,
+	}
+	evidence := []EvidenceItem{
+		{ID: "e1", Kind: EvidenceRelationship, Subject: "VisitController.create", Predicate: "calls", Object: "VisitService.schedule", Source: "src/Controller.java", LineStart: 18, Scope: ScopeLine, AnchorKind: AnchorCall},
+		{ID: "e2", Kind: EvidenceRelationship, Subject: "VisitService.schedule", Predicate: "calls", Object: "VisitRepository.insert", Source: "src/Service.java", LineStart: 21, Scope: ScopeLine, AnchorKind: AnchorCall},
+		{ID: "e3", Kind: EvidenceRelationship, Subject: "VisitRepository.insert", Predicate: "calls", Object: "AuditLog.record", Source: "src/Repository.java", LineStart: 23, Scope: ScopeLine, AnchorKind: AnchorCall},
+		// This exact grounded edge arrived after the parser enrichment pass.
+		{ID: "late-terminal", Kind: EvidenceRelationship, Subject: "AuditLog.record", Predicate: "calls", Object: "System.out.println", Source: "src/AuditLog.java", LineStart: 6, Scope: ScopeLine, AnchorKind: AnchorCall, GroundingStatus: GroundingGrounded},
+	}
+	contract := BuildConceptualTerminalResolutionContract(profile, evidence)
+	if contract == nil {
+		t.Fatal("conceptual terminal contract missing")
+	}
+	found := false
+	for _, row := range contract.Rows {
+		if row.EvidenceID == "late-terminal" {
+			found = row.TerminalCallable == "AuditLog.record" && row.ExactOperation == "System.out.println"
+		}
+		if row.EvidenceID == "e3" {
+			t.Fatal("non-terminal incoming edge must not enter the exact operation candidates")
+		}
+	}
+	if !found {
+		t.Fatalf("late exact terminal incoming operation was not published: %+v", contract.Rows)
+	}
+	receipt := &AnswerConceptualTerminalResolutionReceipt{
+		EvidenceID: "late-terminal",
+		Conclusion: ConceptualTerminalResolutionCurrentTerminalDiffers,
+	}
+	if !BindConceptualTerminalResolutionReceipt(receipt, contract) || !receipt.IsBound() {
+		t.Fatalf("model-selected late terminal pair did not bind: %+v", receipt)
+	}
+}
+
+func TestConceptualTerminalResolutionLeafCalculationIgnoresBodyEnrichment(t *testing.T) {
+	evidence := []EvidenceItem{
+		{ID: "principal", Kind: EvidenceRelationship, Subject: "Root.run", Predicate: "calls", Object: "Leaf.run", Source: "src/Root.java", LineStart: 4, Scope: ScopeLine, AnchorKind: AnchorCall},
+		{ID: "body", Kind: EvidenceRelationship, Subject: "Leaf.run", Predicate: "calls", Object: "sink.write", Source: "src/Leaf.java", LineStart: 8, Scope: ScopeLine, AnchorKind: AnchorCall, Producer: EvidenceProducerRepoMapTerminalBodyCall},
+	}
+	rows := BuildConceptualTerminalResolutionRows(evidence)
+	seen := map[string]bool{}
+	for _, row := range rows {
+		seen[row.EvidenceID] = true
+	}
+	if !seen["principal"] || !seen["body"] {
+		t.Fatalf("principal leaf operation and its body behavior must remain separate candidates: %+v", rows)
+	}
+}
+
+func TestConceptualTerminalResolutionBoundIsFairAcrossCallableGroups(t *testing.T) {
+	var evidence []EvidenceItem
+	for i := 1; i <= 20; i++ {
+		evidence = append(evidence, EvidenceItem{
+			ID: "utility-" + string(rune('a'+i-1)), Kind: EvidenceRelationship,
+			Subject: "UtilityHeavy.run", Predicate: "calls", Object: "helper." + string(rune('a'+i-1)),
+			Source: "src/A.java", LineStart: i, Scope: ScopeLine, AnchorKind: AnchorCall,
+			Producer: EvidenceProducerRepoMapTerminalBodyCall,
+		})
+	}
+	evidence = append(evidence, EvidenceItem{
+		ID: "other-leaf", Kind: EvidenceRelationship, Subject: "OtherLeaf.run", Predicate: "calls", Object: "sink.write",
+		Source: "src/Z.java", LineStart: 2, Scope: ScopeLine, AnchorKind: AnchorCall,
+		Producer: EvidenceProducerRepoMapSelectedCallableBodyCall,
+	})
+	rows := BuildConceptualTerminalResolutionRows(evidence)
+	if len(rows) != 16 {
+		t.Fatalf("bounded row count=%d, want 16", len(rows))
+	}
+	found := false
+	for _, row := range rows {
+		found = found || row.EvidenceID == "other-leaf"
+	}
+	if !found {
+		t.Fatalf("utility-heavy callable monopolized bounded candidate schema: %+v", rows)
+	}
+}
+
 func TestConceptualTerminalResolutionNoEvidenceAllowsOnlyModelUnproven(t *testing.T) {
 	profile := &CallChainEndpointProfile{Source: "Source.run", SinkMode: CallChainSinkResolutionDiscoverTerminal}
 	contract := BuildConceptualTerminalResolutionContract(profile, nil)
