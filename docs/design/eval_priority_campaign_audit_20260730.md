@@ -57291,6 +57291,49 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1611 r1006/B1537-B1539：原子关系重复生产与两阶段教学自冲突（2026-09-01）
+
+1. 从已推送 `33ac93a79` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 Rust 跨模块调用链；runner
+   2/2 PASS，分别耗时 391s/143s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_read_rust_r1006_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_read_rust_r1006_20260901_manual_audit.md`；人工 0/2 pass。
+2. 组合题四阶段顺序、阶段表与三条 typed precedence 主链已经出厂，且 `B1534` 获生产正证：模型删去 forward calls 后，系统只暂存精确未发布图并
+   发布 4 条 dependent relation rows，模型自行选择删除四条悬空 reply。最终仍残留完全断开的 Orchestrator，答案重复且补齐位置不完整，故人工判 fail。
+3. `B1537-DIAGRAMATOMICREPLACEADDDUPLICATE1/P1` 确认：同一原子 patch 同时选择三个 stale-anchor `replace` 与同三个 canonical
+   precedence tuple 的 `add`，编译器逐项都认为合法，形成双份可见边/typed anchor 后才被普通关系门拒绝。根修应在事务应用前，仅用 live
+   failure/addition refs、block、relation kind 与 canonical endpoint identities 识别多个 producer；发生冲突时回滚整事务并让模型选择 replace 或 add，
+   不得替模型静默删掉一支，也不得读取请求、reasoning、答案 prose、label 或 Mermaid message。
+4. `B1539-DIAGRAMORPHANTEACHINGPHASECONFLICT1/P0` 确认：动态 schema 和 executor 已按 B1533 改为两阶段——关系阶段隐藏
+   `diagram_participant_edits`，下一 dispatch 才发布精确 orphan roster；但 evaluator retry hint 与 `AnswerDocumentPatchOperationTeaching` 仍明确要求
+   对 `optional_orphan_cleanups` 在“同一 patch”提交 remove/retain。模型照旧教学连续构造不可执行分支。最优修向是让所有教学服从当前 schema：关系阶段
+   只讲“提交 relation；如产生孤立节点，系统会在下一轮发布完整 roster”；只有 orphan-only schema 才教学 remove/retain。该修复不放宽 validator，
+   不减少证据门，不代选 participant disposition。
+5. `B1538-DIAGRAMSTAGEDORPHANLINEAGE1/P1` 暂列条件项：本轮 Orchestrator 在后续 generation 已断开，却因“immutable base 早已断开”失去
+   remove/retain 资格。中间恰有 B1537 产生的重复 precedence 错误，可能打断 staged lineage；先修 B1537/B1539 再复放，只有仍复现才增加以 staged
+   generation fingerprint 绑定的精确 roster lineage，避免为级联症状叠加实现。
+6. Rust 主调用链、walker 文件枚举角色、图和引用基本完整，但模型同时写“并发进行”和“先收集、再匹配”。源码、typed relationship evidence 与
+   explorer 汇总均已明确顺序，属于模型服从性波动而非上下文缺口；不增加正文关键词门或系统代写。
+7. `B1536` 在 r1005 的同一继承边 removed+added 自冲突本轮未出现，但新 stabilization 分支未实际触发，故仍待直接生产正证；`B1535` 的旧
+   `not a typed carrier` 拒绝缺席，但旧 seed alias 形未重放，也不提前关账。
+8. 本批不改变 read-mode 关系证据权威或 Trace 合同。没有扫描用户请求、模型 thinking、最终正文、Markdown、Mermaid label/message 作为事实硬门；
+   不做系统答案/结论/关系/词面选择。显式时间窗、链上根因、邻近/背景 support-only、实际占时/规则可消双账户、因果投影、自动补齐及禁止固定
+   4ms/4m/活跃流降级继续保持。
+
+状态：
+
+`r1006=runner-pass-2/2,human-fail-2/2`；
+`B1534=production-positive/core-closed`；
+`B1535=pending-exact-seed-alias-production-replay`；
+`B1536=old-symptom-absent/exact-production-branch-pending`；
+`B1537=confirmed/planned/typed-transaction-conflict`；
+`B1538=confirmed-symptom/conditional-after-B1537+B1539-replay`；
+`B1539=confirmed/P0/teaching-schema-conflict/planned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1610 r1005/B1536：Trace 正证与关系租约被系统 identity 补全自冲突（2026-09-01）
 
 1. 从已推送 `d68897aee` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 H8 显式窗 Trace；Trace
