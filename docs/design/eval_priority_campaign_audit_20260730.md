@@ -57291,6 +57291,46 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1610 r1005/B1536：Trace 正证与关系租约被系统 identity 补全自冲突（2026-09-01）
+
+1. 从已推送 `d68897aee` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 H8 显式窗 Trace；Trace
+   runner PASS 235s，组合题因 `degraded_answer_checks_skipped:1` 判 FAIL 618s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1005_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1005_20260901_manual_audit.md`。
+2. Trace 人工判 pass：10ms 请求窗、链上根因排序、实际占时/规则可消双账户、业务 span 线索、确定性补齐和最终因果投影完整；主因只来自
+   已证链上的 NetworkService-60595 优先级反转候选，有效归因 5.951ms。VerifyClass 仅作为确定性语义优化线索，邻近 I/O/压力保持背景席；
+   没有固定 4ms/4m、活跃流年龄或“短时间没产出”降级。
+3. 组合题人工判 fail，但不是模型没有作答：第一稿已给出四阶段 sequenceDiagram、输入/输出/载体表及引用。普通关系门正确列出无证据关系后，
+   模型选择删除 10 个 failure ref 并添加三条 typed stage precedence；随后 9 次 patch 全部未发布，最终只能降级展示未通过结构校验的第一稿。
+4. `B1535` 的旧症状本轮消失：日志没有再出现 `n1 is not a typed carrier`，共享 receipt 确实把初始 alias 接入了 retry endpoint 能力；但
+   当前补丁在更早的 lease scope 校验卡死，不能据此宣称成功发布的生产正证。`B1534` 也没有进入 exact post-edit graph，仍待后续复放。
+5. 新确认 `B1536-DIAGRAMLEASERECIPEIDENTITYENRICHMENT1/P0`：relation lease 从第一稿冻结未触碰的 `Orch→TP/call` anchor，当时该 anchor
+   没有 endpoint identity；patch 合并后、lease 比较前，系统的 typed-recipe normalizer 给同一条可见边补上 canonical identity。lease 的
+   semantic key 同时包含 node pair、relation kind 和 identity，于是同一条未触碰边被确定性计成旧 key 删除、新 key 新增，产生彼此矛盾的
+   `unlisted_relation_removed edge=Orch->TP` 与 `unlisted_relation_added edge=Orch->TP`。这不是模型波动，也不是关系证据不足，而是系统自己的
+   隐藏 metadata 补全被误当成模型越界编辑；每次重试都得到同一不可满足合同。
+6. 最优修向限定在 hidden metadata generation：relation patch 在 lease 比较前可以为模型新选的 typed addition/失败替换补齐 identity，但对
+   lease 基线中未列为 failure、且可见 node pair+relation kind 精确保留的边，必须用 lease 基线 identity 做 scope 比较；普通 pre-emit 阶段随后仍可
+   依据唯一 typed receipt 补齐 canonical identity 并重新执行全部证据合同。多条同 endpoint/relation 却携带不同 identity 的歧义组 fail-closed；
+   不忽略 relation kind，不放宽新增/删除边，不读取请求、thinking、正文、label 或 Mermaid message，也不由系统生成、删除、改向或改写任何可见关系。
+7. 回归必须覆盖：未触碰 identity-less 边经过 recipe 补全不产生 removed+added；真正删除未列边仍拒绝；真正新增未授权边仍拒绝；failure-listed
+   replacement 与 allowed addition 仍可获得 identity 并通过自身 lease；同 endpoint/relation 多 identity 歧义不被吞掉；最终完整 pre-emit 仍验证
+   关系证据与 Mermaid。生产复放需确认 patch 可进入后续 B1534 dependency closure/孤立参与者事务，而不是直接假定其闭环。
+8. 本批没有改变 read-mode 关系证据权威、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有扫描用户请求、
+   模型 thinking、最终正文、Markdown 或 Mermaid message/label 作事实硬门，也没有系统替模型作答。
+
+状态：
+
+`r1005=runner-trace-pass+read-fail,human-trace-pass+read-fail`；
+`B1534=implemented/full-suite-pass/production-not-exercised-r1005`；
+`B1535=old-reject-absent/blocked-before-publication/pending-positive`；
+`B1536=confirmed/P0/system-hidden-metadata-vs-lease-self-conflict/planned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1005`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1005`。
+
 ### §123.1578 r987：图主链修补闭环；分支补证生产接线与畸形 JSON 恢复仍有缺口（2026-08-31）
 
 1. 从已推送 `8a1ce8738` 重建不可变二进制，严格并发恰好 2 路复放
