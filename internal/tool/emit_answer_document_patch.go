@@ -405,6 +405,12 @@ func (t *EmitAnswerDocumentPatch) DescriptionFor(ctx *types.AgentContext) string
 	if lease.AllowTargetDiagramRemoval {
 		description += "The optional target diagram may instead be removed only through the exact remove_block_ids enum published in this schema. "
 	}
+	if len(localRelationLeaseOrdinaryReplacementBlockIDs(lease, prev)) > 0 {
+		return description +
+			"An exact non-diagram relation carrier delegated to ordinary merged-document validation may appear in the replace_blocks id enum; replace that complete block once when row-local evidence and relation metadata both need correction, and do not also submit an atomic relation edit for the same block. " +
+			"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Except for an exact delegated non-diagram id explicitly present in replace_blocks, whole replacement/addition of a lease-target relation carrier is unavailable. " +
+			"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
+	}
 	return description +
 		"The current schema is the sole capability authority: omitted legacy coordinates, hidden endpoint identities, and relation kinds are unavailable. When `diagram_relation_scope_edits` is present, use its exact block_id/action branch for the block-level coverage disclosure instead of whole replacement. Whole replacement/addition of a lease-target relation carrier is unavailable; when `replace_blocks` is present, its id enum contains only unrelated existing blocks that may be repaired alongside the local relation delta. " +
 		"Unmentioned answer content is preserved from the previous draft. The system selects no action, relation, visible wording, layout, or conclusion."
@@ -475,7 +481,12 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if !edgeOK && !boundaryOK && !participantOK {
 		return raw
 	}
-	allowedReplacementIDs := unrelatedAnswerDocumentPatchBlockIDs(prev, targets)
+	unrelatedReplacementIDs := unrelatedAnswerDocumentPatchBlockIDs(prev, targets)
+	ordinaryReplacementIDs := localRelationLeaseOrdinaryReplacementBlockIDs(lease, prev)
+	allowedReplacementIDs := unionSortedBlockIDs(
+		unrelatedReplacementIDs,
+		ordinaryReplacementIDs,
+	)
 	if len(allowedReplacementIDs) == 0 || !narrowAnswerDocumentPatchReplacementIDs(properties, allowedReplacementIDs) {
 		delete(properties, "replace_blocks")
 	}
@@ -489,7 +500,7 @@ func narrowAnswerDocumentPatchParametersForLocalDiagramLease(raw json.RawMessage
 	if additionCapacity == 0 || !narrowAnswerDocumentPatchRequiredAdditionKinds(properties, missingKinds, additionCapacity) {
 		delete(properties, "add_blocks")
 	}
-	removableIDs := append([]string(nil), allowedReplacementIDs...)
+	removableIDs := append([]string(nil), unrelatedReplacementIDs...)
 	if lease.AllowTargetDiagramRemoval {
 		removableIDs = append(removableIDs, diagramTargets...)
 	}
@@ -643,6 +654,49 @@ func unrelatedAnswerDocumentPatchBlockIDs(prev *types.AnswerDocumentV2, targets 
 	return out
 }
 
+// localRelationLeaseOrdinaryReplacementBlockIDs returns only the exact
+// model-owned non-diagram carriers that the producer-side ordinary validator
+// named for same-generation repair. These blocks may need one full replacement
+// to fix row-local evidence or another non-relation field while also correcting
+// their relation metadata. The relation lease deliberately defers those exact
+// carriers to the ordinary merged-document validators; no request text, answer
+// prose, visible label, or heuristic participates in this capability.
+func localRelationLeaseOrdinaryReplacementBlockIDs(
+	lease *types.AnswerDiagramRelationRepairLease,
+	prev *types.AnswerDocumentV2,
+) []string {
+	if lease == nil || prev == nil || len(lease.OrdinaryValidationBlockIDs) == 0 {
+		return nil
+	}
+	counts := make(map[string]int, len(prev.Blocks))
+	blocks := make(map[string]types.AnswerBlock, len(prev.Blocks))
+	for _, block := range prev.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		counts[id]++
+		blocks[id] = block
+	}
+	seen := make(map[string]bool, len(lease.OrdinaryValidationBlockIDs))
+	var out []string
+	for _, raw := range lease.OrdinaryValidationBlockIDs {
+		id := strings.TrimSpace(raw)
+		block, ok := blocks[id]
+		if id == "" || seen[id] || !ok || counts[id] != 1 ||
+			block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown {
+			continue
+		}
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func narrowAnswerDocumentPatchReplacementIDs(properties map[string]any, allowed []string) bool {
 	replaceBlocks, _ := properties["replace_blocks"].(map[string]any)
 	items, _ := replaceBlocks["items"].(map[string]any)
@@ -657,7 +711,7 @@ func narrowAnswerDocumentPatchReplacementIDs(properties map[string]any, allowed 
 	}
 	idSchema["enum"] = values
 	replaceBlocks["maxItems"] = len(allowed)
-	replaceBlocks["description"] = "FULL replacement payloads for unrelated existing blocks only. The id enum is the complete executable roster for this live relation-repair dispatch; lease-target relation carriers must use the published atomic operations."
+	replaceBlocks["description"] = "FULL replacement payloads for the exact existing block ids published here. The id enum is the complete executable roster for this live relation-repair dispatch: it contains unrelated blocks and may contain a non-diagram relation carrier explicitly delegated to ordinary merged-document validation. For a delegated carrier, one full replacement may repair its row-local evidence and relation metadata together; do not also submit an atomic relation edit for that same block. Other lease-target relation carriers must use the published atomic operations."
 	return true
 }
 
@@ -2389,8 +2443,12 @@ func localDiagramLeaseWholeBlockMutationViolation(
 	for _, id := range targets {
 		targetSet[id] = true
 	}
+	ordinaryReplacementSet := make(map[string]bool)
+	for _, id := range localRelationLeaseOrdinaryReplacementBlockIDs(lease, prev) {
+		ordinaryReplacementSet[id] = true
+	}
 	for _, block := range p.ReplaceBlocks {
-		if id := strings.TrimSpace(block.ID); targetSet[id] {
+		if id := strings.TrimSpace(block.ID); targetSet[id] && !ordinaryReplacementSet[id] {
 			return &types.AnswerDiagramRelationRepairScopeViolation{BlockID: id, Issue: "whole_replace_not_authorized"}
 		}
 	}

@@ -588,6 +588,47 @@ func TestEmitAnswerDocumentPatch_OrdinarySiblingGrantStillUsesRelationEvidenceGa
 	}
 }
 
+func TestEmitAnswerDocumentPatch_OrdinaryGrantAllowsSameTargetEvidenceAndRelationReplacement(t *testing.T) {
+	mut := types.NewMutableState("same-target evidence and relation repair")
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "grounded answer"},
+		{ID: "chain", Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{ID: "hop", Text: "old row"}},
+			EdgeAnchors: []types.DiagramEdgeAnchor{{
+				FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall, VisibleLabel: "old relation",
+			}},
+		},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "chain", Issue: diagramStandaloneRelationIdentityMissing,
+		FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall,
+		TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+	}}, nil)
+	if lease == nil || !types.BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(lease, base, []string{"chain"}) {
+		t.Fatalf("test setup could not bind exact same-target grant: %+v", lease)
+	}
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{Mutable: mut}
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["summary"],
+		"replace_blocks":[{"id":"chain","kind":"ordered_list","items":[{"id":"hop","text":"corrected row"}]}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("typed ordinary-validator delegation must make the same-target full replacement executable: res=%+v err=%v", res, err)
+	}
+	got := mut.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[1].ID != "chain" ||
+		len(got.Blocks[1].Items) != 1 || got.Blocks[1].Items[0].Text != "corrected row" ||
+		len(got.Blocks[1].EdgeAnchors) != 0 {
+		t.Fatalf("same-target replacement did not preserve the model-authored complete payload: %+v", got)
+	}
+	if live := mut.AnswerDiagramRelationRepairLease(); live != nil {
+		t.Fatalf("validated same-target generation must be consumed: %+v", live)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_ReportsAbsentRelationLeaseWithoutInventingRefs(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

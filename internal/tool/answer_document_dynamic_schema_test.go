@@ -1273,6 +1273,46 @@ func TestEmitAnswerDocumentPatchParametersFor_StandaloneRelationPublishesExactMe
 	}
 }
 
+func TestEmitAnswerDocumentPatchParametersFor_OrdinaryValidatorOwnsLeaseTargetReplacement(t *testing.T) {
+	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep"},
+		{ID: "chain", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{{ID: "hop", Text: "repair evidence"}}, EdgeAnchors: []types.DiagramEdgeAnchor{{
+			FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall, VisibleLabel: "model wording",
+		}}},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(base, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "chain", Issue: diagramStandaloneRelationIdentityMissing,
+		FromNode: "caller", ToNode: "callee", RelationKind: types.DiagramRelCall,
+		TargetCarrier: types.AnswerDiagramRelationRepairCarrierPriorAnchorMetadata,
+	}}, nil)
+	if lease == nil || !types.BindAnswerDiagramRelationRepairOrdinaryValidationBlocks(lease, base, []string{"chain"}) {
+		t.Fatalf("ordinary-validator target lease setup failed: %+v", lease)
+	}
+	mut := types.NewMutableState("ordinary validator owns same target")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	ctx := &types.AgentContext{Mutable: mut}
+	var root map[string]any
+	if err := json.Unmarshal((&EmitAnswerDocumentPatch{}).ParametersFor(ctx), &root); err != nil {
+		t.Fatalf("projected schema must parse: %v", err)
+	}
+	props := root["properties"].(map[string]any)
+	replaceIDs := props["replace_blocks"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["id"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(replaceIDs, []any{"chain", "summary"}) {
+		t.Fatalf("ordinary-validator target must be executable through exact replacement roster: %v", replaceIDs)
+	}
+	removeIDs := props["remove_block_ids"].(map[string]any)["items"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(removeIDs, []any{"summary"}) {
+		t.Fatalf("replacement delegation must not authorize target removal: %v", removeIDs)
+	}
+	description := (&EmitAnswerDocumentPatch{}).DescriptionFor(ctx)
+	for _, want := range []string{"delegated to ordinary merged-document validation", "do not also submit an atomic relation edit"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("ordinary-validator replacement teaching missing %q: %s", want, description)
+		}
+	}
+}
+
 func TestLocalDiagramLeaseSchemaPublishesOnlyMissingTypedRequiredBlockAddition(t *testing.T) {
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
 		{ID: "flow", Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{

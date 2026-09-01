@@ -69988,3 +69988,35 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1600 B1522：关系租约与同块证据修复的 typed 授权贯通（2026-08-31）
+
+1. `B1522-REPAIRLEASEMULTIAXISSEQUENCING1/P1` 经 r995 生产日志与代码双向核实后，需要修正原先“只能分两轮顺序修”的判断。系统已经由
+   producer 在 `ordinary_validation_block_ids` 中精确声明：某个唯一、model-owned 的 ordered-list/bullet-list/table 关系载体，在同一代还被普通
+   evidence/relation validator 要求修正；relation lease 应停止对这个 exact block 使用旧锚快照比较，最终 merged-document 普通校验器继续拥有事实权威。
+2. 实际 gap 是该 typed 授权只到达 lease validator，没有到达当前 dispatch 的 patch schema 和执行入口。schema 把同一 `chain-1` 从
+   `replace_blocks` enum 排除，执行入口也无条件返回 `whole_replace_not_authorized`；与此同时普通校验要求修 `items[].evidence_ids`，该字段只能通过
+   完整 block replacement 修改。于是系统一边要求同批修复、一边拒绝唯一操作，模型连续四轮重试仍不可满足。这是确定性合同自冲突，不是 Java、
+   `System.out.println` 或模型波动。
+3. 根修把 producer-owned ordinary block IDs 作为 schema、tool description、retry teaching 与 executor guard 的共同 capability。只有在不可变 patch
+   base 中唯一、非 system-generated 且 kind 为 ordered-list/bullet-list/table 的 exact id 才进入 `replace_blocks`；模型可一次完整替换该块，同时修
+   row-local evidence 与 relation metadata。该授权不进入 `remove_block_ids`，不允许 diagram target 整块替换，也不扩展到另一个普通块。
+4. 同块完整替换时不再要求或鼓励重复提交 `diagram_edge_edits`；其它 diagram/非委托 relation carrier 仍只能消费 live failure/addition refs。替换后的
+   anchor/evidence 仍经过原有 ordinary merged-document validation，typed grant 只解决可执行性，绝不证明关系、绑定证据或替模型选择可见内容。
+5. 回归覆盖三层：动态 schema 只把 exact delegated target 加入 replacement enum、绝不加入 removal enum；production tool 能提交同目标完整替换并消费
+   lease；故意铸造 `Unknown.entry -> Unknown.worker` 的 sibling replacement 仍越过 lease 后被普通 source-relation evidence gate 拒绝。原有 diagram
+   target whole-replace、cross-kind、unlisted-block 与 standalone atomic attach 防线保持关闭。
+6. 本批没有扫描用户问题、模型 thinking、最终正文或 Mermaid 标签，没有放宽 relation truth gate，也没有更改 Trace 根因选举、显式时间窗、因果投影、
+   自动补采或 active-stream 行为。完成相关套件和全仓验证后，从本提交重建二进制，下一批继续严格恰好 2 路复放 Java call-chain + H8 显式窗 Trace。
+
+状态：
+
+`B1522=implemented/typed-capability-schema+executor+teaching-aligned/pending-production-replay`；
+`ordinary-validator-delegation=exact-unique-model-owned-non-diagram-block-only`；
+`delegated-target=replace-allowed/remove-forbidden/no-duplicate-atomic-edit`；
+`relation/evidence-authority=ordinary-merged-document-validators-unchanged`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

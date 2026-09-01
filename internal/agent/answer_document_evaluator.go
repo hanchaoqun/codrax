@@ -19455,6 +19455,9 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	b.WriteString(action)
 	b.WriteString("; use `diagram_edge_edits` instead of re-emitting the whole diagram. ")
 	b.WriteString(answerDocDiagramRelationRepairBranchTeaching(delta))
+	if answerDocRelationRepairHasOrdinaryValidationBlocks(result) {
+		b.WriteString("For any exact non-diagram id also published by the live `replace_blocks` schema, submit one complete replacement of that block to repair its row-local evidence and relation metadata together; do not also submit a `diagram_edge_edits` operation for the same block. The ordinary merged-document evidence and relation validators remain authoritative. ")
+	}
 	b.WriteString("For ref-selected branches, omit block_id, match, occurrence, and body_occurrence; also omit hidden identities and relation kinds. The allowed rows are permissions, not required edges; do not add any other relation. Preserve sibling blocks/citations and every unlisted edge/anchor because `preserve_unlisted_edges=true`. For each `optional_orphan_cleanups` row whose incident failure refs you remove, add `diagram_participant_edits` and choose `remove_if_isolated`, or `retain_as_context` with your non-empty visible_label. The choice is conditional and safely does nothing when another selected typed addition keeps that participant connected, so do not predict a second post-edit roster. Protections are rechecked. You still author every visible node id, label, business wording, order, and layout. Repair enums, refs, cleanup ids, sources, and internal identities must not become visible wording. ")
 	if diagramRequired {
 		b.WriteString("The diagram is required, so keep its block and repair only with the published local capabilities. ")
@@ -19467,6 +19470,27 @@ func answerDocDiagramRelationDeltaPatchHint(result *types.ToolResult, alreadyPat
 	b.WriteString(types.AnswerDocumentPatchOperationTeaching)
 	b.WriteString(" The system has not selected, added, removed, relabelled, reversed, or reconnected any model-authored edge. Do not reopen files or write free-form prose outside the tool call.")
 	return b.String(), true
+}
+
+func answerDocRelationRepairHasOrdinaryValidationBlocks(result *types.ToolResult) bool {
+	if result == nil || result.Repair == nil || result.Repair.Metadata == nil {
+		return false
+	}
+	raw := strings.TrimSpace(result.Repair.Metadata[types.ToolRepairMetaRelationRepairOrdinaryBlockIDsJSON])
+	if raw == "" || len(raw) > 4096 {
+		return false
+	}
+	var ids []string
+	if json.Unmarshal([]byte(raw), &ids) != nil || len(ids) == 0 ||
+		len(ids) > types.AnswerDiagramRelationRepairOrdinaryValidationMaxEntries {
+		return false
+	}
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // answerDocDiagramOptionalOrphanCleanupCandidates derives presentation-only

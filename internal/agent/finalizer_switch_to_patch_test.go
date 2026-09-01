@@ -1741,6 +1741,8 @@ func TestOptionalDiagramRelationRetryUsesProducerCompactDeltaWithSiblingViolatio
 				"diagram_edge_edits", `"failure_ref":"` + liveRef + `"`,
 				"The diagram remains optional", "remove_block_ids",
 				"does not discharge or replace the sibling non-diagram corrections",
+				"exact non-diagram id also published by the live `replace_blocks` schema",
+				"do not also submit a `diagram_edge_edits` operation for the same block",
 				"system has not selected, added, removed, relabelled, reversed, or reconnected",
 			} {
 				if !strings.Contains(got.Hint, want) {
