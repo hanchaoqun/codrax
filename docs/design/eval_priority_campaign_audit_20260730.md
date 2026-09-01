@@ -57918,6 +57918,63 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1597 r995：工具执行权威已对齐；精确同值 receipt 被重复载体拒绝（2026-08-31）
+
+1. 从已推送 `f87c63195` 干净构建，严格并发恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace；runner 为 Java FAIL
+   234s、Trace PASS 258s，人工均判 fail。B1520 获得生产正证：Java prompt 发布的
+   `AuditLog.record -> System.out.println [ev-f632b19f56f19361]` 在工具执行端不再报“未发布”，模型也明确选择
+   `current_terminal_differs`，证明 schema/prompt/runtime binder 已共享同一 dispatch typed authority universe。
+2. 新确认 `B1521-RECEIPTREPLACEEXACTDUP1/P0`。模型最后一次 patch 在完整替换 `summary-1` 时已经显式携带同一
+   `conceptual_terminal_resolution={ev-f632...,current_terminal_differs}`，又把完全相同值误放进
+   `block_field_edits_v1`；兼容层正确无损重映射到 `block_receipt_edits_v1`，但结构层仍以“同块也在 replace_blocks”为由拒绝。
+   两个载体表达的是模型同一次、同值选择，拒绝后回退旧稿，最终把控制台输出继续留成“审计落库”。
+3. B1521 的通用解不是放宽 receipt 或替模型选终点，而是复用现有 closed-enum metadata 精确去重原则：仅当完整 replacement
+   明确存在同一 receipt 字段，且 selector/conclusion 逐字段完全相等时吸收冗余局部 edit；缺字段、不同值、重复 replacement id、跨 receipt
+   selector 一律保持冲突。整个判定只读 typed patch JSON，不读请求、thinking、最终正文或图标签。
+4. 另确认 `B1522-REPAIRLEASEMULTIAXISSEQUENCING1/P1`：同一 `chain-1` 同时存在关系锚错误与 item evidence_ids 错误时，关系租约只允许
+   atomic relation edits，而 item 修复需要完整 replacement。系统实际可用“先关系原子修、再非关系整块修”闭环，但当前 schema/教学没有给出明确次序，
+   模型连续 3 次提交被禁止的 whole replace，产生 4 轮额外重试。该项独立记账，不能用 Java、类名或答案词面特判。
+5. H8 Trace 仍保留显式 10ms 窗、typed 查询、唤醒链、链上根因排序、实际占用/规则可消双账户、链上业务 span、自动补采和最终
+   `Trace 因果投影`；邻近/背景不入根因排序，无固定 4ms/4m 或活动流年龄降级。模型却把裸唤醒关系扩写为“上游工作完成依赖”，并从
+   `page_lock_timeout` 推到具体文件缓存竞争，超过同页 typed “调用点不证明等待对象/持有者/后端”与 semantic-work relation-unproven 边界。
+   这是模型语义过推，typed 上下文和系统投影本轮准确；不增加原文关键词硬门、模型结论替写或系统关系补造。
+
+状态：
+
+`r995=runner-java-fail+trace-pass,human-both-fail`；
+`B1520=production-positive-r995/closed`；
+`B1521=confirmed-P0/next-generalized-fix`；
+`B1522=confirmed-P1/open`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r995`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label hard scan=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r995`。
+
+### §123.1598 B1521：完整替换与局部 typed receipt 的精确同值去重（2026-08-31）
+
+1. `B1521-RECEIPTREPLACEEXACTDUP1/P0` 已按协议通用形施工。patch runtime 在 typed receipt 已通过当前 dispatch schema 的 exact-pair
+   校验、完整 replacement 也已转换成 typed block 后，对两种模型载体做逐字段等值核对；完全相同则保留完整 replacement 并吸收局部 edit。
+2. 去重覆盖 `conceptual_terminal_resolution` 与 `runtime_work_relation` 的 closed receipt vocabulary；只比较 block id、显式字段存在性、
+   evidence/observation selector 和 conclusion，不检查或改写可见文字。replacement 未显式携带 receipt、值不同、selector 域不符或 replacement id
+   重复时不吸收，原有结构冲突继续 fail-closed。
+3. 生产 witness 形回归同时钉住 legacy `block_field_edits_v1` receipt 误载会先无损重映射、再与完整 replacement 精确去重，最终仍由原有 binder
+   绑定模型选择的 `ev-terminal/current_terminal_differs`；另有不同值与缺字段负臂，防止系统把冲突意图合并。
+4. 本批不处理 B1522 的关系租约多轴修补顺序，也不修改 Mermaid、答案正文、Trace 选举或投影。H8 的显式时间窗、因果投影、自动补采、
+   链上根因、业务线索与实际占用/规则可消双账户均保持原路径。
+
+状态：
+
+`B1521=implemented/targeted+relevant+full-suite+build-pass`；
+`exact-duplicate-receipt=absorbed/model-choice-byte-preserved`；
+`different-or-omitted-receipt=conflict/fail-closed`；
+`B1522=confirmed-P1/open`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

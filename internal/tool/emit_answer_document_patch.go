@@ -2897,6 +2897,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] absorbed exact block-field assignment(s) already carried by full replacement: %s",
 			strings.Join(fields, ", "))
 	}
+	if changed, fields := normalizeRedundantPatchBlockReceiptEditsV1(params, patch); changed {
+		logging.Warning("[emit_answer_document_patch] absorbed exact typed-receipt assignment(s) already carried by full replacement: %s",
+			strings.Join(fields, ", "))
+	}
 	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 ||
 		len(p.DiagramRelationScopeEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
 		view := types.BuildAnswerSemanticViewForBusContext(ctx)
@@ -3128,6 +3132,109 @@ func normalizeRedundantPatchBlockFieldEditsV1(raw json.RawMessage, patch *types.
 	}
 	patch.BlockFieldEditsV1 = kept
 	return true, fields
+}
+
+// normalizeRedundantPatchBlockReceiptEditsV1 absorbs only an exact typed
+// receipt assignment that the model also authored explicitly on the complete
+// replacement of the same block. The replacement remains the sole carrier;
+// no selector, conclusion, visible text, or target block is inferred. A
+// missing receipt field, a different selector/conclusion, a duplicate
+// replacement id, or a cross-domain selector remains a structural conflict.
+func normalizeRedundantPatchBlockReceiptEditsV1(raw json.RawMessage, patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if patch == nil || len(patch.BlockReceiptEditsV1) == 0 || len(patch.ReplaceBlocks) == 0 {
+		return false, nil
+	}
+	explicitFields := explicitPatchReplacementReceiptFields(raw)
+	replacements := make(map[string]types.AnswerBlock, len(patch.ReplaceBlocks))
+	duplicates := map[string]bool{}
+	for _, block := range patch.ReplaceBlocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := replacements[id]; exists {
+			duplicates[id] = true
+			continue
+		}
+		replacements[id] = block
+	}
+	kept := make([]types.AnswerBlockReceiptEditV1, 0, len(patch.BlockReceiptEditsV1))
+	var fields []string
+	for _, edit := range patch.BlockReceiptEditsV1 {
+		id := strings.TrimSpace(edit.BlockID)
+		replacement, exists := replacements[id]
+		if !exists || duplicates[id] || !explicitFields[id][edit.Field] ||
+			!patchBlockReceiptEditV1EqualsExplicitReplacement(edit, replacement) {
+			kept = append(kept, edit)
+			continue
+		}
+		fields = append(fields, fmt.Sprintf("block_receipt_edits_v1[%q].%s", id, edit.Field))
+	}
+	if len(fields) == 0 {
+		return false, nil
+	}
+	patch.BlockReceiptEditsV1 = kept
+	return true, fields
+}
+
+func explicitPatchReplacementReceiptFields(raw json.RawMessage) map[string]map[types.AnswerBlockReceiptEditableFieldV1]bool {
+	result := make(map[string]map[types.AnswerBlockReceiptEditableFieldV1]bool)
+	if len(raw) == 0 {
+		return result
+	}
+	var envelope struct {
+		ReplaceBlocks []map[string]json.RawMessage `json:"replace_blocks"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return result
+	}
+	duplicates := make(map[string]bool)
+	for _, candidate := range envelope.ReplaceBlocks {
+		var id string
+		if idRaw, ok := candidate["id"]; ok {
+			_ = json.Unmarshal(idRaw, &id)
+		}
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, exists := result[id]; exists {
+			duplicates[id] = true
+			continue
+		}
+		fields := make(map[types.AnswerBlockReceiptEditableFieldV1]bool, 2)
+		for _, field := range []types.AnswerBlockReceiptEditableFieldV1{
+			types.AnswerBlockReceiptFieldRuntimeWorkRelation,
+			types.AnswerBlockReceiptFieldConceptualTerminalResolution,
+		} {
+			_, fields[field] = candidate[string(field)]
+		}
+		result[id] = fields
+	}
+	for id := range duplicates {
+		delete(result, id)
+	}
+	return result
+}
+
+func patchBlockReceiptEditV1EqualsExplicitReplacement(edit types.AnswerBlockReceiptEditV1, block types.AnswerBlock) bool {
+	observationID := strings.TrimSpace(edit.Value.ObservationID)
+	evidenceID := strings.TrimSpace(edit.Value.EvidenceID)
+	conclusion := strings.TrimSpace(edit.Value.Conclusion)
+	switch edit.Field {
+	case types.AnswerBlockReceiptFieldRuntimeWorkRelation:
+		receipt := block.RuntimeWorkRelation
+		return receipt != nil && evidenceID == "" &&
+			strings.TrimSpace(receipt.ObservationID) == observationID &&
+			string(receipt.Conclusion) == conclusion
+	case types.AnswerBlockReceiptFieldConceptualTerminalResolution:
+		receipt := block.ConceptualTerminalResolution
+		return receipt != nil && observationID == "" &&
+			strings.TrimSpace(receipt.EvidenceID) == evidenceID &&
+			string(receipt.Conclusion) == conclusion
+	default:
+		return false
+	}
 }
 
 // explicitPatchReplacementFields preserves the distinction between a field

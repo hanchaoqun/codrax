@@ -361,6 +361,88 @@ func TestEmitAnswerDocumentPatch_BlockFieldEditV1ExactReplacementAssignmentIsAbs
 	}
 }
 
+func TestEmitAnswerDocumentPatch_BlockReceiptEditV1ExactReplacementAssignmentIsAbsorbed(t *testing.T) {
+	bus := newPatchTestBusContext()
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Scenario: types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisCall, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		CallChainEndpointProfile: &types.CallChainEndpointProfile{
+			Source: "A", SinkMode: types.CallChainSinkResolutionDiscoverTerminal,
+		},
+	}}
+	bus.EvidenceItems = []types.EvidenceItem{{
+		ID: "ev-terminal", Kind: types.EvidenceRelationship, Subject: "Audit.record", Predicate: "calls", Object: "console.print",
+		Source: "src/Audit.java", LineStart: 9, Scope: types.ScopeLine, AnchorKind: types.AnchorCall,
+		GroundingStatus: types.GroundingGrounded, Producer: types.EvidenceProducerRepoMapSelectedCallableBodyCall,
+	}}
+	base := bus.Mutable.AnswerDocumentV2()
+	base.Blocks[0] = types.AnswerBlock{
+		ID: "s1", Kind: types.BlockSummary, Text: "base summary", SurfaceRole: types.SurfacePrincipal,
+		FacetIDs: []string{string(types.RequestedAnswerDimensionConceptualTerminalResolution)},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, base)
+
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"unchanged_block_ids":["list1"],
+		"block_field_edits_v1":[{
+			"block_id":"s1",
+			"field":"conceptual_terminal_resolution",
+			"value":{"evidence_id":"ev-terminal","conclusion":"current_terminal_differs"}
+		}],
+		"replace_blocks":[{
+			"id":"s1",
+			"kind":"summary",
+			"text":"The current terminal prints to the console rather than persisting.",
+			"surface_role":"principal",
+			"facet_ids":["conceptual_terminal_resolution"],
+			"conceptual_terminal_resolution":{"evidence_id":"ev-terminal","conclusion":"current_terminal_differs"}
+		}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("exact duplicate typed receipt carried by replacement must be absorbed: res=%+v err=%v", res, err)
+	}
+	got := bus.Mutable.AnswerDocumentV2()
+	if got == nil || len(got.Blocks) != 2 || got.Blocks[0].Text != "The current terminal prints to the console rather than persisting." ||
+		got.Blocks[0].ConceptualTerminalResolution == nil || !got.Blocks[0].ConceptualTerminalResolution.IsBound() ||
+		got.Blocks[0].ConceptualTerminalResolution.EvidenceID != "ev-terminal" ||
+		got.Blocks[0].ConceptualTerminalResolution.Conclusion != types.ConceptualTerminalResolutionCurrentTerminalDiffers {
+		t.Fatalf("replacement receipt/content was not preserved and bound: %+v", got)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockReceiptEditV1DifferentReplacementAssignmentStillConflicts(t *testing.T) {
+	patch := &types.AnswerDocumentV2Patch{
+		BlockReceiptEditsV1: []types.AnswerBlockReceiptEditV1{{
+			BlockID: "s1", Field: types.AnswerBlockReceiptFieldConceptualTerminalResolution,
+			Value: types.AnswerBlockReceiptEditValueV1{EvidenceID: "ev-a", Conclusion: string(types.ConceptualTerminalResolutionCurrentTerminalDiffers)},
+		}},
+		ReplaceBlocks: []types.AnswerBlock{{
+			ID: "s1", Kind: types.BlockSummary,
+			ConceptualTerminalResolution: &types.AnswerConceptualTerminalResolutionReceipt{
+				EvidenceID: "ev-b", Conclusion: types.ConceptualTerminalResolutionCurrentTerminalDiffers,
+			},
+		}},
+	}
+	raw := json.RawMessage(`{"replace_blocks":[{"id":"s1","kind":"summary","conceptual_terminal_resolution":{"evidence_id":"ev-b","conclusion":"current_terminal_differs"}}]}`)
+	if changed, _ := normalizeRedundantPatchBlockReceiptEditsV1(raw, patch); changed || len(patch.BlockReceiptEditsV1) != 1 {
+		t.Fatalf("different typed receipt assignments must remain conflicting: %+v", patch)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_BlockReceiptEditV1OmittedReplacementAssignmentStillConflicts(t *testing.T) {
+	patch := &types.AnswerDocumentV2Patch{
+		BlockReceiptEditsV1: []types.AnswerBlockReceiptEditV1{{
+			BlockID: "s1", Field: types.AnswerBlockReceiptFieldRuntimeWorkRelation,
+			Value: types.AnswerBlockReceiptEditValueV1{ObservationID: "work-1", Conclusion: string(types.RuntimeWorkRelationConclusionRelationUnproven)},
+		}},
+		ReplaceBlocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "receipt omitted"}},
+	}
+	raw := json.RawMessage(`{"replace_blocks":[{"id":"s1","kind":"summary","text":"receipt omitted"}]}`)
+	if changed, _ := normalizeRedundantPatchBlockReceiptEditsV1(raw, patch); changed || len(patch.BlockReceiptEditsV1) != 1 {
+		t.Fatalf("an omitted replacement receipt must remain conflicting: %+v", patch)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_BlockFieldEditV1DifferentReplacementAssignmentStillConflicts(t *testing.T) {
 	bus := newPatchTestBusContext()
 	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
