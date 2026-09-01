@@ -754,6 +754,99 @@ func TestAtomicDiagramPostEditDependencyLease_ExplicitTypedReplyOwnerDoesNotNeed
 	}
 }
 
+func TestAtomicDiagramPostEditDependencyLease_CarriesAlreadyIsolatedOrphanGeneration(t *testing.T) {
+	staged := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram", " participant A", " participant B", " participant C", " B-->>C: dependent reply",
+		}, "\n")},
+	}}}
+	source := &types.AnswerDiagramRelationRepairLease{
+		Version: 1,
+		OptionalOrphanCleanups: []types.AnswerDiagramOrphanCleanupCandidate{{
+			BlockID: "diag", ParticipantID: "A",
+			AllowedActions: []types.AnswerDiagramOrphanDispositionAction{
+				types.AnswerDiagramOrphanDispositionRemove,
+				types.AnswerDiagramOrphanDispositionRetain,
+			},
+		}},
+	}
+	dependency := types.NewAnswerDiagramRelationRepairLease(staged, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "missing_call_anchor", FromNode: "B", ToNode: "C", BodyOccurrence: 1,
+	}}, nil)
+	if dependency == nil {
+		t.Fatal("test setup: dependency lease was not constructed")
+	}
+	got := atomicDiagramCarryPostEditOrphanCandidates(staged, source, dependency)
+	if len(got) != 1 || got[0].ParticipantID != "A" ||
+		got[0].DispositionBaseFingerprint != types.AnswerDiagramParticipantVisibilityFingerprint(staged.Blocks[0]) {
+		t.Fatalf("already-isolated producer candidate lost its staged generation: %+v", got)
+	}
+	dependency.OptionalOrphanCleanups = got
+	base := staged.Blocks[0]
+	current := cloneAtomicDiagramPatchBlock(base)
+	current.Diagram.Body = strings.ReplaceAll(current.Diagram.Body, " B-->>C: dependent reply\n", "")
+	if !atomicDiagramParticipantDispositionIsRequired(base, current, "A", got[0], nil, dependency) {
+		t.Fatal("exact carried generation must require a model-owned orphan decision after dependency repair")
+	}
+	reconnected := cloneAtomicDiagramPatchBlock(current)
+	reconnected.Diagram.Body += "\n A->>B: model-selected relation"
+	if atomicDiagramParticipantDispositionIsRequired(base, reconnected, "A", got[0], nil, dependency) {
+		t.Fatal("a reconnected participant must not require an orphan disposition")
+	}
+}
+
+func TestEmitAnswerDocumentPatch_CarriedIsolatedCandidateSurvivesDependencyGeneration(t *testing.T) {
+	accepted := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "summary", Kind: types.BlockSummary, Text: "accepted",
+	}}}
+	staged := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "staged"},
+		{
+			ID: "diag", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+				"sequenceDiagram", " participant A", " participant B", " participant C", " B-->>C: dependent reply",
+			}, "\n")},
+		},
+	}}
+	lease := types.NewAnswerDiagramRelationRepairLease(staged, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "missing_call_anchor", FromNode: "B", ToNode: "C", BodyOccurrence: 1,
+	}}, nil)
+	if lease == nil || len(lease.Failures) != 1 {
+		t.Fatalf("test setup: dependency lease missing: %+v", lease)
+	}
+	lease.OptionalOrphanCleanups = []types.AnswerDiagramOrphanCleanupCandidate{{
+		BlockID: "diag", ParticipantID: "A",
+		DispositionBaseFingerprint: types.AnswerDiagramParticipantVisibilityFingerprint(staged.Blocks[1]),
+		AllowedActions: []types.AnswerDiagramOrphanDispositionAction{
+			types.AnswerDiagramOrphanDispositionRemove,
+			types.AnswerDiagramOrphanDispositionRetain,
+		},
+	}}
+	mut := types.NewMutableState("carried isolated candidate")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, accepted)
+	mut.SetPendingAnswerDocumentPatchBase(staged)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, lease.Failures[0].FailureRef)))
+	if err != nil || res.Success || res.Repair == nil ||
+		res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeStagedForRetry {
+		t.Fatalf("dependency removal must advance to carried orphan disposition: err=%v result=%+v", err, res)
+	}
+	orphan := mut.AnswerDiagramRelationRepairLease()
+	if orphan == nil || !orphan.OrphanDispositionOnly || len(orphan.Failures) != 0 ||
+		len(orphan.OptionalOrphanCleanups) != 1 || orphan.OptionalOrphanCleanups[0].ParticipantID != "A" {
+		t.Fatalf("carried orphan lineage was lost after dependency generation: %+v", orphan)
+	}
+	pending := mut.PendingAnswerDocumentPatchBase()
+	if pending == nil || strings.Contains(pending.Blocks[1].Diagram.Body, "B-->>C") ||
+		!strings.Contains(pending.Blocks[1].Diagram.Body, "participant A") {
+		t.Fatalf("exact dependency edit was not preserved in the orphan-only generation: %+v", pending)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_StagesPostEditReplyDependencyBeforeOrphanDisposition(t *testing.T) {
 	previous := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
 		{ID: "summary", Kind: types.BlockSummary, Text: "keep"},

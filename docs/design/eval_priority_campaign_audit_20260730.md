@@ -57377,13 +57377,20 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    `NodeDeclarationsAll`。回归钉住 exact sequence alias 可通过真实 atomic endpoint executor，以及 message payload 不得污染别名。
    `internal/tool`、`go test ./...` 和 `make` 全绿。该批不把 `AnalyzerAgent` 等展示词猜成 stage enum；stage 展示复用仍须走独立 typed
    declaration/stage authority，避免借本次精确修复引入模糊别名。
+10. `B1538` 已实现：当 phase-one relation edits 进入 dependent-reply generation 时，`atomicDiagramCarryPostEditOrphanCandidates`
+    不再丢弃已经在该精确 staged graph 中孤立的 producer-owned cleanup candidate，而是携带
+    `AnswerDiagramParticipantVisibilityFingerprint`。下一轮只在指纹仍等于 immutable patch base、声明唯一可安全编辑、节点仍孤立且未受
+    requested participant/boundary 保护时要求处置；若模型新增关系重新连接该节点，处置自动不再需要。依赖关系清空后，现有两阶段编译器先发布
+    orphan-only 完整 roster，再由模型逐项选择删除或保留，随后普通 validator 继续处理剩余问题。系统不扫描任意孤立节点、不扩张候选、不选动作或
+    wording。回归覆盖“已孤立候选跨 dependency generation”、重连免处置和真实 patch envelope 进入 orphan-only lease；`internal/tool`、
+    `go test ./...` 与 `make` 全绿。`QFRootCauseTrace` 仍由既有 dependency detector 入口隔离。
 
 状态：
 
 `r1007=runner-pass-1/2,human-pass-1/2`；
 `B1530=production-positive/honest-proof-weak`；
 `B1537=old-cycle-absent/exact-production-branch-pending`；
-`B1538=confirmed-independent/P1/pending`；
+`B1538=implemented/P1/fingerprinted-staged-lineage/full-suite+build-pass/pending-production-replay`；
 `B1539=production-positive/core-closed`；
 `B1540=implemented-sequence-participant-alias/P1/full-suite+build-pass/stage-display-reuse-pending-replay`；
 `system-answer/conclusion/relation/node-disposition-selection=none`；

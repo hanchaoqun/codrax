@@ -344,8 +344,11 @@ func atomicDiagramSequenceReplyToken(edge mermaidcompat.Edge) string {
 }
 
 // atomicDiagramCarryPostEditOrphanCandidates preserves only producer-owned
-// participant choices that could become isolated by resolving the new exact
-// dependency lease. It does not mint a candidate for an arbitrary declaration.
+// participant choices that either already became isolated in the exact staged
+// generation or could become isolated by resolving the new dependency lease.
+// The former carries that generation's visibility fingerprint so a later
+// dependency-only turn cannot erase the already-earned disposition seat. It
+// does not mint a candidate for an arbitrary declaration.
 func atomicDiagramCarryPostEditOrphanCandidates(
 	staged *types.AnswerDocumentV2,
 	source, dependency *types.AnswerDiagramRelationRepairLease,
@@ -365,10 +368,19 @@ func atomicDiagramCarryPostEditOrphanCandidates(
 			continue
 		}
 		block := staged.Blocks[index]
-		if block.Kind != types.BlockDiagram || block.Diagram == nil || !atomicDiagramParticipantHasIncidentCarrier(block, participantID) {
+		if block.Kind != types.BlockDiagram || block.Diagram == nil {
 			continue
 		}
 		if _, count := atomicDiagramUniqueRemovableDeclaration(block.Diagram.Body, participantID); count != 1 {
+			continue
+		}
+		if !atomicDiagramParticipantHasIncidentCarrier(block, participantID) {
+			candidate.DispositionBaseFingerprint = types.AnswerDiagramParticipantVisibilityFingerprint(block)
+			if candidate.DispositionBaseFingerprint == "" {
+				continue
+			}
+			seen[key] = true
+			out = append(out, candidate)
 			continue
 		}
 		if incident, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(block, participantID, dependency); incident == 0 || !allFailed {
@@ -1249,7 +1261,7 @@ func atomicDiagramParticipantDispositionIsRequired(
 	if atomicDiagramParticipantHasIncidentCarrier(current, participantID) {
 		return false
 	}
-	if lease != nil && lease.OrphanDispositionOnly {
+	if lease != nil && (lease.OrphanDispositionOnly || strings.TrimSpace(candidate.DispositionBaseFingerprint) != "") {
 		return strings.TrimSpace(candidate.DispositionBaseFingerprint) != "" &&
 			candidate.DispositionBaseFingerprint == types.AnswerDiagramParticipantVisibilityFingerprint(base)
 	}
