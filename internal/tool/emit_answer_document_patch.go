@@ -2852,6 +2852,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			"answer_document patch carrier contains serialized JSON boundary text in field name(s): %s; retry the patch without dropping any requested block",
 			strings.Join(paths, ", "))
 	}
+	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(params, "replace_trace_root_causes"); ok {
+		logging.Warning("[emit_answer_document_patch] re-homed exact root-cause schema_version into replace_trace_root_causes via local-model JSON tolerance")
+		params = repaired
+	}
 
 	// Flat-mode tolerance for the streaming-bug pattern where an LLM
 	// stringifies an array field instead of emitting a real JSON

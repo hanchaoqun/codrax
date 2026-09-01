@@ -57291,6 +57291,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1615 r1009/B1544：根因选择侧车的固定判别值载体漂移（2026-09-01）
+
+1. 从已推送 `cbd60fec0` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 H8 显式窗 Trace；runner
+   2/2 PASS：Trace 198s、read 473s。机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1009_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1009_20260901_manual_audit.md`；人工为 Trace pass、read fail。
+2. Trace 核心无回归：显式 `34579.490..34579.500s` 仍精确计为 10.000ms；主因只从已证链选择
+   NetworkService-60595 优先级反转候选，有效归因 5.951ms，并单独披露帧因果未证。实际状态占时与规则可消除量分开，链上业务 span
+   保留业务排查方向，邻近 I/O/压力只作背景；Trace 因果投影和确定性补采均发布，没有固定 4ms/4m、活跃流年龄或短时未产出降级。
+3. `B1542` 获得生产正证：read finalizer reject 从 r1008 的 10 次降到 3 次，空 `block_id`、缺失 addition ref/edge 字段和静态 repair
+   surface 误教全部消失。模型一次越过局部租约尝试整块替换被精确拒绝，随后使用本代 failure/addition refs 原子完成关系和 orphan
+   disposition。最终正文、表格正确，但图仍只有 Analyze→Explore→Extract→Finalize，已证 Orchestrator 调度和 BusContext 状态交接仍没有进入
+   typed relation inventory；`B1541` 保持确认，不能由系统从正文造边或替模型补图。
+4. 新确认 `B1544-ROOTCAUSESCHEMADISCRIMINATORCARRIER1/P1`。连续四份生产结果中，模型都已从 typed on-chain roster 选择有效
+   `candidate_id` 列表及顺序，却把固定 `schema_version` 放到 answer document 顶层并写成字符串 `"2"`；候选则在
+   `trace_root_causes.root_causes`。未知字段隔离随后删除 `$.schema_version`，可选报告按 nested version=0 被忽略，故默认
+   `.root-causes.json` 静默缺失。这不是“没有根因”或证据不足，而是 schema 教学心智与一个可无损恢复的固定载体漂移。
+5. 根修只搬移精确固定判别值：当且仅当顶层值逐字为整数 `2` 或字符串 `"2"`、嵌套对象存在 `root_causes`、且嵌套尚无
+   `schema_version` 时，把它规范为嵌套整数 2 并删除顶层字段；候选 ID、数量、顺序、答案正文、图、结论均不改变。错误版本、带空白字符串、
+   嵌套版本已存在、缺少选择载体或对象缺失全部 fail-open 到既有可选旁路校验，不扩大 JSON 宽容边界。full emit 与 patch 两个入口共用同一函数，
+   并在 schema-near 教学直接给出正确嵌套形，降低模型心智。
+6. 回归覆盖整数/字符串两个生产正形、候选顺序不变、五个歧义反例及 patch 入口；focused `internal/tool`/`internal/agent`、
+   `go test ./... -count=1`、`make` 与 `git diff --check` 全绿。推送后用同一 exact-2 组合回放，验收默认 sibling 实际写出且不再出现 unknown `$.schema_version` /
+   nested version=0 警告。`--root-causes-out` 的 B1543 强交付 envelope 不受影响：即使模型没有有效选择，显式路径仍必须产出 typed unavailable。
+
+状态：
+
+`r1009=runner-pass-2/2,human-pass-1/2`；
+`B1542=production-positive/core-closed`；
+`B1541=confirmed/typed-role-relation-coverage-next`；
+`B1544=implemented/exact-structural-carrier-only/full-suite+build-pass/pending-production-replay`；
+default sibling=`optional/bare-v2/valid-selection-must-survive-safe-carrier-repair`；
+explicit path=`--root-causes-out/guaranteed-envelope/unchanged`；
+`system-root-selection/prose-inference/answer-rewrite=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1009`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1009`。
+
 ### §123.1614 B1543：Trace root-causes.json 可选旁路与程序化必达合同（2026-09-01）
 
 1. 生产目录抽样为 10 份 Markdown、2 份 `.root-causes.json`；代码证明这不是随机落盘：默认 sibling 只有在最终 Trace contract 存在

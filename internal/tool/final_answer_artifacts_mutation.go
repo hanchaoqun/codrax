@@ -3,11 +3,70 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// normalizeMisplacedTraceRootCauseSchemaVersion repairs one unambiguous
+// structural carrier drift seen in production tool calls: the model authors
+// the ordered candidate selections inside trace_root_causes but places the
+// fixed schema_version discriminator at the document top level. The public
+// answer schema has no top-level schema_version field, and the nested report
+// is otherwise complete, so moving only the exact current constant is
+// lossless. Candidate IDs, their order, visible answer text, and every
+// conclusion remain untouched. Wrong/ambiguous values fail open to the
+// existing optional-sidecar validation path.
+func normalizeMisplacedTraceRootCauseSchemaVersion(raw json.RawMessage, reportField string) (json.RawMessage, bool) {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil {
+		return raw, false
+	}
+	outerVersion, ok := root["schema_version"]
+	if !ok || !isExactTraceRootCauseSchemaVersion(outerVersion) {
+		return raw, false
+	}
+	var report map[string]json.RawMessage
+	if json.Unmarshal(root[reportField], &report) != nil {
+		return raw, false
+	}
+	if _, exists := report["schema_version"]; exists {
+		return raw, false
+	}
+	if _, exists := report["root_causes"]; !exists {
+		return raw, false
+	}
+	canonicalVersion, err := json.Marshal(types.TraceRootCauseReportSchemaVersion)
+	if err != nil {
+		return raw, false
+	}
+	report["schema_version"] = canonicalVersion
+	reportRaw, err := json.Marshal(report)
+	if err != nil {
+		return raw, false
+	}
+	root[reportField] = reportRaw
+	delete(root, "schema_version")
+	repaired, err := json.Marshal(root)
+	if err != nil {
+		return raw, false
+	}
+	return repaired, true
+}
+
+func isExactTraceRootCauseSchemaVersion(raw json.RawMessage) bool {
+	var version int
+	if json.Unmarshal(raw, &version) == nil {
+		return version == types.TraceRootCauseReportSchemaVersion
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return false
+	}
+	return text == strconv.Itoa(types.TraceRootCauseReportSchemaVersion)
+}
 
 // resolveTraceFindingForEmit enforces the opt-in contract before the shared
 // document persist path is allowed to commit either artifact.

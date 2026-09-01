@@ -111,6 +111,7 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 			out.WriteString("\n\n## Optional Trace Root Cause JSON\n\n")
 			out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` is optional and never replaces or blocks it.\n")
 			out.WriteString("- If useful, choose zero or more exact `candidate_id` values from the typed on-chain roster below and order them strongest to weakest. The runtime binds category, identity, impact, summary, and evidence from those receipts; do not author those fields.\n")
+			out.WriteString("- Keep the fixed discriminator inside the optional object, exactly as `\"trace_root_causes\":{\"schema_version\":2,\"root_causes\":[...]}`. Do not place `schema_version` at the document top level and do not quote the number.\n")
 			out.WriteString("- Omit the field when no candidate should be selected. Background and adjacent observations are intentionally absent.\n\n")
 			out.WriteString("```json\n")
 			out.Write(b)
