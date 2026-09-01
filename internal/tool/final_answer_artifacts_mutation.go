@@ -28,8 +28,8 @@ func normalizeMisplacedTraceRootCauseSchemaVersion(raw json.RawMessage, reportFi
 	if !ok || !isExactTraceRootCauseSchemaVersion(outerVersion) {
 		return raw, false
 	}
-	var report map[string]json.RawMessage
-	if json.Unmarshal(root[reportField], &report) != nil {
+	report, ok := decodeTraceRootCauseReportCarrier(root[reportField])
+	if !ok {
 		return raw, false
 	}
 	if _, exists := report["schema_version"]; exists {
@@ -54,6 +54,26 @@ func normalizeMisplacedTraceRootCauseSchemaVersion(raw json.RawMessage, reportFi
 		return raw, false
 	}
 	return repaired, true
+}
+
+// decodeTraceRootCauseReportCarrier accepts the native object and the one
+// lossless streaming shape where that complete object was JSON-encoded once
+// more as a string. json.Unmarshal on the inner text must consume one complete
+// object; malformed, scalar, array, or null carriers remain untouched. This
+// helper does not normalize any report field or choose any candidate.
+func decodeTraceRootCauseReportCarrier(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	var report map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &report); err == nil && report != nil {
+		return report, true
+	}
+	var encoded string
+	if json.Unmarshal(raw, &encoded) != nil {
+		return nil, false
+	}
+	if json.Unmarshal([]byte(encoded), &report) != nil || report == nil {
+		return nil, false
+	}
+	return report, true
 }
 
 func isExactTraceRootCauseSchemaVersion(raw json.RawMessage) bool {

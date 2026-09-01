@@ -57291,6 +57291,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1616 r1010/B1545-B1546：双层 JSON 载体与 required diagram 错误义务后移（2026-09-01）
+
+1. 从已推送 `9f5202224` 构建不可变二进制，严格并发恰好 2 路复放同一 read/Trace 组合；runner 2/2 PASS：Trace 197s、read
+   818s。机器汇总与人工复核分别在 `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1010_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1010_20260901_manual_audit.md`；两路人工均判 fail，分别对应程序化侧车交付和图关系义务。
+2. Trace 长答案本身无核心回归：精确 10ms 窗、链上 NetworkService-60595 首因 5.951ms、实际占时/规则可消双账户、链上业务线索、
+   邻近背景隔离、帧因果未证、Trace 因果投影和确定性补采均在。但第一批 B1544 只接受 nested native object；本轮生产形同时把顶层版本写成
+   字符串 `"2"`，并把完整 `trace_root_causes` 对象再次 JSON 字符串化。5 个 typed candidate ID 及顺序全部存在，optional selector 因对象解码
+   失败被忽略，默认 `.root-causes.json` 仍未写。
+3. `B1545-ROOTCAUSEDOUBLEENCODEDCARRIER1/P1` 作为同根第二小批：固定版本仍须精确为整数 2 或字符串 `"2"`；nested carrier 若不是
+   native object，只额外接受“一次 JSON 解码后恰为完整非空对象”的形状。随后仍要求 `root_causes` 存在、nested version 缺失，才规范成对象并搬入
+   整数 2。畸形字符串、array、scalar、null、错误/空白版本和双版本继续不修；不改变候选、排序、正文、图或结论。生产正形和歧义反例 focused
+   回归、`go test ./... -count=1`、`make` 与 `git diff --check` 已绿，待提交与 r1011 回放。
+4. read 本轮暴露独立 `B1546-REQUIREDDIAGRAMINVALIDROSTERDEFER1/P1`：analyzer 提交了 Orchestrator/Analyzer Agent/Finalizer Agent 等无
+   CURRENT-request 锚的 alias，又把 sibling 表格中的 AnalysisIR/EvidenceItems 标为 incident-required。关系闭面计数在删除非法 alias 之前按原始
+   identity 计算为 0；删除 alias 后，外部表格实体因“闭面未成立”逃过隔离，成为 finalizer 的硬 participant boundary。结果 12 次成文拒绝，最终图
+   混入 n8/n9/n16、MergeEvidenceItemsIfChanged 和读者无从理解的未证边界，虽机器表面 PASS，人工明显 fail。
+5. B1546 最优修向不扫描请求关键词、不从正文补参与者：required diagram 的 raw roster 若含精确无请求锚的推断行，而同批没有至少两个能被
+   exact relation_scope_quote 直接复认的 participant，则 analyzer 不再静默删行后签绿，应在该精确信号处 fail-loud，让模型重交完整 diagram_hint。
+   当同批已有至少两个关系面精确参与者时，仍可安全删除额外 hallucinated row；合法“先点名 A/B，后说它们关系”的 anaphoric roster 若所有行均有
+   CURRENT-request 精确锚则不受影响。这样把一次 analyzer 结构修复替代 12 次 finalizer 错误义务修补，不生成/删除模型图边，也不扩大 hard gate 到 prose。
+6. 同时纠正 r1009 的人工判断：其最终四阶段图正好覆盖 relation_scope，Orchestrator 与 BusContext 分别在正文/表格解释，属于正确的多展示面分工，
+   不能作为 B1541“缺边”见证。只有用户明确把这些角色写入所请求图关系面时，才可审计其 typed relation coverage。
+
+状态：
+
+`r1010=runner-pass-2/2,human-fail-2/2`；
+`B1545=implemented/exact-double-encoded-structural-carrier/full-suite+build-pass/pending-replay`；
+`B1546=confirmed/P1/analyzer-fail-early-next`；
+`B1541=r1009-false-positive-corrected/needs-explicit-witness`；
+default sibling=`optional/bare-v2/selected-candidates-currently-lost-on-double-encoded-carrier`；
+`system-root-selection/prose-inference/answer-rewrite=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1010`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1010`。
+
 ### §123.1615 r1009/B1544：根因选择侧车的固定判别值载体漂移（2026-09-01）
 
 1. 从已推送 `cbd60fec0` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 H8 显式窗 Trace；runner
@@ -57302,8 +57339,9 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    保留业务排查方向，邻近 I/O/压力只作背景；Trace 因果投影和确定性补采均发布，没有固定 4ms/4m、活跃流年龄或短时未产出降级。
 3. `B1542` 获得生产正证：read finalizer reject 从 r1008 的 10 次降到 3 次，空 `block_id`、缺失 addition ref/edge 字段和静态 repair
    surface 误教全部消失。模型一次越过局部租约尝试整块替换被精确拒绝，随后使用本代 failure/addition refs 原子完成关系和 orphan
-   disposition。最终正文、表格正确，但图仍只有 Analyze→Explore→Extract→Finalize，已证 Orchestrator 调度和 BusContext 状态交接仍没有进入
-   typed relation inventory；`B1541` 保持确认，不能由系统从正文造边或替模型补图。
+   disposition。复核用例原文后纠正最初人工误判：关系短语只要求 analyze→finalizer，BusContext/Mutable 明确属于 sibling 表格的状态载体示例，
+   Orchestrator 也未在该关系短语中点名；四阶段图、调度正文与载体表分工正确。`B1541` 不能由此例确认，若要立案需另有明确把调度器/载体纳入
+   图关系面的异构请求证据；系统不能为追求“更丰富”从正文造边。
 4. 新确认 `B1544-ROOTCAUSESCHEMADISCRIMINATORCARRIER1/P1`。连续四份生产结果中，模型都已从 typed on-chain roster 选择有效
    `candidate_id` 列表及顺序，却把固定 `schema_version` 放到 answer document 顶层并写成字符串 `"2"`；候选则在
    `trace_root_causes.root_causes`。未知字段隔离随后删除 `$.schema_version`，可选报告按 nested version=0 被忽略，故默认
@@ -57320,7 +57358,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `r1009=runner-pass-2/2,human-pass-1/2`；
 `B1542=production-positive/core-closed`；
-`B1541=confirmed/typed-role-relation-coverage-next`；
+`B1541=not-confirmed-by-r1009/needs-explicit-cross-role-relation-witness`；
 `B1544=implemented/exact-structural-carrier-only/full-suite+build-pass/pending-production-replay`；
 default sibling=`optional/bare-v2/valid-selection-must-survive-safe-carrier-repair`；
 explicit path=`--root-causes-out/guaranteed-envelope/unchanged`；

@@ -72,8 +72,26 @@ func TestEmitAnswerDocumentKeepsFullAnswerWhenOptionalRootCauseSelectorIsInvalid
 }
 
 func TestEmitAnswerDocumentRehomesExactMisplacedRootCauseSchemaVersion(t *testing.T) {
-	for _, outerVersion := range []any{types.TraceRootCauseReportSchemaVersion, "2"} {
-		t.Run("outer_version", func(t *testing.T) {
+	tests := []struct {
+		name          string
+		outerVersion  any
+		reportCarrier any
+	}{
+		{
+			name: "integer version and native report", outerVersion: types.TraceRootCauseReportSchemaVersion,
+			reportCarrier: map[string]any{"root_causes": []map[string]any{{"candidate_id": "candidate-sched"}}},
+		},
+		{
+			name: "string version and native report", outerVersion: "2",
+			reportCarrier: map[string]any{"root_causes": []map[string]any{{"candidate_id": "candidate-sched"}}},
+		},
+		{
+			name: "string version and json encoded report", outerVersion: "2",
+			reportCarrier: `{"root_causes":[{"candidate_id":"candidate-sched"}]}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			mutable := types.NewMutableState("analyze trace root cause")
 			mutable.SetTraceFindingContract(testSelectableTraceRootCauseContract())
 			ctx := &types.BusContext{Mutable: mutable}
@@ -81,10 +99,8 @@ func TestEmitAnswerDocumentRehomesExactMisplacedRootCauseSchemaVersion(t *testin
 				"blocks": []map[string]any{{
 					"id": "summary", "kind": "summary", "text": "model answer remains authoritative",
 				}},
-				"schema_version": outerVersion,
-				"trace_root_causes": map[string]any{
-					"root_causes": []map[string]any{{"candidate_id": "candidate-sched"}},
-				},
+				"schema_version":    test.outerVersion,
+				"trace_root_causes": test.reportCarrier,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -115,6 +131,9 @@ func TestNormalizeMisplacedTraceRootCauseSchemaVersionFailsOpenOnAmbiguity(t *te
 		{name: "nested version already present", raw: `{"schema_version":"2","trace_root_causes":{"schema_version":2,"root_causes":[]}}`},
 		{name: "selection carrier absent", raw: `{"schema_version":"2","trace_root_causes":{}}`},
 		{name: "optional object absent", raw: `{"schema_version":"2","blocks":[]}`},
+		{name: "encoded report is malformed", raw: `{"schema_version":"2","trace_root_causes":"{not-json}"}`},
+		{name: "encoded report is array", raw: `{"schema_version":"2","trace_root_causes":"[]"}`},
+		{name: "encoded report is null", raw: `{"schema_version":"2","trace_root_causes":"null"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
