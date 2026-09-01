@@ -413,6 +413,35 @@ func TestExplorerRuntimeQuestionScopeWorkflowKeepsFiniteAndCausalLanesSeparate(t
 	}
 }
 
+func TestExplorerRuntimeQuestionScopeWorkflowSeparatesSchedulerAndSemanticWork(t *testing.T) {
+	profile := &types.RuntimeQuestionProfile{
+		Scope:                        types.RuntimeQuestionScopeCausalDiagnosis,
+		RuntimeWorkRelationRequested: true,
+	}
+	ctx := &types.AgentContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		RuntimeQuestionProfile: profile,
+	}}}
+
+	got := renderExplorerRuntimeQuestionScopeWorkflow(ctx)
+	for _, want := range []string{
+		"keep the scheduler and semantic-work inventories distinct",
+		"explicitly typed as semantic span/work",
+		"A scheduler-state row",
+		"A is the recorded waker/source and B is the wakee/target",
+		"`runnable` means eligible but waiting for CPU",
+		"does not pre-decide the model-owned relation or root-cause conclusion",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("runtime work-relation explorer guidance missing %q:\n%s", want, got)
+		}
+	}
+
+	profile.RuntimeWorkRelationRequested = false
+	if got := renderExplorerRuntimeQuestionScopeWorkflow(ctx); got != "" {
+		t.Fatalf("causal trace without a work-relation subquestion gained extra prompt load:\n%s", got)
+	}
+}
+
 func TestAnswerDocObservationPromptRecords_RouteBackedTypedRuntimeUsesAuthorityCompactBudget(t *testing.T) {
 	ctx := &types.AgentContext{
 		TurnRouteHint: types.TurnRouteHint{Source: "mixed", NeedsRepoAccess: true},

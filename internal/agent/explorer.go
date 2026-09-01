@@ -3842,6 +3842,9 @@ func renderExplorerRuntimeQuestionScopeWorkflow(ctx *types.AgentContext) string 
 	}
 	profile := ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile
 	var b strings.Builder
+	if profile.RequestsRuntimeWorkRelation() {
+		b.WriteString("Typed runtime work-relation subquestion: keep the scheduler and semantic-work inventories distinct. Only a `trace_query` row explicitly typed as semantic span/work, with its own span name, class, and duration, may be described as deterministic semantic work. A scheduler-state row (`runnable`, `running`, `sleep`, D-state, or IO wait) remains scheduler occupancy even when it is on the wakeup chain; a thread name or chain membership does not reclassify it. For an edge `A -> B`, A is the recorded waker/source and B is the wakee/target. `runnable` means eligible but waiting for CPU, while `running` means executing on CPU. Preserve these typed meanings in `emit_investigation_complete.reason` and `aggregate_facts`; do not title a mixed scheduler roster as a semantic-work roster. This is evidence calibration only and does not pre-decide the model-owned relation or root-cause conclusion.\n\n")
+	}
 	switch profile.Scope {
 	case types.RuntimeQuestionScopeBoundedFactSet, types.RuntimeQuestionScopeBoundedEffectVerdict:
 		fmt.Fprintf(&b, "Typed runtime answer breadth: `%s`; requested fact families: `%s`.\n", profile.Scope, runtimeQuestionFactFamiliesForPrompt(profile.FactFamilies))

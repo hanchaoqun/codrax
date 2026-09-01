@@ -70020,3 +70020,44 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1601 r996/B1523：关系席接线生效，但探索摘要先行混淆调度状态与语义工作（2026-08-31）
+
+1. 从已推送 `692bcaea8` 重建二进制，严格并发恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace；runner 2/2 PASS：Java
+   159s、Trace 167s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_multiaxis_r996_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_multiaxis_r996_20260831_manual_audit.md`。
+2. Java 人工判 pass，且 B1522 获得生产正证：不再出现 `whole_replace_not_authorized` 同块死循环；容量门准确落到
+   `VisitService.schedule:18`，真实审计终点准确识别为 `AuditLog.record -> System.out.println`。成文拒绝从 r995 的 6 次降至 4 次，仍有
+   roster/order 同批提交、可选 sequence reply 和第二 summary 的 P2 流程噪声；可见答案把 6 个节点称作“6 跳”、把 sibling config/count
+   调用线性编号且一处误称 stdout 为内存写入，但 Mermaid 与终点 caveat 足以保持核心回答正确，本批不按单例词面加硬门。
+3. Trace runner 虽 PASS，人工判 fail。显式 10ms 窗、6 次 typed query、链上根因排序、目标状态守恒、实际占时/规则可消双账户、
+   `VerifyClass ...` 0.285ms、runtime-work relation receipt、自动补齐和最终 `Trace 因果投影` 均在；没有固定 4ms、4m、活动流年龄或上下文比例降级。
+   但模型正文把 runnable 写成“持续占用 CPU”，把 `NetworkService -> CookieMonsterCl` 反写成 NetworkService 被后者唤醒，并把
+   NetworkService/CookieMonster 的纯 scheduler rows 归入“确定性优化线程”。系统投影随后正确披露 T7 typed semantic span、直接裸边与
+   semantic completion/target-wait binding 未证，但系统不能用正确投影替换模型回答。
+4. `B1523-EXPLORERTRACESEMANTICROLECALIBRATION1/P1` 经上下文复核确认，不是 finalizer 教学漏接：最终 prompt 已逐字包含
+   “scheduler-state rows ... do not rename ... deterministic semantic work”，typed semantic inventory 也只含 T7 VerifyClass。真正冲突发生在更早的
+   explorer：它把三个 scheduler-chain 节点铸成高置信 `aggregate_facts.member_set`，标题为“入链的确定性工作线程”；这个模型摘要随后与正确 typed
+   清册并置，增加最终模型的错误先验。r958/r960 已出现同类混淆，因此不再按一次模型波动处理。
+5. 根修只消费 analyzer 的 `RuntimeQuestionProfile.RuntimeWorkRelationRequested` typed boolean，在 explorer 开始调查时提前校准两个清册：只有
+   trace_query 明确标成 semantic span/work 且带自身名称、类别、时长的行可称确定性语义工作；runnable/running/sleep/D/IO 始终是 scheduler
+   occupancy，线程名和入链身份不能改类；`A -> B` 固定为 A 是记录的唤醒源、B 是被唤醒目标；runnable 是可运行但等待 CPU，running 才是正在
+   CPU 执行。并要求该含义原样进入 explorer reason/aggregate handoff，避免污染下一阶段。
+6. 该修复是 soft evidence calibration，不扫描用户原文、模型 thinking、aggregate label、最终正文、Markdown 或 Mermaid，不拒绝成文，不选择
+   yes/no/mixed/unproven、根因或关系，也不删除/替换模型答案。没有 runtime-work 子问的 causal Trace 不增加这段心智负担；正反测试分别钉住
+   typed 开启与关闭臂。Trace 根因仍只来自 typed on-chain 席，邻近/背景仍只支撑额外排查方向。
+
+状态：
+
+`r996=runner-pass-2/2,human-java-pass+trace-fail`；
+`B1522=production-positive/core-closed`；
+`B1523=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`scheduler-state/semantic-work=wired-as-distinct-explorer-handoff-inventories`；
+`wakeup-edge-direction=A-source-to-B-target`；
+`runnable=eligible-waiting-for-cpu,running=executing-on-cpu`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r996`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r996`。
