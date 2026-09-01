@@ -123,6 +123,20 @@ func projectAnswerDocumentPatchRelationScopeEdits(
 	ctx *types.AgentContext,
 	prev *types.AnswerDocumentV2,
 ) json.RawMessage {
+	return projectAnswerDocumentPatchRelationScopeEditsForBus(
+		raw,
+		agentBusContextForAnswerPatchScope(ctx),
+		prev,
+		types.BuildAnswerSemanticViewForAgentContext(ctx),
+	)
+}
+
+func projectAnswerDocumentPatchRelationScopeEditsForBus(
+	raw json.RawMessage,
+	bus *types.BusContext,
+	prev *types.AnswerDocumentV2,
+	view *types.AnswerSemanticView,
+) json.RawMessage {
 	var root map[string]any
 	if err := json.Unmarshal(raw, &root); err != nil {
 		return raw
@@ -135,10 +149,7 @@ func projectAnswerDocumentPatchRelationScopeEdits(
 	if field == nil {
 		return raw
 	}
-	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	capabilities := answerDocumentPatchRelationScopeCapabilities(
-		agentBusContextForAnswerPatchScope(ctx), prev, view,
-	)
+	capabilities := answerDocumentPatchRelationScopeCapabilities(bus, prev, view)
 	if len(capabilities) == 0 {
 		delete(properties, "diagram_relation_scope_edits")
 	} else {

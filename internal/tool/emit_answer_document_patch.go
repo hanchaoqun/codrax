@@ -296,26 +296,41 @@ func (t *EmitAnswerDocumentPatch) Parameters() json.RawMessage {
 // fields or per-dispatch projections are added.
 func (t *EmitAnswerDocumentPatch) ParametersFor(ctx *types.AgentContext) json.RawMessage {
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if ctx == nil {
+		return BuildAnswerDocumentPatchParametersFor(view)
+	}
+	return t.parametersForContext(view, ctx.Mutable, agentBusContextForAnswerPatchScope(ctx))
+}
+
+// parametersForContext keeps the agent-advertised and BusContext execution
+// repair surfaces on one projection path. Execute-time failure metadata must
+// describe the same live lease schema that the finalizer received, not the
+// broad process-wide fallback schema.
+func (t *EmitAnswerDocumentPatch) parametersForContext(
+	view *types.AnswerSemanticView,
+	mut *types.MutableState,
+	scopeBus *types.BusContext,
+) json.RawMessage {
 	raw := BuildAnswerDocumentPatchParametersFor(view)
-	if ctx == nil || ctx.Mutable == nil {
+	if mut == nil {
 		return raw
 	}
-	contract := ctx.Mutable.TraceFindingContract()
+	contract := mut.TraceFindingContract()
 	raw = projectTraceFindingContract(raw, contract, true)
 	raw = projectTraceRootCauseReport(raw, contract, true)
-	prev := ctx.Mutable.PendingAnswerDocumentPatchBase()
+	prev := mut.PendingAnswerDocumentPatchBase()
 	if prev == nil {
-		prev = ctx.Mutable.AnswerDocumentV2()
+		prev = mut.AnswerDocumentV2()
 	}
 	if prev == nil {
-		prev = recoverPrevFromRetryState(ctx.Mutable)
+		prev = recoverPrevFromRetryState(mut)
 	}
 	if prev == nil {
-		prev = recoverPrevFromRejectedDraft(ctx.Mutable)
+		prev = recoverPrevFromRejectedDraft(mut)
 	}
-	raw = projectAnswerDocumentPatchRelationScopeEdits(raw, ctx, prev)
+	raw = projectAnswerDocumentPatchRelationScopeEditsForBus(raw, scopeBus, prev, view)
 	raw = projectAnswerDocumentPatchModelBlockOrder(raw, prev)
-	lease := ctx.Mutable.AnswerDiagramRelationRepairLease()
+	lease := mut.AnswerDiagramRelationRepairLease()
 	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		raw = projectAnswerDocumentPatchFieldEditTargets(raw, prev, view, nil)
 		raw = projectAnswerDocumentPatchReceiptEditTargets(raw, prev, nil)
@@ -3077,8 +3092,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					repair.Metadata[types.ToolRepairMetaDiagramParticipantDispositionRosterJSON] = rosterJSON
 					repair.Metadata[types.ToolRepairMetaDiagramRelationProgressSignature] = progressSignature
 				}
-				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. The whole rejected patch transaction was rolled back: none of its edge, boundary, participant, block, or citation operations were committed. Re-read the complete current typed delta and resubmit every operation you still choose together in one new atomic patch; do not assume a valid sibling operation from the rejected call already applied, and do not guess, silently drop, or widen operations."
-				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
+				repair.Hint = "The submitted atomic diagram operation is not executable under the current relation-repair lease. The whole rejected patch transaction was rolled back: none of its edge, boundary, participant, block, or citation operations were committed. Re-read the complete current typed delta and resubmit every operation you still choose together in one new atomic patch; do not assume a valid sibling operation from the rejected call already applied, and do not guess, silently drop, or widen operations. For a failure branch, copy exactly {failure_ref,action} plus only its branch-published model fields. For an addition branch, copy exactly {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}. Ref-selected branches do not accept block_id or legacy match coordinates; every ref, action, endpoint, and label remains your choice."
+				result, resultErr := failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
+				result.Repair = attachToolJSONSurfaceMetadataForSchema(
+					t.Name(), t.parametersForContext(types.BuildAnswerSemanticViewForBusContext(ctx), ctx.Mutable, ctx), result.Repair,
+				)
+				return result, resultErr
 			}
 			if repair := answerDiagramRelationRepairLeaseAbsentRepair(p.DiagramEdgeEdits); repair != nil {
 				return failEmitWithRepair(t.Name(), now, repair, "diagram atomic edits: %s", err.Error())
@@ -3704,8 +3723,10 @@ func answerDiagramRelationRepairScopeRepair(
 		}
 	}
 	return &types.ToolRepair{
-		Code:     types.ToolRepairCodeAnswerDocRelationRepairScope,
-		Hint:     "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. You may choose a listed allowed_additions[] row through its addition_ref at most once and still author the visible nodes/label; do not add any other relation.",
+		Code: types.ToolRepairCodeAnswerDocRelationRepairScope,
+		Hint: "Keep the existing required diagram block ids, kinds, and count unchanged. Keep every unlisted edge_anchor tuple unchanged; remove or correct only failures[] on the same endpoint pair. " +
+			"For a failure branch, copy exactly {failure_ref,action} and add only the branch-published replacement/label fields. For an addition branch, copy exactly {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}. " +
+			"Ref-selected branches do not accept block_id or legacy match coordinates. You may choose each listed row at most once; do not add any other relation. Every ref, action, endpoint, and label remains your choice.",
 		Fields:   fields,
 		Metadata: metadata,
 	}

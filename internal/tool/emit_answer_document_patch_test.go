@@ -812,6 +812,18 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 				`{"from_node":"Worker","to_node":"Sink","relation_kind":"call","visible_label":"model label"}}]}`,
 			summaryWant: "unknown or stale",
 		},
+		{
+			name: "live add branch missing addition ref",
+			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
+				`{"action":"add","edge":{"from_node":"Worker","to_node":"Sink","visible_label":"model label"}}]}`,
+			summaryWant: "action=add is missing addition_ref",
+		},
+		{
+			name: "live failure branch missing failure ref",
+			params: `{"unchanged_block_ids":["summary"],"diagram_edge_edits":[` +
+				`{"action":"remove"}]}`,
+			summaryWant: "action=\"remove\" is missing failure_ref",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -824,6 +836,27 @@ func TestEmitAnswerDocumentPatch_AtomicEditFailureRepublishesCurrentRelationLeas
 			}
 			if !strings.Contains(res.Summary, tc.summaryWant) {
 				t.Fatalf("exact executor failure %q must remain visible in the summary: %s", tc.summaryWant, res.Summary)
+			}
+			if strings.Contains(tc.name, "missing") && strings.Contains(res.Summary, "empty block_id") {
+				t.Fatalf("live ref omission must not leak the legacy block_id lane: %s", res.Summary)
+			}
+			if strings.Contains(tc.name, "missing") && (res.Repair == nil ||
+				!strings.Contains(res.Repair.Hint, `{addition_ref,action:"add",edge:{from_node,to_node,visible_label}}`) ||
+				!strings.Contains(res.Repair.Hint, "do not accept block_id")) {
+				t.Fatalf("live repair must teach the executable ref branch from one source: %+v", res.Repair)
+			}
+			if strings.Contains(tc.name, "missing") {
+				surface, ok := types.ToolJSONSurfaceDescriptorFromToolRepair(res.ToolName, res.Repair)
+				if !ok {
+					t.Fatalf("live ref omission repair lost its dynamic JSON surface: %+v", res.Repair)
+				}
+				joined := strings.Join(surface.AcceptedFieldPaths, "\n")
+				if strings.Contains(joined, "diagram_edge_edits[].block_id") ||
+					strings.Contains(joined, "diagram_edge_edits[].match") ||
+					!strings.Contains(joined, "diagram_edge_edits[].addition_ref") ||
+					!strings.Contains(joined, "diagram_edge_edits[].edge.from_node") {
+					t.Fatalf("repair surface must equal the current ref-selected schema, got:\n%s", joined)
+				}
 			}
 			raw := res.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON]
 			if !strings.Contains(raw, `"failure_ref":"`+liveRef+`"`) ||

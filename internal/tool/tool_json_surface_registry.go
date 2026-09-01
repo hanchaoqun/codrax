@@ -38,6 +38,32 @@ func attachToolJSONSurfaceMetadata(toolName string, repair *types.ToolRepair) *t
 	return repair
 }
 
+// attachToolJSONSurfaceMetadataForSchema is the dynamic-schema counterpart to
+// the process-wide static registry. Dispatch-projected tools may remove whole
+// operation branches or narrow them to exact refs; a repair emitted from that
+// dispatch must not advertise fields that only exist in the broad fallback
+// schema. The caller supplies the same schema that was exposed for the current
+// tool call. This carrier changes no tool payload or repair decision.
+func attachToolJSONSurfaceMetadataForSchema(toolName string, schema json.RawMessage, repair *types.ToolRepair) *types.ToolRepair {
+	if repair == nil {
+		return nil
+	}
+	surface := compileToolJSONSurfaceDescriptor(toolName, schema)
+	surface.ReasonCode = firstNonEmptyToolJSONSurfaceString(repair.Metadata["reason_code"], repair.Metadata["repair_status"], repair.Code)
+	surface.FailingFieldPaths = append(surface.FailingFieldPaths,
+		toolJSONSurfaceFailingFieldPaths(repair.Fields, surface.AcceptedFieldPaths)...)
+	surface = types.NormalizeToolJSONSurfaceDescriptor(surface)
+	encoded := types.ToolJSONSurfaceDescriptorJSON(surface)
+	if encoded == "" {
+		return repair
+	}
+	if repair.Metadata == nil {
+		repair.Metadata = map[string]string{}
+	}
+	repair.Metadata[types.ToolJSONSurfaceMetadataKey] = encoded
+	return repair
+}
+
 func toolJSONSurfaceDescriptorForRepair(toolName string, repair *types.ToolRepair) (types.ToolJSONSurfaceDescriptor, bool) {
 	if repair == nil {
 		return types.ToolJSONSurfaceDescriptor{}, false

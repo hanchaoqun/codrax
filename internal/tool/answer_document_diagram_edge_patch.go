@@ -527,6 +527,28 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 			}
 			usedAdditionRefs[additionRef] = true
 		}
+		// A live local lease publishes exact ref-selected oneOf branches and
+		// deliberately removes the legacy block_id/match coordinate lane from
+		// the model-facing schema. Go's structural decoder cannot enforce that
+		// oneOf by itself: a ref-less {action,edge} object otherwise reaches the
+		// compatibility executor and fails later as the misleading
+		// "empty block_id" error. Fail at the actual missing branch selector so
+		// the retry never teaches a block_id field that is unavailable in this
+		// generation. The model still chooses the ref, action, endpoints, and
+		// wording; no candidate is inferred from visible nodes or prose.
+		if lease != nil && failureRef == "" && additionRef == "" && strings.TrimSpace(edit.BlockID) == "" {
+			action := strings.ToLower(strings.TrimSpace(edit.Action))
+			if action == "add" {
+				return fmt.Errorf(
+					"diagram_edge_edits[%d] does not match any current live schema branch: action=add is missing addition_ref; choose one exact published addition_ref and use {addition_ref,action:\"add\",edge:{from_node,to_node,visible_label}}; block_id is not available on this branch",
+					i,
+				)
+			}
+			return fmt.Errorf(
+				"diagram_edge_edits[%d] does not match any current live schema branch: action=%q is missing failure_ref; choose one exact published failure_ref/action branch; block_id and legacy match coordinates are not available on this branch",
+				i, action,
+			)
+		}
 		var err error
 		edit, err = resolveAtomicDiagramFailureRef(edit, lease)
 		if err != nil {

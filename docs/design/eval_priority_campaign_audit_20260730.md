@@ -57321,6 +57321,13 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    错误返回，不把模型波动升级为硬门。
 8. 本轮 B1538 roster 让错误的模型节点处置变得可见且可恢复，这属于正确 fail-close；不能为降低重试次数让系统自动保留 Extract 或自动删除
    Orchestrator。后续优化只减少合同歧义和重复心智，不接管模型的关系、节点、措辞或结论所有权。
+9. `B1542` 已按 schema/runtime 同源原则施工：动态 schema 原本已用互斥 `oneOf` 正确限定 ref 分支，真正 gap 是 Go 执行器未在“live lease、
+   无 ref、无显式 legacy block 坐标”处 fail-loud，导致请求落入旧坐标解析并误报 `empty block_id`；同时失败修复卡片取自静态宽 schema，向模型
+   展示了本轮动态 schema 已禁止的 `block_id/match`。现在 add 分支缺 `addition_ref`、其他动作缺 `failure_ref` 时直接返回各自精确可执行形；明确
+   `block_id/match` 不可用，但 ref、action、端点和可见标签仍全部由模型选择。已有显式 block 坐标的兼容车道保持不变。
+10. 动态 relation-scope schema 投影已抽成 Agent/Bus 共用入口；失败后的 `tool_json_surface` 也从当前 live schema 编译，不再从静态注册表猜本轮
+    可用字段。新增回归同时钉住：错误摘要不得再出现 `empty block_id`，可执行提示包含正确 ref 形，repair surface 排除 `block_id/match` 并包含
+    `addition_ref` 与 `edge.from_node`。`go test ./internal/tool -count=1`、`go test ./... -count=1`、`make`、`git diff --check` 全绿。
 
 状态：
 
@@ -57328,7 +57335,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1538=production-positive/core-closed`；
 `B1540=production-positive-sequence-alias/stage-display-reuse-separate`；
 `B1541=confirmed/P1/typed-role-coverage-gap`；
-`B1542=confirmed-symptom/P1/schema-vs-teaching-audit-next`；
+`B1542=implemented/P1/live-branch-fail-loud+dynamic-repair-surface/full-suite+build-pass/pending-production-replay`；
 `system-answer/conclusion/relation/node-disposition-selection=none`；
 `request/model-final-prose/markdown/mermaid-message fact-scan=none`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive`；
