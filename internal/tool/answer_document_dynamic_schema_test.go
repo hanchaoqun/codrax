@@ -1067,7 +1067,6 @@ func assertEndpointLabelStateContract(t *testing.T, branch map[string]any, idLab
 		want[idLabels[i]] = idLabels[i+1]
 	}
 	seen := map[string]map[string]bool{"from": {}, "to": {}}
-	newEndpointRequired := map[string]bool{}
 	for _, rawRule := range allOf {
 		rule := rawRule.(map[string]any)
 		ifNode := rule["if"].(map[string]any)
@@ -1079,10 +1078,8 @@ func assertEndpointLabelStateContract(t *testing.T, branch map[string]any, idLab
 				continue
 			}
 			ids := nodeRule.(map[string]any)["enum"].([]any)
-			if elseNode, hasElse := rule["else"].(map[string]any); hasElse {
-				required := elseNode["required"].([]any)
-				newEndpointRequired[side] = reflect.DeepEqual(required, []any{side + "_node_visible_label"}) && len(ids) == len(want)
-				continue
+			if _, hasElse := rule["else"]; hasElse {
+				t.Fatalf("new endpoints must not require a duplicate visible-label field: %+v", rule)
 			}
 			if len(ids) != 1 {
 				continue
@@ -1096,9 +1093,6 @@ func assertEndpointLabelStateContract(t *testing.T, branch map[string]any, idLab
 		}
 	}
 	for side := range seen {
-		if !newEndpointRequired[side] {
-			t.Fatalf("%s-side new endpoint did not require a model-authored visible label: %+v", side, allOf)
-		}
 		for id := range want {
 			if !seen[side][id] {
 				t.Fatalf("%s-side existing endpoint %q did not permit only its exact current label: %+v", side, id, allOf)

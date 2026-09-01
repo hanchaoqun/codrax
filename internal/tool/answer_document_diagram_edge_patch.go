@@ -1748,9 +1748,11 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 // ensureAtomicDiagramEndpointDeclarations prevents an atomic edge edit from
 // making Mermaid invent an unlabeled implicit node. The model owns both the
 // endpoint id and the optional reader-facing node labels. Existing explicit
-// declarations remain byte-identical; each newly introduced endpoint requires
-// its matching model-authored label and is encoded through a family-specific
-// syntax adapter. No identity or wording is inferred from the relation lease.
+// declarations remain byte-identical. For a newly introduced endpoint, an
+// omitted display label falls back only to the exact node id the model already
+// authored in this edit; an explicit model label still wins. The adapter never
+// derives identity or wording from the relation lease, technical identity,
+// source text, or prompt prose.
 func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emitAnswerDiagramEdgeEdit) error {
 	if block == nil || block.Diagram == nil || edit.Edge == nil {
 		return fmt.Errorf("edge endpoint declarations require an existing diagram and edge")
@@ -1778,7 +1780,7 @@ func ensureAtomicDiagramEndpointDeclarations(block *types.AnswerBlock, edit emit
 			continue
 		}
 		if endpoint.label == "" {
-			return fmt.Errorf("%s_visible_label is required because edge.%s=%q has no explicit declaration; author one reader-facing node name", endpoint.field, endpoint.field, endpoint.node)
+			endpoint.label = endpoint.node
 		}
 		if prior, exists := pending[endpoint.node]; exists {
 			if prior != endpoint.label {

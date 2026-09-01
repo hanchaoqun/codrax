@@ -768,7 +768,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_ValidatesTechnicalEndpointBeforeUn
 	}
 }
 
-func TestApplyModelAuthoredDiagramAtomicEdits_RequiresModelVisibleNameForNewEndpointAcrossFamilies(t *testing.T) {
+func TestApplyModelAuthoredDiagramAtomicEdits_SupportsExplicitModelVisibleNameAcrossFamilies(t *testing.T) {
 	tests := []struct {
 		name            string
 		kind            types.DiagramKind
@@ -837,7 +837,7 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RequiresModelVisibleNameForNewEndp
 	}
 }
 
-func TestApplyModelAuthoredDiagramAtomicEdits_RejectsImplicitEndpointWithoutModelVisibleName(t *testing.T) {
+func TestApplyModelAuthoredDiagramAtomicEdits_DeclaresImplicitEndpointFromExactModelNodeID(t *testing.T) {
 	prev := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "diag", Kind: types.BlockDiagram,
 		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid", Body: `flowchart LR
@@ -852,11 +852,32 @@ func TestApplyModelAuthoredDiagramAtomicEdits_RejectsImplicitEndpointWithoutMode
 			RelationKind: types.DiagramRelCall, VisibleLabel: "提交任务",
 		},
 	}}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "to_node_visible_label is required") {
-		t.Fatalf("implicit technical endpoint must require a model-authored display name: %v", err)
+	if err != nil {
+		t.Fatalf("exact model-authored node id should be a safe declaration fallback: %v", err)
 	}
-	if len(patch.ReplaceBlocks) != 0 {
-		t.Fatalf("rejected declaration must remain transactional: %+v", patch)
+	if len(patch.ReplaceBlocks) != 1 || patch.ReplaceBlocks[0].Diagram == nil {
+		t.Fatalf("compiled declaration missing: %+v", patch)
+	}
+	body := patch.ReplaceBlocks[0].Diagram.Body
+	if !strings.Contains(body, `InternalHandler_a1b2["InternalHandler_a1b2"]`) ||
+		!strings.Contains(body, `Existing -->|提交任务| InternalHandler_a1b2`) {
+		t.Fatalf("fallback must reuse only the exact submitted id and preserve the edge:\n%s", body)
+	}
+}
+
+func TestEnsureAtomicDiagramEndpointDeclarations_ExplicitModelLabelOverridesNodeIDFallback(t *testing.T) {
+	block := types.AnswerBlock{Kind: types.BlockDiagram, Diagram: &types.AnswerDiagramBlock{
+		Kind: types.DiagramFlow, Language: "mermaid", Body: "flowchart LR\n  Existing[\"已有组件\"]",
+	}}
+	edit := emitAnswerDiagramEdgeEdit{
+		ToNodeVisibleLabel: "业务处理器",
+		Edge:               &types.DiagramEdgeAnchor{FromNode: "Existing", ToNode: "InternalHandler_a1b2"},
+	}
+	if err := ensureAtomicDiagramEndpointDeclarations(&block, edit); err != nil {
+		t.Fatalf("explicit model label should remain authoritative: %v", err)
+	}
+	if !strings.Contains(block.Diagram.Body, `InternalHandler_a1b2["业务处理器"]`) {
+		t.Fatalf("explicit label was not preserved:\n%s", block.Diagram.Body)
 	}
 }
 

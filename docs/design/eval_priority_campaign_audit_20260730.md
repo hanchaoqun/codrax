@@ -70244,13 +70244,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    不以此样例扩张宽松 JSON 合同。
 7. 本批不改变 read-mode 关系证据门、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有用用户问题、
    模型 thinking、最终正文、Markdown 或 Mermaid 关键词做硬门。
+8. B1531 已按上述窄边界实现：动态 schema 不再要求新端点重复提交显示名；executor 在字段缺省时只把 `edge.from_node/to_node` 的原值交给
+   Mermaid family adapter 建立显式声明。模型显式提交的 distinct label 仍优先，已有节点只允许省略或逐字重放当前 label，非法 node id 仍由
+   adapter fail-closed。回归覆盖 flow 默认声明、显式业务 label 优先、已有 label 冲突拒绝、动态 schema 无新端点必填 else 臂。关系候选、方向、
+   technical identity、edge wording 与 orphan 处置均未由系统选择。
 
 状态：
 
 `r1001=runner-fail-2/2,human-write-pass+read-fail`；
 `B1529=production-adherence-incomplete/soft-guidance-retained`；
 `B1530=implemented/targeted-pass/pending-full-suite+production-replay`；
-`B1531=filed/next-batch`；
+`B1531=implemented/typed-syntax-only/targeted-pass/pending-full-suite+production-replay`；
 `write-completion/proof/ledger-authority=single-typed-production-path-capability`；
 `diagram-node-label-fallback=model-authored-node-id-only/planned`；
 `system-answer/conclusion/relation/wording-selection=none`；
