@@ -70350,3 +70350,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1003`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1003`。
+
+### §123.1609 r1004/B1535：编辑后依赖闭包未命中；初始 alias 与修补端点能力自冲突（2026-09-01）
+
+1. 从已推送 `810396e28` 构建不可变二进制，严格并发恰好 2 路复放 Zod write 与 read-mode“时序图+阶段表”；读模式
+   runner PASS 776s，write runner 因诚实的 `unverified:impact_targets_unverified` 判 FAIL 200s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1004_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1004_20260901_manual_audit.md`；两路人工均判 pass。
+2. Zod 补丁与回归正确：`_prefault` 从 truthiness 改为结构存在判断，false/0/空串均有测试；`make check` 退出 0。该仓的 check 由 Python
+   读取 TypeScript 源码，只证明 source-static shape，Node/TypeScript 行为探针不可用，因此结构化完成权威正确保留“未完全验证”。模型内部曾把
+   `report.passed` 叙述成“所有 typed contracts 已通过”，但 controller 没有采信，最终用户面没有绿色谎报。本轮不因模型内部叙述增加 prose
+   硬门；后续只观察 typed completion/proof carrier 是否还会出现可见冲突。
+3. 读模式最终答案可用：合法 sequenceDiagram、四阶段顺序、输入/输出/载体表与引用齐全；普通关系门正确删除无证据的 dispatcher fan-out、
+   state-flow 和伪 return，只保留两条已证调用及三条 typed stage precedence。最终图没有重复 stage actor，也没有内部复合键或孤立 BusContext。
+4. `B1534` 本轮不能宣称生产正证。首个包含 forward 删除的 relation patch 尚未形成 unpublished graph，就先因 JSON 字符串内数组畸形、
+   `whole_replace_not_authorized` 与端点 carrier 错误被拒；因此没有进入“forward 已删、原 reply 在 exact post-edit graph 悬空”的依赖闭包。
+   代码回归仍全绿，状态保持 implemented/pending-production-replay。
+5. 新确认 `B1535-DIAGRAMSEEDPATCHENDPOINTCONSISTENCY1/P1`。同一 finalizer 上下文的初始 Diagram Seeds 明确发布
+   `principal_node_alias[n1]=analyzer`、`n2=explorer`、`n3=extractor`、`n4=finalizer`；关系修补 live addition 却只接受 technical identity 或
+   repair producer 单独列出的 node id，并把模型照抄的 `n1` 确定性拒绝为“not a typed carrier”。这是同一 typed relation 的初稿 authoring
+   capability 与 retry capability 不同源，不是模型波动；它增加至少一轮失败，还诱导模型在 n1/analyzer/既有 participant ID 三套名字间猜测。
+6. 最优修向不是放宽端点或从 prose 猜别名，而是把初始 Diagram Seeds 的 alias carrier 与 live repair endpoint carrier 接到同一 typed
+   node-candidate 编译器：只有 alias 在当前图/当前 relation side 唯一绑定同一 technical identity 时才进入该 side 的允许 node id；零匹配、
+   多匹配或跨代 alias fail-closed。若已存在唯一显式 participant，继续复用该 participant ID；不得新建关系、改向、生成业务 label、替模型处置
+   orphan 或重写答案。动态 schema、executor 与 retry 教学必须从同一 candidate set 生成，并补“seed alias 可执行/陈腐或歧义 alias 拒绝/既有
+   participant 优先/Trace 隔离”回归。
+7. 本批没有改变 read-mode 关系证据权威、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有使用用户请求、
+   模型 thinking、最终正文、Markdown、Mermaid message/label 做事实硬门，也没有系统删除、替换或补写模型答案。
+
+状态：
+
+`r1004=runner-read-pass+write-fail,human-pass-2/2`；
+`B1534=implemented/full-suite-pass/production-not-exercised`；
+`B1535=confirmed/P1/planned-next`；
+`write-source-static-boundary=honest-user-visible-unverified`；
+`diagram-initial-seed/retry-endpoint-capability=must-share-one-typed-candidate-source`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
