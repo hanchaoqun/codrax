@@ -1066,16 +1066,20 @@ type Query struct {
 	// "thread" preserve the exact scheduler-TID contract. "process" is
 	// explicit opt-in and admits only spans whose emitter TGID or trace-mark
 	// payload SpanPID exactly equals PID.
-	TargetScope            string
-	TimeStart              float64
-	TimeEnd                float64
-	TimeStartSet           bool
-	TimeEndSet             bool
-	LineStart              int
-	LineEnd                int
-	EventTypes             []EventType
-	TraceMarkActions       []TraceMarkAction
-	Pattern                string
+	TargetScope      string
+	TimeStart        float64
+	TimeEnd          float64
+	TimeStartSet     bool
+	TimeEndSet       bool
+	LineStart        int
+	LineEnd          int
+	EventTypes       []EventType
+	TraceMarkActions []TraceMarkAction
+	Pattern          string
+	// Patterns is an event_search-only OR set of exact case-insensitive
+	// literals. Pattern remains the backward-compatible single literal and,
+	// when both are present, joins this set. Neither field has regex semantics.
+	Patterns               []string
 	SpanName               string
 	FrameWindowAutoDerived bool
 	InteractionDirection   string

@@ -127,6 +127,7 @@ func (v *platformSurfaceVote) result(scoped bool) platformSurfaceScan {
 //     parse; early stops end the scan before EOF),
 //   - the scan reached EOF (reachedEOF — a budget denial / early stop /
 //     LineEnd break never qualifies).
+//
 // An ineligible scan mints nothing (the record waits for the next eligible
 // scan) and consumes an existing record normally; with no record it falls
 // back to its own scan vote, marked Scoped=true so resolveTracePlatform can
@@ -135,7 +136,7 @@ func (v *platformSurfaceVote) result(scoped bool) platformSurfaceScan {
 // blind label for the whole file, and an LRU-evicted record re-mints from a
 // complete basis only (跨驱逐同 run 翻转形 closed).
 func platformSurfaceMintEligible(q Query, reachedEOF bool) bool {
-	return reachedEOF && q.Pattern == "" &&
+	return reachedEOF && !eventSearchHasLiteralPatterns(q) &&
 		q.TimeStart == 0 && q.TimeEnd == 0 && q.LineStart == 0 && q.LineEnd == 0
 }
 

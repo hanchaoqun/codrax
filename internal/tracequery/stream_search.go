@@ -1532,13 +1532,22 @@ func streamStateClusterFilterLabel(q Query) string {
 }
 
 func streamEventSearchRawCandidate(line string, lineNo int, q Query) bool {
-	pattern := strings.ToLower(strings.TrimSpace(q.Pattern))
-	if pattern == "" {
+	if !eventSearchHasLiteralPatterns(q) {
 		return true
 	}
 	lower := strings.ToLower(line)
-	if strings.Contains(lower, pattern) {
+	lineNumber := strconv.Itoa(lineNo)
+	matches := func(raw string) bool {
+		pattern := strings.ToLower(raw)
+		return pattern != "" && (strings.Contains(lower, pattern) || strings.Contains(lineNumber, pattern))
+	}
+	if matches(strings.TrimSpace(q.Pattern)) {
 		return true
 	}
-	return strings.Contains(strconv.Itoa(lineNo), pattern)
+	for _, raw := range q.Patterns {
+		if matches(strings.TrimSpace(raw)) {
+			return true
+		}
+	}
+	return false
 }

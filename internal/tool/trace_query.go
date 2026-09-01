@@ -48,6 +48,7 @@ type traceQueryParams struct {
 	EventTypes           TraceEventTypes  `json:"event_types,omitempty"`
 	TraceMarkActions     TraceMarkActions `json:"trace_mark_actions,omitempty"`
 	Pattern              string           `json:"pattern,omitempty"`
+	Patterns             []string         `json:"patterns,omitempty"`
 	SpanName             string           `json:"span_name,omitempty"`
 	InteractionDirection string           `json:"interaction_direction,omitempty"`
 	RecipeName           string           `json:"recipe_name,omitempty"`
@@ -228,8 +229,9 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "line_start": {"type":"integer","description":"Optional result line window start for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
 	    "line_end": {"type":"integer","description":"Optional result line window end for bounded search. On a composite trace this is the index-global virtual line returned by trace_query; trace_artifacts/source_spans provide the physical artifact and local line."},
 	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as trace_mark, sched_switch, sched_wakeup, sched_blocked_reason, sched_stat, cpu_idle, cpu_frequency, cpu_frequency_limits, cpu_constraint, clock_set_rate, block_rq_issue, block_rq_complete, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, ipi, storage, filesystem, file_io, page_cache, android_fs, f2fs, scsi, mmc, storage_latency, io_pressure, perf_sample, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. Official formatter aliases such as sched_wakeup_new, sched_stat_wait, sched_stat_sleep, sched_stat_iowait, sched_stat_blocked, sched_stat_runtime, ipi_raise, ipi_entry, ipi_exit, block_rq_insert, block_getrq, block_bio_queue, block_bio_complete, block_rq_remap, print, tracing_mark_write_xacct, and xacct_tracing_mark_write are accepted and mapped to the matching structured event type. Use trace_mark for B/E/C/S/F/G/H/N/I marker rows; G/H publish isolated trace_track_spans and N/I publish zero-duration trace_instants, while B/E end rows are unnamed E|<pid> or E, so use span_window rather than E|<pid>|<span_name> searches to prove completion. Use sched_stat/sched_stat_accounting as kernel accounting corroboration for wait/iowait/blocked/runtime, not as a replacement for sched_switch interval timing when both exist. Use ipi/ipi_activity as interrupt/scheduler-reschedule pressure context; ipi_raise target_mask is an instant signal unless paired ipi_entry/exit gives active_ms. Use perf_sample with pattern=<symbol, dso, callchain, event, thread, source, symbolization_status, callchain_status, clock_confidence, or cpu_known> for CPU sampling rows; window_stats.perf_samples summarizes top_symbols/top_dso/top_callchains/top_threads plus perf_quality as supporting execution context, not standalone root-cause proof. Raw fallback rows may have source=raw_perfdata_fallback, symbolization_status=unsymbolized, and callchain_status=ip_only; OpenHarmony hiperf proto rows may have cpu_known=false because sample CPU is unavailable. Result caveats may also carry tracebundle perf/profiler/trace conversion quality provenance such as lost_records/lost_events, lost_sample_records/lost_samples, throttle_records/unthrottle_records, aux_records/aux_bytes, ftrace-plugin structured metadata, profiler plugin metadata, dropped_events, overrun, commit_overrun, overwrite, trace_clock, clock_details, symbol_examples, tracebundle_perf_capability, tracebundle_perf_clock_alignment, tracebundle_trace_provider, tracebundle_trace_db_coverage, tracebundle_trace_coverage, and tracebundle_trace_tool_gate; use them to qualify sample/capture/conversion reliability, coverage, and converter guardrail state, not as direct runtime root causes. Use cpu_constraint/affinity/cpuset to inspect sched_setaffinity, sched_migrate_task, cpuset/cgroup attach, and Harmony/Donghu sched_switch next_info affinity/ices_boost evidence. Use file_io/page_cache with pattern=<inode or entry_name> for inode-level IO rows. This field also accepts a comma/semicolon separated string, and friendly aliases such as inode_io, pageCache, mm_filemap, cpuSample, perfSamples, topSymbols, callchain, cpuAffinity, schedMigrate, storageLayerLatency, irq_activity, softirq_activity, ipi_activity, sched_stat_accounting, and block_io_by_inode are accepted and mapped to the matching event types."},
-	    "trace_mark_actions": {"type":"array","items":{"type":"string","enum":["B","E","C","S","F","G","H","N","I"],"x-codrax-enum-aliases":{"b":"B","e":"E","c":"C","s":"S","f":"F","g":"G","h":"H","n":"N","i":"I"}},"x-codrax-split-string-array":true,"description":"For view=event_search only: exact closed filter over the parser-validated trace marker action (B/E/C/S/F/G/H/N/I). This is an AND filter with window/line, pattern and pid/thread. event_types may be omitted or exactly [trace_mark]; other/mixed event types fail loud. Unlike pattern, action matching never treats a marker name containing S| or F| as an async endpoint, and malformed marker payloads are not re-admitted by their raw prefix."},
-    "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\", jank ids such as \"jank_frames=7\", exact timestamps, or trace labels such as \"Choreographer#doFrame\"; it is not a regex. Start with one exact token, then add event_types/time/line/thread filters after the first hit."},
+	    "trace_mark_actions": {"type":"array","items":{"type":"string","enum":["B","E","C","S","F","G","H","N","I"],"x-codrax-enum-aliases":{"b":"B","e":"E","c":"C","s":"S","f":"F","g":"G","h":"H","n":"N","i":"I"}},"x-codrax-split-string-array":true,"description":"For view=event_search only: exact closed filter over the parser-validated trace marker action (B/E/C/S/F/G/H/N/I). This is an AND filter with window/line, pattern or patterns, and pid/thread. event_types may be omitted or exactly [trace_mark]; other/mixed event types fail loud. Unlike pattern/patterns, action matching never treats a marker name containing S| or F| as an async endpoint, and malformed marker payloads are not re-admitted by their raw prefix."},
+	    "pattern": {"type":"string","description":"For event_search, optional single case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for one frame id such as \"1917295\", jank id such as \"jank_frames=7\", exact timestamp, or trace label such as \"Choreographer#doFrame\"; it is not a regex, and '|' remains an ordinary literal character. For alternatives, use patterns instead of joining tokens with '|'."},
+	    "patterns": {"type":"array","items":{"type":"string","minLength":1},"minItems":1,"maxItems":16,"description":"For view=event_search only: 1..16 case-insensitive literal substrings combined with OR. Use this typed alternative carrier for searches such as [\"VerifyClass\",\"JIT\",\"Shader\",\"GC\"]; never join alternatives with '|'. If pattern is also supplied, it joins the same OR set. Every other filter (window/line, event_types, trace_mark_actions, pid/thread) remains ANDed with that set."},
     "span_name": {"type":"string","description":"Optional trace span name substring. For span_window, returns matching sync B/E or async S/F span windows; sync B/E end rows do not repeat the span name and appear as E|<pid> or bare E on the same ftrace thread stack. On a large single physical trace, a bounded parent time/line window around the named B is enough: trace_query streams the immutable artifact to find the exact remote E without treating fixed index padding as a duration ceiling. An unmatched B still proves no duration. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"x-codrax-enum-style-alias":true,"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply","span_locate"],"x-codrax-enum-style-alias":true,"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed. span_locate turns a span label (span_name or bare pattern, no event_types needed) into its start/end time and line window in one call. On a large single physical trace, pass a bounded parent time/line window around the known marker; exact endpoint pairing may safely extend beyond that parent. Use the returned exact span window before heavy views."},
@@ -274,6 +276,16 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		// here) is rejected WITH the real parameter list reflected from this
 		// tool's schema, so the retry re-aims instead of re-guessing.
 		return failStrictDecodeWithErrorSchema(t.Name(), time.Now(), err, nil, params, schema)
+	}
+	var patternErr error
+	p.Patterns, patternErr = traceQueryNormalizeAlternativePatterns(p.View, p.Patterns)
+	if patternErr != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "trace_query rejected patterns: " + patternErr.Error(),
+			Timestamp: time.Now(),
+		}, nil
 	}
 	scope := strings.ToLower(strings.TrimSpace(p.TargetScope))
 	if scope != "" && scope != tracequery.TargetScopeThread && scope != tracequery.TargetScopeProcess {
@@ -511,6 +523,39 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (out
 		return RunPureToolMemo(ctx, t.Name(), key, runPureTraceQueryCore)
 	}
 	return runPureTraceQueryCore()
+}
+
+const traceQueryAlternativePatternLimit = 16
+
+// traceQueryNormalizeAlternativePatterns validates the typed multi-literal
+// event_search carrier without changing the legacy single-pattern contract.
+// In particular, a vertical bar in Pattern remains an ordinary literal: this
+// function never guesses regex intent from model-authored text.
+func traceQueryNormalizeAlternativePatterns(view string, patterns []string) ([]string, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	if canonical := tracequery.CanonicalViewName(view); canonical != "" && canonical != "event_search" {
+		return nil, fmt.Errorf("patterns is only valid for view=event_search, got view=%s", canonical)
+	}
+	if len(patterns) > traceQueryAlternativePatternLimit {
+		return nil, fmt.Errorf("received %d literals; maximum is %d", len(patterns), traceQueryAlternativePatternLimit)
+	}
+	seen := make(map[string]bool, len(patterns))
+	out := make([]string, 0, len(patterns))
+	for i, raw := range patterns {
+		literal := strings.TrimSpace(raw)
+		if literal == "" {
+			return nil, fmt.Errorf("literal %d is empty after trimming", i+1)
+		}
+		key := strings.ToLower(literal)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, literal)
+	}
+	return out, nil
 }
 
 // traceQueryMemoKey mints the run-scoped pure-memo key for one trace_query
@@ -1349,6 +1394,7 @@ func traceQueryBuildQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel
 		EventTypes:           parseTraceQueryEventTypes(p.EventTypes.Strings()),
 		TraceMarkActions:     parseTraceQueryMarkActions(p.TraceMarkActions.Strings()),
 		Pattern:              p.Pattern,
+		Patterns:             append([]string(nil), p.Patterns...),
 		SpanName:             p.SpanName,
 		InteractionDirection: p.InteractionDirection,
 		RecipeName:           p.RecipeName,
@@ -2478,6 +2524,10 @@ func traceQueryRefinementPreferredParams(result tracequery.Result, q tracequery.
 	if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
 		params["pattern"] = pattern
 	}
+	if len(q.Patterns) > 0 {
+		encoded, _ := json.Marshal(q.Patterns)
+		params["patterns"] = string(encoded)
+	}
 	if span := strings.TrimSpace(q.SpanName); span != "" {
 		params["span_name"] = span
 	}
@@ -2589,7 +2639,7 @@ func traceQueryRefinementRequiredFields(result tracequery.Result, q tracequery.Q
 	var fields []string
 	view := traceQueryCanonicalView(result, q)
 	if view == "event_search" {
-		if strings.TrimSpace(q.Pattern) == "" && len(q.TraceMarkActions) == 0 {
+		if strings.TrimSpace(q.Pattern) == "" && len(q.Patterns) == 0 && len(q.TraceMarkActions) == 0 {
 			fields = append(fields, "pattern")
 		}
 		if len(q.EventTypes) == 0 && len(q.TraceMarkActions) == 0 {
@@ -2927,7 +2977,7 @@ func traceQueryIsHeavyView(view string) bool {
 // its views, or span-derived windows inside tracequery.Run). Such calls are
 // not genuinely unbounded, so the heavy-view guard must let them run.
 func traceQueryHasPatternOrSpanScope(p traceQueryParams) bool {
-	return strings.TrimSpace(firstNonEmptyTraceString(p.Pattern, p.SpanName)) != ""
+	return strings.TrimSpace(firstNonEmptyTraceString(p.Pattern, p.SpanName)) != "" || len(p.Patterns) > 0
 }
 
 func traceQueryHasBoundedTraceScope(p traceQueryParams) bool {
@@ -4458,7 +4508,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	var b strings.Builder
 	captureCompletenessCaveat := traceQueryCaptureCompletenessCaveat(result.Caveats)
 	rawPerfCaptureCaveats := tracequery.RawPerfCaptureCompletenessCaveats(result.Caveats)
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s target_scope=%s line_start=%s line_end=%s time_start=%s time_end=%s trace_mark_actions=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s target_scope=%s line_start=%s line_end=%s time_start=%s time_end=%s trace_mark_actions=%s pattern=%s patterns=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -4472,6 +4522,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		traceSecondBannerValue(p.TimeEnd),
 		sanitizeForBanner(strings.Join(p.TraceMarkActions.Strings(), ",")),
 		sanitizeForBanner(p.Pattern),
+		sanitizeForBanner(strings.Join(p.Patterns, ",")),
 		sanitizeForBanner(p.SpanName),
 		sanitizeForBanner(p.InteractionDirection),
 		sanitizeForBanner(p.RecipeName),

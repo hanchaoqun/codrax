@@ -429,6 +429,8 @@ func TestExplorerRuntimeQuestionScopeWorkflowSeparatesSchedulerAndSemanticWork(t
 		"A scheduler-state row",
 		"A is the recorded waker/source and B is the wakee/target",
 		"`runnable` means eligible but waiting for CPU",
+		"chain-ranked runnable row alone does not prove same-CPU competition",
+		"compatible typed running/runnable overlap or competitor carrier",
 		"does not pre-decide the model-owned relation or root-cause conclusion",
 	} {
 		if !strings.Contains(got, want) {

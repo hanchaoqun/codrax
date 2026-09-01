@@ -70061,3 +70061,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r996`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r996`。
+
+### §123.1602 r997/B1524-B1525：B1523 生产闭环，事件候选假零与同核竞争越证据扩写（2026-08-31）
+
+1. 从已推送 `4343384c3` 重建二进制，严格并发恰好 2 路复放 H8 显式窗 Trace 与 C++ write；runner 2/2 PASS：Trace
+   197s、C++ 231s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_tracewrite_r997_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_tracewrite_r997_20260831_manual_audit.md`。
+2. C++ 人工判 pass。补丁只把 `calendar_year` 与 `1900` 的加法提升到 `long long`，`make check` 真实编译运行通过，应用提交为
+   `111460347f6b4a081098e97d43a671597029c1fb`。Analyzer thinking 曾反复误算 `INT_MAX+1900`，但没有污染最终计划、代码或验证，暂按模型过程波动
+   记录，不增硬门。
+3. Trace 人工判 pass，B1523 获得生产正证：explorer/final 不再把 NetworkService/CookieMonster 的 runnable/sleep 行归为确定性语义工作，
+   `NetworkService -> CookieMonster -> target` 唤醒方向正确，runnable 被描述为可运行但等待 CPU；最终只把 typed `VerifyClass` span 作为运行时工作，
+   且明确 direct wakeup 已证、semantic completion/target wait/frame causality 未证。显式 10ms 窗、自动补齐和最终 `Trace 因果投影` 均保留。
+4. `B1524-EVENTSEARCHMULTILITERAL1/P1` 确认：工具只提供一个大小写不敏感的 literal `pattern`，模型却调用
+   `pattern=VerifyClass|Jit|Shader|GC|...`，引擎正确地把整个串当一个字面量并返回 0；explorer 随后错误宣称窗口内不存在确定性语义工作。后续 typed
+   supplement 找到真实 VerifyClass 才救回最终答案。这不是 trace 缺失，也不能通过偷偷把 `|` 解释成正则来修——trace 中含 `|` 的真实 marker/span
+   必须继续可按字面量查询。
+5. B1524 根修新增 event_search-only `patterns[]` typed carrier：1..16 个大小写不敏感的精确字面量按 OR 匹配；若同时带 legacy `pattern`，它加入同一
+   OR 集；window/line、event_types、trace_mark_actions、pid/thread 仍按 AND 生效。Streaming 与 indexed 两车道消费同一归一化 matcher；旧
+   `pattern="A|B"` 继续只匹配 literal `A|B`。Schema 与 explorer 教学明确多个候选使用 `patterns`，不再要求模型自造正则语法。
+6. `B1525-RUNNABLECPUCOMPETITIONAUTHORITY1/P1` 确认：T7 的 typed E9 只发布链上 runnable/rank/effective attribution，没有 same-CPU
+   relation、兼容的 running/runnable overlap 或 competitor carrier；模型却扩写为“与目标线程存在同 CPU 竞争”。根修在已由
+   `RuntimeWorkRelationRequested` typed boolean 激活的 explorer 校准面补齐证据上限：ranked/on-chain runnable 只证明就绪等待；同 CPU placement
+   必须由 typed relation 给出，直接竞争还必须另有 compatible overlap/competitor carrier。它只约束 handoff 对证据含义的描述，不替模型选结论。
+7. 回归同时钉住：multi-literal indexed/streaming parity、legacy pipe literal 不漂移、空成员/错误 view fail-loud、schema capability、B1525 正向教学与
+   无 runtime-work 子问负向不注入。实现不扫描用户问题、模型 thinking、最终正文、Markdown 或 Mermaid，不依据关键词硬拒，不改写模型答案，也不改变
+   Trace 根因选举、显式时间窗、因果投影、自动补采或 active-stream 行为。
+
+状态：
+
+`r997=runner-pass-2/2,human-pass-2/2`；
+`B1523=production-positive/core-closed`；
+`B1524=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`B1525=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`event-search-single-pattern=literal-backward-compatible`；
+`event-search-patterns=typed-literal-or/indexed-streaming-parity`；
+`ranked-runnable=scheduler-wait-not-automatic-same-cpu-competition`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r997`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r997`。

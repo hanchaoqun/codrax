@@ -1702,10 +1702,63 @@ func eventInQueryBase(ev Event, q Query, typeSet map[EventType]bool, actionSet m
 	if len(actionSet) > 0 && (ev.Type != EventTraceMark || !actionSet[ev.SpanAction]) {
 		return false
 	}
-	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
+	if eventSearchHasLiteralPatterns(q) && !eventMatchesQueryPatterns(ev, q) {
 		return false
 	}
 	return true
+}
+
+// eventSearchLiteralPatterns returns the stable, de-duplicated OR set used by
+// both indexed and streaming event_search. It deliberately does not split on
+// punctuation: Pattern="a|b" still searches for the literal bytes "a|b".
+func eventSearchLiteralPatterns(q Query) []string {
+	values := make([]string, 0, len(q.Patterns)+1)
+	if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
+		values = append(values, pattern)
+	}
+	values = append(values, q.Patterns...)
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		literal := strings.TrimSpace(raw)
+		if literal == "" {
+			continue
+		}
+		key := strings.ToLower(literal)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, literal)
+	}
+	return out
+}
+
+func eventSearchHasLiteralPatterns(q Query) bool {
+	if strings.TrimSpace(q.Pattern) != "" {
+		return true
+	}
+	for _, pattern := range q.Patterns {
+		if strings.TrimSpace(pattern) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// eventMatchesQueryPatterns is the allocation-free hot-path matcher. The tool
+// boundary already normalizes and de-duplicates Patterns; direct package
+// callers may pass duplicates, which are harmless and retain OR semantics.
+func eventMatchesQueryPatterns(ev Event, q Query) bool {
+	if pattern := strings.TrimSpace(q.Pattern); pattern != "" && eventMatchesPattern(ev, pattern) {
+		return true
+	}
+	for _, pattern := range q.Patterns {
+		if strings.TrimSpace(pattern) != "" && eventMatchesPattern(ev, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // eventInQueryWindow is eventInQuery's line/time gate, extracted so the
@@ -27976,6 +28029,8 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 				}
 				out = append(out, fmt.Sprintf("next_pattern_call_hint=event_types=%s matched nothing for this pattern and the type filter itself may be excluding the rows; retry without event_types: trace_query(view=\"event_search\", pattern=%q, time_start=%.6f, time_end=%.6f, limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", formatEventTypesFilter(q.EventTypes), pattern, q.TimeStart, q.TimeEnd))
 			}
+		} else if patterns := eventSearchLiteralPatterns(q); len(patterns) > 0 {
+			out = append(out, fmt.Sprintf("patterns_no_match_hint=patterns=%q are literal substrings combined with OR, not regex alternatives; try a shorter exact literal, remove over-narrow event_types/pid/thread/time filters, or query one literal with span_window when it names a span", patterns))
 		}
 		if q.PID > 0 {
 			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"thread_timeline\", pid=%d, time_start=%.6f, time_end=%.6f) or trace_query(view=\"wakeup_chain\", pid=%d, time_start=%.6f, time_end=%.6f)", q.PID, q.TimeStart, q.TimeEnd, q.PID, q.TimeStart, q.TimeEnd))
@@ -28014,7 +28069,7 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	}
 	if res.View == "event_search" && q.Limit > 0 && len(res.Events) >= q.Limit {
 		out = append(out, fmt.Sprintf("event_search_limit_reached=true; returned rows are the first %d chronological matches only, not an exhaustive result set; do not infer that a frame id/span label is absent from omitted rows", q.Limit))
-		if strings.TrimSpace(q.Pattern) != "" {
+		if eventSearchHasLiteralPatterns(q) {
 			out = append(out, "event_search_exact_token_hint=for a requested frame id, jank id, span id, inode, or timestamp, rerun event_search or frame_window/span_window with that exact literal token before making any absence claim")
 		}
 	}
@@ -28433,7 +28488,7 @@ func (s crossTypeHitSummary) topLabel() string {
 // counted as cross-type evidence. Counts drive a soft hint only.
 func crossTypePatternHits(idx *Index, q Query) crossTypeHitSummary {
 	var sum crossTypeHitSummary
-	if idx == nil || len(q.EventTypes) == 0 || strings.TrimSpace(q.Pattern) == "" {
+	if idx == nil || len(q.EventTypes) == 0 || !eventSearchHasLiteralPatterns(q) {
 		return sum
 	}
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
