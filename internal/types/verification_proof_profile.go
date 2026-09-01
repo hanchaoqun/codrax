@@ -152,6 +152,13 @@ func BuildVerificationProofProfile(plan *ChangePlan, report *ChangeReport) Verif
 	out.ProbeCount = len(report.VerificationConfidence)
 	out.RunnerEvidence = verificationProofRunnerEvidence(report)
 	verificationProofAddCapabilityCounts(&out, report)
+	// Completion authority and proof-profile authority must describe the same
+	// typed verification boundary. A passing source-shape check is useful, but
+	// it cannot be published as strong local proof for changed production
+	// behavior when no target execution/behavior receipt exists for that path.
+	if report.HasProductionPathWithoutTargetExecutionCoverage() {
+		addReason("production_verification_source_static_only")
+	}
 	confidence := verificationConfidenceRecordsForPlanRequiredDomain(plan, report.VerificationConfidence)
 	for _, rec := range confidence {
 		if code := strings.TrimSpace(rec.ReasonCode); code != "" {

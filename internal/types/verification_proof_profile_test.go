@@ -113,6 +113,65 @@ func TestBuildVerificationProofProfileDoesNotPromoteSourceStaticToBehaviorProof(
 	}
 }
 
+func TestBuildVerificationProofProfileSourceStaticProductionPathMatchesCompletionAuthority(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:             "plan-static-production",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner: "make", Suite: "check", Command: "make check", Outcome: "executed",
+		}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{
+			{
+				Path: "src/widget.ts", Status: ChangedPathVerificationCovered,
+				Caliber: ChangedPathVerificationDeclaredProjectCheck, Capability: VerificationCapabilitySourceStatic,
+			},
+			{
+				Path: "tests/widget.test.ts", Status: ChangedPathVerificationCovered,
+				Caliber: ChangedPathVerificationDeclaredProjectCheck, Capability: VerificationCapabilitySourceStatic,
+			},
+		},
+	}
+
+	profile := BuildVerificationProofProfile(nil, report)
+	if profile.Status != VerificationProofWeak ||
+		!verificationProofHasReason(profile, "production_verification_source_static_only") {
+		t.Fatalf("source-static production coverage must stay weak: %+v", profile)
+	}
+	ledger := BuildVerificationProofLedger(nil, report, nil)
+	if ledger.State != VerificationProofLedgerLowConfidence ||
+		!verificationProofHasReason(VerificationProofProfile{ReasonCodes: ledger.ReasonCodes}, "production_verification_source_static_only") {
+		t.Fatalf("proof ledger contradicted completion authority: %+v", ledger)
+	}
+}
+
+func TestBuildVerificationProofProfileAuxiliaryStaticPathDoesNotWeakenStrongProductionProof(t *testing.T) {
+	report := &ChangeReport{
+		PlanID:             "plan-strong-production",
+		Passed:             true,
+		VerificationStatus: VerificationStatusPassed,
+		ExecutedCommands: []ExecutedCommand{{
+			Runner: "go", Suite: "./...", Command: "go test ./...", Outcome: "executed",
+		}},
+		ChangedPathCoverage: []ChangedPathVerificationCoverage{
+			{
+				Path: "src/widget.go", Status: ChangedPathVerificationCovered,
+				Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilityTargetBehavior,
+			},
+			{
+				Path: "src/widget_test.go", Status: ChangedPathVerificationCovered,
+				Caliber: ChangedPathVerificationProjectRunner, Capability: VerificationCapabilitySourceStatic,
+			},
+		},
+	}
+
+	profile := BuildVerificationProofProfile(nil, report)
+	if profile.Status != VerificationProofStrong ||
+		verificationProofHasReason(profile, "production_verification_source_static_only") {
+		t.Fatalf("auxiliary static path weakened executed production proof: %+v", profile)
+	}
+}
+
 func TestBuildVerificationProofLedgerResolvesExactProjectTestContractReceipt(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-project-observation",

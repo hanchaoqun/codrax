@@ -1318,6 +1318,45 @@ func (r *ChangeReport) HasTargetExecutionCoverage() bool {
 	return false
 }
 
+// HasProductionPathWithoutTargetExecutionCoverage reports whether a passed
+// report covers at least one changed production path only through static,
+// syntax, unknown, or uncovered evidence. The classification is path- and
+// capability-typed; it never inspects commands, model prose, or user text.
+//
+// This is intentionally stricter than HasTargetExecutionCoverage: one strongly
+// covered path must not blanket-sign a different production path that was only
+// inspected as source text.
+func (r *ChangeReport) HasProductionPathWithoutTargetExecutionCoverage() bool {
+	if r == nil || !r.Passed || r.NormalizeVerificationStatus() != VerificationStatusPassed {
+		return false
+	}
+	type pathCapability struct {
+		seen   bool
+		strong bool
+	}
+	byPath := map[string]pathCapability{}
+	for _, row := range r.ChangedPathCoverage {
+		path := strings.ReplaceAll(strings.TrimSpace(row.Path), `\`, "/")
+		if path == "" || SourcePathRoleIsAuxiliary(ClassifySourcePathRole(path)) {
+			continue
+		}
+		capability := byPath[path]
+		capability.seen = true
+		if row.Status == ChangedPathVerificationCovered &&
+			(row.Capability == VerificationCapabilityTargetExecution ||
+				row.Capability == VerificationCapabilityTargetBehavior) {
+			capability.strong = true
+		}
+		byPath[path] = capability
+	}
+	for _, capability := range byPath {
+		if capability.seen && !capability.strong {
+			return true
+		}
+	}
+	return false
+}
+
 // Score returns the (passed, total) test counts for this report,
 // counting only TestResultKindUnit entries (build_error rows are
 // classifications not assertions and would distort comparisons).

@@ -8519,34 +8519,7 @@ func reportHasTypedUnavailableProbeRunnerMissing(report *types.ChangeReport) boo
 // for each production path wins. The decision is language-neutral and consumes
 // typed report fields only; command text and model/user prose are never scanned.
 func reportHasProductionPathWithoutTargetExecutionCoverage(report *types.ChangeReport) bool {
-	if report == nil || !report.Passed || report.NormalizeVerificationStatus() != types.VerificationStatusPassed {
-		return false
-	}
-	type pathCapability struct {
-		seen   bool
-		strong bool
-	}
-	byPath := map[string]pathCapability{}
-	for _, row := range report.ChangedPathCoverage {
-		path := normalizeControllerPath(row.Path)
-		if path == "" || types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
-			continue
-		}
-		capability := byPath[path]
-		capability.seen = true
-		if row.Status == types.ChangedPathVerificationCovered &&
-			(row.Capability == types.VerificationCapabilityTargetExecution ||
-				row.Capability == types.VerificationCapabilityTargetBehavior) {
-			capability.strong = true
-		}
-		byPath[path] = capability
-	}
-	for _, capability := range byPath {
-		if capability.seen && !capability.strong {
-			return true
-		}
-	}
-	return false
+	return report != nil && report.HasProductionPathWithoutTargetExecutionCoverage()
 }
 
 func appendStableUnavailableProofFollowupSuppressed(run *types.WriteWorkflowRun, batchID string) {

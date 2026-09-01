@@ -70218,3 +70218,43 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r1000`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1000`。
+
+### §123.1606 r1001/B1530-B1531：写验证权威自相矛盾与关系修补心智放大（2026-08-31）
+
+1. 从已推送 `badcab321` 重建二进制，严格并发恰好 2 路复放 Zod write 与 read-mode“时序图+阶段表”；runner
+   0/2 PASS：write 155s，读模式 539s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1001_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1001_20260831_manual_audit.md`。
+2. Zod 人工判 pass：模型定位到 `_prefault` 的 falsy 真值短路，补丁改为 `!== undefined`，并新增 false/0/空串及已有 default
+   保留回归。项目 `make check` 退出 0，但它实际由 Python 正则读取 TypeScript 源文件，只证明源码形状，不是 TypeScript 目标运行或行为验证；
+   确定性完成门据此正确出厂 `unverified:production_verification_source_static_only`。
+3. `B1530-WRITEPROOFCOMPLETIONCONSISTENCY1/P0` 确认：同一 final report 同时发布 `completion=unverified`、
+   `proof.status=strong` 与 `proof_ledger.state=verified`。根因是完成门逐生产路径检查 typed capability，而 proof profile 只看 report passed/
+   runner family/未闭合 obligation，没有消费相同的生产路径能力边界。客户和 controller 会收到互相冲突的权威值。
+4. 根修把“至少一个生产路径仅 source_static/syntax/unknown/uncovered”收敛为 `ChangeReport` 的单一 typed helper，完成门与 proof profile
+   共用。该条件为真时保留检查通过事实和 source-static capability，但 proof 降为 weak、ledger 降为 low_confidence，并带同一 reason code；
+   测试/fixture 等辅助路径的静态覆盖不会削弱已有 target-execution/target-behavior 的生产路径证明。没有扫描命令文本、请求或模型叙述。
+5. 读模式人工判 fail。B1529 soft 教学已发布最小三段 precedence recipe，但模型首稿仍画 dispatcher fan-out、状态写入和回复边；普通关系门
+   正确拒绝。模型随后选择删除 18 条无证据边并添加三条已授权 precedence，却在五次 atomic patch 中持续遗漏新端点的
+   `*_node_visible_label`，还出现一次可解析 JSON 内的畸形 action 枚举；最终恢复未通过结构校验的首稿，产生 6 次成文拒绝、49% 上下文和重复正文。
+6. `B1531-DIAGRAMPATCHIMPLICITNODELABEL1/P1` 立案：关系、端点、node id 与三条业务边均由模型和 typed addition ref 选择后，系统仍要求模型为
+   每个新端点再重复一遍显示名。对 `analyze/explorer/extractor/finalize` 这类已由模型明确选择且本身可读的 node id，这是纯 Mermaid 声明语法，
+   不应成为新的语义选择负担。最优修向限于语法层：当且仅当新端点没有显式 label 时，把模型自己提交的 node id 原样作为显示声明；不得从
+   technical identity、候选、源码或 prose 推导别名，不得新增/删除/改向关系，显式 model label 始终优先。畸形 enum 的已有窄恢复继续单独审计，
+   不以此样例扩张宽松 JSON 合同。
+7. 本批不改变 read-mode 关系证据门、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有用用户问题、
+   模型 thinking、最终正文、Markdown 或 Mermaid 关键词做硬门。
+
+状态：
+
+`r1001=runner-fail-2/2,human-write-pass+read-fail`；
+`B1529=production-adherence-incomplete/soft-guidance-retained`；
+`B1530=implemented/targeted-pass/pending-full-suite+production-replay`；
+`B1531=filed/next-batch`；
+`write-completion/proof/ledger-authority=single-typed-production-path-capability`；
+`diagram-node-label-fallback=model-authored-node-id-only/planned`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
