@@ -2805,9 +2805,11 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	dec.DisallowUnknownFields()
 	var p emitAnswerDocumentPatchParams
 	if err := dec.Decode(&p); err != nil {
-		// Reuse the V2 emit's misplaced-field hint table (same
-		// schema for blocks); R4 sanitization always applies.
-		return failStrictDecode(t.Name(), now, err, answerDocumentV2MisplacedHints, params)
+		// Block payloads share the V2 vocabulary, while patch-only atomic
+		// operations have additional nested homes. Keep the hint in the live
+		// operation grammar instead of redirecting a patch retry to full emit.
+		hints := answerDocumentPatchMisplacedHintsForSchema(err, params, fieldEditSchema)
+		return failStrictDecode(t.Name(), now, err, hints, params)
 	}
 	if len(p.BlockFieldEditsV1) > maxModelAuthoredBlockFieldEditsV1 {
 		return failEmit(t.Name(), now, "too many block_field_edits_v1: got %d, max %d",

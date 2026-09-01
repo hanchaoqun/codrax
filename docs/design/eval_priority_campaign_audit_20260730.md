@@ -57809,6 +57809,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r993`。
 
+### §123.1593 B1517：patch strict-decode 修复路径与当轮动态操作 schema 同源（2026-08-31）
+
+1. `B1517-GUARDRELATIONRETRYDRIFT1/P1` 已施工。patch 解码仍使用严格未知字段拒绝，但在生成 wrong-container repair 前，先从原生 JSON
+   精确枚举未知字段所在的顶层 patch operation，再从当前 dispatch 的动态 JSON schema 反射同一 operation 下该字段的合法路径。r993 的
+   `diagram_edge_edits[i].from_node` 因而会被明确引导到 `diagram_edge_edits[i].edge.from_node`，不再误导到 full emit 的
+   `blocks[i].edge_anchors[j].from_node` 或声称错误容器是 `claim_uses`。
+2. 根修不绑定 `from_node`、Java、guard、具体 block 或 relation ref。schema walker 同时支持 properties/items/oneOf/anyOf/allOf，适用于任意
+   patch-only 原子操作和已登记 misplaced field；路径去重、排序稳定。只有未知字段全部位于一个顶层 operation，且当轮 schema 在同 operation 发布
+   了同名合法字段时才覆盖旧提示；跨 operation 多处出现、能力未发布、JSON/schema 异常均 fail-closed 保留原保守提示。
+3. 该批只改变拒绝后的可执行修补说明，不改变 payload、答案、关系、图、receipt、结论或重试预算，也不扫描用户输入、模型 thinking、答案 prose、
+   Markdown 或 Mermaid 标签。系统仍不选择 action、edge、endpoint、label、layout 或 conclusion。
+4. 新回归钉住 live atomic path、跨 operation 歧义回退、inactive operation 回退；定向测试通过，`go test ./internal/tool -count=1` 全绿
+   （191.671s），`go test ./... -count=1` 全绿（tool 216.579s、tracequery 93.608s、hitraceconv 134.285s），`make` 通过。
+
+状态：
+
+`B1517=implemented/full-suite+build-pass/pending-production-replay`；
+`strict-decode-repair-path=current-dispatch-schema+same-operation-only`；
+`ambiguous/missing-schema-path=fail-closed/prior-hint`；
+`system-answer/conclusion/relation/wording/action-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
