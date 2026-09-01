@@ -2924,15 +2924,28 @@ func diagramParticipantExactVisibleEndpointIDs(
 			block.Kind != types.BlockDiagram || block.Diagram == nil {
 			continue
 		}
+		sequenceSyntax := diagramEvidenceUsesSequenceSyntax(block.Diagram.Body, block.Diagram.Kind)
+		visit := func(decl mermaidcompat.NodeDecl) {
+			nodeID := strings.TrimSpace(decl.Ident)
+			labelIdentity := diagramEvidenceLabelSymbol(strings.TrimSpace(decl.Label))
+			if nodeID == "" || (!diagramParticipantSurfaceListContainsExact(surfaces, nodeID) &&
+				!diagramParticipantSurfaceListContainsExact(surfaces, labelIdentity)) {
+				return
+			}
+			ids[strings.ToLower(nodeID)] = nodeID
+		}
 		for _, raw := range strings.Split(block.Diagram.Body, "\n") {
-			for _, decl := range mermaidcompat.NodeDeclarationsAll(strings.TrimSpace(raw)) {
-				nodeID := strings.TrimSpace(decl.Ident)
-				labelIdentity := diagramEvidenceLabelSymbol(strings.TrimSpace(decl.Label))
-				if nodeID == "" || (!diagramParticipantSurfaceListContainsExact(surfaces, nodeID) &&
-					!diagramParticipantSurfaceListContainsExact(surfaces, labelIdentity)) {
-					continue
+			line := strings.TrimSpace(raw)
+			for _, decl := range mermaidcompat.SequenceParticipantDeclarations(line) {
+				visit(decl)
+			}
+			// Sequence messages may contain parenthesized payloads that look like
+			// flow-node declarations. As with the evidence label registry, only
+			// explicit participant/actor declarations may mint a sequence alias.
+			if !sequenceSyntax {
+				for _, decl := range mermaidcompat.NodeDeclarationsAll(line) {
+					visit(decl)
 				}
-				ids[strings.ToLower(nodeID)] = nodeID
 			}
 		}
 	}

@@ -2395,6 +2395,64 @@ func TestDiagramRelationRepairCandidateCarriesTypedParticipantEndpointPermission
 	}
 }
 
+func TestDiagramRelationRepairCandidateReusesExactSequenceParticipantAlias(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant IR as AnalysisIR\n  participant BC as BusContext\n",
+		},
+	}}}
+	rm := types.RequestModel{DiagramHint: &types.DiagramHint{Participants: []types.DiagramParticipantHint{
+		{Identity: "AnalysisIR", Role: types.DiagramParticipantIncidentRequired},
+		{Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired},
+	}}}
+	row := types.AnswerDiagramRelationRepairCandidate{
+		BlockID: "diagram-1", RelationKind: types.DiagramRelDataFlow,
+		FromIdentity: "out.AnalysisIR", ToIdentity: "o.busCtx.AnalysisIR", Source: "typed",
+	}
+	from := diagramParticipantTypedIncidentCandidate{
+		participant: "AnalysisIR", relation: row.RelationKind,
+		from: row.FromIdentity, to: row.ToIdentity, participantEndpointSide: "from",
+	}
+	to := diagramParticipantTypedIncidentCandidate{
+		participant: "BusContext", relation: row.RelationKind,
+		from: row.FromIdentity, to: row.ToIdentity, participantEndpointSide: "to",
+	}
+	bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
+	bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, from)
+	bindDiagramRelationRepairCandidateParticipantNodes(&row, doc, rm, to)
+	if !atomicDiagramNodeIDListed("IR", row.FromNodeIDs) ||
+		!atomicDiagramNodeIDListed("BC", row.ToNodeIDs) {
+		t.Fatalf("exact sequence declarations must be reusable on their typed participant sides: %+v", row)
+	}
+	row.AdditionRef = "ra1-sequence-participant-alias"
+	edge := types.DiagramEdgeAnchor{
+		FromNode: "IR", ToNode: "BC", FromIdentity: row.FromIdentity,
+		ToIdentity: row.ToIdentity, RelationKind: row.RelationKind,
+	}
+	if err := validateAtomicDiagramAdditionEndpointBindings(&doc.Blocks[0], &edge, &row, nil); err != nil {
+		t.Fatalf("producer-listed sequence participant aliases must be executable: %v", err)
+	}
+}
+
+func TestDiagramParticipantAliasDoesNotComeFromSequenceMessagePayload(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "diagram-1", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{
+			Kind: types.DiagramSequence, Language: "mermaid",
+			Body: "sequenceDiagram\n  participant A as AnalysisIR\n  A->>B: BusContext(value)\n",
+		},
+	}}}
+	rm := types.RequestModel{DiagramHint: &types.DiagramHint{Participants: []types.DiagramParticipantHint{{
+		Identity: "BusContext", Role: types.DiagramParticipantIncidentRequired,
+	}}}}
+	got := diagramParticipantExactVisibleEndpointIDs(doc, rm, "BusContext", "diagram-1")
+	if len(got) != 0 {
+		t.Fatalf("sequence message payload must not mint a typed participant alias: %v", got)
+	}
+}
+
 func TestDiagramRelationRepairCandidateUsesParticipantFallbackOnlyWithoutExistingNode(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "diagram-1", Kind: types.BlockDiagram,

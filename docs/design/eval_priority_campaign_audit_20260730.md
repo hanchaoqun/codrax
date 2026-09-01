@@ -57371,6 +57371,12 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    14 次 finalizer reject、73% context，故人工 fail。这是端点能力和跨代 roster 的系统 gap，不按模型波动遗留。
 8. 本批只审计并排期，不改变 Trace。显式时间窗、typed 链上根因、邻近/背景 support-only、实际占时/规则可消双账户、因果投影、
    自动补齐和业务线索继续保持；禁止基于固定 4ms/4m 或活跃流年龄降级，禁止系统代写结论、关系或节点处置。
+9. `B1540` 第一根修已实现：`diagramParticipantExactVisibleEndpointIDs` 对 sequenceDiagram 改用与证据标签注册器相同的
+   `SequenceParticipantDeclarations` 权威；`participant BC as BusContext` / `actor` 的显式声明现在可作为其 typed participant 席的
+   已有端点别名，模型无需创建第二个 BusContext。sequence message 的参数、括号和箭头文字仍不得铸造节点别名；flowchart 继续走
+   `NodeDeclarationsAll`。回归钉住 exact sequence alias 可通过真实 atomic endpoint executor，以及 message payload 不得污染别名。
+   `internal/tool`、`go test ./...` 和 `make` 全绿。该批不把 `AnalyzerAgent` 等展示词猜成 stage enum；stage 展示复用仍须走独立 typed
+   declaration/stage authority，避免借本次精确修复引入模糊别名。
 
 状态：
 
@@ -57379,7 +57385,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1537=old-cycle-absent/exact-production-branch-pending`；
 `B1538=confirmed-independent/P1/pending`；
 `B1539=production-positive/core-closed`；
-`B1540=confirmed/P1/pending`；
+`B1540=implemented-sequence-participant-alias/P1/full-suite+build-pass/stage-display-reuse-pending-replay`；
 `system-answer/conclusion/relation/node-disposition-selection=none`；
 `request/model-final-prose/markdown/mermaid-message fact-scan=none`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
