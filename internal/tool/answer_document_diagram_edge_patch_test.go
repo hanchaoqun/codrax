@@ -73,6 +73,106 @@ func TestApplyModelAuthoredDiagramAtomicEdits_PreservesUnmentionedGraphContent(t
 	}
 }
 
+func TestApplyModelAuthoredDiagramAtomicEdits_RejectsReplaceAndAddForSameTypedRelation(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	// Keep one exact stale anchor whose validator-resolved identities are more
+	// precise than the rejected model metadata. This is the production shape in
+	// which the same typed candidate may also be published as an addition.
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	prev.Blocks[1].EdgeAnchors[0].FromIdentity = ""
+	prev.Blocks[1].EdgeAnchors[0].ToIdentity = ""
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "typed_anchor_without_visible_edge",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "pipeline.go:10",
+		FromNodeIDs: []string{"X"}, ToNodeIDs: []string{"Y"},
+	}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 ||
+		!lease.Failures[0].AllowsAction("replace") {
+		t.Fatalf("test setup did not publish replace+add capabilities: %+v", lease)
+	}
+	patch := &types.AnswerDocumentV2Patch{}
+	err := applyModelAuthoredDiagramAtomicEdits(prev, patch, []emitAnswerDiagramEdgeEdit{
+		{
+			FailureRef: lease.Failures[0].FailureRef, Action: "replace",
+			Edge: &types.DiagramEdgeAnchor{FromNode: "A", ToNode: "B", VisibleLabel: "restore"},
+		},
+		{
+			AdditionRef: lease.AllowedAdditions[0].AdditionRef, Action: "add",
+			Edge: &types.DiagramEdgeAnchor{FromNode: "X", ToNode: "Y", VisibleLabel: "duplicate"},
+		},
+	}, nil, lease)
+	if err == nil || !strings.Contains(err.Error(), "produce the same typed relation") ||
+		!strings.Contains(err.Error(), "choose exactly one producer") || len(patch.ReplaceBlocks) != 0 {
+		t.Fatalf("replace+add duplicate must fail before graph mutation: err=%v patch=%+v", err, patch)
+	}
+}
+
+func TestValidateAtomicDiagramRelationProducerConflicts_PreservesDistinctTypedRelations(t *testing.T) {
+	edits := []resolvedAtomicDiagramEdgeEdit{
+		{originalIndex: 0, edit: emitAnswerDiagramEdgeEdit{
+			BlockID: "diag", FailureRef: "failure", Action: "replace",
+			Edge: &types.DiagramEdgeAnchor{
+				RelationKind: types.DiagramRelPrecedence, FromIdentity: "Analyzer", ToIdentity: "Explorer",
+			},
+		}},
+		{originalIndex: 1, edit: emitAnswerDiagramEdgeEdit{
+			BlockID: "diag", AdditionRef: "addition", Action: "add",
+			Edge: &types.DiagramEdgeAnchor{
+				RelationKind: types.DiagramRelPrecedence, FromIdentity: "Explorer", ToIdentity: "Extractor",
+			},
+		}},
+	}
+	if err := validateAtomicDiagramRelationProducerConflicts(edits); err != nil {
+		t.Fatalf("distinct typed producers must remain independently selectable: %v", err)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_ReplaceAddTypedConflictRollsBackProductionEnvelope(t *testing.T) {
+	prev := atomicPatchTestDocument()
+	prev.Blocks[1].Diagram.Body = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n    B->>C: keep label\n"
+	prev.Blocks[1].EdgeAnchors[0].FromIdentity = ""
+	prev.Blocks[1].EdgeAnchors[0].ToIdentity = ""
+	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "typed_anchor_without_visible_edge",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence,
+	}}, []types.AnswerDiagramRelationRepairCandidate{{
+		BlockID: "diag", RelationKind: types.DiagramRelPrecedence,
+		FromIdentity: "analyzer", ToIdentity: "explorer", Source: "pipeline.go:10",
+		FromNodeIDs: []string{"X"}, ToNodeIDs: []string{"Y"},
+	}})
+	if lease == nil || len(lease.Failures) != 1 || len(lease.AllowedAdditions) != 1 {
+		t.Fatalf("test setup did not publish replace+add capabilities: %+v", lease)
+	}
+	mut := types.NewMutableState("replace add typed conflict production envelope")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	params := json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[
+			{"failure_ref":%q,"action":"replace","edge":{"from_node":"A","to_node":"B","visible_label":"restore"}},
+			{"addition_ref":%q,"action":"add","edge":{"from_node":"X","to_node":"Y","visible_label":"duplicate"}}
+		]
+	}`, lease.Failures[0].FailureRef, lease.AllowedAdditions[0].AdditionRef))
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(&types.BusContext{Mutable: mut}, params)
+	if err != nil || res.Success || res.Repair == nil ||
+		!strings.Contains(res.Summary, "produce the same typed relation") ||
+		!strings.Contains(res.Summary, "choose exactly one producer") {
+		t.Fatalf("production envelope must return one precise typed transaction conflict: err=%v res=%+v", err, res)
+	}
+	accepted := mut.AnswerDocumentV2()
+	if accepted == nil || strings.Contains(accepted.Blocks[1].Diagram.Body, "A->>B: restore") ||
+		strings.Contains(accepted.Blocks[1].Diagram.Body, "X->>Y: duplicate") ||
+		mut.PendingAnswerDocumentPatchBase() != nil {
+		t.Fatalf("rejected duplicate transaction contaminated accepted or pending state: accepted=%+v pending=%+v",
+			accepted, mut.PendingAnswerDocumentPatchBase())
+	}
+}
+
 func TestApplyModelAuthoredDiagramAtomicEditsWithParticipants_RemovesOnlyChosenNewOrphan(t *testing.T) {
 	newLease := func(prev *types.AnswerDocumentV2) *types.AnswerDiagramRelationRepairLease {
 		lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{

@@ -526,6 +526,9 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		}
 		resolvedEdits = append(resolvedEdits, resolvedAtomicDiagramEdgeEdit{edit: edit, originalIndex: i})
 	}
+	if err := validateAtomicDiagramRelationProducerConflicts(resolvedEdits); err != nil {
+		return err
+	}
 	// Every body_occurrence is minted against the immutable rejected draft.
 	// Removing or replacing occurrence 1 first would renumber occurrence 2 in
 	// the working Mermaid body and make an otherwise complete atomic repair
@@ -846,6 +849,61 @@ func applyModelAuthoredDiagramAtomicEditsWithParticipantsAndBoundaries(
 		working[blockID] = block
 	}
 	stageWorkingBlocks()
+	return nil
+}
+
+// validateAtomicDiagramRelationProducerConflicts rejects one contradictory
+// transaction shape before it mutates the working graph: a model-selected
+// replacement of an existing live failure and a separately model-selected
+// addition both produce the same canonical typed relation. Each ref is valid
+// in isolation, but applying both creates two visible/anchor carriers for one
+// semantic tuple and leaves the ordinary relation gate to reject the merged
+// draft several generations later.
+//
+// The comparison is deliberately narrower than general relation deduplication:
+// it crosses only failure_ref action=replace with addition_ref action=add in
+// the same block, using the typed relation kind and canonical endpoint identity
+// pair already resolved from the live lease. It does not inspect visible node
+// ids, labels, Mermaid messages, request text, reasoning, or answer prose; it
+// does not choose which model operation to retain. The whole transaction is
+// rejected so the model can select exactly one producer.
+func validateAtomicDiagramRelationProducerConflicts(edits []resolvedAtomicDiagramEdgeEdit) error {
+	type producer struct {
+		index int
+		edit  emitAnswerDiagramEdgeEdit
+	}
+	replacements := make([]producer, 0, len(edits))
+	additions := make([]producer, 0, len(edits))
+	for _, resolved := range edits {
+		edit := resolved.edit
+		if edit.Edge == nil || strings.TrimSpace(edit.BlockID) == "" ||
+			!edit.Edge.RelationKind.IsValid() || !edit.Edge.HasEndpointIdentityPair() {
+			continue
+		}
+		action := strings.ToLower(strings.TrimSpace(edit.Action))
+		switch {
+		case action == string(types.AnswerDiagramRelationRepairActionReplace) && strings.TrimSpace(edit.FailureRef) != "":
+			replacements = append(replacements, producer{index: resolved.originalIndex, edit: edit})
+		case action == "add" && strings.TrimSpace(edit.AdditionRef) != "":
+			additions = append(additions, producer{index: resolved.originalIndex, edit: edit})
+		}
+	}
+	for _, replacement := range replacements {
+		for _, addition := range additions {
+			if strings.TrimSpace(replacement.edit.BlockID) != strings.TrimSpace(addition.edit.BlockID) ||
+				replacement.edit.Edge.RelationKind != addition.edit.Edge.RelationKind ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(replacement.edit.Edge.FromIdentity, addition.edit.Edge.FromIdentity) ||
+				!types.AnswerCodeIdentitySurfacesEquivalent(replacement.edit.Edge.ToIdentity, addition.edit.Edge.ToIdentity) {
+				continue
+			}
+			return fmt.Errorf(
+				"diagram_edge_edits[%d] action=replace failure_ref=%q and diagram_edge_edits[%d] action=add addition_ref=%q produce the same typed relation in block_id=%q; choose exactly one producer",
+				replacement.index, strings.TrimSpace(replacement.edit.FailureRef),
+				addition.index, strings.TrimSpace(addition.edit.AdditionRef),
+				strings.TrimSpace(replacement.edit.BlockID),
+			)
+		}
+	}
 	return nil
 }
 

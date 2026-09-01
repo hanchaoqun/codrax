@@ -57322,6 +57322,11 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    提交 relation edits，并明确下一 schema 才发布 exact post-edit orphan roster；只有 schema 实际发布 participant branch 时才教学 remove/retain。
    新 pin 同时钉住两阶段正向说明与旧“same patch/conditional no-op”词族不得回流。聚焦测试、`internal/agent+tool+types` 包测试、`go test ./...`
    和 `make` 全绿；没有改动关系/参与者执行器或任何答案事实。
+10. `B1537` 已实现：原子 patch 在解析全部 live refs 后、修改 working graph 前，比较 failure-ref replace 与 addition-ref add 将生成的
+    `{block, relation_kind, canonical from/to identities}`。等价 tuple 的两个 producer 使整笔事务精确回滚，并要求模型二选一；系统不静默删支、
+    不读取可见 node/label/Mermaid message/请求/推理/正文。不同 typed tuples 保持可并存。单元回归覆盖技术身份别名等价、不同可见节点仍冲突、
+    不同 tuple 正常通过；真实 `EmitAnswerDocumentPatch.Execute` 回归钉住 accepted/pending state 不被污染。`internal/tool`、`go test ./...` 与 `make`
+    全绿。
 
 状态：
 
@@ -57329,7 +57334,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1534=production-positive/core-closed`；
 `B1535=pending-exact-seed-alias-production-replay`；
 `B1536=old-symptom-absent/exact-production-branch-pending`；
-`B1537=confirmed/planned/typed-transaction-conflict`；
+`B1537=implemented/typed-transaction-conflict/full-suite-pass`；
 `B1538=confirmed-symptom/conditional-after-B1537+B1539-replay`；
 `B1539=implemented/P0/teaching-schema-single-authority/full-suite-pass`；
 `system-answer/conclusion/relation/wording-selection=none`；
