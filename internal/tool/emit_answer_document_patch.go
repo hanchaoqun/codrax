@@ -3030,6 +3030,23 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			if roster, ok := err.(*atomicDiagramParticipantDispositionRosterError); ok && roster.missingOnly() &&
 				len(p.DiagramParticipantEdits) == 0 && len(p.DiagramRelationScopeEdits) == 0 {
 				if staged, applyErr := types.NewPartialMutation(patch).Apply(prev); applyErr == nil && staged != nil {
+					// Resolve relation dependencies before asking about orphan
+					// declarations. A surviving structural reply can become invalid
+					// only after its model-selected forward invocation is removed;
+					// deleting the reply in a later turn may in turn change the exact
+					// orphan roster. Publish the dependency generation first and let
+					// the model choose its relation action. No relation is removed,
+					// restored, redirected, or relabelled here.
+					if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view); dependencyLease != nil {
+						ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
+						ctx.Mutable.SetAnswerDiagramRelationRepairLease(dependencyLease)
+						stagedByThisCall = true
+						repair := answerDiagramRelationRepairScopeRepair(dependencyLease, nil)
+						repair.Fields = []string{"diagram_edge_edits"}
+						repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. One or more surviving sequence replies lost their preceding structural invocation in that exact graph. The old edge refs are consumed. Use only the new failure_ref/action branches to choose how each dependent relation should be repaired; do not replay old relation or participant operations. The system chooses no edge, action, direction, label, layout, or conclusion."
+						return failEmitWithRepair(t.Name(), now, repair,
+							"diagram relation phase staged; %d dependent relation carrier(s) require an explicit model choice", len(dependencyLease.Failures))
+					}
 					if orphanLease := newAtomicDiagramOrphanDispositionLease(staged, roster, lease); orphanLease != nil {
 						ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
 						ctx.Mutable.SetAnswerDiagramRelationRepairLease(orphanLease)
@@ -3077,6 +3094,25 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				Fields: []string{"diagram_relation_scope_edits"},
 				Hint:   "Use only one exact block_id/action branch currently published in diagram_relation_scope_edits. The branch changes only requested_relation_scope; do not replace the lease-target diagram or replay older refs.",
 			}, "diagram relation-scope edits: %s", err.Error())
+		}
+		// A relation-only patch can create a dependent failure without
+		// isolating any declaration, so it will not take the missing-orphan
+		// branch above. Inspect the exact unpublished merged graph here as well.
+		// The comparison uses parsed endpoint/operator occurrences and typed
+		// anchors only; Trace diagrams are excluded by their semantic family.
+		if len(p.DiagramEdgeEdits) > 0 {
+			if staged, applyErr := types.NewPartialMutation(patch).Apply(prev); applyErr == nil && staged != nil {
+				if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view); dependencyLease != nil {
+					ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
+					ctx.Mutable.SetAnswerDiagramRelationRepairLease(dependencyLease)
+					stagedByThisCall = true
+					repair := answerDiagramRelationRepairScopeRepair(dependencyLease, nil)
+					repair.Fields = []string{"diagram_edge_edits"}
+					repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. One or more surviving sequence replies lost their preceding structural invocation in that exact graph. The old edge refs are consumed. Use only the new failure_ref/action branches to choose how each dependent relation should be repaired; do not replay old relation or participant operations. The system chooses no edge, action, direction, label, layout, or conclusion."
+					return failEmitWithRepair(t.Name(), now, repair,
+						"diagram relation phase staged; %d dependent relation carrier(s) require an explicit model choice", len(dependencyLease.Failures))
+				}
+			}
 		}
 	}
 	// Stamp only blocks the model submitted in this patch. Unchanged blocks

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
@@ -199,6 +200,191 @@ func newAtomicDiagramOrphanDispositionLease(
 		return nil
 	}
 	return lease
+}
+
+// newAtomicDiagramPostEditDependencyLease closes relation semantics that are
+// defined by another relation in the same model-authored diagram. Today the
+// precise dependency is a sequence reply: an unanchored -->> carrier is a
+// structural reply only while one preceding, still-unpaired forward invocation
+// exists. Removing that invocation can therefore invalidate a reply without
+// changing the reply line itself.
+//
+// The detector compares only parsed endpoint/operator occurrences and the
+// existing typed anchor set. Visible labels, message text, request prose,
+// reasoning, and answer prose do not participate. It also requires the exact
+// reply token multiplicity to remain unchanged, so a call that edits the reply
+// carrier itself falls through to the ordinary full validator instead of being
+// guessed into this local transaction. The returned lease authors no repair:
+// it merely lets the model select an allowed action on the exact staged graph.
+func newAtomicDiagramPostEditDependencyLease(
+	previous, staged *types.AnswerDocumentV2,
+	source *types.AnswerDiagramRelationRepairLease,
+	view *types.AnswerSemanticView,
+) *types.AnswerDiagramRelationRepairLease {
+	if previous == nil || staged == nil || (view != nil && view.Family == types.QFRootCauseTrace) {
+		return nil
+	}
+	previousIndex, previousUnique := atomicDiagramUniqueBlockIndexes(previous)
+	stagedIndex, stagedUnique := atomicDiagramUniqueBlockIndexes(staged)
+	previousEdgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(previous)
+	stagedEdgeBlockCounts := diagramEvidenceBodyEdgeBlockCounts(staged)
+	var failures []types.AnswerDiagramRelationRepairFailure
+	for blockID, beforeIndex := range previousIndex {
+		afterIndex, exists := stagedIndex[blockID]
+		if !exists || !previousUnique[blockID] || !stagedUnique[blockID] {
+			continue
+		}
+		before := previous.Blocks[beforeIndex]
+		after := staged.Blocks[afterIndex]
+		if before.Kind != types.BlockDiagram || after.Kind != types.BlockDiagram ||
+			before.Diagram == nil || after.Diagram == nil ||
+			before.Diagram.Kind != types.DiagramSequence || after.Diagram.Kind != types.DiagramSequence {
+			continue
+		}
+		beforeEdges := mermaidcompat.ParseEdges(before.Diagram.Body)
+		afterEdges := mermaidcompat.ParseEdges(after.Diagram.Body)
+		beforeRelations := diagramTypedAnchorRelationSet(diagramEvidenceEffectiveAnchorsForBlock(
+			previous, beforeIndex, previousEdgeBlockCounts,
+		))
+		afterRelations := diagramTypedAnchorRelationSet(diagramEvidenceEffectiveAnchorsForBlock(
+			staged, afterIndex, stagedEdgeBlockCounts,
+		))
+		beforeStructural := diagramSequenceStructuralReplyIndexSet(types.DiagramSequence, beforeEdges, beforeRelations)
+		afterStructural := diagramSequenceStructuralReplyIndexSet(types.DiagramSequence, afterEdges, afterRelations)
+		beforeCounts := atomicDiagramSequenceReplyTokenCounts(beforeEdges)
+		afterCounts := atomicDiagramSequenceReplyTokenCounts(afterEdges)
+		beforePaired := make(map[string]bool)
+		beforeOrdinals := make(map[string]int)
+		for index, edge := range beforeEdges {
+			token := atomicDiagramSequenceReplyToken(edge)
+			if token == "" {
+				continue
+			}
+			beforeOrdinals[token]++
+			if beforeStructural[index] {
+				beforePaired[token+"\x00"+strconv.Itoa(beforeOrdinals[token])] = true
+			}
+		}
+		afterOrdinals := make(map[string]int)
+		bodyPairOccurrences := make(map[string]int)
+		for index, edge := range afterEdges {
+			pairKey := diagramEvidenceEdgeKey(edge.From, edge.To)
+			bodyPairOccurrences[pairKey]++
+			token := atomicDiagramSequenceReplyToken(edge)
+			if token == "" {
+				continue
+			}
+			afterOrdinals[token]++
+			// A changed reply population is not a stable carrier mapping. Let
+			// the ordinary validator assess the complete model-authored edit.
+			if beforeCounts[token] == 0 || beforeCounts[token] != afterCounts[token] ||
+				!beforePaired[token+"\x00"+strconv.Itoa(afterOrdinals[token])] || afterStructural[index] ||
+				diagramHasValidTypedRelation(afterRelations[pairKey]) {
+				continue
+			}
+			failures = append(failures, types.AnswerDiagramRelationRepairFailure{
+				BlockID: blockID, Issue: diagramCallEdgeIssueMissingAnchor,
+				FromNode: strings.TrimSpace(edge.From), ToNode: strings.TrimSpace(edge.To),
+				BodyOccurrence: bodyPairOccurrences[pairKey],
+			})
+		}
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+	lease := types.NewAnswerDiagramRelationRepairLease(staged, failures, nil)
+	if lease == nil {
+		return nil
+	}
+	lease.OptionalOrphanCleanups = atomicDiagramCarryPostEditOrphanCandidates(staged, source, lease)
+	return lease
+}
+
+func atomicDiagramUniqueBlockIndexes(doc *types.AnswerDocumentV2) (map[string]int, map[string]bool) {
+	indexes := make(map[string]int)
+	counts := make(map[string]int)
+	if doc == nil {
+		return indexes, map[string]bool{}
+	}
+	for index, block := range doc.Blocks {
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			continue
+		}
+		counts[id]++
+		indexes[id] = index
+	}
+	unique := make(map[string]bool, len(counts))
+	for id, count := range counts {
+		unique[id] = count == 1
+	}
+	return indexes, unique
+}
+
+func atomicDiagramSequenceReplyTokenCounts(edges []mermaidcompat.Edge) map[string]int {
+	out := make(map[string]int)
+	for _, edge := range edges {
+		if token := atomicDiagramSequenceReplyToken(edge); token != "" {
+			out[token]++
+		}
+	}
+	return out
+}
+
+func atomicDiagramSequenceReplyToken(edge mermaidcompat.Edge) string {
+	if mermaidcompat.SequenceArrowBase(edge.Operator) != "-->>" {
+		return ""
+	}
+	from := strings.TrimSpace(edge.From)
+	to := strings.TrimSpace(edge.To)
+	if from == "" || to == "" {
+		return ""
+	}
+	return from + "\x00" + to + "\x00-->>"
+}
+
+// atomicDiagramCarryPostEditOrphanCandidates preserves only producer-owned
+// participant choices that could become isolated by resolving the new exact
+// dependency lease. It does not mint a candidate for an arbitrary declaration.
+func atomicDiagramCarryPostEditOrphanCandidates(
+	staged *types.AnswerDocumentV2,
+	source, dependency *types.AnswerDiagramRelationRepairLease,
+) []types.AnswerDiagramOrphanCleanupCandidate {
+	if staged == nil || source == nil || dependency == nil || len(source.OptionalOrphanCleanups) == 0 {
+		return nil
+	}
+	indexes, unique := atomicDiagramUniqueBlockIndexes(staged)
+	seen := make(map[string]bool)
+	var out []types.AnswerDiagramOrphanCleanupCandidate
+	for _, candidate := range source.OptionalOrphanCleanups {
+		blockID := strings.TrimSpace(candidate.BlockID)
+		participantID := strings.TrimSpace(candidate.ParticipantID)
+		index, exists := indexes[blockID]
+		key := blockID + "\x00" + participantID
+		if blockID == "" || participantID == "" || !exists || !unique[blockID] || seen[key] || len(candidate.AllowedActions) == 0 {
+			continue
+		}
+		block := staged.Blocks[index]
+		if block.Kind != types.BlockDiagram || block.Diagram == nil || !atomicDiagramParticipantHasIncidentCarrier(block, participantID) {
+			continue
+		}
+		if _, count := atomicDiagramUniqueRemovableDeclaration(block.Diagram.Body, participantID); count != 1 {
+			continue
+		}
+		if incident, allFailed := atomicDiagramBaseIncidentEdgesAreRemoveCapableFailures(block, participantID, dependency); incident == 0 || !allFailed {
+			continue
+		}
+		candidate.DispositionBaseFingerprint = ""
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].BlockID != out[j].BlockID {
+			return out[i].BlockID < out[j].BlockID
+		}
+		return out[i].ParticipantID < out[j].ParticipantID
+	})
+	return out
 }
 
 // applyModelAuthoredDiagramAtomicEdits turns model-declared edge and boundary

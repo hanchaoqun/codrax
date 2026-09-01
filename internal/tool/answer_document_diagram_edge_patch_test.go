@@ -576,6 +576,171 @@ func TestEmitAnswerDocumentPatch_StagesRelationThenPublishesExplicitOrphanDispos
 	}
 }
 
+func TestAtomicDiagramPostEditDependencyLease_SequenceReplyUsesExactLIFOPairing(t *testing.T) {
+	previous := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram",
+			" participant A",
+			" participant B",
+			" A->>B: first request",
+			" A->>B: nested request",
+			" B-->>A: nested reply",
+			" B-->>A: first reply",
+		}, "\n")},
+	}}}
+	staged := &types.AnswerDocumentV2{DocumentModel: previous.DocumentModel, Blocks: []types.AnswerBlock{
+		cloneAtomicDiagramPatchBlock(previous.Blocks[0]),
+	}}
+	staged.Blocks[0].Diagram.Body = strings.Join([]string{
+		"sequenceDiagram",
+		" participant A",
+		" participant B",
+		" B-->>A: nested reply",
+		" B-->>A: first reply",
+	}, "\n")
+	lease := newAtomicDiagramPostEditDependencyLease(
+		previous, staged, nil, &types.AnswerSemanticView{Family: types.QFCallChain},
+	)
+	if lease == nil || len(lease.Failures) != 2 {
+		t.Fatalf("two formerly paired replies must become one exact failure per occurrence: %+v", lease)
+	}
+	for index, failure := range lease.Failures {
+		if failure.BlockID != "diag" || failure.FromNode != "B" || failure.ToNode != "A" ||
+			failure.BodyOccurrence != index+1 || !failure.AllowsAction("remove") {
+			t.Fatalf("failure[%d] is not an exact remove-capable reply carrier: %+v", index, failure)
+		}
+	}
+
+	unchangedDoc := &types.AnswerDocumentV2{DocumentModel: previous.DocumentModel, Blocks: []types.AnswerBlock{
+		cloneAtomicDiagramPatchBlock(previous.Blocks[0]),
+	}}
+	unchanged := newAtomicDiagramPostEditDependencyLease(
+		previous, unchangedDoc, nil,
+		&types.AnswerSemanticView{Family: types.QFCallChain},
+	)
+	if unchanged != nil {
+		t.Fatalf("preserving the forward invocations must not mint a dependency lease: %+v", unchanged)
+	}
+	trace := newAtomicDiagramPostEditDependencyLease(
+		previous, staged, nil, &types.AnswerSemanticView{Family: types.QFRootCauseTrace},
+	)
+	if trace != nil {
+		t.Fatalf("Trace diagrams use their independent causal authority: %+v", trace)
+	}
+}
+
+func TestAtomicDiagramPostEditDependencyLease_ExplicitTypedReplyOwnerDoesNotNeedForwardPair(t *testing.T) {
+	previous := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+			"sequenceDiagram", " participant A", " participant B", " A->>B: request", " B-->>A: result",
+		}, "\n")},
+	}}}
+	staged := &types.AnswerDocumentV2{DocumentModel: previous.DocumentModel, Blocks: []types.AnswerBlock{
+		cloneAtomicDiagramPatchBlock(previous.Blocks[0]),
+	}}
+	staged.Blocks[0].Diagram.Body = strings.Join([]string{
+		"sequenceDiagram", " participant A", " participant B", " B-->>A: result",
+	}, "\n")
+	staged.Blocks[0].EdgeAnchors = []types.DiagramEdgeAnchor{{
+		FromNode: "B", ToNode: "A", FromIdentity: "B.Result", ToIdentity: "A.Receive",
+		RelationKind: types.DiagramRelReturn, VisibleLabel: "result",
+	}}
+	if lease := newAtomicDiagramPostEditDependencyLease(
+		previous, staged, nil, &types.AnswerSemanticView{Family: types.QFCallChain},
+	); lease != nil {
+		t.Fatalf("an explicit typed return owner must not be reclassified as a dangling structural reply: %+v", lease)
+	}
+}
+
+func TestEmitAnswerDocumentPatch_StagesPostEditReplyDependencyBeforeOrphanDisposition(t *testing.T) {
+	previous := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "summary", Kind: types.BlockSummary, Text: "keep"},
+		{
+			ID: "diag", Kind: types.BlockDiagram,
+			Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: strings.Join([]string{
+				"sequenceDiagram",
+				" participant A",
+				" participant B",
+				" A->>B: request",
+				" B-->>A: reply",
+			}, "\n")},
+		},
+	}}
+	source := types.NewAnswerDiagramRelationRepairLease(previous, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B", BodyOccurrence: 1,
+	}}, nil)
+	if source == nil || len(source.Failures) != 1 {
+		t.Fatalf("test setup: missing source relation lease: %+v", source)
+	}
+	source.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "B")
+	mut := types.NewMutableState("post-edit reply dependency transaction")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, previous)
+	mut.SetAnswerDiagramRelationRepairLease(source)
+	bus := &types.BusContext{Mutable: mut}
+
+	first, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, source.Failures[0].FailureRef)))
+	if err != nil || first.Success || first.Repair == nil ||
+		first.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeStagedForRetry {
+		t.Fatalf("forward removal must stage the exact dependent-reply generation: err=%v result=%+v", err, first)
+	}
+	dependency := mut.AnswerDiagramRelationRepairLease()
+	if dependency == nil || dependency.OrphanDispositionOnly || len(dependency.Failures) != 1 ||
+		dependency.Failures[0].FromNode != "B" || dependency.Failures[0].ToNode != "A" ||
+		!dependency.Failures[0].AllowsAction("remove") || len(dependency.OptionalOrphanCleanups) != 1 {
+		t.Fatalf("staged generation did not publish the exact reply failure and carried orphan capability: %+v", dependency)
+	}
+	if dependency.Failures[0].FailureRef == source.Failures[0].FailureRef ||
+		strings.Contains(first.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON], source.Failures[0].FailureRef) {
+		t.Fatalf("old forward ref survived the staged generation: old=%q new=%q delta=%s",
+			source.Failures[0].FailureRef, dependency.Failures[0].FailureRef,
+			first.Repair.Metadata[types.ToolRepairMetaDiagramRelationRepairDeltaJSON])
+	}
+	if accepted := mut.AnswerDocumentV2(); accepted == nil || !strings.Contains(accepted.Blocks[1].Diagram.Body, "A->>B: request") {
+		t.Fatalf("dependency phase must not publish the relation edit: %+v", accepted)
+	}
+	if staged := mut.PendingAnswerDocumentPatchBase(); staged == nil ||
+		strings.Contains(staged.Blocks[1].Diagram.Body, "A->>B: request") || !strings.Contains(staged.Blocks[1].Diagram.Body, "B-->>A: reply") {
+		t.Fatalf("dependency phase did not preserve the exact unpublished graph: %+v", staged)
+	}
+
+	second, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(fmt.Sprintf(`{
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}]
+	}`, dependency.Failures[0].FailureRef)))
+	if err != nil || second.Success || second.Repair == nil ||
+		second.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome] != types.AnswerDocumentPatchOutcomeStagedForRetry {
+		t.Fatalf("reply removal must advance to the exact orphan roster: err=%v result=%+v", err, second)
+	}
+	orphan := mut.AnswerDiagramRelationRepairLease()
+	if orphan == nil || !orphan.OrphanDispositionOnly || len(orphan.Failures) != 0 ||
+		len(orphan.OptionalOrphanCleanups) != 1 || orphan.OptionalOrphanCleanups[0].ParticipantID != "B" {
+		t.Fatalf("reply removal did not produce the final exact orphan generation: %+v", orphan)
+	}
+
+	third, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"diagram_participant_edits":[{
+			"block_id":"diag","participant_id":"B","action":"retain_as_context",
+			"visible_label":"B（背景参与者）"
+		}]
+	}`))
+	if err != nil || !third.Success {
+		t.Fatalf("model-owned orphan disposition did not publish the staged graph: err=%v result=%+v", err, third)
+	}
+	accepted := mut.AnswerDocumentV2()
+	if accepted == nil || strings.Contains(accepted.Blocks[1].Diagram.Body, "->>") ||
+		!strings.Contains(accepted.Blocks[1].Diagram.Body, `participant B as "B（背景参与者）"`) {
+		t.Fatalf("final graph does not preserve the model-owned relation and participant choices: %+v", accepted)
+	}
+	if mut.PendingAnswerDocumentPatchBase() != nil || mut.AnswerDiagramRelationRepairLease() != nil {
+		t.Fatalf("successful final phase must clear retry-only state: pending=%+v lease=%+v",
+			mut.PendingAnswerDocumentPatchBase(), mut.AnswerDiagramRelationRepairLease())
+	}
+}
+
 func TestEmitAnswerDocumentPatch_AtomicParticipantFailurePublishesWholeRollbackReplay(t *testing.T) {
 	prev := atomicPatchTestDocument()
 	lease := types.NewAnswerDiagramRelationRepairLease(prev, []types.AnswerDiagramRelationRepairFailure{{

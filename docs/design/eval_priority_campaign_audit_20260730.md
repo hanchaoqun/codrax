@@ -70331,13 +70331,19 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    重放、每次 draft generation 变化使旧 lease 失效，以及最终发布仍执行关系/participant/结构/Mermaid/answer 全合同。判定只读 parsed operator、
    endpoint pair、typed edge refs 与 staged fingerprint，不读取用户请求、模型 thinking、正文、label、message、Markdown 或 Mermaid 原文关键词。
 7. 本批不改变 read-mode 关系证据权威、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream 行为。
+8. `B1534` 已按上述边界实现：关系 patch 先生成 exact unpublished graph；共享 sequence parser/LIFO reply 配对器随后比较编辑前后
+   endpoint/operator occurrence。只有 reply token 数量未变、编辑前确有结构配对、编辑后失去配对且没有任何 typed relation owner 时，才铸造
+   新一代 remove-capable failure ref。新 generation 优先于 orphan roster；模型处理关系后系统再重算完整孤立参与者清单。旧 ref 不可重放，
+   producer-owned orphan candidate 只在新失败覆盖其全部 incident carrier 时携带。显式 typed return owner 保持合法；reply 本身被编辑或映射歧义时
+   fail-open 到普通全量 validator。单对、嵌套 LIFO、typed return、Trace 隔离及三阶段生产 envelope 回归均通过；`go test ./... -count=1`
+   全绿。
 
 状态：
 
 `r1003=runner-pass-2/2,human-pass-2/2`；
 `B1532=production-positive/core-closed`；
 `B1533=production-positive/core-closed`；
-`B1534=confirmed/design-frozen/pending-implementation`；
+`B1534=implemented/typed-post-edit-dependency-closure/full-suite-pass/pending-production-replay`；
 `post-edit-dependent-relation=typed-generation-bound/model-owned-disposition`；
 `system-answer/conclusion/relation/wording-selection=none`；
 `request/model-final-prose/markdown/mermaid-message fact-scan=none`；
