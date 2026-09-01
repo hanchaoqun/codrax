@@ -57865,6 +57865,59 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1595 r994/B1520：概念终点候选已进入 prompt/schema，却在工具执行投影中被清空（2026-08-31）
+
+1. 从已推送 `d6a6f428f` 构建不可变二进制，严格并发恰好 2 路复放 Java call-chain 与 H8 显式窗 Trace；runner 为 Java FAIL
+   142s、Trace PASS 187s。两路人工均判 fail，但失败机制不同，不能合并为一个词面修补。
+2. B1519 获得 prompt 侧生产正证：finalizer 的 `terminal_body_candidates` 已明确发布
+   `AuditLog.record -> System.out.println [ev-f632b19f56f19361]`，模型也独立选择该 evidence 与
+   `current_terminal_differs`。但同一 `emit_answer_document_patch` 在执行时仍报 pair 未发布，最终回退旧稿把 stdout 写成“完成审计落库”。
+3. 新确认 `B1520-TOOLSTAGEAUTHORITYPROJECTION1/P0`。根因不是候选构造，而是
+   `AgentContext -> ToolBusContext` 的执行投影只复制环境/门控字段，丢掉已由 agent scope 过滤的 `EvidenceItems`、`FlowFindings`、
+   `AnswerChains`、`AnswerSymbols` 等阶段权威。于是 `ParametersFor(agentCtx)` 用完整证据生成动态 schema，模型按该 schema 选值；
+   `Execute(toolBusCtx)` 却用空证据重建合同并拒绝同一值，形成“系统教学允许、系统执行拒绝”的红线级自相矛盾。
+4. 这不是 Java、`println` 或“落库”专属问题。任何依赖 agent-stage typed evidence/relations/symbols 的动态工具合同，都可能出现 schema、prompt、
+   emit-time validator 三面漂移；根修必须让工具看到同一份只读 stage-authority snapshot，不能按最终答案词汇加豁免，也不能由系统替模型选择 receipt。
+5. Trace 保留显式 `34579.490..34579.500s`、9 次 typed 查询、链上根因、实际占时/规则可消双账户、业务线索、自动补采和最终
+   `Trace 因果投影`，邻近/背景均只作支撑，无固定 4ms/4m 或活动流年龄降级。但模型主摘要再次把 runnable/优先级反转称为“确定性工作”，同时
+   又正确披露 `VerifyClass` 0.285ms 的 work-completion/target-wait binding 未证，构成模型内部语义矛盾。typed handoff 和系统投影本轮准确；
+   不增加正文关键词扫描、硬拒或系统代写，继续作为模型波动/上下文压力观察。
+
+状态：
+
+`r994=runner-java-fail+trace-pass,human-both-fail`；
+`B1519=production-prompt-positive/runtime-binding-blocked-by-B1520`；
+`B1520=confirmed-P0/next-generalized-fix`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r994`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label hard scan=none`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r994`。
+
+### §123.1596 B1520：工具执行继承同一 dispatch 的只读阶段权威（2026-08-31）
+
+1. `B1520-TOOLSTAGEAUTHORITYPROJECTION1/P0` 已按通用形施工。`ToolBusContext` 现在从已经过 agent scope 过滤的当前 dispatch 复制
+   `EvidenceItems`、`FlowFindings`、`AnswerChains`、`AnswerSymbols + completeness`、`MCPResponses`、prior stage reports 与 constraints；
+   这些是只读 snapshot，工具仍只能通过 `MutableState` 或正常 `StageOutput` 通道写状态。
+2. 动态工具 schema、finalizer prompt 和 emit-time binder 因而消费同一个 typed authority universe。回归以 discover-terminal profile 和
+   `AuditLog.record -> System.out.println` 形的普通 typed call row 为 witness，钉住 agent semantic view 与 tool semantic view 的 receipt contract
+   完全相等，并确认工具侧 slice 不与 agent 原切片别名。实现不读取请求、thinking、最终答案或 Mermaid 文本，也不按语言、方法名或业务词汇分支。
+3. 该修复不放宽 receipt 的 evidence/conclusion exact-pair 校验，不把辅助证据升级成 principal，不生成或改写模型答案、关系、标签、布局或结论；
+   它只消除系统自己制造的 schema/执行合同漂移。针对性 types 回归、相关包、全仓测试与实际构建均已通过；提交推送后用恰好 2 路生产复放验收。
+4. H8 Trace 的显式时间窗、因果投影、系统自动补采、链上根因、语义工作关系 receipt、实际占时/规则可消双账户均未改动；本批没有增加
+   4ms、4m、round、context 比例或活动流年龄阈值。
+
+状态：
+
+`B1520=implemented/targeted+relevant+full-suite+build-pass`；
+`tool-schema/prompt/runtime-binder=one-dispatch-typed-authority-universe`；
+`tool-stage-authority=read-only-snapshot/no-stage-output-write`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model/final-prose/mermaid-label fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：

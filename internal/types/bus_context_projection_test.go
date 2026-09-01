@@ -154,6 +154,55 @@ func TestToolBusContextPreservesReadOnlySearchGraph(t *testing.T) {
 	}
 }
 
+func TestToolBusContextPreservesDispatchStageAuthorityForExecutableSchema(t *testing.T) {
+	profile := &CallChainEndpointProfile{
+		Source:   "VisitController.create",
+		SinkMode: CallChainSinkResolutionDiscoverTerminal,
+	}
+	evidence := []EvidenceItem{{
+		ID: "ev-terminal", Kind: EvidenceRelationship,
+		Subject: "AuditLog.record", Predicate: "calls", Object: "System.out.println",
+		Source: "src/AuditLog.java", LineStart: 6, Scope: ScopeLine, AnchorKind: AnchorCall,
+		Producer: EvidenceProducerRepoMapSelectedCallableBodyCall,
+	}}
+	ir := &AnalysisIR{RequestModel: RequestModel{CallChainEndpointProfile: profile}}
+	ac := &AgentContext{
+		AnalysisIR:               ir,
+		EvidenceItems:            evidence,
+		FlowFindings:             []FlowFindingDigest{{ID: "typed-flow"}},
+		AnswerChains:             []AnswerChain{{Item: evidence[0], StrictOK: true}},
+		AnswerSymbols:            []AnswerSymbol{{Name: "System.out.println"}},
+		AnswerSymbolCompleteness: CompletenessComplete,
+		MCPResponses:             []MCPResponse{{Summary: "typed mcp"}},
+		PriorReports:             []StageReport{{Findings: "typed report"}},
+		Constraints:              []string{"preserve typed authority"},
+	}
+
+	agentView := BuildAnswerSemanticViewForAgentContext(ac)
+	bc := ToolBusContext(ac, AgentFinalizer)
+	toolView := BuildAnswerSemanticViewForBusContext(bc)
+	if agentView == nil || toolView == nil ||
+		!reflect.DeepEqual(agentView.ConceptualTerminalResolutionContract, toolView.ConceptualTerminalResolutionContract) {
+		t.Fatalf("tool execution authority diverged from agent schema authority: agent=%+v tool=%+v",
+			agentView, toolView)
+	}
+	if toolView.ConceptualTerminalResolutionContract == nil ||
+		len(toolView.ConceptualTerminalResolutionContract.Rows) != 1 ||
+		toolView.ConceptualTerminalResolutionContract.Rows[0].EvidenceID != "ev-terminal" {
+		t.Fatalf("schema-published terminal pair was lost at tool projection: %+v",
+			toolView.ConceptualTerminalResolutionContract)
+	}
+	if len(bc.FlowFindings) != 1 || len(bc.AnswerChains) != 1 || len(bc.AnswerSymbols) != 1 ||
+		bc.AnswerSymbolCompleteness != CompletenessComplete || len(bc.MCPResponses) != 1 ||
+		len(bc.StageReports) != 1 || len(bc.Constraints) != 1 {
+		t.Fatalf("dispatch stage authority was only partially projected: %+v", bc)
+	}
+	bc.EvidenceItems[0].ID = "mutated-tool-copy"
+	if ac.EvidenceItems[0].ID != "ev-terminal" {
+		t.Fatal("tool stage-authority slice aliases the agent slice")
+	}
+}
+
 func TestSubAgentContextPreservesReadOnlySearchGraphWithoutMutable(t *testing.T) {
 	graph := struct{ marker string }{"repo-map-graph"}
 	bc := &BusContext{SearchGraph: graph}

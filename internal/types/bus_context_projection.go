@@ -47,10 +47,11 @@ package types
 // enforcement (MultiGraph / TypedDenials / PendingSubRepos /
 // MultiRepoInactivePreviewCount), tool capability (Memory /
 // EnvFacts / EnvRecommendSettings / WorktreePath), or cancellation
-// propagation (Ctx). Stage-scoped fields (RepoFacts / EvidenceItems /
-// TaskState / FlowFindings) are NOT typed signals — they are
-// stage outputs that get filtered per-sub-agent or rebuilt
-// per-tool-call and don't belong in this list.
+// propagation (Ctx). Stage-scoped fields are not part of this symmetric
+// parent/sub-agent list because sub-agents need scope filtering. ToolBusContext
+// nevertheless copies the already-filtered AgentContext stage authority so a
+// tool's executable validator consumes the same evidence/relation universe as
+// the schema and prompt shown to that agent.
 
 // projectionTypedSignalFields is the canonical list of typed-signal
 // field names. Read by the build-time test
@@ -133,6 +134,20 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		Language:              ctx.Language,
 		Preferences:           ctx.Preferences,
 		Mode:                  ctx.Mode,
+
+		// Dispatch-local stage authority. ParametersFor(ctx) is compiled from
+		// these AgentContext fields immediately before the model calls a tool;
+		// Execute must validate against the same immutable universe. Dropping
+		// these fields made a schema-published evidence/receipt pair fail at
+		// runtime after ToolBusContext rebuilt an empty BusContext view.
+		EvidenceItems:            append([]EvidenceItem(nil), ctx.EvidenceItems...),
+		FlowFindings:             append([]FlowFindingDigest(nil), ctx.FlowFindings...),
+		AnswerChains:             append([]AnswerChain(nil), ctx.AnswerChains...),
+		AnswerSymbols:            append([]AnswerSymbol(nil), ctx.AnswerSymbols...),
+		AnswerSymbolCompleteness: ctx.AnswerSymbolCompleteness,
+		MCPResponses:             append([]MCPResponse(nil), ctx.MCPResponses...),
+		StageReports:             append([]StageReport(nil), ctx.PriorReports...),
+		Constraints:              append([]string(nil), ctx.Constraints...),
 
 		// Typed signals — every entry in projectionTypedSignalFields
 		// must appear here. Adding a new typed signal to AgentContext
