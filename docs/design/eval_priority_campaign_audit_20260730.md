@@ -70183,3 +70183,38 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1605 r1000/B1529：最小阶段时序前置与 Trace 模型服从性观察（2026-08-31）
+
+1. 从已推送 `753eeabdb` 重建二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 H8 显式窗 Trace；runner
+   2/2 PASS：Trace 157s、组合题 269s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_diagram_relation_r1000_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_relation_r1000_20260831_manual_audit.md`。
+2. 组合题人工判 pass：四阶段顺序、输入/输出/载体表及引用基本正确。B1528 两个主要展示臂获生产正证：答案不再暴露
+   `analyze\\x00explore` 等内部复合键，也没有把 log/perf 条件预阶段 guard 错贴为 Analyze/Explore note。本轮 normalized
+   participant slate 保留了请求原文中的 `analyze` 与 `finalizer`，故 B1527 receipt 没有触发，仍待直接生产正证。
+3. 组合题仍有明显流程噪声：模型首稿画了 dispatcher fan-out 和无证据的 state-flow edges，普通关系门正确拒绝；两轮 patch 后才保留三条
+   typed precedence edges，最终还留下 Orchestrator/Dispatcher/BusContext/MutableState 四个断开参与者。既有 authority 已禁止这些无 recipe
+   的边，但提示位于长上下文后段，未能在首稿降低模型心智。
+4. `B1529-READMODEMINIMALSEQUENCEFIRST1/P1` 不新增 hard gate：把最小图 recipe 前置到 canonical sequence 紧后——先只画 selected
+   main stages + adjacent typed precedence；职责、artifact 与 state carrier 由 sibling table 表达；只有另行 selected 的 exact typed
+   directed-operation recipe 才能把 dispatcher/orchestrator/carrier/field 加入该 sequence。模型仍是图和答案作者，普通关系 validator 权威不变。
+5. Trace runner PASS、人工判 fail：10ms 窗、链上排序、实际占时/规则可消双账户、业务 span、确定性补齐、最终因果投影都完整；但模型 lead
+   再次把 NetworkService runnable 与 CookieMonster sleep 称为“确定性优化工作”，把 peer 的 6.406ms 写成 6.599ms，并在无 CPU placement/
+   competitor carrier 的 T7 席声称“同 CPU 竞争”。final prompt 已包含 B1523/B1525 的逐字 evidence ceiling，故当前定性为模型服从性波动，
+   继续异构复放，不增加正文扫描硬门或系统代写。
+6. 本批不改变 Trace 链上主因权威、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有扫描用户请求、模型 thinking、
+   最终正文、Markdown 或 Mermaid 文本作为事实门。
+
+状态：
+
+`r1000=runner-pass-2/2,human-combo-pass+trace-fail`；
+`B1527=pending-direct-production-replay`；
+`B1528=internal-key+prestage-production-positive/disconnected-context-advisory-incomplete`；
+`B1529=implemented/typed-minimal-first-soft-guidance/pending-production-replay`；
+`B1523/B1525=r1000-model-adherence-variance/context-present/no-hard-gate`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1000`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1000`。

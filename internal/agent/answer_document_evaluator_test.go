@@ -11257,6 +11257,8 @@ func TestRenderAnswerDocCurrentRunStageLaneAuthoritySeparatesReadAndWriteStages(
 		"## Current Run Stage-Lane Authority",
 		"current_mode=`read`",
 		"canonical_read_main_sequence=`analyze -> explore -> extract -> finalize`",
+		"Minimal-first sequence authoring",
+		"keep dispatcher, orchestrator, carrier, and field identities in prose/table unless a separate typed directed-operation recipe is also selected",
 		"conditional_pre_stages=`log_triage, perf_triage`",
 		"Conditional pre-stages are separate execution steps before `analyze`",
 		"Do not attach their guards as notes to `analyze`, `explore`, or another main-stage participant",

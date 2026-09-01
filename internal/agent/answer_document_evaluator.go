@@ -25452,6 +25452,7 @@ func renderAnswerDocCurrentRunStageLaneAuthority(ctx *types.AgentContext) string
 	b.WriteString("## Current Run Stage-Lane Authority\n\n")
 	b.WriteString("- current_mode=`read`; this authority applies to the requested current read-mode workflow, not to comparisons that explicitly discuss another mode.\n")
 	fmt.Fprintf(&b, "- canonical_read_main_sequence=`%s`.\n", strings.Join(mainStageNames(main), " -> "))
+	b.WriteString("- Minimal-first sequence authoring: start with only the selected main stages and the adjacent precedence recipes published below. A requested stage/state table carries responsibilities, artifacts, and state carriers; keep dispatcher, orchestrator, carrier, and field identities in prose/table unless a separate typed directed-operation recipe is also selected for that exact sequence edge.\n")
 	if names := stageNames(pre); len(names) > 0 {
 		fmt.Fprintf(&b, "- conditional_pre_stages=`%s`; these run before `analyze` only when their typed attachment guards fire.\n", strings.Join(names, ", "))
 		b.WriteString("- Conditional pre-stages are separate execution steps before `analyze`. If you show them in the main sequence, place them before `analyze` behind their exact guards; otherwise keep them in a sibling table. Do not attach their guards as notes to `analyze`, `explore`, or another main-stage participant.\n")
