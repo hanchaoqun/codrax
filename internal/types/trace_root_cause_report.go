@@ -15,8 +15,7 @@ import (
 const TraceRootCauseReportSchemaVersion = 2
 
 // TraceRootCauseCategory is the closed, stable root-cause vocabulary exposed
-// in the JSON sidecar. Evidence remains concise free text and is deliberately
-// not constrained to this vocabulary.
+// in the JSON sidecar. Evidence is bound from typed candidate facts.
 type TraceRootCauseCategory string
 
 const (
@@ -55,6 +54,10 @@ func AllTraceRootCauseCategories() []TraceRootCauseCategory {
 // also runtime-owned: array order is the model's strongest-to-weakest order,
 // and normalization writes contiguous 1-based ranks.
 type TraceRootCauseItemV2 struct {
+	// CandidateID is accepted only on the model-to-runtime selector wire. The
+	// binder clears it before persistence, so the public sidecar remains the
+	// stable user-facing v2 shape rather than leaking an internal receipt key.
+	CandidateID   string                 `json:"candidate_id,omitempty"`
 	Rank          int                    `json:"rank"`
 	Category      TraceRootCauseCategory `json:"category"`
 	ThreadName    string                 `json:"thread_name,omitempty"`
@@ -74,9 +77,9 @@ type TraceRootCauseReportV2 struct {
 	RootCauses    []*TraceRootCauseItemV2 `json:"root_causes"`
 }
 
-// NormalizeAndValidateTraceRootCauseReport validates model-authored semantic
-// choices, compacts evidence whitespace, and owns the fixed Chinese summary
-// spelling. It never derives a cause from the long answer prose.
+// NormalizeAndValidateTraceRootCauseReport validates an already bound report,
+// compacts evidence whitespace, and owns the fixed Chinese summary spelling.
+// It never derives a cause from the long answer prose.
 func NormalizeAndValidateTraceRootCauseReport(in *TraceRootCauseReportV2) (*TraceRootCauseReportV2, error) {
 	if in == nil {
 		return nil, fmt.Errorf("trace_root_causes is required")
@@ -110,6 +113,7 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		return nil, fmt.Errorf("trace_root_causes.%s is null", field)
 	}
 	out := &TraceRootCauseItemV2{
+		CandidateID:  compactTraceRootCauseField(in.CandidateID),
 		Category:     in.Category,
 		ThreadName:   compactTraceRootCauseField(in.ThreadName),
 		ResourceName: compactTraceRootCauseField(in.ResourceName),

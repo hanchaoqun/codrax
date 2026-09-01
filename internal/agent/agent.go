@@ -3154,13 +3154,6 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 	}
 
-	if b.name == types.AgentFinalizer {
-		// The answer document has already been accepted at this point. Build the
-		// optional trace sidecar now, after model mutation, so it cannot be
-		// cleared by answer replacement and cannot influence model generation.
-		finalizeDeterministicTraceFinding(ctx)
-	}
-
 	// Parse final output. This phase is local CPU work, not an LLM
 	// request, but it can be non-trivial on large evidence pools. Keep
 	// the same watchdog shape as prompt preflight so stalls are

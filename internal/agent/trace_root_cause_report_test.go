@@ -18,42 +18,51 @@ func traceRootCauseTestContext(objective string) *types.AgentContext {
 	}
 }
 
-func TestPrepareTraceFindingContractEnablesSeparateJSONWithoutOldFindingSchema(t *testing.T) {
+func TestPrepareTraceFindingContractDoesNotEnableReportWithoutTypedCandidates(t *testing.T) {
 	ctx := traceRootCauseTestContext("analyze this trace root cause")
 	if err := prepareTraceFindingContract(ctx); err != nil {
 		t.Fatalf("prepareTraceFindingContract: %v", err)
 	}
 	contract := ctx.Mutable.TraceFindingContract()
-	if contract == nil || contract.Required || !contract.RootCauseReportRequired {
-		t.Fatalf("expected JSON report contract without legacy model finding: %+v", contract)
+	if contract == nil || contract.Required || contract.RootCauseReportEnabled {
+		t.Fatalf("empty typed roster must not expose root-cause selection: %+v", contract)
 	}
-	if got := renderAnswerDocTraceDecisionHandoff(ctx); !strings.Contains(got, "Trace Root Cause JSON") || strings.Contains(got, "Required Typed Sidecar") {
-		t.Fatalf("finalizer must receive only the new JSON report contract:\n%s", got)
+	if got := renderAnswerDocTraceDecisionHandoff(ctx); strings.Contains(got, "Trace Root Cause JSON") {
+		t.Fatalf("empty roster leaked a root-cause report contract:\n%s", got)
 	}
-	finalizeDeterministicTraceFinding(ctx)
-	if finding := ctx.Mutable.TraceFinding(); finding == nil || finding.Unresolved == nil {
-		t.Fatalf("legacy batch/clustering artifact must remain independently available: %+v", finding)
+	if finding := ctx.Mutable.TraceFinding(); finding != nil {
+		t.Fatalf("runtime must not mint a model conclusion: %+v", finding)
 	}
 }
 
-func TestPrepareTraceFindingContractOrdinaryTraceRequestEnablesJSONByDefault(t *testing.T) {
+func TestPrepareTraceFindingContractSidecarFlagCannotBypassTypedRoster(t *testing.T) {
 	ctx := traceRootCauseTestContext("analyze this trace root cause")
 	if err := prepareTraceFindingContract(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if contract := ctx.Mutable.TraceFindingContract(); contract == nil || !contract.RootCauseReportRequired {
-		t.Fatalf("ordinary root-cause trace answer must enable JSON by default: %+v", contract)
+	if contract := ctx.Mutable.TraceFindingContract(); contract == nil || contract.Required || contract.RootCauseReportEnabled {
+		t.Fatalf("caller flag must not manufacture selectable root causes: %+v", contract)
 	}
 }
 
-func TestPrepareTraceFindingContractSidecarFlagStillEnablesJSON(t *testing.T) {
+func TestRenderTraceRootCauseContractOffersOnlyTypedCandidateIDs(t *testing.T) {
 	ctx := traceRootCauseTestContext("analyze this trace root cause")
-	ctx.TraceFindingRequired = true
-	if err := prepareTraceFindingContract(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if contract := ctx.Mutable.TraceFindingContract(); contract == nil || contract.Required || !contract.RootCauseReportRequired {
-		t.Fatalf("batch sidecar request must coexist with the new JSON report: %+v", contract)
+	ctx.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
+		RootCauseReportEnabled: true,
+		CandidateSetID:         "set-1",
+		Candidates: []types.TraceFindingCandidateV1{{
+			PrimaryEligible: true,
+			Decision: types.TraceCauseDecision{
+				CandidateID: "candidate-1", SubjectName: "RenderThread",
+				Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+				Magnitude:    &types.TypedMagnitude{Value: 4, Unit: "ms", Additivity: "wall_clock_per_thread"},
+				EvidenceRefs: []string{"E1"},
+			},
+		}},
+	})
+	got := renderAnswerDocTraceDecisionHandoff(ctx)
+	if !strings.Contains(got, "Optional Trace Root Cause JSON") || !strings.Contains(got, `"candidate_id": "candidate-1"`) || strings.Contains(got, "Required") {
+		t.Fatalf("typed optional selector prompt drifted:\n%s", got)
 	}
 }
 

@@ -69960,3 +69960,31 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1599 PR23：结构化 Trace 根因旁路合入与红线审计（2026-08-31）
+
+1. PR #23 以双父 merge commit `80b6e0425` 合入，未 squash/rebase；原作者 commit
+   `ea525ad937f73c32aed197b5050a8faac1717816` 与 author identity 原样可达。完整审计见
+   `docs/design/pr23_structured_trace_root_cause_audit_20260831.md`。
+2. 原实现确认三条 P0：旁路 JSON 缺失/错误可拒绝完整答案；根因类别、身份、影响量和证据是未绑定自由字段；运行时在模型完成后自行选择第一个
+   eligible candidate 为 `PrimaryCause`。另有一条 P1：新增 artifact setter 漏清 retry-local patch base 与 relation lease，现有三项测试确定复现。
+3. 根修保持模型结论权：旁路改为 optional；模型仅从 dispatch schema 暴露的 exact typed on-chain candidate IDs 中选择 N 个并排序；系统只绑定冻结
+   category/identity/magnitude/evidence，且 count/composite/cross-thread CPU-ms 不冒充 wall-clock `impact_seconds`。旁路无效只记诊断，完整答案继续提交；
+   系统自动选第一名路径退役。
+4. full/multi-artifact setter 收敛到同一锁内成功尾声，统一清理 pending patch base、relation repair lease、rejected/degraded recovery state，避免新增
+   sibling artifact 再次复制漏项。
+5. 相关全套还确认 PR 新增的 `TraceFindingRequired`/setter 全仓无调用方，默认启用路径也不读取它，并触发 orchestrator 热文件行数闸门。已删除这条
+   伪 CLI 配置面而非抬高预算；激活只读 typed Trace 请求形与可选候选清单。
+
+状态：
+
+`PR23-original-commit=preserved`；
+`PR23-A/B/C=implemented/full-suite+build-pass`；
+`PR23-D/E=implemented/full-suite+ratchet-pass`；
+`trace-root-sidecar=optional/model-selects-typed-on-chain-ids/runtime-binds-facts`；
+`system-primary-cause-selection=none`；
+`invalid-sidecar=nonblocking-full-answer`；
+`request/model/final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

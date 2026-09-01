@@ -7,7 +7,7 @@ const TraceFindingSchemaVersion = 1
 // independent user-facing root-cause report activation for trace analyses.
 type TraceFindingContract struct {
 	Required                bool                      `json:"required"`
-	RootCauseReportRequired bool                      `json:"root_cause_report_required,omitempty"`
+	RootCauseReportEnabled  bool                      `json:"root_cause_report_enabled,omitempty"`
 	CandidateSetID          string                    `json:"candidate_set_id"`
 	FindingSchemaVersion    int                       `json:"finding_schema_version"`
 	PrimaryCandidateIDs     []string                  `json:"primary_candidate_ids"`

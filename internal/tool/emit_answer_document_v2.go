@@ -43,7 +43,7 @@ type emitAnswerDocumentV2Params struct {
 	Caveats               []string                           `json:"caveats,omitempty"`
 	Snippets              []emitCodeSnippetV2                `json:"snippets,omitempty"`
 	TraceFinding          *types.TraceFindingV1              `json:"trace_finding,omitempty"`
-	TraceRootCauses       *types.TraceRootCauseReportV2      `json:"trace_root_causes,omitempty"`
+	TraceRootCauses       json.RawMessage                    `json:"trace_root_causes,omitempty"`
 }
 
 type emitAnswerCitationV2 struct {
@@ -430,7 +430,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	}
 	rootCauses, rootCauseErr := resolveTraceRootCauseReportForEmit(ctx, p.TraceRootCauses, false)
 	if rootCauseErr != nil {
-		return failEmit(toolName, now, "trace_root_causes rejected: %v", rootCauseErr)
+		logging.Warning("[%s] optional trace_root_causes ignored; full answer remains eligible: %v", toolName, rootCauseErr)
+		rootCauses = nil
 	}
 	res, err := ApplyAndPersistMutationWithFinding(ctx, toolName, mutation, nil, finding, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil && rootCauses != nil {

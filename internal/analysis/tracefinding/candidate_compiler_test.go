@@ -14,7 +14,8 @@ func TestCompileCandidateContractBindsTypedRankSeat(t *testing.T) {
 		TargetStateAccount: &types.TraceCausalProjectionTargetStateAccount{Subject: "ui-7", TotalMS: 20},
 		RankedSeats: []types.TraceCausalProjectionNode{{
 			EvidenceID: "E1", Subject: "ui-7", TypeToken: "scheduler_latency",
-			SpanName: "DrawFrame", BlockingKind: "monitor_contention", BlockingHolderSite: "ClassLinker lock",
+			ChainRelevance: "on_chain",
+			SpanName:       "DrawFrame", BlockingKind: "monitor_contention", BlockingHolderSite: "ClassLinker lock",
 			Rank: 1, Tier: "A", EffectiveImpactMS: 8.5, EffectiveImpactPublished: true,
 			RankBoardParamsFingerprint: "board-1", Confidence: 0.9,
 		}},
@@ -44,7 +45,7 @@ func TestCompileCandidateContractBindsTypedRankSeat(t *testing.T) {
 func TestValidateRejectsCandidateFieldRewrite(t *testing.T) {
 	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{ID: "E1"}}}
 	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
-		RankedSeats: []types.TraceCausalProjectionNode{{EvidenceID: "E1", TypeToken: "scheduler_latency", Rank: 1, ImpactMS: 3}},
+		RankedSeats: []types.TraceCausalProjectionNode{{EvidenceID: "E1", TypeToken: "scheduler_latency", Rank: 1, ImpactMS: 3, ChainRelevance: "on_chain"}},
 	}}}
 	contract, err := CompileCandidateContract(ledger, set, "unproven")
 	if err != nil {
@@ -96,7 +97,7 @@ func TestCandidateCausalityUnprovenNeverDefaultsToProven(t *testing.T) {
 	}
 }
 
-func TestBuildDeterministicFindingSelectsTopEligibleCandidate(t *testing.T) {
+func TestBuildDeterministicFindingNeverSelectsTopEligibleCandidate(t *testing.T) {
 	contract := &types.TraceFindingContract{
 		FindingSchemaVersion: types.TraceFindingSchemaVersion,
 		FindingID:            "finding-1", AnalysisKey: "analysis-1", ContractHash: "hash-1",
@@ -106,10 +107,10 @@ func TestBuildDeterministicFindingSelectsTopEligibleCandidate(t *testing.T) {
 		},
 	}
 	finding := BuildDeterministicFinding(contract)
-	if finding == nil || finding.PrimaryCause == nil || finding.PrimaryCause.CandidateID != "root" {
+	if finding == nil || finding.PrimaryCause != nil || finding.Unresolved == nil {
 		t.Fatalf("unexpected deterministic finding: %+v", finding)
 	}
-	if finding.Revision.ContractHash != "hash-1" || len(finding.EvidenceRefs) != 1 || finding.EvidenceRefs[0] != "E2" {
+	if finding.Revision.ContractHash != "hash-1" {
 		t.Fatalf("finding metadata drifted: %+v", finding)
 	}
 }

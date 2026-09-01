@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -243,12 +244,12 @@ func projectTraceFindingContract(schema json.RawMessage, contract *types.TraceFi
 	return out
 }
 
-// projectTraceRootCauseReport adds the user-facing JSON report to trace
-// root-cause finalizer calls. Unlike TraceFindingV1, this report does not
-// depend on deterministic candidate IDs, so it remains usable when the model
-// can diagnose the trace but no root_cause_rank row was published.
+// projectTraceRootCauseReport adds an optional model-owned selection receipt
+// to trace root-cause finalizer calls. Only exact typed on-chain candidate IDs
+// are exposed; public report fields are bound after the answer is accepted.
 func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFindingContract, patch bool) json.RawMessage {
-	if contract == nil || !contract.RootCauseReportRequired {
+	selectable := tracefinding.SelectableRootCauseCandidates(contract)
+	if contract == nil || !contract.RootCauseReportEnabled || len(selectable) == 0 {
 		return schema
 	}
 	var root map[string]any
@@ -263,12 +264,7 @@ func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFi
 	if patch {
 		name = "replace_trace_root_causes"
 	}
-	properties[name] = traceRootCauseReportJSONSchema()
-	if !patch {
-		required, _ := root["required"].([]any)
-		required = append(required, name)
-		root["required"] = required
-	}
+	properties[name] = traceRootCauseReportJSONSchema(selectable)
 	out, err := json.Marshal(root)
 	if err != nil {
 		return schema
@@ -276,35 +272,23 @@ func projectTraceRootCauseReport(schema json.RawMessage, contract *types.TraceFi
 	return out
 }
 
-func traceRootCauseReportJSONSchema() map[string]any {
-	categories := make([]string, 0, len(types.AllTraceRootCauseCategories()))
-	for _, category := range types.AllTraceRootCauseCategories() {
-		categories = append(categories, string(category))
+func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) map[string]any {
+	candidateIDs := make([]string, 0, len(selectable))
+	for _, candidate := range selectable {
+		candidateIDs = append(candidateIDs, candidate.Decision.CandidateID)
 	}
 	item := map[string]any{
 		"type":        "object",
-		"description": "One independently supported structured root cause. Evidence is concise free text grounded in the trace; rank and summary are normalized by the runtime from array order and category identity.",
+		"description": "One model-selected typed on-chain candidate. Array order owns root-cause importance; all public semantic fields are bound by the runtime from this exact receipt.",
 		"properties": map[string]any{
-			"category":      map[string]any{"type": "string", "enum": categories},
-			"thread_name":   map[string]any{"type": "string", "description": "Exact thread name; required for thread-scoped categories."},
-			"resource_name": map[string]any{"type": "string", "description": "Exact lock or resource name; required for lock_contention."},
-			"phase_name":    map[string]any{"type": "string", "description": "Exact phase name; required for phase_high_load."},
-			"impact_seconds": map[string]any{
-				"type": "number", "exclusiveMinimum": 0,
-				"description": "Positive effective impact attributable to this cause on the target analysis window, in seconds. Convert a published effective/attributable millisecond value by dividing by 1000; never use raw occupancy or cross-thread aggregate CPU-ms.",
-			},
-			"summary": map[string]any{"type": "string", "description": "Short root-cause phrase. Runtime rewrites it to the fixed category format."},
-			"evidence": map[string]any{
-				"type": "array", "minItems": 1, "maxItems": 4,
-				"items":       map[string]any{"type": "string", "maxLength": 240},
-				"description": "1-4 concise trace-specific evidence statements; free text, not fixed vocabulary and not internal ids.",
-			},
+			"candidate_id": map[string]any{"type": "string", "enum": candidateIDs},
 		},
-		"required": []string{"category", "impact_seconds", "evidence"},
+		"required":             []string{"candidate_id"},
+		"additionalProperties": false,
 	}
 	return map[string]any{
 		"type":        "object",
-		"description": "Separate JSON report accompanying the unchanged full trace analysis.",
+		"description": "Optional model-owned ordered selection for a separate JSON report. Omission or invalid sidecar data never rejects the full answer.",
 		"properties": map[string]any{
 			"schema_version": map[string]any{"type": "integer", "enum": []int{types.TraceRootCauseReportSchemaVersion}},
 			"root_causes": map[string]any{

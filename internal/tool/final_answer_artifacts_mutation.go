@@ -1,7 +1,9 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -30,23 +32,37 @@ func resolveTraceFindingForEmit(ctx *types.BusContext, submitted *types.TraceFin
 	return finding, nil
 }
 
-// resolveTraceRootCauseReportForEmit validates the user-facing JSON sidecar.
+// resolveTraceRootCauseReportForEmit validates and binds the optional selector.
 // Patch emits inherit the last accepted report when they only repair answer
-// blocks, but a first/full emit must submit the report explicitly.
-func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted *types.TraceRootCauseReportV2, patch bool) (*types.TraceRootCauseReportV2, error) {
+// blocks. Sidecar errors are returned for diagnostics but never own whether
+// the full answer mutation is accepted.
+func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.RawMessage, patch bool) (*types.TraceRootCauseReportV2, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil, nil
 	}
 	contract := ctx.Mutable.TraceFindingContract()
-	if contract == nil || !contract.RootCauseReportRequired {
-		if submitted != nil {
+	if contract == nil || !contract.RootCauseReportEnabled {
+		if len(strings.TrimSpace(string(submitted))) > 0 && string(submitted) != "null" {
 			return nil, fmt.Errorf("trace_root_causes is not enabled for this request")
 		}
 		return nil, nil
 	}
-	report := submitted
-	if patch && report == nil {
-		report = ctx.Mutable.TraceRootCauseReport()
+	if len(strings.TrimSpace(string(submitted))) == 0 || string(submitted) == "null" {
+		if patch {
+			return ctx.Mutable.TraceRootCauseReport(), nil
+		}
+		return nil, nil
 	}
-	return types.NormalizeAndValidateTraceRootCauseReport(report)
+	var selection types.TraceRootCauseReportV2
+	if err := json.Unmarshal(submitted, &selection); err != nil {
+		if patch {
+			return ctx.Mutable.TraceRootCauseReport(), fmt.Errorf("decode optional trace_root_causes selector: %w", err)
+		}
+		return nil, fmt.Errorf("decode optional trace_root_causes selector: %w", err)
+	}
+	report, err := tracefinding.BindRootCauseReportSelection(&selection, contract)
+	if err != nil && patch {
+		return ctx.Mutable.TraceRootCauseReport(), err
+	}
+	return report, err
 }

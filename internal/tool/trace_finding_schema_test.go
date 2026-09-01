@@ -32,13 +32,10 @@ func TestTraceRootCauseReportSchemaIsDefaultForTraceContract(t *testing.T) {
 	ctx := &types.AgentContext{Mutable: &types.MutableState{}}
 	assertSchemaField(t, tool.ParametersFor(ctx), "trace_root_causes", false)
 
-	ctx.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
-		RootCauseReportRequired: true,
-		CandidateSetID:          "trace-root-cause-report",
-	})
+	ctx.Mutable.SetTraceFindingContract(testSelectableTraceRootCauseContract())
 	full := tool.ParametersFor(ctx)
 	assertSchemaField(t, full, "trace_root_causes", true)
-	assertSchemaRequiredField(t, full, "trace_root_causes", true)
+	assertSchemaRequiredField(t, full, "trace_root_causes", false)
 	assertDynamicRootCauseArraySchema(t, full)
 	assertSchemaField(t, (&EmitAnswerDocumentPatch{}).ParametersFor(ctx), "replace_trace_root_causes", true)
 }
@@ -64,12 +61,12 @@ func assertDynamicRootCauseArraySchema(t *testing.T, raw json.RawMessage) {
 	}
 	item, _ := causes["items"].(map[string]any)
 	itemProperties, _ := item["properties"].(map[string]any)
-	impact, _ := itemProperties["impact_seconds"].(map[string]any)
-	if impact["type"] != "number" {
-		t.Fatalf("impact_seconds is not numeric: %#v", impact)
+	candidate, _ := itemProperties["candidate_id"].(map[string]any)
+	if candidate["type"] != "string" {
+		t.Fatalf("candidate_id is not a typed selector: %#v", candidate)
 	}
 	required, _ := item["required"].([]any)
-	want := map[string]bool{"category": false, "impact_seconds": false, "evidence": false}
+	want := map[string]bool{"candidate_id": false}
 	for _, field := range required {
 		if name, ok := field.(string); ok {
 			if _, tracked := want[name]; tracked {
@@ -81,6 +78,22 @@ func assertDynamicRootCauseArraySchema(t *testing.T, raw json.RawMessage) {
 		if !present {
 			t.Fatalf("root_causes item required field %q is missing: %#v", field, required)
 		}
+	}
+}
+
+func testSelectableTraceRootCauseContract() *types.TraceFindingContract {
+	return &types.TraceFindingContract{
+		RootCauseReportEnabled: true,
+		CandidateSetID:         "trace-root-cause-report",
+		Candidates: []types.TraceFindingCandidateV1{{
+			PrimaryEligible: true,
+			Decision: types.TraceCauseDecision{
+				CandidateID: "candidate-sched", SubjectName: "RenderThread",
+				Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+				Magnitude:    &types.TypedMagnitude{Value: 12.4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+				EvidenceRefs: []string{"E-sched"},
+			},
+		}},
 	}
 }
 

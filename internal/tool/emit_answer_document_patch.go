@@ -1922,7 +1922,7 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceCaveats               []string                               `json:"replace_caveats,omitempty"`
 	ReplaceSnippets              []emitCodeSnippetV2                    `json:"replace_snippets,omitempty"`
 	ReplaceTraceFinding          *types.TraceFindingV1                  `json:"replace_trace_finding,omitempty"`
-	ReplaceTraceRootCauses       *types.TraceRootCauseReportV2          `json:"replace_trace_root_causes,omitempty"`
+	ReplaceTraceRootCauses       json.RawMessage                        `json:"replace_trace_root_causes,omitempty"`
 }
 
 type answerDocumentPatchFieldEditSchemaViolation struct {
@@ -3017,7 +3017,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 	rootCauses, rootCauseErr := resolveTraceRootCauseReportForEmit(ctx, p.ReplaceTraceRootCauses, true)
 	if rootCauseErr != nil {
-		return failEmit(t.Name(), now, "replace_trace_root_causes rejected: %v", rootCauseErr)
+		logging.Warning("[%s] optional replace_trace_root_causes ignored; answer patch remains eligible: %v", t.Name(), rootCauseErr)
 	}
 	dropExplicitlyRemovedModelDiagrams := false
 

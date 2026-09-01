@@ -197,12 +197,13 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 		Magnitude: magnitude, EvidenceRefs: evidence, Confidence: confidenceLabel(node.Confidence),
 	}
 	decision.CandidateID = candidateID(projection, node, decision)
-	contextLane := strings.EqualFold(strings.TrimSpace(node.ChainRelevance), "background") ||
-		strings.EqualFold(strings.TrimSpace(node.ChainRelevance), "adjacent") ||
-		strings.EqualFold(strings.TrimSpace(node.Causality), "background") ||
-		strings.HasPrefix(strings.ToLower(strings.TrimSpace(node.Causality)), "adjacent")
+	// Root-cause selection is stricter than contributor retention: only the
+	// producer's exact typed on-chain lane may be selected. An empty, adjacent,
+	// or background relevance never becomes a root merely because it happened
+	// to receive a rank.
+	onChain := strings.EqualFold(strings.TrimSpace(node.ChainRelevance), "on_chain")
 	return types.TraceFindingCandidateV1{
-		PrimaryEligible:     !contextLane,
+		PrimaryEligible:     onChain,
 		ContributorEligible: true,
 		Decision:            decision,
 	}, true

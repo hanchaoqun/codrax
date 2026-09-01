@@ -50,25 +50,13 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if err != nil {
 		return fmt.Errorf("compile trace finding contract: %w", err)
 	}
-	// The legacy TraceFindingV1 remains an internal deterministic snapshot.
-	// Required=false keeps its candidate-id schema out of the model call; the
-	// independent root-cause report below is the only new finalizer field and
-	// is never rendered into the long answer.
+	// The legacy TraceFindingV1 stays out of the model call. The optional report
+	// below accepts only exact ids from the typed on-chain roster; model order
+	// owns the conclusion while the runtime owns every copied fact.
 	contract.Required = false
-	contract.RootCauseReportRequired = true
+	contract.RootCauseReportEnabled = len(tracefinding.SelectableRootCauseCandidates(contract)) > 0
 	ctx.Mutable.SetTraceFindingContract(contract)
 	return nil
-}
-
-func finalizeDeterministicTraceFinding(ctx *types.AgentContext) {
-	if ctx == nil || ctx.Mutable == nil {
-		return
-	}
-	contract := ctx.Mutable.TraceFindingContract()
-	if contract == nil || strings.TrimSpace(contract.CandidateSetID) == "" {
-		return
-	}
-	ctx.Mutable.SetTraceFinding(tracefinding.BuildDeterministicFinding(contract))
 }
 
 func traceFindingHasTraceCarrier(ctx *types.AgentContext) bool {
@@ -96,15 +84,38 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 		return ""
 	}
 	var out strings.Builder
-	if contract.RootCauseReportRequired {
-		out.WriteString("\n\n## Trace Root Cause JSON (Required)\n\n")
-		out.WriteString("- Submit `trace_root_causes` in the same `emit_answer_document` call as the full answer. It is always required for this trace root-cause analysis; no prompt switch is used.\n")
-		out.WriteString("- Submit `root_causes` as an evidence-sized array ordered from the strongest supported diagnosis to the weakest. Choose N autonomously: include every independently useful cause that has direct trace-specific evidence and a positive attributable impact; emit an empty array when none is supportable. Never cap the list at two, pad it, or invent a cause.\n")
-		out.WriteString("- Every item must provide `impact_seconds`: the positive effective impact attributable to that cause on the target analysis window, expressed in seconds. Prefer the authoritative root_cause_rank effective/cumulative attribution; convert milliseconds by dividing by 1000. Never substitute raw event occupancy, normal cadence sleep, cross-thread CPU-ms, or an unbound background total.\n")
-		out.WriteString("- Follow the authoritative structured root-cause ordering when it exists. Array order owns importance; the runtime assigns contiguous `rank` values and normalizes `summary` to the fixed Chinese category format.\n")
-		out.WriteString("- Choose each category only from the schema enum. Supply the relevant exact thread_name, resource_name, or phase_name.\n")
-		out.WriteString("- Put 1 to 4 short, trace-specific facts in each cause's `evidence` array. Evidence is concise free text, not a fixed phrase and not an internal evidence id. Include useful measurements or event relationships when available.\n")
-		out.WriteString("- This object is written to a separate `.root-causes.json` file. It is not inserted into or substituted for the full answer.\n")
+	selectable := tracefinding.SelectableRootCauseCandidates(contract)
+	if contract.RootCauseReportEnabled && len(selectable) > 0 {
+		type candidateView struct {
+			CandidateID  string   `json:"candidate_id"`
+			CauseKind    string   `json:"cause_kind"`
+			Subject      string   `json:"subject,omitempty"`
+			Resource     string   `json:"resource,omitempty"`
+			Phase        string   `json:"phase,omitempty"`
+			Rank         int      `json:"rank,omitempty"`
+			ImpactMS     float64  `json:"impact_ms"`
+			EvidenceRefs []string `json:"evidence_refs"`
+		}
+		roster := make([]candidateView, 0, len(selectable))
+		for _, candidate := range selectable {
+			decision := candidate.Decision
+			roster = append(roster, candidateView{
+				CandidateID: decision.CandidateID, CauseKind: decision.Token.Token,
+				Subject: decision.SubjectName, Resource: decision.ResourceName,
+				Phase: decision.PhaseName, Rank: decision.Rank,
+				ImpactMS: decision.Magnitude.Value, EvidenceRefs: decision.EvidenceRefs,
+			})
+		}
+		b, err := json.MarshalIndent(roster, "", "  ")
+		if err == nil {
+			out.WriteString("\n\n## Optional Trace Root Cause JSON\n\n")
+			out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` is optional and never replaces or blocks it.\n")
+			out.WriteString("- If useful, choose zero or more exact `candidate_id` values from the typed on-chain roster below and order them strongest to weakest. The runtime binds category, identity, impact, summary, and evidence from those receipts; do not author those fields.\n")
+			out.WriteString("- Omit the field when no candidate should be selected. Background and adjacent observations are intentionally absent.\n\n")
+			out.WriteString("```json\n")
+			out.Write(b)
+			out.WriteString("\n```\n")
+		}
 	}
 	if !contract.Required {
 		return strings.TrimSpace(out.String())

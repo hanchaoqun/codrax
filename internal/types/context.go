@@ -3598,12 +3598,9 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
+	m.commitAcceptedAnswerDocumentLocked(kind, doc)
 	m.traceFindingV1 = nil
 	m.traceRootCauseReport = nil
-	m.lastEmitFromPatch = (kind == MutationPartial)
-	m.lastRejectedAnswerDocumentV2 = nil
-	m.degradedRecoveredAnswerDocumentV2 = nil
 }
 
 // SetFinalAnswerArtifactsWithMutation atomically replaces both final-answer
@@ -3615,17 +3612,23 @@ func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, ar
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if artifacts == nil {
-		m.answerDocumentV2 = nil
+		m.commitAcceptedAnswerDocumentLocked(MutationReplaceAll, nil)
 		m.traceFindingV1 = nil
 		m.traceRootCauseReport = nil
-		m.lastEmitFromPatch = false
-		m.lastRejectedAnswerDocumentV2 = nil
-		m.degradedRecoveredAnswerDocumentV2 = nil
 		return
 	}
-	m.answerDocumentV2 = cloneAnswerDocumentV2(&artifacts.Document)
+	m.commitAcceptedAnswerDocumentLocked(kind, &artifacts.Document)
 	m.traceFindingV1 = cloneTraceFindingV1(artifacts.TraceFinding)
 	m.traceRootCauseReport = nil
+
+}
+
+// commitAcceptedAnswerDocumentLocked is the single success epilogue for full
+// and patch answer mutations. Callers must hold m.mu. Keeping retry-local
+// cleanup here prevents a newly added sibling artifact from accidentally
+// carrying a stale repair lease or staged patch base into the next attempt.
+func (m *MutableState) commitAcceptedAnswerDocumentLocked(kind MutationKind, doc *AnswerDocumentV2) {
+	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
 	m.pendingAnswerDocumentPatchBase = nil
@@ -3739,10 +3742,9 @@ func (m *MutableState) TraceFinding() *TraceFindingV1 {
 	return cloneTraceFindingV1(m.traceFindingV1)
 }
 
-// SetTraceFinding stores a deterministic trace conclusion after the original
-// answer document has been accepted. This setter is intentionally separate
-// from the atomic model-authored artifact mutation: the value is compiled
-// from typed trace evidence and is not part of the model tool schema.
+// SetTraceFinding stores a validated legacy finding artifact. Current
+// finalizer execution does not call this setter to select a conclusion; root
+// selection remains model-owned through exact typed candidate receipts.
 func (m *MutableState) SetTraceFinding(finding *TraceFindingV1) {
 	if m == nil {
 		return
@@ -3752,8 +3754,8 @@ func (m *MutableState) SetTraceFinding(finding *TraceFindingV1) {
 	m.traceFindingV1 = cloneTraceFindingV1(finding)
 }
 
-// TraceRootCauseReport returns the model-authored, validated JSON sidecar
-// payload for the current trace answer.
+// TraceRootCauseReport returns the validated JSON sidecar bound from the
+// model-owned candidate selection and the frozen typed contract.
 func (m *MutableState) TraceRootCauseReport() *TraceRootCauseReportV2 {
 	if m == nil {
 		return nil
@@ -7852,12 +7854,6 @@ type BusContext struct {
 	// prose, and it must never become final-answer proof by itself.
 	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
 
-	// TraceFindingRequired is a CLI-owned request for a structured trace
-	// sidecar (for example --trace-finding-out). It is separate from user prose
-	// so batch children can request machine-readable output without changing
-	// the model's answer-document schema.
-	TraceFindingRequired bool `json:"-"`
-
 	// ExploreDispatchKey is a scheduler-owned key for focused explorer
 	// windows. It lets the explorer agent isolate mutable evaluator state
 	// per DAG evidence node even when the scheduler uses the normal serial
@@ -8251,11 +8247,6 @@ type AgentContext struct {
 	// RuntimeArtifactPreflight mirrors BusContext.RuntimeArtifactPreflight for
 	// analyzer/tool/sub-agent projections.
 	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
-
-	// TraceFindingRequired mirrors the CLI-owned BusContext flag. It may enable
-	// deterministic sidecar generation, but must never alter the finalizer's
-	// tool schema or the original long-form answer.
-	TraceFindingRequired bool `json:"-"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —
