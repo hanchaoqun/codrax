@@ -57767,6 +57767,48 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1592 r993/B1517–B1519：receipt 原子通道生产可达，但概念终点候选与同轮 typed capsule 漂移；关系修补错误路径误教（2026-08-31）
+
+1. 从已推送 `e67b60dcd` 构建不可变二进制，严格并发恰好 2 路复放 Java 调用链与 H8 显式窗 Trace；runner 2/2 PASS：Trace
+   176s、Java 381s，skip/fail/timeout 均为 0。Trace 未按固定 4ms/4m、活动流年龄、轮次、首字节或上下文比例降级；显式 10ms 窗、3 次 typed
+   query、四态账、链上排序、实际占时/规则可消双账户、业务线索、自动补齐与 `Trace 因果投影` 全部保留。
+2. B1518 获得生产“通道可达 + fail-closed”正证，但尚未获得成功 patch 正证。Java 第 12 轮实际调用
+   `block_receipt_edits_v1`，模型明确选择 `current_terminal_differs`；执行器没有代选或静默吸收，而是因 evidence/conclusion pair 不属于当轮 exact
+   branch 事务性拒绝。Trace 模型选择 `related_causality_unproven` 并通过完整 emit 保留下来，说明 rich receipt 本身可绑定；模型未使用原子 patch，
+   因此旧载体自愈臂仍只具测试证据。
+3. 新确认 `B1519-CONCEPTUALTERMINALCANDIDATEDRIFT1/P1`。同一 finalizer 上下文的 typed relation capsule 明确发布
+   `AuditLog.record -> System.out.println [ev-f632b19f56f19361]`，且该行为 grounded/citable `static_call`；模型据此正确判断 stdout 与“审计落库”
+   不同。但 conceptual-terminal closed receipt universe 只接收更早铸成的 `repomap_terminal_body_call` /
+   `repomap_selected_callable_body_call`。更深的 AuditLog 边在 parser enrichment 批次之后才由已验 source line 进入 evidence ledger，导致同一证据池中
+   “可见且可用于调用链解释”与“不可用于终点 receipt”并存。最终答案只能恢复上一版，仍把 stdout 打印称作“审计落库的实际行为”。
+4. B1519 的根修不能按 `System.out.println`、Java 或“落库”词面放行，也不能把所有 call row 无界塞进 schema。应从同一 typed principal call
+   graph 派生当前 terminal incoming edges，并与两类 parser body enrichment 合成一个 canonical operation universe；候选必须 citable、端点与位置完整，
+   body enrichment 仍不拥有主拓扑权，terminal incoming edge 只提供 exact operation 而不预判业务含义。按 terminal callable 分组公平截断，prompt、
+   dynamic schema、binder 三面继续共用同一 rows；模型保留 operation 与 conclusion 的最终选择权。
+5. `B1517-GUARDRELATIONRETRYDRIFT1/P1` 获得精确生产复现。live patch schema 正确要求
+   `diagram_edge_edits[].edge.from_node/to_node`；模型三次把字段放到 edit item 顶层，strict decoder 却复用 full-emit 的旧 hint，只告诉它
+   `blocks[].edge_anchors[].from_node/to_node`，还声称错误容器是 `claim_uses`。错误提示与当前可执行 patch grammar 不同源，造成 3 个确定性重复 reject；
+   第 11 轮模型自行恢复 nested edge 后立即通过。根修应为 patch 单独发布精确 misplaced-field hint，或从 active dynamic schema 反射路径；不能提升
+   retry 次数、扩大预算或放松未知字段拒绝。
+6. 两路人工均判 fail。Trace 模型一方面用 receipt 正确写出 VerifyClass 0.285ms、关系未证、有效归因 0，另一方面又声称 3 个链上线程“均完成
+   确定性工作后唤醒目标并构成根本原因”；后者没有 typed semantic span/完成-等待绑定，和本页准确 projection 自相矛盾。当前先按模型语义波动记录：
+   typed 上下文和结论席均已存在，不扫描正文做硬拒/替换。Java 虽给出源码链、guard 与 stdout 行，11 次 reject 后仍缺 conceptual receipt，且可选
+   sequence diagram 遗漏 countOpenVisits 和 stdout 两条可见消息；结构关系清单尚在，图完整性作为 B1517 修复后的复放观察面，不按本 case 自动补边。
+
+状态：
+
+`r993=runner-pass-2/2,human-both-fail`；
+`B1516=production-partial/body-topology-fixed/candidate-late-edge-gap`；
+`B1517=confirmed-P1/active-schema-vs-static-hint-drift`；
+`B1518=production-partial/channel+fail-closed-positive/successful-atomic-receipt-pending`；
+`B1519=confirmed-P1/next-generalized-fix`；
+`receipt-operation/conclusion=model-owned`；
+`system-answer/conclusion/relation/wording/terminal-selection=none`；
+`request/model/final-prose/markdown/mermaid-label-hard-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r993`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r993`。
+
 ### §123.1551 r966/B1484：单一源码清单权威生产转正；已接受列表被后置维度检查误导为重复表格（2026-08-31）
 
 1. 从已推送 `9b74529ce` 干净构建，严格并发恰好 2 路复放 Cangjie inventory 与 H8 显式窗 Trace；runner 2/2 PASS：
