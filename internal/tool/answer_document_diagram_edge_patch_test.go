@@ -1345,6 +1345,52 @@ func TestCanonicalizeAtomicSequenceAdditionNodeRefs_UsesExactCaseSensitivePartic
 	}
 }
 
+func TestApplyOneModelAuthoredDiagramEdgeEdit_GenericReplaceReusesUniqueDeclaredStageParticipants(t *testing.T) {
+	rows := []stageauthority.StageRow{
+		{StageIdent: "StageAnalyze", StageValue: "analyze", AgentIdent: "AgentAnalyzer", AgentValue: "analyzer"},
+		{StageIdent: "StageExplore", StageValue: "explore", AgentIdent: "AgentExplorer", AgentValue: "explorer"},
+	}
+	precedence := []stageauthority.PrecedenceRelation{{From: rows[0], To: rows[1]}}
+	prior := types.DiagramEdgeAnchor{
+		FromNode: "Orchestrator", ToNode: "Orchestrator",
+		FromIdentity: "analyzer", ToIdentity: "explorer",
+		RelationKind: types.DiagramRelPrecedence, VisibleLabel: "旧的错误载体",
+	}
+	block := types.AnswerBlock{
+		ID: "diag", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n" +
+			"    participant Analyzer as AgentAnalyzer\n" +
+			"    participant Explorer as AgentExplorer\n" +
+			"    participant Orchestrator\n" +
+			"    Orchestrator->>Orchestrator: 旧的错误载体\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{prior},
+	}
+	edit := emitAnswerDiagramEdgeEdit{
+		Action: "replace", Match: &prior,
+		Edge: &types.DiagramEdgeAnchor{
+			FromNode: "analyze", ToNode: "explorer",
+			FromIdentity: "analyzer", ToIdentity: "explorer",
+			RelationKind: types.DiagramRelPrecedence, VisibleLabel: "确定分析范围后收集证据",
+		},
+	}
+	if err := applyOneModelAuthoredDiagramEdgeEdit(&block, edit, nil, precedence); err != nil {
+		t.Fatalf("generic replace must reuse the unique declared stage participants: %v", err)
+	}
+	if !strings.Contains(block.Diagram.Body, "Analyzer->>Explorer: 确定分析范围后收集证据") {
+		t.Fatalf("generic replace did not reuse the existing participant ids:\n%s", block.Diagram.Body)
+	}
+	for _, forbidden := range []string{"participant analyze", "participant explorer", "analyze->>explorer"} {
+		if strings.Contains(block.Diagram.Body, forbidden) {
+			t.Fatalf("generic replace created a duplicate typed-stage actor %q:\n%s", forbidden, block.Diagram.Body)
+		}
+	}
+	if len(block.EdgeAnchors) != 1 || block.EdgeAnchors[0].FromNode != "Analyzer" ||
+		block.EdgeAnchors[0].ToNode != "Explorer" || block.EdgeAnchors[0].FromIdentity != "analyzer" ||
+		block.EdgeAnchors[0].ToIdentity != "explorer" {
+		t.Fatalf("visible carrier reuse changed hidden typed authority: %+v", block.EdgeAnchors)
+	}
+}
+
 func TestEmitAnswerDocumentPatch_ProductionWiresDeclaredStageParticipantReuse(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

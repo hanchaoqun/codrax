@@ -70262,3 +70262,41 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1607 r1002/B1530 生产闭环与 sequence 参与者/原子事务新 GAP（2026-09-01）
+
+1. 从已推送 `9a63e8ab2` 重建二进制，严格并发恰好 2 路复放 Zod write 与 read-mode“时序图+阶段表”；write runner
+   因诚实的 `proof_weak` 判 FAIL，读模式 runner PASS。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1002_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_readwrite_r1002_20260831_manual_audit.md`。
+2. Zod 人工判 pass，B1530 获得生产正证：最终 `completion=unverified`、`proof=weak`、`proof_ledger=low_confidence`，共同携带
+   `production_verification_source_static_only`；四个未覆盖行为义务也被逐项披露。补丁及静态回归正确，机器 FAIL 表示生产 TypeScript 路径未执行，
+   不再出现互相矛盾的强证明/已验证权威值。
+3. 读模式人工判 fail。B1531 获得生产正证：10 次 patch 中不再出现 `from_node_visible_label/to_node_visible_label is required`；模型只提交
+   node id 时，Mermaid 声明语法可以成立。但最终图同时保留 `Analyzer/Extractor/Finalizer` 与新建的
+   `analyze/explorer/extractor/finalizer`，note 位于前一组、关系链位于后一组，形成同一 typed stage 的两套 reader actor；断开的 BusCtx 也被保留。
+4. `B1532-DIAGRAMREPLACEDECLAREDALIASREUSE1/P1` 确认：现有 sequence `add` 与特定 stage-spine `replace` 已能依据 checkout-verified
+   stage authority，把模型端点复用到唯一显式 participant；generic `replace` 没有进入该步骤。于是同一个 typed precedence tuple 在普通失败修补时可
+   绕过既有声明复用并创建大小写/agent-stage 别名副本。最优修向是把同一唯一 typed carrier 归一化用于所有 add/replace：唯一匹配时只复用原图中
+   模型已写的 participant ID，多匹配 fail-closed，零匹配保留模型 node；不读取请求/答案 prose，不生成关系、方向、业务 label 或结论。
+5. `B1533-DIAGRAMORPHANPOSTEDITTRANSACTION1/P1` 确认：本轮大量重试来自 post-edit orphan roster。哪些 participant 变成孤立节点只有应用模型选择的
+   remove/replace 后才能精确计算；当前事务却在任何结果落地前要求同一次调用同时给出完整 remove/retain 决策，模型只能反复重交全部 16 条边编辑并根据
+   上次错误逐个补名单。最优修向是把已通过 selector/关系验证的精确边编辑保存为未发布 pending draft，并从该 draft 发布完整 orphan roster；下一调用只让
+   模型选择每个 row 的 remove/retain 与 retain label，最终发布前仍执行全部关系、participant、结构和 Mermaid 校验。系统不替模型选择处置。
+6. 本批没有改变 read-mode 关系证据门、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream；没有用用户问题、模型
+   thinking、最终正文、Markdown 或 Mermaid message 关键词作事实硬门。
+
+状态：
+
+`r1002=runner-write-fail+read-pass,human-write-pass+read-fail`；
+`B1530=production-positive/core-closed`；
+`B1531=production-positive/core-closed`；
+`B1532=confirmed/pending-implementation`；
+`B1533=confirmed/pending-implementation`；
+`diagram-stage-alias=one-typed-stage-one-reader-actor-required`；
+`post-edit-orphan=typed-roster/model-owned-disposition`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=unchanged`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。

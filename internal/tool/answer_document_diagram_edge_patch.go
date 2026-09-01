@@ -1490,6 +1490,19 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 			return fmt.Errorf("non-diagram prior_anchor_metadata permits only action=remove or paired action=attach")
 		}
 	}
+	// A replacement is the same endpoint-carrier operation as an addition for
+	// sequence diagrams.  Keep it on the same unique-declaration reuse lane:
+	// otherwise a generic failed-edge ref can replace `Analyzer -> Explorer`
+	// with `analyze -> explorer`, and Mermaid will create a second pair of
+	// participants even though both spellings resolve to the same typed stage.
+	// This normalization reuses only a declaration already authored in the
+	// rejected draft. It does not choose a relation, direction, endpoint
+	// identity, label, or conclusion; ambiguity still fails closed.
+	if action == "replace" {
+		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
+			return err
+		}
+	}
 	if action == "add" {
 		if strings.TrimSpace(edit.FailureRef) != "" {
 			return fmt.Errorf("action=add must omit failure_ref")
@@ -1538,9 +1551,6 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 		return nil
 	}
 	if action == "replace" && edit.failureIssue == diagramRequestedStageSpineIncomplete {
-		if err := canonicalizeAtomicSequenceAdditionNodeRefs(block, edit.Edge, stagePrecedence); err != nil {
-			return err
-		}
 		if edit.Edge == nil || block.Diagram == nil ||
 			!diagramStagePrecedenceAnchorBindsVisibleNodes(
 				stagePrecedence, *edit.Edge, diagramEvidenceNodeLabels(block.Diagram.Body, block.Diagram.Kind),
@@ -1908,7 +1918,7 @@ func replaceAtomicMermaidStatementLine(lines []string, index int, replacement []
 // canonicalizeAtomicSequenceAdditionNodeRefs prevents one typed endpoint from
 // being rendered twice under two Mermaid participant ids. Mermaid accepts an
 // undeclared message endpoint and silently creates an implicit participant;
-// after a local relation repair that can leave the original declared
+// after a local add or replace repair that can leave the original declared
 // participant disconnected beside a second implicit copy of the same stage or
 // code identity.
 //
