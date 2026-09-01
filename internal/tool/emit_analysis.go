@@ -2670,97 +2670,33 @@ func reconcileDiagramParticipantsWithClosedRelationScope(
 	)
 }
 
-// validateRequiredDiagramEmptyParticipantSlate catches one precise typed
-// cross-field contradiction without deriving participants from prose.  An
-// explicitly empty participant slate is valid for a generic visual.  It is
-// not self-consistent, however, when a separately schema-validated required
-// diagram dimension or the diagram's own schema-validated relation-scope quote
-// co-lists multiple analyzer-declared entities. Both quote surfaces have
-// already passed the verbatim current-request provenance check.
+// validateRequiredDiagramEmptyParticipantSlate catches only the precise typed
+// contradiction where the analyzer declares both a cross-component relation
+// and an empty participant slate. AnalyzerHints.Entities are broad discovery
+// hints: even when several happen to occur inside a verbatim diagram quote,
+// they do not say whether those names are actors, one compound scope name, or
+// generic members that will be discovered from source. Using them to reject a
+// call would promote a noisy search carrier into hard relation authority.
 //
-// The threshold is deliberately two.  A single entity can be the enclosing
-// system or subject rather than an incident participant; rejecting that shape
-// would turn a semantic guess into a hard gate.  With two or more co-listed
-// typed entities and an empty slate, the analyzer must decide whether to add
-// participant rows (and choose their roles) or narrow the dimension quote.
-// The system does neither, and it never creates a relation or diagram node.
-// Runtime Trace stays on its independent causal-projection contracts.
-func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel, relationScopeWasRequired bool) string {
+// The model-owned IsCrossComponent boolean and relation axis are sufficient to
+// expose the real contradiction without deriving actors from request prose.
+// Generic stage/workflow visuals therefore keep participants=[], while a
+// declared cross-component relation must be repaired by the analyzer. Runtime
+// Trace stays on its independent causal-projection contracts.
+func validateRequiredDiagramEmptyParticipantSlate(rm types.RequestModel, _ bool) string {
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
-		rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) != 0 ||
-		rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		rm.DiagramHint == nil || !rm.DiagramHint.Required || len(rm.DiagramHint.Participants) != 0 {
 		return ""
 	}
-
-	var typedRelationQuotes []string
-	// A sibling requested dimension may promote an optional diagram's visible
-	// presence to required.  That promotion does not also promote the optional
-	// hint's relation_scope_quote into required participant authority.  Only a
-	// scope emitted on an already-required diagram can drive this hard
-	// consistency check; required dimension quotes keep their own authority.
-	if quote := strings.TrimSpace(rm.DiagramHint.RelationScopeQuote); relationScopeWasRequired && quote != "" {
-		typedRelationQuotes = append(typedRelationQuotes, quote)
-	}
-	for _, dimension := range rm.RequestedAnswerDimensions.Dimensions {
-		if !dimension.Required || dimension.Role != types.RequestedAnswerDimensionDiagram ||
-			strings.TrimSpace(dimension.SourceQuote) == "" {
-			continue
-		}
-		typedRelationQuotes = append(typedRelationQuotes, dimension.SourceQuote)
-	}
-
-	var coListed []string
-	seen := make(map[string]bool)
-	for _, quote := range typedRelationQuotes {
-		for _, rawEntity := range rm.AnalyzerHints.Entities {
-			entity := strings.TrimSpace(rawEntity)
-			key := diagramParticipantProvenanceKey(entity)
-			if entity == "" || key == "" || seen[key] ||
-				!sourceQuoteAnchoredInCurrentRequest(quote, entity) {
-				continue
-			}
-			seen[key] = true
-			coListed = append(coListed, entity)
-		}
-	}
-	if len(coListed) < 2 {
-		// A required relation diagram can still carry a too-narrow quote such
-		// as "draw a Mermaid diagram" while the independently typed request
-		// model says the question relates multiple components.  In that shape
-		// the quote-based arm above cannot see the omitted actors, and an empty
-		// participant slate lets a later answer satisfy the visual contract with
-		// unrelated helper edges.  Keep this as a cross-field consistency check:
-		// it reads only schema-valid analyzer output and asks the model to choose
-		// which declaration was wrong.  It does not derive participants from the
-		// request, create diagram nodes, or mint relation evidence.
-		if !rm.Predicates.IsCrossComponent ||
-			(rm.PredicateAxis != types.AxisFlow && rm.PredicateAxis != types.AxisCall &&
-				rm.PredicateAxis != types.AxisRegister && rm.PredicateAxis != types.AxisConfigure &&
-				rm.PredicateAxis != types.AxisCondition && rm.PredicateAxis != types.AxisImplement) {
-			return ""
-		}
-		declared := make([]string, 0, len(rm.AnalyzerHints.Entities))
-		declaredSeen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
-		for _, rawEntity := range rm.AnalyzerHints.Entities {
-			entity := strings.TrimSpace(rawEntity)
-			key := diagramParticipantProvenanceKey(entity)
-			if entity == "" || key == "" || declaredSeen[key] {
-				continue
-			}
-			declaredSeen[key] = true
-			declared = append(declared, entity)
-		}
-		if len(declared) < 2 {
-			return ""
-		}
-		return fmt.Sprintf(
-			"diagram_hint.participants is explicitly empty, but the same schema-valid analysis declares predicates.is_cross_component=true with predicate_axis=%q and %d typed entities; these fields cannot authorize a required relation diagram while omitting every participant. Decide the relation surface yourself: emit one participant row per current-request actor with a verbatim source_quote and role, or correct predicates.is_cross_component/entities when the requested visual is genuinely generic. The system will not infer participants or replace the requested diagram with unrelated helper edges",
-			rm.PredicateAxis, len(declared),
-		)
+	if !rm.Predicates.IsCrossComponent ||
+		(rm.PredicateAxis != types.AxisFlow && rm.PredicateAxis != types.AxisCall &&
+			rm.PredicateAxis != types.AxisRegister && rm.PredicateAxis != types.AxisConfigure &&
+			rm.PredicateAxis != types.AxisCondition && rm.PredicateAxis != types.AxisImplement) {
+		return ""
 	}
 	return fmt.Sprintf(
-		"diagram_hint.participants is explicitly empty, but a schema-validated required diagram relation quote co-lists current-request typed entities %v; decide the relation surface yourself: emit one participant row per intended actor with a verbatim source_quote and role, or narrow the typed relation quote when those entities are only non-participant scope. Do not leave the slate empty and let later diagram repair erase the requested identities",
-		coListed,
+		"diagram_hint.participants is explicitly empty, but the same schema-valid analysis declares predicates.is_cross_component=true with predicate_axis=%q; these typed fields cannot authorize a required relation diagram while omitting every participant. Decide the relation surface yourself: emit one participant row per current-request actor with a verbatim source_quote and role, or correct predicates.is_cross_component when the requested visual is genuinely generic. The system will not infer participants or replace the requested diagram with unrelated helper edges",
+		rm.PredicateAxis,
 	)
 }
 

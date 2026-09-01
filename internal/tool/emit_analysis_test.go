@@ -5148,7 +5148,7 @@ func TestEmitAnalysis_Execute_RequiresExplicitDiagramParticipantSlate(t *testing
 	})
 }
 
-func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRequiredDiagramDimensionCoListsTypedEntities(t *testing.T) {
+func TestEmitAnalysis_Execute_DoesNotPromoteDimensionEntitiesIntoParticipantAuthority(t *testing.T) {
 	raw := "请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -5172,13 +5172,11 @@ func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRequiredDiagramDim
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "participants is explicitly empty") ||
-		!strings.Contains(res.Summary, "[BusContext Mutable]") ||
-		!strings.Contains(res.Summary, "Do not leave the slate empty") {
-		t.Fatalf("empty participant slate must fail with typed cross-field guidance: %+v", res)
+	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
+		t.Fatalf("broad discovery entities must not become hard participant authority: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
-	if mu.RequestModel() != nil {
-		t.Fatal("rejected empty participant slate persisted a request model")
+	if got := mu.RequestModel().DiagramHint.Participants; got == nil || len(got) != 0 {
+		t.Fatalf("participants=%+v, want explicit empty slate", got)
 	}
 }
 
@@ -5213,7 +5211,7 @@ func TestEmitAnalysis_Execute_RequiredDiagramDimensionCannotLoseDiagramHintOnRep
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRelationScopeCoListsTypedEntities(t *testing.T) {
+func TestEmitAnalysis_Execute_DoesNotPromoteRelationScopeEntitiesIntoParticipantAuthority(t *testing.T) {
 	raw := "请给出 codrax read-mode pipeline 的逻辑视图：用 Mermaid 架构图画出 analyzer、explorer、extractor、finalizer 以及 Mutable/BusContext 之间的数据流，然后简要说明各组件责任。"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -5237,13 +5235,11 @@ func TestEmitAnalysis_Execute_RejectsEmptyParticipantSlateWhenRelationScopeCoLis
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || !strings.Contains(res.Summary, "participants is explicitly empty") ||
-		!strings.Contains(res.Summary, "[analyzer explorer extractor finalizer Mutable BusContext]") ||
-		!strings.Contains(res.Summary, "Do not leave the slate empty") {
-		t.Fatalf("typed relation scope with an empty participant slate must fail loudly: %+v", res)
+	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
+		t.Fatalf("relation-scope text plus discovery entities must not become hard participant authority: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
-	if mu.RequestModel() != nil {
-		t.Fatal("rejected empty participant slate persisted a request model")
+	if got := mu.RequestModel().DiagramHint.Participants; got == nil || len(got) != 0 {
+		t.Fatalf("participants=%+v, want explicit empty slate", got)
 	}
 }
 
@@ -5594,7 +5590,7 @@ func TestEmitAnalysis_Execute_DropsIncidentParticipantsFromSiblingPresentationSu
 	}
 }
 
-func TestEmitAnalysis_Execute_InferredRosterCollapsesToOnePreciseMissingParticipantRetry(t *testing.T) {
+func TestEmitAnalysis_Execute_InferredRosterDoesNotBecomeMissingParticipantAuthority(t *testing.T) {
 	raw := "解释 codrax read mode 一次请求从 analyze 到 finalizer 的时序：必须给 Mermaid sequenceDiagram，并再给一张表列出每个 stage 的输入、输出和主要状态载体（例如 AnalysisIR、EvidenceItems、AnswerDocument、Mutable/BusContext）。"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -5623,13 +5619,11 @@ func TestEmitAnalysis_Execute_InferredRosterCollapsesToOnePreciseMissingParticip
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || mu.RequestModel() != nil {
-		t.Fatalf("missing requested analyze/finalizer rows must remain fail-loud: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
+		t.Fatalf("broad inferred roster must not become a participant hard gate: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
 	}
-	for _, want := range []string{"participants is explicitly empty", "[analyze finalizer]", "intended actor"} {
-		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("collapsed retry missing %q: %s", want, res.Summary)
-		}
+	if got := mu.RequestModel().DiagramHint.Participants; got == nil || len(got) != 0 {
+		t.Fatalf("participants=%+v, want explicit empty slate after inferred/sibling rows are removed", got)
 	}
 }
 

@@ -70103,3 +70103,45 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=production-positive-r997`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r997`。
+
+### §123.1603 r998/B1526：宽泛调查实体越权成为流程图参与者硬门（2026-08-31）
+
+1. 从已推送 `702dbf277` 重建二进制，严格并发恰好 2 路复放 H8 显式窗 Trace 与 read-mode pipeline 流程图；runner
+   2/2 PASS：Trace 203s、流程图 311s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r998_20260831.md` 和
+   `eval/parallel_selected_summary_evalcampaign_trace_diagram_r998_20260831_manual_audit.md`。
+2. Trace 人工判 pass：10ms 五态守恒、`NetworkService -> CookieMonsterCl -> target` 已证唤醒链、链上根因排序、实际占时/
+   规则可消双账户、T7 `VerifyClass` 语义 span、关系证据边界、自动补齐与最终 `Trace 因果投影` 均保留。目标自身的
+   0.121ms 同核低优先级重叠由 `typed_interval_union + closed_range_stable` 支撑；T7 只陈述 typed runnable 等待与后续排查，
+   未再把没有 placement carrier 的席位扩写为已证同核竞争，故 B1525 获得生产正证。
+3. 本轮模型只调用了 legacy 单 literal `event_search(pattern="com.baidu.tieba-59566")`，没有多候选搜索，也没有再产生 pipe
+   literal 假零；B1524 的 backward compatibility 获得生产正证，`patterns[]` 多 literal 分支仍待直接生产正证。成文两次 native
+   blocks/JSON-string 形状拒绝被既有结构化恢复与 patch 完整救回，未丢答案，暂记流程噪声观察项，不按单模型回合新增硬门。
+4. 流程图可见答案人工判 pass：准确给出 `Analyze -> Explore -> Extract -> Finalize`、三条带业务含义的边和四阶段职责，Mermaid
+   合法。但 analyzer 累计 12 轮；第 2 次有效提交已经同时给出 `is_cross_component=false`、完整关系范围与显式
+   `participants=[]`，系统仍用宽泛 `AnalyzerHints.Entities=[codrax, read-mode pipeline]` 扫描 quote，把产品/模式范围误铸成两个
+   图节点并硬拒。模型随后被迫补造 context-only 节点后才通过。
+5. `B1526-DIAGRAMDISCOVERYENTITYHARDGATE1/P0` 定性为架构红线：`entities[]` 是搜索/调查提示，既不携带 actor role，也不能区分
+   两个参与者、一个复合范围名或待源码发现的泛型成员；即使它们恰好出现在 verbatim quote 中，也不是精确关系权威。原逻辑把嘈声载体用于
+   hard reject，既制造不可解释重试，又反向诱导模型虚构节点。
+6. 根修把 required diagram 的空参与者一致性门收窄为纯 typed 交叉字段：只有模型同时声明关系轴、
+   `predicates.is_cross_component=true` 与 `participants=[]` 才 fail-loud；普通 relation/dimension quote 与宽泛 entities 的共现不再拥有
+   硬拒权。真实 A/B 场景仍由 `is_cross_component=true + participant roles/source_quote` 约束，系统不推导 A/B、不新增节点、不选择关系；
+   generic stage/workflow 场景可让源码调查后由模型自行构图。
+7. 回归分别钉住：required dimension 和 relation scope 即使共现多个 broad entities，只要 typed cross-component=false 就保留显式空
+   slate；cross-component=true 的同轴矛盾仍 fail-loud；单范围名和 Trace 均不进入该门。没有扫描模型 thinking、最终正文、Markdown 或
+   Mermaid 文本，没有改变 Trace 显式窗、因果投影、自动补采或 active-stream 行为。
+
+状态：
+
+`r998=runner-pass-2/2,human-pass-2/2`；
+`B1524=single-literal-production-positive,multi-literal-production-pending`；
+`B1525=production-positive/core-closed`；
+`B1526=implemented/targeted+full-suite+build-pass/pending-production-replay`；
+`diagram-empty-participants-hard-gate=typed-cross-component-conflict-only`；
+`AnalyzerHints.Entities=soft-discovery-only`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r998`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r998`。
