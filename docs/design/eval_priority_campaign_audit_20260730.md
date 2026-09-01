@@ -57291,6 +57291,50 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
 
+### §123.1613 r1008：B1538/B1540 生产正证，Trace 不回归，图关系与原子编辑合同仍未闭环（2026-09-01）
+
+1. 从已推送 `ede921ba7` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 H8 显式窗 Trace。runner
+   2/2 PASS：read 663s、Trace 186s；机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1008_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1008_20260901_manual_audit.md`。人工为 Trace pass、read fail。
+2. Trace 车道无回归：用户指定 `34579.490000..34579.500000` 仍精确计为 10.000ms，因果投影与自动补采均发布；链上主因仍为
+   NetworkService-60595 优先级反转候选，有效归因 5.951ms，并明确“帧因果未证”。实际状态占时和规则可消除量使用不同列与不同语义；
+   业务 span 只提供链上业务排查方向，邻近 IO、全窗压力和跨线程 CPU 仍为背景，不进入主因席。没有固定 4ms/4m、活跃流年龄或短时未产出降级。
+3. `B1540` 获生产正证：本轮 sequenceDiagram 复用既有 `participant BusCtx as BusContext`，日志不再出现 `not a typed carrier`，也没有
+   为同一状态载体新建第二个 BusContext。该结果证明显式 sequence participant/actor declaration ID 已正确进入 typed endpoint
+   候选；消息 payload 仍不具备铸造别名的权限。
+4. `B1538` 获生产正证：关系删除进入下一代后，系统精确发布 `Extract` 与 `Orchestrator` 两项 orphan-only roster；模型逐项选择
+   `remove_if_isolated` 后，完整 precedence spine 门正确指出 analyzer→explorer→extractor→finalizer 缺失并拒绝发布。孤立节点候选没有再因
+   generation 切换丢失，系统也没有替模型决定删除/保留。
+5. read 最终正文和阶段表基本正确，最终图也从 r1007 的双 participant/双 BusContext/多断开 actor 收敛到一套
+   Analyze→Explore→Extract→Finalizer 主链。但人工仍判 fail：正文明确 Orchestrator 是唯一调度中枢，图却没有 Orchestrator；BusContext
+   虽被声明，却没有任何输入/输出边，无法表达“各阶段经共享状态载体交接”的核心关系。runner 的浅层 contains/regex oracle 无法识别这种
+   图与正文关系不一致，不能据 2/2 PASS 宣称质量闭环。
+6. `B1541-DIAGRAMRELATIONROLECOVERAGE1/P1` 新确认：当前完备性权威主要钉住 stage precedence spine 和 request participant incidence，
+   没有把同一份 typed 调度/状态交接证据按“调度者、阶段、共享载体”角色闭包发布给图关系计划。因此模型可以满足 stage 主链，却遗漏
+   Orchestrator 调度和 BusContext 状态回写/读取。最优修向不是扫描答案里是否出现词，而是从 typed relation inventory 生成角色覆盖矩阵：
+   每个用户请求维度只要求其已证关系族有一个可见表达；未证关系保留 boundary，不得系统造边、代写结论或强制具体 Mermaid 形状。
+7. `B1542-DIAGRAMATOMICEDITBRANCHCONTRACT1/P1` 新确认：10 次 finalizer reject 中，模型先使用本轮 schema 禁止的整块替换，随后两次提交
+   `diagram_edge_edits` 时出现空 `block_id`，又在 addition_ref 分支缺少 `from_node/to_node/visible_label`。这些是跨图类型的原子编辑合同负担，
+   不能用本 case 字样硬补。下一批先核对工具 JSON Schema 是否允许“结构上可解析但执行时必失败”的分支；若允许，应把 action 分支做成互斥、
+   字段就地必填的精确 schema，并让 teaching 与 runtime schema 同源。若 schema 已严格拒绝，则只收敛 typed executable recipe 的字段布局与
+   错误返回，不把模型波动升级为硬门。
+8. 本轮 B1538 roster 让错误的模型节点处置变得可见且可恢复，这属于正确 fail-close；不能为降低重试次数让系统自动保留 Extract 或自动删除
+   Orchestrator。后续优化只减少合同歧义和重复心智，不接管模型的关系、节点、措辞或结论所有权。
+
+状态：
+
+`r1008=runner-pass-2/2,human-pass-1/2`；
+`B1538=production-positive/core-closed`；
+`B1540=production-positive-sequence-alias/stage-display-reuse-separate`；
+`B1541=confirmed/P1/typed-role-coverage-gap`；
+`B1542=confirmed-symptom/P1/schema-vs-teaching-audit-next`；
+`system-answer/conclusion/relation/node-disposition-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
 ### §123.1611 r1006/B1537-B1539：原子关系重复生产与两阶段教学自冲突（2026-09-01）
 
 1. 从已推送 `33ac93a79` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 Rust 跨模块调用链；runner
