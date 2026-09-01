@@ -70305,3 +70305,42 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `Trace explicit-window/causal projection/auto-supplement=unchanged`；
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/unchanged`。
+
+### §123.1608 r1003/B1532-B1534：两阶段关系事务生产正证与编辑后依赖闭包（2026-09-01）
+
+1. 从已推送 `7cb0e774b` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”与 H8 显式窗 Trace；runner
+   2/2 PASS：Trace 193s、组合题 827s。完整机器汇总与人工复核分别在
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1003_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1003_20260901_manual_audit.md`。
+2. Trace 人工判 pass：显式 10ms 窗、链上根因排序、实际占时/规则可消双账户、业务 span 线索、确定性补齐与最终因果投影均完整。
+   主因只来自链上 NetworkService-60595 优先级反转候选，有效量 5.951ms；VerifyClass 只作为业务优化线索，并明确未把语义完成臆断为
+   唤醒因果。邻近 I/O/压力保持背景席；无固定 4ms/4m、活跃流年龄或“短时间未产出”降级。
+3. 组合题人工判 pass，`B1532` 获生产正证：最终 sequence 只复用 `SB→SE→SX→SF` 一套既有 stage participant，没有再次创建
+   analyze/explorer/extractor/finalizer 别名角色。`B1533` 也获生产正证：模型先提交 15 条 remove 与 3 条 typed addition；系统把精确关系结果
+   暂存为未发布 draft，并只在下一轮发布完整 2 行 orphan roster。模型随后只提交 participant dispositions，自行选择 retain EM/MU；系统没有
+   删除、替换或重写参与者、关系或答案。OC/BC 因仍被 `Note over` 引用，不属于孤立节点。
+4. `B1534-DIAGRAMPARIEDRELATIONPOSTEDITCLOSURE1/P1` 确认：sequence 中 `A->>B` 可为后续 `B-->>A` 提供精确的结构 reply 配对豁免；
+   当模型在同一 relation patch 删除 forward invocation 后，reply 会在 post-edit graph 中变为悬空。当前系统只在下一轮普通全量校验才发现，
+   于是模型先尝试把三条 reply 改成 call 并遭 `call_edge_unproven`，再删 reply 才成功。该现象不是 Mermaid 文案或模型波动，而是关系编辑事务只
+   对 orphan participant 做了编辑后闭包，没有对“语义合法性依赖另一条关系”的 pair-dependent relation 做同样的精确闭包。
+5. 最优修向冻结为通用的 post-edit dependency closure：每次只应用模型已选择且已通过 selector/typed authority 的关系编辑到未发布 draft；
+   随后在该 exact graph 上复用 parser/validator 的结构语义，计算全部新增的 typed dependent failures。若存在悬空 reply 等失败，只发布该代次、
+   fingerprint 绑定的关系处置能力，让模型选择 remove/replace/保留所需证据；关系闭包清零后再发布精确 orphan roster。系统不得自动删边、改向、
+   改关系类别、补业务词或生成答案；零失败时不得增加额外回合。
+6. 回归面必须覆盖：单对 forward/reply、同端点嵌套 LIFO、多组交错配对、保留 forward 时 reply 不误入 roster、删除 forward 后旧 reply ref 不可
+   重放、每次 draft generation 变化使旧 lease 失效，以及最终发布仍执行关系/participant/结构/Mermaid/answer 全合同。判定只读 parsed operator、
+   endpoint pair、typed edge refs 与 staged fingerprint，不读取用户请求、模型 thinking、正文、label、message、Markdown 或 Mermaid 原文关键词。
+7. 本批不改变 read-mode 关系证据权威、Trace 链上根因、邻近/背景边界、显式时间窗、因果投影、自动补采或 active-stream 行为。
+
+状态：
+
+`r1003=runner-pass-2/2,human-pass-2/2`；
+`B1532=production-positive/core-closed`；
+`B1533=production-positive/core-closed`；
+`B1534=confirmed/design-frozen/pending-implementation`；
+`post-edit-dependent-relation=typed-generation-bound/model-owned-disposition`；
+`system-answer/conclusion/relation/wording-selection=none`；
+`request/model-final-prose/markdown/mermaid-message fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1003`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1003`。
