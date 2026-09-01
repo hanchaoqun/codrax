@@ -46,6 +46,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		PresentationDiagramRequired: bus.PresentationDiagramRequired,
 		TurnRouteHint:               bus.TurnRouteHint,
 		RuntimeArtifactPreflight:    bus.RuntimeArtifactPreflight,
+		TraceFindingRequired:        bus.TraceFindingRequired,
 		MissingPiece:                bus.TaskState.Missing,
 		Constraints:                 bus.Constraints,
 		Preferences:                 bus.Preferences,

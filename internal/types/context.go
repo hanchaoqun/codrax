@@ -389,6 +389,12 @@ type MutableState struct {
 	// ResetAnswerDocumentV2 at per-task entry so stale state cannot
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
+	// traceFindingV1 is committed under the same lock as answerDocumentV2.
+	// It remains a separate analysis artifact and never changes the document
+	// wire schema used by ordinary read requests.
+	traceFindingV1       *TraceFindingV1
+	traceFindingContract *TraceFindingContract
+	traceRootCauseReport *TraceRootCauseReportV2
 
 	// finalizerTypedRelationRecipeAvailable is a dispatch-scoped producer
 	// receipt: the finalizer prompt compiler sets it only when the exact prompt
@@ -3593,6 +3599,33 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = cloneAnswerDocumentV2(doc)
+	m.traceFindingV1 = nil
+	m.traceRootCauseReport = nil
+	m.lastEmitFromPatch = (kind == MutationPartial)
+	m.lastRejectedAnswerDocumentV2 = nil
+	m.degradedRecoveredAnswerDocumentV2 = nil
+}
+
+// SetFinalAnswerArtifactsWithMutation atomically replaces both final-answer
+// artifacts. Validation must finish before this commit boundary is entered.
+func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, artifacts *FinalAnswerArtifactsV1) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if artifacts == nil {
+		m.answerDocumentV2 = nil
+		m.traceFindingV1 = nil
+		m.traceRootCauseReport = nil
+		m.lastEmitFromPatch = false
+		m.lastRejectedAnswerDocumentV2 = nil
+		m.degradedRecoveredAnswerDocumentV2 = nil
+		return
+	}
+	m.answerDocumentV2 = cloneAnswerDocumentV2(&artifacts.Document)
+	m.traceFindingV1 = cloneTraceFindingV1(artifacts.TraceFinding)
+	m.traceRootCauseReport = nil
 	m.lastEmitFromPatch = (kind == MutationPartial)
 	m.lastRejectedAnswerDocumentV2 = nil
 	m.pendingAnswerDocumentPatchBase = nil
@@ -3678,6 +3711,120 @@ func (m *MutableState) FinalizerTypedRelationSemanticHandoffAnchors() []DiagramE
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]DiagramEdgeAnchor(nil), m.finalizerTypedRelationSemanticHandoffAnchors...)
+}
+
+// FinalAnswerArtifacts returns a defensive snapshot from one read lock.
+func (m *MutableState) FinalAnswerArtifacts() *FinalAnswerArtifactsV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.answerDocumentV2 == nil {
+		return nil
+	}
+	return &FinalAnswerArtifactsV1{
+		Document:     *cloneAnswerDocumentV2(m.answerDocumentV2),
+		TraceFinding: cloneTraceFindingV1(m.traceFindingV1),
+	}
+}
+
+// TraceFinding returns a defensive copy of the accepted typed finding.
+func (m *MutableState) TraceFinding() *TraceFindingV1 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneTraceFindingV1(m.traceFindingV1)
+}
+
+// SetTraceFinding stores a deterministic trace conclusion after the original
+// answer document has been accepted. This setter is intentionally separate
+// from the atomic model-authored artifact mutation: the value is compiled
+// from typed trace evidence and is not part of the model tool schema.
+func (m *MutableState) SetTraceFinding(finding *TraceFindingV1) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceFindingV1 = cloneTraceFindingV1(finding)
+}
+
+// TraceRootCauseReport returns the model-authored, validated JSON sidecar
+// payload for the current trace answer.
+func (m *MutableState) TraceRootCauseReport() *TraceRootCauseReportV2 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneTraceRootCauseReportV2(m.traceRootCauseReport)
+}
+
+// SetTraceRootCauseReport stores the already-normalized sidecar after the
+// answer-document mutation succeeds. It is not rendered into the long answer.
+func (m *MutableState) SetTraceRootCauseReport(report *TraceRootCauseReportV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceRootCauseReport = cloneTraceRootCauseReportV2(report)
+}
+
+// SetTraceFindingContract enables typed finding output for a batch child run.
+// A nil contract disables the feature without changing ordinary read schemas.
+func (m *MutableState) SetTraceFindingContract(contract *TraceFindingContract) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if contract == nil {
+		m.traceFindingContract = nil
+		return
+	}
+	copy := *contract
+	copy.PrimaryCandidateIDs = append([]string(nil), contract.PrimaryCandidateIDs...)
+	copy.ContributorCandidateIDs = append([]string(nil), contract.ContributorCandidateIDs...)
+	copy.Candidates = cloneTraceFindingCandidates(contract.Candidates)
+	copy.AcceptedEvidenceIDs = append([]string(nil), contract.AcceptedEvidenceIDs...)
+	m.traceFindingContract = &copy
+}
+
+func (m *MutableState) TraceFindingContract() *TraceFindingContract {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.traceFindingContract == nil {
+		return nil
+	}
+	copy := *m.traceFindingContract
+	copy.PrimaryCandidateIDs = append([]string(nil), m.traceFindingContract.PrimaryCandidateIDs...)
+	copy.ContributorCandidateIDs = append([]string(nil), m.traceFindingContract.ContributorCandidateIDs...)
+	copy.Candidates = cloneTraceFindingCandidates(m.traceFindingContract.Candidates)
+	copy.AcceptedEvidenceIDs = append([]string(nil), m.traceFindingContract.AcceptedEvidenceIDs...)
+	return &copy
+}
+
+func cloneTraceFindingCandidates(in []TraceFindingCandidateV1) []TraceFindingCandidateV1 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]TraceFindingCandidateV1, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Decision.EvidenceRefs = append([]string(nil), in[i].Decision.EvidenceRefs...)
+		if in[i].Decision.Magnitude != nil {
+			magnitude := *in[i].Decision.Magnitude
+			out[i].Decision.Magnitude = &magnitude
+		}
+	}
+	return out
 }
 
 // SetAnswerDisplayAttachments replaces the current final-answer
@@ -3857,6 +4004,9 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.traceFindingV1 = nil
+	m.traceFindingContract = nil
+	m.traceRootCauseReport = nil
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -3881,6 +4031,8 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
+	m.traceFindingV1 = nil
+	m.traceRootCauseReport = nil
 	m.lastEmitFromPatch = false
 }
 
@@ -7700,6 +7852,12 @@ type BusContext struct {
 	// prose, and it must never become final-answer proof by itself.
 	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
 
+	// TraceFindingRequired is a CLI-owned request for a structured trace
+	// sidecar (for example --trace-finding-out). It is separate from user prose
+	// so batch children can request machine-readable output without changing
+	// the model's answer-document schema.
+	TraceFindingRequired bool `json:"-"`
+
 	// ExploreDispatchKey is a scheduler-owned key for focused explorer
 	// windows. It lets the explorer agent isolate mutable evaluator state
 	// per DAG evidence node even when the scheduler uses the normal serial
@@ -8093,6 +8251,11 @@ type AgentContext struct {
 	// RuntimeArtifactPreflight mirrors BusContext.RuntimeArtifactPreflight for
 	// analyzer/tool/sub-agent projections.
 	RuntimeArtifactPreflight RuntimeArtifactPreflightProfile `json:"runtime_artifact_preflight,omitempty"`
+
+	// TraceFindingRequired mirrors the CLI-owned BusContext flag. It may enable
+	// deterministic sidecar generation, but must never alter the finalizer's
+	// tool schema or the original long-form answer.
+	TraceFindingRequired bool `json:"-"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —

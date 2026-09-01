@@ -107,7 +107,13 @@ func (t *EmitAnswerDocument) ParametersFor(ctx *types.AgentContext) json.RawMess
 		return t.canonicalParameters()
 	}
 	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
-	return BuildAnswerDocumentParametersFor(view)
+	parameters := BuildAnswerDocumentParametersFor(view)
+	if ctx.Mutable != nil {
+		contract := ctx.Mutable.TraceFindingContract()
+		parameters = projectTraceFindingContract(parameters, contract, false)
+		parameters = projectTraceRootCauseReport(parameters, contract, false)
+	}
+	return parameters
 }
 
 func (t *EmitAnswerDocument) canonicalParameters() json.RawMessage {

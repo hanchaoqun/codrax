@@ -65,6 +65,7 @@ type Orchestrator struct {
 	steering              steeringIntake           // TTY-3 mid-run steering notes (steering_notes.go)
 	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
+	traceFindingRequired  bool                     // structured sidecar requested by the CLI; never a model-schema gate
 	// presentationDirective is a per-run typed display requirement
 	// from the REPL turn policy. It is intentionally not concatenated
 	// into the objective string, because the objective feeds status
@@ -932,6 +933,12 @@ func (o *Orchestrator) AttachedHitraceSource() string {
 	return o.attachedHitraceSource
 }
 
+// SetTraceFindingRequired requests deterministic TraceFindingV1 generation
+// for this run. It does not inject fields into emit_answer_document.
+func (o *Orchestrator) SetTraceFindingRequired(required bool) {
+	o.traceFindingRequired = required
+}
+
 // SetPresentationDirective installs the current turn's typed display
 // requirement for the next Run. Unlike /log and /htrace this is not
 // sticky: Run consumes and clears it at entry, and REPL dispatch calls
@@ -1707,6 +1714,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			o.attachedLog,
 			o.attachedHitrace,
 		),
+		TraceFindingRequired: o.traceFindingRequired,
 		// Mode normalization turns zero-value ("") into ModeRead so
 		// downstream switch equality is exact. The L1 red line
 		// depends on this — a caller who never invokes SetMode

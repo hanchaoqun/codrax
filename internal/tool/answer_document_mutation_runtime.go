@@ -100,6 +100,29 @@ func ApplyAndPersistMutation(
 	)
 }
 
+// ApplyAndPersistMutationWithFinding shares the document validation path but
+// commits the typed finding under the same MutableState lock.
+func ApplyAndPersistMutationWithFinding(
+	ctx *types.BusContext,
+	toolName string,
+	mutation types.AnswerDocumentMutation,
+	prev *types.AnswerDocumentV2,
+	finding *types.TraceFindingV1,
+	now time.Time,
+) (types.ToolResult, error) {
+	if ctx == nil || ctx.Mutable == nil {
+		return failEmit(toolName, now, "%s requires a writable context", toolName)
+	}
+	merged, err := mutation.Apply(prev)
+	if err != nil {
+		return failEmitWithRepair(toolName, now, answerDocumentMutationRepair(err), "mutation apply rejected: %v", err)
+	}
+	if merged == nil {
+		return failEmit(toolName, now, "mutation apply produced a nil document — internal error")
+	}
+	return persistMergedFinalAnswerArtifactsWithAttachmentPolicy(ctx, toolName, mutation.Kind, mutation.Summary(), merged, finding, now, answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev))
+}
+
 func answerDocumentMutationRepair(err error) *types.ToolRepair {
 	if err == nil {
 		return nil
@@ -146,6 +169,19 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 	kind types.MutationKind,
 	mutationSummary string,
 	merged *types.AnswerDocumentV2,
+	now time.Time,
+	dropExplicitlyRemovedModelDiagrams bool,
+) (types.ToolResult, error) {
+	return persistMergedFinalAnswerArtifactsWithAttachmentPolicy(ctx, toolName, kind, mutationSummary, merged, nil, now, dropExplicitlyRemovedModelDiagrams)
+}
+
+func persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
+	ctx *types.BusContext,
+	toolName string,
+	kind types.MutationKind,
+	mutationSummary string,
+	merged *types.AnswerDocumentV2,
+	finding *types.TraceFindingV1,
 	now time.Time,
 	dropExplicitlyRemovedModelDiagrams bool,
 ) (types.ToolResult, error) {
@@ -331,7 +367,11 @@ func persistMergedAnswerDocumentWithAttachmentPolicy(
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
 
-	ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
+	if contract := ctx.Mutable.TraceFindingContract(); contract != nil && contract.Required {
+		ctx.Mutable.SetFinalAnswerArtifactsWithMutation(kind, &types.FinalAnswerArtifactsV1{Document: *merged, TraceFinding: finding})
+	} else {
+		ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
+	}
 	attachments := ctx.Mutable.AnswerDisplayAttachments()
 	if dropExplicitlyRemovedModelDiagrams {
 		attachments = filterExplicitlyRemovedModelDiagramAttachments(attachments)
