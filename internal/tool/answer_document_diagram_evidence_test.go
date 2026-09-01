@@ -76,6 +76,29 @@ func TestDiagramStagePrecedenceAuthorityAcceptsOnlyAdjacentReadLane(t *testing.T
 		&types.AnswerSemanticView{Family: types.QFRootCauseTrace, RelationAxis: types.AxisFlow}, nil, authority); len(got) != 0 {
 		t.Fatalf("runtime Trace must remain outside source stage authority: %+v", got)
 	}
+	compressedMembership := types.EvidenceItem{
+		Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride,
+		Subject: "StageAnalyze", Object: "StageFinalize", AnchorSymbol: "StageExplore",
+		Source: "internal/types/enums.go", LineStart: 118, Scope: types.ScopeLineRange,
+		GroundingStatus: types.GroundingGrounded,
+	}
+	if got := DiagramCallEdgeEvidenceMismatches(
+		doc("A", "StageAnalyze", "F", "StageFinalize"), view,
+		[]types.EvidenceItem{compressedMembership}, authority,
+	); len(got) == 0 || got[0].Issue != diagramSemanticRelationIssueNoEvidence {
+		t.Fatalf("a generic first-to-last membership summary must not widen adjacent stage authority: %+v", got)
+	}
+	nonStage := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID: "business-workflow", Kind: types.BlockDiagram,
+		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramFlow, Language: "mermaid",
+			Body: "flowchart TD\n  P[prepare] --> Q[publish]\n"},
+		EdgeAnchors: []types.DiagramEdgeAnchor{{FromNode: "P", ToNode: "Q", RelationKind: types.DiagramRelPrecedence}},
+	}}}
+	nonStageEvidence := compressedMembership
+	nonStageEvidence.Subject, nonStageEvidence.Object, nonStageEvidence.AnchorSymbol = "prepare", "publish", "publish"
+	if got := DiagramCallEdgeEvidenceMismatches(nonStage, view, []types.EvidenceItem{nonStageEvidence}, authority); len(got) != 0 {
+		t.Fatalf("verified stage authority must not suppress independent business-workflow precedence: %+v", got)
+	}
 }
 
 func TestDiagramStagePrecedenceAuthorityTreatsSameStageLabelAliasesAsOneEndpoint(t *testing.T) {

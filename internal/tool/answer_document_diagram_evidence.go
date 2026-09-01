@@ -283,11 +283,23 @@ func diagramCallEdgeEvidenceMismatchesWithRequestModel(
 					if requiresCallAuthority && !callAnchorKeys[key] {
 						continue
 					}
-					if diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation) ||
-						(relation == types.DiagramRelPrecedence &&
-							diagramStagePrecedenceEdgeHasTypedAuthority(
-								stagePrecedence, edge.From, edge.To, effectiveAnchors, labels,
-							)) {
+					stageAuthority := relation == types.DiagramRelPrecedence &&
+						diagramStagePrecedenceEdgeHasTypedAuthority(
+							stagePrecedence, edge.From, edge.To, effectiveAnchors, labels,
+						)
+					genericAuthority := diagramLogicalRelationEdgeHasTypedEvidence(evidence, fromSymbol, toSymbol, relation)
+					// A generic source extractor may summarize one ordered stage
+					// membership list as first -> last. Once the checkout-verified
+					// read-stage provider is active, that lossy tuple must not expand
+					// the three adjacent stage edges into a transitive message. This
+					// branch reads only typed endpoint identities and the verified
+					// provider; non-stage workflow precedence remains on the generic
+					// evidence lane.
+					if relation == types.DiagramRelPrecedence &&
+						diagramVerifiedStageEndpointPair(stagePrecedence, fromSymbol, toSymbol) {
+						genericAuthority = false
+					}
+					if genericAuthority || stageAuthority {
 						continue
 					}
 					out = append(out, DiagramCallEdgeEvidenceMismatch{
@@ -945,6 +957,45 @@ func diagramStageRowIdentityMatches(row stageauthority.StageRow, surface string)
 		}
 	}
 	return false
+}
+
+// diagramVerifiedStageEndpointPair reports whether both endpoint identities
+// resolve to exactly one checkout-verified read-stage row. It does not assert
+// that the pair is an adjacent edge; callers use the result to keep generic
+// precedence evidence from widening the provider's closed adjacent-edge set.
+func diagramVerifiedStageEndpointPair(relations []stageauthority.PrecedenceRelation, from, to string) bool {
+	_, fromOK := diagramUniqueVerifiedStageRow(relations, from)
+	_, toOK := diagramUniqueVerifiedStageRow(relations, to)
+	return fromOK && toOK
+}
+
+func diagramUniqueVerifiedStageRow(relations []stageauthority.PrecedenceRelation, surface string) (stageauthority.StageRow, bool) {
+	surface = strings.TrimSpace(surface)
+	if surface == "" || len(relations) == 0 {
+		return stageauthority.StageRow{}, false
+	}
+	matched := make(map[string]stageauthority.StageRow)
+	visit := func(row stageauthority.StageRow) {
+		if !diagramStageRowIdentityMatches(row, surface) {
+			return
+		}
+		key := strings.ToLower(strings.Join([]string{
+			strings.TrimSpace(row.StageIdent), strings.TrimSpace(row.StageValue),
+			strings.TrimSpace(row.AgentIdent), strings.TrimSpace(row.AgentValue),
+		}, "\x00"))
+		matched[key] = row
+	}
+	for _, relation := range relations {
+		visit(relation.From)
+		visit(relation.To)
+	}
+	if len(matched) != 1 {
+		return stageauthority.StageRow{}, false
+	}
+	for _, row := range matched {
+		return row, true
+	}
+	return stageauthority.StageRow{}, false
 }
 
 func diagramCallbackEdgeHasTypedEvidence(evidence []types.EvidenceItem, fromSymbol, toSymbol string) bool {

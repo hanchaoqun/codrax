@@ -57351,12 +57351,17 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
    拒绝，第二轮模型只保留请求明确写出的 analyze/finalizer；没有再把 sibling 表格载体作为初始硬 participant。成文拒绝由 r1010 的 12 次降至
    6 次，证明“错误义务不后移”方向有效，但不能据此关单。
 6. read 最终仍不可签绿：图把 stage order 以 `AgentAnalyzer -> AgentFinalizer` 直接消息呈现，又保留孤立 MutableState；四个阶段正文反复引用
-   同一 `runAnalyzePhase` 行，不能分别证明 Explore/Extract/Finalize。新立 `B1547-REQUIREDSEQUENCESTAGECARRIER1/P1`：冷读 live repair
-   candidate、stage/agent endpoint dialect、participant boundary 与 citation plan 是否共享同一 adjacent-stage authority。最优方案须解决一类
-   workflow/sequence 问题：最终图只接受模型从 typed adjacent stage recipes 选择的边；stage 与 agent 是同一 recipe 的两种精确 endpoint dialect，
-   不得在 reader 图层混成额外 transitive message；职责与状态载体继续留在 sibling 表。引用必须按每一阶段的真实定义/调度/落盘锚分开，不以一行
-   泛化证明全部阶段。该项先立案，不扫描 Mermaid/正文关键词、不由系统选边、删边、改向、补标签或重写答案。
-7. 本批没有改变 Trace 根因权威、显式窗、唤醒链、因果投影、自动补采、邻近/背景隔离或 active-stream；显式根因文件也只封装模型选择结果或
+   同一 `runAnalyzePhase` 行，不能分别证明 Explore/Extract/Finalize。新立 `B1547-REQUIREDSEQUENCESTAGECARRIER1/P1`。冷读确认根因是同一
+   evidence pool 有两份互相竞争的 stage precedence：checkout `stageauthority` 精确发布 3 条相邻边；通用 source evidence 却把
+   `AllMainStages` 有序成员列表压成 `StageAnalyze -> StageFinalize` 的首尾 tuple。普通关系 validator 与 live repair candidate 都先接受了后者，
+   因而实际向模型发出可执行 addition ref，系统自己把跨段直连授权进图，而不是单纯模型不服从。
+7. B1547 已按单源边界根修：当且仅当一个 precedence 的两端都唯一解析为已激活 checkout read-stage row 时，普通 evidence 不再扩大该封闭域，
+   validator 与 repair candidate 都只认 `stageauthority` 的精确相邻 pair。只解析到一端、零/多义解析，以及 `prepare -> publish` 等非阶段业务顺序
+   继续消费普通 grounded precedence evidence；Trace 在 stage authority 入口仍被排除。实现不扫描请求、模型 thinking、正文、Mermaid label/message，
+   不替模型选择/创建/删除/改向任何边。回归固定“通用首尾 tuple 必须红、相邻 pair 仍绿、非阶段顺序仍绿、lease 不发布首尾 addition”；完整
+   `go test ./internal/tool -count=1`（184.103s）、`go test ./internal/stageauthority -count=1` 与 `make` 全绿。引用精度残差不借本修复硬化：已有
+   typed citation advisory 已把四个 enum 定义锚分别给模型，r1011 模型选择保留旧块；继续异构回放，禁止系统代选引用或改写正文。
+8. 本批没有改变 Trace 根因权威、显式窗、唤醒链、因果投影、自动补采、邻近/背景隔离或 active-stream；显式根因文件也只封装模型选择结果或
    typed unavailable，不从最终 prose 反推根因，不由系统代替模型排序/下结论。
 
 状态：
@@ -57366,7 +57371,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1544=implemented/exact-top-level-discriminator-rehome/pushed`；
 `B1545=implemented/exact-single-decode-object-recovery/not-production-exercised-r1011`；
 `B1546=production-positive-early-reject/partial/downstream-sequence-residual`；
-`B1547=P1/confirmed/pending-code-audit`；
+`B1547=implemented/P1/closed-adjacent-stage-authority/full-tool+stageauthority+build-pass/pending-production-replay`；
 default sibling=`optional/model-valid-selection-dependent`；
 explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failure-fails-command`；
 `system-root-selection/prose-inference/answer-rewrite=none`；

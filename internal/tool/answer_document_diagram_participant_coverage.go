@@ -2473,6 +2473,16 @@ func diagramRelationRepairAllowedAdditions(
 			strings.TrimSpace(candidate.to) == "" || strings.TrimSpace(candidate.source) == "" {
 			continue
 		}
+		// The checkout provider is the closed authority for precedence whose
+		// two endpoints are both verified read stages. A generic evidence row
+		// may compress an ordered membership list into first -> last; do not
+		// publish that lossy transitive tuple beside the provider's exact
+		// adjacent repair choices.
+		if candidate.relation == types.DiagramRelPrecedence &&
+			diagramVerifiedStageEndpointPair(stagePrecedence, candidate.from, candidate.to) &&
+			!diagramStagePrecedenceHasTypedAuthority(stagePrecedence, candidate.from, candidate.to) {
+			continue
+		}
 		for _, blockID := range candidate.blockIDs {
 			blockID = strings.TrimSpace(blockID)
 			if !targetSeen[blockID] {

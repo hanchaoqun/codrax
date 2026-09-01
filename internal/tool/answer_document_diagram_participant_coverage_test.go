@@ -2299,6 +2299,48 @@ func TestDiagramRelationRepairAllowedAdditionsCarriesCompleteTypedStageSpine(t *
 	}
 }
 
+func TestDiagramRelationRepairAllowedAdditionsRejectsCompressedStageMembershipTuple(t *testing.T) {
+	stage := func(stageIdent, stageValue, agentIdent, agentValue string) stageauthority.StageRow {
+		return stageauthority.StageRow{
+			StageIdent: stageIdent, StageValue: stageValue,
+			AgentIdent: agentIdent, AgentValue: agentValue,
+		}
+	}
+	rows := []stageauthority.StageRow{
+		stage("StageAnalyze", "analyze", "AgentAnalyzer", "analyzer"),
+		stage("StageExplore", "explore", "AgentExplorer", "explorer"),
+		stage("StageExtract", "extract", "AgentExtractor", "extractor"),
+		stage("StageFinalize", "finalize", "AgentFinalizer", "finalizer"),
+	}
+	precedence := []stageauthority.PrecedenceRelation{
+		{From: rows[0], To: rows[1], SourceFile: "internal/types/enums.go", LineStart: 118, LineEnd: 118},
+		{From: rows[1], To: rows[2], SourceFile: "internal/types/enums.go", LineStart: 118, LineEnd: 118},
+		{From: rows[2], To: rows[3], SourceFile: "internal/types/enums.go", LineStart: 118, LineEnd: 118},
+	}
+	exactCandidates := []preEmitStandaloneRelationRepairCandidate{
+		{relation: types.DiagramRelPrecedence, from: "StageAnalyze", to: "StageFinalize", source: "internal/types/enums.go:118", blockIDs: []string{"diagram-1"}},
+		{relation: types.DiagramRelPrecedence, from: "StageAnalyze", to: "StageExplore", source: "internal/types/enums.go:118", blockIDs: []string{"diagram-1"}},
+		{relation: types.DiagramRelPrecedence, from: "prepare", to: "publish", source: "workflow.go:10", blockIDs: []string{"diagram-1"}},
+	}
+	got := diagramRelationRepairAllowedAdditions(
+		nil, types.RequestModel{}, nil, precedence, []string{"diagram-1"}, exactCandidates, 12,
+	)
+	var adjacent, business bool
+	for _, candidate := range got {
+		if strings.EqualFold(candidate.FromIdentity, "StageAnalyze") &&
+			strings.EqualFold(candidate.ToIdentity, "StageFinalize") {
+			t.Fatalf("repair lease exposed a lossy first-to-last stage tuple: %+v", got)
+		}
+		adjacent = adjacent || (strings.EqualFold(candidate.FromIdentity, "StageAnalyze") &&
+			strings.EqualFold(candidate.ToIdentity, "StageExplore")) ||
+			(strings.EqualFold(candidate.FromIdentity, "analyzer") && strings.EqualFold(candidate.ToIdentity, "explorer"))
+		business = business || (candidate.FromIdentity == "prepare" && candidate.ToIdentity == "publish")
+	}
+	if !adjacent || !business {
+		t.Fatalf("filter must preserve adjacent stage and non-stage precedence choices: %+v", got)
+	}
+}
+
 func TestDiagramRelationRepairAllowedAdditionsPublishesEveryExactDeclaredStageChoice(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID: "diagram-1", Kind: types.BlockDiagram,
