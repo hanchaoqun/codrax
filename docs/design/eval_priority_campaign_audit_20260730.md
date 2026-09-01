@@ -57330,6 +57330,51 @@ default sibling=`optional/bare-v2/selected-candidates-currently-lost-on-double-e
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1010`。
 
+### §123.1617 r1011/B1543-B1547：显式根因工件合同生产观察与 required sequence 残余（2026-09-01）
+
+1. 从已推送 `eaa1a5b53` 构建不可变二进制，严格并发恰好 2 路复放同一 read/Trace 组合；runner 2/2 PASS：Trace 144s、read
+   524s。机器汇总与人工复核分别在 `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1011_20260901.md` 和
+   `eval/parallel_selected_summary_evalcampaign_diagram_trace_r1011_20260901_manual_audit.md`；Trace 人工判 pass，read 人工判 fail。
+2. Trace 保持精确 10ms 窗、已证唤醒链、链上根因排序、实际占时/规则可消双账户、业务 span、邻近/背景隔离、帧因果边界、Trace
+   因果投影和确定性补采。本轮 finalizer 完全没有提交可选 `trace_root_causes` carrier；因此默认时间戳 sibling
+   `.root-causes.json` 按既有 optional 合同不生成。这不是 B1545 的 encoded-object 恢复回归，也不能解释为“根因数量为零”：完整答案仍有
+   typed 链上根因，只是模型没有形成独立的程序化选择载体。B1545 本轮没有命中生产正臂，保持实现测试闭环、待直接回放。
+3. 这也给出了“有时生成、有时不生成”的完整边界：默认 sibling 只有在 Trace 候选存在、模型提交有效 v2 selection、候选绑定/结构校验通过、
+   默认 output dump 开启且文件写入成功时才存在。任何一环缺失都可能只留下完整 Markdown/HTML；程序化消费者若把文件缺失当成
+   `root_causes=[]` 会把 unknown/unselected 错读成 measured-zero，属于调用方合同风险。
+4. `B1543` 已提供稳定程序化出口：single-shot `--root-causes-out <exact-path>` 不依赖默认 dump 或模型 selection 是否成功。路径被指定后，
+   命令必须尝试创建父目录并覆盖该文件；有效选择写 `artifact_schema_version=1,status=available,trace_root_causes=<v2 report>`，无候选、
+   模型未选择或最终 transcript 不可用仍写 `status=unavailable` 与 typed `reason_code`，禁止伪造成空根因数组。磁盘写失败直接使命令失败，
+   不能静默成功。`MutableState.FinalAnswerRootCauseJSONPath()` 同时暴露实际落盘路径。该精确输出路径采用一次性 flag 而非持久配置，避免并行运行
+   共享固定文件造成覆盖；调用方需要固定路径时应显式传 flag，并按 status 分支。
+5. B1546 的 analyzer fail-loud 获得生产正证：首轮 roster 中 Orchestrator/BusContext 等无 CURRENT-request identity anchor 的推断行立即被
+   拒绝，第二轮模型只保留请求明确写出的 analyze/finalizer；没有再把 sibling 表格载体作为初始硬 participant。成文拒绝由 r1010 的 12 次降至
+   6 次，证明“错误义务不后移”方向有效，但不能据此关单。
+6. read 最终仍不可签绿：图把 stage order 以 `AgentAnalyzer -> AgentFinalizer` 直接消息呈现，又保留孤立 MutableState；四个阶段正文反复引用
+   同一 `runAnalyzePhase` 行，不能分别证明 Explore/Extract/Finalize。新立 `B1547-REQUIREDSEQUENCESTAGECARRIER1/P1`：冷读 live repair
+   candidate、stage/agent endpoint dialect、participant boundary 与 citation plan 是否共享同一 adjacent-stage authority。最优方案须解决一类
+   workflow/sequence 问题：最终图只接受模型从 typed adjacent stage recipes 选择的边；stage 与 agent 是同一 recipe 的两种精确 endpoint dialect，
+   不得在 reader 图层混成额外 transitive message；职责与状态载体继续留在 sibling 表。引用必须按每一阶段的真实定义/调度/落盘锚分开，不以一行
+   泛化证明全部阶段。该项先立案，不扫描 Mermaid/正文关键词、不由系统选边、删边、改向、补标签或重写答案。
+7. 本批没有改变 Trace 根因权威、显式窗、唤醒链、因果投影、自动补采、邻近/背景隔离或 active-stream；显式根因文件也只封装模型选择结果或
+   typed unavailable，不从最终 prose 反推根因，不由系统代替模型排序/下结论。
+
+状态：
+
+`r1011=runner-pass-2/2,human-trace-pass+read-fail`；
+`B1543=implemented+full-suite+build-pass/pushed/explicit-guaranteed-envelope`；
+`B1544=implemented/exact-top-level-discriminator-rehome/pushed`；
+`B1545=implemented/exact-single-decode-object-recovery/not-production-exercised-r1011`；
+`B1546=production-positive-early-reject/partial/downstream-sequence-residual`；
+`B1547=P1/confirmed/pending-code-audit`；
+default sibling=`optional/model-valid-selection-dependent`；
+explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failure-fails-command`；
+`system-root-selection/prose-inference/answer-rewrite=none`；
+`request/model-final-prose/markdown/mermaid fact-scan=none`；
+`Trace explicit-window/causal projection/auto-supplement=production-positive-r1011`；
+Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
+`active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
+
 ### §123.1615 r1009/B1544：根因选择侧车的固定判别值载体漂移（2026-09-01）
 
 1. 从已推送 `cbd60fec0` 构建不可变二进制，严格并发恰好 2 路复放 read-mode“时序图+阶段表”和 H8 显式窗 Trace；runner
