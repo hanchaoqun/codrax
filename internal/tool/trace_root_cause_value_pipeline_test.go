@@ -2,7 +2,6 @@ package tool
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,10 +23,11 @@ func TestRootCauseValueCaliberSurvivesObservationProjectionEmitAndPatch(t *testi
 				ImpactMs: 2, CumulativeImpactMs: 2, DStateMs: 2, EffectiveImpactMs: 2, DStateAllNonIOProven: true,
 				StartTs: 10.03, EndTs: 10.032, LineStart: 21, LineEnd: 25, Source: "window_stats", ChainRelevance: "on_chain", Causality: "on_wakeup_chain"},
 		}}}
-	records := traceQueryTypedObservations(result, "capture.systrace", "payload", "raw", "", time.Unix(1, 0))
-	for i := range records {
-		records[i].ID = fmt.Sprintf("E%d", i+1)
-	}
+	// Exercise production-sized source handles, not only short E1 refs. The
+	// supply description and both provenance axes must survive sidecar binding.
+	source := "/workspace/.codrax/blob/20260902-005125-000-78634/attached_trace_with_a_long_capture_name.systrace"
+	result.SourcePath = source
+	records := traceQueryTypedObservations(result, source, "trace-query-result-28bd29e5.json", "raw", "", time.Unix(1, 0))
 	ledger := types.ObservationLedger{Records: records}
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	contract, err := tracefinding.CompileCandidateContract(ledger, set, "proven")
@@ -51,8 +51,13 @@ func TestRootCauseValueCaliberSurvivesObservationProjectionEmitAndPatch(t *testi
 	report := mutable.TraceRootCauseReport()
 	if report == nil || len(report.RootCauses) != 2 || report.RootCauses[0].Category != types.TraceRootCauseComputeSupplyShortage ||
 		report.RootCauses[1].Category != types.TraceRootCauseSleepBlocking || *report.RootCauses[0].ImpactSeconds != .003 ||
-		!strings.Contains(report.RootCauses[1].Evidence[0], "非 I/O") {
+		!strings.Contains(strings.Join(report.RootCauses[1].Evidence, " "), "非 I/O") {
 		t.Fatalf("published wrong caliber: %+v", report)
+	}
+	for _, item := range report.RootCauses {
+		if !strings.Contains(strings.Join(item.Evidence, " "), source) {
+			t.Fatalf("sidecar dropped source provenance: %+v", item)
+		}
 	}
 	patched, err := (&EmitAnswerDocumentPatch{}).Execute(ctx, json.RawMessage(`{"unchanged_block_ids":["summary"]}`))
 	if err != nil || !patched.Success {

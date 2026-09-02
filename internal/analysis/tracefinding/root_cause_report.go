@@ -3,6 +3,7 @@ package tracefinding
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -102,7 +103,7 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 		CandidateID:   strings.TrimSpace(decision.CandidateID),
 		Category:      category,
 		ImpactSeconds: &impactSeconds,
-		Evidence:      []string{boundRootCauseEvidence(decision)},
+		Evidence:      boundRootCauseEvidence(decision),
 	}
 	switch category {
 	case types.TraceRootCauseGCLongPause, types.TraceRootCauseComputeSupplyShortage:
@@ -229,18 +230,44 @@ func RootCauseValueDescription(decision types.TraceCauseDecision) string {
 	return ""
 }
 
-func boundRootCauseEvidence(decision types.TraceCauseDecision) string {
+func boundRootCauseEvidence(decision types.TraceCauseDecision) []string {
 	subject := strings.TrimSpace(decision.SubjectName)
 	if subject == "" {
 		subject = "目标链路"
 	}
-	refs := strings.Join(decision.EvidenceRefs, ",")
-	if refs == "" {
-		refs = "typed-trace-row"
+	refs := decision.EvidenceRefs
+	if len(refs) == 0 {
+		refs = []string{"typed-trace-row"}
 	}
-	evidence := fmt.Sprintf("%s 在目标窗口内的链上有效影响为 %.3f ms（证据 %s）", subject, decision.Magnitude.Value, refs)
-	if description := RootCauseValueDescription(decision); description != "" {
+	statement := fmt.Sprintf("%s 在目标窗口内的链上有效影响为 %.3f ms", subject, decision.Magnitude.Value)
+	evidence := statement + "（证据 " + strings.Join(refs, ",") + "）"
+	description := RootCauseValueDescription(decision)
+	if description != "" {
 		evidence += "；" + description
 	}
-	return evidence
+	if utf8.RuneCountInString(evidence) <= types.TraceRootCauseEvidenceMaxRunes {
+		return []string{evidence}
+	}
+	// Long source handles plus a value-caliber note can exceed one entry even
+	// though the existing four-entry schema can represent every fact. Pack at
+	// semantic boundaries; never split/truncate a reference or drop the note.
+	// Truly oversized atoms/sets remain intact for the strict validator to
+	// reject; this formatter cannot silently reduce evidence to make it fit.
+	parts := []string{statement}
+	if description != "" {
+		parts = append(parts, description)
+	}
+	for _, ref := range refs {
+		parts = append(parts, "证据 "+ref)
+	}
+	var entries []string
+	for _, part := range parts {
+		last := len(entries) - 1
+		if last >= 0 && utf8.RuneCountInString(entries[last])+1+utf8.RuneCountInString(part) <= types.TraceRootCauseEvidenceMaxRunes {
+			entries[last] += "；" + part
+		} else {
+			entries = append(entries, part)
+		}
+	}
+	return entries
 }

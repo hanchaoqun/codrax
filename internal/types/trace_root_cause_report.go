@@ -14,6 +14,13 @@ import (
 // to every emitted cause.
 const TraceRootCauseReportSchemaVersion = 2
 
+// Shared by the frozen-fact binder and the public v2 validator. Packing may
+// use more entries, but must not widen these limits or truncate references.
+const (
+	TraceRootCauseEvidenceMaxEntries = 4
+	TraceRootCauseEvidenceMaxRunes   = 240
+)
+
 // TraceRootCauseCategory is the closed, stable root-cause vocabulary exposed
 // in the JSON sidecar. Evidence is bound from typed candidate facts.
 type TraceRootCauseCategory string
@@ -158,16 +165,16 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		return nil, fmt.Errorf("trace_root_causes.%s.impact_seconds must be a finite positive number", field)
 	}
 	out.ImpactSeconds = &impactSeconds
-	if len(in.Evidence) == 0 || len(in.Evidence) > 4 {
-		return nil, fmt.Errorf("trace_root_causes.%s.evidence must contain 1 to 4 concise entries", field)
+	if len(in.Evidence) == 0 || len(in.Evidence) > TraceRootCauseEvidenceMaxEntries {
+		return nil, fmt.Errorf("trace_root_causes.%s.evidence must contain 1 to %d concise entries", field, TraceRootCauseEvidenceMaxEntries)
 	}
 	for index, evidence := range in.Evidence {
 		evidence = compactTraceRootCauseField(evidence)
 		if evidence == "" {
 			return nil, fmt.Errorf("trace_root_causes.%s.evidence[%d] is empty", field, index)
 		}
-		if utf8.RuneCountInString(evidence) > 240 {
-			return nil, fmt.Errorf("trace_root_causes.%s.evidence[%d] exceeds 240 characters", field, index)
+		if utf8.RuneCountInString(evidence) > TraceRootCauseEvidenceMaxRunes {
+			return nil, fmt.Errorf("trace_root_causes.%s.evidence[%d] exceeds %d characters", field, index, TraceRootCauseEvidenceMaxRunes)
 		}
 		out.Evidence = append(out.Evidence, evidence)
 	}

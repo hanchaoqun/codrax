@@ -57380,9 +57380,37 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1635 B1558：旁路证据按语义边界无损分行（2026-09-02）
+
+`P1 / implemented / targeted+pipeline+full-suite+build-pass / 本批提交`。
+
+- r1019 暴露 B1557 的长度回归：长原始文件定位 + typed row 定位 + 供给口径超过单条 240 字符，而公开 v2 本已允许最多 4 条。运行时自己造出非法载荷，不能归咎模型。
+- 短证据原形不变；长证据按“影响量陈述 / 完整口径 / 每个完整引用”分行，按 Unicode 字符计算；所有引用及其顺序保留，不截短、不删分量、不扩容量、不改变候选顺序/类别/数值/正文。
+- formatter 与 validator 共用现有 4 条/240 字符上限；真超过容量的原子引用或整体仍完整交给原有拒绝路径，不能拿丢证据换成功。默认 typed-unavailable 文件兜底仍在。极端长引用的公共 schema 容量问题继续开放，未称“任意长度均成功”。
+- 新增长源双引用、Unicode、多行上限、真实过容不截断、短输入字节恒等回归；真实 query observations→projection→candidate→full emit→patch 测试改用生产形长 source/row 句柄。初始测试脚手架语法/SourcePath 设置错误先已纠正；有效 red 日志中两个超长单位例和真实 full emit 的 nil report 均失败，修复后通过。
+- 证据 `.codrax/tmp/b1558-{red,targeted,full-test,build}-20260902.log`。长答案、系统因果投影、自动补采和活跃流控制均不修改。
+- `go test ./... -count=1` 全仓通过，`make` 通过；包含 tracequery/tracediag、tool、types、agent、输出旁路与写模式。下一对为 H11 修复后旁路复放 + C++ fmt 边界修复，仍严格两路。
+
+### §123.1634 r1019：旁路打包回归、陈旧 IO 重叠 oracle 与 Rust 图标签残余（2026-09-02）
+
+`base=b3b122619960 / machine=1/2 / human=trace-fail,rust-partial / exactly-two-parallel`。
+报告 `eval/parallel_selected_summary_evalcampaign_rusttrace_r1019_20260902{,_manual_audit}.md`。
+
+| 优先级 | 事项 | 核实 / 下一步 |
+|---|---|---|
+| P1 | B1558-ROOTCAUSEEVIDENCEPACK1 | 合法模型根因选择被自身超长 evidence 拒绝；先修并异构复放，见 §123.1635 |
+| P2 | B1559-H11IOCALIBERORACLE1 | 旧 live oracle 仍要求已退役 request-residence × Running 的 0.114ms overlap；当前 47 段闭合 IO 等待 12.658ms 与 Running 不重叠，engine/投影单测已更新，case 未更新 |
+| P1 | B1560-DIAGRAMENDPOINTDISPLAY1 | 图修补技术节点编号成为显示标签；B1553 的非图修复没有覆盖这个面，先审动态 schema/新端点标签/现存 participant 复用，不代写模型图 |
+| P2 | B1554（继承） | 泛型 callee 矩阵尚未闭环，和本轮错误 actor anchor 分开记账 |
+
+- Trace 220s、4 次 trace_query、首次成文零硬拒；旁路失败不阻长答案，显式窗投影/双轴/业务 span/47 个 IO 等待仍在。
+- Rust 301s、3 次读文件、5 次成文拒绝/6 次 patch；路径主干保留，模型删除返回边，图残留内部 ID；机器 PASS 不标人工全绿。
+- Trace 正文在状态主导、互斥相加解释、数值排序、频率量纲和读者语言上有误；上下文已有精确信息及明确限制，先留模型/教学观察，不以原文扫描造硬门或改写正文。
+- 本轮上下文约 45%/49%，无预算不足迹象；流式持续活动被保留，没有 4ms/4min 固定无正文年龄降级。
+
 ### §123.1633 B1556：首次成文/修补 JSON 教学对齐与无歧义字段搬运（2026-09-02）
 
-`P2 / implemented / targeted+affected-suite+build-pass / 本批提交`。
+`P2 / implemented / targeted+affected-suite+build-pass / pushed=b3b122619`。
 
 - 共享教学明确 full `trace_root_causes` / patch `replace_trace_root_causes` 两个入口，同一个原生对象结构；
   discriminator 仍在对象内，不能把对象/数字引号化；仅改正文时省略 replacement，保留上一份合法报告。
