@@ -5749,3 +5749,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.20 逐项细化 ⑭ V3-1:同一目标态账在 finalizer prompt 内三种"不可中断等待"口径
 
 **定性**:观测账段(evaluator:6314)、终局决策边界(final_decision_boundary:382 = D+IO 折叠)、目标态权威卡三处各自格式化同一 `TraceTargetStateScopeAuthority`,对"不可中断等待"是否含 IO 各异。**泛化类**:「同一 typed 权威多处手写渲染」(五表手抄病根)。**泛化解**:①types 级单一格式化器 `FormatTargetStateAccount(authority, lang)`,输出固定折叠(不可中断=D+IO,其中 IO=…),三面全部改调用;②tripwire:prompt 渲染器 census——凡引用 `TraceTargetStateScopeAuthority` 字段拼句者必须经该格式化器(grep 型 pin);③口径词进 tracefence 词表单源。**验收 pin**:三面同 fixture 输出同一句(字节级)。
+
+### §40.21 逐项细化 ⑮ V4-3:slash-pair 规范化把模型单一实体拆成"两个分别发射"
+
+**定性**:`CanonicalizeSlashPairEntities` 把 analyzer 发射的单个 `X/Y` 实体替换为 X、Y 两项(只要原请求含 X/Y 且两半形似标识符),随后必需流程图参与者校验把它们当作"两个分别发射的实体"要求各自参与者行——系统制造了模型没做的主张。**泛化类**:「归一化器改写模型意图后再用硬门审判改写结果」(所有权+精确信号双违)。**泛化解**:①归一化只做**补全**(模型发射一半→补另一半,`CompleteSlashPairEntities` 已有),不做**拆分**;②若需要两参与者,由教学要求模型显式发射两实体,硬门只审模型原始发射;③通用规则:硬门输入必须是模型原始发射或其无损规范化(census:硬门前的归一化器不得改变实体计数)。**验收 pin**:请求含 `Mutable/BusContext`、模型发射单实体 `Mutable/BusContext` + 两参与者 → 不拒;拆分行为退役 pin。
