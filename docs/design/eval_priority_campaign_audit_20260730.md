@@ -57380,9 +57380,33 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1630 r1018：显式根因投影在场，旁路摘要去重却丢整份合法选择（2026-09-02）
+
+`base=2fe11db75 / pushed / machine=2/2 / human=write-pass,trace-fail`。两路结果见
+`eval/parallel_selected_summary_evalcampaign_tracewrite_r1018_20260902{,_manual_audit}.md`。
+H7 251s/4 trace_query/0 成文硬拒/1 维度提示 patch；Python write 170s/5 read/真实 probe+unittest 5/5。
+本轮不是 B1553 live 命中对照；显式窗 Trace 因果投影、双轴、业务 span、小链上来源、邻近背景边界均在。
+
+按 ROI 继续施工：
+
+1. [ ] **B1555-ROOTCAUSESELECTORIDENTITY1 / P1 / confirmed**：12 个模型明确选择的合法不同候选，
+   第 1/3 项仅因都格式化成“供给不足”，被报告 normalizer 的 Summary 去重拒整份。
+   已有 binder 的 candidate_id 去重才是精确信号；候选身份必须与读者摘要分开。
+   覆盖同类不同线程、同类同线程不同精确凭证、不同锁/阶段、真实重复 ID、无凭证/非链/非墙钟排除与 full→patch→旁路继承。
+2. [ ] **B1556-ROOTCAUSEPATCHCARRIER1 / P2 / confirmed**：共享教学只展示 full `trace_root_causes`；
+   patch 实际接收 `replace_trace_root_causes`，模型重发旧字段被隔离。
+   对齐 JSON 教学；仅无 canonical/冲突时原样搬运已提交载荷，仍保留 discriminator/候选严格校验；不引入选项推断或正文硬门。
+3. [ ] **B1554 / P2 / 矩阵细化中**：读到 shared call-expression feature 不能证明具体 callee，必须保留错误目标负例。
+   已用独立样本探查 C++/Rust/Go/TS/ArkTS/Java/Kotlin/Swift/Cangjie；Go/TS/ArkTS/Java/Kotlin 当前泛型形可接通，
+   Rust/Swift/Cangjie 探针出现真实 callee 未提取/未接通及错误“token 不在”诊断；C++ 需排除邻行原型干扰后补矩阵。
+   暂不改词法判据或 extractor；如改提取语义，必须同步 cache version，不能只修一类名称。
+
+H7 正文中的频率量纲、CPU0 量混用、睡眠/运行主导状态、漏列名、“全部 12”与加法矛盾均已逐条留在人工审计。
+证据/限制已在最终上下文，先归模型或展示残余，不把系统改写正文当修复。活跃流没有无正文年龄降级。
+
 ### §123.1629 B1553：列表/表格端点显示契约与 JSON 层级提示对齐（2026-09-02）
 
-`confirmed / P1 / implemented / full-suite+build-pass`。远端同步至 `f180dafef`，无他人未提交改动。
+`confirmed / P1 / implemented / full-suite+build-pass / pushed=2fe11db75`。远端同步至 `f180dafef`，无他人未提交改动。
 本批关闭 r1017 的系统诱导面，不以修改模型已写出的标签来追求答案外观，也不宣称模型措辞已稳定。
 
 - 根因：无 Mermaid 的有序列表、无序列表和表格，仍被 `preEmitStandaloneRelationClaimRepairDeltaJSON`
