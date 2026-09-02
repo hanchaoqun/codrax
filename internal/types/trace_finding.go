@@ -95,6 +95,36 @@ type TraceCauseDecision struct {
 	Magnitude          *TypedMagnitude          `json:"magnitude,omitempty"`
 	EvidenceRefs       []string                 `json:"evidence_refs"`
 	Confidence         string                   `json:"confidence"`
+	// CausalQualifier (SIDECAR-Q1, user ruling 2026-09-02, colleague_merge_audit
+	// §40.28 ②) is the SEAT-LEVEL frame-causality qualifier of this candidate:
+	// TraceCausalQualifierFrameUnproven when any of the candidate's own
+	// evidence IDs came from a trace_query result whose typed causal rows
+	// exist but whose frame evidence is absent/unavailable/unproven — the same
+	// evidence-ID-keyed authority the Markdown crown face consults for its
+	// 「（帧因果未证）」 qualifier (T3-1 ruling §7.3). Never the session-wide
+	// ANY aggregate.
+	CausalQualifier string `json:"causal_qualifier"`
+}
+
+// TraceCausalQualifier values — closed set, always explicit on every public
+// surface (a consumer never infers the qualifier from field absence).
+const (
+	TraceCausalQualifierProven        = "proven"
+	TraceCausalQualifierFrameUnproven = "frame_unproven"
+	// TraceCausalQualifierFrameUnprovenSuffixZH is the ONE user-facing spelling
+	// of the frame_unproven qualifier: the Markdown crown headline wears it and
+	// the sidecar summary appends it (§40.28 ② 「summary 限定注与头行同词」) —
+	// both read this constant, so the two faces cannot drift apart.
+	TraceCausalQualifierFrameUnprovenSuffixZH = "（帧因果未证）"
+)
+
+// ValidTraceCausalQualifier reports closed-set membership.
+func ValidTraceCausalQualifier(v string) bool {
+	switch v {
+	case TraceCausalQualifierProven, TraceCausalQualifierFrameUnproven:
+		return true
+	}
+	return false
 }
 
 type TraceFindingArtifact struct {

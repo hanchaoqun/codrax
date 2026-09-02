@@ -20,7 +20,7 @@ func TestCompileCandidateContractBindsTypedRankSeat(t *testing.T) {
 			RankBoardParamsFingerprint: "board-1", Confidence: 0.9,
 		}},
 	}}}
-	contract, err := CompileCandidateContract(ledger, set, "unproven")
+	contract, err := CompileCandidateContract(ledger, set, SeatFrameCausalityIndex{"E1": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestValidateRejectsCandidateFieldRewrite(t *testing.T) {
 	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{
 		RankedSeats: []types.TraceCausalProjectionNode{{EvidenceID: "E1", TypeToken: "scheduler_latency", Rank: 1, ImpactMS: 3, ChainRelevance: "on_chain"}},
 	}}}
-	contract, err := CompileCandidateContract(ledger, set, "unproven")
+	contract, err := CompileCandidateContract(ledger, set, SeatFrameCausalityIndex{"E1": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestCompileCandidateContractKeepsContextOutOfPrimaryRoster(t *testing.T) {
 			{EvidenceID: "E3", TypeToken: "scheduler_latency", Rank: 3, ImpactMS: 4, Tier: types.TraceCausalTierContextOnly},
 		},
 	}}}
-	contract, err := CompileCandidateContract(ledger, set, "unproven")
+	contract, err := CompileCandidateContract(ledger, set, SeatFrameCausalityIndex{"E1": true})
 	if err != nil {
 		t.Fatal(err)
 	}

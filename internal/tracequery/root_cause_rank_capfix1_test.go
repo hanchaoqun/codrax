@@ -431,7 +431,9 @@ func TestCapfix1RealTraceCapDeathRosterDisclosure(t *testing.T) {
 	traceBoard := BuildRootCauseRank(tieba, Query{PID: 59566, TimeStart: 34579.450627, TimeEnd: 34579.595184,
 		MaxDepth: 4, MinDurationMs: 0.5, TraceFlavorHint: TraceFlavorHarmonyHitrace, Limit: 12})
 	assertBoard(traceBoard, []string{
-		"; 52 valued candidate row(s) did not enter the published board (on_chain=4/adjacent=3/background=45)",
+		// EVOLUTION RECORD (CROWNSEM-1, §40.28 ①): 52→53 / on_chain 4→5 — the
+		// host VerifyClass pre-edge span is a PRICED on-chain seat again (R3/R4).
+		"; 53 valued candidate row(s) did not enter the published board (on_chain=5/adjacent=3/background=45)",
 		"largest on_chain priority_inversion_candidate CookieMonsterCl-59843 0.689ms",
 		"链上最大 priority_inversion_candidate CookieMonsterCl-59843 0.689ms",
 		"另 3 行自身侧道已发布",

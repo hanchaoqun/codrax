@@ -162,15 +162,16 @@ const (
 	// "self_wall_clock_interval" = the target's own WALL-CLOCK seat
 	// (blocked-state family / IO facet / runnable / running) admitted the same
 	// way (causality "self_wall_clock"); "semantic_chain_interval_relation"
-	// (B830, 2026-08-15) = a NON-target semantic span with an exact typed-chain
-	// interval intersection: raw overlap/business evidence survives, but
-	// effective=0 because overlap alone is not a target-wait or semantic-
-	// completion binding; "host_wakeup_edge_pre_span" (R3-IMPL
-	// §29.88.1, 2026-07-15) = a NON-target host's deterministic semantic span
-	// seated by the HOST's own in-window typed wakeup edge toward the target
-	// (causality keeps the honest relation token "on_wakeup_chain" — a real
-	// edge exists; raw pre-edge occupancy survives but effective=0 because no
-	// semantic completion/delay binding is proven; the anchor pair rides beside it);
+	// (B830, 2026-08-15; CROWNSEM-1 §40.28 ① 2026-09-02) = a NON-target
+	// semantic span with an exact typed-chain interval intersection: the
+	// intersection is PRICED on-chain effective (interval-proven credential,
+	// R4) while the semantic completion mechanism stays a disclosure;
+	// "host_wakeup_edge_pre_span" (R3-IMPL §29.88.1, 2026-07-15; CROWNSEM-1)
+	// = a NON-target host's deterministic semantic span seated by the HOST's
+	// own in-window typed wakeup edge toward the target (causality keeps the
+	// honest relation token "on_wakeup_chain" — a real edge exists; the
+	// pre-edge share is priced effective under the one credential rule
+	// 边=凭证/边前=有效/边后=解除; the anchor pair rides beside it);
 	// "host_wakeup_edge_pre_state" (ONCHAIN-3c, 2026-07-19) = a NON-target,
 	// NON-chain-member host's runnable / D-IO STATE seat anchored by the same
 	// credential (value = the segment inventory's pre-edge share sum; same

@@ -5799,3 +5799,67 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 **裁定②(V1-2/V1-1)**:`.root-causes.json` v2 **追加** `causal_qualifier∈{proven,frame_unproven}` 与 `impact_caliber∈tracefence 口径词表`,两字段**总是显式发射**(不 omitempty),`schema_version` 保持 2(纯追加,老消费者忽略未知键;与 next_info 尾追加裁定同构),PR23 审计 §4.1 记为版本化决定;信号源=席位级 EvidenceID 索引提升为 types 级单一提供者(crown 面与 sidecar 契约同源),会话 ANY 聚合降为 advisory-only 并加读者 census;summary 限定注与头行同词,证据句按口径取词。
 
 施工排期:批一=裁定①+裁定②同批(共用席位级/单源/显式结构);后续按 §40.6。
+
+### §40.29 批一施工收账(CROWNSEM-1 + SIDECAR-Q1,2026-09-02)
+
+**裁定①(CROWNSEM-1)落地面**:
+- 引擎:`tracequery/query.go` 退役 `semanticProjectionIsRelationOnly` 归零分支+助手;`rank_family_fold.go` 退役 `relationOnlyBasis` 归零;`rank_p3_measure.go` 退役 B829 P3 早门;三处 Summary 改 R4 凭证语句(边=凭证/边前=有效/边后=解除)+「机理未证—仅披露」;
+- 投影编译:`types/trace_causal_projection.go` 退役 B829 compile 期 basis→零覆写;`IsSemanticRelationOnly`/`IsHostWakeupEdgeRelationOnlySemantic` 两个"计价类"谓词退役,改为凭证来源谓词 `IsHostEdgeOrIntervalCredentialedSemantic`(仅供显示词面);
+- 显示面:runtime.go(优化表可消除轴)/rcm.go(family 发布值+交集)/tree.go(排序参与/twin 臂/twin fold/明细有效列/上下文行判定)六处 basis 归零覆写全部退役;树面披露词改「语义完成机理未证(仅披露,边前份按 R3/R4 计价)」;final_decision_boundary 教学改凭证形;
+- wire:`trace_query.go` 家族观测 effective 备注改发布真实参与值(`ProjectedImpactMs`),家族摘要改 R4 语句;Description 三句+closed-matrix 契约反向修订,golden 走 UPDATE RITUAL 带 EVOLUTION RECORD;
+- registry:`causal_token_registry.go` 语义家族条目上落 ADJUDICATION NOTE(引 R3/R4+§40.28 ①,basis→零映射须引裁定编号);
+- tripwire:`semantic_pre_edge_pricing_tripwire_test.go`——tieba 哨兵双席一致性(宿主 runnable 席与 VerifyClass 语义席同一凭证规则)+census(凭证 basis 且边前/交集份>0 ⇒ effective>0);
+- 重钉:tracequery 9 处/tool 12 处/types 2 处 B829/B830 零值断言全部按引擎新值重钉,前提反转的 3 个 tool 测试改名重写(语义家族按凭证加冕)。
+
+**裁定②(SIDECAR-Q1)落地面**:
+- 单一席位级权威提供者:`analysis/tracefinding/seat_authority.go`(`BuildSeatFrameCausalityIndex`)——crown 面 `buildRuntimeTraceProjectionSeatAuthorityIndex` 改为薄包装同源;
+- 契约:`CompileCandidateContract(ledger, set, seatIndex)` 逐候选 `Decision.CausalQualifier`(EvidenceID∪MergedEvidenceIDs 查索引),contract.CausalCeiling 改为派生值;`prepareTraceFindingContract` 不再读会话 ANY;
+- wire:`TraceRootCauseItemV2` 追加 `impact_caliber`/`causal_qualifier`(闭集,总是显式,schema_version 保持 2),validator 强制;summary 在 frame_unproven 时追加「（帧因果未证）」(与头行同词);证据句按口径取词(「链上有效归因为」/「窗内投影占用为…（未发布有效归因）」);
+- 教学:roster candidateView 增两字段+教学行;outputdump status 常量注释明示交付态;PR23 审计 §4.1 版本化决定落账;
+- 会话 ANY 降级为 advisory-only:`TestSessionAnyCausalSignalFeedsAdvisoryLanesOnly` census(白名单=evaluator 提示渲染器/决策边界 prose/handoff prose);
+- pin:契约 e2e(席位级限定+wire 双字段+摘要后缀+口径句)、空索引=显式 proven、索引构建只键帧未证 trace 结果(零行探测不污染)、roster 教学、types 闭集/后缀。
+
+**验证**(终态,对抗复核处置 + eval 实检三轮全部归零后):全仓套件 `go test ./internal/... ./cmd/` 绿;eval 冒烟 trace_query_frame_semantic_span_optimization / trace_query_donghu_real_frame_multicausal / trace_query_donghu_real_short_runnable 3/3 PASS,且逐份核对产物:三例 `.root-causes.json` 均 `available`,头行限定注与 sidecar `causal_qualifier` 三例两面同真值(语义 span/短 runnable 例两面 frame_unproven;多因例本轮无帧评估器故两面均无限定注);对抗复核处置见 §40.29.1。
+
+### §40.29.1 批一对抗复核处置 + eval 实检定谳(2026-09-02)
+
+**对抗复核**:5 镜头(r4-completeness / pricing-safety / teaching-sync / sidecar-authority / wire-compat)23 条 → 去重 16 个根因;全部处置如下(★=已修并 pin,○=维持并记档,◆=待用户裁定)。
+
+| # | 根因 | 严重度 | 处置 |
+|---|---|---|---|
+| ★1 | finalizer skill `TRACE SEMANTIC SPAN ROOT CAUSES` 仍教 B829/B830 旧规(relation-only/effective=0/rank=0/不入榜) | 高(2 镜头) | 正文改 R4 凭证规则同一句式(边=凭证/边前=有效/边后=解除;机理未证只改措辞不改值与板),EVOLUTION RECORD 记裁定推翻;defaults_test 三处旧短语重钉 |
+| ★2 | 宿主边语义**家族**席的方向支撑库存=未裁剪成员 span(P3M 反事实把边后份记入席位账+◇ 克隆重复记账;单 span 车道已正确) | 高 | `SemanticSpanFamily` 新增 pre/post 二分区间(Σ 恒等发布值),mint 把边前区间给席位、边后区间给 ◇ 克隆(`hostEdgeRemainderIntervals`);pin `TestHostEdgeFamilySupportInventoryIsTheBisectedShare`(先红后绿:突变去裁剪→4.000≠2.000 红) |
+| ★3 | 顶棚字面量 `"unproven"` 在 validator/dynamic schema 两处失效(编译器已产 `frame_unproven`);快照校验不比对 Status/CausalQualifier | 高(4 镜头) | 两处改 typed 常量;`validateCandidateSnapshot` 增 qualifier 逐字校验 + 席位级 `frame_unproven` 封顶 status;validator_test 常量化 + `validator_qualifier_test.go` 四臂 |
+| ★4 | 单成员 `trace_semantic_span` 记录摘要仍写 `effective_impact=0.000ms`(同记录 RichNote 已计价) | 高(2 镜头) | 摘要改凭证句式(`pre_edge_share=X priced on-chain (...)` / `chain_interval_intersection=X ...` + `effective_impact=X`);pin 同记录 prose 与 typed note 同值(tieba 哨兵 0.285) |
+| ★5 | 树面图例 `唤醒锚定(宿主→目标)` 词条仍写「可消除量为0…runnable/D-IO 状态席仍按边前份计入」(两规并存);`入链凭证` 行仍写「不…直接计入可消除量」 | 高×2 | 两处图例改单一凭证规则(图例是承诺面);rule3_test 反向重钉 + 负 pin「可消除量为0」永不复活 |
+| ★6 | ◇ 边后克隆摘要/注释仍写 `edge=relation credential…neither half…raw share` | 低/中(3 镜头) | 改 R4 句式(边后=解除,机理仅披露);#2 pin 内负臂封死旧词 |
+| ★7 | 会话 ANY census 白名单按整文件(evaluator.go 25k 行含硬门)且 walk 失败静默绿 | 低×2 | 重写为 go/ast **函数级**白名单(4 个 renderer),walk/parse 错误即红,白名单陈旧即红,文件数下限自检 |
+| ★8 | `TraceCausalCeiling` 值域漂移的其余消费者(dynamic schema) | 中 | 同 #3 |
+| ★9 | binder 从空 `CausalQualifier` 推断 proven(fail-open,与「不得从缺失推断」自相矛盾) | 低 | 改 fail-closed(闭集校验,无效即弃席);全部 fixture 显式 qualifier |
+| ★10 | 「（帧因果未证）」字面在 types/tool 两处重复 | 低 | 铸 `types.TraceCausalQualifierFrameUnprovenSuffixZH` 单源,两面同读 |
+| ★11 | 六处 enum 文档注释仍称 effective=0 为现行契约 | 低 | 注释全部改为 CROWNSEM-1 计价形并引裁定 |
+| ★12 | 客户面指南 `trace_short_root_cause_implementation_zh.md` 未记两新字段、`impact_seconds` 一律称有效影响、summary 固定串 | 中 | 示例 JSON/字段表/§5 全部更新(按 `impact_caliber` 分口径;summary 按前缀匹配) |
+| ★13 | 验收 pin ③(同 fixture 两面同真值)未交付;两面索引输入来自不同适配器(AgentContext@finalizer 起点 vs BusContext@emit) | 中(2 镜头) | 见下「eval 实检定谳」:交付 `TestTwoFacesShareOneSeatLevelFrameQualifier`(eval 用例原 trace,双序+无评估器+零行探针四臂) |
+| ★14 | 冠面查询树 lead 的显示折叠合并 ID 超集,契约只查原始节点 ID 集 | 中 | 冠面改查**原始投影节点**的 ID 集(`runtimeTraceProjRawNodeEvidenceIDs`),与 `compileCandidate` 同集 |
+| ○15 | `runtime_work_relation` 回执按 basis 拒 `causal_contribution_supported` | 低 | **维持**:该回执回答的是机理问题(工作完成是否触发目标等待/唤醒),裁定①明确机理未证=仅披露,`Boundary` 即披露车道;计价与机理两轴分离,不视为"两种凭证不同权" |
+| ◆16 | 单一凭证规则未覆盖**链成员宿主**的状态席:窄窗(59566 @34579.495..4975,MinDurationMs 0.05)宿主 61839 成链成员后其 VerifyClass span 按 R3 边凭证计价(0.285,#2),而同宿主同边同窗的边前 runnable 段(496347..496442,0.095ms)留 ◇ 邻近「无直接唤醒边」;原 tripwire 混窗通过 | 高 | tripwire 改**逐窗**判定(宽窗双席同规)+ 新增知识 pin `TestCrownsemNarrowWindowChainMemberHostStateSeatKnownGap` 钉住现状(裁定落地即红,先红后绿);HEAD 基线同形(非本批回归);**待裁定 V-STATE-1**,见下 |
+
+**eval 实检定谳(PASS≠绿)**:三例 3/3 PASS 后逐份核对产物,发现 `trace_query_frame_semantic_span_optimization` 头行「worker-200 类校验 有效归因 4.600ms（帧因果未证）」而 sidecar 两席均 `causal_qualifier=proven`——正是 §40.28 ② 承诺消灭的两面分歧。加 debug 诊断复跑定谳:两面索引输入相同(tool_results=3/supplements=1/键 46),分歧真因有二:
+1. **帧状态"未评估"被读作已证**:只有帧视图(frame_root_cause_bundle/frame_flow)评估帧证据;root_cause_rank/wakeup_chain 结果的 `FrameEvidenceStatus` 为空串(未评估,而非 present)。索引把空串当 proven,于是同一席位的判词取决于账本把哪个结果的记录 ID 当作规范 ID(第一次跑 rank 结果→sidecar proven、冠面经显示折叠合并到 bundle 的语义通道记录→未证;复跑时反转)。
+2. **两面查询的 ID 集不同**:冠面查树 lead 的显示折叠超集,契约查原始节点集。
+
+修法(泛化,非按例):`BuildSeatFrameCausalityIndex` 席位级规则改为——有 typed 行的**评估型**结果为其席位定谳(absent/unavailable/flow-unproven ⇒ 未证;present ⇒ 已证);**未评估型** typed 行结果继承**同一工件**(记录 typed `SourceRef.Path`/`ArtifactID` 作用域,多工件对比运行互不泄漏——套件 `TestMultiArtifactSeatsKeepFrameAuthorityAndCrownWordingIsolated` 首版全局继承即红,遂收窄;typed 帧流结论 `unproven` 本身即评估,不论状态词)内评估器的结论(有未证评估器且无已证评估器 ⇒ 未证);零行结果(T3-1 探针类)既不污染也不证明;工件内无评估器则维持历史形(非帧问题不带限定注)。冠面改查原始投影节点 ID 集。pin ③ 四臂:rank→bundle / bundle→rank 两序均两面 `frame_unproven`;仅 rank 两面 proven;rank+零行 bundle 探针两面 proven。
+
+**残留(记档)**:账本编译对同一物理席位的跨结果重复记录只保留一个规范 ID(丢弃的 ID 未进 MergedEvidenceIDs),故当同一运行内**两个评估器结论冲突**(不同窗口)时,席位判词仍取决于规范 ID 的来源;本批规则使同窗评估器一致的常见形不再受此影响。建议后续:账本去重时把被弃记录 ID 并入幸存者 MergedEvidenceIDs(独立小批,涉 E# 编号语义,不与本批混)。
+
+**eval 产物二次实检(修后复跑)**:
+- ★17 **sidecar 被全量重发清空**(多因用例):finalizer iter=1 已接受含 7 席选择的 emit 后,iter=2 为修订正文再次全量 `emit_answer_document` 且省略 `trace_root_causes`,resolver 对全量 emit 的"省略"返回 nil → `.root-causes.json` 以 `unavailable(valid_model_root_cause_selection_unavailable)` 发货,上一轮 PASS 全靠模型最后一次 emit 恰好带选择器。修法(泛化):省略(缺失/null)= 继承已接受报告(补丁与全量同规;合同本轮冻结,继承有效),显式 `"root_causes": []` 才是撤回;教学行同步;pin `TestEmitAnswerDocumentReemitWithoutSelectorKeepsAcceptedReport`(三段:接受→省略继承→显式空撤回)。
+- ★19 **sidecar 被 finalizer 自动修复清空**(多因用例二次复跑):★17 修后再跑,唯一一次 emit 已接受且 7 席全在合同内、无拒绝日志,sidecar 仍 `unavailable`。日志定谳:`finalizer auto-repair applied for deterministic answer-document metadata/inline-code issues` → `finalizer_auto_repair.go` 用 `SetAnswerDocumentV2WithMutation` 重提交修复后的文档,而该模型 emit 收尾例程会置空 `traceRootCauseReport`/`traceFindingV1`(02:52 成功跑恰好未触发自动修复)。修法(泛化):新增 `MutableState.RewriteAcceptedAnswerDocumentV2`——系统侧对**同一已接受答案**的重写(自动修复/修复稿还原/无损恢复三处)保留同答案的兄弟 typed 工件;模型 emit 仍走原例程(省略由 resolver 继承)。pin:types 单元(重写保留/模型提交清空)+ orchestrator 自动修复 e2e(修复后 sidecar 仍在)。
+- ★20 **sidecar 被顶层 `root_causes` 隔离丢弃**(多因用例三次复跑,★19 修后):本地模型(MiniMax)把整份报告体抬到文档顶层(`root_causes` 与 `schema_version` 并列、无 `trace_root_causes` 载体),被未知字段隔离 `$.root_causes, $.schema_version` 静默丢弃。修法(既有容错同类扩展,精确闭形):无载体 ∧ 顶层 `root_causes` 为 `{candidate_id}` 对象数组(可伴精确当前 `schema_version`)⇒ 原样回归 `trace_root_causes`(补丁路径回归 `replace_trace_root_causes`);任一项非闭形即不动(隔离保留发言权,不造数);pin 正/负两臂。三次复跑三种丢失形(省略/自动修复/顶层抬升)全部归零后再跑。
+- ◆18 **待裁定 V-QUAL-1**:SUPP-CORE 在 explore→extract 边界对每个 trace 运行都会执行 `frame_root_cause_bundle` 评估器;无帧标记的 trace 一律评估为 absent,于是按本批席位级规则,**非帧问题**(如 `trace_query_donghu_real_short_runnable`)的头行与 sidecar 现在也确定性地带「（帧因果未证）」(修前该用例不带,实为规范 ID 落在未评估结果上的运气)。两面一致且陈述为真(帧因果确未证),但对未问帧的请求属无关限定注。方案:A(推荐)以 typed 请求画像门控——仅当分析场景/问题画像为帧/卡顿类(analyzer typed 枚举,非关键词)时两面才发布该限定注,sidecar 字段仍总是显式(非帧问题发布 `proven` 有过度主张之嫌,故建议闭集增补第三值 `not_applicable` 并同步指南/校验器);B 维持现状(真而冗)。落地前不动;本批按 T3-1 字面(席位级、不摘冠)发布。
+
+**待裁定 V-STATE-1(◆16)**——虚拟例子:目标 T 在 t0 睡眠;宿主 H 是链成员(深度 2,经中继 R 入链);H 在 [t1,t2] 处于 runnable(边前),随后 H 在 t3 直接唤醒 T(census 边 H→T)。H 的 VerifyClass span [t0',t1'](更早)按 R3 宿主边凭证计价入榜;H 的 runnable [t1,t2] 因 H 是链成员被 ONCHAIN-3c 排除(RSPA 拥有链成员状态词汇),而 RSPA 的链窗(由 R→H 路径决定)不覆盖 [t1,t2] → 落 ◇「无直接唤醒边」。同宿主、同边、同窗:span 有凭证、状态无凭证。
+- 方案 A(推荐,最优):**RSPA 优先、R3 补残**——链成员宿主的状态段先按 RSPA 链窗计价;落在其所有链窗之外、且位于该宿主对目标最晚窗内直接 census 边之前的残余段,按同一 R3 边凭证计价(边前=有效),披露词沿用 R4 家族句并标 `via=direct`。所有权边界不变(RSPA 仍先行),只是残余段不再无门可入;与裁定①"四入口同一条边前计价函数"一致。
+- 方案 B:反向收紧——链成员宿主的语义 span 也改按链窗规则。缺点:与 R3 终判(§29.88.1 "宿主自身对目标的窗内 typed 唤醒边即凭证")直接冲突,等于再次推翻已裁语义。
+- 方案 C:维持现状仅披露。缺点:同一报告两规并存(§40.7 定谳的缺陷类)。
+落地前不动引擎;知识 pin 已钉现状,裁定后按 A 施工并反转该 pin。

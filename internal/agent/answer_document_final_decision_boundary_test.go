@@ -545,9 +545,9 @@ func TestFinalTraceDecisionBoundaryFollowsGenericGuidanceAndKeepsModelOwnership(
 		"Do not say the waker occupied, preempted, or directly competed on the wakee target CPU",
 		"do not attribute the wakee's post-wakeup runnable delay to the waker's later work",
 		"wakeup_cpu_topology_unknowns=`remain_unknown`",
-		"semantic_relation_only_authority=`typed_basis_present`",
-		"`semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` prove only an on-chain interval/edge relation",
-		"publish `effective_impact_ms=0` and no rank seat",
+		"semantic_credential_authority=`typed_basis_present`",
+		"`semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` are priced on-chain credentials",
+		"effective_impact_ms is its pre-edge share",
 		"do not say the target slept waiting for that operation",
 		"state the exact wakeup/path relation separately",
 		"target_direct_blocking_authority=`unavailable_without_typed_target`",
@@ -621,9 +621,9 @@ func TestFinalTraceSemanticRelationAuthorityUsesTypedBasisOnly(t *testing.T) {
 	}}}
 	got := renderTraceFinalSemanticRelationOnlyAuthority(set)
 	for _, want := range []string{
-		"semantic_relation_only_authority=`typed_basis_present`",
-		"effective_impact_ms=0",
-		"separate typed target-wait or semantic-completion binding",
+		"semantic_credential_authority=`typed_basis_present`",
+		"pre-edge share",
+		"semantic completion MECHANISM stays unproven",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("typed relation-only boundary missing %q: %s", want, got)

@@ -92,8 +92,8 @@ func TestGCPauseEndToEndRanksOnChainAndStaysOptimizationObservable(t *testing.T)
 		}
 		found = true
 		if item.ChainRelevance != "on_chain" || item.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation ||
-			item.Tier != RootCauseTierContextOnly || item.EffectiveImpactMs != 0 || item.BackgroundRank != 0 {
-			t.Fatalf("non-target GC pause must remain a relation-only on-chain business clue: %+v", item)
+			item.Tier == RootCauseTierContextOnly || item.EffectiveImpactMs <= 0 || item.BackgroundRank != 0 {
+			t.Fatalf("non-target GC pause must price its interval credential on-chain (R4): %+v", item)
 		}
 		if item.SemanticClass != "gc_pause" || !strings.Contains(item.Summary, "GC pause") {
 			t.Fatalf("GC typed identity/label was lost: %+v", item)

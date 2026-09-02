@@ -3651,6 +3651,26 @@ func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, ar
 
 }
 
+// RewriteAcceptedAnswerDocumentV2 commits a SYSTEM-SIDE rewrite of the
+// already-accepted answer document (deterministic auto-repair of metadata /
+// inline code, repair-draft restoration, lossless recovery) while keeping the
+// sibling typed artifacts of that same accepted answer — the trace finding
+// and the .root-causes.json sidecar selection. Eval witness
+// trace_query_donghu_real_frame_multicausal (2026-09-02, colleague_merge_audit
+// §40.29.1 ★19): the finalizer auto-repair re-committed the repaired document
+// through SetAnswerDocumentV2WithMutation, whose model-emit epilogue nils the
+// sidecar, so an accepted 7-seat selection shipped as `unavailable`. A model
+// emit still goes through SetAnswerDocumentV2WithMutation (the model owns the
+// selector on every emit; omission inherits at the resolver, never here).
+func (m *MutableState) RewriteAcceptedAnswerDocumentV2(doc *AnswerDocumentV2) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.commitAcceptedAnswerDocumentLocked(MutationReplaceAll, doc)
+}
+
 // commitAcceptedAnswerDocumentLocked is the single success epilogue for full
 // and patch answer mutations. Callers must hold m.mu. Keeping retry-local
 // cleanup here prevents a newly added sibling artifact from accidentally

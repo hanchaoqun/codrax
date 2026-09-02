@@ -200,7 +200,7 @@ func (o *Orchestrator) restoreFinalizeRepairDraft(out *agent.StageOutput, rec *f
 			// evidence face. System-side snapshot only — never applied
 			// to model-emitted JSON.
 			types.ReauthenticateSystemSnapshotBlockKinds(&doc, rec.SystemBlockKinds)
-			o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &doc)
+			o.busCtx.Mutable.RewriteAcceptedAnswerDocumentV2(&doc)
 			attachments := answertool.FilterAcceptedAnswerDisplayAttachments(&doc, o.busCtx.Mutable.AnswerDisplayAttachments())
 			o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 			render.ApplyAuthorityHedging(&doc, finalizerAutoRepairAuthorityEvidencePool(o.busCtx), o.busCtx.Language)

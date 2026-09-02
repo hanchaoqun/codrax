@@ -142,8 +142,12 @@ func validateDecision(decision types.TraceCauseDecision, eligible, acceptedEvide
 	if contract.RegistryHash != "" && decision.Token.RegistryHash != contract.RegistryHash {
 		return fmt.Errorf("token %q registry_hash does not match candidate contract", decision.Token.Token)
 	}
-	if contract.CausalCeiling == "unproven" && decision.Status == types.TraceCausalProven {
-		return fmt.Errorf("status proven exceeds causal ceiling unproven")
+	// SIDECAR-Q1 (§40.28 ②): the ceiling is the typed closed-set qualifier
+	// derived from the seats (never a bare literal — the "unproven" string
+	// the compiler stopped producing left this arm dead until the batch's
+	// adversarial review caught it).
+	if contract.CausalCeiling == types.TraceCausalQualifierFrameUnproven && decision.Status == types.TraceCausalProven {
+		return fmt.Errorf("status proven exceeds causal ceiling %s", types.TraceCausalQualifierFrameUnproven)
 	}
 	if len(contract.Candidates) > 0 {
 		candidate, ok := contractCandidate(contract.Candidates, decision.CandidateID)
@@ -184,6 +188,16 @@ func validateCandidateSnapshot(got, want types.TraceCauseDecision) error {
 	}
 	if !sameStringSet(got.EvidenceRefs, want.EvidenceRefs) {
 		return fmt.Errorf("candidate_id %q evidence_refs do not match the deterministic candidate", got.CandidateID)
+	}
+	// SIDECAR-Q1 (§40.28 ②): the seat-level qualifier is system-owned and
+	// ALWAYS explicit — the model copies it verbatim (blank or spoofed values
+	// are rejected, never inferred), and a frame-unproven seat caps its own
+	// status below proven regardless of the contract-wide ceiling.
+	if got.CausalQualifier != want.CausalQualifier {
+		return fmt.Errorf("candidate_id %q rewrites system-owned causal_qualifier (%q ≠ %q)", got.CandidateID, got.CausalQualifier, want.CausalQualifier)
+	}
+	if want.CausalQualifier == types.TraceCausalQualifierFrameUnproven && got.Status == types.TraceCausalProven {
+		return fmt.Errorf("candidate_id %q status proven exceeds its seat-level causal qualifier %s", got.CandidateID, want.CausalQualifier)
 	}
 	return nil
 }

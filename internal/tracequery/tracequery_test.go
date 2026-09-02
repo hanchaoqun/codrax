@@ -4405,11 +4405,11 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		if item.ChainRelevance != "on_chain" || item.Causality != "on_wakeup_chain" {
 			t.Fatalf("semantic span work should be on-chain: %+v all=%+v", item, rank.Items)
 		}
-		// B830: exact non-target span∩chain overlap proves relation and raw
-		// occupancy, not that the target waited for this semantic completion.
-		if item.Tier != RootCauseTierContextOnly || item.Rank != 0 ||
+		// CROWNSEM-1 (§40.28 ①, restoring R4): the exact non-target span∩chain
+		// intersection is a priced on-chain credential.
+		if item.Tier == RootCauseTierContextOnly || item.Rank <= 0 || item.EffectiveImpactMs <= 0 ||
 			item.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation {
-			t.Fatalf("non-target semantic span work should remain relation-only context: %+v", item)
+			t.Fatalf("non-target semantic span work must price its intersection on-chain: %+v", item)
 		}
 		if item.BackgroundRank != 0 {
 			t.Fatalf("on-chain semantic span work is not on the background board: %+v", item)
@@ -4428,11 +4428,13 @@ func TestRootCauseRankPromotesOnChainSemanticRuntimeSpanWork(t *testing.T) {
 		// 214.561 表值泄漏修根); the deterministic boost stays engine-internal
 		// on RankSortBoostedEffectiveMs (sort/Score channel) and the internal
 		// tokens never reach the Summary (红线: no internal tokens in prose).
-		if item.EffectiveImpactMs != 0 {
-			t.Fatalf("relation-only semantic span must publish zero effective impact: %+v", item)
+		// CROWNSEM-1 (§40.28 ①): the published effective IS the exact
+		// intersection; the deterministic boost stays engine-internal.
+		if item.EffectiveImpactMs <= 0 || item.EffectiveImpactMs != item.ProjectedImpactMs {
+			t.Fatalf("credentialed semantic span must publish its intersection as effective: %+v", item)
 		}
-		if item.RankSortBoostedEffectiveMs != 0 || item.Score != 0 {
-			t.Fatalf("relation-only semantic span must not retain a ranking boost: %+v", item)
+		if strings.Contains(item.Summary, "hidden_cost_boost") || strings.Contains(item.Summary, "semantic_multiplier") {
+			t.Fatalf("internal ranking tokens must not leak: %+v", item)
 		}
 		if !strings.Contains(item.Summary, "effective_impact=") {
 			t.Fatalf("semantic span summary should state its effective impact: %q", item.Summary)
@@ -4466,17 +4468,20 @@ func TestB830NonTargetSemanticIntersectionCannotOutrankTypedTargetRunnable(t *te
 		case item.Type == "class_verification":
 			semantic = item
 		case (item.Type == "scheduler_latency" || item.Type == "runnable_wait") &&
-			item.Thread.PID == 100 && item.Rank == 1:
+			item.Thread.PID == 100 && item.Rank > 0 && scheduling == nil:
 			scheduling = item
 		}
 	}
+	// CROWNSEM-1 (§40.28 ①, restoring R4): the 4.6ms exact intersection is a
+	// priced credential and legitimately outranks the 0.8ms target runnable —
+	// the B830 "cannot outrank" premise was the reversed ruling.
 	if semantic == nil || semantic.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation ||
 		!near(semantic.ProjectedImpactMs, 4.6, 0.001) || !near(semantic.ActualImpactMs, 5.0, 0.001) ||
-		semantic.EffectiveImpactMs != 0 || semantic.Rank != 0 || semantic.Tier != RootCauseTierContextOnly {
-		t.Fatalf("semantic overlap must survive as exact raw relation-only evidence: %+v", semantic)
+		!near(semantic.EffectiveImpactMs, 4.6, 0.001) || semantic.Rank <= 0 || semantic.Tier == RootCauseTierContextOnly {
+		t.Fatalf("semantic intersection must be priced on-chain: %+v", semantic)
 	}
-	if scheduling == nil || !near(scheduling.EffectiveImpactMs, 0.8, 0.001) || scheduling.Tier != "primary" {
-		t.Fatalf("typed target scheduling delay must own the priced primary seat: %+v all=%+v", scheduling, rank.Items)
+	if scheduling == nil || !near(scheduling.EffectiveImpactMs, 0.8, 0.001) || scheduling.Rank <= 0 {
+		t.Fatalf("typed target scheduling delay keeps its priced seat: %+v all=%+v", scheduling, rank.Items)
 	}
 }
 

@@ -959,13 +959,15 @@ func renderTraceFinalWakeupCPUTopologyAuthority(ledger types.ObservationLedger, 
 	return b.String()
 }
 
-// renderTraceFinalSemanticRelationOnlyAuthority keeps B830's typed semantic
-// relation boundary salient at the final synthesis tail. It activates only
-// when the compiled projection contains the precise relation-only basis enum;
-// it does not inspect request/model/final prose, choose a cause, or mutate an
-// answer. The model remains free to explain and prioritize the raw business
-// clue, but cannot mistake interval/edge relation for a target wait/completion
-// mechanism that the producer explicitly withheld.
+// renderTraceFinalSemanticRelationOnlyAuthority keeps the typed semantic
+// credential boundary salient at the final synthesis tail (B830 origin;
+// CROWNSEM-1 §40.28 ① wording: the credentialed row's pre-edge share /
+// intersection is PRICED on-chain, the completion MECHANISM stays a
+// disclosure). It activates only when the compiled projection contains the
+// precise credentialed basis enum; it does not inspect request/model/final
+// prose, choose a cause, or mutate an answer. The model remains free to
+// explain and prioritize the priced row, but cannot mistake interval/edge
+// relation for a target wait/completion mechanism the producer withheld.
 func renderTraceFinalSemanticRelationOnlyAuthority(set types.TraceCausalProjectionSet) string {
 	for _, projection := range set.Projections {
 		pools := [][]types.TraceCausalProjectionNode{
@@ -976,10 +978,12 @@ func renderTraceFinalSemanticRelationOnlyAuthority(set types.TraceCausalProjecti
 		}
 		for _, pool := range pools {
 			for _, node := range pool {
-				if !node.IsSemanticRelationOnly() {
+				if !node.IsHostEdgeOrIntervalCredentialedSemantic() {
 					continue
 				}
-				return "- semantic_relation_only_authority=`typed_basis_present`: `semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` prove only an on-chain interval/edge relation plus raw semantic occupancy/business identity. They publish `effective_impact_ms=0` and no rank seat until a separate typed target-wait or semantic-completion binding exists. Keep the raw optimization clue, but do not say the target slept waiting for that operation, that operation completion triggered the wakeup, or the operation directly blocked the target; state the exact wakeup/path relation separately.\n"
+				// CROWNSEM-1 (§40.28 ①, restoring R3/R4): credential teaching —
+				// the priced value and the mechanism disclosure are two lanes.
+				return "- semantic_credential_authority=`typed_basis_present`: `semantic_chain_interval_relation` and `host_wakeup_edge_pre_span` are priced on-chain credentials — the row's effective_impact_ms is its pre-edge share (before the host's typed wakeup edge toward the target) or its exact chain-interval intersection, the same edge=credential/pre-edge=effective rule that prices every state seat. The semantic completion MECHANISM stays unproven: keep the priced value and the optimization clue, but do not say the target slept waiting for that operation, that operation completion triggered the wakeup, or the operation directly blocked the target; state the exact wakeup/path relation separately.\n"
 			}
 		}
 	}

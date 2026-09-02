@@ -70,12 +70,15 @@ func semLeadEngineObservations(t *testing.T) []types.ObservationRecord {
 		time.Unix(1751600000, 0).UTC())
 }
 
-func TestSemLeadNonTargetSemanticFamilyKeepsRawSeatWithoutCrownZH(t *testing.T) {
+func TestSemLeadNonTargetSemanticFamilyCrownsByIntervalCredentialZH(t *testing.T) {
 	obs := semLeadEngineObservations(t)
 	md := audit730Render(t, audit730Bus(""), obs, "")
 
-	// ① The target's typed runnable seat crowns; the non-target semantic
-	// family is relation-only and cannot take the primary lane from overlap.
+	// ① CROWNSEM-1 (user ruling 2026-09-02, §40.28 ①, restoring R4): the
+	// non-target texture family's exact chain-interval intersection (5.300ms)
+	// is a PRICED on-chain credential and legitimately crowns over the
+	// target's smaller runnable seat — B830's "cannot crown" premise was the
+	// reversed ruling.
 	leadLine := ""
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "**主根因(=已证链上单项最大可消除量):**") {
@@ -83,14 +86,11 @@ func TestSemLeadNonTargetSemanticFamilyKeepsRawSeatWithoutCrownZH(t *testing.T) 
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "关注线程自身") || !strings.Contains(leadLine, "runnable") {
-		t.Fatalf("the typed target runnable seat must crown instead of a relation-only semantic family, got %q in:\n%s", leadLine, md)
-	}
-	if strings.Contains(leadLine, "worker-200") || strings.Contains(leadLine, "纹理上传") {
-		t.Fatalf("non-target semantic overlap must not crown without a typed wait/completion binding: %q", leadLine)
+	if leadLine == "" || !strings.Contains(leadLine, "worker-200") || !strings.Contains(leadLine, "纹理上传") {
+		t.Fatalf("the interval-credentialed semantic family must crown by its priced intersection, got %q in:\n%s", leadLine, md)
 	}
 
-	// ① The semantic row stays visible but must not acquire a rank badge.
+	// ① The semantic row wears its ordinal badge like every priced seat.
 	fenceRow := ""
 	for _, line := range strings.Split(md, "\n") {
 		if strings.Contains(line, "纹理上传 2次") && strings.Contains(line, "✦") {
@@ -98,11 +98,8 @@ func TestSemLeadNonTargetSemanticFamilyKeepsRawSeatWithoutCrownZH(t *testing.T) 
 			break
 		}
 	}
-	if fenceRow == "" || strings.ContainsAny(fenceRow, "➊➋➌➍➎") {
-		t.Fatalf("the relation-only semantic family must stay visible without a rank badge, got %q in:\n%s", fenceRow, md)
-	}
-	if !strings.Contains(md, "语义优化候选·优化点·未入根因排序前1") {
-		t.Fatalf("the relation-only semantic row must disclose its optimization-only position:\n%s", md)
+	if fenceRow == "" || !strings.ContainsAny(fenceRow, "➊➋➌➍➎") {
+		t.Fatalf("the credentialed semantic family must wear its rank badge, got %q in:\n%s", fenceRow, md)
 	}
 
 	// ③ single seat: the rank-lane twin folded in — merged evidence bracket +
@@ -153,11 +150,8 @@ func TestSemLeadNonTargetSemanticFamilyKeepsRawSeatWithoutCrownZH(t *testing.T) 
 	if strings.Contains(md, "hidden_cost_boost") || strings.Contains(md, "semantic_multiplier") {
 		t.Fatalf("internal ranking tokens must never surface:\n%s", md)
 	}
-	if !strings.Contains(md, "确定性优化点(优化项,非根因)") {
-		t.Fatalf("a relation-only semantic row must disclose optimization value without claiming a cause seat:\n%s", md)
-	}
-	if strings.Contains(md, "确定性优化点(链上参与根因排序)") {
-		t.Fatalf("a relation-only semantic row must not claim ranking participation:\n%s", md)
+	if !strings.Contains(md, "确定性优化点(链上参与根因排序)") {
+		t.Fatalf("a credentialed semantic row participates in root-cause ranking (R4):\n%s", md)
 	}
 
 	// Roster members stay lossless on the sub-rows (§24.7.1 ① 区分键不能丢).
@@ -174,13 +168,14 @@ func TestSemLeadNonTargetSemanticFamilyKeepsRawSeatWithoutCrownZH(t *testing.T) 
 	if !strings.Contains(html, "纹理上传") || !strings.Contains(html, "Texture upload(15573) 1140x1856") {
 		t.Fatalf("HTML must preserve the same localized UX label and verbatim span boundary as Markdown")
 	}
-	if !strings.Contains(html, "确定性优化点(优化项,非根因)") || strings.Contains(html, "确定性优化点(链上参与根因排序)") {
-		t.Fatalf("HTML must preserve the same relation-only semantic meaning as Markdown")
+	// CROWNSEM-1 (§40.28 ①): the credentialed family participates in ranking
+	// on every face (HTML mirrors Markdown; EN mirrors zh).
+	if !strings.Contains(html, "确定性优化点(链上参与根因排序)") {
+		t.Fatalf("HTML must preserve the same credentialed semantic meaning as Markdown")
 	}
 	en := audit730Render(t, audit730Bus("en"), obs, "en")
-	if !strings.Contains(en, "semantic (optimization item, not a root cause)") ||
-		strings.Contains(en, "semantic (on-chain root-cause ranking participant)") {
-		t.Fatalf("EN Markdown must preserve the same relation-only semantic meaning:\n%s", en)
+	if !strings.Contains(en, "semantic (on-chain root-cause ranking participant)") {
+		t.Fatalf("EN Markdown must preserve the same credentialed semantic meaning:\n%s", en)
 	}
 }
 
@@ -196,10 +191,12 @@ func TestSemLeadDetailPositionSeparatesOnChainAndOffChainSemanticMeaning(t *test
 	if got := runtimeTraceProjDetailPositionMerged(onChain, false, false); got != "semantic (on-chain root-cause ranking participant)" {
 		t.Fatalf("EN on-chain semantic detail meaning drifted: %q", got)
 	}
-	relationOnly := onChain
-	relationOnly.OnChainBasis = types.TraceCausalOnChainBasisSemanticChainIntervalRelation
-	if got := runtimeTraceProjDetailPositionMerged(relationOnly, true, false); got != "确定性优化点(优化项,非根因)" {
-		t.Fatalf("typed relation-only semantic detail must not claim a rank seat: %q", got)
+	// CROWNSEM-1 (§40.28 ①): the interval credential is a priced on-chain
+	// seat — same detail meaning as any on-chain semantic participant.
+	credentialed := onChain
+	credentialed.OnChainBasis = types.TraceCausalOnChainBasisSemanticChainIntervalRelation
+	if got := runtimeTraceProjDetailPositionMerged(credentialed, true, false); got != "确定性优化点(链上参与根因排序)" {
+		t.Fatalf("credentialed semantic detail must claim its rank participation: %q", got)
 	}
 
 	// Causality alone is an accepted typed fallback when a producer omitted
@@ -620,17 +617,19 @@ func TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount(t *testing.T) {
 	for _, want := range []string{
 		"on_chain_basis=semantic_chain_interval_relation",
 		"projected_impact=5.500",
-		"effective_impact_ms=0.000",
+		"effective_impact_ms=5.500",
 	} {
 		if !strings.Contains(semanticNotes, want) {
-			t.Fatalf("B830: typed semantic relation omitted %q: %s", want, semanticNotes)
+			t.Fatalf("CROWNSEM-1: typed semantic credential omitted %q: %s", want, semanticNotes)
 		}
 	}
-	if !strings.Contains(md, "| 纹理上传 2次 | 纹理上传 | worker-200 | 合计9.300ms | 0.000ms |") {
-		t.Fatalf("B830: optimization table must separate raw union from zero rule-priced elimination:\n%s", md)
+	if !strings.Contains(md, "| 纹理上传 2次 | 纹理上传 | worker-200 | 合计9.300ms | 5.500ms |") {
+		t.Fatalf("CROWNSEM-1: optimization table must price the exact intersection beside the raw union:\n%s", md)
 	}
-	if strings.Contains(md, "有效归因 5.500") || strings.Contains(md, "有效归因 9.300") || strings.Contains(md, "有效归因 9.3") {
-		t.Fatalf("B830: neither relation overlap nor raw union may wear the effective-attribution label:\n%s", md)
+	// CROWNSEM-1 (§40.28 ①): the exact intersection wears 有效归因; the raw
+	// union never does (dual-caliber discipline unchanged).
+	if !strings.Contains(md, "有效归因 5.500") || strings.Contains(md, "有效归因 9.300") || strings.Contains(md, "有效归因 9.3") {
+		t.Fatalf("the intersection must wear the effective-attribution label and the union must not:\n%s", md)
 	}
 	// 行1 keeps the lossless window-projection union (§24.10 semantics).
 	if !strings.Contains(md, "合计9.300ms") {
@@ -645,11 +644,14 @@ func TestSemLeadPartialOverlapSingleSeatRelationOnlyDualAccount(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "runnable") || strings.Contains(leadLine, "纹理上传") {
-		t.Fatalf("B830: typed runnable must crown instead of relation-only semantic overlap, got %q", leadLine)
+	// CROWNSEM-1 (§40.28 ①, restoring R4): the 5.500ms exact intersection is
+	// the largest priced seat and crowns; the 9.300ms raw union never reaches
+	// the headline as an eliminable value.
+	if leadLine == "" || !strings.Contains(leadLine, "纹理上传") || !strings.Contains(leadLine, "5.500") {
+		t.Fatalf("the interval-credentialed family must crown by its priced intersection, got %q", leadLine)
 	}
-	if strings.Contains(leadLine, "5.500") || strings.Contains(leadLine, "9.300") {
-		t.Fatalf("B830: headline must not publish relation/raw semantic values as eliminable impact: %q", leadLine)
+	if strings.Contains(leadLine, "9.300") {
+		t.Fatalf("headline must not publish the raw union as eliminable impact: %q", leadLine)
 	}
 }
 
@@ -794,8 +796,9 @@ func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *test
 	if err != nil {
 		t.Fatalf("parse semantic full raw occupancy %q: %v", semRecord.Value, err)
 	}
-	if math.Abs(eff) > 0.0005 {
-		t.Fatalf("B830: non-target semantic relation must not mint effective impact, got %.3f", eff)
+	// CROWNSEM-1 (§40.28 ①): the exact overlap IS the priced effective.
+	if math.Abs(eff-overlap) > 0.0005 {
+		t.Fatalf("credentialed semantic relation must price its exact overlap, got eff=%.3f overlap=%.3f", eff, overlap)
 	}
 	if math.Abs(raw-overlap) > 0.0005 || math.Abs(overlap-unionMs) > 0.0005 {
 		t.Fatalf("B830 raw-axis mismatch: rank raw=%.3f observation overlap=%.3f union=%.3f", raw, overlap, unionMs)
@@ -820,10 +823,12 @@ func TestSemLeadSingleSpanCrossWindowObservationMirrorsRankParticipation(t *test
 	if !strings.Contains(semanticBlock, fmt.Sprintf("%.3fms", fullRaw)) {
 		t.Fatalf("B830: the folded semantic row must retain full raw occupancy %.3fms:\n%s", fullRaw, semanticBlock)
 	}
-	if strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", raw)) ||
+	// CROWNSEM-1 (§40.28 ①): the exact overlap IS the effective attribution;
+	// full occupancy and best-single still never wear the label.
+	if !strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", raw)) ||
 		strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", fullRaw)) ||
 		strings.Contains(md, fmt.Sprintf("有效归因 %.3fms", maxSingle)) {
-		t.Fatalf("B830: neither raw overlap %.3f, full occupancy %.3f nor best-single %.3f may wear effective attribution:\n%s", raw, fullRaw, maxSingle, md)
+		t.Fatalf("overlap %.3f must wear effective attribution while full occupancy %.3f and best-single %.3f must not:\n%s", raw, fullRaw, maxSingle, md)
 	}
 }
 
@@ -982,13 +987,10 @@ func TestSemLeadBadgeOrdinalConsistencyRealBelowPrimary(t *testing.T) {
 	if !strings.Contains(texBlock, "语义优化候选") {
 		t.Fatalf("the family keeps its tier word (提及地板 carrier):\n%s", texBlock)
 	}
-	for _, glyph := range []string{"➊", "➋", "➌", "➍", "➎"} {
-		if strings.Contains(texBlock, glyph) {
-			t.Fatalf("relation-only semantic family must not wear ranked badge %s:\n%s", glyph, texBlock)
-		}
-	}
-	if !strings.Contains(texBlock, "未入根因排序前") {
-		t.Fatalf("relation-only semantic family must disclose its non-ranked placement:\n%s", texBlock)
+	// CROWNSEM-1 (§40.28 ①): the credentialed family holds a ranked seat and
+	// wears its ordinal badge like every priced on-chain row.
+	if !strings.ContainsAny(texBlock, "➊➋➌➍➎") {
+		t.Fatalf("credentialed semantic family must wear its ranked badge:\n%s", texBlock)
 	}
 	if strings.Contains(md, "11.130") {
 		t.Fatalf("the boosted internal value must never surface:\n%s", md)
@@ -1028,8 +1030,12 @@ func TestSemLeadPureSemanticBoardKeepsRawClueWithoutCrowning(t *testing.T) {
 			relationContext = true
 		}
 	}
-	if primarySemantic || !relationContext {
-		t.Fatalf("B830: pure non-target semantic relation must be typed context-only, primary=%t context=%t: %+v", primarySemantic, relationContext, obs)
+	// CROWNSEM-1 (§40.28 ①, restoring R4): a pure non-target semantic
+	// intersection is a PRICED on-chain seat — it holds the primary
+	// predicate and crowns; nothing leaves the root-cause seat empty.
+	_ = relationContext
+	if !primarySemantic {
+		t.Fatalf("interval-credentialed semantic family must publish as a primary root-cause row: %+v", obs)
 	}
 	md := audit730Render(t, audit730Bus(""), obs, "")
 	leadLine := ""
@@ -1039,12 +1045,11 @@ func TestSemLeadPureSemanticBoardKeepsRawClueWithoutCrowning(t *testing.T) {
 			break
 		}
 	}
-	if leadLine == "" || !strings.Contains(leadLine, "未定位到链上主根因") {
-		t.Fatalf("B830: relation-only semantic evidence must leave the root-cause seat empty, got %q in:\n%s", leadLine, md)
+	if leadLine == "" || strings.Contains(leadLine, "未定位到链上主根因") || !strings.Contains(leadLine, "纹理上传") {
+		t.Fatalf("credentialed semantic evidence must crown, got %q in:\n%s", leadLine, md)
 	}
-	tex := semLeadNodeBlockLines(md, "纹理上传 2次")
-	if len(tex) == 0 || !strings.Contains(strings.Join(tex, "\n"), "未入根因排序") {
-		t.Fatalf("B830: semantic raw clue must remain visible and explicitly unranked:\n%s", md)
+	if tex := semLeadNodeBlockLines(md, "纹理上传 2次"); len(tex) == 0 {
+		t.Fatalf("the semantic family row must stay visible:\n%s", md)
 	}
 }
 

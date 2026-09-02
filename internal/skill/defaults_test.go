@@ -638,23 +638,25 @@ func TestExploreSkill_TraceQueryGuidanceIsTraceGated(t *testing.T) {
 		// query window (DCS E5 lane). Pin evolved: "projected share of the
 		// analysis window" → "projected share of its own query window", plus
 		// the family-field vocabulary below.
-		// B830/B831: positive typed effective+rank may compete; relation-only
-		// non-target overlap/host-edge rows preserve raw business evidence but
-		// never acquire a rank seat or semantic-completion mechanism.
+		// B830/B831 taught relation-only (effective 0); CROWNSEM-1 (§40.28 ①,
+		// 2026-09-02) restored R3/R4: the credentialed non-target row prices its
+		// intersection / pre-edge share on-chain, the mechanism stays a
+		// disclosure that never moves the value or the board.
 		"`gc_pause`",
 		"Only a semantic row with positive typed effective_impact_ms and a positive primary/secondary/tertiary rank",
-		"on_chain_basis=semantic_chain_interval_relation or host_wakeup_edge_pre_span is relation-only",
-		"effective_impact_ms=0/rank=0 means it is not a root-cause seat",
+		"on_chain_basis=semantic_chain_interval_relation or host_wakeup_edge_pre_span is credentialed",
+		"priced on-chain under the same credential rule as every state family (edge=credential, pre-edge=effective, post-edge=released)",
 		"Do not say the target slept waiting for that semantic operation",
 		"separate typed target-wait or semantic-completion binding",
 		"state the exact wakeup/path relation separately",
-		"MUST NEVER enter the Background board",
+		"the unproven mechanism changes the wording, never the value or the board",
+		"MUST NEVER be moved to the Background board",
 		"`causal_conclusion=unproven` or `frame_evidence_status=absent`",
 		"preserve the frame-causality boundary",
 		"never one member's span name",
 		"MUST mention EVERY retained on-chain semantic family",
 		"Regardless of root-cause TOP N",
-		"never omitted merely because their rank row was truncated or relation-only",
+		"never omitted merely because their rank row was truncated or their completion mechanism is unproven",
 		"raw share of its own query window",
 		"member_count",
 		"member_roster",

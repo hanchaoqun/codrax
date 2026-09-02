@@ -36,7 +36,7 @@ const (
 	traceCausalProjectionOnChainLimit       = 24
 	traceCausalProjectionContextBucketLimit = 8
 	// Off-chain semantic spans are bounded detail. Typed on-chain semantic
-	// findings (priced target-self or relation-only non-target) are never
+	// findings (priced target-self or credentialed non-target) are never
 	// truncated at projection compile.
 	traceCausalProjectionSemanticOffChainLimit = 16
 	traceCausalProjectionSupportingHopLimit    = 10
@@ -543,17 +543,17 @@ type TraceCausalProjectionNode struct {
 	// "self_wall_clock"); "host_wakeup_edge_pre_span" (R3-IMPL §29.88.1) = a
 	// NON-target host's semantic span seated by the host's own in-window
 	// typed wakeup edge toward the target (causality keeps the honest relation
-	// token "on_wakeup_chain"; raw pre-edge occupancy survives while
-	// effective=0 because semantic completion/delay binding is unproven; the
+	// token "on_wakeup_chain"; the pre-edge share is priced effective under the
+	// one credential rule — CROWNSEM-1 §40.28 ① — while the semantic
+	// completion/delay mechanism stays a disclosure; the
 	// 行2 唤醒锚定(宿主→目标) sentence forks on this token); "host_wakeup_edge_pre_state"
 	// (ONCHAIN-3c, 2026-07-19) = a NON-target, NON-chain-member host's
 	// runnable / D-IO STATE seat anchored by the same credential (value = the
 	// segment inventory's pre-edge share sum; same honest causality; the 行2
 	// sentence forks its value clause on this sibling token). Display wording
-	// input plus the shared typed relation-only authority gate (the
-	// 「目标自身·确定性优化」/「目标自身·墙钟席」 Row2 qualifiers, the R3
-	// disclosure sentence, and the host-edge span's authoritative zero
-	// effective lane); score/sort producers use the same closed token.
+	// input plus the shared typed credential-source predicate (the
+	// 「目标自身·确定性优化」/「目标自身·墙钟席」 Row2 qualifiers and the R3
+	// disclosure sentence); score/sort producers use the same closed token.
 	OnChainBasis string `json:"on_chain_basis,omitempty"`
 	// ChainBranch is the owning branch ordinal of the node's chain measurement
 	// (typed chain_branch note — P0-E CHAIN-PATH, ledger §22.1). The display
@@ -1717,15 +1717,14 @@ func (n TraceCausalProjectionNode) IsContextOnlyRow() bool {
 	return strings.TrimSpace(n.Tier) == TraceCausalTierContextOnly
 }
 
-// IsSemanticRelationOnly reports the exact typed authority shapes where a
-// non-target semantic span has either an interval relation to a typed chain
-// node or a pre-edge relation to its host's wakeup. Neither relation proves
-// that the target waited for semantic completion or that completion caused
-// the wakeup. Consumers preserve the raw span/business clue while keeping
-// effective attribution and root-election participation at zero. The single
-// on_chain_basis field is authoritative; no prose, subject name, semantic
-// class, or timing heuristic is recomposed here.
-func (n TraceCausalProjectionNode) IsSemanticRelationOnly() bool {
+// IsHostEdgeOrIntervalCredentialedSemantic reports the two non-target
+// semantic credential bases (host wakeup edge pre-span / exact chain-interval
+// intersection). CROWNSEM-1 (§40.28 ①): these are PROVENANCE words for the
+// display faces (which credential seated the row), never a pricing class —
+// B829's IsSemanticRelationOnly / IsHostWakeupEdgeRelationOnlySemantic
+// pricing overrides are retired; effective attribution flows from the
+// published lane like every other seat.
+func (n TraceCausalProjectionNode) IsHostEdgeOrIntervalCredentialedSemantic() bool {
 	switch strings.TrimSpace(n.OnChainBasis) {
 	case TraceCausalOnChainBasisSemanticChainIntervalRelation,
 		TraceCausalOnChainBasisHostWakeupEdgeSpan:
@@ -1733,13 +1732,6 @@ func (n TraceCausalProjectionNode) IsSemanticRelationOnly() bool {
 	default:
 		return false
 	}
-}
-
-// IsHostWakeupEdgeRelationOnlySemantic is retained for source compatibility;
-// new consumers should use IsSemanticRelationOnly so the same authority rule
-// covers both exact chain-interval overlap and bare host-edge relation lanes.
-func (n TraceCausalProjectionNode) IsHostWakeupEdgeRelationOnlySemantic() bool {
-	return strings.TrimSpace(n.OnChainBasis) == TraceCausalOnChainBasisHostWakeupEdgeSpan
 }
 
 // TraceCausalTierCaliberSide mirrors tracequery.RootCauseTierCaliberSide
@@ -4184,17 +4176,12 @@ func traceCausalProjectionNodeFromRecord(role string, record ObservationRecord) 
 	// the emit side keeps its note untouched (other consumers).
 	node.EffectiveImpactPublished = !strings.HasPrefix(strings.TrimSpace(record.ClaimKey), "root_evidence:") &&
 		traceCausalProjectionRichNoteAnyPresent(record.RichNotes, TraceNoteKeyEffectiveImpactMS, TraceNoteKeyEffectiveImpact, TraceNoteKeyEffectiveImpactScore)
-	// B829: on_chain_basis is the stronger typed authority.  Older cached
-	// semantic observations may carry the relation-only basis plus a raw
-	// projected_impact but predate the explicit effective_impact_ms=0.000
-	// carrier.  Normalize both old and new records here so no presentation
-	// fallback can reinterpret raw pre-edge occupancy as eliminable impact.
-	// A stale positive effective note also loses to this closed basis: the edge
-	// proves relation, not semantic-completion causality.
-	if node.IsSemanticRelationOnly() {
-		node.EffectiveImpactMS = 0
-		node.EffectiveImpactPublished = true
-	}
+	// CROWNSEM-1 (user ruling 2026-09-02, colleague_merge_audit §40.28 ①):
+	// the B829 "relation-only ⇒ effective=0" compile-time override is
+	// retired. The host-edge / interval bases are CREDENTIALS (R3/R4): the
+	// producer publishes the priced pre-edge share / exact intersection on
+	// the effective lane and this compile carries it verbatim, exactly like
+	// the host's state seats. No basis may zero a published effective here.
 	node.ActualImpactMS = traceCausalProjectionRichNoteFirstFloat(record.RichNotes, TraceNoteKeyActualImpactMS, TraceNoteKeyActualImpact)
 	// CR-2 组③ P7 (2026-07-12): the actual channel's physical interval — the
 	// same strict window parser as every window-valued note (malformed notes

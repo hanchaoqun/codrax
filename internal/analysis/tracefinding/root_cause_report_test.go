@@ -14,9 +14,10 @@ func TestBindRootCauseReportSelectionUsesOnlyFrozenCandidateFacts(t *testing.T) 
 			PrimaryEligible: true,
 			Decision: types.TraceCauseDecision{
 				CandidateID: "candidate-1", SubjectName: "RenderThread",
-				Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
-				Magnitude:    &types.TypedMagnitude{Value: 12.4, Unit: "ms", Additivity: "wall_clock_per_thread"},
-				EvidenceRefs: []string{"E1"},
+				Token:           types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+				Magnitude:       &types.TypedMagnitude{Value: 12.4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+				CausalQualifier: types.TraceCausalQualifierProven,
+				EvidenceRefs:    []string{"E1"},
 			},
 		}},
 	}
@@ -45,9 +46,10 @@ func TestBindRootCauseReportSelectionUsesOnlyFrozenCandidateFacts(t *testing.T) 
 func TestSelectableRootCauseCandidatesRequireOnChainWallClock(t *testing.T) {
 	base := types.TraceCauseDecision{
 		CandidateID: "candidate-1", SubjectName: "worker",
-		Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
-		Magnitude:    &types.TypedMagnitude{Value: 3, Unit: "ms", Additivity: "wall_clock_per_thread"},
-		EvidenceRefs: []string{"E1"},
+		Token:           types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+		Magnitude:       &types.TypedMagnitude{Value: 3, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+		CausalQualifier: types.TraceCausalQualifierProven,
+		EvidenceRefs:    []string{"E1"},
 	}
 	contract := &types.TraceFindingContract{Candidates: []types.TraceFindingCandidateV1{
 		{PrimaryEligible: false, Decision: base},
@@ -87,8 +89,9 @@ func TestRootCauseSelectionIdentityIsNotItsDisplaySummary(t *testing.T) {
 						PrimaryEligible: true,
 						Decision: types.TraceCauseDecision{CandidateID: id, SubjectName: subject, Token: token,
 							ResourceName: "shared-resource", PhaseName: "shared-phase",
-							Magnitude:    &types.TypedMagnitude{Value: float64(i + 1), Unit: "ms", Additivity: "wall_clock_per_thread"},
-							EvidenceRefs: []string{"E-" + id}},
+							Magnitude:       &types.TypedMagnitude{Value: float64(i + 1), Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+							CausalQualifier: types.TraceCausalQualifierProven,
+							EvidenceRefs:    []string{"E-" + id}},
 					})
 				}
 				selection := &types.TraceRootCauseReportV2{SchemaVersion: 2,

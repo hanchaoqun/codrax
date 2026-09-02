@@ -41,7 +41,9 @@ func (o *Orchestrator) tryAutoRepairFinalizerAnswerDocument(out *agent.StageOutp
 	if !changed {
 		return false
 	}
-	o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	// System-side rewrite of the SAME accepted answer: the trace finding and
+	// the root-cause sidecar selection stay (§40.29.1 ★19).
+	o.busCtx.Mutable.RewriteAcceptedAnswerDocumentV2(doc)
 	attachments := answertool.FilterAcceptedAnswerDisplayAttachments(doc, o.busCtx.Mutable.AnswerDisplayAttachments())
 	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	renderDoc := doc
@@ -278,7 +280,7 @@ func (o *Orchestrator) recoverRejectedFinalizerDraftAfterTransientFailure(c type
 		FinalAnswer: answer,
 		Data:        marshalFinalizerAutoRepairStageData(answer),
 	}
-	o.busCtx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	o.busCtx.Mutable.RewriteAcceptedAnswerDocumentV2(doc)
 	o.busCtx.Mutable.SetAnswerDisplayAttachments(attachments)
 	res := runContractCheck(out, c, o.busCtx.Mutable, o)
 	if len(res.Violations) > 0 {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -42,13 +43,22 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	if decided, allowed := types.RuntimeTraceReportShapeAuthority(requestModel); decided && !allowed {
 		return nil
 	}
-	ceiling := "proven"
-	if authority.CausalUnproven || authority.FrameFlowUnproven {
-		ceiling = "unproven"
-	}
-	contract, err := tracefinding.CompileCandidateContract(ledger, set, ceiling)
+	// SIDECAR-Q1 (user ruling 2026-09-02, §40.28 ②): the contract consumes the
+	// SEAT-LEVEL evidence-ID authority index — the same one the Markdown crown
+	// face consults — never the session-wide ANY aggregate (advisory-only; see
+	// TestSessionAnyCausalSignalFeedsAdvisoryLanesOnly). Built from the same
+	// ledger input the compiled ledger reads (limit 64, answerDocObservationLedger).
+	seatInput := types.ObservationLedgerInputFromAgentContext(ctx, 64)
+	seatIndex := tracefinding.BuildSeatFrameCausalityIndex(seatInput)
+	logging.Debug("[trace_finding] seat authority index: tool_results=%d supplements=%d unproven_keys=%d",
+		len(seatInput.ToolResults), len(seatInput.SystemTraceSupplementResults), len(seatIndex))
+	contract, err := tracefinding.CompileCandidateContract(ledger, set, seatIndex)
 	if err != nil {
 		return fmt.Errorf("compile trace finding contract: %w", err)
+	}
+	for _, candidate := range contract.Candidates {
+		logging.Debug("[trace_finding] candidate %s subject=%q evidence=%v qualifier=%s",
+			candidate.Decision.CandidateID, candidate.Decision.SubjectName, candidate.Decision.EvidenceRefs, candidate.Decision.CausalQualifier)
 	}
 	// The legacy TraceFindingV1 stays out of the model call. The optional report
 	// below accepts only exact ids from the typed on-chain roster; model order
@@ -94,6 +104,8 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 			Phase            string   `json:"phase,omitempty"`
 			Rank             int      `json:"rank,omitempty"`
 			ImpactMS         float64  `json:"impact_ms"`
+			ImpactCaliber    string   `json:"impact_caliber"`
+			CausalQualifier  string   `json:"causal_qualifier"`
 			ValueDescription string   `json:"value_description,omitempty"`
 			EvidenceRefs     []string `json:"evidence_refs"`
 		}
@@ -105,17 +117,19 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 				Subject: decision.SubjectName, Resource: decision.ResourceName,
 				Phase: decision.PhaseName, Rank: decision.Rank,
 				ImpactMS: decision.Magnitude.Value, EvidenceRefs: decision.EvidenceRefs,
+				ImpactCaliber: decision.Magnitude.Caliber, CausalQualifier: decision.CausalQualifier,
 				ValueDescription: tracefinding.RootCauseValueDescription(decision),
 			})
 		}
 		b, err := json.MarshalIndent(roster, "", "  ")
 		if err == nil {
 			out.WriteString("\n\n## Optional Trace Root Cause JSON\n\n")
-			out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` is optional and never replaces or blocks it.\n")
+			out.WriteString("- The full answer is the primary deliverable. `trace_root_causes` is optional and never replaces or blocks it. Omitting it on a later re-emit keeps the previously accepted selection; send `\"root_causes\": []` to withdraw it.\n")
 			out.WriteString("- If useful, choose zero or more exact `candidate_id` values from the typed on-chain roster below and order them strongest to weakest. The runtime binds category, identity, impact, summary, and evidence from those receipts; do not author those fields.\n")
 			out.WriteString("- Use `trace_root_causes` in `emit_answer_document`; use `replace_trace_root_causes` in `emit_answer_document_patch`. Both fields take the same native object: `{\"schema_version\":2,\"root_causes\":[{\"candidate_id\":\"<exact id from roster>\"}]}`. Keep `schema_version` inside that object, not at the document top level. Do not quote the object or the number.\n")
 			out.WriteString("- A patch that only revises answer blocks should omit `replace_trace_root_causes`; the previously accepted report is retained. A replacement lists the complete ordered selection, not only the added entries.\n")
-			out.WriteString("- Omit the field when no candidate should be selected. Background and adjacent observations are intentionally absent.\n\n")
+			out.WriteString("- Omit the field when no candidate should be selected. Background and adjacent observations are intentionally absent.\n")
+			out.WriteString("- Each candidate carries its own `impact_caliber` (effective_attribution vs window_projection) and `causal_qualifier` (proven vs frame_unproven, seat-level — the same qualifier the answer headline wears). Both are copied verbatim onto the published sidecar; selecting a frame_unproven candidate is allowed and stays disclosed as such.\n\n")
 			out.WriteString("```json\n")
 			out.Write(b)
 			out.WriteString("\n```\n")

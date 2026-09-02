@@ -903,7 +903,7 @@ func runtimeTraceProjCrownWords(zh, frameCausalityUnproven bool) runtimeTracePro
 			ComparisonHeader: "主根因(" + tracefence.SeatChannelChainZH + "#1)",
 		}
 		if frameCausalityUnproven {
-			out.HeadlineQualifier = "（帧因果未证）"
+			out.HeadlineQualifier = types.TraceCausalQualifierFrameUnprovenSuffixZH
 			out.DetailPosition = "主根因(优先处理;帧因果未证)"
 			out.LegendQualifier = " 本席位的帧因果未证;该限定不改变已证链上可消除量及其席位排序。"
 		}
@@ -1348,10 +1348,10 @@ const (
 	// thread's deterministic semantic span seated on the chain tier by the
 	// HOST's own in-window typed wakeup edge toward the target (typed
 	// Node.OnChainBasis == "host_wakeup_edge_pre_span", single-field fork —
-	// the SELF-SEM qualifier discipline). For a semantic span the pre-edge
-	// projection is raw occupancy and the completion/delay mechanism remains
-	// unproven (effective=0); the state-seat sibling keeps its typed pre-edge
-	// state accounting. A boundary-crossing span bisects (its post-edge
+	// the SELF-SEM qualifier discipline). CROWNSEM-1 (§40.28 ①): the span's
+	// pre-edge share is PRICED on-chain effective under the same credential
+	// rule as the state-seat sibling (边=凭证, 边前=有效, 边后=解除); only the
+	// completion/delay mechanism remains unproven, as a disclosure. A boundary-crossing span bisects (its post-edge
 	// share rides a ◇ ChainAnchorRemainderSeat clone wearing the existing
 	// 同源二分 sentence). ONCHAIN-3c (2026-07-19): the same mark covers the
 	// state-seat sibling basis "host_wakeup_edge_pre_state" (runnable / D-IO
@@ -2406,8 +2406,12 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// entry names BOTH carrier forms (图例是承诺面 — a state seat wearing
 		// the mark under a span-only legend would be a legend lie).
 		{runtimeTraceProjMarkHostEdgeAnchored, runtimeTraceProjLegendGroupMark,
-			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 宿主自身对目标的窗内 typed 唤醒边只证明关系。确定性语义 span 保留边前原始占用与业务线索，但在缺少精确等待/完成绑定时现有规则可消除量为0，不宣称 span 完成触发唤醒；runnable/D-IO 状态席仍按状态段清单的边前份计入。边界取最晚窗内凭证边，跨边原始账按边界二分，无边则留在邻近/背景通道。",
-			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge proves relation only. A deterministic semantic span keeps its raw pre-edge occupancy and business clue, but its current-rule eliminable attribution is zero without an exact wait/completion binding and it does not claim span completion triggered the wakeup; runnable/D-IO state seats still use their typed pre-edge state-segment sum. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
+			// CROWNSEM-1 (§40.28 ①, restoring R3/R4): ONE credential rule for the
+			// span seat and the state seat alike — 边=凭证、边前=有效、边后=解除;
+			// the semantic completion mechanism stays a disclosure, never a zero
+			// (the B829 "可消除量为0" clause is retired; 图例是承诺面).
+			"- `" + tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标)` = 宿主自身对目标的窗内 typed 唤醒边是入链凭证。确定性语义 span 与 runnable/D-IO 状态席同用一条计价规则：边=凭证、边前=有效、边后=解除——边前份计入现有规则可消除量；语义完成机理未证仅作披露，不宣称 span 完成触发唤醒。边界取最晚窗内凭证边，跨边原始账按边界二分，无边则留在邻近/背景通道。",
+			"- `" + tracefence.CredentialTierWakeupAnchoredEN + " (host→target)` = the host's own in-window typed wakeup edge is the on-chain credential. A deterministic semantic span and a runnable/D-IO state seat share ONE pricing rule: edge=credential, pre-edge=effective, post-edge=released — the pre-edge share counts as current-rule eliminable attribution; the semantic completion mechanism stays unproven as a disclosure only and never claims span completion triggered the wakeup. The boundary is the latest in-window credential edge; crossing raw accounts split at it, and edge-less accounts remain adjacent/background."},
 		// WO-B1 (SMR-1 批, 2026-07-12): the occurrence-series note entry.
 		{runtimeTraceProjMarkOccurrenceSeries, runtimeTraceProjLegendGroupMark,
 			"- `发生段` = 同(线程,状态,对端)的多次分别发生各占一行:行内给出本次发生的墙钟区间与其余次的 [E#] 互指;各段不相交(typed 区间证明),故给出可相加的合计值。",
@@ -2764,9 +2768,9 @@ func runtimeTraceProjReaderLegendLines(marks *runtimeTraceProjMarkSet, zh, frame
 		runtimeTraceProjMarkChainCredentialTruncatedLowerBound, runtimeTraceProjMarkChainIdentityInheritance,
 		runtimeTraceProjMarkChainCredentialTierFamily) {
 		if zh {
-			lines = append(lines, "- 入链凭证：唤醒锚定只证明线程间关系；区间相交可证明对应时间段，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒或直接计入可消除量。")
+			lines = append(lines, "- 入链凭证：唤醒锚定证明线程间关系并按边前份计价；区间相交可证明对应时间段并按相交份计价，只有成员身份时证据更弱。确定性语义工作若缺少等待-完成绑定，不据此声称其完成触发唤醒；其边前份/相交份仍按同一凭证规则计入可消除量（机理未证仅作披露）。")
 		} else {
-			lines = append(lines, "- On-chain credentials: a wakeup anchor proves only the thread relationship; interval intersection proves the corresponding time range, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup or directly count as eliminable.")
+			lines = append(lines, "- On-chain credentials: a wakeup anchor proves the thread relationship and prices the pre-edge share; interval intersection proves the corresponding time range and prices the intersection, while membership alone is weaker. Deterministic semantic work without a wait/completion binding does not claim that its completion triggered the wakeup; its pre-edge / intersection share still counts as eliminable under the same credential rule (the mechanism stays a disclosure).")
 		}
 	}
 	if hasAny(runtimeTraceProjMarkRankBoardAnchor, runtimeTraceProjMarkRankBoardParams, runtimeTraceProjMarkCrossBoardFamilyNote) {
@@ -5932,9 +5936,6 @@ func runtimeTraceProjDetailPositionMerged(node types.TraceCausalProjectionNode, 
 // No rank value is required: on-chain semantic work keeps the mention and
 // participation obligation even when it falls outside the visible root TOP N.
 func runtimeTraceProjSemanticParticipatesInRootCauseRanking(node types.TraceCausalProjectionNode) bool {
-	if node.IsSemanticRelationOnly() {
-		return false
-	}
 	if node.IsContextOnlyRow() {
 		return false
 	}
@@ -7208,12 +7209,15 @@ func runtimeTraceProjSameSegMirrorTagTexts(row runtimeTraceProjTreeRow, zh bool)
 		}
 		text := tracefence.CredentialTierWakeupAnchoredZH + "(宿主→目标,见图例)" + detail
 		if basis == "host_wakeup_edge_pre_span" {
-			text += "·仅关系凭证,语义完成/延迟机理未证"
+			// CROWNSEM-1 (§40.28 ①): disclosure only — the pre-edge share is
+			// priced per R3/R4 exactly like the host's state seats; the
+			// mechanism word never implies a pricing verdict (披露≠清零).
+			text += "·语义完成机理未证(仅披露,边前份按 R3/R4 计价)"
 		}
 		if !zh {
 			text = tracefence.CredentialTierWakeupAnchoredEN + " (host→target; see legend)" + detail
 			if basis == "host_wakeup_edge_pre_span" {
-				text += " · relation only; semantic completion/delay mechanism unproven"
+				text += " · semantic completion mechanism unproven (disclosure only; pre-edge share priced per R3/R4)"
 			}
 		}
 		out = append(out, text)
@@ -7969,11 +7973,8 @@ func runtimeTraceProjFoldSameSegmentLaneTwins(nodes []types.TraceCausalProjectio
 //   - cross-window veto (SFD F1 mirror): both arms declaring their own typed
 //     selected_window beyond the ±1ms tolerance never fold.
 func runtimeTraceProjSemanticRankTwinArm(node types.TraceCausalProjectionNode) bool {
-	if node.IsSemanticRelationOnly() {
-		_, laneOK := runtimeTraceProjSemanticTwinLane(node)
-		return laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
-			strings.HasPrefix(strings.TrimSpace(node.Predicate), "root_cause_")
-	}
+	// CROWNSEM-1 (§40.28 ①): the B830 relation-only twin arm is retired —
+	// credentialed semantic seats carry a rank and fold like every seat.
 	_, laneOK := runtimeTraceProjSemanticTwinLane(node)
 	return !node.IsContextOnlyRow() && laneOK && strings.TrimSpace(node.SemanticClass) != "" &&
 		node.Rank > 0 &&
@@ -8089,25 +8090,10 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		}
 		rank := rankNodes[g.rankIdx[0]]
 		sem := &semantics[g.semIdx[0]]
-		relationOnly := rank.IsSemanticRelationOnly() || sem.IsSemanticRelationOnly()
-		if relationOnly {
-			// B830: the root-cause context carrier and trace_semantic_span
-			// carrier describe one relation-only raw account. Fold only when
-			// BOTH independently carry the same typed basis and the same raw
-			// chain projection; never infer this identity from names or prose.
-			if !rank.IsSemanticRelationOnly() || !sem.IsSemanticRelationOnly() ||
-				strings.TrimSpace(rank.OnChainBasis) != strings.TrimSpace(sem.OnChainBasis) {
-				continue
-			}
-			rankRaw := runtimeTraceProjNodeDisplayImpact(rank)
-			semRaw := sem.SemanticChainProjectedMS
-			if semRaw <= 0 {
-				semRaw = runtimeTraceProjNodeDisplayImpact(*sem)
-			}
-			if rankRaw <= 0 || semRaw <= 0 || !runtimeTraceProjRound3Equal(rankRaw, semRaw) {
-				continue
-			}
-		} else if sem.SemanticChainProjectedMS > 0 {
+		// CROWNSEM-1 (§40.28 ①): the B830 relation-only special fold is
+		// retired; credentialed semantic carriers fold through the generic
+		// effective-mirror arm below like every other seat.
+		if sem.SemanticChainProjectedMS > 0 {
 			// 审计 #5 (§29.25 处置委托 + §29.26 待主会话落账, 2026-07-10):
 			// SAME-SOURCE value mirror for on-chain semantic twins. The rank
 			// lane's participation value is the exact member∩chain intersection
@@ -8160,12 +8146,8 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 		}
 		switch lane {
 		case "on_chain":
-			if relationOnly {
-				sem.Rank = 0
-			} else {
-				sem.Rank = rank.Rank
-				adoptBoard()
-			}
+			sem.Rank = rank.Rank
+			adoptBoard()
 		case "adjacent":
 			// UXR-1 (§29.36.2, 2026-07-11): the adjacent twin's Rank is the
 			// 邻近影响 channel's own ordinal — the survivor adopts it (the chip
@@ -8190,7 +8172,7 @@ func runtimeTraceProjFoldSemanticRankLaneTwinsDetailed(rankNodes []types.TraceCa
 				sem.BackgroundRank = rank.BackgroundRank
 			}
 		}
-		if !relationOnly && strings.TrimSpace(sem.Tier) == "" {
+		if strings.TrimSpace(sem.Tier) == "" {
 			sem.Tier = rank.Tier
 		}
 		if sem.EffectiveImpactMS <= 0 {
@@ -19042,9 +19024,6 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 			return runtimeTraceProjDetailCrossThreadCell(cell, v, crossThread && !compositeCaliber, zh)
 		}
 		effective := annotated(node.EffectiveImpactMS)
-		if node.IsSemanticRelationOnly() {
-			effective = "0.000ms"
-		}
 		// 审计 #5 (§29.25/§29.26, 2026-07-10): an unfolded on-chain semantic
 		// row carries no engine effective note, but its typed intersection IS
 		// the engine's participation value — the cell mirrors the tree 行3's
@@ -19104,7 +19083,7 @@ func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]st
 		// references it — E16 承自链需保), and self 自因族 rows (io/D/runnable/
 		// running StateKinds) keep their values on this arm too.
 		if node.IsTargetSelfStateRow() ||
-			(node.IsContextOnlyRow() && !node.IsSemanticRelationOnly()) ||
+			node.IsContextOnlyRow() ||
 			runtimeTraceProjStanzaRowKind(row.Kind) ||
 			(row.Kind == runtimeTraceProjTreeRowSelf && node.IsSleepState()) {
 			effective = dash

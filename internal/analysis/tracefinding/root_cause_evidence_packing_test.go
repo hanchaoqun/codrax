@@ -87,7 +87,7 @@ func TestBoundRootCauseEvidenceDoesNotTruncateUnrepresentableFacts(t *testing.T)
 func TestBoundRootCauseEvidenceKeepsCompactShapeWhenItFits(t *testing.T) {
 	candidate := packingRootCauseCandidate([]string{"E1"})
 	item, ok := boundRootCauseItem(candidate)
-	want := fmt.Sprintf("worker-9 在目标窗口内的链上有效影响为 58.320 ms（证据 E1）；%s", RootCauseValueDescription(candidate.Decision))
+	want := fmt.Sprintf("worker-9 在目标窗口内的链上有效归因为 58.320 ms（证据 E1）；%s", RootCauseValueDescription(candidate.Decision))
 	if !ok || !reflect.DeepEqual(item.Evidence, []string{want}) {
 		t.Fatalf("short evidence needlessly changed: %+v", item)
 	}
@@ -100,5 +100,6 @@ func packingRootCauseCandidate(refs []string) types.TraceFindingCandidateV1 {
 		Magnitude: &types.TypedMagnitude{Value: 58.320, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution",
 			Components: &types.TraceMagnitudeComponents{SupplyFoldComputed: true, SupplyFoldKnownMS: 157.248,
 				SupplyFoldCapabilitySource: "default_table"}}, EvidenceRefs: refs,
+		CausalQualifier: types.TraceCausalQualifierProven,
 	}}
 }

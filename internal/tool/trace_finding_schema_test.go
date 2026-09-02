@@ -89,9 +89,10 @@ func testSelectableTraceRootCauseContract() *types.TraceFindingContract {
 			PrimaryEligible: true,
 			Decision: types.TraceCauseDecision{
 				CandidateID: "candidate-sched", SubjectName: "RenderThread",
-				Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
-				Magnitude:    &types.TypedMagnitude{Value: 12.4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
-				EvidenceRefs: []string{"E-sched"},
+				Token:           types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+				Magnitude:       &types.TypedMagnitude{Value: 12.4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+				CausalQualifier: types.TraceCausalQualifierProven,
+				EvidenceRefs:    []string{"E-sched"},
 			},
 		}},
 	}

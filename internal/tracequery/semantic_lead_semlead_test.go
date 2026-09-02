@@ -53,29 +53,24 @@ func TestSemLeadFamilyPublishesRealTotalKeepsBoostInternal(t *testing.T) {
 	// identity ("确定性优化候选") now rides the typed SemanticClass token on
 	// the display faces (types.go RootCauseTierDeterministicOptimization
 	// record).
-	if fam.ChainRelevance != "on_chain" || fam.Tier != RootCauseTierContextOnly ||
+	if fam.ChainRelevance != "on_chain" || fam.Tier == RootCauseTierContextOnly ||
 		fam.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation {
-		t.Fatalf("the non-target family must remain a relation-only chain clue: %+v", fam)
+		t.Fatalf("the non-target family must seat on-chain by its interval credential (R4): %+v", fam)
 	}
-	// B830: the complete family REAL window projection (5.300ms =
-	// 2.100+3.200) remains raw disclosure, while relation-only published
-	// effective stays zero and no boosted value survives.
-	if fam.EffectiveImpactMs != 0 {
-		t.Fatalf("relation-only family effective must be zero: %+v", fam)
+	// CROWNSEM-1 (§40.28 ①, restoring R4): the family's exact intersection IS
+	// its published effective; the boost stays engine-internal (SEM-LEAD).
+	if fam.EffectiveImpactMs <= 0 || fam.EffectiveImpactMs != fam.ProjectedImpactMs {
+		t.Fatalf("interval-credentialed family must price its intersection: %+v", fam)
 	}
-	if fam.RankSortBoostedEffectiveMs != 0 || fam.Score != 0 {
-		t.Fatalf("relation-only family must not retain a sort/score boost: %+v", fam)
-	}
-	// Relation-only on-chain membership carries no ordinary rank ordinal.
-	if fam.Rank != 0 {
-		t.Fatalf("relation-only semantic family must not receive an ordinal: %+v", rank.Items)
+	if fam.Rank <= 0 {
+		t.Fatalf("a priced on-chain semantic family competes for an ordinal: %+v", rank.Items)
 	}
 	if strings.Contains(fam.Summary, "hidden_cost_boost") || strings.Contains(fam.Summary, "semantic_multiplier") {
 		t.Fatalf("internal ranking tokens must not leak into the family summary: %q", fam.Summary)
 	}
-	if !strings.Contains(fam.Summary, "effective_impact=0.000ms") ||
-		!strings.Contains(fam.Summary, "target wait/completion binding=unproven") {
-		t.Fatalf("the family summary must state the relation-only caliber: %q", fam.Summary)
+	if strings.Contains(fam.Summary, "effective_impact=0.000ms") ||
+		!strings.Contains(fam.Summary, "priced on-chain per R4") {
+		t.Fatalf("the family summary must state the priced credential caliber: %q", fam.Summary)
 	}
 }
 
@@ -115,9 +110,12 @@ func TestSemLeadOrdinalFollowsPublishedEffectiveNotBoost(t *testing.T) {
 			fam = item
 		}
 	}
-	if fam == nil || fam.Rank != 0 || fam.Tier != RootCauseTierContextOnly ||
-		fam.EffectiveImpactMs != 0 || fam.RankSortBoostedEffectiveMs != 0 {
-		t.Fatalf("non-target semantic relation must never enter or boost the ordinal board: %+v", rank.Items)
+	// CROWNSEM-1 (§40.28 ①): the credentialed non-target family enters the
+	// ordinal board by its PUBLISHED effective (the boost stays a same-value
+	// tie-break on the sort channel, never the published value).
+	if fam == nil || fam.Rank <= 0 || fam.Tier == RootCauseTierContextOnly || fam.EffectiveImpactMs <= 0 ||
+		(fam.RankSortBoostedEffectiveMs != 0 && fam.RankSortBoostedEffectiveMs <= fam.EffectiveImpactMs) {
+		t.Fatalf("credentialed semantic family must seat by its published effective: %+v", rank.Items)
 	}
 }
 

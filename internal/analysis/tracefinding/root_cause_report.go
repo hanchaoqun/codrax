@@ -99,11 +99,28 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 		return nil, false
 	}
 	impactSeconds := decision.Magnitude.Value / 1000
+	// SIDECAR-Q1 (§40.28 ②): both public qualifiers are bound from the frozen
+	// typed contract — caliber from the magnitude, causality from the seat-level
+	// index — and are ALWAYS explicit on the wire.
+	caliber := strings.TrimSpace(decision.Magnitude.Caliber)
+	if !types.ValidTraceImpactCaliber(caliber) {
+		return nil, false
+	}
+	// Both fields are closed-set and REQUIRED on the candidate: a candidate
+	// that reaches the binder without an explicit qualifier is dropped, never
+	// published as an affirmative "proven" claim minted from a missing field
+	// (fail-closed, symmetric with the caliber arm above).
+	qualifier := strings.TrimSpace(decision.CausalQualifier)
+	if !types.ValidTraceCausalQualifier(qualifier) {
+		return nil, false
+	}
 	item := &types.TraceRootCauseItemV2{
-		CandidateID:   strings.TrimSpace(decision.CandidateID),
-		Category:      category,
-		ImpactSeconds: &impactSeconds,
-		Evidence:      boundRootCauseEvidence(decision),
+		CandidateID:     strings.TrimSpace(decision.CandidateID),
+		Category:        category,
+		ImpactSeconds:   &impactSeconds,
+		ImpactCaliber:   caliber,
+		CausalQualifier: qualifier,
+		Evidence:        boundRootCauseEvidence(decision),
 	}
 	switch category {
 	case types.TraceRootCauseGCLongPause, types.TraceRootCauseComputeSupplyShortage:
@@ -239,7 +256,12 @@ func boundRootCauseEvidence(decision types.TraceCauseDecision) []string {
 	if len(refs) == 0 {
 		refs = []string{"typed-trace-row"}
 	}
-	statement := fmt.Sprintf("%s 在目标窗口内的链上有效影响为 %.3f ms", subject, decision.Magnitude.Value)
+	// SIDECAR-Q1: the sentence speaks the magnitude's own caliber — a raw
+	// window projection is never called 有效 (CROWNCAL discipline).
+	statement := fmt.Sprintf("%s 在目标窗口内的链上有效归因为 %.3f ms", subject, decision.Magnitude.Value)
+	if strings.TrimSpace(decision.Magnitude.Caliber) == types.TraceImpactCaliberWindowProjection {
+		statement = fmt.Sprintf("%s 在目标窗口内的窗内投影占用为 %.3f ms（未发布有效归因）", subject, decision.Magnitude.Value)
+	}
 	evidence := statement + "（证据 " + strings.Join(refs, ",") + "）"
 	description := RootCauseValueDescription(decision)
 	if description != "" {

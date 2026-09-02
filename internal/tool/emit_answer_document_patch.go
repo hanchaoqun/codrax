@@ -2811,6 +2811,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] moved exact submitted trace_root_causes to absent replace_trace_root_causes via local-model JSON tolerance")
 		params = repaired
 	}
+	if repaired, ok := normalizeMisplacedTraceRootCauseSelection(params, "replace_trace_root_causes"); ok {
+		logging.Warning("[emit_answer_document_patch] re-homed top-level root_causes selection into replace_trace_root_causes via local-model JSON tolerance")
+		params = repaired
+	}
 	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(params, "replace_trace_root_causes"); ok {
 		logging.Warning("[emit_answer_document_patch] re-homed exact root-cause schema_version into replace_trace_root_causes via local-model JSON tolerance")
 		params = repaired

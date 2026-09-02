@@ -57,7 +57,7 @@ func TestTraceQueryDescriptionReplaceArmsAllFire(t *testing.T) {
 	}
 
 	schema := string((&TraceQuery{}).Parameters())
-	if want := "ordinary primary/secondary/tertiary election only with positive target-self or exact typed target-wait/completion attribution"; !strings.Contains(schema, want) {
+	if want := "ordinary primary/secondary/tertiary election by positive target-self attribution, by the priced pre-edge share of a host_wakeup_edge_pre_span seat"; !strings.Contains(schema, want) {
 		t.Fatalf("trace_query Parameters() schema Replace arm did not fire (missing %q)", want)
 	}
 	if banned := "tier=deterministic_optimization when on-chain, background_rank position when not"; strings.Contains(schema, banned) {
@@ -81,9 +81,8 @@ func TestTraceQueryRootCauseClosedMatrixContractPinned(t *testing.T) {
 			"running uses only the CAP/compute-supply deficit, and a missing or zero deficit is context_only",
 			"target-thread deterministic semantic work",
 			"may enter the ordinary strict positional ranking from its typed self interval",
-			"A non-target semantic span intersecting a typed chain interval or preceding its host's wakeup edge is relation-only",
-			"publish effective_impact_ms=0 until an exact typed target-wait or semantic-completion binding exists",
-			"interval overlap or a wakeup edge alone proves neither",
+			"A non-target semantic span preceding its host's typed wakeup edge prices its pre-edge share",
+			"the single credential rule for every state family (edge=credential, pre-edge=effective, post-edge=released)",
 			"must still be mentioned as a deterministic optimization point outside Top N",
 			"off-chain semantic work is background-only",
 			"periodic sources use VS-1 effective impact",

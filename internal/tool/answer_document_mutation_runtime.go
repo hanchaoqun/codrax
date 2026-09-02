@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"math"
 	"regexp"
 	"sort"
@@ -1445,6 +1446,8 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	lang := requestedAnswerDocumentLanguage(ctx)
 	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
 	seatAuthority := buildRuntimeTraceProjectionSeatAuthorityIndex(input)
+	logging.Debug("[answer_document] crown seat authority index: tool_results=%d supplements=%d unproven_keys=%d",
+		len(input.ToolResults), len(input.SystemTraceSupplementResults), len(seatAuthority))
 	var cluster []types.AnswerBlock
 	if len(set.Projections) > 1 {
 		// CMP-1: multi-artifact ledger — one projection section per trace
@@ -4319,38 +4322,10 @@ func runtimeTraceCoverageResults(input types.ObservationLedgerInput) []types.Too
 type runtimeTraceProjectionSeatAuthorityIndex map[string]bool
 
 func buildRuntimeTraceProjectionSeatAuthorityIndex(input types.ObservationLedgerInput) runtimeTraceProjectionSeatAuthorityIndex {
-	results := runtimeTraceCoverageResults(input)
-	seen := make(map[string]bool)
-	out := make(runtimeTraceProjectionSeatAuthorityIndex)
-	for i, result := range results {
-		if !result.Success {
-			continue
-		}
-		isTrace := strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query")
-		authority := result.TraceEvidenceAuthority
-		seatFrameUnproven := isTrace && authority != nil && authority.TypedCausalRowCount > 0 &&
-			(authority.FrameEvidenceStatus == "absent" ||
-				authority.FrameEvidenceStatus == "unavailable" ||
-				authority.FrameFlowCausalConclusion == tracequery.FrameFlowCausalityUnproven)
-		for j, record := range result.Observations {
-			if record.Origin == types.AnswerEvidenceOriginUnknown || !record.Origin.IsValid() ||
-				record.Origin == types.AnswerEvidenceOriginCurrentSource {
-				continue
-			}
-			id := strings.TrimSpace(record.ID)
-			if id == "" {
-				id = fmt.Sprintf("tool:%d#%s:typed:%d", i, strings.TrimSpace(result.ToolName), j)
-			}
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			if seatFrameUnproven {
-				out[id] = true
-			}
-		}
-	}
-	return out
+	// SIDECAR-Q1 (§40.28 ②): ONE seat-level authority builder for every
+	// public consumer — the crown face here and the trace-finding contract
+	// behind the .root-causes.json sidecar (tracefinding.BuildSeatFrameCausalityIndex).
+	return runtimeTraceProjectionSeatAuthorityIndex(tracefinding.BuildSeatFrameCausalityIndex(input))
 }
 
 func runtimeTraceProjectionLeadFrameCausalityUnproven(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, authority runtimeTraceProjectionSeatAuthorityIndex) bool {
@@ -4361,15 +4336,53 @@ func runtimeTraceProjectionLeadFrameCausalityUnproven(projection types.TraceCaus
 	if lead == nil || (lane != runtimeTraceProjLeadLanePrimary && lane != runtimeTraceProjLeadLaneOnChainFallback) {
 		return false
 	}
-	ids := make([]string, 0, 1+len(lead.MergedEvidenceIDs))
-	ids = append(ids, lead.EvidenceID)
-	ids = append(ids, lead.MergedEvidenceIDs...)
+	// SIDECAR-Q1 复核收编 (2026-09-02): the crown consults the RAW compiled
+	// projection node's evidence set (EvidenceID + compile-time merged ids) —
+	// the SAME set tracefinding.compileCandidate hands the sidecar — never
+	// the tree lead's display-fold superset (a same-subject facet absorbed by
+	// a tool-level fold must not flip the headline while the sidecar keeps
+	// the candidate's own verdict; §40.28 ② 两面同真值).
+	ids := runtimeTraceProjRawNodeEvidenceIDs(projection, lead)
 	for _, id := range ids {
 		if authority[strings.TrimSpace(id)] {
+			logging.Debug("[answer_document] crown lead %q frame-unproven via evidence %q (lead ids=%v)", lead.Subject, id, ids)
 			return true
 		}
 	}
+	logging.Debug("[answer_document] crown lead %q frame-proven (lead ids=%v)", lead.Subject, ids)
 	return false
+}
+
+// runtimeTraceProjRawNodeEvidenceIDs resolves the compiled projection node
+// behind a tree lead by its EvidenceID and returns that node's evidence set;
+// a lead with no compiled twin (tree-only fold rows) falls back to its own ids.
+func runtimeTraceProjRawNodeEvidenceIDs(projection types.TraceCausalProjection, lead *types.TraceCausalProjectionNode) []string {
+	if lead == nil {
+		return nil
+	}
+	want := strings.TrimSpace(lead.EvidenceID)
+	lanes := [][]types.TraceCausalProjectionNode{
+		projection.PrimaryRootCauses, projection.RankedSeats, projection.OnChainCauses,
+		projection.SemanticSpans, projection.SupportingHops, projection.AdjacentCauses,
+		projection.BackgroundCauses, projection.AbsorbedChainRows,
+	}
+	if want != "" {
+		for _, lane := range lanes {
+			for i := range lane {
+				if strings.TrimSpace(lane[i].EvidenceID) != want {
+					continue
+				}
+				ids := make([]string, 0, 1+len(lane[i].MergedEvidenceIDs))
+				ids = append(ids, lane[i].EvidenceID)
+				ids = append(ids, lane[i].MergedEvidenceIDs...)
+				return ids
+			}
+		}
+	}
+	ids := make([]string, 0, 1+len(lead.MergedEvidenceIDs))
+	ids = append(ids, lead.EvidenceID)
+	ids = append(ids, lead.MergedEvidenceIDs...)
+	return ids
 }
 
 type runtimeTraceCoverageAuthorityBoundary struct {
@@ -7644,9 +7657,9 @@ func runtimeTraceSemanticOptimizationParts(projection types.TraceCausalProjectio
 // render unavailable — raw span wall time is an observation axis, not a safe
 // substitute for eliminability.
 func runtimeTraceSemanticOptimizationEliminableMS(span types.TraceCausalProjectionNode) (value float64, known bool) {
-	if span.IsSemanticRelationOnly() {
-		return 0, true
-	}
+	// CROWNSEM-1 (§40.28 ①): no basis-keyed zero override — a credentialed
+	// non-target span's published pre-edge/intersection effective is its
+	// rule-eliminable value (R3/R4), read from the same lanes as every seat.
 	if span.EffectiveImpactPublished {
 		if span.EffectiveImpactMS < 0 {
 			return 0, false

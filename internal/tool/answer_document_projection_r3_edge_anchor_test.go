@@ -103,8 +103,10 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	if !strings.Contains(fence, "唤醒锚定(宿主→目标,见图例)·最晚相关边 34579.496810s·凭证=直接裸边") {
 		t.Fatalf("件a: the credential sentence must render with the µs boundary + zh via word:\n%s", fence)
 	}
-	if !strings.Contains(fence, "仅关系凭证,语义完成/延迟机理未证") {
-		t.Fatalf("B829: semantic host-edge row must disclose relation-only authority:\n%s", fence)
+	// CROWNSEM-1 (§40.28 ①): the mechanism word is a DISCLOSURE, never a
+	// pricing verdict — the pre-edge share is priced like the state seats.
+	if !strings.Contains(fence, "语义完成机理未证(仅披露,边前份按 R3/R4 计价)") || strings.Contains(fence, "仅关系凭证") {
+		t.Fatalf("semantic host-edge row must disclose the mechanism without a relation-only pricing claim:\n%s", fence)
 	}
 	if strings.Contains(fence, "凭证=direct") || strings.Contains(fence, "最近相关边") {
 		t.Fatalf("件a: the zh sentence must not leak the EN wire token or the retired 最近 word:\n%s", fence)
@@ -147,8 +149,9 @@ func TestR3EdgeAnchorSentenceAndLegend(t *testing.T) {
 	if !rspaFenceContains(fenceEN, "wakeup-anchored (host→target; see legend) · latest credential edge 34579.496810s · via=direct") {
 		t.Fatalf("件a EN: the credential sentence must render:\n%s", fenceEN)
 	}
-	if !strings.Contains(fenceEN, "relation only; semantic completion/delay mechanism unproven") {
-		t.Fatalf("B829 EN: semantic host-edge row must disclose relation-only authority:\n%s", fenceEN)
+	if !strings.Contains(fenceEN, "semantic completion mechanism unproven (disclosure only; pre-edge share priced per R3/R4)") ||
+		strings.Contains(fenceEN, "relation only") {
+		t.Fatalf("EN semantic host-edge row must disclose the mechanism without a relation-only pricing claim:\n%s", fenceEN)
 	}
 }
 
@@ -197,20 +200,21 @@ func TestR3SentinelWindowsRenderRealFence(t *testing.T) {
 	if !strings.Contains(pos, "唤醒锚定(宿主→目标,见图例)") || !strings.Contains(pos, "34579.496810") {
 		t.Fatalf("正臂 must render the credential sentence with the µs boundary:\n%s", pos)
 	}
-	if !strings.Contains(pos, "仅关系凭证") || !strings.Contains(pos, "延迟机理未证") {
-		t.Fatalf("B829: real relation-only semantic row must not imply completion causality:\n%s", pos)
+	// CROWNSEM-1 (§40.28 ①, restoring R3/R4): the fully pre-edge 0.285ms is
+	// PRICED — the optimization table's rule-eliminable axis and the detail
+	// table's 有效归因 both carry it, and the row participates in ranking;
+	// the mechanism disclosure survives without a relation-only claim.
+	if !strings.Contains(pos, "语义完成机理未证") || strings.Contains(pos, "仅关系凭证") {
+		t.Fatalf("real semantic row must keep the mechanism disclosure without a relation-only pricing claim:\n%s", pos)
 	}
-	if !strings.Contains(pos, "| VerifyClass com.baidu.zeus.mml.lac.LacUtils | 类校验 | T7@ZeusThreadPo-61839 | 0.285ms | 0.000ms | 0.0% |") {
-		t.Fatalf("B829: optimization table must preserve raw wall time while pricing the relation-only basis at zero:\n%s", pos)
+	if !strings.Contains(pos, "| VerifyClass com.baidu.zeus.mml.lac.LacUtils | 类校验 | T7@ZeusThreadPo-61839 | 0.285ms | 0.285ms |") {
+		t.Fatalf("optimization table must price the pre-edge share (R3/R4):\n%s", pos)
 	}
-	if !strings.Contains(pos, "T7@ZeusThreadPo-61839 / VerifyClass com.baidu.zeus.mml.lac.… [E10(+1)] | 0.285ms | 0.285ms | 0.000ms |") {
-		t.Fatalf("B829: detail table must not rehydrate raw occupancy into effective attribution:\n%s", pos)
+	if !strings.Contains(pos, "T7@ZeusThreadPo-61839 / VerifyClass com.baidu.zeus.mml.lac.… [E10(+1)] | 0.285ms | 0.285ms | 0.285ms |") {
+		t.Fatalf("detail table must carry the priced pre-edge effective:\n%s", pos)
 	}
-	if strings.Contains(pos, "因果位置: 确定性优化点(链上参与根因排序)") {
-		t.Fatalf("B829: relation-only semantic evidence must not claim root-cause ranking participation:\n%s", pos)
-	}
-	if !strings.Contains(pos, "因果位置: 确定性优化点(优化项,非根因)") {
-		t.Fatalf("B829: relation-only semantic evidence must retain the deterministic optimization clue:\n%s", pos)
+	if !strings.Contains(pos, "因果位置: 确定性优化点(链上参与根因排序)") {
+		t.Fatalf("priced pre-edge semantic evidence participates in root-cause ranking:\n%s", pos)
 	}
 	// 负臂: no chain-tier semantic row and no credential sentence.
 	neg := r3RealTreeFence(t, 59566, 34579.466, 34579.4965)
@@ -298,8 +302,14 @@ func TestO3CStateEdgeAnchorSentence(t *testing.T) {
 		t.Fatalf("件a: the EN state-seat short marker must render:\n%s", fenceEN)
 	}
 	legendEN := strings.Join(runtimeTraceProjLegendGroupLines(modelEN.Marks, false), "\n")
-	if !strings.Contains(legendEN, "typed pre-edge state-segment sum") {
-		t.Fatalf("件a: the EN legend must keep the state value clause:\n%s", legendEN)
+	// CROWNSEM-1 (§40.28 ①): the EN legend names the state seat under the
+	// ONE credential rule it shares with the span seat (the retired
+	// "state-segment sum vs zero" two-rule clause never returns).
+	if !strings.Contains(legendEN, "a runnable/D-IO state seat share ONE pricing rule: edge=credential, pre-edge=effective, post-edge=released") {
+		t.Fatalf("件a: the EN legend must keep the state seat inside the single credential rule:\n%s", legendEN)
+	}
+	if strings.Contains(legendEN, "eliminable attribution is zero") {
+		t.Fatalf("件a: the retired B829 zero clause must not ride the EN legend:\n%s", legendEN)
 	}
 }
 

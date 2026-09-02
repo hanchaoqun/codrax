@@ -19106,15 +19106,19 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 	// (RankSortBoostedEffectiveMs → rootCauseEffectiveImpactMs / Score), so the
 	// row's competitive strength is unchanged while no boosted ms ever leaves
 	// the engine as a value or a token.
+	// CROWNSEM-1 (user ruling 2026-09-02, ledger colleague_merge_audit §40.28
+	// ①, restoring §29.88.1 R3 / §29.88.2 R4): the pre-edge share of a
+	// non-target semantic span seated by its host's typed wakeup edge — or a
+	// non-target span's exact typed chain-interval intersection — IS priced
+	// on-chain effective attribution: 边=凭证, 边前=有效, 边后=解除 is the ONE
+	// credential rule for every state family, semantic spans included. The
+	// B829/B830 "relation credential → effective=0" branch is retired: it
+	// substituted a mechanism-proof demand ("the target waited for span
+	// completion") for the ruled credential semantics, and priced the host's
+	// own runnable/D-IO seats by that very rule in the same report. Whether
+	// the semantic completion mechanism is proven stays a DISCLOSURE on the
+	// row (披露≠清零), never a pricing input.
 	publishedEffectiveMs := projection.ImpactMs
-	if semanticProjectionIsRelationOnly(projection) {
-		// B829/B830: a typed host edge or non-target chain-interval
-		// intersection is a relation credential, not proof that the target
-		// waited for this semantic span's completion. Preserve exact raw
-		// occupancy, span identity, and business optimization value, but do not
-		// price it into the root-cause election.
-		publishedEffectiveMs = 0
-	}
 	sortBoostedMs := 0.0
 	if publishedEffectiveMs > 0 {
 		sortBoostedMs = semanticTraceSpanEffectiveImpactMs(work, projection, span)
@@ -19173,7 +19177,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.OnChainBasis = RootCauseOnChainBasisHostWakeupEdge
 		item.HostWakeupEdgeAnchorTs = projection.EdgeAnchorBoundaryTs
 		item.HostWakeupEdgeAnchorVia = projection.EdgeAnchorVia
-		item.Summary = fmt.Sprintf("%s; edge_anchored=host→target raw pre-edge occupancy (edge=relation credential; semantic completion/delay binding=unproven; host's latest in-window typed wakeup edge toward the analysis target at %.6f, via=%s)",
+		item.Summary = fmt.Sprintf("%s; edge_anchored=host→target pre-edge share priced on-chain (edge=credential, pre-edge=effective, post-edge=released; semantic completion mechanism unproven — disclosure only; host's latest in-window typed wakeup edge toward the analysis target at %.6f, via=%s)",
 			item.Summary, projection.EdgeAnchorBoundaryTs, projection.EdgeAnchorVia)
 		if projection.EdgeAnchorRemainderEndTs > projection.EdgeAnchorRemainderStartTs {
 			remMs := (projection.EdgeAnchorRemainderEndTs - projection.EdgeAnchorRemainderStartTs) * 1000
@@ -19189,7 +19193,7 @@ func rootCauseItemFromSemanticTraceSpan(q Query, chain ChainResult, span TraceSp
 		item.OverlapMs = projection.ImpactMs
 		if projection.OnChainBasis == RootCauseOnChainBasisSemanticChainIntervalRelation {
 			item.Summary = appendRootCauseSummaryDetail(item.Summary,
-				"semantic interval overlaps typed chain work, but target wait/completion binding is unproven; raw occupancy only, effective_impact=0.000ms")
+				"semantic interval overlaps typed chain work (interval-proven credential, priced on-chain per R4); semantic completion mechanism unproven — disclosure only")
 		}
 	}
 	applySemanticTraceSpanState(&item, projection.DominantState, dominantStateImpactMs)
@@ -19228,15 +19232,6 @@ func semanticTraceSpanEffectiveImpactMs(work traceSpanSemanticWork, projection s
 		return impact
 	}
 	return effective
-}
-
-func semanticProjectionIsRelationOnly(projection semanticTraceSpanProjection) bool {
-	switch projection.OnChainBasis {
-	case RootCauseOnChainBasisSemanticChainIntervalRelation, RootCauseOnChainBasisHostWakeupEdge:
-		return true
-	default:
-		return false
-	}
 }
 
 func semanticTraceSpanProjectionForRootCause(q Query, chain ChainResult, span TraceSpanSummary) (semanticTraceSpanProjection, float64) {

@@ -167,6 +167,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			"answer_document carrier contains serialized JSON boundary text in field name(s): %s; the surviving fields are only a partial model answer",
 			strings.Join(paths, ", "))
 	}
+	if repaired, ok := normalizeMisplacedTraceRootCauseSelection(raw, "trace_root_causes"); ok {
+		logging.Warning("[emit_answer_document] re-homed top-level root_causes selection into trace_root_causes via local-model JSON tolerance")
+		raw = repaired
+	}
 	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(raw, "trace_root_causes"); ok {
 		logging.Warning("[emit_answer_document] re-homed exact root-cause schema_version into trace_root_causes via local-model JSON tolerance")
 		raw = repaired

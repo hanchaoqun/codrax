@@ -34,10 +34,12 @@ const rootCauseRankRemainderSideCap = 8
 // cap, same overflow disclosure through the side-row caveat counts.
 const rootCauseRankDemotedSideCap = rootCauseRankRemainderSideCap
 
-// B829: relation-only semantic work has a dedicated bounded side lane. The
-// host_wakeup_edge_pre_span basis preserves an exact raw occupancy/business
-// clue but has effective=0, so it must neither consume a candidate seat nor
-// evict target-state/data-gap disclosures from their older shared cap.
+// B829 minted this side lane for "relation-only" semantic work (effective=0).
+// CROWNSEM-1 (§40.28 ①, 2026-09-02) restored R3/R4 pricing, so a credentialed
+// host_wakeup_edge_pre_span seat now competes on the board by its pre-edge
+// share; the side lane remains for the residual effective==0 semantic forms
+// (rootCauseItemIsRelationOnlySemantic) so they never evict target-state/
+// data-gap disclosures from their older shared cap.
 const rootCauseRankRelationSemanticSideCap = 8
 
 // rootCauseRankSelfSideCap bounds the ELIM-SELF-FIX 件2 selfSide sub-lane

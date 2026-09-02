@@ -182,6 +182,17 @@ package tool
 // prose classifier, or answer-side hard gate. The exact trace replay plus the
 // heterogeneous target-self semantic tests are the live-eval weigh.
 //
+// EVOLUTION RECORD (CROWNSEM-1, 2026-09-02, user ruling colleague_merge_audit
+// §40.28 ①): the B829/B830 "relation-only, effective=0" teaching is REVERSED
+// back to §29.88.1 R3 / §29.88.2 R4 — the pre-edge share of a host-edge-seated
+// non-target semantic span and the exact chain-interval intersection are priced
+// on-chain effective attribution under the one credential rule that already
+// prices the host's state seats (边=凭证, 边前=有效, 边后=解除); mechanism
+// proof is a disclosure, never a pricing input. Same three sentences as B829/
+// B830, no new view/note key/dispatch term/hard gate. Deterministic weigh: the
+// tieba sentinel double-seat consistency pin (runnable + VerifyClass under one
+// rule) plus the R3 acceptance pins re-pinned to priced values.
+//
 // UPDATE RITUAL (deliberate gate — do NOT casually regenerate):
 //  1. justify the wording change against §29.64 (new note-key teaching goes
 //     to the wire Summary/legend, NOT mid-Description; R2' description-slot

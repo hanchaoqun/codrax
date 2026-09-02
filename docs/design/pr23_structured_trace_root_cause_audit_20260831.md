@@ -73,6 +73,26 @@ evidence. Internal candidate IDs are cleared before persistence.
    malformed sidecar shape non-blocking; it cannot recover bytes the provider never
    delivered as a parseable tool call.
 
+## 4.1 Versioned decision — v2 additive qualifiers (2026-09-02, user ruling colleague_merge_audit §40.28 ②)
+
+The public v2 item gains two ALWAYS-EXPLICIT closed-set fields, append-only
+(`schema_version` stays 2; consumers ignore unknown keys, the same
+compatibility posture as the `next_info` tail-append ruling):
+
+- `impact_caliber` ∈ {`effective_attribution`, `window_projection`} — the ruler
+  behind `impact_seconds`; the evidence sentence speaks the same caliber
+  (「链上有效归因为」 vs 「窗内投影占用为…（未发布有效归因）」), so a raw window
+  projection is never called 有效.
+- `causal_qualifier` ∈ {`proven`, `frame_unproven`} — SEAT-LEVEL, bound from
+  the same evidence-ID authority index the Markdown headline consults
+  (`tracefinding.SeatFrameCausalityIndex`); a `frame_unproven` item's summary
+  carries the headline's exact qualifier words 「（帧因果未证）」. The
+  session-wide ANY causal signal is advisory-only
+  (`TestSessionAnyCausalSignalFeedsAdvisoryLanesOnly`).
+
+`status=available` on the default artifact remains a DELIVERY status (a valid
+model selection was persisted), never a causal-proof assertion.
+
 ## 5. Verification obligations
 
 - candidate compiler: exact on-chain admission; background/adjacent negative arms;

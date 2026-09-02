@@ -67,6 +67,40 @@ func TestFinalizerAutoRepairAddsEvidenceSufficientFacetIDsAndStripsBackticks(t *
 	}
 }
 
+// TestFinalizerAutoRepairKeepsAcceptedRootCauseSidecar — §40.29.1 ★19 (eval
+// witness trace_query_donghu_real_frame_multicausal, 2026-09-02): the
+// deterministic auto-repair rewrites the SAME accepted answer, so the
+// accepted .root-causes.json selection must survive it (it shipped as
+// `unavailable` when the rewrite went through the model-emit epilogue).
+func TestFinalizerAutoRepairKeepsAcceptedRootCauseSidecar(t *testing.T) {
+	mut := types.NewMutableState("auto repair")
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID: "summary_1", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal,
+			Text:      "Uses `SUBSCRIBE_FEATURE` as ordinary context.",
+			ClaimUses: []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact}},
+		}},
+	})
+	mut.SetTraceRootCauseReport(&types.TraceRootCauseReportV2{SchemaVersion: types.TraceRootCauseReportSchemaVersion,
+		RootCauses: []*types.TraceRootCauseItemV2{{CandidateID: "c1", Category: types.TraceRootCauseIOBlocking, ThreadName: "worker",
+			ImpactCaliber: types.TraceImpactCaliberEffectiveAttribution, CausalQualifier: types.TraceCausalQualifierProven}}})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut, Language: "zh"}}
+	out := &agent.StageOutput{}
+	applied := o.tryAutoRepairFinalizerAnswerDocument(out, []types.Violation{{
+		Kind:   types.ViolInlineIdentifierHallucinated,
+		Detail: `block "summary_1" has 1 inline-backtick identifier(s): [block="summary_1" ident="SUBSCRIBE_FEATURE" surface="text"]`,
+	}})
+	if !applied {
+		t.Fatal("expected auto repair to apply")
+	}
+	if doc := mut.AnswerDocumentV2(); doc == nil || strings.Contains(doc.Blocks[0].Text, "`SUBSCRIBE_FEATURE`") {
+		t.Fatalf("repair must land: %+v", doc)
+	}
+	if report := mut.TraceRootCauseReport(); report == nil || len(report.RootCauses) != 1 || report.RootCauses[0].CandidateID != "c1" {
+		t.Fatalf("the accepted root-cause sidecar must survive the deterministic auto-repair rewrite: %+v", report)
+	}
+}
+
 func TestFinalizerAutoRepairDoesNotInventEssentialFacetCoverage(t *testing.T) {
 	mut := types.NewMutableState("auto repair")
 	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

@@ -47,16 +47,16 @@ func TestTraceQuerySemanticFamilyObservationSeparatesFullTotalFromOnChainProject
 		"actual_impact_ms=17.000",
 		"chain_relevance=on_chain",
 		"on_chain_basis=semantic_chain_interval_relation",
-		"effective_impact_ms=0.000",
+		"effective_impact_ms=10.000",
 	} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("on-chain family observation omitted %q:\n%s", want, notes)
 		}
 	}
 	if !strings.Contains(record.Summary, "complete selected-window union=15.000ms") ||
-		!strings.Contains(record.Summary, "raw typed-chain interval overlap=10.000ms") ||
-		!strings.Contains(record.Summary, "target wait/completion binding=unproven") ||
-		!strings.Contains(record.Summary, "effective_impact=0.000ms") {
+		!strings.Contains(record.Summary, "exact typed-chain interval overlap=10.000ms") ||
+		!strings.Contains(record.Summary, "interval-proven credential priced on-chain per R4") ||
+		!strings.Contains(record.Summary, "effective_impact=10.000ms") {
 		t.Fatalf("summary must distinguish full disclosure from causal participation: %q", record.Summary)
 	}
 	if record.Span.StartTs != 5.000 || record.Span.EndTs != 5.015 {

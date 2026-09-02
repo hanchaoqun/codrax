@@ -50,6 +50,10 @@ func (r ExplicitReport) hasTarget() bool {
 
 const ExplicitRootCauseArtifactSchemaVersion = 1
 
+// ExplicitRootCauseStatus* are DELIVERY states of the default artifact
+// ("a valid model selection was persisted" / "none was"), never a causal-proof
+// assertion: per-item causal truth rides `causal_qualifier` on each root cause
+// (SIDECAR-Q1, colleague_merge_audit §40.28 ②).
 const (
 	ExplicitRootCauseStatusAvailable   = "available"
 	ExplicitRootCauseStatusUnavailable = "unavailable"

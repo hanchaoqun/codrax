@@ -17,19 +17,20 @@ const CandidateCompilerVersion = "trace-candidate-v2"
 // CompileCandidateContract freezes the deterministic candidate rows that the
 // finalizer may select. It consumes typed trace records only; final answer
 // prose is deliberately not an input.
-func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCausalProjectionSet, causalCeiling string) (*types.TraceFindingContract, error) {
+func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCausalProjectionSet, seatIndex SeatFrameCausalityIndex) (*types.TraceFindingContract, error) {
 	registryHash, err := RegistryHash()
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(causalCeiling) == "" {
-		causalCeiling = "proven"
-	}
+	// SIDECAR-Q1 (§40.28 ②): the contract-level ceiling is DERIVED from the
+	// seat-level qualifiers below (unproven iff any admitted candidate's own
+	// evidence is frame-unproven) — it is a summary for the legacy Required
+	// view, never an input to any candidate's qualifier.
 	contract := &types.TraceFindingContract{
 		Required:             true,
 		FindingSchemaVersion: types.TraceFindingSchemaVersion,
 		RegistryHash:         registryHash,
-		CausalCeiling:        causalCeiling,
+		CausalCeiling:        types.TraceCausalQualifierProven,
 		AcceptedEvidenceIDs:  acceptedEvidenceIDs(ledger),
 		Scope: types.TraceFindingScope{
 			ProfileFamily: "runtime_trace",
@@ -43,11 +44,14 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	for _, projection := range set.Projections {
 		applyProjectionMetadata(contract, projection)
 		for _, node := range candidateNodes(projection) {
-			candidate, ok := compileCandidate(projection, node, registryHash, causalCeiling)
+			candidate, ok := compileCandidate(projection, node, registryHash, seatIndex)
 			if !ok || seen[candidate.Decision.CandidateID] {
 				continue
 			}
 			seen[candidate.Decision.CandidateID] = true
+			if candidate.Decision.CausalQualifier == types.TraceCausalQualifierFrameUnproven {
+				contract.CausalCeiling = types.TraceCausalQualifierFrameUnproven
+			}
 			contract.Candidates = append(contract.Candidates, candidate)
 			if candidate.PrimaryEligible {
 				contract.PrimaryCandidateIDs = append(contract.PrimaryCandidateIDs, candidate.Decision.CandidateID)
@@ -83,7 +87,7 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 		Artifact     types.TraceFindingArtifact      `json:"artifact"`
 		Scope        types.TraceFindingScope         `json:"scope"`
 		Candidates   []types.TraceFindingCandidateV1 `json:"candidates"`
-	}{CandidateCompilerVersion, registryHash, causalCeiling, contract.Artifact, contract.Scope, contract.Candidates}
+	}{CandidateCompilerVersion, registryHash, contract.CausalCeiling, contract.Artifact, contract.Scope, contract.Candidates}
 	b, err := json.Marshal(identity)
 	if err != nil {
 		return nil, fmt.Errorf("marshal trace candidate contract: %w", err)
@@ -138,7 +142,7 @@ func candidateNodes(projection types.TraceCausalProjection) []types.TraceCausalP
 	return out
 }
 
-func compileCandidate(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode, registryHash, causalCeiling string) (types.TraceFindingCandidateV1, bool) {
+func compileCandidate(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode, registryHash string, seatIndex SeatFrameCausalityIndex) (types.TraceFindingCandidateV1, bool) {
 	if node.Rank <= 0 || node.IsTargetSelfStateRow() || node.IsContextOnlyRow() ||
 		node.IsCaliberSideRow() || node.IsEvidenceBoundaryRow() || node.IsAggregateMetric() ||
 		node.OnChainOverflowFold || node.Unit == types.TraceObservationUnitCompositeScore ||
@@ -186,12 +190,19 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 			DStateRefinedNonIO: node.DStateRefinedNonIO, DStateMS: node.DStateSplitMS, IOWaitMS: node.IOWaitSplitMS,
 		}
 	}
+	// SIDECAR-Q1: seat-level qualifier from the candidate's OWN evidence IDs
+	// (the exact index the crown face consults) — never a session aggregate.
+	qualifier := types.TraceCausalQualifierProven
+	if seatIndex.SeatFrameUnproven(append([]string{node.EvidenceID}, node.MergedEvidenceIDs...)...) {
+		qualifier = types.TraceCausalQualifierFrameUnproven
+	}
 	status := types.TraceCausalSupportedCandidate
-	if causalCeiling != "unproven" && candidateCausalityExplicitlyProven(node.Causality) {
+	if qualifier != types.TraceCausalQualifierFrameUnproven && candidateCausalityExplicitlyProven(node.Causality) {
 		status = types.TraceCausalProven
 	}
 	decision := types.TraceCauseDecision{
-		Status: status,
+		Status:          status,
+		CausalQualifier: qualifier,
 		Token: types.TraceCausalTokenSnapshot{
 			Token: token, Lane: string(spec.Lane), Additivity: string(spec.Additivity),
 			SubjectKind: string(spec.Subject), FixDirection: string(tracequery.CausalTokenFixDirectionFor(token)), RegistryHash: registryHash,

@@ -103,10 +103,16 @@ func TestRule3EdgeAnchorRowNeverRepeatsMechanism(t *testing.T) {
 		t.Fatalf("件1(b) 套话复活: the mechanism sentence must not ride a row:\n%s", fence)
 	}
 	legend := strings.Join(runtimeTraceProjLegendGroupLines(model.Marks, true), "\n")
-	if !strings.Contains(legend, "宿主自身对目标的窗内 typed 唤醒边只证明关系") ||
-		!strings.Contains(legend, "缺少精确等待/完成绑定时现有规则可消除量为0") ||
-		!strings.Contains(legend, "runnable/D-IO 状态席仍按状态段清单的边前份计入") {
-		t.Fatalf("件1(b): the legend keeps the full mechanism + both value clauses:\n%s", legend)
+	// CROWNSEM-1 (§40.28 ①): the legend promises ONE credential rule for the
+	// span seat and the state seat (边前份计入), with the mechanism as a
+	// disclosure — the retired "可消除量为0" clause must never return.
+	if !strings.Contains(legend, "宿主自身对目标的窗内 typed 唤醒边是入链凭证") ||
+		!strings.Contains(legend, "边=凭证、边前=有效、边后=解除——边前份计入现有规则可消除量") ||
+		!strings.Contains(legend, "语义完成机理未证仅作披露") {
+		t.Fatalf("件1(b): the legend keeps the full mechanism + the single credential rule:\n%s", legend)
+	}
+	if strings.Contains(legend, "可消除量为0") {
+		t.Fatalf("件1(b): the retired B829 zero clause must not ride the legend:\n%s", legend)
 	}
 }
 

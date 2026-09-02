@@ -71,8 +71,33 @@ type TraceRootCauseItemV2 struct {
 	ResourceName  string                 `json:"resource_name,omitempty"`
 	PhaseName     string                 `json:"phase_name,omitempty"`
 	ImpactSeconds *float64               `json:"impact_seconds"`
-	Summary       string                 `json:"summary"`
-	Evidence      []string               `json:"evidence"`
+	// ImpactCaliber (SIDECAR-Q1, §40.28 ②) names the ruler behind
+	// impact_seconds — "effective_attribution" (the engine-published effective
+	// attribution) or "window_projection" (the raw window projection of a seat
+	// whose effective was never published). Always explicit; append-only v2
+	// extension (schema_version stays 2, consumers ignore unknown keys).
+	ImpactCaliber string `json:"impact_caliber"`
+	// CausalQualifier (SIDECAR-Q1, §40.28 ②): "proven" or "frame_unproven",
+	// seat-level, sourced from the same evidence-ID authority index as the
+	// Markdown headline qualifier 「（帧因果未证）」. Always explicit.
+	CausalQualifier string   `json:"causal_qualifier"`
+	Summary         string   `json:"summary"`
+	Evidence        []string `json:"evidence"`
+}
+
+// TraceImpactCaliber values carried on the public sidecar — closed set.
+const (
+	TraceImpactCaliberEffectiveAttribution = "effective_attribution"
+	TraceImpactCaliberWindowProjection     = "window_projection"
+)
+
+// ValidTraceImpactCaliber reports closed-set membership.
+func ValidTraceImpactCaliber(v string) bool {
+	switch v {
+	case TraceImpactCaliberEffectiveAttribution, TraceImpactCaliberWindowProjection:
+		return true
+	}
+	return false
 }
 
 // TraceRootCauseReportV2 is written next to the full Markdown/HTML answer.
@@ -139,11 +164,21 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		return nil, fmt.Errorf("trace_root_causes.%s is null", field)
 	}
 	out := &TraceRootCauseItemV2{
-		CandidateID:  compactTraceRootCauseField(in.CandidateID),
-		Category:     in.Category,
-		ThreadName:   compactTraceRootCauseField(in.ThreadName),
-		ResourceName: compactTraceRootCauseField(in.ResourceName),
-		PhaseName:    compactTraceRootCauseField(in.PhaseName),
+		CandidateID:     compactTraceRootCauseField(in.CandidateID),
+		Category:        in.Category,
+		ThreadName:      compactTraceRootCauseField(in.ThreadName),
+		ResourceName:    compactTraceRootCauseField(in.ResourceName),
+		PhaseName:       compactTraceRootCauseField(in.PhaseName),
+		ImpactCaliber:   strings.TrimSpace(in.ImpactCaliber),
+		CausalQualifier: strings.TrimSpace(in.CausalQualifier),
+	}
+	// SIDECAR-Q1 (§40.28 ②): both qualifiers are closed-set and REQUIRED on
+	// every bound item — a consumer never infers them from absence.
+	if !ValidTraceImpactCaliber(out.ImpactCaliber) {
+		return nil, fmt.Errorf("trace_root_causes.%s.impact_caliber=%q is unsupported", field, out.ImpactCaliber)
+	}
+	if !ValidTraceCausalQualifier(out.CausalQualifier) {
+		return nil, fmt.Errorf("trace_root_causes.%s.causal_qualifier=%q is unsupported", field, out.CausalQualifier)
 	}
 	if !validTraceRootCauseCategory(out.Category) {
 		return nil, fmt.Errorf("trace_root_causes.%s.category=%q is unsupported", field, out.Category)
@@ -179,6 +214,10 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		out.Evidence = append(out.Evidence, evidence)
 	}
 	out.Summary = traceRootCauseSummary(*out)
+	if out.CausalQualifier == TraceCausalQualifierFrameUnproven && out.Summary != "" {
+		// Same words as the Markdown headline qualifier (§7.3 T3-1 ruling).
+		out.Summary += TraceCausalQualifierFrameUnprovenSuffixZH
+	}
 	return out, nil
 }
 

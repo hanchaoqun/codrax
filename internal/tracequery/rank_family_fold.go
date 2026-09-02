@@ -573,6 +573,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 					}
 				}
 				preMerged, _ := foldIntervalUnionWithDisjoint(pre)
+				fam.edgeAnchorPreIntervals = preMerged
 				for _, interval := range preMerged {
 					fam.ProjectedImpactMs += (interval.end - interval.start) * 1000
 				}
@@ -584,6 +585,7 @@ func FoldSemanticSpanFamilies(chain *ChainResult, spans []TraceSpanSummary) []Se
 					fam.ProjectedImpactMs = fam.TotalMs
 				}
 				postMerged, _ := foldIntervalUnionWithDisjoint(post)
+				fam.edgeAnchorPostIntervals = postMerged
 				for _, interval := range postMerged {
 					fam.EdgeAnchorRemainderMs += (interval.end - interval.start) * 1000
 				}
@@ -655,7 +657,6 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	selfBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSelfDeterministicSpan
 	edgeBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisHostWakeupEdge
 	intervalRelationBasis := fam.OnChain && fam.OnChainBasis == RootCauseOnChainBasisSemanticChainIntervalRelation
-	relationOnlyBasis := edgeBasis || intervalRelationBasis
 	if fam.OnChain && !selfBasis {
 		participationMs = fam.ProjectedImpactMs
 		projectionStartTs, projectionEndTs = fam.ProjectedStartTs, fam.ProjectedEndTs
@@ -697,17 +698,12 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// intersection union (see the FoldSemanticSpanFamilies OnChain record
 	// above); full-overlap families — the §29.22 textup 102.172 witness —
 	// are byte-identical because there intersection == union.
-	// B829/B830: a host-owned wakeup edge or a non-target chain-interval
-	// intersection proves relation and a precise raw-occupancy boundary. It
-	// does NOT prove that the target waited for this semantic operation to
-	// finish (or that finishing it triggered the wakeup). Keep raw projection
-	// and business identity, but publish no eliminable attribution until a
-	// target-self basis or exact typed target-wait/semantic-completion binding
-	// exists.
+	// CROWNSEM-1 (user ruling 2026-09-02, §40.28 ①, restoring R3/R4): the
+	// host-edge family's pre-edge share and the non-target family's exact
+	// chain-interval intersection are priced on-chain effective attribution
+	// — one credential rule for every state family. The B829/B830 zeroing
+	// branch is retired (see rootCauseItemFromSemanticTraceSpan).
 	publishedEffectiveMs := participationMs
-	if relationOnlyBasis {
-		publishedEffectiveMs = 0
-	}
 	sortBoostedMs := 0.0
 	if publishedEffectiveMs > 0 {
 		sortBoostedMs = semanticTraceSpanEffectiveImpactMs(work, projection, TraceSpanSummary{DurationMs: fam.TotalMs})
@@ -722,11 +718,11 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	} else if edgeBasis {
 		// R3-IMPL: the R4-family edge=credential wording — the participation
 		// is the pre-edge share, the complete union stays disclosed.
-		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms raw pre-edge occupancy before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=relation credential; semantic completion/delay binding=unproven; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=0.000ms; fold_caliber=%s",
-			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.FoldCaliber)
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms pre-edge share priced on-chain before the host's own in-window wakeup edge toward the analysis target at %.6f (edge=credential, pre-edge=effective, post-edge=released; semantic completion mechanism unproven — disclosure only; via=%s) from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
+			familyLabel, len(fam.Members), participationMs, fam.EdgeAnchorBoundaryTs, fam.EdgeAnchorVia, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else if intervalRelationBasis {
-		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms raw overlap with typed chain intervals from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); target wait/completion binding=unproven; effective_impact=0.000ms; fold_caliber=%s",
-			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, fam.FoldCaliber)
+		summary = fmt.Sprintf("%s family n=%d same-thread span(s) carried %.3fms exact overlap with typed chain intervals from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); interval-proven credential priced on-chain per R4, semantic completion mechanism unproven — disclosure only; effective_impact=%.3fms; fold_caliber=%s",
+			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
 	} else if fam.OnChain {
 		summary = fmt.Sprintf("%s family n=%d target-thread span(s) attributed %.3fms by exact self interval intersection from %.3fms complete selected-window span union (largest %q %.3fms, smallest %.3fms); effective_impact=%.3fms; fold_caliber=%s",
 			familyLabel, len(fam.Members), participationMs, fam.TotalMs, rep.Name, fam.MaxMs, fam.MinMs, participationMs, fam.FoldCaliber)
@@ -828,6 +824,15 @@ func rootCauseItemFromSemanticSpanFamily(q Query, fam SemanticSpanFamily, hasCau
 	// all-or-nothing — the self-gap overlap disclosure claims an EXACT X, so
 	// a partial inventory mints nothing rather than an understated overlap).
 	item.semanticMemberIntervals = fam.memberIntervalInventory(queryWindowStartsAtDeterminedZero(q))
+	if edgeBasis && len(item.semanticMemberIntervals) > 0 {
+		// CROWNSEM-1 复核收编 (2026-09-02): the host-edge family's support
+		// inventory IS its priced pre-edge share (the same clip the state
+		// lane and the single-span lane already apply at the mint) — the
+		// post-edge share rides the ◇ clone's inventory instead, so P3M /
+		// direction unions never book the released share twice.
+		item.semanticMemberIntervals = append([]foldInterval(nil), fam.edgeAnchorPreIntervals...)
+		item.hostEdgeRemainderIntervals = append([]foldInterval(nil), fam.edgeAnchorPostIntervals...)
+	}
 	item.MemberMaxMs = fam.MaxMs
 	item.MemberMinMs = fam.MinMs
 	if fam.TotalMs < fam.SumMs {

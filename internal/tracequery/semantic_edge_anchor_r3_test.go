@@ -77,11 +77,11 @@ func TestR3TiebaSentinelPositiveArm(t *testing.T) {
 	if seat.Causality != "on_wakeup_chain" || seat.ChainRelevance != "on_chain" {
 		t.Fatalf("正臂 seat must speak the honest edge token on the chain channel: %+v", seat)
 	}
-	// B829: the whole 0.285ms span remains as exact raw pre-edge occupancy,
-	// but the host edge alone proves no semantic completion dependency.
-	if seat.EffectiveImpactMs != 0 || math.Abs(seat.ProjectedImpactMs-0.285) > 0.002 ||
-		math.Abs(seat.CumulativeImpactMs-0.285) > 0.002 || seat.Rank != 0 || seat.Tier != RootCauseTierContextOnly {
-		t.Fatalf("正臂 must preserve 0.285ms raw occupancy without pricing it: %+v", seat)
+	// CROWNSEM-1 (§40.28 ①, restoring R3): the whole 0.285ms span lies before
+	// the edge — its pre-edge share IS the priced on-chain effective.
+	if math.Abs(seat.EffectiveImpactMs-0.285) > 0.002 || math.Abs(seat.ProjectedImpactMs-0.285) > 0.002 ||
+		math.Abs(seat.CumulativeImpactMs-0.285) > 0.002 || seat.Rank <= 0 || seat.Tier == RootCauseTierContextOnly {
+		t.Fatalf("正臂 must price its 0.285ms pre-edge share on-chain: %+v", seat)
 	}
 	// The anchor boundary is the raw 裸边 line 5639 timestamp, µs-exact.
 	if math.Abs(seat.HostWakeupEdgeAnchorTs-34579.496810) > 0.0000005 {
@@ -98,9 +98,9 @@ func TestR3TiebaSentinelPositiveArm(t *testing.T) {
 	if seat.OverlapMs != 0 {
 		t.Fatalf("正臂 seat must not fabricate a chain-window overlap: %+v", seat)
 	}
-	if !strings.Contains(seat.Summary, "edge=relation credential") ||
-		!strings.Contains(seat.Summary, "completion/delay binding=unproven") {
-		t.Fatalf("正臂 seat summary must disclose relation-only caliber: %q", seat.Summary)
+	if !strings.Contains(seat.Summary, "pre-edge=effective") ||
+		!strings.Contains(seat.Summary, "mechanism unproven") {
+		t.Fatalf("正臂 seat summary must speak the R4 credential rule and keep the mechanism disclosure: %q", seat.Summary)
 	}
 }
 
@@ -125,8 +125,8 @@ func TestR3TiebaSentinelNegativeArmAndBoundaryFlip(t *testing.T) {
 		onChainFlipped[0].OnChainBasis != RootCauseOnChainBasisHostWakeupEdge {
 		t.Fatalf("翻道 window (+0.4ms end) must seat the 61839 span on-chain: %+v", onChainFlipped)
 	}
-	if onChainFlipped[0].EffectiveImpactMs != 0 || math.Abs(onChainFlipped[0].ProjectedImpactMs-0.285) > 0.002 {
-		t.Fatalf("翻道 must preserve the 0.285ms raw pre-edge projection without pricing it: %+v", onChainFlipped[0])
+	if math.Abs(onChainFlipped[0].EffectiveImpactMs-0.285) > 0.002 || math.Abs(onChainFlipped[0].ProjectedImpactMs-0.285) > 0.002 {
+		t.Fatalf("翻道 must price the 0.285ms pre-edge share: %+v", onChainFlipped[0])
 	}
 }
 
@@ -327,9 +327,9 @@ func TestR3FamilyGrainEdgeAnchorFold(t *testing.T) {
 	if seat.OverlapMs != 0 {
 		t.Fatalf("family seat must not fabricate a chain-window overlap: %+v", seat)
 	}
-	if seat.EffectiveImpactMs != 0 || math.Abs(seat.ProjectedImpactMs-2.0) > 0.0005 || math.Abs(seat.ChainAnchoredMs-2.0) > 0.0005 ||
+	if math.Abs(seat.EffectiveImpactMs-2.0) > 0.0005 || math.Abs(seat.ProjectedImpactMs-2.0) > 0.0005 || math.Abs(seat.ChainAnchoredMs-2.0) > 0.0005 ||
 		math.Abs(seat.ChainAnchorFullMs-4.0) > 0.0005 {
-		t.Fatalf("family seat bipartition drifted: %+v", seat)
+		t.Fatalf("family seat bipartition drifted (pre-edge share priced, R3): %+v", seat)
 	}
 	if seat.HostWakeupEdgeAnchorTs != 6.006 || seat.HostWakeupEdgeAnchorVia != HostWakeupEdgeAnchorViaDirect {
 		t.Fatalf("family seat anchor disclosure drifted: %+v", seat)
@@ -394,9 +394,9 @@ func TestR3BisectedSpanMintsSeatPlusRemainder(t *testing.T) {
 	if seat.OnChainBasis != RootCauseOnChainBasisHostWakeupEdge || seat.ChainRelevance != "on_chain" {
 		t.Fatalf("seat lane drifted: %+v", seat)
 	}
-	// Pre-edge share: 6.005..6.006 = 1.000ms of the 3.000ms span.
-	if seat.EffectiveImpactMs != 0 || math.Abs(seat.ProjectedImpactMs-1.0) > 0.0005 {
-		t.Fatalf("pre-edge raw share must survive without priced attribution: %+v", seat)
+	// Pre-edge share: 6.005..6.006 = 1.000ms of the 3.000ms span — priced (R3).
+	if math.Abs(seat.EffectiveImpactMs-1.0) > 0.0005 || math.Abs(seat.ProjectedImpactMs-1.0) > 0.0005 {
+		t.Fatalf("pre-edge share must be priced on-chain: %+v", seat)
 	}
 	if math.Abs(seat.ChainAnchoredMs-1.0) > 0.0005 || math.Abs(seat.ChainAnchorFullMs-3.0) > 0.0005 {
 		t.Fatalf("bipartition pair drifted: %+v", seat)
@@ -462,24 +462,30 @@ func TestB829HostEdgeDoesNotInventSemanticCompletionCausality(t *testing.T) {
 	seat, ok := rootCauseItemFromSemanticTraceSpan(
 		Query{PID: target.PID, TimeStart: 5.000000, TimeEnd: 5.010000}, chain, span, true)
 	if !ok {
-		t.Fatal("relation-only semantic observation must remain available")
+		t.Fatal("straddling semantic observation must mint")
 	}
+	// CROWNSEM-1 (§40.28 ①): the r506 shape under R3 — the 4.600ms PRE-edge
+	// share (5.000400..5.005000) is priced on-chain; the 0.400ms post-edge
+	// remainder (5.005000..5.005400) is the ◇ remainder and stays unpriced.
+	// B829 read the post-edge end ("the span finishes after the wakeup") as
+	// grounds to zero the whole span; the ruled bisection prices each half.
 	if got, want := seat.ProjectedImpactMs, 4.600; math.Abs(got-want) > 0.0005 {
-		t.Fatalf("raw pre-edge occupancy got %.3f want %.3f", got, want)
+		t.Fatalf("pre-edge share got %.3f want %.3f", got, want)
 	}
-	if seat.EffectiveImpactMs != 0 || seat.RankSortBoostedEffectiveMs != 0 || seat.Score != 0 {
-		t.Fatalf("relation-only span must not acquire priced or boosted authority: %+v", seat)
+	if math.Abs(seat.EffectiveImpactMs-4.600) > 0.0005 || seat.Score <= 0 {
+		t.Fatalf("pre-edge share must be priced with a live score: %+v", seat)
 	}
 	rem, ok := semanticEdgeAnchorRemainderSeat(seat)
 	if !ok || math.Abs(rem.ProjectedImpactMs-0.400) > 0.0005 || rem.EffectiveImpactMs != 0 {
-		t.Fatalf("post-wakeup raw remainder must survive without priced authority: %+v ok=%v", rem, ok)
+		t.Fatalf("post-edge remainder must stay an unpriced ◇ share: %+v ok=%v", rem, ok)
 	}
 	items := []RootCauseRankItem{seat, rem}
 	assignRootCauseRanksAndTiers(items, true, false)
-	for _, item := range items {
-		if item.Rank != 0 || item.Tier != RootCauseTierContextOnly {
-			t.Fatalf("relation-only semantic halves must stay rank-0 context: %+v", item)
-		}
+	if items[0].Rank <= 0 || items[0].Tier == RootCauseTierContextOnly {
+		t.Fatalf("priced pre-edge seat must hold an ordinal: %+v", items[0])
+	}
+	if items[1].Rank != 0 {
+		t.Fatalf("◇ remainder must not hold an ordinal: %+v", items[1])
 	}
 }
 

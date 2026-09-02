@@ -434,8 +434,10 @@ func TestDCSSameThreadNoOverlapSpanStaysNonChainAdjacent(t *testing.T) {
 	}
 	if onChainSpan == nil || onChainSpan.ChainRelevance != "on_chain" ||
 		onChainSpan.OnChainBasis != RootCauseOnChainBasisSemanticChainIntervalRelation ||
-		onChainSpan.Tier != RootCauseTierContextOnly || onChainSpan.EffectiveImpactMs != 0 {
-		t.Fatalf("the overlapping non-target span must stay as a relation-only chain clue: %+v", onChainSpan)
+		onChainSpan.Tier == RootCauseTierContextOnly || onChainSpan.EffectiveImpactMs <= 0 ||
+		onChainSpan.EffectiveImpactMs != onChainSpan.ProjectedImpactMs {
+		// CROWNSEM-1 (§40.28 ①, R3/R4): the exact intersection IS the priced value.
+		t.Fatalf("the overlapping non-target span must price its exact chain intersection: %+v", onChainSpan)
 	}
 	if tailSpan == nil {
 		t.Fatalf("the no-overlap span must still mint a typed row (E2 fall-through): %+v", rank.Items)

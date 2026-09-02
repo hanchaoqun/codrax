@@ -305,7 +305,8 @@ func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any
 	contributorIDs := append([]string(nil), contract.ContributorCandidateIDs...)
 	decision := func(ids []string) map[string]any {
 		statuses := []string{"proven", "supported_candidate"}
-		if contract.CausalCeiling == "unproven" {
+		// SIDECAR-Q1 (§40.28 ②): the ceiling is the typed closed-set qualifier.
+		if contract.CausalCeiling == types.TraceCausalQualifierFrameUnproven {
 			statuses = []string{"supported_candidate"}
 		}
 		return map[string]any{

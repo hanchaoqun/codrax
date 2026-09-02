@@ -47,7 +47,7 @@ func TestRootCauseReportPreservesRankedValueCaliber(t *testing.T) {
 			node := tc.node
 			node.EvidenceID, node.Subject, node.Rank, node.ChainRelevance = "E1", "worker-9", 1, "on_chain"
 			contract, err := CompileCandidateContract(types.ObservationLedger{}, types.TraceCausalProjectionSet{
-				Projections: []types.TraceCausalProjection{{RankedSeats: []types.TraceCausalProjectionNode{node}}}}, "proven")
+				Projections: []types.TraceCausalProjection{{RankedSeats: []types.TraceCausalProjectionNode{node}}}}, nil)
 			if err != nil || len(contract.Candidates) != 1 {
 				t.Fatalf("compile: %v %+v", err, contract)
 			}
@@ -78,7 +78,7 @@ func TestRootCauseMagnitudeComponentsAreFrozenWithCandidate(t *testing.T) {
 		SupplyFoldComputed: true, SupplyFoldDeficitMS: 3, SupplyFoldIdealMS: 9, SupplyFoldKnownMS: 10,
 		SupplyFoldUnknownMS: 2, SupplyFoldCapabilitySource: "freq_only"}
 	set := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{{RankedSeats: []types.TraceCausalProjectionNode{node}}}}
-	contract, err := CompileCandidateContract(types.ObservationLedger{}, set, "proven")
+	contract, err := CompileCandidateContract(types.ObservationLedger{}, set, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestRootCauseMagnitudeComponentsAreFrozenWithCandidate(t *testing.T) {
 		t.Fatal("model rewrite of the frozen coverage was accepted")
 	}
 	set.Projections[0].RankedSeats[0].SupplyFoldUnknownMS = 0
-	changed, err := CompileCandidateContract(types.ObservationLedger{}, set, "proven")
+	changed, err := CompileCandidateContract(types.ObservationLedger{}, set, nil)
 	if err != nil || changed.ContractHash == contract.ContractHash {
 		t.Fatalf("value basis omitted from contract identity: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRootCauseMagnitudeComponentsAreFrozenWithCandidate(t *testing.T) {
 	for _, computed := range []bool{true, false} {
 		set.Projections[0].RankedSeats[0].EffectiveImpactMS = 0
 		set.Projections[0].RankedSeats[0].SupplyFoldComputed = computed
-		empty, err := CompileCandidateContract(types.ObservationLedger{}, set, "proven")
+		empty, err := CompileCandidateContract(types.ObservationLedger{}, set, nil)
 		if err != nil || len(empty.Candidates) != 0 {
 			t.Fatalf("zero effective value became raw running root: %v %+v", err, empty)
 		}

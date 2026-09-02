@@ -36,7 +36,9 @@ Codrax 分析 Trace 后可以保存两类结果：
       "category": "cpu_scheduling_delay",
       "thread_name": "RenderThread",
       "impact_seconds": 0.0124,
-      "summary": "RenderThread线程CPU调度延迟",
+      "impact_caliber": "effective_attribution",
+      "causal_qualifier": "frame_unproven",
+      "summary": "RenderThread线程CPU调度延迟（帧因果未证）",
       "evidence": [
         "RenderThread 在目标窗口内 runnable 12.4 ms，期间没有获得 CPU"
       ]
@@ -46,6 +48,8 @@ Codrax 分析 Trace 后可以保存两类结果：
       "category": "lock_contention",
       "resource_name": "ClassLinker classes lock",
       "impact_seconds": 0.0081,
+      "impact_caliber": "effective_attribution",
+      "causal_qualifier": "proven",
       "summary": "ClassLinker classes lock锁竞争",
       "evidence": [
         "Worker 等待该锁 8.1 ms，等待区间覆盖目标卡顿窗口"
@@ -56,6 +60,8 @@ Codrax 分析 Trace 后可以保存两类结果：
       "category": "synchronous_binder",
       "thread_name": "UIThread",
       "impact_seconds": 0.003,
+      "impact_caliber": "window_projection",
+      "causal_qualifier": "proven",
       "summary": "UIThread线程同步binder",
       "evidence": [
         "UIThread 发起同步 Binder 调用后等待回复 3 ms"
@@ -78,8 +84,10 @@ Codrax 分析 Trace 后可以保存两类结果：
 | `thread_name` | 涉及的线程名。只有线程类根因需要。 |
 | `resource_name` | 锁或资源名。锁竞争需要。 |
 | `phase_name` | 阶段名。阶段高负载需要。 |
-| `impact_seconds` | 该根因对目标分析窗口产生的有效影响时间，单位是秒。 |
-| `summary` | 固定格式的简短中文根因。程序自动生成。 |
+| `impact_seconds` | 该根因在目标分析窗口内的影响时间，单位是秒。它的口径由 `impact_caliber` 决定：`effective_attribution` 时是链上有效归因（现有规则可消除量）；`window_projection` 时只是窗内投影占用，尚未发布有效归因，不能与有效归因相加或同榜排序。 |
+| `impact_caliber` | 影响时间口径，闭集：`effective_attribution` / `window_projection`。总是显式给出，消费者不得从缺失推断。 |
+| `causal_qualifier` | 席位级帧因果限定，闭集：`proven` / `frame_unproven`。`frame_unproven` 表示该根因自身引用的 trace 证据没有帧证据（或帧流因果未证），与 Markdown 头行的「（帧因果未证）」同源同值；它不改变 `impact_seconds`，也不改变排名。 |
+| `summary` | 简短中文根因，程序自动生成。`causal_qualifier=frame_unproven` 时，summary 末尾追加「（帧因果未证）」，与头行同词；按前缀而不是全串匹配 summary。 |
 | `evidence` | 1 到 4 条简短、具体的 Trace 证据。 |
 
 ## 4. N 是怎样决定的
@@ -106,7 +114,7 @@ Codrax 分析 Trace 后可以保存两类结果：
 
 ## 5. `impact_seconds` 是什么
 
-`impact_seconds` 表示这个根因候选在目标分析窗口内的 typed 有效墙钟影响时间，单位是秒。该值由系统从候选合同绑定，模型不填写或改写。
+`impact_seconds` 表示这个根因候选在目标分析窗口内的 typed 墙钟影响时间，单位是秒；`impact_caliber=effective_attribution` 时它是链上有效归因（现有规则可消除量），`impact_caliber=window_projection` 时它只是窗内投影占用，尚未发布有效归因。两种口径的值由系统从候选合同绑定，模型不填写或改写；消费者汇总或排序时必须先按 `impact_caliber` 分开。
 
 例如结构化结果给出有效影响是 `12.4 ms`：
 

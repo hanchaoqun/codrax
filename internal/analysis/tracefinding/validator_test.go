@@ -39,7 +39,7 @@ func testContract() *types.TraceFindingContract {
 	return &types.TraceFindingContract{
 		Required: true, FindingSchemaVersion: types.TraceFindingSchemaVersion,
 		PrimaryCandidateIDs: []string{"candidate-1"}, ContributorCandidateIDs: []string{"candidate-2"},
-		AcceptedEvidenceIDs: []string{"evidence-1"}, RegistryHash: "registry-v1", CausalCeiling: "unproven",
+		AcceptedEvidenceIDs: []string{"evidence-1"}, RegistryHash: "registry-v1", CausalCeiling: types.TraceCausalQualifierFrameUnproven,
 	}
 }
 

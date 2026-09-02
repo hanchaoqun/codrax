@@ -26,7 +26,7 @@ func TestRootCauseSelectorContextPublishesTheSameValueCaliberAsSidecar(t *testin
 			EvidenceID: "E1", Subject: "worker", Rank: 1, TypeToken: "running", ChainRelevance: "on_chain",
 			ImpactMS: 10, EffectiveImpactMS: 3, EffectiveImpactPublished: true, SupplyFoldComputed: true,
 			SupplyFoldDeficitMS: 3, SupplyFoldIdealMS: 7, SupplyFoldKnownMS: 8, SupplyFoldUnknownMS: 2,
-		}}}}}, "proven")
+		}}}}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,8 +76,8 @@ func TestRenderTraceRootCauseContractOffersOnlyTypedCandidateIDs(t *testing.T) {
 			Decision: types.TraceCauseDecision{
 				CandidateID: "candidate-1", SubjectName: "RenderThread",
 				Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
-				Magnitude:    &types.TypedMagnitude{Value: 4, Unit: "ms", Additivity: "wall_clock_per_thread"},
-				EvidenceRefs: []string{"E1"},
+				Magnitude:    &types.TypedMagnitude{Value: 4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+				EvidenceRefs: []string{"E1"}, CausalQualifier: types.TraceCausalQualifierProven,
 			},
 		}},
 	})
@@ -86,7 +86,8 @@ func TestRenderTraceRootCauseContractOffersOnlyTypedCandidateIDs(t *testing.T) {
 		t.Fatalf("typed optional selector prompt drifted:\n%s", got)
 	}
 	for _, teaching := range []string{"`trace_root_causes` in `emit_answer_document`", "`replace_trace_root_causes` in `emit_answer_document_patch`",
-		"Do not quote the object or the number", "previously accepted report is retained", "complete ordered selection"} {
+		"Do not quote the object or the number", "previously accepted report is retained", "complete ordered selection",
+		"Omitting it on a later re-emit keeps the previously accepted selection"} {
 		if !strings.Contains(got, teaching) {
 			t.Fatalf("full/patch JSON teaching drifted: missing %q in %s", teaching, got)
 		}
@@ -107,5 +108,33 @@ func TestPrepareTraceFindingContractNarrowTraceFactStaysInactive(t *testing.T) {
 	}
 	if contract := ctx.Mutable.TraceFindingContract(); contract != nil {
 		t.Fatalf("narrow fact request must not be widened: %+v", contract)
+	}
+}
+
+// SIDECAR-Q1 (§40.28 ②): the model-facing roster carries each candidate's
+// seat-level qualifier and caliber, plus the teaching line that explains them.
+func TestRenderTraceRootCauseContractTeachesQualifierAndCaliber(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	ctx.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
+		RootCauseReportEnabled: true,
+		CandidateSetID:         "set-1",
+		Candidates: []types.TraceFindingCandidateV1{{
+			PrimaryEligible: true,
+			Decision: types.TraceCauseDecision{
+				CandidateID: "candidate-1", SubjectName: "RenderThread", CausalQualifier: types.TraceCausalQualifierFrameUnproven,
+				Token:        types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+				Magnitude:    &types.TypedMagnitude{Value: 4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: "effective_attribution"},
+				EvidenceRefs: []string{"E1"},
+			},
+		}},
+	})
+	got := renderAnswerDocTraceDecisionHandoff(ctx)
+	for _, want := range []string{
+		`"impact_caliber": "effective_attribution"`, `"causal_qualifier": "frame_unproven"`,
+		"seat-level — the same qualifier the answer headline wears",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("roster missing %q:\n%s", want, got)
+		}
 	}
 }

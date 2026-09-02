@@ -4554,23 +4554,25 @@ type RootCauseRankItem struct {
 	//                               consumes the SAME per-state ladder as every
 	//                               on-chain row (running=supply-fold,
 	//                               runnable=full, D/IO=wall-clock sum — 零特判).
-	//   "semantic_chain_interval_relation" — B830 (2026-08-15): a NON-target
-	//                               deterministic semantic span with an exact
-	//                               interval intersection against a typed chain
-	//                               node. The intersection is retained as raw
-	//                               occupancy/business evidence; effective is
-	//                               zero because it proves neither target wait
-	//                               nor semantic-completion causality.
+	//   "semantic_chain_interval_relation" — B830 (2026-08-15), pricing restored
+	//                               by CROWNSEM-1 (§40.28 ①, 2026-09-02): a
+	//                               NON-target deterministic semantic span with
+	//                               an exact interval intersection against a
+	//                               typed chain node. The intersection IS the
+	//                               priced on-chain effective (interval-proven
+	//                               credential, R4); the semantic completion
+	//                               mechanism stays a disclosure only.
 	//   "host_wakeup_edge_pre_span" — R3-IMPL (§29.88.1/§29.88.2): a NON-target
 	//                               thread's deterministic semantic span whose
 	//                               HOST holds an in-window typed wakeup edge
 	//                               toward the target (direct or via its own
 	//                               chain edge), the span lying BEFORE that
 	//                               edge. The pre-edge in-window projection is
-	//                               retained as raw occupancy/business evidence;
-	//                               effective_impact is zero because the edge
-	//                               does not prove semantic completion/delay
-	//                               causality. Causality carries the honest
+	//                               the priced on-chain effective (CROWNSEM-1
+	//                               §40.28 ①: 边=凭证, 边前=有效, 边后=解除 —
+	//                               the same rule as the state families); the
+	//                               semantic completion/delay mechanism stays a
+	//                               disclosure only. Causality carries the honest
 	//                               relation token "on_wakeup_chain" (a REAL
 	//                               typed edge exists, unlike the self bases).
 	//   "host_wakeup_edge_pre_state" — ONCHAIN-3c (R3 射程扩展, 2026-07-19): a
@@ -4853,6 +4855,13 @@ type RootCauseRankItem struct {
 	// this stash (跨边按边界二分). Zero-width on fully pre-edge seats.
 	hostEdgeRemainderStartTs float64
 	hostEdgeRemainderEndTs   float64
+	// hostEdgeRemainderIntervals (unexported, CROWNSEM-1 复核收编 2026-09-02):
+	// the host-edge FAMILY's post-edge member intervals, handed to the ◇
+	// remainder clone as ITS direction-support inventory (the seat keeps the
+	// pre-edge intervals in semanticMemberIntervals — the support a seat
+	// exposes to P3M/direction unions is exactly the share it prices; the
+	// single-span lane needs no stash: its StartTs..EndTs IS its segment).
+	hostEdgeRemainderIntervals []foldInterval
 	// selfGapRunningIntervals (unexported, XLANE-2 件2 裁定④ §29.104.17,
 	// 2026-07-17): the self running supply-fold deficit seat's OWN typed
 	// running interval inventory (window-projected, the mint's decomposition
@@ -5120,6 +5129,15 @@ type SemanticSpanFamily struct {
 	EdgeAnchorRemainderMs      float64 `json:"edge_anchor_remainder_ms,omitempty"`
 	EdgeAnchorRemainderStartTs float64 `json:"edge_anchor_remainder_start_ts,omitempty"`
 	EdgeAnchorRemainderEndTs   float64 `json:"edge_anchor_remainder_end_ts,omitempty"`
+	// edgeAnchorPreIntervals / edgeAnchorPostIntervals (unexported, CROWNSEM-1
+	// 复核收编 2026-09-02): the bisected member inventories — pre-edge merged
+	// intervals (Σ == ProjectedImpactMs, the priced share) and post-edge merged
+	// intervals (Σ == EdgeAnchorRemainderMs). The mint hands the pre set to the
+	// seat's direction support and the post set to the ◇ clone, so no consumer
+	// ever measures a host-edge family by its UNCLIPPED member spans (the
+	// P3M double-booking the batch-one review caught).
+	edgeAnchorPreIntervals  []foldInterval
+	edgeAnchorPostIntervals []foldInterval
 	// Members are the VERBATIM window-clipped member spans, largest first —
 	// the lossless roster (§24.7.1 ①: distinguishing keys — here the span
 	// names — must never be dropped). Members[0] is the family representative

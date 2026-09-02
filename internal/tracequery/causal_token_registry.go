@@ -250,6 +250,14 @@ var causalTokenRegistry = map[string]CausalTokenSpec{
 	"running":            {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"fragmented_running": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"trace_span":         {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
+	// ADJUDICATION NOTE (CROWNSEM-1, 2026-09-02, colleague_merge_audit §40.28
+	// ① — restoring §29.88.1 R3 / §29.88.2 R4): every semantic span family
+	// below prices its host_wakeup_edge_pre_span PRE-EDGE share and its
+	// semantic_chain_interval_relation exact intersection as on-chain
+	// effective attribution — the one credential rule shared with the host's
+	// state seats. Any future basis→zero mapping for these families is a
+	// lane change under §7.2.1 and MUST cite a user ruling by number (the
+	// B829/B830 zeroing shipped without one and was reversed).
 	"jit_compile":        {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"class_verification": {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},
 	"shader_compile":     {Lane: CausalLaneCPUWork, Additivity: CausalAdditivityWallClockPerThread, Subject: CausalSubjectPerThread, RowToken: true, LabelZhRef: CausalZhLabelRefRootCauseType},

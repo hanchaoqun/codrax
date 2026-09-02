@@ -181,9 +181,11 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.OnChainBasis = ""
 	rem.StartTs, rem.EndTs = remStart, remEnd
 	rem.ActualStartTs, rem.ActualEndTs = remStart, remEnd
-	// B829: this clone is the raw post-edge half of a host-edge semantic
-	// account. The source edge proves relation only, not semantic completion
-	// causality, so neither half may enter a priced causal election.
+	// CROWNSEM-1 (§40.28 ①, restoring R3/R4): this clone is the post-edge half
+	// of a host-edge semantic account — 边后=解除: the share after the credential
+	// edge is released (effective 0); the pre-edge half stays priced on the ⛓
+	// seat it partners with. The semantic completion mechanism is a disclosure
+	// on both halves, never a pricing verdict.
 	rem.EffectiveImpactMs = 0
 	rem.ProjectedImpactMs = remMs
 	rem.CumulativeImpactMs = remMs
@@ -195,8 +197,12 @@ func semanticEdgeAnchorRemainderSeat(seat RootCauseRankItem) (RootCauseRankItem,
 	rem.ChainAnchoredMs = seat.ChainAnchoredMs
 	rem.ChainAnchorFullMs = seat.ChainAnchorFullMs
 	rem.hostEdgeRemainderStartTs, rem.hostEdgeRemainderEndTs = 0, 0
+	// The clone's direction support is the post-edge inventory (family lane);
+	// the single-span lane leaves it nil and its StartTs..EndTs IS the segment.
+	rem.semanticMemberIntervals = append([]foldInterval(nil), seat.hostEdgeRemainderIntervals...)
+	rem.hostEdgeRemainderIntervals = nil
 	rem.Score = rootCauseRankScoreBasisMs(rem) * rem.Confidence * rootCauseItemScoreWeight(rem)
-	rem.Summary = fmt.Sprintf("%s span %q post-edge raw-occupancy remainder %.3fms window=%.6f..%.6f — the share AFTER the host's latest in-window wakeup edge toward the analysis target (edge=relation credential; semantic completion/delay binding=unproven; anchored pre-edge raw share %.3fms and this remainder partition the span's in-window projection %.3fms exactly; effective_impact=0.000ms)",
+	rem.Summary = fmt.Sprintf("%s span %q post-edge remainder %.3fms window=%.6f..%.6f — the share AFTER the host's latest in-window wakeup edge toward the analysis target (edge=credential, pre-edge=effective, post-edge=released; semantic completion mechanism unproven — disclosure only; the %.3fms pre-edge share priced on the chain seat and this released remainder partition the span's in-window projection %.3fms exactly; effective_impact=0.000ms)",
 		firstNonEmpty(rem.SemanticClass, rem.Type), rem.SpanName, remMs, remStart, remEnd, rem.ChainAnchoredMs, rem.ChainAnchorFullMs)
 	return rem, true
 }

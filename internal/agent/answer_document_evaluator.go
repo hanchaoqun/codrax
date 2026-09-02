@@ -21990,7 +21990,9 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 	// clean doc has no such caveat and the footer discloses normally.
 	doc.Caveats = append(doc.Caveats, degradedDeterministicSectionsCaveat(e.language, materialized))
 	if rec.Lossless && ctx != nil && ctx.Mutable != nil {
-		ctx.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+		// System-side lossless recovery of a model draft: sibling typed
+		// artifacts (finding / sidecar) of the run stay (§40.29.1 ★19).
+		ctx.Mutable.RewriteAcceptedAnswerDocumentV2(doc)
 	} else if ctx != nil && ctx.Mutable != nil {
 		// Lossy recovery never lands on the validated carrier — record it
 		// on the degraded lane so the post-finalize prose defenses scan

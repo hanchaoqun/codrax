@@ -125,6 +125,67 @@ func normalizeMisplacedTraceRootCauseSchemaVersion(raw json.RawMessage, reportFi
 	return repaired, true
 }
 
+// normalizeMisplacedTraceRootCauseSelection re-homes a selector whose whole
+// report body was lifted to the document top level: a top-level
+// `root_causes` array of `{candidate_id}` objects (optionally beside the exact
+// current `schema_version`) with NO report carrier present. It is the sibling
+// of normalizeMisplacedTraceRootCauseSchemaVersion — the same local-model
+// flattening, one level deeper (eval witness
+// trace_query_donghu_real_frame_multicausal 2026-09-02, §40.29.1 ★20: the
+// unknown-field quarantine dropped `$.root_causes` and the accepted 7-seat
+// selection shipped as `unavailable`). Lossless by construction: candidate
+// ids and their order are copied verbatim; any item that is not an object
+// carrying a string candidate_id fails open (nothing moves, the quarantine
+// keeps its say), and every semantic check stays with the binder.
+func normalizeMisplacedTraceRootCauseSelection(raw json.RawMessage, reportField string) (json.RawMessage, bool) {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil {
+		return raw, false
+	}
+	if _, exists := root["trace_root_causes"]; exists {
+		return raw, false
+	}
+	if _, exists := root["replace_trace_root_causes"]; exists {
+		return raw, false
+	}
+	selection, exists := root["root_causes"]
+	if !exists {
+		return raw, false
+	}
+	var items []map[string]json.RawMessage
+	if json.Unmarshal(selection, &items) != nil {
+		return raw, false
+	}
+	for _, item := range items {
+		var id string
+		if raw, ok := item["candidate_id"]; !ok || json.Unmarshal(raw, &id) != nil || strings.TrimSpace(id) == "" {
+			return raw, false
+		}
+	}
+	canonicalVersion, err := json.Marshal(types.TraceRootCauseReportSchemaVersion)
+	if err != nil {
+		return raw, false
+	}
+	report := map[string]json.RawMessage{"schema_version": canonicalVersion, "root_causes": selection}
+	if outer, ok := root["schema_version"]; ok {
+		if !isExactTraceRootCauseSchemaVersion(outer) {
+			return raw, false
+		}
+		delete(root, "schema_version")
+	}
+	reportRaw, err := json.Marshal(report)
+	if err != nil {
+		return raw, false
+	}
+	root[reportField] = reportRaw
+	delete(root, "root_causes")
+	repaired, err := json.Marshal(root)
+	if err != nil {
+		return raw, false
+	}
+	return repaired, true
+}
+
 // decodeTraceRootCauseReportCarrier accepts the native object and the one
 // lossless streaming shape where that complete object was JSON-encoded once
 // more as a string. json.Unmarshal on the inner text must consume one complete
@@ -181,9 +242,16 @@ func resolveTraceFindingForEmit(ctx *types.BusContext, submitted *types.TraceFin
 }
 
 // resolveTraceRootCauseReportForEmit validates and binds the optional selector.
-// Patch emits inherit the last accepted report when they only repair answer
-// blocks. Sidecar errors are returned for diagnostics but never own whether
-// the full answer mutation is accepted.
+// An emit that OMITS the selector (absent / null) inherits the last accepted
+// report — for patches and for full re-emits alike (eval witness
+// trace_query_donghu_real_frame_multicausal 2026-09-02: the finalizer's
+// iter=2 full re-emit, issued after an accepted iter=1 selection to revise
+// answer blocks, omitted `trace_root_causes` and the sidecar shipped as
+// `unavailable`; omission is not a withdrawal — the model withdraws with an
+// explicit `"root_causes": []`, which binds to the empty report). The
+// contract is frozen for the run, so the retained selection stays valid.
+// Sidecar errors are returned for diagnostics but never own whether the
+// full answer mutation is accepted.
 func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.RawMessage, patch bool) (*types.TraceRootCauseReportV2, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil, nil
@@ -196,10 +264,7 @@ func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.Ra
 		return nil, nil
 	}
 	if len(strings.TrimSpace(string(submitted))) == 0 || string(submitted) == "null" {
-		if patch {
-			return ctx.Mutable.TraceRootCauseReport(), nil
-		}
-		return nil, nil
+		return ctx.Mutable.TraceRootCauseReport(), nil
 	}
 	var selection types.TraceRootCauseReportV2
 	if err := json.Unmarshal(submitted, &selection); err != nil {
