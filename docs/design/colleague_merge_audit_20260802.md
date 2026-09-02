@@ -5761,3 +5761,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.23 逐项细化 ⑰ V5-3:verify 失败契约退役对任何失败种类触发
 
 **定性**:`attachWriteBehaviorContracts` 只要 `VerifyFailureHandoff≠nil` 就 `RebaseVerifyFailureWriteBehaviorContracts`,而调度器对每个 `!Passed`(构建失败/超时/OOM/漂移/无关测试失败)都设 handoff→无关软契约被静默退役成 tombstone,后续累计域再也加不回。**泛化类**:「失败信号未按相关性分型即触发不可逆动作」。**泛化解**:①退役需**相关性证据**:仅当失败 typed 行(测试/探针/契约观测)的 subject/refs 与该软契约相交,或 planner 显式声明 supersession;②无关软契约保留为 advisory(不阻塞、不退役);③不可逆动作(tombstone)必须携带触发证据 ID(可审计、可撤销);④通用规则:FailureKind→动作表中,凡"退役/清空"类动作只对 `tests_failed/contract_failed` 相关性子集开放。**验收 pin**:构建失败 replan → 软契约全保留;相关测试失败 → 仅相交契约退役。
+
+### §40.24 逐项细化 ⑱ V5-4:兄弟 contract_refs 门用不同集合解析 id
+
+**定性**:探针 refs 门对 `ir.Request.BehaviorContracts`(rebase 前)校验,项目测试 refs 门在 `attachWriteBehaviorContracts` 之后对 `plan.BehaviorContracts`(rebase 后)校验;退役后同一 id 一门接受一门拒。**泛化类**:「同一标识空间多处解析、各取快照」(V3-1/T3-2 同族:单源缺失)。**泛化解**:①单一 `resolveBehaviorContractIDs(plan)` 助手,源=计划 rebase 后集合(含 tombstone 标记以区分"未知"与"已退役"),所有 refs 门与 planner 框架渲染同源;②退役 id 引用→精确错误"contract X retired by <evidence>"而非"unknown";③tripwire:census——`WriteBehaviorContractIDs(` 的调用点必须经该助手。**验收 pin**:退役后探针/项目测试引用同一 id 得同一判定。
