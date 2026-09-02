@@ -57380,9 +57380,46 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1628 r1017：机器 2/2 通过，人工发现载体语义泄漏与调用锚错误反馈（2026-09-01）
+
+固定二进制 `50d8d7db6`，恰好 2 路并行；结果与完整人工审计分别落在
+`eval/parallel_selected_summary_evalcampaign_cpptrace_r1017_20260901.md` 与 `_manual_audit.md`。
+
+| case | 机器 | 人工 | 过程与边界 |
+|---|---|---|---|
+| real_trace_h4_supply_thermal_witness | PASS / 93s | 主值正确，附加表述 fail | 4 trace_query、首稿零拒；完整四态/8 CPU 与策略上限区分正确；S 被说成主动、同窗被说成同帧、桶代表频率在结尾被当目标观测 |
+| sr_cpp_virtual_chain | PASS / 154s | fail | 3 成文拒绝/3 patch 后保留列表；6 条关系行显示哈希节点 ID；模板调用锚反复失败；模型另幻觉时间戳和 console flush 效果 |
+
+Trace 最终上下文已经精确披露上述权限边界、IO 两把尺和完整 CPU 清单，不能为纠正模型表述再添加关键词硬门。
+本题由 analyzer 声明为 `bounded_fact_set`，不是根因问题；不强制因果投影属于正确分工。本轮不作为根因投影正向回放证据。
+默认 root-causes 旁路实际产出合法 131-byte JSON，`status=unavailable` / `trace_root_cause_contract_not_active`，不是零字节文件。
+C++ 无强制图义务，本次也未画图；问题发生于结构化列表关系，不能误报为“图被系统删除”。
+两题都未触发无效 receipt，本轮不宣称 B1552 已取得真实模型重试下降对照；B1552 的确定性接线回归与机器 eval 是两类证据。
+
+**新增任务（按泛化 ROI 排序）**：
+
+- [ ] **B1553-STANDALONERELATIONDISPLAYCONTRACT1 / P1 / confirmed**：
+  `preEmitStandaloneRelationClaimRepairDeltaJSON` 为无 Mermaid 的列表也发布语法用 `from_node_ids/to_node_ids`，
+  `exactLocalStandaloneRelationMetadataAddBranch` 将其称为 hidden metadata，而 renderer 实际显示 `FromNode/ToNode`。
+  模型日志明确从这两个数组选取哈希 ID，最终出现 `LoggerLog_188cb2a568e4047d` 等，不只是模型自行起了怪名字。
+  下一批从 typed carrier 区分图语法节点与列表/表格读者标签；非图分支不发布无关语法候选，schema/教学解释端点会直接显示，
+  保留模型选边/选文字，保留 Mermaid 节点复用，不做成文字符串替换。加 producer→lease→schema→patch→render 的异构载体回归。
+- [ ] **B1553b / 同批**：首个缺 edge 的 atomic error 与局部提示给完整 `edge:{from_node,to_node,visible_label}`，
+  避免模型把字段放到 edit 顶层；复用当前 schema，不新造入口。真实回放已有两次错误层级：首次没有 edge，下一次把 from_node 放到外层，
+  strict decoder 最后才明确完整路径。不要把这两次全归模型波动，也不增加重试预算。
+- [ ] **B1554-TEMPLATECALLGROUNDINGFEEDBACK1 / P2 / confirmed + matrix-pending**：
+  在已读 `return std::make_unique<ConsoleSink>();` 上多种合法 callee 锚失败，`looksLikeCallSyntax` 未覆盖 callee 与 `(` 之间的泛型参数，
+  graph endpoint 实例化形与裸符号未统一；fallback `explainUngrounded` 又把不同失败一概说成 token 不存在。
+  优先复用解析器调用表达式/精确 callee 证据，区分词法不存在与调用目标/形状不匹配；不能把一行存在任意 call 当指定 callee 的证明。
+  施工前补 C++/Rust/其他支持泛型语言的正负矩阵；不得按 make_unique 名称放行，也不得猜 registration/call 关系。
+- [ ] 后续 eval：显式根因 Trace（补足本组有限事实范围外的投影验收）+ 写模式异构场景，继续恰好 2 路。
+
+模型自身的 S 主动/窗帧混用、C++ 时间戳/flush 推断另列人工残余：事实已在上下文，不把“系统代改结论”当修复。
+首次同步受网络超时，`50d8d7db6` 随后成功以 fast-forward 推送到 origin/main；不把稍后 fetch 再次超时写成推送失败。
+
 ### §123.1627 B1552：精确结果字段在持久化阶段晚报，修补缺少同轮完整反馈（2026-09-01）
 
-`confirmed / P1 / implemented / full-suite+build-pass / push-pending-network`。r1016 首稿已提交不在本轮 schema 选项中的 conceptual_terminal_resolution evidence_id；
+`confirmed / P1 / implemented / full-suite+build-pass / pushed=50d8d7db6`。r1016 首稿已提交不在本轮 schema 选项中的 conceptual_terminal_resolution evidence_id；
 同期列表/图关系检查先返回，直到关系修补接近结束时，persist 的 `bindConceptualTerminalResolutionReceipts` 才报告错误。
 这个校验是既有合法的“精确 schema 选项”边界，不应删除；问题是没有与同轮 pre-emit 错误一起回报，
 且只给 `blocks[3] ... does not match`，没有稳定 block id/字段级修复信息。这里修正初审：
@@ -57399,14 +57436,14 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
   full/patch → 一次同时报告 → 既有原子 receipt + 独立关系修复 → persist 绑定，以及直接调用 persist 仍拒绝错误值。
 - [x] B1552d：全仓测试和构建通过；第一次全仓检查仅拦住新增提示的内部化措辞，改操作说明后重跑 `go test ./... -count=1` 全绿，
   没有修改术语禁用清单或放松断言。持续推理、工具参数流、仅心跳和 4ms evaluator 预算隔离定向回归也通过（llm 4.431s、agent 1.040s）。
-- [ ] B1552e：提交后推送（网络阻断待重试）；接续 r1017 异构两路回放。
+- [x] B1552e：`50d8d7db6` 已成功推送；r1017 异构两路回放及人工审计完成，见 §123.1628。没有把机器 PASS 当成人工全绿。
 
 边界声明：新增的 pre-emit policy row 只前移既有 persist 的 exact pair 拒绝点，普通 `ViolAcceptance` 仍 advisory；
 ForceHard 清册和显式 policy 清册同步登记，无枚举标签/正文扫描回流为硬门。未改 Trace 查询、投影、自动补齐或模型正文/图关系。
-远程更新暂受网络阻断：SSH 22、SSH 443、HTTPS 都超时，施工基线是此前已推送的 `48cbe2186`，不宣称已同步最新远程。
+网络曾阻断 SSH 22、SSH 443、HTTPS；施工基线是此前已推送的 `48cbe2186`，随后推送 `48cbe2186..50d8d7db6` 成功。
 
 当前 case 清单共 243 个：25 个 apply、3 个 plan，剩余 215 个读/分析场景；其中 real_traces 29 个、harmony 12 个。
-下一批 r1017 按用户损失/覆盖面/已修通道回归价值排序，恰好并发 2 路（非全清单已执行声称）：
+本批 r1017 按用户损失/覆盖面/已修通道回归价值排序，恰好并发 2 路，现已完成（非全清单已执行声称）：
 
 | 顺序 | case | 风险维度与人工验收 |
 |---|---|---|
