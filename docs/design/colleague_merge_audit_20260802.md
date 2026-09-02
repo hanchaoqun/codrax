@@ -5791,3 +5791,11 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 | V12-3 继承债(B1560/B1558/B1548/B1541/B1546/B1554/PR23 §4.1) | 并入排期;B1548(默认 sidecar 空 roster 而长答案有候选)优先——与 V1-2/V1-1 同批 |
 
 **§40 逐项细化收官**:18 确认+2 存疑全部给出泛化方案(§40.7–§40.26),12 低危处置表(§40.27);裁定请求两项(§40.7 V12-1 R3/R4 恢复 vs 改裁;§40.8/§40.25 v2 wire 追加 causal_qualifier/impact_caliber)。所有方案均以"类"为单位设结构 tripwire(census/单源/矩阵),不含任何单例特判或停用词表。
+
+### §40.28 两项裁定落案(2026-09-02,用户批复「统一按最优方案裁定」)
+
+**裁定①(V12-1)=A+**:恢复 §29.88.1 R3/§29.88.2 R4——非目标宿主线程语义 span 的**边前份额计入链上有效归因**,边后份归 ◇,跨边按边界二分;B829/B830 的"关系凭证→归零"分支退役。结构化落地:单一边前计价函数(state/span/family/remainder 四入口同用)+registry 判词(引用 R3/R4+本裁定,§7.2.1)+census tripwire(host_wakeup_edge* 边前原始份>0⇒effective>0,豁免须引裁定)+tieba 哨兵双席一致性 e2e;"机理未证"保留为披露(披露≠清零);Description golden 反向修订;P3 早门同步撤回。
+
+**裁定②(V1-2/V1-1)**:`.root-causes.json` v2 **追加** `causal_qualifier∈{proven,frame_unproven}` 与 `impact_caliber∈tracefence 口径词表`,两字段**总是显式发射**(不 omitempty),`schema_version` 保持 2(纯追加,老消费者忽略未知键;与 next_info 尾追加裁定同构),PR23 审计 §4.1 记为版本化决定;信号源=席位级 EvidenceID 索引提升为 types 级单一提供者(crown 面与 sidecar 契约同源),会话 ANY 聚合降为 advisory-only 并加读者 census;summary 限定注与头行同词,证据句按口径取词。
+
+施工排期:批一=裁定①+裁定②同批(共用席位级/单源/显式结构);后续按 §40.6。
