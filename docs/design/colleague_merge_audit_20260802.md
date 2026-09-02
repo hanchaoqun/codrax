@@ -5737,3 +5737,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.17 逐项细化 ⑪ V2-1:两阶段暂存快照在归一化之前
 
 **定性**:孤儿-only roster 或后置依赖租约路径把 `NewPartialMutation(patch).Apply(prev)` 装为 pending base **早于** 确定性归一化器(:3104-3148,citation 标记/关系元数据保留/id 表面归一化)运行→后继代次看到的基线缺失容差与模型提交标记。**泛化类**:「事务内多阶段各自持有不同基线」。**泛化解**:①单一"规范化后文档"作为暂存与提交的唯一基线——把归一化提到 stage 之前(或 stage 时调用同一 `normalizePatchForBase` 单点);②暂存/提交/回滚三态共用一个 base 构造函数;③tripwire:pending base 与最终提交基线的规范化不变量相等(测试:同一 patch 两路径得字节相同基线)。**验收 pin**:孤儿 roster 路径暂存的 base 含 citation 标记与关系元数据(红→绿)。
+
+### §40.18 逐项细化 ⑫ V2-2:关系修复租约在事务提交前被消费
+
+**定性**:`validateAndConsumeAnswerDiagramRelationRepairLease` 在合并草稿满足租约范围时立即清租约(:3602-3607),但事务随后仍可被持久层校验(receipt 绑定/模型关系声明校验)拒绝→模型失去租约无法重试,与工具描述"拒绝则该 patch 零编辑生效"矛盾。**泛化类**:「重试局部能力状态在事务外被消费」——V2-1 同族(事务边界不完整)。**泛化解**:①租约消费移入**已加锁成功尾声**(PR23-D 建立的单点 `commitAcceptedAnswerDocumentLocked`),与 pending base/retry 状态同一原子点清理;②事务前只做校验不做消费(pure check);③通用规则:任何 retry-local 能力(租约/暂存 base/候选 ID 集)只能在成功尾声单点变更——census:这些 setter 的调用点 ⊆ {成功尾声, 显式回滚}。**验收 pin**:持久层拒绝后租约仍在(红→绿);成功后租约清。
