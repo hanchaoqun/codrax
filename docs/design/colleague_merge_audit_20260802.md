@@ -5632,3 +5632,18 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 **需裁定(用户)**:v2 wire 追加 `causal_qualifier` 是否照准(PR23 §4.1 要求公开 schema 扩展须版本化决定;append-only 附加字段与既有 next_info 尾追加裁定同构,不破 v2 消费者)。
 
 **验收 pin**:①契约 e2e:席位级索引 unproven 候选→ wire 带 `causal_qualifier=frame_unproven` + 摘要含限定注;proven 候选字节不变;②会话 ANY 读者 census 白名单 tripwire;③头行限定注与 sidecar 限定字段同源一致性 pin(同一 fixture 两面必须同真值)。
+
+### §40.9 逐项细化 ③ V4-1:必需流程图"遗漏参与者"硬臂用无界子串锚定(T3-2 类第五例)
+
+**定性**:`emit_analysis.go:2812` 硬臂对每个 AnalyzerHints 实体用 `sourceQuoteAnchoredInCurrentRequest`(`strings.Contains` + 去标点 Contains,:6162-6168)判"被 relation_scope_quote 锚定却无参与者行"→硬拒;同文件同校验器的兄弟臂(:2972-2986,11ceec1d9,08-16)两周前**恰因同样子串语义制造"不可能重试环"**而改为 `sourceQuoteExplicitlyMentionsTypedEntity`(全词面别名键)。新臂(c8354ec0a,08-21)把刚退役的语义又写回来:`Reader`⊂`FileReader` 即硬拒,模型按教学逐字拷贝实体反被惩罚。
+
+**泛化根因类**:「同一硬车道内多臂各自选择身份比对权威」——T3-2 类五连发的共同结构:单点解析助手已存在,但没有任何东西**强制**新臂使用它。§11.4-1 已提出 census tripwire,至今未落地,故第五例出现。**泛化解=区分两类比对并各设唯一权威+census 强制**:
+
+1. **两类语义分离**:①*引文锚定*(quote 是否逐字出现在原请求里)——子串是正确的精确判据(:5800/:6061/:6087/:6098 属此类,保留);②*身份成员判定*(实体是否被引文"点名")——必须走 token 边界/别名键权威(`sourceQuoteExplicitlyMentionsTypedEntity` / `RawRequestExplicitlyMentionsEntity`)。:2812 与 :2669/:2681(参与者裁剪归一化器,V4-2 已驳回为软形但同用子串)属②类;
+2. **单点权威**:新增 `entityNamedInQuote(quote, entity)` 作为②类唯一入口(内部=现有全词面别名逻辑),`sourceQuoteAnchoredInCurrentRequest` 改名 `quoteVerbatimInRequest` 并在注释与函数名上标注"仅用于引文锚定,禁用于实体身份";
+3. **census tripwire(泛化,一次解决五连发)**:测试静态扫描 `emit_analysis.go`/`answer_document_diagram_evidence.go`/`pre_emit_check.go` 中所有硬拒臂函数体,凡把实体/参与者/符号名与引文/标签比对者,必须调用 ②类单点(或登记豁免+理由);新增比对而未过单点→红。这与 §11.4-1 的 `diagram*EdgeHasTypedEvidence` census 合为同一 tripwire 家族;
+4. **教学同步**:硬臂拒绝文案指向"逐字拷贝实体"的教学不变——修的是判据,不是模型。
+
+**非过拟合声明**:不为 `Reader/FileReader` 加特例,不加停用词表;修法对任何前缀/后缀包含关系(`Parser`/`JSONParser`、`Cache`/`CacheStore`)与任何语言词面一体生效。
+
+**验收 pin**:①`Reader`+`FileReader → Parser` fixture:实体三、参与者二、scope 引文含 FileReader→Parser → 不拒(红→绿);②`Reader` 被引文**独立点名**(「Reader 与 Parser 的数据流」)且无参与者行 → 仍拒(保真);③census tripwire 自身红检(临时把 :2812 改回子串 → 红);④兄弟臂回归不变。
