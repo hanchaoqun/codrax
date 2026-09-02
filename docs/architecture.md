@@ -1066,7 +1066,7 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 | QFRootCauseTrace | 1 summary（结论 + 失败位置）+ ≥1 ordered_list（cause chain，从内层 frame 向外） | sequence diagram（chain ≥3 跳）/ caveat（drift） | optional |
 | QFRoleLookup | 1 summary（subject + 角色）+ 1 scalar（字面 + file:line） | section / caveat | — |
 | QFConfigPrecedence | 1 summary + ≥1 scalar 或 table（终值或层级网格） | ordered_list / caveat | — |
-| QFCallChain | 1 summary + ≥1 ordered_list（hops）+ **1 diagram（sequence，必填）** | caveat（drift） | required |
+| QFCallChain | 1 summary + ≥1 ordered_list（已证关系段；另有成员清单要求时保留独立清单） | caveat / 有助理解的 diagram | 仅当前用户明确要求图时 required |
 | QFEnumeration | 1 summary + ≥1 ordered_list / table / bullet_list（枚举，MaxCount=0） | section（buckets）/ caveat | — |
 | QFArchitecture | 1 summary + ≥1 section（每组件层） | bullet_list / ordered_list（pipeline / handoff）/ diagram（用户要求或证据强支撑）/ caveat | optional |
 | QFComparison | 1 summary（命名所有 bucket）+ 恰 N 个 section（N=user buckets） | table / caveat | — |
@@ -1076,11 +1076,11 @@ CGEC（Citation-Grounded Evidence Closure）跨阶段的证据闭环契约。4 �
 
 ### 6.5 Diagram relation 与 edge anchor
 
-Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 把 edge 的语义关系闭枚举：call / guard / import / precedence / contain / observe。系统按优先级扫 mermaid 边标签匹配关键词（guard/if/when > precedence/override/layer > import/depends > observe > contain > call）。未知标签返回 `DiagramRelUnknown`（合法——只要端点 grounded 即可）。
+Diagram 的 node / edge 不只是视觉。`DiagramRelationKind` 的当前闭枚举以 `internal/types/diagram_relation.go::AllDiagramRelationKinds` 为准，包括调用、回调交接、注册、回复、时序、类型关系等不同语义。它们不能互相冒充；命名相似、展示标签或消息参数不产生身份与关系证据。调用链的 principal claim-form 清单由 `CallChainPrincipalClaimForms` 统一提供给编译器和发射校验，避免某语言或某关系只更新一侧。
 
-**DiagramEdgeAnchor**（`AnswerBlock.EdgeAnchors[]`）是 `(FromNode, ToNode, ClaimForm, RelationKind)` 四元组，绑定一条带标签的 edge 到显式的 claim form。FromNode / ToNode 必须是 diagram body 里 verbatim 的 node id；RelationKind 是优先信号（authoritative），缺省时 validator 从 label 推断；ClaimForm 按 claim_use 协议（call_edge / guard_condition / import_edge / precedence_role / external_observation 等）。这样让 LLM 显式声明语义，又把 edge label 留给读者读 prose 用。
+**DiagramEdgeAnchor**（`AnswerBlock.EdgeAnchors[]`）把模型选择的可见端点与 typed 关系证据绑定。发射阶段依据当前 schema/candidate 发布的端点身份、relation_kind 和凭证校验；展示别名必须能唯一对应证据身份。用户未请求图时不能仅因 call-chain 家族强制新增图；断开的证据段应保留断开，不由系统补桥。旧 `claim_form` 兼容元数据不是要求模型为同一关系重复填写的第二份判定依据，具体可写字段以当轮工具 schema 为准。
 
-`DiagramFacetGraph` 进一步声明哪些 facet 必须作为 node、哪些作为 edge：call_dag/sequence 的 node 是 `FacetCurrentCodePath`，edge 是 `FacetPrincipalPathEdge`；architecture 的 edge 是 `FacetComponentRelation`。`EdgeRelations[]` 数组写入 typed 合同——"diagram 必须至少有 1 条 call relation（label 推断或 relation_kind 显式声明），由 ClaimCallEdge 支撑"。
+`DiagramFacetGraph`/`DiagramPlan` 描述请求的节点、边和关系面。`internal/orchestrator/contract_check_block.go` 仍保留旧标签词汇推断，用于关系覆盖和词面偏差的 **SOFT advisory**；它不能替代严格关系证据门，也不能把 `DiagramRelUnknown` 当成已证关系或合法的显式 relation enum。标签与 typed 声明不一致、关系最小数量不足的这类提示不应升级为重写或硬拒。真正的调用、回复、时序或逻辑关系是否合法，仍由结构化载体和对应证据合同决定，不靠扫描用户请求或模型正文定案。
 
 ### 6.6 Validator 链 — 三层校验
 

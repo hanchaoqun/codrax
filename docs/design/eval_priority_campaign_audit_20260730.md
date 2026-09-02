@@ -57380,6 +57380,52 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1624 B1550：多错误日志的未绑定解释从主体和二级交接回流（2026-09-01）
+
+`confirmed / P1 / implemented / full-suite+build-pass`。r1015 中预处理器已被要求把两个错误保留为独立栈，但把“Cangjie 层根本原因”写入
+`LogObservation.Subject`。B808/B809 已屏蔽观察摘要，主体仍在 structured context、ClaimBinding target、
+ObservationLedger principal claim 和 subject candidates 中出现；外部观察 seed 还直接使用 Summary/Subject。
+这不是已证主体，也不因字段名为 Subject 就成为身份事实。日志原文只记录各自消息和栈帧，没有该主体标签或跨错误边。
+本轮模型最终又添加无证据的跨栈调用/传播结论；虽然精确错误边界与正确帧序同时可见，不能把全部模型越权归咎此单一通道。
+
+- [x] B1550a：为多顶层错误的未绑定 LogObservation 建立共享的只读证据投影；各消费面不再使用其自由主体/摘要作事实或身份，
+  保留 literal evidence、原始行位、分类和全部 Errors 树。无 literal evidence 时不产生新的事实行，原始模型字段留在审计态。
+- [x] B1550b：统一 structured context、observation ledger、claim bindings、artifact profile、external seeds 五个消费者；
+  不从摘要/主体关键词判断，不改模型终稿，不合并错误，不推断或删除已证 cause marker。
+- [x] B1550c：五面先红后绿、缺 evidence、任意语言/标签、单错误/显式 cause 树不变和输入无修改回归；全仓验证后代码与审计同批提交。
+
+验证：五个消费面均在修前复现主体/摘要回流，含空 Evidence 错铸事实；共享投影后全部转绿。
+analyze/explore/finalize 实际 BuildPromptContext 交接回归通过，明确 cause marker 与双方帧保留，原始 bundle 字节不变。
+`go test ./... -count=1` 全绿（tool 214.395s、types 36.669s、context 8.459s、tracequery 90.905s），`make` 通过。
+活跃流/分片帧/心跳/真实静默/4ms evaluator budget 定向回归也通过；本批没有增设定时降级门。
+
+该修复是收紧预处理事实交接，不是引入答案内容硬门。单错误和 typed operational semantic 通道保持，Trace 计价/根因/补采全不改。
+
+附带规范纠偏：`docs/architecture.md` §6.4/§6.5 的“调用链必画图”和旧 label/claim_form 描述已落后于实际编译器、
+当前关系 schema 和 advisory-only 标签检查。对照 `compileCallChain`、`CallChainPrincipalClaimForms` 与
+`contract_check_block.go` 后同步文档；不改变运行时代码或以文档要求覆盖工具当前 schema。
+
+### §123.1623 r1015：仓颉声明清单与 ArkTS/仓颉混合日志（2026-09-01）
+
+基线 `main@5ce6e7967`，远程同步、构建 revision 一致，B1549 已交付。继续按 §123.1620 的异构覆盖排序，
+不反复围绕 H3/H7 模型服从性残余加硬门；本批以静态声明清单和运行时混合语言栈两条不同证据通道作比较。
+
+- [x] `harmony/cangjie_repomap_fixture`：审计 package 来自源码、extend/foreign/public class 分类和成员清单完整性，
+  不把路径、导入、调用或相近命名误当声明，检查实际 finalizer 上下文是否携带完整清单。
+- [x] `harmony/hilog_mixed_arkts_cangjie`：审计日志的 ArkTS 调用失败与仓颉越界帧、堆栈方向、时间顺序及因果边界；
+  仓库没有对应客户源码时不得把本仓符号当客户实现。不得从混合栈的相邻位置自行铸造跨语言调用证据。
+- [x] 恰好并发 2 路，逐例阅读过程、模型上下文、终稿；机器与人工判定分开，确认系统缺陷才施工。
+
+结果：机器 2/2 PASS，仓颉 90s/人工 PASS，混合日志 98s/人工 FAIL。仓颉完整列出 1 extend、1 foreign func、
+3 public class，package 与声明路径正确；一次 summary block 缺失由模型窄补，不丢表。混合日志框架正确保留两种语言首帧
+及各自 caller，未强读无关仓库；预处理 cause-marker 拒绝与 analyzer scope 修复均可达，不是合同死循环。
+但最终模型自添“Bridge→checkout”和跨语言传播、同一崩溃结论，超出本例证据；正确边界已提供，不以正文扫描纠正。
+旁审确认的系统回流漏洞单独立案 B1550。完整过程见 `eval/parallel_selected_summary_evalcampaign_cjlog_r1015_20260901_manual_audit.md`。
+
+后续批优先 ArkTS 页面/Builder 清单与 Python→Rust 多仓调用/回退关系；继续轮换真实写验证和显式窗 Trace，
+不改变用户窗因果投影、自动补齐、链上主因/背景隔离、业务线索和占时/可消量双账户。
+JSON 教学、关系端点/调用/回复/时序的合同同源继续旁审；活跃流字节/心跳不设 4ms 或 4 分钟无可见答案降级门。
+
 ### §123.1622 B1549：占用表的记录统计不得冒充逐次统计（2026-09-01）
 
 `confirmed / P1 / implemented / full-suite+build-pass`。r1014 的系统生成占用表把 running 窗内累计 74.915ms 同时写作“单次最长 74.915ms / 次数 1”；

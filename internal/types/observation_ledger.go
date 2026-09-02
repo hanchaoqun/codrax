@@ -3811,6 +3811,10 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 		add(logOperationalSemanticObservationRecord(i, semantic, relationFence))
 	}
 	for i, obs := range bundle.Observations {
+		obs, ok := ProjectLogObservationForReasoning(bundle, obs)
+		if !ok {
+			continue
+		}
 		role := logObservationRecordRole(bundle, obs)
 		supersededBy := logOperationalSemanticRefsForObservation(bundle, obs)
 		var richNotes []string

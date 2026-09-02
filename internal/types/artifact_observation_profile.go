@@ -176,6 +176,10 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		}
 	}
 	for _, obs := range bundle.Observations {
+		obs, ok := ProjectLogObservationForReasoning(bundle, obs)
+		if !ok {
+			continue
+		}
 		if kind := ObservationKindFromLogObservation(obs.Kind); kind != "" {
 			out.ObservationKinds = append(out.ObservationKinds, kind)
 		}

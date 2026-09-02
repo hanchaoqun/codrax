@@ -65,7 +65,7 @@ func TestFormatLogTriageStructured_OpaqueRuntimeLabelsDoNotMintRuntimeIdentity(t
 	bundle := &types.LogBundle{
 		Meta: types.LogMeta{Lang: "mixed"},
 		Errors: []types.LogError{{
-			Type: "panic",
+			Type:   "panic",
 			Frames: []types.LogFrame{{ArtifactFile: "src/bridge/Bridge.cj", Line: 18}},
 		}},
 	}
@@ -442,6 +442,7 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 		},
 		Observations: []types.LogObservation{{
 			Kind:       types.LogObservationRuntimeEvent,
+			Subject:    "invented root cause at the other occurrence",
 			Evidence:   "Error: native call failed",
 			Summary:    "the first peer captured and propagated the second peer panic",
 			Diagnostic: true,
@@ -466,6 +467,9 @@ func TestFormatLogTriageStructured_PeerErrorsDoNotBecomeCrossErrorChain(t *testi
 	}
 	if strings.Contains(got, "the first peer captured and propagated the second peer panic") {
 		t.Fatalf("unbound peer observation interpretation must not compete with typed relation authority:\n%s", got)
+	}
+	if strings.Contains(got, bundle.Observations[0].Subject) {
+		t.Fatalf("unbound subject labels must not bypass the peer interpretation boundary:\n%s", got)
 	}
 	for _, forbidden := range []string{"cross_error_relation=", "observed_scope="} {
 		if strings.Contains(got, forbidden) {

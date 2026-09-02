@@ -367,6 +367,10 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 		walk(err)
 	}
 	for _, obs := range bundle.Observations {
+		obs, ok := ProjectLogObservationForReasoning(bundle, obs)
+		if !ok {
+			continue
+		}
 		target := strings.TrimSpace(obs.Subject)
 		if target == "" {
 			target = strings.TrimSpace(string(obs.Kind))

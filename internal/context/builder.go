@@ -4376,12 +4376,16 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			"These rows are not repo file:line citations by themselves. " +
 			"When the current request asks whether an observed issue still exists, answer in two lanes: what the log observed, and what current code evidence proves now.\n\n")
 		if peerErrors {
-			b.WriteString("**Peer-observation authority boundary**: this artifact has multiple top-level error occurrences, but observation summaries have no typed occurrence binding. Their model-authored interpretations are therefore withheld from downstream reasoning; each row retains only its literal `observed_evidence`. Use the Errors tree for each occurrence's type, message, frames, and within-stack order, and keep cross-error relations unproven unless an explicit artifact marker establishes one.\n\n")
+			b.WriteString("**Peer-observation authority boundary**: this artifact has multiple top-level error occurrences, but observation summaries have no typed occurrence binding, and free-form subject labels are not verified identities. Both are withheld from downstream reasoning; rows without literal evidence are omitted. Each retained row keeps its `observed_evidence` and location. Use the Errors tree for each occurrence's type, message, frames, and within-stack order, and keep cross-error relations unproven unless an explicit artifact marker establishes one.\n\n")
 		}
 		if logBundleHasThreadSnapshots(bundle) {
 			b.WriteString("**Thread-snapshot authority boundary**: rows with `kind=thread_snapshot` are concurrent execution context captured at dump time, not independent error occurrences. Only entries in the Errors tree establish an emitted panic/error/exception. A thread snapshot may support saying that a thread was executing the shown frame; it does not by itself support saying that thread crashed, emitted the error, touched the same resource, or caused the failure. Keep snapshot identities separate from explicit-error identities in reasoning and in the final answer.\n\n")
 		}
 		for i, obs := range bundle.Observations {
+			obs, ok := types.ProjectLogObservationForReasoning(bundle, obs)
+			if !ok {
+				continue
+			}
 			fmt.Fprintf(&b, "  %d. kind=%s", i+1, obs.Kind)
 			if obs.Severity != "" {
 				fmt.Fprintf(&b, " severity=%s", obs.Severity)

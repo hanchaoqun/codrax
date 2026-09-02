@@ -206,9 +206,11 @@ type LogObservation struct {
 	// span / validator name). It is rendered for humans but is not
 	// merged into AnalyzerHints.Entities by default, because many
 	// observation subjects are domain phrases rather than repo symbols.
+	// It is model-authored, not a typed error-occurrence identity; shared
+	// reasoning projection withholds it when multiple top-level errors exist.
 	Subject string `json:"subject,omitempty"`
 
-	// Summary is the concise fact the log supports.
+	// Summary is the triager's advisory synopsis, not independent fact authority.
 	Summary string `json:"summary"`
 
 	// Evidence is a short verbatim-ish excerpt or pointer from the
