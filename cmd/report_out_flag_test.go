@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
 )
 
@@ -320,5 +321,22 @@ func TestPrintExplicitReportStatusReturnsRootCauseWriteFailure(t *testing.T) {
 	err := printExplicitReportStatus()
 	if err == nil || !strings.Contains(err.Error(), "--root-causes-out write failed") {
 		t.Fatalf("explicit root-cause write failure must affect command status: %v", err)
+	}
+}
+
+func TestPrintReportStatusReturnsDefaultRootCauseWriteFailureWithoutFlags(t *testing.T) {
+	oldOrch, oldMD, oldHTML, oldRoot := app.orch, flagReportMD, flagReportHTML, flagRootCausesOut
+	t.Cleanup(func() { app.orch, flagReportMD, flagReportHTML, flagRootCausesOut = oldOrch, oldMD, oldHTML, oldRoot })
+	flagReportMD, flagReportHTML, flagRootCausesOut = "", "", ""
+	app.orch = &orchestrator.Orchestrator{}
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.orch.SetOutputDump(blocker, 10)
+	app.orch.SetAttachedHitrace("binary\x00trace")
+	_, _ = app.orch.Run("trace", t.TempDir(), "main")
+	if err := printExplicitReportStatus(); err == nil || !strings.Contains(err.Error(), "root-cause output directory") {
+		t.Fatalf("post-answer CLI boundary must return default delivery failure: %v", err)
 	}
 }

@@ -6205,6 +6205,7 @@ func (r *REPL) cancelTurn() {
 //     during prompts and a concurrent reader would race with the
 //     next bubbletea iteration. TTY operators rely on Ctrl+C.
 func (r *REPL) runInFlightWrap(fn func() (*types.BusContext, error)) (*types.BusContext, error) {
+	defer r.warnRootCauseOutputFailure()
 	r.installCancelSignalHandler()
 	canceller, _ := r.runner.(runnerCanceller)
 	listener := startCancelListenerForREPL(r.in, r.interactive(), canceller, r.warn)

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func init() {
 	f := rootCmd.PersistentFlags()
 	f.StringVar(&flagReportMD, "report-md", "", "single-shot: additionally write the final-answer report markdown to this exact file path (byte-identical to the default .codrax/output dump; parent dirs created; existing file overwritten). The default .codrax/output dump is unaffected, and the copy is written even when output_dump_enabled=false.")
 	f.StringVar(&flagReportHTML, "report-html", "", "single-shot: additionally write the self-contained HTML rendering of the final-answer report to this exact file path (same renderer as the default .codrax/output .html sibling; parent dirs created; existing file overwritten). The default .codrax/output dump is unaffected, and the copy is written even when output_dump_enabled=false.")
-	f.StringVar(&flagRootCausesOut, "root-causes-out", "", "single-shot: write a guaranteed-delivery structured Trace root-cause artifact to this exact file path (typed available/unavailable status; no root cause is inferred when model selection is unavailable; parent dirs created; existing file overwritten). This path is attempted even when output_dump_enabled=false or the optional .codrax/output sibling would be absent; a write failure makes the command fail.")
+	f.StringVar(&flagRootCausesOut, "root-causes-out", "", "single-shot: write a guaranteed-delivery structured Trace root-cause artifact to this exact file path (typed available/unavailable status; no root cause is inferred when model selection is unavailable; parent dirs created; existing file overwritten). This path is attempted even when output_dump_enabled=false; a write failure makes the command fail.")
 }
 
 // explicitReportRegistration is the resolved plan for arming the explicit
@@ -188,7 +189,17 @@ func configureExplicitReportOutputs(request string) error {
 // stderr line plus a WARN log. Markdown/HTML remain best-effort presentation
 // copies. A --root-causes-out write failure is returned to the outer CLI so
 // the explicit machine-readable delivery contract cannot fail silently.
-func printExplicitReportStatus() error {
+func printExplicitReportStatus() (reportErr error) {
+	// Default Trace sidecar delivery is mandatory too, but file IO failure
+	// must not make runSingleShot skip printing a successfully generated answer.
+	defer func() {
+		if app.orch != nil {
+			if err := app.orch.RootCauseOutputError(); err != nil {
+				fmt.Fprintf(os.Stderr, "root-cause report write failed: %v\n", err)
+				reportErr = errors.Join(reportErr, err)
+			}
+		}
+	}()
 	if strings.TrimSpace(flagReportMD) == "" && strings.TrimSpace(flagReportHTML) == "" && strings.TrimSpace(flagRootCausesOut) == "" {
 		return nil
 	}

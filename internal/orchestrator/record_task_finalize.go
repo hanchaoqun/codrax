@@ -60,7 +60,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
 		dumpRequest := o.outputTranscriptRequestForDump()
 		rootCauses := o.busCtx.Mutable.TraceRootCauseReport()
-		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
+		result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
 			language: o.language,
@@ -76,13 +76,17 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 				outputdump.RuntimeArtifactsFromAttachment("trace", o.attachedHitrace),
 			),
 			rootCauses:                 rootCauses,
+			requireRootCauseJSON:       o.hasTraceRootCauseOutputContext(o.busCtx),
 			rootCauseUnavailableReason: traceRootCauseUnavailableReason(o.busCtx.Mutable, rootCauses),
 			now:                        time.Now(),
 			pid:                        os.Getpid(),
-		}); result.MarkdownPath != "" || result.HTMLPath != "" || result.RootCauseJSONPath != "" {
+		})
+		o.rootCauseOutputErr = result.RootCauseJSONError
+		if result.MarkdownPath != "" || result.HTMLPath != "" || result.RootCauseJSONPath != "" {
 			o.busCtx.Mutable.SetFinalAnswerArtifactPaths(result.MarkdownPath, result.HTMLPath, result.RootCauseJSONPath)
 		}
 	}
+	_ = o.ensureDefaultTraceRootCauseOutput(o.busCtx) // Exposed separately via RootCauseOutputError.
 
 	o.emit(render.Event{
 		Kind:      render.EventObjectiveDone,

@@ -7,7 +7,7 @@
 Codrax 分析 Trace 后可以保存两类结果：
 
 1. 原来的完整长报告：保存分析过程、详细证据、限制和建议。
-2. 可选的简短根因 JSON：当模型从 typed 链上候选中完成选择时，保存根因、影响秒数和简短证据。
+2. 默认必生成的简短根因 JSON：有有效模型选择时保存根因、影响秒数和简短证据；生成失败或没有有效选择时保存空数组及不可用原因。
 
 简短 JSON 不会替换长报告，也不会修改长报告正文。
 
@@ -29,6 +29,7 @@ Codrax 分析 Trace 后可以保存两类结果：
 ```json
 {
   "schema_version": 2,
+  "status": "available",
   "root_causes": [
     {
       "rank": 1,
@@ -70,6 +71,8 @@ Codrax 分析 Trace 后可以保存两类结果：
 |---|---|
 | `schema_version` | JSON 格式版本。新格式是 2。 |
 | `root_causes` | 动态长度的根因数组。 |
+| `status` | `available` 表示有效模型选择已保存；`unavailable` 表示未得到有效结果，空数组不是“确认没有根因”。旧版文件没有此字段。 |
+| `reason_code` | 不可用原因，仅 `unavailable` 时出现。 |
 | `rank` | 重要性排名，从 1 开始。程序根据数组顺序自动填写。 |
 | `category` | 根因类型，只能从规定的十一类中选择。 |
 | `thread_name` | 涉及的线程名。只有线程类根因需要。 |
@@ -195,16 +198,30 @@ JSON Schema 限制字段、类型和根因类别
 20260811-123456-1000.root-causes.json
 ```
 
-当模型明确提交空选择时，JSON 仍然有效；也可以完全不提交旁路字段：
+从 2026-09-01 起，默认报告开启时，每次 Trace 分析都必须尝试生成同名旁路，不再依赖模型是否提交根因字段。模型明确提交有效空选择时，保存 `status: "available"` 和空数组。没有有效选择（包括字段校验失败）、没有可选候选或根因 JSON 编码失败时，则保存下面这样的合法空 JSON，而不是零字节文件：
 
 ```json
 {
   "schema_version": 2,
-  "root_causes": []
+  "root_causes": [],
+  "status": "unavailable",
+  "reason_code": "valid_model_root_cause_selection_unavailable"
 }
 ```
 
-因此默认同名旁路是“有有效模型选择才出现”的可选产物：文件缺失只表示本轮没有持久化有效选择，不能解释为“根因数量为 0”。需要稳定程序化接口时，使用单次 CLI 的显式路径：
+程序应先检查 `status`，再读取 `root_causes`。`schema_version: 2` 和根因字段继续在顶层，现有根因结构及模型选择顺序不变，只新增交付状态。
+
+| `reason_code` | 含义 |
+|---|---|
+| `valid_model_root_cause_selection_unavailable` | 本轮没有收到通过校验的模型选择。 |
+| `no_selectable_typed_on_chain_candidates` | 没有可交给模型选择的链上候选。 |
+| `trace_root_cause_contract_not_active` | 本轮未建立根因选择所需的证据合同。 |
+| `final_answer_transcript_not_available` | 流程提前退出或未形成答案；不输出未完成的草稿根因。 |
+| `root_cause_report_encoding_failed` | 根因报告编码失败，已降为合法的空 JSON。 |
+
+JSON 写入不再依赖 Markdown/HTML 成功。流程提前退出时可能只有 `.root-causes.json`，它与完整报告一样遵守 `output_max_files` 保留数量，不会被当成无主垃圾立即清理。磁盘满、权限不足等文件系统故障不可能保证落盘：API 可通过 `RootCauseOutputError()` 获取错误；CLI 保留答案输出后返回文件交付失败，交互模式单独告警，不删除或改写模型答案。
+
+`output_dump_enabled: false` 仍表示明确关闭默认报告；若需要固定路径，或关闭默认报告后仍要 JSON，使用单次 CLI 的显式路径：
 
 ```bash
 codrax --htrace ./demo.systrace --request "分析这个 Trace 的丢帧根因" \
@@ -233,10 +250,10 @@ codrax --htrace ./demo.systrace --request "分析这个 Trace 的丢帧根因" \
 ## 11. 需要注意的边界
 
 - 根因候选选择、数量和顺序由最终模型完成；系统负责 typed 候选编译、字段绑定和校验，不会凭空替代模型诊断。
-- 默认同名简短 JSON 是可选旁路。缺失或字段级格式错误不会导致完整答案丢失；此时只是不生成新的 `.root-causes.json`，也不能把缺失解释为“没有根因”。需要必达文件时使用 `--root-causes-out`，并检查 envelope 的 `status/reason_code`。
+- 默认报告开启时，同名简短 JSON 是必选旁路；没有有效结果仍写 `root_causes: []`，用 `status/reason_code` 区分不可用。旁路问题不修改或替换长答案。固定路径使用 `--root-causes-out`；该显式文件继续使用原有 envelope，不能按默认顶层 v2 格式误读。
 - 如果 `trace_query` 返回 `trace_input_source_unavailable`，说明结构化查询没有成功读取 Trace。这时应先修复输入路径或文件格式。
 - JSON 格式正确，不等于诊断一定正确。仍要核对模型选择的候选顺序与完整长报告是否一致。
-- 简短根因功能不依赖批量聚类。单个 Trace 在模型提交有效候选选择时也可生成 `.root-causes.json`。
+- 简短根因功能不依赖批量聚类；单个 Trace 同样默认生成 `.root-causes.json`。
 
 ## 12. 关键代码位置
 
@@ -247,6 +264,7 @@ codrax --htrace ./demo.systrace --request "分析这个 Trace 的丢帧根因" \
 - `internal/tool/final_answer_artifacts_mutation.go`：接收并校验根因报告。
 - `internal/tool/emit_answer_document_v2.go`：同时接收长答案和根因 JSON。
 - `internal/outputdump/output_dump.go`：把根因报告保存为 `.root-causes.json`。
+- `internal/outputdump/root_cause_sidecar.go`：默认必选旁路、空结果状态与无答案兜底。
 - `internal/outputdump/explicit_report.go`：实现 `--root-causes-out` 的必达状态 envelope；缺失选择只披露 unavailable，不代替模型选择。
 
 ## 13. 用一句话理解

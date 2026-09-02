@@ -2934,9 +2934,9 @@ func (m *MutableState) FinalAnswerHTMLPath() string {
 	return m.finalAnswerHTMLPath
 }
 
-// FinalAnswerRootCauseJSONPath returns the optional structured Trace
-// root-cause sibling path, or empty when no validated report was persisted.
-// Empty means unavailable, not "no root cause".
+// FinalAnswerRootCauseJSONPath returns the structured Trace artifact path,
+// including empty unavailable artifacts. Empty means non-Trace, dumping was
+// explicitly disabled, or file IO failed. Read status before using its roots.
 func (m *MutableState) FinalAnswerRootCauseJSONPath() string {
 	if m == nil {
 		return ""

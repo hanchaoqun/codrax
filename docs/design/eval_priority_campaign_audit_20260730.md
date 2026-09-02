@@ -57380,6 +57380,35 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1619 B1548：默认根因 JSON 改为必选旁路（2026-09-01）
+
+用户追加裁定：默认 `.root-causes.json` 必须生成，生成失败也要有空产物。此条覆盖 §123.1614–§123.1618 的历史“默认可选”政策；
+这些历史回放记录保留，不把旧行为改写成当时已经实现。
+
+任务与实现：
+
+- [x] B1548a 输出层：已绑定根因报告继续保存顶层 v2 字段与模型选择顺序，新增 `status=available`；缺少有效选择、没有候选或编码失败时写
+  `schema_version=2, root_causes=[], status=unavailable, reason_code=...`。空数组不是已证“零根因”，更不是系统替模型选择。
+- [x] B1548b 生命周期：JSON 不再依赖 Markdown 写成功；Run 退出兜底覆盖附件准入失败、无最终答案，不输出未完成草稿。只消费附件、typed
+  Trace 合同或外部观测策略+已知 Trace 工件，不扫描请求/答案关键词，不把 converter fixture 的提及视为根因分析。REPL 不复用上一轮 bus/根因。
+- [x] B1548c 留存与错误通道：无 Markdown 的合法 JSON 按一次运行计入保留数量，不再被 orphan sweep 立即删除。真实文件写入失败通过
+  `RootCauseOutputError()` 暴露；CLI 在答案展示后的既有报告收尾点返回错误，REPL 独立告警。不能直接让 `Run` 因文件交付失败返回分析错误，
+  因既有前端遇到 Run 错误会跳过答案——此实现防止“必选旁路”反过来吞掉有效模型正文。
+- [x] B1548d 合同兼容：模型选择字段仍可缺省/失败，不新增模型成文硬门；默认空产物由输出层实现。显式 `--root-causes-out` 的 envelope 不变；
+  `output_dump_enabled=false` 作为明确关闭默认输出的配置仍生效，显式路径仍可越过该关闭项。文件系统不可写、进程被强杀等不声称物理必达。
+- [x] 四条旧行为先红：missing selection、no candidates、编码失败、Markdown 写失败均实测缺文件；新回归覆盖空数组非 null、有效空选择区分、
+  模型正文/Mutable 根因不被修改、Trace/源码范围隔离、提前退出、跨 REPL 旧状态隔离、保留数量、CLI/REPL 错误发布。
+- [x] 完整受影响包测试、`go test ./... -count=1`、`make`、`git diff --check` 全绿；混合源码/Trace 的实际查询证据激活与取消流程补充测试也通过。
+  全仓中 `internal/tool` 212.377s、`internal/tracequery` 90.756s、`internal/hitraceconv` 112.971s、`internal/orchestrator` 22.072s。
+  首轮热文件行数保护曾报超限，已把既有 `SetOutputDump` 原样语义移到 output_dump.go 关注点文件后复绿，没有抬高行数上限。
+  本批不以模型自愿输出 JSON 的一次回放替代确定性缺省/失败分支验收。
+
+状态：`B1548=implemented/verified`；默认输出开启时 `root-json=required/available-or-empty-unavailable`；
+`model-root-selection/answer-prose=unchanged`；`CLI-file-failure=reported-after-answer`；`REPL-file-failure=separate-warning`。
+
+边界：Trace 显式时间窗、根因排名、链上占时/规则可消双轴、因果投影、系统自动补齐、图关系/JSON 教学、活跃流时限均未修改。
+本批只改变文件交付策略，既不替模型下结论，也不升级邻近/背景证据。统一用法更新至 `docs/guides/trace_short_root_cause_implementation_zh.md`。
+
 ### §123.1618 r1012：B1547 生产闭环与根因 JSON 默认旁路对照（2026-09-01）
 
 1. 从已推送 `e3f51d66e` 构建不可变二进制，严格并发恰好 2 路复放同一 read/Trace 组合；runner 2/2 PASS：Trace 173s、read

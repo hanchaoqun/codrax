@@ -87,6 +87,7 @@ type Orchestrator struct {
 	outputDumpDir           string
 	outputDumpMax           int
 	outputTranscriptRequest string
+	rootCauseOutputErr      error // per-Run mandatory sidecar delivery failure
 
 	// memoryReader is the read handle into the REPL memory store.
 	// Wired by cmd/root.go via SetMemoryReader after the Store is
@@ -779,19 +780,6 @@ func (o *Orchestrator) SetThinkAloudMap(m map[types.AgentName]bool) {
 // persistent layout).
 func (o *Orchestrator) SetBlobSessionDir(dir string) {
 	o.blobSessionDir = dir
-}
-
-// SetOutputDump configures the per-Run final-answer transcript dump.
-// `dir` is the absolute output directory (typically
-// <CWD>/.codrax/output/); empty disables the feature. `max` bounds
-// retention — the dump helper deletes the oldest *.md files in the
-// directory until count <= max-1 before writing a new file, so the
-// directory never grows past `max` entries. Non-positive `max` is
-// treated as "no cap" by the helper but cmd/root.go always passes a
-// concrete default (10), so the no-cap branch is reserved for tests.
-func (o *Orchestrator) SetOutputDump(dir string, max int) {
-	o.outputDumpDir = dir
-	o.outputDumpMax = max
 }
 
 // SetOutputTranscriptRequest installs the exact current-turn user
@@ -1612,6 +1600,14 @@ func (o *Orchestrator) KeepWorktreeOnSuccess() bool {
 //
 // The maxSteps budget is enforced globally across both phases.
 func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*types.BusContext, error) {
+	o.rootCauseOutputErr = nil
+	// Capture this Run's bus, never the previous REPL turn's retained bus.
+	// Registered before admission so rejected attached traces also get an
+	// empty artifact. This output-only hook neither dispatches nor gates agents.
+	var outputBus *types.BusContext
+	defer func() {
+		_ = o.ensureDefaultTraceRootCauseOutput(outputBus)
+	}()
 	// Allocate a fresh CancelToken for this Run. REPL grabs it via
 	// the public Cancel() method to drive Ctrl+C / `/cancel`. Cleared
 	// in the defer below so idle Orchestrators (between Runs) cannot
@@ -1740,6 +1736,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		Ctx: o.cancelTokenLoad().Context(),
 	}
 	defer o.persistReadRunSnapshot()
+	outputBus = o.busCtx
 	if transcriptRequest := strings.TrimSpace(o.outputTranscriptRequest); transcriptRequest != "" {
 		// Freeze the REPL-provided expanded request onto this Run's
 		// MutableState. The Orchestrator itself is reused across REPL

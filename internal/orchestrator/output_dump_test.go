@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,148 @@ func TestBuildOutputDumpBody_TwoSections(t *testing.T) {
 	}
 	if strings.Contains(body, "附件") {
 		t.Fatalf("attachment footnote unexpectedly present:\n%s", body)
+	}
+}
+
+func TestRecordTaskFinalizeWritesEmptyDefaultRootsWithoutModelSelection(t *testing.T) {
+	for _, answer := range []string{"original model answer", ""} {
+		t.Run(answer, func(t *testing.T) {
+			mut := types.NewMutableState("trace investigation")
+			mut.SetTraceFindingContract(&types.TraceFindingContract{RootCauseReportEnabled: true})
+			o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}, outputDumpDir: t.TempDir(), outputDumpMax: 10, emit: func(render.Event) {}}
+			o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: answer})
+			body, err := os.ReadFile(mut.FinalAnswerRootCauseJSONPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got outputdump.DefaultRootCauseArtifact
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatal(err)
+			}
+			wantReason := "valid_model_root_cause_selection_unavailable"
+			if answer == "" {
+				wantReason = "final_answer_transcript_not_available"
+			}
+			if got.Status != "unavailable" || got.RootCauses == nil || len(got.RootCauses) != 0 || got.ReasonCode != wantReason {
+				t.Fatalf("wrong empty artifact: %s", body)
+			}
+			if mut.TraceRootCauseReport() != nil || mut.Result() != answer {
+				t.Fatal("delivery fallback must not invent a model selection or answer")
+			}
+			if answer == "" && mut.FinalAnswerMarkdownPath() != "" {
+				t.Fatal("must not invent a transcript")
+			}
+		})
+	}
+}
+
+func TestRunFailureStillWritesDefaultTraceRoots(t *testing.T) {
+	for _, attached := range []string{"binary\x00trace", "worker-42 (42) [000] .... 1.000000: tracing_mark_write: B|42|task\n"} {
+		t.Run(attached[:6], func(t *testing.T) {
+			calls, events := 0, 0
+			o := newTraceAdmissionTestOrchestrator(&calls, &events)
+			o.SetOutputDump(t.TempDir(), 10)
+			o.SetAttachedHitrace(attached)
+			// A reused REPL orchestrator must not reuse the preceding run's roots.
+			old := types.NewMutableState("prior run")
+			old.SetFinalAnswerArtifactPaths("old.md", "old.html", "old.root-causes.json")
+			o.busCtx = &types.BusContext{Mutable: old}
+			repo := t.TempDir()
+			writeTraceAdmissionRepoSource(t, repo)
+			bus, runErr := o.Run("investigate trace", repo, "main")
+			if strings.Contains(attached, "\x00") && runErr == nil {
+				t.Fatal("binary admission must fail")
+			}
+			if !strings.Contains(attached, "\x00") && (bus == nil || calls == 0) {
+				t.Fatal("valid text must exercise the post-admission failure lane")
+			}
+			files, err := filepath.Glob(filepath.Join(o.outputDumpDir, "*.root-causes.json"))
+			if err != nil || len(files) != 1 {
+				t.Fatalf("failure must publish exactly one artifact: %v %v", files, err)
+			}
+			body, _ := os.ReadFile(files[0])
+			var got outputdump.DefaultRootCauseArtifact
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatal(err)
+			}
+			wantReason := "final_answer_transcript_not_available"
+			if bus != nil && bus.Mutable != nil && bus.Mutable.Result() != "" {
+				wantReason = "trace_root_cause_contract_not_active"
+			}
+			if got.Status != "unavailable" || got.ReasonCode != wantReason || got.RootCauses == nil || len(got.RootCauses) != 0 {
+				t.Fatalf("wrong failure artifact: %s", body)
+			}
+			if old.FinalAnswerRootCauseJSONPath() != "old.root-causes.json" {
+				t.Fatal("previous REPL turn was mutated")
+			}
+		})
+	}
+}
+
+func TestRunExposesMandatoryTraceRootWriteFailureSeparately(t *testing.T) {
+	calls, events := 0, 0
+	o := newTraceAdmissionTestOrchestrator(&calls, &events)
+	dir := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(dir, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o.SetOutputDump(dir, 10)
+	o.SetAttachedHitrace("binary\x00trace")
+	_, err := o.Run("investigate", t.TempDir(), "main")
+	if err == nil || !strings.Contains(err.Error(), "trace input admission") || o.RootCauseOutputError() == nil || !strings.Contains(o.RootCauseOutputError().Error(), "root-cause output directory") {
+		t.Fatalf("both pipeline and delivery failures must be retained: %v", err)
+	}
+}
+
+func TestRunCancelledTraceWithoutFinalAnswerWritesEmptyRoots(t *testing.T) {
+	calls, events := 0, 0
+	o := newTraceAdmissionTestOrchestrator(&calls, &events)
+	o.SetOutputDump(t.TempDir(), 10)
+	o.SetAttachedHitrace("worker-42 (42) [000] .... 1.000000: tracing_mark_write: B|42|task\n")
+	o.SetEmitter(func(event render.Event) {
+		if event.Kind == render.EventPipelineStart {
+			o.Cancel("test cancel before final answer")
+		}
+	})
+	repo := t.TempDir()
+	writeTraceAdmissionRepoSource(t, repo)
+	bus, _ := o.Run("investigate trace", repo, "main")
+	if bus == nil || bus.Mutable == nil {
+		t.Fatal("cancel after admission should have a run-scoped bus")
+	}
+	if bus.Mutable.Result() != "" {
+		t.Fatalf("fixture must cancel before final answer: %s", bus.Mutable.Result())
+	}
+	body, err := os.ReadFile(bus.Mutable.FinalAnswerRootCauseJSONPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got outputdump.DefaultRootCauseArtifact
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "unavailable" || got.ReasonCode != "final_answer_transcript_not_available" || got.RootCauses == nil || len(got.RootCauses) != 0 {
+		t.Fatalf("cancelled run must still publish empty roots: %s", body)
+	}
+}
+
+func TestTraceRootOutputScopeUsesTypedSignalsNotProse(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("analyze trace root-causes.json"), RuntimeArtifactPreflight: types.RuntimeArtifactPreflightProfile{Artifacts: []types.RuntimeArtifactPreflightArtifact{{Kind: "trace", Source: "fixture.systrace"}}}}
+	o := &Orchestrator{}
+	if o.hasTraceRootCauseOutputContext(bus) {
+		t.Fatal("fixture mention alone must not activate diagnosis output")
+	}
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{ExternalObservationPolicy: &types.ExternalObservationPolicy{ArtifactCitationMode: types.ExternalObservationArtifactCitationExternalOnly}}}
+	if !o.hasTraceRootCauseOutputContext(bus) {
+		t.Fatal("typed external trace policy must activate output without an attachment")
+	}
+	bus.AnalysisIR = nil
+	bus.Mutable.AppendDispatchToolResult(types.ToolResult{ToolName: "trace_query", Success: true, Observations: []types.ObservationRecord{{
+		Origin: types.AnswerEvidenceOriginRuntimeArtifact, Producer: "trace_query", GroundingPolicy: types.ClaimGroundingHard,
+		SourceRef: types.ObservationSourceRef{Kind: types.ObservationSourceRuntimeArtifact},
+	}}})
+	if !o.hasTraceRootCauseOutputContext(bus) {
+		t.Fatal("actual typed Trace observations must also cover mixed source/trace investigations")
 	}
 }
 

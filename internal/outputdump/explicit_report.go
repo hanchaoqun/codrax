@@ -30,7 +30,7 @@ type ExplicitReport struct {
 	// is this file's base name).
 	HTMLPath string
 	// RootCauseJSONPath, when non-empty, receives a guaranteed-delivery
-	// machine-readable Trace root-cause artifact. Unlike the optional default
+	// machine-readable Trace root-cause artifact. Like the default Trace
 	// sibling, this target is written even when no valid model-owned root-cause
 	// selection is available; that state is represented by a typed unavailable
 	// envelope instead of a missing file or a fabricated empty conclusion.
@@ -56,8 +56,8 @@ const (
 )
 
 // ExplicitRootCauseArtifact is the stable guaranteed-delivery envelope used
-// only by --root-causes-out. The optional timestamped default sibling keeps
-// its historical bare TraceRootCauseReportV2 wire shape. Keeping availability
+// only by --root-causes-out. The mandatory timestamped default sibling keeps
+// top-level TraceRootCauseReportV2 fields plus availability metadata. Keeping availability
 // outside the report prevents a missing model selection from being serialized
 // as root_causes=[] and misread as a model conclusion that no cause exists.
 type ExplicitRootCauseArtifact struct {
