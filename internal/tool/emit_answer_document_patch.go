@@ -2807,6 +2807,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			"answer_document patch carrier contains serialized JSON boundary text in field name(s): %s; retry the patch without dropping any requested block",
 			strings.Join(paths, ", "))
 	}
+	if repaired, ok := normalizeMisroutedTraceRootCausePatchField(params); ok {
+		logging.Warning("[emit_answer_document_patch] moved exact submitted trace_root_causes to absent replace_trace_root_causes via local-model JSON tolerance")
+		params = repaired
+	}
 	if repaired, ok := normalizeMisplacedTraceRootCauseSchemaVersion(params, "replace_trace_root_causes"); ok {
 		logging.Warning("[emit_answer_document_patch] re-homed exact root-cause schema_version into replace_trace_root_causes via local-model JSON tolerance")
 		params = repaired

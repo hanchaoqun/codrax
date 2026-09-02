@@ -137,3 +137,31 @@ The CPU-ms unit boundary and syntactically unparseable whole-tool-call boundary 
 Re-audit result: no new PR #23 gap was found, no code change was required, original
 author history is preserved, and the existing Trace explicit-window causal
 projection/automatic supplementation path remains untouched.
+
+## 8. r1018 production follow-up (2026-09-02)
+
+The September 1 result above is historical, not a claim that all sidecar behavior
+is gap-free. The next heterogeneous replay exposed three additional gaps; their
+single task/status ledger is `eval_priority_campaign_audit_20260730.md`
+§123.1630–§123.1633:
+
+- B1555 (`1cee3bc3d`): distinct model-selected receipts collided on a short
+  display summary and invalidated the complete report. Duplicate checks now use
+  the frozen candidate identity; public JSON still omits that internal ID.
+- B1557 (`24d696fc2`): the broad token lane erased the meaning of the selected
+  magnitude. The candidate now retains producer supply-fold and D/IO accounting.
+  An effective running deficit is not labeled phase workload, and a mixed or
+  proven non-IO D wait is not labeled entirely IO. Existing v2 categories are
+  retained; `sleep_blocking` is the broad thread-blocking summary, not proof of
+  scheduler state S. Model context and bound evidence share the same qualifier.
+- B1556 (current follow-up): full/patch field teaching differed. The two native
+  object forms are now taught together; an unambiguous full-field selector at the
+  patch entry is moved without changing order, IDs or model answer. Conflicts and
+  incomplete carriers are not guessed; invalid optional selectors retain the last
+  accepted report on patch.
+
+B1555/B1557 passed full-repository tests and build before push. B1556 verification
+and the next paired replay are tracked in the unified ledger. The remaining
+versioned taxonomy boundary in §4.1 is not declared solved by these changes.
+The model selection remains optional; the default sibling file is mandatory and
+uses the existing typed unavailable envelope when no valid selection can be bound.

@@ -1,14 +1,83 @@
 package tool
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// normalizeMisroutedTraceRootCausePatchField moves a submitted full-emit
+// selector to the patch field only when that field is absent. It never
+// chooses between competing payloads or invents a selector/version. Preserve
+// the inner object fields (or decode exactly one string wrapper), including
+// array order, then leave all semantic checks to the existing binder.
+func normalizeMisroutedTraceRootCausePatchField(raw json.RawMessage) (json.RawMessage, bool) {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(raw, &root) != nil {
+		return raw, false
+	}
+	if _, exists := root["replace_trace_root_causes"]; exists {
+		return raw, false
+	}
+	carrier, exists := root["trace_root_causes"]
+	if !exists || !traceRootCausePatchHasUniqueObjectKeys(raw) {
+		return raw, false
+	}
+	report, ok := decodeTraceRootCauseReportCarrier(carrier)
+	if !ok {
+		return raw, false
+	}
+	if _, exists := report["root_causes"]; !exists {
+		return raw, false
+	}
+	var encoded string
+	if json.Unmarshal(carrier, &encoded) == nil {
+		carrier = json.RawMessage(encoded)
+	}
+	if !traceRootCausePatchHasUniqueObjectKeys(carrier) {
+		return raw, false
+	}
+	root["replace_trace_root_causes"] = carrier
+	delete(root, "trace_root_causes")
+	out, err := json.Marshal(root)
+	if err != nil {
+		return raw, false
+	}
+	return out, true
+}
+
+func traceRootCausePatchHasUniqueObjectKeys(raw json.RawMessage) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return false
+	}
+	seen := map[string]bool{}
+	for decoder.More() {
+		token, err := decoder.Token()
+		key, ok := token.(string)
+		if err != nil || !ok || seen[key] {
+			return false
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if decoder.Decode(&value) != nil {
+			return false
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != json.Delim('}') {
+		return false
+	}
+	var extra any
+	return decoder.Decode(&extra) == io.EOF
+}
 
 // normalizeMisplacedTraceRootCauseSchemaVersion repairs one unambiguous
 // structural carrier drift seen in production tool calls: the model authors

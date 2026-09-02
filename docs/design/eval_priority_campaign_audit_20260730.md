@@ -57380,9 +57380,28 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1633 B1556：首次成文/修补 JSON 教学对齐与无歧义字段搬运（2026-09-02）
+
+`P2 / implemented / targeted+affected-suite+build-pass / 本批提交`。
+
+- 共享教学明确 full `trace_root_causes` / patch `replace_trace_root_causes` 两个入口，同一个原生对象结构；
+  discriminator 仍在对象内，不能把对象/数字引号化；仅改正文时省略 replacement，保留上一份合法报告。
+  replacement 是完整有序选择，不是增量追加；不增加模型字段义务或重试预算。
+- patch 在 unknown-field 隔离之前，仅 canonical 完全缺席时将模型已提交的 old field 原样搬到 canonical；
+  完整 JSON 对象字符串仅解包一次。后接原有精确 discriminator 搬运及 frozen candidate binder。
+- 同时出现两个字段（含 canonical=null）、外层/报告对象重复键、不完整或非对象载荷均不猜选；
+  不补版本、不造 ID、不重排选择；错误版本/不存在 ID 仍失败在 optional 侧，保留正文及 patch 前的合法报告。
+- 四个真实入口形（native/string × nested/outer discriminator）先红后绿；11 个歧义/缺失负例保持原输入，
+  两项顺序保真；完整 patch 接线验证冲突/坏版本/坏候选不会覆盖已有报告，模型正文不变。
+  日志 `.codrax/tmp/b1556-{red,targeted}-20260902.log`。
+- 成文工具/agent/输出旁路/LLM 流式/编排完整包回归全部通过，`make` 通过；
+  `.codrax/tmp/b1556-{affected-test,build}-20260902.log`。本小批仅修改 agent/tool，未将定向包套件宣称为又一次全仓测试。
+- 下一组 `r1019`：Rust 跨模块调用链 + H11 Trace 多修复方向重叠，严格 2 路。
+  前者看模型关系与图/JSON 修补，后者看供给/IO/重叠和旁路；已有足够证据但仅模型措辞波动不加硬门。
+
 ### §123.1632 B1557：旁路继承已发布值口径，不把供给缺口或非 IO 的 D 等待改名（2026-09-02）
 
-`P1 / implemented / targeted+pipeline+full-suite+build-pass / 本批提交`。
+`P1 / implemented / targeted+pipeline+full-suite+build-pass / pushed=24d696fc2`。
 
 - 根因已复现：registry 的 `running → cpu_work` 是宽类，不表示本行的有效影响就是业务执行量；
   `d_state_or_io_wait → io_blocking` 也是合并类，不表示 D+IO 全部是 IO。
@@ -57435,7 +57454,7 @@ H7 251s/4 trace_query/0 成文硬拒/1 维度提示 patch；Python write 170s/5 
    第 1/3 项仅因都格式化成 `running阶段高负载`，被报告 normalizer 的 Summary 去重拒整份。
    已有 binder 的 candidate_id 去重才是精确信号；候选身份必须与读者摘要分开。
    覆盖同类不同线程、同类同线程不同精确凭证、不同锁/阶段、真实重复 ID、无凭证/非链/非墙钟排除与 full→patch→旁路继承。
-2. [ ] **B1556-ROOTCAUSEPATCHCARRIER1 / P2 / confirmed**：共享教学只展示 full `trace_root_causes`；
+2. [x] **B1556-ROOTCAUSEPATCHCARRIER1 / P2 / implemented，验证见 §123.1633**：共享教学只展示 full `trace_root_causes`；
    patch 实际接收 `replace_trace_root_causes`，模型重发旧字段被隔离。
    对齐 JSON 教学；仅无 canonical/冲突时原样搬运已提交载荷，仍保留 discriminator/候选严格校验；不引入选项推断或正文硬门。
 3. [ ] **B1554 / P2 / 矩阵细化中**：读到 shared call-expression feature 不能证明具体 callee，必须保留错误目标负例。

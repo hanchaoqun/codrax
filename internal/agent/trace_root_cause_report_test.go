@@ -85,6 +85,12 @@ func TestRenderTraceRootCauseContractOffersOnlyTypedCandidateIDs(t *testing.T) {
 	if !strings.Contains(got, "Optional Trace Root Cause JSON") || !strings.Contains(got, `"candidate_id": "candidate-1"`) || strings.Contains(got, "Required") {
 		t.Fatalf("typed optional selector prompt drifted:\n%s", got)
 	}
+	for _, teaching := range []string{"`trace_root_causes` in `emit_answer_document`", "`replace_trace_root_causes` in `emit_answer_document_patch`",
+		"Do not quote the object or the number", "previously accepted report is retained", "complete ordered selection"} {
+		if !strings.Contains(got, teaching) {
+			t.Fatalf("full/patch JSON teaching drifted: missing %q in %s", teaching, got)
+		}
+	}
 }
 
 func TestPrepareTraceFindingContractNarrowTraceFactStaysInactive(t *testing.T) {
