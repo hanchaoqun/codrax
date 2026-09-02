@@ -5729,3 +5729,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 4. **tripwire**:action 注册 census——每个 action 声明 topology∈{1:1,1:N,N:1},缺失即红;expand→count 合成 fixture(item 有 3 tag → 计 3)。
 
 **验收 pin**:①expand→count 合成例 3 而非 1(红→绿);②expand→filter(include/exclude 不同兄弟)不误拒;③1:1 action 身份继承不变(既有 data eval 集回归:data_jsonl_filter_count/data_multifile_reference_projection)。
+
+### §40.16 逐项细化 ⑩ V1-5:死的 legacy trace_finding 车道仍整答案硬拒
+
+**定性**:`contract.Required` 生产恒 false,`trace_finding`/`replace_trace_finding` 不在 schema、不被教学,但隔离 profile 放行该顶层字段、解码器绑定、`resolveTraceFindingForEmit` 只要字段在场即报错→`failEmit` 整答案拒。**泛化类**:「已退役车道的输入面未同步退役」——退役必须是三面(schema/教学/解码)一体。**泛化解**:①退役 census:任何 schema 不含、教学不提的顶层字段一律走"未知字段隔离+日志"通用臂,禁专属硬拒;②删除 Required 车道全部死码(schema 臂/validator/setter)或在 `contract.Required` 常 false 的前提下加编译期 tripwire;③通用规则:`failEmit` 只可由 schema 内字段触发(census:failEmit 调用点的触发字段 ⊆ schema 字段集)。**验收 pin**:stray `trace_finding` → 答案接受+日志;census 红检。
