@@ -44,10 +44,22 @@
 # record + the SAME board's kept 0.116ms pair at 12.3% of its smaller seat) +
 # internal/tool/answer_document_projection_intersect_fix_test.go (flagship
 # board sentence/chip absence + tieba 61839 kept 0.705ms sentence + legend).
-# The case stays outside the default sweep glob (eval/cases/*.case) as a
-# real-trace guard; expected PASS from INTERFLOOR-1 onward.
+# IO-CAL-1 / IO-WAKE re-base (B1559, r1019 audit, 2026-09-02): the old
+# 0.114ms overlap used request residence, not issuer response-blocked time.
+# The current family contains 47 exact completion-closed issuer waits,
+# 12.658ms total. Those S/D intervals cannot overlap the same task's Running.
+# Engine and full projection pins already enforce this distinction:
+# TestAXIOMV2IntersectLivePinDonghuFlagship and
+# TestIntersectFixMutualClauseDonghuFlagship. Requiring the old advisory here
+# would force a regression to the wrong ruler. Keep its negative witness,
+# require the current full family on the published projection, and require a
+# final projection receipt. Detail may live in a blob rather than the control
+# log; the engine pins assert completion closure and the exact S/D ruler.
+# Significant overlap and de-minimis positive
+# arms remain in the independent engine/renderer pins, not this IO family.
+# The case stays outside the default sweep glob (eval/cases/*.case).
 ID="real_trace_h11_cross_direction_overlap"
-NAME="real trace donghu — cross-direction overlap de-minimis floor (17267)"
+NAME="real trace donghu — response-blocked IO and cross-direction caliber (17267)"
 QUESTION="只分析这份 trace，不分析代码。请分析 .ugc.aweme.lite-17267 在 13762.791708s 到 13763.024898s 窗口内的卡顿原因与可消除量：按修复方向分别说明各自的提升空间，并说明这些提升空间之间的关系。"
 HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 # F4 seal (§29.55.5, EVAL-HYG 2026-07-14): trace-only case — --repo points at
@@ -57,9 +69,11 @@ HTRACE_FILE="eval/fixtures/real_traces/donghu.ftrace"
 FIXTURE="eval/fixtures/stub_repo"
 N_DEFAULT="2"
 EXPECT_CONTAINS="ugc.aweme.lite 58.320"
-EXPECT_MATCHES_REGEX="频率与热治理"
+EXPECT_MATCHES_REGEX="频率与热治理
+12\\.658ms.*IO阻塞.*共47段"
 EXPECT_NOT_CONTAINS="still_present not_enough_evidence"
-EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query
-cross_direction_de_minimis pair running x io_latency overlap 0\\.114ms"
+EXPECT_TRACE_FINAL_PROJECTION_BLOCKS="1"
+EXPECT_LOG_MATCHES_REGEX="phase=toolcall .*tool=trace_query"
 EXPECT_LOG_NOT_MATCHES_REGEX="重叠 0\\.114ms
-重叠 0\\.043ms"
+重叠 0\\.043ms
+cross_direction_de_minimis pair running x io_latency overlap 0\\.114ms"

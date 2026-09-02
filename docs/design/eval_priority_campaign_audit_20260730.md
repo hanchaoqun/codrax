@@ -57380,9 +57380,19 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1636 B1559：H11 live oracle 同步 IO 响应阻塞口径（2026-09-02）
+
+`P2 / implemented / offline-oracle+engine-render-pins-pass / 本批提交`。
+
+- r1019 的真实 root_cause_rank JSON：自身 IO family 47 段、12.658ms、resource_completion_closure=true、sum_disjoint，cross_direction_overlaps 为空；响应阻塞与自身 Running 不相交。不是 pair 计算能力丢失。
+- 保留用例 ID/问题/fixture、旧微交集不露出负例；把旧错误 overlap advisory 从必有改为不得有，正向检查完整 IO 家族的投影值/段数，并新增最终投影数=1 的 typed metric。控制日志只核实发生 trace_query；详细结果可能存 blob，不能要求完整工具行必被重复展开到控制日志。
+- 既有 engine 真实样例 pin 继续检查 47 个精确区间、closure/方向依据、并集、供给值和无伪重叠；renderer 真实样例和独立 INTERFLOOR 正/负/显著交集/相对尺度回归仍通过，日志 `.codrax/tmp/b1559-caliber-pins-20260902.log`。
+- 新 oracle 在原 r1019 工件离线验证通过，但**不改写** r1019 原机器 FAIL/人工 FAIL 记录，也不因此将模型正文或空旁路判为合格。B1558 修后下一批再 live 验证。
+- 未修改产品代码、Trace 根因排序/链路/IO 数值/正文，未追加模型端硬约束。
+
 ### §123.1635 B1558：旁路证据按语义边界无损分行（2026-09-02）
 
-`P1 / implemented / targeted+pipeline+full-suite+build-pass / 本批提交`。
+`P1 / implemented / targeted+pipeline+full-suite+build-pass / pushed=a9b1e8b5e`。
 
 - r1019 暴露 B1557 的长度回归：长原始文件定位 + typed row 定位 + 供给口径超过单条 240 字符，而公开 v2 本已允许最多 4 条。运行时自己造出非法载荷，不能归咎模型。
 - 短证据原形不变；长证据按“影响量陈述 / 完整口径 / 每个完整引用”分行，按 Unicode 字符计算；所有引用及其顺序保留，不截短、不删分量、不扩容量、不改变候选顺序/类别/数值/正文。
