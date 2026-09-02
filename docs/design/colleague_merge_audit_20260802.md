@@ -5590,3 +5590,30 @@ V2-4 patch 校验逐项首错;V3-3 后 emit 顾问车道每轮一条(最多 4 �
 4. 中低危随批;V12-3 继承债并入排期。
 
 **方法学**:①同事修复合规连续第四轮 100%(PR23 五条+我方 §11 三项+既往全部核验通过,51/51),**新缺陷集中在新子系统与新硬门**(tracefinding/patch 车道/写校验权威/转换恢复)——审计资源继续向新功能面倾斜;②**裁定推翻类首次出现**(V12-1):修复提交在无用户裁定引用下改写终判通则语义——建议同事流程增加"触碰账本已裁语义必须引用裁定或申请改裁"检查;③T3-2 类第五例(V4-1)与 §11.4 提议的 census tripwire 尚未落地——单点助手已建但"每个硬臂必过同一解析权威"的结构 tripwire 仍缺,应作为泛化解优先落地(而非逐例修)。
+
+### §40.7 逐项细化 ① V12-1:非目标语义 span 边前份额计价归零(裁定推翻件)
+
+**定性**:B829(332fabb21,08-15)/B830 在 `tracequery/query.go:19110` 引入 `semanticProjectionIsRelationOnly`(basis∈{host_wakeup_edge, semantic_chain_interval_relation})→`publishedEffectiveMs=0, rank=0, context-only`。这不是实现缺陷,是**语义裁定被修复提交隐式改写**:§29.88.1 R3 明文"宿主对目标有窗内 typed 唤醒边且 span 段位于边前→该部分算链上席;跨边按边界二分";§29.88.2 R4 明文"边=凭证/边前=有效/边后=解除为**全状态族**(含语义 span)链上唯一精确判据,终判通则"。提交与其账本 §123.834 均未引用任何用户裁定。
+
+**零 LLM 确定性复现**(`--tracediag`,tieba 哨兵 `eval/fixtures/real_traces/donghu_tieba_frame.systrace`,pid 59566,窗 34579.495000..34579.497500;脚本 collect_v12_1_tieba_narrow.yaml):
+```
+items[2]:  T7@ZeusThreadPo-61839 runnable 0.095ms fully pre-edge: … (edge=credential, pre-edge=effective,
+           post-edge=released; latest credential edge 34579.496810, via=direct)                 ← R4 计价
+items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share … for 0.285ms;
+           effective_impact=0.000ms; … (edge=relation credential; semantic completion/delay
+           binding=unproven; … edge at 34579.496810, via=direct)                                ← R4 未计价
+```
+**同一宿主、同一条边、同一窗**:状态席按 R4 计价,语义席按 B829 归零——一份报告内两套判据。B829 自己也保留了 `host_wakeup_edge_pre_state` 对 runnable/D-IO 按边前份计价,与 R4"一体适用"直接矛盾。
+
+**同事论据与辨析**:§123.834 称"r506 目标在 5.005000s 被唤醒而 VerifyClass 5.005400s 才结束,'目标等待语义完成'物理不可能"。此论据把 R4 的**凭证语义**(边前占用=推迟了边的到达=有效延误)偷换为**机理证明**(目标等待 span 完成)。R4 从不要求机理证明——closed matrix 护栏正是"机理主张只来自链/阻塞证据,计价按凭证";且 R3 已明文处理跨边形(按边界二分:边前份计入、边后份 ◇)。r506 案例在 R3 下的正确答案是:5.000400..5.005000 的边前份计入、5.005000..5.005400 边后份归 ◇——而非整段归零。
+
+**泛化根因类**:「同一凭证在不同状态族走不同计价规则」= 单源判据被按族碎片化;此类一旦开例,every 新族都会再问一次"要不要机理证明"。**泛化解不是逐族修,而是把 R4 落成结构不变式**:
+
+1. **判据单源化**:`host_wakeup_edge_pre_*` 全族(state/span/family/remainder)共用一个 pre-edge 计价函数(输入=段区间+最近凭证边时刻,输出=边前份/边后份),禁止任何 basis 分支单独归零;跨边二分只在此单点实现;
+2. **registry 判词**:在 `causal_token_registry.go` 为语义 span 家族登记"pre-edge share = priced(R3/R4)",并写入 §7.2.1 变更协议要求——任何 basis→零值的映射变更必须引用裁定编号;
+3. **结构 tripwire**:census 测试——对每个 on_chain_basis∈host_wakeup_edge* 的发布行,若 pre-edge 原始份>0 则 effective>0,除非 registry 显式登记豁免(带裁定引用);tieba 哨兵双席(items[2]/items[16])作为 e2e 一致性 pin(两席必须同规则);
+4. **机理层**保持不变:closed matrix 双面仍教"机理主张来自链/阻塞证据",树面可继续显示"语义完成机理未证"作为**披露**而非计价依据(披露≠清零,与 TWODIM/排除≠消失同构)。
+
+**需裁定(用户)**:A=恢复 R3/R4 计价(本席建议,零裁定推翻,与 B829 自身对状态席的处理一致);B=明示改裁——若采纳"语义 span 边前份不计价",须作为新裁定落账并同步改写 R4 的"全状态族"表述,且状态席同样适用(否则族间不一致仍在)。任一选项都必须走 §7.2.1 协议。
+
+**验收 pin**(施工时):①tieba 哨兵 e2e:items[2] 与 items[16] 同规则(A 下 items[16] effective=0.285;B 下 items[2] 亦归零);②r506 跨边形二分 pin(边前 4.600 计入/边后 0.400 ◇);③registry 判词 golden;④Description golden 走 UPDATE RITUAL 反向修订 B829 教学句。
