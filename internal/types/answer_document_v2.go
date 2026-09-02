@@ -578,9 +578,10 @@ func ReauthenticateSystemSnapshotBlockKinds(doc *AnswerDocumentV2, kinds map[str
 // claim_use schema does not balloon and invite sibling-field
 // misplacement.
 //
-// Both FromNode and ToNode MUST be the verbatim node identifier
-// strings as they appear in the diagram body; case-folded matching
-// is downstream. RelationKind is the current typed authority. The
+// On a diagram, FromNode and ToNode MUST be the verbatim node identifier
+// strings in its body; case-folded matching is downstream. On a standalone
+// list/table, they are model-authored reader labels, with exact endpoint
+// identities kept separately below. RelationKind is the current typed authority. The
 // model-facing schema requires it and exposes call / guard / import /
 // precedence / contain / type_relation / observe / register / assignment /
 // return.

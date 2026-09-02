@@ -1755,7 +1755,7 @@ func resolveAtomicDiagramAdditionRef(
 		}
 	}
 	if edit.Edge == nil {
-		return edit, fmt.Errorf("addition_ref=%q requires a model-authored edge with from_node, to_node, and visible_label", ref)
+		return edit, fmt.Errorf("addition_ref=%q requires a model-authored nested edge:{from_node,to_node,visible_label}; put these fields inside edge, not at the edit's top level, and follow the current schema's endpoint descriptions", ref)
 	}
 	edit.BlockID = blockID
 	edit.Edge.RelationKind = selected.RelationKind
@@ -1820,10 +1820,11 @@ func applyOneModelAuthoredDiagramEdgeEdit(
 	}
 	// Relation validators may find missing or stale edge_anchors on a
 	// non-diagram structured relation block. Such a block has no Mermaid body to
-	// rewrite. A live addition_ref may append only hidden anchor metadata after
+	// rewrite. A live addition_ref may append a model-authored relation after
 	// the lease proves that the model already selected the same evidence in its
-	// claim and visible item; existing-row refs retain remove/attach. Every
-	// reader-visible block field remains byte-identical.
+	// claim and visible item; existing-row refs retain remove/attach. Original
+	// block content remains byte-identical; the appended anchor's endpoint labels
+	// and relation wording may also be rendered, exactly as the model authored.
 	if block.Diagram == nil {
 		if action == "add" {
 			if edit.failureRefResolved || strings.TrimSpace(edit.FailureRef) != "" || edit.Match != nil ||

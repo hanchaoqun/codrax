@@ -57380,6 +57380,32 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1629 B1553：列表/表格端点显示契约与 JSON 层级提示对齐（2026-09-02）
+
+`confirmed / P1 / implemented / full-suite+build-pass`。远端同步至 `f180dafef`，无他人未提交改动。
+本批关闭 r1017 的系统诱导面，不以修改模型已写出的标签来追求答案外观，也不宣称模型措辞已稳定。
+
+- 根因：无 Mermaid 的有序列表、无序列表和表格，仍被 `preEmitStandaloneRelationClaimRepairDeltaJSON`
+  注入仅服务图语法的哈希节点别名；局部 schema 将新增关系称为 hidden anchor，却由 renderer 直接显示端点。
+- 改动：非图候选保留同一精确 relation/from_identity/to_identity/evidence 选择，不再发布图语法别名。
+  对应 live schema 明确 `edge.from_node/to_node` 是读者标签、`edge.visible_label` 是读者说明；
+  原有列表/表格内容保留，模型自己选择并撰写新增的关系行。静态教学同步区分图与非图，不再说非图一律只能 remove。
+- B1553b：首次缺失 edge 时即说明 `edge:{from_node,to_node,visible_label}` 的嵌套层级，
+  字段需放在 edge 内并遵循当前 schema；没有新 API、别名、自动选项或宽松解码。
+- 红转绿：新增三载体 producer→lease→实际 ParametersFor→原子 patch→persist→render 接线测试。
+  红测均复现“技术 ID + 无读者语义 + hidden 错误教学 + 缺少 JSON 嵌套提示”；
+  精确候选仍被保留，非法空 edge 不改变之前答案，中文业务标签原样到达渲染面。
+  初版测试曾将现有 citation bookkeeping 与 item 原文混作 byte 比较，已收窄到原始正文/表格/证据字段，未修改该流程。
+  图别名复用与混合图/列表修补现有回归同时通过；`go test ./... -count=1` 和 `make` 均通过。
+  全测期间最后两句 legacy 教学改为“按当前 published remove/attach 分支”，修改后补跑 tool/skill 的教学、schema、metadata 与新接线测试通过。
+  记录：`.codrax/tmp/b1553-{red,targeted,full-test,teaching-final,build}-20260902.log`。
+- 边界：不改 renderer、关系证明、选边、链上根因、Trace 投影、自动补采、流式超时或模型正文；
+  不对业务标签增设关键词/格式硬门。既有 JSON 结构校验保持严格。
+
+下一批 r1018 按影响与异构覆盖选 **H7 显式时间窗根因 + Python 写模式症状定位**，恰好两路：
+H7 覆盖供给折算、自身 D 等待、小链上来源及未入榜披露；写模式覆盖定位→实现→回归→累计验证。
+暂不重跑已有充分上下文但仅措辞波动的 H4；B1554 泛型调用锚矩阵仍待独立批次，不被本批顺带放宽。
+
 ### §123.1628 r1017：机器 2/2 通过，人工发现载体语义泄漏与调用锚错误反馈（2026-09-01）
 
 固定二进制 `50d8d7db6`，恰好 2 路并行；结果与完整人工审计分别落在
@@ -57398,13 +57424,13 @@ C++ 无强制图义务，本次也未画图；问题发生于结构化列表关�
 
 **新增任务（按泛化 ROI 排序）**：
 
-- [ ] **B1553-STANDALONERELATIONDISPLAYCONTRACT1 / P1 / confirmed**：
+- [x] **B1553-STANDALONERELATIONDISPLAYCONTRACT1 / P1 / implemented，验证见 §123.1629**：
   `preEmitStandaloneRelationClaimRepairDeltaJSON` 为无 Mermaid 的列表也发布语法用 `from_node_ids/to_node_ids`，
   `exactLocalStandaloneRelationMetadataAddBranch` 将其称为 hidden metadata，而 renderer 实际显示 `FromNode/ToNode`。
   模型日志明确从这两个数组选取哈希 ID，最终出现 `LoggerLog_188cb2a568e4047d` 等，不只是模型自行起了怪名字。
   下一批从 typed carrier 区分图语法节点与列表/表格读者标签；非图分支不发布无关语法候选，schema/教学解释端点会直接显示，
   保留模型选边/选文字，保留 Mermaid 节点复用，不做成文字符串替换。加 producer→lease→schema→patch→render 的异构载体回归。
-- [ ] **B1553b / 同批**：首个缺 edge 的 atomic error 与局部提示给完整 `edge:{from_node,to_node,visible_label}`，
+- [x] **B1553b / 同批实现，见 §123.1629**：首个缺 edge 的 atomic error 与局部提示给完整 `edge:{from_node,to_node,visible_label}`，
   避免模型把字段放到 edit 顶层；复用当前 schema，不新造入口。真实回放已有两次错误层级：首次没有 edge，下一次把 from_node 放到外层，
   strict decoder 最后才明确完整路径。不要把这两次全归模型波动，也不增加重试预算。
 - [ ] **B1554-TEMPLATECALLGROUNDINGFEEDBACK1 / P2 / confirmed + matrix-pending**：

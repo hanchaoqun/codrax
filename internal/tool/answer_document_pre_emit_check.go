@@ -5758,8 +5758,9 @@ func preEmitStandaloneRelationRepairCandidatesForClaimForms(
 // preEmitStandaloneRelationClaimRepairDeltaJSON turns only the exact
 // relations the model already selected through claim_uses/items evidence ids
 // into addition refs. The later patch still requires the model to choose each
-// ref and author local node ids plus reader wording; the system adds no visible
-// row, relation, label, or conclusion.
+// ref and author reader-facing endpoint labels plus relation wording. Unlike a
+// Mermaid carrier, a list/table renders those labels directly: do not publish
+// syntax-only node aliases as suggested reader text. No wording is inferred.
 func preEmitStandaloneRelationClaimRepairDeltaJSON(
 	doc *types.AnswerDocumentV2,
 	block types.AnswerBlock,
@@ -5776,8 +5777,6 @@ func preEmitStandaloneRelationClaimRepairDeltaJSON(
 			FromIdentity: strings.TrimSpace(candidate.from), ToIdentity: strings.TrimSpace(candidate.to),
 			EvidenceID: strings.TrimSpace(candidate.evidenceID), Source: strings.TrimSpace(candidate.source),
 		}
-		bindDiagramRelationRepairCandidateTechnicalNodeIDs(&row)
-		bindDiagramRelationRepairCandidateExistingTypedNodeIDs(&row, doc, evidence)
 		allowed = append(allowed, row)
 	}
 	raw, err := json.Marshal(diagramRelationRepairDelta{
