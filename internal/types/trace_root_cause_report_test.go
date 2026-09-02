@@ -122,3 +122,16 @@ func TestNormalizeTraceRootCauseReportRejectsDuplicateCauseAnywhereInList(t *tes
 		t.Fatalf("duplicate dynamic cause was not rejected: %v", err)
 	}
 }
+
+func TestNormalizeTraceRootCauseReportLegacyIdentityDoesNotUseSummaryText(t *testing.T) {
+	report, err := NormalizeAndValidateTraceRootCauseReport(&TraceRootCauseReportV2{
+		SchemaVersion: TraceRootCauseReportSchemaVersion,
+		RootCauses: []*TraceRootCauseItemV2{
+			{Category: TraceRootCauseComputeSupplyShortage, ThreadName: "ui", ImpactSeconds: traceImpact(.002), Evidence: []string{"E1"}},
+			{Category: TraceRootCauseComputeSupplyShortage, ThreadName: "worker", ImpactSeconds: traceImpact(.001), Evidence: []string{"E2"}},
+		},
+	})
+	if err != nil || len(report.RootCauses) != 2 || report.RootCauses[0].Summary != report.RootCauses[1].Summary {
+		t.Fatalf("typed identities may share their fixed display summary: report=%+v err=%v", report, err)
+	}
+}

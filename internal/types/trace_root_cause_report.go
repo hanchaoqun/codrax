@@ -91,7 +91,7 @@ func NormalizeAndValidateTraceRootCauseReport(in *TraceRootCauseReportV2) (*Trac
 		SchemaVersion: TraceRootCauseReportSchemaVersion,
 		RootCauses:    make([]*TraceRootCauseItemV2, 0, len(in.RootCauses)),
 	}
-	seenSummaries := make(map[string]int, len(in.RootCauses))
+	seenCauses := make(map[traceRootCauseIdentity]int, len(in.RootCauses))
 	for index, cause := range in.RootCauses {
 		field := fmt.Sprintf("root_causes[%d]", index)
 		normalized, err := normalizeTraceRootCauseItem(cause, field)
@@ -99,13 +99,32 @@ func NormalizeAndValidateTraceRootCauseReport(in *TraceRootCauseReportV2) (*Trac
 			return nil, err
 		}
 		normalized.Rank = index + 1
-		if previous, duplicate := seenSummaries[normalized.Summary]; duplicate {
+		identity := traceRootCauseIdentityKey(normalized)
+		if previous, duplicate := seenCauses[identity]; duplicate {
 			return nil, fmt.Errorf("trace_root_causes.%s duplicates root_causes[%d]", field, previous)
 		}
-		seenSummaries[normalized.Summary] = index
+		seenCauses[identity] = index
 		out.RootCauses = append(out.RootCauses, normalized)
 	}
 	return out, nil
+}
+
+// Display summaries deliberately collapse details (e.g. "供给不足"). They
+// cannot identify an independently selected cause. Bound candidate receipts
+// preserve that identity even across equal categories/subjects; the binder
+// strips the private id only after validation. Legacy already-bound reports
+// without receipts retain conservative typed identity checks, not prose keys.
+type traceRootCauseIdentity struct {
+	candidateID             string
+	category                TraceRootCauseCategory
+	thread, resource, phase string
+}
+
+func traceRootCauseIdentityKey(item *TraceRootCauseItemV2) traceRootCauseIdentity {
+	if item.CandidateID != "" {
+		return traceRootCauseIdentity{candidateID: item.CandidateID}
+	}
+	return traceRootCauseIdentity{category: item.Category, thread: item.ThreadName, resource: item.ResourceName, phase: item.PhaseName}
 }
 
 func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*TraceRootCauseItemV2, error) {

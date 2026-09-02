@@ -62,3 +62,58 @@ func TestSelectableRootCauseCandidatesRequireOnChainWallClock(t *testing.T) {
 		t.Fatalf("off-chain/non-wall-clock candidates became selectable: %+v", got)
 	}
 }
+
+func TestRootCauseSelectionIdentityIsNotItsDisplaySummary(t *testing.T) {
+	for _, token := range []types.TraceCausalTokenSnapshot{
+		{Token: "running", Lane: "compute_delivery"},
+		{Token: "gc_pause"},
+		{Token: "scheduler_latency", Lane: "scheduling_demand"},
+		{Token: "wait", Lane: "lock_contention"},
+		{Token: "work", Lane: "cpu_work"},
+	} {
+		for _, sameSubject := range []bool{false, true} {
+			name := token.Token + "/different-subject"
+			if sameSubject {
+				name = token.Token + "/same-subject-independent-receipt"
+			}
+			t.Run(name, func(t *testing.T) {
+				contract := &types.TraceFindingContract{RootCauseReportEnabled: true}
+				for i, subject := range []string{"ui-101", "worker-202"} {
+					if sameSubject {
+						subject = "ui-101"
+					}
+					id := []string{"first", "second"}[i]
+					contract.Candidates = append(contract.Candidates, types.TraceFindingCandidateV1{
+						PrimaryEligible: true,
+						Decision: types.TraceCauseDecision{CandidateID: id, SubjectName: subject, Token: token,
+							ResourceName: "shared-resource", PhaseName: "shared-phase",
+							Magnitude:    &types.TypedMagnitude{Value: float64(i + 1), Unit: "ms", Additivity: "wall_clock_per_thread"},
+							EvidenceRefs: []string{"E-" + id}},
+					})
+				}
+				selection := &types.TraceRootCauseReportV2{SchemaVersion: 2,
+					RootCauses: []*types.TraceRootCauseItemV2{{CandidateID: "second"}, {CandidateID: "first"}}}
+				report, err := BindRootCauseReportSelection(selection, contract)
+				if err != nil {
+					t.Fatalf("independent typed selections collided on display text: %v", err)
+				}
+				if len(report.RootCauses) != 2 {
+					t.Fatalf("selection lost: %+v", report)
+				}
+				for i, cause := range report.RootCauses {
+					if cause.Rank != i+1 || cause.CandidateID != "" || *cause.ImpactSeconds != float64(2-i)/1000 ||
+						!strings.Contains(cause.Evidence[0], []string{"E-second", "E-first"}[i]) {
+						t.Fatalf("model order, bound value, provenance or private-id boundary changed: %+v", cause)
+					}
+					if (token.Token == "running" || token.Token == "gc_pause") && cause.ThreadName == "" {
+						t.Fatalf("known subject was dropped from a short-summary category: %+v", cause)
+					}
+				}
+				selection.RootCauses[1].CandidateID = "second"
+				if _, err := BindRootCauseReportSelection(selection, contract); err == nil || !strings.Contains(err.Error(), "duplicates") {
+					t.Fatalf("a genuinely repeated receipt must still fail: %v", err)
+				}
+			})
+		}
+	}
+}

@@ -203,3 +203,43 @@ func TestEmitAnswerDocumentPatchRehomesExactMisplacedRootCauseSchemaVersion(t *t
 		t.Fatalf("patch did not preserve the selected report: %#v", report)
 	}
 }
+
+func TestRootCauseMultiSubjectSupplySelectionSurvivesFullEmitAndAnswerOnlyPatch(t *testing.T) {
+	mutable := types.NewMutableState("two independently selected supply causes")
+	contract := testSelectableTraceRootCauseContract()
+	first := contract.Candidates[0]
+	first.Decision.CandidateID = "supply-ui"
+	first.Decision.Token = types.TraceCausalTokenSnapshot{Token: "running", Lane: "compute_delivery"}
+	second := first
+	second.Decision.CandidateID = "supply-worker"
+	second.Decision.SubjectName = "WorkerThread"
+	second.Decision.EvidenceRefs = []string{"E-worker"}
+	contract.Candidates = []types.TraceFindingCandidateV1{first, second}
+	mutable.SetTraceFindingContract(contract)
+	ctx := &types.BusContext{Mutable: mutable}
+	result, err := executeAnswerDocumentV2("emit_answer_document", ctx, json.RawMessage(`{
+		"blocks":[{"id":"summary","kind":"summary","text":"model conclusion"}],
+		"trace_root_causes":{"schema_version":2,"root_causes":[{"candidate_id":"supply-worker"},{"candidate_id":"supply-ui"}]}
+	}`), time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("full emit failed: %+v %v", result, err)
+	}
+	report := mutable.TraceRootCauseReport()
+	if report == nil || len(report.RootCauses) != 2 {
+		t.Fatalf("full emit silently lost valid multi-candidate sidecar: %+v", report)
+	}
+	for _, raw := range []string{
+		`{"replace_blocks":[{"id":"summary","kind":"summary","text":"model's revised conclusion"}]}`,
+		`{"unchanged_block_ids":["summary"],"replace_trace_root_causes":{"schema_version":2,"root_causes":[{"candidate_id":"unknown"}]}}`,
+	} {
+		result, err = (&EmitAnswerDocumentPatch{}).Execute(ctx, json.RawMessage(raw))
+		if err != nil || !result.Success {
+			t.Fatalf("optional sidecar cannot own answer eligibility: %+v %v", result, err)
+		}
+		got, _ := json.Marshal(mutable.TraceRootCauseReport())
+		want, _ := json.Marshal(report)
+		if string(got) != string(want) {
+			t.Fatalf("answer-only/invalid sidecar patch lost prior valid report: %s != %s", got, want)
+		}
+	}
+}

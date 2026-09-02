@@ -57380,6 +57380,26 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1631 B1555：以绑定凭证判重，不以短摘要丢弃合法根因选择（2026-09-02）
+
+`P1 / implemented / targeted+full-suite+build-pass / 本批提交`。
+
+- binder 原有的同 candidate_id 重复拒绝保留；绑定后的临时记录把已冻结 ID 携带到 normalizer，
+  normalizer 以该 ID 判断同一个候选，不再按简写 Summary 判重。公开 JSON 写出前清除内部 ID，模型排序不变。
+- 无凭证的既有 bound-report 路径以 category/thread/resource/phase 的结构键保守判重；
+  不是按 impact 或 evidence 文本“像不像”判重，不从正文提取身份。
+- GC/供给类若已有明确 subject，保留到可选 thread_name，避免已有准确线程在旁路无故消失；不构造未知线程。
+- 红转绿矩阵：5 类 × 同/不同 subject；独立凭证可有同一显示摘要，重复 ID 仍拒；
+  原有 off-chain/非墙钟排除、虚构候选、非法影响量和版本规则未改。
+  full emit→保存旁路→仅修正文 patch→无效旁路 patch，均保留已接受报告/原始模型文本边界。
+- 离线复核：从 r1018 finalizer 实际候选 roster 与原始 full-emit 选择（不是人工重选）重绑定，
+  12 项全部保留，rank 1..12，无 candidate_id 泄漏；结果仅存 `.codrax/tmp/b1555-r1018-rebind-20260902.json`，
+  **未覆盖**客户式原始答案/空旁路。该探针使用同版 token registry，并重现原 full emit 已成功完成的 schema_version 搬运；
+  它不是额外 LLM 回放，也不证明 B1557 值口径已经正确。
+- 记录 `.codrax/tmp/b1555-{red,targeted,full-test}-20260902.log`。B1556 JSON 入口和 B1557 值口径仍开放，优先处理 B1557。
+- `go test ./... -count=1` 全仓通过，`make` 通过；包括 Trace 查询、因果诊断、成文工具、输出旁路及写模式套件。
+  本批没有修改流式超时：活跃流不能因 4ms/4min 没有可见答案而降级；也不改模型正文、投影或自动补采。
+
 ### §123.1630 r1018：显式根因投影在场，旁路摘要去重却丢整份合法选择（2026-09-02）
 
 `base=2fe11db75 / pushed / machine=2/2 / human=write-pass,trace-fail`。两路结果见
@@ -57389,8 +57409,8 @@ H7 251s/4 trace_query/0 成文硬拒/1 维度提示 patch；Python write 170s/5 
 
 按 ROI 继续施工：
 
-1. [ ] **B1555-ROOTCAUSESELECTORIDENTITY1 / P1 / confirmed**：12 个模型明确选择的合法不同候选，
-   第 1/3 项仅因都格式化成“供给不足”，被报告 normalizer 的 Summary 去重拒整份。
+1. [x] **B1555-ROOTCAUSESELECTORIDENTITY1 / P1 / implemented，验证见 §123.1631**：12 个模型明确选择的合法不同候选，
+   第 1/3 项仅因都格式化成 `running阶段高负载`，被报告 normalizer 的 Summary 去重拒整份。
    已有 binder 的 candidate_id 去重才是精确信号；候选身份必须与读者摘要分开。
    覆盖同类不同线程、同类同线程不同精确凭证、不同锁/阶段、真实重复 ID、无凭证/非链/非墙钟排除与 full→patch→旁路继承。
 2. [ ] **B1556-ROOTCAUSEPATCHCARRIER1 / P2 / confirmed**：共享教学只展示 full `trace_root_causes`；
@@ -57400,6 +57420,15 @@ H7 251s/4 trace_query/0 成文硬拒/1 维度提示 patch；Python write 170s/5 
    已用独立样本探查 C++/Rust/Go/TS/ArkTS/Java/Kotlin/Swift/Cangjie；Go/TS/ArkTS/Java/Kotlin 当前泛型形可接通，
    Rust/Swift/Cangjie 探针出现真实 callee 未提取/未接通及错误“token 不在”诊断；C++ 需排除邻行原型干扰后补矩阵。
    暂不改词法判据或 extractor；如改提取语义，必须同步 cache version，不能只修一类名称。
+4. [ ] **B1557-ROOTCAUSEVALUECALIBER1 / P1 / confirmed**：`running` registry lane 为 `cpu_work`，
+   `rootCauseCategory` 将该 lane 直接映射 `phase_high_load`，无 phase 时又用 token `running` 补名。
+   H7 的 65.912/4.846/1.150ms 明明是供给折算缺口，报告旁路却成为“running 阶段高负载”；
+   `d_state_or_io_wait` 也统一映射 IO 阻塞，需检查非 IO D 的旁路权限。
+   要把生产端已发布的值口径/组成证据贯穿候选到 JSON，区分真实工作量、供给缺口和非 IO D，不能凭 running 或 D 词名重分类。
+   本条优先于 B1554；B1555 仅解决候选消失，不能宣称旁路类别已全面语义正确。
+
+复核更正：初记将碰撞摘要写成“供给不足”，这是依据长答案推断而非实际 binder 类别。
+已通过真实 roster+同版 registry 的重绑定确认实际为 `running阶段高负载`；保留上述更正，不掩盖新增值口径缺陷。
 
 H7 正文中的频率量纲、CPU0 量混用、睡眠/运行主导状态、漏列名、“全部 12”与加法矛盾均已逐条留在人工审计。
 证据/限制已在最终上下文，先归模型或展示残余，不把系统改写正文当修复。活跃流没有无正文年龄降级。

@@ -54,7 +54,16 @@ func BindRootCauseReportSelection(in *types.TraceRootCauseReportV2, contract *ty
 		seen[candidateID] = true
 		bound.RootCauses = append(bound.RootCauses, item)
 	}
-	return types.NormalizeAndValidateTraceRootCauseReport(bound)
+	report, err := types.NormalizeAndValidateTraceRootCauseReport(bound)
+	if err != nil {
+		return nil, err
+	}
+	// Candidate identity owns selection uniqueness, but remains private to the
+	// binding transaction. The public v2 sidecar keeps its existing wire shape.
+	for _, item := range report.RootCauses {
+		item.CandidateID = ""
+	}
+	return report, nil
 }
 
 // SelectableRootCauseCandidates returns only exact typed on-chain candidates
@@ -90,11 +99,16 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 	}
 	impactSeconds := decision.Magnitude.Value / 1000
 	item := &types.TraceRootCauseItemV2{
+		CandidateID:   strings.TrimSpace(decision.CandidateID),
 		Category:      category,
 		ImpactSeconds: &impactSeconds,
 		Evidence:      []string{boundRootCauseEvidence(decision)},
 	}
 	switch category {
+	case types.TraceRootCauseGCLongPause, types.TraceRootCauseComputeSupplyShortage:
+		// These categories permit an unnamed scope, but retain a supplied
+		// subject instead of leaving multiple named causes indistinguishable.
+		item.ThreadName = strings.TrimSpace(decision.SubjectName)
 	case types.TraceRootCauseIOBlocking,
 		types.TraceRootCauseSynchronousBinder,
 		types.TraceRootCausePriorityInversion,

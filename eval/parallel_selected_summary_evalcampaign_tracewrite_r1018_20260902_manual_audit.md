@@ -29,9 +29,13 @@ This scaffold is for human review. The runner records typed metrics and declared
 JIT 无链证时仍只给关系未证，不替它铸根因。默认 `.root-causes.json` 必定产生合法 139-byte JSON，但状态 unavailable。
 
 **B1555 / P1 / 系统确认**：首稿选择 12 个不同、已发布的 candidate_id。第 1 项目标自身供给与第 3 项 render_service 供给
-均被 binder 格式化为短摘要“供给不足”；`NormalizeAndValidateTraceRootCauseReport` 用 Summary 作为唯一去重键，
+均被 binder 格式化为短摘要 `running阶段高负载`；`NormalizeAndValidateTraceRootCauseReport` 用 Summary 作为唯一去重键，
 因而在日志 2536 将第 3 项错误判为第 1 项重复，丢弃整个旁路。真正重复 ID 已由 binder 单独校验，不能再用显示词替代身份。
 这不是“模型没有选择”或“无链上依据”。修向：冻结候选身份负责有序选择唯一性，显示摘要不负责身份；不自动挑候选、不改正文。
+
+复核更正：初记按正文误写为“供给不足”；实际 compiler 使用 running 的 cpu_work lane，报告映射成 phase_high_load。
+真实 roster/registry 重绑定暴露 **B1557 / P1**：供给折算缺口不能被当作高负载阶段占用，非 IO D 也不应直接标为 IO 阻塞。
+必须补值口径到报告类别的 typed 链路；B1555 的“不再丢选择”不等于这个语义问题已解决。
 
 **B1556 / P2 / 系统教学与容错确认**：第二轮沿用 full-emit 的 `trace_root_causes`，patch 实际字段是 `replace_trace_root_causes`。
 共享上下文只教 full 形，patch 将旧名与外层 schema_version 作为 unknown 字段隔离（日志 2588–2589）。
