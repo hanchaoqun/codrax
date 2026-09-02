@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -15,6 +16,26 @@ func traceRootCauseTestContext(objective string) *types.AgentContext {
 			Artifacts: []types.RuntimeArtifactPreflightArtifact{{Kind: "trace", Source: "capture.systrace", Carrier: "request_path"}},
 		}),
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentRootCause}},
+	}
+}
+
+func TestRootCauseSelectorContextPublishesTheSameValueCaliberAsSidecar(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	contract, err := tracefinding.CompileCandidateContract(types.ObservationLedger{}, types.TraceCausalProjectionSet{
+		Projections: []types.TraceCausalProjection{{RankedSeats: []types.TraceCausalProjectionNode{{
+			EvidenceID: "E1", Subject: "worker", Rank: 1, TypeToken: "running", ChainRelevance: "on_chain",
+			ImpactMS: 10, EffectiveImpactMS: 3, EffectiveImpactPublished: true, SupplyFoldComputed: true,
+			SupplyFoldDeficitMS: 3, SupplyFoldIdealMS: 7, SupplyFoldKnownMS: 8, SupplyFoldUnknownMS: 2,
+		}}}}}, "proven")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.Required, contract.RootCauseReportEnabled = false, true
+	ctx.Mutable.SetTraceFindingContract(contract)
+	description := tracefinding.RootCauseValueDescription(contract.Candidates[0].Decision)
+	got := renderTraceFindingContract(ctx)
+	if !strings.Contains(got, `"value_description": "`+description+`"`) || !strings.Contains(got, `"impact_ms": 3`) {
+		t.Fatalf("selector omitted the exact value meaning: %s", got)
 	}
 }
 

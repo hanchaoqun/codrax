@@ -12,7 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const CandidateCompilerVersion = "trace-candidate-v1"
+const CandidateCompilerVersion = "trace-candidate-v2"
 
 // CompileCandidateContract freezes the deterministic candidate rows that the
 // finalizer may select. It consumes typed trace records only; final answer
@@ -177,6 +177,14 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 	magnitude = &types.TypedMagnitude{
 		Value: value, Unit: unit, Additivity: string(spec.Additivity), Caliber: caliber,
 		WindowDuration: projection.WindowDurationMS(),
+	}
+	if node.SupplyFoldComputed || node.DStateRefinedNonIO || node.DStateSplitMS > 0 || node.IOWaitSplitMS > 0 {
+		magnitude.Components = &types.TraceMagnitudeComponents{
+			SupplyFoldComputed: node.SupplyFoldComputed, SupplyFoldDeficitMS: node.SupplyFoldDeficitMS,
+			SupplyFoldIdealMS: node.SupplyFoldIdealMS, SupplyFoldKnownMS: node.SupplyFoldKnownMS,
+			SupplyFoldUnknownMS: node.SupplyFoldUnknownMS, SupplyFoldCapabilitySource: node.SupplyFoldCapabilitySource,
+			DStateRefinedNonIO: node.DStateRefinedNonIO, DStateMS: node.DStateSplitMS, IOWaitMS: node.IOWaitSplitMS,
+		}
 	}
 	status := types.TraceCausalSupportedCandidate
 	if causalCeiling != "unproven" && candidateCausalityExplicitlyProven(node.Causality) {

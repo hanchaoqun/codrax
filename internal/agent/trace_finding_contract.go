@@ -87,14 +87,15 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 	selectable := tracefinding.SelectableRootCauseCandidates(contract)
 	if contract.RootCauseReportEnabled && len(selectable) > 0 {
 		type candidateView struct {
-			CandidateID  string   `json:"candidate_id"`
-			CauseKind    string   `json:"cause_kind"`
-			Subject      string   `json:"subject,omitempty"`
-			Resource     string   `json:"resource,omitempty"`
-			Phase        string   `json:"phase,omitempty"`
-			Rank         int      `json:"rank,omitempty"`
-			ImpactMS     float64  `json:"impact_ms"`
-			EvidenceRefs []string `json:"evidence_refs"`
+			CandidateID      string   `json:"candidate_id"`
+			CauseKind        string   `json:"cause_kind"`
+			Subject          string   `json:"subject,omitempty"`
+			Resource         string   `json:"resource,omitempty"`
+			Phase            string   `json:"phase,omitempty"`
+			Rank             int      `json:"rank,omitempty"`
+			ImpactMS         float64  `json:"impact_ms"`
+			ValueDescription string   `json:"value_description,omitempty"`
+			EvidenceRefs     []string `json:"evidence_refs"`
 		}
 		roster := make([]candidateView, 0, len(selectable))
 		for _, candidate := range selectable {
@@ -104,6 +105,7 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 				Subject: decision.SubjectName, Resource: decision.ResourceName,
 				Phase: decision.PhaseName, Rank: decision.Rank,
 				ImpactMS: decision.Magnitude.Value, EvidenceRefs: decision.EvidenceRefs,
+				ValueDescription: tracefinding.RootCauseValueDescription(decision),
 			})
 		}
 		b, err := json.MarshalIndent(roster, "", "  ")

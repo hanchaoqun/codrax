@@ -20,21 +20,31 @@ func cloneTraceFindingV1(in *TraceFindingV1) *TraceFindingV1 {
 		primary := *in.PrimaryCause
 		primary.EvidenceRefs = append([]string(nil), in.PrimaryCause.EvidenceRefs...)
 		if in.PrimaryCause.Magnitude != nil {
-			magnitude := *in.PrimaryCause.Magnitude
-			primary.Magnitude = &magnitude
+			primary.Magnitude = cloneTraceMagnitude(in.PrimaryCause.Magnitude)
 		}
 		out.PrimaryCause = &primary
 	}
 	for i := range out.Contributors {
 		out.Contributors[i].EvidenceRefs = append([]string(nil), in.Contributors[i].EvidenceRefs...)
 		if in.Contributors[i].Magnitude != nil {
-			magnitude := *in.Contributors[i].Magnitude
-			out.Contributors[i].Magnitude = &magnitude
+			out.Contributors[i].Magnitude = cloneTraceMagnitude(in.Contributors[i].Magnitude)
 		}
 	}
 	if in.Unresolved != nil {
 		unresolved := *in.Unresolved
 		out.Unresolved = &unresolved
+	}
+	return &out
+}
+
+func cloneTraceMagnitude(in *TypedMagnitude) *TypedMagnitude {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Components != nil {
+		components := *in.Components
+		out.Components = &components
 	}
 	return &out
 }

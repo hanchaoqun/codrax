@@ -342,6 +342,7 @@ func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any
 						"additivity":         map[string]any{"type": "string"},
 						"caliber":            map[string]any{"type": "string"},
 						"window_duration_ms": map[string]any{"type": "number"},
+						"components":         traceMagnitudeComponentsJSONSchema(),
 					},
 					"required": []string{"value", "unit", "additivity", "caliber"},
 				},
@@ -416,6 +417,21 @@ func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any
 		},
 		"required": []string{"schema_version", "finding_id", "analysis_key", "artifact", "scope", "revision", "symptom", "evidence_refs", "coverage"},
 	}
+}
+
+func traceMagnitudeComponentsJSONSchema() map[string]any {
+	return map[string]any{"type": "object", "description": "Copy the frozen candidate components exactly when present; do not infer missing accounting.",
+		"properties": map[string]any{
+			"supply_fold_computed":          map[string]any{"type": "boolean"},
+			"supply_fold_deficit_ms":        map[string]any{"type": "number"},
+			"supply_fold_ideal_ms":          map[string]any{"type": "number"},
+			"supply_fold_known_ms":          map[string]any{"type": "number"},
+			"supply_fold_unknown_ms":        map[string]any{"type": "number"},
+			"supply_fold_capability_source": map[string]any{"type": "string"},
+			"d_state_refined_non_io":        map[string]any{"type": "boolean"},
+			"d_state_ms":                    map[string]any{"type": "number"},
+			"io_wait_ms":                    map[string]any{"type": "number"},
+		}}
 }
 
 // projectSourceInventoryPrincipalTableItems makes the dispatch-projected

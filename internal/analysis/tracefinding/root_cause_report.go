@@ -136,7 +136,21 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 
 func rootCauseCategory(decision types.TraceCauseDecision) (types.TraceRootCauseCategory, bool) {
 	token := strings.ToLower(strings.TrimSpace(decision.Token.Token))
+	if rootCauseUsesRunningSupplyDeficit(decision) {
+		return types.TraceRootCauseComputeSupplyShortage, true
+	}
 	switch token {
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		// The combined family does not establish that all its waiting is IO.
+		// Keep the existing broad thread-blocking category unless the typed
+		// split proves a pure IO amount; never relabel non-IO D as IO.
+		if decision.Magnitude != nil && decision.Magnitude.Components != nil {
+			parts := decision.Magnitude.Components
+			if !parts.DStateRefinedNonIO && parts.DStateMS == 0 && parts.IOWaitMS > 0 {
+				return types.TraceRootCauseIOBlocking, true
+			}
+		}
+		return types.TraceRootCauseSleepBlocking, true
 	case "priority_inversion_candidate", "priority_inversion_runnable_wait":
 		return types.TraceRootCausePriorityInversion, true
 	case "binder_wait":
@@ -166,6 +180,55 @@ func rootCauseCategory(decision types.TraceCauseDecision) (types.TraceRootCauseC
 	}
 }
 
+func rootCauseUsesRunningSupplyDeficit(decision types.TraceCauseDecision) bool {
+	// For these exact producer families, published effective attribution is
+	// the supply deficit (RootCauseRankItemEffectiveImpactMs), not RunningMs.
+	// A fold beside a raw window projection or a semantic JIT/GC row is NOT
+	// permission to relabel that row. Do not alter the registry lane or value.
+	switch decision.Token.Token {
+	case "running", "fragmented_running":
+		return decision.Magnitude != nil && decision.Magnitude.Caliber == "effective_attribution" &&
+			decision.Magnitude.Components != nil && decision.Magnitude.Components.SupplyFoldComputed
+	default:
+		return false
+	}
+}
+
+// RootCauseValueDescription is shared by the selector context and public
+// evidence so the model is told the same precise value meaning we publish.
+// It does not select/rank causes or rewrite the answer document.
+func RootCauseValueDescription(decision types.TraceCauseDecision) string {
+	if decision.Magnitude == nil {
+		return ""
+	}
+	parts := decision.Magnitude.Components
+	if rootCauseUsesRunningSupplyDeficit(decision) {
+		description := fmt.Sprintf("供给折算缺口（估算下界，非全部运行耗时）；频率已知 %.3f ms，未知 %.3f ms", parts.SupplyFoldKnownMS, parts.SupplyFoldUnknownMS)
+		switch parts.SupplyFoldCapabilitySource {
+		case "default_table":
+			description += "；采用默认算力比"
+		case "freq_only":
+			description += "；仅按频率比折算"
+		case "evidence_table":
+			description += "；采用证据支持的算力比"
+		}
+		return description
+	}
+	switch decision.Token.Token {
+	case "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
+		if parts != nil {
+			if parts.DStateRefinedNonIO && parts.IOWaitMS == 0 {
+				return "D 状态等待，已有非 I/O 证据"
+			}
+			if parts.DStateMS > 0 || parts.IOWaitMS > 0 {
+				return fmt.Sprintf("等待组成：D 状态 %.3f ms，I/O 等待 %.3f ms；不是可直接消除的承诺", parts.DStateMS, parts.IOWaitMS)
+			}
+		}
+		return "D 状态与 I/O 等待的合并口径，不能全部视为 I/O"
+	}
+	return ""
+}
+
 func boundRootCauseEvidence(decision types.TraceCauseDecision) string {
 	subject := strings.TrimSpace(decision.SubjectName)
 	if subject == "" {
@@ -175,5 +238,9 @@ func boundRootCauseEvidence(decision types.TraceCauseDecision) string {
 	if refs == "" {
 		refs = "typed-trace-row"
 	}
-	return fmt.Sprintf("%s 在目标窗口内的链上有效影响为 %.3f ms（证据 %s）", subject, decision.Magnitude.Value, refs)
+	evidence := fmt.Sprintf("%s 在目标窗口内的链上有效影响为 %.3f ms（证据 %s）", subject, decision.Magnitude.Value, refs)
+	if description := RootCauseValueDescription(decision); description != "" {
+		evidence += "；" + description
+	}
+	return evidence
 }

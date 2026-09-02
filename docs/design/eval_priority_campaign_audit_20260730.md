@@ -57380,9 +57380,31 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1632 B1557：旁路继承已发布值口径，不把供给缺口或非 IO 的 D 等待改名（2026-09-02）
+
+`P1 / implemented / targeted+pipeline+full-suite+build-pass / 本批提交`。
+
+- 根因已复现：registry 的 `running → cpu_work` 是宽类，不表示本行的有效影响就是业务执行量；
+  `d_state_or_io_wait → io_blocking` 也是合并类，不表示 D+IO 全部是 IO。
+- 候选保留 producer 已发布的 fold presence/deficit/ideal/known/unknown/capability 与 D/IO 分量、非 IO 证明。
+  不重算、不改主值、registry、候选资格或模型顺序；compiler version v1→v2 使合同身份反映新口径。
+  新嵌套记录纳入既有 frozen magnitude 等价校验，保存/读取的 defensive copy 同步补齐，避免引用篡改冻结事实。
+- 仅 `running/fragmented_running` **有效归因且已有 fold 证明**走现有 `compute_supply_shortage`；
+  仅旁置 fold 的 raw 运行占用、JIT/GC 等语义工作不被改类。已知零缺口、无数据零缺口均不从 raw 运行值恢复根因席。
+- D/IO 合并家族默认走现有广义 `sleep_blocking`（公开中文定义为“线程阻塞”，**不推定 S 状态**）；
+  只有 typed 分量是纯 IO 时才称 `io_blocking`。非 IO D、混合 D+IO 和比例未知分别披露，整项影响不被删减或拆成系统自选新根因。
+  明确 `io_wait` 的 S 状态保持 IO 等待；不能拿 D 状态作 IO 的必要条件。
+- 模型选项上下文和旁路 evidence 共用同一份值口径说明，供给披露估算下界/覆盖及能力比来源；
+  默认算力比不冒充实测能力。主答案/图/投影/自动补采完全不改，公开 v2 字段与类别集合不扩张。
+- 测试：10 类口径正负矩阵先红后绿；真实生产函数的 query typed observations→projection→candidate→full emit→patch→旁路接线；
+  来源快照防篡改、合同哈希、新对象复制、legacy finding schema 字段教学闭包以及模型上下文同口径检查均通过。
+  日志 `.codrax/tmp/b1557-{red,targeted,pipeline}-20260902.log`。
+  `go test ./... -count=1` 与 `make` 均通过，日志 `.codrax/tmp/b1557-{full-test,build}-20260902.log`。
+  后续做异构双路回放；不把单元夹具称为客户实测。
+
 ### §123.1631 B1555：以绑定凭证判重，不以短摘要丢弃合法根因选择（2026-09-02）
 
-`P1 / implemented / targeted+full-suite+build-pass / 本批提交`。
+`P1 / implemented / targeted+full-suite+build-pass / pushed=1cee3bc3d`。
 
 - binder 原有的同 candidate_id 重复拒绝保留；绑定后的临时记录把已冻结 ID 携带到 normalizer，
   normalizer 以该 ID 判断同一个候选，不再按简写 Summary 判重。公开 JSON 写出前清除内部 ID，模型排序不变。
@@ -57420,7 +57442,7 @@ H7 251s/4 trace_query/0 成文硬拒/1 维度提示 patch；Python write 170s/5 
    已用独立样本探查 C++/Rust/Go/TS/ArkTS/Java/Kotlin/Swift/Cangjie；Go/TS/ArkTS/Java/Kotlin 当前泛型形可接通，
    Rust/Swift/Cangjie 探针出现真实 callee 未提取/未接通及错误“token 不在”诊断；C++ 需排除邻行原型干扰后补矩阵。
    暂不改词法判据或 extractor；如改提取语义，必须同步 cache version，不能只修一类名称。
-4. [ ] **B1557-ROOTCAUSEVALUECALIBER1 / P1 / confirmed**：`running` registry lane 为 `cpu_work`，
+4. [x] **B1557-ROOTCAUSEVALUECALIBER1 / P1 / implemented，验证见 §123.1632**：`running` registry lane 为 `cpu_work`，
    `rootCauseCategory` 将该 lane 直接映射 `phase_high_load`，无 phase 时又用 token `running` 补名。
    H7 的 65.912/4.846/1.150ms 明明是供给折算缺口，报告旁路却成为“running 阶段高负载”；
    `d_state_or_io_wait` 也统一映射 IO 阻塞，需检查非 IO D 的旁路权限。

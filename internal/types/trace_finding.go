@@ -58,6 +58,21 @@ type TypedMagnitude struct {
 	Additivity     string  `json:"additivity"`
 	Caliber        string  `json:"caliber"`
 	WindowDuration float64 `json:"window_duration_ms,omitempty"`
+	// Components preserve the producer's accounting, not a second estimate.
+	// They distinguish a folded running deficit from raw work and D from IO.
+	Components *TraceMagnitudeComponents `json:"components,omitempty"`
+}
+
+type TraceMagnitudeComponents struct {
+	SupplyFoldComputed         bool    `json:"supply_fold_computed,omitempty"`
+	SupplyFoldDeficitMS        float64 `json:"supply_fold_deficit_ms,omitempty"`
+	SupplyFoldIdealMS          float64 `json:"supply_fold_ideal_ms,omitempty"`
+	SupplyFoldKnownMS          float64 `json:"supply_fold_known_ms,omitempty"`
+	SupplyFoldUnknownMS        float64 `json:"supply_fold_unknown_ms,omitempty"`
+	SupplyFoldCapabilitySource string  `json:"supply_fold_capability_source,omitempty"`
+	DStateRefinedNonIO         bool    `json:"d_state_refined_non_io,omitempty"`
+	DStateMS                   float64 `json:"d_state_ms,omitempty"`
+	IOWaitMS                   float64 `json:"io_wait_ms,omitempty"`
 }
 
 type TraceCauseDecision struct {

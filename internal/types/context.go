@@ -3850,8 +3850,7 @@ func cloneTraceFindingCandidates(in []TraceFindingCandidateV1) []TraceFindingCan
 		out[i] = in[i]
 		out[i].Decision.EvidenceRefs = append([]string(nil), in[i].Decision.EvidenceRefs...)
 		if in[i].Decision.Magnitude != nil {
-			magnitude := *in[i].Decision.Magnitude
-			out[i].Decision.Magnitude = &magnitude
+			out[i].Decision.Magnitude = cloneTraceMagnitude(in[i].Decision.Magnitude)
 		}
 	}
 	return out
