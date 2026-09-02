@@ -5688,3 +5688,16 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 3. 混合 fixture:block_rq_* + mmc_request_*/ufshcd_* 共存,源族完整时非治理名仍发布。
 
 **验收 pin**:上述混合 fixture 红→绿;既有 P0-a3 E1 MMC 精确端点用例回归。
+
+### §40.13 逐项细化 ⑦ V6-2:可见性载体以原事件名发布,被 tracequery 前置完整性审计判畸形
+
+**定性**:`traceDBSourceRawVisibilityEventName` 对任何"安全"名直接透传,载体行形如 `sched_migrate_task: codrax_source_raw_visibility/v1 …`;tracequery 窗口索引在 parse 前跑子串键的原始候选预筛(`schedulerIntegrityRawCandidate`/`cpuInputRawCandidate`/`interruptEndpointRawCandidate`…)命中原事件名→以语义行审计→成千"畸形行"。
+
+**泛化根因类**:「载体冒用被载事件的身份名」——载体是元数据行,却穿了语义行的外衣;下游任何按事件名索引/审计/统计的消费者都会误认。这是命名空间问题,不是各消费者的排除问题(逐消费者排除=打地鼠)。
+
+**泛化解**:
+1. **保留名发布**:所有载体统一 `codrax_source_raw_event: codrax_source_raw_visibility/v1 event_name=<原名> …`(原名进 payload 的 typed 字段/b64),名空间隔离一次到位;
+2. **消费者零改动**:parse 前预筛按事件名天然不命中保留名;既有的 parse 后丢弃 `EventSourceRawVisibility` 逻辑保留为二道;
+3. **tripwire**:发射面 census——载体行事件名 ∈ 保留名集(单一常量),任何新载体族必须复用;tracequery 侧 pin:含载体行的窗口索引审计计数为 0。
+
+**验收 pin**:OpenHarmony sched 类目 fixture(含 sched_migrate_task 载体数千行)→ 窗口查询零畸形审计;原名可从 payload 恢复(诊断报告用)。
