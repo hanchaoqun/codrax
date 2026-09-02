@@ -5741,3 +5741,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.18 逐项细化 ⑫ V2-2:关系修复租约在事务提交前被消费
 
 **定性**:`validateAndConsumeAnswerDiagramRelationRepairLease` 在合并草稿满足租约范围时立即清租约(:3602-3607),但事务随后仍可被持久层校验(receipt 绑定/模型关系声明校验)拒绝→模型失去租约无法重试,与工具描述"拒绝则该 patch 零编辑生效"矛盾。**泛化类**:「重试局部能力状态在事务外被消费」——V2-1 同族(事务边界不完整)。**泛化解**:①租约消费移入**已加锁成功尾声**(PR23-D 建立的单点 `commitAcceptedAnswerDocumentLocked`),与 pending base/retry 状态同一原子点清理;②事务前只做校验不做消费(pure check);③通用规则:任何 retry-local 能力(租约/暂存 base/候选 ID 集)只能在成功尾声单点变更——census:这些 setter 的调用点 ⊆ {成功尾声, 显式回滚}。**验收 pin**:持久层拒绝后租约仍在(红→绿);成功后租约清。
+
+### §40.19 逐项细化 ⑬ V2-3:无效根因选择器降为 WARN 且工具返回 SUCCESS
+
+**定性**:`resolveTraceRootCauseReportForEmit` 的精确 typed 错误(schema_version 不符/未知或重复 candidate_id/解码失败)被转为日志,patch/full emit 照常成功,Summary 不告知模型——PR23-A"不拒答案"被过度执行为"不告知"。**泛化类**:「可选载体的失败被静默」——正确形是**不拒主事务但必披露**。**泛化解**:①ToolResult 增 typed `OptionalCarrierOutcomes []{carrier, status, reason}`(success 主结果携带),Summary 追加一句精确原因(如"trace_root_causes ignored: unknown candidate_id X;可用 ID 见 roster");②模型可在下一 patch 修正(候选 ID 是 schema enum,错误是精确信号);③通用规则:凡"可选且被忽略"的输入必须进 ToolResult 披露面,禁止只进日志(census:optional-ignored 日志点必配 outcome 记录)。**验收 pin**:未知 candidate_id → 答案接受+Summary 含精确原因(红→绿)。
