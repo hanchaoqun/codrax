@@ -5701,3 +5701,17 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 3. **tripwire**:发射面 census——载体行事件名 ∈ 保留名集(单一常量),任何新载体族必须复用;tracequery 侧 pin:含载体行的窗口索引审计计数为 0。
 
 **验收 pin**:OpenHarmony sched 类目 fixture(含 sched_migrate_task 载体数千行)→ 窗口查询零畸形审计;原名可从 payload 恢复(诊断报告用)。
+
+### §40.14 逐项细化 ⑧ V7-2:已接受闭包重试权威读永不清零的 RetryState
+
+**定性**:`acceptedClosureHasActiveExploreContractBacktrack` 以 `RetryState.ActiveViolations≠∅ ∧ LastPrimaryOwner==explore` 否决"已接受闭包自动完成";但 RetryState 唯一写者是 finalize 契约失败时的 `populateRetryState`,`ResetRetryState` 零生产调用,回溯(`ResetForFallback`)也不清——回溯后探索者的**新鲜**完成决定被上一轮的陈旧 RetryState 否决(完成门权属:非致命必须尊重模型)。
+
+**泛化根因类**:「跨代次载体无代次绑定」——一个硬臂读取的状态没有与它要仲裁的决定属于同一代次的证明(§1.6 同族:硬门读无生命周期的载体)。
+
+**泛化解**:
+1. **代次绑定**:RetryState 记录 `Generation`(finalize 尝试序)+ `BacktrackEpoch`(回溯计数);硬臂只在 `retry.BacktrackEpoch == 当前 epoch` 且探索窗尚未在本 epoch 产生新完成时才生效;
+2. **消费即清**:回溯重派发探索窗时,把 RetryState 快照移入 `ConsumedRetryState`(供提示渲染),活动槽清空——"一次失败只否决一次";
+3. **通用规则落 tripwire**:凡被硬臂读取的 Mutable 载体必须有显式生命周期写者对(populate/reset)且 reset 有生产调用(census:零调用的 Reset 方法即红);
+4. 非致命尊重模型:该臂改为**只对同代次**生效,其余场景交给模型的完成决定。
+
+**验收 pin**:①finalize 失败→回溯→探索者重新 emit 完成 → 自动完成不被陈旧 RetryState 否决(红→绿);②同代次内(尚未重探索)保持否决;③Reset 零调用 census。
