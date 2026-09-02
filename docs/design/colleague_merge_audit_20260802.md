@@ -5661,3 +5661,17 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 4. **tripwire**:矩阵表驱动的 census 测试——凡 `VerificationConfidenceRecord` 生产者写 `status=satisfied` 必带 `WitnessKind`,且 (Kind, WitnessKind) ∈ 矩阵,否则红。
 
 **验收 pin**:①插 3 行位移后原行号含 '0' 的 observable 契约 → unresolved 而非 satisfied(红→绿);②file_layout 契约源码见证保持 satisfied;③矩阵外组合 census 红检。
+
+### §40.11 逐项细化 ⑤ V5-2:追踪路径漂移校验门无 typed escape(§1.6 违例)
+
+**定性**:`attachVerificationWorktreeAudit` 把校验期间**任何**追踪路径变更判 `Passed=false / FailureKindVerificationSideEffect`,该种类与 tests_failed 同路由(replan)、不在 accept_unverified 名单、无配置、无白名单;Rust runner 裸 `cargo test`(无 `--locked`),依赖变更必写 Cargo.lock → 合法计划必失败。同类:formatter 无语义 diff、声明目标的代码生成输出、`go mod tidy` 型 go.sum 刷新。
+
+**泛化根因类**:「副作用=失败」的二值门,缺少**副作用 owner 分类**这一 typed 维度(M5-S3-1 同类:新硬门无 escape 车道)。
+
+**泛化解**:
+1. **副作用分类闭集**(typed):`dependency_lockfile_refresh`(Cargo.lock/go.sum/package-lock/Gemfile.lock… 由 runner 声明其 lockfile 集)、`formatter_no_semantic_diff`(格式化器可逆性验证:格式化 apply 前版本得到相同结果)、`declared_generated_output`(计划/目标声明的生成物路径)、`unclassified_tracked_drift`;
+2. **门按类分流**:前三类→`Passed` 保持 + `verification_tracked_side_effect_disclosed` advisory 记录(路径与类别披露进报告);仅 `unclassified` 保持硬失败;
+3. **runner 级预防**:每个 runner 声明"锁定标志"(cargo `--locked`、npm `--ignore-scripts`/`ci`、go `-mod=readonly`)作为默认,减少副作用发生;
+4. **tripwire**:任何新增 `FailureKind*` 路由到 replan 的种类必须在 `accept_unverified` 或 typed escape 表中显式登记(census 红)。
+
+**非过拟合声明**:不对 Cargo.lock 单独放行,分类按 runner 声明的 lockfile 族与可逆性判定一体生效。**验收 pin**:①Cargo.toml 加依赖计划:cargo 重写 Cargo.lock → Passed + advisory 披露;②非声明文件被测试改写 → 仍硬失败;③runner 锁定标志 pin。
