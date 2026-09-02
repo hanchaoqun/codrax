@@ -5757,3 +5757,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.22 逐项细化 ⑯ V4-4:required_files 维度归属硬门对合法未知归属 fail-closed
 
 **定性**:≥2 必需维度且任一 required_files 置信≥0.8 时,任何缺 ≥0.8 owner 的维度→整分析拒;唯一逃逸=降低置信(教模型撒谎)。分析阶段不读文件内容,"哪个文件拥有维度 2"常属合法未知。**泛化类**:「硬门要求模型在其信息边界外的确定性」(完成门权属同构)。**泛化解**:①缺 owner→软:`dimension_owner_unresolved` typed 标记进 IR,由 explore 阶段解析(探索本就是归属发现阶段);②只保留两个精确矛盾为硬拒(同一文件既 owner 又 navigation-only;index 超出集合);③通用规则:analyze 阶段硬门只可审"模型已声明内容的内部一致性",不可审"模型未声明的完备性"——census 按此分类每条 analyze 硬臂。**验收 pin**:两维度一 owner 的合法发射 → 接受+unresolved 标记;矛盾臂保持拒。
+
+### §40.23 逐项细化 ⑰ V5-3:verify 失败契约退役对任何失败种类触发
+
+**定性**:`attachWriteBehaviorContracts` 只要 `VerifyFailureHandoff≠nil` 就 `RebaseVerifyFailureWriteBehaviorContracts`,而调度器对每个 `!Passed`(构建失败/超时/OOM/漂移/无关测试失败)都设 handoff→无关软契约被静默退役成 tombstone,后续累计域再也加不回。**泛化类**:「失败信号未按相关性分型即触发不可逆动作」。**泛化解**:①退役需**相关性证据**:仅当失败 typed 行(测试/探针/契约观测)的 subject/refs 与该软契约相交,或 planner 显式声明 supersession;②无关软契约保留为 advisory(不阻塞、不退役);③不可逆动作(tombstone)必须携带触发证据 ID(可审计、可撤销);④通用规则:FailureKind→动作表中,凡"退役/清空"类动作只对 `tests_failed/contract_failed` 相关性子集开放。**验收 pin**:构建失败 replan → 软契约全保留;相关测试失败 → 仅相交契约退役。
