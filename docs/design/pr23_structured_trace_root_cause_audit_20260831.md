@@ -154,7 +154,7 @@ single task/status ledger is `eval_priority_campaign_audit_20260730.md`
   proven non-IO D wait is not labeled entirely IO. Existing v2 categories are
   retained; `sleep_blocking` is the broad thread-blocking summary, not proof of
   scheduler state S. Model context and bound evidence share the same qualifier.
-- B1556 (current follow-up): full/patch field teaching differed. The two native
+- B1556 (`b3b122619`): full/patch field teaching differed. The two native
   object forms are now taught together; an unambiguous full-field selector at the
   patch entry is moved without changing order, IDs or model answer. Conflicts and
   incomplete carriers are not guessed; invalid optional selectors retain the last
@@ -165,3 +165,24 @@ and the next paired replay are tracked in the unified ledger. The remaining
 versioned taxonomy boundary in §4.1 is not declared solved by these changes.
 The model selection remains optional; the default sibling file is mandatory and
 uses the existing typed unavailable envelope when no valid selection can be bound.
+
+## 9. r1019/r1020 evidence packing and remaining claim ceiling (2026-09-02)
+
+B1557's new caliber text exposed a publication regression: full source and row
+references plus the qualifier exceeded the existing 240-character evidence-entry
+limit. B1558 (`a9b1e8b5e`) packs complete facts/references at semantic boundaries
+into the existing four-entry capacity. It neither truncates evidence nor widens
+the public v2 limits. Full-repository tests and build passed. r1020 produced an
+available five-item report matching the model's five selected candidates; the
+first item's complete evidence occupies two entries of 194 and 65 characters.
+The long answer and causal projection remained present; no conclusion was selected
+or rewritten by this repair. The earlier unavailable artifact was not overwritten.
+
+A separate P1, B1562, remains open: the priority-inversion candidate's source-specific
+mechanism ceiling and composite runnable/full + running/discounted caliber do not
+yet accompany its compact public category/summary. The existing category vocabulary
+must not silently be treated as proof of an occurrence that the source only offers
+as a candidate. Design the certainty/caliber carrier and v2 compatibility before
+changing public semantics; do not infer it from model prose. Unified status and
+next batches are in §123.1637 of the campaign ledger. These positive replay results
+do not assert that all sidecar semantic gaps are closed.

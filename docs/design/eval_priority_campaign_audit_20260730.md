@@ -57380,14 +57380,33 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1637 r1020：旁路打包生产验收，原生行为证明与候选限定继续分批（2026-09-02）
+
+`base=5cd7368a4f7b / exactly-two-parallel / machine=1/2 / human=both-partial`。
+完整结果见 `eval/parallel_selected_summary_evalcampaign_tracewrite_r1020_20260902{,_manual_audit}.md`。
+
+- **B1558/B1559 生产正证**：H11 206s、6 次 trace_query、0 成文硬拒/patch；根因 JSON available 且完整保留模型选择的 5 项，第 1 项证据 194/65 字符两条，其他条目在既有 240 字符上限内，无引用或 ID 顺序丢失，无内部 candidate_id 泄漏。显式窗因果投影、双轴、业务 span、完整 IO 家族都在。
+- H11 正文仍有 D/IO 状态零值推出无外部阻塞、自行合计 16.260ms 又否定相加、IO 墙钟称折算、顺序及内部词汇误读。精确信息/边界已在模型上下文；先记模型/教学残余，不代写答案，不以关键词硬拒，机器 PASS 不冒充人工通过。
+- C++ 174s，`70db425c64a49da4d8e96c0337399abdacb23927` 仅 2 行实现改动，原测试与期望不变；项目命令两次成功，人工另从 applied-tree 编译运行原测试也成功。最终却是诚实 `unverified`：required=1 / covered=0，make 聚合成功没有给出 main/expect_year 的断言级 receipt。原终验硬门正确，不能放松。
+
+| 次序 | 事项 | 状态与泛化施工边界 |
+|---|---|---|
+| 1 | **B1562-ROOTCAUSECLAIMCEILING1 / P1** | 新确认：候选优先级反转在旁路只剩现有 category/summary/金额，来源中的“低优先级依赖方供给候选、未证明反转已发生”等限定和复合数值组成没有贯穿。先设计 source-specific certainty/caliber 载体及 v2 兼容；不能仅按 prose 改词或替模型重排/拆根因 |
+| 2 | **B1561-NATIVEPROOFRECOVERY1 / P1** | 新确认能力缺口：cpp 不在 inline probe registry，aggregate-only 项目测试无精确 assertion identity；重复 run_tests 无法弥补。先提供能力与具体缺口，再选择通用原生 probe/结构化报告恢复路线；保留 aggregate≠assertion，禁止 fmt/expect_year/成功字符串特判 |
+| 3 | **B1554 / P2** | 独立矩阵收敛：去除 C++ 邻行声明干扰后，与 Rust/Swift/Cangjie 同样缺真实泛型 call row、并误报 token 不存在；其余 5 语言正例通过，9 语言错误目标全拒。记录 `.codrax/tmp/b1554-matrix-isolated-20260902.txt`；AST callee 与 grounding 同源，提取语义变化同步缓存版本 |
+| 4 | **B1560 / P2 观察** | 进一步核实已有节点可见标签字段，模型未使用。没有确认新的硬合同自冲突，降为教学/体验观察；不得借显示问题强制重写模型图，已有技术 ID→读者标签的自选入口保留 |
+
+- 流式与预算：本批上下文 27%/47%，未耗尽；活跃流没有因 4ms/4min 无可见答案而降级。`TestDoStreamRequest_KeepAlivesResetFirstByteWatchdog`、`KeepAlivesResetStallWatchdog`、`KeepAliveOnlyStreamOutlivesOldTotalCapUntilCallerCancel` 随 B1558 全仓套件通过；取消/调用方 deadline 仍有效，不能承诺网络断开后无限等待。
+- 本轮先收账，不为上述已供给事实但模型误述的同一窗追加硬门。后续按表逐批先红后绿/异构双路验证，不能宣称整个图或旁路机制已完全无 gap。
+
 ### §123.1636 B1559：H11 live oracle 同步 IO 响应阻塞口径（2026-09-02）
 
-`P2 / implemented / offline-oracle+engine-render-pins-pass / 本批提交`。
+`P2 / implemented / offline-oracle+engine-render-pins-pass / pushed=5cd7368a4 / live-positive=r1020`。
 
 - r1019 的真实 root_cause_rank JSON：自身 IO family 47 段、12.658ms、resource_completion_closure=true、sum_disjoint，cross_direction_overlaps 为空；响应阻塞与自身 Running 不相交。不是 pair 计算能力丢失。
 - 保留用例 ID/问题/fixture、旧微交集不露出负例；把旧错误 overlap advisory 从必有改为不得有，正向检查完整 IO 家族的投影值/段数，并新增最终投影数=1 的 typed metric。控制日志只核实发生 trace_query；详细结果可能存 blob，不能要求完整工具行必被重复展开到控制日志。
 - 既有 engine 真实样例 pin 继续检查 47 个精确区间、closure/方向依据、并集、供给值和无伪重叠；renderer 真实样例和独立 INTERFLOOR 正/负/显著交集/相对尺度回归仍通过，日志 `.codrax/tmp/b1559-caliber-pins-20260902.log`。
-- 新 oracle 在原 r1019 工件离线验证通过，但**不改写** r1019 原机器 FAIL/人工 FAIL 记录，也不因此将模型正文或空旁路判为合格。B1558 修后下一批再 live 验证。
+- 新 oracle 在原 r1019 工件离线验证通过，但**不改写** r1019 原机器 FAIL/人工 FAIL 记录，也不因此将模型正文或空旁路判为合格。B1558 修后 r1020 已获 live 正证，正文残余另见 §123.1637。
 - 未修改产品代码、Trace 根因排序/链路/IO 数值/正文，未追加模型端硬约束。
 
 ### §123.1635 B1558：旁路证据按语义边界无损分行（2026-09-02）
