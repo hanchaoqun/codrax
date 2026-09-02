@@ -5769,3 +5769,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.25 逐项细化 ⑲ V1-1(存疑→建议按缺陷处理):sidecar 证据句统一写「链上有效影响」且无口径字段
 
 **定性**:`boundRootCauseEvidence` 对每个候选发 `<subject> 在目标窗口内的链上有效影响为 X ms`,不分 `Magnitude.Caliber`;`impact_seconds` 无口径。窗口投影席(`EffectiveImpactPublished=false`,value=ImpactMS)被冠以"有效"——CROWNCAL 纪律(未发布有效归因不造"有效"词)的反向。否证席分歧点仅在"是口径披露缺失还是造数",两席均确认机制。**泛化解**:①`TraceRootCauseItemV2` 追加 `impact_caliber`(闭集 `effective_attribution|window_projection|…` 与 tracefence 口径词表同源),与 §40.8 的 `causal_qualifier` 同一 v2 追加批;②证据句按口径取词(单源词表):有效归因→"链上有效归因",窗口投影→"窗内投影占用";③通用规则:任何公开数值字段必带口径字段(R2' 同步:schema/golden/tracediag)。**验收 pin**:两口径候选 wire 字节区分;词面来自 tracefence 单源。
+
+### §40.26 逐项细化 ⑳ V1-4(存疑):多工件投影集折成单 roster/sidecar 无工件标签
+
+**定性**:`CompileCandidateContract` 合并至多 4 个工件分区的候选,契约只盖第一工件,roster/wire 无 artifact 标签——同名席位两 trace 不可辨。**泛化解**:①候选与 wire 项带 `artifact_label`(与 Markdown 多板对比头 `Artifact %s` 同源标签);②多工件时 roster 教学分组显示;③通用规则:任何跨工件折叠的公开集合必须保留分区键(与 CMP-A 多工件投影裁定同构)。**验收 pin**:两 trace 同名线程候选 → 两条带不同 artifact_label 的项。
