@@ -5647,3 +5647,17 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 **非过拟合声明**:不为 `Reader/FileReader` 加特例,不加停用词表;修法对任何前缀/后缀包含关系(`Parser`/`JSONParser`、`Cache`/`CacheStore`)与任何语言词面一体生效。
 
 **验收 pin**:①`Reader`+`FileReader → Parser` fixture:实体三、参与者二、scope 引文含 FileReader→Parser → 不拒(红→绿);②`Reader` 被引文**独立点名**(「Reader 与 Parser 的数据流」)且无参与者行 → 仍拒(保真);③census tripwire 自身红检(临时把 :2812 改回子串 → 红);④兄弟臂回归不变。
+
+### §40.10 逐项细化 ④ V5-1:apply 后源码行子串铸行为契约"满足"(证明车道越界)
+
+**定性**:`run_tests_source_contract.go` 按 analyzer 的 **apply 前** `evidence_ref` 行号读 **apply 后**文件,`Contains/Equals(expected)` 即记 `source_contract_refs status=satisfied`,该记录被 `verification_proof_profile.go:995`/ledger contractCovered 当作 hard-required 契约的完整观测权威。两重越界:①行号陈腐(插行位移后任意行);②`observable/invariant` 契约的 `expected` 按其 schema 是**运行时值**,字节存在≠行为发生(`timeout = 10` 含 '0' 即"满足" `retries contains 0`)。
+
+**泛化根因类**:「契约种类→见证种类」矩阵缺失——一条源码文本见证被授予对所有种类契约的放行权。这是 §29.21 证明车道红线在 write 域的同构:**静态存在不得铸运行观测**。
+
+**泛化解(矩阵化,非逐种打补丁)**:
+1. **typed 见证矩阵**:每种 `WriteBehaviorContractKind` 声明允许的见证来源闭集——`file_layout`→源码/文件系统见证;`observable/invariant/stdout/status_code/command_result/exception/output_path`→仅探针/项目测试/命令执行见证;矩阵为 types 级表,ledger 消费与 emit 教学同源(R2' 同步);
+2. **行号绑定**:源码见证只在 PatchEffect 能把 `evidence_ref` 映射到 apply 后行(hunk 行表重映射)时成立;映射失败→`unresolved`(披露),永不"satisfied";
+3. **降级不静默**:被矩阵拒绝的源码见证仍保留为 advisory 记录(`source_text_present`),供 replan 提示,但不计入 covered;
+4. **tripwire**:矩阵表驱动的 census 测试——凡 `VerificationConfidenceRecord` 生产者写 `status=satisfied` 必带 `WitnessKind`,且 (Kind, WitnessKind) ∈ 矩阵,否则红。
+
+**验收 pin**:①插 3 行位移后原行号含 '0' 的 observable 契约 → unresolved 而非 satisfied(红→绿);②file_layout 契约源码见证保持 satisfied;③矩阵外组合 census 红检。
