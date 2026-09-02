@@ -5745,3 +5745,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.19 逐项细化 ⑬ V2-3:无效根因选择器降为 WARN 且工具返回 SUCCESS
 
 **定性**:`resolveTraceRootCauseReportForEmit` 的精确 typed 错误(schema_version 不符/未知或重复 candidate_id/解码失败)被转为日志,patch/full emit 照常成功,Summary 不告知模型——PR23-A"不拒答案"被过度执行为"不告知"。**泛化类**:「可选载体的失败被静默」——正确形是**不拒主事务但必披露**。**泛化解**:①ToolResult 增 typed `OptionalCarrierOutcomes []{carrier, status, reason}`(success 主结果携带),Summary 追加一句精确原因(如"trace_root_causes ignored: unknown candidate_id X;可用 ID 见 roster");②模型可在下一 patch 修正(候选 ID 是 schema enum,错误是精确信号);③通用规则:凡"可选且被忽略"的输入必须进 ToolResult 披露面,禁止只进日志(census:optional-ignored 日志点必配 outcome 记录)。**验收 pin**:未知 candidate_id → 答案接受+Summary 含精确原因(红→绿)。
+
+### §40.20 逐项细化 ⑭ V3-1:同一目标态账在 finalizer prompt 内三种"不可中断等待"口径
+
+**定性**:观测账段(evaluator:6314)、终局决策边界(final_decision_boundary:382 = D+IO 折叠)、目标态权威卡三处各自格式化同一 `TraceTargetStateScopeAuthority`,对"不可中断等待"是否含 IO 各异。**泛化类**:「同一 typed 权威多处手写渲染」(五表手抄病根)。**泛化解**:①types 级单一格式化器 `FormatTargetStateAccount(authority, lang)`,输出固定折叠(不可中断=D+IO,其中 IO=…),三面全部改调用;②tripwire:prompt 渲染器 census——凡引用 `TraceTargetStateScopeAuthority` 字段拼句者必须经该格式化器(grep 型 pin);③口径词进 tracefence 词表单源。**验收 pin**:三面同 fixture 输出同一句(字节级)。
