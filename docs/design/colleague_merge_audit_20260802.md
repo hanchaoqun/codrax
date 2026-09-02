@@ -5715,3 +5715,17 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 4. 非致命尊重模型:该臂改为**只对同代次**生效,其余场景交给模型的完成决定。
 
 **验收 pin**:①finalize 失败→回溯→探索者重新 emit 完成 → 自动完成不被陈旧 RetryState 否决(红→绿);②同代次内(尚未重探索)保持否决;③Reset 零调用 census。
+
+### §40.15 逐项细化 ⑨ V9-1:一对多派生行共享源行 ledger 身份
+
+**定性**:`actionRecordLedgerIdentity` 在 `item_id_field` 为空时以继承的 `_source_locator` 作 ItemID;`runExpandRecords`(一对多)对每个派生行 `stampActionRecordOriginFields` → 所有兄弟行同身份(`items.csv#1`)。后果:①`DedupeContributionRecords`(键含 ItemID)静默折叠同值兄弟贡献——"每 item N 个 tag 计 1";②`ValidateContributionDecisionConsistency` 见同身份 include+exclude 冲突误拒。
+
+**泛化根因类**:「身份 = 来源」的假设在派生阶段失效——身份必须随**派生拓扑**演化(一对一继承、一对多分裂、多对一聚合各有身份规则),否则去重/一致性等所有以身份为键的机制同时失真。
+
+**泛化解**:
+1. **派生身份规则表**(typed,按 action 拓扑):`expand`(1→N)=`<source_locator>#<expansion_ordinal>`;`filter/qualify/project`(1→1)=继承;`group/aggregate`(N→1)=`group_key` 派生身份 + `_source_locators` 列表(已有);规则与 action 注册表同源(新 action 必须声明拓扑);
+2. **溯源保留**:派生行同时保留 `_source_locator`(血统)与新 `_row_identity`(去重/一致性键)——两键分职,血统用于 lineage 展示,身份用于键;
+3. **一致性门语义修正**:决策一致性以 `_row_identity` 为键;同源不同派生行可持不同决策(本来就合法);
+4. **tripwire**:action 注册 census——每个 action 声明 topology∈{1:1,1:N,N:1},缺失即红;expand→count 合成 fixture(item 有 3 tag → 计 3)。
+
+**验收 pin**:①expand→count 合成例 3 而非 1(红→绿);②expand→filter(include/exclude 不同兄弟)不误拒;③1:1 action 身份继承不变(既有 data eval 集回归:data_jsonl_filter_count/data_multifile_reference_projection)。
