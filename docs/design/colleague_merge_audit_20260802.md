@@ -5542,3 +5542,51 @@ Trace bypass，以及 pre-emit/post-finalizer 两个生产挂点。
 `supporting-diagrams=preserved`；`provider=checkout-verified`；`raw-prose-hard-gate=none`；
 `system-answer/diagram-authorship=none`；Trace explicit-window/causal projection/auto-supplement=`unchanged`；
 `active-stream-fixed-time-degrade=forbidden`。
+
+---
+
+## §40 MERGE-AUDIT-7 增量审计(2026-09-02):1,311 笔(08-09→09-02)= PR23 根因 sidecar + 答案 patch 车道 + evaluator/analyzer/门链/write/转换/data/图表八大波
+
+**范围**:ad462a6ce(CHATFIX-1)..HEAD 非本席合入 **1,311 笔**(三周半;81 个新非测试 Go 文件,含新包 `internal/analysis/tracefinding`、`internal/stageauthority`)。**方法**:12 主题读者+逐条 2 席否证(64 agent,wf_c54dc652-cf8,多处 go test -overlay 可执行判别)+全仓基线实测+裁定敏感项主会话亲验;只审计不修码。产出:**18 确认(9 高)+2 存疑+12 低+6 项指控被否证席驳回;51 项核验通过**。
+
+### §40.1 基线与核验总评(正面)
+
+- **main 绿**(本席实测零失败);orchestrator.go 9132/9135(ratchet pin 在案);trace_query Description 两次改动均带 EVOLUTION RECORD;`causal_token_registry.go`/provenance/thread-incarnation 零动;**我方全部裁定面完好**(crown 前缀+帧因果未证限定注/CROWNCAL 臂/TWODIM 账/closed-matrix/CHATFIX-1 五车道/思考语言机器/退避探针;`首要可消除` 生产零命中)。
+- **PR23 自审五条补救(A–E)全部在代码属实**:可选 sidecar 永不拒答案;模型只选 enum 候选 ID、运行时绑全部语义字段;无自动 PrimaryCause;单一加锁成功尾声;死 `TraceFindingRequired` 已删。附加核验:候选准入精确 typed 信号(Rank≤0/target_self_state/context_only/口径旁栏排除)、证据打包不丢引用、默认 sidecar 带 typed unavailable 信封。
+- **我方 §11 三项关账声称属实**(三主题独立核验):M6-U3-1 全部关系臂走 `diagramRelationEdgeHas…` 单点投影助手;M6-U3-2 `CallChainEndpointCompatible` 零残留;M6-U1-1 错算式 e2e 真实存在(`82.1 + 9.1 = 91.2ms` + 禁评判词臂)。
+- 其他核验通过:S6-1 类 grep 零复发;L3/L5/L6 pin 在;write 权威波把模型 outcomes 移出权威(方向正确);`llm_stream_activity` 为被动遥测不削弱 W1/W2;stageauthority 只在被分析仓=codrax 时激活;eval 提交无降杆(B1190 写评步预算 24 有据);6 项 reader 指控被驳回(含"sidecar 与主根因加冕不对账"——两者均模型序/席位级同源,非缺陷)。
+
+### §40.2 高危确认(9 件)
+
+| # | 位置 | 问题 | 亲验/复现 |
+|---|---|---|---|
+| **V12-1 ★裁定推翻** | `tracequery/query.go:19110`(332fabb21 B829/B830,08-15) | `semanticProjectionIsRelationOnly → publishedEffectiveMs=0`:非目标宿主线程的语义 span 即使持 typed 唤醒边(`host_wakeup_edge_pre_span`)或链窗交集也计价归零、rank=0、判"仅关系凭证·优化项非根因"——**直接反向 §29.88.1 R3**(宿主对目标有窗内 typed 唤醒边且 span 在边前→算链上席)与 **§29.88.2 R4 终判通则**(边=凭证/边前=有效/边后=解除,全状态族唯一精确判据)。提交未引任何用户裁定,未走 registry §7.2.1 车道变更协议(registry 文件未动但语义在 query.go 改) | **本席亲验**(代码+裁定原文逐字对照);tieba 哨兵(ZeusThreadPo VerifyClass 0.285ms 边前)可 eval 复现 |
+| **V1-2 ★T3-1 类** | `tracefinding/root_cause_report.go:85` + `agent/trace_finding_contract.go:45` | sidecar 契约顶棚取 `authority.CausalUnproven‖FrameFlowUnproven`——**会话 ANY 聚合**(T3-1 裁定已否决的信号,crown 面已改席位级);且 `.root-causes.json` 无任何限定/状态字段,同一运行 Markdown 头行带「（帧因果未证）」而 JSON 发布无限定根因(status=available 是交付态非因果态)。否证席指出:修法若绑 Decision.Status 会把 ANY 信号再引入公开工件——**必须用席位级信号**;v2 wire 加附加字段需版本兼容裁定 | 否证席 overlay 复现 + 本席核 ceiling 来源 |
+| V4-1 | `emit_analysis.go:2812`(c8354ec0a) | **T3-2 类第五例**:必需流程图"遗漏参与者"硬臂用无界 substring 锚定(`Reader`⊂`FileReader` 即硬拒),同一校验器的兄弟臂两周前刚因同样 substring 导致"不可能重试环"改为全词面别名键 | 静态(同文件两臂对照) |
+| V5-1 | `run_tests_source_contract.go:45` | **静态源码行子串铸行为契约满足**(证明车道):按 analyzer 的 apply 前 evidence_ref 行号读 apply 后文件,`Contains(expected)` 即记 `source_contract_refs satisfied` 并被 hard-required 契约消费为完整观测权威;插行位移后任意含 '0' 的行即"满足" | 静态 |
+| V5-2 | `run_tests_worktree_effects.go:281` | 追踪路径漂移校验门**无 typed escape、无 unverified 车道**:`cargo test` 重写 Cargo.lock 即 verification_side_effect 硬失败→replan(§1.6 违例,M5-S3-1 类) | 静态(Rust runner 无 --locked 逐点核) |
+| V6-1 | `hitraceconv/streamerdb_export_raw_ftrace.go:290` | 源 block 族接管按**class** 抑制整个 DB `block_storage` 类,但源车道只治理 7 个 block_rq_*/bio_* 名——ufshcd_/mmc_request_/scsi_dispatch_cmd 行随之静默消失(30dc7eeba 前 MMC 精确端点可见) | 静态 |
+| V6-2 | `hitraceconv/source_raw_visibility_recovery.go:304` | 可见性载体以**原事件名**发布(`sched_migrate_task: codrax_source_raw_visibility/v1 …`),tracequery 窗口索引在 parse 前跑子串键完整性审计→成千载体被判畸形语义行 | 静态(审计序逐点核) |
+| V7-2 | `orchestrator/accepted_closure_retry_authority.go:14`(476129c6d) | 已接受闭包重试权威臂读**永不清零**的 RetryState(唯一写者 finalize 契约失败;ResetRetryState 零生产调用)→回溯后探索者的**新鲜**完成决定被旧 RetryState 否决(完成门权属+§1.6 缺代次绑定) | 静态 |
+| V9-1 | `dataquery/decision_lineage.go:19` | 一对多派生行共享源行 ledger 身份(`items.csv#1`)→ dedupe 静默折叠同值兄弟贡献 + 一致性硬门见同身份 include/exclude 冲突误拒;"每 item N 个 tag 计 1"错数发布无违规 | 静态 |
+
+### §40.3 中危确认(9 件)
+
+V1-5 死的 legacy trace_finding 车道仍对未教字段整答案硬拒(应隔离/记日志);V2-1 两阶段暂存快照在归一化前(patch 容差/模型提交项被后继代次看不到);V2-2 关系修复租约在事务提交前消费(持久层拒绝后模型无租约重试);V2-3 无效根因选择器降为 WARN 并 SUCCESS 返回(精确 typed 不匹配不应静默,PR23-A 不拒答案≠不告知);V3-1 同一目标态账在 finalizer prompt 内三种"不可中断等待"口径(D-only vs D+IO)并存;V4-3 slash-pair 规范化把模型**单一**实体 X/Y 拆两个再判"两个分别发射";V4-4 required_files 维度归属硬门对合法未知归属 fail-closed(唯一逃逸=降置信);V5-3 verify 失败契约退役对**任何**失败种类(构建失败/超时)触发,静默丢软契约;V5-4 兄弟 contract_refs 门解析 id 用不同集合(rebase 前/后)。
+
+### §40.4 存疑(2)
+
+V1-1(高,1/2 分歧)sidecar 证据句统一写「链上有效影响为 X ms」且 impact_seconds 无口径字段——窗口投影席被冠以"有效"(CROWNCAL 拒造数纪律的反向);分歧点=是否属"口径披露缺失"而非"造数"。V1-4(中)多工件投影集折成单 roster/sidecar 无工件标签。
+
+### §40.5 低危(12)与继承债
+
+V2-4 patch 校验逐项首错;V3-3 后 emit 顾问车道每轮一条(最多 4 轮);V4-5 prompt 出现未定义行话 "LOW-MIND RULE";V6-4 可见性覆盖把 withheld 标 not-applicable;V7-4 硬图归一化键在 analyzer 看不到的 typed bool;V7-5 ratchet 靠压缩既裁 §29.60 注释达标(文件贴线 9132);V8-7/V11-3 模型面拒绝文案与新 finalizer prompt 泄内部管线词(agent 侧渲染器在 glossary lint 外);V9-4 派发前投影门对草稿契约校验而执行对另一契约;V10-4 class diagram 归一化静默改写模型 typed 锚方向;V11-2 trace_query 新 `patterns` 参数未同步 tracediag Step schema(R2' 类);V12-3 同事账本新自报残留(B1560 P1 节点 ID 当显示标签/B1558 P1 待回放/B1548 默认 sidecar 空 roster 而长答案有候选/B1541/B1546/B1554 P2 Rust/Swift/Cangjie callee 抽取/PR23 §4.1 版本化决定)。
+
+### §40.6 处置序与裁定请求(未动码)
+
+1. **裁定请求 ①(V12-1)**:B829/B830 语义 span 边前份额归零是否成立?两选一——**恢复 R3/R4 计价**(边前份额入链上有效归因,仅无边/边后归 ◇)并走 §7.2.1 协议落 registry 判词;或**明示改裁**取代 §29.88.1/.2(须落账为新裁定,不能由修复提交隐式覆盖)。本席建议恢复:R4 是全状态族终判通则,单为语义 span 开例会重开"边=凭证"的整套一致性。
+2. **裁定请求 ②(V1-2)**:sidecar 顶棚改用**席位级**帧因果信号(与 crown 面同源 `runtimeTraceProjectionLeadFrameCausalityUnproven` 索引),wire 上以 v2 追加字段 `causal_qualifier`(append-only 兼容,NEXTINFO 尾追加裁定同构)承载;是否照准。
+3. 高危批:V4-1(与兄弟臂同源全词面解析)/V5-1(观测型契约只认探针/项目测试见证,源码行只治 file_layout)/V5-2(漂移按 owner 分类进 advisory 披露臂+lockfile --locked)/V6-1(按名接管非按类)/V6-2(载体用保留名发布)/V7-2(RetryState 绑代次或消费即清)/V9-1(派生行身份=locator+展开序数)。
+4. 中低危随批;V12-3 继承债并入排期。
+
+**方法学**:①同事修复合规连续第四轮 100%(PR23 五条+我方 §11 三项+既往全部核验通过,51/51),**新缺陷集中在新子系统与新硬门**(tracefinding/patch 车道/写校验权威/转换恢复)——审计资源继续向新功能面倾斜;②**裁定推翻类首次出现**(V12-1):修复提交在无用户裁定引用下改写终判通则语义——建议同事流程增加"触碰账本已裁语义必须引用裁定或申请改裁"检查;③T3-2 类第五例(V4-1)与 §11.4 提议的 census tripwire 尚未落地——单点助手已建但"每个硬臂必过同一解析权威"的结构 tripwire 仍缺,应作为泛化解优先落地(而非逐例修)。
