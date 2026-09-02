@@ -5753,3 +5753,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.21 逐项细化 ⑮ V4-3:slash-pair 规范化把模型单一实体拆成"两个分别发射"
 
 **定性**:`CanonicalizeSlashPairEntities` 把 analyzer 发射的单个 `X/Y` 实体替换为 X、Y 两项(只要原请求含 X/Y 且两半形似标识符),随后必需流程图参与者校验把它们当作"两个分别发射的实体"要求各自参与者行——系统制造了模型没做的主张。**泛化类**:「归一化器改写模型意图后再用硬门审判改写结果」(所有权+精确信号双违)。**泛化解**:①归一化只做**补全**(模型发射一半→补另一半,`CompleteSlashPairEntities` 已有),不做**拆分**;②若需要两参与者,由教学要求模型显式发射两实体,硬门只审模型原始发射;③通用规则:硬门输入必须是模型原始发射或其无损规范化(census:硬门前的归一化器不得改变实体计数)。**验收 pin**:请求含 `Mutable/BusContext`、模型发射单实体 `Mutable/BusContext` + 两参与者 → 不拒;拆分行为退役 pin。
+
+### §40.22 逐项细化 ⑯ V4-4:required_files 维度归属硬门对合法未知归属 fail-closed
+
+**定性**:≥2 必需维度且任一 required_files 置信≥0.8 时,任何缺 ≥0.8 owner 的维度→整分析拒;唯一逃逸=降低置信(教模型撒谎)。分析阶段不读文件内容,"哪个文件拥有维度 2"常属合法未知。**泛化类**:「硬门要求模型在其信息边界外的确定性」(完成门权属同构)。**泛化解**:①缺 owner→软:`dimension_owner_unresolved` typed 标记进 IR,由 explore 阶段解析(探索本就是归属发现阶段);②只保留两个精确矛盾为硬拒(同一文件既 owner 又 navigation-only;index 超出集合);③通用规则:analyze 阶段硬门只可审"模型已声明内容的内部一致性",不可审"模型未声明的完备性"——census 按此分类每条 analyze 硬臂。**验收 pin**:两维度一 owner 的合法发射 → 接受+unresolved 标记;矛盾臂保持拒。
