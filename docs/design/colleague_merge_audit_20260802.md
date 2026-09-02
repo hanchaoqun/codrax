@@ -5617,3 +5617,18 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 **需裁定(用户)**:A=恢复 R3/R4 计价(本席建议,零裁定推翻,与 B829 自身对状态席的处理一致);B=明示改裁——若采纳"语义 span 边前份不计价",须作为新裁定落账并同步改写 R4 的"全状态族"表述,且状态席同样适用(否则族间不一致仍在)。任一选项都必须走 §7.2.1 协议。
 
 **验收 pin**(施工时):①tieba 哨兵 e2e:items[2] 与 items[16] 同规则(A 下 items[16] effective=0.285;B 下 items[2] 亦归零);②r506 跨边形二分 pin(边前 4.600 计入/边后 0.400 ◇);③registry 判词 golden;④Description golden 走 UPDATE RITUAL 反向修订 B829 教学句。
+
+### §40.8 逐项细化 ② V1-2:PR23 sidecar 的帧因果顶棚取会话 ANY 信号且 wire 无限定字段(T3-1 类复发)
+
+**定性**:`agent/trace_finding_contract.go:45-48` 以 `authority.CausalUnproven || authority.FrameFlowUnproven`(`answerDocRuntimeTraceGuidanceView` 对全会话 trace_query 结果做 OR)铸 contract 顶棚;`tracefinding/candidate_compiler.go:189` 派生每候选 `Decision.Status`;但 `boundRootCauseItem` 只拷 Category/identity/ImpactSeconds/Evidence,`TraceRootCauseItemV2` 无任何限定字段(否证席 overlay 实证:顶棚 unproven 下 wire 零处出现 unproven/status/qualifier)。同一运行 Markdown 头行「（帧因果未证）」而 `.root-causes.json` 无限定。
+
+**泛化根因类**:§7.3 裁定(2026-08-04)把 crown 面的触发从"会话 ANY-sticky"收窄到席位级(`buildRuntimeTraceProjectionSeatAuthorityIndex`,按 unproven 结果的 EvidenceID 键控),但裁定只修了**一个消费者**;信号本身未被定性为"不得作硬决策/发布输入",于是新消费者(PR23 契约)再次直接消费会话 ANY。**泛化解=把裁定表述为信号级禁令**:
+
+1. **单一席位级权威提供者**:把 `buildRuntimeTraceProjectionSeatAuthorityIndex` 提升为 types 级 `TraceSeatCausalAuthorityIndex(ObservationLedgerInput)`(EvidenceID→unproven),crown 面与 tracefinding 契约同源消费;候选编译按 `node.EvidenceID ∪ MergedEvidenceIDs` 查索引得每候选 `CausalQualifier ∈ {proven, frame_unproven}`——**席位级、精确、与头行限定注同一真值源**;
+2. **会话 ANY 信号降格为 advisory-only**:`answerDocRuntimeTraceGuidanceView.CausalUnproven/FrameFlowUnproven` 只允许喂 prompt 提示行(现有"Runtime causal ceiling hint"),禁入任何硬门/发布面;结构 tripwire=census 测试列出该两字段的全部读者,白名单只含提示渲染器;
+3. **wire 追加字段**(v2 兼容,append-only,同 NEXTINFO 尾追加裁定):`TraceRootCauseItemV2.CausalQualifier string json:"causal_qualifier,omitempty"`,值域闭集 `proven|frame_unproven`;摘要句在 frame_unproven 时追加「（帧因果未证）」与头行同词;roster 教学同步(每候选行带限定,模型选择时可见);
+4. **status 语义澄清**:`status=available` 是交付态,文档与字段注释明示"非因果证明态",避免读者误读。
+
+**需裁定(用户)**:v2 wire 追加 `causal_qualifier` 是否照准(PR23 §4.1 要求公开 schema 扩展须版本化决定;append-only 附加字段与既有 next_info 尾追加裁定同构,不破 v2 消费者)。
+
+**验收 pin**:①契约 e2e:席位级索引 unproven 候选→ wire 带 `causal_qualifier=frame_unproven` + 摘要含限定注;proven 候选字节不变;②会话 ANY 读者 census 白名单 tripwire;③头行限定注与 sidecar 限定字段同源一致性 pin(同一 fixture 两面必须同真值)。
