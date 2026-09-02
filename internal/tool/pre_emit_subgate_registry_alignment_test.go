@@ -13,8 +13,8 @@
 //   - the table's kind set equals the kinds actually passed to
 //     appendPreEmitHints/tagPreEmitHints in the checker body
 //     (go/parser scan — self-updating, no manual sync);
-//   - exactly three explicit ForceHard producer sites exist in the checker file:
-//     two typed member-set comparisons and one typed runtime-trace model-ownership floor.
+//   - explicit ForceHard producer sites are counted below, including the existing
+//     persist-time exact receipt binding check reported early in B1552.
 //
 // Ping-pong guard: the advisory rows pin the settled post-D1-G95
 // state (D1-F7w hardened citation carriers, D1-G95 reverted them).
@@ -172,18 +172,18 @@ func TestPreEmitSubgateRouteTableRoutesMatchGateSplit(t *testing.T) {
 			if preEmitHintHardByDefault(plain) {
 				t.Errorf("subgate %q without the exact item-evidence identity signal must stay advisory", row.Subgate)
 			}
-		case preEmitHardSignalTypedFacetCandidateOwnership:
+		case preEmitHardSignalTypedFacetCandidateOwnership, preEmitHardSignalExactReceiptBinding:
 			if !policyRows[preEmitSameTurnHardPolicyRow{Kind: row.ViolationKind, Signal: row.HardLane}] {
 				t.Errorf("subgate %q hard lane %q has no policy row", row.Subgate, row.HardLane)
 			}
 			typed := plain
 			typed.ForceHard = true
-			typed.HardSignal = preEmitHardSignalTypedFacetCandidateOwnership
+			typed.HardSignal = row.HardLane
 			if !preEmitHintHardByDefault(typed) {
-				t.Errorf("subgate %q typed facet-candidate ownership hint must route hard", row.Subgate)
+				t.Errorf("subgate %q exact typed signal %q must route hard", row.Subgate, row.HardLane)
 			}
 			if preEmitHintHardByDefault(plain) {
-				t.Errorf("subgate %q without the exact typed facet ownership signal must stay advisory", row.Subgate)
+				t.Errorf("subgate %q without its exact typed signal must stay advisory", row.Subgate)
 			}
 		default:
 			t.Errorf("subgate %q declares unknown hard lane %q", row.Subgate, row.HardLane)
@@ -225,14 +225,16 @@ func TestPreEmitSubgateRouteTableMatchesCheckerBody(t *testing.T) {
 	}
 }
 
-// Exactly EIGHT ForceHard producer sites may exist in the checker file: missing
+// Exactly NINE ForceHard producer sites may exist in the checker file: missing
 // and extraneous rows against the complete typed principal member set, an
 // invalid exact source_inventory_family key against that same typed row roster,
 // the runtime-trace model-principal ownership floor, plus the model-authored
 // Trace causal-caliber field against its typed evidence ceiling, plus one exact
 // source-inventory row-identity producer shared by both row-id failure shapes, plus the exact
 // endpoint-boundary facet-candidate ownership comparison, plus one exact
-// item-evidence identity producer shared by its invalid/conflicting shapes. All are closed-set
+// item-evidence identity producer shared by its invalid/conflicting shapes, plus
+// the existing persist-time receipt-pair check now reported before unrelated
+// repairs (both receipt kinds share the existing binders). All are closed-set
 // comparisons over structured carriers; none reads model prose. Free-prose target-wait consistency remains advisory because
 // interval/duration ownership is not typed in rendered text. Every future hard
 // producer still needs a preEmitSameTurnHardPolicyRows ruling. The call-edge
@@ -261,8 +263,8 @@ func TestPreEmitForceHardProducerSitesPinned(t *testing.T) {
 		}
 		return true
 	})
-	if producers != 8 {
-		t.Fatalf("expected exactly 8 explicit typed ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
+	if producers != 9 {
+		t.Fatalf("expected exactly 9 explicit typed ForceHard producer sites in %s, found %d — new hard producers must go through a preEmitSameTurnHardPolicyRows ruling", preEmitCheckerSourceFile, producers)
 	}
 }
 

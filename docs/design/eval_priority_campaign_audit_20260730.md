@@ -57382,19 +57382,37 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 ### §123.1627 B1552：精确结果字段在持久化阶段晚报，修补缺少同轮完整反馈（2026-09-01）
 
-`confirmed / P1 / open / next-batch`。r1016 首稿已提交不在本轮 schema 选项中的 conceptual_terminal_resolution evidence_id；
+`confirmed / P1 / implemented / full-suite+build-pass / push-pending-network`。r1016 首稿已提交不在本轮 schema 选项中的 conceptual_terminal_resolution evidence_id；
 同期列表/图关系检查先返回，直到关系修补接近结束时，persist 的 `bindConceptualTerminalResolutionReceipts` 才报告错误。
 这个校验是既有合法的“精确 schema 选项”边界，不应删除；问题是没有与同轮 pre-emit 错误一起回报，
-且只给 `blocks[3] ... does not match`，没有稳定 block id/字段级修复信息。当前 field-edit schema 也不支持此字段，
-模型再次猜 `field=conceptual_terminal_resolution` 被拒，随后完整替换仍多次携带旧错误值。
+且只给 `blocks[3] ... does not match`，没有稳定 block id/字段级修复信息。这里修正初审：
+`block_field_edits_v1` 不承载这种对象，但 B1518 已有独立的 `block_receipt_edits_v1` 精确选项通道；
+缺的是及时反馈及导向已有通道，不是需要再建接口。模型将标量 conclusion 放进普通字段补丁被拒，随后完整替换仍携带旧值。
 
 后续按通用结果字段通道处理，不针对 Python/Rust 名称拟合：
 
-- [ ] B1552a：让 pre-emit 收集已有 RuntimeWorkRelation/ConceptualTerminalResolution 精确匹配错误，与其它结构错误同轮回报；
-  必须复用现有绑定判据，不复制第二份选项规则，保留 persist 防线。
-- [ ] B1552b：反馈给稳定 block id 和当前 schema 所允许的修复方式；若增加窄字段补丁，其精确选项必须与整块 schema 同源，
-  不根据答案正文猜选项，不自动替换模型值或扩大候选权限。
-- [ ] B1552c：首稿/补丁混合错误、空候选、无效候选、正确兄弟字段不变、精确合法选项、真实 persist 接线回归，先红后绿。
+- [x] B1552a：pre-emit 在副本上调用既有两种 binder，收集全部失败并与关系错误同轮回报；不绑定或修改原稿，persist 防线保留。
+- [x] B1552b：提示使用稳定 block id，指向 B1518 的原生对象补丁；仅当当前 schema 发布该 block/field 才建议使用，
+  inactive 字段不教模型虚构分支，空候选的合法无 evidence-id 形也不要求补造 id。模型选择证据与 conclusion，系统不代选。
+- [x] B1552c：先红见证：两种 receipt 均漏报，full/patch 混合失败都只返回图错误。施工后定向测试通过，
+  包含 active/empty/inactive × id/conclusion 组合与现有 binder 一致、缺席不新增义务、原稿不变，
+  full/patch → 一次同时报告 → 既有原子 receipt + 独立关系修复 → persist 绑定，以及直接调用 persist 仍拒绝错误值。
+- [x] B1552d：全仓测试和构建通过；第一次全仓检查仅拦住新增提示的内部化措辞，改操作说明后重跑 `go test ./... -count=1` 全绿，
+  没有修改术语禁用清单或放松断言。持续推理、工具参数流、仅心跳和 4ms evaluator 预算隔离定向回归也通过（llm 4.431s、agent 1.040s）。
+- [ ] B1552e：提交后推送（网络阻断待重试）；接续 r1017 异构两路回放。
+
+边界声明：新增的 pre-emit policy row 只前移既有 persist 的 exact pair 拒绝点，普通 `ViolAcceptance` 仍 advisory；
+ForceHard 清册和显式 policy 清册同步登记，无枚举标签/正文扫描回流为硬门。未改 Trace 查询、投影、自动补齐或模型正文/图关系。
+远程更新暂受网络阻断：SSH 22、SSH 443、HTTPS 都超时，施工基线是此前已推送的 `48cbe2186`，不宣称已同步最新远程。
+
+当前 case 清单共 243 个：25 个 apply、3 个 plan，剩余 215 个读/分析场景；其中 real_traces 29 个、harmony 12 个。
+下一批 r1017 按用户损失/覆盖面/已修通道回归价值排序，恰好并发 2 路（非全清单已执行声称）：
+
+| 顺序 | case | 风险维度与人工验收 |
+|---|---|---|
+| 1 | real_trace_h4_supply_thermal_witness | 真实显式窗四态账、CPU 编号/策略频率限制与实际影响区分；投影/自动补齐、链上与背景边界、模型答案所有权 |
+| 2 | sr_cpp_virtual_chain | C++ 工厂选择 + 虚调用关系，图与列表、教学/校验一致、重试完整反馈；不能靠名字把注册边当直接调用 |
+| 后续 | 写模式异构用例 | 复核当前优先级后再开下一组；本组不追加第三路，不为单 case 提升全局重试 |
 
 模型最终为过关选择 `text.encode` 并判断到达 Rust 目标，是模型判断错误；该选项本身有源码依据，但不支持该业务结论。
 实际上下文已给所有选项各自含义和“由模型比较目标”提示；不能据此自动替它选择、修改判断或把同名调用无条件扩进候选。

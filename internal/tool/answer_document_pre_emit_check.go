@@ -611,6 +611,7 @@ const (
 	preEmitHardSignalTypedSourceInventoryRowID       preEmitSameTurnHardSignal = "typed_source_inventory_row_identity"
 	preEmitHardSignalTypedItemEvidenceIdentity       preEmitSameTurnHardSignal = "typed_item_evidence_identity"
 	preEmitHardSignalTypedFacetCandidateOwnership    preEmitSameTurnHardSignal = "typed_facet_candidate_ownership"
+	preEmitHardSignalExactReceiptBinding             preEmitSameTurnHardSignal = "exact_receipt_binding"
 )
 
 type preEmitSameTurnHardPolicyRow struct {
@@ -630,6 +631,9 @@ func preEmitSameTurnHardPolicyRows() []preEmitSameTurnHardPolicyRow {
 		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedSourceInventoryRowID},
 		{Kind: types.ViolCitation, Signal: preEmitHardSignalTypedItemEvidenceIdentity},
 		{Kind: types.ViolFacetUncovered, Signal: preEmitHardSignalTypedFacetCandidateOwnership},
+		// This is the existing persist-time exact pair check, reported early;
+		// it does not evaluate or choose the model's conclusion.
+		{Kind: types.ViolAcceptance, Signal: preEmitHardSignalExactReceiptBinding},
 	}
 }
 
@@ -685,6 +689,7 @@ func preEmitSubgateRouteTable() []preEmitSubgateRouteRow {
 		{Subgate: "call_chain_endpoints", ViolationKind: types.ViolCallChainEndpointOmitted, HardLane: preEmitHardSignalTypedCallChainEndpoints},
 		{Subgate: "required_mechanism_anchors", ViolationKind: types.ViolPrincipalSupportMemberOmitted},
 		{Subgate: "inactive_typed_decision_verdicts", ViolationKind: types.ViolAcceptance},
+		{Subgate: "exact_receipt_bindings", ViolationKind: types.ViolAcceptance, HardLane: preEmitHardSignalExactReceiptBinding},
 		{Subgate: "error_granularity_verdict", ViolationKind: types.ViolAcceptance},
 		{Subgate: "current_status_verdict", ViolationKind: types.ViolCurrentStatusVerdictMissing},
 		{Subgate: "trace_causal_claim_caliber", ViolationKind: types.ViolAuthorityOverreach},
@@ -957,6 +962,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 	if h := preCheckInactiveTypedDecisionVerdicts(doc, view); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
 	}
+	if h := preCheckExactReceiptBindings(doc, view); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
+	}
 	if h := preCheckErrorGranularityVerdict(doc, view); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolAcceptance, h)
 	}
@@ -1126,6 +1134,47 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		hints = appendPreEmitHints(hints, types.ViolEnumerationLabelHallucinated, h)
 	}
 
+	return hints
+}
+
+// Report the existing persistence checks alongside other draft errors, not
+// after the model has finished repairing unrelated relations. Bind copies:
+// checking a pair must not stamp the draft or select a different conclusion.
+// Nil receipts remain outside this check (no new presence obligation).
+func preCheckExactReceiptBindings(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
+	if doc == nil || view == nil {
+		return nil
+	}
+	var hints []emitFixHint
+	appendFailure := func(i int, field string, active bool) {
+		target := fmt.Sprintf("blocks[%d]", i)
+		if id := strings.TrimSpace(doc.Blocks[i].ID); id != "" {
+			target = "blocks[id=" + id + "]"
+		}
+		action := "This receipt field is inactive in the current schema; omit it from an otherwise unchanged full block using the replacement operation permitted by the current tool schema."
+		if active {
+			action = "Select one complete native receipt object from this field's current schema choices, including the no-evidence form only when published; choose the conclusion yourself. When the current patch schema publishes this block/field, use block_receipt_edits_v1 with the exact block_id, field and native object value (not a scalar or block_field_edits_v1). Otherwise follow the current schema's permitted repair operations; do not invent a patch branch. Preserve unrelated prose, relations and fields."
+		}
+		hints = append(hints, emitFixHint{
+			Field: target + "." + field, ExpectedShape: action,
+			Reason:    "The supplied receipt is not one of the exact choices in this dispatch's schema. Choose the evidence and conclusion yourself; prose is not used to validate this field.",
+			ForceHard: true, HardSignal: preEmitHardSignalExactReceiptBinding,
+		})
+	}
+	for i, block := range doc.Blocks {
+		if block.RuntimeWorkRelation != nil {
+			copy := *block.RuntimeWorkRelation
+			if !types.BindRuntimeWorkRelationReceipt(&copy, view.RuntimeWorkRelationContract) {
+				appendFailure(i, "runtime_work_relation", view.RuntimeWorkRelationContract.Active())
+			}
+		}
+		if block.ConceptualTerminalResolution != nil {
+			copy := *block.ConceptualTerminalResolution
+			if !types.BindConceptualTerminalResolutionReceipt(&copy, view.ConceptualTerminalResolutionContract) {
+				appendFailure(i, "conceptual_terminal_resolution", view.ConceptualTerminalResolutionContract.Active())
+			}
+		}
+	}
 	return hints
 }
 
