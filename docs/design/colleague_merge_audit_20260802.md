@@ -5765,3 +5765,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.24 逐项细化 ⑱ V5-4:兄弟 contract_refs 门用不同集合解析 id
 
 **定性**:探针 refs 门对 `ir.Request.BehaviorContracts`(rebase 前)校验,项目测试 refs 门在 `attachWriteBehaviorContracts` 之后对 `plan.BehaviorContracts`(rebase 后)校验;退役后同一 id 一门接受一门拒。**泛化类**:「同一标识空间多处解析、各取快照」(V3-1/T3-2 同族:单源缺失)。**泛化解**:①单一 `resolveBehaviorContractIDs(plan)` 助手,源=计划 rebase 后集合(含 tombstone 标记以区分"未知"与"已退役"),所有 refs 门与 planner 框架渲染同源;②退役 id 引用→精确错误"contract X retired by <evidence>"而非"unknown";③tripwire:census——`WriteBehaviorContractIDs(` 的调用点必须经该助手。**验收 pin**:退役后探针/项目测试引用同一 id 得同一判定。
+
+### §40.25 逐项细化 ⑲ V1-1(存疑→建议按缺陷处理):sidecar 证据句统一写「链上有效影响」且无口径字段
+
+**定性**:`boundRootCauseEvidence` 对每个候选发 `<subject> 在目标窗口内的链上有效影响为 X ms`,不分 `Magnitude.Caliber`;`impact_seconds` 无口径。窗口投影席(`EffectiveImpactPublished=false`,value=ImpactMS)被冠以"有效"——CROWNCAL 纪律(未发布有效归因不造"有效"词)的反向。否证席分歧点仅在"是口径披露缺失还是造数",两席均确认机制。**泛化解**:①`TraceRootCauseItemV2` 追加 `impact_caliber`(闭集 `effective_attribution|window_projection|…` 与 tracefence 口径词表同源),与 §40.8 的 `causal_qualifier` 同一 v2 追加批;②证据句按口径取词(单源词表):有效归因→"链上有效归因",窗口投影→"窗内投影占用";③通用规则:任何公开数值字段必带口径字段(R2' 同步:schema/golden/tracediag)。**验收 pin**:两口径候选 wire 字节区分;词面来自 tracefence 单源。
