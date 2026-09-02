@@ -5733,3 +5733,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.16 逐项细化 ⑩ V1-5:死的 legacy trace_finding 车道仍整答案硬拒
 
 **定性**:`contract.Required` 生产恒 false,`trace_finding`/`replace_trace_finding` 不在 schema、不被教学,但隔离 profile 放行该顶层字段、解码器绑定、`resolveTraceFindingForEmit` 只要字段在场即报错→`failEmit` 整答案拒。**泛化类**:「已退役车道的输入面未同步退役」——退役必须是三面(schema/教学/解码)一体。**泛化解**:①退役 census:任何 schema 不含、教学不提的顶层字段一律走"未知字段隔离+日志"通用臂,禁专属硬拒;②删除 Required 车道全部死码(schema 臂/validator/setter)或在 `contract.Required` 常 false 的前提下加编译期 tripwire;③通用规则:`failEmit` 只可由 schema 内字段触发(census:failEmit 调用点的触发字段 ⊆ schema 字段集)。**验收 pin**:stray `trace_finding` → 答案接受+日志;census 红检。
+
+### §40.17 逐项细化 ⑪ V2-1:两阶段暂存快照在归一化之前
+
+**定性**:孤儿-only roster 或后置依赖租约路径把 `NewPartialMutation(patch).Apply(prev)` 装为 pending base **早于** 确定性归一化器(:3104-3148,citation 标记/关系元数据保留/id 表面归一化)运行→后继代次看到的基线缺失容差与模型提交标记。**泛化类**:「事务内多阶段各自持有不同基线」。**泛化解**:①单一"规范化后文档"作为暂存与提交的唯一基线——把归一化提到 stage 之前(或 stage 时调用同一 `normalizePatchForBase` 单点);②暂存/提交/回滚三态共用一个 base 构造函数;③tripwire:pending base 与最终提交基线的规范化不变量相等(测试:同一 patch 两路径得字节相同基线)。**验收 pin**:孤儿 roster 路径暂存的 base 含 citation 标记与关系元数据(红→绿)。
