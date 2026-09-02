@@ -900,6 +900,62 @@ type AnswerDiagramRelationRepairScopeViolation struct {
 	ToNode   string `json:"to_node,omitempty"`
 }
 
+// AnswerDocumentStandaloneRelationAdditionCandidateSelected is the shared
+// admission predicate for an anchor-only addition to an existing list/table.
+// Both claim ownership and a structured item must select the same evidence ID.
+// It reads no visible prose and grants no authority to choose a new relation.
+func AnswerDocumentStandaloneRelationAdditionCandidateSelected(
+	base *AnswerDocumentV2,
+	candidate AnswerDiagramRelationRepairCandidate,
+) bool {
+	if base == nil || strings.TrimSpace(candidate.BlockID) == "" ||
+		strings.TrimSpace(candidate.EvidenceID) == "" || !candidate.RelationKind.IsValid() {
+		return false
+	}
+	wantForm := ClaimFormForRelation(candidate.RelationKind)
+	if wantForm == ClaimUnknown {
+		return false
+	}
+	matchedBlocks := 0
+	for _, block := range base.Blocks {
+		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) {
+			continue
+		}
+		matchedBlocks++
+		if block.SystemGeneratedKind != AnswerSystemGeneratedBlockUnknown || len(block.EdgeAnchors) != 0 {
+			return false
+		}
+		switch block.Kind {
+		case BlockOrderedList, BlockBulletList, BlockTable:
+		default:
+			return false
+		}
+		claimSelected := false
+		for _, claim := range block.ClaimUses {
+			if claim.ClaimForm == wantForm && strings.TrimSpace(claim.EvidenceID) == strings.TrimSpace(candidate.EvidenceID) {
+				claimSelected = true
+				break
+			}
+		}
+		itemSelected := false
+		for _, item := range block.Items {
+			for _, evidenceID := range item.EvidenceIDs {
+				if strings.TrimSpace(evidenceID) == strings.TrimSpace(candidate.EvidenceID) {
+					itemSelected = true
+					break
+				}
+			}
+			if itemSelected {
+				break
+			}
+		}
+		if !claimSelected || !itemSelected {
+			return false
+		}
+	}
+	return matchedBlocks == 1
+}
+
 // NewAnswerDiagramRelationRepairLease freezes the precise graph carrier that
 // the next patch is allowed to repair. A lease may contain failed prior edges,
 // allowed typed additions, or both. The additions-only shape is necessary when
@@ -987,16 +1043,16 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 			candidate.FromIdentity == "" || candidate.ToIdentity == "" || candidate.Source == "" {
 			return nil
 		}
-		// A failed carrier already owns its block. In the additions-only shape,
-		// the candidate itself is the precise block-scoped capability.
-		if len(clean) > 0 && !targetBlocks[candidate.BlockID] {
+		// A failed carrier already owns its block. An independently selected
+		// list/table addition has the same authority beside a diagram failure
+		// as it does alone; do not make those two repairs artificially serial.
+		// Other non-failed blocks remain outside this mixed repair scope.
+		if len(clean) > 0 && !targetBlocks[candidate.BlockID] &&
+			!AnswerDocumentStandaloneRelationAdditionCandidateSelected(base, candidate) {
 			return nil
 		}
 		if answerDiagramRelationRepairCandidateAlreadyAnchored(base, candidate) {
 			continue
-		}
-		if len(clean) == 0 {
-			targetBlocks[candidate.BlockID] = true
 		}
 		key := answerDiagramRelationRepairCandidateKey(candidate)
 		if index, exists := allowedIndex[key]; exists {
@@ -1022,6 +1078,12 @@ func NewAnswerDiagramRelationRepairLeaseWithTargetRemoval(
 		if allowed[i].AdditionRef == "" {
 			return nil
 		}
+	}
+	// Add candidate-owned blocks only after checking every candidate against
+	// the failure-owned set. One selected row must not grant later unselected
+	// rows authority over its sibling block.
+	for _, candidate := range allowed {
+		targetBlocks[candidate.BlockID] = true
 	}
 	blocks := make([]AnswerDiagramRelationRepairLeaseBlock, 0, len(base.Blocks))
 	for _, block := range base.Blocks {

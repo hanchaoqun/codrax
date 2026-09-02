@@ -57380,6 +57380,68 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1627 B1552：精确结果字段在持久化阶段晚报，修补缺少同轮完整反馈（2026-09-01）
+
+`confirmed / P1 / open / next-batch`。r1016 首稿已提交不在本轮 schema 选项中的 conceptual_terminal_resolution evidence_id；
+同期列表/图关系检查先返回，直到关系修补接近结束时，persist 的 `bindConceptualTerminalResolutionReceipts` 才报告错误。
+这个校验是既有合法的“精确 schema 选项”边界，不应删除；问题是没有与同轮 pre-emit 错误一起回报，
+且只给 `blocks[3] ... does not match`，没有稳定 block id/字段级修复信息。当前 field-edit schema 也不支持此字段，
+模型再次猜 `field=conceptual_terminal_resolution` 被拒，随后完整替换仍多次携带旧错误值。
+
+后续按通用结果字段通道处理，不针对 Python/Rust 名称拟合：
+
+- [ ] B1552a：让 pre-emit 收集已有 RuntimeWorkRelation/ConceptualTerminalResolution 精确匹配错误，与其它结构错误同轮回报；
+  必须复用现有绑定判据，不复制第二份选项规则，保留 persist 防线。
+- [ ] B1552b：反馈给稳定 block id 和当前 schema 所允许的修复方式；若增加窄字段补丁，其精确选项必须与整块 schema 同源，
+  不根据答案正文猜选项，不自动替换模型值或扩大候选权限。
+- [ ] B1552c：首稿/补丁混合错误、空候选、无效候选、正确兄弟字段不变、精确合法选项、真实 persist 接线回归，先红后绿。
+
+模型最终为过关选择 `text.encode` 并判断到达 Rust 目标，是模型判断错误；该选项本身有源码依据，但不支持该业务结论。
+实际上下文已给所有选项各自含义和“由模型比较目标”提示；不能据此自动替它选择、修改判断或把同名调用无条件扩进候选。
+候选覆盖是否另有高 ROI 问题需独立审计，不与本条晚报缺陷混为一谈。
+
+### §123.1626 B1551：混合图/列表修补丢失同轮可执行权限，旧提示越过当前 schema（2026-09-01）
+
+`confirmed / P1 / implemented / full-suite+build-pass`。r1016 的首稿同时包含图中的无证调用边和主列表缺失的关系 metadata。
+列表关系已被模型在 claim_uses 与 items 的 evidence_id 中双重选定；独立列表车道可发布精确 addition_ref，
+但与另一图块失败合并时，lease 构造器要求 additions 的 BlockID 必须在 failures 的 block 集合，
+因此 4 个合法列表 additions 被丢弃（日志 `failures=6/6 additions=0/4`）。原工具错误仍要求使用这些 refs 并禁止 replace_blocks，
+而当前 schema 只给该列表 ordinary replacement 出口。图修好后同样 4 个列表 refs 才能发布，造成无谓串行修补。
+另有共享拒绝头仍要求 `re-emit emit_answer_document in the SAME tool turn`，与当前 patch-only dispatch 矛盾。
+
+- [x] B1551a：以现有“同一 evidence_id 同时被 claim 与 item 选中”的精确谓词，允许同轮组合列表 anchor addition 与另一图块失败；
+  共享权限判断，不放开未选择的列表、无关图、任意新关系；可见边/词面仍由模型选择。
+- [x] B1551b：修补建议服从当前 schema 的实际 refs/普通替换出口，删除无条件禁止替换及已下架工具重发指令，不承诺不消耗重试。
+- [x] B1551c：混合 producer→lease→schema→executor 同轮成功回归；独立车道、缺 claim/item、无关块和可见内容不变负臂；全仓测试及构建通过。
+
+模型把注册写成调用、自造 patch 字段、后续额外修改 summary 等另记模型残余；不把所有重试都归因此缺陷。
+
+先红：ordered_list/bullet_list/table 三种载体均在 producer delta→lease 合并时失败，共享拒绝头另有旧工具指令负 pin 失败。
+修后同轮 schema 发布两种 refs，实际 patch executor 一次完成图边删除与列表已选关系补充，保留模型文字和未选图边。
+缺 claim/缺 item/证据不符/关系类型不符/缺来源/重复 block/无关图/已有锚、以及第二条未选择候选的正反输入顺序均 fail-closed。
+tool/types/agent 定向回归已通过；没有扫描 request 或答案措辞，没有让一个已选候选授权同块的其它未选候选。
+`go test ./... -count=1` 全绿（tool 206.320s、types 35.773s、tracequery 87.140s、tracediag 14.301s），`make` 通过。
+本批修改代码、先红后绿测试和 r1016 人工审计同批交付；实际模型首次重试次数改善仍待异构回放，不把确定性回归冒充生产复测。
+
+### §123.1625 r1016：ArkTS 多行声明与 Python/Rust 跨仓桥接（2026-09-01）
+
+基线 `main@a3cec27ae`，B1550 修复和 r1015 审计已提交。按前批冻结顺序轮换静态清单与跨语言关系，不围绕混合日志模型措辞反复优化。
+
+- [x] `harmony/arkts_repomap`：4 个 Entry 页面和 2 个 Builder 片段，修饰符行/声明行一致绑定，BuilderParam 不冒充 Builder。
+- [x] `mr_poly_binding_chain`：Python→原生模块注册/导出→Rust wrapper→核心实现，以及 ImportError 回退；
+  区分注册与运行调用，分离同名 wrapper/核心函数，不将构建配置缺席当运行证据，不把未证边靠 prose 自动补齐。
+- [x] 恰好并发 2 路，检查探索/成文实际上下文、JSON 修补过程、关系方向和终稿；机器/人工分别结账。
+
+结果：机器 2/2 PASS；ArkTS 162s/人工 PASS，跨语言 485s/人工 FAIL（主要调用/回退内容部分正确，但过程和终点判断不通过）。
+ArkTS 4 Entry+2 Builder 完整，首次成文零拒绝；`source_inventory` 直接写进导语属模型术语泄露 advisory，不加硬拒。
+跨语言实际上下文提供注册桥、wrapper/core 分离、fan-out 非串联、全部相关源码；最终列表保留 bridge，
+可选图仍是两个无连接片段，未要求图必须全量，不能自动补边。13 次成文拒绝/14 次 patch 中，B1551 是明确系统组合缺陷，
+后续精确结果字段晚报另立 B1552；其余包括模型自造字段、反复缺身份、把注册当调用等。
+原生构建/运行未被实测，不能从 cdylib 配置推断扩展已经可用；模型未充分披露条件。
+完整人工审计见 `eval/parallel_selected_summary_evalcampaign_arkpoly_r1016_20260901_manual_audit.md`。
+
+Trace 显式窗/自动补齐/链上主因和 active-stream 边界由同基线全仓回归守护；本批语言清单不硬加图，也不把模型选择列表当成图丢失。
+
 ### §123.1624 B1550：多错误日志的未绑定解释从主体和二级交接回流（2026-09-01）
 
 `confirmed / P1 / implemented / full-suite+build-pass`。r1015 中预处理器已被要求把两个错误保留为独立栈，但把“Cangjie 层根本原因”写入

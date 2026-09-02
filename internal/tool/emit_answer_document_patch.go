@@ -1432,52 +1432,7 @@ func answerDocumentStandaloneRelationAdditionCandidateSelected(
 	prev *types.AnswerDocumentV2,
 	candidate types.AnswerDiagramRelationRepairCandidate,
 ) bool {
-	if prev == nil || strings.TrimSpace(candidate.BlockID) == "" ||
-		strings.TrimSpace(candidate.EvidenceID) == "" || !candidate.RelationKind.IsValid() {
-		return false
-	}
-	wantForm := types.ClaimFormForRelation(candidate.RelationKind)
-	if wantForm == types.ClaimUnknown {
-		return false
-	}
-	matchedBlocks := 0
-	for _, block := range prev.Blocks {
-		if strings.TrimSpace(block.ID) != strings.TrimSpace(candidate.BlockID) {
-			continue
-		}
-		matchedBlocks++
-		if block.SystemGeneratedKind != types.AnswerSystemGeneratedBlockUnknown || len(block.EdgeAnchors) != 0 {
-			return false
-		}
-		switch block.Kind {
-		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
-		default:
-			return false
-		}
-		claimSelected := false
-		for _, claim := range block.ClaimUses {
-			if claim.ClaimForm == wantForm && strings.TrimSpace(claim.EvidenceID) == strings.TrimSpace(candidate.EvidenceID) {
-				claimSelected = true
-				break
-			}
-		}
-		itemSelected := false
-		for _, item := range block.Items {
-			for _, evidenceID := range item.EvidenceIDs {
-				if strings.TrimSpace(evidenceID) == strings.TrimSpace(candidate.EvidenceID) {
-					itemSelected = true
-					break
-				}
-			}
-			if itemSelected {
-				break
-			}
-		}
-		if !claimSelected || !itemSelected {
-			return false
-		}
-	}
-	return matchedBlocks == 1
+	return types.AnswerDocumentStandaloneRelationAdditionCandidateSelected(prev, candidate)
 }
 
 func localLeaseAtomicTargetBlockIDs(lease *types.AnswerDiagramRelationRepairLease, prev *types.AnswerDocumentV2) []string {

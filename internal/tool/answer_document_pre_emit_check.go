@@ -6338,7 +6338,7 @@ func preCheckStandaloneCallChainRelationAnchorPresence(
 		var expectedShape string
 		if relationRepairDelta != "" {
 			expectedShape = fmt.Sprintf(
-				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Preserve the model-selected relation with emit_answer_document_patch diagram_edge_edits action=add and the current addition_ref row(s) published in the patch tool schema; author only from_node, to_node, and visible_label for each selected ref. Do not use replace_blocks and do not copy or rewrite the block's visible title, text, items, diagram, or wording. Add one row for each relation the block intends to assert. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
+				"block=%q declares directed relation claim_form(s) [%s] but edge_anchors is empty. Follow the current tool schema: when it publishes addition_ref row(s) for this block, preserve the model-selected relation with diagram_edge_edits action=add and author only from_node, to_node, and visible_label for each selected ref. If the current schema instead delegates this exact block id to replace_blocks, replace that complete block with its corrected relation metadata. Do not combine atomic and whole-block edits for the same block. Preserve the block's visible title, text, items, and wording. Add one row for each relation the block intends to assert; no Mermaid block is required. If the block is actually descriptive rather than relational, remove the directed relation claim form instead of inventing an endpoint pair",
 				block.ID, strings.Join(relationForms, ", "),
 			)
 		} else {
@@ -17004,9 +17004,9 @@ func hasStructuralGrounding(b types.AnswerBlock) bool {
 //     "the answer document" is the user-visible carrier name (already
 //     in skill prompt); no ViolKind / ClusterKey / SuspectedRoot /
 //     "orchestrator" / "pre-emit" architectural terms surface
-//   - R7: actionable next steps the LLM can mechanically apply;
-//     explicitly names the "same tool call" retry budget so the
-//     LLM doesn't escalate to a heavier rewrite path
+//   - R7: actionable next steps defer to the current tool schema; this shared
+//     envelope cannot choose a tool that a patch-only dispatch has removed or
+//     promise retry-budget behavior owned by the caller
 //   - SST: matches the existing failEmit message shape (e.g.
 //     "blocks[3]: id is required ...")
 //   - CN+EN-only: prompt is English, matches the surrounding
@@ -17016,7 +17016,7 @@ func formatEmitFixHints(hints []emitFixHint) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("The answer document does not yet meet the structural contract for this question. Apply each correction below and re-emit emit_answer_document in the SAME tool turn — this rejection is light-weight and does NOT consume a heavier rewrite round, just re-call with the fixes:\n\n")
+	b.WriteString("The answer document does not yet meet the structural contract for this question. Apply the corrections below through the current tool schema. When the dispatch provides only a patch tool, submit a patch rather than a full document. Preserve unrelated model-authored content and follow the reported patch transaction state:\n\n")
 	for i, h := range hints {
 		fmt.Fprintf(&b, "  %d. Field: `%s`\n", i+1, h.Field)
 		fmt.Fprintf(&b, "     Action: %s\n", h.ExpectedShape)
