@@ -57380,6 +57380,56 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1622 B1549：占用表的记录统计不得冒充逐次统计（2026-09-01）
+
+`confirmed / P1 / implemented / full-suite+build-pass`。r1014 的系统生成占用表把 running 窗内累计 74.915ms 同时写作“单次最长 74.915ms / 次数 1”；
+同表 D-state 的 4 个聚合成员被写成“次数 4”，而完整目标状态清单实际有 11 次。代码根因是
+`runtimeTraceOccupancyNodeCountAndMax` 在缺少成员最大值时回退累计量、未聚合时无条件返回 `(1,total)`，表头又把所有合并成员统一叫次数。
+这是系统精确信息出口错误，不归咎模型；与既有 EVAL-B13-AK3 的“汇总组≠发生次数”同类，但这次明确定位到 TWODIM 占用表。
+
+- [x] B1549a：移除累计量补单次的 fallback；保留已发布成员 count/max，但明确为统计记录口径；未知逐次统计显示未提供。
+- [x] B1549b：业务 span 的显式 Count/MaxMS 保持物理 span 口径；中文/英文、缺最大值、单行累计、聚合/并集记录矩阵先红后绿。
+- [x] B1549c：全仓回归及构建、原 H7 typed 输入确定性复核通过，根因榜/可消量/累计占用/模型正文保持不变；审计与代码同批提交。
+
+验证留痕：修复前单行累计错误返回 `1/21`、family/merge 缺最大值错误补 `21`，中文/英文表格回归同步先红；
+修复后 `TestOccupancy|TestTwoDim` 全绿。提交内东湖 fixture 经过真实 query→observation→projection→tree→occupancy 链路，
+运行累计 `74.915ms` 保持，最长/数量为未提供；D 等待累计 `36.757ms` 保持，4 条统计记录不再叫 4 次物理等待。
+业务 ProcessComposer 的 11 次/最长 `11.393ms`、CommitAndGetReleaseFence 的 22 次/最长 `5.339ms` 保持原值；
+没有修改根因选举、供给折算、模型正文或历史生产工件。`go test ./... -count=1` 全部通过
+（internal/tool 206.228s、tracequery 87.259s、tracediag 13.881s），`make` 构建通过。
+
+本批不从累计值或查询包络猜发生次数，不加正文扫描硬门，不重构链或改计价。原有精确逐段等待清单仍完整可见；
+物理逐次统计未进入当前 node 的位置不伪造数值，后续要补充时必须由生产者携带完整且同范围的事件统计，不能从展示组数反推。
+
+### §123.1621 r1014：Python 动态分派与显式窗全谱根因（2026-09-01）
+
+基线 `main@879e92b77`（r1013 审计已推送），优先级沿 §123.1620；本批不重复 H3 模型措辞修补。
+
+- [x] `sr_py_registry_dispatch`：import-time register→注册表、run_pipeline→resolve、构造/调用/动态绑定分别按原证据审计，
+  重点验证图的参数展示不污染端点身份、代码分派不是“注册时已执行”、没有自造缺边或丢掉有效关系。
+- [x] `real_trace_h7_self_seat_full_spectrum`：显式窗 2955 主要等待/占用、运行供给折算、D-state、内核等待点、微贡献、
+  根因投影及旁路；链上与邻近/背景、墙钟与折算/请求求和严格分开；模型拥有业务推理和结论。
+- [x] exact-2 私有快照、逐例过程/终稿/模型上下文人工审计、确认项 B1549 落账；审计与修复同批提交。
+
+结果：runner 2/2 PASS；Python 140s、Trace 220s。逐例工件与过程在
+`eval/parallel_selected_summary_evalcampaign_pytrace_r1014_20260901_manual_audit.md`。
+
+1. Python 人工核心问答 PASS、过程/表达 PARTIAL：run_pipeline→resolve、register→JsonPlugin、executor→handle 的
+   类型分别为调用、注册、回调，原文和关系保留；本次模型选择列表而非 Mermaid，不能声称覆盖了 Mermaid 真实生产语法。
+   三次成文拒绝为无 edge_anchors、编造 addition_ref、callback_handoff 仍缺边；最后窄补修复。没有重现消息参数污染端点。
+   “概念目标核对”由模型所选 receipt 绑定，未由系统替选终点；措辞仍偏内部、dict 仅是叶操作而非独立证明整段业务成功，保留表达观察。
+2. H7 人工 FAIL（模型残余 + 新系统 B1549），不能由 PASS oracle 自动签绿。正证：显式窗三种查询、投影、
+   65.912ms 供给缺口、36.757ms 非 IO D 等待、链上小额与未计价项、业务 span 均保留；邻近49.623ms没有进入链上主因。
+   原始占时与计价双轴、目标全窗状态和枚举未完整仍在；未把旁路空产当成投影空产。
+   模型残余：自行合计“反转候选约10ms”；waker 41/wakee52 的优先级方向叙述不准确；effective attribution 一概写成最大可消影响，
+   仍从 dma_fence 符号外推资源类别；可见内部词混用。对应 typed 口径/原始优先级/符号不推资源指导均在上下文，
+   不新增词扫描硬门或改模型正文。系统占用表的 count/max 错位则单独以 B1549 修复，不混淆责任层。
+3. H7 没有提交有效 trace_root_causes 选择，但默认旁路仍生成
+   `20260901-184855.385-87505.root-causes.json`：schema_version=2、root_causes=[]、status=unavailable、
+   reason_code=valid_model_root_cause_selection_unavailable。这是 B1548 的第二个生产空产臂；完整因果投影不因此删除。
+4. JSON 选项/教学单源、消息参数与端点隔离、reply/call 闭合矩阵、家族无关别名、ArkTS/Cangjie 提取器定向测试均通过；
+   这些是确定性回归，不冒称本批 LLM 覆盖了所有语言。下轮优先 Cangjie/ArkTS 与日志/多仓轮换，H3/H7 模型残余暂留观察。
+
 ### §123.1620 r1013：跨模式优先级刷新与 IO/真实写验证回放（2026-09-01）
 
 基线 `main@1b3c5397a`，远程已同步，现有二进制 revision 与 HEAD 一致。当前 `eval/cases` 共 244 个 `.case` 文件、243 个 ID 声明；

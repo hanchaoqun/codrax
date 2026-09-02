@@ -2025,14 +2025,15 @@ const (
 )
 
 type runtimeTraceOccupancyCandidate struct {
-	group    string
-	subject  string
-	totalMS  float64
-	maxMS    float64
-	count    int
-	unit     string
-	location string
-	caliber  string
+	group            string
+	subject          string
+	totalMS          float64
+	maxMS            float64
+	count            int
+	recordStatistics bool
+	unit             string
+	location         string
+	caliber          string
 }
 
 // runtimeTraceCausalProjectionOccupancyBlock is the TWODIM-2 answer surface:
@@ -2060,26 +2061,20 @@ func runtimeTraceCausalProjectionOccupancyBlock(
 		return nil
 	}
 	title := "主要时间占用 / 关键路径候选"
-	columns := []string{"维度", "主体 / 工作族", "累计占用", "单次最长", "次数", "发生窗 / 定位", "解读边界"}
+	columns := []string{"维度", "主体 / 工作族", "累计占用", "最长值及口径", "数量及口径", "发生窗 / 定位", "解读边界"}
 	text := "本表回答“时间实际花在哪里、下一步应探索什么新修向”；下方「窗内可消除量」回答“按现有规则预计可回收多少”。两轴分别成账，不能相加或互相替代。墙钟 ms 与 cpu·ms 分组展示；本表自身不证明某个占用已经导致具体丢帧，缺少可绑定的 frame/deadline 证据时只能读作所选窗口的主要占用或关键路径候选。"
 	if !zh {
 		title = "Major Time Occupancy / Critical-path Candidates"
-		columns = []string{"Dimension", "Subject / work family", "Cumulative occupancy", "Longest single", "Count", "Occurrence / location", "Interpretation boundary"}
+		columns = []string{"Dimension", "Subject / work family", "Cumulative occupancy", "Maximum and basis", "Count and basis", "Occurrence / location", "Interpretation boundary"}
 		text = "This table answers where time was actually spent and which NEW repair direction deserves exploration. The eliminable-work board below answers how much the existing rules can price as recoverable. The two axes use separate accounting bases and cannot be added or substituted. Wall-clock ms and cpu·ms are grouped separately. This table alone does not prove that an occupancy caused a specific dropped frame; without target-bound frame/deadline evidence it is only a major occupancy or critical-path candidate in the selected window."
 	}
+	text += runtimeTraceOccupancyStatisticsLegend(zh)
 	if stateAccount != "" {
 		text += "\n\n" + stateAccount
 	}
 	items := make([]types.AnswerBlockItem, 0, len(rows))
 	for i, row := range rows {
-		maxValue := "—"
-		if row.maxMS > 0 {
-			maxValue = fmt.Sprintf("%.3f%s", row.maxMS, row.unit)
-		}
-		count := "—"
-		if row.count > 0 {
-			count = strconv.Itoa(row.count)
-		}
+		maxValue, count := runtimeTraceOccupancyStatisticCells(row, zh)
 		items = append(items, types.AnswerBlockItem{
 			ID: fmt.Sprintf("%s_occupancy_%d", idPrefix, i+1),
 			Cells: []string{
@@ -2223,7 +2218,7 @@ func runtimeTraceOccupancyPathCandidates(
 		if envelopeKey != "" && len(envelopeAccountKeys[envelopeKey]) <= 1 {
 			seen[envelopeKey] = true
 		}
-		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node, total)
+		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node)
 		subject := strings.TrimSpace(runtimeTraceCausalProjectionDisplaySubjectName(node, zh))
 		cause := strings.TrimSpace(runtimeTraceCausalProjectionDisplayCauseNameNode(node, zh))
 		if cause != "" && cause != subject {
@@ -2261,14 +2256,15 @@ func runtimeTraceOccupancyPathCandidates(
 			}
 		}
 		out = append(out, runtimeTraceOccupancyCandidate{
-			group:    runtimeTraceOccupancyGroupLabel("path", zh),
-			subject:  subject,
-			totalMS:  total,
-			maxMS:    maxValue,
-			count:    count,
-			unit:     "ms",
-			location: runtimeTraceOccupancyNodeLocation(node, zh),
-			caliber:  caliber,
+			group:            runtimeTraceOccupancyGroupLabel("path", zh),
+			subject:          subject,
+			totalMS:          total,
+			maxMS:            maxValue,
+			count:            count,
+			recordStatistics: true,
+			unit:             "ms",
+			location:         runtimeTraceOccupancyNodeLocation(node, zh),
+			caliber:          caliber,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
@@ -2378,7 +2374,7 @@ func runtimeTraceOccupancySemanticCandidates(
 			node.ImpactMS <= 0 {
 			continue
 		}
-		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node, node.ImpactMS)
+		count, maxValue := runtimeTraceOccupancyNodeCountAndMax(node)
 		name := strings.TrimSpace(node.SpanName)
 		if name == "" {
 			name = strings.TrimSpace(node.SemanticClass)
@@ -2392,14 +2388,15 @@ func runtimeTraceOccupancySemanticCandidates(
 			caliber = "raw in-window wall clock of deterministic work spans; effective attribution does not replace it"
 		}
 		out = append(out, runtimeTraceOccupancyCandidate{
-			group:    runtimeTraceOccupancyGroupLabel("semantic", zh),
-			subject:  subject,
-			totalMS:  node.ImpactMS,
-			maxMS:    maxValue,
-			count:    count,
-			unit:     "ms",
-			location: runtimeTraceOccupancyNodeLocation(node, zh),
-			caliber:  caliber,
+			group:            runtimeTraceOccupancyGroupLabel("semantic", zh),
+			subject:          subject,
+			totalMS:          node.ImpactMS,
+			maxMS:            maxValue,
+			count:            count,
+			recordStatistics: true,
+			unit:             "ms",
+			location:         runtimeTraceOccupancyNodeLocation(node, zh),
+			caliber:          caliber,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].totalMS > out[j].totalMS })
@@ -2487,27 +2484,6 @@ func runtimeTraceOccupancyCPUCandidates(
 		out = out[:runtimeTraceOccupancyCPULimit]
 	}
 	return out
-}
-
-func runtimeTraceOccupancyNodeCountAndMax(
-	node types.TraceCausalProjectionNode,
-	fallback float64,
-) (int, float64) {
-	if node.FamilyMemberCount > 1 {
-		maxValue := node.FamilyMemberMaxMS
-		if maxValue <= 0 {
-			maxValue = fallback
-		}
-		return node.FamilyMemberCount, maxValue
-	}
-	if node.MergedCount > 1 {
-		maxValue := node.MergedMaxMS
-		if maxValue <= 0 {
-			maxValue = fallback
-		}
-		return node.MergedCount, maxValue
-	}
-	return 1, fallback
 }
 
 func runtimeTraceOccupancyNodeLocation(node types.TraceCausalProjectionNode, zh bool) string {
