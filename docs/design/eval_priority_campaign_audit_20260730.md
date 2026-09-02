@@ -57380,6 +57380,55 @@ explicit root output=`flag-exact-path/available-or-typed-unavailable/write-failu
 Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `active-stream-4ms-or-4m-degrade=forbidden/production-positive-r1011`。
 
+### §123.1620 r1013：跨模式优先级刷新与 IO/真实写验证回放（2026-09-01）
+
+基线 `main@1b3c5397a`，远程已同步，现有二进制 revision 与 HEAD 一致。当前 `eval/cases` 共 244 个 `.case` 文件、243 个 ID 声明；
+其中 28 个写模式声明、62 个 Trace 附件声明、24 个日志附件声明、16 个多仓声明（维度有交叉，不能相加当总用例数）。
+
+按客户影响、近期代码影响、真实行为可验证性、异构覆盖和重复收益排序：
+
+| 优先级 | 维度/代表用例 | 此轮处置与理由 |
+|---|---|---|
+| P0 | 写应用/验证：`github_issue_dateutil_relativedelta_float_symptom` | 本批；真实执行 Python 日期运算，避免把源码正则检查误报成行为已验证。 |
+| P0 | 旁路必交付：B1548 | 随本批 Trace 观察真实 JSON；缺省、取消、编码/文件失败已由确定性回归覆盖，不用 LLM 偶然遗漏作为唯一验收。 |
+| P1 | IO 证据/时间口径：`real_trace_h3_iofam_one_seat` | 本批；S 状态 completion→issuer-wakeup 闭合，1.347ms 请求驻留与 1.337ms 目标等待分开；41.329 request·ms 不冒充目标墙钟。 |
+| P1 | 异构图关系：Cangjie/ArkTS、Python plugin、C++ virtual chain | 后续 exact-2 批；按证据端点、调用/回复/时序/逻辑关系和语法可渲染性统一审计，不按单个示例补词。 |
+| P1 | 显式窗根因/投影：H7/H8、D-state/IO | 后续跨模式批保留哨兵；H8 重复措辞残差已有精确上下文，不升级成正文扫描硬门。 |
+| P2 | 窗外/全程/多窗、日志、数据与多仓 | 与上述高风险项轮换；避免只跑同一个“阶段时序图+H8”组合。 |
+
+执行任务：
+
+- [x] 从已提交二进制创建私有快照，恰好并发 2 路，单例 1800s 外部评测预算；该外部上限不是产品内部的活跃流年龄门。
+- [x] 逐例读探索/验证日志、最终模型正文、typed 上下文、根因旁路及实际代码补丁；机器 PASS 与人工判定独立。
+- [x] 本批未证实新的确定性系统矛盾；模型服从性残余留账，不因机器全绿宣称答案全绿。摘要与逐例人工审计随本节提交。
+
+结果（汇总：`eval/parallel_selected_summary_evalcampaign_iowrite_r1013_20260901.md`；人工逐项见同名前缀 `_manual_audit.md`）：
+
+1. H3：160s、2 次 trace_query、2 次完整结果读取、成文拒绝 0。机器 PASS，人工 **FAIL（事实边界/转抄残余）**。
+   正证：准确保留单请求 1.347ms、闭合目标等待 1.337ms、4 段 S 等待并集下界 4.384ms、调度器窄口径 0、
+   全睡眠 70.338ms；没有把 S 排除出已证 IO 等待，没有以背景储存压力替代目标根因。
+   残余：开头把 6 个目标已展示请求写成“共发起 6 个”；把仅 hidden=190 的 41.329 request·ms 贴到 198 全局请求旁；
+   第一请求结束时间从 13762.873915 抄成查询终点 13763.024898；漏写 table.columns 导致中性“列 1/2/3”；
+   s_sleep/completion_woke_issuer 等内部标记仍进入正文。finalizer 实际上下文逐项给出正确端点、bounded witness count、
+   hidden-request sum 与业务化释义，工具 schema 也公开 columns，未发现系统改写这些值或模型必须接受相反合同。
+   归入既有 H3 模型整理/服从性观察（B978–B980 后续），不新增硬门、不重写答案、不反复围绕 H3 加教学。
+2. B1548 生产负选择臂正证：`20260901-184107.768-83809.root-causes.json` 存在，顶层 schema_version=2、root_causes=[]、
+   status=unavailable、reason_code=trace_root_cause_contract_not_active。此有限 IO 口径问题没有强制根因清单或因果投影，
+   旁路仍交付；“空数组”没有被宣传成“已证没有根因”。
+3. dateutil：205s、机器/人工 **PASS**。仅改 relativedelta.py 构造函数，整数值 float 转 int，非整数 float 拒绝；
+   四个原测试未修改，post_apply_verify 实际执行 unittest 全通过，changed-path capability=target_behavior，终验 verified。
+   人工在保留工作树独立重跑原四项测试也全部通过。模型探针把 years=1,months=1 的期望错写成只加一个月而失败；
+   已有 probe_comparator_authority 明确保留 observed_failure 警告并继续原始项目测试，没有以错误比较器强迫破坏正确业务行为。
+   不把这一次模型探针错误泛化成新的终验漏洞；自然语言验收不等于逐条已获独立强证明的边界已在交付中披露。
+4. 活跃流旁审：Reader 级字节、心跳与分片帧刷新活性；无可见输出没有固定总年龄降级门。相关 llm/agent 回归全部通过
+   （包括 4ms evaluator budget、分片帧、隐藏推理、仅心跳和真实静默），保留用户取消/外部显式 deadline 与真实字节静默超时。
+
+状态：`r1013=machine-2/2/human-write-pass-trace-fail/model-residual-recorded`；`B1548=production-confirmed-empty-default-sidecar`；
+`new-production-code-change=none`。下一批转向异构源码关系/显式窗因果投影，不继续拟合本次 H3 措辞。
+
+不变量：系统提供事实与结构恢复，不代替模型结论；Trace 根因只来自已证链，邻近/背景仅作辅助；保留实际占时/规则可消双维、链上业务线索、
+显式窗口、因果投影和自动补齐。禁止用用户/模型正文关键词做硬门，禁止因活跃流短时无可见答案（4ms/4m）降级。
+
 ### §123.1619 B1548：默认根因 JSON 改为必选旁路（2026-09-01）
 
 用户追加裁定：默认 `.root-causes.json` 必须生成，生成失败也要有空产物。此条覆盖 §123.1614–§123.1618 的历史“默认可选”政策；
