@@ -5675,3 +5675,16 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 4. **tripwire**:任何新增 `FailureKind*` 路由到 replan 的种类必须在 `accept_unverified` 或 typed escape 表中显式登记(census 红)。
 
 **非过拟合声明**:不对 Cargo.lock 单独放行,分类按 runner 声明的 lockfile 族与可逆性判定一体生效。**验收 pin**:①Cargo.toml 加依赖计划:cargo 重写 Cargo.lock → Passed + advisory 披露;②非声明文件被测试改写 → 仍硬失败;③runner 锁定标志 pin。
+
+### §40.12 逐项细化 ⑥ V6-1:源 block 族接管按 class 抑制整个 DB block_storage 类
+
+**定性**:`streamerdb_export_raw_ftrace.go:290` `sourceBlockSupersedesDB && class=="block_storage"` 跳过 DB 行,但 `traceDBRawFtraceClass` 把 ufshcd_*/mmc_request_*/scsi_dispatch_cmd* 也归 block_storage,而源车道只治理 7 个 block_rq_*/bio_* 名(`traceDBRawBlockTargetNames`)。MMC/UFS/SCSI 精确端点行随之静默消失。
+
+**泛化根因类**:「接管粒度(class)粗于治理粒度(name)」——两个词表各自演化而无结构绑定;任何"A 车道完整→抑制 B 车道"的规则,其抑制集必须**等于**A 的治理集。
+
+**泛化解**:
+1. 接管谓词改为**按名**:`sourceBlockSupersedesDB && sourceBlockGoverned(raw.Name)`,治理集直接引用 `traceDBRawBlockTargetNames()`(单源),不再经 class;`sourceExactSupersedesDB[class]` 同形改为按名族(通用化:每个源族登记自己的治理名集);
+2. **结构 tripwire**:census 测试——对每个"superseded_*"rowReason,其可能抑制的名集 ⊆ 对应源族治理集,否则红(词表分叉即红);
+3. 混合 fixture:block_rq_* + mmc_request_*/ufshcd_* 共存,源族完整时非治理名仍发布。
+
+**验收 pin**:上述混合 fixture 红→绿;既有 P0-a3 E1 MMC 精确端点用例回归。
