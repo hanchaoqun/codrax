@@ -5773,3 +5773,21 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 ### §40.26 逐项细化 ⑳ V1-4(存疑):多工件投影集折成单 roster/sidecar 无工件标签
 
 **定性**:`CompileCandidateContract` 合并至多 4 个工件分区的候选,契约只盖第一工件,roster/wire 无 artifact 标签——同名席位两 trace 不可辨。**泛化解**:①候选与 wire 项带 `artifact_label`(与 Markdown 多板对比头 `Artifact %s` 同源标签);②多工件时 roster 教学分组显示;③通用规则:任何跨工件折叠的公开集合必须保留分区键(与 CMP-A 多工件投影裁定同构)。**验收 pin**:两 trace 同名线程候选 → 两条带不同 artifact_label 的项。
+
+### §40.27 低危十二件逐项处置(顾问级,随批修)
+
+| # | 处置(泛化形) |
+|---|---|
+| V2-4 patch 校验逐项首错 | 并入 EMITBURN 一次报全清单纪律;census:所有 emit 校验器返回 []violation 而非首个 |
+| V3-3 后 emit 顾问车道每轮一条(≤4 轮) | 顾问项合并为一次披露;禁止顾问车道消耗重试轮(轮次预算只给硬拒) |
+| V4-5 prompt 出现 "LOW-MIND RULE" 行话 | 纳入 glossary 行话表;agent 侧渲染器进 lint 覆盖(与 V11-3 同修) |
+| V6-4 可见性覆盖 withheld 标 not-applicable | 覆盖状态闭集分开 withheld/not_applicable/census_incomplete 三值 |
+| V7-4 硬图归一化键在 analyzer 看不到的 typed bool | 归一化键与教学键同一字段(教学-硬门同步类);或该 bool 进 analyzer 可见面 |
+| V7-5 ratchet 靠压缩既裁注释达标(9132/9135) | 按 ratchet 本意移 concern 出 god-file(下一次触限即执行),不扩预算不压注释 |
+| V8-7 / V11-3 模型面文案泄内部管线词 | agent 侧 prompt 渲染器全部纳入 `TestNoInternalTermsInPrompts` 覆盖(单一 lint 入口,census 渲染器名册) |
+| V9-4 派发前投影门对草稿契约、执行对另一契约 | 两处同一契约快照(与 V5-4 同类单源) |
+| V10-4 class diagram 归一化静默改写模型 typed 锚方向 | 改写→拒绝并教学(所有权:系统不改模型主张),或披露为 normalized_from |
+| V11-2 trace_query `patterns` 参数未同步 tracediag Step schema | R2' 六处同步补齐;tracediag schema pin 扩到参数面 |
+| V12-3 继承债(B1560/B1558/B1548/B1541/B1546/B1554/PR23 §4.1) | 并入排期;B1548(默认 sidecar 空 roster 而长答案有候选)优先——与 V1-2/V1-1 同批 |
+
+**§40 逐项细化收官**:18 确认+2 存疑全部给出泛化方案(§40.7–§40.26),12 低危处置表(§40.27);裁定请求两项(§40.7 V12-1 R3/R4 恢复 vs 改裁;§40.8/§40.25 v2 wire 追加 causal_qualifier/impact_caliber)。所有方案均以"类"为单位设结构 tripwire(census/单源/矩阵),不含任何单例特判或停用词表。
