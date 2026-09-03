@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -383,5 +384,290 @@ func TestOptionalCarrierLedgerFinalizeKeepsExistingProseAndAddsTypedRows(t *test
 	again := carriers.finalize(res)
 	if len(again.OptionalCarrierOutcomes) != 2 || again.Summary != res.Summary {
 		t.Fatalf("finalize must be idempotent: %+v %q", again.OptionalCarrierOutcomes, again.Summary)
+	}
+}
+
+// §40.44 G-emit-faces fold-in #1: the selector is resolved immediately after
+// the strict decode, BEFORE any staged reject — the three diagram-phase
+// staged rejects (dependency lease inside the missing-orphan branch, orphan
+// disposition, relation-only dependency lease) all say "submit only new
+// corrections", so a selector riding them must be staged (valid) or
+// disclosed + marked rejected (invalid) exactly like the post-resolve
+// rejects. EVOLUTION RECORD: before the fold-in the resolve sat AFTER these
+// rejects, so the deferred commit saw the zero-value selection — a valid
+// selector was silently lost (sidecar reason
+// valid_model_root_cause_selection_unavailable) and an invalid one was never
+// disclosed nor marked (wrong customer reason_code); this pin was red.
+func TestEmitAnswerDocumentPatchStagedDiagramRejectsResolveTheSelector(t *testing.T) {
+	validSelector := `{"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}`
+	invalidSelector := `{"schema_version":2,"root_causes":[{"candidate_id":"invented-candidate"}]}`
+	type fixture struct {
+		doc    *types.AnswerDocumentV2
+		lease  *types.AnswerDiagramRelationRepairLease
+		edits  string
+		reject string
+	}
+	replyDoc := func(body string) *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "keep"},
+			{ID: "diag", Kind: types.BlockDiagram, Title: "t", SurfaceRole: types.SurfacePrincipal,
+				FacetIDs: []string{"diagram_spine"},
+				Diagram:  &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: body}},
+		}}
+	}
+	fixtures := map[string]func(t *testing.T) fixture{
+		"orphan disposition staged reject": func(t *testing.T) fixture {
+			doc := atomicPatchTestDocument()
+			lease := types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{{
+				BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+				FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+				RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+			}}, nil)
+			if lease == nil || len(lease.Failures) != 1 {
+				t.Fatalf("fixture lease: %+v", lease)
+			}
+			lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+			edits := fmt.Sprintf(`[{"failure_ref":%q,"action":"remove"}]`, lease.Failures[0].FailureRef)
+			return fixture{doc: doc, lease: lease, edits: edits, reject: "explicit orphan disposition is required"}
+		},
+		"relation-only dependency lease staged reject": func(t *testing.T) fixture {
+			doc := replyDoc("sequenceDiagram\n    participant A\n    participant B\n    A->>B: req\n    B-->>A: reply\n")
+			lease := types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{{
+				BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B",
+				RelationKind: types.DiagramRelCall, BodyOccurrence: 1,
+			}}, nil)
+			if lease == nil || len(lease.Failures) != 1 || !lease.Failures[0].AllowsAction("remove") {
+				t.Fatalf("fixture lease: %+v", lease)
+			}
+			edits := fmt.Sprintf(`[{"failure_ref":%q,"action":"remove"}]`, lease.Failures[0].FailureRef)
+			return fixture{doc: doc, lease: lease, edits: edits, reject: "dependent relation carrier(s) require an explicit model choice"}
+		},
+		"dependency lease inside the missing-orphan branch": func(t *testing.T) fixture {
+			doc := replyDoc("sequenceDiagram\n    participant A\n    participant B\n    participant C\n    A->>B: req\n    B-->>A: reply\n    A->>C: x\n")
+			lease := types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{
+				{BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "B", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+				{BlockID: "diag", Issue: "missing_call_anchor", FromNode: "A", ToNode: "C", RelationKind: types.DiagramRelCall, BodyOccurrence: 1},
+			}, nil)
+			if lease == nil || len(lease.Failures) != 2 {
+				t.Fatalf("fixture lease: %+v", lease)
+			}
+			edits := fmt.Sprintf(`[{"failure_ref":%q,"action":"remove"},{"failure_ref":%q,"action":"remove"}]`,
+				lease.Failures[0].FailureRef, lease.Failures[1].FailureRef)
+			return fixture{doc: doc, lease: lease, edits: edits, reject: "dependent relation carrier(s) require an explicit model choice"}
+		},
+	}
+	for name, build := range fixtures {
+		for _, sel := range []struct {
+			name, selector string
+			valid          bool
+		}{{"valid selector is staged", validSelector, true}, {"invalid selector is disclosed and marked", invalidSelector, false}} {
+			t.Run(name+"/"+sel.name, func(t *testing.T) {
+				fx := build(t)
+				mut := types.NewMutableState("staged diagram reject")
+				mut.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+				mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, fx.doc)
+				mut.SetAnswerDiagramRelationRepairLease(fx.lease)
+				bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+					Intent: types.IntentTrace, PredicateAxis: types.AxisCall, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}}}}
+				res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(fmt.Sprintf(`{
+					"unchanged_block_ids":["summary"],
+					"diagram_edge_edits":%s,
+					"replace_trace_root_causes":%s
+				}`, fx.edits, sel.selector)))
+				if err != nil || res.Success || !strings.Contains(res.Summary, fx.reject) {
+					t.Fatalf("fixture must reach the staged reject %q: err=%v res=%+v", fx.reject, err, res)
+				}
+				if got := res.Repair.Metadata[types.ToolRepairMetaAnswerDocumentPatchOutcome]; got != types.AnswerDocumentPatchOutcomeStagedForRetry {
+					t.Fatalf("outcome=%q, want staged_for_retry", got)
+				}
+				if mut.TraceRootCauseReport() != nil {
+					t.Fatal("a staged reject must not publish the report")
+				}
+				if sel.valid {
+					if len(res.OptionalCarrierOutcomes) != 0 {
+						t.Fatalf("a valid selector carries no outcome: %+v", res.OptionalCarrierOutcomes)
+					}
+					if staged := mut.PendingTraceRootCauseReport(); staged == nil || len(staged.RootCauses) != 1 {
+						t.Fatalf("a validly bound selector on a staged reject must be staged (§40.31.1 ★16): %+v", staged)
+					}
+					if mut.TraceRootCauseSelectorRejected() {
+						t.Fatal("a valid submission must not be marked rejected")
+					}
+					return
+				}
+				if len(res.OptionalCarrierOutcomes) != 1 || res.OptionalCarrierOutcomes[0].Carrier != "replace_trace_root_causes" ||
+					!strings.Contains(res.Summary, "[optional_carrier_ignored: carrier=replace_trace_root_causes") ||
+					!strings.Contains(res.Summary, "invented-candidate") {
+					t.Fatalf("the staged reject must disclose the ignored selector: %+v %q", res.OptionalCarrierOutcomes, res.Summary)
+				}
+				if !mut.TraceRootCauseSelectorRejected() {
+					t.Fatal("rejected submission must be marked for the customer reason_code")
+				}
+				if mut.PendingTraceRootCauseReport() != nil {
+					t.Fatal("an invalid selector must not be staged")
+				}
+			})
+		}
+	}
+}
+
+// The ★16 round trip on the orphan-disposition staged reject: the valid
+// selector staged by phase one is published by the accepted phase-two patch
+// even though that patch — following "submit only new corrections" — omits
+// the selector entirely.
+func TestEmitAnswerDocumentPatchStagedRejectSelectorSurvivesToTheAcceptedPhaseTwo(t *testing.T) {
+	doc := atomicPatchTestDocument()
+	lease := types.NewAnswerDiagramRelationRepairLease(doc, []types.AnswerDiagramRelationRepairFailure{{
+		BlockID: "diag", Issue: "semantic_relation_edge_unproven",
+		FromNode: "A", ToNode: "B", FromIdentity: "Analyzer", ToIdentity: "Explorer",
+		RelationKind: types.DiagramRelPrecedence, BodyOccurrence: 1,
+	}}, nil)
+	lease.OptionalOrphanCleanups = testDiagramOrphanCandidates("diag", "A")
+	mut := types.NewMutableState("staged selector round trip")
+	mut.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+	mut.SetAnswerDiagramRelationRepairLease(lease)
+	bus := &types.BusContext{Mutable: mut}
+	res, err := (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(fmt.Sprintf(`{
+		"unchanged_block_ids":["summary"],
+		"diagram_edge_edits":[{"failure_ref":%q,"action":"remove"}],
+		"replace_trace_root_causes":{"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}
+	}`, lease.Failures[0].FailureRef)))
+	if err != nil || res.Success || mut.PendingTraceRootCauseReport() == nil {
+		t.Fatalf("phase one must stage the selector on the reject: err=%v res=%+v pending=%v", err, res, mut.PendingTraceRootCauseReport() != nil)
+	}
+	res, err = (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+		"diagram_participant_edits":[{"block_id":"diag","participant_id":"A","action":"retain_as_context","visible_label":"分析入口（背景）"}]
+	}`))
+	if err != nil || !res.Success {
+		t.Fatalf("phase two must be accepted: err=%v res=%+v", err, res)
+	}
+	report := mut.TraceRootCauseReport()
+	if report == nil || len(report.RootCauses) != 1 {
+		t.Fatalf("the staged selection must be published by the accepted phase two: %+v", report)
+	}
+	if mut.PendingTraceRootCauseReport() != nil {
+		t.Fatal("publishing consumes the staged selection")
+	}
+}
+
+// §40.44 G-emit-faces fold-in #1, full-emit face: the pre-emit hard-hint
+// reject (answer_doc_pre_emit_contract) remembers the rejected draft as the
+// next patch base — exactly the ★16 handoff — so the selector riding that
+// emit must already be resolved: staged when valid (and published by the
+// accepted follow-up patch that omits it), disclosed + marked rejected when
+// invalid. EVOLUTION RECORD: the resolve used to sit after this reject, so
+// both selector fates were silently lost; this pin was red.
+func TestEmitAnswerDocumentPreEmitHardHintRejectResolvesTheSelector(t *testing.T) {
+	for _, tc := range []struct {
+		name, selector string
+		valid          bool
+	}{
+		{"valid selector is staged and survives to the accepted patch", `{"schema_version":2,"root_causes":[{"candidate_id":"candidate-sched"}]}`, true},
+		{"invalid selector is disclosed and marked", `{"schema_version":2,"root_causes":[{"candidate_id":"invented-candidate"}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mut := types.NewMutableState("full emit pre-emit reject")
+			mut.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+			bus := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+				Intent: types.IntentTrace, PredicateAxis: types.AxisCall, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)}}}}
+			res, err := executeAnswerDocumentV2("emit_answer_document", bus, json.RawMessage(`{
+				"document_model":"v2",
+				"citations":[{"file":"x.go","line":10}],
+				"blocks":[
+					{"id":"s1","kind":"summary","surface_role":"principal","text":"stable rejected summary","facet_ids":["current_code_path"]},
+					{"id":"path","kind":"ordered_list","surface_role":"principal","facet_ids":["current_code_path"],
+					 "claim_uses":[{"claim_form":"call_edge"}],"items":[{"id":"hop","label":"changed hidden hop","citation_ref":0}]}
+				],
+				"trace_root_causes":`+tc.selector+`
+			}`), time.Now())
+			if err != nil || res.Success || res.Repair == nil || res.Repair.Code != "answer_doc_pre_emit_contract" {
+				t.Fatalf("fixture must reach the pre-emit hard-hint reject: err=%v res=%+v", err, res)
+			}
+			if mut.LastRejectedAnswerDocumentV2() == nil {
+				t.Fatal("fixture must remember the rejected draft (the ★16 patch base)")
+			}
+			if mut.TraceRootCauseReport() != nil {
+				t.Fatal("a rejected emit must not publish the report")
+			}
+			if !tc.valid {
+				if len(res.OptionalCarrierOutcomes) != 1 || res.OptionalCarrierOutcomes[0].Carrier != "trace_root_causes" ||
+					res.OptionalCarrierOutcomes[0].Status != types.OptionalCarrierStatusIgnored ||
+					!strings.Contains(res.Summary, "[optional_carrier_ignored: carrier=trace_root_causes") ||
+					!strings.Contains(res.Summary, "invented-candidate") {
+					t.Fatalf("the pre-emit reject must disclose the ignored selector: %+v %q", res.OptionalCarrierOutcomes, res.Summary)
+				}
+				if !mut.TraceRootCauseSelectorRejected() {
+					t.Fatal("rejected submission must be marked for the customer reason_code")
+				}
+				if mut.PendingTraceRootCauseReport() != nil {
+					t.Fatal("an invalid selector must not be staged")
+				}
+				return
+			}
+			if len(res.OptionalCarrierOutcomes) != 0 {
+				t.Fatalf("a valid selector carries no outcome: %+v", res.OptionalCarrierOutcomes)
+			}
+			if staged := mut.PendingTraceRootCauseReport(); staged == nil || len(staged.RootCauses) != 1 {
+				t.Fatalf("a validly bound selector on the pre-emit reject must be staged (§40.31.1 ★16): %+v", staged)
+			}
+			res, err = (&EmitAnswerDocumentPatch{}).Execute(bus, json.RawMessage(`{
+				"unchanged_block_ids":["s1"],
+				"remove_block_ids":["path"]
+			}`))
+			if err != nil || !res.Success {
+				t.Fatalf("the selector-omitting follow-up patch must be accepted: err=%v res=%+v", err, res)
+			}
+			if report := mut.TraceRootCauseReport(); report == nil || len(report.RootCauses) != 1 {
+				t.Fatalf("the staged selection must be published by the accepted patch: %+v", report)
+			}
+		})
+	}
+}
+
+// §40.44 G-emit-faces fold-in #2 (from G-sidecar-artifact): an
+// OptionalCarrierOutcome describes something NOT honoured; the binder's
+// non-dropping caliber note describes a description that IS published
+// verbatim, so it must never mint part_dropped (a false typed closed-set
+// status whose hint invites a needless, non-converging patch round). The
+// note reaches the model as ONE plain summary line of soft guidance — no
+// typed row, no hint — while the real drop keeps its typed part_dropped row
+// (TestEmitAnswerDocumentDroppedDescriptionIsATypedPartDrop). EVOLUTION
+// RECORD: resolveTraceRootCauseSelectionForEmit used to mint EVERY binder
+// advisory as part_dropped with the resend hint; this pin was red.
+func TestEmitAnswerDocumentCaliberNoteIsPlainGuidanceNotAPartDrop(t *testing.T) {
+	mutable := types.NewMutableState("analyze trace root cause")
+	contract := testSelectableTraceRootCauseContract()
+	contract.Candidates[0].Decision.Magnitude.Caliber = types.TraceImpactCaliberWindowProjection
+	mutable.SetTraceFindingContract(contract)
+	ctx := &types.BusContext{Mutable: mutable}
+	description := "RenderThread 窗内投影占用约 12 ms，尚未发布有效归因，UI 线程因此等待。"
+	raw, _ := json.Marshal(map[string]any{
+		"blocks": []map[string]any{{"id": "summary", "kind": "summary", "text": "answer"}},
+		"trace_root_causes": map[string]any{
+			"schema_version": types.TraceRootCauseReportSchemaVersion,
+			"root_causes":    []map[string]any{{"candidate_id": "candidate-sched", "description": description}},
+		},
+	})
+	result, err := executeAnswerDocumentV2("emit_answer_document", ctx, raw, time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("emit failed: result=%+v err=%v", result, err)
+	}
+	report := mutable.TraceRootCauseReport()
+	if report == nil || len(report.RootCauses) != 1 || report.RootCauses[0].Description != description {
+		t.Fatalf("the hedged description must be published verbatim: %#v", report)
+	}
+	if len(result.OptionalCarrierOutcomes) != 0 {
+		t.Fatalf("nothing was dropped, so no typed outcome may be minted: %+v", result.OptionalCarrierOutcomes)
+	}
+	if strings.Contains(result.Summary, "part_dropped") || strings.Contains(result.Summary, "resend that item") {
+		t.Fatalf("a kept description must not be disclosed as a drop nor invite a patch round: %q", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "kept as written") {
+		t.Fatalf("the caliber note must still reach the model as one plain summary line: %q", result.Summary)
+	}
+	lines := strings.Split(result.Summary, "\n")
+	if !strings.HasPrefix(lines[0], "emit_answer_document accepted:") {
+		t.Fatalf("line one must stay the accepted counts line: %q", result.Summary)
 	}
 }

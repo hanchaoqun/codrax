@@ -233,9 +233,10 @@ var errTraceRootCauseSelectorShape = errors.New("selector is not the taught obje
 // `unavailable`; omission is not a withdrawal — the model withdraws with an
 // explicit `"root_causes": []`, which binds to the empty report). The
 // contract is frozen for the run, so the retained selection stays valid.
-// Sidecar errors and the binder's part-drop advisories are returned for the
-// disclosure lane but never own whether the full answer mutation is accepted.
-func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.RawMessage, patch bool) (*types.TraceRootCauseReportV2, []string, error) {
+// Sidecar errors and the binder's typed advisories (part-drops and
+// non-dropping notes) are returned for the disclosure lane but never own
+// whether the full answer mutation is accepted.
+func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.RawMessage, patch bool) (*types.TraceRootCauseReportV2, []tracefinding.RootCauseSelectionAdvisory, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return nil, nil, nil
 	}
@@ -307,9 +308,20 @@ func resolveTraceRootCauseSelectionForEmit(ctx *types.BusContext, carriers *opti
 	} else if traceRootCauseSelectorSubmitted(submitted) {
 		selection.boundFromSubmit = report != nil
 	}
+	// §40.44 G-emit-faces fold-in #2: the advisory's typed kind is the precise
+	// signal for the disclosure lane. Only a part the binder did NOT honour
+	// (a dropped description) mints the typed part_dropped outcome with the
+	// resend hint; a non-dropping note (the description is published as
+	// written) is soft guidance and rides as one plain Summary line — minting
+	// it as part_dropped would be a false closed-set status inviting a
+	// needless patch round.
 	for _, advisory := range advisories {
+		if !advisory.Dropped() {
+			carriers.note(advisory.Reason)
+			continue
+		}
 		carriers.mint(types.OptionalCarrierOutcome{
-			Carrier: carrier, Status: types.OptionalCarrierStatusPartDropped, Reason: advisory,
+			Carrier: carrier, Status: types.OptionalCarrierStatusPartDropped, Reason: advisory.Reason,
 			Hint: "the typed selection is kept; to publish a description, resend that item with customer-readable prose via replace_trace_root_causes in the next emit_answer_document_patch",
 		})
 	}

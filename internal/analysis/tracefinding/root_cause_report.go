@@ -18,13 +18,51 @@ func BindRootCauseReportSelection(in *types.TraceRootCauseReportV2, contract *ty
 	return report, err
 }
 
+// RootCauseSelectionAdvisoryKind is the closed set of things the binder can
+// say about one submitted item WITHOUT rejecting the selection. The kind is
+// the precise signal the tool layer switches on (§40.44 G-emit-faces fold-in
+// #2): only a part that was NOT honoured may be disclosed as an
+// OptionalCarrierOutcome (part_dropped + resend hint); a note describes a
+// part that was kept as written and is soft guidance only — it must never be
+// minted as a drop, because that status would be false and invite a
+// needless patch round.
+type RootCauseSelectionAdvisoryKind string
+
+const (
+	// RootCauseAdvisoryPartDropped: the item's description was dropped from
+	// the bound report (internal reference / over the cap); the typed
+	// selection itself stands.
+	RootCauseAdvisoryPartDropped RootCauseSelectionAdvisoryKind = "part_dropped"
+	// RootCauseAdvisoryNote: nothing was dropped; the description is published
+	// as written and the note restates the typed caliber beside it.
+	RootCauseAdvisoryNote RootCauseSelectionAdvisoryKind = "note"
+)
+
+// RootCauseSelectionAdvisory is one binder advisory: Kind decides the
+// disclosure lane, Field names the item (`root_causes[i]`), Reason is the
+// binder's own precise wording.
+type RootCauseSelectionAdvisory struct {
+	Kind   RootCauseSelectionAdvisoryKind
+	Field  string
+	Reason string
+}
+
+// Dropped reports whether the advisory describes a part that was NOT
+// honoured (the only kind an OptionalCarrierOutcome may be minted from).
+func (a RootCauseSelectionAdvisory) Dropped() bool {
+	return a.Kind == RootCauseAdvisoryPartDropped
+}
+
 // BindRootCauseReportSelectionWithAdvisories is the binder with the
 // SIDECAR-NARR-1 disclosure lane: a description that cites an internal
 // reference or exceeds the cap is dropped from its item (the typed selection
-// stands) and the reason is returned so the tool result can tell the model
-// what to repair instead of silently losing the whole selector.
-func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2, contract *types.TraceFindingContract) (*types.TraceRootCauseReportV2, []string, error) {
-	var advisories []string
+// stands) and the reason is returned — typed as RootCauseAdvisoryPartDropped —
+// so the tool result can tell the model what to repair instead of silently
+// losing the whole selector. A kept description may additionally carry a
+// RootCauseAdvisoryNote (caliber restatement); the two kinds never share a
+// disclosure lane.
+func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2, contract *types.TraceFindingContract) (*types.TraceRootCauseReportV2, []RootCauseSelectionAdvisory, error) {
+	var advisories []RootCauseSelectionAdvisory
 	if in == nil {
 		return nil, nil, nil
 	}
@@ -70,17 +108,23 @@ func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2
 		// typed facts. It is advisory, so a description that cites an internal
 		// reference (checked against the WHOLE roster's ids) is dropped from
 		// this item and disclosed; the typed selection is never lost for it.
-		description, derr := types.ValidateTraceRootCauseDescription(selection.Description, rosterIDs, fmt.Sprintf("root_causes[%d]", index))
+		field := fmt.Sprintf("root_causes[%d]", index)
+		description, derr := types.ValidateTraceRootCauseDescription(selection.Description, rosterIDs, field)
 		if derr != nil {
-			advisories = append(advisories, fmt.Sprintf("description for root_causes[%d] dropped: %v", index, derr))
+			advisories = append(advisories, RootCauseSelectionAdvisory{
+				Kind: RootCauseAdvisoryPartDropped, Field: field,
+				Reason: fmt.Sprintf("description for %s dropped: %v", field, derr),
+			})
 			description = ""
 		}
 		// V1-1 (§40.25 / §40.48 fold-in): the caliber discipline on the
 		// description is TEACHING (TraceRootCauseDescriptionTeaching) — a
 		// ruler word in free prose is a noisy signal (it cannot tell 「不是有效
-		// 归因」 from a claim), so it drives at most this non-dropping note.
-		if note := rootCauseDescriptionCaliberNote(description, item.ImpactCaliber, fmt.Sprintf("root_causes[%d]", index)); note != "" {
-			advisories = append(advisories, note)
+		// 归因」 from a claim), so it drives at most this non-dropping NOTE:
+		// the description is published as written, and the tool layer renders
+		// the note as plain guidance, never as a part_dropped outcome.
+		if note := rootCauseDescriptionCaliberNote(description, item.ImpactCaliber, field); note != "" {
+			advisories = append(advisories, RootCauseSelectionAdvisory{Kind: RootCauseAdvisoryNote, Field: field, Reason: note})
 		}
 		item.Description = description
 		seen[candidateID] = true

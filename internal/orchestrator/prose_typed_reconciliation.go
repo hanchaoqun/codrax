@@ -125,11 +125,19 @@ func proseSelectsDirectionReconciliation(prose []proseTextUnit, row tool.Runtime
 
 func renderTargetStateReconciliation(row tool.RuntimeTraceReconciliationRow) proseScalarBindingFinding {
 	artifactZH, artifactEN := reconciliationArtifactPrefix(row.ArtifactLabel)
+	// §40.49 合流复核收编 (G-target-state #1): the row prints the five
+	// DISJOINT lanes, so its D term is the exclusive non-IO lane and is
+	// labelled with the single-source customer-face word — byte-equal with
+	// the body wall-clock partition / wait-coverage / fact-juxtaposition
+	// faces. The bare word "D-state" is reserved for the published fold,
+	// which the body four-state line prints as "D-state …(其中 IO等待 …)";
+	// spelling this lane bare put two calibers under one word on one
+	// customer page (D-state 4.039 here vs D-state 5.379 in the body).
 	return proseScalarBindingFinding{
-		entryZH: fmt.Sprintf("对账参考: %s%s 全窗状态分区 running %.3fms + runnable %.3fms + sleep %.3fms + D-state %.3fms + io_wait %.3fms = %.3fms(分析窗 %.3fms) [%s]",
-			artifactZH, row.Subject, row.RunningMS, row.RunnableMS, row.SleepMS, row.DStateMS, row.IOWaitMS, row.TotalMS, row.WindowMS, row.EvidenceTag),
-		entry: fmt.Sprintf("Reconciliation reference: %s%s full-window state partition: running %.3fms + runnable %.3fms + sleep %.3fms + D-state %.3fms + io_wait %.3fms = %.3fms (analysis window %.3fms) [%s]",
-			artifactEN, row.Subject, row.RunningMS, row.RunnableMS, row.SleepMS, row.DStateMS, row.IOWaitMS, row.TotalMS, row.WindowMS, row.EvidenceTag),
+		entryZH: fmt.Sprintf("对账参考: %s%s 全窗状态分区 running %.3fms + runnable %.3fms + sleep %.3fms + %s %.3fms + io_wait %.3fms = %.3fms(分析窗 %.3fms) [%s]",
+			artifactZH, row.Subject, row.RunningMS, row.RunnableMS, row.SleepMS, tool.TraceStateNonIODStateWord(true), row.DStateMS, row.IOWaitMS, row.TotalMS, row.WindowMS, row.EvidenceTag),
+		entry: fmt.Sprintf("Reconciliation reference: %s%s full-window state partition: running %.3fms + runnable %.3fms + sleep %.3fms + %s %.3fms + io_wait %.3fms = %.3fms (analysis window %.3fms) [%s]",
+			artifactEN, row.Subject, row.RunningMS, row.RunnableMS, row.SleepMS, tool.TraceStateNonIODStateWord(false), row.DStateMS, row.IOWaitMS, row.TotalMS, row.WindowMS, row.EvidenceTag),
 	}
 }
 

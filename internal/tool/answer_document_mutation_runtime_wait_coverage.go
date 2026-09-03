@@ -231,7 +231,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 		var row string
 		if zh {
 			row = fmt.Sprintf(
-				"目标线程状态：工件=%s，窗口=%.6f..%.6f，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 S 态 IO 等待 %.3fms，已包含在 sleep），非 IO D-state %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
+				"目标线程状态：工件=%s，窗口=%.6f..%.6f，线程=%s；running %.3fms，runnable %.3fms，sleep %.3fms（其中 S 态 IO 等待 %.3fms，已包含在 sleep），%s %.3fms，io_wait %.3fms；已归账 %.3fms / 窗口 %.3fms，覆盖=%s",
 				state.ArtifactLabel,
 				state.WindowStartTs,
 				state.WindowEndTs,
@@ -240,6 +240,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.RunnableMS,
 				state.SleepMS,
 				state.SleepIOWaitMS,
+				TraceStateNonIODStateWord(true),
 				state.DStateMS,
 				state.IOWaitMS,
 				state.TotalMS,
@@ -248,7 +249,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 			)
 		} else {
 			row = fmt.Sprintf(
-				"Target-thread state: artifact=%s, window=%.6f..%.6f, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), non-IO D-state %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
+				"Target-thread state: artifact=%s, window=%.6f..%.6f, thread=%s; running %.3fms, runnable %.3fms, sleep %.3fms (including %.3fms of S-state IO wait), %s %.3fms, io_wait %.3fms; accounted %.3fms / window %.3fms, coverage=%s",
 				state.ArtifactLabel,
 				state.WindowStartTs,
 				state.WindowEndTs,
@@ -257,6 +258,7 @@ func materializeRuntimeTraceTargetStateAuthorityBlock(doc *types.AnswerDocumentV
 				state.RunnableMS,
 				state.SleepMS,
 				state.SleepIOWaitMS,
+				TraceStateNonIODStateWord(false),
 				state.DStateMS,
 				state.IOWaitMS,
 				state.TotalMS,

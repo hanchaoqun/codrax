@@ -43,6 +43,26 @@ type RuntimeTraceReconciliationRow struct {
 	FixDirection string
 }
 
+// TraceStateNonIODStateWord is the ONE customer-face word for the exclusive
+// non-IO D-state lane — the five-lane partition member, NOT the published
+// uninterruptible fold. §40.49 合流复核收编 (G-target-state #1): the body
+// wall-clock partition (answer_document_mutation_runtime.go), the
+// wait-coverage face (answer_document_mutation_runtime_wait_coverage.go), the
+// fact-juxtaposition appendix (orchestrator prose_fact_juxtaposition.go) and
+// the reconciliation row (orchestrator prose_typed_reconciliation.go) all
+// label this lane with THIS byte sequence; before the fold-in the row said a
+// bare "D-state" for 4.039 while the body four-state line said "D-state" for
+// the 5.379 fold on the same customer page (two calibers under one word), and
+// the two appendix faces spelled "非IO D-state" without the space. The bare
+// word "D-state" on a customer face is reserved for the fold, which the
+// four-state line prints as "D-state …(其中 IO等待 …)".
+func TraceStateNonIODStateWord(zh bool) string {
+	if zh {
+		return "非 IO D-state"
+	}
+	return "non-IO D-state"
+}
+
 // RuntimeTraceReconciliationRows returns only rows whose E# roster is already
 // present in the shipped document. It intentionally stands down when the full
 // causal projection was not materialized (for example a narrow status query),

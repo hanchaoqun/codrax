@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,6 +34,21 @@ import (
 // roster other than the frozen one. The companion property pin asserts that
 // every registered producer is subset-preserving and leaves its input
 // untouched.
+//
+// §40.47 fold-in round five: the census additionally pins the OTHER SIDE of
+// each lane, so a rewritten roster cannot be smuggled around the identifier
+// judgements —
+//   - every registered gate CALL passes the bare frozen ident at the
+//     modelEntityRoster parameter position (no inline freeze, no second
+//     variable, no roster literal);
+//   - freezeModelEntityRoster appears exactly once in this file (the
+//     capture) and nowhere else in the package, and no modelEntityRoster
+//     composite literal exists outside the frozen type's own file;
+//   - the persisted roster mint is pinned at its source: every `Entities:` /
+//     `PrimaryEntities:` key-value inside Execute carries exactly
+//     `modelEntities.Entities()`;
+//   - `&rm` may be handed only to registered RequestModel mutators, and each
+//     registered mutator's body (package-wide) never assigns a roster field.
 
 // emitAnalysisEntityRosterProducers is the single declared registry of RHS
 // expressions allowed to assign the decode slice `entities` inside Execute.
@@ -54,12 +70,39 @@ var emitAnalysisFrozenRosterGates = map[string]bool{
 	"validateRequiredFlowDiagramParticipantProvenance": true,
 }
 
+// emitAnalysisRequestModelMutators is the single declared registry of
+// functions allowed to receive `&rm` inside Execute. Registration is the
+// review surface: a registered mutator's body is additionally pinned
+// (package-wide) to never assign the persisted roster fields, so a pointer
+// helper can never rewrite Entities/PrimaryEntities behind the gate.
+var emitAnalysisRequestModelMutators = map[string]bool{
+	"projectRuntimeArtifactPathHintsFromRawRequest":           true,
+	"attachRuntimeArtifactsToRequestModel":                    true,
+	"dropSourceInventoryProfileForTypedRelation":              true,
+	"dropSourceInventoryProfileForObservationOnlyRuntime":     true,
+	"softenAnswerRoleProfileForPerMemberRelation":             true,
+	"synthesizeSourceInventoryProfileForTypedEnumeration":     true,
+	"enrichSourceInventoryProfileFromAnalyzerPrescan":         true,
+	"normalizeSourceInventoryProductionScope":                 true,
+	"normalizeSourceInventoryConstructOnlySourceScope":        true,
+	"normalizeSourceInventoryAuxiliaryExclusion":              true,
+	"normalizeSingleTargetExplicitWindowCausalSubTopics":      true,
+	"normalizeSourceInventorySubTopicsFromProfile":            true,
+	"normalizeSourceInventoryKeywordsFromProfile":             true,
+	"projectAnalyzerPrescanRequiredFileHints":                 true,
+	"normalizeUnbackedExternalObservationAllowToDefault":      true,
+	"normalizeUnbackedExternalObservationCurrentVersionCheck": true,
+}
+
 const (
 	emitAnalysisDecodeRosterIdent = "entities"
 	emitAnalysisFrozenRosterIdent = "modelEntities"
 	emitAnalysisFrozenRosterType  = "modelEntityRoster"
 	emitAnalysisFreezeCall        = "freezeModelEntityRoster(entities)"
+	emitAnalysisFreezeIdent       = "freezeModelEntityRoster"
 	emitAnalysisFrozenAccessor    = "Entities"
+	emitAnalysisRequestModelIdent = "rm"
+	emitAnalysisRosterMintExpr    = "modelEntities.Entities()"
 )
 
 type emitAnalysisEntityRosterCensusResult struct {
@@ -68,6 +111,10 @@ type emitAnalysisEntityRosterCensusResult struct {
 	captures    int // assignments to the frozen value
 	gateReads   int // frozen-accessor reads inside registered gate bodies
 	frozenUses  int // frozen-value uses inside Execute after capture
+	gateCalls   int // calls to registered gates inside Execute
+	freezeCalls int // occurrences of freezeModelEntityRoster in the file
+	rosterMints int // Entities/PrimaryEntities key-values inside Execute
+	rmHandoffs  int // &rm handoffs to registered RequestModel mutators
 }
 
 func emitAnalysisEntityRosterCensus(src string) (emitAnalysisEntityRosterCensusResult, error) {
@@ -210,7 +257,89 @@ func emitAnalysisEntityRosterCensus(src string) (emitAnalysisEntityRosterCensusR
 		return true
 	})
 
-	// Pass 3: registered gate bodies read only the frozen parameter.
+	// Pass 3 (§40.47 round five): the whole file — the freeze call is unique
+	// (a second freeze under any name is a second capture) and no roster
+	// composite literal mints an unfrozen roster.
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.Ident:
+			if x.Name == emitAnalysisFreezeIdent {
+				res.freezeCalls++
+			}
+		case *ast.CompositeLit:
+			if id, ok := x.Type.(*ast.Ident); ok && id.Name == emitAnalysisFrozenRosterType {
+				report(x, "roster literal "+print(x)+" mints an unfrozen roster (only "+emitAnalysisFreezeIdent+" may)")
+			}
+		}
+		return true
+	})
+	if res.freezeCalls > 1 {
+		report(execute, emitAnalysisFreezeIdent+" appears "+strconv.Itoa(res.freezeCalls)+" times — the roster is frozen exactly once, at the capture")
+	}
+
+	// Pass 4 (§40.47 round five): gate call sites, persisted roster mints and
+	// &rm handoffs inside Execute.
+	gateRosterArg := map[string]int{}
+	for name, fn := range gates {
+		idx := 0
+		for _, field := range fn.Type.Params.List {
+			n := len(field.Names)
+			if n == 0 {
+				n = 1
+			}
+			if id, ok := field.Type.(*ast.Ident); ok && id.Name == emitAnalysisFrozenRosterType {
+				gateRosterArg[name] = idx
+			}
+			idx += n
+		}
+	}
+	ast.Inspect(execute.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.KeyValueExpr:
+			key, ok := x.Key.(*ast.Ident)
+			if !ok || (key.Name != "Entities" && key.Name != "PrimaryEntities") {
+				return true
+			}
+			res.rosterMints++
+			if print(x.Value) != emitAnalysisRosterMintExpr {
+				report(x, "persisted "+key.Name+" minted from "+print(x.Value)+" — the mint source must be exactly "+emitAnalysisRosterMintExpr)
+			}
+		case *ast.UnaryExpr:
+			if x.Op != token.AND {
+				return true
+			}
+			id, ok := x.X.(*ast.Ident)
+			if !ok || id.Name != emitAnalysisRequestModelIdent {
+				return true
+			}
+			callee := ""
+			if call, ok := parents[x].(*ast.CallExpr); ok && call.Fun != x {
+				callee = emitAnalysisCallee(call)
+			}
+			if callee == "" || !emitAnalysisRequestModelMutators[callee] {
+				report(x, "&"+emitAnalysisRequestModelIdent+" handed to unregistered "+callee+" — a pointer helper could rewrite the persisted roster behind the gate")
+				return true
+			}
+			res.rmHandoffs++
+		case *ast.CallExpr:
+			callee := emitAnalysisCallee(x)
+			if !emitAnalysisFrozenRosterGates[callee] {
+				return true
+			}
+			res.gateCalls++
+			idx, ok := gateRosterArg[callee]
+			if !ok || idx >= len(x.Args) {
+				report(x, "gate "+callee+" call does not match its "+emitAnalysisFrozenRosterType+" signature")
+				return true
+			}
+			if id, ok := x.Args[idx].(*ast.Ident); !ok || id.Name != emitAnalysisFrozenRosterIdent {
+				report(x, "gate "+callee+" called with "+print(x.Args[idx])+" — the roster argument must be the frozen ident "+emitAnalysisFrozenRosterIdent)
+			}
+		}
+		return true
+	})
+
+	// Pass 5: registered gate bodies read only the frozen parameter.
 	for name := range emitAnalysisFrozenRosterGates {
 		fn := gates[name]
 		if fn == nil {
@@ -278,13 +407,53 @@ func emitAnalysisFrozenFieldCensus(fileName, src string) ([]string, error) {
 			continue
 		}
 		ast.Inspect(decl, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "entities" {
-				offenders = append(offenders, fset.Position(sel.Pos()).String()+" touches a frozen-roster backing field outside "+emitAnalysisFrozenRosterType)
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "entities" {
+					offenders = append(offenders, fset.Position(x.Pos()).String()+" touches a frozen-roster backing field outside "+emitAnalysisFrozenRosterType)
+				}
+			case *ast.CompositeLit:
+				if id, ok := x.Type.(*ast.Ident); ok && id.Name == emitAnalysisFrozenRosterType {
+					offenders = append(offenders, fset.Position(x.Pos()).String()+" mints a "+emitAnalysisFrozenRosterType+" literal outside its owner (only "+emitAnalysisFreezeIdent+" may)")
+				}
 			}
 			return true
 		})
 	}
 	return offenders, nil
+}
+
+// emitAnalysisMutatorBodyOffenders inspects the bodies of registered
+// RequestModel mutators in one file: none may assign the persisted roster
+// fields. Returns the offenders and the mutators the file defines.
+func emitAnalysisMutatorBodyOffenders(fileName, src string, mutators map[string]bool) ([]string, map[string]bool, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, fileName, src, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	seen := map[string]bool{}
+	var offenders []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Recv != nil || !mutators[fn.Name.Name] {
+			continue
+		}
+		seen[fn.Name.Name] = true
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for _, lhs := range assign.Lhs {
+				if sel, ok := lhs.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Entities" || sel.Sel.Name == "PrimaryEntities") {
+					offenders = append(offenders, fset.Position(sel.Pos()).String()+" registered RequestModel mutator "+fn.Name.Name+" rewrites the persisted roster field "+sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+	return offenders, seen, nil
 }
 
 func emitAnalysisParentMap(root ast.Node) map[ast.Node]ast.Node {
@@ -343,6 +512,9 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 	if res.assignments < 2 || res.captures != 1 || res.gateReads < 1 || res.frozenUses < 3 {
 		t.Fatalf("census lost its subject: assignments=%d captures=%d gateReads=%d frozenUses=%d", res.assignments, res.captures, res.gateReads, res.frozenUses)
 	}
+	if res.gateCalls < 1 || res.freezeCalls != 1 || res.rosterMints < 2 || res.rmHandoffs < 1 {
+		t.Fatalf("census lost its round-five subject: gateCalls=%d freezeCalls=%d rosterMints=%d rmHandoffs=%d", res.gateCalls, res.freezeCalls, res.rosterMints, res.rmHandoffs)
+	}
 	if len(res.offenders) > 0 {
 		sort.Strings(res.offenders)
 		t.Fatalf("entity roster written or read outside the frozen lane (§40.21 ③ — hard gates judge the model's original emission or a lossless normalization of it):\n  %s", strings.Join(res.offenders, "\n  "))
@@ -358,6 +530,7 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 		t.Fatal(err)
 	}
 	fieldSites := 0
+	mutatorSeen := map[string]bool{}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 			continue
@@ -369,7 +542,29 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 		if strings.Contains(string(body), "normalizer.Canonicalize") || strings.Contains(string(body), "normalizer.CompleteSlashPairEntities") {
 			t.Fatalf("%s calls an entity-rewriting normalizer inside the emit-side tool package", e.Name())
 		}
-		if !strings.Contains(string(body), ".entities") {
+		if e.Name() != "emit_analysis.go" && e.Name() != "emit_analysis_entity_roster.go" && strings.Contains(string(body), emitAnalysisFreezeIdent) {
+			t.Fatalf("%s uses %s — the roster is frozen only inside (*EmitAnalysis).Execute", e.Name(), emitAnalysisFreezeIdent)
+		}
+		definesMutator := false
+		for name := range emitAnalysisRequestModelMutators {
+			if strings.Contains(string(body), "func "+name+"(") {
+				definesMutator = true
+				break
+			}
+		}
+		if definesMutator {
+			mutatorOffenders, seen, merr := emitAnalysisMutatorBodyOffenders(e.Name(), string(body), emitAnalysisRequestModelMutators)
+			if merr != nil {
+				t.Fatal(merr)
+			}
+			for name := range seen {
+				mutatorSeen[name] = true
+			}
+			if len(mutatorOffenders) > 0 {
+				t.Fatalf("registered RequestModel mutator rewrites the persisted roster: %v", mutatorOffenders)
+			}
+		}
+		if !strings.Contains(string(body), ".entities") && !strings.Contains(string(body), emitAnalysisFrozenRosterType) {
 			continue
 		}
 		fieldSites++
@@ -383,6 +578,11 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 	}
 	if fieldSites == 0 {
 		t.Fatal("frozen-field census saw no file — it lost its subject")
+	}
+	for name := range emitAnalysisRequestModelMutators {
+		if !mutatorSeen[name] {
+			t.Fatalf("stale RequestModel mutator registry row %q — the function no longer exists in the package; prune it", name)
+		}
 	}
 
 	// Self-red: one mutation per evasion shape must be reported.
@@ -403,6 +603,19 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 		"frozen ranged directly":          {gateAnchor, "	for range modelEntities.entities {\n	}\n" + gateAnchor},
 		"gate reads RequestModel roster":  {"	entities := roster.Entities()\n", "	entities := rm.AnalyzerHints.Entities\n"},
 		"gate touches backing field":      {"	entities := roster.Entities()\n", "	entities := roster.entities\n"},
+		// §40.47 round five: the five gate-input / persisted-mint evasions.
+		"inline freeze in the gate argument": {gateAnchor,
+			"	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm, freezeModelEntityRoster(splitFoo(raw, modelEntities.Entities()))); conflict != \"\" {"},
+		"second frozen roster under another name": {gateAnchor,
+			"	alt := freezeModelEntityRoster(splitFoo(raw, modelEntities.Entities()))\n	_ = alt\n" + gateAnchor},
+		"gate called with a non-frozen roster ident": {gateAnchor,
+			"	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm, altRoster); conflict != \"\" {"},
+		"roster literal in the gate argument": {gateAnchor,
+			"	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm, modelEntityRoster{entities: splitFoo(raw, nil)}); conflict != \"\" {"},
+		"persisted Entities minted from a rewrite": {"			Entities:          modelEntities.Entities(),\n",
+			"			Entities:          splitFoo(raw, modelEntities.Entities()),\n"},
+		"rm handed to an unregistered pointer helper": {gateAnchor,
+			"	splitFooInPlace(raw, &rm)\n" + gateAnchor},
 	}
 	for name, m := range mutations {
 		mutated := strings.Replace(string(src), m.anchor, m.insert, 1)
@@ -423,6 +636,22 @@ func TestEmitAnalysisEntityRosterCensus(t *testing.T) {
 	}
 	if len(fieldOffenders) == 0 {
 		t.Fatal("self-red: a helper touching the frozen backing field outside its type must be reported")
+	}
+	litOffenders, err := emitAnalysisFrozenFieldCensus("emit_analysis_foo.go", "package tool\nfunc mintFoo(xs []string) modelEntityRoster { return modelEntityRoster{entities: xs} }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(litOffenders) == 0 {
+		t.Fatal("self-red: a roster literal minted outside the frozen type's owner must be reported")
+	}
+	mutOffenders, mutSeen, err := emitAnalysisMutatorBodyOffenders("emit_analysis_foo.go",
+		"package tool\nfunc normalizeSourceInventoryProductionScope(rm *types.RequestModel) string {\n	rm.AnalyzerHints.Entities = nil\n	return \"\"\n}\n",
+		emitAnalysisRequestModelMutators)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mutSeen["normalizeSourceInventoryProductionScope"] || len(mutOffenders) == 0 {
+		t.Fatalf("self-red: a registered mutator assigning a roster field must be reported, got seen=%v offenders=%v", mutSeen, mutOffenders)
 	}
 }
 

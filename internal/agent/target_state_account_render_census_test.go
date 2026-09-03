@@ -38,8 +38,14 @@ import (
 //	(b) arithmetic over an account figure outside internal/types' fold and
 //	    identity functions is red in EVERY shape: `x + y`, `x += y`, a local
 //	    accumulator (`d := a.DStateMS; d += a.IOWaitMS`), and a helper call
-//	    that receives a figure (`max(a.DStateMS, a.IOWaitMS)`) — intra-
-//	    function taint through assignments, not a single BinaryExpr;
+//	    that receives a figure (`max(a.DStateMS, a.IOWaitMS)`) — DATA-FLOW
+//	    taint (§40.49 合流复核收编 T3): assignments, composite literals,
+//	    index/field reads off tainted values, range, conversions to
+//	    package-local defined types and true aliases, promoted selectors
+//	    through embedded accounts, and package-local accessor functions
+//	    whose basic-typed return derives from a figure (their callers
+//	    inherit the figures — a selector-free renderer fed by accessors is
+//	    still a renderer);
 //	(c) a function that references an account figure and builds ANY string
 //	    without calling types.FormatTargetStateAccount is red (the ruling's
 //	    literal arm), and a fold-word literal (不可中断 / uninterruptible) in
@@ -51,7 +57,29 @@ import (
 //	    (a faked non-types import) is listed in an explicit allowlist, so
 //	    the census can never go green by failing to see;
 //	(f) stale allowlist entries are red; the self-red test injects each
-//	    evasion shape into the real sources and runs the same gate.
+//	    evasion shape into the real sources and runs the same gate;
+//	(g) DISCLOSED residuals (honest scope, not silent narrowing): a
+//	    CROSS-PACKAGE accessor call does not propagate figures to its
+//	    caller (imports outside internal/types' closure are faked; the
+//	    accessor itself is walked and judged in its defining package), a
+//	    non-basic carrier (struct/slice built from figures) is judged where
+//	    its figures are read rather than at the hand-off call, and a
+//	    closure's own return is the closure's face. The reconciliation row
+//	    (the fourth CUSTOMER face) is registered in
+//	    targetStateReconciliationRenderers and must speak the single-source
+//	    non-IO lane word (§40.49 合流复核收编).
+//
+// EVOLUTION RECORD (§40.49 合流复核收编, red→green): the pre-fold-in census
+// keyed taint on direct account selectors only, so nine confirmed evasion
+// shapes stayed green — accessor helpers feeding a selector-free renderer,
+// a fold accessor, a pointer-param fold accessor, a defined type over the
+// account, a TRUE Go alias (*types.Alias receiver, no Unalias), an embedded
+// account wrapper with promoted fields, composite-literal lanes rendered
+// beside the sanctioned formatter call, and the reconciliation renderer's
+// bare-"D-state"/fold-word wording. All nine were added as self-red subtests
+// FIRST and failed with "census failed to flag …; offenders: []" against the
+// old engine; the data-flow engine below turned them green with the original
+// nine shapes unchanged.
 type targetStateFnCensus struct {
 	selectors map[string]bool
 	// unresolved: lane-named selector → the receiver's DECLARED type text
@@ -63,6 +91,16 @@ type targetStateFnCensus struct {
 	stringBuild   bool
 	formatterCall bool
 	foldWord      bool
+	// nonIOWordCall / bareDStateWord (§40.49 合流复核收编): whether the
+	// function calls the single-source customer-face lane word
+	// tool.TraceStateNonIODStateWord, and whether it carries its own
+	// "D-state" string literal — the reconciliation-renderer arm reads both.
+	nonIOWordCall  bool
+	bareDStateWord bool
+	// accessorReturn is non-nil when the function is an ACCESSOR: some
+	// top-level return expression of basic type derives from an account
+	// figure. The value is the figure-selector set its callers inherit.
+	accessorReturn map[string]bool
 }
 
 func newTargetStateFnCensus() *targetStateFnCensus {
@@ -107,19 +145,83 @@ func targetStateDerefNamed(typ gotypes.Type) *gotypes.Named {
 	if typ == nil {
 		return nil
 	}
+	// EVOLUTION RECORD (§40.49 合流复核收编, red→green): under go1.22+
+	// gotypesalias=1 a receiver typed by a TRUE Go alias
+	// (`type X = types.TraceTargetStateScopeAuthority`) reaches here as
+	// *types.Alias, and the bare *types.Named assertion classified it as a
+	// non-account type — falsifying the header's "any alias always counts"
+	// claim. The alias self-red below was red before this Unalias.
+	typ = gotypes.Unalias(typ)
 	if ptr, ok := typ.Underlying().(*gotypes.Pointer); ok {
-		typ = ptr.Elem()
+		typ = gotypes.Unalias(ptr.Elem())
 	}
 	named, _ := typ.(*gotypes.Named)
 	return named
 }
 
-func targetStateIsAccountType(typ gotypes.Type) bool {
+// targetStatePkgEnv is one package's classification environment: the
+// go/types resolution, the package-local DEFINED types over the account
+// (`type X types.TraceTargetStateScopeAuthority` — a conversion target that
+// must keep counting, chains included), and the package-local ACCESSOR
+// functions whose basic-typed return derives from an account figure
+// (`func probeD(a …) float64 { return a.DStateMS }` — figure laundering).
+type targetStatePkgEnv struct {
+	info      *gotypes.Info
+	derived   map[*gotypes.Named]bool
+	accessors map[gotypes.Object]map[string]bool
+}
+
+func (env *targetStatePkgEnv) isAccountType(typ gotypes.Type) bool {
 	named := targetStateDerefNamed(typ)
-	if named == nil || named.Obj().Pkg() == nil {
+	if named == nil {
+		return false
+	}
+	if env.derived[named] {
+		return true
+	}
+	if named.Obj().Pkg() == nil {
 		return false
 	}
 	return strings.HasSuffix(named.Obj().Pkg().Path(), targetStateTypesPkgSuffix) && targetStateAccountTypeNames[named.Obj().Name()]
+}
+
+// accountSelection also counts a PROMOTED selection reached through an
+// embedded account field (`struct{ types.TraceTargetStateScopeAuthority }`):
+// the selection path is walked and any step landing on an account type makes
+// the selection an account figure.
+func (env *targetStatePkgEnv) accountSelection(selection *gotypes.Selection) bool {
+	if env.isAccountType(selection.Recv()) {
+		return true
+	}
+	index := selection.Index()
+	typ := selection.Recv()
+	for i := 0; i+1 < len(index); i++ {
+		typ = gotypes.Unalias(typ)
+		if ptr, ok := typ.Underlying().(*gotypes.Pointer); ok {
+			typ = ptr.Elem()
+		}
+		st, ok := typ.Underlying().(*gotypes.Struct)
+		if !ok || index[i] >= st.NumFields() {
+			return false
+		}
+		typ = st.Field(index[i]).Type()
+		if env.isAccountType(typ) {
+			return true
+		}
+	}
+	return false
+}
+
+// targetStateBasicExpr reports whether an expression's static type is a
+// basic type — the FIGURE shape whose laundering the accessor/helper arms
+// chase (whole-account carriers stay caught at their own selection sites).
+func targetStateBasicExpr(info *gotypes.Info, e ast.Expr) bool {
+	tv, ok := info.Types[e]
+	if !ok || tv.Type == nil {
+		return false
+	}
+	_, basic := tv.Type.Underlying().(*gotypes.Basic)
+	return basic
 }
 
 func targetStateFuncKey(rel string, fn *ast.FuncDecl) string {
@@ -263,8 +365,16 @@ func targetStateTypeText(e ast.Expr) string {
 }
 
 // censusFunc classifies one top-level function (closures inside it count
-// toward it).
-func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info *gotypes.Info) {
+// toward it) and returns the record. Taint is DATA-FLOW taint (§40.49
+// 合流复核收编 T3, ruling "a function is a renderer of the account if any
+// value it formats derives from an account selector"): assignments,
+// composite literals (a lane copied into a slice/struct/map literal),
+// index/field reads off a tainted value, range over a tainted value,
+// conversions (package-local defined types and true aliases included),
+// fold-method calls, and calls to package-local ACCESSOR functions whose
+// basic-typed return derives from an account figure.
+func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, env *targetStatePkgEnv) *targetStateFnCensus {
+	info := env.info
 	rec := newTargetStateFnCensus()
 	accountSel := map[*ast.SelectorExpr]bool{}
 	declared := targetStateDeclaredTypes(fn)
@@ -274,7 +384,7 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 			return true
 		}
 		if selection, ok := info.Selections[sel]; ok {
-			if targetStateIsAccountType(selection.Recv()) {
+			if env.accountSelection(selection) {
 				accountSel[sel] = true
 				rec.selectors[sel.Sel.Name] = true
 			}
@@ -298,12 +408,45 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 		return true
 	})
 
+	// Package-local accessor calls: the callee's figures count as this
+	// function's account references — a selector-free renderer fed by
+	// accessors is still a renderer of the account.
+	accessorCall := func(call *ast.CallExpr) map[string]bool {
+		obj := targetStateCalleeObject(info, call.Fun)
+		if obj == nil {
+			return nil
+		}
+		return env.accessors[obj]
+	}
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		for name := range accessorCall(call) {
+			rec.selectors[name] = true
+		}
+		return true
+	})
+
 	tainted := map[gotypes.Object]bool{}
 	var isTainted func(e ast.Expr) bool
 	isTainted = func(e ast.Expr) bool {
 		switch x := e.(type) {
 		case *ast.SelectorExpr:
-			return accountSel[x]
+			return accountSel[x] || isTainted(x.X)
+		case *ast.IndexExpr:
+			return isTainted(x.X)
+		case *ast.CompositeLit:
+			for _, elt := range x.Elts {
+				value := elt
+				if kv, ok := elt.(*ast.KeyValueExpr); ok {
+					value = kv.Value
+				}
+				if isTainted(value) {
+					return true
+				}
+			}
 		case *ast.Ident:
 			if obj := info.ObjectOf(x); obj != nil {
 				return tainted[obj]
@@ -317,6 +460,9 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 		case *ast.CallExpr:
 			if sel, ok := x.Fun.(*ast.SelectorExpr); ok && accountSel[sel] {
 				return true // fold method call
+			}
+			if len(accessorCall(x)) > 0 {
+				return true // package-local accessor returning an account figure
 			}
 			if tv, ok := info.Types[x.Fun]; ok && tv.IsType() && len(x.Args) == 1 {
 				return isTainted(x.Args[0]) // conversion passthrough
@@ -355,6 +501,10 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 						changed = true
 					}
 				}
+			case *ast.RangeStmt:
+				if n.Value != nil && isTainted(n.X) && taint(n.Value) {
+					changed = true
+				}
 			}
 			return true
 		})
@@ -369,6 +519,10 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 			case *ast.Ident:
 				if obj := info.ObjectOf(x); obj != nil && tainted[obj] {
 					rec.handRendered["local:"+x.Name] = true
+				}
+			case *ast.CallExpr:
+				if len(accessorCall(x)) > 0 {
+					rec.handRendered["via "+targetStateCalleeDisplay(x.Fun)] = true
 				}
 			}
 			return true
@@ -398,6 +552,9 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 				rec.arithmetic = true
 			}
 		case *ast.CallExpr:
+			if strings.HasSuffix(targetStateCalleeDisplay(n.Fun), "TraceStateNonIODStateWord") {
+				rec.nonIOWordCall = true
+			}
 			if tv, ok := info.Types[n.Fun]; ok && tv.IsType() {
 				return true // conversion: handled by isTainted passthrough
 			}
@@ -415,7 +572,10 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 				return true
 			}
 			for _, arg := range n.Args {
-				if isTainted(arg) {
+				// Only BASIC-typed tainted arguments name a helper fold —
+				// whole-carrier hand-offs are caught where the carrier's
+				// figures are read (their own selection sites).
+				if isTainted(arg) && targetStateBasicExpr(info, arg) {
 					rec.helperCalls[targetStateCalleeDisplay(n.Fun)] = true
 				}
 			}
@@ -430,10 +590,50 @@ func (c *targetStateRenderCensus) censusFunc(key string, fn *ast.FuncDecl, info 
 			if strings.Contains(value, "不可中断") || strings.Contains(strings.ToLower(value), "uninterruptible") {
 				rec.foldWord = true
 			}
+			if strings.Contains(value, "D-state") {
+				rec.bareDStateWord = true
+			}
 		}
 		return true
 	})
+	// Accessor face: a basic-typed top-level return deriving from an
+	// account figure makes this function an accessor whose callers inherit
+	// its figures. Returns inside closures are the closure's own face
+	// (closure-mediated laundering stays a disclosed residual, header (g)).
+	var funcLits []*ast.FuncLit
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		if lit, ok := node.(*ast.FuncLit); ok {
+			funcLits = append(funcLits, lit)
+		}
+		return true
+	})
+	insideLit := func(pos token.Pos) bool {
+		for _, lit := range funcLits {
+			if lit.Pos() <= pos && pos <= lit.End() {
+				return true
+			}
+		}
+		return false
+	}
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		ret, ok := node.(*ast.ReturnStmt)
+		if !ok || insideLit(ret.Pos()) {
+			return true
+		}
+		for _, res := range ret.Results {
+			if isTainted(res) && targetStateBasicExpr(info, res) && rec.accessorReturn == nil {
+				rec.accessorReturn = map[string]bool{}
+			}
+		}
+		return true
+	})
+	if rec.accessorReturn != nil {
+		for name := range rec.selectors {
+			rec.accessorReturn[name] = true
+		}
+	}
 	c.fns[key] = rec
+	return rec
 }
 
 // targetStateCensusImporter imports stdlib and the internal/types closure for
@@ -576,6 +776,43 @@ func (s *targetStateCensusSession) censusPackage(census *targetStateRenderCensus
 	if target.strict && len(typeErrs) > 0 {
 		s.t.Fatalf("type-checking %s must be clean for the census to be exact; first error: %v", target.rel, typeErrs[0])
 	}
+	env := &targetStatePkgEnv{
+		info:      info,
+		derived:   map[*gotypes.Named]bool{},
+		accessors: map[gotypes.Object]map[string]bool{},
+	}
+	// T3: package-local defined types over the account keep counting
+	// (`type X types.TraceTargetStateScopeAuthority`, chains included —
+	// fixpoint so `type Y X` also lands).
+	for changed := true; changed; {
+		changed = false
+		for _, f := range files {
+			ast.Inspect(f, func(node ast.Node) bool {
+				spec, ok := node.(*ast.TypeSpec)
+				if !ok {
+					return true
+				}
+				tv, ok := info.Types[spec.Type]
+				if !ok || !env.isAccountType(tv.Type) {
+					return true
+				}
+				def := info.Defs[spec.Name]
+				if def == nil {
+					return true
+				}
+				if named, ok := def.Type().(*gotypes.Named); ok && !env.derived[named] {
+					env.derived[named] = true
+					changed = true
+				}
+				return true
+			})
+		}
+	}
+	type targetStateDeclEntry struct {
+		key string
+		fn  *ast.FuncDecl
+	}
+	var decls []targetStateDeclEntry
 	for _, f := range files {
 		census.filesWalked++
 		for _, decl := range f.Decls {
@@ -583,8 +820,32 @@ func (s *targetStateCensusSession) censusPackage(census *targetStateRenderCensus
 			if !ok || fn.Body == nil {
 				continue
 			}
-			census.censusFunc(targetStateFuncKey(rels[f], fn), fn, info)
+			decls = append(decls, targetStateDeclEntry{key: targetStateFuncKey(rels[f], fn), fn: fn})
 		}
+	}
+	// T3 accessor fixpoint: classify into a scratch census until the
+	// package-local accessor set stops growing (an accessor calling another
+	// accessor inherits its figures), then classify for real.
+	scratch := newTargetStateRenderCensus()
+	for changed := true; changed; {
+		changed = false
+		for _, d := range decls {
+			rec := scratch.censusFunc(d.key, d.fn, env)
+			if rec.accessorReturn == nil {
+				continue
+			}
+			obj := info.Defs[d.fn.Name]
+			if obj == nil {
+				continue
+			}
+			if have, ok := env.accessors[obj]; !ok || len(rec.accessorReturn) > len(have) {
+				env.accessors[obj] = rec.accessorReturn
+				changed = true
+			}
+		}
+	}
+	for _, d := range decls {
+		census.censusFunc(d.key, d.fn, env)
 	}
 }
 
@@ -664,7 +925,10 @@ var targetStateCensusAllowlist = map[string]targetStateAllow{
 // real); stale entries are red.
 var targetStateUnresolvedAllowlist = map[string]string{
 	// The CR-3 reconciliation appendix row (tool.RuntimeTraceReconciliationRow)
-	// — the answer-side system cross-check, not a prompt face.
+	// — the answer-side system cross-check, not a prompt face. Its WORDING
+	// is nevertheless ruled (§40.49 合流复核收编): the renderer is registered
+	// in targetStateReconciliationRenderers and must speak the single-source
+	// non-IO lane word.
 	"internal/orchestrator/prose_typed_reconciliation.go:proseSelectsTargetStateReconciliation": "tool.RuntimeTraceReconciliationRow",
 	"internal/orchestrator/prose_typed_reconciliation.go:renderTargetStateReconciliation":       "tool.RuntimeTraceReconciliationRow",
 }
@@ -675,6 +939,16 @@ var targetStateProseRenderers = []string{
 	"internal/agent/answer_document_evaluator.go:renderAnswerDocTraceTargetStateScopeAuthority",
 	"internal/agent/answer_document_final_decision_boundary.go:renderTraceFinalReaderDecisionCards",
 	"internal/agent/answer_document_final_decision_boundary.go:renderAnswerDocBoundedRuntimeFinalReaderHandoff",
+}
+
+// targetStateReconciliationRenderers — the answer-side reconciliation row
+// (§40.49 合流复核收编, G-target-state #1: the FOURTH customer face of the
+// same account). It prints the five DISJOINT lanes, so its D term is the
+// exclusive non-IO lane and must speak the single-source customer-face word
+// tool.TraceStateNonIODStateWord — never its own "D-state" literal (the bare
+// word is the customer fold face's) and never a fold word.
+var targetStateReconciliationRenderers = []string{
+	"internal/orchestrator/prose_typed_reconciliation.go:renderTargetStateReconciliation",
 }
 
 // targetStateCensusOffenders is THE gate: key → reasons. Both the live test
@@ -749,6 +1023,18 @@ func targetStateCensusOffenders(census *targetStateRenderCensus) map[string][]st
 			add(key, "prose renderer carries its own fold-word literal — the wording is owned by types.FormatTargetStateAccount / tracefence Table ⑧")
 		}
 	}
+	for _, key := range targetStateReconciliationRenderers {
+		fn, ok := census.fns[key]
+		if !ok || !fn.nonIOWordCall {
+			add(key, "reconciliation renderer must label its non-IO D term via the single-source word tool.TraceStateNonIODStateWord")
+		}
+		if ok && fn.bareDStateWord {
+			add(key, "reconciliation renderer carries its own \"D-state\" literal — the lane word is single-sourced in tool.TraceStateNonIODStateWord and the bare word is reserved for the customer fold face")
+		}
+		if ok && fn.foldWord {
+			add(key, "reconciliation renderer carries a fold-word literal (不可中断/uninterruptible) — the row prints the five disjoint lanes, never the fold")
+		}
+	}
 	for _, reasons := range out {
 		sort.Strings(reasons)
 	}
@@ -805,8 +1091,8 @@ func TestTargetStateAccountRenderCensusSelfRed(t *testing.T) {
 	boundaryRel := "internal/agent/" + boundary
 	handoffRel := "internal/agent/" + handoff
 
-	read := func(name string) string {
-		src, err := os.ReadFile(filepath.Join(session.root, "internal/agent", name))
+	read := func(pkg, name string) string {
+		src, err := os.ReadFile(filepath.Join(session.root, pkg, name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
@@ -846,6 +1132,7 @@ func TestTargetStateAccountRenderCensusSelfRed(t *testing.T) {
 
 	cases := []struct {
 		name   string
+		pkg    string // injection package; empty = internal/agent
 		file   string
 		mutate func(src string) string
 		key    string
@@ -928,6 +1215,113 @@ func TestTargetStateAccountRenderCensusSelfRed(t *testing.T) {
 			reason: "hand-renders account figures local:blocked",
 		},
 		{
+			name: "T3 accessor helpers feeding a selector-free renderer (fourth prose face by laundering)",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\nfunc probeDLane(a types.TraceTargetStateScopeAuthority) float64 { return a.DStateMS }\n" +
+					"func probeIOLane(a types.TraceTargetStateScopeAuthority) float64 { return a.IOWaitMS }\n" +
+					"func probeRunLane(a types.TraceTargetStateScopeAuthority) float64 { return a.RunningMS }\n" +
+					"func renderProbeIndirect(a types.TraceTargetStateScopeAuthority) string {\n" +
+					"\treturn fmt.Sprintf(\"- 目标线程 %s：不可中断等待 %.3f 毫秒，运行 %.3f 毫秒\", a.Subject, probeDLane(a)+probeIOLane(a), probeRunLane(a))\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeIndirect",
+			reason: "arithmetic over account figures",
+		},
+		{
+			name: "T3 fold accessor feeding a selector-free renderer",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\nfunc probeFoldLane(a types.TraceTargetStateScopeAuthority) float64 { return a.UninterruptibleWaitMS() }\n" +
+					"func renderProbeFoldAccessor(a types.TraceTargetStateScopeAuthority) string {\n" +
+					"\treturn fmt.Sprintf(\"blocked %.3f\", probeFoldLane(a))\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeFoldAccessor",
+			reason: "hand-renders account figures",
+		},
+		{
+			name: "T3 pointer-param fold accessor feeding a string concat",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\nfunc probeFoldPtr(a *types.TraceTargetStateScopeAuthority) float64 { return a.UninterruptibleWaitMS() }\n" +
+					"func renderProbeFoldPtr(a types.TraceTargetStateScopeAuthority) string {\n" +
+					"\treturn \"不可中断等待 \" + strconv.FormatFloat(probeFoldPtr(&a), 'f', 3, 64)\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeFoldPtr",
+			reason: "hand-renders account figures",
+		},
+		{
+			name: "T3 defined type over the account (conversion keeps counting)",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\ntype probeAcctKind types.TraceTargetStateScopeAuthority\n" +
+					"func renderProbeDefinedKind(authority types.TraceTargetStateScopeAuthority) string {\n" +
+					"\ta := probeAcctKind(authority)\n\treturn fmt.Sprintf(\"等待合计 %.3f\", a.DStateMS+a.IOWaitMS)\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeDefinedKind",
+			reason: "arithmetic over account figures",
+		},
+		{
+			name: "T3 true Go alias of the account (the header's alias claim, now load-bearing)",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\ntype probeAcctAlias = types.TraceTargetStateScopeAuthority\n" +
+					"func renderProbeAliasKind(a probeAcctAlias) string {\n" +
+					"\treturn fmt.Sprintf(\"不可中断合计 %.3f\", a.DStateMS+a.IOWaitMS)\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeAliasKind",
+			reason: "arithmetic over account figures",
+		},
+		{
+			name: "T3 composite-literal lanes hand-rendered beside the sanctioned formatter call",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\nfunc renderProbeLanesBesideFormatter(a types.TraceTargetStateScopeAuthority, lang string) string {\n" +
+					"\tlanes := []float64{a.DStateMS, a.IOWaitMS}\n" +
+					"\treturn types.FormatTargetStateAccount(a, lang) + fmt.Sprintf(\"(probe %.3f)\", lanes[0]+lanes[1])\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeLanesBesideFormatter",
+			reason: "arithmetic over account figures",
+		},
+		{
+			name: "T3 embedded account wrapper with promoted lane fields",
+			file: boundary,
+			mutate: func(src string) string {
+				return src + "\ntype probeAcctEmbed struct{ types.TraceTargetStateScopeAuthority }\n" +
+					"func renderProbeEmbedded(w probeAcctEmbed) string {\n" +
+					"\treturn fmt.Sprintf(\"拼段 %.3f\", w.DStateMS+w.IOWaitMS)\n}\n"
+			},
+			key:    boundaryRel + ":renderProbeEmbedded",
+			reason: "arithmetic over account figures",
+		},
+		{
+			name: "reconciliation renderer swaps the single-source lane word for its own bare D-state literal (§40.49 fold-in)",
+			pkg:  "internal/orchestrator",
+			file: "prose_typed_reconciliation.go",
+			mutate: func(src string) string {
+				mutated := strings.ReplaceAll(src, "tool.TraceStateNonIODStateWord(", "targetStateProbeWord(")
+				if mutated == src {
+					t.Fatal("renderTargetStateReconciliation no longer calls tool.TraceStateNonIODStateWord — update this self-red")
+				}
+				return mutated + "\nfunc targetStateProbeWord(zh bool) string { return \"D-state\" }\n"
+			},
+			key:    "internal/orchestrator/prose_typed_reconciliation.go:renderTargetStateReconciliation",
+			reason: "single-source word tool.TraceStateNonIODStateWord",
+		},
+		{
+			name: "reconciliation renderer grows a fold-word literal",
+			pkg:  "internal/orchestrator",
+			file: "prose_typed_reconciliation.go",
+			mutate: func(src string) string {
+				const anchor = "\"对账参考: "
+				if !strings.Contains(src, anchor) {
+					t.Fatal("reconciliation row prefix no longer present — update this self-red")
+				}
+				return strings.Replace(src, anchor, "\"对账参考(不可中断): ", 1)
+			},
+			key:    "internal/orchestrator/prose_typed_reconciliation.go:renderTargetStateReconciliation",
+			reason: "carries a fold-word literal",
+		},
+		{
 			name: "string built next to an account figure without the formatter (ruling arm)",
 			file: boundary,
 			mutate: func(src string) string {
@@ -940,8 +1334,12 @@ func TestTargetStateAccountRenderCensusSelfRed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			pkg := tc.pkg
+			if pkg == "" {
+				pkg = "internal/agent"
+			}
 			census := session.walk(map[string]map[string]string{
-				"internal/agent": {tc.file: tc.mutate(read(tc.file))},
+				pkg: {tc.file: tc.mutate(read(pkg, tc.file))},
 			})
 			offenders := targetStateCensusOffenders(census)
 			reasons, ok := offenders[tc.key]

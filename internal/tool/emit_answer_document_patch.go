@@ -2905,6 +2905,16 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		hints := answerDocumentPatchMisplacedHintsForSchema(err, params, fieldEditSchema)
 		return failStrictDecode(t.Name(), now, err, hints, params)
 	}
+	// §40.44 G-emit-faces fold-in #1: resolve the optional selector
+	// immediately after the strict decode, BEFORE any staged reject or
+	// pre-emit check (the resolver needs only ctx + the submitted field, and
+	// persist has not run yet, so "retained_previous" still sees the
+	// previously accepted report). Every reject from here on — the three
+	// diagram-phase staged rejects included — runs the deferred commit tail
+	// with the resolved selection, so a valid selector riding a "submit only
+	// new corrections" reject is staged (§40.31.1 ★16) and an invalid one is
+	// disclosed and marked rejected (§40.44 residual a).
+	rootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.ReplaceTraceRootCauses, true)
 	if len(p.BlockFieldEditsV1) > maxModelAuthoredBlockFieldEditsV1 {
 		return failEmit(t.Name(), now, "too many block_field_edits_v1: got %d, max %d",
 			len(p.BlockFieldEditsV1), maxModelAuthoredBlockFieldEditsV1)
@@ -3117,10 +3127,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// merged-doc invariants (id uniqueness / diagram payload /
 	// max blocks) live in ApplyAndPersistMutation.
 	merged, mutation, applyErr := buildAnswerDocumentPatchBase(prev, patch)
-	// Resolved before persist (a bad replacement is "retained_previous" only
-	// while the accepted report is still visible), committed on every exit
-	// from here on by the deferred commitTraceRootCauseSelection.
-	rootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.ReplaceTraceRootCauses, true)
+	// The selector was already resolved right after the strict decode
+	// (§40.44 G-emit-faces fold-in #1) and is committed on every exit by the
+	// deferred commitTraceRootCauseSelection.
 	dropExplicitlyRemovedModelDiagrams := false
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror

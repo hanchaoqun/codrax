@@ -446,7 +446,7 @@ func ledgerEscapes(fset *token.FileSet, fn *censusFunc, idents map[string]bool, 
 		case *ast.SelectorExpr:
 			if recv, ok := node.X.(*ast.Ident); ok && idents[recv.Name] {
 				switch node.Sel.Name {
-				case "ignored", "mint", "finalize", "toolName":
+				case "ignored", "mint", "note", "finalize", "toolName":
 					sanctioned[recv] = true
 				}
 			}

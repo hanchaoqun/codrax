@@ -58,7 +58,7 @@ func TestBindRootCauseReportSelectionCarriesDescription(t *testing.T) {
 	if err != nil || report == nil || len(report.RootCauses) != 1 || report.RootCauses[0].Description != "" {
 		t.Fatalf("the selection must survive a leaking description: %+v %v", report, err)
 	}
-	if len(advisories) != 1 || !strings.Contains(advisories[0], "internal references") {
-		t.Fatalf("the drop must be disclosed: %v", advisories)
+	if len(advisories) != 1 || !advisories[0].Dropped() || !strings.Contains(advisories[0].Reason, "internal references") {
+		t.Fatalf("the drop must be disclosed as a typed part-drop advisory: %+v", advisories)
 	}
 }

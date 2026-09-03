@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -37,7 +38,9 @@ func TestFactRel_PartitionFactOnMultiStateProse(t *testing.T) {
 	}
 	for _, want := range []string{
 		".ugc.aweme.lite-17267",
-		"running 157.248/runnable 5.604/sleep 70.338/非IO D-state 0.000/io_wait 0.000ms",
+		// §40.49 合流复核收编: the exclusive D lane speaks the single-source
+		// customer-face word (byte-equal across all five customer faces).
+		"running 157.248/runnable 5.604/sleep 70.338/" + tool.TraceStateNonIODStateWord(true) + " 0.000/io_wait 0.000ms",
 		"同一时刻仅居一态",
 		"不存在包含关系",
 		// 附注自证义务: the Σ equation prints the real addends and the real

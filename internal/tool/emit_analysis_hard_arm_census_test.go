@@ -49,6 +49,25 @@ import (
 // reassignment chain, a reused identifier name, a bare-boolean guard, or a
 // field write is red wherever it is nested. A completeness_exempt row is
 // allowed only with a ruling citation.
+//
+// Frames follow the flow resolver's totality (§40.47 fold-in round five):
+// EVERY branching statement opens one — `if` (Init+Cond), each `switch` /
+// type-switch case (Init+Tag+case exprs / asserted subject), each `select`
+// comm clause, `for` (Init+Cond, or `<unconditional for>`), and `range` (the
+// ranged expression) — so a reject nested under a non-if judge can never
+// inherit only the enclosing registered frame's keys. `else` branches and
+// `default` clauses are skipped frames (their condition did not hold).
+//
+// Sites are bound by data flow over the return value, not by the literal
+// spelling: every `types.ToolResult` composite literal whose Success does not
+// PROVABLY resolve to `true` (the literal `false`, a missing Success key, a
+// variable that is not always-true, any computed value) is a site, and every
+// `return` in Execute whose first result is not a composite literal (a
+// variable, a dereference, a helper call — the signature makes it a
+// ToolResult) is a site whose result producers join its producer set and
+// stand in as judges when no frame encloses it. A reject built through a
+// helper or carried through a variable is therefore red until its producer
+// is registered.
 
 type emitAnalysisHardArm struct {
 	// class ∈ schema_shape (a declared carrier fails its own typed shape or
@@ -79,6 +98,7 @@ var emitAnalysisHardArmRegistry = map[string]emitAnalysisHardArm{
 	// ---- judges -----------------------------------------------------------
 	"ctx == nil || ctx.Mutable == nil":                          {"host_precondition", "no writable Mutable — the tool cannot deposit a model at all"},
 	"types.IsREPLControlInput":                                  {"host_precondition", "the request itself is a local REPL control input, not a code question"},
+	"decodeStrictNormalizedToolParams":                          {"schema_shape", "strict decode of the params payload (unknown/misplaced/malformed fields); its failure result is returned through a variable and pinned by strict_decode tests"},
 	"missingEmitAnalysisRequiredTopLevelFields":                 {"schema_shape", "presence of runtime-required top-level carriers"},
 	"p.CompletenessObligation == nil":                           {"schema_shape", "presence-required typed decision (r193)"},
 	`scenario == types.ScenarioChitchat && chitchatReply == ""`: {"internal_consistency", "CHATFIX-1: declared chitchat scenario without its reply"},
@@ -156,6 +176,32 @@ type emitAnalysisFlowObj struct {
 	copies    []*emitAnalysisFlowObj          // RHS was a plain identifier / selector chain
 	fields    map[string]*emitAnalysisFlowObj // `x.f = e` writes land here
 	parent    *emitAnalysisFlowObj
+	boolTrue  bool // some assignment was the literal `true`
+	boolFalse bool // some assignment was the literal `false`
+	boolOther bool // some assignment was neither a bool literal nor a plain copy
+}
+
+// alwaysTrueBool reports whether every value this object can carry is the
+// literal `true` — the only case a `Success:` binding is provably a success
+// result. Any `false`, any computed assignment, any producer, or a total
+// absence of information keeps the site conservative (a potential reject).
+func (o *emitAnalysisFlowObj) alwaysTrueBool(seen map[*emitAnalysisFlowObj]bool) bool {
+	if seen[o] {
+		return true
+	}
+	seen[o] = true
+	if o.boolFalse || o.boolOther || len(o.producers) > 0 {
+		return false
+	}
+	if !o.boolTrue && len(o.copies) == 0 {
+		return false
+	}
+	for _, c := range o.copies {
+		if !c.alwaysTrueBool(seen) {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *emitAnalysisFlowObj) field(name string) *emitAnalysisFlowObj {
@@ -260,6 +306,16 @@ func emitAnalysisNeutralCallee(callee string) bool {
 // contributes its printed text — an inline judgement is its own producer.
 // Literals, package constants, composite and function literals carry nothing.
 func (r *emitAnalysisFlowResolver) record(o *emitAnalysisFlowObj, rhs ast.Expr) {
+	if id, ok := rhs.(*ast.Ident); ok {
+		switch id.Name {
+		case "true":
+			o.boolTrue = true
+			return
+		case "false":
+			o.boolFalse = true
+			return
+		}
+	}
 	if src := r.chain(rhs); src != nil {
 		if src != o {
 			o.copies = append(o.copies, src)
@@ -325,6 +381,7 @@ func (r *emitAnalysisFlowResolver) record(o *emitAnalysisFlowObj, rhs ast.Expr) 
 	if compound && callees == 0 {
 		o.producers = append(o.producers, emitAnalysisCondText(r.fset, rhs))
 	}
+	o.boolOther = true
 }
 
 func (r *emitAnalysisFlowResolver) assign(lhs, rhs []ast.Expr, define bool) {
@@ -589,16 +646,17 @@ func emitAnalysisResolveExecute(fset *token.FileSet, fn *ast.FuncDecl) *emitAnal
 
 // ---- frame keys ---------------------------------------------------------
 
-// emitAnalysisFrameKeys returns the attribution keys of one `if` frame: the
-// outermost non-neutral callees in its Init and Cond, the transitive
-// producers of every variable / selector chain its Cond reads, and — when
-// the Cond calls nothing and reads either no produced variable or more than
-// one variable — the printed condition text itself.
-func emitAnalysisFrameKeys(r *emitAnalysisFlowResolver, frame *ast.IfStmt) []string {
+// emitAnalysisFrameKeysFor returns the attribution keys of one frame of any
+// statement kind: the outermost non-neutral callees in its Init and condition
+// expressions, the transitive producers of every variable / selector chain
+// those expressions read, and — when the conditions call nothing and read
+// either no produced variable or more than one variable — the fallback text
+// (the printed condition; the condition is then the judge itself).
+func emitAnalysisFrameKeysFor(r *emitAnalysisFlowResolver, init ast.Stmt, conds []ast.Expr, fallback string) []string {
 	keys := map[string]bool{}
 	calls := 0
-	if init, ok := frame.Init.(*ast.AssignStmt); ok {
-		for _, rhs := range init.Rhs {
+	if initAssign, ok := init.(*ast.AssignStmt); ok {
+		for _, rhs := range initAssign.Rhs {
 			if c := emitAnalysisCallee(rhs); c != "" && !emitAnalysisNeutralCallee(c) {
 				keys[c] = true
 				calls++
@@ -607,9 +665,56 @@ func emitAnalysisFrameKeys(r *emitAnalysisFlowResolver, frame *ast.IfStmt) []str
 	}
 	objs := map[*emitAnalysisFlowObj]bool{}
 	produced := map[string]bool{}
-	ast.Inspect(frame.Cond, func(n ast.Node) bool {
+	for _, cond := range conds {
+		if cond == nil {
+			continue
+		}
+		ast.Inspect(cond, func(n ast.Node) bool {
+			if o := r.refs[n]; o != nil {
+				objs[o] = true
+				o.producersOf(map[*emitAnalysisFlowObj]bool{}, produced)
+				return false
+			}
+			switch x := n.(type) {
+			case *ast.FuncLit:
+				return false
+			case *ast.CallExpr:
+				if c := emitAnalysisCallee(x); c != "" && !emitAnalysisNeutralCallee(c) {
+					keys[c] = true
+					calls++
+					return false
+				}
+			}
+			return true
+		})
+	}
+	for p := range produced {
+		keys[p] = true
+	}
+	if calls == 0 && (len(objs) != 1 || len(produced) == 0) {
+		keys[fallback] = true
+	}
+	out := make([]string, 0, len(keys))
+	for k := range keys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func emitAnalysisFrameKeys(r *emitAnalysisFlowResolver, frame *ast.IfStmt) []string {
+	return emitAnalysisFrameKeysFor(r, frame.Init, []ast.Expr{frame.Cond}, emitAnalysisCondText(r.fset, frame.Cond))
+}
+
+// emitAnalysisResultProducers collects the data-flow producers of a returned
+// non-literal result: transitive producers of every variable / selector chain
+// it reads plus every outermost non-neutral callee. A result whose flow
+// resolves to nothing is opaque and carries its printed text, so it can never
+// pass silently.
+func emitAnalysisResultProducers(r *emitAnalysisFlowResolver, e ast.Expr) []string {
+	produced := map[string]bool{}
+	ast.Inspect(e, func(n ast.Node) bool {
 		if o := r.refs[n]; o != nil {
-			objs[o] = true
 			o.producersOf(map[*emitAnalysisFlowObj]bool{}, produced)
 			return false
 		}
@@ -618,22 +723,18 @@ func emitAnalysisFrameKeys(r *emitAnalysisFlowResolver, frame *ast.IfStmt) []str
 			return false
 		case *ast.CallExpr:
 			if c := emitAnalysisCallee(x); c != "" && !emitAnalysisNeutralCallee(c) {
-				keys[c] = true
-				calls++
+				produced[c] = true
 				return false
 			}
 		}
 		return true
 	})
+	if len(produced) == 0 {
+		produced["<opaque return "+emitAnalysisCondText(r.fset, e)+">"] = true
+	}
+	out := make([]string, 0, len(produced))
 	for p := range produced {
-		keys[p] = true
-	}
-	if calls == 0 && (len(objs) != 1 || len(produced) == 0) {
-		keys[emitAnalysisCondText(r.fset, frame.Cond)] = true
-	}
-	out := make([]string, 0, len(keys))
-	for k := range keys {
-		out = append(out, k)
+		out = append(out, p)
 	}
 	sort.Strings(out)
 	return out
@@ -666,63 +767,211 @@ func emitAnalysisHardArmCensus(src string, carriers map[string]bool) ([]emitAnal
 	}
 	r := emitAnalysisResolveExecute(fset, execute)
 	type frame struct {
-		stmt   *ast.IfStmt
-		inElse bool
-		keys   []string
+		keys []string
+		cond string
+		skip bool // else branch / default clause: this frame's condition did not hold
 	}
 	var stack []frame
 	var sites []emitAnalysisHardArmSite
+	depth := 0 // function-literal nesting: their returns are not Execute's
+	addSite := func(n ast.Node, resultProducers []string) {
+		site := emitAnalysisHardArmSite{position: fset.Position(n.Pos()).String()}
+		producers := map[string]bool{}
+		for _, p := range resultProducers {
+			producers[p] = true
+		}
+		for i := len(stack) - 1; i >= 0; i-- {
+			fr := stack[i]
+			if fr.skip {
+				continue
+			}
+			for _, k := range fr.keys {
+				producers[k] = true
+			}
+			if site.judges != nil {
+				continue
+			}
+			transparent := len(fr.keys) > 0
+			for _, k := range fr.keys {
+				transparent = transparent && carriers[k]
+			}
+			if transparent {
+				continue
+			}
+			site.judges = fr.keys
+			site.condition = fr.cond
+		}
+		if site.judges == nil {
+			if len(resultProducers) > 0 {
+				site.judges = resultProducers // an unframed return: its producer made the decision
+			} else {
+				site.judges = []string{"<no enclosing frame>"}
+			}
+		}
+		for k := range producers {
+			site.producers = append(site.producers, k)
+		}
+		sort.Strings(site.producers)
+		sites = append(sites, site)
+	}
+	push := func(keys []string, cond string, skip bool) {
+		stack = append(stack, frame{keys: keys, cond: cond, skip: skip})
+	}
+	pop := func() { stack = stack[:len(stack)-1] }
+	stmtText := func(s ast.Stmt) string {
+		var b strings.Builder
+		_ = printer.Fprint(&b, fset, s)
+		return strings.Join(strings.Fields(b.String()), " ")
+	}
 	var visit func(n ast.Node) bool
 	visit = func(n ast.Node) bool {
 		switch node := n.(type) {
+		case *ast.FuncLit:
+			depth++
+			ast.Inspect(node.Body, visit)
+			depth--
+			return false
 		case *ast.IfStmt:
-			stack = append(stack, frame{stmt: node, keys: emitAnalysisFrameKeys(r, node)})
+			push(emitAnalysisFrameKeys(r, node), emitAnalysisCondText(fset, node.Cond), false)
 			if node.Init != nil {
 				ast.Inspect(node.Init, visit)
 			}
 			ast.Inspect(node.Cond, visit)
 			ast.Inspect(node.Body, visit)
 			if node.Else != nil {
-				stack[len(stack)-1].inElse = true
+				stack[len(stack)-1].skip = true
 				ast.Inspect(node.Else, visit)
 			}
-			stack = stack[:len(stack)-1]
+			pop()
 			return false
-		case *ast.CompositeLit:
-			if !emitAnalysisIsFailedToolResult(node) {
+		case *ast.SwitchStmt:
+			if node.Init != nil {
+				ast.Inspect(node.Init, visit)
+			}
+			if node.Tag != nil {
+				ast.Inspect(node.Tag, visit)
+			}
+			for _, c := range node.Body.List {
+				cc := c.(*ast.CaseClause)
+				conds := append([]ast.Expr{}, cc.List...)
+				if node.Tag != nil {
+					conds = append(conds, node.Tag)
+				}
+				text := "default"
+				if len(cc.List) > 0 {
+					parts := make([]string, 0, len(cc.List)+1)
+					if node.Tag != nil {
+						parts = append(parts, emitAnalysisCondText(fset, node.Tag)+" ==")
+					}
+					for _, e := range cc.List {
+						parts = append(parts, emitAnalysisCondText(fset, e))
+					}
+					text = "case " + strings.Join(parts, " ")
+				}
+				push(emitAnalysisFrameKeysFor(r, node.Init, conds, text), text, len(cc.List) == 0)
+				for _, e := range cc.List {
+					ast.Inspect(e, visit)
+				}
+				for _, s := range cc.Body {
+					ast.Inspect(s, visit)
+				}
+				pop()
+			}
+			return false
+		case *ast.TypeSwitchStmt:
+			var subj ast.Expr
+			switch a := node.Assign.(type) {
+			case *ast.AssignStmt:
+				if ta, ok := a.Rhs[0].(*ast.TypeAssertExpr); ok {
+					subj = ta.X
+				}
+			case *ast.ExprStmt:
+				if ta, ok := a.X.(*ast.TypeAssertExpr); ok {
+					subj = ta.X
+				}
+			}
+			if node.Init != nil {
+				ast.Inspect(node.Init, visit)
+			}
+			text := "switch " + emitAnalysisCondText(fset, subj) + ".(type)"
+			for _, c := range node.Body.List {
+				cc := c.(*ast.CaseClause)
+				push(emitAnalysisFrameKeysFor(r, node.Init, []ast.Expr{subj}, text), text, len(cc.List) == 0)
+				for _, s := range cc.Body {
+					ast.Inspect(s, visit)
+				}
+				pop()
+			}
+			return false
+		case *ast.SelectStmt:
+			for _, c := range node.Body.List {
+				cc := c.(*ast.CommClause)
+				var conds []ast.Expr
+				text := "select default"
+				switch comm := cc.Comm.(type) {
+				case *ast.AssignStmt:
+					conds = comm.Rhs
+					text = stmtText(comm)
+				case *ast.ExprStmt:
+					conds = []ast.Expr{comm.X}
+					text = stmtText(comm)
+				case *ast.SendStmt:
+					conds = []ast.Expr{comm.Chan, comm.Value}
+					text = stmtText(comm)
+				}
+				push(emitAnalysisFrameKeysFor(r, nil, conds, text), text, cc.Comm == nil)
+				if cc.Comm != nil {
+					ast.Inspect(cc.Comm, visit)
+				}
+				for _, s := range cc.Body {
+					ast.Inspect(s, visit)
+				}
+				pop()
+			}
+			return false
+		case *ast.ForStmt:
+			text := "<unconditional for>"
+			var conds []ast.Expr
+			if node.Cond != nil {
+				conds = []ast.Expr{node.Cond}
+				text = emitAnalysisCondText(fset, node.Cond)
+			}
+			if node.Init != nil {
+				ast.Inspect(node.Init, visit)
+			}
+			if node.Cond != nil {
+				ast.Inspect(node.Cond, visit)
+			}
+			push(emitAnalysisFrameKeysFor(r, node.Init, conds, text), text, false)
+			ast.Inspect(node.Body, visit)
+			if node.Post != nil {
+				ast.Inspect(node.Post, visit)
+			}
+			pop()
+			return false
+		case *ast.RangeStmt:
+			text := "range " + emitAnalysisCondText(fset, node.X)
+			ast.Inspect(node.X, visit)
+			push(emitAnalysisFrameKeysFor(r, nil, []ast.Expr{node.X}, text), text, false)
+			ast.Inspect(node.Body, visit)
+			pop()
+			return false
+		case *ast.ReturnStmt:
+			if depth > 0 || len(node.Results) == 0 {
 				return true
 			}
-			site := emitAnalysisHardArmSite{position: fset.Position(node.Pos()).String()}
-			producers := map[string]bool{}
-			for i := len(stack) - 1; i >= 0; i-- {
-				fr := stack[i]
-				if fr.inElse {
-					continue
-				}
-				for _, k := range fr.keys {
-					producers[k] = true
-				}
-				if site.judges != nil {
-					continue
-				}
-				transparent := len(fr.keys) > 0
-				for _, k := range fr.keys {
-					transparent = transparent && carriers[k]
-				}
-				if transparent {
-					continue
-				}
-				site.judges = fr.keys
-				site.condition = emitAnalysisCondText(fset, fr.stmt.Cond)
+			if _, ok := node.Results[0].(*ast.CompositeLit); ok {
+				return true // judged at the literal below
 			}
-			if site.judges == nil {
-				site.judges = []string{"<no enclosing if>"}
+			// Execute's signature makes the first result a types.ToolResult:
+			// a non-literal return is a site bound by its result's data flow.
+			addSite(node, emitAnalysisResultProducers(r, node.Results[0]))
+			return true
+		case *ast.CompositeLit:
+			if !emitAnalysisToolResultMayFail(r, node) {
+				return true
 			}
-			for k := range producers {
-				site.producers = append(site.producers, k)
-			}
-			sort.Strings(site.producers)
-			sites = append(sites, site)
+			addSite(node, nil)
 		}
 		return true
 	}
@@ -746,7 +995,11 @@ func emitAnalysisCallee(expr ast.Expr) string {
 	return ""
 }
 
-func emitAnalysisIsFailedToolResult(lit *ast.CompositeLit) bool {
+// emitAnalysisToolResultMayFail reports whether a types.ToolResult composite
+// literal can carry Success=false: the literal `false`, a missing Success key
+// (the zero value), a positional literal, or any Success binding that does
+// not provably resolve to the literal `true` through the flow resolver.
+func emitAnalysisToolResultMayFail(r *emitAnalysisFlowResolver, lit *ast.CompositeLit) bool {
 	sel, ok := lit.Type.(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != "ToolResult" {
 		return false
@@ -763,8 +1016,25 @@ func emitAnalysisIsFailedToolResult(lit *ast.CompositeLit) bool {
 		if !ok || key.Name != "Success" {
 			continue
 		}
-		value, ok := kv.Value.(*ast.Ident)
-		return ok && value.Name == "false"
+		return !emitAnalysisResolvesAlwaysTrue(r, kv.Value)
+	}
+	return true
+}
+
+func emitAnalysisResolvesAlwaysTrue(r *emitAnalysisFlowResolver, v ast.Expr) bool {
+	switch x := v.(type) {
+	case *ast.ParenExpr:
+		return emitAnalysisResolvesAlwaysTrue(r, x.X)
+	case *ast.Ident:
+		switch x.Name {
+		case "true":
+			return true
+		case "false":
+			return false
+		}
+		if o := r.refs[ast.Node(x)]; o != nil {
+			return o.alwaysTrueBool(map[*emitAnalysisFlowObj]bool{})
+		}
 	}
 	return false
 }
@@ -824,7 +1094,7 @@ func TestEmitAnalysisHardArmCensus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("census parse failed (a silent green would defeat the tripwire): %v", err)
 	}
-	if len(sites) < 39 {
+	if len(sites) < 45 {
 		t.Fatalf("census attributed only %d hard-reject sites — it lost its subject", len(sites))
 	}
 	problems, seen := emitAnalysisHardArmProblems(sites)
@@ -841,31 +1111,45 @@ func TestEmitAnalysisHardArmCensus(t *testing.T) {
 	// Self-red: an unregistered validating arm must be reported in every
 	// shape the data-flow rule claims to cover. Each mutation is inserted
 	// before the deposit site (the plain shape) or nested inside a registered
-	// frame (the guarded shapes); `attributed` shapes must additionally name
-	// validateFooUnregisteredArm as a judge of the inserted reject.
+	// frame (the guarded shapes); a non-empty `judge` must additionally be
+	// named as a judge of the inserted reject, a non-empty `producer` must be
+	// named inside some reported problem line.
 	deposit := "	ctx.Mutable.SetRequestModel(rm)\n"
 	reject := "return types.ToolResult{ToolName: t.Name(), Success: false, Summary: \"foo\"}, nil\n"
 	nested := func(body string) string {
 		return "	if conflict := validateAuxiliaryPrincipalExclusionConflict(rm); conflict == \"\" {\n" + body + "	}\n"
 	}
+	const fooJudge = "validateFooUnregisteredArm"
 	type shape struct {
-		insert     string
-		attributed bool
+		insert   string
+		judge    string // expected among some site's judges ("" = skip)
+		producer string // expected inside some problem line ("" = skip)
 	}
 	shapes := map[string]shape{
-		"direct init arm": {"	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		" + reject + "	}\n", true},
-		"bare-boolean guard nested in a registered frame":      {nested("		okBar := validateFooUnregisteredArm(rm)\n		if !okBar {\n			" + reject + "		}\n"), true},
-		"init bare-boolean guard nested in a registered frame": {nested("		if okBar := validateFooUnregisteredArm(rm); !okBar {\n			" + reject + "		}\n"), true},
-		"reassignment chain":                           {"	chain := validateAuxiliaryPrincipalExclusionConflict(rm)\n	if chain == \"\" {\n		chain = validateFooUnregisteredArm(rm)\n	}\n	if chain != \"\" {\n		" + reject + "	}\n", true},
-		"multi-assigned identifier (conflict)":         {"	conflict := validateFooUnregisteredArm(rm)\n	if conflict != \"\" {\n		" + reject + "	}\n", true},
-		"multi-assigned identifier (issue)":            {"	issue := validateFooUnregisteredArm(rm)\n	if issue != \"\" {\n		" + reject + "	}\n", true},
-		"identifier copy":                              {"	verdict := validateFooUnregisteredArm(rm)\n	alias := verdict\n	if alias != \"\" {\n		" + reject + "	}\n", true},
-		"guard under a registered escape carrier":      {"	if !artifactOnlyRuntime {\n		if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n			" + reject + "		}\n	}\n", true},
-		"field write on a registered carrier":          {"	val.RejectReason = validateFooUnregisteredArm(rm)\n	if val.RejectReason != \"\" {\n		" + reject + "	}\n", true},
-		"field write through a pointer alias":          {"	alias := &val\n	alias.RejectReason = validateFooUnregisteredArm(rm)\n	if val.RejectReason != \"\" {\n		" + reject + "	}\n", true},
-		"negated copy of an unregistered verdict":      {"	okBar := validateFooUnregisteredArm(rm) == \"\"\n	notOK := !okBar\n	if notOK {\n		" + reject + "	}\n", true},
-		"inline judgement with no call":                {"	hidden := len(rm.AnalyzerHints.RequiredFileHints) < 2\n	if hidden {\n		" + reject + "	}\n", false},
-		"inline judgement beside a registered verdict": {nested("		if len(rm.AnalyzerHints.RequiredFileHints) < 2 {\n			" + reject + "		}\n"), false},
+		"direct init arm": {"	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"bare-boolean guard nested in a registered frame":      {nested("		okBar := validateFooUnregisteredArm(rm)\n		if !okBar {\n			" + reject + "		}\n"), fooJudge, ""},
+		"init bare-boolean guard nested in a registered frame": {nested("		if okBar := validateFooUnregisteredArm(rm); !okBar {\n			" + reject + "		}\n"), fooJudge, ""},
+		"reassignment chain":                           {"	chain := validateAuxiliaryPrincipalExclusionConflict(rm)\n	if chain == \"\" {\n		chain = validateFooUnregisteredArm(rm)\n	}\n	if chain != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"multi-assigned identifier (conflict)":         {"	conflict := validateFooUnregisteredArm(rm)\n	if conflict != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"multi-assigned identifier (issue)":            {"	issue := validateFooUnregisteredArm(rm)\n	if issue != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"identifier copy":                              {"	verdict := validateFooUnregisteredArm(rm)\n	alias := verdict\n	if alias != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"guard under a registered escape carrier":      {"	if !artifactOnlyRuntime {\n		if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n			" + reject + "		}\n	}\n", fooJudge, ""},
+		"field write on a registered carrier":          {"	val.RejectReason = validateFooUnregisteredArm(rm)\n	if val.RejectReason != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"field write through a pointer alias":          {"	alias := &val\n	alias.RejectReason = validateFooUnregisteredArm(rm)\n	if val.RejectReason != \"\" {\n		" + reject + "	}\n", fooJudge, ""},
+		"negated copy of an unregistered verdict":      {"	okBar := validateFooUnregisteredArm(rm) == \"\"\n	notOK := !okBar\n	if notOK {\n		" + reject + "	}\n", fooJudge, ""},
+		"inline judgement with no call":                {"	hidden := len(rm.AnalyzerHints.RequiredFileHints) < 2\n	if hidden {\n		" + reject + "	}\n", "", ""},
+		"inline judgement beside a registered verdict": {nested("		if len(rm.AnalyzerHints.RequiredFileHints) < 2 {\n			" + reject + "		}\n"), "", ""},
+		// §40.47 fold-in round five: non-if frames nested inside a registered
+		// frame, and rejects not spelled as a Success:false literal.
+		"switch arm nested in a registered frame":                 {nested("		switch {\n		case validateFooUnregisteredArm(rm) != \"\":\n			" + reject + "		}\n"), fooJudge, ""},
+		"switch-init arm nested in a registered frame":            {nested("		switch issue := validateFooUnregisteredArm(rm); {\n		case issue != \"\":\n			" + reject + "		}\n"), fooJudge, ""},
+		"type-switch arm nested in a registered frame":            {nested("		switch validateFooUnregisteredArm(rm).(type) {\n		case string:\n			" + reject + "		}\n"), fooJudge, ""},
+		"for-cond arm nested in a registered frame":               {nested("		for validateFooUnregisteredArm(rm) != \"\" {\n			" + reject + "		}\n"), fooJudge, ""},
+		"range arm nested in a registered frame":                  {nested("		for _, issue := range validateFooUnregisteredArm(rm) {\n			_ = issue\n			" + reject + "		}\n"), fooJudge, ""},
+		"select arm nested in a registered frame":                 {nested("		select {\n		case issue := <-validateFooUnregisteredArmCh(rm):\n			_ = issue\n			" + reject + "		}\n"), "validateFooUnregisteredArmCh", ""},
+		"helper-built reject nested in a registered frame":        {nested("		return emitAnalysisRejectFoo(rm, raw), nil\n"), "", "emitAnalysisRejectFoo"},
+		"reject carried through a variable return":                {"	failure := buildFooFailureUnregistered(rm)\n	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		return failure, nil\n	}\n", fooJudge, "buildFooFailureUnregistered"},
+		"Success bound to a variable under an unregistered judge": {"	if issue := validateFooUnregisteredArm(rm); issue != \"\" {\n		rejected := issue != \"\"\n		return types.ToolResult{ToolName: t.Name(), Success: rejected, Summary: issue}, nil\n	}\n", fooJudge, ""},
 	}
 	for name, sh := range shapes {
 		mutated := strings.Replace(string(src), deposit, sh.insert+deposit, 1)
@@ -880,17 +1164,26 @@ func TestEmitAnalysisHardArmCensus(t *testing.T) {
 		if len(problems) == 0 {
 			t.Fatalf("self-red %s: census stayed green with an unclassified arm", name)
 		}
-		if !sh.attributed {
+		if sh.producer != "" {
+			named := false
+			for _, p := range problems {
+				named = named || strings.Contains(p, sh.producer)
+			}
+			if !named {
+				t.Fatalf("self-red %s: census must name %s as an unregistered producer of the inserted reject; problems=%v", name, sh.producer, problems)
+			}
+		}
+		if sh.judge == "" {
 			continue
 		}
 		found := false
 		for _, site := range sites {
 			for _, key := range site.judges {
-				found = found || key == "validateFooUnregisteredArm"
+				found = found || key == sh.judge
 			}
 		}
 		if !found {
-			t.Fatalf("self-red %s: census must attribute the inserted arm to validateFooUnregisteredArm as a judge; problems=%v", name, problems)
+			t.Fatalf("self-red %s: census must attribute the inserted arm to %s as a judge; problems=%v", name, sh.judge, problems)
 		}
 	}
 	// Self-red: a registered value carrier cannot hide a nested reject with

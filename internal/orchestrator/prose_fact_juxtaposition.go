@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -671,12 +672,15 @@ func proseFactThreadLine(f *proseFactThreadFacts) (string, string) {
 		// line and the partition fact speak the same 五态 form (io_wait
 		// listed unconditionally, 0.000 stays honest zero); the old 四态/
 		// 五态 twin wordings were a third-wording-family seed.
-		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/非IO D-state %.3f/io_wait %.3fms",
+		// §40.49 合流复核收编: the exclusive non-IO D lane label is the
+		// single-source customer-face word (byte-equal with the body
+		// wall-clock partition / wait-coverage / reconciliation faces).
+		zh = append(zh, fmt.Sprintf("窗内五态 running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
-			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState], f.account.ioWait))
-		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/non-IO D-state %.3f/io_wait %.3fms",
+			f.account.dims[proseWallClockDimSleep], tool.TraceStateNonIODStateWord(true), f.account.dims[proseWallClockDimDState], f.account.ioWait))
+		en = append(en, fmt.Sprintf("in-window five-state running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms",
 			f.account.dims[proseWallClockDimRunning], f.account.dims[proseWallClockDimRunnable],
-			f.account.dims[proseWallClockDimSleep], f.account.dims[proseWallClockDimDState], f.account.ioWait))
+			f.account.dims[proseWallClockDimSleep], tool.TraceStateNonIODStateWord(false), f.account.dims[proseWallClockDimDState], f.account.ioWait))
 	}
 	if f.tgid != "" {
 		zh = append(zh, "tgid="+f.tgid)
@@ -1105,10 +1109,10 @@ func proseFactPartitionFact(f *proseFactThreadFacts) (string, string) {
 	d := a.dims[proseWallClockDimDState]
 	io := a.ioWait
 	sum := r + q + s + d + io
-	head := fmt.Sprintf("事实对照：%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/非IO D-state %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
-		f.subject, r, q, s, d, io)
-	headEN := fmt.Sprintf("Evidence reference: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/non-IO D-state %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
-		f.subject, r, q, s, d, io)
+	head := fmt.Sprintf("事实对照：%s — 窗内五态账 running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms · 五态为互斥分区,同一时刻仅居一态,不存在包含关系",
+		f.subject, r, q, s, tool.TraceStateNonIODStateWord(true), d, io)
+	headEN := fmt.Sprintf("Evidence reference: %s — in-window five-state account running %.3f/runnable %.3f/sleep %.3f/%s %.3f/io_wait %.3fms · the five states are a mutually exclusive partition — one state at any instant, none contains another",
+		f.subject, r, q, s, tool.TraceStateNonIODStateWord(false), d, io)
 	diff := sum - a.windowMS
 	if diff < 0 {
 		diff = -diff

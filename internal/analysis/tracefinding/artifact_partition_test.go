@@ -226,8 +226,11 @@ func TestBindRootCauseReportKeepsHedgedWindowProjectionDescriptions(t *testing.T
 			}
 		}
 		for _, advisory := range advisories {
-			if strings.Contains(advisory, "dropped") {
-				t.Fatalf("the caliber note is advisory only, never a drop: %q", advisory)
+			if advisory.Dropped() || strings.Contains(advisory.Reason, "dropped") {
+				t.Fatalf("the caliber note is advisory only, never a drop: %+v", advisory)
+			}
+			if advisory.Kind != RootCauseAdvisoryNote {
+				t.Fatalf("a kept description mints only the typed note kind: %+v", advisory)
 			}
 		}
 	}

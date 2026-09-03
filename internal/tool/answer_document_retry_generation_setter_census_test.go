@@ -32,8 +32,12 @@ import (
 // every file of package types (the two fields are package-visible); the base
 // constructor census counts every constructor spelling of the same merged
 // base (NewPartialMutation, ApplyAnswerDocumentV2Patch, an
-// AnswerDocumentMutation composite literal, and Apply on a mutation value);
-// the staged_for_retry flag census covers address-taking and helper writes.
+// AnswerDocumentMutation composite literal, and Apply on a mutation value)
+// and, per §40.45 fold-in, every ALIASED spelling — function values, method
+// values/expressions, alias/defined types, interface lanes, container
+// elements, struct fields, conversions, copies, range frames; the
+// staged_for_retry flag census covers address-taking, helper writes, and
+// aliased references to the staging entry point.
 // Every evasion shape has a self-red subtest that injects the shape into a
 // copy of the parsed tree.
 
@@ -626,44 +630,150 @@ var answerDocumentPatchBaseConstructorSites = map[retryGenerationWriterKey]bool{
 
 var answerDocumentMutationConstructors = map[string]bool{"NewPartialMutation": true, "NewReplaceAllMutation": true}
 
-// answerDocumentMutationResultIndex maps every function in the tree whose
-// results include an AnswerDocumentMutation to the index of that result, so
-// `_, mutation, _ := f(...)` binds `mutation` for the Apply check.
-func answerDocumentMutationResultIndex(tree *retryGenerationTree) map[string]int {
-	out := map[string]int{}
+// answerDocumentMutationCtorFuncs are the function spellings that mint a
+// mutation or merge a patch. §40.45 fold-in (G-patch-txn #0) EVOLUTION
+// RECORD: the census used to see them only as direct CallExpr callees, so a
+// function-value alias (`f := types.ApplyAnswerDocumentV2Patch`) escaped;
+// now any bare reference to these names is red everywhere.
+var answerDocumentMutationCtorFuncs = map[string]bool{
+	"NewPartialMutation":         true,
+	"NewReplaceAllMutation":      true,
+	"ApplyAnswerDocumentV2Patch": true,
+}
+
+// answerDocumentMutationFacts are the tree-wide static facts the base
+// constructor census binds data flow with: every type name that denotes the
+// mutation (the type itself plus defined/alias types over it, to a
+// fixpoint), every struct field name that can hold one, every package-level
+// var name declared as one, and every function whose results include one
+// (result slot index + result count, so both `_, m, _ := f()` and
+// `m := g()` bind).
+type answerDocumentMutationFacts struct {
+	typeNames  map[string]bool
+	fieldNames map[string]bool
+	pkgVars    map[string]bool
+	results    map[string]answerDocumentMutationResultSlot
+}
+
+type answerDocumentMutationResultSlot struct{ idx, count int }
+
+// answerDocumentMutationMentions reports whether any identifier inside node
+// (including a SelectorExpr's Sel) carries one of the given names.
+func answerDocumentMutationMentions(node ast.Node, names map[string]bool) bool {
+	found := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && names[id.Name] {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+func collectAnswerDocumentMutationFacts(tree *retryGenerationTree) *answerDocumentMutationFacts {
+	facts := &answerDocumentMutationFacts{
+		typeNames:  map[string]bool{"AnswerDocumentMutation": true},
+		fieldNames: map[string]bool{},
+		pkgVars:    map[string]bool{},
+		results:    map[string]answerDocumentMutationResultSlot{},
+	}
+	mentions := func(n ast.Node) bool { return answerDocumentMutationMentions(n, facts.typeNames) }
+	// defined/alias types over the mutation carry the census to their names
+	// (`type mut = types.AnswerDocumentMutation`, `type mut2 mut`, ...).
+	for changed := true; changed; {
+		changed = false
+		for _, file := range tree.files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				if spec, ok := n.(*ast.TypeSpec); ok && !facts.typeNames[spec.Name.Name] {
+					if _, isInterface := spec.Type.(*ast.InterfaceType); !isInterface && mentions(spec.Type) {
+						facts.typeNames[spec.Name.Name] = true
+						changed = true
+					}
+				}
+				return true
+			})
+		}
+	}
 	for _, file := range tree.files {
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Type.Results == nil {
-				continue
+		ast.Inspect(file, func(n ast.Node) bool {
+			if st, ok := n.(*ast.StructType); ok && st.Fields != nil {
+				for _, field := range st.Fields.List {
+					if mentions(field.Type) {
+						for _, name := range field.Names {
+							facts.fieldNames[name.Name] = true
+						}
+					}
+				}
 			}
-			idx := 0
-			for _, field := range fn.Type.Results.List {
-				n := len(field.Names)
-				if n == 0 {
-					n = 1
+			return true
+		})
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					holds := vs.Type != nil && mentions(vs.Type)
+					for _, v := range vs.Values {
+						if call, isCall := v.(*ast.CallExpr); isCall && answerDocumentMutationConstructors[selectorCallee(call)] {
+							holds = true
+						}
+						if _, isLit := v.(*ast.CompositeLit); isLit && mentions(v) {
+							holds = true
+						}
+					}
+					if holds {
+						for _, name := range vs.Names {
+							facts.pkgVars[name.Name] = true
+						}
+					}
 				}
-				if typeName(field.Type) == "AnswerDocumentMutation" {
-					out[fn.Name.Name] = idx
+			case *ast.FuncDecl:
+				if d.Type.Results == nil {
+					continue
 				}
-				idx += n
+				idx, count := 0, 0
+				for _, field := range d.Type.Results.List {
+					n := len(field.Names)
+					if n == 0 {
+						n = 1
+					}
+					count += n
+				}
+				for _, field := range d.Type.Results.List {
+					n := len(field.Names)
+					if n == 0 {
+						n = 1
+					}
+					if mentions(field.Type) {
+						facts.results[d.Name.Name] = answerDocumentMutationResultSlot{idx: idx, count: count}
+					}
+					idx += n
+				}
 			}
 		}
 	}
-	return out
+	return facts
 }
 
+// answerDocumentPatchBaseConstructorCensus is total over the ALIASED
+// spellings too (§40.45 fold-in, G-patch-txn #0). EVOLUTION RECORD: v1
+// matched only direct callee names and syntactically bound Ident receivers,
+// so function values, method values, method expressions, interface lanes,
+// alias/defined types, container elements, struct fields, conversions,
+// copies, range frames and package-level vars all escaped (confirmed by
+// overlay probes); v2 binds identifiers by data flow to a fixpoint and reds
+// every reference shape, each pinned by its own self-red subtest.
 func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites map[retryGenerationWriterKey]bool) (offenders []string) {
 	seen := map[retryGenerationWriterKey]bool{}
-	resultIndex := answerDocumentMutationResultIndex(tree)
+	facts := collectAnswerDocumentMutationFacts(tree)
+	mentions := func(n ast.Node) bool { return answerDocumentMutationMentions(n, facts.typeNames) }
+	docName := map[string]bool{"AnswerDocumentV2": true}
 	for path, file := range tree.files {
 		pkg, base := retryGenerationPkgDir(path), filepath.Base(path)
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			key := retryGenerationWriterKey{pkg, base, retryGenerationFuncName(fn)}
+		scan := func(key retryGenerationWriterKey, fn *ast.FuncDecl, root ast.Node) {
 			report := func(n ast.Node, what string) {
 				if sites[key] {
 					seen[key] = true
@@ -671,12 +781,23 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 				}
 				offenders = append(offenders, fmt.Sprintf("%s:%s (%s) %s outside the registered base constructor sites (§40.17 ②: stage / commit / rollback share one base constructor)", path, key.fn, tree.pos(n), what))
 			}
-			// identifiers bound to an AnswerDocumentMutation inside fn.
+			// identifiers bound to an AnswerDocumentMutation (or a container
+			// of them) by receiver, parameter, package-level var, or any
+			// assignment / declaration / range frame, to a fixpoint.
 			bound := map[string]bool{}
-			for _, field := range fn.Type.Params.List {
-				if typeName(field.Type) == "AnswerDocumentMutation" {
-					for _, name := range field.Names {
-						bound[name.Name] = true
+			for name := range facts.pkgVars {
+				bound[name] = true
+			}
+			if fn != nil {
+				fields := append([]*ast.Field{}, fn.Type.Params.List...)
+				if fn.Recv != nil {
+					fields = append(fields, fn.Recv.List...)
+				}
+				for _, field := range fields {
+					if mentions(field.Type) {
+						for _, name := range field.Names {
+							bound[name.Name] = true
+						}
 					}
 				}
 			}
@@ -686,74 +807,171 @@ func answerDocumentPatchBaseConstructorCensus(tree *retryGenerationTree, sites m
 				case *ast.CallExpr:
 					return answerDocumentMutationConstructors[selectorCallee(x)]
 				case *ast.CompositeLit:
-					return typeName(x.Type) == "AnswerDocumentMutation"
+					return x.Type != nil && mentions(x.Type)
 				case *ast.ParenExpr:
 					return isCtor(x.X)
 				}
 				return false
 			}
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.AssignStmt:
-					if len(node.Rhs) == 1 && len(node.Lhs) > 1 {
-						if call, ok := node.Rhs[0].(*ast.CallExpr); ok {
-							if idx, ok := resultIndex[selectorCallee(call)]; ok && idx < len(node.Lhs) {
-								if id, ok := node.Lhs[idx].(*ast.Ident); ok {
-									bound[id.Name] = true
+			// yields: the expression's value is (or contains) a mutation.
+			var yields func(expr ast.Expr) bool
+			yields = func(expr ast.Expr) bool {
+				switch x := expr.(type) {
+				case *ast.Ident:
+					return bound[x.Name]
+				case *ast.ParenExpr:
+					return yields(x.X)
+				case *ast.StarExpr:
+					return yields(x.X)
+				case *ast.UnaryExpr:
+					return yields(x.X)
+				case *ast.IndexExpr:
+					return yields(x.X)
+				case *ast.SliceExpr:
+					return yields(x.X)
+				case *ast.SelectorExpr:
+					return facts.fieldNames[x.Sel.Name]
+				case *ast.CallExpr:
+					if isCtor(x) {
+						return true
+					}
+					if slot, ok := facts.results[selectorCallee(x)]; ok && slot.count == 1 {
+						return true
+					}
+					return mentions(x.Fun) // conversion: AnswerDocumentMutation(v)
+				case *ast.CompositeLit:
+					return x.Type != nil && mentions(x.Type)
+				case *ast.TypeAssertExpr:
+					return x.Type != nil && mentions(x.Type)
+				}
+				return false
+			}
+			for changed := true; changed; {
+				changed = false
+				bind := func(e ast.Expr) {
+					if id, ok := e.(*ast.Ident); ok && id.Name != "_" && !bound[id.Name] {
+						bound[id.Name] = true
+						changed = true
+					}
+				}
+				ast.Inspect(root, func(n ast.Node) bool {
+					switch node := n.(type) {
+					case *ast.AssignStmt:
+						if len(node.Rhs) == 1 && len(node.Lhs) > 1 {
+							if call, ok := node.Rhs[0].(*ast.CallExpr); ok {
+								if slot, ok := facts.results[selectorCallee(call)]; ok && slot.idx < len(node.Lhs) {
+									bind(node.Lhs[slot.idx])
 								}
 							}
 						}
-					}
-					if len(node.Rhs) == len(node.Lhs) {
-						for i, rhs := range node.Rhs {
-							if id, ok := node.Lhs[i].(*ast.Ident); ok && isCtor(rhs) {
-								bound[id.Name] = true
+						if len(node.Rhs) == len(node.Lhs) {
+							for i, rhs := range node.Rhs {
+								if yields(rhs) {
+									bind(node.Lhs[i])
+								}
 							}
 						}
-					}
-				case *ast.ValueSpec:
-					if typeName(node.Type) == "AnswerDocumentMutation" {
-						for _, name := range node.Names {
-							bound[name.Name] = true
+					case *ast.ValueSpec:
+						if node.Type != nil && mentions(node.Type) {
+							for _, name := range node.Names {
+								bind(name)
+							}
+						}
+						for i, v := range node.Values {
+							if i < len(node.Names) && yields(v) {
+								bind(node.Names[i])
+							}
+						}
+					case *ast.RangeStmt:
+						if yields(node.X) {
+							bind(node.Key)
+							bind(node.Value)
 						}
 					}
-					for i, v := range node.Values {
-						if i < len(node.Names) && isCtor(v) {
-							bound[node.Names[i].Name] = true
-						}
+					return true
+				})
+			}
+			// direct-call classification: which Apply selectors are called,
+			// which ctor-func identifiers are call callees.
+			applyCalls := map[*ast.SelectorExpr]bool{}
+			calleeIdents := map[*ast.Ident]bool{}
+			ast.Inspect(root, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				switch f := call.Fun.(type) {
+				case *ast.SelectorExpr:
+					calleeIdents[f.Sel] = true
+					if f.Sel.Name == "Apply" {
+						applyCalls[f] = true
 					}
+				case *ast.Ident:
+					calleeIdents[f] = true
 				}
 				return true
 			})
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
+			ast.Inspect(root, func(n ast.Node) bool {
 				switch node := n.(type) {
 				case *ast.CallExpr:
 					switch callee := selectorCallee(node); callee {
 					case "NewPartialMutation", "ApplyAnswerDocumentV2Patch":
 						report(node, "calls "+callee)
-					case "Apply":
-						sel, ok := node.Fun.(*ast.SelectorExpr)
-						if !ok {
-							return true
-						}
-						switch recv := sel.X.(type) {
-						case *ast.Ident:
-							if bound[recv.Name] {
-								report(node, "applies the mutation "+recv.Name)
-							}
-						default:
-							if isCtor(recv) {
-								report(node, "applies a freshly constructed mutation")
-							}
+					}
+				case *ast.Ident:
+					if answerDocumentMutationCtorFuncs[node.Name] && !calleeIdents[node] {
+						report(node, "references "+node.Name+" as a function value")
+					}
+				case *ast.SelectorExpr:
+					if node.Sel.Name != "Apply" {
+						return true
+					}
+					if !yields(node.X) && !mentions(node.X) {
+						return true
+					}
+					switch {
+					case !applyCalls[node]:
+						report(node, "aliases Apply on a mutation-typed value as a method value/expression")
+					case isCtor(node.X):
+						report(node, "applies a freshly constructed mutation")
+					default:
+						if id, ok := node.X.(*ast.Ident); ok && bound[id.Name] {
+							report(node, "applies the mutation "+id.Name)
+						} else {
+							report(node, "applies a mutation-typed expression")
 						}
 					}
 				case *ast.CompositeLit:
-					if typeName(node.Type) == "AnswerDocumentMutation" {
+					if node.Type != nil && mentions(node.Type) {
 						report(node, "builds an AnswerDocumentMutation literal")
+					}
+				case *ast.InterfaceType:
+					if node.Methods == nil {
+						return true
+					}
+					for _, method := range node.Methods.List {
+						ft, ok := method.Type.(*ast.FuncType)
+						if !ok {
+							continue
+						}
+						for _, name := range method.Names {
+							if name.Name == "Apply" && answerDocumentMutationMentions(ft, docName) {
+								report(method, "declares an Apply method with the mutation's base-constructor signature (an interface lane could launder base construction)")
+							}
+						}
 					}
 				}
 				return true
 			})
+		}
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok {
+				if fn.Body != nil {
+					scan(retryGenerationWriterKey{pkg, base, retryGenerationFuncName(fn)}, fn, fn.Body)
+				}
+				continue
+			}
+			scan(retryGenerationWriterKey{pkg, base, "<package scope>"}, nil, decl)
 		}
 	}
 	for key := range sites {
@@ -820,6 +1038,86 @@ func TestAnswerDocumentPatchBaseCensus_SingleBaseConstructor(t *testing.T) {
 		got := answerDocumentPatchBaseConstructorCensus(tree, sites)
 		retryGenerationExpectOffender(t, got, "registered base constructor site internal/tool/ghost.go:ghost does not exist")
 	})
+
+	// §40.45 fold-in (G-patch-txn #0): the census is total over ALIASED
+	// spellings too — function values, method values, method expressions,
+	// alias/defined types, interface lanes, container elements, struct
+	// fields, conversions, copies, range frames, package-level vars.
+	probe := func(body string) *retryGenerationTree {
+		return tree.with(t, "internal/orchestrator/zz_probe.go",
+			"package orchestrator\n\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n\n"+body)
+	}
+	expectProbe := func(t *testing.T, mutated *retryGenerationTree, wants ...string) {
+		t.Helper()
+		got := answerDocumentPatchBaseConstructorCensus(mutated, answerDocumentPatchBaseConstructorSites)
+		for _, want := range wants {
+			retryGenerationExpectOffender(t, got, want)
+		}
+	}
+	t.Run("self_red_merge_function_value_alias", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) { f := types.ApplyAnswerDocumentV2Patch; _, _ = f(prev, patch) }"),
+			"internal/orchestrator/zz_probe.go:probe", "references ApplyAnswerDocumentV2Patch as a function value")
+	})
+	t.Run("self_red_constructor_function_value_alias", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) { ctor := types.NewPartialMutation; m := ctor(patch); _, _ = m.Apply(prev) }"),
+			"references NewPartialMutation as a function value")
+	})
+	t.Run("self_red_package_level_function_alias", func(t *testing.T) {
+		expectProbe(t, probe("var evadeMerge = types.ApplyAnswerDocumentV2Patch"),
+			"internal/orchestrator/zz_probe.go:<package scope>", "references ApplyAnswerDocumentV2Patch as a function value")
+	})
+	t.Run("self_red_method_value_alias", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) { g := m.Apply; _, _ = g(prev) }"),
+			"aliases Apply on a mutation-typed value")
+	})
+	t.Run("self_red_method_expression", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) { _, _ = types.AnswerDocumentMutation.Apply(m, prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_red_interface_declaring_apply", func(t *testing.T) {
+		expectProbe(t, probe("type applier interface {\n\tApply(prev *types.AnswerDocumentV2) (*types.AnswerDocumentV2, error)\n}\n\nfunc probe(prev *types.AnswerDocumentV2, a applier) { _, _ = a.Apply(prev) }"),
+			"declares an Apply method with the mutation's base-constructor signature")
+	})
+	t.Run("self_red_interface_var_holding_mutation", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) {\n\tvar a interface {\n\t\tApply(prev *types.AnswerDocumentV2) (*types.AnswerDocumentV2, error)\n\t} = m\n\t_, _ = a.Apply(prev)\n}"),
+			"applies the mutation a")
+	})
+	t.Run("self_red_slice_element_apply", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) { _, _ = ms[0].Apply(prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_red_range_element_apply", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, ms []types.AnswerDocumentMutation) {\n\tfor _, m := range ms {\n\t\t_, _ = m.Apply(prev)\n\t}\n}"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_type_alias_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mut = types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2, m mut) { _, _ = m.Apply(prev) }"),
+			"applies the mutation m")
+	})
+	t.Run("self_red_defined_type_conversion_apply", func(t *testing.T) {
+		expectProbe(t, probe("type mut types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2, m mut) { _, _ = types.AnswerDocumentMutation(m).Apply(prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_red_struct_field_apply", func(t *testing.T) {
+		expectProbe(t, probe("type holder struct{ M types.AnswerDocumentMutation }\n\nfunc probe(prev *types.AnswerDocumentV2, h holder) { _, _ = h.M.Apply(prev) }"),
+			"applies a mutation-typed expression")
+	})
+	t.Run("self_red_copy_propagation_apply", func(t *testing.T) {
+		expectProbe(t, probe("func probe(prev *types.AnswerDocumentV2, m types.AnswerDocumentMutation) { a := m; _, _ = a.Apply(prev) }"),
+			"applies the mutation a")
+	})
+	t.Run("self_red_single_result_binding_apply", func(t *testing.T) {
+		expectProbe(t, probe("func mint(patch *types.AnswerDocumentV2Patch) types.AnswerDocumentMutation {\n\tvar m types.AnswerDocumentMutation\n\t_ = patch\n\treturn m\n}\n\nfunc probe(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) { m := mint(patch); _, _ = m.Apply(prev) }"),
+			"internal/orchestrator/zz_probe.go:probe", "applies the mutation m")
+	})
+	t.Run("self_red_package_level_mutation_var_apply", func(t *testing.T) {
+		expectProbe(t, probe("var boot types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2) { _, _ = boot.Apply(prev) }"),
+			"applies the mutation boot")
+	})
+	t.Run("self_red_composite_literal_via_alias", func(t *testing.T) {
+		expectProbe(t, probe("type mut = types.AnswerDocumentMutation\n\nfunc probe(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) { _, _ = (mut{Kind: types.MutationPartial, Patch: patch}).Apply(prev) }"),
+			"builds an AnswerDocumentMutation literal", "applies a freshly constructed mutation")
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -855,7 +1153,8 @@ func answerDocumentPatchExecute(t *testing.T, tree *retryGenerationTree) *ast.Fu
 // address is passed only as the fourth argument of stageAnswerDocumentPatchGeneration
 // (every staging call passes it — the helper is nil-tolerant, so a nil there
 // would stage silently), it is read only by the failure-outcome annotator,
-// and no other function in the tree calls the staging entry point.
+// and no other function in the tree references the staging entry point in
+// any spelling (call, function value, wrapper).
 func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) (offenders []string) {
 	where := func(n ast.Node) string {
 		return fmt.Sprintf("%s:%s (%s)", answerDocumentPatchToolFile, answerDocumentPatchExecuteName, tree.pos(n))
@@ -883,6 +1182,12 @@ func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) 
 		case *ast.CallExpr:
 			switch selectorCallee(node) {
 			case stagingEntryPoint:
+				switch f := node.Fun.(type) {
+				case *ast.Ident:
+					consumed[f] = true
+				case *ast.SelectorExpr:
+					consumed[f.Sel] = true
+				}
 				stagingCalls++
 				if len(node.Args) != 4 {
 					offenders = append(offenders, where(node)+" calls "+stagingEntryPoint+" with an unexpected arity")
@@ -915,6 +1220,14 @@ func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) 
 			if node.Name == stagedByThisCallIdent && !consumed[node] {
 				offenders = append(offenders, where(node)+" uses "+stagedByThisCallIdent+" outside its declaration, the staging call, and the failure-outcome annotator")
 			}
+			// §40.45 fold-in (G-patch-txn #1) EVOLUTION RECORD: staging
+			// used to be recognized only as a direct CallExpr callee, so
+			// `stageAlias := stageAnswerDocumentPatchGeneration` staged a
+			// base whose outcome metadata reported not_staged; now any
+			// non-callee reference to the entry point is red.
+			if node.Name == stagingEntryPoint && !consumed[node] {
+				offenders = append(offenders, where(node)+" aliases "+stagingEntryPoint+" as a function value; every staging call must be a direct call passing &"+stagedByThisCallIdent)
+			}
 		}
 		return true
 	})
@@ -932,10 +1245,14 @@ func stagedForRetryFlagCensus(tree *retryGenerationTree, execute *ast.FuncDecl) 
 			if path == answerDocumentPatchToolFile && fnName == answerDocumentPatchExecuteName {
 				return
 			}
+			// Any REFERENCE to the staging entry point outside Execute —
+			// direct call, function value, wrapper — is red (§40.45
+			// fold-in, G-patch-txn #1): an alias would stage a base the
+			// outcome metadata reports as not_staged.
 			ast.Inspect(body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if ok && selectorCallee(call) == stagingEntryPoint {
-					offenders = append(offenders, fmt.Sprintf("%s:%s (%s) calls %s; only %s stages a generation", path, fnName, tree.pos(call), stagingEntryPoint, answerDocumentPatchExecuteName))
+				id, ok := n.(*ast.Ident)
+				if ok && id.Name == stagingEntryPoint {
+					offenders = append(offenders, fmt.Sprintf("%s:%s (%s) references %s; only %s stages a generation, by direct call", path, fnName, tree.pos(id), stagingEntryPoint, answerDocumentPatchExecuteName))
 				}
 				return true
 			})
@@ -1024,5 +1341,27 @@ func TestAnswerDocumentPatchBaseCensus_StagedForRetryFlagIsTruthful(t *testing.T
 		got := run(t, tree.with(t, "internal/tool/zz_probe.go",
 			"package tool\n\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n\nfunc probe(mut *types.MutableState, base *types.AnswerDocumentV2) { stageAnswerDocumentPatchGeneration(mut, base, nil, nil) }"))
 		retryGenerationExpectOffender(t, got, "internal/tool/zz_probe.go:probe")
+	})
+
+	// §40.45 fold-in (G-patch-txn #1): every REFERENCE to the staging entry
+	// point — not only direct calls — is censused, so an aliased staging
+	// path cannot stage a base while the outcome metadata reports
+	// not_staged.
+	t.Run("self_red_staging_alias_in_execute", func(t *testing.T) {
+		got := run(t, tree.withInjected(t, answerDocumentPatchToolFile, decl,
+			decl+"\tstageAlias := stageAnswerDocumentPatchGeneration\n\tstageAlias(ctx.Mutable, nil, nil, nil)\n"))
+		retryGenerationExpectOffender(t, got, "aliases stageAnswerDocumentPatchGeneration as a function value")
+	})
+	t.Run("self_red_package_level_staging_alias", func(t *testing.T) {
+		got := run(t, tree.with(t, "internal/tool/zz_probe.go",
+			"package tool\n\nvar stageAlias = stageAnswerDocumentPatchGeneration"))
+		retryGenerationExpectOffender(t, got, "internal/tool/zz_probe.go:<package scope>")
+		retryGenerationExpectOffender(t, got, "references stageAnswerDocumentPatchGeneration")
+	})
+	t.Run("self_red_staging_alias_in_other_function", func(t *testing.T) {
+		got := run(t, tree.with(t, "internal/tool/zz_probe.go",
+			"package tool\n\nimport \"github.com/hanchaoqun/codrax/internal/types\"\n\nfunc probe(mut *types.MutableState, base *types.AnswerDocumentV2) { f := stageAnswerDocumentPatchGeneration; f(mut, base, nil, nil) }"))
+		retryGenerationExpectOffender(t, got, "internal/tool/zz_probe.go:probe")
+		retryGenerationExpectOffender(t, got, "references stageAnswerDocumentPatchGeneration")
 	})
 }

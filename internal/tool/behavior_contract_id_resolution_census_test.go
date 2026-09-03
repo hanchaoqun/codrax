@@ -14,27 +14,36 @@ import (
 )
 
 // behavior_contract_id_resolution_census_test.go — V5-4 tripwire
-// (colleague_merge_audit §40.24 item 3, V5-3 §40.23 item 3, §40.46 C4): the
-// behavior-contract id space is resolved through ONE tombstone-aware,
+// (colleague_merge_audit §40.24 item 3, V5-3 §40.23 item 3, §40.46 C4 + the
+// §40.46 合流复核收编 return/alias/copy/named-type/per-expression tightening):
+// the behavior-contract id space is resolved through ONE tombstone-aware,
 // ledger-aware projection. The census is bound to DATA FLOW, not to the
 // spelling of one call site: a value derived from the pre-rebase analyzer
 // snapshot (`Request.BehaviorContracts`) is tainted through aliases
-// (`x := ir.Request.BehaviorContracts`), range clauses, and call arguments
-// into the parameters of censused functions (fixpoint over every function
-// of tool/agent/writeflow/orchestrator), and no tainted value may reach a
-// sink.
+// (`x := ir.Request.BehaviorContracts`), `req := ir.Request` carrier
+// aliases, range clauses, copy() destinations, call arguments into the
+// parameters of censused functions AND callee returns back into the call
+// expression (functions and methods, fixpoint over every scanned package),
+// and no tainted value may reach a sink. A refs gate's result counts
+// whether it is spelled `string` or a named string type, and the gate is
+// resolved per id-source EXPRESSION: every id it judges must come from an
+// accepted authority — calling an authority for something else resolves
+// nothing.
 //
 //	(a) no non-test file references the identifier WriteBehaviorContractIDs
 //	    (the raw id set is unexported in types; this guards a re-export);
 //	(b) no Required/HardRequired/PlacementRequiredWriteBehaviorContractIDs
 //	    call receives a tainted argument (snapshot, alias, or tainted
 //	    parameter);
-//	(c) every refs gate in tool (a function with a bare string result whose
-//	    body reads .ContractRefs / .PlacementRefs) that touches the id-source
-//	    side — directly, through a tainted parameter, or through a
-//	    same-package helper that does — resolves ids through an accepted
-//	    authority (directly or via one same-package helper) and never
-//	    consults WriteAnalysisIR() / the snapshot / a tainted value;
+//	(c) every refs gate in tool (a function whose result is `string` or a
+//	    named string type and whose body reads .ContractRefs /
+//	    .PlacementRefs) that touches the id-source side — directly, through
+//	    a tainted parameter, or through a helper that does — resolves EVERY
+//	    id it judges through an accepted authority (an authority call, a
+//	    required-id call over authority-derived values, or a clean authority
+//	    helper) and never consults WriteAnalysisIR() / the snapshot / a
+//	    tainted value / a raw .BehaviorContracts union — per expression, so
+//	    an authority called for something else resolves nothing;
 //	(d) SupersededBehaviorContracts / SupersededBehaviorContractIDs /
 //	    BehaviorContractGeneration are written only by
 //	    attachWriteBehaviorContracts — as assignment targets AND as composite
@@ -119,14 +128,53 @@ type behaviorContractCensusFunc struct {
 	name, file, pkg string
 	decl            *ast.FuncDecl
 	params          []string
-	stringResult    bool
-	readsRefs       bool
-	idSource        bool
-	authority       bool
-	readsIR         bool
-	writesField     bool
-	calls           []behaviorContractCensusCall
-	tainted         map[string]bool
+	// resultTypes holds the declared result type expressions; stringResult
+	// is judged after the whole scan so a named string type declared in any
+	// scanned file counts (`type rejection string` gates are refs gates).
+	resultTypes  []ast.Expr
+	namedResults []string
+	stringResult bool
+	readsRefs    bool
+	idSource     bool
+	authority    bool
+	readsIR      bool
+	writesField  bool
+	// returnsTainted / returnsReqTainted: some return statement of this
+	// function (or method) returns a snapshot-tainted / Request-carrier
+	// expression, so every call expression naming it carries that colour.
+	returnsTainted    bool
+	returnsReqTainted bool
+	calls             []behaviorContractCensusCall
+	returns           []*ast.ReturnStmt
+	tainted           map[string]bool
+	// taintedReq marks Request-carrier locals (`req := ir.Request`): a
+	// `.BehaviorContracts` selector on a carrier is the snapshot.
+	taintedReq map[string]bool
+	// authDerived marks locals whose value came from an accepted authority
+	// (per-expression gate resolution).
+	authDerived map[string]bool
+	importKey   map[string]string
+	lookup      map[string]map[string]*behaviorContractCensusFunc
+}
+
+// calleeFunc resolves a call to the censused function it names: an
+// unqualified call in the caller's package, a `pkg.Callee(...)` call through
+// the file's import block, or — for a method / value receiver — a name-keyed
+// fallback in the caller's own package (methods are collected by name, so a
+// `f.contracts()` return-taint is not laundered by the receiver spelling).
+func (fn *behaviorContractCensusFunc) calleeFunc(call *ast.CallExpr) *behaviorContractCensusFunc {
+	switch f := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.lookup[fn.pkg][f.Name]
+	case *ast.SelectorExpr:
+		if qual, ok := f.X.(*ast.Ident); ok {
+			if key, ok := fn.importKey[qual.Name]; ok {
+				return fn.lookup[key][f.Sel.Name]
+			}
+		}
+		return fn.lookup[fn.pkg][f.Sel.Name]
+	}
+	return nil
 }
 
 // behaviorContractTaintSanitizers are calls whose RESULT never carries the
@@ -138,48 +186,108 @@ var behaviorContractTaintSanitizers = map[string]bool{
 	"len":                                    true,
 }
 
-// exprTainted reports whether an expression derives from the analyzer
-// snapshot: it selects `<x>.Request.BehaviorContracts` or references a
-// tainted identifier (parameter or local), outside any sanitizer call.
+// exprTainted reports whether an expression CARRIES a value derived from the
+// analyzer snapshot. The judgment is structural value flow — a
+// `.BehaviorContracts` selector off a Request carrier, a tainted identifier,
+// a field/element/slice of a tainted value, append()/conversions/composite
+// literals over tainted values, and calls whose censused callee (function or
+// method) returns a tainted value — never string contamination: a
+// fmt.Sprintf/Errorf over a tainted value produces prose, not the id space,
+// so it does not taint (precise signals for hard gates; the sinks judge the
+// id space, not messages that mention it).
 func (fn *behaviorContractCensusFunc) exprTainted(expr ast.Expr) bool {
-	if expr == nil {
-		return false
-	}
-	tainted := false
-	ast.Inspect(expr, func(n ast.Node) bool {
-		if tainted {
+	switch v := expr.(type) {
+	case *ast.ParenExpr:
+		return fn.exprTainted(v.X)
+	case *ast.StarExpr:
+		return fn.exprTainted(v.X)
+	case *ast.UnaryExpr:
+		return fn.exprTainted(v.X)
+	case *ast.TypeAssertExpr:
+		return fn.exprTainted(v.X)
+	case *ast.Ident:
+		return fn.tainted[v.Name]
+	case *ast.SelectorExpr:
+		if v.Sel.Name == "BehaviorContracts" && fn.exprReqTainted(v.X) {
+			return true
+		}
+		// A field of a tainted value carries the taint.
+		return fn.exprTainted(v.X)
+	case *ast.IndexExpr:
+		return fn.exprTainted(v.X)
+	case *ast.SliceExpr:
+		return fn.exprTainted(v.X)
+	case *ast.KeyValueExpr:
+		return fn.exprTainted(v.Value)
+	case *ast.CompositeLit:
+		for _, elt := range v.Elts {
+			if fn.exprTainted(elt) {
+				return true
+			}
+		}
+	case *ast.CallExpr:
+		if behaviorContractTaintSanitizers[calleeName(v)] {
 			return false
 		}
-		switch v := n.(type) {
-		case *ast.CallExpr:
-			if behaviorContractTaintSanitizers[calleeName(v)] {
-				return false
-			}
-		case *ast.SelectorExpr:
-			if v.Sel.Name == "BehaviorContracts" {
-				if x, ok := v.X.(*ast.SelectorExpr); ok && x.Sel.Name == "Request" {
-					tainted = true
-					return false
+		if calleeName(v) == "append" {
+			for _, arg := range v.Args {
+				if fn.exprTainted(arg) {
+					return true
 				}
 			}
-			// Only the receiver side of a selector can carry taint.
-			if fn.exprTainted(v.X) {
-				tainted = true
-			}
 			return false
-		case *ast.Ident:
-			if fn.tainted[v.Name] {
-				tainted = true
+		}
+		// A callee's tainted RETURN taints the call expression.
+		if callee := fn.calleeFunc(v); callee != nil && callee != fn && callee.returnsTainted {
+			return true
+		}
+		// A conversion (`[]types.WriteBehaviorContract(x)`, `rejection(x)`)
+		// carries its operand: a Fun that is not a resolvable callee and
+		// not a name at all is a type expression.
+		switch v.Fun.(type) {
+		case *ast.Ident, *ast.SelectorExpr:
+		default:
+			if len(v.Args) == 1 {
+				return fn.exprTainted(v.Args[0])
 			}
 		}
-		return !tainted
-	})
-	return tainted
+	}
+	return false
 }
 
-// propagateTaintLocally taints locals assigned from tainted expressions and
-// range variables over tainted collections, to a fixpoint. Returns true when
-// anything changed.
+// exprReqTainted reports whether an expression carries the analyzer
+// snapshot's Request (the carrier whose `.BehaviorContracts` field IS the
+// snapshot): any `.Request` selector, a Request-carrier alias, or a call
+// whose censused callee returns a carrier.
+func (fn *behaviorContractCensusFunc) exprReqTainted(expr ast.Expr) bool {
+	switch v := expr.(type) {
+	case *ast.ParenExpr:
+		return fn.exprReqTainted(v.X)
+	case *ast.StarExpr:
+		return fn.exprReqTainted(v.X)
+	case *ast.UnaryExpr:
+		return fn.exprReqTainted(v.X)
+	case *ast.IndexExpr:
+		return fn.exprReqTainted(v.X)
+	case *ast.SelectorExpr:
+		return v.Sel.Name == "Request"
+	case *ast.Ident:
+		return fn.taintedReq[v.Name]
+	case *ast.CallExpr:
+		if behaviorContractTaintSanitizers[calleeName(v)] {
+			return false
+		}
+		if callee := fn.calleeFunc(v); callee != nil && callee != fn && callee.returnsReqTainted {
+			return true
+		}
+	}
+	return false
+}
+
+// propagateTaintLocally taints locals assigned from tainted expressions
+// (both colours: snapshot values and Request carriers), range variables over
+// tainted collections, and copy() destinations fed a tainted source, to a
+// fixpoint. Returns true when anything changed.
 func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 	changed := false
 	for {
@@ -189,7 +297,7 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 			case *ast.AssignStmt:
 				for i, lhs := range v.Lhs {
 					id, ok := lhs.(*ast.Ident)
-					if !ok || fn.tainted[id.Name] {
+					if !ok {
 						continue
 					}
 					var rhs ast.Expr
@@ -198,18 +306,37 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 					} else if len(v.Rhs) == 1 {
 						rhs = v.Rhs[0]
 					}
-					if rhs != nil && fn.exprTainted(rhs) {
+					if rhs == nil {
+						continue
+					}
+					if !fn.tainted[id.Name] && fn.exprTainted(rhs) {
 						fn.tainted[id.Name] = true
+						round = true
+					}
+					if !fn.taintedReq[id.Name] && fn.exprReqTainted(rhs) {
+						fn.taintedReq[id.Name] = true
 						round = true
 					}
 				}
 			case *ast.ValueSpec:
 				for i, name := range v.Names {
-					if fn.tainted[name.Name] || i >= len(v.Values) {
+					if i >= len(v.Values) {
 						continue
 					}
-					if fn.exprTainted(v.Values[i]) {
+					if !fn.tainted[name.Name] && fn.exprTainted(v.Values[i]) {
 						fn.tainted[name.Name] = true
+						round = true
+					}
+					if !fn.taintedReq[name.Name] && fn.exprReqTainted(v.Values[i]) {
+						fn.taintedReq[name.Name] = true
+						round = true
+					}
+				}
+			case *ast.CallExpr:
+				// copy(dst, taintedSrc) taints dst.
+				if calleeName(v) == "copy" && len(v.Args) == 2 {
+					if id, ok := v.Args[0].(*ast.Ident); ok && !fn.tainted[id.Name] && fn.exprTainted(v.Args[1]) {
+						fn.tainted[id.Name] = true
 						round = true
 					}
 				}
@@ -233,10 +360,154 @@ func (fn *behaviorContractCensusFunc) propagateTaintLocally() bool {
 	}
 }
 
+// recomputeReturnTaint refreshes the function's return colours from its
+// return statements (func-literal returns are excluded at collection time).
+// A bare `return` returns the named results. Returns true when a colour was
+// newly set.
+func (fn *behaviorContractCensusFunc) recomputeReturnTaint() bool {
+	changed := false
+	for _, ret := range fn.returns {
+		if len(ret.Results) == 0 {
+			for _, name := range fn.namedResults {
+				if !fn.returnsTainted && fn.tainted[name] {
+					fn.returnsTainted = true
+					changed = true
+				}
+				if !fn.returnsReqTainted && fn.taintedReq[name] {
+					fn.returnsReqTainted = true
+					changed = true
+				}
+			}
+			continue
+		}
+		for _, res := range ret.Results {
+			if !fn.returnsTainted && fn.exprTainted(res) {
+				fn.returnsTainted = true
+				changed = true
+			}
+			if !fn.returnsReqTainted && fn.exprReqTainted(res) {
+				fn.returnsReqTainted = true
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+// exprAuthDerived reports whether an expression's value came from an
+// accepted authority: an authority call, a clean authority helper's return,
+// a method called on an authority-derived value (`res.ActiveIDs()`), or a
+// selector/index/alias of one.
+func (fn *behaviorContractCensusFunc) exprAuthDerived(expr ast.Expr) bool {
+	switch v := expr.(type) {
+	case *ast.ParenExpr:
+		return fn.exprAuthDerived(v.X)
+	case *ast.StarExpr:
+		return fn.exprAuthDerived(v.X)
+	case *ast.UnaryExpr:
+		return fn.exprAuthDerived(v.X)
+	case *ast.Ident:
+		return fn.authDerived[v.Name]
+	case *ast.SelectorExpr:
+		return fn.exprAuthDerived(v.X)
+	case *ast.IndexExpr:
+		return fn.exprAuthDerived(v.X)
+	case *ast.CallExpr:
+		if behaviorContractIDAuthorities[calleeName(v)] {
+			return true
+		}
+		if callee := fn.calleeFunc(v); callee != nil && callee != fn &&
+			callee.authority && !callee.readsRefs && !callee.readsIR && len(callee.tainted) == 0 {
+			return true
+		}
+		if sel, ok := v.Fun.(*ast.SelectorExpr); ok && fn.exprAuthDerived(sel.X) {
+			return true
+		}
+	}
+	return false
+}
+
+// propagateAuthDerived fills fn.authDerived with the locals whose values
+// derive from an accepted authority, to a fixpoint.
+func (fn *behaviorContractCensusFunc) propagateAuthDerived() {
+	fn.authDerived = map[string]bool{}
+	for {
+		round := false
+		ast.Inspect(fn.decl.Body, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.AssignStmt:
+				for i, lhs := range v.Lhs {
+					id, ok := lhs.(*ast.Ident)
+					if !ok || fn.authDerived[id.Name] {
+						continue
+					}
+					var rhs ast.Expr
+					if len(v.Rhs) == len(v.Lhs) {
+						rhs = v.Rhs[i]
+					} else if len(v.Rhs) == 1 {
+						rhs = v.Rhs[0]
+					}
+					if rhs != nil && fn.exprAuthDerived(rhs) {
+						fn.authDerived[id.Name] = true
+						round = true
+					}
+				}
+			case *ast.ValueSpec:
+				for i, name := range v.Names {
+					if fn.authDerived[name.Name] || i >= len(v.Values) {
+						continue
+					}
+					if fn.exprAuthDerived(v.Values[i]) {
+						fn.authDerived[name.Name] = true
+						round = true
+					}
+				}
+			case *ast.RangeStmt:
+				if !fn.exprAuthDerived(v.X) {
+					return true
+				}
+				for _, e := range []ast.Expr{v.Key, v.Value} {
+					if id, ok := e.(*ast.Ident); ok && id.Name != "_" && !fn.authDerived[id.Name] {
+						fn.authDerived[id.Name] = true
+						round = true
+					}
+				}
+			}
+			return true
+		})
+		if !round {
+			return
+		}
+	}
+}
+
+// behaviorContractNeutralArg reports whether a required-id-call argument is
+// inert (a literal, true/false/nil): it cannot carry an id space.
+func behaviorContractNeutralArg(expr ast.Expr) bool {
+	switch v := expr.(type) {
+	case *ast.BasicLit:
+		return true
+	case *ast.Ident:
+		return v.Name == "true" || v.Name == "false" || v.Name == "nil"
+	}
+	return false
+}
+
 func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (offenders []string, resolutionChecked int, err error) {
 	fset := token.NewFileSet()
 	var funcs []*behaviorContractCensusFunc
 	byPkgName := map[string]map[string]*behaviorContractCensusFunc{}
+	// String-named types (`type rejection string`, aliases included) so a
+	// refs gate cannot escape rule (c) by naming its string result type.
+	stringTypes := map[string]map[string]bool{}
+	setStringType := func(pkg, name string) {
+		if stringTypes[pkg] == nil {
+			stringTypes[pkg] = map[string]bool{}
+		}
+		stringTypes[pkg][name] = true
+	}
+	type pendingStringType struct{ pkg, name, depPkg, depName string }
+	var pendingTypes []pendingStringType
 	for _, f := range files {
 		file, perr := parser.ParseFile(fset, f.name, f.src, 0)
 		if perr != nil {
@@ -266,11 +537,38 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 			return true
 		})
 		for _, decl := range file.Decls {
+			if gd, ok := decl.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
+				for _, spec := range gd.Specs {
+					ts, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+					switch typ := ts.Type.(type) {
+					case *ast.Ident:
+						if typ.Name == "string" {
+							setStringType(f.pkg, ts.Name.Name)
+						} else {
+							pendingTypes = append(pendingTypes, pendingStringType{f.pkg, ts.Name.Name, f.pkg, typ.Name})
+						}
+					case *ast.SelectorExpr:
+						if qual, ok := typ.X.(*ast.Ident); ok {
+							if key, ok := importKey[qual.Name]; ok {
+								pendingTypes = append(pendingTypes, pendingStringType{f.pkg, ts.Name.Name, key, typ.Sel.Name})
+							}
+						}
+					}
+				}
+				continue
+			}
 			fd, ok := decl.(*ast.FuncDecl)
 			if !ok || fd.Body == nil {
 				continue
 			}
-			fn := &behaviorContractCensusFunc{name: fd.Name.Name, file: f.name, pkg: f.pkg, decl: fd, tainted: map[string]bool{}}
+			fn := &behaviorContractCensusFunc{
+				name: fd.Name.Name, file: f.name, pkg: f.pkg, decl: fd,
+				tainted: map[string]bool{}, taintedReq: map[string]bool{},
+				importKey: importKey, lookup: byPkgName,
+			}
 			if fd.Type.Params != nil {
 				for _, field := range fd.Type.Params.List {
 					if len(field.Names) == 0 {
@@ -284,11 +582,23 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 			}
 			if fd.Type.Results != nil {
 				for _, r := range fd.Type.Results.List {
-					if id, ok := r.Type.(*ast.Ident); ok && id.Name == "string" {
-						fn.stringResult = true
+					fn.resultTypes = append(fn.resultTypes, r.Type)
+					for _, name := range r.Names {
+						fn.namedResults = append(fn.namedResults, name.Name)
 					}
 				}
 			}
+			// Return statements of THIS function only: a func literal's
+			// returns are its own, never the enclosing function's.
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if _, ok := n.(*ast.FuncLit); ok {
+					return false
+				}
+				if ret, ok := n.(*ast.ReturnStmt); ok {
+					fn.returns = append(fn.returns, ret)
+				}
+				return true
+			})
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				switch v := n.(type) {
 				case *ast.SelectorExpr:
@@ -344,14 +654,47 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 			byPkgName[f.pkg][fn.name] = fn
 		}
 	}
-	// Taint fixpoint: locals from the snapshot / tainted values, range
-	// variables, and callee parameters fed a tainted argument — across every
-	// censused function, in the same package or through a qualified call
-	// into another scanned package.
+	// Named-string-type fixpoint (`type A string; type B A; type C = pkg.B`).
+	for changed := true; changed; {
+		changed = false
+		for _, p := range pendingTypes {
+			if !stringTypes[p.pkg][p.name] && stringTypes[p.depPkg][p.depName] {
+				setStringType(p.pkg, p.name)
+				changed = true
+			}
+		}
+	}
+	// stringResult is judged over the whole scan: a bare `string`, a named
+	// string type of the function's own package, or a qualified named string
+	// type of another scanned package all make the result a gate result.
+	for _, fn := range funcs {
+		for _, r := range fn.resultTypes {
+			switch id := r.(type) {
+			case *ast.Ident:
+				if id.Name == "string" || stringTypes[fn.pkg][id.Name] {
+					fn.stringResult = true
+				}
+			case *ast.SelectorExpr:
+				if qual, ok := id.X.(*ast.Ident); ok {
+					if key, ok := fn.importKey[qual.Name]; ok && stringTypes[key][id.Sel.Name] {
+						fn.stringResult = true
+					}
+				}
+			}
+		}
+	}
+	// Taint fixpoint: locals from the snapshot / tainted values / Request
+	// carriers, range variables, copy() destinations, callee parameters fed
+	// a tainted argument, and callee RETURNS back into every call expression
+	// — across every censused function, in the same package or through a
+	// qualified call into another scanned package.
 	for changed := true; changed; {
 		changed = false
 		for _, fn := range funcs {
 			if fn.propagateTaintLocally() {
+				changed = true
+			}
+			if fn.recomputeReturnTaint() {
 				changed = true
 			}
 			for _, call := range fn.calls {
@@ -360,11 +703,15 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 					continue
 				}
 				for i, arg := range call.args {
-					if i >= len(callee.params) || callee.params[i] == "" || callee.tainted[callee.params[i]] {
+					if i >= len(callee.params) || callee.params[i] == "" {
 						continue
 					}
-					if fn.exprTainted(arg) {
+					if !callee.tainted[callee.params[i]] && fn.exprTainted(arg) {
 						callee.tainted[callee.params[i]] = true
+						changed = true
+					}
+					if !callee.taintedReq[callee.params[i]] && fn.exprReqTainted(arg) {
+						callee.taintedReq[callee.params[i]] = true
 						changed = true
 					}
 				}
@@ -442,17 +789,58 @@ func behaviorContractIDResolutionCensus(files []behaviorContractCensusFile) (off
 			continue
 		}
 		resolutionChecked++
-		resolved := fn.authority
-		for _, call := range fn.calls {
-			// A helper resolves the gate only when it is itself clean: an
-			// authority caller that also consults the snapshot (or a tainted
-			// parameter) resolves nothing.
-			if helper, ok := byPkgName[fn.pkg][call.callee]; ok && helper != fn && helper.authority && !helper.readsRefs && !helper.readsIR && len(helper.tainted) == 0 {
-				resolved = true
+		// Per-expression resolution: EVERY id source the gate consults must
+		// be an accepted authority (an authority call, a required-id call
+		// whose arguments are authority-derived, or a clean authority
+		// helper). An authority called for something else resolves nothing:
+		// one raw source — a `.BehaviorContracts` union, a required-id call
+		// fed a non-authority value, or a helper that consults the snapshot
+		// — makes the gate an offender.
+		fn.propagateAuthDerived()
+		clean := 0
+		var raw []string
+		ast.Inspect(fn.decl.Body, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.CallExpr:
+				name := calleeName(v)
+				if behaviorContractIDAuthorities[name] {
+					clean++
+					return true
+				}
+				if strings.HasSuffix(name, "WriteBehaviorContractIDs") {
+					ok := true
+					for _, arg := range v.Args {
+						if !fn.exprAuthDerived(arg) && !behaviorContractNeutralArg(arg) {
+							ok = false
+						}
+					}
+					if ok {
+						clean++
+					} else {
+						raw = append(raw, name+" fed a non-authority id source")
+					}
+					return true
+				}
+				if callee := fn.calleeFunc(v); callee != nil && callee != fn && callee.idSource {
+					if callee.authority && !callee.readsRefs && !callee.readsIR && len(callee.tainted) == 0 {
+						clean++
+					} else {
+						raw = append(raw, "helper "+name+" consults a raw id source")
+					}
+				}
+			case *ast.SelectorExpr:
+				if v.Sel.Name == "BehaviorContracts" {
+					raw = append(raw, "raw .BehaviorContracts union")
+				}
 			}
-		}
-		if !resolved {
-			offenders = append(offenders, fn.file+": "+fn.name+" resolves contract ids without resolveBehaviorContractIDs / the projection")
+			return true
+		})
+		if clean == 0 || len(raw) > 0 {
+			msg := fn.file + ": " + fn.name + " resolves contract ids without resolveBehaviorContractIDs / the projection"
+			if len(raw) > 0 {
+				msg += " for every judged id (" + strings.Join(raw, "; ") + ")"
+			}
+			offenders = append(offenders, msg)
 		}
 	}
 	sort.Strings(offenders)
@@ -766,5 +1154,122 @@ func gate(ctx *types.BusContext, probes []types.VerificationProbe) string {
 	return ""
 }
 `, 1)
+	})
+	// EVOLUTION RECORD (§40.46 合流复核收编, G-contract-ids): the taint engine
+	// propagated call arguments into callee parameters but never a callee's
+	// RETURN into the call expression, ignored method returns, `req :=
+	// ir.Request` aliases, copy() destinations, and named string result
+	// types, and a gate counted as "resolved" if it called ANY authority.
+	// The six subtests below were RED against that engine (each shape kept
+	// the census green); the engine now taints to fixpoint through return
+	// values (functions and methods), Request-carrier aliases and copy()
+	// destinations, judges named-string results as refs gates, and resolves
+	// a gate per id-source EXPRESSION (every judged id must come from an
+	// accepted authority; one authority call elsewhere resolves nothing).
+	t.Run("agent_return_value_helper", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+func snapshot(ctx *types.AgentContext) []types.WriteBehaviorContract {
+	return ctx.Mutable.WriteAnalysisIR().Request.BehaviorContracts
+}
+func render(ctx *types.AgentContext) string {
+	out := ""
+	for _, c := range snapshot(ctx) {
+		out += c.ID
+	}
+	_ = types.RequiredWriteBehaviorContractIDs(snapshot(ctx), true)
+	return out
+}
+`, 0, "iterates the pre-rebase analyzer snapshot", "feeds the pre-rebase analyzer snapshot (directly or via alias/parameter) to RequiredWriteBehaviorContractIDs")
+	})
+	t.Run("agent_method_return", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+type frame struct{ ir *types.WriteAnalysisIR }
+func (f *frame) contracts() []types.WriteBehaviorContract { return f.ir.Request.BehaviorContracts }
+func (f *frame) render() string {
+	out := ""
+	for _, c := range f.contracts() {
+		out += c.ID
+	}
+	return out
+}
+`, 0, "iterates the pre-rebase analyzer snapshot")
+	})
+	t.Run("agent_request_alias", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+func render(ir *types.WriteAnalysisIR) string {
+	req := ir.Request
+	out := ""
+	for _, c := range req.BehaviorContracts {
+		out += c.ID
+	}
+	return out
+}
+`, 0, "iterates the pre-rebase analyzer snapshot")
+	})
+	t.Run("agent_copy_builtin", func(t *testing.T) {
+		run(t, "x.go", "agent", `package agent
+import "github.com/hanchaoqun/codrax/internal/types"
+func render(ir *types.WriteAnalysisIR) string {
+	dst := make([]types.WriteBehaviorContract, len(ir.Request.BehaviorContracts))
+	copy(dst, ir.Request.BehaviorContracts)
+	out := ""
+	for _, c := range dst {
+		out += c.ID
+	}
+	return out
+}
+`, 0, "iterates the pre-rebase analyzer snapshot")
+	})
+	t.Run("tool_named_string_result_gate", func(t *testing.T) {
+		run(t, "x.go", "tool", `package tool
+import "github.com/hanchaoqun/codrax/internal/types"
+type rejection string
+func probeGate(plan *types.ChangePlan, probes []types.VerificationProbe) rejection {
+	ids := map[string]bool{}
+	for _, c := range plan.BehaviorContracts {
+		ids[c.ID] = true
+	}
+	for _, p := range probes {
+		for _, ref := range p.ContractRefs {
+			if !ids[ref] {
+				return rejection(ref)
+			}
+		}
+	}
+	return ""
+}
+`, 1, "resolves contract ids without")
+	})
+	t.Run("tool_mixed_source_gate", func(t *testing.T) {
+		// The gate calls an accepted authority for something else while the
+		// ids it actually judges come from a raw WriteAnalysisIR() helper:
+		// per-expression resolution flags the raw source; the authority call
+		// resolves nothing.
+		run(t, "x.go", "tool", `package tool
+import "github.com/hanchaoqun/codrax/internal/types"
+func rawIDs(ctx *types.BusContext) map[string]bool {
+	ids := map[string]bool{}
+	for _, c := range ctx.Mutable.WriteAnalysisIR().Request.BehaviorContracts {
+		ids[c.ID] = true
+	}
+	return ids
+}
+func gate(ctx *types.BusContext, plan *types.ChangePlan, probes []types.VerificationProbe) string {
+	res := resolveBehaviorContractIDs(plan)
+	_ = res
+	ids := rawIDs(ctx)
+	for _, p := range probes {
+		for _, ref := range p.ContractRefs {
+			if !ids[ref] {
+				return ref
+			}
+		}
+	}
+	return ""
+}
+`, 1, "gate resolves contract ids without")
 	})
 }

@@ -148,7 +148,21 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 			out[i].ArtifactLabel = strings.TrimSpace(projection.ArtifactLabel)
 		}
 	}
-	return out
+	// §40.48 fold-in: this is the one entry every consumer of the slate goes
+	// through (decision handoff, trace_query preview, ledger compile), so the
+	// slate is deduped by authority IDENTITY here, once — the handoff face and
+	// the validation face can then never disagree about how many copies exist.
+	return dedupeAnswerRelationAuthorities(out)
+}
+
+// answerRelationAuthorityIdentity is the identity of one relation authority:
+// (id, artifact_label). The id is a content fingerprint, so identical
+// accounting in two trace files shares one id and only the partition key
+// tells the two authorities apart (§40.48 fold-in ruling). Every dedupe,
+// duplicate check, and closure requirement keys on this pair, never on the
+// id alone.
+func answerRelationAuthorityIdentity(id, artifactLabel string) string {
+	return strings.TrimSpace(id) + "\x00" + strings.TrimSpace(artifactLabel)
 }
 
 // TraceAnswerDirectionArithmetic is the shared typed arithmetic verdict used
@@ -468,25 +482,50 @@ func CompileTraceAnswerRelationAuthoritiesFromLedger(ledger ObservationLedger) [
 	return dedupeAnswerRelationAuthorities(out)
 }
 
-// dedupeAnswerRelationAuthorities keeps the first row per id. The partition
-// key survives the dedupe (V1-4 §40.26 ③, the LEDGER-MERGE-1 shape): the
-// ledger-fed two-ruler synthetic projection is unlabeled and sorts first, so a
-// later same-id row compiled from the labeled partition backfills the label
-// instead of being dropped with its key.
+// dedupeAnswerRelationAuthorities keeps the first row per authority IDENTITY
+// (id, artifact_label) in first-appearance order (§40.48 fold-in ruling).
+// Identical accounting in two trace files shares one content id and is TWO
+// authorities — both rows survive, so an exact copy of either trace file's
+// claim validates. An unlabeled row is unspecified, not a third trace file:
+// it merges into its id's labeled rows — when it arrives first (the
+// ledger-fed two-ruler synthetic projection, the LEDGER-MERGE-1 shape) the
+// first labeled same-id row backfills its key instead of being dropped, and
+// when it arrives after a labeled row it is absorbed. Under one id the kept
+// rows are therefore either exactly one unlabeled row or labeled rows with
+// pairwise-distinct labels.
 func dedupeAnswerRelationAuthorities(in []AnswerRelationAuthority) []AnswerRelationAuthority {
-	index := make(map[string]int, len(in))
+	byID := make(map[string][]int, len(in))
 	deduped := make([]AnswerRelationAuthority, 0, len(in))
 	for _, authority := range in {
 		if authority.ID == "" {
 			continue
 		}
-		if at, seen := index[authority.ID]; seen {
-			if deduped[at].ArtifactLabel == "" {
-				deduped[at].ArtifactLabel = authority.ArtifactLabel
-			}
+		rows := byID[authority.ID]
+		if len(rows) == 0 {
+			byID[authority.ID] = []int{len(deduped)}
+			deduped = append(deduped, authority)
 			continue
 		}
-		index[authority.ID] = len(deduped)
+		if authority.ArtifactLabel == "" {
+			// Unspecified partition: already represented under this id.
+			continue
+		}
+		merged := false
+		for _, at := range rows {
+			if deduped[at].ArtifactLabel == authority.ArtifactLabel {
+				merged = true
+				break
+			}
+			if deduped[at].ArtifactLabel == "" {
+				deduped[at].ArtifactLabel = authority.ArtifactLabel
+				merged = true
+				break
+			}
+		}
+		if merged {
+			continue
+		}
+		byID[authority.ID] = append(rows, len(deduped))
 		deduped = append(deduped, authority)
 	}
 	return deduped
@@ -533,6 +572,15 @@ func answerRelationRankRefs(ranks []int) []string {
 // against typed authorities. When requireClosureAuthorities is true, every
 // RequiredForClosure authority must be acknowledged exactly once. There is no
 // prose inspection and no system-side answer repair.
+//
+// Duplicates and closure are judged per authority IDENTITY (id, artifact_label):
+// two trace files with identical accounting are two authorities, so copying
+// both of their claims is not a duplicate, while claiming the same trace
+// file's authority twice is. A claim is first resolved to its authority
+// (a labeled claim to its own trace file's row, an unlabeled claim to the
+// first row under that id — the unspecified escape lane) and the resolved
+// authority's identity is what the seen-set records, so an unlabeled copy and
+// a labeled copy of the same single authority still count as one claim twice.
 func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []AnswerRelationAuthority, requireClosureAuthorities bool) error {
 	byID := answerRelationAuthoritiesByID(authorities)
 	seen := make(map[string]bool, len(claims))
@@ -543,12 +591,20 @@ func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []An
 			violations = append(violations, fmt.Sprintf("relation_claims[%d].authority_id is required", index))
 			continue
 		}
-		if seen[claim.AuthorityID] {
-			violations = append(violations, fmt.Sprintf("relation_claims[%d] duplicates authority_id=%q", index, claim.AuthorityID))
+		authority, ok := answerRelationAuthorityForClaim(byID, claim)
+		identity := answerRelationAuthorityIdentity(claim.AuthorityID, claim.ArtifactLabel)
+		if ok {
+			identity = answerRelationAuthorityIdentity(authority.ID, authority.ArtifactLabel)
+		}
+		if seen[identity] {
+			if ok && authority.ArtifactLabel != "" {
+				violations = append(violations, fmt.Sprintf("relation_claims[%d] duplicates authority_id=%q for trace file %q", index, claim.AuthorityID, authority.ArtifactLabel))
+			} else {
+				violations = append(violations, fmt.Sprintf("relation_claims[%d] duplicates authority_id=%q", index, claim.AuthorityID))
+			}
 			continue
 		}
-		seen[claim.AuthorityID] = true
-		authority, ok := answerRelationAuthorityForClaim(byID, claim)
+		seen[identity] = true
 		if !ok {
 			violations = append(violations, fmt.Sprintf("relation_claims[%d].authority_id=%q has no typed relation authority in this investigation", index, claim.AuthorityID))
 			continue
@@ -559,7 +615,12 @@ func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []An
 	}
 	if requireClosureAuthorities {
 		for _, authority := range authorities {
-			if authority.RequiredForClosure && !seen[authority.ID] {
+			if !authority.RequiredForClosure || seen[answerRelationAuthorityIdentity(authority.ID, authority.ArtifactLabel)] {
+				continue
+			}
+			if authority.ArtifactLabel != "" {
+				violations = append(violations, fmt.Sprintf("missing required model-authored relation claim for authority_id=%q from trace file %q", authority.ID, authority.ArtifactLabel))
+			} else {
 				violations = append(violations, fmt.Sprintf("missing required model-authored relation claim for authority_id=%q", authority.ID))
 			}
 		}

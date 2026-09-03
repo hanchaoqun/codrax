@@ -34,6 +34,7 @@ import (
 type optionalCarrierLedger struct {
 	toolName  string
 	minted    []types.OptionalCarrierOutcome
+	notes     []string
 	finalized bool
 }
 
@@ -73,6 +74,32 @@ func (l *optionalCarrierLedger) mint(o types.OptionalCarrierOutcome, detail ...s
 	return o
 }
 
+// note registers one plain advisory Summary line (§40.44 G-emit-faces
+// fold-in #2): soft guidance about a carrier the tool DID honour — e.g. the
+// binder's non-dropping caliber note beside a description published as
+// written. A note is not an OptionalCarrierOutcome (the closed set describes
+// only parts that were NOT honoured, and minting part_dropped for a kept
+// part would be a false typed status inviting a needless patch round), so it
+// carries no typed row, no status token, and no repair hint — only its own
+// line on whichever result the call returns.
+func (l *optionalCarrierLedger) note(line string) {
+	if l == nil {
+		panic("optional carrier note registered without a ledger — the guidance would be lost")
+	}
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	if l.finalized {
+		msg := "[" + l.toolName + "] optional carrier note registered after the tool result was finalized; the advisory line is lost: " + line
+		if testing.Testing() {
+			panic(msg)
+		}
+		logging.Warning("%s", msg)
+		return
+	}
+	l.notes = append(l.notes, line)
+}
+
 // finalize is the tool-result choke point: every outcome minted during the
 // call that is not yet on the result is attached (typed row + its own
 // Summary line unless the Summary already words that reason verbatim —
@@ -88,6 +115,19 @@ func (l *optionalCarrierLedger) finalize(res types.ToolResult) types.ToolResult 
 			continue
 		}
 		attachOptionalCarrierOutcome(&res, o)
+	}
+	// Plain advisory notes ride after the typed rows: one line each, no
+	// typed row, no status token, skipped when the Summary already words the
+	// note verbatim (same idempotence rule as the rows).
+	for _, line := range l.notes {
+		if strings.Contains(res.Summary, line) {
+			continue
+		}
+		res.Summary = strings.TrimRight(res.Summary, "\n")
+		if res.Summary != "" {
+			res.Summary += "\n"
+		}
+		res.Summary += line
 	}
 	return res
 }

@@ -166,3 +166,96 @@ func TestTypedReconciliationEnglishFacesAreNeutral(t *testing.T) {
 		}
 	}
 }
+
+// TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord —
+// §40.49 合流复核收编 (G-target-state #1): the reconciliation row prints the
+// five DISJOINT lanes, so its D term is the exclusive non-IO lane and must be
+// labelled with the single-source customer-face word
+// (tool.TraceStateNonIODStateWord), byte-equal with the body wall-clock
+// partition / wait-coverage / fact-juxtaposition faces. The bare word
+// "D-state" on a customer face is reserved for the published uninterruptible
+// fold, which the body four-state line prints as "D-state …(其中 IO等待 …)".
+//
+// EVOLUTION RECORD (red→green): before the fix the row spelled the non-IO
+// lane by hand as "+ D-state 4.039ms" while the same answer's body four-state
+// line said "D-state 5.379ms(…,其中 IO等待 1.340ms)" — two calibers under one
+// word on one customer page. This test was written first and failed on both
+// the "+ D-state " ban and the qualified-word requirement; the renderer fix
+// turned it green.
+func TestTypedReconciliationTargetStateRowSpeaksTheQualifiedNonIOLaneWord(t *testing.T) {
+	// Unit face: exact bytes of both languages on the ruling fixture
+	// (running 60 / runnable 20 / sleep 29.561 / d_state 4.039 / io_wait
+	// 1.340 = 114.940 = window).
+	row := tool.RuntimeTraceReconciliationRow{
+		Kind: tool.RuntimeTraceReconciliationTargetState, ArtifactLabel: "huadong.systrace",
+		Subject: "app-10", EvidenceTag: "E2",
+		WindowMS: 114.940, RunningMS: 60, RunnableMS: 20, SleepMS: 29.561,
+		DStateMS: 4.039, IOWaitMS: 1.340, TotalMS: 114.940,
+	}
+	f := renderTargetStateReconciliation(row)
+	wantZH := "对账参考: 工件 huadong.systrace · app-10 全窗状态分区 running 60.000ms + runnable 20.000ms + sleep 29.561ms + 非 IO D-state 4.039ms + io_wait 1.340ms = 114.940ms(分析窗 114.940ms) [E2]"
+	if f.entryZH != wantZH {
+		t.Fatalf("ZH reconciliation row bytes drifted:\n got %q\nwant %q", f.entryZH, wantZH)
+	}
+	wantEN := "Reconciliation reference: artifact huadong.systrace · app-10 full-window state partition: running 60.000ms + runnable 20.000ms + sleep 29.561ms + non-IO D-state 4.039ms + io_wait 1.340ms = 114.940ms (analysis window 114.940ms) [E2]"
+	if f.entry != wantEN {
+		t.Fatalf("EN reconciliation row bytes drifted:\n got %q\nwant %q", f.entry, wantEN)
+	}
+	// The label is the single-source word, not a hand copy.
+	if !strings.Contains(f.entryZH, tool.TraceStateNonIODStateWord(true)+" 4.039ms") ||
+		!strings.Contains(f.entry, tool.TraceStateNonIODStateWord(false)+" 4.039ms") {
+		t.Fatalf("row must label its D term with tool.TraceStateNonIODStateWord: zh=%q en=%q", f.entryZH, f.entry)
+	}
+	for _, face := range []string{f.entryZH, f.entry} {
+		if strings.Contains(face, "+ D-state ") {
+			t.Fatalf("bare \"D-state\" term on the reconciliation row spells the non-IO lane under the fold's word: %q", face)
+		}
+	}
+
+	// Whole-answer face: body four-state line (fold, labelled as the fold)
+	// and appendix reconciliation row (non-IO lane, labelled as such) render
+	// from ONE account without a bare-word contradiction.
+	const selected = "selected_window=34579.472865..34579.587805"
+	rank := lexiconBoardRankRecord(1, "worker-7", "runnable_wait",
+		selected, "rank=1", "tier=primary", "chain_relevance=on_chain", "causality=on_wakeup_chain",
+		"impact_ms=30.000", "cumulative_impact_ms=30.000", "effective_impact_ms=30.000",
+		"type=runnable_wait", "fix_direction=lock_priority", "rank_board_target=app-10")
+	rank.Value = "30.000"
+	rank.SupportRefs = []string{"sample.systrace:10-20"}
+	path := psgTraceRecord("trace_query:q#wakeup_chain:path", "wakeup_chain:path", "0.000", selected, "path=worker-7 -> app-10")
+	path.Predicate = "wakeup_chain"
+	path.Subject = "app-10"
+	path.Object = "worker-7 -> app-10"
+	path.SupportRefs = []string{"sample.systrace:21-22"}
+	account := p6AccountRecord("app-10", 60, 20, 29.561, 4.039, 0, 114.940, 114.940)
+	account.RichNotes = append(account.RichNotes, types.TraceNoteKeyIOWait+"=1.340")
+	account.SupportRefs = []string{"sample.systrace:23-24"}
+	account.Span.LineStart, account.Span.LineEnd = 23, 24
+
+	mut := psgTraceMutable(rank, path, account)
+	bus := psgBus(mut)
+	bus.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentTrace, Scenario: types.ScenarioPerformanceBottleneck,
+	}}
+	doc := psgProseDoc("窗口内 io_wait 1.340ms 已单列。")
+	result, err := tool.ApplyAndPersistMutation(bus, "typed_reconciliation_nonio_word_test", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("materialize trace projection: result=%+v err=%v", result, err)
+	}
+	shipped := mut.AnswerDocumentV2()
+	if shipped == nil {
+		t.Fatal("missing shipped document")
+	}
+	body, _ := json.Marshal(shipped)
+	if !strings.Contains(string(body), "+ D-state 5.379ms(") || !strings.Contains(string(body), "其中 IO等待 1.340ms") {
+		t.Fatalf("body four-state line must publish the fold under the bare word with its IO breakdown, got document without it")
+	}
+	o := &Orchestrator{busCtx: bus}
+	joined := strings.Join(o.collectSystemCrossCheckFindings(), "\n")
+	if !strings.Contains(joined, "非 IO D-state 4.039ms + io_wait 1.340ms") {
+		t.Fatalf("appendix reconciliation row must qualify its non-IO D term:\n%s", joined)
+	}
+	if strings.Contains(joined, "+ D-state ") {
+		t.Fatalf("appendix must not spell the non-IO lane under the bare fold word:\n%s", joined)
+	}
+}

@@ -137,6 +137,14 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// carriers of this call (the root-cause selector).
 	carriers := newOptionalCarrierLedger(toolName)
 	defer func() { result = carriers.finalize(result) }()
+	// §40.44 G-emit-faces fold-in #1: the selector commit tail runs on EVERY
+	// exit after the selector was resolved (zero-value selection before that
+	// = no-op) — the pre-emit hard-hint reject remembers the rejected draft
+	// as the next patch base (★16), so a valid selector riding it must be
+	// staged and an invalid one disclosed + marked, exactly like the patch
+	// executor's reject exits.
+	var rootCauseSelection traceRootCauseSelection
+	defer func() { commitTraceRootCauseSelection(ctx, result, err, rootCauseSelection) }()
 	var recovery answerDocumentRecoveryReport
 	// First pass: detect retired top-level fields (shape / steps /
 	// symbols / value / boolean / summary / symbols_completeness).
@@ -253,6 +261,13 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
 		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints, raw)
 	}
+	// §40.44 G-emit-faces fold-in #1: resolve the optional selector
+	// immediately after the strict decode, BEFORE any reject or pre-emit
+	// check (the resolver needs only ctx + the submitted field; persist has
+	// not run). It never owns answer eligibility; an ignored selector is
+	// disclosed on whichever result this call returns, never only logged, and
+	// the deferred commit tail stages/marks it on every exit.
+	rootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.TraceRootCauses, false)
 
 	// document_model is no longer surfaced to the LLM. The system
 	// runs only one carrier so any value (or absence) the model
@@ -435,10 +450,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// stops implying a pure submitted→surviving mapping.
 	poolAtPersistEntry := len(doc.Citations)
 	mutation := types.NewReplaceAllMutation(doc)
-	// The optional selector is resolved BEFORE persist and committed after it
-	// (commitTraceRootCauseSelection): it never owns answer eligibility, and
-	// an ignored selector is disclosed on the result, never only logged.
-	rootCauseSelection := resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.TraceRootCauses, false)
+	// The optional selector was resolved right after the strict decode and is
+	// committed by the deferred commitTraceRootCauseSelection on every exit.
 	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
 		// §29.174 F6: disclose the submitted→registered citation delta
@@ -462,8 +475,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	}
 	// The outcome disclosure, when any, is attached by the deferred finalize
 	// after the citation-ledger suffix, so line one stays the accepted counts
-	// line and the disclosure is its own line.
-	commitTraceRootCauseSelection(ctx, res, err, rootCauseSelection)
+	// line and the disclosure is its own line; the selector commit tail is
+	// the deferred commitTraceRootCauseSelection.
 	return res, err
 }
 

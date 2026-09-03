@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -207,8 +208,8 @@ func TestCR4Fact_FourStateAccountLine(t *testing.T) {
 	if !strings.Contains(hit, "running 157.248") || !strings.Contains(hit, "sleep 70.338") {
 		t.Fatalf("the account values must ride the line: %s", hit)
 	}
-	if !strings.Contains(hit, "非IO D-state") {
-		t.Fatalf("exclusive five-state D lane must disclose non-IO semantics: %s", hit)
+	if !strings.Contains(hit, tool.TraceStateNonIODStateWord(true)) {
+		t.Fatalf("exclusive five-state D lane must disclose non-IO semantics via the single-source word: %s", hit)
 	}
 }
 
