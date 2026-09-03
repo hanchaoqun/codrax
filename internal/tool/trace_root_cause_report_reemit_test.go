@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,5 +151,49 @@ func TestEmitAnswerDocumentStagedSelectorSurvivesStructuralRejection(t *testing.
 	mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
 	if mutable.PendingTraceRootCauseReport() != nil || mutable.TraceRootCauseReport() != nil {
 		t.Fatal("dispatch reset must clear both the report and the stage")
+	}
+}
+
+// SIDECAR-NARR-1 (customer feedback 2026-09-03): a selection may carry the
+// model's plain-language description; it is published beside the typed
+// evidence, and an internal reference inside it drops the selector without
+// rejecting the full answer.
+func TestEmitAnswerDocumentPublishesModelDescriptionBesideTypedEvidence(t *testing.T) {
+	mutable := types.NewMutableState("analyze trace root cause")
+	mutable.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+	ctx := &types.BusContext{Mutable: mutable}
+	raw, _ := json.Marshal(map[string]any{
+		"blocks": []map[string]any{{"id": "summary", "kind": "summary", "text": "answer"}},
+		"trace_root_causes": map[string]any{
+			"schema_version": types.TraceRootCauseReportSchemaVersion,
+			"root_causes": []map[string]any{{"candidate_id": "candidate-sched",
+				"description": "RenderThread 在目标帧内等待 CPU 调度约 12 ms，UI 线程因此错过 vsync。"}},
+		},
+	})
+	result, err := executeAnswerDocumentV2("emit_answer_document", ctx, raw, time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("emit failed: result=%+v err=%v", result, err)
+	}
+	report := mutable.TraceRootCauseReport()
+	if report == nil || len(report.RootCauses) != 1 || !strings.Contains(report.RootCauses[0].Description, "错过 vsync") || len(report.RootCauses[0].Evidence) == 0 {
+		t.Fatalf("description must be published beside the typed evidence: %#v", report)
+	}
+	// An internal reference inside the description: selector dropped, answer kept.
+	mutable = types.NewMutableState("analyze trace root cause")
+	mutable.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+	ctx = &types.BusContext{Mutable: mutable}
+	raw, _ = json.Marshal(map[string]any{
+		"blocks": []map[string]any{{"id": "summary", "kind": "summary", "text": "answer"}},
+		"trace_root_causes": map[string]any{
+			"schema_version": types.TraceRootCauseReportSchemaVersion,
+			"root_causes":    []map[string]any{{"candidate_id": "candidate-sched", "description": "见 .codrax/blob/x/attached_trace.txt:2892"}},
+		},
+	})
+	result, err = executeAnswerDocumentV2("emit_answer_document", ctx, raw, time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("the full answer must survive an invalid description: result=%+v err=%v", result, err)
+	}
+	if mutable.TraceRootCauseReport() != nil {
+		t.Fatal("a selector whose description leaks an internal reference must not be published")
 	}
 }

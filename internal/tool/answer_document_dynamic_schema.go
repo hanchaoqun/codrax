@@ -282,6 +282,7 @@ func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) 
 		"description": "One model-selected typed on-chain candidate. Array order owns root-cause importance; all public semantic fields are bound by the runtime from this exact receipt.",
 		"properties": map[string]any{
 			"candidate_id": map[string]any{"type": "string", "enum": candidateIDs},
+			"description":  map[string]any{"type": "string", "description": "Optional plain-language account of this cause for the reader: which thread or resource did what, for how long, and why it delayed the target (for example 「同进程 GC 线程 HeapTaskDaemon 执行并发标记约 12 ms，UIThread 在此期间等待堆锁」). One or two sentences, reusing the roster's impact and value description; no internal ids, paths or evidence keys. The runtime keeps its own typed evidence sentences beside it."},
 		},
 		"required":             []string{"candidate_id"},
 		"additionalProperties": false,

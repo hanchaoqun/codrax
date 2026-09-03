@@ -6088,3 +6088,19 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 **残留**(记档):group 行 ledger SourceLocator 仍为虚拟 `<input>#k`(既有血统失真,身份已不撞);join 现在把左行 `_source*` 盖到连接行(raw-left/derived-right 连接报左血统,按拓扑更正确)→ eval `data_multifile_reference_projection` 需复跑;`include/set/rank` 值为空时按 ItemID 回退现在看到不同兄弟(scaffold 设 value_field,影响有限);前轮无 RowIdentity 的种子与新记录按更宽键去重。
 
 **验证**:隔离 worktree 施工代理:dataquery/dataworkflow/repl 绿、LOC ratchet 12332≤12344、canonical 字段 golden 有意更新、`go build ./...`;主线(HEAD=e80753133)补丁(含 architecture §13.8 段)后 dataquery/dataworkflow/repl 绿、全仓套件 `go test ./internal/... ./cmd/` 绿、`make` 通过;eval 复跑 `data_multifile_reference_projection` PASS(191 s,仅 wall 告诫)、`data_jsonl_filter_count` PASS(33 s);对抗复核代理因平台鉴权中断未产出 finding(主线自读补丁核对:拓扑表双射 census、1:N 盖章 census、祖先车道、旧账本不变)。
+
+### §40.41 SIDECAR-NARR-1 客户反馈施工收账(2026-09-03)
+
+**反馈**(2026-09-03):`.root-causes.json` 的 `evidence` 四句(量化/链路关系与凭证/机理与边界/trace 定位)是 typed 事实生成的,客户读来"太机械化",缺少模型自己的自然语言总结(如「同进程 GC 线程 X 执行并发标记 12 ms,UIThread 期间等待堆锁」「持有锁导致目标线程同步阻塞 8 ms」);客户记得首稿有此能力。**史实核对**:首稿 ea525ad93(2026-08-18)的选择器项含模型自由文本 `evidence`(1–4 句)与 `summary`(runtime 改写为固定格式);1f70bfb3e(2026-08-31)把选择器收紧为仅 `candidate_id`、公开字段全部由冻结候选绑定(为防口径/身份/内部引用被模型改写);SIDECAR-EVID-1(5ed875ce0)再把 `evidence` 改为 typed 事实四句——模型的机理叙述在 08-31 那次收紧时被整体移除,没有替代面。
+
+**定性**:typed 事实句解决的是"证据可核、无内部引用"(证据面=客户面),但把"机理叙述"(模型综合多条证据后的因果解释)一并禁掉是过度收紧——两者不是替代关系。分工:**事实由系统铸,叙述由模型写**;叙述是 advisory 散文,不得改写 category/impact/qualifier/evidence 任一 typed 字段。
+
+**落地**:
+1. 选择器项新增可选 `description`(schema 属性 + selector 上下文教学同源措辞:一两句、写给读者、谁对什么做了什么/多久/为何延误目标,复用名册的 impact_ms/value_description,禁止引用 candidate id/文件路径/证据 id);`additionalProperties:false` 下 `candidate_id` 仍是唯一必填。
+2. 绑定:`BindRootCauseReportSelection` 把 `selection.Description` 带到绑定项;`normalizeTraceRootCauseItem` 经 `ValidateTraceRootCauseDescription` 压空白、上限 320 字、拒绝内部引用精确子串(`.codrax/`、`trace-query-result`、`#root_cause_rank`、`trace_query:`、`attached_trace`)与候选 id 原文——精确子串硬拒(不是启发式),违规时 selector 整体不发布而答案照常(与既有"无效 sidecar 永不拒绝全文"一致,repair 走下一次 emit)。
+3. 公开 sidecar 项新增 `description`(omitempty,append-only v2):与 `summary`(固定格式短语)/`evidence`(typed 四句)并列;省略继承、patch、staged 等既有语义不变(整项携带)。
+4. 文档:实现指南 §3 字段表与示例增 `description`。
+
+**pin**:types(压空白/上限/五种内部引用/候选 id 各拒;normalize 保留 description 且 summary/evidence 不变)、tracefinding(绑定携带;内部引用拒绝)、tool(schema 暴露 description 且教学不含内部名;e2e 发布在 typed evidence 之旁;泄漏描述 → selector 不发布而答案成功)、agent(selector 上下文教学句)。
+
+**验证**:全仓套件 `go test ./internal/... ./cmd/` 绿 + `make` 通过;定向 pin(types/tracefinding/tool/agent)绿;eval 复跑 `trace_query_donghu_real_frame_multicausal` PASS,sidecar 三席位均带模型 `description`(例:「同进程 CookieMonsterCl 线程在依赖链上以 runnable 状态等待调度，与目标线程存在优先级差（目标 52 vs 该线程 20），构成链上优先级反转候选，有效归因 23.994ms」「ThreadPoolForeg 线程在依赖链上进入 D 状态不可中断等待，已测 10.433ms，内核未记录具体阻塞资源，该等待位于唤醒链上游。」),typed 四句证据保持并列,内部引用泄漏 0。

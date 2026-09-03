@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -64,6 +65,15 @@ func assertDynamicRootCauseArraySchema(t *testing.T, raw json.RawMessage) {
 	candidate, _ := itemProperties["candidate_id"].(map[string]any)
 	if candidate["type"] != "string" {
 		t.Fatalf("candidate_id is not a typed selector: %#v", candidate)
+	}
+	// SIDECAR-NARR-1: the model may attach a plain-language description; it is
+	// optional and taught without internal names.
+	description, _ := itemProperties["description"].(map[string]any)
+	if description["type"] != "string" {
+		t.Fatalf("description is not offered on the selector item: %#v", itemProperties)
+	}
+	if text, _ := description["description"].(string); !strings.Contains(text, "plain-language") || strings.Contains(text, "candidate_compiler") || strings.Contains(text, "EvidenceFacts") {
+		t.Fatalf("description teaching must be customer-facing and free of internal names: %q", text)
 	}
 	required, _ := item["required"].([]any)
 	want := map[string]bool{"candidate_id": false}

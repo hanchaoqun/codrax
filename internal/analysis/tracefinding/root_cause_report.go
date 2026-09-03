@@ -53,6 +53,9 @@ func BindRootCauseReportSelection(in *types.TraceRootCauseReportV2, contract *ty
 		if !ok {
 			return nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is not representable in the public report", index)
 		}
+		// SIDECAR-NARR-1: the model's plain-language account rides beside the
+		// typed facts; the normalizer bounds it and refuses internal references.
+		item.Description = selection.Description
 		seen[candidateID] = true
 		bound.RootCauses = append(bound.RootCauses, item)
 	}

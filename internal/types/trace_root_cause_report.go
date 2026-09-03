@@ -83,9 +83,46 @@ type TraceRootCauseItemV2 struct {
 	// Markdown headline qualifier 「（帧因果未证）」; not_applicable = the
 	// request is not a frame/jank question per the analyzer's typed decision.
 	// Always explicit.
-	CausalQualifier string   `json:"causal_qualifier"`
-	Summary         string   `json:"summary"`
-	Evidence        []string `json:"evidence"`
+	CausalQualifier string `json:"causal_qualifier"`
+	Summary         string `json:"summary"`
+	// Description (SIDECAR-NARR-1, customer feedback 2026-09-03) is the
+	// model's own plain-language account of the mechanism — who did what for
+	// how long and why it delayed the target — written for a customer who
+	// never sees internal ids, paths or evidence keys. It is advisory prose
+	// beside the typed facts: it never changes category, impact, qualifier or
+	// evidence, and its absence is not a defect. Optional on the wire.
+	Description string   `json:"description,omitempty"`
+	Evidence    []string `json:"evidence"`
+}
+
+// TraceRootCauseDescriptionMaxRunes bounds the model-authored description.
+const TraceRootCauseDescriptionMaxRunes = 320
+
+// traceRootCauseDescriptionForbiddenTokens are verbatim substrings that mark
+// an internal reference leaking into customer-facing prose: blob paths,
+// trace_query artifact names, ranking anchors and evidence-key spellings.
+var traceRootCauseDescriptionForbiddenTokens = []string{".codrax/", "trace-query-result", "#root_cause_rank", "trace_query:", "attached_trace"}
+
+// ValidateTraceRootCauseDescription compacts and bounds a model description
+// and refuses internal references; the candidate id (when known) must not be
+// quoted either.
+func ValidateTraceRootCauseDescription(raw, candidateID, field string) (string, error) {
+	description := compactTraceRootCauseField(raw)
+	if description == "" {
+		return "", nil
+	}
+	if utf8.RuneCountInString(description) > TraceRootCauseDescriptionMaxRunes {
+		return "", fmt.Errorf("trace_root_causes.%s.description exceeds %d characters", field, TraceRootCauseDescriptionMaxRunes)
+	}
+	for _, token := range traceRootCauseDescriptionForbiddenTokens {
+		if strings.Contains(description, token) {
+			return "", fmt.Errorf("trace_root_causes.%s.description must be customer-readable prose and must not cite internal references (%q)", field, token)
+		}
+	}
+	if id := strings.TrimSpace(candidateID); id != "" && strings.Contains(description, id) {
+		return "", fmt.Errorf("trace_root_causes.%s.description must not quote the internal candidate id", field)
+	}
+	return description, nil
 }
 
 // TraceImpactCaliber values carried on the public sidecar — closed set.
@@ -216,6 +253,11 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		}
 		out.Evidence = append(out.Evidence, evidence)
 	}
+	description, err := ValidateTraceRootCauseDescription(in.Description, out.CandidateID, field)
+	if err != nil {
+		return nil, err
+	}
+	out.Description = description
 	out.Summary = traceRootCauseSummary(*out)
 	if out.CausalQualifier == TraceCausalQualifierFrameUnproven && out.Summary != "" {
 		// Same words as the Markdown headline qualifier (§7.3 T3-1 ruling).

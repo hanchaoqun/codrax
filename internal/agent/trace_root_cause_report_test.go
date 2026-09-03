@@ -140,3 +140,25 @@ func TestRenderTraceRootCauseContractTeachesQualifierAndCaliber(t *testing.T) {
 		}
 	}
 }
+
+// SIDECAR-NARR-1: the selector context teaches the optional plain-language
+// description (same wording family as the schema), without internal names.
+func TestRootCauseSelectorContextTeachesPlainLanguageDescription(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	contract, err := tracefinding.CompileCandidateContract(types.ObservationLedger{}, types.TraceCausalProjectionSet{
+		Projections: []types.TraceCausalProjection{{RankedSeats: []types.TraceCausalProjectionNode{{
+			EvidenceID: "E1", Subject: "worker", Rank: 1, TypeToken: "running", ChainRelevance: "on_chain",
+			ImpactMS: 10, EffectiveImpactMS: 3, EffectiveImpactPublished: true,
+		}}}}}, tracefinding.SeatFrameCausalityAuthority{Applicable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.Required, contract.RootCauseReportEnabled = false, true
+	ctx.Mutable.SetTraceFindingContract(contract)
+	text := renderTraceFindingContract(ctx)
+	for _, want := range []string{"`description`", "plain-language", "never quote candidate ids, file paths or evidence ids"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("selector context must teach the description (%q):\n%s", want, text)
+		}
+	}
+}
