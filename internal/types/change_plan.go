@@ -1224,6 +1224,11 @@ type VerificationWorktreeEffect struct {
 	OwnerRunner     string                                `json:"owner_runner,omitempty"`
 	OwnerWorkingDir string                                `json:"owner_working_dir,omitempty"`
 	Disposition     VerificationWorktreeEffectDisposition `json:"disposition,omitempty"`
+	// LockfileFixedPoint (F-run-tests fold-in, append-only): the typed
+	// fixed-point witness state of a dependency_lockfile_refresh row —
+	// proven / disproven / unproven_* — read by every disclosure surface;
+	// empty for rows of other classes.
+	LockfileFixedPoint VerificationLockfileFixedPoint `json:"lockfile_fixed_point,omitempty"`
 }
 
 // VerificationWorktreeAudit is the bounded, typed integrity result attached

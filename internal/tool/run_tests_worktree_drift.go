@@ -65,7 +65,16 @@ type verificationWorktreeDriftDecision struct {
 type verificationDriftRosterEntry struct {
 	runner, framework, suite string
 	dirRel                   string // relative to the audit root, "." for root
+	// suiteInfraOutcome is the launched-outcome label (timeout | oom |
+	// cpu_limit) when the primary suite of this (runner, workdir) was cut
+	// short by an infrastructure cap; "" otherwise. The locked re-verify is
+	// not attempted for such an owner (it would die under the same caps) and
+	// its lockfile rows are disclosed with the fixed point marked UNPROVEN.
+	suiteInfraOutcome string
 }
+
+// key identifies the (runner, workdir) owner seat.
+func (e verificationDriftRosterEntry) key() string { return e.runner + "\x00" + e.dirRel }
 
 // classifyVerificationWorktreeDrift decides the class of one tracked effect.
 func classifyVerificationWorktreeDrift(effect types.VerificationWorktreeEffect, in verificationWorktreeDriftInput, baseline verificationWorktreeSnapshot, roster []verificationDriftRosterEntry, declared map[string]bool) verificationWorktreeDriftDecision {
@@ -191,7 +200,7 @@ func verificationDriftDeclaredOutputs(plan *types.ChangePlan) map[string]bool {
 // relative to the audit root.
 func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string) []verificationDriftRosterEntry {
 	var out []verificationDriftRosterEntry
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	for _, cmd := range in.executed {
 		if !verificationDriftCommandLaunched(cmd) {
 			continue
@@ -210,26 +219,48 @@ func verificationDriftRoster(in verificationWorktreeDriftInput, auditRoot string
 			continue
 		}
 		key := runner + "\x00" + dirRel
-		if seen[key] {
+		infra := verificationDriftCommandSuiteInfraOutcome(cmd)
+		if idx, ok := seen[key]; ok {
+			// Same owner seat launched more than once (syntax preflight +
+			// suite, escalations): an infra-downgraded launch marks the seat.
+			if infra != "" && out[idx].suiteInfraOutcome == "" {
+				out[idx].suiteInfraOutcome = infra
+			}
 			continue
 		}
-		seen[key] = true
-		out = append(out, verificationDriftRosterEntry{runner: runner, framework: strings.TrimSpace(cmd.Framework), suite: strings.TrimSpace(cmd.Suite), dirRel: dirRel})
+		seen[key] = len(out)
+		out = append(out, verificationDriftRosterEntry{runner: runner, framework: strings.TrimSpace(cmd.Framework), suite: strings.TrimSpace(cmd.Suite), dirRel: dirRel, suiteInfraOutcome: infra})
 	}
 	return out
 }
+
+// verificationDriftLaunchedOutcomes is the closed "process was started"
+// roster; verificationDriftSuiteInfraOutcomes is its infrastructure-downgrade
+// subset (the supervisor killed the suite: wall timeout / memory cap / CPU
+// cap — the same three kinds makeResourceExhaustionReport types). Both are
+// census-pinned (run_tests_worktree_drift_test.go) so a new launched or
+// infra outcome cannot be added to one table without the other.
+var (
+	verificationDriftLaunchedOutcomes   = []string{"executed", "suite_continued", "parser_error", "expected_stdout_missing", "zero_tests", "timeout", "oom", "cpu_limit"}
+	verificationDriftSuiteInfraOutcomes = []string{"timeout", "oom", "cpu_limit"}
+)
 
 // verificationDriftCommandLaunched reports whether the runner process was
 // actually started in its working dir — the typed fact the roster needs. The
 // post-hoc verdict label (parser_error, zero_tests, timeout, …) does not
 // undo the launch: a process that ran may have refreshed its lockfile.
 func verificationDriftCommandLaunched(cmd types.ExecutedCommand) bool {
-	switch strings.TrimSpace(cmd.Outcome) {
-	case "executed", "suite_continued", "parser_error", "expected_stdout_missing", "zero_tests", "timeout", "oom", "cpu_limit":
-		return true
-	default:
-		return false
+	return verificationDriftListContains(verificationDriftLaunchedOutcomes, strings.TrimSpace(cmd.Outcome))
+}
+
+// verificationDriftCommandSuiteInfraOutcome returns the launched outcome when
+// the supervisor cut the suite short (timeout | oom | cpu_limit), "" otherwise.
+func verificationDriftCommandSuiteInfraOutcome(cmd types.ExecutedCommand) string {
+	outcome := strings.TrimSpace(cmd.Outcome)
+	if verificationDriftListContains(verificationDriftSuiteInfraOutcomes, outcome) {
+		return outcome
 	}
+	return ""
 }
 
 // verificationDriftFormatterFixedPoint proves formatter_no_semantic_diff:
@@ -272,17 +303,28 @@ func verificationDriftRunFormatter(argv []string, input []byte, dir string, env 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// Resolve the binary BEFORE constructing the command: exec.CommandContext
+	// stamps cmd.Err=ErrNotFound when the bare name is absent from the codrax
+	// process PATH, and assigning cmd.Path afterwards does not clear it — the
+	// formatter would never start even though the runner env can find it.
+	var binary string
+	if len(env) > 0 {
+		resolved, err := lookPathInEnv(argv[0], env)
+		if err != nil {
+			return nil, false
+		}
+		binary = resolved
+	} else {
+		resolved, err := exec.LookPath(argv[0])
+		if err != nil {
+			return nil, false
+		}
+		binary = resolved
+	}
+	cmd := exec.CommandContext(ctx, binary, argv[1:]...)
 	cmd.Dir = dir
 	if len(env) > 0 {
 		cmd.Env = env
-		if resolved, err := lookPathInEnv(argv[0], env); err == nil {
-			cmd.Path = resolved
-		} else {
-			return nil, false
-		}
-	} else if _, err := exec.LookPath(argv[0]); err != nil {
-		return nil, false
 	}
 	cmd.Stdin = bytes.NewReader(input)
 	var out, errBuf bytes.Buffer
@@ -301,7 +343,7 @@ func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot 
 	record := types.VerificationLockedReverify{Runner: entry.runner, Framework: entry.framework, WorkingDir: entry.dirRel}
 	cmd, env, ok := buildLockedRunCommand(entry.runner, entry.framework, entry.suite, in.repoRoot, in.mainRoot)
 	if !ok {
-		record.Outcome = "unavailable"
+		record.Outcome = types.VerificationLockedReverifyUnavailable
 		record.ReasonCode = types.VerificationLockedReverifyFailedReason
 		return record
 	}
@@ -317,18 +359,45 @@ func runVerificationLockedReverify(in verificationWorktreeDriftInput, auditRoot 
 	record.DriftedPaths = result.DriftedPaths
 	switch {
 	case result.Unavailable:
-		record.Outcome = "unavailable"
+		record.Outcome = types.VerificationLockedReverifyUnavailable
 		record.ReasonCode = types.VerificationLockedReverifyFailedReason
 	case result.ExitCode != 0:
-		record.Outcome = "failed"
+		record.Outcome = types.VerificationLockedReverifyFailed
 		record.ReasonCode = types.VerificationLockedReverifyFailedReason
 	case len(result.DriftedPaths) > 0:
-		record.Outcome = "drift_recurred"
+		record.Outcome = types.VerificationLockedReverifyDriftRecurred
 		record.ReasonCode = types.VerificationLockedReverifyFailedReason
 	default:
-		record.Outcome = "passed"
+		record.Outcome = types.VerificationLockedReverifyPassed
 	}
 	return record
+}
+
+// verificationLockedReverifyRecordForOwner decides, from typed facts only,
+// whether the locked re-run is executed for one lockfile owner and returns
+// its record plus the typed fixed-point state its rows carry:
+//   - report not Passed            ⇒ skipped_report_failed / unproven_report_failed
+//   - owner suite infra-downgraded ⇒ skipped_suite_infra_downgraded /
+//     unproven_suite_infra_downgraded (never refused, never re-run under
+//     the caps that just killed it)
+//   - otherwise the locked re-run executes (a Passed zero-test report
+//     included — the locked run is then a cheap lockfile-only witness).
+func verificationLockedReverifyRecordForOwner(report *types.ChangeReport, in verificationWorktreeDriftInput, auditRoot string, owner verificationDriftRosterEntry) (types.VerificationLockedReverify, types.VerificationLockfileFixedPoint) {
+	record := types.VerificationLockedReverify{Runner: owner.runner, Framework: owner.framework, WorkingDir: owner.dirRel}
+	switch {
+	case report == nil || !report.Passed:
+		record.Outcome = types.VerificationLockedReverifySkippedReportFailed
+		return record, types.VerificationLockfileFixedPointUnprovenReportFailed
+	case owner.suiteInfraOutcome != "":
+		record.Outcome = types.VerificationLockedReverifySkippedSuiteInfraDowngraded
+		record.SuiteOutcome = owner.suiteInfraOutcome
+		return record, types.VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded
+	}
+	record = runVerificationLockedReverify(in, auditRoot, owner)
+	if record.Outcome == types.VerificationLockedReverifyPassed {
+		return record, types.VerificationLockfileFixedPointProven
+	}
+	return record, types.VerificationLockfileFixedPointDisproven
 }
 
 func verificationDriftExecuteLocked(in verificationWorktreeDriftInput) func(req verificationLockedReverifyRequest) verificationLockedReverifyResult {

@@ -25,9 +25,10 @@
 // Compatibility: existing callers of FallbackTargetForViolations and
 // FallbackTargetForViolationsWithBudget remain valid; A3 will
 // rewire them to consume RepairPlan internally. A2 wires
-// RetryState to track LastPrimaryOwner / OwnerStableAttempts so
-// the orchestrator can detect ping-pong (same owner picked N times,
-// no progress → escalate to FailLoud).
+// RetryState to record LastPrimaryOwner / LastPrimaryViolation;
+// ping-pong detection (same owner picked N times, no progress →
+// escalate to FailLoud) lives per cluster on
+// RepairExecutionPlan.ClusterStates (cluster closure v3 B1).
 
 package orchestrator
 

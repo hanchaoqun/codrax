@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // verification_worktree_drift.go — V5-2 (colleague_merge_audit §40.11): the
 // tracked-drift gate gains a typed side-effect OWNER dimension. A tracked
 // path changed by the verification run is classified into a closed set from
@@ -72,9 +74,30 @@ const (
 	VerificationLockedReverifyFailedReason = "lockfile_locked_reverify_failed"
 )
 
+// Closed outcome set of a VerificationLockedReverify record (F-run-tests
+// fold-in of §40.36: the labels are accurate — a locked re-run is skipped
+// as "report failed" only when the report actually failed, and as "suite
+// infra downgraded" when the primary suite of the owning runner was cut
+// short by a timeout / memory cap / CPU cap so re-running it under the same
+// caps would only die again).
+const (
+	VerificationLockedReverifyPassed        = "passed"
+	VerificationLockedReverifyFailed        = "failed"
+	VerificationLockedReverifyDriftRecurred = "drift_recurred"
+	VerificationLockedReverifyUnavailable   = "unavailable"
+	// VerificationLockedReverifySkippedReportFailed: the report is not
+	// Passed; the locked re-run would fail for the suite's own reasons.
+	VerificationLockedReverifySkippedReportFailed = "skipped_report_failed"
+	// VerificationLockedReverifySkippedSuiteInfraDowngraded: the owning
+	// runner's primary suite was killed by an infrastructure cap; the
+	// fixed point is left UNPROVEN and disclosed, never refused.
+	VerificationLockedReverifySkippedSuiteInfraDowngraded = "skipped_suite_infra_downgraded"
+)
+
 // VerificationLockedReverify records one locked re-run of an executed runner
-// after a dependency-lockfile refresh. Outcome is closed:
-// passed | failed | drift_recurred | unavailable.
+// after a dependency-lockfile refresh. Outcome is closed (constants above):
+// passed | failed | drift_recurred | unavailable | skipped_report_failed |
+// skipped_suite_infra_downgraded.
 type VerificationLockedReverify struct {
 	Runner       string   `json:"runner"`
 	Framework    string   `json:"framework,omitempty"`
@@ -84,6 +107,118 @@ type VerificationLockedReverify struct {
 	Outcome      string   `json:"outcome"`
 	ReasonCode   string   `json:"reason_code,omitempty"`
 	DriftedPaths []string `json:"drifted_paths,omitempty"`
+	// SuiteOutcome is the launched-outcome label of the primary suite that
+	// made the gate skip the locked re-run (timeout | oom | cpu_limit); set
+	// only with Outcome=skipped_suite_infra_downgraded.
+	SuiteOutcome string `json:"suite_outcome,omitempty"`
+}
+
+// VerificationLockfileFixedPoint is the typed witness state of one
+// dependency_lockfile_refresh row: whether the locked re-run proved the
+// refreshed lockfile is a fixed point. It is the single source every
+// disclosure surface reads (verify note zh/en, run_tests summary, final
+// report residual risks, context pack, controller prompt); no renderer
+// re-derives it from LockedReverify records or free text.
+type VerificationLockfileFixedPoint string
+
+const (
+	// VerificationLockfileFixedPointProven: the locked re-run exited 0 with
+	// no further tracked drift.
+	VerificationLockfileFixedPointProven VerificationLockfileFixedPoint = "proven"
+	// VerificationLockfileFixedPointDisproven: the locked re-run failed,
+	// drifted again or was unavailable; the row is refused.
+	VerificationLockfileFixedPointDisproven VerificationLockfileFixedPoint = "disproven"
+	// VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded: the
+	// owning runner's suite was cut short by an infrastructure cap, so the
+	// locked re-run was not attempted; the row stays disclosed.
+	VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded VerificationLockfileFixedPoint = "unproven_suite_infra_downgraded"
+	// VerificationLockfileFixedPointUnprovenReportFailed: the report failed
+	// for the suite's own reasons, so the locked re-run was not attempted.
+	VerificationLockfileFixedPointUnprovenReportFailed VerificationLockfileFixedPoint = "unproven_report_failed"
+)
+
+// AllVerificationLockfileFixedPoints is the closed set in stable order.
+func AllVerificationLockfileFixedPoints() []VerificationLockfileFixedPoint {
+	return []VerificationLockfileFixedPoint{
+		VerificationLockfileFixedPointProven,
+		VerificationLockfileFixedPointDisproven,
+		VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded,
+		VerificationLockfileFixedPointUnprovenReportFailed,
+	}
+}
+
+// VerificationLockfileFixedPointUnproven reports whether a DISCLOSED lockfile
+// row lacks its fixed-point witness (the class definition promises one), so
+// every disclosure surface must say so in plain words.
+func VerificationLockfileFixedPointUnproven(fp VerificationLockfileFixedPoint) bool {
+	switch fp {
+	case VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded, VerificationLockfileFixedPointUnprovenReportFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// VerificationLockfileFixedPointDisclosure is the customer-facing plain-words
+// phrase for an unproven lockfile fixed point ("" for proven / disproven /
+// not applicable). It never contains a comma so risk details that join rows
+// with "," stay parseable.
+func VerificationLockfileFixedPointDisclosure(fp VerificationLockfileFixedPoint, zh bool) string {
+	switch fp {
+	case VerificationLockfileFixedPointUnprovenSuiteInfraDowngraded:
+		if zh {
+			return "锁文件定点未证明：测试套件被超时或资源上限中止，未能执行锁定复验"
+		}
+		return "lockfile fixed point UNPROVEN: the test suite was cut short by a timeout or resource cap before a locked re-run could prove it"
+	case VerificationLockfileFixedPointUnprovenReportFailed:
+		if zh {
+			return "锁文件定点未证明：测试套件失败，未执行锁定复验"
+		}
+		return "lockfile fixed point UNPROVEN: the test suite failed so no locked re-run was attempted"
+	default:
+		return ""
+	}
+}
+
+// VerificationWorktreeUntrackedRetainedPaths is the one predicate every
+// disclosure surface uses for the untracked lane: new untracked outputs the
+// verification run left behind (retained, not committed, not auto-deleted).
+// It reads only the effect rows, never the audit status, so a refused
+// (tracked_drift) run discloses its untracked outputs exactly like a
+// disclosed or clean-tracked run does. limit<=0 means unbounded.
+func VerificationWorktreeUntrackedRetainedPaths(effects []VerificationWorktreeEffect, limit int) []string {
+	var paths []string
+	seen := map[string]bool{}
+	for _, effect := range effects {
+		if effect.Kind != VerificationWorktreeEffectUntrackedCreated {
+			continue
+		}
+		path := strings.TrimSpace(effect.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+		if limit > 0 && len(paths) >= limit {
+			break
+		}
+	}
+	return paths
+}
+
+// UntrackedRetainedPaths is the audit-level form of
+// VerificationWorktreeUntrackedRetainedPaths (nil-safe).
+func (a *VerificationWorktreeAudit) UntrackedRetainedPaths(limit int) []string {
+	if a == nil {
+		return nil
+	}
+	return VerificationWorktreeUntrackedRetainedPaths(a.Effects, limit)
+}
+
+// HasUntrackedRetainedOutput reports whether the run left any untracked
+// output behind, independent of the tracked lane's disposition.
+func (a *VerificationWorktreeAudit) HasUntrackedRetainedOutput() bool {
+	return a != nil && len(VerificationWorktreeUntrackedRetainedPaths(a.Effects, 1)) > 0
 }
 
 // FailureKindReplanEscapeLane names the typed escape a replan-routed failure

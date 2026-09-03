@@ -823,9 +823,6 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 		add("verification_failed", "change_report", "error", string(report.Verification.FailureKind))
 	}
 	switch report.Verification.WorktreeAuditStatus {
-	case VerificationWorktreeAuditUntrackedSideEffects:
-		add("verification_worktree_untracked_side_effects", "worktree_audit", "warning",
-			strings.Join(writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectUntrackedCreated), ","))
 	case VerificationWorktreeAuditTrackedDrift:
 		add("verification_worktree_tracked_drift", "worktree_audit", "error",
 			strings.Join(writeFinalWorktreeRefusedEffectPaths(report.Verification.WorktreeEffects), ","))
@@ -835,11 +832,14 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 	case VerificationWorktreeAuditTrackedDriftDisclosed:
 		add(VerificationTrackedSideEffectDisclosedReason, "worktree_audit", "warning",
 			strings.Join(writeFinalWorktreeDisclosedEffects(report.Verification.WorktreeEffects), ","))
-		if untracked := writeFinalWorktreeEffectPaths(report.Verification.WorktreeEffects, VerificationWorktreeEffectUntrackedCreated); len(untracked) > 0 {
-			add("verification_worktree_untracked_side_effects", "worktree_audit", "warning", strings.Join(untracked, ","))
-		}
 	case VerificationWorktreeAuditUnavailable:
 		add("verification_worktree_audit_unavailable", "worktree_audit", "warning", "post-run worktree cleanliness not proven")
+	}
+	// The untracked lane is a residual risk independent of the tracked
+	// lane's disposition (shared types predicate): untracked-only, disclosed
+	// and refused runs all name the outputs verification left behind.
+	if untracked := VerificationWorktreeUntrackedRetainedPaths(report.Verification.WorktreeEffects, 0); len(untracked) > 0 {
+		add("verification_worktree_untracked_side_effects", "worktree_audit", "warning", strings.Join(untracked, ","))
 	}
 	switch report.ProofLedger.State {
 	case VerificationProofLedgerFailed:
@@ -883,16 +883,6 @@ func writeFinalResidualRisks(report WriteFinalReport) []WriteFinalResidualRisk {
 		add("impact_"+status, "impact_analysis", "warning", fmt.Sprintf("%d target(s)", count))
 	}
 	return risks
-}
-
-func writeFinalWorktreeEffectPaths(effects []VerificationWorktreeEffect, kind VerificationWorktreeEffectKind) []string {
-	var paths []string
-	for _, effect := range effects {
-		if effect.Kind == kind && strings.TrimSpace(effect.Path) != "" {
-			paths = append(paths, strings.TrimSpace(effect.Path))
-		}
-	}
-	return dedupTrimWriteWorkflowRunStrings(paths)
 }
 
 func writeFinalNormalizeRisks(in []WriteFinalResidualRisk) []WriteFinalResidualRisk {
@@ -1083,14 +1073,20 @@ func writeFinalLooksLikeTestPath(path string) bool {
 }
 
 // writeFinalWorktreeDisclosedEffects renders "path=class" for disclosed
-// tracked rows (V5-2); the paths are not part of the delivery commit.
+// tracked rows (V5-2); the paths are not part of the delivery commit. A
+// lockfile row whose fixed point is UNPROVEN carries the single-sourced
+// plain-words phrase (comma-free, so the joined detail stays parseable).
 func writeFinalWorktreeDisclosedEffects(effects []VerificationWorktreeEffect) []string {
 	var out []string
 	for _, effect := range effects {
 		if effect.Disposition != VerificationWorktreeEffectDisclosed {
 			continue
 		}
-		out = append(out, effect.Path+"="+string(effect.DriftClass))
+		row := effect.Path + "=" + string(effect.DriftClass)
+		if phrase := VerificationLockfileFixedPointDisclosure(effect.LockfileFixedPoint, false); phrase != "" {
+			row += " [" + phrase + "]"
+		}
+		out = append(out, row)
 	}
 	return out
 }

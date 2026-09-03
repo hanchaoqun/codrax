@@ -31,10 +31,12 @@ import (
 //  2. Every violation in the result, scored with severity / layer
 //     / field path so the LLM can prioritise.
 //  3. The retry attempt counter so renderers know we're in a retry.
-//  4. (Phase 1-A2) The RepairPlan summary: LastPrimaryOwner,
-//     OwnerStableAttempts (stability counter), LastPrimaryViolation.
-//     Wired so the orchestrator can detect ping-pong / decide on
-//     escalation without recomputing the plan.
+//  4. (Phase 1-A2) The RepairPlan summary: LastPrimaryOwner /
+//     LastPrimaryViolation — the typed owner and root kind of the
+//     deepest cluster. Owner stability (ping-pong → escalate) is NOT
+//     tracked here: it lives per cluster on the paired
+//     RepairExecutionPlan.ClusterStates (§40.43 F12 removed the
+//     reader-less OwnerStableAttempts counter).
 //
 // Called BEFORE state.requeue(fin.ID) so the next finalizer dispatch
 // observes the populated state on its first BuildInitialInstruction
@@ -43,10 +45,6 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 	if mut == nil {
 		return
 	}
-	// A2: read previous state BEFORE building new RetryState so the
-	// stability counter has access to the prior LastPrimaryOwner.
-	prevState := mut.RetryState()
-
 	rs := &types.RetryState{
 		Attempt: prevAttempt + 1,
 	}
@@ -76,23 +74,17 @@ func populateRetryState(mut *types.MutableState, res contract.Result, prevAttemp
 	actionable := FilterActionableRootViolations(res.Violations)
 	rs.ActiveViolations = scoreViolations(actionable)
 
-	// A2: compute RepairPlan + populate stability fields.
+	// A2: compute RepairPlan + record the deepest owner / root kind.
 	plan := BuildRepairPlan(actionable)
 	rs.LastPrimaryOwner = string(plan.PrimaryOwner)
 	rs.LastPrimaryViolation = deepestPrimaryKind(plan)
-	if prevState != nil && prevState.LastPrimaryOwner == rs.LastPrimaryOwner && rs.LastPrimaryOwner != "" {
-		rs.OwnerStableAttempts = prevState.OwnerStableAttempts + 1
-	} else if rs.LastPrimaryOwner != "" {
-		rs.OwnerStableAttempts = 1
-	}
 
 	mut.SetRetryState(rs)
 }
 
 // deepestPrimaryKind returns the Primary.Kind of the deepest cluster
 // in plan.Clusters (the cluster that drives PrimaryOwner). Empty
-// when the plan has no clusters. Helper for populateRetryState
-// stability tracking.
+// when the plan has no clusters. Helper for populateRetryState.
 func deepestPrimaryKind(plan RepairPlan) types.ViolationKind {
 	if len(plan.Clusters) == 0 {
 		return ""
@@ -342,8 +334,10 @@ func textHeadTail(s string, head, tail int) string {
 // transient-failure deliveries: those paths may still recover a draft
 // from RetryState.PrevEmitJSON (finalizer_auto_repair). Deliberately NOT
 // called at explore re-dispatch either: clearing there would lift the
-// backtrack veto before the model speaks and would zero the owner
-// ping-pong counter the next populate reads.
+// backtrack veto before the model speaks — the generation-consumption
+// design (§40.14 ②) has one failure veto exactly once, until the next
+// ACCEPTED completion decision advances the generation, without a second
+// carrier slot and without un-vetoing before the explorer re-decides.
 func (o *Orchestrator) closeFinalizeRetryChain() {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
 		return

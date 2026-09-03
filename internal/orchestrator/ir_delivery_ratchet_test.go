@@ -26,7 +26,15 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// acceptance exit (evidence-utilization log + node bookkeeping +
 		// retry-chain close) into acceptFinalizeNode in retry_state.go —
 		// the four repeated triplets became one call each.
-		{path: "orchestrator.go", maxLines: 9126},
+		// Tightened 9126→9018 after F14 (§40.14 V7-2 fold-in) moved the
+		// reconcile-node auto-complete arm into accepted_closure_reconcile.go
+		// and the shared accepted-closure premise into
+		// accepted_closure_premise.go (own budgets below).
+		{path: "orchestrator.go", maxLines: 9018},
+		// F14: the reconcile auto-complete arm and the single accepted-closure
+		// premise shared by both auto-complete consumers.
+		{path: "accepted_closure_reconcile.go", maxLines: 130},
+		{path: "accepted_closure_premise.go", maxLines: 60},
 		{path: "write_verify_render.go", maxLines: 420},
 		// DELIBERATE 240→280 (§29.146 UPSTREAM-3 件1): the pre-mint
 		// withhold half of the current_source waiver double defense

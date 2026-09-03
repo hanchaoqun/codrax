@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
 const (
@@ -704,10 +706,10 @@ func (output *traceDBTextFidelityOutput) flushBlock(ctx context.Context, anchor 
 	payloadDigest := sha256.Sum256(payload)
 	rawDigest := sha256.Sum256(output.blockRaw)
 	blockID := output.blockID + 1
-	lineCapacity := len("# codrax_trace_db_block/v2 block= records= raw_bytes= ts_ns= codec=deflate payload= payload_sha256= raw_sha256=") +
+	lineCapacity := len(tracequery.TraceDBTextBlockPrefix+" block= records= raw_bytes= ts_ns= codec=deflate payload= payload_sha256= raw_sha256=") +
 		20*4 + base64.RawURLEncoding.EncodedLen(len(payload)) + sha256.Size*4
 	line := make([]byte, 0, lineCapacity)
-	line = append(line, "# codrax_trace_db_block/v2 block="...)
+	line = append(line, tracequery.TraceDBTextBlockPrefix+" block="...)
 	line = strconv.AppendInt(line, int64(blockID), 10)
 	line = append(line, " records="...)
 	line = strconv.AppendInt(line, int64(output.blockRecords), 10)
@@ -822,10 +824,10 @@ func emitTraceDBTextFidelityRecord(
 		end := min(start+maxTraceDBTextFidelityChunkBytes, len(payload))
 		chunk := payload[start:end]
 		chunkDigest := sha256.Sum256(chunk)
-		lineCapacity := len("# codrax_trace_db_record/v1 kind= table_id= row_ordinal= chunk= chunks= ts_ns= payload= chunk_sha256= record_sha256=") +
+		lineCapacity := len(tracequery.TraceDBTextRecordPrefix+" kind= table_id= row_ordinal= chunk= chunks= ts_ns= payload= chunk_sha256= record_sha256=") +
 			len(kind) + 20*6 + base64.RawURLEncoding.EncodedLen(len(chunk)) + sha256.Size*4
 		line := make([]byte, 0, lineCapacity)
-		line = append(line, "# codrax_trace_db_record/v1 kind="...)
+		line = append(line, tracequery.TraceDBTextRecordPrefix+" kind="...)
 		line = append(line, kind...)
 		line = append(line, " table_id="...)
 		line = strconv.AppendInt(line, int64(tableID), 10)

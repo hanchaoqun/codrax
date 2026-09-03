@@ -291,11 +291,30 @@ func markVerificationTrackedWorktreeDrift(report *types.ChangeReport, audit *typ
 		Kind: types.TestResultKindUnit, AssertionID: "verification_worktree_integrity",
 		Suite: "verification", Passed: false, FailureDetail: detail,
 	})
+	// The untracked lane is disclosed independently of the tracked lane's
+	// disposition: a refused run still names the outputs it left behind.
+	// The planner-facing failure summary / integrity witness stay refused-
+	// rows-only (nothing there is for the planner to "fix").
 	report.VerificationDiagnostics = mergeVerificationDiagnostics(report.VerificationDiagnostics, []types.VerificationDiagnostic{{
 		Source: "git_worktree_audit", Category: "worktree_integrity", Severity: "error",
-		ReasonCode: verificationWorktreeTrackedDriftReason, Outcome: "tracked_drift", Detail: detail,
+		ReasonCode: verificationWorktreeTrackedDriftReason, Outcome: "tracked_drift", Detail: detail + verificationWorktreeUntrackedRetainedSentence(audit),
 	}})
 }
+
+// verificationWorktreeUntrackedRetainedSentence is the one run_tests-side
+// rendering of the untracked lane ("; untracked verification output
+// retained, not committed, not auto-deleted: a, b"), built on the shared
+// types predicate so every surface lists the same paths regardless of the
+// tracked lane's disposition. "" when nothing was left behind.
+func verificationWorktreeUntrackedRetainedSentence(audit *types.VerificationWorktreeAudit) string {
+	paths := audit.UntrackedRetainedPaths(8)
+	if len(paths) == 0 {
+		return ""
+	}
+	return "; " + verificationWorktreeUntrackedRetainedClause + ": " + strings.Join(paths, ", ")
+}
+
+const verificationWorktreeUntrackedRetainedClause = "untracked verification output retained, not committed, not auto-deleted"
 
 // verificationWorktreeRefusedEffectPaths lists the tracked rows the gate
 // refused (a row without a disposition is a legacy refused row); disclosed
@@ -308,20 +327,6 @@ func verificationWorktreeRefusedEffectPaths(effects []types.VerificationWorktree
 			continue
 		}
 		if strings.TrimSpace(effect.Path) == "" {
-			continue
-		}
-		paths = append(paths, effect.Path)
-		if limit > 0 && len(paths) >= limit {
-			break
-		}
-	}
-	return paths
-}
-
-func verificationWorktreeEffectPaths(effects []types.VerificationWorktreeEffect, kind types.VerificationWorktreeEffectKind, limit int) []string {
-	var paths []string
-	for _, effect := range effects {
-		if effect.Kind != kind || strings.TrimSpace(effect.Path) == "" {
 			continue
 		}
 		paths = append(paths, effect.Path)
@@ -365,6 +370,10 @@ func decideVerificationTrackedDrift(parent context.Context, report *types.Change
 	declared := verificationDriftDeclaredOutputs(in.plan)
 	var refusedPaths []string
 	lockfileOwners := map[string]verificationDriftRosterEntry{}
+	rosterByKey := map[string]verificationDriftRosterEntry{}
+	for _, entry := range roster {
+		rosterByKey[entry.key()] = entry
+	}
 	for i := range audit.Effects {
 		effect := &audit.Effects[i]
 		if effect.Kind != types.VerificationWorktreeEffectTrackedChanged {
@@ -379,8 +388,11 @@ func decideVerificationTrackedDrift(parent context.Context, report *types.Change
 			effect.Action = "disclosed_not_committed_not_auto_reverted"
 			audit.DisclosedTrackedEffectCount++
 			if decision.class == types.VerificationWorktreeDriftDependencyLockfileRefresh {
-				key := decision.ownerRunner + "\x00" + decision.workingDir
-				lockfileOwners[key] = verificationDriftRosterEntry{runner: decision.ownerRunner, framework: decision.framework, suite: decision.suite, dirRel: decision.workingDir}
+				owner := verificationDriftRosterEntry{runner: decision.ownerRunner, framework: decision.framework, suite: decision.suite, dirRel: decision.workingDir}
+				// The owner seat's launched-outcome facts (suite infra
+				// downgrade) come from the roster, never from the path.
+				owner.suiteInfraOutcome = rosterByKey[owner.key()].suiteInfraOutcome
+				lockfileOwners[owner.key()] = owner
 			}
 			continue
 		}
@@ -396,29 +408,33 @@ func decideVerificationTrackedDrift(parent context.Context, report *types.Change
 		markVerificationTrackedWorktreeDrift(report, audit) // detail lists refused rows only (helper filters Disposition)
 		return
 	}
-	// Every row is disclosed-class: prove lockfile fixed points — but only on
-	// a passing report. A failing suite would fail its locked re-run for its
-	// own reasons; that exit code says nothing about the lockfile, and the
-	// primary failure must keep its own kind and summary.
+	// Every row is disclosed-class: prove lockfile fixed points. The gate is
+	// "report.Passed and the owner's suite was not infra-downgraded" (not
+	// "status == passed"): a failing suite would fail its locked re-run for
+	// its own reasons and keeps its own kind/summary; a suite the supervisor
+	// killed would only die again under the same caps, so its fixed point is
+	// left UNPROVEN and disclosed; a Passed zero-test report runs the cheap
+	// lockfile-only witness. verificationLockedReverifyRecordForOwner owns
+	// the decision and the typed fixed-point state each row carries.
 	keys := make([]string, 0, len(lockfileOwners))
 	for key := range lockfileOwners {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	failedOwners := map[string]bool{}
-	reportPassing := report.Passed && report.NormalizeVerificationStatus() == types.VerificationStatusPassed
+	fixedPoints := map[string]types.VerificationLockfileFixedPoint{}
 	for _, key := range keys {
-		owner := lockfileOwners[key]
-		if !reportPassing {
-			audit.LockedReverify = append(audit.LockedReverify, types.VerificationLockedReverify{
-				Runner: owner.runner, Framework: owner.framework, WorkingDir: owner.dirRel, Outcome: "skipped_report_failed",
-			})
-			continue
-		}
-		record := runVerificationLockedReverify(in, baseline.root, owner)
+		record, fixedPoint := verificationLockedReverifyRecordForOwner(report, in, baseline.root, lockfileOwners[key])
 		audit.LockedReverify = append(audit.LockedReverify, record)
-		if record.Outcome != "passed" {
+		fixedPoints[key] = fixedPoint
+		if fixedPoint == types.VerificationLockfileFixedPointDisproven {
 			failedOwners[key] = true
+		}
+	}
+	for i := range audit.Effects {
+		effect := &audit.Effects[i]
+		if effect.DriftClass == types.VerificationWorktreeDriftDependencyLockfileRefresh {
+			effect.LockfileFixedPoint = fixedPoints[effect.OwnerRunner+"\x00"+effect.OwnerWorkingDir]
 		}
 	}
 	if len(failedOwners) > 0 {
@@ -464,24 +480,16 @@ func verificationWorktreeDisclosedDetail(audit *types.VerificationWorktreeAudit)
 		if effect.Kind != types.VerificationWorktreeEffectTrackedChanged {
 			continue
 		}
-		part := effect.Path + "=" + string(effect.DriftClass)
-		if effect.OwnerRunner != "" {
-			part += "(" + effect.OwnerRunner + ")"
-		}
-		parts = append(parts, part)
+		parts = append(parts, verificationWorktreeEffectRowSummary(effect))
 		if len(parts) >= 8 {
 			break
 		}
 	}
 	detail := "verification changed tracked path(s) owned by a disclosed side-effect class: " + strings.Join(parts, ", ") +
-		"; not part of the delivery commit, not auto-reverted"
-	if audit.UntrackedEffectCount > 0 {
-		detail += "; untracked verification output retained, not committed, not auto-deleted: " +
-			strings.Join(verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectUntrackedCreated, 8), ", ")
-	}
+		"; not part of the delivery commit, not auto-reverted" + verificationWorktreeUntrackedRetainedSentence(audit)
 	passed := 0
 	for _, record := range audit.LockedReverify {
-		if record.Outcome == "passed" {
+		if record.Outcome == types.VerificationLockedReverifyPassed {
 			passed++
 		}
 	}
@@ -489,4 +497,18 @@ func verificationWorktreeDisclosedDetail(audit *types.VerificationWorktreeAudit)
 		detail += "; locked re-verify passed"
 	}
 	return detail
+}
+
+// verificationWorktreeEffectRowSummary renders one tracked row as
+// "path=class(owner)" and, for a disclosed lockfile row whose fixed point is
+// unproven, appends the single-sourced plain-words disclosure.
+func verificationWorktreeEffectRowSummary(effect types.VerificationWorktreeEffect) string {
+	part := effect.Path + "=" + string(effect.DriftClass)
+	if effect.OwnerRunner != "" {
+		part += "(" + effect.OwnerRunner + ")"
+	}
+	if phrase := types.VerificationLockfileFixedPointDisclosure(effect.LockfileFixedPoint, false); phrase != "" {
+		part += " [" + phrase + "]"
+	}
+	return part
 }

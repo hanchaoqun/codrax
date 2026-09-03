@@ -12,9 +12,14 @@ import (
 	"sync"
 )
 
+// TraceDBTextRecordPrefix and TraceDBTextBlockPrefix are the comment-carrier
+// wire prefixes of the SQL text-fidelity export. The parser owns the wire
+// bytes; the emitter (internal/hitraceconv streamerdb_text_fidelity.go) reads
+// them from here so the two sides share one literal and the producer-side
+// carrier-family census can bind the emitter to this declaration.
 const (
-	traceDBTextRecordPrefix = "# codrax_trace_db_record/v1"
-	traceDBTextBlockPrefix  = "# codrax_trace_db_block/v2"
+	TraceDBTextRecordPrefix = "# codrax_trace_db_record/v1"
+	TraceDBTextBlockPrefix  = "# codrax_trace_db_block/v2"
 
 	maxTraceDBTextRecordPayloadBytes = 32 * 1024
 	maxTraceDBTextBlockRawBytes      = 64 * 1024
@@ -49,10 +54,10 @@ type traceDBTextBlock struct {
 var traceDBTextBlockInflaterPool sync.Pool
 
 func parseTraceDBTextRecord(line string) (traceDBTextRecord, bool) {
-	if !strings.HasPrefix(line, traceDBTextRecordPrefix+" ") {
+	if !strings.HasPrefix(line, TraceDBTextRecordPrefix+" ") {
 		return traceDBTextRecord{}, false
 	}
-	rest := line[len(traceDBTextRecordPrefix)+1:]
+	rest := line[len(TraceDBTextRecordPrefix)+1:]
 	kind, rest, kindOK := cutTraceDBTextRecordField(rest, "kind=", false)
 	tableRaw, rest, tableOK := cutTraceDBTextRecordField(rest, "table_id=", false)
 	ordinalRaw, rest, ordinalOK := cutTraceDBTextRecordField(rest, "row_ordinal=", false)
@@ -117,10 +122,10 @@ func parseTraceDBTextRecord(line string) (traceDBTextRecord, bool) {
 }
 
 func parseTraceDBTextBlock(line string) (traceDBTextBlock, bool) {
-	if !strings.HasPrefix(line, traceDBTextBlockPrefix+" ") {
+	if !strings.HasPrefix(line, TraceDBTextBlockPrefix+" ") {
 		return traceDBTextBlock{}, false
 	}
-	rest := line[len(traceDBTextBlockPrefix)+1:]
+	rest := line[len(TraceDBTextBlockPrefix)+1:]
 	blockRaw, rest, blockOK := cutTraceDBTextRecordField(rest, "block=", false)
 	recordsRaw, rest, recordsOK := cutTraceDBTextRecordField(rest, "records=", false)
 	rawBytesRaw, rest, rawBytesOK := cutTraceDBTextRecordField(rest, "raw_bytes=", false)

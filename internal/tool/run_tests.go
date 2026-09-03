@@ -385,7 +385,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// is installed. Every install site in this Execute goes through it
 	// so early-return reports (timeout / OOM / runner missing / parser
 	// error) carry the same durable evidence as the aggregate path.
-	finishReportForPlan := func(report *types.ChangeReport, authorityPlan *types.ChangePlan, enforceCompleteCoverage bool) *types.ChangeReport {
+	//
+	// auditWorktree: only a report that is about to be INSTALLED runs the
+	// before/after worktree audit (git snapshots + drift gate + locked
+	// re-verify). The mid-loop provisional ledger (consulted solely by
+	// changeReportHasExecutionCapabilityDebt and then discarded) must not —
+	// otherwise the locked suite runs once per passing plan plus once at
+	// the end.
+	finishReportForPlan := func(report *types.ChangeReport, authorityPlan *types.ChangePlan, enforceCompleteCoverage, auditWorktree bool) *types.ChangeReport {
 		if report == nil {
 			return nil
 		}
@@ -420,10 +427,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			report.FailureReasonCode = failureReasonCodeFromExecutedCommandsForKind(report.ExecutedCommands, report.FailureKind)
 		}
 		applyChangedPathVerificationCoverageForPlan(ctx, authorityPlan, report, enforceCompleteCoverage)
-		if !dryRunProbe {
+		if !dryRunProbe && auditWorktree {
+			// The locked re-verify inherits the caller's timeout_seconds:
+			// a slow suite that passed under it must not be killed under
+			// the default in its locked re-run.
 			attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot, verificationWorktreeDriftInput{
 				plan: authorityPlan, executed: report.ExecutedCommands, repoRoot: ctx.RepoRoot, mainRoot: ctx.MainRepoRoot,
-				caps: verifyResourceCaps(), timeout: runTestsDefaultTimeout(),
+				caps: verifyResourceCaps(), timeout: timeout,
 			})
 		}
 		if report.GeneratedAt.IsZero() {
@@ -433,7 +443,12 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return report
 	}
 	finishReport := func(report *types.ChangeReport) *types.ChangeReport {
-		return finishReportForPlan(report, ctx.Mutable.ChangePlan(), true)
+		return finishReportForPlan(report, ctx.Mutable.ChangePlan(), true, true)
+	}
+	// provisionalReport is the mid-loop changed-path ledger: same typed
+	// evidence, no worktree audit (see finishReportForPlan).
+	provisionalReport := func(report *types.ChangeReport) *types.ChangeReport {
+		return finishReportForPlan(report, ctx.Mutable.ChangePlan(), true, false)
 	}
 	carryVerificationDiagnostics := func(report *types.ChangeReport) {
 		if report == nil || len(report.VerificationDiagnostics) == 0 {
@@ -456,7 +471,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		probe := runSingleVerificationProbe(ctx, probes[0], "planner_probe_verification_probe")
 		executedCmds = append(executedCmds, probe.Commands...)
 		authorityPlan := plannerProbeAuthorityPlan(ctx.Mutable.ChangePlan(), probes[0])
-		report := finishReportForPlan(probe.Report, authorityPlan, false)
+		report := finishReportForPlan(probe.Report, authorityPlan, false, true)
 		installRunTestsReport(ctx, report, dryRunProbe)
 		_, ref := StoreBlob(ctx, t.Name()+"-planner-verification-probe", probe.Output)
 		summary := renderPlannerVerificationProbeSummary(report, surface)
@@ -1393,7 +1408,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// Recompute the provisional changed-path ledger from typed command
 		// rows and queue the plan-touched runner when execution capability is
 		// still missing. No command/prose inspection participates here.
-		provisional := finishReport(mergeChangeReports(projectReports))
+		provisional := provisionalReport(mergeChangeReports(projectReports))
 		if changeReportHasExecutionCapabilityDebt(provisional) {
 			if next := escalateToSurfaceCandidate("execution_capability_escalation", plan); next != nil {
 				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan,

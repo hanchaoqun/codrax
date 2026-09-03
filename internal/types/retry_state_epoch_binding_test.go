@@ -59,11 +59,15 @@ func TestMutableState_ResetForFallback_ExploreBindsRetryStateEpoch(t *testing.T)
 	if bound.LastPrimaryOwner != rs.LastPrimaryOwner || len(bound.ActiveViolations) != len(rs.ActiveViolations) || bound.Attempt != rs.Attempt {
 		t.Fatal("binding must preserve every populated field of the retry state")
 	}
-	if mut.RepairExecutionPlan() != nil {
-		t.Fatal("explore backtrack must still clear the repair execution plan")
+	// EVOLUTION RECORD (§40.43 F12 fold-in): previously "explore backtrack
+	// must still clear the repair execution plan". The plan persists across
+	// every fallback target so cluster closure can classify the next
+	// failure against it; ResetRetryState at chain close is its reset.
+	if mut.RepairExecutionPlan() == nil {
+		t.Fatal("explore backtrack must preserve the repair execution plan")
 	}
-	if !epochPinContains(cleared, "RepairExecutionPlan") {
-		t.Fatalf("cleared list lost RepairExecutionPlan: %v", cleared)
+	if epochPinContains(cleared, "RepairExecutionPlan") {
+		t.Fatalf("cleared list must not report RepairExecutionPlan: %v", cleared)
 	}
 	if epochPinContains(cleared, "RetryState") {
 		t.Fatalf("binding is not a clear; cleared list must not report RetryState: %v", cleared)

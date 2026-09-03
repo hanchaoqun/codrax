@@ -862,8 +862,8 @@ type MutableState struct {
 	//
 	// Lifecycle: nil until the scheduler decides to retry the
 	// finalizer; kept (not cleared) across the retry chain so each
-	// re-dispatch renders it and the owner-stability counter reads the
-	// previous state; bound to the explore-backtrack epoch by
+	// re-dispatch renders it and the scheduler reads the previous
+	// attempt ordinal; bound to the explore-backtrack epoch by
 	// ResetForFallback(Explore); reset to nil by ResetRetryState when
 	// the chain closes at an accepted answer (§40.14 V7-2).
 	retryState *RetryState
@@ -876,9 +876,13 @@ type MutableState struct {
 	// assert on their own side.
 	//
 	// Lifetime mirrors retryState: overwritten on every retry-
-	// decision pass, cleared by ResetForFallback (Finalizer / Extract /
-	// Explore targets) and ResetRetryState. Nil on fresh dispatches /
-	// no-retry runs.
+	// decision pass (AdvanceRepairExecutionPlan stashes the advanced
+	// plan), PRESERVED across ResetForFallback at every target so the
+	// next failure classifies against it (cluster closure: stay /
+	// promote / stuck → fail-loud, §40.43 F12), cleared by
+	// ResetRetryState when the finalize chain closes at an accepted
+	// answer (or by SetRepairExecutionPlan(nil)). Nil on fresh
+	// dispatches / no-retry runs.
 	repairExecutionPlan any
 
 	// logTriage is the validated output of the log_triage pre-stage.
@@ -4404,6 +4408,16 @@ const (
 //     layer; a partial Mutable reset cannot legitimately
 //     re-derive the IR.
 //
+//   - Every target PRESERVES the RetryState / RepairExecutionPlan
+//     pair (§40.43 F12): the repair execution plan is the cross-
+//     attempt owner queue whose per-cluster closure state
+//     (stay / promote / stuck → fail-loud) is only reachable when the
+//     previous attempt's plan is still stashed when the next failure
+//     is classified. Clearing it here made every failure a rebuild
+//     and a stuck deepest owner cycle to the upstream cap. The pair is
+//     cleared by ResetRetryState when the finalize chain closes at an
+//     accepted answer.
+//
 // Returns the names of fields cleared so the caller can log a
 // human-readable trace of what was sacrificed. Safe with nil
 // receiver.
@@ -4415,20 +4429,17 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 	switch target {
 	case FallbackResetTargetFinalizer:
 		m.ResetAnswerDocumentV2()
-		m.ResetRepairExecutionPlan()
-		cleared = append(cleared, "AnswerDocumentV2", "RepairExecutionPlan")
+		cleared = append(cleared, "AnswerDocumentV2")
 	case FallbackResetTargetExtract:
 		m.ResetAnswerDocumentV2()
 		m.ResetEmittedAnswerSymbols()
-		m.ResetRepairExecutionPlan()
-		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "RepairExecutionPlan")
+		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols")
 	case FallbackResetTargetExplore:
 		m.ResetAnswerDocumentV2()
 		m.ResetEmittedAnswerSymbols()
 		// ChangePlan only meaningful in write mode; ResetChangePlan
 		// is nil-safe via guards above.
 		m.ResetChangePlan()
-		m.ResetRepairExecutionPlan()
 		// PendingReads — clear via closure so the next explorer
 		// dispatch's repair-queue starts empty. Evidence /
 		// ScannedSet / ReadSet preserved (sunk cost).
@@ -4438,10 +4449,9 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 		// The explore window re-opens: open a new backtrack epoch and
 		// bind the retry state populated for this backtrack to it. Not
 		// a clear (the state still renders on the next finalizer
-		// dispatch and feeds the owner-stability counter), so it is not
-		// reported in `cleared`.
+		// dispatch), so it is not reported in `cleared`.
 		m.bindRetryStateToExploreBacktrack()
-		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "ChangePlan", "RepairExecutionPlan", "PendingReads")
+		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "ChangePlan", "PendingReads")
 	case FallbackResetTargetAnalyze:
 		// Deliberate no-op — see red line. Caller is expected to
 		// fail-loud at this depth.
@@ -6356,12 +6366,15 @@ func (m *MutableState) RetryState() *RetryState {
 // loop, or any hard arm reading the carrier never observes a retry
 // state left behind by an already-shipped finalize chain. It is NOT
 // called at fresh dispatch entry: a re-dispatched finalizer must still
-// render the previous emit / active violations, and the ping-pong
-// stability counter reads the previous state.
+// render the previous emit / active violations, and the scheduler
+// reads the previous attempt ordinal.
 //
 // G1 (post_v2_runtime_gap_remediation, 2026-05-04): also clears the
 // stashed RepairExecutionPlan — the two surfaces are paired
-// (retry-state populator updates both together).
+// (retry-state populator updates both together). This is the ONLY
+// production reset of the plan (§40.43 F12): ResetForFallback
+// deliberately preserves it so cluster closure can classify the next
+// failure against the previous attempt.
 func (m *MutableState) ResetRetryState() {
 	if m == nil {
 		return
@@ -6427,20 +6440,6 @@ func (m *MutableState) RepairExecutionPlan() any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.repairExecutionPlan
-}
-
-// ResetRepairExecutionPlan clears the stashed plan in isolation.
-// Called by ResetForFallback at every reset target — the queue is
-// scoped to the current retry chain; once a fallback re-runs an
-// upstream stage, the queue from the prior chain is no longer
-// authoritative.
-func (m *MutableState) ResetRepairExecutionPlan() {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.repairExecutionPlan = nil
 }
 
 // SetInvestigationComplete marks the investigation as complete with

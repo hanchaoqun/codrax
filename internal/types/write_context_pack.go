@@ -1494,10 +1494,18 @@ func WriteContextPackFromChangeReport(report *ChangeReport) WriteContextPack {
 				if effect.OwnerRunner != "" {
 					text += " owner_runner=" + effect.OwnerRunner
 				}
+				text += WriteContextLockfileFixedPointSuffix(effect.LockfileFixedPoint)
 			}
 			pack.Items = append(pack.Items, writeContextItem("verification_worktree_effect", WriteContextP1, text, "verify",
 				WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
 			pack.Items[len(pack.Items)-1].ID = writeContextStableID("verification_worktree_effect", report.PlanID, effect.Path, string(effect.Kind))
+			// An unproven lockfile fixed point is its own P1 item so the
+			// plain-words disclosure survives the per-item text bound.
+			if disclosure := WriteContextLockfileFixedPointDisclosureText(effect.Path, effect.LockfileFixedPoint); disclosure != "" {
+				pack.Items = append(pack.Items, writeContextItem("verification_lockfile_fixed_point", WriteContextP1, disclosure, "verify",
+					WriteConsumerController, WriteConsumerPlanner, WriteConsumerVerifier))
+				pack.Items[len(pack.Items)-1].ID = writeContextStableID("verification_lockfile_fixed_point", report.PlanID, effect.Path, string(effect.LockfileFixedPoint))
+			}
 		}
 		if audit.Status == VerificationWorktreeAuditUnavailable {
 			pack.Items = append(pack.Items, writeContextItem("verification_worktree_audit_unavailable", WriteContextP1,
@@ -2731,4 +2739,28 @@ func writeContextStableID(parts ...string) string {
 		out = append(out, part)
 	}
 	return strings.Join(out, "|")
+}
+
+// WriteContextLockfileFixedPointSuffix renders the typed fixed-point token
+// of a dependency_lockfile_refresh row on the effect line of the write
+// handoff (context pack and controller prompt share it). "" for rows of
+// other classes.
+func WriteContextLockfileFixedPointSuffix(fp VerificationLockfileFixedPoint) string {
+	if fp == "" {
+		return ""
+	}
+	return " lockfile_fixed_point=" + string(fp)
+}
+
+// WriteContextLockfileFixedPointDisclosureText is the write-handoff form of
+// the plain-words disclosure for an UNPROVEN lockfile fixed point
+// ("path=<p> lockfile_fixed_point=<state> (<phrase>)"); "" when the fixed
+// point is proven, disproven or not applicable. Context pack and controller
+// prompt both render it, so the wording is single-sourced here.
+func WriteContextLockfileFixedPointDisclosureText(path string, fp VerificationLockfileFixedPoint) string {
+	phrase := VerificationLockfileFixedPointDisclosure(fp, false)
+	if phrase == "" {
+		return ""
+	}
+	return "path=" + strings.TrimSpace(path) + " lockfile_fixed_point=" + string(fp) + " (" + phrase + ")"
 }

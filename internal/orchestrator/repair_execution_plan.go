@@ -54,7 +54,10 @@ import (
 // Lifecycle:
 //
 //  1. Validator returns violations → BuildRepairExecutionPlan(vs, budget).
-//  2. Plan stashed on MutableState (next commit).
+//  2. Plan stashed on MutableState. It PERSISTS across
+//     ResetForFallback at every target (§40.43 F12) — the next
+//     failure's classification reads it as prev; only ResetRetryState
+//     (chain close at an accepted answer) clears it.
 //  3. Orchestrator dispatches CurrentOwner via targetForLocus.
 //  4. After agent completes:
 //     - Fresh violation set whose ViolationKind set differs from
@@ -88,7 +91,8 @@ type RepairExecutionPlan struct {
 	RemainingOwners []RepairLocus
 
 	// EscalationAllowed gates the "after exhausting RemainingOwners
-	// AND OwnerStableAttempts >= budget, escalate to FailLoud" path.
+	// AND a current-owner cluster's StableAttempts >= ClusterStableBudget(),
+	// escalate to FailLoud" path (classifyNextPlanAction step 5).
 	// Defaults to true; specific kinds (e.g. SOFT-only telemetry)
 	// may flip via future hooks.
 	EscalationAllowed bool

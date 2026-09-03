@@ -330,6 +330,42 @@ func TestTraceConvertDiagnosticFailureRetainsTypedInputCode(t *testing.T) {
 	}
 }
 
+// TestTraceConvertDiagnosticRetainsEventInvalidWitness (§40.38 fold-in F8):
+// a tracequery_postvalidation_event_invalid refusal reaches the customer
+// report with the offending row named — line, event name and body prefix.
+func TestTraceConvertDiagnosticRetainsEventInvalidWitness(t *testing.T) {
+	witness := &hitraceconv.TraceEventInvalidWitnessError{
+		Kind:       hitraceconv.TraceEventInvalidCarrierSignatureUnderForeignHeader,
+		Line:       13,
+		EventName:  "hmfs_writepage",
+		EventType:  "filesystem",
+		BodyPrefix: "codrax_agent/v2 started",
+	}
+	conversionErr := &hitraceconv.TraceProviderFailureError{
+		Stage: "trace_db_normalize",
+		Code:  "trace_db_normalize_failed",
+		Cause: witness,
+	}
+	body := string(traceConvertDiagnosticReportBody(
+		hitraceconv.Options{InputPath: "capture.sys"},
+		hitraceconv.Result{},
+		traceConvertDiagnosticProgressLog{},
+		conversionErr,
+	))
+	for _, want := range []string{
+		"typed_error_event_invalid=",
+		`"kind":"carrier_signature_under_foreign_header"`,
+		`"line":13`,
+		`"event_name":"hmfs_writepage"`,
+		`"event_type":"filesystem"`,
+		`"body_prefix":"codrax_agent/v2 started"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("event_invalid diagnostic missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestTraceConvertDiagnosticRetainsClockRegressionWitness(t *testing.T) {
 	witness := &hitraceconv.TraceClockRegressionWitnessError{
 		PreviousLine:         101,

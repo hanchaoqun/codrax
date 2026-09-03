@@ -11,8 +11,8 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -315,6 +315,28 @@ func TestOwnedTraceValidationRejectsCarrierUnderForeignEventName(t *testing.T) {
 				t.Fatalf("carrier under foreign header %q escaped the emission census: coverage=%+v err=%v",
 					tc.header, coverage, err)
 			}
+			// EVOLUTION RECORD (§40.38 fold-in F8): the refusal stays; its
+			// typed detail now names the offending row on the same per-row
+			// lane as the clock-regression witness so the customer can see
+			// which producer wrote it.
+			var witness *TraceEventInvalidWitnessError
+			if !errors.As(err, &witness) || witness.Line != strings.Count(systraceHeader, "\n")+2 ||
+				witness.EventName != tc.header || !strings.HasPrefix(witness.BodyPrefix, "codrax_") ||
+				len(witness.BodyPrefix) > maxTraceEventInvalidWitnessBodyBytes {
+				t.Fatalf("event_invalid witness does not name the refused row: %+v err=%v", witness, err)
+			}
+			// Both arms are witnessed by the line observer's body-signature
+			// check first (it runs before the event callback for the same
+			// physical row; a visibility carrier's body always starts with
+			// the wire): one witness, the first refusal, never two.
+			if witness.Kind != TraceEventInvalidCarrierSignatureUnderForeignHeader {
+				t.Fatalf("event_invalid witness kind %q, want %q", witness.Kind, TraceEventInvalidCarrierSignatureUnderForeignHeader)
+			}
+			if !slices.ContainsFunc(coverage.ColumnsPresent, func(value string) bool {
+				return value == fmt.Sprintf("event_invalid_line=%d", witness.Line)
+			}) {
+				t.Fatalf("coverage columns do not carry the refused row line: %+v", coverage.ColumnsPresent)
+			}
 		})
 	}
 }
@@ -342,48 +364,154 @@ func TestTraceDBSourceRawVisibilityFormatNamesWitnessBounded(t *testing.T) {
 
 // ---- PIN 4: structural registry + emission-site census ----
 
-var traceDBCarrierWirePattern = regexp.MustCompile(`^codrax_[a-z_]+/v[0-9]+`)
+// traceDBCarrierCensusPackage returns the Go package a census source key
+// belongs to: bare names are internal/hitraceconv, `tracequery/<name>` keys
+// are the parser package.
+func traceDBCarrierCensusPackage(key string) string {
+	if strings.HasPrefix(key, "tracequery/") {
+		return "tracequery"
+	}
+	return "hitraceconv"
+}
 
-// traceDBCarrierFamilyCensus is the structural tripwire behind the registry:
-//
-//	R1 every registered family publishes under the reserved event name;
-//	R2 every ftrace-body wire literal (`codrax_<family>/v<N>` at the start of a
-//	   string literal, comment carriers `# codrax_*` excluded) in the producer
-//	   package belongs to a registered family — a new family cannot exist
-//	   unregistered;
-//	R3 in each family's emitter file, every rendered-row body argument is
-//	   `<reserved-name const> + ": " + <body>` and at least one such site
-//	   exists — a registered family cannot emit under any other header;
-//	R4 the family's body builder is only called from its emitter file.
-func traceDBCarrierFamilyCensus(sources map[string][]byte, families []traceDBCarrierFamily) []string {
-	var violations []string
-	registered := map[string]bool{}
-	for _, family := range families {
-		registered[family.Wire] = true
-		switch family.Kind {
-		case traceDBCarrierKindFtraceBody:
-			if family.EventName != tracequery.SourceRawVisibilityEventName {
-				violations = append(violations, fmt.Sprintf("R1 family %s publishes under %q, not the reserved event name", family.Wire, family.EventName))
-			}
-		case traceDBCarrierKindComment:
-			// A comment carrier's whole contract is its `# <wire>` prefix
-			// constant in the emitter file; it never wears an event name.
-			if family.EventName != "" || family.BodyBuilder != "" {
-				violations = append(violations, fmt.Sprintf("R1 comment family %s must carry neither an event name nor a body builder", family.Wire))
-			}
-			if src, ok := sources[family.EmitterFile]; ok && !strings.Contains(string(src), "\"# "+family.Wire+"\"") {
-				violations = append(violations, fmt.Sprintf("R1 comment family %s: emitter %s declares no `# %s` prefix", family.Wire, family.EmitterFile, family.Wire))
-			}
-		default:
-			violations = append(violations, fmt.Sprintf("R1 family %s has no kind", family.Wire))
+// traceDBCarrierLiteralWire classifies one string literal: the whole wire
+// token it starts with (behind the `# ` comment prefix or bare) and whether
+// it is a comment-carrier literal. The grammar is the parser package's
+// single source, the same one the runtime body gate reads (F9).
+func traceDBCarrierLiteralWire(value string) (wire string, comment bool, ok bool) {
+	if strings.HasPrefix(value, tracequery.CarrierCommentLinePrefix) {
+		wire, ok = tracequery.CarrierWireToken(value[len(tracequery.CarrierCommentLinePrefix):])
+		return wire, true, ok
+	}
+	wire, ok = tracequery.CarrierWireToken(value)
+	return wire, false, ok
+}
+
+// traceDBCarrierWireLiteral is the literal a family's WireFile must declare.
+func traceDBCarrierWireLiteral(family traceDBCarrierFamily) string {
+	if family.Kind == traceDBCarrierKindComment {
+		return tracequery.CarrierCommentLinePrefix + family.Wire
+	}
+	return family.Wire
+}
+
+// traceDBCarrierConstIdents returns the top-level constant identifiers of
+// file whose value is exactly the string literal want.
+func traceDBCarrierConstIdents(file *ast.File, want string) []string {
+	var idents []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
 		}
-		if !traceDBCarrierWirePattern.MatchString(family.Wire) {
-			violations = append(violations, fmt.Sprintf("R1 family wire %q is not a versioned codrax wire token", family.Wire))
-		}
-		if _, ok := sources[family.EmitterFile]; !ok {
-			violations = append(violations, fmt.Sprintf("R1 family %s emitter file %s is missing", family.Wire, family.EmitterFile))
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for index, ident := range value.Names {
+				if index >= len(value.Values) {
+					continue
+				}
+				if lit, ok := value.Values[index].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					if got, err := strconv.Unquote(lit.Value); err == nil && got == want {
+						idents = append(idents, ident.Name)
+					}
+				}
+			}
 		}
 	}
+	return idents
+}
+
+// traceDBCarrierFileReferences reports whether file uses one of idents: as a
+// plain identifier (excluding the declaring name itself) when selectorPkg is
+// empty, otherwise as the `<selectorPkg>.<ident>` selector.
+func traceDBCarrierFileReferences(file *ast.File, idents []string, selectorPkg string) bool {
+	wanted := map[string]bool{}
+	for _, ident := range idents {
+		wanted[ident] = true
+	}
+	declaring := map[*ast.Ident]bool{}
+	for _, decl := range file.Decls {
+		if gen, ok := decl.(*ast.GenDecl); ok {
+			for _, spec := range gen.Specs {
+				if value, ok := spec.(*ast.ValueSpec); ok {
+					for _, name := range value.Names {
+						declaring[name] = true
+					}
+				}
+			}
+		}
+	}
+	found := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		if found {
+			return false
+		}
+		switch v := node.(type) {
+		case *ast.SelectorExpr:
+			if selectorPkg != "" {
+				if pkg, ok := v.X.(*ast.Ident); ok && pkg.Name == selectorPkg && wanted[v.Sel.Name] {
+					found = true
+				}
+				return false
+			}
+		case *ast.Ident:
+			if selectorPkg == "" && wanted[v.Name] && !declaring[v] {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// traceDBCarrierRegistrySpan returns the source span of the
+// traceDBReservedCarrierFamilies declaration in file (zero when absent): the
+// wire literals inside it ARE the registry, not duplicates of a declaration.
+func traceDBCarrierRegistrySpan(file *ast.File) (token.Pos, token.Pos) {
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			if value, ok := spec.(*ast.ValueSpec); ok {
+				for _, name := range value.Names {
+					if name.Name == "traceDBReservedCarrierFamilies" {
+						return value.Pos(), value.End()
+					}
+				}
+			}
+		}
+	}
+	return token.NoPos, token.NoPos
+}
+
+// traceDBCarrierFamilyCensus is the structural tripwire behind the registry,
+// total over BOTH carrier kinds in BOTH the producer and the parser package:
+//
+//	R1 registry shape: an ftrace-body family publishes under the reserved
+//	   event name, a comment family carries no event name/body builder, the
+//	   wire is a whole token of the one grammar, the WireFile is in the
+//	   scanned set and declares the wire literal as a constant, and the
+//	   EmitterFile is in the scanned set and references that constant (by
+//	   identifier, or by `tracequery.<Ident>` across the package boundary) —
+//	   positive witnesses, so a vacuous scan is red, not silently clean;
+//	R2 every string literal in the scanned set that starts with a whole wire
+//	   token — bare, or behind the `# ` comment prefix — belongs to a
+//	   registered family, and a registered wire is spelled as a literal only
+//	   in its WireFile (and in the registry itself) — a family cannot exist
+//	   unregistered and an emitter cannot re-type the wire;
+//	R3 in each ftrace-body family's emitter file, every rendered-row body
+//	   argument is `<reserved-name const> + ": " + <body>` and at least one
+//	   such site exists — a registered family cannot emit under any other
+//	   header;
+//	R4 the ftrace-body family's body builder is only called from its emitter
+//	   file.
+func traceDBCarrierFamilyCensus(sources map[string][]byte, families []traceDBCarrierFamily) []string {
+	var violations []string
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
 	for name, src := range sources {
@@ -394,22 +522,76 @@ func traceDBCarrierFamilyCensus(sources map[string][]byte, families []traceDBCar
 		}
 		parsed[name] = file
 	}
+	registered := map[string]bool{}
+	wireFiles := map[string]string{}
+	for _, family := range families {
+		registered[family.Wire] = true
+		wireFiles[family.Wire] = family.WireFile
+		kind := string(family.Kind)
+		switch family.Kind {
+		case traceDBCarrierKindFtraceBody:
+			if family.EventName != tracequery.SourceRawVisibilityEventName {
+				violations = append(violations, fmt.Sprintf("R1 family %s publishes under %q, not the reserved event name", family.Wire, family.EventName))
+			}
+		case traceDBCarrierKindComment:
+			// A comment carrier's whole contract is its `# <wire>` prefix
+			// constant; it never wears an event name.
+			if family.EventName != "" || family.BodyBuilder != "" {
+				violations = append(violations, fmt.Sprintf("R1 comment family %s must carry neither an event name nor a body builder", family.Wire))
+			}
+		default:
+			kind = "unkinded"
+			violations = append(violations, fmt.Sprintf("R1 family %s has no kind", family.Wire))
+		}
+		if wire, ok := tracequery.CarrierWireToken(family.Wire); !ok || wire != family.Wire {
+			violations = append(violations, fmt.Sprintf("R1 family wire %q is not a versioned codrax wire token", family.Wire))
+		}
+		wireFile, emitterFile := parsed[family.WireFile], parsed[family.EmitterFile]
+		if wireFile == nil {
+			violations = append(violations, fmt.Sprintf("R1 %s family %s: wire file %s is missing from the scanned set", kind, family.Wire, family.WireFile))
+		}
+		if emitterFile == nil {
+			violations = append(violations, fmt.Sprintf("R1 %s family %s: emitter file %s is missing from the scanned set", kind, family.Wire, family.EmitterFile))
+		}
+		if wireFile == nil || emitterFile == nil {
+			continue
+		}
+		idents := traceDBCarrierConstIdents(wireFile, traceDBCarrierWireLiteral(family))
+		if len(idents) == 0 {
+			violations = append(violations, fmt.Sprintf("R1 %s family %s: wire file %s declares no constant with the literal %q", kind, family.Wire, family.WireFile, traceDBCarrierWireLiteral(family)))
+			continue
+		}
+		selectorPkg := ""
+		if traceDBCarrierCensusPackage(family.WireFile) != traceDBCarrierCensusPackage(family.EmitterFile) {
+			selectorPkg = traceDBCarrierCensusPackage(family.WireFile)
+		}
+		if !traceDBCarrierFileReferences(emitterFile, idents, selectorPkg) {
+			violations = append(violations, fmt.Sprintf("R1 %s family %s: emitter %s does not reference the wire constant %v declared in %s", kind, family.Wire, family.EmitterFile, idents, family.WireFile))
+		}
+	}
 	for name, file := range parsed {
+		registryStart, registryEnd := traceDBCarrierRegistrySpan(file)
 		ast.Inspect(file, func(node ast.Node) bool {
 			lit, ok := node.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
 				return true
 			}
 			value, err := strconv.Unquote(lit.Value)
-			if err != nil || strings.HasPrefix(value, "# ") {
+			if err != nil {
 				return true
 			}
-			match := traceDBCarrierWirePattern.FindString(value)
-			if match == "" || (len(value) > len(match) && value[len(match)] != ' ') {
+			wire, _, ok := traceDBCarrierLiteralWire(value)
+			if !ok {
 				return true
 			}
-			if !registered[match] {
-				violations = append(violations, fmt.Sprintf("R2 %s:%d wire literal %q is not a registered carrier family", name, fset.Position(lit.Pos()).Line, match))
+			line := fset.Position(lit.Pos()).Line
+			if !registered[wire] {
+				violations = append(violations, fmt.Sprintf("R2 %s:%d wire literal %q is not a registered carrier family", name, line, wire))
+				return true
+			}
+			inRegistry := registryStart.IsValid() && lit.Pos() >= registryStart && lit.End() <= registryEnd
+			if wireFiles[wire] != name && !inRegistry {
+				violations = append(violations, fmt.Sprintf("R2 %s:%d wire literal %q duplicates the declaration in %s; reference the constant instead", name, line, wire, wireFiles[wire]))
 			}
 			return true
 		})
@@ -531,17 +713,26 @@ func traceDBCarrierBodyArgShape(expr ast.Expr) (string, bool) {
 	return walk(expr), separator
 }
 
+// traceDBCarrierCensusDirs are the packages the census scans: the producer
+// (this package) and the parser package that owns every wire's bytes.
+var traceDBCarrierCensusDirs = map[string]string{".": "", "../tracequery": "tracequery/"}
+
 func traceDBCarrierCensusSources(t *testing.T) map[string][]byte {
 	t.Helper()
 	sources := map[string][]byte{}
 	// The producer package AND the parser package: after §40.13 the live wire
 	// literals are declared in internal/tracequery and referenced from here by
 	// selector, so a census over this directory alone would be vacuous (复核).
-	for _, dir := range []string{".", "../tracequery"} {
+	// Coverage is proven positively: every directory contributes at least one
+	// non-test file here, and the census itself requires every registered
+	// family's WireFile/EmitterFile to be present (§40.38 fold-in F10) — no
+	// file-count floor.
+	for dir, prefix := range traceDBCarrierCensusDirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
+		files := 0
 		for _, entry := range entries {
 			name := entry.Name()
 			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -551,21 +742,20 @@ func traceDBCarrierCensusSources(t *testing.T) map[string][]byte {
 			if err != nil {
 				t.Fatal(err)
 			}
-			key := name
-			if dir != "." {
-				key = "tracequery/" + name
-			}
-			sources[key] = src
+			sources[prefix+name] = src
+			files++
 		}
-	}
-	if len(sources) < 80 {
-		t.Fatalf("carrier census read only %d producer/parser files; package layout drifted", len(sources))
+		if files == 0 {
+			t.Fatalf("carrier census read no non-test Go files from %s; package layout drifted", dir)
+		}
 	}
 	return sources
 }
 
 // TestTraceDBReservedCarrierFamilyRegistry (PIN 4) runs the census over the
-// live producer package and proves the census itself bites (self-red).
+// live producer + parser packages and proves the census itself bites
+// (self-red). The registry's totality claim (every wire token in either
+// package is registered) is what this test makes true.
 func TestTraceDBReservedCarrierFamilyRegistry(t *testing.T) {
 	sources := traceDBCarrierCensusSources(t)
 	if len(traceDBReservedCarrierFamilies) == 0 {
@@ -578,13 +768,18 @@ func TestTraceDBReservedCarrierFamilyRegistry(t *testing.T) {
 		traceDBReservedCarrierFamilies[0].Wire != tracequery.SourceRawVisibilityWire {
 		t.Fatalf("reserved wire/name constants drifted from the parser-side single source: %+v", traceDBReservedCarrierFamilies)
 	}
+	for _, family := range traceDBReservedCarrierFamilies {
+		if family.WireFile == "" || family.EmitterFile == "" {
+			t.Fatalf("family %s registered without a wire/emitter file pair: %+v", family.Wire, family)
+		}
+		if traceDBCarrierCensusPackage(family.WireFile) != "tracequery" {
+			t.Fatalf("family %s declares its wire outside the parser package (%s); the parser owns every wire's bytes", family.Wire, family.WireFile)
+		}
+	}
 
 	t.Run("self_red_original_name_header", func(t *testing.T) {
 		emitter := traceDBReservedCarrierFamilies[0].EmitterFile
-		mutated := map[string][]byte{}
-		for name, src := range sources {
-			mutated[name] = src
-		}
+		mutated := traceDBCarrierCensusCopy(sources)
 		before := string(sources[emitter])
 		after := strings.Replace(before, "traceDBSourceRawVisibilityEventName+\": \"+visibilityBody", "format.Name+\": \"+visibilityBody", 1)
 		if after == before {
@@ -597,14 +792,22 @@ func TestTraceDBReservedCarrierFamilyRegistry(t *testing.T) {
 		}
 	})
 	t.Run("self_red_unregistered_wire_literal", func(t *testing.T) {
-		mutated := map[string][]byte{}
-		for name, src := range sources {
-			mutated[name] = src
-		}
+		mutated := traceDBCarrierCensusCopy(sources)
 		mutated["zz_future_family.go"] = []byte("package hitraceconv\n\nconst futureWire = \"codrax_future_family/v1\"\n")
 		violations := traceDBCarrierFamilyCensus(mutated, traceDBReservedCarrierFamilies)
 		if !strings.Contains(strings.Join(violations, "\n"), "R2 zz_future_family.go") {
 			t.Fatalf("census did not report an unregistered carrier wire literal: %v", violations)
+		}
+	})
+	t.Run("self_red_unregistered_comment_literal", func(t *testing.T) {
+		// EVOLUTION RECORD (§40.38 fold-in F7): `# codrax_*` literals were an
+		// explicit R2 exemption; the census is now total over comment
+		// carriers too.
+		mutated := traceDBCarrierCensusCopy(sources)
+		mutated["tracequery/zz_future_comment.go"] = []byte("package tracequery\n\nconst futurePrefix = \"# codrax_future_comment/v3\"\n")
+		violations := traceDBCarrierFamilyCensus(mutated, traceDBReservedCarrierFamilies)
+		if !strings.Contains(strings.Join(violations, "\n"), "R2 tracequery/zz_future_comment.go") {
+			t.Fatalf("census did not report an unregistered comment carrier literal: %v", violations)
 		}
 	})
 	t.Run("self_red_family_off_reserved_name", func(t *testing.T) {
@@ -615,4 +818,52 @@ func TestTraceDBReservedCarrierFamilyRegistry(t *testing.T) {
 			t.Fatalf("census accepted a registry entry off the reserved name: %v", violations)
 		}
 	})
+	t.Run("self_red_registered_family_without_declaration", func(t *testing.T) {
+		// F10: a family whose WireFile does not declare its wire is red even
+		// though the file exists — registration is a positive witness.
+		families := append([]traceDBCarrierFamily(nil), traceDBReservedCarrierFamilies...)
+		families = append(families, traceDBCarrierFamily{
+			Wire: "codrax_phantom_family/v1", Kind: traceDBCarrierKindComment,
+			WireFile: "tracequery/frame_map_relation.go", EmitterFile: "tracequery/frame_map_relation.go",
+		})
+		violations := strings.Join(traceDBCarrierFamilyCensus(sources, families), "\n")
+		if !strings.Contains(violations, "R1 comment family codrax_phantom_family/v1: wire file tracequery/frame_map_relation.go declares no constant") {
+			t.Fatalf("census accepted a registered family that no file declares: %s", violations)
+		}
+	})
+}
+
+// TestTraceDBCarrierWireGrammarSingleSource (F9): the wire grammar is spelled
+// exactly once, in the parser package, and its text is the one the runtime
+// gate, the registry check and the literal census all derive from.
+func TestTraceDBCarrierWireGrammarSingleSource(t *testing.T) {
+	const grammarFile = "tracequery/carrier_wire.go"
+	if tracequery.CarrierWireTokenGrammar != `codrax_[a-z0-9_]+/v[0-9]+` {
+		t.Fatalf("carrier wire grammar moved: %q", tracequery.CarrierWireTokenGrammar)
+	}
+	sources := traceDBCarrierCensusSources(t)
+	if _, ok := sources[grammarFile]; !ok {
+		t.Fatalf("grammar file %s is not in the scanned set", grammarFile)
+	}
+	fset := token.NewFileSet()
+	for name, src := range sources {
+		file, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			lit, ok := node.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			value, err := strconv.Unquote(lit.Value)
+			if err != nil || !strings.Contains(value, "codrax_[") {
+				return true
+			}
+			if name != grammarFile {
+				t.Errorf("%s:%d spells a second carrier wire grammar %q; derive from tracequery.CarrierWireTokenGrammar", name, fset.Position(lit.Pos()).Line, value)
+			}
+			return true
+		})
+	}
 }

@@ -566,26 +566,24 @@ func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string {
 		return ""
 	}
 	audit := report.WorktreeAudit
+	// The untracked lane renders independently of the tracked lane's
+	// disposition (shared sentence; refused runs included).
+	untracked := verificationWorktreeUntrackedRetainedSentence(audit)
 	switch audit.Status {
 	case types.VerificationWorktreeAuditUntrackedSideEffects:
-		paths := verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectUntrackedCreated, 8)
-		if len(paths) == 0 {
+		if untracked == "" {
 			return ""
 		}
-		return " [worktree_audit: untracked verification output retained, not committed, not auto-deleted: " + strings.Join(paths, ", ") + "]"
+		return " [worktree_audit: " + strings.TrimPrefix(untracked, "; ") + "]"
 	case types.VerificationWorktreeAuditTrackedDrift:
 		paths := verificationWorktreeRefusedEffectPaths(audit.Effects, 8)
 		note := ""
 		if audit.DisclosedTrackedEffectCount > 0 {
 			note = "; " + verificationWorktreeDisclosedRowsSummary(audit)
 		}
-		return " [worktree_audit: tracked drift; verification failed: " + strings.Join(paths, ", ") + note + "]"
+		return " [worktree_audit: tracked drift; verification failed: " + strings.Join(paths, ", ") + note + untracked + "]"
 	case types.VerificationWorktreeAuditTrackedDriftDisclosed:
-		note := ""
-		if paths := verificationWorktreeEffectPaths(audit.Effects, types.VerificationWorktreeEffectUntrackedCreated, 8); len(paths) > 0 {
-			note = "; untracked verification output retained, not committed, not auto-deleted: " + strings.Join(paths, ", ")
-		}
-		return " [worktree_audit: tracked side effects disclosed, verdict kept, not committed, not auto-reverted: " + verificationWorktreeDisclosedRowsSummary(audit) + note + "]"
+		return " [worktree_audit: tracked side effects disclosed, verdict kept, not committed, not auto-reverted: " + verificationWorktreeDisclosedRowsSummary(audit) + untracked + "]"
 	case types.VerificationWorktreeAuditUnavailable:
 		return " [worktree_audit: unavailable]"
 	default:
@@ -594,18 +592,15 @@ func renderRunTestsWorktreeAuditSummary(report *types.ChangeReport) string {
 }
 
 // verificationWorktreeDisclosedRowsSummary renders "path=class(owner)" for the
-// disclosed rows (V5-2), so refused and disclosed drift stay distinguishable.
+// disclosed rows (V5-2), so refused and disclosed drift stay distinguishable;
+// an unproven lockfile fixed point is named in plain words on the row.
 func verificationWorktreeDisclosedRowsSummary(audit *types.VerificationWorktreeAudit) string {
 	var parts []string
 	for _, effect := range audit.Effects {
 		if effect.Disposition != types.VerificationWorktreeEffectDisclosed {
 			continue
 		}
-		part := effect.Path + "=" + string(effect.DriftClass)
-		if effect.OwnerRunner != "" {
-			part += "(" + effect.OwnerRunner + ")"
-		}
-		parts = append(parts, part)
+		parts = append(parts, verificationWorktreeEffectRowSummary(effect))
 		if len(parts) >= 8 {
 			break
 		}

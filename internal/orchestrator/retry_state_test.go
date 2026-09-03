@@ -321,12 +321,16 @@ func TestContractViolationSeverityCountsUsesSoftPolicy(t *testing.T) {
 	}
 }
 
-// TestPopulateRetryState_PrimaryOwnerStability pins Phase 1-A2:
-// populateRetryState writes LastPrimaryOwner / OwnerStableAttempts /
-// LastPrimaryViolation from BuildRepairPlan. Stability counter
-// increments when consecutive plans pick the same owner; resets when
-// the owner changes.
-func TestPopulateRetryState_PrimaryOwnerStability(t *testing.T) {
+// TestPopulateRetryState_PrimaryOwnerTracking pins Phase 1-A2:
+// populateRetryState writes LastPrimaryOwner / LastPrimaryViolation from
+// BuildRepairPlan on every attempt.
+//
+// EVOLUTION RECORD (§40.43 F12 fold-in): the OwnerStableAttempts
+// assertions were removed with the field — the counter had no reader;
+// owner stability is tracked per cluster by
+// RepairExecutionPlan.ClusterStates[].StableAttempts and pinned by
+// TestRepairExecutionPlan_StuckClusterReachesFailLoudAcrossResets.
+func TestPopulateRetryState_PrimaryOwnerTracking(t *testing.T) {
 	mut := &types.MutableState{}
 
 	// Attempt 1: SubjectAnchorMissing → owner=extract, stability=1.
@@ -345,15 +349,12 @@ func TestPopulateRetryState_PrimaryOwnerStability(t *testing.T) {
 	if rs.LastPrimaryOwner != "extract" {
 		t.Errorf("attempt 1: LastPrimaryOwner = %q, want %q", rs.LastPrimaryOwner, "extract")
 	}
-	if rs.OwnerStableAttempts != 1 {
-		t.Errorf("attempt 1: OwnerStableAttempts = %d, want 1", rs.OwnerStableAttempts)
-	}
 	if rs.LastPrimaryViolation != types.ViolSubjectAnchorMissing {
 		t.Errorf("attempt 1: LastPrimaryViolation = %v, want ViolSubjectAnchorMissing",
 			rs.LastPrimaryViolation)
 	}
 
-	// Attempt 2: same owner (still extract) → stability=2.
+	// Attempt 2: same owner (still extract).
 	res2 := contract.Result{
 		Passed: false,
 		Violations: []contract.Violation{
@@ -365,11 +366,11 @@ func TestPopulateRetryState_PrimaryOwnerStability(t *testing.T) {
 	if rs.LastPrimaryOwner != "extract" {
 		t.Errorf("attempt 2: LastPrimaryOwner = %q, want extract", rs.LastPrimaryOwner)
 	}
-	if rs.OwnerStableAttempts != 2 {
-		t.Errorf("attempt 2: OwnerStableAttempts = %d, want 2 (incrementing)", rs.OwnerStableAttempts)
+	if rs.Attempt != 2 {
+		t.Errorf("attempt 2: Attempt = %d, want 2", rs.Attempt)
 	}
 
-	// Attempt 3: owner changes (FacetUncovered → explore) → stability resets to 1.
+	// Attempt 3: owner changes (FacetUncovered → explore).
 	res3 := contract.Result{
 		Passed: false,
 		Violations: []contract.Violation{
@@ -381,15 +382,14 @@ func TestPopulateRetryState_PrimaryOwnerStability(t *testing.T) {
 	if rs.LastPrimaryOwner != "explore" {
 		t.Errorf("attempt 3: LastPrimaryOwner = %q, want explore", rs.LastPrimaryOwner)
 	}
-	if rs.OwnerStableAttempts != 1 {
-		t.Errorf("attempt 3: OwnerStableAttempts = %d, want 1 (reset on owner change)",
-			rs.OwnerStableAttempts)
+	if rs.LastPrimaryViolation != types.ViolFacetUncovered {
+		t.Errorf("attempt 3: LastPrimaryViolation = %v, want ViolFacetUncovered", rs.LastPrimaryViolation)
 	}
 }
 
 // TestPopulateRetryState_EmptyViolationsLeavesOwnerEmpty pins the
 // no-plan case: when contract.Result has no violations,
-// LastPrimaryOwner stays empty and stability counter is 0.
+// LastPrimaryViolation stays empty.
 func TestPopulateRetryState_EmptyViolationsLeavesOwnerEmpty(t *testing.T) {
 	mut := &types.MutableState{}
 	res := contract.Result{Passed: true, Violations: nil}
@@ -401,17 +401,16 @@ func TestPopulateRetryState_EmptyViolationsLeavesOwnerEmpty(t *testing.T) {
 	}
 	// BuildRepairPlan(nil) returns PrimaryOwner=LocusFinalizer ("finalizer"),
 	// but len(Clusters)==0 so deepestPrimaryKind returns "".
-	// populateRetryState only sets stability fields when a primary owner
-	// is non-empty AND derived from at least one violation.
 	// The current implementation: empty violations → BuildRepairPlan
 	// returns LocusFinalizer; we DO record it. This test pins that
-	// behaviour: empty violations show "finalizer" owner, stability=1.
+	// behaviour: empty violations show "finalizer" owner and an empty
+	// deepest root kind.
 	if rs.LastPrimaryOwner != "finalizer" {
 		t.Errorf("LastPrimaryOwner on empty violations = %q, want finalizer (BuildRepairPlan default)",
 			rs.LastPrimaryOwner)
 	}
-	if rs.OwnerStableAttempts != 1 {
-		t.Errorf("OwnerStableAttempts on first attempt = %d, want 1", rs.OwnerStableAttempts)
+	if rs.LastPrimaryViolation != "" {
+		t.Errorf("LastPrimaryViolation on empty violations = %q, want empty", rs.LastPrimaryViolation)
 	}
 }
 

@@ -14,18 +14,15 @@ func renderVerificationWorktreeAuditNote(audit *types.VerificationWorktreeAudit,
 	if audit == nil || audit.Status == types.VerificationWorktreeAuditClean {
 		return ""
 	}
-	paths := make([]string, 0, len(audit.Effects))
-	for _, effect := range audit.Effects {
-		if effect.Kind != types.VerificationWorktreeEffectUntrackedCreated || strings.TrimSpace(effect.Path) == "" {
-			continue
-		}
-		paths = append(paths, "`"+effect.Path+"`")
-		if len(paths) >= 8 {
-			break
-		}
+	// The untracked lane renders independently of the tracked lane's
+	// disposition (shared types predicate): a refused run names the outputs
+	// it left behind exactly like a disclosed or untracked-only run.
+	paths := make([]string, 0, 8)
+	for _, path := range audit.UntrackedRetainedPaths(8) {
+		paths = append(paths, "`"+path+"`")
 	}
 	untrackedNote := ""
-	if len(paths) > 0 && (audit.Status == types.VerificationWorktreeAuditUntrackedSideEffects || audit.Status == types.VerificationWorktreeAuditTrackedDriftDisclosed) {
+	if len(paths) > 0 {
 		suffix := ""
 		if audit.UntrackedEffectCount > len(paths) {
 			suffix = fmt.Sprintf("（另有 %d 个）", audit.UntrackedEffectCount-len(paths))
@@ -50,19 +47,34 @@ func renderVerificationWorktreeAuditNote(audit *types.VerificationWorktreeAudit,
 		}
 		return "\n\n⚠ The before/after worktree integrity audit was unavailable, so preserved-worktree cleanliness is not proven."
 	}
+	if audit.Status == types.VerificationWorktreeAuditTrackedDrift {
+		// Refused drift is owned by the failure surface; only the untracked
+		// lane (if any) is rendered here.
+		return untrackedNote
+	}
 	if audit.Status == types.VerificationWorktreeAuditTrackedDriftDisclosed {
 		// V5-2: disclosed side effects (lockfile refresh / formatter fixed
 		// point / plan-declared generated output) keep the verdict but are
-		// named: not part of the delivery commit, not auto-reverted.
+		// named: not part of the delivery commit, not auto-reverted. A
+		// lockfile row whose fixed point is UNPROVEN says so in plain words
+		// (single-sourced phrase).
 		rows := make([]string, 0, len(audit.Effects))
 		for _, effect := range audit.Effects {
 			if effect.Disposition != types.VerificationWorktreeEffectDisclosed || strings.TrimSpace(effect.Path) == "" {
 				continue
 			}
-			rows = append(rows, "`"+effect.Path+"`（"+string(effect.DriftClass)+"）")
-			if !zh {
-				rows[len(rows)-1] = "`" + effect.Path + "` (" + string(effect.DriftClass) + ")"
+			row := "`" + effect.Path + "` (" + string(effect.DriftClass) + ")"
+			if zh {
+				row = "`" + effect.Path + "`（" + string(effect.DriftClass) + "）"
 			}
+			if phrase := types.VerificationLockfileFixedPointDisclosure(effect.LockfileFixedPoint, zh); phrase != "" {
+				if zh {
+					row += "，" + phrase
+				} else {
+					row += " — " + phrase
+				}
+			}
+			rows = append(rows, row)
 			if len(rows) >= 8 {
 				break
 			}

@@ -41,17 +41,99 @@ var hardArmMutableCarriers = []hardArmMutableCarrier{
 	{getter: "IsInvestigationComplete", kind: "carrier", reset: "ResetInvestigationComplete"},
 	{getter: "StableInvestigationCompleteReason", kind: "retained"},
 	{getter: "EvidenceClosure", kind: "closure", reset: "ClearPendingReads"},
+	// F14: the reconcile arm's criterion env reads the retained aggregate
+	// handoff (sticky across explore-window resets, like the reason).
+	{getter: "StableInvestigationAggregateFacts", kind: "retained"},
 }
 
 const hardArmRetryAuthorityFile = "accepted_closure_retry_authority.go"
 
 // hardArmGateFunctions are the hard-gate bodies censused beside the arm file:
 // every `mut.X()` / `o.busCtx.Mutable.X()` call inside them must be
-// registered (§40.42 ① — the census covers the gate body, not only the arm).
+// registered (§40.42 ① — the census covers the gate body, not only the arm;
+// F14 — the shared accepted-closure premise and the reconcile arm are gate
+// bodies too, and TestHardArmMutableCarrierCensus_PremiseConsumersAreCensused
+// keeps this table total over every premise consumer).
 var hardArmGateFunctions = map[string][]string{
 	"orchestrator.go":                     {"shouldAutoCompleteExploreWindowFromAcceptedClosure"},
+	"accepted_closure_premise.go":         {"acceptedClosurePremise"},
+	"accepted_closure_reconcile.go":       {"acceptedClosureCanSatisfyReconcileEnoughFacts", "shouldAutoCompleteReadyReconcileNode"},
 	"accepted_closure_origin_debt.go":     {"acceptedClosureMissingRequiredOriginsForAutoComplete"},
 	"accepted_closure_retry_authority.go": nil, // whole file, MutableState params
+}
+
+// hardArmPremiseEntryPoints are the calls that make a function an
+// accepted-closure consumer (a hard-gate body): any non-test function in the
+// package that calls one of them must be listed in hardArmGateFunctions.
+var hardArmPremiseEntryPoints = map[string]bool{
+	"acceptedClosurePremise":                           true,
+	"acceptedClosureHasActiveExploreContractBacktrack": true,
+}
+
+// TestHardArmMutableCarrierCensus_PremiseConsumersAreCensused (F14 totality):
+// the census cannot be satisfied by registering only the consumers we know
+// about — every production function that reads the accepted-closure premise
+// (directly or via the backtrack arm) must be a censused gate body.
+func TestHardArmMutableCarrierCensus_PremiseConsumersAreCensused(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob package files: %v (n=%d)", err, len(files))
+	}
+	fset := token.NewFileSet()
+	var uncensused []string
+	consumers := 0
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
+		}
+		listed := map[string]bool{}
+		wholeFile := false
+		if names, ok := hardArmGateFunctions[file]; ok {
+			wholeFile = names == nil
+			for _, name := range names {
+				listed[name] = true
+			}
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || hardArmPremiseEntryPoints[fn.Name.Name] {
+				continue
+			}
+			consumes := false
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				switch fun := call.Fun.(type) {
+				case *ast.Ident:
+					consumes = consumes || hardArmPremiseEntryPoints[fun.Name]
+				case *ast.SelectorExpr:
+					consumes = consumes || hardArmPremiseEntryPoints[fun.Sel.Name]
+				}
+				return true
+			})
+			if !consumes {
+				continue
+			}
+			consumers++
+			if !wholeFile && !listed[fn.Name.Name] {
+				uncensused = append(uncensused, fset.Position(fn.Pos()).String()+" "+fn.Name.Name)
+			}
+		}
+	}
+	if consumers < 2 {
+		t.Fatalf("expected at least the explore-window and reconcile consumers, found %d — the census lost its subject", consumers)
+	}
+	if len(uncensused) > 0 {
+		sort.Strings(uncensused)
+		t.Fatalf("accepted-closure premise consumers must be censused hard-gate bodies (add them to hardArmGateFunctions):\n  %s",
+			strings.Join(uncensused, "\n  "))
+	}
 }
 
 // TestHardArmMutableCarrierCensus_ArmReadsOnlyRegisteredCarriers (a):
@@ -134,8 +216,8 @@ func TestHardArmMutableCarrierCensus_ArmReadsOnlyRegisteredCarriers(t *testing.T
 			}
 		}
 	}
-	if len(seen) < 4 {
-		t.Fatalf("the censused hard gate reads only %v — the census lost its subject", seen)
+	if len(seen) < 6 {
+		t.Fatalf("the censused hard gates read only %v — the census lost its subject", seen)
 	}
 	if len(unregistered) > 0 {
 		sort.Strings(unregistered)

@@ -570,15 +570,25 @@ func TestVerificationDriftExecuteLockedObservesExitAndDrift(t *testing.T) {
 }
 
 // The run_tests call site hands the gate the typed inputs the classifier
-// needs (source pin: the wiring is not exercised by any unit fixture).
+// needs (source pin; the behavior is exercised end-to-end by
+// TestRunTestsRunsTheWorktreeAuditOnceWithTheCallerTimeout).
+//
+// EVOLUTION RECORD (F-run-tests fold-in, §40.36 复核收编 F1/F2): the drift
+// input's timeout was `runTestsDefaultTimeout()`; it now carries the same
+// `timeout` the main run honoured (caller timeout_seconds), and the mid-loop
+// provisional ledger goes through `provisionalReport` (no worktree audit)
+// so the audit runs exactly once on the installed report.
 func TestRunTestsWiresTheDriftGateWithPlanAndRoster(t *testing.T) {
 	src, err := os.ReadFile("run_tests.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot, verificationWorktreeDriftInput{", "plan: authorityPlan", "executed: report.ExecutedCommands", "caps: verifyResourceCaps()", "timeout: runTestsDefaultTimeout()"} {
+	for _, want := range []string{"attachVerificationWorktreeAudit(context.Background(), report, worktreeAuditBaseline, ctx.RepoRoot, verificationWorktreeDriftInput{", "plan: authorityPlan", "executed: report.ExecutedCommands", "caps: verifyResourceCaps()", "timeout: timeout,", "provisional := provisionalReport(mergeChangeReports(projectReports))"} {
 		if !strings.Contains(string(src), want) {
 			t.Fatalf("run_tests.go must wire the drift gate with %q", want)
 		}
+	}
+	if strings.Contains(string(src), "timeout: runTestsDefaultTimeout()") {
+		t.Fatalf("the locked re-verify must not fall back to the default timeout while the main run honoured the caller's")
 	}
 }

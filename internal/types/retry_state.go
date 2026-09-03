@@ -211,10 +211,11 @@ type RetryStateSummary struct {
 //     "Previous Emit / Active Violations / Required Changes / Hard
 //     Rule" prompt sections.
 //   - Kept across every retry dispatch of the same finalize chain (the
-//     next populate reads the previous state for the ping-pong owner
-//     stability counter); an explore backtrack binds it to the
-//     backtrack epoch (ExploreBacktrackEpoch /
-//     CompletionGenerationAtBacktrack) instead of clearing it.
+//     scheduler reads the previous Attempt ordinal; owner stability is
+//     tracked per cluster on the paired RepairExecutionPlan, not here);
+//     an explore backtrack binds it to the backtrack epoch
+//     (ExploreBacktrackEpoch / CompletionGenerationAtBacktrack) instead
+//     of clearing it.
 //   - Cleared by ResetRetryState when the finalize chain closes at an
 //     accepted answer, so old state never leaks past that chain.
 //
@@ -284,19 +285,16 @@ type RetryState struct {
 	// or pre-Phase-1 retry path).
 	//
 	// Phase 1-A2 (V2 runtime consolidation, 2026-05-04): wired by
-	// populateRetryState so the orchestrator can detect ping-pong
-	// (same owner picked N times with no progress → escalate to
-	// FailLoud). Surfaced in retry-summary trace + telemetry.
-	LastPrimaryOwner string `json:"last_primary_owner,omitempty"`
-
-	// OwnerStableAttempts counts how many consecutive retries have
-	// landed on the SAME LastPrimaryOwner. Resets to 1 when the owner
-	// changes; increments when the next plan picks the same owner.
+	// populateRetryState; read by the accepted-closure explore-backtrack
+	// arm (typed owner enum) and surfaced in retry-summary trace.
 	//
-	// Used by escalation logic: if OwnerStableAttempts exceeds a
-	// configured threshold without the violation set shrinking, the
-	// router escalates one locus deeper (or to FailLoud at terminal).
-	OwnerStableAttempts int `json:"owner_stable_attempts,omitempty"`
+	// §40.43 F12: the sibling OwnerStableAttempts counter was removed —
+	// it had no reader; owner stability ("same owner picked N times
+	// with no progress → escalate to FailLoud") is tracked per cluster
+	// by RepairExecutionPlan.ClusterStates[].StableAttempts (cluster
+	// closure v3 B1). Persisted JSON that still carries
+	// owner_stable_attempts decodes fine (unknown fields are ignored).
+	LastPrimaryOwner string `json:"last_primary_owner,omitempty"`
 
 	// LastPrimaryViolation names the deepest cluster's Primary
 	// ViolationKind from the previous attempt's RepairPlan. Surfaced

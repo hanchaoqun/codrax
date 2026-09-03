@@ -7091,106 +7091,6 @@ func prependRetryHint(prefix, hint string) string {
 	}
 }
 
-func (o *Orchestrator) autoCompleteReadyReconcileNodes(state *graphState, window []*types.TaskNode, env criterion.Env) []*types.TaskNode {
-	if len(window) == 0 {
-		return window
-	}
-	remaining := make([]*types.TaskNode, 0, len(window))
-	skipped := 0
-	for _, n := range window {
-		if !o.shouldAutoCompleteReadyReconcileNode(n, env) {
-			remaining = append(remaining, n)
-			continue
-		}
-		state.markRunning(n.ID)
-		o.emitNodeStart(n.ID)
-		state.markDone(n.ID)
-		o.emitNodeEnd(n.ID, true, "skipped: reconciled from existing evidence")
-		skipped++
-		logging.Info("[orchestrator] auto-completed reconcile node %s from existing evidence", n.ID)
-	}
-	if skipped > 0 && len(remaining) == 0 {
-		o.drainIgnorableReconcileRepairs()
-	}
-	return remaining
-}
-
-func (o *Orchestrator) shouldAutoCompleteReadyReconcileNode(n *types.TaskNode, env criterion.Env) bool {
-	if n == nil || n.Type != types.NodeReconcile {
-		return false
-	}
-	acceptedClosureEnough := o.acceptedClosureCanSatisfyReconcileEnoughFacts()
-	if !acceptedClosureEnough && !env.Signals.HasEnoughFacts && (o.busCtx == nil || !o.busCtx.Signals.HasEnoughFacts) {
-		return false
-	}
-	if len(n.SuccessCriteria) > 0 {
-		evalEnv := env
-		if acceptedClosureEnough {
-			evalEnv.Signals.HasEnoughFacts = true
-			evalEnv.InvestigationComplete = true
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				evalEnv.AggregateFacts = o.busCtx.Mutable.StableInvestigationAggregateFacts()
-			}
-		}
-		ok, _ := criterion.EvalAll(n.SuccessCriteria, evalEnv)
-		if !ok {
-			return false
-		}
-	}
-	if !o.hasReconcileEvidenceContext() {
-		return false
-	}
-	return !o.hasBlockingReconcileRepair()
-}
-
-func (o *Orchestrator) acceptedClosureCanSatisfyReconcileEnoughFacts() bool {
-	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
-		return false
-	}
-	if !o.hasReconcileEvidenceContext() {
-		return false
-	}
-	policy := o.effectiveInvestigationCompletePolicy()
-	if policy != types.ICPolicySoft && policy != types.ICPolicyOverride {
-		return false
-	}
-	mut := o.busCtx.Mutable
-	if !mut.IsInvestigationComplete() && strings.TrimSpace(mut.StableInvestigationCompleteReason()) == "" {
-		return false
-	}
-	if policy == types.ICPolicyOverride {
-		return true
-	}
-	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) > 0 {
-		logging.Info("[orchestrator] accepted investigation closure cannot auto-complete reconcile node; missing_origin_lanes=%s",
-			formatAnswerEvidenceOriginsForLog(missing))
-		return false
-	}
-	closure := mut.EvidenceClosure()
-	if closure == nil {
-		return true
-	}
-	for _, repair := range closure.PendingRepairs() {
-		if o.repairBlocksAcceptedClosure(repair) {
-			return false
-		}
-	}
-	for _, pending := range closure.PendingReads() {
-		if pendingReadBlocksAcceptedReconcileClosure(pending) {
-			return false
-		}
-	}
-	return true
-}
-
-func pendingReadBlocksAcceptedReconcileClosure(p types.PendingRead) bool {
-	origin := strings.TrimSpace(p.Origin)
-	if strings.HasPrefix(origin, "chain_promotion.") {
-		return false
-	}
-	return types.PendingReadBlocksAcceptedClosure(p)
-}
-
 func (o *Orchestrator) recordAcceptedClosureValidationBoundaries(window []*types.TaskNode, env criterion.Env, source string) {
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || len(window) == 0 {
 		return
@@ -7313,29 +7213,20 @@ func truncateBoundaryNoteField(s string, max int) string {
 }
 
 func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendingValidationTargets []string, pendingViolation, pendingStageRetry string) bool {
-	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
-		return false
-	}
 	// An accepted investigation closure describes the evidence state that
 	// existed before the latest answer-contract pass. It cannot discharge a
 	// fresh, typed contract backtrack whose repair plan is owned by Explore.
 	//
 	// The scheduler intentionally keeps the rendered pendingViolation local to
-	// runReadSchedulerLoop. RetryState is the closed typed carrier shared with
-	// this predicate: populateRetryState writes it before the Explore reset and
-	// records the exact repair-plan owner. Reading that carrier here prevents
-	// the stale-closure cleanup immediately above this call site from erasing a
-	// real re-investigation request. Advisory stage retries and validation
-	// targets retain their existing accepted-closure behavior.
-	if acceptedClosureHasActiveExploreContractBacktrack(o.busCtx.Mutable) {
-		return false
-	}
-	policy := o.effectiveInvestigationCompletePolicy()
-	if policy != types.ICPolicySoft && policy != types.ICPolicyOverride {
-		return false
-	}
-	mut := o.busCtx.Mutable
-	if !mut.IsInvestigationComplete() && strings.TrimSpace(mut.StableInvestigationCompleteReason()) == "" {
+	// runReadSchedulerLoop. RetryState is the closed typed carrier the shared
+	// premise reads (accepted_closure_premise.go): populateRetryState writes it
+	// before the Explore reset and records the exact repair-plan owner. Reading
+	// that carrier prevents the stale-closure cleanup immediately above this
+	// call site from erasing a real re-investigation request. Advisory stage
+	// retries and validation targets retain their existing accepted-closure
+	// behavior.
+	policy, ok := o.acceptedClosurePremise()
+	if !ok {
 		return false
 	}
 	if policy == types.ICPolicyOverride {
@@ -7349,6 +7240,7 @@ func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendin
 			formatAnswerEvidenceOriginsForLog(missing))
 		return false
 	}
+	mut := o.busCtx.Mutable
 	closure := mut.EvidenceClosure()
 	if closure == nil {
 		return true

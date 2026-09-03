@@ -352,8 +352,12 @@ func renderWriteControllerArtifactSection(ctx *types.AgentContext) string {
 					effect.Path, effect.Kind, effect.Ownership, effect.Action)
 				if effect.DriftClass != "" {
 					fmt.Fprintf(&b, " drift_class=%s disposition=%s", effect.DriftClass, effect.Disposition)
+					b.WriteString(types.WriteContextLockfileFixedPointSuffix(effect.LockfileFixedPoint))
 				}
 				b.WriteString("\n")
+				if disclosure := types.WriteContextLockfileFixedPointDisclosureText(effect.Path, effect.LockfileFixedPoint); disclosure != "" {
+					fmt.Fprintf(&b, "- verification_lockfile_fixed_point: %s\n", disclosure)
+				}
 			}
 		}
 		if writeControllerHasProductionSourceStaticOnlyCoverage(report.ChangedPathCoverage) {

@@ -486,6 +486,16 @@ func appendTraceConvertDiagnosticError(lines *traceConvertDiagnosticLineSet, con
 			"current_event_type":     clockRegression.CurrentEventType,
 		}))
 	}
+	var eventInvalid *hitraceconv.TraceEventInvalidWitnessError
+	if errors.As(conversionErr, &eventInvalid) {
+		lines.Add(traceConvertDiagnosticJSONLine("typed_error_event_invalid", map[string]any{
+			"kind":        eventInvalid.Kind,
+			"line":        eventInvalid.Line,
+			"event_name":  eventInvalid.EventName,
+			"event_type":  eventInvalid.EventType,
+			"body_prefix": eventInvalid.BodyPrefix,
+		}))
+	}
 }
 
 func traceConvertDiagnosticJSONLine(label string, value any) string {

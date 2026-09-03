@@ -232,8 +232,12 @@ func TestMutableState_RetryState_SetGet(t *testing.T) {
 }
 
 // G1 step 2 (post_v2_runtime_gap_remediation, 2026-05-04).
-// Covers MutableState.SetRepairExecutionPlan /
-// RepairExecutionPlan() / ResetRepairExecutionPlan.
+// Covers MutableState.SetRepairExecutionPlan / RepairExecutionPlan().
+//
+// EVOLUTION RECORD (§40.43 F12 fold-in): ResetRepairExecutionPlan was
+// deleted — after ResetForFallback stopped clearing the plan it had no
+// production caller; the paired reset is ResetRetryState and
+// SetRepairExecutionPlan(nil) clears the slot in isolation.
 //
 // Plan is carried as `any` so internal/types stays decoupled from
 // internal/orchestrator (mirrors the searchGraph pattern). The test
@@ -259,13 +263,8 @@ func TestMutableState_RepairExecutionPlan_SetGetReset(t *testing.T) {
 	if got.current != "extract" {
 		t.Errorf("round-trip current = %q, want extract", got.current)
 	}
-	mut.ResetRepairExecutionPlan()
-	if mut.RepairExecutionPlan() != nil {
-		t.Error("ResetRepairExecutionPlan did not clear")
-	}
 
-	// nil through SetRepairExecutionPlan also clears.
-	mut.SetRepairExecutionPlan(plan)
+	// nil through SetRepairExecutionPlan clears.
 	mut.SetRepairExecutionPlan(nil)
 	if mut.RepairExecutionPlan() != nil {
 		t.Error("SetRepairExecutionPlan(nil) did not clear")
@@ -289,10 +288,17 @@ func TestMutableState_ResetRetryState_AlsoClearsExecutionPlan(t *testing.T) {
 	}
 }
 
-// G1 step 2: ResetForFallback at every reset target clears the
-// stashed plan. Locks the contract that an upstream-stage rerun
-// invalidates the prior retry chain's owner queue.
-func TestMutableState_ResetForFallback_ClearsExecutionPlan(t *testing.T) {
+// EVOLUTION RECORD (§40.43 F12 fold-in): inverted from the G1 step 2 pin
+// "ResetForFallback at every reset target clears the stashed plan". The
+// plan is the cross-attempt owner queue whose per-cluster closure
+// (stay / promote / stuck → fail-loud, cluster closure v3 B1) can only
+// classify the next failure when the previous attempt's plan is still
+// stashed; clearing it on every fallback made every failure a rebuild
+// (pinned red→green in orchestrator
+// TestRepairExecutionPlan_StuckClusterReachesFailLoudAcrossResets). Every
+// reset target now PRESERVES the plan and never reports it as cleared;
+// ResetRetryState (chain close at an accepted answer) is its reset.
+func TestMutableState_ResetForFallback_PreservesExecutionPlan(t *testing.T) {
 	cases := []struct {
 		name   string
 		target FallbackResetTarget
@@ -307,18 +313,13 @@ func TestMutableState_ResetForFallback_ClearsExecutionPlan(t *testing.T) {
 			mut.SetRepairExecutionPlan(struct{ ordered []string }{ordered: []string{"finalizer"}})
 			cleared := mut.ResetForFallback(tc.target)
 
-			if mut.RepairExecutionPlan() != nil {
-				t.Errorf("%s: plan not cleared", tc.name)
+			if mut.RepairExecutionPlan() == nil {
+				t.Errorf("%s: the repair execution plan must persist across the fallback reset", tc.name)
 			}
-			found := false
 			for _, name := range cleared {
 				if name == "RepairExecutionPlan" {
-					found = true
-					break
+					t.Errorf("%s: cleared list must not report RepairExecutionPlan: %v", tc.name, cleared)
 				}
-			}
-			if !found {
-				t.Errorf("%s: cleared list missing RepairExecutionPlan: %v", tc.name, cleared)
 			}
 		})
 	}

@@ -31,16 +31,22 @@ const (
 	maxTraceDBSourceRawVisibilityFormatNameWitnessBytes = 512
 )
 
-// traceDBCarrierFamily declares one converter-owned ftrace-body carrier
-// family: rows whose body starts with a versioned `codrax_<family>/v<N>` wire
-// token and that carry no semantic authority of their own. Every such family
-// MUST publish under the single reserved header name — a carrier wearing the
-// wrapped record's original event name is audited as a malformed semantic row
-// by every header-name-keyed consumer (§40.13 root-cause class: "the carrier
-// borrows the identity of what it carries"). The emitter file/body builder
-// pair is what the structural census test binds the declaration to, so a new
-// family cannot be added without registering here and cannot register without
-// emitting under the reserved name.
+// traceDBCarrierFamily declares one codrax wire family: lines whose wire
+// token (`codrax_<family>/v<N>`, grammar tracequery.CarrierWireTokenGrammar)
+// starts the line body. An ftrace-body carrier is a standard ftrace row that
+// carries no semantic authority of its own and MUST publish under the single
+// reserved header name — a carrier wearing the wrapped record's original
+// event name is audited as a malformed semantic row by every header-name-keyed
+// consumer (§40.13 root-cause class: "the carrier borrows the identity of what
+// it carries"). A comment carrier is a `# <wire> …` line outside the ftrace
+// row namespace. The file pair is what the structural census binds the
+// declaration to: WireFile is the ONE file that declares the wire literal
+// (the parser side owns every wire's bytes), EmitterFile is the file that
+// renders the line and must refer to that declaration by identifier or
+// `tracequery.<Ident>` selector — never by a second literal. So a new family
+// cannot be added without registering here, cannot register without a
+// declared and referenced wire, and an ftrace-body family cannot register
+// without emitting under the reserved name.
 type traceDBCarrierFamily struct {
 	Wire string
 	// Kind: an ftrace-body carrier publishes under the reserved header name;
@@ -48,6 +54,13 @@ type traceDBCarrierFamily struct {
 	Kind        traceDBCarrierKind
 	EventName   string
 	BodyBuilder string
+	// WireFile declares the wire literal (`"<wire>"` for ftrace-body families,
+	// `"# <wire>"` for comment families) as a constant. Census keys: a bare
+	// name is an internal/hitraceconv file, `tracequery/<name>` a parser file.
+	WireFile string
+	// EmitterFile renders the carrier line. It is the WireFile itself when the
+	// parser package both declares and formats the line; otherwise it must
+	// reference the WireFile constant.
 	EmitterFile string
 }
 
@@ -59,24 +72,40 @@ const (
 )
 
 // traceDBReservedCarrierFamilies is the single registry of every codrax wire
-// family (`codrax_<family>/v<N>`). Ftrace-body carriers MUST publish under the
-// reserved header name; comment carriers are `# <wire>` lines outside the
-// ftrace row namespace and are registered so the census can prove that no
-// wire token exists that the registry does not know about.
+// family (`codrax_<family>/v<N>`) in the converter and parser packages.
+// Ftrace-body carriers MUST publish under the reserved header name; comment
+// carriers are `# <wire>` lines outside the ftrace row namespace.
+//
+// Totality (TestTraceDBReservedCarrierFamilyRegistry, §40.38 fold-in F7/F10):
+// every string literal in internal/hitraceconv and internal/tracequery that
+// starts with a whole wire token — bare or behind the `# ` comment prefix —
+// belongs to a family registered here, every registered family's WireFile
+// declares its wire literal and its EmitterFile references that declaration,
+// and both files are in the scanned set. A wire token that exists in either
+// package and is not listed below turns the census red.
 var traceDBReservedCarrierFamilies = []traceDBCarrierFamily{
 	{
 		Wire:        traceDBSourceRawVisibilityWire,
 		Kind:        traceDBCarrierKindFtraceBody,
 		EventName:   traceDBSourceRawVisibilityEventName,
 		BodyBuilder: "traceDBSourceRawVisibilityBody",
+		WireFile:    "tracequery/source_raw_visibility.go",
 		EmitterFile: "source_raw_visibility_recovery.go",
 	},
-	{Wire: "codrax_sched_wakeup_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/cpu_unavailable_wakeup.go"},
-	{Wire: "codrax_trace_mark_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/cpu_unavailable_trace_mark.go"},
-	{Wire: "codrax_frame_map/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/frame_map_relation.go"},
-	{Wire: "codrax_trace_async_interval/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/completed_async_interval.go"},
-	{Wire: "codrax_trace_mark_exact/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/exact_trace_mark.go"},
-	{Wire: "codrax_ebpf_interval/v1", Kind: traceDBCarrierKindComment, EmitterFile: "tracequery/official_ebpf_interval.go"},
+	// SQL text-fidelity export: the parser declares the wire, the converter
+	// renders the lines (streamerdb_text_fidelity.go).
+	{Wire: "codrax_trace_db_record/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/trace_db_text_record.go", EmitterFile: "streamerdb_text_fidelity.go"},
+	{Wire: "codrax_trace_db_block/v2", Kind: traceDBCarrierKindComment, WireFile: "tracequery/trace_db_text_record.go", EmitterFile: "streamerdb_text_fidelity.go"},
+	// Parser-formatted comment carriers: one file declares and renders each.
+	{Wire: "codrax_sched_wakeup_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/cpu_unavailable_wakeup.go", EmitterFile: "tracequery/cpu_unavailable_wakeup.go"},
+	{Wire: "codrax_trace_mark_cpu_unavailable/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/cpu_unavailable_trace_mark.go", EmitterFile: "tracequery/cpu_unavailable_trace_mark.go"},
+	{Wire: "codrax_frame_map/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/frame_map_relation.go", EmitterFile: "tracequery/frame_map_relation.go"},
+	{Wire: "codrax_frame_callstack/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/official_sql_relations.go", EmitterFile: "tracequery/official_sql_relations.go"},
+	{Wire: "codrax_frame_gpu/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/official_sql_relations.go", EmitterFile: "tracequery/official_sql_relations.go"},
+	{Wire: "codrax_perf_napi_async/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/official_sql_relations.go", EmitterFile: "tracequery/official_sql_relations.go"},
+	{Wire: "codrax_trace_async_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/completed_async_interval.go", EmitterFile: "tracequery/completed_async_interval.go"},
+	{Wire: "codrax_trace_mark_exact/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/exact_trace_mark.go", EmitterFile: "tracequery/exact_trace_mark.go"},
+	{Wire: "codrax_ebpf_interval/v1", Kind: traceDBCarrierKindComment, WireFile: "tracequery/official_ebpf_interval.go", EmitterFile: "tracequery/official_ebpf_interval.go"},
 }
 
 type traceDBSourceRawVisibilitySchema struct {

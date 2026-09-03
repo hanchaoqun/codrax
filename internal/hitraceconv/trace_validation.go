@@ -11,9 +11,9 @@ import (
 	"hash"
 	"math"
 	"os"
-	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/filegeneration"
 	"github.com/hanchaoqun/codrax/internal/tracebundle"
@@ -556,6 +556,55 @@ func (failure *TraceClockRegressionWitnessError) Error() string {
 	)
 }
 
+// TraceEventInvalidKind names, as a precise typed value, which owned-output
+// row contract a refused row broke.
+type TraceEventInvalidKind string
+
+const (
+	// TraceEventInvalidCarrierSignatureUnderForeignHeader: the row body
+	// starts with a reserved codrax carrier wire token (`codrax_<family>/v<N>`)
+	// but the row header is not the reserved carrier event name — a producer
+	// squatted the reserved namespace (or a carrier wore a semantic name).
+	TraceEventInvalidCarrierSignatureUnderForeignHeader TraceEventInvalidKind = "carrier_signature_under_foreign_header"
+	// TraceEventInvalidSourceRawVisibilityForeignHeader: a parsed visibility
+	// carrier is published under a header other than the reserved name
+	// (defense in depth behind the body-signature arm, which witnesses the
+	// same row first because a carrier body always starts with the wire).
+	TraceEventInvalidSourceRawVisibilityForeignHeader TraceEventInvalidKind = "source_raw_visibility_foreign_header"
+	// TraceEventInvalidTraceDBRecordSequence: a typed trace_db record/block
+	// row breaks the chunk/ordinal/digest sequence contract.
+	TraceEventInvalidTraceDBRecordSequence TraceEventInvalidKind = "trace_db_record_sequence"
+	// TraceEventInvalidTraceDBRecordSequenceIncomplete: the typed record
+	// sequence ended before the expected count; no single row is at fault
+	// (Line is 0).
+	TraceEventInvalidTraceDBRecordSequenceIncomplete TraceEventInvalidKind = "trace_db_record_sequence_incomplete"
+	// TraceEventInvalidPerfSampleIntegrity: a perf sample row misses the
+	// required integrity/source/clock/period contract.
+	TraceEventInvalidPerfSampleIntegrity TraceEventInvalidKind = "perf_sample_integrity"
+)
+
+// TraceEventInvalidWitnessError is the bounded, customer-safe FIRST witness
+// attached to a tracequery_postvalidation_event_invalid refusal: it names the
+// refused row (physical line, parsed event name/type) and the first bytes of
+// its body so the customer can see which producer wrote it. It carries no
+// private staging path; diagnostic-report consumers recover it with
+// errors.As through the provider error graph (§40.38 fold-in F8).
+type TraceEventInvalidWitnessError struct {
+	Kind       TraceEventInvalidKind
+	Line       int
+	EventName  string
+	EventType  tracequery.EventType
+	BodyPrefix string
+}
+
+func (failure *TraceEventInvalidWitnessError) Error() string {
+	if failure == nil {
+		return "first generated trace row refused"
+	}
+	return fmt.Sprintf("first generated trace row refused: kind=%s line=%d event_name=%s event_type=%s body_prefix=%q",
+		failure.Kind, failure.Line, failure.EventName, failure.EventType, failure.BodyPrefix)
+}
+
 func (failure *ownedTraceOutputInvariantError) Error() string {
 	if failure == nil {
 		return "owned trace output invariant rejected"
@@ -728,6 +777,28 @@ func validateOwnedTraceOutput(
 	parsedHeaderRow := false
 	eventTypeMismatch := false
 	eventInvalid := false
+	var firstEventInvalid *TraceEventInvalidWitnessError
+	// The line observer runs before the event callback for the same physical
+	// line (tracequery streamScanReader), so the event-side refusals can name
+	// the row text they were minted from.
+	var lastObservation tracequery.HeldLineObservation
+	refuseEvent := func(kind TraceEventInvalidKind, line int, eventName string, eventType tracequery.EventType, text string) {
+		eventInvalid = true
+		if firstEventInvalid != nil {
+			return
+		}
+		firstEventInvalid = &TraceEventInvalidWitnessError{
+			Kind: kind, Line: line, EventName: eventName, EventType: eventType,
+			BodyPrefix: traceEventInvalidWitnessBodyPrefix(text, eventName),
+		}
+	}
+	refuseParsedEvent := func(kind TraceEventInvalidKind, event tracequery.Event) {
+		text := ""
+		if lastObservation.Line == event.Line {
+			text = lastObservation.Text
+		}
+		refuseEvent(kind, event.Line, event.Name, event.Type, text)
+	}
 	var typedSequence ownedTraceDBTextRecordSequence
 	var advisoryDigest ownedTraceRowDigestBuilder
 	var unknownDigest ownedTraceRowDigestBuilder
@@ -801,11 +872,11 @@ func validateOwnedTraceOutput(
 					// fails the owned output closed here. The parser stays
 					// name-agnostic; the reserved name is a producer contract.
 					if event.Name != tracequery.SourceRawVisibilityEventName {
-						eventInvalid = true
+						refuseParsedEvent(TraceEventInvalidSourceRawVisibilityForeignHeader, event)
 					}
 				}
 				if !typedSequence.observe(event) {
-					eventInvalid = true
+					refuseParsedEvent(TraceEventInvalidTraceDBRecordSequence, event)
 				}
 				if profile.RequiredEventType != "" && event.Type != tracequery.EventUnknown && event.Type != profile.RequiredEventType {
 					eventTypeMismatch = true
@@ -815,7 +886,7 @@ func validateOwnedTraceOutput(
 					if perf == nil || perf.PerfTextIntegrity != "" || perf.PerfWeightInvalid || perf.Period <= 0 ||
 						(profile.RequiredPerfSource != "" && perf.Source != profile.RequiredPerfSource) ||
 						(profile.RequiredPerfClock != "" && perf.Clock != profile.RequiredPerfClock) {
-						eventInvalid = true
+						refuseParsedEvent(TraceEventInvalidPerfSampleIntegrity, event)
 					}
 				}
 				return true
@@ -833,6 +904,7 @@ func validateOwnedTraceOutput(
 					}
 					return
 				}
+				lastObservation = observation
 				if observation.Parsed && observation.EventType == tracequery.EventUnknown {
 					unknownDigest.add(observation.Line, observation.Text)
 				}
@@ -843,7 +915,8 @@ func validateOwnedTraceOutput(
 				// parser lane classified it, present or future family alike.
 				if observation.Parsed && observation.EventName != "" && observation.EventName != tracequery.SourceRawVisibilityEventName &&
 					traceDBRowBodyCarriesCarrierSignature(observation.Text, observation.EventName) {
-					eventInvalid = true
+					refuseEvent(TraceEventInvalidCarrierSignatureUnderForeignHeader, observation.Line,
+						observation.EventName, observation.EventType, observation.Text)
 				}
 				if observation.Parsed && profile.Kind == ownedTraceValidationBuiltin &&
 					ownedBuiltinAdvisoryEvent(observation.EventName, observation.EventType) {
@@ -955,9 +1028,22 @@ func validateOwnedTraceOutput(
 		return receipt, coverage, fail(traceDBPostvalidationEventTypeMismatch)
 	}
 	if !typedSequence.complete(profile.ExpectedTypedPreserved) {
-		eventInvalid = true
+		refuseEvent(TraceEventInvalidTraceDBRecordSequenceIncomplete, 0, "", "", "")
 	}
 	if eventInvalid {
+		if firstEventInvalid != nil {
+			// Row identification rides the same per-row detail lane as the
+			// clock-regression witness: typed Cause + coverage columns, so the
+			// diagnostic report names the offending producer row.
+			coverage.ColumnsPresent = append(coverage.ColumnsPresent,
+				"event_invalid_kind="+string(firstEventInvalid.Kind),
+				fmt.Sprintf("event_invalid_line=%d", firstEventInvalid.Line),
+				"event_invalid_event_name="+firstEventInvalid.EventName,
+				"event_invalid_event_type="+string(firstEventInvalid.EventType),
+				fmt.Sprintf("event_invalid_body_prefix=%q", firstEventInvalid.BodyPrefix),
+			)
+			return receipt, coverage, fail(traceDBPostvalidationEventInvalid, firstEventInvalid)
+		}
 		return receipt, coverage, fail(traceDBPostvalidationEventInvalid)
 	}
 	if callbackOverflow || profile.ExpectedRows > math.MaxInt-headerLines {
@@ -1198,17 +1284,48 @@ func publishValidatedOwnedTraceOutputNoReplace(
 	return nil
 }
 
-// traceDBCarrierBodySignature is the reserved carrier wire grammar at the
-// start of an ftrace row body.
-var traceDBCarrierBodySignature = regexp.MustCompile(`^codrax_[a-z0-9_]+/v[0-9]+(\s|$)`)
-
-// traceDBRowBodyCarriesCarrierSignature reports whether the body of an ftrace
-// row (the text after "<eventName>: ") starts with a codrax carrier wire token.
-func traceDBRowBodyCarriesCarrierSignature(text, eventName string) bool {
+// traceDBRowBody returns the body of an ftrace row (the text after
+// "<eventName>: ") and whether the header marker was found.
+func traceDBRowBody(text, eventName string) (string, bool) {
 	marker := " " + eventName + ": "
 	idx := strings.Index(text, marker)
 	if idx < 0 {
+		return "", false
+	}
+	return text[idx+len(marker):], true
+}
+
+// traceDBRowBodyCarriesCarrierSignature reports whether the body of an ftrace
+// row starts with a codrax carrier wire token. The grammar is the parser
+// package's single source (tracequery.CarrierWireTokenGrammar), the same one
+// the producer registry and the structural literal census derive from.
+func traceDBRowBodyCarriesCarrierSignature(text, eventName string) bool {
+	body, ok := traceDBRowBody(text, eventName)
+	if !ok {
 		return false
 	}
-	return traceDBCarrierBodySignature.MatchString(text[idx+len(marker):])
+	_, ok = tracequery.CarrierWireToken(body)
+	return ok
+}
+
+// maxTraceEventInvalidWitnessBodyBytes bounds the row-body excerpt carried by
+// TraceEventInvalidWitnessError: enough to show which producer wrote the
+// refused row, never a whole payload.
+const maxTraceEventInvalidWitnessBodyBytes = 64
+
+// traceEventInvalidWitnessBodyPrefix returns the first bounded bytes of an
+// ftrace row body, cut on a UTF-8 boundary.
+func traceEventInvalidWitnessBodyPrefix(text, eventName string) string {
+	body, ok := traceDBRowBody(text, eventName)
+	if !ok {
+		return ""
+	}
+	if len(body) <= maxTraceEventInvalidWitnessBodyBytes {
+		return body
+	}
+	limit := maxTraceEventInvalidWitnessBodyBytes
+	for limit > 0 && !utf8.ValidString(body[:limit]) {
+		limit--
+	}
+	return body[:limit]
 }
