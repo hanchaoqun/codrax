@@ -22,7 +22,11 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// COMPLETE-2 (§29.140 GAP-4) split the accepted-closure
 		// mixed-origin debt gate into accepted_closure_origin_debt.go
 		// (own budget below); same rule: freed budget must not grow back.
-		{path: "orchestrator.go", maxLines: 9135},
+		// Tightened 9135→9126 after §40.14 V7-2 moved the finalize
+		// acceptance exit (evidence-utilization log + node bookkeeping +
+		// retry-chain close) into acceptFinalizeNode in retry_state.go —
+		// the four repeated triplets became one call each.
+		{path: "orchestrator.go", maxLines: 9126},
 		{path: "write_verify_render.go", maxLines: 420},
 		// DELIBERATE 240→280 (§29.146 UPSTREAM-3 件1): the pre-mint
 		// withhold half of the current_source waiver double defense

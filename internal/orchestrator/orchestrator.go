@@ -5977,9 +5977,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Stage:           types.StageFinalize,
 				PreviewRejected: false,
 			})
-			logEvidenceUtilization(o, lastFinalize)
-			state.markDone(fin.ID)
-			o.emitNodeEnd(fin.ID, true, "")
+			o.acceptFinalizeNode(state, fin, lastFinalize)
 			break
 		}
 
@@ -5995,9 +5993,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				// P2-2: unfixed strict concerns disclose on the appendix.
 				repairArbitrationResiduals = append([]types.Violation(nil), finalizeRepairDraftLedger[arb.record].Violations...)
 				o.finishArbitrationRestoredAnswer(out)
-				logEvidenceUtilization(o, lastFinalize)
-				state.markDone(fin.ID)
-				o.emitNodeEnd(fin.ID, true, "")
+				o.acceptFinalizeNode(state, fin, lastFinalize)
 				break
 			}
 		}
@@ -6021,9 +6017,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// to spot over-investigation patterns ("explorer collected
 			// 70 evidence; finalizer cited 5") that motivate budget /
 			// gate tuning. One INFO line, no behaviour change.
-			logEvidenceUtilization(o, lastFinalize)
-			state.markDone(fin.ID)
-			o.emitNodeEnd(fin.ID, true, "")
+			o.acceptFinalizeNode(state, fin, lastFinalize)
 			break
 		}
 		if len(retryViolations) == 0 {
@@ -6036,9 +6030,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				Stage:           types.StageFinalize,
 				PreviewRejected: false,
 			})
-			logEvidenceUtilization(o, lastFinalize)
-			state.markDone(fin.ID)
-			o.emitNodeEnd(fin.ID, true, "")
+			o.acceptFinalizeNode(state, fin, lastFinalize)
 			break
 		}
 		if !firstFinalizeRejectedForRewrite {
@@ -6450,8 +6442,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			state.requeue(fin.ID)
 			if o.busCtx != nil && o.busCtx.Mutable != nil {
 				cleared := o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExplore)
-				logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v",
-					requeued, requeuedExtract, cleared)
+				logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v backtrack_epoch=%d completion_generation=%d",
+					requeued, requeuedExtract, cleared, o.busCtx.Mutable.ExploreBacktrackEpoch(), o.busCtx.Mutable.InvestigationCompleteGeneration())
 			}
 			// Contract backtrack: the answer slate was cleared, fresh
 			// evidence will reshape the closure — allow completion reset.

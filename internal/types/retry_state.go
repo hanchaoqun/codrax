@@ -210,8 +210,16 @@ type RetryStateSummary struct {
 //   - Read by renderRetryState (in the agent layer) to produce the
 //     "Previous Emit / Active Violations / Required Changes / Hard
 //     Rule" prompt sections.
-//   - Cleared by ResetRetryState on stage entry / at fresh dispatch
-//     so old state never leaks across stages or runs.
+//   - Kept across every retry dispatch of the same finalize chain (the
+//     next populate reads the previous state for the ping-pong owner
+//     stability counter); an explore backtrack binds it to the
+//     backtrack epoch (ExploreBacktrackEpoch /
+//     CompletionGenerationAtBacktrack) instead of clearing it.
+//   - Cleared by ResetRetryState when the finalize chain closes at an
+//     accepted answer, so old state never leaks past that chain.
+//
+// Attempt is the finalize-attempt ordinal of the chain; there is no
+// separate generation field — the retry chain's generation IS Attempt.
 type RetryState struct {
 	// PrevEmitJSON is the verbatim JSON the LLM emitted on the last
 	// dispatch (raw tool-call params). Optional — when empty, the
@@ -246,8 +254,28 @@ type RetryState struct {
 
 	// Attempt is the retry attempt index (1 = first retry, 2 = second,
 	// etc.). 0 means "no retry yet" — RetryState is unused on
-	// fresh dispatches.
+	// fresh dispatches. It is also the finalize-chain generation
+	// ordinal: every populate increments it, so it needs no sibling.
 	Attempt int `json:"attempt,omitempty"`
+
+	// ExploreBacktrackEpoch is the MutableState explore-backtrack epoch
+	// this state was bound to by the contract backtrack that re-opened
+	// the explore window (§40.14 V7-2). 0 means unbound: the state was
+	// populated for a finalizer-only / extract fallback (or the explore
+	// owner was downgraded) and never re-opened exploration, so it must
+	// never veto an accepted investigation closure.
+	//
+	// json:"-" on purpose (same discipline as PrevEmitSystemBlockKinds):
+	// system-internal lifecycle bookkeeping that no prompt renderer and
+	// no JSON snapshot may surface.
+	ExploreBacktrackEpoch uint64 `json:"-"`
+
+	// CompletionGenerationAtBacktrack is the MutableState investigation
+	// completion generation observed at the same binding moment. The
+	// accepted-closure veto holds only while the live generation still
+	// equals it — i.e. until the model (or a typed system closure)
+	// re-decides completion after the backtrack. json:"-" as above.
+	CompletionGenerationAtBacktrack uint64 `json:"-"`
 
 	// LastPrimaryOwner names the RepairLocus picked by BuildRepairPlan
 	// for the previous attempt's violations (string form of

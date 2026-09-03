@@ -207,6 +207,26 @@ type MutableState struct {
 	// it as a cheap freshness boundary so finalizer validators can
 	// reuse compiled projections without observing stale Mutable data.
 	answerSurfaceRevision uint64
+	// exploreBacktrackEpoch counts finalize-contract backtracks that
+	// re-open the explore window (ResetForFallback(Explore)). It is the
+	// generation a RetryState is bound to when the backtrack re-arms the
+	// accepted-closure veto (§40.14 V7-2): a hard arm reading a
+	// cross-generation carrier needs proof that the carrier and the
+	// decision it arbitrates belong to the same generation.
+	exploreBacktrackEpoch uint64
+	// investigationCompleteGeneration counts accepted completion
+	// decisions (SetInvestigationComplete and fork merges that fold a
+	// completed explore fork back). ResetInvestigationComplete never
+	// bumps it — a reset is not a decision. Compared as a single integer
+	// against RetryState.CompletionGenerationAtBacktrack so one explore
+	// backtrack vetoes exactly once: until the model (or a typed system
+	// closure) re-decides completion in the bound epoch.
+	investigationCompleteGeneration uint64
+	// exploreForkCompletionGenerationBase is the parent's generation at
+	// fork time; MergeExploreFork advances the parent only by the decisions
+	// the fork itself made (fork generation − base), so a fork that merely
+	// inherited a completed flag never counts as a new decision.
+	exploreForkCompletionGenerationBase uint64
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
 	// written as a set via SetEmittedAnswerSymbols and read via
 	// EmittedAnswerSymbolSet (P2.1 Phase 9). The two fields are always
@@ -835,10 +855,12 @@ type MutableState struct {
 	// produce the "Previous Emit / Active Violations / Required
 	// Changes / Hard Rule" prompt sections on retry attempts.
 	//
-	// Lifecycle: nil on fresh dispatches (no rendering); populated
-	// only when scheduler decides to retry the finalizer; reset
-	// to nil after the retry dispatch consumes it (so a successful
-	// retry doesn't leak prev state into a subsequent fresh Run).
+	// Lifecycle: nil until the scheduler decides to retry the
+	// finalizer; kept (not cleared) across the retry chain so each
+	// re-dispatch renders it and the owner-stability counter reads the
+	// previous state; bound to the explore-backtrack epoch by
+	// ResetForFallback(Explore); reset to nil by ResetRetryState when
+	// the chain closes at an accepted answer (§40.14 V7-2).
 	retryState *RetryState
 
 	// repairExecutionPlan is the dispatch-ready owner queue stashed by
@@ -1339,6 +1361,9 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		retainedInvestigationResultKind:             m.retainedInvestigationResultKind,
 		retainedInvestigationCompleteReason:         m.retainedInvestigationCompleteReason,
 		answerSurfaceRevision:                       m.answerSurfaceRevision,
+		exploreBacktrackEpoch:                       m.exploreBacktrackEpoch,
+		investigationCompleteGeneration:             m.investigationCompleteGeneration,
+		exploreForkCompletionGenerationBase:         m.investigationCompleteGeneration,
 		traceQueryRuntimeObservationCount:           m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
@@ -1480,6 +1505,14 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.investigationCompleteReason = investigationCompleteReason
 		m.absenceJustification = absenceJustification
 		m.investigationResultKind = investigationResultKind
+		// Only the fork's OWN completion decisions are decisions of the
+		// parent's epoch: fold exactly those into the parent's generation so
+		// a parallel-dispatch completion lifts the explore-backtrack veto
+		// like a direct SetInvestigationComplete, while a fork that merely
+		// inherited a completed flag advances nothing (§40.14 V7-2 复核).
+		if fork.investigationCompleteGeneration > fork.exploreForkCompletionGenerationBase {
+			m.investigationCompleteGeneration += fork.investigationCompleteGeneration - fork.exploreForkCompletionGenerationBase
+		}
 		m.investigationAggregateFacts = mergedAggregateFacts
 		m.investigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
 		m.retainedInvestigationRelationClaims = CloneAnswerRelationClaims(investigationRelationClaims)
@@ -4374,6 +4407,12 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 		if closure := m.EvidenceClosure(); closure != nil {
 			closure.ClearPendingReads()
 		}
+		// The explore window re-opens: open a new backtrack epoch and
+		// bind the retry state populated for this backtrack to it. Not
+		// a clear (the state still renders on the next finalizer
+		// dispatch and feeds the owner-stability counter), so it is not
+		// reported in `cleared`.
+		m.bindRetryStateToExploreBacktrack()
 		cleared = append(cleared, "AnswerDocumentV2", "EmittedAnswerSymbols", "ChangePlan", "RepairExecutionPlan", "PendingReads")
 	case FallbackResetTargetAnalyze:
 		// Deliberate no-op — see red line. Caller is expected to
@@ -4381,6 +4420,30 @@ func (m *MutableState) ResetForFallback(target FallbackResetTarget) []string {
 		return nil
 	}
 	return cleared
+}
+
+// bindRetryStateToExploreBacktrack opens the next explore-backtrack
+// epoch and stamps the live RetryState (when present) with that epoch
+// plus the completion generation observed right now (§40.14 V7-2).
+// Copy-on-write: RetryState() hands out the live pointer to renderers,
+// so the stamped value is a fresh copy rather than an in-place
+// mutation. Only ResetForFallback(FallbackResetTargetExplore) calls
+// it — finalizer-only / extract fallbacks never re-open exploration and
+// therefore never bind.
+func (m *MutableState) bindRetryStateToExploreBacktrack() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.exploreBacktrackEpoch++
+	if m.retryState == nil {
+		return
+	}
+	cp := *m.retryState
+	cp.ExploreBacktrackEpoch = m.exploreBacktrackEpoch
+	cp.CompletionGenerationAtBacktrack = m.investigationCompleteGeneration
+	m.retryState = &cp
 }
 
 // ResetChangePlan clears the plan buffer at the start of a fresh
@@ -6258,9 +6321,15 @@ func (m *MutableState) RetryState() *RetryState {
 	return m.retryState
 }
 
-// ResetRetryState clears the retry-state surface. Called at fresh
-// dispatch entry so a finalizer dispatch always starts with a clean
-// slate even if a previous run left state behind.
+// ResetRetryState clears the retry-state surface. It is the
+// production reset half of the populate/reset pair (§40.14 V7-2): the
+// orchestrator calls it when the finalize retry chain CLOSES at an
+// accepted answer, so a later explore window, a resumed scheduler
+// loop, or any hard arm reading the carrier never observes a retry
+// state left behind by an already-shipped finalize chain. It is NOT
+// called at fresh dispatch entry: a re-dispatched finalizer must still
+// render the previous emit / active violations, and the ping-pong
+// stability counter reads the previous state.
 //
 // G1 (post_v2_runtime_gap_remediation, 2026-05-04): also clears the
 // stashed RepairExecutionPlan — the two surfaces are paired
@@ -6273,6 +6342,33 @@ func (m *MutableState) ResetRetryState() {
 	defer m.mu.Unlock()
 	m.retryState = nil
 	m.repairExecutionPlan = nil
+}
+
+// ExploreBacktrackEpoch returns the number of finalize-contract
+// backtracks that re-opened the explore window in this Run
+// (ResetForFallback(FallbackResetTargetExplore)). A RetryState whose
+// ExploreBacktrackEpoch equals this value was populated by the
+// backtrack that opened the current epoch.
+func (m *MutableState) ExploreBacktrackEpoch() uint64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.exploreBacktrackEpoch
+}
+
+// InvestigationCompleteGeneration returns the number of accepted
+// completion decisions recorded on this state (direct
+// SetInvestigationComplete calls plus completed explore forks folded
+// back by MergeExploreFork). Resets never advance it.
+func (m *MutableState) InvestigationCompleteGeneration() uint64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.investigationCompleteGeneration
 }
 
 // SetRepairExecutionPlan stashes the dispatch-ready owner queue
@@ -6333,6 +6429,11 @@ func (m *MutableState) SetInvestigationComplete(reason string) {
 	if reason != "" {
 		m.retainedInvestigationCompleteReason = reason
 	}
+	// Every accepted completion decision — model-authored via
+	// emit_investigation_complete or a typed system closure such as the
+	// convergence-stall force-complete — advances the generation the
+	// explore-backtrack veto is bound against (§40.14 V7-2).
+	m.investigationCompleteGeneration++
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 

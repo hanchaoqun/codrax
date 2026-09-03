@@ -225,6 +225,14 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_StillBlocksStageRetr
 	}
 }
 
+// EVOLUTION RECORD (§40.14 V7-2, 2026-09-02): the fixture used to install
+// an explore-owned RetryState directly and expected the veto. The arm now
+// vetoes only a RetryState bound to the CURRENT explore-backtrack epoch
+// with no completion decided since (generation binding), so the fixture
+// replays the production FallbackBackToExplore ordering — populate, then
+// ResetForFallback(Explore) binds, then the completion latch resets. The
+// unbound shape this test previously exercised is pinned as "never
+// vetoes" in accepted_closure_retry_authority_epoch_test.go.
 func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_PreservesTypedExploreContractBacktrack(t *testing.T) {
 	mut := types.NewMutableState("accepted closure before required relation repair")
 	mut.SetInvestigationComplete("the earlier evidence pass was accepted")
@@ -237,6 +245,8 @@ func TestShouldAutoCompleteExploreWindowFromAcceptedClosure_PreservesTypedExplor
 			Layer:    "v2_oracle",
 		}},
 	})
+	mut.ResetForFallback(types.FallbackResetTargetExplore)
+	mut.ResetInvestigationComplete()
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mut}}
 
 	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {

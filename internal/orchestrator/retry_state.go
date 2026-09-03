@@ -330,6 +330,39 @@ func textHeadTail(s string, head, tail int) string {
 	return string(r[:head]) + fmt.Sprintf("…<truncated %d chars>…", dropped) + string(r[len(r)-tail:])
 }
 
-// _ keeps agent import used (re-export bridge for future c5+ render
-// helpers that may move into a sibling file). Removed in c5.
-var _ = agent.StageOutput{}
+// closeFinalizeRetryChain is the production reset half of the
+// populateRetryState / ResetRetryState lifecycle pair (§40.14 V7-2).
+// The finalize retry chain closes when the scheduler ACCEPTS an answer
+// (contract pass, soft-only accept, arbitration-restored first draft,
+// strict-review-disabled accept); from that point no finalizer
+// re-dispatch will render the state and no hard arm may read it, so the
+// carrier is cleared together with its paired RepairExecutionPlan.
+//
+// Deliberately NOT called at the fail-loud exit or the degraded
+// transient-failure deliveries: those paths may still recover a draft
+// from RetryState.PrevEmitJSON (finalizer_auto_repair). Deliberately NOT
+// called at explore re-dispatch either: clearing there would lift the
+// backtrack veto before the model speaks and would zero the owner
+// ping-pong counter the next populate reads.
+func (o *Orchestrator) closeFinalizeRetryChain() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	o.busCtx.Mutable.ResetRetryState()
+}
+
+// acceptFinalizeNode is the single acceptance exit of the finalize
+// retry chain: the evidence-utilization log line, the node bookkeeping,
+// and the retry-chain close run together so every accepted answer
+// closes the chain exactly once (the census in
+// hard_arm_mutable_carrier_census_test.go requires the reset to have a
+// production caller). The scheduler's four acceptance branches call
+// this instead of repeating the triplet.
+func (o *Orchestrator) acceptFinalizeNode(state *graphState, fin *types.TaskNode, finalize *agent.StageOutput) {
+	logEvidenceUtilization(o, finalize)
+	if state != nil && fin != nil {
+		state.markDone(fin.ID)
+		o.emitNodeEnd(fin.ID, true, "")
+	}
+	o.closeFinalizeRetryChain()
+}
