@@ -56,6 +56,8 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		WorkDir:                     bus.WorkDir,
 		MainRepoRoot:                bus.MainRepoRoot,
 		WorktreePath:                bus.WorktreePath,
+		WorktreeBaseSHA:             bus.WorktreeBaseSHA,
+		WorktreeBaseDirtyPaths:      append([]string(nil), bus.WorktreeBaseDirtyPaths...),
 		Mutable:                     bus.Mutable,
 		// Multi-repo mirrors. Phase 4.1 introduced these on
 		// BusContext + AgentContext; the builder copies them across

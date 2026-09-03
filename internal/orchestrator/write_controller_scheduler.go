@@ -3659,7 +3659,7 @@ func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.Chang
 	if plan == nil || report == nil {
 		return
 	}
-	projection, ok := verifyCoverageProjectionFromReport(report, err)
+	projection, ok := verifyCoverageProjectionFromReport(plan, report, err)
 	if !ok {
 		return
 	}
@@ -3685,12 +3685,12 @@ func applyVerifyCoverageToChangePlan(plan *types.ChangePlan, report *types.Chang
 	}
 }
 
-func verifyCoverageProjectionFromReport(report *types.ChangeReport, err error) (verifyCoverageProjection, bool) {
+func verifyCoverageProjectionFromReport(plan *types.ChangePlan, report *types.ChangeReport, err error) (verifyCoverageProjection, bool) {
 	if report == nil {
 		return verifyCoverageProjection{}, false
 	}
 	authority := writeflow.DeriveObservationAuthorityFromReport(report, err)
-	projection := verifyCoverageProjection{Confidence: verifyCoverageConfidenceFromReport(report)}
+	projection := verifyCoverageProjection{Confidence: verifyCoverageConfidenceFromReportForPlan(plan, report)}
 	switch authority.State {
 	case writeflow.ObservationAuthorityVerified:
 		projection.ImpactStatus = impactCoverageVerified
@@ -3705,6 +3705,56 @@ func verifyCoverageProjectionFromReport(report *types.ChangeReport, err error) (
 		return verifyCoverageProjection{}, false
 	}
 	return projection, true
+}
+
+// verifyCoverageConfidenceFromReportForPlan is the plan-aware projection
+// (V5-1): a satisfied contract record covers a ref only when the contract's
+// kind admits the record's witness kind (types matrix), and a disclosed
+// source absence for a runtime-kind contract keeps the ref unverified in
+// this soft projection. Refs naming no known contract keep the legacy
+// records-only reading.
+func verifyCoverageConfidenceFromReportForPlan(plan *types.ChangePlan, report *types.ChangeReport) verifyCoverageConfidence {
+	conf := verifyCoverageConfidenceFromReport(report)
+	if plan == nil || report == nil {
+		return conf
+	}
+	contractByID := map[string]types.WriteBehaviorContract{}
+	for _, contract := range types.ChangePlanVerificationBehaviorContracts(plan) {
+		if id := strings.TrimSpace(contract.ID); id != "" {
+			contractByID[id] = contract
+		}
+	}
+	for ref := range conf.CoveredContracts {
+		contract, known := contractByID[ref]
+		if !known {
+			continue
+		}
+		covered := false
+		for _, rec := range report.VerificationConfidence {
+			category := strings.TrimSpace(rec.Category)
+			if category != "probe_contract_refs" && category != "source_contract_refs" {
+				continue
+			}
+			if types.VerificationConfidenceRecordCoversContract(rec, contract) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			delete(conf.CoveredContracts, ref)
+		}
+	}
+	for _, rec := range report.VerificationConfidence {
+		if strings.TrimSpace(rec.Category) != "source_text_presence" || strings.TrimSpace(rec.ReasonCode) != "post_apply_source_text_absent" {
+			continue
+		}
+		for _, raw := range rec.ContractRefs {
+			if ref := strings.TrimSpace(raw); ref != "" && !conf.CoveredContracts[ref] {
+				conf.MissingContracts[ref] = true
+			}
+		}
+	}
+	return conf
 }
 
 func verifyCoverageConfidenceFromReport(report *types.ChangeReport) verifyCoverageConfidence {

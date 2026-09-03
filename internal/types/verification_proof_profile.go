@@ -7,6 +7,7 @@ import (
 
 const verificationProofMaxReasonCodes = 32
 const verificationProofLedgerMaxItems = 64
+const verificationProofLedgerMaxDisclosures = 256
 
 type VerificationProofStatus string
 
@@ -102,6 +103,13 @@ type VerificationProofLedger struct {
 	CapabilityFailedCount      int                             `json:"capability_failed_count,omitempty"`
 	Obligations                []VerificationProofLedgerItem   `json:"obligations,omitempty"`
 	Capabilities               []VerificationProofLedgerItem   `json:"capabilities,omitempty"`
+	// Disclosures (V5-1) are typed advisory facts that neither resolve nor
+	// count as obligations or capabilities: source-text presence for
+	// runtime-kind contracts, matrix-rejected witnesses. Kept per
+	// contract_ref under their own bound so they are never squeezed out
+	// by executed-command capability rows.
+	Disclosures     []VerificationProofLedgerItem `json:"disclosures,omitempty"`
+	DisclosureCount int                           `json:"disclosure_count,omitempty"`
 }
 
 type VerificationProofLedgerItem struct {
@@ -407,7 +415,14 @@ func BuildVerificationProofLedger(primaryPlan *ChangePlan, primaryReport *Change
 	for _, artifact := range unique {
 		out.addVerificationReportLedgerItems(artifact.Report)
 		out.addChangedPathCoverageLedgerItems(artifact.Report)
-		out.addVerificationConfidenceLedgerItems(artifact.Plan, artifact.Report)
+		// V5-1: an artifact without a loadable plan still passes through the
+		// witness-matrix choke point against the primary plan's contracts —
+		// the obligations its records could resolve are the primary plan's.
+		confidencePlan := artifact.Plan
+		if confidencePlan == nil {
+			confidencePlan = primaryPlan
+		}
+		out.addVerificationConfidenceLedgerItems(confidencePlan, artifact.Report)
 		out.addPatchReviewLedgerItems(artifact.Plan)
 		out.addImpactLedgerItems(artifact.Plan)
 	}
@@ -515,6 +530,8 @@ func NormalizeVerificationProofLedger(in VerificationProofLedger) VerificationPr
 	in.Obligations = normalizeVerificationProofLedgerItems(in.Obligations, verificationProofLedgerMaxItems)
 	in.Obligations = resolveVerificationProofLedgerObligations(in.Obligations)
 	in.Capabilities = normalizeVerificationProofLedgerItems(in.Capabilities, verificationProofLedgerMaxItems)
+	in.Disclosures = normalizeVerificationProofLedgerItems(in.Disclosures, verificationProofLedgerMaxDisclosures)
+	in.DisclosureCount = len(in.Disclosures)
 	in.CoverageCounts = map[string]int{}
 	for _, item := range in.Obligations {
 		status := string(item.Status)
@@ -891,6 +908,22 @@ func (ledger *VerificationProofLedger) addVerificationConfidenceLedgerItems(plan
 				item.ContractRef = ref
 				add(item)
 			}
+		case "source_text_presence", "contract_witness_rejected":
+			// V5-1: disclosures, not obligations — they neither resolve nor
+			// count toward obligation/covered/capability totals; the ledger
+			// still names them per contract_ref on their own list.
+			refs := dedupTrimWriteWorkflowRunStrings(rec.ContractRefs)
+			if len(refs) == 0 {
+				refs = []string{""}
+			}
+			for _, ref := range refs {
+				item := base
+				item.ContractRef = ref
+				if item.ID == "" {
+					item.ID = verificationProofLedgerItemKey(item)
+				}
+				ledger.Disclosures = append(ledger.Disclosures, item)
+			}
 		case "probe_changed_symbol":
 			refs := dedupTrimWriteWorkflowRunStrings(rec.ChangedSymbolRefs)
 			if len(refs) == 0 {
@@ -927,28 +960,100 @@ func verificationConfidenceRecordsForPlanRequiredDomain(plan *ChangePlan, in []V
 	if plan == nil {
 		return append([]VerificationConfidenceRecord(nil), in...)
 	}
-	required := RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan), true)
+	contracts := ChangePlanVerificationBehaviorContracts(plan)
+	required := RequiredWriteBehaviorContractIDs(contracts, true)
+	contractByID := make(map[string]WriteBehaviorContract, len(contracts))
+	for _, contract := range contracts {
+		if id := strings.TrimSpace(contract.ID); id != "" {
+			contractByID[id] = contract
+		}
+	}
 	out := make([]VerificationConfidenceRecord, 0, len(in))
 	for _, rec := range in {
-		if strings.TrimSpace(rec.Category) != "project_test_contract_refs" {
-			out = append(out, rec)
-			continue
+		if strings.TrimSpace(rec.Category) == "project_test_contract_refs" {
+			filtered := make([]string, 0, len(rec.ContractRefs))
+			for _, raw := range rec.ContractRefs {
+				ref := strings.TrimSpace(raw)
+				if _, ok := required[ref]; ok {
+					filtered = append(filtered, ref)
+				}
+			}
+			filtered = dedupTrimWriteWorkflowRunStrings(filtered)
+			if len(filtered) == 0 {
+				continue
+			}
+			rec.ContractRefs = filtered
 		}
-		filtered := make([]string, 0, len(rec.ContractRefs))
-		for _, raw := range rec.ContractRefs {
-			ref := strings.TrimSpace(raw)
-			if _, ok := required[ref]; ok {
-				filtered = append(filtered, ref)
+		// V5-1 witness matrix choke point: a satisfied contract-lane record
+		// keeps only the refs whose contract kind admits its witness kind; the
+		// rest become an advisory disclosure that can never resolve an
+		// obligation. New producers never emit a rejected pair (census-pinned);
+		// this demotes records persisted before the matrix existed.
+		if strings.TrimSpace(rec.Status) == "satisfied" && VerificationConfidenceRecordIsContractWitness(rec) {
+			admitted, rejected := splitVerificationConfidenceRefsByWitnessMatrix(rec, contractByID)
+			if len(rejected) > 0 {
+				if len(admitted) > 0 {
+					kept := rec
+					kept.ContractRefs = admitted
+					out = append(out, kept)
+				}
+				out = append(out, verificationConfidenceWitnessRejectedRecord(rec, rejected))
+				continue
 			}
 		}
-		filtered = dedupTrimWriteWorkflowRunStrings(filtered)
-		if len(filtered) == 0 {
-			continue
-		}
-		rec.ContractRefs = filtered
 		out = append(out, rec)
 	}
 	return out
+}
+
+// splitVerificationConfidenceRefsByWitnessMatrix partitions a satisfied
+// record's refs into those its witness may cover and those it may not. Refs
+// naming no known contract stay admitted (nothing to judge them against and
+// they never satisfy a required obligation).
+func splitVerificationConfidenceRefsByWitnessMatrix(rec VerificationConfidenceRecord, contractByID map[string]WriteBehaviorContract) (admitted, rejected []string) {
+	for _, raw := range rec.ContractRefs {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		contract, known := contractByID[ref]
+		if !known || VerificationConfidenceRecordCoversContract(rec, contract) {
+			admitted = append(admitted, ref)
+			continue
+		}
+		rejected = append(rejected, ref)
+	}
+	return dedupTrimWriteWorkflowRunStrings(admitted), dedupTrimWriteWorkflowRunStrings(rejected)
+}
+
+// verificationConfidenceWitnessRejectedRecord is the advisory form of a
+// matrix-rejected witness. Category source_text_presence when the witness is
+// a source reading (the only witness the matrix ever rejects for a known
+// kind); contract_witness_rejected when the witness itself is unresolved.
+func verificationConfidenceWitnessRejectedRecord(rec VerificationConfidenceRecord, rejected []string) VerificationConfidenceRecord {
+	witness, ok := VerificationConfidenceRecordWitnessKind(rec)
+	category := "contract_witness_rejected"
+	reason := "contract_witness_kind_unresolved"
+	detail := "the observation's witness kind could not be resolved; it cannot discharge these contracts"
+	switch {
+	case ok && witness == WriteBehaviorWitnessSourceText:
+		category = "source_text_presence"
+		reason = "source_witness_not_admitted_for_contract_kind"
+		detail = "a post-apply source reading cannot observe the runtime kind of these contracts; an executed verification probe or project test must observe them"
+	case ok:
+		reason = "witness_not_admitted_for_contract_kind"
+		detail = "a " + string(witness) + " witness is not admitted for the kind of these contracts"
+	}
+	return VerificationConfidenceRecord{
+		Source:       firstNonEmptyVerificationProof(strings.TrimSpace(rec.Source), "verification_confidence"),
+		Category:     category,
+		Status:       "advisory",
+		Severity:     "info",
+		ReasonCode:   reason,
+		ContractRefs: rejected,
+		WitnessKind:  witness,
+		Detail:       detail,
+	}
 }
 
 func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(plan *ChangePlan) {
@@ -977,29 +1082,22 @@ func (ledger *VerificationProofLedger) addRequiredBehaviorContractLedgerItems(pl
 	}
 }
 
+// missingRequiredWriteBehaviorContractObservationIDs applies the V5-1
+// contract-kind → witness-kind matrix (VerificationConfidenceRecordCoversContract):
+// a satisfied record discharges a contract only when the contract's kind
+// admits the record's witness kind.
 func missingRequiredWriteBehaviorContractObservationIDs(plan *ChangePlan, report *ChangeReport) []string {
 	if plan == nil {
 		return nil
 	}
-	required := RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(plan), true)
+	contracts := ChangePlanVerificationBehaviorContracts(plan)
+	required := RequiredWriteBehaviorContractIDs(contracts, true)
 	if len(required) == 0 {
 		return nil
 	}
 	covered := map[string]struct{}{}
 	if report != nil {
-		for _, rec := range report.VerificationConfidence {
-			if strings.TrimSpace(rec.Status) != "satisfied" {
-				continue
-			}
-			switch strings.TrimSpace(rec.Category) {
-			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs":
-				for _, ref := range rec.ContractRefs {
-					if ref = strings.TrimSpace(ref); ref != "" {
-						covered[ref] = struct{}{}
-					}
-				}
-			}
-		}
+		covered = CoveredWriteBehaviorContractIDs(contracts, report.VerificationConfidence)
 	}
 	missing := make([]string, 0, len(required))
 	for id := range required {
@@ -1013,30 +1111,21 @@ func missingRequiredWriteBehaviorContractObservationIDs(plan *ChangePlan, report
 
 func missingCumulativeRequiredWriteBehaviorContractObservationIDs(artifacts []VerificationProofArtifact) []string {
 	required := map[string]struct{}{}
-	covered := map[string]struct{}{}
+	var contracts []WriteBehaviorContract
+	var records []VerificationConfidenceRecord
 	for _, artifact := range artifacts {
 		if artifact.Plan != nil {
-			for id := range RequiredWriteBehaviorContractIDs(ChangePlanVerificationBehaviorContracts(artifact.Plan), true) {
+			planContracts := ChangePlanVerificationBehaviorContracts(artifact.Plan)
+			contracts = append(contracts, planContracts...)
+			for id := range RequiredWriteBehaviorContractIDs(planContracts, true) {
 				required[id] = struct{}{}
 			}
 		}
-		if artifact.Report == nil {
-			continue
-		}
-		for _, rec := range artifact.Report.VerificationConfidence {
-			if strings.TrimSpace(rec.Status) != "satisfied" {
-				continue
-			}
-			switch strings.TrimSpace(rec.Category) {
-			case "probe_contract_refs", "probe_soft_contract_refs", "project_test_contract_refs", "source_contract_refs":
-				for _, ref := range rec.ContractRefs {
-					if ref = strings.TrimSpace(ref); ref != "" {
-						covered[ref] = struct{}{}
-					}
-				}
-			}
+		if artifact.Report != nil {
+			records = append(records, artifact.Report.VerificationConfidence...)
 		}
 	}
+	covered := CoveredWriteBehaviorContractIDs(contracts, records)
 	missing := make([]string, 0, len(required))
 	for id := range required {
 		if _, ok := covered[id]; !ok {
@@ -1373,6 +1462,10 @@ func verificationProofLedgerStatusFromConfidence(status string) VerificationProo
 		return VerificationProofLedgerItemFailed
 	case "unverified":
 		return VerificationProofLedgerItemUnverified
+	case "advisory":
+		// V5-1: a source-text presence disclosure for a runtime-kind contract.
+		// Advisory items never resolve a required obligation.
+		return VerificationProofLedgerItemAdvisory
 	default:
 		return VerificationProofLedgerItemUnknown
 	}
@@ -1416,6 +1509,10 @@ func verificationProofLedgerKindFromConfidence(category string) string {
 		return "behavior_contract"
 	case "probe_placement_refs":
 		return "rendered_text_placement_contract"
+	case "source_text_presence", "contract_witness_rejected":
+		// V5-1: deliberately NOT "behavior_contract" so the advisory lane can
+		// never resolve a required_behavior_contract obligation.
+		return strings.TrimSpace(category)
 	case "probe_changed_symbol":
 		return "changed_symbol"
 	case "probe_execution":

@@ -296,7 +296,7 @@ func validateWriteBehaviorContractEnums(contracts []types.WriteBehaviorContract)
 	for i, c := range contracts {
 		kind := strings.ToLower(strings.TrimSpace(string(c.Kind)))
 		if kind != "" && !types.IsKnownWriteBehaviorContractKind(kind) {
-			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].kind=%q is unsupported; use one of observable, exception, output_path, stdout, status_code, file_layout, command_result, invariant", i, c.Kind)
+			return fmt.Sprintf("emit_write_analysis rejected: behavior_contracts[%d].kind=%q is unsupported; use one of %s", i, c.Kind, strings.Join(writeBehaviorContractKindEnum(), ", "))
 		}
 		operator := strings.ToLower(strings.TrimSpace(string(c.Operator)))
 		if operator != "" && !types.IsKnownWriteBehaviorOperator(operator) {
@@ -415,7 +415,10 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 						},
 						"kind": map[string]any{
 							"type": "string",
-							"enum": []string{"observable", "exception", "output_path", "stdout", "status_code", "file_layout", "command_result", "invariant"},
+							"enum": writeBehaviorContractKindEnum(),
+							// V5-1: the kind → witness matrix sentence is generated from the
+							// types-level table the verifier consumes (R2' same source).
+							"description": types.WriteBehaviorContractKindWitnessTeaching(),
 						},
 						"subject": map[string]any{
 							"type":        "string",
@@ -536,7 +539,7 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 					},
 					"required": []string{"id", "kind", "expected"},
 				},
-				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path/layout, status code, command result, stdout text, rendered text placement, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. When evidence includes a known working or contrasting reference surface, attach it as comparator so probes can verify the relationship instead of only proving no-crash. When evidence includes relative placement inside rendered text, attach placement{} so later probes can bind placement_refs[]. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
+				"description": "Optional typed observables the plan/probes should satisfy or preserve. Prefer these when the request names exception type, output path, repository file layout, status code, command result, stdout text, rendered text placement, or a concrete invariant. Separate observed pre-fix failures from expected fixed behavior with polarity=observed vs polarity=expected/forbidden. For bugs that should stop raising, use operator=not_raises with polarity=expected; use operator=raises only when the fixed behavior is supposed to raise. When evidence includes a known working or contrasting reference surface, attach it as comparator so probes can verify the relationship instead of only proving no-crash. When evidence includes relative placement inside rendered text, attach placement{} so later probes can bind placement_refs[]. Do not infer from keywords; emit only facts grounded in the request or light repo inspection.",
 			},
 			"phase_proposal": map[string]any{
 				"type": "object",
@@ -566,4 +569,16 @@ func buildEmitWriteAnalysisSchema() map[string]any {
 			},
 		},
 	}
+}
+
+// writeBehaviorContractKindEnum renders the closed kind set from its single
+// types-level source (AllWriteBehaviorContractKinds) so the schema enum can
+// never drift from the witness matrix.
+func writeBehaviorContractKindEnum() []string {
+	kinds := types.AllWriteBehaviorContractKinds()
+	out := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		out = append(out, string(kind))
+	}
+	return out
 }

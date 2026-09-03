@@ -163,15 +163,25 @@ const (
 	WriteRenderedTextLineLocalNotContains      WriteRenderedTextRelation = "line_local_not_contains"
 )
 
-func IsKnownWriteBehaviorContractKind(v string) bool {
-	switch WriteBehaviorContractKind(v) {
-	case WriteBehaviorObservable, WriteBehaviorException, WriteBehaviorOutputPath,
+// AllWriteBehaviorContractKinds is the closed kind set in stable order — the
+// single source for IsKnownWriteBehaviorContractKind, the witness matrix
+// (write_behavior_contract_witness.go), the analyzer schema enum and the
+// kind teaching sentence. Add a kind here and every surface follows.
+func AllWriteBehaviorContractKinds() []WriteBehaviorContractKind {
+	return []WriteBehaviorContractKind{
+		WriteBehaviorObservable, WriteBehaviorException, WriteBehaviorOutputPath,
 		WriteBehaviorStdout, WriteBehaviorStatusCode, WriteBehaviorFileLayout,
-		WriteBehaviorCommandResult, WriteBehaviorInvariant:
-		return true
-	default:
-		return false
+		WriteBehaviorCommandResult, WriteBehaviorInvariant,
 	}
+}
+
+func IsKnownWriteBehaviorContractKind(v string) bool {
+	for _, kind := range AllWriteBehaviorContractKinds() {
+		if string(kind) == v {
+			return true
+		}
+	}
+	return false
 }
 
 func IsKnownWriteBehaviorOperator(v string) bool {

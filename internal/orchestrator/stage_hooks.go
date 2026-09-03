@@ -680,7 +680,8 @@ func applyPreHook(o *Orchestrator) error {
 		o.busCtx.WorktreePath = sess.Path()
 		o.busCtx.RepoRoot = sess.Path()
 		o.busCtx.Mutable.SetRepoRoot(sess.Path())
-		logging.Info("[orchestrator] apply pre-hook: worktree at %s", sess.Path())
+		o.stampWorktreeBase(sess.Path())
+		logging.Info("[orchestrator] apply pre-hook: worktree at %s (base %s, dirty-at-base %d)", sess.Path(), o.busCtx.WorktreeBaseSHA, len(o.busCtx.WorktreeBaseDirtyPaths))
 	}
 	// 3. Baseline capture. The cache always tries first when it is
 	// enabled — a hit gives us a free baseline regardless of the
@@ -1124,7 +1125,15 @@ func verifyPreHook(o *Orchestrator) error {
 		}
 		o.busCtx.RepoRoot = o.reuseWorktreePath
 		o.busCtx.Mutable.SetRepoRoot(o.reuseWorktreePath)
-		logging.Info("[orchestrator] verify pre-hook: swapped RepoRoot to preserved worktree %s", o.reuseWorktreePath)
+		// V5-1: a preserved worktree's analysis base is the one the plan
+		// recorded at provisioning; nothing is inferred from branch topology.
+		o.busCtx.WorktreeBaseSHA, o.busCtx.WorktreeBaseDirtyPaths = "", nil
+		if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && strings.TrimSpace(plan.WorktreeBaseSHA) != "" &&
+			worktree.CommitExists(o.reuseWorktreePath, plan.WorktreeBaseSHA) {
+			o.busCtx.WorktreeBaseSHA = strings.TrimSpace(plan.WorktreeBaseSHA)
+			o.busCtx.WorktreeBaseDirtyPaths = append([]string(nil), plan.WorktreeBaseDirtyPaths...)
+		}
+		logging.Info("[orchestrator] verify pre-hook: swapped RepoRoot to preserved worktree %s (base %s)", o.reuseWorktreePath, o.busCtx.WorktreeBaseSHA)
 	}
 	return nil
 }
@@ -1852,4 +1861,53 @@ func applyCommitMessage(plan *types.ChangePlan) string {
 		return summary + "\n\nplan: " + plan.ID
 	}
 	return "codrax apply iter (plan=" + plan.ID + ")"
+}
+
+// stampWorktreeBase records the analysis base for post-apply source-line
+// binding (V5-1): the base a loaded plan already recorded (a plan applied
+// later than it was planned keeps the tree its evidence_ref lines came
+// from) when that commit exists in the worktree, else the commit the
+// worktree was just cut from; plus the tracked paths that were dirty in
+// the main checkout, whose evidence lines no base tree holds.
+func (o *Orchestrator) stampWorktreeBase(worktreePath string) {
+	o.busCtx.WorktreeBaseSHA, o.busCtx.WorktreeBaseDirtyPaths = "", nil
+	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil && strings.TrimSpace(plan.WorktreeBaseSHA) != "" &&
+		worktree.CommitExists(worktreePath, plan.WorktreeBaseSHA) {
+		o.busCtx.WorktreeBaseSHA = strings.TrimSpace(plan.WorktreeBaseSHA)
+		o.busCtx.WorktreeBaseDirtyPaths = append([]string(nil), plan.WorktreeBaseDirtyPaths...)
+		return
+	}
+	base, err := worktree.HeadSHA(worktreePath)
+	if err != nil {
+		logging.Warning("[orchestrator] worktree base sha unavailable: %v", err)
+		return
+	}
+	dirty, err := worktree.DirtyTrackedPaths(o.busCtx.MainRepoRoot)
+	if err != nil {
+		// Without the dirty roster the base cannot be trusted for any file.
+		logging.Warning("[orchestrator] main checkout dirty roster unavailable; source-line binding disabled: %v", err)
+		return
+	}
+	o.busCtx.WorktreeBaseSHA = base
+	o.busCtx.WorktreeBaseDirtyPaths = dirty
+}
+
+// stampPlanWorktree records the worktree path on the plan together with the
+// analysis base (V5-1), so a later re-verify of the preserved worktree binds
+// source witnesses to the same base instead of guessing one.
+func (o *Orchestrator) stampPlanWorktree(plan *types.ChangePlan) {
+	if plan == nil || o.busCtx == nil {
+		return
+	}
+	plan.WorktreePath = o.busCtx.WorktreePath
+	o.stampPlanWorktreeBase(plan)
+}
+
+// stampPlanWorktreeBase persists the analysis base beside the worktree path.
+func (o *Orchestrator) stampPlanWorktreeBase(plan *types.ChangePlan) {
+	if plan == nil || o.busCtx == nil || strings.TrimSpace(o.busCtx.WorktreeBaseSHA) == "" {
+		return
+	}
+	plan.WorktreeBaseSHA = o.busCtx.WorktreeBaseSHA
+	plan.WorktreeBaseDirtyPaths = append([]string(nil), o.busCtx.WorktreeBaseDirtyPaths...)
 }

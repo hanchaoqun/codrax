@@ -860,7 +860,7 @@ func CaptureCommitPatch(path, sha string) (string, error) {
 	if strings.TrimSpace(sha) == "" {
 		return "", errors.New("worktree.CaptureCommitPatch: sha is empty")
 	}
-	out, err := runGitIn(path, "show", "--format=medium", "--no-color", sha)
+	out, err := runGitIn(path, "-c", "core.quotePath=false", "show", "--format=medium", "--no-color", sha)
 	if err != nil {
 		return "", fmt.Errorf("worktree.CaptureCommitPatch: %w (output: %s)", err, out)
 	}
@@ -883,7 +883,7 @@ func CaptureRangePatch(path, baseRef, headRef string) (string, error) {
 	if headRef == "" {
 		headRef = "HEAD"
 	}
-	out, err := runGitIn(path, "diff", "--no-color", "--binary", baseRef, headRef)
+	out, err := runGitIn(path, "-c", "core.quotePath=false", "diff", "--no-color", "--binary", baseRef, headRef)
 	if err != nil {
 		return "", fmt.Errorf("worktree.CaptureRangePatch: %w (output: %s)", err, out)
 	}
@@ -913,7 +913,7 @@ func CaptureRangePatchForPaths(path, baseRef, headRef string, paths []string) (s
 	if len(cleanPaths) == 0 {
 		return "", errors.New("worktree.CaptureRangePatchForPaths: paths is empty")
 	}
-	args := []string{"diff", "--no-color", "--binary", baseRef, headRef, "--"}
+	args := []string{"-c", "core.quotePath=false", "diff", "--no-color", "--binary", baseRef, headRef, "--"}
 	args = append(args, cleanPaths...)
 	out, err := runGitIn(path, args...)
 	if err != nil {
@@ -942,4 +942,64 @@ func normalizeRangePatchPaths(paths []string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// HeadSHA returns the commit a worktree (or any git checkout) currently
+// points at. Read-only.
+func HeadSHA(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("worktree.HeadSHA: path is empty")
+	}
+	out, err := runGitIn(path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("worktree.HeadSHA: %w (output: %s)", err, out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// CommitExists reports whether sha names a commit reachable in the checkout's
+// object store. Read-only.
+func CommitExists(path, sha string) bool {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(sha) == "" {
+		return false
+	}
+	_, err := runGitIn(path, "cat-file", "-e", strings.TrimSpace(sha)+"^{commit}")
+	return err == nil
+}
+
+// DirtyTrackedPaths lists the tracked paths (repo-relative, slash form) with
+// staged or unstaged modifications in the checkout — the files whose working
+// tree content is not HEAD's. Untracked files are excluded. Read-only.
+func DirtyTrackedPaths(path string) ([]string, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("worktree.DirtyTrackedPaths: path is empty")
+	}
+	cmd := exec.Command("git", "-c", "core.quotePath=false", "status", "--porcelain", "-z", "--untracked-files=no")
+	cmd.Dir = path
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("worktree.DirtyTrackedPaths: %w", err)
+	}
+	fields := strings.Split(string(out), "\x00")
+	var paths []string
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		if len(field) < 4 || field[2] != ' ' {
+			continue
+		}
+		status := field[:2]
+		rel := strings.TrimPrefix(strings.TrimSpace(field[3:]), "./")
+		if rel != "" && status != "??" {
+			paths = append(paths, rel)
+		}
+		if status[0] == 'R' || status[0] == 'C' || status[1] == 'R' || status[1] == 'C' {
+			i++ // the rename/copy source follows as its own NUL field
+			if i < len(fields) {
+				if src := strings.TrimSpace(fields[i]); src != "" {
+					paths = append(paths, src)
+				}
+			}
+		}
+	}
+	return paths, nil
 }

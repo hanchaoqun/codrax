@@ -413,7 +413,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if !dryRunProbe {
 			report.VerificationConfidence = mergeVerificationConfidenceRecords(
 				report.VerificationConfidence,
-				postApplySourceContractConfidenceRecords(ctx.RepoRoot, authorityPlan),
+				postApplySourceContractConfidenceRecords(ctx.RepoRoot, ctx.WorktreeBaseSHA, ctx.WorktreeBaseDirtyPaths, authorityPlan),
 			)
 		}
 		if !report.Passed && strings.TrimSpace(report.FailureReasonCode) == "" {
@@ -3365,6 +3365,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "info",
 					ReasonCode:   "verification_probe_contract_ref_covered",
 					ContractRefs: matched,
+					WitnessKind:  types.WriteBehaviorWitnessVerificationProbe,
 					Detail:       "passed identity-coupled verification probes covered required behavior contracts",
 				})
 			}
@@ -3422,6 +3423,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "info",
 					ReasonCode:   "verification_probe_placement_ref_covered",
 					ContractRefs: matched,
+					WitnessKind:  types.WriteBehaviorWitnessVerificationProbe,
 					Detail:       "passed identity-coupled verification probes bound rendered-text placement contracts",
 				})
 			}
@@ -3448,6 +3450,7 @@ func verificationConfidenceRecordsFromReport(plan *types.ChangePlan, report *typ
 					Severity:     "info",
 					ReasonCode:   "verification_probe_soft_contract_ref_covered",
 					ContractRefs: matched,
+					WitnessKind:  types.WriteBehaviorWitnessVerificationProbe,
 					Detail:       "passed identity-coupled verification probes covered soft or fallback expected outcomes",
 				})
 			}
@@ -3539,6 +3542,7 @@ func projectTestObservationConfidenceRecords(plan *types.ChangePlan, report *typ
 			Severity:     "info",
 			ReasonCode:   "project_test_contract_ref_observed",
 			ContractRefs: refs,
+			WitnessKind:  types.WriteBehaviorWitnessProjectTest,
 			Detail:       "successful exact typed project-test candidates observed the listed behavior contracts",
 		})
 	}
@@ -3827,6 +3831,7 @@ func mergeVerificationConfidenceRecords(existing, next []types.VerificationConfi
 		rec.ContractRefs = dedupStrings(rec.ContractRefs)
 		rec.ChangedSymbolRefs = dedupStrings(rec.ChangedSymbolRefs)
 		rec.Detail = strings.TrimSpace(rec.Detail)
+		rec.WitnessKind = types.WriteBehaviorWitnessKind(strings.TrimSpace(string(rec.WitnessKind)))
 		if rec.Category == "" && rec.ReasonCode == "" && rec.Status == "" {
 			return
 		}
@@ -3839,6 +3844,7 @@ func mergeVerificationConfidenceRecords(existing, next []types.VerificationConfi
 			strings.Join(rec.ContractRefs, ","),
 			strings.Join(rec.ChangedSymbolRefs, ","),
 			rec.Detail,
+			string(rec.WitnessKind),
 		}, "\x00")
 		if seen[key] {
 			return

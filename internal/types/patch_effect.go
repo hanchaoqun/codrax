@@ -37,6 +37,10 @@ type PatchEffectFile struct {
 	RemovedLines int                `json:"removed_lines,omitempty"`
 	Hunks        []PatchEffectHunk  `json:"hunks,omitempty"`
 	Events       []PatchEffectEvent `json:"events,omitempty"`
+	// Binary marks a content change git reported without hunks ("Binary
+	// files … differ" / "GIT binary patch"): the file was rewritten but no
+	// line table exists, unlike a mode-only change (V5-1 line binding).
+	Binary bool `json:"binary,omitempty"`
 }
 
 // PatchEffectRecord is the typed factual view of the actual applied diff.

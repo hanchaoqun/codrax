@@ -388,24 +388,16 @@ func writeControllerBehaviorContractCoverage(plan *types.ChangePlan, report *typ
 	if report == nil || hard == 0 {
 		return hard, 0, planningOnly
 	}
-	seen := map[string]bool{}
-	for _, record := range report.VerificationConfidence {
-		if strings.TrimSpace(record.Status) != "satisfied" {
-			continue
-		}
-		switch strings.TrimSpace(record.Category) {
-		case "probe_contract_refs", "project_test_contract_refs", "source_contract_refs":
-		default:
-			continue
-		}
-		for _, raw := range record.ContractRefs {
-			ref := strings.TrimSpace(raw)
-			if _, required := hardIDs[ref]; required {
-				seen[ref] = true
-			}
+	// V5-1: coverage is the types-level contract-kind → witness-kind matrix
+	// (VerificationConfidenceRecordCoversContract); a source-text reading
+	// counts only for kinds that admit it.
+	coveredIDs := types.CoveredWriteBehaviorContractIDs(contracts, report.VerificationConfidence)
+	for id := range hardIDs {
+		if _, ok := coveredIDs[id]; ok {
+			covered++
 		}
 	}
-	return hard, len(seen), planningOnly
+	return hard, covered, planningOnly
 }
 
 func writeControllerChangedPathCoverageRows(rows []types.ChangedPathVerificationCoverage, limit int) []types.ChangedPathVerificationCoverage {

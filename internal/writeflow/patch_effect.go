@@ -332,6 +332,10 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 			continue
 		}
 		switch {
+		case strings.HasPrefix(line, "Binary files ") || strings.HasPrefix(line, "GIT binary patch"):
+			// Content changed without a line table (NUL bytes, `-diff` /
+			// `binary` attributes): not a mode-only change.
+			current.Binary = true
 		case strings.HasPrefix(line, "new file mode "):
 			current.Status = "created"
 		case strings.HasPrefix(line, "deleted file mode "):
@@ -342,13 +346,17 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 		case strings.HasPrefix(line, "rename to "):
 			current.Status = "renamed"
 			current.Path = normalizePatchEffectPath(strings.TrimPrefix(line, "rename to "))
-		case strings.HasPrefix(line, "--- "):
-			oldPath := normalizePatchEffectDiffPath(strings.TrimPrefix(line, "--- "))
+		// File headers ("--- a/x" / "+++ b/x") precede the first hunk of a
+		// file; inside a hunk a line starting with "---"/"+++" is a removed or
+		// added body line that itself starts with "--"/"++" (SQL/Lua comments,
+		// YAML/Markdown "---", TOML "+++") and must count as such.
+		case currentHunk == nil && strings.HasPrefix(line, "--- "):
+			oldPath := normalizePatchEffectDiffOperand(strings.TrimPrefix(line, "--- "), "a/")
 			if oldPath != "" {
 				current.OldPath = oldPath
 			}
-		case strings.HasPrefix(line, "+++ "):
-			newPath := normalizePatchEffectDiffPath(strings.TrimPrefix(line, "+++ "))
+		case currentHunk == nil && strings.HasPrefix(line, "+++ "):
+			newPath := normalizePatchEffectDiffOperand(strings.TrimPrefix(line, "+++ "), "b/")
 			if newPath != "" {
 				current.Path = newPath
 			}
@@ -360,7 +368,7 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 			currentHunk = &hunk
 			currentOldLine = hunk.OldStart
 			currentNewLine = hunk.NewStart
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+		case currentHunk != nil && strings.HasPrefix(line, "+"):
 			text := strings.TrimPrefix(line, "+")
 			current.AddedLines++
 			if currentHunk != nil {
@@ -375,7 +383,7 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 			if currentNewLine > 0 {
 				currentNewLine++
 			}
-		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+		case currentHunk != nil && strings.HasPrefix(line, "-"):
 			text := strings.TrimPrefix(line, "-")
 			current.RemovedLines++
 			if currentHunk != nil {
@@ -389,7 +397,11 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 			if currentOldLine > 0 {
 				currentOldLine++
 			}
-		case strings.HasPrefix(line, " "):
+		case strings.HasPrefix(line, " ") ||
+			(line == "" && currentHunk != nil && patchEffectHunkExpectsMoreLines(*currentHunk, currentOldLine, currentNewLine)):
+			// A context line; with diff.suppressBlankEmpty=true git prints a
+			// blank context line as an empty string, which still occupies
+			// one old and one new line while the hunk is open.
 			if currentOldLine > 0 {
 				currentOldLine++
 			}
@@ -403,12 +415,69 @@ func PatchEffectRecordFromUnifiedDiff(planID, sliceID, source, baseRef, headRef,
 	return record
 }
 
+// patchEffectHunkExpectsMoreLines reports whether the hunk's declared old or
+// new line count has not been consumed yet.
+func patchEffectHunkExpectsMoreLines(hunk types.PatchEffectHunk, oldLine, newLine int) bool {
+	return (hunk.OldLines > 0 && oldLine < hunk.OldStart+hunk.OldLines) ||
+		(hunk.NewLines > 0 && newLine < hunk.NewStart+hunk.NewLines)
+}
+
 func parsePatchEffectDiffGitLine(line string) (string, string) {
-	parts := strings.Fields(strings.TrimSpace(line))
-	if len(parts) < 4 {
+	operands := splitPatchEffectDiffGitOperands(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "diff --git")))
+	if len(operands) != 2 {
 		return "", ""
 	}
-	return normalizePatchEffectDiffPath(parts[2]), normalizePatchEffectDiffPath(parts[3])
+	return normalizePatchEffectDiffOperand(operands[0], "a/"), normalizePatchEffectDiffOperand(operands[1], "b/")
+}
+
+// splitPatchEffectDiffGitOperands splits the two operands of a `diff --git`
+// line. Git C-quotes an operand containing spaces, non-ASCII bytes, tabs or
+// quotes, so a quoted operand is taken verbatim up to its closing quote.
+func splitPatchEffectDiffGitOperands(rest string) []string {
+	var out []string
+	rest = strings.TrimSpace(rest)
+	// Git does not quote spaces. When both operands are unquoted the line is
+	// `a/<p> b/<p>` with the same <p>, so the split point is fixed by the
+	// length (git's own symmetric rule).
+	if rest != "" && rest[0] != '"' && strings.Count(rest, " ") > 1 {
+		if n := (len(rest) - 5) / 2; (len(rest)-5)%2 == 0 && n > 0 && strings.HasPrefix(rest, "a/") &&
+			rest[2+n] == ' ' && strings.HasPrefix(rest[3+n:], "b/") && rest[2:2+n] == rest[5+n:] {
+			return []string{rest[:2+n], rest[3+n:]}
+		}
+	}
+	for rest != "" && len(out) < 2 {
+		if rest[0] == '"' {
+			end := 1
+			for end < len(rest) {
+				if rest[end] == '\\' {
+					end += 2
+					continue
+				}
+				if rest[end] == '"' {
+					break
+				}
+				end++
+			}
+			if end >= len(rest) {
+				return nil
+			}
+			out = append(out, rest[:end+1])
+			rest = strings.TrimSpace(rest[end+1:])
+			continue
+		}
+		space := strings.IndexByte(rest, ' ')
+		if space < 0 {
+			out = append(out, rest)
+			rest = ""
+			continue
+		}
+		out = append(out, rest[:space])
+		rest = strings.TrimSpace(rest[space+1:])
+	}
+	if rest != "" {
+		return nil
+	}
+	return out
 }
 
 func parsePatchEffectHunkHeader(line string) types.PatchEffectHunk {
@@ -487,15 +556,70 @@ func normalizePatchEffectFile(file *types.PatchEffectFile) {
 	}
 }
 
-func normalizePatchEffectDiffPath(raw string) string {
-	raw = strings.Trim(strings.TrimSpace(raw), `"`)
+// normalizePatchEffectDiffOperand decodes one diff path operand: git C-style
+// quoting is unquoted (octal escapes for non-ASCII bytes, \t \n \" \\), the
+// /dev/null placeholder is empty, and exactly ONE positional prefix ("a/"
+// for the old side, "b/" for the new side) is stripped — a repository
+// directory literally named "a" or "b" survives.
+func normalizePatchEffectDiffOperand(raw, prefix string) string {
+	raw = unquoteGitPath(strings.TrimSpace(raw))
 	switch raw {
 	case "", "/dev/null":
 		return ""
 	}
-	raw = strings.TrimPrefix(raw, "a/")
-	raw = strings.TrimPrefix(raw, "b/")
+	raw = strings.TrimPrefix(raw, prefix)
 	return normalizePatchEffectPath(raw)
+}
+
+// unquoteGitPath decodes git's core.quotePath C-style quoting. Unquoted
+// input is returned unchanged.
+func unquoteGitPath(raw string) string {
+	if len(raw) < 2 || raw[0] != '"' || raw[len(raw)-1] != '"' {
+		return raw
+	}
+	body := raw[1 : len(raw)-1]
+	var out []byte
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if c != '\\' || i+1 >= len(body) {
+			out = append(out, c)
+			continue
+		}
+		i++
+		switch e := body[i]; e {
+		case 'n':
+			out = append(out, '\n')
+		case 't':
+			out = append(out, '\t')
+		case 'r':
+			out = append(out, '\r')
+		case 'a':
+			out = append(out, 7)
+		case 'b':
+			out = append(out, 8)
+		case 'f':
+			out = append(out, 12)
+		case 'v':
+			out = append(out, 11)
+		case '\\', '"':
+			out = append(out, e)
+		default:
+			if e >= '0' && e <= '7' {
+				value := 0
+				digits := 0
+				for digits < 3 && i < len(body) && body[i] >= '0' && body[i] <= '7' {
+					value = value*8 + int(body[i]-'0')
+					i++
+					digits++
+				}
+				i--
+				out = append(out, byte(value))
+				continue
+			}
+			out = append(out, '\\', e)
+		}
+	}
+	return string(out)
 }
 
 func normalizePatchEffectPath(raw string) string {

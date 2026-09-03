@@ -3233,7 +3233,7 @@ func (o *Orchestrator) markActivePlanAppliedPendingVerify() {
 		plan.AppliedPaths = appliedPaths
 	}
 	if o.busCtx.WorktreePath != "" {
-		plan.WorktreePath = o.busCtx.WorktreePath
+		o.stampPlanWorktree(plan)
 	}
 	o.busCtx.Mutable.SetChangePlan(plan)
 	o.persistCurrentChangePlanSnapshot()
@@ -3251,7 +3251,7 @@ func (o *Orchestrator) persistPlanStatusWithApplied(status string, appliedAt *ti
 		if status == types.PlanStatusApplied &&
 			(o.keepWorktreeOnSuccess || o.skipVerify) &&
 			o.busCtx.WorktreePath != "" {
-			plan.WorktreePath = o.busCtx.WorktreePath
+			o.stampPlanWorktree(plan)
 		}
 		if appliedPaths != nil {
 			plan.AppliedPaths = appliedPaths
@@ -3315,7 +3315,7 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 		if status == types.PlanStatusApplied &&
 			(o.keepWorktreeOnSuccess || o.skipVerify) &&
 			o.busCtx.WorktreePath != "" {
-			plan.WorktreePath = o.busCtx.WorktreePath
+			o.stampPlanWorktree(plan)
 		}
 		o.busCtx.Mutable.SetChangePlan(plan)
 		o.persistCurrentChangePlanSnapshot()

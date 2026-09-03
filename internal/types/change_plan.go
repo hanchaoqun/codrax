@@ -501,6 +501,15 @@ type ChangePlan struct {
 	// /discard.
 	WorktreePath string `json:"worktree_path,omitempty"`
 
+	// WorktreeBaseSHA is the commit the write worktree was cut from — the
+	// analysis tree every evidence_ref line refers to — and
+	// WorktreeBaseDirtyPaths the tracked paths that were dirty in the main
+	// checkout at that moment. Lifecycle metadata (not part of
+	// PlanFingerprint), persisted so a preserved-worktree re-verify binds
+	// source witnesses to the same base instead of guessing (V5-1).
+	WorktreeBaseSHA        string   `json:"worktree_base_sha,omitempty"`
+	WorktreeBaseDirtyPaths []string `json:"worktree_base_dirty_paths,omitempty"`
+
 	// CreatedAt is the plan emission timestamp (wall clock).
 	// Serves as the tie-breaker when PlanStore.List sorts plans.
 	CreatedAt time.Time `json:"created_at"`
@@ -1295,6 +1304,11 @@ type VerificationConfidenceRecord struct {
 	ContractRefs      []string `json:"contract_refs,omitempty"`
 	ChangedSymbolRefs []string `json:"changed_symbol_refs,omitempty"`
 	Detail            string   `json:"detail,omitempty"`
+	// WitnessKind names the source of a satisfied observation (V5-1,
+	// write_behavior_contract_witness.go). Consumers admit a record for a
+	// contract only when the contract's kind accepts this witness kind;
+	// records persisted before stamping fall back to their category.
+	WitnessKind WriteBehaviorWitnessKind `json:"witness_kind,omitempty"`
 }
 
 // HasTargetExecutionCoverage reports whether this result contains at least

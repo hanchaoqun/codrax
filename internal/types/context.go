@@ -8189,6 +8189,22 @@ type BusContext struct {
 	// canonicalization discipline as RepoRoot (absolute path).
 	WorktreePath string `json:"worktree_path,omitempty"`
 
+	// WorktreeBaseSHA is the commit the write worktree was cut from — the
+	// tree the write analysis (and every evidence_ref line it emitted) was
+	// taken against. Stamped by the apply pre-hook at provisioning and by
+	// the verify pre-hook when a preserved worktree is reused; empty when
+	// unknown, in which case post-apply source-line witnesses stay
+	// unresolved instead of binding to a guessed base (V5-1).
+	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
+
+	// WorktreeBaseDirtyPaths lists the tracked paths (main-root relative)
+	// that carried uncommitted changes in the main checkout when the
+	// worktree was provisioned. The analysis read the main working tree,
+	// the worktree was cut from HEAD, so evidence_ref lines in these files
+	// were taken from a tree the worktree does not have: source-line
+	// witnesses on them stay unresolved (V5-1).
+	WorktreeBaseDirtyPaths []string `json:"worktree_base_dirty_paths,omitempty"`
+
 	// PlanPath is the absolute path of the ChangePlan JSON the
 	// apply/verify stages consume, supplied by --plan-file or the
 	// REPL /plan state. Empty in plan mode (the plan stage
@@ -8430,6 +8446,13 @@ type AgentContext struct {
 	// checkout during write-mode apply/replan/verify loops. Empty outside
 	// active write workflows.
 	WorktreePath string `json:"worktree_path,omitempty"`
+
+	// WorktreeBaseSHA / WorktreeBaseDirtyPaths mirror the BusContext fields
+	// so the run_tests dispatch (which rebuilds its BusContext from this
+	// AgentContext) can bind post-apply source witnesses to the analysis
+	// base (V5-1). Empty when unknown.
+	WorktreeBaseSHA        string   `json:"worktree_base_sha,omitempty"`
+	WorktreeBaseDirtyPaths []string `json:"worktree_base_dirty_paths,omitempty"`
 
 	// Multi-repo mirrors of BusContext fields — so agents that hold
 	// only an AgentContext (most do, post-AgentContextBuilder) can

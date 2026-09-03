@@ -204,11 +204,17 @@ func TestBuildVerificationProofLedgerResolvesExactProjectTestContractReceipt(t *
 	}
 }
 
+// EVOLUTION RECORD (V5-1, colleague_merge_audit §40.10, 2026-09-02): the
+// fixture contract was Kind observable — a runtime kind that a post-apply
+// source reading can no longer satisfy under the contract-kind → witness-kind
+// matrix. The exact source receipt is now pinned on file_layout, the only
+// kind that admits the source_text witness; the observable case is pinned
+// negatively in verification_proof_profile_witness_test.go.
 func TestBuildVerificationProofLedgerResolvesExactSourceContractReceipt(t *testing.T) {
 	plan := &ChangePlan{
 		ID: "plan-source-observation",
 		BehaviorContracts: []WriteBehaviorContract{{
-			ID: "return-line", Kind: WriteBehaviorObservable,
+			ID: "return-line", Kind: WriteBehaviorFileLayout,
 			Polarity: WriteBehaviorPolarityExpected, Operator: WriteBehaviorOpEquals,
 			Expected: "return buf;", EvidenceRef: "main.c:19", Required: true,
 		}},
@@ -223,7 +229,7 @@ func TestBuildVerificationProofLedgerResolvesExactSourceContractReceipt(t *testi
 		VerificationConfidence: []VerificationConfidenceRecord{{
 			Source: "post_apply_source_observation", Category: "source_contract_refs",
 			Status: "satisfied", ReasonCode: "post_apply_source_contract_observed",
-			ContractRefs: []string{"return-line"},
+			ContractRefs: []string{"return-line"}, WitnessKind: WriteBehaviorWitnessSourceText,
 		}},
 	}
 
