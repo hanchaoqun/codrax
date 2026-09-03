@@ -33,7 +33,16 @@ import (
 //     `types.ExecutedCommand{…}`, `&types.ExecutedCommand{…}`, the elided
 //     element literals of `[]types.ExecutedCommand{{…}}` / map values and of
 //     locals / fields typed as that slice — in function bodies AND in
-//     package-level var declarations (tables);
+//     package-level var declarations (tables). Fold-in round six: composite
+//     literal types are resolved through the package's own type
+//     declarations (named types, aliases), package-level FuncLits (IIFE
+//     tables, closure vars) are walked like any other body, and a literal
+//     that writes an `Outcome:` key under a type the census CANNOT resolve
+//     (a generic instantiation, an other-package named type) is a
+//     violation — unrecognized shapes are red by default instead of
+//     silently skipped. Package types itself must not export an
+//     alias/named form of ExecutedCommand (the cross-package recognizers
+//     key on the types.ExecutedCommand spelling);
 //   - every assignment whose LHS is `<x>.Outcome` or `<x>[i].Outcome` where
 //     <x> resolves, by the function's own declarations (params, var, :=,
 //     range over an ExecutedCommand slice, `.ExecutedCommands` / `.Commands`
@@ -167,19 +176,110 @@ type outcomeCensusFile struct {
 	// function / method by simple name (pre-pass), so `x := build()` can
 	// be classified as a declared receiver.
 	resultKinds map[string]outcomeLocalKind
+	// typeDecls maps the package's declared type names to their TypeSpecs
+	// (fold-in round six): named types, aliases and generic declarations
+	// are resolved instead of silently trusted.
+	typeDecls map[string]*ast.TypeSpec
+}
+
+// outcomeBuiltinTypeNames are the predeclared type names a bare identifier
+// may legitimately resolve to outside the package's own declarations.
+var outcomeBuiltinTypeNames = map[string]bool{
+	"bool": true, "byte": true, "complex64": true, "complex128": true,
+	"error": true, "float32": true, "float64": true, "int": true,
+	"int8": true, "int16": true, "int32": true, "int64": true, "rune": true,
+	"string": true, "uint": true, "uint8": true, "uint16": true,
+	"uint32": true, "uint64": true, "uintptr": true, "any": true,
+	"comparable": true,
 }
 
 func (file *outcomeCensusFile) kindOfTypeExpr(expr ast.Expr) outcomeLocalKind {
+	return file.kindOfTypeExprSeen(expr, map[string]bool{})
+}
+
+// kindOfTypeExprSeen classifies a type expression, resolving package-local
+// named types and aliases through typeDecls (fold-in round six). An
+// expression it cannot classify — an undeclared bare name (a type
+// parameter, a dot import), an other-package named type outside package
+// types, a generic instantiation — is outcomeLocalUnknown, which the
+// producer positions treat as a violation rather than a silent skip.
+func (file *outcomeCensusFile) kindOfTypeExprSeen(expr ast.Expr, seen map[string]bool) outcomeLocalKind {
 	switch {
 	case expr == nil:
 		return outcomeLocalUnknown
 	case isExecutedCommandType(expr, file.pkgName):
 		return outcomeLocalCommand
-	case isExecutedCommandSliceType(expr, file.pkgName):
-		return outcomeLocalCommandSlice
-	default:
+	}
+	switch v := expr.(type) {
+	case *ast.ArrayType:
+		if file.kindOfTypeExprSeen(v.Elt, seen) == outcomeLocalCommand {
+			return outcomeLocalCommandSlice
+		}
+		return outcomeLocalOther
+	case *ast.Ident:
+		if outcomeBuiltinTypeNames[v.Name] || seen[v.Name] {
+			return outcomeLocalOther
+		}
+		if ts, ok := file.typeDecls[v.Name]; ok {
+			if ts == nil {
+				return outcomeLocalUnknown // ambiguous duplicate declaration
+			}
+			seen[v.Name] = true
+			return file.kindOfTypeExprSeen(ts.Type, seen)
+		}
+		return outcomeLocalUnknown
+	case *ast.ParenExpr:
+		return file.kindOfTypeExprSeen(v.X, seen)
+	case *ast.StarExpr:
+		return file.kindOfTypeExprSeen(v.X, seen)
+	case *ast.SelectorExpr:
+		if pkg, ok := v.X.(*ast.Ident); ok && pkg.Name == "types" {
+			// A non-command types.X name. The types package is pinned to
+			// declare no alias/named form of ExecutedCommand (see
+			// analyseTypeDecls), so this is a recognized non-command type.
+			return outcomeLocalOther
+		}
+		return outcomeLocalUnknown
+	case *ast.StructType, *ast.InterfaceType, *ast.FuncType, *ast.ChanType, *ast.MapType:
 		return outcomeLocalOther
 	}
+	return outcomeLocalUnknown
+}
+
+// underlyingContainerType resolves expr through parentheses and
+// package-local named types to an array/slice or map type, or nil.
+func (file *outcomeCensusFile) underlyingContainerType(expr ast.Expr) ast.Expr {
+	seen := map[string]bool{}
+	for {
+		switch v := expr.(type) {
+		case *ast.ParenExpr:
+			expr = v.X
+		case *ast.Ident:
+			ts, ok := file.typeDecls[v.Name]
+			if !ok || ts == nil || seen[v.Name] {
+				return nil
+			}
+			seen[v.Name] = true
+			expr = ts.Type
+		case *ast.ArrayType, *ast.MapType:
+			return expr
+		default:
+			return nil
+		}
+	}
+}
+
+// elementTypeExpr is the type expression an elided element literal of a
+// literal typed expr assumes (the array element / map value), nil when expr
+// is not a container the census can resolve.
+func (file *outcomeCensusFile) elementTypeExpr(expr ast.Expr) ast.Expr {
+	switch v := file.underlyingContainerType(expr).(type) {
+	case *ast.ArrayType:
+		return v.Elt
+	case *ast.MapType:
+		return v.Value
+	}
+	return nil
 }
 
 // kindOfValue infers the census type of an expression from its shape.
@@ -332,11 +432,13 @@ func outcomeParamsInto(file *outcomeCensusFile, scope *outcomeCensusScope, param
 }
 
 // walkProducers collects producer positions (composite literals and .Outcome
-// writes) in node, not entering closures.
-func (file *outcomeCensusFile) walkProducers(fn *outcomeCensusFunc, node ast.Node, elemTyped bool, result *outcomeCensusResult) {
+// writes) in node, not entering closures. elemType is the type expression a
+// nil-typed (elided) composite literal at the top of node assumes, nil when
+// there is none.
+func (file *outcomeCensusFile) walkProducers(fn *outcomeCensusFunc, node ast.Node, elemType ast.Expr, result *outcomeCensusResult) {
 	fset := file.fset
-	var walk func(node ast.Node, elemTyped bool)
-	walk = func(node ast.Node, elemTyped bool) {
+	var walk func(node ast.Node, elemType ast.Expr)
+	walk = func(node ast.Node, elemType ast.Expr) {
 		ast.Inspect(node, func(n ast.Node) bool {
 			switch v := n.(type) {
 			case *ast.FuncLit:
@@ -382,38 +484,51 @@ func (file *outcomeCensusFile) walkProducers(fn *outcomeCensusFunc, node ast.Nod
 					}
 				}
 			case *ast.CompositeLit:
-				// A literal is a command when its type says so or when it is
-				// an elided element of a command slice / array / map value.
-				typed := isExecutedCommandType(v.Type, file.pkgName) || (v.Type == nil && elemTyped)
-				elemIsCommand := isExecutedCommandSliceType(v.Type, file.pkgName)
-				if m, ok := v.Type.(*ast.MapType); ok && isExecutedCommandType(m.Value, file.pkgName) {
-					elemIsCommand = true
+				// The literal's own type: explicit, or — for an elided
+				// element — the container's element type. It is resolved
+				// through the package's type declarations; a literal that
+				// writes an `Outcome:` key under a type the census cannot
+				// classify is a violation (fold-in round six), never a
+				// silent skip.
+				typeExpr := v.Type
+				if typeExpr == nil {
+					typeExpr = elemType
 				}
+				self := file.kindOfTypeExpr(typeExpr)
+				childElem := file.elementTypeExpr(typeExpr)
 				for _, elt := range v.Elts {
 					if kv, ok := elt.(*ast.KeyValueExpr); ok {
-						if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Outcome" && typed {
-							fn.producers = append(fn.producers, kv.Value)
-							result.producers++
+						if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Outcome" {
+							switch self {
+							case outcomeLocalCommand:
+								fn.producers = append(fn.producers, kv.Value)
+								result.producers++
+							case outcomeLocalOther:
+								// A recognized non-command literal (a
+								// diagnostic, a probe status, …).
+							default:
+								result.violate(fset, kv, "composite literal writes an Outcome key but its type cannot be resolved by the census (unrecognized shape — name the type resolvably or extend the census)")
+							}
 						}
 						if inner, ok := kv.Value.(*ast.CompositeLit); ok && inner.Type == nil {
-							walk(inner, elemIsCommand) // map value with elided type
+							walk(inner, childElem) // map value with elided type
 							continue
 						}
-						walk(kv.Value, false)
+						walk(kv.Value, nil)
 						continue
 					}
 					if inner, ok := elt.(*ast.CompositeLit); ok && inner.Type == nil {
-						walk(inner, elemIsCommand) // slice element with elided type
+						walk(inner, childElem) // slice element with elided type
 						continue
 					}
-					walk(elt, false)
+					walk(elt, nil)
 				}
 				return false
 			}
 			return true
 		})
 	}
-	walk(node, elemTyped)
+	walk(node, elemType)
 }
 
 // analyseBody collects producer positions, calls and returns of one body,
@@ -421,7 +536,7 @@ func (file *outcomeCensusFile) walkProducers(fn *outcomeCensusFunc, node ast.Nod
 func (file *outcomeCensusFile) analyseBody(fn *outcomeCensusFunc, result *outcomeCensusResult) {
 	file.collectScope(fn.body, fn.scope)
 	fn.calls = map[string][]*ast.CallExpr{}
-	file.walkProducers(fn, fn.body, false, result)
+	file.walkProducers(fn, fn.body, nil, result)
 	// Anonymous closures (not bound to a name) are analysed too: their
 	// producers resolve in their own inherited scope.
 	ast.Inspect(fn.body, func(n ast.Node) bool {
@@ -490,7 +605,11 @@ func (file *outcomeCensusFile) analyseFile(f *ast.File, result *outcomeCensusRes
 			}
 			// Package-level tables (fold-in round five, finding DD): the
 			// values are producer positions resolved in an empty scope, so
-			// only the constant selector itself is accepted.
+			// only the constant selector itself is accepted. Fold-in round
+			// six: a FuncLit in a package-level value (an IIFE table, a
+			// closure var, a hook field) is analysed as a closure of the
+			// pseudo-body — the round-five walker skipped every FuncLit, so
+			// an IIFE-built command table was invisible.
 			fn := &outcomeCensusFunc{name: "<package-level " + file.pkgName + ">", body: &ast.BlockStmt{},
 				scope: &outcomeCensusScope{locals: map[string]outcomeLocalKind{}, params: map[string]int{}, fnName: "<package-level>"}}
 			fn.calls = map[string][]*ast.CallExpr{}
@@ -499,18 +618,82 @@ func (file *outcomeCensusFile) analyseFile(f *ast.File, result *outcomeCensusRes
 				if !ok {
 					continue
 				}
-				elemTyped := isExecutedCommandType(vs.Type, file.pkgName)
-				for _, value := range vs.Values {
-					if lit, ok := value.(*ast.CompositeLit); ok && lit.Type == nil {
-						file.walkProducers(fn, lit, elemTyped, result)
+				for i, value := range vs.Values {
+					if lit, ok := value.(*ast.FuncLit); ok {
+						name := ""
+						if i < len(vs.Names) {
+							name = vs.Names[i].Name
+						}
+						file.analyseClosure(fn, name, lit, result)
 						continue
 					}
-					file.walkProducers(fn, value, false, result)
+					if lit, ok := value.(*ast.CompositeLit); ok && lit.Type == nil {
+						file.walkProducers(fn, lit, vs.Type, result)
+					} else {
+						file.walkProducers(fn, value, nil, result)
+					}
+					ast.Inspect(value, func(n ast.Node) bool {
+						if inner, ok := n.(*ast.FuncLit); ok {
+							file.analyseClosure(fn, "", inner, result)
+							return false
+						}
+						return true
+					})
 				}
 			}
 			if len(fn.producers) > 0 {
 				file.funcs = append(file.funcs, fn)
 			}
+		}
+	}
+}
+
+// analyseTypeDecls records the package's type declarations (fold-in round
+// six) and, for package types itself, rejects any alias/named form of the
+// command type — the cross-package recognizers key on the
+// types.ExecutedCommand spelling, so an exported alias would let another
+// package build command rows under a name no census resolves.
+func (file *outcomeCensusFile) analyseTypeDecls(files []*ast.File, result *outcomeCensusResult) {
+	file.typeDecls = map[string]*ast.TypeSpec{}
+	// Every TypeSpec of the package, package-level AND function-local (a
+	// struct type declared inside a function body is a legitimate receiver
+	// shape). Simple names are the key; when the same name is declared
+	// twice with different census kinds the entry becomes a nil sentinel,
+	// which kindOfTypeExpr treats as unresolvable (fail-loud, never a
+	// silent guess).
+	specs := map[string][]*ast.TypeSpec{}
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			if ts, ok := n.(*ast.TypeSpec); ok {
+				specs[ts.Name.Name] = append(specs[ts.Name.Name], ts)
+			}
+			return true
+		})
+	}
+	for name, list := range specs {
+		file.typeDecls[name] = list[0]
+	}
+	for name, list := range specs {
+		if len(list) < 2 {
+			continue
+		}
+		kind := file.kindOfTypeExpr(list[0].Type)
+		for _, ts := range list[1:] {
+			if file.kindOfTypeExpr(ts.Type) != kind {
+				file.typeDecls[name] = nil
+			}
+		}
+	}
+	if file.pkgName != "types" {
+		return
+	}
+	for name, ts := range file.typeDecls {
+		if name == "ExecutedCommand" || ts == nil {
+			continue
+		}
+		switch file.kindOfTypeExpr(ts.Type) {
+		case outcomeLocalCommand, outcomeLocalCommandSlice:
+			result.violate(file.fset, ts, "package types declares "+name+" as an alias/named form of ExecutedCommand — the cross-package censuses key on the types.ExecutedCommand spelling; do not alias the command type")
 		}
 	}
 }
@@ -815,6 +998,7 @@ func executedCommandOutcomeCensus(fset *token.FileSet, files []*ast.File, result
 		return
 	}
 	file := &outcomeCensusFile{fset: fset, pkgName: files[0].Name.Name, byName: map[string][]*outcomeCensusFunc{}}
+	file.analyseTypeDecls(files, result)
 	file.resultKindsPrePass(files)
 	for _, f := range files {
 		file.analyseFile(f, result)
@@ -1323,10 +1507,75 @@ type fixture struct{ Commands []types.ExecutedCommand }
 var fixtures = []fixture{{Commands: []types.ExecutedCommand{{Outcome: "cpu_limit"}}}}
 `, `literal "cpu_limit"`)
 
+	// Fold-in round six: the shapes the round-five walker silently SKIPPED
+	// are closed by the fail-loud default — a package-level FuncLit (IIFE
+	// table, closure var) is walked like any other body, and a composite
+	// literal that writes an Outcome key under a type the census cannot
+	// resolve (generic instantiation, other-package named type) is a
+	// violation instead of an invisible producer. Named types and aliases
+	// of the command type declared in the analysed package are resolved
+	// through the package's type declarations, and package types itself
+	// must not export an alias/named form of ExecutedCommand (the
+	// cross-package recognizers key on the types.ExecutedCommand spelling).
+	selfRedExpectViolation(t, "package_level_iife_table_literal", selfRedPrelude+`
+var iifeTable = func() []types.ExecutedCommand {
+	return []types.ExecutedCommand{{Outcome: "executed"}}
+}()
+`, `literal "executed"`)
+	selfRedExpectViolation(t, "package_level_closure_var_writes_literal", selfRedPrelude+`
+var fillOutcome = func(cmd *types.ExecutedCommand) { cmd.Outcome = "timeout" }
+`, `literal "timeout"`)
+	selfRedExpectViolation(t, "named_slice_type_table_literal", selfRedPrelude+`
+type commandRows []types.ExecutedCommand
+
+var namedTable = commandRows{{Outcome: "oom"}}
+`, `literal "oom"`)
+	selfRedExpectViolation(t, "alias_type_literal", selfRedPrelude+`
+type commandAlias = types.ExecutedCommand
+
+func producer() { _ = commandAlias{Outcome: "parser_error"} }
+`, `literal "parser_error"`)
+	selfRedExpectViolation(t, "generic_instantiation_literal_is_unresolvable", selfRedPrelude+`
+type commandList[T any] []T
+
+func producer() {
+	_ = commandList[types.ExecutedCommand]{{Outcome: types.ExecutedCommandOutcomeExecuted}}
+}
+`, "cannot be resolved by the census")
+	selfRedExpectViolation(t, "other_package_named_type_with_outcome_key", selfRedPrelude+`
+func producer() { _ = other.Rows{{Outcome: "zero_tests"}} }
+`, "cannot be resolved by the census")
+	t.Run("types_package_must_not_alias_the_command_type", func(t *testing.T) {
+		texts, _ := selfRedCensus(t, `package types
+
+type CmdRow = ExecutedCommand
+type CmdRows []ExecutedCommand
+`)
+		joined := strings.Join(texts, "\n")
+		if !strings.Contains(joined, "CmdRow") || !strings.Contains(joined, "CmdRows") ||
+			!strings.Contains(joined, "alias/named form of ExecutedCommand") {
+			t.Fatalf("violations = %v", texts)
+		}
+	})
+
 	t.Run("accepted_shapes_stay_green", func(t *testing.T) {
 		texts, writers := selfRedCensus(t, selfRedPrelude+`
 var packageTable = []types.ExecutedCommand{{Outcome: types.ExecutedCommandOutcomeNotConfigured}}
 var packageRow = types.ExecutedCommand{Outcome: types.ExecutedCommandOutcomeSuiteSkipped}
+
+// Fold-in round six recognized shapes: named types and aliases resolve
+// through the package's type declarations, IIFE tables are walked, and
+// non-command Outcome-bearing literals stay green.
+type namedRows []types.ExecutedCommand
+type rowAlias = types.ExecutedCommand
+
+var namedConstTable = namedRows{{Outcome: types.ExecutedCommandOutcomeSuiteContinued}}
+var aliasRow = rowAlias{Outcome: types.ExecutedCommandOutcomeExecuted}
+var iifeConstTable = func() []types.ExecutedCommand {
+	return []types.ExecutedCommand{{Outcome: types.ExecutedCommandOutcomeSyntheticNoTests}}
+}()
+var statusTable = []probeStatus{{Outcome: "passed"}}
+var diagTable = []types.VerificationDiagnostic{{Outcome: "not_an_executed_command_row"}}
 func classify(err error) (string, types.FailureKind) {
 	if err == nil {
 		return types.ExecutedCommandOutcomeExecuted, ""
@@ -1389,8 +1638,9 @@ func caller() { producer(nil, probeResult{}, probeStatus{}, types.ExecutedComman
 		want := []string{"ExecutedCommandOutcomeBaselineUnavailable", "ExecutedCommandOutcomeCPULimit", "ExecutedCommandOutcomeExecuted",
 			"ExecutedCommandOutcomeExpectedFailureObserved", "ExecutedCommandOutcomeExpectedStdoutMissing", "ExecutedCommandOutcomeNotConfigured",
 			"ExecutedCommandOutcomeOOM", "ExecutedCommandOutcomeParserError", "ExecutedCommandOutcomeProbeConfigError",
-			"ExecutedCommandOutcomeRunnerMissing", "ExecutedCommandOutcomeSuiteSkipped", "ExecutedCommandOutcomeSyntaxCheckFallback",
-			"ExecutedCommandOutcomeSyntaxPreflight", "ExecutedCommandOutcomeTimeout", "ExecutedCommandOutcomeZeroTests"}
+			"ExecutedCommandOutcomeRunnerMissing", "ExecutedCommandOutcomeSuiteContinued", "ExecutedCommandOutcomeSuiteSkipped",
+			"ExecutedCommandOutcomeSyntaxCheckFallback", "ExecutedCommandOutcomeSyntaxPreflight", "ExecutedCommandOutcomeSyntheticNoTests",
+			"ExecutedCommandOutcomeTimeout", "ExecutedCommandOutcomeZeroTests"}
 		if strings.Join(names, ",") != strings.Join(want, ",") {
 			t.Fatalf("recorded writers = %v, want %v", names, want)
 		}

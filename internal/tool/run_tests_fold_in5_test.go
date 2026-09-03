@@ -154,10 +154,14 @@ func TestRunTestsBaselineRowKeepsItsOwnReasonLaneWhenMainSnapshotLacksTheModule(
 	}
 }
 
-// The three baseline family codes are the only reason codes a baseline row
+// The baseline family codes are the only reason codes a baseline row
 // carries, whatever the inner probe reported; the classifiers read the
 // outcome switch first, so an out-of-lane ReasonCode on a member row cannot
 // re-route it (the inner reason is a typed detail, never the reason lane).
+// This table drives the probed lanes (three codes); the family's fourth
+// code, verification_probe_baseline_snapshot_unavailable, belongs to the
+// no-snapshot arm minted without an inner probe and is pinned by
+// run_tests_fold_in6_test.go (fold-in round six).
 func TestBaselineRowReasonLaneIsTheBaselineFamilyForEveryInnerProbeOutcome(t *testing.T) {
 	for _, tc := range []struct {
 		name          string

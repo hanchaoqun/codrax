@@ -73,10 +73,18 @@ const (
 	verificationProbeContinuationSourceDeclaredCoverage    = "declared_coverage_test_surface"
 	verificationProbeContinuationSourceProbeSuiteContinued = "probe_primary_suite_continued"
 	verificationProbeBaselineSource                        = "verification_probe_main_snapshot_baseline"
-	// The baseline row's OWN reason lane (fold-in round five, finding BB):
-	// one family code per baseline Outcome member, shared with the
-	// probe_baseline confidence lane. The inner probe's reason is the typed
-	// ExecutedCommand.BaselineProbeReasonCode detail, never ReasonCode.
+	// The baseline row's OWN reason lane (fold-in round five, finding BB;
+	// fold-in round six documents the full four-code family in one place):
+	// observed / not_observed / unavailable pair one-to-one with the
+	// baseline Outcome members, and snapshot_unavailable also rides the
+	// baseline_unavailable member — it marks the row minted WITHOUT running
+	// the inner probe because no main snapshot existed (MainRepoRoot unset,
+	// missing, or equal to the active worktree), so that row's
+	// BaselineProbeReasonCode stays empty. The inner probe's reason is the
+	// typed ExecutedCommand.BaselineProbeReasonCode detail, never
+	// ReasonCode. not_run is NOT a row code: it is the probe_baseline
+	// confidence lane's reason when a probe expected a baseline failure but
+	// no baseline row is attached at all.
 	verificationProbeBaselineObservedReasonCode            = "verification_probe_baseline_expected_failure_observed"
 	verificationProbeBaselineNotObservedReasonCode         = "verification_probe_baseline_expected_failure_not_observed"
 	verificationProbeBaselineUnavailableReasonCode         = "verification_probe_baseline_unavailable"
@@ -1717,6 +1725,10 @@ func runExpectedFailureVerificationProbeBaselines(ctx *types.BusContext, source 
 			id = "probe"
 		}
 		if !baselineAvailable {
+			// No main snapshot to probe: the row carries the fourth code of
+			// the baseline reason family, and BaselineProbeReasonCode stays
+			// empty — no inner probe ran, so there is no inner reason
+			// (fold-in round six; pinned by run_tests_fold_in6_test.go).
 			commands = append(commands, types.ExecutedCommand{
 				Runner:     "verification_probe",
 				Framework:  strings.TrimSpace(probe.Language),

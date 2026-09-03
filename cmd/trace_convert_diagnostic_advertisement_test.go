@@ -39,36 +39,44 @@ const typedLineAdvertisementMapName = "traceConvertDiagnosticTypedLineAdvertisem
 // literal in the file that is not part of the advertisement map itself.
 func typedErrorLineLabelsIn(fset *token.FileSet, file *ast.File) map[string]string {
 	labels := map[string]string{}
+	collect := func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		value, err := strconv.Unquote(lit.Value)
+		if err != nil || !strings.HasPrefix(value, "typed_error_") {
+			return true
+		}
+		if _, seen := labels[value]; !seen {
+			labels[value] = fset.Position(lit.Pos()).String()
+		}
+		return true
+	}
 	for _, decl := range file.Decls {
 		if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.VAR {
-			isMap := false
+			// The exemption covers ONLY the advertisement map's own
+			// ValueSpec (fold-in round six) — every sibling spec of a
+			// grouped var block is still a producer position.
 			for _, spec := range gen.Specs {
-				if vs, ok := spec.(*ast.ValueSpec); ok {
-					for _, name := range vs.Names {
-						if name.Name == typedLineAdvertisementMapName {
-							isMap = true
-						}
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				isMap := false
+				for _, name := range vs.Names {
+					if name.Name == typedLineAdvertisementMapName {
+						isMap = true
 					}
 				}
+				if isMap {
+					continue
+				}
+				ast.Inspect(vs, collect)
 			}
-			if isMap {
-				continue
-			}
+			continue
 		}
-		ast.Inspect(decl, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			value, err := strconv.Unquote(lit.Value)
-			if err != nil || !strings.HasPrefix(value, "typed_error_") {
-				return true
-			}
-			if _, seen := labels[value]; !seen {
-				labels[value] = fset.Position(lit.Pos()).String()
-			}
-			return true
-		})
+		ast.Inspect(decl, collect)
 	}
 	return labels
 }
@@ -193,13 +201,21 @@ func TestTraceConvertDiagnosticTypedLinesAreAdvertisedCapabilities(t *testing.T)
 // roster is red.
 func TestTraceConvertDiagnosticTypedLineCensusSelfRed(t *testing.T) {
 	fset := token.NewFileSet()
+	// Fold-in round six: the advertisement-map exemption covers ONLY the
+	// map's own ValueSpec — a typed_error_ literal declared in the SAME var
+	// block is still a producer (the round-five census exempted the whole
+	// GenDecl, so a label riding in the map's var block escaped).
 	file, err := parser.ParseFile(fset, "probe.go", `package cmd
 
-var traceConvertDiagnosticTypedLineAdvertisements = map[string]string{
-	"typed_error_only_in_map": "entry_v1",
-}
+var (
+	typedErrorSharedBlock                         = "typed_error_shared_block_witness"
+	traceConvertDiagnosticTypedLineAdvertisements = map[string]string{
+		"typed_error_only_in_map": "entry_v1",
+	}
+)
 
 func probe(lines *traceConvertDiagnosticLineSet) {
+	lines.Add(traceConvertDiagnosticJSONLine(typedErrorSharedBlock, nil))
 	lines.Add(traceConvertDiagnosticJSONLine("typed_error_future_witness", map[string]any{"x": 1}))
 	lines.Add(fmt.Sprintf("%s=%d", "typed_error_future_scalar", 1))
 	lines.Add(traceConvertDiagnosticJSONLine("typed_error_known", nil))
@@ -226,6 +242,9 @@ func probeOther(lines *traceConvertDiagnosticLineSet) {
 	produced := typedErrorLineLabelsInFiles(fset, []*ast.File{file, otherFile})
 	if _, leaked := produced["typed_error_only_in_map"]; leaked {
 		t.Fatalf("map keys are not producers: %v", produced)
+	}
+	if _, ok := produced["typed_error_shared_block_witness"]; !ok {
+		t.Fatalf("self-red: a typed_error_ literal declared in the advertisement map's var block escaped the census: %v", produced)
 	}
 	for _, label := range []string{"typed_error_second_file_witness", "typed_error_routed_from_elsewhere"} {
 		if _, ok := produced[label]; !ok {

@@ -313,6 +313,10 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, helpers m
 	poisoned := map[string]string{} // identifiers reassigned from something else
 	toolResultLocals := map[string]bool{}
 	summaryFieldWritten := map[string]bool{} // locals with a compliant .Summary = write
+	// `_ = types.ToolResult{…}` discards (fold-in round six): a decoy
+	// literal is never a Summary sink — the sink floor must be satisfied on
+	// the returned value path.
+	decoyLiterals := map[*ast.CompositeLit]bool{}
 	var literals []*ast.CompositeLit
 	var bareCalls []*ast.CallExpr
 	var discarded []*ast.CallExpr // `_ =` bindings (fold-in round five, EE(ii))
@@ -357,6 +361,9 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, helpers m
 					rhs = v.Rhs[i]
 				}
 				if rhs != nil {
+					if lit, ok := rhs.(*ast.CompositeLit); ok && isToolResultType(lit.Type) && ident.Name == "_" {
+						decoyLiterals[lit] = true
+					}
 					if call, ok := isCallTo(rhs, "installFinishedReport"); ok && (v.Tok == token.DEFINE || v.Tok == token.ASSIGN) {
 						callsChoke = true
 						if ident.Name == "_" {
@@ -424,6 +431,10 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, helpers m
 		return true, ""
 	}
 	for _, lit := range literals {
+		if decoyLiterals[lit] {
+			result.violate(fset, lit, "discarded types.ToolResult literal (`_ =` binding) is not a Summary sink — the choke-point summary must reach the returned result")
+			continue
+		}
 		var summary ast.Expr
 		for _, elt := range lit.Elts {
 			kv, ok := elt.(*ast.KeyValueExpr)
@@ -482,7 +493,7 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, helpers m
 				}
 			case *ast.CallExpr:
 				callee := calleeIdent(v)
-				if callee == nil || callee.Name == "installFinishedReport" {
+				if callee != nil && callee.Name == "installFinishedReport" {
 					continue
 				}
 				boundArg := -1
@@ -492,6 +503,14 @@ func installChokePointBodies(fset *token.FileSet, body *ast.BlockStmt, helpers m
 					}
 				}
 				if boundArg < 0 {
+					continue
+				}
+				// Fold-in round six: a selector or method callee receiving
+				// the bound summary was exempt (nil callee → continue), so a
+				// method-receiver helper could drop the audit sentence.
+				// Unrecognized callee shapes are red by default.
+				if callee == nil {
+					result.violate(fset, v, "returned call with a selector or method callee receives the choke-point summary — unrecognized shape: rewrite the helper as a package-level function or extend the census")
 					continue
 				}
 				fd, ok := helpers[callee.Name]
@@ -705,6 +724,26 @@ func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *type
 	return otherPackageBuild(summary)
 }
 `, "cannot be resolved in this package")
+	// Fold-in round six: a returned call with a selector/method callee that
+	// receives the bound summary was exempt (calleeIdent nil → continue),
+	// and a discarded decoy literal (`_ = types.ToolResult{Summary: s}`)
+	// satisfied the sink floor while the real exit dropped the sentence.
+	// Both halves of that escape are red by default now.
+	const methodHelperDecoySrc = chokePointPrelude + `
+type resultBuilder struct{}
+
+func (b resultBuilder) build(summary string) types.ToolResult { return types.ToolResult{Summary: "rebuilt elsewhere"} }
+func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {` + chokePointDefinition + `
+	summary := installFinishedReport(report, base)
+	_ = types.ToolResult{Summary: summary}
+	b := resultBuilder{}
+	return b.build(summary)
+}
+`
+	expect("method_receiver_helper_return_is_unrecognized", methodHelperDecoySrc, "selector or method callee")
+	expect("discarded_decoy_literal_is_not_a_sink", methodHelperDecoySrc, "discarded types.ToolResult literal")
+	expect("decoy_does_not_satisfy_the_sink_floor", methodHelperDecoySrc, "never reaches a returned types.ToolResult.Summary")
+
 	t.Run("round_five_accepted_shapes_stay_green", func(t *testing.T) {
 		texts := chokePointSelfRed(t, chokePointPrelude+`
 func buildResult(prefix, summary string) types.ToolResult { return types.ToolResult{Summary: summary, Success: true} }
@@ -735,7 +774,14 @@ func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *type
 		}
 	})
 	t.Run("bound_shapes_stay_green", func(t *testing.T) {
+		// EVOLUTION RECORD (fold-in round six): the closure in this fixture
+		// used to bind the choke-point summary and discard a
+		// `_ = types.ToolResult{Summary: summary}` literal — exactly the
+		// decoy shape the round-six default rejects. The closure now
+		// returns the literal, so the bound summary reaches a returned
+		// Summary in every body.
 		texts := chokePointSelfRed(t, chokePointPrelude+`
+func consume(result types.ToolResult) {}
 func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *types.ChangeReport, base string) types.ToolResult {`+chokePointDefinition+`
 	if base == "" {
 		return types.ToolResult{Summary: installFinishedReport(report, "x")}
@@ -744,10 +790,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, dryRunProbe bool, report *type
 	if report != nil {
 		summary += "\nProbe output"
 	}
-	go func() {
+	consume(func() types.ToolResult {
 		summary := installFinishedReport(report, "closure")
-		_ = types.ToolResult{Summary: summary}
-	}()
+		return types.ToolResult{Summary: summary}
+	}())
 	return types.ToolResult{Summary: summary}
 }
 func unrelated() types.ToolResult { return types.ToolResult{Summary: "no report installed here"} }

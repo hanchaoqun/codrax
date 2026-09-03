@@ -36,7 +36,17 @@ import (
 // whose tag is a call to a same-package helper whose body returns
 // `.Outcome`, and a map lookup indexed by `.Outcome` (the map's keys are
 // its case list — resolved from the map composite literal, red when the
-// map cannot be resolved). Domains:
+// map cannot be resolved). Fold-in round six: `.Outcome` taint propagates
+// through local assignments (`o := cmd.Outcome; switch o` / `rank[o]` is
+// an Outcome consumer whatever the local is called), the scan root is the
+// repository root plus internal/ and cmd/ (matching the producer census —
+// internal/agent already consumes cmd.Outcome), and plain if-chain
+// equality comparisons of `.Outcome` (or a tainted local) against a
+// non-empty string literal are findings too: a member literal is red
+// everywhere outside the other domain, and in the command domain an
+// out-of-set literal is red as well. Comparisons against `""` (the unset
+// zero value), against member constants, or against non-literal
+// expressions do not create a finding on their own. Domains:
 //   - command: ExecutedCommand.Outcome — total enumeration required;
 //   - diagnostic: VerificationDiagnostic.Outcome, which carries the command
 //     label for command-derived diagnostics and probe status words
@@ -60,34 +70,90 @@ type outcomeSwitchRegistration struct {
 }
 
 var registeredOutcomeSwitches = []outcomeSwitchRegistration{
-	{dir: ".", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
-	{dir: ".", file: "change_plan.go", fn: "executedCommandFailed"},
-	{dir: ".", file: "verification_proof_profile.go", fn: "verificationProofCommandUnavailableReasonCode"},
-	{dir: ".", file: "verification_proof_profile.go", fn: "verificationProofCommandClass"},
-	{dir: "../tool", file: "run_tests.go", fn: "failureKindFromExecutedCommand"},
-	{dir: "../tool", file: "run_tests.go", fn: "verificationDiagnosticClass"},
-	{dir: "../tool", file: "run_tests.go", fn: "verificationProbeBaselineCommandCounts"},
-	{dir: "../tool", file: "run_tests.go", fn: "verificationConfidenceFromCommand"},
-	{dir: "../tool", file: "run_tests.go", fn: "makeResourceExhaustionReport"},
+	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandUnavailableReasonCode"},
+	{dir: "internal/types", file: "change_plan.go", fn: "executedCommandFailed"},
+	{dir: "internal/types", file: "verification_proof_profile.go", fn: "verificationProofCommandUnavailableReasonCode"},
+	{dir: "internal/types", file: "verification_proof_profile.go", fn: "verificationProofCommandClass"},
+	{dir: "internal/tool", file: "run_tests.go", fn: "failureKindFromExecutedCommand"},
+	{dir: "internal/tool", file: "run_tests.go", fn: "verificationDiagnosticClass"},
+	{dir: "internal/tool", file: "run_tests.go", fn: "verificationProbeBaselineCommandCounts"},
+	{dir: "internal/tool", file: "run_tests.go", fn: "verificationConfidenceFromCommand"},
+	{dir: "internal/tool", file: "run_tests.go", fn: "makeResourceExhaustionReport"},
 	// Fold-in round five, finding FF: found by the tagless-switch shape
 	// detector and rewritten as an explicit member switch.
-	{dir: "../tool", file: "run_tests_changed_path_coverage.go", fn: "changedPathCoverageFromCommands"},
-	{dir: "../tool", file: "run_tests_verification_probe.go", fn: "runPlanVerificationProbes"},
-	{dir: "../orchestrator", file: "write_controller_scheduler.go", fn: "verifyCoverageCommandCoversPath"},
-	{dir: "../orchestrator", file: "write_verify_render.go", fn: "reportUntriedRunnableCandidate"},
-	{dir: "../writeflow", file: "no_change_replan.go", fn: "verifyFailureDiagnosticUnavailableReasonCode", domain: outcomeDomainDiagnostic},
-	{dir: "../writeflow", file: "no_change_replan.go", fn: "verifyFailureDiagnosticLooksFailed", domain: outcomeDomainDiagnostic},
+	{dir: "internal/tool", file: "run_tests_changed_path_coverage.go", fn: "changedPathCoverageFromCommands"},
+	{dir: "internal/tool", file: "run_tests_verification_probe.go", fn: "runPlanVerificationProbes"},
+	{dir: "internal/orchestrator", file: "write_controller_scheduler.go", fn: "verifyCoverageCommandCoversPath"},
+	{dir: "internal/orchestrator", file: "write_verify_render.go", fn: "reportUntriedRunnableCandidate"},
+	{dir: "internal/writeflow", file: "no_change_replan.go", fn: "verifyFailureDiagnosticUnavailableReasonCode", domain: outcomeDomainDiagnostic},
+	{dir: "internal/writeflow", file: "no_change_replan.go", fn: "verifyFailureDiagnosticLooksFailed", domain: outcomeDomainDiagnostic},
 	// Probe status envelope words (passed / assertion_failed / import_error …).
-	{dir: "../tool", file: "run_tests_verification_probe.go", fn: "runPythonVerificationProbe", domain: outcomeDomainOther},
-	{dir: "../tool", file: "run_tests_verification_probe.go", fn: "runExternalVerificationProbe", domain: outcomeDomainOther},
-	{dir: "../tool", file: "run_tests_verification_probe.go", fn: "inlineVerificationProbeReasonCode", domain: outcomeDomainOther},
-	{dir: "../tool", file: "run_tests_verification_probe.go", fn: "pythonVerificationProbeReasonCode", domain: outcomeDomainOther},
-	{dir: "../tool", file: "run_tests_verification_probe.go", fn: "pythonVerificationProbeImportDiagnostics", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_verification_probe.go", fn: "runPythonVerificationProbe", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_verification_probe.go", fn: "runExternalVerificationProbe", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_verification_probe.go", fn: "inlineVerificationProbeReasonCode", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_verification_probe.go", fn: "pythonVerificationProbeReasonCode", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_verification_probe.go", fn: "pythonVerificationProbeImportDiagnostics", domain: outcomeDomainOther},
 	// Controller apply-transition outcome (writeControllerApplyTransition*).
-	{dir: "../orchestrator", file: "write_controller_scheduler.go", fn: "runWriteControllerWorkflow", domain: outcomeDomainOther},
+	{dir: "internal/orchestrator", file: "write_controller_scheduler.go", fn: "runWriteControllerWorkflow", domain: outcomeDomainOther},
+	// Fold-in round six: consumers surfaced by the repo-wide scan, the
+	// taint lane and the comparison lane — each inspected and none a
+	// hidden command consumer.
+	// The diagnostic dedup key joins diag.Outcome into a composite string;
+	// the seen[key] lookups are Outcome-tainted map lookups.
+	{dir: "internal/tool", file: "run_tests.go", fn: "mergeVerificationDiagnostics", domain: outcomeDomainDiagnostic},
+	// Pytest case outcome words (passed / skipped / PASSED / XFAIL …).
+	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestJSONReport", domain: outcomeDomainOther},
+	{dir: "internal/tool", file: "run_tests_parsers.go", fn: "parsePytestTextCaseRows", domain: outcomeDomainOther},
+	// Hint-injection evaluation outcome (OutcomeInjectHint …).
+	{dir: "internal/agent", file: "agent.go", fn: "Execute", domain: outcomeDomainOther},
+	// Answer-document patch outcome metadata words.
+	{dir: "internal/agent", file: "answer_document_evaluator.go", fn: "answerDocPatchCapabilityHintKey", domain: outcomeDomainOther},
+	// profilerPluginOutcome enum (an int-typed frame-outcome lane whose
+	// receiver / range locals are named outcome).
+	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "label", domain: outcomeDomainOther},
+	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "observeAcceptedContext", domain: outcomeDomainOther},
+	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "materialize", domain: outcomeDomainOther},
+	{dir: "internal/hitraceconv", file: "profiler_container_diagnostics.go", fn: "profilerPluginBucketSkippedSummary", domain: outcomeDomainOther},
+	// Proof-ledger stable item IDs embed cmd.Outcome; the target lookup is
+	// an Outcome-tainted map read, not an outcome decision.
+	{dir: "internal/types", file: "verification_proof_profile.go", fn: "resolveSuccessfulRunnerMissingEscalations", domain: outcomeDomainOther},
+	// Behavior-contract expected-outcome strings (range local named outcome).
+	{dir: "internal/types", file: "write_behavior_contract.go", fn: "normalizeWriteBehaviorContractsReserving", domain: outcomeDomainOther},
 }
 
-var outcomeConsumerDirs = []string{".", "../tool", "../orchestrator", "../writeflow"}
+// outcomeConsumerScanDirs walks the same scan root as the producer census
+// (fold-in round six): the repository root's own files, internal/ and cmd/
+// recursively — keyed by the repo-root-relative label the registry uses.
+// eval/ holds fixture repos with deliberately broken Go and is never
+// scanned; testdata and dot directories are skipped.
+func outcomeConsumerScanDirs(t *testing.T) map[string]string {
+	t.Helper()
+	root := filepath.Join("..", "..")
+	dirs := map[string]string{".": root}
+	for _, sub := range []string{"internal", "cmd"} {
+		err := filepath.WalkDir(filepath.Join(root, sub), func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
+				return nil
+			}
+			if name := d.Name(); name == "testdata" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			dirs[filepath.ToSlash(rel)] = path
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dirs
+}
 
 const outcomeConsumerConstPrefix = "ExecutedCommandOutcome"
 
@@ -151,39 +217,110 @@ func outcomeMemberName(expr ast.Expr) (string, bool) {
 }
 
 // outcomeSwitchTagMentionsOutcome reports whether a switch tag reads the
-// Outcome field (directly, through strings.TrimSpace, or through a local
-// named outcome / kind).
-func outcomeSwitchTagMentionsOutcome(tag ast.Expr) bool {
+// Outcome field (directly, through strings.TrimSpace, through a local
+// named outcome, or — fold-in round six — through any Outcome-tainted
+// local, whatever its name).
+func outcomeSwitchTagMentionsOutcome(tag ast.Expr, tainted map[string]bool) bool {
 	switch v := tag.(type) {
 	case nil:
 		return false
 	case *ast.SelectorExpr:
 		return v.Sel.Name == "Outcome"
 	case *ast.Ident:
-		return v.Name == "outcome"
+		return v.Name == "outcome" || tainted[v.Name]
 	case *ast.CallExpr:
 		for _, arg := range v.Args {
-			if outcomeSwitchTagMentionsOutcome(arg) {
+			if outcomeSwitchTagMentionsOutcome(arg, tainted) {
 				return true
 			}
 		}
 	case *ast.ParenExpr:
-		return outcomeSwitchTagMentionsOutcome(v.X)
+		return outcomeSwitchTagMentionsOutcome(v.X, tainted)
 	}
 	return false
+}
+
+// outcomeExprReadsOutcome reports whether any part of expr reads `.Outcome`
+// or an Outcome-tainted local (the taint feeder test).
+func outcomeExprReadsOutcome(expr ast.Expr, tainted map[string]bool) bool {
+	found := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.SelectorExpr:
+			if v.Sel.Name == "Outcome" {
+				found = true
+			}
+		case *ast.Ident:
+			if v.Name == "outcome" || tainted[v.Name] {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// outcomeTaintedLocals computes, to a fixpoint, the locals of one body fed
+// (transitively) from an `.Outcome` read through plain assignments or var
+// declarations (fold-in round six): `o := cmd.Outcome; switch o` and
+// `rank[o]` are Outcome consumers whatever the local is called.
+func outcomeTaintedLocals(body *ast.BlockStmt) map[string]bool {
+	tainted := map[string]bool{}
+	for i := 0; i < 32; i++ {
+		changed := false
+		mark := func(name string, feeder ast.Expr) {
+			if name == "_" || tainted[name] || !outcomeExprReadsOutcome(feeder, tainted) {
+				return
+			}
+			tainted[name] = true
+			changed = true
+		}
+		ast.Inspect(body, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.AssignStmt:
+				if len(v.Lhs) != len(v.Rhs) {
+					return true
+				}
+				for i, lhs := range v.Lhs {
+					if ident, ok := lhs.(*ast.Ident); ok {
+						mark(ident.Name, v.Rhs[i])
+					}
+				}
+			case *ast.ValueSpec:
+				for i, name := range v.Names {
+					if i < len(v.Values) {
+						mark(name.Name, v.Values[i])
+					}
+				}
+			}
+			return true
+		})
+		if !changed {
+			return tainted
+		}
+	}
+	return tainted
 }
 
 type outcomeSwitchFinding struct {
 	dir, file, fn string
 	pos           string
-	members       map[string]bool
-	violations    []string
+	// comparison marks an if-chain equality finding (fold-in round six):
+	// registration and the literal rules apply, totality does not — an
+	// if-chain is not required to enumerate the members.
+	comparison bool
+	members    map[string]bool
+	violations []string
+	// outOfSet lists comparisons against non-member, non-empty literals;
+	// they are violations only in the command domain (the diagnostic and
+	// probe-status lanes legitimately compare against their own words).
+	outOfSet []string
 }
 
 // outcomeTagHelperReturnsOutcome reports whether tag is a call to a
 // same-scan helper whose body returns an expression reading `.Outcome`
 // (fold-in round five, finding FF: a helper-call tag is an Outcome switch).
-func outcomeTagHelperReturnsOutcome(tag ast.Expr, helpers map[string]*ast.FuncDecl) bool {
+func outcomeTagHelperReturnsOutcome(tag ast.Expr, helpers map[string]*ast.FuncDecl, helperTaint func(*ast.FuncDecl) map[string]bool) bool {
 	call, ok := tag.(*ast.CallExpr)
 	if !ok {
 		return false
@@ -199,11 +336,12 @@ func outcomeTagHelperReturnsOutcome(tag ast.Expr, helpers map[string]*ast.FuncDe
 	if !ok || fd.Body == nil {
 		return false
 	}
+	tainted := helperTaint(fd)
 	returnsOutcome := false
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
 		if ret, ok := n.(*ast.ReturnStmt); ok {
 			for _, res := range ret.Results {
-				if outcomeSwitchTagMentionsOutcome(res) {
+				if outcomeSwitchTagMentionsOutcome(res, tainted) {
 					returnsOutcome = true
 				}
 			}
@@ -216,18 +354,18 @@ func outcomeTagHelperReturnsOutcome(tag ast.Expr, helpers map[string]*ast.FuncDe
 // outcomeCaseExprComparisons walks one tagless-switch case expression and
 // yields the comparison partners of every `.Outcome` == / != operand
 // (fold-in round five, finding FF).
-func outcomeCaseExprComparisons(expr ast.Expr, visit func(partner ast.Expr)) bool {
+func outcomeCaseExprComparisons(expr ast.Expr, tainted map[string]bool, visit func(partner ast.Expr)) bool {
 	found := false
 	ast.Inspect(expr, func(n ast.Node) bool {
 		bin, ok := n.(*ast.BinaryExpr)
 		if !ok || (bin.Op != token.EQL && bin.Op != token.NEQ) {
 			return true
 		}
-		if outcomeSwitchTagMentionsOutcome(bin.X) {
+		if outcomeSwitchTagMentionsOutcome(bin.X, tainted) {
 			found = true
 			visit(bin.Y)
 		}
-		if outcomeSwitchTagMentionsOutcome(bin.Y) {
+		if outcomeSwitchTagMentionsOutcome(bin.Y, tainted) {
 			found = true
 			visit(bin.X)
 		}
@@ -252,6 +390,15 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 				helpers[fd.Name.Name] = fd
 			}
 		}
+	}
+	taintCache := map[*ast.FuncDecl]map[string]bool{}
+	taintOf := func(fd *ast.FuncDecl) map[string]bool {
+		if cached, ok := taintCache[fd]; ok {
+			return cached
+		}
+		tainted := outcomeTaintedLocals(fd.Body)
+		taintCache[fd] = tainted
+		return tainted
 	}
 	// classify records a member constant, a member-valued string literal
 	// (violation), or nothing, for one case/key/comparison expression.
@@ -300,6 +447,7 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 			if !ok || fd.Body == nil {
 				continue
 			}
+			tainted := taintOf(fd)
 			localMaps := map[string]*ast.CompositeLit{}
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				if assign, ok := n.(*ast.AssignStmt); ok && len(assign.Lhs) == len(assign.Rhs) {
@@ -321,17 +469,17 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 				switch v := n.(type) {
 				case *ast.SwitchStmt:
 					finding := outcomeSwitchFinding{dir: dir, file: fileName, fn: fd.Name.Name, pos: fset.Position(v.Pos()).String(), members: map[string]bool{}}
-					isOutcome := outcomeSwitchTagMentionsOutcome(v.Tag)
+					isOutcome := outcomeSwitchTagMentionsOutcome(v.Tag, tainted)
 					// Init-statement tag: `switch o := cmd.Outcome; o`.
 					if init, ok := v.Init.(*ast.AssignStmt); ok {
 						for _, rhs := range init.Rhs {
-							if outcomeSwitchTagMentionsOutcome(rhs) {
+							if outcomeSwitchTagMentionsOutcome(rhs, tainted) {
 								isOutcome = true
 							}
 						}
 					}
 					// Helper-call tag returning the outcome.
-					if outcomeTagHelperReturnsOutcome(v.Tag, helpers) {
+					if outcomeTagHelperReturnsOutcome(v.Tag, helpers, taintOf) {
 						isOutcome = true
 					}
 					var literals []string
@@ -346,7 +494,7 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 								// expressions; comparisons with `.Outcome`
 								// make it an Outcome switch and their
 								// partners are the case labels.
-								if outcomeCaseExprComparisons(expr, func(partner ast.Expr) {
+								if outcomeCaseExprComparisons(expr, tainted, func(partner ast.Expr) {
 									classify(&finding, partner, &literals)
 								}) {
 									isOutcome = true
@@ -367,7 +515,7 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 				case *ast.IndexExpr:
 					// Map lookup keyed by the outcome (fold-in round five,
 					// finding FF): the map's keys are the case list.
-					if !outcomeSwitchTagMentionsOutcome(v.Index) {
+					if !outcomeSwitchTagMentionsOutcome(v.Index, tainted) {
 						return true
 					}
 					finding := outcomeSwitchFinding{dir: dir, file: fileName, fn: fd.Name.Name, pos: fset.Position(v.Pos()).String(), members: map[string]bool{}}
@@ -399,6 +547,75 @@ func outcomeSwitchesIn(fset *token.FileSet, dir string, files map[string]*ast.Fi
 				}
 				return true
 			})
+			// Plain if-chain comparisons (fold-in round six): equality of
+			// `.Outcome` (or a tainted local) with a non-empty string
+			// literal is a finding — one per function, registration and the
+			// literal rules apply, totality does not. Comparisons already
+			// routed through a tagless switch's case list are skipped here.
+			handled := map[*ast.BinaryExpr]bool{}
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				sw, ok := n.(*ast.SwitchStmt)
+				if !ok || sw.Tag != nil {
+					return true
+				}
+				for _, stmt := range sw.Body.List {
+					clause, ok := stmt.(*ast.CaseClause)
+					if !ok {
+						continue
+					}
+					for _, expr := range clause.List {
+						ast.Inspect(expr, func(m ast.Node) bool {
+							if bin, ok := m.(*ast.BinaryExpr); ok {
+								handled[bin] = true
+							}
+							return true
+						})
+					}
+				}
+				return true
+			})
+			comp := outcomeSwitchFinding{dir: dir, file: fileName, fn: fd.Name.Name, comparison: true, members: map[string]bool{}}
+			compFound := false
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				bin, ok := n.(*ast.BinaryExpr)
+				if !ok || (bin.Op != token.EQL && bin.Op != token.NEQ) || handled[bin] {
+					return true
+				}
+				var partners []ast.Expr
+				if outcomeSwitchTagMentionsOutcome(bin.X, tainted) {
+					partners = append(partners, bin.Y)
+				}
+				if outcomeSwitchTagMentionsOutcome(bin.Y, tainted) {
+					partners = append(partners, bin.X)
+				}
+				for _, partner := range partners {
+					if name, ok := outcomeMemberName(partner); ok {
+						comp.members[name] = true
+						continue
+					}
+					lit, ok := partner.(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err != nil || value == "" {
+						continue // "" is the unset zero value
+					}
+					if comp.pos == "" {
+						comp.pos = fset.Position(bin.Pos()).String()
+					}
+					compFound = true
+					if name, member := byValue[value]; member {
+						comp.violations = append(comp.violations, "member "+name+" spelled as the literal "+lit.Value+" at "+fset.Position(lit.Pos()).String())
+					} else {
+						comp.outOfSet = append(comp.outOfSet, "comparison of ExecutedCommand.Outcome with the out-of-set literal "+lit.Value+" at "+fset.Position(lit.Pos()).String()+" (members must use the typed constants; out-of-set command labels do not exist)")
+					}
+				}
+				return true
+			})
+			if compFound {
+				out = append(out, comp)
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].pos < out[j].pos })
@@ -423,9 +640,6 @@ func parseOutcomeConsumerDir(t *testing.T, dir string) (*token.FileSet, map[stri
 		}
 		files[e.Name()] = file
 	}
-	if len(files) == 0 {
-		t.Fatalf("no non-test files in %s", dir)
-	}
 	return fset, files
 }
 
@@ -443,7 +657,11 @@ func outcomeCensusCheck(findings []outcomeSwitchFinding, registry []outcomeSwitc
 			}
 		}
 		if idx < 0 {
-			problems = append(problems, f.pos+": switch over ExecutedCommand.Outcome in "+key+" is not registered in the consumer census")
+			kind := "switch over"
+			if f.comparison {
+				kind = "comparison of"
+			}
+			problems = append(problems, f.pos+": "+kind+" ExecutedCommand.Outcome in "+key+" is not registered in the consumer census")
 			continue
 		}
 		matched[idx] = true
@@ -454,6 +672,14 @@ func outcomeCensusCheck(findings []outcomeSwitchFinding, registry []outcomeSwitc
 			problems = append(problems, f.pos+": "+v)
 		}
 		if registry[idx].domain == outcomeDomainDiagnostic {
+			continue
+		}
+		// Out-of-set literal comparisons are red only in the command domain
+		// (fold-in round six); an if-chain finding has no totality duty.
+		for _, v := range f.outOfSet {
+			problems = append(problems, f.pos+": "+v)
+		}
+		if f.comparison {
 			continue
 		}
 		var missing []string
@@ -495,9 +721,21 @@ func TestEveryExecutedCommandOutcomeConsumerSwitchEnumeratesTheClosedSet(t *test
 		}
 	}
 	var findings []outcomeSwitchFinding
-	for _, dir := range outcomeConsumerDirs {
-		fset, files := parseOutcomeConsumerDir(t, dir)
-		findings = append(findings, outcomeSwitchesIn(fset, dir, files, members)...)
+	scanDirs := outcomeConsumerScanDirs(t)
+	if len(scanDirs) < 20 {
+		t.Fatalf("consumer census scanned only %d directories; the scan root must cover internal/ and cmd/", len(scanDirs))
+	}
+	var labels []string
+	for label := range scanDirs {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
+		fset, files := parseOutcomeConsumerDir(t, scanDirs[label])
+		if len(files) == 0 {
+			continue
+		}
+		findings = append(findings, outcomeSwitchesIn(fset, label, files, members)...)
 	}
 	if len(findings) < len(registeredOutcomeSwitches) {
 		t.Fatalf("found %d Outcome switches, fewer than the %d registered", len(findings), len(registeredOutcomeSwitches))
@@ -781,6 +1019,100 @@ func unresolvable(cmd types.ExecutedCommand, rank map[string]int) int { return r
 			}
 		}
 	})
+	// Fold-in round six: the two-statement rename (`o := cmd.Outcome` and a
+	// later `switch o` / `rank[o]`) is recognized by taint propagation
+	// through local assignments, and plain if-chain equality comparisons of
+	// `.Outcome` (or an Outcome-tainted local) against string literals are
+	// detected anywhere in the tree — a member literal is red (constants
+	// required) and, in the command domain, an out-of-set literal is red
+	// too. `""` (the unset zero value) stays exempt.
+	t.Run("two_statement_rename_switch_is_detected", func(t *testing.T) {
+		fset, files := parse(`package x
+func stranger(cmd types.ExecutedCommand) bool {
+	o := cmd.Outcome
+	switch o {
+	case "executed":
+		return true
+	}
+	return false
+}
+`)
+		problems := outcomeCensusCheck(outcomeSwitchesIn(fset, "x", files, members), nil, members)
+		if !strings.Contains(strings.Join(problems, "\n"), "x/probe.go:stranger is not registered") {
+			t.Fatalf("problems = %v", problems)
+		}
+	})
+	t.Run("two_statement_rename_map_lookup_is_detected", func(t *testing.T) {
+		fset, files := parse(`package x
+func stranger(cmd types.ExecutedCommand) int {
+	o := cmd.Outcome
+	rank := map[string]int{"timeout": 2}
+	return rank[o]
+}
+`)
+		problems := outcomeCensusCheck(outcomeSwitchesIn(fset, "x", files, members), nil, members)
+		if !strings.Contains(strings.Join(problems, "\n"), "x/probe.go:stranger is not registered") {
+			t.Fatalf("problems = %v", problems)
+		}
+	})
+	t.Run("if_chain_member_literal_comparison_is_red", func(t *testing.T) {
+		fset, files := parse(`package x
+func compare(cmd types.ExecutedCommand) bool {
+	if cmd.Outcome == "executed" {
+		return true
+	}
+	return false
+}
+`)
+		reg := []outcomeSwitchRegistration{{dir: "x", file: "probe.go", fn: "compare"}}
+		problems := outcomeCensusCheck(outcomeSwitchesIn(fset, "x", files, members), reg, members)
+		if !strings.Contains(strings.Join(problems, "\n"), `member ExecutedCommandOutcomeExecuted spelled as the literal "executed"`) {
+			t.Fatalf("problems = %v", problems)
+		}
+	})
+	t.Run("if_chain_tainted_local_out_of_set_literal_is_red", func(t *testing.T) {
+		fset, files := parse(`package x
+func compare(cmd types.ExecutedCommand) bool {
+	o := cmd.Outcome
+	if o != types.ExecutedCommandOutcomeExecuted && o == "wibble" {
+		return true
+	}
+	return false
+}
+`)
+		reg := []outcomeSwitchRegistration{{dir: "x", file: "probe.go", fn: "compare"}}
+		problems := outcomeCensusCheck(outcomeSwitchesIn(fset, "x", files, members), reg, members)
+		if !strings.Contains(strings.Join(problems, "\n"), `out-of-set literal "wibble"`) {
+			t.Fatalf("problems = %v", problems)
+		}
+	})
+	t.Run("empty_string_and_non_literal_comparisons_stay_green", func(t *testing.T) {
+		fset, files := parse(`package x
+func compare(cmd types.ExecutedCommand, label string) bool {
+	return cmd.Outcome != "" && cmd.Outcome == label
+}
+`)
+		if problems := outcomeCensusCheck(outcomeSwitchesIn(fset, "x", files, members), nil, members); len(problems) != 0 {
+			t.Fatalf("problems = %v", problems)
+		}
+	})
+	t.Run("diagnostic_domain_comparison_word_stays_green_member_literal_red", func(t *testing.T) {
+		fset, files := parse(`package x
+func looksPassed(diag types.VerificationDiagnostic) bool {
+	if diag.Outcome == "passed" {
+		return true
+	}
+	return diag.Outcome == "executed"
+}
+`)
+		reg := []outcomeSwitchRegistration{{dir: "x", file: "probe.go", fn: "looksPassed", domain: outcomeDomainDiagnostic}}
+		problems := outcomeCensusCheck(outcomeSwitchesIn(fset, "x", files, members), reg, members)
+		joined := strings.Join(problems, "\n")
+		if strings.Contains(joined, `"passed"`) || !strings.Contains(joined, `member ExecutedCommandOutcomeExecuted spelled as the literal "executed"`) {
+			t.Fatalf("problems = %v", problems)
+		}
+	})
+
 	t.Run("total_switch_naming_every_member_is_green", func(t *testing.T) {
 		fset, files := parse(`package x
 func total(cmd types.ExecutedCommand) bool {

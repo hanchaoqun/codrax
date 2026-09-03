@@ -142,11 +142,17 @@ type ExecutedCommand struct {
 	// coarse outcome needs more precise handoff evidence. It is populated
 	// from runner/parser structured signals, never from model prose. A
 	// main-snapshot baseline row (the three baseline Outcome members)
-	// carries ONLY its baseline family code here
-	// (verification_probe_baseline_expected_failure_observed |
+	// carries ONLY a code of the FOUR-member baseline family here —
+	// verification_probe_baseline_expected_failure_observed |
 	// verification_probe_baseline_expected_failure_not_observed |
-	// verification_probe_baseline_unavailable); the inner probe's reason
-	// lives in BaselineProbeReasonCode (fold-in round five, finding BB).
+	// verification_probe_baseline_unavailable (the inner probe ran on the
+	// snapshot but produced no typed verdict) |
+	// verification_probe_baseline_snapshot_unavailable (no main snapshot
+	// existed to probe, fold-in round six — the last two both ride the
+	// baseline_unavailable Outcome member). The family constants are
+	// single-sourced in one const block of internal/tool/run_tests.go; the
+	// inner probe's reason lives in BaselineProbeReasonCode (fold-in round
+	// five, finding BB).
 	ReasonCode string `json:"reason_code,omitempty"`
 
 	// BaselineProbeReasonCode (fold-in round five, finding BB; append-only)
@@ -156,7 +162,9 @@ type ExecutedCommand struct {
 	// …). It is a detail for the probe_baseline confidence lane only: it is
 	// never read by the unavailable-reason, failed-command, failure-kind or
 	// diagnostic classifiers, which read Outcome first. Empty on every
-	// non-baseline row.
+	// non-baseline row, and empty on a snapshot-unavailable baseline row
+	// too — when no snapshot existed no inner probe ran, so there is no
+	// inner reason to record (fold-in round six).
 	BaselineProbeReasonCode string `json:"baseline_probe_reason_code,omitempty"`
 }
 
