@@ -399,6 +399,12 @@ type MutableState struct {
 	traceFindingV1       *TraceFindingV1
 	traceFindingContract *TraceFindingContract
 	traceRootCauseReport *TraceRootCauseReportV2
+	// pendingTraceRootCauseReport (§40.31.1 ★16): a VALID selector that rode a
+	// full emit / patch rejected for answer-structure reasons. The model's last
+	// explicit selection is not lost — a later accepted emit that omits the
+	// selector inherits it (omission ≠ withdrawal; the contract is frozen per
+	// run). Cleared whenever a report is stored or the dispatch resets.
+	pendingTraceRootCauseReport *TraceRootCauseReportV2
 
 	// finalizerTypedRelationRecipeAvailable is a dispatch-scoped producer
 	// receipt: the finalizer prompt compiler sets it only when the exact prompt
@@ -3822,6 +3828,28 @@ func (m *MutableState) SetTraceRootCauseReport(report *TraceRootCauseReportV2) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.traceRootCauseReport = cloneTraceRootCauseReportV2(report)
+	m.pendingTraceRootCauseReport = nil
+}
+
+// SetPendingTraceRootCauseReport stages a validly bound selector whose
+// carrying emit was rejected for answer-structure reasons (§40.31.1 ★16).
+func (m *MutableState) SetPendingTraceRootCauseReport(report *TraceRootCauseReportV2) {
+	if m == nil || report == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingTraceRootCauseReport = cloneTraceRootCauseReportV2(report)
+}
+
+// PendingTraceRootCauseReport returns the staged selection, if any.
+func (m *MutableState) PendingTraceRootCauseReport() *TraceRootCauseReportV2 {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneTraceRootCauseReportV2(m.pendingTraceRootCauseReport)
 }
 
 // SetTraceFindingContract enables typed finding output for a batch child run.
@@ -4056,6 +4084,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.traceFindingV1 = nil
 	m.traceFindingContract = nil
 	m.traceRootCauseReport = nil
+	m.pendingTraceRootCauseReport = nil
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -4082,6 +4111,7 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.answerDocumentV2 = nil
 	m.traceFindingV1 = nil
 	m.traceRootCauseReport = nil
+	m.pendingTraceRootCauseReport = nil
 	m.lastEmitFromPatch = false
 }
 

@@ -93,6 +93,8 @@ compatibility posture as the `next_info` tail-append ruling):
 `status=available` on the default artifact remains a DELIVERY status (a valid
 model selection was persisted), never a causal-proof assertion.
 
+- 2026-09-02 QUALGATE-1(colleague_merge_audit §40.30 V-QUAL-1 方案 A):`causal_qualifier` 闭集追加第三值 `not_applicable`——analyzer typed 判定 `runtime_question_profile.frame_causality_requested=false`(非帧/卡帧类问题)时,席位级提供者关门,两面均不作帧因果声明(头行无限定注,sidecar 显式 `not_applicable`,summary 无后缀,合同顶棚 `not_applicable` 不封顶 status);append-only,`schema_version` 仍为 2。
+
 ## 5. Verification obligations
 
 - candidate compiler: exact on-chain admission; background/adjacent negative arms;

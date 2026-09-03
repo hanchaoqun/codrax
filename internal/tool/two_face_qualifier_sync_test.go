@@ -64,9 +64,17 @@ func twoFaceResults(t *testing.T, idx *tracequery.Index, specs []twoFaceResultSp
 // twoFaceVerdicts returns (crown headline frame-unproven?, sidecar qualifier
 // of the crowned seat) built from ONE ledger input.
 func twoFaceVerdicts(t *testing.T, results []types.ToolResult) (bool, string, string) {
+	return twoFaceVerdictsGated(t, results, true)
+}
+
+// twoFaceVerdictsGated builds both faces from ONE ledger input whose typed
+// RequestModel carries the analyzer's frame decision (QUALGATE-1).
+func twoFaceVerdictsGated(t *testing.T, results []types.ToolResult, frameQuestion bool) (bool, string, string) {
 	t.Helper()
-	input := types.ObservationLedgerInput{ToolResults: results}
-	index := tracefinding.BuildSeatFrameCausalityIndex(input)
+	input := types.ObservationLedgerInput{ToolResults: results,
+		RequestModel: &types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: frameQuestion}}}
+	index := tracefinding.BuildSeatFrameCausalityAuthority(input)
 	ledger := types.CompileObservationLedger(input)
 	set := types.CompileTraceCausalProjectionSet(ledger)
 	if len(set.Projections) != 1 {
@@ -137,5 +145,12 @@ func TestTwoFacesShareOneSeatLevelFrameQualifier(t *testing.T) {
 	crown, sidecar, subject = twoFaceVerdicts(t, twoFaceResults(t, idx, []twoFaceResultSpec{rank, emptyBundle}))
 	if crown || sidecar != types.TraceCausalQualifierProven {
 		t.Fatalf("a zero-row probe must not taint the seat %q (crown=%v sidecar=%q)", subject, crown, sidecar)
+	}
+	// QUALGATE-1 (§40.30 V-QUAL-1 plan A): not a frame question ⇒ even with
+	// the absent-frame evaluator present, neither face makes a frame claim —
+	// no headline qualifier, sidecar not_applicable (never proven).
+	crown, sidecar, subject = twoFaceVerdictsGated(t, twoFaceResults(t, idx, []twoFaceResultSpec{rank, bundle}), false)
+	if crown || sidecar != types.TraceCausalQualifierNotApplicable {
+		t.Fatalf("gate closed: both faces must make no frame claim for %q (crown=%v sidecar=%q)", subject, crown, sidecar)
 	}
 }

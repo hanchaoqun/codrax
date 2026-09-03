@@ -56,7 +56,7 @@ func TestTraceQueryEvidenceAuthorityKeepsTemporalFrameEdgesUnproven(t *testing.T
 }
 
 func TestTraceCausalCoveragePublishesTemporalFrameEdgeCeiling(t *testing.T) {
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
@@ -99,7 +99,7 @@ func TestTraceCausalCoverageDoesNotSumRepeatedFrameViewEdgeCounts(t *testing.T) 
 			CausalConclusion:           "unproven",
 		}
 	}
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{
 		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_timeline", 1)},
 		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_flow", 1)},
 		{ToolName: "trace_query", Success: true, TraceEvidenceAuthority: authority("frame_timeline", 3)},
@@ -117,7 +117,7 @@ func TestTraceCausalCoverageDoesNotSumRepeatedFrameViewEdgeCounts(t *testing.T) 
 }
 
 func TestTraceCausalCoverageBlockPublishesAuthorityCeiling(t *testing.T) {
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
@@ -147,7 +147,7 @@ func TestTraceCausalCoverageBlockPublishesAuthorityCeiling(t *testing.T) {
 }
 
 func TestTraceCausalCoverageLocalRefinementDoesNotOverridePublishedCausalRows(t *testing.T) {
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
 		Refinement: &types.ToolRefinementHint{
@@ -160,7 +160,7 @@ func TestTraceCausalCoverageLocalRefinementDoesNotOverridePublishedCausalRows(t 
 }
 
 func TestTraceCausalCoverageFrameUnprovenKeepsTypedChainAndBackgroundAuthoritySeparate(t *testing.T) {
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{{
 		ToolName: "trace_query",
 		Success:  true,
 		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{

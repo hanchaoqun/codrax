@@ -2,6 +2,7 @@ package tracefinding
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -29,8 +30,8 @@ func sidecarQualifierSet(effectiveA bool) types.TraceCausalProjectionSet {
 
 func TestSidecarQualifierIsSeatLevelAndAlwaysExplicit(t *testing.T) {
 	// Only seat A's evidence carries the frame-unproven authority.
-	index := SeatFrameCausalityIndex{"E-A": true}
-	contract, err := CompileCandidateContract(types.ObservationLedger{}, sidecarQualifierSet(true), index)
+	authority := SeatFrameCausalityAuthority{Applicable: true, Index: SeatFrameCausalityIndex{"E-A": true}}
+	contract, err := CompileCandidateContract(types.ObservationLedger{}, sidecarQualifierSet(true), authority)
 	if err != nil || len(contract.Candidates) != 2 {
 		t.Fatalf("compile: %v %+v", err, contract)
 	}
@@ -77,8 +78,8 @@ func TestSidecarQualifierIsSeatLevelAndAlwaysExplicit(t *testing.T) {
 }
 
 func TestSidecarQualifierEmptyIndexMeansProven(t *testing.T) {
-	// No authority ⇒ no qualifier claim; still explicit on the wire.
-	contract, err := CompileCandidateContract(types.ObservationLedger{}, sidecarQualifierSet(true), nil)
+	// Gate open, no frame-unproven authority on any seat ⇒ explicit proven.
+	contract, err := CompileCandidateContract(types.ObservationLedger{}, sidecarQualifierSet(true), SeatFrameCausalityAuthority{Applicable: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +90,73 @@ func TestSidecarQualifierEmptyIndexMeansProven(t *testing.T) {
 	}
 	if contract.CausalCeiling != types.TraceCausalQualifierProven {
 		t.Fatalf("derived ceiling must be proven: %q", contract.CausalCeiling)
+	}
+}
+
+// QUALGATE-1 (§40.30 V-QUAL-1 plan A): gate closed ⇒ every candidate and the
+// contract ceiling say not_applicable — never proven — and the wire stays
+// explicit with a bare summary; a not_applicable seat may still carry status
+// proven (frame causality is orthogonal to on-chain causality explicitness).
+func TestSidecarQualifierGateClosedIsNotApplicable(t *testing.T) {
+	contract, err := CompileCandidateContract(types.ObservationLedger{}, sidecarQualifierSet(true), SeatFrameCausalityAuthority{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range contract.Candidates {
+		if c.Decision.CausalQualifier != types.TraceCausalQualifierNotApplicable {
+			t.Fatalf("gate closed must yield not_applicable, never proven: %+v", c.Decision)
+		}
+	}
+	if contract.CausalCeiling != types.TraceCausalQualifierNotApplicable {
+		t.Fatalf("derived ceiling must be not_applicable: %q", contract.CausalCeiling)
+	}
+	contract.RootCauseReportEnabled = true
+	report, err := BindRootCauseReportSelection(&types.TraceRootCauseReportV2{SchemaVersion: 2,
+		RootCauses: []*types.TraceRootCauseItemV2{{CandidateID: contract.Candidates[0].Decision.CandidateID}}}, contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(report)
+	if !strings.Contains(string(raw), `"causal_qualifier":"not_applicable"`) || strings.Contains(string(raw), "帧因果未证") {
+		t.Fatalf("not_applicable must be explicit on the wire with a bare summary:\n%s", raw)
+	}
+}
+
+// The gate reads ONLY the analyzer's typed frame decision on the ledger
+// input's RequestModel: absent profile ⇒ closed (fail-closed), false ⇒ closed,
+// true ⇒ open with the seat-level index behind it.
+func TestBuildSeatFrameCausalityAuthorityGatesOnTypedRequestProfile(t *testing.T) {
+	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{
+		{ToolName: "trace_query", Success: true,
+			TraceEvidenceAuthority: &types.TraceEvidenceAuthority{TypedCausalRowCount: 3, FrameEvidenceStatus: "absent"},
+			Observations:           []types.ObservationRecord{{ID: "E-A", Origin: types.AnswerEvidenceOriginRuntimeArtifact}}},
+	}}
+	if a := BuildSeatFrameCausalityAuthority(input); a.Applicable || a.SeatQualifier("E-A") != types.TraceCausalQualifierNotApplicable || a.SeatFrameUnproven("E-A") {
+		t.Fatalf("no typed profile ⇒ gate closed: %+v", a)
+	}
+	input.RequestModel = &types.RequestModel{RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: false}}
+	if a := BuildSeatFrameCausalityAuthority(input); a.Applicable || a.SeatQualifier("E-A") != types.TraceCausalQualifierNotApplicable {
+		t.Fatalf("frame_causality_requested=false ⇒ gate closed: %+v", a)
+	}
+	input.RequestModel.RuntimeQuestionProfile.FrameCausalityRequested = true
+	a := BuildSeatFrameCausalityAuthority(input)
+	if !a.Applicable || a.SeatQualifier("E-A") != types.TraceCausalQualifierFrameUnproven || !a.SeatFrameUnproven("E-A") ||
+		a.SeatQualifier("E-Z") != types.TraceCausalQualifierProven {
+		t.Fatalf("frame_causality_requested=true ⇒ gate open with the seat-level index: %+v", a)
+	}
+}
+
+// The gate must never regress onto the keyword lane: the provider reads no
+// request text, keyword list, or scenario label.
+func TestSeatAuthorityProviderReadsNoKeywordLane(t *testing.T) {
+	src, err := os.ReadFile("seat_authority.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"AnalyzerHints", "Keywords", "Entities", "RawRequest", ".Scenario", "strings.Contains(strings.ToLower"} {
+		if strings.Contains(string(src), forbidden) {
+			t.Fatalf("seat_authority.go must not read the keyword/scenario lane (%q found)", forbidden)
+		}
 	}
 }
 

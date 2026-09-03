@@ -3240,6 +3240,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			)
 			if persistErr == nil && res.Success && rootCauses != nil {
 				ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+			} else if rootCauses != nil && len(strings.TrimSpace(string(p.ReplaceTraceRootCauses))) > 0 {
+				ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses) // §40.31.1 ★16
 			}
 			return res, persistErr
 		}
@@ -3258,6 +3260,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		)
 		if persistErr == nil && res.Success && rootCauses != nil {
 			ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+		} else if rootCauses != nil && len(strings.TrimSpace(string(p.ReplaceTraceRootCauses))) > 0 {
+			ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses) // §40.31.1 ★16
 		}
 		return res, persistErr
 	}
@@ -3265,6 +3269,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	res, persistErr := ApplyAndPersistMutationWithFinding(ctx, t.Name(), mutation, prev, finding, now)
 	if persistErr == nil && res.Success && rootCauses != nil {
 		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+	} else if rootCauses != nil && len(strings.TrimSpace(string(p.ReplaceTraceRootCauses))) > 0 {
+		ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses) // §40.31.1 ★16
 	}
 	return res, persistErr
 }

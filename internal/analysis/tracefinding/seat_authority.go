@@ -144,6 +144,46 @@ func BuildSeatFrameCausalityIndex(input types.ObservationLedgerInput) SeatFrameC
 	return out
 }
 
+// SeatFrameCausalityAuthority (QUALGATE-1, user ruling §40.30 V-QUAL-1 plan A,
+// 2026-09-02) is THE provider both public faces call: the typed request gate
+// (types.FrameCausalityQualifierApplicable — the analyzer's
+// frame_causality_requested decision, nothing else) wrapped around the
+// seat-level index. Gate closed ⇒ Applicable=false, empty index, and every
+// seat's qualifier is not_applicable (NOT proven — the old "empty index ⇒
+// proven" reading is exactly the over-claim the ruling retires); gate open ⇒
+// the index decides proven vs frame_unproven per seat.
+type SeatFrameCausalityAuthority struct {
+	Applicable bool
+	Index      SeatFrameCausalityIndex
+}
+
+// BuildSeatFrameCausalityAuthority reads the gate from the ledger input's
+// typed RequestModel (both adapters populate it from the same AnalysisIR) and
+// builds the index only when the gate is open.
+func BuildSeatFrameCausalityAuthority(input types.ObservationLedgerInput) SeatFrameCausalityAuthority {
+	if !types.FrameCausalityQualifierApplicable(input.RequestModel) {
+		return SeatFrameCausalityAuthority{}
+	}
+	return SeatFrameCausalityAuthority{Applicable: true, Index: BuildSeatFrameCausalityIndex(input)}
+}
+
+// SeatQualifier resolves one seat's closed-set qualifier from its evidence IDs.
+func (a SeatFrameCausalityAuthority) SeatQualifier(evidenceIDs ...string) string {
+	if !a.Applicable {
+		return types.TraceCausalQualifierNotApplicable
+	}
+	if a.Index.SeatFrameUnproven(evidenceIDs...) {
+		return types.TraceCausalQualifierFrameUnproven
+	}
+	return types.TraceCausalQualifierProven
+}
+
+// SeatFrameUnproven is the crown-face predicate: true only when the gate is
+// open AND the seat's own evidence carries the frame-unproven authority.
+func (a SeatFrameCausalityAuthority) SeatFrameUnproven(evidenceIDs ...string) bool {
+	return a.Applicable && a.Index.SeatFrameUnproven(evidenceIDs...)
+}
+
 // SeatFrameUnproven reports whether any of the seat's evidence IDs carries the
 // frame-unproven authority. Empty index ⇒ false (no authority, no qualifier).
 func (idx SeatFrameCausalityIndex) SeatFrameUnproven(evidenceIDs ...string) bool {

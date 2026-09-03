@@ -1684,3 +1684,22 @@ func TestTraceSupplementDisclosureFlagsZeroValueObservationViews(t *testing.T) {
 		t.Fatalf("en zero-count clause missing: %q", en)
 	}
 }
+
+// QUALGATE-1 (§40.30): the analyzer's typed frame decision arms the frame
+// evaluator even when the keyword family misses (a frame question whose
+// keywords carry no vsync-family term).
+func TestTraceSupplementTypedFrameDecisionArmsFrameBundleWithoutKeywords(t *testing.T) {
+	ctx := suppCoreContext(t)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords = []string{"渲染", "deadline"}
+	if traceSupplementVsyncFamilyHit(ctx) {
+		t.Fatal("fixture premise: the keyword family must not fire")
+	}
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile = &types.RuntimeQuestionProfile{
+		Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: true, Confidence: 0.9,
+	}
+	suppCoreModelCall(t, ctx, `{"view":"event_search","time_start":3.0,"time_end":3.2}`)
+	out := RunTraceQuerySystemSupplement(ctx)
+	if len(out.Executed) == 0 || out.Executed[0] != "frame_root_cause_bundle" {
+		t.Fatalf("typed frame decision must run the frame bundle first: %+v", out)
+	}
+}

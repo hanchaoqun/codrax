@@ -308,6 +308,7 @@ type emitRuntimeTargetProfileParam struct {
 type emitRuntimeQuestionProfileParam struct {
 	Scope                        string   `json:"scope"`
 	RuntimeWorkRelationRequested *bool    `json:"runtime_work_relation_requested"`
+	FrameCausalityRequested      *bool    `json:"frame_causality_requested"`
 	FactFamilies                 []string `json:"fact_families,omitempty"`
 	SourceQuote                  string   `json:"source_quote,omitempty"`
 	Confidence                   *float64 `json:"confidence"`
@@ -767,12 +768,13 @@ func buildEmitAnalysisSchema() {
 				"properties": map[string]any{
 					"scope":                           map[string]any{"type": "string", "enum": runtimeQuestionScopeValues(), "description": "not_applicable, bounded_fact_set, bounded_effect_verdict, causal_diagnosis, relation_analysis, system_overview, or unspecified."},
 					"runtime_work_relation_requested": map[string]any{"type": "boolean", "description": "Required semantic subquestion decision. True only when the CURRENT runtime-artifact request independently asks whether measured or to-be-discovered runtime work/span/operation items relate to a target/outcome, including work identity, measured cost, exact relation credential, and causal boundary. This activates a model-owned answer obligation even when no separate presentation-dimension row is emitted; it never pre-decides related/unrelated/unproven. False outside runtime artifacts or when no such subquestion is requested. Never infer it from exploration or answer prose."},
+					"frame_causality_requested":       map[string]any{"type": "boolean", "description": "Required typed decision. True only when the CURRENT runtime-artifact request asks about a rendering frame / dropped or delayed frame / frame window / vsync / render-deadline outcome for the target; false for generic stutter, latency, wait, IO, lock, GC, or scheduling questions that name no frame or render deadline (bare stutter/卡顿 alone is not a frame question), and false outside runtime artifacts. Decision procedure: if the request text names a frame as the diagnosed thing — 帧窗口 / 这一帧 / 丢帧 / 掉帧 / 跳帧 / 卡帧 / 帧率 / vsync / 'frame window' / 'dropped frame' / 'frame deadline' / 'jank of a frame' — set true even when 卡顿 also appears (例: '这一帧窗口内的丢帧根因' → true; '帧窗口内的卡顿原因' → true); if it names only a symptom or a plain time window without any frame word (例: '这个短窗口卡顿原因' / '为什么 runnable 这么久' / 'IO 等待原因') → false. Downstream publishes a frame-causality qualifier only when this is true; it never pre-decides whether frame causality is proven and is never derived from exploration or answer prose."},
 					"fact_families":                   map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "enum": runtimeQuestionFactFamilyValues()}, "description": "Principal observed fact families requested by bounded_fact_set or bounded_effect_verdict. Required and non-empty for both finite scopes; forbidden for broader scopes. " + skill.AnalysisRuntimeFactFamilyTeaching},
 					"source_quote":                    map[string]any{"type": "string", "description": "Optional audit anchor for a concrete runtime scope. Prefer the shortest contiguous exact current-request phrase that expresses the requested facts, diagnosis, relation, or overview (for example, copy `卡顿原因`, not a paraphrase assembled from separated words). An empty or unanchored quote is dropped with a warning; scope/fact_families remain the typed contract."},
 					"confidence":                      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Classification confidence in [0,1]."},
 					"rationale":                       map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
-				"required": []string{"scope", "runtime_work_relation_requested", "confidence"},
+				"required": []string{"scope", "runtime_work_relation_requested", "frame_causality_requested", "confidence"},
 			},
 			"history_selection_profile": map[string]any{
 				"type":        "object",
@@ -5035,6 +5037,9 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	if runtimeArtifactCarrier && p.RuntimeWorkRelationRequested == nil {
 		missing = append(missing, "runtime_work_relation_requested")
 	}
+	if runtimeArtifactCarrier && p.FrameCausalityRequested == nil {
+		missing = append(missing, "frame_causality_requested")
+	}
 	if p.Confidence == nil {
 		missing = append(missing, "confidence")
 	}
@@ -5059,6 +5064,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		return &types.RuntimeQuestionProfile{
 			Scope:                        types.RuntimeQuestionScopeNotApplicable,
 			RuntimeWorkRelationRequested: false,
+			FrameCausalityRequested:      false,
 			Confidence:                   *p.Confidence,
 		}, "", warnings
 	}
@@ -5068,6 +5074,7 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 	profile := &types.RuntimeQuestionProfile{
 		Scope:                        scope,
 		RuntimeWorkRelationRequested: *p.RuntimeWorkRelationRequested,
+		FrameCausalityRequested:      *p.FrameCausalityRequested,
 		Confidence:                   *p.Confidence,
 		Rationale:                    strings.TrimSpace(p.Rationale),
 	}
@@ -5097,9 +5104,9 @@ func parseRuntimeQuestionProfile(raw string, runtimeArtifactCarrier bool, p *emi
 		case requestedAnswerDimensionsRequireCausalDimension(dimensions) &&
 			!requestedAnswerDimensionsRequireTargetEffectVerdict(dimensions):
 			target := runtimeQuestionProfileFieldTarget(types.RuntimeQuestionScopeCausalDiagnosis, nil)
-			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with causal_diagnosis, while the already-typed required causal dimension uniquely preserves full causal breadth. causal_diagnosis_canonical_field_target=%s; repair only runtime_question_profile.fact_families by omitting it. runtime_question_profile.runtime_work_relation_requested is an independent model decision and must remain exactly %t on this structural retry unless the model deliberately reclassifies the current request itself; preserve every required causal_attribution/causal_contributor_set dimension in the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", target, profile.RuntimeWorkRelationRequested), nil
+			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with causal_diagnosis, while the already-typed required causal dimension uniquely preserves full causal breadth. causal_diagnosis_canonical_field_target=%s; repair only runtime_question_profile.fact_families by omitting it. runtime_question_profile.runtime_work_relation_requested is an independent model decision and must remain exactly %t on this structural retry unless the model deliberately reclassifies the current request itself; runtime_question_profile.frame_causality_requested is likewise an independent model decision and must remain exactly %t; preserve every required causal_attribution/causal_contributor_set dimension in the next COMPLETE model-owned object; no automatic rewrite or acceptance occurs for this rejected object", target, profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
 		default:
-			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. runtime_question_profile.runtime_work_relation_requested is an independent model decision; keep the submitted value exactly %t during this structural repair unless the model deliberately reclassifies the current request itself. Re-emit the complete object without asking the system to rewrite the model-owned scope", profile.RuntimeWorkRelationRequested), nil
+			return nil, fmt.Sprintf("runtime_question_profile.fact_families conflicts with this non-bounded scope and will not be silently discarded. Choose one coherent breadth: for finite observed values use bounded_fact_set plus fact_families; for one finite target-effect verdict use bounded_effect_verdict plus fact_families and a required target_effect_verdict dimension; for causal_diagnosis omit fact_families and retain a required causal_attribution or causal_contributor_set dimension. The causal scope plus that required typed dimension is the breadth authority; preserve both on retry instead of demoting the requested causal answer. runtime_question_profile.runtime_work_relation_requested is an independent model decision; keep the submitted value exactly %t during this structural repair unless the model deliberately reclassifies the current request itself; keep runtime_question_profile.frame_causality_requested exactly %t likewise. Re-emit the complete object without asking the system to rewrite the model-owned scope", profile.RuntimeWorkRelationRequested, profile.FrameCausalityRequested), nil
 		}
 	}
 	if scope == types.RuntimeQuestionScopeUnspecified {

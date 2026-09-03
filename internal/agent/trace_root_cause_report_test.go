@@ -26,7 +26,7 @@ func TestRootCauseSelectorContextPublishesTheSameValueCaliberAsSidecar(t *testin
 			EvidenceID: "E1", Subject: "worker", Rank: 1, TypeToken: "running", ChainRelevance: "on_chain",
 			ImpactMS: 10, EffectiveImpactMS: 3, EffectiveImpactPublished: true, SupplyFoldComputed: true,
 			SupplyFoldDeficitMS: 3, SupplyFoldIdealMS: 7, SupplyFoldKnownMS: 8, SupplyFoldUnknownMS: 2,
-		}}}}}, nil)
+		}}}}}, tracefinding.SeatFrameCausalityAuthority{Applicable: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +132,8 @@ func TestRenderTraceRootCauseContractTeachesQualifierAndCaliber(t *testing.T) {
 	for _, want := range []string{
 		`"impact_caliber": "effective_attribution"`, `"causal_qualifier": "frame_unproven"`,
 		"seat-level — the same qualifier the answer headline wears",
+		// QUALGATE-1: the closed set names the third value and its meaning.
+		"`not_applicable`", "not a frame/jank question",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("roster missing %q:\n%s", want, got)

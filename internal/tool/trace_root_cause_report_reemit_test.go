@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/tracefinding"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -103,5 +104,51 @@ func TestEmitAnswerDocumentRehomesTopLevelRootCausesSelection(t *testing.T) {
 	}
 	if report := mutable.TraceRootCauseReport(); report != nil {
 		t.Fatalf("a non-selector top-level root_causes must not mint a report: %#v", report)
+	}
+}
+
+// §40.31.1 ★16 (eval witness trace_query_frame_semantic_span_optimization,
+// 2026-09-02): the model's VALID selection rode a full emit that the answer
+// contract rejected; the accepted follow-up patch omitted the selector and
+// the sidecar shipped as `unavailable`. A validly bound selector on a
+// rejected emit is staged, and an accepted emit/patch that omits the selector
+// inherits it; storing any report clears the stage.
+func TestEmitAnswerDocumentStagedSelectorSurvivesStructuralRejection(t *testing.T) {
+	mutable := types.NewMutableState("analyze trace root cause")
+	mutable.SetTraceFindingContract(testSelectableTraceRootCauseContract())
+	ctx := &types.BusContext{Mutable: mutable}
+	contract := mutable.TraceFindingContract()
+	staged, err := tracefinding.BindRootCauseReportSelection(&types.TraceRootCauseReportV2{
+		SchemaVersion: types.TraceRootCauseReportSchemaVersion,
+		RootCauses:    []*types.TraceRootCauseItemV2{{CandidateID: "candidate-sched"}},
+	}, contract)
+	if err != nil || staged == nil || len(staged.RootCauses) != 1 {
+		t.Fatalf("fixture: bind the selection: %v %+v", err, staged)
+	}
+	// The mechanism the rejected-emit paths call (full emit + all three patch
+	// persist sites): stage the bound selection.
+	mutable.SetPendingTraceRootCauseReport(staged)
+	if mutable.TraceRootCauseReport() != nil {
+		t.Fatal("staging must not publish the report")
+	}
+	// The accepted patch omits the selector ⇒ inherits the staged selection.
+	raw, _ := json.Marshal(map[string]any{
+		"blocks": []map[string]any{{"id": "summary", "kind": "summary", "text": "accepted full answer"}},
+	})
+	result, err := executeAnswerDocumentV2("emit_answer_document", ctx, raw, time.Now())
+	if err != nil || !result.Success {
+		t.Fatalf("emit failed: result=%+v err=%v", result, err)
+	}
+	if got := mutable.TraceRootCauseReport(); got == nil || len(got.RootCauses) != 1 || got.RootCauses[0].Summary != "RenderThread线程CPU调度延迟" {
+		t.Fatalf("an accepted emit that omits the selector must inherit the staged selection: %#v", got)
+	}
+	if mutable.PendingTraceRootCauseReport() != nil {
+		t.Fatal("storing the report must clear the stage")
+	}
+	// A new finalize dispatch resets the stage with the report.
+	mutable.SetPendingTraceRootCauseReport(staged)
+	mutable.ResetActiveAnswerDocumentV2ForFinalizeDispatch()
+	if mutable.PendingTraceRootCauseReport() != nil || mutable.TraceRootCauseReport() != nil {
+		t.Fatal("dispatch reset must clear both the report and the stage")
 	}
 }

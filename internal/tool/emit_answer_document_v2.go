@@ -444,6 +444,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	res, err := ApplyAndPersistMutationWithFinding(ctx, toolName, mutation, nil, finding, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil && rootCauses != nil {
 		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
+	} else if ctx != nil && ctx.Mutable != nil && rootCauses != nil && len(strings.TrimSpace(string(p.TraceRootCauses))) > 0 {
+		// §40.31.1 ★16: a valid selector on a structurally rejected emit is
+		// staged so the accepted re-emit/patch that omits it inherits it.
+		ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses)
 	}
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
 		// §29.174 F6: disclose the submitted→registered citation delta

@@ -8783,6 +8783,8 @@ func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, anal
 		Scenario:                  fallbackScenario(partialIR.RequestModel.Scenario),
 		Complexity:                fallbackComplexity(partialIR.RequestModel.Complexity),
 		ExternalObservationPolicy: externalObservationPolicy,
+		// QUALGATE-1 (§40.30): the typed question profile survives the rebuild.
+		RuntimeQuestionProfile: partialIR.RequestModel.RuntimeQuestionProfile,
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords:        dedupedStrings(partialIR.RequestModel.AnalyzerHints.Keywords),
 			Entities:        dedupedStrings(partialIR.RequestModel.AnalyzerHints.Entities),

@@ -963,7 +963,20 @@ func TestEmitAnalysisSchemaIncludesRuntimeQuestionProfile(t *testing.T) {
 			t.Fatalf("runtime_question_profile fact-family schema teaching missing %q", want)
 		}
 	}
-	for _, required := range []string{"scope", "runtime_work_relation_requested", "confidence"} {
+	// QUALGATE-1 (§40.30): the typed frame decision is required beside the
+	// work-relation decision, and its teaching carries the negative rule.
+	for _, want := range []string{
+		"asks about a rendering frame / dropped or delayed frame / frame window / vsync / render-deadline outcome",
+		"bare stutter/卡顿 alone is not a frame question",
+		"Decision procedure: if the request text names a frame as the diagnosed thing",
+		"'帧窗口内的卡顿原因' → true",
+		"never pre-decides whether frame causality is proven",
+	} {
+		if !strings.Contains(string(propRaw), want) {
+			t.Fatalf("runtime_question_profile frame_causality_requested teaching missing %q", want)
+		}
+	}
+	for _, required := range []string{"scope", "runtime_work_relation_requested", "frame_causality_requested", "confidence"} {
 		if !slices.Contains(prop.Required, required) {
 			t.Fatalf("runtime_question_profile.required=%v missing %s", prop.Required, required)
 		}

@@ -77,9 +77,12 @@ type TraceRootCauseItemV2 struct {
 	// whose effective was never published). Always explicit; append-only v2
 	// extension (schema_version stays 2, consumers ignore unknown keys).
 	ImpactCaliber string `json:"impact_caliber"`
-	// CausalQualifier (SIDECAR-Q1, §40.28 ②): "proven" or "frame_unproven",
-	// seat-level, sourced from the same evidence-ID authority index as the
-	// Markdown headline qualifier 「（帧因果未证）」. Always explicit.
+	// CausalQualifier (SIDECAR-Q1, §40.28 ②; QUALGATE-1, §40.30): closed set
+	// "proven" / "frame_unproven" / "not_applicable" (AllTraceCausalQualifiers),
+	// seat-level, sourced from the same gated evidence-ID authority as the
+	// Markdown headline qualifier 「（帧因果未证）」; not_applicable = the
+	// request is not a frame/jank question per the analyzer's typed decision.
+	// Always explicit.
 	CausalQualifier string   `json:"causal_qualifier"`
 	Summary         string   `json:"summary"`
 	Evidence        []string `json:"evidence"`

@@ -17,7 +17,7 @@ const CandidateCompilerVersion = "trace-candidate-v2"
 // CompileCandidateContract freezes the deterministic candidate rows that the
 // finalizer may select. It consumes typed trace records only; final answer
 // prose is deliberately not an input.
-func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCausalProjectionSet, seatIndex SeatFrameCausalityIndex) (*types.TraceFindingContract, error) {
+func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCausalProjectionSet, authority SeatFrameCausalityAuthority) (*types.TraceFindingContract, error) {
 	registryHash, err := RegistryHash()
 	if err != nil {
 		return nil, err
@@ -26,11 +26,17 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	// seat-level qualifiers below (unproven iff any admitted candidate's own
 	// evidence is frame-unproven) — it is a summary for the legacy Required
 	// view, never an input to any candidate's qualifier.
+	ceiling := types.TraceCausalQualifierProven
+	if !authority.Applicable {
+		// QUALGATE-1 (§40.30): not a frame question — the ceiling makes no
+		// frame claim and never caps a status (only frame_unproven caps).
+		ceiling = types.TraceCausalQualifierNotApplicable
+	}
 	contract := &types.TraceFindingContract{
 		Required:             true,
 		FindingSchemaVersion: types.TraceFindingSchemaVersion,
 		RegistryHash:         registryHash,
-		CausalCeiling:        types.TraceCausalQualifierProven,
+		CausalCeiling:        ceiling,
 		AcceptedEvidenceIDs:  acceptedEvidenceIDs(ledger),
 		Scope: types.TraceFindingScope{
 			ProfileFamily: "runtime_trace",
@@ -44,7 +50,7 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	for _, projection := range set.Projections {
 		applyProjectionMetadata(contract, projection)
 		for _, node := range candidateNodes(projection) {
-			candidate, ok := compileCandidate(projection, node, registryHash, seatIndex)
+			candidate, ok := compileCandidate(projection, node, registryHash, authority)
 			if !ok || seen[candidate.Decision.CandidateID] {
 				continue
 			}
@@ -142,7 +148,7 @@ func candidateNodes(projection types.TraceCausalProjection) []types.TraceCausalP
 	return out
 }
 
-func compileCandidate(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode, registryHash string, seatIndex SeatFrameCausalityIndex) (types.TraceFindingCandidateV1, bool) {
+func compileCandidate(projection types.TraceCausalProjection, node types.TraceCausalProjectionNode, registryHash string, authority SeatFrameCausalityAuthority) (types.TraceFindingCandidateV1, bool) {
 	if node.Rank <= 0 || node.IsTargetSelfStateRow() || node.IsContextOnlyRow() ||
 		node.IsCaliberSideRow() || node.IsEvidenceBoundaryRow() || node.IsAggregateMetric() ||
 		node.OnChainOverflowFold || node.Unit == types.TraceObservationUnitCompositeScore ||
@@ -191,11 +197,10 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 		}
 	}
 	// SIDECAR-Q1: seat-level qualifier from the candidate's OWN evidence IDs
-	// (the exact index the crown face consults) — never a session aggregate.
-	qualifier := types.TraceCausalQualifierProven
-	if seatIndex.SeatFrameUnproven(append([]string{node.EvidenceID}, node.MergedEvidenceIDs...)...) {
-		qualifier = types.TraceCausalQualifierFrameUnproven
-	}
+	// (the exact provider the crown face consults) — never a session
+	// aggregate; QUALGATE-1: not_applicable when the typed request gate is
+	// closed.
+	qualifier := authority.SeatQualifier(append([]string{node.EvidenceID}, node.MergedEvidenceIDs...)...)
 	status := types.TraceCausalSupportedCandidate
 	if qualifier != types.TraceCausalQualifierFrameUnproven && candidateCausalityExplicitlyProven(node.Causality) {
 		status = types.TraceCausalProven

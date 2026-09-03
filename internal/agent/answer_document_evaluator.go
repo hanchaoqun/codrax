@@ -14584,9 +14584,24 @@ func answerDocRuntimeTraceGuidanceView(ctx *types.AgentContext) runtimeTraceGuid
 		}
 	}
 	input := types.ObservationLedgerInputFromAgentContext(ctx, 1)
+	// QUALGATE-1 (§40.30): the advisory frame lanes follow the same typed
+	// request gate as the crown/sidecar — on a non-frame question the frame
+	// status, frame-flow and frame-origin "unproven" verdicts are out of scope.
+	frameQuestion := types.FrameCausalityQualifierApplicable(input.RequestModel)
 	for _, result := range append(append([]types.ToolResult(nil), input.ToolResults...), input.SystemTraceSupplementResults...) {
 		if result.TraceEvidenceAuthority == nil {
 			continue
+		}
+		if !frameQuestion {
+			authority := *result.TraceEvidenceAuthority
+			if types.TraceAuthorityCausalUnprovenIsFrameOrigin(&authority) {
+				authority.CausalConclusion = ""
+			}
+			authority.FrameEvidenceStatus = ""
+			authority.FrameFlowCausalConclusion = ""
+			authority.FrameFlowRelationAuthority = ""
+			authority.FrameFlowEdgeCount = 0
+			result.TraceEvidenceAuthority = &authority
 		}
 		view.RuntimeTrace = true
 		view.TypedTraceAuthority = true

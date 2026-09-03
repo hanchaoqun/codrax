@@ -123,7 +123,7 @@ func withV4Required(partial string) string {
 		defaults += `,
 	"runtime_question_profile": {
 		"scope": "unspecified",
-		"runtime_work_relation_requested": false,
+		"runtime_work_relation_requested": false, "frame_causality_requested": false,
 		"confidence": 0.7
 	}`
 	}
@@ -181,12 +181,18 @@ func withRequiredAnswerRoleProfile(payload string) string {
 		}
 	}
 	if _, ok := obj["runtime_question_profile"]; !ok {
-		obj["runtime_question_profile"] = json.RawMessage(`{"scope":"unspecified","runtime_work_relation_requested":false,"confidence":0.7}`)
+		obj["runtime_question_profile"] = json.RawMessage(`{"scope":"unspecified","runtime_work_relation_requested":false,"frame_causality_requested":false,"confidence":0.7}`)
 	} else {
 		var runtimeProfile map[string]json.RawMessage
 		if err := json.Unmarshal(obj["runtime_question_profile"], &runtimeProfile); err == nil {
-			if _, ok := runtimeProfile["runtime_work_relation_requested"]; !ok {
-				runtimeProfile["runtime_work_relation_requested"] = json.RawMessage(`false`)
+			changed := false
+			for _, field := range []string{"runtime_work_relation_requested", "frame_causality_requested"} {
+				if _, ok := runtimeProfile[field]; !ok {
+					runtimeProfile[field] = json.RawMessage(`false`)
+					changed = true
+				}
+			}
+			if changed {
 				if encoded, err := json.Marshal(runtimeProfile); err == nil {
 					obj["runtime_question_profile"] = encoded
 				}
@@ -512,6 +518,7 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 	bounded := &emitRuntimeQuestionProfileParam{
 		Scope:                        "bounded_fact_set",
 		RuntimeWorkRelationRequested: &workRelationRequested,
+		FrameCausalityRequested:      &workRelationRequested,
 		FactFamilies:                 []string{"target_scheduler_state", "target_wait_occurrences", "recorded_reason", "occurrence_time", "count_or_duration"},
 		SourceQuote:                  "有没有进入过不可中断等待",
 		Confidence:                   &confidence,
@@ -550,7 +557,7 @@ func TestParseRuntimeQuestionProfileSeparatesFactBreadthFromLegacyLabels(t *test
 		t.Fatalf("unanchored audit quote must warn without dropping typed scope: profile=%+v err=%q warnings=%v", gotProfile, errText, gotWarnings)
 	}
 	notApplicable := &emitRuntimeQuestionProfileParam{
-		Scope: "not_applicable", RuntimeWorkRelationRequested: &workRelationRequested, Confidence: &confidence,
+		Scope: "not_applicable", RuntimeWorkRelationRequested: &workRelationRequested, FrameCausalityRequested: &workRelationRequested, Confidence: &confidence,
 	}
 	if _, errText, _ := parseRuntimeQuestionProfile("analyze this trace", true, notApplicable, nil); !strings.Contains(errText, "conflicts") {
 		t.Fatalf("runtime not_applicable must conflict with an attached artifact, got %q", errText)
@@ -574,6 +581,7 @@ func TestParseRuntimeQuestionProfileRequiresExplicitRuntimeWorkRelationDecision(
 		&emitRuntimeQuestionProfileParam{
 			Scope:                        "causal_diagnosis",
 			RuntimeWorkRelationRequested: &requested,
+			FrameCausalityRequested:      &requested,
 			Confidence:                   &confidence,
 		},
 		nil,
@@ -1058,7 +1066,7 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 		"error_granularity_profile":{"is_granularity_question":false,"confidence":0.95},
 		"runtime_artifact_scope_profile":{"requested_scope":"full_artifact","source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
 		"runtime_target_profile":{"declaration":"no_named_target","confidence":0.95},
-		"runtime_question_profile":{"scope":"causal_diagnosis","runtime_work_relation_requested":false,"source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
+		"runtime_question_profile":{"scope":"causal_diagnosis","runtime_work_relation_requested":false,"frame_causality_requested":false,"source_quote":"请说明目标进程、transaction 编号和直接唤醒者","confidence":0.95},
 		"history_selection_profile":{"mode":"not_applicable","item_kind":"not_applicable","confidence":0.95},
 		"completeness_obligation":{"required":false,"source_quote":""}
 	}`
@@ -1219,8 +1227,8 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 
 	causalWorkRosterWithRedundantFamilies := strings.Replace(
 		causalRosterWithRedundantFamilies,
-		`"runtime_work_relation_requested":false`,
-		`"runtime_work_relation_requested":true`,
+		`"runtime_work_relation_requested":false,"frame_causality_requested":false`,
+		`"runtime_work_relation_requested":true,"frame_causality_requested":false`,
 		1,
 	)
 	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
@@ -1229,6 +1237,9 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 	if err != nil {
 		t.Fatalf("causal work roster with redundant families Execute: %v", err)
 	}
+	if !strings.Contains(res.Summary, "runtime_question_profile.frame_causality_requested is likewise an independent model decision and must remain exactly") {
+		t.Fatalf("structural repair hint must preserve the typed frame decision too: %s", res.Summary)
+	}
 	if res.Success || !strings.Contains(res.Summary, "repair only runtime_question_profile.fact_families") ||
 		!strings.Contains(res.Summary, "runtime_work_relation_requested is an independent model decision and must remain exactly true") {
 		t.Fatalf("causal scope repair did not preserve the independent true work-relation decision: success=%t summary=%q", res.Success, res.Summary)
@@ -1236,8 +1247,8 @@ func TestEmitAnalysisRejectsCausalBreadthWithoutTypedDiagnosisCarrier(t *testing
 
 	causalWorkRoster := strings.Replace(
 		causalRoster,
-		`"runtime_work_relation_requested":false`,
-		`"runtime_work_relation_requested":true`,
+		`"runtime_work_relation_requested":false,"frame_causality_requested":false`,
+		`"runtime_work_relation_requested":true,"frame_causality_requested":false`,
 		1,
 	)
 	ctx = &types.BusContext{Mutable: types.NewMutableState(causalObjective)}
@@ -1280,6 +1291,7 @@ func TestParseRuntimeQuestionProfileUnanchoredQuoteIsAuditWarningNotRetry(t *tes
 		&emitRuntimeQuestionProfileParam{
 			Scope:                        string(types.RuntimeQuestionScopeCausalDiagnosis),
 			RuntimeWorkRelationRequested: &workRelationRequested,
+			FrameCausalityRequested:      &workRelationRequested,
 			SourceQuote:                  "分析卡顿原因", // non-contiguous paraphrase
 			Confidence:                   &confidence,
 		},
@@ -1308,6 +1320,7 @@ func TestParseRuntimeQuestionProfileExactQuoteRemainsForAudit(t *testing.T) {
 		&emitRuntimeQuestionProfileParam{
 			Scope:                        string(types.RuntimeQuestionScopeCausalDiagnosis),
 			RuntimeWorkRelationRequested: &workRelationRequested,
+			FrameCausalityRequested:      &workRelationRequested,
 			SourceQuote:                  "卡顿原因",
 			Confidence:                   &confidence,
 		},
@@ -2218,7 +2231,7 @@ func TestEmitAnalysis_RuntimeArtifactDropsStaleDiscoverWhenDedicatedSelectionIsF
 		}],
 		"runtime_question_profile":{
 			"scope":"bounded_fact_set",
-			"runtime_work_relation_requested":false,
+			"runtime_work_relation_requested":false,"frame_causality_requested":false,
 			"fact_families":["target_scheduler_state","frequency_residency"],
 			"confidence":0.95
 		}
@@ -8875,7 +8888,7 @@ func TestEmitAnalysis_RuntimeDiagnosticDropsAnalyzerArtifactValueAndSummary(t *t
 		"runtime_targets":[{"kind":"thread","thread":"app-100","source":"user_explicit","confidence":1.0}],
 		"runtime_question_profile":{
 			"scope":"causal_diagnosis",
-			"runtime_work_relation_requested":false,
+			"runtime_work_relation_requested":false,"frame_causality_requested":false,
 			"source_quote":"丢帧根因",
 			"confidence":0.95
 		},
@@ -10010,7 +10023,7 @@ func TestEmitAnalysis_RouteBackedRuntimeOnlyRepairsMissingExclusionKind(t *testi
 			},
 			"runtime_question_profile": {
 				"scope": "causal_diagnosis",
-				"runtime_work_relation_requested": false,
+				"runtime_work_relation_requested": false, "frame_causality_requested": false,
 				"source_quote": "卡顿原因",
 				"confidence": 0.95
 			},
@@ -14178,5 +14191,36 @@ func TestEmitAnalysis_Execute_PreservesConfigTraceRolesWhenAnswerSubjectDriftsNu
 	}
 	if !strings.Contains(res.Summary, "exact_roles=3") {
 		t.Fatalf("summary should mention exact_roles count, got %q", res.Summary)
+	}
+}
+
+// QUALGATE-1 (§40.30): the typed frame decision is required on every runtime
+// carrier exactly like the work-relation decision, and copied verbatim.
+func TestParseRuntimeQuestionProfileRequiresExplicitFrameCausalityDecision(t *testing.T) {
+	confidence := 0.95
+	requested := false
+	if _, errText, _ := parseRuntimeQuestionProfile(
+		"分析这份 trace 的根因",
+		true,
+		&emitRuntimeQuestionProfileParam{Scope: "causal_diagnosis", RuntimeWorkRelationRequested: &requested, Confidence: &confidence},
+		nil,
+	); !strings.Contains(errText, "frame_causality_requested") {
+		t.Fatalf("runtime carrier must fail loud without the dedicated frame decision: %q", errText)
+	}
+	frame := true
+	profile, errText, _ := parseRuntimeQuestionProfile(
+		"分析这一帧窗口的丢帧根因",
+		true,
+		&emitRuntimeQuestionProfileParam{Scope: "causal_diagnosis", RuntimeWorkRelationRequested: &requested, FrameCausalityRequested: &frame, Confidence: &confidence},
+		nil,
+	)
+	if errText != "" || profile == nil || !profile.RequestsFrameCausality() {
+		t.Fatalf("explicit frame decision must be copied verbatim: profile=%+v err=%q", profile, errText)
+	}
+	// Outside a runtime carrier the decision normalizes to false.
+	profile, errText, _ = parseRuntimeQuestionProfile("explain the code", false,
+		&emitRuntimeQuestionProfileParam{Scope: "not_applicable", Confidence: &confidence}, nil)
+	if errText != "" || profile == nil || profile.RequestsFrameCausality() {
+		t.Fatalf("non-carrier must normalize the frame decision to false: %+v %q", profile, errText)
 	}
 }

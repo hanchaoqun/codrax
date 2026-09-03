@@ -11,6 +11,38 @@ package types
 // The explicit-window fallback remains for legacy serialized RequestModels
 // that predate that profile so noisy historical intent/scenario labels do not
 // suppress causal projection.
+// FrameCausalityQualifierApplicable (QUALGATE-1, §40.30 V-QUAL-1 plan A) is
+// the ONE typed gate behind every frame-causality qualifier surface: the
+// seat-level provider (tracefinding.BuildSeatFrameCausalityAuthority feeding
+// the Markdown crown headline and the .root-causes.json causal_qualifier)
+// and the system coverage-boundary sentence. It reads only the analyzer's
+// typed RuntimeQuestionProfile.FrameCausalityRequested decision — never
+// request text, keywords, scenario labels, or artifact contents. Absent
+// profile ⇒ false (fail closed: no frame claim without a typed frame
+// question).
+func FrameCausalityQualifierApplicable(rm *RequestModel) bool {
+	return rm != nil && rm.RuntimeQuestionProfile.RequestsFrameCausality()
+}
+
+// TraceAuthorityCausalUnprovenIsFrameOrigin reports whether a trace_query
+// result's "unproven" causal conclusion rests ONLY on the frame family — typed
+// causal rows exist but the frame evidence is absent/unavailable or the typed
+// frame flow withholds causality. Under a closed frame-question gate
+// (FrameCausalityQualifierApplicable == false) such a verdict must not be read
+// as "no usable on-chain causal observation": the on-chain rows are there,
+// only the frame claim is out of scope. A zero-row causal view stays a
+// genuine causal-ceiling signal.
+func TraceAuthorityCausalUnprovenIsFrameOrigin(a *TraceEvidenceAuthority) bool {
+	if a == nil || a.CausalConclusion != "unproven" || a.TypedCausalRowCount <= 0 {
+		return false
+	}
+	switch a.FrameEvidenceStatus {
+	case "absent", "unavailable":
+		return true
+	}
+	return a.FrameFlowCausalConclusion == "unproven"
+}
+
 func RuntimeTraceReportShapeAuthority(rm *RequestModel) (decided bool, allowed bool) {
 	if rm == nil {
 		return true, true

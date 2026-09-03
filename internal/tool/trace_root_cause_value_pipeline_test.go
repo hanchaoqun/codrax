@@ -30,7 +30,7 @@ func TestRootCauseValueCaliberSurvivesObservationProjectionEmitAndPatch(t *testi
 	records := traceQueryTypedObservations(result, source, "trace-query-result-28bd29e5.json", "raw", "", time.Unix(1, 0))
 	ledger := types.ObservationLedger{Records: records}
 	set := types.CompileTraceCausalProjectionSet(ledger)
-	contract, err := tracefinding.CompileCandidateContract(ledger, set, nil)
+	contract, err := tracefinding.CompileCandidateContract(ledger, set, tracefinding.SeatFrameCausalityAuthority{Applicable: true})
 	if err != nil || len(contract.Candidates) != 2 {
 		t.Fatalf("candidate compile: %v %+v", err, contract)
 	}

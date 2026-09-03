@@ -367,6 +367,12 @@ func traceSupplementViewsForRequest(ctx *types.BusContext, f traceSupplementFami
 		}
 		return nil
 	}
+	// QUALGATE-1 (§40.30): the analyzer's typed frame decision arms the frame
+	// evaluator deterministically beside the keyword family (a frame question
+	// whose keywords miss the family no longer skips the evaluator).
+	if ctx != nil && ctx.AnalysisIR != nil && types.FrameCausalityQualifierApplicable(&ctx.AnalysisIR.RequestModel) {
+		frameFamily = true
+	}
 	if frameFamily && !frameEvidencePresent {
 		return []string{"frame_root_cause_bundle"}
 	}

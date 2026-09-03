@@ -5869,3 +5869,49 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 - **V-STATE-1 → 方案 A(RSPA 优先、R3 补残)**:链成员宿主的状态段先按 RSPA 链窗计价;落在其所有链窗之外、且位于该宿主对目标最晚窗内**直接** census 边之前的残余段,按同一 R3 边凭证计价(边=凭证/边前=有效/边后=解除),披露沿用 R4 家族句并标 `via=direct`;所有权边界不变(RSPA 仍先行,◇ RSPA 余席不重判),只是残余段不再无门可入。知识 pin `TestCrownsemNarrowWindowChainMemberHostStateSeatKnownGap` 随施工反转为正向 pin。
 - **V-QUAL-1 → 方案 A(typed 请求画像门控 + 闭集第三值)**:席位级帧因果限定注只在分析场景/问题画像为帧/卡顿类(analyzer typed 枚举,非关键词)时发布;非帧问题两面均不带限定注,sidecar `causal_qualifier` 仍总是显式,闭集增补 `not_applicable`(指南/校验器/教学同步);席位级索引仍为唯一提供者(门控在提供者内,两面同源)。
 施工批二(STATERES-1 + QUALGATE-1)开始;账本见 §40.31。
+
+### §40.31 批二施工收账(STATERES-1 + QUALGATE-1,2026-09-02)
+
+**理解阶段**:3 读者并行地图(状态残余车道 / 帧问题 typed 信号盘点 / 三值闭集接线面)。关键定谳:①窄窗宿主 61839 是 depth-1 链成员(branch 2,链窗 34579.496753..496810),其 runnable 段 496347..496442 在链窗之外、直接 census 边 496810 之前——不是 RSPA ◇ 余席,而是链线程臂铸的 window_stats 席被上下文富化改道 adjacent,RSPA 只处理 on_chain 行故未认领,状态车道又因"链成员一律拒"无门可入;②现有 analyzer typed 轴(scenario/intent/scope/画像)在三例 eval 上完全同值,无法区分帧问题与短 runnable 问题——补充视图的事实触发器 `traceSupplementVsyncFamilyHit` 是关键词扫描且两向误判(短 runnable 关键词含 Vsync/Choreographer → 跑了帧评估器;多因例 keywords:null → 没跑);③"空索引⇒proven"无法表达 not_applicable,提供者必须返回 typed {Applicable, Index}。
+
+**STATERES-1 落地面**(引擎侧,无 wire 变更):
+- `rank_semantic_edge_anchor_r3.go`:边判定单一权威拆为 preamble / 直接 census 边 / 链跳边三段,新增 `hostDirectCensusEdgeAnchor`(仅直接边,via=direct 恒成立);`hostSemanticSpanEdgeAnchor` 结果字节不变(既有 pin 守);
+- `rank_state_edge_anchor.go`:准入门返回 typed 车道 {拒/裸 census 宿主/链成员残余};残余车道谓词(精确信号):类型 ∈ {runnable_wait, d_state_or_io_wait, io_wait};typed 段清单非空;与该宿主全部 depth>0 链窗零重叠(`chainAnchorWindowsByPID`+`rspaIntervalsOverlapMs`);census 时账本印章必在且该族 anchored=0(无印章/不一致即拒);链成员残余席只取直接边(`directAnchorFor`),裸宿主仍取完整凭证;priority_inversion R4 镜像臂保持裸宿主专属(范围决定 D1,知识 pin);二分/余席/披露句全部复用既有 R4 家族句(via=direct);文件头所有权边界改写;
+- `rank_chain_anchor_rspa.go`:`reanchorOnChainStateSeats` 增"车道一次决定"守卫——已带 typed 链上 basis 的席位跳过(否则 enrich 遍 RSPA 先跑,会把整账残余席改写成零凭证 ◇ 余席,第二遍静默反转裁定);
+- pin:知识 pin 反转为正向(`TestStateresNarrowWindowChainMemberHostResidualRunnableSeatPriced`,并修正账本"depth≥2"误述);合成 pin(残余席取直接边整席;跨边二分在直接边而非更晚的链跳边;链跳 only 成员、链窗重叠、印章缺失/不一致、RSPA ⛓/◇、D1 形七类拒绝字节不变;RSPA 守卫保留已带 basis 席);实测 pin(tieba 59843 板链成员 59566 io_wait 0.635 via=direct 边 34579.576675——复核后替换了误当链成员的裸宿主 61842 见证;D1 仅合成形 pin,复核后删除了永久 skip 的 59891 实测 pin);DHM-A1a 序号平移(59566 io_wait 0.635 残余席入榜 #12,0.399 席 #12→#13,值/小计不变)带 EVOLUTION RECORD 重钉;读者预测的 donghu 2179 18132 io_wait 残余在当前板上不存在(仅有 inversion 两席),未落 pin。
+
+**QUALGATE-1 落地面**:
+- analyzer typed 决定:`RuntimeQuestionProfile.FrameCausalityRequested`(`frame_causality_requested`,运行时载体必填、strict decode 失败响亮、非载体归 false),R2' 六处同步(struct/emit_analysis 参数+schema+解析/analysis-skill 教学句含反向规则"bare 卡顿 不是帧问题"/测试 fixture 自动补齐);
+- 单一门控谓词 `types.FrameCausalityQualifierApplicable(rm)`(只读该 typed 字段;缺画像即关,fail-closed);
+- 提供者 `tracefinding.SeatFrameCausalityAuthority{Applicable, Index}` + `BuildSeatFrameCausalityAuthority(input)`(门在提供者内,两面同源);`SeatQualifier` 三值;合同顶棚关门时 `not_applicable`(不封顶 status);冠线 `runtimeTraceProjectionLeadFrameCausalityUnproven` 关门即 false;覆盖边界块的帧级句同门(非帧问题只说通用因果上限句);
+- 闭集 `not_applicable`(`AllTraceCausalQualifiers` 单源列表,指南/教学同步);summary 后缀仍只在 frame_unproven;
+- 补充视图:typed 帧决定与关键词家族并列触发 `frame_root_cause_bundle`(帧问题评估器确定性运行);
+- pin:提供者门控三臂(缺画像/false/true)、seat_authority.go 不读关键词/场景车道 census、合同关门全席 not_applicable+wire 显式+summary 裸、验证器 not_applicable 不封顶且仍逐字校验、types 闭集恰三值/谓词只读 typed 决定/归一化裸 summary、两面 pin ③ 增关门臂、冠面关门孪生 e2e(无「帧因果未证」且覆盖块无帧级句)、roster 教学三值、emit_analysis 解析/schema/教学 pin、skill 教学 pin。
+
+**验证**:全仓套件 `go test ./internal/... ./cmd/` 绿(tracequery 唯一平移 DHM-A1a 已带 EVOLUTION RECORD 重钉;tool 覆盖边界块四测试与 EN 冠面测试补 typed 帧画像后绿;emit_analysis 测试字面量批量补齐必填字段);eval 冒烟 3/3 PASS 且逐份核对产物:analyzer typed 决定与设计完全一致——`trace_query_donghu_real_short_runnable`(「短窗口卡顿原因」)`frame_causality_requested=false` ⇒ 两面关门(头行无限定注、正文零帧级句、sidecar 两席 `not_applicable`);`trace_query_frame_semantic_span_optimization`(「帧窗口内的丢帧根因」)与 `trace_query_donghu_real_frame_multicausal`(「帧窗口内的卡顿原因」)`=true` ⇒ 帧评估器由 typed 决定确定性触发(多因例此前因 keywords:null 未跑评估器、全席 proven,本轮 unproven_keys=681、7 席 `frame_unproven`),头行「（帧因果未证）」与 sidecar 同真值;对抗复核处置见 §40.31.1。
+
+### §40.31.1 批二对抗复核处置(2026-09-02)
+
+5 镜头 23 条 → 去重 13 个根因;全部处置(★=已修并 pin,○=维持并记档)。
+
+| # | 根因 | 严重度 | 处置 |
+|---|---|---|---|
+| ★1 | **关门后覆盖边界块假句**:门控只清帧标志却保留帧源 `causalUnproven`,通用臂无视 typedChainRowsPresent,在已发布链上主根因之下打印「当前没有可用的链上因果观测」(短 runnable 例关键词含 Vsync 触发帧评估器即复现) | 高(3 镜头) | 单源谓词 `types.TraceAuthorityCausalUnprovenIsFrameOrigin`(typed 行>0 且仅因帧缺失/帧流未证而 unproven);关门时帧源 unproven 不计入;通用臂按 typedChainRowsPresent 分叉(有链上行时只说"未被链上凭证覆盖的机理不能升级");冠面关门孪生 pin 增帧流评估器与「当前没有可用的链上因果观测」禁词 |
+| ★2 | **D/IO 残余按包络判定**:D/IO 席按 StartTs..EndTs hull 入链→RSPA 零锚定整账改写为 ◇→状态车道拒;同物理段落若 hull 不跨窗则计价(一宿主一边两规) | 中(2 镜头) | 残余车道精确准入 RSPA **零锚定整账余席**(ChainAnchorRemainderSeat ∧ anchored≈0 ∧ full>0 ∧ 无 R3 印章 ∧ 链成员):该 ◇ 即"RSPA 无可计价"的整账,转换前清 RSPA 印章;真分区(anchored>0,有 ⛓ 孪生)仍不重判;pin 正/负两臂 |
+| ★3 | 实测 pin 61842 实为裸 census 宿主(HEAD 亦绿),不见证残余车道 | 中 | 换为真实链成员见证:59843 板 59566 io_wait 0.635(段落全在其三个链窗之外、直接边 576675),断言 basis/via=direct/边/账本零锚定印章 |
+| ★4 | D1 实测 pin 永久 skip(59891 不在板上且非链成员) | 低/中 | 删除;D1 仅由合成形 pin 覆盖(如实记档) |
+| ★5 | 残余车道 ◇ 克隆/⛓ 句式沿用"latest/own in-window typed wakeup edge",存在更晚链跳边时失真 | 低 | 残余车道句式改"DIRECT wakeup edge(链跳边由链窗计价)",pin 于跨边 fixture |
+| ★6 | D/IO 残余臂无 pin(账本印章/锚定守带可删而全绿) | 中 | 新增 D/IO 正向 + 四负向形 pin |
+| ★7 | 补充视图 typed 触发无 pin | 中 | 新增 pin:typed 帧决定 + 无 vsync 关键词 ⇒ frame_root_cause_bundle 先跑 |
+| ★8 | agent 侧接线绕过门控无 pin | 中 | 源码 census pin:合同必经 `BuildSeatFrameCausalityAuthority(seatInput)` 且禁 `Applicable: true`/裸索引 |
+| ★9 | 覆盖块帧流门控无 pin | 中 | 见 ★1 孪生扩展 |
+| ★10 | R2' 教学漂移:skill "Required fields" recap 与字段 roster 未列 `frame_causality_requested`;修复提示只保留 work-relation 决定 | 低(3 镜头) | recap/roster/“independent decisions”句同步;两条结构修复提示增 frame 决定保留;pin 三处 |
+| ★11 | 退化 analyzer 恢复路径丢 RuntimeQuestionProfile ⇒ 帧问题被发布为 not_applicable("非帧问题") | 低 | `buildDegradedSemanticIR` 保留 typed 画像 |
+| ★12 | finalizer 顾问 seam(handoff/决策边界)在非帧问题仍讲丢帧边界 | 低 | 顾问视图同门:关门时帧源 unproven/帧状态/帧流不进 view(顾问车道,同一谓词) |
+| ★13 | sidecar 结构体注释仍写二值 | 低 | 注释改三值并引单源列表 |
+| ○14 | `render/answerdoc.go` 工作关系回执固定"丢帧"措辞(非帧问题也出现) | 低 | **维持并记档**:回执结论词面属 runtime_work_relation 契约(§29.x 回执裁定),其"造成丢帧/该帧超时"是对机理未证的通用限定而非帧因果声明;按 typed 帧决定改写回执词面涉及闭集结论枚举与既有 pin,列入后续批次(建议:回执行增 typed `frame_scope` 字段,词面按其分叉) |
+| ○15 | 工作树曾出现审阅者留下的 `_zz_probe` 文件 | — | 提交前已核实不存在 |
+| ★16 | **sidecar 第四种丢失形**(eval 复跑语义 span 例):模型的有效 2 席选择器随全量 emit 提交,该 emit 因答案结构契约被拒;随后被接受的补丁省略选择器→继承到空报告→`unavailable` | 高 | 结构性拒收的 emit/补丁若携带**可绑定**的选择器,先暂存(`SetPendingTraceRootCauseReport`);省略型继承顺序=已接受报告→暂存选择;存报告或 dispatch 重置即清;全量+补丁三处持久化点同规;pin 机制级三臂 |
+| ★17 | analyzer typed 帧决定不稳定:同一两道帧问题上一轮 true/true、本轮 false/false(非结构重试翻转,两次尝试皆 false) | 中 | 教学精化为**判定程序+双语正反例**(schema 描述与 skill 同步,pin 三处);系统侧不做关键词覆盖(红线:分类错=prompt 歧义,噪声信号只软引导);残留=LLM 判定质量,按 PASS≠绿逐轮核对 emit_analysis 决定 |
+
+**验证**(★1–★17 全部落地后):全仓套件 `go test ./internal/... ./cmd/` 绿;eval 五轮(两道帧问题各两次+短 runnable 一次)5/5 PASS 且逐份核对:教学精化后 analyzer typed 决定稳定——帧问题两例四次尝试全部 `frame_causality_requested=true`(两面 `frame_unproven`、头行「（帧因果未证）」、帧评估器由 typed 决定触发),短 runnable 例两次尝试皆 `false`(头行无限定注、正文零帧级句、覆盖块无「当前没有可用的链上因果观测」假句);短 runnable 本轮模型两次 emit 均未携带可选 `trace_root_causes`(非系统丢失,PR23 设计为可选块),sidecar 如实 `unavailable`,记为模型选择变异。

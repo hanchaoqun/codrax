@@ -182,7 +182,7 @@ func TestMultiArtifactSeatsKeepFrameAuthorityAndCrownWordingIsolated(t *testing.
 	}
 	unproven := makeResult("a.systrace", 10, 200)
 	proven := makeResult("b.systrace", 20, 300)
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{
 		{
 			ToolName: "trace_query", Success: true,
 			Observations: traceQueryTypedObservations(unproven, unproven.SourcePath, "payload-a", "raw-a", "", time.Unix(0, 0).UTC()),
@@ -251,7 +251,7 @@ func TestTypedSeatFrameCausalityEnglishQualifierKeepsDefinedCrown(t *testing.T) 
 			}},
 		},
 	}
-	input := types.ObservationLedgerInput{ToolResults: []types.ToolResult{{
+	input := types.ObservationLedgerInput{RequestModel: traceAuthorityFrameQuestionRequestModel(), ToolResults: []types.ToolResult{{
 		ToolName:     "trace_query",
 		Success:      true,
 		Observations: traceQueryTypedObservations(result, "customer.systrace", "payload", "raw", "", time.Unix(0, 0).UTC()),
@@ -301,5 +301,71 @@ func TestBoundedTypedCausalityKeepsModelPrincipal(t *testing.T) {
 	// projection remains a sibling evidence surface.
 	if len(doc.Blocks) != 1 || doc.Blocks[0].ID != "model_summary" {
 		t.Fatalf("model principal changed: %+v", doc.Blocks)
+	}
+}
+
+// TestTypedSeatFrameCausalityGateClosedKeepsBareCrown — QUALGATE-1 (user
+// ruling §40.30 V-QUAL-1 plan A, 2026-09-02): the SAME absent-frame typed
+// authority under a request whose analyzer decision says it is NOT a frame
+// question publishes no frame claim anywhere — the crown keeps its defined
+// words without 「（帧因果未证）」 and the coverage boundary speaks only the
+// generic causal ceiling.
+func TestTypedSeatFrameCausalityGateClosedKeepsBareCrown(t *testing.T) {
+	ctx := traceAuthorityWiringContext("zh")
+	ctx.AnalysisIR.RequestModel.RuntimeQuestionProfile.FrameCausalityRequested = false
+	result := tracequery.Result{
+		View: "root_cause_rank", SourcePath: "customer.systrace", TimeStart: 10, TimeEnd: 10.020,
+		RootCauseRank: &tracequery.RootCauseRankResult{
+			Window: tracequery.TimeWindow{StartTs: 10, EndTs: 10.020},
+			Items: []tracequery.RootCauseRankItem{{
+				Rank: 1, Tier: "primary", Type: "binder_wait",
+				Thread:   tracequery.ThreadRef{Comm: "worker", PID: 200},
+				ImpactMs: 8, CumulativeImpactMs: 8, EffectiveImpactMs: 7, RunnableMs: 7,
+				ChainRelevance: "on_chain", Causality: "on_wakeup_chain", Confidence: 0.9,
+			}},
+		},
+	}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		Observations: traceQueryTypedObservations(result, "customer.systrace", "payload", "raw", "", time.Unix(0, 0).UTC()),
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View: "frame_root_cause_bundle", FrameEvidenceStatus: "absent", TypedCausalRowCount: 1, CausalConclusion: "unproven",
+		},
+	})
+	// A second, frame-flow evaluator (temporal edges only) — its frame-origin
+	// verdict is equally out of scope on a non-frame question.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "trace_query", Success: true,
+		TraceEvidenceAuthority: &types.TraceEvidenceAuthority{
+			View: "frame_flow", FrameEvidenceStatus: "present", TypedCausalRowCount: 1, CausalConclusion: "unproven",
+			FrameFlowCausalConclusion: tracequery.FrameFlowCausalityUnproven, FrameFlowEdgeCount: 3,
+		},
+	})
+	doc := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{
+		{ID: "model_summary", Kind: types.BlockSummary, SurfaceRole: types.SurfacePrincipal, Text: "model conclusion"},
+	}}
+	res, err := ApplyAndPersistMutation(ctx, "test_emit", types.NewReplaceAllMutation(doc), nil, time.Now())
+	if err != nil || !res.Success {
+		t.Fatalf("persist failed: result=%+v err=%v", res, err)
+	}
+	persisted := ctx.Mutable.AnswerDocumentV2()
+	projection := projectionClusterBlock(persisted.Blocks, runtimeTraceCausalProjectionBlockIDBase)
+	if projection == nil || !strings.Contains(projection.Text, "**主根因(=已证链上单项最大可消除量):**") {
+		t.Fatalf("the defined crown must render: %+v", projection)
+	}
+	var rendered strings.Builder
+	for _, block := range persisted.Blocks {
+		rendered.WriteString(block.Title + "\n" + block.Text + "\n")
+		for _, item := range block.Items {
+			rendered.WriteString(item.Text + "\n")
+		}
+	}
+	for _, forbidden := range []string{"帧因果未证", "帧级因果尚未证明", "帧关系证据尚不足",
+		// 复核收编: the frame-origin "unproven" verdict must not turn into the
+		// generic "no usable on-chain observation" sentence beneath a crown.
+		"当前没有可用的链上因果观测"} {
+		if strings.Contains(rendered.String(), forbidden) {
+			t.Fatalf("gate closed: no surface may make a frame claim or deny the published on-chain observation (%q):\n%s", forbidden, rendered.String())
+		}
 	}
 }

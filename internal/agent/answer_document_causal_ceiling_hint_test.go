@@ -43,6 +43,8 @@ func answerDocCausalCeilingTestContext(withUnproven bool) *types.AgentContext {
 			RequestModel: types.RequestModel{
 				Scenario: types.ScenarioRootCause,
 				Intent:   types.IntentRootCause,
+				// QUALGATE-1: the advisory frame lanes follow the typed frame decision.
+				RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: true, Confidence: 0.9},
 			},
 			AnswerContract: types.AnswerContract{},
 		},

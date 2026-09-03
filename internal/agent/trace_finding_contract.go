@@ -49,10 +49,10 @@ func prepareTraceFindingContract(ctx *types.AgentContext) error {
 	// TestSessionAnyCausalSignalFeedsAdvisoryLanesOnly). Built from the same
 	// ledger input the compiled ledger reads (limit 64, answerDocObservationLedger).
 	seatInput := types.ObservationLedgerInputFromAgentContext(ctx, 64)
-	seatIndex := tracefinding.BuildSeatFrameCausalityIndex(seatInput)
-	logging.Debug("[trace_finding] seat authority index: tool_results=%d supplements=%d unproven_keys=%d",
-		len(seatInput.ToolResults), len(seatInput.SystemTraceSupplementResults), len(seatIndex))
-	contract, err := tracefinding.CompileCandidateContract(ledger, set, seatIndex)
+	seatAuthority := tracefinding.BuildSeatFrameCausalityAuthority(seatInput)
+	logging.Debug("[trace_finding] seat authority: frame_question=%v tool_results=%d supplements=%d unproven_keys=%d",
+		seatAuthority.Applicable, len(seatInput.ToolResults), len(seatInput.SystemTraceSupplementResults), len(seatAuthority.Index))
+	contract, err := tracefinding.CompileCandidateContract(ledger, set, seatAuthority)
 	if err != nil {
 		return fmt.Errorf("compile trace finding contract: %w", err)
 	}
@@ -129,7 +129,7 @@ func renderTraceFindingContract(ctx *types.AgentContext) string {
 			out.WriteString("- Use `trace_root_causes` in `emit_answer_document`; use `replace_trace_root_causes` in `emit_answer_document_patch`. Both fields take the same native object: `{\"schema_version\":2,\"root_causes\":[{\"candidate_id\":\"<exact id from roster>\"}]}`. Keep `schema_version` inside that object, not at the document top level. Do not quote the object or the number.\n")
 			out.WriteString("- A patch that only revises answer blocks should omit `replace_trace_root_causes`; the previously accepted report is retained. A replacement lists the complete ordered selection, not only the added entries.\n")
 			out.WriteString("- Omit the field when no candidate should be selected. Background and adjacent observations are intentionally absent.\n")
-			out.WriteString("- Each candidate carries its own `impact_caliber` (effective_attribution vs window_projection) and `causal_qualifier` (proven vs frame_unproven, seat-level — the same qualifier the answer headline wears). Both are copied verbatim onto the published sidecar; selecting a frame_unproven candidate is allowed and stays disclosed as such.\n\n")
+			out.WriteString("- Each candidate carries its own `impact_caliber` (effective_attribution vs window_projection) and `causal_qualifier`, a closed set copied verbatim onto the published sidecar: `proven` (this candidate's own trace evidence was checked for frame evidence and none withholds it), `frame_unproven` (checked and absent or unproven; seat-level — the same qualifier the answer headline wears), or `not_applicable` (this request is not a frame/jank question, so frame causality is not a claim the report makes and no headline qualifier appears). Selecting a frame_unproven candidate is allowed and stays disclosed as such.\n\n")
 			out.WriteString("```json\n")
 			out.Write(b)
 			out.WriteString("\n```\n")

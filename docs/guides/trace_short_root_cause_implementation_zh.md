@@ -86,7 +86,7 @@ Codrax 分析 Trace 后可以保存两类结果：
 | `phase_name` | 阶段名。阶段高负载需要。 |
 | `impact_seconds` | 该根因在目标分析窗口内的影响时间，单位是秒。它的口径由 `impact_caliber` 决定：`effective_attribution` 时是链上有效归因（现有规则可消除量）；`window_projection` 时只是窗内投影占用，尚未发布有效归因，不能与有效归因相加或同榜排序。 |
 | `impact_caliber` | 影响时间口径，闭集：`effective_attribution` / `window_projection`。总是显式给出，消费者不得从缺失推断。 |
-| `causal_qualifier` | 席位级帧因果限定，闭集：`proven` / `frame_unproven`。`frame_unproven` 表示该根因自身引用的 trace 证据没有帧证据（或帧流因果未证），与 Markdown 头行的「（帧因果未证）」同源同值；它不改变 `impact_seconds`，也不改变排名。 |
+| `causal_qualifier` | 席位级帧因果限定，闭集：`proven` / `frame_unproven` / `not_applicable`。`frame_unproven` 表示该根因自身引用的 trace 证据没有帧证据（或帧流因果未证），与 Markdown 头行的「（帧因果未证）」同源同值；`not_applicable` 表示本次请求不是帧/卡帧类问题（analyzer 的 typed 判定），报告不对帧因果作任何声明，头行也没有限定注。它不改变 `impact_seconds`，也不改变排名。 |
 | `summary` | 简短中文根因，程序自动生成。`causal_qualifier=frame_unproven` 时，summary 末尾追加「（帧因果未证）」，与头行同词；按前缀而不是全串匹配 summary。 |
 | `evidence` | 1 到 4 条简短、具体的 Trace 证据。 |
 

@@ -43,6 +43,22 @@ func TestValidatorCeilingReadsTypedFrameUnprovenQualifier(t *testing.T) {
 	}
 }
 
+// QUALGATE-1 (§40.30): a not_applicable seat makes no frame claim — it never
+// caps status (proven allowed), and the verbatim-copy rule still owns it.
+func TestValidatorNotApplicableQualifierDoesNotCapStatus(t *testing.T) {
+	contract := qualifierContract(types.TraceCausalQualifierNotApplicable)
+	finding := testFinding()
+	finding.PrimaryCause.CausalQualifier = types.TraceCausalQualifierNotApplicable
+	finding.PrimaryCause.Status = types.TraceCausalProven
+	if err := Validate(finding, contract); err != nil {
+		t.Fatalf("not_applicable must not cap status proven: %v", err)
+	}
+	finding.PrimaryCause.CausalQualifier = types.TraceCausalQualifierProven
+	if err := Validate(finding, contract); err == nil || !strings.Contains(err.Error(), "causal_qualifier") {
+		t.Fatalf("a spoofed proven qualifier against a not_applicable seat must be rejected: %v", err)
+	}
+}
+
 func TestValidatorCandidateQualifierIsSystemOwned(t *testing.T) {
 	contract := qualifierContract(types.TraceCausalQualifierFrameUnproven)
 	// Blank qualifier ⇒ rejected (never inferred from absence).

@@ -111,11 +111,22 @@ type RuntimeQuestionProfile struct {
 	// the same semantic choice as a presentation-dimension row.  Consumers must
 	// never infer this value from request text, model prose, Mermaid labels, or
 	// exploration results, and the value never pre-decides the relation.
-	RuntimeWorkRelationRequested bool                        `json:"runtime_work_relation_requested"`
-	FactFamilies                 []RuntimeQuestionFactFamily `json:"fact_families,omitempty"`
-	SourceQuote                  string                      `json:"source_quote,omitempty"`
-	Confidence                   float64                     `json:"confidence,omitempty"`
-	Rationale                    string                      `json:"rationale,omitempty"`
+	RuntimeWorkRelationRequested bool `json:"runtime_work_relation_requested"`
+	// FrameCausalityRequested (QUALGATE-1, user ruling §40.30 V-QUAL-1 plan A,
+	// 2026-09-02) is the analyzer's dedicated typed decision that the current
+	// runtime-artifact request asks about a rendering frame / dropped or
+	// delayed frame / frame window / vsync / render-deadline outcome. The
+	// seat-level frame-causality qualifier (Markdown headline 「（帧因果未证）」
+	// and the sidecar causal_qualifier) is published only when it is true;
+	// otherwise both faces carry not_applicable. Consumers must never infer
+	// this value from request text, model prose, keywords, exploration
+	// results, or the supplement's frame-family heuristic, and the value never
+	// pre-decides whether frame causality is proven.
+	FrameCausalityRequested bool                        `json:"frame_causality_requested"`
+	FactFamilies            []RuntimeQuestionFactFamily `json:"fact_families,omitempty"`
+	SourceQuote             string                      `json:"source_quote,omitempty"`
+	Confidence              float64                     `json:"confidence,omitempty"`
+	Rationale               string                      `json:"rationale,omitempty"`
 }
 
 // RequestsRuntimeWorkRelation reports the analyzer's explicit semantic
@@ -124,6 +135,12 @@ type RuntimeQuestionProfile struct {
 // boundaries, while the model owns the visible conclusion.
 func (p *RuntimeQuestionProfile) RequestsRuntimeWorkRelation() bool {
 	return p != nil && p.RuntimeWorkRelationRequested
+}
+
+// RequestsFrameCausality reports the analyzer's explicit typed decision that
+// the request is a frame / jank / render-deadline question (nil-safe).
+func (p *RuntimeQuestionProfile) RequestsFrameCausality() bool {
+	return p != nil && p.FrameCausalityRequested
 }
 
 func (p *RuntimeQuestionProfile) BoundedFactSet() bool {

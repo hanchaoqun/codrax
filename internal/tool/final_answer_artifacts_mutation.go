@@ -264,7 +264,13 @@ func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.Ra
 		return nil, nil
 	}
 	if len(strings.TrimSpace(string(submitted))) == 0 || string(submitted) == "null" {
-		return ctx.Mutable.TraceRootCauseReport(), nil
+		if report := ctx.Mutable.TraceRootCauseReport(); report != nil {
+			return report, nil
+		}
+		// §40.31.1 ★16: the model's last VALID selection rode an emit that was
+		// rejected for answer-structure reasons; the accepted re-emit/patch
+		// that omits the selector inherits it.
+		return ctx.Mutable.PendingTraceRootCauseReport(), nil
 	}
 	var selection types.TraceRootCauseReportV2
 	if err := json.Unmarshal(submitted, &selection); err != nil {

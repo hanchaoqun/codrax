@@ -1446,8 +1446,8 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 	lang := requestedAnswerDocumentLanguage(ctx)
 	focus := runtimeTraceProjUserFocusFromBusContext(ctx)
 	seatAuthority := buildRuntimeTraceProjectionSeatAuthorityIndex(input)
-	logging.Debug("[answer_document] crown seat authority index: tool_results=%d supplements=%d unproven_keys=%d",
-		len(input.ToolResults), len(input.SystemTraceSupplementResults), len(seatAuthority))
+	logging.Debug("[answer_document] crown seat authority: frame_question=%v tool_results=%d supplements=%d unproven_keys=%d",
+		seatAuthority.Applicable, len(input.ToolResults), len(input.SystemTraceSupplementResults), len(seatAuthority.Index))
 	var cluster []types.AnswerBlock
 	if len(set.Projections) > 1 {
 		// CMP-1: multi-artifact ledger — one projection section per trace
@@ -1541,7 +1541,7 @@ func materializeRuntimeTraceCausalProjectionBlock(doc *types.AnswerDocumentV2, c
 // twice (one tree row + one table row).
 func runtimeTraceCausalProjectionCluster(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus) []types.AnswerBlock {
 	return runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus,
-		runtimeTraceCausalProjectionBlockIDBase, "", nil)
+		runtimeTraceCausalProjectionBlockIDBase, "", runtimeTraceProjectionSeatAuthorityIndex{})
 }
 
 func runtimeTraceCausalProjectionClusterWithAuthority(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, authority runtimeTraceProjectionSeatAuthorityIndex) []types.AnswerBlock {
@@ -1557,7 +1557,7 @@ func runtimeTraceCausalProjectionClusterWithAuthority(projection types.TraceCaus
 // with per-artifact block ids, tree, detail table, evidence index (fresh E#
 // numbering) and bar scale.
 func runtimeTraceCausalProjectionClusterFor(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, idPrefix, artifactLabel string) []types.AnswerBlock {
-	return runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus, idPrefix, artifactLabel, nil)
+	return runtimeTraceCausalProjectionClusterForAuthority(projection, lang, focus, idPrefix, artifactLabel, runtimeTraceProjectionSeatAuthorityIndex{})
 }
 
 func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausalProjection, lang string, focus runtimeTraceProjUserFocus, idPrefix, artifactLabel string, authority runtimeTraceProjectionSeatAuthorityIndex) []types.AnswerBlock {
@@ -4319,17 +4319,18 @@ func runtimeTraceCoverageResults(input types.ObservationLedgerInput) []types.Too
 // qualifier depend on evidence consumed by the finally elected projection
 // seat, rather than on an unrelated exploratory query elsewhere in the run.
 // No request text, tool summary, or model-authored prose participates.
-type runtimeTraceProjectionSeatAuthorityIndex map[string]bool
+type runtimeTraceProjectionSeatAuthorityIndex tracefinding.SeatFrameCausalityAuthority
 
 func buildRuntimeTraceProjectionSeatAuthorityIndex(input types.ObservationLedgerInput) runtimeTraceProjectionSeatAuthorityIndex {
 	// SIDECAR-Q1 (§40.28 ②): ONE seat-level authority builder for every
 	// public consumer — the crown face here and the trace-finding contract
 	// behind the .root-causes.json sidecar (tracefinding.BuildSeatFrameCausalityIndex).
-	return runtimeTraceProjectionSeatAuthorityIndex(tracefinding.BuildSeatFrameCausalityIndex(input))
+	// QUALGATE-1 (§40.30): the typed request gate lives inside the provider.
+	return runtimeTraceProjectionSeatAuthorityIndex(tracefinding.BuildSeatFrameCausalityAuthority(input))
 }
 
 func runtimeTraceProjectionLeadFrameCausalityUnproven(projection types.TraceCausalProjection, model runtimeTraceProjTreeModel, authority runtimeTraceProjectionSeatAuthorityIndex) bool {
-	if len(authority) == 0 {
+	if !authority.Applicable || len(authority.Index) == 0 {
 		return false
 	}
 	lead, lane := runtimeTraceProjLeadSelect(projection, model)
@@ -4344,7 +4345,7 @@ func runtimeTraceProjectionLeadFrameCausalityUnproven(projection types.TraceCaus
 	// the candidate's own verdict; §40.28 ② 两面同真值).
 	ids := runtimeTraceProjRawNodeEvidenceIDs(projection, lead)
 	for _, id := range ids {
-		if authority[strings.TrimSpace(id)] {
+		if authority.Index[strings.TrimSpace(id)] {
 			logging.Debug("[answer_document] crown lead %q frame-unproven via evidence %q (lead ids=%v)", lead.Subject, id, ids)
 			return true
 		}
@@ -4422,11 +4423,15 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	out.enumerationIncomplete = enumeration.Incomplete
 	out.compactedViews = append([]string(nil), enumeration.Scopes...)
 	out.enumerationBoundaries = append([]types.ToolEnumerationBoundary(nil), enumeration.Boundaries...)
+	frameQuestion := types.FrameCausalityQualifierApplicable(input.RequestModel)
 	for _, result := range results {
 		toolName := strings.TrimSpace(result.ToolName)
 		if toolName == "trace_query" && result.TraceEvidenceAuthority != nil {
 			authority := result.TraceEvidenceAuthority
-			if authority.CausalConclusion == "unproven" {
+			// QUALGATE-1 复核收编: a frame-origin "unproven" verdict is out of
+			// scope on a non-frame question — it must not become the generic
+			// "no on-chain observation" sentence beneath a published on-chain crown.
+			if authority.CausalConclusion == "unproven" && (frameQuestion || !types.TraceAuthorityCausalUnprovenIsFrameOrigin(authority)) {
 				out.causalUnproven = true
 			}
 			if authority.FrameEvidenceStatus == "absent" || authority.FrameEvidenceStatus == "unavailable" {
@@ -4496,6 +4501,15 @@ func runtimeTraceCoverageAuthority(input types.ObservationLedgerInput) runtimeTr
 	if len(out.lifecycleBoundaries) > runtimeTraceCoverageLifecycleBoundaryLimit {
 		out.lifecycleOmitted = len(out.lifecycleBoundaries) - runtimeTraceCoverageLifecycleBoundaryLimit
 		out.lifecycleBoundaries = out.lifecycleBoundaries[:runtimeTraceCoverageLifecycleBoundaryLimit]
+	}
+	// QUALGATE-1 (§40.30 V-QUAL-1 plan A): the frame-level sentences of the
+	// coverage boundary follow the same typed request gate as the crown
+	// headline and the sidecar — a non-frame question keeps the generic
+	// causal-ceiling sentence and never speaks about frame causality.
+	if !types.FrameCausalityQualifierApplicable(input.RequestModel) {
+		out.frameUnproven = false
+		out.frameFlowUnproven = false
+		out.frameEvidenceStatus = ""
 	}
 	return out
 }
@@ -4914,6 +4928,8 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 				} else {
 					parts = append(parts, "帧级因果尚未证明："+status+"，且没有可用的链上因果观测；调度、IO、频率观察只能描述窗口背景，不能证明具体丢帧因果")
 				}
+			} else if typedChainRowsPresent {
+				parts = append(parts, "因果证据尚不足：已发布的唤醒/阻塞链只支持所选窗口内的链上候选与可消除量；未被链上凭证覆盖的机理不能升级为确定根因")
 			} else {
 				parts = append(parts, "因果证据尚不足：当前没有可用的链上因果观测，背景观察不能升级为确定根因")
 			}
@@ -4927,6 +4943,8 @@ func runtimeTraceCoverageAuthorityText(authority runtimeTraceCoverageAuthorityBo
 			} else {
 				parts = append(parts, "Frame-level causality is not yet proven: "+status+", and no usable on-chain causal observation was produced. Scheduler, IO, and frequency observations describe window context but do not prove a specific frame-drop cause")
 			}
+		} else if typedChainRowsPresent {
+			parts = append(parts, "Causal evidence is insufficient: published wakeup/blocking chains support only selected-window on-chain candidates and eliminable amounts; mechanisms without an on-chain credential cannot be promoted to a definite root cause")
 		} else {
 			parts = append(parts, "Causal evidence is insufficient: without a usable on-chain causal observation, background observations cannot be promoted to a definite root cause")
 		}

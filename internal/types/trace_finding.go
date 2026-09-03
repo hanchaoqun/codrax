@@ -108,9 +108,19 @@ type TraceCauseDecision struct {
 
 // TraceCausalQualifier values — closed set, always explicit on every public
 // surface (a consumer never infers the qualifier from field absence).
+//   - proven: the candidate's own trace evidence was checked for frame
+//     evidence and none withholds it;
+//   - frame_unproven: checked and the frame evidence is absent/unavailable/
+//     unproven — the seat-level qualifier the headline wears (T3-1 §7.3);
+//   - not_applicable (QUALGATE-1, §40.30 V-QUAL-1 plan A): the request is not
+//     a frame/jank question per the analyzer's typed decision, so frame
+//     causality is not a claim the report makes — neither proven nor
+//     unproven; no headline qualifier, no summary suffix, and it never caps a
+//     candidate's status.
 const (
 	TraceCausalQualifierProven        = "proven"
 	TraceCausalQualifierFrameUnproven = "frame_unproven"
+	TraceCausalQualifierNotApplicable = "not_applicable"
 	// TraceCausalQualifierFrameUnprovenSuffixZH is the ONE user-facing spelling
 	// of the frame_unproven qualifier: the Markdown crown headline wears it and
 	// the sidecar summary appends it (§40.28 ② 「summary 限定注与头行同词」) —
@@ -121,10 +131,16 @@ const (
 // ValidTraceCausalQualifier reports closed-set membership.
 func ValidTraceCausalQualifier(v string) bool {
 	switch v {
-	case TraceCausalQualifierProven, TraceCausalQualifierFrameUnproven:
+	case TraceCausalQualifierProven, TraceCausalQualifierFrameUnproven, TraceCausalQualifierNotApplicable:
 		return true
 	}
 	return false
+}
+
+// AllTraceCausalQualifiers lists the closed set in its documented order (the
+// guide table and teaching surfaces render from this one list).
+func AllTraceCausalQualifiers() []string {
+	return []string{TraceCausalQualifierProven, TraceCausalQualifierFrameUnproven, TraceCausalQualifierNotApplicable}
 }
 
 type TraceFindingArtifact struct {

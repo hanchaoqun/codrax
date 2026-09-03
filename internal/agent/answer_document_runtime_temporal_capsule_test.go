@@ -207,7 +207,10 @@ func TestRuntimeTemporalCapsuleWithholdsOverCapWithoutTruncating(t *testing.T) {
 func TestRuntimeTraceGuidanceWiresReportLocalTemporalCapsule(t *testing.T) {
 	mut := types.NewMutableState("trace frame")
 	mut.AppendDispatchToolResult(completeRuntimeTemporalCapsuleResult())
-	ctx := &types.AgentContext{Mutable: mut}
+	ctx := &types.AgentContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		// QUALGATE-1: the frame-edge advisory hint follows the typed frame decision.
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: true, Confidence: 0.9},
+	}}}
 	got := renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
 	for _, want := range []string{
 		"Runtime frame-edge authority hint",

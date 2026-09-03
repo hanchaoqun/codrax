@@ -90,16 +90,26 @@ func TestTraceProjectionReadsAuthorityFromSystemSupplementResults(t *testing.T) 
 	}
 }
 
+// traceAuthorityFrameQuestionRequestModel — QUALGATE-1 (§40.30): the typed
+// analyzer decision that opens the frame-causality qualifier gate on both
+// faces and the coverage-boundary frame sentences.
+func traceAuthorityFrameQuestionRequestModel() *types.RequestModel {
+	return &types.RequestModel{
+		Intent:   types.IntentTrace,
+		Scenario: types.ScenarioPerformanceBottleneck,
+		RuntimeQuestionProfile: &types.RuntimeQuestionProfile{
+			Scope: types.RuntimeQuestionScopeCausalDiagnosis, FrameCausalityRequested: true, Confidence: 0.9,
+		},
+	}
+}
+
 func traceAuthorityWiringContext(lang string) *types.BusContext {
 	mutable := types.NewMutableState("trace authority wiring")
 	return &types.BusContext{
 		Language: lang,
 		Mutable:  mutable,
 		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{
-				Intent:   types.IntentTrace,
-				Scenario: types.ScenarioPerformanceBottleneck,
-			},
+			RequestModel:   *traceAuthorityFrameQuestionRequestModel(),
 			AnswerContract: types.AnswerContract{Language: lang},
 		},
 	}
