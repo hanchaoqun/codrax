@@ -259,8 +259,22 @@ func IsKnownWriteRenderedTextRelation(v string) bool {
 // exist, it creates generic observable atoms that preserve the outcome text
 // without attempting semantic parsing.
 func NormalizeWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string) []WriteBehaviorContract {
+	return normalizeWriteBehaviorContractsReserving(in, expectedOutcomes, nil)
+}
+
+// normalizeWriteBehaviorContractsReserving is NormalizeWriteBehaviorContracts
+// with a reserved id set: a fallback row minted for expectedOutcomes never
+// reuses a reserved id. A verify-failure rebase reserves its tombstoned ids so
+// the new generation's `outcome-N` row cannot collide with a tombstone that
+// would then shadow it out of every verification view (§40.24 second finding).
+func normalizeWriteBehaviorContractsReserving(in []WriteBehaviorContract, expectedOutcomes []string, reserved []string) []WriteBehaviorContract {
 	out := make([]WriteBehaviorContract, 0, len(in)+len(expectedOutcomes))
 	seen := map[string]struct{}{}
+	for _, id := range reserved {
+		if id = strings.TrimSpace(id); id != "" {
+			seen[id] = struct{}{}
+		}
+	}
 	seenExpected := map[string]struct{}{}
 	for i, c := range in {
 		c.ID = strings.TrimSpace(c.ID)
@@ -376,32 +390,91 @@ func RebaseExpectedOutcomeFallbackWriteBehaviorContracts(in []WriteBehaviorContr
 // RebaseVerifyFailureWriteBehaviorContracts builds the active behavior
 // contract generation after a typed post-apply verification failure.
 //
-// A satisfies-only expected contract without typed grounding is soft analyzer
-// guidance, not an immutable user or source fact. Once a real verifier has
-// rejected the applied generation, carrying that guidance into every replan can
-// require both the disproven implementation shape and its repair. Preserve hard
-// contracts and typed-grounded/observed facts; retire ungrounded soft expected
-// contracts and both fallback generations, then project the current plan's
-// acceptance tests as the new soft generation. The decision uses only typed
-// contract fields and verify-failure workflow state selected by the caller; it
-// never scans the request, plan prose, test output, or source bytes.
+// Hard contracts and typed-grounded/observed facts always survive. Both
+// fallback generations (expected_outcome / plan_acceptance rows) are replaced
+// by the current plan's acceptance tests: they are planning-only prose, never
+// a proof obligation, so their replacement is a generation change recorded
+// with reason fallback_generation_rebase. An ungrounded soft expected contract
+// (satisfies-only, no evidence_ref anywhere) is retired ONLY on relevance
+// evidence — the failure kind opened the relevance subset (tests_failed) and
+// a failed typed row of the same plan names the id — or on an explicit
+// planner supersession; every other soft contract is retained byte-identical
+// (§40.23). Ids the run's ledger already retired (decision.Prior) stay retired
+// under their original tombstone whatever this attempt says (§40.46:
+// monotonic retirement). Retired ids are reserved so the new fallback rows
+// cannot re-mint them. The decision uses only typed contract fields and the typed handoff
+// projection; it never scans the request, plan prose, test output, or source.
 //
-// The returned retired IDs are controller-owned tombstones. They prevent an
-// earlier still-applied plan in cumulative verification scope from silently
-// reintroducing a superseded contract with the same ID.
-func RebaseVerifyFailureWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string) ([]WriteBehaviorContract, []string) {
+// The returned tombstones are controller-owned. They prevent an earlier
+// still-applied plan in cumulative verification scope from silently
+// reintroducing a superseded contract with the same ID, and they carry the
+// evidence ids that authorized the retirement.
+func RebaseVerifyFailureWriteBehaviorContracts(in []WriteBehaviorContract, expectedOutcomes []string, decision WriteBehaviorContractRetirementDecision) ([]WriteBehaviorContract, []WriteBehaviorContractTombstone) {
 	retained := make([]WriteBehaviorContract, 0, len(in))
-	retired := make([]string, 0, len(in))
-	for _, contract := range in {
-		if IsExpectedOutcomeFallbackWriteBehaviorContract(contract) || isUngroundedSoftExpectedWriteBehaviorContract(contract) {
-			if id := strings.TrimSpace(contract.ID); id != "" {
-				retired = append(retired, id)
+	tombstones := make([]WriteBehaviorContractTombstone, 0, len(in))
+	hits := decision.Relevance.HitByContractID()
+	planner := map[string]struct{}{}
+	for _, id := range decision.PlannerSupersededIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			planner[id] = struct{}{}
+		}
+	}
+	seenTombstone := map[string]struct{}{}
+	retire := func(tombstone WriteBehaviorContractTombstone) {
+		if tombstone.ID == "" {
+			return
+		}
+		if _, ok := seenTombstone[tombstone.ID]; ok {
+			return
+		}
+		seenTombstone[tombstone.ID] = struct{}{}
+		tombstones = append(tombstones, tombstone)
+	}
+	prior := map[string]WriteBehaviorContractTombstone{}
+	for _, tombstone := range decision.Prior {
+		if id := strings.TrimSpace(tombstone.ID); id != "" {
+			if _, ok := prior[id]; !ok {
+				prior[id] = tombstone
 			}
+		}
+	}
+	for _, contract := range in {
+		id := strings.TrimSpace(contract.ID)
+		// §40.46: retirement is monotonic — an id the run's ledger already
+		// retired stays retired under its ORIGINAL evidence, whatever this
+		// attempt's failure kind or relevance says.
+		if tombstone, ok := prior[id]; ok {
+			retire(tombstone)
 			continue
+		}
+		// Planner supersession is checked first over the whole supersedable
+		// class (fallback / planning-only / ungrounded soft): an accepted
+		// declaration always mints a planner_supersession tombstone with the
+		// plan evidence (accept-set == retire-set, one predicate).
+		if _, ok := planner[id]; ok {
+			if supersedable, _ := PlannerSupersedableWriteBehaviorContract(contract); supersedable {
+				retire(decision.tombstone(id, WriteBehaviorContractRetiredPlannerSupersession, decision.planEvidence()))
+				continue
+			}
+		}
+		if IsExpectedOutcomeFallbackWriteBehaviorContract(contract) {
+			retire(decision.tombstone(id, WriteBehaviorContractRetiredFallbackGenerationRebase, decision.planEvidence()))
+			continue
+		}
+		if isUngroundedSoftExpectedWriteBehaviorContract(contract) {
+			if hit, ok := hits[id]; ok && decision.Lane == FailureKindContractRetireRelevanceSubset {
+				retire(decision.tombstone(id, hit.Reason, hit.EvidenceRefs))
+				continue
+			}
 		}
 		retained = append(retained, contract)
 	}
-	rebased := NormalizeWriteBehaviorContracts(retained, expectedOutcomes)
+	sort.SliceStable(tombstones, func(i, j int) bool { return tombstones[i].ID < tombstones[j].ID })
+	reserved := make([]string, 0, len(tombstones))
+	for _, tombstone := range tombstones {
+		reserved = append(reserved, tombstone.ID)
+	}
+	rebased := normalizeWriteBehaviorContractsReserving(retained, expectedOutcomes, reserved)
 	for i := range rebased {
 		if IsExpectedOutcomeFallbackWriteBehaviorContract(rebased[i]) {
 			rebased[i].Source = WriteBehaviorContractSourcePlanAcceptanceFallback + ";" +
@@ -409,27 +482,14 @@ func RebaseVerifyFailureWriteBehaviorContracts(in []WriteBehaviorContract, expec
 			rebased[i].Required = false
 		}
 	}
-	return rebased, dedupSortedWriteBehaviorContractIDs(retired)
+	return rebased, tombstones
 }
 
 func isUngroundedSoftExpectedWriteBehaviorContract(contract WriteBehaviorContract) bool {
 	if !contract.Required || contract.Polarity == WriteBehaviorPolarityObserved || IsHardRequiredWriteBehaviorContract(contract) {
 		return false
 	}
-	if strings.TrimSpace(contract.EvidenceRef) != "" {
-		return false
-	}
-	if contract.Comparator != nil && strings.TrimSpace(contract.Comparator.EvidenceRef) != "" {
-		return false
-	}
-	if contract.Transition != nil {
-		for _, step := range contract.Transition.Steps {
-			if strings.TrimSpace(step.EvidenceRef) != "" {
-				return false
-			}
-		}
-	}
-	return true
+	return !writeBehaviorContractHasEvidence(contract)
 }
 
 func dedupSortedWriteBehaviorContractIDs(in []string) []string {
@@ -658,7 +718,11 @@ func HardRequiredWriteBehaviorContractIDs(contracts []WriteBehaviorContract) map
 	return ids
 }
 
-func WriteBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {
+// writeBehaviorContractIDs is deliberately unexported: the raw id set of a
+// contract slice is not an authority any gate may consult directly. Gates
+// resolve ids through WriteBehaviorContractResolution (V5-4), which is the
+// only caller; the census test guards against a re-export.
+func writeBehaviorContractIDs(contracts []WriteBehaviorContract) map[string]struct{} {
 	ids := make(map[string]struct{}, len(contracts))
 	for _, c := range contracts {
 		if id := strings.TrimSpace(c.ID); id != "" {

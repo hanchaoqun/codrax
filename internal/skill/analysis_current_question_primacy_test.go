@@ -438,6 +438,9 @@ func TestAnalysisDiagramParticipantTeachingSeparatesActorsFromPresentationSyntax
 		"presentation grammar",
 		"diagram-family/syntax names",
 		"not actors in that view",
+		// V4-3 (§40.21): the slash-pair split moved from the emit-side
+		// normalizer into teaching — the pair is two actors, two rows.
+		"emit both halves in `entities` and one participant row per half",
 	} {
 		if !strings.Contains(AnalysisDiagramParticipantPlanningContract, want) {
 			t.Fatalf("diagram participant teaching missing %q: %s", want, AnalysisDiagramParticipantPlanningContract)

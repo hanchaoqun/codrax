@@ -278,18 +278,37 @@ const (
 	FailureKindEscapeDriftOwnerLane FailureKindReplanEscapeLane = "drift_owner_lane"
 )
 
-// FailureKindReplanEscapeLanes is the registration table.
-var FailureKindReplanEscapeLanes = map[FailureKind]FailureKindReplanEscapeLane{
-	FailureKindTestsFailed:             FailureKindEscapeReplanOnly,
-	FailureKindBuildFailure:            FailureKindEscapeReplanOnly,
-	FailureKindTimeout:                 FailureKindEscapeReplanOnly,
-	FailureKindOOM:                     FailureKindEscapeReplanOnly,
-	FailureKindCPULimit:                FailureKindEscapeReplanOnly,
-	FailureKindCrash:                   FailureKindEscapeReplanOnly,
-	FailureKindVerificationSideEffect:  FailureKindEscapeDriftOwnerLane,
-	FailureKindPreexistingBuildFailure: FailureKindEscapeAcceptUnverified,
-	FailureKindRunnerMissing:           FailureKindEscapeAcceptUnverified,
-	FailureKindParserError:             FailureKindEscapeAcceptUnverified,
-	FailureKindVerificationIncomplete:  FailureKindEscapeAcceptUnverified,
-	FailureKindNoTests:                 FailureKindEscapeAcceptUnverified,
+// FailureKindReplanAction is the typed action row of one FailureKind: the
+// escape lane (V5-2) and what the kind may do to the soft behavior-contract
+// layer (V5-3, §40.23 item 4). Every declared FailureKind must be registered;
+// the census in change_plan_failure_kind_census_test.go goes red otherwise,
+// and pins that exactly tests_failed opens the relevance subset.
+type FailureKindReplanAction struct {
+	Escape             FailureKindReplanEscapeLane
+	ContractRetirement FailureKindContractRetirementLane
+}
+
+// FailureKindReplanActions is the FailureKind→action registration table.
+var FailureKindReplanActions = map[FailureKind]FailureKindReplanAction{
+	FailureKindTestsFailed:             {Escape: FailureKindEscapeReplanOnly, ContractRetirement: FailureKindContractRetireRelevanceSubset},
+	FailureKindBuildFailure:            {Escape: FailureKindEscapeReplanOnly, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindTimeout:                 {Escape: FailureKindEscapeReplanOnly, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindOOM:                     {Escape: FailureKindEscapeReplanOnly, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindCPULimit:                {Escape: FailureKindEscapeReplanOnly, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindCrash:                   {Escape: FailureKindEscapeReplanOnly, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindVerificationSideEffect:  {Escape: FailureKindEscapeDriftOwnerLane, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindPreexistingBuildFailure: {Escape: FailureKindEscapeAcceptUnverified, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindRunnerMissing:           {Escape: FailureKindEscapeAcceptUnverified, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindParserError:             {Escape: FailureKindEscapeAcceptUnverified, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindVerificationIncomplete:  {Escape: FailureKindEscapeAcceptUnverified, ContractRetirement: FailureKindContractRetainAll},
+	FailureKindNoTests:                 {Escape: FailureKindEscapeAcceptUnverified, ContractRetirement: FailureKindContractRetainAll},
+}
+
+// FailureKindReplanEscapeLanes is the escape-lane projection of the table.
+func FailureKindReplanEscapeLanes() map[FailureKind]FailureKindReplanEscapeLane {
+	out := make(map[FailureKind]FailureKindReplanEscapeLane, len(FailureKindReplanActions))
+	for kind, action := range FailureKindReplanActions {
+		out[kind] = action.Escape
+	}
+	return out
 }

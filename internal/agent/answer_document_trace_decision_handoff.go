@@ -813,9 +813,24 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 		return
 	}
 	authorities := types.CompileTraceAnswerRelationAuthorities(set)
+	// V1-4 (§40.26 ③): a multi-trace fold keeps its partition key on every
+	// public copy — the claim JSON carries artifact_label, and the lines are
+	// grouped under the trace file they were compiled from (partition
+	// order); the roster count is read from the ONE roster function.
+	partitions := types.TraceCausalProjectionSetArtifactLabels(set)
+	multiArtifact := len(partitions) > 1
 	authorityCount := 0
+	currentGroup, groupOpen := "", false
 	for _, authority := range authorities {
 		authorityCount++
+		if multiArtifact && (!groupOpen || authority.ArtifactLabel != currentGroup) {
+			currentGroup, groupOpen = authority.ArtifactLabel, true
+			label := currentGroup
+			if label == "" {
+				label = "unlabeled"
+			}
+			fmt.Fprintf(b, "- relation_authority_trace_file: `%s` — the typed authorities below were compiled from this trace file only.\n", label)
+		}
 		claim := types.AnswerRelationClaimForAuthority(authority)
 		copyJSON, err := json.Marshal(claim)
 		if err != nil {
@@ -843,6 +858,9 @@ func traceDecisionWriteRelationClaimHandoff(b *strings.Builder, set types.TraceC
 			b.WriteString("; arithmetic_instruction=`preserve_each_member_but_never_publish_their_sum_as_a_total_or_eliminable_amount`")
 		}
 		b.WriteString(".\n")
+	}
+	if authorityCount > 0 && multiArtifact {
+		fmt.Fprintf(b, "- relation_authority_partition: the typed relation authorities above come from %d trace files; `artifact_label` inside each `relation_claim_copy` names its trace file. A same-looking relation in two trace files is two authorities — never merge, compare, or add them as one accounting, and copy a claim with its `artifact_label` unchanged.\n", len(partitions))
 	}
 	if authorityCount > 0 {
 		b.WriteString("- final_relation_claim_carrier: the typed authorities above are precise decision inputs and are already carried automatically. Prefer omitting optional `blocks[i].relation_claims`. If structured metadata is useful, copy only one complete `relation_claim_copy` JSON object; never copy any `relation_diagnostic_only` field, and never put claims at document-level `$.relation_claims`. Submitted metadata is validated, but omission does not trigger a retry. Deterministic checks never rewrite prose.\n")

@@ -982,6 +982,17 @@ type AnalyzerHints struct {
 	//
 	// Design doc: docs/design/forced_read_remediation.md §4.4.
 	RequiredFileHints []RequiredFileHint `json:"required_file_hints,omitempty"`
+	// DimensionOwnerUnresolved is the typed SOFT marker (V4-4, §40.22) that
+	// the analyzer asserted high-confidence file responsibility yet left one
+	// or more required explanation-operation dimensions without an owner
+	// and/or left a high-confidence file without a declared role. Analysis
+	// does not read file bodies, so "which file implements dimension 2" is
+	// often legitimately unknown there; ownership is settled during
+	// exploration (the explorer guide discloses this marker) and enforced
+	// by the completion gate's per-index grounded-operation seats — never by
+	// an analyze-stage hard reject. nil = ownership either fully declared or
+	// not asserted at all.
+	DimensionOwnerUnresolved *DimensionOwnerUnresolved `json:"dimension_owner_unresolved,omitempty"`
 	// IrrelevantFiles is the negative-channel counterpart of
 	// RequiredFileHints. The analyzer LLM may explicitly list paths
 	// it has already inspected during pre-scan and judged
@@ -1037,6 +1048,48 @@ type RequiredFileHint struct {
 	// must never infer it from Rationale, path names, request prose, or answer
 	// text. Empty preserves the legacy navigation-only required-file contract.
 	RequestedDimensionIndices []int `json:"requested_dimension_indices,omitempty"`
+	// RequestedDimensionNavigationOnly persists the analyzer's explicit
+	// "location/navigation aid, owns no explanation operation" declaration
+	// (V4-4, §40.22). Before it was persisted only the emit-time raw parameter
+	// carried the classification, so the unresolved-owner marker could not
+	// distinguish a declared navigation file from an undeclared one.
+	RequestedDimensionNavigationOnly bool `json:"requested_dimension_navigation_only,omitempty"`
+	// Origin is the typed producer lane of this hint (§40.47 fold-in of
+	// V4-4). The zero value is the analyzer's own declaration; every
+	// deterministic system projection (runtime-artifact path, prescan
+	// candidate, principal-scope promotion, user @path pin) stamps its own
+	// constant. Consumers that reason about what the MODEL declared — the
+	// unresolved-owner marker — read only model-declared hints; routing
+	// consumers read every hint regardless of origin.
+	Origin RequiredFileHintOrigin `json:"origin,omitempty"`
+}
+
+// RequiredFileHintOrigin is the closed enum of RequiredFileHint producers.
+type RequiredFileHintOrigin string
+
+const (
+	// RequiredFileHintOriginModel is the analyzer's own required_files
+	// declaration (schema-decoded emission). Zero value on purpose: persisted
+	// model hints predate the field and decode as model-declared.
+	RequiredFileHintOriginModel RequiredFileHintOrigin = ""
+	// RequiredFileHintOriginRuntimeArtifactPath — a runtime-artifact path token
+	// preserved from the request prose for artifact-lane routing.
+	RequiredFileHintOriginRuntimeArtifactPath RequiredFileHintOrigin = "system_runtime_artifact_path"
+	// RequiredFileHintOriginAnalyzerPrescan — a deterministic analyzer prescan
+	// candidate projected for typed source-inventory coverage.
+	RequiredFileHintOriginAnalyzerPrescan RequiredFileHintOrigin = "system_analyzer_prescan"
+	// RequiredFileHintOriginPrincipalScopePromotion — a principal source-scope
+	// path promoted out of a contradictory irrelevant_files declaration.
+	RequiredFileHintOriginPrincipalScopePromotion RequiredFileHintOrigin = "system_principal_scope_promotion"
+	// RequiredFileHintOriginUserPinnedPath — a file the user pinned verbatim
+	// with an @path token in the request.
+	RequiredFileHintOriginUserPinnedPath RequiredFileHintOrigin = "system_user_pinned_path"
+)
+
+// ModelDeclared reports whether the hint is the analyzer's own declaration
+// rather than a deterministic system projection.
+func (h RequiredFileHint) ModelDeclared() bool {
+	return h.Origin == RequiredFileHintOriginModel
 }
 
 type EntityOrigin string

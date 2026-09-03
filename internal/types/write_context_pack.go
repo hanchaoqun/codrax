@@ -171,6 +171,85 @@ func MergeWriteContextPacks(batchID, goal string, packs ...WriteContextPack) Wri
 	return NormalizeWriteContextPack(out)
 }
 
+// renderWriteBehaviorContractRetiredContext is the one wording of a retired
+// contract id in a context pack (plan packs and the ledger projection).
+func renderWriteBehaviorContractRetiredContext(tombstone WriteBehaviorContractTombstone) string {
+	text := "id=" + strings.TrimSpace(tombstone.ID)
+	if tombstone.Reason != "" {
+		text += " reason=" + string(tombstone.Reason)
+	}
+	if len(tombstone.EvidenceRefs) > 0 {
+		text += " evidence=" + strings.Join(tombstone.EvidenceRefs, ",")
+	}
+	if tombstone.PlanID != "" {
+		text += " failed_plan_id=" + tombstone.PlanID
+	}
+	if tombstone.Attempt > 0 {
+		text += " attempt=" + strconv.Itoa(tombstone.Attempt)
+	}
+	return text
+}
+
+// ProjectWriteContextPackBehaviorContractRetirement is the pack face of the
+// contract-generation projection (§40.46 C1): every `behavior_contract` /
+// `behavior_transition_step` item whose contract id is tombstoned — from any
+// source stage, on any round — is replaced by one `behavior_contract_retired`
+// item carrying the typed reason and evidence, unless the pack already
+// carries a retired item for that id (a rebased plan pack). With no
+// tombstones the pack is returned unchanged.
+func ProjectWriteContextPackBehaviorContractRetirement(in WriteContextPack, tombstones []WriteBehaviorContractTombstone) WriteContextPack {
+	if len(tombstones) == 0 || len(in.Items) == 0 {
+		return in
+	}
+	retired := map[string]WriteBehaviorContractTombstone{}
+	for _, tombstone := range tombstones {
+		if id := strings.TrimSpace(tombstone.ID); id != "" {
+			if _, ok := retired[id]; !ok {
+				retired[id] = tombstone
+			}
+		}
+	}
+	alreadyRendered := map[string]bool{}
+	for _, item := range in.Items {
+		if item.Kind == "behavior_contract_retired" {
+			alreadyRendered[strings.TrimSpace(item.SourceID)] = true
+		}
+	}
+	changed := false
+	items := make([]WriteContextItem, 0, len(in.Items))
+	for _, item := range in.Items {
+		switch item.Kind {
+		case "behavior_contract", "behavior_transition_step":
+		default:
+			items = append(items, item)
+			continue
+		}
+		id := strings.TrimSpace(item.SourceID)
+		tombstone, ok := retired[id]
+		if !ok {
+			items = append(items, item)
+			continue
+		}
+		changed = true
+		if alreadyRendered[id] {
+			continue
+		}
+		alreadyRendered[id] = true
+		retiredItem := writeContextItem("behavior_contract_retired", WriteContextP1, renderWriteBehaviorContractRetiredContext(tombstone), item.SourceStage,
+			WriteConsumerController, WriteConsumerPlanner)
+		retiredItem.SourceID = id
+		retiredItem.BatchID = item.BatchID
+		retiredItem.SliceID = item.SliceID
+		retiredItem.ID = writeContextStableID("behavior_contract_retired", item.SourceStage, id, string(tombstone.Reason))
+		items = append(items, retiredItem)
+	}
+	if !changed {
+		return in
+	}
+	in.Items = items
+	return NormalizeWriteContextPack(in)
+}
+
 // WriteContextPackPlanGeneration returns the exact plan generation carried by
 // a plan or merged context pack. It never infers identity from goal/summary
 // text. When a legacy merged pack somehow contains multiple generation rows,
@@ -569,6 +648,15 @@ func WriteContextPackFromChangePlan(plan *ChangePlan) WriteContextPack {
 		item.SourceID = strings.TrimSpace(plan.ID)
 		item.ID = writeContextStableID("behavior_contract_generation", plan.ID, WriteBehaviorContractSourcePlanAcceptanceFallback)
 		pack.Items = append(pack.Items, item)
+		// §40.23 item 3: every retired id travels with its typed reason and
+		// evidence ids so the controller/planner see WHY it is closed.
+		for _, tombstone := range ResolveChangePlanBehaviorContractIDs(plan).Tombstones {
+			retiredItem := writeContextItem("behavior_contract_retired", WriteContextP1, renderWriteBehaviorContractRetiredContext(tombstone), "plan",
+				WriteConsumerController, WriteConsumerPlanner)
+			retiredItem.SourceID = tombstone.ID
+			retiredItem.ID = writeContextStableID("behavior_contract_retired", plan.ID, tombstone.ID, string(tombstone.Reason))
+			pack.Items = append(pack.Items, retiredItem)
+		}
 	}
 	for _, reason := range plan.UnvalidatedReasons {
 		pack.Items = append(pack.Items, writeContextItem("unvalidated_reason", WriteContextP2, reason, "plan",

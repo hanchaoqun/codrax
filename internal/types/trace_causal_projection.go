@@ -401,6 +401,13 @@ type TraceCausalProjectionCPUOccupancyProcess struct {
 	EvidenceID   string   `json:"evidence_id,omitempty"`
 }
 
+// UninterruptibleWaitMS returns the published uninterruptible-wait fold of
+// the projection account (non-IO D + scheduler-marked IO; see
+// TraceUninterruptibleWaitMS — the single fold source).
+func (a TraceCausalProjectionTargetStateAccount) UninterruptibleWaitMS() float64 {
+	return TraceUninterruptibleWaitMS(a.DStateMS, a.IOWaitMS)
+}
+
 // TraceCausalProjectionTargetStateAccount is the §29.27② typed carrier of the
 // focused thread's full-window state partition (see the field doc above).
 type TraceCausalProjectionTargetStateAccount struct {

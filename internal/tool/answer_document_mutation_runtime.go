@@ -101,29 +101,6 @@ func ApplyAndPersistMutation(
 	)
 }
 
-// ApplyAndPersistMutationWithFinding shares the document validation path but
-// commits the typed finding under the same MutableState lock.
-func ApplyAndPersistMutationWithFinding(
-	ctx *types.BusContext,
-	toolName string,
-	mutation types.AnswerDocumentMutation,
-	prev *types.AnswerDocumentV2,
-	finding *types.TraceFindingV1,
-	now time.Time,
-) (types.ToolResult, error) {
-	if ctx == nil || ctx.Mutable == nil {
-		return failEmit(toolName, now, "%s requires a writable context", toolName)
-	}
-	merged, err := mutation.Apply(prev)
-	if err != nil {
-		return failEmitWithRepair(toolName, now, answerDocumentMutationRepair(err), "mutation apply rejected: %v", err)
-	}
-	if merged == nil {
-		return failEmit(toolName, now, "mutation apply produced a nil document — internal error")
-	}
-	return persistMergedFinalAnswerArtifactsWithAttachmentPolicy(ctx, toolName, mutation.Kind, mutation.Summary(), merged, finding, now, answerDocumentMutationExplicitlyRemovesDiagram(mutation, prev))
-}
-
 func answerDocumentMutationRepair(err error) *types.ToolRepair {
 	if err == nil {
 		return nil
@@ -164,25 +141,18 @@ func persistMergedAnswerDocument(
 	return persistMergedAnswerDocumentWithAttachmentPolicy(ctx, toolName, kind, mutationSummary, merged, now, false)
 }
 
+// persistMergedAnswerDocumentWithAttachmentPolicy is the single persist
+// tail for both emit shapes. (V1-5, §40.16: the former
+// persistMergedFinalAnswerArtifactsWithAttachmentPolicy carried a legacy
+// typed-finding sibling whose only producer was forced off; the document is
+// the one artifact this tail commits — the optional root-cause sidecar is
+// committed by the callers' commitTraceRootCauseSelection after it.)
 func persistMergedAnswerDocumentWithAttachmentPolicy(
 	ctx *types.BusContext,
 	toolName string,
 	kind types.MutationKind,
 	mutationSummary string,
 	merged *types.AnswerDocumentV2,
-	now time.Time,
-	dropExplicitlyRemovedModelDiagrams bool,
-) (types.ToolResult, error) {
-	return persistMergedFinalAnswerArtifactsWithAttachmentPolicy(ctx, toolName, kind, mutationSummary, merged, nil, now, dropExplicitlyRemovedModelDiagrams)
-}
-
-func persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
-	ctx *types.BusContext,
-	toolName string,
-	kind types.MutationKind,
-	mutationSummary string,
-	merged *types.AnswerDocumentV2,
-	finding *types.TraceFindingV1,
 	now time.Time,
 	dropExplicitlyRemovedModelDiagrams bool,
 ) (types.ToolResult, error) {
@@ -368,11 +338,7 @@ func persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
 
-	if contract := ctx.Mutable.TraceFindingContract(); contract != nil && contract.Required {
-		ctx.Mutable.SetFinalAnswerArtifactsWithMutation(kind, &types.FinalAnswerArtifactsV1{Document: *merged, TraceFinding: finding})
-	} else {
-		ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
-	}
+	ctx.Mutable.SetAnswerDocumentV2WithMutation(kind, merged)
 	attachments := ctx.Mutable.AnswerDisplayAttachments()
 	if dropExplicitlyRemovedModelDiagrams {
 		attachments = filterExplicitlyRemovedModelDiagramAttachments(attachments)
@@ -1698,10 +1664,10 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			model.Marks.has(runtimeTraceProjMarkActualNoInterval)
 		lines := []string{
 			tracefence.AuxColumnGlossaryMarker,
-			"- 窗口投影 = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
-			"- 链上累计 = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长;无下钻子链的行不含子链份额,该值即该行自身账目的窗内投影;「链上」指沿唤醒链累计的方向,不是「直达关注线程」的额外传导声明。",
-			"- 有效归因 = 该行计入根因排序的影响时长;与窗口投影不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与链上累计同值时为同一测量的两个名目(非两项单独证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于链上累计)。",
-			"- 实际状态 = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
+			"- " + tracefence.ImpactCaliberWindowProjectionZH + " = 该节点的状态落在分析窗内的时长;跨线程聚合行按跨线程累计计量(非墙钟,单元格已标注)。",
+			"- " + tracefence.ImpactCaliberChainCumulativeZH + " = 该节点及其下钻子链沿唤醒链累计到关注线程的投影时长;无下钻子链的行不含子链份额,该值即该行自身账目的窗内投影;「链上」指沿唤醒链累计的方向,不是「直达关注线程」的额外传导声明。",
+			"- " + tracefence.ImpactCaliberEffectiveZH + " = 该行计入根因排序的影响时长;与" + tracefence.ImpactCaliberWindowProjectionZH + "不同时,行内口径词(全额/折算/单次最大等)说明取值方式;与" + tracefence.ImpactCaliberChainCumulativeZH + "同值时为同一测量的两个名目(非两项单独证据),异值时取值方式见行内口径词/标注(如 折算/链上计入 取小,发生段账目/承自等待区间 可高于" + tracefence.ImpactCaliberChainCumulativeZH + ")。",
+			"- " + tracefence.ImpactCaliberActualStateZH + " = 该状态的真实完整时长,可跨出分析窗(此时带 ⚠);合并行该列为合并种子单次成员的实际值(标注 单次成员),非族合计。",
 			"- 同一行多列同值 = 同一次测量服务于不同解读,不构成多份独立证据;各列含义以上述说明为准。",
 			"- 「—」 = 该列对此节点无值。",
 		}
@@ -1719,10 +1685,10 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 		if !zh {
 			lines = []string{
 				"Column calibers:",
-				"- window projection = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
-				"- chain total = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its chain total is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
-				"- attribution = the impact duration this row contributes to the root-cause ranking; when it differs from the window projection, the row's caliber word (in full / discounted / single max …) says how it was taken; when it equals the chain total the two are one measurement under two names (never two separate proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the chain total).",
-				"- actual state = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
+				"- " + tracefence.ImpactCaliberWindowProjectionEN + " = the duration of the node's state inside the analysis window; cross-thread aggregate rows measure a cross-thread cumulative (not wall clock; cells carry the annotation).",
+				"- " + tracefence.ImpactCaliberChainCumulativeEN + " = the projected duration this node plus its drill-down sub-chain accumulate toward the focused thread along the wakeup chain; a row WITHOUT a drill-down sub-chain carries no sub-chain share — its " + tracefence.ImpactCaliberChainCumulativeEN + " is the row's own in-window account, and \"chain\" names the accumulation direction, not an extra direct-conduction claim toward the focused thread.",
+				"- " + tracefence.ImpactCaliberEffectiveEN + " = the impact duration this row contributes to the root-cause ranking; when it differs from the " + tracefence.ImpactCaliberWindowProjectionEN + ", the row's caliber word (in full / discounted / single max …) says how it was taken; when it equals the " + tracefence.ImpactCaliberChainCumulativeEN + " the two are one measurement under two names (never two separate proofs), and when they differ the row's caliber word/annotation governs (e.g. discounted / on-chain-counted sit below, occurrence-segment account / inherited-from-wait-interval may sit above the " + tracefence.ImpactCaliberChainCumulativeEN + ").",
+				"- " + tracefence.ImpactCaliberActualStateEN + " = the state's true full duration; it may extend beyond the analysis window (then marked ⚠); on a merged row this column is the merge seed's single-member actual (marked single member), never the family total.",
 				"- Equal values in several columns mean one measurement serving different interpretations, not several independent proofs; use the definitions above for each column.",
 				"- “—” = no value in this column for this node.",
 			}
@@ -1929,9 +1895,9 @@ func runtimeTraceCausalProjectionClusterForAuthority(projection types.TraceCausa
 			// discounted forms — in-period sleep AND the D∧timer wait (the
 			// row-level caption forks on the typed caller credential).
 			if zh {
-				lines = append(lines, "- 周期性信号源行:有效归因 = runnable 全额 + 信号迟到量;期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍,不计入有效归因(窗口投影保留原始值)。")
+				lines = append(lines, "- 周期性信号源行:"+tracefence.ImpactCaliberEffectiveZH+" = runnable 全额 + 信号迟到量;期内睡眠(或 D 态定时等待,行内标注 caller)为正常节拍,不计入"+tracefence.ImpactCaliberEffectiveZH+"("+tracefence.ImpactCaliberWindowProjectionZH+"保留原始值)。")
 			} else {
-				lines = append(lines, "- periodic signal source rows: attribution = runnable in full + signal lateness; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence and never counts (the window projection keeps the raw value).")
+				lines = append(lines, "- periodic signal source rows: "+tracefence.ImpactCaliberEffectiveEN+" = runnable in full + signal lateness; in-period sleep (or a D-state timer wait — the row names its caller) is normal cadence and never counts (the "+tracefence.ImpactCaliberWindowProjectionEN+" keeps the raw value).")
 			}
 		}
 		text := strings.Join(lines, "\n")

@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -85,7 +86,14 @@ func TestNormalizeRequiredFileDimensionOwnershipKeepsOnlyHighConfidenceExplanati
 	}
 }
 
-func TestValidateRequiredFileDimensionResponsibilityDeclarationsRequiresClassificationAndCompleteOwnership(t *testing.T) {
+// EVOLUTION RECORD (V4-4, colleague_merge_audit §40.22): this pin used to
+// assert that an unclassified high-confidence file and an owner-less
+// dimension REJECT the whole emission (the B1405 arms (a)/(c)). Both judged
+// the completeness of content the model never declared, at a stage that does
+// not read file bodies; the only taught escape was "lower confidence below
+// 0.8". They are retired: the same fixture is now ACCEPTED and compiles into
+// the typed soft marker that exploration resolves.
+func TestValidateRequiredFileDimension_UnresolvedOwnerAccepted(t *testing.T) {
 	root := t.TempDir()
 	for _, rel := range []string{"config/load.go", "cmd/root.go"} {
 		path := filepath.Join(root, filepath.FromSlash(rel))
@@ -108,17 +116,64 @@ func TestValidateRequiredFileDimensionResponsibilityDeclarationsRequiresClassifi
 	hints := normalizeRequiredFileDimensionOwnership(validateAndBuildRequiredFileHintsWithContext(
 		&types.BusContext{RepoRoot: root}, raw, nil,
 	), profile, nil)
-	got := validateRequiredFileDimensionResponsibilityDeclarations(
-		&types.BusContext{RepoRoot: root}, raw, hints, profile,
-	)
-	for _, want := range []string{
-		"unclassified high-confidence files=[cmd/root.go]",
-		"dimensions without a high-confidence file owner=[3]",
-		"requested_dimension_navigation_only=true",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("responsibility rejection missing %q:\n%s", want, got)
-		}
+	if got := validateRequiredFileDimensionContradictions(
+		&types.BusContext{RepoRoot: root}, raw, profile, map[int]bool{1: true, 2: true, 3: true},
+	); got != "" {
+		t.Fatalf("an owner the model could not name is not a contradiction: %s", got)
+	}
+	got := types.CompileDimensionOwnerUnresolved(profile, hints)
+	want := &types.DimensionOwnerUnresolved{DimensionIndices: []int{3}, UnclassifiedFiles: []string{"cmd/root.go"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unresolved-owner marker=%+v want %+v", got, want)
+	}
+}
+
+func TestValidateRequiredFileDimensionContradictions_RejectsIndexOutsideDeclaredSet(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config/load.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	profile := &types.RequestedAnswerDimensionProfile{IsDimensionedAnswer: true, Dimensions: []types.RequestedAnswerDimension{
+		{Index: 1, Role: types.RequestedAnswerDimensionFunctionOrPurpose, Required: true},
+		{Index: 2, Role: types.RequestedAnswerDimensionBranchBehavior, Required: true},
+	}}
+	raw := []emitRequiredFileParam{{Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1, 3}}}
+	got := validateRequiredFileDimensionContradictions(&types.BusContext{RepoRoot: root}, raw, profile, map[int]bool{1: true, 2: true})
+	if !strings.Contains(got, "reference index [3] outside the declared requested_answer_dimensions index set [1 2]") {
+		t.Fatalf("undeclared index must be a precise contradiction: %q", got)
+	}
+	// The index arm judges the model's DECLARED set, not the normalized
+	// profile: a dimension the normalizer dropped as unanchored is still one
+	// the model declared, so binding to it is a soft drop, never a reject.
+	if got := validateRequiredFileDimensionContradictions(&types.BusContext{RepoRoot: root}, raw, profile, map[int]bool{1: true, 2: true, 3: true}); got != "" {
+		t.Fatalf("declared-but-dropped dimension must not become a model contradiction: %q", got)
+	}
+	// No declared set at all → nothing to contradict; the soft drop owns it.
+	if got := validateRequiredFileDimensionContradictions(&types.BusContext{RepoRoot: root}, raw, profile, nil); got != "" {
+		t.Fatalf("absent dimension set must stay soft: %q", got)
+	}
+	// Low-confidence entries carry inert indices (soft-dropped); not judged.
+	low := []emitRequiredFileParam{{Path: "config/load.go", Confidence: 0.6, RequestedDimensionIndices: []int{9}}}
+	if got := validateRequiredFileDimensionContradictions(&types.BusContext{RepoRoot: root}, low, profile, map[int]bool{1: true, 2: true}); got != "" {
+		t.Fatalf("low-confidence indices are inert and must stay soft: %q", got)
+	}
+}
+
+func TestDeclaredRequestedDimensionIndicesUsesPositionalDefault(t *testing.T) {
+	yes := true
+	no := false
+	got := declaredRequestedDimensionIndices(&emitRequestedAnswerDimensionsParam{IsDimensionedAnswer: &yes, Dimensions: []emitRequestedAnswerDimensionParam{
+		{Label: "a"}, {Label: "b", Index: 5}, {Label: "c"},
+	}})
+	if !reflect.DeepEqual(got, map[int]bool{1: true, 5: true, 3: true}) {
+		t.Fatalf("declared set=%v", got)
+	}
+	if declaredRequestedDimensionIndices(nil) != nil || declaredRequestedDimensionIndices(&emitRequestedAnswerDimensionsParam{IsDimensionedAnswer: &no, Dimensions: []emitRequestedAnswerDimensionParam{{Label: "a"}}}) != nil {
+		t.Fatal("no declared dimension set must yield nil")
 	}
 }
 
@@ -145,10 +200,16 @@ func TestValidateRequiredFileDimensionResponsibilityDeclarationsAcceptsOwnerAndN
 	hints := normalizeRequiredFileDimensionOwnership(validateAndBuildRequiredFileHintsWithContext(
 		&types.BusContext{RepoRoot: root}, raw, nil,
 	), profile, nil)
-	if got := validateRequiredFileDimensionResponsibilityDeclarations(
-		&types.BusContext{RepoRoot: root}, raw, hints, profile,
+	if got := validateRequiredFileDimensionContradictions(
+		&types.BusContext{RepoRoot: root}, raw, profile, map[int]bool{1: true, 2: true},
 	); got != "" {
 		t.Fatalf("complete typed responsibility declaration rejected: %s", got)
+	}
+	if !hints[1].RequestedDimensionNavigationOnly || hints[0].RequestedDimensionNavigationOnly {
+		t.Fatalf("navigation-only classification must persist on the typed hint: %+v", hints)
+	}
+	if marker := types.CompileDimensionOwnerUnresolved(profile, hints); marker != nil {
+		t.Fatalf("fully declared ownership must not raise the unresolved marker: %+v", marker)
 	}
 }
 
@@ -170,14 +231,16 @@ func TestValidateRequiredFileDimensionResponsibilityDeclarationsRejectsOwnerNavi
 		Path: "config/load.go", Confidence: 0.95, RequestedDimensionIndices: []int{1, 2},
 		RequestedDimensionNavigationOnly: &navigationOnly,
 	}}
-	hints := normalizeRequiredFileDimensionOwnership(validateAndBuildRequiredFileHintsWithContext(
-		&types.BusContext{RepoRoot: root}, raw, nil,
-	), profile, nil)
-	got := validateRequiredFileDimensionResponsibilityDeclarations(
-		&types.BusContext{RepoRoot: root}, raw, hints, profile,
+	got := validateRequiredFileDimensionContradictions(
+		&types.BusContext{RepoRoot: root}, raw, profile, map[int]bool{1: true, 2: true},
 	)
 	if !strings.Contains(got, "files declared both operation-owner and navigation-only=[config/load.go]") {
 		t.Fatalf("owner/navigation conflict not reported precisely: %s", got)
+	}
+	for _, retired := range []string{"unclassified", "without a high-confidence file owner", "lower confidence"} {
+		if strings.Contains(got, retired) {
+			t.Fatalf("retired completeness wording %q must not return: %s", retired, got)
+		}
 	}
 }
 
@@ -230,17 +293,10 @@ func TestEmitAnalysisExecutePersistsRequiredFileDimensionOwnership(t *testing.T)
 	}
 }
 
-func TestEmitAnalysisExecuteRejectsAmbiguousHighConfidenceFileResponsibility(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "config/load.go")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	mu := types.NewMutableState("解释解析机制和覆盖方式")
-	payload := withV4Required(`{
+// twoDimensionOwnershipPayload is the shared e2e fixture: two required
+// explanation-operation dimensions plus the given required_files entries.
+func twoDimensionOwnershipPayload(requiredFiles string) string {
+	return withV4Required(`{
 		"intent":"explain",
 		"scenario":"config_trace",
 		"complexity":"moderate",
@@ -256,27 +312,133 @@ func TestEmitAnalysisExecuteRejectsAmbiguousHighConfidenceFileResponsibility(t *
 				{"index":2,"label":"覆盖方式","role":"branch_behavior","required":true,"source_quote":"覆盖方式"}
 			]
 		},
-		"required_files":[
-			{"path":"config/load.go","confidence":0.95,"rationale":"implementation entry"}
-		]
+		"required_files":[` + requiredFiles + `]
 	}`)
+}
+
+func ownershipFixtureRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	path := filepath.Join(root, "config/load.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// EVOLUTION RECORD (V4-4, colleague_merge_audit §40.22): formerly
+// TestEmitAnalysisExecuteRejectsAmbiguousHighConfidenceFileResponsibility —
+// one high-confidence file with no declared role was a whole-emission hard
+// reject. Analysis does not read file bodies, so this is legitimate model
+// uncertainty: the emission is accepted, the typed marker is persisted and
+// the summary discloses it for the exploration stage.
+func TestEmitAnalysisExecute_AcceptsUnresolvedOwnerWithTypedMarker(t *testing.T) {
+	root := ownershipFixtureRoot(t)
+	mu := types.NewMutableState("解释解析机制和覆盖方式")
+	payload := twoDimensionOwnershipPayload(`{"path":"config/load.go","confidence":0.95,"rationale":"implementation entry"}`)
 	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Success {
-		t.Fatalf("ambiguous high-confidence responsibility must be rejected: %+v", res)
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("legitimately unknown ownership must be accepted: %+v", res)
 	}
-	for _, want := range []string{
-		"unclassified high-confidence files=[config/load.go]",
-		"dimensions without a high-confidence file owner=[1 2]",
+	got := mu.RequestModel().AnalyzerHints.DimensionOwnerUnresolved
+	want := &types.DimensionOwnerUnresolved{DimensionIndices: []int{1, 2}, UnclassifiedFiles: []string{"config/load.go"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unresolved-owner marker=%+v want %+v", got, want)
+	}
+	for _, disclosure := range []string{
+		"required_files ownership left unresolved for exploration",
+		"without a declared high-confidence file owner=[1 2]",
+		"without a declared role=[config/load.go]",
 	} {
-		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("rejection missing %q:\n%s", want, res.Summary)
+		if !strings.Contains(res.Summary, disclosure) {
+			t.Fatalf("summary must disclose the soft marker %q:\n%s", disclosure, res.Summary)
 		}
 	}
-	if rm := mu.RequestModel(); rm != nil {
-		t.Fatalf("rejected responsibility must not persist a request model: %+v", rm)
+	for _, retired := range []string{"unclassified high-confidence files", "lower confidence below 0.8"} {
+		if strings.Contains(res.Summary, retired) {
+			t.Fatalf("retired completeness reject wording %q leaked into the accepted summary:\n%s", retired, res.Summary)
+		}
+	}
+}
+
+func TestEmitAnalysisExecute_RejectsUndeclaredDimensionIndex(t *testing.T) {
+	root := ownershipFixtureRoot(t)
+	mu := types.NewMutableState("解释解析机制和覆盖方式")
+	payload := twoDimensionOwnershipPayload(`{"path":"config/load.go","confidence":0.95,"requested_dimension_indices":[3]}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("an index outside the declared dimension set is a hard contradiction: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "reference index [3] outside the declared requested_answer_dimensions index set [1 2]") {
+		t.Fatalf("rejection must name the undeclared index:\n%s", res.Summary)
+	}
+
+	// Counter-case: dimension 3 IS declared by the model but its quote is not
+	// anchored in the request, so the profile normalizer drops it. A binding
+	// to it is a system-side soft drop with a warning, never a model
+	// contradiction (the hard arm judges the DECLARED set).
+	mu = types.NewMutableState("解释解析机制和覆盖方式")
+	dropped := strings.Replace(payload,
+		`{"index":2,"label":"覆盖方式","role":"branch_behavior","required":true,"source_quote":"覆盖方式"}`,
+		`{"index":2,"label":"覆盖方式","role":"branch_behavior","required":true,"source_quote":"覆盖方式"},
+				{"index":3,"label":"默认值","role":"function_or_purpose","required":true,"source_quote":"默认值"}`, 1)
+	if dropped == payload {
+		t.Fatal("fixture did not add the unanchored dimension")
+	}
+	res, err = (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(dropped))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("binding to a declared-but-dropped dimension must stay soft: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "requested_answer_dimensions ignored unanchored dimension 默认值") ||
+		!strings.Contains(res.Summary, "dropped 1 requested_dimension_indices") {
+		t.Fatalf("soft drop must be disclosed, not rejected:\n%s", res.Summary)
+	}
+}
+
+func TestEmitAnalysisExecute_OwnerAndNavigationOnlyOnOneFileStillRejects(t *testing.T) {
+	root := ownershipFixtureRoot(t)
+	mu := types.NewMutableState("解释解析机制和覆盖方式")
+	payload := twoDimensionOwnershipPayload(`{"path":"config/load.go","confidence":0.95,"requested_dimension_indices":[1,2],"requested_dimension_navigation_only":true}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Success || mu.RequestModel() != nil {
+		t.Fatalf("owner ∧ navigation-only on one file is a contradiction and must not persist: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "files declared both operation-owner and navigation-only=[config/load.go]") {
+		t.Fatalf("contradiction must be named precisely:\n%s", res.Summary)
+	}
+}
+
+func TestEmitAnalysisExecute_PersistsNavigationOnlyClassification(t *testing.T) {
+	root := ownershipFixtureRoot(t)
+	mu := types.NewMutableState("解释解析机制和覆盖方式")
+	payload := twoDimensionOwnershipPayload(`{"path":"config/load.go","confidence":0.95,"requested_dimension_navigation_only":true}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
+	if err != nil || !res.Success {
+		t.Fatalf("navigation-only declaration rejected: err=%v res=%+v", err, res)
+	}
+	hints := mu.RequestModel().AnalyzerHints.RequiredFileHints
+	if len(hints) != 1 || !hints[0].RequestedDimensionNavigationOnly {
+		t.Fatalf("navigation-only classification must survive emit: %+v", hints)
+	}
+	got := mu.RequestModel().AnalyzerHints.DimensionOwnerUnresolved
+	want := &types.DimensionOwnerUnresolved{DimensionIndices: []int{1, 2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("classified navigation file must not be listed as unclassified: %+v want %+v", got, want)
 	}
 }
 
@@ -1070,5 +1232,66 @@ func TestEmitAnalysisSchema_RequiredFilesPresent(t *testing.T) {
 	// Threshold bands documented in description (LLM-facing).
 	if !strings.Contains(string(emitAnalysisSchemaCache), `0.8`) {
 		t.Error("required_files description should mention 0.8 threshold band")
+	}
+}
+
+// §40.47 fold-in (finding A0): a runtime-artifact path in the request prose
+// under an external-only citation policy is projected as a SYSTEM hint (0.8,
+// no indices). The unresolved-owner marker describes the model's own
+// declarations, so a fully declared model roster plus that system hint must
+// leave the marker nil, while the projected hint itself stays (typed origin).
+func TestEmitAnalysisExecute_SystemProjectedRuntimeArtifactHintNeverEntersOwnerUnresolvedMarker(t *testing.T) {
+	root := ownershipFixtureRoot(t)
+	raw := "根据 /tmp/app.systrace 解释 Config 的解析机制和覆盖方式"
+	mu := types.NewMutableState(raw)
+	payload := withV4Required(`{
+		"intent":"explain",
+		"scenario":"config_trace",
+		"complexity":"moderate",
+		"keywords":["config","parse","override"],
+		"entities":["Config"],
+		"question_kind":"config_mapping",
+		"predicate_axis":"configure",
+		"requested_answer_dimensions":{
+			"is_dimensioned_answer":true,
+			"confidence":0.95,
+			"dimensions":[
+				{"index":1,"label":"解析机制","role":"function_or_purpose","required":true,"source_quote":"解析机制"},
+				{"index":2,"label":"覆盖方式","role":"branch_behavior","required":true,"source_quote":"覆盖方式"}
+			]
+		},
+		"external_observation_policy":{"artifact_citation_mode":"external_only","current_source_mode":"default","confidence":0.9},
+		"required_files":[{"path":"config/load.go","confidence":0.95,"rationale":"implementation entry","requested_dimension_indices":[1,2]}]
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{RepoRoot: root, Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || mu.RequestModel() == nil {
+		t.Fatalf("fully declared ownership must be accepted: %+v", res)
+	}
+	hints := mu.RequestModel().AnalyzerHints
+	if hints.DimensionOwnerUnresolved != nil {
+		t.Fatalf("system-projected hint must not become a model declaration gap: marker=%+v hints=%+v", hints.DimensionOwnerUnresolved, hints.RequiredFileHints)
+	}
+	if strings.Contains(res.Summary, "without a declared role") {
+		t.Fatalf("summary labels a system-projected hint as a model omission:\n%s", res.Summary)
+	}
+	var projected *types.RequiredFileHint
+	for i := range hints.RequiredFileHints {
+		if hints.RequiredFileHints[i].Path == "/tmp/app.systrace" {
+			projected = &hints.RequiredFileHints[i]
+		}
+	}
+	if projected == nil {
+		t.Fatalf("runtime artifact path must still be projected for artifact-lane routing: %+v", hints.RequiredFileHints)
+	}
+	if projected.ModelDeclared() || projected.Origin != types.RequiredFileHintOriginRuntimeArtifactPath {
+		t.Fatalf("projected hint must carry its typed system origin, got %+v", *projected)
+	}
+	for _, hint := range hints.RequiredFileHints {
+		if hint.Path == "config/load.go" && !hint.ModelDeclared() {
+			t.Fatalf("model-declared hint lost its origin: %+v", hint)
+		}
 	}
 }

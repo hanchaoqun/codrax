@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -376,15 +377,9 @@ func renderTraceFinalReaderDecisionCards(set types.TraceCausalProjectionSet, con
 			}
 		}
 		if authority, ok := traceFinalReaderTargetAuthority(projection, authorities); ok {
-			coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
-			dStateAndIOWaitMS := authority.DStateMS + authority.IOWaitMS
-			if zh {
-				fmt.Fprintf(&b, "- 目标线程 %s 的窗口状态（%s）：运行 %.3f 毫秒、可运行但未获调度 %.3f 毫秒、睡眠 %.3f 毫秒、不可中断等待 %.3f 毫秒，其中已证 IO 等待 %.3f 毫秒；合计 %.3f 毫秒。\n",
-					authority.Subject, coverage, authority.RunningMS, authority.RunnableMS, authority.SleepMS, dStateAndIOWaitMS, authority.IOWaitMS, authority.TotalMS)
-			} else {
-				fmt.Fprintf(&b, "- Target thread %s window states (%s): running %.3f ms, runnable but not scheduled %.3f ms, sleeping %.3f ms, uninterruptible wait %.3f ms, including %.3f ms of proved IO wait; total %.3f ms.\n",
-					authority.Subject, coverage, authority.RunningMS, authority.RunnableMS, authority.SleepMS, dStateAndIOWaitMS, authority.IOWaitMS, authority.TotalMS)
-			}
+			// V3-1 (§40.20): one types-level sentence, byte-equal with the
+			// observation-ledger scope section and the reader handoff.
+			fmt.Fprintf(&b, "- %s\n", types.FormatTargetStateAccount(authority, lang))
 		}
 
 		actual := traceFinalReaderActualOccupancyCandidates(projection, 6)
@@ -623,26 +618,6 @@ func traceFinalReaderTargetAuthority(projection types.TraceCausalProjection, aut
 	return types.TraceTargetStateScopeAuthority{}, false
 }
 
-func traceFinalReaderCoverageLabel(status string, zh bool) string {
-	switch status {
-	case "complete":
-		if zh {
-			return "覆盖完整"
-		}
-		return "complete coverage"
-	case "partial_unaccounted":
-		if zh {
-			return "部分覆盖，仍有未计入时间"
-		}
-		return "partial coverage with unaccounted time"
-	default:
-		if zh {
-			return "窗口覆盖范围未知"
-		}
-		return "window coverage unknown"
-	}
-}
-
 func traceFinalReaderCauseLabel(node types.TraceCausalProjectionNode, zh bool) string {
 	label := strings.TrimSpace(tool.TraceRootCauseTypeDisplayLabel(traceDecisionEliminableSeatKind(node), zh))
 	if label != "" {
@@ -773,18 +748,22 @@ func traceFinalReaderStateLabel(token string, zh bool) string {
 		}
 		return "sleep wait"
 	case "d", "d_sleep", "d_state", "d_state_or_io_wait", "fragmented_d_state_or_io_wait":
-		if zh {
-			return "不可中断等待"
-		}
-		return "uninterruptible wait"
+		// V3-1 (§40.20 ③): the D/IO lane words come from tracefence Table ⑧
+		// (bytes unchanged; ownership moved).
+		return traceStateLaneWord(tracefence.StateLaneDState, zh)
 	case "io_wait", "io_latency":
-		if zh {
-			return "IO 等待"
-		}
-		return "IO wait"
+		return traceStateLaneWord(tracefence.StateLaneIOWait, zh)
 	default:
 		return ""
 	}
+}
+
+// traceStateLaneWord reads one target-state lane word from tracefence Table
+// ⑧ (the prompt-face single source); an unknown lane yields "" so callers
+// keep their own fallback.
+func traceStateLaneWord(lane string, zh bool) string {
+	word, _ := tracefence.StateLaneWord(lane, zh)
+	return word
 }
 
 // traceFinalReaderMechanismScope keeps the final reader-facing cause label and
@@ -1041,19 +1020,10 @@ func renderAnswerDocBoundedRuntimeFinalReaderHandoff(ctx *types.AgentContext) st
 	stateAuthorities := types.BuildTraceTargetStateScopeAuthoritiesFromLedger(ledger)
 	if profile.RequestsFactFamily(types.RuntimeQuestionFactTargetSchedulerState) {
 		for _, authority := range stateAuthorities {
-			coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
-			if zh {
-				fmt.Fprintf(&b, "- 目标线程 %s 在 %.6f–%.6f 秒窗口内的状态分布（%s）：运行 %.3f 毫秒、可运行但尚未获调度 %.3f 毫秒、可中断睡眠 %.3f 毫秒、不可中断等待 %.3f 毫秒、其中由调度器标记的 IO 等待 %.3f 毫秒；合计 %.3f 毫秒。\n",
-					authority.Subject, authority.WindowStartTs, authority.WindowEndTs, coverage,
-					authority.RunningMS, authority.RunnableMS, authority.SleepMS,
-					authority.DStateMS, authority.IOWaitMS, authority.TotalMS)
-			} else {
-				fmt.Fprintf(&b, "- Target thread %s in %.6f–%.6f seconds (%s): running %.3f ms, runnable but not yet scheduled %.3f ms, interruptible sleep %.3f ms, uninterruptible wait %.3f ms, including %.3f ms marked by the scheduler as IO wait; total %.3f ms.\n",
-					authority.Subject, authority.WindowStartTs, authority.WindowEndTs, coverage,
-					authority.RunningMS, authority.RunnableMS, authority.SleepMS,
-					authority.DStateMS, authority.IOWaitMS, authority.TotalMS)
-			}
-			if authority.DStateMS == 0 && authority.IOWaitMS == 0 && authority.SleepIOWaitMS == 0 {
+			// V3-1 (§40.20): one types-level sentence, byte-equal with the
+			// observation-ledger scope section and the decision card.
+			fmt.Fprintf(&b, "- %s\n", types.FormatTargetStateAccount(authority, extractAnswerDocLang(ctx)))
+			if authority.SchedulerMarkedWaitMS() == 0 {
 				if zh {
 					b.WriteString("  - 窄口径结论：该目标与窗口内没有匹配到由调度器标记的 D 状态或 IO 等待；这不等于没有普通睡眠、没有 IO 活动，也不等于没有由其他证据证明的等待或阻塞。\n")
 				} else {
@@ -1343,7 +1313,7 @@ func renderAnswerDocBoundedRuntimeCompletionClosedReaderFact(
 			strings.TrimSpace(authority.SelectedWindow) != wantWindow {
 			continue
 		}
-		coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
+		coverage := tracefence.StateCoverageWord(authority.CoverageStatus, zh)
 		if zh {
 			return fmt.Sprintf("  - 独立 IO 完成闭合口径（%s）：已证目标线程等待 %d 次，区间并集 %.3f 毫秒。它与调度器标记的 D/IO 等待是两把尺，不能相加或互相否定。\n", coverage, len(authority.Occurrences), authority.ObservedMS)
 		}

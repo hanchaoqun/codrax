@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/tracequery"
@@ -1881,8 +1882,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// closed-set tokens (链上/计入/(共N段,同线程)/窗口投影/合计), rendered
 		// exactly when a partial-overlap on-chain semantic row prints the word.
 		{runtimeTraceProjMarkFamilyChainIntersection, runtimeTraceProjLegendGroupCaliber,
-			"- `链上计入(共N段,同线程)` = 有效归因只计成员段与同线程链窗的精确交集;行旁「窗口投影合计」为全部成员段的并集口径,两口径同处披露、不相加。",
-			"- `on-chain counted (N segments, same thread)` = the attribution counts ONLY the exact intersection of the member segments with the same-thread chain windows; the adjacent complete window-projection total is the full member-union caliber — both calibers are disclosed side by side, never added."},
+			"- `链上计入(共N段,同线程)` = " + tracefence.ImpactCaliberEffectiveZH + "只计成员段与同线程链窗的精确交集;行旁「" + tracefence.ImpactCaliberWindowProjectionZH + "合计」为全部成员段的并集口径,两口径同处披露、不相加。",
+			"- `on-chain counted (N segments, same thread)` = the " + tracefence.ImpactCaliberEffectiveEN + " counts ONLY the exact intersection of the member segments with the same-thread chain windows; the adjacent complete window-projection total is the full member-union caliber — both calibers are disclosed side by side, never added."},
 		{runtimeTraceProjMarkFamilyCountSum, runtimeTraceProjLegendGroupCaliber,
 			"- `计数合计(共N项,同线程)` = 计数类指标按同线程成员相加(计数可加,与墙钟时长无关)。",
 			"- `count total (N items, same thread)` = count-class members of one thread added up (counts add; unrelated to wall-clock duration)."},
@@ -1964,8 +1965,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// is eff>cum with NO upper bound) — the entry now states direction
 		// only and points at the two printed columns for the actual gap.
 		{runtimeTraceProjMarkOccurrenceSegmentAccount, runtimeTraceProjLegendGroupCaliber,
-			"- `(发生段账目)` = 该行有效归因按其自身发生段账目核算,可高于窗口投影列的落窗裁剪值(高出幅度以两列实值之差为准,不设固定上界);非承自其所在等待区间,亦不作跨窗声明。",
-			"- `(occurrence-segment account)` = the row's effective attribution is computed over its own occurrence-segment accounting and may sit above the window-clipped projection column (by whatever the two printed values differ; no fixed bound is asserted); not inherited from an enclosing wait interval, and no cross-window claim is made."},
+			"- `(发生段账目)` = 该行" + tracefence.ImpactCaliberEffectiveZH + "按其自身发生段账目核算,可高于" + tracefence.ImpactCaliberWindowProjectionZH + "列的落窗裁剪值(高出幅度以两列实值之差为准,不设固定上界);非承自其所在等待区间,亦不作跨窗声明。",
+			"- `(occurrence-segment account)` = the row's effective " + tracefence.ImpactCaliberEffectiveEN + " is computed over its own occurrence-segment accounting and may sit above the window-clipped projection column (by whatever the two printed values differ; no fixed bound is asserted); not inherited from an enclosing wait interval, and no cross-window claim is made."},
 		// GATED-CAL 件1 (§29.104.16.1 M3, 2026-07-16): the gated-composite
 		// caliber word — on-demand entry, lit exactly where the word renders
 		// (词条-图例双向; one word source across the 行2 tail, the bare-tag
@@ -2092,8 +2093,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// identifiable at the point of reading — the inline caliber word reuses
 		// the (a)-table caliber vocabulary; the semantics live here.
 		{runtimeTraceProjMarkImpactCaliberFallback, runtimeTraceProjLegendGroupCaliber,
-			"- 行内 `链上累计`/`有效归因`/`实际状态`/`累计(跨线程)` 口径词 = 该行无窗口投影值,主行数值为所标口径(不显示占窗百分比)。",
-			"- An inline `chain total`/`attribution`/`actual state`/`cross-thread cum` caliber word = the row has no window-projection value; the main-line duration is that caliber (no window-share percentage)."},
+			"- 行内 `" + tracefence.ImpactCaliberChainCumulativeZH + "`/`" + tracefence.ImpactCaliberEffectiveZH + "`/`" + tracefence.ImpactCaliberActualStateZH + "`/`" + tracefence.ImpactCaliberCrossThreadCumZH + "` 口径词 = 该行无" + tracefence.ImpactCaliberWindowProjectionZH + "值,主行数值为所标口径(不显示占窗百分比)。",
+			"- An inline `" + tracefence.ImpactCaliberChainCumulativeEN + "`/`" + tracefence.ImpactCaliberEffectiveEN + "`/`" + tracefence.ImpactCaliberActualStateEN + "`/`" + tracefence.ImpactCaliberCrossThreadCumEN + "` caliber word = the row has no window-projection value; the main-line duration is that caliber (no window-share percentage)."},
 		// PTV5 Q2 (#68 用户裁定 2026-07-05): the tree-header coverage sentence's
 		// caliber gets its own legend entry — attributed = the chain's depth-1
 		// cumulative toward the target, residual by subtraction only.
@@ -2172,8 +2173,8 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 		// the chain universe — a ◇/▒ stanza row shows the same data under the
 		// cross-thread cumulative family word.
 		{runtimeTraceProjMarkStanzaCrossThreadCum, runtimeTraceProjLegendGroupCaliber,
-			"- `累计(跨线程)` = ◇/▒ 区段行的时长口径:多线程时间累计,不计入链上已归因。",
-			"- `cross-thread cum` = the duration caliber of ◇/▒ stanza rows: multi-thread time accumulated, never counted into the on-chain attribution."},
+			"- `" + tracefence.ImpactCaliberCrossThreadCumZH + "` = ◇/▒ 区段行的时长口径:多线程时间累计,不计入链上已归因。",
+			"- `" + tracefence.ImpactCaliberCrossThreadCumEN + "` = the duration caliber of ◇/▒ stanza rows: multi-thread time accumulated, never counted into the on-chain " + tracefence.ImpactCaliberEffectiveEN + "."},
 		// PTV8-RCR-B (UXA 域A #19, 2026-07-08): the 折算 half-sentence becomes
 		// its own on-demand entry — taught exactly when a discount tag renders.
 		{runtimeTraceProjMarkStanzaDiscount, runtimeTraceProjLegendGroupCaliber,
@@ -2474,14 +2475,14 @@ func runtimeTraceProjLegendCatalog() []runtimeTraceProjLegendEntry {
 			"- `本线程另有链上席/邻近席/口径旁栏行 [E#]` = 同一线程在另一处还有席位的互指指针:两席各记各账(通道/口径不同,不可相加),指针只帮助区分刻意分账与重复;「口径旁栏行」指向自身计数当量/复合分数行(非因果通道席)。",
 			"- `this thread also holds an on-chain/adjacent seat / caliber side-rail row [E#]` = the mutual cross-seat pointer for one thread seated in more than one place: each seat keeps its own account (different channels/calibers, never additive); the pointer only distinguishes deliberate segmentation from duplication; the side-rail form points at the target's own count-equivalent/composite-score row (not a causal-channel seat)."},
 		{runtimeTraceProjMarkEffectiveBreakdown, runtimeTraceProjLegendGroupCaliber,
-			"- `有效归因 V = …` 分解行 = 有效归因的构成:各分量按括注口径计入,分量计入之和恒等于 V;其下「分量 原始 → 计入(口径)」子行为逐项拆解。",
-			"- The `attribution V = …` breakdown line = the composition of the effective attribution: each component counts under its parenthesized caliber and the counted parts sum exactly to V; the 「component raw → counted (caliber)」 sub-rows underneath unpack it item by item."},
+			"- `" + tracefence.ImpactCaliberEffectiveZH + " V = …` 分解行 = " + tracefence.ImpactCaliberEffectiveZH + "的构成:各分量按括注口径计入,分量计入之和恒等于 V;其下「分量 原始 → 计入(口径)」子行为逐项拆解。",
+			"- The `" + tracefence.ImpactCaliberEffectiveEN + " V = …` breakdown line = the composition of the effective " + tracefence.ImpactCaliberEffectiveEN + ": each component counts under its parenthesized caliber and the counted parts sum exactly to V; the 「component raw → counted (caliber)」 sub-rows underneath unpack it item by item."},
 		// PTV8-RCR-B (UXA 域A #31, 2026-07-08): the 有效归因 word itself gets a
 		// legend seat — the row tag appeared 6× per specimen before its
 		// definition; taught exactly when the tag renders (new mark).
 		{runtimeTraceProjMarkEffectiveAttributionTag, runtimeTraceProjLegendGroupCaliber,
-			"- `有效归因` = 该行计入根因排序的影响时长(完整口径见关键指标表)。",
-			"- `attribution` = the impact duration this row contributes to the root-cause ranking (full caliber in the key-metric table)."},
+			"- `" + tracefence.ImpactCaliberEffectiveZH + "` = 该行计入根因排序的影响时长(完整口径见关键指标表)。",
+			"- `" + tracefence.ImpactCaliberEffectiveEN + "` = the impact duration this row contributes to the root-cause ranking (full caliber in the key-metric table)."},
 		{runtimeTraceProjMarkCaliberFull, runtimeTraceProjLegendGroupCaliber,
 			"- `全额` = 该分量按原始时长全额计入。",
 			"- `in full` = the component counts at its full raw duration."},
@@ -8796,22 +8797,23 @@ func runtimeTraceProjRowFallbackCaliberWord(node types.TraceCausalProjectionNode
 // its (a)-table caliber word ("" for the window projection / no-value cases —
 // the default caliber needs no word).
 func runtimeTraceProjImpactCaliberWord(source runtimeTraceProjImpactSource, zh bool) string {
+	// Words from tracefence Table ③e (V1-1 §40.25 单源) — byte-identical.
 	switch source {
 	case runtimeTraceProjImpactSourceCumulative:
 		if zh {
-			return "链上累计"
+			return tracefence.ImpactCaliberChainCumulativeZH
 		}
-		return "chain total"
+		return tracefence.ImpactCaliberChainCumulativeEN
 	case runtimeTraceProjImpactSourceEffective:
 		if zh {
-			return "有效归因"
+			return tracefence.ImpactCaliberEffectiveZH
 		}
-		return "attribution"
+		return tracefence.ImpactCaliberEffectiveEN
 	case runtimeTraceProjImpactSourceActual:
 		if zh {
-			return "实际状态"
+			return tracefence.ImpactCaliberActualStateZH
 		}
-		return "actual state"
+		return tracefence.ImpactCaliberActualStateEN
 	}
 	return ""
 }
@@ -11533,9 +11535,9 @@ func runtimeTraceProjStanzaRowKind(kind string) bool {
 // doubles as the C00 fallback caliber word on stanza rows.
 func runtimeTraceProjCrossThreadCumWord(zh bool) string {
 	if zh {
-		return "累计(跨线程)"
+		return tracefence.ImpactCaliberCrossThreadCumZH
 	}
-	return "cross-thread cum"
+	return tracefence.ImpactCaliberCrossThreadCumEN
 }
 
 func runtimeTraceProjCrossThreadCumTagText(v float64, zh bool) string {
@@ -12812,9 +12814,9 @@ var runtimeTraceProjWrapAtomCompounds = []string{
 	// digits like the rank ordinal above (邻近影响#3 is one atom).
 	tracefence.SeatChannelAdjacentZH + "#",
 	"背景榜位#",
-	"有效归因",
+	tracefence.ImpactCaliberEffectiveZH,
 	"承自归因",
-	"链上累计",
+	tracefence.ImpactCaliberChainCumulativeZH,
 	// R5 (§29.88.12 单基准, 2026-07-15): the unified basis words replace
 	// 按大核满频/按下游消费核/按小核·中核·超大核满频 (retired with their
 	// algorithms). Longest-first inside the shared 按全域 prefix; the R5b
@@ -15821,9 +15823,9 @@ func runtimeTraceProjConclusionLine(projection types.TraceCausalProjection, mode
 		components, total, componentsOK := runtimeTraceProjInversionComponents(*primary, false, zh)
 		degenerate := componentsOK && runtimeTraceProjInversionDegenerateSingleFull(components)
 		if componentsOK && !degenerate {
-			word := "有效归因"
+			word := tracefence.ImpactCaliberEffectiveZH
 			if !zh {
-				word = "attribution"
+				word = tracefence.ImpactCaliberEffectiveEN
 			}
 			if zh {
 				// DISPHYG-3 件1 (C8): prose-sentence top-level clause comma.
@@ -16445,9 +16447,9 @@ func runtimeTraceProjPeriodicHeadlineMS(node types.TraceCausalProjectionNode, ra
 // its own source. Word "" only when no magnitude exists at all.
 func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode, zh bool) (float64, string, bool, bool) {
 	if primary.PeriodicSource {
-		word := "有效归因"
+		word := tracefence.ImpactCaliberEffectiveZH
 		if !zh {
-			word = "attribution"
+			word = tracefence.ImpactCaliberEffectiveEN
 		}
 		return runtimeTraceProjPeriodicHeadlineMS(primary, 0), word, true, false
 	}
@@ -16465,9 +16467,9 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 			// intersection on every genuine fold.
 			v = primary.EffectiveImpactMS
 		}
-		word := "有效归因"
+		word := tracefence.ImpactCaliberEffectiveZH
 		if !zh {
-			word = "attribution"
+			word = tracefence.ImpactCaliberEffectiveEN
 		}
 		return v, word, false, false
 	}
@@ -16488,9 +16490,9 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 	// a fabricated attribution claim).
 	if runtimeTraceProjConclusionSelfSemanticSeat(primary) {
 		if primary.EffectiveImpactMS > 0 {
-			word := "有效归因"
+			word := tracefence.ImpactCaliberEffectiveZH
 			if !zh {
-				word = "attribution"
+				word = tracefence.ImpactCaliberEffectiveEN
 			}
 			return primary.EffectiveImpactMS, word, false, false
 		}
@@ -16499,17 +16501,17 @@ func runtimeTraceProjConclusionMagnitude(primary types.TraceCausalProjectionNode
 		// into the display-impact fallback chain below, whose words name their
 		// own source.
 	} else if primary.CumulativeImpactMS > 0 {
-		word := "链上累计"
+		word := tracefence.ImpactCaliberChainCumulativeZH
 		if !zh {
-			word = "chain total"
+			word = tracefence.ImpactCaliberChainCumulativeEN
 		}
 		return primary.CumulativeImpactMS, word, false, false
 	}
 	v, source := runtimeTraceProjNodeDisplayImpactSource(primary)
 	if source == runtimeTraceProjImpactSourceWindow {
-		word := "窗口投影"
+		word := tracefence.ImpactCaliberWindowProjectionZH
 		if !zh {
-			word = "window projection"
+			word = tracefence.ImpactCaliberWindowProjectionEN
 		}
 		return v, word, false, true
 	}
@@ -16728,7 +16730,9 @@ func runtimeTraceProjFourStateAccountLines(projection types.TraceCausalProjectio
 	sum := account.RunningMS + account.RunnableMS + account.SleepMS + account.DStateMS + account.IOWaitMS
 	model.Marks.mark(runtimeTraceProjMarkFourStateAccount)
 	pct := func(v float64) float64 { return v / model.WindowMS * 100 }
-	dState := account.DStateMS + account.IOWaitMS
+	// V3-1 (§40.20): the D term is the ONE types-level uninterruptible fold
+	// (non-IO D + scheduler-marked IO); the words below stay customer-face.
+	dState := account.UninterruptibleWaitMS()
 	// The IO attribution label renders INSIDE its state term (never a fifth
 	// addend): the D term carries the D-opened io_wait carve-out; the sleep
 	// term carries the 复核 A-1 S+iowait refinement (G12 §29.13 Harmony
@@ -18895,13 +18899,27 @@ func runtimeTraceProjDetailSeats(detailRows []runtimeTraceProjTreeRow, zh bool) 
 	return seats
 }
 
+// runtimeTraceProjTitleWord capitalizes the first letter of a Table ③e EN
+// ruler word for a column header (V1-1 §40.48: the header is derived from
+// the table, bytes unchanged — "Window projection").
+func runtimeTraceProjTitleWord(word string) string {
+	runes := []rune(word)
+	if len(runes) == 0 {
+		return word
+	}
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
 func runtimeTraceProjDetailTable(model runtimeTraceProjTreeModel, zh bool) ([]string, []types.AnswerBlockItem) {
 	// PTV8-RCR-B (UXA 域B #13, 2026-07-08). EVOLUTION RECORD: the E# printed
 	// twice per row (node column [E1] + "E1 · 中" cell) — the last column now
 	// carries the confidence tier only.
-	columns := []string{"节点[E#]", "窗口投影", "链上累计", "有效归因", "实际状态", "置信"}
+	columns := []string{"节点[E#]", tracefence.ImpactCaliberWindowProjectionZH, tracefence.ImpactCaliberChainCumulativeZH,
+		tracefence.ImpactCaliberEffectiveZH, tracefence.ImpactCaliberActualStateZH, "置信"}
 	if !zh {
-		columns = []string{"Node [E#]", "Window projection", "Chain total", "Attribution", "Actual state", "Confidence"}
+		columns = []string{"Node [E#]", runtimeTraceProjTitleWord(tracefence.ImpactCaliberWindowProjectionEN), runtimeTraceProjTitleWord(tracefence.ImpactCaliberChainCumulativeEN),
+			runtimeTraceProjTitleWord(tracefence.ImpactCaliberEffectiveEN), runtimeTraceProjTitleWord(tracefence.ImpactCaliberActualStateEN), "Confidence"}
 	}
 	dash := "—"
 	msCell := func(v float64) string {

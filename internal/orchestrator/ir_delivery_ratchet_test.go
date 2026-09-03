@@ -43,7 +43,11 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// finding Q) moved the first-draft attachment titles into
 		// first_draft_reference.go and put the exhaustion release / rejected-
 		// draft backstop into explore_backtrack_exhaustion.go (own budget).
-		{path: "orchestrator.go", maxLines: 8814},
+		// Tightened 8814→8813 after §40.47 V4-4 (A7) moved the degraded-IR
+		// required-file lanes into copyDegradedRequiredFileLanes (net -1 line;
+		// the group's own 9126→9125 record was written against the pre-round
+		// base and is superseded by this chain).
+		{path: "orchestrator.go", maxLines: 8813},
 		// §40.43 R1: the P6 hard cap (tightened 110→45 after finding S moved
 		// the advisory into finalize_loop_gate_advisory.go, own budget below).
 		{path: "finalize_repair_hard_cap.go", maxLines: 45},

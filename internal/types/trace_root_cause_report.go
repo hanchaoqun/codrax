@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 )
 
 // TraceRootCauseReportSchemaVersion is the user-facing JSON sidecar schema.
@@ -65,13 +67,20 @@ type TraceRootCauseItemV2 struct {
 	// CandidateID is accepted only on the model-to-runtime selector wire. The
 	// binder clears it before persistence, so the public sidecar remains the
 	// stable user-facing v2 shape rather than leaking an internal receipt key.
-	CandidateID   string                 `json:"candidate_id,omitempty"`
-	Rank          int                    `json:"rank"`
-	Category      TraceRootCauseCategory `json:"category"`
-	ThreadName    string                 `json:"thread_name,omitempty"`
-	ResourceName  string                 `json:"resource_name,omitempty"`
-	PhaseName     string                 `json:"phase_name,omitempty"`
-	ImpactSeconds *float64               `json:"impact_seconds"`
+	CandidateID  string                 `json:"candidate_id,omitempty"`
+	Rank         int                    `json:"rank"`
+	Category     TraceRootCauseCategory `json:"category"`
+	ThreadName   string                 `json:"thread_name,omitempty"`
+	ResourceName string                 `json:"resource_name,omitempty"`
+	PhaseName    string                 `json:"phase_name,omitempty"`
+	// ArtifactLabel (V1-4, §40.26 ①) is the partition key of the trace this
+	// cause was compiled from — the SAME label the answer's per-trace sections
+	// wear (the projection partitioner mints it once; never fabricated, so it
+	// is empty only for an identity-less single-trace ledger). Two same-named
+	// threads from two trace files stay two distinct causes on the wire.
+	// Append-only v2 extension (schema_version stays 2).
+	ArtifactLabel string   `json:"artifact_label,omitempty"`
+	ImpactSeconds *float64 `json:"impact_seconds"`
 	// ImpactCaliber (SIDECAR-Q1, §40.28 ②) names the ruler behind
 	// impact_seconds — "effective_attribution" (the engine-published effective
 	// attribution) or "window_projection" (the raw window projection of a seat
@@ -155,20 +164,42 @@ func ValidateTraceRootCauseDescription(raw string, candidateIDs []string, field 
 // and the selector context both carry (same source), including the frame
 // qualifier discipline.
 func TraceRootCauseDescriptionTeaching() string {
-	return "Optional plain-language account of this cause for the reader: which thread or resource did what, for how long, and why that delayed the target (for example 「同进程 GC 线程 HeapTaskDaemon 执行并发标记约 12 ms，UIThread 在此期间等待堆锁」). One or two sentences reusing the roster's impact_ms and value_description; never quote candidate ids, file paths, artifact names or evidence ids. When the candidate's causal_qualifier is frame_unproven, describe the mechanism without asserting that it caused the frame drop. The runtime keeps its own typed evidence sentences beside it; a description that cites an internal reference is dropped and reported, the selection itself is kept."
+	return "Optional plain-language account of this cause for the reader: which thread or resource did what, for how long, and why that delayed the target (for example 「同进程 GC 线程 HeapTaskDaemon 执行并发标记约 12 ms，UIThread 在此期间等待堆锁」). One or two sentences reusing the roster's impact_ms and value_description; never quote candidate ids, file paths, artifact names or evidence ids. When the candidate's causal_qualifier is frame_unproven, describe the mechanism without asserting that it caused the frame drop. When its impact_caliber is " + TraceImpactCaliberWindowProjection + ", the number is a raw window projection whose effective attribution was never published — describe it as window-projected occupancy, never as " + tracefence.ImpactCaliberEffectiveZH + ". The runtime keeps its own typed evidence sentences beside it, and they state that caliber; a description that cites an internal reference is dropped and reported while the selection itself is kept."
 }
 
-// TraceImpactCaliber values carried on the public sidecar — closed set.
+// TraceRootCauseSelectorOutcomeTeaching is the ONE sentence that teaches the
+// selector's failure contract (V2-3, colleague_merge_audit §40.19): the
+// schema property description and the selector context render it verbatim,
+// so the model is never promised silence — an invalid selector is dropped,
+// the tool result names the precise reason, and the fix rides the next patch.
+func TraceRootCauseSelectorOutcomeTeaching() string {
+	return "Optional model-owned ordered selection for a separate JSON report. Omitting it never rejects the full answer. An invalid selection (wrong schema_version, unknown or duplicate candidate_id) never rejects the full answer either: it is dropped, the tool result names the exact reason, and you fix it with replace_trace_root_causes in the next emit_answer_document_patch."
+}
+
+// TraceImpactCaliber values carried on the public sidecar — closed set. The
+// wire tokens are owned HERE; their display words and the sidecar evidence
+// phrases live in tracefence Table ③e (ImpactCaliberWord /
+// SidecarImpactCaliberPhrase, keyed by these tokens — V1-1 §40.25 「词面来自
+// tracefence 单源」). Producers and consumers spell the tokens through these
+// constants only (census: trace_impact_caliber_census_test.go).
 const (
 	TraceImpactCaliberEffectiveAttribution = "effective_attribution"
 	TraceImpactCaliberWindowProjection     = "window_projection"
 )
 
+// AllTraceImpactCalibers lists the closed set in its documented order (the
+// validator, the teaching surfaces, the guide census and the tracefence word
+// tie all render from this one list — mirror of AllTraceCausalQualifiers).
+func AllTraceImpactCalibers() []string {
+	return []string{TraceImpactCaliberEffectiveAttribution, TraceImpactCaliberWindowProjection}
+}
+
 // ValidTraceImpactCaliber reports closed-set membership.
 func ValidTraceImpactCaliber(v string) bool {
-	switch v {
-	case TraceImpactCaliberEffectiveAttribution, TraceImpactCaliberWindowProjection:
-		return true
+	for _, caliber := range AllTraceImpactCalibers() {
+		if v == caliber {
+			return true
+		}
 	}
 	return false
 }
@@ -223,13 +254,17 @@ type traceRootCauseIdentity struct {
 	candidateID             string
 	category                TraceRootCauseCategory
 	thread, resource, phase string
+	// artifact (V1-4, §40.26 ③): the partition key survives the candidate-id
+	// strip — a same-named seat from a second trace file is a different cause,
+	// never a "duplicate" on a legacy re-normalization.
+	artifact string
 }
 
 func traceRootCauseIdentityKey(item *TraceRootCauseItemV2) traceRootCauseIdentity {
 	if item.CandidateID != "" {
 		return traceRootCauseIdentity{candidateID: item.CandidateID}
 	}
-	return traceRootCauseIdentity{category: item.Category, thread: item.ThreadName, resource: item.ResourceName, phase: item.PhaseName}
+	return traceRootCauseIdentity{category: item.Category, thread: item.ThreadName, resource: item.ResourceName, phase: item.PhaseName, artifact: item.ArtifactLabel}
 }
 
 func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*TraceRootCauseItemV2, error) {
@@ -242,6 +277,7 @@ func normalizeTraceRootCauseItem(in *TraceRootCauseItemV2, field string) (*Trace
 		ThreadName:      compactTraceRootCauseField(in.ThreadName),
 		ResourceName:    compactTraceRootCauseField(in.ResourceName),
 		PhaseName:       compactTraceRootCauseField(in.PhaseName),
+		ArtifactLabel:   compactTraceRootCauseField(in.ArtifactLabel),
 		ImpactCaliber:   strings.TrimSpace(in.ImpactCaliber),
 		CausalQualifier: strings.TrimSpace(in.CausalQualifier),
 	}

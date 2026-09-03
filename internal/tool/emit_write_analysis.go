@@ -104,7 +104,11 @@ func buildEmitWriteAnalysisSchemaBytes() {
 }
 
 // Execute parses + validates + stores WriteAnalysisIR on MutableState.
-func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
+	// V2-3 fold-in (§40.44): ONE result-exit choke point — the overridden
+	// raw_request echo is disclosed on whichever result this call returns.
+	carriers := newOptionalCarrierLedger(t.Name())
+	defer func() { result = carriers.finalize(result) }()
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -136,8 +140,12 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 	if rawRequest == "" {
 		return errResult(t.Name(), "emit_write_analysis rejected: raw_request is empty"), nil
 	}
+	// V2-3 (§40.19): the echo is an optional carrier; when the system's
+	// current-request authority overrides it, the model is told on the
+	// returned result rather than only in the log.
 	if echoed := strings.TrimSpace(p.RawRequest); echoed != "" && echoed != rawRequest {
-		logging.Warning("[emit_write_analysis] ignored model raw_request echo because system current-request authority differs")
+		carriers.ignored("raw_request",
+			"ignored raw_request echo because the system's current-request authority differs; the analysis is bound to the current request as the system holds it")
 	}
 	if strings.TrimSpace(p.Task.Summary) == "" {
 		return errResult(t.Name(), "emit_write_analysis rejected: task.summary is empty"), nil
@@ -255,6 +263,10 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 		PitfallsApplied: dedupAndTrim(p.ApplicablePitfalls),
 	}
 
+	// §40.46: a NEW analyzer IR is the only lane that reinstates retired
+	// behavior-contract ids — the request itself changed, so the run's
+	// retirement ledger starts over.
+	ctx.Mutable.ResetBehaviorContractTombstoneLedger()
 	ctx.Mutable.SetWriteAnalysisIR(ir)
 
 	logging.Debug("[emit_write_analysis] stored: kind=%s scope=%s overall=%s constraints=%d outcomes=%d contracts=%d phases=%s/%d",

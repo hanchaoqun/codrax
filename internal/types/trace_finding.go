@@ -1,12 +1,18 @@
 package types
 
-// TraceFindingSchemaVersion is the persisted single-trace finding schema.
+// TraceFindingSchemaVersion versions the frozen candidate contract.
 const TraceFindingSchemaVersion = 1
 
-// TraceFindingContract carries the legacy batch candidate snapshot plus the
-// independent user-facing root-cause report activation for trace analyses.
+// TraceFindingContract is the frozen, system-owned typed candidate roster
+// for one trace analysis plus the user-facing root-cause report activation
+// (RootCauseReportEnabled: the optional `trace_root_causes` selector is
+// published only when the roster has selectable on-chain candidates).
+//
+// V1-5 (colleague_merge_audit §40.16): the legacy `Required` typed-finding
+// lane (a model-authored TraceFindingV1 sidecar) was retired on all three
+// faces — schema, teaching and decoder — because its only producer forced it
+// off and its decoder face alone was hard-rejecting whole answers.
 type TraceFindingContract struct {
-	Required                bool                      `json:"required"`
 	RootCauseReportEnabled  bool                      `json:"root_cause_report_enabled,omitempty"`
 	CandidateSetID          string                    `json:"candidate_set_id"`
 	FindingSchemaVersion    int                       `json:"finding_schema_version"`
@@ -22,6 +28,20 @@ type TraceFindingContract struct {
 	FindingID               string                    `json:"finding_id"`
 	AnalysisKey             string                    `json:"analysis_key"`
 	ContractHash            string                    `json:"contract_hash"`
+	// ArtifactLabels (V1-4, §40.26) is the fold's partition roster: the
+	// distinct trace-file labels of the compiled projections in first-
+	// appearance order (the same labels the answer's per-trace sections
+	// wear). Artifact above stays the legacy Required-lane single-artifact
+	// envelope; this list is what the roster groups by and what the contract
+	// identity hashes.
+	ArtifactLabels []string `json:"artifact_labels,omitempty"`
+}
+
+// MultiArtifact reports whether the contract folds candidates from more than
+// one trace file — the roster then groups by artifact and every candidate's
+// ArtifactLabel is its partition key.
+func (c *TraceFindingContract) MultiArtifact() bool {
+	return c != nil && len(c.ArtifactLabels) > 1
 }
 
 // TraceFindingCandidateV1 is a deterministic candidate snapshot compiled
@@ -104,6 +124,13 @@ type TraceCauseDecision struct {
 	// 「（帧因果未证）」 qualifier (T3-1 ruling §7.3). Never the session-wide
 	// ANY aggregate.
 	CausalQualifier string `json:"causal_qualifier"`
+	// ArtifactLabel (V1-4, §40.26 ①) is the SYSTEM-OWNED partition key of the
+	// trace this seat was compiled from — the projection partitioner's
+	// ArtifactLabel, the same label the answer's per-trace sections and the
+	// public sidecar item wear. Empty only for an identity-less single-trace
+	// ledger (never fabricated). Two same-named threads from two trace files
+	// are two candidates with two labels.
+	ArtifactLabel string `json:"artifact_label,omitempty"`
 	// EvidenceFacts (SIDECAR-EVID-1, customer report 2026-09-02 → §40.32) is
 	// the SYSTEM-OWNED typed fact bundle behind the public sidecar's
 	// `evidence` sentences: window, seat interval, attachment line range,
@@ -190,40 +217,22 @@ type TraceFindingScope struct {
 	Phase         string `json:"phase"`
 }
 
-type TraceFindingRevision struct {
-	CodraxCommit string `json:"codrax_commit,omitempty"`
-	ContractHash string `json:"contract_hash"`
-}
-
 type TraceSymptomSummary struct {
 	Kind  string  `json:"kind"`
 	Value float64 `json:"value,omitempty"`
 	Unit  string  `json:"unit,omitempty"`
 }
 
-type TraceUnresolvedDecision struct {
-	Reason   string `json:"reason"`
-	RawLabel string `json:"raw_label,omitempty"`
-}
-
-type TraceFindingCoverage struct {
-	Complete bool     `json:"complete"`
-	Caveats  []string `json:"caveats,omitempty"`
-}
-
-// TraceFindingV1 is the structured, reusable conclusion for one physical trace.
-type TraceFindingV1 struct {
-	SchemaVersion       int                      `json:"schema_version"`
-	FindingID           string                   `json:"finding_id"`
-	AnalysisKey         string                   `json:"analysis_key"`
-	Artifact            TraceFindingArtifact     `json:"artifact"`
-	Scope               TraceFindingScope        `json:"scope"`
-	Revision            TraceFindingRevision     `json:"revision"`
-	Symptom             TraceSymptomSummary      `json:"symptom"`
-	PrimaryCause        *TraceCauseDecision      `json:"primary_cause,omitempty"`
-	Contributors        []TraceCauseDecision     `json:"contributors,omitempty"`
-	Unresolved          *TraceUnresolvedDecision `json:"unresolved,omitempty"`
-	EvidenceRefs        []string                 `json:"evidence_refs"`
-	CounterEvidenceRefs []string                 `json:"counter_evidence_refs,omitempty"`
-	Coverage            TraceFindingCoverage     `json:"coverage"`
+// cloneTraceMagnitude deep-copies a frozen magnitude (Components included) so
+// a contract read never aliases the stored facts.
+func cloneTraceMagnitude(in *TypedMagnitude) *TypedMagnitude {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Components != nil {
+		components := *in.Components
+		out.Components = &components
+	}
+	return &out
 }

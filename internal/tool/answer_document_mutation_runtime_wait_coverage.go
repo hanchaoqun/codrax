@@ -382,7 +382,7 @@ func runtimeTraceTargetWaitSummarySuffix(
 ) string {
 	identity := ""
 	if state != nil {
-		pairedStateMS := state.DStateMS + state.IOWaitMS + state.SleepIOWaitMS
+		pairedStateMS := state.SchedulerMarkedWaitMS()
 		if math.Abs(wait.WallClockMS-pairedStateMS) <= 0.002 {
 			if zh {
 				identity = "；逐段合计与上述 D/IO 状态账一致"

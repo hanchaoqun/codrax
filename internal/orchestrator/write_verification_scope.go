@@ -94,9 +94,16 @@ func (o *Orchestrator) stampCumulativeVerificationScope(plan *types.ChangePlan, 
 	// Typed verify-failure rebase tombstones have the same precedence as an
 	// active row. Seed them before collecting restored/retained plans so the
 	// raw cumulative snapshot cannot resurrect a superseded soft contract.
-	for _, raw := range plan.SupersededBehaviorContractIDs {
-		if id := strings.TrimSpace(raw); id != "" {
-			contractIDs[id] = true
+	// Membership comes from the one tombstone authority (typed carrier ∪
+	// legacy id list).
+	for id := range types.SupersededWriteBehaviorContractTombstones(plan) {
+		contractIDs[id] = true
+	}
+	// §40.46: the run's ledger has the same precedence — a retained older
+	// plan can never resurrect an id any generation of this run retired.
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		for _, tombstone := range o.busCtx.Mutable.BehaviorContractTombstoneLedger() {
+			contractIDs[tombstone.ID] = true
 		}
 	}
 	for _, probe := range plan.VerificationProbes {

@@ -1201,7 +1201,7 @@ func TestAttachWriteBehaviorContractsRebasesFallbacksOnlyForTypedVerifyFailureRe
 		},
 	}
 
-	attachWriteBehaviorContracts(ctx, plan)
+	attachWriteBehaviorContracts(ctx, plan, nil)
 
 	if len(plan.BehaviorContracts) != 3 {
 		t.Fatalf("behavior contracts = %+v, want explicit plus two current fallbacks", plan.BehaviorContracts)
@@ -1221,19 +1221,40 @@ func TestAttachWriteBehaviorContractsRebasesFallbacksOnlyForTypedVerifyFailureRe
 		t.Fatalf("active plan acceptance tests did not become current fallback generation: %+v", plan.BehaviorContracts)
 	}
 
+	// EVOLUTION RECORD (§40.46): this arm used to assert that clearing the
+	// handoff restores the analyzer snapshot ("fresh plan must preserve
+	// analyzer snapshot"), i.e. that the disproven fallback came back once
+	// the carrier was gone. Retirement is monotonic within a run: the ledger
+	// still names the replaced fallback, so a later plan of the same run is
+	// still a rebased generation that re-mints its own fallback and never
+	// resurrects the retired row. Only a new analyzer IR reinstates.
 	ctx.Mutable.ResetVerifyFailureHandoff()
 	fresh := &types.ChangePlan{AcceptanceTests: []string{"new plan wording"}}
-	attachWriteBehaviorContracts(ctx, fresh)
-	if fresh.BehaviorContractGeneration != "" {
-		t.Fatalf("fresh plan must not acquire replan generation authority: %q", fresh.BehaviorContractGeneration)
+	attachWriteBehaviorContracts(ctx, fresh, nil)
+	if fresh.BehaviorContractGeneration != types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
+		t.Fatalf("a plan after a retirement in the same run stays a rebased generation: %q", fresh.BehaviorContractGeneration)
 	}
-	if len(fresh.BehaviorContracts) != 2 || fresh.BehaviorContracts[1].Expected != "line 16 remains unchanged" {
-		t.Fatalf("fresh plan must preserve analyzer snapshot without typed replan authority: %+v", fresh.BehaviorContracts)
+	if len(fresh.BehaviorContracts) != 2 || fresh.BehaviorContracts[1].Expected != "new plan wording" {
+		t.Fatalf("fresh plan must carry its own fallback and never the retired one: %+v", fresh.BehaviorContracts)
+	}
+	for _, contract := range fresh.BehaviorContracts {
+		if contract.Expected == "line 16 remains unchanged" {
+			t.Fatalf("retired fallback resurrected after the handoff was cleared: %+v", fresh.BehaviorContracts)
+		}
+	}
+	if len(fresh.SupersededBehaviorContracts) == 0 {
+		t.Fatalf("fresh plan must carry the run's retirement ledger: %+v", fresh)
+	}
+	ctx.Mutable.ResetBehaviorContractTombstoneLedger()
+	reinstated := &types.ChangePlan{AcceptanceTests: []string{"new plan wording"}}
+	attachWriteBehaviorContracts(ctx, reinstated, nil)
+	if reinstated.BehaviorContractGeneration != "" || len(reinstated.BehaviorContracts) != 2 || reinstated.BehaviorContracts[1].Expected != "line 16 remains unchanged" {
+		t.Fatalf("the new-analyzer-IR lane (ledger reset) is the only reinstatement: %+v", reinstated.BehaviorContracts)
 	}
 
 	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "plan-before-failure", BatchID: "batch-1", Attempt: 2})
 	deduplicated := &types.ChangePlan{AcceptanceTests: []string{"public API remains compatible"}}
-	attachWriteBehaviorContracts(ctx, deduplicated)
+	attachWriteBehaviorContracts(ctx, deduplicated, nil)
 	if len(deduplicated.BehaviorContracts) != 1 || deduplicated.BehaviorContracts[0].ID != "explicit-api" {
 		t.Fatalf("acceptance test equal to explicit contract should deduplicate without retaining stale fallback: %+v", deduplicated.BehaviorContracts)
 	}
@@ -1242,50 +1263,76 @@ func TestAttachWriteBehaviorContractsRebasesFallbacksOnlyForTypedVerifyFailureRe
 	}
 }
 
-func TestAttachWriteBehaviorContractsVerifyFailureWithoutAcceptanceTestsStillRetiresSoftSnapshot(t *testing.T) {
+// EVOLUTION RECORD (V5-3, §40.23): formerly
+// TestAttachWriteBehaviorContractsVerifyFailureWithoutAcceptanceTestsStillRetiresSoftSnapshot
+// pinned that ANY handoff retired the stale soft snapshot. Retirement now
+// needs relevance evidence: a build_failure handoff (even one carrying hits)
+// retains every soft contract, and a tests_failed handoff retires only the
+// contract named by a failed typed row of the same plan.
+func TestAttachWriteBehaviorContractsBuildFailureRetainsSoftContracts(t *testing.T) {
 	ctx := newTestBusCtx()
-	ctx.Mutable.SetWriteAnalysisIR(&types.WriteAnalysisIR{
-		Request: types.WriteRequestModel{
-			BehaviorContracts: []types.WriteBehaviorContract{
-				{
-					ID:       "stale-soft-shape",
-					Kind:     types.WriteBehaviorInvariant,
-					Polarity: types.WriteBehaviorPolarityExpected,
-					Operator: types.WriteBehaviorOpSatisfies,
-					Expected: "the rejected implementation shape",
-					Required: true,
-					Source:   "write_analyzer",
-				},
-				{
-					ID:       "hard-api",
-					Kind:     types.WriteBehaviorInvariant,
-					Polarity: types.WriteBehaviorPolarityExpected,
-					Operator: types.WriteBehaviorOpEquals,
-					Expected: "public API remains compatible",
-					Required: true,
-					Source:   "write_analyzer",
-				},
-			},
-		},
-	})
+	ctx.Mutable.SetWriteAnalysisIR(attachRetirementTestIR())
 	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
-		PlanID:  "failed-plan",
-		BatchID: "batch-1",
-		Attempt: 1,
+		PlanID: "failed-plan", BatchID: "batch-1", Attempt: 1, FailureKind: types.FailureKindBuildFailure,
+		ContractRelevance: &types.VerifyFailureContractRelevance{Status: types.VerifyFailureContractRelevanceAvailable, Hits: []types.VerifyFailureContractHit{{
+			ContractID: "stale-soft-shape", Reason: types.WriteBehaviorContractRetiredFailedVerificationProbe, EvidenceRefs: []string{"probe:p1"},
+		}}},
 	})
 	plan := &types.ChangePlan{}
-
-	attachWriteBehaviorContracts(ctx, plan)
-
+	if rej, _ := attachWriteBehaviorContracts(ctx, plan, nil); rej != "" {
+		t.Fatal(rej)
+	}
 	if plan.BehaviorContractGeneration != types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
 		t.Fatalf("verify-failure generation marker missing: %q", plan.BehaviorContractGeneration)
 	}
-	if len(plan.BehaviorContracts) != 1 || plan.BehaviorContracts[0].ID != "hard-api" {
-		t.Fatalf("stale soft snapshot survived no-acceptance replan: %+v", plan.BehaviorContracts)
+	if len(plan.BehaviorContracts) != 3 || len(plan.SupersededBehaviorContracts) != 0 || len(plan.SupersededBehaviorContractIDs) != 0 {
+		t.Fatalf("build_failure replan must retain every soft contract: contracts=%+v tombstones=%+v", plan.BehaviorContracts, plan.SupersededBehaviorContracts)
+	}
+
+	// Report-less resume carrier (FailureKind "") retains as well.
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{PlanID: "failed-plan", BatchID: "batch-1", Attempt: 1})
+	plan = &types.ChangePlan{}
+	if rej, _ := attachWriteBehaviorContracts(ctx, plan, nil); rej != "" {
+		t.Fatal(rej)
+	}
+	if len(plan.SupersededBehaviorContracts) != 0 {
+		t.Fatalf("report-less handoff retired contracts: %+v", plan.SupersededBehaviorContracts)
+	}
+}
+
+func TestAttachWriteBehaviorContractsTestsFailedRetiresOnlyIntersecting(t *testing.T) {
+	ctx := newTestBusCtx()
+	ctx.Mutable.SetWriteAnalysisIR(attachRetirementTestIR())
+	ctx.Mutable.SetVerifyFailureHandoff(&types.VerifyFailureHandoff{
+		PlanID: "failed-plan", BatchID: "batch-1", Attempt: 2, FailureKind: types.FailureKindTestsFailed,
+		ContractRelevance: &types.VerifyFailureContractRelevance{Status: types.VerifyFailureContractRelevanceAvailable, Hits: []types.VerifyFailureContractHit{{
+			ContractID: "stale-soft-shape", Reason: types.WriteBehaviorContractRetiredFailedVerificationProbe, EvidenceRefs: []string{"probe:p1"},
+		}}},
+	})
+	plan := &types.ChangePlan{}
+	if rej, _ := attachWriteBehaviorContracts(ctx, plan, nil); rej != "" {
+		t.Fatal(rej)
+	}
+	if len(plan.BehaviorContracts) != 2 || plan.BehaviorContracts[0].ID != "hard-api" || plan.BehaviorContracts[1].ID != "sibling-soft" {
+		t.Fatalf("only the intersecting soft contract may be retired: %+v", plan.BehaviorContracts)
+	}
+	if len(plan.SupersededBehaviorContracts) != 1 || plan.SupersededBehaviorContracts[0].ID != "stale-soft-shape" ||
+		plan.SupersededBehaviorContracts[0].Reason != types.WriteBehaviorContractRetiredFailedVerificationProbe ||
+		len(plan.SupersededBehaviorContracts[0].EvidenceRefs) != 1 || plan.SupersededBehaviorContracts[0].EvidenceRefs[0] != "probe:p1" ||
+		plan.SupersededBehaviorContracts[0].PlanID != "failed-plan" || plan.SupersededBehaviorContracts[0].Attempt != 2 {
+		t.Fatalf("tombstone must carry reason + evidence + attempt: %+v", plan.SupersededBehaviorContracts)
 	}
 	if len(plan.SupersededBehaviorContractIDs) != 1 || plan.SupersededBehaviorContractIDs[0] != "stale-soft-shape" {
-		t.Fatalf("typed tombstone missing: %+v", plan.SupersededBehaviorContractIDs)
+		t.Fatalf("derived id projection missing: %+v", plan.SupersededBehaviorContractIDs)
 	}
+}
+
+func attachRetirementTestIR() *types.WriteAnalysisIR {
+	return &types.WriteAnalysisIR{Request: types.WriteRequestModel{BehaviorContracts: []types.WriteBehaviorContract{
+		{ID: "stale-soft-shape", Kind: types.WriteBehaviorInvariant, Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies, Expected: "the rejected implementation shape", Required: true, Source: "write_analyzer"},
+		{ID: "hard-api", Kind: types.WriteBehaviorInvariant, Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpEquals, Expected: "public API remains compatible", Required: true, Source: "write_analyzer"},
+		{ID: "sibling-soft", Kind: types.WriteBehaviorInvariant, Polarity: types.WriteBehaviorPolarityExpected, Operator: types.WriteBehaviorOpSatisfies, Expected: "unrelated soft expectation", Required: true, Source: "write_analyzer"},
+	}}}
 }
 
 func TestEmitChangePlan_DoesNotGuessContractRefsWhenMultipleRequiredContracts(t *testing.T) {

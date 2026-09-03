@@ -2673,6 +2673,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				Path:       path,
 				Confidence: 1.0,
 				Rationale:  "user pinned this file with an @path token in the request",
+				Origin:     types.RequiredFileHintOriginUserPinnedPath,
 			})
 		}
 	}

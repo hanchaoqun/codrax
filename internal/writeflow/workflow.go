@@ -225,7 +225,11 @@ func workflowSeedTypedSuccessCriteria(ir *types.WriteAnalysisIR) []string {
 		return []string{"verification_receipt_required=true"}
 	}
 	var out []string
-	ids := types.RequiredWriteBehaviorContractIDs(ir.Request.BehaviorContracts, true)
+	// Generation 0 by definition: the run is being seeded from a fresh
+	// analyzer IR, so there is no ledger and no handoff (the one caller of
+	// the pure projection outside package types; census rule e).
+	generation := types.ProjectWriteBehaviorContractGeneration(ir.Request.BehaviorContracts, nil, nil, nil, nil)
+	ids := types.RequiredWriteBehaviorContractIDs(generation.Contracts, true)
 	ordered := make([]string, 0, len(ids))
 	for id := range ids {
 		if id = strings.TrimSpace(id); id != "" {

@@ -155,6 +155,12 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 		"M is surrounding scope",
 		"Make M incident_required only when the request separately asks for an edge to or from M",
 		"never collapse two separately emitted typed entities",
+		// V4-3 (§40.21): a user-typed slash pair is taught as two actors;
+		// the emit gate no longer splits the roster on the model's behalf.
+		"one slash-joined identifier pair",
+		"that pair names TWO actors",
+		"one participant row per half",
+		"the joined token is never one participant",
 		"bare identity-only `source_quote` is never enough provenance for context_only",
 		"participants=[]",
 		"never invent placeholders",

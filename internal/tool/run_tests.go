@@ -3697,25 +3697,11 @@ func projectTestObservationCandidateSuite(candidate types.TestSurfaceCandidate, 
 	return suite, true
 }
 
-// Project-test suite declarations name the assertion suite itself. Structured
-// runners may qualify that identity with a module, file, package, or class
-// prefix. Only exact equality or a boundary-qualified suffix is accepted; an
-// arbitrary substring never gains proof authority.
+// projectTestAssertionSuiteMatches delegates to the one types-level suite
+// authority so the satisfied lane (here) and the verify-failure relevance
+// lane (BuildVerifyFailureContractRelevance) can never diverge.
 func projectTestAssertionSuiteMatches(observed, declared string) bool {
-	observed = strings.TrimSpace(observed)
-	declared = strings.TrimSpace(declared)
-	if observed == "" || declared == "" {
-		return false
-	}
-	if observed == declared {
-		return true
-	}
-	for _, boundary := range []string{"::", ".", "/"} {
-		if strings.HasSuffix(observed, boundary+declared) {
-			return true
-		}
-	}
-	return false
+	return types.ProjectTestAssertionSuiteMatches(observed, declared)
 }
 
 func projectTestResultSuiteBelongsToPath(

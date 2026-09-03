@@ -7,7 +7,10 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tracequery"
 )
 
-func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *testing.T) {
+// traceQueryRelationAuthorityPreviewFixture is the root_cause_rank result the
+// relation-authority preview tests share (self two-ruler + target-state
+// partition + same-source partition authorities).
+func traceQueryRelationAuthorityPreviewFixture() tracequery.Result {
 	target := tracequery.ThreadRef{Comm: "target", PID: 17267}
 	result := tracequery.Result{
 		View: "root_cause_rank",
@@ -40,6 +43,11 @@ func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *t
 			}},
 		}}},
 	}
+	return result
+}
+
+func TestTraceQuerySummaryCarriesTypedRelationAuthorityBeforeExploreClosure(t *testing.T) {
+	result := traceQueryRelationAuthorityPreviewFixture()
 
 	got := traceQuerySummary(result, traceQueryParams{View: result.View}, "attached_trace", "/tmp/result.json")
 	for _, want := range []string{
@@ -182,5 +190,24 @@ func TestTraceQuerySummaryDoesNotInventBlockedReasonStateRelationAcrossThreads(t
 	got := traceQuerySummary(result, traceQueryParams{View: result.View}, "attached_trace", "/tmp/result.json")
 	if strings.Contains(got, "blocked_reason_census_relation") {
 		t.Fatalf("a different thread's census must not be related to the target state account:\n%s", got)
+	}
+}
+
+// V1-4 §40.26 ③ (§40.48 fold-in): the trace_query preview compiles ONE
+// result's projection with no artifact identity (one result = one trace), so
+// its copyable claims carry no artifact_label — the partition key is never
+// fabricated from a preview; the labeled copies come from the decision
+// handoff, whose projections are partitioned by the ledger's typed identity.
+func TestTraceQueryRelationClaimPreviewNeverFabricatesArtifactLabel(t *testing.T) {
+	result := traceQueryRelationAuthorityPreviewFixture()
+	result.SourcePath = "/traces/a.systrace"
+	var b strings.Builder
+	writeTraceRootCauseRelationAuthorityPreview(&b, result)
+	got := b.String()
+	if !strings.Contains(got, "relation_claim_copy=") {
+		t.Fatalf("fixture drift: no relation_claim_copy rendered:\n%s", got)
+	}
+	if strings.Contains(got, "artifact_label") {
+		t.Fatalf("a single-result preview must not fabricate a partition key:\n%s", got)
 	}
 }

@@ -287,7 +287,7 @@ func traceBoardEffectiveValue(notes map[string]string) (value, word string) {
 	}
 	for _, key := range []string{types.TraceNoteKeyImpactMS, types.TraceNoteKeyImpactScore} {
 		if v := notes[key]; v != "" {
-			return v, "window projection"
+			return v, tracefence.ImpactCaliberWindowProjectionEN
 		}
 	}
 	return "", ""

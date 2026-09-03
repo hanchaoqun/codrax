@@ -56,15 +56,15 @@ func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2
 			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is required", index)
 		}
 		if seen[candidateID] {
-			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id duplicates an earlier selection", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id %q duplicates an earlier selection", index, candidateID)
 		}
 		candidate, ok := byID[candidateID]
 		if !ok {
-			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is outside the selectable typed on-chain roster", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id %q is outside the selectable typed on-chain roster", index, candidateID)
 		}
 		item, ok := boundRootCauseItem(candidate)
 		if !ok {
-			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id is not representable in the public report", index)
+			return nil, nil, fmt.Errorf("trace_root_causes.root_causes[%d].candidate_id %q is not representable in the public report", index, candidateID)
 		}
 		// SIDECAR-NARR-1: the model's plain-language account rides beside the
 		// typed facts. It is advisory, so a description that cites an internal
@@ -74,6 +74,13 @@ func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2
 		if derr != nil {
 			advisories = append(advisories, fmt.Sprintf("description for root_causes[%d] dropped: %v", index, derr))
 			description = ""
+		}
+		// V1-1 (§40.25 / §40.48 fold-in): the caliber discipline on the
+		// description is TEACHING (TraceRootCauseDescriptionTeaching) — a
+		// ruler word in free prose is a noisy signal (it cannot tell 「不是有效
+		// 归因」 from a claim), so it drives at most this non-dropping note.
+		if note := rootCauseDescriptionCaliberNote(description, item.ImpactCaliber, fmt.Sprintf("root_causes[%d]", index)); note != "" {
+			advisories = append(advisories, note)
 		}
 		item.Description = description
 		seen[candidateID] = true
@@ -89,6 +96,30 @@ func BindRootCauseReportSelectionWithAdvisories(in *types.TraceRootCauseReportV2
 		item.CandidateID = ""
 	}
 	return report, advisories, nil
+}
+
+// rootCauseDescriptionCaliberNote returns an ADVISORY (never a drop) when a
+// window-projection item's description mentions the effective-attribution
+// ruler word (either Table ③e face). The mention may be a denial (「尚未发布
+// 有效归因」) or a claim; a substring cannot tell them apart, so the note only
+// restates the typed caliber beside the published description. The
+// disclosure suffix the evidence sentence itself wears is not a mention.
+func rootCauseDescriptionCaliberNote(description, caliber, field string) string {
+	if description == "" || caliber != types.TraceImpactCaliberWindowProjection {
+		return ""
+	}
+	_, suffix, _ := tracefence.SidecarImpactCaliberPhrase(caliber)
+	stripped := description
+	if suffix != "" {
+		stripped = strings.ReplaceAll(stripped, suffix, "")
+	}
+	for _, zh := range []bool{true, false} {
+		word, ok := tracefence.ImpactCaliberWord(types.TraceImpactCaliberEffectiveAttribution, zh)
+		if ok && strings.Contains(stripped, word) {
+			return fmt.Sprintf("description for %s kept as written; it mentions %q on a %s seat — the number is a raw window projection whose effective attribution was never published, and the typed evidence sentence beside it says so", field, word, caliber)
+		}
+	}
+	return ""
 }
 
 // SelectableRootCauseCandidates returns only exact typed on-chain candidates
@@ -141,6 +172,7 @@ func boundRootCauseItem(candidate types.TraceFindingCandidateV1) (*types.TraceRo
 	item := &types.TraceRootCauseItemV2{
 		CandidateID:     strings.TrimSpace(decision.CandidateID),
 		Category:        category,
+		ArtifactLabel:   strings.TrimSpace(decision.ArtifactLabel),
 		ImpactSeconds:   &impactSeconds,
 		ImpactCaliber:   caliber,
 		CausalQualifier: qualifier,
@@ -229,7 +261,7 @@ func rootCauseUsesRunningSupplyDeficit(decision types.TraceCauseDecision) bool {
 	// permission to relabel that row. Do not alter the registry lane or value.
 	switch decision.Token.Token {
 	case "running", "fragmented_running":
-		return decision.Magnitude != nil && decision.Magnitude.Caliber == "effective_attribution" &&
+		return decision.Magnitude != nil && decision.Magnitude.Caliber == types.TraceImpactCaliberEffectiveAttribution &&
 			decision.Magnitude.Components != nil && decision.Magnitude.Components.SupplyFoldComputed
 	default:
 		return false
@@ -245,12 +277,15 @@ func RootCauseValueDescription(decision types.TraceCauseDecision) string {
 	}
 	parts := decision.Magnitude.Components
 	if rootCauseUsesRunningSupplyDeficit(decision) {
-		description := fmt.Sprintf("供给折算缺口（估算下界，非全部运行耗时）；频率已知 %.3f ms，未知 %.3f ms", parts.SupplyFoldKnownMS, parts.SupplyFoldUnknownMS)
+		// Table ③c caliber words (折算 / 下界) are read from tracefence, never
+		// hand-typed inside the sentence (V1-1 §40.25 单源).
+		description := fmt.Sprintf("供给%s缺口（估算%s，非全部运行耗时）；频率已知 %.3f ms，未知 %.3f ms",
+			tracefence.CaliberWordFoldedZH, tracefence.CaliberWordLowerBoundZH, parts.SupplyFoldKnownMS, parts.SupplyFoldUnknownMS)
 		switch parts.SupplyFoldCapabilitySource {
 		case "default_table":
 			description += "；采用默认算力比"
 		case "freq_only":
-			description += "；仅按频率比折算"
+			description += "；仅按频率比" + tracefence.CaliberWordFoldedZH
 		case "evidence_table":
 			description += "；采用证据支持的算力比"
 		}
@@ -284,11 +319,16 @@ func boundRootCauseEvidence(decision types.TraceCauseDecision) []string {
 		subject = "目标链路"
 	}
 	// SIDECAR-Q1: the sentence speaks the magnitude's own caliber — a raw
-	// window projection is never called 有效 (CROWNCAL discipline).
-	statement := fmt.Sprintf("%s 在目标窗口内的链上有效归因为 %.3f ms", subject, decision.Magnitude.Value)
-	if strings.TrimSpace(decision.Magnitude.Caliber) == types.TraceImpactCaliberWindowProjection {
-		statement = fmt.Sprintf("%s 在目标窗口内的窗内投影占用为 %.3f ms（未发布有效归因）", subject, decision.Magnitude.Value)
+	// window projection is never called 有效 (CROWNCAL discipline). V1-1
+	// (§40.25 「词面来自 tracefence 单源」): the phrase and its suffix come from
+	// tracefence Table ③e, one row per caliber token; the binder admitted the
+	// caliber above (ValidTraceImpactCaliber), so !ok is unreachable — kept
+	// fail-closed: never a bare number under an unknown ruler.
+	phrase, suffix, ok := tracefence.SidecarImpactCaliberPhrase(decision.Magnitude.Caliber)
+	if !ok {
+		return nil
 	}
+	statement := fmt.Sprintf("%s 在目标窗口内的%s为 %.3f ms%s", subject, phrase, decision.Magnitude.Value, suffix)
 	if description := RootCauseValueDescription(decision); description != "" {
 		statement += "；" + description
 	}

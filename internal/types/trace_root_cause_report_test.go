@@ -136,6 +136,26 @@ func TestNormalizeTraceRootCauseReportLegacyIdentityDoesNotUseSummaryText(t *tes
 	}
 }
 
+// V1-4 (§40.26 ③): the partition key survives the candidate-id strip — two
+// items identical except for their trace-file label are two causes on a
+// legacy re-normalization; identical labels stay duplicates.
+func TestNormalizeTraceRootCauseReportLegacyIdentityKeepsArtifactPartition(t *testing.T) {
+	item := func(label string) *TraceRootCauseItemV2 {
+		return &TraceRootCauseItemV2{Category: TraceRootCauseCPUSchedulingDelay, ThreadName: "RenderThread", ArtifactLabel: label,
+			ImpactCaliber: TraceImpactCaliberEffectiveAttribution, CausalQualifier: TraceCausalQualifierProven,
+			ImpactSeconds: traceImpact(0.004), Evidence: []string{"E"}}
+	}
+	report, err := NormalizeAndValidateTraceRootCauseReport(&TraceRootCauseReportV2{SchemaVersion: 2,
+		RootCauses: []*TraceRootCauseItemV2{item("a.systrace"), item("b.systrace")}})
+	if err != nil || len(report.RootCauses) != 2 || report.RootCauses[0].ArtifactLabel != "a.systrace" || report.RootCauses[1].ArtifactLabel != "b.systrace" {
+		t.Fatalf("same-named seats from two trace files must both survive with their labels: %+v err=%v", report, err)
+	}
+	if _, err := NormalizeAndValidateTraceRootCauseReport(&TraceRootCauseReportV2{SchemaVersion: 2,
+		RootCauses: []*TraceRootCauseItemV2{item("a.systrace"), item("a.systrace")}}); err == nil || !strings.Contains(err.Error(), "duplicates root_causes[0]") {
+		t.Fatalf("same label must still be a duplicate: %v", err)
+	}
+}
+
 // SIDECAR-Q1 (§40.28 ②): both public qualifiers are closed-set and REQUIRED
 // on every bound item; a frame-unproven seat carries the same words as the
 // Markdown headline qualifier on its summary.

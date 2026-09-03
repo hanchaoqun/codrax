@@ -433,3 +433,90 @@ func TestProseWallClockConservation_SingleClaimSingleLine(t *testing.T) {
 		t.Fatalf("the single line is the window form: %+v", findings)
 	}
 }
+
+// TestProseWallClockConservation_UninterruptibleClaimComparesAgainstFold —
+// V3-1 (colleague_merge_audit §40.20): every prompt and customer face
+// publishes 不可中断等待/D-state as the one types-level fold
+// (non-IO D + scheduler-marked IO), so a model restating that fold must
+// compare against the fold, never against the non-IO D lane alone (which
+// produced an unsanctioned false disclosure: 5.379 vs 4.039 > floor+ε).
+func TestProseWallClockConservation_UninterruptibleClaimComparesAgainstFold(t *testing.T) {
+	rec := p6AccountRecord("app-100", 100, 20, 30, 4.039, 0, 155.379, 155.379)
+	rec.RichNotes = append(rec.RichNotes, types.TraceNoteKeyIOWait+"=1.340")
+	mut := psgTraceMutable(rec)
+	bus := psgBus(mut)
+
+	restated := psgProseDoc("app-100 在窗口内不可中断等待 5.379ms。")
+	if findings := proseWallClockConservationFindings(restated, bus, mut); len(findings) != 0 {
+		t.Fatalf("a restated D+IO fold must compare against the same fold and stay silent, got %+v", findings)
+	}
+	dOnly := psgProseDoc("app-100 在窗口内 D状态 4.039ms。")
+	if findings := proseWallClockConservationFindings(dOnly, bus, mut); len(findings) != 0 {
+		t.Fatalf("the non-IO D lane alone is a sub-claim of the fold (loose direction), got %+v", findings)
+	}
+
+	excess := psgProseDoc("app-100 在窗口内不可中断等待 7.000ms。")
+	findings := proseWallClockConservationFindings(excess, bus, mut)
+	if len(findings) == 0 || !strings.Contains(findings[0].userReadable("zh"), "5.379") {
+		t.Fatalf("an actual excess over the fold must disclose the fold 5.379ms: %+v", findings)
+	}
+}
+
+// TestProseWallClockConservation_NonIOQualifiedDClaimComparesAgainstDisjointLane
+// — §40.49 T2 fold-in: a D-word claim carrying the verbatim non-IO qualifier
+// (非IO / 非 IO / non-IO) names the disjoint non-IO D lane that the
+// five-state facts publish under that wording, so it compares against that
+// lane (4.039) — the genuine over-claim the fold comparator alone would
+// silence — while an unqualified D claim inside the fold band stays a
+// sub-claim of the fold (loose direction, both directions pinned).
+func TestProseWallClockConservation_NonIOQualifiedDClaimComparesAgainstDisjointLane(t *testing.T) {
+	rec := p6AccountRecord("app-100", 100, 20, 30, 4.039, 0, 155.379, 155.379)
+	rec.RichNotes = append(rec.RichNotes, types.TraceNoteKeyIOWait+"=1.340")
+	mut := psgTraceMutable(rec)
+	bus := psgBus(mut)
+
+	for _, prose := range []string{
+		"app-100 在窗口内非IO D-state 5.000ms。",
+		"app-100 in-window non-IO D-state 5.000ms.",
+		"app-100 在窗口内非 IO 的 D 状态 5.000ms。",
+	} {
+		findings := proseWallClockConservationFindings(psgProseDoc(prose), bus, mut)
+		if len(findings) != 1 {
+			t.Fatalf("%q: a non-IO-qualified D claim above the disjoint lane must disclose exactly once, got %+v", prose, findings)
+		}
+		zh := findings[0].userReadable("zh")
+		if !strings.Contains(zh, "4.039") || !strings.Contains(zh, "非IO D状态") {
+			t.Fatalf("%q: the disclosure must name the disjoint lane and its published 4.039ms, got %q", prose, zh)
+		}
+	}
+	for _, prose := range []string{
+		"app-100 在窗口内非IO D-state 4.039ms。",
+		"app-100 在窗口内 D状态 5.000ms。",
+		"app-100 在窗口内不可中断等待 5.379ms。",
+	} {
+		if findings := proseWallClockConservationFindings(psgProseDoc(prose), bus, mut); len(findings) != 0 {
+			t.Fatalf("%q must stay silent (qualified within lane / unqualified within fold), got %+v", prose, findings)
+		}
+	}
+	// Both wordings in one document: the fold restatement stays silent and
+	// the qualified over-claim is disclosed on its own — the two are
+	// separate dimensions, never max-merged into one.
+	both := psgProseDoc("app-100 在窗口内不可中断等待 5.379ms。app-100 在窗口内非IO D-state 5.000ms。")
+	findings := proseWallClockConservationFindings(both, bus, mut)
+	if len(findings) != 1 || !strings.Contains(findings[0].userReadable("zh"), "4.039") {
+		t.Fatalf("fold restatement + qualified over-claim must yield exactly the qualified disclosure, got %+v", findings)
+	}
+	// The qualified claim is still the d_state partition member of the Σ arm
+	// (no fifth addend): 100+20+30+20 = 170 > 155.379 window.
+	sigma := psgProseDoc("app-100 在窗口内非IO D-state 20.000ms。")
+	findings = proseWallClockConservationFindings(sigma, bus, mut)
+	sawSigma := false
+	for _, f := range findings {
+		if strings.Contains(f.userReadable("zh"), "状态时长之和") {
+			sawSigma = true
+		}
+	}
+	if !sawSigma {
+		t.Fatalf("a qualified D claim must feed the Σ arm as the d_state member, got %+v", findings)
+	}
+}

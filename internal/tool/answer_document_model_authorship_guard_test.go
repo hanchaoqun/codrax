@@ -49,6 +49,11 @@ func TestShippingAnswerPathsDoNotCallVisibleModelContentMutators(t *testing.T) {
 		{file: "emit_answer_document_v2.go", fn: "executeAnswerDocumentV2"},
 		{file: "emit_answer_document_v2.go", fn: "normalizeAnswerDocumentForPreEmit"},
 		{file: "emit_answer_document_patch.go", fn: "Execute"},
+		// V2-1 (§40.17): the patch-normalizer chain and the base constructor
+		// were hoisted out of Execute; the guard keeps covering the moved code.
+		{file: "emit_answer_document_patch.go", fn: "normalizeAnswerDocumentPatchForBase"},
+		{file: "emit_answer_document_patch.go", fn: "buildAnswerDocumentPatchBase"},
+		{file: "emit_answer_document_patch.go", fn: "stageAnswerDocumentPatchGeneration"},
 		{file: "answer_document_mutation_runtime.go", fn: "persistMergedAnswerDocument"},
 		{file: "answer_document_mutation_runtime.go", fn: "normalizeAnswerDocumentRowsBeforePersist"},
 		{file: "answer_document_pre_emit_check.go", fn: "normalizeViewCompatibleAnswerDocument"},

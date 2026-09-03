@@ -63,6 +63,12 @@ type WriteWorkflowRun struct {
 	// question "which decisions did this run go through and why" that a
 	// re-stamped single slot cannot.
 	ApprovalRecords []WriteApprovalRecord `json:"approval_records,omitempty"`
+	// BehaviorContractTombstones is the run's monotonic contract-retirement
+	// ledger (§40.46) as of the last persist: every id any generation of this
+	// run retired, with its typed reason and evidence. It is merged (never
+	// replaced) into MutableState when the run is installed, so a resumed
+	// process cannot reinstate a retired id.
+	BehaviorContractTombstones []WriteBehaviorContractTombstone `json:"behavior_contract_tombstones,omitempty"`
 }
 
 type WriteWorkflowRunStatus string
@@ -360,6 +366,7 @@ func NormalizeWriteWorkflowRun(in WriteWorkflowRun) WriteWorkflowRun {
 	in.Edges = normalizeWriteWorkflowEdges(in.Edges)
 	in.ContextPacks = normalizeWriteWorkflowContextPacks(in.ContextPacks)
 	in.ProgressLedger = normalizeWriteWorkflowProgress(in.ProgressLedger)
+	in.BehaviorContractTombstones = MergeWriteBehaviorContractTombstones(nil, in.BehaviorContractTombstones...)
 	if in.Budget.MaxBatches < 0 {
 		in.Budget.MaxBatches = 0
 	}

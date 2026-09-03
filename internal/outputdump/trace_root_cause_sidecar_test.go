@@ -65,6 +65,7 @@ func TestDefaultTraceRootCauseSidecarAlwaysWrites(t *testing.T) {
 		reason string
 	}{
 		{name: "missing_selection", reason: "valid_model_root_cause_selection_unavailable"},
+		{name: "rejected_selection", reason: RootCauseReasonSelectionRejected},
 		{name: "no_candidates", reason: "no_selectable_typed_on_chain_candidates"},
 		{name: "encode_failure", report: &types.TraceRootCauseReportV2{SchemaVersion: 2, RootCauses: []*types.TraceRootCauseItemV2{{ImpactSeconds: floatPointerForSidecarTest(math.NaN())}}}, reason: "root_cause_report_encoding_failed"},
 	} {

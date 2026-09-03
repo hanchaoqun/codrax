@@ -68,8 +68,43 @@ Codrax 分析 Trace 后可以保存两类结果：
       "causal_qualifier": "proven",
       "summary": "UIThread线程同步binder",
       "evidence": [
-        "UIThread 发起同步 Binder 调用后等待回复 3 ms"
+        "UIThread 在目标窗口内的窗内投影占用为 3.000 ms（未发布有效归因）"
       ]
+    }
+  ]
+}
+```
+
+第 3 条的 `impact_caliber` 是 `window_projection`，所以它的量化证据句写「窗内投影占用为 … ms（未发布有效归因）」，而前两条（`effective_attribution`）写「链上有效归因为 … ms」——证据句的口径词与长报告的口径词来自同一张词表，两种口径不能相加。
+
+同时分析两个 trace 文件时，每条根因还带 `artifact_label`。两个文件里同名的线程是两条不同的根因：
+
+```json
+{
+  "schema_version": 2,
+  "status": "available",
+  "root_causes": [
+    {
+      "rank": 1,
+      "category": "cpu_scheduling_delay",
+      "thread_name": "RenderThread",
+      "artifact_label": "7.0B30SP22_7315.systrace",
+      "impact_seconds": 0.0124,
+      "impact_caliber": "effective_attribution",
+      "causal_qualifier": "proven",
+      "summary": "RenderThread线程CPU调度延迟",
+      "evidence": ["RenderThread 在目标窗口内的链上有效归因为 12.400 ms"]
+    },
+    {
+      "rank": 2,
+      "category": "cpu_scheduling_delay",
+      "thread_name": "RenderThread",
+      "artifact_label": "6.0B138_3900.sys.systrace",
+      "impact_seconds": 0.0041,
+      "impact_caliber": "effective_attribution",
+      "causal_qualifier": "proven",
+      "summary": "RenderThread线程CPU调度延迟",
+      "evidence": ["RenderThread 在目标窗口内的链上有效归因为 4.100 ms"]
     }
   ]
 }
@@ -88,6 +123,7 @@ Codrax 分析 Trace 后可以保存两类结果：
 | `thread_name` | 涉及的线程名。只有线程类根因需要。 |
 | `resource_name` | 锁或资源名。锁竞争需要。 |
 | `phase_name` | 阶段名。阶段高负载需要。 |
+| `artifact_label` | 该根因来自哪个 trace 文件（分区键），与长报告各 trace 分节使用的文件名同源，由程序填写、模型不写。只分析一个 trace 且无文件身份时省略。同时分析多个 trace 文件时，两个文件里同名的线程是两条不同的根因，各自带自己的 `artifact_label`（见下例）。 |
 | `impact_seconds` | 该根因在目标分析窗口内的影响时间，单位是秒。它的口径由 `impact_caliber` 决定：`effective_attribution` 时是链上有效归因（现有规则可消除量）；`window_projection` 时只是窗内投影占用，尚未发布有效归因，不能与有效归因相加或同榜排序。 |
 | `impact_caliber` | 影响时间口径，闭集：`effective_attribution` / `window_projection`。总是显式给出，消费者不得从缺失推断。 |
 | `causal_qualifier` | 席位级帧因果限定，闭集：`proven` / `frame_unproven` / `not_applicable`。`frame_unproven` 表示该根因自身引用的 trace 证据没有帧证据（或帧流因果未证），与 Markdown 头行的「（帧因果未证）」同源同值；`not_applicable` 表示本次请求不是帧/卡帧类问题（analyzer 的 typed 判定），报告不对帧因果作任何声明，头行也没有限定注。它不改变 `impact_seconds`，也不改变排名。 |
@@ -175,6 +211,8 @@ JSON Schema 限制字段、类型和根因类别
 - 候选的单位不能安全转换为墙钟秒；
 - 数组中出现相同的标准根因。
 
+被拒的选择器不会静默丢弃：工具结果携带 typed `optional_carrier_outcomes` 行（`carrier` / `status` / `reason` / `hint`），摘要面追加一行精确原因与可选 `candidate_id` 清单，模型在下一次 `emit_answer_document_patch` 用 `replace_trace_root_causes` 修正；patch 中无效的替换保留上一次已接受的选择（`status=retained_previous`）并同样披露。披露落在该次调用返回的任何结果上——答案被接受、被结构性拒绝（含 patch 在持久化之前的拒绝）都一样；被拒绝的选择器此后会在 `.root-causes.json` 里以 `model_root_cause_selection_rejected` 与「从未选择」区分开。
+
 模型输入只包含 `candidate_id`。程序从冻结候选生成其余字段：
 
 - `rank` 按模型选择的数组顺序生成；
@@ -226,11 +264,16 @@ JSON Schema 限制字段、类型和根因类别
 
 | `reason_code` | 含义 |
 |---|---|
-| `valid_model_root_cause_selection_unavailable` | 本轮没有收到通过校验的模型选择。 |
+| `valid_model_root_cause_selection_unavailable` | 本轮模型从未提交过通过校验的选择，也没有可继承的选择。 |
+| `model_root_cause_selection_rejected` | 模型提交过选择器，但最近一次提交被校验拒绝（`candidate_id` 不在清单、重复、`schema_version` 不符或对象格式错误），之后没有再收到有效选择。 |
 | `no_selectable_typed_on_chain_candidates` | 没有可交给模型选择的链上候选。 |
 | `trace_root_cause_contract_not_active` | 本轮未建立根因选择所需的证据合同。 |
+| `trace_root_cause_runtime_unavailable` | 流程在建立分析状态之前就已结束。 |
 | `final_answer_transcript_not_available` | 流程提前退出或未形成答案；不输出未完成的草稿根因。 |
 | `root_cause_report_encoding_failed` | 根因报告编码失败，已降为合法的空 JSON。 |
+| `valid_root_cause_selection_unavailable` | 写入器未收到任何原因时的兜底值；正常流程不会出现。 |
+
+`reason_code` 取值是只增不改的闭集，程序里由 `outputdump.AllRootCauseUnavailableReasonCodes` 单点维护，本表与之逐项对应。
 
 JSON 写入不再依赖 Markdown/HTML 成功。流程提前退出时可能只有 `.root-causes.json`，它与完整报告一样遵守 `output_max_files` 保留数量，不会被当成无主垃圾立即清理。磁盘满、权限不足等文件系统故障不可能保证落盘：API 可通过 `RootCauseOutputError()` 获取错误；CLI 保留答案输出后返回文件交付失败，交互模式单独告警，不删除或改写模型答案。
 

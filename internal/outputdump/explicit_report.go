@@ -192,7 +192,7 @@ func writeExplicitRootCauseArtifact(r ExplicitReport, report *types.TraceRootCau
 		artifact.Status = ExplicitRootCauseStatusUnavailable
 		artifact.ReasonCode = strings.TrimSpace(unavailableReason)
 		if artifact.ReasonCode == "" {
-			artifact.ReasonCode = "valid_root_cause_selection_unavailable"
+			artifact.ReasonCode = RootCauseReasonFallbackUnavailable
 		}
 	}
 	body, err := json.MarshalIndent(artifact, "", "  ")

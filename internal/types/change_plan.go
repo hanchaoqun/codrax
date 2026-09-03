@@ -436,10 +436,19 @@ type ChangePlan struct {
 	// against an explicit analyzer contract and no fallback row remains.
 	BehaviorContractGeneration WriteBehaviorContractGeneration `json:"behavior_contract_generation,omitempty"`
 
-	// SupersededBehaviorContractIDs is a controller-owned tombstone set for a
-	// typed verify-failure replan. It prevents contracts retired by the current
-	// generation from being reintroduced through cumulative verification scope.
-	// The planner wire schema cannot author this field.
+	// SupersededBehaviorContracts is the controller-owned tombstone carrier of a
+	// typed verify-failure replan (§40.23/§40.24): each retired id records its
+	// typed reason, the evidence ids that authorized the retirement, and the
+	// failed attempt identity, so cumulative verification scope cannot
+	// reintroduce the id and a later reader can audit or reverse it. The
+	// planner wire schema cannot author this field; attachWriteBehaviorContracts
+	// is its only writer (census in internal/tool).
+	SupersededBehaviorContracts []WriteBehaviorContractTombstone `json:"superseded_behavior_contracts,omitempty"`
+
+	// SupersededBehaviorContractIDs is the derived id projection of
+	// SupersededBehaviorContracts, kept for persisted-JSON compatibility: a
+	// legacy plan carrying only this list resolves its ids as retired with
+	// empty evidence. Readers go through SupersededWriteBehaviorContractTombstones.
 	SupersededBehaviorContractIDs []string `json:"superseded_behavior_contract_ids,omitempty"`
 
 	// CumulativeVerificationScope is a controller-owned snapshot of earlier

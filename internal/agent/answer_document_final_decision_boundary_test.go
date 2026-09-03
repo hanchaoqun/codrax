@@ -171,8 +171,12 @@ func TestTraceFinalReaderDecisionCardUsesNaturalLanguageAndPreservesBothAxes(t *
 		"## 面向读者的 Trace 成文事实卡（结论由模型给出）",
 		"结论仅限所选窗口：这是优先验证的候选方向",
 		"所选分析窗口：1.000000–1.010000 秒（10.000 毫秒）",
-		"目标线程 app-100 的窗口状态（覆盖完整）",
-		"不可中断等待 1.000 毫秒，其中已证 IO 等待 0.500 毫秒",
+		// EVOLUTION RECORD (V3-1, §40.20): the card prints the types-level
+		// account sentence (byte-equal with the ledger section and the
+		// reader handoff); the uninterruptible figure is the D+IO fold with
+		// its scheduler-marked IO share disclosed.
+		"工件 customer.systrace；目标线程 app-100；窗口 1.000000–1.010000 秒；",
+		"不可中断等待 1.000 毫秒（其中调度器标记的 IO 等待 0.500 毫秒）；合计 10.000 毫秒；覆盖完整；未归账 0.000 毫秒。",
 		"窗口结束后的切入运行属于另一区间",
 		"不能把本窗口内未测得的醒后调度延迟写成零",
 		"真实耗时集中（已测墙钟占用，用于发现新的优化方向）",

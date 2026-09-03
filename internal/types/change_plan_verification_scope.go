@@ -24,15 +24,13 @@ func ChangePlanVerificationBehaviorContracts(plan *ChangePlan) []WriteBehaviorCo
 	}
 	out := make([]WriteBehaviorContract, 0, len(plan.BehaviorContracts))
 	seen := map[string]bool{}
-	superseded := map[string]bool{}
-	for _, raw := range plan.SupersededBehaviorContractIDs {
-		if id := strings.TrimSpace(raw); id != "" {
-			superseded[id] = true
-		}
-	}
+	superseded := SupersededWriteBehaviorContractTombstones(plan)
 	add := func(contract WriteBehaviorContract) {
 		key := strings.TrimSpace(contract.ID)
-		if key == "" || seen[key] || superseded[key] {
+		if key == "" || seen[key] {
+			return
+		}
+		if _, retired := superseded[key]; retired {
 			return
 		}
 		seen[key] = true

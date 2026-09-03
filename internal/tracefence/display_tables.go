@@ -303,6 +303,106 @@ func CaliberWordNeverPublishedZH() []string {
 	return []string{"满额", "足额"}
 }
 
+// --- Table ③e impact-ruler word faces (V1-1, colleague_merge_audit §40.25
+// 「词面来自 tracefence 单源」, 2026-09-03) --------------------------------------
+//
+// THE single display word source for the impact-ruler closed set: the word
+// printed next to a magnitude to say WHICH RULER measured it — 有效归因 (the
+// engine-published effective attribution), 窗口投影 (the raw window
+// projection of a seat whose effective was never published), 链上累计 (the
+// drill-down chain cumulative), 实际状态 (the actual-state account), and the
+// ◇/▒ family word 累计(跨线程) (a cross-thread cumulative, never an on-chain
+// attribution). The public sidecar wire tokens (`impact_caliber` =
+// effective_attribution / window_projection) are owned by internal/types
+// (TraceImpactCaliber*, AllTraceImpactCalibers); the WORDS live here so the
+// crown face (internal/tool tree/rcr renderers), the LLM-facing board feed
+// (internal/context) and the customer-facing sidecar evidence sentence
+// (internal/analysis/tracefinding) can never hand-mirror apart — the same
+// Table ⑦ shape (wire tokens stay in the owning package, words live here,
+// a census pin ties them; tracefence stays a leaf: no types import). A
+// structural test pins that no production face outside this file spells one
+// of these words as its own literal.
+const (
+	ImpactCaliberEffectiveZH        = "有效归因"
+	ImpactCaliberEffectiveEN        = "attribution"
+	ImpactCaliberWindowProjectionZH = "窗口投影"
+	ImpactCaliberWindowProjectionEN = "window projection"
+	ImpactCaliberChainCumulativeZH  = "链上累计"
+	ImpactCaliberChainCumulativeEN  = "chain total"
+	ImpactCaliberActualStateZH      = "实际状态"
+	ImpactCaliberActualStateEN      = "actual state"
+	ImpactCaliberCrossThreadCumZH   = "累计(跨线程)"
+	ImpactCaliberCrossThreadCumEN   = "cross-thread cum"
+)
+
+// ImpactCaliberWordFaces returns the Table ③e closed set (zh or en) — the
+// hand-copy census reads this list, so a new ruler word joins the sweep by
+// being added here.
+func ImpactCaliberWordFaces(zh bool) []string {
+	if zh {
+		return []string{
+			ImpactCaliberEffectiveZH, ImpactCaliberWindowProjectionZH, ImpactCaliberChainCumulativeZH,
+			ImpactCaliberActualStateZH, ImpactCaliberCrossThreadCumZH,
+		}
+	}
+	return []string{
+		ImpactCaliberEffectiveEN, ImpactCaliberWindowProjectionEN, ImpactCaliberChainCumulativeEN,
+		ImpactCaliberActualStateEN, ImpactCaliberCrossThreadCumEN,
+	}
+}
+
+// impactCaliberRow is ONE row per public sidecar caliber token: the ruler
+// word the crown face prints and the sidecar evidence phrase the customer
+// reads. Keeping both on one row means a future word ruling swaps the ruler
+// word and the sentence phrase in one place (they can never fork).
+type impactCaliberRow struct {
+	wordZH, wordEN string
+	// sidecarPhrase is the 「在目标窗口内的<phrase>为 X ms」 filler; sidecarSuffix
+	// trails the magnitude (the window-projection disclosure 「（未发布有效
+	// 归因）」 — a raw projection is never called 有效: CROWNCAL discipline).
+	sidecarPhrase, sidecarSuffix string
+}
+
+// impactCaliberRows is keyed by the public wire token strings so tracefence
+// stays free of a types import (Table ⑦ pattern); the tracefence_test tie pin
+// walks types.AllTraceImpactCalibers() and fails when a token has no row.
+var impactCaliberRows = map[string]impactCaliberRow{
+	"effective_attribution": {
+		wordZH: ImpactCaliberEffectiveZH, wordEN: ImpactCaliberEffectiveEN,
+		sidecarPhrase: "链上" + ImpactCaliberEffectiveZH,
+	},
+	"window_projection": {
+		wordZH: ImpactCaliberWindowProjectionZH, wordEN: ImpactCaliberWindowProjectionEN,
+		sidecarPhrase: "窗内投影占用", sidecarSuffix: "（未发布" + ImpactCaliberEffectiveZH + "）",
+	},
+}
+
+// ImpactCaliberWord resolves a public sidecar caliber token to its ruler
+// word. ok=false on unknown tokens: absence never guesses (fail-closed — a
+// magnitude whose ruler is unknown never wears a synthesized word).
+func ImpactCaliberWord(caliber string, zh bool) (string, bool) {
+	row, ok := impactCaliberRows[strings.TrimSpace(caliber)]
+	if !ok {
+		return "", false
+	}
+	if zh {
+		return row.wordZH, true
+	}
+	return row.wordEN, true
+}
+
+// SidecarImpactCaliberPhrase resolves a public sidecar caliber token to the
+// customer-facing evidence-sentence phrase and trailing suffix (see
+// impactCaliberRow). ok=false on unknown tokens — the binder never renders a
+// bare number under an unknown ruler.
+func SidecarImpactCaliberPhrase(caliber string) (phrase, suffix string, ok bool) {
+	row, ok := impactCaliberRows[strings.TrimSpace(caliber)]
+	if !ok {
+		return "", "", false
+	}
+	return row.sidecarPhrase, row.sidecarSuffix, true
+}
+
 // --- Table ④ generated section headings ---------------------------------------
 //
 // The three deterministic H2 chapters the runtime-trace report generates; the
@@ -456,4 +556,112 @@ func FixDirectionWord(direction string, zh bool) (string, bool) {
 		return "own workload", true
 	}
 	return "", false
+}
+
+// --- Table ⑧ target-state lane words (prompt face) ----------------------------
+//
+// V3-1 (colleague_merge_audit §40.20 ③, 2026-09-03): the words the PROMPT
+// faces use for the target thread's full-window scheduler-state partition
+// (target_window_states: running / runnable / sleep / d_state / io_wait plus
+// the sleep-side sleep_io_wait overlay). Before V3-1 the observation-ledger
+// scope section, the final reader decision card, the bounded-runtime reader
+// handoff and two label switches each hand-copied these words (five-table
+// hand-copy disease). Every prompt consumer reads THIS table; the one sentence
+// that composes them is types.FormatTargetStateAccount.
+//
+// Wire lanes are the engine's own JSON keys (running_ms → "running", …).
+// StateLaneDState is the word of the PUBLISHED fold (non-IO D + scheduler-
+// marked IO = "uninterruptible wait"); the disjoint non-IO D lane is never
+// published alone on a prose face. Customer-face words (internal/tool
+// typelabels / four-state line) are a separate table and deliberately NOT
+// moved here.
+const (
+	StateLaneRunning     = "running"
+	StateLaneRunnable    = "runnable"
+	StateLaneSleep       = "sleep"
+	StateLaneDState      = "d_state"
+	StateLaneIOWait      = "io_wait"
+	StateLaneSleepIOWait = "sleep_io_wait"
+
+	// StateSchedulerMarkedQualifierZH/EN qualifies the IO-wait lane word when
+	// a sentence must say WHICH IO ruler it means (the scheduler-marked
+	// narrow classifier, not IO issue-to-completion closure).
+	StateSchedulerMarkedQualifierZH = "调度器标记的"
+	StateSchedulerMarkedQualifierEN = "scheduler-marked"
+
+	// StateCoverageComplete / StateCoveragePartialUnaccounted are the
+	// TraceTargetStateScopeAuthority.CoverageStatus wire values with a
+	// dedicated word; every other status renders the unknown-coverage word.
+	StateCoverageComplete           = "complete"
+	StateCoveragePartialUnaccounted = "partial_unaccounted"
+)
+
+// StateLanes returns the closed lane set in partition order (five disjoint
+// lanes, then the sleep-side overlay).
+func StateLanes() []string {
+	return []string{
+		StateLaneRunning, StateLaneRunnable, StateLaneSleep,
+		StateLaneDState, StateLaneIOWait, StateLaneSleepIOWait,
+	}
+}
+
+// StateLaneWord returns the prompt-face word of one wire lane; ok=false for
+// anything outside the closed set (callers keep their own fallback).
+func StateLaneWord(lane string, zh bool) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(lane)) {
+	case StateLaneRunning:
+		if zh {
+			return "运行", true
+		}
+		return "running", true
+	case StateLaneRunnable:
+		if zh {
+			return "可运行但尚未获调度", true
+		}
+		return "runnable but not yet scheduled", true
+	case StateLaneSleep:
+		if zh {
+			return "可中断睡眠", true
+		}
+		return "interruptible sleep", true
+	case StateLaneDState:
+		if zh {
+			return "不可中断等待", true
+		}
+		return "uninterruptible wait", true
+	case StateLaneIOWait:
+		if zh {
+			return "IO 等待", true
+		}
+		return "IO wait", true
+	case StateLaneSleepIOWait:
+		if zh {
+			return "带 IO 等待标记的可中断睡眠", true
+		}
+		return "interruptible sleep carrying an IO-wait marker", true
+	}
+	return "", false
+}
+
+// StateCoverageWord returns the prompt-face word of a target-state account's
+// window coverage status (bytes moved verbatim from the former
+// internal/agent traceFinalReaderCoverageLabel hand copy).
+func StateCoverageWord(status string, zh bool) string {
+	switch strings.TrimSpace(status) {
+	case StateCoverageComplete:
+		if zh {
+			return "覆盖完整"
+		}
+		return "complete coverage"
+	case StateCoveragePartialUnaccounted:
+		if zh {
+			return "部分覆盖，仍有未计入时间"
+		}
+		return "partial coverage with unaccounted time"
+	default:
+		if zh {
+			return "窗口覆盖范围未知"
+		}
+		return "window coverage unknown"
+	}
 }

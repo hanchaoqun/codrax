@@ -446,6 +446,12 @@ func TestEmitInvestigationComplete_PrincipalSpanWaiver_IgnoresInvalidReason(t *t
 	if !strings.Contains(res.Summary, "ignored principal_span_waiver.reason") {
 		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
 	}
+	// V2-3 (§40.19): the prose audit is mirrored by ONE typed outcome row.
+	if len(res.OptionalCarrierOutcomes) != 1 || res.OptionalCarrierOutcomes[0].Carrier != "principal_span_waiver" ||
+		res.OptionalCarrierOutcomes[0].Status != types.OptionalCarrierStatusIgnored ||
+		!strings.Contains(res.Summary, res.OptionalCarrierOutcomes[0].Reason) || strings.Contains(res.Summary, "[optional_carrier_") {
+		t.Errorf("ignored waiver must be a typed outcome beside the existing prose: %+v %q", res.OptionalCarrierOutcomes, res.Summary)
+	}
 	if mut.PrincipalSpanWaiver() != nil {
 		t.Errorf("ignored waiver must NOT be stored")
 	}

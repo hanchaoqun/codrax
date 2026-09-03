@@ -315,9 +315,7 @@ func (t *EmitAnswerDocumentPatch) parametersForContext(
 	if mut == nil {
 		return raw
 	}
-	contract := mut.TraceFindingContract()
-	raw = projectTraceFindingContract(raw, contract, true)
-	raw = projectTraceRootCauseReport(raw, contract, true)
+	raw = projectTraceRootCauseReport(raw, mut.TraceFindingContract(), true)
 	prev := mut.PendingAnswerDocumentPatchBase()
 	if prev == nil {
 		prev = mut.AnswerDocumentV2()
@@ -1985,7 +1983,6 @@ type emitAnswerDocumentPatchParams struct {
 	ReplaceMissingRequestedRoles []types.AnswerMissingRequestedRole     `json:"replace_missing_requested_roles,omitempty"`
 	ReplaceCaveats               []string                               `json:"replace_caveats,omitempty"`
 	ReplaceSnippets              []emitCodeSnippetV2                    `json:"replace_snippets,omitempty"`
-	ReplaceTraceFinding          *types.TraceFindingV1                  `json:"replace_trace_finding,omitempty"`
 	ReplaceTraceRootCauses       json.RawMessage                        `json:"replace_trace_root_causes,omitempty"`
 }
 
@@ -2763,8 +2760,20 @@ func splitCompanionDispositionRepair(failure splitCompanionDispositionFailure) *
 // and can retry with corrected params (the patch validator's
 // reject messages name the offending id / op verbatim).
 func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
+	// V2-3 fold-in (§40.44 E2): ONE result-exit choke point for the optional
+	// carriers — the selector outcome minted at resolve time reaches every
+	// result this call returns, including the two pre-persist rejects.
+	carriers := newOptionalCarrierLedger(t.Name())
+	defer func() { result = carriers.finalize(result) }()
 	now := time.Now()
 	stagedByThisCall := false
+	// The selector commit tail runs on every exit after the selector was
+	// resolved (zero-value selection before that = no-op): an accepted
+	// persist stores the report, ANY rejected exit stages a validly bound
+	// submission (§40.31.1 ★16 generalized from the three persist sites to
+	// every reject, so a "submit only new corrections" retry never loses it).
+	var rootCauseSelection traceRootCauseSelection
+	defer func() { commitTraceRootCauseSelection(ctx, result, err, rootCauseSelection) }()
 	defer func() {
 		result = annotateAnswerDocumentPatchFailureOutcome(result, stagedByThisCall)
 	}()
@@ -2986,6 +2995,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		logging.Warning("[emit_answer_document_patch] absorbed exact typed-receipt assignment(s) already carried by full replacement: %s",
 			strings.Join(fields, ", "))
 	}
+	// V2-1 (§40.17): the deterministic raw↔typed normalizers are positionally
+	// aligned to the model's JSON and therefore run exactly once, before any
+	// atomic diagram operation appends a system-materialized working block to
+	// replace_blocks. Every base built below (staged or committed) is the same
+	// patch-normalized document.
+	normalizeAnswerDocumentPatchForBase(prev, params, patch, ctx)
 	if len(p.DiagramEdgeEdits) > 0 || len(p.DiagramBoundaryReplacements) > 0 || len(p.DiagramBoundaryEdits) > 0 ||
 		len(p.DiagramRelationScopeEdits) > 0 || len(p.DiagramParticipantEdits) > 0 {
 		view := types.BuildAnswerSemanticViewForBusContext(ctx)
@@ -3011,7 +3026,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			// still passes every ordinary pre/post-emit gate in phase two.
 			if roster, ok := err.(*atomicDiagramParticipantDispositionRosterError); ok && roster.missingOnly() &&
 				len(p.DiagramParticipantEdits) == 0 && len(p.DiagramRelationScopeEdits) == 0 {
-				if staged, applyErr := types.NewPartialMutation(patch).Apply(prev); applyErr == nil && staged != nil {
+				if staged, _, applyErr := buildAnswerDocumentPatchBase(prev, patch); applyErr == nil && staged != nil {
 					// Resolve relation dependencies before asking about orphan
 					// declarations. A surviving structural reply can become invalid
 					// only after its model-selected forward invocation is removed;
@@ -3020,9 +3035,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// the model choose its relation action. No relation is removed,
 					// restored, redirected, or relabelled here.
 					if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view); dependencyLease != nil {
-						ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
-						ctx.Mutable.SetAnswerDiagramRelationRepairLease(dependencyLease)
-						stagedByThisCall = true
+						stageAnswerDocumentPatchGeneration(ctx.Mutable, staged, dependencyLease, &stagedByThisCall)
 						repair := answerDiagramRelationRepairScopeRepair(dependencyLease, nil)
 						repair.Fields = []string{"diagram_edge_edits"}
 						repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. One or more surviving sequence replies lost their preceding structural invocation in that exact graph. The old edge refs are consumed. Use only the new failure_ref/action branches to choose how each dependent relation should be repaired; do not replay old relation or participant operations. The system chooses no edge, action, direction, label, layout, or conclusion."
@@ -3030,9 +3043,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 							"diagram relation phase staged; %d dependent relation carrier(s) require an explicit model choice", len(dependencyLease.Failures))
 					}
 					if orphanLease := newAtomicDiagramOrphanDispositionLease(staged, roster, lease); orphanLease != nil {
-						ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
-						ctx.Mutable.SetAnswerDiagramRelationRepairLease(orphanLease)
-						stagedByThisCall = true
+						stageAnswerDocumentPatchGeneration(ctx.Mutable, staged, orphanLease, &stagedByThisCall)
 						repair := answerDiagramRelationRepairScopeRepair(orphanLease, nil)
 						repair.Fields = []string{"diagram_participant_edits"}
 						if rosterJSON, progressSignature := atomicDiagramParticipantDispositionRosterMetadata(err); rosterJSON != "" {
@@ -3087,11 +3098,9 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		// The comparison uses parsed endpoint/operator occurrences and typed
 		// anchors only; Trace diagrams are excluded by their semantic family.
 		if len(p.DiagramEdgeEdits) > 0 {
-			if staged, applyErr := types.NewPartialMutation(patch).Apply(prev); applyErr == nil && staged != nil {
+			if staged, _, applyErr := buildAnswerDocumentPatchBase(prev, patch); applyErr == nil && staged != nil {
 				if dependencyLease := newAtomicDiagramPostEditDependencyLease(prev, staged, lease, view); dependencyLease != nil {
-					ctx.Mutable.SetPendingAnswerDocumentPatchBase(staged)
-					ctx.Mutable.SetAnswerDiagramRelationRepairLease(dependencyLease)
-					stagedByThisCall = true
+					stageAnswerDocumentPatchGeneration(ctx.Mutable, staged, dependencyLease, &stagedByThisCall)
 					repair := answerDiagramRelationRepairScopeRepair(dependencyLease, nil)
 					repair.Fields = []string{"diagram_edge_edits"}
 					repair.Hint = "The exact model-authored relation edits were applied to an unpublished retry base. One or more surviving sequence replies lost their preceding structural invocation in that exact graph. The old edge refs are consumed. Use only the new failure_ref/action branches to choose how each dependent relation should be repaired; do not replay old relation or participant operations. The system chooses no edge, action, direction, label, layout, or conclusion."
@@ -3101,70 +3110,17 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 			}
 		}
 	}
-	// Stamp only blocks the model submitted in this patch. Unchanged blocks
-	// retain the internal provenance captured on their original full/patch
-	// emit, while citation refs added by later deterministic normalizers remain
-	// explicitly non-model-owned.
-	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.ReplaceBlocks})
-	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.AddBlocks})
-	if changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, params, patch); changed {
-		logging.Warning("[emit_answer_document_patch] preserved prior model-authored block content for typed relation-metadata-only replacement(s): %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := normalizeAnswerDocumentPatchIDSurface(patch); changed {
-		logging.Warning("[emit_answer_document_patch] id/op duplicate(s) normalized via transactional tolerance: %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := normalizeAnswerDocumentPatchNestedItemIDs(prev, patch); changed {
-		logging.Warning("[emit_answer_document_patch] nested item id(s) removed from block-level preservation surface: %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := normalizeAnswerDocumentPatchBlockOps(prev, patch); changed {
-		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
-			strings.Join(fields, ", "))
-	}
-	// Operation recovery can move an existing id from add_blocks into
-	// replace_blocks. The raw replacement-carrier inheritance above runs before
-	// that recovery and therefore cannot see the moved block. Reapply the same
-	// narrow omitted-field rule over the normalized typed replacement set so a
-	// misfiled add cannot silently shed principal/facet ownership and escape the
-	// merged-document relation checks. Explicit empty/value fields remain
-	// model-owned because this pass still consults their raw JSON presence.
-	if changed, fields := inheritMissingNormalizedPatchReplacementCarrierMetadata(prev, params, patch.ReplaceBlocks); changed {
-		logging.Warning("[emit_answer_document_patch] inherited omitted stable carrier metadata after block-op normalization: %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := normalizeAnswerDocumentPatchCitationOps(prev, patch); changed {
-		logging.Warning("[emit_answer_document_patch] citation op(s) normalized via preserved-pool tolerance: %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := preservePatchReplacementStableItemCitationRefs(prev, patch); changed {
-		logging.Warning("[emit_answer_document_patch] preserved stable item citation_ref value(s) across row insertion/removal: %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := preservePatchReplacementTableTails(prev, patch); changed {
-		logging.Warning("[emit_answer_document_patch] preserved visible table-tail prose from previous block(s): %s",
-			strings.Join(fields, ", "))
-	}
-	if changed, fields := normalizeAnswerDocumentPatchCitationRefs(prev, patch, ctx); changed {
-		logging.Warning("[emit_answer_document_patch] citation_ref value(s) rebound by typed citation evidence: %s",
-			strings.Join(fields, ", "))
-	}
 
 	// v3 B4 (2026-05-04): route the patch-emit write through the
 	// unified mutation runtime — same chokepoint as the full path.
 	// Partial Apply runs ApplyAnswerDocumentV2Patch internally;
 	// merged-doc invariants (id uniqueness / diagram payload /
 	// max blocks) live in ApplyAndPersistMutation.
-	mutation := types.NewPartialMutation(patch)
-	finding, findingErr := resolveTraceFindingForEmit(ctx, p.ReplaceTraceFinding, true)
-	if findingErr != nil {
-		return failEmit(t.Name(), now, "replace_trace_finding rejected: %v", findingErr)
-	}
-	rootCauses, rootCauseErr := resolveTraceRootCauseReportForEmit(ctx, p.ReplaceTraceRootCauses, true)
-	if rootCauseErr != nil {
-		logging.Warning("[%s] optional replace_trace_root_causes ignored; answer patch remains eligible: %v", t.Name(), rootCauseErr)
-	}
+	merged, mutation, applyErr := buildAnswerDocumentPatchBase(prev, patch)
+	// Resolved before persist (a bad replacement is "retained_previous" only
+	// while the accepted report is still visible), committed on every exit
+	// from here on by the deferred commitTraceRootCauseSelection.
+	rootCauseSelection = resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.ReplaceTraceRootCauses, true)
 	dropExplicitlyRemovedModelDiagrams := false
 
 	// P1 (2026-05-10) — emit-time pre-validation chokepoint, mirror
@@ -3173,7 +3129,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// hand off to ApplyAndPersistMutation which re-runs Apply
 	// internally. Apply is pure (no side effects on the doc clone)
 	// so the dry-run is safe.
-	if merged, applyErr := mutation.Apply(prev); applyErr == nil && merged != nil {
+	if applyErr == nil && merged != nil {
 		preEmitCtx := newPreEmitCheckContext(ctx)
 		// B1265: a local relation lease names canonical typed identities,
 		// while the model owns and may submit only the visible node ids and
@@ -3189,7 +3145,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				logging.Warning("[%s] stabilized %d inherited relation anchor identity pair(s) for lease comparison", t.Name(), fixed)
 			}
 		}
-		if lease, violations := validateAndConsumeAnswerDiagramRelationRepairLease(ctx.Mutable, merged); len(violations) > 0 {
+		if lease, violations := validateAnswerDiagramRelationRepairLeaseScope(ctx.Mutable, merged); len(violations) > 0 {
 			return failEmitWithRepair(t.Name(), now, answerDiagramRelationRepairScopeRepair(lease, violations),
 				"answer_document relation repair escaped its local typed scope: %s",
 				answerDiagramRelationRepairScopeSummary(violations))
@@ -3217,8 +3173,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					// staging state. The model authored every visible change; the next
 					// patch only refines it. This keeps live failure refs and block
 					// rosters on one generation without making a rejected answer visible.
-					ctx.Mutable.SetPendingAnswerDocumentPatchBase(merged)
-					stagedByThisCall = true
+					// The relation lease was proven satisfied by this exact merged draft
+					// above, so it is discharged together with the staged generation
+					// (B1248: a surviving lease would judge the next contract's fresh
+					// typed candidates as unlisted additions); the next contract mints
+					// its own typed delta through the evaluator.
+					stageAnswerDocumentPatchGeneration(ctx.Mutable, merged, nil, &stagedByThisCall)
 					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
 						"%s", formatEmitFixHintsWithRetryCompanions(hardHints, advisoryHints))
 				}
@@ -3228,54 +3188,33 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 					logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 				}
 			}
-			res, persistErr := persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
+			res, persistErr := persistMergedAnswerDocumentWithAttachmentPolicy(
 				ctx,
 				t.Name(),
 				types.MutationPartial,
 				mutation.Summary(),
 				merged,
-				finding,
 				now,
 				dropExplicitlyRemovedModelDiagrams,
 			)
-			if persistErr == nil && res.Success && rootCauses != nil {
-				ctx.Mutable.SetTraceRootCauseReport(rootCauses)
-			} else if rootCauses != nil && len(strings.TrimSpace(string(p.ReplaceTraceRootCauses))) > 0 {
-				ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses) // §40.31.1 ★16
-			}
 			return res, persistErr
 		}
 		// No semantic view means there are no view-specific pre-emit checks, but
 		// the exact pre-lease identity repair above is still part of the merged
 		// carrier and must not be lost by re-applying the original patch.
-		res, persistErr := persistMergedFinalAnswerArtifactsWithAttachmentPolicy(
+		res, persistErr := persistMergedAnswerDocumentWithAttachmentPolicy(
 			ctx,
 			t.Name(),
 			types.MutationPartial,
 			mutation.Summary(),
 			merged,
-			finding,
 			now,
 			dropExplicitlyRemovedModelDiagrams,
 		)
-		if persistErr == nil && res.Success && rootCauses != nil {
-			ctx.Mutable.SetTraceRootCauseReport(rootCauses)
-		} else if rootCauses != nil && len(strings.TrimSpace(string(p.ReplaceTraceRootCauses))) > 0 {
-			ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses) // §40.31.1 ★16
-		}
 		return res, persistErr
 	}
 
-	res, persistErr := ApplyAndPersistMutationWithFinding(ctx, t.Name(), mutation, prev, finding, now)
-	if persistErr == nil && res.Success {
-		res.Summary += traceRootCauseSelectorAdvisorySuffix(ctx)
-	}
-	if persistErr == nil && res.Success && rootCauses != nil {
-		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
-	} else if rootCauses != nil && len(strings.TrimSpace(string(p.ReplaceTraceRootCauses))) > 0 {
-		ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses) // §40.31.1 ★16
-	}
-	return res, persistErr
+	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
 }
 
 // normalizeRedundantPatchBlockFieldEditsV1 absorbs only an exact assignment
@@ -3594,13 +3533,20 @@ func answerDiagramBoundaryRepairLeaseAbsentRepair(edits []emitAnswerDiagramBound
 	}
 }
 
-// validateAndConsumeAnswerDiagramRelationRepairLease applies one precise
-// retry-generation contract. A scope violation retains the lease so the model
-// can retry the same local correction. Once a merged patch satisfies that
-// scope, the old lease is consumed before any independent pre-emit contract is
-// evaluated; a later participant/citation/cardinality failure must establish
-// its own typed repair authority instead of inheriting stale edge prohibitions.
-func validateAndConsumeAnswerDiagramRelationRepairLease(
+// validateAnswerDiagramRelationRepairLeaseScope applies one precise
+// retry-generation contract as a pure check (V2-2, §40.18). A scope violation
+// retains the lease so the model can retry the same local correction. Scope
+// success neither consumes nor commits anything here: the transaction can
+// still be rejected by the persist lane (receipt binding, model relation
+// claims, ownership, merged-document validation), and those rejections roll
+// the whole patch back with the lease intact so the same failure_refs stay
+// valid for the resubmission. The lease is consumed only in the locked success
+// epilogue (MutableState.commitAcceptedAnswerDocumentLocked) or discharged
+// with a staged generation through StageAnswerDocumentPatchGeneration, so a
+// later independent contract must establish its own typed repair authority
+// instead of inheriting stale edge prohibitions (B1248). A non-executable
+// lease is reported as absent; every reader already treats it that way.
+func validateAnswerDiagramRelationRepairLeaseScope(
 	mut *types.MutableState,
 	merged *types.AnswerDocumentV2,
 ) (*types.AnswerDiagramRelationRepairLease, []types.AnswerDiagramRelationRepairScopeViolation) {
@@ -3608,18 +3554,97 @@ func validateAndConsumeAnswerDiagramRelationRepairLease(
 		return nil, nil
 	}
 	lease := mut.AnswerDiagramRelationRepairLease()
-	if lease == nil {
+	if lease == nil || !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
 		return nil, nil
 	}
-	if !types.AnswerDiagramRelationRepairLeaseIsLocallyExecutable(lease) {
-		mut.SetAnswerDiagramRelationRepairLease(nil)
-		return nil, nil
+	return lease, types.ValidateAnswerDiagramRelationRepairLease(lease, merged)
+}
+
+// buildAnswerDocumentPatchBase is the single base constructor of the patch
+// transaction (V2-1, §40.17 ②): every staged generation and the committed
+// merged document are built from the same patch-normalized patch by the same
+// partial mutation, so stage / commit / rollback never hold different
+// baselines (rollback = the base is simply not written). The mutation value
+// is returned for its summary and for the persist fallback.
+func buildAnswerDocumentPatchBase(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (*types.AnswerDocumentV2, types.AnswerDocumentMutation, error) {
+	mutation := types.NewPartialMutation(patch)
+	merged, err := mutation.Apply(prev)
+	return merged, mutation, err
+}
+
+// stageAnswerDocumentPatchGeneration is the patch tool's only writer of
+// retry-local generation state (V2-2, §40.18 ③): the unpublished staged base
+// and its lease are installed atomically and the transaction outcome is
+// marked staged_for_retry in the same place. Passing lease == nil discharges
+// the current lease into the staged base.
+func stageAnswerDocumentPatchGeneration(
+	mut *types.MutableState,
+	base *types.AnswerDocumentV2,
+	lease *types.AnswerDiagramRelationRepairLease,
+	stagedByThisCall *bool,
+) {
+	mut.StageAnswerDocumentPatchGeneration(base, lease)
+	if stagedByThisCall != nil {
+		*stagedByThisCall = true
 	}
-	violations := types.ValidateAnswerDiagramRelationRepairLease(lease, merged)
-	if len(violations) == 0 {
-		mut.SetAnswerDiagramRelationRepairLease(nil)
+}
+
+// normalizeAnswerDocumentPatchForBase is the deterministic patch-normalizer
+// chain (V2-1, §40.17 ①). It reads the model's raw JSON positionally against
+// the typed patch, so it must run exactly once and before any atomic diagram
+// operation appends a system-materialized working block; the merged base it
+// prepares is the one base every stage / commit path is built from. The
+// view-scoped pre-emit normalization stays a separate later layer.
+func normalizeAnswerDocumentPatchForBase(prev *types.AnswerDocumentV2, params json.RawMessage, patch *types.AnswerDocumentV2Patch, ctx *types.BusContext) {
+	// Stamp only blocks the model submitted in this patch. Unchanged blocks
+	// retain the internal provenance captured on their original full/patch
+	// emit, while citation refs added by later deterministic normalizers remain
+	// explicitly non-model-owned.
+	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.ReplaceBlocks})
+	markModelSubmittedItemCitationRefs(&types.AnswerDocumentV2{Blocks: patch.AddBlocks})
+	if changed, fields := normalizeSparsePatchRelationMetadataEdits(prev, params, patch); changed {
+		logging.Warning("[emit_answer_document_patch] preserved prior model-authored block content for typed relation-metadata-only replacement(s): %s",
+			strings.Join(fields, ", "))
 	}
-	return lease, violations
+	if changed, fields := normalizeAnswerDocumentPatchIDSurface(patch); changed {
+		logging.Warning("[emit_answer_document_patch] id/op duplicate(s) normalized via transactional tolerance: %s",
+			strings.Join(fields, ", "))
+	}
+	if changed, fields := normalizeAnswerDocumentPatchNestedItemIDs(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] nested item id(s) removed from block-level preservation surface: %s",
+			strings.Join(fields, ", "))
+	}
+	if changed, fields := normalizeAnswerDocumentPatchBlockOps(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
+			strings.Join(fields, ", "))
+	}
+	// Operation recovery can move an existing id from add_blocks into
+	// replace_blocks. The raw replacement-carrier inheritance above runs before
+	// that recovery and therefore cannot see the moved block. Reapply the same
+	// narrow omitted-field rule over the normalized typed replacement set so a
+	// misfiled add cannot silently shed principal/facet ownership and escape the
+	// merged-document relation checks. Explicit empty/value fields remain
+	// model-owned because this pass still consults their raw JSON presence.
+	if changed, fields := inheritMissingNormalizedPatchReplacementCarrierMetadata(prev, params, patch.ReplaceBlocks); changed {
+		logging.Warning("[emit_answer_document_patch] inherited omitted stable carrier metadata after block-op normalization: %s",
+			strings.Join(fields, ", "))
+	}
+	if changed, fields := normalizeAnswerDocumentPatchCitationOps(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] citation op(s) normalized via preserved-pool tolerance: %s",
+			strings.Join(fields, ", "))
+	}
+	if changed, fields := preservePatchReplacementStableItemCitationRefs(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] preserved stable item citation_ref value(s) across row insertion/removal: %s",
+			strings.Join(fields, ", "))
+	}
+	if changed, fields := preservePatchReplacementTableTails(prev, patch); changed {
+		logging.Warning("[emit_answer_document_patch] preserved visible table-tail prose from previous block(s): %s",
+			strings.Join(fields, ", "))
+	}
+	if changed, fields := normalizeAnswerDocumentPatchCitationRefs(prev, patch, ctx); changed {
+		logging.Warning("[emit_answer_document_patch] citation_ref value(s) rebound by typed citation evidence: %s",
+			strings.Join(fields, ", "))
+	}
 }
 
 func answerDiagramRelationRepairScopeRepair(

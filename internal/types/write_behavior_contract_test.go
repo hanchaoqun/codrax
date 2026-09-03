@@ -295,8 +295,13 @@ func TestRebaseExpectedOutcomeFallbackWriteBehaviorContractsPreservesExplicitAnd
 	}
 }
 
+// EVOLUTION RECORD (V5-3, §40.23): retirement of an ungrounded soft contract
+// now requires relevance evidence — the failure kind opened the relevance
+// subset (tests_failed) and a failed typed row names the id. The stale soft
+// shape below is retired because the decision carries that hit; without it
+// the row is retained (TestRebaseVerifyFailureWriteBehaviorContractsRetiresOnlyRelevantSoftRows).
 func TestRebaseVerifyFailureWriteBehaviorContractsRetiresUngroundedSoftGeneration(t *testing.T) {
-	got, retired := RebaseVerifyFailureWriteBehaviorContracts([]WriteBehaviorContract{
+	got, tombstones := RebaseVerifyFailureWriteBehaviorContracts([]WriteBehaviorContract{
 		{
 			ID:       "hard-user-contract",
 			Kind:     WriteBehaviorInvariant,
@@ -342,7 +347,17 @@ func TestRebaseVerifyFailureWriteBehaviorContractsRetiresUngroundedSoftGeneratio
 			Required: true,
 			Source:   WriteBehaviorContractSourceExpectedOutcomeFallback,
 		},
-	}, []string{"the repaired direct constant passes"})
+	}, []string{"the repaired direct constant passes"}, WriteBehaviorContractRetirementDecision{
+		Lane: FailureKindContractRetireRelevanceSubset,
+		Relevance: VerifyFailureContractRelevance{Status: VerifyFailureContractRelevanceAvailable, Hits: []VerifyFailureContractHit{{
+			ContractID: "stale-soft-shape", Reason: WriteBehaviorContractRetiredFailedVerificationProbe, EvidenceRefs: []string{"probe:min_probe"},
+		}}},
+		PlanID: "plan-1", Attempt: 1, FailureKind: FailureKindTestsFailed,
+	})
+	retired := make([]string, 0, len(tombstones))
+	for _, tombstone := range tombstones {
+		retired = append(retired, tombstone.ID)
+	}
 
 	if len(got) != 4 {
 		t.Fatalf("contracts = %+v, want hard + grounded + observed + current fallback", got)
@@ -357,6 +372,9 @@ func TestRebaseVerifyFailureWriteBehaviorContractsRetiresUngroundedSoftGeneratio
 	wantRetired := []string{"outcome-1", "stale-soft-shape"}
 	if len(retired) != len(wantRetired) || retired[0] != wantRetired[0] || retired[1] != wantRetired[1] {
 		t.Fatalf("retired ids = %+v, want %+v", retired, wantRetired)
+	}
+	if tombstones[1].Reason != WriteBehaviorContractRetiredFailedVerificationProbe || len(tombstones[1].EvidenceRefs) != 1 || tombstones[1].EvidenceRefs[0] != "probe:min_probe" {
+		t.Fatalf("evidence-based tombstone lost its evidence: %+v", tombstones[1])
 	}
 }
 

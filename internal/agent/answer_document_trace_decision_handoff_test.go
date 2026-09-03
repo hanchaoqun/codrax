@@ -1142,3 +1142,46 @@ func TestFinalizerRuntimeEnumerationAuthorityDoesNotTeachPrivateTraceQueryBlobPa
 		t.Fatalf("finalizer was taught a private trace-query blob identity:\n%s", prompt)
 	}
 }
+
+// V1-4 §40.26 ③ (§40.48 fold-in): the relation-authority handoff keeps the
+// partition key end to end — two same-member relations from two trace files
+// render as two typed authorities whose copyable claims carry different
+// artifact_label values, grouped under the trace file they came from, with
+// the roster count taught once; a single-trace set renders no such group.
+func TestTraceDecisionHandoffGroupsRelationAuthoritiesByTraceFile(t *testing.T) {
+	account := func(total float64) *types.TraceCausalProjectionTargetStateAccount {
+		return &types.TraceCausalProjectionTargetStateAccount{
+			Subject: "UIThread-100", RunningMS: total / 2, RunnableMS: total / 4, SleepMS: total / 4,
+			TotalMS: total, WindowStartTs: 10, WindowEndTs: 10 + total/1000,
+		}
+	}
+	multi := types.TraceCausalProjectionSet{Projections: []types.TraceCausalProjection{
+		{ArtifactLabel: "a.systrace", WindowStartTs: 10, WindowEndTs: 10.02, TargetStateAccount: account(20)},
+		{ArtifactLabel: "b.systrace", WindowStartTs: 10, WindowEndTs: 10.02, TargetStateAccount: account(20)},
+	}}
+	got := renderAnswerDocTraceDecisionHandoffSet(multi, runtimeTraceGuidanceView{})
+	if strings.Count(got, "typed_relation_authority: relation_claim_copy=") != 2 {
+		t.Fatalf("two trace files with identical accounting are two authorities:\n%s", got)
+	}
+	for _, want := range []string{
+		"\"artifact_label\":\"a.systrace\"}`", "\"artifact_label\":\"b.systrace\"}`",
+		"relation_authority_trace_file: `a.systrace`", "relation_authority_trace_file: `b.systrace`",
+		"typed relation authorities above come from 2 trace files",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("multi-artifact relation handoff missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, "relation_authority_trace_file: `a.systrace`") > strings.Index(got, "\"artifact_label\":\"a.systrace\"}`") ||
+		strings.Index(got, "\"artifact_label\":\"a.systrace\"}`") > strings.Index(got, "relation_authority_trace_file: `b.systrace`") {
+		t.Fatalf("authorities must sit under their own trace-file group in partition order:\n%s", got)
+	}
+	single := types.TraceCausalProjectionSet{Projections: multi.Projections[:1]}
+	got = renderAnswerDocTraceDecisionHandoffSet(single, runtimeTraceGuidanceView{})
+	if strings.Contains(got, "relation_authority_trace_file") || strings.Contains(got, "come from 1 trace files") {
+		t.Fatalf("a single trace file renders no partition group:\n%s", got)
+	}
+	if !strings.Contains(got, "\"artifact_label\":\"a.systrace\"}`") {
+		t.Fatalf("the copyable claim still carries its partition key on a single labeled trace:\n%s", got)
+	}
+}

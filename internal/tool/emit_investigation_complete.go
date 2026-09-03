@@ -175,7 +175,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			"relation_claims": {
 				"type": "array",
 				"maxItems": 16,
-				"description": "OPTIONAL; normally omit it because typed trace relation authorities are carried into final synthesis automatically. If structured metadata is useful, copy only a complete relation_claim_copy JSON object printed by trace_query. Never copy relation_diagnostic_only fields such as member_values, measured_envelope_overlap, comparison_rule, comparison_value, fix_direction, or chain_lane: they are reasoning context and are not fields in this schema. Omission does not block closure. Submitted claims are validated only against typed trace carriers; the framework does not scan or rewrite reason.",
+				"description": "OPTIONAL; normally omit it because typed trace relation authorities are carried into final synthesis automatically. If structured metadata is useful, copy only a complete relation_claim_copy JSON object printed by trace_query. Never copy relation_diagnostic_only fields such as member_values, measured_envelope_overlap, comparison_rule, comparison_value, fix_direction, or chain_lane: they are reasoning context and are not fields in this schema. When a copy carries artifact_label (the trace file the authority was compiled from), copy it unchanged or omit it; never move a claim to another trace file. Omission does not block closure. Submitted claims are validated only against typed trace carriers; the framework does not scan or rewrite reason.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -184,7 +184,8 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						"physical_relation": {"type": "string", "enum": ["unresolved", "mutually_exclusive", "overlap", "contains", "contained_by"]},
 						"addition": {"type": "string", "enum": ["authorized_to_published_subtotal", "forbidden"]},
 						"subtotal_value": {"type": "number"},
-						"subtotal_unit": {"type": "string"}
+						"subtotal_unit": {"type": "string"},
+						"artifact_label": {"type": "string"}
 					},
 					"required": ["authority_id", "member_refs", "physical_relation", "addition"]
 				}
@@ -2036,6 +2037,12 @@ func completionAggregateFactsViolationList(violations []string) string {
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (result types.ToolResult, err error) {
+	// V2-3 fold-in (§40.44 E0): ONE result-exit choke point — every returned
+	// result (downgrade, accepted, rejection) passes through the ledger's
+	// finalize, so an ignored waiver is disclosed on the turn it was ignored,
+	// not first on the terminal accepted result.
+	carriers := newOptionalCarrierLedger(t.Name())
+	defer func() { result = carriers.finalize(result) }()
 	runtimeTimings := make([]types.ToolRuntimeTiming, 0, 12)
 	defer func() {
 		attachToolRuntimeTimings(&result, runtimeTimings)
@@ -2360,9 +2367,16 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			"the selected call result at %s:%d has a parser-located whole-value consumer, but no model-authored grounded argument row proved that final handoff; keep the consumer boundary unproven",
 			missingValueConsumer.producerSource, missingValueConsumer.producerLine))
 	}
-	ignoredEvidenceWaiver, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, t.Name(), p)
+	// V2-3 (§40.19): every optional carrier this call ignores is minted on
+	// the ledger and reaches whichever result this call returns through the
+	// finalize choke point above — a log line alone is never the disclosure.
+	evidenceWaiverOutcome, evidenceWaiverReject := applyEvidenceFloorWaiverPayload(ctx, carriers, p)
 	if evidenceWaiverReject != nil {
 		return *evidenceWaiverReject, nil
+	}
+	ignoredEvidenceWaiver := ""
+	if evidenceWaiverOutcome != nil {
+		ignoredEvidenceWaiver = evidenceWaiverOutcome.Reason
 	}
 	decoratorAlignmentStart := time.Now()
 	if err := validateAggregateRequestedDecoratorAlignmentWithEvidence(ctx, aggregateFacts, evidenceSnapshot); err != nil {
@@ -2564,17 +2578,17 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		if spanReason == "" {
 			ctx.Mutable.ClearPrincipalSpanWaiver()
 			ignoredPrincipalSpanWaiver = "ignored principal_span_waiver because reason is missing; normal span gates still apply"
-			logging.Warning("[emit_investigation_complete] %s", ignoredPrincipalSpanWaiver)
+			carriers.ignored("principal_span_waiver", ignoredPrincipalSpanWaiver)
 		} else if spanRationale == "" {
 			ctx.Mutable.ClearPrincipalSpanWaiver()
 			ignoredPrincipalSpanWaiver = fmt.Sprintf("ignored principal_span_waiver=%s because rationale is missing; normal span gates still apply", spanReason)
-			logging.Warning("[emit_investigation_complete] %s", ignoredPrincipalSpanWaiver)
+			carriers.ignored("principal_span_waiver", ignoredPrincipalSpanWaiver)
 		} else {
 			typedSpanReason := types.PrincipalSpanWaiverReason(spanReason)
 			if !typedSpanReason.IsValid() {
 				ctx.Mutable.ClearPrincipalSpanWaiver()
 				ignoredPrincipalSpanWaiver = fmt.Sprintf("ignored principal_span_waiver.reason=%q because it is not accepted; normal span gates still apply", spanReason)
-				logging.Warning("[emit_investigation_complete] %s", ignoredPrincipalSpanWaiver)
+				carriers.ignored("principal_span_waiver", ignoredPrincipalSpanWaiver)
 			} else {
 				ctx.Mutable.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
 					Reason:    typedSpanReason,
@@ -3210,6 +3224,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 	recordToolRuntimeTiming(&runtimeTimings, "completion_state_write", stateWriteStart, len(effectiveAggregateFacts))
 
+	// The prose audit above already words each ignored waiver on the summary;
+	// the ledger's finalize (deferred at the top of Execute) adds the typed
+	// rows beside it without a duplicate line.
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Summary:   summary,
@@ -6364,9 +6381,12 @@ func runtimeCompletionSurfacePlanSuppressesCurrentStatus(ctx *types.BusContext) 
 	return plan != nil && !plan.CurrentStatusDiagnosticRequired
 }
 
-func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p emitInvestigationCompleteParams) (string, *types.ToolResult) {
+// applyEvidenceFloorWaiverPayload returns the typed ignore outcome (nil when
+// the waiver was accepted, absent, or explicitly cleared) or a rejection
+// result for the contradictory clear+declare shape.
+func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, carriers *optionalCarrierLedger, p emitInvestigationCompleteParams) (*types.OptionalCarrierOutcome, *types.ToolResult) {
 	if ctx == nil || ctx.Mutable == nil {
-		return "", nil
+		return nil, nil
 	}
 	// Store evidence_floor_waiver before any completion gate that can
 	// legitimately relax for external runtime/log/trace surfaces. The
@@ -6374,8 +6394,8 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 	// consumers must see the typed waiver before deciding whether a
 	// source-line support requirement applies.
 	if p.ClearEvidenceWaiver && p.EvidenceFloorWaiver != nil {
-		return "", &types.ToolResult{
-			ToolName: toolName,
+		return nil, &types.ToolResult{
+			ToolName: carriers.toolName,
 			Summary: "emit_investigation_complete rejected: clear_evidence_floor_waiver cannot be set together with evidence_floor_waiver. " +
 				"Either declare a new waiver or explicitly retract the existing one, not both.",
 			Success:   false,
@@ -6385,41 +6405,40 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 	if p.ClearEvidenceWaiver {
 		ctx.Mutable.ClearEvidenceFloorWaiver()
 		logging.Info("[emit_investigation_complete] evidence_floor_waiver explicitly cleared")
-		return "", nil
+		return nil, nil
 	}
 	if p.EvidenceFloorWaiver == nil {
-		return "", nil
+		return nil, nil
 	}
 
+	const carrier = "evidence_floor_waiver"
 	waiverReason := strings.TrimSpace(p.EvidenceFloorWaiver.Reason)
 	waiverRationale := strings.TrimSpace(p.EvidenceFloorWaiver.Rationale)
 	if waiverReason == "" {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
-		ignored := "ignored evidence_floor_waiver because reason is missing; normal grounding gates still apply"
-		logging.Warning("[emit_investigation_complete] %s", ignored)
-		return ignored, nil
+		ignored := carriers.ignored(carrier, "ignored evidence_floor_waiver because reason is missing; normal grounding gates still apply")
+		return &ignored, nil
 	}
 	if waiverRationale == "" {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
-		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s because rationale is missing; normal grounding gates still apply", waiverReason)
-		logging.Warning("[emit_investigation_complete] %s", ignored)
-		return ignored, nil
+		ignored := carriers.ignored(carrier, fmt.Sprintf("ignored evidence_floor_waiver=%s because rationale is missing; normal grounding gates still apply", waiverReason))
+		return &ignored, nil
 	}
 	typedReason := types.EvidenceFloorWaiverReason(waiverReason)
 	if !typedReason.IsValid() {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
-		ignored := fmt.Sprintf("ignored evidence_floor_waiver.reason=%q because it is not accepted; normal grounding gates still apply", waiverReason)
-		logging.Warning("[emit_investigation_complete] %s", ignored)
-		return ignored, nil
+		ignored := carriers.ignored(carrier, fmt.Sprintf("ignored evidence_floor_waiver.reason=%q because it is not accepted; normal grounding gates still apply", waiverReason))
+		return &ignored, nil
 	}
 
 	artifactAttached := runtimeArtifactContextActiveForCompletion(ctx, requestModelForWaiver(ctx))
+	rationaleDetail := fmt.Sprintf("rationale=%q", truncateForLog(waiverRationale, 200))
 	if evidenceFloorWaiverIsPureVCSHistoryMisuse(ctx, typedReason, artifactAttached) {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
-		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason)
-		logging.Warning("[emit_investigation_complete] %s rationale=%q",
-			ignored, truncateForLog(waiverRationale, 200))
-		return ignored, nil
+		ignored := carriers.ignored(carrier,
+			fmt.Sprintf("ignored evidence_floor_waiver=%s for pure VCS history; carry git findings through reason/aggregate_facts, not runtime-artifact waiver", typedReason),
+			rationaleDetail)
+		return &ignored, nil
 	}
 	if !runtimeArtifactGroundingBypassAllowed(ctx) {
 		ctx.Mutable.SetEvidenceFloorWaiver(nil)
@@ -6427,13 +6446,12 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 		// of a bare loop: the model must know WHICH typed requirement still
 		// demands current-source evidence (or that no runtime artifact
 		// context is active at all) to make progress on the next attempt.
-		ignored := fmt.Sprintf("ignored evidence_floor_waiver=%s because no typed runtime artifact context is active this turn; the waiver applies to runs grounded in an attached or referenced log/trace", typedReason)
+		reason := fmt.Sprintf("ignored evidence_floor_waiver=%s because no typed runtime artifact context is active this turn; the waiver applies to runs grounded in an attached or referenced log/trace", typedReason)
 		if required, label := runtimeArtifactCurrentSourceHardRequirementLabeled(ctx); required {
-			ignored = fmt.Sprintf("ignored evidence_floor_waiver=%s: %s. Keep runtime observations in reason/aggregate_facts and add current-source evidence for that requirement before closing", typedReason, label)
+			reason = fmt.Sprintf("ignored evidence_floor_waiver=%s: %s. Keep runtime observations in reason/aggregate_facts and add current-source evidence for that requirement before closing", typedReason, label)
 		}
-		logging.Warning("[emit_investigation_complete] %s rationale=%q",
-			ignored, truncateForLog(waiverRationale, 200))
-		return ignored, nil
+		ignored := carriers.ignored(carrier, reason, rationaleDetail)
+		return &ignored, nil
 	}
 
 	ctx.Mutable.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
@@ -6442,7 +6460,7 @@ func applyEvidenceFloorWaiverPayload(ctx *types.BusContext, toolName string, p e
 	})
 	logging.Info("[emit_investigation_complete] evidence_floor_waiver accepted: reason=%s artifact_attached=%t rationale=%q",
 		typedReason, artifactAttached, truncateForLog(waiverRationale, 200))
-	return "", nil
+	return nil, nil
 }
 
 func runtimeArtifactContextActiveForCompletion(ctx *types.BusContext, rm *types.RequestModel) bool {

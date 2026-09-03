@@ -8,24 +8,37 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestTraceFindingSchemaIsOptIn(t *testing.T) {
+// EVOLUTION RECORD (V1-5, colleague_merge_audit §40.16): re-pinned from
+// TestTraceFindingSchemaIsOptIn, which asserted the legacy Required
+// `trace_finding` arm could be switched ON. That lane was born dead (its only
+// producer forced Required=false) and is retired on all three faces; the pin
+// now holds the schema face closed for every contract shape. The red→green
+// witness for the retirement is the input-face census
+// (answer_document_input_face_census_test.go) plus the stray-key behavior
+// pins (trace_finding_retirement_test.go).
+func TestTraceFindingFieldIsRetiredFromEverySchema(t *testing.T) {
 	tool := &EmitAnswerDocument{}
-	ordinary := &types.AgentContext{Mutable: &types.MutableState{}}
-	assertSchemaField(t, tool.ParametersFor(ordinary), "trace_finding", false)
-
-	ordinary.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
-		Required: false, FindingSchemaVersion: types.TraceFindingSchemaVersion,
-		CandidateSetID: "deterministic-sidecar-only",
-	})
-	assertSchemaField(t, tool.ParametersFor(ordinary), "trace_finding", false)
-	assertSchemaField(t, (&EmitAnswerDocumentPatch{}).ParametersFor(ordinary), "replace_trace_finding", false)
-
-	ordinary.Mutable.SetTraceFindingContract(&types.TraceFindingContract{
-		Required: true, FindingSchemaVersion: types.TraceFindingSchemaVersion,
-		PrimaryCandidateIDs: []string{"candidate-1"}, AcceptedEvidenceIDs: []string{"evidence-1"},
-	})
-	assertSchemaField(t, tool.ParametersFor(ordinary), "trace_finding", true)
-	assertSchemaField(t, (&EmitAnswerDocumentPatch{}).ParametersFor(ordinary), "replace_trace_finding", true)
+	patch := &EmitAnswerDocumentPatch{}
+	for _, tc := range []struct {
+		name     string
+		contract *types.TraceFindingContract
+	}{
+		{name: "no contract", contract: nil},
+		{name: "contract without selectable roster", contract: &types.TraceFindingContract{
+			FindingSchemaVersion: types.TraceFindingSchemaVersion, CandidateSetID: "deterministic-sidecar-only",
+			PrimaryCandidateIDs: []string{"candidate-1"}, AcceptedEvidenceIDs: []string{"evidence-1"},
+		}},
+		{name: "sidecar-enabled contract", contract: testSelectableTraceRootCauseContract()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &types.AgentContext{Mutable: &types.MutableState{}}
+			if tc.contract != nil {
+				ctx.Mutable.SetTraceFindingContract(tc.contract)
+			}
+			assertSchemaField(t, tool.ParametersFor(ctx), "trace_finding", false)
+			assertSchemaField(t, patch.ParametersFor(ctx), "replace_trace_finding", false)
+		})
+	}
 }
 
 func TestTraceRootCauseReportSchemaIsDefaultForTraceContract(t *testing.T) {
@@ -65,6 +78,16 @@ func assertDynamicRootCauseArraySchema(t *testing.T, raw json.RawMessage) {
 	candidate, _ := itemProperties["candidate_id"].(map[string]any)
 	if candidate["type"] != "string" {
 		t.Fatalf("candidate_id is not a typed selector: %#v", candidate)
+	}
+	// V1-4 (§40.26 ②, R2′): the selector item teaches the roster's
+	// artifact_label partition key without internal names; the model still
+	// submits candidate_id only (no artifact property to author).
+	if text, _ := item["description"].(string); !strings.Contains(text, "artifact_label") || !strings.Contains(text, "select by candidate_id") ||
+		strings.Contains(text, "TraceCausalProjection") || strings.Contains(text, "partition") {
+		t.Fatalf("selector item must teach artifact_label in customer words: %q", text)
+	}
+	if _, authored := itemProperties["artifact_label"]; authored {
+		t.Fatal("artifact_label is system-owned; the model must not author it")
 	}
 	// SIDECAR-NARR-1: the model may attach a plain-language description; it is
 	// optional and taught without internal names.

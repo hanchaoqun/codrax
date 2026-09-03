@@ -1406,9 +1406,9 @@ func runtimeTraceProjCauseStructuredParts(row runtimeTraceProjTreeRow, zh bool) 
 		// mechanism marker is never silently ignored next to an 未解析 word.
 		identity = append(identity, runtimeTraceProjBlockedReasonResidualWord(node, zh))
 	}
-	effectiveWord := "有效归因"
+	effectiveWord := tracefence.ImpactCaliberEffectiveZH
 	if !zh {
-		effectiveWord = "attribution"
+		effectiveWord = tracefence.ImpactCaliberEffectiveEN
 	}
 	impact := runtimeTraceProjNodeDisplayImpact(node)
 	_, impactSource := runtimeTraceProjNodeDisplayImpactSource(node)

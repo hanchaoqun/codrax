@@ -1961,6 +1961,20 @@ func renderExplorerRequestedDimensionEvidenceOwnershipGuide(ctx *types.AgentCont
 		}
 		fmt.Fprintf(&b, "  - index=%d source=%s\n", need.Dimension.Index, need.Source)
 	}
+	// V4-4 (§40.22): ownership left unsettled during analysis is disclosed
+	// here, not rejected there. Only typed indices/roles/paths are rendered.
+	if unresolved := ctx.AnalysisIR.RequestModel.AnalyzerHints.DimensionOwnerUnresolved; unresolved != nil {
+		roleByIndex := make(map[int]types.RequestedAnswerDimensionRole, len(dimensions))
+		for _, dimension := range dimensions {
+			roleByIndex[dimension.Index] = dimension.Role
+		}
+		for _, index := range unresolved.DimensionIndices {
+			fmt.Fprintf(&b, "- Ownership not settled during analysis: index=%d (%s). Read the operation that implements it and set `requested_dimension_indices` on that grounded evidence row.\n", index, roleByIndex[index])
+		}
+		if len(unresolved.UnclassifiedFiles) > 0 {
+			fmt.Fprintf(&b, "- Files listed without a declared role: %s. Treat each as a candidate implementation site to verify, not as a settled owner.\n", strings.Join(unresolved.UnclassifiedFiles, ", "))
+		}
+	}
 	b.WriteString("- When `emit_evidence` records the actual producer, consumer, call, return, assignment, initializer, condition, or branch effect for one of these dimensions, set that evidence item's `requested_dimension_indices` to the exact supported index.\n")
 	b.WriteString("- One operation row may carry multiple indices only when that same operation independently proves every listed dimension; otherwise emit separate operation evidence. A definition, default, example, text reference, or role-description row does not own an operation seat even when its evidence_kind is mechanism.\n")
 	if fileScoped {

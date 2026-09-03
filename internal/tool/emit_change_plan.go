@@ -35,7 +35,7 @@ const emitChangePlanSchemaReminder = types.ChangePlanJSONShapeFirstTeaching + " 
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), edits: optional structured line edits for kind=patch, " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
-	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, assertion_suite, assertion_id, contract_refs[]} declarations. " +
+	"OPTIONAL: acceptance_tests: array of strings; verification_probes: array of typed bounded probes with optional contract_refs/changed_symbol_refs; project_test_observations: array of {id, test_path, assertion_suite, assertion_id, contract_refs[]} declarations; superseded_contract_refs: array of soft behavior_contract ids this repair plan supersedes (repair plans after a failed verification only). " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
 
@@ -82,6 +82,12 @@ type emitChangePlanParams struct {
 	AcceptanceTests         []string                       `json:"acceptance_tests,omitempty"`
 	VerificationProbes      []types.VerificationProbe      `json:"verification_probes,omitempty"`
 	ProjectTestObservations []types.ProjectTestObservation `json:"project_test_observations,omitempty"`
+	// SupersededContractRefs is the planner's typed escape lane for the
+	// soft-contract retention rule (§40.23): on a verify-failure replan the
+	// planner may declare soft contract ids that the repair supersedes.
+	// Validated by validatePlannerSupersededContractRefs; never authors
+	// tombstones for hard, grounded, or observed contracts.
+	SupersededContractRefs []string `json:"superseded_contract_refs,omitempty"`
 }
 
 // emitChangePlanChange mirrors types.FileChange but lives in the tool
@@ -243,6 +249,11 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
       "description": "Optional natural-language planning checklist for selecting verification. It does not itself create proof or a hard completion obligation; bind grounded behavior_contract ids to executed verification_probes or exact project_test_observations for typed authority.",
       "items": {"type": "string"}
     },
+    "superseded_contract_refs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "__SUPERSEDED_CONTRACT_REFS_DESCRIPTION__"
+    },
     "project_test_observations": {
       "type": "array",
       "description": "Optional exact bindings from one concrete project-test assertion to behavior_contract ids. Authority requires a successful exact test-surface candidate plus the same passed assertion_suite/assertion_id from an assertion-scoped runner result; aggregate runner rows do not qualify.",
@@ -376,7 +387,13 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 				planRepairPackFromReason(t.Name(), "project_test_observation_without_changes", summary, []string{"$.changes", "$.project_test_observations"}, nil)), nil
 		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, p, probes); plan != nil {
-			attachWriteBehaviorContracts(ctx, plan)
+			if rej, reason := attachWriteBehaviorContracts(ctx, plan, p.SupersededContractRefs); rej != "" {
+				return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+					planRepairPackFromReason(t.Name(), reason, rej, []string{"$.superseded_contract_refs"}, nil)), nil
+			}
+			if rej, reason, fields := validatePlanBehaviorContractRefs(plan); rej != "" {
+				return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, planRepairPackFromReason(t.Name(), reason, rej, fields, nil)), nil
+			}
 			enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 			if rej := validateVerificationProbeTargetPathLanguageCompatibility(plan.TargetPaths, plan.VerificationProbes); rej != "" {
 				pack := planRepairPackFromReason(t.Name(), "verification_probe_target_language_mismatch", rej, []string{"$.verification_probes[].language"}, plan.TargetPaths)
@@ -489,6 +506,20 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    container without git). Skipped when RepoRoot is empty
 	//    (unexpected in write mode, but belt-and-suspenders for
 	//    tool-layer unit tests that don't set it).
+	// Behavior-contract refs gate (one tombstone-aware resolver over the
+	// plan's active generation, V5-4) runs on a pre-plan BEFORE the expensive
+	// content validators, so a bad ref never pays for a dry build. The
+	// content validators compile edits[] into fcs in place, so the final plan
+	// is rebuilt from fcs afterwards; the projection is deterministic and
+	// re-attaches byte-identically.
+	prePlan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes, projectTestObservations)
+	if rej, reason := attachWriteBehaviorContracts(ctx, prePlan, p.SupersededContractRefs); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
+			planRepairPackFromReason(t.Name(), reason, rej, []string{"$.superseded_contract_refs"}, nil)), nil
+	}
+	if rej, reason, fields := validatePlanBehaviorContractRefs(prePlan); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, planRepairPackFromReason(t.Name(), reason, rej, fields, nil)), nil
+	}
 	if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), p.Summary, fcs, probes); rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej, pack), nil
 	}
@@ -501,10 +532,9 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// Build the internal ChangePlan + populate target_paths from
 	// the (already converted + already validated) changes slice.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes, projectTestObservations)
-	attachWriteBehaviorContracts(ctx, plan)
-	if rej := validateProjectTestObservationContractRefs(plan.BehaviorContracts, plan.ProjectTestObservations); rej != "" {
+	if rej, reason := attachWriteBehaviorContracts(ctx, plan, p.SupersededContractRefs); rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_change_plan rejected: "+rej,
-			planRepairPackFromReason(t.Name(), "project_test_observation_contract_refs_failed", rej, []string{"$.project_test_observations[].contract_refs"}, nil)), nil
+			planRepairPackFromReason(t.Name(), reason, rej, []string{"$.superseded_contract_refs"}, nil)), nil
 	}
 	enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 

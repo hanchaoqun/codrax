@@ -96,6 +96,26 @@ type TraceCausalProjectionSet struct {
 	OmittedArtifactLabels []string
 }
 
+// TraceCausalProjectionSetArtifactLabels is the fold's PARTITION ROSTER: the
+// distinct non-empty artifact labels of the set's projections in
+// first-appearance order (V1-4 §40.26 — one source for every consumer that
+// teaches or groups by the partition key: the candidate contract, the trace
+// decision handoff). Identity-less ledgers yield nil; a roster of two or more
+// is the multi-artifact case.
+func TraceCausalProjectionSetArtifactLabels(set TraceCausalProjectionSet) []string {
+	var labels []string
+	seen := map[string]bool{}
+	for _, projection := range set.Projections {
+		label := strings.TrimSpace(projection.ArtifactLabel)
+		if label == "" || seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
+	}
+	return labels
+}
+
 // CompileTraceCausalProjections is the CMP-1 multi-artifact compile entry:
 // one projection per trace artifact (see TraceCausalProjectionSet for the
 // partition rules). Callers that also need the unattributed/omitted caveat

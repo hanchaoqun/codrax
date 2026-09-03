@@ -37,7 +37,7 @@ func defaultRootCauseArtifact(report *types.TraceRootCauseReportV2, reason strin
 	} else {
 		artifact.ReasonCode = strings.TrimSpace(reason)
 		if artifact.ReasonCode == "" {
-			artifact.ReasonCode = "valid_root_cause_selection_unavailable"
+			artifact.ReasonCode = RootCauseReasonFallbackUnavailable
 		}
 	}
 	return artifact
@@ -52,7 +52,7 @@ func writeDefaultRootCauseSidecar(a Args, markdownPath string) Result {
 	if err != nil {
 		logging.Warning("[output_dump] encode trace root-cause report failed; writing empty unavailable artifact: %v", err)
 		// This fixed fallback contains no model data that could fail encoding.
-		body, _ = json.MarshalIndent(defaultRootCauseArtifact(nil, "root_cause_report_encoding_failed"), "", "  ")
+		body, _ = json.MarshalIndent(defaultRootCauseArtifact(nil, RootCauseReasonEncodingFailed), "", "  ")
 	}
 	if err := os.WriteFile(p, append(body, '\n'), 0o644); err != nil {
 		logging.Warning("[output_dump] write mandatory root-cause artifact %s failed: %v", p, err)

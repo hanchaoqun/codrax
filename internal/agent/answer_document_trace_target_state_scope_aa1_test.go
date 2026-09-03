@@ -135,8 +135,12 @@ func TestRenderAnswerDocObservationLedgerPublishesFiniteExplicitWindowStateWitho
 	for _, want := range []string{
 		"### Target-thread scheduler-state accounting",
 		"target thread main-100",
-		"running 20.000 ms, runnable but not yet scheduled 10.000 ms, interruptible sleep 70.000 ms, uninterruptible wait 0.000 ms",
-		"0.000 ms marked by the scheduler as IO wait and 3.000 ms of interruptible sleep carrying an IO-wait marker",
+		// EVOLUTION RECORD (V3-1, §40.20): the account sentence is now the
+		// types-level formatter (types.FormatTargetStateAccount): the sleep-
+		// side IO marker is disclosed INSIDE the sleep term, the
+		// uninterruptible figure is the D+IO fold with its IO share disclosed.
+		"running 20.000 ms, runnable but not yet scheduled 10.000 ms, interruptible sleep 70.000 ms (including 3.000 ms of interruptible sleep carrying an IO-wait marker, already inside the sleep term), uninterruptible wait 0.000 ms",
+		"uninterruptible wait 0.000 ms (including 0.000 ms of scheduler-marked IO wait)",
 		"complete coverage",
 	} {
 		if !strings.Contains(got, want) {

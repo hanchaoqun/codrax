@@ -414,9 +414,6 @@ func validatePlanFullContentWithRepair(ctx *types.BusContext, toolName, summary 
 	if rej := validateVerificationProbeTargetLanguageCompatibility(changes, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_target_language_mismatch", rej, []string{"$.changes[].path", "$.verification_probes[].language"}, nil)
 	}
-	if rej := validateVerificationProbeContractRefs(ctx, verificationProbes); rej != "" {
-		return rej, planRepairPackFromReason(toolName, "verification_probe_contract_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.changes[].verification_probes[].contract_refs"}, nil)
-	}
 	if rej := validateVerifyFailureProofFollowupProbeRefs(ctx, verificationProbes); rej != "" {
 		return rej, planRepairPackFromReason(toolName, "verification_probe_proof_followup_refs_failed", rej, []string{"$.verification_probes[].contract_refs", "$.verification_probes[].changed_symbol_refs", "$.verification_probes[].language"}, nil)
 	}
@@ -815,23 +812,27 @@ func verifyFailureUncoveredChangedPathRefs(ctx *types.BusContext) []string {
 	return out
 }
 
+// verifyFailureRequiredBehaviorContractIDs is the required-contract set a
+// proof follow-up probe must bind. It reads the active generation only: the
+// live plan's resolved contracts when a plan exists, otherwise the analyzer
+// snapshot projected through the run's tombstone ledger and the
+// verify-failure handoff (V5-4, §40.46) — never the pre-rebase snapshot
+// unioned in, so a retired id is never advertised as required.
 func verifyFailureRequiredBehaviorContractIDs(ctx *types.BusContext) map[string]struct{} {
 	out := make(map[string]struct{})
-	add := func(contracts []types.WriteBehaviorContract) {
-		for _, contract := range probeCoverageContractRefs(contracts) {
-			if id := strings.TrimSpace(contract.ID); id != "" {
-				out[id] = struct{}{}
-			}
-		}
-	}
 	if ctx == nil || ctx.Mutable == nil {
 		return out
 	}
+	var res types.WriteBehaviorContractResolution
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
-		add(plan.BehaviorContracts)
+		res = resolveBehaviorContractIDs(plan)
+	} else {
+		res = ctx.Mutable.ProjectBehaviorContractGeneration(nil, nil)
 	}
-	if ir := ctx.Mutable.WriteAnalysisIR(); ir != nil {
-		add(ir.Request.BehaviorContracts)
+	for _, contract := range probeCoverageContractRefs(res.Contracts) {
+		if id := strings.TrimSpace(contract.ID); id != "" {
+			out[id] = struct{}{}
+		}
 	}
 	return out
 }
@@ -3554,29 +3555,34 @@ func normalizeVerificationProbeTargetPath(raw string) string {
 	return clean
 }
 
-func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan) {
+// attachWriteBehaviorContracts installs the plan's behavior-contract
+// generation. It is a thin caller of the one state-supplied projection
+// (Mutable.ProjectBehaviorContractGeneration): the analyzer snapshot under
+// the run's tombstone ledger, the current verify-failure handoff (lane from
+// FailureKind, relevance hits) and the planner's superseded_contract_refs.
+// It is the ONLY writer of SupersededBehaviorContracts /
+// SupersededBehaviorContractIDs (census in
+// behavior_contract_id_resolution_census_test.go) and merges every tombstone
+// it mints into the run's ledger, so an accepted retirement is monotonic
+// (§40.46). The planner supersession lane is validated first; a rejection
+// leaves the plan untouched.
+func attachWriteBehaviorContracts(ctx *types.BusContext, plan *types.ChangePlan, supersededRefs []string) (string, string) {
 	if ctx == nil || ctx.Mutable == nil || plan == nil {
-		return
+		return "", ""
 	}
-	ir := ctx.Mutable.WriteAnalysisIR()
-	if ir == nil || len(ir.Request.BehaviorContracts) == 0 {
-		return
+	if rej, reason := validatePlannerSupersededContractRefs(ctx, supersededRefs); rej != "" {
+		return rej, reason
 	}
-	contracts := append([]types.WriteBehaviorContract(nil), ir.Request.BehaviorContracts...)
-	// A failed verifier attempt is precise evidence that the next plan is a
-	// newer contract generation. Rebuild the soft layer even when the planner
-	// emits no acceptance_tests: otherwise a retry that merely removes an
-	// invalid probe can resurrect the old analyzer snapshot. Hard and grounded
-	// contracts survive; ungrounded soft expectations become typed tombstones so
-	// cumulative verification scope cannot add them back. No request, plan,
-	// failure-output, or source prose is parsed or compared.
-	if ctx.Mutable.VerifyFailureHandoff() != nil {
-		var retired []string
-		contracts, retired = types.RebaseVerifyFailureWriteBehaviorContracts(contracts, plan.AcceptanceTests)
-		plan.SupersededBehaviorContractIDs = retired
-		plan.BehaviorContractGeneration = types.WriteBehaviorContractGenerationPlanAcceptanceRebase
+	res := ctx.Mutable.ProjectBehaviorContractGeneration(plan.AcceptanceTests, supersededRefs)
+	if len(res.Contracts) == 0 && len(res.Tombstones) == 0 {
+		return "", ""
 	}
-	plan.BehaviorContracts = contracts
+	plan.BehaviorContracts = res.Contracts
+	plan.SupersededBehaviorContracts = res.Tombstones
+	plan.SupersededBehaviorContractIDs = res.RetiredIDs()
+	plan.BehaviorContractGeneration = res.Generation
+	ctx.Mutable.MergeBehaviorContractTombstones(res.Tombstones...)
+	return "", ""
 }
 
 func enrichVerificationProbeRefs(repoRoot string, plan *types.ChangePlan) {
@@ -3785,24 +3791,6 @@ func normalizeProjectTestAssertionIdentity(raw, field string) (string, string) {
 	return value, ""
 }
 
-func validateProjectTestObservationContractRefs(contracts []types.WriteBehaviorContract, observations []types.ProjectTestObservation) string {
-	if len(observations) == 0 {
-		return ""
-	}
-	ids := types.WriteBehaviorContractIDs(contracts)
-	if len(ids) == 0 {
-		return "project_test_observations require at least one typed behavior_contract"
-	}
-	for i, observation := range observations {
-		for _, ref := range observation.ContractRefs {
-			if _, ok := ids[ref]; !ok {
-				return fmt.Sprintf("project_test_observations[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
-			}
-		}
-	}
-	return ""
-}
-
 func normalizePlannerDryRunVerificationProbe(in []types.VerificationProbe) ([]types.VerificationProbe, string) {
 	return normalizeVerificationProbesWithOptions(in, false)
 }
@@ -3926,38 +3914,6 @@ func normalizeProbeStringRefs(in []string, max int, field string) ([]string, str
 		}
 	}
 	return out, ""
-}
-
-func validateVerificationProbeContractRefs(ctx *types.BusContext, probes []types.VerificationProbe) string {
-	if len(probes) == 0 || ctx == nil || ctx.Mutable == nil {
-		return ""
-	}
-	ir := ctx.Mutable.WriteAnalysisIR()
-	if ir == nil {
-		return ""
-	}
-	contracts := ir.Request.BehaviorContracts
-	if len(contracts) == 0 {
-		return ""
-	}
-	ids := types.WriteBehaviorContractIDs(contracts)
-	placementIDs := types.PlacementRequiredWriteBehaviorContractIDs(contracts)
-	for i, probe := range probes {
-		for _, ref := range probe.ContractRefs {
-			if _, ok := ids[ref]; !ok {
-				return fmt.Sprintf("verification_probes[%d].contract_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
-			}
-		}
-		for _, ref := range probe.PlacementRefs {
-			if _, ok := ids[ref]; !ok {
-				return fmt.Sprintf("verification_probes[%d].placement_refs contains unknown behavior_contract id %q; use one of %s", i, ref, formatStringSet(ids))
-			}
-			if _, ok := placementIDs[ref]; !ok {
-				return fmt.Sprintf("verification_probes[%d].placement_refs contains behavior_contract id %q without placement{}; use one of %s", i, ref, formatStringSet(placementIDs))
-			}
-		}
-	}
-	return ""
 }
 
 func subtractStringSet(want, got map[string]struct{}) map[string]struct{} {

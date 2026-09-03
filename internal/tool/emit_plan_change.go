@@ -222,6 +222,12 @@ func (t *EmitPlanChange) Execute(ctx *types.BusContext, params json.RawMessage) 
 	// intact so the planner can re-emit the offending file (single
 	// emit_plan_change call to fix one path is much smaller than
 	// re-running the entire emission).
+	if rej, reason, fields := validatePlanBehaviorContractRefs(partial); rej != "" {
+		pack := planRepairPackFromReason(t.Name(), reason, rej, fields, nil)
+		pack.PartialPlanRetained = true
+		pack.RetryInstruction = "PartialChangePlan is retained; re-emit the skeleton with corrected contract refs."
+		return rejectPlanToolResult(t.Name(), "emit_plan_change rejected during finalize: "+rej+" (PartialChangePlan retained)", pack), nil
+	}
 	if rej, pack := validatePlanFullContentWithRepair(ctx, t.Name(), partial.Summary, partial.Changes, partial.VerificationProbes); rej != "" {
 		if pack != nil {
 			pack.PartialPlanRetained = true

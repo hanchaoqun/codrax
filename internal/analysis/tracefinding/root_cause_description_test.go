@@ -7,10 +7,28 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// descriptionTestContract is one selectable-shaped candidate carrying the
+// given seat qualifier. (EVOLUTION RECORD, V1-5 §40.16: formerly borrowed
+// from validator_qualifier_test.go, which pinned the retired Required
+// trace_finding validator and went with it.)
+func descriptionTestContract(qualifier string) *types.TraceFindingContract {
+	return &types.TraceFindingContract{
+		FindingSchemaVersion: types.TraceFindingSchemaVersion,
+		PrimaryCandidateIDs:  []string{"candidate-1"}, ContributorCandidateIDs: []string{"candidate-2"},
+		AcceptedEvidenceIDs: []string{"evidence-1"}, RegistryHash: "registry-v1", CausalCeiling: qualifier,
+		Candidates: []types.TraceFindingCandidateV1{{Decision: types.TraceCauseDecision{
+			CandidateID: "candidate-1", Status: types.TraceCausalSupportedCandidate,
+			Token:       types.TraceCausalTokenSnapshot{Token: "binder_wait", Lane: "wakeup_chain", Additivity: "wall_clock_per_thread", SubjectKind: "per_thread", FixDirection: "io_dependency", RegistryHash: "registry-v1"},
+			SubjectRole: "ui_thread", CausalShape: "upstream_completion_wakes_target", Phase: "pre_wakeup_dependency", EvidenceRefs: []string{"evidence-1"},
+			CausalQualifier: qualifier,
+		}}},
+	}
+}
+
 // root_cause_description_test.go — SIDECAR-NARR-1: the binder carries the
 // model's description onto the bound item and refuses internal references.
 func TestBindRootCauseReportSelectionCarriesDescription(t *testing.T) {
-	contract := qualifierContract(types.TraceCausalQualifierProven)
+	contract := descriptionTestContract(types.TraceCausalQualifierProven)
 	contract.RootCauseReportEnabled = true
 	contract.Candidates[0].PrimaryEligible = true
 	contract.Candidates[0].Decision.Magnitude = &types.TypedMagnitude{Value: 12.4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: types.TraceImpactCaliberEffectiveAttribution}

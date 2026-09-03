@@ -123,7 +123,7 @@ func (o *Orchestrator) ensureDefaultTraceRootCauseOutput(bus *types.BusContext) 
 	// No successful final-output hook: publish no unfinalized draft selection.
 	result := outputdump.WriteRootCauseOnly(outputdump.Args{
 		Dir: o.outputDumpDir, Max: o.outputDumpMax, HasTrace: true,
-		RootCauseUnavailableReason: "final_answer_transcript_not_available",
+		RootCauseUnavailableReason: outputdump.RootCauseReasonTranscriptNotAvailable,
 		Now:                        time.Now(), PID: os.Getpid(),
 	})
 	o.rootCauseOutputErr = result.RootCauseJSONError

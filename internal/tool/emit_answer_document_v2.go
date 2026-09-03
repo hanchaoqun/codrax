@@ -42,7 +42,6 @@ type emitAnswerDocumentV2Params struct {
 	MissingRequestedRoles []types.AnswerMissingRequestedRole `json:"missing_requested_roles,omitempty"`
 	Caveats               []string                           `json:"caveats,omitempty"`
 	Snippets              []emitCodeSnippetV2                `json:"snippets,omitempty"`
-	TraceFinding          *types.TraceFindingV1              `json:"trace_finding,omitempty"`
 	TraceRootCauses       json.RawMessage                    `json:"trace_root_causes,omitempty"`
 }
 
@@ -133,7 +132,11 @@ type emitAnswerDiagramV2 struct {
 // SetAnswerDocumentV2. The result Summary string mirrors V1's tone
 // so finalize_preview / orchestrator hooks render consistent
 // per-call text.
-func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.RawMessage, now time.Time) (types.ToolResult, error) {
+func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.RawMessage, now time.Time) (result types.ToolResult, err error) {
+	// V2-3 fold-in (§40.44): ONE result-exit choke point for the optional
+	// carriers of this call (the root-cause selector).
+	carriers := newOptionalCarrierLedger(toolName)
+	defer func() { result = carriers.finalize(result) }()
 	var recovery answerDocumentRecoveryReport
 	// First pass: detect retired top-level fields (shape / steps /
 	// symbols / value / boolean / summary / symbols_completeness).
@@ -432,26 +435,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// stops implying a pure submitted→surviving mapping.
 	poolAtPersistEntry := len(doc.Citations)
 	mutation := types.NewReplaceAllMutation(doc)
-	finding, findingErr := resolveTraceFindingForEmit(ctx, p.TraceFinding, false)
-	if findingErr != nil {
-		return failEmit(toolName, now, "trace_finding rejected: %v", findingErr)
-	}
-	rootCauses, rootCauseErr := resolveTraceRootCauseReportForEmit(ctx, p.TraceRootCauses, false)
-	if rootCauseErr != nil {
-		logging.Warning("[%s] optional trace_root_causes ignored; full answer remains eligible: %v", toolName, rootCauseErr)
-		rootCauses = nil
-	}
-	res, err := ApplyAndPersistMutationWithFinding(ctx, toolName, mutation, nil, finding, now)
-	if err == nil && res.Success {
-		res.Summary += traceRootCauseSelectorAdvisorySuffix(ctx)
-	}
-	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil && rootCauses != nil {
-		ctx.Mutable.SetTraceRootCauseReport(rootCauses)
-	} else if ctx != nil && ctx.Mutable != nil && rootCauses != nil && len(strings.TrimSpace(string(p.TraceRootCauses))) > 0 {
-		// §40.31.1 ★16: a valid selector on a structurally rejected emit is
-		// staged so the accepted re-emit/patch that omits it inherits it.
-		ctx.Mutable.SetPendingTraceRootCauseReport(rootCauses)
-	}
+	// The optional selector is resolved BEFORE persist and committed after it
+	// (commitTraceRootCauseSelection): it never owns answer eligibility, and
+	// an ignored selector is disclosed on the result, never only logged.
+	rootCauseSelection := resolveTraceRootCauseSelectionForEmit(ctx, carriers, p.TraceRootCauses, false)
+	res, err := ApplyAndPersistMutation(ctx, toolName, mutation, nil, now)
 	if err == nil && res.Success && ctx != nil && ctx.Mutable != nil {
 		// §29.174 F6: disclose the submitted→registered citation delta
 		// on the accepted summary. The registered count is read from the
@@ -472,6 +460,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 				len(attachments), recovery.Mode, recovery.CandidateBlocks, recovery.RecoveredBlocks)
 		}
 	}
+	// The outcome disclosure, when any, is attached by the deferred finalize
+	// after the citation-ledger suffix, so line one stays the accepted counts
+	// line and the disclosure is its own line.
+	commitTraceRootCauseSelection(ctx, res, err, rootCauseSelection)
 	return res, err
 }
 

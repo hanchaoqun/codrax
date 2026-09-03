@@ -1,3 +1,6 @@
+// Package tracefinding compiles the frozen typed candidate contract for one
+// trace analysis and binds the model's ordered candidate selection into the
+// public root-cause sidecar; the model never authors a system-owned field.
 package tracefinding
 
 import (
@@ -24,8 +27,8 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	}
 	// SIDECAR-Q1 (§40.28 ②): the contract-level ceiling is DERIVED from the
 	// seat-level qualifiers below (unproven iff any admitted candidate's own
-	// evidence is frame-unproven) — it is a summary for the legacy Required
-	// view, never an input to any candidate's qualifier.
+	// evidence is frame-unproven) — a contract summary, never an input to any
+	// candidate's qualifier.
 	ceiling := types.TraceCausalQualifierProven
 	if !authority.Applicable {
 		// QUALGATE-1 (§40.30): not a frame question — the ceiling makes no
@@ -33,7 +36,6 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 		ceiling = types.TraceCausalQualifierNotApplicable
 	}
 	contract := &types.TraceFindingContract{
-		Required:             true,
 		FindingSchemaVersion: types.TraceFindingSchemaVersion,
 		RegistryHash:         registryHash,
 		CausalCeiling:        ceiling,
@@ -46,6 +48,10 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 		Symptom: types.TraceSymptomSummary{Kind: "runtime_trace"},
 	}
 
+	// V1-4 (§40.26): the fold keeps its partition roster — every kept
+	// projection's label, first-appearance order, never fabricated — read
+	// from the ONE roster function every fold consumer shares.
+	contract.ArtifactLabels = types.TraceCausalProjectionSetArtifactLabels(set)
 	seen := map[string]bool{}
 	for _, projection := range set.Projections {
 		applyProjectionMetadata(contract, projection)
@@ -87,13 +93,14 @@ func CompileCandidateContract(ledger types.ObservationLedger, set types.TraceCau
 	}
 
 	identity := struct {
-		Version      string                          `json:"version"`
-		RegistryHash string                          `json:"registry_hash"`
-		Ceiling      string                          `json:"causal_ceiling"`
-		Artifact     types.TraceFindingArtifact      `json:"artifact"`
-		Scope        types.TraceFindingScope         `json:"scope"`
-		Candidates   []types.TraceFindingCandidateV1 `json:"candidates"`
-	}{CandidateCompilerVersion, registryHash, contract.CausalCeiling, contract.Artifact, contract.Scope, contract.Candidates}
+		Version        string                          `json:"version"`
+		RegistryHash   string                          `json:"registry_hash"`
+		Ceiling        string                          `json:"causal_ceiling"`
+		Artifact       types.TraceFindingArtifact      `json:"artifact"`
+		ArtifactLabels []string                        `json:"artifact_labels"`
+		Scope          types.TraceFindingScope         `json:"scope"`
+		Candidates     []types.TraceFindingCandidateV1 `json:"candidates"`
+	}{CandidateCompilerVersion, registryHash, contract.CausalCeiling, contract.Artifact, sortedUnique(contract.ArtifactLabels), contract.Scope, contract.Candidates}
 	b, err := json.Marshal(identity)
 	if err != nil {
 		return nil, fmt.Errorf("marshal trace candidate contract: %w", err)
@@ -171,10 +178,10 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 	subjectRole, upstreamRole := candidateRoles(projection, node)
 	shape := firstNonEmpty(strings.TrimSpace(node.Causality), strings.TrimSpace(node.ChainRelevance), strings.TrimSpace(node.BlockingKind), "ranked_cause")
 	value := node.ImpactMS
-	caliber := "window_projection"
+	caliber := types.TraceImpactCaliberWindowProjection
 	if node.EffectiveImpactPublished {
 		value = node.EffectiveImpactMS
-		caliber = "effective_attribution"
+		caliber = types.TraceImpactCaliberEffectiveAttribution
 	}
 	if value <= 0 {
 		return types.TraceFindingCandidateV1{}, false
@@ -208,7 +215,10 @@ func compileCandidate(projection types.TraceCausalProjection, node types.TraceCa
 	decision := types.TraceCauseDecision{
 		Status:          status,
 		CausalQualifier: qualifier,
-		EvidenceFacts:   candidateEvidenceFacts(projection, node, spec.Lane, tracequery.CausalTokenFixDirectionFor(token)),
+		// V1-4 (§40.26 ①): the partition key rides the decision and the
+		// evidence facts from the SAME projection field (one source).
+		ArtifactLabel: strings.TrimSpace(projection.ArtifactLabel),
+		EvidenceFacts: candidateEvidenceFacts(projection, node, spec.Lane, tracequery.CausalTokenFixDirectionFor(token)),
 		Token: types.TraceCausalTokenSnapshot{
 			Token: token, Lane: string(spec.Lane), Additivity: string(spec.Additivity),
 			SubjectKind: string(spec.Subject), FixDirection: string(tracequery.CausalTokenFixDirectionFor(token)), RegistryHash: registryHash,
@@ -239,6 +249,10 @@ func candidateCausalityExplicitlyProven(value string) bool {
 	return value == "proven" || strings.HasPrefix(value, "proven_")
 }
 
+// applyProjectionMetadata fills the legacy Required-lane single-artifact
+// envelope (first projection wins — the lane is never Required in production,
+// trace_finding_contract.go). The cross-artifact partition roster is
+// contract.ArtifactLabels and each candidate's Decision.ArtifactLabel (V1-4).
 func applyProjectionMetadata(contract *types.TraceFindingContract, projection types.TraceCausalProjection) {
 	if contract.Artifact.ArtifactID == "" {
 		identity := firstNonEmpty(strings.TrimSpace(projection.ArtifactPath), strings.TrimSpace(projection.ArtifactLabel), "runtime-trace")

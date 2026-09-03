@@ -41,6 +41,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/stageauthority"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -6282,13 +6283,15 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 		b.WriteString("### 目标线程状态统计口径\n\n")
 		b.WriteString("- 下面是单个目标线程在所选窗口内的墙钟状态分区，只描述该线程。目标线程的运行或可运行占比不能直接代表整机 CPU 利用率、空闲算力或饱和程度；此类结论必须另有逐 CPU、核簇、进程域或系统级证据。\n")
 		b.WriteString("- 保留这里发布的毫秒值与窗口精度，不要从四舍五入的叙述或相邻窗口重新计算。状态只说明线程把时间花在哪一种调度状态，不自动说明等待机制。可中断睡眠本身不证明主动让出、空闲、抢占、IO、锁或其他等待；已经可运行但尚未获调度的时间属于调度延迟。\n")
-		b.WriteString("- 其中的 IO 等待采用调度器标记的窄口径：不可中断等待、明确 IO 等待，以及阻塞原因标记为 IO 等待的可中断睡眠。零值只表示没有匹配该窄口径，不能证明磁盘、文件系统、设备或其他 IO 活动/阻塞不存在。由 IO 发起到完成闭合的目标线程等待是另一把尺；若未单独发布，应表述为未评估而不是零。\n")
 	} else {
 		b.WriteString("### Target-thread scheduler-state accounting\n\n")
 		b.WriteString("- The rows below partition wall-clock time for one target thread in the selected window. They describe only that thread. Its running or runnable share does not establish system-wide CPU utilization, idle capacity, or saturation; those conclusions require separate per-CPU, core-class, process-domain, or system evidence.\n")
 		b.WriteString("- Preserve the published millisecond values and window precision; do not reconstruct them from rounded prose or a neighboring window. A scheduler state says where the target spent time, not why. Interruptible sleep alone does not prove yielding, idleness, preemption, IO, a lock, or another wait mechanism; ready-but-unscheduled time is scheduling latency.\n")
-		b.WriteString("- IO wait here uses the narrow scheduler-marked definition: uninterruptible wait, explicit IO wait, and interruptible sleep whose blocked-reason evidence marks IO wait. Zero means no match for that narrow definition; it does not prove the absence of disk, filesystem, device, or other IO activity/blocking. Target blocking closed by IO issue-to-completion evidence is a separate ruler; when it is not separately published, it is unassessed rather than zero.\n")
 	}
+	// V3-1 (§40.20): the caliber sentence and the account sentence are the
+	// types-level single source shared with the final reader decision card
+	// and the bounded-runtime reader handoff — one prompt, one caliber.
+	fmt.Fprintf(&b, "- %s\n", types.FormatTargetStateAccountCaliber(lang))
 	for i, authority := range authorities {
 		if i >= 4 {
 			if zh {
@@ -6298,24 +6301,7 @@ func renderAnswerDocTraceTargetStateScopeAuthority(ledger types.ObservationLedge
 			}
 			break
 		}
-		label := authority.ArtifactLabel
-		if label == "" {
-			label = fmt.Sprintf("partition-%d", i+1)
-		}
-		coverage := traceFinalReaderCoverageLabel(authority.CoverageStatus, zh)
-		if zh {
-			fmt.Fprintf(&b,
-				"- 工件 %s；目标线程 %s；窗口 %.6f–%.6f 秒；运行 %.3f 毫秒，可运行但尚未获调度 %.3f 毫秒，可中断睡眠 %.3f 毫秒，不可中断等待 %.3f 毫秒，其中调度器标记的 IO 等待 %.3f 毫秒、带 IO 等待标记的可中断睡眠 %.3f 毫秒；合计 %.3f 毫秒；%s；未归账 %.3f 毫秒。\n",
-				label, authority.Subject, authority.WindowStartTs, authority.WindowEndTs,
-				authority.RunningMS, authority.RunnableMS, authority.SleepMS, authority.DStateMS,
-				authority.IOWaitMS, authority.SleepIOWaitMS, authority.TotalMS, coverage, authority.UnaccountedMS)
-		} else {
-			fmt.Fprintf(&b,
-				"- Artifact %s; target thread %s; window %.6f–%.6f seconds; running %.3f ms, runnable but not yet scheduled %.3f ms, interruptible sleep %.3f ms, uninterruptible wait %.3f ms, including %.3f ms marked by the scheduler as IO wait and %.3f ms of interruptible sleep carrying an IO-wait marker; total %.3f ms; %s; %.3f ms unaccounted.\n",
-				label, authority.Subject, authority.WindowStartTs, authority.WindowEndTs,
-				authority.RunningMS, authority.RunnableMS, authority.SleepMS, authority.DStateMS,
-				authority.IOWaitMS, authority.SleepIOWaitMS, authority.TotalMS, coverage, authority.UnaccountedMS)
-		}
+		fmt.Fprintf(&b, "- %s\n", types.FormatTargetStateAccount(authority, lang))
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -24175,10 +24161,7 @@ func traceQueryObservationSupplementEntityLabel(raw string, zh bool) string {
 		}
 		return "sleep wait"
 	case "d":
-		if zh {
-			return "不可中断等待"
-		}
-		return "uninterruptible wait"
+		return traceStateLaneWord(tracefence.StateLaneDState, zh)
 	case "r", "r+":
 		if zh {
 			return "可运行"
@@ -24817,9 +24800,9 @@ func traceQueryObservationSupplementNoteDisplay(note string, zh bool) (string, b
 	case types.TraceNoteKeySleep:
 		return line("睡眠等待", "sleep wait", value)
 	case types.TraceNoteKeyDState:
-		return line("不可中断等待", "uninterruptible wait", value)
+		return line(traceStateLaneWord(tracefence.StateLaneDState, true), traceStateLaneWord(tracefence.StateLaneDState, false), value)
 	case types.TraceNoteKeyIOWait:
-		return line("IO 等待", "IO wait", value)
+		return line(traceStateLaneWord(tracefence.StateLaneIOWait, true), traceStateLaneWord(tracefence.StateLaneIOWait, false), value)
 	case "peer_state_dominant":
 		return line("关联线程主导状态", "related-thread dominant state", state(value))
 	case "peer_state_total":

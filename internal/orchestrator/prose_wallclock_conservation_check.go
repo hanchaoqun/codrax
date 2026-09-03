@@ -88,7 +88,33 @@ const (
 	// (against the union comparator) and never the Σ arm (folding them
 	// into a partition dimension could double-count sleep-side IO).
 	proseWallClockDimIOWait proseWallClockDimension = "io_wait"
+	// proseWallClockDimDStateNonIO (§40.49 T2): a D-word claim that carries
+	// the explicit non-IO qualifier (非IO / 非 IO / non-IO) immediately
+	// before it names the DISJOINT non-IO D lane — the caliber the system's
+	// own five-state facts publish under that wording — so it compares
+	// against that lane, not the fold. Feeds the Σ arm as the d_state
+	// partition member (max with an unqualified D claim), never as a fifth
+	// addend.
+	proseWallClockDimDStateNonIO proseWallClockDimension = "d_state_non_io"
 )
+
+// proseWallClockNonIOQualifiers are the verbatim qualifier tokens that bind
+// a D-word claim to the disjoint non-IO D lane. Precise lexical signal: the
+// token must sit immediately before the D word (only spaces / 的 between).
+var proseWallClockNonIOQualifiers = []string{"非IO", "非 IO", "non-IO", "non-io", "Non-IO", "NON-IO"}
+
+// proseWallClockNonIOQualified reports whether the text before a D-word
+// keyword ends with a non-IO qualifier token (spaces and 的 allowed in
+// between).
+func proseWallClockNonIOQualified(beforeKeyword string) bool {
+	trimmed := strings.TrimRight(beforeKeyword, " \t的")
+	for _, q := range proseWallClockNonIOQualifiers {
+		if strings.HasSuffix(trimmed, q) {
+			return true
+		}
+	}
+	return false
+}
 
 // proseWallClockConservationDims are the partition dimensions of the Σ arm.
 var proseWallClockConservationDims = []proseWallClockDimension{
@@ -106,6 +132,8 @@ func (d proseWallClockDimension) labelZH() string {
 		return "睡眠(sleep)"
 	case proseWallClockDimDState:
 		return "D状态(D-state)"
+	case proseWallClockDimDStateNonIO:
+		return "非IO D状态(non-IO D-state)"
 	case proseWallClockDimIOWait:
 		return "IO等待(io_wait)"
 	}
@@ -174,9 +202,10 @@ type proseWallClockAccount struct {
 	// ioWait (修复轮 件4, 2026-07-13): the account's OWN io_wait lane — the
 	// target_window_states partition is really FIVE states (donghu 常态
 	// io_wait>0), so the partition-fact decomposition must list it or its Σ
-	// self-verification breaks on every io_wait>0 account. Additive field:
-	// the P6 conservation arms deliberately do not consume it (their Σ arm
-	// keeps the four partition dims + union comparator design).
+	// self-verification breaks on every io_wait>0 account. The Σ arm keeps
+	// the four partition dims (never adds it as a fifth addend); the
+	// single-dimension arm reads it through the two typed comparators only
+	// (IO-wait union; D-state uninterruptible fold — V3-1 §40.20).
 	ioWait   float64
 	totalMS  float64
 	windowMS float64
@@ -318,7 +347,15 @@ func proseWallClockConservationFindings(doc *types.AnswerDocumentV2, bus *types.
 			if acc != nil {
 				v = acc.dims[dim]
 			}
-			if c, ok := dims[dim]; ok {
+			c, ok := dims[dim]
+			if dim == proseWallClockDimDState {
+				// A non-IO-qualified D claim IS the d_state partition
+				// member (max with an unqualified claim, never a fifth addend).
+				if q, qok := dims[proseWallClockDimDStateNonIO]; qok && (!ok || q.value > c.value) {
+					c, ok = q, true
+				}
+			}
+			if ok {
 				claimedAny = true
 				if c.value > v {
 					v = c.value
@@ -367,13 +404,30 @@ func proseWallClockFirstDim(dims map[proseWallClockDimension]proseWallClockClaim
 // proseWallClockDimComparator returns the published full-window total the
 // dimension is compared against. IO-wait claims can refer to the exclusive
 // io_wait state lane or the sleep-side IO attribution lane, so they use that
-// typed union (loose); non-IO D-state is not part of the comparator.
+// typed union (loose); non-IO D-state is not part of that comparator.
+// D-state/不可中断 claims compare against the published uninterruptible fold
+// (non-IO D + scheduler-marked IO, types.TraceUninterruptibleWaitMS — V3-1
+// §40.20): every prompt and customer face publishes 不可中断等待/D-state AS
+// that fold, so a model restating "D-state 5.379ms" (4.039 + 1.340) must
+// not be disclosed against the non-IO lane alone. A D-word claim that
+// carries the explicit non-IO qualifier (proseWallClockDimDStateNonIO,
+// §40.49 T2) names the disjoint lane the five-state facts publish under
+// that wording, so it compares against that lane. Loose direction kept in
+// both: an unqualified D claim is judged against the larger fold; only the
+// verbatim qualifier narrows the comparator.
 func proseWallClockDimComparator(acc *proseWallClockAccount, dim proseWallClockDimension) (float64, bool) {
 	if acc == nil {
 		return 0, false
 	}
-	if dim == proseWallClockDimIOWait {
+	switch dim {
+	case proseWallClockDimIOWait:
 		return acc.ioWait + acc.sleepIO, true
+	case proseWallClockDimDState:
+		v, ok := acc.dims[dim]
+		return types.TraceUninterruptibleWaitMS(v, acc.ioWait), ok
+	case proseWallClockDimDStateNonIO:
+		v, ok := acc.dims[proseWallClockDimDState]
+		return v, ok
 	}
 	v, ok := acc.dims[dim]
 	return v, ok
@@ -684,6 +738,7 @@ func proseWallClockClaimDimension(sentence string, tokPos int, cpuContext bool) 
 	prefix := sentence[:tokPos]
 	lowerPrefix := strings.ToLower(prefix)
 	bestEnd := -1
+	bestStart := -1
 	var bestDim proseWallClockDimension
 	for _, kw := range proseWallClockKeywords {
 		if kw.needsCPUContext && !cpuContext {
@@ -720,6 +775,7 @@ func proseWallClockClaimDimension(sentence string, tokPos int, cpuContext bool) 
 			}
 			if end > bestEnd {
 				bestEnd = end
+				bestStart = start
 				bestDim = kw.dim
 			}
 		}
@@ -730,6 +786,9 @@ func proseWallClockClaimDimension(sentence string, tokPos int, cpuContext bool) 
 	gap := prefix[bestEnd:]
 	if len([]rune(gap)) > proseWallClockKeywordGapRunes {
 		return "", false
+	}
+	if bestDim == proseWallClockDimDState && proseWallClockNonIOQualified(prefix[:bestStart]) {
+		return proseWallClockDimDStateNonIO, true
 	}
 	return bestDim, true
 }

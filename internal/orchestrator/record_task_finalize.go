@@ -95,21 +95,29 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	})
 }
 
+// traceRootCauseUnavailableReason picks the customer reason_code from typed
+// state only (outputdump.AllRootCauseUnavailableReasonCodes is the closed
+// list). "rejected" (§40.44 residual a) is the model's most recent selector
+// submission failing the binder with no valid selection stored or staged
+// since; "unavailable" is the never-selected arm.
 func traceRootCauseUnavailableReason(mutable *types.MutableState, report *types.TraceRootCauseReportV2) string {
 	if report != nil {
 		return ""
 	}
 	if mutable == nil {
-		return "trace_root_cause_runtime_unavailable"
+		return outputdump.RootCauseReasonRuntimeUnavailable
 	}
 	contract := mutable.TraceFindingContract()
 	if contract == nil {
-		return "trace_root_cause_contract_not_active"
+		return outputdump.RootCauseReasonContractNotActive
 	}
 	if !contract.RootCauseReportEnabled {
-		return "no_selectable_typed_on_chain_candidates"
+		return outputdump.RootCauseReasonNoSelectableCandidates
 	}
-	return "valid_model_root_cause_selection_unavailable"
+	if mutable.TraceRootCauseSelectorRejected() {
+		return outputdump.RootCauseReasonSelectionRejected
+	}
+	return outputdump.RootCauseReasonValidSelectionUnavailable
 }
 
 func (o *Orchestrator) outputTranscriptRequestForDump() string {

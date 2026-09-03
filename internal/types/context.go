@@ -423,10 +423,11 @@ type MutableState struct {
 	// ResetAnswerDocumentV2 at per-task entry so stale state cannot
 	// leak between tasks in a multi-task run.
 	answerDocumentV2 *AnswerDocumentV2
-	// traceFindingV1 is committed under the same lock as answerDocumentV2.
-	// It remains a separate analysis artifact and never changes the document
-	// wire schema used by ordinary read requests.
-	traceFindingV1       *TraceFindingV1
+	// traceFindingContract is the frozen typed candidate roster behind the
+	// optional root-cause selector; traceRootCauseReport is the bound sidecar.
+	// (The legacy Required trace_finding artifact lane was retired — V1-5,
+	// colleague_merge_audit §40.16: schema, teaching and decoder faces gone
+	// together.)
 	traceFindingContract *TraceFindingContract
 	traceRootCauseReport *TraceRootCauseReportV2
 	// pendingTraceRootCauseReport (§40.31.1 ★16): a VALID selector that rode a
@@ -435,11 +436,14 @@ type MutableState struct {
 	// selector inherits it (omission ≠ withdrawal; the contract is frozen per
 	// run). Cleared whenever a report is stored or the dispatch resets.
 	pendingTraceRootCauseReport *TraceRootCauseReportV2
-	// traceRootCauseSelectorAdvisories (SIDECAR-NARR-1 复核) are the typed
-	// disclosures the binder produced for the latest selector (e.g. a
-	// description dropped for citing an internal reference). Taken once by
-	// the emitting tool for its summary; never persisted.
-	traceRootCauseSelectorAdvisories []string
+	// traceRootCauseSelectorRejected (§40.44 residual a): the model's most
+	// recent selector submission was rejected by the binder and no valid
+	// selection has been stored or staged since. Read only by the customer
+	// sidecar's reason_code (model_root_cause_selection_rejected vs
+	// valid_model_root_cause_selection_unavailable = never selected); cleared
+	// whenever a report is stored, a valid submission is staged, or the
+	// dispatch resets.
+	traceRootCauseSelectorRejected bool
 
 	// finalizerTypedRelationRecipeAvailable is a dispatch-scoped producer
 	// receipt: the finalizer prompt compiler sets it only when the exact prompt
@@ -662,6 +666,14 @@ type MutableState struct {
 	// replaces it on each new failure and clears it when the batch
 	// verifies green or the run finishes.
 	verifyFailureHandoff *VerifyFailureHandoff
+
+	// behaviorContractTombstoneLedger is the run's monotonic retirement
+	// record (§40.46): every tombstone any generation minted, keyed by id,
+	// surviving handoff replacement and the per-round planning reset. It
+	// is the `prior` input of every contract-generation projection and is
+	// merged from every ChangePlan / WriteWorkflowRun installed on this
+	// state; only the new-analyzer-IR lane resets it.
+	behaviorContractTombstoneLedger WriteBehaviorContractTombstoneLedger
 
 	// replanCurrentWorktreeReceipt binds a replan to the current applied
 	// worktree generation. Unlike VerifyFailureHandoff it is not restricted to
@@ -1372,6 +1384,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		perfTrace:                                   m.perfTrace,
 		multiRepoFocusDecision:                      cloneMultiRepoFocusDecision(m.multiRepoFocusDecision),
 		writeAnalysisIR:                             m.writeAnalysisIR,
+		verifyFailureHandoff:                        m.verifyFailureHandoff,
 		investigationComplete:                       m.investigationComplete,
 		investigationCompleteReason:                 m.investigationCompleteReason,
 		absenceJustification:                        m.absenceJustification,
@@ -1409,6 +1422,10 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		pack := cloneWriteContextPack(*m.writeContextPack)
 		out.writeContextPack = &pack
 	}
+	// §40.46: the fork's pack view (WriteContextPack) is projected through
+	// the same retirement ledger + handoff as the parent's, so an explorer
+	// dispatch never sees a retired contract id as live.
+	out.behaviorContractTombstoneLedger.Merge(m.behaviorContractTombstoneLedger.Rows()...)
 	if m.writeWorkflowRun != nil {
 		run := CloneWriteWorkflowRun(*m.writeWorkflowRun)
 		out.writeWorkflowRun = &run
@@ -2073,6 +2090,13 @@ func (m *MutableState) WriteContextPack() *WriteContextPack {
 		return nil
 	}
 	out := cloneWriteContextPack(*m.writeContextPack)
+	// §40.46 (C1): the pack is read through the same contract-generation
+	// projection every gate and framing reads, so an analyzer behavior
+	// contract whose id is retired (ledger ∪ current handoff) is rendered as
+	// retired on every round — including the first replan, before any
+	// rebased plan exists. A state with nothing retired returns the pack
+	// byte-identical.
+	out = ProjectWriteContextPackBehaviorContractRetirement(out, m.projectBehaviorContractGenerationLocked(nil, nil).Tombstones)
 	return &out
 }
 
@@ -2155,6 +2179,9 @@ func (m *MutableState) SetWriteWorkflowRun(run *WriteWorkflowRun) {
 	}
 	snap := CloneWriteWorkflowRun(*run)
 	m.writeWorkflowRun = &snap
+	// §40.46: the run envelope is the cross-process carrier of the
+	// retirement ledger; installing a loaded run seeds it (never clears).
+	m.behaviorContractTombstoneLedger.Merge(snap.BehaviorContractTombstones...)
 }
 
 func (m *MutableState) ResetWriteWorkflowRun() {
@@ -3687,28 +3714,10 @@ func (m *MutableState) SetAnswerDocumentV2WithMutation(kind MutationKind, doc *A
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commitAcceptedAnswerDocumentLocked(kind, doc)
-	m.traceFindingV1 = nil
+	// The bound sidecar is re-set by the emitting tool after a successful
+	// commit (commitTraceRootCauseSelection); a document commit alone never
+	// carries a selection forward.
 	m.traceRootCauseReport = nil
-}
-
-// SetFinalAnswerArtifactsWithMutation atomically replaces both final-answer
-// artifacts. Validation must finish before this commit boundary is entered.
-func (m *MutableState) SetFinalAnswerArtifactsWithMutation(kind MutationKind, artifacts *FinalAnswerArtifactsV1) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if artifacts == nil {
-		m.commitAcceptedAnswerDocumentLocked(MutationReplaceAll, nil)
-		m.traceFindingV1 = nil
-		m.traceRootCauseReport = nil
-		return
-	}
-	m.commitAcceptedAnswerDocumentLocked(kind, &artifacts.Document)
-	m.traceFindingV1 = cloneTraceFindingV1(artifacts.TraceFinding)
-	m.traceRootCauseReport = nil
-
 }
 
 // RewriteAcceptedAnswerDocumentV2 commits a SYSTEM-SIDE rewrite of the
@@ -3824,44 +3833,6 @@ func (m *MutableState) FinalizerTypedRelationSemanticHandoffAnchors() []DiagramE
 	return append([]DiagramEdgeAnchor(nil), m.finalizerTypedRelationSemanticHandoffAnchors...)
 }
 
-// FinalAnswerArtifacts returns a defensive snapshot from one read lock.
-func (m *MutableState) FinalAnswerArtifacts() *FinalAnswerArtifactsV1 {
-	if m == nil {
-		return nil
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.answerDocumentV2 == nil {
-		return nil
-	}
-	return &FinalAnswerArtifactsV1{
-		Document:     *cloneAnswerDocumentV2(m.answerDocumentV2),
-		TraceFinding: cloneTraceFindingV1(m.traceFindingV1),
-	}
-}
-
-// TraceFinding returns a defensive copy of the accepted typed finding.
-func (m *MutableState) TraceFinding() *TraceFindingV1 {
-	if m == nil {
-		return nil
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return cloneTraceFindingV1(m.traceFindingV1)
-}
-
-// SetTraceFinding stores a validated legacy finding artifact. Current
-// finalizer execution does not call this setter to select a conclusion; root
-// selection remains model-owned through exact typed candidate receipts.
-func (m *MutableState) SetTraceFinding(finding *TraceFindingV1) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.traceFindingV1 = cloneTraceFindingV1(finding)
-}
-
 // TraceRootCauseReport returns the validated JSON sidecar bound from the
 // model-owned candidate selection and the frozen typed contract.
 func (m *MutableState) TraceRootCauseReport() *TraceRootCauseReportV2 {
@@ -3883,33 +3854,11 @@ func (m *MutableState) SetTraceRootCauseReport(report *TraceRootCauseReportV2) {
 	defer m.mu.Unlock()
 	m.traceRootCauseReport = cloneTraceRootCauseReportV2(report)
 	m.pendingTraceRootCauseReport = nil
+	m.traceRootCauseSelectorRejected = false
 }
 
 // SetPendingTraceRootCauseReport stages a validly bound selector whose
 // carrying emit was rejected for answer-structure reasons (§40.31.1 ★16).
-// SetTraceRootCauseSelectorAdvisories records binder disclosures for the
-// latest selector; TakeTraceRootCauseSelectorAdvisories hands them to the
-// tool summary exactly once.
-func (m *MutableState) SetTraceRootCauseSelectorAdvisories(advisories []string) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.traceRootCauseSelectorAdvisories = append([]string(nil), advisories...)
-}
-
-func (m *MutableState) TakeTraceRootCauseSelectorAdvisories() []string {
-	if m == nil {
-		return nil
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := m.traceRootCauseSelectorAdvisories
-	m.traceRootCauseSelectorAdvisories = nil
-	return out
-}
-
 func (m *MutableState) SetPendingTraceRootCauseReport(report *TraceRootCauseReportV2) {
 	if m == nil || report == nil {
 		return
@@ -3917,6 +3866,33 @@ func (m *MutableState) SetPendingTraceRootCauseReport(report *TraceRootCauseRepo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pendingTraceRootCauseReport = cloneTraceRootCauseReportV2(report)
+	m.traceRootCauseSelectorRejected = false
+}
+
+// MarkTraceRootCauseSelectorRejected records that the model's most recent
+// selector submission was rejected by the binder (§40.44 residual a). It is
+// a customer-sidecar reason input only — it never changes what the model is
+// told (that is the tool result's OptionalCarrierOutcomes) nor answer
+// eligibility.
+func (m *MutableState) MarkTraceRootCauseSelectorRejected() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.traceRootCauseSelectorRejected = true
+}
+
+// TraceRootCauseSelectorRejected reports whether the most recent selector
+// submission was rejected and no valid selection has been stored or staged
+// since.
+func (m *MutableState) TraceRootCauseSelectorRejected() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.traceRootCauseSelectorRejected
 }
 
 // PendingTraceRootCauseReport returns the staged selection, if any.
@@ -4041,6 +4017,27 @@ func (m *MutableState) SetPendingAnswerDocumentPatchBase(doc *AnswerDocumentV2) 
 	m.pendingAnswerDocumentPatchBase = cloneAnswerDocumentV2(doc)
 }
 
+// StageAnswerDocumentPatchGeneration installs one retry-local patch
+// generation atomically: the unpublished staged base and the relation-repair
+// lease that scopes the next patch turn against it. It is the only writer of
+// retry-local generation state besides the locked success epilogue
+// (commitAcceptedAnswerDocumentLocked) and explicit rollback
+// (emit_answer_document abandoning the delta base); the patch tool never
+// touches the two carriers separately. lease == nil means "discharged into
+// the staged base": the staged draft already executed the leased repair, so a
+// later contract must mint its own typed delta rather than inherit stale
+// prohibitions (colleague_merge_audit §40.18 reconciling B1248). It never
+// changes AnswerDocumentV2 or LastRejectedAnswerDocumentV2.
+func (m *MutableState) StageAnswerDocumentPatchGeneration(base *AnswerDocumentV2, lease *AnswerDiagramRelationRepairLease) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingAnswerDocumentPatchBase = cloneAnswerDocumentV2(base)
+	m.answerDiagramRelationRepairLease = cloneAnswerDiagramRelationRepairLease(lease)
+}
+
 // PendingAnswerDocumentPatchBase returns the latest retry-local staged patch
 // candidate, or nil when no structurally applied rejected patch is pending.
 func (m *MutableState) PendingAnswerDocumentPatchBase() *AnswerDocumentV2 {
@@ -4158,10 +4155,10 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
-	m.traceFindingV1 = nil
 	m.traceFindingContract = nil
 	m.traceRootCauseReport = nil
 	m.pendingTraceRootCauseReport = nil
+	m.traceRootCauseSelectorRejected = false
 	m.answerDisplayAttachments = nil
 	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
@@ -4186,9 +4183,9 @@ func (m *MutableState) ResetActiveAnswerDocumentV2ForFinalizeDispatch() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
-	m.traceFindingV1 = nil
 	m.traceRootCauseReport = nil
 	m.pendingTraceRootCauseReport = nil
+	m.traceRootCauseSelectorRejected = false
 	m.lastEmitFromPatch = false
 }
 
@@ -4343,6 +4340,12 @@ func (m *MutableState) SetChangePlan(plan *ChangePlan) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.changePlan = plan
+	// §40.46: a plan is a durable carrier of the retirement ledger as of its
+	// emission (hydrated from a durable artifact on resume, imported from a
+	// plan file, or emitted here). Installing it can only ADD retired ids.
+	if plan != nil {
+		m.behaviorContractTombstoneLedger.Merge(ResolveChangePlanBehaviorContractIDs(plan).Tombstones...)
+	}
 }
 
 // ChangePlan returns the buffered write-mode plan, or nil when no
@@ -5055,6 +5058,68 @@ func (m *MutableState) ResetVerifyFailureHandoff() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.verifyFailureHandoff = nil
+}
+
+// BehaviorContractTombstoneLedger returns the run's retirement ledger rows
+// sorted by id (a copy). Empty in read mode and before any retirement.
+func (m *MutableState) BehaviorContractTombstoneLedger() []WriteBehaviorContractTombstone {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.behaviorContractTombstoneLedger.Rows()
+}
+
+// MergeBehaviorContractTombstones records newly retired ids in the run's
+// ledger (existing rows win). It is the one write lane of the ledger besides
+// the carrier merges in SetChangePlan / SetWriteWorkflowRun; the tool-side
+// projection writer (attachWriteBehaviorContracts) and the scheduler's
+// handoff finalization call it.
+func (m *MutableState) MergeBehaviorContractTombstones(tombstones ...WriteBehaviorContractTombstone) int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.behaviorContractTombstoneLedger.Merge(tombstones...)
+}
+
+// ResetBehaviorContractTombstoneLedger is the ONLY reinstatement lane of a
+// retired contract id: a new analyzer IR for a new request
+// (emit_write_analysis). Nothing else — not a handoff replacement, not a
+// batch switch, not a planning-state reset — clears the ledger.
+func (m *MutableState) ResetBehaviorContractTombstoneLedger() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.behaviorContractTombstoneLedger.Reset()
+}
+
+// ProjectBehaviorContractGeneration is the state-supplied entry to the one
+// contract-generation projection: analyzer snapshot (WriteAnalysisIR) →
+// active generation under the run's tombstone ledger and the current
+// verify-failure handoff. Every consumer outside package types (refs gates,
+// attach, planner/controller framing, the proof follow-up requirement set,
+// the context-pack view) reads it here, so no consumer can forget the ledger
+// (census rule e). acceptanceTests / plannerSupersededIDs are the emitting
+// plan's; framing callers pass nil.
+func (m *MutableState) ProjectBehaviorContractGeneration(acceptanceTests []string, plannerSupersededIDs []string) WriteBehaviorContractResolution {
+	if m == nil {
+		return WriteBehaviorContractResolution{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.projectBehaviorContractGenerationLocked(acceptanceTests, plannerSupersededIDs)
+}
+
+func (m *MutableState) projectBehaviorContractGenerationLocked(acceptanceTests []string, plannerSupersededIDs []string) WriteBehaviorContractResolution {
+	if m.writeAnalysisIR == nil {
+		return WriteBehaviorContractResolution{}
+	}
+	return ProjectWriteBehaviorContractGeneration(m.writeAnalysisIR.Request.BehaviorContracts, m.behaviorContractTombstoneLedger.Rows(), m.verifyFailureHandoff, acceptanceTests, plannerSupersededIDs)
 }
 
 // SetReplanCurrentWorktreeReceipt installs the typed current-generation
@@ -7842,6 +7907,17 @@ type ToolResult struct {
 	// treat it as a semantic evidence signal — it is operational provenance
 	// for audit/pins, mirroring RuntimeTimings' telemetry-only discipline.
 	ReusedFromRunMemo bool `json:"reused_from_run_memo,omitempty"`
+
+	// OptionalCarrierOutcomes (V2-3, colleague_merge_audit §40.19) discloses
+	// every OPTIONAL input carrier this call did not honor in full — an
+	// invalid root-cause selector, a rejected waiver, a wrong request echo —
+	// on the SUCCESS result of the main transaction, beside the Summary line
+	// the tool layer renders from each row (OptionalCarrierOutcomeSummaryLine).
+	// System-produced only (never an LLM emit field: no tool-schema /
+	// skill-prompt / retry-hint sync obligations); consumers MUST NOT treat a
+	// row as a semantic evidence signal — it is the repair signal the model
+	// needs to resend the carrier on its next call.
+	OptionalCarrierOutcomes []OptionalCarrierOutcome `json:"optional_carrier_outcomes,omitempty"`
 
 	Success   bool      `json:"success"`
 	Timestamp time.Time `json:"timestamp"`

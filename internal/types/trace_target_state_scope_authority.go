@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/tracefence"
 )
 
 // TraceTargetStateScopeAuthority is the wording boundary carried by one
@@ -35,6 +37,111 @@ type TraceTargetStateScopeAuthority struct {
 }
 
 const traceTargetStateCoverageToleranceMS = 0.002
+
+// TraceUninterruptibleWaitMS is the ONE place that says which engine lanes
+// compose the published "uninterruptible wait" (不可中断等待 / D-state) figure:
+// the non-IO D lane plus the scheduler-marked IO-wait lane. The two ledgers
+// are mutually exclusive (tracequery DStateTop/IOWaitTop), so their same-
+// thread sum is the complete D/IO blocking account; the sleep-side IO-wait
+// overlay is NOT part of it (it lives inside SleepMS). V3-1 (colleague_merge_
+// audit §40.20): every prompt face, the customer four-state line and the
+// answer-side wall-clock audit fold through this function — a hand-written
+// `DStateMS + IOWaitMS` outside internal/types is a census offender
+// (internal/agent/target_state_account_render_census_test.go).
+func TraceUninterruptibleWaitMS(dStateMS, ioWaitMS float64) float64 {
+	return dStateMS + ioWaitMS
+}
+
+// UninterruptibleWaitMS returns the published uninterruptible-wait fold of
+// this authority (see TraceUninterruptibleWaitMS).
+func (a TraceTargetStateScopeAuthority) UninterruptibleWaitMS() float64 {
+	return TraceUninterruptibleWaitMS(a.DStateMS, a.IOWaitMS)
+}
+
+// SchedulerMarkedWaitMS is the narrow scheduler-marked wait classifier's
+// wall clock: the uninterruptible fold plus the interruptible sleep that
+// carries an IO-wait marker. It is the "narrow finding" zero test and the
+// value the complete wait-occurrence list pairs against; it is NOT a
+// partition lane (SleepIOWaitMS is already inside SleepMS).
+func (a TraceTargetStateScopeAuthority) SchedulerMarkedWaitMS() float64 {
+	return a.UninterruptibleWaitMS() + a.SleepIOWaitMS
+}
+
+// FormatTargetStateAccount renders one target-state authority as ONE
+// reader-facing sentence (no bullet, no newline), deterministic from the
+// authority alone. It is the single prompt-face formatter of the account
+// (V3-1): the observation-ledger scope section, the final reader decision
+// card and the bounded-runtime reader handoff all print exactly this string,
+// so the model can never read two calibers for the same account in one
+// prompt. Shape (zh; en mirrors it word for word):
+//
+//	[工件 L；]目标线程 S；窗口 a–b 秒；运行 R 毫秒，可运行但尚未获调度 Q 毫秒，
+//	可中断睡眠 P 毫秒[（其中带 IO 等待标记的可中断睡眠 X 毫秒，已含在睡眠内）]，
+//	不可中断等待 U 毫秒（其中调度器标记的 IO 等待 I 毫秒）；合计 T 毫秒；
+//	<coverage word>；未归账 N 毫秒。
+//
+// U is the UninterruptibleWaitMS fold and its 其中 clause is always printed
+// (the IO share is a disclosure, never an addend); the sleep-side clause
+// prints only when the overlay is non-zero; the artifact clause prints only
+// when the label is known; the unaccounted remainder is always printed
+// (0.000 is an honest complete-coverage statement). Lane words come from
+// tracefence Table ⑧; wire lane keys never appear.
+func FormatTargetStateAccount(a TraceTargetStateScopeAuthority, lang string) string {
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	word := func(lane string) string {
+		w, _ := tracefence.StateLaneWord(lane, zh)
+		return w
+	}
+	coverage := tracefence.StateCoverageWord(a.CoverageStatus, zh)
+	label := strings.TrimSpace(a.ArtifactLabel)
+	var b strings.Builder
+	if zh {
+		if label != "" {
+			fmt.Fprintf(&b, "工件 %s；", label)
+		}
+		fmt.Fprintf(&b, "目标线程 %s；窗口 %.6f–%.6f 秒；", a.Subject, a.WindowStartTs, a.WindowEndTs)
+		fmt.Fprintf(&b, "%s %.3f 毫秒，%s %.3f 毫秒，%s %.3f 毫秒",
+			word(tracefence.StateLaneRunning), a.RunningMS,
+			word(tracefence.StateLaneRunnable), a.RunnableMS,
+			word(tracefence.StateLaneSleep), a.SleepMS)
+		if a.SleepIOWaitMS > 0 {
+			fmt.Fprintf(&b, "（其中%s %.3f 毫秒，已含在睡眠内）", word(tracefence.StateLaneSleepIOWait), a.SleepIOWaitMS)
+		}
+		fmt.Fprintf(&b, "，%s %.3f 毫秒（其中%s %s %.3f 毫秒）；合计 %.3f 毫秒；%s；未归账 %.3f 毫秒。",
+			word(tracefence.StateLaneDState), a.UninterruptibleWaitMS(),
+			tracefence.StateSchedulerMarkedQualifierZH, word(tracefence.StateLaneIOWait), a.IOWaitMS,
+			a.TotalMS, coverage, a.UnaccountedMS)
+		return b.String()
+	}
+	if label != "" {
+		fmt.Fprintf(&b, "Artifact %s; ", label)
+	}
+	fmt.Fprintf(&b, "target thread %s; window %.6f–%.6f seconds; ", a.Subject, a.WindowStartTs, a.WindowEndTs)
+	fmt.Fprintf(&b, "%s %.3f ms, %s %.3f ms, %s %.3f ms",
+		word(tracefence.StateLaneRunning), a.RunningMS,
+		word(tracefence.StateLaneRunnable), a.RunnableMS,
+		word(tracefence.StateLaneSleep), a.SleepMS)
+	if a.SleepIOWaitMS > 0 {
+		fmt.Fprintf(&b, " (including %.3f ms of %s, already inside the sleep term)", a.SleepIOWaitMS, word(tracefence.StateLaneSleepIOWait))
+	}
+	fmt.Fprintf(&b, ", %s %.3f ms (including %.3f ms of %s %s); total %.3f ms; %s; %.3f ms unaccounted.",
+		word(tracefence.StateLaneDState), a.UninterruptibleWaitMS(),
+		a.IOWaitMS, tracefence.StateSchedulerMarkedQualifierEN, word(tracefence.StateLaneIOWait),
+		a.TotalMS, coverage, a.UnaccountedMS)
+	return b.String()
+}
+
+// FormatTargetStateAccountCaliber is the one-sentence definition that
+// accompanies FormatTargetStateAccount on a prompt face: what the published
+// uninterruptible figure folds, what it does not add, and what its zero does
+// not prove. One source so the definition can never drift from the fold.
+func FormatTargetStateAccountCaliber(lang string) string {
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	if zh {
+		return "不可中断等待采用调度器标记的窄口径：不可中断等待 = 非 IO 的 D 状态 + 调度器标记的 IO 等待；睡眠内的 IO 等待标记已含在可中断睡眠中，不再相加。零值只表示没有匹配该窄口径，不能证明磁盘、文件系统、设备或其他 IO 活动/阻塞不存在。由 IO 发起到完成闭合的目标线程等待是另一把尺；若未单独发布，应表述为未评估而不是零。"
+	}
+	return "Uninterruptible wait here uses the narrow scheduler-marked definition: uninterruptible wait = non-IO D state + scheduler-marked IO wait; an IO-wait marker inside interruptible sleep stays inside the sleep term and is never added again. Zero means no match for that narrow definition; it does not prove the absence of disk, filesystem, device, or other IO activity/blocking. Target blocking closed by IO issue-to-completion evidence is a separate ruler; when it is not separately published, it is unassessed rather than zero."
+}
 
 // BuildTraceTargetStateScopeAuthorities compiles the target-thread scope
 // authorities from the already-selected projection accounts. It deliberately

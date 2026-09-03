@@ -421,9 +421,14 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 			fmt.Fprintf(&b, "  - %s\n", o)
 		}
 	}
-	if len(ir.Request.BehaviorContracts) > 0 {
+	// V5-4 / §40.46: the framing renders the ACTIVE contract generation — the
+	// analyzer snapshot projected through the run's tombstone ledger and the
+	// verify-failure handoff — so no replan round advertises a retired id as
+	// required.
+	generation := ctx.Mutable.ProjectBehaviorContractGeneration(nil, nil)
+	if len(generation.Contracts) > 0 || len(generation.Tombstones) > 0 {
 		b.WriteString("- behavior contracts:\n")
-		for _, c := range ir.Request.BehaviorContracts {
+		for _, c := range generation.Contracts {
 			fmt.Fprintf(&b, "  - id=%s kind=%s operator=%s", c.ID, c.Kind, c.Operator)
 			if c.Polarity != "" {
 				fmt.Fprintf(&b, " polarity=%s", c.Polarity)
@@ -465,7 +470,10 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 			}
 			b.WriteByte('\n')
 		}
-		requiredIDs := types.RequiredWriteBehaviorContractIDs(ir.Request.BehaviorContracts, true)
+		for _, tombstone := range generation.Tombstones {
+			fmt.Fprintf(&b, "  - retired contract id (do not reference): %s — %s\n", tombstone.ID, describeRetiredBehaviorContract(tombstone))
+		}
+		requiredIDs := types.RequiredWriteBehaviorContractIDs(generation.Contracts, true)
 		if len(requiredIDs) > 0 {
 			orderedRequired := make([]string, 0, len(requiredIDs))
 			for id := range requiredIDs {
@@ -475,7 +483,7 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 			}
 			sort.Strings(orderedRequired)
 			var planningOnly []string
-			for _, contract := range ir.Request.BehaviorContracts {
+			for _, contract := range generation.Contracts {
 				if types.IsPlanningOnlyWriteBehaviorContract(contract) {
 					if id := strings.TrimSpace(contract.ID); id != "" {
 						planningOnly = append(planningOnly, id)
@@ -2253,6 +2261,9 @@ func (e *plannerEvaluator) buildVerifyFailureHandoffSection(ctx *types.AgentCont
 	if h.ReportEvidenceStatus == types.VerifyFailureReportEvidenceUnavailable {
 		b.WriteString("- report-backed commands, failing tests, build errors, diagnostics, confidence, runner output, and next-surface choice: not_evaluated; do not infer them from the attempt reason code\n")
 	}
+	if line := renderVerifyFailureContractRelevance(h.ContractRelevance); line != "" {
+		b.WriteString(line)
+	}
 	for _, cmd := range h.Executed {
 		if strings.TrimSpace(cmd.Command) == "" {
 			continue
@@ -2438,4 +2449,60 @@ func indentPlannerHandoffPreview(s, prefix string) string {
 		lines[i] = prefix + lines[i]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderVerifyFailureContractRelevance renders the typed join between the
+// failed rows and the failed plan's declared contract refs (§40.23), e.g.
+// "- contract_relevance: status=available hits=c1(failed_verification_probe; probe:p1)".
+func renderVerifyFailureContractRelevance(r *types.VerifyFailureContractRelevance) string {
+	if r == nil || strings.TrimSpace(r.Status) == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "- contract_relevance: status=%s", r.Status)
+	if r.ReasonCode != "" {
+		fmt.Fprintf(&b, " reason_code=%s", r.ReasonCode)
+	}
+	if len(r.Hits) > 0 {
+		hits := make([]string, 0, len(r.Hits))
+		for _, hit := range r.Hits {
+			hits = append(hits, fmt.Sprintf("%s(%s; %s)", hit.ContractID, hit.Reason, strings.Join(hit.EvidenceRefs, ",")))
+		}
+		fmt.Fprintf(&b, " hits=%s", strings.Join(hits, " "))
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// describeRetiredBehaviorContract words one tombstone for the model without
+// internal carrier names: the reason, the failed attempt, and the evidence ids.
+func describeRetiredBehaviorContract(t types.WriteBehaviorContractTombstone) string {
+	var b strings.Builder
+	switch t.Reason {
+	case types.WriteBehaviorContractRetiredPlannerSupersession:
+		b.WriteString("superseded by the repair plan")
+	case types.WriteBehaviorContractRetiredFallbackGenerationRebase:
+		b.WriteString("replaced by the current plan's acceptance_tests")
+	case "":
+		b.WriteString("retired by an earlier verification failure")
+	default:
+		b.WriteString("retired by failed verification evidence")
+	}
+	if t.Attempt > 0 || t.PlanID != "" {
+		b.WriteString(" after verification attempt")
+		if t.Attempt > 0 {
+			fmt.Fprintf(&b, " %d", t.Attempt)
+		}
+		if t.PlanID != "" {
+			fmt.Fprintf(&b, " of plan %s", t.PlanID)
+		}
+		b.WriteString(" failed")
+		if t.FailureKind != "" {
+			fmt.Fprintf(&b, " (%s)", t.FailureKind)
+		}
+	}
+	if len(t.EvidenceRefs) > 0 {
+		fmt.Fprintf(&b, "; evidence %s", strings.Join(t.EvidenceRefs, ", "))
+	}
+	return b.String()
 }

@@ -625,7 +625,7 @@ func (o *Orchestrator) runWriteControllerWorkflow(stepsUsed *int) error {
 				updateWorkflowRunBatchStatus(&run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 				appendControllerProgress(&run, run.ActiveBatchID, "verify_failed", innerErr.Error())
 				diffRef, surfaceRef := o.persistVerifyFailureEvidence(&run, report, verifyFailures[run.ActiveBatchID])
-				if handoff := o.resolveVerifyFailureHandoffArtifacts(types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef, surfaceRef)); handoff != nil {
+				if handoff := o.finalizeVerifyFailureHandoff(types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, verifyFailures[run.ActiveBatchID], diffRef, surfaceRef), report); handoff != nil {
 					o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				}
 				o.persistWriteWorkflowRun(&run)
@@ -3418,7 +3418,7 @@ func (o *Orchestrator) handlePatchReviewHardBlock(run *types.WriteWorkflowRun, p
 		updateWorkflowRunBatchStatus(run, run.ActiveBatchID, types.WriteWorkflowBatchReadyToPlan)
 		appendControllerProgress(run, run.ActiveBatchID, "patch_review_failed", reason)
 		diffRef, surfaceRef := o.persistVerifyFailureEvidence(run, report, workflowBatchPatchReviewFailureCount(run, run.ActiveBatchID))
-		if handoff := o.resolveVerifyFailureHandoffArtifacts(types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, workflowBatchPatchReviewFailureCount(run, run.ActiveBatchID), diffRef, surfaceRef)); handoff != nil {
+		if handoff := o.finalizeVerifyFailureHandoff(types.BuildVerifyFailureHandoff(report, run.ActiveBatchID, workflowBatchPatchReviewFailureCount(run, run.ActiveBatchID), diffRef, surfaceRef), report); handoff != nil {
 			o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 		}
 		reportPack := types.WriteContextPackFromChangeReport(report).
@@ -4565,6 +4565,10 @@ func (o *Orchestrator) persistWriteWorkflowRun(run *types.WriteWorkflowRun) {
 		run.CreatedAt = time.Now()
 	}
 	run.UpdatedAt = time.Now()
+	// §40.46: the run envelope carries the retirement ledger across
+	// processes; the persisted rows are the union of what the envelope
+	// already held and the live ledger (never fewer).
+	run.BehaviorContractTombstones = types.MergeWriteBehaviorContractTombstones(run.BehaviorContractTombstones, o.busCtx.Mutable.BehaviorContractTombstoneLedger()...)
 	normalized := types.NormalizeWriteWorkflowRun(*run)
 	if violations := writeflow.ValidateWorkflowRunState(normalized, o.busCtx.Mutable.ChangePlan()); len(violations) > 0 {
 		logging.Warning("[orchestrator] write workflow state invariant warning: %s", strings.Join(violations, "; "))
@@ -10025,6 +10029,32 @@ func (o *Orchestrator) resolveVerifyFailureHandoffArtifacts(h *types.VerifyFailu
 	return h
 }
 
+// finalizeVerifyFailureHandoff completes the carrier at the one moment the
+// failed plan is still live on Mutable (before prepareControllerPlanningState
+// resets it): it resolves artifact paths, stamps ContractRelevance — the
+// typed join between the report's failed rows and the plan's declared
+// contract refs (§40.23) — and merges the failed plan's tombstones into the
+// run's retirement ledger (§40.46). A nil report (report-less resume carrier)
+// leaves the relevance `unavailable`, which authorizes no contract retirement.
+func (o *Orchestrator) finalizeVerifyFailureHandoff(h *types.VerifyFailureHandoff, report *types.ChangeReport) *types.VerifyFailureHandoff {
+	if h == nil {
+		return nil
+	}
+	var plan *types.ChangePlan
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		plan = o.busCtx.Mutable.ChangePlan()
+	}
+	relevance := types.BuildVerifyFailureContractRelevance(report, plan)
+	h.ContractRelevance = &relevance
+	// §40.46: the failed plan's tombstones are merged into the run's
+	// retirement ledger before the carrier replaces the previous handoff —
+	// replacement never forgets a retirement.
+	if plan != nil && o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.MergeBehaviorContractTombstones(types.ResolveChangePlanBehaviorContractIDs(plan).Tombstones...)
+	}
+	return o.resolveVerifyFailureHandoffArtifacts(h)
+}
+
 const (
 	maxReplanCurrentWorktreePaths       = 8
 	maxReplanAppliedEditReceiptsPerPath = 32
@@ -11171,7 +11201,7 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			if strings.HasSuffix(st.LatestVerifyArtifactRef, ".diff") {
 				diffRef = st.LatestVerifyArtifactRef
 			}
-			if handoff := o.resolveVerifyFailureHandoffArtifacts(types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef, st.LatestVerifySurfaceRef)); handoff != nil {
+			if handoff := o.finalizeVerifyFailureHandoff(types.BuildVerifyFailureHandoff(report, active.ID, st.FailedVerifyAttempts, diffRef, st.LatestVerifySurfaceRef), report); handoff != nil {
 				o.busCtx.Mutable.SetVerifyFailureHandoff(handoff)
 				logging.Info("[orchestrator] resume: rebuilt verify-failure context from %s", st.ReportID)
 			}
@@ -11199,7 +11229,7 @@ func (o *Orchestrator) hydrateResumedWorkflowState(run *types.WriteWorkflowRun, 
 			st.LatestVerifySurfaceRef,
 			reportEvidenceReason,
 		)
-		o.busCtx.Mutable.SetVerifyFailureHandoff(o.resolveVerifyFailureHandoffArtifacts(handoff))
+		o.busCtx.Mutable.SetVerifyFailureHandoff(o.finalizeVerifyFailureHandoff(handoff, nil))
 		appendControllerProgress(run, active.ID, "resume_verify_report_evidence_unavailable",
 			"resumed failed verification with bounded durable attempt evidence; report-backed details are not evaluated (reason="+reportEvidenceReason+")")
 		logging.Warning("[orchestrator] resume: verify report evidence unavailable for %s (%s); using bounded durable attempt handoff", st.ReportID, reportEvidenceReason)

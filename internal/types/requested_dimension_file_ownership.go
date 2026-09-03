@@ -1,6 +1,7 @@
 package types
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -99,4 +100,92 @@ func evidenceOwnsRequestedDimension(item EvidenceItem, index int) bool {
 		}
 	}
 	return false
+}
+
+// DimensionOwnerUnresolved is the typed SOFT marker (V4-4, colleague_merge_audit
+// §40.22) recording that the analyzer asserted high-confidence file
+// responsibility but did not settle every required explanation-operation
+// dimension. DimensionIndices lists the ownership dimensions with no
+// high-confidence owner; UnclassifiedFiles lists the high-confidence files
+// that declared neither an owned index nor navigation-only. The marker is
+// disclosure for the exploration stage (which settles ownership by reading
+// the implementing operation) and never a reject reason: analysis does not
+// read file bodies, so this uncertainty is legitimate model uncertainty.
+type DimensionOwnerUnresolved struct {
+	DimensionIndices  []int    `json:"dimension_indices,omitempty"`
+	UnclassifiedFiles []string `json:"unclassified_files,omitempty"`
+}
+
+// CompileDimensionOwnerUnresolved reads only schema-validated typed state:
+// dimension Required/Role/Index, hint Origin, Confidence,
+// RequestedDimensionIndices, and the persisted
+// RequestedDimensionNavigationOnly flag. It returns nil when there are no
+// ownership dimensions (fewer than two required
+// function_or_purpose/branch_behavior dimensions), when no model-declared
+// high-confidence (≥0.8) hint exists (the legacy any-source contract), or
+// when every dimension has an owner and every model-declared high-confidence
+// file declared a role. Hints with a system Origin (runtime-artifact path,
+// prescan candidate, scope promotion, user pin) are not the model's
+// declarations and never enter the marker (§40.47 fold-in A0). Rationale,
+// path names, request prose, and answer prose are not inspected.
+func CompileDimensionOwnerUnresolved(profile *RequestedAnswerDimensionProfile, hints []RequiredFileHint) *DimensionOwnerUnresolved {
+	dimensions := RequestedExplanationOperationOwnershipDimensions(profile)
+	if len(dimensions) == 0 {
+		return nil
+	}
+	required := make(map[int]bool, len(dimensions))
+	for _, dimension := range dimensions {
+		required[dimension.Index] = true
+	}
+	owned := make(map[int]bool, len(dimensions))
+	seenFile := make(map[string]bool, len(hints))
+	var unclassified []string
+	hasHighConfidence := false
+	for _, hint := range hints {
+		if !hint.ModelDeclared() || hint.Confidence < 0.8 {
+			continue
+		}
+		path := CanonicalRequestedDimensionSource(hint.Path)
+		if path == "" {
+			continue
+		}
+		hasHighConfidence = true
+		ownsOperation := false
+		for _, index := range hint.RequestedDimensionIndices {
+			if required[index] {
+				owned[index] = true
+				ownsOperation = true
+			}
+		}
+		if !ownsOperation && !hint.RequestedDimensionNavigationOnly && !seenFile[path] {
+			seenFile[path] = true
+			unclassified = append(unclassified, path)
+		}
+	}
+	if !hasHighConfidence {
+		return nil
+	}
+	var missing []int
+	for _, dimension := range dimensions {
+		if !owned[dimension.Index] {
+			missing = append(missing, dimension.Index)
+		}
+	}
+	if len(missing) == 0 && len(unclassified) == 0 {
+		return nil
+	}
+	sort.Strings(unclassified)
+	return &DimensionOwnerUnresolved{DimensionIndices: missing, UnclassifiedFiles: unclassified}
+}
+
+// Clone returns a nil-safe deep copy so degraded-recovery IR rebuilds carry
+// the marker without aliasing the partial IR's slices.
+func (m *DimensionOwnerUnresolved) Clone() *DimensionOwnerUnresolved {
+	if m == nil {
+		return nil
+	}
+	return &DimensionOwnerUnresolved{
+		DimensionIndices:  append([]int(nil), m.DimensionIndices...),
+		UnclassifiedFiles: append([]string(nil), m.UnclassifiedFiles...),
+	}
 }

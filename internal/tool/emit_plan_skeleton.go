@@ -65,6 +65,8 @@ type emitPlanSkeletonParams struct {
 	AcceptanceTests         []string                       `json:"acceptance_tests,omitempty"`
 	VerificationProbes      []types.VerificationProbe      `json:"verification_probes,omitempty"`
 	ProjectTestObservations []types.ProjectTestObservation `json:"project_test_observations,omitempty"`
+	// SupersededContractRefs mirrors emitChangePlanParams.SupersededContractRefs.
+	SupersededContractRefs []string `json:"superseded_contract_refs,omitempty"`
 }
 
 // emitPlanSkeletonSchemaReminder is the structural-emit twin of
@@ -75,7 +77,7 @@ var emitPlanSkeletonSchemaReminder = "REQUIRED schema: {request: string (1-3 sen
 	"summary: string (3-10 sentences explaining what + why), " +
 	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
 	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}, " +
-	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,assertion_suite,assertion_id,contract_refs[]}]}. " +
+	"acceptance_tests: optional []string, verification_probes: optional typed bounded probes (" + supportedVerificationProbeLanguageList() + ") with optional contract_refs/changed_symbol_refs, project_test_observations: optional [{id,test_path,assertion_suite,assertion_id,contract_refs[]}], superseded_contract_refs: optional []string of soft behavior_contract ids this repair plan supersedes (repair plans after a failed verification only)}. " +
 	"Controller-authorized proof-follow-up batches may emit changes: [] only with verification_probes[] to record no source edits required. " +
 	"Do NOT include new_content or patch here — those land via emit_plan_change once per file."
 
@@ -117,6 +119,11 @@ func (t *EmitPlanSkeleton) Parameters() json.RawMessage {
 	      "type": "array",
 	      "items": {"type": "string"},
 	      "description": "Optional list of test assertions the verify stage must cover."
+	    },
+	    "superseded_contract_refs": {
+	      "type": "array",
+	      "items": {"type": "string"},
+	      "description": "__SUPERSEDED_CONTRACT_REFS_DESCRIPTION__"
 	    },
 	    "project_test_observations": {
 	      "type": "array",
@@ -211,12 +218,19 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 				planRepairPackFromReason(t.Name(), "project_test_observation_without_changes", summary, []string{"$.changes", "$.project_test_observations"}, nil)), nil
 		}
 		if plan := proofFollowupProbeOnlyPlanSentinel(ctx, emitChangePlanParams{
-			Request:            p.Request,
-			Summary:            p.Summary,
-			AcceptanceTests:    p.AcceptanceTests,
-			VerificationProbes: p.VerificationProbes,
+			Request:                p.Request,
+			Summary:                p.Summary,
+			AcceptanceTests:        p.AcceptanceTests,
+			VerificationProbes:     p.VerificationProbes,
+			SupersededContractRefs: p.SupersededContractRefs,
 		}, probes); plan != nil {
-			attachWriteBehaviorContracts(ctx, plan)
+			if rej, reason := attachWriteBehaviorContracts(ctx, plan, p.SupersededContractRefs); rej != "" {
+				return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
+					planRepairPackFromReason(t.Name(), reason, rej, []string{"$.superseded_contract_refs"}, nil)), nil
+			}
+			if rej, reason, fields := validatePlanBehaviorContractRefs(plan); rej != "" {
+				return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, planRepairPackFromReason(t.Name(), reason, rej, fields, nil)), nil
+			}
 			enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 			if rej := validateVerificationProbeTargetPathLanguageCompatibility(plan.TargetPaths, plan.VerificationProbes); rej != "" {
 				pack := planRepairPackFromReason(t.Name(), "verification_probe_target_language_mismatch", rej, []string{"$.verification_probes[].language"}, plan.TargetPaths)
@@ -317,10 +331,12 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	// install the fresh skeleton — order matters because Reset wipes
 	// PartialChangePlan too.
 	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests, probes, projectTestObservations)
-	attachWriteBehaviorContracts(ctx, plan)
-	if rej := validateProjectTestObservationContractRefs(plan.BehaviorContracts, plan.ProjectTestObservations); rej != "" {
+	if rej, reason := attachWriteBehaviorContracts(ctx, plan, p.SupersededContractRefs); rej != "" {
 		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej,
-			planRepairPackFromReason(t.Name(), "project_test_observation_contract_refs_failed", rej, []string{"$.project_test_observations[].contract_refs"}, nil)), nil
+			planRepairPackFromReason(t.Name(), reason, rej, []string{"$.superseded_contract_refs"}, nil)), nil
+	}
+	if rej, reason, fields := validatePlanBehaviorContractRefs(plan); rej != "" {
+		return rejectPlanToolResult(t.Name(), "emit_plan_skeleton rejected: "+rej, planRepairPackFromReason(t.Name(), reason, rej, fields, nil)), nil
 	}
 	enrichVerificationProbeRefs(ctx.RepoRoot, plan)
 	ctx.Mutable.ResetChangePlan()

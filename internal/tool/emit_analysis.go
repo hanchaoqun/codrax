@@ -968,15 +968,15 @@ func buildEmitAnalysisSchema() {
 			},
 			"required_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. When two or more required function_or_purpose/branch_behavior dimensions exist, every high-confidence file has one explicit responsibility choice: set requested_dimension_indices to the exact 1-based dimensions whose implementation operation this file owns, OR set requested_dimension_navigation_only=true when it is only a location/navigation aid. Never set both. If ownership is uncertain, keep confidence below 0.8. If one mechanism genuinely crosses files, list its index on every file whose operation is independently required. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
+				"description": "Optional. When you can identify specific files structurally needed to answer the user's question, list them here with confidence and a short rationale. Confidence ≥ 0.8 means the file is treated as a primary file AND its content is pre-read into the prompt; 0.5 ≤ conf < 0.8 means the file is a soft hint (pre-read eligible only); below 0.5 the entry is discarded — leave the recommendation to the deterministic resolver. Use repo-relative POSIX paths copied verbatim from the prescan results. When two or more required function_or_purpose/branch_behavior dimensions exist, a high-confidence file may declare its responsibility: set requested_dimension_indices to the exact 1-based dimensions whose implementation operation this file owns, OR set requested_dimension_navigation_only=true when it is only a location/navigation aid. Never set both on one file, and never reference a dimension index you did not declare in requested_answer_dimensions. If you cannot tell which file implements a dimension, leave that file's indices empty and do not mark it navigation-only; ownership is settled during exploration by reading the implementing operation. If one mechanism genuinely crosses files, list its index on every file whose operation is independently required. For source_inventory / inventory-style questions, do not list guessed sample files as required_files; rely on source_inventory_profile and repo_map unless the user named the exact path. Empty list is fine: omit when you do not have file-level conviction. The field name is required_files, not requested_files — the requested_* fields elsewhere in this schema are separate display/profile settings, not this file list.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"path":                                map[string]any{"type": "string", "description": "Repo-relative POSIX path copied from the prescan results (e.g. 'internal/analysis/gate/gate.go')."},
 						"confidence":                          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Recommendation strength in [0,1]. Threshold bands: ≥0.8 primary + pre-read; 0.5–0.79 pre-read only; <0.5 discarded."},
 						"rationale":                           map[string]any{"type": "string", "description": "Short reason for the recommendation. Why this file is structurally needed for the answer (e.g. 'directly implements the entry function the question asks about')."},
-						"requested_dimension_indices":         map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "uniqueItems": true, "description": "Exact required requested_answer_dimensions indices whose implementation operation this file owns. With two or more explanation-operation dimensions, use this for every high-confidence implementation owner; do not combine it with requested_dimension_navigation_only=true."},
-						"requested_dimension_navigation_only": map[string]any{"type": "boolean", "description": "Set true only when this high-confidence file is a location/navigation aid and does not own any required explanation operation. With two or more explanation-operation dimensions, this is the explicit alternative to requested_dimension_indices. Omit for low-confidence hints."},
+						"requested_dimension_indices":         map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "uniqueItems": true, "description": "Exact required requested_answer_dimensions indices whose implementation operation this file owns. Use only indices you declared in requested_answer_dimensions; do not combine it with requested_dimension_navigation_only=true. Leave it empty when you cannot tell which file implements a dimension."},
+						"requested_dimension_navigation_only": map[string]any{"type": "boolean", "description": "Set true only when this high-confidence file is a location/navigation aid and does not own any required explanation operation. It is the explicit alternative to requested_dimension_indices, never a way to express uncertainty about ownership. Omit for low-confidence hints."},
 					},
 					"required": []string{"path", "confidence"},
 				},
@@ -1426,6 +1426,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	entities = val.FilteredEntities
+	// V4-3 (§40.21 ③): the roster the participant gate judges and the roster
+	// the RequestModel persists are both minted from this frozen copy, taken
+	// immediately after decode + blocklist filter. Nothing below can rewrite
+	// it (census: emit_analysis_entity_roster_census_test.go).
+	modelEntities := freezeModelEntityRoster(entities)
 	// CHATFIX-1: a chitchat classification with a reply is legitimately
 	// keyword-less and entity-less (there IS no code subject) — the
 	// degenerate-classification gate must not burn a retry teaching the
@@ -1434,7 +1439,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// Precise exemption: typed scenario enum + non-empty reply only;
 	// a reply-less chitchat emission still hits the gate.
 	chitchatExempt := scenario == types.ScenarioChitchat && chitchatReply != ""
-	if reason := rejectDegenerateClassification(intent, kind, keywords, entities); reason != "" && !chitchatExempt {
+	if reason := rejectDegenerateClassification(intent, kind, keywords, modelEntities.Entities()); reason != "" && !chitchatExempt {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -1694,21 +1699,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	// Required source-flow diagrams need one typed participant obligation per
-	// user-authored identity. Canonicalize only the analyzer's entity roster
-	// here, before participant provenance is checked: an emitted A/B entity is
-	// the same exact current-request pair already handled by the analyzer's
-	// mention normalizer, not one actor. If the model also emitted a joined
-	// participant, the existing composite-participant validator now sees both
-	// typed halves and asks the model to resend separate rows. This neither
-	// creates a participant nor authorizes an edge. Runtime Trace deliberately
-	// stays outside this source-flow contract.
-	if intent != types.IntentTrace && axis == types.AxisFlow && diagramHint != nil && diagramHint.Required {
-		if normalized := normalizer.CanonicalizeSlashPairEntities(raw, entities); !reflect.DeepEqual(normalized, entities) {
-			entities = normalized
-			val.Warnings = append(val.Warnings, "canonicalized exact slash-joined source-flow entities before participant provenance validation")
-		}
-	}
+	// V4-3 (§40.21): the entity roster is never rewritten before the
+	// participant provenance gate. A model-emitted slash-joined entity is the
+	// model's own single claim; the gate's membership predicate
+	// (participantRosterCoversEntity) absorbs the request pair losslessly and
+	// teaching asks the model for two halves. TestEmitAnalysisEntityRosterCensus
+	// pins that the decode slice is assigned only from the model emission and
+	// its subset-preserving blocklist filter, that modelEntities is frozen
+	// right after that and never written again, and that every later reader
+	// (gates and the persisted RequestModel) takes only the frozen value.
+	//
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
 	// TermGraph from this in analyzer.ParseOutput, so we strip the
@@ -1992,7 +1992,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, subTopics, answerSubject); warning != "" {
+	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, modelEntities.Entities(), subTopics, answerSubject); warning != "" {
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -2003,7 +2003,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if warning := normalizeSourceInventoryRequestedFieldsForAnswerSubject(sourceInventoryProfile, answerSubject); warning != "" {
 		val.Warnings = append(val.Warnings, warning)
 	}
-	exactTargets, exactTargetErr, exactTargetWarn := validateExactTargets(raw, p.ExactTargets, p.RequiredFiles, predicates, p.SourceInventoryProfile, answerSubject, entities)
+	exactTargets, exactTargetErr, exactTargetWarn := validateExactTargets(raw, p.ExactTargets, p.RequiredFiles, predicates, p.SourceInventoryProfile, answerSubject, modelEntities.Entities())
 	if exactTargetWarn != "" {
 		logging.Warning("[emit_analysis] %s", exactTargetWarn)
 		val.Warnings = append(val.Warnings, exactTargetWarn)
@@ -2025,7 +2025,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, modelEntities.Entities())
 	if reconciled, warning := reconcileDiagramParticipantsWithClosedRelationScope(diagramHint, mentionedEntities); warning != "" {
 		diagramHint = reconciled
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2045,7 +2045,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Predicates: predicates,
 			AnalyzerHints: types.AnalyzerHints{
 				Kind:              kind,
-				PrimaryEntities:   append([]string(nil), entities...),
+				PrimaryEntities:   modelEntities.Entities(),
 				MentionedEntities: append([]string(nil), mentionedEntities...),
 			},
 			AnswerSubject: answerSubject,
@@ -2100,7 +2100,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		axis,
 		p.CallChainEndpoints,
 		diagramHint,
-		entities,
+		modelEntities.Entities(),
 	); warning != "" {
 		p.CallChainEndpoints = normalized
 		val.Warnings = append(val.Warnings, warning)
@@ -2225,7 +2225,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// Self-consistency: after typed, deterministic normalizers have
 	// absorbed safe drift, reject only contradictions that still need
 	// the LLM to reconcile its own classification.
-	if issue := validateSelfConsistencyDetailed(intent, scenario, kind, predicates, diagnosticProfile, axis, entities, subTopics, answerSubject); issue.Reason != "" {
+	if issue := validateSelfConsistencyDetailed(intent, scenario, kind, predicates, diagnosticProfile, axis, modelEntities.Entities(), subTopics, answerSubject); issue.Reason != "" {
 		if writeModeAnalysisRootCauseTolerance(ctx, issue.Kind) {
 			val.Warnings = append(val.Warnings, "write-mode tolerated read-analyzer root_cause without diagnostic typed signal; write_analyzer will provide the code-change task framing")
 		} else {
@@ -2293,8 +2293,8 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		SubTopics:     sanitizedSubTopics,
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords:          keywords,
-			Entities:          entities,
-			PrimaryEntities:   append([]string(nil), entities...),
+			Entities:          modelEntities.Entities(),
+			PrimaryEntities:   modelEntities.Entities(),
 			MentionedEntities: mentionedEntities,
 			ExactTargets:      exactTargets,
 			ExactContextTerms: exactContextTerms,
@@ -2348,7 +2348,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
-	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm); conflict != "" {
+	if conflict := validateRequiredFlowDiagramParticipantProvenance(rm, modelEntities); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -2441,11 +2441,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	if conflict := validateRequiredFileDimensionResponsibilityDeclarations(
+	// V4-4 (§40.22): only the two exact contradictions inside the model's
+	// declared required_files content are hard; an owner the model could not
+	// name at analysis time is a typed soft marker resolved during exploration.
+	if conflict := validateRequiredFileDimensionContradictions(
 		ctx,
 		p.RequiredFiles,
-		rm.AnalyzerHints.RequiredFileHints,
 		rm.RequestedAnswerDimensions,
+		declaredRequestedDimensionIndices(p.RequestedAnswerDimensions),
 	); conflict != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -2453,6 +2456,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Summary:   "emit_analysis rejected: " + conflict,
 			Timestamp: time.Now(),
 		}, nil
+	}
+	// The marker describes only the model's own declarations: the compile
+	// reads model-declared hints by typed origin, so no deterministic system
+	// projection (runtime-artifact path above, prescan candidate below) can
+	// become a "file without a declared role" (§40.47 fold-in A0).
+	if unresolved := types.CompileDimensionOwnerUnresolved(rm.RequestedAnswerDimensions, rm.AnalyzerHints.RequiredFileHints); unresolved != nil {
+		rm.AnalyzerHints.DimensionOwnerUnresolved = unresolved
+		warning := requiredFileDimensionOwnerUnresolvedWarning(unresolved)
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	if warning := normalizeSingleTargetExplicitWindowCausalSubTopics(&rm); warning != "" {
 		logging.Warning("[emit_analysis] %s", warning)
@@ -2778,11 +2791,17 @@ func normalizeSingleTargetExplicitWindowCausalSubTopics(rm *types.RequestModel) 
 // A wider verbatim source_quote remains the typed escape for a genuinely
 // requested surrounding boundary. The model chooses the corrected role or
 // quote; the system does not promote participants or mint edges.
-func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) string {
+//
+// The entity roster it judges is the frozen model emission (roster), never a
+// RequestModel field: §40.21 ③ requires the gate input to be the model's
+// original emission or a lossless normalization, and the frozen value is the
+// only carrier a structural census can prove unwritten.
+func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel, roster modelEntityRoster) string {
 	if rm.Intent == types.IntentTrace || types.ResolveQuestionFamily(rm) == types.QFRootCauseTrace ||
 		rm.PredicateAxis != types.AxisFlow || rm.DiagramHint == nil || !rm.DiagramHint.Required {
 		return ""
 	}
+	entities := roster.Entities()
 	var conflicts []string
 	participantKeys := make(map[string]bool, len(rm.DiagramHint.Participants))
 	participantAliasKeys := make(map[string]bool, len(rm.DiagramHint.Participants))
@@ -2805,18 +2824,55 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		// enter omittedRelationScopeParticipants. An explicitly empty slate remains
 		// owned by validateRequiredDiagramEmptyParticipantSlate, which distinguishes
 		// generic visuals and dimension-reconciliation lanes without guessing actors.
-		for _, rawEntity := range rm.AnalyzerHints.Entities {
+		for _, rawEntity := range entities {
 			entity := strings.TrimSpace(rawEntity)
 			key := diagramParticipantProvenanceKey(entity)
-			aliasKey := diagramParticipantIdentityAliasKey(entity)
 			if entity == "" || key == "" || omittedScopeSeen[key] ||
 				!types.IsCodeIdentitySurface(entity) ||
 				!entityNamedInQuote(rm.DiagramHint.RelationScopeQuote, entity) ||
-				participantKeys[key] || participantAliasKeys[aliasKey] {
+				participantRosterCoversEntity(rm.RawRequest, entity, participantKeys, participantAliasKeys) {
 				continue
+			}
+			// §40.47 A3: the hint follows the teaching (one row per half) —
+			// when the model's rows cover exactly one half of a request pair it
+			// emitted as one entity, name the uncovered half, not the joined
+			// token; the verdict is unchanged.
+			if half, ok := requestPairUncoveredHalf(rm.RawRequest, entity, participantKeys, participantAliasKeys); ok {
+				entity, key = half, diagramParticipantProvenanceKey(half)
+				if key == "" || omittedScopeSeen[key] {
+					continue
+				}
 			}
 			omittedScopeSeen[key] = true
 			omittedRelationScopeParticipants = append(omittedRelationScopeParticipants, entity)
+		}
+		// V4-3 (§40.21 ①) judgement-only completion lane: the CURRENT request
+		// writes a user-typed identifier pair, the model's OWN relation scope
+		// quote names that pair, and the model's OWN rows cover exactly one
+		// half — the other half is an omitted user-authored participant (the
+		// substituted-repository-symbol shape). This consults only typed
+		// declared fields plus the verbatim request pair; it never rewrites
+		// the persisted roster and it stays silent when both halves are
+		// covered (split rows), when the joined row covers neither half (one
+		// joined claim), or when the scope quote does not name the pair.
+		for _, pair := range normalizer.RequestSlashPairs(rm.RawRequest) {
+			joined := pair[0] + "/" + pair[1]
+			if !entityNamedInQuote(rm.DiagramHint.RelationScopeQuote, joined) {
+				continue
+			}
+			leftCovered := participantRosterCoversEntity(rm.RawRequest, pair[0], participantKeys, participantAliasKeys)
+			rightCovered := participantRosterCoversEntity(rm.RawRequest, pair[1], participantKeys, participantAliasKeys)
+			if leftCovered == rightCovered {
+				continue
+			}
+			missing := pair[0]
+			if leftCovered {
+				missing = pair[1]
+			}
+			if missingKey := diagramParticipantProvenanceKey(missing); missingKey != "" && !omittedScopeSeen[missingKey] {
+				omittedScopeSeen[missingKey] = true
+				omittedRelationScopeParticipants = append(omittedRelationScopeParticipants, missing)
+			}
 		}
 	}
 	if len(omittedRelationScopeParticipants) > 0 {
@@ -2830,7 +2886,7 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		if identity == "" {
 			continue
 		}
-		if members := compositeDiagramParticipantTypedEntities(identity, rm.AnalyzerHints.Entities); len(members) >= 2 {
+		if members := compositeDiagramParticipantTypedEntities(identity, entities); len(members) >= 2 {
 			conflicts = append(conflicts, fmt.Sprintf(
 				"diagram_hint.participants[%d].identity=%q collapses distinct typed entities %v; emit one participant row per entity so each relation obligation remains visible",
 				i, identity, members,
@@ -2848,7 +2904,7 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 			// components in surrounding context.
 			rosterMembers := leadingCompositeDiagramParticipantTypedEntities(
 				participant.SourceQuote,
-				rm.AnalyzerHints.Entities,
+				entities,
 			)
 			if bareIdentity || len(rosterMembers) >= 2 {
 				provenanceShape := "only the bare identity"
@@ -2863,13 +2919,19 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		}
 		var omittedCoListed []string
 		seenCoListed := map[string]bool{}
-		for _, rawEntity := range rm.AnalyzerHints.Entities {
+		for _, rawEntity := range entities {
 			entity := strings.TrimSpace(rawEntity)
 			key := diagramParticipantProvenanceKey(entity)
-			aliasKey := diagramParticipantIdentityAliasKey(entity)
-			if entity == "" || key == "" || participantKeys[key] || participantAliasKeys[aliasKey] ||
-				seenCoListed[key] || !entityNamedInQuote(participant.SourceQuote, entity) {
+			if entity == "" || key == "" || seenCoListed[key] ||
+				participantRosterCoversEntity(rm.RawRequest, entity, participantKeys, participantAliasKeys) ||
+				!entityNamedInQuote(participant.SourceQuote, entity) {
 				continue
+			}
+			if half, ok := requestPairUncoveredHalf(rm.RawRequest, entity, participantKeys, participantAliasKeys); ok {
+				entity, key = half, diagramParticipantProvenanceKey(half)
+				if key == "" || seenCoListed[key] {
+					continue
+				}
 			}
 			seenCoListed[key] = true
 			omittedCoListed = append(omittedCoListed, entity)
@@ -2882,6 +2944,61 @@ func validateRequiredFlowDiagramParticipantProvenance(rm types.RequestModel) str
 		}
 	}
 	return strings.Join(conflicts, "; ")
+}
+
+// participantRosterCoversEntity is the membership predicate of the required
+// source-flow participant gate (V4-3, §40.21). It reads only typed identity
+// key maps — never a substring over prose. A typed entity is covered when a
+// participant row carries the same identity (provenance key or one-surface
+// alias key), OR when the entity is verbatim one of the CURRENT request's
+// slash-joined identifier pairs (`Mutable/BusContext`) and the model's own
+// rows cover both request-spelled halves. The second lane is the lossless
+// canonicalization of the user's pair inside the gate; it replaces the former
+// roster split so the hard gate judges the model's original emission and the
+// persisted roster stays the model's claim. A pair with only one half covered
+// is not covered; a repository path (`internal/agent`) never forms a pair.
+func participantRosterCoversEntity(rawRequest, entity string, keys, aliasKeys map[string]bool) bool {
+	entity = strings.TrimSpace(entity)
+	if entity == "" {
+		return false
+	}
+	if keys[diagramParticipantProvenanceKey(entity)] || aliasKeys[diagramParticipantIdentityAliasKey(entity)] {
+		return true
+	}
+	left, right, ok := normalizer.RequestSlashPairHalves(rawRequest, entity)
+	if !ok {
+		return false
+	}
+	for _, half := range []string{left, right} {
+		if !keys[diagramParticipantProvenanceKey(half)] && !aliasKeys[diagramParticipantIdentityAliasKey(half)] {
+			return false
+		}
+	}
+	return true
+}
+
+// requestPairUncoveredHalf reports, for a typed entity that is verbatim one
+// of the CURRENT request's slash-joined identifier pairs, the half the
+// model's own rows do NOT cover when they cover exactly one half (§40.47
+// A3). Repair hints name that half — the single-source teaching asks for one
+// row per half and never a row for the joined token — while the verdict
+// itself stays with participantRosterCoversEntity. Key maps only; never a
+// substring over prose.
+func requestPairUncoveredHalf(rawRequest, entity string, keys, aliasKeys map[string]bool) (string, bool) {
+	left, right, ok := normalizer.RequestSlashPairHalves(rawRequest, strings.TrimSpace(entity))
+	if !ok {
+		return "", false
+	}
+	covered := func(half string) bool {
+		return keys[diagramParticipantProvenanceKey(half)] || aliasKeys[diagramParticipantIdentityAliasKey(half)]
+	}
+	switch leftCovered, rightCovered := covered(left), covered(right); {
+	case leftCovered && !rightCovered:
+		return right, true
+	case rightCovered && !leftCovered:
+		return left, true
+	}
+	return "", false
 }
 
 func leadingCompositeDiagramParticipantTypedEntities(sourceQuote string, entities []string) []string {
@@ -7974,10 +8091,11 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 		}
 		indices := types.MergeEvidenceRequestedDimensionIndices(nil, e.RequestedDimensionIndices)
 		out = append(out, types.RequiredFileHint{
-			Path:                      canon,
-			Confidence:                conf,
-			Rationale:                 rationale,
-			RequestedDimensionIndices: indices,
+			Path:                             canon,
+			Confidence:                       conf,
+			Rationale:                        rationale,
+			RequestedDimensionIndices:        indices,
+			RequestedDimensionNavigationOnly: e.RequestedDimensionNavigationOnly != nil && *e.RequestedDimensionNavigationOnly,
 		})
 	}
 	if val != nil {
@@ -8004,155 +8122,9 @@ func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []em
 	return out
 }
 
-// normalizeRequiredFileDimensionOwnership keeps the optional file-scope
-// contract precise. Only high-confidence required files may own the required
-// explanation-operation dimensions compiled from the analyzer's typed
-// dimension profile. Invalid or inapplicable indices are dropped fail-soft so
-// this optional carrier never causes an analyzer retry storm. No rationale or
-// request/answer prose participates.
-func normalizeRequiredFileDimensionOwnership(in []types.RequiredFileHint, profile *types.RequestedAnswerDimensionProfile, val *analysisValidationResult) []types.RequiredFileHint {
-	if len(in) == 0 {
-		return in
-	}
-	allowed := map[int]bool{}
-	for _, dimension := range types.RequestedExplanationOperationOwnershipDimensions(profile) {
-		allowed[dimension.Index] = true
-	}
-	dropped := 0
-	for i := range in {
-		if len(in[i].RequestedDimensionIndices) == 0 {
-			continue
-		}
-		if in[i].Confidence < 0.8 {
-			dropped += len(in[i].RequestedDimensionIndices)
-			in[i].RequestedDimensionIndices = nil
-			continue
-		}
-		filtered := make([]int, 0, len(in[i].RequestedDimensionIndices))
-		for _, index := range in[i].RequestedDimensionIndices {
-			if allowed[index] {
-				filtered = append(filtered, index)
-			} else {
-				dropped++
-			}
-		}
-		in[i].RequestedDimensionIndices = filtered
-	}
-	if dropped > 0 && val != nil {
-		val.Warnings = append(val.Warnings, fmt.Sprintf(
-			"required_files: dropped %d requested_dimension_indices that were low-confidence or not required explanation-operation dimensions",
-			dropped,
-		))
-	}
-	return in
-}
-
-// validateRequiredFileDimensionResponsibilityDeclarations prevents a
-// high-confidence navigation hint from silently becoming an unscoped evidence
-// owner when the request contains multiple independent explanation operations.
-// The decision is analyzer-authored typed state only: rationale, path tokens,
-// request prose, answer prose, and source-language heuristics are not read.
-//
-// The gate is deliberately inactive for a single explanation operation and
-// for requests without any surviving high-confidence required file. Once the
-// analyzer does assert high-confidence file responsibility, however, every
-// surviving file must be explicitly classified and every required operation
-// dimension must have at least one exact file owner. All defects are reported
-// in one correction so the analyzer does not enter a one-file-at-a-time retry
-// loop.
-func validateRequiredFileDimensionResponsibilityDeclarations(
-	ctx *types.BusContext,
-	raw []emitRequiredFileParam,
-	hints []types.RequiredFileHint,
-	profile *types.RequestedAnswerDimensionProfile,
-) string {
-	dimensions := types.RequestedExplanationOperationOwnershipDimensions(profile)
-	if len(dimensions) == 0 || len(hints) == 0 {
-		return ""
-	}
-
-	navigationOnly := make(map[string]bool, len(raw))
-	for _, entry := range raw {
-		if entry.RequestedDimensionNavigationOnly == nil || !*entry.RequestedDimensionNavigationOnly {
-			continue
-		}
-		path, _, ok := resolveRequiredFileHintPath(ctx, entry.Path)
-		if !ok || path == "" {
-			continue
-		}
-		navigationOnly[types.CanonicalRequestedDimensionSource(path)] = true
-	}
-
-	required := make(map[int]bool, len(dimensions))
-	for _, dimension := range dimensions {
-		required[dimension.Index] = true
-	}
-	owned := make(map[int]bool, len(dimensions))
-	ambiguous := make(map[string]bool)
-	conflicting := make(map[string]bool)
-	hasHighConfidence := false
-	for _, hint := range hints {
-		if hint.Confidence < 0.8 {
-			continue
-		}
-		path := types.CanonicalRequestedDimensionSource(hint.Path)
-		if path == "" {
-			continue
-		}
-		hasHighConfidence = true
-		ownsOperation := false
-		for _, index := range hint.RequestedDimensionIndices {
-			if !required[index] {
-				continue
-			}
-			owned[index] = true
-			ownsOperation = true
-		}
-		if ownsOperation && navigationOnly[path] {
-			conflicting[path] = true
-			continue
-		}
-		if !ownsOperation && !navigationOnly[path] {
-			ambiguous[path] = true
-		}
-	}
-	if !hasHighConfidence {
-		return ""
-	}
-
-	missing := make([]int, 0, len(dimensions))
-	for _, dimension := range dimensions {
-		if !owned[dimension.Index] {
-			missing = append(missing, dimension.Index)
-		}
-	}
-	if len(ambiguous) == 0 && len(conflicting) == 0 && len(missing) == 0 {
-		return ""
-	}
-
-	parts := make([]string, 0, 3)
-	if len(ambiguous) > 0 {
-		paths := make([]string, 0, len(ambiguous))
-		for path := range ambiguous {
-			paths = append(paths, path)
-		}
-		sort.Strings(paths)
-		parts = append(parts, "unclassified high-confidence files=["+strings.Join(paths, ", ")+"]")
-	}
-	if len(conflicting) > 0 {
-		paths := make([]string, 0, len(conflicting))
-		for path := range conflicting {
-			paths = append(paths, path)
-		}
-		sort.Strings(paths)
-		parts = append(parts, "files declared both operation-owner and navigation-only=["+strings.Join(paths, ", ")+"]")
-	}
-	if len(missing) > 0 {
-		parts = append(parts, fmt.Sprintf("required explanation-operation dimensions without a high-confidence file owner=%v", missing))
-	}
-	return "required_files responsibility declaration is incomplete: " + strings.Join(parts, "; ") +
-		". For each high-confidence file, either set requested_dimension_indices to the exact 1-based dimensions whose implementation operation it owns, or set requested_dimension_navigation_only=true. Every required explanation-operation dimension must have at least one owner; lower confidence below 0.8 when responsibility is uncertain."
-}
+// normalizeRequiredFileDimensionOwnership, validateRequiredFileDimensionContradictions
+// and the unresolved-owner marker live in emit_analysis_required_file_ownership.go
+// (V4-4, §40.22).
 
 func softenModelAuthoredRequiredFilesForSourceInventory(raw string, profile *types.SourceInventoryProfile, attempted *emitSourceInventoryProfileParam, in []types.RequiredFileHint, val *analysisValidationResult) []types.RequiredFileHint {
 	// A malformed optional role list must not turn a model-guessed navigation
@@ -8237,6 +8209,7 @@ func projectAnalyzerPrescanRequiredFileHints(ctx *types.BusContext, rm *types.Re
 			Path:       canon,
 			Confidence: 0.82,
 			Rationale:  "deterministic analyzer prescan candidate for typed source-inventory coverage",
+			Origin:     types.RequiredFileHintOriginAnalyzerPrescan,
 		})
 	}
 	if added > 0 && val != nil {
@@ -8459,6 +8432,7 @@ func projectRuntimeArtifactPathHintsFromRawRequest(rm *types.RequestModel, raw s
 			Path:       token,
 			Confidence: 0.8,
 			Rationale:  "runtime artifact path preserved from the current request for artifact-lane routing",
+			Origin:     types.RequiredFileHintOriginRuntimeArtifactPath,
 		})
 	}
 }
@@ -8789,6 +8763,7 @@ func reconcilePrincipalScopeIrrelevantFiles(
 			Path:       rel,
 			Confidence: 0.80,
 			Rationale:  "principal source-scope path preserved from contradictory analyzer irrelevant_files",
+			Origin:     types.RequiredFileHintOriginPrincipalScopePromotion,
 		})
 		promoted++
 	}

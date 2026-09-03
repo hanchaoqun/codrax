@@ -212,38 +212,6 @@ func projectItemEvidenceIdentityField(blockProps map[string]any, view *types.Ans
 	delete(itemProps, "evidence_ids")
 }
 
-// projectTraceFindingContract adds the typed sidecar only for explicitly
-// activated batch child runs. Ordinary read requests retain byte-identical
-// canonical schemas.
-func projectTraceFindingContract(schema json.RawMessage, contract *types.TraceFindingContract, patch bool) json.RawMessage {
-	if contract == nil || !contract.Required {
-		return schema
-	}
-	var root map[string]any
-	if err := json.Unmarshal(schema, &root); err != nil {
-		return schema
-	}
-	properties, _ := root["properties"].(map[string]any)
-	if properties == nil {
-		return schema
-	}
-	name := "trace_finding"
-	if patch {
-		name = "replace_trace_finding"
-	}
-	properties[name] = traceFindingJSONSchema(contract)
-	if !patch {
-		required, _ := root["required"].([]any)
-		required = append(required, name)
-		root["required"] = required
-	}
-	out, err := json.Marshal(root)
-	if err != nil {
-		return schema
-	}
-	return out
-}
-
 // projectTraceRootCauseReport adds an optional model-owned selection receipt
 // to trace root-cause finalizer calls. Only exact typed on-chain candidate IDs
 // are exposed; public report fields are bound after the answer is accepted.
@@ -279,7 +247,7 @@ func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) 
 	}
 	item := map[string]any{
 		"type":        "object",
-		"description": "One model-selected typed on-chain candidate. Array order owns root-cause importance; all public semantic fields are bound by the runtime from this exact receipt.",
+		"description": "One model-selected typed on-chain candidate. Array order owns root-cause importance; all public semantic fields are bound by the runtime from this exact receipt. The roster's artifact_label names the trace file each candidate belongs to: a thread with the same name in two trace files is two different candidates, so select by candidate_id, never by name.",
 		"properties": map[string]any{
 			"candidate_id": map[string]any{"type": "string", "enum": candidateIDs},
 			"description":  map[string]any{"type": "string", "description": types.TraceRootCauseDescriptionTeaching()},
@@ -289,7 +257,7 @@ func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) 
 	}
 	return map[string]any{
 		"type":        "object",
-		"description": "Optional model-owned ordered selection for a separate JSON report. Omission or invalid sidecar data never rejects the full answer.",
+		"description": types.TraceRootCauseSelectorOutcomeTeaching(),
 		"properties": map[string]any{
 			"schema_version": map[string]any{"type": "integer", "enum": []int{types.TraceRootCauseReportSchemaVersion}},
 			"root_causes": map[string]any{
@@ -299,141 +267,6 @@ func traceRootCauseReportJSONSchema(selectable []types.TraceFindingCandidateV1) 
 		},
 		"required": []string{"schema_version", "root_causes"},
 	}
-}
-
-func traceFindingJSONSchema(contract *types.TraceFindingContract) map[string]any {
-	primaryIDs := append([]string(nil), contract.PrimaryCandidateIDs...)
-	contributorIDs := append([]string(nil), contract.ContributorCandidateIDs...)
-	decision := func(ids []string) map[string]any {
-		statuses := []string{"proven", "supported_candidate"}
-		// SIDECAR-Q1 (§40.28 ②): the ceiling is the typed closed-set qualifier.
-		if contract.CausalCeiling == types.TraceCausalQualifierFrameUnproven {
-			statuses = []string{"supported_candidate"}
-		}
-		return map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"candidate_id": map[string]any{"type": "string", "enum": ids},
-				"status":       map[string]any{"type": "string", "enum": statuses},
-				"token": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"token":         map[string]any{"type": "string"},
-						"lane":          map[string]any{"type": "string"},
-						"additivity":    map[string]any{"type": "string"},
-						"subject_kind":  map[string]any{"type": "string"},
-						"fix_direction": map[string]any{"type": "string"},
-						"registry_hash": map[string]any{"type": "string", "enum": []string{contract.RegistryHash}},
-					},
-					"required": []string{"token", "lane", "additivity", "subject_kind", "registry_hash"},
-				},
-				"subject_role":         map[string]any{"type": "string"},
-				"upstream_role":        map[string]any{"type": "string"},
-				"causal_shape":         map[string]any{"type": "string"},
-				"phase":                map[string]any{"type": "string"},
-				"rank":                 map[string]any{"type": "integer"},
-				"tier":                 map[string]any{"type": "string"},
-				"board_fingerprint":    map[string]any{"type": "string"},
-				"normalized_event_key": map[string]any{"type": "string"},
-				"normalized_stack_key": map[string]any{"type": "string"},
-				"magnitude": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"value":              map[string]any{"type": "number"},
-						"unit":               map[string]any{"type": "string"},
-						"additivity":         map[string]any{"type": "string"},
-						"caliber":            map[string]any{"type": "string"},
-						"window_duration_ms": map[string]any{"type": "number"},
-						"components":         traceMagnitudeComponentsJSONSchema(),
-					},
-					"required": []string{"value", "unit", "additivity", "caliber"},
-				},
-				"evidence_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
-				"confidence":    map[string]any{"type": "string"},
-			},
-			"required": []string{"candidate_id", "status", "token", "subject_role", "causal_shape", "phase", "evidence_refs", "confidence"},
-		}
-	}
-	return map[string]any{
-		"type":        "object",
-		"description": "Structured conclusion for this trace. Choose only the injected candidate and evidence ids; do not infer it from answer prose.",
-		"properties": map[string]any{
-			"schema_version": map[string]any{"type": "integer", "enum": []int{types.TraceFindingSchemaVersion}},
-			"finding_id":     map[string]any{"type": "string", "enum": []string{contract.FindingID}},
-			"analysis_key":   map[string]any{"type": "string", "enum": []string{contract.AnalysisKey}},
-			"artifact": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"artifact_id":   map[string]any{"type": "string", "enum": []string{contract.Artifact.ArtifactID}},
-					"content_hash":  map[string]any{"type": "string", "enum": []string{contract.Artifact.ContentHash}},
-					"display_label": map[string]any{"type": "string", "enum": []string{contract.Artifact.DisplayLabel}},
-				},
-				"required": []string{"artifact_id", "content_hash"},
-			},
-			"scope": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"profile_family": map[string]any{"type": "string", "enum": []string{contract.Scope.ProfileFamily}},
-					"target_role":    map[string]any{"type": "string", "enum": []string{contract.Scope.TargetRole}},
-					"phase":          map[string]any{"type": "string", "enum": []string{contract.Scope.Phase}},
-				},
-				"required": []string{"profile_family", "target_role", "phase"},
-			},
-			"revision": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"codrax_commit": map[string]any{"type": "string"},
-					"contract_hash": map[string]any{"type": "string", "enum": []string{contract.ContractHash}},
-				},
-				"required": []string{"contract_hash"},
-			},
-			"symptom": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"kind":  map[string]any{"type": "string", "enum": []string{contract.Symptom.Kind}},
-					"value": map[string]any{"type": "number"},
-					"unit":  map[string]any{"type": "string"},
-				},
-				"required": []string{"kind"},
-			},
-			"primary_cause": decision(primaryIDs),
-			"contributors":  map[string]any{"type": "array", "items": decision(contributorIDs)},
-			"unresolved": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"reason":    map[string]any{"type": "string"},
-					"raw_label": map[string]any{"type": "string"},
-				},
-				"required": []string{"reason"},
-			},
-			"evidence_refs":         map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
-			"counter_evidence_refs": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": contract.AcceptedEvidenceIDs}},
-			"coverage": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"complete": map[string]any{"type": "boolean"},
-					"caveats":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				},
-				"required": []string{"complete"},
-			},
-		},
-		"required": []string{"schema_version", "finding_id", "analysis_key", "artifact", "scope", "revision", "symptom", "evidence_refs", "coverage"},
-	}
-}
-
-func traceMagnitudeComponentsJSONSchema() map[string]any {
-	return map[string]any{"type": "object", "description": "Copy the frozen candidate components exactly when present; do not infer missing accounting.",
-		"properties": map[string]any{
-			"supply_fold_computed":          map[string]any{"type": "boolean"},
-			"supply_fold_deficit_ms":        map[string]any{"type": "number"},
-			"supply_fold_ideal_ms":          map[string]any{"type": "number"},
-			"supply_fold_known_ms":          map[string]any{"type": "number"},
-			"supply_fold_unknown_ms":        map[string]any{"type": "number"},
-			"supply_fold_capability_source": map[string]any{"type": "string"},
-			"d_state_refined_non_io":        map[string]any{"type": "boolean"},
-			"d_state_ms":                    map[string]any{"type": "number"},
-			"io_wait_ms":                    map[string]any{"type": "number"},
-		}}
 }
 
 // projectSourceInventoryPrincipalTableItems makes the dispatch-projected

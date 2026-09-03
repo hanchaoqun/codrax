@@ -35,6 +35,7 @@ package tool
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -414,6 +415,35 @@ var uxg1ProsePromises = []struct {
 	{"%.3fms(可运行+迟到量)", []string{"PeriodicLatenessMS"}},
 }
 
+// uxg1ImpactCaliberSplice matches a Table ③e constant spliced into a string
+// concatenation: `" + tracefence.ImpactCaliberXxx + "` (any spacing).
+var uxg1ImpactCaliberSplice = regexp.MustCompile(`"\s*\+\s*tracefence\.(ImpactCaliber\w+)\s*\+\s*"`)
+
+// uxg1ResolveImpactCaliberSplices folds every Table ③e splice in src to the
+// constant's bytes; an unknown ImpactCaliber* name is left as-is (and then
+// fails the verbatim match loudly instead of silently passing).
+func uxg1ResolveImpactCaliberSplices(src string) string {
+	words := map[string]string{
+		"ImpactCaliberEffectiveZH":        tracefence.ImpactCaliberEffectiveZH,
+		"ImpactCaliberEffectiveEN":        tracefence.ImpactCaliberEffectiveEN,
+		"ImpactCaliberWindowProjectionZH": tracefence.ImpactCaliberWindowProjectionZH,
+		"ImpactCaliberWindowProjectionEN": tracefence.ImpactCaliberWindowProjectionEN,
+		"ImpactCaliberChainCumulativeZH":  tracefence.ImpactCaliberChainCumulativeZH,
+		"ImpactCaliberChainCumulativeEN":  tracefence.ImpactCaliberChainCumulativeEN,
+		"ImpactCaliberActualStateZH":      tracefence.ImpactCaliberActualStateZH,
+		"ImpactCaliberActualStateEN":      tracefence.ImpactCaliberActualStateEN,
+		"ImpactCaliberCrossThreadCumZH":   tracefence.ImpactCaliberCrossThreadCumZH,
+		"ImpactCaliberCrossThreadCumEN":   tracefence.ImpactCaliberCrossThreadCumEN,
+	}
+	return uxg1ImpactCaliberSplice.ReplaceAllStringFunc(src, func(m string) string {
+		name := uxg1ImpactCaliberSplice.FindStringSubmatch(m)[1]
+		if word, ok := words[name]; ok {
+			return word
+		}
+		return m
+	})
+}
+
 func TestUXG1LegendPromisesBacked(t *testing.T) {
 	markers := []string{"只计", "构成", "其中"}
 	seen := map[runtimeTraceProjMark]bool{}
@@ -450,8 +480,13 @@ func TestUXG1LegendPromisesBacked(t *testing.T) {
 			t.Errorf("承诺表幽灵行 mark=%d:图例条已无分解词面,删行", mark)
 		}
 	}
-	// Prose promise faces: verbatim presence + component backing.
-	src := readDisplayAuthoritySources(t)
+	// Prose promise faces: verbatim presence + component backing. EVOLUTION
+	// RECORD (§40.48 fold-in of V1-1): the promise faces that DEFINE a ruler
+	// word now concatenate the Table ③e constants ("…行:" +
+	// tracefence.ImpactCaliberEffectiveZH + " = …"), so the source text is
+	// resolved through the same constants before the verbatim match — the
+	// rendered promise bytes are unchanged (periodic_vs1 pins them on output).
+	src := uxg1ResolveImpactCaliberSplices(readDisplayAuthoritySources(t))
 	for _, prose := range uxg1ProsePromises {
 		if !strings.Contains(src, prose.Verbatim) {
 			t.Errorf("散文承诺句已漂移/消失(修改承诺面必须同步承诺表+契约翻状态):%q", prose.Verbatim)

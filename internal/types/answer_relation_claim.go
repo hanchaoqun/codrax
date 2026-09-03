@@ -25,6 +25,14 @@ type AnswerRelationClaim struct {
 	Addition         string   `json:"addition"`
 	SubtotalValue    *float64 `json:"subtotal_value,omitempty"`
 	SubtotalUnit     string   `json:"subtotal_unit,omitempty"`
+	// ArtifactLabel (V1-4, §40.26 ③ — a cross-artifact fold keeps its
+	// partition key on every public copy) is the trace-file label of the
+	// projection the cited authority was compiled from. System-stamped on the
+	// copyable projection (AnswerRelationClaimForAuthority); a model copy
+	// keeps it unchanged or omits it (omitted = unspecified, never wrong).
+	// Empty on identity-less single-trace ledgers and on the trace_query
+	// preview (one result = one trace), so it is never fabricated.
+	ArtifactLabel string `json:"artifact_label,omitempty"`
 }
 
 const (
@@ -77,6 +85,10 @@ type AnswerRelationAuthority struct {
 	ComparisonRule    string
 	FixDirection      string
 	ChainLane         string
+	// ArtifactLabel (V1-4, §40.26 ③ — any cross-artifact fold keeps its
+	// partition key) is the trace-file label of the projection this authority
+	// was compiled from; empty for an identity-less single-trace ledger.
+	ArtifactLabel string
 }
 
 // CompileTraceAnswerRelationAuthorities projects only already-validated trace
@@ -86,6 +98,7 @@ type AnswerRelationAuthority struct {
 func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []AnswerRelationAuthority {
 	var out []AnswerRelationAuthority
 	for _, projection := range set.Projections {
+		start := len(out)
 		for _, accounting := range projection.SelfRunnableTwoRulerAccountings {
 			if !TraceCausalProjectionSelfRunnableTwoRulerValid(accounting) {
 				continue
@@ -129,6 +142,11 @@ func CompileTraceAnswerRelationAuthorities(set TraceCausalProjectionSet) []Answe
 			})
 		}
 		out = append(out, answerRelationSameSourcePartitionAuthorities(projection)...)
+		// V1-4 (§40.26 ③): every authority folded from this projection keeps
+		// the projection's partition key.
+		for i := start; i < len(out); i++ {
+			out[i].ArtifactLabel = strings.TrimSpace(projection.ArtifactLabel)
+		}
 	}
 	return out
 }
@@ -447,13 +465,28 @@ func CompileTraceAnswerRelationAuthoritiesFromLedger(ledger ObservationLedger) [
 		})...)
 	}
 	out = append(out, CompileTraceAnswerRelationAuthorities(CompileTraceCausalProjectionSet(ledger))...)
-	seen := make(map[string]bool, len(out))
-	deduped := out[:0]
-	for _, authority := range out {
-		if authority.ID == "" || seen[authority.ID] {
+	return dedupeAnswerRelationAuthorities(out)
+}
+
+// dedupeAnswerRelationAuthorities keeps the first row per id. The partition
+// key survives the dedupe (V1-4 §40.26 ③, the LEDGER-MERGE-1 shape): the
+// ledger-fed two-ruler synthetic projection is unlabeled and sorts first, so a
+// later same-id row compiled from the labeled partition backfills the label
+// instead of being dropped with its key.
+func dedupeAnswerRelationAuthorities(in []AnswerRelationAuthority) []AnswerRelationAuthority {
+	index := make(map[string]int, len(in))
+	deduped := make([]AnswerRelationAuthority, 0, len(in))
+	for _, authority := range in {
+		if authority.ID == "" {
 			continue
 		}
-		seen[authority.ID] = true
+		if at, seen := index[authority.ID]; seen {
+			if deduped[at].ArtifactLabel == "" {
+				deduped[at].ArtifactLabel = authority.ArtifactLabel
+			}
+			continue
+		}
+		index[authority.ID] = len(deduped)
 		deduped = append(deduped, authority)
 	}
 	return deduped
@@ -501,10 +534,7 @@ func answerRelationRankRefs(ranks []int) []string {
 // RequiredForClosure authority must be acknowledged exactly once. There is no
 // prose inspection and no system-side answer repair.
 func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []AnswerRelationAuthority, requireClosureAuthorities bool) error {
-	byID := make(map[string]AnswerRelationAuthority, len(authorities))
-	for _, authority := range authorities {
-		byID[authority.ID] = authority
-	}
+	byID := answerRelationAuthoritiesByID(authorities)
 	seen := make(map[string]bool, len(claims))
 	var violations []string
 	for index, raw := range claims {
@@ -518,7 +548,7 @@ func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []An
 			continue
 		}
 		seen[claim.AuthorityID] = true
-		authority, ok := byID[claim.AuthorityID]
+		authority, ok := answerRelationAuthorityForClaim(byID, claim)
 		if !ok {
 			violations = append(violations, fmt.Sprintf("relation_claims[%d].authority_id=%q has no typed relation authority in this investigation", index, claim.AuthorityID))
 			continue
@@ -550,13 +580,10 @@ func ValidateAnswerRelationClaims(claims []AnswerRelationClaim, authorities []An
 // superseded claims alongside the final authority slate: that would create an
 // impossible hard contract. No model prose is inspected or rewritten here.
 func PartitionAnswerRelationClaimsByCurrentAuthorities(claims []AnswerRelationClaim, authorities []AnswerRelationAuthority) (current, superseded []AnswerRelationClaim) {
-	byID := make(map[string]AnswerRelationAuthority, len(authorities))
-	for _, authority := range authorities {
-		byID[authority.ID] = authority
-	}
+	byID := answerRelationAuthoritiesByID(authorities)
 	for _, raw := range claims {
 		claim := NormalizeAnswerRelationClaim(raw)
-		authority, ok := byID[claim.AuthorityID]
+		authority, ok := answerRelationAuthorityForClaim(byID, claim)
 		if !ok || len(answerRelationClaimAuthorityViolations(claim, authority)) > 0 {
 			superseded = append(superseded, claim)
 			continue
@@ -570,8 +597,42 @@ func PartitionAnswerRelationClaimsByCurrentAuthorities(claims []AnswerRelationCl
 // actionable field mismatch for one claim. Identity failures are handled by
 // the caller and do not enter this function: comparing dependent fields
 // without an exact typed authority would manufacture cascade errors.
+// answerRelationAuthoritiesByID groups authorities by id. Identical
+// accounting in two trace files fingerprints to ONE id (the id is content,
+// not provenance), so an id may name one authority per partition.
+func answerRelationAuthoritiesByID(authorities []AnswerRelationAuthority) map[string][]AnswerRelationAuthority {
+	byID := make(map[string][]AnswerRelationAuthority, len(authorities))
+	for _, authority := range authorities {
+		byID[authority.ID] = append(byID[authority.ID], authority)
+	}
+	return byID
+}
+
+// answerRelationAuthorityForClaim resolves a claim to the authority of ITS
+// trace file when the claim carries the partition key (V1-4 §40.26 ③); an
+// unlabeled claim (unspecified) takes the first authority under that id.
+func answerRelationAuthorityForClaim(byID map[string][]AnswerRelationAuthority, claim AnswerRelationClaim) (AnswerRelationAuthority, bool) {
+	candidates := byID[claim.AuthorityID]
+	if len(candidates) == 0 {
+		return AnswerRelationAuthority{}, false
+	}
+	if claim.ArtifactLabel != "" {
+		for _, authority := range candidates {
+			if authority.ArtifactLabel == claim.ArtifactLabel {
+				return authority, true
+			}
+		}
+	}
+	return candidates[0], true
+}
+
 func answerRelationClaimAuthorityViolations(claim AnswerRelationClaim, authority AnswerRelationAuthority) []string {
 	var violations []string
+	// Partition key: typed string equality, checked only when both sides name
+	// a trace file (an omitted label is unspecified — the escape lane).
+	if claim.ArtifactLabel != "" && authority.ArtifactLabel != "" && claim.ArtifactLabel != authority.ArtifactLabel {
+		violations = append(violations, fmt.Sprintf("artifact_label=%q; this typed authority was compiled from trace file %q — copy the label unchanged or omit it", claim.ArtifactLabel, authority.ArtifactLabel))
+	}
 	if claim.PhysicalRelation != authority.PhysicalRelation {
 		violations = append(violations, fmt.Sprintf("physical_relation=%q; typed authority requires %q", claim.PhysicalRelation, authority.PhysicalRelation))
 	}
@@ -648,6 +709,7 @@ func NormalizeAnswerRelationClaim(in AnswerRelationClaim) AnswerRelationClaim {
 	out.PhysicalRelation = strings.TrimSpace(out.PhysicalRelation)
 	out.Addition = strings.TrimSpace(out.Addition)
 	out.SubtotalUnit = strings.TrimSpace(out.SubtotalUnit)
+	out.ArtifactLabel = strings.TrimSpace(out.ArtifactLabel)
 	out.MemberRefs = make([]string, len(in.MemberRefs))
 	for i, member := range in.MemberRefs {
 		out.MemberRefs[i] = strings.TrimSpace(member)
@@ -673,6 +735,7 @@ func AnswerRelationClaimForAuthority(authority AnswerRelationAuthority) AnswerRe
 		PhysicalRelation: authority.PhysicalRelation,
 		Addition:         authority.Addition,
 		SubtotalUnit:     authority.SubtotalUnit,
+		ArtifactLabel:    authority.ArtifactLabel,
 	}
 	if authority.SubtotalValue != nil {
 		value := *authority.SubtotalValue
@@ -707,13 +770,19 @@ func AnswerRelationClaimsEqual(left, right []AnswerRelationClaim) bool {
 			out[i] = NormalizeAnswerRelationClaim(out[i])
 			sort.Strings(out[i].MemberRefs)
 		}
-		sort.Slice(out, func(i, j int) bool { return out[i].AuthorityID < out[j].AuthorityID })
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].AuthorityID != out[j].AuthorityID {
+				return out[i].AuthorityID < out[j].AuthorityID
+			}
+			return out[i].ArtifactLabel < out[j].ArtifactLabel
+		})
 		return out
 	}
 	a, b := canon(left), canon(right)
 	for i := range a {
 		if a[i].AuthorityID != b[i].AuthorityID || a[i].PhysicalRelation != b[i].PhysicalRelation ||
 			a[i].Addition != b[i].Addition || a[i].SubtotalUnit != b[i].SubtotalUnit ||
+			a[i].ArtifactLabel != b[i].ArtifactLabel ||
 			!answerRelationSameSet(a[i].MemberRefs, b[i].MemberRefs) {
 			return false
 		}

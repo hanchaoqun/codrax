@@ -157,7 +157,7 @@ func TestReceiptFeedbackFullAndPatchReportMixedErrorsThenAtomicRepairPersists(t 
 			}
 			// Direct callers cannot bypass the original last-line binding guard.
 			got.Blocks[0].ConceptualTerminalResolution.EvidenceID = "stale-again"
-			res, err = persistMergedFinalAnswerArtifactsWithAttachmentPolicy(bus, "test", types.MutationPartial, "guard", got, nil, time.Now(), false)
+			res, err = persistMergedAnswerDocumentWithAttachmentPolicy(bus, "test", types.MutationPartial, "guard", got, time.Now(), false)
 			if err != nil || res.Success {
 				t.Fatalf("persist binding guard was removed: %+v %v", res, err)
 			}

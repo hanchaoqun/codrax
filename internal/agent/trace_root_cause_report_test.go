@@ -30,7 +30,7 @@ func TestRootCauseSelectorContextPublishesTheSameValueCaliberAsSidecar(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract.Required, contract.RootCauseReportEnabled = false, true
+	contract.RootCauseReportEnabled = true
 	ctx.Mutable.SetTraceFindingContract(contract)
 	description := tracefinding.RootCauseValueDescription(contract.Candidates[0].Decision)
 	got := renderTraceFindingContract(ctx)
@@ -45,14 +45,14 @@ func TestPrepareTraceFindingContractDoesNotEnableReportWithoutTypedCandidates(t 
 		t.Fatalf("prepareTraceFindingContract: %v", err)
 	}
 	contract := ctx.Mutable.TraceFindingContract()
-	if contract == nil || contract.Required || contract.RootCauseReportEnabled {
+	if contract == nil || contract.RootCauseReportEnabled {
 		t.Fatalf("empty typed roster must not expose root-cause selection: %+v", contract)
 	}
 	if got := renderAnswerDocTraceDecisionHandoff(ctx); strings.Contains(got, "Trace Root Cause JSON") {
 		t.Fatalf("empty roster leaked a root-cause report contract:\n%s", got)
 	}
-	if finding := ctx.Mutable.TraceFinding(); finding != nil {
-		t.Fatalf("runtime must not mint a model conclusion: %+v", finding)
+	if report := ctx.Mutable.TraceRootCauseReport(); report != nil {
+		t.Fatalf("runtime must not mint a model conclusion: %+v", report)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestPrepareTraceFindingContractSidecarFlagCannotBypassTypedRoster(t *testin
 	if err := prepareTraceFindingContract(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if contract := ctx.Mutable.TraceFindingContract(); contract == nil || contract.Required || contract.RootCauseReportEnabled {
+	if contract := ctx.Mutable.TraceFindingContract(); contract == nil || contract.RootCauseReportEnabled {
 		t.Fatalf("caller flag must not manufacture selectable root causes: %+v", contract)
 	}
 }
@@ -141,6 +141,102 @@ func TestRenderTraceRootCauseContractTeachesQualifierAndCaliber(t *testing.T) {
 	}
 }
 
+// V1-1 (§40.25): the caliber closed set in the roster teaching is rendered
+// from the types list, never hand-typed.
+func TestRenderTraceRootCauseContractTeachesEveryImpactCaliber(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	ctx.Mutable.SetTraceFindingContract(testRosterContract([]string{"a.systrace"}, "a.systrace"))
+	got := renderAnswerDocTraceDecisionHandoff(ctx)
+	for _, caliber := range types.AllTraceImpactCalibers() {
+		if !strings.Contains(got, caliber) {
+			t.Fatalf("roster teaching missing caliber %q:\n%s", caliber, got)
+		}
+	}
+	if !strings.Contains(got, "`impact_caliber` ("+strings.Join(types.AllTraceImpactCalibers(), " vs ")+")") {
+		t.Fatalf("caliber parenthetical must render from the closed-set list:\n%s", got)
+	}
+}
+
+func testRosterContract(artifactLabels []string, candidateLabels ...string) *types.TraceFindingContract {
+	contract := &types.TraceFindingContract{RootCauseReportEnabled: true, CandidateSetID: "set-1", ArtifactLabels: artifactLabels}
+	for i, label := range candidateLabels {
+		contract.Candidates = append(contract.Candidates, types.TraceFindingCandidateV1{
+			PrimaryEligible: true,
+			Decision: types.TraceCauseDecision{
+				CandidateID: "candidate-" + string(rune('1'+i)), SubjectName: "RenderThread", ArtifactLabel: label, Rank: 1,
+				Token:           types.TraceCausalTokenSnapshot{Token: "scheduler_latency", Lane: "scheduling_demand"},
+				Magnitude:       &types.TypedMagnitude{Value: 4, Unit: "ms", Additivity: "wall_clock_per_thread", Caliber: types.TraceImpactCaliberEffectiveAttribution},
+				CausalQualifier: types.TraceCausalQualifierProven, EvidenceRefs: []string{"E" + string(rune('1'+i))},
+			},
+		})
+	}
+	return contract
+}
+
+// V1-4 (§40.26 ②): a multi-artifact roster is grouped by trace file, every
+// item carries its partition key and the teaching names the discipline.
+func TestRosterGroupsCandidatesByTraceFileWhenMultiArtifact(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	ctx.Mutable.SetTraceFindingContract(testRosterContract([]string{"a.systrace", "b.systrace"}, "a.systrace", "b.systrace"))
+	got := renderAnswerDocTraceDecisionHandoff(ctx)
+	if strings.Count(got, "```json") != 2 {
+		t.Fatalf("two trace files must render two roster fences:\n%s", got)
+	}
+	for _, want := range []string{
+		"**Trace file: a.systrace**", "**Trace file: b.systrace**",
+		`"artifact_label": "a.systrace"`, `"artifact_label": "b.systrace"`,
+		"Candidates come from 2 trace files", "same name in two trace files is two different candidates",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("multi-artifact roster missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Index(got, "**Trace file: a.systrace**") > strings.Index(got, "**Trace file: b.systrace**") {
+		t.Fatalf("groups must follow the contract's partition order:\n%s", got)
+	}
+}
+
+// §40.48 fold-in (S3/S9): the teaching counts the contract's PARTITION
+// ROSTER (ArtifactLabels), not the rendered groups — a trace file whose
+// seats yield no selectable candidate is still a partition of the fold and
+// is named as contributing none, and an out-of-roster or unlabeled group is
+// never counted as a trace file.
+func TestRosterTeachingCountsPartitionRosterNotRenderedGroups(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	ctx.Mutable.SetTraceFindingContract(testRosterContract([]string{"a.systrace", "b.systrace"}, "a.systrace"))
+	got := renderAnswerDocTraceDecisionHandoff(ctx)
+	if strings.Count(got, "```json") != 1 || strings.Count(got, "**Trace file: ") != 1 {
+		t.Fatalf("one selectable partition renders one fence under one heading:\n%s", got)
+	}
+	for _, want := range []string{"Candidates come from 2 trace files", "no selectable candidate: b.systrace"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lone-group multi-artifact roster missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Candidates come from 1 trace files") {
+		t.Fatalf("count must read the partition roster, not the rendered groups:\n%s", got)
+	}
+	// An unlabeled candidate beside two partitions: still 2 trace files.
+	ctx = traceRootCauseTestContext("analyze this trace root cause")
+	ctx.Mutable.SetTraceFindingContract(testRosterContract([]string{"a.systrace", "b.systrace"}, "a.systrace", "b.systrace", ""))
+	got = renderAnswerDocTraceDecisionHandoff(ctx)
+	if !strings.Contains(got, "Candidates come from 2 trace files") || !strings.Contains(got, "**Trace file: unlabeled**") || strings.Contains(got, "no selectable candidate") {
+		t.Fatalf("the unlabeled trailing group is not a trace file:\n%s", got)
+	}
+}
+
+func TestSingleArtifactRosterUnchanged(t *testing.T) {
+	ctx := traceRootCauseTestContext("analyze this trace root cause")
+	ctx.Mutable.SetTraceFindingContract(testRosterContract([]string{"a.systrace"}, "a.systrace"))
+	got := renderAnswerDocTraceDecisionHandoff(ctx)
+	if strings.Count(got, "```json") != 1 || strings.Contains(got, "Trace file:") || strings.Contains(got, "trace files.") {
+		t.Fatalf("single-artifact roster must stay one ungrouped fence:\n%s", got)
+	}
+	if !strings.Contains(got, `"artifact_label": "a.systrace"`) {
+		t.Fatalf("the partition key still rides each item:\n%s", got)
+	}
+}
+
 // SIDECAR-NARR-1: the selector context teaches the optional plain-language
 // description (same wording family as the schema), without internal names.
 func TestRootCauseSelectorContextTeachesPlainLanguageDescription(t *testing.T) {
@@ -153,7 +249,7 @@ func TestRootCauseSelectorContextTeachesPlainLanguageDescription(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract.Required, contract.RootCauseReportEnabled = false, true
+	contract.RootCauseReportEnabled = true
 	ctx.Mutable.SetTraceFindingContract(contract)
 	text := renderTraceFindingContract(ctx)
 	for _, want := range []string{"`description`", types.TraceRootCauseDescriptionTeaching(), "frame_unproven"} {

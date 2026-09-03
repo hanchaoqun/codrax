@@ -171,11 +171,30 @@ func renderWriteControllerTaskSection(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- scope_anchors: %s\n", strings.Join(ir.Request.ScopeAnchors, ", "))
 	}
 	expectedOutcomes := ir.Request.ExpectedOutcomes
-	behaviorContracts := ir.Request.BehaviorContracts
+	// V5-4 / §40.46: never the raw analyzer snapshot. Tombstones always come
+	// from the state projection (ledger ∪ current handoff) — the same source
+	// the planner framing reads — so the two surfaces cannot disagree on any
+	// replan round. A rebased current plan supplies the active contracts
+	// (its rows plus cumulative scope) minus anything that projection retired.
+	generation := ctx.Mutable.ProjectBehaviorContractGeneration(nil, nil)
+	behaviorContracts := generation.Contracts
+	tombstones := generation.Tombstones
 	if plan := ctx.Mutable.ChangePlan(); plan != nil && plan.BehaviorContractGeneration == types.WriteBehaviorContractGenerationPlanAcceptanceRebase {
 		expectedOutcomes = plan.AcceptanceTests
-		behaviorContracts = types.ChangePlanVerificationBehaviorContracts(plan)
+		retired := map[string]bool{}
+		for _, tombstone := range tombstones {
+			retired[tombstone.ID] = true
+		}
+		behaviorContracts = behaviorContracts[:0:0]
+		for _, contract := range types.ChangePlanVerificationBehaviorContracts(plan) {
+			if !retired[strings.TrimSpace(contract.ID)] {
+				behaviorContracts = append(behaviorContracts, contract)
+			}
+		}
 		fmt.Fprintf(&b, "- behavior_contract_generation: %s\n", plan.BehaviorContractGeneration)
+	}
+	for _, tombstone := range tombstones {
+		fmt.Fprintf(&b, "- superseded_behavior_contract: %s (%s)\n", tombstone.ID, describeRetiredBehaviorContract(tombstone))
 	}
 	if len(expectedOutcomes) > 0 {
 		fmt.Fprintf(&b, "- analyzer_proposed_outcomes (planning_only; request/preserve constraints/source/tests take precedence): %s\n", strings.Join(expectedOutcomes, " | "))

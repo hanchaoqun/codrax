@@ -52,7 +52,10 @@ func TestCaliberWordFaces_DisplayFaceTie(t *testing.T) {
 // itself is the single source).
 func TestCaliberWordFaces_NeverPublishedSweep(t *testing.T) {
 	fset := token.NewFileSet()
-	for _, dir := range []string{".", "../tool", "../tracequery", "../context", "../types", "../render", "../skill", "../tracediag"} {
+	// V1-1 (§40.25): the customer-facing sidecar binder (../analysis/
+	// tracefinding) and the model-facing roster renderer (../agent) joined the
+	// sweep — both print caliber words next to magnitudes.
+	for _, dir := range []string{".", "../tool", "../tracequery", "../context", "../types", "../render", "../skill", "../tracediag", "../analysis/tracefinding", "../agent"} {
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
 				filepath.Base(path) == "display_tables.go" {

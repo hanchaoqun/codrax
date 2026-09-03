@@ -3,6 +3,7 @@ package tool
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -218,28 +219,10 @@ func isExactTraceRootCauseSchemaVersion(raw json.RawMessage) bool {
 	return text == strconv.Itoa(types.TraceRootCauseReportSchemaVersion)
 }
 
-// resolveTraceFindingForEmit enforces the opt-in contract before the shared
-// document persist path is allowed to commit either artifact.
-func resolveTraceFindingForEmit(ctx *types.BusContext, submitted *types.TraceFindingV1, patch bool) (*types.TraceFindingV1, error) {
-	if ctx == nil || ctx.Mutable == nil {
-		return nil, nil
-	}
-	contract := ctx.Mutable.TraceFindingContract()
-	if contract == nil || !contract.Required {
-		if submitted != nil {
-			return nil, fmt.Errorf("trace_finding is not enabled for this request")
-		}
-		return nil, nil
-	}
-	finding := submitted
-	if patch && finding == nil {
-		finding = ctx.Mutable.TraceFinding()
-	}
-	if err := tracefinding.Validate(finding, contract); err != nil {
-		return nil, err
-	}
-	return finding, nil
-}
+// errTraceRootCauseSelectorShape is the fixed, model-facing wording for a
+// selector that does not decode as the taught object. The Go decoder's own
+// text (struct/type names) stays on the log line only.
+var errTraceRootCauseSelectorShape = errors.New("selector is not the taught object {schema_version, root_causes:[{candidate_id}]}")
 
 // resolveTraceRootCauseReportForEmit validates and binds the optional selector.
 // An emit that OMITS the selector (absent / null) inherits the last accepted
@@ -250,55 +233,142 @@ func resolveTraceFindingForEmit(ctx *types.BusContext, submitted *types.TraceFin
 // `unavailable`; omission is not a withdrawal — the model withdraws with an
 // explicit `"root_causes": []`, which binds to the empty report). The
 // contract is frozen for the run, so the retained selection stays valid.
-// Sidecar errors are returned for diagnostics but never own whether the
-// full answer mutation is accepted.
-func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.RawMessage, patch bool) (*types.TraceRootCauseReportV2, error) {
+// Sidecar errors and the binder's part-drop advisories are returned for the
+// disclosure lane but never own whether the full answer mutation is accepted.
+func resolveTraceRootCauseReportForEmit(ctx *types.BusContext, submitted json.RawMessage, patch bool) (*types.TraceRootCauseReportV2, []string, error) {
 	if ctx == nil || ctx.Mutable == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	contract := ctx.Mutable.TraceFindingContract()
 	if contract == nil || !contract.RootCauseReportEnabled {
-		if len(strings.TrimSpace(string(submitted))) > 0 && string(submitted) != "null" {
-			return nil, fmt.Errorf("trace_root_causes is not enabled for this request")
+		if traceRootCauseSelectorSubmitted(submitted) {
+			return nil, nil, fmt.Errorf("trace_root_causes is not enabled for this request")
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
-	if len(strings.TrimSpace(string(submitted))) == 0 || string(submitted) == "null" {
+	if !traceRootCauseSelectorSubmitted(submitted) {
 		if report := ctx.Mutable.TraceRootCauseReport(); report != nil {
-			return report, nil
+			return report, nil, nil
 		}
 		// §40.31.1 ★16: the model's last VALID selection rode an emit that was
 		// rejected for answer-structure reasons; the accepted re-emit/patch
 		// that omits the selector inherits it.
-		return ctx.Mutable.PendingTraceRootCauseReport(), nil
+		return ctx.Mutable.PendingTraceRootCauseReport(), nil, nil
 	}
 	var selection types.TraceRootCauseReportV2
 	if err := json.Unmarshal(submitted, &selection); err != nil {
 		if patch {
-			return ctx.Mutable.TraceRootCauseReport(), fmt.Errorf("decode optional trace_root_causes selector: %w", err)
+			return ctx.Mutable.TraceRootCauseReport(), nil, fmt.Errorf("%w: %v", errTraceRootCauseSelectorShape, err)
 		}
-		return nil, fmt.Errorf("decode optional trace_root_causes selector: %w", err)
+		return nil, nil, fmt.Errorf("%w: %v", errTraceRootCauseSelectorShape, err)
 	}
 	report, advisories, err := tracefinding.BindRootCauseReportSelectionWithAdvisories(&selection, contract)
-	if len(advisories) > 0 {
-		ctx.Mutable.SetTraceRootCauseSelectorAdvisories(advisories)
-	}
 	if err != nil && patch {
-		return ctx.Mutable.TraceRootCauseReport(), err
+		return ctx.Mutable.TraceRootCauseReport(), advisories, err
 	}
-	return report, err
+	return report, advisories, err
 }
 
-// traceRootCauseSelectorAdvisorySuffix renders the binder's selector
-// disclosures onto an accepted tool summary (SIDECAR-NARR-1 复核: an
-// optional carrier's dropped part is reported, never only logged).
-func traceRootCauseSelectorAdvisorySuffix(ctx *types.BusContext) string {
+func traceRootCauseSelectorSubmitted(submitted json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(submitted))
+	return trimmed != "" && trimmed != "null"
+}
+
+// traceRootCauseSelection is the resolved state of the optional selector
+// carrier for one emit/patch: the report to store when the document commit
+// succeeds (bound from this submission, or inherited), whether THIS call's
+// submission bound validly (staged on a rejected commit — §40.31.1 ★16) or
+// was rejected by the binder (customer reason_code
+// model_root_cause_selection_rejected when no valid selection follows —
+// §40.44). The typed disclosures the model must see (V2-3, §40.19: an
+// optional carrier's failure never rejects the main transaction but is never
+// silent) are minted on the call's optionalCarrierLedger at resolve time and
+// reach whichever result the call returns through its finalize choke point.
+type traceRootCauseSelection struct {
+	report          *types.TraceRootCauseReportV2
+	boundFromSubmit bool
+	rejected        bool
+}
+
+// resolveTraceRootCauseSelectionForEmit runs the binder BEFORE the document
+// persist (so a patch can still see the previously accepted report when
+// deciding between "ignored" and "retained_previous") and mints every
+// binder error / part-drop advisory as a typed outcome on the ledger.
+func resolveTraceRootCauseSelectionForEmit(ctx *types.BusContext, carriers *optionalCarrierLedger, submitted json.RawMessage, patch bool) traceRootCauseSelection {
+	carrier := "trace_root_causes"
+	if patch {
+		carrier = "replace_trace_root_causes"
+	}
+	report, advisories, err := resolveTraceRootCauseReportForEmit(ctx, submitted, patch)
+	selection := traceRootCauseSelection{report: report}
+	if err != nil {
+		selection.rejected = traceRootCauseSelectorSubmitted(submitted)
+		carriers.mint(traceRootCauseIgnoredOutcome(ctx, carrier, err, patch), "detail="+strconv.Quote(err.Error()))
+	} else if traceRootCauseSelectorSubmitted(submitted) {
+		selection.boundFromSubmit = report != nil
+	}
+	for _, advisory := range advisories {
+		carriers.mint(types.OptionalCarrierOutcome{
+			Carrier: carrier, Status: types.OptionalCarrierStatusPartDropped, Reason: advisory,
+			Hint: "the typed selection is kept; to publish a description, resend that item with customer-readable prose via replace_trace_root_causes in the next emit_answer_document_patch",
+		})
+	}
+	return selection
+}
+
+// traceRootCauseIgnoredOutcome words one ignored selector: the binder's own
+// precise reason (candidate ids quoted), the retained/ignored status decided
+// against the report that is accepted RIGHT NOW (before persist nulls it),
+// and the repair route with the selectable roster ids.
+func traceRootCauseIgnoredOutcome(ctx *types.BusContext, carrier string, err error, patch bool) types.OptionalCarrierOutcome {
+	outcome := types.OptionalCarrierOutcome{Carrier: carrier, Status: types.OptionalCarrierStatusIgnored}
+	if err != nil {
+		outcome.Reason = err.Error()
+		if errors.Is(err, errTraceRootCauseSelectorShape) {
+			outcome.Reason = errTraceRootCauseSelectorShape.Error()
+		}
+	}
 	if ctx == nil || ctx.Mutable == nil {
-		return ""
+		return outcome
 	}
-	advisories := ctx.Mutable.TakeTraceRootCauseSelectorAdvisories()
-	if len(advisories) == 0 {
-		return ""
+	if patch && ctx.Mutable.TraceRootCauseReport() != nil {
+		outcome.Status = types.OptionalCarrierStatusRetainedPrevious
 	}
-	return " [trace_root_causes: " + strings.Join(advisories, "; ") + "]"
+	contract := ctx.Mutable.TraceFindingContract()
+	selectable := tracefinding.SelectableRootCauseCandidates(contract)
+	if contract == nil || !contract.RootCauseReportEnabled || len(selectable) == 0 {
+		outcome.Hint = "no root-cause selection is offered for this request; omit the field"
+		return outcome
+	}
+	ids := make([]string, 0, len(selectable))
+	for _, candidate := range selectable {
+		ids = append(ids, candidate.Decision.CandidateID)
+	}
+	outcome.Hint = "resend the complete ordered selection as replace_trace_root_causes in the next emit_answer_document_patch (list untouched blocks in unchanged_block_ids) or as trace_root_causes on a full re-emit; selectable candidate_id: " + strings.Join(ids, ", ")
+	return outcome
+}
+
+// commitTraceRootCauseSelection is the ONE commit tail for the selector on
+// every emit/patch exit after the selector was resolved: an accepted
+// document commit stores the resolved report (the document commit itself
+// nulls the sidecar), ANY rejected exit stages a validly bound submission
+// (§40.31.1 ★16), and a submission the binder rejected is recorded on the
+// state so the customer sidecar can say "rejected" rather than "never
+// selected" (§40.44 residual a). The typed outcomes themselves reach the
+// tool result through the call's ledger finalize — a structurally rejected
+// emit also learns that its selector was bad.
+func commitTraceRootCauseSelection(ctx *types.BusContext, res types.ToolResult, persistErr error, selection traceRootCauseSelection) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	accepted := persistErr == nil && res.Success
+	switch {
+	case accepted && selection.report != nil:
+		ctx.Mutable.SetTraceRootCauseReport(selection.report)
+	case !accepted && selection.boundFromSubmit && selection.report != nil:
+		ctx.Mutable.SetPendingTraceRootCauseReport(selection.report)
+	}
+	if selection.rejected {
+		ctx.Mutable.MarkTraceRootCauseSelectorRejected()
+	}
 }

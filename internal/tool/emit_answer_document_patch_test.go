@@ -1151,7 +1151,14 @@ func TestEmitAnswerDocumentPatch_RelationLeaseIgnoresOnlySystemRecipeIdentityEnr
 	}
 }
 
-func TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration(t *testing.T) {
+// EVOLUTION RECORD (2026-09-03, colleague_merge_audit §40.18 / §40.45): this
+// pin was TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration
+// and asserted that a matching merged draft cleared the lease inside the scope
+// check (B1248's consume-before-next-contract). The scope check is now pure —
+// the lease is consumed only in the locked success epilogue or discharged with
+// a staged generation — so the matching arm now asserts retention; the
+// escaped arm is unchanged.
+func TestAnswerDiagramRelationRepairLease_ScopeCheckIsPure(t *testing.T) {
 	mut := types.NewMutableState("relation repair generation")
 	base := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{
 		ID: "flow", Kind: types.BlockDiagram,
@@ -1167,17 +1174,16 @@ func TestAnswerDiagramRelationRepairLease_ConsumesAfterMatchingPatchGeneration(t
 		ID: "flow", Kind: types.BlockDiagram,
 		Diagram: &types.AnswerDiagramBlock{Kind: types.DiagramSequence, Language: "mermaid", Body: "sequenceDiagram\n participant A\n participant B"},
 	}}}
-	gotLease, violations := validateAndConsumeAnswerDiagramRelationRepairLease(mut, matching)
+	gotLease, violations := validateAnswerDiagramRelationRepairLeaseScope(mut, matching)
 	if gotLease == nil || len(violations) != 0 {
-		t.Fatalf("matching local repair must consume its generation lease: lease=%+v violations=%+v", gotLease, violations)
+		t.Fatalf("matching local repair must pass its generation lease scope: lease=%+v violations=%+v", gotLease, violations)
 	}
-	if got := mut.AnswerDiagramRelationRepairLease(); got != nil {
-		t.Fatalf("satisfied relation generation must not constrain a later independent contract: %+v", got)
+	if got := mut.AnswerDiagramRelationRepairLease(); got == nil || got.Failures[0].FailureRef != lease.Failures[0].FailureRef {
+		t.Fatalf("scope success must not consume the lease before the locked success epilogue: %+v", got)
 	}
 
-	mut.SetAnswerDiagramRelationRepairLease(lease)
 	escaped := &types.AnswerDocumentV2{DocumentModel: "v2", Blocks: []types.AnswerBlock{{ID: "flow", Kind: types.BlockTable}}}
-	_, violations = validateAndConsumeAnswerDiagramRelationRepairLease(mut, escaped)
+	_, violations = validateAnswerDiagramRelationRepairLeaseScope(mut, escaped)
 	if len(violations) == 0 {
 		t.Fatal("carrier escape must remain rejected")
 	}

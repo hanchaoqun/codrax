@@ -83,6 +83,13 @@ type VerifyFailureHandoff struct {
 	// without requiring them to parse FailureSummary prose.
 	FailureReasonCode string `json:"failure_reason_code,omitempty"`
 
+	// ContractRelevance is the typed intersection between the failed rows of
+	// the report and the contract refs declared by the failed plan's probes /
+	// project-test observations (§40.23). It is stamped by the scheduler while
+	// the failed plan is still live (finalizeVerifyFailureHandoff); a nil or
+	// `unavailable` carrier authorizes no contract retirement.
+	ContractRelevance *VerifyFailureContractRelevance `json:"contract_relevance,omitempty"`
+
 	// Executed are the verification command rows from the failing report
 	// (bounded), with cwd / exit code / provenance.
 	Executed []ExecutedCommand `json:"executed,omitempty"`

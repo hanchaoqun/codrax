@@ -71,6 +71,13 @@ func TestEmitInvestigationComplete_WaiverIgnoresBlankRationale(t *testing.T) {
 	if !strings.Contains(res.Summary, "ignored evidence_floor_waiver=external_only_log because rationale is missing") {
 		t.Errorf("summary must audit ignored optional waiver: %q", res.Summary)
 	}
+	// V2-3 (§40.19): the prose audit is mirrored by ONE typed outcome row
+	// (same reason, no duplicate summary line).
+	if len(res.OptionalCarrierOutcomes) != 1 || res.OptionalCarrierOutcomes[0].Carrier != "evidence_floor_waiver" ||
+		res.OptionalCarrierOutcomes[0].Status != types.OptionalCarrierStatusIgnored ||
+		!strings.Contains(res.Summary, res.OptionalCarrierOutcomes[0].Reason) || strings.Contains(res.Summary, "[optional_carrier_") {
+		t.Errorf("ignored waiver must be a typed outcome beside the existing prose: %+v %q", res.OptionalCarrierOutcomes, res.Summary)
+	}
 	if mut.EvidenceFloorWaiver() != nil {
 		t.Errorf("ignored waiver must NOT be stored")
 	}
@@ -177,6 +184,9 @@ func TestEmitInvestigationComplete_WaiverAcceptedOnZeroCurrentSourceRepo(t *test
 	}
 	if !res.Success || strings.Contains(res.Summary, "ignored evidence_floor_waiver") {
 		t.Fatalf("waiver must not be silently dropped on a zero-current-source repo: %s", res.Summary)
+	}
+	if len(res.OptionalCarrierOutcomes) != 0 {
+		t.Fatalf("an accepted waiver must not mint an optional-carrier outcome: %+v", res.OptionalCarrierOutcomes)
 	}
 }
 

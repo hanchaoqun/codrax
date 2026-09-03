@@ -12,7 +12,7 @@ import (
 
 // change_plan_failure_kind_census_test.go — V5-2 tripwire (colleague_merge_audit
 // §40.11 item 4, §1.6): every declared FailureKind must be registered in
-// FailureKindReplanEscapeLanes, and its lane must agree with the typed routing
+// FailureKindReplanActions, and its escape lane must agree with the typed routing
 // tables — a kind the code-failure table routes to replan needs replan_only
 // or the drift-owner lane; a kind the unavailable table accepts needs
 // accept_unverified; a kind neither table knows has no escape and is red.
@@ -82,10 +82,15 @@ func TestEveryFailureKindRegistersAReplanEscapeLane(t *testing.T) {
 	if len(kinds) < 12 {
 		t.Fatalf("census found only %d FailureKind constants: %v", len(kinds), kinds)
 	}
+	// EVOLUTION RECORD (V5-3, §40.23): the registration table became
+	// FailureKindReplanActions{Escape, ContractRetirement}; the escape-lane
+	// census reads the Escape column and the retirement column is censused
+	// by TestEveryFailureKindRegistersAContractRetirementLane.
 	for _, kind := range kinds {
-		lane, registered := FailureKindReplanEscapeLanes[kind]
-		if !registered {
-			t.Fatalf("FailureKind %q is not registered in FailureKindReplanEscapeLanes — every replan-routed kind needs a typed escape lane", kind)
+		action, registered := FailureKindReplanActions[kind]
+		lane := action.Escape
+		if !registered || lane == "" {
+			t.Fatalf("FailureKind %q is not registered in FailureKindReplanActions — every replan-routed kind needs a typed escape lane", kind)
 		}
 		codeFailure := FailureReasonCodeIndicatesCodeFailure(string(kind))
 		unavailable := FailureReasonCodeIndicatesVerificationUnavailable(string(kind))
@@ -96,7 +101,7 @@ func TestEveryFailureKindRegistersAReplanEscapeLane(t *testing.T) {
 			t.Fatalf("FailureKind %q lane %q disagrees with routing (code_failure=%v unavailable=%v)", kind, lane, codeFailure, unavailable)
 		}
 	}
-	for kind := range FailureKindReplanEscapeLanes {
+	for kind := range FailureKindReplanEscapeLanes() {
 		found := false
 		for _, declared := range kinds {
 			found = found || declared == kind

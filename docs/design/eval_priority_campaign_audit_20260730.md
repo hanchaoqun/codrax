@@ -35999,7 +35999,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B1187-STAGESTATEOPERATIONNAVIGATION1=implemented+pinned/not-production-exercised-r744`；
 `B1188-NONAUTHORITATIVEPROBEREBIND1=implemented+pinned/not-eligible-r744`；
-`B1189-SLASHJOINEDPARTICIPANTBYPASS1=implemented/shared-normalizer+source-flow-only+trace-bypass+pinned`；
+`B1189-SLASHJOINEDPARTICIPANTBYPASS1=implemented/shared-normalizer+source-flow-only+trace-bypass+pinned`（2026-09-03 补记：superseded by colleague_merge_audit §40.21/§40.47 — 门前拆分退役，joined 实体+joined 参与者按模型单一主张接受；两半行由教学要求）；
 `B1190-WRITEEVALSTEPBUDGET1=implemented/apply-only-24+read-plan-15+pinned/replay-next`；
 `B1191-ACTIVESEMANTICLONGSTREAM1=observed/P2/no-fixed-age-cutoff`；
 `active-stream-4m-degrade=forbidden/not-observed`；
@@ -63383,7 +63383,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 
 `B1405=implemented/full-suite-pass/build-pass/pending-production-replay`；
 `high-confidence-required-file=operation-owner-xor-navigation-only`；
-`required-explanation-operation=at-least-one-exact-file-owner`；
+`required-explanation-operation=at-least-one-exact-file-owner`（2026-09-03 补记：superseded by colleague_merge_audit §40.22/§40.47 — 缺 owner/未分类文件改为 typed 软标记 `dimension_owner_unresolved`，由探索阶段解析；硬拒只剩 owner∧navigation-only 与索引超出声明集）；
 `single-dimension/no-high-confidence/low-confidence=legacy-compatible`；
 `all-declaration-defects=one-consolidated-correction`；
 `system-answer/conclusion/relation/wording-selection=none`；
@@ -69202,7 +69202,7 @@ Trace root=`typed-on-chain-only`；adjacent/background=`support-only`；
 `B1247=production-positive-carrier-freeze/blocked-by-B1248`；
 `B1248=implemented/full-relevant-pass/pending-production-replay`；
 `relation-lease-lifetime=one-matching-patch-generation`；
-`scope-failure=retain-lease`；`scope-success=consume-before-next-contract`；
+`scope-failure=retain-lease`；`scope-success=discharge-with-staged-generation; persist-reject=retain-lease`（2026-09-03 修订：原 `scope-success=consume-before-next-contract` 由 colleague_merge_audit §40.18/§40.45 收编——scope 校验改为纯检查，租约与暂存基线同一原子点释放（pre-emit 硬失败暂存代次时随之释放，本条 B1248 互锁解法保留），持久层拒绝则事务整体回滚且租约保留）；
 `request/model/final-prose/mermaid-label-scan=none`；
 `system-answer/conclusion/edge/node/label-authorship=none`；
 `B1244=confirmed/P2-after-relation-lifecycle-close`；

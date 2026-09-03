@@ -5406,9 +5406,24 @@ func TestEmitAnalysis_Execute_RequiredDiagramPreservesRequestedDisplayIdentityAc
 	if got := mu.RequestModel().DiagramHint.Participants; !reflect.DeepEqual(got, want) {
 		t.Fatalf("corrected participants=%+v, want exact requested display identities %+v", got, want)
 	}
+	// V4-3 (§40.21): the omitted-half judgement above consults the verbatim
+	// request pair; it never completes or splits the persisted roster (the
+	// additive completion lane runs later, after the gates).
+	if got := mu.RequestModel().AnalyzerHints.PrimaryEntities; !reflect.DeepEqual(got, []string{"analyzer", "MutableState", "BusContext"}) {
+		t.Fatalf("persisted roster must be the model's emission, got %v", got)
+	}
 }
 
-func TestEmitAnalysis_Execute_RejectsJoinedSlashParticipantWhenEntityRosterIsAlsoJoined(t *testing.T) {
+// EVOLUTION RECORD (V4-3, colleague_merge_audit §40.21): formerly
+// TestEmitAnalysis_Execute_RejectsJoinedSlashParticipantWhenEntityRosterIsAlsoJoined
+// (B1189, commit ba8696fbc). That pin relied on CanonicalizeSlashPairEntities
+// rewriting the model's single entity `Mutable/BusContext` into two entities
+// before the gate, then rejecting the model's joined participant as
+// "collapsing" entities the model never emitted separately — the system
+// manufactured a claim and judged it. The split is retired: a joined entity
+// plus a joined participant is ONE consistent model claim and is accepted
+// verbatim; teaching (not a gate) asks the model for two halves.
+func TestEmitAnalysis_Execute_AcceptsJoinedEntityAndJoinedParticipantAsOneModelClaim(t *testing.T) {
 	raw := "请用 Mermaid 架构图画出 analyzer、Mutable/BusContext 之间的数据流"
 	mu := types.NewMutableState(raw)
 	payload := `{
@@ -5431,16 +5446,21 @@ func TestEmitAnalysis_Execute_RejectsJoinedSlashParticipantWhenEntityRosterIsAls
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Success || mu.RequestModel() != nil {
-		t.Fatalf("joined entity+participant must not bypass per-identity flow coverage: success=%t model=%+v summary=%q", res.Success, mu.RequestModel(), res.Summary)
+	if !res.Success || mu.RequestModel() == nil || mu.RequestModel().DiagramHint == nil {
+		t.Fatalf("one consistent joined claim must be accepted: success=%t summary=%q", res.Success, res.Summary)
 	}
-	for _, want := range []string{
-		`identity="Mutable/BusContext" collapses distinct typed entities [Mutable BusContext]`,
-		"emit one participant row per entity",
-	} {
-		if !strings.Contains(res.Summary, want) {
-			t.Fatalf("joined participant repair missing %q: %s", want, res.Summary)
-		}
+	if strings.Contains(res.Summary, "collapses distinct typed entities") || strings.Contains(res.Summary, "canonicalized") {
+		t.Fatalf("no manufactured split may be judged: %s", res.Summary)
+	}
+	want := []types.DiagramParticipantHint{
+		{Identity: "analyzer", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "analyzer"},
+		{Identity: "Mutable/BusContext", Role: types.DiagramParticipantIncidentRequired, SourceQuote: "Mutable/BusContext"},
+	}
+	if got := mu.RequestModel().DiagramHint.Participants; !reflect.DeepEqual(got, want) {
+		t.Fatalf("participants=%+v, want the model's verbatim rows %+v", got, want)
+	}
+	if got := mu.RequestModel().AnalyzerHints.PrimaryEntities; !reflect.DeepEqual(got, []string{"analyzer", "Mutable/BusContext"}) {
+		t.Fatalf("persisted primary entities must be the model's emission: %v", got)
 	}
 }
 
@@ -6016,12 +6036,12 @@ func TestValidateRequiredFlowDiagramParticipantProvenanceDoesNotEnterTraceOrNonF
 	}
 	trace := base
 	trace.Intent = types.IntentTrace
-	if got := validateRequiredFlowDiagramParticipantProvenance(trace); got != "" {
+	if got := validateRequiredFlowDiagramParticipantProvenance(trace, freezeModelEntityRoster(trace.AnalyzerHints.Entities)); got != "" {
 		t.Fatalf("Trace must stay on its causal contracts: %q", got)
 	}
 	nonFlow := base
 	nonFlow.PredicateAxis = types.AxisCall
-	if got := validateRequiredFlowDiagramParticipantProvenance(nonFlow); got != "" {
+	if got := validateRequiredFlowDiagramParticipantProvenance(nonFlow, freezeModelEntityRoster(nonFlow.AnalyzerHints.Entities)); got != "" {
 		t.Fatalf("non-flow diagram must not inherit source-flow role provenance: %q", got)
 	}
 }

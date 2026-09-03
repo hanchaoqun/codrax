@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 const defaultVerificationProbeLanguage = "python"
@@ -121,6 +123,7 @@ func injectVerificationProbeLanguageSchema(schema string) json.RawMessage {
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_ENUM__", verificationProbeLanguageEnumJSON())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_LANGUAGE_DESCRIPTION__", supportedVerificationProbeRuntimeDescription())
 	schema = strings.ReplaceAll(schema, "__VERIFICATION_PROBE_AUTHORING_BOUNDARY__", verificationProbeAuthoringBoundary)
+	schema = strings.ReplaceAll(schema, "__SUPERSEDED_CONTRACT_REFS_DESCRIPTION__", types.SupersededContractRefsTeaching)
 	return json.RawMessage(schema)
 }
 

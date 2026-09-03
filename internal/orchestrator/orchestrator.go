@@ -8486,8 +8486,6 @@ func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, anal
 			ExactTargets:      dedupedStrings(partialIR.RequestModel.AnalyzerHints.ExactTargets),
 			ExactContextTerms: dedupedStrings(partialIR.RequestModel.AnalyzerHints.ExactContextTerms),
 			ExactContextRoles: append([]types.EvidenceDiagramRole(nil), partialIR.RequestModel.AnalyzerHints.ExactContextRoles...),
-			RequiredFileHints: append([]types.RequiredFileHint(nil), partialIR.RequestModel.AnalyzerHints.RequiredFileHints...),
-			IrrelevantFiles:   dedupedStrings(partialIR.RequestModel.AnalyzerHints.IrrelevantFiles),
 			Kind:              partialIR.RequestModel.AnalyzerHints.Kind,
 		},
 		// Predicates copy keeps semantic flags (is_count_question,
@@ -8497,6 +8495,7 @@ func buildDegradedSemanticIR(objective string, partialIR *types.AnalysisIR, anal
 		Predicates:    partialIR.RequestModel.Predicates,
 		PredicateAxis: partialIR.RequestModel.PredicateAxis,
 	}
+	copyDegradedRequiredFileLanes(&rm.AnalyzerHints, partialIR.RequestModel.AnalyzerHints)
 	// Auto-correct R2.2 contradiction without relying on the prior
 	// gate report — defensive: if R2.2 fired and was bypassed via
 	// auto-correct elsewhere, rm.AnswerSubject is already Unknown;
