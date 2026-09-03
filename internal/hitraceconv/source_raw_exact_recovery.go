@@ -74,17 +74,6 @@ func traceDBRawExactRecoveryFamilyKnown(family string) bool {
 	return false
 }
 
-func traceDBRawExactRecoveryDBClass(family string) string {
-	switch family {
-	case traceDBRawRetentionWorkqueue:
-		return "workqueue"
-	case traceDBRawRetentionFilemap:
-		return "page_cache"
-	default:
-		return ""
-	}
-}
-
 func newTraceDBRawExactRecoveryCoverage(family string) TraceDBCoverage {
 	return TraceDBCoverage{
 		Family: "source_rawtrace_" + family,
@@ -98,7 +87,7 @@ func newTraceDBRawExactRecoveryCoverage(family string) TraceDBCoverage {
 			"namespace":     "physical common_pid is copied verbatim; no namespace PID, host PID, TGID, comm, or incarnation rewrite is attempted",
 			"payload":       "canonical body from the sole existing strict workqueue/filemap/F2FS descriptor decoder; legacy/generic fallback is ineligible",
 			"pairing":       "workqueue and F2FS endpoints must agree with tracequery's source-neutral typed endpoint authority; filemap rows are point observations and never endpoints",
-			"deduplication": "a complete source family supersedes the corresponding normalized SQLite raw class before DB publication; partial families never override DB rows",
+			"deduplication": "a complete source family supersedes normalized SQLite raw rows of its exact governed event names before DB publication; partial families never override DB rows; rows of other names sharing a SQL raw class are never part of this overlap",
 		},
 		Metadata: map[string]string{"publication_state": "unavailable"},
 	}
@@ -155,14 +144,19 @@ func publishTraceDBRawExactRecoveryFamily(
 		}
 		return out, nil
 	}
-	dbClass := traceDBRawExactRecoveryDBClass(family)
-	for _, item := range dbRawCoverage {
-		if dbClass != "" && item.Family == "raw_ftrace" && item.Table == dbClass && item.RowsEmitted > 0 {
-			traceDBAddCoverageMetric(&out, "db_raw_family_rows_emitted", int64(item.RowsEmitted))
-			out.Metadata["publication_state"] = "withheld_db_raw_family_overlap"
-			out.Skipped = "exact source recovery withheld: normalized DB raw-ftrace family rows already emitted"
-			return out, nil
-		}
+	// Overlap is measured on the exact governed event names of this family,
+	// never on a SQL raw class mapped from the family.
+	supersession, registered := traceDBRawSourceSupersessionForFamily(family)
+	if !registered {
+		err := &traceDBOutputInvariantError{Reason: "source_supersession_family_unregistered"}
+		out.Error = err.Error()
+		return out, err
+	}
+	if publishable := traceDBRawSourceGovernedRowsPublishable(dbRawCoverage, supersession); publishable > 0 {
+		traceDBAddCoverageMetric(&out, "db_raw_governed_family_rows_publishable", publishable)
+		out.Metadata["publication_state"] = "withheld_db_raw_family_overlap"
+		out.Skipped = "exact source recovery withheld: normalized DB raw-ftrace rows of governed family event names kept DB publication authority"
+		return out, nil
 	}
 	if sink == nil {
 		err := &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}

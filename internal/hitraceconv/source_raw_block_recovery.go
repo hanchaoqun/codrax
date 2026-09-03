@@ -23,7 +23,7 @@ func newTraceDBRawBlockRecoveryCoverage() TraceDBCoverage {
 			"payload":       "sole governed direct block decoder and canonical OpenHarmony/Linux ftrace field order",
 			"pair_key":      "tracequery.DecodePairingEndpoint over exact request device, operation, sector and length; issue/complete may have different emitter threads",
 			"duration":      "this exporter preserves physical point rows only; request residence and response IO wait require exact downstream issue/complete closure and never arise from proximity",
-			"deduplication": "a complete source family supersedes normalized SQLite raw block rows before DB publication; otherwise source publication is withheld if any DB block row was emitted",
+			"deduplication": "a complete source family supersedes normalized SQLite raw rows of the exact governed block event names before DB publication; otherwise source publication is withheld if any DB row of a governed block event name kept publication authority; rows of other block_storage class names are never part of this overlap",
 		},
 		Metadata: map[string]string{
 			"publication_state": "unavailable",
@@ -81,14 +81,20 @@ func publishTraceDBRawBlockRecovery(
 		}
 		return out, nil
 	}
-	for _, item := range dbRawCoverage {
-		if item.Family == "raw_ftrace" && item.Table == "block_storage" &&
-			item.RowsEmitted > 0 {
-			traceDBAddCoverageMetric(&out, "db_raw_block_rows_emitted", int64(item.RowsEmitted))
-			out.Metadata["publication_state"] = "withheld_db_raw_block_overlap"
-			out.Skipped = "raw block recovery withheld: normalized DB raw-ftrace block rows already emitted"
-			return out, nil
-		}
+	// Overlap is measured on the exact governed event names, never on the SQL
+	// raw class: block_storage also carries MMC/UFS/SCSI rows the DB lane
+	// legitimately publishes alongside this source family.
+	supersession, registered := traceDBRawSourceSupersessionForFamily(traceDBRawRetentionBlock)
+	if !registered {
+		err := &traceDBOutputInvariantError{Reason: "source_supersession_family_unregistered"}
+		out.Error = err.Error()
+		return out, err
+	}
+	if publishable := traceDBRawSourceGovernedRowsPublishable(dbRawCoverage, supersession); publishable > 0 {
+		traceDBAddCoverageMetric(&out, "db_raw_governed_block_rows_publishable", publishable)
+		out.Metadata["publication_state"] = "withheld_db_raw_block_overlap"
+		out.Skipped = "raw block recovery withheld: normalized DB raw-ftrace rows of governed block event names kept DB publication authority"
+		return out, nil
 	}
 	if sink == nil {
 		err := &traceDBOutputInvariantError{Reason: "trace_row_sink_missing"}

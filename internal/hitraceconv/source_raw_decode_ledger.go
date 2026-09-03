@@ -934,6 +934,120 @@ func traceDBRawBlockTargetNames() []string {
 	}
 }
 
+// traceDBRawBlockNameGoverned is exact membership in the source block target
+// registry. No prefix or case folding: the SQL raw class "block_storage" is
+// wider than this set (MMC/UFS/SCSI endpoints), and only these names may be
+// superseded by a complete source block family.
+func traceDBRawBlockNameGoverned(name string) bool {
+	for _, target := range traceDBRawBlockTargetNames() {
+		if name == target {
+			return true
+		}
+	}
+	return false
+}
+
+// traceDBRawSourceSupersession registers one "complete source family
+// supersedes normalized SQLite raw rows" rule. The suppression set of the rule
+// is exactly Governed, the family's own governed event-name set from this
+// ledger; it is never a SQL raw class. Every consumer of the rule — the DB
+// exporter's row suppression and observation zeroing, the DB-side publishable
+// census, and the source lane's overlap check — reads this registry by name.
+type traceDBRawSourceSupersession struct {
+	// Family is the retention family key shared with the decode ledger
+	// (retention_<Family>_state, target_<Family>_records_retained).
+	Family string
+	// Reason is the stable wire token used in coverage Skipped reasons and
+	// FieldSources keys; it is pinned by existing receipts and tests.
+	Reason string
+	// Governed is exact event-name membership in the family's source target set.
+	Governed func(name string) bool
+	// Eligible reports whether the immutable source inventory holds a complete,
+	// fully admitted family that owns publication of the governed names.
+	Eligible func(inventory *traceDBSourceNameInventory) bool
+}
+
+// RowReason is the DB raw class Skipped reason for a superseded governed row.
+func (s traceDBRawSourceSupersession) RowReason() string {
+	return "superseded_complete_source_raw_" + s.Reason + "_family"
+}
+
+// PublishableMetric names the DB raw coverage metric counting rows of governed
+// event names the DB lane still holds publication authority over. It is 0 by
+// construction whenever the family is eligible and is the precise witness the
+// source lane's overlap check reads instead of the class-wide RowsEmitted.
+func (s traceDBRawSourceSupersession) PublishableMetric() string {
+	return "source_governed_" + s.Family + "_rows_publishable"
+}
+
+// PrecedenceField is the schema coverage FieldSources disclosure key.
+func (s traceDBRawSourceSupersession) PrecedenceField() string {
+	return s.Reason + "_source_precedence"
+}
+
+var traceDBRawSourceSupersessions = buildTraceDBRawSourceSupersessions()
+
+func buildTraceDBRawSourceSupersessions() []traceDBRawSourceSupersession {
+	out := []traceDBRawSourceSupersession{{
+		Family:   traceDBRawRetentionBlock,
+		Reason:   "block",
+		Governed: traceDBRawBlockNameGoverned,
+		Eligible: traceDBRawBlockFamilyAuthorityEligible,
+	}}
+	for _, family := range traceDBRawExactRecoveryFamilies {
+		out = append(out, traceDBRawSourceSupersession{
+			Family: family,
+			Reason: family,
+			Governed: func(name string) bool {
+				return traceDBRawExactRecoveryFamily(name) == family
+			},
+			Eligible: func(inventory *traceDBSourceNameInventory) bool {
+				return traceDBRawExactFamilyAuthorityEligible(inventory, family)
+			},
+		})
+	}
+	return out
+}
+
+// traceDBRawSourceSupersessionFor returns the registry entry whose governed
+// set contains name. Governed sets are disjoint (pinned by census), so the
+// first hit is the only hit.
+func traceDBRawSourceSupersessionFor(name string) (traceDBRawSourceSupersession, bool) {
+	for _, entry := range traceDBRawSourceSupersessions {
+		if entry.Governed(name) {
+			return entry, true
+		}
+	}
+	return traceDBRawSourceSupersession{}, false
+}
+
+func traceDBRawSourceSupersessionForFamily(family string) (traceDBRawSourceSupersession, bool) {
+	for _, entry := range traceDBRawSourceSupersessions {
+		if entry.Family == family {
+			return entry, true
+		}
+	}
+	return traceDBRawSourceSupersession{}, false
+}
+
+// traceDBRawSourceGovernedRowsPublishable sums, over every DB raw-ftrace
+// coverage item, the rows of the entry's governed event names the DB lane
+// kept publication authority over. It replaces the class-keyed RowsEmitted
+// overlap comparison: rows of ungoverned names sharing a SQL raw class never
+// count as an overlap with the source family.
+func traceDBRawSourceGovernedRowsPublishable(
+	dbRawCoverage []TraceDBCoverage,
+	entry traceDBRawSourceSupersession,
+) int64 {
+	total := int64(0)
+	for _, item := range dbRawCoverage {
+		if item.Family == "raw_ftrace" {
+			total += item.Metrics[entry.PublishableMetric()]
+		}
+	}
+	return total
+}
+
 func traceDBRawDecodeMetricName(name string) string {
 	switch name {
 	case "print", "sched_switch", "sched_switch_lite", "sched_blocked_reason", "trace_vsync", "tracing_mark_write",

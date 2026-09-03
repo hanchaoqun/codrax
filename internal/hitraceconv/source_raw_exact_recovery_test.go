@@ -138,17 +138,10 @@ func TestTraceDBSourceRawExactFamiliesRetainAndPublish(t *testing.T) {
 	}
 }
 
-func TestTraceDBRawExactSourcePrecedenceClassMapping(t *testing.T) {
-	for family, wantClass := range map[string]string{
-		traceDBRawRetentionWorkqueue: "workqueue",
-		traceDBRawRetentionFilemap:   "page_cache",
-		traceDBRawRetentionF2FS:      "",
-	} {
-		if got := traceDBRawExactRecoveryDBClass(family); got != wantClass {
-			t.Fatalf("family %s DB class=%q want=%q", family, got, wantClass)
-		}
-	}
-}
+// EVOLUTION RECORD (§40.12 V6-1): TestTraceDBRawExactSourcePrecedenceClassMapping
+// pinned a family→SQL-raw-class map that no decision reads any more; source
+// precedence and the overlap check are keyed by exact governed event name via
+// traceDBRawSourceSupersessions (census: TestTraceDBRawSourceSupersessionGovernedSetsMatchLedger).
 
 func TestCompleteExactSourceFamiliesSupersedeSQLiteWithoutPairPoison(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "official-exact.sys")

@@ -143,18 +143,16 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	classSkipped := map[string]map[string]int{}
 	schemaSkipped := map[string]int{}
 	unsupported := TraceDBCoverage{Family: "raw_ftrace", Table: "unsupported", Role: "unsupported_input", Found: true, Skipped: "unsupported raw ftrace event family"}
-	sourceBlockSupersedesDB := traceDBRawBlockFamilyAuthorityEligible(tdb.sourceNameInventory)
-	if sourceBlockSupersedesDB {
-		schemaCoverage.FieldSources["block_source_precedence"] =
-			"complete exact official source raw block family supersedes normalized SQLite raw block rows before publication"
-	}
-	sourceExactSupersedesDB := map[string]string{}
-	for _, family := range traceDBRawExactRecoveryFamilies {
-		class := traceDBRawExactRecoveryDBClass(family)
-		if class != "" && traceDBRawExactFamilyAuthorityEligible(tdb.sourceNameInventory, family) {
-			sourceExactSupersedesDB[class] = family
-			schemaCoverage.FieldSources[family+"_source_precedence"] =
-				"complete exact official source raw family supersedes normalized SQLite raw rows before publication"
+	// Source precedence is keyed by governed event NAME, never by SQL raw
+	// class: a class such as block_storage also carries MMC/UFS/SCSI endpoints
+	// that no source family governs, and those stay on the DB lane.
+	superseding := map[string]traceDBRawSourceSupersession{}
+	for _, entry := range traceDBRawSourceSupersessions {
+		if entry.Eligible(tdb.sourceNameInventory) {
+			superseding[entry.Family] = entry
+			schemaCoverage.FieldSources[entry.PrecedenceField()] =
+				"complete exact official source raw " + entry.Reason +
+					" family supersedes normalized SQLite raw rows of its exact governed event names before publication"
 		}
 	}
 	globalStageBudget := ""
@@ -183,6 +181,11 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			raw.Name = ""
 		}
 		class := traceDBRawFtraceClass(raw.Name)
+		governedBy, governed := traceDBRawSourceSupersessionFor(raw.Name)
+		superseded := false
+		if governed {
+			_, superseded = superseding[governedBy.Family]
+		}
 
 		args := map[string]traceDBValue(nil)
 		invalidKeys := map[string]bool(nil)
@@ -287,10 +290,8 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 
 		rowReason := ""
 		switch {
-		case sourceBlockSupersedesDB && class == "block_storage":
-			rowReason = "superseded_complete_source_raw_block_family"
-		case sourceExactSupersedesDB[class] != "":
-			rowReason = "superseded_complete_source_raw_" + sourceExactSupersedesDB[class] + "_family"
+		case superseded:
+			rowReason = governedBy.RowReason()
 		case argsetReason != "":
 			rowReason = argsetReason
 		case !requiredArgsKnown:
@@ -323,9 +324,8 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 		}
 
 		observationVerdict, observationLaneKey := verdict, laneKey
-		if (sourceBlockSupersedesDB && class == "block_storage") ||
-			sourceExactSupersedesDB[class] != "" {
-			// The complete source family owns these physical block events. Keep
+		if superseded {
+			// The complete source family owns this governed physical event. Keep
 			// the DB row in bounded physical accounting, but do not let a
 			// deliberately non-publishable duplicate poison the independent DB
 			// pairing stage or consume its lane-key budget.
@@ -368,6 +368,12 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 			item.RowsRead++
 			if rowReason != "" {
 				traceDBRawCountSkip(classSkipped, class, rowReason)
+			}
+			if governed && publishable {
+				// Governed-name rows the DB lane still holds publication
+				// authority over; the source lane's overlap check reads this
+				// exact count rather than the class-wide RowsEmitted.
+				traceDBAddCoverageMetric(item, governedBy.PublishableMetric(), 1)
 			}
 		}
 		if globalStageBudget != "" {

@@ -144,13 +144,28 @@ func TestPublishTraceDBRawBlockRecoveryWithdrawalAndSourcePrecedence(t *testing.
 		},
 		RawBlock: rows,
 	}
+	// EVOLUTION RECORD (§40.12 V6-1): the overlap witness used to be the
+	// class-wide block_storage RowsEmitted, which also counted MMC/UFS/SCSI
+	// rows no source family governs. The overlap now reads the exact
+	// governed-name publishable census; a class-wide RowsEmitted with zero
+	// governed rows is not an overlap.
 	coverage, err := publishTraceDBRawBlockRecovery(
 		context.Background(), inventory, nil, []TraceDBCoverage{{
 			Family: "raw_ftrace", Table: "block_storage", RowsEmitted: 1,
+			Metrics: map[string]int64{"source_governed_block_storage_rows_publishable": 1},
 		}})
 	if err != nil || coverage.RowsEmitted != 0 ||
+		coverage.Metrics["db_raw_governed_block_rows_publishable"] != 1 ||
 		coverage.Metadata["publication_state"] != "withheld_db_raw_block_overlap" {
 		t.Fatalf("DB/source overlap did not fail closed: coverage=%+v err=%v", coverage, err)
+	}
+	ungoverned, err := publishTraceDBRawBlockRecovery(
+		context.Background(), inventory, nil, []TraceDBCoverage{{
+			Family: "raw_ftrace", Table: "block_storage", RowsEmitted: 4,
+		}})
+	if err == nil || ungoverned.Metadata["publication_state"] == "withheld_db_raw_block_overlap" {
+		t.Fatalf("class-wide block_storage rows without governed names were read as a block overlap: coverage=%+v err=%v",
+			ungoverned, err)
 	}
 
 	bad := *inventory
