@@ -5863,3 +5863,9 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 - 方案 B:反向收紧——链成员宿主的语义 span 也改按链窗规则。缺点:与 R3 终判(§29.88.1 "宿主自身对目标的窗内 typed 唤醒边即凭证")直接冲突,等于再次推翻已裁语义。
 - 方案 C:维持现状仅披露。缺点:同一报告两规并存(§40.7 定谳的缺陷类)。
 落地前不动引擎;知识 pin 已钉现状,裁定后按 A 施工并反转该 pin。
+
+### §40.30 两项裁定落案(2026-09-02,用户批复「同意按推荐方案处理」)
+
+- **V-STATE-1 → 方案 A(RSPA 优先、R3 补残)**:链成员宿主的状态段先按 RSPA 链窗计价;落在其所有链窗之外、且位于该宿主对目标最晚窗内**直接** census 边之前的残余段,按同一 R3 边凭证计价(边=凭证/边前=有效/边后=解除),披露沿用 R4 家族句并标 `via=direct`;所有权边界不变(RSPA 仍先行,◇ RSPA 余席不重判),只是残余段不再无门可入。知识 pin `TestCrownsemNarrowWindowChainMemberHostStateSeatKnownGap` 随施工反转为正向 pin。
+- **V-QUAL-1 → 方案 A(typed 请求画像门控 + 闭集第三值)**:席位级帧因果限定注只在分析场景/问题画像为帧/卡顿类(analyzer typed 枚举,非关键词)时发布;非帧问题两面均不带限定注,sidecar `causal_qualifier` 仍总是显式,闭集增补 `not_applicable`(指南/校验器/教学同步);席位级索引仍为唯一提供者(门控在提供者内,两面同源)。
+施工批二(STATERES-1 + QUALGATE-1)开始;账本见 §40.31。
