@@ -880,7 +880,10 @@ var nonEventPrioritySchemaPins = map[reflect.Type]string{
 	// cap cannot hide it and no duplicate ruler is published. The line retains
 	// raw-row preservation plus the placement-only authority boundary; it is
 	// never a hard reject or a chain/rank/arithmetic input.
-	reflect.TypeOf(tracequery.WindowStats{}):                "3b5e146de889c217f9a64c4278e725f329c9afa211013063ef2cf513c6ceda58",
+	// EVOLUTION RECORD (2026-09-03, colleague_merge_audit §40.42 ④b): WindowStats
+	// gained legacy_carrier_row_count (original-name visibility carriers of an
+	// artifact converted before V6-2); the fingerprint moves with it.
+	reflect.TypeOf(tracequery.WindowStats{}):                "99190b281118d0e07633db78707e85c985fc5014c7e793fc53a886583467a63b",
 	reflect.TypeOf(tracequery.TimelineResult{}):             "ec28f82b56a2e1b64cdfde5e0b6a4769886b32df15dc7a99250ec0da16dacc3a",
 	reflect.TypeOf(tracequery.TraceCounterQualitySummary{}): "e3bead6ff4a3c2e7f9d24487c5905f3594b219505afc106d95af9cfd9c552c2d",
 	// PERF raw quality disclosure: ParserCaveats is rendered once in the
