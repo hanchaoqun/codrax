@@ -260,6 +260,41 @@ func TestValidateContributionDecisionConsistency(t *testing.T) {
 	if wireErr == nil || !strings.Contains(wireErr.Error(), "decision ledger excludes") {
 		t.Fatalf("ValidateResultAgainstContract must route the cross-ledger arm: %v", wireErr)
 	}
+
+	// V9-1 (§40.15) row-identity arms. Sibling derived rows share ItemID /
+	// SourceLocator but carry distinct row identities: one excluded sibling
+	// must not reject the included one.
+	siblingRows := []RowDecision{
+		{RowID: "items.csv#1", RowIdentity: "items.csv#1#1", Decision: "include", SourceLocator: "items.csv#1"},
+		{RowID: "items.csv#1", RowIdentity: "items.csv#1#2", Decision: "exclude", SourceLocator: "items.csv#1"},
+	}
+	includedSibling := []ContributionRecord{{ItemID: LooseText("items.csv#1"), RowIdentity: LooseText("items.csv#1#1"), SourceLocator: LooseText("items.csv#1"), GroupKey: LooseText("all"), Value: LooseText("1"), Operation: LooseText("count"), Role: LooseText("target")}}
+	if err := ValidateContributionDecisionConsistency(siblingRows, includedSibling); err != nil {
+		t.Fatalf("sibling-distinct row identities must not reject each other: %v", err)
+	}
+	// Ancestor lane: a contribution over a derived row whose parent identity
+	// the decision ledger excludes is still a self-contradiction.
+	parentExcluded := []RowDecision{{RowID: "items.csv#1", RowIdentity: "items.csv#1", Decision: "exclude", SourceLocator: "items.csv#1"}}
+	err = ValidateContributionDecisionConsistency(parentExcluded, includedSibling)
+	if err == nil {
+		t.Fatal("a derived row under an excluded parent must fail loud")
+	}
+	for _, want := range []string{"items.csv#1#1", "ancestor items.csv#1 excluded", "decision ledger excludes"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err=%v, want %q", err, want)
+		}
+	}
+	// A derived identity not formed from its own locator has no enumerable
+	// ancestors (fail-open, no fuzzy walk).
+	foreign := []ContributionRecord{{ItemID: LooseText("x"), RowIdentity: LooseText("other.csv#1#1"), SourceLocator: LooseText("items.csv#1"), GroupKey: LooseText("all"), Value: LooseText("1"), Operation: LooseText("count"), Role: LooseText("target")}}
+	if err := ValidateContributionDecisionConsistency(parentExcluded, foreign); err != nil {
+		t.Fatalf("an identity not derived from its locator must fail open: %v", err)
+	}
+	// Legacy carriers without row identity (model-emitted ledgers) behave
+	// exactly as before: joined on RowID/ItemID only.
+	if err := ValidateContributionDecisionConsistency(rows, bad); err == nil || !strings.Contains(err.Error(), "obs#3") {
+		t.Fatalf("legacy RowID/ItemID join must be unchanged: %v", err)
+	}
 }
 
 // TestEvaluateReferenceGroundingFailOpenArms pins the inapplicability lanes:

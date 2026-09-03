@@ -3441,6 +3441,7 @@ func (r ActionRunner) runGroupRecords(action DataAction) (DataArtifact, []map[st
 		row["_source"] = rel
 		row["_source_locators"] = strings.Join(cleanStringList(group.locators), ",")
 		row["_source_lines"] = strings.Join(cleanStringList(group.sourceLines), ",")
+		stampGroupRowIdentity(row, rel, group.order+1)
 		rows = append(rows, row)
 	}
 	outputHeaders := collectJoinedRecordHeaders(rows)
@@ -3582,7 +3583,7 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 				values = []string{""}
 			}
 		}
-		for _, value := range values {
+		for i, value := range values {
 			if len(rows) >= maxOutput {
 				return DataArtifact{}, nil, nil, dataActionLimitError(DataActionExpandRecords, "max_output_records", maxOutput, len(rows)+1)
 			}
@@ -3594,7 +3595,7 @@ func (r ActionRunner) runExpandRecords(action DataAction) (DataArtifact, []map[s
 				row[originalField] = sourceValue
 			}
 			row[targetField] = value
-			stampActionRecordOriginFields(row, record, rel)
+			stampDerivedRowIdentity(row, record, rel, i+1)
 			rows = append(rows, row)
 			expandedRows++
 		}
@@ -3699,9 +3700,10 @@ func (r ActionRunner) runFilterRecords(action DataAction, defaultRuleRefs []stri
 		if passed {
 			decision = "include"
 		}
-		itemID, source, sourceLocator := actionRecordLedgerIdentity(record, rel, itemIDField)
+		itemID, source, sourceLocator, rowIdentity := actionRecordLedgerIdentity(record, rel, itemIDField)
 		decisions = append(decisions, RowDecision{
 			RowID:         itemID,
+			RowIdentity:   rowIdentity,
 			Source:        source,
 			SourceLocator: sourceLocator,
 			Decision:      decision,
@@ -3769,7 +3771,7 @@ func (r ActionRunner) runFilterRecords(action DataAction, defaultRuleRefs []stri
 }
 
 func filterEvidenceRefs(record actionRecord, rel string, fields []string) []string {
-	_, _, sourceLocator := actionRecordLedgerIdentity(record, rel, "")
+	_, _, sourceLocator, _ := actionRecordLedgerIdentity(record, rel, "")
 	refs := []string{sourceLocator}
 	for _, field := range cleanStringSlice(fields) {
 		if strings.TrimSpace(recordField(record.Fields, field)) == "" {
@@ -4051,9 +4053,10 @@ func (r ActionRunner) runQualifyRecords(action DataAction, defaultRuleRefs []str
 		if eligible {
 			decision = "include"
 		}
-		itemID, source, sourceLocator := actionRecordLedgerIdentity(record, rel, itemIDField)
+		itemID, source, sourceLocator, rowIdentity := actionRecordLedgerIdentity(record, rel, itemIDField)
 		decisions = append(decisions, RowDecision{
 			RowID:         itemID,
+			RowIdentity:   rowIdentity,
 			Source:        source,
 			SourceLocator: sourceLocator,
 			Decision:      decision,
@@ -7476,6 +7479,7 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 			if joinType == "left" || joinType == "left_outer" {
 				row := buildJoinedActionRecord(left, actionRecord{}, leftRel, rightRel, leftPrefix, rightPrefix, collision)
 				fillMissingJoinedHeaders(row, predictedHeaders)
+				stampDerivedRowIdentity(row, left, leftRel, 1)
 				rows = append(rows, row)
 				if len(rows) >= maxOutput {
 					break
@@ -7484,9 +7488,10 @@ func (r ActionRunner) runJoinRecords(action DataAction) (DataArtifact, []map[str
 			continue
 		}
 		matchedLeftRows++
-		for _, right := range matched {
+		for i, right := range matched {
 			row := buildJoinedActionRecord(left, right, leftRel, rightRel, leftPrefix, rightPrefix, collision)
 			fillMissingJoinedHeaders(row, predictedHeaders)
+			stampDerivedRowIdentity(row, left, leftRel, i+1)
 			rows = append(rows, row)
 			matches++
 			if len(rows) >= maxOutput {
@@ -8257,10 +8262,11 @@ func (r ActionRunner) runComputeContributions(action DataAction, defaultRuleRefs
 				continue
 			}
 			matched++
-			itemID, source, sourceLocator := actionRecordLedgerIdentity(record, rel, itemIDField)
+			itemID, source, sourceLocator, rowIdentity := actionRecordLedgerIdentity(record, rel, itemIDField)
 			groupKey := firstNonEmptyString(groupKeyValue, effectiveGroupKeyConst, "all")
 			contributions = append(contributions, ContributionRecord{
 				ItemID:        LooseText(itemID),
+				RowIdentity:   LooseText(rowIdentity),
 				Source:        LooseText(source),
 				SourceLocator: LooseText(sourceLocator),
 				GroupKey:      LooseText(groupKey),
@@ -9541,7 +9547,7 @@ func (r ActionRunner) materializeWorkflowLedgerArtifacts(dir string, rows []RowD
 		return nil
 	}
 	if err := add("workflow_decision_records", "decision_records", "rows",
-		[]string{"item_id", "decision", "reason", "source", "source_locator"},
+		[]string{"item_id", "row_identity", "decision", "reason", "source", "source_locator"},
 		rows, len(rows)); err != nil {
 		return nil, err
 	}
@@ -9551,7 +9557,7 @@ func (r ActionRunner) materializeWorkflowLedgerArtifacts(dir string, rows []RowD
 		return nil, err
 	}
 	if err := add("workflow_contributions", "contributions", "contributions",
-		[]string{"item_id", "group_key", "metric", "value", "operation", "source", "source_locator"},
+		[]string{"item_id", "row_identity", "group_key", "metric", "value", "operation", "source", "source_locator"},
 		contributions, len(contributions)); err != nil {
 		return nil, err
 	}
@@ -10486,7 +10492,7 @@ func recordQualification(record actionRecord, includeFilters, rejectFilters []co
 }
 
 func qualificationEvidenceRefs(record actionRecord, rel string, statusFields, evidenceFields []string) []string {
-	_, _, sourceLocator := actionRecordLedgerIdentity(record, rel, "")
+	_, _, sourceLocator, _ := actionRecordLedgerIdentity(record, rel, "")
 	refs := []string{sourceLocator}
 	for _, field := range append(statusFields, evidenceFields...) {
 		value := strings.TrimSpace(recordField(record.Fields, strings.TrimSuffix(field, "_status")+"_evidence"))
@@ -11259,12 +11265,15 @@ func actionRecordVirtualFields(record actionRecord, rel string) map[string]strin
 		"file_path":       filePath,
 		"file_name":       fileName,
 	}
+	if identity := strings.TrimSpace(recordField(record.Fields, actionRowIdentityField)); identity != "" {
+		out[actionRowIdentityField] = identity
+	}
 	return out
 }
 
 func markKnownActionVirtualFields(out map[string]bool) {
 	for _, field := range []string{
-		"_source", "_source_path", "_source_index", "_source_line", "_source_locator",
+		"_source", "_source_path", "_source_index", "_source_line", "_source_locator", actionRowIdentityField,
 		"source_path", "source_index", "source_line", "source_locator",
 		"row_index", "line", "file_path", "file_name",
 	} {
@@ -11274,7 +11283,7 @@ func markKnownActionVirtualFields(out map[string]bool) {
 
 func actionReservedSourceField(field string) bool {
 	switch strings.ToLower(strings.TrimSpace(field)) {
-	case "_source", "_source_path", "_source_index", "_source_line", "_source_locator":
+	case "_source", "_source_path", "_source_index", "_source_line", "_source_locator", actionRowIdentityField:
 		return true
 	default:
 		return false

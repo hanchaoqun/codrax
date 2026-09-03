@@ -2632,6 +2632,8 @@ codrax trace convert --input capture.sys \
 | plain constant | `group_key` 常量且不与任何字段/schema 名冲突（如 `"all_active"`） |
 | synthetic "all" | 隐式缺省 |
 
+**派生行身份随 action 拓扑演化（V9-1，colleague_merge_audit §40.15）**：每个 action kind 在 `internal/dataquery/action_topology.go` 的 `dataActionTopologies` 单源表声明拓扑 ∈ {`1:1`,`1:N`,`N:1`,`none`}（dataworkflow `ActionTopology` 只委托，`TestActionTopologyDeclaredForEveryActionKind` 钉 `actionCapabilities` 双射，`TestOneToManyRunnersStampDerivedRowIdentity` 钉 1:N runner 必经 `stampDerivedRowIdentity`）。行身份 `_row_identity` 与血统 `_source_locator` 两键分职：1:1 继承（filter/qualify/derive/enrich/apply/extract，原始行身份==locator），1:N 每派生行 `<父身份>#<序数>`（expand/join；嵌套链式 `items.csv#1#2#1`），N:1 组行 `<输入>#group#<序数>`（不与输入行碰撞，血统在 `_source_locators`）。`ContributionRecord.RowIdentity` / `RowDecision.RowIdentity`（wire `row_identity`，omitempty，runner 拥有）进 dedupe 键与 `ValidateContributionDecisionConsistency` 键；后者在身份未命中时按 `rowIdentityAncestors`（仅由同一格式规则精确剥离到 locator，不做模糊前缀）查父行排除（B461 类保留），无 `row_identity` 的模型账本行为不变。显式 `item_id_field` 仍主宰 ItemID（B461）但永不折叠兄弟身份。
+
 **不存在第五车道**：组键解释在 compute 时刻（最早诚实点，records 在手）对全 action **全局单次判定**（`resolveContributionGroupKeyInterpretation`），字段名不再按输入逐个静默降级为常量组标签（历史行为曾铸出与 reconcile 自洽的幽灵组，eval gap F11，且同一 action 的组语义可在输入间分叉）。可判定的退化情形——常量组键 ∈ `canonicalLedgerFieldNameSet()`（四账本 struct JSON tag ∪ 解码 alias 注册表的单源闭集，`TestCanonicalLedgerFieldNameSetTripwire` 双向钉死）且无任何输入携带同名字段——硬拒为 typed `DataFieldContractError`（Role=`contribution_group_key_lineage`），修复双臂：enrich/join 物化字段（dataworkflow missing_field_recovery 确定性识别并生成 fallback 计划）或显式声明 `group_key_literal`。两个硬门谓词均精确（逐字字段存在性 + 有限闭集成员）；脚本车道的 GroupKey∈schema/headers 成员性是嘈声信号，只走 `warnLedgerGroupKeyLineage` 软告警（ContractWarnings，模型下轮可见），永不硬拦。
 
 ---

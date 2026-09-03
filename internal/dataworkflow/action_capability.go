@@ -161,6 +161,15 @@ func Capability(kind dataquery.DataActionKind) (ActionCapability, bool) {
 	return capability, ok
 }
 
+// ActionTopology resolves the row-derivation topology (1:1 / 1:N / N:1 /
+// none) an action kind declares. The table lives in dataquery beside the
+// runner (V9-1 §40.15); this accessor delegates so the registry never grows a
+// second copy, and TestActionTopologyDeclaredForEveryActionKind pins the
+// bijection with actionCapabilities.
+func ActionTopology(kind dataquery.DataActionKind) (dataquery.DataActionTopology, bool) {
+	return dataquery.DataActionTopologyOf(NormalizeActionKind(kind))
+}
+
 // SupportedActionKinds returns the schema vocabulary accepted by the typed
 // data-action runner. Keep this derived from actionCapabilities so admission,
 // repair guidance, and execution cannot grow separate action-kind lists.

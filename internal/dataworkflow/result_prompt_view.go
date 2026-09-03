@@ -352,6 +352,7 @@ func SampleContributions(records []dataquery.ContributionRecord, limit int) []da
 	out := make([]dataquery.ContributionRecord, 0, len(records))
 	for _, rec := range records {
 		rec.ItemID = dataquery.LooseText(ClampRecordViewText(rec.ItemID.String(), 140))
+		rec.RowIdentity = dataquery.LooseText(ClampRecordViewText(rec.RowIdentity.String(), 160))
 		rec.Source = dataquery.LooseText(ClampRecordViewText(rec.Source.String(), 200))
 		rec.SourceLocator = dataquery.LooseText(ClampRecordViewText(rec.SourceLocator.String(), 200))
 		rec.GroupKey = dataquery.LooseText(ClampRecordViewText(rec.GroupKey.String(), 160))
@@ -522,6 +523,7 @@ func rowDecisionHasPromptSignal(row dataquery.RowDecision) bool {
 
 func clampPromptRowDecision(row dataquery.RowDecision) dataquery.RowDecision {
 	row.RowID = ClampRecordViewText(row.RowID, 160)
+	row.RowIdentity = ClampRecordViewText(row.RowIdentity, 160)
 	row.Source = ClampRecordViewText(row.Source, 240)
 	row.SourceLocator = ClampRecordViewText(row.SourceLocator, 240)
 	row.Decision = ClampRecordViewText(row.Decision, 160)

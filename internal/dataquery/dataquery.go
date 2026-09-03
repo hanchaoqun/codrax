@@ -1155,7 +1155,7 @@ func ledgerFieldAliasRegistries() [][]string {
 // added without registering here, or an entry here matching no struct tag).
 var canonicalLedgerFieldTagNames = []string{
 	// ContributionRecord
-	"item_id", "source", "source_locator", "group_key", "metric", "value",
+	"item_id", "row_identity", "source", "source_locator", "group_key", "metric", "value",
 	"operation", "role", "reason", "evidence_refs", "rule_refs",
 	// ReconcileGroup (new tags only)
 	"scope", "expected", "actual", "difference", "values",
@@ -1190,7 +1190,13 @@ func canonicalLedgerFieldNameSet() map[string]bool {
 }
 
 type ContributionRecord struct {
-	ItemID        LooseText `json:"item_id,omitempty"`
+	ItemID LooseText `json:"item_id,omitempty"`
+	// RowIdentity is the runner-owned derivation identity of the summed row
+	// (V9-1 §40.15): distinct per 1:N sibling, inherited across 1:1 actions,
+	// artifact-local for N:1 group rows. Dedupe and the cross-ledger
+	// consistency gate key on it; model-emitted ledgers may leave it empty
+	// and then join on ItemID exactly as before.
+	RowIdentity   LooseText `json:"row_identity,omitempty"`
 	Source        LooseText `json:"source,omitempty"`
 	SourceLocator LooseText `json:"source_locator,omitempty"`
 	GroupKey      LooseText `json:"group_key,omitempty"`
@@ -1434,6 +1440,7 @@ func (r *ReconcileGroup) UnmarshalJSON(data []byte) error {
 
 type RowDecision struct {
 	RowID            string            `json:"row_id,omitempty"`
+	RowIdentity      string            `json:"row_identity,omitempty"`
 	Source           string            `json:"source,omitempty"`
 	SourceLocator    string            `json:"source_locator,omitempty"`
 	Decision         string            `json:"decision,omitempty"`
@@ -3109,6 +3116,7 @@ func rowDecisionRecordIdentityKey(rec RowDecision) string {
 	sort.Strings(ruleRefs)
 	parts := []string{
 		rec.RowID,
+		rec.RowIdentity,
 		rec.Source,
 		rec.SourceLocator,
 		rec.Decision,
@@ -3166,6 +3174,7 @@ func DedupeContributionRecords(records []ContributionRecord) []ContributionRecor
 func contributionRecordIdentityKey(rec ContributionRecord) string {
 	parts := []string{
 		rec.ItemID.String(),
+		rec.RowIdentity.String(),
 		rec.Source.String(),
 		rec.SourceLocator.String(),
 		rec.GroupKey.String(),
@@ -3772,6 +3781,7 @@ func rowDecisionsFromContributions(contributions []ContributionRecord) []RowDeci
 		}
 		out = append(out, RowDecision{
 			RowID:         rec.ItemID.String(),
+			RowIdentity:   rec.RowIdentity.String(),
 			Source:        rec.Source.String(),
 			SourceLocator: rec.SourceLocator.String(),
 			Decision:      decision,

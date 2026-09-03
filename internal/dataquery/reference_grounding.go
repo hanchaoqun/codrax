@@ -268,13 +268,22 @@ func contributionNumericTotalsByGroup(contributions []ContributionRecord) (map[s
 // signal — judging it needs the prose task rules, which is the model's
 // domain; this arm reds the reachable class (ledger self-contradiction),
 // not the unreachable one.
+//
+// Identity key (V9-1 §40.15): both sides join on the runner-owned row
+// identity when present (RowDecision.RowIdentity ↔ ContributionRecord.
+// RowIdentity) so 1:N siblings that share a parent locator may hold
+// different decisions; carriers without it join on RowID/ItemID exactly as
+// before. A contribution whose derivation ANCESTOR is excluded (parent row
+// filtered out, then expanded and summed — B461 class) is still a
+// contradiction: the ancestors are enumerated precisely from the identity
+// formatting rule (rowIdentityAncestors), never by fuzzy prefix matching.
 func ValidateContributionDecisionConsistency(rows []RowDecision, contributions []ContributionRecord) error {
 	if len(rows) == 0 || len(contributions) == 0 {
 		return nil
 	}
 	excluded := map[string]RowDecision{}
 	for _, row := range rows {
-		id := strings.TrimSpace(row.RowID)
+		id := firstNonEmptyString(strings.TrimSpace(row.RowIdentity), strings.TrimSpace(row.RowID))
 		if id == "" {
 			continue
 		}
@@ -289,11 +298,21 @@ func ValidateContributionDecisionConsistency(rows []RowDecision, contributions [
 		if !contributionParticipatesInReconcile(rec) {
 			continue
 		}
-		id := strings.TrimSpace(rec.ItemID.String())
+		identity := strings.TrimSpace(rec.RowIdentity.String())
+		id := firstNonEmptyString(identity, strings.TrimSpace(rec.ItemID.String()))
 		if id == "" {
 			continue
 		}
 		row, ok := excluded[id]
+		ancestorNote := ""
+		if !ok && identity != "" {
+			for _, ancestor := range rowIdentityAncestors(identity, rec.SourceLocator.String()) {
+				if row, ok = excluded[ancestor]; ok {
+					ancestorNote = fmt.Sprintf(" (ancestor %s excluded)", ancestor)
+					break
+				}
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -303,9 +322,9 @@ func ValidateContributionDecisionConsistency(rows []RowDecision, contributions [
 			"contribution records only for rows the decision ledger includes",
 			id,
 			RepairabilityNeedsRecompute,
-			"data validation incomplete: contribution %d (item_id %q, group %q, value %s) sums a row the decision ledger excludes (decision %q at %s); recompute contributions over included rows only, or correct the decision record",
+			"data validation incomplete: contribution %d (item_id %q, group %q, value %s) sums a row the decision ledger excludes (decision %q at %s)%s; recompute contributions over included rows only, or correct the decision record",
 			i, id, strings.TrimSpace(rec.GroupKey.String()), strings.TrimSpace(rec.Value.String()),
-			strings.TrimSpace(row.Decision), strings.TrimSpace(row.SourceLocator),
+			strings.TrimSpace(row.Decision), strings.TrimSpace(row.SourceLocator), ancestorNote,
 		)
 	}
 	return nil

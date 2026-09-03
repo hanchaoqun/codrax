@@ -244,6 +244,10 @@ func TestCanonicalLedgerFieldNameSetTripwire(t *testing.T) {
 	}
 	// Verbatim membership golden: any growth or shrink of the closed set is a
 	// deliberate change reviewed against the lineage gate's blast radius.
+	// EVOLUTION RECORD (V9-1 §40.15, 2026-09-02): +row_identity — the
+	// runner-owned derivation identity carried by ContributionRecord and
+	// RowDecision; a plain constant group key spelled "row_identity" now
+	// counts as a schema-name collision like the other ledger tags.
 	want := []string{
 		"action", "actual", "actual_total", "actual_value", "aggregation",
 		"bucket", "candidates", "canonical", "canonical_id", "canonical_id_field",
@@ -257,7 +261,7 @@ func TestCanonicalLedgerFieldNameSetTripwire(t *testing.T) {
 		"normalized_label", "notes", "op", "operation", "outcome", "raw",
 		"raw_value", "reason", "reconcile_role", "reconcile_scope",
 		"record_id", "reference_id_field", "reference_label_field", "role",
-		"row", "row_id", "rule", "rule_id", "rule_ref", "rule_refs", "scope",
+		"row", "row_id", "row_identity", "rule", "rule_id", "rule_ref", "rule_refs", "scope",
 		"source", "source_field", "source_locator", "source_name_field",
 		"source_value", "span", "status", "summary", "target_id",
 		"target_label", "value", "values",
