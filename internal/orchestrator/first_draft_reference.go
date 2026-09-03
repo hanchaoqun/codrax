@@ -43,3 +43,26 @@ func (o *Orchestrator) attachFirstDraftReference(out *agent.StageOutput, firstDr
 		Source: "orchestrator.first_finalize_draft",
 	})
 }
+
+// First-draft attachment titles (moved here from orchestrator.go under the
+// IR delivery hot-file ratchet, §40.43 F-orch 三轮收编).
+func draftReferenceTitle(lang string) string {
+	if lang == "zh" {
+		return "第一稿答案（校验前参考）"
+	}
+	return "First Draft Answer (Pre-review Reference)"
+}
+
+func draftReviewNoteTitle(lang string) string {
+	if lang == "zh" {
+		return "第一稿校验提示"
+	}
+	return "First Draft Review Notes"
+}
+
+func strictReviewDisabledTitle(lang string) string {
+	if lang == "zh" {
+		return "第一稿答案：强校验已关闭"
+	}
+	return "First Draft Answer: Strict Review Disabled"
+}

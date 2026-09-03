@@ -4346,9 +4346,9 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// across the task boundary.
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
-	// §40.43 R1 advisory (once): are the finalize-loop caps ordered so the
+	// §40.43 R1 advisory (once): are the finalize-loop gates ordered so the
 	// cluster-closure fail-loud exit can ever fire? Log line only.
-	o.logClusterClosureExitReachabilityOnce()
+	o.logClusterClosureExitReachabilityOnce(ir)
 
 	// Single-shot guard for the completion-obligation lane (one
 	// bounded emit-only dispatch per Run; see
@@ -4424,6 +4424,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	// template-SC requeues, or window-scoped completion while multi-topic evidence remains; quality-class floor detections disclose and never set it.
 	pendingCompletionReset := false
 	lowGroundingWarned := false
+	// retainedRejectedDraft (§40.43 F-orch Q): the exact finalize output the
+	// contract check rejected and a fallback arm requeued; superseded by
+	// every later finalize output, read only by the terminal-exit backstop.
+	var retainedRejectedDraft *retainedRejectedFinalizeDraft
 
 	if b := ir.EvidencePlan.Budget.MaxReactIters; b > 0 && b < stepBudget {
 		stepBudget = b
@@ -5233,6 +5237,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// pure-read we would loop forever. Break to forced
 			// finalize.
 			if len(blocked) > 0 {
+				// §40.43 F-orch Q: a bound explore backtrack whose window closed
+				// without a fresh completion is consumed by a typed decision
+				// (explore_backtrack_exhaustion.go), never by a stale door.
+				if o.releaseExhaustedExploreBacktrack(len(blocked)) {
+					continue
+				}
 				logging.Warning("[orchestrator] %d node(s) blocked on entry conditions; forcing finalize", len(blocked))
 				o.busCtx.Mutable.SetTerminationProfile(types.TerminationProfile{Kind: types.TerminationBlockedDAG})
 			} else {
@@ -6206,14 +6216,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// S3' ④: arm ONCE against the retained first draft (baselines
 			// snapshot before ResetForFallback clears the live doc).
 			// Upstream fallbacks never arm: fresh evidence reshapes answers.
-			if repairArbitration == nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+			if repairArbitration == nil {
 				repairArbitration = armFinalizeRepairArbitration(retryRes.Violations, res.Violations,
 					finalizeRepairDraftLedger, out, o.busCtx.Mutable.AnswerDocumentV2())
 			}
 			state.requeue(fin.ID)
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
-			}
+			o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
 			// B3-F3: latch — the next iteration's pre-finalize
 			// extract dispatch is redundant (upstream state
 			// preserved). The skip lives at line ~3406.
@@ -6223,10 +6231,8 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			populateRetryState(o.busCtx.Mutable, retryRes, retryPrevAttempt)
 			requeued := state.requeueToStage(types.StageExtract, false)
 			state.requeue(fin.ID)
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExtract)
-				logging.Info("[orchestrator] selective fallback extract: requeued=%v", requeued)
-			}
+			o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExtract)
+			logging.Info("[orchestrator] selective fallback extract: requeued=%v", requeued)
 			state.upstreamFallbacksUsed++
 			// extract DID change (we cleared the slate) — next
 			// iteration's pre-finalize extract dispatch is correct.
@@ -6238,18 +6244,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			requeued := state.requeueToStage(types.StageExplore, false)
 			requeuedExtract := state.requeueToStage(types.StageExtract, false)
 			state.requeue(fin.ID)
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				cleared := o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExplore)
-				logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v backtrack_epoch=%d completion_generation=%d",
-					requeued, requeuedExtract, cleared, o.busCtx.Mutable.ExploreBacktrackEpoch(), o.busCtx.Mutable.InvestigationCompleteGeneration())
-			}
+			cleared := o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetExplore)
+			logging.Info("[orchestrator] selective fallback explore: requeued=%v requeued_extract=%v cleared=%v backtrack_epoch=%d completion_generation=%d",
+				requeued, requeuedExtract, cleared, o.busCtx.Mutable.ExploreBacktrackEpoch(), o.busCtx.Mutable.InvestigationCompleteGeneration())
 			// §40.43 R2: the accepted-closure signal is a per-generation
 			// carrier — every accepted-closure exit raises it and nothing
 			// cleared it on this backtrack, so the requeued reconcile node's
 			// signal door stayed open on the pre-backtrack state while the
 			// veto was in force. The explorer re-earns it on its fresh
-			// completion through the existing writers (census reset site:
-			// hard_arm_mutable_carrier_census_test.go, kind "signal").
+			// completion through the existing writers, or the typed
+			// exhaustion decision restores it from the retained closure
+			// (census reset site: hard_arm_mutable_carrier_census_test.go,
+			// kind "signal"; §40.43 Q: releaseExhaustedExploreBacktrack).
 			o.busCtx.Signals.HasEnoughFacts = false
 			// Contract backtrack: the answer slate was cleared, fresh
 			// evidence will reshape the closure — allow completion reset.
@@ -6262,11 +6268,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// retries always make progress (R14-c3 order holds here too).
 			populateRetryState(o.busCtx.Mutable, retryRes, retryPrevAttempt)
 			state.requeue(fin.ID)
-			if o.busCtx != nil && o.busCtx.Mutable != nil {
-				o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
-			}
+			o.busCtx.Mutable.ResetForFallback(types.FallbackResetTargetFinalizer)
 			lastFallbackFinalizerOnly = true
 		}
+		// §40.43 F-orch Q: every arm above requeued instead of shipping —
+		// `out` is now a retained contract-rejected draft.
+		retainedRejectedDraft = &retainedRejectedFinalizeDraft{out: out, res: retryRes}
 		state.recordRetry()
 		// Block 1 (architecture overhaul 2026-05-02) — also bump the
 		// closure's stage-wise retry counter so StageHealthSnapshot
@@ -6324,6 +6331,9 @@ contractFailureBreak:
 	// Step-drain and contract-failure exits historically ran no
 	// completion check at all — the lane covers them too.
 	o.runCompletionObligationLane(&completionLaneFired, &stepsUsed)
+	// §40.43 F-orch Q backstop: a retained contract-rejected draft never
+	// ships bare (blocked DAG / stall / step drain / transient delivery).
+	o.applyRetainedRejectedDraftCaveats(lastFinalize, retainedRejectedDraft)
 	if lastFinalize == nil {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.
@@ -7617,27 +7627,6 @@ func (o *Orchestrator) renderFinalAnswerWithLastMileSupplements(doc *types.Answe
 	// kill a disclosure (P6/FRCAP residual concerns, system notes,
 	// user/soft contract bullets, PSG-2H residual disclosure).
 	return o.replayRegisteredAnswerCaveats(answer)
-}
-
-func draftReferenceTitle(lang string) string {
-	if lang == "zh" {
-		return "第一稿答案（校验前参考）"
-	}
-	return "First Draft Answer (Pre-review Reference)"
-}
-
-func draftReviewNoteTitle(lang string) string {
-	if lang == "zh" {
-		return "第一稿校验提示"
-	}
-	return "First Draft Review Notes"
-}
-
-func strictReviewDisabledTitle(lang string) string {
-	if lang == "zh" {
-		return "第一稿答案：强校验已关闭"
-	}
-	return "First Draft Answer: Strict Review Disabled"
 }
 
 func draftConcernSummary(lang string, concerns []types.Violation, rewritten bool) string {

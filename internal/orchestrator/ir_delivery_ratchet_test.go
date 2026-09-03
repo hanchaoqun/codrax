@@ -39,10 +39,18 @@ func TestIRDeliveryHotFileLineRatchet(t *testing.T) {
 		// (§40.36 finding F) moved renderVerifyFailure and its helpers into
 		// write_verify_failure_render.go (own budget below) so the failure
 		// outcome renders the shared worktree-audit note.
-		{path: "orchestrator.go", maxLines: 8827},
-		// §40.43 R1: the P6 hard cap and the cluster-closure exit
-		// reachability advisory.
-		{path: "finalize_repair_hard_cap.go", maxLines: 110},
+		// Tightened 8827→8814 after the F-orch round-three fold-in (§40.43
+		// finding Q) moved the first-draft attachment titles into
+		// first_draft_reference.go and put the exhaustion release / rejected-
+		// draft backstop into explore_backtrack_exhaustion.go (own budget).
+		{path: "orchestrator.go", maxLines: 8814},
+		// §40.43 R1: the P6 hard cap (tightened 110→45 after finding S moved
+		// the advisory into finalize_loop_gate_advisory.go, own budget below).
+		{path: "finalize_repair_hard_cap.go", maxLines: 45},
+		// §40.43 F-orch 三轮复核 finding S: every gate preceding
+		// AdvanceRepairExecutionPlan, stated total / conditional per arm.
+		{path: "finalize_loop_gate_advisory.go", maxLines: 250},
+		{path: "explore_backtrack_exhaustion.go", maxLines: 120},
 		{path: "write_verify_failure_render.go", maxLines: 190},
 		// F14: the reconcile auto-complete arm and the single accepted-closure
 		// premise shared by both auto-complete consumers.

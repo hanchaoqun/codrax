@@ -189,6 +189,19 @@ the rewritten `shouldRebuildExecutionPlan`, then `BuildRepairExecutionPlan`
 or `PromoteNextOwner` accordingly. `PromoteNextOwner` carries forward
 `ClusterStates` (unaffected clusters retain their state).
 
+> 2026-09-03 (colleague_merge_audit §40.43 F-orch 三轮复核 R/S): the
+> promote/stay classification above is retired (§40.43 R1 — the dispatch
+> target is a fresh rebuild every round). The stuck-owner FailLoud exit is
+> evaluated AFTER the rebuild, on the FRESH carrier: the fresh plan's
+> current-owner cluster has `StableAttempts >= budget`, the fresh plan
+> names no remaining owner, and no fresh cluster is at `StableAttempts 0`
+> (a never-attempted root cause always dispatches). Reachability of that
+> exit under the finalize-loop gates that precede it (P6 hard cap, W2.6
+> per-root cap, template retry budget, per-kind cap, same-error-class
+> governor, low-yield kill) is stated per arm — total / conditional /
+> outside-chain-retries-only — by `finalize_loop_gate_advisory.go`; at the
+> defaults the same-error-class governor ships on failure 2.
+
 ### Telemetry
 `SummarizeRepairExecutionPlan` adds:
 ```

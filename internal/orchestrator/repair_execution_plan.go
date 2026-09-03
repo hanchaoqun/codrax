@@ -29,8 +29,10 @@
 //     StableAttempts for every cluster whose Primary is still open, the
 //     counts carry over the rebuild for every cluster whose
 //     (PrimaryKind, PrimaryFingerprint) persists, and a stuck deepest
-//     owner (no shallower owner queued, escalation allowed) exits through
-//     FallbackFailLoud instead of cycling.
+//     owner OF THE FRESH REBUILD (no shallower owner queued, escalation
+//     allowed, no never-attempted cluster) exits through FallbackFailLoud
+//     instead of cycling (§40.43 finding R: the exit is evaluated after
+//     the rebuild, on the fresh carrier).
 //
 // Red-line invariants (must hold across every helper here):
 //
@@ -63,9 +65,9 @@ import (
 //
 //  1. Validator returns violations → AdvanceRepairExecutionPlan reads the
 //     stashed previous plan (if any), computes the cluster closure
-//     against the fresh set, and either exits through FallbackFailLoud
-//     (stuck deepest owner) or rebuilds from the fresh set with the
-//     carried StableAttempts.
+//     against the fresh set, rebuilds from the fresh set with the carried
+//     StableAttempts, and exits through FallbackFailLoud when the FRESH
+//     plan's deepest owner is stuck.
 //  2. The resulting plan is stashed on MutableState. It PERSISTS across
 //     ResetForFallback at every target (§40.43 F12); only ResetRetryState
 //     (chain close at an accepted answer) clears it.
@@ -258,18 +260,22 @@ func promoteFinalizerLocal(ordered []RepairLocus) []RepairLocus {
 // actionable violations with the current finalizerLocalUsed, so it
 // agrees with FallbackTargetForViolationsWithBudget on every round.
 //
-// Behaviour:
+// Behaviour (§40.43 F-orch 三轮复核 finding R: rebuild FIRST, then the
+// stuck exit reads the FRESH carrier — never the previous round's
+// CurrentOwner / RemainingOwners):
 //
 //   - Empty fresh violations: returns FallbackFinalizerOnly + empty
 //     plan; no MutableState write.
-//   - Previous plan present and its CurrentOwner is stuck (a cluster it
-//     owns reached ClusterStableBudget() consecutive attempts without
-//     resolving its Primary) with no remaining owners and
-//     EscalationAllowed: the previous plan with the closure update and
-//     HasFailLoud=true is stashed; returns FallbackFailLoud.
-//   - Otherwise: rebuilds from fresh, carries the closure-updated
-//     StableAttempts / DerivedResolved of every previous cluster whose
-//     key persists (carryClusterStability), stashes the plan and returns
+//   - Rebuild from fresh with the current finalizerLocalUsed; carry the
+//     closure-updated StableAttempts / DerivedResolved of every previous
+//     cluster whose key persists (carryClusterStability).
+//   - The fresh plan is stuck (stuckClusterExit: a cluster owned by the
+//     FRESH CurrentOwner reached ClusterStableBudget(), the fresh plan
+//     names no remaining owner, escalation allowed, and no fresh cluster
+//     is at StableAttempts 0 — a never-attempted root always dispatches):
+//     the fresh plan is stashed with HasFailLoud=true; returns
+//     FallbackFailLoud.
+//   - Otherwise: stashes the plan and returns
 //     targetForLocus(plan.CurrentOwner) — or FallbackFailLoud when the
 //     rebuild itself has a LocusTerminal cluster.
 //
@@ -288,20 +294,14 @@ func AdvanceRepairExecutionPlan(mut *types.MutableState, fresh []types.Violation
 
 	var carried []RepairClusterExecutionState
 	if prev := persistedRepairExecutionPlan(mut); prev != nil && !prev.IsEmpty() && !prev.HasFailLoud && len(prev.ClusterStates) > 0 {
-		closed := *prev
-		closed.ClusterStates = computeClusterClosure(*prev, fresh)
-		if stuckClusterExit(closed, ClusterStableBudget()) {
-			closed.HasFailLoud = true
-			if mut != nil {
-				mut.SetRepairExecutionPlan(closed)
-			}
-			return closed, FallbackFailLoud, FallbackFailLoud
-		}
-		carried = closed.ClusterStates
+		carried = computeClusterClosure(*prev, fresh)
 	}
 
 	plan := BuildRepairExecutionPlan(fresh, finalizerLocalUsed)
 	carryClusterStability(&plan, carried)
+	if !plan.HasFailLoud && stuckClusterExit(plan, ClusterStableBudget()) {
+		plan.HasFailLoud = true
+	}
 
 	if mut != nil {
 		mut.SetRepairExecutionPlan(plan)
@@ -349,17 +349,31 @@ func persistedRepairExecutionPlan(mut *types.MutableState) *RepairExecutionPlan 
 }
 
 // stuckClusterExit is the cluster-closure fail-loud exit predicate over
-// a plan whose ClusterStates were just updated by computeClusterClosure:
-// a cluster owned by CurrentOwner reached the stable budget without
-// resolving its Primary, no shallower owner remains queued, and
-// escalation is allowed. Every operand is a single integer or boolean
-// (precise signals). With a shallower owner still queued the fresh
-// rebuild keeps deciding the target (the finalizer-local budget
-// escalates it upstream); only the last owner exits here.
+// the FRESH rebuilt plan after carryClusterStability (§40.43 finding R):
+// a cluster owned by the fresh CurrentOwner reached the stable budget
+// without resolving its Primary, the fresh plan names no shallower owner,
+// escalation is allowed, and no fresh cluster is at StableAttempts 0 — a
+// never-attempted root cause always dispatches. Every operand is a
+// single integer or boolean (precise signals). With a shallower owner
+// still queued the fresh rebuild keeps deciding the target (the
+// finalizer-local budget escalates it upstream); only the last owner
+// exits here.
 func stuckClusterExit(plan RepairExecutionPlan, stableBudget int) bool {
 	return currentOwnerStuck(plan, stableBudget) &&
 		len(plan.RemainingOwners) == 0 &&
-		plan.EscalationAllowed
+		plan.EscalationAllowed &&
+		!anyClusterNeverAttempted(plan)
+}
+
+// anyClusterNeverAttempted reports whether the plan carries a cluster at
+// StableAttempts 0 — a root cause the chain has not dispatched for yet.
+func anyClusterNeverAttempted(plan RepairExecutionPlan) bool {
+	for _, st := range plan.ClusterStates {
+		if st.StableAttempts == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // carryClusterStability copies the closure-updated StableAttempts /

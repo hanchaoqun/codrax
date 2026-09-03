@@ -227,6 +227,16 @@ type MutableState struct {
 	// the fork itself made (fork generation − base), so a fork that merely
 	// inherited a completed flag never counts as a new decision.
 	exploreForkCompletionGenerationBase uint64
+	// exploreBacktrackExhaustedDecisions counts the scheduler's typed
+	// ExploreBacktrackExhausted decisions (§40.43 F-orch finding Q): the
+	// explore window re-opened by a finalize-contract backtrack closed
+	// without a fresh accepted completion, and the run proceeds from the
+	// retained closure. Each decision advances
+	// investigationCompleteGeneration exactly like an accepted completion,
+	// which is what releases the backtrack veto; lastExploreBacktrackExhausted
+	// keeps the most recent decision for telemetry and pins.
+	exploreBacktrackExhaustedDecisions uint64
+	lastExploreBacktrackExhausted      *ExploreBacktrackExhaustedDecision
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
 	// written as a set via SetEmittedAnswerSymbols and read via
 	// EmittedAnswerSymbolSet (P2.1 Phase 9). The two fields are always
@@ -1373,6 +1383,8 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		exploreBacktrackEpoch:                       m.exploreBacktrackEpoch,
 		investigationCompleteGeneration:             m.investigationCompleteGeneration,
 		exploreForkCompletionGenerationBase:         m.investigationCompleteGeneration,
+		exploreBacktrackExhaustedDecisions:          m.exploreBacktrackExhaustedDecisions,
+		lastExploreBacktrackExhausted:               m.lastExploreBacktrackExhausted,
 		traceQueryRuntimeObservationCount:           m.traceQueryRuntimeObservationCount,
 		exploreForkTraceQueryRuntimeObservationBase: m.traceQueryRuntimeObservationCount,
 		traceQueryPublishedBlobRefs:                 cloneStringStringMap(m.traceQueryPublishedBlobRefs),
@@ -6410,6 +6422,85 @@ func (m *MutableState) InvestigationCompleteGeneration() uint64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.investigationCompleteGeneration
+}
+
+// ExploreBacktrackExhaustedDecision is the typed record of one scheduler
+// decision that an explore window re-opened by a finalize-contract
+// backtrack closed without a fresh accepted completion (§40.43 F-orch
+// finding Q). The decision is a completion-generation advance: it releases
+// the bound explore-backtrack veto through the same generation comparison
+// the accepted-closure hard arm reads, so reconcile proceeds from the
+// retained closure and the finalizer re-runs with the contract violations
+// as repair context. System-internal; never rendered into a prompt.
+type ExploreBacktrackExhaustedDecision struct {
+	// Epoch is the explore-backtrack epoch the exhausted window belonged to.
+	Epoch uint64 `json:"epoch"`
+	// GenerationBefore / GenerationAfter are the completion generations
+	// around the decision (After = Before + 1).
+	GenerationBefore uint64 `json:"generation_before"`
+	GenerationAfter  uint64 `json:"generation_after"`
+	// RetainedClosureReason is the accepted completion rationale the run
+	// proceeds from (StableInvestigationCompleteReason at decision time).
+	RetainedClosureReason string `json:"retained_closure_reason,omitempty"`
+	// Reason names the exhaustion lane the scheduler observed.
+	Reason string `json:"reason,omitempty"`
+}
+
+// RecordExploreBacktrackExhausted records the typed decision that the
+// explore window re-opened by the current backtrack epoch closed without a
+// fresh accepted completion. It advances investigationCompleteGeneration —
+// the decision IS a completion decision for the generation comparison
+// (§40.14 V7-2 ②): the bound veto is consumed exactly as by the explorer's
+// own emit, and the run proceeds from the retained closure. It never sets
+// the live completion flag (the retained reason is the closure it proceeds
+// from). Returns the recorded decision.
+func (m *MutableState) RecordExploreBacktrackExhausted(reason string) ExploreBacktrackExhaustedDecision {
+	if m == nil {
+		return ExploreBacktrackExhaustedDecision{}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d := ExploreBacktrackExhaustedDecision{
+		Epoch:            m.exploreBacktrackEpoch,
+		GenerationBefore: m.investigationCompleteGeneration,
+		Reason:           strings.TrimSpace(reason),
+	}
+	d.RetainedClosureReason = strings.TrimSpace(m.investigationCompleteReason)
+	if d.RetainedClosureReason == "" {
+		d.RetainedClosureReason = strings.TrimSpace(m.retainedInvestigationCompleteReason)
+	}
+	m.investigationCompleteGeneration++
+	d.GenerationAfter = m.investigationCompleteGeneration
+	m.exploreBacktrackExhaustedDecisions++
+	cp := d
+	m.lastExploreBacktrackExhausted = &cp
+	return d
+}
+
+// ExploreBacktrackExhaustedDecisions returns how many exhaustion decisions
+// have been recorded on this state (monotonic witness, never reset).
+func (m *MutableState) ExploreBacktrackExhaustedDecisions() uint64 {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.exploreBacktrackExhaustedDecisions
+}
+
+// LastExploreBacktrackExhausted returns a copy of the most recent
+// exhaustion decision, or nil when none was recorded.
+func (m *MutableState) LastExploreBacktrackExhausted() *ExploreBacktrackExhaustedDecision {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.lastExploreBacktrackExhausted == nil {
+		return nil
+	}
+	cp := *m.lastExploreBacktrackExhausted
+	return &cp
 }
 
 // SetRepairExecutionPlan stashes the dispatch-ready owner queue

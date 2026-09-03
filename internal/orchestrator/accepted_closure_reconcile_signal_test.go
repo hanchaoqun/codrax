@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -130,14 +131,24 @@ func TestReconcileAutoComplete_ExploreBacktrackClearsSignalUntilFreshCompletion(
 // failure routed back_to_explore requeues the evidence and reconcile nodes;
 // the re-dispatched explorer exits WITHOUT a fresh completion. With the
 // signal cleared the requeued reconcile node (arch_explain shape: entry
-// condition has_enough_facts) stays blocked exactly as in an initial run —
-// it is not auto-completed from the pre-backtrack state, the finalizer is
-// NOT re-dispatched through it (one finalizer call), and the loop
-// terminates through the blocked-DAG forced finalize (no deadlock). On the
-// untouched code the stale signal auto-completed the reconcile node from
-// the pre-backtrack state, the finalizer was dispatched a second time and
-// failed again, and the run ended through the same-error-class retry cap
-// with the signal still true and no termination profile.
+// condition has_enough_facts) is not auto-completed from the pre-backtrack
+// state: it waits like an initial run until the explorer re-earns the
+// signal — or until the typed exhaustion decision releases the backtrack.
+//
+// EVOLUTION RECORD (§40.43 F-orch 三轮复核 finding Q, 2026-09-03): the
+// previous form of this pin asserted finalizeCalls == 1 and
+// TerminationBlockedDAG — i.e. it pinned the REGRESSION: with the explorer
+// never re-earning the signal the loop broke out through the blocked-DAG
+// forced finalize, skipped the forced dispatch because the rejected draft
+// was still retained, and shipped the bare contract-rejected draft. The
+// ruling replaces the stale door with a typed release: when the re-opened
+// explore window closes without a fresh accepted completion the scheduler
+// records ExploreBacktrackExhausted (advancing the completion generation),
+// restores the signal from the retained closure, reconcile proceeds, the
+// finalizer re-runs with the violations as repair context (two finalizer
+// calls) and the run terminates through the existing class-cap
+// accept-with-caveat lane. On 0139bca6b (the door) this test is red at the
+// finalizer count.
 func TestE2E_ExploreBacktrackClearsEnoughFactsSignal_ReconcileWaitsForFreshFacts(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolMustInclude)})
@@ -214,14 +225,22 @@ func TestE2E_ExploreBacktrackClearsEnoughFactsSignal_ReconcileWaitsForFreshFacts
 	if explorerCalls != 2 {
 		t.Fatalf("explorer calls = %d, want 2 (initial + the one backtrack; the stale signal must not auto-complete the reconcile node and cycle the finalizer)", explorerCalls)
 	}
-	if finalizeCalls != 1 {
-		t.Fatalf("finalize calls = %d, want exactly 1 — a reconcile node auto-completed from the pre-backtrack state re-dispatches the finalizer against the stale closure", finalizeCalls)
+	if finalizeCalls != 2 {
+		t.Fatalf("finalize calls = %d, want exactly 2 — the reconcile node is not auto-completed from the pre-backtrack state; it proceeds only once the typed exhaustion decision releases the backtrack, and the finalizer then re-runs with the violations as repair context", finalizeCalls)
 	}
-	if bus.Signals.HasEnoughFacts {
-		t.Fatal("the explorer never re-earned the signal after the backtrack; it must stay false")
+	if n := bus.Mutable.ExploreBacktrackExhaustedDecisions(); n != 1 {
+		t.Fatalf("exhaustion decisions = %d, want exactly 1 (one backtrack, consumed once)", n)
 	}
-	profile := bus.Mutable.TerminationProfile()
-	if profile == nil || profile.Kind != types.TerminationBlockedDAG {
-		t.Fatalf("the requeued reconcile node blocks on has_enough_facts exactly as in an initial run and the loop exits through the blocked-DAG forced finalize; got termination profile %+v", profile)
+	if d := bus.Mutable.LastExploreBacktrackExhausted(); d == nil || d.Epoch != 1 || d.GenerationAfter != d.GenerationBefore+1 || d.RetainedClosureReason == "" {
+		t.Fatalf("the decision must record the exhausted epoch, the generation advance and the retained closure it proceeds from, got %+v", d)
+	}
+	if !bus.Signals.HasEnoughFacts {
+		t.Fatal("the exhaustion decision restores the accepted-closure signal from the retained closure")
+	}
+	if profile := bus.Mutable.TerminationProfile(); profile != nil && profile.Kind == types.TerminationBlockedDAG {
+		t.Fatalf("the run must not exit through the blocked-DAG forced finalize once the backtrack is released; got termination profile %+v", profile)
+	}
+	if result := bus.Mutable.Result(); strings.TrimSpace(result) == "answer body without the sentinel" || !strings.Contains(result, "answer body without the sentinel") {
+		t.Fatalf("the shipped answer must be the draft body WITH the contract caveats, got:\n%s", result)
 	}
 }

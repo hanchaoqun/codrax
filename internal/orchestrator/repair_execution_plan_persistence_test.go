@@ -31,8 +31,14 @@ import (
 //
 // The replay below performs the scheduler's per-failure production sequence
 // (AdvanceRepairExecutionPlan → populateRetryState → ResetForFallback(target
-// of the chosen fallback)) on a real MutableState; the go/ast pins at the
-// bottom keep the replay faithful to runReadSchedulerLoop's per-arm order.
+// of the chosen fallback)) on a real MutableState. The go/ast pin at the
+// bottom keeps the replay faithful to runReadSchedulerLoop: Advance is
+// called once before the `switch fallback`, and inside every arm that
+// resets the Mutable the populate and the reset are TOP-LEVEL unconditional
+// statements with populate first (§40.43 F-orch 三轮复核 T-i; the earlier
+// whole-loop first-occurrence pin TestRunReadSchedulerLoop_FinalizeFailureSequenceOrder
+// was retired in fold-in round three because a single reordered arm stayed
+// green under it).
 
 // replayFinalizeContractFailure mirrors the FallbackFinalizerOnly /
 // BackToExtract / BackToExplore arms of runReadSchedulerLoop for one failed
@@ -177,14 +183,92 @@ func TestRepairExecutionPlan_DifferentClusterRebuildsPersistedPlan(t *testing.T)
 	}
 }
 
-// Replay fidelity (§40.43 R3 E ii, PER ARM): AdvanceRepairExecutionPlan is
-// called exactly once in runReadSchedulerLoop and precedes the `switch
-// fallback` dispatch; inside that switch, EVERY CaseClause that calls
-// ResetForFallback calls populateRetryState earlier in the SAME arm (the
-// retry state must be captured before the reset clears the answer slate).
-// A first-occurrence comparison across the whole loop is not enough — a
+// callNameOf returns the bare callee name of a CallExpr node ("" otherwise).
+func callNameOf(n ast.Node) string {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return ""
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	}
+	return ""
+}
+
+// fallbackArmVerdict is what fallbackArmPopulateResetVerdict reads off one
+// CaseClause: the positions of the TOP-LEVEL populateRetryState and
+// ResetForFallback statements (an ExprStmt call, or an AssignStmt whose
+// single RHS is the call — `cleared := ...ResetForFallback(...)`), and
+// whether either call also appears nested inside an if / for / block /
+// func literal (guarded or dead code, which does not satisfy the pin).
+type fallbackArmVerdict struct {
+	populatePos, resetPos       token.Pos
+	nestedPopulate, nestedReset bool
+}
+
+func topLevelCallPos(stmt ast.Stmt, name string) token.Pos {
+	switch x := stmt.(type) {
+	case *ast.ExprStmt:
+		if callNameOf(x.X) == name {
+			return x.Pos()
+		}
+	case *ast.AssignStmt:
+		if len(x.Rhs) == 1 && callNameOf(x.Rhs[0]) == name {
+			return x.Pos()
+		}
+	}
+	return 0
+}
+
+// fallbackArmPopulateResetVerdict (§40.43 F-orch 三轮复核 T-i): only
+// top-level unconditional statements of the CaseClause body count; nested
+// occurrences are reported so the pin can name the shape.
+func fallbackArmPopulateResetVerdict(cc *ast.CaseClause) fallbackArmVerdict {
+	var v fallbackArmVerdict
+	for _, stmt := range cc.Body {
+		if p := topLevelCallPos(stmt, "populateRetryState"); p != 0 && v.populatePos == 0 {
+			v.populatePos = p
+		}
+		if p := topLevelCallPos(stmt, "ResetForFallback"); p != 0 && v.resetPos == 0 {
+			v.resetPos = p
+		}
+	}
+	for _, stmt := range cc.Body {
+		topPopulate := topLevelCallPos(stmt, "populateRetryState")
+		topReset := topLevelCallPos(stmt, "ResetForFallback")
+		ast.Inspect(stmt, func(n ast.Node) bool {
+			switch callNameOf(n) {
+			case "populateRetryState":
+				if topPopulate == 0 {
+					v.nestedPopulate = true
+				}
+			case "ResetForFallback":
+				if topReset == 0 {
+					v.nestedReset = true
+				}
+			}
+			return true
+		})
+	}
+	return v
+}
+
+// Replay fidelity (§40.43 R3 E ii, PER ARM; hardened by §40.43 F-orch 三轮
+// 复核 T-i): AdvanceRepairExecutionPlan is called exactly once in
+// runReadSchedulerLoop and precedes the `switch fallback` dispatch; inside
+// that switch, EVERY CaseClause that resets the Mutable does so with a
+// TOP-LEVEL unconditional ResetForFallback statement preceded by a
+// TOP-LEVEL unconditional populateRetryState statement in the SAME arm (the
+// retry state must be captured before the reset clears the answer slate),
+// and neither call appears guarded / nested anywhere in the arm. A
+// first-occurrence comparison across the whole loop is not enough — a
 // single reordered arm stays green under it (proved red by reordering the
-// BackToExtract arm in a scratch copy).
+// BackToExtract arm in a scratch copy); a nested-aware search is not enough
+// either — a guarded or func-literal reset stayed green under it. The
+// checker's own red shapes are pinned by TestFallbackArmPopulateResetVerdict_SelfRed.
 func TestRunReadSchedulerLoop_FallbackArmsPopulateBeforeReset(t *testing.T) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "orchestrator.go", nil, 0)
@@ -200,22 +284,9 @@ func TestRunReadSchedulerLoop_FallbackArmsPopulateBeforeReset(t *testing.T) {
 	if loop == nil || loop.Body == nil {
 		t.Fatal("runReadSchedulerLoop not found — the replay lost its subject")
 	}
-	callName := func(n ast.Node) string {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return ""
-		}
-		switch fun := call.Fun.(type) {
-		case *ast.Ident:
-			return fun.Name
-		case *ast.SelectorExpr:
-			return fun.Sel.Name
-		}
-		return ""
-	}
 	var advancePos []token.Pos
 	ast.Inspect(loop.Body, func(n ast.Node) bool {
-		if callName(n) == "AdvanceRepairExecutionPlan" {
+		if callNameOf(n) == "AdvanceRepairExecutionPlan" {
 			advancePos = append(advancePos, n.Pos())
 		}
 		return true
@@ -230,33 +301,64 @@ func TestRunReadSchedulerLoop_FallbackArmsPopulateBeforeReset(t *testing.T) {
 		if !ok {
 			continue
 		}
-		var firstPopulate, firstReset token.Pos
-		for _, bodyStmt := range cc.Body {
-			ast.Inspect(bodyStmt, func(n ast.Node) bool {
-				switch callName(n) {
-				case "populateRetryState":
-					if firstPopulate == 0 {
-						firstPopulate = n.Pos()
-					}
-				case "ResetForFallback":
-					if firstReset == 0 {
-						firstReset = n.Pos()
-					}
-				}
-				return true
-			})
+		v := fallbackArmPopulateResetVerdict(cc)
+		if v.nestedReset || v.nestedPopulate {
+			t.Fatalf("fallback arm at %v calls populateRetryState / ResetForFallback inside a guarded or nested statement (nested populate=%t reset=%t) — both must be top-level unconditional statements of the arm",
+				fset.Position(cc.Pos()), v.nestedPopulate, v.nestedReset)
 		}
-		if firstReset == 0 {
+		if v.resetPos == 0 {
 			continue
 		}
 		armsWithReset++
-		if firstPopulate == 0 || firstPopulate > firstReset {
-			t.Fatalf("fallback arm at %v calls ResetForFallback (%v) without an earlier populateRetryState in the same arm (populate at %v) — the retry state must be captured before the reset clears the answer slate",
-				fset.Position(cc.Pos()), fset.Position(firstReset), fset.Position(firstPopulate))
+		if v.populatePos == 0 || v.populatePos > v.resetPos {
+			t.Fatalf("fallback arm at %v resets the Mutable (%v) without an earlier top-level populateRetryState in the same arm (populate at %v) — the retry state must be captured before the reset clears the answer slate",
+				fset.Position(cc.Pos()), fset.Position(v.resetPos), fset.Position(v.populatePos))
 		}
 	}
 	if armsWithReset < 3 {
 		t.Fatalf("expected the finalizer-only / extract / explore arms to reset the Mutable, found %d arms calling ResetForFallback", armsWithReset)
+	}
+}
+
+// TestFallbackArmPopulateResetVerdict_SelfRed (T-i): the checker rejects
+// the guarded, func-literal and reset-before-populate shapes and accepts the
+// production shapes (ExprStmt reset; `cleared := ...` assignment reset).
+func TestFallbackArmPopulateResetVerdict_SelfRed(t *testing.T) {
+	cases := []struct {
+		name          string
+		body          string
+		wantOK        bool
+		wantNestedPop bool
+		wantNestedRst bool
+	}{
+		{name: "production: populate then reset", body: "populateRetryState(m, r, a)\n\t\tm.ResetForFallback(target)", wantOK: true},
+		{name: "production: populate then assigned reset", body: "populateRetryState(m, r, a)\n\t\tcleared := m.ResetForFallback(target)\n\t\t_ = cleared", wantOK: true},
+		{name: "guarded reset", body: "populateRetryState(m, r, a)\n\t\tif m != nil { m.ResetForFallback(target) }", wantNestedRst: true},
+		{name: "func-literal populate", body: "func() { populateRetryState(m, r, a) }()\n\t\tm.ResetForFallback(target)", wantNestedPop: true},
+		{name: "reset before populate", body: "m.ResetForFallback(target)\n\t\tpopulateRetryState(m, r, a)"},
+		{name: "reset without populate", body: "m.ResetForFallback(target)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package p\n\nfunc f() {\n\tswitch fallback {\n\tcase FallbackFinalizerOnly:\n\t\t" + tc.body + "\n\t}\n}\n"
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "snippet.go", src, 0)
+			if err != nil {
+				t.Fatalf("parse snippet: %v", err)
+			}
+			var cc *ast.CaseClause
+			ast.Inspect(f, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CaseClause); ok {
+					cc = c
+				}
+				return true
+			})
+			v := fallbackArmPopulateResetVerdict(cc)
+			ok := !v.nestedPopulate && !v.nestedReset && v.resetPos != 0 && v.populatePos != 0 && v.populatePos < v.resetPos
+			if ok != tc.wantOK || v.nestedPopulate != tc.wantNestedPop || v.nestedReset != tc.wantNestedRst {
+				t.Fatalf("verdict %+v (ok=%t), want ok=%t nestedPopulate=%t nestedReset=%t", v, ok, tc.wantOK, tc.wantNestedPop, tc.wantNestedRst)
+			}
+		})
 	}
 }
 
