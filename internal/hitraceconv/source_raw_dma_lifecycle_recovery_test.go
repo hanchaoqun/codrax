@@ -143,6 +143,8 @@ func TestPublishTraceDBRawDMALifecycleRecoveryWithdrawalArms(t *testing.T) {
 			"dma_fence_init", 1_000_000),
 	}
 	t.Run("raw DB overlap", func(t *testing.T) {
+		// §40.42 ④a (EVOLUTION RECORD): overlap = governed-name publishable
+		// census, not class-wide RowsEmitted.
 		coverage, err := publishTraceDBRawDMALifecycleRecovery(
 			context.Background(),
 			traceDBRawDMALifecycleTestInventory(rows), nil,
@@ -150,12 +152,22 @@ func TestPublishTraceDBRawDMALifecycleRecoveryWithdrawalArms(t *testing.T) {
 				Family:      "raw_ftrace",
 				Table:       "dma_fence",
 				RowsEmitted: 1,
+				Metrics:     map[string]int64{"source_governed_dma_lifecycle_rows_publishable": 1},
 			}})
 		if err != nil || coverage.RowsEmitted != 0 ||
 			coverage.Metadata["publication_state"] !=
 				"withheld_db_raw_dma_overlap" {
 			t.Fatalf("raw DB overlap did not withdraw source points: coverage=%+v err=%v",
 				coverage, err)
+		}
+	})
+	t.Run("ungoverned dma_fence class rows are not an overlap", func(t *testing.T) {
+		coverage, err := publishTraceDBRawDMALifecycleRecovery(
+			context.Background(),
+			traceDBRawDMALifecycleTestInventory(rows), nil,
+			[]TraceDBCoverage{{Family: "raw_ftrace", Table: "dma_fence", RowsEmitted: 3}})
+		if coverage.Metadata["publication_state"] == "withheld_db_raw_dma_overlap" || coverage.Metrics["db_raw_governed_dma_lifecycle_rows_publishable"] != 0 {
+			t.Fatalf("class-wide rows must not withhold the lifecycle family: coverage=%+v err=%v", coverage, err)
 		}
 	})
 	t.Run("invalid retained point is atomic", func(t *testing.T) {

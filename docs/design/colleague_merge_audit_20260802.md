@@ -5710,7 +5710,7 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 
 **泛化解**:
 1. **代次绑定**:RetryState 记录 `Generation`(finalize 尝试序)+ `BacktrackEpoch`(回溯计数);硬臂只在 `retry.BacktrackEpoch == 当前 epoch` 且探索窗尚未在本 epoch 产生新完成时才生效;
-2. **消费即清**:回溯重派发探索窗时,把 RetryState 快照移入 `ConsumedRetryState`(供提示渲染),活动槽清空——"一次失败只否决一次";
+2. **消费即清**(2026-09-03 按最优方案改裁,见 §40.42 ①):"一次失败只否决一次"由**代次消费**实现——回溯把 RetryState 绑定到 (回溯 epoch, 当时的完成代次),硬臂只在两者都与活动计数相等时生效,下一次被接受的完成决定推进代次即解除;不再把快照移入 `ConsumedRetryState`/清空活动槽(那会在模型开口前解除否决、归零 owner 稳定计数并迫使 12 个读者改双槽);
 3. **通用规则落 tripwire**:凡被硬臂读取的 Mutable 载体必须有显式生命周期写者对(populate/reset)且 reset 有生产调用(census:零调用的 Reset 方法即红);
 4. 非致命尊重模型:该臂改为**只对同代次**生效,其余场景交给模型的完成决定。
 
@@ -6104,3 +6104,12 @@ items[16]: class verification span "VerifyClass …LacUtils" … pre-edge share 
 **pin**:types(压空白/上限/五种内部引用/候选 id 各拒;normalize 保留 description 且 summary/evidence 不变)、tracefinding(绑定携带;内部引用拒绝)、tool(schema 暴露 description 且教学不含内部名;e2e 发布在 typed evidence 之旁;泄漏描述 → selector 不发布而答案成功)、agent(selector 上下文教学句)。
 
 **验证**:全仓套件 `go test ./internal/... ./cmd/` 绿 + `make` 通过;定向 pin(types/tracefinding/tool/agent)绿;eval 复跑 `trace_query_donghu_real_frame_multicausal` PASS,sidecar 三席位均带模型 `description`(例:「同进程 CookieMonsterCl 线程在依赖链上以 runnable 状态等待调度，与目标线程存在优先级差（目标 52 vs 该线程 20），构成链上优先级反转候选，有效归因 23.994ms」「ThreadPoolForeg 线程在依赖链上进入 D 状态不可中断等待，已测 10.433ms，内核未记录具体阻塞资源，该等待位于唤醒链上游。」),typed 四句证据保持并列,内部引用泄漏 0。
+
+### §40.42 裁定补记(2026-09-03,用户「按最优方案裁定」)
+
+① **V7-2 裁定 ②**:采用施工形(代次消费),§40.14 ② 措辞已同步改写;残留「census 未覆盖硬门本体」同批补齐——`hardArmMutableCarriers` 登记表扩到 `shouldAutoCompleteExploreWindowFromAcceptedClosure`/`acceptedClosureMissingRequiredOriginsForAutoComplete` 读到的全部 Mutable 载体,census 扫描三个函数体。
+② **写模式 eval 冒烟**:本机全盘检索无 node/npm/cargo/pytest(含 nvm/pyenv/homebrew/venv 位置),裁定为用户侧复跑;不在本会话安装工具链。
+③ **对抗复核**:子代理鉴权恢复后,对此前未获裁决的 V5-2 收编/V6-2 与 V7-2 主线收编/SIDECAR-NARR-1 在 HEAD 上补跑一轮四视角复核,结论记于各节。
+④ **残留处置**:(a) DMA wait/lifecycle 车道的 class 键重叠判定(V6-1 同族,策略相反)——纳入同一注册表(`SupersedesDB=false` 的治理族),扣留判定改读治理名 publishable 指标;(b) 旧构建产物无迁移信号——tracequery 索引统计新增"原名载体行"计数并在报告面给出"用当前版本重新转换"披露(parser/预筛不变);(c) 刷新后的 lockfile 并入交付 ref——controller 级 amend,另立议题(§40.6 后续批次 B 项),本轮不做;(d) 无 `WorktreeBaseSHA` 的旧计划只披露不铸——保持。
+
+**验证**(①④a④b 施工):orchestrator(census 扩到硬门本体:三个函数体、`mut` 别名与 `o.busCtx.Mutable` 接收者;登记 IsInvestigationComplete/carrier、StableInvestigationCompleteReason/retained、EvidenceClosure/closure)、hitraceconv(注册表 +2 个 `DBSupersedesSource` DMA 族;census 词表加 dma 名并按 retention family 取治理集;两车道扣留改读治理指标,负例:class 级 RowsEmitted 不再扣留;class 键源文本 pin 扩到两 DMA 文件)、tracequery(索引建构丢弃点 `dropSourceRawVisibilityAdvisory` 计数原名载体,子索引合并累加;`WindowStats.LegacyCarrierRowCount` + `legacy_carrier_rows=N` 重新转换告诫;原名夹具 pin)三包绿,全仓套件 `go test ./internal/... ./cmd/` 绿,`make` 通过。

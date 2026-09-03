@@ -942,7 +942,7 @@ func StreamStateCluster(ctx context.Context, path string, q Query, max int) (Res
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
 				}
-				if countTraceDBTextRecord(idx, ev) || sourceRawVisibilityAdvisory(ev) {
+				if countTraceDBTextRecord(idx, ev) || dropSourceRawVisibilityAdvisory(idx, ev) {
 					goto nextLine
 				}
 			}

@@ -765,11 +765,17 @@ type Index struct {
 	// recovered from those carriers. None enter Events or consume MaxEvents,
 	// and none carry scheduler/span/causal authority until a semantic adapter
 	// promotes the corresponding official SQL relation.
-	TraceDBTextCarrierRows    int
-	TraceDBTextRecords        int
-	TraceDBTextSchemaRecords  int
-	TraceDBTextRowRecords     int
-	TraceDBTextReceiptRecords int
+	TraceDBTextCarrierRows int
+	// LegacyVisibilityCarrierRows counts converter visibility carriers dropped
+	// at index build that still wore their wrapped record's original event
+	// name (artifacts converted before colleague_merge_audit §40.13 / V6-2).
+	// Artifact-wide; surfaced by WindowStats.LegacyCarrierRowCount so the
+	// reader is told to reconvert. Never enters Events.
+	LegacyVisibilityCarrierRows int
+	TraceDBTextRecords          int
+	TraceDBTextSchemaRecords    int
+	TraceDBTextRowRecords       int
+	TraceDBTextReceiptRecords   int
 	// ParseLinePanics counts lines whose parse panicked (malformed
 	// artifact input is untrusted; one bad line must not kill the
 	// query). ClockRegressions counts events whose timestamp moved
@@ -1541,11 +1547,17 @@ type WindowStats struct {
 	// clock_set_rate rows reclassified into EventCPUFrequency by the parser.
 	// Keeping the two typed counts apart prevents generic clock activity from
 	// being reported as CPU frequency transitions.
-	CPUFrequencySampleRowCount int                    `json:"cpu_frequency_sample_row_count,omitempty"`
-	ClockSetRateEventCount     int                    `json:"clock_set_rate_event_count,omitempty"`
-	SchedulerHeadCoverage      *SchedulerHeadCoverage `json:"scheduler_head_coverage,omitempty"`
-	CPU                        []CPUStats             `json:"cpu,omitempty"`
-	CoreTopology               []CoreClassStats       `json:"core_topology,omitempty"`
+	CPUFrequencySampleRowCount int `json:"cpu_frequency_sample_row_count,omitempty"`
+	// LegacyCarrierRowCount counts converter visibility carriers in this
+	// window that still wear their wrapped record's original event name — the
+	// shape produced by builds before colleague_merge_audit §40.13 (V6-2). Such
+	// rows are audited as malformed semantic rows by name-keyed prefilters, so
+	// the caveat tells the reader to reconvert with the current build.
+	LegacyCarrierRowCount  int                    `json:"legacy_carrier_row_count,omitempty"`
+	ClockSetRateEventCount int                    `json:"clock_set_rate_event_count,omitempty"`
+	SchedulerHeadCoverage  *SchedulerHeadCoverage `json:"scheduler_head_coverage,omitempty"`
+	CPU                    []CPUStats             `json:"cpu,omitempty"`
+	CoreTopology           []CoreClassStats       `json:"core_topology,omitempty"`
 	// ClusterFrequencyCeilings is the CFC (§7.10 VS-2c 设计) single-point
 	// per-cluster fmax snapshot for this window (VS-2b ladder per cluster:
 	// window-governing limits Max > highest governed observed sample),

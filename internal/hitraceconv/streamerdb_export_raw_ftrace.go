@@ -148,7 +148,7 @@ func exportTraceDBRawFtraceFamilies(ctx context.Context, tdb *traceDB, sink *tra
 	// that no source family governs, and those stay on the DB lane.
 	superseding := map[string]traceDBRawSourceSupersession{}
 	for _, entry := range traceDBRawSourceSupersessions {
-		if entry.Eligible(tdb.sourceNameInventory) {
+		if !entry.DBSupersedesSource && entry.Eligible(tdb.sourceNameInventory) {
 			superseding[entry.Family] = entry
 			schemaCoverage.FieldSources[entry.PrecedenceField()] =
 				"complete exact official source raw " + entry.Reason +

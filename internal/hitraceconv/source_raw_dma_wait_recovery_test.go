@@ -154,14 +154,29 @@ func TestPublishTraceDBRawDMAWaitRecoveryTypedWithdrawalArms(t *testing.T) {
 		}
 	})
 	t.Run("DB raw DMA overlap withdraws source family", func(t *testing.T) {
+		// §40.42 ④a: overlap is the governed-name publishable census, not the
+		// dma_fence SQL class (EVOLUTION RECORD: the fixture used to carry only
+		// class-wide RowsEmitted).
 		coverage, err := publishTraceDBRawDMAWaitRecovery(
 			context.Background(), traceDBRawDMAWaitTestInventory(base), nil,
 			traceDBRawBlockedKeyTestAuthority(), []TraceDBCoverage{{
 				Family: "raw_ftrace", Table: "dma_fence", RowsEmitted: 1,
+				Metrics: map[string]int64{"source_governed_dma_wait_rows_publishable": 1},
 			}})
 		if err != nil || coverage.RowsEmitted != 0 ||
-			coverage.Metadata["publication_state"] != "withheld_db_raw_dma_overlap" {
+			coverage.Metadata["publication_state"] != "withheld_db_raw_dma_overlap" ||
+			coverage.Metrics["db_raw_governed_dma_wait_rows_publishable"] != 1 {
 			t.Fatalf("DB/source raw overlap was not failed closed: coverage=%+v err=%v", coverage, err)
+		}
+	})
+	t.Run("DB rows of ungoverned dma_fence names are not an overlap", func(t *testing.T) {
+		coverage, err := publishTraceDBRawDMAWaitRecovery(
+			context.Background(), traceDBRawDMAWaitTestInventory(base), nil,
+			traceDBRawBlockedKeyTestAuthority(), []TraceDBCoverage{{
+				Family: "raw_ftrace", Table: "dma_fence", RowsEmitted: 4,
+			}})
+		if coverage.Metadata["publication_state"] == "withheld_db_raw_dma_overlap" || coverage.Metrics["db_raw_governed_dma_wait_rows_publishable"] != 0 {
+			t.Fatalf("class-wide dma_fence rows (dma_fence_emit …) must not withhold the wait family: coverage=%+v err=%v", coverage, err)
 		}
 	})
 	t.Run("sub-microsecond physical interval remains exact", func(t *testing.T) {

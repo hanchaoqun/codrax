@@ -1929,7 +1929,7 @@ func parseSingleTraceFile(ctx context.Context, path string, size int64, modUnix 
 				// preservation-only. Count them before every query admission
 				// gate, then discard so they cannot consume MaxEvents or gain
 				// scheduler/span/causal authority merely by being present.
-				if countTraceDBTextRecord(idx, ev) || sourceRawVisibilityAdvisory(ev) {
+				if countTraceDBTextRecord(idx, ev) || dropSourceRawVisibilityAdvisory(idx, ev) {
 					goto nextLine
 				}
 				flavor.observeEvent(ev)
@@ -3734,6 +3734,7 @@ func parseTraceArtifactSpecs(ctx context.Context, path string, size int64, modUn
 			}
 		}
 		idx.ParsedKnown += child.ParsedKnown
+		idx.LegacyVisibilityCarrierRows += child.LegacyVisibilityCarrierRows
 		idx.RelationScoped = idx.RelationScoped || child.RelationScoped
 		relationScopePriority.observeAdmitted(source, child)
 		if len(child.relationScopeTIDs) > 0 {

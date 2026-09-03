@@ -965,6 +965,12 @@ type traceDBRawSourceSupersession struct {
 	// Eligible reports whether the immutable source inventory holds a complete,
 	// fully admitted family that owns publication of the governed names.
 	Eligible func(inventory *traceDBSourceNameInventory) bool
+	// DBSupersedesSource marks the inverse policy (§40.42 ④a): the DB lane keeps
+	// publication authority and the SOURCE family is withheld when any DB row
+	// of a governed name was publishable. Such an entry never enters the
+	// exporter's superseding map, but its governed names are still counted so
+	// the withhold check reads exact names, not the SQL raw class.
+	DBSupersedesSource bool
 }
 
 // RowReason is the DB raw class Skipped reason for a superseded governed row.
@@ -1004,6 +1010,18 @@ func buildTraceDBRawSourceSupersessions() []traceDBRawSourceSupersession {
 			Eligible: func(inventory *traceDBSourceNameInventory) bool {
 				return traceDBRawExactFamilyAuthorityEligible(inventory, family)
 			},
+		})
+	}
+	// DMA wait / lifecycle: DB rows keep authority; the source family is
+	// withheld only on an overlap of its exact governed names (never on the
+	// dma_fence SQL class, which also carries DB-only names).
+	for _, family := range []string{traceDBRawRetentionDMAWait, traceDBRawRetentionDMALifecycle} {
+		out = append(out, traceDBRawSourceSupersession{
+			Family:             family,
+			Reason:             family,
+			Governed:           func(name string) bool { return traceDBRawRetentionFamily(name) == family },
+			Eligible:           func(*traceDBSourceNameInventory) bool { return false },
+			DBSupersedesSource: true,
 		})
 	}
 	return out

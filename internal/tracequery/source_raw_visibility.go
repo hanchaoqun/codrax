@@ -110,3 +110,16 @@ func sourceRawVisibilityToken(token, key string) (string, bool) {
 func sourceRawVisibilityAdvisory(ev Event) bool {
 	return ev.Type == EventSourceRawVisibility
 }
+
+// dropSourceRawVisibilityAdvisory is the index-build drop decision for
+// visibility carriers, counting the legacy (original-name) shape on the way
+// out so the artifact can disclose that it predates the reserved header name.
+func dropSourceRawVisibilityAdvisory(idx *Index, ev Event) bool {
+	if !sourceRawVisibilityAdvisory(ev) {
+		return false
+	}
+	if idx != nil && ev.Name != SourceRawVisibilityEventName {
+		idx.LegacyVisibilityCarrierRows++
+	}
+	return true
+}

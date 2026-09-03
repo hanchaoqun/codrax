@@ -74,11 +74,14 @@ func publishTraceDBRawDMAWaitRecovery(
 		out.Skipped = "raw DMA wait recovery withheld: physical/admitted/retained endpoint census mismatch"
 		return out, nil
 	}
-	for _, item := range dbRawCoverage {
-		if item.Family == "raw_ftrace" && item.Table == "dma_fence" && item.RowsEmitted > 0 {
-			traceDBAddCoverageMetric(&out, "db_raw_dma_rows_emitted", int64(item.RowsEmitted))
+	// Overlap is measured on the exact governed event names (§40.42 ④a): the
+	// dma_fence SQL class also carries DB-only names that never overlap this
+	// source family.
+	if supersession, ok := traceDBRawSourceSupersessionForFamily(traceDBRawRetentionDMAWait); ok {
+		if publishable := traceDBRawSourceGovernedRowsPublishable(dbRawCoverage, supersession); publishable > 0 {
+			traceDBAddCoverageMetric(&out, "db_raw_governed_dma_wait_rows_publishable", publishable)
 			out.Metadata["publication_state"] = "withheld_db_raw_dma_overlap"
-			out.Skipped = "raw DMA wait recovery withheld: normalized DB raw-ftrace DMA rows already emitted and no exact cross-source duplicate key is retained"
+			out.Skipped = "raw DMA wait recovery withheld: normalized DB raw-ftrace rows of governed DMA wait event names already emitted and no exact cross-source duplicate key is retained"
 			return out, nil
 		}
 	}

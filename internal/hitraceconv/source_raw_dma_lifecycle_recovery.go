@@ -75,13 +75,14 @@ func publishTraceDBRawDMALifecycleRecovery(
 		out.Skipped = "raw DMA lifecycle recovery withheld: admitted/retained point census mismatch"
 		return out, nil
 	}
-	for _, item := range dbRawCoverage {
-		if item.Family == "raw_ftrace" && item.Table == "dma_fence" &&
-			item.RowsEmitted > 0 {
-			traceDBAddCoverageMetric(
-				&out, "db_raw_dma_rows_emitted", int64(item.RowsEmitted))
+	// Overlap is measured on the exact governed event names (§40.42 ④a): the
+	// dma_fence SQL class also carries DB-only names that never overlap this
+	// source family.
+	if supersession, ok := traceDBRawSourceSupersessionForFamily(traceDBRawRetentionDMALifecycle); ok {
+		if publishable := traceDBRawSourceGovernedRowsPublishable(dbRawCoverage, supersession); publishable > 0 {
+			traceDBAddCoverageMetric(&out, "db_raw_governed_dma_lifecycle_rows_publishable", publishable)
 			out.Metadata["publication_state"] = "withheld_db_raw_dma_overlap"
-			out.Skipped = "raw DMA lifecycle recovery withheld: normalized DB raw-ftrace DMA rows already emitted"
+			out.Skipped = "raw DMA lifecycle recovery withheld: normalized DB raw-ftrace rows of governed DMA lifecycle event names already emitted"
 			return out, nil
 		}
 	}

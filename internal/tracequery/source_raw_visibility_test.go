@@ -213,4 +213,23 @@ func TestSourceRawVisibilityOriginalNameCarriersAreAuditedAsMalformed(t *testing
 	if !containsSubstring(streamed.Caveats, "scheduler_row_parse_incomplete") {
 		t.Fatalf("streaming lane no longer discloses the original-name carrier audit: %v", streamed.Caveats)
 	}
+	// §40.42 ④b: legacy (original-name) carriers are counted and the window
+	// stats tell the reader to reconvert; reserved-name artifacts count zero.
+	windowStats := ComputeWindowStats(idx, q)
+	if windowStats.LegacyCarrierRowCount == 0 {
+		t.Fatalf("legacy carrier rows must be counted: %+v", windowStats.EventCounts)
+	}
+	if !containsCaveatPrefix(windowStats.Caveats, "legacy_carrier_rows=") {
+		t.Fatalf("legacy carrier caveat missing: %v", windowStats.Caveats)
+	}
+
+}
+
+func containsCaveatPrefix(caveats []string, prefix string) bool {
+	for _, c := range caveats {
+		if len(c) >= len(prefix) && c[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }

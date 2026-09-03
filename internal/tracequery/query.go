@@ -3584,6 +3584,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	// The perf ledger below withdraws only identity-dependent seats/joins that
 	// it cannot prove.
 	stats.PerfSamples = computePerfContext(idx, q, 8)
+	stats.LegacyCarrierRowCount = idx.LegacyVisibilityCarrierRows
+	if stats.LegacyCarrierRowCount > 0 {
+		stats.Caveats = append(stats.Caveats, fmt.Sprintf("legacy_carrier_rows=%d; this artifact was converted by an older build whose visibility carriers wear original event names, so scheduler/interrupt integrity audits in this window may fail closed — reconvert the source capture with the current build", stats.LegacyCarrierRowCount))
+	}
 	return stats
 }
 

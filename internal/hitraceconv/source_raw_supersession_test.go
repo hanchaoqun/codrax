@@ -248,17 +248,28 @@ func TestTraceStreamerConversionPublishesSourceBlockFamilyAlongsideDBStorageEndp
 // tokens, governed sets are pairwise disjoint, and names that share a SQL raw
 // class without being source targets are never governed.
 func TestTraceDBRawSourceSupersessionGovernedSetsMatchLedger(t *testing.T) {
-	vocabulary := append(traceDBRawDecodeTargetNames(),
+	vocabulary := dedupeStrings(append(traceDBRawDecodeTargetNames(),
 		"mmc_request_start", "mmc_request_done",
 		"ufshcd_command_start", "ufshcd_command_done",
 		"scsi_dispatch_cmd_start", "scsi_dispatch_cmd_done",
 		"android_fs_dataread_start", "binder_transaction", "dma_fence_signaled",
-		"MMC_request_start", "block_rq_issue_vendor", "Block_rq_issue", " block_rq_issue", "")
+		"dma_fence_wait_start", "dma_fence_wait_end", "dma_fence_init", "dma_fence_destroy", "dma_fence_enable_signal", "dma_fence_emit",
+		"MMC_request_start", "block_rq_issue_vendor", "Block_rq_issue", " block_rq_issue", ""))
 	ledgerSet := func(entry traceDBRawSourceSupersession) map[string]bool {
 		set := map[string]bool{}
 		if entry.Family == traceDBRawRetentionBlock {
 			for _, name := range traceDBRawBlockTargetNames() {
 				set[name] = true
+			}
+			return set
+		}
+		if entry.DBSupersedesSource {
+			// §40.42 ④a: the DMA families' governed sets are the decode ledger's
+			// retention families (inverse policy, never a superseding entry).
+			for _, name := range vocabulary {
+				if name != "" && traceDBRawRetentionFamily(name) == entry.Family {
+					set[name] = true
+				}
 			}
 			return set
 		}
@@ -269,9 +280,21 @@ func TestTraceDBRawSourceSupersessionGovernedSetsMatchLedger(t *testing.T) {
 		}
 		return set
 	}
-	if len(traceDBRawSourceSupersessions) != 1+len(traceDBRawExactRecoveryFamilies) {
-		t.Fatalf("supersession registry size %d != block + %d exact families",
+	if len(traceDBRawSourceSupersessions) != 1+len(traceDBRawExactRecoveryFamilies)+2 {
+		t.Fatalf("supersession registry size %d != block + %d exact families + 2 DB-superseding DMA families",
 			len(traceDBRawSourceSupersessions), len(traceDBRawExactRecoveryFamilies))
+	}
+	dbSuperseding := 0
+	for _, entry := range traceDBRawSourceSupersessions {
+		if entry.DBSupersedesSource {
+			dbSuperseding++
+			if entry.Eligible(&traceDBSourceNameInventory{}) {
+				t.Fatalf("DB-superseding family %s must never become a superseding entry", entry.Family)
+			}
+		}
+	}
+	if dbSuperseding != 2 {
+		t.Fatalf("exactly the two DMA families carry the inverse policy, got %d", dbSuperseding)
 	}
 	families, reasons := map[string]bool{}, map[string]bool{}
 	owners := map[string]string{}
@@ -351,7 +374,7 @@ func TestTraceDBRawExportSupersessionNeverKeysOnClass(t *testing.T) {
 		!strings.Contains(body, "range traceDBRawSourceSupersessions") {
 		t.Fatal("DB raw exporter no longer reads the source supersession registry")
 	}
-	for _, file := range []string{"source_raw_block_recovery.go", "source_raw_exact_recovery.go"} {
+	for _, file := range []string{"source_raw_block_recovery.go", "source_raw_exact_recovery.go", "source_raw_dma_wait_recovery.go", "source_raw_dma_lifecycle_recovery.go"} {
 		source := mustReadRendererSource(t, file)
 		if strings.Contains(source, "RowsEmitted > 0") || strings.Contains(source, `item.Table == "`) ||
 			strings.Contains(source, "traceDBRawExactRecoveryDBClass") {

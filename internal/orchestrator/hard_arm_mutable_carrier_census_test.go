@@ -21,8 +21,12 @@ import (
 // witnesses (monotonic, compared as single integers) and carry no reset.
 type hardArmMutableCarrier struct {
 	getter string // MutableState method the arm may call
-	kind   string // "carrier" (needs a reset) | "counter" (monotonic witness)
-	reset  string // MutableState reset method; required for carriers
+	// kind: "carrier" (needs a MutableState reset), "counter" (monotonic
+	// witness), "retained" (deliberately sticky witness that survives
+	// resets — documented, never cleared), "closure" (a sub-object whose own
+	// pending sets are cleared by the named EvidenceClosure method).
+	kind  string
+	reset string // reset method; required for carriers and closures
 }
 
 // hardArmMutableCarriers is the single declared table. Adding a new
@@ -33,9 +37,22 @@ var hardArmMutableCarriers = []hardArmMutableCarrier{
 	{getter: "RetryState", kind: "carrier", reset: "ResetRetryState"},
 	{getter: "ExploreBacktrackEpoch", kind: "counter"},
 	{getter: "InvestigationCompleteGeneration", kind: "counter"},
+	// §40.42 ①: the enclosing hard gate's own reads.
+	{getter: "IsInvestigationComplete", kind: "carrier", reset: "ResetInvestigationComplete"},
+	{getter: "StableInvestigationCompleteReason", kind: "retained"},
+	{getter: "EvidenceClosure", kind: "closure", reset: "ClearPendingReads"},
 }
 
 const hardArmRetryAuthorityFile = "accepted_closure_retry_authority.go"
+
+// hardArmGateFunctions are the hard-gate bodies censused beside the arm file:
+// every `mut.X()` / `o.busCtx.Mutable.X()` call inside them must be
+// registered (§40.42 ① — the census covers the gate body, not only the arm).
+var hardArmGateFunctions = map[string][]string{
+	"orchestrator.go":                     {"shouldAutoCompleteExploreWindowFromAcceptedClosure"},
+	"accepted_closure_origin_debt.go":     {"acceptedClosureMissingRequiredOriginsForAutoComplete"},
+	"accepted_closure_retry_authority.go": nil, // whole file, MutableState params
+}
 
 // TestHardArmMutableCarrierCensus_ArmReadsOnlyRegisteredCarriers (a):
 // every method call on a *types.MutableState parameter inside the arm
@@ -43,52 +60,82 @@ const hardArmRetryAuthorityFile = "accepted_closure_retry_authority.go"
 func TestHardArmMutableCarrierCensus_ArmReadsOnlyRegisteredCarriers(t *testing.T) {
 	registered := map[string]bool{}
 	for _, c := range hardArmMutableCarriers {
-		if c.kind != "carrier" && c.kind != "counter" {
+		switch c.kind {
+		case "carrier", "closure":
+			if c.reset == "" {
+				t.Fatalf("%s %q must declare its reset method", c.kind, c.getter)
+			}
+		case "counter", "retained":
+			if c.reset != "" {
+				t.Fatalf("%s %q must not declare a reset", c.kind, c.getter)
+			}
+		default:
 			t.Fatalf("table entry %q has unknown kind %q", c.getter, c.kind)
-		}
-		if c.kind == "carrier" && c.reset == "" {
-			t.Fatalf("carrier %q must declare its reset method", c.getter)
-		}
-		if c.kind == "counter" && c.reset != "" {
-			t.Fatalf("counter %q must not declare a reset (monotonic witness)", c.getter)
 		}
 		registered[c.getter] = true
 	}
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, hardArmRetryAuthorityFile, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", hardArmRetryAuthorityFile, err)
-	}
 	var unregistered []string
 	seen := map[string]bool{}
-	for _, decl := range f.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
-			continue
+	for file, functions := range hardArmGateFunctions {
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", file, err)
 		}
-		mutableParams := mutableStateParamNames(fn)
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
+		wanted := map[string]bool{}
+		for _, name := range functions {
+			wanted[name] = true
+		}
+		found := map[string]bool{}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || (len(functions) > 0 && !wanted[fn.Name.Name]) {
+				continue
+			}
+			found[fn.Name.Name] = true
+			mutableParams := mutableStateParamNames(fn)
+			// Local aliases `mut := o.busCtx.Mutable` read the same carrier.
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if assign, ok := n.(*ast.AssignStmt); ok && len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+					if lhs, ok := assign.Lhs[0].(*ast.Ident); ok && hardArmExprIsBusMutable(assign.Rhs[0]) {
+						mutableParams[lhs.Name] = true
+					}
+				}
 				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+			})
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				receiver := ""
+				if ident, ok := sel.X.(*ast.Ident); ok && mutableParams[ident.Name] {
+					receiver = ident.Name
+				} else if hardArmExprIsBusMutable(sel.X) {
+					receiver = "o.busCtx.Mutable"
+				}
+				if receiver == "" {
+					return true
+				}
+				seen[sel.Sel.Name] = true
+				if !registered[sel.Sel.Name] {
+					unregistered = append(unregistered, fset.Position(call.Pos()).String()+" "+receiver+"."+sel.Sel.Name+"()")
+				}
 				return true
+			})
+		}
+		for name := range wanted {
+			if !found[name] {
+				t.Fatalf("hard gate function %s not found in %s — the census lost its subject", name, file)
 			}
-			ident, ok := sel.X.(*ast.Ident)
-			if !ok || !mutableParams[ident.Name] {
-				return true
-			}
-			seen[sel.Sel.Name] = true
-			if !registered[sel.Sel.Name] {
-				unregistered = append(unregistered, fset.Position(call.Pos()).String()+" "+ident.Name+"."+sel.Sel.Name+"()")
-			}
-			return true
-		})
+		}
 	}
-	if len(seen) == 0 {
-		t.Fatalf("%s reads no MutableState carrier — the census lost its subject", hardArmRetryAuthorityFile)
+	if len(seen) < 4 {
+		t.Fatalf("the censused hard gate reads only %v — the census lost its subject", seen)
 	}
 	if len(unregistered) > 0 {
 		sort.Strings(unregistered)
@@ -136,6 +183,13 @@ func TestHardArmMutableCarrierCensus_CarrierResetsHaveProductionCallers(t *testi
 	for _, c := range hardArmMutableCarriers {
 		if !methods[c.getter] {
 			t.Errorf("%s: getter %q is not a MutableState method", c.kind, c.getter)
+		}
+		if c.kind == "closure" {
+			// The closure's own clear method must have a production caller.
+			if len(callSites[c.reset]) == 0 {
+				t.Errorf("closure %q: reset %q has zero non-test call sites", c.getter, c.reset)
+			}
+			continue
 		}
 		if c.kind != "carrier" {
 			continue
@@ -213,4 +267,18 @@ func mutableStateMethodNames(t *testing.T) map[string]bool {
 		}
 	}
 	return out
+}
+
+// hardArmExprIsBusMutable matches the `o.busCtx.Mutable` receiver chain.
+func hardArmExprIsBusMutable(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Mutable" {
+		return false
+	}
+	inner, ok := sel.X.(*ast.SelectorExpr)
+	if !ok || inner.Sel.Name != "busCtx" {
+		return false
+	}
+	ident, ok := inner.X.(*ast.Ident)
+	return ok && ident.Name == "o"
 }
